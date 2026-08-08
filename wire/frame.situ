@@ -217,3 +217,47 @@ require in_place(fzn_frame.hop.hops_left);
 // finalize must put it right. A relay that tried to rewrite the expiry would
 // be re-authenticating traffic it cannot author.
 require in_place_dirty(fzn_frame.head.expires_at);
+
+// --------------------------------------------------------------------------
+// Relations: what has to hold between two frames.
+//
+// situ's rung 3 (`relate`, decision 0030) landed on 2026-08-08 and this is
+// the first schema to use it. A relation is a pure predicate over exactly two
+// views -- it holds no state, allocates nothing, and does not know which
+// frames exist -- so the CALLER owns the pairing and this only answers
+// whether a pairing is well-formed. That is the right division: the
+// reassembly table is sec 4.4's state machine and stays this library's own.
+
+// THE ONE THAT MATTERS, and it is a security property rather than tidiness.
+//
+// A reassembler sizes its buffer from the FIRST chunk of a message it sees
+// (sec 4.4: the bound has to be enforced up front rather than discovered as
+// pieces arrive). Every later chunk therefore has to agree with that first
+// one, and each clause below is a way an attacker splices something into
+// somebody else's reassembly if it is not checked:
+//
+//   msg      -- otherwise the pieces are simply of different messages;
+//   chunks   -- a later chunk claiming a different total is an attempt to
+//               resize a buffer that has already been allocated against the
+//               first claim, which is the interesting attack;
+//   sender   -- without it, two senders' chunks reassemble into one message,
+//               and the result authenticates as neither.
+//
+// Parameter order is temporal, which decision 0030 makes load-bearing: the
+// first parameter is the frame seen first, so `first` is the one the buffer
+// was sized from and there is no way to write this relation without saying
+// which is which.
+relation same_message(first: fzn_frame, later: fzn_frame) {
+	must later.head.msg    == first.head.msg;
+	must later.head.chunks == first.head.chunks;
+	must later.head.sender == first.head.sender;
+}
+
+// A reply belongs to its request. Weaker than the above -- it says only that
+// the identifier matches -- and it is here because a dissector and a fuzz
+// harness both want it: one to say "response to frame N", the other to
+// generate a reply that gets past the first check rather than by luck.
+relation reply_to(request: fzn_frame, reply: fzn_frame) {
+	must reply.head.msg    == request.head.msg;
+	must reply.head.sender != request.head.sender;
+}

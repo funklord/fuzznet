@@ -427,10 +427,15 @@ That lookup is a store, and the store is the boundary gone.
   `situc wire` reports as part of the contract. A constraint filed under "needs
   a feature that does not exist" is a constraint nobody writes, which is the
   more useful half of the mistake.
-- **`relation` is designed, not built.** The parser rejects the keyword today
-  ("not a declaration keyword"), so nothing here may use it yet. Checked rather
-  than assumed, because a schema that stops compiling is a worse outcome than a
-  missing check.
+- **`relation` was designed and is now half-built, and the halves matter.**
+  The parser rejected the keyword on 2026-08-08 morning; by that evening
+  `situc` parsed and *checked* one -- a relation naming a field that does not
+  exist is refused, with the parameter and its type named. The **emitter** is
+  phase 26.95, status not started, and `--layer` is not yet a `situc` flag. So
+  a schema may declare relations today and have them validated, and no code
+  comes out yet. Distinguishing those took one command, which is the
+  designed-versus-built property this library asked situ to keep and is
+  getting.
 - **The acknowledgement case is excluded from a *relation*, which is narrower
   than it first looked.** "An ack names a sequence that was actually sent"
   quantifies over the set of messages sent, needing a store with insertion and
@@ -483,10 +488,42 @@ What that changes here:
 This library is also situ's **first tester** for protocol handling, verifying
 structure and code rather than consuming output. `situ/suggestions/fuzznet.md`
 carries what that requires -- an injected clock, an explicit step function,
-observable transitions, first-class fault injection, and per-phase status kept
--- and the one correction offered so far: rung 6's "may it own I/O **and the
-clock**" is two permissions, and they must separate, because owning I/O is what
-makes the rung useful while owning the clock is what makes it untestable.
+observable transitions, first-class fault injection, and per-phase status kept.
+
+**The clock correction was taken, and rung 6 now says so.** Phase 26.98 reads
+"**It owns I/O and never owns the clock**": time enters as a parameter, I/O is
+a caller-supplied vtable so a test substitutes a transcript and injects loss,
+reorder and duplication without a network, and a convenience wrapper that reads
+the clock is explicitly "not the state machine". Decision 0033 then went
+further than was asked -- the step function returns the **next deadline**,
+because every multiplexing facility takes a timeout and only the state machine
+knows when it next needs waking, so without it each driver invents a polling
+interval and the timing contract stops being the schema's; and the vtable is
+completion-shaped rather than readiness-shaped so `io_uring` is not excluded.
+Neither was in the request, and both are the kind of thing a first tester wants
+decided before there is code rather than after.
+
+### This is the first schema to use a relation
+
+`wire/frame.situ` declares two, and they are worth reading as the answer to
+"what is a relation actually for":
+
+- **`same_message(first, later)`** is a security property. A reassembler sizes
+  its buffer from the first chunk it sees (§4.4), so every later chunk must
+  agree with that one on `msg`, on `chunks`, and on `sender`. Each clause is an
+  attack if unchecked: a differing `chunks` tries to resize a buffer already
+  allocated against the first claim, and a differing `sender` splices two
+  senders' chunks into one message that then authenticates as neither.
+  Parameter order carries which frame the buffer was sized from, which 0030
+  makes load-bearing rather than stylistic.
+- **`reply_to(request, reply)`** is the weaker, more ordinary one -- the
+  identifiers match and the senders differ -- and it exists because a dissector
+  and a fuzz harness both want exactly it.
+
+**What this does not do is as important.** A relation holds no state and does
+not know which frames exist, so the caller owns the pairing: the reassembly
+table remains §4.4's state machine and this library's own. The schema says
+whether a pairing is well-formed; it does not remember pairings.
 
 So §4.4 splits, and this is a genuine refinement rather than a restatement:
 
