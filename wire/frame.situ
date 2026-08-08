@@ -1,0 +1,178 @@
+// fuzznet's datagram, as a schema rather than as hand-written C.
+//
+// project.md sec 6 settled that this file exists: situ's cryptographic model
+// is built, not planned, so the frame is described and both ends are
+// generated. What is NOT settled is anything sec 11 lists as an open
+// candidate, and this file marks those rather than quietly deciding them.
+//
+// The purpose of the first revision is to be MEASURED. sec 9 names the real
+// question as whether our frame trips situ's unbounded-scan or canonicality
+// rules; `situc map` and `situc wire` answer that, and the answers belong in
+// project.md before anyone writes a state machine against this.
+
+target buffer;
+endian big;
+
+// --------------------------------------------------------------------------
+// The codec
+//
+// Monocypher's XChaCha20-Poly1305, bound as an extern rather than wrapped --
+// netcfgd's decision 1 puts one crypto implementation across the family, and
+// sec 4.5 vendors it once here rather than three times.
+//
+// `length_preserving` describes the ciphertext core only; the tag is declared
+// separately below, which is what the packet example means by the same note.
+// `seekable` is claimed because the core is a stream cipher: it is what buys
+// interior addressing in the sealed region, and if it were ever wrong the
+// capability map would stop claiming fixed interior offsets rather than
+// silently produce a wrong accessor.
+codec fzn_aead {
+	granularity = byte;
+	length_preserving;
+	seekable;
+	authenticated;
+	invertible;
+	deterministic;
+}
+
+impl fzn_aead extern "fzn_aead_xchacha20poly1305";
+
+// --------------------------------------------------------------------------
+// What a datagram is for.
+//
+// Deliberately small, and deliberately NOT a command vocabulary. sec 5 keeps
+// consumer commands out of the core: these say what the TRANSPORT must do,
+// and a consumer's own command byte travels inside the sealed payload where
+// this library never looks at it.
+enum fzn_kind : u8 {
+	// Padding, liveness, and the thing a cover-traffic scheduler sends.
+	nop       = 0x00,
+	// One self-contained request or response.
+	unit      = 0x01,
+	// One piece of something larger -- see the chunk fields below.
+	chunk     = 0x02,
+	// Acknowledgement, carrying the bitmap. sec 11's open question is
+	// whether this should be a kind at all or a policy the header states;
+	// it is a kind here because that is what can be measured today.
+	ack       = 0x03,
+}
+
+// --------------------------------------------------------------------------
+// The header a forwarder may read and rewrite.
+//
+// OUTSIDE every covered region, and that placement is the whole reason this
+// half exists separately. sec 3 puts an unprivileged bridge between the
+// network and the daemon, and a bridge that had to re-authenticate a datagram
+// to decrement a hop counter would be re-signing traffic it is not trusted to
+// author. situ makes the pressure visible instead of leaving it folklore:
+// mutating a covered field marks the tag dirty and the generated API refuses
+// a transmittable buffer until it is recomputed.
+struct fzn_hop {
+	u8  version   [must_eq = 1];
+	u8  hops_left;
+	// Three bytes so every multi-byte field below keeps its natural
+	// boundary. The packet example pays exactly this and says why: the
+	// alignment shows up in the capability map rather than in a comment.
+	reserved u8[3];
+}
+
+// --------------------------------------------------------------------------
+// The authenticated header: read by the recipient, covered by the tag,
+// readable by anyone on the path.
+//
+// Everything here is plaintext ON PURPOSE. A recipient must decide whether to
+// spend a decryption before spending it, and the fields that decide that --
+// who it claims to be from, which session, whether it has expired -- cannot
+// themselves be sealed without a chicken-and-egg problem.
+struct fzn_head {
+	fzn_kind  kind;
+
+	// Which capability the sender claims to be acting under. OPAQUE to this
+	// library by sec 4.2: fuzzypickles has six types and netcfgd has three
+	// that are independent rather than a ladder, so the core carries an
+	// identifier and verifies the CHAIN, never the meaning.
+	u8   capability[32];
+
+	// sec 4.3, and the rule that looks like a contradiction between the two
+	// consumers and is not: GRANTS DO NOT EXPIRE, COMMANDS DO. This is a
+	// command's expiry, an absolute second, and a receiver refuses a frame
+	// whose expiry has passed. Zero means "no expiry", which a receiver
+	// refuses for anything it treats as a command -- the check lives in the
+	// consumer because only it knows which of its commands are commands.
+	u64  expires_at;
+
+	// Replay defence and the AEAD nonce in one. 24 bytes because XChaCha
+	// takes that, which is what makes a random nonce safe without a counter
+	// negotiated per session.
+	u8   nonce[24]  [nonce];
+
+	// Reassembly, sec 4.4. A message is identified by `msg`, and a chunk by
+	// its index within it. `chunks` is the total, so a receiver can size its
+	// reassembly buffer from the FIRST piece to arrive rather than
+	// discovering the extent as it goes -- which is what lets sec 4.4's
+	// memory bound be enforced up front instead of after the fact.
+	//
+	// A `unit` frame sets chunks = 1 and index = 0, so there is one shape on
+	// the wire rather than two. That is a deliberate cost: eight bytes on
+	// every small datagram, against a reassembly path that has no special
+	// case for the common message. Whether that trade is right is a thing
+	// to measure, not to assert.
+	u32  msg;
+	u16  index;
+	u16  chunks   [must_ne = 0];
+
+	// Sizes the sealed payload. The `max` is what makes a datagram
+	// statically allocatable: without it the sealed region is Unbounded and
+	// no receiver can size a buffer for one, which is sec 8's "receivers may
+	// have kilobytes" expressed where the compiler can enforce it.
+	//
+	// 1024 is a placeholder chosen to be smaller than any plausible MTU.
+	// The 2018 generation picked 512 (sec 11); the real number wants
+	// measuring against netcfgd's largest chunk.
+	u16  length   [max = 1024];
+}
+
+// --------------------------------------------------------------------------
+// The datagram.
+struct fzn_frame {
+	fzn_hop  hop;
+
+	authenticated {
+		fzn_head  head;
+	}
+
+	sealed(fzn_aead, nonce = head.nonce) {
+		// The consumer's own bytes. This library does not know what they
+		// mean and must not learn: sec 5 keeps command vocabularies out of
+		// the core, and this is where that promise is kept.
+		//
+		// Sized from `head.length`, a plaintext field parsed before the
+		// region, rather than from `remaining` -- `remaining` runs to the
+		// end of the frame and would swallow the tag that follows.
+		u8  payload[head.length];
+	}
+
+	tag u8[16];
+}
+
+// --------------------------------------------------------------------------
+// What must hold, stated so the compiler checks it rather than a reviewer.
+
+// One encoding per value, which is what makes a frame signable at all and is
+// the property sec 4.1 exists to buy.
+require canonical(fzn_frame);
+
+// No parse before verify. sec 6 calls this unrepresentable rather than
+// forbidden; this is the line that asks situ to prove it.
+require verify_gated(fzn_frame.sealed);
+
+// The forwarder's fields are writable in place and cost no recomputation --
+// the property sec 3's unprivileged bridge depends on.
+require no_tag_invalidation(fzn_frame.hop.hops_left);
+require in_place(fzn_frame.hop.hops_left);
+
+// And the converse, stated so the conflict is documented rather than
+// discovered: an authenticated field is writable, but the tag goes stale and
+// finalize must put it right. A relay that tried to rewrite the expiry would
+// be re-authenticating traffic it cannot author.
+require in_place_dirty(fzn_frame.head.expires_at);

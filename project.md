@@ -79,7 +79,7 @@ check at all, because it has never needed one; netcfgd's daemon does its own.
 A daemon running as root and serving a group needs `SO_PEERCRED` /
 `SCM_CREDENTIALS` and a real gid check.
 
-It ships as an **optional module** (`fuzznet_local`, §7) rather than as part
+It ships as an **optional module** (`fuzznet_local`, §8) rather than as part
 of the core, and the reason is the risk netcfgd's brief names precisely:
 **raidcfgd does not exist.** Of the three consumers of a group-gated local
 socket, one has declined it, one would have to migrate an existing working
@@ -302,7 +302,7 @@ Three properties land directly on decisions this document already has open:
 
 - **Nested sealing is a solved case.** Tag coverage recomputes *innermost
   first*, which decision 0011 records as the only order that terminates, since
-  an outer tag covers the inner tag's bytes. §11's `hostenc(userenc(...))`
+  an outer tag covers the inner tag's bytes. §12's `hostenc(userenc(...))`
   question is therefore expressible today rather than a reason to hand-write.
 - **`Uncovered` is where a relay-mutable field must live**, and the compiler
   makes that visible: mutating a `Covered(t)` field sets tag `t` dirty and the
@@ -341,12 +341,102 @@ project rather than leaving the expectation standing.
 "can situ do this": whether our specific frame hits any `unbounded-scan` or
 canonicality rule, which is a schema-writing exercise and the first real task.
 
+### The first schema, and what measuring it said
+
+`wire/frame.situ` exists and compiles. It is **a revision to be measured, not a
+settled frame** -- it encodes §4's decisions and leaves §12's candidates
+visible as open rather than quietly choosing them.
+
+**§10's question is answered: nothing trips.** `require canonical(fzn_frame)`
+passes, no `unbounded-scan` diagnostic appears, and `situc wire` reports
+`size=96..1120` with the tag covering every authenticated and sealed member.
+Unknown enum values are an error rather than a silent pass, which is the right
+default for a format that has to be byte-exact.
+
+**The `require` lines are enforced, checked by breaking one deliberately.**
+Asking for `in_place` on a covered field fails with the blame chain and both
+remedies named -- move it outside coverage, or accept the recomputation and say
+so with `in_place_dirty`. That is the property worth having: the schema states
+what must hold about the *bytes*, and the compiler refuses a build rather than
+a reviewer noticing.
+
+Three findings, and the first is the one that matters:
+
+- **96 bytes of fixed overhead per datagram**, 80 of header and 16 of tag. Of
+  the 75-byte authenticated header, `capability[32]` and `nonce[24]` are 56.
+  Against fuzzypickles' §8, "per-frame overhead is the budget that never
+  improves", that is a lot -- on the 512-byte datagram the previous generation
+  chose (§12), it would
+  be a fifth of every frame. **A 32-byte capability identifier in every
+  datagram is the opposite of fuzzypickles' §8, "amortize session setup"**, and the obvious
+  answer -- establish the capability once per session and carry a short handle
+  -- is a real design question this schema surfaced on its first run rather
+  than after an implementation existed. Not decided here.
+- **Alignment buys less than the example implies, because the wire is
+  big-endian.** Every multi-byte field reports `repr=ValueConverted`: the value
+  is not the memory, so a caller cannot take a pointer and every access is a
+  read-swap-write whatever its offset. situ's own packet example pays three
+  bytes of padding for alignment; copying that reflexively would be paying for
+  a property this format's endianness has already spent. Worth deciding
+  deliberately rather than by imitation.
+- **The sealed region is `mutate=Shifting`**, because the payload is
+  `Bounded(0,1024)` rather than fixed. Interior in-place editing is therefore
+  not available -- which costs this library nothing, since a frame is built
+  once and sent, but it would matter to anyone imagining a mutable interior.
+
+`situc advise` returns one suggestion: move frequently-rewritten fields out of
+tag coverage, since each write costs a recomputation over 1099 bytes. **Not
+acted on, deliberately.** Its cost model assumes repeated in-place mutation of
+a built frame; our access pattern is build-once-then-send, where those fields
+are written before the tag is computed at all and cost one recomputation
+between them. A suggestion whose cost model does not match the usage is the
+same shape as a gate that cannot model what it checks -- understand it before
+obeying it.
+
 ---
 
-## 7. Shape of the tree
+## 7. How a consumer gets this, and how it links
+
+**A git submodule, built from source by each consumer. No shipped archive.**
+Decided by counting what the consumers already do rather than by preference.
+
+fuzzypickles vendors all six of its dependencies exactly this way -- monocypher,
+iniparser, flog, quirc, miniz, thorvg -- as submodules at the repository root,
+with the sources compiled into that project's own objects. Its `core/Makefile`
+even records the refinement: `monocypher.o` is kept under the consuming
+project's tree rather than inside `monocypher/`, "so that directory stays a
+clean checkout". Matching that costs nothing and means one habit works in every
+tree, which is `harmonization.md`'s whole argument.
+
+Three reasons it is also right on the merits, beyond harmonising:
+
+- **A submodule pins an exact commit, and this is a protocol.** Two hosts must
+  agree about bytes. A floating dependency is precisely how they come to
+  disagree silently, and a pinned commit makes a wire change a reviewable diff
+  in the consumer rather than an ambient upgrade.
+- **Each consumer needs its own flags.** fuzzypickles cross-compiles for
+  Android and builds sanitized; netcfgd's agent is an ordinary host binary. A
+  prebuilt `.a` serves neither, and shipping several serves nobody.
+- **`build-and-commit.md` says not to add an archive step without a specific
+  need**, and there is none here: a consumer already builds an archive of its
+  own and these objects join it. An archive of our own would also put the same
+  symbols in two archives if a consumer ever linked both, which that document
+  names as a landmine.
+
+**During bring-up, a sibling directory is fine and should be a variable, not a
+second build path**: `FUZZNET_DIR ?= ../fuzznet`, overridden by the submodule
+path once there is something stable to pin. One knob with a default, rather
+than two ways to build that drift.
+
+**Not a system package, and not a shared library.** A `.so` would put wire
+compatibility in the hands of whatever the distribution shipped, which is the
+same failure the pinned commit exists to prevent -- and this is a static,
+few-thousand-line library where the dynamic-linking argument buys nothing.
+
+## 8. Shape of the tree
 
 Modules, so a consumer links what it needs and no more. Nothing below is built
-until §9's order says so.
+until §10's order says so.
 
 | module | what it is | who needs it |
 |---|---|---|
@@ -361,7 +451,7 @@ until §9's order says so.
 
 ---
 
-## 8. Authority, and who decides what
+## 9. Authority, and who decides what
 
 Settled with netcfgd in its brief §8, and it generalises to every consumer:
 
@@ -385,7 +475,7 @@ the one worth keeping green.
 
 ---
 
-## 9. Order of work
+## 10. Order of work
 
 1. **Evaluate `situ` against the frame** (§6), before anything is hand-written.
 2. **`wire/`**, lifted from fuzzypickles with its fuzz targets.
@@ -420,7 +510,7 @@ alternative failure.
 
 ---
 
-## 10. Where this is, for whoever picks it up
+## 11. Where this is, for whoever picks it up
 
 **Nothing is built.** This document, a `code-style.md` copied from the global
 source, the shared `style_gate.py` and `commit-msg`, a `Makefile` with `style`
@@ -453,7 +543,7 @@ of netcfgd's gates matter when doing so: `docs/schema/socket.json` moves only
 by `make schema-bless`, and `make conformance` diffs what its Rust and C
 clients extract from the same bytes.
 
-## 11. Prior art: three mechanisms from the 2018 generation
+## 12. Prior art: three mechanisms from the 2018 generation
 
 A previous `fuzznet` existed. It was a 2018 attempt inside what became
 fuzzypickles, and its code is not being kept -- see fuzzypickles' §14, "The
@@ -514,7 +604,7 @@ worth taking. The shapes travel; none of the crypto does.
 Its datagram cap was 512 bytes, which is conservative even for 2018 and worth
 knowing as a floor somebody once chose deliberately.
 
-## 12. Open, and named rather than left silent
+## 13. Open, and named rather than left silent
 
 - **`raidcfgd` does not exist.** Two real consumers and one imagined one. Every
   decision above is made from the two that exist; `local/` is the piece most
