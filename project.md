@@ -385,7 +385,52 @@ of netcfgd's gates matter when doing so: `docs/schema/socket.json` moves only
 by `make schema-bless`, and `make conformance` diffs what its Rust and C
 clients extract from the same bytes.
 
-## 11. Open, and named rather than left silent
+## 11. Prior art: three mechanisms from the 2018 generation
+
+A previous `fuzznet` existed. It was a 2018 attempt inside what became
+fuzzypickles, and its code is not being kept -- see fuzzypickles' §14, "The
+earlier generations are gone". Its whole written design was fifteen lines,
+and three ideas in it are worth carrying because two of them land on §4.4,
+the largest and riskiest piece of this library.
+
+**These are candidate mechanisms, not decisions**, and the source deserves
+its calibration: the same header declared `uint32_t encryption_key` on a host
+record. A thirty-two-bit key is the measure of how much of that generation is
+worth taking. The shapes travel; none of the crypto does.
+
+1. **Two-layer sealing.** The frame was `hostenc(userenc(payload) | usermac) |
+   hostmac` -- a host-level seal wrapped around a user-level one, each with
+   its own MAC. A forwarding host can then authenticate the hop it is being
+   asked to make without being able to read what it carries. **fuzzypickles
+   has no equivalent** (the phrase appears nowhere in its document); it gets
+   "serve bytes you cannot read" only for content-addressed blobs, where the
+   content is named by its hash and no key is needed at all. That is a
+   different mechanism answering a different question, and it does not help a
+   relay forwarding a live datagram.
+
+2. **An acknowledgement policy in the header**, two bits: none, ack,
+   ack-and-ack-my-ack, and "periodically NACK what went missing". Note what
+   that is -- a property the *sender states to the receiver*, per datagram.
+   fuzzypickles has traffic classes with the same flavour, but they are
+   scheduler properties on the sending side; nothing on its wire tells a
+   receiver which acknowledgement behaviour is wanted. For a library whose
+   consumers disagree about reliability -- netcfgd wants commands that expire,
+   fuzzypickles wants messages that survive a sleeping peer -- a per-message
+   statement is worth considering before either behaviour is baked in.
+
+3. **Sequence-based continuation.** `CMD_CONTINUE` carried `seq_prev`, so a
+   payload larger than a datagram continued an earlier one, and `ACK` carried
+   `ack_seq` plus an `ack_bitmap` -- selective acknowledgement over a sequence
+   space. **This is §4.4's problem exactly**, and it is not the same as
+   fuzzypickles' have-set: that is content-addressed and requester-coordinated,
+   which suits a blob with a hash-derived name and does not suit a `status`
+   response that exists only as the answer to one question. The 2018 shape is
+   the simpler one and is the right starting point to argue against.
+
+Its datagram cap was 512 bytes, which is conservative even for 2018 and worth
+knowing as a floor somebody once chose deliberately.
+
+## 12. Open, and named rather than left silent
 
 - **`raidcfgd` does not exist.** Two real consumers and one imagined one. Every
   decision above is made from the two that exist; `local/` is the piece most
