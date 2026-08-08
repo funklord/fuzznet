@@ -431,15 +431,62 @@ That lookup is a store, and the store is the boundary gone.
   ("not a declaration keyword"), so nothing here may use it yet. Checked rather
   than assumed, because a schema that stops compiling is a worse outcome than a
   missing check.
-- **The acknowledgement case is excluded on principle, and that settles
-  something for us.** "An ack names a sequence that was actually sent"
-  quantifies over the set of messages sent, which needs a store with insertion
-  and expiry -- and 0030 excludes it not because it is hard but because there
-  is no parameter a pure predicate could take that would answer it. So §12's
-  ack-bitmap candidate can never be a schema property. **It is this library's
-  state machine, permanently**, which is the same line §6 drew between the
-  chunk frame and the chunking state machine, now reached from the other side
-  and by somebody with no stake in where it fell.
+- **The acknowledgement case is excluded from a *relation*, which is narrower
+  than it first looked.** "An ack names a sequence that was actually sent"
+  quantifies over the set of messages sent, needing a store with insertion and
+  expiry, and 0030 excludes it not for difficulty but because no parameter a
+  pure predicate could take would answer it.
+
+  **Do not read that as permanent -- an earlier revision of this section did,
+  and was wrong within a day.** The exclusion holds *at that layer*. See below.
+
+### Superseded: situ is taking protocol handling, and the ladder is how
+
+Within a day of the boundary above being argued, the answer changed, and the
+argument this document made -- dynamics stay out -- **is overruled by situ's
+maintainer, correctly, since it is their project.** It is left standing above
+because a recommendation that quietly becomes agreement is worth nothing the
+next time one is offered.
+
+Decision **0032, six layers chosen at invocation**, is the shape:
+
+| rung | emits | the new "yes" |
+|---|---|---|
+| `view` | accessors over caller-owned bytes | *(baseline)* |
+| `edit` | build or resize a message | may it allocate? |
+| `relate` | predicates over two messages (0030) | may it look at two messages? |
+| `frame` | byte stream in, whole messages out | may it hold bytes between calls? |
+| `converse` | match a reply to its request | may it hold messages between calls? |
+| `drive` | send, receive, retransmit, time out | may it own I/O and the clock? |
+
+**The question this document kept asking was the wrong one.** "Should situ do
+X" gets relitigated once per adopter; "at which layer does X live" is answered
+once. The choice sits at `situc build --layer` rather than in the schema,
+because what a consumer wants generated is not a property of the bytes -- which
+also answers, better, the schema-or-companion-file question this document
+raised.
+
+What that changes here:
+
+- **§4.4's chunking state machine may stop being ours.** It was assigned to
+  this library because situ described messages and not protocols. Rungs
+  `frame` and `drive` are exactly that work. Whether we consume them or write
+  our own becomes a real choice at §10 step 5, and it should be made then,
+  against something built, rather than assumed now in either direction.
+- **§12's ack bitmap is a `converse`-or-`drive` question**, not a permanent
+  exclusion. The store that 0030 could not have is precisely what rung 5 adds.
+- **fuzzypickles is a rung-2 consumer**, per 0031: its 225 call sites hold
+  decoded structs that outlive the buffer, so it needs `--owned` rather than
+  views. §10 step 7 is where that lands, and knowing it now is cheaper than
+  discovering it there.
+
+This library is also situ's **first tester** for protocol handling, verifying
+structure and code rather than consuming output. `situ/suggestions/fuzznet.md`
+carries what that requires -- an injected clock, an explicit step function,
+observable transitions, first-class fault injection, and per-phase status kept
+-- and the one correction offered so far: rung 6's "may it own I/O **and the
+clock**" is two permissions, and they must separate, because owning I/O is what
+makes the rung useful while owning the clock is what makes it untestable.
 
 So §4.4 splits, and this is a genuine refinement rather than a restatement:
 
