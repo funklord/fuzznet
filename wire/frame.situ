@@ -129,7 +129,18 @@ struct fzn_head {
 	// case for the common message. Whether that trade is right is a thing
 	// to measure, not to assert.
 	u32  msg;
-	u16  index;
+	// `index < chunks`, spelled as a bound the schema enforces rather than a
+	// check the reassembly code remembers. situ's decision 0030 is what
+	// prompted this: `fuzznet` had offered "a chunk's index is below its
+	// count" as an example of a CROSS-message relation, and that record
+	// counted it correctly as a single-message constraint expressible today.
+	// The miscount is worth keeping -- a constraint filed under "needs a
+	// feature that does not exist" is a constraint nobody writes.
+	//
+	// `chunks - 1` rather than `chunks`, because index is zero-based and
+	// `max = chunks` would admit one past the end. The bound appears in
+	// `situc wire` output, so it is contract rather than comment.
+	u16  index    [max = chunks - 1];
 	u16  chunks   [must_ne = 0];
 
 	// Sizes the sealed payload. The `max` is what makes a datagram

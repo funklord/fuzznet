@@ -400,6 +400,47 @@ behaviour.** Whether it earns its keep there is that project's call, and this
 library is a weak witness -- we would be the consumer asking for it, which is
 the worst position from which to argue that somebody else's scope should grow.
 
+### It was put, and accepted -- with a sharper boundary than ours
+
+`suggestions/fuzznet.md` carried the question; situ's decision **0030,
+cross-message relations, is accepted** (2026-08-08) and drew the line in a
+better place than "relations, not dynamics":
+
+> **A `relation` is a named, pure predicate over exactly two views. It holds
+> no state, allocates nothing, and does not know which messages exist.**
+
+Two parameters exactly, order temporal (first is the message seen first),
+bodies say `must` rather than `require` because `require` is already a
+build-time capability gate, and the generated function takes two bare views and
+returns the existing `SITU_ERR_CONSTRAINT`. Our suggested fifth `stage` value
+was rejected with the better argument: a predicate *parameterised* over both
+views leaves every field `ParseTime` within its own view, so the existing axis
+already answers it -- and a stage value would let a lone struct reference
+another message, whose accessor would need somewhere to look that message up.
+That lookup is a store, and the store is the boundary gone.
+
+**Three consequences for this library, and the first is a correction:**
+
+- **"A chunk's `index` is below its `chunks`" was miscounted here as a
+  cross-message relation.** It is a single-message constraint and was
+  expressible all along. `frame.situ` now carries `[max = chunks - 1]`, which
+  `situc wire` reports as part of the contract. A constraint filed under "needs
+  a feature that does not exist" is a constraint nobody writes, which is the
+  more useful half of the mistake.
+- **`relation` is designed, not built.** The parser rejects the keyword today
+  ("not a declaration keyword"), so nothing here may use it yet. Checked rather
+  than assumed, because a schema that stops compiling is a worse outcome than a
+  missing check.
+- **The acknowledgement case is excluded on principle, and that settles
+  something for us.** "An ack names a sequence that was actually sent"
+  quantifies over the set of messages sent, which needs a store with insertion
+  and expiry -- and 0030 excludes it not because it is hard but because there
+  is no parameter a pure predicate could take that would answer it. So §12's
+  ack-bitmap candidate can never be a schema property. **It is this library's
+  state machine, permanently**, which is the same line §6 drew between the
+  chunk frame and the chunking state machine, now reached from the other side
+  and by somebody with no stake in where it fell.
+
 So §4.4 splits, and this is a genuine refinement rather than a restatement:
 
 - the **chunk frame** -- sequence, offsets, coverage, the sealed payload -- is
