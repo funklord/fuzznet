@@ -352,7 +352,40 @@ alternative failure.
 
 ---
 
-## 10. Open, and named rather than left silent
+## 10. Where this is, for whoever picks it up
+
+**Nothing is built.** This document, a `code-style.md` copied from the global
+source, the shared `style_gate.py` and `commit-msg`, a `Makefile` with `style`
+and `hooks`, and a `VERSION`. `make style` passes over six files.
+
+The reading that produced it, in the order worth repeating:
+
+1. **`../netcfgd/docs/shared-protocol-brief.md`** — written *for this library*
+   before it existed, and the single most useful document here. It states
+   netcfgd's requirements, what it cannot trade away and why, what it has
+   already decided that this library may knowingly overrule, and what it
+   cannot tell us. §2 and §4 of this document are largely its argument.
+2. **`../netcfgd/docs/socket-protocol.md` §3.1** for why netcfgd's local hop
+   is JSON, and `../netcfgd/docs/remote-access-feasibility.md` §5 for the two
+   requirements a messaging protocol gets wrong.
+3. **`../fuzzypickles/project.md` §6, §7 and §13** for the working
+   implementation of nearly everything in §4 here.
+
+What was measured rather than assumed, since it decides how much is actually
+being shared: in fuzzypickles, `wire.c` is 101 lines, `crypto_msg.c` 197,
+`prekey_channel.c` 77, `peer_wire.c` 100, while `capability.c` and
+`identity.c` are about 2200 together and **`control_codec.c` is 4718 lines of
+that project's own command vocabulary**. The last of those is the number that
+matters: most of what looks like protocol in a mature consumer is application,
+and §5 exists to keep it out.
+
+**The maintainer has said the protocol parts of netcfgd are ours to edit**, and
+that reading and editing netcfgd and raidcfgd is authorised for this work. Two
+of netcfgd's gates matter when doing so: `docs/schema/socket.json` moves only
+by `make schema-bless`, and `make conformance` diffs what its Rust and C
+clients extract from the same bytes.
+
+## 11. Open, and named rather than left silent
 
 - **`raidcfgd` does not exist.** Two real consumers and one imagined one. Every
   decision above is made from the two that exist; `local/` is the piece most
