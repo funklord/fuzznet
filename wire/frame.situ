@@ -87,11 +87,22 @@ struct fzn_hop {
 struct fzn_head {
 	fzn_kind  kind;
 
-	// Which capability the sender claims to be acting under. OPAQUE to this
-	// library by sec 4.2: fuzzypickles has six types and netcfgd has three
-	// that are independent rather than a ladder, so the core carries an
-	// identifier and verifies the CHAIN, never the meaning.
-	u8   capability[32];
+	// WHO IS SPEAKING, and the field that selects the key.
+	//
+	// The first revision of this schema had no key selector at all: a
+	// receiver was handed a nonce and a sealed region with no way to know
+	// which key opened it. Writing the schema is what made that absence
+	// visible, since situ will describe an undecryptable frame perfectly
+	// happily -- it checks layout, not that the protocol closes.
+	//
+	// It is the sender's host public key rather than a session handle, which
+	// is fuzzypickles' answer (`sender_host_pubkey` in its peer frame) and is
+	// the expensive side of a real choice: 32 bytes on every datagram buys a
+	// frame that is SELF-CONTAINED. A handle is meaningless to a host that
+	// has forgotten the session, never had it, or is handed the datagram by a
+	// relay hours later -- and sec 8's "assume the peer is asleep" is exactly
+	// that case. sec 13 records the alternative and why it is not free.
+	u8   sender[32];
 
 	// sec 4.3, and the rule that looks like a contradiction between the two
 	// consumers and is not: GRANTS DO NOT EXPIRE, COMMANDS DO. This is a
@@ -142,6 +153,25 @@ struct fzn_frame {
 	}
 
 	sealed(fzn_aead, nonce = head.nonce) {
+		// WHICH CAPABILITY THE SENDER CLAIMS, and it is in here rather than
+		// in the plaintext header on purpose.
+		//
+		// It was in the header in the first revision, which was two mistakes
+		// at once. It was redundant -- `sender` above already says whose
+		// capabilities to look up, and the chain that would prove this one is
+		// not in the frame at all, so a receiver must consult its own records
+		// either way. And it LEAKED: a capability identifier in the clear
+		// tells an observer which authority is being exercised on every
+		// datagram, so the frames worth attacking announce themselves. For a
+		// protocol that reconfigures infrastructure across untrusted
+		// networks, that is metadata worth 32 bytes of ciphertext to hide.
+		//
+		// Still this library's field rather than the consumer's: sec 4.2 has
+		// the core verifying the CHAIN while never interpreting what a
+		// capability permits. Being inside the seal does not change that --
+		// the core reads it after opening, the consumer's own bytes follow.
+		u8  capability[32];
+
 		// The consumer's own bytes. This library does not know what they
 		// mean and must not learn: sec 5 keeps command vocabularies out of
 		// the core, and this is where that promise is kept.

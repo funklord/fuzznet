@@ -201,6 +201,32 @@ This is the single largest piece of new work and the highest-risk part, and it
 is where the two consumers' needs are least similar. It gets built against
 netcfgd's shape, since netcfgd is the consumer whose responses force it.
 
+### 4.4a The threat model, stated because it is higher than a chat program's
+
+**This library carries traffic that reconfigures infrastructure, remotely,
+across untrusted networks.** netcfgd's is the demanding case and it is not
+LAN-only (2026-08-08): a forged or replayed frame does not leak a message, it
+changes a router's configuration -- and the machine most likely to be attacked
+is the one being reconfigured because it is already misbehaving.
+
+What that buys, and what it forbids:
+
+- **Confidentiality of metadata, not just payload.** §13 moved the capability
+  identifier inside the seal for this reason: in the clear it announces which
+  authority is being exercised, so the frames worth attacking identify
+  themselves. Anything the header must expose has to earn its place by being
+  needed *before* a key is selected.
+- **Replay is a configuration change, so freshness is load-bearing rather than
+  hygienic.** §4.3's mandatory command expiry is a security property here, not
+  an efficiency one.
+- **No downgrade path.** If §12's mode bit is ever built, it sits inside the
+  authenticated region and an implementation must refuse a weaker mode it did
+  not offer. A negotiable security level reached by flipping a plaintext bit is
+  the classic way this goes wrong.
+- **Key-committing AEAD is not optional**, per §4.5, and neither is a
+  constant-time tag comparison. The extern codec owns the first; this library
+  owns the second and must not leave it to the consumer.
+
 ### 4.5 Sessions and encryption
 
 Key-committing AEAD, and a session established from a prekey. fuzzypickles'
@@ -238,10 +264,19 @@ absorbing one consumer's application until the others are carrying it.
   behaviours is wrong for configuration, per §4.3.
 - **Content-addressed transfer, group ratchets, geolocation, media.** These
   sit *above* the wire in fuzzypickles already and stay there.
-- **Rendezvous, hole punching, relays.** netcfgd's decision 2 is LAN only
-  first: the case a person actually wants is "I am at home, fix the wifi".
-  fuzzypickles needs all three and keeps them in its own tree until a second
-  consumer wants one.
+- **Rendezvous, hole punching, relays** -- **for now, and on borrowed
+  justification.** This was excluded because netcfgd's decision 2 is "LAN only
+  first" and the case a person actually wants is "I am at home, fix the wifi".
+  **That premise has expired**: netcfgd is not going to remain LAN-only
+  (stated 2026-08-08), so the second consumer this test asks for is arriving
+  rather than hypothetical.
+
+  It stays out today because nobody has built it *here* and fuzzypickles has
+  working versions in its own tree -- which is a statement about sequencing,
+  not about scope. Treat it as the next thing likely to move in, and do not
+  design the core in a way that assumes both endpoints are directly
+  reachable. §4's freshness rules and §13's self-contained frame are already
+  the right shape for a datagram that crosses a relay; nothing else is.
 - **The local socket.** §2.
 
 **The test for admitting anything new: two real consumers need it, and neither
@@ -686,11 +721,24 @@ one this document keeps meeting:
 | acknowledgement (§12) | survives a sleeping peer | a live exchange |
 | identity per datagram | self-contained, no session | a handshake it already has |
 
-netcfgd is LAN-only, interactive, and already holds per-response reassembly
-state by §4.4 -- a session costs it nothing it is not already paying.
-fuzzypickles is offline-capable by construction and a session costs it the
-property it most needs. **Neither is wrong, and a library that picks one is
-wrong for the other.**
+**The last row has since collapsed, and the reasoning that put it there was
+wrong on a fact.** It read netcfgd as LAN-only and interactive -- from its own
+decision 2 -- and concluded a session costs it nothing it is not already
+paying. **netcfgd is not going to remain LAN-only** (2026-08-08), and once a
+datagram crosses an untrusted network toward a device that may be behind NAT,
+asleep, or reached through a relay, the self-contained frame stops being
+fuzzypickles' idiosyncrasy and becomes the property both consumers need.
+
+So the axis is real and the four rows are real, but **the identity row is
+settled rather than balanced**: carry identity, derive per message, no session
+required. A session handle may still be offered as an optimisation for a live
+exchange, and §12's mode bit is where it would be stated -- but it is now the
+special case rather than one of two equal ends, and a library that shipped
+only the handle would be wrong for both consumers rather than one.
+
+The lesson is worth more than the conclusion: **an axis derived from one
+project's current constraint is only as stable as that constraint**, and
+"LAN only first" always had the word "first" in it.
 
 ### The shape of the answer, not the answer
 
