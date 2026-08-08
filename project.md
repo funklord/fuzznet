@@ -520,25 +520,40 @@ decided before there is code rather than after.
   identifiers match and the senders differ -- and it exists because a dissector
   and a fuzz harness both want exactly it.
 
-**What this does not do is as important.** A relation holds no state and does
-not know which frames exist, so the caller owns the pairing: the reassembly
-table remains §4.4's state machine and this library's own. The schema says
-whether a pairing is well-formed; it does not remember pairings.
+**What a relation does not do is as important, and it is a property of that
+rung rather than a permanent division.** A relation holds no state and does not
+know which frames exist, so at `relate` the caller owns the pairing: the schema
+says whether a pairing is well-formed and does not remember pairings.
 
-So §4.4 splits, and this is a genuine refinement rather than a restatement:
+An earlier revision of this section drew a general conclusion from that -- "the
+reassembly table remains this library's own state machine" -- and **that is
+wrong**. It reads one rung's property as the ladder's shape. The rungs above
+are defined by exactly the state a relation refuses: `frame` may hold bytes
+between calls, `converse` may hold messages between calls, and `drive` sends,
+receives, retransmits and times out. **situ is going to generate the whole
+networking scheduler**, and which of it a consumer takes is `--layer`.
 
-- the **chunk frame** -- sequence, offsets, coverage, the sealed payload -- is
-  a schema, and situ writes both ends of it;
-- the **chunking state machine** -- what to retransmit, when to give up, how
-  much memory a half-finished response may hold -- is this library's own C,
-  and is where the risk in §4.4 actually lives.
-
-That corrects an expectation carried in netcfgd's decision 4, which had the
-hand-written half "built to be deleted as situ absorbs chunking and
-encryption". Encryption is absorbed already. **Chunking is not going to be**,
-because it is protocol dynamics rather than layout, and waiting for it would be
-waiting for something situ has deliberately excluded. Worth telling that
-project rather than leaving the expectation standing.
+> **The five paragraphs that were here are wrong and are cut rather than
+> preserved**, because they asserted a fact rather than made an argument, and a
+> false fact left standing in a source of truth is read by somebody who never
+> reaches the correction. They said §4.4 splits into a chunk frame situ writes
+> and a chunking state machine that is "this library's own C", and that
+> "chunking is not going to be" absorbed because it is dynamics rather than
+> layout.
+>
+> Both halves are false. situ will generate the whole networking scheduler --
+> `frame` holds bytes between calls, `converse` holds messages, `drive` sends,
+> retransmits and times out -- and a consumer picks how much with `--layer`.
+> §7a has what actually remains here. The argument that produced the error is
+> the one preserved above under "Should situ describe the send/receive
+> pattern", where it belongs: it was reasoning, and it was overruled.
+>
+> The mistake is worth one line of its own. It came from reading a scope
+> statement out of situ's protobuf importer, and then **surviving the
+> correction of that misreading** -- the false conclusion was restated twice
+> more after its premise had been withdrawn, because it had become a fact this
+> document repeated rather than a claim it checked. That is the failure mode
+> §14 warns about, met from the inside.
 
 **So the frame is not hand-written.** What remains to measure is narrower than
 "can situ do this": whether our specific frame hits any `unbounded-scan` or
@@ -636,6 +651,58 @@ compatibility in the hands of whatever the distribution shipped, which is the
 same failure the pinned commit exists to prevent -- and this is a static,
 few-thousand-line library where the dynamic-linking argument buys nothing.
 
+## 7a. What is left of this library once situ generates the scheduler
+
+**situ will generate the entire networking scheduler**, and a consumer chooses
+how much with `--layer`. That is not a possibility to plan around; it is the
+stated direction, and decision 0033 names the test behind it -- *remove code
+from other network projects generically and efficiently*. An `epoll` loop is
+"exactly the eighty lines three projects each hand-write, and exactly the kind
+where one of them gets the edge-triggered case subtly wrong."
+
+So the honest question is not what this library will build but **what is left
+after the generator takes its share.** §4 was written assuming the transport
+was ours:
+
+| §4 | who owns it, once the ladder exists |
+|---|---|
+| 4.1 framing and canonical encoding | **situ** -- `wire/frame.situ`, already |
+| 4.2 capability chain and revocation | **ours** -- semantics, not layout |
+| 4.3 freshness: commands expire, grants do not | **shared** -- the field is schema, the policy is ours |
+| 4.4 chunking and reassembly | **situ**, rungs `frame` and `drive` |
+| 4.5 sessions and encryption | **situ** at the seam, ours at the extern codec |
+| 4.4a threat model | **ours** -- no generator has an opinion about it |
+
+And a third axis arrives with the scheduler: `--driver` chooses what pumps the
+rung-6 state machine, additively, with **the test harness as just another
+driver**. A transcript driver injects loss, reorder and duplication with no
+socket and no clock, so *the tested path and the shipped path differ only in
+which driver they link.* That is a stronger property than the fault injection
+this library asked for, and it removes the last argument for writing our own
+loop in order to be able to test it.
+
+**What that leaves is small, and it is the part that was always ours:** the
+schema, the extern codec binding, the capability and identity semantics, the
+policy decisions §13 keeps meeting, and the judgement about which rung each
+consumer should stand on. This library becomes a specification with a thin
+seam rather than a transport implementation.
+
+**Which is the right outcome and should be said plainly**, because it is easy
+to read as a loss. §5's rule for admitting anything to the core was "two real
+consumers need it, and neither would accept the other's version as a special
+case of their own". A generator that serves all three consumers from one
+description satisfies that test better than a hand-written library could, and
+the duplication this project exists to remove is removed further.
+
+**The sequencing question is real and is not answered here.** Rungs 4 to 6 are
+scheduled and unstarted (26.96 through 26.98). §10's step 5 says to build
+`chunk/` against netcfgd's response shapes; the alternative is to wait and
+consume rung 6. Deciding that needs a date for those phases and a date netcfgd
+needs its agent, and neither exists yet -- so it is named as the next real
+decision rather than guessed at. What should *not* happen is building a
+retransmission state machine by hand while the same one is being generated,
+which is the exact duplication both projects exist to prevent.
+
 ## 8. Shape of the tree
 
 Modules, so a consumer links what it needs and no more. Nothing below is built
@@ -680,19 +747,37 @@ the one worth keeping green.
 
 ## 10. Order of work
 
-1. **Evaluate `situ` against the frame** (§6), before anything is hand-written.
-2. **`wire/`**, lifted from fuzzypickles with its fuzz targets.
-3. **`frame/` and `chain/`**, the envelope and the authority model —
-   fuzzypickles' identity/capability code is the working implementation and
-   netcfgd's most-wanted piece.
-4. **`session/`.**
-5. **`chunk/`**, against netcfgd's response shapes, since they are what force
-   it (§4.4). Highest risk; expect it to take longer than the four above.
-6. **netcfgd's `agent/`** becomes the first real consumer — it does not exist
-   yet, which is the whole of the timing benefit: consuming a library means
-   the second implementation is never written.
-7. **fuzzypickles migrates**, as separate deliberate work.
-8. **`local/`**, when raidcfgd exists and can say what it needs.
+**Rewritten 2026-08-08**, because the first version was a build order for a
+hand-written transport and situ is generating most of it (§7a). Steps 2, 4 and
+5 were `wire/`, `session/` and `chunk/` as our own C; two of those are now
+`--layer` choices and the third is a schema.
+
+1. ~~Evaluate `situ` against the frame~~ **done** (§6): the frame is a schema,
+   the crypto model is built, and `wire/frame.situ` compiles.
+2. **Finish the schema against a real payload.** The `[max = 1024]` on the
+   sealed region is a placeholder; netcfgd's largest chunk decides it, and the
+   96-to-128-byte overhead question in §13 wants settling before anything is
+   generated from it twice.
+3. **`chain/`** — the capability and identity model. **This is now the first
+   real code**, and it stayed ours throughout every scope change because it is
+   semantics rather than layout or transport. fuzzypickles' `identity.c` and
+   `capability.c` are the working implementation and netcfgd's most-wanted
+   piece.
+4. **Decide the rung, and say when.** `--layer view` today; `relate` is
+   checkable now and emits nothing yet; `frame`, `converse` and `drive` are
+   scheduled and unstarted. This is the sequencing question §7a names and it
+   needs two dates that do not exist yet: when those phases land, and when
+   netcfgd needs its agent.
+5. **netcfgd's `agent/`** becomes the first real consumer — it does not exist
+   yet, which is the whole of the timing benefit.
+6. **fuzzypickles migrates**, as separate deliberate work, at rung 2 with
+   `--owned` (0031).
+7. **`local/`**, when raidcfgd exists and can say what it needs.
+
+**What is deliberately absent: a hand-written retransmission state machine.**
+Building one while the same one is being generated is the exact duplication
+both projects exist to remove, and it is the thing to refuse if a schedule
+starts arguing for it.
 
 ### fuzzypickles migrates later, and does not lead
 
