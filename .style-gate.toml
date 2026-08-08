@@ -1,0 +1,15 @@
+# Configuration for tools/style_gate.py -- see code-style.md.
+# Nothing here changes the rules; it says which files in THIS tree they
+# apply to, and how small the file list may get before a pass is a lie.
+
+# ASCII outside string literals, which this library can afford from day one.
+# fuzzypickles had to leave it off and collected 437 em dashes and 369
+# section signs in its comments before anybody looked; a tree that starts
+# with the check on never has that to clean up.
+ascii_only = true
+
+# Below this the gate fails instead of passing. Deliberately under the real
+# count: it catches a collapsed file list, it does not police a number.
+floor = 1
+
+exclude = ["attic", "third_party", "vendor", "build", "target", "monocypher"]
