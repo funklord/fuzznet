@@ -267,11 +267,79 @@ netcfgd's §9 already did half the evaluation against its own control socket
 and split the answer: the *framing* is describable, and situ's `unbounded-scan`
 rule would have predicted a bound netcfgd reached by judgement; the *payload*
 is not describable, because a JSON object has no byte layout to pin. Here both
-halves are binary, so the split that constrained netcfgd does not apply and
-the answer may come out differently.
+halves are binary, so the split that constrained netcfgd does not apply.
 
-**Open until measured.** Do not write the frame by hand on the assumption that
-situ cannot describe it.
+### The answer, from situ's own tree (2026-08-08)
+
+**situ describes the whole packet, crypto included, and this is built rather
+than planned.** Its phases 7 and 8 -- extern codecs, and the cryptographic
+model -- both record status complete, and the keywords are in the compiler.
+The question "shouldn't situ pack the entire packet, since these are generic
+crypto operations" turns out to be the question situ was written to answer:
+its §14 opens "the first real use case is compact encrypted protocols, so this
+is not an add-on."
+
+What exists:
+
+| construct | what it gives this library |
+|---|---|
+| `coded(C) { ... }` | a general transform region -- the extern codec, where the implementation is supplied and the schema names it |
+| `sealed(codec, nonce = ref) { ... }` | encrypted and tag-covered; per decision 0009 this is `coded` plus authentication rather than a second mechanism |
+| `authenticated { ... }` | plaintext covered by a tag -- AEAD associated data |
+| `tag T[N] [covers(...)]` | coverage inferred when omitted, explicit when it matters |
+| `nonce`, `secret` attributes | nonce binding, and key material marked so it shapes the generated API |
+
+**The permutation explosion is answered by composition, not enumeration**, and
+that is the part worth understanding before proposing anything. situ does not
+carry a variant per algorithm pairing: the codec is an extern the schema names,
+`sealed` is `coded` + tag rather than its own construct, and layer order is an
+**explicit pipeline** -- `sealed(aead |> rs)` -- with encrypt-then-code and
+code-then-encrypt never inferred. Orthogonal primitives compose; the product
+space is never written down. That is why "a huge number of permutations" is not
+the objection it looks like.
+
+Three properties land directly on decisions this document already has open:
+
+- **Nested sealing is a solved case.** Tag coverage recomputes *innermost
+  first*, which decision 0011 records as the only order that terminates, since
+  an outer tag covers the inner tag's bytes. §11's `hostenc(userenc(...))`
+  question is therefore expressible today rather than a reason to hand-write.
+- **`Uncovered` is where a relay-mutable field must live**, and the compiler
+  makes that visible: mutating a `Covered(t)` field sets tag `t` dirty and the
+  generated API refuses to hand out a transmittable buffer until it is
+  recomputed. A hop counter or routing header outside coverage is exactly the
+  shape §3's bridge needs, and `require no_tag_invalidation(expr)` checks it
+  statically.
+- **Verification is enforced by the type system, not by discipline.** Interior
+  accessors take a generated view type that only the open function produces,
+  and that function demands the verification result. Parse-before-verify -- the
+  defect class this whole family of protocols fears most -- becomes
+  unrepresentable rather than merely forbidden.
+
+### Where situ stops, which is the boundary that matters
+
+**situ describes a message; it does not run a protocol.** Its own non-scope
+list says "service and RPC definitions, which are out of scope entirely", and
+nothing in it addresses retransmission, reassembly or timers.
+
+So §4.4 splits, and this is a genuine refinement rather than a restatement:
+
+- the **chunk frame** -- sequence, offsets, coverage, the sealed payload -- is
+  a schema, and situ writes both ends of it;
+- the **chunking state machine** -- what to retransmit, when to give up, how
+  much memory a half-finished response may hold -- is this library's own C,
+  and is where the risk in §4.4 actually lives.
+
+That corrects an expectation carried in netcfgd's decision 4, which had the
+hand-written half "built to be deleted as situ absorbs chunking and
+encryption". Encryption is absorbed already. **Chunking is not going to be**,
+because it is protocol dynamics rather than layout, and waiting for it would be
+waiting for something situ has deliberately excluded. Worth telling that
+project rather than leaving the expectation standing.
+
+**So the frame is not hand-written.** What remains to measure is narrower than
+"can situ do this": whether our specific frame hits any `unbounded-scan` or
+canonicality rule, which is a schema-writing exercise and the first real task.
 
 ---
 
