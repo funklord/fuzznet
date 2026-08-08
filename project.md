@@ -410,13 +410,29 @@ worth taking. The shapes travel; none of the crypto does.
 
 2. **An acknowledgement policy in the header**, two bits: none, ack,
    ack-and-ack-my-ack, and "periodically NACK what went missing". Note what
-   that is -- a property the *sender states to the receiver*, per datagram.
-   fuzzypickles has traffic classes with the same flavour, but they are
-   scheduler properties on the sending side; nothing on its wire tells a
-   receiver which acknowledgement behaviour is wanted. For a library whose
-   consumers disagree about reliability -- netcfgd wants commands that expire,
-   fuzzypickles wants messages that survive a sleeping peer -- a per-message
-   statement is worth considering before either behaviour is baked in.
+   that is -- a property the *sender states to the receiver*, per datagram,
+   independent of what the datagram carries. Its spec named the payoff in two
+   words, **collate response**: any datagram already travelling the right way
+   can acknowledge another, so a busy conversation stops paying a dedicated
+   frame per message.
+
+   **This is the axis the whole library sits on**, and it is worth naming
+   before anything is written: a generic protocol where header bits say what
+   is wanted, or narrowly defined commands where the acknowledgement is
+   implied by which command was sent. fuzzypickles took the second without
+   ever weighing the first (its §9 records that now), and pays for it -- two
+   acknowledgements emitted in the same instant to the same address go as two
+   datagrams, each with its own header, nonce and tag.
+
+   **This library cannot inherit that choice by accident**, because its two
+   consumers disagree about reliability: netcfgd wants commands that expire
+   and a response chunked across many datagrams, fuzzypickles wants messages
+   that survive a sleeping peer. A policy stated per datagram is how one wire
+   serves both without the command vocabulary encoding the reliability model
+   -- which matters doubly here, since §5 keeps command vocabularies OUT of
+   the core. If acknowledgement is implied by the command, and the commands
+   belong to the consumer, then the core cannot reason about acknowledgement
+   at all.
 
 3. **Sequence-based continuation.** `CMD_CONTINUE` carried `seq_prev`, so a
    payload larger than a datagram continued an earlier one, and `ACK` carried
