@@ -318,9 +318,52 @@ Three properties land directly on decisions this document already has open:
 
 ### Where situ stops, which is the boundary that matters
 
-**situ describes a message; it does not run a protocol.** Its own non-scope
-list says "service and RPC definitions, which are out of scope entirely", and
-nothing in it addresses retransmission, reassembly or timers.
+**situ describes a message; it does not describe a conversation.** State that
+precisely, because a first version of this section overstated it: situ's §2
+non-goals say **nothing** about protocols, and the "service and RPC definitions
+are out of scope entirely" line is from its *protobuf importer*, about what a
+`.proto` will not translate. What is actually true is that there is no
+construct for retransmission, reassembly or timers, nothing about them in the
+thirteen-phase plan, and **no mention of request/response correlation,
+conversations or sessions anywhere in an eleven-thousand-line document**. It is
+unaddressed and unplanned, not forbidden.
+
+### Should situ describe the send/receive pattern? A narrow yes
+
+Worth raising with that project rather than deciding here, and worth splitting
+into two questions that are easy to run together.
+
+**Cross-message *relations* are declarative, and situ is already most of the
+way there.** "A response carries the request's `msg`", "`index` is below
+`chunks`", "an `ack` names a sequence that was sent" -- these are `require`
+-shaped statements about bytes in two messages rather than one. They need no
+runtime, no timers and no allocation. Two artifacts situ already generates
+would improve immediately:
+
+- **`gen-dissector`.** A Wireshark dissector's most valuable feature after
+  field decoding is conversation tracking -- "response to frame N". situ emits
+  dissectors today and cannot express the one thing that would make one tell
+  that story.
+- **`gen-fuzz`.** A harness that knows a response must echo a request's
+  identifier can generate sequences that get past the first check, rather than
+  rediscovering the correlation by luck.
+
+The `stage` axis is suggestive too: it already reasons about *when* a value
+becomes knowable (`CompileTime < ParseTime < TransformTime < VerifyGated`), and
+"knowable only from a message already seen" is a recognisable neighbour.
+
+**Protocol *dynamics* are a different product and should stay out.**
+Retransmission, timers, windows and congestion need a state machine, and two of
+situ's existing non-goals are what it would have to argue with: **no dynamic
+allocation, ever**, and "not a parser combinator library -- the layout solver is
+a compiler pass, not a runtime interpreter". A schema compiler that grew a
+scheduler would also break its own first rule, that the capability lattice wins
+when anything conflicts with it.
+
+So the recommendation, if it is put to situ: **describe the relation, not the
+behaviour.** Whether it earns its keep there is that project's call, and this
+library is a weak witness -- we would be the consumer asking for it, which is
+the worst position from which to argue that somebody else's scope should grow.
 
 So §4.4 splits, and this is a genuine refinement rather than a restatement:
 
@@ -604,7 +647,77 @@ worth taking. The shapes travel; none of the crypto does.
 Its datagram cap was 512 bytes, which is conservative even for 2018 and worth
 knowing as a floor somebody once chose deliberately.
 
-## 13. Open, and named rather than left silent
+## 13. The capability in every datagram, and the axis underneath it
+
+The schema (§6) surfaced 96 bytes of fixed overhead, of which `capability[32]`
+and `nonce[24]` are 56. The obvious fix -- establish the capability once and
+carry a short handle -- is **the wrong first move**, and finding out why
+settles something larger.
+
+### fuzzypickles already answered this, and chose the expensive side
+
+Its peer frame is `version | cmd | sender_host_pubkey[32] | ephemeral_pk[32] |
+commitment[16] | ciphertext | mac[16]`: **82 bytes of header plus a 16-byte
+MAC**, against this schema's 96. Two designs reached the same order of overhead
+independently, which is worth knowing before treating 96 as an aberration.
+
+More instructive is *what* it spends the bytes on. There is **no nonce field at
+all** -- the AEAD nonce is all-zero, which is safe only because a fresh
+ephemeral makes the derived key single-use. So it pays 32 bytes for an
+ephemeral rather than 24 for a nonce, and 32 more to say who is speaking. That
+is a deliberate purchase: **every datagram is self-contained, and no session
+state is required at either end.**
+
+Which is §8's "assume the peer is asleep" honoured at the frame level. Store
+and forward works because a stored datagram needs no live counterpart to make
+sense of it later. A session handle would trade exactly that away: a handle is
+meaningless to a host that has forgotten the session, or never had it, or is
+being handed the message by a relay hours later.
+
+### So it is the same axis, for the fourth time
+
+Self-contained against session-oriented is not a new question here. It is the
+one this document keeps meeting:
+
+| where | fuzzypickles wants | netcfgd wants |
+|---|---|---|
+| local hop (§2) | one encoding both hops | JSON locally, binary remotely |
+| freshness (§4.3) | authority no clock ends | commands that expire |
+| acknowledgement (§12) | survives a sleeping peer | a live exchange |
+| identity per datagram | self-contained, no session | a handshake it already has |
+
+netcfgd is LAN-only, interactive, and already holds per-response reassembly
+state by §4.4 -- a session costs it nothing it is not already paying.
+fuzzypickles is offline-capable by construction and a session costs it the
+property it most needs. **Neither is wrong, and a library that picks one is
+wrong for the other.**
+
+### The shape of the answer, not the answer
+
+**One mechanism serves both, and it is the same mechanism §12's second item
+wanted**: a mode stated in the header, so a frame is either self-contained --
+carrying identity and deriving its key per message -- or session-bound,
+carrying a short handle. That is two candidates converging on one header field,
+which is the first evidence that the field is the right idea rather than a
+preference.
+
+Two things must be settled before it is written, and neither is settled here:
+
+- **A missing field, found by writing the schema.** `frame.situ` has no key or
+  session selector at all. A receiver is given a nonce and a sealed region and
+  no way to know which key opens it. fuzzypickles solves this with
+  `sender_host_pubkey`, which is the same 32 bytes doing double duty as
+  identity and key selector. Whatever replaces `capability[32]` has to answer
+  *both* questions, and noticing that they were one question is the useful part.
+- **Whether the capability belongs on the wire at all.** It is an identifier
+  the receiver must look up regardless, since the chain that proves it is not
+  in the frame. If a session binds the capability at establishment, the
+  per-datagram field is redundant with the handle; if there is no session, the
+  identity field already implies which capabilities that host holds. Either way
+  the honest question is not "how do we make 32 bytes smaller" but **"why is
+  this field here twice."**
+
+## 14. Open, and named rather than left silent
 
 - **`raidcfgd` does not exist.** Two real consumers and one imagined one. Every
   decision above is made from the two that exist; `local/` is the piece most
