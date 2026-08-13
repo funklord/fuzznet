@@ -2,7 +2,7 @@
 //
 // project.md sec 6 settled that this file exists: situ's cryptographic model
 // is built, not planned, so the frame is described and both ends are
-// generated. What is NOT settled is anything sec 11 lists as an open
+// generated. What is NOT settled is anything sec 12 lists as an open
 // candidate, and this file marks those rather than quietly deciding them.
 //
 // The purpose of the first revision is to be MEASURED. sec 9 names the real
@@ -51,7 +51,7 @@ enum fzn_kind : u8 {
 	unit      = 0x01,
 	// One piece of something larger -- see the chunk fields below.
 	chunk     = 0x02,
-	// Acknowledgement, carrying the bitmap. sec 11's open question is
+	// Acknowledgement, carrying the bitmap. sec 12's open question is
 	// whether this should be a kind at all or a policy the header states;
 	// it is a kind here because that is what can be measured today.
 	ack       = 0x03,
@@ -149,7 +149,7 @@ struct fzn_head {
 	// have kilobytes" expressed where the compiler can enforce it.
 	//
 	// 1024 is a placeholder chosen to be smaller than any plausible MTU.
-	// The 2018 generation picked 512 (sec 11); the real number wants
+	// The 2018 generation picked 512 (sec 12); the real number wants
 	// measuring against netcfgd's largest chunk.
 	u16  length   [max = 1024];
 }
