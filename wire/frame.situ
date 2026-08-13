@@ -225,8 +225,17 @@ require in_place_dirty(fzn_frame.head.expires_at);
 // the first schema to use it. A relation is a pure predicate over exactly two
 // views -- it holds no state, allocates nothing, and does not know which
 // frames exist -- so the CALLER owns the pairing and this only answers
-// whether a pairing is well-formed. That is the right division: the
-// reassembly table is sec 4.4's state machine and stays this library's own.
+// whether a pairing is well-formed.
+//
+// That is a property of THIS rung and not the shape of the ladder. An
+// earlier revision of this comment drew the general conclusion that "the
+// reassembly table is sec 4.4's state machine and stays this library's
+// own", and project.md sec 6 records that as wrong: the rungs above are
+// defined by exactly the state a relation refuses -- `frame` may hold bytes
+// between calls, `converse` may hold messages between calls, and `drive`
+// sends, retransmits and times out. Who owns sec 4.4's reassembly is a
+// `--layer` choice that sec 7a leaves open, and is not this comment's to
+// settle.
 
 // THE ONE THAT MATTERS, and it is a security property rather than tidiness.
 //

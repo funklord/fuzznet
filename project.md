@@ -802,7 +802,7 @@ alternative failure.
 
 **Nothing is built.** This document, a `code-style.md` copied from the global
 source, the shared `style_gate.py` and `commit-msg`, a `Makefile` with `style`
-and `hooks`, and a `VERSION`. `make style` passes over six files.
+and `hooks`, and a `VERSION`. `make style` passes over seven files.
 
 The reading that produced it, in the order worth repeating:
 
