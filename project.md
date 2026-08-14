@@ -59,10 +59,10 @@ least one consumer cannot adopt.
 
 | | fuzzypickles | netcfgd | raidcfgd |
 |---|---|---|---|
-| local encoding | the core's canonical binary wire, one parser for local and remote | newline-delimited JSON | undecided; does not exist |
-| local transport | `AF_UNIX` `SOCK_SEQPACKET` | `AF_UNIX` stream, line-delimited | undecided |
-| local authentication | filesystem permissions, owner-only, same user | the kernel, before a byte is parsed | must be group-gated |
-| already built | yes | yes, specified and pinned by a generated witness, implemented three times | no |
+| local encoding | the core's canonical binary wire, one parser for local and remote | newline-delimited JSON | newline-delimited JSON, as netcfgd's |
+| local transport | `AF_UNIX` `SOCK_SEQPACKET` | `AF_UNIX` stream, line-delimited | `AF_UNIX` `SOCK_STREAM`, as netcfgd's |
+| local authentication | filesystem permissions, owner-only, same user | the kernel, before a byte is parsed | must be group-gated, and see the hazard below |
+| already built | yes | yes, specified and pinned by a generated witness, implemented three times | the project exists; the socket does not |
 
 Two consumers already have a local hop, they disagree about its encoding, and
 **both disagreements are load-bearing rather than accidental**:
@@ -98,15 +98,48 @@ A daemon running as root and serving a group needs `SO_PEERCRED` /
 `SCM_CREDENTIALS` and a real gid check.
 
 It ships as an **optional module** (`fuzznet_local`, §8) rather than as part
-of the core, and the reason is the risk netcfgd's brief names precisely:
-**raidcfgd does not exist.** Of the three consumers of a group-gated local
-socket, one has declined it, one would have to migrate an existing working
-socket to gain it, and the third is imagined. An imagined consumer's
-requirements are exactly the kind that turn out wrong after an API is fixed.
+of the core. The original reason was the risk netcfgd's brief named
+precisely: raidcfgd did not exist, and an imagined consumer's requirements
+are exactly the kind that turn out wrong after an API is fixed.
 
-So the local module is written, and it is written *last*, against a real
-raidcfgd rather than a hypothetical one. Everything in §4 is needed by two
-real consumers today.
+**That premise expired on 2026-08-14. raidcfgd exists** -- 114 tracked
+files, its own remote, in `CLAUDE.md`'s private-project list, reading HP
+Smart Array controllers through four backends. Verified here rather than
+taken on report. Its `project.md` states its half at commit `7c79281`, and
+netcfgd's `docs/shared-protocol-brief.md` line 300 -- "no repository, no
+directory, and it is not in the private-project list" -- is false with it.
+
+Two cells of the table above were "undecided; does not exist" and are now
+netcfgd's answers, by the copyright holder's instruction that the two are
+sister projects working in almost the same way: `AF_UNIX` `SOCK_STREAM`,
+newline-delimited JSON, a socket under `/run`, request/response on a held
+connection with a `monitor` that turns one into a one-way stream and never
+goes back.
+
+#### The hazard raidcfgd states, which `local/` has to answer
+
+**A group that can destroy arrays IS root for that group** -- the lesson of
+the docker group, and raidcfgd's words rather than an inference from them.
+
+The consequence is that **a gid check gating the connection is not
+sufficient**, and this is the part `local/` cannot simply implement and
+call done. If membership admits a caller and nothing bounds what the caller
+may then ask for, the group boundary is a root boundary wearing a different
+name. Where that bound lives -- in this module, or in the consumer's command
+vocabulary -- is open; that it must exist somewhere is not, at raidcfgd's
+end. Their two existing privileged helpers are deliberately the opposite
+shape, each refusing all arguments and doing exactly one read-only thing, so
+this is a position that project already holds rather than a new demand.
+
+It is theoretical while raidcfgd is read-only, which it will be for a long
+time by their own deferral of destructive commands. **It stops being
+theoretical the moment a write verb exists**, and that is the moment to have
+already answered it rather than the moment to start.
+
+So the local module is still written *last* -- §10 step 7 -- but it is now
+last against something real, which is what §2 asked for. Everything in §4 is
+needed by two real consumers today; `local/` is needed by a third that has
+stopped being hypothetical.
 
 **Rejected: one library, one encoding, both hops.** It is the shape somebody
 will propose again, so the reason is recorded rather than left to be
