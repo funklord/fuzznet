@@ -135,9 +135,31 @@ it here.
 
 ## 3. Filenames
 
-Lowercase and `snake_case` for everything the project names itself --
-sources, headers, documentation. So `main_window.cpp`, not
-`MainWindow.cpp`.
+**Lowercase, always**, for everything the project names itself. So
+`main_window.cpp`, not `MainWindow.cpp`.
+
+**The separator follows what the name binds to**, and the two cases are a
+technical difference rather than a matter of taste:
+
+- **`snake_case` where the filename becomes an identifier** -- a source
+  file, a header, a module. `desired_state.rs` *is* the module
+  `desired_state`, and `desired-state.rs` cannot be a module at all,
+  because a hyphen is not legal in a Rust path; Python imports are the
+  same. That is the language's requirement wearing a convention's
+  clothes, and it is not negotiable where it applies.
+- **`kebab-case` for prose** -- documentation, design notes, decision
+  records. Nothing imports `code-style.md`, so no identifier is at stake,
+  and kebab-case is what markdown and URLs settled on long ago.
+
+This rule used to say `snake_case` for documentation too, and every
+private project was quietly ignoring it -- including this one. Measured
+across all fourteen trees before it was rewritten: of 197 tracked markdown
+basenames, 174 are kebab-case, 19 are a single word with no separator to
+argue about, and four carry an underscore. Three of those four are SHOUTY
+and break the lowercase half regardless of separator, which leaves exactly
+one genuine counter-example in the workspace. Every file in this
+guidelines directory was already kebab-case, so the rule as written was
+one its own document broke.
 
 Settled exceptions:
 
@@ -146,7 +168,9 @@ Settled exceptions:
 - **Root files with an established convention** -- `README.md`, `LICENSE`,
   `CHANGELOG.md`, `AUTHORS`.
 - **Package-system spellings** -- kebab-case where Cargo or Debian require
-  it.
+  it. That is now the same spelling prose uses, so a crate directory and
+  the design note beside it agree by construction rather than by
+  coincidence.
 
 ## ASCII in source
 
