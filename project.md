@@ -1792,11 +1792,20 @@ Two things must be settled before it is written, and neither is settled here:
   open. It is theoretical while raidcfgd is read-only and stops being so
   the moment a write verb exists; that signal is recorded as an obligation
   at their end.
-- **`local/peer_linux.c` has no test and no coverage**, because it is the
-  system half and a test would need a socket and a cooperating process. It
-  holds no decisions -- that is what the split is for -- but "holds no
-  decisions" is an assertion about a file nothing exercises, and it should
-  be read as one.
+- **One check in `peer_linux_test` cannot discriminate on this machine.**
+  A Debian-style user has uid == gid == 1000 -- the same fact that makes
+  `SO_PEERCRED`'s primary gid useless for gating, and the reason `local/`
+  exists -- so filling `primary_gid` from `cred.uid` instead of `cred.gid`
+  produces identical output. That sabotage was run and **was not caught**,
+  and no test written here could catch it. The check stays, because it
+  discriminates wherever the two differ; it must not be counted as evidence
+  where they do not, and the test says so at run time rather than leaving a
+  reader to assume otherwise.
+
+  The previous entry here said `peer_linux.c` needed "a socket and a
+  cooperating process" and was **wrong about the second**: a socketpair has
+  both ends in one process, so `SO_PEERCRED` reports us. It is tested now,
+  against `getgroups()` and `getuid()` rather than against itself.
 - **The revocation store only grows.** Nothing in it expires or may be
   evicted, so it is the one bound in this library a long-lived deployment
   can grow into, and its refusal fails open. Sizing it needs a number

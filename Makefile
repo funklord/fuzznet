@@ -72,7 +72,7 @@ TEST_SRCS := chain/tests/chain_test.c chain/tests/revocation_test.c \
              frame/tests/freshness_test.c \
              chunk/tests/reassembly_test.c chunk/tests/split_test.c \
              session/tests/commitment_test.c local/tests/peer_test.c \
-             local/tests/peer_fuzz.c \
+             local/tests/peer_fuzz.c local/tests/peer_linux_test.c \
              chunk/tests/reassembly_fuzz.c chain/tests/chain_fuzz.c \
              frame/tests/freshness_fuzz.c chain/tests/revocation_fuzz.c \
              chunk/tests/roundtrip_fuzz.c
@@ -83,6 +83,7 @@ TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test \
              $(BUILD_DIR)/session/tests/commitment_test \
              $(BUILD_DIR)/local/tests/peer_test \
              $(BUILD_DIR)/local/tests/peer_fuzz \
+             $(BUILD_DIR)/local/tests/peer_linux_test \
              $(BUILD_DIR)/chunk/tests/reassembly_test \
              $(BUILD_DIR)/chunk/tests/split_test \
              $(BUILD_DIR)/chunk/tests/reassembly_fuzz \
@@ -247,6 +248,14 @@ $(BUILD_DIR)/local/tests/peer_test: $(BUILD_DIR)/local/tests/peer_test.o \
 
 $(BUILD_DIR)/local/tests/peer_fuzz: $(BUILD_DIR)/local/tests/peer_fuzz.o \
                                     $(BUILD_DIR)/local/peer.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# The one test that links the system half. It needs no cooperating
+# process: a socketpair has both ends here, so SO_PEERCRED reports us.
+$(BUILD_DIR)/local/tests/peer_linux_test: $(BUILD_DIR)/local/tests/peer_linux_test.o \
+                                          $(BUILD_DIR)/local/peer.o \
+                                          $(BUILD_DIR)/local/peer_linux.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
