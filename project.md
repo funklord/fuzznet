@@ -675,11 +675,11 @@ raised.
 
 What that changes here:
 
-- **§4.4's chunking state machine may stop being ours.** It was assigned to
-  this library because situ described messages and not protocols. Rungs
-  `frame` and `drive` are exactly that work. Whether we consume them or write
-  our own becomes a real choice at §10 step 5, and it should be made then,
-  against something built, rather than assumed now in either direction.
+- **§4.4's chunking state machine does not stop being ours** (measured
+  2026-08-14; this bullet said "may stop being ours" until then). Rungs
+  `frame` and `drive` are not that work: rung 4 is *stream* framing, and no
+  rung emits datagram reassembly at all. The choice this bullet deferred to
+  §10 step 5 has been made by measurement instead, and `chunk/` is built.
 - **§12's ack bitmap is a `converse`-or-`drive` question**, not a permanent
   exclusion. The store that 0030 could not have is precisely what rung 5 adds.
 - **fuzzypickles is a rung-2 consumer**, per 0031: its 225 call sites hold
@@ -976,8 +976,23 @@ few-thousand-line library where the dynamic-linking argument buys nothing.
 
 ## 7a. What is left of this library once situ generates the scheduler
 
-**situ will generate the entire networking scheduler**, and a consumer chooses
-how much with `--layer`. That is not a possibility to plan around; it is the
+**situ generates a networking scheduler for a schema it can reach, and
+cannot reach this one** (measured 2026-08-14 — see §10 step 4). The claim
+below, that it "will generate the entire networking scheduler", was taken
+from decisions 0032 and 0033 and never checked against what `situc` emits
+for `wire/frame.situ`. It emits, at every rung above `view`, the same bytes
+plus a stream reader.
+
+The general claim is not false — a schema whose relations compare scalars
+and carry a `[timeout_ms, retries]` policy does get a driver, and that was
+measured too. What was never measured is that **this** frame reaches it, and
+it does not: a sealed region whose size the data decides has no owned form,
+and relations comparing a 32-byte key emit no predicate, so there is no
+table and no driver.
+
+Kept below rather than deleted, because the reasoning it supported is
+recorded around it and the correction is more useful attached to the claim
+than in place of it. **A consumer chooses how much with `--layer`** That is not a possibility to plan around; it is the
 stated direction, and decision 0033 names the test behind it -- *remove code
 from other network projects generically and efficiently*. An `epoll` loop is
 "exactly the eighty lines three projects each hand-write, and exactly the kind
@@ -1371,8 +1386,27 @@ cheap to change now and will not stay cheap.
    what a bridge needs to read a frame, and everything this library adds on
    top -- the capability model, freshness, reassembly -- is already built and
    sits above that line.
-5. **netcfgd's `agent/`** becomes the first real consumer — it does not exist
-   yet, which is the whole of the timing benefit.
+5. **netcfgd's `agent/`** was named the first real consumer. **It does not
+   exist, and whether it will is undecided** — reported by the netcfgd
+   session 2026-08-14 and verified here: no directory, no tracked files, a
+   layout entry at `project.md:478` and a design in
+   `docs/remote-access-feasibility.md`. Their `project.md:2512` records
+   "whether `agent/` exists at all is a separate open question", above a
+   further one about whether it would ship in netcfgd's packages, framed as
+   a question about exposing a network service.
+
+   This step used to say "it does not exist yet, which is the whole of the
+   timing benefit", and that framing is wrong in a way worth keeping
+   visible: it treats non-existence as **scheduling**. The timing benefit is
+   real — nothing regresses if the API turns out wrong — but it only holds
+   for a consumer that is coming. For one whose existence is open, "first
+   real consumer" is a phrase carrying weight it has not earned, and steps 6
+   and 7 are sequenced behind it.
+
+   **So the ordering below is no longer a queue.** `local/` is step 7 and
+   waits on raidcfgd's vocabulary bound, not on this; fuzzypickles' step 6
+   is its own deliberate work. Neither should be read as waiting for an
+   agent that may not be written.
 6. **fuzzypickles migrates**, as separate deliberate work, at rung 2 with
    `--owned` (0031).
 7. **`local/`**, when raidcfgd exists and can say what it needs.
