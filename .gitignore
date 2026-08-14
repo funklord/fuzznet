@@ -21,6 +21,7 @@
 /chain/tests/chain_fuzz
 /frame/tests/freshness_fuzz
 /chain/tests/revocation_fuzz
+/chunk/tests/roundtrip_fuzz
 
 # An out-of-tree build, if BUILD_DIR names one.
 /build/

@@ -1097,7 +1097,7 @@ alternative failure.
 is.**
 Alongside them: this document, `wire/frame.situ`, a `code-style.md` copied
 from the global source, the shared `style_gate.py` and `commit-msg`, and a
-`VERSION`. `make style` passes over twenty-nine files.
+`VERSION`. `make style` passes over thirty-two files.
 
 Both are the pieces §7a assigns to this library rather than to situ, which is
 also why they were buildable while §10 steps 2 and 4 are stuck: neither needs
@@ -1221,6 +1221,38 @@ fresh command meeting a full window) always swept before the capacity check.
 But `fzn_replay_expire` is exported precisely so a quiet receiver can hand
 memory back, and a header claim that is only usually true is the kind that
 gets relied on. The sweep moved above the early returns.
+
+### The round-trip harness, over permutations rather than a list
+
+`chunk/tests/roundtrip_fuzz` is the only harness that holds two modules to
+each other. Split and reassemble are the one coupling in this library that
+can fail while both halves pass their own suites, and it was covered by ten
+hand-picked sizes in `split_test` — the thinnest evidence in the tree for
+the strongest coupling in it.
+
+It draws the message length and the per-datagram limit from the input, so
+the edges nobody thinks to write are reached by exhaustion rather than by
+imagination, and it offers the pieces in an input-driven permutation. **The
+model is a prediction rather than a re-derivation**: reassembly legitimately
+*refuses* some orders, since a short last piece cannot set the stride, so a
+harness treating every refusal as failure would be wrong and one treating
+every refusal as fine would notice nothing. It predicts from the permutation
+alone that a message completes exactly when the first piece offered is not
+the last index of a multi-piece message, and holds the outcome to that in
+both directions.
+
+Four of five planted bugs are caught, and the fifth is honestly outside its
+reach: giving a single-piece plan a stride from `max_payload` changes only
+`buffer_needed`, not the piece boundaries, so the round trip cannot see it
+and `split_test` does.
+
+**One of those five was reported as not found and was not tested at all.**
+The sabotage runner verified that the binary rebuilt, but restoring the
+original sources touches their timestamps, so `make` rebuilds whether or not
+the mutation applied — and that one had not. Every sabotage now compares the
+*source* hash before and after as well as the binary's. It is the same
+failure as the stale-binary one recorded above, one level up: the check that
+a check ran was itself unable to fail.
 
 ### The revocation harness is model-based, and that is the difference
 

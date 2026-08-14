@@ -70,7 +70,8 @@ TEST_SRCS := chain/tests/chain_test.c chain/tests/revocation_test.c \
              frame/tests/freshness_test.c \
              chunk/tests/reassembly_test.c chunk/tests/split_test.c \
              chunk/tests/reassembly_fuzz.c chain/tests/chain_fuzz.c \
-             frame/tests/freshness_fuzz.c chain/tests/revocation_fuzz.c
+             frame/tests/freshness_fuzz.c chain/tests/revocation_fuzz.c \
+             chunk/tests/roundtrip_fuzz.c
 TEST_OBJS := $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
 TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test \
              $(BUILD_DIR)/chain/tests/revocation_test \
@@ -80,7 +81,8 @@ TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test \
              $(BUILD_DIR)/chunk/tests/reassembly_fuzz \
              $(BUILD_DIR)/chain/tests/chain_fuzz \
              $(BUILD_DIR)/frame/tests/freshness_fuzz \
-             $(BUILD_DIR)/chain/tests/revocation_fuzz
+             $(BUILD_DIR)/chain/tests/revocation_fuzz \
+             $(BUILD_DIR)/chunk/tests/roundtrip_fuzz
 
 # The Monocypher binding, built only when MONOCYPHER_DIR names a checkout.
 #
@@ -198,6 +200,14 @@ $(BUILD_DIR)/chain/tests/revocation_fuzz: $(BUILD_DIR)/chain/tests/revocation_fu
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# Links both halves, like split_test: this binary is what holds the
+# splitter and the reassembler to the same contract over permutations.
+$(BUILD_DIR)/chunk/tests/roundtrip_fuzz: $(BUILD_DIR)/chunk/tests/roundtrip_fuzz.o \
+                                         $(BUILD_DIR)/chunk/split.o \
+                                         $(BUILD_DIR)/chunk/reassembly.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # Tests are built by this target and only by it, so a claim that a test
 # passes or fails always goes through a rebuild. Re-running a stale binary
 # after a plain build appears to pass either way.
@@ -209,7 +219,8 @@ CASES ?= 200000
 FUZZ_BINS := $(BUILD_DIR)/chunk/tests/reassembly_fuzz \
              $(BUILD_DIR)/chain/tests/chain_fuzz \
              $(BUILD_DIR)/frame/tests/freshness_fuzz \
-             $(BUILD_DIR)/chain/tests/revocation_fuzz
+             $(BUILD_DIR)/chain/tests/revocation_fuzz \
+             $(BUILD_DIR)/chunk/tests/roundtrip_fuzz
 
 fuzz: $(FUZZ_BINS)
 	@for f in $(FUZZ_BINS); do echo "== $$f $(CASES)"; $$f $(CASES) || exit 1; done
