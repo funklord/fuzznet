@@ -119,6 +119,32 @@ struct fzn_head {
 	// negotiated per session.
 	u8   nonce[24]  [nonce];
 
+	// KEY COMMITMENT. sec 4.4a says key-committing AEAD is not optional,
+	// and XChaCha20-Poly1305 as Monocypher provides it is not key-
+	// committing: a ciphertext can be made to open under two different
+	// keys, so an attacker who controls one of them can make one frame
+	// mean two things to two recipients.
+	//
+	// The fix is the one fuzzypickles already ships and this family has
+	// reviewed: derive 48 bytes from ONE hash over the key transcript --
+	// 32 for the AEAD key and 16 for this -- and carry the 16 here.
+	// A receiver derives both, compares this, and refuses on mismatch.
+	// Deriving them together is what makes the commitment bind the key
+	// rather than merely accompany it.
+	//
+	// IN THE AUTHENTICATED HEADER RATHER THAN INSIDE THE SEAL, and that
+	// placement is the whole point rather than a layout preference. The
+	// commitment exists to be checked BEFORE a decryption is spent; inside
+	// the seal it could only be checked after, which is the cost it was
+	// added to avoid, and it would be unreadable to a receiver holding the
+	// wrong key -- which is exactly the receiver it has to warn.
+	//
+	// It costs 16 bytes on every datagram, and sec 13 is separately
+	// arguing about the 32 that `capability` used to cost out here. That
+	// argument is now harder, not easier, and this comment is not the
+	// place to pretend otherwise: the two want settling together.
+	u8   commitment[16];
+
 	// Reassembly, sec 4.4. A message is identified by `msg`, and a chunk by
 	// its index within it. `chunks` is the total, so a receiver can size its
 	// reassembly buffer from the FIRST piece to arrive rather than

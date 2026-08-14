@@ -307,26 +307,22 @@ sealed{capability, payload} | tag[16]`, and none of those is a commitment.
 So the schema §6 settled cannot carry what §4.4a requires by the route §4.5
 names.
 
-Three ways out, and choosing between them is a wire decision rather than an
-implementation one:
+**Settled: `commitment[16]` goes in the authenticated header.** Two other
+routes were considered and are recorded so they are not relitigated -- a
+committing construction needing no wire field, such as replacing the tag
+with a hash over key, nonce, associated data and tag, which costs nothing on
+the wire but is not the construction this family has reviewed and shipped;
+and committing inside the extern codec, which cannot be assessed until
+situ's sealed-region ABI is exercisable.
 
-- **Add a `commitment[16]` to the authenticated header.** Costs 16 bytes on
-  a frame §13 is already arguing about — 96 bytes of overhead, of which §13
-  is trying to reclaim 32. It would make that argument harder rather than
-  settle it.
-- **Use a committing construction that needs no extra field**, such as
-  replacing the tag with a hash over key, nonce, associated data and tag.
-  Costs nothing on the wire and is a different construction from the one
-  this family has already reviewed and shipped.
-- **Decide the requirement is met at the seam rather than in the frame**, if
-  the extern codec can commit internally once situ's sealed-region ABI is
-  known.
+The field is **in the authenticated header rather than inside the seal**,
+and that is the point rather than a layout preference: the commitment exists
+to be checked *before* a decryption is spent, and inside the seal it could
+only be checked after. It would also be unreadable to a receiver holding the
+wrong key, which is exactly the receiver it has to warn.
 
-**Not chosen here.** Writing the codec against an unsettled construction
-would be security-critical code resting on a guess, and the one check that
-would catch a wrong guess -- generating situ's caller and compiling against
-it -- is what the `situc build` refusal blocks. So the codec is unwritten on
-purpose and this is why.
+What remains before the codec can be written is situ's sealed-region ABI.
+The construction is no longer a guess; the calling convention still is.
 
 **Monocypher**, vendored once here rather than three times. netcfgd had already
 decided C/C++ with Monocypher for its own protocol and agent before this
@@ -667,7 +663,7 @@ visible as open rather than quietly choosing them.
 
 **§10's question is answered: nothing trips.** `require canonical(fzn_frame)`
 passes, no `unbounded-scan` diagnostic appears, and `situc wire` reports
-`size=96..1120` with the tag covering every authenticated and sealed member.
+`size=144..1168` with the tag covering every authenticated and sealed member.
 Unknown enum values are an error rather than a silent pass, which is the right
 default for a format that has to be byte-exact.
 
@@ -680,8 +676,18 @@ a reviewer noticing.
 
 Three findings, and the first is the one that matters:
 
-- **96 bytes of fixed overhead per datagram**, 80 of header and 16 of tag. Of
-  the 75-byte authenticated header, `capability[32]` and `nonce[24]` are 56.
+- **144 bytes of fixed overhead per datagram** (measured 2026-08-14): 5 of
+  hop, 91 of authenticated header, 32 for the sealed `capability`, and 16 of
+  tag. Of the header, `sender[32]`, `nonce[24]` and `commitment[16]` are 72.
+
+  **The 96 this bullet used to record was stale by 32, and had been since
+  `efdb098`.** That commit added `sender[32]` as the key selector and moved
+  `capability[32]` inside the seal; the frame went to 128 and the figure was
+  never re-measured. Worse, the sentence went on describing `capability` as
+  part of the header after it had left. §13 argues from this number, so it
+  was arguing from one a quarter too low -- see there. The commitment added
+  16 on top, which is the only part of the growth this revision is
+  responsible for.
   Against fuzzypickles' §8, "per-frame overhead is the budget that never
   improves", that is a lot -- on the 512-byte datagram the previous generation
   chose (§12), it would
@@ -1512,10 +1518,20 @@ knowing as a floor somebody once chose deliberately.
 
 ## 13. The capability in every datagram, and the axis underneath it
 
-The schema (§6) surfaced 96 bytes of fixed overhead, of which `capability[32]`
-and `nonce[24]` are 56. The obvious fix -- establish the capability once and
-carry a short handle -- is **the wrong first move**, and finding out why
-settles something larger.
+The schema (§6) surfaces **144 bytes of fixed overhead**, of which
+`sender[32]`, `nonce[24]` and `commitment[16]` are 72 in the header and
+`capability[32]` is inside the seal. The obvious fix -- establish the
+capability once and carry a short handle -- is **the wrong first move**, and
+finding out why settles something larger.
+
+**This section was written against 96 and the number was never right.** It
+had been 128 since `efdb098`, and is 144 since the commitment landed (§4.5).
+The correction does not overturn the conclusion below -- fuzzypickles pays
+82 header bytes plus a 16-byte MAC for the same self-contained property, so
+two designs still reach the same order independently -- but it does make the
+cost real: **half again what this argument thought it was weighing**, and
+the case for reclaiming the 32 that `capability` costs is stronger, not
+weaker, than the paragraphs below assume.
 
 ### fuzzypickles already answered this, and chose the expensive side
 
