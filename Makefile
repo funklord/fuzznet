@@ -114,6 +114,12 @@ MONO_OBJS  := $(BUILD_DIR)/chain/sign_monocypher.o \
 MONO_TSRC  := chain/tests/sign_monocypher_test.c \
               session/tests/hash_monocypher_test.c
 MONO_TOBJ  := $(MONO_TSRC:%.c=$(BUILD_DIR)/%.o)
+# Kept in TEST_SRCS as well as TEST_OBJS. Nothing was broken by its absence
+# -- the objects, deps and binaries were all reached through MONO_TOBJ --
+# but TEST_SRCS is the list that reads as "every test source", and one that
+# is quietly incomplete is a trap for whatever asks it next. Found by asking
+# it exactly that question.
+TEST_SRCS  += $(MONO_TSRC)
 MONO_BIN   := $(BUILD_DIR)/chain/tests/sign_monocypher_test
 MONO_HASH  := $(BUILD_DIR)/session/tests/hash_monocypher_test
 OBJS       += $(MONO_OBJS)
