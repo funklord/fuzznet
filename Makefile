@@ -1,16 +1,72 @@
 # fuzznet -- the shared authenticated datagram protocol.
 #
-# No sources yet: project.md sec 9 puts a `situ` evaluation before anything is
-# hand-written, so a build rule now would be a rule for code whose shape is
-# still an open question. What exists today is the gate and the hooks, which
-# are the two things every private project has from its first commit.
+# project.md sec 10 step 3 makes chain/ the first real code: sec 7a gave most
+# of sec 4 to situ once the layer ladder arrived, and the capability model is
+# what stayed ours, being semantics rather than layout or transport.
+#
+# There is deliberately NO archive rule. project.md sec 7 has consumers
+# compiling these sources into their own objects, with their own flags --
+# fuzzypickles cross-compiles for Android and builds sanitized, netcfgd's
+# agent is an ordinary host binary, and a prebuilt .a serves neither.
+# build-and-commit.md says not to add an archive step without a specific
+# need, and the need this would answer is one nobody has.
 
 BUILD_DIR ?= .
+CC        ?= cc
+DESTDIR   ?=
+PREFIX    ?= /usr/local
 
-.PHONY: all style hooks clean
+# -Os because that is the workspace default and this library is aimed at
+# routers and phones: it is the instruction cache that is scarce here, not
+# the arithmetic. -Og when debugging, deliberately and temporarily.
+CFLAGS  ?= -Os -g
+CFLAGS  += -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion \
+           -Wstrict-prototypes -Wvla
+CPPFLAGS += -MMD -MP
 
-all:
-	@echo "fuzznet: nothing to build yet -- see project.md sec 9 for the order"
+SRCS      := chain/chain.c
+OBJS      := $(SRCS:%.c=$(BUILD_DIR)/%.o)
+HDRS      := chain/chain.h
+
+TEST_SRCS := chain/tests/chain_test.c
+TEST_OBJS := $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
+TEST_BIN  := $(BUILD_DIR)/chain/tests/chain_test
+
+# Every -MMD file is read back, TEST OBJECTS INCLUDED. build-and-commit.md
+# names that omission specifically: a test object whose .d is never included
+# does not rebuild when a header it includes changes, so a struct that gains
+# a field ends up with one layout in the library and another in the binary
+# linked against it -- which surfaces as a pile of nonsense assertion
+# failures rather than as a build error.
+DEPS := $(OBJS:.o=.d) $(TEST_OBJS:.o=.d)
+
+.PHONY: all test style hooks clean install
+
+# The default build does NOT build tests -- build-and-commit.md, and the
+# discipline it buys is paid for by the dependency rules above being right.
+all: $(OBJS)
+
+$(BUILD_DIR)/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
+
+$(TEST_BIN): $(TEST_OBJS) $(OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# Tests are built by this target and only by it, so a claim that a test
+# passes or fails always goes through a rebuild. Re-running a stale binary
+# after a plain build appears to pass either way.
+test: $(TEST_BIN)
+	$(TEST_BIN)
+
+# Not bare. A bare `.SECONDARY:` applies to every target matched by any
+# pattern rule, silently including the object pattern above, and make does
+# not rebuild a MISSING secondary when the thing depending on it already
+# exists -- so adding a source would leave the build unchanged and every
+# symbol in it undefined at link time. It exists to stop test objects being
+# deleted as intermediates, so it names exactly those.
+.SECONDARY: $(TEST_OBJS)
 
 # The indentation, whitespace and ASCII gate. One tool, spread verbatim from
 # ~/.claude/tools/style_gate.py; .style-gate.toml says which files here it
@@ -25,8 +81,24 @@ hooks:
 	@install -m 0755 tools/hooks/commit-msg .git/hooks/commit-msg
 	@echo "installed .git/hooks/commit-msg"
 
-# Deletes named targets only, and lists them. There is nothing to remove yet,
-# and this says so rather than sweeping a directory -- a clean target is the
-# one thing everybody runs without reading.
+# Headers only. project.md sec 7 is explicit that this is not a system
+# package and not a shared library -- a .so would put wire compatibility in
+# the hands of whatever the distribution shipped, which is the failure a
+# pinned submodule commit exists to prevent. DESTDIR is honoured because
+# dh_auto_install calls it, and every private project honours it.
+install: $(HDRS)
+	@install -d $(DESTDIR)$(PREFIX)/include/fuzznet/chain
+	@install -m 0644 chain/chain.h $(DESTDIR)$(PREFIX)/include/fuzznet/chain/chain.h
+	@echo "installed $(DESTDIR)$(PREFIX)/include/fuzznet/chain/chain.h"
+
+# Named targets only, and it lists them. No rm -rf of a directory and no
+# wildcard sweep: a clean target is the one thing everybody runs without
+# reading, and an unset variable in an `rm -rf $(VAR)` is how one eats
+# something it should not.
 clean:
-	@echo "fuzznet: nothing built, so nothing to remove"
+	@for f in $(OBJS) $(TEST_OBJS) $(DEPS) $(TEST_BIN); do \
+		if [ -e "$$f" ]; then echo "removing $$f"; rm -f "$$f"; fi; \
+	done
+	@echo "fuzznet: clean"
+
+-include $(DEPS)

@@ -449,11 +449,16 @@ That lookup is a store, and the store is the boundary gone.
   The parser rejected the keyword on 2026-08-08 morning; by that evening
   `situc` parsed and *checked* one -- a relation naming a field that does not
   exist is refused, with the parameter and its type named. The **emitter** is
-  phase 26.95, status not started, and `--layer` is not yet a `situc` flag. So
+  phase 26.95, status not started. So
   a schema may declare relations today and have them validated, and no code
   comes out yet. Distinguishing those took one command, which is the
   designed-versus-built property this library asked situ to keep and is
   getting.
+
+  **`--layer` is a `situc` flag now** (measured 2026-08-14), accepting
+  `view`, `edit`, `relate`, `frame`, `converse` and `drive`. An earlier
+  revision of this line said it was not, and §10 step 4 is the decision that
+  was waiting on it.
 - **The acknowledgement case is excluded from a *relation*, which is narrower
   than it first looked.** "An ack names a sequence that was actually sent"
   quantifies over the set of messages sent, needing a store with insertion and
@@ -629,6 +634,35 @@ between them. A suggestion whose cost model does not match the usage is the
 same shape as a gate that cannot model what it checks -- understand it before
 obeying it.
 
+### Measured 2026-08-14: the schema checks, and does not build
+
+**`situc build` refuses `wire/frame.situ`**, and the whole cause is one line:
+`[max = chunks - 1]` on `head.index` is rejected as "not a compile-time
+constant". Substitute a literal and the same command emits C. So **no code
+can be generated from this schema today**, which is a different state from
+the one this section has been describing.
+
+Nothing above is retracted, because everything above was measured with the
+commands it names -- `situc wire`, `situc map` and `situc advise` all still
+pass, `require canonical` still holds, and no `unbounded-scan` diagnostic
+appears. **`situc build` was simply never run.** This family's own recurring
+failure, met from the inside: a passing check cited as evidence for a
+property it does not cover. Worth recording as that rather than as a bug
+found in somebody else's compiler.
+
+Whose defect it is is a real question and is not settled here. The bound was
+added deliberately -- decision 0030 is what prompted it, and the miscount it
+corrected is recorded above -- `situc wire` reports it as part of the
+committed contract, and `situc build` rejects it. **Two commands in one
+compiler disagree about whether the construct is legal.** That is a finding
+to take to situ with its reproduction, on the terms
+`situ/suggestions/fuzznet.md` sets out, rather than a reason to quietly drop
+the bound and lose the check it buys.
+
+It also decides what `chain/` could be built against, and did (§10 step 3):
+the capability model needs no generated code, because §7a already assigned
+it to this library as semantics rather than layout.
+
 ---
 
 ## 7. How a consumer gets this, and how it links
@@ -776,11 +810,26 @@ hand-written transport and situ is generating most of it (§7a). Steps 2, 4 and
    sealed region is a placeholder; netcfgd's largest chunk decides it, and the
    96-to-128-byte overhead question in §13 wants settling before anything is
    generated from it twice.
-3. **`chain/`** — the capability and identity model. **This is now the first
-   real code**, and it stayed ours throughout every scope change because it is
-   semantics rather than layout or transport. fuzzypickles' `identity.c` and
-   `capability.c` are the working implementation and netcfgd's most-wanted
-   piece.
+3. ~~**`chain/`** — the capability and identity model~~ **verification is
+   built** (2026-08-14). It stayed ours throughout every scope change because
+   it is semantics rather than layout or transport, and that is exactly what
+   let it go first while step 2 is blocked: `chain/chain.c` parses no bytes.
+   It is handed hops somebody else decoded and answers whether they authorise
+   a grantee for a capability under a pinned root, now. fuzzypickles'
+   `identity.c` and `capability.c` were the reference.
+
+   Three things it does differently from that reference, each because this
+   document says so: the root is **pinned rather than adopted** (§4.2), with
+   no nullable-root variant, since fuzzypickles needs a TOFU bootstrap and
+   this library has no such path; a capability is **32 opaque bytes**, never a
+   typed enum, because netcfgd's three are independent rather than a ladder;
+   and **nothing reads a clock** — `now` is a parameter.
+
+   Signature verification is a caller-supplied vtable, which is the same
+   extern-codec boundary §6 uses for Monocypher and is what makes the whole
+   module testable before anything is vendored. **What remains for step 3 is
+   identity**: minting and delegation, and the Monocypher binding behind that
+   seam.
 4. **Decide the rung, and say when.** `--layer view` today; `relate` is
    checkable now and emits nothing yet; `frame`, `converse` and `drive` are
    scheduled and unstarted. This is the sequencing question §7a names and it
@@ -818,9 +867,28 @@ alternative failure.
 
 ## 11. Where this is, for whoever picks it up
 
-**Nothing is built.** This document, a `code-style.md` copied from the global
-source, the shared `style_gate.py` and `commit-msg`, a `Makefile` with `style`
-and `hooks`, and a `VERSION`. `make style` passes over seven files.
+**`chain/` is built and tested; nothing else is.** Alongside it: this
+document, `wire/frame.situ`, a `code-style.md` copied from the global source,
+the shared `style_gate.py` and `commit-msg`, and a `VERSION`. `make style`
+passes over ten files.
+
+`make` builds `chain/chain.o` and nothing else — the default target does not
+build tests, per `build-and-commit.md`. `make test` builds and runs
+`chain/tests/chain_test`, which is 39 checks over a stub verifier and an
+injected clock, so there is nothing in it that can pass on a quiet machine
+and fail on a loaded one.
+
+**The suite was checked by breaking the code, not by watching it pass.** Four
+sabotages, each rebuilt through `make test` rather than re-running a stale
+binary: removing the root pinning, narrowing revocation to the last hop
+alone, dropping expiry enforcement, and verifying signatures before the
+structural checks. All four were caught, the last of them by the call-count
+assertions that exist to hold that ordering claim to something. The suite
+also carries an explicit positive control, since a `fzn_chain_verify` that
+refused everything would satisfy almost every other case in it.
+
+There is no archive rule and there will not be one without a specific need
+(§7, and `build-and-commit.md`).
 
 The reading that produced it, in the order worth repeating:
 
@@ -1007,3 +1075,16 @@ Two things must be settled before it is written, and neither is settled here:
 - **Whether `chunk/` belongs in the core at all**, or is a layer a consumer
   opts into. It is in the core because netcfgd cannot function without it, but
   fuzzypickles will not use it — its own transfers are content-addressed.
+- **§4.3's second bullet is ambiguous, and `chain/` had to pick a reading.**
+  It says a grant's expiry is optional and defaults to absent, and then that
+  "an expired or absent expiry never withdraws authority — only a revocation
+  does". Read literally, a *set* expiry is unenforceable and the field is
+  pointless. Read as being about the **default** — that none is imposed where
+  none was asked for — it agrees with §4.2's named reference implementation,
+  which enforces a hop's expiry when one is set.
+
+  `chain/chain.c` implements the second reading and fails closed, which is
+  the safer direction for a library that reconfigures infrastructure (§4.4a),
+  and `chain.h` says so at the point of decision. **Flagged rather than
+  settled**: this document wins over the code, so if the first reading was
+  meant, the code is wrong and not the sentence.

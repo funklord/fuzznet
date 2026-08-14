@@ -1,0 +1,20 @@
+# Build output. BUILD_DIR defaults to `.`, so objects and dependency files
+# land beside their sources -- the in-place default `build-and-commit.md`
+# asks for -- and an out-of-tree BUILD_DIR puts them under whatever it names.
+#
+# These patterns are what a build produces and nothing else. `make clean`
+# removes the same files BY NAME and lists them; this only keeps them out of
+# `git status`, so that an untracked file there is somebody's work rather
+# than a leftover object.
+*.o
+*.d
+
+# The test binary. Named rather than globbed, because a pattern here would
+# also hide a source file somebody adds under that name by mistake.
+/chain/tests/chain_test
+
+# An out-of-tree build, if BUILD_DIR names one.
+/build/
+
+# Python's, from running tools/style_gate.py.
+__pycache__/
