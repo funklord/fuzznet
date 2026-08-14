@@ -46,10 +46,11 @@ CFLAGS  ?= -Os -g
 # and mixing them produces a link nobody can explain.
 SANITIZE ?=
 ifeq ($(SANITIZE),1)
+# Replaces the optimisation and adds the instrumentation. The warning flags
+# are NOT repeated here -- they are appended below for both builds, and
+# listing them twice put every one of them on the command line twice.
 CFLAGS  := -Og -g -fsanitize=address,undefined -fno-omit-frame-pointer \
            -fno-sanitize-recover=all
-CFLAGS  += -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion \
-           -Wstrict-prototypes -Wvla
 endif
 CFLAGS  += -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion \
            -Wstrict-prototypes -Wvla
@@ -67,7 +68,7 @@ TEST_SRCS := chain/tests/chain_test.c chain/tests/revocation_test.c \
              frame/tests/freshness_test.c \
              chunk/tests/reassembly_test.c chunk/tests/split_test.c \
              chunk/tests/reassembly_fuzz.c chain/tests/chain_fuzz.c \
-             frame/tests/freshness_fuzz.c
+             frame/tests/freshness_fuzz.c chain/tests/revocation_fuzz.c
 TEST_OBJS := $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
 TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test \
              $(BUILD_DIR)/chain/tests/revocation_test \
@@ -76,7 +77,8 @@ TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test \
              $(BUILD_DIR)/chunk/tests/split_test \
              $(BUILD_DIR)/chunk/tests/reassembly_fuzz \
              $(BUILD_DIR)/chain/tests/chain_fuzz \
-             $(BUILD_DIR)/frame/tests/freshness_fuzz
+             $(BUILD_DIR)/frame/tests/freshness_fuzz \
+             $(BUILD_DIR)/chain/tests/revocation_fuzz
 
 # The Monocypher binding, built only when MONOCYPHER_DIR names a checkout.
 #
@@ -183,6 +185,12 @@ $(BUILD_DIR)/frame/tests/freshness_fuzz: $(BUILD_DIR)/frame/tests/freshness_fuzz
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+$(BUILD_DIR)/chain/tests/revocation_fuzz: $(BUILD_DIR)/chain/tests/revocation_fuzz.o \
+                                          $(BUILD_DIR)/chain/revocation.o \
+                                          $(BUILD_DIR)/chain/chain.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # Tests are built by this target and only by it, so a claim that a test
 # passes or fails always goes through a rebuild. Re-running a stale binary
 # after a plain build appears to pass either way.
@@ -193,7 +201,8 @@ CASES ?= 200000
 
 FUZZ_BINS := $(BUILD_DIR)/chunk/tests/reassembly_fuzz \
              $(BUILD_DIR)/chain/tests/chain_fuzz \
-             $(BUILD_DIR)/frame/tests/freshness_fuzz
+             $(BUILD_DIR)/frame/tests/freshness_fuzz \
+             $(BUILD_DIR)/chain/tests/revocation_fuzz
 
 fuzz: $(FUZZ_BINS)
 	@for f in $(FUZZ_BINS); do echo "== $$f $(CASES)"; $$f $(CASES) || exit 1; done

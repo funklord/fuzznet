@@ -1046,7 +1046,7 @@ alternative failure.
 is.**
 Alongside them: this document, `wire/frame.situ`, a `code-style.md` copied
 from the global source, the shared `style_gate.py` and `commit-msg`, and a
-`VERSION`. `make style` passes over twenty-eight files.
+`VERSION`. `make style` passes over twenty-nine files.
 
 Both are the pieces §7a assigns to this library rather than to situ, which is
 also why they were buildable while §10 steps 2 and 4 are stuck: neither needs
@@ -1170,6 +1170,28 @@ fresh command meeting a full window) always swept before the capacity check.
 But `fzn_replay_expire` is exported precisely so a quiet receiver can hand
 memory back, and a header claim that is only usually true is the kind that
 gets relied on. The sweep moved above the early returns.
+
+### The revocation harness is model-based, and that is the difference
+
+`chain/tests/revocation_fuzz` covers the admission path, which nothing else
+touched: `chain_fuzz` feeds the already-verified `fzn_revocation_t` straight
+to verification, so the records a peer actually sends — issuer, signature,
+signed region — had never been fuzzed. §4.2 carries revocation *on contact*,
+so the peer handing one over is not its issuer and every field of it is a
+stranger's.
+
+Where the other harnesses assert properties that must hold, this one keeps
+an independent **shadow** of what the store should contain, decides for
+itself what each record ought to do to it, and asserts the two agree exactly
+after every call, in both directions. That is stronger, and it matches the
+class this module's failures belong to: a revocation bug is not an overrun,
+it is a record admitted that should not have been — a carrier inventing one
+— or one silently dropped, which un-revokes a stolen device. Neither breaks
+a spot invariant; both break the model.
+
+All five planted bugs are caught with a precise message: unpinning the
+issuer, dropping the signature check, removing the duplicate check, evicting
+from a full store, and accepting an empty signed region.
 
 **The generator question has now decided the answer three times**, and it is
 the thing to check first when a fuzz result looks clean:
