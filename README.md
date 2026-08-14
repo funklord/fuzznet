@@ -8,9 +8,20 @@ A C library, using Monocypher, linked by **unprivileged** processes. It carries
 messages; it does not know what they mean. Each consuming project keeps its own
 command vocabulary, its own semantics and its own local socket.
 
-**Status: design, no code.** `project.md` is the design and the source of
-truth. `project.md` §9 has the order of work, and the first item is an
-evaluation rather than an implementation.
+**Status: the pieces that do not need `situ` are built.** `project.md` is
+the design and the source of truth; §8 says which modules exist and §10 has
+the order of work.
+
+Built and tested: capability chains with minting, delegation and revocation
+(`chain/`); command expiry and the replay window it bounds (`frame/`);
+splitting, reassembly and the memory bound (`chunk/`); constant-time
+comparison (`constant_time/`). `make test` runs five suites and five fuzz
+harnesses; `make test SANITIZE=1` runs the lot under ASan and UBSan.
+
+Not built, and each waiting on something named: the frame itself, which is a
+`situ` schema that does not yet generate code (§6); the rung this library
+stands on, which is the blocking decision (§10 step 4); and `local/`, which
+waits for a real `raidcfgd` (§2).
 
 Three things to know before reading further, because each contradicts what a
 shared protocol library usually looks like:

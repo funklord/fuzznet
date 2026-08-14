@@ -937,6 +937,20 @@ its job.
 The discrepancies this section used to carry are resolved in the table
 above rather than annotated beneath it.
 
+**`make installcheck` is what holds the table honest from outside.** Every
+suite here builds from inside the tree, which is the one arrangement a
+consumer never has — §7 has netcfgd's agent taking this as a submodule and
+compiling these sources into its own objects. So `tools/consumer_check.c` is
+compiled twice, once against an installed tree and once against the source
+tree from another directory, and both are run.
+
+It found the defect it was written to look for, in the check rather than in
+the code: **`install` hardcoded a line per header while `HDRS` listed them
+separately**, so there were two hand-maintained lists that had to agree and
+nothing compared them. Dropping a header from `HDRS` changed nothing that
+was installed. `install` iterates `HDRS` now, which collapses the two into
+one, and removing a header from it fails the check.
+
 ---
 
 ## 9. Authority, and who decides what

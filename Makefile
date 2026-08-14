@@ -132,7 +132,7 @@ endif
 # failures rather than as a build error.
 DEPS := $(OBJS:.o=.d) $(TEST_OBJS:.o=.d)
 
-.PHONY: all test fuzz style hooks clean install
+.PHONY: all test fuzz installcheck style hooks clean install
 
 # The default build does NOT build tests -- build-and-commit.md, and the
 # discipline it buys is paid for by the dependency rules above being right.
@@ -252,18 +252,44 @@ hooks:
 # pinned submodule commit exists to prevent. DESTDIR is honoured because
 # dh_auto_install calls it, and every private project honours it.
 install: $(HDRS)
-	@install -d $(DESTDIR)$(PREFIX)/include/fuzznet/constant_time
-	@install -d $(DESTDIR)$(PREFIX)/include/fuzznet/chain
-	@install -d $(DESTDIR)$(PREFIX)/include/fuzznet/frame
-	@install -d $(DESTDIR)$(PREFIX)/include/fuzznet/chunk
-	@install -m 0644 constant_time/constant_time.h \
-	         $(DESTDIR)$(PREFIX)/include/fuzznet/constant_time/constant_time.h
-	@install -m 0644 chain/chain.h $(DESTDIR)$(PREFIX)/include/fuzznet/chain/chain.h
-	@install -m 0644 chain/revocation.h $(DESTDIR)$(PREFIX)/include/fuzznet/chain/revocation.h
-	@install -m 0644 frame/freshness.h $(DESTDIR)$(PREFIX)/include/fuzznet/frame/freshness.h
-	@install -m 0644 chunk/reassembly.h $(DESTDIR)$(PREFIX)/include/fuzznet/chunk/reassembly.h
-	@install -m 0644 chunk/split.h $(DESTDIR)$(PREFIX)/include/fuzznet/chunk/split.h
-	@echo "installed headers under $(DESTDIR)$(PREFIX)/include/fuzznet"
+	@for h in $(HDRS); do \
+		install -d $(DESTDIR)$(PREFIX)/include/fuzznet/`dirname $$h`; \
+		install -m 0644 $$h $(DESTDIR)$(PREFIX)/include/fuzznet/$$h; \
+	done
+	@echo "installed `echo $(HDRS) | wc -w` header(s) under $(DESTDIR)$(PREFIX)/include/fuzznet"
+
+# Does a consumer outside this tree still work? Nothing else asks.
+#
+# project.md sec 10 step 5 makes netcfgd's agent the first real consumer and
+# sec 7 says how it takes this library: a submodule, sources compiled into
+# its own objects, no archive. Every suite here builds from inside the tree,
+# which is the one arrangement a consumer never has. Two silent failures
+# follow from that and this target is what catches them -- a header added to
+# a module and not to HDRS, which is hand-maintained and read back by
+# nothing; and a relative include between modules that resolves in the
+# source layout and not in the installed one.
+#
+# The staging directory is created here and removed here. It is guarded
+# rather than trusted: an unset BUILD_DIR would make the rm below something
+# else entirely, which is the failure `build-and-commit.md` names.
+installcheck: $(HDRS) $(SRCS) tools/consumer_check.c
+	@test -n "$(BUILD_DIR)" || { echo "BUILD_DIR is empty; refusing"; exit 1; }
+	@case "$(BUILD_DIR)" in /*) echo "BUILD_DIR must be relative; refusing"; exit 1 ;; esac
+	@rm -rf $(BUILD_DIR)/installcheck
+	@$(MAKE) --no-print-directory install DESTDIR=$(BUILD_DIR)/installcheck PREFIX=/usr >/dev/null
+	@echo "installcheck: against the installed headers"
+	@$(CC) $(CFLAGS) -DFZN_CONSUMER_INSTALLED \
+	       -I$(BUILD_DIR)/installcheck/usr/include \
+	       -o $(BUILD_DIR)/installcheck/consumer_installed \
+	       tools/consumer_check.c $(SRCS)
+	@$(BUILD_DIR)/installcheck/consumer_installed
+	@echo "installcheck: against the source tree, from another directory"
+	@cd $(BUILD_DIR)/installcheck && $(CC) $(CFLAGS) -I$(CURDIR) \
+	       -o consumer_source $(CURDIR)/tools/consumer_check.c \
+	       $(patsubst %,$(CURDIR)/%,$(SRCS))
+	@$(BUILD_DIR)/installcheck/consumer_source
+	@rm -rf $(BUILD_DIR)/installcheck
+	@echo "installcheck: both arrangements build and run"
 
 # Named targets only, and it lists them. No rm -rf of a directory and no
 # wildcard sweep: a clean target is the one thing everybody runs without
