@@ -371,6 +371,20 @@ coverage:
 # else entirely, which is the failure `build-and-commit.md` names.
 installcheck: $(HDRS) $(SRCS) tools/consumer_check.c
 	@test -n "$(BUILD_DIR)" || { echo "BUILD_DIR is empty; refusing"; exit 1; }
+	@# Every installed header must be one the consumer actually includes.
+	@# Without this the target's guarantee narrows silently as modules are
+	@# added: it can only catch a break in a header somebody remembered to
+	@# include, and `session/commitment.h` and `local/peer.h` were both
+	@# installed and unchecked for several commits.
+	@missing=; \
+	for h in $(HDRS); do \
+		grep -q "$$h" tools/consumer_check.c || missing="$$missing $$h"; \
+	done; \
+	if [ -n "$$missing" ]; then \
+		echo "installcheck: installed but not included by the consumer:$$missing"; \
+		echo "installcheck: the check would pass whatever those headers did."; \
+		exit 1; \
+	fi
 	@case "$(BUILD_DIR)" in /*) echo "BUILD_DIR must be relative; refusing"; exit 1 ;; esac
 	@rm -rf $(BUILD_DIR)/installcheck
 	@$(MAKE) --no-print-directory install DESTDIR=$(BUILD_DIR)/installcheck PREFIX=/usr >/dev/null

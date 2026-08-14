@@ -1178,6 +1178,20 @@ nothing compared them. Dropping a header from `HDRS` changed nothing that
 was installed. `install` iterates `HDRS` now, which collapses the two into
 one, and removing a header from it fails the check.
 
+**Then it narrowed silently, which is the more interesting failure.** The
+target can only catch a break in a header `tools/consumer_check.c` actually
+includes, and that file was written before `session/` and `local/` existed.
+Both modules' headers were installed and unincluded for several commits, so
+`installcheck` was quietly guaranteeing less than it had — not by breaking,
+but by the tree growing past it.
+
+So it checks its own coverage now: every header in `HDRS` must appear in the
+consumer, and it refuses otherwise. **A check that has to be extended by
+hand as a project grows is a check that will stop covering the newest thing,
+which is the thing most likely to be wrong.** Both directions confirmed —
+dropping a header from `HDRS` fails the compile, and dropping one from the
+consumer fails the new self-check.
+
 ---
 
 ## 9. Authority, and who decides what

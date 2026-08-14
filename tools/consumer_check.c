@@ -32,6 +32,8 @@
 #include <fuzznet/chunk/split.h>
 #include <fuzznet/constant_time/constant_time.h>
 #include <fuzznet/frame/freshness.h>
+#include <fuzznet/local/peer.h>
+#include <fuzznet/session/commitment.h>
 #else
 #include "chain/chain.h"
 #include "chain/revocation.h"
@@ -39,6 +41,8 @@
 #include "chunk/split.h"
 #include "constant_time/constant_time.h"
 #include "frame/freshness.h"
+#include "local/peer.h"
+#include "session/commitment.h"
 #endif
 
 #include <stdio.h>
@@ -103,6 +107,28 @@ int main(void)
 		return 7;
 	if (chain.hop_count != 1)
 		return 8;
+
+	/* The two modules added after this file was written, and the reason
+	 * `installcheck` now checks its own coverage: both were installed and
+	 * neither was included here, so a break in either would have passed. */
+	{
+		fzn_peer_t peer;
+		fzn_revocation_store_t unused_store;
+
+		memset(&peer, 0, sizeof(peer));
+		if (fzn_peer_groups_parse("Groups:\t20 24\n", 14, &peer) != 1)
+			return 9;
+		if (peer.group_count != 2 || !peer.groups_known)
+			return 10;
+		if (fzn_peer_is_member(&peer, 24) != 1)
+			return 11;
+		if (fzn_peer_group_verdict(&peer, 999) != FZN_PEER_NOT_MEMBER)
+			return 12;
+
+		(void)unused_store;
+		if (FZN_DERIVED_LEN != FZN_AEAD_KEY_LEN + FZN_COMMITMENT_LEN)
+			return 13;
+	}
 
 	printf("consumer_check: headers and sources agree\n");
 	return 0;
