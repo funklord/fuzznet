@@ -5,10 +5,11 @@
 // generated. What is NOT settled is anything sec 12 lists as an open
 // candidate, and this file marks those rather than quietly deciding them.
 //
-// The purpose of the first revision is to be MEASURED. sec 9 names the real
-// question as whether our frame trips situ's unbounded-scan or canonicality
-// rules; `situc map` and `situc wire` answer that, and the answers belong in
-// project.md before anyone writes a state machine against this.
+// The purpose of the first revision is to be MEASURED. sec 10 names the
+// real question as whether our frame trips situ's unbounded-scan or
+// canonicality rules; `situc map` and `situc wire` answer that, and the
+// answers belong in project.md before anyone writes a state machine
+// against this.
 
 target buffer;
 endian big;
