@@ -848,15 +848,45 @@ present one.
 Modules, so a consumer links what it needs and no more. Nothing below is built
 until §10's order says so.
 
-| module | what it is | who needs it |
+| module | what it is | state |
 |---|---|---|
-| `constant_time/` | constant-time comparison | everyone, including consumers |
-| `wire/` | canonical encode/decode primitives | everyone |
-| `frame/` | envelope, nonce, expiry, signing, verification | everyone |
-| `session/` | prekey, AEAD, replay window | everyone |
-| `chain/` | capability chains, verification, revocation | everyone |
-| `chunk/` | chunking, reassembly, retransmit, memory bound | netcfgd first |
-| `local/` | `AF_UNIX` with `SO_PEERCRED` and group gating | raidcfgd, when it exists |
+| `constant_time/` | constant-time comparison | **built** |
+| `wire/` | the schema. §7a gives the encoding itself to situ | `frame.situ` written; nothing generates from it yet (§6) |
+| `frame/` | freshness: command expiry, and the replay window it bounds. The envelope, signing and verification are situ's | **built** |
+| `chain/` | capability chains: verification, minting, delegation, revocation, and the signer seam | **built** |
+| `chunk/` | splitting, reassembly, and the memory bound | **built** |
+| `session/` | prekey and AEAD — situ at the seam, ours at the extern codec | only the signer binding exists, in `chain/` |
+| `local/` | `AF_UNIX` with `SO_PEERCRED` and group gating | last, and only against a real raidcfgd (§2) |
+
+**Rewritten 2026-08-14, because five of its seven rows were stale.** The
+table was written before §7a, which reassigned most of §4 to situ once the
+layer ladder arrived, and it was never brought into line. What it described
+was the tree as it would have been had this library written its own
+transport. Each correction below is the same correction:
+
+- **`wire/` is the schema, not C primitives.** §7a assigns 4.1 to situ, so
+  "canonical encode/decode primitives" describes generated code rather than
+  anything this library writes.
+- **`frame/` holds freshness and nothing else.** The envelope, signing and
+  verification the row listed are situ's at the seam.
+- **The replay window is in `frame/`, not `session/`.** §13 settled that a
+  frame is self-contained and *no session is required at either end*, so a
+  window keyed on a per-datagram nonce cannot be session state. The row
+  predated that settlement; the code is right and the table was wrong.
+- **`chunk/` does not retransmit and will not.** §10 names a hand-written
+  retransmission state machine as the thing to refuse, and situ generates
+  one at rung 6. Splitting and the bound are ours; asking for a missing
+  piece is not.
+- **`chain/` gained minting, delegation and the signer seam**, which the row
+  never mentioned.
+
+**One placement is left as it is and named rather than moved.** The
+Monocypher binding sits at `chain/sign_monocypher.c` because it implements
+`chain.h`'s signer vtable, which is a signature rather than an encryption
+concern. When AEAD arrives it will want a home that is not the capability
+model, and that is the moment to decide whether `session/` becomes a real
+directory or whether the extern codec bindings live together somewhere else.
+Not worth deciding before there is a second one.
 
 `local/` is deliberately last and deliberately optional — §2.
 
@@ -877,19 +907,8 @@ branch — the loop's length test — with the accumulator spilled through
 memory each iteration. No branch depends on the data, so the `volatile` did
 its job.
 
-**Two discrepancies between this table and what is built, both recorded
-rather than resolved**, since this document wins over the code:
-
-- **The replay window is in `frame/`, not `session/`.** The table puts it in
-  `session/`, and that placement predates §13. §13 settled that a frame is
-  self-contained and *no session is required at either end*, so a window
-  keyed on a per-datagram nonce cannot be session state — it is keyed on
-  frame header fields and needs nothing a session would provide. `frame/`
-  looks right and the table looks stale, but which is wrong is not the
-  implementation's call.
-- **`chunk/` says "retransmit" and deliberately has none.** §10 names a
-  hand-written retransmission state machine as the thing to refuse, and
-  situ generates one at rung 6. The row predates §7a.
+The discrepancies this section used to carry are resolved in the table
+above rather than annotated beneath it.
 
 ---
 
