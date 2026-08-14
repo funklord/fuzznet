@@ -850,6 +850,7 @@ until §10's order says so.
 
 | module | what it is | who needs it |
 |---|---|---|
+| `constant_time/` | constant-time comparison | everyone, including consumers |
 | `wire/` | canonical encode/decode primitives | everyone |
 | `frame/` | envelope, nonce, expiry, signing, verification | everyone |
 | `session/` | prekey, AEAD, replay window | everyone |
@@ -858,6 +859,37 @@ until §10's order says so.
 | `local/` | `AF_UNIX` with `SO_PEERCRED` and group gating | raidcfgd, when it exists |
 
 `local/` is deliberately last and deliberately optional — §2.
+
+**`constant_time/` was added 2026-08-14** and is not a module in the sense
+the others are: nothing links it for a feature, everything links it for one
+function. It exists because §4.4a says a constant-time tag comparison is
+"not optional" and that "this library owns it and must not leave it to the
+consumer" — and `fzn_ct_memeq` started life declared in `chain.h`, so the
+only way for a consumer to get it was to include the capability model.
+Somebody asked to include chains, hops, delegation and revocation to obtain
+a memcmp writes their own instead, which is the outcome that sentence
+forbids. It also fixes the dependency direction: everything may depend on
+this and it depends on nothing.
+
+Verified rather than asserted: it compiles and links on its own against
+nothing else in the tree, and the `-Os` object has exactly one conditional
+branch — the loop's length test — with the accumulator spilled through
+memory each iteration. No branch depends on the data, so the `volatile` did
+its job.
+
+**Two discrepancies between this table and what is built, both recorded
+rather than resolved**, since this document wins over the code:
+
+- **The replay window is in `frame/`, not `session/`.** The table puts it in
+  `session/`, and that placement predates §13. §13 settled that a frame is
+  self-contained and *no session is required at either end*, so a window
+  keyed on a per-datagram nonce cannot be session state — it is keyed on
+  frame header fields and needs nothing a session would provide. `frame/`
+  looks right and the table looks stale, but which is wrong is not the
+  implementation's call.
+- **`chunk/` says "retransmit" and deliberately has none.** §10 names a
+  hand-written retransmission state machine as the thing to refuse, and
+  situ generates one at rung 6. The row predates §7a.
 
 ---
 

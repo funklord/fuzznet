@@ -44,6 +44,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "../constant_time/constant_time.h"
+
 #define FZN_PUBKEY_LEN 32
 #define FZN_CAP_ID_LEN 32
 #define FZN_SIG_LEN 64
@@ -320,14 +322,9 @@ fzn_err_t fzn_chain_delegate(const fzn_chain_hop_t *hops, size_t hop_count,
                               const fzn_revocation_t *revocations, size_t revocation_count,
                               fzn_chain_hop_t *out);
 
-/* Constant-time equality over `len` bytes. Nonzero when equal.
- *
- * sec 4.4a: "Key-committing AEAD is not optional, and neither is a
- * constant-time tag comparison. The extern codec owns the first; this
- * library owns the second and MUST NOT LEAVE IT TO THE CONSUMER." So it is
- * exported rather than kept static -- a consumer comparing a tag with
- * memcmp is the defect this sentence exists to prevent, and the only way
- * to prevent it is to hand them the right thing under an obvious name. */
-int fzn_ct_memeq(const void *a, const void *b, size_t len);
+/* Constant-time comparison comes from constant_time.h, which chain.h
+ * includes so that existing users of fzn_ct_memeq keep compiling. New code
+ * that wants only the comparison should include that header directly rather
+ * than the capability model -- see the reasoning there. */
 
 #endif /* FZN_CHAIN_H */

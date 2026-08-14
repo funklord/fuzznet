@@ -56,11 +56,13 @@ CFLAGS  += -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion \
            -Wstrict-prototypes -Wvla
 CPPFLAGS += -MMD -MP
 
-SRCS      := chain/chain.c chain/revocation.c frame/freshness.c \
+SRCS      := constant_time/constant_time.c \
+             chain/chain.c chain/revocation.c frame/freshness.c \
              chunk/reassembly.c \
              chunk/split.c
 OBJS      := $(SRCS:%.c=$(BUILD_DIR)/%.o)
-HDRS      := chain/chain.h chain/revocation.h frame/freshness.h \
+HDRS      := constant_time/constant_time.h \
+             chain/chain.h chain/revocation.h frame/freshness.h \
              chunk/reassembly.h \
              chunk/split.h
 
@@ -114,7 +116,8 @@ $(BUILD_DIR)/monocypher.o: $(MONOCYPHER_DIR)/src/monocypher.c
 	@mkdir -p $(dir $@)
 	$(CC) -Os -g -c $< -o $@
 
-$(MONO_BIN): $(MONO_TOBJ) $(MONO_OBJS) $(BUILD_DIR)/chain/chain.o
+$(MONO_BIN): $(MONO_TOBJ) $(MONO_OBJS) $(BUILD_DIR)/chain/chain.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 endif
@@ -138,7 +141,8 @@ $(BUILD_DIR)/%.o: %.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/chain/tests/chain_test: $(BUILD_DIR)/chain/tests/chain_test.o \
-                                     $(BUILD_DIR)/chain/chain.o
+                                     $(BUILD_DIR)/chain/chain.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -162,7 +166,8 @@ $(BUILD_DIR)/chunk/tests/split_test: $(BUILD_DIR)/chunk/tests/split_test.o \
 
 $(BUILD_DIR)/chain/tests/revocation_test: $(BUILD_DIR)/chain/tests/revocation_test.o \
                                           $(BUILD_DIR)/chain/revocation.o \
-                                          $(BUILD_DIR)/chain/chain.o
+                                          $(BUILD_DIR)/chain/chain.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -176,7 +181,8 @@ $(BUILD_DIR)/chunk/tests/reassembly_fuzz: $(BUILD_DIR)/chunk/tests/reassembly_fu
 	$(CC) $(CFLAGS) $^ -o $@
 
 $(BUILD_DIR)/chain/tests/chain_fuzz: $(BUILD_DIR)/chain/tests/chain_fuzz.o \
-                                     $(BUILD_DIR)/chain/chain.o
+                                     $(BUILD_DIR)/chain/chain.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -187,7 +193,8 @@ $(BUILD_DIR)/frame/tests/freshness_fuzz: $(BUILD_DIR)/frame/tests/freshness_fuzz
 
 $(BUILD_DIR)/chain/tests/revocation_fuzz: $(BUILD_DIR)/chain/tests/revocation_fuzz.o \
                                           $(BUILD_DIR)/chain/revocation.o \
-                                          $(BUILD_DIR)/chain/chain.o
+                                          $(BUILD_DIR)/chain/chain.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -234,9 +241,12 @@ hooks:
 # pinned submodule commit exists to prevent. DESTDIR is honoured because
 # dh_auto_install calls it, and every private project honours it.
 install: $(HDRS)
+	@install -d $(DESTDIR)$(PREFIX)/include/fuzznet/constant_time
 	@install -d $(DESTDIR)$(PREFIX)/include/fuzznet/chain
 	@install -d $(DESTDIR)$(PREFIX)/include/fuzznet/frame
 	@install -d $(DESTDIR)$(PREFIX)/include/fuzznet/chunk
+	@install -m 0644 constant_time/constant_time.h \
+	         $(DESTDIR)$(PREFIX)/include/fuzznet/constant_time/constant_time.h
 	@install -m 0644 chain/chain.h $(DESTDIR)$(PREFIX)/include/fuzznet/chain/chain.h
 	@install -m 0644 chain/revocation.h $(DESTDIR)$(PREFIX)/include/fuzznet/chain/revocation.h
 	@install -m 0644 frame/freshness.h $(DESTDIR)$(PREFIX)/include/fuzznet/frame/freshness.h

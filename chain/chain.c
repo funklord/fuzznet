@@ -5,28 +5,6 @@
 
 #include <string.h>
 
-/* Constant time over the length, and over the DATA rather than over a
- * comparison that stops early. The accumulate-then-test shape is the point:
- * a memcmp returns as soon as two bytes differ, which turns "how long did
- * that take" into "how many leading bytes matched", and that is a tag
- * oracle wherever the attacker chooses one side.
- *
- * Written out rather than taken from a library because sec 4.5 vendors
- * exactly one dependency and this is four lines. `volatile` on the
- * accumulator is what stops a compiler noticing the result is a boolean and
- * reintroducing the early exit; -Os is an optimiser like any other. */
-int fzn_ct_memeq(const void *a, const void *b, size_t len)
-{
-	const uint8_t *pa = (const uint8_t *)a;
-	const uint8_t *pb = (const uint8_t *)b;
-	volatile uint8_t diff = 0;
-
-	for (size_t i = 0; i < len; i++)
-		diff |= (uint8_t)(pa[i] ^ pb[i]);
-
-	return diff == 0;
-}
-
 /* Whether `hop` grants something this revocation list has withdrawn.
  *
  * Matched on the pair rather than on the key alone. A revocation names a
