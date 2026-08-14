@@ -758,9 +758,33 @@ was ours:
 | 4.1 framing and canonical encoding | **situ** -- `wire/frame.situ`, already |
 | 4.2 capability chain and revocation | **ours** -- semantics, not layout |
 | 4.3 freshness: commands expire, grants do not | **shared** -- the field is schema, the policy is ours |
-| 4.4 chunking and reassembly | **situ**, rungs `frame` and `drive` |
+| 4.4 chunking and reassembly | **split** -- see below; the datagram half is ours |
 | 4.5 sessions and encryption | **situ** at the seam, ours at the extern codec |
 | 4.4a threat model | **ours** -- no generator has an opinion about it |
+
+**The 4.4 row was optimistic, and is corrected here** (measured 2026-08-14,
+situc 1.0). No rung emits datagram reassembly. Rung 4 `frame` is **stream**
+framing -- a byte stream in, whole messages out -- which is a different
+problem wearing the same word: situ's own acceptance test for it is "a
+length-prefixed schema reassembles across every chunk boundary", which is
+about where a read happened to split, not about a message deliberately cut
+into self-contained datagrams. Rung 5 `converse` keeps a pending table keyed
+by a relation, matching a reply to a request rather than a piece to a whole.
+Rung 6 `drive` retransmits what a table says is outstanding.
+
+So holding chunks of one message that arrive out of order, each carrying
+`msg`, `index` and `chunks`, is nobody's but ours -- and the memory bound on
+that holding is §4.4a's requirement rather than an optimisation. Built as
+`chunk/reassembly.c`. What stays situ's is the retransmission that asks for a
+missing piece, which is rung 6 and which this module deliberately does not
+have: §10 names a hand-written retransmission state machine as the thing to
+refuse.
+
+The search behind that claim was positive-controlled rather than assumed:
+"reassembl" does appear in situ's tree, twice, and reading those two uses is
+what showed they are the stream case. A grep that finds nothing because the
+word is never used would have read the same as one that finds nothing because
+the feature is absent.
 
 And a third axis arrives with the scheduler: `--driver` chooses what pumps the
 rung-6 state machine, additively, with **the test harness as just another
@@ -975,10 +999,11 @@ alternative failure.
 
 ## 11. Where this is, for whoever picks it up
 
-**`chain/` and `frame/freshness.c` are built and tested; nothing else is.**
+**`chain/`, `frame/freshness.c` and `chunk/reassembly.c` are built and
+tested; nothing else is.**
 Alongside them: this document, `wire/frame.situ`, a `code-style.md` copied
 from the global source, the shared `style_gate.py` and `commit-msg`, and a
-`VERSION`. `make style` passes over sixteen files.
+`VERSION`. `make style` passes over nineteen files.
 
 Both are the pieces §7a assigns to this library rather than to situ, which is
 also why they were buildable while §10 steps 2 and 4 are stuck: neither needs
@@ -988,9 +1013,9 @@ generated code. `chain/` is the capability model; `frame/freshness.c` is
 `make` builds the objects and nothing else — the default target does not
 build tests, per `build-and-commit.md`. `make test` builds and runs two
 binaries: `chain/tests/chain_test` at 64 checks over a stub verifier and an
-injected clock, and `frame/tests/freshness_test` at 34. Neither reads a
-clock, so there is nothing in either that can pass on a quiet machine and
-fail on a loaded one.
+injected clock, `frame/tests/freshness_test` at 34, and
+`chunk/tests/reassembly_test` at 58. None reads a clock, so there is nothing
+in any of them that can pass on a quiet machine and fail on a loaded one.
 
 **`make test MONOCYPHER_DIR=../fuzzypickles/monocypher`** additionally builds
 the binding and runs 9 more checks against real Ed25519. That is the sibling
@@ -998,8 +1023,14 @@ the binding and runs 9 more checks against real Ed25519. That is the sibling
 temporary: the real answer is a submodule, at whatever step takes it.
 
 **The suites were checked by breaking the code, not by watching them pass.**
-Fifteen sabotages, each rebuilt through `make test` rather than re-running a
-stale binary, and all fifteen caught. Six of them are freshness: accepting a
+Twenty-three sabotages, each rebuilt through `make test` rather than
+re-running a stale binary. Twenty-two were caught; **one was not, and that is
+the useful one.** Removing the arrived-set clearing in reassembly's
+`admit_first` passed the whole suite, because `release` already clears it --
+so the line was defence in depth that nothing held to account. A partial is a
+value, so the test now builds the dirty slot directly rather than trying to
+reach it, and the sabotage is caught. A suite that only exercises states
+normal operation reaches will not find that class. Six of them are freshness: accepting a
 command with no expiry, ignoring a grant's stated expiry, dropping the replay
 check, making a full window evict rather than refuse, recording a frame
 before checking its freshness, and an expiry sweep that reclaims nothing. On verification: removing the root pinning,
