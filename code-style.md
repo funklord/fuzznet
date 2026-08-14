@@ -19,7 +19,8 @@ project's copy names its own exempt paths.
 3. **Lowercase filenames,** unless a tool demands otherwise.
 
 Everything below is these three rules in detail, plus the exceptions that
-are already settled. An exception not listed here is not yet settled: signal it to the list in
+are already settled. An exception not listed here is not yet settled:
+signal it to the list in
 `claude-guidelines`' `project.md` rather than deciding in passing.
 
 ## 1. Naming
