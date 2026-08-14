@@ -1395,8 +1395,54 @@ delegated rather than one that can.
 `CAP_ADMIN` says, without this library learning what any capability is — but
 it adds a field to a hop, and no chain layout is committed yet, so it is
 cheap to change now and will not stay cheap.
-4. ~~**Decide the rung, and say when.**~~ **Answered 2026-08-14: `view`,
-   and the question was not the one this step was asking.**
+4. ~~**Decide the rung, and say when.**~~ **Answered 2026-08-14: `relate`,
+   revised the same day from `view` after situ fixed the limitation that
+   produced the first answer.**
+
+   **What changed.** situ `f9e5c0e` implements `==` and `!=` between
+   fixed-size arrays of the same type and length, in all four backends,
+   after this library asked for it (`suggestions/fuzznet.md`). Verified
+   here: `f_relate.c` and `f_relate.h` now emit for this frame, both
+   relations survive, and the generated header compiles clean at `-Wall
+   -Wextra`. The refusal turned out **not** to have been deliberate --
+   situ's session confirmed nothing in 0030 mentioned arrays, no test
+   pinned it, and the string existed once. This document's guess that the
+   neighbouring float refusal was making it look decided was right, and is
+   recorded as an amendment on 0030 there.
+
+   **It closes one rung, not four, and situ said so unprompted.** A packed
+   conversation key is `KEY_BITS = 64`; `sender` is 256 bits, so rung 5
+   still refuses `same_message`, and rung 6 with it since a driver needs the
+   table. So the ladder for this frame is now `view` -> `edit` -> `relate`,
+   and stops.
+
+   **`relate` is the answer and the analysis below is otherwise unchanged.**
+   `edit` still buys nothing -- a sealed region whose size the data decides
+   has no owned form. `frame` is still *stream* framing and still the wrong
+   problem. `converse` and `drive` are still out of reach, now for a key
+   width rather than a missing predicate.
+
+   **But nothing can generate from the committed schema yet**, and that is
+   the operative fact rather than the rung. `situc build` still refuses
+   `wire/frame.situ` over `[max = chunks - 1]` (§6), so the array fix is
+   confirmed only against a copy with that bound replaced by a literal.
+   Until that is resolved, `relate` is the answer to a question nobody can
+   act on, and `chunk/reassembly.c` goes on hand-enforcing `same_message`
+   because there is nothing generated to replace it.
+
+   **Whether rung 5 is worth asking for is answered no, for now.** situ
+   offered to take the key-width question to its holder with fuzznet's case
+   attached. Declined: `converse` and `drive` are both eventually wanted --
+   §4.4 needs retransmission and §10 refuses to hand-write it -- but no
+   consumer exists to need them. netcfgd's `agent/` may never be written,
+   fuzzypickles cannot adopt at rung 2 for want of an owned form, and
+   raidcfgd waits on its own vocabulary bound. A decision made now would be
+   made for nobody.
+
+   ---
+
+   *The measurement that produced the original `view` answer, kept because
+   the reasoning still holds for four of the six rungs:*
 
    Measured rather than chosen. Building `wire/frame.situ` at each rung
    emits, for this frame:
