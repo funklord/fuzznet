@@ -746,14 +746,31 @@ case of their own". A generator that serves all three consumers from one
 description satisfies that test better than a hand-written library could, and
 the duplication this project exists to remove is removed further.
 
-**The sequencing question is real and is not answered here.** Rungs 4 to 6 are
-scheduled and unstarted (26.96 through 26.98). §10's step 5 says to build
-`chunk/` against netcfgd's response shapes; the alternative is to wait and
-consume rung 6. Deciding that needs a date for those phases and a date netcfgd
-needs its agent, and neither exists yet -- so it is named as the next real
-decision rather than guessed at. What should *not* happen is building a
-retransmission state machine by hand while the same one is being generated,
-which is the exact duplication both projects exist to prevent.
+**The sequencing question is real, and half of it is now answered.** An
+earlier revision said rungs 4 to 6 were "scheduled and unstarted (26.96
+through 26.98)". **All six rungs ship** (measured 2026-08-14, situc 1.0):
+building one schema at each of `view`, `edit`, `relate`, `frame`, `converse`
+and `drive` emits distinct output at every step, and the rung-6 header
+compiles clean against the runtime.
+
+Rung 6 is what 0033 describes rather than a placeholder for it. The emitted
+`situ_drive_<relation>_step(drive, now_ms, ...)` takes the clock as a
+parameter, carries `deadline_ms`, `timeout_ms` and a retry count, and holds
+an I/O vtable -- which is the split this library asked for and the phase text
+now states as "**It owns I/O and never owns the clock**".
+
+**Rung 6 emits only for a relation that states a policy**, spelled
+`[timeout_ms = 5000, retries = 2]` on the relation itself. That is worth
+knowing before anyone concludes it does nothing: a first probe here used a
+relation without one, got output identical to rung 5, and would have reported
+rung 6 as unbuilt. A check that could not have produced a positive is not
+evidence -- `examples/dns/dns.situ` is the working example.
+
+So §10's step 5 -- build `chunk/` by hand, or consume rung 6 -- **no longer
+waits on situ**. It waits only on when netcfgd needs its agent. What should
+*not* happen is building a retransmission state machine by hand while the
+same one is being generated, and that is no longer a future risk but a
+present one.
 
 ## 8. Shape of the tree
 
@@ -879,11 +896,16 @@ delegated rather than one that can.
 `CAP_ADMIN` says, without this library learning what any capability is — but
 it adds a field to a hop, and no chain layout is committed yet, so it is
 cheap to change now and will not stay cheap.
-4. **Decide the rung, and say when.** `--layer view` today; `relate` is
-   checkable now and emits nothing yet; `frame`, `converse` and `drive` are
-   scheduled and unstarted. This is the sequencing question §7a names and it
-   needs two dates that do not exist yet: when those phases land, and when
-   netcfgd needs its agent.
+4. **Decide the rung, and say when. This is now the blocking decision.**
+   `--layer view` today, but all six rungs ship (§7a, measured 2026-08-14) --
+   `relate` emits, and `drive` emits a step function taking `now_ms` for any
+   relation carrying `[timeout_ms = ..., retries = ...]`. The sequencing
+   question §7a names needed two dates; one has arrived, and the remaining
+   one is when netcfgd needs its agent.
+
+   It is blocking because step 5 cannot start without it and step 2 is stuck
+   behind the `situc build` refusal (§6). Everything else in this list is
+   either done or waiting on somebody outside this document.
 5. **netcfgd's `agent/`** becomes the first real consumer — it does not exist
    yet, which is the whole of the timing benefit.
 6. **fuzzypickles migrates**, as separate deliberate work, at rung 2 with
