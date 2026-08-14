@@ -785,6 +785,61 @@ to take to situ with its reproduction, on the terms
 `situ/suggestions/fuzznet.md` sets out, rather than a reason to quietly drop
 the bound and lose the check it buys.
 
+### What was behind the refusal (2026-08-14, situ `497c1ea`)
+
+Stepping around the `[max = chunks - 1]` refusal with a literal and running
+`situc build` for the first time produced **three messages, all of which are
+findings about this schema rather than about situ.** situ says each of them
+plainly; nobody had run the command that says them.
+
+**1. Neither relation generates anything.**
+
+    no predicate for relation `same_message`: `later.head.sender` is an
+    array, and a relation compares one value against another
+
+and the same for `reply_to`. Both compare `sender`, which is `u8[32]`. A
+relation is a predicate over two *values*, and an array is not one.
+
+That matters more than it looks. `frame.situ` calls `same_message` **"THE
+ONE THAT MATTERS, and it is a security property rather than tidiness"** --
+it is what stops two senders' chunks reassembling into one message that
+authenticates as neither. It generates no code and never has.
+
+The property is not unenforced: `chunk/reassembly.c` checks exactly these
+clauses by hand, and its comment says it is enforcing the relation. So the
+practical position is the reverse of what this document implies -- the
+**hand-written** check is the only one there is, and the schema's
+declaration is documentation. Which is a defensible place to be, and is not
+where §6 says we are.
+
+**2. `fzn_frame` has no owned form, at any rung.**
+
+    no owned form for `fzn_frame`: its size is decided by the data, so an
+    owned struct would need a pointer or a worst-case array; neither is
+    this generator's to choose
+
+§10 step 6 plans fuzzypickles to migrate at rung 2 with `--owned`, per
+situ's decision 0031, because its 225 call sites hold decoded structs that
+outlive the buffer. **That plan does not work against this frame as it
+stands.** The blocker is the `Bounded(0,1024)` payload: a frame's size is
+data-decided, so there is no fixed struct to own. Whether the answer is a
+worst-case array, a different migration for fuzzypickles, or fuzzypickles
+not adopting at rung 2, is a decision this document has not taken and had
+no reason to know it needed.
+
+**3. A correction to how the earlier finding was described.** The report to
+situ and the paragraphs above called the `[max]` behaviour a disagreement
+between commands, which it is. But when this session first probed the
+relation behaviour it recorded it as *silent* -- and it is not. situ prints
+all three messages above clearly. The probe was swallowing stdout and
+grepping only for the word "error", so a notice read as nothing at all. **A
+check that cannot see the output it is checking reports the same thing as a
+tool that produced none**, which is this document's own recurring lesson met
+from the tooling side rather than the code side.
+
+The through-line is worth stating: **one command nobody ran hid three
+findings**, two of which change plans recorded here.
+
 **Reported, and re-checked unchanged at situ `cd3708b`** — eight commits
 after the report landed as `bdfdbda`. Pinned to a commit rather than dated
 because the re-check fell on the same day as the measurement, and a date
