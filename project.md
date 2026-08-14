@@ -324,6 +324,30 @@ wrong key, which is exactly the receiver it has to warn.
 What remains before the codec can be written is situ's sealed-region ABI.
 The construction is no longer a guess; the calling convention still is.
 
+**The half that does not wait on it is built** (`session/commitment.c`,
+2026-08-14): one hash over a domain-separated transcript producing 48 bytes,
+split 32 into the AEAD key and 16 into the commitment, plus a constant-time
+check of a received commitment against a derived one.
+
+Deriving both from **one** invocation over **one** input is the whole
+mechanism and the thing the tests hold it to. Two separate derivations,
+however carefully labelled, would leave the commitment merely accompanying
+the key rather than binding it — and would pass any test that only checked a
+commitment against itself. So the suite counts hash calls, asserts the
+derived length, and asserts that one flipped bit of transcript moves *both*
+outputs.
+
+It also asserts the commitment does not appear anywhere inside the key. That
+is the worst way to get this wrong — the frame would publish key material in
+its plaintext header — and it, too, would satisfy a test that only compared
+commitments.
+
+**The transcript is the caller's**, which is the boundary `chain.h` draws for
+a signed region and for the same reason: what goes into it depends on the
+session model, and §4.5's prekey half is not settled. Two peers who disagree
+about the transcript derive different keys and fail to talk, rather than
+talking insecurely.
+
 **Monocypher**, vendored once here rather than three times. netcfgd had already
 decided C/C++ with Monocypher for its own protocol and agent before this
 library existed, so the two agree without having to be reconciled.
@@ -928,7 +952,7 @@ until §10's order says so.
 | `frame/` | freshness: command expiry, and the replay window it bounds. The envelope, signing and verification are situ's | **built** |
 | `chain/` | capability chains: verification, minting, delegation, revocation, and the signer seam | **built** |
 | `chunk/` | splitting, reassembly, and the memory bound | **built** |
-| `session/` | prekey and AEAD — situ at the seam, ours at the extern codec | only the signer binding exists, in `chain/` |
+| `session/` | the key schedule, and the AEAD seam | **key schedule built**; the codec waits on situ's sealed-region ABI |
 | `local/` | `AF_UNIX` with `SO_PEERCRED` and group gating | last, and only against a real raidcfgd (§2) |
 
 **Rewritten 2026-08-14, because five of its seven rows were stale.** The

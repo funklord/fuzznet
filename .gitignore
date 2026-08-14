@@ -12,6 +12,7 @@
 # The test binaries. Named rather than globbed, because a pattern here would
 # also hide a source file somebody adds under that name by mistake.
 /chain/tests/chain_test
+/session/tests/commitment_test
 /chain/tests/revocation_test
 /chain/tests/sign_monocypher_test
 /frame/tests/freshness_test
