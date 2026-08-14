@@ -911,6 +911,28 @@ to take to situ with its reproduction, on the terms
 `situ/suggestions/fuzznet.md` sets out, rather than a reason to quietly drop
 the bound and lose the check it buys.
 
+**situ has framed it better than this section did** (2026-08-14), and the
+distinction is worth carrying because it decides who can fix it. The array
+limitation next door was **undecided** -- no rationale, nothing pinned it,
+the refusal existed once -- so situ could simply fill the gap, and did.
+This one is not a gap: `build`'s refusal states a position, that only
+`const` values and enum members are compile-time constants. So it is **two
+positions contradicting each other**, and either `max` should take a
+member-relative bound or `wire` should stop publishing a contract the
+compiler will not honour.
+
+That is a language question, and situ has declined to settle it on a
+consumer's schedule -- correctly, and this library has no schedule to offer:
+picking either side quietly would decide the language on the strength of
+somebody else's deadline. It is surfaced to situ's holder as **the thing
+standing between this library and dropping hand-written enforcement of a
+security check**, which is the sharpest true form of the case.
+
+**The practical consequence for us is unchanged and worth stating flatly:
+`same_message` compiles from a schema this project cannot commit.** The
+predicate is correct and unreachable, and `chunk/reassembly.c` keeps
+enforcing all three clauses in C until that changes.
+
 ### What was behind the refusal (2026-08-14, situ `497c1ea`)
 
 Stepping around the `[max = chunks - 1]` refusal with a literal and running
