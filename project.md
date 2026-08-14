@@ -1046,7 +1046,7 @@ alternative failure.
 is.**
 Alongside them: this document, `wire/frame.situ`, a `code-style.md` copied
 from the global source, the shared `style_gate.py` and `commit-msg`, and a
-`VERSION`. `make style` passes over twenty-five files.
+`VERSION`. `make style` passes over twenty-six files.
 
 Both are the pieces §7a assigns to this library rather than to situ, which is
 also why they were buildable while §10 steps 2 and 4 are stuck: neither needs
@@ -1085,6 +1085,43 @@ call-count assertions that exist to make that ordering claim measurable. On
 delegation: dropping the `delegable` requirement in verify and again in
 delegate, removing the expiry cap, skipping the re-verification, and removing
 the depth ceiling.
+
+### The reassembly fuzzer, and what it can and cannot see
+
+`chunk/tests/reassembly_fuzz` runs a bounded, seeded sweep over
+`fzn_reasm_accept` with each slot's buffer inside a canary, asserting after
+every call that nothing was written outside a buffer, that no sender exceeds
+its quota, and that no slot is sized past what it holds. `make test` runs
+20000 cases; `make fuzz CASES=n` runs a campaign. It compiles as a libFuzzer
+target too, so a longer run needs no second harness to drift from this one.
+
+**Two things it found were about the harness, not the module, and both are
+the reason it exists.**
+
+First, the generator reached almost nothing. Random bytes make `chunks` a
+uniform `u16`, which is past `FZN_REASM_MAX_CHUNKS` in 99.6% of draws, so
+nearly every offer was refused before a slot was taken — and three of four
+planted bugs survived 200000 cases while it reported success. That is the
+shape `situ/suggestions/fuzznet.md` names: a target that reaches nothing
+looks identical to a clean run. The generator is biased now, and the harness
+**counts what it reached and refuses to report success below a floor
+proportional to the run.** "More than zero" was the first threshold and was
+not enough: with the bias disabled it admitted 2 and completed 1 in 20000
+cases, and passed.
+
+Second, the bounds cover each other, which is worth knowing before reading a
+single-mutation result. Given the admit-time sizing, `index < chunks` and
+`payload_len <= chunk_size`, the offset check is unreachable by
+construction — so removing any **one** of them is masked by the others and
+the fuzzer sees nothing. Removing **two** produces a real overrun and the
+canary catches it, with a reproducible case number and seed. That is
+redundancy working as intended, and it means the unit suite rather than the
+fuzzer is what holds each individual bound.
+
+**So what the fuzzer covers is memory safety, and what it cannot see is
+semantics.** A later chunk disagreeing with the first about its total breaks
+no invariant here — it is a splice, not an overrun — and `reassembly_test`
+is what catches it. Both are needed and neither substitutes.
 
 **The Monocypher round trip is the positive control for the seam itself**,
 and it earns its place by an experiment rather than an argument: inverting
