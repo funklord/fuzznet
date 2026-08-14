@@ -446,6 +446,69 @@ Neither is a rule this library enforces — it does not know what a payload
 means — but both are reasons the library must never grow a convenience that
 makes carrying a blob of executable content easy and obvious.
 
+### 4.7 The order a receiver runs these checks in
+
+**Unstated until 2026-08-14, and it should not have been.** §9 puts
+encoding, framing, authentication and encryption with this library, and the
+*order* of authentication checks is squarely that. Every module states its
+own rules; none stated the sequence, so a consumer had to derive it from
+five headers and would have been inventing a security property.
+
+The order, and each step's reason for preceding the next:
+
+1. **Peer credentials**, if the frame arrived over the local socket rather
+   than the network (`local/peer.h`). Cheapest, and it decides whether to
+   spend anything else. UNKNOWN denies.
+2. **Freshness** (`frame/freshness.h`). A command with no expiry or a passed
+   one is refused before any cryptography, because the alternative is
+   spending a signature verification on something already dead. This is also
+   what bounds the replay window (§4.3).
+3. **Replay** (`frame/freshness.h`, same call). Before decryption, because a
+   replayed frame is a configuration change (§4.4a) and the cheapest place
+   to refuse one is before it costs anything.
+4. **Key commitment** (`session/commitment.h`). Derive the key and the
+   commitment together, compare against the frame's, refuse on mismatch --
+   **before decrypting.** That is the whole reason the field is in the
+   authenticated header rather than in the seal: a receiver holding the
+   wrong key must learn so without spending a decryption, and must be warned
+   rather than handed plaintext that opens under two keys.
+5. **Tag verification and decryption** (the extern codec, **unwritten**).
+   Nothing above this line has touched the sealed region. §6 asks situ to
+   make parse-before-verify unrepresentable, and steps 1 to 4 are the part
+   of that this library can enforce today.
+6. **Capability chain** (`chain/chain.h`), against a pinned root and the
+   revocation store. After decryption because the capability identifier is
+   inside the seal (§13), and that placement was chosen so an observer
+   cannot see which authority is being exercised.
+7. **Reassembly** (`chunk/reassembly.h`), last. A chunk is only admitted to
+   a partial message once it has been shown to be fresh, unreplayed,
+   authentic and authorised -- otherwise the memory bound protects a table
+   any stranger may fill.
+
+**The two rules that are not orderings but constrain the order.** A refusal
+at any step must not have cost a slot at a later one -- `freshness` and
+`reassembly` both refuse before allocating, and both are tested for it. And
+UNKNOWN from step 1 denies, rather than falling through.
+
+**Why this is prose and not a function.** An `fzn_admit()` that ran these in
+order would make the sequence unrepresentable-to-get-wrong, which is the
+shape this library prefers and uses in `chain.h`. It is not written because
+step 5 does not exist and two of its neighbours are unsettled: §13's
+overhead question may move what the header carries, and §14 records §4.3's
+expiry reading as open. An orchestrator would bake all three in, and a
+consumer would then be depending on the guesses rather than on the modules.
+**When the codec lands, this section is the specification for that
+function**, and the ordering is fixed now so that it is not invented then.
+
+**A consumer sequencing these handles six error vocabularies** --
+`fzn_err_t`, `fzn_fresh_err_t`, `fzn_reasm_err_t`, `fzn_split_err_t`,
+`fzn_commitment_err_t` and `fzn_peer_verdict_t`. That is a real integration
+cost and it is deliberate for now: each module's errors say what that module
+knows, and collapsing them early would lose distinctions the modules were
+built to make. It is recorded here as a thing to revisit when there is a
+consumer to ask, not before -- a convention change wants raising, not
+adjusting in passing.
+
 ---
 
 ## 5. What the core deliberately does not carry
