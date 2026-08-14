@@ -24,13 +24,14 @@ CFLAGS  += -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion \
            -Wstrict-prototypes -Wvla
 CPPFLAGS += -MMD -MP
 
-SRCS      := chain/chain.c
+SRCS      := chain/chain.c frame/freshness.c
 OBJS      := $(SRCS:%.c=$(BUILD_DIR)/%.o)
-HDRS      := chain/chain.h
+HDRS      := chain/chain.h frame/freshness.h
 
-TEST_SRCS := chain/tests/chain_test.c
+TEST_SRCS := chain/tests/chain_test.c frame/tests/freshness_test.c
 TEST_OBJS := $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
-TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test
+TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test \
+             $(BUILD_DIR)/frame/tests/freshness_test
 
 # The Monocypher binding, built only when MONOCYPHER_DIR names a checkout.
 #
@@ -94,6 +95,11 @@ $(BUILD_DIR)/chain/tests/chain_test: $(BUILD_DIR)/chain/tests/chain_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+$(BUILD_DIR)/frame/tests/freshness_test: $(BUILD_DIR)/frame/tests/freshness_test.o \
+                                         $(BUILD_DIR)/frame/freshness.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # Tests are built by this target and only by it, so a claim that a test
 # passes or fails always goes through a rebuild. Re-running a stale binary
 # after a plain build appears to pass either way.
@@ -128,8 +134,10 @@ hooks:
 # dh_auto_install calls it, and every private project honours it.
 install: $(HDRS)
 	@install -d $(DESTDIR)$(PREFIX)/include/fuzznet/chain
+	@install -d $(DESTDIR)$(PREFIX)/include/fuzznet/frame
 	@install -m 0644 chain/chain.h $(DESTDIR)$(PREFIX)/include/fuzznet/chain/chain.h
-	@echo "installed $(DESTDIR)$(PREFIX)/include/fuzznet/chain/chain.h"
+	@install -m 0644 frame/freshness.h $(DESTDIR)$(PREFIX)/include/fuzznet/frame/freshness.h
+	@echo "installed headers under $(DESTDIR)$(PREFIX)/include/fuzznet"
 
 # Named targets only, and it lists them. No rm -rf of a directory and no
 # wildcard sweep: a clean target is the one thing everybody runs without

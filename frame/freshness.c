@@ -1,0 +1,137 @@
+/* Command expiry and the replay window. See freshness.h. */
+
+#include "freshness.h"
+
+#include <string.h>
+
+/* Nonces are compared with plain memcmp, deliberately, and the reason is
+ * worth writing down because the rest of this library is careful about it.
+ *
+ * chain.c uses a constant-time comparison because sec 4.4a requires one and
+ * names tag comparison specifically. Here there is nothing to leak: a nonce
+ * travels in the CLEAR in the frame header (wire/frame.situ puts it outside
+ * the seal, because a receiver must have it before it can decrypt
+ * anything), so an attacker comparing against one already knows it. And the
+ * membership of the window is not secret either -- the return value says
+ * whether a nonce was present, which is strictly more than any timing
+ * signal would.
+ *
+ * Using the constant-time helper anyway would cost nothing and read as
+ * cargo cult. Saying which comparisons are load-bearing is the more useful
+ * habit, since a reader who finds memcmp here and cannot see why will
+ * eventually "fix" it somewhere it matters. */
+static int nonce_eq(const uint8_t *a, const uint8_t *b)
+{
+	return memcmp(a, b, FZN_NONCE_LEN) == 0;
+}
+
+fzn_fresh_err_t fzn_freshness_check(uint64_t expires_at, fzn_frame_kind_t kind, uint64_t now)
+{
+	if (kind == FZN_FRAME_GRANT) {
+		/* sec 4.3: a grant's expiry is optional and absent by default,
+		 * and authority is ended by revocation rather than by a clock.
+		 * A grant that DOES state one is still held to it -- see sec 14,
+		 * where the wording is recorded as ambiguous and this reading
+		 * chosen because it fails closed. */
+		if (expires_at == 0)
+			return FZN_FRESH_OK;
+		return expires_at <= now ? FZN_FRESH_ERR_EXPIRED : FZN_FRESH_OK;
+	}
+
+	/* A command. Both halves are mandatory, and the second is the one an
+	 * implementation forgets: refusing a passed expiry while accepting an
+	 * absent one means anybody who omits the field is exempt from the
+	 * rule, which is worse than not having it. */
+	if (expires_at == 0)
+		return FZN_FRESH_ERR_NO_EXPIRY;
+	if (expires_at <= now)
+		return FZN_FRESH_ERR_EXPIRED;
+
+	return FZN_FRESH_OK;
+}
+
+fzn_fresh_err_t fzn_replay_init(fzn_replay_window_t *window, fzn_replay_entry_t *entries,
+                                 size_t capacity)
+{
+	if (!window || !entries || capacity == 0)
+		return FZN_FRESH_ERR_MALFORMED;
+
+	window->entries = entries;
+	window->capacity = capacity;
+	window->used = 0;
+
+	return FZN_FRESH_OK;
+}
+
+size_t fzn_replay_expire(fzn_replay_window_t *window, uint64_t now)
+{
+	size_t kept = 0;
+	size_t dropped;
+
+	if (!window || !window->entries)
+		return 0;
+
+	/* Compact in place, preserving order. Order is not required by
+	 * anything here, but a stable window is one a test can compare with
+	 * memcmp, and that property is cheap to keep and annoying to
+	 * reintroduce. */
+	for (size_t i = 0; i < window->used; i++) {
+		if (window->entries[i].expires_at > now) {
+			if (kept != i)
+				window->entries[kept] = window->entries[i];
+			kept++;
+		}
+	}
+
+	dropped = window->used - kept;
+	window->used = kept;
+
+	return dropped;
+}
+
+fzn_fresh_err_t fzn_replay_admit(fzn_replay_window_t *window,
+                                  const uint8_t nonce[FZN_NONCE_LEN], uint64_t expires_at,
+                                  fzn_frame_kind_t kind, uint64_t now)
+{
+	fzn_fresh_err_t err;
+
+	if (!window || !window->entries || !nonce)
+		return FZN_FRESH_ERR_MALFORMED;
+
+	/* Freshness first, so a stale frame never costs a slot. Doing it the
+	 * other way round lets a stranger fill the window with rubbish that
+	 * was going to be refused anyway -- the denial of service this bound
+	 * exists to prevent, introduced by the bound itself. */
+	err = fzn_freshness_check(expires_at, kind, now);
+	if (err != FZN_FRESH_OK)
+		return err;
+
+	/* A grant may legitimately carry no expiry, and there is nothing to
+	 * remember it until. It is also not the thing replay protection is
+	 * for: sec 4.3 has authority ended by revocation, and re-presenting a
+	 * grant is how a chain is verified rather than an attack. Recording
+	 * one would fill the window with entries that never expire, which is
+	 * exactly the unbounded set this design avoids. */
+	if (expires_at == 0)
+		return FZN_FRESH_OK;
+
+	(void)fzn_replay_expire(window, now);
+
+	for (size_t i = 0; i < window->used; i++) {
+		if (nonce_eq(window->entries[i].nonce, nonce))
+			return FZN_FRESH_ERR_REPLAY;
+	}
+
+	/* Refused rather than evicted. Making room by dropping the oldest
+	 * LIVE entry would reopen it to replay, so an attacker who can
+	 * generate traffic could flush the window and then replay anything
+	 * recorded. See freshness.h. */
+	if (window->used == window->capacity)
+		return FZN_FRESH_ERR_WINDOW_FULL;
+
+	memcpy(window->entries[window->used].nonce, nonce, FZN_NONCE_LEN);
+	window->entries[window->used].expires_at = expires_at;
+	window->used++;
+
+	return FZN_FRESH_OK;
+}

@@ -201,6 +201,43 @@ Recorded because the default that arrives with a messaging protocol pushes the
 wrong way, and because fuzzypickles' rule, read carelessly, would have made
 netcfgd's requirement look like a violation of it.
 
+**Built 2026-08-14** as `frame/freshness.c`, which is the half §7a assigns
+here: "the field is schema, the policy is ours". It needs no generated code
+and was not blocked on anything.
+
+#### Expiry and replay are one mechanism, which is the useful finding
+
+They look like two defences and are not, and seeing that is what makes the
+replay window bounded.
+
+Remembering every nonce ever seen is unbounded memory, and §4.4 forbids
+exactly that in the reassembly path for exactly the reason it is wrong here —
+a stranger can exhaust it. But **an expired command cannot be replayed to any
+effect**, because the expiry check refuses it whether or not its nonce is
+remembered. So a nonce need only be remembered until its own expiry passes,
+and §4.3's *mandatory* expiry on commands is what makes that bound exist at
+all. The rule that looked like a concession to netcfgd turns out to be what
+pays for replay defence.
+
+That gives the sizing rule a consumer must get right, and it is the only
+number this module asks for: **the window must hold as many entries as can
+arrive within the longest expiry it will accept.**
+
+**A full window refuses rather than evicting**, and this is the decision to
+argue with before changing it. Evicting the oldest live entry to make room is
+the obvious move and it silently reopens replay: whatever was evicted is
+accepted again on retransmission, so an attacker who can generate traffic
+flushes the window and then replays anything they recorded. Refusing keeps
+replay closed and turns the failure into something a consumer can log and
+alarm on — and §4.4a would rather a configuration change did not happen than
+happened twice.
+
+Two smaller consequences, both tested: a frame refused for freshness never
+occupies a slot, or a stranger fills the window with rubbish that was going to
+be refused anyway; and a grant carrying no expiry is not recorded at all,
+since it has nothing to be remembered until and re-presenting one is how a
+chain gets verified rather than an attack.
+
 ### 4.4 Chunking and reassembly — the largest and riskiest piece
 
 netcfgd's responses are not small: a `status` is an entire observation — every
@@ -938,25 +975,34 @@ alternative failure.
 
 ## 11. Where this is, for whoever picks it up
 
-**`chain/` is built and tested; nothing else is.** Alongside it: this
-document, `wire/frame.situ`, a `code-style.md` copied from the global source,
-the shared `style_gate.py` and `commit-msg`, and a `VERSION`. `make style`
-passes over thirteen files.
+**`chain/` and `frame/freshness.c` are built and tested; nothing else is.**
+Alongside them: this document, `wire/frame.situ`, a `code-style.md` copied
+from the global source, the shared `style_gate.py` and `commit-msg`, and a
+`VERSION`. `make style` passes over sixteen files.
 
-`make` builds `chain/chain.o` and nothing else — the default target does not
-build tests, per `build-and-commit.md`. `make test` builds and runs
-`chain/tests/chain_test`: 64 checks over a stub verifier and an injected
-clock, so there is nothing in it that can pass on a quiet machine and fail on
-a loaded one.
+Both are the pieces §7a assigns to this library rather than to situ, which is
+also why they were buildable while §10 steps 2 and 4 are stuck: neither needs
+generated code. `chain/` is the capability model; `frame/freshness.c` is
+§4.3's policy half, the expiry rules and the replay window they pay for.
+
+`make` builds the objects and nothing else — the default target does not
+build tests, per `build-and-commit.md`. `make test` builds and runs two
+binaries: `chain/tests/chain_test` at 64 checks over a stub verifier and an
+injected clock, and `frame/tests/freshness_test` at 34. Neither reads a
+clock, so there is nothing in either that can pass on a quiet machine and
+fail on a loaded one.
 
 **`make test MONOCYPHER_DIR=../fuzzypickles/monocypher`** additionally builds
 the binding and runs 9 more checks against real Ed25519. That is the sibling
 -directory-behind-a-variable shape §7 blesses for bring-up, and it is
 temporary: the real answer is a submodule, at whatever step takes it.
 
-**The suite was checked by breaking the code, not by watching it pass.** Nine
-sabotages, each rebuilt through `make test` rather than re-running a stale
-binary, and all nine caught. On verification: removing the root pinning,
+**The suites were checked by breaking the code, not by watching them pass.**
+Fifteen sabotages, each rebuilt through `make test` rather than re-running a
+stale binary, and all fifteen caught. Six of them are freshness: accepting a
+command with no expiry, ignoring a grant's stated expiry, dropping the replay
+check, making a full window evict rather than refuse, recording a frame
+before checking its freshness, and an expiry sweep that reclaims nothing. On verification: removing the root pinning,
 narrowing revocation to the last hop alone, dropping expiry enforcement, and
 verifying signatures before the structural checks — the last held by the
 call-count assertions that exist to make that ordering claim measurable. On

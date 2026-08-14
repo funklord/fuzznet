@@ -13,6 +13,7 @@
 # also hide a source file somebody adds under that name by mistake.
 /chain/tests/chain_test
 /chain/tests/sign_monocypher_test
+/frame/tests/freshness_test
 
 # An out-of-tree build, if BUILD_DIR names one.
 /build/
