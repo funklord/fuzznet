@@ -913,11 +913,11 @@ ephemeral rather than 24 for a nonce, and 32 more to say who is speaking. That
 is a deliberate purchase: **every datagram is self-contained, and no session
 state is required at either end.**
 
-Which is §8's "assume the peer is asleep" honoured at the frame level. Store
-and forward works because a stored datagram needs no live counterpart to make
-sense of it later. A session handle would trade exactly that away: a handle is
-meaningless to a host that has forgotten the session, or never had it, or is
-being handed the message by a relay hours later.
+Which is fuzzypickles' §8, "assume the peer is asleep", honoured at the frame
+level. Store and forward works because a stored datagram needs no live
+counterpart to make sense of it later. A session handle would trade exactly
+that away: a handle is meaningless to a host that has forgotten the session,
+or never had it, or is being handed the message by a relay hours later.
 
 ### So it is the same axis, for the fourth time
 

@@ -101,8 +101,9 @@ struct fzn_head {
 	// the expensive side of a real choice: 32 bytes on every datagram buys a
 	// frame that is SELF-CONTAINED. A handle is meaningless to a host that
 	// has forgotten the session, never had it, or is handed the datagram by a
-	// relay hours later -- and sec 8's "assume the peer is asleep" is exactly
-	// that case. sec 13 records the alternative and why it is not free.
+	// relay hours later -- and fuzzypickles' sec 8, "assume the peer is
+	// asleep", is exactly that case. sec 13 records the alternative and why
+	// it is not free.
 	u8   sender[32];
 
 	// sec 4.3, and the rule that looks like a contradiction between the two
@@ -146,8 +147,9 @@ struct fzn_head {
 
 	// Sizes the sealed payload. The `max` is what makes a datagram
 	// statically allocatable: without it the sealed region is Unbounded and
-	// no receiver can size a buffer for one, which is sec 8's "receivers may
-	// have kilobytes" expressed where the compiler can enforce it.
+	// no receiver can size a buffer for one, which is fuzzypickles' sec 8,
+	// "receivers may have kilobytes", expressed where the compiler can
+	// enforce it.
 	//
 	// 1024 is a placeholder chosen to be smaller than any plausible MTU.
 	// The 2018 generation picked 512 (sec 12); the real number wants
