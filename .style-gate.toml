@@ -8,8 +8,21 @@
 # with the check on never has that to clean up.
 ascii_only = true
 
-# Below this the gate fails instead of passing. Deliberately under the real
-# count: it catches a collapsed file list, it does not police a number.
-floor = 1
+# Below this the gate fails instead of passing. It exists to catch a
+# COLLAPSED FILE LIST -- a gate over four files reports success exactly as
+# loudly as a gate over thirty-nine, which is the failure evidence.md opens
+# with and the reason this key exists at all.
+#
+# IT WAS 1, AND AT 1 IT CAUGHT NOTHING. Measured 2026-08-14: excluding the
+# source directories took the gate from 39 files to 4 and it still reported
+# success. A floor set below every reachable collapse is a guard that cannot
+# fire, which is worse than no guard because it reads like one.
+#
+# 30 against a real count of 39. Deliberately under, so that adding or
+# removing a handful of files does not fail the build and nobody learns to
+# edit this number to make the gate quiet -- which is how it got to 1. Far
+# enough under to survive normal churn, far enough over to catch a module
+# dropping out of the list.
+floor = 30
 
 exclude = ["attic", "third_party", "vendor", "build", "target", "monocypher"]
