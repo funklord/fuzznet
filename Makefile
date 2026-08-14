@@ -57,11 +57,13 @@ CFLAGS  += -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion \
 CPPFLAGS += -MMD -MP
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
+             local/peer.c local/peer_linux.c \
              chain/chain.c chain/revocation.c frame/freshness.c \
              chunk/reassembly.c \
              chunk/split.c
 OBJS      := $(SRCS:%.c=$(BUILD_DIR)/%.o)
 HDRS      := constant_time/constant_time.h session/commitment.h \
+             local/peer.h \
              chain/chain.h chain/revocation.h frame/freshness.h \
              chunk/reassembly.h \
              chunk/split.h
@@ -69,7 +71,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
 TEST_SRCS := chain/tests/chain_test.c chain/tests/revocation_test.c \
              frame/tests/freshness_test.c \
              chunk/tests/reassembly_test.c chunk/tests/split_test.c \
-             session/tests/commitment_test.c \
+             session/tests/commitment_test.c local/tests/peer_test.c \
              chunk/tests/reassembly_fuzz.c chain/tests/chain_fuzz.c \
              frame/tests/freshness_fuzz.c chain/tests/revocation_fuzz.c \
              chunk/tests/roundtrip_fuzz.c
@@ -78,6 +80,7 @@ TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test \
              $(BUILD_DIR)/chain/tests/revocation_test \
              $(BUILD_DIR)/frame/tests/freshness_test \
              $(BUILD_DIR)/session/tests/commitment_test \
+             $(BUILD_DIR)/local/tests/peer_test \
              $(BUILD_DIR)/chunk/tests/reassembly_test \
              $(BUILD_DIR)/chunk/tests/split_test \
              $(BUILD_DIR)/chunk/tests/reassembly_fuzz \
@@ -230,6 +233,13 @@ $(BUILD_DIR)/session/tests/commitment_test: \
 		$(BUILD_DIR)/session/tests/commitment_test.o \
 		$(BUILD_DIR)/session/commitment.o \
 		$(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# Links peer.c only. peer_linux.c is the system half and holds no
+# decisions, so the suite drives every one of them without a socket.
+$(BUILD_DIR)/local/tests/peer_test: $(BUILD_DIR)/local/tests/peer_test.o \
+                                    $(BUILD_DIR)/local/peer.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
