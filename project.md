@@ -1215,6 +1215,43 @@ semantics.** A later chunk disagreeing with the first about its total breaks
 no invariant here — it is a splice, not an overrun — and `reassembly_test`
 is what catches it. Both are needed and neither substitutes.
 
+### `make coverage`, and the number that is not 100%
+
+Measured rather than assumed, and it answered the question this library kept
+hedging: is there test work left.
+
+| file | lines | branches both ways |
+|---|---|---|
+| `constant_time/constant_time.c` | 100% of 7 | 100% of 2 |
+| `chain/chain.c` | 100% of 64 | 85.7% of 84 |
+| `chain/revocation.c` | 100% of 41 | 85.2% of 54 |
+| `frame/freshness.c` | 100% of 41 | 92.5% of 40 |
+| `chunk/reassembly.c` | 100% of 103 | 87.8% of 98 |
+| `chunk/split.c` | 100% of 21 | 100% of 22 |
+
+**Lines are the weak number and branches-both-ways is the honest one.** 100%
+of lines is compatible with every decision in the library having only ever
+gone one way, which is why the target reports both and why the second column
+is the one to read.
+
+It found three things. Two were the same gap twice: the malformed-argument
+guard of `fzn_revocation_merge` was the only unexecuted code in the library,
+and `fzn_split_at`'s went only one way — **each untested while the sibling
+function written beside it was tested**, which is what a gap looks like when
+two functions are written together and only one is thought about twice. The
+third was behaviour nobody had exercised: delegating a grant *shorter* than
+the chain allows. Every test asked for more time than it had and none asked
+for less, so the cap had never been shown to be a ceiling rather than an
+assignment.
+
+**The remainder is deliberately not chased.** What is left is the individual
+sub-conditions of null-argument guards — `if (!a || !b || !c)` where the
+guard is tested but not every operand is the one that fired. Covering those
+tests the compiler's short-circuit rather than the library, and would add
+roughly forty assertions that cannot fail for a reason anyone cares about.
+The number stays below 100% on purpose, and this paragraph is why, so that
+nobody reads it as neglect and nobody "fixes" it.
+
 ### `make test SANITIZE=1`, and why the canaries stay
 
 Everything builds and runs under AddressSanitizer and UBSan behind a knob,

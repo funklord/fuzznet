@@ -263,6 +263,45 @@ static void test_bad_arguments(void)
 	      "a record with no signed region was accepted");
 }
 
+static void test_merge_bad_arguments(void)
+{
+	struct fixture f;
+	fzn_revocation_record_t r;
+	fzn_err_t err;
+
+	/* Added because coverage said nothing reached them: the guard in
+	 * fzn_revocation_merge was the only unexecuted code in the library,
+	 * three lines of 41 in this file. `admit` had its bad arguments
+	 * tested and `merge` did not, which is the shape a gap takes when
+	 * two functions are written together and only one is thought about
+	 * twice. */
+	fixture_init(&f);
+	record_of(&r, 0, 0xc0, 5);
+
+	err = FZN_OK;
+	CHECK(fzn_revocation_merge(NULL, &r, 1, f.root, &f.sign, &err) == 0,
+	      "merge into a null store did not admit zero");
+	CHECK(err == FZN_ERR_MALFORMED, "merge into a null store did not report why");
+
+	err = FZN_OK;
+	CHECK(fzn_revocation_merge(&f.store, NULL, 3, f.root, &f.sign, &err) == 0,
+	      "merge of a null batch with a nonzero count admitted something");
+	CHECK(err == FZN_ERR_MALFORMED, "merge of a null batch did not report why");
+	CHECK(f.store.used == 0, "a refused merge recorded something");
+
+	/* A null `err` must be tolerated, since it is the caller's option
+	 * and the guard writes through it. */
+	CHECK(fzn_revocation_merge(NULL, &r, 1, f.root, &f.sign, NULL) == 0,
+	      "merge with a null err pointer did not return zero");
+
+	/* An empty batch is not an error: a peer with nothing to tell us is
+	 * the ordinary case, not a malformed one. */
+	err = FZN_ERR_MALFORMED;
+	CHECK(fzn_revocation_merge(&f.store, NULL, 0, f.root, &f.sign, &err) == 0,
+	      "an empty batch admitted something");
+	CHECK(err == FZN_OK, "an empty batch was reported as an error");
+}
+
 /* Positive control: most cases above assert a refusal, and an admit that
  * refused everything would satisfy them. */
 static void test_the_suite_can_tell_pass_from_fail(void)
@@ -285,6 +324,7 @@ int main(void)
 	test_merge_keeps_going_past_a_bad_record();
 	test_the_store_feeds_chain_verify_directly();
 	test_bad_arguments();
+	test_merge_bad_arguments();
 	test_the_suite_can_tell_pass_from_fail();
 
 	printf("revocation_test: %d checks, %d failure(s)\n", checks, failures);

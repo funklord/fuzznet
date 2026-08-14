@@ -132,7 +132,7 @@ endif
 # failures rather than as a build error.
 DEPS := $(OBJS:.o=.d) $(TEST_OBJS:.o=.d)
 
-.PHONY: all test fuzz installcheck style hooks clean install
+.PHONY: all test fuzz installcheck coverage style hooks clean install
 
 # The default build does NOT build tests -- build-and-commit.md, and the
 # discipline it buys is paid for by the dependency rules above being right.
@@ -257,6 +257,34 @@ install: $(HDRS)
 		install -m 0644 $$h $(DESTDIR)$(PREFIX)/include/fuzznet/$$h; \
 	done
 	@echo "installed `echo $(HDRS) | wc -w` header(s) under $(DESTDIR)$(PREFIX)/include/fuzznet"
+
+# What do the suites never execute? Measured rather than assumed.
+#
+# Reports lines AND branches taken both ways, because the second is the
+# honest number: 100% of lines is compatible with every decision in the
+# library having only ever gone one way. It found two real gaps -- the
+# malformed-argument guards of fzn_revocation_merge and fzn_split_at, each
+# untested while its sibling function's was -- and one behaviour nobody had
+# exercised, delegating a grant SHORTER than the chain allows.
+#
+# Instrumented objects go in their own BUILD_DIR: --coverage changes the
+# objects, and mixing them with a plain build's is how a stale profile
+# produces a number nobody can reproduce.
+coverage:
+	@test -n "$(BUILD_DIR)" || { echo "BUILD_DIR is empty; refusing"; exit 1; }
+	@case "$(BUILD_DIR)" in /*) echo "BUILD_DIR must be relative; refusing"; exit 1 ;; esac
+	@rm -rf $(BUILD_DIR)-coverage *.gcov
+	@$(MAKE) --no-print-directory test BUILD_DIR=$(BUILD_DIR)-coverage \
+	         CFLAGS="-Og -g --coverage" >/dev/null
+	@printf '%-30s %-14s %s\n' file lines "branches both ways"
+	@for c in $(SRCS); do \
+		d=`dirname $$c`; \
+		out=`gcov -b -o $(BUILD_DIR)-coverage/$$d $$c 2>/dev/null`; \
+		l=`echo "$$out" | grep -m1 'Lines executed' | sed 's/.*://'`; \
+		b=`echo "$$out" | grep -m1 'Taken at least once' | sed 's/.*://'`; \
+		printf '%-30s %-14s %s\n' $$c "$$l" "$$b"; \
+	done
+	@rm -rf $(BUILD_DIR)-coverage *.gcov
 
 # Does a consumer outside this tree still work? Nothing else asks.
 #

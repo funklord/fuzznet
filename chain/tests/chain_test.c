@@ -487,6 +487,22 @@ static void test_delegate(void)
 	      "delegating without asking for an expiry failed");
 	CHECK(hop.expires_at == 5000, "asking for no expiry escaped the grantor's cap");
 
+	/* And a SHORTER expiry than the chain's is kept, not widened to it.
+	 * The cap is a ceiling rather than an assignment: a host issuing a
+	 * deliberately time-boxed sub-grant must get the box it asked for.
+	 * Added because branch coverage showed this direction of the cap had
+	 * never been taken -- every test asked for more time than it had, and
+	 * none asked for less. */
+	fixture_init(&f);
+	f.hops[1].delegable = 1;
+	f.hops[1].expires_at = 5000;
+	CHECK(fzn_chain_delegate(f.hops, 2, f.root, f.cap, 2000, grantee, 3000, 0, region,
+	                         sizeof(region) - 1, &f.sign, NULL, 0, &hop) == FZN_OK,
+	      "delegating a shorter grant failed");
+	CHECK(hop.expires_at == 3000, "expiry %llu, wanted the requested 3000 -- the cap "
+	                              "widened a deliberately shorter grant",
+	      (unsigned long long)hop.expires_at);
+
 	/* Defence in depth: the chain is re-verified, so a revoked or broken
 	 * one cannot be the base of something that looks freshly minted. */
 	fixture_init(&f);

@@ -105,6 +105,38 @@ static void test_offsets_tile_the_message(void)
 	      "an index past the plan was answered");
 }
 
+static void test_split_at_bad_arguments(void)
+{
+	fzn_split_t p, empty;
+	size_t offset, len;
+
+	/* Added because branch coverage said every one of these guards had
+	 * only ever gone one way. `fzn_split_plan` had its bad arguments
+	 * tested and `fzn_split_at` did not -- the same gap coverage found in
+	 * fzn_revocation_merge, and the same cause: two functions written
+	 * together, only one of them thought about twice. */
+	CHECK(fzn_split_plan(10, 4, &p) == FZN_SPLIT_OK, "plan refused");
+
+	CHECK(fzn_split_at(NULL, 0, &offset, &len) == FZN_SPLIT_ERR_MALFORMED,
+	      "a null plan was answered");
+	CHECK(fzn_split_at(&p, 0, NULL, &len) == FZN_SPLIT_ERR_MALFORMED,
+	      "a null offset was answered");
+	CHECK(fzn_split_at(&p, 0, &offset, NULL) == FZN_SPLIT_ERR_MALFORMED,
+	      "a null length was answered");
+
+	/* A zeroed plan, which is what a caller gets by declaring one and
+	 * forgetting to fill it. Answering that would hand back an offset
+	 * into a message that was never planned. */
+	memset(&empty, 0, sizeof(empty));
+	CHECK(fzn_split_at(&empty, 0, &offset, &len) == FZN_SPLIT_ERR_MALFORMED,
+	      "a zeroed plan was answered");
+
+	empty = p;
+	empty.chunk_size = 0;
+	CHECK(fzn_split_at(&empty, 0, &offset, &len) == FZN_SPLIT_ERR_MALFORMED,
+	      "a plan with a zero stride was answered");
+}
+
 /* Cut `total` bytes with split.c, hand the pieces to reassembly.c in the
  * given order, and compare. Returns 1 on a clean round trip. */
 static int round_trip(size_t total, size_t max_payload, int reverse)
@@ -195,6 +227,7 @@ int main(void)
 	test_plan_arithmetic();
 	test_plan_refuses_more_pieces_than_a_receiver_tracks();
 	test_offsets_tile_the_message();
+	test_split_at_bad_arguments();
 	test_round_trip();
 	test_round_trip_out_of_order();
 	test_the_suite_can_tell_pass_from_fail();
