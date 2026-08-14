@@ -348,6 +348,25 @@ session model, and §4.5's prekey half is not settled. Two peers who disagree
 about the transcript derive different keys and fail to talk, rather than
 talking insecurely.
 
+**BLAKE2b is bound behind the same seam** (`session/hash_monocypher.c`,
+optional like the signer), and it is the right primitive rather than an
+arbitrary one: it takes an output length as a parameter, which is what makes
+"derive 48 bytes and split them" one call rather than a construction.
+
+Its test carries **two kinds of evidence and says which is which**. The
+64-byte case is RFC 7693 Appendix A's published vector — an independent
+check that this is BLAKE2b at all, which nothing in this tree could have
+produced. The 48-byte case is a pinned observation from this build: it can
+say the answer changed, not that it is right. Both are worth having and a
+pinned observation presented as a known-answer test would be a test that
+agrees with whatever the code did the day it was written.
+
+A third case exists only because the first two could agree while the binding
+was wrong: the 48-byte digest must **not** be a prefix of the 64-byte one.
+BLAKE2b puts the digest length in its parameter block, so a binding that
+ignored `out_len` would produce a prefix — and would pass the published
+vector.
+
 **Monocypher**, vendored once here rather than three times. netcfgd had already
 decided C/C++ with Monocypher for its own protocol and agent before this
 library existed, so the two agree without having to be reconciled.
@@ -952,7 +971,7 @@ until §10's order says so.
 | `frame/` | freshness: command expiry, and the replay window it bounds. The envelope, signing and verification are situ's | **built** |
 | `chain/` | capability chains: verification, minting, delegation, revocation, and the signer seam | **built** |
 | `chunk/` | splitting, reassembly, and the memory bound | **built** |
-| `session/` | the key schedule, and the AEAD seam | **key schedule built**; the codec waits on situ's sealed-region ABI |
+| `session/` | the key schedule, and the AEAD seam | **key schedule and its BLAKE2b binding built**; the codec waits on situ's sealed-region ABI |
 | `local/` | `AF_UNIX` with `SO_PEERCRED` and group gating | last, and only against a real raidcfgd (§2) |
 
 **Rewritten 2026-08-14, because five of its seven rows were stale.** The

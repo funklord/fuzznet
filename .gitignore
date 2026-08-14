@@ -15,6 +15,7 @@
 /session/tests/commitment_test
 /chain/tests/revocation_test
 /chain/tests/sign_monocypher_test
+/session/tests/hash_monocypher_test
 /frame/tests/freshness_test
 /chunk/tests/reassembly_test
 /chunk/tests/split_test

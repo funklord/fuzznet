@@ -102,14 +102,18 @@ TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test \
 MONOCYPHER_DIR ?=
 
 ifneq ($(MONOCYPHER_DIR),)
-MONO_OBJS  := $(BUILD_DIR)/chain/sign_monocypher.o $(BUILD_DIR)/monocypher.o
-MONO_TSRC  := chain/tests/sign_monocypher_test.c
+MONO_OBJS  := $(BUILD_DIR)/chain/sign_monocypher.o \
+              $(BUILD_DIR)/session/hash_monocypher.o \
+              $(BUILD_DIR)/monocypher.o
+MONO_TSRC  := chain/tests/sign_monocypher_test.c \
+              session/tests/hash_monocypher_test.c
 MONO_TOBJ  := $(MONO_TSRC:%.c=$(BUILD_DIR)/%.o)
 MONO_BIN   := $(BUILD_DIR)/chain/tests/sign_monocypher_test
+MONO_HASH  := $(BUILD_DIR)/session/tests/hash_monocypher_test
 OBJS       += $(MONO_OBJS)
 TEST_OBJS  += $(MONO_TOBJ)
-TEST_BINS  += $(MONO_BIN)
-HDRS       += chain/sign_monocypher.h
+TEST_BINS  += $(MONO_BIN) $(MONO_HASH)
+HDRS       += chain/sign_monocypher.h session/hash_monocypher.h
 CPPFLAGS   += -I$(MONOCYPHER_DIR)/src
 
 # Vendored, so it is compiled with its own terms rather than ours.
@@ -120,8 +124,20 @@ $(BUILD_DIR)/monocypher.o: $(MONOCYPHER_DIR)/src/monocypher.c
 	@mkdir -p $(dir $@)
 	$(CC) -Os -g -c $< -o $@
 
-$(MONO_BIN): $(MONO_TOBJ) $(MONO_OBJS) $(BUILD_DIR)/chain/chain.o \
-                                     $(BUILD_DIR)/constant_time/constant_time.o
+# Each names its own objects rather than linking $(MONO_OBJS) wholesale.
+# Linking both bindings into both binaries would work and would hide which
+# one each test actually exercises, which is the thing these tests are for.
+$(MONO_BIN): $(BUILD_DIR)/chain/tests/sign_monocypher_test.o \
+             $(BUILD_DIR)/chain/sign_monocypher.o $(BUILD_DIR)/monocypher.o \
+             $(BUILD_DIR)/chain/chain.o \
+             $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(MONO_HASH): $(BUILD_DIR)/session/tests/hash_monocypher_test.o \
+              $(BUILD_DIR)/session/hash_monocypher.o $(BUILD_DIR)/monocypher.o \
+              $(BUILD_DIR)/session/commitment.o \
+              $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 endif
