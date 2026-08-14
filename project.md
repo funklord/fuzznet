@@ -827,9 +827,58 @@ hand-written transport and situ is generating most of it (§7a). Steps 2, 4 and
 
    Signature verification is a caller-supplied vtable, which is the same
    extern-codec boundary §6 uses for Monocypher and is what makes the whole
-   module testable before anything is vendored. **What remains for step 3 is
-   identity**: minting and delegation, and the Monocypher binding behind that
-   seam.
+   module testable before anything is vendored.
+
+   **Minting and delegation are built too** (2026-08-14), which finishes the
+   semantics half of step 3. `fzn_chain_mint` signs hop 0 as the root;
+   `fzn_chain_delegate` re-verifies the whole chain, then extends it. Two
+   caps apply and both are the same idea — a grantor cannot hand out what it
+   does not have: expiry is capped at the chain's own, and asking for *no*
+   expiry from a time-boxed chain silently yields the chain's rather than
+   widening it, since `FZN_NO_EXPIRY` is zero and reads as "unset".
+
+   **Nothing here takes a secret key.** The signer signs as whoever its
+   context is, so a key can live in this process, another one, or hardware,
+   and `chain.c` cannot tell. That is §3 honoured at the API rather than by
+   convention: a library linked by an unprivileged bridge should not have a
+   parameter somebody can hand a user's private key to.
+
+   **The Monocypher binding exists and is optional to build**
+   (`chain/sign_monocypher.c`, behind `MONOCYPHER_DIR`), because Monocypher
+   is not vendored here yet and §7 says that wants a submodule rather than a
+   decision taken in passing. Verified against fuzzypickles' checkout with a
+   real Ed25519 round trip — see §11.
+
+### The delegation bit, and why it is not a capability
+
+**A new field on a hop, decided while writing `chain/` and recorded here
+because it is a wire-format decision rather than an implementation detail.**
+
+fuzzypickles found, the expensive way, that *holding* a capability must not
+by itself entitle a host to *grant* it: its grant path once asked only
+whether the granting host held the type being handed over, which "left
+CAP_ADMIN gating nothing and let any host promote any other host to its own
+capability set". Its fix was to require a second capability, `CAP_ADMIN`,
+alongside the one being granted.
+
+**That fix is unavailable here and must not be imitated.** §4.2 keeps
+capabilities opaque — netcfgd's three are independent rather than a ladder —
+and a library that knew which identifier meant "may grant" would be
+interpreting them, which is the one thing this library promises not to do.
+
+So the entitlement travels as a **`delegable` bit on the hop**, set by the
+grantor. A chain that continues past a hop without it is refused, and
+`fzn_chain_delegate` returns its own error rather than a generic invalid,
+because the chain is valid and the holder does hold it — what is missing is
+permission to pass it on, and a caller that cannot tell those apart reports
+the wrong thing to a user. It defaults closed, so a decoder that forgets the
+field or a caller that zeroes a hop produces a grant that cannot be
+delegated rather than one that can.
+
+**This is the holder's to confirm.** It says the same thing fuzzypickles'
+`CAP_ADMIN` says, without this library learning what any capability is — but
+it adds a field to a hop, and no chain layout is committed yet, so it is
+cheap to change now and will not stay cheap.
 4. **Decide the rung, and say when.** `--layer view` today; `relate` is
    checkable now and emits nothing yet; `frame`, `converse` and `drive` are
    scheduled and unstarted. This is the sequencing question §7a names and it
@@ -870,22 +919,38 @@ alternative failure.
 **`chain/` is built and tested; nothing else is.** Alongside it: this
 document, `wire/frame.situ`, a `code-style.md` copied from the global source,
 the shared `style_gate.py` and `commit-msg`, and a `VERSION`. `make style`
-passes over ten files.
+passes over thirteen files.
 
 `make` builds `chain/chain.o` and nothing else — the default target does not
 build tests, per `build-and-commit.md`. `make test` builds and runs
-`chain/tests/chain_test`, which is 39 checks over a stub verifier and an
-injected clock, so there is nothing in it that can pass on a quiet machine
-and fail on a loaded one.
+`chain/tests/chain_test`: 64 checks over a stub verifier and an injected
+clock, so there is nothing in it that can pass on a quiet machine and fail on
+a loaded one.
 
-**The suite was checked by breaking the code, not by watching it pass.** Four
+**`make test MONOCYPHER_DIR=../fuzzypickles/monocypher`** additionally builds
+the binding and runs 9 more checks against real Ed25519. That is the sibling
+-directory-behind-a-variable shape §7 blesses for bring-up, and it is
+temporary: the real answer is a submodule, at whatever step takes it.
+
+**The suite was checked by breaking the code, not by watching it pass.** Nine
 sabotages, each rebuilt through `make test` rather than re-running a stale
-binary: removing the root pinning, narrowing revocation to the last hop
-alone, dropping expiry enforcement, and verifying signatures before the
-structural checks. All four were caught, the last of them by the call-count
-assertions that exist to hold that ordering claim to something. The suite
-also carries an explicit positive control, since a `fzn_chain_verify` that
-refused everything would satisfy almost every other case in it.
+binary, and all nine caught. On verification: removing the root pinning,
+narrowing revocation to the last hop alone, dropping expiry enforcement, and
+verifying signatures before the structural checks — the last held by the
+call-count assertions that exist to make that ordering claim measurable. On
+delegation: dropping the `delegable` requirement in verify and again in
+delegate, removing the expiry cap, skipping the re-verification, and removing
+the depth ceiling.
+
+**The Monocypher round trip is the positive control for the seam itself**,
+and it earns its place by an experiment rather than an argument: inverting
+`crypto_eddsa_check`'s sense — it returns 0 for good where the seam wants
+nonzero — breaks four of its checks, and `chain_test` still passes, because
+a stub cannot see a binding. A seam that has only ever had a fake behind it
+is a seam nobody has checked.
+
+Both suites also carry explicit positive controls, since a `fzn_chain_verify`
+that refused everything would satisfy almost every other case in them.
 
 There is no archive rule and there will not be one without a specific need
 (§7, and `build-and-commit.md`).

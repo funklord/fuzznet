@@ -9,9 +9,10 @@
 *.o
 *.d
 
-# The test binary. Named rather than globbed, because a pattern here would
+# The test binaries. Named rather than globbed, because a pattern here would
 # also hide a source file somebody adds under that name by mistake.
 /chain/tests/chain_test
+/chain/tests/sign_monocypher_test
 
 # An out-of-tree build, if BUILD_DIR names one.
 /build/

@@ -30,7 +30,46 @@ HDRS      := chain/chain.h
 
 TEST_SRCS := chain/tests/chain_test.c
 TEST_OBJS := $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
-TEST_BIN  := $(BUILD_DIR)/chain/tests/chain_test
+TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test
+
+# The Monocypher binding, built only when MONOCYPHER_DIR names a checkout.
+#
+# project.md sec 7 says a submodule and sec 10 has not reached that step, so
+# there is nothing vendored here to build against and adding a dependency is
+# not a thing to do in passing. During bring-up sec 7 blesses exactly this
+# shape -- a sibling directory behind a variable, not a second build path:
+#
+#   make test MONOCYPHER_DIR=../fuzzypickles/monocypher
+#
+# Without it the library builds and every test above still runs, which is
+# the property chain.h's signer vtable exists to give. With it, one more
+# binary runs a real Ed25519 round trip, because a seam that has only ever
+# had a stub behind it is a seam nobody has checked.
+MONOCYPHER_DIR ?=
+
+ifneq ($(MONOCYPHER_DIR),)
+MONO_OBJS  := $(BUILD_DIR)/chain/sign_monocypher.o $(BUILD_DIR)/monocypher.o
+MONO_TSRC  := chain/tests/sign_monocypher_test.c
+MONO_TOBJ  := $(MONO_TSRC:%.c=$(BUILD_DIR)/%.o)
+MONO_BIN   := $(BUILD_DIR)/chain/tests/sign_monocypher_test
+OBJS       += $(MONO_OBJS)
+TEST_OBJS  += $(MONO_TOBJ)
+TEST_BINS  += $(MONO_BIN)
+HDRS       += chain/sign_monocypher.h
+CPPFLAGS   += -I$(MONOCYPHER_DIR)/src
+
+# Vendored, so it is compiled with its own terms rather than ours.
+# code-style.md exempts vendored sources from our rules, and -Wconversion
+# against somebody else's crypto is noise nobody will read, which is how a
+# warning that matters gets missed.
+$(BUILD_DIR)/monocypher.o: $(MONOCYPHER_DIR)/src/monocypher.c
+	@mkdir -p $(dir $@)
+	$(CC) -Os -g -c $< -o $@
+
+$(MONO_BIN): $(MONO_TOBJ) $(MONO_OBJS) $(BUILD_DIR)/chain/chain.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+endif
 
 # Every -MMD file is read back, TEST OBJECTS INCLUDED. build-and-commit.md
 # names that omission specifically: a test object whose .d is never included
@@ -50,15 +89,16 @@ $(BUILD_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
 
-$(TEST_BIN): $(TEST_OBJS) $(OBJS)
+$(BUILD_DIR)/chain/tests/chain_test: $(BUILD_DIR)/chain/tests/chain_test.o \
+                                     $(BUILD_DIR)/chain/chain.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
 # Tests are built by this target and only by it, so a claim that a test
 # passes or fails always goes through a rebuild. Re-running a stale binary
 # after a plain build appears to pass either way.
-test: $(TEST_BIN)
-	$(TEST_BIN)
+test: $(TEST_BINS)
+	@for t in $(TEST_BINS); do echo "running $$t"; $$t || exit 1; done
 
 # Not bare. A bare `.SECONDARY:` applies to every target matched by any
 # pattern rule, silently including the object pattern above, and make does
@@ -96,7 +136,7 @@ install: $(HDRS)
 # reading, and an unset variable in an `rm -rf $(VAR)` is how one eats
 # something it should not.
 clean:
-	@for f in $(OBJS) $(TEST_OBJS) $(DEPS) $(TEST_BIN); do \
+	@for f in $(OBJS) $(TEST_OBJS) $(DEPS) $(TEST_BINS); do \
 		if [ -e "$$f" ]; then echo "removing $$f"; rm -f "$$f"; fi; \
 	done
 	@echo "fuzznet: clean"

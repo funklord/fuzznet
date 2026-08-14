@@ -61,6 +61,8 @@ typedef struct stub {
 	int calls;
 	int answer;      /* what verify returns */
 	int fail_on_call; /* 1-based call number to fail, or 0 for none */
+	int signs;       /* how many times sign was asked */
+	int can_sign;    /* whether it agrees to */
 } stub_t;
 
 static int stub_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const uint8_t *msg,
@@ -82,6 +84,24 @@ static int stub_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const ui
 	if (s->fail_on_call && s->calls == s->fail_on_call)
 		return 0;
 	return s->answer;
+}
+
+/* The signer takes no key, which is the property worth having: this module
+ * has no secret-key parameter anywhere, so a test signer is a counter. */
+static int stub_sign(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg, size_t msg_len)
+{
+	stub_t *s = (stub_t *)ctx;
+
+	if (!msg || msg_len == 0) {
+		printf("  FAIL: signer called with an empty region\n");
+		failures++;
+	}
+
+	s->signs++;
+	if (!s->can_sign)
+		return 0;
+	memset(sig, 0x5a, FZN_SIG_LEN);
+	return 1;
 }
 
 /* ---- fixtures --------------------------------------------------------- */
@@ -107,10 +127,15 @@ static void hop_init(fzn_chain_hop_t *hop, uint8_t grantor, uint8_t grantee, uin
 	hop->signed_region_len = sizeof(REGION) - 1;
 }
 
-/* A two-hop chain: root(0) -> host(1) -> agent(2), capability 0xc0. */
+/* A two-hop chain: root(0) -> host(1) -> agent(2), capability 0xc0.
+ *
+ * Hop 0 must say `delegable` for hop 1 to exist at all, which is the new
+ * rule asserting itself in the fixture: a chain assembled without thinking
+ * about delegation does not verify. */
 static void chain_init(fzn_chain_hop_t hops[2])
 {
 	hop_init(&hops[0], 0, 1, 0xc0);
+	hops[0].delegable = 1;
 	hop_init(&hops[1], 1, 2, 0xc0);
 }
 
@@ -130,7 +155,9 @@ static void fixture_init(struct fixture *f)
 	key(f->root, 0);
 	memset(f->cap, 0xc0, FZN_CAP_ID_LEN);
 	f->stub.answer = 1;
+	f->stub.can_sign = 1;
 	f->sign.verify = stub_verify;
+	f->sign.sign = stub_sign;
 	f->sign.ctx = &f->stub;
 }
 
@@ -338,6 +365,160 @@ static void test_ct_memeq(void)
 	CHECK(fzn_ct_memeq(a, d, 0), "a zero-length comparison was not trivially equal");
 }
 
+static void test_delegation_needs_permission_not_just_possession(void)
+{
+	struct fixture f;
+
+	/* The lesson fuzzypickles paid for, in this library's vocabulary: a
+	 * host that holds a capability must not be able to hand it on merely
+	 * by holding it. Clear the bit on hop 0 and hop 1 becomes a
+	 * delegation nobody authorised. */
+	fixture_init(&f);
+	f.hops[0].delegable = 0;
+
+	CHECK(run(&f, 2000, NULL, 0) == FZN_ERR_CHAIN_INVALID,
+	      "a chain continued past a hop that was not delegable");
+	CHECK(f.stub.calls == 0, "verified signatures on an unauthorised delegation");
+
+	/* And the default is closed: a zeroed hop is not delegable. */
+	fixture_init(&f);
+	memset(&f.hops[0].delegable, 0, sizeof(f.hops[0].delegable));
+	CHECK(run(&f, 2000, NULL, 0) == FZN_ERR_CHAIN_INVALID,
+	      "a hop left at its zero value permitted delegation");
+}
+
+static void test_mint(void)
+{
+	struct fixture f;
+	fzn_chain_hop_t hop;
+	fzn_chain_t out;
+	uint8_t grantee[FZN_PUBKEY_LEN];
+	static const uint8_t region[] = "hop 0 as the schema lays it out";
+
+	fixture_init(&f);
+	key(grantee, 1);
+
+	CHECK(fzn_chain_mint(f.root, grantee, f.cap, 1000, FZN_NO_EXPIRY, 1, region,
+	                     sizeof(region) - 1, &f.sign, &hop) == FZN_OK,
+	      "minting hop 0 failed");
+	CHECK(f.stub.signs == 1, "signed %d times, wanted 1", f.stub.signs);
+	CHECK(fzn_ct_memeq(hop.grantor, f.root, FZN_PUBKEY_LEN), "grantor is not the root");
+	CHECK(hop.delegable == 1, "the delegable flag was not carried");
+
+	/* The minted hop must be something the verifier accepts, or minting
+	 * and verifying disagree about what a chain is -- which is the bug
+	 * this pairing exists to catch. */
+	CHECK(fzn_chain_verify(&hop, 1, f.root, f.cap, 2000, &f.sign, NULL, 0, &out) == FZN_OK,
+	      "a freshly minted hop does not verify");
+	CHECK(out.hop_count == 1, "hop_count %zu, wanted 1", out.hop_count);
+
+	/* A grant that expires before it was issued is refused where it is
+	 * made, not at the far end of a network. */
+	fixture_init(&f);
+	CHECK(fzn_chain_mint(f.root, grantee, f.cap, 5000, 4000, 0, region, sizeof(region) - 1,
+	                     &f.sign, &hop) == FZN_ERR_CHAIN_INVALID,
+	      "minted a grant that expired before it was issued");
+	CHECK(f.stub.signs == 0, "signed a grant it had already decided to refuse");
+
+	/* No signer, no hop. */
+	fixture_init(&f);
+	f.sign.sign = NULL;
+	CHECK(fzn_chain_mint(f.root, grantee, f.cap, 1000, FZN_NO_EXPIRY, 0, region,
+	                     sizeof(region) - 1, &f.sign, &hop) == FZN_ERR_MALFORMED,
+	      "minted without a signer");
+
+	/* A signer that refuses is a refusal, not a hop with rubbish in it. */
+	fixture_init(&f);
+	f.stub.can_sign = 0;
+	CHECK(fzn_chain_mint(f.root, grantee, f.cap, 1000, FZN_NO_EXPIRY, 0, region,
+	                     sizeof(region) - 1, &f.sign, &hop) == FZN_ERR_CHAIN_INVALID,
+	      "a refusing signer still produced a hop");
+}
+
+static void test_delegate(void)
+{
+	struct fixture f;
+	fzn_chain_hop_t hop;
+	uint8_t grantee[FZN_PUBKEY_LEN];
+	static const uint8_t region[] = "the new hop as the schema lays it out";
+
+	key(grantee, 3);
+
+	/* The last hop has to permit it. The fixture leaves it closed, which
+	 * is the default doing its job -- this line is the difference between
+	 * a chain that may be extended and one that may not. */
+	fixture_init(&f);
+	f.hops[1].delegable = 1;
+	CHECK(fzn_chain_delegate(f.hops, 2, f.root, f.cap, 2000, grantee, FZN_NO_EXPIRY, 0,
+	                         region, sizeof(region) - 1, &f.sign, NULL, 0,
+	                         &hop) == FZN_OK,
+	      "delegating from a good chain failed");
+	CHECK(fzn_ct_memeq(hop.grantor, f.hops[1].grantee, FZN_PUBKEY_LEN),
+	      "the new hop's grantor is not the chain's current grantee");
+	CHECK(hop.delegable == 0, "delegation permission was granted when it was not asked for");
+
+	/* The last hop is not delegable: valid chain, holder does hold it,
+	 * and it still may not pass it on. Its own error. */
+	fixture_init(&f);
+	f.hops[1].delegable = 0;
+	CHECK(fzn_chain_delegate(f.hops, 2, f.root, f.cap, 2000, grantee, FZN_NO_EXPIRY, 0,
+	                         region, sizeof(region) - 1, &f.sign, NULL, 0, &hop) ==
+	              FZN_ERR_NOT_DELEGABLE,
+	      "delegated from a chain that does not permit it");
+	CHECK(f.stub.signs == 0, "signed a hop it was not entitled to make");
+
+	/* Expiry is capped at what the grantor has left, and asking for none
+	 * does not widen it -- the easy mistake, since FZN_NO_EXPIRY is zero
+	 * and reads as "unset". */
+	fixture_init(&f);
+	f.hops[1].delegable = 1;
+	f.hops[1].expires_at = 5000;
+	CHECK(fzn_chain_delegate(f.hops, 2, f.root, f.cap, 2000, grantee, 9000, 0, region,
+	                         sizeof(region) - 1, &f.sign, NULL, 0, &hop) == FZN_OK,
+	      "delegating within a time-boxed chain failed");
+	CHECK(hop.expires_at == 5000, "expiry %llu, wanted the grantor's 5000",
+	      (unsigned long long)hop.expires_at);
+
+	fixture_init(&f);
+	f.hops[1].delegable = 1;
+	f.hops[1].expires_at = 5000;
+	CHECK(fzn_chain_delegate(f.hops, 2, f.root, f.cap, 2000, grantee, FZN_NO_EXPIRY, 0,
+	                         region, sizeof(region) - 1, &f.sign, NULL, 0, &hop) == FZN_OK,
+	      "delegating without asking for an expiry failed");
+	CHECK(hop.expires_at == 5000, "asking for no expiry escaped the grantor's cap");
+
+	/* Defence in depth: the chain is re-verified, so a revoked or broken
+	 * one cannot be the base of something that looks freshly minted. */
+	fixture_init(&f);
+	f.hops[1].delegable = 1;
+	{
+		fzn_revocation_t rev;
+		memset(&rev, 0, sizeof(rev));
+		memset(rev.capability, 0xc0, FZN_CAP_ID_LEN);
+		key(rev.grantee, 1);
+		CHECK(fzn_chain_delegate(f.hops, 2, f.root, f.cap, 2000, grantee, FZN_NO_EXPIRY,
+		                         0, region, sizeof(region) - 1, &f.sign, &rev, 1,
+		                         &hop) == FZN_ERR_REVOKED,
+		      "delegated from a revoked chain");
+		CHECK(f.stub.signs == 0, "signed a hop resting on a revoked chain");
+	}
+
+	/* Depth is bounded, so delegation cannot build something no verifier
+	 * would accept. */
+	{
+		fzn_chain_hop_t full[FZN_CHAIN_MAX_HOPS];
+		fixture_init(&f);
+		for (size_t i = 0; i < FZN_CHAIN_MAX_HOPS; i++) {
+			hop_init(&full[i], (uint8_t)i, (uint8_t)(i + 1), 0xc0);
+			full[i].delegable = 1;
+		}
+		CHECK(fzn_chain_delegate(full, FZN_CHAIN_MAX_HOPS, f.root, f.cap, 2000, grantee,
+		                         FZN_NO_EXPIRY, 0, region, sizeof(region) - 1, &f.sign,
+		                         NULL, 0, &hop) == FZN_ERR_MALFORMED,
+		      "extended a chain already at the depth ceiling");
+	}
+}
+
 /* The negative control. Every case above asserts that something bad is
  * refused, and a fzn_chain_verify that returned an error unconditionally
  * would pass nearly all of them. test_accepts_a_good_chain is the guard
@@ -364,6 +545,9 @@ int main(void)
 	test_revocation_kills_a_middle_hop();
 	test_revocation_is_per_capability();
 	test_a_bad_signature_is_refused();
+	test_delegation_needs_permission_not_just_possession();
+	test_mint();
+	test_delegate();
 	test_bounds();
 	test_out_is_untouched_on_failure();
 	test_ct_memeq();

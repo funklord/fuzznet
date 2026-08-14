@@ -93,6 +93,12 @@ typedef enum fzn_err {
 	/* Some hop's grant has been revoked. sec 4.2: revocation is what ends
 	 * authority here, so this is the answer that matters most. */
 	FZN_ERR_REVOKED = -5,
+	/* Delegation was asked for from a chain whose last hop is not
+	 * `delegable`. Its own error rather than NOT_AUTHORIZED or
+	 * CHAIN_INVALID, because the chain is valid and the holder does hold
+	 * it -- what is missing is permission to pass it on, and a caller that
+	 * cannot tell those apart will report the wrong thing to a user. */
+	FZN_ERR_NOT_DELEGABLE = -6,
 } fzn_err_t;
 
 /* One delegation step: grantor gives grantee this capability.
@@ -115,6 +121,30 @@ typedef struct fzn_chain_hop {
 	uint8_t capability[FZN_CAP_ID_LEN];
 	uint64_t issued_at;
 	uint64_t expires_at; /* FZN_NO_EXPIRY (0) means never */
+	/* Whether the grantee may pass this capability on. Zero -- the
+	 * default -- means it may not, and a chain that continues past a hop
+	 * with it clear is refused.
+	 *
+	 * HOLDING SOMETHING IS NOT ENTITLEMENT TO HAND IT OUT, and this bit is
+	 * the whole of that distinction. fuzzypickles found the same thing the
+	 * expensive way: its grant path asked only whether the granting host
+	 * held the type it was handing over, which "left CAP_ADMIN gating
+	 * nothing and let any host promote any other host to its own
+	 * capability set". Its fix was to require a second capability,
+	 * `CAP_ADMIN`, alongside the one being granted.
+	 *
+	 * That fix is not available here and must not be imitated. sec 4.2
+	 * keeps capabilities OPAQUE -- netcfgd's three are independent rather
+	 * than a ladder, and a library that knew which identifier meant
+	 * "may grant" would be interpreting them. So the entitlement travels
+	 * as a bit on the hop rather than as a capability with a special
+	 * meaning, which says the same thing without this library ever
+	 * learning what any capability is.
+	 *
+	 * Fail-closed on purpose: a decoder that forgets the field, or a
+	 * caller that zeroes a hop and fills in what it knows about, produces
+	 * a grant that cannot be delegated onward rather than one that can. */
+	int delegable;
 	uint8_t signature[FZN_SIG_LEN];
 	const uint8_t *signed_region;
 	size_t signed_region_len;
@@ -135,10 +165,23 @@ typedef struct fzn_chain_hop {
  * preserve for protocol state: a value rather than a process, constructible
  * directly into states normal operation cannot reach.
  *
- * `verify` returns nonzero for a good signature and zero for a bad one. */
+ * `verify` returns nonzero for a good signature and zero for a bad one.
+ *
+ * `sign` signs as WHOEVER THE CONTEXT IS -- it takes no key, because the
+ * context holds one. That shape is deliberate and is the reason this module
+ * has no secret-key parameter anywhere: sec 3 has fuzznet linked by an
+ * unprivileged bridge that "never runs in the process holding CAP_NET_ADMIN,
+ * a RAID controller, or a user's private keys beyond its own session
+ * material", and an API that took a secret key would be an invitation to
+ * hand one to it. A signer that owns its key can live behind a socket, in
+ * another process, or in hardware, and none of that is visible here.
+ *
+ * It may be NULL when only verification is wanted; minting and delegation
+ * refuse without it. */
 typedef struct fzn_sign_ops {
 	int (*verify)(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const uint8_t *msg,
 	              size_t msg_len, const uint8_t sig[FZN_SIG_LEN]);
+	int (*sign)(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg, size_t msg_len);
 	void *ctx;
 } fzn_sign_ops_t;
 
@@ -181,7 +224,9 @@ typedef struct fzn_revocation {
  *      construction, so a chain that changes what it grants half way along
  *      is not a narrowing, it is two chains spliced
  *   3. linkage: hops[0].grantor is the pinned root, and each later hop's
- *      grantor is the previous hop's grantee
+ *      grantor is the previous hop's grantee -- which must also have been
+ *      marked `delegable`, or the chain claims a delegation nobody
+ *      authorised
  *   4. dates: expires_at, WHEN SET, must be after issued_at and after now
  *   5. revocation, against every hop rather than only the last -- revoking
  *      a host in the middle has to kill everything it went on to grant,
@@ -207,6 +252,67 @@ fzn_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
                             const uint8_t capability[FZN_CAP_ID_LEN], uint64_t now,
                             const fzn_sign_ops_t *sign, const fzn_revocation_t *revocations,
                             size_t revocation_count, fzn_chain_t *out);
+
+/* Mint hop 0: the root grants `capability` to `grantee`, directly.
+ *
+ * Only the holder of the root key can do this, and this function does not
+ * check that -- it cannot. `sign->sign` either produces a signature that
+ * verifies under `root` or it does not, and the answer arrives when somebody
+ * verifies the chain. Asking here would mean either taking the secret key
+ * (which sec 3 forbids in spirit) or trusting a claim, and a self-assessed
+ * claim is worth nothing. So the parameter is the root's PUBLIC key, used to
+ * fill the hop's grantor, and being wrong about it produces a chain that
+ * fails verification rather than one that lies.
+ *
+ * `signed_region` is the encoded hop as the schema lays it out, and is the
+ * same boundary fzn_chain_verify draws: this module signs bytes it is given
+ * and does not encode them. A caller whose region disagrees with the fields
+ * it also passes gets a hop that verifies against neither.
+ *
+ * Returns FZN_ERR_MALFORMED on a missing argument or absent signer, and
+ * FZN_ERR_CHAIN_INVALID if the signer refuses. */
+fzn_err_t fzn_chain_mint(const uint8_t root[FZN_PUBKEY_LEN],
+                          const uint8_t grantee[FZN_PUBKEY_LEN],
+                          const uint8_t capability[FZN_CAP_ID_LEN], uint64_t issued_at,
+                          uint64_t expires_at, int delegable, const uint8_t *signed_region,
+                          size_t signed_region_len, const fzn_sign_ops_t *sign,
+                          fzn_chain_hop_t *out);
+
+/* Extend a chain by one hop: its current grantee grants onward.
+ *
+ * The existing chain is RE-VERIFIED first, in full, against the pinned root
+ * and the same revocation list a receiver would use. That is defence in
+ * depth and it is not redundant: never delegate from a chain that has
+ * expired, been revoked, or stopped checking out, because the result would
+ * be a hop that looks freshly minted while resting on something dead.
+ * fuzzypickles does the same and for the same reason.
+ *
+ * Two caps apply to the new hop, and both are the same idea -- a grantor
+ * cannot hand out what it does not have:
+ *
+ *   - EXPIRY is capped at the existing chain's own `expires_at`. Asking for
+ *     longer, or for none at all, silently yields the chain's. A host whose
+ *     own authority lapses on Tuesday cannot grant until Friday.
+ *   - DELEGATION requires the chain's last hop to be `delegable`. Without
+ *     it this returns FZN_ERR_NOT_DELEGABLE, which is deliberately its own
+ *     error rather than CHAIN_INVALID: the chain is perfectly valid, the
+ *     caller simply may not do this with it.
+ *
+ * Depth is bounded too -- extending a chain already at FZN_CHAIN_MAX_HOPS
+ * returns FZN_ERR_MALFORMED rather than producing something no verifier
+ * would accept.
+ *
+ * `out` receives only the NEW hop. Assembling it onto the chain is the
+ * caller's, because this module does not own the array's storage any more
+ * than it owns the bytes. */
+fzn_err_t fzn_chain_delegate(const fzn_chain_hop_t *hops, size_t hop_count,
+                              const uint8_t root[FZN_PUBKEY_LEN],
+                              const uint8_t capability[FZN_CAP_ID_LEN], uint64_t now,
+                              const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t expires_at,
+                              int delegable, const uint8_t *signed_region,
+                              size_t signed_region_len, const fzn_sign_ops_t *sign,
+                              const fzn_revocation_t *revocations, size_t revocation_count,
+                              fzn_chain_hop_t *out);
 
 /* Constant-time equality over `len` bytes. Nonzero when equal.
  *
