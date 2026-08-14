@@ -288,6 +288,46 @@ Key-committing AEAD, and a session established from a prekey. fuzzypickles'
 `crypto_msg.c` (197 lines) and `prekey_channel.c` (77 lines) are small and
 already carry the properties.
 
+#### The frame has nowhere to put the commitment (found 2026-08-14)
+
+**Attempting the extern codec is what found this**, and it is a
+contradiction between two sections of this document rather than a gap in
+either.
+
+§4.4a says key-committing AEAD is "not optional". XChaCha20-Poly1305 as
+Monocypher provides it is **not** key-committing, so something has to be
+added, and §4.5 points at fuzzypickles as the working implementation. What
+fuzzypickles does is derive **48 bytes** from one BLAKE2b over a 240-byte
+transcript — a 32-byte AEAD key and a 16-byte commitment — and **put the
+commitment in the frame**, rejecting on mismatch. Its own document: "This is
+not optional and costs a handful of bytes."
+
+**`fzn_frame` has no such field.** It is `hop | authenticated{head} |
+sealed{capability, payload} | tag[16]`, and none of those is a commitment.
+So the schema §6 settled cannot carry what §4.4a requires by the route §4.5
+names.
+
+Three ways out, and choosing between them is a wire decision rather than an
+implementation one:
+
+- **Add a `commitment[16]` to the authenticated header.** Costs 16 bytes on
+  a frame §13 is already arguing about — 96 bytes of overhead, of which §13
+  is trying to reclaim 32. It would make that argument harder rather than
+  settle it.
+- **Use a committing construction that needs no extra field**, such as
+  replacing the tag with a hash over key, nonce, associated data and tag.
+  Costs nothing on the wire and is a different construction from the one
+  this family has already reviewed and shipped.
+- **Decide the requirement is met at the seam rather than in the frame**, if
+  the extern codec can commit internally once situ's sealed-region ABI is
+  known.
+
+**Not chosen here.** Writing the codec against an unsettled construction
+would be security-critical code resting on a guess, and the one check that
+would catch a wrong guess -- generating situ's caller and compiling against
+it -- is what the `situc build` refusal blocks. So the codec is unwritten on
+purpose and this is why.
+
 **Monocypher**, vendored once here rather than three times. netcfgd had already
 decided C/C++ with Monocypher for its own protocol and agent before this
 library existed, so the two agree without having to be reconciled.
@@ -1564,6 +1604,10 @@ Two things must be settled before it is written, and neither is settled here:
 - **Licensing**, unresolved across the whole family per `harmonization.md`, and
   a shared library is where it starts to bite: this one is linked by projects
   that may not agree.
+- **Key-committing AEAD has no field to commit into**, and the extern codec
+  cannot be written until that is settled. §4.5 carries the three options
+  and what each costs. This is the second thing blocking real code, after
+  §10 step 4, and unlike step 4 it does not wait on situ.
 - **The revocation store only grows.** Nothing in it expires or may be
   evicted, so it is the one bound in this library a long-lived deployment
   can grow into, and its refusal fails open. Sizing it needs a number
