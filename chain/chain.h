@@ -99,6 +99,10 @@ typedef enum fzn_err {
 	 * it -- what is missing is permission to pass it on, and a caller that
 	 * cannot tell those apart will report the wrong thing to a user. */
 	FZN_ERR_NOT_DELEGABLE = -6,
+	/* A revocation could not be recorded because the store is full. Its
+	 * own error because it is the one refusal in this library that fails
+	 * OPEN -- see revocation.h. */
+	FZN_ERR_STORE_FULL = -7,
 } fzn_err_t;
 
 /* One delegation step: grantor gives grantee this capability.
@@ -200,11 +204,13 @@ typedef struct fzn_chain {
 
 /* One thing a host knows to be revoked: a capability withdrawn from a key.
  *
- * Deliberately not a chain and not a signature. sec 4.2 has revocation
- * CARRIED ON CONTACT, so what travels is small and what verifies it is the
- * frame that carried it -- a revocation arriving inside an authenticated
- * datagram is already attributable. Making this self-authenticating would
- * duplicate the envelope's job. */
+ * This is the VERIFIED form -- what a host has already decided to believe.
+ * What travels on the wire carries its issuer and a signature, and is
+ * checked once on admission; see revocation.h, which also records why an
+ * earlier revision of this comment was wrong to say a signature was
+ * unnecessary. The short version: an authenticated datagram attributes its
+ * contents to the peer that sent it and to nobody further back, and
+ * "carried on contact" means the carrier is not the issuer. */
 typedef struct fzn_revocation {
 	uint8_t capability[FZN_CAP_ID_LEN];
 	uint8_t grantee[FZN_PUBKEY_LEN];

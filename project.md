@@ -917,6 +917,38 @@ hand-written transport and situ is generating most of it (§7a). Steps 2, 4 and
    extern-codec boundary §6 uses for Monocypher and is what makes the whole
    module testable before anything is vendored.
 
+   **Revocation is carried on contact, and that word decided its shape**
+   (`chain/revocation.c`, 2026-08-14). §4.2 asks for it and only half
+   existed: verification consulted a list, nothing produced one.
+
+   A revocation is **signed by its issuer and pinned to the root**. An
+   earlier comment in `chain.h` argued the opposite — that the
+   authenticated datagram carrying it made it attributable, so a signature
+   of its own would duplicate the envelope's job. That is true for one hop
+   and false for the thing §4.2 actually asks for: *on contact* means it
+   travels peer to peer, §5 records relays as the next thing likely to move
+   in, and §13 that a frame may arrive by relay hours late. The carrier is
+   not the issuer, so a revocation trusted because of who handed it over is
+   one **any carrier can invent** — and inventing them is a denial of
+   service against exactly the hosts an attacker wants disconnected, needing
+   no key at all. The comment is corrected in place.
+
+   **Its refusal is the one in this library that fails open, and that is
+   worth knowing before sizing anything.** The replay window refuses when
+   full and fails closed: the worst case is a good frame rejected. A full
+   revocation store fails *open* — the host goes on accepting a capability
+   that was withdrawn. Nothing is evicted and nothing expires, because a
+   revocation that lapses un-revokes a device and every entry is protecting
+   against something, so there is no entry it is safe to choose. The store
+   must therefore be sized for a deployment's whole revocation history
+   rather than a working set, and `FZN_ERR_STORE_FULL` is an alarm rather
+   than a retry. §14 carries the growth as open.
+
+   Only the root revokes today. A grantor revoking what it granted is the
+   obvious extension and is deliberately not built: it would let a
+   compromised intermediate revoke its own descendants, which may be wanted
+   or may be the attack, and this document does not say.
+
    **Minting and delegation are built too** (2026-08-14), which finishes the
    semantics half of step 3. `fzn_chain_mint` signs hop 0 as the root;
    `fzn_chain_delegate` re-verifies the whole chain, then extends it. Two
@@ -1009,11 +1041,12 @@ alternative failure.
 
 ## 11. Where this is, for whoever picks it up
 
-**`chain/`, `frame/freshness.c`, `chunk/reassembly.c` and `chunk/split.c`
-are built and tested; nothing else is.**
+**`chain/` (verification, delegation, revocation), `frame/freshness.c`,
+`chunk/reassembly.c` and `chunk/split.c` are built and tested; nothing else
+is.**
 Alongside them: this document, `wire/frame.situ`, a `code-style.md` copied
 from the global source, the shared `style_gate.py` and `commit-msg`, and a
-`VERSION`. `make style` passes over twenty-two files.
+`VERSION`. `make style` passes over twenty-five files.
 
 Both are the pieces §7a assigns to this library rather than to situ, which is
 also why they were buildable while §10 steps 2 and 4 are stuck: neither needs
@@ -1024,7 +1057,8 @@ generated code. `chain/` is the capability model; `frame/freshness.c` is
 build tests, per `build-and-commit.md`. `make test` builds and runs two
 binaries: `chain/tests/chain_test` at 64 checks over a stub verifier and an
 injected clock, `frame/tests/freshness_test` at 34, and
-`chunk/tests/reassembly_test` at 58, and `chunk/tests/split_test` at 52.
+`chain/tests/revocation_test` at 31, `chunk/tests/reassembly_test` at 58,
+and `chunk/tests/split_test` at 52.
 None reads a clock, so there is nothing in any of them that can pass on a
 quiet machine and fail on a loaded one.
 
@@ -1247,6 +1281,11 @@ Two things must be settled before it is written, and neither is settled here:
 - **Licensing**, unresolved across the whole family per `harmonization.md`, and
   a shared library is where it starts to bite: this one is linked by projects
   that may not agree.
+- **The revocation store only grows.** Nothing in it expires or may be
+  evicted, so it is the one bound in this library a long-lived deployment
+  can grow into, and its refusal fails open. Sizing it needs a number
+  nobody has: how many revocations a deployment accumulates over its life.
+  Named rather than guessed at.
 - **Whether `chunk/` belongs in the core at all**, or is a layer a consumer
   opts into. It is in the core because netcfgd cannot function without it, but
   fuzzypickles will not use it — its own transfers are content-addressed.
