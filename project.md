@@ -94,8 +94,38 @@ the trust boundary already is:
 The first need is real, and it is **not** met by anything today:
 fuzzypickles' local link is same-user by construction and has no credential
 check at all, because it has never needed one; netcfgd's daemon does its own.
-A daemon running as root and serving a group needs `SO_PEERCRED` /
-`SCM_CREDENTIALS` and a real gid check.
+
+**A daemon running as root and serving a group needs the peer's
+SUPPLEMENTARY groups, and `SO_PEERCRED` does not carry them.** This document
+said "`SO_PEERCRED` / `SCM_CREDENTIALS` and a real gid check" until
+2026-08-14, and that requirement is wrong in the way that does not announce
+itself.
+
+`SO_PEERCRED` reports pid, uid and the **primary** gid. A user's primary
+group is normally their own, so a gate comparing a `disk`- or `raid`-style
+group against it **denies nearly everybody it was written to admit, while
+reading as correctly configured.** Measured on the machine this family is
+developed on, rather than reasoned about:
+
+    primary gid          1000  ("funk" -- the owner's own group)
+    supplementary        20 24 25 27 29 30 44 46 60 103 110 111 116 121 132
+    netdev 103, cdrom 24, sudo 27   supplementary only, never primary
+
+netcfgd hit this and carries the warning in `netcfgd-sys/src/peer.rs`'s own
+header; its decision 0013 describes the cross-check. Reported here by the
+raidcfgd session and verified independently before it was written down,
+because a security requirement is the wrong thing to relay on trust.
+
+So the requirement is: **pid, uid, primary gid, and the supplementary list
+read from `/proc/<pid>/status`.**
+
+**And an empty group list means "could not tell", not "none".** netcfgd's
+`Peer` documents its supplementary groups as "where they could be read", and
+the two are safe to conflate only because both deny. Flattening a failed
+`/proc` read into an empty vector in the *permissive* direction turns a read
+that failed into an allow -- which, on a socket whose group is root for that
+group, is the hazard below arriving through the back door. Whatever `local/`
+hands a caller must let them tell the two apart.
 
 It ships as an **optional module** (`fuzznet_local`, §8) rather than as part
 of the core. The original reason was the risk netcfgd's brief named
@@ -1060,7 +1090,7 @@ until §10's order says so.
 | `chain/` | capability chains: verification, minting, delegation, revocation, and the signer seam | **built** |
 | `chunk/` | splitting, reassembly, and the memory bound | **built** |
 | `session/` | the key schedule, and the AEAD seam | **key schedule and its BLAKE2b binding built**; the codec waits on situ's sealed-region ABI |
-| `local/` | `AF_UNIX` with `SO_PEERCRED` and group gating | last, and only against a real raidcfgd (§2) |
+| `local/` | `AF_UNIX`, peer credentials including supplementary groups, and a bounded vocabulary | last, and now last against a real raidcfgd (§2) |
 
 **Rewritten 2026-08-14, because five of its seven rows were stale.** The
 table was written before §7a, which reassigned most of §4 to situ once the
