@@ -329,14 +329,31 @@ coverage:
 	@$(MAKE) --no-print-directory test BUILD_DIR=$(BUILD_DIR)-coverage \
 	         CFLAGS="-Og -g --coverage" >/dev/null
 	@printf '%-30s %-14s %s\n' file lines "branches both ways"
-	@for c in $(SRCS); do \
+	@unexercised=; \
+	for c in $(SRCS); do \
 		d=`dirname $$c`; \
 		out=`gcov -b -o $(BUILD_DIR)-coverage/$$d $$c 2>/dev/null`; \
 		l=`echo "$$out" | grep -m1 'Lines executed' | sed 's/.*://'`; \
 		b=`echo "$$out" | grep -m1 'Taken at least once' | sed 's/.*://'`; \
 		printf '%-30s %-14s %s\n' $$c "$$l" "$$b"; \
-	done
-	@rm -rf $(BUILD_DIR)-coverage *.gcov
+		case "$$l" in ""|0.00%*) unexercised="$$unexercised $$c" ;; esac; \
+	done; \
+	rm -rf $(BUILD_DIR)-coverage *.gcov; \
+	if [ -n "$$unexercised" ]; then \
+		echo; \
+		echo "coverage: NO TEST EXERCISES:$$unexercised"; \
+		echo "coverage: a source linked into no test binary reports a blank"; \
+		echo "coverage: line and exits 0, which is why this refuses instead."; \
+		exit 1; \
+	fi
+
+# Refusing there rather than printing a blank is the point of the target
+# beyond the numbers. Twice in one session a file reached the tree with
+# nothing exercising it -- `fzn_peer_is_member`, added to answer a
+# colleague's question rather than to fix a failing case, and
+# `local/peer_linux.c`, believed untestable and not -- and both were found
+# by a human reading the coverage table rather than by anything failing. A
+# table nobody reads is a gate over an empty file list.
 
 # Does a consumer outside this tree still work? Nothing else asks.
 #

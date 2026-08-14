@@ -1451,6 +1451,16 @@ the chain allows. Every test asked for more time than it had and none asked
 for less, so the cap had never been shown to be a ceiling rather than an
 assignment.
 
+**`make coverage` refuses when a source is exercised by nothing**, rather
+than printing a blank line and exiting 0. That is the target's job beyond
+the numbers, and it exists because the numbers alone were not enough:
+**twice in one session a file reached this tree with nothing exercising
+it** -- `fzn_peer_is_member`, added to answer a colleague's question rather
+than to make a failing case pass, and `local/peer_linux.c`, believed to
+need a cooperating process and not. Both were found by a person reading the
+table, which is a gate over an empty file list wearing a report's clothes.
+Confirmed to fire by adding a source nothing tests and watching it refuse.
+
 **The remainder is deliberately not chased.** What is left is the individual
 sub-conditions of null-argument guards — `if (!a || !b || !c)` where the
 guard is tested but not every operand is the one that fired. Covering those
