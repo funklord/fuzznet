@@ -14,6 +14,7 @@
 /chain/tests/chain_test
 /session/tests/commitment_test
 /local/tests/peer_test
+/local/tests/peer_fuzz
 /chain/tests/revocation_test
 /chain/tests/sign_monocypher_test
 /session/tests/hash_monocypher_test

@@ -72,6 +72,7 @@ TEST_SRCS := chain/tests/chain_test.c chain/tests/revocation_test.c \
              frame/tests/freshness_test.c \
              chunk/tests/reassembly_test.c chunk/tests/split_test.c \
              session/tests/commitment_test.c local/tests/peer_test.c \
+             local/tests/peer_fuzz.c \
              chunk/tests/reassembly_fuzz.c chain/tests/chain_fuzz.c \
              frame/tests/freshness_fuzz.c chain/tests/revocation_fuzz.c \
              chunk/tests/roundtrip_fuzz.c
@@ -81,6 +82,7 @@ TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test \
              $(BUILD_DIR)/frame/tests/freshness_test \
              $(BUILD_DIR)/session/tests/commitment_test \
              $(BUILD_DIR)/local/tests/peer_test \
+             $(BUILD_DIR)/local/tests/peer_fuzz \
              $(BUILD_DIR)/chunk/tests/reassembly_test \
              $(BUILD_DIR)/chunk/tests/split_test \
              $(BUILD_DIR)/chunk/tests/reassembly_fuzz \
@@ -243,6 +245,11 @@ $(BUILD_DIR)/local/tests/peer_test: $(BUILD_DIR)/local/tests/peer_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+$(BUILD_DIR)/local/tests/peer_fuzz: $(BUILD_DIR)/local/tests/peer_fuzz.o \
+                                    $(BUILD_DIR)/local/peer.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # Tests are built by this target and only by it, so a claim that a test
 # passes or fails always goes through a rebuild. Re-running a stale binary
 # after a plain build appears to pass either way.
@@ -255,7 +262,8 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/tests/reassembly_fuzz \
              $(BUILD_DIR)/chain/tests/chain_fuzz \
              $(BUILD_DIR)/frame/tests/freshness_fuzz \
              $(BUILD_DIR)/chain/tests/revocation_fuzz \
-             $(BUILD_DIR)/chunk/tests/roundtrip_fuzz
+             $(BUILD_DIR)/chunk/tests/roundtrip_fuzz \
+             $(BUILD_DIR)/local/tests/peer_fuzz
 
 fuzz: $(FUZZ_BINS)
 	@for f in $(FUZZ_BINS); do echo "== $$f $(CASES)"; $$f $(CASES) || exit 1; done

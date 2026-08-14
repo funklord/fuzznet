@@ -168,40 +168,40 @@ static void test_membership_is_three_valued(void)
 	parse(REAL_STATUS, &p);
 	p.primary_gid = 1000;
 
-	CHECK(fzn_peer_in_group(&p, 103) == FZN_PEER_MEMBER, "netdev membership missed");
-	CHECK(fzn_peer_in_group(&p, 6) == FZN_PEER_NOT_MEMBER,
+	CHECK(fzn_peer_group_verdict(&p, 103) == FZN_PEER_MEMBER, "netdev membership missed");
+	CHECK(fzn_peer_group_verdict(&p, 6) == FZN_PEER_NOT_MEMBER,
 	      "reported membership of a group not held");
 
 	/* The primary gid counts. A group that IS somebody's primary one must
 	 * not be refused -- that would be the mirror of the bug this module
 	 * is about. */
-	CHECK(fzn_peer_in_group(&p, 1000) == FZN_PEER_MEMBER, "primary gid not counted");
+	CHECK(fzn_peer_group_verdict(&p, 1000) == FZN_PEER_MEMBER, "primary gid not counted");
 
 	/* And when the list is unknown, the answer is UNKNOWN rather than
 	 * NOT_MEMBER -- except where the primary gid settles it, which is
 	 * always knowable. */
 	parse("Name:\tcat\n", &p);
 	p.primary_gid = 1000;
-	CHECK(fzn_peer_in_group(&p, 103) == FZN_PEER_UNKNOWN,
+	CHECK(fzn_peer_group_verdict(&p, 103) == FZN_PEER_UNKNOWN,
 	      "an unknown list answered a definite NOT_MEMBER");
-	CHECK(fzn_peer_in_group(&p, 1000) == FZN_PEER_MEMBER,
+	CHECK(fzn_peer_group_verdict(&p, 1000) == FZN_PEER_MEMBER,
 	      "the primary gid was not answered while the list was unknown");
 
-	CHECK(fzn_peer_in_group(NULL, 1) == FZN_PEER_UNKNOWN, "null peer was not unknown");
+	CHECK(fzn_peer_group_verdict(NULL, 1) == FZN_PEER_UNKNOWN, "null peer was not unknown");
 }
 
 static void test_the_careless_reading_is_loudly_wrong(void)
 {
 	fzn_peer_t p;
 
-	/* peer.h chooses the enum values so that `if (fzn_peer_in_group(...))`
+	/* peer.h chooses the enum values so that `if (fzn_peer_group_verdict(...))`
 	 * -- the mistake the tri-state exists to make hard -- is TRUE for
 	 * UNKNOWN as well as MEMBER, and so fails immediately rather than
 	 * denying quietly and being discovered in production. This asserts
 	 * that property so nobody "tidies" the values later. */
 	parse("Name:\tcat\n", &p);
 	p.primary_gid = 1;
-	CHECK(fzn_peer_in_group(&p, 103) != FZN_PEER_NOT_MEMBER,
+	CHECK(fzn_peer_group_verdict(&p, 103) != FZN_PEER_NOT_MEMBER,
 	      "UNKNOWN compares equal to NOT_MEMBER, so a careless test denies silently");
 	CHECK((int)FZN_PEER_NOT_MEMBER == 0,
 	      "NOT_MEMBER is not zero, so a careless test admits a non-member");

@@ -88,7 +88,7 @@ int fzn_peer_groups_parse(const char *text, size_t len, fzn_peer_t *peer)
 	return 1;
 }
 
-fzn_peer_verdict_t fzn_peer_in_group(const fzn_peer_t *peer, uint32_t gid)
+fzn_peer_verdict_t fzn_peer_group_verdict(const fzn_peer_t *peer, uint32_t gid)
 {
 	if (!peer)
 		return FZN_PEER_UNKNOWN;
@@ -109,4 +109,13 @@ fzn_peer_verdict_t fzn_peer_in_group(const fzn_peer_t *peer, uint32_t gid)
 	}
 
 	return FZN_PEER_NOT_MEMBER;
+}
+
+int fzn_peer_is_member(const fzn_peer_t *peer, uint32_t gid)
+{
+	/* UNKNOWN denies, and does so here rather than at every call site
+	 * that wanted a boolean. See peer.h: the shortcut gets the safe
+	 * default, and the caller who needs the distinction asks for the
+	 * verdict. */
+	return fzn_peer_group_verdict(peer, gid) == FZN_PEER_MEMBER ? 1 : 0;
 }

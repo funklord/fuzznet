@@ -94,15 +94,38 @@ typedef enum fzn_peer_verdict {
  * site. */
 int fzn_peer_groups_parse(const char *text, size_t len, fzn_peer_t *peer);
 
-/* Is this peer in `gid`? Checks the supplementary list AND the primary gid,
- * because a group can legitimately be somebody's primary one and refusing
- * that would be the mirror of the bug this module is about.
+/* What do we know about this peer's membership of `gid`? Checks the
+ * supplementary list AND the primary gid, because a group can legitimately
+ * be somebody's primary one and refusing that would be the mirror of the
+ * bug this module is about.
  *
  * Returns FZN_PEER_UNKNOWN when the supplementary list is not known and the
  * primary gid does not match -- because the answer genuinely is not known,
- * not because it is no. A caller must treat UNKNOWN as a denial; it must
- * not treat it as one silently. */
-fzn_peer_verdict_t fzn_peer_in_group(const fzn_peer_t *peer, uint32_t gid);
+ * not because it is no.
+ *
+ * NAMED `verdict` RATHER THAN `in_group`, WHICH IS WHAT IT WAS. The
+ * numbering above makes the careless `if (...)` loudly wrong, but raidcfgd
+ * pointed out that this is an argument against relying on the numbering:
+ * if no ordering makes the boolean reading safe, the ordering is not the
+ * lever. **The name was.** `in_group` reads as a predicate while returning
+ * a verdict, so `if (fzn_peer_in_group(...))` was not carelessness -- it
+ * was the name being taken at its word. `verdict` does not read that way,
+ * so the mistake looks wrong at the call site rather than only in a test. */
+fzn_peer_verdict_t fzn_peer_group_verdict(const fzn_peer_t *peer, uint32_t gid);
+
+/* The honestly boolean one, for the caller who was going to write `if`
+ * anyway: 1 for MEMBER, 0 for NOT_MEMBER and 0 for UNKNOWN.
+ *
+ * It exists because the shortcut will be taken, and the useful response is
+ * to put the SAFE default behind the name that invites it rather than to
+ * forbid it. Deny-on-unknown is not always the right policy -- a caller who
+ * must tell "could not tell" from "not a member", to log it or to retry,
+ * is by definition thinking about it and will reach for the verdict.
+ *
+ * raidcfgd's suggestion, and a better answer than the numbering trick it
+ * replaces: this one cannot be misread, because there is nothing to
+ * misread. */
+int fzn_peer_is_member(const fzn_peer_t *peer, uint32_t gid);
 
 /* Fill a peer from a connected `AF_UNIX` socket: `SO_PEERCRED` for pid, uid
  * and primary gid, then `/proc/<pid>/status` for the supplementary list.
