@@ -773,12 +773,22 @@ by a relation, matching a reply to a request rather than a piece to a whole.
 Rung 6 `drive` retransmits what a table says is outstanding.
 
 So holding chunks of one message that arrive out of order, each carrying
-`msg`, `index` and `chunks`, is nobody's but ours -- and the memory bound on
+`msg`, `index` and `chunks`, is nobody's but ours -- and so is cutting a
+message into them in the first place -- and the memory bound on
 that holding is §4.4a's requirement rather than an optimisation. Built as
-`chunk/reassembly.c`. What stays situ's is the retransmission that asks for a
-missing piece, which is rung 6 and which this module deliberately does not
-have: §10 names a hand-written retransmission state machine as the thing to
-refuse.
+`chunk/reassembly.c`, with `chunk/split.c` as its sending mirror. What stays
+situ's is the retransmission that asks for a missing piece, which is rung 6
+and which neither module has: §10 names a hand-written retransmission state
+machine as the thing to refuse.
+
+**The two halves are tested against each other, not only against
+themselves.** A receiver that requires a uniform stride and a sender that
+produces one are half a contract each, and both can be self-consistently
+wrong -- a splitter that pads its last piece and a reassembler that accepts a
+padded one would pass their own suites and lose bytes together.
+`chunk/tests/split_test` cuts a payload with one and feeds it to the other,
+then compares. Padding the last piece to the full stride breaks twelve of its
+checks; shifting every offset by one breaks twenty-three.
 
 The search behind that claim was positive-controlled rather than assumed:
 "reassembl" does appear in situ's tree, twice, and reading those two uses is
@@ -999,11 +1009,11 @@ alternative failure.
 
 ## 11. Where this is, for whoever picks it up
 
-**`chain/`, `frame/freshness.c` and `chunk/reassembly.c` are built and
-tested; nothing else is.**
+**`chain/`, `frame/freshness.c`, `chunk/reassembly.c` and `chunk/split.c`
+are built and tested; nothing else is.**
 Alongside them: this document, `wire/frame.situ`, a `code-style.md` copied
 from the global source, the shared `style_gate.py` and `commit-msg`, and a
-`VERSION`. `make style` passes over nineteen files.
+`VERSION`. `make style` passes over twenty-two files.
 
 Both are the pieces §7a assigns to this library rather than to situ, which is
 also why they were buildable while §10 steps 2 and 4 are stuck: neither needs
@@ -1014,8 +1024,9 @@ generated code. `chain/` is the capability model; `frame/freshness.c` is
 build tests, per `build-and-commit.md`. `make test` builds and runs two
 binaries: `chain/tests/chain_test` at 64 checks over a stub verifier and an
 injected clock, `frame/tests/freshness_test` at 34, and
-`chunk/tests/reassembly_test` at 58. None reads a clock, so there is nothing
-in any of them that can pass on a quiet machine and fail on a loaded one.
+`chunk/tests/reassembly_test` at 58, and `chunk/tests/split_test` at 52.
+None reads a clock, so there is nothing in any of them that can pass on a
+quiet machine and fail on a loaded one.
 
 **`make test MONOCYPHER_DIR=../fuzzypickles/monocypher`** additionally builds
 the binding and runs 9 more checks against real Ed25519. That is the sibling

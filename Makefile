@@ -24,16 +24,19 @@ CFLAGS  += -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion \
            -Wstrict-prototypes -Wvla
 CPPFLAGS += -MMD -MP
 
-SRCS      := chain/chain.c frame/freshness.c chunk/reassembly.c
+SRCS      := chain/chain.c frame/freshness.c chunk/reassembly.c \
+             chunk/split.c
 OBJS      := $(SRCS:%.c=$(BUILD_DIR)/%.o)
-HDRS      := chain/chain.h frame/freshness.h chunk/reassembly.h
+HDRS      := chain/chain.h frame/freshness.h chunk/reassembly.h \
+             chunk/split.h
 
 TEST_SRCS := chain/tests/chain_test.c frame/tests/freshness_test.c \
-             chunk/tests/reassembly_test.c
+             chunk/tests/reassembly_test.c chunk/tests/split_test.c
 TEST_OBJS := $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
 TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test \
              $(BUILD_DIR)/frame/tests/freshness_test \
-             $(BUILD_DIR)/chunk/tests/reassembly_test
+             $(BUILD_DIR)/chunk/tests/reassembly_test \
+             $(BUILD_DIR)/chunk/tests/split_test
 
 # The Monocypher binding, built only when MONOCYPHER_DIR names a checkout.
 #
@@ -107,6 +110,14 @@ $(BUILD_DIR)/chunk/tests/reassembly_test: $(BUILD_DIR)/chunk/tests/reassembly_te
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# Links BOTH halves on purpose: this binary is what holds the splitter and
+# the reassembler to the same contract.
+$(BUILD_DIR)/chunk/tests/split_test: $(BUILD_DIR)/chunk/tests/split_test.o \
+                                     $(BUILD_DIR)/chunk/split.o \
+                                     $(BUILD_DIR)/chunk/reassembly.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # Tests are built by this target and only by it, so a claim that a test
 # passes or fails always goes through a rebuild. Re-running a stale binary
 # after a plain build appears to pass either way.
@@ -146,6 +157,7 @@ install: $(HDRS)
 	@install -m 0644 chain/chain.h $(DESTDIR)$(PREFIX)/include/fuzznet/chain/chain.h
 	@install -m 0644 frame/freshness.h $(DESTDIR)$(PREFIX)/include/fuzznet/frame/freshness.h
 	@install -m 0644 chunk/reassembly.h $(DESTDIR)$(PREFIX)/include/fuzznet/chunk/reassembly.h
+	@install -m 0644 chunk/split.h $(DESTDIR)$(PREFIX)/include/fuzznet/chunk/split.h
 	@echo "installed headers under $(DESTDIR)$(PREFIX)/include/fuzznet"
 
 # Named targets only, and it lists them. No rm -rf of a directory and no

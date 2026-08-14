@@ -15,6 +15,7 @@
 /chain/tests/sign_monocypher_test
 /frame/tests/freshness_test
 /chunk/tests/reassembly_test
+/chunk/tests/split_test
 
 # An out-of-tree build, if BUILD_DIR names one.
 /build/
