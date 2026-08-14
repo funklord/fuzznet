@@ -9,6 +9,24 @@ implementation learns something this does not say, this gains it.
 Created 2026-08-08, on being asked to stop three projects writing the same
 protocol three times.
 
+**How this document cites sections.** A bare `§4` is a section of this
+document. A section of another project's is named — `fuzzypickles' §8`,
+`netcfgd's brief §8` — together with the phrase it is being cited for, since
+the phrase is what a reader is actually after. `wire/frame.situ` writes
+`sec 4` for the same thing, because `.style-gate.toml` sets `ascii_only` and
+a `.situ` file has no lexer here, so it gets the whole-file ASCII check: a
+section sign in one is a gate failure, confirmed by putting one there.
+
+Written down because both ways of getting this wrong have already happened,
+and neither announced itself. Three references cited a bare §8 for "assume
+the peer is asleep" and "receivers may have kilobytes" — both fuzzypickles',
+while ours is "Shape of the tree" — so each landed on a real section that
+says nothing about its subject. Four others in the schema were written
+against a numbering that shifted in the very commit that created the file,
+when §9 was inserted above them. **A reference that lands on a section which
+exists is one nobody rereads**, which is the property the two share and the
+reason habit was not enough.
+
 ---
 
 ## 1. What this is, in one paragraph
