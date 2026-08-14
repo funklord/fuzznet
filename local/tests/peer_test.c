@@ -209,6 +209,48 @@ static void test_the_careless_reading_is_loudly_wrong(void)
 	      "UNKNOWN is zero, so a careless test reads it as a definite no");
 }
 
+static void test_is_member_denies_on_unknown(void)
+{
+	fzn_peer_t p;
+
+	/* The whole reason this function exists: it is the name that invites
+	 * `if (...)`, so it must be the one that cannot be misread. UNKNOWN
+	 * has to deny, and that is the case worth a test rather than the two
+	 * obvious ones.
+	 *
+	 * Added because coverage said nothing executed this function at all.
+	 * It was written in response to raidcfgd's suggestion and shipped
+	 * without a test -- which is the shape a gap takes when an API is
+	 * added to answer a question rather than to answer a failing case. */
+	parse(REAL_STATUS, &p);
+	p.primary_gid = 1000;
+	CHECK(fzn_peer_is_member(&p, 103) == 1, "a real member was not reported");
+	CHECK(fzn_peer_is_member(&p, 6) == 0, "a non-member was reported as a member");
+	CHECK(fzn_peer_is_member(&p, 1000) == 1, "the primary gid was not counted");
+
+	parse("Name:\tcat\n", &p);
+	p.primary_gid = 1;
+	CHECK(fzn_peer_group_verdict(&p, 103) == FZN_PEER_UNKNOWN, "expected UNKNOWN");
+	CHECK(fzn_peer_is_member(&p, 103) == 0,
+	      "UNKNOWN was reported as membership -- the safe default is not safe");
+
+	CHECK(fzn_peer_is_member(NULL, 1) == 0, "a null peer was reported as a member");
+
+	/* And it must agree with the verdict wherever the verdict is
+	 * definite, or there are two answers to one question. */
+	parse(REAL_STATUS, &p);
+	p.primary_gid = 1000;
+	for (uint32_t g = 0; g < 200; g++) {
+		fzn_peer_verdict_t v = fzn_peer_group_verdict(&p, g);
+		int m = fzn_peer_is_member(&p, g);
+
+		if (v == FZN_PEER_MEMBER)
+			CHECK(m == 1, "verdict says member for %u and is_member says no", g);
+		else
+			CHECK(m == 0, "verdict says %d for %u and is_member says yes", (int)v, g);
+	}
+}
+
 static void test_bad_arguments(void)
 {
 	fzn_peer_t p;
@@ -248,6 +290,7 @@ int main(void)
 	test_overflow_is_unknown_not_truncated();
 	test_membership_is_three_valued();
 	test_the_careless_reading_is_loudly_wrong();
+	test_is_member_denies_on_unknown();
 	test_bad_arguments();
 	test_the_suite_can_tell_pass_from_fail();
 

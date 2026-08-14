@@ -1090,7 +1090,7 @@ until §10's order says so.
 | `chain/` | capability chains: verification, minting, delegation, revocation, and the signer seam | **built** |
 | `chunk/` | splitting, reassembly, and the memory bound | **built** |
 | `session/` | the key schedule, and the AEAD seam | **key schedule and its BLAKE2b binding built**; the codec waits on situ's sealed-region ABI |
-| `local/` | `AF_UNIX`, peer credentials including supplementary groups, and a bounded vocabulary | last, and now last against a real raidcfgd (§2) |
+| `local/` | `AF_UNIX`, peer credentials including supplementary groups, and a bounded vocabulary | **credentials built**; the socket, the vocabulary and the bound are not |
 
 **Rewritten 2026-08-14, because five of its seven rows were stale.** The
 table was written before §7a, which reassigned most of §4 to situ once the
@@ -1785,6 +1785,18 @@ Two things must be settled before it is written, and neither is settled here:
   cannot be written until that is settled. §4.5 carries the three options
   and what each costs. This is the second thing blocking real code, after
   §10 step 4, and unlike step 4 it does not wait on situ.
+- **What bounds a group member's requests.** raidcfgd's hazard in §2 --
+  a group that can destroy arrays is root for that group -- is not
+  answered by `local/peer.c`, which only establishes who a caller is. Where
+  the bound lives, in this library or in the consumer's vocabulary, is
+  open. It is theoretical while raidcfgd is read-only and stops being so
+  the moment a write verb exists; that signal is recorded as an obligation
+  at their end.
+- **`local/peer_linux.c` has no test and no coverage**, because it is the
+  system half and a test would need a socket and a cooperating process. It
+  holds no decisions -- that is what the split is for -- but "holds no
+  decisions" is an assertion about a file nothing exercises, and it should
+  be read as one.
 - **The revocation store only grows.** Nothing in it expires or may be
   evicted, so it is the one bound in this library a long-lived deployment
   can grow into, and its refusal fails open. Sizing it needs a number
