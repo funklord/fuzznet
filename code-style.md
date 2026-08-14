@@ -309,3 +309,81 @@ fixed.
 
 The project's `project.md` may state the three rules in brief and point
 here for the detail. It does not restate the precedence rule.
+
+---
+
+# fuzznet's own
+
+Everything above is the copied source. What follows is this project's, per
+the source's "Below the copied rules, a project adds only what is genuinely
+its own". Kept ASCII to match the file it is appended to.
+
+## Exempt paths
+
+`.style-gate.toml` carries the list the gate actually reads; this says why.
+
+- **`monocypher`** -- vendored, and vendored sources keep whatever their
+  upstream produces. Nothing is vendored in this tree yet: `MONOCYPHER_DIR`
+  points at a checkout outside it during bring-up (project.md sec 7), so the
+  exclusion is there ahead of the submodule rather than in response to one.
+- **`attic`, `third_party`, `vendor`, `build`, `target`** -- excluded by
+  convention; none of them exists here today.
+- **Nothing else.** In particular `wire/frame.situ` is NOT exempt. It has no
+  lexer in the gate, so `ascii_only` gives it a whole-file byte check, which
+  is why it writes `sec 4` where project.md writes a section sign. A section
+  sign in that file fails the build, confirmed by putting one there.
+
+The gate's `floor` is 30 against a real count of 39, and the reasoning is in
+`.style-gate.toml`: at 1 it could not fire, and a guard that cannot fire
+reads like one that passed.
+
+## Formatter verdict
+
+**None evaluated, because none is installed.** Checked 2026-08-14:
+`clang-format`, `indent`, `astyle`, `uncrustify` are all absent here.
+
+That is a state rather than a conclusion, and it is recorded so the next
+person does not repeat the search. The source requires a per-tool, per-
+project evaluation with the finding that produced it, and an evaluation
+nobody can run produces no finding worth writing down. **A verdict without
+its evidence gets re-litigated**, which is exactly what a guess here would
+earn.
+
+What would change the answer: install one, point it at this tree, and check
+the two things that actually matter -- that it indents with tabs and aligns
+with spaces after them, and that it leaves already-conforming files
+byte-identical. The second is the one that catches a tool which is
+configurable in principle and rewrites the tree on somebody's next save.
+
+## Language notes
+
+- **C11**, built at `-Os` with `-Wall -Wextra -Wpedantic -Wshadow
+  -Wconversion -Wstrict-prototypes -Wvla`. Clean under gcc 14 and clang 19;
+  both are checked because project.md sec 7 has fuzzypickles
+  cross-compiling for Android, which is clang.
+- **A continuation line at file scope takes spaces, not a tab.** A
+  multi-line string initialiser has no structural nesting to indent, so its
+  continuation is alignment and alignment uses spaces. Learned the ordinary
+  way: the gate refused a tab there and was right.
+- **Tests carry a `check_at` function rather than a multi-line macro**, so
+  the format arguments have types. It needs the `format(printf, ...)`
+  attribute to be worth anything -- a vprintf wrapper is opaque to
+  `-Wformat` without it.
+
+## Tooling
+
+    make                      the library objects; NOT the tests
+    make test                 six suites and five fuzz harnesses
+    make test SANITIZE=1      the same, under ASan and UBSan, at -Og
+    make fuzz CASES=n         a longer campaign
+    make coverage             lines and branches taken both ways
+    make installcheck         a consumer outside the tree, both arrangements
+    make style                the indentation, whitespace and ASCII gate
+    make hooks                install the commit-msg hook
+
+`MONOCYPHER_DIR=<path>` additionally builds the Ed25519 and BLAKE2b
+bindings and their tests. Without it the library builds and every other
+test runs, which is what the vtable seams are for.
+
+Use a separate `BUILD_DIR` for `SANITIZE=1`: the objects differ, and mixing
+them with a plain build's produces a link nobody can explain.
