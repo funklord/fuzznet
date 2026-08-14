@@ -23,6 +23,7 @@
 
 # An out-of-tree build, if BUILD_DIR names one.
 /build/
+/san/
 
 # Python's, from running tools/style_gate.py.
 __pycache__/

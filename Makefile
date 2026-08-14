@@ -20,6 +20,37 @@ PREFIX    ?= /usr/local
 # routers and phones: it is the instruction cache that is scarce here, not
 # the arithmetic. -Og when debugging, deliberately and temporarily.
 CFLAGS  ?= -Os -g
+
+# SANITIZE=1 builds everything under AddressSanitizer and UBSan.
+#
+# It exists because the canaries in the fuzz harnesses are a substitute for
+# this, and say so: on a plain -Os build a two-byte overrun into a
+# neighbouring slot corrupts somebody else's message and returns success.
+# A canary catches a WRITE past the end of a buffer it brackets. It cannot
+# see a read of bytes nothing wrote, an off-by-one inside the buffer, or
+# signed overflow -- and those are the defects this library's arithmetic
+# could plausibly have, since it computes offsets from values a stranger
+# chose.
+#
+# NOT the default, deliberately. project.md sec 7 has each consumer
+# compiling these sources with its own flags, and a library that forced a
+# sanitizer on them would be choosing for fuzzypickles' Android build. It
+# is a knob for this tree's own testing:
+#
+#   make test SANITIZE=1
+#   make fuzz SANITIZE=1 CASES=200000
+#
+# -Og rather than -Os under it, because a sanitizer report through fully
+# optimised code names the wrong line, and BUILD_DIR should be set to keep
+# the objects apart from a plain build's -- they are not interchangeable
+# and mixing them produces a link nobody can explain.
+SANITIZE ?=
+ifeq ($(SANITIZE),1)
+CFLAGS  := -Og -g -fsanitize=address,undefined -fno-omit-frame-pointer \
+           -fno-sanitize-recover=all
+CFLAGS  += -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion \
+           -Wstrict-prototypes -Wvla
+endif
 CFLAGS  += -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion \
            -Wstrict-prototypes -Wvla
 CPPFLAGS += -MMD -MP

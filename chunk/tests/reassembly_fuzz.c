@@ -48,7 +48,18 @@
 
 /* Storage laid out as canary | buffer | canary, so an overrun in either
  * direction lands somewhere that is checked rather than somewhere that
- * happens to belong to the next slot. */
+ * happens to belong to the next slot.
+ *
+ * A SANITIZER DOES NOT MAKE THIS REDUNDANT, which is worth saying because
+ * it looks as though it should. AddressSanitizer brackets OBJECTS, and this
+ * arena is one object: a write from a slot into its neighbour's canary is
+ * in bounds as far as ASan is concerned, and it says nothing. Measured
+ * rather than assumed -- removing two bounds checks in reassembly.c
+ * produces an overrun that this canary catches and that `make test
+ * SANITIZE=1` does not. The two cover different classes and neither
+ * replaces the other: ASan sees reads of what nothing wrote and use after
+ * free, the canary sees writes that stay inside the harness's own
+ * allocation. */
 struct arena {
 	uint8_t block[SLOTS][CANARY + SLOT_BYTES + CANARY];
 };

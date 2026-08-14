@@ -1123,6 +1123,31 @@ semantics.** A later chunk disagreeing with the first about its total breaks
 no invariant here — it is a splice, not an overrun — and `reassembly_test`
 is what catches it. Both are needed and neither substitutes.
 
+### `make test SANITIZE=1`, and why the canaries stay
+
+Everything builds and runs under AddressSanitizer and UBSan behind a knob,
+at `-Og` and into a separate `BUILD_DIR` so sanitized objects cannot mix
+with a plain build's. It is deliberately not the default: §7 has each
+consumer compiling these sources with its own flags, and a library that
+forced a sanitizer on them would be choosing for fuzzypickles' Android
+build.
+
+All five suites and all three fuzzers pass under it, including a 300000-case
+campaign per harness. **That the run is real was checked rather than
+assumed**: `__asan_init` is present in the sanitized binaries and absent
+from the plain ones, and the same flags fire on a deliberate heap overflow.
+A sanitizer build that silently failed to engage reports success exactly as
+loudly as one that worked.
+
+**It also settled a question the fuzz harnesses raise: does a sanitizer make
+their canaries redundant?** It does not, and the reason is structural. ASan
+brackets *objects*, and a harness arena is one object — a write from one
+slot into its neighbour's canary is in bounds to ASan and passes silently.
+Removing two bounds checks in `reassembly.c` produces an overrun the canary
+catches and `SANITIZE=1` does not. The two cover different classes: ASan
+sees reads of what nothing wrote and use-after-free, the canary sees writes
+that stay inside the harness's own allocation. Both stay.
+
 ### The chain and freshness fuzzers, and what one of them found
 
 `chain/tests/chain_fuzz` and `frame/tests/freshness_fuzz` followed. `chain.c`
