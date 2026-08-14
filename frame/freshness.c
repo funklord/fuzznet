@@ -98,6 +98,23 @@ fzn_fresh_err_t fzn_replay_admit(fzn_replay_window_t *window,
 	if (!window || !window->entries || !nonce)
 		return FZN_FRESH_ERR_MALFORMED;
 
+	/* Before anything that can return early, so "reclaimed on every call"
+	 * is true rather than nearly true.
+	 *
+	 * It used to sit below the two returns beneath this, which meant a
+	 * refused frame and an unexpiring grant both skipped it -- so traffic
+	 * made entirely of grants, or entirely of stale commands, left dead
+	 * entries holding slots indefinitely. Found by frame/tests/
+	 * freshness_fuzz on its first run, against the invariant that every
+	 * live entry is unexpired.
+	 *
+	 * The consequence was memory rather than a hole: the path that
+	 * matters, a fresh command meeting a full window, always swept before
+	 * the capacity check. But `fzn_replay_expire` is exported precisely so
+	 * a quiet receiver can hand memory back, and a claim in a header that
+	 * is only usually true is the kind that gets relied on. */
+	(void)fzn_replay_expire(window, now);
+
 	/* Freshness first, so a stale frame never costs a slot. Doing it the
 	 * other way round lets a stranger fill the window with rubbish that
 	 * was going to be refused anyway -- the denial of service this bound
@@ -114,8 +131,6 @@ fzn_fresh_err_t fzn_replay_admit(fzn_replay_window_t *window,
 	 * exactly the unbounded set this design avoids. */
 	if (expires_at == 0)
 		return FZN_FRESH_OK;
-
-	(void)fzn_replay_expire(window, now);
 
 	for (size_t i = 0; i < window->used; i++) {
 		if (nonce_eq(window->entries[i].nonce, nonce))

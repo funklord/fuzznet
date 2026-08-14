@@ -35,14 +35,17 @@ HDRS      := chain/chain.h chain/revocation.h frame/freshness.h \
 TEST_SRCS := chain/tests/chain_test.c chain/tests/revocation_test.c \
              frame/tests/freshness_test.c \
              chunk/tests/reassembly_test.c chunk/tests/split_test.c \
-             chunk/tests/reassembly_fuzz.c
+             chunk/tests/reassembly_fuzz.c chain/tests/chain_fuzz.c \
+             frame/tests/freshness_fuzz.c
 TEST_OBJS := $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
 TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test \
              $(BUILD_DIR)/chain/tests/revocation_test \
              $(BUILD_DIR)/frame/tests/freshness_test \
              $(BUILD_DIR)/chunk/tests/reassembly_test \
              $(BUILD_DIR)/chunk/tests/split_test \
-             $(BUILD_DIR)/chunk/tests/reassembly_fuzz
+             $(BUILD_DIR)/chunk/tests/reassembly_fuzz \
+             $(BUILD_DIR)/chain/tests/chain_fuzz \
+             $(BUILD_DIR)/frame/tests/freshness_fuzz
 
 # The Monocypher binding, built only when MONOCYPHER_DIR names a checkout.
 #
@@ -139,6 +142,16 @@ $(BUILD_DIR)/chunk/tests/reassembly_fuzz: $(BUILD_DIR)/chunk/tests/reassembly_fu
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+$(BUILD_DIR)/chain/tests/chain_fuzz: $(BUILD_DIR)/chain/tests/chain_fuzz.o \
+                                     $(BUILD_DIR)/chain/chain.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD_DIR)/frame/tests/freshness_fuzz: $(BUILD_DIR)/frame/tests/freshness_fuzz.o \
+                                         $(BUILD_DIR)/frame/freshness.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # Tests are built by this target and only by it, so a claim that a test
 # passes or fails always goes through a rebuild. Re-running a stale binary
 # after a plain build appears to pass either way.
@@ -147,8 +160,12 @@ test: $(TEST_BINS)
 
 CASES ?= 200000
 
-fuzz: $(BUILD_DIR)/chunk/tests/reassembly_fuzz
-	$(BUILD_DIR)/chunk/tests/reassembly_fuzz $(CASES)
+FUZZ_BINS := $(BUILD_DIR)/chunk/tests/reassembly_fuzz \
+             $(BUILD_DIR)/chain/tests/chain_fuzz \
+             $(BUILD_DIR)/frame/tests/freshness_fuzz
+
+fuzz: $(FUZZ_BINS)
+	@for f in $(FUZZ_BINS); do echo "== $$f $(CASES)"; $$f $(CASES) || exit 1; done
 
 # Not bare. A bare `.SECONDARY:` applies to every target matched by any
 # pattern rule, silently including the object pattern above, and make does

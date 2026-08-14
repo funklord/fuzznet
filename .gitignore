@@ -18,6 +18,8 @@
 /chunk/tests/reassembly_test
 /chunk/tests/split_test
 /chunk/tests/reassembly_fuzz
+/chain/tests/chain_fuzz
+/frame/tests/freshness_fuzz
 
 # An out-of-tree build, if BUILD_DIR names one.
 /build/

@@ -1046,7 +1046,7 @@ alternative failure.
 is.**
 Alongside them: this document, `wire/frame.situ`, a `code-style.md` copied
 from the global source, the shared `style_gate.py` and `commit-msg`, and a
-`VERSION`. `make style` passes over twenty-six files.
+`VERSION`. `make style` passes over twenty-eight files.
 
 Both are the pieces §7a assigns to this library rather than to situ, which is
 also why they were buildable while §10 steps 2 and 4 are stuck: neither needs
@@ -1122,6 +1122,44 @@ fuzzer is what holds each individual bound.
 semantics.** A later chunk disagreeing with the first about its total breaks
 no invariant here — it is a splice, not an overrun — and `reassembly_test`
 is what catches it. Both are needed and neither substitutes.
+
+### The chain and freshness fuzzers, and what one of them found
+
+`chain/tests/chain_fuzz` and `frame/tests/freshness_fuzz` followed. `chain.c`
+owns no buffers, so there is nothing there for a canary to guard: a bug in it
+is not an overrun, it is an **acceptance**. Its harness therefore re-derives
+the rules independently — a second implementation rather than a call back
+into the first, since a checker that asked `chain.c` whether `chain.c` was
+right would agree with it always — and holds every verdict to them, plus the
+claims nothing else measures over arbitrary input: that a refused chain
+leaves `*out` untouched, and that verification never buys more signature
+checks than there are hops.
+
+**The freshness fuzzer found a real mismatch on its first run.**
+`freshness.h` claimed expired entries were "reclaimed on every call", and
+`fzn_replay_admit` returned early — for a refused frame, and for an
+unexpiring grant — *before* the sweep. So traffic made entirely of grants, or
+entirely of stale commands, left dead entries holding slots indefinitely. The
+consequence was memory rather than a hole, because the path that matters (a
+fresh command meeting a full window) always swept before the capacity check.
+But `fzn_replay_expire` is exported precisely so a quiet receiver can hand
+memory back, and a header claim that is only usually true is the kind that
+gets relied on. The sweep moved above the early returns.
+
+**The generator question has now decided the answer three times**, and it is
+the thing to check first when a fuzz result looks clean:
+
+| harness | what the generator failed to produce | bugs it hid |
+|---|---|---|
+| reassembly | `chunks` inside the ceiling | 3 of 4 |
+| chain | a chain rooted anywhere but the pinned root | the root pin |
+| freshness | *(nonces were already drawn from a small set)* | none |
+
+Each was found by planting a bug and watching the harness not care. All three
+now count what they reached and refuse to report success below a floor
+proportional to the run; `chain_fuzz` additionally requires both acceptances
+and refusals to occur, since a run with only one of them would report success
+against a verify that answered the same way every time.
 
 **The Monocypher round trip is the positive control for the seam itself**,
 and it earns its place by an experiment rather than an argument: inverting
