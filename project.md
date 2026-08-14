@@ -696,6 +696,33 @@ to take to situ with its reproduction, on the terms
 `situ/suggestions/fuzznet.md` sets out, rather than a reason to quietly drop
 the bound and lose the check it buys.
 
+**Reported, and re-checked unchanged at situ `cd3708b`** — eight commits
+after the report landed as `bdfdbda`. Pinned to a commit rather than dated
+because the re-check fell on the same day as the measurement, and a date
+that cannot distinguish the two tells the next reader nothing.
+
+The full table at that commit, since the report's value is in the
+disagreement rather than in `build` alone:
+
+| | `[max = total - 1]` | `require m.index < m.total` |
+|---|---|---|
+| `situc wire` | accepts, **and publishes the bound as contract** | accepts |
+| `situc map` | accepts | refuses |
+| `situc build` | refuses | refuses |
+| `situc verify` | refuses | — |
+
+So **§10 step 2 is still blocked**, and the dangerous half is still live: a
+schema can declare a constraint nothing can enforce, and `frame.situ` still
+carries one.
+
+What situ has been doing in those eight commits is the same lesson from the
+other end — running generated code rather than only compiling it ("run a
+relation's predicate instead of only compiling it", "run the C++ and Rust
+reader and table, not just their compilers", "emit a reader only where a
+stream can be framed, and run it"). That is the class this report is about,
+arrived at independently there. Worth knowing before anyone reads the
+silence as a refusal.
+
 It also decides what `chain/` could be built against, and did (§10 step 3):
 the capability model needs no generated code, because §7a already assigned
 it to this library as semantics rather than layout.
