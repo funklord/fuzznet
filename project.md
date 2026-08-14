@@ -1051,6 +1051,11 @@ case of their own". A generator that serves all three consumers from one
 description satisfies that test better than a hand-written library could, and
 the duplication this project exists to remove is removed further.
 
+**Answered at §10 step 4: `view`, because four of the six rungs cannot
+reach this frame** -- no owned form for a sealed region whose size the data
+decides, and no predicates for relations that compare a 32-byte key. The
+sequencing question below framed it as needing dates; it did not.
+
 **The sequencing question is real, and half of it is now answered.** An
 earlier revision said rungs 4 to 6 were "scheduled and unstarted (26.96
 through 26.98)". **All six rungs ship** (measured 2026-08-14, situc 1.0):
@@ -1298,16 +1303,74 @@ delegated rather than one that can.
 `CAP_ADMIN` says, without this library learning what any capability is — but
 it adds a field to a hop, and no chain layout is committed yet, so it is
 cheap to change now and will not stay cheap.
-4. **Decide the rung, and say when. This is now the blocking decision.**
-   `--layer view` today, but all six rungs ship (§7a, measured 2026-08-14) --
-   `relate` emits, and `drive` emits a step function taking `now_ms` for any
-   relation carrying `[timeout_ms = ..., retries = ...]`. The sequencing
-   question §7a names needed two dates; one has arrived, and the remaining
-   one is when netcfgd needs its agent.
+4. ~~**Decide the rung, and say when.**~~ **Answered 2026-08-14: `view`,
+   and the question was not the one this step was asking.**
 
-   It is blocking because step 5 cannot start without it and step 2 is stuck
-   behind the `situc build` refusal (§6). Everything else in this list is
-   either done or waiting on somebody outside this document.
+   Measured rather than chosen. Building `wire/frame.situ` at each rung
+   emits, for this frame:
+
+   | rung | emitted | bytes |
+   |---|---|---|
+   | `view` | `f.c`, `f.h` | 18746 |
+   | `edit` | identical | 18746 |
+   | `relate` | identical | 18746 |
+   | `frame` | adds a **stream** reader | 24313 |
+   | `converse` | identical to `frame` | 24313 |
+   | `drive` | identical to `converse` | 24313 |
+
+   **Every rung above `view` gives this library nothing it can use**, and
+   situ says why rather than leaving it to be inferred:
+
+   - **`edit` buys nothing** -- "no owned form for `fzn_frame` at any rung:
+     `sealed` is a sealed, which is a shape the data decides rather than a
+     length". The payload is `Bounded(0,1024)`, so there is no fixed struct
+     to own.
+   - **`relate` buys nothing** -- both relations compare `sender`, a
+     `u8[32]`, and "a relation compares one value against another".
+   - **`converse` and `drive` buy nothing** because they are built on
+     relations: "no conversation table for `same_message`" for the same
+     reason, and a driver needs a table.
+   - **`frame` buys the wrong thing.** Rung 4 is *stream* framing -- a byte
+     stream in, whole messages out. This is a datagram protocol and the
+     5567 bytes it adds solve a problem this library does not have.
+
+   **So the sequencing question §7a framed was wrong, and that is the more
+   useful half of the answer.** It said the decision needed two dates -- when
+   the rungs land, and when netcfgd needs its agent. Both have arrived or
+   stopped mattering, and the rung is still `view`, because **the binding
+   constraint was never a date.** It is that this frame's shape puts four of
+   the six rungs out of reach.
+
+   Two routes change that, and choosing between them is a wire decision
+   rather than a scheduling one:
+
+   - **Wait for situ.** Fixed-size array comparison in a relation is
+     reported (`suggestions/fuzznet.md`, situ `ba10684`) with the argument
+     that decision 0030's own first example -- "a response carries the
+     request's identifier" -- is usually a key rather than an integer. If
+     that lands, `relate` and `converse` become real for us, and `drive`
+     follows for any relation given a `[timeout_ms, retries]` policy.
+   - **Weaken the relation to fit what situ generates today.**
+     `same_message` compares `msg`, `chunks` and `sender`; the first two are
+     scalars and would generate. Dropping `sender` from the schema and
+     leaving it to `chunk/reassembly.c` -- which already enforces it --
+     unlocks the ladder now.
+
+   **The recommendation is the first, and the reason is not patience.**
+   `sender` is the clause that stops two senders' chunks reassembling into
+   one message that authenticates as neither; `frame.situ` calls it "the one
+   that matters". A schema declaring the two harmless clauses and omitting
+   the dangerous one would be a security declaration that is partial in the
+   direction of looking complete, and the next reader would take the
+   generated predicate as the whole check. Whichever way this goes,
+   `chunk/reassembly.c` keeps enforcing all three clauses in C, which is
+   where the property actually lives today.
+
+   **`view` needs nothing from anybody and is what step 5 should be written
+   against.** It is not a placeholder: accessors over caller-owned bytes are
+   what a bridge needs to read a frame, and everything this library adds on
+   top -- the capability model, freshness, reassembly -- is already built and
+   sits above that line.
 5. **netcfgd's `agent/`** becomes the first real consumer — it does not exist
    yet, which is the whole of the timing benefit.
 6. **fuzzypickles migrates**, as separate deliberate work, at rung 2 with
