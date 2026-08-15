@@ -1,0 +1,52 @@
+# situ capability map v1
+# schema: frame.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# layers: floor=view reach=relate
+
+# codecs. `trusted` means the properties are declared and
+# unverified: run `situc gen-codec-tests` to falsify a lying one.
+codec fzn_aead trusted length_preserving seekable=linear granularity=byte authenticated invertible deterministic
+
+struct fzn_frame size=144 mutate=Immutable address=Unstable repr=ValueConverted atomic=NonAtomic stage=VerifyGated auth=Covered(tag)
+  fzn_frame.hop                          offset=AbsoluteStatic(0x00) size=Fixed(5) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  fzn_frame.hop.version                  offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_frame.hop.hops_left                offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_frame.hop.<reserved0>              offset=AbsoluteStatic(0x02) size=Fixed(3) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_frame.authenticated                offset=AbsoluteStatic(0x05) size=Fixed(91) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic auth=Covered(tag)
+  fzn_frame.head                         offset=AbsoluteStatic(0x05) size=Fixed(91) align=Aligned(1) repr=ValueConverted atomic=NonAtomic auth=Covered(tag)
+  fzn_frame.head.kind                    offset=AbsoluteStatic(0x05) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord auth=Covered(tag)
+  fzn_frame.head.sender                  offset=AbsoluteStatic(0x06) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic auth=Covered(tag)
+  fzn_frame.head.expires_at              offset=AbsoluteStatic(0x26) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic auth=Covered(tag)
+  fzn_frame.head.nonce                   offset=AbsoluteStatic(0x2E) size=Fixed(24) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic auth=Covered(tag)
+  fzn_frame.head.commitment              offset=AbsoluteStatic(0x46) size=Fixed(16) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic auth=Covered(tag)
+  fzn_frame.head.msg                     offset=AbsoluteStatic(0x56) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic auth=Covered(tag)
+  fzn_frame.head.index                   offset=AbsoluteStatic(0x5A) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord auth=Covered(tag)
+  fzn_frame.head.chunks                  offset=AbsoluteStatic(0x5C) size=Fixed(2) align=Aligned(4) repr=ValueConverted atomic=AtomicWord auth=Covered(tag)
+  fzn_frame.head.length                  offset=AbsoluteStatic(0x5E) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord auth=Covered(tag)
+  fzn_frame.sealed                       offset=AbsoluteStatic(0x60) size=Bounded(32, 1056) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting stage=VerifyGated auth=Covered(tag)
+  fzn_frame.sealed.capability            offset=AbsoluteStatic(0x60) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic stage=VerifyGated auth=Covered(tag)
+  fzn_frame.sealed.payload               offset=AbsoluteStatic(0x80) size=Bounded(0, 1024) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting stage=VerifyGated auth=Covered(tag)
+  fzn_frame.tag                          offset=Dynamic size=Fixed(16) align=Unaligned repr=MemoryIdentical atomic=NonAtomic mutate=Immutable address=Unstable
+
+struct fzn_head size=91 repr=ValueConverted atomic=NonAtomic
+  fzn_head.kind                          offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_head.sender                        offset=AbsoluteStatic(0x01) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  fzn_head.expires_at                    offset=AbsoluteStatic(0x21) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_head.nonce                         offset=AbsoluteStatic(0x29) size=Fixed(24) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  fzn_head.commitment                    offset=AbsoluteStatic(0x41) size=Fixed(16) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  fzn_head.msg                           offset=AbsoluteStatic(0x51) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_head.index                         offset=AbsoluteStatic(0x55) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_head.chunks                        offset=AbsoluteStatic(0x57) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_head.length                        offset=AbsoluteStatic(0x59) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+
+struct fzn_hop size=5 atomic=NonAtomic
+  fzn_hop.version                        offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_hop.hops_left                      offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_hop.<reserved0>                    offset=AbsoluteStatic(0x02) size=Fixed(3) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic

@@ -25,4 +25,4 @@ ascii_only = true
 # dropping out of the list.
 floor = 30
 
-exclude = ["attic", "third_party", "vendor", "build", "target", "monocypher"]
+exclude = ["attic", "third_party", "vendor", "build", "target", "monocypher", "frame.situ.wire", "frame.situ.map"]

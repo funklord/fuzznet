@@ -162,7 +162,7 @@ endif
 # failures rather than as a build error.
 DEPS := $(OBJS:.o=.d) $(TEST_OBJS:.o=.d)
 
-.PHONY: all test fuzz installcheck coverage style hooks clean install
+.PHONY: all test fuzz installcheck coverage schema style hooks clean install
 
 # The default build does NOT build tests -- build-and-commit.md, and the
 # discipline it buys is paid for by the dependency rules above being right.
@@ -360,6 +360,49 @@ coverage:
 # `local/peer_linux.c`, believed untestable and not -- and both were found
 # by a human reading the coverage table rather than by anything failing. A
 # table nobody reads is a gate over an empty file list.
+
+# Is the committed byte contract still what the schema says?
+#
+# project.md sec 7's reason for pinning a dependency is that this is a
+# PROTOCOL: two hosts must agree about bytes, and a floating one is how they
+# come to disagree silently. That reason applies hardest to the contract
+# itself, so `wire/frame.situ.wire` and `.map` are committed and this target
+# refuses when the schema has moved without them.
+#
+# SITU IS NOT A SUBMODULE, deliberately, and the distinction is what decides
+# it: Monocypher is a submodule because it is LINKED -- its bytes end up in
+# the binary. situ is a build-time tool. Vendoring it would make every clone
+# carry a Python compiler and, worse, would push situc onto every consumer,
+# since sec 7 has them compiling these sources into their own objects.
+# fuzzypickles cross-compiles for Android; requiring situc there buys nothing
+# at run time. Submodule what you link, not what you run at build time.
+#
+# So the schema's artifacts are committed and consumers need nothing extra.
+# Checking them needs situc, which is why this is behind a variable and out
+# of `make test`:
+#
+#   make schema SITU_DIR=../situ
+#
+# Without SITU_DIR it says what it would have checked rather than passing
+# silently -- a target that no-ops when its tool is absent is a gate over an
+# empty file list.
+SITU_DIR ?=
+
+schema:
+	@if [ -z "$(SITU_DIR)" ]; then \
+		echo "schema: SITU_DIR unset, so the committed contract was NOT checked."; \
+		echo "schema: run 'make schema SITU_DIR=../situ' to verify it."; \
+		exit 1; \
+	fi
+	@test -x "$(SITU_DIR)/bin/situc" || { echo "schema: no situc at $(SITU_DIR)/bin"; exit 1; }
+	@$(SITU_DIR)/bin/situc wire --check wire/frame.situ
+	@$(SITU_DIR)/bin/situc map wire/frame.situ > $(BUILD_DIR)/.frame.map.new
+	@if ! cmp -s $(BUILD_DIR)/.frame.map.new wire/frame.situ.map; then \
+		echo "schema: wire/frame.situ.map is stale -- the schema moved without it"; \
+		rm -f $(BUILD_DIR)/.frame.map.new; exit 1; \
+	fi
+	@rm -f $(BUILD_DIR)/.frame.map.new
+	@echo "schema: the committed contract and map match the schema"
 
 # Does a consumer outside this tree still work? Nothing else asks.
 #

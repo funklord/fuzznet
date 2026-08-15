@@ -1,0 +1,39 @@
+# situ wire signature v0
+# schema: frame.situ
+#
+# What the bytes mean, and nothing about what they cost. Committed and
+# checked so that a change here is a change somebody reviews.
+#
+# One line per member: where it starts, how wide it is, and every
+# constraint a sender has to satisfy or a receiver may rely on.
+# Positions are byte offsets, or byte:bit off a boundary; `~` marks one
+# the data decides rather than the schema.
+
+endian big
+target buffer
+
+enum fzn_kind : u8 unknown=error
+  nop=0 unit=1 chunk=2 ack=3
+
+struct fzn_frame size=144..1168
+  @0x0000   5         fzn_hop    hop  big
+  @0x0005   91        fzn_head   head  big
+  @0x0060   32..1056  fzn_aead   sealed  codec=fzn_aead
+  ~         16        u8         tag
+  tag covers: authenticated head chunks commitment expires_at index kind length msg nonce sender sealed capability payload
+
+struct fzn_head size=91
+  @0x0000   1         fzn_kind   kind
+  @0x0001   32        u8         sender  big
+  @0x0021   8         u64        expires_at  big
+  @0x0029   24        u8         nonce  big
+  @0x0041   16        u8         commitment  big
+  @0x0051   4         u32        msg  big
+  @0x0055   2         u16        index  big max=chunks - 1
+  @0x0057   2         u16        chunks  big
+  @0x0059   2         u16        length  big max=1024
+
+struct fzn_hop size=5
+  @0x0000   1         u8         version  must_eq=1
+  @0x0001   1         u8         hops_left
+  @0x0002   3         u8         <reserved0>  big

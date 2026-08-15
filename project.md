@@ -1092,6 +1092,44 @@ second build path**: `FUZZNET_DIR ?= ../fuzznet`, overridden by the submodule
 path once there is something stable to pin. One knob with a default, rather
 than two ways to build that drift.
 
+### situ is a build-time dependency and NOT a submodule (2026-08-15)
+
+The distinction that decides it: **submodule what you link, not what you run
+at build time.** Monocypher is a submodule because its bytes end up in the
+binary and two hosts must agree about them. situ is a compiler. Vendoring it
+would make every clone carry a Python toolchain and -- worse -- would push
+`situc` onto every consumer, because the paragraphs above have them compiling
+these sources into their own objects. fuzzypickles cross-compiles for
+Android; requiring `situc` in that build buys nothing at run time.
+
+**What is committed instead is the contract**, which is where §7's reason
+actually bites. `wire/frame.situ.wire` and `wire/frame.situ.map` are in the
+tree, following situ's own precedent -- it commits `.wire` and `.map` beside
+every example and ships `situc wire --check` to compare them. So a consumer
+needs nothing extra, and a change to the schema that moved the bytes without
+moving the contract is a build failure rather than a surprise on a peer.
+
+    make schema SITU_DIR=../situ
+
+`SITU_DIR` is the sibling-directory-behind-a-variable shape §7 blesses for
+bring-up and `MONOCYPHER_DIR` already uses. **Unset, the target refuses
+rather than passing**: a check that no-ops when its tool is absent is a gate
+over an empty file list, and this project has already been caught by that
+class more than once.
+
+Both halves are confirmed to fire. Widening `length`'s bound without
+regenerating produces situ's own verdict -- *"the wire contract of frame.situ
+is not backward compatible; a deployed peer will misread messages from this
+build"* -- and a stale map is caught separately, because one check passing
+would otherwise stand in for two.
+
+**This does not yet generate C.** Nothing here links `frame_relate.c`, so
+`chunk/reassembly.c` still hand-enforces `same_message`. Adopting generated
+code is a further step with its own cost -- it would put a Python
+prerequisite in front of a consumer's build unless the output is committed
+too -- and it is not taken here. What this step buys is that the *bytes* are
+pinned, which is the half §7 argues for.
+
 **Not a system package, and not a shared library.** A `.so` would put wire
 compatibility in the hands of whatever the distribution shipped, which is the
 same failure the pinned commit exists to prevent -- and this is a static,
@@ -1481,6 +1519,10 @@ cheap to change now and will not stay cheap.
    has no owned form. `frame` is still *stream* framing and still the wrong
    problem. `converse` and `drive` are still out of reach, now for a key
    width rather than a missing predicate.
+
+   **situ is a build-time dependency as of 2026-08-15** and the byte contract
+   is committed and checked (§7). That pins the bytes; it does not generate
+   C, so the note below still holds.
 
    **The committed schema builds as of 2026-08-15** (situ `18b3537`, §6), so
    `relate` is now an answer somebody could act on rather than one nobody
