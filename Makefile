@@ -82,6 +82,7 @@ TEST_SRCS := chain/tests/chain_test.c chain/tests/revocation_test.c \
              frame/tests/freshness_test.c \
              chunk/tests/reassembly_test.c chunk/tests/split_test.c \
              session/tests/commitment_test.c local/tests/peer_test.c \
+             wire/tests/generated_test.c \
              local/tests/peer_fuzz.c local/tests/peer_linux_test.c \
              chunk/tests/reassembly_fuzz.c chain/tests/chain_fuzz.c \
              frame/tests/freshness_fuzz.c chain/tests/revocation_fuzz.c \
@@ -92,6 +93,7 @@ TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test \
              $(BUILD_DIR)/frame/tests/freshness_test \
              $(BUILD_DIR)/session/tests/commitment_test \
              $(BUILD_DIR)/local/tests/peer_test \
+             $(BUILD_DIR)/wire/tests/generated_test \
              $(BUILD_DIR)/local/tests/peer_fuzz \
              $(BUILD_DIR)/local/tests/peer_linux_test \
              $(BUILD_DIR)/chunk/tests/reassembly_test \
@@ -182,9 +184,16 @@ $(BUILD_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
 
+# GEN_EXTRA exists so `make coverage` can instrument these without their
+# warning flags becoming ours. Without it the coverage target reported all
+# three as exercised by nothing, which was false -- generated_test drives
+# them -- and a false positive from a guard is worth no more than the false
+# negative it replaced.
+GEN_EXTRA ?=
+
 $(BUILD_DIR)/wire/generated/%.o: wire/generated/%.c
 	@mkdir -p $(dir $@)
-	$(CC) -Os -g -Iwire/generated -MMD -MP -c $< -o $@
+	$(CC) -Os -g $(GEN_EXTRA) -Iwire/generated -MMD -MP -c $< -o $@
 
 $(BUILD_DIR)/chain/tests/chain_test: $(BUILD_DIR)/chain/tests/chain_test.o \
                                      $(BUILD_DIR)/chain/chain.o \
@@ -279,6 +288,17 @@ $(BUILD_DIR)/local/tests/peer_linux_test: $(BUILD_DIR)/local/tests/peer_linux_te
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# The only test that links situ's output. It needs the generated include
+# path, so it has its own rule rather than the pattern's.
+$(BUILD_DIR)/wire/tests/generated_test.o: wire/tests/generated_test.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
+
+$(BUILD_DIR)/wire/tests/generated_test: $(BUILD_DIR)/wire/tests/generated_test.o \
+                                        $(GEN_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # Tests are built by this target and only by it, so a claim that a test
 # passes or fails always goes through a rebuild. Re-running a stale binary
 # after a plain build appears to pass either way.
@@ -347,7 +367,7 @@ coverage:
 	@case "$(BUILD_DIR)" in /*) echo "BUILD_DIR must be relative; refusing"; exit 1 ;; esac
 	@rm -rf $(BUILD_DIR)-coverage *.gcov
 	@$(MAKE) --no-print-directory test BUILD_DIR=$(BUILD_DIR)-coverage \
-	         CFLAGS="-Og -g --coverage" >/dev/null
+	         CFLAGS="-Og -g --coverage" GEN_EXTRA="--coverage" >/dev/null
 	@printf '%-30s %-14s %s\n' file lines "branches both ways"
 	@unexercised=; \
 	for c in $(SRCS); do \
@@ -356,6 +376,13 @@ coverage:
 		l=`echo "$$out" | grep -m1 'Lines executed' | sed 's/.*://'`; \
 		b=`echo "$$out" | grep -m1 'Taken at least once' | sed 's/.*://'`; \
 		printf '%-30s %-14s %s\n' $$c "$$l" "$$b"; \
+		case "$$l" in ""|0.00%*) unexercised="$$unexercised $$c" ;; esac; \
+	done; \
+	for c in $(GEN_SRCS); do \
+		d=`dirname $$c`; \
+		out=`gcov -b -o $(BUILD_DIR)-coverage/$$d $$c 2>/dev/null`; \
+		l=`echo "$$out" | grep -m1 'Lines executed' | sed 's/.*://'`; \
+		printf '%-30s %-14s %s\n' $$c "$$l" "(generated)"; \
 		case "$$l" in ""|0.00%*) unexercised="$$unexercised $$c" ;; esac; \
 	done; \
 	rm -rf $(BUILD_DIR)-coverage *.gcov; \

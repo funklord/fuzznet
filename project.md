@@ -1160,6 +1160,29 @@ linker disagreed on the next command. The claim was wrong for thirty
 seconds and is recorded because the grep looked conclusive and was not --
 `situ_view_sub` is exactly the kind of name a pattern misses.
 
+**Adopting it created a gap and the guard could not see it.** Three source
+files entered the build that nothing touched, and `make coverage` -- written
+precisely to refuse that -- was blind to them, because they live in
+`GEN_SRCS` and it iterated `SRCS`. **A guard is only as wide as the list it
+iterates, and that list was widened an hour after the guard was written.**
+It iterates both now.
+
+Widening it then reported all three as exercised by nothing, which was
+false: their compile rule carries its own flags, deliberately, and that also
+dropped the coverage instrumentation. A false positive from a guard is worth
+no more than the false negative it replaced, so the instrumentation was
+fixed rather than the guard relaxed.
+
+`wire/tests/generated_test.c` exercises them, and it earns its place twice
+over. It builds a frame by writing bytes **at the offsets the committed map
+records** and reads them back through the generated getters -- two
+independent descriptions of one layout, so a generator whose map and emitter
+disagreed would pass its own tests and fail this one. And it executes
+`[max = chunks - 1]`: index 3 of 4 accepted, 4 of 4 refused, 4 accepted once
+`chunks` becomes 8. **That bound took two situ commits to make compile, and
+compiling is not enforcing -- nothing here had checked the second until
+now.**
+
 **What this still does not do: `chunk/reassembly.c` keeps its three
 clauses.** The generated `situ_rel_same_message` takes two `situ_view_t` --
 views over *encoded* bytes -- and `fzn_reasm_accept` takes decoded fields.
