@@ -886,6 +886,44 @@ between them. A suggestion whose cost model does not match the usage is the
 same shape as a gate that cannot model what it checks -- understand it before
 obeying it.
 
+### Resolved 2026-08-15: the schema builds
+
+**situ `18b3537` lets a bound name a sibling, and `wire/frame.situ` now
+builds unmodified.** Verified here: `frame.c`, `frame.h`, `frame_relate.c`
+and `frame_relate.h` all emit from the committed file, `wire`, `map` and
+`advise` still pass, and the generated header compiles clean at `-Wall
+-Wextra`. Both relations produce entry points.
+
+**It was not the coin-flip this document and situ's session both framed it
+as.** We each put it as "either `max` takes a member-relative bound or
+`wire` stops publishing one", evenly weighted. situ's session weighed it
+instead: parse, wellformed, layout, resolve and `wire` all accepted the
+file and only the constraint emitter refused. Making `wire` stricter would
+have made five stages agree with one by removing a capability the five
+already had. Five against one is not a tie, and `evidence.md`'s rule about
+the disagreeing gate being the first suspect settled it.
+
+The cause is worth recording because it is a distinction, not a bug: the
+emitter folded every bound to a number. That is genuinely required for a
+`[max]` on a **run**, where the cap is a storage budget and a non-constant
+would mean allocating. A bound on a **scalar's value** needs no storage at
+all -- it is checked against a message already in front of you, so a
+sibling's value is simply there to read. One keyword, two uses, never
+separated.
+
+**Their `int64_t` widening caveat does not reach us**, checked rather than
+assumed: every bound here is `u8` or `u16` -- `version`, `index`, `chunks`,
+`length` -- and none involves a 64-bit unsigned.
+
+**What this does NOT change: `chunk/reassembly.c` keeps enforcing all three
+clauses.** The predicate is reachable in principle and unreachable in this
+build, because **fuzznet consumes no generated code at all.** There is no
+situ dependency in the Makefile, no generation step, and no submodule --
+§7 says a submodule and §10 has not taken that step. Dropping the
+hand-written check would mean depending on code nothing here produces.
+Adopting situ as a build dependency is its own decision and belongs in
+§10 rather than in a commit about a bound.
+
 ### Measured 2026-08-14: the schema checks, and does not build
 
 **`situc build` refuses `wire/frame.situ`**, and the whole cause is one line:
@@ -1444,13 +1482,13 @@ cheap to change now and will not stay cheap.
    problem. `converse` and `drive` are still out of reach, now for a key
    width rather than a missing predicate.
 
-   **But nothing can generate from the committed schema yet**, and that is
-   the operative fact rather than the rung. `situc build` still refuses
-   `wire/frame.situ` over `[max = chunks - 1]` (§6), so the array fix is
-   confirmed only against a copy with that bound replaced by a literal.
-   Until that is resolved, `relate` is the answer to a question nobody can
-   act on, and `chunk/reassembly.c` goes on hand-enforcing `same_message`
-   because there is nothing generated to replace it.
+   **The committed schema builds as of 2026-08-15** (situ `18b3537`, §6), so
+   `relate` is now an answer somebody could act on rather than one nobody
+   could. What stands between here and acting on it is no longer situ: it
+   is that **this library consumes no generated code**, has no situ
+   dependency in its Makefile and no submodule, and adopting one is a
+   decision §10 has not taken. `chunk/reassembly.c` goes on hand-enforcing
+   `same_message` until it is.
 
    **Whether rung 5 is worth asking for is answered no, for now.** situ
    offered to take the key-width question to its holder with fuzznet's case
