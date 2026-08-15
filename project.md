@@ -1123,12 +1123,50 @@ is not backward compatible; a deployed peer will misread messages from this
 build"* -- and a stale map is caught separately, because one check passing
 would otherwise stand in for two.
 
-**This does not yet generate C.** Nothing here links `frame_relate.c`, so
-`chunk/reassembly.c` still hand-enforces `same_message`. Adopting generated
-code is a further step with its own cost -- it would put a Python
-prerequisite in front of a consumer's build unless the output is committed
-too -- and it is not taken here. What this step buys is that the *bytes* are
-pinned, which is the half §7 argues for.
+**The generated C is adopted too** (2026-08-15). `wire/generated/` holds
+`frame.c`, `frame.h`, `frame_relate.c` and `frame_relate.h`, committed for
+the same reason as the contract: a consumer compiles them and needs no
+`situc`. `make schema SITU_DIR=...` regenerates and refuses on drift, so
+committing them cannot let them diverge from the schema.
+
+They are compiled with their own flags rather than ours. `code-style.md`
+exempts generated sources, and `-Wconversion` against a code generator's
+output is noise nobody reads, which is how a warning that matters gets
+missed. They happen to be clean under the full set today; that is luck to
+enjoy rather than a rule to enforce on somebody else's emitter.
+
+#### The vendored runtime is a deliberate exception to "submodule what you link"
+
+`wire/generated/situ.h` and `situ.c` are copied from situ at `18b3537`, and
+this **is** linked code -- `situ_view_sub` lives in `situ.c` and the
+generated accessors call it. So the rule written one section above points at
+a submodule, and this is not it.
+
+The exception is proportion. situ's C runtime is 76 lines of `situ.c` and a
+header, inside a repository that is otherwise a Python compiler. A submodule
+would drag the whole compiler into every clone of this library and every
+consumer's tree to obtain two files. Monocypher is a submodule because it is
+a C library that is all runtime; this is a runtime that is a rounding error
+inside a tool. Both files carry that reasoning in their own banner, and
+`make schema` re-copies and diffs them so the copy cannot drift.
+
+**What would change the answer:** situ shipping its C runtime as its own
+repository, or the runtime growing until vendoring it is copying a library
+rather than two files.
+
+**A first attempt at that banner claimed the runtime was header-only**, on
+the strength of a grep for definitions in `situ.c` that found none. The
+linker disagreed on the next command. The claim was wrong for thirty
+seconds and is recorded because the grep looked conclusive and was not --
+`situ_view_sub` is exactly the kind of name a pattern misses.
+
+**What this still does not do: `chunk/reassembly.c` keeps its three
+clauses.** The generated `situ_rel_same_message` takes two `situ_view_t` --
+views over *encoded* bytes -- and `fzn_reasm_accept` takes decoded fields.
+Bridging them means constructing frames at schema-owned offsets, which is
+the coupling every module here refuses. The predicate is adopted and
+available to a consumer holding encoded frames; it does not replace an
+enforcement that runs a layer below it.
 
 **Not a system package, and not a shared library.** A `.so` would put wire
 compatibility in the hands of whatever the distribution shipped, which is the
