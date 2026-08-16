@@ -82,7 +82,7 @@ TEST_SRCS := chain/tests/chain_test.c chain/tests/revocation_test.c \
              frame/tests/freshness_test.c \
              chunk/tests/reassembly_test.c chunk/tests/split_test.c \
              session/tests/commitment_test.c local/tests/peer_test.c \
-             wire/tests/generated_test.c \
+             wire/tests/generated_test.c chunk/tests/agreement_test.c \
              local/tests/peer_fuzz.c local/tests/peer_linux_test.c \
              chunk/tests/reassembly_fuzz.c chain/tests/chain_fuzz.c \
              frame/tests/freshness_fuzz.c chain/tests/revocation_fuzz.c \
@@ -94,6 +94,7 @@ TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test \
              $(BUILD_DIR)/session/tests/commitment_test \
              $(BUILD_DIR)/local/tests/peer_test \
              $(BUILD_DIR)/wire/tests/generated_test \
+             $(BUILD_DIR)/chunk/tests/agreement_test \
              $(BUILD_DIR)/local/tests/peer_fuzz \
              $(BUILD_DIR)/local/tests/peer_linux_test \
              $(BUILD_DIR)/chunk/tests/reassembly_test \
@@ -296,6 +297,17 @@ $(BUILD_DIR)/wire/tests/generated_test.o: wire/tests/generated_test.c
 
 $(BUILD_DIR)/wire/tests/generated_test: $(BUILD_DIR)/wire/tests/generated_test.o \
                                         $(GEN_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# Links situ's output AND our reassembler, which is the only binary that
+# does. It exists to compare the two implementations of one rule.
+$(BUILD_DIR)/chunk/tests/agreement_test.o: chunk/tests/agreement_test.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
+
+$(BUILD_DIR)/chunk/tests/agreement_test: $(BUILD_DIR)/chunk/tests/agreement_test.o \
+                                         $(BUILD_DIR)/chunk/reassembly.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 

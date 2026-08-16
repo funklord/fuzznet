@@ -1,0 +1,190 @@
+/* Does `chunk/reassembly.c` agree with the schema it says it is enforcing?
+ *
+ * `wire/frame.situ` declares `same_message`, and `chunk/reassembly.c`
+ * enforces those clauses by hand because the generated predicate reads
+ * encoded views while the reassembler reads decoded fields. project.md
+ * records that as a deliberate position. What it could not record is
+ * whether the two actually say the same thing -- until now nothing compared
+ * them, and the claim rested on three lines of C matching three lines of
+ * schema by inspection.
+ *
+ * This compares them. For each combination of sender, message id and chunk
+ * count, it asks both:
+ *
+ *   - situ's generated `situ_rel_same_message`, over two encoded frames;
+ *   - `fzn_reasm_accept`, over the same values decoded.
+ *
+ * THE TWO ANSWER DIFFERENT QUESTIONS AND THAT IS THE POINT. The relation
+ * says "these are pieces of one message". The reassembler says "this chunk
+ * joined that partial message". They correspond exactly when the second
+ * chunk lands in the SAME slot as the first and is accepted -- a differing
+ * `sender` or `msg` sends it to a different slot, and a differing `chunks`
+ * lands in the same slot and is refused. Both are "not the same message",
+ * arrived at by different routes, and the mapping between them is the thing
+ * under test rather than an incidental detail.
+ *
+ * A disagreement here would mean one of two things, and both are worth
+ * finding: the schema declares a rule the code does not keep, or the code
+ * keeps a rule the schema does not declare. The first is a security gap in
+ * the direction that matters -- `same_message`'s `sender` clause is what
+ * stops two senders' chunks reassembling into one message that
+ * authenticates as neither.
+ */
+
+#include "../reassembly.h"
+
+#include "frame.h"
+#include "frame_relate.h"
+
+#include <stdio.h>
+#include <string.h>
+
+static int failures;
+static int checks;
+
+static void check(int ok, const char *what, uint8_t s2, uint32_t m2, uint16_t c2)
+{
+	checks++;
+	if (!ok) {
+		failures++;
+		printf("  FAIL: %s (sender=%02x msg=%u chunks=%u)\n", what, s2, m2, c2);
+	}
+}
+
+/* From wire/frame.situ.map, as in wire/tests/generated_test.c and for the
+ * same reason: asking the generated code where a field lives could not
+ * detect it being wrong about that. */
+#define OFF_VERSION 0x00
+#define OFF_KIND    0x05
+#define OFF_SENDER  0x06
+#define OFF_MSG     0x56
+#define OFF_INDEX   0x5A
+#define OFF_CHUNKS  0x5C
+#define OFF_LENGTH  0x5E
+#define FRAME_MIN   144
+
+static void put_be16(uint8_t *p, uint16_t v)
+{
+	p[0] = (uint8_t)(v >> 8);
+	p[1] = (uint8_t)(v & 0xffu);
+}
+
+static void put_be32(uint8_t *p, uint32_t v)
+{
+	p[0] = (uint8_t)(v >> 24);
+	p[1] = (uint8_t)((v >> 16) & 0xffu);
+	p[2] = (uint8_t)((v >> 8) & 0xffu);
+	p[3] = (uint8_t)(v & 0xffu);
+}
+
+static void build(uint8_t *buf, uint8_t sender, uint32_t msg, uint16_t index, uint16_t chunks)
+{
+	memset(buf, 0, FRAME_MIN);
+	buf[OFF_VERSION] = 1;
+	buf[OFF_KIND] = 2;
+	memset(buf + OFF_SENDER, sender, 32);
+	put_be32(buf + OFF_MSG, msg);
+	put_be16(buf + OFF_INDEX, index);
+	put_be16(buf + OFF_CHUNKS, chunks);
+	put_be16(buf + OFF_LENGTH, 0);
+}
+
+/* What the schema says: are these two frames pieces of one message? */
+static int schema_says_same(uint8_t s1, uint32_t m1, uint16_t c1, uint8_t s2, uint32_t m2,
+                            uint16_t c2)
+{
+	uint8_t a[FRAME_MIN], b[FRAME_MIN];
+	situ_msg_t ma, mb;
+	situ_view_t fa, fb;
+
+	build(a, s1, m1, 0, c1);
+	build(b, s2, m2, 1, c2);
+	situ_msg_init(&ma, a, sizeof(a));
+	situ_msg_init(&mb, b, sizeof(b));
+	if (situ_fzn_frame_view(&ma, 0, (uint32_t)sizeof(a), &fa) != SITU_OK)
+		return -1;
+	if (situ_fzn_frame_view(&mb, 0, (uint32_t)sizeof(b), &fb) != SITU_OK)
+		return -1;
+
+	return situ_rel_same_message(fa, fb) == SITU_OK;
+}
+
+/* What the code does: does the second chunk join the first's partial
+ * message? Same slot AND accepted, which is the reassembler's spelling of
+ * the relation's question. */
+static int code_says_same(uint8_t s1, uint32_t m1, uint16_t c1, uint8_t s2, uint32_t m2,
+                          uint16_t c2)
+{
+	fzn_partial_t slots[2];
+	uint8_t storage[2][256];
+	fzn_reasm_t table;
+	fzn_partial_t *done = NULL;
+	uint8_t sender1[FZN_SENDER_LEN], sender2[FZN_SENDER_LEN];
+	uint8_t payload[8];
+	size_t live_before, live_after;
+
+	memset(payload, 0x5a, sizeof(payload));
+	memset(sender1, s1, sizeof(sender1));
+	memset(sender2, s2, sizeof(sender2));
+
+	for (size_t i = 0; i < 2; i++)
+		fzn_reasm_slot_init(&slots[i], storage[i], sizeof(storage[i]));
+	fzn_reasm_init(&table, slots, 2, 2);
+
+	if (fzn_reasm_accept(&table, sender1, m1, 0, c1, payload, sizeof(payload), 0, 100,
+	                     &done) != FZN_REASM_OK)
+		return -1;
+
+	live_before = 0;
+	for (size_t i = 0; i < 2; i++)
+		live_before += slots[i].live ? 1u : 0u;
+
+	if (fzn_reasm_accept(&table, sender2, m2, 1, c2, payload, sizeof(payload), 0, 100,
+	                     &done) != FZN_REASM_OK)
+		return 0; /* refused outright -- not the same message */
+
+	live_after = 0;
+	for (size_t i = 0; i < 2; i++)
+		live_after += slots[i].live ? 1u : 0u;
+
+	/* Accepted into a NEW slot means a different message; accepted with
+	 * the slot count unchanged means it joined the first. */
+	return live_after == live_before;
+}
+
+int main(void)
+{
+	static const uint8_t senders[] = { 0xa1, 0xb2 };
+	static const uint32_t msgs[] = { 7, 9 };
+	static const uint16_t counts[] = { 3, 5 };
+
+	for (size_t si = 0; si < 2; si++) {
+		for (size_t mi = 0; mi < 2; mi++) {
+			for (size_t ci = 0; ci < 2; ci++) {
+				uint8_t s2 = senders[si];
+				uint32_t m2 = msgs[mi];
+				uint16_t c2 = counts[ci];
+				int schema = schema_says_same(0xa1, 7, 3, s2, m2, c2);
+				int code = code_says_same(0xa1, 7, 3, s2, m2, c2);
+
+				check(schema >= 0, "the schema predicate could not answer", s2,
+				      m2, c2);
+				check(code >= 0, "the reassembler could not answer", s2, m2, c2);
+				check(schema == code,
+				      "the schema and chunk/reassembly.c disagree", s2, m2, c2);
+			}
+		}
+	}
+
+	/* The positive control. Every case above asserts agreement, and two
+	 * implementations that both answered "no" to everything would agree
+	 * perfectly. One case must be a yes. */
+	check(schema_says_same(0xa1, 7, 3, 0xa1, 7, 3) == 1,
+	      "the identical case is not the same message -- nothing above proves anything",
+	      0xa1, 7, 3);
+	check(code_says_same(0xa1, 7, 3, 0xa1, 7, 3) == 1,
+	      "the reassembler rejects the identical case", 0xa1, 7, 3);
+
+	printf("agreement_test: %d checks, %d failure(s)\n", checks, failures);
+	return failures == 0 ? 0 : 1;
+}

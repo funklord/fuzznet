@@ -1183,6 +1183,28 @@ disagreed would pass its own tests and fail this one. And it executes
 compiling is not enforcing -- nothing here had checked the second until
 now.**
 
+**And the two are now checked against each other** (`chunk/tests/
+agreement_test.c`, 2026-08-16). Until this existed, "reassembly.c enforces
+what the schema declares" rested on three lines of C matching three lines of
+schema **by inspection**, which is the weakest evidence in the tree for one
+of its strongest claims.
+
+The test asks both, over every combination of sender, message id and chunk
+count: situ's generated `situ_rel_same_message` over two encoded frames, and
+`fzn_reasm_accept` over the same values decoded. **They answer different
+questions and the mapping between them is the thing under test** -- the
+relation says "these are pieces of one message", the reassembler says "this
+chunk joined that partial message", and they correspond exactly when the
+second chunk lands in the same slot and is accepted. A differing `sender` or
+`msg` sends it to a different slot; a differing `chunks` lands in the same
+slot and is refused. Both are "not the same message" reached by different
+routes.
+
+Confirmed to bite: dropping `sender` from the slot key, or accepting a
+differing `chunks`, each produces a disagreement. It also carries a positive
+control, because two implementations that both answered "no" to everything
+would agree perfectly.
+
 **What this still does not do: `chunk/reassembly.c` keeps its three
 clauses.** The generated `situ_rel_same_message` takes two `situ_view_t` --
 views over *encoded* bytes -- and `fzn_reasm_accept` takes decoded fields.
