@@ -70,8 +70,16 @@ out:
 	 * the qualifier: 411 bytes of text with it, 337 without. The compiler
 	 * deletes 74 bytes of wipe when it is allowed to, which is the whole
 	 * of what the paragraph above claims and is worth a number rather
-	 * than a belief. Re-measure if the wipe is ever rewritten -- the
-	 * check is one rebuild and a `size`.
+	 * than a belief.
+	 *
+	 * CHECKED, now, rather than re-measured by whoever remembers. This
+	 * comment used to end "re-measure if the wipe is ever rewritten --
+	 * the check is one rebuild and a `size`", which is an instruction to
+	 * a person who will not be there, about a security property, in the
+	 * one place nobody looks twice. `make codegencheck` counts the
+	 * zero-immediate stores in this function: two with the qualifier and
+	 * none without, so a deleted wipe stops the build. It is a tripwire
+	 * rather than a proof and tools/codegen_gate.py says so.
 	 *
 	 * `input` is wiped in full rather than only the `transcript_len`
 	 * bytes that were used. Wiping what was written would be enough and

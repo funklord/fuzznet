@@ -1573,7 +1573,7 @@ move and make it false with nothing saying so -- the same shape as
 `reassembly.c` "enforcing what the schema declares" by inspection, and the
 weakest evidence in the tree for one of its strongest claims.
 
-`tools/ct_gate.py` checks it now, run by `make ctcheck` and by `make test`
+`tools/codegen_gate.py` checks it now, run by `make codegencheck` and by `make test`
 before any test binary. **It is a tripwire, not a proof, and says so in its own
 header**: deciding from a disassembly which branch depends on which value is
 not something a hundred lines of Python settles, and claiming otherwise would
@@ -1610,6 +1610,33 @@ not x86-64 -- the mnemonics are architecture-specific and generalising them
 without a machine to test on would be guesswork -- and it exits non-zero when
 it cannot find the function, because that is indistinguishable from checking
 nothing.
+
+**The same gate now covers `fzn_commitment_derive`'s wipe, which was the same
+failure one file over.** `session/commitment.c` zeroes `derived` and `input`
+through a `volatile` pointer, and its comment recorded the measurement that
+proves the qualifier is load-bearing -- 411 bytes of text with it, 337 without,
+the compiler deleting 74 bytes of wipe when allowed to. Then it said:
+**"re-measure if the wipe is ever rewritten -- the check is one rebuild and a
+`size`."** An instruction to a person who will not be there, about key material
+left on a stack, in the one place nobody looks twice.
+
+Re-measured while writing the check, and the figures reproduce exactly. Inside
+the function there are **two zero-immediate stores with the qualifier and none
+at all without it**, so the property to pin is that those stores exist, one per
+wipe loop. A count of zero means dead-store elimination took the wipe and the
+derived key survives in the frame after the function returns.
+
+The tool was `ct_gate.py` for one commit and is `codegen_gate.py` now, because
+"constant time" stopped describing what it checks and a name that has to be
+explained is worse than a rename. Both checks are one tool rather than two
+parsing the same `objdump` output, and `codegencheck` names its objects one per
+line rather than looping, so that adding a third is a line somebody wrote
+deliberately.
+
+Each check has been watched to fail, which is the whole of what makes either
+worth citing: the wipe check refuses the non-`volatile` build and refuses an
+object without the function, and the constant-time check refuses an early-exit
+`memcmp`, a non-`volatile` accumulator, and a missing symbol.
 
 **Its own conversion to tabs is worth a line, because the proof refused the
 first attempt.** `code-style.md` wants tabs in Python too, and the mechanical

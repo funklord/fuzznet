@@ -177,7 +177,7 @@ endif
 # failures rather than as a build error.
 DEPS := $(OBJS:.o=.d) $(TEST_OBJS:.o=.d)
 
-.PHONY: all test fuzz installcheck coverage schema style ctcheck hooks clean install
+.PHONY: all test fuzz installcheck coverage schema style codegencheck hooks clean install
 
 # The default build does NOT build tests -- build-and-commit.md, and the
 # discipline it buys is paid for by the dependency rules above being right.
@@ -330,7 +330,7 @@ $(BUILD_DIR)/chunk/tests/agreement_test: $(BUILD_DIR)/chunk/tests/agreement_test
 # after a plain build appears to pass either way.
 # ctcheck runs first because it is about the library rather than the tests, and
 # because a failure there is more interesting than any assertion below it.
-test: ctcheck $(TEST_BINS)
+test: codegencheck $(TEST_BINS)
 	@for t in $(TEST_BINS); do echo "running $$t"; $$t || exit 1; done
 
 CASES ?= 200000
@@ -356,14 +356,19 @@ fuzz: $(FUZZ_BINS)
 # The indentation, whitespace and ASCII gate. One tool, spread verbatim from
 # ~/.claude/tools/style_gate.py; .style-gate.toml says which files here it
 # applies to.
-# fzn_ct_memeq's CODEGEN, which is a security property that was verified once
-# by hand and recorded in prose. See tools/ct_gate.py for what it does and does
-# not claim -- it pins the shape the function compiles to so that a change stops
-# the build, which is a tripwire rather than a proof. Skips loudly off x86-64
-# and without objdump; refuses if it cannot find the function, since that is
-# indistinguishable from checking nothing.
-ctcheck: $(BUILD_DIR)/constant_time/constant_time.o
-	python3 tools/ct_gate.py $<
+# TWO SECURITY PROPERTIES THE OPTIMISER COULD TAKE AWAY, each measured once by
+# hand and then left in a comment. See tools/codegen_gate.py for what it does
+# and does not claim -- it pins the shape each function compiles to so that a
+# change stops the build, which is a tripwire rather than a proof. Skips loudly
+# off x86-64 and without objdump; refuses if it cannot find a function, since
+# that is indistinguishable from checking nothing.
+#
+# Named one per line rather than looped, because the pair is the point: a
+# check added here should be a deliberate line somebody wrote.
+codegencheck: $(BUILD_DIR)/constant_time/constant_time.o \
+              $(BUILD_DIR)/session/commitment.o
+	python3 tools/codegen_gate.py ct $(BUILD_DIR)/constant_time/constant_time.o
+	python3 tools/codegen_gate.py wipe $(BUILD_DIR)/session/commitment.o
 
 style:
 	python3 tools/style_gate.py check
