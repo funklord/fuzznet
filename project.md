@@ -1566,6 +1566,60 @@ branch — the loop's length test — with the accumulator spilled through
 memory each iteration. No branch depends on the data, so the `volatile` did
 its job.
 
+**That was verified once, by hand, on one compiler, on one day** (2026-08-14),
+and the sentence above then sat in this document as though it were a standing
+fact. It is a security property, and the compiler, its version or the flags can
+move and make it false with nothing saying so -- the same shape as
+`reassembly.c` "enforcing what the schema declares" by inspection, and the
+weakest evidence in the tree for one of its strongest claims.
+
+`tools/ct_gate.py` checks it now, run by `make ctcheck` and by `make test`
+before any test binary. **It is a tripwire, not a proof, and says so in its own
+header**: deciding from a disassembly which branch depends on which value is
+not something a hundred lines of Python settles, and claiming otherwise would
+be worse than not checking. What it does is pin the shape the function is known
+to compile to, so a change stops the build and a person reads the disassembly.
+Four properties, each one something that would have to change for a
+data-dependent branch to appear:
+
+| property | what it catches |
+|---|---|
+| exactly one conditional branch | an early exit, or `diff == 0` becoming a jump |
+| the boolean comes from a conditional *set* | the final comparison turning into a branch |
+| exactly one return | the second `ret` an early exit needs |
+| the accumulator is stored to the stack in the loop | `volatile` no longer forcing it through memory |
+
+**Three positive controls, and the second changed what the gate looks for.**
+Compiled as deliberate variants rather than by editing the tree: an early-exit
+`memcmp`, the same function with `volatile` removed, and an object without the
+function at all. All three are refused, the third because "no branches found"
+over a missing symbol is a pass reporting nothing.
+
+The variant without `volatile` is the interesting one. At `-Os` today it
+compiles to **one** conditional branch, **one** conditional set and **one**
+return -- indistinguishable from the correct function on three of the four
+properties. Only the missing accumulator store separates them, so that fourth
+property carries the whole of the `volatile` claim by itself. Worth stating
+precisely what that means: the non-`volatile` build is not vulnerable on this
+compiler today, it has lost the thing that stops it becoming so. **The gate
+catches the loss of a guarantee, which is earlier than catching a defect and
+the only place it is catchable cheaply.**
+
+It skips loudly rather than passing when there is no `objdump` or the object is
+not x86-64 -- the mnemonics are architecture-specific and generalising them
+without a machine to test on would be guesswork -- and it exits non-zero when
+it cannot find the function, because that is indistinguishable from checking
+nothing.
+
+**Its own conversion to tabs is worth a line, because the proof refused the
+first attempt.** `code-style.md` wants tabs in Python too, and the mechanical
+reindent was checked by comparing `ast.dump()` before and after, per
+`evidence.md`. The first run was rejected: the docstring has continuation lines
+indented five spaces, so rewriting leading whitespace changed a string
+constant. `tokenize` now marks the 36 lines inside multi-line strings and
+leaves them alone. The proof caught the exact failure it was written for, on
+its first use.
+
 The discrepancies this section used to carry are resolved in the table
 above rather than annotated beneath it.
 

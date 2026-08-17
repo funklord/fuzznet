@@ -177,7 +177,7 @@ endif
 # failures rather than as a build error.
 DEPS := $(OBJS:.o=.d) $(TEST_OBJS:.o=.d)
 
-.PHONY: all test fuzz installcheck coverage schema style hooks clean install
+.PHONY: all test fuzz installcheck coverage schema style ctcheck hooks clean install
 
 # The default build does NOT build tests -- build-and-commit.md, and the
 # discipline it buys is paid for by the dependency rules above being right.
@@ -328,7 +328,9 @@ $(BUILD_DIR)/chunk/tests/agreement_test: $(BUILD_DIR)/chunk/tests/agreement_test
 # Tests are built by this target and only by it, so a claim that a test
 # passes or fails always goes through a rebuild. Re-running a stale binary
 # after a plain build appears to pass either way.
-test: $(TEST_BINS)
+# ctcheck runs first because it is about the library rather than the tests, and
+# because a failure there is more interesting than any assertion below it.
+test: ctcheck $(TEST_BINS)
 	@for t in $(TEST_BINS); do echo "running $$t"; $$t || exit 1; done
 
 CASES ?= 200000
@@ -354,6 +356,15 @@ fuzz: $(FUZZ_BINS)
 # The indentation, whitespace and ASCII gate. One tool, spread verbatim from
 # ~/.claude/tools/style_gate.py; .style-gate.toml says which files here it
 # applies to.
+# fzn_ct_memeq's CODEGEN, which is a security property that was verified once
+# by hand and recorded in prose. See tools/ct_gate.py for what it does and does
+# not claim -- it pins the shape the function compiles to so that a change stops
+# the build, which is a tripwire rather than a proof. Skips loudly off x86-64
+# and without objdump; refuses if it cannot find the function, since that is
+# indistinguishable from checking nothing.
+ctcheck: $(BUILD_DIR)/constant_time/constant_time.o
+	python3 tools/ct_gate.py $<
+
 style:
 	python3 tools/style_gate.py check
 	@# THE THIRD HAND-MAINTAINED LIST, and the third time one has drifted.
