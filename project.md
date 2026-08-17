@@ -1205,6 +1205,34 @@ differing `chunks`, each produces a disagreement. It also carries a positive
 control, because two implementations that both answered "no" to everything
 would agree perfectly.
 
+**It found a divergence nobody had written down, on its first run.** The
+test was extended to the frame's own constraints -- `chunks [must_ne = 0]`
+and `index [max = chunks - 1]`, which `reassembly.c` also enforces by hand
+-- and it failed immediately on a case written to assert agreement that does
+not hold.
+
+`index 3 of 4` is a legal frame and the schema says so. As a **first**
+arrival the reassembler refuses it, because a short last piece cannot set
+the stride and guessing would let whoever sends the final chunk first decide
+how much is held. That is a rule about an arrival **sequence**, and a schema
+describes one message rather than a conversation, so there is nowhere in
+`frame.situ` for it to live.
+
+**So the reassembler is stricter than the schema in exactly two places, both
+permanent and both now pinned by assertion rather than latent:**
+
+| divergence | why the schema cannot express it |
+|---|---|
+| `FZN_REASM_MAX_CHUNKS` | affordability is not a property of the bytes |
+| last chunk first is refused | it is a statement about a sequence |
+
+The test asserts containment in the safe direction -- the code must never
+accept a shape the schema calls illegal -- and pins where the extra
+strictness begins, so moving either bound shows up here rather than
+silently. Three further sabotages confirm it: removing the resource bound,
+removing `index >= chunks`, and accepting a last-chunk-first arrival are all
+caught.
+
 **What this still does not do: `chunk/reassembly.c` keeps its three
 clauses.** The generated `situ_rel_same_message` takes two `situ_view_t` --
 views over *encoded* bytes -- and `fzn_reasm_accept` takes decoded fields.
