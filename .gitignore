@@ -17,6 +17,7 @@
 /local/tests/peer_fuzz
 /local/tests/peer_linux_test
 /wire/tests/generated_test
+/wire/tests/constants_test
 /chunk/tests/agreement_test
 /chain/tests/revocation_test
 /chain/tests/sign_monocypher_test

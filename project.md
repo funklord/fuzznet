@@ -1251,6 +1251,71 @@ disagreed would pass its own tests and fail this one. And it executes
 compiling is not enforcing -- nothing here had checked the second until
 now.**
 
+#### Every constant stated twice, checked once
+
+`wire/tests/constants_test.c` (2026-08-17) exists because **four modules
+define the length of a field the schema also defines, and nothing compared
+them.** They agreed. Nothing made them keep agreeing, and
+`FZN_NONCE_LEN`'s own comment says "which is what wire/frame.situ carries" --
+the C asserted the correspondence in prose and left it there.
+
+| C constant | schema field | what drift costs |
+|---|---|---|
+| `FZN_NONCE_LEN` | `nonce[24]` | `fzn_replay_admit` compares that many bytes of a pointer into a frame, so a larger C constant reads past the field |
+| `FZN_SENDER_LEN` | `sender[32]` | the reassembly slot key is truncated or over-read -- the cross-sender splice `reassembly.c` exists to refuse |
+| `FZN_CAP_ID_LEN` | `capability[32]` | the capability compared during chain verification is not the one the frame carries |
+| `FZN_COMMITMENT_LEN` | `commitment[16]` | the committing half of the 48 bytes, which sec 4.4a says is not optional |
+
+**The duplication is correct and stays.** These modules must not include a
+generated header -- that independence is what keeps them buildable while sec
+10 step 2 is blocked, and what lets a consumer take the replay window without
+taking `situc`. What was missing was anything to notice when a repetition
+stopped being a copy. Seven constants are now pinned at compile time,
+including the payload ceiling and its premise, moved here from
+`agreement_test.c` so that constant agreement lives in one place and that file
+stays about behavioural agreement.
+
+**Two independent witnesses, and the second is the point.** The static asserts
+compare a C macro against a generated macro -- both emitted from the schema,
+so a generator whose `_COUNT` disagreed with the layout it actually produced
+would satisfy every one of them. So the test also measures the distance
+between `nonce` and `commitment` in a real frame through the generated
+pointers, which is the layout itself rather than a claim about it.
+
+Sabotage-verified five ways, and the fifth is the one that tests the design:
+moving `FZN_NONCE_LEN` **and** `SITU_FZN_HEAD_NONCE_COUNT` together to 20
+leaves every static assert passing, and only the runtime witness fires. Had it
+not, that half would have been decoration.
+
+`FZN_PUBKEY_LEN` and `FZN_SIG_LEN` are deliberately absent: the chain proving
+a capability is not carried in the frame at all -- `fzn_hop` is 5 bytes -- so
+there is no counterpart to check them against. **An assertion that cannot
+exist is worth distinguishing from one that is missing**, which is why they
+are named in the file rather than omitted silently.
+
+#### The third hand-maintained list
+
+Adding that test needed a line in `.gitignore`, which names each test binary
+rather than globbing them -- deliberately, since a pattern would also hide a
+source file added under that name by mistake. **That is the third list in this
+repo kept in step by hand, and the first two both drifted**: `HDRS` against
+`install`, and `GEN_SRCS` against `coverage`. Each was found by something
+breaking rather than by anyone comparing them.
+
+So `make style` compares them now: every `TEST_BINS` entry must be named in
+`.gitignore`, 17 of them today. It refuses if it inspected none, and skips
+loudly rather than vacuously when `BUILD_DIR` is not the in-place default,
+where `/build/` covers the output and none of these paths would appear.
+
+The cost of the omission is small and indirect, which is why it is worth
+mechanising rather than remembering: a stray build product in `git status` is
+noise, and the rule against blanket `git add` depends on that output being
+worth reading.
+
+It was confirmed by catching the live omission -- the line I had not yet added
+-- and then by dropping a different entry and watching it name that one
+instead.
+
 **And the two are now checked against each other** (`chunk/tests/
 agreement_test.c`, 2026-08-16). Until this existed, "reassembly.c enforces
 what the schema declares" rested on three lines of C matching three lines of

@@ -51,7 +51,6 @@
  */
 
 #include "../reassembly.h"
-#include "../split.h"
 
 #include "frame.h"
 #include "frame_relate.h"
@@ -59,39 +58,12 @@
 #include <stdio.h>
 #include <string.h>
 
-/* THE TETHER FOR `FZN_SPLIT_MAX_PAYLOAD`, and the reason this file includes
- * `split.h` at all.
- *
- * `chunk/split.h` must know the largest payload a frame can carry, and must
- * not include a generated header to find out -- that module's independence
- * from the schema is what keeps it buildable while sec 10 step 2 is blocked.
- * So the number is copied, and a copy with nothing checking it is drift
- * waiting to happen. This is the check.
- *
- * The schema's bound is not emitted as a constant: `situc` gives sizes per
- * struct but no `SITU_FZN_HEAD_LENGTH_MAX` for a scalar's `[max]`. It is
- * reachable only as the difference between the two frame sizes, and only
- * because `payload[head.length]` is the sole variable-length field in
- * `fzn_frame` -- every other member is fixed, so the whole spread between a
- * smallest and largest frame is the payload. That is checked below rather
- * than trusted, since a second variable-length field appearing in the schema
- * would silently make this arithmetic mean something else.
- *
- * A static assert rather than a runtime check because it costs nothing and
- * fires at the right moment: whoever replaces the schema's placeholder with
- * the measured number sec 12 wants cannot get half way. */
-_Static_assert(SITU_FZN_FRAME_SIZE_MAX - SITU_FZN_FRAME_SIZE_MIN == FZN_SPLIT_MAX_PAYLOAD,
-                "chunk/split.h's payload ceiling and wire/frame.situ's [max] have diverged");
-
-/* And the premise the line above rests on. A frame with an empty payload is
- * the smallest one there is, so the fixed part must account for the whole of
- * SITU_FZN_FRAME_SIZE_MIN: hop, the authenticated head, the sealed
- * capability and the tag. Spelled out so that a new fixed field forces this
- * to be re-read, and a new VARIABLE one breaks it. */
-_Static_assert(SITU_FZN_FRAME_SIZE_MIN == SITU_FZN_HOP_SIZE_MAX + SITU_FZN_HEAD_SIZE_MAX +
-                                                  SITU_FZN_FRAME_SEALED_CAPABILITY_COUNT +
-                                                  SITU_FZN_FRAME_TAG_COUNT,
-                "fzn_frame's fixed part no longer accounts for its minimum size");
+/* The schema-versus-C CONSTANTS live in wire/tests/constants_test.c, not
+ * here. This file is about behavioural agreement -- whether the reassembler
+ * enforces what the relation and the constraints say -- and a constant is a
+ * different question with a different failure mode. `chunk/split.h`'s payload
+ * ceiling was asserted here first and moved once there were five of them.
+ */
 
 static int failures;
 static int checks;

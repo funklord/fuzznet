@@ -83,6 +83,7 @@ TEST_SRCS := chain/tests/chain_test.c chain/tests/revocation_test.c \
              chunk/tests/reassembly_test.c chunk/tests/split_test.c \
              session/tests/commitment_test.c local/tests/peer_test.c \
              wire/tests/generated_test.c chunk/tests/agreement_test.c \
+             wire/tests/constants_test.c \
              local/tests/peer_fuzz.c local/tests/peer_linux_test.c \
              chunk/tests/reassembly_fuzz.c chain/tests/chain_fuzz.c \
              frame/tests/freshness_fuzz.c chain/tests/revocation_fuzz.c \
@@ -94,6 +95,7 @@ TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test \
              $(BUILD_DIR)/session/tests/commitment_test \
              $(BUILD_DIR)/local/tests/peer_test \
              $(BUILD_DIR)/wire/tests/generated_test \
+             $(BUILD_DIR)/wire/tests/constants_test \
              $(BUILD_DIR)/chunk/tests/agreement_test \
              $(BUILD_DIR)/local/tests/peer_fuzz \
              $(BUILD_DIR)/local/tests/peer_linux_test \
@@ -289,11 +291,23 @@ $(BUILD_DIR)/local/tests/peer_linux_test: $(BUILD_DIR)/local/tests/peer_linux_te
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
-# The only test that links situ's output. It needs the generated include
-# path, so it has its own rule rather than the pattern's.
+# Three tests read situ's output and need the generated include path, so each
+# has its own compile rule rather than the pattern's. This comment said "the
+# only test" until there were three of them.
 $(BUILD_DIR)/wire/tests/generated_test.o: wire/tests/generated_test.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
+
+$(BUILD_DIR)/wire/tests/constants_test.o: wire/tests/constants_test.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
+
+# Links the generated runtime for the frame views its runtime half needs;
+# every other check in it is a static assert and needs no object at all.
+$(BUILD_DIR)/wire/tests/constants_test: $(BUILD_DIR)/wire/tests/constants_test.o \
+                                        $(GEN_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
 
 $(BUILD_DIR)/wire/tests/generated_test: $(BUILD_DIR)/wire/tests/generated_test.o \
                                         $(GEN_OBJS)
@@ -342,6 +356,37 @@ fuzz: $(FUZZ_BINS)
 # applies to.
 style:
 	python3 tools/style_gate.py check
+	@# THE THIRD HAND-MAINTAINED LIST, and the third time one has drifted.
+	@# .gitignore names each test binary rather than globbing them, for a
+	@# stated reason: a pattern would also hide a source file added under
+	@# that name by mistake. The cost is a line per test, and forgetting it
+	@# leaves a build product in `git status` -- which matters here because
+	@# the rule against blanket `git add` depends on that output being
+	@# trustworthy. Noise trains people to stop reading it.
+	@#
+	@# HDRS versus `install` and GEN_SRCS versus `coverage` were the first
+	@# two, and both were found by something breaking rather than by
+	@# anybody comparing the lists. So this compares them.
+	@#
+	@# Only meaningful for the in-place default: an out-of-tree BUILD_DIR is
+	@# covered by /build/ and the paths below would not be in .gitignore at
+	@# all. Skipped loudly rather than passing vacuously.
+	@if [ "$(BUILD_DIR)" != "." ]; then \
+		echo "style: BUILD_DIR is '$(BUILD_DIR)', so the .gitignore check was SKIPPED"; \
+	else \
+		missing=; n=0; \
+		for b in $(TEST_BINS); do \
+			n=$$((n + 1)); \
+			grep -qx -- "$${b#.}" .gitignore || missing="$$missing $${b#./}"; \
+		done; \
+		if [ "$$n" -eq 0 ]; then \
+			echo "style: no test binaries to check, which cannot be right"; exit 1; \
+		fi; \
+		if [ -n "$$missing" ]; then \
+			echo "style: test binaries missing from .gitignore:$$missing"; exit 1; \
+		fi; \
+		echo "style: $$n test binaries all named in .gitignore"; \
+	fi
 
 # Installs the commit-msg hook from tools/hooks/ into .git/hooks/. In the tree
 # rather than only in .git so that it is reviewable, survives a clone, and can
