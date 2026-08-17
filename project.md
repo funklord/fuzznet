@@ -319,6 +319,74 @@ This is the single largest piece of new work and the highest-risk part, and it
 is where the two consumers' needs are least similar. It gets built against
 netcfgd's shape, since netcfgd is the consumer whose responses force it.
 
+#### The send path had no bound, and the header argued for the wrong number
+
+The receive half was bounded early and thoroughly — `FZN_REASM_MAX_CHUNKS`, a
+per-sender quota, `payload_len` checked against the caller's own buffer. The
+send half had **one** bound, `max_payload != 0`, and that asymmetry hid a real
+defect for as long as it existed.
+
+`wire/frame.situ` declares `u16 length [max = 1024]`, so a payload above 1024
+cannot be framed: `situ_fzn_frame_validate` refuses it. `fzn_split_plan`
+accepted any stride at all, so it would return `FZN_SPLIT_OK` for a plan whose
+every datagram was invalid — and **nothing downstream would have caught it**,
+because this library has no encoder yet. Split is the last place on the send
+path where the mistake is catchable.
+
+**The reachable case is not an edge case, it is the correct-looking caller.**
+`split.h` documents `max_payload` as the caller's, "since it depends on the
+MTU and on the frame overhead", so the obvious arithmetic is Ethernet's 1500,
+less 28 for IP and UDP, less the frame overhead. That gives 1328 — a
+thoroughly reasonable number that produces an entirely unsendable plan.
+
+**And the header's own overhead figure was wrong, in the direction that makes
+it worse.** It said 96, which is `hop + head` and omits the sealed
+`capability` and the tag — 48 bytes between them. So the comment was
+instructing a caller toward 1376 rather than 1328. This is the same stale 96
+§13 records, surviving in a second place after §13 was corrected: fixing a
+number where it is argued about does not fix it where it is used.
+
+`fzn_split_plan` now refuses above `FZN_SPLIT_MAX_PAYLOAD`, with a distinct
+error from the too-many-pieces one, and refuses rather than clamps — a clamp
+would leave the caller cutting their buffer with their own number while the
+plan used a smaller one, which is precisely the stride disagreement this
+module exists to prevent.
+
+**The ceiling is a copy, and the copy is tethered.** `chunk/split.h` must not
+include a generated header: that module's independence from the schema is what
+keeps it buildable while §10 step 2 is blocked. So the number is repeated, and
+`chunk/tests/agreement_test.c` static-asserts it against the generated header,
+which is the only place both are visible. Two assertions rather than one,
+because the second is the premise of the first:
+
+| assertion | what it catches |
+|---|---|
+| `FRAME_SIZE_MAX - FRAME_SIZE_MIN == FZN_SPLIT_MAX_PAYLOAD` | the two numbers drifting, in either direction |
+| `FRAME_SIZE_MIN == HOP + HEAD + CAPABILITY + TAG` | a second variable-length field making the first line's arithmetic mean something else |
+
+The bound is reachable only as that difference because **`situc` emits no
+constant for a scalar's `[max]`** — sizes are emitted per struct, so there is
+no `SITU_FZN_HEAD_LENGTH_MAX`. The subtraction works only because
+`payload[head.length]` is the sole variable-length member of `fzn_frame`,
+which is why that premise is asserted rather than assumed.
+
+Two limits worth stating plainly rather than discovering later:
+
+- **The tether is `make test`, not `make`.** A static assert in a test fires
+  only when tests build, and per `build-and-commit.md` the default target does
+  not build them. Putting it in the library would mean a library source
+  including a generated header, costing the independence above for a constant
+  that changes about once. Accepted deliberately.
+- **1024 is a placeholder** whose own schema comment says the real number
+  wants measuring against netcfgd's largest chunk. When it is measured, the
+  assert is what refuses a half-done change — which is the point of having it
+  rather than a comment asking politely.
+
+Sabotage-verified in all three directions: removing the check fails
+`split_test` on three assertions, and moving the ceiling to 1023 or to 2048
+fails the static assert at compile time. A one-sided check would have missed
+half of that.
+
 ### 4.4a The threat model, stated because it is higher than a chat program's
 
 **This library carries traffic that reconfigures infrastructure, remotely,
@@ -1867,7 +1935,7 @@ hedging: is there test work left.
 | `chain/revocation.c` | 100% of 41 | 85.2% of 54 |
 | `frame/freshness.c` | 100% of 41 | 92.5% of 40 |
 | `chunk/reassembly.c` | 100% of 103 | 87.8% of 98 |
-| `chunk/split.c` | 100% of 21 | 100% of 22 |
+| `chunk/split.c` | 100% of 22 | 100% of 24 |
 
 **Lines are the weak number and branches-both-ways is the honest one.** 100%
 of lines is compatible with every decision in the library having only ever

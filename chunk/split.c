@@ -9,6 +9,12 @@ fzn_split_err_t fzn_split_plan(size_t total, size_t max_payload, fzn_split_t *ou
 	if (!out || max_payload == 0)
 		return FZN_SPLIT_ERR_MALFORMED;
 
+	/* Checked before the arithmetic rather than after, because a plan is
+	 * not something to build and then reject: every field below would be
+	 * consistent, correct, and unsendable. */
+	if (max_payload > FZN_SPLIT_MAX_PAYLOAD)
+		return FZN_SPLIT_ERR_PAYLOAD_TOO_LARGE;
+
 	/* Refused rather than treated as zero pieces. Reassembly rejects an
 	 * empty piece, so a plan for nothing would describe something the
 	 * other half will not accept -- and the two halves disagreeing about

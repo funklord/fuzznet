@@ -213,6 +213,53 @@ static void test_round_trip_out_of_order(void)
 		      sizes[i]);
 }
 
+/* The payload ceiling, which is the schema's rather than this module's.
+ *
+ * `wire/frame.situ` says `u16 length [max = 1024]`, so a stride above that
+ * plans datagrams no receiver will validate. Nothing checked it until now
+ * and nothing else on the send path could: there is no encoder yet, so
+ * `fzn_split_plan` is the last place the mistake is catchable.
+ *
+ * THE CASE THAT MATTERS IS THE MIDDLE ONE. A caller doing the arithmetic the
+ * header describes -- Ethernet's 1500, less 28 for IP and UDP, less 144 of
+ * frame overhead -- gets 1328, and 1328 is a perfectly reasonable number
+ * that produces an entirely invalid plan. It is not a hostile input or an
+ * edge case; it is what a correct-looking caller computes. */
+static void test_plan_refuses_a_stride_no_frame_can_carry(void)
+{
+	fzn_split_t plan;
+
+	CHECK(fzn_split_plan(4096, FZN_SPLIT_MAX_PAYLOAD, &plan) == FZN_SPLIT_OK,
+	      "the ceiling itself was refused, so the bound is off by one");
+	CHECK(plan.chunk_size == FZN_SPLIT_MAX_PAYLOAD,
+	      "a stride at the ceiling was not honoured");
+
+	CHECK(fzn_split_plan(4096, FZN_SPLIT_MAX_PAYLOAD + 1u, &plan) ==
+	              FZN_SPLIT_ERR_PAYLOAD_TOO_LARGE,
+	      "one byte over the ceiling was accepted");
+
+	/* The MTU-derived caller. */
+	CHECK(fzn_split_plan(65536, 1500u - 28u - 144u, &plan) == FZN_SPLIT_ERR_PAYLOAD_TOO_LARGE,
+	      "a stride sized from a 1500-byte MTU was accepted, which is the bug this "
+	      "test exists for");
+
+	/* Distinct from the other refusal, and both reachable, so that neither
+	 * error is a synonym for the other. A single-piece message far over
+	 * the ceiling must complain about the stride, not about the count. */
+	CHECK(fzn_split_plan(2000, 2000, &plan) == FZN_SPLIT_ERR_PAYLOAD_TOO_LARGE,
+	      "a one-piece message over the ceiling was refused for the wrong reason");
+	CHECK(fzn_split_plan(FZN_SPLIT_MAX_PAYLOAD * (FZN_REASM_MAX_CHUNKS + 1u), 1, &plan) ==
+	              FZN_SPLIT_ERR_TOO_LARGE,
+	      "too many pieces was refused for the wrong reason");
+
+	/* And the ceiling is not applied to `total`. A large message cut into
+	 * legal strides is legal, and confusing the two bounds would refuse
+	 * every message bigger than one datagram. */
+	CHECK(fzn_split_plan(64u * 1024u, 1024, &plan) == FZN_SPLIT_OK,
+	      "a 64 KiB message in legal strides was refused");
+	CHECK(plan.chunks == 64, "a 64 KiB message did not come to 64 pieces of 1024");
+}
+
 /* The positive control: round_trip returns 0 for every kind of failure,
  * including refusals, so a test that only asserted failures would pass
  * against a split.c that did nothing. */
@@ -226,6 +273,7 @@ int main(void)
 {
 	test_plan_arithmetic();
 	test_plan_refuses_more_pieces_than_a_receiver_tracks();
+	test_plan_refuses_a_stride_no_frame_can_carry();
 	test_offsets_tile_the_message();
 	test_split_at_bad_arguments();
 	test_round_trip();
