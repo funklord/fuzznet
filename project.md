@@ -1978,13 +1978,43 @@ transport. Each correction below is the same correction:
 - **`chain/` gained minting, delegation and the signer seam**, which the row
   never mentioned.
 
-**One placement is left as it is and named rather than moved.** The
-Monocypher binding sits at `chain/sign_monocypher.c` because it implements
-`chain.h`'s signer vtable, which is a signature rather than an encryption
-concern. When AEAD arrives it will want a home that is not the capability
-model, and that is the moment to decide whether `session/` becomes a real
-directory or whether the extern codec bindings live together somewhere else.
-Not worth deciding before there is a second one.
+**That question is closed, and it was closed by placement rather than by
+anybody noticing it was open** (2026-08-19). It read: the Monocypher binding
+sits at `chain/sign_monocypher.c` because it implements `chain.h`'s signer
+vtable, a signature rather than an encryption concern; when AEAD arrives it
+will want a home that is not the capability model, and *that* is the moment to
+decide whether `session/` becomes a real directory or whether the bindings live
+together somewhere else -- not worth deciding before there is a second one.
+
+AEAD arrived, `session/` became a real directory, and there are five bindings
+rather than two. The decision got made one file at a time without the paragraph
+above being re-read, which is worth admitting: the document named the moment
+and the moment passed unremarked.
+
+**The principle the layout turns out to follow is: a binding lives with the
+seam it implements, never with the other bindings.**
+
+| binding | seam | directory |
+|---|---|---|
+| `chain/sign_monocypher.c` | `chain.h`'s signer | `chain/` |
+| `session/hash_monocypher.c` | `commitment.h`'s hash | `session/` |
+| `session/aead_monocypher.c` | `aead.h` | `session/` |
+| `session/random_linux.c` | `random.h` | `session/` |
+| `local/peer_linux.c` | `peer.h` | `local/` |
+
+It is coherent and it is the right rule: grouping by *implementation
+technology* would put Monocypher's three together and leave the platform two
+elsewhere, which sorts by an accident of who supplies the code rather than by
+what the code is for -- and it would break the moment a consumer supplied their
+own binding for one seam and not another, which the whole vtable arrangement
+exists to allow.
+
+Stated now so it is reviewable rather than emergent. `session/random_linux.c`
+is the one worth a second look, since entropy is not obviously a *session*
+concern: it is there because `random.h` sits beside `aead.h`, whose nonce
+length it fills. Defensible under the rule, and the alternative -- platform
+code living together, `peer_linux.c` beside it -- is the grouping the rule
+rejects.
 
 `local/` is deliberately last and deliberately optional — §2.
 
