@@ -1762,11 +1762,11 @@ until §10's order says so.
 | module | what it is | state |
 |---|---|---|
 | `constant_time/` | constant-time comparison | **built** |
-| `wire/` | the schema. §7a gives the encoding itself to situ | `frame.situ` written; nothing generates from it yet (§6) |
+| `wire/` | the schema, and the frame path over it. §7a gives the encoding itself to situ | **built**: `frame.situ`, the committed contract and map, situ's generated C vendored, and `wire/seal.c` opening and sealing through the gate |
 | `frame/` | freshness: command expiry, and the replay window it bounds. The envelope, signing and verification are situ's | **built** |
 | `chain/` | capability chains: verification, minting, delegation, revocation, and the signer seam | **built** |
 | `chunk/` | splitting, reassembly, and the memory bound | **built** |
-| `session/` | the key schedule, and the AEAD seam | **built**: key schedule, BLAKE2b binding, the AEAD seam and its XChaCha20-Poly1305 binding |
+| `session/` | the key schedule, the AEAD seam, and where a nonce comes from | **built**: key schedule, BLAKE2b binding, the AEAD seam with its XChaCha20-Poly1305 binding, and the entropy seam with `getrandom` behind it |
 | `local/` | `AF_UNIX`, peer credentials including supplementary groups, and a bounded vocabulary | **credentials built**; the socket, the vocabulary and the bound are not |
 
 **Rewritten 2026-08-14, because five of its seven rows were stale.** The
@@ -2370,6 +2370,8 @@ hedging: is there test work left.
 | `chunk/reassembly.c` | 100% of 98 | 100% of 98 |
 | `chunk/split.c` | 100% of 24 | 100% of 28 |
 | `wire/seal.c` | 100% of 58 | 79.2% of 48 |
+| `session/random.c` | 100% of 5 | 100% of 8 |
+| `session/random_linux.c` | 86.7% of 15 | **66.7% of 12** |
 | `chain/sign_monocypher.c` | 100% of 17 | 100% of 8 |
 | `session/hash_monocypher.c` | 100% of 9 | 100% of 6 |
 
@@ -2452,6 +2454,47 @@ finding, and a gate that cries wolf is worse than no gate.
 Controlled in both directions, since they are different mistakes: dropping
 `chunk/split.c` from `SRCS` names it, and a new `.c` written into the tree
 names that instead. The second is the case it exists for.
+
+**The library had been assuming its callers would get randomness right, and
+never said so** (`session/random.h`, 2026-08-18). `frame/freshness.h` and
+`session/aead_monocypher.c` both explain that 24 bytes is what makes a
+*random* nonce safe without a counter negotiated per session -- which is what
+lets §13 have a self-contained frame at all. Neither of them, nor anything
+else here, produced one.
+
+That is not a small gap. Reusing a nonce under one key with
+XChaCha20-Poly1305 does not weaken the seal, it removes it: two frames under
+the same key and nonce leak the XOR of their plaintexts and the Poly1305 key
+with them, which is forgery for everything after. **It is the one caller
+mistake the receiver cannot catch** -- the replay window sees a repeated
+frame, not a repeated nonce on two different frames.
+
+A seam, like the signer and the hash, and what it adds over calling
+`getrandom` directly is the rule: **all or nothing, and never a fallback**.
+`fill` succeeds only if every byte came from the source; a short read is a
+failure rather than a smaller nonce, and a failed source is a refusal rather
+than a reason to reach for something weaker. `fzn_nonce_next` zeroes the
+buffer on failure, so a caller who ignores the return value sends zeroes --
+wrong in a way somebody notices -- instead of most of a real nonce, which is
+the case that looks fine in a capture.
+
+`session/random_linux.c` loops over `getrandom`, because it is documented to
+return fewer bytes than asked, and retries only on `EINTR`. On a platform
+without a source it leaves `fill` null and every nonce request fails, which
+is `local/peer_linux.c`'s choice and for a stronger reason: a stub returning
+plausible bytes would be a nonce source with no entropy in it, and every
+frame it sealed would be forgeable.
+
+Its 66.7% is `peer_linux.c`'s situation exactly -- the unexercised branches
+are `getrandom` failing, returning zero, and being interrupted, none of which
+can be provoked without a fake syscall. The rule they feed is tested where it
+lives, against stub sources that fail in each of those ways.
+
+Both sabotages bite, and one of them differently from the rest in this
+document: removing the zero-on-failure fails two assertions, and removing the
+null-`fill` guard **segfaults**. A crash is a catch -- `make test` fails on
+it -- but it is worth naming as a crash rather than counting it as an
+assertion, because the two are not the same evidence.
 
 **`wire/seal.c` is at 79.2% and the number is partly an artifact.** Of its
 unexercised branches, some are defensive guards that `situ_fzn_frame_validate`

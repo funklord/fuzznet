@@ -35,6 +35,8 @@
 #include <fuzznet/local/peer.h>
 #include <fuzznet/session/aead.h>
 #include <fuzznet/session/commitment.h>
+#include <fuzznet/session/random.h>
+#include <fuzznet/session/random_system.h>
 #include <fuzznet/wire/seal.h>
 #else
 #include "chain/chain.h"
@@ -46,6 +48,8 @@
 #include "local/peer.h"
 #include "session/aead.h"
 #include "session/commitment.h"
+#include "session/random.h"
+#include "session/random_system.h"
 #include "wire/seal.h"
 #endif
 
@@ -197,6 +201,24 @@ int main(void)
 			return 18;
 		if (FZN_AEAD_NONCE_LEN != FZN_NONCE_LEN)
 			return 19;
+	}
+
+	/* The nonce source. A consumer needs one before it can seal anything,
+	 * and the property worth a line here is the refusal: an ops with no
+	 * fill must not produce a nonce, which is what a platform without a
+	 * source leaves behind. */
+	{
+		fzn_random_ops_t rng = { NULL, NULL };
+		uint8_t nonce[FZN_AEAD_NONCE_LEN];
+
+		memset(nonce, 0x5a, sizeof(nonce));
+		if (fzn_nonce_next(&rng, nonce) != 0)
+			return 20;
+		fzn_random_system_init(&rng);
+#if defined(__linux__)
+		if (!rng.fill || fzn_nonce_next(&rng, nonce) != 1)
+			return 21;
+#endif
 	}
 
 	printf("consumer_check: headers and sources agree, Monocypher bindings included\n");
