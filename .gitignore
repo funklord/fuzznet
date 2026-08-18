@@ -45,3 +45,4 @@ __pycache__/
 /session/tests/aead_monocypher_test
 /frame/tests/receive_fuzz
 /session/tests/random_test
+/local/tests/vocabulary_test

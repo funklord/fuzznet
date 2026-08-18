@@ -33,6 +33,7 @@
 #include <fuzznet/constant_time/constant_time.h>
 #include <fuzznet/frame/freshness.h>
 #include <fuzznet/local/peer.h>
+#include <fuzznet/local/vocabulary.h>
 #include <fuzznet/session/aead.h>
 #include <fuzznet/session/commitment.h>
 #include <fuzznet/session/random.h>
@@ -46,6 +47,7 @@
 #include "constant_time/constant_time.h"
 #include "frame/freshness.h"
 #include "local/peer.h"
+#include "local/vocabulary.h"
 #include "session/aead.h"
 #include "session/commitment.h"
 #include "session/random.h"
@@ -150,6 +152,23 @@ int main(void)
 			return 11;
 		if (fzn_peer_group_verdict(&peer, 999) != FZN_PEER_NOT_MEMBER)
 			return 12;
+
+		/* The vocabulary bound over the same peer: a table that
+		 * names the verb for a group it holds admits it, and an
+		 * empty table denies. */
+		{
+			static const uint8_t verb[] = "status";
+			const fzn_verb_rule_t rules[] = {
+				{ 24, verb, sizeof(verb) - 1u }
+			};
+
+			if (fzn_vocabulary_admit(&peer, verb, sizeof(verb) - 1u,
+			                         rules, 1) != FZN_PEER_MEMBER)
+				return 22;
+			if (fzn_vocabulary_admit(&peer, verb, sizeof(verb) - 1u,
+			                         rules, 0) != FZN_PEER_NOT_MEMBER)
+				return 23;
+		}
 
 		(void)unused_store;
 		if (FZN_DERIVED_LEN != FZN_AEAD_KEY_LEN + FZN_COMMITMENT_LEN)

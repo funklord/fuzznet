@@ -720,6 +720,59 @@ Neither is a rule this library enforces — it does not know what a payload
 means — but both are reasons the library must never grow a convenience that
 makes carrying a blob of executable content easy and obvious.
 
+### 4.8 Bounding what a peer may ask for, once its group has let it in
+
+**raidcfgd exists now, and this is the requirement it stated** (2026-08-18, its
+`project.md` under *Receiving fuzznet*), in its own words and not negotiable
+there: *a gid check that gates a connection is not enough; what a member of
+that group may then ask for has to be bounded, or the group boundary is a root
+boundary wearing a different name.* Its reasoning is the docker-group lesson --
+**a group that can destroy arrays is root for that group**.
+
+It left one thing to this library: *"whether that bound lives in the module or
+in this project is the library author's call."* **It lives here**, and
+`local/vocabulary.h` is it.
+
+**§5 is what makes that possible rather than a contradiction.** That section
+keeps command vocabularies out of the core, and this module does not carry
+one: a verb here is bytes with a length, and the library cannot tell `status`
+from `destroy`. The consumer supplies the table; the table is what says which
+group may ask for what. It is exactly the split `chain.h` already makes, where
+a capability is 32 opaque bytes and the chain is verified without the library
+ever learning what the capability permits. **Mechanism, never meaning.**
+
+**The tri-state is `peer.h`'s and carries through**, which is the part worth
+the module rather than a line in each consumer. Three answers:
+
+| | when |
+|---|---|
+| `MEMBER` | a rule names this verb for a group the peer holds |
+| `NOT_MEMBER` | no rule names this verb, or it is not a verb a rule could name |
+| `UNKNOWN` | a rule names it for some group, and whether the peer holds that group is unknowable |
+
+raidcfgd states the same rule independently -- *"an empty group list means
+could not tell, not none"*, and treating a failed read as an empty membership
+turns a read that failed into an allow. That is two projects reaching one
+conclusion separately, which is worth more than either saying it twice.
+
+**Every rule is scanned, with no early return on a match, and that is a
+correctness requirement rather than a timing one.** The verdict goes back to
+the peer that asked, so an early return leaks nothing the answer does not. It
+is scanned through because a rule matching this verb for a group the peer
+cannot be *shown* to hold makes the answer UNKNOWN -- and that rule may sit
+after one that matched nothing. Returning on the first hit turns "could not
+tell" into "no" for a table in the wrong order, which is a definite wrong
+answer from the ordering of a consumer's list. The test builds that table
+deliberately and a sabotage confirms it.
+
+**A verb longer than `FZN_VERB_MAX` is refused rather than truncated.**
+raidcfgd adopts netcfgd's newline-delimited JSON and records that its
+mitigations -- "a hard bound on framing, and both parsers fuzzed" -- are the
+other half of that choice rather than optional extras of it. Truncating would
+let `statusXXXX` match a rule for `status`, which is the whole failure the
+bound exists to prevent; the sabotage that removes the length comparison is
+caught by three assertions.
+
 ### 4.7a The order a sender builds a frame in
 
 **§4.7 states what a receiver must do and nothing stated what a sender must,
@@ -1827,7 +1880,7 @@ until §10's order says so.
 | `chain/` | capability chains: verification, minting, delegation, revocation, and the signer seam | **built** |
 | `chunk/` | splitting, reassembly, and the memory bound | **built** |
 | `session/` | the key schedule, the AEAD seam, and where a nonce comes from | **built**: key schedule, BLAKE2b binding, the AEAD seam with its XChaCha20-Poly1305 binding, and the entropy seam with `getrandom` behind it |
-| `local/` | `AF_UNIX`, peer credentials including supplementary groups, and a bounded vocabulary | **credentials built**; the socket, the vocabulary and the bound are not |
+| `local/` | `AF_UNIX`, peer credentials including supplementary groups, and a bounded vocabulary | **credentials and the bound built**; the socket is not |
 
 **Rewritten 2026-08-14, because five of its seven rows were stale.** The
 table was written before §7a, which reassigned most of §4 to situ once the
@@ -2303,7 +2356,11 @@ cheap to change now and will not stay cheap.
    agent that may not be written.
 6. **fuzzypickles migrates**, as separate deliberate work, at rung 2 with
    `--owned` (0031).
-7. **`local/`**, when raidcfgd exists and can say what it needs.
+7. **`local/`** -- **raidcfgd exists and has said what it needs** (its
+   `project.md`, *Receiving fuzznet*), so the half that was waiting on a real
+   consumer is written. See §4.8. What is left in this step is the socket
+   itself, which waits on nothing but is not urgent: raidcfgd is read-only
+   first and says the group question "stays theoretical while that is true".
 
 **What is deliberately absent: a hand-written retransmission state machine.**
 Building one while the same one is being generated is the exact duplication
@@ -2423,6 +2480,7 @@ hedging: is there test work left.
 | `constant_time/constant_time.c` | 100% of 7 | 100% of 2 |
 | `session/commitment.c` | 100% of 24 | 100% of 20 |
 | `local/peer.c` | 100% of 42 | 100% of 52 |
+| `local/vocabulary.c` | 100% of 20 | 100% of 26 |
 | `local/peer_linux.c` | 95.7% of 23 | **66.7% of 12** |
 | `chain/chain.c` | 100% of 64 | 100% of 84 |
 | `chain/revocation.c` | 100% of 42 | 100% of 56 |
