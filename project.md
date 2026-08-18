@@ -2120,6 +2120,28 @@ reproducible, and a reader should read them as weaker than the ones after it.
 It also turned up that situ's *compiler* was dirty, not only its runtime, so
 the generated C was being compared against an uncommitted emitter as well.
 
+**Two of these checks refused to run unless `BUILD_DIR` was the default**
+(2026-08-19), and both were fixed by asking what they actually compare. The
+`.gitignore` and `FUZZ_BINS` checks skipped out of tree on the reasoning that
+the paths would not match -- but the prefix is incidental to list membership,
+and stripping it makes them answer in every configuration. **A check that skips
+for anybody who habitually builds out of tree is a check those people do not
+have**, and it announces itself as a skip rather than as an absence, which
+reads like diligence.
+
+Confirmed in both configurations, and separately rather than together: the
+first sabotage tripped the earlier check, whose `exit 1` meant the second never
+ran, so a single measurement showing "one caught" said nothing about the other.
+
+**Dependency tracking is measured rather than assumed** (2026-08-19).
+`build-and-commit.md` calls it load-bearing and records the failure -- a struct
+gains a field, the library and its test disagree about layout, and the symptom
+is a pile of nonsense assertions. `DEPS` covers `TEST_OBJS` as well as `OBJS`
+and is `-include`d, which is the rule; touching `chunk/reassembly.h` rebuilds
+nine objects, **seven of them test objects** across four directories, including
+indirect dependents that reach it through `chunk/split.h`. That is the rule
+working rather than the rule being written down.
+
 **A warning sat in the build for a day because every check read for
 "error"** (2026-08-19). `-Wshadow` had been reporting a shadowed `ops` in
 `chain/tests/sign_monocypher_test.c` since the guard tests were added to it,

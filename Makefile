@@ -541,29 +541,24 @@ style:
 	@# `*_fuzz.c` is the convention every harness here follows, so the
 	@# filesystem is asked directly rather than compared against another
 	@# list somebody also maintains.
-	@if [ "$(BUILD_DIR)" != "." ]; then \
-		echo "style: BUILD_DIR is '$(BUILD_DIR)', so the FUZZ_BINS check was SKIPPED"; \
-	else \
-		missing=; n=0; \
-		for f in `find . -name '*_fuzz.c' -not -path './build/*' -not -path './san/*' \
-		                 -not -path './*-coverage/*' | sed 's|^\./||' | sort`; do \
-			n=$$((n + 1)); \
-			bin=`echo "$$f" | sed 's/\.c$$//'`; \
-			case " $(FUZZ_BINS) " in \
-				*" ./$$bin "*) ;; \
-				*) missing="$$missing $$bin" ;; \
-			esac; \
-		done; \
-		if [ "$$n" -eq 0 ]; then \
-			echo "style: no fuzz harnesses found, which cannot be right"; exit 1; \
-		fi; \
-		if [ -n "$$missing" ]; then \
-			echo "style: fuzz harnesses not in FUZZ_BINS:$$missing"; \
-			echo "style: 'make fuzz' would never run them, whatever CASES said."; \
-			exit 1; \
-		fi; \
-		echo "style: $$n fuzz harnesses, all in FUZZ_BINS"; \
-	fi
+	@missing=; n=0; \
+	listed=; \
+	for b in $(FUZZ_BINS); do listed="$$listed $${b#$(BUILD_DIR)/}"; done; \
+	for f in `find . -name '*_fuzz.c' -not -path './build/*' -not -path './san/*' \
+	                 -not -path './*-coverage/*' | sed 's|^\./||' | sort`; do \
+		n=$$((n + 1)); \
+		bin=`echo "$$f" | sed 's/\.c$$//'`; \
+		case " $$listed " in *" $$bin "*) ;; *) missing="$$missing $$bin" ;; esac; \
+	done; \
+	if [ "$$n" -eq 0 ]; then \
+		echo "style: no fuzz harnesses found, which cannot be right"; exit 1; \
+	fi; \
+	if [ -n "$$missing" ]; then \
+		echo "style: fuzz harnesses not in FUZZ_BINS:$$missing"; \
+		echo "style: 'make fuzz' would never run them, whatever CASES said."; \
+		exit 1; \
+	fi; \
+	echo "style: $$n fuzz harnesses, all in FUZZ_BINS"
 	@# THE THIRD HAND-MAINTAINED LIST, and the third time one has drifted.
 	@# .gitignore names each test binary rather than globbing them, for a
 	@# stated reason: a pattern would also hide a source file added under
@@ -576,25 +571,26 @@ style:
 	@# two, and both were found by something breaking rather than by
 	@# anybody comparing the lists. So this compares them.
 	@#
-	@# Only meaningful for the in-place default: an out-of-tree BUILD_DIR is
-	@# covered by /build/ and the paths below would not be in .gitignore at
-	@# all. Skipped loudly rather than passing vacuously.
-	@if [ "$(BUILD_DIR)" != "." ]; then \
-		echo "style: BUILD_DIR is '$(BUILD_DIR)', so the .gitignore check was SKIPPED"; \
-	else \
-		missing=; n=0; \
-		for b in $(TEST_BINS); do \
-			n=$$((n + 1)); \
-			grep -qx -- "$${b#.}" .gitignore || missing="$$missing $${b#./}"; \
-		done; \
-		if [ "$$n" -eq 0 ]; then \
-			echo "style: no test binaries to check, which cannot be right"; exit 1; \
-		fi; \
-		if [ -n "$$missing" ]; then \
-			echo "style: test binaries missing from .gitignore:$$missing"; exit 1; \
-		fi; \
-		echo "style: $$n test binaries all named in .gitignore"; \
-	fi
+	@# BUILD_DIR IS STRIPPED RATHER THAN SKIPPED ON. Both this check and the
+	@# FUZZ_BINS one above used to refuse to run unless BUILD_DIR was the
+	@# in-place default, on the reasoning that the paths would not match --
+	@# but the prefix is incidental to what they compare, which is list
+	@# membership. Stripping it makes them answer in every configuration,
+	@# and a check that skips for anybody who habitually builds out of tree
+	@# is a check those people do not have.
+	@missing=; n=0; \
+	for b in $(TEST_BINS); do \
+		n=$$((n + 1)); \
+		p=$${b#$(BUILD_DIR)/}; \
+		grep -qx -- "/$$p" .gitignore || missing="$$missing $$p"; \
+	done; \
+	if [ "$$n" -eq 0 ]; then \
+		echo "style: no test binaries to check, which cannot be right"; exit 1; \
+	fi; \
+	if [ -n "$$missing" ]; then \
+		echo "style: test binaries missing from .gitignore:$$missing"; exit 1; \
+	fi; \
+	echo "style: $$n test binaries all named in .gitignore"
 
 # Installs the commit-msg hook from tools/hooks/ into .git/hooks/. In the tree
 # rather than only in .git so that it is reviewable, survives a clone, and can
