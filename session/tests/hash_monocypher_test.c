@@ -128,6 +128,10 @@ int main(void)
 	check(fzn_commitment_check(commit_a, commit_a) == FZN_COMMITMENT_OK,
 	      "a commitment did not match itself");
 
+	/* The null guard, visible for the same reason as sign_monocypher's. */
+	fzn_hash_monocypher_init(NULL);
+	check(1, "init with a null ops did not crash");
+
 	printf("hash_monocypher_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
 }

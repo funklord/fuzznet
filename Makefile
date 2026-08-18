@@ -126,6 +126,7 @@ ifneq ($(MONOCYPHER_DIR),)
 MONO_OBJS  := $(BUILD_DIR)/chain/sign_monocypher.o \
               $(BUILD_DIR)/session/hash_monocypher.o \
               $(BUILD_DIR)/monocypher.o
+MONO_SRCS  := chain/sign_monocypher.c session/hash_monocypher.c
 MONO_TSRC  := chain/tests/sign_monocypher_test.c \
               session/tests/hash_monocypher_test.c
 MONO_TOBJ  := $(MONO_TSRC:%.c=$(BUILD_DIR)/%.o)
@@ -135,6 +136,26 @@ MONO_TOBJ  := $(MONO_TSRC:%.c=$(BUILD_DIR)/%.o)
 # is quietly incomplete is a trap for whatever asks it next. Found by asking
 # it exactly that question.
 TEST_SRCS  += $(MONO_TSRC)
+# SRCS too, and for the same reason TEST_SRCS was fixed: it is the list that
+# reads as "every library source", and `make coverage` iterates it. Without
+# this the two bindings were built, linked and run by their own tests while
+# the guard written to refuse an unexercised source could not see them --
+# which is `GEN_SRCS` against `SRCS` a third time.
+#
+# It must come after OBJS is computed, which it does: OBJS took its value from
+# SRCS above, and MONO_OBJS is added to it separately below, so the objects are
+# named once rather than twice.
+SRCS       += $(MONO_SRCS)
+# What `tools/consumer_check.c` needs to exercise the bindings: the define that
+# switches its optional block on, the include path, and Monocypher itself,
+# since installcheck compiles sources rather than linking objects.
+# Absolute, because installcheck's second arm compiles from inside
+# $(BUILD_DIR)/installcheck -- which is why the SRCS beside it are put through
+# $(CURDIR) as well. A relative path here builds in one arrangement and not the
+# other, which is the difference the whole target exists to find.
+MONO_ABS      := $(abspath $(MONOCYPHER_DIR))
+MONO_CONSUMER := -DFZN_CONSUMER_MONOCYPHER -I$(MONO_ABS)/src \
+                 $(MONO_ABS)/src/monocypher.c
 MONO_BIN   := $(BUILD_DIR)/chain/tests/sign_monocypher_test
 MONO_HASH  := $(BUILD_DIR)/session/tests/hash_monocypher_test
 OBJS       += $(MONO_OBJS)
@@ -573,12 +594,12 @@ installcheck: $(HDRS) $(SRCS) tools/consumer_check.c
 	@$(CC) $(CFLAGS) -DFZN_CONSUMER_INSTALLED \
 	       -I$(BUILD_DIR)/installcheck/usr/include \
 	       -o $(BUILD_DIR)/installcheck/consumer_installed \
-	       tools/consumer_check.c $(SRCS)
+	       $(MONO_CONSUMER) tools/consumer_check.c $(SRCS)
 	@$(BUILD_DIR)/installcheck/consumer_installed
 	@echo "installcheck: against the source tree, from another directory"
 	@cd $(BUILD_DIR)/installcheck && $(CC) $(CFLAGS) -I$(CURDIR) \
 	       -o consumer_source $(CURDIR)/tools/consumer_check.c \
-	       $(patsubst %,$(CURDIR)/%,$(SRCS))
+	       $(patsubst %,$(CURDIR)/%,$(SRCS)) $(MONO_CONSUMER)
 	@$(BUILD_DIR)/installcheck/consumer_source
 	@rm -rf $(BUILD_DIR)/installcheck
 	@echo "installcheck: both arrangements build and run"

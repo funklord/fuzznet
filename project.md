@@ -2245,6 +2245,8 @@ hedging: is there test work left.
 | `frame/freshness.c` | 100% of 43 | 100% of 44 |
 | `chunk/reassembly.c` | 100% of 98 | 100% of 98 |
 | `chunk/split.c` | 100% of 24 | 100% of 28 |
+| `chain/sign_monocypher.c` | 100% of 17 | 100% of 8 |
+| `session/hash_monocypher.c` | 100% of 9 | 100% of 6 |
 
 **Every branch in the library goes both ways now, with one exception, and the
 exception is the point of the table** (2026-08-18). Closing the rest took
@@ -2271,6 +2273,36 @@ fed it: dead code that cannot be tested is not depth, and leaving a wrapping
 multiplication in the file for a reader to puzzle over is worse than not
 having it. `reassembly.c` is six lines shorter and the fuzzer's counters are
 unchanged.
+
+**Two sources were missing from the table entirely, and from the guard**
+(2026-08-18). `chain/sign_monocypher.c` and `session/hash_monocypher.c` build
+only when `MONOCYPHER_DIR` names a checkout, and **`SRCS` never listed them** --
+so `make coverage`, whose job includes refusing when a source is exercised by
+nothing, could not see either. They were built, linked and run by their own
+tests the whole time; the guard simply did not iterate over them.
+
+That is `GEN_SRCS` against `SRCS` for the third time in this file, and the
+second time in this exact spot: an earlier session had already added
+`TEST_SRCS += $(MONO_TSRC)` for the identical reason, writing that "TEST_SRCS
+is the list that reads as *every test source*, and one that is quietly
+incomplete is a trap for whatever asks it next". The trap was one list over.
+
+**The moment the guard could see them it reported four unexercised branches**,
+and one was worth having: `mono_sign` refuses when `can_sign` is clear, because
+signing with a zeroed buffer produces a valid signature under the public key a
+zero secret derives -- a real key owned by nobody, which a verifier would
+accept. Nothing had ever asked it to refuse. Both files are at 100% now.
+
+**And that configuration could not pass its own gates.** With the bindings
+built, `install` ships their two headers, so `make installcheck` refused --
+correctly, with "the check would pass whatever those headers did", which is a
+guard added here for `commitment.h` and `peer.h` firing on a case nobody had
+run. `tools/consumer_check.c` exercises both bindings now, behind
+`FZN_CONSUMER_MONOCYPHER`, and the Makefile passes the include path and
+Monocypher's own source because installcheck compiles sources rather than
+linking objects. Absolute paths, since its second arm compiles from inside the
+staging directory -- a relative one builds in a single arrangement, which is
+the difference that target exists to find.
 
 **`local/peer_linux.c` stays at 66.7% deliberately.** Its four unexercised
 branches are `getsockopt` returning a short credential struct, `snprintf`

@@ -119,6 +119,35 @@ int main(void)
 	fzn_sign_monocypher_wipe(&signer);
 	check(signer.can_sign == 0, "wipe left the signer able to sign");
 
+	/* The guards, which nothing reached until `make coverage` could see
+	 * this file at all. It is built only when MONOCYPHER_DIR names a
+	 * checkout, and `SRCS` did not list it, so the target written to refuse
+	 * an unexercised source could not refuse this one.
+	 *
+	 * `!state->can_sign` is the one that matters. A signer with no key must
+	 * refuse rather than sign with a buffer of zeroes: that would produce a
+	 * valid signature under the public key a zero secret derives, a real
+	 * key owned by nobody, which a verifier would accept. */
+	{
+		fzn_sign_monocypher_t empty;
+		fzn_sign_ops_t ops;
+		uint8_t sig[FZN_SIG_LEN];
+		static const uint8_t msg[] = "a message";
+
+		memset(&empty, 0, sizeof(empty));
+		fzn_sign_monocypher_init(&ops, &empty);
+		check(ops.sign(&empty, sig, msg, sizeof(msg) - 1) == 0,
+		      "a signer holding no key signed anyway");
+		check(ops.sign(NULL, sig, msg, sizeof(msg) - 1) == 0,
+		      "a null signer state signed");
+
+		/* Both `init` and `wipe` accept a null and must simply return. */
+		fzn_sign_monocypher_init(NULL, &empty);
+		check(1, "init with a null ops did not crash");
+		fzn_sign_monocypher_wipe(NULL);
+		check(1, "wipe with a null state did not crash");
+	}
+
 	printf("sign_monocypher_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
 }

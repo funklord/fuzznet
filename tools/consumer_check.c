@@ -45,6 +45,24 @@
 #include "session/commitment.h"
 #endif
 
+/* The optional Monocypher bindings, which ship only when MONOCYPHER_DIR names
+ * a checkout -- and which `install` then puts in the tree alongside the rest.
+ *
+ * They are here because the HDRS check above them found them missing: with
+ * the bindings built, `make installcheck` refused, saying it would "pass
+ * whatever those headers did". It was right. Two headers were installable and
+ * unverifiable, in the configuration that is hardest to notice because the
+ * default build never produces it. */
+#ifdef FZN_CONSUMER_MONOCYPHER
+#ifdef FZN_CONSUMER_INSTALLED
+#include <fuzznet/chain/sign_monocypher.h>
+#include <fuzznet/session/hash_monocypher.h>
+#else
+#include "chain/sign_monocypher.h"
+#include "session/hash_monocypher.h"
+#endif
+#endif
+
 #include <stdio.h>
 #include <string.h>
 
@@ -130,6 +148,37 @@ int main(void)
 			return 13;
 	}
 
+#ifdef FZN_CONSUMER_MONOCYPHER
+	/* One call through each binding, which is this file's standard: enough
+	 * to prove the header and the source go together, not a test of the
+	 * cryptography -- chain/tests/sign_monocypher_test.c does that. */
+	{
+		fzn_sign_monocypher_t signer;
+		fzn_sign_ops_t real_sign;
+		fzn_hash_ops_t real_hash;
+		uint8_t derived[FZN_DERIVED_LEN];
+
+		memset(&signer, 0, sizeof(signer));
+		fzn_sign_monocypher_init(&real_sign, &signer);
+		if (!real_sign.verify || real_sign.ctx != &signer)
+			return 14;
+
+		/* A verify-only signer holds no key and must not claim to sign. */
+		if (signer.can_sign)
+			return 15;
+		fzn_sign_monocypher_wipe(&signer);
+
+		fzn_hash_monocypher_init(&real_hash);
+		if (!real_hash.hash)
+			return 16;
+		if (!real_hash.hash(real_hash.ctx, derived, sizeof(derived), region,
+		                    sizeof(region) - 1))
+			return 17;
+	}
+	printf("consumer_check: headers and sources agree, Monocypher bindings included\n");
+	return 0;
+#else
 	printf("consumer_check: headers and sources agree\n");
 	return 0;
+#endif
 }
