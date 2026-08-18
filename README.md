@@ -22,7 +22,7 @@ Built and tested:
 | `chunk/` | splitting, reassembly, and the memory bound |
 | `session/` | the key schedule, the AEAD seam, and where a nonce comes from |
 | `wire/` | the `situ` schema, its committed contract, and opening and sealing a frame |
-| `local/` | peer credentials including supplementary groups, framing, a vocabulary bound, and an `AF_UNIX` listener |
+| `local/` | peer credentials including supplementary groups, and a vocabulary bound |
 | `constant_time/` | constant-time comparison |
 
 `make test` runs 25 binaries -- suites and eight fuzz harnesses. `make test
@@ -40,11 +40,11 @@ shared protocol library usually looks like:
 
 - **The local hop is each project's own** -- two consumers already have one,
   they disagree about its encoding, and both disagreements are load-bearing.
-  §2 argues that rather than asserting it. **Two modules built on 2026-08-18
-  sit awkwardly against that**, and §2 records the question rather than
-  answering it: `local/socket.c` chooses `SOCK_STREAM` and `local/line.c`
-  chooses newline framing, which is netcfgd's and raidcfgd's shape and not
-  fuzzypickles'.
+  §2 argues that rather than asserting it. A socket module and a line framer
+  were written here on 2026-08-18 and moved to raidcfgd the same day, because
+  they chose a transport and an encoding and this library does not. What stays
+  is what chooses neither: who the peer is, and whether they may ask for a
+  given verb.
 - **The privileged daemon never links this.** Whatever speaks UDP is a
   separate unprivileged process, so a defect here is not a root defect. §3.
 - **Grants do not expire; commands do.** The two consumers' rules look like

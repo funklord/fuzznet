@@ -33,8 +33,6 @@
 #include <fuzznet/constant_time/constant_time.h>
 #include <fuzznet/frame/freshness.h>
 #include <fuzznet/local/peer.h>
-#include <fuzznet/local/socket.h>
-#include <fuzznet/local/line.h>
 #include <fuzznet/local/vocabulary.h>
 #include <fuzznet/session/aead.h>
 #include <fuzznet/session/commitment.h>
@@ -49,8 +47,6 @@
 #include "constant_time/constant_time.h"
 #include "frame/freshness.h"
 #include "local/peer.h"
-#include "local/socket.h"
-#include "local/line.h"
 #include "local/vocabulary.h"
 #include "session/aead.h"
 #include "session/commitment.h"
@@ -172,37 +168,6 @@ int main(void)
 			if (fzn_vocabulary_admit(&peer, verb, sizeof(verb) - 1u,
 			                         rules, 0) != FZN_PEER_NOT_MEMBER)
 				return 23;
-		}
-		/* The framing bound. One line in, one line out, and an over-long
-		 * one refused rather than truncated. */
-		{
-			fzn_line_t reader;
-			uint8_t line_buf[8];
-			const uint8_t *got;
-			size_t got_len;
-
-			if (fzn_line_init(&reader, line_buf, sizeof(line_buf)) != FZN_LINE_OK)
-				return 24;
-			if (fzn_line_push(&reader, (const uint8_t *)"hi\n", 3) != FZN_LINE_OK)
-				return 25;
-			if (fzn_line_next(&reader, &got, &got_len) != 1 || got_len != 2)
-				return 26;
-			if (fzn_line_push(&reader, (const uint8_t *)"aaaaaaaaaaaa", 12) !=
-			    FZN_LINE_ERR_OVERLONG)
-				return 27;
-		}
-		/* The listener's refusals, which need no socket: a relative path
-		 * names one in whatever directory the process happens to be in,
-		 * and a null path is not a path. */
-		{
-			int sock_fd = -1;
-
-			if (fzn_socket_listen("relative/sock", 0660u, 4, &sock_fd) !=
-			    FZN_SOCKET_ERR_PATH)
-				return 28;
-			if (fzn_socket_listen(NULL, 0660u, 4, &sock_fd) != FZN_SOCKET_ERR_MALFORMED)
-				return 29;
-			fzn_socket_close(-1, NULL);
 		}
 
 		(void)unused_store;
