@@ -18,7 +18,10 @@
  * something the compiler knows and does not pass. Threading a key through a
  * global to satisfy that signature would put mutable state in the one seam
  * where it must not be, so this seam takes them as arguments and the extern
- * symbol stays unbound. Reported to situ; see project.md sec 6.
+ * symbol stays unbound FOR NOW rather than permanently: situ's scope is
+ * eventually to cover protocol needs whole, layered and nested cryptographic
+ * contexts included, and a project supplying its own routines with them. This
+ * vtable is what that would bind to. Reported to situ; see project.md sec 6.
  *
  * Nothing is lost by it, because the generated code never calls the codec:
  * situ's contribution to the sealed region is the LAYOUT and the GATE --

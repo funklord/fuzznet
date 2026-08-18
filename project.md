@@ -630,7 +630,21 @@ head.nonce)`, so the nonce is something the compiler *knows* and still does not
 pass. Threading a key through a global to satisfy that signature would put
 mutable state in the one seam where it must not be, so `impl fzn_aead extern
 "fzn_aead_xchacha20poly1305"` stays unbound and this library calls its own
-seam. Reported to situ.
+seam.
+
+**Unbound for now rather than permanently, and the distinction matters to
+whoever reads this next.** situ's scope is eventually to cover protocol needs
+whole -- layered, nested and distributed cryptographic contexts, including a
+project plugging in its own routines. So this is a gap on the way there rather
+than a boundary either project has drawn, and `session/aead.h` is the shape a
+future binding would attach to rather than a permanent detour around one.
+
+Reported to situ, and then **corrected**: the first report recommended they
+write the limitation into their specification, which was advice premised on
+the boundary being deliberate. It is not, so that recommendation was withdrawn
+the same day. Worth recording here because it is the mistake this document
+keeps warning about from the other side -- a temporary state written down as a
+decision, which the next reader takes for one.
 
 **Nothing is lost by that, because the generated code never calls the codec.**
 What situ contributes to a sealed region is the layout and the **gate**:
