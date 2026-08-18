@@ -2296,8 +2296,36 @@ consumer compiling these sources with its own flags, and a library that
 forced a sanitizer on them would be choosing for fuzzypickles' Android
 build.
 
-All five suites and all three fuzzers pass under it, including a 300000-case
-campaign per harness. **That the run is real was checked rather than
+All the suites and every fuzzer pass under it. **Re-run 2026-08-18 after the
+three arithmetic fixes above: 17 binaries clean, and 2000000 cases per harness
+-- 12 million across the six -- with no invariant broken and every model
+agreeing.** The fuzzers' counters are identical to the plain build's at the
+same case count, which is the check that the instrumented binaries walk the
+same paths rather than falling out early somewhere.
+
+That run found nothing in the library, which is worth stating as a result
+rather than as an absence of one: the three defects fixed that day were found
+by reading, and a sanitizer would not have caught any of them. Each was a
+refusal that should have happened and did not, or arithmetic that wrapped
+without ever being dereferenced -- ASan sees a bad access, not a bad decision,
+and UBSan does not consider unsigned wraparound undefined at all.
+
+**It did find one thing, in the tooling.** `make test SANITIZE=1` was
+impossible for a day, because `codegen_gate.py` refused it: under ASan
+`fzn_ct_memeq` compiles to 118 instructions with sixteen conditional branches
+-- the shadow-memory checks -- and the accumulator moves off the stack frame
+the store pattern looks for. None of that is the property failing. The
+constant-time claim is about the build people ship and nobody ships a
+sanitizer build, so the honest answer is that the check does not apply. The
+gate detects `__asan_`/`__ubsan_` symbols now and skips loudly.
+
+Worth naming, because it is the shape of mistake this document keeps
+recording: **a check written for one build configuration silently became a
+gate on every configuration**, and the target it blocked was one the Makefile
+documents in its own header. It was caught by using the feature rather than by
+anything checking the checker.
+
+The earlier campaign was 300000 cases per harness. **That the run is real was checked rather than
 assumed**: `__asan_init` is present in the sanitized binaries and absent
 from the plain ones, and the same flags fire on a deliberate heap overflow.
 A sanitizer build that silently failed to engage reports success exactly as

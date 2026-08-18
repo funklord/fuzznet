@@ -74,9 +74,40 @@ def fail(message):
 	sys.exit(1)
 
 
+def instrumented(obj):
+	"""Was this object built with a sanitizer?
+
+	It matters because the whole gate is about the shape -Os produces, and a
+	sanitizer produces a different one on purpose: ASan brackets every access
+	with a shadow-memory check, so fzn_ct_memeq goes from 16 instructions and
+	one conditional branch to 118 and sixteen, and moves the accumulator off
+	the stack frame the store pattern looks for.
+
+	None of that is the property failing. The constant-time claim is about the
+	build people ship, and nobody ships a sanitizer build -- so the honest
+	answer here is that the check does not apply, not that it failed.
+
+	Found by the gate refusing `make test SANITIZE=1` outright, which is a
+	target the Makefile documents and this file had made impossible.
+	"""
+	if not shutil.which("nm"):
+		return False
+	out = subprocess.run(["nm", obj], capture_output=True, text=True, check=False)
+	if out.returncode != 0:
+		return False
+	return "__asan_" in out.stdout or "__ubsan_" in out.stdout or "__sanitizer" in out.stdout
+
+
 def disassemble(obj):
 	if not shutil.which("objdump"):
 		print("codegen-gate: SKIPPED -- no objdump on PATH, so nothing was checked")
+		sys.exit(0)
+
+	if instrumented(obj):
+		print(
+			f"codegen-gate: SKIPPED -- {obj} is a sanitizer build, whose codegen is "
+			"deliberately a different shape, so nothing was checked"
+		)
 		sys.exit(0)
 
 	arch = subprocess.run(
