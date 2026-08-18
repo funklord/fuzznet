@@ -89,6 +89,52 @@ the trust boundary already is:
 | authenticated by | the kernel, before a byte is parsed | a signed capability |
 | chosen for | each project's own reasons | exactness, authentication, size |
 
+### UNSETTLED: two modules built today do define part of the local hop
+
+**Raised rather than resolved, because resolving it either way is the
+copyright holder's and not the noticing session's** (2026-08-18).
+
+The paragraph above says *fuzznet does not define the local hop at all*, and
+§10 step 7 and §8's table both call for a `local/` module carrying `AF_UNIX`
+and a bounded vocabulary. Until today those two coexisted because `local/` held
+only credentials, and credentials do not define a hop: `fzn_peer_from_fd` takes
+a descriptor the consumer made, on a socket the consumer chose, and answers who
+is on the other end. Likewise `local/vocabulary.h` judges verbs the consumer
+defines and cannot read.
+
+**`local/socket.c` and `local/line.c` are different, and that is the finding.**
+They make choices this section says are each consumer's:
+
+| | fuzzypickles | what was built |
+|---|---|---|
+| local transport | `AF_UNIX` `SOCK_SEQPACKET` | `SOCK_STREAM` |
+| local encoding | its canonical binary wire, one parser for both hops | newline-delimited lines |
+
+That is netcfgd's and raidcfgd's shape, and it is the shape §2 says must not be
+imposed on the third consumer. **fuzzypickles cannot use either module.**
+
+Both readings are arguable and this document should not pick:
+
+- **It is fine.** Offering is not imposing. Nothing forces fuzzypickles to link
+  a module it does not want, and raidcfgd asked for exactly this -- the framing
+  bound is half of what it says adopting JSON costs, and it stated the
+  requirement in its own tree.
+- **It is not fine.** §5's failure mode is "absorbing one consumer's
+  application until the others are carrying it", and a shared library that
+  ships one consumer's local hop and not another's is doing that. fuzzypickles
+  reviews, packages and audits code it can never call.
+
+Three shapes if the second reading wins, none of them large: move the two
+modules into raidcfgd, keep them here but say plainly that `local/` is
+netcfgd-shaped and fuzzypickles is not expected to use it, or generalise the
+socket to take a type and the framer to take a delimiter -- which is more
+machinery than either consumer asked for and is the one this document would
+argue against.
+
+**What is not in question:** `local/peer.*` and `local/vocabulary.*`. Both take
+what a consumer already has and answer a question about it, and raidcfgd's
+requirement for the second is stated in its own project.md.
+
 ### What about group gating, then?
 
 The first need is real, and it is **not** met by anything today:
