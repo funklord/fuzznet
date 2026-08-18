@@ -68,7 +68,7 @@ GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
-             local/line.c \
+             local/line.c local/socket.c \
              chain/chain.c chain/revocation.c frame/freshness.c \
              chunk/reassembly.c \
              chunk/split.c \
@@ -76,7 +76,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              session/random.c session/random_linux.c
 OBJS      := $(SRCS:%.c=$(BUILD_DIR)/%.o) $(GEN_OBJS)
 HDRS      := constant_time/constant_time.h session/commitment.h \
-             local/peer.h local/vocabulary.h local/line.h \
+             local/peer.h local/vocabulary.h local/line.h local/socket.h \
              chain/chain.h chain/revocation.h frame/freshness.h \
              chunk/reassembly.h \
              chunk/split.h \
@@ -91,6 +91,7 @@ TEST_SRCS := chain/tests/chain_test.c chain/tests/revocation_test.c \
              wire/tests/constants_test.c wire/tests/seal_test.c \
              session/tests/random_test.c local/tests/vocabulary_test.c \
              local/tests/vocabulary_fuzz.c local/tests/line_test.c \
+             local/tests/socket_test.c \
              local/tests/peer_fuzz.c local/tests/peer_linux_test.c \
              chunk/tests/reassembly_fuzz.c chain/tests/chain_fuzz.c \
              frame/tests/freshness_fuzz.c chain/tests/revocation_fuzz.c \
@@ -109,6 +110,7 @@ TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test \
              $(BUILD_DIR)/local/tests/vocabulary_test \
              $(BUILD_DIR)/local/tests/vocabulary_fuzz \
              $(BUILD_DIR)/local/tests/line_test \
+             $(BUILD_DIR)/local/tests/socket_test \
              $(BUILD_DIR)/chunk/tests/agreement_test \
              $(BUILD_DIR)/local/tests/peer_fuzz \
              $(BUILD_DIR)/local/tests/peer_linux_test \
@@ -372,6 +374,13 @@ $(BUILD_DIR)/wire/tests/generated_test.o: wire/tests/generated_test.c
 $(BUILD_DIR)/wire/tests/constants_test.o: wire/tests/constants_test.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
+
+$(BUILD_DIR)/local/tests/socket_test: $(BUILD_DIR)/local/tests/socket_test.o \
+                                      $(BUILD_DIR)/local/socket.o \
+                                      $(BUILD_DIR)/local/peer.o \
+                                      $(BUILD_DIR)/local/peer_linux.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
 
 $(BUILD_DIR)/local/tests/line_test: $(BUILD_DIR)/local/tests/line_test.o \
                                     $(BUILD_DIR)/local/line.o

@@ -720,6 +720,65 @@ Neither is a rule this library enforces — it does not know what a payload
 means — but both are reasons the library must never grow a convenience that
 makes carrying a blob of executable content easy and obvious.
 
+### 4.8b The listener, and what it deliberately does not own
+
+**No accept loop, no thread, no poll set, no timeout.** netcfgd, raidcfgd and
+fuzzypickles each have an event loop already, two of them Qt's, and a library
+that brought its own would be choosing their IO model -- which is exactly the
+"absorbing one consumer's application" §5 exists to refuse. A caller polls the
+listening descriptor however it already polls anything.
+
+Two things it does own, because both are easy to get wrong quietly:
+
+**The mode on the path.** An `AF_UNIX` socket is gated by filesystem
+permissions and `bind` applies the umask, so a daemon that binds and then
+chmods has a window in which the socket is reachable by whoever the umask
+allowed. This binds to an unpredictable temporary name in the same directory,
+sets the mode there, and **renames it over the target** -- atomic, so the path
+a client connects to never exists with the wrong mode. The test sets `umask(0)`
+first, which makes the hazard real: without the chmod the entry would be 0777,
+and removing it fails two assertions.
+
+**Credentials, inseparably from the connection.** `fzn_socket_accept` returns a
+descriptor and its peer's credentials together and there is no call that
+returns one without the other, so raidcfgd's first requirement cannot be
+skipped by forgetting a step -- it is never offered as a separate step. A
+connection whose peer cannot be identified is closed rather than handed back.
+
+**A stale path is not unlinked blindly**, because a path left by a crash and
+one held by a running instance are the same directory entry. It connects
+first: refused means stale and replaceable, accepted means another instance
+owns it and the call fails.
+
+**Which means a liveness probe is a real connection, and the running daemon
+sees it.** Found by this test accepting the probe's socket instead of its own
+and reading EOF. There is no way to distinguish live from stale without
+connecting, so starting a second instance necessarily leaves one connection in
+the first's backlog that closes without sending anything. A caller must
+tolerate that -- it must anyway, since any client can do it -- but knowing
+*where it comes from* is the difference between a puzzle and a footnote. It is
+asserted rather than worked around, so a change to how liveness is detected
+shows up as that expectation failing.
+
+**The test's listener is non-blocking, and that is not a detail.** An earlier
+version called `accept` directly, and the sabotage that removes the in-use
+check then made the file **hang for ever** rather than fail: no probe
+connection was made and the accept waited for one that was not coming. A test
+that hangs is caught only by whatever timeout wraps it and says nothing about
+which assertion it was on -- the same distinction recorded for the nonce
+guard's segfault. Non-blocking turns it into a returned error, and covers
+`FZN_SOCKET_ERR_AGAIN` on the way, which nothing else reaches.
+
+**`local/socket.c` sits at 73.8% of branches and that is where it stays.** The
+unexercised ones are `socket`, `bind`, `listen`, `chmod` and `rename` failing,
+plus `accept4` returning `EINTR` -- system calls that cannot be provoked from a
+test without a fake, exactly as `local/peer_linux.c` and
+`session/random_linux.c` are. The credential refusal inside accept is in the
+same class: both ends of every connection in the test are ours, so
+`fzn_peer_from_fd` always succeeds, and removing that refusal changes no
+result. Defence in depth, unreachable from outside, and recorded so the number
+reads as a judgement rather than an oversight.
+
 ### 4.8a Where one request ends
 
 **The other half of what adopting a text protocol costs.** raidcfgd takes
@@ -1945,7 +2004,7 @@ until §10's order says so.
 | `chain/` | capability chains: verification, minting, delegation, revocation, and the signer seam | **built** |
 | `chunk/` | splitting, reassembly, and the memory bound | **built** |
 | `session/` | the key schedule, the AEAD seam, and where a nonce comes from | **built**: key schedule, BLAKE2b binding, the AEAD seam with its XChaCha20-Poly1305 binding, and the entropy seam with `getrandom` behind it |
-| `local/` | `AF_UNIX`, peer credentials including supplementary groups, bounded framing and a bounded vocabulary | **credentials, framing and the vocabulary bound built**; the socket itself is not |
+| `local/` | `AF_UNIX`, peer credentials including supplementary groups, bounded framing and a bounded vocabulary | **built** |
 
 **Rewritten 2026-08-14, because five of its seven rows were stale.** The
 table was written before §7a, which reassigned most of §4 to situ once the
@@ -2421,11 +2480,10 @@ cheap to change now and will not stay cheap.
    agent that may not be written.
 6. **fuzzypickles migrates**, as separate deliberate work, at rung 2 with
    `--owned` (0031).
-7. **`local/`** -- **raidcfgd exists and has said what it needs** (its
-   `project.md`, *Receiving fuzznet*), so the half that was waiting on a real
-   consumer is written. See §4.8. What is left in this step is the socket
-   itself, which waits on nothing but is not urgent: raidcfgd is read-only
-   first and says the group question "stays theoretical while that is true".
+7. ~~**`local/`**~~ **done** (2026-08-18). raidcfgd exists and stated what it
+   needs, so the module was written against something real rather than an
+   imagined consumer: credentials (§4.8's predecessor), the vocabulary bound
+   (§4.8), bounded framing (§4.8a) and the listener (§4.8b).
 
 **What is deliberately absent: a hand-written retransmission state machine.**
 Building one while the same one is being generated is the exact duplication
@@ -2547,6 +2605,7 @@ hedging: is there test work left.
 | `local/peer.c` | 100% of 42 | 100% of 52 |
 | `local/vocabulary.c` | 100% of 20 | 100% of 26 |
 | `local/line.c` | 100% of 38 | 93.3% of 30 |
+| `local/socket.c` | 79.1% of 67 | **73.8% of 42** |
 | `local/peer_linux.c` | 95.7% of 23 | **66.7% of 12** |
 | `chain/chain.c` | 100% of 64 | 100% of 84 |
 | `chain/revocation.c` | 100% of 42 | 100% of 56 |

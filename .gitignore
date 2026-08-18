@@ -48,3 +48,4 @@ __pycache__/
 /local/tests/vocabulary_test
 /local/tests/vocabulary_fuzz
 /local/tests/line_test
+/local/tests/socket_test

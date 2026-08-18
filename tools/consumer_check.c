@@ -33,6 +33,7 @@
 #include <fuzznet/constant_time/constant_time.h>
 #include <fuzznet/frame/freshness.h>
 #include <fuzznet/local/peer.h>
+#include <fuzznet/local/socket.h>
 #include <fuzznet/local/line.h>
 #include <fuzznet/local/vocabulary.h>
 #include <fuzznet/session/aead.h>
@@ -48,6 +49,7 @@
 #include "constant_time/constant_time.h"
 #include "frame/freshness.h"
 #include "local/peer.h"
+#include "local/socket.h"
 #include "local/line.h"
 #include "local/vocabulary.h"
 #include "session/aead.h"
@@ -188,6 +190,19 @@ int main(void)
 			if (fzn_line_push(&reader, (const uint8_t *)"aaaaaaaaaaaa", 12) !=
 			    FZN_LINE_ERR_OVERLONG)
 				return 27;
+		}
+		/* The listener's refusals, which need no socket: a relative path
+		 * names one in whatever directory the process happens to be in,
+		 * and a null path is not a path. */
+		{
+			int sock_fd = -1;
+
+			if (fzn_socket_listen("relative/sock", 0660u, 4, &sock_fd) !=
+			    FZN_SOCKET_ERR_PATH)
+				return 28;
+			if (fzn_socket_listen(NULL, 0660u, 4, &sock_fd) != FZN_SOCKET_ERR_MALFORMED)
+				return 29;
+			fzn_socket_close(-1, NULL);
 		}
 
 		(void)unused_store;
