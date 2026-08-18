@@ -33,7 +33,9 @@
 #include <fuzznet/constant_time/constant_time.h>
 #include <fuzznet/frame/freshness.h>
 #include <fuzznet/local/peer.h>
+#include <fuzznet/session/aead.h>
 #include <fuzznet/session/commitment.h>
+#include <fuzznet/wire/seal.h>
 #else
 #include "chain/chain.h"
 #include "chain/revocation.h"
@@ -42,7 +44,9 @@
 #include "constant_time/constant_time.h"
 #include "frame/freshness.h"
 #include "local/peer.h"
+#include "session/aead.h"
 #include "session/commitment.h"
+#include "wire/seal.h"
 #endif
 
 /* The optional Monocypher bindings, which ship only when MONOCYPHER_DIR names
@@ -175,6 +179,26 @@ int main(void)
 		                    sizeof(region) - 1))
 			return 17;
 	}
+	/* The frame path. A consumer takes this to open a datagram, so the
+	 * check is that the header and the source go together and that a
+	 * refused open is refused -- not that the cryptography works, which
+	 * wire/tests/seal_test.c covers. A null AEAD is the cheapest refusal
+	 * that reaches the argument guard. */
+	{
+		fzn_opened_t opened;
+		uint8_t frame[144];
+		uint8_t key[FZN_AEAD_KEY_LEN], commit[FZN_COMMITMENT_LEN];
+
+		memset(frame, 0, sizeof(frame));
+		memset(key, 0x11, sizeof(key));
+		memset(commit, 0x22, sizeof(commit));
+		if (fzn_seal_open(frame, sizeof(frame), key, commit, NULL, &opened) !=
+		    FZN_SEAL_ERR_MALFORMED)
+			return 18;
+		if (FZN_AEAD_NONCE_LEN != FZN_NONCE_LEN)
+			return 19;
+	}
+
 	printf("consumer_check: headers and sources agree, Monocypher bindings included\n");
 	return 0;
 #else

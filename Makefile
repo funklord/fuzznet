@@ -70,20 +70,22 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c \
              chain/chain.c chain/revocation.c frame/freshness.c \
              chunk/reassembly.c \
-             chunk/split.c
+             chunk/split.c \
+             wire/seal.c
 OBJS      := $(SRCS:%.c=$(BUILD_DIR)/%.o) $(GEN_OBJS)
 HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h \
              chain/chain.h chain/revocation.h frame/freshness.h \
              chunk/reassembly.h \
-             chunk/split.h
+             chunk/split.h \
+             wire/seal.h session/aead.h
 
 TEST_SRCS := chain/tests/chain_test.c chain/tests/revocation_test.c \
              frame/tests/freshness_test.c \
              chunk/tests/reassembly_test.c chunk/tests/split_test.c \
              session/tests/commitment_test.c local/tests/peer_test.c \
              wire/tests/generated_test.c chunk/tests/agreement_test.c \
-             wire/tests/constants_test.c \
+             wire/tests/constants_test.c wire/tests/seal_test.c \
              local/tests/peer_fuzz.c local/tests/peer_linux_test.c \
              chunk/tests/reassembly_fuzz.c chain/tests/chain_fuzz.c \
              frame/tests/freshness_fuzz.c chain/tests/revocation_fuzz.c \
@@ -96,6 +98,7 @@ TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test \
              $(BUILD_DIR)/local/tests/peer_test \
              $(BUILD_DIR)/wire/tests/generated_test \
              $(BUILD_DIR)/wire/tests/constants_test \
+             $(BUILD_DIR)/wire/tests/seal_test \
              $(BUILD_DIR)/chunk/tests/agreement_test \
              $(BUILD_DIR)/local/tests/peer_fuzz \
              $(BUILD_DIR)/local/tests/peer_linux_test \
@@ -127,13 +130,16 @@ MONOCYPHER_DIR ?=
 # against what is actually there. Inside the `ifneq` they would be empty in a
 # plain build and the check would report two real sources as unlisted -- a
 # false finding, which is worse in a gate than no finding at all.
-MONO_SRCS  := chain/sign_monocypher.c session/hash_monocypher.c
+MONO_SRCS  := chain/sign_monocypher.c session/hash_monocypher.c \
+              session/aead_monocypher.c
 MONO_TSRC  := chain/tests/sign_monocypher_test.c \
-              session/tests/hash_monocypher_test.c
+              session/tests/hash_monocypher_test.c \
+              session/tests/aead_monocypher_test.c
 
 ifneq ($(MONOCYPHER_DIR),)
 MONO_OBJS  := $(BUILD_DIR)/chain/sign_monocypher.o \
               $(BUILD_DIR)/session/hash_monocypher.o \
+              $(BUILD_DIR)/session/aead_monocypher.o \
               $(BUILD_DIR)/monocypher.o
 MONO_TOBJ  := $(MONO_TSRC:%.c=$(BUILD_DIR)/%.o)
 # Kept in TEST_SRCS as well as TEST_OBJS. Nothing was broken by its absence
@@ -164,10 +170,12 @@ MONO_CONSUMER := -DFZN_CONSUMER_MONOCYPHER -I$(MONO_ABS)/src \
                  $(MONO_ABS)/src/monocypher.c
 MONO_BIN   := $(BUILD_DIR)/chain/tests/sign_monocypher_test
 MONO_HASH  := $(BUILD_DIR)/session/tests/hash_monocypher_test
+MONO_AEAD  := $(BUILD_DIR)/session/tests/aead_monocypher_test
 OBJS       += $(MONO_OBJS)
 TEST_OBJS  += $(MONO_TOBJ)
-TEST_BINS  += $(MONO_BIN) $(MONO_HASH)
-HDRS       += chain/sign_monocypher.h session/hash_monocypher.h
+TEST_BINS  += $(MONO_BIN) $(MONO_HASH) $(MONO_AEAD)
+HDRS       += chain/sign_monocypher.h session/hash_monocypher.h \
+              session/aead_monocypher.h
 CPPFLAGS   += -I$(MONOCYPHER_DIR)/src
 
 # Vendored, so it is compiled with its own terms rather than ours.
@@ -185,6 +193,20 @@ $(MONO_BIN): $(BUILD_DIR)/chain/tests/sign_monocypher_test.o \
              $(BUILD_DIR)/chain/sign_monocypher.o $(BUILD_DIR)/monocypher.o \
              $(BUILD_DIR)/chain/chain.o \
              $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# The AEAD test reaches the frame path, so it links wire/seal.o and situ's
+# generated objects as well -- it is the only Monocypher test that does,
+# because it is the only one testing something that reads the wire.
+$(BUILD_DIR)/session/tests/aead_monocypher_test.o: session/tests/aead_monocypher_test.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
+
+$(MONO_AEAD): $(BUILD_DIR)/session/tests/aead_monocypher_test.o \
+              $(BUILD_DIR)/session/aead_monocypher.o $(BUILD_DIR)/monocypher.o \
+              $(BUILD_DIR)/wire/seal.o \
+              $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -328,6 +350,20 @@ $(BUILD_DIR)/wire/tests/generated_test.o: wire/tests/generated_test.c
 $(BUILD_DIR)/wire/tests/constants_test.o: wire/tests/constants_test.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
+
+$(BUILD_DIR)/wire/seal.o: wire/seal.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
+
+$(BUILD_DIR)/wire/tests/seal_test.o: wire/tests/seal_test.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
+
+$(BUILD_DIR)/wire/tests/seal_test: $(BUILD_DIR)/wire/tests/seal_test.o \
+                                   $(BUILD_DIR)/wire/seal.o \
+                                   $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
 
 # Links the generated runtime for the frame views its runtime half needs;
 # every other check in it is a static assert and needs no object at all.
@@ -626,12 +662,14 @@ installcheck: $(HDRS) $(SRCS) tools/consumer_check.c
 	@$(CC) $(CFLAGS) -DFZN_CONSUMER_INSTALLED \
 	       -I$(BUILD_DIR)/installcheck/usr/include \
 	       -o $(BUILD_DIR)/installcheck/consumer_installed \
-	       $(MONO_CONSUMER) tools/consumer_check.c $(SRCS)
+	       -Iwire/generated $(MONO_CONSUMER) tools/consumer_check.c $(SRCS) $(GEN_SRCS)
 	@$(BUILD_DIR)/installcheck/consumer_installed
 	@echo "installcheck: against the source tree, from another directory"
 	@cd $(BUILD_DIR)/installcheck && $(CC) $(CFLAGS) -I$(CURDIR) \
+	       -I$(CURDIR)/wire/generated \
 	       -o consumer_source $(CURDIR)/tools/consumer_check.c \
-	       $(patsubst %,$(CURDIR)/%,$(SRCS)) $(MONO_CONSUMER)
+	       $(patsubst %,$(CURDIR)/%,$(SRCS)) \
+	       $(patsubst %,$(CURDIR)/%,$(GEN_SRCS)) $(MONO_CONSUMER)
 	@$(BUILD_DIR)/installcheck/consumer_source
 	@rm -rf $(BUILD_DIR)/installcheck
 	@echo "installcheck: both arrangements build and run"

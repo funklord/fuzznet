@@ -354,7 +354,8 @@ module exists to prevent.
 
 **The ceiling is a copy, and the copy is tethered.** `chunk/split.h` must not
 include a generated header: that module's independence from the schema is what
-keeps it buildable while §10 step 2 is blocked. So the number is repeated, and
+kept it buildable while §10 step 2 was blocked, and keeps it independent of
+the schema now that step 2 is done. So the number is repeated, and
 `chunk/tests/agreement_test.c` static-asserts it against the generated header,
 which is the only place both are visible. Two assertions rather than one,
 because the second is the premise of the first:
@@ -612,8 +613,39 @@ to be checked *before* a decryption is spent, and inside the seal it could
 only be checked after. It would also be unreadable to a receiver holding the
 wrong key, which is exactly the receiver it has to warn.
 
-What remains before the codec can be written is situ's sealed-region ABI.
-The construction is no longer a guess; the calling convention still is.
+**Both are settled now** (2026-08-18). The codec is written --
+`session/aead.h` is the seam, `session/aead_monocypher.c` the
+XChaCha20-Poly1305 binding, `wire/seal.c` the frame path -- and §10 step 2 is
+no longer blocked.
+
+**The calling convention turned out to be smaller than the guess, and not the
+one the schema names.** situ's tier-1 codec ABI (its §13.2a) is
+
+    situ_err_t x_decode(const uint8_t *in, uint32_t in_len,
+                        uint8_t *out, uint32_t out_cap, uint32_t *out_len);
+
+-- no key, no nonce, no associated data, so it cannot express a keyed
+authenticated transform at all. `frame.situ` declares `sealed(fzn_aead, nonce =
+head.nonce)`, so the nonce is something the compiler *knows* and still does not
+pass. Threading a key through a global to satisfy that signature would put
+mutable state in the one seam where it must not be, so `impl fzn_aead extern
+"fzn_aead_xchacha20poly1305"` stays unbound and this library calls its own
+seam. Reported to situ.
+
+**Nothing is lost by that, because the generated code never calls the codec.**
+What situ contributes to a sealed region is the layout and the **gate**:
+
+| what it gives | what it is for |
+|---|---|
+| `situ_fzn_frame_tag_covered()` | the exact span the tag authenticates, from the layout rather than restated |
+| `situ_fzn_frame_sealed_open(view, verified, &gate)` | refuses an interior view unless something says the tag verified |
+| every interior accessor takes the gate | the plaintext is unaddressable before that point |
+
+So the discipline situ enforces is **order**, and `wire/seal.c` is the only
+file permitted to say the word: shape from the schema's own validator, then
+the commitment, then the tag over situ's span, then the gate, then plaintext.
+Two sabotages confirm it -- removing the commitment check and opening the gate
+regardless of the tag each fail the assertions written for them.
 
 **The half that does not wait on it is built** (`session/commitment.c`,
 2026-08-14): one hash over a domain-separated transcript producing 48 bytes,
@@ -1269,9 +1301,12 @@ disagreement rather than in `build` alone:
 | `situc build` | refuses | refuses |
 | `situc verify` | refuses | — |
 
-So **§10 step 2 is still blocked**, and the dangerous half is still live: a
-schema can declare a constraint nothing can enforce, and `frame.situ` still
-carries one.
+That was the state at the time. **Both halves are settled since**
+(2026-08-18): `situc wire`, `map` and `build` all accept `frame.situ`, so the
+four-command disagreement is gone, and §10 step 2 is done -- see the AEAD codec
+above. `situc verify` refuses only for want of test vectors, which is an
+argument this reproduction never passed it rather than a verdict on the
+schema.
 
 What situ has been doing in those eight commits is the same lesson from the
 other end — running generated code rather than only compiling it ("run a
@@ -1428,7 +1463,8 @@ the C asserted the correspondence in prose and left it there.
 
 **The duplication is correct and stays.** These modules must not include a
 generated header -- that independence is what keeps them buildable while sec
-10 step 2 is blocked, and what lets a consumer take the replay window without
+10 step 2 was blocked, and what still lets a consumer take the replay window
+   without
 taking `situc`. What was missing was anything to notice when a repetition
 stopped being a copy. Seven constants are now pinned at compile time,
 including the payload ceiling and its premise, moved here from
@@ -1674,7 +1710,7 @@ until §10's order says so.
 | `frame/` | freshness: command expiry, and the replay window it bounds. The envelope, signing and verification are situ's | **built** |
 | `chain/` | capability chains: verification, minting, delegation, revocation, and the signer seam | **built** |
 | `chunk/` | splitting, reassembly, and the memory bound | **built** |
-| `session/` | the key schedule, and the AEAD seam | **key schedule and its BLAKE2b binding built**; the codec waits on situ's sealed-region ABI |
+| `session/` | the key schedule, and the AEAD seam | **built**: key schedule, BLAKE2b binding, the AEAD seam and its XChaCha20-Poly1305 binding |
 | `local/` | `AF_UNIX`, peer credentials including supplementary groups, and a bounded vocabulary | **credentials built**; the socket, the vocabulary and the bound are not |
 
 **Rewritten 2026-08-14, because five of its seven rows were stale.** The
@@ -1880,7 +1916,7 @@ hand-written transport and situ is generating most of it (§7a). Steps 2, 4 and
 3. ~~**`chain/`** — the capability and identity model~~ **verification is
    built** (2026-08-14). It stayed ours throughout every scope change because
    it is semantics rather than layout or transport, and that is exactly what
-   let it go first while step 2 is blocked: `chain/chain.c` parses no bytes.
+   let it go first while step 2 was blocked: `chain/chain.c` parses no bytes.
    It is handed hops somebody else decoded and answers whether they authorise
    a grantee for a capability under a pinned root, now. fuzzypickles'
    `identity.c` and `capability.c` were the reference.
@@ -2245,6 +2281,7 @@ hedging: is there test work left.
 | `frame/freshness.c` | 100% of 43 | 100% of 44 |
 | `chunk/reassembly.c` | 100% of 98 | 100% of 98 |
 | `chunk/split.c` | 100% of 24 | 100% of 28 |
+| `wire/seal.c` | 100% of 58 | 79.2% of 48 |
 | `chain/sign_monocypher.c` | 100% of 17 | 100% of 8 |
 | `session/hash_monocypher.c` | 100% of 9 | 100% of 6 |
 
@@ -2327,6 +2364,16 @@ finding, and a gate that cries wolf is worse than no gate.
 Controlled in both directions, since they are different mistakes: dropping
 `chunk/split.c` from `SRCS` names it, and a new `.c` written into the tree
 names that instead. The second is the case it exists for.
+
+**`wire/seal.c` is at 79.2% and the number is partly an artifact.** Of its
+unexercised branches, some are defensive guards that `situ_fzn_frame_validate`
+has already made unreachable -- `tag_covered` failing, a null tag pointer, a
+covered span shorter than the head -- and the rest are **inside inlined
+generated accessors**, attributed to the line that calls them. `out->payload =
+situ_fzn_frame_sealed_payload_ptr(gate)` is an assignment with no branch of its
+own. So the file's branch count is not entirely its own code, which is worth
+knowing before anyone reads it as thin testing: the seam has 34 assertions
+over it and two sabotages confirming they bite.
 
 **`local/peer_linux.c` stays at 66.7% deliberately.** Its four unexercised
 branches are `getsockopt` returning a short credential struct, `snprintf`
