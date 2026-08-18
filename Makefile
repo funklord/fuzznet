@@ -89,6 +89,7 @@ TEST_SRCS := chain/tests/chain_test.c chain/tests/revocation_test.c \
              local/tests/peer_fuzz.c local/tests/peer_linux_test.c \
              chunk/tests/reassembly_fuzz.c chain/tests/chain_fuzz.c \
              frame/tests/freshness_fuzz.c chain/tests/revocation_fuzz.c \
+             frame/tests/receive_fuzz.c \
              chunk/tests/roundtrip_fuzz.c
 TEST_OBJS := $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
 TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test \
@@ -107,6 +108,7 @@ TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test \
              $(BUILD_DIR)/chunk/tests/reassembly_fuzz \
              $(BUILD_DIR)/chain/tests/chain_fuzz \
              $(BUILD_DIR)/frame/tests/freshness_fuzz \
+             $(BUILD_DIR)/frame/tests/receive_fuzz \
              $(BUILD_DIR)/chain/tests/revocation_fuzz \
              $(BUILD_DIR)/chunk/tests/roundtrip_fuzz
 
@@ -293,6 +295,17 @@ $(BUILD_DIR)/chain/tests/chain_fuzz: $(BUILD_DIR)/chain/tests/chain_fuzz.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# The only binary that links four modules, because it is the only one testing
+# something none of them owns: the ORDER sec 4.7 puts them in.
+$(BUILD_DIR)/frame/tests/receive_fuzz: $(BUILD_DIR)/frame/tests/receive_fuzz.o \
+                                       $(BUILD_DIR)/frame/freshness.o \
+                                       $(BUILD_DIR)/chain/chain.o \
+                                       $(BUILD_DIR)/chain/revocation.o \
+                                       $(BUILD_DIR)/chunk/reassembly.o \
+                                       $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/frame/tests/freshness_fuzz: $(BUILD_DIR)/frame/tests/freshness_fuzz.o \
                                          $(BUILD_DIR)/frame/freshness.o
 	@mkdir -p $(dir $@)
@@ -401,6 +414,7 @@ CASES ?= 200000
 FUZZ_BINS := $(BUILD_DIR)/chunk/tests/reassembly_fuzz \
              $(BUILD_DIR)/chain/tests/chain_fuzz \
              $(BUILD_DIR)/frame/tests/freshness_fuzz \
+             $(BUILD_DIR)/frame/tests/receive_fuzz \
              $(BUILD_DIR)/chain/tests/revocation_fuzz \
              $(BUILD_DIR)/chunk/tests/roundtrip_fuzz \
              $(BUILD_DIR)/local/tests/peer_fuzz

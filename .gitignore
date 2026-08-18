@@ -43,3 +43,4 @@
 __pycache__/
 /wire/tests/seal_test
 /session/tests/aead_monocypher_test
+/frame/tests/receive_fuzz

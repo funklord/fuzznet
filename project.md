@@ -732,10 +732,11 @@ The order, and each step's reason for preceding the next:
    authenticated header rather than in the seal: a receiver holding the
    wrong key must learn so without spending a decryption, and must be warned
    rather than handed plaintext that opens under two keys.
-5. **Tag verification and decryption** (the extern codec, **unwritten**).
-   Nothing above this line has touched the sealed region. §6 asks situ to
-   make parse-before-verify unrepresentable, and steps 1 to 4 are the part
-   of that this library can enforce today.
+5. **Tag verification and decryption** (`wire/seal.h`, **built** 2026-08-18).
+   Nothing above this line has touched the sealed region, and nothing below
+   it can be addressed until this step has run: situ's generated gate refuses
+   an interior view without a verdict, so §6's "make parse-before-verify
+   unrepresentable" is enforced here rather than asked for.
 6. **Capability chain** (`chain/chain.h`), against a pinned root and the
    revocation store. After decryption because the capability identifier is
    inside the seal (§13), and that placement was chosen so an observer
@@ -744,6 +745,39 @@ The order, and each step's reason for preceding the next:
    a partial message once it has been shown to be fresh, unreplayed,
    authentic and authorised -- otherwise the memory bound protects a table
    any stranger may fill.
+
+**The order is executed now, not only written down** (`frame/tests/
+receive_fuzz.c`, 2026-08-18). This section said a consumer deriving the
+sequence from five headers "would be inventing a security property", and until
+this harness existed the sequence itself was the thing nobody could run. It
+drives the five steps that take decoded fields -- 4 and 5 need the wire and are
+covered by `wire/tests/seal_test.c` -- and asserts what no single-module
+harness can see:
+
+- **a refusal at any step costs nothing at a later one**: no slot taken, no
+  partial message advanced, no signature verified after a refusal;
+- **a replayed nonce never reaches reassembly twice**;
+- **an unauthorised capability never advances a message**;
+- **signature verification is never spent on a stale frame**, which is the
+  entire reason freshness precedes the chain.
+
+It is a **persistent receiver**, and that took three corrections to get right,
+each of which is the same mistake in a different module. A fresh window per
+case made the replay counter unable to move; a clock that stood still filled
+the window permanently, at three admitted in twenty thousand; and partial
+messages with no deadline filled the slot table the same way, at four. Each
+time the harness was measuring exhaustion rather than order, and each time the
+counters said so — which is what the floors are for. A nonce space of sixteen
+values rather than 256 is the last of it: with a full byte a nonce almost never
+recurs while its window entry is live, so the replay branch was claimed and
+never reached.
+
+Confirmed to bite, and against the modules rather than against itself: making
+the replay window accept a repeat, and making chain verification buy one extra
+signature check, are each caught on case 5. **What it does not do is force a
+consumer to follow the order** -- it establishes that the order, followed, has
+the properties claimed for it, and that a change to any module beneath it has
+not quietly broken one.
 
 **The two rules that are not orderings but constrain the order.** A refusal
 at any step must not have cost a slot at a later one -- `freshness` and
