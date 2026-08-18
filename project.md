@@ -2120,6 +2120,32 @@ reproducible, and a reader should read them as weaker than the ones after it.
 It also turned up that situ's *compiler* was dirty, not only its runtime, so
 the generated C was being compared against an uncommitted emitter as well.
 
+**A fuzz harness existed that `make fuzz` had never run** (2026-08-18).
+`local/tests/vocabulary_fuzz.c` was in `TEST_SRCS` and `TEST_BINS`, so
+`make test` ran it at the default 20000 cases, and absent from `FUZZ_BINS`, so
+`make fuzz CASES=2000000` never touched it. The deep campaign is the one place
+that omission costs anything, and nothing said so, because the suite was green
+either way.
+
+**That is the fifth hand-maintained list here and the one still unchecked.**
+`make style` now asks the filesystem: every `*_fuzz.c` in the tree must appear
+in `FUZZ_BINS`, since that suffix is the convention every harness follows and
+comparing against another list somebody also maintains is what the first four
+did. It reported the real omission the moment it was written, which is the same
+positive control the `.gitignore` check gave.
+
+The campaign now covers eight harnesses rather than seven: **16 million cases
+under ASan and UBSan**, no invariant broken, every model agreeing. Confirmed
+non-vacuous rather than assumed -- the instrumentation is present in the
+binaries (23 `__asan` symbols in `seal_test`, 24 in `vocabulary_fuzz`), which
+matters because a sanitizer build that silently failed to engage reports
+success exactly as loudly as one that worked.
+
+**Everything written since the last campaign has now been through it**:
+`wire/seal.c`, `session/random.c`, `local/vocabulary.c`, and the two harnesses
+added with them. That was the reason to re-run rather than cite the old
+figure -- the previous campaign predated all of it.
+
 **The same question, asked of the other outside tree.** `MONOCYPHER_DIR` points
 at a sibling project's checkout, and the three Monocypher tests are the only
 results here that depend on anything outside this repository. That one is

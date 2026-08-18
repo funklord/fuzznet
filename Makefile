@@ -470,7 +470,8 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/tests/reassembly_fuzz \
              $(BUILD_DIR)/frame/tests/receive_fuzz \
              $(BUILD_DIR)/chain/tests/revocation_fuzz \
              $(BUILD_DIR)/chunk/tests/roundtrip_fuzz \
-             $(BUILD_DIR)/local/tests/peer_fuzz
+             $(BUILD_DIR)/local/tests/peer_fuzz \
+             $(BUILD_DIR)/local/tests/vocabulary_fuzz
 
 fuzz: $(FUZZ_BINS)
 	@for f in $(FUZZ_BINS); do echo "== $$f $(CASES)"; $$f $(CASES) || exit 1; done
@@ -528,6 +529,41 @@ style:
 		exit 1; \
 	fi; \
 	echo "style: $$n C sources, all named in a list"
+	@# AND EVERY FUZZ HARNESS MUST BE IN FUZZ_BINS, a fifth hand-maintained
+	@# list and the one still unchecked.
+	@#
+	@# vocabulary_fuzz.c was in TEST_SRCS and TEST_BINS, so `make test` ran
+	@# it at the default case count, and absent from FUZZ_BINS, so `make
+	@# fuzz CASES=2000000` never touched it. The deep campaign is the one
+	@# place that omission costs anything, and nothing said so: the suite
+	@# was green either way.
+	@#
+	@# `*_fuzz.c` is the convention every harness here follows, so the
+	@# filesystem is asked directly rather than compared against another
+	@# list somebody also maintains.
+	@if [ "$(BUILD_DIR)" != "." ]; then \
+		echo "style: BUILD_DIR is '$(BUILD_DIR)', so the FUZZ_BINS check was SKIPPED"; \
+	else \
+		missing=; n=0; \
+		for f in `find . -name '*_fuzz.c' -not -path './build/*' -not -path './san/*' \
+		                 -not -path './*-coverage/*' | sed 's|^\./||' | sort`; do \
+			n=$$((n + 1)); \
+			bin=`echo "$$f" | sed 's/\.c$$//'`; \
+			case " $(FUZZ_BINS) " in \
+				*" ./$$bin "*) ;; \
+				*) missing="$$missing $$bin" ;; \
+			esac; \
+		done; \
+		if [ "$$n" -eq 0 ]; then \
+			echo "style: no fuzz harnesses found, which cannot be right"; exit 1; \
+		fi; \
+		if [ -n "$$missing" ]; then \
+			echo "style: fuzz harnesses not in FUZZ_BINS:$$missing"; \
+			echo "style: 'make fuzz' would never run them, whatever CASES said."; \
+			exit 1; \
+		fi; \
+		echo "style: $$n fuzz harnesses, all in FUZZ_BINS"; \
+	fi
 	@# THE THIRD HAND-MAINTAINED LIST, and the third time one has drifted.
 	@# .gitignore names each test binary rather than globbing them, for a
 	@# stated reason: a pattern would also hide a source file added under
