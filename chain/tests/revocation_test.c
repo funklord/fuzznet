@@ -408,6 +408,44 @@ static void test_a_store_whose_fields_disagree_denies(void)
 	CHECK(f.store.used == 5, "a corrupt store was written to");
 }
 
+/* Both guard chains, one argument at a time. See chain_test.c's equivalent
+ * for why the dull version is worth having: the first null in each chain was
+ * tested and the rest rode along, and a chain missing one term reads exactly
+ * like one that is not. */
+static void test_every_guard_refuses_its_own_argument(void)
+{
+	struct fixture f;
+	fzn_revocation_record_t r;
+	fzn_sign_ops_t no_verify;
+	fzn_revocation_store_t no_entries;
+
+	fixture_init(&f);
+	record_of(&r, 0, 0xc0, 1);
+	no_verify = f.sign;
+	no_verify.verify = NULL;
+	no_entries = f.store;
+	no_entries.entries = NULL;
+
+	CHECK(fzn_revocation_covers(NULL, r.capability, r.grantee) == 0, "a null store");
+	CHECK(fzn_revocation_covers(&no_entries, r.capability, r.grantee) == 0,
+	      "a store with no entries");
+	CHECK(fzn_revocation_covers(&f.store, NULL, r.grantee) == 0, "a null capability");
+	CHECK(fzn_revocation_covers(&f.store, r.capability, NULL) == 0, "a null grantee");
+
+	CHECK(fzn_revocation_admit(NULL, &r, f.root, &f.sign) == FZN_ERR_MALFORMED,
+	      "admitting into a null store");
+	CHECK(fzn_revocation_admit(&no_entries, &r, f.root, &f.sign) == FZN_ERR_MALFORMED,
+	      "admitting into a store with no entries");
+	CHECK(fzn_revocation_admit(&f.store, NULL, f.root, &f.sign) == FZN_ERR_MALFORMED,
+	      "admitting a null record");
+	CHECK(fzn_revocation_admit(&f.store, &r, NULL, &f.sign) == FZN_ERR_MALFORMED,
+	      "admitting against a null root");
+	CHECK(fzn_revocation_admit(&f.store, &r, f.root, NULL) == FZN_ERR_MALFORMED,
+	      "admitting with a null signer");
+	CHECK(fzn_revocation_admit(&f.store, &r, f.root, &no_verify) == FZN_ERR_MALFORMED,
+	      "admitting with a signer that cannot verify");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	struct fixture f;
@@ -432,6 +470,7 @@ int main(void)
 	test_merge_reports_the_first_failure_not_the_last();
 	test_merge_without_an_error_out();
 	test_a_store_whose_fields_disagree_denies();
+	test_every_guard_refuses_its_own_argument();
 	test_the_suite_can_tell_pass_from_fail();
 
 	printf("revocation_test: %d checks, %d failure(s)\n", checks, failures);

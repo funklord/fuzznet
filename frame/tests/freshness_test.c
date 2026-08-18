@@ -278,6 +278,37 @@ static void test_a_window_whose_fields_disagree_is_refused(void)
 	      "a legitimately full window was reported malformed");
 }
 
+/* Both entry points, one argument at a time. See chain_test.c's equivalent
+ * for the reasoning. */
+static void test_every_guard_refuses_its_own_argument(void)
+{
+	fzn_replay_window_t w, no_entries;
+	fzn_replay_entry_t storage[4];
+	uint8_t nonce[FZN_NONCE_LEN];
+
+	memset(nonce, 0x11, sizeof(nonce));
+	CHECK(fzn_replay_init(&w, storage, 4) == FZN_FRESH_OK, "init refused");
+	no_entries = w;
+	no_entries.entries = NULL;
+
+	CHECK(fzn_replay_expire(NULL, 100) == 0, "a null window was swept");
+	CHECK(fzn_replay_expire(&no_entries, 100) == 0, "a window with no entries was swept");
+
+	CHECK(fzn_replay_admit(NULL, nonce, 200, FZN_FRAME_COMMAND, 100) ==
+	              FZN_FRESH_ERR_MALFORMED,
+	      "a null window was admitted to");
+	CHECK(fzn_replay_admit(&no_entries, nonce, 200, FZN_FRAME_COMMAND, 100) ==
+	              FZN_FRESH_ERR_MALFORMED,
+	      "a window with no entries was admitted to");
+	CHECK(fzn_replay_admit(&w, NULL, 200, FZN_FRAME_COMMAND, 100) ==
+	              FZN_FRESH_ERR_MALFORMED,
+	      "a null nonce was admitted");
+
+	CHECK(fzn_replay_init(NULL, storage, 4) == FZN_FRESH_ERR_MALFORMED, "a null window");
+	CHECK(fzn_replay_init(&w, NULL, 4) == FZN_FRESH_ERR_MALFORMED, "null storage");
+	CHECK(fzn_replay_init(&w, storage, 0) == FZN_FRESH_ERR_MALFORMED, "zero capacity");
+}
+
 int main(void)
 {
 	test_command_expiry_is_mandatory();
@@ -291,6 +322,8 @@ int main(void)
 	test_the_suite_can_tell_pass_from_fail();
 
 	test_a_window_whose_fields_disagree_is_refused();
+
+	test_every_guard_refuses_its_own_argument();
 
 	printf("freshness_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

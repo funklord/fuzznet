@@ -541,6 +541,114 @@ static void test_delegate(void)
  * against that, and this says so out loud rather than leaving it implied --
  * a suite with no positive case is one that cannot tell working code from
  * a stub. */
+/* Every pointer of every public entry point, refused one at a time.
+ *
+ * WHY THIS IS WORTH THIRTY DULL ASSERTIONS. Each guard is an `||` chain, and
+ * branch coverage said most of the sub-conditions had never been taken -- the
+ * first null in each chain was tested and the rest rode along. A chain that
+ * looks complete and is missing one term reads exactly like one that is not,
+ * and the missing term is a null dereference in a library whose callers are
+ * other projects.
+ *
+ * The other reason is what these gaps were costing. Nearly every unexercised
+ * branch in this tree was one of these, so `make coverage` printed a wall of
+ * known-defensive gaps -- and two real defects sat in the middle of it for
+ * weeks without anyone reading far enough to notice. Closing them is not
+ * about the percentage; it is so that the next branch which has never gone
+ * both ways is worth looking at.
+ *
+ * `signed_region_len == 0` is here too, and is not a null check: it is the
+ * one term in these chains that describes a value rather than a pointer, and
+ * it had never been taken either. A hop with a region but no length would be
+ * signed over nothing. */
+static void test_every_guard_refuses_its_own_argument(void)
+{
+	struct fixture f;
+	fzn_chain_hop_t hop;
+	fzn_sign_ops_t no_verify, no_sign;
+	uint8_t grantee[FZN_PUBKEY_LEN];
+
+	fixture_init(&f);
+	key(grantee, 9);
+	no_verify = f.sign;
+	no_verify.verify = NULL;
+	no_sign = f.sign;
+	no_sign.sign = NULL;
+
+#define REFUSED(call, what) \
+	CHECK((call) == FZN_ERR_MALFORMED, "%s was accepted", what)
+
+	/* fzn_chain_verify */
+	REFUSED(fzn_chain_verify(NULL, 1, f.root, f.cap, 100, &f.sign, NULL, 0, &f.out),
+	        "a null hop array");
+	REFUSED(fzn_chain_verify(f.hops, 1, NULL, f.cap, 100, &f.sign, NULL, 0, &f.out),
+	        "a null root");
+	REFUSED(fzn_chain_verify(f.hops, 1, f.root, NULL, 100, &f.sign, NULL, 0, &f.out),
+	        "a null capability");
+	REFUSED(fzn_chain_verify(f.hops, 1, f.root, f.cap, 100, NULL, NULL, 0, &f.out),
+	        "a null signer");
+	REFUSED(fzn_chain_verify(f.hops, 1, f.root, f.cap, 100, &no_verify, NULL, 0, &f.out),
+	        "a signer with no verify function");
+	REFUSED(fzn_chain_verify(f.hops, 1, f.root, f.cap, 100, &f.sign, NULL, 0, NULL),
+	        "a null out");
+
+	/* A hop whose signed region is absent or empty. Not a null-pointer
+	 * guard: a region with a zero length is signed over nothing. */
+	fixture_init(&f);
+	f.hops[0].signed_region = NULL;
+	REFUSED(fzn_chain_verify(f.hops, 1, f.root, f.cap, 100, &f.sign, NULL, 0, &f.out),
+	        "a hop with no signed region");
+	fixture_init(&f);
+	f.hops[0].signed_region_len = 0;
+	REFUSED(fzn_chain_verify(f.hops, 1, f.root, f.cap, 100, &f.sign, NULL, 0, &f.out),
+	        "a hop whose signed region is empty");
+
+	/* fzn_chain_mint, which reaches the signing guard chain. */
+	fixture_init(&f);
+	REFUSED(fzn_chain_mint(NULL, grantee, f.cap, 1, 100, 0, REGION, sizeof(REGION) - 1,
+	                       &f.sign, &hop),
+	        "minting with a null root");
+	REFUSED(fzn_chain_mint(f.root, NULL, f.cap, 1, 100, 0, REGION, sizeof(REGION) - 1,
+	                       &f.sign, &hop),
+	        "minting with a null grantee");
+	REFUSED(fzn_chain_mint(f.root, grantee, NULL, 1, 100, 0, REGION, sizeof(REGION) - 1,
+	                       &f.sign, &hop),
+	        "minting with a null capability");
+	REFUSED(fzn_chain_mint(f.root, grantee, f.cap, 1, 100, 0, NULL, sizeof(REGION) - 1,
+	                       &f.sign, &hop),
+	        "minting with a null signed region");
+	REFUSED(fzn_chain_mint(f.root, grantee, f.cap, 1, 100, 0, REGION, 0, &f.sign, &hop),
+	        "minting over an empty signed region");
+	REFUSED(fzn_chain_mint(f.root, grantee, f.cap, 1, 100, 0, REGION, sizeof(REGION) - 1,
+	                       NULL, &hop),
+	        "minting with a null signer");
+	REFUSED(fzn_chain_mint(f.root, grantee, f.cap, 1, 100, 0, REGION, sizeof(REGION) - 1,
+	                       &no_sign, &hop),
+	        "minting with a signer that cannot sign");
+	REFUSED(fzn_chain_mint(f.root, grantee, f.cap, 1, 100, 0, REGION, sizeof(REGION) - 1,
+	                       &f.sign, NULL),
+	        "minting into a null hop");
+
+	/* fzn_chain_delegate */
+	REFUSED(fzn_chain_delegate(NULL, 1, f.root, f.cap, 100, grantee, 200, 0, REGION,
+	                           sizeof(REGION) - 1, &f.sign, NULL, 0, &hop),
+	        "delegating from a null chain");
+	REFUSED(fzn_chain_delegate(f.hops, 1, f.root, f.cap, 100, NULL, 200, 0, REGION,
+	                           sizeof(REGION) - 1, &f.sign, NULL, 0, &hop),
+	        "delegating to a null grantee");
+	REFUSED(fzn_chain_delegate(f.hops, 1, f.root, f.cap, 100, grantee, 200, 0, REGION,
+	                           sizeof(REGION) - 1, NULL, NULL, 0, &hop),
+	        "delegating with a null signer");
+	REFUSED(fzn_chain_delegate(f.hops, 1, f.root, f.cap, 100, grantee, 200, 0, REGION,
+	                           sizeof(REGION) - 1, &no_verify, NULL, 0, &hop),
+	        "delegating with a signer that cannot verify");
+	REFUSED(fzn_chain_delegate(f.hops, 1, f.root, f.cap, 100, grantee, 200, 0, REGION,
+	                           sizeof(REGION) - 1, &f.sign, NULL, 0, NULL),
+	        "delegating into a null hop");
+
+#undef REFUSED
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	struct fixture f;
@@ -567,6 +675,7 @@ int main(void)
 	test_bounds();
 	test_out_is_untouched_on_failure();
 	test_ct_memeq();
+	test_every_guard_refuses_its_own_argument();
 	test_the_suite_can_tell_pass_from_fail();
 
 	printf("chain_test: %d checks, %d failure(s)\n", checks, failures);

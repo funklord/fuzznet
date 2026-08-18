@@ -2237,11 +2237,53 @@ hedging: is there test work left.
 | file | lines | branches both ways |
 |---|---|---|
 | `constant_time/constant_time.c` | 100% of 7 | 100% of 2 |
-| `chain/chain.c` | 100% of 64 | 85.7% of 84 |
-| `chain/revocation.c` | 100% of 42 | 89.3% of 56 |
-| `frame/freshness.c` | 100% of 43 | 93.2% of 44 |
-| `chunk/reassembly.c` | 100% of 104 | 89.0% of 100 |
+| `session/commitment.c` | 100% of 24 | 100% of 20 |
+| `local/peer.c` | 100% of 42 | 100% of 52 |
+| `local/peer_linux.c` | 95.7% of 23 | **66.7% of 12** |
+| `chain/chain.c` | 100% of 64 | 100% of 84 |
+| `chain/revocation.c` | 100% of 42 | 100% of 56 |
+| `frame/freshness.c` | 100% of 43 | 100% of 44 |
+| `chunk/reassembly.c` | 100% of 98 | 100% of 98 |
 | `chunk/split.c` | 100% of 24 | 100% of 28 |
+
+**Every branch in the library goes both ways now, with one exception, and the
+exception is the point of the table** (2026-08-18). Closing the rest took
+about ninety dull assertions -- every pointer of every entry point refused one
+at a time -- and the percentage was never the reason. Nearly every unexercised
+branch here was one of those chains, so the report was a wall of
+known-defensive gaps, and **two real defects sat in the middle of it for weeks
+because nobody read far enough**. The gaps were not hiding the bugs; they were
+making the report not worth reading, which is the same thing more slowly.
+
+Three of those assertions were not null checks and had never been taken:
+`signed_region_len == 0`, where a hop would be signed over nothing; the zero
+length of a **last** chunk, which is a different branch from the sizing path's
+because a last chunk may legitimately be short, and an empty one would complete
+a message a byte short of what its sender sent; and a slot in a table carrying
+a buffer pointer with no capacity.
+
+**And the first thing the newly-quiet report found was in the previous day's
+fix.** `if (total > slot->buf_capacity)` had been left in `admit_first` as
+defence in depth beside the division guard that replaced it -- and it is
+unreachable, since `floor(capacity / chunks) * chunks <= capacity` for every
+positive `chunks`. It is deleted along with the wrapping multiplication that
+fed it: dead code that cannot be tested is not depth, and leaving a wrapping
+multiplication in the file for a reader to puzzle over is worse than not
+having it. `reassembly.c` is six lines shorter and the fuzzer's counters are
+unchanged.
+
+**`local/peer_linux.c` stays at 66.7% deliberately.** Its four unexercised
+branches are `getsockopt` returning a short credential struct, `snprintf`
+failing on a fixed-size buffer, `fopen` failing, and `ferror` after the read
+-- the paths where the system refuses to answer. Reaching them needs a
+`/proc` that lies or a pid that has gone, and the file takes no path argument
+to inject one. It is left rather than chased because **the decision those
+paths feed is tested where it lives**: every one leaves `groups_known` clear,
+and `peer.c` turns that into `UNKNOWN`, which denies, and that is asserted
+directly. Chasing the branches would test the plumbing around a decision
+already covered. Recorded here so the number reads as a judgement rather than
+an oversight -- an unexplained gap in an otherwise clean report is how the
+next real one gets ignored.
 
 **Lines are the weak number and branches-both-ways is the honest one.** 100%
 of lines is compatible with every decision in the library having only ever

@@ -123,7 +123,6 @@ static fzn_reasm_err_t admit_first(fzn_reasm_t *table, const uint8_t *sender, ui
                                    uint64_t expires_at, fzn_partial_t **out_slot)
 {
 	fzn_partial_t *slot = NULL;
-	size_t total;
 
 	/* Bounded before a slot is taken, so a claim nobody can satisfy costs
 	 * nothing. `chunks` is a u16 off the wire and could say 65535. */
@@ -152,37 +151,40 @@ static fzn_reasm_err_t admit_first(fzn_reasm_t *table, const uint8_t *sender, ui
 	 * short -- so the worst case is assumed and checked against the
 	 * buffer, and a first-arriving last chunk of a multi-chunk message
 	 * simply reserves the maximum. */
-	if (chunks == 1) {
-		total = payload_len;
-		slot->chunk_size = payload_len;
-	} else if (index + 1u == chunks) {
+	if (chunks > 1 && index + 1u == chunks) {
 		/* Last chunk first: stride unknown, so nothing may be placed
 		 * yet. Refuse rather than guess -- guessing would let the
 		 * stride be chosen by whoever sends the final piece first. */
 		return FZN_REASM_ERR_MISMATCH;
-	} else {
-		slot->chunk_size = payload_len;
-		total = payload_len * (size_t)chunks;
 	}
+	slot->chunk_size = payload_len;
 
-	/* THE MULTIPLICATION ABOVE CAN WRAP, and `total` is not what decides
-	 * this. `payload_len` is a size_t the caller supplies, so 2^62 with
-	 * four chunks produces exactly 2^64 -- zero -- which sails through a
-	 * capacity test and leaves a live slot claiming a stride of 2^62.
+	/* THE SIZE IS CHECKED BY DIVISION, and the multiplication it replaces
+	 * is gone rather than merely unused.
 	 *
-	 * Measured rather than reasoned about: before this check, that input
-	 * left `slot.live` set with `chunk_size` at 2^62, and the only thing
-	 * between it and a memcpy of 2^62 bytes was the offset guard in
-	 * `fzn_reasm_accept` -- which no test and no fuzz case had ever made
-	 * fire. Defence in depth one layer deep, with the layer untested.
+	 * `payload_len` is a size_t the caller supplies, and this used to size
+	 * the slot with `payload_len * chunks`: 2^62 with four chunks is
+	 * exactly 2^64 -- zero -- which sailed through a capacity test and left
+	 * a live slot claiming a stride of 2^62. Measured rather than reasoned
+	 * about, before it was changed: `slot.live` set, `chunk_size` at 2^62,
+	 * and the only thing between that and a memcpy of 2^62 bytes was the
+	 * offset guard in `fzn_reasm_accept`, which no test and no fuzz case
+	 * had ever made fire.
 	 *
 	 * Division cannot overflow, and `payload_len <= capacity / chunks` is
 	 * exactly equivalent to `payload_len * chunks <= capacity` over the
-	 * integers, so this is the same bound rather than a stricter one. */
+	 * integers, so this is the same bound rather than a stricter one.
+	 *
+	 * The product was kept for a day afterwards, still compared against the
+	 * capacity as defence in depth, and `make coverage` reported that
+	 * comparison as a branch which had never gone both ways -- because
+	 * `floor(capacity / chunks) * chunks <= capacity` makes it unreachable.
+	 * It is deleted rather than silenced: dead code that cannot be tested
+	 * is not depth, and leaving a wrapping multiplication in the file for a
+	 * reader to puzzle over is worse than not having it. */
 	if (payload_len == 0 || payload_len > slot->buf_capacity / (size_t)chunks)
 		return FZN_REASM_ERR_TOO_LARGE;
-	if (total > slot->buf_capacity)
-		return FZN_REASM_ERR_TOO_LARGE;
+
 
 	memcpy(slot->sender, sender, FZN_SENDER_LEN);
 	slot->msg = msg;

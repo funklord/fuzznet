@@ -478,6 +478,100 @@ static void test_the_offset_guard_refuses_a_slot_that_cannot_hold_the_chunk(void
 	      "the guard refused a chunk that fits, so it is not discriminating");
 }
 
+/* Every guard of every entry point, one argument at a time, plus the two
+ * terms that describe a value rather than a pointer. See chain_test.c's
+ * equivalent for why the dull version earns its place.
+ *
+ * `payload_len == 0` on a LAST chunk is the interesting one here. It is not a
+ * null check and it is not the same as the zero-length check in the sizing
+ * path: a last chunk may legitimately be shorter than the stride, so the
+ * refusal of an empty one is a separate branch, and it had never been taken.
+ * An empty final piece would complete a message a byte short of what its
+ * sender sent. */
+static void test_every_guard_refuses_its_own_argument(void)
+{
+	fzn_partial_t slot, slots[2];
+	uint8_t storage[256], storage2[2][256];
+	fzn_reasm_t table;
+	fzn_partial_t *done = NULL;
+	uint8_t sender[FZN_SENDER_LEN];
+	uint8_t payload[8];
+
+	memset(sender, 0xa1, sizeof(sender));
+	memset(payload, 0x5a, sizeof(payload));
+
+	CHECK(fzn_reasm_slot_init(NULL, storage, sizeof(storage)) == FZN_REASM_ERR_MALFORMED,
+	      "a null slot was initialised");
+	CHECK(fzn_reasm_slot_init(&slot, NULL, sizeof(storage)) == FZN_REASM_ERR_MALFORMED,
+	      "a slot with no buffer was initialised");
+	CHECK(fzn_reasm_slot_init(&slot, storage, 0) == FZN_REASM_ERR_MALFORMED,
+	      "a slot with a zero-length buffer was initialised");
+
+	fzn_reasm_slot_init(&slot, storage, sizeof(storage));
+	CHECK(fzn_reasm_init(NULL, &slot, 1, 1) == FZN_REASM_ERR_MALFORMED, "a null table");
+	CHECK(fzn_reasm_init(&table, NULL, 1, 1) == FZN_REASM_ERR_MALFORMED, "null slots");
+	CHECK(fzn_reasm_init(&table, &slot, 0, 1) == FZN_REASM_ERR_MALFORMED, "zero capacity");
+	CHECK(fzn_reasm_init(&table, &slot, 1, 0) == FZN_REASM_ERR_MALFORMED, "a zero quota");
+
+	/* A table whose slots were never given buffers. Each half of that
+	 * check separately, since a slot with a pointer and no capacity is a
+	 * different mistake from one with neither. */
+	for (size_t i = 0; i < 2; i++)
+		fzn_reasm_slot_init(&slots[i], storage2[i], sizeof(storage2[i]));
+	slots[1].buf = NULL;
+	CHECK(fzn_reasm_init(&table, slots, 2, 1) == FZN_REASM_ERR_MALFORMED,
+	      "a table holding a slot with no buffer");
+	fzn_reasm_slot_init(&slots[1], storage2[1], sizeof(storage2[1]));
+	slots[1].buf_capacity = 0;
+	CHECK(fzn_reasm_init(&table, slots, 2, 1) == FZN_REASM_ERR_MALFORMED,
+	      "a table holding a slot of zero capacity");
+
+	/* release and expire */
+	fzn_reasm_release(NULL); /* must simply return */
+	CHECK(1, "releasing a null slot did not crash");
+	CHECK(fzn_reasm_expire(NULL, 100) == 0, "a null table was expired");
+	{
+		fzn_reasm_t no_slots;
+
+		for (size_t i = 0; i < 2; i++)
+			fzn_reasm_slot_init(&slots[i], storage2[i], sizeof(storage2[i]));
+		fzn_reasm_init(&no_slots, slots, 2, 1);
+		no_slots.slots = NULL;
+		CHECK(fzn_reasm_expire(&no_slots, 100) == 0, "a table with no slots was expired");
+		CHECK(fzn_reasm_accept(&no_slots, sender, 7, 0, 1, payload, 8, 0, 100, &done) ==
+		              FZN_REASM_ERR_MALFORMED,
+		      "a table with no slots accepted a chunk");
+	}
+
+	/* accept */
+	fzn_reasm_slot_init(&slot, storage, sizeof(storage));
+	fzn_reasm_init(&table, &slot, 1, 1);
+	CHECK(fzn_reasm_accept(NULL, sender, 7, 0, 1, payload, 8, 0, 100, &done) ==
+	              FZN_REASM_ERR_MALFORMED,
+	      "a null table accepted a chunk");
+	CHECK(fzn_reasm_accept(&table, NULL, 7, 0, 1, payload, 8, 0, 100, &done) ==
+	              FZN_REASM_ERR_MALFORMED,
+	      "a null sender was accepted");
+	CHECK(fzn_reasm_accept(&table, sender, 7, 0, 1, NULL, 8, 0, 100, &done) ==
+	              FZN_REASM_ERR_MALFORMED,
+	      "a null payload was accepted");
+	CHECK(fzn_reasm_accept(&table, sender, 7, 0, 1, payload, 8, 0, 100, NULL) ==
+	              FZN_REASM_ERR_MALFORMED,
+	      "a null out was accepted");
+
+	/* An EMPTY LAST CHUNK, which is not a null check and not the sizing
+	 * path's zero-length refusal. Two pieces of eight, then a final piece
+	 * of nothing. */
+	fzn_reasm_slot_init(&slot, storage, sizeof(storage));
+	fzn_reasm_init(&table, &slot, 1, 1);
+	CHECK(fzn_reasm_accept(&table, sender, 7, 0, 2, payload, 8, 0, 100, &done) ==
+	              FZN_REASM_OK,
+	      "the setup chunk was refused");
+	CHECK(fzn_reasm_accept(&table, sender, 7, 1, 2, payload, 0, 0, 100, &done) ==
+	              FZN_REASM_ERR_MISMATCH,
+	      "an empty last chunk was accepted, completing the message short");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	struct fixture f;
@@ -509,6 +603,7 @@ int main(void)
 	test_bad_arguments();
 	test_a_wrapping_size_is_refused_before_a_slot_is_taken();
 	test_the_offset_guard_refuses_a_slot_that_cannot_hold_the_chunk();
+	test_every_guard_refuses_its_own_argument();
 	test_the_suite_can_tell_pass_from_fail();
 
 	printf("reassembly_test: %d checks, %d failure(s)\n", checks, failures);
