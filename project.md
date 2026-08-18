@@ -435,6 +435,44 @@ offset` that must not underflow. That is white-box and deliberately so; the
 alternative is the guard nothing has ever run, which is what this file was
 just bitten by.
 
+#### The same shape again, one file over
+
+Having found one struct trusted where it should not be, the obvious question
+was whether there were others, and `chunk/split.c` had the same defect in a
+worse position.
+
+`fzn_split_at` validates `plan->chunks` and `plan->chunk_size` -- **so it had
+already decided the plan was untrusted** -- and then computed the last piece's
+length as `total - start` without checking `total` against either. A plan
+claiming ten bytes in pieces of a hundred returns, for piece 3, an offset of
+300 and a length of **18446744073709551326**, alongside `FZN_SPLIT_OK`.
+
+**It is worse than the reassembly one because this function copies nothing.**
+It hands a caller an offset and a length to copy with, so the overread happens
+at the call site, in a consumer's project, with nothing there to suggest where
+the number came from. `reassembly.c` at least did its own `memcpy` behind its
+own guard.
+
+Fixed the same way and for the same reason -- by division, before the offset is
+computed, since `index * chunk_size` is itself capable of wrapping when the
+fields disagree. `(total - 1) / chunk_size` is the largest index whose piece
+starts inside the message.
+
+**Evidence that it narrows nothing:** `roundtrip_fuzz` reports identical
+counters across the change -- 19535 planned and 17741 completed of 20000, the
+same numbers before and after -- so the guard refuses no plan the planner
+produces. The test covers both halves separately, because a check of only
+`chunk_size > total` still underflows on a stride that fits with an index past
+the end, and it includes the single-piece case where `chunk_size == total`
+exactly and an off-by-one in the bound would refuse a legitimate message.
+
+**The pattern is worth naming, since it has now appeared twice in one
+afternoon.** Both functions take a caller-supplied struct, validate some of its
+fields, and then do arithmetic on the ones they did not. Partial validation
+reads as thoroughness and is the more dangerous state: an unvalidated struct
+invites suspicion at every use, while one that is checked in two places out of
+three looks handled.
+
 #### Two things `revocation.c` claimed and nobody could see
 
 Both came out of the same sweep. `fzn_revocation_merge` keeps the **first**
@@ -2147,7 +2185,7 @@ hedging: is there test work left.
 | `chain/revocation.c` | 100% of 41 | 88.9% of 54 |
 | `frame/freshness.c` | 100% of 41 | 92.5% of 40 |
 | `chunk/reassembly.c` | 100% of 104 | 89.0% of 100 |
-| `chunk/split.c` | 100% of 22 | 100% of 24 |
+| `chunk/split.c` | 100% of 24 | 100% of 28 |
 
 **Lines are the weak number and branches-both-ways is the honest one.** 100%
 of lines is compatible with every decision in the library having only ever

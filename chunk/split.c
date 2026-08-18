@@ -54,6 +54,29 @@ fzn_split_err_t fzn_split_at(const fzn_split_t *plan, uint16_t index, size_t *of
 	if (index >= plan->chunks)
 		return FZN_SPLIT_ERR_MALFORMED;
 
+	/* THE PLAN'S FIELDS MUST AGREE WITH ONE ANOTHER, and until this was
+	 * added they were not required to. Two of the three were already
+	 * validated above, which is the tell: this function had decided the
+	 * plan was untrusted and then read `total` as though it were not.
+	 *
+	 * The last piece's length is `total - start`. A plan claiming ten
+	 * bytes in pieces of a hundred gives start 300 for piece 3 and a
+	 * length of 2^64 - 290, returned with FZN_SPLIT_OK -- and a caller
+	 * does not copy the plan's bytes itself, it copies what this function
+	 * hands back, so the overread lands at the call site.
+	 *
+	 * Division rather than multiplication for the same reason as
+	 * `chunk/reassembly.c`'s sizing: `index * chunk_size` is itself
+	 * capable of wrapping when the fields disagree, so the bound has to be
+	 * established before the offset is computed rather than after.
+	 * `(total - 1) / chunk_size` is the largest index whose piece starts
+	 * inside the message, and `total >= 1` holds because `chunk_size` is
+	 * non-zero and no larger than it. */
+	if (plan->chunk_size > plan->total)
+		return FZN_SPLIT_ERR_MALFORMED;
+	if ((size_t)index > (plan->total - 1u) / plan->chunk_size)
+		return FZN_SPLIT_ERR_MALFORMED;
+
 	start = (size_t)index * plan->chunk_size;
 
 	*offset = start;

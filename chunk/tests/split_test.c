@@ -260,6 +260,68 @@ static void test_plan_refuses_a_stride_no_frame_can_carry(void)
 	CHECK(plan.chunks == 64, "a 64 KiB message did not come to 64 pieces of 1024");
 }
 
+/* A plan whose fields disagree with one another.
+ *
+ * fzn_split_at already validated `chunks` and `chunk_size`, so it had decided
+ * the plan was untrusted -- and then read `total` as though it were not. The
+ * last piece's length is `total - start`, and that subtraction underflows.
+ *
+ * WHY IT MATTERS MORE THAN IT LOOKS. This function does not copy anything. It
+ * hands a caller an offset and a length for the caller to copy with, so a
+ * length of 2^64 - 290 returned alongside FZN_SPLIT_OK puts the overread at
+ * the call site, in somebody else's project, with nothing there to suggest
+ * this function was the source.
+ *
+ * The state is built by hand because fzn_split_plan cannot produce it, which
+ * is the same position chunk/tests/reassembly_test.c is in for the offset
+ * guard, and the same answer: a check nothing exercises is one nobody knows
+ * works. */
+static void test_a_plan_whose_fields_disagree_is_refused(void)
+{
+	fzn_split_t plan;
+	size_t offset = 0, len = 0;
+
+	/* Ten bytes, claimed in pieces of a hundred. */
+	memset(&plan, 0, sizeof(plan));
+	plan.total = 10;
+	plan.chunk_size = 100;
+	plan.chunks = 4;
+	plan.buffer_needed = 400;
+	CHECK(fzn_split_at(&plan, 3, &offset, &len) == FZN_SPLIT_ERR_MALFORMED,
+	      "a stride larger than the whole message was accepted");
+	CHECK(len == 0, "a length of %zu was written for a refused call", len);
+
+	/* A stride that fits, but an index whose piece starts past the end:
+	 * 30 bytes in strides of 10 cannot have a piece 5. This is the half
+	 * the first check does not reach, and it is the one that would still
+	 * underflow if only `chunk_size > total` were tested. */
+	memset(&plan, 0, sizeof(plan));
+	plan.total = 30;
+	plan.chunk_size = 10;
+	plan.chunks = 8;
+	CHECK(fzn_split_at(&plan, 5, &offset, &len) == FZN_SPLIT_ERR_MALFORMED,
+	      "a piece starting past the end of the message was accepted");
+
+	/* And the guard refuses nothing a real plan produces. Every index of
+	 * a genuine plan must still answer, including the last, which is the
+	 * one the underflow lived on. */
+	CHECK(fzn_split_plan(100, 8, &plan) == FZN_SPLIT_OK, "the real plan was refused");
+	for (uint16_t i = 0; i < plan.chunks; i++)
+		CHECK(fzn_split_at(&plan, i, &offset, &len) == FZN_SPLIT_OK,
+		      "piece %u of a genuine plan was refused by the agreement check", i);
+	CHECK(fzn_split_at(&plan, (uint16_t)(plan.chunks - 1u), &offset, &len) ==
+	              FZN_SPLIT_OK &&
+	              len == 100u - offset,
+	      "the last piece of a genuine plan came back wrong");
+
+	/* A single-piece message, where chunk_size == total exactly and an
+	 * off-by-one in the bound would refuse it. */
+	CHECK(fzn_split_plan(10, 16, &plan) == FZN_SPLIT_OK, "a one-piece plan was refused");
+	CHECK(fzn_split_at(&plan, 0, &offset, &len) == FZN_SPLIT_OK && offset == 0 &&
+	              len == 10,
+	      "the only piece of a one-piece message came back wrong");
+}
+
 /* The positive control: round_trip returns 0 for every kind of failure,
  * including refusals, so a test that only asserted failures would pass
  * against a split.c that did nothing. */
@@ -278,6 +340,7 @@ int main(void)
 	test_split_at_bad_arguments();
 	test_round_trip();
 	test_round_trip_out_of_order();
+	test_a_plan_whose_fields_disagree_is_refused();
 	test_the_suite_can_tell_pass_from_fail();
 
 	printf("split_test: %d checks, %d failure(s)\n", checks, failures);
