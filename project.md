@@ -2304,6 +2304,30 @@ linking objects. Absolute paths, since its second arm compiles from inside the
 staging directory -- a relative one builds in a single arrangement, which is
 the difference that target exists to find.
 
+**The pattern is checked now, not just fixed.** Four times in this repository
+a hand-maintained list has gone quietly incomplete, and each time the guard
+that should have noticed was only as wide as the list it iterated:
+
+| list | guard | how it was found |
+|---|---|---|
+| `HDRS` | `install` shipped a hand-written line per header | a break in an uninstalled header |
+| `GEN_SRCS` | `coverage` iterated `SRCS` only | three generated sources touched by nothing |
+| `TEST_BINS` | `.gitignore` names each binary | a build product in `git status` |
+| `SRCS` | everything that reads it | the Monocypher bindings, above |
+
+The first three are compared against another list. `SRCS` has no second list,
+so `make style` compares it against **the filesystem**: every `.c` in the tree
+must appear in `SRCS`, `TEST_SRCS`, `GEN_SRCS`, the Monocypher names, or be
+`tools/consumer_check.c`. 34 today. It refuses if it finds none, and the
+Monocypher filenames are declared outside the `ifneq` so the answer is the
+same in both configurations -- inside it they would be empty in a plain build
+and the check would report two real sources as unlisted, which is a false
+finding, and a gate that cries wolf is worse than no gate.
+
+Controlled in both directions, since they are different mistakes: dropping
+`chunk/split.c` from `SRCS` names it, and a new `.c` written into the tree
+names that instead. The second is the case it exists for.
+
 **`local/peer_linux.c` stays at 66.7% deliberately.** Its four unexercised
 branches are `getsockopt` returning a short credential struct, `snprintf`
 failing on a fixed-size buffer, `fopen` failing, and `ferror` after the read

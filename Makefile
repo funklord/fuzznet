@@ -122,13 +122,19 @@ TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test \
 # had a stub behind it is a seam nobody has checked.
 MONOCYPHER_DIR ?=
 
+# Named OUTSIDE the conditional, because these files exist in the tree whether
+# or not this build compiles them, and `make style` compares the source lists
+# against what is actually there. Inside the `ifneq` they would be empty in a
+# plain build and the check would report two real sources as unlisted -- a
+# false finding, which is worse in a gate than no finding at all.
+MONO_SRCS  := chain/sign_monocypher.c session/hash_monocypher.c
+MONO_TSRC  := chain/tests/sign_monocypher_test.c \
+              session/tests/hash_monocypher_test.c
+
 ifneq ($(MONOCYPHER_DIR),)
 MONO_OBJS  := $(BUILD_DIR)/chain/sign_monocypher.o \
               $(BUILD_DIR)/session/hash_monocypher.o \
               $(BUILD_DIR)/monocypher.o
-MONO_SRCS  := chain/sign_monocypher.c session/hash_monocypher.c
-MONO_TSRC  := chain/tests/sign_monocypher_test.c \
-              session/tests/hash_monocypher_test.c
 MONO_TOBJ  := $(MONO_TSRC:%.c=$(BUILD_DIR)/%.o)
 # Kept in TEST_SRCS as well as TEST_OBJS. Nothing was broken by its absence
 # -- the objects, deps and binaries were all reached through MONO_TOBJ --
@@ -393,6 +399,32 @@ codegencheck: $(BUILD_DIR)/constant_time/constant_time.o \
 
 style:
 	python3 tools/style_gate.py check
+	@# EVERY .c IN THE TREE MUST BE IN A LIST -- the fourth instance of one
+	@# pattern and the last that was not mechanically checked. HDRS against
+	@# `install`, GEN_SRCS against `coverage`, TEST_BINS against .gitignore,
+	@# and SRCS against the tree: each is a list kept by hand, and each guard
+	@# is only as wide as the list it iterates. The first three are compared
+	@# against another list. This one has no second list, so it is compared
+	@# against the filesystem.
+	@#
+	@# It is what would have caught the Monocypher bindings, which were in the
+	@# tree, built, linked and run, and in no list `make coverage` reads.
+	@known=" $(SRCS) $(TEST_SRCS) $(GEN_SRCS) $(MONO_SRCS) $(MONO_TSRC) tools/consumer_check.c "; \
+	unlisted=; n=0; \
+	for c in `find . -name '*.c' -not -path './build/*' -not -path './san/*' \
+	                 -not -path './*-coverage/*' | sed 's|^\./||' | sort`; do \
+		n=$$((n + 1)); \
+		case "$$known" in *" $$c "*) ;; *) unlisted="$$unlisted $$c" ;; esac; \
+	done; \
+	if [ "$$n" -eq 0 ]; then \
+		echo "style: no C sources found, which cannot be right"; exit 1; \
+	fi; \
+	if [ -n "$$unlisted" ]; then \
+		echo "style: C sources in the tree and in no list:$$unlisted"; \
+		echo "style: nothing reading SRCS -- coverage, installcheck -- can see them."; \
+		exit 1; \
+	fi; \
+	echo "style: $$n C sources, all named in a list"
 	@# THE THIRD HAND-MAINTAINED LIST, and the third time one has drifted.
 	@# .gitignore names each test binary rather than globbing them, for a
 	@# stated reason: a pattern would also hide a source file added under
