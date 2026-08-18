@@ -383,6 +383,101 @@ static void test_bad_arguments(void)
 
 /* The positive control: nearly every case above asserts a refusal, and an
  * accept that refused everything would satisfy them. */
+/* The multiplication in admit_first, which used to wrap.
+ *
+ * `payload_len` is a size_t the caller supplies, and the sizing was
+ * `payload_len * chunks` compared against the buffer. 2^62 with four chunks
+ * is exactly 2^64, which is zero, so the comparison passed and the slot went
+ * live claiming a stride of 2^62. Nothing downstream of that was tested: the
+ * offset guard in fzn_reasm_accept was the only thing that refused the copy,
+ * and it had never fired in any test or in 20000 fuzz cases.
+ *
+ * The claim checked here is not just "refused" -- both the old code and the
+ * new one return TOO_LARGE. It is that the slot is NOT TAKEN, which is what
+ * separates admit_first refusing from the guard behind it catching up. */
+static void test_a_wrapping_size_is_refused_before_a_slot_is_taken(void)
+{
+	fzn_partial_t slot;
+	uint8_t storage[256];
+	fzn_reasm_t table;
+	fzn_partial_t *done = NULL;
+	uint8_t sender[FZN_SENDER_LEN];
+	uint8_t payload[8];
+	size_t huge = (size_t)1 << 62;
+
+	memset(sender, 0xa1, sizeof(sender));
+	memset(payload, 0x5a, sizeof(payload));
+	fzn_reasm_slot_init(&slot, storage, sizeof(storage));
+	fzn_reasm_init(&table, &slot, 1, 1);
+
+	CHECK(huge * 4u == 0, "the premise is wrong on this platform: 2^62 * 4 is not 0");
+	CHECK(fzn_reasm_accept(&table, sender, 7, 0, 4, payload, huge, 0, 100, &done) ==
+	              FZN_REASM_ERR_TOO_LARGE,
+	      "a stride whose total wraps to zero was accepted");
+	CHECK(slot.live == 0,
+	      "the slot was taken by a claim that wrapped, so admit_first was defeated "
+	      "and only the offset guard refused the copy");
+}
+
+/* The offset guard itself, which nothing could reach.
+ *
+ * WHY THIS TEST MANUFACTURES ITS STATE. With the sizing above fixed,
+ * admit_first guarantees chunks * chunk_size <= buf_capacity, and every later
+ * chunk must match that stride -- so offset + payload_len can no longer exceed
+ * the buffer and the guard is unreachable through the public API. That is the
+ * correct outcome and it leaves the guard as defence in depth with no way to
+ * exercise it from outside.
+ *
+ * So the state it exists to catch is built by hand: a live slot whose
+ * chunk_size was made inconsistent with its capacity. That is white-box and
+ * deliberately so. The alternative is a guard nothing has ever run, which is
+ * what this file just finished being bitten by.
+ *
+ * Both halves of the condition are covered, because they fail differently: an
+ * offset past the end of the buffer, and an offset inside it with a length
+ * that runs past. A test of only the first would leave the arithmetic that
+ * cannot underflow -- `buf_capacity - offset` -- unchecked. */
+static void test_the_offset_guard_refuses_a_slot_that_cannot_hold_the_chunk(void)
+{
+	fzn_partial_t slot;
+	uint8_t storage[64];
+	fzn_reasm_t table;
+	fzn_partial_t *done = NULL;
+	uint8_t sender[FZN_SENDER_LEN];
+	uint8_t payload[64];
+
+	memset(sender, 0xa1, sizeof(sender));
+	memset(payload, 0x5a, sizeof(payload));
+
+	/* A legitimate first chunk: 4 pieces of 8 into 64 bytes. */
+	fzn_reasm_slot_init(&slot, storage, sizeof(storage));
+	fzn_reasm_init(&table, &slot, 1, 1);
+	CHECK(fzn_reasm_accept(&table, sender, 7, 0, 4, payload, 8, 0, 100, &done) ==
+	              FZN_REASM_OK,
+	      "the setup chunk was refused");
+
+	/* Offset past the end: stride 100 puts piece 1 at 100 in a 64-byte
+	 * buffer. */
+	slot.chunk_size = 100;
+	CHECK(fzn_reasm_accept(&table, sender, 7, 1, 4, payload, 100, 0, 100, &done) ==
+	              FZN_REASM_ERR_TOO_LARGE,
+	      "a chunk whose offset lies past the buffer was accepted");
+
+	/* Offset inside, length running past: piece 1 starts at 40 and is 40
+	 * long, so it ends at 80 in a 64-byte buffer. This is the half that
+	 * `buf_capacity - offset` exists for. */
+	slot.chunk_size = 40;
+	CHECK(fzn_reasm_accept(&table, sender, 7, 1, 4, payload, 40, 0, 100, &done) ==
+	              FZN_REASM_ERR_TOO_LARGE,
+	      "a chunk starting inside the buffer and ending past it was accepted");
+
+	/* And the guard does not refuse what fits: piece 1 at 8, 8 long. */
+	slot.chunk_size = 8;
+	CHECK(fzn_reasm_accept(&table, sender, 7, 1, 4, payload, 8, 0, 100, &done) ==
+	              FZN_REASM_OK,
+	      "the guard refused a chunk that fits, so it is not discriminating");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	struct fixture f;
@@ -412,6 +507,8 @@ int main(void)
 	test_release_clears_the_arrived_set();
 	test_a_reused_slot_starts_empty();
 	test_bad_arguments();
+	test_a_wrapping_size_is_refused_before_a_slot_is_taken();
+	test_the_offset_guard_refuses_a_slot_that_cannot_hold_the_chunk();
 	test_the_suite_can_tell_pass_from_fail();
 
 	printf("reassembly_test: %d checks, %d failure(s)\n", checks, failures);

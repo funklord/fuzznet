@@ -165,7 +165,23 @@ static fzn_reasm_err_t admit_first(fzn_reasm_t *table, const uint8_t *sender, ui
 		total = payload_len * (size_t)chunks;
 	}
 
-	if (payload_len == 0 || total > slot->buf_capacity)
+	/* THE MULTIPLICATION ABOVE CAN WRAP, and `total` is not what decides
+	 * this. `payload_len` is a size_t the caller supplies, so 2^62 with
+	 * four chunks produces exactly 2^64 -- zero -- which sails through a
+	 * capacity test and leaves a live slot claiming a stride of 2^62.
+	 *
+	 * Measured rather than reasoned about: before this check, that input
+	 * left `slot.live` set with `chunk_size` at 2^62, and the only thing
+	 * between it and a memcpy of 2^62 bytes was the offset guard in
+	 * `fzn_reasm_accept` -- which no test and no fuzz case had ever made
+	 * fire. Defence in depth one layer deep, with the layer untested.
+	 *
+	 * Division cannot overflow, and `payload_len <= capacity / chunks` is
+	 * exactly equivalent to `payload_len * chunks <= capacity` over the
+	 * integers, so this is the same bound rather than a stricter one. */
+	if (payload_len == 0 || payload_len > slot->buf_capacity / (size_t)chunks)
+		return FZN_REASM_ERR_TOO_LARGE;
+	if (total > slot->buf_capacity)
 		return FZN_REASM_ERR_TOO_LARGE;
 
 	memcpy(slot->sender, sender, FZN_SENDER_LEN);

@@ -304,6 +304,74 @@ static void test_merge_bad_arguments(void)
 
 /* Positive control: most cases above assert a refusal, and an admit that
  * refused everything would satisfy them. */
+/* THE FIRST failure, not the last, and not merely "a" failure.
+ *
+ * fzn_revocation_merge keeps the first error and reports it once the batch is
+ * done. Every test above put exactly ONE bad record in a batch, which cannot
+ * tell the first from the last -- the branch that skips the assignment on a
+ * second failure had never run. So a batch with two failures OF DIFFERENT
+ * KINDS is the only way the claim is observable.
+ *
+ * It matters because the two errors mean different things to a caller. A
+ * forged record says somebody is lying to you; a full store says you may be
+ * missing revocations you were told about. Reporting the last one would let a
+ * sender who appends rubbish choose which of those a host sees. */
+static void test_merge_reports_the_first_failure_not_the_last(void)
+{
+	struct fixture f;
+	fzn_revocation_record_t batch[6];
+	fzn_err_t err = FZN_OK;
+	size_t n;
+
+	fixture_init(&f); /* four entries of room */
+	record_of(&batch[0], 7, 0xc0, 1); /* forged: wrong issuer */
+	for (uint8_t i = 1; i < 6; i++)
+		record_of(&batch[i], 0, 0xc0, (uint8_t)(i + 1u)); /* genuine, distinct */
+
+	n = fzn_revocation_merge(&f.store, batch, 6, f.root, &f.sign, &err);
+	CHECK(n == 4, "admitted %zu of five genuine records into a store of four", n);
+	CHECK(err == FZN_ERR_WRONG_ROOT,
+	      "reported %d; the first failure was WRONG_ROOT and the later one was a "
+	      "full store, so this is the last error rather than the first",
+	      (int)err);
+
+	/* The reverse order, so the test cannot pass by preferring WRONG_ROOT
+	 * over STORE_FULL for some reason other than order. */
+	fixture_init(&f);
+	for (uint8_t i = 0; i < 5; i++)
+		record_of(&batch[i], 0, 0xc0, (uint8_t)(i + 1u));
+	record_of(&batch[5], 7, 0xc0, 9); /* forged, last */
+
+	n = fzn_revocation_merge(&f.store, batch, 6, f.root, &f.sign, &err);
+	CHECK(n == 4, "admitted %zu with the forged record last", n);
+	CHECK(err == FZN_ERR_STORE_FULL,
+	      "reported %d; the store filled before the forged record was reached, so "
+	      "STORE_FULL is the first failure here",
+	      (int)err);
+}
+
+/* A caller that does not want the error. `err` is optional and every test
+ * above passed one, so the branch that skips writing it had never run -- and
+ * an unguarded store through a null pointer is not a thing to discover from a
+ * consumer's crash report. */
+static void test_merge_without_an_error_out(void)
+{
+	struct fixture f;
+	fzn_revocation_record_t batch[2];
+	size_t n;
+
+	fixture_init(&f);
+	record_of(&batch[0], 0, 0xc0, 1);
+	record_of(&batch[1], 7, 0xc0, 2); /* forged, so there IS an error to drop */
+
+	n = fzn_revocation_merge(&f.store, batch, 2, f.root, &f.sign, NULL);
+	CHECK(n == 1, "admitted %zu with no error pointer, wanted 1", n);
+
+	/* And the malformed path, which writes through the same pointer. */
+	n = fzn_revocation_merge(NULL, batch, 2, f.root, &f.sign, NULL);
+	CHECK(n == 0, "a null store with no error pointer admitted %zu", n);
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	struct fixture f;
@@ -325,6 +393,8 @@ int main(void)
 	test_the_store_feeds_chain_verify_directly();
 	test_bad_arguments();
 	test_merge_bad_arguments();
+	test_merge_reports_the_first_failure_not_the_last();
+	test_merge_without_an_error_out();
 	test_the_suite_can_tell_pass_from_fail();
 
 	printf("revocation_test: %d checks, %d failure(s)\n", checks, failures);

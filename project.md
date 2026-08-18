@@ -387,6 +387,72 @@ Sabotage-verified in all three directions: removing the check fails
 fails the static assert at compile time. A one-sided check would have missed
 half of that.
 
+#### An unchecked multiplication, found by asking which branches never ran
+
+`admit_first` sized a slot with `total = payload_len * (size_t)chunks` and
+compared that against the buffer. **`payload_len` is a `size_t` the caller
+supplies, and the multiplication can wrap.** 2^62 with four chunks is exactly
+2^64, which is zero, so the comparison passed and the slot went live claiming a
+stride of 2^62.
+
+Measured rather than reasoned about, with a probe before anything was changed:
+`slot.live` set, `chunk_size` at 2^62, and `fzn_reasm_accept` returning
+`TOO_LARGE` **from the offset guard further down** rather than from the sizing.
+So the only thing between a wrapped total and a `memcpy` of 2^62 bytes was
+that guard — and gcov says **neither half of it had ever been taken**, in any
+test or in 20000 fuzz cases. Defence in depth, one layer deep, with the layer
+unexercised.
+
+The fix is division, which cannot overflow, and `payload_len <= capacity /
+chunks` is exactly equivalent to `payload_len * chunks <= capacity` over the
+integers rather than a stricter bound. The test asserts the thing that
+distinguishes the fix from the old behaviour: not that the chunk is refused —
+both refuse, with the same error — but that **the slot is not taken**, which is
+what separates the sizing rejecting it from the guard behind it catching up.
+
+**How it was found matters more than the bug.** Nothing suspicious was
+visible in the source; the multiplication reads like every other sizing
+expression. It surfaced from asking gcov which branches had never been taken
+and then reading each one to decide whether it was defensive or a gap. Of the
+tree's unexercised branches, most were argument-validation chains, and four
+were not: two in `revocation.c` and two halves of this guard.
+
+**Reachability, stated plainly.** A correct caller decodes `length` from a
+`u16` bounded at 1024, so it cannot supply a wrapping `payload_len`, and this
+was never a remote overflow. What it was is the module's own contract not
+holding: `reassembly.h` promises to bound what a stranger claims, and it
+bounded `chunks` while trusting an arithmetic result derived from a caller's
+size. The consumer that would have found it is one that passes a length from
+somewhere other than the frame.
+
+Fixing it made the guard unreachable through the public API, which is the
+correct outcome and leaves defence in depth with no way to exercise it from
+outside. So `reassembly_test.c` builds the state by hand — a live slot whose
+`chunk_size` was made inconsistent with its capacity — and covers both halves,
+since an offset past the end and an offset inside it with a length running
+past fail differently, and only the second exercises the `buf_capacity -
+offset` that must not underflow. That is white-box and deliberately so; the
+alternative is the guard nothing has ever run, which is what this file was
+just bitten by.
+
+#### Two things `revocation.c` claimed and nobody could see
+
+Both came out of the same sweep. `fzn_revocation_merge` keeps the **first**
+error and reports it once the batch is done, and every test put exactly one bad
+record in a batch — which cannot tell the first from the last. The branch that
+skips the assignment on a second failure had never run.
+
+It is observable only with two failures of different kinds, so the test now
+fills the store behind a forged record and asserts `WRONG_ROOT` rather than
+`STORE_FULL`, then reverses the order and asserts the opposite. The two mean
+different things to a caller: a forged record says somebody is lying, a full
+store says you may be missing revocations you were told about. Reporting the
+last would let whoever appends rubbish to a batch choose which one a host sees.
+
+The second is smaller: `err` is optional, every test passed one, and the branch
+that skips writing it had never run. An unguarded store through a null pointer
+is not a thing to find out from a consumer's crash report.
+
 ### 4.4a The threat model, stated because it is higher than a chat program's
 
 **This library carries traffic that reconfigures infrastructure, remotely,
@@ -2078,9 +2144,9 @@ hedging: is there test work left.
 |---|---|---|
 | `constant_time/constant_time.c` | 100% of 7 | 100% of 2 |
 | `chain/chain.c` | 100% of 64 | 85.7% of 84 |
-| `chain/revocation.c` | 100% of 41 | 85.2% of 54 |
+| `chain/revocation.c` | 100% of 41 | 88.9% of 54 |
 | `frame/freshness.c` | 100% of 41 | 92.5% of 40 |
-| `chunk/reassembly.c` | 100% of 103 | 87.8% of 98 |
+| `chunk/reassembly.c` | 100% of 104 | 89.0% of 100 |
 | `chunk/split.c` | 100% of 22 | 100% of 24 |
 
 **Lines are the weak number and branches-both-ways is the honest one.** 100%
@@ -2097,6 +2163,17 @@ third was behaviour nobody had exercised: delegating a grant *shorter* than
 the chain allows. Every test asked for more time than it had and none asked
 for less, so the cap had never been shown to be a ceiling rather than an
 assignment.
+
+**A fourth, and the most serious, came from reading the report differently**
+(2026-08-18). The three above were found by the summary numbers moving. This
+one needed the per-branch detail: `gcov -b` names which branches never went
+both ways, and reading each one to decide whether it was defensive or a gap
+turned up an unchecked multiplication in `admit_first` whose only backstop was
+a guard neither half of which had ever been taken. See §4.4. Of the tree's
+unexercised branches the great majority are argument-validation chains, which
+is why nobody had looked: **a report whose gaps are all known-defensive is a
+report nobody reads**, and the four that were not defensive were sitting in
+the middle of it.
 
 **`make coverage` refuses when a source is exercised by nothing**, rather
 than printing a blank line and exiting 0. That is the target's job beyond
