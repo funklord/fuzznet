@@ -130,15 +130,19 @@ int main(void)
 	 * key owned by nobody, which a verifier would accept. */
 	{
 		fzn_sign_monocypher_t empty;
-		fzn_sign_ops_t ops;
+		/* `empty_ops` rather than `ops`, which shadowed the signer set up
+		 * at the top of main. The compiler said so under -Wshadow from
+		 * the moment this block was added and the build output was being
+		 * read for "error" and "FAIL", neither of which a warning is. */
+		fzn_sign_ops_t empty_ops;
 		uint8_t sig[FZN_SIG_LEN];
 		static const uint8_t msg[] = "a message";
 
 		memset(&empty, 0, sizeof(empty));
-		fzn_sign_monocypher_init(&ops, &empty);
-		check(ops.sign(&empty, sig, msg, sizeof(msg) - 1) == 0,
+		fzn_sign_monocypher_init(&empty_ops, &empty);
+		check(empty_ops.sign(&empty, sig, msg, sizeof(msg) - 1) == 0,
 		      "a signer holding no key signed anyway");
-		check(ops.sign(NULL, sig, msg, sizeof(msg) - 1) == 0,
+		check(empty_ops.sign(NULL, sig, msg, sizeof(msg) - 1) == 0,
 		      "a null signer state signed");
 
 		/* Both `init` and `wipe` accept a null and must simply return. */

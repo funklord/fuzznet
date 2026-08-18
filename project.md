@@ -2120,6 +2120,27 @@ reproducible, and a reader should read them as weaker than the ones after it.
 It also turned up that situ's *compiler* was dirty, not only its runtime, so
 the generated C was being compared against an uncommitted emitter as well.
 
+**A warning sat in the build for a day because every check read for
+"error"** (2026-08-19). `-Wshadow` had been reporting a shadowed `ops` in
+`chain/tests/sign_monocypher_test.c` since the guard tests were added to it,
+and it was printed on every build in between. Nothing missed it -- it was
+visible each time. What missed it was the reading: the greps used to verify
+each change filtered for `error`, `FAIL` and `failure(s)`, and a warning is
+none of those.
+
+**The compiler was never wrong and the build was never silent.** That is what
+makes it worth recording: the failure was entirely in what got looked at, and a
+check that reads for the wrong word is indistinguishable from one that passed.
+It surfaced only because a build under a sanitizer printed enough context
+around it to be noticed by accident.
+
+Fixed by renaming, and the count is now zero across a clean build with the
+Monocypher bindings. **Whether `-Werror` should follow is not settled here**:
+it would make this class impossible, and it would also break a build on a
+compiler version that invents a new warning, for somebody who changed nothing.
+That is a convention change and belongs to a deliberate decision rather than to
+the session that tripped over it.
+
 **`make clean` removed less than the build made, and said "clean"**
 (2026-08-19). `OBJS`, `TEST_OBJS` and `TEST_BINS` gain the Monocypher half only
 inside the `ifneq` on `MONOCYPHER_DIR`, and clean is usually run without it. So
