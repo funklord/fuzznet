@@ -2204,6 +2204,31 @@ reproducible, and a reader should read them as weaker than the ones after it.
 It also turned up that situ's *compiler* was dirty, not only its runtime, so
 the generated C was being compared against an uncommitted emitter as well.
 
+**The same question, asked of the other outside tree.** `MONOCYPHER_DIR` points
+at a sibling project's checkout, and the three Monocypher tests are the only
+results here that depend on anything outside this repository. That one is
+clean -- a submodule of fuzzypickles pinned at 4.0.3 -- so the risk is smaller,
+but the claim was equally unpinned: *"the AEAD round-trips"* is not a claim
+and *"it round-trips against Monocypher 4.0.3"* is. The build prints the
+version now, and crypto is where that matters most, since a patched copy at
+the same path is exactly the thing worth naming.
+
+**And the new gate paid for itself the same afternoon.** situ committed the
+runtime change a few minutes later, at `8257f7f`, and the target then reported
+a drift that was real -- the same complaint as before, about a genuine
+difference from a genuine commit, so re-vendoring stamped a provenance that is
+true. The vendored runtime gains `situ_span_t`, the scattered transform form
+of §13.2b, which this library does not use: it is for a codec covering spans
+with something uncovered between them, and `head` and `sealed` are adjacent.
+It is taken because the vendored copy tracks situ's runtime rather than the
+subset we happen to call.
+
+**Reported rather than refused**, and the asymmetry with situ is deliberate:
+nothing is vendored *from* Monocypher, so a dirty tree there cannot get a false
+provenance stamped on it. The worst case is a result nobody can reproduce,
+which naming the version fixes. situ needed a refusal because its worst case
+was a lie in a committed file.
+
 **`make installcheck` is what holds the table honest from outside.** Every
 suite here builds from inside the tree, which is the one arrangement a
 consumer never has — §7 has netcfgd's agent taking this as a submodule and

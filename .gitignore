@@ -50,3 +50,5 @@ __pycache__/
 /local/tests/line_test
 /local/tests/socket_test
 /local/tests/admit_test
+/.situ-head/
+/.gen.new/

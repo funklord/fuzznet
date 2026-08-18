@@ -196,8 +196,23 @@ CPPFLAGS   += -I$(MONOCYPHER_DIR)/src
 # code-style.md exempts vendored sources from our rules, and -Wconversion
 # against somebody else's crypto is noise nobody will read, which is how a
 # warning that matters gets missed.
+#
+# WHICH Monocypher is printed, for the reason `make schema` prints which situ:
+# these tests are the only ones here whose result depends on a tree outside
+# this repository, and "the AEAD round-trips" is not a claim while "it
+# round-trips against Monocypher 4.0.3 at ab2b16d" is. Crypto especially --
+# a patched copy at the same path is exactly the thing worth naming.
+#
+# Reported rather than refused, unlike situ's. Nothing is vendored FROM here,
+# so a dirty tree cannot get a false provenance stamped on it; the worst case
+# is a result somebody cannot reproduce, which the line below fixes.
 $(BUILD_DIR)/monocypher.o: $(MONOCYPHER_DIR)/src/monocypher.c
 	@mkdir -p $(dir $@)
+	@if git -C "$(MONOCYPHER_DIR)" rev-parse --git-dir >/dev/null 2>&1; then \
+		echo "monocypher: `git -C $(MONOCYPHER_DIR) describe --tags --always --dirty 2>/dev/null`"; \
+	else \
+		echo "monocypher: $(MONOCYPHER_DIR) is not a git checkout, so its version is unknown"; \
+	fi
 	$(CC) -Os -g -c $< -o $@
 
 # Each names its own objects rather than linking $(MONO_OBJS) wholesale.
@@ -713,13 +728,13 @@ schema:
 	@for f in frame.c frame.h frame_relate.c frame_relate.h; do \
 		cmp -s $(BUILD_DIR)/.gen.new/$$f wire/generated/$$f || { \
 			echo "schema: wire/generated/$$f is stale"; \
-			rm -rf $(BUILD_DIR)/.gen.new; exit 1; }; \
+			rm -rf $(BUILD_DIR)/.gen.new $(BUILD_DIR)/.situ-head; exit 1; }; \
 	done
 	@for f in situ.h situ.c; do \
 		tail -n +2 wire/generated/$$f | sed '1,/^ \*\//d' > $(BUILD_DIR)/.gen.new/$$f.body; \
 		cmp -s $(BUILD_DIR)/.gen.new/$$f.body $(BUILD_DIR)/.situ-head/runtime/c/$$f || { \
 			echo "schema: wire/generated/$$f has drifted from situ's runtime"; \
-			rm -rf $(BUILD_DIR)/.gen.new; exit 1; }; \
+			rm -rf $(BUILD_DIR)/.gen.new $(BUILD_DIR)/.situ-head; exit 1; }; \
 	done
 	@rm -rf $(BUILD_DIR)/.gen.new
 	@rm -rf $(BUILD_DIR)/.situ-head
