@@ -178,8 +178,15 @@ struct fzn_head {
 	// enforce it.
 	//
 	// 1024 is a placeholder chosen to be smaller than any plausible MTU.
-	// The 2018 generation picked 512 (sec 12); the real number wants
-	// measuring against netcfgd's largest chunk.
+	// NOT a placeholder any more, and not netcfgd's number to give. A
+	// response's size sets how MANY chunks there are, not how big one is;
+	// what bounds a chunk is the smallest path it must cross whole, since
+	// fragmented UDP is widely dropped and avoiding it is why this library
+	// chunks at all. RFC 8200 guarantees 1280 bytes on every IPv6 link,
+	// less 48 of IPv6 and UDP headers, less 144 of frame: 1088 is the
+	// largest payload that fits, and 1024 sits under it with 64 bytes of
+	// room for an extension header or a tunnel. Asserted in
+	// wire/tests/constants_test.c. The 2018 generation picked 512 (sec 12).
 	u16  length   [max = 1024];
 }
 

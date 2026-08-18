@@ -8,8 +8,8 @@
  *
  * WHY THE DUPLICATION IS CORRECT and the fix is a check rather than an
  * include. These modules must not depend on the generated header: their
- * independence from the schema is what keeps them buildable while sec 10
- * step 2 is blocked, and it is what lets a consumer take the replay window
+ * independence from the schema is what kept them buildable while sec 10
+ * step 2 was blocked, and what lets a consumer take the replay window
  * without taking `situc`. So the numbers are repeated on purpose. What was
  * missing was anything to notice when a repetition stopped being a copy.
  *
@@ -79,6 +79,31 @@ _Static_assert(SITU_FZN_FRAME_SIZE_MIN == SITU_FZN_HOP_SIZE_MAX + SITU_FZN_HEAD_
                                                   SITU_FZN_FRAME_TAG_COUNT,
                 "fzn_frame's fixed part no longer accounts for its minimum size");
 
+/* THE PAYLOAD BOUND AGAINST THE PATH, which is what actually decides it.
+ *
+ * `frame.situ` calls `[max = 1024]` a placeholder wanting measurement against
+ * netcfgd's largest chunk, and that is the wrong question: chunking means a
+ * response's size sets the chunk COUNT, not the chunk size. What bounds a
+ * chunk is the smallest path a datagram must cross whole, because fragmented
+ * UDP is widely dropped and avoiding it is the reason this library chunks at
+ * all.
+ *
+ * RFC 8200 requires every IPv6 link to carry 1280 bytes, so that is the floor
+ * a self-contained frame has to fit under. Forty of IPv6 header and eight of
+ * UDP leave 1232, against a largest frame of 1168 -- 64 bytes spare, which is
+ * room for one extension header or a tunnel and is the margin worth keeping.
+ *
+ * The largest payload that would still fit is 1088. 1024 is under it
+ * deliberately rather than accidentally, and this is the assertion that says
+ * so: raise `[max]` past 1088 and a full frame stops fitting the smallest
+ * link IPv6 guarantees, which is a decision to take deliberately rather than
+ * discover from a router dropping traffic. */
+#define FZN_IPV6_MIN_MTU     1280u
+#define FZN_IPV6_UDP_HEADERS 48u
+
+_Static_assert(SITU_FZN_FRAME_SIZE_MAX + FZN_IPV6_UDP_HEADERS <= FZN_IPV6_MIN_MTU,
+                "a largest frame no longer fits the smallest link IPv6 guarantees");
+
 /* Internal consistency, which is a weaker claim than the ones above and is
  * here because it belongs with them: the 48 bytes commitment.c derives are
  * the key and the commitment and nothing else. */
@@ -137,6 +162,6 @@ int main(void)
 	      "the commitment field does not lie within the frame");
 
 	printf("constants_test: %d checks, %d failure(s); %d constants pinned at compile time\n",
-	       checks, failures, 7);
+	       checks, failures, 8);
 	return failures == 0 ? 0 : 1;
 }

@@ -355,7 +355,7 @@ module exists to prevent.
 **The ceiling is a copy, and the copy is tethered.** `chunk/split.h` must not
 include a generated header: that module's independence from the schema is what
 kept it buildable while §10 step 2 was blocked, and keeps it independent of
-the schema now that step 2 is done. So the number is repeated, and
+the schema now that step 2 can proceed. So the number is repeated, and
 `chunk/tests/agreement_test.c` static-asserts it against the generated header,
 which is the only place both are visible. Two assertions rather than one,
 because the second is the premise of the first:
@@ -1349,12 +1349,20 @@ disagreement rather than in `build` alone:
 | `situc build` | refuses | refuses |
 | `situc verify` | refuses | — |
 
-That was the state at the time. **Both halves are settled since**
-(2026-08-18): `situc wire`, `map` and `build` all accept `frame.situ`, so the
-four-command disagreement is gone, and §10 step 2 is done -- see the AEAD codec
-above. `situc verify` refuses only for want of test vectors, which is an
-argument this reproduction never passed it rather than a verdict on the
-schema.
+**The disagreement is gone since** (2026-08-18): `situc wire`, `map` and
+`build` all accept `frame.situ`, so a schema can no longer declare a bound the
+compiler refuses to enforce. `situc verify` refuses only for want of test
+vectors, which is an argument this reproduction never passed it rather than a
+verdict on the schema.
+
+**That unblocks §10 step 2; it does not finish it, and this document said
+otherwise for an afternoon.** Step 2 is *finish the schema against a real
+payload* -- the `[max = 1024]` placeholder and §13's overhead question -- and
+neither is settled by `situc` accepting the file. The AEAD codec, written the
+same day, is not step 2 either: it is the extern codec §4.7 step 5 wanted, and
+it was never a numbered step. Corrected here because a step recorded as done is
+a step nobody picks up, and this one is now the next real piece of work rather
+than a finished one.
 
 What situ has been doing in those eight commits is the same lesson from the
 other end — running generated code rather than only compiling it ("run a
@@ -1957,10 +1965,42 @@ hand-written transport and situ is generating most of it (§7a). Steps 2, 4 and
 
 1. ~~Evaluate `situ` against the frame~~ **done** (§6): the frame is a schema,
    the crypto model is built, and `wire/frame.situ` compiles.
-2. **Finish the schema against a real payload.** The `[max = 1024]` on the
-   sealed region is a placeholder; netcfgd's largest chunk decides it, and the
-   96-to-128-byte overhead question in §13 wants settling before anything is
-   generated from it twice.
+2. ~~**Finish the schema against a real payload.**~~ **Both halves settled**
+   (2026-08-18).
+
+   The overhead is **144 bytes, measured** rather than argued about, and
+   `wire/tests/constants_test.c` pins it against the generated layout so it
+   cannot drift again -- which it had, twice, while it was only prose.
+
+   The `[max = 1024]` is no longer a placeholder, and **the question this step
+   asked was the wrong one**. It said netcfgd's largest chunk decides it.
+   Netcfgd's documents name no number, and asking would not have helped:
+   chunking means a response's size sets how *many* chunks there are, not how
+   big one is. What bounds a chunk is **the smallest path it must cross
+   whole**, because fragmented UDP is widely dropped and avoiding it is the
+   reason this library chunks at all -- netcfgd's own brief says so in the
+   paragraph that asks for chunking.
+
+   So the number comes from the path. RFC 8200 guarantees 1280 bytes on every
+   IPv6 link; less 40 of IPv6 header and 8 of UDP leaves 1232; a largest frame
+   is 1168, which fits with **64 bytes spare** for an extension header or a
+   tunnel. The largest payload that would still fit is **1088**, so 1024 sits
+   under the real ceiling deliberately rather than by luck.
+
+   | path | UDP payload | 1168-byte frame |
+   |---|---|---|
+   | IPv6 minimum, RFC 8200 | 1232 | fits, 64 spare |
+   | IPv6 over Ethernet | 1452 | fits, 284 spare |
+   | IPv4 over Ethernet | 1472 | fits, 304 spare |
+   | IPv4 minimum reassembly, 576 | 548 | does **not** fit |
+
+   The last row is left standing rather than designed around: 576 is a floor
+   every IPv4 host must be able to reassemble, not an MTU any real path
+   offers, and a frame that needed fragmenting to cross it would be dropped
+   for being fragmented long before its size mattered.
+
+   `constants_test.c` asserts the binding constraint, so raising `[max]` past
+   1088 stops the build rather than stopping traffic on somebody's tunnel.
 3. ~~**`chain/`** — the capability and identity model~~ **verification is
    built** (2026-08-14). It stayed ours throughout every scope change because
    it is semantics rather than layout or transport, and that is exactly what
