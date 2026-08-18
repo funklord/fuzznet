@@ -668,8 +668,37 @@ schema:
 		exit 1; \
 	fi
 	@test -x "$(SITU_DIR)/bin/situc" || { echo "schema: no situc at $(SITU_DIR)/bin"; exit 1; }
-	@$(SITU_DIR)/bin/situc wire --check wire/frame.situ
-	@$(SITU_DIR)/bin/situc map wire/frame.situ > $(BUILD_DIR)/.frame.map.new
+	@# CHECKED AGAINST A COMMIT, NOT AGAINST A WORKING TREE.
+	@#
+	@# Everything below compares this repository's committed artifacts with
+	@# what situ produces. Comparing against $(SITU_DIR) as it sits on disk
+	@# makes that answer depend on whether anybody is mid-edit over there --
+	@# and a session usually is.
+	@#
+	@# Both failure directions happened here within a minute. The target
+	@# refused, naming our vendored runtime as drifted; our copy turned out
+	@# identical to situ's HEAD, and the difference was an uncommitted
+	@# change in their working tree. Re-vendoring "to fix the drift" then
+	@# took that work in progress and stamped it with a commit hash that
+	@# does not contain it -- a provenance banner that was a lie, and a
+	@# check that would afterwards have passed. The dangerous direction is
+	@# the pass, not the failure.
+	@#
+	@# So HEAD is extracted read-only with `git archive`, which touches
+	@# nothing in their tree -- no worktree, no stash, no checkout, all of
+	@# which would disturb a session working there. The commit is printed,
+	@# because "matches situ" is not a claim and "matches situ at cd0cb01"
+	@# is.
+	@rm -rf $(BUILD_DIR)/.situ-head && mkdir -p $(BUILD_DIR)/.situ-head
+	@if git -C "$(SITU_DIR)" rev-parse --git-dir >/dev/null 2>&1; then \
+		git -C "$(SITU_DIR)" archive HEAD | tar -x -C $(BUILD_DIR)/.situ-head; \
+		echo "schema: against situ `git -C $(SITU_DIR) rev-parse --short HEAD`"; \
+	else \
+		echo "schema: $(SITU_DIR) is not a git checkout, so nothing can be pinned"; \
+		rm -rf $(BUILD_DIR)/.situ-head; exit 1; \
+	fi
+	@$(BUILD_DIR)/.situ-head/bin/situc wire --check wire/frame.situ
+	@$(BUILD_DIR)/.situ-head/bin/situc map wire/frame.situ > $(BUILD_DIR)/.frame.map.new
 	@if ! cmp -s $(BUILD_DIR)/.frame.map.new wire/frame.situ.map; then \
 		echo "schema: wire/frame.situ.map is stale -- the schema moved without it"; \
 		rm -f $(BUILD_DIR)/.frame.map.new; exit 1; \
@@ -679,7 +708,7 @@ schema:
 	@# contract: committed so consumers need no situc, checked so they
 	@# cannot quietly diverge from the schema that produced them.
 	@rm -rf $(BUILD_DIR)/.gen.new && mkdir -p $(BUILD_DIR)/.gen.new
-	@$(SITU_DIR)/bin/situc build --target c --layer relate \
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --layer relate \
 	         --out $(BUILD_DIR)/.gen.new wire/frame.situ >/dev/null 2>&1
 	@for f in frame.c frame.h frame_relate.c frame_relate.h; do \
 		cmp -s $(BUILD_DIR)/.gen.new/$$f wire/generated/$$f || { \
@@ -688,11 +717,12 @@ schema:
 	done
 	@for f in situ.h situ.c; do \
 		tail -n +2 wire/generated/$$f | sed '1,/^ \*\//d' > $(BUILD_DIR)/.gen.new/$$f.body; \
-		cmp -s $(BUILD_DIR)/.gen.new/$$f.body $(SITU_DIR)/runtime/c/$$f || { \
+		cmp -s $(BUILD_DIR)/.gen.new/$$f.body $(BUILD_DIR)/.situ-head/runtime/c/$$f || { \
 			echo "schema: wire/generated/$$f has drifted from situ's runtime"; \
 			rm -rf $(BUILD_DIR)/.gen.new; exit 1; }; \
 	done
 	@rm -rf $(BUILD_DIR)/.gen.new
+	@rm -rf $(BUILD_DIR)/.situ-head
 	@echo "schema: contract, map, generated C and vendored runtime all match"
 
 # Does a consumer outside this tree still work? Nothing else asks.

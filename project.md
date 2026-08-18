@@ -2173,6 +2173,37 @@ its first use.
 The discrepancies this section used to carry are resolved in the table
 above rather than annotated beneath it.
 
+**`make schema` was checking against a moving target, and both failure
+directions happened within a minute** (2026-08-18).
+
+It compared this repository's committed artifacts against `$(SITU_DIR)` as it
+sat on disk. situ has a session working in it most of the time, so that answer
+depended on whether anybody was mid-edit.
+
+The target refused, naming `wire/generated/situ.h` as drifted from situ's
+runtime. **Our copy was identical to situ's HEAD**; the difference was an
+uncommitted change in their working tree. Re-vendoring "to fix the drift" then
+took that work in progress and stamped it with a commit hash that does not
+contain it -- **a provenance banner that was a lie, and a check that would
+afterwards have passed.**
+
+The pass is the dangerous direction, and it is the one nearly committed. A
+failure blames this repository for somebody else's edit and gets investigated;
+a pass blesses a vendored copy matching no commit anywhere and gets cited.
+
+`git archive HEAD` is extracted read-only now -- no worktree, no stash, no
+checkout, all of which would disturb a session working there -- and everything
+is compared against that. **The commit is printed**, because "matches situ" is
+not a claim and "matches situ at `cd0cb01`" is.
+
+Worth stating plainly: every `make schema` result cited in this document before
+that date was a comparison against a working tree rather than a commit. They
+were not wrong -- the artifacts did match what was on disk -- but they were not
+reproducible, and a reader should read them as weaker than the ones after it.
+
+It also turned up that situ's *compiler* was dirty, not only its runtime, so
+the generated C was being compared against an uncommitted emitter as well.
+
 **`make installcheck` is what holds the table honest from outside.** Every
 suite here builds from inside the tree, which is the one arrangement a
 consumer never has — §7 has netcfgd's agent taking this as a submodule and
