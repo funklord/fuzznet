@@ -28,9 +28,15 @@
 
 #include "../session/aead.h"
 #include "../session/commitment.h"
+#include "../session/random.h"
 
 #include <stddef.h>
 #include <stdint.h>
+
+/* Bytes a frame costs before any payload. Stated here so a sender can size a
+ * buffer without reading the schema, and checked against the generated layout
+ * in wire/tests/constants_test.c rather than trusted. */
+#define FZN_SEAL_OVERHEAD 144u
 
 typedef enum fzn_seal_err {
 	FZN_SEAL_OK = 0,
@@ -46,6 +52,11 @@ typedef enum fzn_seal_err {
 	/* The key-commitment in the header is not the one this key derives.
 	 * DISTINCT FROM A BAD TAG on purpose -- see fzn_seal_open(). */
 	FZN_SEAL_ERR_COMMITMENT = -4,
+	/* No nonce could be drawn. A refusal rather than a frame sealed under
+	 * something predictable -- see session/random.h. */
+	FZN_SEAL_ERR_NO_NONCE = -5,
+	/* The caller's buffer is too small for the frame it asked for. */
+	FZN_SEAL_ERR_CAPACITY = -6,
 } fzn_seal_err_t;
 
 /* What opening a frame yields: pointers into the caller's own buffer, which
@@ -86,6 +97,52 @@ fzn_seal_err_t fzn_seal_open(uint8_t *frame, size_t frame_len,
                               const uint8_t key[FZN_AEAD_KEY_LEN],
                               const uint8_t commitment[FZN_COMMITMENT_LEN],
                               const fzn_aead_ops_t *aead, fzn_opened_t *out);
+
+/* What a sender is putting into one frame. Everything here is the caller's
+ * except the nonce, which is deliberately absent: `fzn_seal_build` draws it
+ * from the entropy seam and refuses if it cannot, because a nonce a caller
+ * supplied is a nonce a caller can repeat. See `session/random.h` for what
+ * repeating one costs. */
+typedef struct fzn_send {
+	const uint8_t *sender;     /* 32 bytes */
+	const uint8_t *capability; /* FZN_CAP_ID_LEN, sealed rather than sent clear */
+	const uint8_t *payload;
+	size_t payload_len;
+	uint64_t expires_at;
+	uint32_t msg;
+	uint16_t index;
+	uint16_t chunks;
+	uint8_t kind;
+} fzn_send_t;
+
+/* Build one frame and seal it, which is the send path's whole order in one
+ * call.
+ *
+ * THE ORDER IS HERE RATHER THAN IN A DOCUMENT, and that is the point. sec 4.7
+ * states what a receiver must do and `frame/tests/receive_fuzz.c` runs it;
+ * the sender's order was never written down at all, and it has traps that a
+ * consumer would meet one at a time:
+ *
+ *   1. **A fresh nonce per frame**, from the entropy seam, refusing if none
+ *      can be had. Not per message -- per FRAME. Two chunks of one message
+ *      sealed under one nonce is the same key-and-nonce reuse as two
+ *      unrelated frames, and this is the trap a caller is likeliest to walk
+ *      into, because "one message, one nonce" reads as tidy.
+ *   2. **Every authenticated byte final before the tag.** The header is the
+ *      AEAD's associated data, so a field written after sealing is a field
+ *      the tag does not cover; `length` is worse still, since the sealed
+ *      region's extent is computed from it and writing it late moves the
+ *      span the tag was taken over.
+ *   3. **The capability and the payload inside the seal**, written as
+ *      plaintext and encrypted in place by the same call.
+ *
+ * `frame` receives the whole datagram and `*frame_len` its length. The buffer
+ * must have room for FZN_SEAL_OVERHEAD + `payload_len`.
+ */
+fzn_seal_err_t fzn_seal_build(uint8_t *frame, size_t frame_cap, size_t *frame_len,
+                               const fzn_send_t *what, const uint8_t key[FZN_AEAD_KEY_LEN],
+                               const uint8_t commitment[FZN_COMMITMENT_LEN],
+                               const fzn_random_ops_t *rng, const fzn_aead_ops_t *aead);
 
 /* Seal a frame whose header and plaintext a caller has already written.
  * Encrypts the sealed region in place and writes the tag where the layout

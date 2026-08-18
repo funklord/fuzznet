@@ -720,6 +720,66 @@ Neither is a rule this library enforces — it does not know what a payload
 means — but both are reasons the library must never grow a convenience that
 makes carrying a blob of executable content easy and obvious.
 
+### 4.7a The order a sender builds a frame in
+
+**§4.7 states what a receiver must do and nothing stated what a sender must,
+which is the more dangerous half.** A receiver that runs the checks out of
+order spends work it did not need to; a sender that does gets it wrong in ways
+the far end cannot see.
+
+The order is **in `fzn_seal_build` rather than in this list**, and that is the
+point: a consumer who does not write the order cannot write it wrong. What the
+list is for is saying why each step is where it is.
+
+1. **A fresh nonce, before the frame is begun.** Drawn from the entropy seam
+   (`session/random.h`), and a source that cannot answer means no frame at
+   all -- the caller's buffer is left untouched, so there is no half-built
+   frame for anybody to send by mistake.
+
+   **Per FRAME, not per message**, and this is the trap a caller is likeliest
+   to walk into, because "one message, one nonce" reads as tidy. Two chunks of
+   one message under one nonce is the same key-and-nonce reuse as two
+   unrelated frames, and §4.5 records what that costs: not a weaker seal, no
+   seal, plus the Poly1305 key. It is also the one sender mistake a receiver
+   cannot catch -- the replay window sees a repeated frame, not a repeated
+   nonce on two different ones.
+
+2. **Every authenticated byte final before the tag.** The header is the AEAD's
+   associated data, so a field written after sealing is a field the tag does
+   not cover. `length` is worse than the rest: the sealed region's extent is
+   computed from it, so writing it late moves the span the tag was taken over.
+
+3. **The capability and the payload into the seal**, as plaintext, encrypted
+   in place by the same call. The gate is opened with a verdict of *verified*
+   to write them, which is not the abuse it looks like: the gate exists to
+   stop a **receiver** addressing plaintext it has not authenticated, and a
+   sender is the author of those bytes rather than a reader of somebody
+   else's.
+
+4. **Seal, and finalize.** situ tracks a dirty bit for exactly this: the
+   coverage-aware setters mark the tag stale as the header is written, and
+   `fzn_seal_close` clears it. The build asserts the bit is **set** before
+   sealing, which is what makes the choice of setter visible -- the plain
+   `situ_fzn_head_*_set` family writes the same bytes and leaves the layout
+   believing the tag still covers them.
+
+**Two mistakes on the way in, both worth keeping.**
+
+The setters take the **frame** view, not the head view, and nothing in the
+names says so: `situ_fzn_frame_head_kind_set` reads as "the head's kind" and
+writes `view.base[5]`, an offset from the frame. Handed a head view they
+compile, run, and put every field five bytes late. Both are `situ_view_t`, so
+this is a type-correct wrong argument -- **the second time that exact
+confusion has cost time here**, the first being recorded in
+`wire/tests/generated_test.c`.
+
+And a `situ_fzn_frame_validate` call sat before the seal with a comment about
+not spending a tag on a bad shape. `fzn_seal_close` validates through the same
+helper before it seals, so the tag was never spent either way. Sabotaging it
+and watching all 54 assertions still pass is what found it: **the second piece
+of redundant defence this file has grown and had removed**, and duplicated
+checks cost a reader the time to work out which one is load-bearing.
+
 ### 4.7 The order a receiver runs these checks in
 
 **Unstated until 2026-08-14, and it should not have been.** §9 puts
@@ -2369,7 +2429,7 @@ hedging: is there test work left.
 | `frame/freshness.c` | 100% of 43 | 100% of 44 |
 | `chunk/reassembly.c` | 100% of 98 | 100% of 98 |
 | `chunk/split.c` | 100% of 24 | 100% of 28 |
-| `wire/seal.c` | 100% of 58 | 79.2% of 48 |
+| `wire/seal.c` | 99.0% of 96 | 70.6% of 102 |
 | `session/random.c` | 100% of 5 | 100% of 8 |
 | `session/random_linux.c` | 86.7% of 15 | **66.7% of 12** |
 | `chain/sign_monocypher.c` | 100% of 17 | 100% of 8 |

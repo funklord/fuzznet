@@ -211,7 +211,7 @@ $(BUILD_DIR)/session/tests/aead_monocypher_test.o: session/tests/aead_monocypher
 
 $(MONO_AEAD): $(BUILD_DIR)/session/tests/aead_monocypher_test.o \
               $(BUILD_DIR)/session/aead_monocypher.o $(BUILD_DIR)/monocypher.o \
-              $(BUILD_DIR)/wire/seal.o \
+              $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/session/random.o \
               $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -383,7 +383,7 @@ $(BUILD_DIR)/wire/tests/seal_test.o: wire/tests/seal_test.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
 
 $(BUILD_DIR)/wire/tests/seal_test: $(BUILD_DIR)/wire/tests/seal_test.o \
-                                   $(BUILD_DIR)/wire/seal.o \
+                                   $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/session/random.o \
                                    $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@

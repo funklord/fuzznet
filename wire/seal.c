@@ -100,6 +100,112 @@ fzn_seal_err_t fzn_seal_open(uint8_t *frame, size_t frame_len,
 	return FZN_SEAL_OK;
 }
 
+fzn_seal_err_t fzn_seal_build(uint8_t *frame, size_t frame_cap, size_t *frame_len,
+                               const fzn_send_t *what, const uint8_t key[FZN_AEAD_KEY_LEN],
+                               const uint8_t commitment[FZN_COMMITMENT_LEN],
+                               const fzn_random_ops_t *rng, const fzn_aead_ops_t *aead)
+{
+	situ_msg_t msg;
+	situ_view_t fv, hv, hopv;
+	situ_fzn_frame_sealed_t gate;
+	uint8_t nonce[FZN_AEAD_NONCE_LEN];
+	size_t total;
+
+	if (!frame || !frame_len || !what || !what->sender || !what->capability || !key ||
+	    !commitment || !rng || !aead)
+		return FZN_SEAL_ERR_MALFORMED;
+	if (!what->payload && what->payload_len != 0)
+		return FZN_SEAL_ERR_MALFORMED;
+	if (what->payload_len > UINT16_MAX)
+		return FZN_SEAL_ERR_SHAPE;
+
+	total = (size_t)FZN_SEAL_OVERHEAD + what->payload_len;
+	if (frame_cap < total)
+		return FZN_SEAL_ERR_CAPACITY;
+
+	/* THE NONCE FIRST, and the frame is not begun until one exists. Doing
+	 * it here rather than after the header is written means a source that
+	 * cannot answer leaves the caller's buffer untouched, so there is no
+	 * half-built frame for anybody to send by mistake. */
+	if (!fzn_nonce_next(rng, nonce))
+		return FZN_SEAL_ERR_NO_NONCE;
+
+	memset(frame, 0, total);
+	situ_msg_init(&msg, frame, (uint32_t)total);
+	if (situ_fzn_frame_view(&msg, 0, (uint32_t)total, &fv) != SITU_OK)
+		return FZN_SEAL_ERR_SHAPE;
+	if (situ_fzn_hop_view(&msg, 0, &hopv) != SITU_OK)
+		return FZN_SEAL_ERR_SHAPE;
+	if (situ_fzn_frame_head_view(fv, &hv) != SITU_OK)
+		return FZN_SEAL_ERR_SHAPE;
+
+	situ_fzn_hop_version_set(hopv, 1);
+
+	/* THROUGH THE COVERAGE-AWARE SETTERS, which take the message and mark
+	 * the tag stale. The plain `situ_fzn_head_*_set` family would write
+	 * the same bytes and leave the layout believing the tag still covered
+	 * them -- the generated header says to prefer these, and the check
+	 * after this block is what makes the preference visible.
+	 *
+	 * THEY TAKE THE FRAME VIEW, NOT THE HEAD VIEW, and the names do not say
+	 * so: `situ_fzn_frame_head_kind_set` reads as "the head's kind" and its
+	 * body writes `view.base[5]`, which is an offset from the FRAME. Handed
+	 * `hv` they compile, run, and put every field five bytes late. That is
+	 * what a type-correct wrong argument looks like -- both are
+	 * `situ_view_t` -- and it is the second time this exact confusion has
+	 * cost time here; `wire/tests/generated_test.c` records the first. */
+	situ_fzn_frame_head_kind_set(&msg, fv, (situ_fzn_kind_t)what->kind);
+	situ_fzn_frame_head_expires_at_set(&msg, fv, what->expires_at);
+	situ_fzn_frame_head_msg_set(&msg, fv, what->msg);
+	situ_fzn_frame_head_index_set(&msg, fv, what->index);
+	situ_fzn_frame_head_chunks_set(&msg, fv, what->chunks);
+	/* `length` before anything reads the sealed region: its extent is
+	 * computed from this field, so writing it late would move the span the
+	 * tag is taken over. */
+	situ_fzn_frame_head_length_set(&msg, fv, (uint16_t)what->payload_len);
+
+	memcpy(situ_fzn_head_sender_ptr(hv), what->sender, SITU_FZN_HEAD_SENDER_COUNT);
+	memcpy(situ_fzn_head_nonce_ptr(hv), nonce, SITU_FZN_HEAD_NONCE_COUNT);
+	memcpy(situ_fzn_head_commitment_ptr(hv), commitment, SITU_FZN_HEAD_COMMITMENT_COUNT);
+
+	/* The header is written, so the layout must consider the tag stale. If
+	 * it does not, the setters above were not the coverage-aware ones and
+	 * a later `finalize` would be clearing a bit nothing had set. */
+	if (!situ_fzn_frame_tag_is_dirty(&msg))
+		return FZN_SEAL_ERR_SHAPE;
+
+	/* The sealed interior, as plaintext. The gate is opened with a verdict
+	 * of `verified` here, and that is not the abuse it looks like: the
+	 * gate exists to stop a RECEIVER addressing plaintext it has not
+	 * authenticated, and a sender is the author of these bytes rather than
+	 * a reader of somebody else's. */
+	if (situ_fzn_frame_sealed_open(fv, 1, &gate) != SITU_OK)
+		return FZN_SEAL_ERR_SHAPE;
+	memcpy(situ_fzn_frame_sealed_capability_ptr(gate), what->capability,
+	       SITU_FZN_FRAME_SEALED_CAPABILITY_COUNT);
+	if (what->payload_len > 0)
+		memcpy(situ_fzn_frame_sealed_payload_ptr(gate), what->payload, what->payload_len);
+
+	/* NO VALIDATE CALL HERE, and its absence is deliberate. One stood in
+	 * this spot with a comment about refusing a bad shape before the tag
+	 * is spent -- and `fzn_seal_close` validates through the same
+	 * `views()` helper before it seals, so the tag was never spent either
+	 * way and removing this changed nothing a test could see. It was
+	 * caught by sabotaging it and watching all 54 assertions still pass,
+	 * which is the second piece of redundant defence this file has grown
+	 * and removed. Duplicated checks read as thoroughness and cost a
+	 * reader the time to work out which one is load-bearing. */
+	{
+		fzn_seal_err_t err = fzn_seal_close(frame, total, key, aead);
+
+		if (err != FZN_SEAL_OK)
+			return err;
+	}
+
+	*frame_len = total;
+	return FZN_SEAL_OK;
+}
+
 fzn_seal_err_t fzn_seal_close(uint8_t *frame, size_t frame_len,
                                const uint8_t key[FZN_AEAD_KEY_LEN],
                                const fzn_aead_ops_t *aead)

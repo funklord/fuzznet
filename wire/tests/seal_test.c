@@ -15,6 +15,8 @@
 
 #include "../seal.h"
 
+#include "../../session/random.h"
+
 #include "frame.h"
 
 #include <stdio.h>
@@ -76,6 +78,26 @@ static int stub_open(void *ctx, const uint8_t *key, const uint8_t *nonce, const 
 	for (size_t i = 0; i < text_len; i++)
 		text[i] = (uint8_t)(text[i] ^ key[i % FZN_AEAD_KEY_LEN]);
 	return 1;
+}
+
+/* Entropy stubs for the send path: one that counts so nonces are known and
+ * distinct, one that refuses so the no-nonce path is reachable. */
+static int counting_fill(void *ctx, uint8_t *out, size_t len)
+{
+	unsigned *n = (unsigned *)ctx;
+
+	for (size_t i = 0; i < len; i++)
+		out[i] = (uint8_t)(*n * 7u + i);
+	(*n)++;
+	return 1;
+}
+
+static int refusing_fill(void *ctx, uint8_t *out, size_t len)
+{
+	(void)ctx;
+	(void)out;
+	(void)len;
+	return 0;
 }
 
 /* Offsets from wire/frame.situ.map, as in generated_test.c and for the same
@@ -261,6 +283,110 @@ int main(void)
 	frame[OFF_VERSION] = 3;
 	check(fzn_seal_close(frame, sizeof(frame), key, &aead) == FZN_SEAL_ERR_SHAPE,
 	      "sealing a frame the schema refuses");
+
+	/* THE SEND PATH, whose order is the library's rather than a document's.
+	 * A counting source stands in for entropy so the nonces are known and
+	 * the assertions can be about the order rather than about randomness. */
+	{
+		unsigned counter = 0;
+		fzn_random_ops_t rng = { counting_fill, &counter };
+		fzn_random_ops_t no_rng = { refusing_fill, NULL };
+		uint8_t built[FRAME_LEN], again[FRAME_LEN];
+		size_t built_len = 0, again_len = 0;
+		fzn_send_t what;
+
+		memset(&what, 0, sizeof(what));
+		what.sender = sealed + OFF_SENDER;
+		what.capability = CAP;
+		what.payload = PLAIN;
+		what.payload_len = PAYLOAD_LEN;
+		what.expires_at = 5000;
+		what.msg = 7;
+		what.index = 1;
+		what.chunks = 4;
+		what.kind = 2;
+
+		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, commitment,
+		                     &rng, &aead) == FZN_SEAL_OK,
+		      "building a frame was refused");
+		check(built_len == FRAME_LEN,
+		      "a built frame is not the overhead plus the payload");
+
+		/* It opens, which is the round trip the send path exists for. */
+		check(fzn_seal_open(built, built_len, key, commitment, &aead, &opened) ==
+		              FZN_SEAL_OK,
+		      "a frame this library built could not be opened by it");
+		check(memcmp(opened.payload, PLAIN, PAYLOAD_LEN) == 0,
+		      "the payload did not survive build and open");
+		check(memcmp(opened.capability, CAP, 32) == 0,
+		      "the capability did not survive build and open");
+		check(opened.msg == 7 && opened.index == 1 && opened.chunks == 4 &&
+		              opened.kind == 2 && opened.expires_at == 5000,
+		      "a header field did not survive build and open");
+
+		/* A FRESH NONCE PER FRAME, which is the trap this call exists to
+		 * close. Two frames built from identical arguments must differ,
+		 * and must differ in the nonce specifically -- not merely in the
+		 * ciphertext, which would also change if the nonce were reused
+		 * but something else moved. */
+		check(fzn_seal_build(again, sizeof(again), &again_len, &what, key, commitment,
+		                     &rng, &aead) == FZN_SEAL_OK,
+		      "building a second frame was refused");
+		check(memcmp(built + OFF_NONCE, again + OFF_NONCE, FZN_AEAD_NONCE_LEN) != 0,
+		      "two frames built from identical arguments carry the same nonce, which "
+		      "is the one sender mistake a receiver cannot catch");
+		check(memcmp(built, again, FRAME_LEN) != 0,
+		      "two frames built from identical arguments are byte-identical");
+
+		/* NO NONCE, NO FRAME. A source that cannot answer must leave the
+		 * caller's buffer untouched rather than produce something
+		 * sealed under a predictable one. */
+		memset(again, 0xee, sizeof(again));
+		check(fzn_seal_build(again, sizeof(again), &again_len, &what, key, commitment,
+		                     &no_rng, &aead) == FZN_SEAL_ERR_NO_NONCE,
+		      "a frame was built without a nonce");
+		{
+			int untouched = 1;
+
+			for (size_t i = 0; i < sizeof(again); i++)
+				untouched = untouched && again[i] == 0xee;
+			check(untouched, "a refused build left a half-written frame in the buffer");
+		}
+
+		/* Capacity, which a sender gets wrong by forgetting the
+		 * overhead rather than by miscounting the payload. */
+		check(fzn_seal_build(built, FRAME_LEN - 1u, &built_len, &what, key, commitment,
+		                     &rng, &aead) == FZN_SEAL_ERR_CAPACITY,
+		      "a frame was built into a buffer one byte short");
+		check(FZN_SEAL_OVERHEAD == 144u, "the advertised overhead is not the real one");
+
+		/* A shape the schema refuses must be refused before the tag is
+		 * spent, on the way out as well as on the way in. */
+		what.chunks = 0;
+		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, commitment,
+		                     &rng, &aead) == FZN_SEAL_ERR_SHAPE,
+		      "a frame claiming zero chunks was built and sealed");
+		what.chunks = 4;
+		what.index = 9;
+		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, commitment,
+		                     &rng, &aead) == FZN_SEAL_ERR_SHAPE,
+		      "a frame whose index is past its chunk count was built and sealed");
+		what.index = 1;
+
+		/* Arguments. */
+		check(fzn_seal_build(NULL, sizeof(built), &built_len, &what, key, commitment,
+		                     &rng, &aead) == FZN_SEAL_ERR_MALFORMED, "a null frame");
+		check(fzn_seal_build(built, sizeof(built), NULL, &what, key, commitment, &rng,
+		                     &aead) == FZN_SEAL_ERR_MALFORMED, "a null length out");
+		check(fzn_seal_build(built, sizeof(built), &built_len, NULL, key, commitment,
+		                     &rng, &aead) == FZN_SEAL_ERR_MALFORMED, "a null send struct");
+		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, commitment,
+		                     NULL, &aead) == FZN_SEAL_ERR_MALFORMED, "a null rng");
+		what.payload = NULL;
+		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, commitment,
+		                     &rng, &aead) == FZN_SEAL_ERR_MALFORMED,
+		      "a null payload with a non-zero length");
+	}
 
 	printf("seal_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
