@@ -2145,6 +2145,26 @@ provenance stamped on it. The worst case is a result nobody can reproduce,
 which naming the version fixes. situ needed a refusal because its worst case
 was a lie in a committed file.
 
+**`make install` does not produce an installation anybody can build against,
+and that is worth stating rather than discovering.** It installs headers, and
+§7 deliberately builds no archive -- consumers compile these sources into their
+own objects, with their own flags, from a submodule. So an installed prefix
+resolves `<fuzznet/local/peer.h>` and has nothing behind it.
+
+**A consumer walked into exactly that within a day** (2026-08-18). raidcfgd's
+build rule for the socket module fuzznet handed it tested for `local/peer.h`
+before compiling `local/peer.c` beside it, and its comment offered
+`<prefix>/include/fuzznet` as one of two arrangements. The header check passed
+against an install and the compile failed a step later, naming a path nobody
+would connect back to that variable. Fixed there: the guard tests for the
+source file, and the comment says source tree and gives the reason.
+
+The target is not useless -- `installcheck` compiles a consumer against the
+installed headers and catches a relative include that resolves only inside this
+tree, which is a real defect class it has already found twice. But *installed
+headers* and *an installation* are different things, and the second is what a
+reader assumes when they see `make install`.
+
 **`make installcheck` is what holds the table honest from outside.** Every
 suite here builds from inside the tree, which is the one arrangement a
 consumer never has — §7 has netcfgd's agent taking this as a submodule and
