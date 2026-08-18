@@ -765,6 +765,26 @@ tell" into "no" for a table in the wrong order, which is a definite wrong
 answer from the ordering of a consumer's list. The test builds that table
 deliberately and a sabotage confirms it.
 
+**Order independence is fuzzed rather than exemplified**
+(`local/tests/vocabulary_fuzz.c`). The hand-written test checks it with one
+table, built to expose the early-return bug -- which is one permutation of one
+table against one peer, and the property is about all of them. A consumer
+orders its table however reads well, so the order is not something this library
+influences and not something a chosen case covers.
+
+The harness draws a random peer, table and verb, and asserts three things: an
+independent **model** of the same question, written out here rather than asked
+of the module, since a checker that asked `vocabulary.c` whether it was right
+would agree with it always; **the same verdict over a shuffled table**; and
+separately, that `MEMBER` never comes back for a peer whose groups could not be
+read. That last is asserted on its own because the three verdicts are not
+equally serious -- `UNKNOWN` and `NOT_MEMBER` both deny, so confusing them is a
+quality-of-message problem, while admitting on an unreadable group list is the
+failure raidcfgd's requirement is about.
+
+Reinstating the early return fails it on **case 1**, through the model rather
+than through a case anybody chose.
+
 **A verb longer than `FZN_VERB_MAX` is refused rather than truncated.**
 raidcfgd adopts netcfgd's newline-delimited JSON and records that its
 mitigations -- "a hard bound on framing, and both parsers fuzzed" -- are the

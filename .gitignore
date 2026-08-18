@@ -46,3 +46,4 @@ __pycache__/
 /frame/tests/receive_fuzz
 /session/tests/random_test
 /local/tests/vocabulary_test
+/local/tests/vocabulary_fuzz
