@@ -720,6 +720,40 @@ Neither is a rule this library enforces — it does not know what a payload
 means — but both are reasons the library must never grow a convenience that
 makes carrying a blob of executable content easy and obvious.
 
+### 4.8c The order a local server admits a request in
+
+The third of these, after §4.7's receive order and §4.7a's send order, and the
+one a consumer implements themselves -- there is no `fzn_local_serve()`,
+because that would be the accept loop §4.8b refuses to own. So this is a list
+rather than a function, and the harness is what keeps it honest.
+
+1. **Accept, which cannot be done without credentials.** `fzn_socket_accept`
+   returns a descriptor and its peer together, so this step cannot be skipped
+   by forgetting it.
+2. **The group, before a byte of the peer's input is read.** The verdict is
+   available from the accept alone. Reading first means buffering bytes from
+   somebody who may be refused, and parsing them means doing it on their say-so.
+3. **Framing, bounded** (`local/line.h`). An over-long request ends the
+   connection and yields no line, so nothing downstream is asked to judge a
+   verb that never completed.
+4. **The verb, against the peer that sent it** (`local/vocabulary.h`) --
+   **every verb, not once per connection.** That is raidcfgd's requirement in
+   one line: the connection being admitted is not the question.
+5. **Dispatch**, which is the consumer's and where this library stops.
+
+**`local/tests/admit_test.c` drives all four modules over a real socket**,
+because each of them tests its own half and none crosses a seam. The failure
+worth catching here lives between them: `fzn_socket_accept` fills an
+`fzn_peer_t` and `fzn_vocabulary_admit` reads it, so a struct written by one
+and misread by the other would pass both suites and fail only in a daemon.
+
+The assertion that earns the file is the **fail-closed path across that
+seam**. A peer whose supplementary list could not be read is what accept
+produces when `/proc` is unreadable, and the vocabulary must answer UNKNOWN --
+not a definite no, and certainly not an allow. Both sabotages bite: making an
+unknown list definite fails one assertion, making it an allow fails two, and
+the second is the one raidcfgd's requirement is about.
+
 ### 4.8b The listener, and what it deliberately does not own
 
 **No accept loop, no thread, no poll set, no timeout.** netcfgd, raidcfgd and

@@ -91,7 +91,7 @@ TEST_SRCS := chain/tests/chain_test.c chain/tests/revocation_test.c \
              wire/tests/constants_test.c wire/tests/seal_test.c \
              session/tests/random_test.c local/tests/vocabulary_test.c \
              local/tests/vocabulary_fuzz.c local/tests/line_test.c \
-             local/tests/socket_test.c \
+             local/tests/socket_test.c local/tests/admit_test.c \
              local/tests/peer_fuzz.c local/tests/peer_linux_test.c \
              chunk/tests/reassembly_fuzz.c chain/tests/chain_fuzz.c \
              frame/tests/freshness_fuzz.c chain/tests/revocation_fuzz.c \
@@ -111,6 +111,7 @@ TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test \
              $(BUILD_DIR)/local/tests/vocabulary_fuzz \
              $(BUILD_DIR)/local/tests/line_test \
              $(BUILD_DIR)/local/tests/socket_test \
+             $(BUILD_DIR)/local/tests/admit_test \
              $(BUILD_DIR)/chunk/tests/agreement_test \
              $(BUILD_DIR)/local/tests/peer_fuzz \
              $(BUILD_DIR)/local/tests/peer_linux_test \
@@ -374,6 +375,18 @@ $(BUILD_DIR)/wire/tests/generated_test.o: wire/tests/generated_test.c
 $(BUILD_DIR)/wire/tests/constants_test.o: wire/tests/constants_test.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
+
+# The only binary linking all four of local/, because it is the only one
+# testing what happens between them rather than inside one.
+$(BUILD_DIR)/local/tests/admit_test: $(BUILD_DIR)/local/tests/admit_test.o \
+                                     $(BUILD_DIR)/local/socket.o \
+                                     $(BUILD_DIR)/local/peer.o \
+                                     $(BUILD_DIR)/local/peer_linux.o \
+                                     $(BUILD_DIR)/local/line.o \
+                                     $(BUILD_DIR)/local/vocabulary.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
 
 $(BUILD_DIR)/local/tests/socket_test: $(BUILD_DIR)/local/tests/socket_test.o \
                                       $(BUILD_DIR)/local/socket.o \

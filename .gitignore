@@ -49,3 +49,4 @@ __pycache__/
 /local/tests/vocabulary_fuzz
 /local/tests/line_test
 /local/tests/socket_test
+/local/tests/admit_test
