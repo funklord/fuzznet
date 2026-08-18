@@ -2120,6 +2120,26 @@ reproducible, and a reader should read them as weaker than the ones after it.
 It also turned up that situ's *compiler* was dirty, not only its runtime, so
 the generated C was being compared against an uncommitted emitter as well.
 
+**`make clean` removed less than the build made, and said "clean"**
+(2026-08-19). `OBJS`, `TEST_OBJS` and `TEST_BINS` gain the Monocypher half only
+inside the `ifneq` on `MONOCYPHER_DIR`, and clean is usually run without it. So
+`make test MONOCYPHER_DIR=...` followed by a plain `make clean` left **thirteen
+objects and three binaries** in the tree and reported success.
+
+`build-and-commit.md` warns that a clean target which quietly removes nothing
+looks exactly like one with nothing to remove. This is the same failure from
+the other side -- removing *less* than was built, announced as loudly as
+removing everything -- and it is the shape a conditional list produces every
+time.
+
+Two changes, and the second is the one that matters. The Monocypher artifacts
+are named unconditionally, which they can be because `MONO_SRCS` and
+`MONO_TSRC` already sit outside the conditional for the style check. And
+**clean checks its own work**: for the in-place default it refuses if any
+`.o`, `.d`, `.gcno` or `.gcda` survives, because that is the only way "removed
+everything" and "removed what it happened to know about" stop looking alike.
+Dropping one entry from its list makes it refuse and name the file.
+
 **A fuzz harness existed that `make fuzz` had never run** (2026-08-18).
 `local/tests/vocabulary_fuzz.c` was in `TEST_SRCS` and `TEST_BINS`, so
 `make test` ran it at the default 20000 cases, and absent from `FUZZ_BINS`, so

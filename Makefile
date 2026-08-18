@@ -811,10 +811,42 @@ installcheck: $(HDRS) $(SRCS) tools/consumer_check.c
 # wildcard sweep: a clean target is the one thing everybody runs without
 # reading, and an unset variable in an `rm -rf $(VAR)` is how one eats
 # something it should not.
+# WHAT MONOCYPHER_DIR BUILT IS NAMED UNCONDITIONALLY, because clean is
+# usually run without it.
+#
+# OBJS, TEST_OBJS and TEST_BINS gain the Monocypher half only inside the
+# `ifneq` above, so `make test MONOCYPHER_DIR=...` followed by a plain `make
+# clean` left thirteen objects and three binaries in the tree and printed
+# "fuzznet: clean". That is build-and-commit.md's warning in its other
+# direction: a clean target that removes LESS than was built, and says so as
+# loudly as one that removed everything.
+#
+# Named rather than globbed, per the same rule. MONO_SRCS and MONO_TSRC are
+# already outside the conditional for the style check, so the names are here
+# to be had; monocypher.o is the vendored upstream source and is spelled out.
+MONO_CLEAN := $(MONO_SRCS:%.c=$(BUILD_DIR)/%.o) $(MONO_SRCS:%.c=$(BUILD_DIR)/%.d) \
+              $(MONO_TSRC:%.c=$(BUILD_DIR)/%.o) $(MONO_TSRC:%.c=$(BUILD_DIR)/%.d) \
+              $(MONO_TSRC:%.c=$(BUILD_DIR)/%) \
+              $(BUILD_DIR)/monocypher.o $(BUILD_DIR)/monocypher.d
+
 clean:
-	@for f in $(OBJS) $(TEST_OBJS) $(DEPS) $(TEST_BINS); do \
+	@for f in $(OBJS) $(TEST_OBJS) $(DEPS) $(TEST_BINS) $(MONO_CLEAN); do \
 		if [ -e "$$f" ]; then echo "removing $$f"; rm -f "$$f"; fi; \
 	done
+	@# CLEAN CHECKS ITS OWN WORK, which is the only way "quietly removed
+	@# nothing" and "removed everything" stop looking alike. Only for the
+	@# in-place default: an out-of-tree BUILD_DIR leaves the tree with no
+	@# artifacts to find whether it worked or not.
+	@if [ "$(BUILD_DIR)" = "." ]; then \
+		left=`find . \( -name '*.o' -o -name '*.d' -o -name '*.gcno' \
+		                 -o -name '*.gcda' \) -not -path './.git/*' | sort`; \
+		if [ -n "$$left" ]; then \
+			echo "clean: build artifacts survived:"; \
+			echo "$$left" | sed 's/^/  /'; \
+			echo "clean: something the build produces is in no list clean reads."; \
+			exit 1; \
+		fi; \
+	fi
 	@echo "fuzznet: clean"
 
 -include $(DEPS)
