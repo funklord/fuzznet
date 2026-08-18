@@ -372,6 +372,42 @@ static void test_merge_without_an_error_out(void)
 	CHECK(n == 0, "a null store with no error pointer admitted %zu", n);
 }
 
+/* A store whose `used` exceeds its `capacity`.
+ *
+ * `used` bounds a loop over `entries`, and the append writes at
+ * `entries[used]` behind a test that was `used == capacity`. The refusal is
+ * "revoked" rather than "not revoked" deliberately: this answers an
+ * authorization question, and a store nobody can read is not evidence that a
+ * capability is still good. */
+static void test_a_store_whose_fields_disagree_denies(void)
+{
+	struct fixture f;
+	fzn_revocation_record_t r;
+
+	fixture_init(&f);
+	record_of(&r, 0, 0xc0, 1);
+	CHECK(fzn_revocation_admit(&f.store, &r, f.root, &f.sign) == FZN_OK,
+	      "the setup record was refused");
+
+	f.store.used = 5; /* one past the four entries it was given */
+	CHECK(fzn_revocation_covers(&f.store, r.capability, r.grantee) == 1,
+	      "a corrupt store was scanned");
+
+	/* A capability the store never held must also come back covered: the
+	 * answer is about the store being unreadable, not about this record. */
+	{
+		fzn_revocation_record_t other;
+
+		record_of(&other, 0, 0xc1, 9);
+		CHECK(fzn_revocation_covers(&f.store, other.capability, other.grantee) == 1,
+		      "a corrupt store answered `not revoked`, which is the fail-open "
+		      "direction");
+	}
+
+	/* And nothing is appended to it. */
+	CHECK(f.store.used == 5, "a corrupt store was written to");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	struct fixture f;
@@ -395,6 +431,7 @@ int main(void)
 	test_merge_bad_arguments();
 	test_merge_reports_the_first_failure_not_the_last();
 	test_merge_without_an_error_out();
+	test_a_store_whose_fields_disagree_denies();
 	test_the_suite_can_tell_pass_from_fail();
 
 	printf("revocation_test: %d checks, %d failure(s)\n", checks, failures);

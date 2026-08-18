@@ -71,6 +71,14 @@ size_t fzn_replay_expire(fzn_replay_window_t *window, uint64_t now)
 	if (!window || !window->entries)
 		return 0;
 
+	/* The worst of the three, because this loop WRITES: it compacts in
+	 * place with `entries[kept] = entries[i]` over a range bounded by
+	 * `used`. A `used` past `capacity` therefore reads outside the array
+	 * and can write outside it too. Refuse to touch a window whose fields
+	 * disagree rather than compacting one. */
+	if (window->used > window->capacity)
+		return 0;
+
 	/* Compact in place, preserving order. Order is not required by
 	 * anything here, but a stable window is one a test can compare with
 	 * memcmp, and that property is cheap to keep and annoying to
@@ -96,6 +104,15 @@ fzn_fresh_err_t fzn_replay_admit(fzn_replay_window_t *window,
 	fzn_fresh_err_t err;
 
 	if (!window || !window->entries || !nonce)
+		return FZN_FRESH_ERR_MALFORMED;
+
+	/* Checked here as well as in the sweep below, and not left to it.
+	 * `fzn_replay_expire` refuses a window whose fields disagree rather
+	 * than compacting one, which is right -- but refusing means it returns
+	 * without repairing anything, so the scan further down would still run
+	 * over the bad range. The guard has to be at each entry point that
+	 * reads `used`, not at one of them. */
+	if (window->used > window->capacity)
 		return FZN_FRESH_ERR_MALFORMED;
 
 	/* Before anything that can return early, so "reclaimed on every call"
@@ -141,7 +158,10 @@ fzn_fresh_err_t fzn_replay_admit(fzn_replay_window_t *window,
 	 * LIVE entry would reopen it to replay, so an attacker who can
 	 * generate traffic could flush the window and then replay anything
 	 * recorded. See freshness.h. */
-	if (window->used == window->capacity)
+	/* >= rather than ==, for the reason chain/revocation.c gives at the
+	 * same place: the append below writes at `entries[used]`, and an
+	 * equality test lets a corrupt `used` through. */
+	if (window->used >= window->capacity)
 		return FZN_FRESH_ERR_WINDOW_FULL;
 
 	memcpy(window->entries[window->used].nonce, nonce, FZN_NONCE_LEN);

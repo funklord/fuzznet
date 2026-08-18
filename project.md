@@ -473,6 +473,62 @@ reads as thoroughness and is the more dangerous state: an unvalidated struct
 invites suspicion at every use, while one that is checked in two places out of
 three looks handled.
 
+#### A count field is a bound, and three loops were not treating it as one
+
+The same lens once more, asked of a different shape: **which loops are bounded
+by a field of a caller-supplied struct rather than by the array's own size?**
+Three were, and each indexes storage whose real extent sits in the struct
+beside it.
+
+| loop | bound | what a bad count does |
+|---|---|---|
+| `fzn_peer_group_verdict` | `peer->group_count` over `groups[64]` | reads past the array and can only **add** matches |
+| `fzn_revocation_covers` | `store->used` over `entries[capacity]` | scans memory that is not the store |
+| `fzn_replay_expire` | `window->used` over `entries[capacity]` | **writes** -- it compacts in place |
+
+**The peer one is the serious one, because it is the only path in that file
+that fails open.** Every other refusal there denies. Reading past `groups` can
+only add matches, so the answer a nonsense count produces is `MEMBER`, granted
+on the strength of whatever happened to sit next to the array — in a module
+whose entire purpose is that incomplete information denies.
+
+The struct that produces it is not exotic: one declared on a stack and never
+initialised, where `groups_known` is garbage that happens to be non-zero. That
+is what a consumer gets for forgetting a `memset`, and this library's consumers
+are other projects.
+
+It answers `UNKNOWN` rather than scanning a clamped range, and the choice is
+the module's own reasoning applied to itself. A clamp would return `NOT_MEMBER`
+**definitely**, from a struct known to be nonsense — and `peer.h` already
+names a definite wrong answer as the thing the tri-state exists to prevent.
+The primary gid still answers, since it is not in the array and does not
+depend on the count.
+
+`fzn_replay_expire` is the one that writes, and it needed a second guard rather
+than one: `fzn_replay_admit` calls the sweep first, the sweep now **refuses**
+a bad window rather than repairing it, and admit would then have scanned the
+bad range anyway. Refusing is not fixing, so the check belongs at every entry
+point that reads the field, not at one of them.
+
+Both appends also tested `used == capacity` and now test `>=`. An equality
+test is exactly what a count past capacity walks through on its way to writing
+at `entries[used]`.
+
+**The test's own setup was the first thing that broke.** Asserting that a
+legitimately full window is still `WINDOW_FULL` was done by setting `used = 4`
+on a window holding one real entry, which left three slots of uninitialised
+stack for the sweep to read as expiry times — so the result depended on what
+was in them. The window is filled by four real admissions now. A test whose
+setup is itself undefined proves nothing about the code, and this one failed
+loudly rather than passing by luck, which is the good version of that mistake.
+
+**And one sabotage did not apply.** The mutation pattern for `peer.c` missed
+the `peer->` prefix, so the run reported zero failing assertions for a file
+that had not been changed — a vacuous result wearing the appearance of a check
+that failed to fire. It was visible only because the script prints whether the
+mutation applied. That guard is why the number is trustworthy: 3, 1 and 3
+assertions fail when each of the three checks is removed.
+
 #### Two things `revocation.c` claimed and nobody could see
 
 Both came out of the same sweep. `fzn_revocation_merge` keeps the **first**
@@ -2182,8 +2238,8 @@ hedging: is there test work left.
 |---|---|---|
 | `constant_time/constant_time.c` | 100% of 7 | 100% of 2 |
 | `chain/chain.c` | 100% of 64 | 85.7% of 84 |
-| `chain/revocation.c` | 100% of 41 | 88.9% of 54 |
-| `frame/freshness.c` | 100% of 41 | 92.5% of 40 |
+| `chain/revocation.c` | 100% of 42 | 89.3% of 56 |
+| `frame/freshness.c` | 100% of 43 | 93.2% of 44 |
 | `chunk/reassembly.c` | 100% of 104 | 89.0% of 100 |
 | `chunk/split.c` | 100% of 24 | 100% of 28 |
 

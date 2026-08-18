@@ -223,6 +223,61 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 	      "the freshness positive control fails");
 }
 
+/* A window whose `used` exceeds its `capacity`.
+ *
+ * THE ONE THAT WRITES. `fzn_replay_expire` compacts in place with
+ * `entries[kept] = entries[i]` over a range bounded by `used`, so a corrupt
+ * count reads outside the array and can write outside it too -- and the append
+ * in `fzn_replay_admit` tested `used == capacity`, which a count past capacity
+ * sails through on its way to writing at `entries[used]`.
+ *
+ * Both entry points are checked, because the sweep REFUSING is not the same as
+ * the sweep repairing: admit calls expire first, expire now declines to touch
+ * a bad window, and admit would then have scanned the bad range anyway. A
+ * guard at one entry point is not a guard at the other. */
+static void test_a_window_whose_fields_disagree_is_refused(void)
+{
+	fzn_replay_window_t w;
+	fzn_replay_entry_t storage[4];
+	uint8_t nonce[FZN_NONCE_LEN];
+
+	memset(nonce, 0x11, sizeof(nonce));
+	CHECK(fzn_replay_init(&w, storage, 4) == FZN_FRESH_OK, "init refused");
+	CHECK(fzn_replay_admit(&w, nonce, 2000, FZN_FRAME_COMMAND, 1000) == FZN_FRESH_OK,
+	      "the setup nonce was refused");
+
+	w.used = 5; /* one past the storage it was given */
+	CHECK(fzn_replay_expire(&w, 1000) == 0,
+	      "the sweep compacted a window whose count is past its capacity");
+	CHECK(w.used == 5, "the sweep rewrote `used` on a window it should not have touched");
+	CHECK(fzn_replay_admit(&w, nonce, 2000, FZN_FRAME_COMMAND, 1000) ==
+	              FZN_FRESH_ERR_MALFORMED,
+	      "a corrupt window was scanned and appended to");
+
+	/* A full window is still full rather than malformed: the check must
+	 * discriminate between `used == capacity`, which is a real state, and
+	 * `used > capacity`, which is not.
+	 *
+	 * FILLED PROPERLY RATHER THAN BY SETTING `used`, which is how the first
+	 * version of this got it wrong. Assigning `used = 4` to a window
+	 * holding one real entry leaves three slots of uninitialised stack that
+	 * the sweep then reads as expiry times, so what came back depended on
+	 * whatever was in them. The bug was in the assertion, and a test whose
+	 * setup is itself undefined proves nothing about the code. */
+	CHECK(fzn_replay_init(&w, storage, 4) == FZN_FRESH_OK, "re-init refused");
+	for (uint8_t i = 0; i < 4; i++) {
+		memset(nonce, (int)(0x30u + i), sizeof(nonce));
+		CHECK(fzn_replay_admit(&w, nonce, 5000, FZN_FRAME_COMMAND, 1000) ==
+		              FZN_FRESH_OK,
+		      "filling the window was refused at entry %u", i);
+	}
+	CHECK(w.used == 4, "the window holds %zu after four admissions", w.used);
+	memset(nonce, 0x3f, sizeof(nonce));
+	CHECK(fzn_replay_admit(&w, nonce, 5000, FZN_FRAME_COMMAND, 1000) ==
+	              FZN_FRESH_ERR_WINDOW_FULL,
+	      "a legitimately full window was reported malformed");
+}
+
 int main(void)
 {
 	test_command_expiry_is_mandatory();
@@ -234,6 +289,8 @@ int main(void)
 	test_grants_are_not_recorded();
 	test_bad_arguments();
 	test_the_suite_can_tell_pass_from_fail();
+
+	test_a_window_whose_fields_disagree_is_refused();
 
 	printf("freshness_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

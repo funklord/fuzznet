@@ -31,6 +31,14 @@ int fzn_revocation_covers(const fzn_revocation_store_t *store,
 	if (!store || !store->entries || !capability || !grantee)
 		return 0;
 
+	/* `used` bounds a loop over `entries`, which holds `capacity`. A store
+	 * where it exceeds that is corrupt, and this answers an authorization
+	 * question, so the safe reply is the one that denies: report the
+	 * capability as revoked rather than scan memory that is not the store.
+	 * Saying "not revoked" would be the fail-open answer. */
+	if (store->used > store->capacity)
+		return 1;
+
 	for (size_t i = 0; i < store->used; i++) {
 		if (same(&store->entries[i], capability, grantee))
 			return 1;
@@ -71,7 +79,10 @@ fzn_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 	 * against something, so there is no entry it is safe to choose. The
 	 * refusal is therefore final and it fails OPEN -- revocation.h says
 	 * what that costs and why the caller must treat it as an alarm. */
-	if (store->used == store->capacity)
+	/* >= rather than ==, and the explicit check above it, because an
+	 * append writes at `entries[used]`: with `used` past `capacity` an
+	 * equality test passes and the write lands outside the array. */
+	if (store->used >= store->capacity)
 		return FZN_ERR_STORE_FULL;
 
 	memcpy(store->entries[store->used].capability, record->capability, FZN_CAP_ID_LEN);

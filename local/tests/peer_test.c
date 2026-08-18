@@ -280,6 +280,61 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 	      "the positive control fails, so every refusal above proves nothing");
 }
 
+/* A count larger than the array it indexes.
+ *
+ * THE ONLY PATH IN THIS FILE THAT COULD FAIL OPEN, which is why it is worth a
+ * test of its own. Every other refusal here denies; reading past `groups` can
+ * only ADD matches, so a struct with a nonsense count answers MEMBER on the
+ * strength of whatever sits next to the array.
+ *
+ * The struct that produces it is not exotic. It is one declared on a stack and
+ * never initialised, where `groups_known` is garbage that happens to be
+ * non-zero and `group_count` is garbage too -- which is what a consumer gets
+ * for forgetting a memset, and this library's consumers are other projects.
+ *
+ * Simulated here by filling the struct legitimately and then setting the count
+ * past the bound, so the array holds known values and the test is about the
+ * count alone. */
+static void test_an_impossible_group_count_denies(void)
+{
+	fzn_peer_t p;
+	size_t i;
+
+	parse(REAL_STATUS, &p);
+	p.primary_gid = 1;
+	CHECK(p.groups_known == 1, "the fixture did not parse");
+	CHECK(fzn_peer_group_verdict(&p, 103) == FZN_PEER_MEMBER,
+	      "the fixture does not hold the group the rest of this test needs");
+
+	/* Every slot set to the gid we will ask about, so that a scan running
+	 * past `group_count` would certainly find one. */
+	for (i = 0; i < FZN_PEER_MAX_GROUPS; i++)
+		p.groups[i] = 4242;
+
+	p.group_count = FZN_PEER_MAX_GROUPS;
+	CHECK(fzn_peer_group_verdict(&p, 4242) == FZN_PEER_MEMBER,
+	      "a full but legal list was not scanned, so the bound is off by one");
+
+	p.group_count = FZN_PEER_MAX_GROUPS + 1u;
+	CHECK(fzn_peer_group_verdict(&p, 4242) == FZN_PEER_UNKNOWN,
+	      "a count past the array was scanned rather than refused");
+	CHECK(fzn_peer_is_member(&p, 4242) == 0,
+	      "an impossible count granted membership, which is the one direction "
+	      "this module must not fail in");
+
+	/* And it is UNKNOWN rather than NOT_MEMBER: a definite answer from a
+	 * struct known to be nonsense is what the tri-state exists to stop. */
+	p.group_count = (size_t)-1;
+	CHECK(fzn_peer_group_verdict(&p, 7) == FZN_PEER_UNKNOWN,
+	      "a count of SIZE_MAX produced a definite answer");
+
+	/* The primary gid still answers, because it is not in the array and
+	 * does not depend on the count being sane. */
+	p.group_count = (size_t)-1;
+	CHECK(fzn_peer_group_verdict(&p, 1) == FZN_PEER_MEMBER,
+	      "the primary gid stopped being answerable when the list was corrupt");
+}
+
 int main(void)
 {
 	test_parses_a_real_status();
@@ -292,6 +347,7 @@ int main(void)
 	test_the_careless_reading_is_loudly_wrong();
 	test_is_member_denies_on_unknown();
 	test_bad_arguments();
+	test_an_impossible_group_count_denies();
 	test_the_suite_can_tell_pass_from_fail();
 
 	printf("peer_test: %d checks, %d failure(s)\n", checks, failures);

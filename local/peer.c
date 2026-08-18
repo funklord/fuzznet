@@ -103,6 +103,23 @@ fzn_peer_verdict_t fzn_peer_group_verdict(const fzn_peer_t *peer, uint32_t gid)
 	if (!peer->groups_known)
 		return FZN_PEER_UNKNOWN;
 
+	/* A count larger than the array it indexes. Impossible from either
+	 * function that fills this struct, and therefore a struct that was not
+	 * filled by them -- most likely one declared on a stack and never
+	 * initialised, where `groups_known` is garbage that happened to be
+	 * non-zero.
+	 *
+	 * UNKNOWN rather than a clamped scan, because the direction of the
+	 * failure is the whole point of this module. Reading past `groups` can
+	 * only ADD matches, so the answer it produces is MEMBER -- this is the
+	 * one path in the file that fails OPEN, and it grants on the strength
+	 * of whatever happened to be next to the array. A clamp would instead
+	 * answer NOT_MEMBER definitely from a struct known to be nonsense,
+	 * which peer.h calls out as the mistake the tri-state exists to
+	 * prevent. Cannot tell, so deny. */
+	if (peer->group_count > FZN_PEER_MAX_GROUPS)
+		return FZN_PEER_UNKNOWN;
+
 	for (size_t i = 0; i < peer->group_count; i++) {
 		if (peer->groups[i] == gid)
 			return FZN_PEER_MEMBER;
