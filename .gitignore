@@ -47,3 +47,4 @@ __pycache__/
 /session/tests/random_test
 /local/tests/vocabulary_test
 /local/tests/vocabulary_fuzz
+/local/tests/line_test

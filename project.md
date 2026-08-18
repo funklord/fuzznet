@@ -720,6 +720,51 @@ Neither is a rule this library enforces — it does not know what a payload
 means — but both are reasons the library must never grow a convenience that
 makes carrying a blob of executable content easy and obvious.
 
+### 4.8a Where one request ends
+
+**The other half of what adopting a text protocol costs.** raidcfgd takes
+netcfgd's newline-delimited JSON and records the price in the same breath: a
+JSON parser is a larger and more interesting attack surface than a fixed binary
+frame, and *the mitigations are not optional extras of that choice, they are
+the other half of it* -- "a hard bound on framing, and both parsers fuzzed".
+
+`local/line.h` is the framing bound. §9 puts framing here and §5 keeps
+vocabularies out, and a line is exactly the boundary between them: this module
+says where one request ends and never what it means. The JSON on the far side
+is the consumer's, and so is its parser.
+
+Nothing is allocated -- the caller owns the buffer and its size **is** the
+bound, the same arrangement `chunk/reassembly.h` uses, because a limit somebody
+chose deliberately beats one this library guessed.
+
+**An over-long line ends the connection and does not resynchronise.** Skipping
+to the next newline is the obvious recovery and it is wrong here. raidcfgd's
+own diagram has a remote client behind an unprivileged bridge that links this
+library, so bytes on a local socket may have originated elsewhere -- and a
+reader that resynchronises lets whoever produced the over-long line choose
+where the next request begins. That is request smuggling, and **the peer
+holding the socket is not necessarily the party who would benefit from it**.
+Refusing costs a connection; resynchronising costs the boundary between two of
+them.
+
+**Two bugs on the way in, and the second is the more useful.**
+
+The first version compacted the buffer inside `fzn_line_next`, immediately
+after pointing the caller at the line -- so the memmove wrote the following
+request over the line just returned. The header promised "valid until the next
+call" and it was valid for none. Compaction is deferred now, which is what
+makes the promise true, and the test builds the state that exposes it: two
+requests in the buffer, the first handed out, its bytes compared afterwards.
+
+The second was found by a sabotage that **failed to fail**. Removing the
+`refusing` guard inside `next` changed no test result, which meant no test
+built the only state it is reachable from: a complete line already pending when
+the over-long push arrives. An over-long push appends nothing, so a reader that
+overflows from empty has nothing to offer either way. The rule it pins is worth
+pinning -- once a connection is being dropped, nothing more is acted on from
+it. The pending line was framed before any ambiguity and could be argued for,
+but *drop the connection* is not something to do halfway.
+
 ### 4.8 Bounding what a peer may ask for, once its group has let it in
 
 **raidcfgd exists now, and this is the requirement it stated** (2026-08-18, its
@@ -1900,7 +1945,7 @@ until §10's order says so.
 | `chain/` | capability chains: verification, minting, delegation, revocation, and the signer seam | **built** |
 | `chunk/` | splitting, reassembly, and the memory bound | **built** |
 | `session/` | the key schedule, the AEAD seam, and where a nonce comes from | **built**: key schedule, BLAKE2b binding, the AEAD seam with its XChaCha20-Poly1305 binding, and the entropy seam with `getrandom` behind it |
-| `local/` | `AF_UNIX`, peer credentials including supplementary groups, and a bounded vocabulary | **credentials and the bound built**; the socket is not |
+| `local/` | `AF_UNIX`, peer credentials including supplementary groups, bounded framing and a bounded vocabulary | **credentials, framing and the vocabulary bound built**; the socket itself is not |
 
 **Rewritten 2026-08-14, because five of its seven rows were stale.** The
 table was written before §7a, which reassigned most of §4 to situ once the
@@ -2501,6 +2546,7 @@ hedging: is there test work left.
 | `session/commitment.c` | 100% of 24 | 100% of 20 |
 | `local/peer.c` | 100% of 42 | 100% of 52 |
 | `local/vocabulary.c` | 100% of 20 | 100% of 26 |
+| `local/line.c` | 100% of 38 | 93.3% of 30 |
 | `local/peer_linux.c` | 95.7% of 23 | **66.7% of 12** |
 | `chain/chain.c` | 100% of 64 | 100% of 84 |
 | `chain/revocation.c` | 100% of 42 | 100% of 56 |
