@@ -167,6 +167,56 @@ static void test_a_refused_frame_costs_no_slot(void)
 	CHECK(w.used == 0, "a refused frame occupied a slot");
 }
 
+/* The sweep runs on calls that return early, which is what
+ * `freshness.h`'s "reclaimed on every call" means and what the placement of
+ * `fzn_replay_expire` above the early returns is for.
+ *
+ * THE SCENARIO IS THE ONE THE HEADER NAMES: traffic made entirely of grants,
+ * or entirely of stale commands. Both return before anything is recorded, so
+ * a sweep placed below them never runs, and a window filled earlier keeps
+ * dead entries for ever -- the bound turning into the leak it exists to
+ * prevent.
+ *
+ * `freshness_fuzz` already catches this, on case 25, through the invariant
+ * that every live entry is unexpired. This is a second witness at the named
+ * scenario rather than a new one: a fuzz failure reports a case number, and
+ * the unit suite is what somebody reads first. Neither replaces the other. */
+static void test_the_sweep_runs_on_calls_that_return_early(void)
+{
+	fzn_replay_entry_t storage[4];
+	fzn_replay_window_t w;
+	uint8_t a[FZN_NONCE_LEN], b[FZN_NONCE_LEN];
+
+	nonce_of(a, 0xa1);
+	nonce_of(b, 0xb2);
+
+	/* Two entries that will be dead by t=3000. */
+	fzn_replay_init(&w, storage, 4);
+	CHECK(fzn_replay_admit(&w, a, 2000, FZN_FRAME_COMMAND, 1000) == FZN_FRESH_OK,
+	      "the first entry was refused");
+	CHECK(fzn_replay_admit(&w, b, 2000, FZN_FRAME_COMMAND, 1000) == FZN_FRESH_OK,
+	      "the second entry was refused");
+	CHECK(w.used == 2, "the window did not record both");
+
+	/* A GRANT, which returns before recording anything. */
+	CHECK(fzn_replay_admit(&w, a, 0, FZN_FRAME_GRANT, 3000) == FZN_FRESH_OK,
+	      "an unexpiring grant was refused");
+	CHECK(w.used == 0,
+	      "a grant returned early without sweeping, so traffic made entirely of "
+	      "grants leaves dead entries holding slots for ever");
+
+	/* And the other early return: a stale command. */
+	fzn_replay_init(&w, storage, 4);
+	CHECK(fzn_replay_admit(&w, a, 2000, FZN_FRAME_COMMAND, 1000) == FZN_FRESH_OK,
+	      "the setup entry was refused");
+	CHECK(w.used == 1, "the window did not record it");
+	CHECK(fzn_replay_admit(&w, b, 2500, FZN_FRAME_COMMAND, 3000) == FZN_FRESH_ERR_EXPIRED,
+	      "a stale command was admitted");
+	CHECK(w.used == 0,
+	      "a stale command returned early without sweeping, so traffic made "
+	      "entirely of stale commands does the same");
+}
+
 static void test_grants_are_not_recorded(void)
 {
 	fzn_replay_entry_t storage[2];
@@ -317,6 +367,7 @@ int main(void)
 	test_expiry_bounds_the_memory();
 	test_a_full_window_refuses_rather_than_evicting();
 	test_a_refused_frame_costs_no_slot();
+	test_the_sweep_runs_on_calls_that_return_early();
 	test_grants_are_not_recorded();
 	test_bad_arguments();
 	test_the_suite_can_tell_pass_from_fail();

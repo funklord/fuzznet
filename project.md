@@ -2150,6 +2150,25 @@ reproducible, and a reader should read them as weaker than the ones after it.
 It also turned up that situ's *compiler* was dirty, not only its runtime, so
 the generated C was being compared against an uncommitted emitter as well.
 
+**The same lens on `freshness.h` found coverage rather than a hole, which is
+worth recording as such** (2026-08-19). Its "expired entries are reclaimed on
+every call" is why `fzn_replay_expire` sits above the early returns, and the
+failure it prevents is named: traffic made entirely of grants, or entirely of
+stale commands, both return before recording anything, so a sweep below them
+never runs and a window filled earlier keeps dead entries for ever.
+
+No unit test measured it. **The fuzzer did** -- moving the sweep back down
+fails `freshness_fuzz` on case 25, through the invariant that every live entry
+is unexpired. So the property was covered and this is not the `chain.h` case
+repeating.
+
+A test was added anyway, and the reason is narrow enough to state: a fuzz
+failure reports a case number and an invariant, while the unit suite runs first
+and is what somebody reads. The new one asserts the two scenarios the header
+names, in its words, and fails on both when the sweep moves. **A second witness
+at the named scenario, not a new finding** -- recorded that way so the count of
+things this sweep turned up is not inflated by one that was already caught.
+
 **Half of `chain.h`'s ordering claim was the comment its own test file warns
 about** (2026-08-19). That header lists six checks and says the order puts the
 cheap structural refusals before any signature verification -- a
