@@ -2218,6 +2218,16 @@ mattered less than it might have: `make style`'s six list checks compare
 counting, and a directory leaving the gate's reach shows up there as named
 files rather than as a number that did not drop far enough.
 
+**Seven now.** The last is `TEST_SRCS` against `TEST_BINS`: the first is what
+gets compiled and dependency-tracked, the second is what `test:` iterates, and
+a source in one and not the other **builds cleanly and never runs**. It came
+back 23 and 23 plain, 26 and 26 with the bindings, so it is a guard rather than
+a fix -- but the failure is demonstrated rather than imagined. That is exactly
+what happened to `vocabulary_fuzz.c` one list over, and the same slip here
+costs a test that never runs at all, which is worse and just as quiet. The
+`SRCS`-against-the-tree check does not cover it: a source in `TEST_SRCS` is in
+a list, which is all that one asks.
+
 **Six list pairings are mechanised now, and the sixth was the one still
 open** (2026-08-19). `installcheck` already refuses when an `HDRS` entry is not
 exercised by the consumer check; **nothing looked the other way.** A header in
@@ -2245,6 +2255,7 @@ cannot be edited to agree with it:
 | `SRCS` | the tree's C sources |
 | `FUZZ_BINS` | the tree's fuzz harnesses |
 | `OBJS`/`TEST_OBJS` | what survives `clean` |
+| `TEST_SRCS` | `TEST_BINS`, so a test cannot build without running |
 
 **The copied tools were never checked against their sources until now**
 (2026-08-19). `make style` has been cited dozens of times this session, and

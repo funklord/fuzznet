@@ -620,6 +620,34 @@ style:
 		exit 1; \
 	fi; \
 	echo "style: $$n headers, all named in HDRS"
+	@# AND EVERY TEST SOURCE MUST PRODUCE A BINARY `make test` RUNS.
+	@#
+	@# TEST_SRCS is what gets compiled and dependency-tracked; TEST_BINS is
+	@# what `test:` iterates. A source in the first and not the second
+	@# builds cleanly and never runs -- and that is not hypothetical, it is
+	@# what happened to local/tests/vocabulary_fuzz.c one list over, which
+	@# sat in TEST_SRCS and TEST_BINS but not FUZZ_BINS and so was never
+	@# reached by the deep campaign. The same slip here costs a test that
+	@# never runs at all, which is worse and just as quiet.
+	@#
+	@# The SRCS-against-the-tree check above does not cover it: a source in
+	@# TEST_SRCS is in a list, which is all that one asks.
+	@srcs=`for f in $(TEST_SRCS); do echo "$${f%.c}"; done | sort -u`; \
+	bins=`for b in $(TEST_BINS); do echo "$${b#$(BUILD_DIR)/}"; done | sort -u`; \
+	n=`echo "$$srcs" | grep -c .`; \
+	missing=; \
+	for t in $$srcs; do \
+		case " `echo $$bins` " in *" $$t "*) ;; *) missing="$$missing $$t" ;; esac; \
+	done; \
+	if [ "$$n" -eq 0 ]; then \
+		echo "style: no test sources found, which cannot be right"; exit 1; \
+	fi; \
+	if [ -n "$$missing" ]; then \
+		echo "style: test sources that build but never run:$$missing"; \
+		echo "style: they are in TEST_SRCS and not in TEST_BINS."; \
+		exit 1; \
+	fi; \
+	echo "style: $$n test sources, all reached by 'make test'"
 
 # Installs the commit-msg hook from tools/hooks/ into .git/hooks/. In the tree
 # rather than only in .git so that it is reviewable, survives a clone, and can
