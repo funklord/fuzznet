@@ -2521,12 +2521,39 @@ hand-written transport and situ is generating most of it (§7a). Steps 2, 4 and
    a grantee for a capability under a pinned root, now. fuzzypickles'
    `identity.c` and `capability.c` were the reference.
 
-   Three things it does differently from that reference, each because this
+   **Two** things it does differently from that reference, each because this
    document says so: the root is **pinned rather than adopted** (§4.2), with
    no nullable-root variant, since fuzzypickles needs a TOFU bootstrap and
-   this library has no such path; a capability is **32 opaque bytes**, never a
-   typed enum, because netcfgd's three are independent rather than a ladder;
-   and **nothing reads a clock** — `now` is a parameter.
+   this library has no such path; and a capability is **32 opaque bytes**,
+   never a typed enum, because netcfgd's three are independent rather than a
+   ladder.
+
+   **This said three, and the third was not a difference** (corrected
+   2026-08-19). It listed "nothing reads a clock -- `now` is a parameter", and
+   the reference does exactly the same: `fzp_capability_verify_chain` takes
+   `uint64_t now`, and neither `capability.c` nor `identity.c` calls `time()`
+   or `clock_gettime` at all. It is a property fuzznet shares with the
+   reference rather than one it departed from -- still worth stating as a
+   property, and wrong as a contrast.
+
+   The other two were checked at the same time and both hold.
+   `capability_internal.h` describes a "TOFU-style bootstrap" with a
+   "pin-or-adopt" split, and `fzp_capability_type_t` is a typed enum threaded
+   through every entry point. **The claims were true where they were checkable
+   and one was not checked** -- which is what `evidence.md` means about
+   corroboration: this paragraph described another project's code from having
+   read it once, and nothing since had gone back.
+
+   fuzznet is also *stricter* than the reference in three places nobody had
+   written down, found in the same pass: revocation is checked against every
+   hop rather than only the final grantee (`capability.c` tests
+   `out->grantee_pubkey` alone), the root comparison is constant-time where the
+   reference uses `memcmp`, and structural refusals complete for the whole
+   chain before any signature is verified where the reference verifies each
+   hop inside the same loop iteration. None of those is a criticism of a
+   working implementation with different constraints; they are recorded because
+   "the reference does it this way" is a sentence this document uses, and it
+   should be accurate in both directions.
 
    Signature verification is a caller-supplied vtable, which is the same
    extern-codec boundary §6 uses for Monocypher and is what makes the whole
