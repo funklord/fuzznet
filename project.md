@@ -2544,6 +2544,38 @@ hand-written transport and situ is generating most of it (§7a). Steps 2, 4 and
    corroboration: this paragraph described another project's code from having
    read it once, and nothing since had gone back.
 
+   **And the reverse direction: netcfgd's brief is stale about us, and every
+   requirement in it is met** (checked 2026-08-19).
+   `docs/shared-protocol-brief.md` is the document that produced this
+   library's scope, written for it before a line existed, and it still says of
+   the `wire/` it wanted that **"it does not exist yet"**.
+
+   Its §2 asks for six things and its §5 for two more. All eight are built:
+
+   | asked for | delivered |
+   |---|---|
+   | envelope | `wire/frame.situ`, the committed contract, `wire/seal.c` |
+   | capabilities | `chain/` |
+   | signing | the signer seam, `chain/sign_monocypher.c` |
+   | verification | `chain/chain.c` |
+   | chunking | `chunk/split.c` |
+   | reassembly | `chunk/reassembly.c` |
+   | commands expire, grants do not | `frame/freshness.c`, §4.3 |
+   | payload size with a memory bound | `FZN_REASM_MAX_CHUNKS` and the per-sender quota |
+
+   Its hard constraints are unaffected and stay theirs: the daemon grows no
+   network listener (§3 here says the same), the capability-to-tier mapping is
+   the agent's, and the local hop is netcfgd's own.
+
+   **Not written into their tree, and the reason is the rule rather than
+   politeness.** Their `docs/shared-protocol-brief.md` §8 grants the protocol
+   parts of that repository to this library's author to edit, so the edit would
+   be permitted -- but the tree has four uncommitted changes from a session
+   working in it right now, including its own `project.md`. Recorded here
+   instead, per *record first, ask second, edit last*. It is worth their
+   knowing: a document that says the library it is waiting for does not exist
+   is one somebody plans against.
+
    **The rest of this document's citations of other trees were checked in the
    same pass, and the rest hold.** They are worth listing, because one
    correction means little unless a reader knows what else was looked at:
