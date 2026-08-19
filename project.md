@@ -2544,6 +2544,24 @@ hand-written transport and situ is generating most of it (§7a). Steps 2, 4 and
    corroboration: this paragraph described another project's code from having
    read it once, and nothing since had gone back.
 
+   **The rest of this document's citations of other trees were checked in the
+   same pass, and the rest hold.** They are worth listing, because one
+   correction means little unless a reader knows what else was looked at:
+
+   | claim | where it is used | checked |
+   |---|---|---|
+   | `control_codec.c` is 4718 lines | §5, why vocabularies stay out | exact |
+   | `capability.c` + `identity.c` about 2200 | §10, the scale of the reference | 2246 |
+   | fuzzypickles pays 82 header bytes and a 16-byte MAC | **§13**, that two designs reached the same order independently | `FZP_PEER_HEADER_LEN (1 + 1 + 32 + 32 + 16)` and a 16-byte MAC at the tail |
+   | netcfgd's `peer.rs` carries the `SO_PEERCRED` warning in its own header | §2, why `local/` reads `/proc` | its module comment says so |
+   | netcfgd's `Peer` says an empty list means "could not tell", not "none" | §2 and §4.8, the tri-state | word for word at `peer.rs:27` |
+
+   The §13 one carries the most weight and is the one most worth having
+   confirmed: that section argues 144 bytes is not an aberration *because a
+   second design reached the same order on its own*, and an unchecked number
+   there would have been this document corroborating itself through a tree
+   nobody opened.
+
    fuzznet is also *stricter* than the reference in three places nobody had
    written down, found in the same pass: revocation is checked against every
    hop rather than only the final grantee (`capability.c` tests
