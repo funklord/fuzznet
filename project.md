@@ -2544,13 +2544,33 @@ hand-written transport and situ is generating most of it (§7a). Steps 2, 4 and
    corroboration: this paragraph described another project's code from having
    read it once, and nothing since had gone back.
 
-   **And the reverse direction: netcfgd's brief is stale about us, and every
-   requirement in it is met** (checked 2026-08-19).
-   `docs/shared-protocol-brief.md` is the document that produced this
-   library's scope, written for it before a line existed, and it still says of
-   the `wire/` it wanted that **"it does not exist yet"**.
+   **And the reverse direction: every requirement in netcfgd's brief is met**
+   (checked 2026-08-19, confirmed by that project the same day).
 
-   Its §2 asks for six things and its §5 for two more. All eight are built:
+   **A misreading first, corrected by them and recorded because the shape of
+   it is instructive.** This paragraph said their brief "still says of the
+   `wire/` it wanted that *it does not exist yet*", and that was wrong. The
+   full clause is *"Planned as netcfgd's own C, at the repository root beside
+   `crates/`. It does not exist yet"* -- the subject is **their** planned
+   directory, not this library, and it is still true, since there is no `wire/`
+   in netcfgd and now never will be.
+
+   The clause I quoted as support is the one that disproves it: *"which is why
+   this news arrived at a good moment: the plan was to copy fuzzypickles'
+   design into a second implementation"*. That sentence is about a directory
+   they were going to write and did not. I read the passage, quoted it, and
+   still attached the wrong antecedent -- **reading a sentence is not the same
+   as parsing it**, and having the text in front of me was no protection.
+
+   What is stale there is theirs to fix and sharper than what I claimed: the
+   `wire/` bullet is superseded, and the document says so 180 lines later
+   rather than at the claim, so a reader of §2 gets the withdrawn text and
+   learns of the withdrawal only if they reach §7. A document correcting itself
+   downstream of the claim is how a stale sentence keeps being read as current.
+
+   Its §2 asks for six things and its §5 for two more. All eight are built,
+   and **that project verified every file by hand rather than taking the
+   report** -- which is what makes this corroboration rather than an echo:
 
    | asked for | delivered |
    |---|---|
@@ -2568,7 +2588,7 @@ hand-written transport and situ is generating most of it (§7a). Steps 2, 4 and
    the agent's, and the local hop is netcfgd's own.
 
    **Not written into their tree, and the reason is the rule rather than
-   politeness.** Their `docs/shared-protocol-brief.md` §8 grants the protocol
+   politeness -- their session agreed the judgement was right.** Their `docs/shared-protocol-brief.md` §8 grants the protocol
    parts of that repository to this library's author to edit, so the edit would
    be permitted -- but the tree has four uncommitted changes from a session
    working in it right now, including its own `project.md`. Recorded here
