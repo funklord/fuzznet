@@ -18,11 +18,34 @@ ascii_only = true
 # success. A floor set below every reachable collapse is a guard that cannot
 # fire, which is worse than no guard because it reads like one.
 #
-# 30 against a real count of 39. Deliberately under, so that adding or
-# removing a handful of files does not fail the build and nobody learns to
-# edit this number to make the gate quiet -- which is how it got to 1. Far
-# enough under to survive normal churn, far enough over to catch a module
-# dropping out of the list.
-floor = 30
+# IT DOES NOT CATCH A MODULE DROPPING OUT, and this comment used to claim it
+# did. Measured 2026-08-19 against 67 files: excluding chain/ leaves 56 and
+# excluding chunk/ leaves 58, both of which pass at any floor low enough to
+# survive ordinary churn. The two goals conflict -- a module here is nine to
+# eleven files, so catching one means a floor within that of the real count,
+# and a floor that close fails every time a file is added.
+#
+# So what it catches is a COLLAPSE and nothing finer: an exclude pattern that
+# guts the list, a walk that stops early, a path that stops matching. That is
+# the failure it was written for and it is worth having. The finer one --
+# a directory quietly leaving the gate's reach -- is what `make style`'s own
+# list checks answer, by comparing SRCS, HDRS, TEST_BINS and FUZZ_BINS against
+# the tree rather than counting.
+#
+# Deliberately under the real count, so that adding or removing a handful of
+# files does not fail the build and nobody learns to edit this number to make
+# the gate quiet -- which is how it got to 1. Far enough under to survive
+# normal churn, far enough over to catch a module dropping out of the list.
+#
+# AN ABSOLUTE FLOOR GOES STALE AS A TREE GROWS, which is the second thing
+# measured about this key. 30 was set against 39 files; the tree reached 67,
+# and at 30 a collapse of more than half of it still passed -- so the guard no
+# longer did the job its own comment claims, and nothing said so, because it
+# was passing. The number was right and then quietly stopped being right.
+#
+# 52 against a real count of 67, which is the same proportion 30 was of 39.
+# Re-measure it when a directory is added or removed rather than when the
+# build complains, since the failure mode here is a floor that never fires.
+floor = 52
 
 exclude = ["attic", "third_party", "vendor", "build", "target", "monocypher", "frame.situ.wire", "frame.situ.map", "generated"]

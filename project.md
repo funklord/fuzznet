@@ -2150,6 +2150,35 @@ reproducible, and a reader should read them as weaker than the ones after it.
 It also turned up that situ's *compiler* was dirty, not only its runtime, so
 the generated C was being compared against an uncommitted emitter as well.
 
+**The style gate's floor had gone stale, and its comment claimed more than a
+floor can do** (2026-08-19).
+
+It was 30, set against a real count of 39. The tree reached 67, so a collapse
+of more than half of it passed -- the number was right and then quietly stopped
+being right, which is what an absolute floor does as a tree grows, and nothing
+said so because it was passing. Raised to 52, the same proportion of 67 that 30
+was of 39.
+
+**The larger finding is that its stated purpose was not achievable.** The
+comment said the floor was "far enough over to catch a module dropping out of
+the list". Measured: excluding `chain/` leaves 56 files and excluding `chunk/`
+leaves 58, both of which pass at any floor low enough to survive ordinary
+churn. A module here is nine to eleven files, so catching one means a floor
+within that of the real count -- and a floor that close fails every time a file
+is added, which is how this key got to 1 in the first place.
+
+The two goals conflict and the comment claimed both. What a floor catches is a
+**collapse** and nothing finer: an exclude pattern that guts the list, a walk
+that stops early, a path that stops matching. Verified rather than asserted --
+excluding five source directories takes it to 16 files and the gate refuses,
+naming the count and the expectation.
+
+The finer failure is answered by something else, which is why the overclaim
+mattered less than it might have: `make style`'s six list checks compare
+`SRCS`, `HDRS`, `TEST_BINS` and `FUZZ_BINS` against the tree rather than
+counting, and a directory leaving the gate's reach shows up there as named
+files rather than as a number that did not drop far enough.
+
 **Six list pairings are mechanised now, and the sixth was the one still
 open** (2026-08-19). `installcheck` already refuses when an `HDRS` entry is not
 exercised by the consumer check; **nothing looked the other way.** A header in
