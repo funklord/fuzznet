@@ -19,9 +19,8 @@ project's copy names its own exempt paths.
 3. **Lowercase filenames,** unless a tool demands otherwise.
 
 Everything below is these three rules in detail, plus the exceptions that
-are already settled. An exception not listed here is not yet settled:
-signal it to the list in
-`claude-guidelines`' `project.md` rather than deciding in passing.
+are already settled. An exception not listed here is not yet settled: raise
+it rather than deciding in passing.
 
 ## 1. Naming
 
@@ -254,8 +253,8 @@ Three layers, and they are not equals:
 
 A project copy that disagrees with the source is **drift, not an
 override**: fix it. A project that genuinely needs to diverge needs a
-technical reason, and that is not a decision to make while working
-on something else -- signal it to the list in `claude-guidelines`'
+technical reason, and that is not a decision to make while working on
+something else -- signal it to the list in `claude-guidelines`'
 `project.md` and keep following the source meanwhile.
 
 **When a conflict between layers actually comes up, stop and ask.** Do not

@@ -2150,6 +2150,29 @@ reproducible, and a reader should read them as weaker than the ones after it.
 It also turned up that situ's *compiler* was dirty, not only its runtime, so
 the generated C was being compared against an uncommitted emitter as well.
 
+**The copied tools were never checked against their sources until now**
+(2026-08-19). `make style` has been cited dozens of times this session, and
+nothing had confirmed the gate it runs is the current one. `harmonization.md`
+requires the copies to be kept in sync and drift fixed the moment it is
+noticed; noticing requires looking, and nobody had.
+
+Two of the three were clean. `tools/style_gate.py` and `tools/hooks/commit-msg`
+differ from their sources by exactly the two-line provenance header the
+convention asks a copy to carry, and their bodies are byte-identical.
+
+`code-style.md` had drifted in one passage. Both it and the source were last
+changed on 2026-08-14 -- one session editing the copy while another edited the
+source, which is the case the "re-read the source before reconciling" rule
+exists for. Reconciled to the source, since a copy that disagrees is drift
+rather than an override, and nothing is lost: the more specific instruction the
+copy carried already appears in the source's own later text.
+
+The reconcile was mechanical with a proof rather than a careful read. The
+result must be the provenance header, then the source byte for byte, then
+fuzznet's own section unchanged -- and the check refuses to write if any of the
+three moved. It came to four insertions and five deletions in a 389-line file:
+one passage of substance and one re-wrapping.
+
 **Two of these checks refused to run unless `BUILD_DIR` was the default**
 (2026-08-19), and both were fixed by asking what they actually compare. The
 `.gitignore` and `FUZZ_BINS` checks skipped out of tree on the reasoning that
