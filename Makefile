@@ -142,6 +142,8 @@ MONOCYPHER_DIR ?=
 # false finding, which is worse in a gate than no finding at all.
 MONO_SRCS  := chain/sign_monocypher.c session/hash_monocypher.c \
               session/aead_monocypher.c
+MONO_HDRS  := chain/sign_monocypher.h session/hash_monocypher.h \
+              session/aead_monocypher.h
 MONO_TSRC  := chain/tests/sign_monocypher_test.c \
               session/tests/hash_monocypher_test.c \
               session/tests/aead_monocypher_test.c
@@ -184,8 +186,7 @@ MONO_AEAD  := $(BUILD_DIR)/session/tests/aead_monocypher_test
 OBJS       += $(MONO_OBJS)
 TEST_OBJS  += $(MONO_TOBJ)
 TEST_BINS  += $(MONO_BIN) $(MONO_HASH) $(MONO_AEAD)
-HDRS       += chain/sign_monocypher.h session/hash_monocypher.h \
-              session/aead_monocypher.h
+HDRS       += $(MONO_HDRS)
 CPPFLAGS   += -I$(MONOCYPHER_DIR)/src
 
 # Vendored, so it is compiled with its own terms rather than ours.
@@ -591,6 +592,34 @@ style:
 		echo "style: test binaries missing from .gitignore:$$missing"; exit 1; \
 	fi; \
 	echo "style: $$n test binaries all named in .gitignore"
+	@# AND EVERY HEADER MUST BE IN HDRS, which is the sixth pairing and the
+	@# one still open. installcheck already refuses when an HDRS entry is
+	@# not exercised by the consumer check; nothing looked the other way,
+	@# and a header in the tree that HDRS does not name is one `make
+	@# install` never ships -- which surfaces as a consumer's include
+	@# failing on a machine that is not this one.
+	@#
+	@# MONO_HDRS is unioned in because HDRS gains it only when
+	@# MONOCYPHER_DIR is set, exactly as MONO_SRCS is unioned into the C
+	@# source check above. Generated headers are situ's and tools/ is not
+	@# installed, so both are excluded rather than listed.
+	@known=" $(HDRS) $(MONO_HDRS) "; missing=; n=0; \
+	for h in `find . -name '*.h' -not -path './.git/*' \
+	                 -not -path './wire/generated/*' -not -path './tools/*' \
+	                 -not -path './build/*' -not -path './san/*' \
+	                 -not -path './*-coverage/*' | sed 's|^\./||' | sort`; do \
+		n=$$((n + 1)); \
+		case "$$known" in *" $$h "*) ;; *) missing="$$missing $$h" ;; esac; \
+	done; \
+	if [ "$$n" -eq 0 ]; then \
+		echo "style: no headers found, which cannot be right"; exit 1; \
+	fi; \
+	if [ -n "$$missing" ]; then \
+		echo "style: headers in the tree and not in HDRS:$$missing"; \
+		echo "style: 'make install' would not ship them."; \
+		exit 1; \
+	fi; \
+	echo "style: $$n headers, all named in HDRS"
 
 # Installs the commit-msg hook from tools/hooks/ into .git/hooks/. In the tree
 # rather than only in .git so that it is reviewable, survives a clone, and can

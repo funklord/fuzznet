@@ -2150,6 +2150,34 @@ reproducible, and a reader should read them as weaker than the ones after it.
 It also turned up that situ's *compiler* was dirty, not only its runtime, so
 the generated C was being compared against an uncommitted emitter as well.
 
+**Six list pairings are mechanised now, and the sixth was the one still
+open** (2026-08-19). `installcheck` already refuses when an `HDRS` entry is not
+exercised by the consumer check; **nothing looked the other way.** A header in
+the tree that `HDRS` does not name is one `make install` never ships, and that
+surfaces as a consumer's include failing on a machine that is not this one --
+the same failure `installcheck` exists for, arriving from the direction it does
+not cover.
+
+`HDRS` turned out complete in both configurations, which is a clean result
+rather than a fix. Worth recording is that **the first measurement said
+otherwise**: grepping the `HDRS` assignment out of the Makefile found thirteen
+entries against sixteen headers and named three as missing. They are the
+Monocypher bindings, which `HDRS` gains inside the conditional -- so the probe
+had read the file rather than asked `make`, and would have produced a finding
+that was entirely an artifact of how it looked.
+
+The full set, each comparing a hand-maintained list against something that
+cannot be edited to agree with it:
+
+| list | checked against |
+|---|---|
+| `HDRS` | `install`, and now the tree's headers |
+| `GEN_SRCS` | `coverage`'s iteration |
+| `TEST_BINS` | `.gitignore` |
+| `SRCS` | the tree's C sources |
+| `FUZZ_BINS` | the tree's fuzz harnesses |
+| `OBJS`/`TEST_OBJS` | what survives `clean` |
+
 **The copied tools were never checked against their sources until now**
 (2026-08-19). `make style` has been cited dozens of times this session, and
 nothing had confirmed the gate it runs is the current one. `harmonization.md`
