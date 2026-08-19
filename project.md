@@ -3444,8 +3444,22 @@ weaker, than the paragraphs below assume.
 
 Its peer frame is `version | cmd | sender_host_pubkey[32] | ephemeral_pk[32] |
 commitment[16] | ciphertext | mac[16]`: **82 bytes of header plus a 16-byte
-MAC**, against this schema's 96. Two designs reached the same order of overhead
-independently, which is worth knowing before treating 96 as an aberration.
+MAC**, so 98 in all, against this schema's **144**. Two designs reached the
+same order of overhead independently, which is worth knowing before treating
+144 as an aberration.
+
+**This comparison said 96 twice, in the section that opens by correcting 96.**
+The paragraph above it records that the number was stale and gives 144; these
+two sentences kept the old one, so the section refuted itself four lines apart
+and the arithmetic it invites -- 98 against 96 -- made the two designs look
+identical rather than the same order. Found on 2026-08-20 by following a
+citation *from* fuzzypickles back here, which is the only reason anybody read
+these lines again.
+
+The verified figures are theirs at `peer_wire.h`'s
+`FZP_PEER_HEADER_LEN (1 + 1 + 32 + 32 + 16)` with a trailing 16-byte MAC, and
+ours at 144. The conclusion is unchanged and slightly better supported: 98 and
+144 are the same order, and neither design found a way to be cheap.
 
 More instructive is *what* it spends the bytes on. There is **no nonce field at
 all** -- the AEAD nonce is all-zero, which is safe only because a fresh
