@@ -202,6 +202,16 @@ static void test_broken_linkage(void)
 	CHECK(f.stub.calls == 0, "verified signatures on a chain that does not link");
 }
 
+/* THE CALL COUNTS BELOW ARE THE ORDERING CLAIM, NOT DECORATION. chain.h
+ * lists six checks and says the order puts the cheap structural refusals
+ * before any signature verification -- a denial-of-service property, since a
+ * stranger's malformed chain must not cost a receiver the expensive part.
+ *
+ * Four of the six measured it: a foreign root, a broken link, an over-long
+ * chain and an unauthorised delegation each assert zero calls. The spliced
+ * capability, the expired hop and the revoked hop asserted only their error
+ * code, so half the claim was the comment this file's own header warns
+ * about. Added 2026-08-19; all three were already true. */
 static void test_capability_must_match_every_hop(void)
 {
 	struct fixture f;
@@ -210,6 +220,7 @@ static void test_capability_must_match_every_hop(void)
 
 	CHECK(run(&f, 2000, NULL, 0) == FZN_ERR_CHAIN_INVALID,
 	      "a chain that changes capability half way was accepted");
+	CHECK(f.stub.calls == 0, "spent verifications on a spliced capability");
 }
 
 static void test_expiry_is_enforced_when_set(void)
@@ -219,6 +230,7 @@ static void test_expiry_is_enforced_when_set(void)
 	f.hops[1].expires_at = 1500;
 
 	CHECK(run(&f, 2000, NULL, 0) == FZN_ERR_EXPIRED, "an expired hop was accepted");
+	CHECK(f.stub.calls == 0, "spent verifications on an expired hop");
 	CHECK(run(&f, 1400, NULL, 0) == FZN_OK, "a live hop was refused");
 	CHECK(f.out.expires_at == 1500, "expiry %llu, wanted 1500",
 	      (unsigned long long)f.out.expires_at);
@@ -269,6 +281,7 @@ static void test_revocation_kills_a_middle_hop(void)
 
 	CHECK(run(&f, 2000, &rev, 1) == FZN_ERR_REVOKED,
 	      "revoking the middle of a chain did not kill what it granted");
+	CHECK(f.stub.calls == 0, "spent verifications on a revoked chain");
 
 	/* And revoking the end works too, which is the ordinary case. */
 	fixture_init(&f);

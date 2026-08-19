@@ -2150,6 +2150,26 @@ reproducible, and a reader should read them as weaker than the ones after it.
 It also turned up that situ's *compiler* was dirty, not only its runtime, so
 the generated C was being compared against an uncommitted emitter as well.
 
+**Half of `chain.h`'s ordering claim was the comment its own test file warns
+about** (2026-08-19). That header lists six checks and says the order puts the
+cheap structural refusals before any signature verification -- a
+denial-of-service property, since a stranger's malformed chain must not cost a
+receiver the expensive part. `chain_test.c` opens by saying an ordering claim
+that nothing measures is a comment.
+
+Four of the six measured it. A foreign root, a broken link, an over-long chain
+and an unauthorised delegation each asserted **zero** signature checks. The
+spliced capability, the expired hop and the revoked hop asserted only their
+error code -- so the claim was pinned for the steps somebody happened to write
+a call count for, and stated for the rest.
+
+All three were already true: `chain.c` runs the structural checks in one pass
+and the signatures in a second, and revocation is in the first. So this closed
+a gap in the evidence rather than in the code, which is the outcome worth
+having when the subject is the security core. Verified by sabotage rather than
+by reading -- spending one verification at the top of the structural pass fires
+all three new assertions and three older ones with them.
+
 **The style gate's floor had gone stale, and its comment claimed more than a
 floor can do** (2026-08-19).
 
