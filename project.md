@@ -2183,10 +2183,46 @@ Verified: the same translation unit links and runs that way. So this is a
 convenience gap rather than a blocker, which is why it is recorded and not
 forced through.
 
-**The codegen gate encoded gcc's loop shape, not the property it checks**
-(2026-08-20). Built with clang 19.1, `make test` stopped before running
-anything: `fzn_ct_memeq` compiles to **two** conditional branches there and the
-gate demanded exactly one.
+**The codegen gate's branch count could not tell a correct build from a
+sabotaged one, and had been failing correct builds to say so** (2026-08-20).
+
+It began as "exactly 1", which was gcc `-Os`'s loop shape. clang rotates the
+loop and gives 2, so `make test CC=clang` stopped before running anything. That
+was widened to 1-or-2 -- and then `clang -O2` unrolled and gave 4. Two
+widenings in one afternoon is a patch over a wrong idea, so the whole matrix
+was measured instead: real against both sabotages, two compilers, two levels.
+
+| | branches | sets | rets | stores |
+|---|---|---|---|---|
+| gcc `-Os` real / early / novol | 1 / 2 / 1 | 1 / **0** / 1 | 1 / **2** / 1 | 2 / **0** / **0** |
+| gcc `-O2` real / early / novol | 2 / 3 / 2 | 1 / **0** / 1 | 1 / **2** / **2** | 2 / **0** / **0** |
+| clang `-Os` real / early / novol | 2 / 4 / 2 | 1 / 1 / 1 | 1 / **2** / **2** | 1 / **0** / **0** |
+| clang `-O2` real / early / novol | 4 / 4 / 9 | 1 / 1 / 1 | 1 / **2** / **2** | 1 / **0** / **0** |
+
+**A correct build ranges 1 to 4 and a sabotaged one 2 to 9, and the ranges
+overlap** -- clang `-O2`'s real function has four branches and clang `-Os`'s
+early exit has four. The count cannot separate them at all. Every widening was
+buying nothing while rejecting correct builds.
+
+The **accumulator store separates real from both sabotages in all twelve
+cells**. The return count does in all but one. The conditional set catches
+gcc's early exit. Those three fail the gate now; the branch count is printed,
+because a human reading a changed number may still want to look, and failing on
+zero branches is kept -- that means no loop at all, so the function was
+replaced rather than compiled.
+
+Verified across five configurations: real passes and both sabotages are refused
+at gcc `-Os`, `-O2`, `-O3` and clang `-Os`, `-O2`. The suite is clean at all of
+them, 23 binaries, no warnings.
+
+**Two limits, stated rather than left to be found.** At `-O0` every local is
+spilled, so the store check cannot discriminate -- the non-volatile variant has
+seven stack stores against the real one's eight. The gate reads DWARF's
+producer string and **skips loudly** rather than passing. clang records no
+flags there, only its version, so a clang `-O0` build is checked and passes
+vacuously; an earlier attempt to treat *absence* of a flag as evidence of `-O0`
+silently stopped checking every clang build, optimised ones included, which was
+worse than the gap it closed.
 
 Its own failure message says to read the disassembly and decide rather than
 relax the gate, so that is what happened. clang's two are `test %rdx,%rdx; je`

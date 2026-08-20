@@ -62,8 +62,12 @@ COND_JUMP = re.compile(r"^(j(?!mp\b)[a-z]+|jrcxz)\b")
 # without a branch. cmov serves the same purpose and is accepted.
 COND_SET = re.compile(r"^(set[a-z]+|cmov[a-z]+)\b")
 RETURN = re.compile(r"^ret\b")
-# A store whose destination is a stack slot: `mov %cl,-0x1(%rsp)`.
-STACK_STORE = re.compile(r"^mov[a-z]*\s+[^,]+,\s*-?(0x[0-9a-f]+)?\(%rsp\)")
+# A store whose destination is a stack slot: `mov %cl,-0x1(%rsp)`, or the same
+# through a frame pointer, `mov %cl,-0x19(%rbp)`. Both spellings, because which
+# one appears is the compiler's choice -- gcc at -Os and clang both use %rsp,
+# gcc with a frame pointer uses %rbp, and the property is that the accumulator
+# goes through memory rather than which register addresses it.
+STACK_STORE = re.compile(r"^mov[a-z]*\s+[^,]+,\s*-?(0x[0-9a-f]+)?\(%r[sb]p\)")
 # A store of an immediate zero anywhere: `movb $0x0,-0x21(%rbp)`. This is what
 # a wipe compiles to and what dead-store elimination removes.
 ZERO_STORE = re.compile(r"^mov[a-z]*\s+\$0x0,")
@@ -98,9 +102,60 @@ def instrumented(obj):
 	return "__asan_" in out.stdout or "__ubsan_" in out.stdout or "__sanitizer" in out.stdout
 
 
+def unoptimised(obj):
+	"""Was this built without optimisation? Returns the flag, or None.
+
+	IT MUST SKIP RATHER THAN PASS, and that is measured rather than assumed.
+	At -O0 every local is spilled, so the non-volatile variant of
+	fzn_ct_memeq has seven stack stores against the real one's eight -- the
+	check that carries the whole `volatile` claim cannot tell them apart. At
+	-Os it is two against zero.
+
+	So a floor that reported success here would be reporting it for the one
+	property this file exists to defend, in the build where that property is
+	invisible. A check that cannot run must not look like one that passed.
+
+	Read from DWARF's producer string, which is the compiler's own record of
+	the flags it was given, rather than inferred from the shape -- inferring
+	"this looks like -O0" from a frame pointer would be guessing at exactly
+	the thing being checked.
+	"""
+	if not shutil.which("readelf"):
+		return None
+	out = subprocess.run(
+		["readelf", "--debug-dump=info", obj], capture_output=True, text=True, check=False
+	)
+	if out.returncode != 0:
+		return None
+	for line in out.stdout.splitlines():
+		if "DW_AT_producer" not in line:
+			continue
+		flags = line.split(":", 2)[-1]
+		if " -O0" in flags:
+			return "with -O0"
+		# ABSENCE OF A FLAG IS NOT EVIDENCE OF -O0, and treating it as such
+		# was worse than the problem it fixed. clang records only its version
+		# in DW_AT_producer -- "Debian clang version 19.1.7" -- with no flags
+		# at all, so a rule that skipped when no -O appeared silently stopped
+		# checking every clang build, optimised ones included. It turned a
+		# working check into a skipped one for a whole compiler, which is the
+		# failure this file is otherwise written to avoid.
+		return None
+	return None
+
+
 def disassemble(obj):
 	if not shutil.which("objdump"):
 		print("codegen-gate: SKIPPED -- no objdump on PATH, so nothing was checked")
+		sys.exit(0)
+
+	unopt = unoptimised(obj)
+	if unopt is not None:
+		print(
+			f"codegen-gate: SKIPPED -- {obj} was built {unopt}, where every local "
+			"is spilled and the accumulator store cannot discriminate, so nothing "
+			"was checked"
+		)
 		sys.exit(0)
 
 	if instrumented(obj):
@@ -172,31 +227,43 @@ def check_ct_memeq(insns):
 	stores = [i for i in insns if STACK_STORE.match(i)]
 
 	problems = []
-	# ONE OR TWO, AND THE RANGE IS MEASURED RATHER THAN GENEROUS.
+	# THE BRANCH COUNT IS REPORTED AND NOT FAILED ON, which is measured
+	# rather than conceded.
 	#
-	# This was "exactly 1", which encoded gcc's loop shape rather than the
-	# property. A loop over the caller's length may be top-tested -- gcc, one
-	# conditional plus an unconditional back edge -- or rotated -- clang, a
-	# zero-length guard plus a conditional back edge. Both branch on the
-	# LENGTH and neither touches the data, so both are correct and the gate
-	# refused one of them.
+	# It began as "exactly 1", which was gcc -Os's loop shape. clang rotates
+	# the loop and gives 2; gcc -O2 gives 2; clang -O2 unrolls and gives 4.
+	# Widening it once was already a patch over the wrong idea, so the whole
+	# matrix was measured -- real against both sabotages, two compilers, two
+	# levels:
 	#
-	# Measured 2026-08-20 across gcc 14.2 and clang 19.1, real against the two
-	# sabotages, which is what makes 2 a bound rather than a shrug:
+	#           branches  sets  rets  stores
+	#   gcc -Os   real 1     1     1       2
+	#           early 2     0     2       0
+	#           novol 1     1     1       0
+	#   gcc -O2   real 2     1     1       2
+	#           early 3     0     2       0
+	#           novol 2     1     2       0
+	#   clang-Os  real 2     1     1       1
+	#           early 4     1     2       0
+	#           novol 2     1     2       0
+	#   clang-O2  real 4     1     1       1
+	#           early 4     1     2       0
+	#           novol 9     1     2       0
 	#
-	#   real:       gcc 1/1/1, clang 2/1/1   (branches/sets/returns)
-	#   early exit: gcc 2/0/2, clang 4/1/2
-	#   no volatile:gcc 1/1/1, clang 2/1/2
+	# A correct build ranges 1 to 4, a sabotaged one 2 to 9, and the ranges
+	# OVERLAP: clang -O2's real function has four branches and clang -Os's
+	# early exit has four. So the count cannot separate them, and every
+	# widening of it was buying nothing while rejecting correct builds.
 	#
-	# gcc's early exit is the case that fits inside the relaxed bound, and it
-	# is still caught -- by the missing conditional set and the second return.
-	# Every sabotage remains caught at both compilers; none survives on the
-	# branch count alone, which is why widening it costs nothing.
-	if not 1 <= len(cond_jumps) <= 2:
+	# The store check separates real from both sabotages in every one of the
+	# twelve cells. The return check does in all but one. The conditional set
+	# catches gcc's early exit. Those three are what fail the gate now; the
+	# count is printed because a human reading a changed number may still want
+	# to look, which is what a tripwire is for.
+	if not cond_jumps:
 		problems.append(
-			"expected 1 or 2 conditional branches, both on the length -- a "
-			"top-tested loop or a rotated one -- and "
-			f"found {len(cond_jumps)}: {', '.join(cond_jumps) or 'none'}"
+			"no conditional branch at all, so there is no loop -- the function "
+			"was replaced or optimised away rather than compiled"
 		)
 	if not cond_sets:
 		problems.append(
