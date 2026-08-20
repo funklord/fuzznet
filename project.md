@@ -2150,6 +2150,39 @@ reproducible, and a reader should read them as weaker than the ones after it.
 It also turned up that situ's *compiler* was dirty, not only its runtime, so
 the generated C was being compared against an uncommitted emitter as well.
 
+**No header here carries an `extern "C"` guard, and two of the three
+consumers are C++** (2026-08-20). fuzzypickles is Qt, raidcfgd is forty `.cpp`
+files, and both will include these headers from C++ while compiling the
+sources as C -- which is how raidcfgd already consumes `local/peer.h`.
+
+Demonstrated rather than reasoned about: a C++ translation unit including
+`chunk/split.h` and calling `fzn_split_plan` fails at link with *"undefined
+reference to `fzn_split_plan(unsigned long, unsigned long, fzn_split*)"*. The
+mangled name is the whole story. situ's generated `frame.h` carries the guard;
+none of ours does.
+
+**The fix is standard and it is blocked, which is the part worth recording.**
+Adding `#ifdef __cplusplus extern "C" {` to sixteen headers takes a minute, and
+`make style` then reports an indentation error on every line inside the block:
+the gate is a brace-nesting lexer and `extern "C" { ... }` at file scope is a
+brace that does not indent. It has special cases for `switch` and for braceless
+bodies and none for this, and its config offers `exclude` by path -- excluding
+every header would gut the check that matters most.
+
+So the choice was between bending the source to a checker that cannot model
+the construct, and leaving the construct out. **Neither is done here**:
+`evidence.md` says a gate that disagrees with correct code is the first
+suspect, and the gate is shared from `~/.claude/tools/style_gate.py`, so
+changing it belongs to a cross-project pass rather than to this session. It is
+signalled, beside the `#define`-continuation limitation already on that list --
+same lexer, same cause, second construct.
+
+**What consumers do meanwhile costs them one line**, and it is what every C++
+project does with an unguarded C header: wrap the include in `extern "C" { }`.
+Verified: the same translation unit links and runs that way. So this is a
+convenience gap rather than a blocker, which is why it is recorded and not
+forced through.
+
 **The codegen gate encoded gcc's loop shape, not the property it checks**
 (2026-08-20). Built with clang 19.1, `make test` stopped before running
 anything: `fzn_ct_memeq` compiles to **two** conditional branches there and the
