@@ -277,7 +277,7 @@ endif
 # failures rather than as a build error.
 DEPS := $(OBJS:.o=.d) $(TEST_OBJS:.o=.d)
 
-.PHONY: all test fuzz installcheck coverage schema style codegencheck hooks clean install
+.PHONY: all test fuzz installcheck coverage schema style codegencheck analyze hooks clean install
 
 # The default build does NOT build tests -- build-and-commit.md, and the
 # discipline it buys is paid for by the dependency rules above being right.
@@ -526,6 +526,39 @@ codegencheck: $(BUILD_DIR)/constant_time/constant_time.o \
               $(BUILD_DIR)/session/commitment.o
 	python3 tools/codegen_gate.py ct $(BUILD_DIR)/constant_time/constant_time.o
 	python3 tools/codegen_gate.py wipe $(BUILD_DIR)/session/commitment.o
+
+# STATIC ANALYSIS, from two tools that disagree about what to look for.
+#
+# Neither is in `test`, because both are slow and neither is a gate this
+# project owns -- a new compiler release inventing a finding would break a
+# build that changed nothing, which is the argument that keeps -Werror out
+# too. Run deliberately, and read.
+#
+# Both skip loudly when absent rather than passing, since a missing analyser
+# and a clean one produce the same silence otherwise.
+#
+# First run 2026-08-20: zero findings from either, over the library and the
+# tests. Recorded in project.md as a result rather than a habit -- what makes
+# it worth anything is that it had never been run at all.
+analyze:
+	@if $(CC) -fanalyzer -x c /dev/null -o /dev/null -c 2>/dev/null; then \
+		echo "analyze: gcc -fanalyzer over the library and the tests"; \
+		$(MAKE) --no-print-directory test BUILD_DIR=$(BUILD_DIR)-analyze \
+		        CFLAGS="-Os -g -fanalyzer" 2>&1 | grep -E "Wanalyzer" || true; \
+		rm -rf $(BUILD_DIR)-analyze; \
+	else \
+		echo "analyze: this compiler has no -fanalyzer, so it was SKIPPED"; \
+	fi
+	@if command -v cppcheck >/dev/null 2>&1; then \
+		echo "analyze: cppcheck --check-level=exhaustive over the library"; \
+		cppcheck --enable=warning,performance,portability \
+		         --check-level=exhaustive --inline-suppr \
+		         --suppress=missingIncludeSystem --quiet -I. $(SRCS) 2>&1 \
+		         | grep -vE "normalCheckLevel" || true; \
+	else \
+		echo "analyze: no cppcheck on PATH, so it was SKIPPED"; \
+	fi
+	@echo "analyze: done -- read the output above; this target reports and does not gate"
 
 style:
 	python3 tools/style_gate.py check

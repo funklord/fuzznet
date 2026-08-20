@@ -2150,6 +2150,36 @@ reproducible, and a reader should read them as weaker than the ones after it.
 It also turned up that situ's *compiler* was dirty, not only its runtime, so
 the generated C was being compared against an uncommitted emitter as well.
 
+**Static analysis had never been run at all, and now has a target**
+(2026-08-20). `make analyze` runs gcc's `-fanalyzer` over the library and the
+tests and cppcheck at `--check-level=exhaustive` over the library. Both report
+**zero findings**.
+
+It is not in `make test`, deliberately: both are slow, and neither is a gate
+this project owns -- a new release inventing a finding would break a build that
+changed nothing, which is the same argument that keeps `-Werror` out. It
+reports and does not gate, and both halves skip loudly when the tool is absent,
+since a missing analyser and a clean one otherwise produce the same silence.
+
+**The clean result is weaker than it reads, and the limits were measured
+rather than guessed.** Two sabotages:
+
+| defect | `-fanalyzer` | cppcheck |
+|---|---|---|
+| the `!out` null guard removed from `fzn_split_plan` | missed | missed |
+| a one-past-the-end write in `local/peer.c` | missed | **caught**, by name and index |
+
+Neither tool crosses translation units, so a public function that stops
+checking its arguments is invisible to both -- the call passing NULL lives in a
+test, in another file. That is exactly the class `make style`'s guard-chain
+tests and the coverage sweep already cover, which is the reason the gap is
+tolerable and the reason it is written down: *"static analysis is clean"*
+invites a reader to think it covers more than it does.
+
+What it does cover, it covers well: the array write was named with its index on
+the first run. **The target has been seen to fire**, which is what separates it
+from a check nobody has watched fail.
+
 **No header here carries an `extern "C"` guard, and two of the three
 consumers are C++** (2026-08-20). fuzzypickles is Qt, raidcfgd is forty `.cpp`
 files, and both will include these headers from C++ while compiling the
