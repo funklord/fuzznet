@@ -2150,6 +2150,52 @@ reproducible, and a reader should read them as weaker than the ones after it.
 It also turned up that situ's *compiler* was dirty, not only its runtime, so
 the generated C was being compared against an uncommitted emitter as well.
 
+**Two findings from asking what happens at 32 bits** (2026-08-20), which
+nothing here had ever done despite §7 aiming at routers and phones.
+
+**The generated sources were never getting the build's flags, only their own.**
+Their compile rule hard-coded `-Os -g` on the reasoning that `-Wconversion`
+against a generator's output is noise nobody reads. That reasoning is right and
+the implementation dropped everything else with it: no architecture flag, no
+optimisation change, and **no sanitizer**.
+
+Measured: in every `SANITIZE=1` campaign this document has cited,
+`wire/generated/frame.o` and `situ.o` carried **zero** `__asan` symbols while
+`wire/seal.o` carried 21. So situ's bounds arithmetic -- `situ_view_sub`,
+`situ_in_bounds`, every offset computation, which is the code an out-of-bounds
+access would actually live in -- was the one part never instrumented, in the
+runs quoted as evidence that it was. `GEN_EXTRA` existed to thread `--coverage`
+through the same hole, which is the tell: each time something needed to reach
+those objects another variable was added rather than the rule fixed.
+
+`CFLAGS_WARN` is now separate and `GEN_CFLAGS` is `$(filter-out
+$(CFLAGS_WARN),$(CFLAGS))`, so generated and vendored sources get everything
+about the build and nothing about our warnings. The generated objects carry 11,
+11 and 9 `__asan` symbols now, the plain build is unchanged, and no warning
+flag reaches generated code. **The campaign was re-run and is clean** -- 1.6
+million cases with situ's code instrumented for the first time. The 12-million
+figure quoted earlier stands only for the hand-written half, and re-running it
+in full is deferred rather than done: the machine was at load 115 from other
+sessions, and a benchmark run against that measures the neighbours.
+
+**And a test that passed by measuring nothing.**
+`test_a_wrapping_size_is_refused_before_a_slot_is_taken` used `(size_t)1 << 62`
+-- 2^62 on a 64-bit host, undefined on a 32-bit one, where it evaluates to 0.
+Its premise check was `huge * 4 == 0`, which **0 satisfies**, and
+`fzn_reasm_accept` then refuses a zero-length payload for being zero rather
+than for wrapping. Green, and about nothing, on exactly the platform class the
+library targets.
+
+`SIZE_MAX / 4 + 1` times four is `SIZE_MAX + 1`, which is zero at any width:
+2^62 here, 2^30 there, a real value on both. Removing the division guard now
+fails three assertions at **both** widths, where before it failed three at one
+and none at the other.
+
+A 32-bit build also links and passes now, 23 binaries, every suite zero
+failures. It did not before: the generated objects ignored `-m32` and the link
+died with *"i386:x86-64 architecture ... is incompatible with i386 output"*,
+which is how the flags finding surfaced at all.
+
 **The same lens on `freshness.h` found coverage rather than a hole, which is
 worth recording as such** (2026-08-19). Its "expired entries are reclaimed on
 every call" is why `fzn_replay_expire` sits above the early returns, and the

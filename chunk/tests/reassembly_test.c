@@ -6,6 +6,7 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <string.h>
 
 static int failures;
@@ -403,14 +404,27 @@ static void test_a_wrapping_size_is_refused_before_a_slot_is_taken(void)
 	fzn_partial_t *done = NULL;
 	uint8_t sender[FZN_SENDER_LEN];
 	uint8_t payload[8];
-	size_t huge = (size_t)1 << 62;
+	/* DERIVED FROM SIZE_MAX, NOT HARD-CODED, and that is the whole point of
+	 * the line. This was `(size_t)1 << 62`, which is 2^62 on a 64-bit host
+	 * and undefined on a 32-bit one -- where it evaluates to 0, the premise
+	 * check below passes because 0 * 4 is 0, and `fzn_reasm_accept` then
+	 * refuses a zero-length payload for being zero rather than for
+	 * wrapping. The test passed and measured nothing, on the platform class
+	 * sec 7 aims at: routers and phones.
+	 *
+	 * `SIZE_MAX / 4 + 1` times four is SIZE_MAX + 1, which is zero at any
+	 * width. 2^62 on this host, 2^30 on a 32-bit one, and a real value on
+	 * both. */
+	size_t huge = (SIZE_MAX / 4u) + 1u;
 
 	memset(sender, 0xa1, sizeof(sender));
 	memset(payload, 0x5a, sizeof(payload));
 	fzn_reasm_slot_init(&slot, storage, sizeof(storage));
 	fzn_reasm_init(&table, &slot, 1, 1);
 
-	CHECK(huge * 4u == 0, "the premise is wrong on this platform: 2^62 * 4 is not 0");
+	CHECK(huge != 0 && huge * 4u == 0,
+	      "the premise is wrong on this platform: the stride must be non-zero and "
+	      "must wrap to zero when multiplied by the chunk count");
 	CHECK(fzn_reasm_accept(&table, sender, 7, 0, 4, payload, huge, 0, 100, &done) ==
 	              FZN_REASM_ERR_TOO_LARGE,
 	      "a stride whose total wraps to zero was accepted");
