@@ -172,9 +172,30 @@ def check_ct_memeq(insns):
 	stores = [i for i in insns if STACK_STORE.match(i)]
 
 	problems = []
-	if len(cond_jumps) != 1:
+	# ONE OR TWO, AND THE RANGE IS MEASURED RATHER THAN GENEROUS.
+	#
+	# This was "exactly 1", which encoded gcc's loop shape rather than the
+	# property. A loop over the caller's length may be top-tested -- gcc, one
+	# conditional plus an unconditional back edge -- or rotated -- clang, a
+	# zero-length guard plus a conditional back edge. Both branch on the
+	# LENGTH and neither touches the data, so both are correct and the gate
+	# refused one of them.
+	#
+	# Measured 2026-08-20 across gcc 14.2 and clang 19.1, real against the two
+	# sabotages, which is what makes 2 a bound rather than a shrug:
+	#
+	#   real:       gcc 1/1/1, clang 2/1/1   (branches/sets/returns)
+	#   early exit: gcc 2/0/2, clang 4/1/2
+	#   no volatile:gcc 1/1/1, clang 2/1/2
+	#
+	# gcc's early exit is the case that fits inside the relaxed bound, and it
+	# is still caught -- by the missing conditional set and the second return.
+	# Every sabotage remains caught at both compilers; none survives on the
+	# branch count alone, which is why widening it costs nothing.
+	if not 1 <= len(cond_jumps) <= 2:
 		problems.append(
-			"expected exactly 1 conditional branch (the loop's length test), "
+			"expected 1 or 2 conditional branches, both on the length -- a "
+			"top-tested loop or a rotated one -- and "
 			f"found {len(cond_jumps)}: {', '.join(cond_jumps) or 'none'}"
 		)
 	if not cond_sets:

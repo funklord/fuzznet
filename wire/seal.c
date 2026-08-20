@@ -95,7 +95,11 @@ fzn_seal_err_t fzn_seal_open(uint8_t *frame, size_t frame_len,
 	out->msg = situ_fzn_head_msg_get(hv);
 	out->index = situ_fzn_head_index_get(hv);
 	out->chunks = situ_fzn_head_chunks_get(hv);
-	out->kind = situ_fzn_head_kind_get(hv);
+	/* Cast explicit: the accessor returns the schema's enum and `kind` is a
+	 * byte, which clang reports as a narrowing and gcc does not. The values
+	 * are 0x00 to 0x03 so nothing is lost, and saying so in the source beats
+	 * two compilers disagreeing about whether it is worth mentioning. */
+	out->kind = (uint8_t)situ_fzn_head_kind_get(hv);
 
 	return FZN_SEAL_OK;
 }

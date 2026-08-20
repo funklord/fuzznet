@@ -2150,6 +2150,37 @@ reproducible, and a reader should read them as weaker than the ones after it.
 It also turned up that situ's *compiler* was dirty, not only its runtime, so
 the generated C was being compared against an uncommitted emitter as well.
 
+**The codegen gate encoded gcc's loop shape, not the property it checks**
+(2026-08-20). Built with clang 19.1, `make test` stopped before running
+anything: `fzn_ct_memeq` compiles to **two** conditional branches there and the
+gate demanded exactly one.
+
+Its own failure message says to read the disassembly and decide rather than
+relax the gate, so that is what happened. clang's two are `test %rdx,%rdx; je`
+-- a zero-length guard -- and `cmp %rax,%rdx; jne`, the back edge. **Both are
+on the length and neither touches the data.** gcc emits a top-tested loop, one
+conditional plus an unconditional back edge; clang emits a rotated one. Same
+control flow, different shape, and the gate was pinned to one compiler's.
+
+Widened to one or two, and the bound is measured rather than generous:
+
+| | branches | sets | returns |
+|---|---|---|---|
+| real, gcc / clang | 1 / 2 | 1 / 1 | 1 / 1 |
+| early exit, gcc / clang | 2 / 4 | **0** / 1 | **2** / **2** |
+| no `volatile`, gcc / clang | 1 / 2 | 1 / 1 | 1 / **2** |
+
+gcc's early exit is the one that now fits inside the branch bound, and it is
+still refused -- by the missing conditional set and the second return. **All
+six sabotages are refused at both compilers**, and none survives on the branch
+count alone, which is what makes widening it cost nothing.
+
+The whole suite then passes under clang: 23 binaries, zero failures, and one
+real diagnostic gcc does not give -- `situ_fzn_kind_t` narrowing to `uint8_t`
+in `wire/seal.c`. The values are 0x00 to 0x03 so nothing is lost, and the cast
+is explicit now, because two compilers disagreeing about whether a conversion
+is worth mentioning is worth one line in the source.
+
 **Two findings from asking what happens at 32 bits** (2026-08-20), which
 nothing here had ever done despite §7 aiming at routers and phones.
 
