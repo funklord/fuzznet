@@ -219,7 +219,8 @@ def body(listing, obj, function):
 	return insns
 
 
-def check_ct_memeq(insns):
+def check_ct_memeq(insns, obj):
+	_ = obj
 	"""No data-dependent branch. Returns (counts, problems)."""
 	cond_jumps = [i for i in insns if COND_JUMP.match(i)]
 	cond_sets = [i for i in insns if COND_SET.match(i)]
@@ -285,19 +286,74 @@ def check_ct_memeq(insns):
 	return counts, problems
 
 
-def check_wipe(insns):
-	"""The key-material wipe was not deleted. Returns (counts, problems)."""
-	zeros = [i for i in insns if ZERO_STORE.match(i)]
+def wipe_calls(obj, function):
+	"""Lines of `function`'s disassembly, with relocations, naming a callee.
+
+	Its own objdump run rather than `disassemble`'s, because `-r` interleaves
+	relocation lines that `body` would count as instructions and the two
+	existing checks count instructions for a living.
+	"""
+	out = subprocess.run(
+		["objdump", "-dr", "--no-show-raw-insn", obj],
+		capture_output=True,
+		text=True,
+		check=False,
+	)
+	if out.returncode != 0:
+		fail(f"objdump -dr failed on {obj}: {out.stderr.strip()}")
+
+	lines = out.stdout.splitlines()
+	start = None
+	for i, line in enumerate(lines):
+		if line.rstrip().endswith(f"<{function}>:"):
+			start = i + 1
+			break
+	if start is None:
+		fail(f"{function} is not in {obj} -- nothing was checked, which is not a pass")
+
+	block = []
+	for line in lines[start:]:
+		if not line.strip():
+			break
+		block.append(line.strip())
+	return block
+
+
+def check_wipe(insns, obj):
+	"""The key material is still handed to fzn_wipe. Returns (counts, problems).
+
+	WHAT THIS USED TO CHECK, and why it moved. It counted zero-immediate
+	stores in fzn_commitment_derive, because the wipe was two inline loops
+	there and a compiler allowed to delete them left key material on the
+	stack. The wipe is now fzn_wipe in constant_time.c, exported because a
+	consumer holding a derived key needs it too.
+
+	COUNTING ZERO STORES IN fzn_wipe WOULD NOT DISCRIMINATE, and moving the
+	check there would have been the mistake this project has already paid
+	for once. Measured: across a translation unit the compiler cannot see
+	that the caller's buffer is dead, so fzn_wipe compiled WITHOUT the
+	volatile qualifier still writes -- 10 instructions against 11. The check
+	would pass either way and would be quoted afterwards as though it had
+	discriminated.
+
+	So the property worth gating moved with the code: the derivation must
+	still HAND its buffers to the wipe. Deleting a call fails here, which is
+	the failure that now loses the erasure.
+
+	Under link-time optimisation the call may vanish into an inline copy and
+	this would report a false absence. Nothing here builds that way, and a
+	false ALARM is the right direction for a security check to fail in.
+	"""
+	calls = [ln for ln in wipe_calls(obj, "fzn_commitment_derive") if "fzn_wipe" in ln]
 
 	problems = []
-	if len(zeros) < 2:
+	if len(calls) < 2:
 		problems.append(
-			f"expected at least 2 zero stores, one per wipe loop, found {len(zeros)}. "
-			"Without `volatile` there are none at all, so a count of zero means the "
-			"wipe was deleted and key material is left on the stack"
+			f"expected 2 calls to fzn_wipe, one per key-material buffer, found "
+			f"{len(calls)}. The derivation is leaving key material behind"
 		)
 
-	return f"{len(zeros)} zero store", problems
+	return f"{len(calls)} wipe call", problems
 
 
 CHECKS = {
@@ -313,7 +369,7 @@ def main():
 	obj = sys.argv[2]
 
 	insns = body(disassemble(obj), obj, function)
-	counts, problems = checker(insns)
+	counts, problems = checker(insns, obj)
 
 	print(f"codegen-gate: {function} in {obj}: {len(insns)} instructions, {counts}")
 	if problems:

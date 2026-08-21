@@ -59,39 +59,32 @@ fzn_commitment_err_t fzn_commitment_derive(const fzn_hash_ops_t *hash,
 	memcpy(commitment_out, derived + FZN_AEAD_KEY_LEN, FZN_COMMITMENT_LEN);
 
 out:
-	/* The intermediates are key material. `volatile` on the pointer is
-	 * what stops a compiler deleting a write to something never read
-	 * again -- the classic dead-store elimination of a memset that was
-	 * the only thing protecting a secret. Monocypher's crypto_wipe would
-	 * do it too, but this module must not depend on it: the hash is a
-	 * vtable precisely so nothing here needs a crypto library.
+	/* The intermediates are key material, erased through the library's own
+	 * wipe (constant_time.h) rather than a memset here.
 	 *
-	 * MEASURED, not assumed. Building this file at -Os with and without
-	 * the qualifier: 411 bytes of text with it, 337 without. The compiler
-	 * deletes 74 bytes of wipe when it is allowed to, which is the whole
-	 * of what the paragraph above claims and is worth a number rather
-	 * than a belief.
+	 * IT USED TO BE TWO LOOPS IN THIS FUNCTION, each with a `volatile`
+	 * pointer, and the comment explained that the qualifier was what
+	 * stopped the compiler deleting a write to something never read again.
+	 * That was true and was measured: 411 bytes of text with it, 337
+	 * without, so 74 bytes of erasure removed at -Os.
 	 *
-	 * CHECKED, now, rather than re-measured by whoever remembers. This
-	 * comment used to end "re-measure if the wipe is ever rewritten --
-	 * the check is one rebuild and a `size`", which is an instruction to
-	 * a person who will not be there, about a security property, in the
-	 * one place nobody looks twice. `make codegencheck` counts the
-	 * zero-immediate stores in this function: two with the qualifier and
-	 * none without, so a deleted wipe stops the build. It is a tripwire
-	 * rather than a proof and tools/codegen_gate.py says so.
+	 * WHAT CHANGED IS THE STRUCTURE, not the reasoning. Behind a call into
+	 * another translation unit the compiler cannot see that these buffers
+	 * are dead, so it may not remove the stores at all -- measured, the
+	 * same function without `volatile` still writes once it is out here.
+	 * The hazard the old comment described was a property of the wipe
+	 * being INLINE, and moving it out removes the hazard rather than
+	 * guarding against it. `fzn_wipe` keeps the qualifier anyway, for
+	 * link-time optimisation.
 	 *
-	 * `input` is wiped in full rather than only the `transcript_len`
-	 * bytes that were used. Wiping what was written would be enough and
-	 * would be a bound to get wrong later; this cannot be. */
-	{
-		volatile uint8_t *p = derived;
-		for (size_t i = 0; i < sizeof(derived); i++)
-			p[i] = 0;
-		p = input;
-		for (size_t i = 0; i < sizeof(input); i++)
-			p[i] = 0;
-	}
+	 * A consumer needed this function regardless: it derives a key for
+	 * them and had no way for them to erase it. See constant_time.h.
+	 *
+	 * `input` is wiped in full rather than only the `transcript_len` bytes
+	 * that were used. Wiping what was written would be enough and would be
+	 * a bound to get wrong later; this cannot be. */
+	fzn_wipe(derived, sizeof(derived));
+	fzn_wipe(input, sizeof(input));
 
 	return err;
 }

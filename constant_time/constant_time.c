@@ -23,3 +23,16 @@ int fzn_ct_memeq(const void *a, const void *b, size_t len)
 
 	return diff == 0;
 }
+
+/* See constant_time.h for why this exists and which of the two protections
+ * does the work. */
+void fzn_wipe(void *p, size_t len)
+{
+	volatile uint8_t *q = (volatile uint8_t *)p;
+
+	if (!p)
+		return;
+
+	for (size_t i = 0; i < len; i++)
+		q[i] = 0;
+}

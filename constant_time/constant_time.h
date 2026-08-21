@@ -42,4 +42,41 @@
  * attacker chooses one side. */
 int fzn_ct_memeq(const void *a, const void *b, size_t len);
 
+
+/* Erase `len` bytes at `p`, and survive the optimiser doing so.
+ *
+ * THE LIBRARY OWED THIS AND DID NOT PROVIDE IT. `fzn_commitment_derive`
+ * hands a caller a 32-byte AEAD key; the obvious way to erase it afterwards
+ * is a memset, and a memset whose result is never read again is a dead store
+ * the compiler is entitled to delete. This project has MEASURED that
+ * deletion happening in its own code -- 411 bytes of text with the wipe
+ * protected, 337 without, so 74 bytes of erasure removed at -Os. A consumer
+ * writing the obvious thing gets the silent version, and nothing tells them.
+ *
+ * Exported for the same reason `fzn_ct_memeq` is: sec 4.4a says this library
+ * owns the careful primitives and must not leave them to the caller, and a
+ * correct thing nobody can reach is one everybody reimplements badly.
+ *
+ * TWO PROTECTIONS, and it is worth knowing which does the work, because the
+ * answer changed when this moved out of commitment.c:
+ *
+ *   - **The call boundary is the primary one.** Across a translation unit
+ *     the compiler cannot see that the caller's buffer is dead, so it may
+ *     not remove the stores. Measured: compiled at -Os, this function
+ *     without the `volatile` qualifier still writes, and is 10 instructions
+ *     against 11 with it. That is the whole difference, where inside
+ *     commitment.c the same omission deleted the wipe entirely.
+ *   - **`volatile` is the backstop**, and earns its one instruction under
+ *     link-time optimisation or any future inlining, where the boundary
+ *     stops existing and the old hazard returns.
+ *
+ * `p` may be NULL, in which case nothing happens -- a wipe of nothing is not
+ * an error, and a caller cleaning up after a failure should not need a
+ * check. `len` of zero is likewise fine.
+ *
+ * NOT a secure-erase of storage, and not a promise about copies the compiler
+ * or the kernel made elsewhere -- a register spill, a page swapped out, a
+ * buffer a library retained. It erases the bytes at `p`, which is what a
+ * caller can control. */
+void fzn_wipe(void *p, size_t len);
 #endif /* FZN_CONSTANT_TIME_H */

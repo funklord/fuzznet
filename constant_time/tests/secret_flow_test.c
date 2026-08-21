@@ -122,6 +122,45 @@ static int compare_leaky(const uint8_t *a, const uint8_t *b, size_t len)
 	return r;
 }
 
+/* fzn_wipe, which this file tests because it is the other thing
+ * `constant_time/` exports and it has the same shape of hazard: correct code
+ * whose absence looks exactly like its presence.
+ *
+ * The erasure itself cannot be tested from outside the function -- a caller
+ * that reads the buffer afterwards sees zeroes whether the stores survived
+ * or the compiler kept a copy elsewhere. What is testable is that it wipes
+ * WHAT IT WAS ASKED TO and nothing else, that a partial wipe leaves the tail
+ * alone, and that the NULL and zero-length cases the header promises are
+ * really harmless. That the stores survive optimisation is `make
+ * codegencheck`'s question, and it now asks it of the caller. */
+static void check_wipe(void)
+{
+	uint8_t buf[16];
+	int intact = 1;
+
+	memset(buf, 0xA5, sizeof(buf));
+	fzn_wipe(buf, sizeof(buf));
+	for (size_t i = 0; i < sizeof(buf); i++)
+		if (buf[i] != 0)
+			intact = 0;
+	expect(intact, "fzn_wipe left a byte unerased");
+
+	/* A bounded wipe stops where it was told. A wipe that ran past its
+	 * length would pass every test that only looked at the erased part,
+	 * which is why the tail is what is checked here. */
+	memset(buf, 0xA5, sizeof(buf));
+	fzn_wipe(buf, 4);
+	intact = (buf[0] == 0 && buf[3] == 0 && buf[4] == 0xA5 &&
+	          buf[sizeof(buf) - 1] == 0xA5);
+	expect(intact, "fzn_wipe did not stop at its length");
+
+	/* The two the header promises are harmless. Reaching them at all is
+	 * the test; a crash is the failure. */
+	fzn_wipe(NULL, 16);
+	fzn_wipe(buf, 0);
+	expect(buf[sizeof(buf) - 1] == 0xA5, "a zero-length wipe erased something");
+}
+
 int main(int argc, char **argv)
 {
 	uint8_t a[FZN_SECRET_LEN], same[FZN_SECRET_LEN];
@@ -148,6 +187,8 @@ int main(int argc, char **argv)
 	expect(compare(a, last, sizeof(a)) == 0, "a difference in the last byte was missed");
 	expect(compare(a, first, sizeof(a)) == 0, "a difference in the first byte was missed");
 	expect(compare(a, same, 0) != 0, "a zero-length comparison was not trivially equal");
+
+	check_wipe();
 
 	printf("secret_flow_test: %d checks, %d failure(s)%s\n", checks, failures,
 	       leaky ? " [--leaky: the positive control, which must be REPORTED]" : "");

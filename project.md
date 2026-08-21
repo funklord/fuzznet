@@ -2150,6 +2150,57 @@ reproducible, and a reader should read them as weaker than the ones after it.
 It also turned up that situ's *compiler* was dirty, not only its runtime, so
 the generated C was being compared against an uncommitted emitter as well.
 
+**The library derives a key for a consumer and gave them no way to erase
+it** (2026-08-21). `fzn_wipe` is exported from `constant_time/`, and
+`fzn_commitment_derive` now uses it rather than its own two loops.
+
+The gap is the same shape as the error strings and worse in consequence.
+`fzn_commitment_derive` hands back a 32-byte AEAD key; the obvious way to
+clear it is a memset, and a memset whose result is never read is a dead store
+the compiler may delete. **This project had already measured that happening
+in its own code** -- 411 bytes of text with the wipe protected, 337 without,
+so 74 bytes of erasure removed at -Os. The library knew, and did not export
+what it knew.
+
+**The measurement that changed the design, taken before the code was
+written.** Behind a call into another translation unit the compiler cannot
+see that the caller's buffer is dead, so it may not remove the stores at all:
+compiled at -Os, `fzn_wipe` **without** `volatile` still writes, at 10
+instructions against 11 with it. Inside `commitment.c` the same omission
+deleted the wipe entirely. So the call boundary is the primary protection and
+moving the wipe out **removes the hazard rather than guarding against it**;
+`volatile` stays as the backstop for link-time optimisation, where the
+boundary stops existing.
+
+**That measurement is also why the gate did not simply follow the code.**
+`make codegencheck` counted zero-immediate stores in `fzn_commitment_derive`.
+Pointing that same count at `fzn_wipe` would have been the mistake this
+family has already paid for: the count passes with or without `volatile`, so
+it could not discriminate, and it would have been quoted afterwards as though
+it had. The property worth gating moved with the code instead -- **the
+derivation must still hand its buffers to the wipe**, checked by counting
+`fzn_wipe` relocations inside `fzn_commitment_derive`. Deleting one call
+reports *"expected 2 calls to fzn_wipe, one per key-material buffer, found
+1"* and exits 2.
+
+Its own objdump run rather than `disassemble`'s, because `-r` interleaves
+relocation lines that `body` would count as instructions, and the two
+existing checks count instructions for a living.
+
+`fzn_wipe` is NULL- and zero-length-safe, and the header says plainly what it
+is not: it erases the bytes at `p`, and promises nothing about a register
+spill, a swapped page, or a copy some other library kept.
+
+**A process note worth more than the change.** The bounded-length sabotage --
+`i <= len` -- was first reported as *not caught*, twice. Both readings were
+wrong and in different ways: the first ran `make`, which by this project's
+own convention does not build tests, so the binary was stale; the second ran
+`make test`, which aborted at `commitment_test` before ever reaching the
+check. The rule in `build-and-commit.md` about never judging a test from a
+binary the build did not rebuild was written for exactly the first, and it
+was still walked into. Building the one binary by name and running it shows
+*"FAIL: fzn_wipe did not stop at its length"*.
+
 **Every error code this library returns can now be rendered** (2026-08-21).
 Seven public enums carry forty codes between them, and nothing rendered any
 of them: `fzn_err_str`, `fzn_commitment_err_str`, `fzn_fresh_err_str`,
