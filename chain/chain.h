@@ -327,4 +327,18 @@ fzn_err_t fzn_chain_delegate(const fzn_chain_hop_t *hops, size_t hop_count,
  * that wants only the comparison should include that header directly rather
  * than the capability model -- see the reasoning there. */
 
+/* A short name for `fzn_err_t`, for a log line or a message to a user.
+ *
+ * NEVER NULL, including for a value that is not one of the enumerators, so
+ * that a caller may pass the result straight to a printf without a check.
+ * An unrecognised value renders as "unknown", which is deliberately not any
+ * real code's text -- a caller that cannot tell "we do not know" from a
+ * genuine answer is the failure this whole library is careful about
+ * elsewhere.
+ *
+ * The strings are lowercase, carry no trailing punctuation and name the
+ * condition rather than restating the constant, on the same reasoning as
+ * strerror: the caller supplies the sentence, this supplies the noun. */
+const char *fzn_err_str(fzn_err_t err);
+
 #endif /* FZN_CHAIN_H */

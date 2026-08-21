@@ -148,4 +148,18 @@ fzn_fresh_err_t fzn_replay_admit(fzn_replay_window_t *window,
  * happening. */
 size_t fzn_replay_expire(fzn_replay_window_t *window, uint64_t now);
 
+/* A short name for `fzn_fresh_err_t`, for a log line or a message to a user.
+ *
+ * NEVER NULL, including for a value that is not one of the enumerators, so
+ * that a caller may pass the result straight to a printf without a check.
+ * An unrecognised value renders as "unknown", which is deliberately not any
+ * real code's text -- a caller that cannot tell "we do not know" from a
+ * genuine answer is the failure this whole library is careful about
+ * elsewhere.
+ *
+ * The strings are lowercase, carry no trailing punctuation and name the
+ * condition rather than restating the constant, on the same reasoning as
+ * strerror: the caller supplies the sentence, this supplies the noun. */
+const char *fzn_fresh_err_str(fzn_fresh_err_t err);
+
 #endif /* FZN_FRESHNESS_H */

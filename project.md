@@ -2150,6 +2150,55 @@ reproducible, and a reader should read them as weaker than the ones after it.
 It also turned up that situ's *compiler* was dirty, not only its runtime, so
 the generated C was being compared against an uncommitted emitter as well.
 
+**Every error code this library returns can now be rendered** (2026-08-21).
+Seven public enums carry forty codes between them, and nothing rendered any
+of them: `fzn_err_str`, `fzn_commitment_err_str`, `fzn_fresh_err_str`,
+`fzn_reasm_err_str`, `fzn_split_err_str`, `fzn_seal_err_str` and
+`fzn_peer_verdict_str` are new.
+
+**The gap was one-sided in a way worth naming.** situ's generated header
+already ships `situ_err_str`, so a consumer of both got a name for the
+schema's errors and nothing for ours -- and had to write a switch of its own,
+which goes stale silently the day a code is added here. That is a defect this
+library exports to everybody who uses it, once each.
+
+**The distinctions the enums are careful about were the ones at risk.**
+`seal.h` insists that a bad tag and a bad commitment are separate answers;
+`chain.h` separates "valid chain belonging to somebody else" from "this is
+broken"; `freshness.h` separates a stale command from a sender that sets no
+expiries; `peer.h`'s whole point is that UNKNOWN is not NOT_MEMBER. Each of
+those survives in the enum and was lost the moment a consumer logged an
+integer.
+
+**Two mechanisms, and they cover different failures.** Each renderer is a
+switch with **no `default:`**, which is what makes `-Wall`'s `-Wswitch` warn
+about an enumerator with no case -- a `default` would silence exactly the
+warning worth having and turn a new code into a silent "unknown" in
+somebody's log. Verified rather than assumed: adding a code to
+`fzn_split_err_t` produces *"enumeration value 'FZN_SPLIT_ERR_INVENTED' not
+handled in switch"*, naming it.
+
+`wire/tests/err_str_test.c` takes the three things the compiler cannot see --
+that no two codes render the same text, that nothing renders NULL, and that a
+value off the end renders "unknown" and nothing else does. 121 checks.
+Sabotage: rendering `FZN_SEAL_ERR_COMMITMENT` as `"tag did not verify"`
+compiles cleanly and is caught by name.
+
+**The count is measured, not listed.** A list of enumerators in the test
+would be an eighth place to keep in step, drifting exactly like the consumer
+switch this change exists to spare people. Each renderer is walked from zero
+in its own direction until the fallback answers, and that count is pinned --
+so adding a code *with* a case moves the count and fails, which makes the
+addition deliberate. The direction is per subject because the error enums run
+0, -1, -2 while `fzn_peer_verdict_t` runs 0, 1, 2; assuming one direction
+would have tested three verdicts as one.
+
+`FZN_PEER_UNKNOWN` renders **"membership unknown"** rather than "unknown", so
+that the fallback stays unambiguous. A log line reading "unknown" must mean
+"this is not a verdict", never "the verdict is UNKNOWN" -- the two are the
+distinction `peer.h` exists to preserve, and collapsing them in the renderer
+would have undone it at the last step.
+
 **The constant-time claim is now checked directly, not inferred from an
 object file** (2026-08-21). `make ctcheck` marks both inputs to
 `fzn_ct_memeq` as undefined and runs it under memcheck, which reports any

@@ -170,3 +170,35 @@ fzn_fresh_err_t fzn_replay_admit(fzn_replay_window_t *window,
 
 	return FZN_FRESH_OK;
 }
+
+/* See freshness.h.
+ *
+ * NO `default:` LABEL, and that is the mechanism rather than an oversight.
+ * `-Wswitch` -- which `-Wall` turns on -- warns about an enumerated switch
+ * that omits a case only when there is no default, so leaving it out is what
+ * makes the compiler notice a code added to fzn_fresh_err_t and not rendered here. A
+ * default would silence exactly the warning worth having and turn a new code
+ * into a silent "unknown" in somebody's log.
+ *
+ * The fallback then lives after the switch, where it catches a value that is
+ * not an enumerator at all -- which no amount of compiler help can rule out,
+ * since the argument may have come from a cast or from the wire. */
+const char *fzn_fresh_err_str(fzn_fresh_err_t err)
+{
+	switch (err) {
+	case FZN_FRESH_OK:
+		return "ok";
+	case FZN_FRESH_ERR_MALFORMED:
+		return "malformed argument";
+	case FZN_FRESH_ERR_EXPIRED:
+		return "expiry has passed";
+	case FZN_FRESH_ERR_NO_EXPIRY:
+		return "command carries no expiry";
+	case FZN_FRESH_ERR_REPLAY:
+		return "nonce already seen";
+	case FZN_FRESH_ERR_WINDOW_FULL:
+		return "replay window full of live entries";
+	}
+
+	return "unknown";
+}

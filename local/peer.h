@@ -142,4 +142,18 @@ int fzn_peer_is_member(const fzn_peer_t *peer, uint32_t gid);
  * last; a port is somebody's later problem and is not pretended at here. */
 int fzn_peer_from_fd(int fd, fzn_peer_t *peer);
 
+/* A short name for `fzn_peer_verdict_t`, for a log line or a message to a user.
+ *
+ * NEVER NULL, including for a value that is not one of the enumerators, so
+ * that a caller may pass the result straight to a printf without a check.
+ * An unrecognised value renders as "unknown", which is deliberately not any
+ * real code's text -- a caller that cannot tell "we do not know" from a
+ * genuine answer is the failure this whole library is careful about
+ * elsewhere.
+ *
+ * The strings are lowercase, carry no trailing punctuation and name the
+ * condition rather than restating the constant, on the same reasoning as
+ * strerror: the caller supplies the sentence, this supplies the noun. */
+const char *fzn_peer_verdict_str(fzn_peer_verdict_t verdict);
+
 #endif /* FZN_PEER_H */

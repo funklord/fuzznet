@@ -151,4 +151,18 @@ fzn_seal_err_t fzn_seal_close(uint8_t *frame, size_t frame_len,
                                const uint8_t key[FZN_AEAD_KEY_LEN],
                                const fzn_aead_ops_t *aead);
 
+/* A short name for `fzn_seal_err_t`, for a log line or a message to a user.
+ *
+ * NEVER NULL, including for a value that is not one of the enumerators, so
+ * that a caller may pass the result straight to a printf without a check.
+ * An unrecognised value renders as "unknown", which is deliberately not any
+ * real code's text -- a caller that cannot tell "we do not know" from a
+ * genuine answer is the failure this whole library is careful about
+ * elsewhere.
+ *
+ * The strings are lowercase, carry no trailing punctuation and name the
+ * condition rather than restating the constant, on the same reasoning as
+ * strerror: the caller supplies the sentence, this supplies the noun. */
+const char *fzn_seal_err_str(fzn_seal_err_t err);
+
 #endif /* FZN_SEAL_H */

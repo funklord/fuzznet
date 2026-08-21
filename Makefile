@@ -120,7 +120,8 @@ TEST_SRCS := chain/tests/chain_test.c chain/tests/revocation_test.c \
              frame/tests/freshness_fuzz.c chain/tests/revocation_fuzz.c \
              frame/tests/receive_fuzz.c \
              chunk/tests/roundtrip_fuzz.c \
-             constant_time/tests/secret_flow_test.c
+             constant_time/tests/secret_flow_test.c \
+             wire/tests/err_str_test.c
 TEST_OBJS := $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
 TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test \
              $(BUILD_DIR)/chain/tests/revocation_test \
@@ -145,7 +146,8 @@ TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test \
              $(BUILD_DIR)/frame/tests/receive_fuzz \
              $(BUILD_DIR)/chain/tests/revocation_fuzz \
              $(BUILD_DIR)/chunk/tests/roundtrip_fuzz \
-             $(BUILD_DIR)/constant_time/tests/secret_flow_test
+             $(BUILD_DIR)/constant_time/tests/secret_flow_test \
+             $(BUILD_DIR)/wire/tests/err_str_test
 
 # The Monocypher binding, built only when MONOCYPHER_DIR names a checkout.
 #
@@ -458,6 +460,19 @@ $(BUILD_DIR)/wire/seal.o: wire/seal.c
 $(BUILD_DIR)/wire/tests/seal_test.o: wire/tests/seal_test.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
+
+$(BUILD_DIR)/wire/tests/err_str_test: $(BUILD_DIR)/wire/tests/err_str_test.o \
+                                      $(BUILD_DIR)/chain/chain.o \
+                                      $(BUILD_DIR)/chunk/reassembly.o \
+                                      $(BUILD_DIR)/chunk/split.o \
+                                      $(BUILD_DIR)/frame/freshness.o \
+                                      $(BUILD_DIR)/local/peer.o \
+                                      $(BUILD_DIR)/session/commitment.o \
+                                      $(BUILD_DIR)/session/random.o \
+                                      $(BUILD_DIR)/wire/seal.o \
+                                      $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
 
 $(BUILD_DIR)/wire/tests/seal_test: $(BUILD_DIR)/wire/tests/seal_test.o \
                                    $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/session/random.o \

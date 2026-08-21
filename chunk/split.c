@@ -86,3 +86,31 @@ fzn_split_err_t fzn_split_at(const fzn_split_t *plan, uint16_t index, size_t *of
 
 	return FZN_SPLIT_OK;
 }
+
+/* See split.h.
+ *
+ * NO `default:` LABEL, and that is the mechanism rather than an oversight.
+ * `-Wswitch` -- which `-Wall` turns on -- warns about an enumerated switch
+ * that omits a case only when there is no default, so leaving it out is what
+ * makes the compiler notice a code added to fzn_split_err_t and not rendered here. A
+ * default would silence exactly the warning worth having and turn a new code
+ * into a silent "unknown" in somebody's log.
+ *
+ * The fallback then lives after the switch, where it catches a value that is
+ * not an enumerator at all -- which no amount of compiler help can rule out,
+ * since the argument may have come from a cast or from the wire. */
+const char *fzn_split_err_str(fzn_split_err_t err)
+{
+	switch (err) {
+	case FZN_SPLIT_OK:
+		return "ok";
+	case FZN_SPLIT_ERR_MALFORMED:
+		return "malformed argument";
+	case FZN_SPLIT_ERR_TOO_LARGE:
+		return "message needs more chunks than a receiver tracks";
+	case FZN_SPLIT_ERR_PAYLOAD_TOO_LARGE:
+		return "max_payload exceeds what a frame carries";
+	}
+
+	return "unknown";
+}

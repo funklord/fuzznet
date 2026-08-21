@@ -246,3 +246,37 @@ fzn_seal_err_t fzn_seal_close(uint8_t *frame, size_t frame_len,
 	situ_fzn_frame_tag_finalize(&msg);
 	return FZN_SEAL_OK;
 }
+
+/* See seal.h.
+ *
+ * NO `default:` LABEL, and that is the mechanism rather than an oversight.
+ * `-Wswitch` -- which `-Wall` turns on -- warns about an enumerated switch
+ * that omits a case only when there is no default, so leaving it out is what
+ * makes the compiler notice a code added to fzn_seal_err_t and not rendered here. A
+ * default would silence exactly the warning worth having and turn a new code
+ * into a silent "unknown" in somebody's log.
+ *
+ * The fallback then lives after the switch, where it catches a value that is
+ * not an enumerator at all -- which no amount of compiler help can rule out,
+ * since the argument may have come from a cast or from the wire. */
+const char *fzn_seal_err_str(fzn_seal_err_t err)
+{
+	switch (err) {
+	case FZN_SEAL_OK:
+		return "ok";
+	case FZN_SEAL_ERR_MALFORMED:
+		return "malformed argument";
+	case FZN_SEAL_ERR_SHAPE:
+		return "not the shape the schema describes";
+	case FZN_SEAL_ERR_TAG:
+		return "tag did not verify";
+	case FZN_SEAL_ERR_COMMITMENT:
+		return "key commitment mismatch";
+	case FZN_SEAL_ERR_NO_NONCE:
+		return "no nonce could be drawn";
+	case FZN_SEAL_ERR_CAPACITY:
+		return "caller buffer too small";
+	}
+
+	return "unknown";
+}

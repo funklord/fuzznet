@@ -136,3 +136,29 @@ int fzn_peer_is_member(const fzn_peer_t *peer, uint32_t gid)
 	 * verdict. */
 	return fzn_peer_group_verdict(peer, gid) == FZN_PEER_MEMBER ? 1 : 0;
 }
+
+/* See peer.h.
+ *
+ * NO `default:` LABEL, and that is the mechanism rather than an oversight.
+ * `-Wswitch` -- which `-Wall` turns on -- warns about an enumerated switch
+ * that omits a case only when there is no default, so leaving it out is what
+ * makes the compiler notice a code added to fzn_peer_verdict_t and not rendered here. A
+ * default would silence exactly the warning worth having and turn a new code
+ * into a silent "unknown" in somebody's log.
+ *
+ * The fallback then lives after the switch, where it catches a value that is
+ * not an enumerator at all -- which no amount of compiler help can rule out,
+ * since the argument may have come from a cast or from the wire. */
+const char *fzn_peer_verdict_str(fzn_peer_verdict_t verdict)
+{
+	switch (verdict) {
+	case FZN_PEER_NOT_MEMBER:
+		return "not a member";
+	case FZN_PEER_MEMBER:
+		return "member";
+	case FZN_PEER_UNKNOWN:
+		return "membership unknown";
+	}
+
+	return "unknown";
+}

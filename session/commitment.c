@@ -105,3 +105,31 @@ fzn_commitment_err_t fzn_commitment_check(const uint8_t derived[FZN_COMMITMENT_L
 	return fzn_ct_memeq(derived, received, FZN_COMMITMENT_LEN) ? FZN_COMMITMENT_OK
 	                                                           : FZN_COMMITMENT_ERR_MISMATCH;
 }
+
+/* See commitment.h.
+ *
+ * NO `default:` LABEL, and that is the mechanism rather than an oversight.
+ * `-Wswitch` -- which `-Wall` turns on -- warns about an enumerated switch
+ * that omits a case only when there is no default, so leaving it out is what
+ * makes the compiler notice a code added to fzn_commitment_err_t and not rendered here. A
+ * default would silence exactly the warning worth having and turn a new code
+ * into a silent "unknown" in somebody's log.
+ *
+ * The fallback then lives after the switch, where it catches a value that is
+ * not an enumerator at all -- which no amount of compiler help can rule out,
+ * since the argument may have come from a cast or from the wire. */
+const char *fzn_commitment_err_str(fzn_commitment_err_t err)
+{
+	switch (err) {
+	case FZN_COMMITMENT_OK:
+		return "ok";
+	case FZN_COMMITMENT_ERR_MALFORMED:
+		return "malformed argument";
+	case FZN_COMMITMENT_ERR_HASH:
+		return "hash refused or absent";
+	case FZN_COMMITMENT_ERR_MISMATCH:
+		return "key commitment mismatch";
+	}
+
+	return "unknown";
+}

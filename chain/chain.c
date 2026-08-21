@@ -220,3 +220,39 @@ fzn_err_t fzn_chain_delegate(const fzn_chain_hop_t *hops, size_t hop_count,
 	return hop_sign(existing.grantee, grantee, capability, now, expires_at, delegable,
 	                signed_region, signed_region_len, sign, out);
 }
+
+/* See chain.h.
+ *
+ * NO `default:` LABEL, and that is the mechanism rather than an oversight.
+ * `-Wswitch` -- which `-Wall` turns on -- warns about an enumerated switch
+ * that omits a case only when there is no default, so leaving it out is what
+ * makes the compiler notice a code added to fzn_err_t and not rendered here. A
+ * default would silence exactly the warning worth having and turn a new code
+ * into a silent "unknown" in somebody's log.
+ *
+ * The fallback then lives after the switch, where it catches a value that is
+ * not an enumerator at all -- which no amount of compiler help can rule out,
+ * since the argument may have come from a cast or from the wire. */
+const char *fzn_err_str(fzn_err_t err)
+{
+	switch (err) {
+	case FZN_OK:
+		return "ok";
+	case FZN_ERR_MALFORMED:
+		return "malformed argument";
+	case FZN_ERR_CHAIN_INVALID:
+		return "chain does not check out";
+	case FZN_ERR_WRONG_ROOT:
+		return "valid chain under a different root";
+	case FZN_ERR_EXPIRED:
+		return "a hop has expired";
+	case FZN_ERR_REVOKED:
+		return "a grant has been revoked";
+	case FZN_ERR_NOT_DELEGABLE:
+		return "last hop is not delegable";
+	case FZN_ERR_STORE_FULL:
+		return "revocation store is full";
+	}
+
+	return "unknown";
+}

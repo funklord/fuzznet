@@ -159,4 +159,18 @@ fzn_reasm_err_t fzn_reasm_accept(fzn_reasm_t *table, const uint8_t sender[FZN_SE
 /* Hand a slot back. Safe on a slot that is already free. */
 void fzn_reasm_release(fzn_partial_t *slot);
 
+/* A short name for `fzn_reasm_err_t`, for a log line or a message to a user.
+ *
+ * NEVER NULL, including for a value that is not one of the enumerators, so
+ * that a caller may pass the result straight to a printf without a check.
+ * An unrecognised value renders as "unknown", which is deliberately not any
+ * real code's text -- a caller that cannot tell "we do not know" from a
+ * genuine answer is the failure this whole library is careful about
+ * elsewhere.
+ *
+ * The strings are lowercase, carry no trailing punctuation and name the
+ * condition rather than restating the constant, on the same reasoning as
+ * strerror: the caller supplies the sentence, this supplies the noun. */
+const char *fzn_reasm_err_str(fzn_reasm_err_t err);
+
 #endif /* FZN_REASSEMBLY_H */

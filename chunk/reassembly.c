@@ -270,3 +270,39 @@ fzn_reasm_err_t fzn_reasm_accept(fzn_reasm_t *table, const uint8_t sender[FZN_SE
 
 	return FZN_REASM_OK;
 }
+
+/* See reassembly.h.
+ *
+ * NO `default:` LABEL, and that is the mechanism rather than an oversight.
+ * `-Wswitch` -- which `-Wall` turns on -- warns about an enumerated switch
+ * that omits a case only when there is no default, so leaving it out is what
+ * makes the compiler notice a code added to fzn_reasm_err_t and not rendered here. A
+ * default would silence exactly the warning worth having and turn a new code
+ * into a silent "unknown" in somebody's log.
+ *
+ * The fallback then lives after the switch, where it catches a value that is
+ * not an enumerator at all -- which no amount of compiler help can rule out,
+ * since the argument may have come from a cast or from the wire. */
+const char *fzn_reasm_err_str(fzn_reasm_err_t err)
+{
+	switch (err) {
+	case FZN_REASM_OK:
+		return "ok";
+	case FZN_REASM_ERR_MALFORMED:
+		return "malformed argument";
+	case FZN_REASM_ERR_FULL:
+		return "every slot holds a live message";
+	case FZN_REASM_ERR_QUOTA:
+		return "sender is at its slot quota";
+	case FZN_REASM_ERR_MISMATCH:
+		return "chunk disagrees with the first";
+	case FZN_REASM_ERR_CONFLICT:
+		return "index already arrived with other bytes";
+	case FZN_REASM_ERR_TOO_LARGE:
+		return "message exceeds what a slot holds";
+	case FZN_REASM_ERR_EXPIRED:
+		return "chunk expiry has passed";
+	}
+
+	return "unknown";
+}

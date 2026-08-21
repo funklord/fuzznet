@@ -113,4 +113,18 @@ fzn_split_err_t fzn_split_plan(size_t total, size_t max_payload, fzn_split_t *ou
 fzn_split_err_t fzn_split_at(const fzn_split_t *plan, uint16_t index, size_t *offset,
                               size_t *len);
 
+/* A short name for `fzn_split_err_t`, for a log line or a message to a user.
+ *
+ * NEVER NULL, including for a value that is not one of the enumerators, so
+ * that a caller may pass the result straight to a printf without a check.
+ * An unrecognised value renders as "unknown", which is deliberately not any
+ * real code's text -- a caller that cannot tell "we do not know" from a
+ * genuine answer is the failure this whole library is careful about
+ * elsewhere.
+ *
+ * The strings are lowercase, carry no trailing punctuation and name the
+ * condition rather than restating the constant, on the same reasoning as
+ * strerror: the caller supplies the sentence, this supplies the noun. */
+const char *fzn_split_err_str(fzn_split_err_t err);
+
 #endif /* FZN_SPLIT_H */
