@@ -119,7 +119,8 @@ TEST_SRCS := chain/tests/chain_test.c chain/tests/revocation_test.c \
              chunk/tests/reassembly_fuzz.c chain/tests/chain_fuzz.c \
              frame/tests/freshness_fuzz.c chain/tests/revocation_fuzz.c \
              frame/tests/receive_fuzz.c \
-             chunk/tests/roundtrip_fuzz.c
+             chunk/tests/roundtrip_fuzz.c \
+             constant_time/tests/secret_flow_test.c
 TEST_OBJS := $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
 TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test \
              $(BUILD_DIR)/chain/tests/revocation_test \
@@ -143,7 +144,8 @@ TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test \
              $(BUILD_DIR)/frame/tests/freshness_fuzz \
              $(BUILD_DIR)/frame/tests/receive_fuzz \
              $(BUILD_DIR)/chain/tests/revocation_fuzz \
-             $(BUILD_DIR)/chunk/tests/roundtrip_fuzz
+             $(BUILD_DIR)/chunk/tests/roundtrip_fuzz \
+             $(BUILD_DIR)/constant_time/tests/secret_flow_test
 
 # The Monocypher binding, built only when MONOCYPHER_DIR names a checkout.
 #
@@ -277,7 +279,7 @@ endif
 # failures rather than as a build error.
 DEPS := $(OBJS:.o=.d) $(TEST_OBJS:.o=.d)
 
-.PHONY: all test fuzz installcheck coverage schema style codegencheck analyze hooks clean install
+.PHONY: all test fuzz installcheck coverage schema style codegencheck ctcheck analyze hooks clean install
 
 # The default build does NOT build tests -- build-and-commit.md, and the
 # discipline it buys is paid for by the dependency rules above being right.
@@ -301,6 +303,12 @@ $(BUILD_DIR)/wire/generated/%.o: wire/generated/%.c
 $(BUILD_DIR)/chain/tests/chain_test: $(BUILD_DIR)/chain/tests/chain_test.o \
                                      $(BUILD_DIR)/chain/chain.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD_DIR)/constant_time/tests/secret_flow_test: \
+                     $(BUILD_DIR)/constant_time/tests/secret_flow_test.o \
+                     $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -526,6 +534,47 @@ codegencheck: $(BUILD_DIR)/constant_time/constant_time.o \
               $(BUILD_DIR)/session/commitment.o
 	python3 tools/codegen_gate.py ct $(BUILD_DIR)/constant_time/constant_time.o
 	python3 tools/codegen_gate.py wipe $(BUILD_DIR)/session/commitment.o
+
+# IS THE CONSTANT-TIME COMPARISON ACTUALLY CONSTANT-TIME?
+#
+# `codegencheck` above counts branches in an object file, and
+# tools/codegen_gate.py is explicit that this is "a tripwire rather than a
+# proof". This asks the question directly: memcheck tracks definedness per
+# bit and reports any conditional jump or memory address computed from data
+# it considers undefined, so marking the two buffers undefined turns valgrind
+# into a secret-dependence detector. Langley's ctgrind.
+#
+# IT RUNS THE BINARY TWICE ON PURPOSE. A memcheck that reports nothing and a
+# memcheck that was never able to report anything look identical -- the build
+# lost -DFZN_HAVE_VALGRIND, the binary was stale, valgrind ran something
+# else. So the second run swaps in memcmp over the same poisoned buffers and
+# this target FAILS IF THAT IS NOT REPORTED. The clean run means something
+# only because the dirty one was seen.
+#
+# Not in `test`: valgrind is not on every machine, and it skips loudly rather
+# than passing, since an absent tool and a clean one are otherwise the same
+# silence.
+CT_VG_BIN := $(BUILD_DIR)/constant_time/tests/secret_flow_valgrind
+
+ctcheck:
+	@if ! command -v valgrind >/dev/null 2>&1; then \
+		echo "ctcheck: no valgrind on PATH, so it was SKIPPED"; exit 0; \
+	elif [ ! -f /usr/include/valgrind/memcheck.h ]; then \
+		echo "ctcheck: valgrind headers absent, so it was SKIPPED"; exit 0; \
+	else \
+		mkdir -p $(dir $(CT_VG_BIN)) && \
+		$(CC) $(CFLAGS) -DFZN_HAVE_VALGRIND -o $(CT_VG_BIN) \
+		      constant_time/tests/secret_flow_test.c constant_time/constant_time.c && \
+		echo "ctcheck: fzn_ct_memeq, with both inputs marked secret" && \
+		valgrind -q --error-exitcode=9 --track-origins=yes $(CT_VG_BIN) || \
+			{ echo "ctcheck: FAILED -- control flow depended on secret data"; exit 1; }; \
+		echo "ctcheck: positive control -- memcmp over the same secrets" && \
+		if valgrind -q --error-exitcode=9 $(CT_VG_BIN) --leaky >/dev/null 2>&1; then \
+			echo "ctcheck: FAILED -- memcmp over secret data was NOT reported."; \
+			echo "ctcheck: the clean run above therefore proves nothing."; exit 1; \
+		fi; \
+		echo "ctcheck: reported, so the clean run above is evidence and not silence"; \
+	fi
 
 # STATIC ANALYSIS, from two tools that disagree about what to look for.
 #

@@ -2150,6 +2150,60 @@ reproducible, and a reader should read them as weaker than the ones after it.
 It also turned up that situ's *compiler* was dirty, not only its runtime, so
 the generated C was being compared against an uncommitted emitter as well.
 
+**The constant-time claim is now checked directly, not inferred from an
+object file** (2026-08-21). `make ctcheck` marks both inputs to
+`fzn_ct_memeq` as undefined and runs it under memcheck, which reports any
+conditional jump or memory address computed from data it considers
+undefined. A comparison whose control flow never touches the data cannot
+vary with it, so this is the property itself rather than a symptom of it.
+The technique is Langley's ctgrind; the test is
+`constant_time/tests/secret_flow_test.c`.
+
+**What was there before did not cover this, and both witnesses said so in
+their own words.** The five cases in `chain/tests/chain_test.c` -- a leftover
+from when the function lived in `chain.h` -- test that the comparison gives
+the right ANSWER, which a plain `memcmp` passes identically. `make
+codegencheck` counts branches in the emitted object, and
+`tools/codegen_gate.py` calls itself "a tripwire rather than a proof". So the
+one property sec 4.4a says this library owes its consumers and must not leave
+to them had **correctness tests and no property test at all**, for as long as
+the module has existed.
+
+**One function is the whole scope, and that is the argument for having a
+primitive.** Every secret comparison in the library routes through it:
+capability ids and grantee keys in `chain/chain.c` and `chain/revocation.c`,
+the commitment in `wire/seal.c`, the verb in `local/vocabulary.c`, and
+`session/commitment.c`'s check.
+
+**The target runs the binary twice and fails if the second run is quiet.** A
+memcheck that reports nothing and a memcheck that was never able to report
+anything are the same silence -- a build that lost `-DFZN_HAVE_VALGRIND`, a
+stale binary, valgrind running something else. So the second run swaps in
+`memcmp` over the same poisoned buffers and must be REPORTED. Measured: built
+without the client requests, that run is silent and exits 0, which is exactly
+the case the check refuses.
+
+Three sabotages, all run:
+
+| sabotage | result |
+|---|---|
+| `fzn_ct_memeq` rewritten to return at the first differing byte | **caught**, three reports, `make` exits 2 |
+| `memcmp` over poisoned buffers (the built-in control) | **caught**, named at `vg_replace_strmem.c` |
+| the same control built without the client requests | **silent**, which the target treats as failure |
+
+**`fzn_commitment_check` is deliberately outside it**, and the reason is
+recorded in the test rather than left as an omission: it selects an enum from
+the comparison's result, and that result is the declassification boundary --
+accept-or-reject is published the moment it returns, so branching on it leaks
+nothing. Valgrind cannot see that boundary, so including the function would
+report a correct branch and teach whoever met it to write a suppression. **A
+check whose output has to be explained away is one nobody keeps believing.**
+
+The test builds and runs without valgrind too, with the two macros as no-ops,
+so it is an ordinary correctness test on a machine that has no valgrind
+rather than a file that only exists under a tool most machines lack.
+`ctcheck` skips loudly when the tool or its headers are absent.
+
 **Static analysis had never been run at all, and now has a target**
 (2026-08-20). `make analyze` runs gcc's `-fanalyzer` over the library and the
 tests and cppcheck at `--check-level=exhaustive` over the library. Both report
