@@ -2150,6 +2150,54 @@ reproducible, and a reader should read them as weaker than the ones after it.
 It also turned up that situ's *compiler* was dirty, not only its runtime, so
 the generated C was being compared against an uncommitted emitter as well.
 
+**The version was in a file nothing read** (2026-08-23). `VERSION` said
+0.1.0, and no Makefile, header or packaging referenced it -- there is no
+`debian/` here yet either. So a consumer could not log which fuzznet it had
+linked, and the number lived in exactly one place by being used in none.
+`version/version.h` and `version/version.c` are new.
+
+**Two ways to ask, and the pair is the point rather than a convenience.** The
+macros are what the CONSUMER'S HEADERS say and fold at compile time;
+`fzn_version_string()` and `fzn_version_number()` are what the LINKED LIBRARY
+says, because they are compiled into it. Within one build they agree
+trivially. They stop agreeing exactly when a consumer compiles against one
+fuzznet's headers and links a different one -- an installed copy that moved
+on, a stale archive, two versions on one machine -- and that mismatch is
+otherwise silent until a struct changes shape underneath somebody.
+
+**Demonstrated rather than argued.** A consumer built against 0.2.0 headers
+and linked against a 0.1.0 library reports both numbers and exits 1; rebuilt
+against the matching headers it agrees and exits 0. The check discriminates
+in both directions, which is what a version guard has to do to be worth
+having.
+
+**They are not `static inline` in the header, and that is the whole design.**
+An inline function would be compiled into the consumer, would report the
+consumer's own macros back to it, would agree with itself always, and would
+detect nothing. The value is that they are compiled once, into the library.
+
+**`VERSION` remains the authority** and the header is a deliberate copy, for
+the reason `constants_test.c` gives about the field lengths: a generated
+header puts a build step between a consumer and a constant. What was missing
+there and here is anything to notice when a copy stops being one, so `make
+style` gained an eighth check. Three sabotages, each with its own message:
+moving `VERSION` without the header, a `FZN_VERSION_STRING` that no longer
+spells the numbers, and a version that does not pack.
+
+**The packing bound is checked rather than assumed.** `FZN_VERSION_NUMBER` is
+`major * 10000 + minor * 100 + patch`, so at 100 a minor carries and 0.1.100
+compares equal to 0.2.0 -- two releases indistinguishable, which is worse
+than either being wrong.
+
+**`installcheck` caught the omission before any gate I wrote did.** Adding an
+installed header without adding it to `tools/consumer_check.c` failed with
+*"installed but not included by the consumer: version/version.h -- the check
+would pass whatever those headers did"*. That guard was written for exactly
+this and fired on its first real occasion, which is more than most vacuous-
+pass guards ever get to do. The consumer check now makes the skew comparison
+itself, so the installed arrangement proves the function is reachable and
+answers rather than merely that a header parsed.
+
 **The library derives a key for a consumer and gave them no way to erase
 it** (2026-08-21). `fzn_wipe` is exported from `constant_time/`, and
 `fzn_commitment_derive` now uses it rather than its own two loops.

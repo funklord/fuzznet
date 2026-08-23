@@ -38,6 +38,7 @@
 #include <fuzznet/session/commitment.h>
 #include <fuzznet/session/random.h>
 #include <fuzznet/session/random_system.h>
+#include <fuzznet/version/version.h>
 #include <fuzznet/wire/seal.h>
 #else
 #include "chain/chain.h"
@@ -52,6 +53,7 @@
 #include "session/commitment.h"
 #include "session/random.h"
 #include "session/random_system.h"
+#include "version/version.h"
 #include "wire/seal.h"
 #endif
 
@@ -107,6 +109,16 @@ int main(void)
 
 	if (!fzn_ct_memeq(equal_a, equal_b, sizeof(equal_a)))
 		return 1;
+
+	/* The version a consumer compiled against must be the one it linked.
+	 * This is the comparison version.h asks every consumer to make at
+	 * startup, made here so that the installed arrangement proves the
+	 * function is reachable and answers -- an installed header declaring a
+	 * function nothing calls would link fine and mean nothing. */
+	if (fzn_version_number() != (unsigned long)FZN_VERSION_NUMBER)
+		return 20;
+	if (strcmp(fzn_version_string(), FZN_VERSION_STRING) != 0)
+		return 21;
 
 	if (fzn_split_plan(100, 8, &plan) != FZN_SPLIT_OK || plan.chunks != 13)
 		return 2;

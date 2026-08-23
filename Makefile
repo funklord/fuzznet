@@ -97,7 +97,8 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              chunk/reassembly.c \
              chunk/split.c \
              wire/seal.c \
-             session/random.c session/random_linux.c
+             session/random.c session/random_linux.c \
+             version/version.c
 OBJS      := $(SRCS:%.c=$(BUILD_DIR)/%.o) $(GEN_OBJS)
 HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h local/vocabulary.h \
@@ -105,7 +106,8 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              chunk/reassembly.h \
              chunk/split.h \
              wire/seal.h session/aead.h \
-             session/random.h session/random_system.h
+             session/random.h session/random_system.h \
+             version/version.h
 
 TEST_SRCS := chain/tests/chain_test.c chain/tests/revocation_test.c \
              frame/tests/freshness_test.c \
@@ -121,7 +123,8 @@ TEST_SRCS := chain/tests/chain_test.c chain/tests/revocation_test.c \
              frame/tests/receive_fuzz.c \
              chunk/tests/roundtrip_fuzz.c \
              constant_time/tests/secret_flow_test.c \
-             wire/tests/err_str_test.c
+             wire/tests/err_str_test.c \
+             version/tests/version_test.c
 TEST_OBJS := $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
 TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test \
              $(BUILD_DIR)/chain/tests/revocation_test \
@@ -147,7 +150,8 @@ TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test \
              $(BUILD_DIR)/chain/tests/revocation_fuzz \
              $(BUILD_DIR)/chunk/tests/roundtrip_fuzz \
              $(BUILD_DIR)/constant_time/tests/secret_flow_test \
-             $(BUILD_DIR)/wire/tests/err_str_test
+             $(BUILD_DIR)/wire/tests/err_str_test \
+             $(BUILD_DIR)/version/tests/version_test
 
 # The Monocypher binding, built only when MONOCYPHER_DIR names a checkout.
 #
@@ -305,6 +309,11 @@ $(BUILD_DIR)/wire/generated/%.o: wire/generated/%.c
 $(BUILD_DIR)/chain/tests/chain_test: $(BUILD_DIR)/chain/tests/chain_test.o \
                                      $(BUILD_DIR)/chain/chain.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD_DIR)/version/tests/version_test: $(BUILD_DIR)/version/tests/version_test.o \
+                                        $(BUILD_DIR)/version/version.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -770,6 +779,42 @@ style:
 		exit 1; \
 	fi; \
 	echo "style: $$n test sources, all reached by 'make test'"
+	@# AND version/version.h MUST STILL SPELL WHAT VERSION SAYS, an eighth
+	@# hand-maintained agreement. The header is a copy on purpose --
+	@# version.h says why, and it is the reason constants_test.c gives about
+	@# the field lengths: a generated header would put a build step between a
+	@# consumer and a constant. What was missing there and here is anything
+	@# to notice when a copy stops being one.
+	@#
+	@# The packing bound is checked too. At a minor or patch of 100 the
+	@# arithmetic carries and 0.1.100 compares equal to 0.2.0 -- two releases
+	@# indistinguishable, which is worse than either being wrong.
+	@test -s VERSION || { echo "style: VERSION is missing or empty"; exit 1; }
+	@v=`tr -d ' \t\n' < VERSION`; \
+	h=version/version.h; \
+	maj=`sed -n 's/^#define FZN_VERSION_MAJOR \([0-9][0-9]*\).*/\1/p' $$h`; \
+	min=`sed -n 's/^#define FZN_VERSION_MINOR \([0-9][0-9]*\).*/\1/p' $$h`; \
+	pat=`sed -n 's/^#define FZN_VERSION_PATCH \([0-9][0-9]*\).*/\1/p' $$h`; \
+	str=`sed -n 's/^#define FZN_VERSION_STRING "\([^"]*\)".*/\1/p' $$h`; \
+	if [ -z "$$maj" ] || [ -z "$$min" ] || [ -z "$$pat" ] || [ -z "$$str" ]; then \
+		echo "style: could not read the version macros out of $$h."; \
+		echo "style: a macro this could not find is not one it checked."; \
+		exit 1; \
+	fi; \
+	if [ "$$maj.$$min.$$pat" != "$$v" ]; then \
+		echo "style: $$h says $$maj.$$min.$$pat and VERSION says $$v"; \
+		exit 1; \
+	fi; \
+	if [ "$$str" != "$$v" ]; then \
+		echo "style: FZN_VERSION_STRING is \"$$str\" and VERSION says $$v"; \
+		exit 1; \
+	fi; \
+	if [ "$$min" -gt 99 ] || [ "$$pat" -gt 99 ]; then \
+		echo "style: $$v does not pack -- a minor or patch above 99 carries"; \
+		echo "style: into the next field, so 0.1.100 would equal 0.2.0."; \
+		exit 1; \
+	fi; \
+	echo "style: version/version.h and VERSION agree at $$v"
 
 # Installs the commit-msg hook from tools/hooks/ into .git/hooks/. In the tree
 # rather than only in .git so that it is reviewable, survives a clone, and can

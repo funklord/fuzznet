@@ -32,6 +32,7 @@
 /chunk/tests/roundtrip_fuzz
 /constant_time/tests/secret_flow_test
 /wire/tests/err_str_test
+/version/tests/version_test
 /constant_time/tests/secret_flow_valgrind
 
 # An out-of-tree build, if BUILD_DIR names one.
