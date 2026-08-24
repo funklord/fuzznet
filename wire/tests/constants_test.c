@@ -70,6 +70,24 @@ _Static_assert(FZN_CAP_ID_LEN == SITU_FZN_FRAME_SEALED_CAPABILITY_COUNT,
 _Static_assert(SITU_FZN_FRAME_SIZE_MAX - SITU_FZN_FRAME_SIZE_MIN == FZN_SPLIT_MAX_PAYLOAD,
                 "chunk/split.h's payload ceiling and wire/frame.situ's [max] have diverged");
 
+/* THE SAME BOUND BY TWO ROADS, which is what makes either trustworthy.
+ *
+ * situ 35a6c30 began exporting a field's value bounds, so `length`'s maximum
+ * is now stated directly as well as being derivable from the spread between
+ * the smallest and largest frame. `wire/seal.c` uses the direct one and this
+ * is what holds the derivation to it.
+ *
+ * It is not a tautology, and the case it catches is specific: the spread is
+ * the payload bound ONLY because the payload is the sole variable-length
+ * member. Add a fixed field to the head and `SITU_FZN_FRAME_SIZE_MIN` moves
+ * while `..._LENGTH_VALUE_MAX` does not, so the two part company here rather
+ * than in a sender that quietly stops accepting its largest payload. */
+_Static_assert(SITU_FZN_HEAD_LENGTH_VALUE_MAX ==
+                       SITU_FZN_FRAME_SIZE_MAX - SITU_FZN_FRAME_SIZE_MIN,
+                "the length field's own bound and the frame's payload spread disagree");
+_Static_assert(SITU_FZN_HEAD_LENGTH_VALUE_MAX == FZN_SPLIT_MAX_PAYLOAD,
+                "chunk/split.h's payload ceiling and the schema's length bound disagree");
+
 /* And the premise that line rests on: the spread between the smallest and
  * largest frame is the payload only because `payload[head.length]` is the
  * sole variable-length member. Spelled out so a new fixed field forces this
@@ -162,6 +180,6 @@ int main(void)
 	      "the commitment field does not lie within the frame");
 
 	printf("constants_test: %d checks, %d failure(s); %d constants pinned at compile time\n",
-	       checks, failures, 8);
+	       checks, failures, 10);
 	return failures == 0 ? 0 : 1;
 }

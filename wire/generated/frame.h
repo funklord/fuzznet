@@ -216,6 +216,8 @@ static inline void situ_fzn_head_chunks_set(situ_view_t view, uint16_t value)
 	situ_put_be16(view.base + 87u, (uint16_t)value);
 }
 
+#define SITU_FZN_HEAD_LENGTH_VALUE_MAX 1024u
+
 /** fzn_head.length : u16  at AbsoluteStatic(0x59)
  * size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
  */
@@ -305,6 +307,8 @@ static inline situ_err_t situ_fzn_frame_head_view(situ_view_t view, situ_view_t 
 {
 	return situ_view_sub(view, 5u, SITU_FZN_HEAD_SIZE_FIXED, out);
 }
+
+#define SITU_FZN_FRAME_HEAD_LENGTH_VALUE_MAX 1024u
 
 /* fzn_frame.sealed : fzn_aead  at AbsoluteStatic(0x60)
  * size=Bounded(32, 1056) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting

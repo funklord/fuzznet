@@ -137,17 +137,22 @@ fzn_seal_err_t fzn_seal_build(uint8_t *frame, size_t frame_cap, size_t *frame_le
 	 * specific to the nonce, and neither is the harm. A caller reusing one
 	 * buffer for successive frames lost the previous frame to a refusal.
 	 *
-	 * FROM THE SCHEMA'S OWN CONSTANTS rather than a literal 1024, on the
-	 * same reasoning as the validate call above: a change to frame.situ
-	 * reaches this file by regeneration instead of by somebody remembering.
-	 * wire/tests/constants_test.c pins the identity against
-	 * FZN_SPLIT_MAX_PAYLOAD, so the sender and the splitter cannot come to
-	 * disagree about what fits.
+	 * FROM THE SCHEMA'S OWN CONSTANT rather than a literal 1024, on the same
+	 * reasoning as the validate call above: a change to frame.situ reaches
+	 * this file by regeneration instead of by somebody remembering.
+	 *
+	 * This was `SITU_FZN_FRAME_SIZE_MAX - SITU_FZN_FRAME_SIZE_MIN` for a
+	 * day, which is the same number by a longer road -- it is the payload
+	 * bound only because the payload is the sole variable-length member.
+	 * situ 35a6c30 exports the field's own bound, so the check now says what
+	 * it means rather than deriving it. constants_test.c asserts the two
+	 * agree, which is what would catch a new fixed field moving one and not
+	 * the other.
 	 *
 	 * Refused rather than clamped, which is chunk/split.c's argument for the
 	 * same decision: clamping would leave the caller believing it sent bytes
 	 * that were dropped. */
-	if (what->payload_len > (size_t)(SITU_FZN_FRAME_SIZE_MAX - SITU_FZN_FRAME_SIZE_MIN))
+	if (what->payload_len > (size_t)SITU_FZN_HEAD_LENGTH_VALUE_MAX)
 		return FZN_SEAL_ERR_SHAPE;
 
 	total = (size_t)FZN_SEAL_OVERHEAD + what->payload_len;

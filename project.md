@@ -2150,6 +2150,32 @@ reproducible, and a reader should read them as weaker than the ones after it.
 It also turned up that situ's *compiler* was dirty, not only its runtime, so
 the generated C was being compared against an uncommitted emitter as well.
 
+**The payload bound now says what it means** (2026-08-24, situ `35a6c30`).
+situ began exporting a field's value bounds as constants, so `length`'s
+maximum is stated directly as `SITU_FZN_HEAD_LENGTH_VALUE_MAX`.
+`wire/seal.c` used `SITU_FZN_FRAME_SIZE_MAX - SITU_FZN_FRAME_SIZE_MIN` for a
+day, which is the same number by a longer road: it is the payload bound only
+because the payload is the sole variable-length member.
+
+`constants_test.c` asserts the two agree, and **that is not a tautology** --
+add a fixed field to the head and `SITU_FZN_FRAME_SIZE_MIN` moves while the
+length bound does not, so the two part company at compile time rather than in
+a sender that quietly stops accepting its largest payload. Sabotaged to
+0x3E8: both new assertions fail by name.
+
+**A count went stale in the same edit that made it wrong.** The test printed
+"8 constants pinned at compile time" from a hand-written literal; adding two
+assertions made it a lie in the same commit that added them. Corrected to 10.
+A C program cannot count its own static assertions, so the number stays
+hand-maintained -- worth naming as the weak spot it is rather than trusting
+it because it is printed.
+
+**Regenerated from `git archive HEAD`, not from situ's working tree**, which
+was dirty with another session's edits to `situc/wellformed.py` at the time.
+`make schema` already does this and it is why: generating from a dirty tree
+stamps somebody's uncommitted work into fuzznet's vendored code with a commit
+id that does not describe it.
+
 **A refused send wrote into the caller's buffer** (2026-08-24, fixed).
 `fzn_seal_build` bounded its payload at `UINT16_MAX`, which only made its cast
 to `uint16_t` safe. The schema caps `length` at 1024, so anything between the
