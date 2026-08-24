@@ -120,7 +120,34 @@ fzn_seal_err_t fzn_seal_build(uint8_t *frame, size_t frame_cap, size_t *frame_le
 		return FZN_SEAL_ERR_MALFORMED;
 	if (!what->payload && what->payload_len != 0)
 		return FZN_SEAL_ERR_MALFORMED;
-	if (what->payload_len > UINT16_MAX)
+	/* THE PAYLOAD BOUND, CHECKED BEFORE THE BUFFER IS TOUCHED.
+	 *
+	 * It used to read `> UINT16_MAX`, which only made the cast to `uint16_t`
+	 * below safe and let anything up to 65535 through. The schema caps
+	 * `length` at 1024, so a payload between those refused anyway -- but not
+	 * until `situ_fzn_frame_sealed_open` further down, by which point the
+	 * `memset` had already written 2144 bytes into the caller's buffer.
+	 * Measured with a 2000-byte payload: the call returned
+	 * FZN_SEAL_ERR_SHAPE having modified 2144 bytes it was refusing to fill.
+	 *
+	 * That contradicted this function's own promise a few lines below --
+	 * that a refusal leaves the caller's buffer untouched, "so there is no
+	 * half-built frame for anybody to send by mistake". The promise was
+	 * written about the nonce and is true there; the reason it gives is not
+	 * specific to the nonce, and neither is the harm. A caller reusing one
+	 * buffer for successive frames lost the previous frame to a refusal.
+	 *
+	 * FROM THE SCHEMA'S OWN CONSTANTS rather than a literal 1024, on the
+	 * same reasoning as the validate call above: a change to frame.situ
+	 * reaches this file by regeneration instead of by somebody remembering.
+	 * wire/tests/constants_test.c pins the identity against
+	 * FZN_SPLIT_MAX_PAYLOAD, so the sender and the splitter cannot come to
+	 * disagree about what fits.
+	 *
+	 * Refused rather than clamped, which is chunk/split.c's argument for the
+	 * same decision: clamping would leave the caller believing it sent bytes
+	 * that were dropped. */
+	if (what->payload_len > (size_t)(SITU_FZN_FRAME_SIZE_MAX - SITU_FZN_FRAME_SIZE_MIN))
 		return FZN_SEAL_ERR_SHAPE;
 
 	total = (size_t)FZN_SEAL_OVERHEAD + what->payload_len;

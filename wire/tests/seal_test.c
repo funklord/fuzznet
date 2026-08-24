@@ -388,6 +388,57 @@ int main(void)
 		      "a null payload with a non-zero length");
 	}
 
+	/* THE PAYLOAD BOUND, AND WHAT A REFUSAL COSTS THE CALLER.
+	 *
+	 * `fzn_seal_build` used to bound the payload at UINT16_MAX, which only
+	 * made its cast to `uint16_t` safe. Anything between that and the
+	 * schema's 1024 was refused further down by
+	 * `situ_fzn_frame_sealed_open` -- after the `memset` had written the
+	 * whole frame's worth of zeroes into the caller's buffer. Measured at
+	 * the time: a 2000-byte payload returned FZN_SEAL_ERR_SHAPE having
+	 * modified 2144 bytes it was refusing to fill.
+	 *
+	 * Both halves are checked here because fixing either alone would look
+	 * like success: the bound could be enforced late and still return the
+	 * right code, and the buffer could be spared by a check that let the
+	 * wrong sizes through. */
+	{
+		unsigned counter = 0;
+		fzn_random_ops_t rng = { counting_fill, &counter };
+		static uint8_t big[FZN_SEAL_OVERHEAD + 4096];
+		static uint8_t payload[4096];
+		size_t wrote = 0;
+		fzn_send_t what;
+		const size_t bound = SITU_FZN_FRAME_SIZE_MAX - SITU_FZN_FRAME_SIZE_MIN;
+		size_t touched = 0;
+
+		memset(payload, 0xC3, sizeof(payload));
+		memset(&what, 0, sizeof(what));
+		what.sender = sealed + OFF_SENDER;
+		what.capability = CAP;
+		what.payload = payload;
+		what.chunks = 1;
+
+		/* Exactly the bound must build; one past it must not. A test that
+		 * only refused something far too large would pass with the bound
+		 * set anywhere above it. */
+		what.payload_len = bound;
+		check(fzn_seal_build(big, sizeof(big), &wrote, &what, key, commitment, &rng,
+		                     &aead) == FZN_SEAL_OK,
+		      "the largest payload the schema allows was refused");
+
+		what.payload_len = bound + 1u;
+		memset(big, 0x5A, sizeof(big));
+		check(fzn_seal_build(big, sizeof(big), &wrote, &what, key, commitment, &rng,
+		                     &aead) == FZN_SEAL_ERR_SHAPE,
+		      "a payload one byte past the schema's bound was accepted");
+
+		for (size_t i = 0; i < sizeof(big); i++)
+			if (big[i] != 0x5A)
+				touched++;
+		check(touched == 0, "a refused build wrote into the caller's buffer");
+	}
+
 	printf("seal_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
 }

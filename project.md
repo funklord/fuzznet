@@ -2150,6 +2150,47 @@ reproducible, and a reader should read them as weaker than the ones after it.
 It also turned up that situ's *compiler* was dirty, not only its runtime, so
 the generated C was being compared against an uncommitted emitter as well.
 
+**A refused send wrote into the caller's buffer** (2026-08-24, fixed).
+`fzn_seal_build` bounded its payload at `UINT16_MAX`, which only made its cast
+to `uint16_t` safe. The schema caps `length` at 1024, so anything between the
+two was refused -- but not until `situ_fzn_frame_sealed_open`, well past the
+`memset` that zeroes the whole frame. **Measured: a 2000-byte payload returned
+`FZN_SEAL_ERR_SHAPE` having modified 2144 bytes of the caller's buffer.**
+
+The function promises the opposite a few lines below, where the nonce is drawn
+first so that a source which "cannot answer leaves the caller's buffer
+untouched, so there is no half-built frame for anybody to send by mistake".
+That promise was written about the nonce and is true there. **The reason it
+gives is not specific to the nonce, and neither is the harm** -- a caller
+reusing one buffer for successive frames lost the previous frame to a
+refusal.
+
+The bound now sits with the other argument checks, before anything is
+written, and comes from `SITU_FZN_FRAME_SIZE_MAX - SITU_FZN_FRAME_SIZE_MIN`
+rather than a literal 1024 -- the same reasoning as the `validate` call above
+it, so a change to `frame.situ` reaches this file by regeneration instead of
+by somebody remembering. `constants_test.c` already pins that identity
+against `FZN_SPLIT_MAX_PAYLOAD`, so the sender and the splitter cannot come
+to disagree about what fits.
+
+**Two checks, because fixing either alone looks like success.** The bound is
+tested at exactly 1024 and at 1025, and the caller's buffer is checked
+untouched after the refusal. Sabotage confirms they are not redundant:
+restoring `> UINT16_MAX` leaves *"a payload one byte past the schema's bound
+was accepted"* PASSING -- 1025 still returns `SHAPE`, just late -- and fails
+only *"a refused build wrote into the caller's buffer"*. A single check on the
+error code would have reported this defect fixed.
+
+**How it was found, which is the part worth keeping.** Not by reading the
+guard, which looks reasonable. `wire/seal.c` was the lowest-covered
+hand-written module -- 72.73% of 110 branches -- so the uncovered branches
+were listed to see what had never run. The oversize path was among them, and
+the first probe of it was written expecting a much worse bug: that an
+oversize frame would be built and returned as `FZN_SEAL_OK`. **That
+expectation was wrong** -- the frame is refused, and the probe said so. The
+real defect was the one visible only after asking a second question of the
+same probe: not what it returned, but what it had already written.
+
 **situ was re-measured against the schema, and the answer moved**
 (2026-08-24, against situ `ac995c2`).
 
