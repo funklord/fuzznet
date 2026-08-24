@@ -117,7 +117,7 @@ struct fzn_head {
 	// Replay defence and the AEAD nonce in one. 24 bytes because XChaCha
 	// takes that, which is what makes a random nonce safe without a counter
 	// negotiated per session.
-	u8   nonce[24]  [nonce];
+	u8   nonce[24];
 
 	// KEY COMMITMENT. sec 4.4a says key-committing AEAD is not optional,
 	// and XChaCha20-Poly1305 as Monocypher provides it is not key-
@@ -169,7 +169,7 @@ struct fzn_head {
 	// `max = chunks` would admit one past the end. The bound appears in
 	// `situc wire` output, so it is contract rather than comment.
 	u16  index    [max = chunks - 1];
-	u16  chunks   [must_ne = 0];
+	u16  chunks;
 
 	// Sizes the sealed payload. The `max` is what makes a datagram
 	// statically allocatable: without it the sealed region is Unbounded and

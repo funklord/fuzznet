@@ -389,6 +389,15 @@ static inline uint8_t *situ_fzn_frame_tag_ptr(situ_view_t view)
 		? view.base + situ_fzn_frame_tag_offset(view)
 		: NULL;
 }
+
+/* No setter: mutate is Immutable.
+ *   caused by: an authentication tag or checksum
+ *              its value is whatever the algorithm computes over the bytes it covers, so it is written by finalize and by nothing else
+ */
+
+/* No `fzn_frame_required`: one of its members has no length this can compute.
+ * Framing such a message is the layer below's job -- situ can say what
+ * the bytes mean and not when they have all arrived. */
 /** tag covers `authenticated`, `sealed`.
  *
  * The span below is what the algorithm runs over. Write the result
@@ -417,15 +426,6 @@ static inline void situ_fzn_frame_tag_finalize(situ_msg_t *msg)
 {
 	situ_msg_clear_dirty(msg, SITU_FZN_FRAME_TAG_DIRTY);
 }
-
-/* No setter: mutate is Immutable.
- *   caused by: an authentication tag or checksum
- *              its value is whatever the algorithm computes over the bytes it covers, so it is written by finalize and by nothing else
- */
-
-/* No `fzn_frame_required`: one of its members has no length this can compute.
- * Framing such a message is the layer below's job -- situ can say what
- * the bytes mean and not when they have all arrived. */
 
 /** Writing any of these leaves an authentication tag stale, so each one
  * takes the message and marks the bit. The message then refuses

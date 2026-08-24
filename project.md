@@ -2150,6 +2150,76 @@ reproducible, and a reader should read them as weaker than the ones after it.
 It also turned up that situ's *compiler* was dirty, not only its runtime, so
 the generated C was being compared against an uncommitted emitter as well.
 
+**situ was re-measured against the schema, and the answer moved**
+(2026-08-24, against situ `ac995c2`).
+
+**The blocker fuzznet reported has landed and was already in use.** situ
+`f9e5c0e` compares two fixed-size arrays in a relation, which is what
+`suggestions/fuzznet.md` asked for. The rung table in sec 10 step 4 said
+`relate` emitted output identical to `view`; re-measured, it emits **4781
+bytes more** -- `frame_relate.c` and `frame_relate.h`, with real predicates
+comparing `sender` byte for byte.
+
+| rung | 2026-08-14 | 2026-08-24 |
+|---|---|---|
+| `view` | 18746 | 18826 |
+| `edit` | identical | identical |
+| `relate` | identical | **23607, and its own two files** |
+| `frame` | 24313 | 29194 |
+| `converse` | identical to `frame` | identical to `frame` |
+| `drive` | identical to `converse` | identical to `converse` |
+
+**`converse` and `drive` still emit nothing, and the reason has changed.** It
+used to be that relations could not compare arrays at all. Now situ says
+precisely why, in its own words:
+
+    no conversation table for `same_message`: its key includes
+    `later.head.sender == first.head.sender`, which compares 32 bytes; a
+    packed key holds 8, and hashing one would make two exchanges that
+    collided indistinguishable
+
+That is the key-width question sec 10 already recorded and declined to
+escalate, now stated as a measurement rather than an inference. **sec 4.4's
+retransmission is still not generated**, and sec 10's refusal to hand-write
+one still stands.
+
+**situ HEAD refused this schema, over two attributes that did nothing.**
+`[nonce]` on `head.nonce` and `[must_ne = 0]` on `head.chunks` are gone. The
+refusals are situ tightening deliberately, not a regression, and each came
+with its argument: *"a nonce is named by `sealed(codec, nonce = field)`, and
+this attribute is read by nothing"*, and *"nothing reads it, so the generated
+code is byte-identical to the schema without it"*.
+
+**`[must_eq = 1]` on `hop.version` was NOT refused**, which is what makes the
+other two believable rather than a blanket change: it is a real attribute and
+`situ_fzn_hop_validate` contains the check it produces.
+
+**Was anything lost? Measured, not reasoned.** `chunks == 0` is still refused
+for every index, because `index [max = chunks - 1]` evaluates in `int64` as
+`index > -1`, which is true for any unsigned index. Probed directly:
+`chunks=0 index=0` and `chunks=0 index=7` both return *constraint violated*,
+`chunks=1 index=0` and `chunks=4 index=3` pass, `chunks=1 index=1` refuses.
+**And `wire/tests/generated_test.c` already pinned both invariants
+behaviourally** -- "a frame claiming zero chunks validated" and "a frame with
+version 2 validated" -- written against the behaviour rather than the
+attribute, which is exactly why a decorative attribute could be removed
+without anything going quiet.
+
+Regenerating cost almost nothing: `frame.c`, `frame_relate.c` and
+`frame_relate.h` came back **byte-identical**, `frame.h` differs only by two
+comment blocks swapping order, and the vendored runtime moved 1253 lines. All
+gates pass.
+
+**A false finding I nearly reported, and how it was made.** The first
+per-rung sweep piped situc through `head -3`. That closed the pipe, situc
+took SIGPIPE mid-write, and `frame_relate.c` was missing from the output
+directory -- which reads exactly like situ having stopped emitting it. Two
+more steps were spent confirming the committed header declares symbols the
+committed source defines, i.e. building the case for a regression in somebody
+else's compiler. Re-running without the truncation showed situc writing all
+four files and exiting 0. **Truncating a tool's output can kill the tool**,
+and the corpse looks like evidence.
+
 **The version was in a file nothing read** (2026-08-23). `VERSION` said
 0.1.0, and no Makefile, header or packaging referenced it -- there is no
 `debian/` here yet either. So a consumer could not log which fuzznet it had
