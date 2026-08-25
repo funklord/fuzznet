@@ -2184,6 +2184,40 @@ reproducible, and a reader should read them as weaker than the ones after it.
 It also turned up that situ's *compiler* was dirty, not only its runtime, so
 the generated C was being compared against an uncommitted emitter as well.
 
+**The advertised overhead could not have been caught going stale**
+(2026-08-25). `FZN_SEAL_OVERHEAD` is hand-written in `seal.h` and
+`fzn_seal_build` sizes every frame with it. The only check was
+`FZN_SEAL_OVERHEAD == 144u` in `seal_test.c`, under the message *"the
+advertised overhead is not the real one"* -- **a literal compared against a
+literal**, insensitive to every schema constant by construction.
+
+**Demonstrated rather than argued, and the first attempt did not count.** A
+4-byte field was added to `fzn_head` and the schema regenerated consistently:
+`SITU_FZN_FRAME_SIZE_MIN` went to 148 while `FZN_SEAL_OVERHEAD` stayed 144,
+and that check still PASSED. Every frame would have been sized four bytes
+short.
+
+The first attempt at the same experiment doctored the size constants in
+`frame.h` by hand without the accessor offsets a regeneration moves with
+them. `generated_test` segfaulted, which is not a check firing -- it is an
+incoherent probe crashing, and it could not have produced a clean positive.
+**A failing check is not evidence either.** Only the regenerated version
+answers the question, and it had to be run before the fix to be worth
+anything.
+
+The assertion now lives in `constants_test.c`, whose stated job is a constant
+this library states twice, and compares `FZN_SEAL_OVERHEAD` against
+`SITU_FZN_FRAME_SIZE_MIN` -- a frame carrying no payload IS the overhead. The
+vacuous check is gone from `seal_test.c` rather than repaired there, since a
+second copy of the question is the same duplication one rung down. Re-run
+against the grown schema, the new assertion fails by name.
+
+**Prompted by fuzzypickles**, who found the identical asymmetry in their own
+tree the same day and named it exactly: *the principle stated three times and
+the discipline zero times*. Their `project.md` asserts "per-frame overhead is
+the budget that never improves" in three places and pins the figure in none.
+Worth acting on here rather than agreeing with there.
+
 **The payload bound now says what it means** (2026-08-24, situ `35a6c30`).
 situ began exporting a field's value bounds as constants, so `length`'s
 maximum is stated directly as `SITU_FZN_HEAD_LENGTH_VALUE_MAX`.

@@ -48,6 +48,8 @@
 #include "../../frame/freshness.h"
 #include "../../session/commitment.h"
 
+#include "../seal.h"
+
 #include "frame.h"
 
 #include <stdio.h>
@@ -69,6 +71,34 @@ _Static_assert(FZN_CAP_ID_LEN == SITU_FZN_FRAME_SEALED_CAPABILITY_COUNT,
  * relation says -- and a constant is a different question. */
 _Static_assert(SITU_FZN_FRAME_SIZE_MAX - SITU_FZN_FRAME_SIZE_MIN == FZN_SPLIT_MAX_PAYLOAD,
                 "chunk/split.h's payload ceiling and wire/frame.situ's [max] have diverged");
+
+/* THE ADVERTISED OVERHEAD AGAINST THE SCHEMA'S OWN MINIMUM.
+ *
+ * `FZN_SEAL_OVERHEAD` is hand-written in seal.h and `fzn_seal_build` sizes
+ * every frame with it. A frame carrying no payload IS the overhead, which is
+ * what `SITU_FZN_FRAME_SIZE_MIN` states, so the two are the same number and
+ * one of them is a copy.
+ *
+ * WHAT WAS THERE BEFORE COULD NOT FAIL. seal_test.c asked
+ * `FZN_SEAL_OVERHEAD == 144u` under the message "the advertised overhead is
+ * not the real one" -- a literal compared against a literal, insensitive to
+ * every schema constant by construction. Demonstrated rather than argued:
+ * a 4-byte field was added to `fzn_head`, the schema regenerated
+ * consistently, and with `SITU_FZN_FRAME_SIZE_MIN` at 148 against an
+ * unchanged `FZN_SEAL_OVERHEAD` of 144 that check still PASSED. Every frame
+ * would have been sized four bytes short.
+ *
+ * The check moved here rather than being repaired in place, because this is
+ * the file for a constant this library states twice, and leaving a second
+ * copy of the question in seal_test.c would be the same duplication one rung
+ * down.
+ *
+ * Prompted by fuzzypickles, who found the identical asymmetry in their own
+ * tree on 2026-08-25 and described it exactly: the principle stated three
+ * times and the discipline zero times. Worth acting on rather than agreeing
+ * with. */
+_Static_assert(FZN_SEAL_OVERHEAD == SITU_FZN_FRAME_SIZE_MIN,
+                "seal.h's advertised overhead is not the schema's minimum frame");
 
 /* THE SAME BOUND BY TWO ROADS, which is what makes either trustworthy.
  *
@@ -180,6 +210,6 @@ int main(void)
 	      "the commitment field does not lie within the frame");
 
 	printf("constants_test: %d checks, %d failure(s); %d constants pinned at compile time\n",
-	       checks, failures, 10);
+	       checks, failures, 11);
 	return failures == 0 ? 0 : 1;
 }

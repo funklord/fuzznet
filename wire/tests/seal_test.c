@@ -358,7 +358,9 @@ int main(void)
 		check(fzn_seal_build(built, FRAME_LEN - 1u, &built_len, &what, key, commitment,
 		                     &rng, &aead) == FZN_SEAL_ERR_CAPACITY,
 		      "a frame was built into a buffer one byte short");
-		check(FZN_SEAL_OVERHEAD == 144u, "the advertised overhead is not the real one");
+		/* The overhead is checked in wire/tests/constants_test.c, against
+		 * SITU_FZN_FRAME_SIZE_MIN rather than against the literal 144 that
+		 * used to sit here and could not tell the two apart. */
 
 		/* A shape the schema refuses must be refused before the tag is
 		 * spent, on the way out as well as on the way in. */
