@@ -1191,7 +1191,7 @@ the worst position from which to argue that somebody else's scope should grow.
 
 ### It was put, and accepted -- with a sharper boundary than ours
 
-`suggestions/fuzznet.md` carried the question; situ's decision **0030,
+`suggestion/fuzznet.md` carried the question; situ's decision **0030,
 cross-message relations, is accepted** (2026-08-08) and drew the line in a
 better place than "relations, not dynamics":
 
@@ -1280,7 +1280,7 @@ What that changes here:
   discovering it there.
 
 This library is also situ's **first tester** for protocol handling, verifying
-structure and code rather than consuming output. `situ/suggestions/fuzznet.md`
+structure and code rather than consuming output. `situ/suggestion/fuzznet.md`
 carries what that requires -- an injected clock, an explicit step function,
 observable transitions, first-class fault injection, and per-phase status kept.
 
@@ -1475,7 +1475,7 @@ corrected is recorded above -- `situc wire` reports it as part of the
 committed contract, and `situc build` rejects it. **Two commands in one
 compiler disagree about whether the construct is legal.** That is a finding
 to take to situ with its reproduction, on the terms
-`situ/suggestions/fuzznet.md` sets out, rather than a reason to quietly drop
+`situ/suggestion/fuzznet.md` sets out, rather than a reason to quietly drop
 the bound and lose the check it buys.
 
 **situ has framed it better than this section did** (2026-08-14), and the
@@ -2342,7 +2342,7 @@ same probe: not what it returned, but what it had already written.
 
 **The blocker fuzznet reported has landed and was already in use.** situ
 `f9e5c0e` compares two fixed-size arrays in a relation, which is what
-`suggestions/fuzznet.md` asked for. The rung table in sec 10 step 4 said
+`suggestion/fuzznet.md` asked for. The rung table in sec 10 step 4 said
 `relate` emitted output identical to `view`; re-measured, it emits **4781
 bytes more** -- `frame_relate.c` and `frame_relate.h`, with real predicates
 comparing `sender` byte for byte.
@@ -3352,7 +3352,7 @@ cheap to change now and will not stay cheap.
 
    **What changed.** situ `f9e5c0e` implements `==` and `!=` between
    fixed-size arrays of the same type and length, in all four backends,
-   after this library asked for it (`suggestions/fuzznet.md`). Verified
+   after this library asked for it (`suggestion/fuzznet.md`). Verified
    here: `f_relate.c` and `f_relate.h` now emit for this frame, both
    relations survive, and the generated header compiles clean at `-Wall
    -Wextra`. The refusal turned out **not** to have been deliberate --
@@ -3438,7 +3438,7 @@ cheap to change now and will not stay cheap.
    rather than a scheduling one:
 
    - **Wait for situ.** Fixed-size array comparison in a relation is
-     reported (`suggestions/fuzznet.md`, situ `ba10684`) with the argument
+     reported (`suggestion/fuzznet.md`, situ `ba10684`) with the argument
      that decision 0030's own first example -- "a response carries the
      request's identifier" -- is usually a key rather than an integer. If
      that lands, `relate` and `converse` become real for us, and `drive`
@@ -3580,7 +3580,7 @@ First, the generator reached almost nothing. Random bytes make `chunks` a
 uniform `u16`, which is past `FZN_REASM_MAX_CHUNKS` in 99.6% of draws, so
 nearly every offer was refused before a slot was taken — and three of four
 planted bugs survived 200000 cases while it reported success. That is the
-shape `situ/suggestions/fuzznet.md` names: a target that reaches nothing
+shape `situ/suggestion/fuzznet.md` names: a target that reaches nothing
 looks identical to a clean run. The generator is biased now, and the harness
 **counts what it reached and refuses to report success below a floor
 proportional to the run.** "More than zero" was the first threshold and was

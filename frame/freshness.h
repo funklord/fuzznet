@@ -100,7 +100,7 @@ typedef struct fzn_replay_entry {
  *
  * The caller owns the storage and there is no allocation anywhere in this
  * library. That is not only sec 4.4's memory bound: it is what makes this
- * testable, in the same way situ/suggestions/fuzznet.md argues for protocol
+ * testable, in the same way situ/suggestion/fuzznet.md argues for protocol
  * state generally -- a window is a VALUE, so a test can construct one
  * directly, including states normal operation cannot reach, copy it, and
  * compare two with memcmp. */

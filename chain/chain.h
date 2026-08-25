@@ -32,7 +32,7 @@
  *     first day. A capability is 32 bytes this module compares and never
  *     interprets.
  *   - TIME IS A PARAMETER. Nothing here reads a clock. situ's
- *     suggestions/fuzznet.md asks the same of situ and gives the reason
+ *     suggestion/fuzznet.md asks the same of situ and gives the reason
  *     this library already paid for once: a fuzzypickles scenario failed
  *     under load because the test raced a deadline nobody had written
  *     down, and the fix cost a day.
@@ -167,7 +167,7 @@ typedef struct fzn_chain_hop {
  * pointer, so a test drives every path in this file -- broken linkage,
  * expired hop, wrong root, revoked grantee -- with a stub that answers
  * yes or no on demand, and never links a crypto library or generates a
- * key. That is the same property situ/suggestions/fuzznet.md asks situ to
+ * key. That is the same property situ/suggestion/fuzznet.md asks situ to
  * preserve for protocol state: a value rather than a process, constructible
  * directly into states normal operation cannot reach.
  *

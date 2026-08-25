@@ -144,7 +144,7 @@ static const char *invariants(const struct arena *a, const fzn_reasm_t *table)
  * Random bytes make `chunks` a uniform uint16, which is past
  * FZN_REASM_MAX_CHUNKS in 99.6% of draws, so nearly every offer was refused
  * before a slot was taken. Three of four planted bugs survived 200000
- * cases. situ/suggestions/fuzznet.md names this exact shape -- "a fuzzer
+ * cases. situ/suggestion/fuzznet.md names this exact shape -- "a fuzzer
  * rediscovers the correlation by luck or never reaches the interesting code
  * at all", the same problem as a negative result with no positive control.
  *
