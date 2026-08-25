@@ -1150,6 +1150,83 @@ header and a 441-line test, which is fuzzypickles' own layer on top. That the
 split falls there is itself evidence for the vocabulary-versus-infrastructure
 line §5 draws.
 
+### The log subsystem, measured the same way (2026-08-26)
+
+Also from netcfgd, at the holder's request, and it says something the blob
+measurement did not: **"their log subsystem" is not one object.** It is five
+modules whose coupling differs by an order of magnitude, and the refusal above
+treats them as a unit because the question arrived as a unit.
+
+Measured in fuzzypickles at `4e66b5a`.
+
+| module | implementation | test | app references in its test |
+|---|---|---|---|
+| `diag` | 151 | 110 | 0 |
+| `append_log` | 678 | 774 | 0 |
+| `log_show` | 201 | 227 | 0 |
+| `log_relay` | 501 | 421 | 0 |
+| `daemon/log_retention` | 165 | -- | -- |
+| **total** | **1,696** | **1,532** | |
+
+**Every one of the four implementations uses `fzp_core_t` zero times**, the
+same deliberate decoupling the blob has. What separates them is what they take
+from `core.h` and `control.h` instead:
+
+- **`diag` (151 lines) includes nothing but its own header.** libc and
+  `diag_internal.h`, and that is the whole list. It is a severity/subsystem/
+  detail accumulator, and it is the piece that pairs with flog -- fuzzypickles
+  maps it across with a `severity_to_flog()`.
+- **`append_log` (678 lines) names no command tag at all.** Its surface is two
+  vtables (`fzp_log_ops_t`, `fzp_storage_ops_t`), `fzp_escape_text`,
+  `fzp_stream_type_t` with two stream-type constants, two error codes, and one
+  size constant: `#define FZP_APPEND_LOG_TEXT_MAX FZP_PEER_TEXT_MAX`. Its
+  header says it was *generalised out of* `log_relay` -- "written as a copy of
+  log_relay's cache. Both now use this" -- so the extraction this list is
+  arguing about has already happened once, inside that tree.
+- **`log_show` (201 lines) is a command handler and nothing else**:
+  `FZP_CMD_LOG`, `fzp_log_entry_t`, `fzp_log_show_resp_t`,
+  `FZP_LOG_SHOW_PAGE_MAX`. Paginated query. Vocabulary by §5's definition,
+  and it should stay where it is.
+- **`log_relay` (501 lines) is the mixed one**, and it is the one that
+  actually distributes: two command tags (`FZP_CMD_LOG_RELAY`,
+  `FZP_CMD_MANIFEST`), two core API calls (`fzp_core_log_relay_query`,
+  `fzp_core_manifest_set`), its own response types, a subcommand constant,
+  `FZP_WIRE_FRAME_MODE_PLAINTEXT`, and `prekey_channel_internal.h`.
+
+**`fzp_log_ops_t` is three operations** -- `append`, `read_recent`, `replace`
+-- over named, typed streams, with `replace` documented as required to be
+atomic because "a repair that can destroy what it was fixing is worse than the
+hole".
+
+**Ground 3 is confirmed and bounded.** `append_log.c:9` carries the comment
+`/* ---- line format: "<seq> <escaped text>" ---- */` literally, and
+`format_line` is `snprintf("%llu ", seq)` followed by `fzp_escape_text`. So
+the encoding choice is real, and it is one function and its parse partner in a
+475-line file rather than a pervasive design. **That does not make it cheap**:
+it is the on-disk format of an append log, so changing it is a compatibility
+question rather than a refactor.
+
+**And an asymmetry with the blob worth putting beside it**, since the two
+measurements were taken the same way a day apart:
+
+| | implementation ports | tests port |
+|---|---|---|
+| `blob` | cleanly -- two vtables, six byte primitives, one command tag | **no** -- 2,403 lines naming the app 35 times |
+| the log | `diag` and `append_log` cleanly; `log_relay` not | **yes** -- all four tests name the app zero times |
+
+So the piece with the harder implementation has the harder tests too, and the
+log's generic half arrives with its tests already free of the application.
+**829 lines** -- `diag` plus `append_log` -- carry no command vocabulary
+between them and are covered by 884 lines of test that would compile against
+anything providing the two vtables.
+
+**None of this decides the entry above.** Ground 1 stands, ground 2 is the
+holder's to move, and ground 3 is confirmed rather than answered. What the
+numbers add is that a refusal or an acceptance can be *per module*: the
+strongest case for moving is `append_log` and `diag`, the strongest case for
+leaving is `log_show`, and `log_relay` is the one where the argument actually
+lives.
+
 **One caution the numbers do not carry.** Portable is not the same as
 mergeable with §4.4. That chunks a message the sender already holds and pushes
 it; blob is hash-named, pull-based and requester-coordinated -- §4.4 says so
