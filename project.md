@@ -1227,6 +1227,75 @@ strongest case for moving is `append_log` and `diag`, the strongest case for
 leaving is `log_show`, and `log_relay` is the one where the argument actually
 lives.
 
+### Suggested from netcfgd, 2026-08-26: move `append_log` and `diag`, and nothing else
+
+**A suggestion, not a decision, and deliberately narrower than the question
+that was refused above.** That question was "should their log subsystem move",
+and the answer to it can stay no while this one is yes, because the
+measurement showed the subsystem is five modules and only two of them are the
+thing §5 would call infrastructure.
+
+**What is suggested: `append_log` (678 lines) and `diag` (151).** 829 lines of
+implementation, 884 lines of test, and no command tag between them.
+
+**What is not, and why each stays:**
+
+- **`log_show`** is a command handler -- `FZP_CMD_LOG`, its own response type,
+  a page size. Vocabulary by §5's own definition, and moving it would be the
+  exact failure §5 exists to prevent.
+- **`log_relay`** is where the argument lives and should be had separately. It
+  is the piece that actually distributes, and it is also the piece carrying two
+  command tags, two core API calls and a frame mode. It is not obvious that its
+  *mechanism* -- sequencing, gap detection, an origin cache -- is separable
+  from its vocabulary without doing the work, and no measurement here says it
+  is.
+- **`daemon/log_retention`** is policy about how much to keep, which is a
+  deployment question and belongs to whoever deploys.
+
+**Why these two and not a bigger or smaller cut:**
+
+- **`diag` has no dependencies at all.** libc and its own header. The flog
+  worry that this would import a logging library into the core is answered by
+  its own comments: "flog is daemon-only", the bridge `severity_to_flog()`
+  lives in `daemon/ipc_server.c`, and the header says of the module itself
+  that "it has zero knowledge that flog exists". Moving it brings nothing with
+  it.
+- **`append_log` already survived this extraction once.** Its header records
+  that it was generalised out of `log_relay` when the second consumer inside
+  that tree needed the same structure -- "written as a copy of log_relay's
+  cache. Both now use this." A module that has already been pulled out of one
+  caller to serve two is the one most likely to survive being pulled out for a
+  third.
+- **The tests come with it.** 884 lines naming the application zero times.
+  Contrast the blob, whose 2,403 lines of test name it 35 times: there the
+  tests are the work, here they are not.
+
+**Three loose ends, named because a suggestion that hides them is a proposal
+rather than a measurement:**
+
+1. **`fzp_escape_text`, `fzp_unescape_text` and `fzp_core_hex_encode`** come
+   from `common_internal` (199 lines total). `append_log` uses exactly those
+   three; `diag` uses none of it. So either three functions move or the whole
+   small file does, and that is a judgement for whoever does it rather than a
+   blocker.
+2. **`#define FZP_APPEND_LOG_TEXT_MAX FZP_PEER_TEXT_MAX`** is a consumer's
+   size wired into the module. It has to become a parameter, which is a
+   one-line change and a decision about who chooses the bound.
+3. **The line format is the on-disk format**, per ground 3 and the measurement
+   above. It is `format_line` and its parse partner, but it is what an existing
+   append log on an existing machine already contains, so changing it during a
+   move is a migration and not a refactor. **Moving it unchanged is the
+   cheaper option and keeps the ground-3 objection alive** -- that is a real
+   trade and this suggestion does not pretend otherwise.
+
+**And the test §5 actually sets.** Two real consumers, neither accepting the
+other's version as a special case. netcfgd is directed to want distributed
+logs; fuzzypickles has these two modules in production. What the suggestion
+rests on is that `append_log` is already serving two callers *inside*
+fuzzypickles, which is the closest thing to evidence available before a second
+project has built anything -- and it is weaker than two independent consumers,
+which is worth saying rather than glossing.
+
 **One caution the numbers do not carry.** Portable is not the same as
 mergeable with §4.4. That chunks a message the sender already holds and pushes
 it; blob is hash-named, pull-based and requester-coordinated -- §4.4 says so
