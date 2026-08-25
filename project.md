@@ -2415,6 +2415,38 @@ reproducible, and a reader should read them as weaker than the ones after it.
 It also turned up that situ's *compiler* was dirty, not only its runtime, so
 the generated C was being compared against an uncommitted emitter as well.
 
+**Two terms of a nine-term guard had never decided anything** (2026-08-26).
+`fzn_seal_build` refuses a malformed call with a single `if` over nine
+conditions, and branch coverage put `!what->sender` and `!what->capability` at
+zero. `!key`, `!commitment` and `!aead` were untested too. The matrix is
+complete now, one deliberate line per term.
+
+**The two inside the send struct are the ones that mattered**, and they cannot
+be reached by passing NULL for an argument -- only by nulling a field of
+`fzn_send_t`, which no test had done. They also fail worse than the plain
+arguments: a null `key` or `aead` fails at its first use, while `sender` and
+`capability` are `memcpy` sources far down the function, past the nonce draw
+and past the `memset`. Without the guard the failure is a read from a null
+pointer in the middle of a half-built frame rather than a refusal before one
+exists.
+
+**Sabotage confirms it, and the manner is the point.** Deleting both terms
+does not produce a FAIL line -- the test **segfaults**, exit 139, because NULL
+reaches the `memcpy`. That crash is the demonstration that the guard prevents
+a null dereference rather than merely returning a tidier code, and `make test`
+still fails loudly.
+
+**And a frame too short to be one.** `situ_fzn_frame_view` refusing inside
+`views()` was also never exercised: every other refusal in the open path
+happens to a frame that is at least frame-shaped, so nothing had handed it
+143 bytes -- one under the fixed part. Now something does, and that branch
+went from 0% to 12%.
+
+Branch coverage of `wire/seal.c`: **73.64% to 76.36% of 110**. What remains
+uncovered is post-`validate` defensive code that valid arguments cannot reach,
+plus branches inside inlined accessors that belong to the generated code
+rather than to this file.
+
 **Every integer constant was mutated to see what notices** (2026-08-25).
 Twenty `#define FZN_*` values in the public headers, each changed and the
 suite re-run: **eighteen caught, two not**. The method is the one-at-a-time

@@ -384,10 +384,56 @@ int main(void)
 		                     &rng, &aead) == FZN_SEAL_ERR_MALFORMED, "a null send struct");
 		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, commitment,
 		                     NULL, &aead) == FZN_SEAL_ERR_MALFORMED, "a null rng");
+		check(fzn_seal_build(built, sizeof(built), &built_len, &what, NULL, commitment,
+		                     &rng, &aead) == FZN_SEAL_ERR_MALFORMED, "a null key");
+		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, NULL,
+		                     &rng, &aead) == FZN_SEAL_ERR_MALFORMED, "a null commitment");
+		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, commitment,
+		                     &rng, NULL) == FZN_SEAL_ERR_MALFORMED, "a null aead");
+
+		/* THE TWO INSIDE THE SEND STRUCT, which the matrix above cannot
+		 * reach by passing NULL for an argument. Both were unexercised
+		 * until now -- branch coverage put `!what->sender` and
+		 * `!what->capability` at zero -- so two terms of a nine-term guard
+		 * had never once decided anything.
+		 *
+		 * They matter more than the plain arguments, not less. A null
+		 * `key` or `aead` fails immediately at the first use; `sender` and
+		 * `capability` are memcpy sources much further down, past the
+		 * nonce draw and the memset, so without the guard the failure is a
+		 * read from a null pointer in the middle of a half-built frame
+		 * rather than a refusal before one exists. */
+		what.sender = NULL;
+		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, commitment,
+		                     &rng, &aead) == FZN_SEAL_ERR_MALFORMED, "a null sender");
+		what.sender = sealed + OFF_SENDER;
+
+		what.capability = NULL;
+		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, commitment,
+		                     &rng, &aead) == FZN_SEAL_ERR_MALFORMED, "a null capability");
+		what.capability = CAP;
+
 		what.payload = NULL;
 		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, commitment,
 		                     &rng, &aead) == FZN_SEAL_ERR_MALFORMED,
 		      "a null payload with a non-zero length");
+		what.payload = PLAIN;
+
+		/* AND THE FRAME TOO SHORT TO BE ONE, which is the other branch
+		 * coverage found at zero: `situ_fzn_frame_view` refusing inside
+		 * `views()`. Every other refusal in the open path happens to a
+		 * frame that is at least frame-shaped, so nothing had ever handed
+		 * it something smaller than the fixed part. */
+		{
+			uint8_t stub[FZN_SEAL_OVERHEAD - 1];
+			fzn_opened_t opened;
+
+			memset(stub, 0, sizeof(stub));
+			stub[0] = 1;
+			check(fzn_seal_open(stub, sizeof(stub), key, commitment, &aead,
+			                    &opened) == FZN_SEAL_ERR_SHAPE,
+			      "a frame shorter than the fixed part was not refused");
+		}
 	}
 
 	/* THE PAYLOAD BOUND, AND WHAT A REFUSAL COSTS THE CALLER.
