@@ -2076,7 +2076,7 @@ move and make it false with nothing saying so -- the same shape as
 `reassembly.c` "enforcing what the schema declares" by inspection, and the
 weakest evidence in the tree for one of its strongest claims.
 
-`tools/codegen_gate.py` checks it now, run by `make codegencheck` and by `make test`
+`tool/codegen_gate.py` checks it now, run by `make codegencheck` and by `make test`
 before any test binary. **It is a tripwire, not a proof, and says so in its own
 header**: deciding from a disassembly which branch depends on which value is
 not something a hundred lines of Python settles, and claiming otherwise would
@@ -2447,7 +2447,7 @@ compares equal to 0.2.0 -- two releases indistinguishable, which is worse
 than either being wrong.
 
 **`installcheck` caught the omission before any gate I wrote did.** Adding an
-installed header without adding it to `tools/consumer_check.c` failed with
+installed header without adding it to `tool/consumer_check.c` failed with
 *"installed but not included by the consumer: version/version.h -- the check
 would pass whatever those headers did"*. That guard was written for exactly
 this and fired on its first real occasion, which is more than most vacuous-
@@ -2569,7 +2569,7 @@ their own words.** The five cases in `chain/test/chain_test.c` -- a leftover
 from when the function lived in `chain.h` -- test that the comparison gives
 the right ANSWER, which a plain `memcmp` passes identically. `make
 codegencheck` counts branches in the emitted object, and
-`tools/codegen_gate.py` calls itself "a tripwire rather than a proof". So the
+`tool/codegen_gate.py` calls itself "a tripwire rather than a proof". So the
 one property sec 4.4a says this library owes its consumers and must not leave
 to them had **correctness tests and no property test at all**, for as long as
 the module has existed.
@@ -2661,7 +2661,7 @@ every header would gut the check that matters most.
 So the choice was between bending the source to a checker that cannot model
 the construct, and leaving the construct out. **Neither is done here**:
 `evidence.md` says a gate that disagrees with correct code is the first
-suspect, and the gate is shared from `~/.claude/tools/style_gate.py`, so
+suspect, and the gate is shared from `~/.claude/tool/style_gate.py`, so
 changing it belongs to a cross-project pass rather than to this session. It is
 signalled, beside the `#define`-continuation limitation already on that list --
 same lexer, same cause, second construct.
@@ -2898,7 +2898,7 @@ nothing had confirmed the gate it runs is the current one. `harmonization.md`
 requires the copies to be kept in sync and drift fixed the moment it is
 noticed; noticing requires looking, and nobody had.
 
-Two of the three were clean. `tools/style_gate.py` and `tools/hooks/commit-msg`
+Two of the three were clean. `tool/style_gate.py` and `tool/hooks/commit-msg`
 differ from their sources by exactly the two-line provenance header the
 convention asks a copy to carry, and their bodies are byte-identical.
 
@@ -3052,7 +3052,7 @@ reader assumes when they see `make install`.
 **`make installcheck` is what holds the table honest from outside.** Every
 suite here builds from inside the tree, which is the one arrangement a
 consumer never has — §7 has netcfgd's agent taking this as a submodule and
-compiling these sources into its own objects. So `tools/consumer_check.c` is
+compiling these sources into its own objects. So `tool/consumer_check.c` is
 compiled twice, once against an installed tree and once against the source
 tree from another directory, and both are run.
 
@@ -3064,7 +3064,7 @@ was installed. `install` iterates `HDRS` now, which collapses the two into
 one, and removing a header from it fails the check.
 
 **Then it narrowed silently, which is the more interesting failure.** The
-target can only catch a break in a header `tools/consumer_check.c` actually
+target can only catch a break in a header `tool/consumer_check.c` actually
 includes, and that file was written before `session/` and `local/` existed.
 Both modules' headers were installed and unincluded for several commits, so
 `installcheck` was quietly guaranteeing less than it had — not by breaking,
@@ -3673,7 +3673,7 @@ accept. Nothing had ever asked it to refuse. Both files are at 100% now.
 built, `install` ships their two headers, so `make installcheck` refused --
 correctly, with "the check would pass whatever those headers did", which is a
 guard added here for `commitment.h` and `peer.h` firing on a case nobody had
-run. `tools/consumer_check.c` exercises both bindings now, behind
+run. `tool/consumer_check.c` exercises both bindings now, behind
 `FZN_CONSUMER_MONOCYPHER`, and the Makefile passes the include path and
 Monocypher's own source because installcheck compiles sources rather than
 linking objects. Absolute paths, since its second arm compiles from inside the
@@ -3694,7 +3694,7 @@ that should have noticed was only as wide as the list it iterated:
 The first three are compared against another list. `SRCS` has no second list,
 so `make style` compares it against **the filesystem**: every `.c` in the tree
 must appear in `SRCS`, `TEST_SRCS`, `GEN_SRCS`, the Monocypher names, or be
-`tools/consumer_check.c`. 34 today. It refuses if it finds none, and the
+`tool/consumer_check.c`. 34 today. It refuses if it finds none, and the
 Monocypher filenames are declared outside the `ifneq` so the answer is the
 same in both configurations -- inside it they would be empty in a plain build
 and the check would report two real sources as unlisted, which is a false

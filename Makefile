@@ -203,7 +203,7 @@ TEST_SRCS  += $(MONO_TSRC)
 # SRCS above, and MONO_OBJS is added to it separately below, so the objects are
 # named once rather than twice.
 SRCS       += $(MONO_SRCS)
-# What `tools/consumer_check.c` needs to exercise the bindings: the define that
+# What `tool/consumer_check.c` needs to exercise the bindings: the define that
 # switches its optional block on, the include path, and Monocypher itself,
 # since installcheck compiles sources rather than linking objects.
 # Absolute, because installcheck's second arm compiles from inside
@@ -557,10 +557,10 @@ fuzz: $(FUZZ_BINS)
 .SECONDARY: $(TEST_OBJS)
 
 # The indentation, whitespace and ASCII gate. One tool, spread verbatim from
-# ~/.claude/tools/style_gate.py; .style-gate.toml says which files here it
+# ~/.claude/tool/style_gate.py; .style-gate.toml says which files here it
 # applies to.
 # TWO SECURITY PROPERTIES THE OPTIMISER COULD TAKE AWAY, each measured once by
-# hand and then left in a comment. See tools/codegen_gate.py for what it does
+# hand and then left in a comment. See tool/codegen_gate.py for what it does
 # and does not claim -- it pins the shape each function compiles to so that a
 # change stops the build, which is a tripwire rather than a proof. Skips loudly
 # off x86-64 and without objdump; refuses if it cannot find a function, since
@@ -570,13 +570,13 @@ fuzz: $(FUZZ_BINS)
 # check added here should be a deliberate line somebody wrote.
 codegencheck: $(BUILD_DIR)/constant_time/constant_time.o \
               $(BUILD_DIR)/session/commitment.o
-	python3 tools/codegen_gate.py ct $(BUILD_DIR)/constant_time/constant_time.o
-	python3 tools/codegen_gate.py wipe $(BUILD_DIR)/session/commitment.o
+	python3 tool/codegen_gate.py ct $(BUILD_DIR)/constant_time/constant_time.o
+	python3 tool/codegen_gate.py wipe $(BUILD_DIR)/session/commitment.o
 
 # IS THE CONSTANT-TIME COMPARISON ACTUALLY CONSTANT-TIME?
 #
 # `codegencheck` above counts branches in an object file, and
-# tools/codegen_gate.py is explicit that this is "a tripwire rather than a
+# tool/codegen_gate.py is explicit that this is "a tripwire rather than a
 # proof". This asks the question directly: memcheck tracks definedness per
 # bit and reports any conditional jump or memory address computed from data
 # it considers undefined, so marking the two buffers undefined turns valgrind
@@ -648,7 +648,7 @@ analyze:
 	@echo "analyze: done -- read the output above; this target reports and does not gate"
 
 style:
-	python3 tools/style_gate.py check
+	python3 tool/style_gate.py check
 	@# EVERY .c IN THE TREE MUST BE IN A LIST -- the fourth instance of one
 	@# pattern and the last that was not mechanically checked. HDRS against
 	@# `install`, GEN_SRCS against `coverage`, TEST_BINS against .gitignore,
@@ -659,7 +659,7 @@ style:
 	@#
 	@# It is what would have caught the Monocypher bindings, which were in the
 	@# tree, built, linked and run, and in no list `make coverage` reads.
-	@known=" $(SRCS) $(TEST_SRCS) $(GEN_SRCS) $(MONO_SRCS) $(MONO_TSRC) tools/consumer_check.c "; \
+	@known=" $(SRCS) $(TEST_SRCS) $(GEN_SRCS) $(MONO_SRCS) $(MONO_TSRC) tool/consumer_check.c "; \
 	unlisted=; n=0; \
 	for c in `find . -name '*.c' -not -path './build/*' -not -path './san/*' \
 	                 -not -path './*-coverage/*' | sed 's|^\./||' | sort`; do \
@@ -746,11 +746,11 @@ style:
 	@#
 	@# MONO_HDRS is unioned in because HDRS gains it only when
 	@# MONOCYPHER_DIR is set, exactly as MONO_SRCS is unioned into the C
-	@# source check above. Generated headers are situ's and tools/ is not
+	@# source check above. Generated headers are situ's and tool/ is not
 	@# installed, so both are excluded rather than listed.
 	@known=" $(HDRS) $(MONO_HDRS) "; missing=; n=0; \
 	for h in `find . -name '*.h' -not -path './.git/*' \
-	                 -not -path './wire/generated/*' -not -path './tools/*' \
+	                 -not -path './wire/generated/*' -not -path './tool/*' \
 	                 -not -path './build/*' -not -path './san/*' \
 	                 -not -path './*-coverage/*' | sed 's|^\./||' | sort`; do \
 		n=$$((n + 1)); \
@@ -830,11 +830,11 @@ style:
 	fi; \
 	echo "style: version/version.h and VERSION agree at $$v"
 
-# Installs the commit-msg hook from tools/hooks/ into .git/hooks/. In the tree
+# Installs the commit-msg hook from tool/hooks/ into .git/hooks/. In the tree
 # rather than only in .git so that it is reviewable, survives a clone, and can
 # be diffed against its siblings in the other projects.
 hooks:
-	@install -m 0755 tools/hooks/commit-msg .git/hooks/commit-msg
+	@install -m 0755 tool/hooks/commit-msg .git/hooks/commit-msg
 	@echo "installed .git/hooks/commit-msg"
 
 # Headers only. project.md sec 7 is explicit that this is not a system
@@ -1006,7 +1006,7 @@ schema:
 # The staging directory is created here and removed here. It is guarded
 # rather than trusted: an unset BUILD_DIR would make the rm below something
 # else entirely, which is the failure `build-and-commit.md` names.
-installcheck: $(HDRS) $(SRCS) tools/consumer_check.c
+installcheck: $(HDRS) $(SRCS) tool/consumer_check.c
 	@test -n "$(BUILD_DIR)" || { echo "BUILD_DIR is empty; refusing"; exit 1; }
 	@# Every installed header must be one the consumer actually includes.
 	@# Without this the target's guarantee narrows silently as modules are
@@ -1015,7 +1015,7 @@ installcheck: $(HDRS) $(SRCS) tools/consumer_check.c
 	@# installed and unchecked for several commits.
 	@missing=; \
 	for h in $(HDRS); do \
-		grep -q "$$h" tools/consumer_check.c || missing="$$missing $$h"; \
+		grep -q "$$h" tool/consumer_check.c || missing="$$missing $$h"; \
 	done; \
 	if [ -n "$$missing" ]; then \
 		echo "installcheck: installed but not included by the consumer:$$missing"; \
@@ -1029,12 +1029,12 @@ installcheck: $(HDRS) $(SRCS) tools/consumer_check.c
 	@$(CC) $(CFLAGS) -DFZN_CONSUMER_INSTALLED \
 	       -I$(BUILD_DIR)/installcheck/usr/include \
 	       -o $(BUILD_DIR)/installcheck/consumer_installed \
-	       -Iwire/generated $(MONO_CONSUMER) tools/consumer_check.c $(SRCS) $(GEN_SRCS)
+	       -Iwire/generated $(MONO_CONSUMER) tool/consumer_check.c $(SRCS) $(GEN_SRCS)
 	@$(BUILD_DIR)/installcheck/consumer_installed
 	@echo "installcheck: against the source tree, from another directory"
 	@cd $(BUILD_DIR)/installcheck && $(CC) $(CFLAGS) -I$(CURDIR) \
 	       -I$(CURDIR)/wire/generated \
-	       -o consumer_source $(CURDIR)/tools/consumer_check.c \
+	       -o consumer_source $(CURDIR)/tool/consumer_check.c \
 	       $(patsubst %,$(CURDIR)/%,$(SRCS)) \
 	       $(patsubst %,$(CURDIR)/%,$(GEN_SRCS)) $(MONO_CONSUMER)
 	@$(BUILD_DIR)/installcheck/consumer_source

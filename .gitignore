@@ -43,7 +43,7 @@
 *.gcda
 *.gcno
 
-# Python's, from running tools/style_gate.py.
+# Python's, from running tool/style_gate.py.
 __pycache__/
 /wire/test/seal_test
 /session/test/aead_monocypher_test

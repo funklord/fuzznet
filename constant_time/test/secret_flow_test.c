@@ -6,7 +6,7 @@
  * The five cases in `chain/test/chain_test.c` test that the comparison
  * gives the right ANSWER, which a plain memcmp would pass identically.
  *
- * The other witness is `make codegencheck`, and `tools/codegen_gate.py` is
+ * The other witness is `make codegencheck`, and `tool/codegen_gate.py` is
  * explicit that it is "a tripwire rather than a proof": it counts branches
  * in the emitted object, so it notices a rewrite that obviously reintroduces
  * one and cannot speak for the property itself.
