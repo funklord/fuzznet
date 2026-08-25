@@ -1,6 +1,6 @@
 /* XChaCha20-Poly1305 behind the seam, and the frame path over the real thing.
  *
- * wire/tests/seal_test.c uses a stub, deliberately, so that the order of
+ * wire/test/seal_test.c uses a stub, deliberately, so that the order of
  * operations is testable without a crypto dependency. This is the other half:
  * the same path with Monocypher underneath, which is what a consumer will
  * actually link. Built only when MONOCYPHER_DIR names a checkout.

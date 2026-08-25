@@ -189,7 +189,7 @@ fzn_seal_err_t fzn_seal_build(uint8_t *frame, size_t frame_cap, size_t *frame_le
 	 * `hv` they compile, run, and put every field five bytes late. That is
 	 * what a type-correct wrong argument looks like -- both are
 	 * `situ_view_t` -- and it is the second time this exact confusion has
-	 * cost time here; `wire/tests/generated_test.c` records the first. */
+	 * cost time here; `wire/test/generated_test.c` records the first. */
 	situ_fzn_frame_head_kind_set(&msg, fv, (situ_fzn_kind_t)what->kind);
 	situ_fzn_frame_head_expires_at_set(&msg, fv, what->expires_at);
 	situ_fzn_frame_head_msg_set(&msg, fv, what->msg);

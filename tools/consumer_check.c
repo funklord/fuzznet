@@ -190,7 +190,7 @@ int main(void)
 #ifdef FZN_CONSUMER_MONOCYPHER
 	/* One call through each binding, which is this file's standard: enough
 	 * to prove the header and the source go together, not a test of the
-	 * cryptography -- chain/tests/sign_monocypher_test.c does that. */
+	 * cryptography -- chain/test/sign_monocypher_test.c does that. */
 	{
 		fzn_sign_monocypher_t signer;
 		fzn_sign_ops_t real_sign;
@@ -217,7 +217,7 @@ int main(void)
 	/* The frame path. A consumer takes this to open a datagram, so the
 	 * check is that the header and the source go together and that a
 	 * refused open is refused -- not that the cryptography works, which
-	 * wire/tests/seal_test.c covers. A null AEAD is the cheapest refusal
+	 * wire/test/seal_test.c covers. A null AEAD is the cheapest refusal
 	 * that reaches the argument guard. */
 	{
 		fzn_opened_t opened;

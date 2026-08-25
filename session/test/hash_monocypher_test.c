@@ -1,7 +1,7 @@
 /* A known-answer test for the BLAKE2b binding, and a derivation through it.
  *
  * Built only when MONOCYPHER_DIR is set. It exists for the reason
- * chain/tests/sign_monocypher_test.c exists: commitment_test.c drives every
+ * chain/test/sign_monocypher_test.c exists: commitment_test.c drives every
  * path in the key schedule with a stub, and a stub proves the LOGIC and
  * nothing about the binding. A seam that has only ever had a fake behind it
  * is a seam nobody has checked.

@@ -65,7 +65,7 @@ _Static_assert(FZN_COMMITMENT_LEN == SITU_FZN_HEAD_COMMITMENT_COUNT,
 _Static_assert(FZN_CAP_ID_LEN == SITU_FZN_FRAME_SEALED_CAPABILITY_COUNT,
                 "chain/chain.h's capability id and wire/frame.situ's capability[] differ");
 
-/* The payload ceiling, moved here from chunk/tests/agreement_test.c so that
+/* The payload ceiling, moved here from chunk/test/agreement_test.c so that
  * every schema-versus-C constant is in one place. That file is about
  * BEHAVIOURAL agreement -- whether the reassembler enforces what the
  * relation says -- and a constant is a different question. */

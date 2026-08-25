@@ -273,7 +273,7 @@ static void test_plan_refuses_a_stride_no_frame_can_carry(void)
  * this function was the source.
  *
  * The state is built by hand because fzn_split_plan cannot produce it, which
- * is the same position chunk/tests/reassembly_test.c is in for the offset
+ * is the same position chunk/test/reassembly_test.c is in for the offset
  * guard, and the same answer: a check nothing exercises is one nobody knows
  * works. */
 static void test_a_plan_whose_fields_disagree_is_refused(void)

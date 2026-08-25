@@ -3,7 +3,7 @@
  * project.md sec 4.2 has revocation carried on contact, so a record arrives
  * from a peer that is NOT its issuer -- every field of it is a stranger's,
  * including the issuer it names and the signature it offers. That is the
- * hostile surface, and `chain/tests/chain_fuzz.c` does not touch it: that
+ * hostile surface, and `chain/test/chain_fuzz.c` does not touch it: that
  * harness feeds `fzn_revocation_t`, the already-verified form, straight to
  * `fzn_chain_verify`. Nothing exercised admission.
  *

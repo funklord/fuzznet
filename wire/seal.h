@@ -35,7 +35,7 @@
 
 /* Bytes a frame costs before any payload. Stated here so a sender can size a
  * buffer without reading the schema, and checked against the generated layout
- * in wire/tests/constants_test.c rather than trusted. */
+ * in wire/test/constants_test.c rather than trusted. */
 #define FZN_SEAL_OVERHEAD 144u
 
 typedef enum fzn_seal_err {
@@ -119,7 +119,7 @@ typedef struct fzn_send {
  * call.
  *
  * THE ORDER IS HERE RATHER THAN IN A DOCUMENT, and that is the point. sec 4.7
- * states what a receiver must do and `frame/tests/receive_fuzz.c` runs it;
+ * states what a receiver must do and `frame/test/receive_fuzz.c` runs it;
  * the sender's order was never written down at all, and it has traps that a
  * consumer would meet one at a time:
  *

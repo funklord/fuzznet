@@ -2,7 +2,7 @@
  *
  * This is the only place two of this library's modules have to agree with
  * each other, and it is therefore the only coupling that can fail while
- * both halves pass their own suites. chunk/tests/split_test.c covers it
+ * both halves pass their own suites. chunk/test/split_test.c covers it
  * with ten hand-picked sizes and two payload limits, which is the thinnest
  * evidence in the tree for the strongest coupling in it.
  *

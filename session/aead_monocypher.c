@@ -8,7 +8,7 @@
  * property session/aead.h requires rather than merely prefers. It is not
  * re-checked here because it cannot be: the only way to observe it is to
  * corrupt a tag and look at the output buffer, which is what
- * session/tests/aead_monocypher_test.c does.
+ * session/test/aead_monocypher_test.c does.
  */
 
 #include "aead.h"

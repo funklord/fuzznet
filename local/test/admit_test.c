@@ -9,7 +9,7 @@
  * raidcfgd on 2026-08-18 -- see sec 2, where the reason is that a listener
  * chooses a transport and this library does not define the local hop. Both
  * ends of a socketpair are in this process, so `SO_PEERCRED` reports our own
- * credentials and nothing needs forking; `local/tests/peer_linux_test.c`
+ * credentials and nothing needs forking; `local/test/peer_linux_test.c`
  * makes the same observation at more length.
  *
  * THE ASSERTION THAT EARNS THE FILE is the fail-closed path across that seam.

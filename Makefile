@@ -109,49 +109,49 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              session/random.h session/random_system.h \
              version/version.h
 
-TEST_SRCS := chain/tests/chain_test.c chain/tests/revocation_test.c \
-             frame/tests/freshness_test.c \
-             chunk/tests/reassembly_test.c chunk/tests/split_test.c \
-             session/tests/commitment_test.c local/tests/peer_test.c \
-             wire/tests/generated_test.c chunk/tests/agreement_test.c \
-             wire/tests/constants_test.c wire/tests/seal_test.c \
-             session/tests/random_test.c local/tests/vocabulary_test.c \
-             local/tests/vocabulary_fuzz.c local/tests/admit_test.c \
-             local/tests/peer_fuzz.c local/tests/peer_linux_test.c \
-             chunk/tests/reassembly_fuzz.c chain/tests/chain_fuzz.c \
-             frame/tests/freshness_fuzz.c chain/tests/revocation_fuzz.c \
-             frame/tests/receive_fuzz.c \
-             chunk/tests/roundtrip_fuzz.c \
-             constant_time/tests/secret_flow_test.c \
-             wire/tests/err_str_test.c \
-             version/tests/version_test.c
+TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
+             frame/test/freshness_test.c \
+             chunk/test/reassembly_test.c chunk/test/split_test.c \
+             session/test/commitment_test.c local/test/peer_test.c \
+             wire/test/generated_test.c chunk/test/agreement_test.c \
+             wire/test/constants_test.c wire/test/seal_test.c \
+             session/test/random_test.c local/test/vocabulary_test.c \
+             local/test/vocabulary_fuzz.c local/test/admit_test.c \
+             local/test/peer_fuzz.c local/test/peer_linux_test.c \
+             chunk/test/reassembly_fuzz.c chain/test/chain_fuzz.c \
+             frame/test/freshness_fuzz.c chain/test/revocation_fuzz.c \
+             frame/test/receive_fuzz.c \
+             chunk/test/roundtrip_fuzz.c \
+             constant_time/test/secret_flow_test.c \
+             wire/test/err_str_test.c \
+             version/test/version_test.c
 TEST_OBJS := $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
-TEST_BINS := $(BUILD_DIR)/chain/tests/chain_test \
-             $(BUILD_DIR)/chain/tests/revocation_test \
-             $(BUILD_DIR)/frame/tests/freshness_test \
-             $(BUILD_DIR)/session/tests/commitment_test \
-             $(BUILD_DIR)/local/tests/peer_test \
-             $(BUILD_DIR)/wire/tests/generated_test \
-             $(BUILD_DIR)/wire/tests/constants_test \
-             $(BUILD_DIR)/wire/tests/seal_test \
-             $(BUILD_DIR)/session/tests/random_test \
-             $(BUILD_DIR)/local/tests/vocabulary_test \
-             $(BUILD_DIR)/local/tests/vocabulary_fuzz \
-             $(BUILD_DIR)/local/tests/admit_test \
-             $(BUILD_DIR)/chunk/tests/agreement_test \
-             $(BUILD_DIR)/local/tests/peer_fuzz \
-             $(BUILD_DIR)/local/tests/peer_linux_test \
-             $(BUILD_DIR)/chunk/tests/reassembly_test \
-             $(BUILD_DIR)/chunk/tests/split_test \
-             $(BUILD_DIR)/chunk/tests/reassembly_fuzz \
-             $(BUILD_DIR)/chain/tests/chain_fuzz \
-             $(BUILD_DIR)/frame/tests/freshness_fuzz \
-             $(BUILD_DIR)/frame/tests/receive_fuzz \
-             $(BUILD_DIR)/chain/tests/revocation_fuzz \
-             $(BUILD_DIR)/chunk/tests/roundtrip_fuzz \
-             $(BUILD_DIR)/constant_time/tests/secret_flow_test \
-             $(BUILD_DIR)/wire/tests/err_str_test \
-             $(BUILD_DIR)/version/tests/version_test
+TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
+             $(BUILD_DIR)/chain/test/revocation_test \
+             $(BUILD_DIR)/frame/test/freshness_test \
+             $(BUILD_DIR)/session/test/commitment_test \
+             $(BUILD_DIR)/local/test/peer_test \
+             $(BUILD_DIR)/wire/test/generated_test \
+             $(BUILD_DIR)/wire/test/constants_test \
+             $(BUILD_DIR)/wire/test/seal_test \
+             $(BUILD_DIR)/session/test/random_test \
+             $(BUILD_DIR)/local/test/vocabulary_test \
+             $(BUILD_DIR)/local/test/vocabulary_fuzz \
+             $(BUILD_DIR)/local/test/admit_test \
+             $(BUILD_DIR)/chunk/test/agreement_test \
+             $(BUILD_DIR)/local/test/peer_fuzz \
+             $(BUILD_DIR)/local/test/peer_linux_test \
+             $(BUILD_DIR)/chunk/test/reassembly_test \
+             $(BUILD_DIR)/chunk/test/split_test \
+             $(BUILD_DIR)/chunk/test/reassembly_fuzz \
+             $(BUILD_DIR)/chain/test/chain_fuzz \
+             $(BUILD_DIR)/frame/test/freshness_fuzz \
+             $(BUILD_DIR)/frame/test/receive_fuzz \
+             $(BUILD_DIR)/chain/test/revocation_fuzz \
+             $(BUILD_DIR)/chunk/test/roundtrip_fuzz \
+             $(BUILD_DIR)/constant_time/test/secret_flow_test \
+             $(BUILD_DIR)/wire/test/err_str_test \
+             $(BUILD_DIR)/version/test/version_test
 
 # The Monocypher binding, built only when MONOCYPHER_DIR names a checkout.
 #
@@ -177,9 +177,9 @@ MONO_SRCS  := chain/sign_monocypher.c session/hash_monocypher.c \
               session/aead_monocypher.c
 MONO_HDRS  := chain/sign_monocypher.h session/hash_monocypher.h \
               session/aead_monocypher.h
-MONO_TSRC  := chain/tests/sign_monocypher_test.c \
-              session/tests/hash_monocypher_test.c \
-              session/tests/aead_monocypher_test.c
+MONO_TSRC  := chain/test/sign_monocypher_test.c \
+              session/test/hash_monocypher_test.c \
+              session/test/aead_monocypher_test.c
 
 ifneq ($(MONOCYPHER_DIR),)
 MONO_OBJS  := $(BUILD_DIR)/chain/sign_monocypher.o \
@@ -213,9 +213,9 @@ SRCS       += $(MONO_SRCS)
 MONO_ABS      := $(abspath $(MONOCYPHER_DIR))
 MONO_CONSUMER := -DFZN_CONSUMER_MONOCYPHER -I$(MONO_ABS)/src \
                  $(MONO_ABS)/src/monocypher.c
-MONO_BIN   := $(BUILD_DIR)/chain/tests/sign_monocypher_test
-MONO_HASH  := $(BUILD_DIR)/session/tests/hash_monocypher_test
-MONO_AEAD  := $(BUILD_DIR)/session/tests/aead_monocypher_test
+MONO_BIN   := $(BUILD_DIR)/chain/test/sign_monocypher_test
+MONO_HASH  := $(BUILD_DIR)/session/test/hash_monocypher_test
+MONO_AEAD  := $(BUILD_DIR)/session/test/aead_monocypher_test
 OBJS       += $(MONO_OBJS)
 TEST_OBJS  += $(MONO_TOBJ)
 TEST_BINS  += $(MONO_BIN) $(MONO_HASH) $(MONO_AEAD)
@@ -248,7 +248,7 @@ $(BUILD_DIR)/monocypher.o: $(MONOCYPHER_DIR)/src/monocypher.c
 # Each names its own objects rather than linking $(MONO_OBJS) wholesale.
 # Linking both bindings into both binaries would work and would hide which
 # one each test actually exercises, which is the thing these tests are for.
-$(MONO_BIN): $(BUILD_DIR)/chain/tests/sign_monocypher_test.o \
+$(MONO_BIN): $(BUILD_DIR)/chain/test/sign_monocypher_test.o \
              $(BUILD_DIR)/chain/sign_monocypher.o $(BUILD_DIR)/monocypher.o \
              $(BUILD_DIR)/chain/chain.o \
              $(BUILD_DIR)/constant_time/constant_time.o
@@ -258,18 +258,18 @@ $(MONO_BIN): $(BUILD_DIR)/chain/tests/sign_monocypher_test.o \
 # The AEAD test reaches the frame path, so it links wire/seal.o and situ's
 # generated objects as well -- it is the only Monocypher test that does,
 # because it is the only one testing something that reads the wire.
-$(BUILD_DIR)/session/tests/aead_monocypher_test.o: session/tests/aead_monocypher_test.c
+$(BUILD_DIR)/session/test/aead_monocypher_test.o: session/test/aead_monocypher_test.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
 
-$(MONO_AEAD): $(BUILD_DIR)/session/tests/aead_monocypher_test.o \
+$(MONO_AEAD): $(BUILD_DIR)/session/test/aead_monocypher_test.o \
               $(BUILD_DIR)/session/aead_monocypher.o $(BUILD_DIR)/monocypher.o \
               $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/session/random.o \
               $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
-$(MONO_HASH): $(BUILD_DIR)/session/tests/hash_monocypher_test.o \
+$(MONO_HASH): $(BUILD_DIR)/session/test/hash_monocypher_test.o \
               $(BUILD_DIR)/session/hash_monocypher.o $(BUILD_DIR)/monocypher.o \
               $(BUILD_DIR)/session/commitment.o \
               $(BUILD_DIR)/constant_time/constant_time.o
@@ -306,42 +306,42 @@ $(BUILD_DIR)/wire/generated/%.o: wire/generated/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated -MMD -MP -c $< -o $@
 
-$(BUILD_DIR)/chain/tests/chain_test: $(BUILD_DIR)/chain/tests/chain_test.o \
+$(BUILD_DIR)/chain/test/chain_test: $(BUILD_DIR)/chain/test/chain_test.o \
                                      $(BUILD_DIR)/chain/chain.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
-$(BUILD_DIR)/version/tests/version_test: $(BUILD_DIR)/version/tests/version_test.o \
+$(BUILD_DIR)/version/test/version_test: $(BUILD_DIR)/version/test/version_test.o \
                                         $(BUILD_DIR)/version/version.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
-$(BUILD_DIR)/constant_time/tests/secret_flow_test: \
-                     $(BUILD_DIR)/constant_time/tests/secret_flow_test.o \
+$(BUILD_DIR)/constant_time/test/secret_flow_test: \
+                     $(BUILD_DIR)/constant_time/test/secret_flow_test.o \
                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
-$(BUILD_DIR)/frame/tests/freshness_test: $(BUILD_DIR)/frame/tests/freshness_test.o \
+$(BUILD_DIR)/frame/test/freshness_test: $(BUILD_DIR)/frame/test/freshness_test.o \
                                          $(BUILD_DIR)/frame/freshness.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
-$(BUILD_DIR)/chunk/tests/reassembly_test: $(BUILD_DIR)/chunk/tests/reassembly_test.o \
+$(BUILD_DIR)/chunk/test/reassembly_test: $(BUILD_DIR)/chunk/test/reassembly_test.o \
                                           $(BUILD_DIR)/chunk/reassembly.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
 # Links BOTH halves on purpose: this binary is what holds the splitter and
 # the reassembler to the same contract.
-$(BUILD_DIR)/chunk/tests/split_test: $(BUILD_DIR)/chunk/tests/split_test.o \
+$(BUILD_DIR)/chunk/test/split_test: $(BUILD_DIR)/chunk/test/split_test.o \
                                      $(BUILD_DIR)/chunk/split.o \
                                      $(BUILD_DIR)/chunk/reassembly.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
-$(BUILD_DIR)/chain/tests/revocation_test: $(BUILD_DIR)/chain/tests/revocation_test.o \
+$(BUILD_DIR)/chain/test/revocation_test: $(BUILD_DIR)/chain/test/revocation_test.o \
                                           $(BUILD_DIR)/chain/revocation.o \
                                           $(BUILD_DIR)/chain/chain.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
@@ -352,12 +352,12 @@ $(BUILD_DIR)/chain/tests/revocation_test: $(BUILD_DIR)/chain/tests/revocation_te
 # -- argv[1] or its own default -- so `make test` terminates and a failing
 # case is reproducible from the source alone. `make fuzz CASES=n` runs a
 # longer campaign without editing anything.
-$(BUILD_DIR)/chunk/tests/reassembly_fuzz: $(BUILD_DIR)/chunk/tests/reassembly_fuzz.o \
+$(BUILD_DIR)/chunk/test/reassembly_fuzz: $(BUILD_DIR)/chunk/test/reassembly_fuzz.o \
                                           $(BUILD_DIR)/chunk/reassembly.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
-$(BUILD_DIR)/chain/tests/chain_fuzz: $(BUILD_DIR)/chain/tests/chain_fuzz.o \
+$(BUILD_DIR)/chain/test/chain_fuzz: $(BUILD_DIR)/chain/test/chain_fuzz.o \
                                      $(BUILD_DIR)/chain/chain.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
@@ -365,7 +365,7 @@ $(BUILD_DIR)/chain/tests/chain_fuzz: $(BUILD_DIR)/chain/tests/chain_fuzz.o \
 
 # The only binary that links four modules, because it is the only one testing
 # something none of them owns: the ORDER sec 4.7 puts them in.
-$(BUILD_DIR)/frame/tests/receive_fuzz: $(BUILD_DIR)/frame/tests/receive_fuzz.o \
+$(BUILD_DIR)/frame/test/receive_fuzz: $(BUILD_DIR)/frame/test/receive_fuzz.o \
                                        $(BUILD_DIR)/frame/freshness.o \
                                        $(BUILD_DIR)/chain/chain.o \
                                        $(BUILD_DIR)/chain/revocation.o \
@@ -374,12 +374,12 @@ $(BUILD_DIR)/frame/tests/receive_fuzz: $(BUILD_DIR)/frame/tests/receive_fuzz.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
-$(BUILD_DIR)/frame/tests/freshness_fuzz: $(BUILD_DIR)/frame/tests/freshness_fuzz.o \
+$(BUILD_DIR)/frame/test/freshness_fuzz: $(BUILD_DIR)/frame/test/freshness_fuzz.o \
                                          $(BUILD_DIR)/frame/freshness.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
-$(BUILD_DIR)/chain/tests/revocation_fuzz: $(BUILD_DIR)/chain/tests/revocation_fuzz.o \
+$(BUILD_DIR)/chain/test/revocation_fuzz: $(BUILD_DIR)/chain/test/revocation_fuzz.o \
                                           $(BUILD_DIR)/chain/revocation.o \
                                           $(BUILD_DIR)/chain/chain.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
@@ -388,14 +388,14 @@ $(BUILD_DIR)/chain/tests/revocation_fuzz: $(BUILD_DIR)/chain/tests/revocation_fu
 
 # Links both halves, like split_test: this binary is what holds the
 # splitter and the reassembler to the same contract over permutations.
-$(BUILD_DIR)/chunk/tests/roundtrip_fuzz: $(BUILD_DIR)/chunk/tests/roundtrip_fuzz.o \
+$(BUILD_DIR)/chunk/test/roundtrip_fuzz: $(BUILD_DIR)/chunk/test/roundtrip_fuzz.o \
                                          $(BUILD_DIR)/chunk/split.o \
                                          $(BUILD_DIR)/chunk/reassembly.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
-$(BUILD_DIR)/session/tests/commitment_test: \
-		$(BUILD_DIR)/session/tests/commitment_test.o \
+$(BUILD_DIR)/session/test/commitment_test: \
+		$(BUILD_DIR)/session/test/commitment_test.o \
 		$(BUILD_DIR)/session/commitment.o \
 		$(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
@@ -403,19 +403,19 @@ $(BUILD_DIR)/session/tests/commitment_test: \
 
 # Links peer.c only. peer_linux.c is the system half and holds no
 # decisions, so the suite drives every one of them without a socket.
-$(BUILD_DIR)/local/tests/peer_test: $(BUILD_DIR)/local/tests/peer_test.o \
+$(BUILD_DIR)/local/test/peer_test: $(BUILD_DIR)/local/test/peer_test.o \
                                     $(BUILD_DIR)/local/peer.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
-$(BUILD_DIR)/local/tests/peer_fuzz: $(BUILD_DIR)/local/tests/peer_fuzz.o \
+$(BUILD_DIR)/local/test/peer_fuzz: $(BUILD_DIR)/local/test/peer_fuzz.o \
                                     $(BUILD_DIR)/local/peer.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
 # The one test that links the system half. It needs no cooperating
 # process: a socketpair has both ends here, so SO_PEERCRED reports us.
-$(BUILD_DIR)/local/tests/peer_linux_test: $(BUILD_DIR)/local/tests/peer_linux_test.o \
+$(BUILD_DIR)/local/test/peer_linux_test: $(BUILD_DIR)/local/test/peer_linux_test.o \
                                           $(BUILD_DIR)/local/peer.o \
                                           $(BUILD_DIR)/local/peer_linux.o
 	@mkdir -p $(dir $@)
@@ -424,17 +424,17 @@ $(BUILD_DIR)/local/tests/peer_linux_test: $(BUILD_DIR)/local/tests/peer_linux_te
 # Three tests read situ's output and need the generated include path, so each
 # has its own compile rule rather than the pattern's. This comment said "the
 # only test" until there were three of them.
-$(BUILD_DIR)/wire/tests/generated_test.o: wire/tests/generated_test.c
+$(BUILD_DIR)/wire/test/generated_test.o: wire/test/generated_test.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
 
-$(BUILD_DIR)/wire/tests/constants_test.o: wire/tests/constants_test.c
+$(BUILD_DIR)/wire/test/constants_test.o: wire/test/constants_test.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
 
 # Links peer and vocabulary, which is the seam it tests. It linked four
 # modules until local/line.c and local/socket.c moved to raidcfgd.
-$(BUILD_DIR)/local/tests/admit_test: $(BUILD_DIR)/local/tests/admit_test.o \
+$(BUILD_DIR)/local/test/admit_test: $(BUILD_DIR)/local/test/admit_test.o \
                                      $(BUILD_DIR)/local/peer.o \
                                      $(BUILD_DIR)/local/peer_linux.o \
                                      $(BUILD_DIR)/local/vocabulary.o \
@@ -442,21 +442,21 @@ $(BUILD_DIR)/local/tests/admit_test: $(BUILD_DIR)/local/tests/admit_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
-$(BUILD_DIR)/local/tests/vocabulary_fuzz: $(BUILD_DIR)/local/tests/vocabulary_fuzz.o \
+$(BUILD_DIR)/local/test/vocabulary_fuzz: $(BUILD_DIR)/local/test/vocabulary_fuzz.o \
                                           $(BUILD_DIR)/local/vocabulary.o \
                                           $(BUILD_DIR)/local/peer.o \
                                           $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
-$(BUILD_DIR)/local/tests/vocabulary_test: $(BUILD_DIR)/local/tests/vocabulary_test.o \
+$(BUILD_DIR)/local/test/vocabulary_test: $(BUILD_DIR)/local/test/vocabulary_test.o \
                                           $(BUILD_DIR)/local/vocabulary.o \
                                           $(BUILD_DIR)/local/peer.o \
                                           $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
-$(BUILD_DIR)/session/tests/random_test: $(BUILD_DIR)/session/tests/random_test.o \
+$(BUILD_DIR)/session/test/random_test: $(BUILD_DIR)/session/test/random_test.o \
                                         $(BUILD_DIR)/session/random.o \
                                         $(BUILD_DIR)/session/random_linux.o
 	@mkdir -p $(dir $@)
@@ -466,11 +466,11 @@ $(BUILD_DIR)/wire/seal.o: wire/seal.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
 
-$(BUILD_DIR)/wire/tests/seal_test.o: wire/tests/seal_test.c
+$(BUILD_DIR)/wire/test/seal_test.o: wire/test/seal_test.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
 
-$(BUILD_DIR)/wire/tests/err_str_test: $(BUILD_DIR)/wire/tests/err_str_test.o \
+$(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/chain/chain.o \
                                       $(BUILD_DIR)/chunk/reassembly.o \
                                       $(BUILD_DIR)/chunk/split.o \
@@ -483,7 +483,7 @@ $(BUILD_DIR)/wire/tests/err_str_test: $(BUILD_DIR)/wire/tests/err_str_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
-$(BUILD_DIR)/wire/tests/seal_test: $(BUILD_DIR)/wire/tests/seal_test.o \
+$(BUILD_DIR)/wire/test/seal_test: $(BUILD_DIR)/wire/test/seal_test.o \
                                    $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/session/random.o \
                                    $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
@@ -491,23 +491,23 @@ $(BUILD_DIR)/wire/tests/seal_test: $(BUILD_DIR)/wire/tests/seal_test.o \
 
 # Links the generated runtime for the frame views its runtime half needs;
 # every other check in it is a static assert and needs no object at all.
-$(BUILD_DIR)/wire/tests/constants_test: $(BUILD_DIR)/wire/tests/constants_test.o \
+$(BUILD_DIR)/wire/test/constants_test: $(BUILD_DIR)/wire/test/constants_test.o \
                                         $(GEN_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
-$(BUILD_DIR)/wire/tests/generated_test: $(BUILD_DIR)/wire/tests/generated_test.o \
+$(BUILD_DIR)/wire/test/generated_test: $(BUILD_DIR)/wire/test/generated_test.o \
                                         $(GEN_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
 # Links situ's output AND our reassembler, which is the only binary that
 # does. It exists to compare the two implementations of one rule.
-$(BUILD_DIR)/chunk/tests/agreement_test.o: chunk/tests/agreement_test.c
+$(BUILD_DIR)/chunk/test/agreement_test.o: chunk/test/agreement_test.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
 
-$(BUILD_DIR)/chunk/tests/agreement_test: $(BUILD_DIR)/chunk/tests/agreement_test.o \
+$(BUILD_DIR)/chunk/test/agreement_test: $(BUILD_DIR)/chunk/test/agreement_test.o \
                                          $(BUILD_DIR)/chunk/reassembly.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -522,14 +522,14 @@ test: codegencheck $(TEST_BINS)
 
 CASES ?= 200000
 
-FUZZ_BINS := $(BUILD_DIR)/chunk/tests/reassembly_fuzz \
-             $(BUILD_DIR)/chain/tests/chain_fuzz \
-             $(BUILD_DIR)/frame/tests/freshness_fuzz \
-             $(BUILD_DIR)/frame/tests/receive_fuzz \
-             $(BUILD_DIR)/chain/tests/revocation_fuzz \
-             $(BUILD_DIR)/chunk/tests/roundtrip_fuzz \
-             $(BUILD_DIR)/local/tests/peer_fuzz \
-             $(BUILD_DIR)/local/tests/vocabulary_fuzz
+FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
+             $(BUILD_DIR)/chain/test/chain_fuzz \
+             $(BUILD_DIR)/frame/test/freshness_fuzz \
+             $(BUILD_DIR)/frame/test/receive_fuzz \
+             $(BUILD_DIR)/chain/test/revocation_fuzz \
+             $(BUILD_DIR)/chunk/test/roundtrip_fuzz \
+             $(BUILD_DIR)/local/test/peer_fuzz \
+             $(BUILD_DIR)/local/test/vocabulary_fuzz
 
 fuzz: $(FUZZ_BINS)
 	@for f in $(FUZZ_BINS); do echo "== $$f $(CASES)"; $$f $(CASES) || exit 1; done
@@ -578,7 +578,7 @@ codegencheck: $(BUILD_DIR)/constant_time/constant_time.o \
 # Not in `test`: valgrind is not on every machine, and it skips loudly rather
 # than passing, since an absent tool and a clean one are otherwise the same
 # silence.
-CT_VG_BIN := $(BUILD_DIR)/constant_time/tests/secret_flow_valgrind
+CT_VG_BIN := $(BUILD_DIR)/constant_time/test/secret_flow_valgrind
 
 ctcheck:
 	@if ! command -v valgrind >/dev/null 2>&1; then \
@@ -588,7 +588,7 @@ ctcheck:
 	else \
 		mkdir -p $(dir $(CT_VG_BIN)) && \
 		$(CC) $(CFLAGS) -DFZN_HAVE_VALGRIND -o $(CT_VG_BIN) \
-		      constant_time/tests/secret_flow_test.c constant_time/constant_time.c && \
+		      constant_time/test/secret_flow_test.c constant_time/constant_time.c && \
 		echo "ctcheck: fzn_ct_memeq, with both inputs marked secret" && \
 		valgrind -q --error-exitcode=9 --track-origins=yes $(CT_VG_BIN) || \
 			{ echo "ctcheck: FAILED -- control flow depended on secret data"; exit 1; }; \
@@ -756,7 +756,7 @@ style:
 	@# TEST_SRCS is what gets compiled and dependency-tracked; TEST_BINS is
 	@# what `test:` iterates. A source in the first and not the second
 	@# builds cleanly and never runs -- and that is not hypothetical, it is
-	@# what happened to local/tests/vocabulary_fuzz.c one list over, which
+	@# what happened to local/test/vocabulary_fuzz.c one list over, which
 	@# sat in TEST_SRCS and TEST_BINS but not FUZZ_BINS and so was never
 	@# reached by the deep campaign. The same slip here costs a test that
 	@# never runs at all, which is worse and just as quiet.

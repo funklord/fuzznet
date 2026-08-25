@@ -3,7 +3,7 @@
  * A STUB AEAD, not Monocypher, and deliberately. chain_test.c does the same
  * with its signer: what is under test here is the ORDER of operations and the
  * gate discipline, not the cryptography, and a stub makes every case
- * reproducible from this source alone. `session/tests/aead_monocypher_test.c`
+ * reproducible from this source alone. `session/test/aead_monocypher_test.c`
  * exercises the real algorithm, and only when MONOCYPHER_DIR names a checkout.
  *
  * The stub models the one property session/aead.h requires of a real
@@ -358,7 +358,7 @@ int main(void)
 		check(fzn_seal_build(built, FRAME_LEN - 1u, &built_len, &what, key, commitment,
 		                     &rng, &aead) == FZN_SEAL_ERR_CAPACITY,
 		      "a frame was built into a buffer one byte short");
-		/* The overhead is checked in wire/tests/constants_test.c, against
+		/* The overhead is checked in wire/test/constants_test.c, against
 		 * SITU_FZN_FRAME_SIZE_MIN rather than against the literal 144 that
 		 * used to sit here and could not tell the two apart. */
 

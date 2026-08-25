@@ -3,7 +3,7 @@
  * `constant_time.h` states the property -- "constant time in the LENGTH and
  * in the DATA" -- and sec 4.4a says this library owes it to consumers and
  * must not leave it to them. Until this file existed, **nothing tested it**.
- * The five cases in `chain/tests/chain_test.c` test that the comparison
+ * The five cases in `chain/test/chain_test.c` test that the comparison
  * gives the right ANSWER, which a plain memcmp would pass identically.
  *
  * The other witness is `make codegencheck`, and `tools/codegen_gate.py` is

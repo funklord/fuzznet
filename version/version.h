@@ -26,7 +26,7 @@
  *                    FZN_VERSION_STRING, fzn_version_string());
  *
  * `VERSION` REMAINS THE AUTHORITY and this is a copy of it, deliberately,
- * for the reason wire/tests/constants_test.c gives about the field lengths:
+ * for the reason wire/test/constants_test.c gives about the field lengths:
  * a header that had to be generated would put a build step between a
  * consumer and a constant. What was missing there and is missing here is
  * anything to notice when a copy stops being one, so `make style` compares

@@ -384,7 +384,7 @@ module exists to prevent.
 include a generated header: that module's independence from the schema is what
 kept it buildable while §10 step 2 was blocked, and keeps it independent of
 the schema now that step 2 can proceed. So the number is repeated, and
-`chunk/tests/agreement_test.c` static-asserts it against the generated header,
+`chunk/test/agreement_test.c` static-asserts it against the generated header,
 which is the only place both are visible. Two assertions rather than one,
 because the second is the premise of the first:
 
@@ -820,7 +820,7 @@ answer from the ordering of a consumer's list. The test builds that table
 deliberately and a sabotage confirms it.
 
 **Order independence is fuzzed rather than exemplified**
-(`local/tests/vocabulary_fuzz.c`). The hand-written test checks it with one
+(`local/test/vocabulary_fuzz.c`). The hand-written test checks it with one
 table, built to expose the early-return bug -- which is one permutation of one
 table against one peer, and the property is about all of them. A consumer
 orders its table however reads well, so the order is not something this library
@@ -898,7 +898,7 @@ writes `view.base[5]`, an offset from the frame. Handed a head view they
 compile, run, and put every field five bytes late. Both are `situ_view_t`, so
 this is a type-correct wrong argument -- **the second time that exact
 confusion has cost time here**, the first being recorded in
-`wire/tests/generated_test.c`.
+`wire/test/generated_test.c`.
 
 And a `situ_fzn_frame_validate` call sat before the seal with a comment about
 not spending a tag on a bad shape. `fzn_seal_close` validates through the same
@@ -947,12 +947,12 @@ The order, and each step's reason for preceding the next:
    authentic and authorised -- otherwise the memory bound protects a table
    any stranger may fill.
 
-**The order is executed now, not only written down** (`frame/tests/
+**The order is executed now, not only written down** (`frame/test/
 receive_fuzz.c`, 2026-08-18). This section said a consumer deriving the
 sequence from five headers "would be inventing a security property", and until
 this harness existed the sequence itself was the thing nobody could run. It
 drives the five steps that take decoded fields -- 4 and 5 need the wire and are
-covered by `wire/tests/seal_test.c` -- and asserts what no single-module
+covered by `wire/test/seal_test.c` -- and asserts what no single-module
 harness can see:
 
 - **a refusal at any step costs nothing at a later one**: no slot taken, no
@@ -1713,7 +1713,7 @@ dropped the coverage instrumentation. A false positive from a guard is worth
 no more than the false negative it replaced, so the instrumentation was
 fixed rather than the guard relaxed.
 
-`wire/tests/generated_test.c` exercises them, and it earns its place twice
+`wire/test/generated_test.c` exercises them, and it earns its place twice
 over. It builds a frame by writing bytes **at the offsets the committed map
 records** and reads them back through the generated getters -- two
 independent descriptions of one layout, so a generator whose map and emitter
@@ -1725,7 +1725,7 @@ now.**
 
 #### Every constant stated twice, checked once
 
-`wire/tests/constants_test.c` (2026-08-17) exists because **four modules
+`wire/test/constants_test.c` (2026-08-17) exists because **four modules
 define the length of a field the schema also defines, and nothing compared
 them.** They agreed. Nothing made them keep agreeing, and
 `FZN_NONCE_LEN`'s own comment says "which is what wire/frame.situ carries" --
@@ -1789,7 +1789,7 @@ It was confirmed by catching the live omission -- the line I had not yet added
 -- and then by dropping a different entry and watching it name that one
 instead.
 
-**And the two are now checked against each other** (`chunk/tests/
+**And the two are now checked against each other** (`chunk/test/
 agreement_test.c`, 2026-08-16). Until this existed, "reassembly.c enforces
 what the schema declares" rested on three lines of C matching three lines of
 schema **by inspection**, which is the weakest evidence in the tree for one
@@ -1913,7 +1913,7 @@ themselves.** A receiver that requires a uniform stride and a sender that
 produces one are half a contract each, and both can be self-consistently
 wrong -- a splitter that pads its last piece and a reassembler that accepts a
 padded one would pass their own suites and lose bytes together.
-`chunk/tests/split_test` cuts a payload with one and feeds it to the other,
+`chunk/test/split_test` cuts a payload with one and feeds it to the other,
 then compares. Padding the last piece to the full stride breaks twelve of its
 checks; shifting every offset by one breaks twenty-three.
 
@@ -2334,7 +2334,7 @@ for every index, because `index [max = chunks - 1]` evaluates in `int64` as
 `index > -1`, which is true for any unsigned index. Probed directly:
 `chunks=0 index=0` and `chunks=0 index=7` both return *constraint violated*,
 `chunks=1 index=0` and `chunks=4 index=3` pass, `chunks=1 index=1` refuses.
-**And `wire/tests/generated_test.c` already pinned both invariants
+**And `wire/test/generated_test.c` already pinned both invariants
 behaviourally** -- "a frame claiming zero chunks validated" and "a frame with
 version 2 validated" -- written against the behaviour rather than the
 attribute, which is exactly why a decorative attribute could be removed
@@ -2482,7 +2482,7 @@ somebody's log. Verified rather than assumed: adding a code to
 `fzn_split_err_t` produces *"enumeration value 'FZN_SPLIT_ERR_INVENTED' not
 handled in switch"*, naming it.
 
-`wire/tests/err_str_test.c` takes the three things the compiler cannot see --
+`wire/test/err_str_test.c` takes the three things the compiler cannot see --
 that no two codes render the same text, that nothing renders NULL, and that a
 value off the end renders "unknown" and nothing else does. 121 checks.
 Sabotage: rendering `FZN_SEAL_ERR_COMMITMENT` as `"tag did not verify"`
@@ -2510,10 +2510,10 @@ conditional jump or memory address computed from data it considers
 undefined. A comparison whose control flow never touches the data cannot
 vary with it, so this is the property itself rather than a symptom of it.
 The technique is Langley's ctgrind; the test is
-`constant_time/tests/secret_flow_test.c`.
+`constant_time/test/secret_flow_test.c`.
 
 **What was there before did not cover this, and both witnesses said so in
-their own words.** The five cases in `chain/tests/chain_test.c` -- a leftover
+their own words.** The five cases in `chain/test/chain_test.c` -- a leftover
 from when the function lived in `chain.h` -- test that the comparison gives
 the right ANSWER, which a plain `memcmp` passes identically. `make
 codegencheck` counts branches in the emitted object, and
@@ -2887,7 +2887,7 @@ working rather than the rule being written down.
 
 **A warning sat in the build for a day because every check read for
 "error"** (2026-08-19). `-Wshadow` had been reporting a shadowed `ops` in
-`chain/tests/sign_monocypher_test.c` since the guard tests were added to it,
+`chain/test/sign_monocypher_test.c` since the guard tests were added to it,
 and it was printed on every build in between. Nothing missed it -- it was
 visible each time. What missed it was the reading: the greps used to verify
 each change filtered for `error`, `FAIL` and `failure(s)`, and a warning is
@@ -2927,7 +2927,7 @@ everything" and "removed what it happened to know about" stop looking alike.
 Dropping one entry from its list makes it refuse and name the file.
 
 **A fuzz harness existed that `make fuzz` had never run** (2026-08-18).
-`local/tests/vocabulary_fuzz.c` was in `TEST_SRCS` and `TEST_BINS`, so
+`local/test/vocabulary_fuzz.c` was in `TEST_SRCS` and `TEST_BINS`, so
 `make test` ran it at the default 20000 cases, and absent from `FUZZ_BINS`, so
 `make fuzz CASES=2000000` never touched it. The deep campaign is the one place
 that omission costs anything, and nothing said so, because the suite was green
@@ -3064,7 +3064,7 @@ hand-written transport and situ is generating most of it (§7a). Steps 2, 4 and
    (2026-08-18).
 
    The overhead is **144 bytes, measured** rather than argued about, and
-   `wire/tests/constants_test.c` pins it against the generated layout so it
+   `wire/test/constants_test.c` pins it against the generated layout so it
    cannot drift again -- which it had, twice, while it was only prose.
 
    The `[max = 1024]` is no longer a placeholder, and **the question this step
@@ -3481,10 +3481,10 @@ generated code. `chain/` is the capability model; `frame/freshness.c` is
 
 `make` builds the objects and nothing else — the default target does not
 build tests, per `build-and-commit.md`. `make test` builds and runs two
-binaries: `chain/tests/chain_test` at 64 checks over a stub verifier and an
-injected clock, `frame/tests/freshness_test` at 34, and
-`chain/tests/revocation_test` at 31, `chunk/tests/reassembly_test` at 58,
-and `chunk/tests/split_test` at 52.
+binaries: `chain/test/chain_test` at 64 checks over a stub verifier and an
+injected clock, `frame/test/freshness_test` at 34, and
+`chain/test/revocation_test` at 31, `chunk/test/reassembly_test` at 58,
+and `chunk/test/split_test` at 52.
 None reads a clock, so there is nothing in any of them that can pass on a
 quiet machine and fail on a loaded one.
 
@@ -3514,7 +3514,7 @@ the depth ceiling.
 
 ### The reassembly fuzzer, and what it can and cannot see
 
-`chunk/tests/reassembly_fuzz` runs a bounded, seeded sweep over
+`chunk/test/reassembly_fuzz` runs a bounded, seeded sweep over
 `fzn_reasm_accept` with each slot's buffer inside a canary, asserting after
 every call that nothing was written outside a buffer, that no sender exceeds
 its quota, and that no slot is sized past what it holds. `make test` runs
@@ -3815,7 +3815,7 @@ that stay inside the harness's own allocation. Both stay.
 
 ### The chain and freshness fuzzers, and what one of them found
 
-`chain/tests/chain_fuzz` and `frame/tests/freshness_fuzz` followed. `chain.c`
+`chain/test/chain_fuzz` and `frame/test/freshness_fuzz` followed. `chain.c`
 owns no buffers, so there is nothing there for a canary to guard: a bug in it
 is not an overrun, it is an **acceptance**. Its harness therefore re-derives
 the rules independently — a second implementation rather than a call back
@@ -3838,7 +3838,7 @@ gets relied on. The sweep moved above the early returns.
 
 ### The round-trip harness, over permutations rather than a list
 
-`chunk/tests/roundtrip_fuzz` is the only harness that holds two modules to
+`chunk/test/roundtrip_fuzz` is the only harness that holds two modules to
 each other. Split and reassemble are the one coupling in this library that
 can fail while both halves pass their own suites, and it was covered by ten
 hand-picked sizes in `split_test` — the thinnest evidence in the tree for
@@ -3870,7 +3870,7 @@ a check ran was itself unable to fail.
 
 ### The revocation harness is model-based, and that is the difference
 
-`chain/tests/revocation_fuzz` covers the admission path, which nothing else
+`chain/test/revocation_fuzz` covers the admission path, which nothing else
 touched: `chain_fuzz` feeds the already-verified `fzn_revocation_t` straight
 to verification, so the records a peer actually sends — issuer, signature,
 signed region — had never been fuzzed. §4.2 carries revocation *on contact*,

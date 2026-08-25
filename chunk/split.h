@@ -40,7 +40,7 @@
  * pure arithmetic and independent of the schema -- that is what makes it
  * buildable while sec 10 step 2 is blocked -- so it cannot see
  * `SITU_FZN_FRAME_SIZE_MAX`. The copy is tethered instead:
- * `chunk/tests/agreement_test.c` static-asserts this against the generated
+ * `chunk/test/agreement_test.c` static-asserts this against the generated
  * header, which is the only place both numbers are visible.
  *
  * So the tether is `make test`, not `make`. Putting it in the default build

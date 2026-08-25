@@ -18,7 +18,7 @@
  *     `now` -- the security property in one line, over arbitrary input.
  *
  * Bounded and seeded as the other harnesses are, and it counts what it
- * reached for the reason recorded against chunk/tests/reassembly_fuzz.c: a
+ * reached for the reason recorded against chunk/test/reassembly_fuzz.c: a
  * generator that stops producing acceptable input reports success exactly
  * as loudly as one that works.
  */

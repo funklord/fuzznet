@@ -186,7 +186,7 @@ struct fzn_head {
 	// less 48 of IPv6 and UDP headers, less 144 of frame: 1088 is the
 	// largest payload that fits, and 1024 sits under it with 64 bytes of
 	// room for an extension header or a tunnel. Asserted in
-	// wire/tests/constants_test.c. The 2018 generation picked 512 (sec 12).
+	// wire/test/constants_test.c. The 2018 generation picked 512 (sec 12).
 	u16  length   [max = 1024];
 }
 

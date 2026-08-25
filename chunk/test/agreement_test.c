@@ -58,7 +58,7 @@
 #include <stdio.h>
 #include <string.h>
 
-/* The schema-versus-C CONSTANTS live in wire/tests/constants_test.c, not
+/* The schema-versus-C CONSTANTS live in wire/test/constants_test.c, not
  * here. This file is about behavioural agreement -- whether the reassembler
  * enforces what the relation and the constraints say -- and a constant is a
  * different question with a different failure mode. `chunk/split.h`'s payload
@@ -77,7 +77,7 @@ static void check(int ok, const char *what, uint8_t s2, uint32_t m2, uint16_t c2
 	}
 }
 
-/* From wire/frame.situ.map, as in wire/tests/generated_test.c and for the
+/* From wire/frame.situ.map, as in wire/test/generated_test.c and for the
  * same reason: asking the generated code where a field lives could not
  * detect it being wrong about that. */
 #define OFF_VERSION 0x00

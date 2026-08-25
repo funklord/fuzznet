@@ -24,7 +24,7 @@
  * could buy more of them than it has hops would be a way to spend a
  * receiver's CPU for the price of one datagram.
  *
- * Bounded and seeded exactly as chunk/tests/reassembly_fuzz.c is, and for
+ * Bounded and seeded exactly as chunk/test/reassembly_fuzz.c is, and for
  * the reasons given there at length. It counts what it reached and refuses
  * to report success below a floor, because that harness reported success
  * over 200000 cases while reaching almost nothing.

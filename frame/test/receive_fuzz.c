@@ -9,7 +9,7 @@
  *
  * WHAT IS AND IS NOT HERE. Steps 4 and 5 -- the key commitment and the tag --
  * live in `wire/seal.c` and need situ's generated layout, so they are covered
- * by `wire/tests/seal_test.c` and skipped here. This harness drives the five
+ * by `wire/test/seal_test.c` and skipped here. This harness drives the five
  * that take decoded fields: freshness, replay, the capability chain against a
  * revocation store, and reassembly, in the documented order, over input a
  * stranger chose.

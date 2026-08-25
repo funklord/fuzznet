@@ -11,29 +11,29 @@
 
 # The test binaries. Named rather than globbed, because a pattern here would
 # also hide a source file somebody adds under that name by mistake.
-/chain/tests/chain_test
-/session/tests/commitment_test
-/local/tests/peer_test
-/local/tests/peer_fuzz
-/local/tests/peer_linux_test
-/wire/tests/generated_test
-/wire/tests/constants_test
-/chunk/tests/agreement_test
-/chain/tests/revocation_test
-/chain/tests/sign_monocypher_test
-/session/tests/hash_monocypher_test
-/frame/tests/freshness_test
-/chunk/tests/reassembly_test
-/chunk/tests/split_test
-/chunk/tests/reassembly_fuzz
-/chain/tests/chain_fuzz
-/frame/tests/freshness_fuzz
-/chain/tests/revocation_fuzz
-/chunk/tests/roundtrip_fuzz
-/constant_time/tests/secret_flow_test
-/wire/tests/err_str_test
-/version/tests/version_test
-/constant_time/tests/secret_flow_valgrind
+/chain/test/chain_test
+/session/test/commitment_test
+/local/test/peer_test
+/local/test/peer_fuzz
+/local/test/peer_linux_test
+/wire/test/generated_test
+/wire/test/constants_test
+/chunk/test/agreement_test
+/chain/test/revocation_test
+/chain/test/sign_monocypher_test
+/session/test/hash_monocypher_test
+/frame/test/freshness_test
+/chunk/test/reassembly_test
+/chunk/test/split_test
+/chunk/test/reassembly_fuzz
+/chain/test/chain_fuzz
+/frame/test/freshness_fuzz
+/chain/test/revocation_fuzz
+/chunk/test/roundtrip_fuzz
+/constant_time/test/secret_flow_test
+/wire/test/err_str_test
+/version/test/version_test
+/constant_time/test/secret_flow_valgrind
 
 # An out-of-tree build, if BUILD_DIR names one.
 /build/
@@ -45,12 +45,12 @@
 
 # Python's, from running tools/style_gate.py.
 __pycache__/
-/wire/tests/seal_test
-/session/tests/aead_monocypher_test
-/frame/tests/receive_fuzz
-/session/tests/random_test
-/local/tests/vocabulary_test
-/local/tests/vocabulary_fuzz
-/local/tests/admit_test
+/wire/test/seal_test
+/session/test/aead_monocypher_test
+/frame/test/receive_fuzz
+/session/test/random_test
+/local/test/vocabulary_test
+/local/test/vocabulary_fuzz
+/local/test/admit_test
 /.situ-head/
 /.gen.new/

@@ -121,7 +121,7 @@ fzn_fresh_err_t fzn_replay_admit(fzn_replay_window_t *window,
 	 * It used to sit below the two returns beneath this, which meant a
 	 * refused frame and an unexpiring grant both skipped it -- so traffic
 	 * made entirely of grants, or entirely of stale commands, left dead
-	 * entries holding slots indefinitely. Found by frame/tests/
+	 * entries holding slots indefinitely. Found by frame/test/
 	 * freshness_fuzz on its first run, against the invariant that every
 	 * live entry is unexpired.
 	 *
