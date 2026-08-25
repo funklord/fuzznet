@@ -1038,6 +1038,40 @@ absorbing one consumer's application until the others are carrying it.
 would accept the other's version as a special case of their own.** One
 consumer needing something is a reason for that consumer to build it.
 
+### The test was applied to a real case and held (2026-08-25)
+
+The copyright holder asked fuzzypickles whether their **log subsystem** and
+their **file transfer** should be generalised and moved here. Their answer,
+sent to this project rather than left for it to discover, was no on three
+measured grounds, and it is recorded because a test nobody has ever run
+against a real proposal is one nobody should trust:
+
+- **Content-addressed transfer is already refused above**, by name, in this
+  very list. Moving it is the reversal of a recorded decision rather than a
+  new proposal, which is a different conversation.
+- **There is no second consumer.** Neither netcfgd's nor raidcfgd's
+  `project.md` mentions log replication, append-logs, file transfer,
+  content-addressing or blobs -- zero hits each. netcfgd logs to syslog.
+- **Their log fails §2's shape test.** `append_log.c` carries its own line
+  format, `<seq> <escaped text>`, which is an encoding choice -- and
+  specifically the one netcfgd would reject, greppable JSON being its stated
+  product property.
+
+**What would change the answer is in the entry above this one.** Relays and
+store-and-forward are flagged there as the next thing likely to move in. A log
+that has to survive a relay hop hours later is a different problem from
+syslog, and that is the case where an append log's **sequencing and gap
+detection** -- not its line format -- could become something two consumers
+need. That is the moment to revisit; it has not arrived.
+
+**Not decided here, and deliberately.** fuzzypickles wrote it up as a signal
+in `claude-guidelines`' `project.md` (`4688a51`) so a cross-project pass reads
+it rather than either tree deciding it from the inside. The one observation
+worth carrying: `flog` is already its own repository and none of the other
+thirteen private projects has adopted it, so if the goal is shared logging the
+extraction has happened and the gap is adoption -- which is not this library's
+to close.
+
 ---
 
 ## 6. `situ`, and whether the frame is hand-written
@@ -3958,10 +3992,32 @@ weaker, than the paragraphs below assume.
 ### fuzzypickles already answered this, and chose the expensive side
 
 Its peer frame is `version | cmd | sender_host_pubkey[32] | ephemeral_pk[32] |
-commitment[16] | ciphertext | mac[16]`: **82 bytes of header plus a 16-byte
-MAC**, so 98 in all, against this schema's **144**. Two designs reached the
-same order of overhead independently, which is worth knowing before treating
-144 as an aberration.
+commitment[16] | ciphertext | mac[16]`: 82 bytes of header plus a 16-byte MAC,
+**and 8 more inside the ciphertext**, so **106 in all** against this schema's
+**144**. Two designs reached the same order of overhead independently, which
+is worth knowing before treating 144 as an aberration.
+
+**The 8 was missed twice, and the second time it was handed over.** This
+section said 98 -- header plus MAC -- and so did fuzzypickles when they
+confirmed the figure and invited us to cite their constants rather than them
+(2026-08-25). Taking the invitation is what found it: `peer_wire.h` states
+*"Total datagram length = FZP_PEER_HEADER_LEN + 8 + text_len +
+FZP_PEER_MAC_LEN"*, and the 8 is the sender's stime, encrypted with the text
+and never a cleartext field. `FZP_PEER_MIN_FRAME` corroborates independently
+at 82 + 8 + 1 + 16 = 107, which is 106 of overhead and one byte of text.
+
+**The two numbers were being computed by different rules**, which is the
+substance rather than the arithmetic. This schema's 144 counts the 32-byte
+`capability` that lives INSIDE the sealed region, because those are the
+library's bytes and not the consumer's. Their stime is the same kind of thing
+-- protocol-owned, in the ciphertext, not the application's text -- and was
+being left out. Counted the same way on both sides it is 106 against 144.
+
+**Which sharpens this section's own question.** It exists to ask whether the
+32 bytes `capability` costs are worth reclaiming, and the honest contrast is
+that fuzzypickles spends **8** in-seal bytes on protocol state where this
+schema spends **32**. That is a four-fold difference the old figures hid by
+putting their in-seal bytes on the payload's side of the ledger.
 
 **This comparison said 96 twice, in the section that opens by correcting 96.**
 The paragraph above it records that the number was stale and gives 144; these
@@ -3972,8 +4028,9 @@ citation *from* fuzzypickles back here, which is the only reason anybody read
 these lines again.
 
 The verified figures are theirs at `peer_wire.h`'s
-`FZP_PEER_HEADER_LEN (1 + 1 + 32 + 32 + 16)` with a trailing 16-byte MAC, and
-ours at 144. The conclusion is unchanged and slightly better supported: 98 and
+`FZP_PEER_HEADER_LEN (1 + 1 + 32 + 32 + 16)`, plus `FZP_PEER_STIME_LEN 8`
+inside the ciphertext and a trailing `FZP_PEER_MAC_LEN 16`, and ours at 144.
+The conclusion is unchanged and better supported at each correction: 106 and
 144 are the same order, and neither design found a way to be cheap.
 
 More instructive is *what* it spends the bytes on. There is **no nonce field at
