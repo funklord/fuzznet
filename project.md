@@ -1296,6 +1296,71 @@ fuzzypickles, which is the closest thing to evidence available before a second
 project has built anything -- and it is weaker than two independent consumers,
 which is worth saying rather than glossing.
 
+### Corrected, 2026-08-26: `log_relay` is separable, and two claims above were wrong
+
+**The suggestion above rests on two statements that do not survive being
+measured properly**, and both were wrong the same way: they counted mentions
+in *comments* as code-level coupling. Re-run with comments stripped
+(`gcc -fpreprocessed -dD -E -P`), against fuzzypickles `4e66b5a`.
+
+**Wrong: "`log_relay` ... carrying two command tags, two core API calls and a
+frame mode."** Its entire code-level vocabulary dependency is **one symbol,
+one occurrence**: `FZP_CMD_LOG_RELAY` at `log_relay.c:101`, inside the frame
+encoder. `FZP_CMD_MANIFEST`, `fzp_core_log_relay_query`,
+`fzp_core_manifest_set` and `FZP_WIRE_FRAME_MODE_PLAINTEXT` appear only in
+doc comments in `log_relay_internal.h` -- lines 29, 41, 61 and 62, every one
+of them prose describing neighbouring machinery. `log_relay_internal.h` has
+no code-level reference to any of them.
+
+**Wrong: "`log_show` is a command handler and nothing else."** It is 124
+lines, and the handler is the last 30. Lines 13-94 are the append log's
+sequence and line-format machinery -- `decode_seq_blob`, `encode_seq_blob`,
+`fzp_log_retention_next_seq`, `fzp_log_retention_format_line`,
+`fzp_log_retention_parse_line` -- with zero command vocabulary between them.
+The file is named for the smaller half of what it holds, and the `retention`
+prefix on those five is misleading in the other direction: they are declared
+in `log_show_internal.h` and implemented in `log_show.c`, not in
+`daemon/log_retention.c`.
+
+**So the separability question has an answer, and it is yes.** `log_relay.c`
+splits at line 145 with nothing crossing:
+
+| half | lines | code-level vocabulary |
+|---|---|---|
+| codec -- frame encode/decode, payload pack/parse | 145 | `FZP_CMD_LOG_RELAY`, once |
+| mechanism -- cache naming, ingest, show, high water, answering a query | 167 | **none** |
+
+**All four public mechanism functions take `const fzp_log_ops_t *` and nothing
+else** -- `fzp_log_relay_show`, `_cache_high_water`, `_ingest`,
+`_answer_query`. The sequencing and gap detection this list said "it is not
+obvious are separable" are in that half, and they are separable: what they
+talk to is the log vtable, `append_log`'s API, and the line helpers above.
+
+**What a move would actually need**, which is smaller than the earlier entry
+implied and not nothing:
+
+1. **One command tag parameterised.** `encode_frame` writes
+   `FZP_CMD_LOG_RELAY` into the frame; a caller-supplied command id is a
+   one-line change and a decision about who owns the number.
+2. **`log_show.c` split 82/30.** The line and sequence helpers go with the
+   mechanism; the `fzp_log_show` handler stays. That is a real edit to
+   fuzzypickles rather than a lift, and it is the piece of work this
+   correction adds.
+3. **`append_log` first.** The mechanism half calls six of its functions, so
+   the order is forced: `append_log` and `diag` move, then this.
+
+**The earlier entry's conclusion still stands, with a different reason.** It
+said `log_relay` is "where the argument lives", and it is -- but the argument
+is not entanglement. It is that moving it means splitting a file in the
+consumer and choosing an owner for a command number, and §5's admission test
+still wants two consumers who need it. **The measurement removes the technical
+objection and leaves the scope one**, which is the opposite of what the entry
+above assumed.
+
+**Recorded rather than quietly fixed**, because the wrong version was signalled
+into this document and acted on by nobody yet: a reader who takes the earlier
+entry at face value will believe `log_relay` is entangled and it is not.
+
 **One caution the numbers do not carry.** Portable is not the same as
 mergeable with §4.4. That chunks a message the sender already holds and pushes
 it; blob is hash-named, pull-based and requester-coordinated -- §4.4 says so
