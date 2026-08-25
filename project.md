@@ -1072,6 +1072,91 @@ thirteen private projects has adopted it, so if the goal is shared logging the
 extraction has happened and the gap is adoption -- which is not this library's
 to close.
 
+### Signalled from netcfgd, 2026-08-26: the holder's direction, and what a move would cost
+
+**Two of the three grounds above have moved, and the third has not.** Sent
+from netcfgd because that is where it was said and where the measurement was
+taken. Nothing here decides anything; the entry above is still this library's
+position until its holder changes it.
+
+**The direction, stated 2026-08-25.** netcfgd takes fuzznet as it stands, and
+"anything it misses will be moved from fuzzypickles". Named as required the
+same day: remote logs, chunked file transfers, a remote configuration
+database. Asked whether these were netcfgd's vocabulary or generic, the answer
+was that they are generic -- content addressing is "a bottom layer for any
+file transfer", distributed logs are "useful for any distributed program for
+information and troubleshooting" -- and that **the entrypoint for them is
+`flog`**.
+
+- **Ground 2, "there is no second consumer", is overtaken.** It was measured
+  by grepping netcfgd's `project.md` for file transfer, content-addressing and
+  blobs -- zero hits, correctly, on 2026-08-25. netcfgd's `project.md` and
+  `doc/remote-access-feasibility.md` now carry the requirement, so the same
+  grep answers differently today. That is an instruction arriving, not a
+  measurement having been wrong.
+- **Ground 1, "already refused above, by name", stands as stated** and is
+  exactly what it says: a reversal of a recorded decision rather than a new
+  proposal. The holder is the one who can reverse it and appears to be doing
+  so, which is a different conversation and still not this entry's to have.
+- **Ground 3, the line format, is untouched by anything below.** `append_log.c`
+  carrying `<seq> <escaped text>` is a fact about the *log*, and the
+  measurement below is about the *blob*. **`flog` may dissolve it rather than
+  answer it**: if the entrypoint is flog, a line format is an output's
+  business, and flog already has a pluggable output model --
+  `flog_output_file` and `flog_output_stdio` are in fuzzypickles' vendored
+  copy today. The corollary matters more than the ground: **fuzznet would
+  supply transport, not a logging API.** A log API invented here would be a
+  third thing for the family to learn, which is the same conclusion the
+  paragraph above reaches from adoption rather than from design.
+
+**What a move would cost, measured in fuzzypickles at commit `4e66b5a`.** The
+question the three grounds did not ask: they are about whether it *belongs*,
+and this is about what it would *take*. So it settles nothing above -- it
+removes "it would be a big entangled lift" from the list of reasons, if anyone
+was holding one.
+
+| | lines |
+|---|---|
+| `core/src/blob.c` | 1,772 |
+| `core/src/blob_internal.h` | 902 |
+| **implementation** | **2,674** |
+| `core/tests/blob_test.c` | 2,403 |
+| `core/src/file_ref.c` + header, which the test pulls in | 207 |
+
+**Its entire external surface**, by grepping the source for every symbol it
+names that the file does not define:
+
+- **Zero uses of `fzp_core_t`.** The type appears once in 2,674 lines, inside
+  a comment saying blob keeps "state out of `fzp_core_t`, which deliberately
+  holds none". The decoupling is already done and was done on purpose.
+- **Two injected vtables**, which are the whole porting seam:
+  `fzp_blob_store_ops_t` (`get_chunk`, `put_chunk`, `get_node`, `put_node`,
+  `get_have`, `put_have`) and `fzp_storage_ops_t` (`exists`, `load`, `store`).
+- **Six byte primitives** from `wire.h`: `fzp_reader_init`, `fzp_read_u8`,
+  `fzp_writer_init`, `fzp_write_u8`, `fzp_write_u64be`, `fzp_write_bytes`.
+- **One symbol from the command vocabulary**, `FZP_CMD_BLOB`, and seven error
+  codes.
+- **Monocypher**, which this library already uses. No compression: `miniz` is
+  in that tree and blob does not touch it.
+
+**The tests are the part that does not port as-is**, and they are the real
+work rather than the 2,674 lines under them. `blob_test.c` names the app 35
+times -- `fzp_core_create`, `fzp_core_set_blob_store`,
+`fzp_core_handle_blob_frame`, `fzp_core_blob_serve_proof` -- all of it
+harness rather than subject: build a core, install a store, feed frames.
+
+**And `group_asset.c` is the part that would stay**: 172 lines plus a 113-line
+header and a 441-line test, which is fuzzypickles' own layer on top. That the
+split falls there is itself evidence for the vocabulary-versus-infrastructure
+line §5 draws.
+
+**One caution the numbers do not carry.** Portable is not the same as
+mergeable with §4.4. That chunks a message the sender already holds and pushes
+it; blob is hash-named, pull-based and requester-coordinated -- §4.4 says so
+itself. Two mechanisms with different control flow can share primitives
+without becoming one thing, and which of those is wanted is a design question
+these measurements do not answer.
+
 ---
 
 ## 6. `situ`, and whether the frame is hand-written
