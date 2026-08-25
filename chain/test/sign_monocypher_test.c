@@ -39,6 +39,47 @@ static void seed_bytes(uint8_t out[32], uint8_t v)
 	memset(out, v, 32);
 }
 
+/* IS FZN_SECRET_KEY_LEN BIG ENOUGH FOR THE PRIMITIVE IT FEEDS?
+ *
+ * Nothing asked until now. The constant appears in exactly two places -- the
+ * `secret_key` field of `fzn_sign_monocypher_t` and a buffer in this file --
+ * and BOTH TRACK IT, so changing it moves the declaration and its only users
+ * together and every test still passes. Found by mutation: 64 to 65 and 64 to
+ * 63 both leave the whole suite green, with the Monocypher bindings built.
+ * Undersized, `crypto_eddsa_key_pair` writes past the field into whatever
+ * follows it in the struct.
+ *
+ * Monocypher cannot be asserted against at compile time. It declares
+ * `crypto_eddsa_key_pair(uint8_t secret_key[64], ...)` and defines no size
+ * macros, and an array parameter decays to a pointer, so the 64 is not a
+ * symbol anything can compare with. That leaves measuring what it writes.
+ *
+ * The canary sits PAST the end of a buffer of exactly FZN_SECRET_KEY_LEN, so
+ * a constant smaller than what Monocypher writes is caught by the write
+ * landing in it. This says the size is sufficient; it cannot say it is
+ * necessary, and a value too large is harmless here in a way too small is
+ * not. */
+static void check_secret_key_len(void)
+{
+	uint8_t buf[FZN_SECRET_KEY_LEN + 16];
+	uint8_t pubkey[FZN_PUBKEY_LEN];
+	uint8_t seed[32];
+	int intact = 1;
+
+	memset(seed, 0x11, sizeof(seed));
+	memset(buf, 0, sizeof(buf));
+	memset(buf + FZN_SECRET_KEY_LEN, 0xA5, 16);
+
+	crypto_eddsa_key_pair(buf, pubkey, seed);
+
+	for (size_t i = FZN_SECRET_KEY_LEN; i < sizeof(buf); i++)
+		if (buf[i] != 0xA5u) {
+			intact = 0;
+			break;
+		}
+	check(intact, "crypto_eddsa_key_pair wrote past FZN_SECRET_KEY_LEN bytes");
+}
+
 int main(void)
 {
 	uint8_t seed[32], pubkey[FZN_PUBKEY_LEN];
@@ -53,6 +94,8 @@ int main(void)
 
 	memset(&signer, 0, sizeof(signer));
 	seed_bytes(seed, 0x11);
+	check_secret_key_len();
+
 	crypto_eddsa_key_pair(signer.secret_key, pubkey, seed);
 	signer.can_sign = 1;
 	fzn_sign_monocypher_init(&ops, &signer);

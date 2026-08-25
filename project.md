@@ -2184,6 +2184,58 @@ reproducible, and a reader should read them as weaker than the ones after it.
 It also turned up that situ's *compiler* was dirty, not only its runtime, so
 the generated C was being compared against an uncommitted emitter as well.
 
+**Every integer constant was mutated to see what notices** (2026-08-25).
+Twenty `#define FZN_*` values in the public headers, each changed and the
+suite re-run: **eighteen caught, two not**. The method is the one-at-a-time
+sabotage this project already uses, applied wholesale instead of to whichever
+check somebody happened to doubt.
+
+**`FZN_VERB_MAX` not being caught is correct**, and worth stating so it is not
+re-investigated. `vocabulary_test.c` tests the boundary at `FZN_VERB_MAX` and
+`FZN_VERB_MAX + 1`, expressed in terms of the constant, so moving it moves the
+test with it. That is right for a tunable local bound with no counterpart on
+the wire -- the verb is the consumer's opaque bytes -- and a test that broke
+when the bound was retuned would be testing the wrong thing.
+
+**`FZN_SECRET_KEY_LEN` not being caught was a real gap**, and a double one.
+The constant appeared in exactly two places -- the `secret_key` field of
+`fzn_sign_monocypher_t` and one test buffer -- and **both tracked it**, so
+changing it moved the declaration and its only users together. Undersized,
+`crypto_eddsa_key_pair` writes past the field into whatever follows it in the
+struct, and nothing said a word.
+
+Monocypher cannot be asserted against at compile time: it declares
+`crypto_eddsa_key_pair(uint8_t secret_key[64], ...)`, defines no size macros,
+and an array parameter decays to a pointer, so the 64 is not a symbol
+anything can compare with. The pin is therefore empirical -- a canary past the
+end of a buffer of exactly `FZN_SECRET_KEY_LEN`, catching a write that runs
+over. Verified in three directions: **63 is caught by name, 64 and 65 pass**.
+65 passing is correct and the test says so: a canary establishes the size is
+*sufficient*, never that it is *necessary*, and too large is harmless here in
+a way too small is not.
+
+**The sweep had a blind spot worth recording: it only mutated upward.** For a
+length constant the dangerous direction is smaller, since an oversized buffer
+is harmless. The `+1` result for `FZN_SECRET_KEY_LEN` was the alarm, but `-1`
+is what showed the consequence, and eighteen "caught" verdicts were reached
+without ever testing the direction that matters. They stand only because
+those constants are pinned by identity to a schema constant or a field
+length, not by a bound that happens to be generous.
+
+**And the reason it was dark: `make test` does not build the Monocypher
+bindings.** Without `MONOCYPHER_DIR` the three of them and their 43 checks are
+not compiled at all, and a run that never mentions them reads exactly like a
+run in which they passed. `make test` now says so when they are skipped, on
+the same reasoning as `analyze` and `ctcheck`. The checkout the Makefile's own
+example names is present, and the bindings pass with it.
+
+**The stale-binary trap caught me a third time**, and in a new costume: with
+`BUILD_DIR=build-mono` the target is `build-mono/chain/test/...`, and asking
+make for `chain/test/...` builds a different thing while leaving the binary
+under test untouched. The canary was briefly reported as not catching 63.
+Naming the full output path is what the earlier two occurrences did not
+cover.
+
 **The advertised overhead could not have been caught going stale**
 (2026-08-25). `FZN_SEAL_OVERHEAD` is hand-written in `seal.h` and
 `fzn_seal_build` sizes every frame with it. The only check was

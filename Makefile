@@ -519,6 +519,20 @@ $(BUILD_DIR)/chunk/test/agreement_test: $(BUILD_DIR)/chunk/test/agreement_test.o
 # because a failure there is more interesting than any assertion below it.
 test: codegencheck $(TEST_BINS)
 	@for t in $(TEST_BINS); do echo "running $$t"; $$t || exit 1; done
+	@# SAY WHEN THE MONOCYPHER BINDINGS WERE NOT BUILT, rather than leaving
+	@# their absence to look like their success. Without MONOCYPHER_DIR the
+	@# three bindings and their 43 checks are not compiled at all, and a run
+	@# that never mentions them reads exactly like a run in which they
+	@# passed. Same discipline as `analyze` and `ctcheck`, which skip loudly
+	@# for the same reason.
+	@#
+	@# Found by mutation: FZN_SECRET_KEY_LEN could be changed in either
+	@# direction with the whole suite still green, because the module
+	@# declaring it is dark in a default build.
+	@if [ -z "$(MONOCYPHER_DIR)" ]; then \
+		echo "test: the Monocypher bindings were NOT built, so their tests did"; \
+		echo "test: not run. Pass MONOCYPHER_DIR=<checkout> to include them."; \
+	fi
 
 CASES ?= 200000
 
