@@ -2480,6 +2480,37 @@ reproducible, and a reader should read them as weaker than the ones after it.
 It also turned up that situ's *compiler* was dirty, not only its runtime, so
 the generated C was being compared against an uncommitted emitter as well.
 
+**situ called this schema's contract BREAKING, and the bytes had not
+moved** (2026-08-26, situ `58b5c21`). `situc wire --check` refused with
+
+    BREAKING: a deployed peer misreads these bytes
+      fzn_frame[2]: sealed: nothing -> nonce=head.nonce
+
+**Checked before it was believed, because the message is alarming and
+specific.** The whole contract diff is one line, and it is an addition:
+
+    -  @0x0060  32..1056  fzn_aead  sealed  codec=fzn_aead
+    +  @0x0060  32..1056  fzn_aead  sealed  codec=fzn_aead nonce=head.nonce
+
+Offset, extent and codec are unchanged. And the generated C regenerated
+against that situc is **byte-identical in all four files**, which is the
+proof that matters: if the wire had moved, the accessors would have moved
+with it.
+
+**The cause is situ gaining vocabulary, not this schema changing.** situ
+`63be7ba` lets a sealed region name the field that selects its key, so the
+contract can now record something it previously could not. `sealed(fzn_aead,
+nonce = head.nonce)` has been in `frame.situ` since the region existed -- what
+changed is that the contract says so. situ's classifier compares *unspecified*
+against *specified* and cannot tell that from a real rebinding, so it takes
+the safe reading and calls it breaking.
+
+**Safe is the right default for it and wrong for this case**, which is worth
+separating. A consumer upgrading situ across `63be7ba` gets "a deployed peer
+will misread messages from this build" for a contract whose bytes are
+identical. Signalled to situ with the reproduction rather than worked around
+here; the contract is regenerated because the new line is true.
+
 **Two terms of a nine-term guard had never decided anything** (2026-08-26).
 `fzn_seal_build` refuses a malformed call with a single `if` over nine
 conditions, and branch coverage put `!what->sender` and `!what->capability` at

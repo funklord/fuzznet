@@ -18,7 +18,7 @@ enum fzn_kind : u8 unknown=error
 struct fzn_frame size=144..1168
   @0x0000   5         fzn_hop    hop  big
   @0x0005   91        fzn_head   head  big
-  @0x0060   32..1056  fzn_aead   sealed  codec=fzn_aead
+  @0x0060   32..1056  fzn_aead   sealed  codec=fzn_aead nonce=head.nonce
   ~         16        u8         tag
   tag covers: authenticated head chunks commitment expires_at index kind length msg nonce sender sealed capability payload
 
