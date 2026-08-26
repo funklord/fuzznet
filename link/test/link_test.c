@@ -151,6 +151,41 @@ int main(void)
 		       "a large average must not have wrapped");
 	}
 
+	/* THE ESTIMATOR MUST BE ABLE TO REACH ITS EXTREMES.
+	 *
+	 * The shift discards a remainder, so the average stalls as soon as it
+	 * comes within one of the sample -- and the direction it stalls in is
+	 * always the flattering one, because lower latency and lower loss both
+	 * make a link look better. Measured before the fix: a link on which
+	 * 100000 consecutive messages were LOST reported 993 permille, so a
+	 * link dropping every single message could not report worse than 99.3%
+	 * and any hard constraint above that admitted a dead link.
+	 *
+	 * A hundred observations is far past where the old code stalled -- it
+	 * reached 993 within about sixty and never moved again. */
+	{
+		fzn_link_table_t ext;
+		fzn_link_entry_t one[1];
+		int i;
+
+		fzn_link_table_init(&ext, one, 1);
+		fzn_link_register(&ext, 11, 0, 500, 0, 1500);
+
+		for (i = 0; i < 100; i++)
+			fzn_link_observe_loss(&ext, 11, (uint64_t)i);
+		expect(fzn_link_get(&ext, 11)->loss_permille == 1000,
+		       "a link losing everything must be able to report total loss");
+
+		/* And back down, which truncation already handled -- asserted so
+		 * that a fix biased the other way would be caught too. */
+		for (i = 0; i < 100; i++)
+			fzn_link_observe_ack(&ext, 11, 500, (uint64_t)i);
+		expect(fzn_link_get(&ext, 11)->loss_permille == 0,
+		       "a link losing nothing must be able to report no loss");
+		expect(fzn_link_get(&ext, 11)->latency_ms == 500,
+		       "a steady 500 ms link must estimate 500 ms, not a little under");
+	}
+
 	printf("link_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
 }

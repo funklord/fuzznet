@@ -72,12 +72,37 @@ fzn_link_err_t fzn_link_register(fzn_link_table_t *table, uint32_t id, uint32_t 
  * `(old * (2^k - 1) + sample) >> k`, widened to 64 bits before multiplying:
  * a latency near UINT32_MAX times seven overflows 32 bits, and a wrapped
  * average would report a terrible link as excellent -- consistently, which
- * would look deliberate. */
+ * would look deliberate.
+ *
+ * THE SHIFT DISCARDS A REMAINDER, AND DISCARDING IT ALWAYS ROUNDS DOWN --
+ * which is not a rounding preference here, because "down" is always toward
+ * the flattering answer. Lower latency and lower loss both make a link look
+ * better, so a bias that only ever subtracts is a bias that only ever
+ * overstates a link's quality. Measured on the plain truncating version:
+ *
+ *   - 100000 consecutive losses estimated 993 permille, not 1000. The
+ *     estimator has a fixed point wherever `1000 - x < 8`, so it stalls as
+ *     soon as it gets within a remainder of the target and a link dropping
+ *     EVERY message could never report worse than 99.3% loss. A hard
+ *     constraint in `sched/` set anywhere above that admits a dead link.
+ *   - 100000 samples of a 500 ms link estimated 493 ms, a standing 1.4%
+ *     understatement that no amount of evidence corrects.
+ *
+ * ROUNDING TOWARD THE SAMPLE fixes both directions at once, and is cheaper
+ * than carrying more precision in the entry. Away from the sample the
+ * truncation is already toward it, so only the upward case needs the
+ * correction: repeated identical samples then actually reach their value
+ * instead of stalling a remainder short of it. */
 static uint32_t smooth(uint32_t old, uint32_t sample)
 {
 	uint64_t weighted = (uint64_t)old * ((1u << FZN_LINK_SMOOTH_SHIFT) - 1u);
+	uint64_t total = weighted + (uint64_t)sample;
+	uint32_t result = (uint32_t)(total >> FZN_LINK_SMOOTH_SHIFT);
 
-	return (uint32_t)((weighted + (uint64_t)sample) >> FZN_LINK_SMOOTH_SHIFT);
+	if (sample > old && (total & (((uint64_t)1u << FZN_LINK_SMOOTH_SHIFT) - 1u)) != 0u)
+		result++;
+
+	return result;
 }
 
 fzn_link_err_t fzn_link_observe_ack(fzn_link_table_t *table, uint32_t id, uint32_t rtt_ms,
