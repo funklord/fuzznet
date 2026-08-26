@@ -107,7 +107,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              chain/chain.h chain/revocation.h frame/freshness.h \
              chunk/reassembly.h \
              chunk/split.h \
-             wire/seal.h wire/relay.h session/aead.h \
+             wire/seal.h wire/relay.h wire/bytes.h session/aead.h \
              session/random.h session/random_system.h \
              version/version.h \
              record/record.h record/journal.h record/sync.h \
