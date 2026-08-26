@@ -48,6 +48,11 @@
 #define SIM_SLOTS      6u
 #define SIM_SLOT_CAP   8192u
 #define SIM_WINDOW     64u
+/* The replay horizon each simulated host is sized for. The widest expiry any
+ * scenario below states is `now + 500`, so 1000 leaves every one of them
+ * exactly where it was -- nothing here is refused FZN_FRESH_ERR_HORIZON, and
+ * the horizon's own rules are `frame/test/freshness_test.c`'s subject. */
+#define SIM_MAX_AHEAD  1000u
 #define SIM_REVOCATION 16u
 /* One slot per possible sender: a host in a mesh of N hears from N-1.
  * Sized so the inbox never silently drops -- see sim_receive, which
@@ -401,7 +406,7 @@ static void sim_init(struct sim_net *net, size_t hosts, uint32_t seed)
 		for (size_t s = 0; s < SIM_SLOTS; s++)
 			fzn_reasm_slot_init(&h->slots[s], h->bufs[s], SIM_SLOT_CAP);
 		fzn_reasm_init(&h->reasm, h->slots, SIM_SLOTS, 3);
-		fzn_replay_init(&h->window, h->entries, SIM_WINDOW);
+		fzn_replay_init(&h->window, h->entries, SIM_WINDOW, SIM_MAX_AHEAD);
 	}
 }
 

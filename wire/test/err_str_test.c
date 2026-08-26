@@ -106,7 +106,7 @@ struct subject {
 static const struct subject SUBJECTS[] = {
 	{ "fzn_chain_err_str", r_chain, -1, 8 },
 	{ "fzn_commitment_err_str", r_commitment, -1, 4 },
-	{ "fzn_fresh_err_str", r_fresh, -1, 6 },
+	{ "fzn_fresh_err_str", r_fresh, -1, 7 },
 	{ "fzn_reasm_err_str", r_reasm, -1, 8 },
 	{ "fzn_split_err_str", r_split, -1, 4 },
 	{ "fzn_seal_err_str", r_seal, -1, 7 },

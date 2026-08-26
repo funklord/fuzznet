@@ -50,6 +50,12 @@
 
 #define FUZZ_DEFAULT_CASES 20000u
 #define WINDOW_ENTRIES 8
+/* The replay horizon this receiver is sized for. Expiries below run to
+ * `now + 40`, so 64 leaves every path this harness measures exactly where it
+ * was: nothing here is refused FZN_FRESH_ERR_HORIZON, and the `stale` counter
+ * keeps counting what it counted. The horizon's own rules are
+ * `frame/test/freshness_test.c`'s subject; this file's is the ORDER. */
+#define WINDOW_MAX_AHEAD 64
 #define SLOTS 4
 #define SLOT_BYTES 512
 #define REVS 4
@@ -110,7 +116,7 @@ struct receiver {
 
 static int receiver_init(struct receiver *r)
 {
-	if (fzn_replay_init(&r->window, r->entries, WINDOW_ENTRIES) != FZN_FRESH_OK)
+	if (fzn_replay_init(&r->window, r->entries, WINDOW_ENTRIES, WINDOW_MAX_AHEAD) != FZN_FRESH_OK)
 		return 0;
 	if (fzn_revocation_store_init(&r->store, r->revs, REVS) != FZN_CHAIN_OK)
 		return 0;
