@@ -1757,6 +1757,46 @@ across two files. The ordering claim is observed rather than asserted: a stub
 signer counts calls, and a record refused for its sequence must not have cost
 a signature verification.
 
+### `record/sync.h` -- the distribution decision, and only that
+
+**What is left when transport and topology are removed.** §2 keeps transport
+out of this library and §5 keeps the permission graph's shape out. Take both
+away and distribution is a **comparison of two sets of positions**: given what
+this host holds and what a peer says it holds, which ranges are missing and
+which way round. That comparison is identical in all three consumers, which is
+the test §5 sets for admitting anything.
+
+So `fzn_sync_plan_fetch` and `fzn_sync_plan_offer` decide, and nothing else.
+No sending, no scheduling, no encoding, and no opinion about whether a record
+fetched will turn out to be authorised. A consumer brings its own timers, its
+own choice of peer and its own framing -- `wire/seal.h` and `chunk/` are
+already there for the last.
+
+**Pull first, because it survives loss without acknowledgements**: a host that
+missed a record asks again at the next comparison. `fzn_sync_plan_offer` is
+the other direction for a host that already knows a peer is behind, and
+nothing requires it.
+
+**Three refusals that are the point of the file:**
+
+- **A new issuer is counted, never requested.** If a peer advertises an issuer
+  this host has never followed, fetching from it because a peer mentioned it
+  is how one compromised peer fills every journal in the network with issuers
+  nobody chose. `fzn_journal_anchor` makes adopting an issuer deliberate and
+  this does not quietly undo it. Offering, by contrast, *is* allowed: offering
+  is not adopting, and the peer still decides.
+- **Every range is bounded.** `max_per_request` caps a window, and zero is
+  refused rather than meaning unlimited -- the same reasoning
+  `fzn_reasm_init` gives for a zero quota. "Send me everything from 1" is a
+  request a stranger can make of every host at once; the reply to a bounded
+  request is bounded work, and the next comparison asks for the next window.
+- **Truncation is counted, not dropped.** A plan that returned a short list
+  would look complete, and the ranges left out would never be asked for again.
+
+31 checks, and the one that matters most is written as a loop over the whole
+plan rather than a single assertion: no request may name an issuer this host
+does not follow.
+
 ## 5a. The integration harness
 
 **`sim/test/network_test.c` is a fake network of hosts, and it exists because

@@ -39,6 +39,7 @@
 /sim/test/network_test
 /record/test/journal_test
 /record/test/record_test
+/record/test/sync_test
 /guided/
 /constant_time/test/secret_flow_valgrind
 

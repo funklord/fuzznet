@@ -99,7 +99,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              wire/seal.c \
              session/random.c session/random_linux.c \
              version/version.c \
-             record/record.c record/journal.c
+             record/record.c record/journal.c record/sync.c
 OBJS      := $(SRCS:%.c=$(BUILD_DIR)/%.o) $(GEN_OBJS)
 HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h local/vocabulary.h \
@@ -109,7 +109,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              wire/seal.h session/aead.h \
              session/random.h session/random_system.h \
              version/version.h \
-             record/record.h record/journal.h
+             record/record.h record/journal.h record/sync.h
 
 TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              frame/test/freshness_test.c \
@@ -132,7 +132,8 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              frame/test/freshness_guided.c \
              sim/test/network_test.c \
              record/test/journal_test.c \
-             record/test/record_test.c
+             record/test/record_test.c \
+             record/test/sync_test.c
 TEST_OBJS := $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
 TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/chain/test/revocation_test \
@@ -165,7 +166,8 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/frame/test/freshness_guided \
              $(BUILD_DIR)/sim/test/network_test \
              $(BUILD_DIR)/record/test/journal_test \
-             $(BUILD_DIR)/record/test/record_test
+             $(BUILD_DIR)/record/test/record_test \
+             $(BUILD_DIR)/record/test/sync_test
 
 # The Monocypher binding, built only when MONOCYPHER_DIR names a checkout.
 #
@@ -323,6 +325,13 @@ $(BUILD_DIR)/wire/generated/%.o: wire/generated/%.c
 $(BUILD_DIR)/chain/test/chain_test: $(BUILD_DIR)/chain/test/chain_test.o \
                                      $(BUILD_DIR)/chain/chain.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD_DIR)/record/test/sync_test: $(BUILD_DIR)/record/test/sync_test.o \
+                                    $(BUILD_DIR)/record/sync.o \
+                                    $(BUILD_DIR)/record/journal.o \
+                                    $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -537,6 +546,7 @@ $(BUILD_DIR)/wire/test/seal_test.o: wire/test/seal_test.c
 $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/record/record.o \
                                       $(BUILD_DIR)/record/journal.o \
+                                      $(BUILD_DIR)/record/sync.o \
                                       $(BUILD_DIR)/chain/chain.o \
                                       $(BUILD_DIR)/chunk/reassembly.o \
                                       $(BUILD_DIR)/chunk/split.o \

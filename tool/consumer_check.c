@@ -39,6 +39,7 @@
 #include <fuzznet/session/random.h>
 #include <fuzznet/record/journal.h>
 #include <fuzznet/record/record.h>
+#include <fuzznet/record/sync.h>
 #include <fuzznet/session/random_system.h>
 #include <fuzznet/version/version.h>
 #include <fuzznet/wire/seal.h>
@@ -56,6 +57,7 @@
 #include "session/random.h"
 #include "record/journal.h"
 #include "record/record.h"
+#include "record/sync.h"
 #include "session/random_system.h"
 #include "version/version.h"
 #include "wire/seal.h"
@@ -136,6 +138,19 @@ int main(void)
 			return 32;
 		if (fzn_journal_next(&journal, issuer) != 2)
 			return 33;
+		{
+			fzn_sync_position_t theirs;
+			fzn_sync_request_t want;
+			fzn_sync_plan_t plan;
+
+			memcpy(theirs.issuer, issuer, FZN_PUBKEY_LEN);
+			theirs.received = 4;
+			if (fzn_sync_plan_fetch(&journal, &theirs, 1, 8, &want, 1, &plan) !=
+			    FZN_SYNC_OK)
+				return 34;
+			if (plan.request_count != 1 || want.from != 2 || want.count != 3)
+				return 35;
+		}
 	}
 
 	if (fzn_version_number() != (unsigned long)FZN_VERSION_NUMBER)
