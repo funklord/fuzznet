@@ -948,10 +948,17 @@ style:
 	@#
 	@# It is what would have caught the Monocypher bindings, which were in the
 	@# tree, built, linked and run, and in no list `make coverage` reads.
+	@# `.claude/` IS PRUNED FROM EVERY SWEEP BELOW, along with the build
+	@# directories. It holds tooling configuration rather than project
+	@# content -- and, when more than one agent is working in this tree, git
+	@# worktrees under `.claude/worktrees/`, each a full checkout. Without
+	@# the prune every sweep here reports several hundred copies of the same
+	@# files as unlisted, which is a gate that has stopped saying anything.
 	@known=" $(SRCS) $(TEST_SRCS) $(GEN_SRCS) $(MONO_SRCS) $(MONO_TSRC) tool/consumer_check.c "; \
 	unlisted=; n=0; \
 	for c in `find . -name '*.c' -not -path './build/*' -not -path './san/*' \
-	                 -not -path './*-coverage/*' | sed 's|^\./||' | sort`; do \
+	                 -not -path './*-coverage/*' -not -path './.claude/*' \
+	                 | sed 's|^\./||' | sort`; do \
 		n=$$((n + 1)); \
 		case "$$known" in *" $$c "*) ;; *) unlisted="$$unlisted $$c" ;; esac; \
 	done; \
@@ -980,7 +987,8 @@ style:
 	listed=; \
 	for b in $(FUZZ_BINS); do listed="$$listed $${b#$(BUILD_DIR)/}"; done; \
 	for f in `find . -name '*_fuzz.c' -not -path './build/*' -not -path './san/*' \
-	                 -not -path './*-coverage/*' | sed 's|^\./||' | sort`; do \
+	                 -not -path './*-coverage/*' -not -path './.claude/*' \
+	                 | sed 's|^\./||' | sort`; do \
 		n=$$((n + 1)); \
 		bin=`echo "$$f" | sed 's/\.c$$//'`; \
 		case " $$listed " in *" $$bin "*) ;; *) missing="$$missing $$bin" ;; esac; \
@@ -1038,7 +1046,7 @@ style:
 	@# source check above. Generated headers are situ's and tool/ is not
 	@# installed, so both are excluded rather than listed.
 	@known=" $(HDRS) $(MONO_HDRS) "; missing=; n=0; \
-	for h in `find . -name '*.h' -not -path './.git/*' \
+	for h in `find . -name '*.h' -not -path './.git/*' -not -path './.claude/*' \
 	                 -not -path './wire/generated/*' -not -path './tool/*' \
 	                 -not -path './build/*' -not -path './san/*' \
 	                 -not -path './*-coverage/*' | sed 's|^\./||' | sort`; do \
@@ -1362,7 +1370,8 @@ clean:
 	@# artifacts to find whether it worked or not.
 	@if [ "$(BUILD_DIR)" = "." ]; then \
 		left=`find . \( -name '*.o' -o -name '*.d' -o -name '*.gcno' \
-		                 -o -name '*.gcda' \) -not -path './.git/*' | sort`; \
+		                 -o -name '*.gcda' \) -not -path './.git/*' \
+		                 -not -path './.claude/*' | sort`; \
 		if [ -n "$$left" ]; then \
 			echo "clean: build artifacts survived:"; \
 			echo "$$left" | sed 's/^/  /'; \

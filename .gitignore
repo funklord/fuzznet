@@ -70,3 +70,8 @@ __pycache__/
 /local/test/admit_test
 /.situ-head/
 /.gen.new/
+
+# Git worktrees created when more than one agent works in this tree at once.
+# Each is a full checkout, so leaving them untracked and unswept matters: the
+# style gate's tree walks prune this path for the same reason.
+/.claude/worktrees/
