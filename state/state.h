@@ -77,11 +77,20 @@
  * authorised has skipped a step this file cannot see -- exactly as
  * `journal.h` cannot see an unverified record being admitted.
  *
- * THE BODY IS NOT COPIED. An entry points at the caller's bytes, as a chain
- * hop points at its signed region, because nothing here allocates (sec 2).
- * **The caller must keep a body alive for as long as the entry refers to
- * it.** A body that goes away leaves an entry pointing at freed memory, and
- * this file has no way to know.
+ * THE BODY IS NOT COPIED, AND IT IS ONE LIFETIME RATHER THAN TWO. Nothing
+ * here allocates (sec 2), so an entry points at bytes somebody else owns --
+ * and since `record.h` made a record a VIEW over its own encoding, those
+ * bytes are the record's. **Keeping the record's buffer alive keeps the body
+ * alive**, and there is no second object to track: a caller that holds the
+ * buffer a record was opened from has already done everything this file
+ * needs. A buffer that goes away leaves an entry pointing at freed memory,
+ * and this file has no way to know.
+ *
+ * That used to be the weaker sentence it could be. A record carried a body
+ * POINTER a caller set by hand, beside a `body_len` a caller also set, and
+ * the two could disagree with each other and with what was signed -- so a
+ * caller had a body to keep alive, a record to keep consistent, and a
+ * signature that bound neither.
  */
 
 #ifndef FZN_STATE_H
