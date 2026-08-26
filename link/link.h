@@ -84,7 +84,6 @@ typedef struct fzn_link_entry {
 	uint64_t observations;
 	uint64_t last_seen;
 	int usable;
-	int live;
 } fzn_link_entry_t;
 
 typedef struct fzn_link_table {

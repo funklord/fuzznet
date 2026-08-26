@@ -55,8 +55,6 @@ size_t fzn_sync_digest(const fzn_journal_t *journal, fzn_sync_position_t *out, s
 	 * not any round -- so the peer never learned it was behind on them and
 	 * never sent them. They do not sync late; they do not sync. */
 	for (size_t i = 0; i < journal->used; i++) {
-		if (!journal->entries[i].live)
-			continue;
 		if (n >= out_cap) {
 			(*dropped)++;
 			continue;
@@ -131,8 +129,7 @@ fzn_sync_err_t fzn_sync_plan_fetch(const fzn_journal_t *journal,
 		const fzn_journal_entry_t *mine = NULL;
 
 		for (size_t k = 0; k < journal->used; k++) {
-			if (journal->entries[k].live &&
-			    journal->entries[k].stream == theirs[i].stream &&
+			if (journal->entries[k].stream == theirs[i].stream &&
 			    fzn_ct_memeq(journal->entries[k].issuer, theirs[i].issuer,
 			                 FZN_PUBKEY_LEN))
 				mine = &journal->entries[k];
@@ -167,9 +164,6 @@ fzn_sync_err_t fzn_sync_plan_offer(const fzn_journal_t *journal,
 	for (size_t i = 0; i < journal->used; i++) {
 		const fzn_sync_position_t *t;
 		uint64_t behind;
-
-		if (!journal->entries[i].live)
-			continue;
 
 		t = theirs_for(theirs, their_count, journal->entries[i].issuer,
 		               journal->entries[i].stream);

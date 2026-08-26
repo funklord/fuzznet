@@ -78,7 +78,6 @@ typedef struct fzn_journal_entry {
 	uint32_t stream;
 	uint64_t received;
 	uint64_t applied;
-	int live;
 } fzn_journal_entry_t;
 
 typedef struct fzn_journal {

@@ -6,8 +6,8 @@
 
 #include <string.h>
 
-/* The entry for `issuer`, or NULL. Scans every live entry rather than
- * returning at the first match, for the reason `local/vocabulary.c` gives:
+/* The entry for `issuer`, or NULL. Scans every entry rather than returning at
+ * the first match, for the reason `local/vocabulary.c` gives:
  * a table with a duplicate in it should not give a different answer depending
  * on which copy is met first. */
 static fzn_journal_entry_t *find(const fzn_journal_t *journal,
@@ -16,7 +16,7 @@ static fzn_journal_entry_t *find(const fzn_journal_t *journal,
 	fzn_journal_entry_t *hit = NULL;
 
 	for (size_t i = 0; i < journal->used; i++) {
-		if (journal->entries[i].live && journal->entries[i].stream == stream &&
+		if (journal->entries[i].stream == stream &&
 		    fzn_ct_memeq(journal->entries[i].issuer, issuer, FZN_PUBKEY_LEN))
 			hit = &journal->entries[i];
 	}
@@ -75,7 +75,6 @@ fzn_journal_err_t fzn_journal_admit(fzn_journal_t *journal,
 		e->stream = stream;
 		e->received = 1;
 		e->applied = 0;
-		e->live = 1;
 		return FZN_JOURNAL_OK;
 	}
 
@@ -104,7 +103,6 @@ fzn_journal_err_t fzn_journal_anchor(fzn_journal_t *journal,
 		e = &journal->entries[journal->used++];
 		memcpy(e->issuer, issuer, FZN_PUBKEY_LEN);
 		e->stream = stream;
-		e->live = 1;
 		e->applied = 0;
 		e->received = 0;
 

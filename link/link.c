@@ -14,7 +14,7 @@ static fzn_link_entry_t *find(const fzn_link_table_t *table, uint32_t id)
 	fzn_link_entry_t *hit = NULL;
 
 	for (size_t i = 0; i < table->used; i++) {
-		if (table->entries[i].live && table->entries[i].id == id)
+		if (table->entries[i].id == id)
 			hit = &table->entries[i];
 	}
 
@@ -62,7 +62,6 @@ fzn_link_err_t fzn_link_register(fzn_link_table_t *table, uint32_t id, uint32_t 
 	e->observations = 0;
 	e->last_seen = 0;
 	e->usable = 1;
-	e->live = 1;
 
 	return FZN_LINK_OK;
 }
@@ -184,8 +183,6 @@ size_t fzn_link_snapshot(const fzn_link_table_t *table, fzn_sched_candidate_t *o
 	for (size_t i = 0; i < table->used && n < out_cap; i++) {
 		const fzn_link_entry_t *e = &table->entries[i];
 
-		if (!e->live)
-			continue;
 		out[n].id = e->id;
 		out[n].metric = e->metric;
 		out[n].latency_ms = e->latency_ms;
