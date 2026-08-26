@@ -36,24 +36,63 @@
 #include <string.h>
 
 #define FUZZ_DEFAULT_CASES 20000u
+
+/* THE FLOOR BELOW WHICH THIS HARNESS REFUSES TO REPORT SUCCESS AT ALL.
+ *
+ * `floor_of` below was fixed to never return zero, which closed CASES=1: a run
+ * that demanded nothing could no longer pass by demanding nothing. It did not
+ * close the case above it. A floor of ONE is cleared by luck -- the rarest
+ * branch these harnesses reach occurs about once in 130 cases, so a 199-case
+ * run hits it once and every counter then reports a real, honest, meaningless
+ * number. Measured before this: `receive_fuzz 199` and `peer_fuzz 199` both
+ * exited 0 with plausible counts.
+ *
+ * So this is a bound on the RUN rather than on the counters, and it lives in
+ * the harness rather than in the Makefile deliberately. The Makefile is not
+ * what somebody runs when they are chasing a crash under a sanitizer -- they
+ * run this binary directly, with a small number, and read the exit code. A
+ * bound that exists only in the thing that invokes the binary is not a bound
+ * on the binary.
+ *
+ * 1000 is chosen against the floors themselves, which ask for one occurrence
+ * per 200 cases: below that, every floor in this file collapses to the single
+ * hit luck supplies. A run under it is not a shorter version of the campaign,
+ * it is a different and much weaker claim, so it is refused rather than
+ * reported. */
+#define FUZZ_MIN_CASES 1000u
 #define STORE_CAP 6
 #define CANARY 16
 #define CANARY_BYTE 0x7e
 
 static const uint8_t REGION[] = "a revocation, as the schema would lay it out";
 
+/* THE VERDICT IS A FUNCTION OF THE KEY, NOT A GLOBAL YES OR NO.
+ *
+ * This stub opened `(void)pubkey;` and returned one `answer` whatever key it
+ * was handed, so it could not tell a verifier that checked the right
+ * signature from one that checked the wrong party's. revocation.c verifies
+ * under `record->issuer`; mutating that to `record->grantee` hands the device
+ * being revoked the power to decide whether its own revocation counts -- it
+ * simply withholds a signature and stays authorised. The issuer is pinned to
+ * the root above the verification, so the mutation changes neither the return
+ * code nor the call count. Only the key tells them apart.
+ *
+ * `good` is the set of identities whose signature verifies, indexed by the
+ * low five bits of the key. Every identity here is a key of repeated bytes,
+ * so those bits ARE the identity. */
 struct stub {
-	int answer;
+	uint32_t good;
 };
 
 static int stub_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const uint8_t *msg,
                        size_t msg_len, const uint8_t sig[FZN_SIG_LEN])
 {
-	(void)pubkey;
+	const struct stub *s = (const struct stub *)ctx;
+
 	(void)msg;
 	(void)msg_len;
 	(void)sig;
-	return ((struct stub *)ctx)->answer;
+	return (int)((s->good >> (pubkey[0] & 31u)) & 1u);
 }
 
 struct arena {
@@ -128,7 +167,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 	struct arena arena;
 	fzn_revocation_store_t store;
 	struct model model;
-	struct stub stub = { 1 };
+	struct stub stub = { 0xffffffffu };
 	fzn_sign_ops_t sign;
 	uint8_t root[FZN_PUBKEY_LEN];
 	size_t pos = 0;
@@ -168,7 +207,14 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		       FZN_PUBKEY_LEN);
 
 		sig_ok = (data[pos + 3] & 0x03u) != 0;
-		stub.answer = sig_ok;
+		/* `sig_ok` is a statement about THE ISSUER'S signature, so it is
+		 * the issuer's bit that gets cleared. Every other identity --
+		 * the grantee included -- keeps a good signature, which is what
+		 * makes a verifier that asks the wrong party visible: it gets a
+		 * yes where the rules below say no. */
+		stub.good = 0xffffffffu;
+		if (!sig_ok)
+			stub.good &= ~(1u << (r.issuer[0] & 31u));
 
 		region_ok = (data[pos + 3] & 0x40u) == 0;
 		r.signed_region = region_ok ? REGION : NULL;
@@ -274,6 +320,14 @@ int main(int argc, char **argv)
 		cases = strtoul(argv[1], NULL, 10);
 		if (cases == 0)
 			cases = FUZZ_DEFAULT_CASES;
+	}
+
+	if (cases < FUZZ_MIN_CASES) {
+		printf("revocation_fuzz: %lu cases is below FUZZ_MIN_CASES (%u), so this run will "
+		       "not report success -- every coverage floor below that is "
+		       "cleared by a single lucky hit. Re-run with %u or more.\n",
+		       cases, (unsigned)FUZZ_MIN_CASES, (unsigned)FUZZ_MIN_CASES);
+		return 1;
 	}
 
 	for (unsigned long c = 0; c < cases; c++) {

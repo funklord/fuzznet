@@ -37,7 +37,28 @@ static void check(int ok, const char *what)
 /* A transform with the shape of an AEAD and none of the strength: the text is
  * XORed with a byte derived from the key, and the tag is a checksum over the
  * key, nonce, associated data and ciphertext. Enough to be wrong when any of
- * those change, which is what the cases below ask of it. */
+ * those change, which is what the cases below ask of it.
+ *
+ * THE KEY IS FOLDED IN WITH A MULTIPLY, NOT AN XOR, AND THAT IS THE POINT.
+ *
+ * This loop used to read `acc[i % FZN_AEAD_TAG_LEN] ^= key[i]`, folding 32 key
+ * bytes into 16 accumulator slots by XOR -- so slot n received key[n] and
+ * key[n + 16] and nothing else, and any key whose two halves are equal
+ * cancelled to zero. The suite's key is `memset(key, 0x77, 32)`, which is
+ * exactly such a key. Measured before the fix: `tag(0x77 x 32)` and
+ * `tag(0x78 x 32)` were byte-identical, and opening a frame sealed under
+ * 0x77 with an all-0x99 key returned FZN_SEAL_OK and handed back a payload
+ * decrypted under the wrong key.
+ *
+ * A stub AEAD that is blind to the key cannot fail for a wrong key, so the
+ * seam's only real secret was untested. Multiplying the accumulator before
+ * adding, and mixing the index in, makes each byte's contribution depend on
+ * where it sits: two halves no longer cancel. It is still not a MAC and does
+ * not need to be -- what had to go is the structural cancellation.
+ *
+ * `sim/test/network_test.c`'s `stub_tag` does not share the fault: it runs a
+ * single order-dependent 32-bit accumulator over all 32 key bytes.
+ */
 static void stub_tag(const uint8_t *key, const uint8_t *nonce, const uint8_t *aad,
                      size_t aad_len, const uint8_t *text, size_t text_len,
                      uint8_t out[FZN_AEAD_TAG_LEN])
@@ -46,7 +67,8 @@ static void stub_tag(const uint8_t *key, const uint8_t *nonce, const uint8_t *aa
 
 	memset(acc, 0, sizeof(acc));
 	for (size_t i = 0; i < FZN_AEAD_KEY_LEN; i++)
-		acc[i % FZN_AEAD_TAG_LEN] = (uint8_t)(acc[i % FZN_AEAD_TAG_LEN] ^ key[i]);
+		acc[i % FZN_AEAD_TAG_LEN] =
+		        (uint8_t)(acc[i % FZN_AEAD_TAG_LEN] * 31u + key[i] + (uint8_t)i);
 	for (size_t i = 0; i < FZN_AEAD_NONCE_LEN; i++)
 		acc[i % FZN_AEAD_TAG_LEN] = (uint8_t)(acc[i % FZN_AEAD_TAG_LEN] + nonce[i]);
 	for (size_t i = 0; i < aad_len; i++)
@@ -239,6 +261,44 @@ int main(void)
 		      "a frame committing to a different key was not refused as such");
 		check(memcmp(frame, sealed, sizeof(frame)) == 0,
 		      "the frame was touched before the commitment was checked");
+	}
+
+	/* AND THE WRONG KEY WITH THE RIGHT COMMITMENT, which is the case the
+	 * commitment cannot answer and the one that reaches the cryptography.
+	 *
+	 * The commitment check above refuses a frame that says it was sealed
+	 * under some other key -- but it is a field in the frame, compared
+	 * against a field the caller supplies, and neither is derived from the
+	 * key material. An attacker replaying a frame verbatim to a receiver
+	 * that has rotated its key presents the RIGHT commitment; so does a
+	 * receiver that has muddled two sessions' keys. Nothing but the tag
+	 * stands between that and a decryption.
+	 *
+	 * Until this case existed the suite had no wrong-key check at all: the
+	 * FZN_SEAL_ERR_COMMITMENT case above passes a wrong COMMITMENT, which
+	 * is refused before the AEAD is ever called. So the stub's key-blind
+	 * tag went unnoticed, and would have gone on doing so.
+	 *
+	 * Both halves are asserted. The code alone would be satisfied by an
+	 * implementation that decrypted first and reported the error
+	 * afterwards, which is the one thing session/aead.h forbids. */
+	{
+		uint8_t other_key[FZN_AEAD_KEY_LEN];
+
+		memset(other_key, 0x99, sizeof(other_key));
+		memcpy(frame, sealed, sizeof(frame));
+		memset(&opened, 0xee, sizeof(opened));
+		check(fzn_seal_open(frame, sizeof(frame), other_key, commitment, &aead,
+		                    &opened) == FZN_SEAL_ERR_TAG,
+		      "a frame opened under a completely different key was not refused by "
+		      "the tag");
+		check(memcmp(frame, sealed, sizeof(frame)) == 0,
+		      "a frame refused under the wrong key was decrypted in place anyway");
+		check(find_bytes(frame, sizeof(frame), PLAIN, PAYLOAD_LEN) == 0,
+		      "the payload turned up as plaintext after opening under the wrong key");
+		check(opened.payload == NULL && opened.payload_len == 0,
+		      "an open refused for the wrong key left pointers in the caller's "
+		      "struct");
 	}
 
 	/* SHAPE, from the schema's own validator rather than restated here. */

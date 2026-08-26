@@ -37,9 +37,30 @@ static void check_at(int ok, int line, const char *fmt, ...)
 
 #define CHECK(cond, ...) check_at((cond) ? 1 : 0, __LINE__, __VA_ARGS__)
 
+/* How many verifications this file can record the key of. The longest case
+ * here merges a handful of records, one verification each. */
+#define MAX_KEYS_SEEN 8
+
 typedef struct stub {
 	int calls;
 	int answer;
+
+	/* WHICH KEY EACH VERIFICATION USED, recorded in order.
+	 *
+	 * This stub opened `(void)pubkey;` and threw the key away, so the suite
+	 * could count verifications but not see WHOSE signature was checked.
+	 * revocation.c verifies under `record->issuer`; mutating that to
+	 * `record->grantee` -- the party being revoked rather than the party
+	 * revoking -- lets a device sign its own revocation record, or refuse
+	 * to, and this file was green on it. The issuer check above the
+	 * verification pins the issuer to the root, so the return code and the
+	 * call count are identical under the mutation: only the key tells them
+	 * apart.
+	 *
+	 * The same idiom is in chain/test/chain_test.c, and for the same
+	 * reason. */
+	size_t keys_seen;
+	uint8_t key_seen[MAX_KEYS_SEEN][FZN_PUBKEY_LEN];
 } stub_t;
 
 static int stub_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const uint8_t *msg,
@@ -47,10 +68,13 @@ static int stub_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const ui
 {
 	stub_t *s = (stub_t *)ctx;
 
-	(void)pubkey;
 	(void)sig;
 	(void)msg;
 	(void)msg_len;
+	if (s->keys_seen < MAX_KEYS_SEEN) {
+		memcpy(s->key_seen[s->keys_seen], pubkey, FZN_PUBKEY_LEN);
+		s->keys_seen++;
+	}
 	s->calls++;
 	return s->answer;
 }
@@ -105,6 +129,23 @@ static void test_admits_a_signed_revocation(void)
 	CHECK(fzn_revocation_covers(&f.store, r.capability, r.grantee),
 	      "the store does not report what it just admitted");
 	CHECK(f.stub.calls == 1, "verified %d times, wanted 1", f.stub.calls);
+
+	/* UNDER THE ISSUER'S KEY, which is the property the count cannot see.
+	 *
+	 * A revocation is the root saying "this grantee is done". Verified
+	 * under the grantee instead, the revoked device is the one asked to
+	 * vouch for its own revocation -- so it can withhold the signature and
+	 * stay authorised, which is the whole failure revocation exists to
+	 * prevent. */
+	CHECK(f.stub.keys_seen == 1, "recorded %zu keys, wanted 1", f.stub.keys_seen);
+	CHECK(f.stub.keys_seen == 1 &&
+	              fzn_ct_memeq(f.stub.key_seen[0], r.issuer, FZN_PUBKEY_LEN),
+	      "the revocation was not verified under its issuer's key");
+	/* And the fixture must be able to tell the two apart, or the check
+	 * above is satisfied by a record whose issuer is its own grantee. */
+	CHECK(!fzn_ct_memeq(r.issuer, r.grantee, FZN_PUBKEY_LEN),
+	      "the fixture's issuer and grantee are the same key, so the check above "
+	      "proves nothing");
 }
 
 static void test_a_carrier_cannot_invent_one(void)

@@ -49,6 +49,30 @@
 #include <string.h>
 
 #define FUZZ_DEFAULT_CASES 20000u
+
+/* THE FLOOR BELOW WHICH THIS HARNESS REFUSES TO REPORT SUCCESS AT ALL.
+ *
+ * `floor_of` below was fixed to never return zero, which closed CASES=1: a run
+ * that demanded nothing could no longer pass by demanding nothing. It did not
+ * close the case above it. A floor of ONE is cleared by luck -- the rarest
+ * branch these harnesses reach occurs about once in 130 cases, so a 199-case
+ * run hits it once and every counter then reports a real, honest, meaningless
+ * number. Measured before this: `receive_fuzz 199` and `peer_fuzz 199` both
+ * exited 0 with plausible counts.
+ *
+ * So this is a bound on the RUN rather than on the counters, and it lives in
+ * the harness rather than in the Makefile deliberately. The Makefile is not
+ * what somebody runs when they are chasing a crash under a sanitizer -- they
+ * run this binary directly, with a small number, and read the exit code. A
+ * bound that exists only in the thing that invokes the binary is not a bound
+ * on the binary.
+ *
+ * 1000 is chosen against the floors themselves, which ask for one occurrence
+ * per 200 cases: below that, every floor in this file collapses to the single
+ * hit luck supplies. A run under it is not a shorter version of the campaign,
+ * it is a different and much weaker claim, so it is refused rather than
+ * reported. */
+#define FUZZ_MIN_CASES 1000u
 #define WINDOW_ENTRIES 8
 /* The replay horizon this receiver is sized for. Expiries below run to
  * `now + 40`, so 64 leaves every path this harness measures exactly where it
@@ -62,9 +86,21 @@
 
 static const uint8_t REGION[] = "a hop, as the schema would lay it out";
 
+/* THE VERDICT IS A FUNCTION OF THE KEY, NOT A GLOBAL YES OR NO.
+ *
+ * This stub opened `(void)pubkey;` and returned one `answer` whatever key it
+ * was handed. The hop below is granted BY the pinned root TO 0x09, so the
+ * root's signature is the only one that can authorise it -- but a stub blind
+ * to the key answers the same to both, and chain.c verifying under
+ * `hop->grantee` instead of `hop->grantor` accepted every unsigned hop this
+ * harness generated without changing one counter.
+ *
+ * `good` is the set of identities whose signature verifies, indexed by the
+ * low five bits of the key. Every identity here is a key of repeated bytes,
+ * so those bits ARE the identity. */
 struct signer {
 	int calls;
-	int answer;
+	uint32_t good;
 };
 
 static int stub_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const uint8_t *msg,
@@ -72,12 +108,11 @@ static int stub_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const ui
 {
 	struct signer *s = (struct signer *)ctx;
 
-	(void)pubkey;
 	(void)msg;
 	(void)msg_len;
 	(void)sig;
 	s->calls++;
-	return s->answer;
+	return (int)((s->good >> (pubkey[0] & 31u)) & 1u);
 }
 
 struct coverage {
@@ -134,7 +169,7 @@ static int receive_one(struct receiver *r, uint64_t now, const uint8_t *data, si
 	fzn_partial_t *done = NULL;
 	fzn_chain_hop_t hop;
 	fzn_chain_t chain;
-	struct signer signer = { 0, 1 };
+	struct signer signer = { 0, 0xffffffffu };
 	fzn_sign_ops_t sign = { stub_verify, NULL, &signer };
 	uint8_t root[FZN_PUBKEY_LEN], cap[FZN_CAP_ID_LEN], sender[FZN_SENDER_LEN];
 	uint8_t nonce[FZN_NONCE_LEN], payload[64];
@@ -144,6 +179,7 @@ static int receive_one(struct receiver *r, uint64_t now, const uint8_t *data, si
 	size_t payload_len;
 	size_t live_before, live_after;
 	int calls_before;
+	int root_signed;
 	fzn_fresh_err_t fresh;
 	fzn_chain_err_t authorised;
 	fzn_reasm_err_t admitted;
@@ -177,7 +213,15 @@ static int receive_one(struct receiver *r, uint64_t now, const uint8_t *data, si
 	 * "no expiry" and is refused for a command, and otherwise ahead of now
 	 * by a margin that lets entries age out of the window as `now` moves. */
 	expires_at = (data[7] % 3u) == 0u ? 0u : now + 1u + (uint64_t)(data[8] % 40u);
-	signer.answer = (data[9] % 4u) != 0u; /* sometimes the chain does not verify */
+	/* Sometimes the chain does not verify -- and it is THE ROOT'S signature
+	 * that is missing, because the root is the only party whose signature
+	 * on this hop means anything. Every other identity, the grantee
+	 * included, keeps a good one, so a verifier that asks the wrong party
+	 * gets a yes where the rules say no. */
+	root_signed = (data[9] % 4u) != 0u;
+	signer.good = 0xffffffffu;
+	if (!root_signed)
+		signer.good &= ~(1u << (0x01u & 31u)); /* the root's key, memset below */
 	memset(payload, data[10], sizeof(payload));
 
 	memset(&hop, 0, sizeof(hop));
@@ -231,6 +275,22 @@ static int receive_one(struct receiver *r, uint64_t now, const uint8_t *data, si
 	/* STEP 6: the capability chain, against the pinned root. */
 	authorised = fzn_chain_verify(&hop, 1, root, cap, now, &sign, r->store.entries,
 	                              r->store.used, &chain);
+
+	/* AND UNDER WHOSE KEY. The hop is well formed, unexpiring, carries the
+	 * capability asked for and matches no revocation -- the store is never
+	 * written to -- so the ONLY thing that can refuse it is a missing
+	 * signature, and the only signature that counts is the grantor's.
+	 * The outcome must therefore track `root_signed` exactly. Verifying
+	 * under `hop->grantee` reads 0x09's signature, which is always good,
+	 * and admits a hop the root never granted. */
+	if ((authorised == FZN_CHAIN_OK) != (root_signed != 0)) {
+		printf("  AUTH: the chain %s while the root's signature was %s -- the hop "
+		       "was verified under somebody else's key\n",
+		       authorised == FZN_CHAIN_OK ? "verified" : "was refused",
+		       root_signed ? "good" : "bad");
+		return 1;
+	}
+
 	if (authorised != FZN_CHAIN_OK) {
 		cov->unauthorised++;
 		live_after = 0;
@@ -313,6 +373,14 @@ int main(int argc, char **argv)
 		cases = strtoul(argv[1], NULL, 10);
 		if (cases == 0)
 			cases = FUZZ_DEFAULT_CASES;
+	}
+
+	if (cases < FUZZ_MIN_CASES) {
+		printf("receive_fuzz: %lu cases is below FUZZ_MIN_CASES (%u), so this run will "
+		       "not report success -- every coverage floor below that is "
+		       "cleared by a single lucky hit. Re-run with %u or more.\n",
+		       cases, (unsigned)FUZZ_MIN_CASES, (unsigned)FUZZ_MIN_CASES);
+		return 1;
 	}
 
 	if (!receiver_init(&r)) {
