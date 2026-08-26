@@ -25,40 +25,84 @@ static int nonce_eq(const uint8_t *a, const uint8_t *b)
 	return memcmp(a, b, FZN_NONCE_LEN) == 0;
 }
 
-fzn_fresh_err_t fzn_freshness_check(uint64_t expires_at, fzn_expiry_rule_t kind, uint64_t now)
+/* The far edge of what this receiver will remember a nonce for.
+ *
+ * SATURATING, because `now + max_ahead` is arithmetic on two values the
+ * caller chose and uint64 wraps silently. A wrapped horizon is small, so
+ * every legitimate expiry lands past it and the receiver refuses everything
+ * -- an outage with no visible cause, near the top of the clock's range where
+ * nobody tests. Saturating at UINT64_MAX means a caller who asks for a
+ * horizon wider than the clock gets one exactly that wide, which is what they
+ * asked for and is still bounded by the sweep. */
+static uint64_t horizon_of(uint64_t now, uint64_t max_ahead)
 {
-	if (kind == FZN_EXPIRY_OPTIONAL) {
-		/* sec 4.3: a grant's expiry is optional and absent by default,
-		 * and authority is ended by revocation rather than by a clock.
-		 * A grant that DOES state one is still held to it -- see sec 14,
-		 * where the wording is recorded as ambiguous and this reading
-		 * chosen because it fails closed. */
-		if (expires_at == 0)
-			return FZN_FRESH_OK;
-		return expires_at <= now ? FZN_FRESH_ERR_EXPIRED : FZN_FRESH_OK;
-	}
+	return max_ahead > UINT64_MAX - now ? UINT64_MAX : now + max_ahead;
+}
 
-	/* A command. Both halves are mandatory, and the second is the one an
-	 * implementation forgets: refusing a passed expiry while accepting an
-	 * absent one means anybody who omits the field is exempt from the
-	 * rule, which is worse than not having it. */
+fzn_fresh_err_t fzn_freshness_check(uint64_t expires_at, fzn_expiry_rule_t kind, uint64_t now,
+                                     uint64_t max_ahead)
+{
+	/* Before anything else, and for every argument. See freshness.h: a
+	 * `max_ahead` of 0 is a broken caller rather than a broken frame, and
+	 * reading it as "no horizon" would make the unbounded behaviour the
+	 * one somebody gets by forgetting the field. */
+	if (max_ahead == 0)
+		return FZN_FRESH_ERR_MALFORMED;
+
+	/* THE ONLY THING `kind` DECIDES IS WHAT AN ABSENT EXPIRY MEANS, which
+	 * is why it is tested here and nowhere below.
+	 *
+	 * sec 4.3: a grant's expiry is optional and absent by default, and
+	 * authority is ended by revocation rather than by a clock. For a
+	 * command both halves are mandatory, and the second is the one an
+	 * implementation forgets -- refusing a passed expiry while accepting
+	 * an absent one exempts anybody who omits the field, which is worse
+	 * than not having the rule. */
 	if (expires_at == 0)
-		return FZN_FRESH_ERR_NO_EXPIRY;
+		return kind == FZN_EXPIRY_OPTIONAL ? FZN_FRESH_OK : FZN_FRESH_ERR_NO_EXPIRY;
+
+	/* A STATED EXPIRY IS HELD TO THE SAME TWO BOUNDS WHATEVER THE RULE
+	 * WAS, and the structure says so rather than repeating itself in two
+	 * branches.
+	 *
+	 * A grant that DOES state an expiry is still held to it -- see sec 14,
+	 * where the wording is recorded as ambiguous and this reading chosen
+	 * because it fails closed. And the horizon is not keyed on the rule
+	 * either, which is the half a reader expects to find: `fzn_replay_admit`
+	 * records anything carrying a nonzero expiry, branching on
+	 * `expires_at` and not on `kind`, so an OPTIONAL frame with a
+	 * far-future expiry pins a slot exactly as a REQUIRED one does. A
+	 * horizon that applied to commands alone would have left the wedge
+	 * open under a different label. */
 	if (expires_at <= now)
 		return FZN_FRESH_ERR_EXPIRED;
+
+	/* STRICTLY GREATER THAN, so an expiry landing exactly on the horizon
+	 * is admitted. `now + max_ahead` is the last instant this receiver
+	 * sized itself to remember, and a sender computing its expiry from the
+	 * agreed lifetime hits it exactly whenever the clocks agree -- so `>=`
+	 * here would refuse the ordinary case and leave the horizon usable
+	 * only by senders that undershoot it. */
+	if (expires_at > horizon_of(now, max_ahead))
+		return FZN_FRESH_ERR_HORIZON;
 
 	return FZN_FRESH_OK;
 }
 
 fzn_fresh_err_t fzn_replay_init(fzn_replay_window_t *window, fzn_replay_entry_t *entries,
-                                 size_t capacity)
+                                 size_t capacity, uint64_t max_ahead)
 {
-	if (!window || !entries || capacity == 0)
+	/* `max_ahead == 0` beside `capacity == 0` because they fail the same
+	 * way and the header says so: both are a field somebody forgot, and
+	 * reading either as "unlimited" hands the caller the unbounded window
+	 * as a default. */
+	if (!window || !entries || capacity == 0 || max_ahead == 0)
 		return FZN_FRESH_ERR_MALFORMED;
 
 	window->entries = entries;
 	window->capacity = capacity;
 	window->used = 0;
+	window->max_ahead = max_ahead;
 
 	return FZN_FRESH_OK;
 }
@@ -82,7 +126,15 @@ size_t fzn_replay_expire(fzn_replay_window_t *window, uint64_t now)
 	/* Compact in place, preserving order. Order is not required by
 	 * anything here, but a stable window is one a test can compare with
 	 * memcmp, and that property is cheap to keep and annoying to
-	 * reintroduce. */
+	 * reintroduce.
+	 *
+	 * `> now` KEEPS, so an entry expiring exactly at `now` is dropped. It
+	 * has to be the same boundary `fzn_freshness_check` draws, where
+	 * `expires_at <= now` is EXPIRED: an entry the freshness check would
+	 * refuse anyway is memory held for nothing, and keeping it costs a slot
+	 * the sizing formula already spent. `>= now` here would hold every
+	 * entry one tick longer than the horizon it was admitted under, which
+	 * is the formula quietly being wrong by one. */
 	for (size_t i = 0; i < window->used; i++) {
 		if (window->entries[i].expires_at > now) {
 			if (kept != i)
@@ -135,8 +187,20 @@ fzn_fresh_err_t fzn_replay_admit(fzn_replay_window_t *window,
 	/* Freshness first, so a stale frame never costs a slot. Doing it the
 	 * other way round lets a stranger fill the window with rubbish that
 	 * was going to be refused anyway -- the denial of service this bound
-	 * exists to prevent, introduced by the bound itself. */
-	err = fzn_freshness_check(expires_at, kind, now);
+	 * exists to prevent, introduced by the bound itself.
+	 *
+	 * THE WINDOW'S OWN HORIZON, not one this call was handed. See
+	 * freshness.h: the horizon and the capacity are two halves of one
+	 * sizing decision, so a per-call horizon would let a caller widen what
+	 * it must remember without widening the storage that holds it.
+	 *
+	 * A window built by hand rather than by `fzn_replay_init` -- which the
+	 * header invites, since a window is a VALUE a test may construct
+	 * directly -- reaches this with `max_ahead == 0` and is refused
+	 * FZN_FRESH_ERR_MALFORMED by the check itself. That is the same answer
+	 * `fzn_replay_init` would have given, at the other entry point, which
+	 * is the rule the two guards above this already follow. */
+	err = fzn_freshness_check(expires_at, kind, now, window->max_ahead);
 	if (err != FZN_FRESH_OK)
 		return err;
 
@@ -198,6 +262,8 @@ const char *fzn_fresh_err_str(fzn_fresh_err_t err)
 		return "nonce already seen";
 	case FZN_FRESH_ERR_WINDOW_FULL:
 		return "replay window full of live entries";
+	case FZN_FRESH_ERR_HORIZON:
+		return "expiry beyond the replay horizon";
 	}
 
 	return "unknown";

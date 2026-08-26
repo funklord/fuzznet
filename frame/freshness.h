@@ -24,9 +24,50 @@
  * that bound exist.
  *
  * Which gives the sizing rule, and it is the one thing a consumer must get
- * right: the window must hold as many entries as can arrive within the
- * longest expiry it will accept. Under that, replay is closed. Over it, the
- * window fills.
+ * right. It is a formula rather than advice:
+ *
+ *     capacity >= peak arrival rate x max_ahead
+ *
+ * with every term defined, because a rule whose terms are not is a rule
+ * nobody can be shown to have broken:
+ *
+ *   - `capacity` is the number of entries handed to `fzn_replay_init`.
+ *   - `peak arrival rate` is the greatest number of DISTINCT nonces this
+ *     receiver can be offered per unit of time. It counts a stranger's
+ *     traffic as well as a peer's, because freshness runs BEFORE signature
+ *     verification (sec 4.7) and an unauthenticated frame therefore takes a
+ *     slot. It is a property of the link and of whatever rate limiting sits
+ *     in front of this, not of the protocol, so only the consumer knows it.
+ *   - `max_ahead` is the furthest ahead of `now` an expiry may be and still
+ *     be accepted. It is stated per window at `fzn_replay_init` and enforced
+ *     on every frame. Its unit is the caller's clock's, since nothing here
+ *     reads one.
+ *
+ * Under that, replay is closed. Over it, the window fills.
+ *
+ * `max_ahead` IS A LIFETIME PLUS A SKEW, and this is the term a consumer
+ * gets wrong in the direction that looks safe. Set it to the longest
+ * legitimate command lifetime alone and the receiver refuses every frame
+ * from a peer whose clock runs fast: that peer stamps `now_theirs +
+ * lifetime`, which is past `now_ours + lifetime` by the skew, and lands
+ * outside the horizon. So it is the longest legitimate command lifetime PLUS
+ * the largest clock skew the receiver is willing to tolerate.
+ *
+ * THE RULE USED TO READ AS ADVICE BECAUSE NOTHING COULD CHECK IT. It said
+ * the window must hold what can arrive within "the longest expiry it will
+ * accept", and there was no API by which a receiver stated one -- so the
+ * bound this whole module rests on was unenforceable, and nobody could fail
+ * it. Measured: 4096 frames carrying `expires_at = UINT64_MAX` filled a
+ * 4096-entry window, a sweep a hundred years later dropped none of them, and
+ * every genuine frame after that was refused FZN_FRESH_ERR_WINDOW_FULL. The
+ * refusal is right -- see `fzn_replay_admit`, where evicting is argued
+ * against at length -- which is exactly why the outage never ended.
+ *
+ * So the horizon: for any frame stating a NONZERO expiry, `now < expires_at
+ * <= now + max_ahead`, and anything further out is FZN_FRESH_ERR_HORIZON.
+ * `expires_at == 0` stays outside the horizon entirely, because nothing is
+ * remembered for it and there is therefore nothing to bound -- the grant
+ * rule below is untouched.
  */
 
 #ifndef FZN_FRESHNESS_H
@@ -77,6 +118,28 @@ typedef enum fzn_fresh_err {
 	 * fzn_replay_admit -- this is a refusal on purpose and not a
 	 * capacity bug to paper over. */
 	FZN_FRESH_ERR_WINDOW_FULL = -5,
+	/* The expiry is further ahead than this receiver will remember a
+	 * nonce for -- past `now + max_ahead`. See the sizing rule at the top
+	 * of this file.
+	 *
+	 * ITS OWN CODE RATHER THAN EXPIRED, on exactly the reasoning that
+	 * splits EXPIRED from NO_EXPIRY above: "your command is stale" and
+	 * "your expiry is further out than I will remember a nonce for" are
+	 * different faults in different places. The first is the sender's
+	 * clock or the network; the second is a sender asking for a lifetime
+	 * this receiver did not size for, or a stranger trying to pin a slot.
+	 * A receiver that cannot tell them apart cannot tell a slow link from
+	 * an attack, and cannot tell either from its own `max_ahead` being
+	 * set too tight.
+	 *
+	 * REFUSED RATHER THAN CLAMPED, and that is a hole rather than a
+	 * matter of taste. Recording the entry under a clamped deadline of
+	 * `now + max_ahead` while still treating the frame as fresh until its
+	 * STATED expiry forgets the nonce at the clamp and leaves the frame
+	 * passing freshness for the whole gap between the two -- so it
+	 * replays successfully, which is the one thing this module exists to
+	 * prevent. */
+	FZN_FRESH_ERR_HORIZON = -6,
 } fzn_fresh_err_t;
 
 /* What a frame is being treated as, which decides how its expiry is read.
@@ -125,8 +188,26 @@ typedef enum fzn_expiry_rule {
  * nothing here reads one, for the reason chain.h gives at more length.
  *
  * `expires_at` of 0 means "no expiry stated", which is a refusal for a
- * command and the default for a grant. */
-fzn_fresh_err_t fzn_freshness_check(uint64_t expires_at, fzn_expiry_rule_t kind, uint64_t now);
+ * command and the default for a grant.
+ *
+ * `max_ahead` is the horizon, in the same units as `now`: a nonzero expiry
+ * must satisfy `now < expires_at <= now + max_ahead`, or the frame is
+ * FZN_FRESH_ERR_HORIZON. It is NOT KEYED ON `kind`, and that is the half a
+ * reader expects to be there and should not look for. An OPTIONAL frame
+ * carrying a nonzero far-future expiry is recorded in the window exactly as
+ * a REQUIRED one is -- `fzn_replay_admit` branches on `expires_at`, not on
+ * the rule -- so the optional path wedges the window by precisely the same
+ * route. A horizon that applied to commands only would have left the hole
+ * open under a different label.
+ *
+ * `max_ahead` OF 0 IS FZN_FRESH_ERR_MALFORMED, for every argument, before
+ * anything else is looked at. Reading it as "no horizon" would make the
+ * unbounded behaviour the one a caller gets by forgetting the field, which
+ * is the argument `chunk/reassembly.h` gives for refusing `per_sender_max ==
+ * 0`. There is no valid call with 0, so the fault is in the argument rather
+ * than in the frame, and saying MALFORMED rather than HORIZON says which. */
+fzn_fresh_err_t fzn_freshness_check(uint64_t expires_at, fzn_expiry_rule_t kind, uint64_t now,
+                                     uint64_t max_ahead);
 
 /* One remembered nonce and the moment it stops mattering. */
 typedef struct fzn_replay_entry {
@@ -146,13 +227,34 @@ typedef struct fzn_replay_window {
 	fzn_replay_entry_t *entries;
 	size_t capacity;
 	size_t used;
+	/* The horizon, in the caller's clock's units. See the sizing rule at
+	 * the top of this file.
+	 *
+	 * IT LIVES HERE, ON THE WINDOW, rather than being handed to
+	 * `fzn_replay_admit` per frame. The horizon and the capacity are two
+	 * halves of ONE sizing decision -- `capacity >= peak arrival rate x
+	 * max_ahead` relates them and neither is meaningful alone -- so
+	 * making them settable independently would let a caller widen the
+	 * horizon without touching the storage and wedge the window while
+	 * every individual call looked reasonable. Setting both at
+	 * `fzn_replay_init` and nowhere else is what makes the formula an
+	 * invariant of the window rather than a thing to remember at each
+	 * call site. */
+	uint64_t max_ahead;
 } fzn_replay_window_t;
 
 /* Point a window at caller-owned storage. `entries` must have room for
  * `capacity`. Returns FZN_FRESH_ERR_MALFORMED on a null or zero-capacity
- * argument rather than producing a window that silently accepts everything. */
+ * argument rather than producing a window that silently accepts everything.
+ *
+ * `max_ahead` OF 0 IS REFUSED, not read as "no horizon", for the same reason
+ * `capacity` of 0 is: an unlimited default is the one a caller gets by
+ * forgetting the field, which is `chunk/reassembly.h`'s own argument against
+ * `per_sender_max == 0`. A window with no horizon is the state the wedge
+ * measured at the top of this file needs, so the one way to reach it is the
+ * one way that must not be an accident. */
 fzn_fresh_err_t fzn_replay_init(fzn_replay_window_t *window, fzn_replay_entry_t *entries,
-                                 size_t capacity);
+                                 size_t capacity, uint64_t max_ahead);
 
 /* Admit a nonce, or say why not.
  *
@@ -173,7 +275,12 @@ fzn_fresh_err_t fzn_replay_init(fzn_replay_window_t *window, fzn_replay_entry_t 
  *
  * Expired entries are reclaimed on every call, so a window only fills when
  * genuine traffic within one expiry window exceeds its capacity. See the
- * sizing rule at the top of this file. */
+ * sizing rule at the top of this file.
+ *
+ * NO `max_ahead` ARGUMENT, deliberately: the horizon is the window's, set
+ * once at `fzn_replay_init`, and the field's comment says why it must not be
+ * settable per call. The refusal it produces is FZN_FRESH_ERR_HORIZON, and
+ * it costs no slot, like every other refusal here. */
 fzn_fresh_err_t fzn_replay_admit(fzn_replay_window_t *window,
                                   const uint8_t nonce[FZN_NONCE_LEN], uint64_t expires_at,
                                   fzn_expiry_rule_t kind, uint64_t now);

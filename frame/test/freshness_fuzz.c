@@ -14,6 +14,11 @@
  *   - no two live entries share a nonce, or the set has stopped being one;
  *   - every live entry is unexpired, since an expired one is memory held
  *     for nothing and the bound depends on their leaving;
+ *   - every live entry is inside the horizon, which is the memory bound in
+ *     one line: no entry may sit further ahead of `now` than MAX_AHEAD, so
+ *     the moment at which the window drains always exists. Without that,
+ *     `expires_at = UINT64_MAX` pins a slot for ever and a full window is
+ *     a permanent outage;
  *   - a nonce admitted at `now` is refused if offered again at the same
  *     `now` -- the security property in one line, over arbitrary input.
  *
@@ -31,6 +36,12 @@
 
 #define FUZZ_DEFAULT_CASES 20000u
 #define WINDOW 8
+/* The horizon, chosen against the generator below rather than picked. Expiries
+ * run to `now + 765`, so 400 puts roughly half of them outside it: a horizon
+ * above 765 would never refuse and the counter that proves this path was
+ * reached could not move, and one near zero would refuse everything and take
+ * the replay and expiry counters down with it. */
+#define MAX_AHEAD 400u
 #define CANARY 16
 #define CANARY_BYTE 0x7e
 
@@ -44,6 +55,7 @@ struct coverage {
 	unsigned long admitted;
 	unsigned long replayed;
 	unsigned long expired;
+	unsigned long horizon;
 };
 
 static int canaries_intact(const struct arena *a)
@@ -65,6 +77,11 @@ static const char *invariants(const struct arena *a, const fzn_replay_window_t *
 	for (size_t i = 0; i < w->used; i++) {
 		if (w->entries[i].expires_at <= now)
 			return "an expired entry survived, so the bound does not shrink";
+		/* Subtraction rather than `now + MAX_AHEAD`, so the check itself
+		 * cannot overflow: the line above has already established
+		 * `expires_at > now`. */
+		if (w->entries[i].expires_at - now > MAX_AHEAD)
+			return "a live entry sits past the horizon, so no instant drains it";
 		for (size_t k = i + 1; k < w->used; k++) {
 			if (memcmp(w->entries[i].nonce, w->entries[k].nonce, FZN_NONCE_LEN) == 0)
 				return "two live entries share a nonce";
@@ -82,7 +99,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 
 	memset(&arena, CANARY_BYTE, sizeof(arena));
 	memset(arena.entries, 0, sizeof(arena.entries));
-	if (fzn_replay_init(&w, arena.entries, WINDOW) != FZN_FRESH_OK)
+	if (fzn_replay_init(&w, arena.entries, WINDOW, MAX_AHEAD) != FZN_FRESH_OK)
 		return 0;
 
 	while (pos + 4 <= len) {
@@ -129,10 +146,18 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 			}
 		} else if (err == FZN_FRESH_ERR_REPLAY) {
 			cov->replayed++;
-		} else if (err == FZN_FRESH_ERR_EXPIRED || err == FZN_FRESH_ERR_NO_EXPIRY) {
-			cov->expired++;
+		} else {
+			if (err == FZN_FRESH_ERR_HORIZON)
+				cov->horizon++;
+			else if (err == FZN_FRESH_ERR_EXPIRED || err == FZN_FRESH_ERR_NO_EXPIRY)
+				cov->expired++;
 
-			/* A refused frame must never have cost a slot. */
+			/* A refused frame must never have cost a slot, and this
+			 * now runs for EVERY refusal rather than for the two the
+			 * generator happened to produce when it was written. A
+			 * horizon refusal is exactly the case that must not take
+			 * one -- taking a slot for a frame nothing can reclaim is
+			 * the wedge this harness was extended for. */
 			for (size_t i = 0; i < w.used; i++) {
 				if (memcmp(w.entries[i].nonce, nonce, FZN_NONCE_LEN) == 0 &&
 				    w.entries[i].expires_at == expires) {
@@ -150,7 +175,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 #ifdef FZN_LIBFUZZER
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
-	struct coverage cov = { 0, 0, 0 };
+	struct coverage cov = { 0, 0, 0, 0 };
 
 	(void)fuzz_one(data, size, &cov);
 	return 0;
@@ -189,7 +214,7 @@ static unsigned long floor_of(unsigned long cases, unsigned long per)
 int main(int argc, char **argv)
 {
 	unsigned long cases = FUZZ_DEFAULT_CASES;
-	struct coverage cov = { 0, 0, 0 };
+	struct coverage cov = { 0, 0, 0, 0 };
 	uint8_t buf[128];
 
 	if (argc > 1) {
@@ -215,17 +240,19 @@ int main(int argc, char **argv)
 	 * was never exercised. That is the whole lesson of the reassembly
 	 * harness: reaching nothing and finding nothing look identical. */
 	if (cov.admitted < floor_of(cases, 200u) || cov.replayed < floor_of(cases, 200u) ||
-	    cov.expired < floor_of(cases, 200u)) {
+	    cov.expired < floor_of(cases, 200u) || cov.horizon < floor_of(cases, 200u)) {
 		printf("freshness_fuzz: REACHED TOO LITTLE -- %lu admitted, %lu replays, "
-		       "%lu expired in %lu cases. A run with no replay in it does not test "
-		       "replay, and one with nothing expiring does not test the bound.\n",
-		       cov.admitted, cov.replayed, cov.expired, cases);
+		       "%lu expired, %lu past the horizon in %lu cases. A run with no replay "
+		       "in it does not test replay, one with nothing expiring does not test "
+		       "the bound, and one in which nothing was ever refused at the horizon "
+		       "does not test the horizon.\n",
+		       cov.admitted, cov.replayed, cov.expired, cov.horizon, cases);
 		return 1;
 	}
 
 	printf("freshness_fuzz: %lu cases, %lu admitted, %lu replays, %lu stale, "
-	       "no invariant broken\n",
-	       cases, cov.admitted, cov.replayed, cov.expired);
+	       "%lu past the horizon, no invariant broken\n",
+	       cases, cov.admitted, cov.replayed, cov.expired, cov.horizon);
 	return 0;
 }
 #endif
