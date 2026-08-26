@@ -1925,6 +1925,29 @@ Cleared slots are reused now.
 exercises set, supersede, stale and conflict rather than merely including the
 header.
 
+### A host joining, and what TOFU actually buys (scenario 11)
+
+    join: 1 delivered after joining, 2 refused on authority, adopted at 1003
+
+**The sequence is the test.** Before adopting, the joiner refuses everything
+-- an unanchored host verifying against nothing is the failure `trust/` exists
+to make impossible, and it fails on authority rather than on shape, because
+the frame is perfectly well formed and only the anchor is missing. After
+adopting, it receives the network it joined. A second, different root is then
+refused and the anchor does not move.
+
+**The last step is the one worth having.** An attacker holding a **valid**
+chain under its own root is refused -- and the scenario first asserts that the
+attacker's chain *does* verify against that root, so what is being tested is a
+foreign chain rather than a broken one. It is refused because the root is not
+the one this host adopted. First contact is unauthenticated; every contact
+after it is not, and that is the whole of what TOFU is worth.
+
+**Verification now goes through each host's own anchor**, not a root the
+simulation holds globally, so all eleven scenarios exercise `trust/` rather
+than only this one. An established host pins its root out of band in
+`sim_init`; the joiner is the one that does not.
+
 ### Configuration across the network, and a real conflict (scenario 10)
 
 **Six hosts, 25% loss, two issuers writing the same subject.** Result:

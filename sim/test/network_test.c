@@ -32,6 +32,7 @@
 #include "../../record/record.h"
 #include "../../record/sync.h"
 #include "../../state/state.h"
+#include "../../trust/trust.h"
 #include "../../frame/freshness.h"
 #include "../../session/aead.h"
 #include "../../session/commitment.h"
@@ -232,6 +233,7 @@ struct sim_host {
 	 * for a scenario and is not how a consumer would store them. */
 	fzn_journal_t journal;
 	fzn_journal_entry_t jentries[SIM_HOSTS];
+	fzn_trust_t trust;
 	fzn_state_t state;
 	fzn_state_entry_t sentries[8];
 	unsigned conflicts;
@@ -365,6 +367,11 @@ static void sim_init(struct sim_net *net, size_t hosts, uint32_t seed)
 		h->chain_len = 1;
 		h->authorised = 1;
 
+		/* An established host has its root configured out of band. A
+		 * joining one does not, and scenario 11 is about that. */
+		fzn_trust_init(&h->trust);
+		fzn_trust_pin(&h->trust, net->root);
+
 		fzn_journal_init(&h->journal, h->jentries, SIM_HOSTS);
 		fzn_state_init(&h->state, h->sentries, 8);
 
@@ -458,6 +465,7 @@ static void sim_receive(struct sim_net *net, struct sim_datagram *d)
 	fzn_fresh_err_t fresh;
 	fzn_err_t authorised;
 	fzn_chain_t proven;
+	const uint8_t *anchor;
 
 	/* A COPY, because `fzn_seal_open` decrypts in place. The queued
 	 * datagram is what the sender put on the wire; opening it directly
@@ -486,8 +494,19 @@ static void sim_receive(struct sim_net *net, struct sim_datagram *d)
 		return;
 	}
 
-	/* STEP 4: is this sender allowed to say this? */
-	authorised = fzn_chain_verify(sender->chain, sender->chain_len, net->root,
+	/* STEP 4: is this sender allowed to say this?
+	 *
+	 * Against THIS RECEIVER'S OWN ANCHOR rather than a root the simulation
+	 * holds globally, because that is what a host actually has. An
+	 * unanchored host gets NULL from `fzn_trust_root`, which
+	 * `fzn_chain_verify` refuses -- so a host that has not joined fails
+	 * closed rather than verifying against nothing. */
+	anchor = fzn_trust_root(&h->trust);
+	if (!anchor) {
+		h->refused_auth++;
+		return;
+	}
+	authorised = fzn_chain_verify(sender->chain, sender->chain_len, anchor,
 	                              net->capability, net->now,
 	                              &net->sign, net->revocations.entries,
 	                              net->revocations.used, &proven);
@@ -1263,6 +1282,100 @@ static void scenario_state(void)
 	       holding_alice, holding_bob, saw_conflict, agreed);
 }
 
+/* ------------------------------------------------------------ scenario 11
+
+   A host joining a network it has no anchor for.
+
+   THE SEQUENCE IS THE TEST. Before adopting, the joiner must refuse
+   everything -- an unanchored host verifying against nothing is the failure
+   `trust/` exists to make impossible. After adopting, it must accept the
+   network it joined. And after that, a second root must be refused, because
+   "first use" is the whole of what TOFU means: a host that re-anchors is
+   following whoever spoke to it most recently.
+
+   THE LAST STEP IS WHAT TOFU ACTUALLY BUYS. An attacker holding a
+   well-formed chain under its OWN root is refused, not because the chain is
+   broken -- it verifies perfectly against that root -- but because it is not
+   the root this host adopted. First contact is unauthenticated; every
+   contact after it is not.  */
+
+static void scenario_join(void)
+{
+	static struct sim_net net;
+	static uint8_t msg[400];
+	struct sim_host *joiner;
+	uint8_t rogue_root[FZN_PUBKEY_LEN];
+	unsigned before;
+
+	sim_init(&net, 4, 0xaaaau);
+	fill_message(msg, sizeof(msg), 23);
+	joiner = &net.hosts[3];
+
+	/* It has not joined yet. */
+	fzn_trust_init(&joiner->trust);
+	check(fzn_trust_root(&joiner->trust) == NULL, "a joining host starts with no anchor");
+
+	check(sim_send(&net, 0, 3, msg, sizeof(msg), net.now + 100u), "the send was refused");
+	sim_run(&net, 3);
+	check(joiner->delivered == 0, "an unanchored host accepted a frame");
+	check(joiner->refused_auth > 0, "and it should have refused on authority");
+	check(joiner->refused_shape == 0,
+	      "the frame itself was well formed; only the anchor was missing");
+
+	/* THE JOIN. A sponsor's bundle asserts the root; nothing authenticates
+	 * it, which is exactly what trust.h says about first contact. */
+	check(fzn_trust_adopt(&joiner->trust, net.root, net.now) == FZN_TRUST_OK,
+	      "adopting the network's root on first contact");
+	check(fzn_trust_source_of(&joiner->trust) == FZN_TRUST_ADOPTED,
+	      "recorded as adopted rather than configured");
+	check(fzn_trust_adopted_at(&joiner->trust) == net.now, "and when it happened");
+
+	before = joiner->delivered;
+	check(sim_send(&net, 0, 3, msg, sizeof(msg), net.now + 100u), "the second send");
+	sim_run(&net, 3);
+	check(joiner->delivered == before + 1u, "a joined host did not receive");
+
+	/* A SECOND ROOT IS REFUSED, and the anchor does not move. */
+	memset(rogue_root, 0x66, sizeof(rogue_root));
+	check(fzn_trust_adopt(&joiner->trust, rogue_root, net.now) == FZN_TRUST_ERR_ANCHORED,
+	      "a second root was not refused");
+	check(memcmp(fzn_trust_root(&joiner->trust), net.root, FZN_PUBKEY_LEN) == 0,
+	      "the refused adoption moved the anchor");
+
+	/* AND A WELL-FORMED CHAIN UNDER THE WRONG ROOT IS REFUSED. Host 1 is
+	 * re-grafted onto the rogue root and signs honestly: the chain checks
+	 * out against that root and against no other. */
+	{
+		struct sim_host *attacker = &net.hosts[1];
+		fzn_chain_t proven;
+		unsigned refused_before;
+
+		memcpy(attacker->chain[0].grantor, rogue_root, FZN_PUBKEY_LEN);
+		sim_sign_hop(&attacker->chain[0], attacker->signed_region[0]);
+
+		/* It really does verify -- under its own root. Otherwise this
+		 * would be testing a broken chain rather than a foreign one. */
+		check(fzn_chain_verify(attacker->chain, attacker->chain_len, rogue_root,
+		                       net.capability, net.now, &net.sign,
+		                       net.revocations.entries, net.revocations.used,
+		                       &proven) == FZN_OK,
+		      "the attacker's chain should be valid under its own root");
+
+		refused_before = joiner->refused_auth;
+		before = joiner->delivered;
+		check(sim_send(&net, 1, 3, msg, sizeof(msg), net.now + 100u), "the attacker's send");
+		sim_run(&net, 3);
+		check(joiner->delivered == before,
+		      "a chain rooted elsewhere was accepted after joining");
+		check(joiner->refused_auth > refused_before,
+		      "and it should have been refused on authority");
+	}
+
+	printf("  join: %u delivered after joining, %u refused on authority, adopted at %llu\n",
+	       joiner->delivered, joiner->refused_auth,
+	       (unsigned long long)fzn_trust_adopted_at(&joiner->trust));
+}
+
 int main(void)
 {
 	scenario_mesh();
@@ -1275,6 +1388,7 @@ int main(void)
 	scenario_splice();
 	scenario_distribution();
 	scenario_state();
+	scenario_join();
 
 	printf("network_test: %d checks, %d failure(s); fuzznet %s\n", checks, failures,
 	       fzn_version_string());
