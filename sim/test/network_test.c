@@ -719,6 +719,33 @@ static void scenario_revocation(void)
 	sim_run(&net, 10);
 	check(net.hosts[3].delivered == 0, "a revoked sender's message still completed");
 	check(net.hosts[3].refused_auth > 0, "the revoked chunks were not refused on authority");
+
+	/* THE POSITIVE CONTROL. Everything above asserts a refusal, and a
+	 * refusal proves nothing on its own: a receiver that refused EVERY
+	 * frame would satisfy all of it. Measured -- mutating the simulation's
+	 * `fzn_chain_verify` result to refuse unconditionally left this
+	 * scenario green.
+	 *
+	 * So run the identical send on an identical network with no revocation
+	 * admitted, and require that it arrives. The two legs differ in exactly
+	 * one thing, which is what makes the refusal above attributable to it.
+	 *
+	 * A separate net rather than a reset, so that neither leg can leave
+	 * state the other reads. */
+	{
+		static struct sim_net control;
+		static uint8_t control_msg[3000];
+
+		sim_init(&control, 4, 0x2222u);
+		fill_message(control_msg, sizeof(control_msg), 11);
+		check(sim_send(&control, 2, 3, control_msg, sizeof(control_msg),
+		               control.now + 100u),
+		      "the control send was refused");
+		sim_run(&control, 10);
+		check(control.hosts[3].delivered > 0,
+		      "the same message did not arrive without the revocation, so the "
+		      "refusal above is not evidence that revocation caused it");
+	}
 	printf("  revocation: %u chunks refused on authority, %u delivered\n",
 	       net.hosts[3].refused_auth, net.hosts[3].delivered);
 }
@@ -747,6 +774,30 @@ static void scenario_stale(void)
 	check(net.hosts[1].refused_replay > 0, "the stale frame was not refused on freshness");
 	check(net.hosts[1].refused_auth == 0,
 	      "the chain was consulted for a frame freshness had already refused");
+
+	/* THE POSITIVE CONTROL, for the reason given in scenario 3: the three
+	 * checks above are all satisfied by a receiver that refuses
+	 * everything, and `refused_auth == 0` is satisfied MOST easily by a
+	 * frame that never got that far for some quite different reason.
+	 *
+	 * The control differs in one thing -- an expiry beyond the delivery
+	 * time rather than before it. */
+	{
+		static struct sim_net control;
+		static uint8_t control_msg[256];
+
+		sim_init(&control, 4, 0x3333u);
+		fill_message(control_msg, sizeof(control_msg), 13);
+		check(sim_send(&control, 0, 1, control_msg, sizeof(control_msg),
+		               control.now + 100u),
+		      "the control send was refused");
+		for (size_t i = 0; i < control.queue_len; i++)
+			control.queue[i].due = control.now + 5u;
+		sim_run(&control, 8);
+		check(control.hosts[1].delivered > 0,
+		      "an unexpired frame did not arrive either, so staleness is not "
+		      "what the refusal above measured");
+	}
 	printf("  stale: %u refused on freshness, %u reached authorisation\n",
 	       net.hosts[1].refused_replay, net.hosts[1].refused_auth);
 }
@@ -777,6 +828,26 @@ static void scenario_unauthorised(void)
 	check(net.hosts[1].delivered == 0, "a host without the capability was delivered");
 	check(net.hosts[1].refused_auth > 0, "the forged grant was not refused");
 	check(net.hosts[1].refused_shape == 0, "the frame itself should have been well formed");
+
+	/* THE POSITIVE CONTROL, and this scenario needs it most: it asserts
+	 * only refusals, so a receiver that refused every frame for any reason
+	 * at all would pass it completely. The control forges nothing. */
+	{
+		static struct sim_net control;
+		static uint8_t control_msg[256];
+
+		sim_init(&control, 4, 0x4444u);
+		fill_message(control_msg, sizeof(control_msg), 17);
+		check(sim_send(&control, 0, 1, control_msg, sizeof(control_msg),
+		               control.now + 100u),
+		      "the control send was refused");
+		sim_run(&control, 3);
+		check(control.hosts[1].delivered > 0,
+		      "an unforged grant was not delivered either, so the forgery is not "
+		      "what the refusal above measured");
+		check(control.hosts[1].refused_auth == 0,
+		      "an unforged grant was refused on authority");
+	}
 	printf("  unauthorised: %u refused on authority, %u delivered\n",
 	       net.hosts[1].refused_auth, net.hosts[1].delivered);
 }
@@ -868,6 +939,13 @@ static void scenario_lossy(void)
 	}
 
 	check(net.dropped > 0, "no datagram was lost, so this tested nothing");
+	/* THE FLOOR, and it is the check this scenario was missing. `arrived <
+	 * sent` is satisfied by zero, and `intact == arrived` is 0 == 0 -- so
+	 * the whole scenario passed in a world where nothing was ever
+	 * delivered, which is what a mutation refusing every chain proved. A
+	 * 20% lossy network that delivers nothing is a broken receiver, not a
+	 * lossy network. */
+	check(arrived > 0, "a 20% lossy network delivered nothing at all");
 	check(arrived < sent, "a 20% lossy network delivered everything, which is suspect");
 	check(intact == arrived, "a message arrived incomplete or corrupt on a lossy network");
 	printf("  lossy: %u sent, %u dropped, %u reordered, %u delivered, %u intact\n", sent,
