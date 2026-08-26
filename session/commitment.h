@@ -65,7 +65,24 @@ typedef enum fzn_commitment_err {
  *
  * `hash` must produce `out_len` bytes over `in`, for any `out_len` up to
  * FZN_DERIVED_LEN. BLAKE2b takes an output length directly, which is why
- * the construction is expressible as one call. */
+ * the construction is expressible as one call.
+ *
+ * `hash` RETURNS NONZERO ON SUCCESS AND ZERO ON FAILURE, matching `verify`
+ * in chain.h and `fill` in random.h rather than the 0-means-success
+ * convention of much of C.
+ *
+ * Stated because the cost of guessing it wrong falls entirely on this
+ * module and is silent. `fzn_commitment_derive` branches on `!hash->hash(...)`
+ * and, on the success path, copies FZN_AEAD_KEY_LEN bytes out of a stack
+ * buffer it never initialises. An implementation returning 0 for success is
+ * therefore read as having failed -- which is the harmless direction -- but
+ * one returning 0 for FAILURE is read as success, and the caller is handed
+ * whatever was on the stack as an AEAD key. Nothing downstream can tell that
+ * from a real key: it encrypts, it commits, and it is guessable.
+ *
+ * Every other seam in this library says which way round it is. This one did
+ * not, and a vendored hash is exactly the code most likely to be written by
+ * someone reading only this declaration. */
 typedef struct fzn_hash_ops {
 	int (*hash)(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in, size_t in_len);
 	void *ctx;
