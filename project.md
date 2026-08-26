@@ -6145,6 +6145,46 @@ already identified as wrong.
 
 Neither byte can be added later without a wire break.
 
+### The layouts, and what they cost on the wire
+
+Big-endian, fixed width, no padding, fixed fields first so every fixed field
+sits at a constant offset, and one variable field last. That shape is situ's
+`AbsoluteStatic`, chosen so that adopting a schema for these objects later is
+a regeneration that must reproduce the same numbers rather than a rewrite.
+
+    hop body        115 bytes   version | object | grantor[32] | grantee[32] |
+                                capability[32] | issued_at | expires_at |
+                                delegable
+    revocation body 106 bytes   version | object | capability[32] |
+                                grantee[32] | issuer[32] | issued_at
+    record header    92 bytes   version | object | issuer[32] | subject[32] |
+                                stream | kind | seq | issued_at | body_len
+
+Each is followed by a 64-byte signature, giving FZN_HOP_LEN 179,
+FZN_REVOCATION_LEN 170, and a record of 92 + body + 64.
+
+**Two consequences worth having in writing**, both computed from the
+constants in force rather than asserted:
+
+- **A record always fits one datagram.** At FZN_RECORD_BODY_MAX of 512 the
+  largest record is 668 bytes, inside `frame.situ`'s `length [max = 1024]`.
+- **A full-depth chain does not.** Eight hops is 1432 bytes, 1434 with a
+  container, so chains travel through `chunk/`. fuzzypickles reached the same
+  place -- its `FZP_CAP_CHAIN_BLOB_LEN` is `1 + 1 + 8 * FZP_CAP_CHAIN_HOP_LEN`
+  for the same reason.
+
+**Canonicality becomes enforceable at parse, which the current design cannot
+do at all**: `delegable` must be 0 or 1 rather than "any nonzero", the version
+and object bytes must match, the length must be exact, `body_len` must agree
+with the buffer. Two byte strings can no longer mean one hop.
+
+**Parse checks layout; verify checks semantics.** `fzn_hop_open` refuses a
+wrong length or a non-canonical flag; it does not check `expires_at >
+issued_at`, which stays in `fzn_chain_verify` where the error taxonomy
+distinguishes it from a shape fault. Both modules gain a `..._ERR_SHAPE`,
+because bytes from a peer that are the wrong length are not a caller bug and
+MALFORMED means "the caller has a bug" throughout this library.
+
 ### The receive order: §4.7 step 3 moves below step 5
 
 §4.7 puts replay at step 3 and tag verification at step 5, so the window is
