@@ -276,6 +276,18 @@ static void test_expiry_is_enforced_when_set(void)
 	CHECK(run(&f, 1400, NULL, 0) == FZN_CHAIN_OK, "a live hop was refused");
 	CHECK(f.out.expires_at == 1500, "expiry %llu, wanted 1500",
 	      (unsigned long long)f.out.expires_at);
+
+	/* THE BOUNDARY, WHICH MUST FAIL CLOSED. `expires_at == now` is the one
+	 * instant the two readings disagree about, and it was tested at 1400
+	 * and 2000 -- either side of it, never on it. Relaxing `<=` to `<` was
+	 * caught by nothing in the tree.
+	 *
+	 * Closed is the right direction because an expiry is a statement about
+	 * when authority ENDS, and a grant that ended this second has ended. */
+	CHECK(run(&f, 1500, NULL, 0) == FZN_CHAIN_ERR_EXPIRED,
+	      "a hop expiring exactly now was accepted");
+	CHECK(run(&f, 1499, NULL, 0) == FZN_CHAIN_OK,
+	      "a hop expiring next second was refused, so the boundary moved");
 }
 
 static void test_expiry_is_the_weakest_link(void)
@@ -345,6 +357,38 @@ static void test_revocation_is_per_capability(void)
 
 	CHECK(run(&f, 2000, &rev, 1) == FZN_CHAIN_OK,
 	      "revoking one capability withdrew an unrelated one");
+}
+
+/* The other axis of the same question, and the one that was missing.
+ *
+ * A revocation names a capability AND a grantee. The case above varies the
+ * capability and holds the grantee; nothing varied the grantee, so a
+ * `hop_is_revoked` that compared the capability alone -- withdrawing a
+ * capability from EVERY key the moment it is withdrawn from one -- passed
+ * the whole suite. That is a denial of service against every host sharing a
+ * capability with a revoked one, delivered by a single legitimate
+ * revocation.
+ *
+ * The positive leg is asserted alongside, so this cannot pass by the
+ * revocation matching nothing at all. */
+static void test_revocation_is_per_grantee(void)
+{
+	struct fixture f;
+	fzn_revocation_t rev;
+
+	fixture_init(&f);
+	memset(&rev, 0, sizeof(rev));
+	memcpy(rev.capability, f.cap, FZN_CAP_ID_LEN); /* the capability in use */
+	key(rev.grantee, 7);                           /* but somebody else's key */
+
+	CHECK(run(&f, 2000, &rev, 1) == FZN_CHAIN_OK,
+	      "revoking a capability from one key withdrew it from another");
+
+	/* And revoking it from the key actually in the chain must bite, or the
+	 * check above is satisfied by a revocation that matches nobody. */
+	memcpy(rev.grantee, f.hops[1].grantee, FZN_PUBKEY_LEN);
+	CHECK(run(&f, 2000, &rev, 1) == FZN_CHAIN_ERR_REVOKED,
+	      "revoking the chain's own grantee did not bite");
 }
 
 static void test_a_bad_signature_is_refused(void)
@@ -723,6 +767,7 @@ int main(void)
 	test_expiry_before_issue_is_malformed_not_expired();
 	test_revocation_kills_a_middle_hop();
 	test_revocation_is_per_capability();
+	test_revocation_is_per_grantee();
 	test_a_bad_signature_is_refused();
 	test_delegation_needs_permission_not_just_possession();
 	test_mint();
