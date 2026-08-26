@@ -356,6 +356,7 @@ $(BUILD_DIR)/record/test/record_guided: $(BUILD_DIR)/record/test/record_guided.o
 
 $(BUILD_DIR)/log/test/fix_stream_test: $(BUILD_DIR)/log/test/fix_stream_test.o \
                                        $(BUILD_DIR)/log/log.o \
+                                       $(BUILD_DIR)/record/journal.o \
                                        $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -376,8 +377,14 @@ $(BUILD_DIR)/wire/test/relay_test: $(BUILD_DIR)/wire/test/relay_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# `log/` LINKS THE JOURNAL NOW, and every binary that uses `fzn_log_get` must.
+# The GONE answer is read out of `fzn_journal_next` rather than out of what the
+# log still holds -- see log.h -- so a link line that lists log.o without
+# journal.o does not fail to answer, it fails to link, which is the direction
+# this build wants a missed dependency to fail in.
 $(BUILD_DIR)/log/test/log_test: $(BUILD_DIR)/log/test/log_test.o \
                                 $(BUILD_DIR)/log/log.o \
+                                $(BUILD_DIR)/record/journal.o \
                                 $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@

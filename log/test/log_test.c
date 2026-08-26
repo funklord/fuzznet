@@ -4,6 +4,18 @@
  * second journal. A peer that fell behind asks for a sequence; if the answer
  * to "evicted" and the answer to "not arrived" are the same, it asks for ever
  * and neither side can tell that from a lost datagram.
+ *
+ * THE LINE BETWEEN THE TWO IS THE JOURNAL'S `received`, not the oldest entry
+ * this log still holds, and most of what is below exists because the two look
+ * identical in the easy case and disagree in every hard one. A test that only
+ * evicts the bottom of one stream passes against either rule -- which is what
+ * the suite used to do, and why a module that answered ABSENT to a stream it
+ * had evicted entirely went unnoticed. Every case here that names a hole is
+ * one the old rule got wrong.
+ *
+ * AND THE CONTROLS MATTER AS MUCH AS THE HOLES: a module that answered GONE
+ * to everything would satisfy every one of the negative cases, so the
+ * sequences that must still answer ABSENT and OK are checked beside them.
  */
 
 #include "../log.h"
@@ -49,6 +61,12 @@ int main(void)
 {
 	fzn_log_t log;
 	fzn_log_entry_t entries[4];
+	/* THE POSITION `fzn_log_get` JUDGES AGAINST. It is a parameter rather
+	 * than a second call this test is trusted to make, and log.h says why:
+	 * a caller that forgot would be told ABSENT, which is a legitimate
+	 * answer nothing can distinguish from a correct one. */
+	fzn_journal_t journal;
+	fzn_journal_entry_t positions[8];
 	fzn_record_t rec;
 	const fzn_log_entry_t *got;
 	const fzn_log_entry_t *page[8];
@@ -64,22 +82,34 @@ int main(void)
 	expect_err(fzn_log_init(&log, NULL, 4), FZN_LOG_ERR_MALFORMED, "null entries");
 	expect_err(fzn_log_init(&log, entries, 0), FZN_LOG_ERR_MALFORMED, "zero capacity");
 	expect_err(fzn_log_init(&log, entries, 4), FZN_LOG_OK, "a well-formed log");
+	expect(fzn_journal_init(&journal, positions, 8) == FZN_JOURNAL_OK, "a journal to ask");
+	expect(fzn_journal_anchor(&journal, alice, 0, 0) == FZN_JOURNAL_OK,
+	       "following alice's first stream from the beginning");
 
 	fzn_log_range(&log, alice, 0, &first, &last);
 	expect(first == 0 && last == 0, "an empty log holds no range");
-	expect_err(fzn_log_get(&log, alice, 0, 1, &got), FZN_LOG_ERR_ABSENT,
+	/* NOTHING RECEIVED AND NOTHING HELD IS ABSENT, NOT GONE. A stream
+	 * followed from the beginning has `received == 0`, so no sequence is at
+	 * or below it and nothing can have been evicted. A module that answered
+	 * GONE here would send a peer to `fzn_journal_anchor` on its first
+	 * question. */
+	expect_err(fzn_log_get(&log, &journal, alice, 0, 1, &got), FZN_LOG_ERR_ABSENT,
 	           "asking an empty log for anything");
+	expect_err(fzn_log_get(&log, &journal, alice, 55, 1, &got), FZN_LOG_ERR_ABSENT,
+	           "asking about a stream nobody follows and nobody wrote");
 
 	/* APPEND, AND WHAT IS HELD. */
 	for (uint64_t seq = 1; seq <= 3; seq++) {
 		make(&rec, 0xa1, seq);
 		expect_err(fzn_log_append(&log, &rec), FZN_LOG_OK, "appending in order");
+		expect(fzn_journal_admit(&journal, alice, 0, seq) == FZN_JOURNAL_OK,
+		       "and the position advances with it");
 	}
 	fzn_log_range(&log, alice, 0, &first, &last);
 	expect(first == 1 && last == 3, "the range should be one to three");
-	expect_err(fzn_log_get(&log, alice, 0, 2, &got), FZN_LOG_OK, "fetching a held entry");
+	expect_err(fzn_log_get(&log, &journal, alice, 0, 2, &got), FZN_LOG_OK, "fetching a held entry");
 	expect(got != NULL && got->seq == 2, "and it is the right one");
-	expect_err(fzn_log_get(&log, alice, 0, 9, &got), FZN_LOG_ERR_ABSENT,
+	expect_err(fzn_log_get(&log, &journal, alice, 0, 9, &got), FZN_LOG_ERR_ABSENT,
 	           "asking beyond the newest");
 
 	make(&rec, 0xa1, 2);
@@ -90,18 +120,27 @@ int main(void)
 	expect(fzn_log_dropped(&log) == 0, "nothing dropped yet");
 	make(&rec, 0xa1, 4);
 	expect_err(fzn_log_append(&log, &rec), FZN_LOG_OK, "the fourth fills it");
+	expect(fzn_journal_admit(&journal, alice, 0, 4) == FZN_JOURNAL_OK, "received four");
 	make(&rec, 0xa1, 5);
 	expect_err(fzn_log_append(&log, &rec), FZN_LOG_OK, "the fifth evicts the oldest");
+	expect(fzn_journal_admit(&journal, alice, 0, 5) == FZN_JOURNAL_OK, "received five");
 	expect(fzn_log_dropped(&log) == 1, "and says that it dropped one");
 
 	fzn_log_range(&log, alice, 0, &first, &last);
 	expect(first == 2 && last == 5, "the log now starts at two");
 
-	/* THE WHOLE POINT: two different answers for two different reasons. */
-	expect_err(fzn_log_get(&log, alice, 0, 1, &got), FZN_LOG_ERR_GONE,
+	/* THE WHOLE POINT: two different answers for two different reasons.
+	 * `received` is five and the log starts at two, so one was received and
+	 * evicted while six was never received at all. */
+	expect_err(fzn_log_get(&log, &journal, alice, 0, 1, &got), FZN_LOG_ERR_GONE,
 	           "asking for what retention removed");
-	expect_err(fzn_log_get(&log, alice, 0, 6, &got), FZN_LOG_ERR_ABSENT,
+	expect_err(fzn_log_get(&log, &journal, alice, 0, 6, &got), FZN_LOG_ERR_ABSENT,
 	           "asking for what has not arrived");
+	/* AND THE BOUNDARY IN BOTH DIRECTIONS, which is what an off-by-one in
+	 * the comparison moves. Five is held, so ask about a stream where the
+	 * edge is not: see "the position is the line" below. */
+	expect_err(fzn_log_get(&log, &journal, alice, 0, 5, &got), FZN_LOG_OK,
+	           "the newest received is held, not gone");
 
 	/* READING A RANGE, OLDEST FIRST, because a receiver admits by one and
 	 * refuses a jump -- newest-first would be refused entry by entry. */
@@ -133,8 +172,8 @@ int main(void)
 	rec.body_len = 4;
 	expect_err(fzn_log_append(&log, &rec), FZN_LOG_ERR_MALFORMED,
 	           "a null body of non-zero length");
-	expect_err(fzn_log_get(&log, alice, 0, 0, &got), FZN_LOG_ERR_MALFORMED, "asking for zero");
-	expect_err(fzn_log_get(&log, alice, 0, 1, NULL), FZN_LOG_ERR_MALFORMED, "nowhere to answer");
+	expect_err(fzn_log_get(&log, &journal, alice, 0, 0, &got), FZN_LOG_ERR_MALFORMED, "asking for zero");
+	expect_err(fzn_log_get(&log, &journal, alice, 0, 1, NULL), FZN_LOG_ERR_MALFORMED, "nowhere to answer");
 	expect(fzn_log_read_since(&log, alice, 0, 0, page, 0) == 0, "a zero-capacity read");
 	expect(fzn_log_read_since(NULL, alice, 0, 0, page, 8) == 0, "reading a null log");
 	expect(fzn_log_dropped(NULL) == 0, "a null log dropped nothing");
@@ -172,7 +211,7 @@ int main(void)
 		       "a stream nobody wrote holds nothing");
 		fzn_log_range(&two, alice, 9, &lo, &hi);
 		expect(lo == 0 && hi == 0, "and has no range");
-		expect_err(fzn_log_get(&two, alice, 9, 1, &got), FZN_LOG_ERR_ABSENT,
+		expect_err(fzn_log_get(&two, &journal, alice, 9, 1, &got), FZN_LOG_ERR_ABSENT,
 		           "and answers absent rather than another stream's entry");
 	}
 
@@ -199,7 +238,7 @@ int main(void)
 		expect(only == 0, "a null issuer has no range");
 	}
 
-	expect_err(fzn_log_get(&log, NULL, 0, 1, &got), FZN_LOG_ERR_MALFORMED,
+	expect_err(fzn_log_get(&log, &journal, NULL, 0, 1, &got), FZN_LOG_ERR_MALFORMED,
 	           "asking about a null issuer");
 	expect(fzn_log_read_since(&log, NULL, 0, 0, page, 8) == 0, "reading a null issuer");
 
@@ -212,7 +251,7 @@ int main(void)
 		corrupt.used = corrupt.capacity + 1u;
 		expect_err(fzn_log_append(&corrupt, &rec), FZN_LOG_ERR_MALFORMED,
 		           "appending to a corrupt log");
-		expect_err(fzn_log_get(&corrupt, alice, 0, 1, &got), FZN_LOG_ERR_MALFORMED,
+		expect_err(fzn_log_get(&corrupt, &journal, alice, 0, 1, &got), FZN_LOG_ERR_MALFORMED,
 		           "reading a corrupt log");
 		expect(fzn_log_read_since(&corrupt, alice, 0, 0, page, 8) == 0,
 		       "a corrupt log serves nothing");
@@ -223,6 +262,178 @@ int main(void)
 			fzn_log_range(&corrupt, alice, 0, &lo, &hi);
 			expect(lo == 0 && hi == 0, "and has no range");
 		}
+	}
+
+	/* THE POSITION IS THE LINE, NOT THE OLDEST HELD, and the three blocks
+	 * below are the cases where the two rules disagree. Deriving GONE from
+	 * `fzn_log_range` gets every one of them wrong, and nothing above this
+	 * point could tell: every case so far evicted the bottom of a single
+	 * stream, which is the one shape both rules agree on.
+	 *
+	 * Each block builds its own log so that eviction can be AIMED. Entries
+	 * leave in append order across every stream in the log, which is what
+	 * makes a hole in the middle and a hole at the top reachable at all. */
+	{
+		fzn_log_t small;
+		fzn_log_entry_t slots[2];
+		uint64_t lo = 0, hi = 0;
+
+		expect(fzn_log_init(&small, slots, 2) == FZN_LOG_OK, "a two-entry log");
+		expect(fzn_journal_anchor(&journal, alice, 7, 0) == FZN_JOURNAL_OK,
+		       "following stream seven");
+		expect(fzn_journal_anchor(&journal, alice, 8, 0) == FZN_JOURNAL_OK,
+		       "following stream eight");
+
+		for (uint64_t seq = 1; seq <= 2; seq++) {
+			make(&rec, 0xa1, seq);
+			rec.stream = 7;
+			expect(fzn_log_append(&small, &rec) == FZN_LOG_OK, "stream seven's entries");
+			expect(fzn_journal_admit(&journal, alice, 7, seq) == FZN_JOURNAL_OK,
+			       "and seven's position");
+		}
+		/* Two more from another stream, which is enough to push every one
+		 * of seven's out of a log this size. */
+		for (uint64_t seq = 1; seq <= 2; seq++) {
+			make(&rec, 0xa1, seq);
+			rec.stream = 8;
+			expect(fzn_log_append(&small, &rec) == FZN_LOG_OK, "stream eight's entries");
+			expect(fzn_journal_admit(&journal, alice, 8, seq) == FZN_JOURNAL_OK,
+			       "and eight's position");
+		}
+
+		fzn_log_range(&small, alice, 7, &lo, &hi);
+		expect(lo == 0 && hi == 0, "stream seven now holds nothing at all");
+
+		/* A WHOLE STREAM EVICTED, which is the failure that started this.
+		 * `first` is zero, so the old `first != 0` guard fell through and
+		 * the answer was ABSENT; the peer then asks for ever, and neither
+		 * side can tell that from a lost datagram. */
+		expect_err(fzn_log_get(&small, &journal, alice, 7, 1, &got), FZN_LOG_ERR_GONE,
+		           "a stream evicted down to nothing is gone, not absent");
+		/* THE BOUNDARY WITH NOTHING HELD TO BLUR IT: two is `received`
+		 * exactly and three is one past it. This pair is what an
+		 * off-by-one in the comparison moves, in whichever direction. */
+		expect_err(fzn_log_get(&small, &journal, alice, 7, 2, &got), FZN_LOG_ERR_GONE,
+		           "the last sequence received and evicted is gone");
+		expect_err(fzn_log_get(&small, &journal, alice, 7, 3, &got), FZN_LOG_ERR_ABSENT,
+		           "and the first never received is absent");
+		/* And the stream that did the evicting is untouched, so a rule
+		 * that had simply started answering GONE would be caught here. */
+		expect_err(fzn_log_get(&small, &journal, alice, 8, 1, &got), FZN_LOG_OK,
+		           "what is still held is still served");
+	}
+
+	{
+		fzn_log_t back;
+		fzn_log_entry_t slots[4];
+
+		/* A HOLE BELOW THE OLDEST HELD. This host has received three and
+		 * holds five and six -- a back-fill in progress, or a peer that
+		 * pushed further than it was asked. Four was never received, so
+		 * it cannot have been evicted, and answering GONE sends the
+		 * consumer to `fzn_journal_anchor` to accept an IRREVERSIBLE loss
+		 * that never happened. That is what the old rule answered, with
+		 * `dropped == 0` sitting right beside it. */
+		expect(fzn_log_init(&back, slots, 4) == FZN_LOG_OK, "a log for back-fill");
+		expect(fzn_journal_anchor(&journal, bob, 3, 3) == FZN_JOURNAL_OK,
+		       "bob's stream three, received up to three");
+		for (uint64_t seq = 5; seq <= 6; seq++) {
+			make(&rec, 0xb2, seq);
+			rec.stream = 3;
+			expect(fzn_log_append(&back, &rec) == FZN_LOG_OK, "an entry above the position");
+		}
+		expect(fzn_log_dropped(&back) == 0, "nothing was evicted here at all");
+
+		fzn_log_range(&back, bob, 3, &first, &last);
+		expect(first == 5 && last == 6, "the oldest held is five");
+		expect_err(fzn_log_get(&back, &journal, bob, 3, 4, &got), FZN_LOG_ERR_ABSENT,
+		           "below the oldest held but never received is absent");
+		expect_err(fzn_log_get(&back, &journal, bob, 3, 3, &got), FZN_LOG_ERR_GONE,
+		           "while at the position, and not held, it is gone");
+		/* WHAT IS HELD IS SERVED WHATEVER THE POSITION SAYS. The log is
+		 * the authority on its own contents; the journal only settles
+		 * what is NOT there. Six is held and is above `received`. */
+		expect_err(fzn_log_get(&back, &journal, bob, 3, 6, &got), FZN_LOG_OK,
+		           "an entry held above the position is still served");
+		expect(got != NULL && got->seq == 6, "and it is the right one");
+	}
+
+	{
+		fzn_log_t mixed;
+		fzn_log_entry_t slots[4];
+		static const uint64_t ARRIVAL[4] = { 3, 1, 2, 4 };
+
+		/* A HOLE IN THE MIDDLE. Append takes any order and eviction takes
+		 * the oldest by APPEND order, so the entry that leaves need not
+		 * be the lowest sequence. Three arrived first and so leaves
+		 * first, leaving one, two and four held. The old rule read three
+		 * as "above the oldest held, therefore not yet arrived" and
+		 * answered ABSENT for something this host had received and thrown
+		 * away -- and no floor could have done better, since a floor
+		 * describes a prefix and this is not one. */
+		expect(fzn_log_init(&mixed, slots, 4) == FZN_LOG_OK, "a log to put a hole in");
+		expect(fzn_journal_anchor(&journal, bob, 4, 0) == FZN_JOURNAL_OK, "bob's stream four");
+		for (size_t i = 0; i < 4; i++) {
+			make(&rec, 0xb2, ARRIVAL[i]);
+			rec.stream = 4;
+			expect(fzn_log_append(&mixed, &rec) == FZN_LOG_OK, "arriving out of order");
+		}
+		for (uint64_t seq = 1; seq <= 4; seq++)
+			expect(fzn_journal_admit(&journal, bob, 4, seq) == FZN_JOURNAL_OK,
+			       "the journal takes them in order and reaches four");
+
+		make(&rec, 0xb2, 9);
+		rec.stream = 5;
+		expect(fzn_log_append(&mixed, &rec) == FZN_LOG_OK, "another stream's entry evicts one");
+		expect(fzn_log_dropped(&mixed) == 1, "and it was the first to arrive");
+
+		fzn_log_range(&mixed, bob, 4, &first, &last);
+		expect(first == 1 && last == 4, "the hole is invisible in the range");
+		expect_err(fzn_log_get(&mixed, &journal, bob, 4, 3, &got), FZN_LOG_ERR_GONE,
+		           "a hole in the middle is gone");
+		expect_err(fzn_log_get(&mixed, &journal, bob, 4, 2, &got), FZN_LOG_OK,
+		           "its neighbours are still held");
+		expect_err(fzn_log_get(&mixed, &journal, bob, 4, 5, &got), FZN_LOG_ERR_ABSENT,
+		           "and one above the position is still absent");
+	}
+
+	/* A JOURNAL THIS MODULE WILL NOT READ IS MALFORMED, not a reason to
+	 * guess. `fzn_journal_next` answers 1 for a journal it refuses AND for
+	 * a stream nobody follows, so a log that took that at face value would
+	 * call every eviction ABSENT: the ask-for-ever loop again, entered
+	 * through a corrupt argument this time rather than through a wrong
+	 * rule. Same discipline as the corrupt `used` above -- refused at the
+	 * entry point that reads it. */
+	{
+		fzn_journal_t broken = journal;
+
+		expect_err(fzn_log_get(&log, NULL, alice, 0, 1, &got), FZN_LOG_ERR_MALFORMED,
+		           "asking with no position at all");
+		broken.used = broken.capacity + 1u;
+		expect_err(fzn_log_get(&log, &broken, alice, 0, 1, &got), FZN_LOG_ERR_MALFORMED,
+		           "asking against a corrupt position");
+		broken = journal;
+		broken.entries = NULL;
+		expect_err(fzn_log_get(&log, &broken, alice, 0, 1, &got), FZN_LOG_ERR_MALFORMED,
+		           "asking against a position with no entries");
+	}
+
+	/* THE ONE SEQUENCE AT THE TOP THAT IS ANSWERED CONSERVATIVELY, pinned
+	 * so that log.h's paragraph about it is not read as hypothetical.
+	 * `fzn_journal_next` saturates at UINT64_MAX rather than wrapping to
+	 * the reserved zero, so an exhausted stream and one a single step below
+	 * it give the same answer and this module cannot tell them apart.
+	 * ABSENT is the safe half of that ambiguity: one more request, rather
+	 * than an `fzn_journal_anchor` nobody can undo. If `record/journal.h`
+	 * ever publishes `received` itself, this case becomes GONE -- and this
+	 * comment is what says the change is allowed rather than a regression. */
+	{
+		expect(fzn_journal_anchor(&journal, bob, 21, UINT64_MAX) == FZN_JOURNAL_OK,
+		       "a stream run to the very top");
+		expect_err(fzn_log_get(&log, &journal, bob, 21, UINT64_MAX - 1u, &got),
+		           FZN_LOG_ERR_GONE, "one below the top is gone as usual");
+		expect_err(fzn_log_get(&log, &journal, bob, 21, UINT64_MAX, &got), FZN_LOG_ERR_ABSENT,
+		           "and the top itself is answered absent, the safe half");
 	}
 
 	printf("log_test: %d checks, %d failure(s)\n", checks, failures);

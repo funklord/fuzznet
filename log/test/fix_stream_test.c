@@ -27,6 +27,13 @@
  * same (issuer, seq) machinery, which is the claim sec 5 rests on when it says
  * the three consumers use this library in almost exactly the same way. Two
  * kinds would be a coincidence.
+ *
+ * "KIND" IS A LABEL AND "STREAM" IS THE KEY, and the two are not
+ * interchangeable however alike the words sound. `log.c` keys on (issuer,
+ * stream, seq) and never looks at `kind`, so what keeps one host's telemetry
+ * out of its configuration's sequence space is `stream` alone. This file said
+ * the opposite for as long as it has existed; the last block is the test that
+ * stops it being said again.
  */
 
 #include "../log.h"
@@ -89,6 +96,12 @@ int main(void)
 {
 	fzn_log_t track;
 	fzn_log_entry_t rows[4];
+	/* A CONSUMER OF A TRACK KEEPS A POSITION LIKE ANY OTHER CONSUMER, and
+	 * `fzn_log_get` needs it: whether an aged-out fix is GONE or was never
+	 * sent is a question about what this host RECEIVED, which the log
+	 * cannot answer once it has evicted the evidence. */
+	fzn_journal_t position;
+	fzn_journal_entry_t seen[2];
 	static uint8_t fixes[8][FIX_SIZE];
 	fzn_record_t rec;
 	const fzn_log_entry_t *got;
@@ -98,6 +111,9 @@ int main(void)
 
 	memset(receiver, 0x77, sizeof(receiver));
 	expect(fzn_log_init(&track, rows, 4) == FZN_LOG_OK, "a track is an ordinary log");
+	expect(fzn_journal_init(&position, seen, 2) == FZN_JOURNAL_OK, "and an ordinary position");
+	expect(fzn_journal_anchor(&position, receiver, 0, 0) == FZN_JOURNAL_OK,
+	       "followed from the beginning");
 
 	/* Six fixes along a path, appended as an (issuer, seq) stream. */
 	for (uint64_t seq = 1; seq <= 6; seq++) {
@@ -112,6 +128,8 @@ int main(void)
 		rec.body = body;
 		rec.body_len = FIX_SIZE;
 		expect(fzn_log_append(&track, &rec) == FZN_LOG_OK, "appending a fix");
+		expect(fzn_journal_admit(&position, receiver, 0, seq) == FZN_JOURNAL_OK,
+		       "and taking it into the position");
 	}
 
 	/* RETENTION IS THE SAME RETENTION. A track is bounded like any stream,
@@ -119,8 +137,10 @@ int main(void)
 	fzn_log_range(&track, receiver, 0, &first, &last);
 	expect(first == 3 && last == 6, "a four-entry log holds the last four fixes");
 	expect(fzn_log_dropped(&track) == 2, "and says it dropped two");
-	expect(fzn_log_get(&track, receiver, 0, 1, &got) == FZN_LOG_ERR_GONE,
+	expect(fzn_log_get(&track, &position, receiver, 0, 1, &got) == FZN_LOG_ERR_GONE,
 	       "an aged-out fix answers GONE, exactly as a log line does");
+	expect(fzn_log_get(&track, &position, receiver, 0, 7, &got) == FZN_LOG_ERR_ABSENT,
+	       "and a fix that has not been taken yet answers ABSENT");
 
 	/* SERVING A CATCH-UP IS THE SAME SERVING. */
 	{
@@ -150,16 +170,56 @@ int main(void)
 		rec.body = body;
 		rec.body_len = FIX_SIZE;
 		expect(fzn_log_append(&track, &rec) == FZN_LOG_OK, "appending a coarse fix");
-		expect(fzn_log_get(&track, receiver, 0, 7, &got) == FZN_LOG_OK, "and reading it back");
+		expect(fzn_journal_admit(&position, receiver, 0, 7) == FZN_JOURNAL_OK, "and taking it");
+		expect(fzn_log_get(&track, &position, receiver, 0, 7, &got) == FZN_LOG_OK,
+		       "and reading it back");
 		expect(got != NULL && (got->body[14] & FLAG_COARSE) != 0,
 		       "the flag is the consumer's to set and read");
 	}
 
-	/* AND A DIFFERENT KIND IS A DIFFERENT STREAM from the same issuer,
-	 * which is what lets one host carry telemetry and configuration
-	 * without either knowing about the other. */
-	expect(fzn_log_get(&track, receiver, 0, 7, &got) == FZN_LOG_OK && got->kind == TRACK,
+	/* A DIFFERENT KIND IS NOT A DIFFERENT STREAM, and this comment used to
+	 * say it was -- "which is what lets one host carry telemetry and
+	 * configuration without either knowing about the other". It does not.
+	 * `log.c` keys an entry on (ISSUER, STREAM, SEQ); `kind` is carried
+	 * beside them and compared by nothing. Two records differing only in
+	 * their kind are the SAME entry, and the second is refused as a
+	 * duplicate.
+	 *
+	 * The claim was wrong in a way that reads as safe, which is why it
+	 * needs a test rather than a correction: a consumer that believed it
+	 * would number its telemetry and its configuration in one sequence
+	 * space, and every configuration record whose sequence a fix had
+	 * already used would be silently dropped as an echo. What actually
+	 * separates them is `stream`, exactly as `record/record.h` and the
+	 * journal's per-(issuer, stream) position say -- and the pair below
+	 * pins both halves so that neither can drift back into prose. */
+	expect(fzn_log_get(&track, &position, receiver, 0, 7, &got) == FZN_LOG_OK &&
+	           got->kind == TRACK,
 	       "the kind travels with the entry");
+	{
+		const uint32_t OTHER_KIND = TRACK + 1u;
+		uint8_t *body = fixes[7];
+
+		fix_pack(body, 0, 0, 1700000008u, 0, 0, 0);
+		memset(&rec, 0, sizeof(rec));
+		memcpy(rec.issuer, receiver, FZN_PUBKEY_LEN);
+		rec.kind = OTHER_KIND;
+		rec.seq = 7;
+		rec.body = body;
+		rec.body_len = FIX_SIZE;
+		expect(fzn_log_append(&track, &rec) == FZN_LOG_ERR_DUPLICATE,
+		       "a different kind at a held sequence is a duplicate, not a second entry");
+		expect(fzn_log_get(&track, &position, receiver, 0, 7, &got) == FZN_LOG_OK &&
+		           got->kind == TRACK,
+		       "and the entry that was already there is untouched");
+
+		/* THE STREAM IS WHAT SEPARATES THEM. The same issuer, the same
+		 * sequence, the same kind even -- a different stream, and it is
+		 * a different entry. */
+		rec.stream = 1;
+		expect(fzn_log_append(&track, &rec) == FZN_LOG_OK,
+		       "the same sequence in another stream is a new entry");
+	}
 
 	printf("fix_stream_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
