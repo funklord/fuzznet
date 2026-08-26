@@ -61,6 +61,25 @@ impl fzn_aead extern "fzn_aead_xchacha20poly1305";
 //
 // What does NOT need a new kind is a consumer's command vocabulary. That
 // goes in the sealed payload, where this library never looks -- see below.
+//
+// SETTLED 2026-08-26 BY THE COPYRIGHT HOLDER, because a consumer asked
+// whether it could assign kinds in the unused range and the answer shapes
+// their build: **for now everything passes through fuzznet's decision
+// process.** A consumer does not take a value from the remainder on its own
+// authority, however plainly free it looks -- the validator above stays the
+// gatekeeper and the four values stay the whole set until a case is made and
+// analysed.
+//
+// The holder also named where this is expected to go: "we may need a way to
+// VENDOR them". So the anticipated end state is a mechanism by which a
+// project is allotted space it may assign within, rather than either a
+// permanent monopoly here or a free-for-all in the remainder. That mechanism
+// is not designed and not built, and until it is, the process is the
+// mechanism.
+//
+// Two consumers assigning 0x04 differently is the failure this prevents, and
+// it is not recoverable by either of them: each would refuse the other's
+// traffic as malformed and neither would be wrong.
 enum fzn_kind : u8 {
 	// Padding, liveness, and the thing a cover-traffic scheduler sends.
 	nop       = 0x00,

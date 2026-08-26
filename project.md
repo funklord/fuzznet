@@ -1892,6 +1892,44 @@ claim actually says.
 `_err_str` renderer and all are in the sweep; every fixed-width identifier
 goes through a named constant rather than a literal.
 
+### Settled: commands pass through fuzznet's decision process
+
+**The holder, 2026-08-26:** *"When it comes to commands, we may need a way to
+vendor them, but for now everything passes through fuzznet decision
+process."*
+
+**This answers a question that reached this project twice with two different
+shapes, and the narrower one is the ruling.** fuzzypickles relayed a holder
+instruction as "reserve a few kinds for implementors, and the rest belong to
+the consumer" -- a consumer assigning freely in the remainder. The holder had
+told this project directly, an hour earlier, that further kinds should be
+motivated to fuzznet and analysed case by case. §8.7 was left unchanged
+pending the holder rather than resolved toward whichever reading unblocked a
+consumer faster, and the ruling above is the narrow one.
+
+**So the practical answer to a consumer is unchanged and worth stating
+plainly:** a command vocabulary goes in the **sealed payload**, which this
+library never reads. That is where §5 always put it. What is *not* available
+is taking a spare `fzn_kind` value on your own authority -- the validator
+stays the gatekeeper.
+
+**And the anticipated end state is named rather than guessed:** *"we may need
+a way to vendor them."* A mechanism by which a project is allotted space it
+may assign within, rather than either a permanent monopoly here or a
+free-for-all in the remainder. **Not designed and not built.** Until it is,
+the process is the mechanism.
+
+**What the measurement says the reserved set actually costs today.** Prompted
+by fuzzypickles' reframing -- *a reserved kind is one fuzznet ACTS ON, a
+consumer kind is one it CARRIES* -- every library source was checked for what
+reads the wire kind. **Nothing does.** It appears twice in the whole tree,
+both in `wire/seal.c`, reading it into `opened.kind` and writing it from
+`what->kind`. Reassembly takes `index` and `chunks` as arguments; freshness
+takes its rule from the caller. `fzn_kind` is documentation plus a validator
+gate and nothing else, so the set of kinds fuzznet must *understand* is
+currently **empty** -- which is worth knowing when the vendoring mechanism is
+designed, because it means the reserved range can be small.
+
 ### The `kind` policy, recorded at the enum
 
 The holder's instruction: **an implementor who needs a further frame kind
