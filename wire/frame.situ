@@ -248,6 +248,20 @@ struct fzn_frame {
 		// protocol that reconfigures infrastructure across untrusted
 		// networks, that is metadata worth 32 bytes of ciphertext to hide.
 		//
+		// CARRY A REAL ONE IN EVERY DATAGRAM, INCLUDING CHAT (decided
+		// 2026-08-26). The 32 bytes are spent whether or not they mean
+		// anything, so a null saves nothing -- and a capability
+		// presented per datagram means a revoked host's very NEXT frame
+		// is refused, where a per-session one keeps acting until
+		// something tears the session down. This library has no
+		// sessions to tear down. sec 4.2 makes revocation the thing
+		// that ends authority here, and this is what makes it prompt.
+		//
+		// This library enforces none of it: fzn_seal_open verifies no
+		// chain. A consumer putting zero here has chosen to have no
+		// revocation granularity on that traffic, which may be right
+		// and should be a sentence somebody wrote.
+		//
 		// Still this library's field rather than the consumer's: sec 4.2 has
 		// the core verifying the CHAIN while never interpreting what a
 		// capability permits. Being inside the seal does not change that --

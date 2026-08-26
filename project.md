@@ -1892,6 +1892,63 @@ claim actually says.
 `_err_str` renderer and all are in the sweep; every fixed-width identifier
 goes through a named constant rather than a literal.
 
+### Decided: a real capability in every datagram (2026-08-26)
+
+**The question**, from fuzzypickles and the last thing gating their frame
+work: does every datagram carry a real capability, including ordinary chat,
+or do chat frames carry a null with authorisation staying event-driven? The
+holder delegated it here, on the grounds that this project knows what the
+three consumers are for.
+
+**Decision: a real capability, always.** Not because §13 already said so, but
+for a reason §13 does not give.
+
+**THE BYTES ARE SPENT EITHER WAY, so cost decides nothing.** The 32 bytes are
+in the schema's sealed region and cannot be omitted without a wire change. A
+null capability saves not one byte; it only makes the field meaningless in
+some frames. Whatever the answer is, it is not about size.
+
+**THE DECIDING REASON IS REVOCATION LATENCY.** §4.2 says revocation is what
+ends authority in this design -- not expiry, not disconnection. A capability
+presented *per datagram* means a revoked host's **very next frame** is
+refused. A capability established per session means it keeps acting until
+something tears the session down, and nothing in this library tears sessions
+down because it has no sessions.
+
+That is decisive for two of the three consumers and desirable for the third:
+
+- **netcfgd and raidcfgd are configuration daemons.** Every message changes
+  system state. A compromised host that keeps reconfiguring the network for
+  the lifetime of a connection after being revoked is the failure the whole
+  capability model exists to prevent.
+- **fuzzypickles is chat, and it gets the same property for free.** Removing
+  a peer stops their next message rather than their next session.
+
+**The objection was that chat has no per-message authority to put there, and
+it is not true.** `FZP_CAP_SEND` already exists in `core/src`. The authority
+is defined; it simply is not being carried. So the choice is not between a
+capability and nothing -- it is between carrying an authority they already
+have and carrying a zero.
+
+**WHAT FUZZNET ENFORCES: nothing, and that is deliberate.** `fzn_seal_open`
+calls `fzn_chain_verify` zero times. The library carries the 32 bytes and
+hands them over; the consumer decides whether to verify, per frame or never.
+This decision is therefore **advice with a reason attached** rather than a
+mechanism, and a consumer may ignore it. What they should not do is ignore it
+by accident.
+
+**So the honest statement of the null case:** a consumer putting zero there
+has chosen to have **no revocation granularity on that traffic**. That may be
+right for something -- a `nop` keepalive from a host whose authority is
+checked elsewhere -- and it should be a sentence somebody wrote, not a field
+nobody filled in.
+
+**One thing this does not settle**, and it is smaller: whether a host with no
+capability at all may send anything. Scenario 11 shows an unanchored host
+refused on authority, which covers the joining case. A host that is anchored
+but holds nothing is a state no consumer has yet, and it can wait until one
+does.
+
 ### Settled: commands pass through fuzznet's decision process
 
 **The holder, 2026-08-26:** *"When it comes to commands, we may need a way to
