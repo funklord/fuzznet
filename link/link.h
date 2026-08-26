@@ -121,7 +121,7 @@ const fzn_link_entry_t *fzn_link_get(const fzn_link_table_t *table, uint32_t id)
 
 /* Fill an array `sched/` can choose from. Returns how many were written,
  * never more than `out_cap`. */
-size_t fzn_link_snapshot(const fzn_link_table_t *table, fzn_link_t *out, size_t out_cap);
+size_t fzn_link_snapshot(const fzn_link_table_t *table, fzn_sched_candidate_t *out, size_t out_cap);
 
 /* A short name for `fzn_link_err_t`. Never NULL. */
 const char *fzn_link_err_str(fzn_link_err_t err);

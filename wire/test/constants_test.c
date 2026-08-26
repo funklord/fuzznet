@@ -73,6 +73,14 @@ _Static_assert(FZN_CAP_ID_LEN == SITU_FZN_FRAME_SEALED_CAPABILITY_COUNT,
 _Static_assert(SITU_FZN_FRAME_SIZE_MAX - SITU_FZN_FRAME_SIZE_MIN == FZN_SPLIT_MAX_PAYLOAD,
                 "chunk/split.h's payload ceiling and wire/frame.situ's [max] have diverged");
 
+/* THE STREAM NAMESPACE HAS A BOUNDARY AND EVERY TEST STAYS BELOW IT.
+ *
+ * `FZN_STREAM_RESERVED` divides fuzznet's half from a consumer's. Nothing in
+ * this library assigns a meaning below it yet, and the assertion is here so
+ * that the day something does, a test using that number stops the build
+ * rather than quietly meaning two things. */
+_Static_assert(FZN_STREAM_RESERVED > 0u, "the reserved stream range is empty");
+
 /* IDENTITIES THAT ARE THE SAME THING UNDER DIFFERENT NAMES.
  *
  * Found by a normalisation pass over the central types (project.md sec 5k),
@@ -258,6 +266,6 @@ int main(void)
 	      "the commitment field does not lie within the frame");
 
 	printf("constants_test: %d checks, %d failure(s); %d constants pinned at compile time\n",
-	       checks, failures, 15);
+	       checks, failures, 16);
 	return failures == 0 ? 0 : 1;
 }

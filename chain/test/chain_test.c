@@ -161,7 +161,7 @@ static void fixture_init(struct fixture *f)
 	f->sign.ctx = &f->stub;
 }
 
-static fzn_err_t run(struct fixture *f, uint64_t now, const fzn_revocation_t *revs, size_t nrevs)
+static fzn_chain_err_t run(struct fixture *f, uint64_t now, const fzn_revocation_t *revs, size_t nrevs)
 {
 	return fzn_chain_verify(f->hops, 2, f->root, f->cap, now, &f->sign, revs, nrevs, &f->out);
 }
@@ -173,7 +173,7 @@ static void test_accepts_a_good_chain(void)
 	struct fixture f;
 	fixture_init(&f);
 
-	CHECK(run(&f, 2000, NULL, 0) == FZN_OK, "a good two-hop chain was refused");
+	CHECK(run(&f, 2000, NULL, 0) == FZN_CHAIN_OK, "a good two-hop chain was refused");
 	CHECK(f.out.hop_count == 2, "hop_count %zu, wanted 2", f.out.hop_count);
 	CHECK(f.out.expires_at == FZN_NO_EXPIRY, "an unexpiring chain reported an expiry");
 	CHECK(fzn_ct_memeq(f.out.grantee, f.hops[1].grantee, FZN_PUBKEY_LEN),
@@ -188,7 +188,7 @@ static void test_root_is_pinned_not_adopted(void)
 	fixture_init(&f);
 	key(f.root, 9); /* a perfectly valid chain, rooted at someone else */
 
-	CHECK(run(&f, 2000, NULL, 0) == FZN_ERR_WRONG_ROOT, "a foreign root was adopted");
+	CHECK(run(&f, 2000, NULL, 0) == FZN_CHAIN_ERR_WRONG_ROOT, "a foreign root was adopted");
 	CHECK(f.stub.calls == 0, "spent %d verifications on a foreign root", f.stub.calls);
 }
 
@@ -198,7 +198,7 @@ static void test_broken_linkage(void)
 	fixture_init(&f);
 	key(f.hops[1].grantor, 7); /* not hop 0's grantee */
 
-	CHECK(run(&f, 2000, NULL, 0) == FZN_ERR_CHAIN_INVALID, "a broken link was accepted");
+	CHECK(run(&f, 2000, NULL, 0) == FZN_CHAIN_ERR_CHAIN_INVALID, "a broken link was accepted");
 	CHECK(f.stub.calls == 0, "verified signatures on a chain that does not link");
 }
 
@@ -218,7 +218,7 @@ static void test_capability_must_match_every_hop(void)
 	fixture_init(&f);
 	memset(f.hops[1].capability, 0xc1, FZN_CAP_ID_LEN);
 
-	CHECK(run(&f, 2000, NULL, 0) == FZN_ERR_CHAIN_INVALID,
+	CHECK(run(&f, 2000, NULL, 0) == FZN_CHAIN_ERR_CHAIN_INVALID,
 	      "a chain that changes capability half way was accepted");
 	CHECK(f.stub.calls == 0, "spent verifications on a spliced capability");
 }
@@ -229,9 +229,9 @@ static void test_expiry_is_enforced_when_set(void)
 	fixture_init(&f);
 	f.hops[1].expires_at = 1500;
 
-	CHECK(run(&f, 2000, NULL, 0) == FZN_ERR_EXPIRED, "an expired hop was accepted");
+	CHECK(run(&f, 2000, NULL, 0) == FZN_CHAIN_ERR_EXPIRED, "an expired hop was accepted");
 	CHECK(f.stub.calls == 0, "spent verifications on an expired hop");
-	CHECK(run(&f, 1400, NULL, 0) == FZN_OK, "a live hop was refused");
+	CHECK(run(&f, 1400, NULL, 0) == FZN_CHAIN_OK, "a live hop was refused");
 	CHECK(f.out.expires_at == 1500, "expiry %llu, wanted 1500",
 	      (unsigned long long)f.out.expires_at);
 }
@@ -243,7 +243,7 @@ static void test_expiry_is_the_weakest_link(void)
 	f.hops[0].expires_at = 9000;
 	f.hops[1].expires_at = 5000;
 
-	CHECK(run(&f, 2000, NULL, 0) == FZN_OK, "a live chain was refused");
+	CHECK(run(&f, 2000, NULL, 0) == FZN_CHAIN_OK, "a live chain was refused");
 	CHECK(f.out.expires_at == 5000, "expiry %llu, wanted the soonest (5000)",
 	      (unsigned long long)f.out.expires_at);
 
@@ -251,7 +251,7 @@ static void test_expiry_is_the_weakest_link(void)
 	fixture_init(&f);
 	f.hops[0].expires_at = FZN_NO_EXPIRY;
 	f.hops[1].expires_at = 5000;
-	CHECK(run(&f, 2000, NULL, 0) == FZN_OK, "a live chain was refused");
+	CHECK(run(&f, 2000, NULL, 0) == FZN_CHAIN_OK, "a live chain was refused");
 	CHECK(f.out.expires_at == 5000, "an unlimited hop won the minimum");
 }
 
@@ -262,7 +262,7 @@ static void test_expiry_before_issue_is_malformed_not_expired(void)
 	f.hops[0].issued_at = 5000;
 	f.hops[0].expires_at = 4000;
 
-	CHECK(run(&f, 1000, NULL, 0) == FZN_ERR_CHAIN_INVALID,
+	CHECK(run(&f, 1000, NULL, 0) == FZN_CHAIN_ERR_CHAIN_INVALID,
 	      "a grant that expired before it was issued was treated as merely expired");
 }
 
@@ -279,14 +279,14 @@ static void test_revocation_kills_a_middle_hop(void)
 	memset(rev.capability, 0xc0, FZN_CAP_ID_LEN);
 	key(rev.grantee, 1); /* hop 0's grantee -- the middle of the chain */
 
-	CHECK(run(&f, 2000, &rev, 1) == FZN_ERR_REVOKED,
+	CHECK(run(&f, 2000, &rev, 1) == FZN_CHAIN_ERR_REVOKED,
 	      "revoking the middle of a chain did not kill what it granted");
 	CHECK(f.stub.calls == 0, "spent verifications on a revoked chain");
 
 	/* And revoking the end works too, which is the ordinary case. */
 	fixture_init(&f);
 	key(rev.grantee, 2);
-	CHECK(run(&f, 2000, &rev, 1) == FZN_ERR_REVOKED, "revoking the grantee had no effect");
+	CHECK(run(&f, 2000, &rev, 1) == FZN_CHAIN_ERR_REVOKED, "revoking the grantee had no effect");
 }
 
 static void test_revocation_is_per_capability(void)
@@ -301,7 +301,7 @@ static void test_revocation_is_per_capability(void)
 	memset(rev.capability, 0xff, FZN_CAP_ID_LEN); /* a different capability */
 	key(rev.grantee, 2);
 
-	CHECK(run(&f, 2000, &rev, 1) == FZN_OK,
+	CHECK(run(&f, 2000, &rev, 1) == FZN_CHAIN_OK,
 	      "revoking one capability withdrew an unrelated one");
 }
 
@@ -311,11 +311,11 @@ static void test_a_bad_signature_is_refused(void)
 
 	fixture_init(&f);
 	f.stub.fail_on_call = 2; /* the second hop's */
-	CHECK(run(&f, 2000, NULL, 0) == FZN_ERR_CHAIN_INVALID, "a bad signature was accepted");
+	CHECK(run(&f, 2000, NULL, 0) == FZN_CHAIN_ERR_CHAIN_INVALID, "a bad signature was accepted");
 
 	fixture_init(&f);
 	f.stub.fail_on_call = 1;
-	CHECK(run(&f, 2000, NULL, 0) == FZN_ERR_CHAIN_INVALID, "a bad root signature was accepted");
+	CHECK(run(&f, 2000, NULL, 0) == FZN_CHAIN_ERR_CHAIN_INVALID, "a bad root signature was accepted");
 	CHECK(f.stub.calls == 1, "kept verifying after hop 0 failed");
 }
 
@@ -326,27 +326,27 @@ static void test_bounds(void)
 
 	fixture_init(&f);
 	CHECK(fzn_chain_verify(f.hops, 0, f.root, f.cap, 2000, &f.sign, NULL, 0, &f.out) ==
-	              FZN_ERR_MALFORMED,
+	              FZN_CHAIN_ERR_MALFORMED,
 	      "a zero-hop chain was not refused");
 
 	for (size_t i = 0; i < FZN_CHAIN_MAX_HOPS + 1; i++)
 		hop_init(&many[i], (uint8_t)i, (uint8_t)(i + 1), 0xc0);
 	CHECK(fzn_chain_verify(many, FZN_CHAIN_MAX_HOPS + 1, f.root, f.cap, 2000, &f.sign, NULL,
-	                       0, &f.out) == FZN_ERR_MALFORMED,
+	                       0, &f.out) == FZN_CHAIN_ERR_MALFORMED,
 	      "a chain past FZN_CHAIN_MAX_HOPS was not refused");
 	CHECK(f.stub.calls == 0, "spent verifications on an over-long chain");
 
 	fixture_init(&f);
 	CHECK(fzn_chain_verify(NULL, 2, f.root, f.cap, 2000, &f.sign, NULL, 0, &f.out) ==
-	              FZN_ERR_MALFORMED,
+	              FZN_CHAIN_ERR_MALFORMED,
 	      "null hops accepted");
 	CHECK(fzn_chain_verify(f.hops, 2, f.root, f.cap, 2000, &f.sign, NULL, 3, &f.out) ==
-	              FZN_ERR_MALFORMED,
+	              FZN_CHAIN_ERR_MALFORMED,
 	      "a nonzero revocation count with a null list was accepted");
 
 	fixture_init(&f);
 	f.hops[1].signed_region_len = 0;
-	CHECK(run(&f, 2000, NULL, 0) == FZN_ERR_MALFORMED, "a hop with no signed region passed");
+	CHECK(run(&f, 2000, NULL, 0) == FZN_CHAIN_ERR_MALFORMED, "a hop with no signed region passed");
 }
 
 static void test_out_is_untouched_on_failure(void)
@@ -359,7 +359,7 @@ static void test_out_is_untouched_on_failure(void)
 	before = f.out;
 	f.stub.fail_on_call = 1;
 
-	CHECK(run(&f, 2000, NULL, 0) == FZN_ERR_CHAIN_INVALID, "expected a refusal");
+	CHECK(run(&f, 2000, NULL, 0) == FZN_CHAIN_ERR_CHAIN_INVALID, "expected a refusal");
 	CHECK(memcmp(&before, &f.out, sizeof(before)) == 0,
 	      "a rejected chain wrote something into *out");
 }
@@ -389,14 +389,14 @@ static void test_delegation_needs_permission_not_just_possession(void)
 	fixture_init(&f);
 	f.hops[0].delegable = 0;
 
-	CHECK(run(&f, 2000, NULL, 0) == FZN_ERR_CHAIN_INVALID,
+	CHECK(run(&f, 2000, NULL, 0) == FZN_CHAIN_ERR_CHAIN_INVALID,
 	      "a chain continued past a hop that was not delegable");
 	CHECK(f.stub.calls == 0, "verified signatures on an unauthorised delegation");
 
 	/* And the default is closed: a zeroed hop is not delegable. */
 	fixture_init(&f);
 	memset(&f.hops[0].delegable, 0, sizeof(f.hops[0].delegable));
-	CHECK(run(&f, 2000, NULL, 0) == FZN_ERR_CHAIN_INVALID,
+	CHECK(run(&f, 2000, NULL, 0) == FZN_CHAIN_ERR_CHAIN_INVALID,
 	      "a hop left at its zero value permitted delegation");
 }
 
@@ -412,7 +412,7 @@ static void test_mint(void)
 	key(grantee, 1);
 
 	CHECK(fzn_chain_mint(f.root, grantee, f.cap, 1000, FZN_NO_EXPIRY, 1, region,
-	                     sizeof(region) - 1, &f.sign, &hop) == FZN_OK,
+	                     sizeof(region) - 1, &f.sign, &hop) == FZN_CHAIN_OK,
 	      "minting hop 0 failed");
 	CHECK(f.stub.signs == 1, "signed %d times, wanted 1", f.stub.signs);
 	CHECK(fzn_ct_memeq(hop.grantor, f.root, FZN_PUBKEY_LEN), "grantor is not the root");
@@ -421,7 +421,7 @@ static void test_mint(void)
 	/* The minted hop must be something the verifier accepts, or minting
 	 * and verifying disagree about what a chain is -- which is the bug
 	 * this pairing exists to catch. */
-	CHECK(fzn_chain_verify(&hop, 1, f.root, f.cap, 2000, &f.sign, NULL, 0, &out) == FZN_OK,
+	CHECK(fzn_chain_verify(&hop, 1, f.root, f.cap, 2000, &f.sign, NULL, 0, &out) == FZN_CHAIN_OK,
 	      "a freshly minted hop does not verify");
 	CHECK(out.hop_count == 1, "hop_count %zu, wanted 1", out.hop_count);
 
@@ -429,7 +429,7 @@ static void test_mint(void)
 	 * made, not at the far end of a network. */
 	fixture_init(&f);
 	CHECK(fzn_chain_mint(f.root, grantee, f.cap, 5000, 4000, 0, region, sizeof(region) - 1,
-	                     &f.sign, &hop) == FZN_ERR_CHAIN_INVALID,
+	                     &f.sign, &hop) == FZN_CHAIN_ERR_CHAIN_INVALID,
 	      "minted a grant that expired before it was issued");
 	CHECK(f.stub.signs == 0, "signed a grant it had already decided to refuse");
 
@@ -437,14 +437,14 @@ static void test_mint(void)
 	fixture_init(&f);
 	f.sign.sign = NULL;
 	CHECK(fzn_chain_mint(f.root, grantee, f.cap, 1000, FZN_NO_EXPIRY, 0, region,
-	                     sizeof(region) - 1, &f.sign, &hop) == FZN_ERR_MALFORMED,
+	                     sizeof(region) - 1, &f.sign, &hop) == FZN_CHAIN_ERR_MALFORMED,
 	      "minted without a signer");
 
 	/* A signer that refuses is a refusal, not a hop with rubbish in it. */
 	fixture_init(&f);
 	f.stub.can_sign = 0;
 	CHECK(fzn_chain_mint(f.root, grantee, f.cap, 1000, FZN_NO_EXPIRY, 0, region,
-	                     sizeof(region) - 1, &f.sign, &hop) == FZN_ERR_CHAIN_INVALID,
+	                     sizeof(region) - 1, &f.sign, &hop) == FZN_CHAIN_ERR_CHAIN_INVALID,
 	      "a refusing signer still produced a hop");
 }
 
@@ -464,7 +464,7 @@ static void test_delegate(void)
 	f.hops[1].delegable = 1;
 	CHECK(fzn_chain_delegate(f.hops, 2, f.root, f.cap, 2000, grantee, FZN_NO_EXPIRY, 0,
 	                         region, sizeof(region) - 1, &f.sign, NULL, 0,
-	                         &hop) == FZN_OK,
+	                         &hop) == FZN_CHAIN_OK,
 	      "delegating from a good chain failed");
 	CHECK(fzn_ct_memeq(hop.grantor, f.hops[1].grantee, FZN_PUBKEY_LEN),
 	      "the new hop's grantor is not the chain's current grantee");
@@ -476,7 +476,7 @@ static void test_delegate(void)
 	f.hops[1].delegable = 0;
 	CHECK(fzn_chain_delegate(f.hops, 2, f.root, f.cap, 2000, grantee, FZN_NO_EXPIRY, 0,
 	                         region, sizeof(region) - 1, &f.sign, NULL, 0, &hop) ==
-	              FZN_ERR_NOT_DELEGABLE,
+	              FZN_CHAIN_ERR_NOT_DELEGABLE,
 	      "delegated from a chain that does not permit it");
 	CHECK(f.stub.signs == 0, "signed a hop it was not entitled to make");
 
@@ -487,7 +487,7 @@ static void test_delegate(void)
 	f.hops[1].delegable = 1;
 	f.hops[1].expires_at = 5000;
 	CHECK(fzn_chain_delegate(f.hops, 2, f.root, f.cap, 2000, grantee, 9000, 0, region,
-	                         sizeof(region) - 1, &f.sign, NULL, 0, &hop) == FZN_OK,
+	                         sizeof(region) - 1, &f.sign, NULL, 0, &hop) == FZN_CHAIN_OK,
 	      "delegating within a time-boxed chain failed");
 	CHECK(hop.expires_at == 5000, "expiry %llu, wanted the grantor's 5000",
 	      (unsigned long long)hop.expires_at);
@@ -496,7 +496,7 @@ static void test_delegate(void)
 	f.hops[1].delegable = 1;
 	f.hops[1].expires_at = 5000;
 	CHECK(fzn_chain_delegate(f.hops, 2, f.root, f.cap, 2000, grantee, FZN_NO_EXPIRY, 0,
-	                         region, sizeof(region) - 1, &f.sign, NULL, 0, &hop) == FZN_OK,
+	                         region, sizeof(region) - 1, &f.sign, NULL, 0, &hop) == FZN_CHAIN_OK,
 	      "delegating without asking for an expiry failed");
 	CHECK(hop.expires_at == 5000, "asking for no expiry escaped the grantor's cap");
 
@@ -510,7 +510,7 @@ static void test_delegate(void)
 	f.hops[1].delegable = 1;
 	f.hops[1].expires_at = 5000;
 	CHECK(fzn_chain_delegate(f.hops, 2, f.root, f.cap, 2000, grantee, 3000, 0, region,
-	                         sizeof(region) - 1, &f.sign, NULL, 0, &hop) == FZN_OK,
+	                         sizeof(region) - 1, &f.sign, NULL, 0, &hop) == FZN_CHAIN_OK,
 	      "delegating a shorter grant failed");
 	CHECK(hop.expires_at == 3000, "expiry %llu, wanted the requested 3000 -- the cap "
 	                              "widened a deliberately shorter grant",
@@ -527,7 +527,7 @@ static void test_delegate(void)
 		key(rev.grantee, 1);
 		CHECK(fzn_chain_delegate(f.hops, 2, f.root, f.cap, 2000, grantee, FZN_NO_EXPIRY,
 		                         0, region, sizeof(region) - 1, &f.sign, &rev, 1,
-		                         &hop) == FZN_ERR_REVOKED,
+		                         &hop) == FZN_CHAIN_ERR_REVOKED,
 		      "delegated from a revoked chain");
 		CHECK(f.stub.signs == 0, "signed a hop resting on a revoked chain");
 	}
@@ -543,7 +543,7 @@ static void test_delegate(void)
 		}
 		CHECK(fzn_chain_delegate(full, FZN_CHAIN_MAX_HOPS, f.root, f.cap, 2000, grantee,
 		                         FZN_NO_EXPIRY, 0, region, sizeof(region) - 1, &f.sign,
-		                         NULL, 0, &hop) == FZN_ERR_MALFORMED,
+		                         NULL, 0, &hop) == FZN_CHAIN_ERR_MALFORMED,
 		      "extended a chain already at the depth ceiling");
 	}
 }
@@ -589,7 +589,7 @@ static void test_every_guard_refuses_its_own_argument(void)
 	no_sign.sign = NULL;
 
 #define REFUSED(call, what) \
-	CHECK((call) == FZN_ERR_MALFORMED, "%s was accepted", what)
+	CHECK((call) == FZN_CHAIN_ERR_MALFORMED, "%s was accepted", what)
 
 	/* fzn_chain_verify */
 	REFUSED(fzn_chain_verify(NULL, 1, f.root, f.cap, 100, &f.sign, NULL, 0, &f.out),
@@ -666,7 +666,7 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	struct fixture f;
 	fixture_init(&f);
-	CHECK(run(&f, 2000, NULL, 0) == FZN_OK,
+	CHECK(run(&f, 2000, NULL, 0) == FZN_CHAIN_OK,
 	      "the positive control fails, so every refusal above proves nothing");
 }
 

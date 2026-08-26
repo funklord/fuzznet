@@ -99,7 +99,7 @@ static void test_admits_a_signed_revocation(void)
 	fixture_init(&f);
 	record_of(&r, 0, 0xc0, 5);
 
-	CHECK(fzn_revocation_admit(&f.store, &r, f.root, &f.sign) == FZN_OK,
+	CHECK(fzn_revocation_admit(&f.store, &r, f.root, &f.sign) == FZN_CHAIN_OK,
 	      "a properly signed revocation was refused");
 	CHECK(f.store.used == 1, "used %zu, wanted 1", f.store.used);
 	CHECK(fzn_revocation_covers(&f.store, r.capability, r.grantee),
@@ -118,7 +118,7 @@ static void test_a_carrier_cannot_invent_one(void)
 	fixture_init(&f);
 	record_of(&r, 7, 0xc0, 5); /* issued by some peer, not the root */
 
-	CHECK(fzn_revocation_admit(&f.store, &r, f.root, &f.sign) == FZN_ERR_WRONG_ROOT,
+	CHECK(fzn_revocation_admit(&f.store, &r, f.root, &f.sign) == FZN_CHAIN_ERR_WRONG_ROOT,
 	      "a revocation issued by a carrier was accepted");
 	CHECK(f.store.used == 0, "it was recorded anyway");
 	CHECK(f.stub.calls == 0, "a signature was verified for an issuer already refused");
@@ -127,7 +127,7 @@ static void test_a_carrier_cannot_invent_one(void)
 	fixture_init(&f);
 	record_of(&r, 0, 0xc0, 5);
 	f.stub.answer = 0;
-	CHECK(fzn_revocation_admit(&f.store, &r, f.root, &f.sign) == FZN_ERR_CHAIN_INVALID,
+	CHECK(fzn_revocation_admit(&f.store, &r, f.root, &f.sign) == FZN_CHAIN_ERR_CHAIN_INVALID,
 	      "a revocation with a bad signature was accepted");
 	CHECK(f.store.used == 0, "it was recorded anyway");
 }
@@ -143,8 +143,8 @@ static void test_hearing_it_twice_is_not_an_error(void)
 	fixture_init(&f);
 	record_of(&r, 0, 0xc0, 5);
 
-	CHECK(fzn_revocation_admit(&f.store, &r, f.root, &f.sign) == FZN_OK, "first");
-	CHECK(fzn_revocation_admit(&f.store, &r, f.root, &f.sign) == FZN_OK,
+	CHECK(fzn_revocation_admit(&f.store, &r, f.root, &f.sign) == FZN_CHAIN_OK, "first");
+	CHECK(fzn_revocation_admit(&f.store, &r, f.root, &f.sign) == FZN_CHAIN_OK,
 	      "hearing the same revocation twice was an error");
 	CHECK(f.store.used == 1, "the duplicate took a second slot");
 }
@@ -160,12 +160,12 @@ static void test_a_full_store_refuses_and_does_not_evict(void)
 	fixture_init(&f);
 	for (uint8_t i = 0; i < 4; i++) {
 		record_of(&r, 0, 0xc0, (uint8_t)(10 + i));
-		CHECK(fzn_revocation_admit(&f.store, &r, f.root, &f.sign) == FZN_OK,
+		CHECK(fzn_revocation_admit(&f.store, &r, f.root, &f.sign) == FZN_CHAIN_OK,
 		      "filling entry %u", i);
 	}
 
 	record_of(&r, 0, 0xc0, 99);
-	CHECK(fzn_revocation_admit(&f.store, &r, f.root, &f.sign) == FZN_ERR_STORE_FULL,
+	CHECK(fzn_revocation_admit(&f.store, &r, f.root, &f.sign) == FZN_CHAIN_ERR_STORE_FULL,
 	      "a full store admitted a fifth revocation");
 
 	/* The first entry must still be there -- an evicting store would have
@@ -183,7 +183,7 @@ static void test_merge_keeps_going_past_a_bad_record(void)
 {
 	struct fixture f;
 	fzn_revocation_record_t batch[3];
-	fzn_err_t err = FZN_OK;
+	fzn_chain_err_t err = FZN_CHAIN_OK;
 	size_t n;
 
 	/* One forged record must not stop a host learning the genuine ones
@@ -196,15 +196,15 @@ static void test_merge_keeps_going_past_a_bad_record(void)
 
 	n = fzn_revocation_merge(&f.store, batch, 3, f.root, &f.sign, &err);
 	CHECK(n == 2, "admitted %zu of a 3-record batch, wanted 2", n);
-	CHECK(err == FZN_ERR_WRONG_ROOT, "the first failure was not reported back");
+	CHECK(err == FZN_CHAIN_ERR_WRONG_ROOT, "the first failure was not reported back");
 	CHECK(fzn_revocation_covers(&f.store, batch[2].capability, batch[2].grantee),
 	      "a record after the bad one was skipped");
 
-	/* A clean batch reports FZN_OK. */
+	/* A clean batch reports FZN_CHAIN_OK. */
 	fixture_init(&f);
 	record_of(&batch[1], 0, 0xc0, 2);
 	n = fzn_revocation_merge(&f.store, batch, 3, f.root, &f.sign, &err);
-	CHECK(n == 3 && err == FZN_OK, "a clean batch reported %zu admitted, err %d",
+	CHECK(n == 3 && err == FZN_CHAIN_OK, "a clean batch reported %zu admitted, err %d",
 	      n, (int)err);
 }
 
@@ -231,13 +231,13 @@ static void test_the_store_feeds_chain_verify_directly(void)
 	hops[0].signed_region_len = sizeof(REGION) - 1;
 
 	CHECK(fzn_chain_verify(hops, 1, f.root, cap, 2000, &f.sign, f.store.entries,
-	                       f.store.used, &out) == FZN_OK,
+	                       f.store.used, &out) == FZN_CHAIN_OK,
 	      "an unrevoked chain was refused with an empty store");
 
 	record_of(&r, 0, 0xc0, 5);
-	CHECK(fzn_revocation_admit(&f.store, &r, f.root, &f.sign) == FZN_OK, "admit");
+	CHECK(fzn_revocation_admit(&f.store, &r, f.root, &f.sign) == FZN_CHAIN_OK, "admit");
 	CHECK(fzn_chain_verify(hops, 1, f.root, cap, 2000, &f.sign, f.store.entries,
-	                       f.store.used, &out) == FZN_ERR_REVOKED,
+	                       f.store.used, &out) == FZN_CHAIN_ERR_REVOKED,
 	      "chain verify did not see the revocation the store had admitted");
 }
 
@@ -250,16 +250,16 @@ static void test_bad_arguments(void)
 	fixture_init(&f);
 	record_of(&r, 0, 0xc0, 5);
 
-	CHECK(fzn_revocation_store_init(&s, f.entries, 0) == FZN_ERR_MALFORMED,
+	CHECK(fzn_revocation_store_init(&s, f.entries, 0) == FZN_CHAIN_ERR_MALFORMED,
 	      "a zero-capacity store was accepted, and would record nothing");
-	CHECK(fzn_revocation_store_init(&s, NULL, 4) == FZN_ERR_MALFORMED, "null entries");
-	CHECK(fzn_revocation_admit(&f.store, &r, f.root, NULL) == FZN_ERR_MALFORMED,
+	CHECK(fzn_revocation_store_init(&s, NULL, 4) == FZN_CHAIN_ERR_MALFORMED, "null entries");
+	CHECK(fzn_revocation_admit(&f.store, &r, f.root, NULL) == FZN_CHAIN_ERR_MALFORMED,
 	      "a null signer was accepted");
 	CHECK(fzn_revocation_covers(NULL, r.capability, r.grantee) == 0,
 	      "covers on a null store did not answer no");
 
 	r.signed_region_len = 0;
-	CHECK(fzn_revocation_admit(&f.store, &r, f.root, &f.sign) == FZN_ERR_MALFORMED,
+	CHECK(fzn_revocation_admit(&f.store, &r, f.root, &f.sign) == FZN_CHAIN_ERR_MALFORMED,
 	      "a record with no signed region was accepted");
 }
 
@@ -267,7 +267,7 @@ static void test_merge_bad_arguments(void)
 {
 	struct fixture f;
 	fzn_revocation_record_t r;
-	fzn_err_t err;
+	fzn_chain_err_t err;
 
 	/* Added because coverage said nothing reached them: the guard in
 	 * fzn_revocation_merge was the only unexecuted code in the library,
@@ -278,15 +278,15 @@ static void test_merge_bad_arguments(void)
 	fixture_init(&f);
 	record_of(&r, 0, 0xc0, 5);
 
-	err = FZN_OK;
+	err = FZN_CHAIN_OK;
 	CHECK(fzn_revocation_merge(NULL, &r, 1, f.root, &f.sign, &err) == 0,
 	      "merge into a null store did not admit zero");
-	CHECK(err == FZN_ERR_MALFORMED, "merge into a null store did not report why");
+	CHECK(err == FZN_CHAIN_ERR_MALFORMED, "merge into a null store did not report why");
 
-	err = FZN_OK;
+	err = FZN_CHAIN_OK;
 	CHECK(fzn_revocation_merge(&f.store, NULL, 3, f.root, &f.sign, &err) == 0,
 	      "merge of a null batch with a nonzero count admitted something");
-	CHECK(err == FZN_ERR_MALFORMED, "merge of a null batch did not report why");
+	CHECK(err == FZN_CHAIN_ERR_MALFORMED, "merge of a null batch did not report why");
 	CHECK(f.store.used == 0, "a refused merge recorded something");
 
 	/* A null `err` must be tolerated, since it is the caller's option
@@ -296,10 +296,10 @@ static void test_merge_bad_arguments(void)
 
 	/* An empty batch is not an error: a peer with nothing to tell us is
 	 * the ordinary case, not a malformed one. */
-	err = FZN_ERR_MALFORMED;
+	err = FZN_CHAIN_ERR_MALFORMED;
 	CHECK(fzn_revocation_merge(&f.store, NULL, 0, f.root, &f.sign, &err) == 0,
 	      "an empty batch admitted something");
-	CHECK(err == FZN_OK, "an empty batch was reported as an error");
+	CHECK(err == FZN_CHAIN_OK, "an empty batch was reported as an error");
 }
 
 /* Positive control: most cases above assert a refusal, and an admit that
@@ -320,7 +320,7 @@ static void test_merge_reports_the_first_failure_not_the_last(void)
 {
 	struct fixture f;
 	fzn_revocation_record_t batch[6];
-	fzn_err_t err = FZN_OK;
+	fzn_chain_err_t err = FZN_CHAIN_OK;
 	size_t n;
 
 	fixture_init(&f); /* four entries of room */
@@ -330,7 +330,7 @@ static void test_merge_reports_the_first_failure_not_the_last(void)
 
 	n = fzn_revocation_merge(&f.store, batch, 6, f.root, &f.sign, &err);
 	CHECK(n == 4, "admitted %zu of five genuine records into a store of four", n);
-	CHECK(err == FZN_ERR_WRONG_ROOT,
+	CHECK(err == FZN_CHAIN_ERR_WRONG_ROOT,
 	      "reported %d; the first failure was WRONG_ROOT and the later one was a "
 	      "full store, so this is the last error rather than the first",
 	      (int)err);
@@ -344,7 +344,7 @@ static void test_merge_reports_the_first_failure_not_the_last(void)
 
 	n = fzn_revocation_merge(&f.store, batch, 6, f.root, &f.sign, &err);
 	CHECK(n == 4, "admitted %zu with the forged record last", n);
-	CHECK(err == FZN_ERR_STORE_FULL,
+	CHECK(err == FZN_CHAIN_ERR_STORE_FULL,
 	      "reported %d; the store filled before the forged record was reached, so "
 	      "STORE_FULL is the first failure here",
 	      (int)err);
@@ -386,7 +386,7 @@ static void test_a_store_whose_fields_disagree_denies(void)
 
 	fixture_init(&f);
 	record_of(&r, 0, 0xc0, 1);
-	CHECK(fzn_revocation_admit(&f.store, &r, f.root, &f.sign) == FZN_OK,
+	CHECK(fzn_revocation_admit(&f.store, &r, f.root, &f.sign) == FZN_CHAIN_OK,
 	      "the setup record was refused");
 
 	f.store.used = 5; /* one past the four entries it was given */
@@ -432,17 +432,17 @@ static void test_every_guard_refuses_its_own_argument(void)
 	CHECK(fzn_revocation_covers(&f.store, NULL, r.grantee) == 0, "a null capability");
 	CHECK(fzn_revocation_covers(&f.store, r.capability, NULL) == 0, "a null grantee");
 
-	CHECK(fzn_revocation_admit(NULL, &r, f.root, &f.sign) == FZN_ERR_MALFORMED,
+	CHECK(fzn_revocation_admit(NULL, &r, f.root, &f.sign) == FZN_CHAIN_ERR_MALFORMED,
 	      "admitting into a null store");
-	CHECK(fzn_revocation_admit(&no_entries, &r, f.root, &f.sign) == FZN_ERR_MALFORMED,
+	CHECK(fzn_revocation_admit(&no_entries, &r, f.root, &f.sign) == FZN_CHAIN_ERR_MALFORMED,
 	      "admitting into a store with no entries");
-	CHECK(fzn_revocation_admit(&f.store, NULL, f.root, &f.sign) == FZN_ERR_MALFORMED,
+	CHECK(fzn_revocation_admit(&f.store, NULL, f.root, &f.sign) == FZN_CHAIN_ERR_MALFORMED,
 	      "admitting a null record");
-	CHECK(fzn_revocation_admit(&f.store, &r, NULL, &f.sign) == FZN_ERR_MALFORMED,
+	CHECK(fzn_revocation_admit(&f.store, &r, NULL, &f.sign) == FZN_CHAIN_ERR_MALFORMED,
 	      "admitting against a null root");
-	CHECK(fzn_revocation_admit(&f.store, &r, f.root, NULL) == FZN_ERR_MALFORMED,
+	CHECK(fzn_revocation_admit(&f.store, &r, f.root, NULL) == FZN_CHAIN_ERR_MALFORMED,
 	      "admitting with a null signer");
-	CHECK(fzn_revocation_admit(&f.store, &r, f.root, &no_verify) == FZN_ERR_MALFORMED,
+	CHECK(fzn_revocation_admit(&f.store, &r, f.root, &no_verify) == FZN_CHAIN_ERR_MALFORMED,
 	      "admitting with a signer that cannot verify");
 }
 
@@ -453,7 +453,7 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 
 	fixture_init(&f);
 	record_of(&r, 0, 0xc0, 5);
-	CHECK(fzn_revocation_admit(&f.store, &r, f.root, &f.sign) == FZN_OK,
+	CHECK(fzn_revocation_admit(&f.store, &r, f.root, &f.sign) == FZN_CHAIN_OK,
 	      "the positive control fails, so every refusal above proves nothing");
 }
 

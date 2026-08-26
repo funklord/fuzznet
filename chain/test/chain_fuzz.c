@@ -141,7 +141,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 	fzn_chain_t out, before;
 	size_t n, nrevs;
 	uint64_t now;
-	fzn_err_t err;
+	fzn_chain_err_t err;
 	size_t pos = 0;
 
 	if (len < 8)
@@ -216,7 +216,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 	err = fzn_chain_verify(hops, n, root, cap, now, &sign, nrevs ? revs : NULL, nrevs,
 	                       &out);
 
-	if (err == FZN_OK) {
+	if (err == FZN_CHAIN_OK) {
 		cov->verified_ok++;
 
 		if (n == 0 || n > MAX_HOPS) {
@@ -266,14 +266,14 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 	}
 
 	/* Delegation, on a chain that verified. */
-	if (err == FZN_OK && n < MAX_HOPS) {
+	if (err == FZN_CHAIN_OK && n < MAX_HOPS) {
 		fzn_chain_hop_t fresh;
 		uint8_t grantee[FZN_PUBKEY_LEN];
 
 		memset(grantee, 0xf0, sizeof(grantee));
 		if (fzn_chain_delegate(hops, n, root, cap, now, grantee, 0, 0, REGION,
 		                       sizeof(REGION) - 1, &sign, nrevs ? revs : NULL, nrevs,
-		                       &fresh) == FZN_OK) {
+		                       &fresh) == FZN_CHAIN_OK) {
 			cov->delegated_ok++;
 
 			if (!hops[n - 1].delegable) {

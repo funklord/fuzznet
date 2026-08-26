@@ -463,7 +463,7 @@ static void sim_receive(struct sim_net *net, struct sim_datagram *d)
 	fzn_opened_t opened;
 	fzn_partial_t *done = NULL;
 	fzn_fresh_err_t fresh;
-	fzn_err_t authorised;
+	fzn_chain_err_t authorised;
 	fzn_chain_t proven;
 	const uint8_t *anchor;
 
@@ -510,7 +510,7 @@ static void sim_receive(struct sim_net *net, struct sim_datagram *d)
 	                              net->capability, net->now,
 	                              &net->sign, net->revocations.entries,
 	                              net->revocations.used, &proven);
-	if (authorised != FZN_OK) {
+	if (authorised != FZN_CHAIN_OK) {
 		h->refused_auth++;
 		return;
 	}
@@ -713,7 +713,7 @@ static void scenario_revocation(void)
 	memcpy(rec.issuer, net.root, FZN_PUBKEY_LEN);
 	rec.issued_at = net.now;
 	sim_sign_record(&rec, rec_region);
-	check(fzn_revocation_admit(&net.revocations, &rec, net.root, &net.sign) == FZN_OK,
+	check(fzn_revocation_admit(&net.revocations, &rec, net.root, &net.sign) == FZN_CHAIN_OK,
 	      "the signed revocation was refused");
 
 	sim_run(&net, 10);
@@ -793,7 +793,7 @@ static void scenario_delegation(void)
 	static uint8_t msg[600];
 	struct sim_host *from = NULL, *to = NULL;
 	fzn_chain_hop_t minted;
-	fzn_err_t err;
+	fzn_chain_err_t err;
 
 	sim_init(&net, 4, 0x5555u);
 	fill_message(msg, sizeof(msg), 19);
@@ -806,9 +806,9 @@ static void scenario_delegation(void)
 	err = fzn_chain_delegate(from->chain, from->chain_len, net.root, net.capability, net.now,
 	                         to->pubkey, FZN_NO_EXPIRY, 0, from->signed_region[1],
 	                         sizeof(fzn_chain_hop_t), &net.sign, NULL, 0, &minted);
-	check(err == FZN_OK, "the delegation was refused");
+	check(err == FZN_CHAIN_OK, "the delegation was refused");
 
-	if (err == FZN_OK) {
+	if (err == FZN_CHAIN_OK) {
 		to->chain[0] = from->chain[0];
 		memcpy(to->signed_region[0], from->signed_region[0], sizeof(fzn_chain_hop_t));
 		to->chain[0].signed_region = to->signed_region[0];
@@ -826,7 +826,7 @@ static void scenario_delegation(void)
 		check(net.hosts[2].delivered == 1, "a delegated host's message was not delivered");
 		check(net.hosts[2].refused_auth == 0, "a delegated host was refused on authority");
 	}
-	printf("  delegation: %s, %u delivered\n", fzn_err_str(err), net.hosts[2].delivered);
+	printf("  delegation: %s, %u delivered\n", fzn_chain_err_str(err), net.hosts[2].delivered);
 }
 
 /* ------------------------------------------------------------- scenario 7
@@ -1358,7 +1358,7 @@ static void scenario_join(void)
 		check(fzn_chain_verify(attacker->chain, attacker->chain_len, rogue_root,
 		                       net.capability, net.now, &net.sign,
 		                       net.revocations.entries, net.revocations.used,
-		                       &proven) == FZN_OK,
+		                       &proven) == FZN_CHAIN_OK,
 		      "the attacker's chain should be valid under its own root");
 
 		refused_before = joiner->refused_auth;

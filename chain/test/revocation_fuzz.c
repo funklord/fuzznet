@@ -142,12 +142,12 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 	sign.sign = NULL;
 	sign.ctx = &stub;
 
-	if (fzn_revocation_store_init(&store, arena.entries, STORE_CAP) != FZN_OK)
+	if (fzn_revocation_store_init(&store, arena.entries, STORE_CAP) != FZN_CHAIN_OK)
 		return 0;
 
 	while (pos + 4 <= len) {
 		fzn_revocation_record_t r;
-		fzn_err_t err, want;
+		fzn_chain_err_t err, want;
 		const char *broke;
 		int issuer_ok, sig_ok, region_ok;
 
@@ -179,17 +179,17 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		/* What the rules say should happen, derived here rather than
 		 * asked of the module. */
 		if (!region_ok)
-			want = FZN_ERR_MALFORMED;
+			want = FZN_CHAIN_ERR_MALFORMED;
 		else if (!issuer_ok)
-			want = FZN_ERR_WRONG_ROOT;
+			want = FZN_CHAIN_ERR_WRONG_ROOT;
 		else if (!sig_ok)
-			want = FZN_ERR_CHAIN_INVALID;
+			want = FZN_CHAIN_ERR_CHAIN_INVALID;
 		else if (model_holds(&model, r.capability, r.grantee))
-			want = FZN_OK; /* already known is success */
+			want = FZN_CHAIN_OK; /* already known is success */
 		else if (model.used == STORE_CAP)
-			want = FZN_ERR_STORE_FULL;
+			want = FZN_CHAIN_ERR_STORE_FULL;
 		else
-			want = FZN_OK;
+			want = FZN_CHAIN_OK;
 
 		err = fzn_revocation_admit(&store, &r, root, &sign);
 
@@ -198,7 +198,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 			return 1;
 		}
 
-		if (want == FZN_OK) {
+		if (want == FZN_CHAIN_OK) {
 			if (model_holds(&model, r.capability, r.grantee)) {
 				cov->duplicate++;
 			} else {
@@ -209,7 +209,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 				model.used++;
 				cov->admitted++;
 			}
-		} else if (want == FZN_ERR_STORE_FULL) {
+		} else if (want == FZN_CHAIN_ERR_STORE_FULL) {
 			cov->full++;
 		} else {
 			cov->refused++;

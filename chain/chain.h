@@ -85,39 +85,46 @@
 #define FZN_NO_EXPIRY 0u
 #endif
 
-typedef enum fzn_err {
-	FZN_OK = 0,
+/* PREFIXED LIKE EVERY OTHER MODULE (renamed 2026-08-26). This was `fzn_err_t`
+ * with bare `FZN_OK` and `FZN_ERR_*`, because `chain/` was the first module
+ * and took the general name before there were others to collide with. Every
+ * module since spells `FZN_<MODULE>_OK`, so the odd one out was the one whose
+ * header a consumer is most likely to include first -- and a library that
+ * hands out `FZN_OK` from one of sixteen modules is claiming a name it has no
+ * particular right to. */
+typedef enum fzn_chain_err {
+	FZN_CHAIN_OK = 0,
 	/* The caller handed us something structurally impossible -- a null
 	 * pointer, a hop count of zero or past FZN_CHAIN_MAX_HOPS, a hop with
 	 * no signed region. Distinct from CHAIN_INVALID because it means the
 	 * caller has a bug, not that a peer sent something bad. */
-	FZN_ERR_MALFORMED = -1,
+	FZN_CHAIN_ERR_MALFORMED = -1,
 	/* The chain is well-formed and does not check out: a signature that
 	 * does not verify, a break in the grantor/grantee linkage, a hop for a
 	 * different capability, or a hop whose own dates are impossible. */
-	FZN_ERR_CHAIN_INVALID = -2,
+	FZN_CHAIN_ERR_CHAIN_INVALID = -2,
 	/* The chain checks out but is rooted somewhere other than the pinned
 	 * root. Kept separate from CHAIN_INVALID so a caller can tell "this is
 	 * a valid chain belonging to somebody else" from "this is broken" --
 	 * the first is a routine occurrence on a shared network and the second
 	 * is worth logging loudly. */
-	FZN_ERR_WRONG_ROOT = -3,
+	FZN_CHAIN_ERR_WRONG_ROOT = -3,
 	/* A hop's expiry has passed. */
-	FZN_ERR_EXPIRED = -4,
+	FZN_CHAIN_ERR_EXPIRED = -4,
 	/* Some hop's grant has been revoked. sec 4.2: revocation is what ends
 	 * authority here, so this is the answer that matters most. */
-	FZN_ERR_REVOKED = -5,
+	FZN_CHAIN_ERR_REVOKED = -5,
 	/* Delegation was asked for from a chain whose last hop is not
 	 * `delegable`. Its own error rather than NOT_AUTHORIZED or
 	 * CHAIN_INVALID, because the chain is valid and the holder does hold
 	 * it -- what is missing is permission to pass it on, and a caller that
 	 * cannot tell those apart will report the wrong thing to a user. */
-	FZN_ERR_NOT_DELEGABLE = -6,
+	FZN_CHAIN_ERR_NOT_DELEGABLE = -6,
 	/* A revocation could not be recorded because the store is full. Its
 	 * own error because it is the one refusal in this library that fails
 	 * OPEN -- see revocation.h. */
-	FZN_ERR_STORE_FULL = -7,
-} fzn_err_t;
+	FZN_CHAIN_ERR_STORE_FULL = -7,
+} fzn_chain_err_t;
 
 /* One delegation step: grantor gives grantee this capability.
  *
@@ -253,7 +260,7 @@ typedef struct fzn_revocation {
  *      which is the whole point of revoking it
  *   6. signatures, last, because they are the expensive part
  *
- * Returns FZN_OK and fills *out on success. On any failure *out is left
+ * Returns FZN_CHAIN_OK and fills *out on success. On any failure *out is left
  * untouched, so a caller cannot half-read a rejected chain.
  *
  * ON EXPIRY, AND AN AMBIGUITY IN THE DOCUMENT: sec 4.3's second bullet
@@ -267,7 +274,7 @@ typedef struct fzn_revocation {
  * the safer direction for a library that reconfigures infrastructure
  * (sec 4.4a). Flagged rather than resolved: project.md wins over the code,
  * and which reading was meant is not this file's to decide. */
-fzn_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
+fzn_chain_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
                             const uint8_t root[FZN_PUBKEY_LEN],
                             const uint8_t capability[FZN_CAP_ID_LEN], uint64_t now,
                             const fzn_sign_ops_t *sign, const fzn_revocation_t *revocations,
@@ -289,9 +296,9 @@ fzn_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
  * and does not encode them. A caller whose region disagrees with the fields
  * it also passes gets a hop that verifies against neither.
  *
- * Returns FZN_ERR_MALFORMED on a missing argument or absent signer, and
- * FZN_ERR_CHAIN_INVALID if the signer refuses. */
-fzn_err_t fzn_chain_mint(const uint8_t root[FZN_PUBKEY_LEN],
+ * Returns FZN_CHAIN_ERR_MALFORMED on a missing argument or absent signer, and
+ * FZN_CHAIN_ERR_CHAIN_INVALID if the signer refuses. */
+fzn_chain_err_t fzn_chain_mint(const uint8_t root[FZN_PUBKEY_LEN],
                           const uint8_t grantee[FZN_PUBKEY_LEN],
                           const uint8_t capability[FZN_CAP_ID_LEN], uint64_t issued_at,
                           uint64_t expires_at, int delegable, const uint8_t *signed_region,
@@ -314,18 +321,18 @@ fzn_err_t fzn_chain_mint(const uint8_t root[FZN_PUBKEY_LEN],
  *     longer, or for none at all, silently yields the chain's. A host whose
  *     own authority lapses on Tuesday cannot grant until Friday.
  *   - DELEGATION requires the chain's last hop to be `delegable`. Without
- *     it this returns FZN_ERR_NOT_DELEGABLE, which is deliberately its own
+ *     it this returns FZN_CHAIN_ERR_NOT_DELEGABLE, which is deliberately its own
  *     error rather than CHAIN_INVALID: the chain is perfectly valid, the
  *     caller simply may not do this with it.
  *
  * Depth is bounded too -- extending a chain already at FZN_CHAIN_MAX_HOPS
- * returns FZN_ERR_MALFORMED rather than producing something no verifier
+ * returns FZN_CHAIN_ERR_MALFORMED rather than producing something no verifier
  * would accept.
  *
  * `out` receives only the NEW hop. Assembling it onto the chain is the
  * caller's, because this module does not own the array's storage any more
  * than it owns the bytes. */
-fzn_err_t fzn_chain_delegate(const fzn_chain_hop_t *hops, size_t hop_count,
+fzn_chain_err_t fzn_chain_delegate(const fzn_chain_hop_t *hops, size_t hop_count,
                               const uint8_t root[FZN_PUBKEY_LEN],
                               const uint8_t capability[FZN_CAP_ID_LEN], uint64_t now,
                               const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t expires_at,
@@ -339,7 +346,7 @@ fzn_err_t fzn_chain_delegate(const fzn_chain_hop_t *hops, size_t hop_count,
  * that wants only the comparison should include that header directly rather
  * than the capability model -- see the reasoning there. */
 
-/* A short name for `fzn_err_t`, for a log line or a message to a user.
+/* A short name for `fzn_chain_err_t`, for a log line or a message to a user.
  *
  * NEVER NULL, including for a value that is not one of the enumerators, so
  * that a caller may pass the result straight to a printf without a check.
@@ -351,6 +358,6 @@ fzn_err_t fzn_chain_delegate(const fzn_chain_hop_t *hops, size_t hop_count,
  * The strings are lowercase, carry no trailing punctuation and name the
  * condition rather than restating the constant, on the same reasoning as
  * strerror: the caller supplies the sentence, this supplies the noun. */
-const char *fzn_err_str(fzn_err_t err);
+const char *fzn_chain_err_str(fzn_chain_err_t err);
 
 #endif /* FZN_CHAIN_H */

@@ -106,9 +106,9 @@ int main(void)
 	/* Mint under a real key, then verify with a real check. If the two
 	 * conventions disagree this is where it shows. */
 	check(fzn_chain_mint(pubkey, grantee, cap, 1000, FZN_NO_EXPIRY, 0, region, region_len,
-	                     &ops, &hop) == FZN_OK,
+	                     &ops, &hop) == FZN_CHAIN_OK,
 	      "minting with a real Ed25519 key failed");
-	check(fzn_chain_verify(&hop, 1, pubkey, cap, 2000, &ops, NULL, 0, &out) == FZN_OK,
+	check(fzn_chain_verify(&hop, 1, pubkey, cap, 2000, &ops, NULL, 0, &out) == FZN_CHAIN_OK,
 	      "a genuinely signed hop did not verify");
 
 	/* The negative half, and it is the one that matters. If mono_verify
@@ -117,7 +117,7 @@ int main(void)
 	 * would report a working binding either way. */
 	hop.signature[0] ^= 0x01;
 	check(fzn_chain_verify(&hop, 1, pubkey, cap, 2000, &ops, NULL, 0, &out) ==
-	              FZN_ERR_CHAIN_INVALID,
+	              FZN_CHAIN_ERR_CHAIN_INVALID,
 	      "a tampered signature verified");
 	hop.signature[0] ^= 0x01;
 
@@ -128,7 +128,7 @@ int main(void)
 		tampered[0] ^= 0x01;
 		hop.signed_region = tampered;
 		check(fzn_chain_verify(&hop, 1, pubkey, cap, 2000, &ops, NULL, 0, &out) ==
-		              FZN_ERR_CHAIN_INVALID,
+		              FZN_CHAIN_ERR_CHAIN_INVALID,
 		      "a modified signed region verified");
 		hop.signed_region = region;
 	}
@@ -141,7 +141,7 @@ int main(void)
 		crypto_wipe(other_sk, sizeof(other_sk));
 	}
 	check(fzn_chain_verify(&hop, 1, other_pub, cap, 2000, &ops, NULL, 0, &out) ==
-	              FZN_ERR_WRONG_ROOT,
+	              FZN_CHAIN_ERR_WRONG_ROOT,
 	      "a hop verified under somebody else's root");
 
 	/* A verify-only signer refuses to sign rather than signing with a
@@ -150,13 +150,13 @@ int main(void)
 	memset(&verifier, 0, sizeof(verifier));
 	fzn_sign_monocypher_init(&verify_only, &verifier);
 	check(fzn_chain_mint(pubkey, grantee, cap, 1000, FZN_NO_EXPIRY, 0, region, region_len,
-	                     &verify_only, &hop) == FZN_ERR_CHAIN_INVALID,
+	                     &verify_only, &hop) == FZN_CHAIN_ERR_CHAIN_INVALID,
 	      "a verify-only signer signed with a zeroed key");
 	/* ...but it still verifies, which is the whole point of holding no key. */
 	check(fzn_chain_mint(pubkey, grantee, cap, 1000, FZN_NO_EXPIRY, 0, region, region_len,
-	                     &ops, &hop) == FZN_OK,
+	                     &ops, &hop) == FZN_CHAIN_OK,
 	      "re-minting failed");
-	check(fzn_chain_verify(&hop, 1, pubkey, cap, 2000, &verify_only, NULL, 0, &out) == FZN_OK,
+	check(fzn_chain_verify(&hop, 1, pubkey, cap, 2000, &verify_only, NULL, 0, &out) == FZN_CHAIN_OK,
 	      "a verify-only signer could not verify");
 
 	fzn_sign_monocypher_wipe(&signer);

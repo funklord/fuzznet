@@ -61,14 +61,20 @@ typedef enum fzn_sched_err {
  * file descriptor, a pointer's low bits. The scale of `metric` is the
  * consumer's too; it is only ever compared against other links' metrics
  * through the same weights. */
-typedef struct fzn_link {
+/* A CANDIDATE, not a link (renamed 2026-08-26). This was `fzn_link_t`, which
+ * put the type named for a link in the module that CONSUMES links while
+ * `link/` -- the module named for them -- defined `fzn_link_entry_t`. Reading
+ * either header first suggested the other was wrong. What this describes is
+ * one candidate as a scheduler sees it: an id it does not interpret and four
+ * numbers somebody else measured. `link/` owns the word. */
+typedef struct fzn_sched_candidate {
 	uint32_t id;
 	uint32_t metric;
 	uint32_t latency_ms;
 	uint16_t loss_permille; /* parts per thousand, so 25 is 2.5% */
 	uint32_t mtu;
 	int usable; /* the consumer says this link is up */
-} fzn_link_t;
+} fzn_sched_candidate_t;
 
 /* What a class of traffic requires, and what it cares about.
  *
@@ -93,16 +99,16 @@ typedef struct fzn_class {
  * index, so the same inputs always give the same answer -- a scheduler whose
  * choice wandered between identical candidates would make a network's
  * behaviour unreproducible for no gain. */
-fzn_sched_err_t fzn_sched_select(const fzn_link_t *links, size_t link_count,
+fzn_sched_err_t fzn_sched_select(const fzn_sched_candidate_t *links, size_t link_count,
                                   const fzn_class_t *class, size_t *chosen);
 
 /* Whether one link satisfies a class's hard constraints, exposed because a
  * consumer often wants to say WHY nothing qualified. */
-int fzn_sched_admits(const fzn_link_t *link, const fzn_class_t *class);
+int fzn_sched_admits(const fzn_sched_candidate_t *link, const fzn_class_t *class);
 
 /* The weighted cost of a link under a class. Lower is better. Exposed for the
  * same reason: a consumer explaining a choice wants the numbers behind it. */
-uint64_t fzn_sched_cost(const fzn_link_t *link, const fzn_class_t *class);
+uint64_t fzn_sched_cost(const fzn_sched_candidate_t *link, const fzn_class_t *class);
 
 /* A short name for `fzn_sched_err_t`. Never NULL. */
 const char *fzn_sched_err_str(fzn_sched_err_t err);

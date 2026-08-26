@@ -77,7 +77,7 @@ static void expect(int ok, const char *subject, const char *what)
 /* One wrapper per enum, taking `int`, because the subjects below are walked
  * through a common function pointer and a cast between function types with
  * different parameter types would not be one this library should rely on. */
-static const char *r_chain(int v) { return fzn_err_str((fzn_err_t)v); }
+static const char *r_chain(int v) { return fzn_chain_err_str((fzn_chain_err_t)v); }
 static const char *r_commitment(int v) { return fzn_commitment_err_str((fzn_commitment_err_t)v); }
 static const char *r_fresh(int v) { return fzn_fresh_err_str((fzn_fresh_err_t)v); }
 static const char *r_reasm(int v) { return fzn_reasm_err_str((fzn_reasm_err_t)v); }
@@ -104,7 +104,7 @@ struct subject {
 /* The pinned counts. Each is the number of enumerators in that type, and
  * moving one without moving the other is the failure this table catches. */
 static const struct subject SUBJECTS[] = {
-	{ "fzn_err_str", r_chain, -1, 8 },
+	{ "fzn_chain_err_str", r_chain, -1, 8 },
 	{ "fzn_commitment_err_str", r_commitment, -1, 4 },
 	{ "fzn_fresh_err_str", r_fresh, -1, 6 },
 	{ "fzn_reasm_err_str", r_reasm, -1, 8 },

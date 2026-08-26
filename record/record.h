@@ -57,6 +57,17 @@
  * `chunk/` already carries messages. */
 #define FZN_RECORD_BODY_MAX 512u
 
+/* Stream numbers below this are fuzznet's to assign a meaning to; at or above
+ * it, an issuer assigns its own and this library will never claim one.
+ *
+ * Reserved rather than assigned: nothing below 256 has a meaning today. The
+ * boundary exists so a consumer choosing stream numbers now cannot be
+ * overtaken later, which is the cheap half of the problem `fzn_kind` has the
+ * expensive half of -- there, a consumer taking a spare value can make two
+ * networks refuse each other's traffic, and assignment goes through fuzznet.
+ * Here it cannot, because a stream is scoped to its issuer. */
+#define FZN_STREAM_RESERVED 256u
+
 typedef enum fzn_record_err {
 	FZN_RECORD_OK = 0,
 	FZN_RECORD_ERR_MALFORMED = -1,
@@ -102,6 +113,24 @@ typedef struct fzn_record {
 	 * So fidelity is a STREAM. A coarse track and a precise one are two
 	 * streams, each contiguous for whoever is entitled to it, and
 	 * entitlement is an ordinary capability question answered by `chain/`.
+	 *
+	 * WHO ASSIGNS THESE. A stream number is scoped to its issuer -- a
+	 * position is (issuer, stream) -- so two issuers using 7 for different
+	 * purposes never collide, and a stream needs agreement only between an
+	 * issuer and whoever follows it. That is a real structural difference
+	 * from `fzn_kind`, which every host must agree about before it can
+	 * parse a frame at all, and it is why this namespace does not need the
+	 * central assignment that one does.
+	 *
+	 * One case does need agreement, and the range below is reserved for it:
+	 * a WELL-KNOWN stream means the same thing for every issuer, so that a
+	 * host anchoring a root can follow something without being told its
+	 * number out of band. An issuer's revocations are the obvious
+	 * candidate. **None is assigned yet**, deliberately -- naming one
+	 * before anything follows it would be inventing a mechanism ahead of
+	 * its need. The range exists so that a consumer can assign freely
+	 * TODAY without a future well-known stream colliding with what it
+	 * chose.
 	 *
 	 * DELIBERATELY NOT `kind`, though the two are often the same value in
 	 * practice. Permissions need CROSS-KIND ORDERING -- a grant and a

@@ -112,7 +112,7 @@ static int receiver_init(struct receiver *r)
 {
 	if (fzn_replay_init(&r->window, r->entries, WINDOW_ENTRIES) != FZN_FRESH_OK)
 		return 0;
-	if (fzn_revocation_store_init(&r->store, r->revs, REVS) != FZN_OK)
+	if (fzn_revocation_store_init(&r->store, r->revs, REVS) != FZN_CHAIN_OK)
 		return 0;
 	for (size_t i = 0; i < SLOTS; i++) {
 		if (fzn_reasm_slot_init(&r->slots[i], r->storage[i], SLOT_BYTES) != FZN_REASM_OK)
@@ -139,7 +139,7 @@ static int receive_one(struct receiver *r, uint64_t now, const uint8_t *data, si
 	size_t live_before, live_after;
 	int calls_before;
 	fzn_fresh_err_t fresh;
-	fzn_err_t authorised;
+	fzn_chain_err_t authorised;
 	fzn_reasm_err_t admitted;
 
 	if (len < 12)
@@ -225,7 +225,7 @@ static int receive_one(struct receiver *r, uint64_t now, const uint8_t *data, si
 	/* STEP 6: the capability chain, against the pinned root. */
 	authorised = fzn_chain_verify(&hop, 1, root, cap, now, &sign, r->store.entries,
 	                              r->store.used, &chain);
-	if (authorised != FZN_OK) {
+	if (authorised != FZN_CHAIN_OK) {
 		cov->unauthorised++;
 		live_after = 0;
 		for (size_t i = 0; i < SLOTS; i++)

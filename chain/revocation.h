@@ -74,10 +74,10 @@ typedef struct fzn_revocation_store {
 	size_t used;
 } fzn_revocation_store_t;
 
-fzn_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_revocation_t *entries,
+fzn_chain_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_revocation_t *entries,
                                      size_t capacity);
 
-/* Verify a revocation and record it. Returns FZN_OK if it is now in the
+/* Verify a revocation and record it. Returns FZN_CHAIN_OK if it is now in the
  * store, including when it was already there -- admitting the same
  * revocation twice is what happens every time two peers both tell you, and
  * it is not an error.
@@ -91,7 +91,7 @@ fzn_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_revocatio
  *
  * Three consequences, and they are the whole reason this comment is long:
  *
- *   - FZN_ERR_STORE_FULL is not a condition to retry or ignore. A consumer
+ *   - FZN_CHAIN_ERR_STORE_FULL is not a condition to retry or ignore. A consumer
  *     that logs it at debug level has built the failure it was avoiding.
  *   - Revocations are NOT expired or evicted to make room. A revocation
  *     that lapses un-revokes a device; there is no safe eviction policy,
@@ -102,7 +102,7 @@ fzn_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_revocatio
  *     accumulate, so this is the one bound in the library that a long-lived
  *     deployment can grow into. project.md sec 14 carries it as open.
  */
-fzn_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
+fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
                                 const fzn_revocation_record_t *record,
                                 const uint8_t root[FZN_PUBKEY_LEN],
                                 const fzn_sign_ops_t *sign);
@@ -118,7 +118,7 @@ fzn_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 size_t fzn_revocation_merge(fzn_revocation_store_t *store,
                              const fzn_revocation_record_t *records, size_t count,
                              const uint8_t root[FZN_PUBKEY_LEN], const fzn_sign_ops_t *sign,
-                             fzn_err_t *err);
+                             fzn_chain_err_t *err);
 
 /* Whether this capability is withdrawn from this key. */
 int fzn_revocation_covers(const fzn_revocation_store_t *store,

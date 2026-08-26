@@ -270,7 +270,7 @@ int main(void)
 	/* Link selection, through installed headers: two classes over the same
 	 * two links must disagree, which is the property the module exists for. */
 	{
-		fzn_link_t pair[2] = {
+		fzn_sched_candidate_t pair[2] = {
 			{ 1, 10, 20, 150, 1500, 1 },
 			{ 2, 10, 4000, 1, 1500, 1 },
 		};
@@ -289,7 +289,7 @@ int main(void)
 	{
 		fzn_link_table_t lt;
 		fzn_link_entry_t rows[2];
-		fzn_link_t snap[2];
+		fzn_sched_candidate_t snap[2];
 		fzn_class_t any = { 0, 0, 0, 0, 1, 0 };
 		size_t pick = 99, n;
 
@@ -326,7 +326,7 @@ int main(void)
 	    FZN_FRESH_ERR_REPLAY)
 		return 5;
 
-	if (fzn_revocation_store_init(&store, store_storage, 4) != FZN_OK)
+	if (fzn_revocation_store_init(&store, store_storage, 4) != FZN_CHAIN_OK)
 		return 6;
 
 	memset(&hop, 0, sizeof(hop));
@@ -338,7 +338,7 @@ int main(void)
 	hop.signed_region_len = sizeof(region) - 1;
 
 	if (fzn_chain_verify(&hop, 1, root, cap, 2000, &sign, store.entries, store.used,
-	                     &chain) != FZN_OK)
+	                     &chain) != FZN_CHAIN_OK)
 		return 7;
 	if (chain.hop_count != 1)
 		return 8;

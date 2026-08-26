@@ -23,7 +23,7 @@ static int hop_is_revoked(const fzn_chain_hop_t *hop, const fzn_revocation_t *re
 	return 0;
 }
 
-fzn_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
+fzn_chain_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
                             const uint8_t root[FZN_PUBKEY_LEN],
                             const uint8_t capability[FZN_CAP_ID_LEN], uint64_t now,
                             const fzn_sign_ops_t *sign, const fzn_revocation_t *revocations,
@@ -32,21 +32,21 @@ fzn_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
 	uint64_t soonest = FZN_NO_EXPIRY;
 
 	if (!hops || !root || !capability || !sign || !sign->verify || !out)
-		return FZN_ERR_MALFORMED;
+		return FZN_CHAIN_ERR_MALFORMED;
 	if (revocation_count > 0 && !revocations)
-		return FZN_ERR_MALFORMED;
+		return FZN_CHAIN_ERR_MALFORMED;
 
 	/* Bounded before a single hop is touched, so a hop_count off the wire
 	 * cannot spend a verification it was never entitled to ask for. */
 	if (hop_count == 0 || hop_count > FZN_CHAIN_MAX_HOPS)
-		return FZN_ERR_MALFORMED;
+		return FZN_CHAIN_ERR_MALFORMED;
 
 	/* The root is pinned, and this is the only place it is consulted. A
 	 * chain that verifies perfectly under somebody else's root gets its
 	 * own error, because on a shared network that is an ordinary event
 	 * rather than an attack. */
 	if (!fzn_ct_memeq(hops[0].grantor, root, FZN_PUBKEY_LEN))
-		return FZN_ERR_WRONG_ROOT;
+		return FZN_CHAIN_ERR_WRONG_ROOT;
 
 	/* Pass one: everything that costs nothing. Refusing here keeps a
 	 * malformed chain from buying `hop_count` signature verifications,
@@ -55,13 +55,13 @@ fzn_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
 		const fzn_chain_hop_t *hop = &hops[i];
 
 		if (!hop->signed_region || hop->signed_region_len == 0)
-			return FZN_ERR_MALFORMED;
+			return FZN_CHAIN_ERR_MALFORMED;
 
 		/* Single-capability by construction. A hop that changes what is
 		 * being granted is not a narrowing of the one before it; it is
 		 * two chains spliced at a point where nobody signed the join. */
 		if (!fzn_ct_memeq(hop->capability, capability, FZN_CAP_ID_LEN))
-			return FZN_ERR_CHAIN_INVALID;
+			return FZN_CHAIN_ERR_CHAIN_INVALID;
 
 		/* Linkage. hops[0].grantor was pinned above; every later hop is
 		 * granted by the one before it received, AND by a hop that said
@@ -71,9 +71,9 @@ fzn_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
 		 * as being allowed to hand it out. */
 		if (i > 0) {
 			if (!fzn_ct_memeq(hop->grantor, hops[i - 1].grantee, FZN_PUBKEY_LEN))
-				return FZN_ERR_CHAIN_INVALID;
+				return FZN_CHAIN_ERR_CHAIN_INVALID;
 			if (!hops[i - 1].delegable)
-				return FZN_ERR_CHAIN_INVALID;
+				return FZN_CHAIN_ERR_CHAIN_INVALID;
 		}
 
 		if (hop->expires_at != FZN_NO_EXPIRY) {
@@ -82,9 +82,9 @@ fzn_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
 			 * expired one, and saying so keeps "your clock and mine
 			 * disagree" separable from "this was never a grant". */
 			if (hop->expires_at <= hop->issued_at)
-				return FZN_ERR_CHAIN_INVALID;
+				return FZN_CHAIN_ERR_CHAIN_INVALID;
 			if (hop->expires_at <= now)
-				return FZN_ERR_EXPIRED;
+				return FZN_CHAIN_ERR_EXPIRED;
 
 			/* Weakest link, and an unlimited hop does not win it. */
 			if (soonest == FZN_NO_EXPIRY || hop->expires_at < soonest)
@@ -96,7 +96,7 @@ fzn_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
 		 * defeated by the victim having delegated onward first -- which
 		 * is precisely what a stolen device would do. */
 		if (hop_is_revoked(hop, revocations, revocation_count))
-			return FZN_ERR_REVOKED;
+			return FZN_CHAIN_ERR_REVOKED;
 	}
 
 	/* Pass two: the expensive half, reached only by a chain that is
@@ -106,7 +106,7 @@ fzn_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
 
 		if (!sign->verify(sign->ctx, hop->grantor, hop->signed_region,
 		                  hop->signed_region_len, hop->signature))
-			return FZN_ERR_CHAIN_INVALID;
+			return FZN_CHAIN_ERR_CHAIN_INVALID;
 	}
 
 	/* Filled only now, so a caller cannot half-read a rejected chain. */
@@ -116,13 +116,13 @@ fzn_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
 	out->hop_count = hop_count;
 	out->expires_at = soonest;
 
-	return FZN_OK;
+	return FZN_CHAIN_OK;
 }
 
 /* Fill and sign one hop. Shared by mint and delegate, which differ only in
  * who the grantor is and in what had to be true before they were allowed to
  * ask -- the hop they produce is the same shape and is signed the same way. */
-static fzn_err_t hop_sign(const uint8_t grantor[FZN_PUBKEY_LEN],
+static fzn_chain_err_t hop_sign(const uint8_t grantor[FZN_PUBKEY_LEN],
                           const uint8_t grantee[FZN_PUBKEY_LEN],
                           const uint8_t capability[FZN_CAP_ID_LEN], uint64_t issued_at,
                           uint64_t expires_at, int delegable, const uint8_t *signed_region,
@@ -133,14 +133,14 @@ static fzn_err_t hop_sign(const uint8_t grantor[FZN_PUBKEY_LEN],
 
 	if (!grantor || !grantee || !capability || !signed_region || signed_region_len == 0 ||
 	    !sign || !sign->sign || !out)
-		return FZN_ERR_MALFORMED;
+		return FZN_CHAIN_ERR_MALFORMED;
 
 	/* A grant that expires before it was issued never had a valid moment,
 	 * and fzn_chain_verify refuses one. Refusing to MINT it as well means
 	 * the mistake is caught where it is made rather than at the far end of
 	 * a network, by whoever cannot fix it. */
 	if (expires_at != FZN_NO_EXPIRY && expires_at <= issued_at)
-		return FZN_ERR_CHAIN_INVALID;
+		return FZN_CHAIN_ERR_CHAIN_INVALID;
 
 	memset(&hop, 0, sizeof(hop));
 	memcpy(hop.grantor, grantor, FZN_PUBKEY_LEN);
@@ -153,13 +153,13 @@ static fzn_err_t hop_sign(const uint8_t grantor[FZN_PUBKEY_LEN],
 	hop.signed_region_len = signed_region_len;
 
 	if (!sign->sign(sign->ctx, hop.signature, signed_region, signed_region_len))
-		return FZN_ERR_CHAIN_INVALID;
+		return FZN_CHAIN_ERR_CHAIN_INVALID;
 
 	*out = hop;
-	return FZN_OK;
+	return FZN_CHAIN_OK;
 }
 
-fzn_err_t fzn_chain_mint(const uint8_t root[FZN_PUBKEY_LEN],
+fzn_chain_err_t fzn_chain_mint(const uint8_t root[FZN_PUBKEY_LEN],
                           const uint8_t grantee[FZN_PUBKEY_LEN],
                           const uint8_t capability[FZN_CAP_ID_LEN], uint64_t issued_at,
                           uint64_t expires_at, int delegable, const uint8_t *signed_region,
@@ -175,7 +175,7 @@ fzn_err_t fzn_chain_mint(const uint8_t root[FZN_PUBKEY_LEN],
 	                signed_region, signed_region_len, sign, out);
 }
 
-fzn_err_t fzn_chain_delegate(const fzn_chain_hop_t *hops, size_t hop_count,
+fzn_chain_err_t fzn_chain_delegate(const fzn_chain_hop_t *hops, size_t hop_count,
                               const uint8_t root[FZN_PUBKEY_LEN],
                               const uint8_t capability[FZN_CAP_ID_LEN], uint64_t now,
                               const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t expires_at,
@@ -185,28 +185,28 @@ fzn_err_t fzn_chain_delegate(const fzn_chain_hop_t *hops, size_t hop_count,
                               fzn_chain_hop_t *out)
 {
 	fzn_chain_t existing;
-	fzn_err_t err;
+	fzn_chain_err_t err;
 
 	if (!hops || !grantee || !sign || !sign->verify || !out)
-		return FZN_ERR_MALFORMED;
+		return FZN_CHAIN_ERR_MALFORMED;
 
 	/* Bounded before anything else: a chain already at the ceiling cannot
 	 * be extended into something no verifier would accept. */
 	if (hop_count >= FZN_CHAIN_MAX_HOPS)
-		return FZN_ERR_MALFORMED;
+		return FZN_CHAIN_ERR_MALFORMED;
 
 	/* Defence in depth. Never delegate from a chain that has expired, been
 	 * revoked, or stopped checking out -- the new hop would look freshly
 	 * minted while resting on something dead. */
 	err = fzn_chain_verify(hops, hop_count, root, capability, now, sign, revocations,
 	                       revocation_count, &existing);
-	if (err != FZN_OK)
+	if (err != FZN_CHAIN_OK)
 		return err;
 
 	/* Holding is not entitlement to hand out. Its own error, because the
 	 * chain is valid and the holder does hold it. */
 	if (!hops[hop_count - 1].delegable)
-		return FZN_ERR_NOT_DELEGABLE;
+		return FZN_CHAIN_ERR_NOT_DELEGABLE;
 
 	/* A grantor cannot hand out more time than it has left. Asking for
 	 * longer -- or for none at all, which is the easy mistake since
@@ -226,31 +226,31 @@ fzn_err_t fzn_chain_delegate(const fzn_chain_hop_t *hops, size_t hop_count,
  * NO `default:` LABEL, and that is the mechanism rather than an oversight.
  * `-Wswitch` -- which `-Wall` turns on -- warns about an enumerated switch
  * that omits a case only when there is no default, so leaving it out is what
- * makes the compiler notice a code added to fzn_err_t and not rendered here. A
+ * makes the compiler notice a code added to fzn_chain_err_t and not rendered here. A
  * default would silence exactly the warning worth having and turn a new code
  * into a silent "unknown" in somebody's log.
  *
  * The fallback then lives after the switch, where it catches a value that is
  * not an enumerator at all -- which no amount of compiler help can rule out,
  * since the argument may have come from a cast or from the wire. */
-const char *fzn_err_str(fzn_err_t err)
+const char *fzn_chain_err_str(fzn_chain_err_t err)
 {
 	switch (err) {
-	case FZN_OK:
+	case FZN_CHAIN_OK:
 		return "ok";
-	case FZN_ERR_MALFORMED:
+	case FZN_CHAIN_ERR_MALFORMED:
 		return "malformed argument";
-	case FZN_ERR_CHAIN_INVALID:
+	case FZN_CHAIN_ERR_CHAIN_INVALID:
 		return "chain does not check out";
-	case FZN_ERR_WRONG_ROOT:
+	case FZN_CHAIN_ERR_WRONG_ROOT:
 		return "valid chain under a different root";
-	case FZN_ERR_EXPIRED:
+	case FZN_CHAIN_ERR_EXPIRED:
 		return "a hop has expired";
-	case FZN_ERR_REVOKED:
+	case FZN_CHAIN_ERR_REVOKED:
 		return "a grant has been revoked";
-	case FZN_ERR_NOT_DELEGABLE:
+	case FZN_CHAIN_ERR_NOT_DELEGABLE:
 		return "last hop is not delegable";
-	case FZN_ERR_STORE_FULL:
+	case FZN_CHAIN_ERR_STORE_FULL:
 		return "revocation store is full";
 	}
 

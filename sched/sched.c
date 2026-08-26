@@ -2,7 +2,7 @@
 
 #include "sched.h"
 
-int fzn_sched_admits(const fzn_link_t *link, const fzn_class_t *class)
+int fzn_sched_admits(const fzn_sched_candidate_t *link, const fzn_class_t *class)
 {
 	if (!link || !class)
 		return 0;
@@ -22,7 +22,7 @@ int fzn_sched_admits(const fzn_link_t *link, const fzn_class_t *class)
 	return 1;
 }
 
-uint64_t fzn_sched_cost(const fzn_link_t *link, const fzn_class_t *class)
+uint64_t fzn_sched_cost(const fzn_sched_candidate_t *link, const fzn_class_t *class)
 {
 	uint64_t cost = 0;
 
@@ -40,7 +40,7 @@ uint64_t fzn_sched_cost(const fzn_link_t *link, const fzn_class_t *class)
 	return cost;
 }
 
-fzn_sched_err_t fzn_sched_select(const fzn_link_t *links, size_t link_count,
+fzn_sched_err_t fzn_sched_select(const fzn_sched_candidate_t *links, size_t link_count,
                                   const fzn_class_t *class, size_t *chosen)
 {
 	size_t best = 0;

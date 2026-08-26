@@ -42,7 +42,7 @@ int main(void)
 {
 	/* FAST is quick and lossy: a radio. SURE is slow and reliable: a
 	 * store-and-forward path. Neither is better; it depends who is asking. */
-	static const fzn_link_t LINKS[2] = {
+	static const fzn_sched_candidate_t LINKS[2] = {
 		{ .id = 1, .metric = 10, .latency_ms = 20, .loss_permille = 150, .mtu = 1500,
 		  .usable = 1 },
 		{ .id = 2, .metric = 10, .latency_ms = 4000, .loss_permille = 1, .mtu = 1500,
@@ -88,7 +88,7 @@ int main(void)
 
 	/* A DOWN LINK IS NOT A CANDIDATE, whatever its numbers say. */
 	{
-		fzn_link_t pair[2] = { LINKS[FAST], LINKS[SURE] };
+		fzn_sched_candidate_t pair[2] = { LINKS[FAST], LINKS[SURE] };
 		static const fzn_class_t ANY = { .weight_latency = 1 };
 
 		pair[0].usable = 0;
@@ -104,7 +104,7 @@ int main(void)
 	/* MTU IS A HARD CONSTRAINT TOO: a link that cannot carry the datagram
 	 * is not a slower way to send it. */
 	{
-		fzn_link_t small = LINKS[FAST];
+		fzn_sched_candidate_t small = LINKS[FAST];
 		static const fzn_class_t BIG = { .min_mtu = 1400, .weight_latency = 1 };
 
 		small.mtu = 576;
@@ -130,7 +130,7 @@ int main(void)
 	 * link look excellent, and it would be chosen consistently and look
 	 * deliberate. */
 	{
-		fzn_link_t huge = { .id = 3,
+		fzn_sched_candidate_t huge = { .id = 3,
 			            .metric = 4000000000u,
 			            .latency_ms = 4000000000u,
 			            .loss_permille = 1000,

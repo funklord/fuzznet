@@ -1875,16 +1875,25 @@ claim actually says.
   `fzn_expiry_rule_t { FZN_EXPIRY_REQUIRED, FZN_EXPIRY_OPTIONAL }` -- since it
   is a receiver's policy about a frame rather than a property of one, and is
   not on the wire at all. No wire change.
-- **`chain/` owns the unprefixed error names.** Every other module spells
-  `FZN_<MODULE>_OK` and `FZN_<MODULE>_ERR_*`; `chain/chain.h` has bare
-  `FZN_OK` and `FZN_ERR_MALFORMED`. It is the oldest module and took the
-  general name before there were others. **Suggested:** `FZN_CHAIN_OK` and
-  `FZN_CHAIN_ERR_*`, which is a mechanical rename across seven files.
-- **`fzn_link_t` lives in `sched/` and `fzn_link_entry_t` in `link/`.** The
-  type named for a link is defined in the module that consumes it, and the
-  module named for links defines the entry. Reading either header first
-  suggests the other is wrong. **Suggested:** `fzn_sched_candidate_t` in
-  `sched/`, leaving `link/` to own the word.
+- **`chain/` owned the unprefixed error names.** **Done 2026-08-26**: 158
+  occurrences across 14 files, `fzn_err_t` to `fzn_chain_err_t`, `FZN_OK` to
+  `FZN_CHAIN_OK`, `FZN_ERR_*` to `FZN_CHAIN_ERR_*`. It was the first module
+  and took the general name before there were others to collide with -- so
+  the odd one out was the header a consumer is most likely to include first,
+  and a library handing out `FZN_OK` from one of sixteen modules claims a name
+  it has no particular right to.
+- **`fzn_link_t` lived in `sched/` while `link/` defined `fzn_link_entry_t`.**
+  **Done 2026-08-26**: `fzn_sched_candidate_t`, 16 occurrences across 7 files.
+  What it describes is one candidate as a scheduler sees it -- an id it does
+  not interpret and four numbers somebody else measured -- and `link/` owns
+  the word.
+
+**Both were recorded as "needs a decision rather than an edit" and deferred
+partly on the size of the rename. That was the wrong test**, per the holder:
+*"If our protocol improves by writing or refactoring code, we do that. I
+wasn't talking about cost of implementation, as that cost will multiply if the
+protocol is poorly designed."* Neither touches the wire; both were judged on
+whether the API reads correctly, and both did badly.
 
 ### Confirmed consistent
 
@@ -2021,16 +2030,25 @@ devices either way.
 holder's rather than a side effect of adopting a frame. Recommended, with the
 reasoning above, and they will put it up as its own decision.
 
-**And the holder's second remark bounds it: *"(within reason) Let's not
-over-engineer or go overboard with other cost."*** This recommendation is
-cheap on exactly that test -- **no new fuzznet code at all**, because
-`trust/`, `chain/` and `record/sync.h` already do it; the change is one of
-meaning in a consumer. What would be going overboard, and is explicitly not
-proposed: building cross-user capability-tree synchronisation, revocation
-gossip, or any mechanism for discovering a peer's grants. A receiver anchors
-a root and follows a revocation stream it already knows how to follow. If the
-answer ever needs more machinery than that, the right response is to keep the
-zero and write the sentence.
+**The holder's qualification, and the correction to how it was first read.**
+*"(within reason) Let's not over-engineer or go overboard with other cost"*
+was recorded here as an argument from implementation cost -- that anchoring
+was worth doing because it needs no new fuzznet code. **That was the wrong
+axis.** The holder's clarification: *"If our protocol improves by writing or
+refactoring code, we do that. I wasn't talking about cost of implementation,
+as that cost will multiply if the protocol is poorly designed."*
+
+So the standing rule for this project is: **a protocol improvement justifies
+the code it takes.** Implementation cost is not the constraint, because a
+protocol got wrong multiplies that cost across every consumer and every year
+afterwards. "Within reason" bounds the *scope of a mechanism*, not the effort
+of building one.
+
+Restated on the right axis: root-anchoring should be adopted because it makes
+revocation correct at the granularity the model already implies -- a user
+revokes their own device and everyone honouring that user honours it. That it
+needs no new machinery here is a pleasant fact about timing, not the
+argument.
 
 ### Settled: commands pass through fuzznet's decision process
 

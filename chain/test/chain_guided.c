@@ -160,7 +160,7 @@ static int drive(const uint8_t *data, size_t size)
 	memset(&out, 0, sizeof(out));
 
 	if (fzn_chain_verify(hops, hop_count, root, capability, now, &sign, revs, rev_count,
-	                     &out) != FZN_OK)
+	                     &out) != FZN_CHAIN_OK)
 		return 0;
 
 	return accepted_chain_is_sound(hops, hop_count, root, capability, now, revs, rev_count,

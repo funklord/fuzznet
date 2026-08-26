@@ -42,7 +42,7 @@ int main(void)
 	fzn_link_table_t table;
 	fzn_link_entry_t entries[3];
 	const fzn_link_entry_t *e;
-	fzn_link_t snap[4];
+	fzn_sched_candidate_t snap[4];
 
 	expect_err(fzn_link_table_init(NULL, entries, 3), FZN_LINK_ERR_MALFORMED, "a null table");
 	expect_err(fzn_link_table_init(&table, NULL, 3), FZN_LINK_ERR_MALFORMED, "null entries");

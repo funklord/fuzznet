@@ -149,7 +149,7 @@ const fzn_link_entry_t *fzn_link_get(const fzn_link_table_t *table, uint32_t id)
 	return find(table, id);
 }
 
-size_t fzn_link_snapshot(const fzn_link_table_t *table, fzn_link_t *out, size_t out_cap)
+size_t fzn_link_snapshot(const fzn_link_table_t *table, fzn_sched_candidate_t *out, size_t out_cap)
 {
 	size_t n = 0;
 
