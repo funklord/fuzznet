@@ -1,4 +1,4 @@
-/* The revocation store. See revocation.h. */
+/* The revocation record and the store. See revocation.h. */
 
 #include "revocation.h"
 
@@ -9,6 +9,82 @@ static int same(const fzn_revocation_t *entry, const uint8_t *capability,
 {
 	return fzn_ct_memeq(entry->capability, capability, FZN_CAP_ID_LEN) &&
 	       fzn_ct_memeq(entry->grantee, grantee, FZN_PUBKEY_LEN);
+}
+
+fzn_chain_err_t fzn_revocation_open(const uint8_t *bytes, size_t len,
+                                    fzn_revocation_record_t *out)
+{
+	if (!bytes || !out)
+		return FZN_CHAIN_ERR_MALFORMED;
+
+	if (len != FZN_REVOCATION_LEN)
+		return FZN_CHAIN_ERR_SHAPE;
+
+	if (bytes[FZN_REV_OFF_VERSION] != FZN_SIGNED_VERSION)
+		return FZN_CHAIN_ERR_SHAPE;
+	/* THE DOMAIN SEPARATION EARNING ITS PLACE. Without this byte -- and
+	 * without it being inside the signed range -- one root key signing
+	 * both hops and revocations through the same seam is one collision
+	 * away from a signature that verifies as either. wire/bytes.h names
+	 * the sibling project this already happened to. */
+	if (bytes[FZN_REV_OFF_OBJECT] != (uint8_t)FZN_OBJECT_REVOCATION)
+		return FZN_CHAIN_ERR_SHAPE;
+
+	out->base = bytes;
+	return FZN_CHAIN_OK;
+}
+
+fzn_chain_err_t fzn_revocation_encode(uint8_t *out, const uint8_t issuer[FZN_PUBKEY_LEN],
+                                      const uint8_t capability[FZN_CAP_ID_LEN],
+                                      const uint8_t grantee[FZN_PUBKEY_LEN],
+                                      uint64_t issued_at)
+{
+	if (!out || !issuer || !capability || !grantee)
+		return FZN_CHAIN_ERR_MALFORMED;
+
+	out[FZN_REV_OFF_VERSION] = (uint8_t)FZN_SIGNED_VERSION;
+	out[FZN_REV_OFF_OBJECT] = (uint8_t)FZN_OBJECT_REVOCATION;
+	memcpy(out + FZN_REV_OFF_CAPABILITY, capability, FZN_CAP_ID_LEN);
+	memcpy(out + FZN_REV_OFF_GRANTEE, grantee, FZN_PUBKEY_LEN);
+	memcpy(out + FZN_REV_OFF_ISSUER, issuer, FZN_PUBKEY_LEN);
+	fzn_put_be64(out + FZN_REV_OFF_ISSUED_AT, issued_at);
+	memset(out + FZN_REV_OFF_SIGNATURE, 0, FZN_SIG_LEN);
+
+	return FZN_CHAIN_OK;
+}
+
+fzn_chain_err_t fzn_revocation_issue(const uint8_t issuer[FZN_PUBKEY_LEN],
+                                     const uint8_t capability[FZN_CAP_ID_LEN],
+                                     const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t issued_at,
+                                     const fzn_sign_ops_t *sign, uint8_t *out)
+{
+	fzn_chain_err_t err;
+	fzn_revocation_record_t rec;
+	const uint8_t *msg;
+	size_t msg_len;
+
+	if (!issuer || !capability || !grantee || !sign || !sign->sign || !out)
+		return FZN_CHAIN_ERR_MALFORMED;
+
+	err = fzn_revocation_encode(out, issuer, capability, grantee, issued_at);
+	if (err != FZN_CHAIN_OK)
+		return err;
+
+	/* Opened from the bytes just written, so the range handed to the
+	 * signer is the one a receiver's verifier will compute. */
+	err = fzn_revocation_open(out, FZN_REVOCATION_LEN, &rec);
+	if (err != FZN_CHAIN_OK)
+		return err;
+
+	fzn_revocation_signed_bytes(rec, &msg, &msg_len);
+	if (!sign->sign(sign->ctx, out + FZN_REV_OFF_SIGNATURE, msg, msg_len)) {
+		/* No half-made record: a refused signing must not leave
+		 * something that opens cleanly behind. */
+		memset(out, 0, FZN_REVOCATION_LEN);
+		return FZN_CHAIN_ERR_CHAIN_INVALID;
+	}
+
+	return FZN_CHAIN_OK;
 }
 
 fzn_chain_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_revocation_t *entries,
@@ -47,24 +123,31 @@ int fzn_revocation_covers(const fzn_revocation_store_t *store,
 }
 
 fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
-                                const fzn_revocation_record_t *record,
+                                fzn_revocation_record_t record,
                                 const uint8_t root[FZN_PUBKEY_LEN],
                                 const fzn_sign_ops_t *sign)
 {
-	if (!store || !store->entries || !record || !root || !sign || !sign->verify)
+	const uint8_t *msg;
+	size_t msg_len;
+
+	if (!store || !store->entries || !root || !sign || !sign->verify)
 		return FZN_CHAIN_ERR_MALFORMED;
-	if (!record->signed_region || record->signed_region_len == 0)
+	/* A view that was never opened. MALFORMED rather than SHAPE for the
+	 * reason chain.h gives: no bytes were wrong, the caller skipped
+	 * `fzn_revocation_open`. */
+	if (!record.base)
 		return FZN_CHAIN_ERR_MALFORMED;
 
 	/* Only the root revokes, today. Checked before the signature, because
 	 * a record from the wrong issuer is refused whatever it is signed
 	 * with, and verifying first would spend the expensive operation on
 	 * something already decided. */
-	if (!fzn_ct_memeq(record->issuer, root, FZN_PUBKEY_LEN))
+	if (!fzn_ct_memeq(fzn_revocation_issuer(record), root, FZN_PUBKEY_LEN))
 		return FZN_CHAIN_ERR_WRONG_ROOT;
 
-	if (!sign->verify(sign->ctx, record->issuer, record->signed_region,
-	                  record->signed_region_len, record->signature))
+	fzn_revocation_signed_bytes(record, &msg, &msg_len);
+	if (!sign->verify(sign->ctx, fzn_revocation_issuer(record), msg, msg_len,
+	                  fzn_revocation_signature(record)))
 		return FZN_CHAIN_ERR_CHAIN_INVALID;
 
 	/* THE STORE'S OWN INTEGRITY, CHECKED HERE AND NOT BORROWED FROM
@@ -92,7 +175,8 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 	 * is what "carried on contact" looks like every time it works, and a
 	 * caller that treated the second as a failure would log an alarm on
 	 * the system behaving correctly. */
-	if (fzn_revocation_covers(store, record->capability, record->grantee))
+	if (fzn_revocation_covers(store, fzn_revocation_capability(record),
+	                          fzn_revocation_grantee(record)))
 		return FZN_CHAIN_OK;
 
 	/* Nothing is evicted to make room, and nothing expires. A revocation
@@ -109,8 +193,13 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 	if (store->used >= store->capacity)
 		return FZN_CHAIN_ERR_STORE_FULL;
 
-	memcpy(store->entries[store->used].capability, record->capability, FZN_CAP_ID_LEN);
-	memcpy(store->entries[store->used].grantee, record->grantee, FZN_PUBKEY_LEN);
+	/* Copied from the record's own bytes, which are the bytes the
+	 * signature above covered. That sentence is the whole of the fix: it
+	 * used to copy decoded fields the caller supplied alongside them. */
+	memcpy(store->entries[store->used].capability, fzn_revocation_capability(record),
+	       FZN_CAP_ID_LEN);
+	memcpy(store->entries[store->used].grantee, fzn_revocation_grantee(record),
+	       FZN_PUBKEY_LEN);
 	store->used++;
 
 	return FZN_CHAIN_OK;
@@ -131,7 +220,7 @@ size_t fzn_revocation_merge(fzn_revocation_store_t *store,
 	}
 
 	for (size_t i = 0; i < count; i++) {
-		fzn_chain_err_t one = fzn_revocation_admit(store, &records[i], root, sign);
+		fzn_chain_err_t one = fzn_revocation_admit(store, records[i], root, sign);
 
 		if (one == FZN_CHAIN_OK) {
 			admitted++;

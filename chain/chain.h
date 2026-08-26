@@ -1,4 +1,5 @@
-/* Capability chains: verification, expiry and revocation.
+/* Capability chains: the canonical encoding, verification, expiry and
+ * revocation.
  *
  * project.md sec 4.2 is the design. This is the first real code in the
  * library and sec 10 step 3 says why it is: sec 7a reassigned most of sec 4
@@ -6,14 +7,49 @@
  * ours through every scope change, because it is SEMANTICS rather than
  * layout or transport.
  *
- * That division is load-bearing here and shapes the whole interface. This
- * module never parses a byte. It is handed hops that somebody else decoded
- * -- the schema, once sec 10 step 4 picks a rung -- and answers one
- * question about them: does this chain authorise this grantee for this
- * capability, right now, under a root we already trust. Which bytes a hop
- * occupies, and which of them its signature covers, are the schema's
- * business and appear here only as a pointer and a length the caller
- * supplies.
+ * A HOP IS A VIEW OVER BYTES, AND THAT IS A CORRECTION (2026-08-27).
+ *
+ * This header used to declare `fzn_chain_hop_t` as an opaque `signed_region`
+ * and `signature` ALONGSIDE a set of decoded fields, and it said so
+ * deliberately: reconstructing the signed bytes here "would mean encoding a
+ * hop, which would put a second encoder in the tree for the schema to
+ * disagree with later". The fields were documented as a decoded view of that
+ * same region, "and the caller is responsible for their agreeing".
+ *
+ * They did not have to agree, nothing compared them, and every policy
+ * decision was taken from the fields. So an attacker kept a genuine
+ * root-signed `(signed_region, signature)` pair byte-identical and rewrote
+ * `grantee` to their own key, `capability` to whatever they wanted,
+ * `expires_at` to FZN_NO_EXPIRY and `delegable` to 1. A single-hop chain was
+ * a total authorization bypass, needing one genuine triple that every
+ * deployment has by construction. Reproduced against this tree with a real
+ * keyed verifier:
+ *
+ *     mint: ok
+ *     genuine verify: ok  grantee[0]=22 expires=1000
+ *     forged verify:  ok  grantee[0]=ee cap[0]=ff expires=0
+ *
+ * THE STATED REASON HAD EXPIRED. There was no first encoder for the schema
+ * to disagree with: no hop encoder or decoder existed anywhere in the tree,
+ * `wire/frame.situ` describes neither a hop nor a revocation -- its
+ * `fzn_hop` is the forwarder header, an unrelated object sharing a word --
+ * and no consumer supplied one. Two consequences were already visible.
+ * `fzn_chain_mint` took `signed_region` as an INPUT, so a caller had to have
+ * encoded a hop before it could mint one, which is the boundary admitting it
+ * does not work. And the simulation's signer memcpy'd the struct, padding
+ * and all, which binds within one ABI and cannot cross a host.
+ *
+ * So the objects are VIEWS over a canonical encoding, and every field is an
+ * accessor over the bytes the signature covers. Agreement stops being a
+ * contract between a caller and this module, because there is no longer
+ * anything left to disagree.
+ *
+ * WHAT DID NOT CHANGE, and why. `fzn_chain_t` is still a struct of decoded
+ * fields, because it is the VERDICT: it is produced only by code that has
+ * just checked, and it became MORE trustworthy rather than less, since its
+ * fields now come from bytes a signature covered. `fzn_revocation_t` is the
+ * same shape for the same reason. What was wrong was carrying decoded fields
+ * as INPUT beside the bytes that were supposed to justify them.
  *
  * Three properties follow from sec 4.2 and are not negotiable:
  *
@@ -55,6 +91,7 @@
 #include <stdint.h>
 
 #include "../constant_time/constant_time.h"
+#include "../wire/bytes.h"
 
 #define FZN_PUBKEY_LEN 32
 #define FZN_CAP_ID_LEN 32
@@ -95,9 +132,9 @@
 typedef enum fzn_chain_err {
 	FZN_CHAIN_OK = 0,
 	/* The caller handed us something structurally impossible -- a null
-	 * pointer, a hop count of zero or past FZN_CHAIN_MAX_HOPS, a hop with
-	 * no signed region. Distinct from CHAIN_INVALID because it means the
-	 * caller has a bug, not that a peer sent something bad. */
+	 * pointer, a hop count of zero or past FZN_CHAIN_MAX_HOPS, a view
+	 * that was never opened. Distinct from CHAIN_INVALID because it means
+	 * the caller has a bug, not that a peer sent something bad. */
 	FZN_CHAIN_ERR_MALFORMED = -1,
 	/* The chain is well-formed and does not check out: a signature that
 	 * does not verify, a break in the grantor/grantee linkage, a hop for a
@@ -124,56 +161,228 @@ typedef enum fzn_chain_err {
 	 * own error because it is the one refusal in this library that fails
 	 * OPEN -- see revocation.h. */
 	FZN_CHAIN_ERR_STORE_FULL = -7,
+	/* These bytes are not the shape the layout describes: a wrong length,
+	 * a version or object byte that is not ours, a `delegable` outside
+	 * {0,1}.
+	 *
+	 * ITS OWN CODE RATHER THAN MALFORMED, and the distinction is the one
+	 * MALFORMED already draws above. MALFORMED means the CALLER has a bug.
+	 * Bytes from a peer that are the wrong length are not a caller bug --
+	 * they are the ordinary hostile input this library exists to refuse,
+	 * and a receiver that logged them as its own defect would be looking
+	 * in the wrong place.
+	 *
+	 * It is also a code that could not have existed before 2026-08-27.
+	 * Canonicality is not a question the parallel-fields design could ask
+	 * at all, because there were no bytes to ask it of. */
+	FZN_CHAIN_ERR_SHAPE = -8,
 } fzn_chain_err_t;
+
+/* THE HOP LAYOUT. Big-endian, fixed width, no padding, fixed fields first,
+ * one encoding per value -- so that two implementations which agree on this
+ * table cannot produce different bytes for the same grant, which is exactly
+ * what a signature over them requires.
+ *
+ *     offset  size  field
+ *          0     1  version    (= FZN_SIGNED_VERSION)
+ *          1     1  object     (= FZN_OBJECT_HOP)
+ *          2    32  grantor
+ *         34    32  grantee
+ *         66    32  capability
+ *         98     8  issued_at
+ *        106     8  expires_at
+ *        114     1  delegable  (0 or 1, and nothing else)
+ *        115    64  signature
+ *
+ * The signature covers bytes 0 through 114 -- the whole body, version and
+ * object byte included. `wire/bytes.h` says why those two are inside the
+ * signed range and why neither could be added later. */
+#define FZN_HOP_BODY_LEN 115u
+#define FZN_HOP_LEN (FZN_HOP_BODY_LEN + (size_t)FZN_SIG_LEN)
+
+/* Named, so that a test mutating a field cites the header's own offset
+ * rather than a number it worked out for itself. evidence.md: a derived
+ * number is a measurement nobody is positioned to re-take. */
+#define FZN_HOP_OFF_VERSION 0u
+#define FZN_HOP_OFF_OBJECT 1u
+#define FZN_HOP_OFF_GRANTOR 2u
+#define FZN_HOP_OFF_GRANTEE 34u
+#define FZN_HOP_OFF_CAPABILITY 66u
+#define FZN_HOP_OFF_ISSUED_AT 98u
+#define FZN_HOP_OFF_EXPIRES_AT 106u
+#define FZN_HOP_OFF_DELEGABLE 114u
+#define FZN_HOP_OFF_SIGNATURE FZN_HOP_BODY_LEN
 
 /* One delegation step: grantor gives grantee this capability.
  *
- * `signed_region` is the bytes this hop's signature covers, and this module
- * takes it as opaque rather than reconstructing it. That is the layout
- * boundary in its most concrete form -- recomputing the signed bytes here
- * would mean encoding a hop, which would put a second encoder in the tree
- * for the schema to disagree with later. Whoever decoded the hop already
- * knows exactly which bytes they were and hands them over.
+ * A VIEW, and the pointer is the whole of it. `base` addresses FZN_HOP_LEN
+ * bytes the caller owns and must keep alive for as long as the view is used
+ * -- nothing here allocates or copies. Open it with `fzn_hop_open`, which is
+ * the only thing that may set `base`, and read it with the accessors below.
  *
- * The fields below are therefore a DECODED VIEW of that same region, and
- * the caller is responsible for their agreeing. A caller that fills these
- * from one hop and points signed_region at another gets a verdict about
- * neither; there is no way to check that from here without the encoder
- * this boundary exists to avoid. */
+ * The struct is not opaque, because a consumer building an array of these on
+ * the stack needs its size and hiding one pointer behind an allocator would
+ * buy nothing. What matters is that there is no second copy of any field for
+ * the bytes to disagree with. */
 typedef struct fzn_chain_hop {
-	uint8_t grantor[FZN_PUBKEY_LEN];
-	uint8_t grantee[FZN_PUBKEY_LEN];
-	uint8_t capability[FZN_CAP_ID_LEN];
-	uint64_t issued_at;
-	uint64_t expires_at; /* FZN_NO_EXPIRY (0) means never */
-	/* Whether the grantee may pass this capability on. Zero -- the
-	 * default -- means it may not, and a chain that continues past a hop
-	 * with it clear is refused.
-	 *
-	 * HOLDING SOMETHING IS NOT ENTITLEMENT TO HAND IT OUT, and this bit is
-	 * the whole of that distinction. fuzzypickles found the same thing the
-	 * expensive way: its grant path asked only whether the granting host
-	 * held the type it was handing over, which "left CAP_ADMIN gating
-	 * nothing and let any host promote any other host to its own
-	 * capability set". Its fix was to require a second capability,
-	 * `CAP_ADMIN`, alongside the one being granted.
-	 *
-	 * That fix is not available here and must not be imitated. sec 4.2
-	 * keeps capabilities OPAQUE -- netcfgd's three are independent rather
-	 * than a ladder, and a library that knew which identifier meant
-	 * "may grant" would be interpreting them. So the entitlement travels
-	 * as a bit on the hop rather than as a capability with a special
-	 * meaning, which says the same thing without this library ever
-	 * learning what any capability is.
-	 *
-	 * Fail-closed on purpose: a decoder that forgets the field, or a
-	 * caller that zeroes a hop and fills in what it knows about, produces
-	 * a grant that cannot be delegated onward rather than one that can. */
-	int delegable;
-	uint8_t signature[FZN_SIG_LEN];
-	const uint8_t *signed_region;
-	size_t signed_region_len;
+	const uint8_t *base;
 } fzn_chain_hop_t;
+
+/* Take a view over `len` bytes at `bytes`.
+ *
+ * PARSE CHECKS LAYOUT; VERIFY CHECKS SEMANTICS. This refuses a wrong length,
+ * a version or object byte that is not ours, and a `delegable` outside
+ * {0,1} -- all canonicality, all answerable from the bytes alone, and all
+ * returning FZN_CHAIN_ERR_SHAPE.
+ *
+ * It deliberately does NOT check that `expires_at` is after `issued_at`.
+ * That is a statement about the grant rather than about its shape, it has
+ * its own place in `fzn_chain_verify`'s order, and the taxonomy there tells
+ * a caller "this was never a grant" apart from "these are not our bytes".
+ *
+ * `delegable` is the one field whose canonicality has to be enforced rather
+ * than absorbed. The accessor could read any nonzero byte as true, but then
+ * 255 encodings of one grant exist, the signature over each is different,
+ * and two implementations that both "work" produce hops the other rejects.
+ * Refusing here leaves exactly one.
+ *
+ * Returns FZN_CHAIN_ERR_MALFORMED for a null argument, since that is the
+ * caller's bug rather than a peer's bytes. */
+fzn_chain_err_t fzn_hop_open(const uint8_t *bytes, size_t len, fzn_chain_hop_t *out);
+
+/* Lay out a hop, unsigned. `out` receives FZN_HOP_LEN bytes: the body as the
+ * table above describes it, and a signature left zeroed for a signer to
+ * fill.
+ *
+ * THE ONLY ENCODER IN THE TREE, which is what makes the view design mean
+ * anything. `fzn_chain_mint` and `fzn_chain_delegate` both come through
+ * here, and so does anybody assembling a hop for a test. A second one would
+ * be the thing the old design's comment feared, and this is where it would
+ * have to be added deliberately rather than by accident. */
+fzn_chain_err_t fzn_hop_encode(uint8_t *out, const uint8_t grantor[FZN_PUBKEY_LEN],
+                               const uint8_t grantee[FZN_PUBKEY_LEN],
+                               const uint8_t capability[FZN_CAP_ID_LEN], uint64_t issued_at,
+                               uint64_t expires_at, int delegable);
+
+/* The accessors. Each reads the bytes the signature covers, so there is
+ * nothing for a policy decision to be taken from except what was signed.
+ *
+ * They require an OPENED view: `fzn_hop_open` established the length and the
+ * shape, and asking these to re-check it on every read would be the same
+ * bounds test eight times per hop. A `base` that did not come from
+ * `fzn_hop_open` is a caller bug of the kind FZN_CHAIN_ERR_MALFORMED names. */
+static inline const uint8_t *fzn_hop_grantor(fzn_chain_hop_t hop)
+{
+	return hop.base + FZN_HOP_OFF_GRANTOR;
+}
+
+static inline const uint8_t *fzn_hop_grantee(fzn_chain_hop_t hop)
+{
+	return hop.base + FZN_HOP_OFF_GRANTEE;
+}
+
+static inline const uint8_t *fzn_hop_capability(fzn_chain_hop_t hop)
+{
+	return hop.base + FZN_HOP_OFF_CAPABILITY;
+}
+
+static inline uint64_t fzn_hop_issued_at(fzn_chain_hop_t hop)
+{
+	return fzn_get_be64(hop.base + FZN_HOP_OFF_ISSUED_AT);
+}
+
+static inline uint64_t fzn_hop_expires_at(fzn_chain_hop_t hop)
+{
+	return fzn_get_be64(hop.base + FZN_HOP_OFF_EXPIRES_AT);
+}
+
+/* Whether the grantee may pass this capability on. Zero -- the default --
+ * means it may not, and a chain that continues past a hop with it clear is
+ * refused.
+ *
+ * HOLDING SOMETHING IS NOT ENTITLEMENT TO HAND IT OUT, and this bit is the
+ * whole of that distinction. fuzzypickles found the same thing the expensive
+ * way: its grant path asked only whether the granting host held the type it
+ * was handing over, which "left CAP_ADMIN gating nothing and let any host
+ * promote any other host to its own capability set". Its fix was to require
+ * a second capability, `CAP_ADMIN`, alongside the one being granted.
+ *
+ * That fix is not available here and must not be imitated. sec 4.2 keeps
+ * capabilities OPAQUE -- netcfgd's three are independent rather than a
+ * ladder, and a library that knew which identifier meant "may grant" would
+ * be interpreting them. So the entitlement travels as a bit on the hop
+ * rather than as a capability with a special meaning, which says the same
+ * thing without this library ever learning what any capability is.
+ *
+ * IT IS ALSO THE SHARPEST OF THE FIELDS THE OLD DESIGN LEFT UNBOUND.
+ * Flipping it to 1 on a genuine non-delegable hop -- signature and signed
+ * region untouched, because nothing read them -- let an attacker delegate
+ * what nobody authorised, starting from a grant they had been legitimately
+ * given. */
+static inline int fzn_hop_delegable(fzn_chain_hop_t hop)
+{
+	return hop.base[FZN_HOP_OFF_DELEGABLE] != 0u;
+}
+
+static inline const uint8_t *fzn_hop_signature(fzn_chain_hop_t hop)
+{
+	return hop.base + FZN_HOP_OFF_SIGNATURE;
+}
+
+/* The bytes this hop's signature covers: the body, from the first byte.
+ *
+ * A function rather than two constants each caller applies for itself,
+ * because the range is the one thing every field's integrity rests on and it
+ * is worth stating exactly once. */
+static inline void fzn_hop_signed_bytes(fzn_chain_hop_t hop, const uint8_t **at, size_t *len)
+{
+	*at = hop.base;
+	*len = FZN_HOP_BODY_LEN;
+}
+
+/* THE CHAIN CONTAINER, which exists so that three consumers do not invent
+ * three.
+ *
+ * A chain has to reach another host somehow, and the hops are the only part
+ * that is signed -- so this is a framing rather than an object, and it
+ * carries no object tag: there is no signature over it whose domain a tag
+ * could separate. It carries a version because a container whose shape
+ * changes with no way to say so is the failure `wire/bytes.h` describes for
+ * the objects themselves.
+ *
+ *     offset  size  field
+ *          0     1  version    (= FZN_SIGNED_VERSION)
+ *          1     1  hop_count  (1..FZN_CHAIN_MAX_HOPS)
+ *          2   ...  that many hops, each FZN_HOP_LEN bytes
+ */
+#define FZN_CHAIN_HEADER_LEN 2u
+#define FZN_CHAIN_MAX_LEN (FZN_CHAIN_HEADER_LEN + FZN_CHAIN_MAX_HOPS * FZN_HOP_LEN)
+
+/* Open a container, and every hop in it. `out` receives one view per hop and
+ * `*hop_count` says how many.
+ *
+ * Refuses, with FZN_CHAIN_ERR_SHAPE: a length under the header, a version
+ * that is not ours, a hop count of zero or past FZN_CHAIN_MAX_HOPS, a length
+ * that is not exactly the header plus that many hops -- trailing bytes are a
+ * refusal rather than something to ignore, because "ignore what you do not
+ * understand" is how one encoding becomes several -- and any hop
+ * `fzn_hop_open` refuses.
+ *
+ * It does NOT verify anything. `fzn_chain_verify` is still the only thing
+ * that decides whether a chain authorises anybody, and keeping them apart is
+ * what leaves the pinned root a required argument of the verification rather
+ * than an optional argument of a parser. */
+fzn_chain_err_t fzn_chain_open(const uint8_t *bytes, size_t len,
+                               fzn_chain_hop_t out[FZN_CHAIN_MAX_HOPS], size_t *hop_count);
+
+/* Write `hop_count` opened hops into a container at `out`, which holds `cap`
+ * bytes, and report the length written through `*len`.
+ *
+ * The counterpart to `fzn_chain_open`, and it is here rather than left to
+ * each consumer for the same reason the encoder is: a reader with no writer
+ * is a writer everybody invents. */
+fzn_chain_err_t fzn_chain_pack(const fzn_chain_hop_t *hops, size_t hop_count, uint8_t *out,
+                               size_t cap, size_t *len);
 
 /* The signature seam.
  *
@@ -189,6 +398,13 @@ typedef struct fzn_chain_hop {
  * key. That is the same property situ/suggestion/fuzznet.md asks situ to
  * preserve for protocol state: a value rather than a process, constructible
  * directly into states normal operation cannot reach.
+ *
+ * A STUB THAT IGNORES ITS MESSAGE CANNOT SEE THE BUG THE NOTE AT THE TOP OF
+ * THIS FILE DESCRIBES, and every stub in the tree ignored it -- `(void)msg;`
+ * appeared in all of them. The suite's stubs now answer over the message as
+ * well as the key, because a verifier whose verdict does not depend on the
+ * bytes makes "this field is inside the signed range" a question with no
+ * observable answer.
  *
  * `verify` returns nonzero for a good signature and zero for a bad one.
  *
@@ -210,7 +426,13 @@ typedef struct fzn_sign_ops {
 	void *ctx;
 } fzn_sign_ops_t;
 
-/* What a verified chain turned out to say. */
+/* What a verified chain turned out to say.
+ *
+ * STILL A STRUCT OF DECODED FIELDS, and deliberately. It is the verdict
+ * rather than the evidence: it is produced only by code that has just
+ * checked, and every field in it was read out of bytes a signature covered.
+ * The old hop struct was the opposite -- decoded fields presented as INPUT
+ * beside bytes that were supposed to justify them. */
 typedef struct fzn_chain {
 	uint8_t root[FZN_PUBKEY_LEN];
 	uint8_t grantee[FZN_PUBKEY_LEN];   /* who this chain authorises */
@@ -225,10 +447,11 @@ typedef struct fzn_chain {
 
 /* One thing a host knows to be revoked: a capability withdrawn from a key.
  *
- * This is the VERIFIED form -- what a host has already decided to believe.
- * What travels on the wire carries its issuer and a signature, and is
- * checked once on admission; see revocation.h, which also records why an
- * earlier revision of this comment was wrong to say a signature was
+ * This is the VERIFIED form -- what a host has already decided to believe,
+ * and the same verdict-not-evidence argument as `fzn_chain_t` above. What
+ * travels on the wire is `fzn_revocation_record_t`, a view over signed
+ * bytes, checked once on admission; see revocation.h, which also records why
+ * an earlier revision of this comment was wrong to say a signature was
  * unnecessary. The short version: an authenticated datagram attributes its
  * contents to the peer that sent it and to nobody further back, and
  * "carried on contact" means the carrier is not the issuer. */
@@ -239,9 +462,10 @@ typedef struct fzn_revocation {
 
 /* Verify a chain against a pinned root, and report what it authorises.
  *
- * `hops` is in delegation order: hops[0] is signed by the root, and each
- * later hop is signed by the previous hop's grantee. `now` is the caller's
- * clock. `revocations` may be NULL with `revocation_count` 0.
+ * `hops` is an array of OPENED views, in delegation order: hops[0] is signed
+ * by the root, and each later hop is signed by the previous hop's grantee.
+ * `now` is the caller's clock. `revocations` may be NULL with
+ * `revocation_count` 0.
  *
  * Every hop is checked, in this order, and the order is chosen so that the
  * cheap structural refusals happen before any signature verification:
@@ -259,6 +483,11 @@ typedef struct fzn_revocation {
  *      a host in the middle has to kill everything it went on to grant,
  *      which is the whole point of revoking it
  *   6. signatures, last, because they are the expensive part
+ *
+ * Every one of those reads the bytes the signature covers, which is the
+ * 2026-08-27 change stated as a property rather than as a design note: a
+ * chain that passes step 6 has had steps 2 through 5 asked of exactly the
+ * bytes step 6 authenticated.
  *
  * Returns FZN_CHAIN_OK and fills *out on success. On any failure *out is left
  * untouched, so a caller cannot half-read a rejected chain.
@@ -280,7 +509,14 @@ fzn_chain_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
                             const fzn_sign_ops_t *sign, const fzn_revocation_t *revocations,
                             size_t revocation_count, fzn_chain_t *out);
 
-/* Mint hop 0: the root grants `capability` to `grantee`, directly.
+/* Mint hop 0: the root grants `capability` to `grantee`, directly. `out`
+ * receives FZN_HOP_LEN bytes -- the encoded hop, signed.
+ *
+ * IT PRODUCES BYTES NOW, which is what makes it usable at all. It used to
+ * take `signed_region` as an INPUT: a caller had to have encoded a hop
+ * before it could mint one, from an encoder that did not exist anywhere.
+ * What it returns is what goes on the wire, and `fzn_hop_open` over those
+ * same bytes is what a receiver holds.
  *
  * Only the holder of the root key can do this, and this function does not
  * check that -- it cannot. `sign->sign` either produces a signature that
@@ -291,21 +527,17 @@ fzn_chain_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
  * fill the hop's grantor, and being wrong about it produces a chain that
  * fails verification rather than one that lies.
  *
- * `signed_region` is the encoded hop as the schema lays it out, and is the
- * same boundary fzn_chain_verify draws: this module signs bytes it is given
- * and does not encode them. A caller whose region disagrees with the fields
- * it also passes gets a hop that verifies against neither.
- *
  * Returns FZN_CHAIN_ERR_MALFORMED on a missing argument or absent signer, and
- * FZN_CHAIN_ERR_CHAIN_INVALID if the signer refuses. */
+ * FZN_CHAIN_ERR_CHAIN_INVALID if the signer refuses or the dates are
+ * impossible. */
 fzn_chain_err_t fzn_chain_mint(const uint8_t root[FZN_PUBKEY_LEN],
                           const uint8_t grantee[FZN_PUBKEY_LEN],
                           const uint8_t capability[FZN_CAP_ID_LEN], uint64_t issued_at,
-                          uint64_t expires_at, int delegable, const uint8_t *signed_region,
-                          size_t signed_region_len, const fzn_sign_ops_t *sign,
-                          fzn_chain_hop_t *out);
+                          uint64_t expires_at, int delegable, const fzn_sign_ops_t *sign,
+                          uint8_t *out);
 
-/* Extend a chain by one hop: its current grantee grants onward.
+/* Extend a chain by one hop: its current grantee grants onward. `out`
+ * receives FZN_HOP_LEN bytes, the NEW hop only.
  *
  * The existing chain is RE-VERIFIED first, in full, against the pinned root
  * and the same revocation list a receiver would use. That is defence in
@@ -329,17 +561,16 @@ fzn_chain_err_t fzn_chain_mint(const uint8_t root[FZN_PUBKEY_LEN],
  * returns FZN_CHAIN_ERR_MALFORMED rather than producing something no verifier
  * would accept.
  *
- * `out` receives only the NEW hop. Assembling it onto the chain is the
- * caller's, because this module does not own the array's storage any more
- * than it owns the bytes. */
+ * Assembling the new hop onto the chain is the caller's, because this module
+ * does not own the array's storage any more than it owns the bytes --
+ * `fzn_chain_pack` is there for exactly that. */
 fzn_chain_err_t fzn_chain_delegate(const fzn_chain_hop_t *hops, size_t hop_count,
                               const uint8_t root[FZN_PUBKEY_LEN],
                               const uint8_t capability[FZN_CAP_ID_LEN], uint64_t now,
                               const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t expires_at,
-                              int delegable, const uint8_t *signed_region,
-                              size_t signed_region_len, const fzn_sign_ops_t *sign,
+                              int delegable, const fzn_sign_ops_t *sign,
                               const fzn_revocation_t *revocations, size_t revocation_count,
-                              fzn_chain_hop_t *out);
+                              uint8_t *out);
 
 /* Constant-time comparison comes from constant_time.h, which chain.h
  * includes so that existing users of fzn_ct_memeq keep compiling. New code

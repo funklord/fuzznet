@@ -20,13 +20,21 @@
  * silently dropped that should have been kept, which un-revokes a stolen
  * device. Neither breaks a spot invariant. Both break the model.
  *
+ * RECORDS ARE REAL BYTES NOW (2026-08-27), issued through
+ * `fzn_revocation_issue` and verified over their own signed body. This
+ * harness used to fill structs and point every one of them at a single
+ * shared string literal, so the field it set and the bytes the module
+ * verified had nothing to do with each other -- and a genuine record
+ * replayed with its grantee rewritten was admitted, permanently, against any
+ * host an attacker named.
+ *
  * The shadow is a second implementation of the rules on purpose, for the
  * reason chain_fuzz gives: a model that asked the module what it did would
  * agree with it always, including when both are wrong.
  *
  * Bounded and seeded like the others, and it counts what it reached --
- * admissions, refusals, duplicates and a full store must all occur, or the
- * run exercised less than it appears to.
+ * admissions, refusals, duplicates, a full store and both answers from the
+ * parser must all occur, or the run exercised less than it appears to.
  */
 
 #include "../revocation.h"
@@ -64,35 +72,36 @@
 #define CANARY 16
 #define CANARY_BYTE 0x7e
 
-static const uint8_t REGION[] = "a revocation, as the schema would lay it out";
+/* The toy MAC every harness and unit test in this module shares. Its answer
+ * depends on the message as well as on the key, which is what makes "is this
+ * field inside the signed range?" a question with an observable answer. */
+static void mac(uint8_t out[FZN_SIG_LEN], uint8_t identity, const uint8_t *msg, size_t len)
+{
+	uint64_t h = 0xcbf29ce484222325ull;
 
-/* THE VERDICT IS A FUNCTION OF THE KEY, NOT A GLOBAL YES OR NO.
- *
- * This stub opened `(void)pubkey;` and returned one `answer` whatever key it
- * was handed, so it could not tell a verifier that checked the right
- * signature from one that checked the wrong party's. revocation.c verifies
- * under `record->issuer`; mutating that to `record->grantee` hands the device
- * being revoked the power to decide whether its own revocation counts -- it
- * simply withholds a signature and stays authorised. The issuer is pinned to
- * the root above the verification, so the mutation changes neither the return
- * code nor the call count. Only the key tells them apart.
- *
- * `good` is the set of identities whose signature verifies, indexed by the
- * low five bits of the key. Every identity here is a key of repeated bytes,
- * so those bits ARE the identity. */
-struct stub {
-	uint32_t good;
-};
+	h ^= (uint64_t)identity;
+	h *= 0x100000001b3ull;
+	for (size_t i = 0; i < len; i++) {
+		h ^= (uint64_t)msg[i];
+		h *= 0x100000001b3ull;
+	}
+	for (size_t i = 0; i < FZN_SIG_LEN; i++) {
+		h ^= (uint64_t)i + 1u;
+		h *= 0x100000001b3ull;
+		out[i] = (uint8_t)(h >> 56);
+	}
+}
 
 static int stub_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const uint8_t *msg,
                        size_t msg_len, const uint8_t sig[FZN_SIG_LEN])
 {
-	const struct stub *s = (const struct stub *)ctx;
+	uint8_t want[FZN_SIG_LEN];
 
-	(void)msg;
-	(void)msg_len;
-	(void)sig;
-	return (int)((s->good >> (pubkey[0] & 31u)) & 1u);
+	(void)ctx;
+	if (!msg || msg_len == 0)
+		return 0;
+	mac(want, pubkey[0], msg, msg_len);
+	return memcmp(want, sig, FZN_SIG_LEN) == 0;
 }
 
 struct arena {
@@ -112,6 +121,8 @@ struct coverage {
 	unsigned long duplicate;
 	unsigned long refused;
 	unsigned long full;
+	unsigned long shape_ok;
+	unsigned long shape_refused;
 };
 
 static int model_holds(const struct model *m, const uint8_t *cap, const uint8_t *grantee)
@@ -162,12 +173,24 @@ static const char *agree(const struct arena *a, const fzn_revocation_store_t *st
 	return NULL;
 }
 
+/* The shape rules as a second implementation, so that `fzn_revocation_open`
+ * is held to accepting exactly the set the layout describes. */
+static int shape_is_ours(const uint8_t *bytes, size_t len)
+{
+	if (len != FZN_REVOCATION_LEN)
+		return 0;
+	if (bytes[FZN_REV_OFF_VERSION] != 1u)
+		return 0;
+	if (bytes[FZN_REV_OFF_OBJECT] != 2u)
+		return 0;
+	return 1;
+}
+
 static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 {
 	struct arena arena;
 	fzn_revocation_store_t store;
 	struct model model;
-	struct stub stub = { 0xffffffffu };
 	fzn_sign_ops_t sign;
 	uint8_t root[FZN_PUBKEY_LEN];
 	size_t pos = 0;
@@ -179,65 +202,85 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 
 	sign.verify = stub_verify;
 	sign.sign = NULL;
-	sign.ctx = &stub;
+	sign.ctx = NULL;
 
 	if (fzn_revocation_store_init(&store, arena.entries, STORE_CAP) != FZN_CHAIN_OK)
 		return 0;
 
 	while (pos + 4 <= len) {
-		fzn_revocation_record_t r;
+		uint8_t bytes[FZN_REVOCATION_LEN];
+		uint8_t capability[FZN_CAP_ID_LEN], grantee[FZN_PUBKEY_LEN];
+		uint8_t issuer[FZN_PUBKEY_LEN];
+		fzn_revocation_record_t record;
 		fzn_chain_err_t err, want;
 		const char *broke;
-		int issuer_ok, sig_ok, region_ok;
-
-		memset(&r, 0, sizeof(r));
+		int issuer_ok, sig_ok, shape_ok, opened;
 
 		/* Small sets, so duplicates and a full store both actually
 		 * happen. With random 32-byte values neither would, and the
 		 * paths this file exists to check would never be reached --
 		 * the failure recorded against the reassembly harness. */
-		memset(r.capability, data[pos] & 0x03u, FZN_CAP_ID_LEN);
-		memset(r.grantee, data[pos + 1] & 0x07u, FZN_PUBKEY_LEN);
+		memset(capability, data[pos] & 0x03u, FZN_CAP_ID_LEN);
+		memset(grantee, data[pos + 1] & 0x07u, FZN_PUBKEY_LEN);
 
 		/* Usually the root, sometimes a carrier pretending. The
 		 * "sometimes" is what makes the pinning check testable at all,
 		 * which chain_fuzz learned the hard way. */
 		issuer_ok = (data[pos + 2] & 0x07u) != 0;
-		memset(r.issuer, issuer_ok ? 0x01u : (uint8_t)(0x80u + data[pos + 2]),
+		memset(issuer, issuer_ok ? 0x01u : (uint8_t)(0x80u + data[pos + 2]),
 		       FZN_PUBKEY_LEN);
 
 		sig_ok = (data[pos + 3] & 0x03u) != 0;
-		/* `sig_ok` is a statement about THE ISSUER'S signature, so it is
-		 * the issuer's bit that gets cleared. Every other identity --
-		 * the grantee included -- keeps a good signature, which is what
-		 * makes a verifier that asks the wrong party visible: it gets a
-		 * yes where the rules below say no. */
-		stub.good = 0xffffffffu;
-		if (!sig_ok)
-			stub.good &= ~(1u << (r.issuer[0] & 31u));
+		shape_ok = (data[pos + 3] & 0x40u) == 0;
 
-		region_ok = (data[pos + 3] & 0x40u) == 0;
-		r.signed_region = region_ok ? REGION : NULL;
-		r.signed_region_len = region_ok ? sizeof(REGION) - 1 : 0;
-		r.issued_at = 1000;
+		if (fzn_revocation_encode(bytes, issuer, capability, grantee, 1000) !=
+		    FZN_CHAIN_OK) {
+			printf("  MODEL: the generator could not encode a record\n");
+			return 1;
+		}
+		/* `sig_ok` is a statement about THE ISSUER'S signature, so the
+		 * signature written is the issuer's or it is rubbish. Every
+		 * other identity keeps a good signature, which is what makes a
+		 * verifier that asks the wrong party visible: it gets a yes
+		 * where the rules below say no. */
+		if (sig_ok)
+			mac(bytes + FZN_REV_OFF_SIGNATURE, issuer[0], bytes,
+			    FZN_REVOCATION_BODY_LEN);
+		else
+			memset(bytes + FZN_REV_OFF_SIGNATURE, 0x5a, FZN_SIG_LEN);
+
+		/* And sometimes the bytes are not our shape at all, which is
+		 * the parser's business rather than admission's. */
+		if (!shape_ok)
+			bytes[FZN_REV_OFF_OBJECT] = (uint8_t)(1u + (data[pos + 3] >> 7));
+
 		pos += 4;
+
+		opened = fzn_revocation_open(bytes, FZN_REVOCATION_LEN, &record) == FZN_CHAIN_OK;
+		if (opened != shape_is_ours(bytes, FZN_REVOCATION_LEN)) {
+			printf("  MODEL: the parser and the layout disagree\n");
+			return 1;
+		}
+		if (!opened) {
+			cov->shape_refused++;
+			continue;
+		}
+		cov->shape_ok++;
 
 		/* What the rules say should happen, derived here rather than
 		 * asked of the module. */
-		if (!region_ok)
-			want = FZN_CHAIN_ERR_MALFORMED;
-		else if (!issuer_ok)
+		if (!issuer_ok)
 			want = FZN_CHAIN_ERR_WRONG_ROOT;
 		else if (!sig_ok)
 			want = FZN_CHAIN_ERR_CHAIN_INVALID;
-		else if (model_holds(&model, r.capability, r.grantee))
+		else if (model_holds(&model, capability, grantee))
 			want = FZN_CHAIN_OK; /* already known is success */
 		else if (model.used == STORE_CAP)
 			want = FZN_CHAIN_ERR_STORE_FULL;
 		else
 			want = FZN_CHAIN_OK;
 
-		err = fzn_revocation_admit(&store, &r, root, &sign);
+		err = fzn_revocation_admit(&store, record, root, &sign);
 
 		if (err != want) {
 			printf("  MODEL: admit returned %d, rules say %d\n", (int)err, (int)want);
@@ -245,13 +288,12 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		}
 
 		if (want == FZN_CHAIN_OK) {
-			if (model_holds(&model, r.capability, r.grantee)) {
+			if (model_holds(&model, capability, grantee)) {
 				cov->duplicate++;
 			} else {
-				memcpy(model.held[model.used].capability, r.capability,
+				memcpy(model.held[model.used].capability, capability,
 				       FZN_CAP_ID_LEN);
-				memcpy(model.held[model.used].grantee, r.grantee,
-				       FZN_PUBKEY_LEN);
+				memcpy(model.held[model.used].grantee, grantee, FZN_PUBKEY_LEN);
 				model.used++;
 				cov->admitted++;
 			}
@@ -274,7 +316,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 #ifdef FZN_LIBFUZZER
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
-	struct coverage cov = { 0, 0, 0, 0 };
+	struct coverage cov = { 0, 0, 0, 0, 0, 0 };
 
 	(void)fuzz_one(data, size, &cov);
 	return 0;
@@ -313,7 +355,7 @@ static unsigned long floor_of(unsigned long cases, unsigned long per)
 int main(int argc, char **argv)
 {
 	unsigned long cases = FUZZ_DEFAULT_CASES;
-	struct coverage cov = { 0, 0, 0, 0 };
+	struct coverage cov = { 0, 0, 0, 0, 0, 0 };
 	uint8_t buf[128];
 
 	if (argc > 1) {
@@ -345,18 +387,24 @@ int main(int argc, char **argv)
 
 	/* Every path this file is about has to occur. A full store in
 	 * particular: it is the refusal that fails OPEN, so a run that never
-	 * filled one has not tested the case that matters most. */
+	 * filled one has not tested the case that matters most. The two parser
+	 * counters are the same argument: a parser that refused everything
+	 * would satisfy a run that never watched it accept anything. */
 	if (cov.admitted < floor_of(cases, 200u) || cov.refused < floor_of(cases, 200u) ||
-	    cov.duplicate < floor_of(cases, 200u) || cov.full == 0) {
+	    cov.duplicate < floor_of(cases, 200u) || cov.full == 0 ||
+	    cov.shape_ok < floor_of(cases, 200u) || cov.shape_refused < floor_of(cases, 200u)) {
 		printf("revocation_fuzz: REACHED TOO LITTLE -- %lu admitted, %lu refused, "
-		       "%lu duplicate, %lu full in %lu cases.\n",
-		       cov.admitted, cov.refused, cov.duplicate, cov.full, cases);
+		       "%lu duplicate, %lu full, %lu shapes accepted, %lu shapes refused in "
+		       "%lu cases.\n",
+		       cov.admitted, cov.refused, cov.duplicate, cov.full, cov.shape_ok,
+		       cov.shape_refused, cases);
 		return 1;
 	}
 
 	printf("revocation_fuzz: %lu cases, %lu admitted, %lu refused, %lu duplicate, "
-	       "%lu full, model agreed throughout\n",
-	       cases, cov.admitted, cov.refused, cov.duplicate, cov.full);
+	       "%lu full, %lu shapes accepted, %lu shapes refused, model agreed throughout\n",
+	       cases, cov.admitted, cov.refused, cov.duplicate, cov.full, cov.shape_ok,
+	       cov.shape_refused);
 	return 0;
 }
 #endif
