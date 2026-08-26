@@ -22,6 +22,40 @@ static fzn_trust_err_t anchor(fzn_trust_t *trust, const uint8_t root[FZN_PUBKEY_
 {
 	if (!trust || !root)
 		return FZN_TRUST_ERR_MALFORMED;
+	/* AN ALL-ZERO ROOT IS REFUSED, and the header already argued for this
+	 * without the code doing it.
+	 *
+	 * `trust.h` says `fzn_trust_root` returns NULL rather than a zero key
+	 * "because `fzn_chain_verify` refuses NULL and would happily verify
+	 * against a key of zeroes -- and an anchor nobody set must fail closed
+	 * rather than match whatever an attacker can also produce". That guard
+	 * was keyed on `source`, not on the BYTES, so anchoring all zeroes
+	 * succeeded and `fzn_trust_root` then handed them to `fzn_chain_verify`
+	 * as a real root. Measured: adopt returns ok, and the accessor returns
+	 * non-NULL and all zero.
+	 *
+	 * The way in is not exotic: a caller anchoring from a join message it
+	 * parsed only partly, whose root field was never filled, gets a
+	 * permanent successful anchor to a key nobody holds -- and it is
+	 * permanent, because the next anchor is refused as ANCHORED.
+	 *
+	 * MALFORMED rather than a new code: an all-zero key is the caller
+	 * handing over a buffer it did not fill, which is what MALFORMED means
+	 * throughout this library.
+	 *
+	 * Not constant time, deliberately, unlike the comparison below. That
+	 * one is against a value an attacker chooses and repeats; this one is
+	 * against a constant, and how long it takes reveals nothing an attacker
+	 * did not already supply. */
+	{
+		uint8_t any = 0;
+		size_t i;
+
+		for (i = 0; i < FZN_PUBKEY_LEN; i++)
+			any = (uint8_t)(any | root[i]);
+		if (any == 0)
+			return FZN_TRUST_ERR_MALFORMED;
+	}
 
 	if (trust->source != FZN_TRUST_NONE) {
 		/* Constant time, because the comparison is against a value an

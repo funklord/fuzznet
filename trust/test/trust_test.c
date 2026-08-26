@@ -51,6 +51,37 @@ int main(void)
 	expect(fzn_trust_source_of(&t) == FZN_TRUST_NONE, "and no source");
 	expect(fzn_trust_adopted_at(&t) == 0, "and no moment of adoption");
 
+	/* AND ANCHORING ZEROES IS REFUSED, which is the half the paragraph
+	 * above argued for and did not test.
+	 *
+	 * The guard was on `source`, not on the bytes: a caller anchoring from
+	 * a join message it parsed only partly, whose root field was never
+	 * filled, got a permanent successful anchor to a key nobody holds --
+	 * permanent, because the next anchor is then refused as ANCHORED. And
+	 * `fzn_trust_root` handed those zeroes to `fzn_chain_verify` as a real
+	 * root, which is exactly what this module says it exists to prevent.
+	 *
+	 * Both entry points, because they are two doors to one rule. */
+	{
+		uint8_t zeroes[FZN_PUBKEY_LEN];
+
+		memset(zeroes, 0, sizeof(zeroes));
+		expect_err(fzn_trust_adopt(&t, zeroes, 1), FZN_TRUST_ERR_MALFORMED,
+		           "adopting a root of zeroes");
+		expect_err(fzn_trust_pin(&t, zeroes), FZN_TRUST_ERR_MALFORMED,
+		           "pinning a root of zeroes");
+		expect(fzn_trust_root(&t) == NULL, "a refused anchor left a root behind");
+		expect(fzn_trust_source_of(&t) == FZN_TRUST_NONE,
+		       "a refused anchor recorded a source");
+		/* The control: a key differing from zero in ONE byte is fine, so
+		 * the refusal is about emptiness rather than about the shape of
+		 * the check. */
+		zeroes[FZN_PUBKEY_LEN - 1u] = 0x01;
+		expect_err(fzn_trust_adopt(&t, zeroes, 1), FZN_TRUST_OK,
+		           "a key that is nearly zero was refused");
+		fzn_trust_init(&t);
+	}
+
 	/* FIRST USE. */
 	expect_err(fzn_trust_adopt(&t, first, 4242), FZN_TRUST_OK, "adopting on first contact");
 	expect(fzn_trust_root(&t) != NULL, "an anchored trust offers a root");
