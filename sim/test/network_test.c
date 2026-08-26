@@ -1387,17 +1387,39 @@ static void scenario_distribution(void)
  * library does not have. */
 static uint8_t state_bodies[STATE_HOSTS][4][16];
 
-static void sim_make_record(fzn_record_t *r, const struct sim_host *issuer, uint64_t seq,
-                            uint8_t subject_seed)
+/* Storage for the encoded records this scenario builds. A record is a VIEW
+ * over bytes now, so the bytes have to live somewhere the view outlasts --
+ * which is the whole point: there is one representation and the fields are
+ * read from the same bytes the signature covers. */
+static uint8_t state_wire[STATE_HOSTS][4][FZN_RECORD_MAX_LEN];
+
+/* The stream this scenario's records ride on. Named rather than 0 because
+ * `state/` now takes the writer to be (issuer, stream), so the number is part
+ * of the identity rather than a placeholder. */
+#define STREAM_STATE 3u
+
+/* Build a real, signed, canonical record and open a view onto it.
+ *
+ * This used to fill an `fzn_record_t`'s fields directly and leave
+ * `signed_region` NULL, which was the only thing it could do: there was no
+ * encoder. That is exactly the defect the binding closed -- the decoded
+ * fields and the signed bytes had no relationship, so a signature proved
+ * nothing about any field. The harness could not have demonstrated otherwise
+ * because the library gave it nothing to demonstrate with. */
+static void sim_make_record(struct sim_net *net, fzn_record_t *r, const struct sim_host *issuer,
+                            uint64_t seq, uint8_t subject_seed)
 {
-	memset(r, 0, sizeof(*r));
-	memcpy(r->issuer, issuer->pubkey, FZN_PUBKEY_LEN);
-	memset(r->subject, subject_seed, FZN_SUBJECT_LEN);
-	r->kind = KIND_SETTING;
-	r->seq = seq;
-	r->issued_at = 1;
-	r->body = state_bodies[issuer->id][seq - 1u];
-	r->body_len = sizeof(state_bodies[0][0]);
+	uint8_t subject[FZN_SUBJECT_LEN];
+	uint8_t *wire = state_wire[issuer->id][seq - 1u];
+	size_t wrote = 0;
+
+	memset(subject, subject_seed, sizeof(subject));
+	check(fzn_record_sign(issuer->pubkey, subject, STREAM_STATE, KIND_SETTING, seq, 1,
+	                      state_bodies[issuer->id][seq - 1u], sizeof(state_bodies[0][0]),
+	                      &net->sign, wire, FZN_RECORD_MAX_LEN, &wrote) == FZN_RECORD_OK,
+	      "the simulation could not sign a record");
+	check(fzn_record_open(wire, wrote, r) == FZN_RECORD_OK,
+	      "the simulation could not open the record it just signed");
 }
 
 /* Which subject a given issuer's given record is about. Alice's first record
@@ -1439,7 +1461,8 @@ static void state_fetch(struct sim_net *net, struct sim_host *me, struct sim_hos
 				net->dropped++;
 				continue;
 			}
-			if (fzn_journal_admit(&me->journal, want[r].issuer, 0, seq) != FZN_JOURNAL_OK)
+			if (fzn_journal_admit(&me->journal, want[r].issuer, STREAM_STATE, seq) !=
+			    FZN_JOURNAL_OK)
 				continue;
 
 			hold(me, issuer, seq);
@@ -1448,7 +1471,8 @@ static void state_fetch(struct sim_net *net, struct sim_host *me, struct sim_hos
 			/* RECEIVED IS NOT APPLIED. The record is now held; what
 			 * it means for current state is a separate step, and it
 			 * is where a conflict surfaces. */
-			sim_make_record(&rec, &net->hosts[issuer], seq, subject_of(issuer, seq));
+			sim_make_record(net, &rec, &net->hosts[issuer], seq,
+			                subject_of(issuer, seq));
 			if (fzn_state_apply(&me->state, &rec) == FZN_STATE_ERR_CONFLICT)
 				me->conflicts++;
 		}
@@ -1475,7 +1499,8 @@ static void scenario_state(void)
 	 * their own. Everyone follows both. */
 	for (uint8_t i = 0; i < STATE_HOSTS; i++) {
 		for (uint8_t w = 0; w < WRITERS; w++)
-			fzn_journal_anchor(&net.hosts[i].journal, net.hosts[w].pubkey, 0, 0);
+			fzn_journal_anchor(&net.hosts[i].journal, net.hosts[w].pubkey,
+			                   STREAM_STATE, 0);
 	}
 	for (uint8_t w = 0; w < WRITERS; w++) {
 		struct sim_host *h = &net.hosts[w];
@@ -1483,10 +1508,10 @@ static void scenario_state(void)
 		for (uint64_t seq = 1; seq <= 2; seq++) {
 			fzn_record_t rec;
 
-			if (fzn_journal_admit(&h->journal, h->pubkey, 0, seq) != FZN_JOURNAL_OK)
+			if (fzn_journal_admit(&h->journal, h->pubkey, STREAM_STATE, seq) != FZN_JOURNAL_OK)
 				break;
 			hold(h, w, seq);
-			sim_make_record(&rec, h, seq, subject_of(w, seq));
+			sim_make_record(&net, &rec, h, seq, subject_of(w, seq));
 			if (fzn_state_apply(&h->state, &rec) == FZN_STATE_ERR_CONFLICT)
 				h->conflicts++;
 		}
@@ -1510,7 +1535,15 @@ static void scenario_state(void)
 			const fzn_state_entry_t *e =
 			        fzn_state_get(&net.hosts[i].state, own, KIND_SETTING);
 
-			if (e && e->body == state_bodies[0][1])
+			/* CONTENT, NOT THE POINTER. This compared `e->body`
+			 * against the fixture's own buffer, which only worked
+			 * because a record used to carry the caller's pointer
+			 * straight through. A record is a view over its encoded
+			 * bytes now, so the entry points into those -- and
+			 * comparing what the hosts AGREE ON is what this check
+			 * meant all along. */
+			if (e && e->body_len == sizeof(state_bodies[0][0]) &&
+			    memcmp(e->body, state_bodies[0][1], e->body_len) == 0)
 				same++;
 		}
 		check(same == STATE_HOSTS, "an uncontested setting did not reach every host");
@@ -1544,7 +1577,7 @@ static void scenario_state(void)
 		fzn_record_t winner;
 		fzn_state_err_t err;
 
-		sim_make_record(&winner, &net.hosts[0], 1, 0xC0);
+		sim_make_record(&net, &winner, &net.hosts[0], 1, 0xC0);
 		err = fzn_state_resolve(&net.hosts[i].state, &winner);
 		/* STALE is the ordinary answer on a host that already held the
 		 * winner, and there are always some: a rule applied across a

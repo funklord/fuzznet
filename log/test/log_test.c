@@ -18,6 +18,7 @@
  * sequences that must still answer ABSENT and OK are checked beside them.
  */
 
+#include "../../chain/chain.h" /* fzn_sign_ops_t */
 #include "../log.h"
 
 #include <stdio.h>
@@ -47,14 +48,67 @@ static void expect_err(fzn_log_err_t got, fzn_log_err_t want, const char *what)
 
 static uint8_t BODIES[16][4];
 
+/* A signer for the fixture, and storage for the bytes its records occupy.
+ *
+ * A record is a VIEW over the bytes its signature covers, so a fixture must
+ * ENCODE one rather than fill a struct -- which is the property being bought:
+ * a field cannot disagree with the signature because there is nothing left
+ * for it to disagree with. This suite never verifies, so the signer answers
+ * for nobody in particular; what it must do is sign the bytes it is handed.
+ *
+ * A ring, because a test holds more than one record at a time. */
+static int fixture_sign(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg, size_t msg_len)
+{
+	uint32_t acc = 0x9e3779b9u;
+	size_t i;
+
+	(void)ctx;
+	for (i = 0; i < msg_len; i++)
+		acc = (acc * 31u) + msg[i];
+	for (i = 0; i < FZN_SIG_LEN; i++)
+		sig[i] = (uint8_t)(acc >> ((i % 4u) * 8u));
+	return 1;
+}
+
+#define WIRE_SLOTS 32u
+static uint8_t wire_pool[WIRE_SLOTS][FZN_RECORD_MAX_LEN];
+static size_t wire_next;
+
+static int fixture_record(fzn_record_t *r, const uint8_t issuer[FZN_PUBKEY_LEN],
+                          const uint8_t subject[FZN_SUBJECT_LEN], uint32_t stream, uint32_t kind,
+                          uint64_t seq, const uint8_t *body, size_t body_len)
+{
+	fzn_sign_ops_t ops;
+	uint8_t *slot = wire_pool[wire_next % WIRE_SLOTS];
+	size_t wrote = 0;
+
+	wire_next++;
+	memset(&ops, 0, sizeof(ops));
+	ops.sign = fixture_sign;
+
+	if (fzn_record_sign(issuer, subject, stream, kind, seq, 1, body, body_len, &ops, slot,
+	                    FZN_RECORD_MAX_LEN, &wrote) != FZN_RECORD_OK)
+		return 0;
+	return fzn_record_open(slot, wrote, r) == FZN_RECORD_OK;
+}
+
+static void make_on(fzn_record_t *r, uint8_t issuer_seed, uint32_t stream, uint64_t seq)
+{
+	uint8_t issuer[FZN_PUBKEY_LEN], subject[FZN_SUBJECT_LEN];
+
+	memset(issuer, issuer_seed, sizeof(issuer));
+	memset(subject, 0, sizeof(subject));
+	if (!fixture_record(r, issuer, subject, stream, 3, seq, BODIES[seq % 16u],
+	                    sizeof(BODIES[0]))) {
+		printf("  FAIL: the fixture could not build a record\n");
+		failures++;
+		memset(r, 0, sizeof(*r));
+	}
+}
+
 static void make(fzn_record_t *r, uint8_t issuer_seed, uint64_t seq)
 {
-	memset(r, 0, sizeof(*r));
-	memset(r->issuer, issuer_seed, FZN_PUBKEY_LEN);
-	r->kind = 3;
-	r->seq = seq;
-	r->body = BODIES[seq % 16u];
-	r->body_len = sizeof(BODIES[0]);
+	make_on(r, issuer_seed, 0, seq);
 }
 
 int main(void)
@@ -165,13 +219,17 @@ int main(void)
 	/* Arguments. */
 	expect_err(fzn_log_append(&log, NULL), FZN_LOG_ERR_MALFORMED, "a null record");
 	expect_err(fzn_log_append(NULL, &rec), FZN_LOG_ERR_MALFORMED, "a null log to append to");
-	make(&rec, 0xa1, 0);
-	expect_err(fzn_log_append(&log, &rec), FZN_LOG_ERR_MALFORMED, "sequence zero");
-	make(&rec, 0xa1, 9);
-	rec.body = NULL;
-	rec.body_len = 4;
-	expect_err(fzn_log_append(&log, &rec), FZN_LOG_ERR_MALFORMED,
-	           "a null body of non-zero length");
+	/* SEQUENCE ZERO IS NOW UNBUILDABLE, which is the change working rather
+	 * than coverage lost: `fzn_record_sign` refuses it at the point a
+	 * record is made, so it cannot reach this module at all. `record_test`
+	 * holds that refusal. */
+	/* A RECORD THAT WAS NEVER OPENED. This used to build a good record and
+	 * then set `body` NULL with a non-zero length -- a state a view cannot
+	 * represent, which is the point of the change: the two can no longer
+	 * disagree because there is only one of them. What a caller CAN still
+	 * hand over is a record it never opened, and that must be refused. */
+	memset(&rec, 0, sizeof(rec));
+	expect_err(fzn_log_append(&log, &rec), FZN_LOG_ERR_MALFORMED, "a record never opened");
 	expect_err(fzn_log_get(&log, &journal, alice, 0, 0, &got), FZN_LOG_ERR_MALFORMED, "asking for zero");
 	expect_err(fzn_log_get(&log, &journal, alice, 0, 1, NULL), FZN_LOG_ERR_MALFORMED, "nowhere to answer");
 	expect(fzn_log_read_since(&log, alice, 0, 0, page, 0) == 0, "a zero-capacity read");
@@ -193,11 +251,9 @@ int main(void)
 
 		expect_err(fzn_log_init(&two, rows, 4), FZN_LOG_OK, "a log for two streams");
 		for (uint64_t seq = 1; seq <= 2; seq++) {
-			make(&rec, 0xa1, seq);
-			rec.stream = 1;
+			make_on(&rec, 0xa1, 1, seq);
 			expect_err(fzn_log_append(&two, &rec), FZN_LOG_OK, "stream one");
-			make(&rec, 0xa1, seq);
-			rec.stream = 2;
+			make_on(&rec, 0xa1, 2, seq);
 			expect_err(fzn_log_append(&two, &rec), FZN_LOG_OK, "stream two");
 		}
 
@@ -218,10 +274,15 @@ int main(void)
 	/* A RECORD WITH NO BODY AT ALL is legitimate -- a statement whose
 	 * meaning is entirely in its kind and subject -- and the guard is
 	 * `body == NULL AND length != 0`, so this is the half that must pass. */
-	make(&rec, 0xa1, 12);
-	rec.body = NULL;
-	rec.body_len = 0;
-	expect_err(fzn_log_append(&log, &rec), FZN_LOG_OK, "a record carrying no body");
+	{
+		uint8_t issuer[FZN_PUBKEY_LEN], subject[FZN_SUBJECT_LEN];
+
+		memset(issuer, 0xa1, sizeof(issuer));
+		memset(subject, 0, sizeof(subject));
+		expect(fixture_record(&rec, issuer, subject, 0, 3, 12, NULL, 0),
+		       "the fixture could not build a bodyless record");
+		expect_err(fzn_log_append(&log, &rec), FZN_LOG_OK, "a record carrying no body");
+	}
 
 	/* RANGE TAKES EITHER POINTER OR NEITHER, since a caller often wants
 	 * only the oldest or only the newest. */
@@ -285,8 +346,7 @@ int main(void)
 		       "following stream eight");
 
 		for (uint64_t seq = 1; seq <= 2; seq++) {
-			make(&rec, 0xa1, seq);
-			rec.stream = 7;
+			make_on(&rec, 0xa1, 7, seq);
 			expect(fzn_log_append(&small, &rec) == FZN_LOG_OK, "stream seven's entries");
 			expect(fzn_journal_admit(&journal, alice, 7, seq) == FZN_JOURNAL_OK,
 			       "and seven's position");
@@ -294,8 +354,7 @@ int main(void)
 		/* Two more from another stream, which is enough to push every one
 		 * of seven's out of a log this size. */
 		for (uint64_t seq = 1; seq <= 2; seq++) {
-			make(&rec, 0xa1, seq);
-			rec.stream = 8;
+			make_on(&rec, 0xa1, 8, seq);
 			expect(fzn_log_append(&small, &rec) == FZN_LOG_OK, "stream eight's entries");
 			expect(fzn_journal_admit(&journal, alice, 8, seq) == FZN_JOURNAL_OK,
 			       "and eight's position");
@@ -338,8 +397,7 @@ int main(void)
 		expect(fzn_journal_anchor(&journal, bob, 3, 3) == FZN_JOURNAL_OK,
 		       "bob's stream three, received up to three");
 		for (uint64_t seq = 5; seq <= 6; seq++) {
-			make(&rec, 0xb2, seq);
-			rec.stream = 3;
+			make_on(&rec, 0xb2, 3, seq);
 			expect(fzn_log_append(&back, &rec) == FZN_LOG_OK, "an entry above the position");
 		}
 		expect(fzn_log_dropped(&back) == 0, "nothing was evicted here at all");
@@ -374,16 +432,14 @@ int main(void)
 		expect(fzn_log_init(&mixed, slots, 4) == FZN_LOG_OK, "a log to put a hole in");
 		expect(fzn_journal_anchor(&journal, bob, 4, 0) == FZN_JOURNAL_OK, "bob's stream four");
 		for (size_t i = 0; i < 4; i++) {
-			make(&rec, 0xb2, ARRIVAL[i]);
-			rec.stream = 4;
+			make_on(&rec, 0xb2, 4, ARRIVAL[i]);
 			expect(fzn_log_append(&mixed, &rec) == FZN_LOG_OK, "arriving out of order");
 		}
 		for (uint64_t seq = 1; seq <= 4; seq++)
 			expect(fzn_journal_admit(&journal, bob, 4, seq) == FZN_JOURNAL_OK,
 			       "the journal takes them in order and reaches four");
 
-		make(&rec, 0xb2, 9);
-		rec.stream = 5;
+		make_on(&rec, 0xb2, 5, 9);
 		expect(fzn_log_append(&mixed, &rec) == FZN_LOG_OK, "another stream's entry evicts one");
 		expect(fzn_log_dropped(&mixed) == 1, "and it was the first to arrive");
 

@@ -36,6 +36,7 @@
  * stops it being said again.
  */
 
+#include "../../chain/chain.h" /* fzn_sign_ops_t */
 #include "../log.h"
 
 #include <stdio.h>
@@ -92,6 +93,50 @@ static int32_t fix_lat(const uint8_t *b)
 #define TRACK 12u
 #define FLAG_COARSE 0x01u
 
+/* A signer and storage for the fixture's records.
+ *
+ * A record is a VIEW over the bytes its signature covers, so a fixture
+ * encodes one rather than filling a struct -- which is the property bought:
+ * a field cannot disagree with the signature because there is only one of
+ * them. This suite never verifies, so the signer answers for nobody in
+ * particular; what it must do is sign the bytes it is handed. */
+static int fixture_sign(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg, size_t msg_len)
+{
+	uint32_t acc = 0x9e3779b9u;
+	size_t i;
+
+	(void)ctx;
+	for (i = 0; i < msg_len; i++)
+		acc = (acc * 31u) + msg[i];
+	for (i = 0; i < FZN_SIG_LEN; i++)
+		sig[i] = (uint8_t)(acc >> ((i % 4u) * 8u));
+	return 1;
+}
+
+#define WIRE_SLOTS 32u
+static uint8_t wire_pool[WIRE_SLOTS][FZN_RECORD_MAX_LEN];
+static size_t wire_next;
+
+static int fixture_record(fzn_record_t *r, const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
+                          uint32_t kind, uint64_t seq, const uint8_t *body, size_t body_len)
+{
+	uint8_t subject[FZN_SUBJECT_LEN];
+	fzn_sign_ops_t ops;
+	uint8_t *slot = wire_pool[wire_next % WIRE_SLOTS];
+	size_t wrote = 0;
+
+	wire_next++;
+	memset(subject, 0, sizeof(subject));
+	memset(&ops, 0, sizeof(ops));
+	ops.sign = fixture_sign;
+
+	if (fzn_record_sign(issuer, subject, stream, kind, seq, 1, body, body_len, &ops, slot,
+	                    FZN_RECORD_MAX_LEN, &wrote) != FZN_RECORD_OK)
+		return 0;
+	return fzn_record_open(slot, wrote, r) == FZN_RECORD_OK;
+}
+
+
 int main(void)
 {
 	fzn_log_t track;
@@ -121,12 +166,8 @@ int main(void)
 
 		fix_pack(body, 515000000 + (int32_t)seq * 1000, -1200000, 1700000000u + (uint32_t)seq,
 		         3, 90, 0);
-		memset(&rec, 0, sizeof(rec));
-		memcpy(rec.issuer, receiver, FZN_PUBKEY_LEN);
-		rec.kind = TRACK;
-		rec.seq = seq;
-		rec.body = body;
-		rec.body_len = FIX_SIZE;
+		expect(fixture_record(&rec, receiver, 0, TRACK, seq, body, FIX_SIZE),
+		       "the fixture could not build a record");
 		expect(fzn_log_append(&track, &rec) == FZN_LOG_OK, "appending a fix");
 		expect(fzn_journal_admit(&position, receiver, 0, seq) == FZN_JOURNAL_OK,
 		       "and taking it into the position");
@@ -163,12 +204,8 @@ int main(void)
 		uint8_t *body = fixes[6];
 
 		fix_pack(body, 515000000, -1200000, 1700000007u, 200, 0, FLAG_COARSE);
-		memset(&rec, 0, sizeof(rec));
-		memcpy(rec.issuer, receiver, FZN_PUBKEY_LEN);
-		rec.kind = TRACK;
-		rec.seq = 7;
-		rec.body = body;
-		rec.body_len = FIX_SIZE;
+		expect(fixture_record(&rec, receiver, 0, TRACK, 7, body, FIX_SIZE),
+		       "the fixture could not build a record");
 		expect(fzn_log_append(&track, &rec) == FZN_LOG_OK, "appending a coarse fix");
 		expect(fzn_journal_admit(&position, receiver, 0, 7) == FZN_JOURNAL_OK, "and taking it");
 		expect(fzn_log_get(&track, &position, receiver, 0, 7, &got) == FZN_LOG_OK,
@@ -201,12 +238,8 @@ int main(void)
 		uint8_t *body = fixes[7];
 
 		fix_pack(body, 0, 0, 1700000008u, 0, 0, 0);
-		memset(&rec, 0, sizeof(rec));
-		memcpy(rec.issuer, receiver, FZN_PUBKEY_LEN);
-		rec.kind = OTHER_KIND;
-		rec.seq = 7;
-		rec.body = body;
-		rec.body_len = FIX_SIZE;
+		expect(fixture_record(&rec, receiver, 0, OTHER_KIND, 7, body, FIX_SIZE),
+		       "the fixture could not build a record");
 		expect(fzn_log_append(&track, &rec) == FZN_LOG_ERR_DUPLICATE,
 		       "a different kind at a held sequence is a duplicate, not a second entry");
 		expect(fzn_log_get(&track, &position, receiver, 0, 7, &got) == FZN_LOG_OK &&
@@ -216,7 +249,8 @@ int main(void)
 		/* THE STREAM IS WHAT SEPARATES THEM. The same issuer, the same
 		 * sequence, the same kind even -- a different stream, and it is
 		 * a different entry. */
-		rec.stream = 1;
+		expect(fixture_record(&rec, receiver, 1, OTHER_KIND, 7, body, FIX_SIZE),
+		       "the fixture could not build a record on another stream");
 		expect(fzn_log_append(&track, &rec) == FZN_LOG_OK,
 		       "the same sequence in another stream is a new entry");
 	}

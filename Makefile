@@ -360,6 +360,7 @@ $(BUILD_DIR)/record/test/record_guided: $(BUILD_DIR)/record/test/record_guided.o
 
 $(BUILD_DIR)/log/test/fix_stream_test: $(BUILD_DIR)/log/test/fix_stream_test.o \
                                        $(BUILD_DIR)/log/log.o \
+                                       $(BUILD_DIR)/record/record.o \
                                        $(BUILD_DIR)/record/journal.o \
                                        $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
@@ -388,6 +389,7 @@ $(BUILD_DIR)/wire/test/relay_test: $(BUILD_DIR)/wire/test/relay_test.o \
 # this build wants a missed dependency to fail in.
 $(BUILD_DIR)/log/test/log_test: $(BUILD_DIR)/log/test/log_test.o \
                                 $(BUILD_DIR)/log/log.o \
+                                $(BUILD_DIR)/record/record.o \
                                 $(BUILD_DIR)/record/journal.o \
                                 $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
@@ -401,6 +403,7 @@ $(BUILD_DIR)/trust/test/trust_test: $(BUILD_DIR)/trust/test/trust_test.o \
 
 $(BUILD_DIR)/state/test/state_test: $(BUILD_DIR)/state/test/state_test.o \
                                     $(BUILD_DIR)/state/state.o \
+                                    $(BUILD_DIR)/record/record.o \
                                     $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -430,6 +433,7 @@ $(BUILD_DIR)/record/test/journal_test: $(BUILD_DIR)/record/test/journal_test.o \
 $(BUILD_DIR)/sim/test/network_test: $(BUILD_DIR)/sim/test/network_test.o \
                                     $(BUILD_DIR)/trust/trust.o \
                                     $(BUILD_DIR)/state/state.o \
+                                    $(BUILD_DIR)/record/record.o \
                                     $(BUILD_DIR)/record/journal.o \
                                     $(BUILD_DIR)/record/sync.o \
                                     $(BUILD_DIR)/chain/chain.o \

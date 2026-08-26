@@ -17,6 +17,7 @@
  * and both orders reported success.
  */
 
+#include "../../chain/chain.h" /* fzn_sign_ops_t */
 #include "../state.h"
 
 #include <stdio.h>
@@ -55,17 +56,66 @@ static const uint8_t BODY_A2[] = "alice's second thought";
  * built was stream 0 and the whole suite was blind to the field -- which is
  * why nothing here noticed that `state.c` never read it. A fixture that
  * cannot express a distinction cannot test one. */
+/* A signer for the fixture. It answers for nobody in particular, which is
+ * fine here: this suite never verifies. What it must do is produce a
+ * signature over the bytes `fzn_record_sign` hands it, so that the records
+ * below are REAL -- canonically encoded, with every field read back out of
+ * the bytes the signature covers. */
+static int fixture_sign(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg, size_t msg_len)
+{
+	uint32_t acc = 0x9e3779b9u;
+	size_t i;
+
+	(void)ctx;
+	for (i = 0; i < msg_len; i++)
+		acc = (acc * 31u) + msg[i];
+	for (i = 0; i < FZN_SIG_LEN; i++)
+		sig[i] = (uint8_t)(acc >> ((i % 4u) * 8u));
+	return 1;
+}
+
+/* Storage the views point into. A record is a VIEW now, so its bytes must
+ * outlive it -- which is the property being bought: there is one
+ * representation, and a field cannot disagree with the signature because
+ * there is nothing for it to disagree with.
+ *
+ * A ring rather than one buffer, because a test holds several records at once
+ * -- the conflict cases hold two, the permutation property holds four. Thirty
+ * two is far more than any case here needs, and `wire` is asserted below to
+ * have wrapped no further than that. */
+#define WIRE_SLOTS 32u
+static uint8_t wire[WIRE_SLOTS][FZN_RECORD_MAX_LEN];
+static size_t wire_next;
+static size_t wire_made;
+
 static void make(fzn_record_t *r, uint8_t issuer_seed, uint32_t stream, uint8_t subject_seed,
                  uint32_t kind, uint64_t seq, const uint8_t *body, size_t body_len)
 {
-	memset(r, 0, sizeof(*r));
-	memset(r->issuer, issuer_seed, FZN_PUBKEY_LEN);
-	memset(r->subject, subject_seed, FZN_SUBJECT_LEN);
-	r->stream = stream;
-	r->kind = kind;
-	r->seq = seq;
-	r->body = body;
-	r->body_len = body_len;
+	uint8_t issuer[FZN_PUBKEY_LEN], subject[FZN_SUBJECT_LEN];
+	fzn_sign_ops_t ops;
+	uint8_t *slot = wire[wire_next % WIRE_SLOTS];
+	size_t wrote = 0;
+
+	wire_next++;
+	wire_made++;
+
+	memset(issuer, issuer_seed, sizeof(issuer));
+	memset(subject, subject_seed, sizeof(subject));
+	memset(&ops, 0, sizeof(ops));
+	ops.sign = fixture_sign;
+
+	if (fzn_record_sign(issuer, subject, stream, kind, seq, 1, body, body_len, &ops, slot,
+	                    FZN_RECORD_MAX_LEN, &wrote) != FZN_RECORD_OK) {
+		printf("  FAIL: the fixture could not sign a record\n");
+		failures++;
+		memset(r, 0, sizeof(*r));
+		return;
+	}
+	if (fzn_record_open(slot, wrote, r) != FZN_RECORD_OK) {
+		printf("  FAIL: the fixture could not open the record it signed\n");
+		failures++;
+		memset(r, 0, sizeof(*r));
+	}
 }
 
 /* ---- the order-independence property ---------------------------------- */
@@ -234,11 +284,11 @@ static void property_state_is_a_function_of_the_set(void)
 	expect(divergent == 0, "every order of one record set leaves one state");
 
 	expect(reference.count == 3, "three cells, whatever the order");
-	expect(reference.cell[0].body == BODY_A2 && reference.cell[0].seq == 12,
+	expect(memcmp(reference.cell[0].body, BODY_A2, reference.cell[0].body_len) == 0 && reference.cell[0].seq == 12,
 	       "the highest sequence of the writer holds the first cell");
-	expect(reference.cell[1].body == BODY_A && reference.cell[1].stream == 2,
+	expect(memcmp(reference.cell[1].body, BODY_A, reference.cell[1].body_len) == 0 && reference.cell[1].stream == 2,
 	       "another kind of the same subject is its own cell");
-	expect(reference.cell[2].body == BODY_B && reference.cell[2].seq == 7,
+	expect(memcmp(reference.cell[2].body, BODY_B, reference.cell[2].body_len) == 0 && reference.cell[2].seq == 7,
 	       "and the second subject is bob's");
 }
 
@@ -311,14 +361,16 @@ int main(void)
 	make(&rec, 0xa1, 1, 0x51, 1, 5, BODY_A, sizeof(BODY_A));
 	expect_err(fzn_state_apply(&st, &rec), FZN_STATE_OK, "alice sets a subject");
 	got = fzn_state_get(&st, subj, 1);
-	expect(got != NULL && got->body == BODY_A, "the value is alice's");
+	expect(got != NULL && got->body_len == sizeof(BODY_A) &&
+	                       memcmp(got->body, BODY_A, got->body_len) == 0, "the value is alice's");
 	expect(got != NULL && got->seq == 5, "and carries her sequence");
 	expect(got != NULL && got->stream == 1, "and the stream she said it on");
 
 	make(&rec, 0xa1, 1, 0x51, 1, 6, BODY_A2, sizeof(BODY_A2));
 	expect_err(fzn_state_apply(&st, &rec), FZN_STATE_OK, "alice changes her mind");
 	got = fzn_state_get(&st, subj, 1);
-	expect(got != NULL && got->body == BODY_A2, "the newer value wins");
+	expect(got != NULL && got->body_len == sizeof(BODY_A2) &&
+	                       memcmp(got->body, BODY_A2, got->body_len) == 0, "the newer value wins");
 	expect(fzn_state_count(&st) == 1, "superseding does not add a subject");
 
 	/* AN OLDER RECORD MUST NOT UNDO A NEWER ONE. A re-delivery is exactly
@@ -326,7 +378,8 @@ int main(void)
 	make(&rec, 0xa1, 1, 0x51, 1, 5, BODY_A, sizeof(BODY_A));
 	expect_err(fzn_state_apply(&st, &rec), FZN_STATE_ERR_STALE, "an older record arriving late");
 	got = fzn_state_get(&st, subj, 1);
-	expect(got != NULL && got->body == BODY_A2, "and the newer value still stands");
+	expect(got != NULL && got->body_len == sizeof(BODY_A2) &&
+	                       memcmp(got->body, BODY_A2, got->body_len) == 0, "and the newer value still stands");
 
 	make(&rec, 0xa1, 1, 0x51, 1, 6, BODY_A, sizeof(BODY_A));
 	expect_err(fzn_state_apply(&st, &rec), FZN_STATE_ERR_STALE, "the same sequence again");
@@ -346,7 +399,8 @@ int main(void)
 	expect_err(fzn_state_apply(&st, &rec), FZN_STATE_ERR_CROSS_STREAM,
 	           "alice writing her own subject from another stream");
 	got = fzn_state_get(&st, subj, 1);
-	expect(got != NULL && got->body == BODY_A2 && got->stream == 1,
+	expect(got != NULL && got->body_len == sizeof(BODY_A2) &&
+	                       memcmp(got->body, BODY_A2, got->body_len) == 0 && got->stream == 1,
 	       "and a refused cross-stream record left the value alone");
 
 	/* And far LOWER, which a sequence comparison would call stale. The two
@@ -363,7 +417,8 @@ int main(void)
 	expect_err(fzn_state_apply(&st, &rec), FZN_STATE_OK,
 	           "alice's own stream still supersedes");
 	got = fzn_state_get(&st, subj, 1);
-	expect(got != NULL && got->body == BODY_A && got->seq == 7, "with the newer value");
+	expect(got != NULL && got->body_len == sizeof(BODY_A) &&
+	                       memcmp(got->body, BODY_A, got->body_len) == 0 && got->seq == 7, "with the newer value");
 
 	/* AND STALE STILL WORKS ON THAT WRITER, which is the other half of the
 	 * control: a check keyed on the stream must not have stopped comparing
@@ -392,14 +447,16 @@ int main(void)
 	make(&rec, 0xb2, 1, 0x51, 1, 99, BODY_B, sizeof(BODY_B));
 	expect_err(fzn_state_apply(&st, &rec), FZN_STATE_ERR_CONFLICT, "bob writing alice's subject");
 	got = fzn_state_get(&st, subj, 1);
-	expect(got != NULL && got->body == BODY_A, "a refused conflict left the value alone");
+	expect(got != NULL && got->body_len == sizeof(BODY_A) &&
+	                       memcmp(got->body, BODY_A, got->body_len) == 0, "a refused conflict left the value alone");
 	expect(got != NULL && memcmp(got->issuer, alice, FZN_PUBKEY_LEN) == 0,
 	       "and left the issuer alone");
 
 	/* RESOLVING IS DELIBERATE, and then bob holds it. */
 	expect_err(fzn_state_resolve(&st, &rec), FZN_STATE_OK, "resolving in bob's favour");
 	got = fzn_state_get(&st, subj, 1);
-	expect(got != NULL && got->body == BODY_B, "bob's value now stands");
+	expect(got != NULL && got->body_len == sizeof(BODY_B) &&
+	                       memcmp(got->body, BODY_B, got->body_len) == 0, "bob's value now stands");
 	expect(got != NULL && memcmp(got->issuer, bob, FZN_PUBKEY_LEN) == 0,
 	       "and bob is recorded as having set it");
 	expect(got != NULL && got->stream == 1, "with his stream, not the one it replaced");
@@ -465,7 +522,8 @@ int main(void)
 	expect_err(fzn_state_apply(&st, &rec), FZN_STATE_OK,
 	           "a record newer than the clear sets the subject again");
 	got = fzn_state_get(&st, subj, 1);
-	expect(got != NULL && got->body == BODY_B && got->seq == 201, "with its value back");
+	expect(got != NULL && got->body_len == sizeof(BODY_B) &&
+	                       memcmp(got->body, BODY_B, got->body_len) == 0 && got->seq == 201, "with its value back");
 	expect(fzn_state_count(&st) == 2, "and counted again");
 
 	/* A TOMBSTONE HOLDS ITS OWN SLOT, so set and clear cycles on one
@@ -522,11 +580,23 @@ int main(void)
 	/* Arguments. */
 	expect_err(fzn_state_apply(&st, NULL), FZN_STATE_ERR_MALFORMED, "a null record");
 	expect_err(fzn_state_apply(NULL, &rec), FZN_STATE_ERR_MALFORMED, "a null state to apply to");
-	make(&rec, 0xa1, 1, 0x70, 1, 0, BODY_A, sizeof(BODY_A));
-	expect_err(fzn_state_apply(&st, &rec), FZN_STATE_ERR_MALFORMED, "sequence zero");
-	make(&rec, 0xa1, 1, 0x70, 1, 1, NULL, 4);
-	expect_err(fzn_state_apply(&st, &rec), FZN_STATE_ERR_MALFORMED,
-	           "a null body of non-zero length");
+	/* SEQUENCE ZERO AND A NULL BODY ARE NOW UNBUILDABLE, which is the
+	 * change working rather than coverage lost. `fzn_record_sign` refuses
+	 * sequence zero and a null body of non-zero length at the point a
+	 * record is MADE, so neither state can reach `fzn_state_apply` -- and
+	 * a state a caller cannot construct is one this module need not
+	 * defend against. `record_test` holds those two refusals now.
+	 *
+	 * What a caller can still hand over is a record it never opened. */
+	{
+		fzn_record_t never;
+
+		memset(&never, 0, sizeof(never));
+		expect_err(fzn_state_apply(&st, &never), FZN_STATE_ERR_MALFORMED,
+		           "a record never opened");
+		expect_err(fzn_state_clear(&st, &never), FZN_STATE_ERR_MALFORMED,
+		           "clearing with a record never opened");
+	}
 	expect(fzn_state_get(NULL, subj, 1) == NULL, "a null state answers nothing");
 	expect(fzn_state_count(NULL) == 0, "a null state counts nothing");
 	expect(fzn_state_forgotten(NULL) == 0, "a null state has forgotten nothing");
