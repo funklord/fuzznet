@@ -100,24 +100,34 @@ fzn_log_err_t fzn_log_append(fzn_log_t *log, const fzn_record_t *record)
 
 	if (!usable(log) || !record)
 		return FZN_LOG_ERR_MALFORMED;
-	if (!record->body && record->body_len != 0)
+	/* A view `fzn_record_open` never filled -- the caller has skipped the
+	 * parse. It replaces the null-body-with-a-length test that used to sit
+	 * here, which was about a pair a caller set by hand and which a record
+	 * can no longer represent: the body and its length are both read out of
+	 * the bytes the signature covers. */
+	if (!fzn_record_is_open(*record))
 		return FZN_LOG_ERR_MALFORMED;
-	/* Sequence zero is reserved (`record.h`), so a record carrying it has
-	 * not been through `fzn_record_verify`. */
-	if (record->seq == 0)
+	/* Sequence zero is reserved (`record.h`) and `fzn_record_open` refuses
+	 * it. Kept as defence in depth rather than as the gate. */
+	if (fzn_record_seq(*record) == 0)
 		return FZN_LOG_ERR_MALFORMED;
 
-	if (find(log, record->issuer, record->stream, record->seq))
+	if (find(log, fzn_record_issuer(*record), fzn_record_stream(*record),
+	         fzn_record_seq(*record)))
 		return FZN_LOG_ERR_DUPLICATE;
 
 	e = slot_for_append(log);
 
-	memcpy(e->issuer, record->issuer, FZN_PUBKEY_LEN);
-	e->stream = record->stream;
-	e->seq = record->seq;
-	e->kind = record->kind;
-	e->body = record->body;
-	e->body_len = record->body_len;
+	/* Every field comes through a `record.h` accessor, so what this log
+	 * holds is what the issuer signed. `body` points into the record's own
+	 * bytes -- see log.h: the buffer the record is a view of must outlive
+	 * the entry, which is one lifetime rather than two. */
+	memcpy(e->issuer, fzn_record_issuer(*record), FZN_PUBKEY_LEN);
+	e->stream = fzn_record_stream(*record);
+	e->seq = fzn_record_seq(*record);
+	e->kind = fzn_record_kind(*record);
+	e->body = fzn_record_body(*record);
+	e->body_len = fzn_record_body_len(*record);
 	e->stamp = log->next_stamp++;
 
 	return FZN_LOG_OK;

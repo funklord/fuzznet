@@ -346,7 +346,11 @@ $(BUILD_DIR)/chain/test/chain_test: $(BUILD_DIR)/chain/test/chain_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# record.o is here because a record is now a VIEW over its own encoding: the
+# harness builds every record through fzn_record_sign and reads it back with
+# fzn_record_open, so the module is linked rather than merely included.
 $(BUILD_DIR)/record/test/record_guided: $(BUILD_DIR)/record/test/record_guided.o \
+                                        $(BUILD_DIR)/record/record.o \
                                         $(BUILD_DIR)/record/journal.o \
                                         $(BUILD_DIR)/state/state.o \
                                         $(BUILD_DIR)/log/log.o \

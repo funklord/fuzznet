@@ -140,9 +140,10 @@
  * arrives, the flag and the scan come back together, because that is when
  * either starts meaning anything.
  *
- * THE BODIES ARE NOT COPIED, as in `state/`: an entry points at the caller's
- * bytes and the caller must keep them alive for as long as the entry does.
- * An entry that is evicted stops referring to anything.
+ * THE BODIES ARE NOT COPIED, as in `state/`: an entry points INTO THE
+ * RECORD'S OWN BYTES, so keeping the record's buffer alive keeps the body
+ * alive and there is one lifetime to manage rather than two. An entry that is
+ * evicted stops referring to anything.
  */
 
 #ifndef FZN_LOG_H

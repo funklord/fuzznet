@@ -87,18 +87,25 @@ fzn_state_err_t fzn_state_init(fzn_state_t *state, fzn_state_entry_t *entries, s
  * one of them, because a cell whose writer is only half recorded compares
  * against half a writer for ever afterwards.
  *
+ * Every field is read through a `record.h` accessor, so what is stored here
+ * is what the issuer signed. A cell that named a writer nobody had signed for
+ * was reachable before the record became a view over its own bytes: the
+ * decoded fields and the signed region were separate, and moving a genuine
+ * record to another stream wedged the cell it landed in at CROSS_STREAM for
+ * ever, with the revocation that would have cleared it refused on arrival.
+ *
  * `live` is 0 for a clear, which is the only difference between clearing and
  * setting: the writer and the sequence are recorded either way, and the value
  * recorded is absence. */
-static void store(fzn_state_entry_t *e, const fzn_record_t *record, int live)
+static void store(fzn_state_entry_t *e, fzn_record_t record, int live)
 {
-	memcpy(e->subject, record->subject, FZN_SUBJECT_LEN);
-	memcpy(e->issuer, record->issuer, FZN_PUBKEY_LEN);
-	e->kind = record->kind;
-	e->stream = record->stream;
-	e->seq = record->seq;
-	e->body = live ? record->body : NULL;
-	e->body_len = live ? record->body_len : 0;
+	memcpy(e->subject, fzn_record_subject(record), FZN_SUBJECT_LEN);
+	memcpy(e->issuer, fzn_record_issuer(record), FZN_PUBKEY_LEN);
+	e->kind = fzn_record_kind(record);
+	e->stream = fzn_record_stream(record);
+	e->seq = fzn_record_seq(record);
+	e->body = live ? fzn_record_body(record) : NULL;
+	e->body_len = live ? fzn_record_body_len(record) : 0;
 	e->live = live;
 }
 
@@ -124,15 +131,21 @@ static fzn_state_err_t put(fzn_state_t *state, const fzn_record_t *record, int o
 
 	if (!usable(state) || !record)
 		return FZN_STATE_ERR_MALFORMED;
-	if (!record->body && record->body_len != 0)
+	/* A view `fzn_record_open` never filled. The caller has skipped the
+	 * parse, so there is nothing here to read -- and one check now replaces
+	 * the two that used to stand for it. The null-body-with-a-length case
+	 * is gone because a body and its length are no longer two things a
+	 * caller sets: both are read out of the bytes the signature covers. */
+	if (!fzn_record_is_open(*record))
 		return FZN_STATE_ERR_MALFORMED;
-	/* Sequence zero is reserved (`record.h`), so a record carrying it has
-	 * not been through `fzn_record_verify` and must not be trusted to
-	 * order anything. */
-	if (record->seq == 0)
+	/* Sequence zero is reserved (`record.h`), and `fzn_record_open` already
+	 * refuses it -- so this is defence in depth rather than the gate, kept
+	 * because a comparison is cheaper than reasoning about every path a
+	 * record can reach this by. */
+	if (fzn_record_seq(*record) == 0)
 		return FZN_STATE_ERR_MALFORMED;
 
-	e = find(state, record->subject, record->kind);
+	e = find(state, fzn_record_subject(*record), fzn_record_kind(*record));
 	if (!e) {
 		if (!live)
 			return FZN_STATE_ERR_ABSENT;
@@ -141,14 +154,14 @@ static fzn_state_err_t put(fzn_state_t *state, const fzn_record_t *record, int o
 		if (!e)
 			return FZN_STATE_ERR_FULL;
 
-		store(e, record, live);
+		store(e, *record, live);
 		return FZN_STATE_OK;
 	}
 
-	if (!fzn_ct_memeq(e->issuer, record->issuer, FZN_PUBKEY_LEN)) {
+	if (!fzn_ct_memeq(e->issuer, fzn_record_issuer(*record), FZN_PUBKEY_LEN)) {
 		if (!override)
 			return FZN_STATE_ERR_CONFLICT;
-		store(e, record, live);
+		store(e, *record, live);
 		return FZN_STATE_OK;
 	}
 
@@ -158,22 +171,36 @@ static fzn_state_err_t put(fzn_state_t *state, const fzn_record_t *record, int o
 	 * 7's value and the reverse order left stream 9's, with no error either
 	 * way -- the same record set giving two answers, which is the one thing
 	 * this file is for. Checked BEFORE the sequence comparison below, so
-	 * that a cross-stream record is never mistaken for a stale one. */
-	if (e->stream != record->stream) {
+	 * that a cross-stream record is never mistaken for a stale one.
+	 *
+	 * AND THE STREAM IS NOW THE ISSUER'S OWN, not a field somebody set
+	 * beside a signature. Moving a genuine record between streams used to
+	 * be free, which put a cell into CROSS_STREAM against a writer that had
+	 * never written on that stream -- permanently, since the revocation
+	 * that would have cleared it arrives on the real stream and meets the
+	 * same refusal. `record.h` records the measurement. */
+	if (e->stream != fzn_record_stream(*record)) {
 		if (!override)
 			return FZN_STATE_ERR_CROSS_STREAM;
-		store(e, record, live);
+		store(e, *record, live);
 		return FZN_STATE_OK;
 	}
 
 	/* Same writer: its own sequence orders it, and only forwards. An older
 	 * record arriving late must not undo a newer one -- which is what a
 	 * re-delivery looks like, and it is the whole reason the sequence is
-	 * carried into the cell and kept when the cell is cleared. */
-	if (record->seq <= e->seq)
+	 * carried into the cell and kept when the cell is cleared.
+	 *
+	 * THIS TEST IS ONLY WORTH ANYTHING BECAUSE THE SEQUENCE IS SIGNED. It
+	 * was not: a decoded `seq` sat beside an opaque signed region and
+	 * nothing compared them, so an attacker replayed an issuer's own signed
+	 * grant with the sequence bumped and this row let it past a revocation
+	 * that had already superseded it. Nothing forged, one genuine record
+	 * re-presented -- and the permission came back. */
+	if (fzn_record_seq(*record) <= e->seq)
 		return FZN_STATE_ERR_STALE;
 
-	store(e, record, live);
+	store(e, *record, live);
 	return FZN_STATE_OK;
 }
 

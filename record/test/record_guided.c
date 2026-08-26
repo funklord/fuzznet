@@ -12,6 +12,12 @@
  * deliberately partial: it tracks the things the headers PROMISE and ignores
  * everything else.
  *
+ *   - `record.h`: a record is a VIEW over the bytes it was encoded into, so
+ *     every record this harness drives is built by `fzn_record_sign` and read
+ *     back by `fzn_record_open`. That is not decoration. The harness used to
+ *     assemble the struct field by field, which is the shape that let a
+ *     decoded field disagree with what was signed -- and a model driving a
+ *     record no encoder could have produced is a model of nothing.
  *   - `journal.h`: a position advances by exactly one, never on a refusal;
  *     `next` is always received + 1; `applied` never exceeds `received`, so
  *     `pending` can never underflow.
@@ -88,6 +94,28 @@ static void identity(uint8_t out[FZN_PUBKEY_LEN], uint8_t which)
 	memset(out, (int)(0x40u + which), FZN_PUBKEY_LEN);
 }
 
+/* A SIGNER THAT ANSWERS THE SAME THING EVERY TIME, because this harness is
+ * about ORDER and never about authenticity: nothing here calls
+ * `fzn_record_verify`, and a record's journal position, its precedence in a
+ * cell and its place in the log are decided without one. What the harness
+ * needs from `fzn_record_sign` is the ENCODER -- records built field by field
+ * are exactly what `record.h` stopped being able to represent, and building
+ * them through the real encoder is what keeps this model driving the same
+ * bytes a consumer would.
+ *
+ * The binding between a field and a signature is measured in
+ * `record/test/record_test.c`, one mutation per field, which is where a
+ * constant like this would be worthless. */
+static int fuzz_sign(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg, size_t msg_len)
+{
+	(void)ctx;
+	(void)msg;
+	(void)msg_len;
+	memset(sig, 0x5a, FZN_SIG_LEN);
+
+	return 1;
+}
+
 /* The log's promises, in their own function so that the checks are not four
  * levels deep inside a switch -- which made every continuation line ambiguous
  * to the style gate and, more to the point, to a reader. */
@@ -149,6 +177,15 @@ static int drive(const uint8_t *data, size_t size)
 	fzn_log_t log;
 	fzn_log_entry_t lentries[SLOTS];
 	static uint8_t bodies[16][4];
+	/* THE RECORDS' OWN STORAGE, AND IT HAS TO OUTLIVE THE ENTRIES. A state
+	 * cell and a log entry point INTO a record's bytes (see `state.h`), so
+	 * the buffer a record was opened from cannot be a loop local. A ring of
+	 * sixteen, indexed the way `bodies` already was, keeps a bounded amount
+	 * of storage alive for the whole run; nothing here reads a body back,
+	 * so reuse is invisible and boundedness is what matters. */
+	static uint8_t encoded[16][FZN_RECORD_MAX_LEN];
+	fzn_sign_ops_t sign = { NULL, fuzz_sign, NULL };
+	size_t step = 0;
 	struct model m;
 	struct cursor c = { data, size, 0 };
 
@@ -176,19 +213,24 @@ static int drive(const uint8_t *data, size_t size)
 		uint8_t subj_i = take8(&c) % SUBJECTS;
 		uint8_t kind_i = take8(&c) % KINDS;
 		uint8_t issuer[FZN_PUBKEY_LEN], subject[FZN_SUBJECT_LEN];
+		uint8_t *buf = encoded[step % 16u];
+		size_t rec_len = 0;
 		fzn_record_t rec;
 
+		step++;
 		identity(issuer, iss);
 		memset(subject, (int)(0x80u + subj_i), sizeof(subject));
 
-		memset(&rec, 0, sizeof(rec));
-		memcpy(rec.issuer, issuer, FZN_PUBKEY_LEN);
-		memcpy(rec.subject, subject, FZN_SUBJECT_LEN);
-		rec.stream = str;
-		rec.kind = kind_i;
-		rec.seq = seq;
-		rec.body = bodies[seq % 16u];
-		rec.body_len = sizeof(bodies[0]);
+		/* THROUGH THE ENCODER, NOT FIELD BY FIELD. A record is a view
+		 * over the bytes its signature covers, so the only way to make
+		 * one is to encode it -- and a harness that assembled a struct
+		 * by hand would be driving a shape no consumer can produce. */
+		if (fzn_record_sign(issuer, subject, str, kind_i, seq, seq, bodies[seq % 16u],
+		                    sizeof(bodies[0]), &sign, buf, FZN_RECORD_MAX_LEN,
+		                    &rec_len) != FZN_RECORD_OK)
+			return 1;
+		if (fzn_record_open(buf, rec_len, &rec) != FZN_RECORD_OK)
+			return 1;
 
 		switch (op % 6u) {
 		case 0: { /* journal admit */
