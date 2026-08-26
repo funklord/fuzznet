@@ -303,9 +303,13 @@ int main(void)
 			if (fzn_link_observe_ack(&lt, 1, 5000, (uint64_t)k) != FZN_LINK_OK)
 				return 93;
 		}
-		n = fzn_link_snapshot(&lt, snap, 2);
-		if (n != 2)
-			return 94;
+		{
+			size_t dropped = 1;
+
+			n = fzn_link_snapshot(&lt, snap, 2, &dropped);
+			if (n != 2 || dropped != 0)
+				return 94;
+		}
 		if (fzn_sched_select(snap, n, &any, &pick) != FZN_SCHED_OK || pick != 1)
 			return 95;
 	}

@@ -102,11 +102,13 @@ int main(void)
 	/* THE SNAPSHOT IS WHAT sched/ CHOOSES FROM. */
 	expect_err(fzn_link_register(&table, 2, 20, 30, 2, 1500), FZN_LINK_OK, "a second link");
 	{
-		size_t n = fzn_link_snapshot(&table, snap, 4);
+		size_t dropped = 99;
+		size_t n = fzn_link_snapshot(&table, snap, 4, &dropped);
 		fzn_class_t any = { 0, 0, 0, 0, 1, 0 };
 		size_t chosen = 99;
 
 		expect(n == 2, "both links should appear in the snapshot");
+		expect(dropped == 0, "nothing was dropped when everything fitted");
 		expect(n == 2 && snap[0].id == 1 && snap[1].id == 2, "with their own ids");
 		expect(n == 2 && snap[0].latency_ms > 700,
 		       "carrying the measured latency, not the declared one");
@@ -117,7 +119,21 @@ int main(void)
 		       "selecting from a snapshot");
 		expect(chosen == 1, "the link that did not degrade must win on latency");
 	}
-	expect(fzn_link_snapshot(&table, snap, 1) == 1, "a snapshot must respect its bound");
+	/* THE BOUND MUST BE REPORTED, NOT MERELY RESPECTED. This asserted only
+	 * the short return, which is satisfied by a snapshot that silently
+	 * leaves links out -- and this table never reorders, so the links past
+	 * the bound are the same ones on every call. A consumer can be told
+	 * "no link satisfies this class" while a healthy link sits one index
+	 * past the end, for ever. The old assertion locked that in. */
+	{
+		size_t dropped = 0;
+
+		expect(fzn_link_snapshot(&table, snap, 1, &dropped) == 1,
+		       "a snapshot must respect its bound");
+		expect(dropped == 1, "a snapshot did not report the link it left out");
+		expect(fzn_link_snapshot(&table, snap, 4, NULL) == 0,
+		       "a snapshot with nowhere to report truncation must refuse");
+	}
 
 	/* FULL IS REFUSED, NOT EVICTED: forgetting a link discards its
 	 * measurements, so the next selection treats a known bad path as
@@ -135,8 +151,14 @@ int main(void)
 	           "marking an unregistered link");
 	expect(fzn_link_get(&table, 99) == NULL, "asking for one");
 	expect(fzn_link_get(NULL, 1) == NULL, "asking a null table");
-	expect(fzn_link_snapshot(NULL, snap, 4) == 0, "snapshotting a null table");
-	expect(fzn_link_snapshot(&table, NULL, 4) == 0, "snapshotting into nothing");
+	{
+		size_t dropped = 0;
+
+		expect(fzn_link_snapshot(NULL, snap, 4, &dropped) == 0,
+		       "snapshotting a null table");
+		expect(fzn_link_snapshot(&table, NULL, 4, &dropped) == 0,
+		       "snapshotting into nothing");
+	}
 	expect_err(fzn_link_observe_ack(NULL, 1, 1, 1), FZN_LINK_ERR_MALFORMED, "a null table");
 
 	/* A large round trip must not wrap the average. */

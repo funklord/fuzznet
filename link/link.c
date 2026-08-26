@@ -173,15 +173,50 @@ const fzn_link_entry_t *fzn_link_get(const fzn_link_table_t *table, uint32_t id)
 	return find(table, id);
 }
 
-size_t fzn_link_snapshot(const fzn_link_table_t *table, fzn_sched_candidate_t *out, size_t out_cap)
+size_t fzn_link_snapshot(const fzn_link_table_t *table, fzn_sched_candidate_t *out, size_t out_cap,
+                         size_t *dropped)
 {
 	size_t n = 0;
+
+	/* Required, for the reason `fzn_sync_digest` takes one: an
+	 * out-parameter a caller may omit is one every caller omits. */
+	if (!dropped)
+		return 0;
+
+	*dropped = 0;
 
 	if (!usable_table(table) || !out)
 		return 0;
 
-	for (size_t i = 0; i < table->used && n < out_cap; i++) {
+	/* COUNTS PAST THE BOUND RATHER THAN STOPPING AT IT, and the entries
+	 * past it are always the same ones.
+	 *
+	 * `link/` has no unregister and no compaction: `fzn_link_register`
+	 * appends at `entries[used]` and every observation mutates in place, so
+	 * table order IS registration order, permanently. Truncation therefore
+	 * drops the most RECENTLY registered links -- the interface that just
+	 * came up, the relay address just discovered, the radio switched back
+	 * on. Exactly the links a consumer most needs to hear about.
+	 *
+	 * Measured with three links and an `out_cap` of two, the first two
+	 * marked unusable: `fzn_sched_select` answered "no link satisfies this
+	 * class" and the consumer concluded the network was down while a
+	 * healthy link sat one index past the bound. Every round, identically,
+	 * for as long as the table lives.
+	 *
+	 * And it compounds. `sched/` only ever sees the snapshot, so nothing is
+	 * ever sent on that link, so `fzn_link_observe_ack` and `_loss` are
+	 * never called for it either -- its estimate stays frozen at the
+	 * declared prior for ever. link.h's thesis that "the declared metric is
+	 * a prior; measurement is evidence" is unreachable for anything past
+	 * `out_cap`. */
+	for (size_t i = 0; i < table->used; i++) {
 		const fzn_link_entry_t *e = &table->entries[i];
+
+		if (n >= out_cap) {
+			(*dropped)++;
+			continue;
+		}
 
 		out[n].id = e->id;
 		out[n].metric = e->metric;

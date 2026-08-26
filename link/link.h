@@ -119,8 +119,18 @@ fzn_link_err_t fzn_link_set_usable(fzn_link_table_t *table, uint32_t id, int usa
 const fzn_link_entry_t *fzn_link_get(const fzn_link_table_t *table, uint32_t id);
 
 /* Fill an array `sched/` can choose from. Returns how many were written,
- * never more than `out_cap`. */
-size_t fzn_link_snapshot(const fzn_link_table_t *table, fzn_sched_candidate_t *out, size_t out_cap);
+ * never more than `out_cap`.
+ *
+ * `dropped` receives how many links did not fit, and is REQUIRED -- passing
+ * NULL writes nothing and returns 0. A snapshot that quietly does not fit is
+ * worse than a short list, because this table never reorders: entries are
+ * appended and never removed, so the links past the bound are the same links
+ * every call, and they are the most recently registered ones. A consumer can
+ * be told the network is down while a healthy link sits one index past the
+ * end, for ever, and it never gathers evidence on that link either because
+ * nothing is ever sent on it. */
+size_t fzn_link_snapshot(const fzn_link_table_t *table, fzn_sched_candidate_t *out, size_t out_cap,
+                         size_t *dropped);
 
 /* A short name for `fzn_link_err_t`. Never NULL. */
 const char *fzn_link_err_str(fzn_link_err_t err);
