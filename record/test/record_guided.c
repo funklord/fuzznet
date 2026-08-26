@@ -15,9 +15,14 @@
  *   - `journal.h`: a position advances by exactly one, never on a refusal;
  *     `next` is always received + 1; `applied` never exceeds `received`, so
  *     `pending` can never underflow.
- *   - `state.h`: a later record from the same issuer supersedes and an older
- *     one never does; a different issuer is refused unless resolved; the
- *     entry always names an issuer that actually succeeded.
+ *   - `state.h`: a later record from the same WRITER supersedes and an older
+ *     one never does; a different issuer is refused as CONFLICT and the same
+ *     issuer on another stream as CROSS_STREAM, unless resolved; the entry
+ *     always names a writer that actually succeeded.
+ *
+ *     A writer is (issuer, stream). This clause used to say "issuer", which
+ *     was the module's own defect written into the model -- two independent
+ *     sequence spaces compared as one.
  *   - `log.h`: `GONE` for a sequence the journal says was RECEIVED and the
  *     log no longer holds, `ABSENT` for one that never arrived, and
  *     `dropped` only ever increases.
@@ -67,6 +72,13 @@ struct model {
 	int following[ISSUERS][STREAMS];
 	/* Current holder of each (subject, kind), or -1 for nothing set. */
 	int holder[SUBJECTS][KINDS];
+	/* THE WRITER IS (ISSUER, STREAM), NOT THE ISSUER. `state.h` orders by
+	 * sequence within one writer, and `record.h` says a sequence is unique
+	 * within (issuer, stream) and NOT within issuer -- so a model keyed by
+	 * issuer alone compares two independent sequence spaces, which is the
+	 * defect `state/` was just fixed for. A model carrying it could not
+	 * check the fix and would reject it. */
+	int holder_stream[SUBJECTS][KINDS];
 	uint64_t holder_seq[SUBJECTS][KINDS];
 	uint64_t dropped;
 };
@@ -147,9 +159,12 @@ static int drive(const uint8_t *data, size_t size)
 	if (fzn_log_init(&log, lentries, SLOTS) != FZN_LOG_OK)
 		return 1;
 	memset(&m, 0, sizeof(m));
-	for (size_t s = 0; s < SUBJECTS; s++)
-		for (size_t k = 0; k < KINDS; k++)
+	for (size_t s = 0; s < SUBJECTS; s++) {
+		for (size_t k = 0; k < KINDS; k++) {
 			m.holder[s][k] = -1;
+			m.holder_stream[s][k] = -1;
+		}
+	}
 	for (size_t i = 0; i < 16; i++)
 		memset(bodies[i], (int)i, sizeof(bodies[0]));
 
@@ -225,22 +240,32 @@ static int drive(const uint8_t *data, size_t size)
 		case 3: { /* state apply */
 			fzn_state_err_t err = fzn_state_apply(&state, &rec);
 			int *holder = &m.holder[subj_i][kind_i];
+			int *hstream = &m.holder_stream[subj_i][kind_i];
 			uint64_t *hseq = &m.holder_seq[subj_i][kind_i];
+			int same_writer = *holder == (int)iss && *hstream == (int)str;
 
 			if (err == FZN_STATE_OK) {
-				/* Either nothing held it, or the same issuer did
+				/* Either nothing held it, or the same WRITER did
 				 * with a strictly older sequence. */
-				if (*holder != -1 && *holder != (int)iss)
+				if (*holder != -1 && !same_writer)
 					return 1;
-				if (*holder == (int)iss && seq <= *hseq)
+				if (same_writer && seq <= *hseq)
 					return 1;
 				*holder = (int)iss;
+				*hstream = (int)str;
 				*hseq = seq;
 			} else if (err == FZN_STATE_ERR_CONFLICT) {
+				/* Another ISSUER. */
 				if (*holder == -1 || *holder == (int)iss)
 					return 1;
+			} else if (err == FZN_STATE_ERR_CROSS_STREAM) {
+				/* The same issuer on a different stream -- two
+				 * sequence spaces with no shared zero, so there
+				 * is no fact about which is newer. */
+				if (*holder != (int)iss || *hstream == (int)str)
+					return 1;
 			} else if (err == FZN_STATE_ERR_STALE) {
-				if (*holder != (int)iss || seq > *hseq)
+				if (!same_writer || seq > *hseq)
 					return 1;
 			}
 			break;
@@ -248,6 +273,7 @@ static int drive(const uint8_t *data, size_t size)
 		case 4: { /* state resolve */
 			if (fzn_state_resolve(&state, &rec) == FZN_STATE_OK) {
 				m.holder[subj_i][kind_i] = (int)iss;
+				m.holder_stream[subj_i][kind_i] = (int)str;
 				m.holder_seq[subj_i][kind_i] = seq;
 			}
 			break;
