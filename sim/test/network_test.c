@@ -1098,6 +1098,61 @@ static void scenario_substitution(void)
 	       net.hosts[1].refused_auth, net.hosts[1].delivered);
 }
 
+/* ------------------------------------------------------------ scenario 8c
+
+   A tampered frame must not spend the nonce it claims.
+
+   The order in sec 4.7 puts the seal first, and this is the reason that
+   ordering is load-bearing rather than tidy. The replay window records a
+   nonce so that a second frame carrying it is refused -- but if a frame that
+   FAILED its tag were recorded too, anybody who can put bytes on the wire
+   could burn a victim's nonces without holding any key at all. Garbage
+   addressed to a host, carrying nonces it has not used yet, would make that
+   host refuse its own legitimate traffic when it arrived.
+
+   That is a denial of service available to an attacker with no key, no
+   capability and no chain, and it is invisible: the victim's frames are
+   refused as replays, which is exactly what a working replay defence looks
+   like from the outside.  */
+
+static void scenario_tamper(void)
+{
+	static struct sim_net net;
+	static uint8_t msg[256];
+
+	sim_init(&net, 4, 0x9999u);
+	fill_message(msg, sizeof(msg), 29);
+
+	check(sim_send(&net, 0, 1, msg, sizeof(msg), net.now + 100u), "the send was refused");
+	check(net.queue_len == 1, "this scenario expects a single-chunk message");
+
+	/* Two copies of one frame: the second is the original, the first is
+	 * the original with a byte of its sealed region flipped. Both claim
+	 * the same nonce, because they ARE the same frame. */
+	net.queue[1] = net.queue[0];
+	net.queue_len = 2;
+	net.queue[0].frame[net.queue[0].len - 1u] ^= 0x40u;
+	net.queue[0].due = net.now;
+	net.queue[1].due = net.now;
+
+	sim_run(&net, 4);
+
+	check(net.hosts[1].refused_shape == 1, "the tampered frame was not refused on its tag");
+	/* THE POINT. The intact frame carries the same nonce as the tampered
+	 * one. If the tampered frame had been admitted to the replay window
+	 * before its tag was checked, this would be refused as a replay -- and
+	 * an attacker who cannot seal anything could silence this host. */
+	check(net.hosts[1].refused_replay == 0,
+	      "a frame that failed its tag spent its nonce, so an attacker with no "
+	      "key can burn a victim's replay window");
+	check(net.hosts[1].delivered == 1,
+	      "the intact frame did not arrive after a tampered copy of it");
+
+	printf("  tamper: %u refused on shape, %u refused as replay, %u delivered\n",
+	       net.hosts[1].refused_shape, net.hosts[1].refused_replay,
+	       net.hosts[1].delivered);
+}
+
 /* ------------------------------------------------------------- scenario 9
 
    Records distributed, received and finalised across a lossy network.
@@ -1711,6 +1766,7 @@ int main(void)
 	scenario_lossy();
 	scenario_splice();
 	scenario_substitution();
+	scenario_tamper();
 	scenario_distribution();
 	scenario_state();
 	scenario_join();
