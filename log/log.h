@@ -46,6 +46,18 @@
  * deliberate; a permission consumer never does. **The existing API already
  * expresses both**, which is why nothing here takes a policy argument.
  *
+ * NO `live` FLAG, AND ITS ABSENCE IS THE SAME FINDING AS THE MISSING
+ * DEAD-SLOT SCAN. One was here, copied from `state/`, where entries genuinely
+ * die because `fzn_state_clear` kills them. Nothing here ever marks an entry
+ * dead: a log has no clear, only eviction, and eviction overwrites in place.
+ * So every entry below `used` was live by construction, the flag carried no
+ * information, and three filters tested it on every comparison.
+ *
+ * It was in this public struct, so a consumer could read it -- and would have
+ * read `1` for ever. Removing it is the honest version. If a `forget` ever
+ * arrives, the flag and the scan come back together, because that is when
+ * either starts meaning anything.
+ *
  * THE BODIES ARE NOT COPIED, as in `state/`: an entry points at the caller's
  * bytes and the caller must keep them alive for as long as the entry does.
  * An entry that is evicted stops referring to anything.
@@ -79,7 +91,6 @@ typedef struct fzn_log_entry {
 	const uint8_t *body;
 	size_t body_len;
 	uint32_t kind;
-	int live;
 } fzn_log_entry_t;
 
 typedef struct fzn_log {

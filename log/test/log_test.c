@@ -141,6 +141,90 @@ int main(void)
 	fzn_log_range(NULL, alice, 0, &first, &last);
 	expect(first == 0 && last == 0, "a null log has no range");
 
+	/* STREAMS DO NOT SEE EACH OTHER, which the cases above never mixed:
+	 * every one of them used stream 0, so the stream comparison in `find`,
+	 * `range` and `read_since` had never once decided anything. A log that
+	 * ignored it would serve one stream's entries to a follower of
+	 * another, which is the fidelity guarantee in sec 5j undone at the
+	 * storage layer. */
+	{
+		fzn_log_t two;
+		fzn_log_entry_t rows[4];
+		uint64_t lo = 0, hi = 0;
+
+		expect_err(fzn_log_init(&two, rows, 4), FZN_LOG_OK, "a log for two streams");
+		for (uint64_t seq = 1; seq <= 2; seq++) {
+			make(&rec, 0xa1, seq);
+			rec.stream = 1;
+			expect_err(fzn_log_append(&two, &rec), FZN_LOG_OK, "stream one");
+			make(&rec, 0xa1, seq);
+			rec.stream = 2;
+			expect_err(fzn_log_append(&two, &rec), FZN_LOG_OK, "stream two");
+		}
+
+		/* The same issuer and the same sequences in both, so anything
+		 * that ignored the stream would look correct on counts alone. */
+		fzn_log_range(&two, alice, 1, &lo, &hi);
+		expect(lo == 1 && hi == 2, "stream one's range is its own");
+		expect(fzn_log_read_since(&two, alice, 1, 0, page, 8) == 2,
+		       "and reading it returns only its own");
+		expect(fzn_log_read_since(&two, alice, 9, 0, page, 8) == 0,
+		       "a stream nobody wrote holds nothing");
+		fzn_log_range(&two, alice, 9, &lo, &hi);
+		expect(lo == 0 && hi == 0, "and has no range");
+		expect_err(fzn_log_get(&two, alice, 9, 1, &got), FZN_LOG_ERR_ABSENT,
+		           "and answers absent rather than another stream's entry");
+	}
+
+	/* A RECORD WITH NO BODY AT ALL is legitimate -- a statement whose
+	 * meaning is entirely in its kind and subject -- and the guard is
+	 * `body == NULL AND length != 0`, so this is the half that must pass. */
+	make(&rec, 0xa1, 12);
+	rec.body = NULL;
+	rec.body_len = 0;
+	expect_err(fzn_log_append(&log, &rec), FZN_LOG_OK, "a record carrying no body");
+
+	/* RANGE TAKES EITHER POINTER OR NEITHER, since a caller often wants
+	 * only the oldest or only the newest. */
+	{
+		uint64_t only = 99;
+
+		fzn_log_range(&log, alice, 0, &only, NULL);
+		expect(only != 99, "asking for the first alone");
+		only = 99;
+		fzn_log_range(&log, alice, 0, NULL, &only);
+		expect(only != 99, "asking for the last alone");
+		fzn_log_range(&log, alice, 0, NULL, NULL); /* must not crash */
+		fzn_log_range(&log, NULL, 0, &only, &only);
+		expect(only == 0, "a null issuer has no range");
+	}
+
+	expect_err(fzn_log_get(&log, NULL, 0, 1, &got), FZN_LOG_ERR_MALFORMED,
+	           "asking about a null issuer");
+	expect(fzn_log_read_since(&log, NULL, 0, 0, page, 8) == 0, "reading a null issuer");
+
+	/* A CORRUPT `used` MUST BE REFUSED AT EVERY ENTRY POINT that scans,
+	 * not at one of them -- the argument frame/freshness.c makes and
+	 * record/journal.c repeats. */
+	{
+		fzn_log_t corrupt = log;
+
+		corrupt.used = corrupt.capacity + 1u;
+		expect_err(fzn_log_append(&corrupt, &rec), FZN_LOG_ERR_MALFORMED,
+		           "appending to a corrupt log");
+		expect_err(fzn_log_get(&corrupt, alice, 0, 1, &got), FZN_LOG_ERR_MALFORMED,
+		           "reading a corrupt log");
+		expect(fzn_log_read_since(&corrupt, alice, 0, 0, page, 8) == 0,
+		       "a corrupt log serves nothing");
+		expect(fzn_log_dropped(&corrupt) == 0, "and reports no drops");
+		{
+			uint64_t lo = 99, hi = 99;
+
+			fzn_log_range(&corrupt, alice, 0, &lo, &hi);
+			expect(lo == 0 && hi == 0, "and has no range");
+		}
+	}
+
 	printf("log_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
 }

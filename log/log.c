@@ -20,8 +20,7 @@ static fzn_log_entry_t *find(const fzn_log_t *log, const uint8_t issuer[FZN_PUBK
 	fzn_log_entry_t *hit = NULL;
 
 	for (size_t i = 0; i < log->used; i++) {
-		if (log->entries[i].live && log->entries[i].seq == seq &&
-		    log->entries[i].stream == stream &&
+		if (log->entries[i].seq == seq && log->entries[i].stream == stream &&
 		    fzn_ct_memeq(log->entries[i].issuer, issuer, FZN_PUBKEY_LEN))
 			hit = &log->entries[i];
 	}
@@ -46,25 +45,37 @@ fzn_log_err_t fzn_log_init(fzn_log_t *log, fzn_log_entry_t *entries, size_t capa
 
 /* The slot to write into: a dead one if there is any, otherwise the array's
  * tail, otherwise the oldest by append order -- which is the eviction. */
+/* The slot to write into: the array's tail while it is growing, then the
+ * oldest by append order, which is the eviction.
+ *
+ * NO DEAD-SLOT SCAN, and its absence is deliberate. This function had one --
+ * copied from `state/state.c`, where `fzn_state_clear` genuinely leaves dead
+ * entries behind and reusing them is what stops clearing from leaking
+ * capacity. Nothing here ever marks an entry dead: a log has no clear, only
+ * eviction, and eviction overwrites in place. So the scan could never find
+ * anything, and `make coverage` reported it as never taken.
+ *
+ * If a `forget` ever arrives -- dropping an issuer's stream when a peer is
+ * removed is the plausible one -- the scan comes back with it, because that
+ * is when it starts being reachable. Adding it before then was a pattern
+ * carried across rather than a decision. */
 static fzn_log_entry_t *slot_for_append(fzn_log_t *log)
 {
-	fzn_log_entry_t *oldest = NULL;
-
-	for (size_t i = 0; i < log->used; i++) {
-		if (!log->entries[i].live)
-			return &log->entries[i];
-	}
+	fzn_log_entry_t *oldest;
 
 	if (log->used < log->capacity)
 		return &log->entries[log->used++];
 
-	for (size_t i = 0; i < log->used; i++) {
-		if (!oldest || log->entries[i].stamp < oldest->stamp)
+	/* `used` is at capacity and capacity is non-zero -- `fzn_log_init`
+	 * refuses zero -- so the scan below always finds one and the result is
+	 * never NULL. */
+	oldest = &log->entries[0];
+	for (size_t i = 1; i < log->used; i++) {
+		if (log->entries[i].stamp < oldest->stamp)
 			oldest = &log->entries[i];
 	}
 
-	if (oldest)
-		log->dropped++;
+	log->dropped++;
 
 	return oldest;
 }
@@ -86,8 +97,6 @@ fzn_log_err_t fzn_log_append(fzn_log_t *log, const fzn_record_t *record)
 		return FZN_LOG_ERR_DUPLICATE;
 
 	e = slot_for_append(log);
-	if (!e)
-		return FZN_LOG_ERR_MALFORMED;
 
 	memcpy(e->issuer, record->issuer, FZN_PUBKEY_LEN);
 	e->stream = record->stream;
@@ -96,7 +105,6 @@ fzn_log_err_t fzn_log_append(fzn_log_t *log, const fzn_record_t *record)
 	e->body = record->body;
 	e->body_len = record->body_len;
 	e->stamp = log->next_stamp++;
-	e->live = 1;
 
 	return FZN_LOG_OK;
 }
@@ -114,7 +122,7 @@ void fzn_log_range(const fzn_log_t *log, const uint8_t issuer[FZN_PUBKEY_LEN], u
 		return;
 
 	for (size_t i = 0; i < log->used; i++) {
-		if (!log->entries[i].live || log->entries[i].stream != stream ||
+		if (log->entries[i].stream != stream ||
 		    !fzn_ct_memeq(log->entries[i].issuer, issuer, FZN_PUBKEY_LEN))
 			continue;
 		if (lo == 0 || log->entries[i].seq < lo)
@@ -175,7 +183,7 @@ size_t fzn_log_read_since(const fzn_log_t *log, const uint8_t issuer[FZN_PUBKEY_
 		for (size_t i = 0; i < log->used; i++) {
 			const fzn_log_entry_t *e = &log->entries[i];
 
-			if (!e->live || e->seq <= taken || e->stream != stream ||
+			if (e->seq <= taken || e->stream != stream ||
 			    !fzn_ct_memeq(e->issuer, issuer, FZN_PUBKEY_LEN))
 				continue;
 			if (!best || e->seq < best->seq)
