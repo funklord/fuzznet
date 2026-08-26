@@ -46,6 +46,7 @@
 #include "../../chunk/reassembly.h"
 #include "../../chunk/split.h"
 #include "../../frame/freshness.h"
+#include "../../record/record.h"
 #include "../../session/commitment.h"
 
 #include "../seal.h"
@@ -71,6 +72,43 @@ _Static_assert(FZN_CAP_ID_LEN == SITU_FZN_FRAME_SEALED_CAPABILITY_COUNT,
  * relation says -- and a constant is a different question. */
 _Static_assert(SITU_FZN_FRAME_SIZE_MAX - SITU_FZN_FRAME_SIZE_MIN == FZN_SPLIT_MAX_PAYLOAD,
                 "chunk/split.h's payload ceiling and wire/frame.situ's [max] have diverged");
+
+/* IDENTITIES THAT ARE THE SAME THING UNDER DIFFERENT NAMES.
+ *
+ * Found by a normalisation pass over the central types (project.md sec 5k),
+ * which turned up four separate 32-byte constants and two 24-byte ones. Some
+ * of those pairs are the same value by coincidence and must NOT be pinned
+ * together; these two are the same THING, and nothing said so.
+ *
+ * A SENDER IS A HOST KEY. `chunk/reassembly.h` files a partial message under
+ * `sender[FZN_SENDER_LEN]` and `chain/chain.h` grants to
+ * `grantee[FZN_PUBKEY_LEN]`, and a receiver compares one against the other --
+ * `wire/seal.c` hands `opened.sender` to reassembly while the chain names the
+ * grantee, and the simulation compares them directly. If the two widths ever
+ * parted, that comparison would read past one of them.
+ *
+ * THE FRAME'S NONCE IS BOTH NONCES. `frame.situ` says so in as many words:
+ * "Replay defence and the AEAD nonce in one." So `FZN_NONCE_LEN` and
+ * `FZN_AEAD_NONCE_LEN` are two names for one field, and a divergence would
+ * have `fzn_replay_admit` comparing a different number of bytes than the AEAD
+ * used -- the failure `constants_test.c`'s own header calls the one this
+ * library least wants to have quietly.
+ *
+ * `FZN_CAP_ID_LEN` and `FZN_SUBJECT_LEN` are deliberately NOT pinned to
+ * `FZN_PUBKEY_LEN`. Both are 32 today and neither is a key: a capability is
+ * opaque bytes by sec 4.2, and a subject is opaque by sec 5. Asserting those
+ * equal would pin a coincidence and make a later change look like a
+ * regression. */
+_Static_assert(FZN_SENDER_LEN == FZN_PUBKEY_LEN,
+                "a frame's sender and a chain's grantee are compared, and differ in width");
+_Static_assert(FZN_NONCE_LEN == FZN_AEAD_NONCE_LEN,
+                "the replay nonce and the AEAD nonce are one field and differ in width");
+
+/* And the claim `record/record.h` makes about a subject: 32 bytes "so that it
+ * can hold a public key -- the common case is a statement about a host or a
+ * user". A subject narrower than a key would make that false. */
+_Static_assert(FZN_SUBJECT_LEN >= FZN_PUBKEY_LEN,
+                "a subject cannot hold a public key, which record.h says it can");
 
 /* THE TWO SPELLINGS OF "no expiry", which are now two headers' business.
  *
@@ -220,6 +258,6 @@ int main(void)
 	      "the commitment field does not lie within the frame");
 
 	printf("constants_test: %d checks, %d failure(s); %d constants pinned at compile time\n",
-	       checks, failures, 12);
+	       checks, failures, 15);
 	return failures == 0 ? 0 : 1;
 }

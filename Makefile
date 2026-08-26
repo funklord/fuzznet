@@ -142,7 +142,8 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              wire/test/relay_test.c \
              sched/test/sched_test.c \
              link/test/link_test.c \
-             log/test/fix_stream_test.c
+             log/test/fix_stream_test.c \
+             record/test/record_guided.c
 TEST_OBJS := $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
 TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/chain/test/revocation_test \
@@ -183,7 +184,8 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/relay_test \
              $(BUILD_DIR)/sched/test/sched_test \
              $(BUILD_DIR)/link/test/link_test \
-             $(BUILD_DIR)/log/test/fix_stream_test
+             $(BUILD_DIR)/log/test/fix_stream_test \
+             $(BUILD_DIR)/record/test/record_guided
 
 # The Monocypher binding, built only when MONOCYPHER_DIR names a checkout.
 #
@@ -341,6 +343,14 @@ $(BUILD_DIR)/wire/generated/%.o: wire/generated/%.c
 $(BUILD_DIR)/chain/test/chain_test: $(BUILD_DIR)/chain/test/chain_test.o \
                                      $(BUILD_DIR)/chain/chain.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD_DIR)/record/test/record_guided: $(BUILD_DIR)/record/test/record_guided.o \
+                                        $(BUILD_DIR)/record/journal.o \
+                                        $(BUILD_DIR)/state/state.o \
+                                        $(BUILD_DIR)/log/log.o \
+                                        $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -764,6 +774,9 @@ guided:
 	@$(MAKE) --no-print-directory guided-one GUIDED_NAME=chain \
 	        GUIDED_SRC="chain/test/chain_guided.c chain/chain.c chain/revocation.c \
 	                    constant_time/constant_time.c"
+	@$(MAKE) --no-print-directory guided-one GUIDED_NAME=record \
+	        GUIDED_SRC="record/test/record_guided.c record/journal.c state/state.c \
+	                    log/log.c constant_time/constant_time.c"
 	@$(MAKE) --no-print-directory guided-one GUIDED_NAME=freshness \
 	        GUIDED_SRC="frame/test/freshness_guided.c frame/freshness.c \
 	                    constant_time/constant_time.c"

@@ -1832,6 +1832,78 @@ Anchoring at zero now means follow-from-the-beginning, anchoring twice is an
 echo rather than a rewind, and the journal's own tests cover it -- but the
 harness is what asked the question.
 
+## 5k. Normalisation of the central types
+
+**A survey of every public enum, identity-shaped field and length constant,
+prompted by the holder asking what `head.kind` is.** Eighteen enums, twenty-one
+identity fields, eleven length constants. What follows is what disagrees with
+itself; everything not listed was consistent.
+
+### Fixed: three constants that were one thing under two names
+
+Four separate **32-byte** constants exist -- `FZN_PUBKEY_LEN`,
+`FZN_SENDER_LEN`, `FZN_CAP_ID_LEN`, `FZN_SUBJECT_LEN` -- and two **24-byte**
+ones, `FZN_NONCE_LEN` and `FZN_AEAD_NONCE_LEN`. Some pairs are equal by
+coincidence and must not be pinned; two are the same *thing* and nothing said
+so:
+
+- **A sender is a host key.** `wire/seal.c` hands `opened.sender` to
+  reassembly while a chain names its `grantee`, and a receiver compares them.
+  If the widths parted, that comparison reads past one of them.
+- **The frame's nonce is both nonces.** `frame.situ` says it: "Replay defence
+  and the AEAD nonce in one." A divergence would have `fzn_replay_admit`
+  comparing a different number of bytes than the AEAD used.
+
+Both are asserted now. `FZN_CAP_ID_LEN` and `FZN_SUBJECT_LEN` are deliberately
+**not** pinned to a key's width: both are opaque by design, both are 32 by
+coincidence, and asserting it would make a later change look like a
+regression. A third assertion pins the claim `record.h` makes -- that a
+subject can hold a public key -- as `>=` rather than `==`, which is what that
+claim actually says.
+
+### Not fixed, and each needs a decision rather than an edit
+
+- **Two things are called "frame kind", with overlapping values.**
+  `fzn_kind` on the wire is `nop | unit | chunk | ack`; `fzn_frame_kind_t` in
+  `frame/freshness.h` is `COMMAND | GRANT`. They are unrelated, both named for
+  a frame's kind, and **0 and 1 are valid in both**. `fzn_seal_open` fills
+  `opened.kind` from the wire enum; `fzn_replay_admit` takes the freshness
+  one. A consumer passing the first to the second gets a silent
+  misclassification -- wire `unit` reads as `FZN_FRAME_GRANT`, so a unit
+  frame's expiry becomes optional, which inverts sec 4.3. Nothing does it
+  today. **Suggested:** rename the freshness enum to what it decides --
+  `fzn_expiry_rule_t { FZN_EXPIRY_REQUIRED, FZN_EXPIRY_OPTIONAL }` -- since it
+  is a receiver's policy about a frame rather than a property of one, and is
+  not on the wire at all. No wire change.
+- **`chain/` owns the unprefixed error names.** Every other module spells
+  `FZN_<MODULE>_OK` and `FZN_<MODULE>_ERR_*`; `chain/chain.h` has bare
+  `FZN_OK` and `FZN_ERR_MALFORMED`. It is the oldest module and took the
+  general name before there were others. **Suggested:** `FZN_CHAIN_OK` and
+  `FZN_CHAIN_ERR_*`, which is a mechanical rename across seven files.
+- **`fzn_link_t` lives in `sched/` and `fzn_link_entry_t` in `link/`.** The
+  type named for a link is defined in the module that consumes it, and the
+  module named for links defines the entry. Reading either header first
+  suggests the other is wrong. **Suggested:** `fzn_sched_candidate_t` in
+  `sched/`, leaving `link/` to own the word.
+
+### Confirmed consistent
+
+`OK` is 0 and `ERR_MALFORMED` is -1 in all eighteen enums; every module has an
+`_err_str` renderer and all are in the sweep; every fixed-width identifier
+goes through a named constant rather than a literal.
+
+### The `kind` policy, recorded at the enum
+
+The holder's instruction: **an implementor who needs a further frame kind
+motivates it to fuzznet first, and each is analysed case by case.** The
+reasoning is now in `frame.situ` above the enum -- a kind is the one field
+every host must agree about before it can read anything else, so two networks
+that assigned `0x04` differently would each refuse the other's traffic as
+malformed and neither would be wrong. It is a conversation rather than a wall:
+a keepalive carrying a timestamp, a probe, a stream fragment are all plausible
+and none of them is a consumer's command vocabulary, which goes in the sealed
+payload.
+
 ## 5j. Fidelity is a stream, and that required a change
 
 **The question**, raised by fuzzypickles' reserved COARSE flag: how does the

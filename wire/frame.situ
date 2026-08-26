@@ -45,6 +45,22 @@ impl fzn_aead extern "fzn_aead_xchacha20poly1305";
 // consumer commands out of the core: these say what the TRANSPORT must do,
 // and a consumer's own command byte travels inside the sealed payload where
 // this library never looks at it.
+// A CLOSED SET, AND ADDING TO IT IS A CONVERSATION RATHER THAN AN EDIT.
+// `fzn_head_validate` refuses a value outside this list, so an implementor
+// who needs a new frame type cannot simply assign one: the frame would be
+// rejected before decryption by every other host.
+//
+// That is deliberate and it is not meant to be a wall. A transport genuinely
+// may need shapes these four do not cover -- a keepalive that carries a
+// timestamp, a probe, a fragment of a stream rather than of a message. The
+// rule is that an implementor MOTIVATES the new kind to fuzznet first and it
+// is analysed case by case, because a kind is the one field every host must
+// agree about before it can read anything else: two networks that assigned
+// 0x04 differently would each refuse the other's traffic as malformed and
+// neither would be wrong.
+//
+// What does NOT need a new kind is a consumer's command vocabulary. That
+// goes in the sealed payload, where this library never looks -- see below.
 enum fzn_kind : u8 {
 	// Padding, liveness, and the thing a cover-traffic scheduler sends.
 	nop       = 0x00,
