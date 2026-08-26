@@ -57,9 +57,30 @@ int main(void)
 	seed_journal(&mine, b, 5);
 
 	/* THE DIGEST is what this host tells a peer. */
-	expect(fzn_sync_digest(&mine, digest, 4) == 2, "the digest should hold both issuers");
-	expect(fzn_sync_digest(&mine, digest, 1) == 1, "the digest must respect its bound");
-	expect(fzn_sync_digest(NULL, digest, 4) == 0, "a null journal yields no digest");
+	{
+		size_t dropped = 99;
+
+		expect(fzn_sync_digest(&mine, digest, 4, &dropped) == 2,
+		       "the digest should hold both issuers");
+		expect(dropped == 0, "nothing was dropped when everything fitted");
+
+		/* THE BOUND MUST BE REPORTED, NOT MERELY RESPECTED. This case
+		 * used to assert only the short return, under the name "the
+		 * digest must respect its bound" -- which is exactly the
+		 * behaviour sync.h forbids, asserted as though it were the
+		 * contract. A caller seeing 1 could not tell a host that
+		 * follows one issuer from a host that follows a hundred, and
+		 * because the scan runs in journal order it was the same
+		 * issuers missing from every round. */
+		expect(fzn_sync_digest(&mine, digest, 1, &dropped) == 1,
+		       "the digest must respect its bound");
+		expect(dropped == 1, "the digest did not report what would not fit");
+
+		expect(fzn_sync_digest(NULL, digest, 4, &dropped) == 0,
+		       "a null journal yields no digest");
+		expect(fzn_sync_digest(&mine, digest, 4, NULL) == 0,
+		       "a digest with nowhere to report truncation must refuse");
+	}
 
 	/* FETCH: they are ahead on A, level on B, and follow C which we do not. */
 	memcpy(theirs[0].issuer, a, FZN_PUBKEY_LEN);

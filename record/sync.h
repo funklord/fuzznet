@@ -85,8 +85,16 @@ typedef struct fzn_sync_plan {
 } fzn_sync_plan_t;
 
 /* This host's own positions, to send to a peer. Returns how many were
- * written, and never more than `out_cap`. */
-size_t fzn_sync_digest(const fzn_journal_t *journal, fzn_sync_position_t *out, size_t out_cap);
+ * written, and never more than `out_cap`.
+ *
+ * `dropped` receives the number that did not fit, and is REQUIRED -- passing
+ * NULL writes nothing and returns 0. An optional out-parameter is one every
+ * caller ignores, and a digest that quietly does not fit is the failure the
+ * bound-reporting rule above exists to prevent: the scan runs in journal
+ * order, so a host that overflows drops the same streams every round and
+ * never advertises them at all. */
+size_t fzn_sync_digest(const fzn_journal_t *journal, fzn_sync_position_t *out, size_t out_cap,
+                       size_t *dropped);
 
 /* What this host should ask the peer for: ranges the peer has and it does
  * not, for issuers it already follows.

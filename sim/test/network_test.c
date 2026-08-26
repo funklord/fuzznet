@@ -946,9 +946,14 @@ static void sim_fetch_from(struct sim_net *net, struct sim_host *me, struct sim_
 	fzn_sync_position_t theirs[SIM_HOSTS];
 	fzn_sync_request_t want[SIM_HOSTS];
 	fzn_sync_plan_t plan;
+	size_t dropped = 0;
 	size_t n;
 
-	n = fzn_sync_digest(&peer->journal, theirs, SIM_HOSTS);
+	n = fzn_sync_digest(&peer->journal, theirs, SIM_HOSTS, &dropped);
+	/* The simulation sizes every digest buffer at SIM_HOSTS, so a drop here
+	 * means the harness has outgrown its own buffers -- which would make
+	 * every sync scenario below quietly partial. */
+	check(dropped == 0, "the simulation's digest buffer was too small");
 	if (fzn_sync_plan_fetch(&me->journal, theirs, n, 4, want, SIM_HOSTS, &plan) !=
 	    FZN_SYNC_OK)
 		return;
@@ -1130,7 +1135,10 @@ static void state_fetch(struct sim_net *net, struct sim_host *me, struct sim_hos
 	fzn_sync_position_t theirs[SIM_HOSTS];
 	fzn_sync_request_t want[SIM_HOSTS];
 	fzn_sync_plan_t plan;
-	size_t n = fzn_sync_digest(&peer->journal, theirs, SIM_HOSTS);
+	size_t dropped = 0;
+	size_t n = fzn_sync_digest(&peer->journal, theirs, SIM_HOSTS, &dropped);
+
+	check(dropped == 0, "the simulation's digest buffer was too small");
 
 	if (fzn_sync_plan_fetch(&me->journal, theirs, n, 4, want, SIM_HOSTS, &plan) !=
 	    FZN_SYNC_OK)
@@ -1410,7 +1418,10 @@ static void fidelity_fetch(struct sim_net *net, struct sim_host *me, struct sim_
 	fzn_sync_position_t theirs[SIM_HOSTS * 2u];
 	fzn_sync_request_t want[SIM_HOSTS * 2u];
 	fzn_sync_plan_t plan;
-	size_t n = fzn_sync_digest(&peer->journal, theirs, SIM_HOSTS * 2u);
+	size_t dropped = 0;
+	size_t n = fzn_sync_digest(&peer->journal, theirs, SIM_HOSTS * 2u, &dropped);
+
+	check(dropped == 0, "the simulation's digest buffer was too small");
 
 	if (fzn_sync_plan_fetch(&me->journal, theirs, n, 4, want, SIM_HOSTS * 2u, &plan) !=
 	    FZN_SYNC_OK)

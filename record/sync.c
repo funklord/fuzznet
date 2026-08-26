@@ -25,16 +25,42 @@ static const fzn_sync_position_t *theirs_for(const fzn_sync_position_t *theirs,
 	return hit;
 }
 
-size_t fzn_sync_digest(const fzn_journal_t *journal, fzn_sync_position_t *out, size_t out_cap)
+size_t fzn_sync_digest(const fzn_journal_t *journal, fzn_sync_position_t *out, size_t out_cap,
+                       size_t *dropped)
 {
 	size_t n = 0;
+
+	/* `dropped` is required rather than optional, which is the whole point.
+	 * An out-parameter a caller may pass NULL for is one every caller
+	 * passes NULL for, and this function's silence is what sync.h forbids. */
+	if (!dropped)
+		return 0;
+
+	*dropped = 0;
 
 	if (!journal || !journal->entries || !out || journal->used > journal->capacity)
 		return 0;
 
-	for (size_t i = 0; i < journal->used && n < out_cap; i++) {
+	/* THE LOOP NO LONGER STOPS AT `out_cap`, it keeps counting.
+	 *
+	 * It used to stop, return a short count, and say nothing -- which
+	 * sync.h forbids by name: "EVERY BOUND IS REPORTED. A plan that did not
+	 * fit says so, rather than returning a short list that looks complete: a
+	 * truncated plan silently dropped is a range nobody asks for again."
+	 *
+	 * That last clause is what made this worse than an untidy API. The scan
+	 * runs in journal order, so the entries past the bound are THE SAME
+	 * entries on every exchange. A host whose digest did not fit therefore
+	 * never advertised its position on those streams -- not this round and
+	 * not any round -- so the peer never learned it was behind on them and
+	 * never sent them. They do not sync late; they do not sync. */
+	for (size_t i = 0; i < journal->used; i++) {
 		if (!journal->entries[i].live)
 			continue;
+		if (n >= out_cap) {
+			(*dropped)++;
+			continue;
+		}
 		memcpy(out[n].issuer, journal->entries[i].issuer, FZN_PUBKEY_LEN);
 		out[n].stream = journal->entries[i].stream;
 		out[n].received = journal->entries[i].received;
