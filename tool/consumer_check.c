@@ -37,6 +37,8 @@
 #include <fuzznet/session/aead.h>
 #include <fuzznet/session/commitment.h>
 #include <fuzznet/session/random.h>
+#include <fuzznet/record/journal.h>
+#include <fuzznet/record/record.h>
 #include <fuzznet/session/random_system.h>
 #include <fuzznet/version/version.h>
 #include <fuzznet/wire/seal.h>
@@ -52,6 +54,8 @@
 #include "session/aead.h"
 #include "session/commitment.h"
 #include "session/random.h"
+#include "record/journal.h"
+#include "record/record.h"
 #include "session/random_system.h"
 #include "version/version.h"
 #include "wire/seal.h"
@@ -115,6 +119,25 @@ int main(void)
 	 * startup, made here so that the installed arrangement proves the
 	 * function is reachable and answers -- an installed header declaring a
 	 * function nothing calls would link fine and mean nothing. */
+	/* The journal, reached through installed headers: a record's position
+	 * is admitted, and admitting it twice is refused. An installed header
+	 * declaring functions nothing calls would link and mean nothing. */
+	{
+		fzn_journal_t journal;
+		fzn_journal_entry_t slots[2];
+		uint8_t issuer[FZN_PUBKEY_LEN];
+
+		memset(issuer, 0x77, sizeof(issuer));
+		if (fzn_journal_init(&journal, slots, 2) != FZN_JOURNAL_OK)
+			return 30;
+		if (fzn_journal_admit(&journal, issuer, 1) != FZN_JOURNAL_OK)
+			return 31;
+		if (fzn_journal_admit(&journal, issuer, 1) != FZN_JOURNAL_ERR_DUPLICATE)
+			return 32;
+		if (fzn_journal_next(&journal, issuer) != 2)
+			return 33;
+	}
+
 	if (fzn_version_number() != (unsigned long)FZN_VERSION_NUMBER)
 		return 20;
 	if (strcmp(fzn_version_string(), FZN_VERSION_STRING) != 0)

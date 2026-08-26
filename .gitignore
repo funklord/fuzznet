@@ -37,6 +37,8 @@
 /chain/test/chain_guided
 /frame/test/freshness_guided
 /sim/test/network_test
+/record/test/journal_test
+/record/test/record_test
 /guided/
 /constant_time/test/secret_flow_valgrind
 

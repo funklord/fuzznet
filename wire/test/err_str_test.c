@@ -44,6 +44,8 @@
 #include "../../chunk/split.h"
 #include "../../frame/freshness.h"
 #include "../../local/peer.h"
+#include "../../record/journal.h"
+#include "../../record/record.h"
 #include "../../session/commitment.h"
 #include "../seal.h"
 
@@ -75,6 +77,8 @@ static const char *r_reasm(int v) { return fzn_reasm_err_str((fzn_reasm_err_t)v)
 static const char *r_split(int v) { return fzn_split_err_str((fzn_split_err_t)v); }
 static const char *r_seal(int v) { return fzn_seal_err_str((fzn_seal_err_t)v); }
 static const char *r_peer(int v) { return fzn_peer_verdict_str((fzn_peer_verdict_t)v); }
+static const char *r_record(int v) { return fzn_record_err_str((fzn_record_err_t)v); }
+static const char *r_journal(int v) { return fzn_journal_err_str((fzn_journal_err_t)v); }
 
 struct subject {
 	const char *name;
@@ -93,6 +97,8 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_split_err_str", r_split, -1, 4 },
 	{ "fzn_seal_err_str", r_seal, -1, 7 },
 	{ "fzn_peer_verdict_str", r_peer, 1, 3 },
+	{ "fzn_record_err_str", r_record, -1, 5 },
+	{ "fzn_journal_err_str", r_journal, -1, 7 },
 };
 
 static void check_subject(const struct subject *s)

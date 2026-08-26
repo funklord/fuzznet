@@ -1689,6 +1689,74 @@ these measurements do not answer.
 
 ---
 
+## 5b. `record/` -- the substrate for dynamic permissions
+
+**Started 2026-08-26**, at the holder's instruction to build distribution,
+reception, finalisation, and the permissions and rules systems, generally.
+
+**The generalisation, and it is the whole design.** A grant, a revocation, a
+rule, a configuration setting and a log line are the same object: **somebody
+signs a statement, it reaches other hosts, they decide whether it was
+authorised, and they end up agreeing about what is currently true.** §5's
+invariant says the *shape* of the permission graph is configuration rather
+than design, so this module knows what none of those statements mean.
+`kind`, `subject` and `body` are opaque here exactly as a capability is 32
+opaque bytes in `chain/` and a verb is opaque bytes in `local/`.
+
+**No new encoder and no new wire format.** `signed_region` is taken as opaque
+bytes, which is the pattern `chain.h` argues for at length: recomputing them
+would put a second encoder in the tree for the schema to disagree with later.
+So `record/` needs no schema change, and §13's frame is untouched.
+
+**Three questions kept apart, because every distributed-configuration bug
+lives between them:**
+
+| question | answered by |
+|---|---|
+| Is this what its issuer signed? | `fzn_record_verify` |
+| May this issuer say it? | **not here** -- `fzn_chain_verify` against a capability the consumer maps from `kind` |
+| Is it current, and have we acted on it? | `record/journal.h` |
+
+Keeping authorisation out is what lets one project authorise by capability
+chain, another by local uid, and a third by both -- which §5 measured as the
+actual difference between the three consumers.
+
+**Order comes from sequences, never clocks.** Each issuer numbers its own
+records from 1. Per issuer rather than globally, because a global sequence
+needs consensus and this design has none: two hosts that never speak must
+still be able to issue. `issued_at` is carried for display and policy and is
+never consulted for ordering.
+
+**A gap is not an error, it is an instruction.** `FZN_JOURNAL_ERR_GAP` means a
+record arrived that is real, in order, and too far ahead -- so something in
+between exists and has not been seen. That is precisely what a distribution
+layer acts on, and `fzn_journal_next` says what to ask for. A journal that
+silently accepted the jump would leave a hole nobody could later detect, which
+is how a permission that was revoked comes back.
+
+**Reception and finalisation are separate numbers**, `received` and `applied`.
+A sibling that has received a rule and not yet applied it is in a different
+state from one that has, and only the second is safe to depend on. That is
+fuzzypickles' "what a given sibling has confirmed it applied for a given
+setting", generalised.
+
+**Two refusals that fail closed on purpose**, both following existing
+precedent in this tree rather than inventing a policy:
+
+- **A full journal is refused, not evicted.** Dropping an issuer forgets what
+  was seen from it, so its next record is accepted at any sequence -- which
+  readmits everything it ever sent. `frame/freshness.h` refuses a full replay
+  window for the same reason and says so.
+- **An unknown issuer starts at 1, or not at all.** Accepting whatever
+  sequence arrives lets a stranger open at a large number and suppress every
+  real record below it. Joining a stream already in progress is
+  `fzn_journal_anchor`, which is deliberate, and which never moves backwards.
+
+**Tested at 100% of `record.c` and 94% of `journal.c`'s branches**, 56 checks
+across two files. The ordering claim is observed rather than asserted: a stub
+signer counts calls, and a record refused for its sequence must not have cost
+a signature verification.
+
 ## 5a. The integration harness
 
 **`sim/test/network_test.c` is a fake network of hosts, and it exists because
