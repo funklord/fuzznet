@@ -262,6 +262,15 @@ struct fzn_frame {
 		// revocation granularity on that traffic, which may be right
 		// and should be a sentence somebody wrote.
 		//
+		// QUALIFIED THE SAME DAY, by fuzzypickles checking it: "real"
+		// is only available where the RECEIVER holds an anchor for the
+		// sender's chain. Between two of one user's own hosts it does.
+		// From another user's host, whose capabilities hang from their
+		// own root, a capability is an assertion the receiver cannot
+		// check -- and a zero there is a symptom of the anchoring
+		// stopping at identity rather than a choice. See project.md
+		// sec 5.
+		//
 		// Still this library's field rather than the consumer's: sec 4.2 has
 		// the core verifying the CHAIN while never interpreting what a
 		// capability permits. Being inside the seal does not change that --

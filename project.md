@@ -1949,6 +1949,78 @@ refused on authority, which covers the joining case. A host that is anchored
 but holds nothing is a state no consumer has yet, and it can wait until one
 does.
 
+### Corrected the same day: the decision above is right for one realm
+
+**fuzzypickles checked the objection rather than taking it, and it splits.**
+The correction is theirs and it is a good one.
+
+**They were wrong about one thing and right about the larger one.**
+`FZP_CAP_SEND = 5` is in `core/src/capability.h` and appears nowhere in their
+peer frame path -- defined, not carried, exactly as claimed here. But *whose
+chain it hangs from* decides whether a receiver can check it, and their §6
+splits the wire into four realms on a 2x2 of same-principal against standing
+relationship:
+
+- **User realm** -- daemon to daemon of the *same* user, one root, both ends
+  under it. **The decision above lands with full force.** A capability per
+  datagram is verifiable, and the revocation-latency argument finds a real
+  gap: they do not have next-message granularity for a user's own devices
+  today.
+- **Registered realm** -- a *different* user's principal, TOFU-pinned through
+  `peer-add`. Their `FZP_CAP_SEND` hangs from **their** root. The receiver has
+  their identity pinned and not their capability tree, so a capability in
+  their frames is **an assertion the receiver cannot check**.
+
+**"A real capability, always" is therefore too broad as written.** Where the
+receiver holds no anchor for the sender's chain, "real" is not available --
+and writing a zero is not a design choice but a *symptom*.
+
+**And the anchored-and-empty question was answered flatly.** This project
+recorded it as a state no consumer has yet. It is **half their traffic**:
+every Registered peer is anchored in the TOFU sense and holds no capability in
+the receiver's chain. Recorded as a correction because guessing that a state
+is rare, from outside the consumer, is exactly the error this exchange has
+been catching all week.
+
+**The interim they propose is right for today**: a real `FZP_CAP_SEND` on
+User-realm frames, and a deliberate zero on Registered-realm frames with the
+reason written down -- that the sender's authority is not in the receiver's
+chain, and revocation there is enforced by peer removal instead.
+
+### The better answer, and the holder's principle points at it
+
+**Anchor the peer's ROOT at `peer-add`, not only their identity.** Then a
+capability in a Registered peer's frame is verifiable and the exception
+disappears.
+
+The holder's guidance, given while this was being written: *"Anything that
+decreases latency of operations is a good thing."* That is decisive here,
+because anchoring converts a coarse, slow revocation into a fine, immediate
+one:
+
+| | today, identity pinned | with the root anchored |
+|---|---|---|
+| a peer's device is stolen | remove the whole peer, or nothing | that peer revokes that device; the receiver honours it |
+| granularity | the entire relationship | one device |
+| who acts | the receiver, manually | the owner, and it propagates |
+| latency | until somebody notices and removes | the revocation's next delivery |
+
+**Every mechanism it needs already exists here.** `trust/` anchors a root;
+`chain/` verifies a device chain against one; `record/` and `record/sync.h`
+distribute the owner's revocations to whoever follows that stream. The pieces
+were built for the User realm and turn out to serve this.
+
+**The cost, stated plainly:** anchoring a root lets that peer add devices the
+receiver will accept without being asked again. For a contact that is a
+feature -- a friend replacing a phone should not require re-pairing -- and it
+is the same trust already extended implicitly, since their root signs their
+devices either way.
+
+**Not decided here.** It changes what `peer-add` *means* in fuzzypickles, from
+"pin this contact" to "anchor this contact's root", and that is theirs and the
+holder's rather than a side effect of adopting a frame. Recommended, with the
+reasoning above, and they will put it up as its own decision.
+
 ### Settled: commands pass through fuzznet's decision process
 
 **The holder, 2026-08-26:** *"When it comes to commands, we may need a way to
