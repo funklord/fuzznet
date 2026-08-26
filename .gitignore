@@ -44,6 +44,7 @@
 /trust/test/trust_test
 /log/test/log_test
 /wire/test/relay_test
+/sched/test/sched_test
 /guided/
 /constant_time/test/secret_flow_valgrind
 

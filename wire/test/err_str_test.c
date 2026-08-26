@@ -48,6 +48,7 @@
 #include "../../record/sync.h"
 #include "../../state/state.h"
 #include "../../log/log.h"
+#include "../../sched/sched.h"
 #include "../../trust/trust.h"
 #include "../../record/record.h"
 #include "../../session/commitment.h"
@@ -89,6 +90,7 @@ static const char *r_state(int v) { return fzn_state_err_str((fzn_state_err_t)v)
 static const char *r_trust(int v) { return fzn_trust_err_str((fzn_trust_err_t)v); }
 static const char *r_log(int v) { return fzn_log_err_str((fzn_log_err_t)v); }
 static const char *r_relay(int v) { return fzn_relay_err_str((fzn_relay_err_t)v); }
+static const char *r_sched(int v) { return fzn_sched_err_str((fzn_sched_err_t)v); }
 
 struct subject {
 	const char *name;
@@ -114,6 +116,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_trust_err_str", r_trust, -1, 4 },
 	{ "fzn_log_err_str", r_log, -1, 5 },
 	{ "fzn_relay_err_str", r_relay, -1, 4 },
+	{ "fzn_sched_err_str", r_sched, -1, 3 },
 };
 
 static void check_subject(const struct subject *s)

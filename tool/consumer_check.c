@@ -40,6 +40,7 @@
 #include <fuzznet/record/journal.h>
 #include <fuzznet/log/log.h>
 #include <fuzznet/record/record.h>
+#include <fuzznet/sched/sched.h>
 #include <fuzznet/record/sync.h>
 #include <fuzznet/state/state.h>
 #include <fuzznet/trust/trust.h>
@@ -62,6 +63,7 @@
 #include "record/journal.h"
 #include "log/log.h"
 #include "record/record.h"
+#include "sched/sched.h"
 #include "record/sync.h"
 #include "state/state.h"
 #include "trust/trust.h"
@@ -260,6 +262,23 @@ int main(void)
 			return 72;
 		if (hop_frame[1] != FZN_RELAY_MAX_HOPS - 1u)
 			return 73;
+	}
+
+	/* Link selection, through installed headers: two classes over the same
+	 * two links must disagree, which is the property the module exists for. */
+	{
+		fzn_link_t pair[2] = {
+			{ 1, 10, 20, 150, 1500, 1 },
+			{ 2, 10, 4000, 1, 1500, 1 },
+		};
+		fzn_class_t voice = { 200, 0, 0, 0, 10, 0 };
+		fzn_class_t important = { 0, 50, 0, 0, 0, 100 };
+		size_t pick = 99;
+
+		if (fzn_sched_select(pair, 2, &voice, &pick) != FZN_SCHED_OK || pick != 0)
+			return 80;
+		if (fzn_sched_select(pair, 2, &important, &pick) != FZN_SCHED_OK || pick != 1)
+			return 81;
 	}
 
 	if (fzn_version_number() != (unsigned long)FZN_VERSION_NUMBER)

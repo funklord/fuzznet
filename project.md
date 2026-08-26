@@ -1832,6 +1832,55 @@ Anchoring at zero now means follow-from-the-beginning, anchoring twice is an
 echo rather than a rewind, and the journal's own tests cover it -- but the
 harness is what asked the question.
 
+## 5g. `sched/` -- which link a message should take
+
+**Absorbed from fuzzypickles' `sched.c`**, one of the four files their
+measurement found standalone. What came across is the decision; what did not
+is any idea of what a link *is*. This module never opens anything, never sends
+anything, and does not know whether a link is wifi, Bluetooth or a tunnel: a
+consumer describes candidates as numbers it measured and gets back one of
+them, or nothing.
+
+**§2 still holds.** Choosing among links a consumer supplied is not choosing a
+transport, any more than comparing two capability identifiers is deciding what
+a capability means. The local hop stayed out for a different reason -- it is
+an *encoding and socket* decision, which is why `local/socket.c` moved to
+raidcfgd.
+
+**Importance is not a priority scalar, and that is the whole design.**
+fuzzypickles' header is emphatic: *"a max-importance message wants the link
+most likely to arrive, which may be the slowest. A fire-and-forget voice frame
+wants the fastest link and is happily dropped. Do not collapse these into one
+number."* So a class weights the **components** -- declared metric, measured
+latency, measured loss -- rather than reweighting a blended total. A single
+"link quality" score answers *how is this link doing* and is the wrong answer
+to *which link should this message take*, because the two questions disagree
+about what good means.
+
+**The test that proves it is two links and two classes giving opposite
+answers**, and it is the centre of `sched_test.c`. A voice class takes the
+fast, lossy radio; a configuration change takes the slow, reliable path. The
+test then asserts the sharper thing: each class **excluded** the other's
+choice on a hard constraint rather than merely scoring it lower.
+
+**Hard constraints come first and can exclude everything.** A link too slow
+for a deadline is not a worse choice -- it is not a choice, and
+`FZN_SCHED_ERR_NONE` is a real answer that means the caller drops. A failing
+link is skipped rather than penalised, because a penalty large enough
+elsewhere would bring it back, which is exactly the wrong kind of helpful.
+
+**Cost widens before multiplying.** Two `uint32` weights against a `uint32`
+latency overflow 32 bits easily, and a wrapped cost makes a terrible link look
+excellent -- then chooses it consistently, which looks deliberate. Tested at
+four billion.
+
+**What is not modelled: energy.** A consumer reports it if it matters, for
+fuzzypickles' reason -- a battery drains because of the screen and forty other
+processes, so a library computing its own consumption would produce a number
+with no relationship to how much is left.
+
+25 checks at 100% of lines and branches.
+
 ## 5f. `wire/relay.h` -- the hop budget, and what relaying still needs
 
 **`fzn_hop.hops_left` has been in every frame since the schema existed and
