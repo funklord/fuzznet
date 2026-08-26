@@ -144,6 +144,50 @@ int main(void)
 		expect(cost > 0xffffffffu, "a large cost must not have wrapped into 32 bits");
 	}
 
+	/* AND THE SUM MUST NOT WRAP EITHER, which is a different check from the
+	 * one above and is the one that was missing.
+	 *
+	 * The case above passes with weights of 1000: three products of about
+	 * 4e12 sum to 8e12, nowhere near the top of a uint64. It exercises the
+	 * widening of each MULTIPLY, which was always correct, and it sat under
+	 * a comment describing the failure as though the whole cost were
+	 * covered. The accumulation was a bare `+=` and this suite was green.
+	 *
+	 * Measured against the code before the fix: this link cost **zero** --
+	 * the cheapest value representable -- and was selected over a link of
+	 * 1 ms. Both halves are asserted, because a cost that saturates but a
+	 * selection that still picked the wrong link would be no better. */
+	{
+		fzn_sched_candidate_t pair[2] = {
+			{ .id = 1,
+			  .metric = 4294967295u,
+			  .latency_ms = 4294967295u,
+			  .loss_permille = 1,
+			  .mtu = 1500,
+			  .usable = 1 },
+			{ .id = 2,
+			  .metric = 1,
+			  .latency_ms = 1,
+			  .loss_permille = 0,
+			  .mtu = 1500,
+			  .usable = 1 },
+		};
+		/* Inside the contract: sched.h states the weights need no
+		 * particular scale, and every hard constraint is unset here, so
+		 * the admission filter offers no protection. */
+		static const fzn_class_t CRUSHING = { .weight_metric = 4294967295u,
+			                              .weight_latency = 2,
+			                              .weight_loss = 1 };
+		size_t worst = 99;
+
+		expect(fzn_sched_cost(&pair[0], &CRUSHING) > fzn_sched_cost(&pair[1], &CRUSHING),
+		       "a link costing four billion ms must not come out cheaper than one "
+		       "costing 1 ms");
+		expect_err(fzn_sched_select(pair, 2, &CRUSHING, &worst), FZN_SCHED_OK,
+		           "selecting between a terrible link and a good one");
+		expect(worst == 1, "the terrible link was chosen over the good one");
+	}
+
 	/* Arguments. */
 	expect_err(fzn_sched_select(NULL, 2, &VOICE, &chosen), FZN_SCHED_ERR_MALFORMED,
 	           "a null link array");

@@ -22,6 +22,19 @@ int fzn_sched_admits(const fzn_sched_candidate_t *link, const fzn_class_t *class
 	return 1;
 }
 
+/* Addition that stops at the top instead of wrapping.
+ *
+ * SATURATING RATHER THAN WIDENING AGAIN, because there is nothing wider to
+ * widen to: each term is already the product of two 32-bit values and can
+ * reach (2^32-1)^2, so three of them do not fit a uint64 however they are
+ * cast. Saturation is also the right ANSWER and not merely a safe one -- a
+ * cost this large means "do not choose this", and UINT64_MAX is exactly that.
+ * It is what a null argument returns too, for the same reason. */
+static uint64_t add_saturating(uint64_t a, uint64_t b)
+{
+	return a > UINT64_MAX - b ? UINT64_MAX : a + b;
+}
+
 uint64_t fzn_sched_cost(const fzn_sched_candidate_t *link, const fzn_class_t *class)
 {
 	uint64_t cost = 0;
@@ -29,13 +42,24 @@ uint64_t fzn_sched_cost(const fzn_sched_candidate_t *link, const fzn_class_t *cl
 	if (!link || !class)
 		return UINT64_MAX;
 
-	/* Widened before multiplying. Two uint32 weights against a uint32
-	 * latency overflow 32 bits easily, and a wrapped cost would make a bad
+	/* WIDENING THE MULTIPLIES WAS NOT ENOUGH, and the comment that used to
+	 * sit here said it was. It claimed a wrapped cost "would make a bad
 	 * link look excellent -- which is the failure mode a scheduler must not
-	 * have, since it would be chosen consistently and look deliberate. */
-	cost += (uint64_t)class->weight_metric * (uint64_t)link->metric;
-	cost += (uint64_t)class->weight_latency * (uint64_t)link->latency_ms;
-	cost += (uint64_t)class->weight_loss * (uint64_t)link->loss_permille;
+	 * have, since it would be chosen consistently and look deliberate", and
+	 * then guarded only the products. The sum was still a bare `+=`.
+	 *
+	 * Measured, against this file before the fix: with a weight of
+	 * 4294967295 on the metric, a link declaring metric and latency both at
+	 * 4294967295 cost **zero** -- the cheapest value representable -- and
+	 * `fzn_sched_select` chose it over a link costing 1 ms. Every hard
+	 * constraint was unset, so the filter offered no protection, and the
+	 * weights were inside the contract `sched.h` states ("the weights need
+	 * no particular scale").
+	 *
+	 * So the failure the comment named was the failure the code had. */
+	cost = add_saturating(cost, (uint64_t)class->weight_metric * (uint64_t)link->metric);
+	cost = add_saturating(cost, (uint64_t)class->weight_latency * (uint64_t)link->latency_ms);
+	cost = add_saturating(cost, (uint64_t)class->weight_loss * (uint64_t)link->loss_permille);
 
 	return cost;
 }
