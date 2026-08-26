@@ -51,6 +51,25 @@ int fzn_peer_from_fd(int fd, fzn_peer_t *peer)
 		return -1;
 	if (len != sizeof(cred))
 		return -1;
+	/* AND THE KERNEL MUST ACTUALLY HAVE ANSWERED, which the return value
+	 * does not tell us.
+	 *
+	 * On a datagram socket with no peer -- an `AF_UNIX` `SOCK_DGRAM`
+	 * receiver, which is what a consumer reading commands off a socket is
+	 * likeliest to hold -- `getsockopt` RETURNS 0 and reports `pid = 0`
+	 * with `uid` and `gid` both `(uid_t)-1`. Measured, not inferred.
+	 *
+	 * Checking only the status and the length therefore reported SUCCESS
+	 * having learned nothing, and filled `uid` with 4294967295. It failed
+	 * closed only by luck: `/proc/0/status` cannot be opened, so
+	 * `groups_known` stayed clear and any group gate answered UNKNOWN.
+	 * A consumer gating on `uid` got a definite wrong answer, which is
+	 * exactly the state `peer.h` distinguishes UNKNOWN from.
+	 *
+	 * pid 0 is not a process a peer can be, and `(uid_t)-1` is the value
+	 * the kernel uses for "nobody", so both are unambiguous. */
+	if (cred.pid == 0 || cred.uid == (uid_t)-1)
+		return -1;
 
 	peer->pid = (int64_t)cred.pid;
 	peer->uid = (uint32_t)cred.uid;

@@ -136,6 +136,32 @@ int main(void)
 	/* Errors: peer.h says only a failure to get credentials at all is one. */
 	check(fzn_peer_from_fd(-1, &p) != 0, "a negative fd was accepted");
 	check(fzn_peer_from_fd(sv[0], NULL) != 0, "a null peer was accepted");
+
+	/* A DATAGRAM SOCKET WITH NO PEER, which is the case that returned
+	 * success having learned nothing.
+	 *
+	 * `getsockopt(SO_PEERCRED)` RETURNS 0 here and reports pid 0 with uid
+	 * and gid both (uid_t)-1 -- so a check on the status and the length
+	 * alone passes, and `peer->uid` comes back as 4294967295. It failed
+	 * closed only because /proc/0/status cannot be opened, which left the
+	 * groups unknown; a consumer gating on `uid` got a definite wrong
+	 * answer instead.
+	 *
+	 * This is the shape a consumer reading commands off a socket is
+	 * likeliest to hold, which is why it matters more than the
+	 * not-a-socket case above. */
+	{
+		int dgram = socket(AF_UNIX, SOCK_DGRAM, 0);
+
+		if (dgram >= 0) {
+			struct fzn_peer q;
+
+			memset(&q, 0xAA, sizeof(q));
+			check(fzn_peer_from_fd(dgram, &q) != 0,
+			      "an unconnected datagram socket reported a peer");
+			close(dgram);
+		}
+	}
 	{
 		int devnull = -1;
 		/* A file descriptor that is not a socket: getsockopt must
