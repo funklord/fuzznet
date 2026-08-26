@@ -191,10 +191,12 @@ int main(int argc, char **argv)
 	/* A replay has to actually occur, or the property this file is about
 	 * was never exercised. That is the whole lesson of the reassembly
 	 * harness: reaching nothing and finding nothing look identical. */
-	if (cov.admitted < cases / 200u || cov.replayed < cases / 200u) {
-		printf("freshness_fuzz: REACHED TOO LITTLE -- %lu admitted, %lu replays in "
-		       "%lu cases. A run with no replay in it does not test replay.\n",
-		       cov.admitted, cov.replayed, cases);
+	if (cov.admitted < cases / 200u || cov.replayed < cases / 200u ||
+	    cov.expired < cases / 200u) {
+		printf("freshness_fuzz: REACHED TOO LITTLE -- %lu admitted, %lu replays, "
+		       "%lu expired in %lu cases. A run with no replay in it does not test "
+		       "replay, and one with nothing expiring does not test the bound.\n",
+		       cov.admitted, cov.replayed, cov.expired, cases);
 		return 1;
 	}
 

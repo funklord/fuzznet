@@ -337,10 +337,20 @@ int main(int argc, char **argv)
 	 * A harness that never accepted a chain would report success against
 	 * a verify that refused everything; one that never refused would
 	 * report success against a verify that accepted everything. */
-	if (cov.verified_ok < cases / 200u || cov.refused < cases / 200u) {
-		printf("chain_fuzz: REACHED TOO LITTLE -- %lu accepted, %lu refused in %lu "
-		       "cases. Both must happen or this run proves nothing.\n",
-		       cov.verified_ok, cov.refused, cases);
+	/* DELEGATION IS FLOORED LOWER, and the number is chosen from the
+	 * observed rate rather than picked. A successful delegation needs a
+	 * chain that verifies AND a last hop marked delegable, so it is the
+	 * rarest thing here: 151 in 20000 when this was written. A floor of
+	 * cases/200 would sit at 100 and fail on any drift, which is the way a
+	 * floor stops meaning anything -- it gets raised until it is noise.
+	 * cases/1000 leaves seven times the observed margin and still catches
+	 * delegation disappearing, which is what it is for. */
+	if (cov.verified_ok < cases / 200u || cov.refused < cases / 200u ||
+	    cov.delegated_ok < cases / 1000u) {
+		printf("chain_fuzz: REACHED TOO LITTLE -- %lu accepted, %lu refused, "
+		       "%lu delegated in %lu cases. All must happen or this run proves "
+		       "less than it says.\n",
+		       cov.verified_ok, cov.refused, cov.delegated_ok, cases);
 		return 1;
 	}
 

@@ -208,8 +208,12 @@ int main(int argc, char **argv)
 	/* Multi-piece messages and the refused-order case must both occur. A
 	 * run of single-piece messages would round-trip perfectly and test
 	 * none of the stride arithmetic this file is about. */
+	/* `refused_first_last` was floored at one, which a single lucky case
+	 * satisfies. Observed 1794 in 20000, so a fraction floor leaves ample
+	 * margin and actually notices the path going away. `planned` was
+	 * counted and not floored at all. */
 	if (cov.completed < cases / 200u || cov.multi_piece < cases / 200u ||
-	    cov.refused_first_last == 0) {
+	    cov.refused_first_last < cases / 200u || cov.planned < cases / 200u) {
 		printf("roundtrip_fuzz: REACHED TOO LITTLE -- %lu planned, %lu completed, "
 		       "%lu multi-piece, %lu refused-order in %lu cases.\n",
 		       cov.planned, cov.completed, cov.multi_piece, cov.refused_first_last,
