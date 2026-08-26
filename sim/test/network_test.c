@@ -237,7 +237,7 @@ struct sim_host {
 	fzn_state_t state;
 	fzn_state_entry_t sentries[8];
 	unsigned conflicts;
-	uint32_t held[SIM_HOSTS];
+	uint32_t held[SIM_HOSTS][2];
 	uint64_t issued;
 	unsigned gaps_seen, admitted, confirmed;
 };
@@ -931,12 +931,12 @@ static void scenario_splice(void)
 
 static int holds(const struct sim_host *h, uint8_t issuer, uint64_t seq)
 {
-	return (h->held[issuer] >> (seq - 1u)) & 1u;
+	return (h->held[issuer][0] >> (seq - 1u)) & 1u;
 }
 
 static void hold(struct sim_host *h, uint8_t issuer, uint64_t seq)
 {
-	h->held[issuer] |= (uint32_t)1u << (seq - 1u);
+	h->held[issuer][0] |= (uint32_t)1u << (seq - 1u);
 }
 
 /* One host fetches from one peer: compare positions, ask for what is
@@ -1376,6 +1376,129 @@ static void scenario_join(void)
 	       (unsigned long long)fzn_trust_adopted_at(&joiner->trust));
 }
 
+/* ------------------------------------------------------------ scenario 12
+
+   Two fidelities of the same thing, and two kinds of recipient.
+
+   THE CASE THAT WAS IMPOSSIBLE BEFORE `stream`. An issuer publishes a precise
+   track and a coarse one. Some hosts are entitled to both; some only to the
+   coarse. With one sequence per issuer, the coarse-only hosts could never
+   hold a contiguous position -- every precise record they were not allowed to
+   see was a hole they could not fill, and `fzn_journal_admit` refuses a gap.
+   They would have asked for ever for records nobody would send them.
+
+   The property now: **every host converges on exactly what it is entitled
+   to**, contiguously, on a network dropping a fifth of everything -- and the
+   coarse-only hosts hold nothing at all from the precise stream, which is the
+   other half and the one a privacy claim rests on.  */
+
+#define FID_HOSTS    6u
+#define FID_RECORDS  5u
+#define STREAM_FINE  1u
+#define STREAM_COARSE 2u
+
+/* Which hosts may see the precise stream. Host 0 is the issuer; 1 and 2 are
+ * trusted with the fine track; 3, 4 and 5 get the coarse one only. */
+static int entitled_to_fine(uint8_t host)
+{
+	return host <= 2u;
+}
+
+static void fidelity_fetch(struct sim_net *net, struct sim_host *me, struct sim_host *peer,
+                           uint8_t issuer_id)
+{
+	fzn_sync_position_t theirs[SIM_HOSTS * 2u];
+	fzn_sync_request_t want[SIM_HOSTS * 2u];
+	fzn_sync_plan_t plan;
+	size_t n = fzn_sync_digest(&peer->journal, theirs, SIM_HOSTS * 2u);
+
+	if (fzn_sync_plan_fetch(&me->journal, theirs, n, 4, want, SIM_HOSTS * 2u, &plan) !=
+	    FZN_SYNC_OK)
+		return;
+
+	for (size_t r = 0; r < plan.request_count; r++) {
+		uint32_t stream = want[r].stream;
+
+		for (uint64_t seq = want[r].from; seq < want[r].from + want[r].count; seq++) {
+			if (!(peer->held[issuer_id][stream == STREAM_FINE ? 0u : 1u] >>
+			      (seq - 1u) & 1u))
+				continue;
+			if (net->loss_pct && (sim_random(net) % 100u) < net->loss_pct) {
+				net->dropped++;
+				continue;
+			}
+			if (fzn_journal_admit(&me->journal, want[r].issuer, stream, seq) !=
+			    FZN_JOURNAL_OK)
+				continue;
+			me->held[issuer_id][stream == STREAM_FINE ? 0u : 1u] |=
+			        (uint32_t)1u << (seq - 1u);
+			me->admitted++;
+		}
+	}
+}
+
+static void scenario_fidelity(void)
+{
+	static struct sim_net net;
+	unsigned fine_complete = 0, coarse_complete = 0, leaked = 0;
+
+	sim_init(&net, FID_HOSTS, 0xbbbbu);
+	net.loss_pct = 20;
+
+	/* The issuer publishes both, each numbered from one. */
+	for (uint64_t seq = 1; seq <= FID_RECORDS; seq++) {
+		fzn_journal_admit(&net.hosts[0].journal, net.hosts[0].pubkey, STREAM_FINE, seq);
+		fzn_journal_admit(&net.hosts[0].journal, net.hosts[0].pubkey, STREAM_COARSE, seq);
+		net.hosts[0].held[0][0] |= (uint32_t)1u << (seq - 1u);
+		net.hosts[0].held[0][1] |= (uint32_t)1u << (seq - 1u);
+	}
+
+	/* EACH HOST FOLLOWS WHAT IT MAY. Entitlement is expressed by which
+	 * streams a host anchors -- and in a real consumer that decision is a
+	 * capability check, which `chain/` already answers. */
+	for (uint8_t i = 1; i < FID_HOSTS; i++) {
+		fzn_journal_anchor(&net.hosts[i].journal, net.hosts[0].pubkey, STREAM_COARSE, 0);
+		if (entitled_to_fine(i))
+			fzn_journal_anchor(&net.hosts[i].journal, net.hosts[0].pubkey,
+			                   STREAM_FINE, 0);
+	}
+
+	for (unsigned round = 0; round < 40u; round++)
+		for (uint8_t i = 1; i < FID_HOSTS; i++)
+			fidelity_fetch(&net, &net.hosts[i], &net.hosts[0], 0);
+
+	for (uint8_t i = 1; i < FID_HOSTS; i++) {
+		struct sim_host *h = &net.hosts[i];
+		uint64_t fine = fzn_journal_next(&h->journal, net.hosts[0].pubkey, STREAM_FINE);
+		uint64_t coarse = fzn_journal_next(&h->journal, net.hosts[0].pubkey, STREAM_COARSE);
+
+		/* THE COARSE STREAM MUST BE COMPLETE FOR EVERYONE. This is the
+		 * case that could not have worked before: a coarse-only host
+		 * reaching the end without ever being able to fill a hole it
+		 * was not entitled to. */
+		if (coarse == FID_RECORDS + 1u)
+			coarse_complete++;
+
+		if (entitled_to_fine(i)) {
+			if (fine == FID_RECORDS + 1u)
+				fine_complete++;
+		} else {
+			/* AND NOTHING OF THE FINE STREAM LEAKED. A privacy
+			 * claim rests on this half, not on the other. */
+			if (fine != 1u || h->held[0][0] != 0u)
+				leaked++;
+		}
+	}
+
+	check(coarse_complete == FID_HOSTS - 1u,
+	      "every host should hold the whole coarse stream, whatever else it may see");
+	check(fine_complete == 2u, "both entitled hosts should hold the whole fine stream");
+	check(leaked == 0, "a host not entitled to the fine stream holds part of it");
+	check(net.dropped > 0, "no record was lost, so this proved less than it looks");
+	printf("  fidelity: %u of %u complete on coarse, %u on fine, %u leaked, %u dropped\n",
+	       coarse_complete, FID_HOSTS - 1u, fine_complete, leaked, net.dropped);
+}
+
 int main(void)
 {
 	scenario_mesh();
@@ -1389,6 +1512,7 @@ int main(void)
 	scenario_distribution();
 	scenario_state();
 	scenario_join();
+	scenario_fidelity();
 
 	printf("network_test: %d checks, %d failure(s); fuzznet %s\n", checks, failures,
 	       fzn_version_string());

@@ -1876,6 +1876,26 @@ that partial entitlement can live in, and now there is one.
 The journal's test carries the case directly: two streams from one issuer
 advance independently, and each keeps its own gap.
 
+### Fidelity across the network (scenario 12)
+
+    fidelity: 5 of 5 complete on coarse, 2 on fine, 0 leaked, 5 dropped
+
+**The case that could not have existed a commit earlier.** One issuer
+publishes a precise track and a coarse one. Hosts 1 and 2 are entitled to
+both; 3, 4 and 5 to the coarse only. On a network dropping a fifth of
+everything, forty rounds of pull.
+
+**Both halves are asserted, and the second is the one a privacy claim rests
+on.** Every host reaches the end of the coarse stream contiguously -- which
+with one sequence per issuer was impossible, since each precise record a host
+was not entitled to see was a hole it could never fill. And the three
+unentitled hosts hold **nothing at all** from the fine stream: not a partial
+copy, not a position past 1.
+
+Entitlement is expressed by which streams a host anchors, and in a real
+consumer that decision is a capability check `chain/` already answers. The
+simulation stands in for the check, not for the mechanism.
+
 ## 5i. `location` needs no module, and that is the finding
 
 **Asked to absorb it, the honest answer is that there is nothing to
