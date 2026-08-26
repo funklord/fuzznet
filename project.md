@@ -2047,11 +2047,27 @@ one:
 distribute the owner's revocations to whoever follows that stream. The pieces
 were built for the User realm and turn out to serve this.
 
-**The cost, stated plainly:** anchoring a root lets that peer add devices the
-receiver will accept without being asked again. For a contact that is a
-feature -- a friend replacing a phone should not require re-pairing -- and it
-is the same trust already extended implicitly, since their root signs their
-devices either way.
+**The cost stated here was not one, and fuzzypickles checked it rather than
+taking it (2026-08-26).** This entry said anchoring "lets that peer add
+devices the receiver will accept without being asked again", offered as a
+feature worth its price. **It is already the status quo in their tree.**
+Verified from here rather than relayed: `peer_sync_internal.h` carries
+`root_pubkey[32]` per peer -- "the peer's user root, all-zero if unproven" --
+and `manifest_internal.h` verifies a peer's hosts "against that peer's own
+stored root_pubkey", with the comment that a chain rooting in another
+identity "is exactly what an attacker supplies, which is why this comparison
+must never be skipped".
+
+So a registered peer can already add devices that are accepted without asking,
+and a friend replacing a phone does not re-pair today. **The anchor exists and
+is already load-bearing; what was proposed is a second USE of it rather than
+new trust.** That is why the holder took it without hesitation, and it means
+the recommendation was cheaper than either side had said.
+
+**The residue they recorded is the honest remainder:** a peer added from a
+bare prekey blob carries an all-zero root and is already excluded from
+manifest verification for the same reason. Those frames keep the zero and the
+sentence.
 
 **Not decided here.** It changes what `peer-add` *means* in fuzzypickles, from
 "pin this contact" to "anchor this contact's root", and that is theirs and the
