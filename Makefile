@@ -127,7 +127,8 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              version/test/version_test.c \
              chunk/test/reassembly_guided.c \
              chain/test/chain_guided.c \
-             frame/test/freshness_guided.c
+             frame/test/freshness_guided.c \
+             sim/test/network_test.c
 TEST_OBJS := $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
 TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/chain/test/revocation_test \
@@ -157,7 +158,8 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/version/test/version_test \
              $(BUILD_DIR)/chunk/test/reassembly_guided \
              $(BUILD_DIR)/chain/test/chain_guided \
-             $(BUILD_DIR)/frame/test/freshness_guided
+             $(BUILD_DIR)/frame/test/freshness_guided \
+             $(BUILD_DIR)/sim/test/network_test
 
 # The Monocypher binding, built only when MONOCYPHER_DIR names a checkout.
 #
@@ -315,6 +317,23 @@ $(BUILD_DIR)/wire/generated/%.o: wire/generated/%.c
 $(BUILD_DIR)/chain/test/chain_test: $(BUILD_DIR)/chain/test/chain_test.o \
                                      $(BUILD_DIR)/chain/chain.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# The whole library at once. Its own rule rather than a pattern, because it
+# links nearly everything and the list is the point: a module absent here is a
+# module the integration test cannot exercise.
+$(BUILD_DIR)/sim/test/network_test: $(BUILD_DIR)/sim/test/network_test.o \
+                                    $(BUILD_DIR)/chain/chain.o \
+                                    $(BUILD_DIR)/chain/revocation.o \
+                                    $(BUILD_DIR)/chunk/reassembly.o \
+                                    $(BUILD_DIR)/chunk/split.o \
+                                    $(BUILD_DIR)/frame/freshness.o \
+                                    $(BUILD_DIR)/session/commitment.o \
+                                    $(BUILD_DIR)/session/random.o \
+                                    $(BUILD_DIR)/version/version.o \
+                                    $(BUILD_DIR)/wire/seal.o \
+                                    $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 

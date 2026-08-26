@@ -1038,6 +1038,108 @@ absorbing one consumer's application until the others are carrying it.
 would accept the other's version as a special case of their own.** One
 consumer needing something is a reason for that consumer to build it.
 
+### Superseded 2026-08-26: the copyright holder has decided to absorb
+
+**The admission test below is answered, and the answer is yes.** The holder's
+instruction, recorded as given: fuzznet is to absorb much of what fuzzypickles
+carries -- the whole log subsystem, relaying, adding hosts, creating rules and
+permissions, the config database, chunked transfer for file transfer, and
+streaming media -- generalised for use by other projects. What network code
+remains in fuzzypickles is open, and expected to be little.
+
+**The fact that settles it is the one the test was asking for.** fuzzypickles,
+netcfgd and raidcfgd will use this library **in almost exactly the same way**,
+differing only in *how keys are exchanged* and in *which features they need*.
+That is three consumers with one usage, not one consumer with a preference --
+and the reasoning below, which turned on there being no second consumer, is
+superseded rather than wrong. It was measured against what existed at the
+time.
+
+**Two consequences for the shape of the work**, both already the shape of the
+library:
+
+- **Key exchange comes IN, as several, not out as a seam.** Corrected the
+  same day, by the holder: key exchange belongs in this library too -- the
+  point is that different projects may use *different ones*, not that each
+  writes its own. So §4.5's prekey half stops being "unsettled and the
+  caller's" and becomes a set of exchanges fuzznet provides and a consumer
+  chooses between. The existing vtables stay, because a chosen exchange still
+  has to plug into a codec and an entropy source, but they are no longer where
+  the difference between the three consumers lives.
+- **Features are selected, not bundled.** "Which features they need" differs
+  per consumer, so each absorbed subsystem is its own module with its own
+  header, in the way `chain/`, `chunk/` and `frame/` already are. A consumer
+  that wants relaying and not media links one and not the other. The same
+  applies to the exchanges: one of them, not all of them.
+
+### A user has many hosts, and that is fundamental (2026-08-26)
+
+**The holder's instruction, and it reaches further into the design than
+anything else recorded here.** The identity model is to be *user with multiple
+hosts*, on the grounds that it is what most software wants from crypto anyway.
+
+**Today's model has no such thing.** `sender[32]` in the head is a host, a
+capability is granted to a public key, and `fzn_chain_verify` answers "may
+this key act". Nothing says two keys are the same person, so every capability
+must be granted to each host separately, revocation is per host, and a user
+adding a laptop needs the root to mint again.
+
+**fuzzypickles already has the concept and calls it by name**, which is
+evidence this generalises rather than being invented here:
+`sender_host_pubkey` in its peer frame is a *host* key, and `log_relay`
+replicates a host's log to "that user's siblings" -- the other hosts of the
+same user. So the absorbed subsystems arrive expecting it.
+
+**What it changes is not settled and is not this entry's to settle.** The open
+questions, written down so the design pass starts from them rather than
+rediscovering them:
+
+- Is a user a key that signs for its hosts, making host membership a chain
+  hop like any other -- or a distinct kind of record?
+- Is a capability granted to a user and exercised by a host, and if so does a
+  frame carry both identities or is the host resolved to its user on receipt?
+- Does revoking a host revoke the user, and can a user revoke its own host
+  without the root? `chain/revocation.h` deliberately allows only the root
+  today and records why.
+- What does `sender[32]` become on the wire, given that widening the head
+  costs bytes measured against an IPv6 minimum-MTU budget with 64 to spare
+  (§13)?
+
+None of these is answerable by reading the code, so they go to the holder as
+a design pass rather than being guessed at while implementing something
+else.
+
+**And the consequence the holder drew from it: with a shared identity model,
+the config and permission system can be LOCKED IN for every consumer of
+fuzznet** rather than each project defining its own. That follows -- a
+permission is a statement about who may do what, and "who" was the part that
+had no shared answer until now.
+
+**It supersedes two decisions recorded above, and they should be read as
+overridden rather than as still standing:**
+
+- **§5's "command vocabularies stay out of the core."** `local/vocabulary.c`
+  treats a verb as opaque bytes on purpose, and `wire/frame.situ` says of the
+  payload that "this library does not know what they mean and must not learn".
+  A locked-in permission system is fuzznet knowing.
+- **§4.2's "a capability is 32 opaque bytes, never a typed enum."** That was
+  argued from netcfgd's three capabilities being independent rather than a
+  ladder. A shared permission system is exactly the thing that would give
+  those bytes an agreed meaning.
+
+**The open question the holder has not yet answered**, and the one that
+decides how much of the wire moves: does a locked-in permission system give
+the capability bytes structure, or does it sit *above* them -- a shared
+vocabulary and config schema that both resolve to the same opaque 32 bytes
+the frame already carries? The second costs no wire change and keeps §13's
+144-byte budget; the first is a format decision with an MTU budget attached.
+Not guessed at here.
+
+**Sequenced after the integration harness** (§14), at the holder's
+instruction. The record below is kept because it is the reasoning the decision
+overrode, and because the measurements in it -- what each file actually
+couples to -- are the starting inventory for the work.
+
 ### The test was applied to a real case and held (2026-08-25)
 
 The copyright holder asked fuzzypickles whether their **log subsystem** and
@@ -1430,6 +1532,50 @@ without becoming one thing, and which of those is wanted is a design question
 these measurements do not answer.
 
 ---
+
+## 5a. The integration harness
+
+**`sim/test/network_test.c` is a fake network of hosts, and it exists because
+every other test here is a module's own.** Chains without bytes, reassembly
+without frames, a replay window without a sender: each is the right shape for
+finding a defect inside a module and none can find one *between* modules.
+
+Simulated: the hosts, the datagram queue, the clock, loss, duplication and
+reordering. Real: everything below them, called in §4.7's order -- seal, then
+freshness and replay, then authorisation, then reassembly. The crypto is
+stubbed and deliberately not weakened; a wrong key, a forged tag and a forged
+signature all fail, because a stub that accepted them would make every
+scenario vacuous.
+
+Eight scenarios, 32 checks:
+
+| scenario | what it establishes |
+|---|---|
+| mesh | 16 hosts, 240 multi-chunk messages, all delivered byte-exact |
+| replay | every datagram doubled; the second refused, never delivered twice |
+| revocation | revoked mid-message; remaining chunks refused, message never completes |
+| stale | expiry passed, refused on freshness, and the chain never consulted |
+| unauthorised | a validly signed grant naming a capability nobody granted |
+| delegation | a two-hop chain minted by the library, accepted under the same root |
+| lossy | 20% loss and 40% reordering; some messages lost, none wrong |
+| splice | two senders, one message id; no cross-sender splice |
+
+**Four faults, all in the harness, none in the library.** Worth listing
+because each is a way an integration test can look like it works:
+
+- `fzn_chain_verify` was called with a NULL `out` and refused everything with
+  *"malformed argument"*. The error renderer added the day before turned that
+  from a bisection into one line of output.
+- The inbox held 8 entries where 15 senders write, so it silently dropped
+  deliveries and the byte comparison ran over what fitted. It counts an
+  overflow and fails now: an inbox that quietly discards would hide exactly
+  the loss the lossy scenario exists to detect.
+- `fzn_seal_open` decrypts **in place**, so delivering the queued datagram
+  mutated it and a duplicate arrived already-decrypted -- refused on its tag
+  rather than as the replay it was. The receiver takes a copy now, which is
+  what a real one gets.
+- The signer vtable was supplied with `verify` and no `sign`, so
+  `fzn_chain_delegate` refused. Half a vtable, answered precisely.
 
 ## 6. `situ`, and whether the frame is hand-written
 
