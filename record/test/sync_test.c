@@ -35,7 +35,7 @@ static void seed_journal(fzn_journal_t *j, const uint8_t *issuer, uint64_t to)
 {
 	if (to == 0)
 		return;
-	if (fzn_journal_anchor(j, issuer, to) != FZN_JOURNAL_OK)
+	if (fzn_journal_anchor(j, issuer, 0, to) != FZN_JOURNAL_OK)
 		printf("  (seed failed)\n");
 }
 
@@ -63,10 +63,13 @@ int main(void)
 
 	/* FETCH: they are ahead on A, level on B, and follow C which we do not. */
 	memcpy(theirs[0].issuer, a, FZN_PUBKEY_LEN);
+	theirs[0].stream = 0;
 	theirs[0].received = 14;
 	memcpy(theirs[1].issuer, b, FZN_PUBKEY_LEN);
+	theirs[1].stream = 0;
 	theirs[1].received = 5;
 	memcpy(theirs[2].issuer, c, FZN_PUBKEY_LEN);
+	theirs[2].stream = 0;
 	theirs[2].received = 99;
 
 	expect(fzn_sync_plan_fetch(&mine, theirs, 3, 100, out, 4, &plan) == FZN_SYNC_OK,
@@ -100,9 +103,11 @@ int main(void)
 		seed_journal(&small, a, 1);
 		seed_journal(&small, b, 1);
 		memcpy(ahead[0].issuer, a, FZN_PUBKEY_LEN);
-		ahead[0].received = 9;
+		ahead[0].stream = 0;
+	ahead[0].received = 9;
 		memcpy(ahead[1].issuer, b, FZN_PUBKEY_LEN);
-		ahead[1].received = 9;
+		ahead[1].stream = 0;
+	ahead[1].received = 9;
 
 		expect(fzn_sync_plan_fetch(&small, ahead, 2, 100, out, 1, &plan) == FZN_SYNC_OK,
 		       "a fetch plan that cannot fit");
@@ -119,7 +124,8 @@ int main(void)
 		fzn_sync_position_t behind[1];
 
 		memcpy(behind[0].issuer, a, FZN_PUBKEY_LEN);
-		behind[0].received = 3;
+		behind[0].stream = 0;
+	behind[0].received = 3;
 
 		expect(fzn_sync_plan_offer(&mine, behind, 1, 100, out, 4, &plan) == FZN_SYNC_OK,
 		       "an offer to a peer that is behind");

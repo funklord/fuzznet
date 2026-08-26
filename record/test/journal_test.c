@@ -59,47 +59,47 @@ int main(void)
 	/* AN UNKNOWN ISSUER STARTS AT ONE, and anything else is a gap rather
 	 * than a beginning. A stranger opening at a large sequence would
 	 * otherwise suppress every real record below it. */
-	expect_err(fzn_journal_admit(&j, alice, 5), FZN_JOURNAL_ERR_GAP,
+	expect_err(fzn_journal_admit(&j, alice, 0, 5), FZN_JOURNAL_ERR_GAP,
 	           "an unknown issuer opening at 5");
-	expect(fzn_journal_next(&j, alice) == 1, "the wanted sequence for an unseen issuer");
-	expect_err(fzn_journal_admit(&j, alice, 1), FZN_JOURNAL_OK, "an issuer opening at 1");
-	expect(fzn_journal_next(&j, alice) == 2, "the wanted sequence after one record");
+	expect(fzn_journal_next(&j, alice, 0) == 1, "the wanted sequence for an unseen issuer");
+	expect_err(fzn_journal_admit(&j, alice, 0, 1), FZN_JOURNAL_OK, "an issuer opening at 1");
+	expect(fzn_journal_next(&j, alice, 0) == 2, "the wanted sequence after one record");
 
-	expect_err(fzn_journal_admit(&j, alice, 2), FZN_JOURNAL_OK, "the next in order");
-	expect_err(fzn_journal_admit(&j, alice, 2), FZN_JOURNAL_ERR_DUPLICATE, "the same again");
-	expect_err(fzn_journal_admit(&j, alice, 1), FZN_JOURNAL_ERR_DUPLICATE, "an older one");
-	expect_err(fzn_journal_admit(&j, alice, 4), FZN_JOURNAL_ERR_GAP, "one too far ahead");
-	expect(fzn_journal_next(&j, alice) == 3, "a refused record did not move the position");
-	expect_err(fzn_journal_admit(&j, alice, 3), FZN_JOURNAL_OK, "the gap filled");
+	expect_err(fzn_journal_admit(&j, alice, 0, 2), FZN_JOURNAL_OK, "the next in order");
+	expect_err(fzn_journal_admit(&j, alice, 0, 2), FZN_JOURNAL_ERR_DUPLICATE, "the same again");
+	expect_err(fzn_journal_admit(&j, alice, 0, 1), FZN_JOURNAL_ERR_DUPLICATE, "an older one");
+	expect_err(fzn_journal_admit(&j, alice, 0, 4), FZN_JOURNAL_ERR_GAP, "one too far ahead");
+	expect(fzn_journal_next(&j, alice, 0) == 3, "a refused record did not move the position");
+	expect_err(fzn_journal_admit(&j, alice, 0, 3), FZN_JOURNAL_OK, "the gap filled");
 
 	/* ANCHORING is the deliberate version of the jump refused above. */
-	expect_err(fzn_journal_anchor(&j, bob, 100), FZN_JOURNAL_OK, "anchoring a new issuer");
-	expect(fzn_journal_next(&j, bob) == 101, "the wanted sequence after anchoring");
-	expect_err(fzn_journal_admit(&j, bob, 101), FZN_JOURNAL_OK, "continuing from an anchor");
-	expect_err(fzn_journal_anchor(&j, bob, 50), FZN_JOURNAL_ERR_DUPLICATE,
+	expect_err(fzn_journal_anchor(&j, bob, 0, 100), FZN_JOURNAL_OK, "anchoring a new issuer");
+	expect(fzn_journal_next(&j, bob, 0) == 101, "the wanted sequence after anchoring");
+	expect_err(fzn_journal_admit(&j, bob, 0, 101), FZN_JOURNAL_OK, "continuing from an anchor");
+	expect_err(fzn_journal_anchor(&j, bob, 0, 50), FZN_JOURNAL_ERR_DUPLICATE,
 	           "an anchor moving backwards");
-	expect(fzn_journal_next(&j, bob) == 102, "the refused anchor did not rewind");
+	expect(fzn_journal_next(&j, bob, 0) == 102, "the refused anchor did not rewind");
 
 	/* FINALISATION. Received and applied are different numbers. */
-	expect_err(fzn_journal_confirm(&j, carol, 1), FZN_JOURNAL_ERR_UNKNOWN_ISSUER,
+	expect_err(fzn_journal_confirm(&j, carol, 0, 1), FZN_JOURNAL_ERR_UNKNOWN_ISSUER,
 	           "confirming for an issuer never heard from");
-	expect(fzn_journal_pending(&j, alice) == 3, "three received and none applied");
-	expect_err(fzn_journal_confirm(&j, alice, 9), FZN_JOURNAL_ERR_NOT_RECEIVED,
+	expect(fzn_journal_pending(&j, alice, 0) == 3, "three received and none applied");
+	expect_err(fzn_journal_confirm(&j, alice, 0, 9), FZN_JOURNAL_ERR_NOT_RECEIVED,
 	           "confirming past what arrived");
-	expect_err(fzn_journal_confirm(&j, alice, 2), FZN_JOURNAL_OK, "confirming two of three");
-	expect(fzn_journal_pending(&j, alice) == 1, "one still pending");
-	expect_err(fzn_journal_confirm(&j, alice, 2), FZN_JOURNAL_ERR_DUPLICATE,
+	expect_err(fzn_journal_confirm(&j, alice, 0, 2), FZN_JOURNAL_OK, "confirming two of three");
+	expect(fzn_journal_pending(&j, alice, 0) == 1, "one still pending");
+	expect_err(fzn_journal_confirm(&j, alice, 0, 2), FZN_JOURNAL_ERR_DUPLICATE,
 	           "confirming the same twice");
-	expect_err(fzn_journal_confirm(&j, alice, 3), FZN_JOURNAL_OK, "confirming the rest");
-	expect(fzn_journal_pending(&j, alice) == 0, "nothing pending once applied");
+	expect_err(fzn_journal_confirm(&j, alice, 0, 3), FZN_JOURNAL_OK, "confirming the rest");
+	expect(fzn_journal_pending(&j, alice, 0) == 0, "nothing pending once applied");
 
 	/* FULL IS REFUSED, NOT MADE ROOM IN. Three entries, three issuers, and
 	 * a fourth that must not displace one -- because forgetting an issuer
 	 * readmits everything it ever sent. */
-	expect_err(fzn_journal_admit(&j, carol, 1), FZN_JOURNAL_OK, "the third issuer");
-	expect_err(fzn_journal_admit(&j, dave, 1), FZN_JOURNAL_ERR_FULL, "a fourth issuer");
-	expect(fzn_journal_next(&j, alice) == 4, "a full journal did not forget the first");
-	expect_err(fzn_journal_anchor(&j, dave, 7), FZN_JOURNAL_ERR_FULL,
+	expect_err(fzn_journal_admit(&j, carol, 0, 1), FZN_JOURNAL_OK, "the third issuer");
+	expect_err(fzn_journal_admit(&j, dave, 0, 1), FZN_JOURNAL_ERR_FULL, "a fourth issuer");
+	expect(fzn_journal_next(&j, alice, 0) == 4, "a full journal did not forget the first");
+	expect_err(fzn_journal_anchor(&j, dave, 0, 7), FZN_JOURNAL_ERR_FULL,
 	           "anchoring a fourth issuer");
 
 	/* FOLLOWING AN ISSUER BEFORE HEARING FROM IT. A fresh journal, so the
@@ -109,16 +109,16 @@ int main(void)
 		fzn_journal_entry_t fe[2];
 
 		fzn_journal_init(&fresh, fe, 2);
-		expect(fzn_journal_next(&fresh, dave) == 1, "an unfollowed issuer wants one");
-		expect_err(fzn_journal_anchor(&fresh, dave, 0), FZN_JOURNAL_OK,
+		expect(fzn_journal_next(&fresh, dave, 0) == 1, "an unfollowed issuer wants one");
+		expect_err(fzn_journal_anchor(&fresh, dave, 0, 0), FZN_JOURNAL_OK,
 		           "following an issuer from the beginning");
-		expect(fzn_journal_next(&fresh, dave) == 1, "following changes nothing held");
-		expect(fzn_journal_pending(&fresh, dave) == 0, "nothing received, nothing pending");
-		expect_err(fzn_journal_anchor(&fresh, dave, 0), FZN_JOURNAL_ERR_DUPLICATE,
+		expect(fzn_journal_next(&fresh, dave, 0) == 1, "following changes nothing held");
+		expect(fzn_journal_pending(&fresh, dave, 0) == 0, "nothing received, nothing pending");
+		expect_err(fzn_journal_anchor(&fresh, dave, 0, 0), FZN_JOURNAL_ERR_DUPLICATE,
 		           "following twice is an echo");
-		expect_err(fzn_journal_admit(&fresh, dave, 1), FZN_JOURNAL_OK,
+		expect_err(fzn_journal_admit(&fresh, dave, 0, 1), FZN_JOURNAL_OK,
 		           "the first record from a followed issuer");
-		expect(fzn_journal_next(&fresh, dave) == 2, "and the position advances");
+		expect(fzn_journal_next(&fresh, dave, 0) == 2, "and the position advances");
 	}
 
 	/* THE GUARDS EVERY ENTRY POINT NEEDS. `used` past `capacity` is a
@@ -130,31 +130,55 @@ int main(void)
 		fzn_journal_t corrupt = j;
 
 		corrupt.used = corrupt.capacity + 1u;
-		expect_err(fzn_journal_admit(&corrupt, alice, 4), FZN_JOURNAL_ERR_MALFORMED,
+		expect_err(fzn_journal_admit(&corrupt, alice, 0, 4), FZN_JOURNAL_ERR_MALFORMED,
 		           "admitting into a corrupt journal");
-		expect_err(fzn_journal_anchor(&corrupt, alice, 9), FZN_JOURNAL_ERR_MALFORMED,
+		expect_err(fzn_journal_anchor(&corrupt, alice, 0, 9), FZN_JOURNAL_ERR_MALFORMED,
 		           "anchoring in a corrupt journal");
-		expect_err(fzn_journal_confirm(&corrupt, alice, 1), FZN_JOURNAL_ERR_MALFORMED,
+		expect_err(fzn_journal_confirm(&corrupt, alice, 0, 1), FZN_JOURNAL_ERR_MALFORMED,
 		           "confirming in a corrupt journal");
-		expect(fzn_journal_next(&corrupt, alice) == 1,
+		expect(fzn_journal_next(&corrupt, alice, 0) == 1,
 		       "a corrupt journal should ask from the beginning");
-		expect(fzn_journal_pending(&corrupt, alice) == 0,
+		expect(fzn_journal_pending(&corrupt, alice, 0) == 0,
 		       "a corrupt journal should report nothing pending");
 	}
 
-	expect_err(fzn_journal_admit(&j, alice, 0), FZN_JOURNAL_ERR_MALFORMED, "sequence zero");
+	expect_err(fzn_journal_admit(&j, alice, 0, 0), FZN_JOURNAL_ERR_MALFORMED, "sequence zero");
 
 	/* ANCHORING AT ZERO IS FOLLOW-FROM-THE-BEGINNING, not a malformed
 	 * call. It is the state a host is in when it has decided to care about
 	 * an issuer and received nothing yet, and `record/sync.h` requires it
 	 * before it will fetch: without it a whole network converges on
 	 * nothing, which is how this was found. */
-	expect_err(fzn_journal_anchor(&j, alice, 0), FZN_JOURNAL_ERR_DUPLICATE,
+	expect_err(fzn_journal_anchor(&j, alice, 0, 0), FZN_JOURNAL_ERR_DUPLICATE,
 	           "anchoring at zero an issuer already followed");
-	expect_err(fzn_journal_admit(&j, NULL, 1), FZN_JOURNAL_ERR_MALFORMED, "a null issuer");
-	expect(fzn_journal_next(&j, NULL) == 1, "a null issuer wants the beginning");
-	expect(fzn_journal_pending(&j, NULL) == 0, "a null issuer has nothing pending");
-	expect(fzn_journal_pending(&j, dave) == 0, "an unknown issuer has nothing pending");
+	expect_err(fzn_journal_admit(&j, NULL, 0, 1), FZN_JOURNAL_ERR_MALFORMED, "a null issuer");
+	expect(fzn_journal_next(&j, NULL, 0) == 1, "a null issuer wants the beginning");
+	expect(fzn_journal_pending(&j, NULL, 0) == 0, "a null issuer has nothing pending");
+	expect(fzn_journal_pending(&j, dave, 0) == 0, "an unknown issuer has nothing pending");
+
+	/* TWO STREAMS FROM ONE ISSUER ARE INDEPENDENT, which is the whole
+	 * reason the field exists. A recipient entitled to one and not the
+	 * other keeps a contiguous position in what it may see; before this,
+	 * admitting 1 then 3 from one issuer answered "ahead of what is held"
+	 * and the journal wanted 2 for ever -- a record nobody would send it. */
+	{
+		fzn_journal_t two;
+		fzn_journal_entry_t te[2];
+
+		fzn_journal_init(&two, te, 2);
+		expect_err(fzn_journal_admit(&two, alice, 7, 1), FZN_JOURNAL_OK,
+		           "stream seven, first record");
+		expect_err(fzn_journal_admit(&two, alice, 9, 1), FZN_JOURNAL_OK,
+		           "stream nine, first record, same issuer");
+		expect(fzn_journal_next(&two, alice, 7) == 2, "stream seven wants its own next");
+		expect(fzn_journal_next(&two, alice, 9) == 2, "and stream nine wants its own");
+		expect_err(fzn_journal_admit(&two, alice, 7, 2), FZN_JOURNAL_OK,
+		           "advancing one stream");
+		expect(fzn_journal_next(&two, alice, 9) == 2,
+		       "must not have advanced the other");
+		expect_err(fzn_journal_admit(&two, alice, 9, 3), FZN_JOURNAL_ERR_GAP,
+		           "and each stream keeps its own gap");
+	}
 
 	printf("journal_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

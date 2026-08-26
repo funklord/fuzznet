@@ -20,6 +20,11 @@
  * that knows a peer is behind can send without being asked, but nothing here
  * requires it.
  *
+ * A POSITION IS PER (ISSUER, STREAM). A peer reporting several streams from
+ * one issuer reports several positions, and this compares each against the
+ * matching one -- which is what lets a host follow an issuer's configuration
+ * and not its telemetry, or its coarse track and not its precise one.
+ *
  * A NEW ISSUER IS NOT FOLLOWED AUTOMATICALLY. If a peer advertises an issuer
  * this host has never seen, that is reported as a COUNT and never as a
  * request. Fetching from a stranger because a peer mentioned them is how one
@@ -50,6 +55,7 @@ typedef enum fzn_sync_err {
  * reason `record.h` gives about signed regions. */
 typedef struct fzn_sync_position {
 	uint8_t issuer[FZN_PUBKEY_LEN];
+	uint32_t stream;
 	uint64_t received;
 } fzn_sync_position_t;
 
@@ -61,6 +67,7 @@ typedef struct fzn_sync_position {
  * comparison asks for the next window. */
 typedef struct fzn_sync_request {
 	uint8_t issuer[FZN_PUBKEY_LEN];
+	uint32_t stream;
 	uint64_t from;
 	uint64_t count;
 } fzn_sync_request_t;

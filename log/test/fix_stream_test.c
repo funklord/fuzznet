@@ -116,15 +116,15 @@ int main(void)
 
 	/* RETENTION IS THE SAME RETENTION. A track is bounded like any stream,
 	 * and the oldest fixes age out. */
-	fzn_log_range(&track, receiver, &first, &last);
+	fzn_log_range(&track, receiver, 0, &first, &last);
 	expect(first == 3 && last == 6, "a four-entry log holds the last four fixes");
 	expect(fzn_log_dropped(&track) == 2, "and says it dropped two");
-	expect(fzn_log_get(&track, receiver, 1, &got) == FZN_LOG_ERR_GONE,
+	expect(fzn_log_get(&track, receiver, 0, 1, &got) == FZN_LOG_ERR_GONE,
 	       "an aged-out fix answers GONE, exactly as a log line does");
 
 	/* SERVING A CATCH-UP IS THE SAME SERVING. */
 	{
-		size_t n = fzn_log_read_since(&track, receiver, 4, page, 8);
+		size_t n = fzn_log_read_since(&track, receiver, 0, 4, page, 8);
 
 		expect(n == 2, "two fixes after the fourth");
 		expect(n == 2 && page[0]->seq == 5 && page[1]->seq == 6, "oldest first");
@@ -150,7 +150,7 @@ int main(void)
 		rec.body = body;
 		rec.body_len = FIX_SIZE;
 		expect(fzn_log_append(&track, &rec) == FZN_LOG_OK, "appending a coarse fix");
-		expect(fzn_log_get(&track, receiver, 7, &got) == FZN_LOG_OK, "and reading it back");
+		expect(fzn_log_get(&track, receiver, 0, 7, &got) == FZN_LOG_OK, "and reading it back");
 		expect(got != NULL && (got->body[14] & FLAG_COARSE) != 0,
 		       "the flag is the consumer's to set and read");
 	}
@@ -158,7 +158,7 @@ int main(void)
 	/* AND A DIFFERENT KIND IS A DIFFERENT STREAM from the same issuer,
 	 * which is what lets one host carry telemetry and configuration
 	 * without either knowing about the other. */
-	expect(fzn_log_get(&track, receiver, 7, &got) == FZN_LOG_OK && got->kind == TRACK,
+	expect(fzn_log_get(&track, receiver, 0, 7, &got) == FZN_LOG_OK && got->kind == TRACK,
 	       "the kind travels with the entry");
 
 	printf("fix_stream_test: %d checks, %d failure(s)\n", checks, failures);

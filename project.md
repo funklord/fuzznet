@@ -1832,6 +1832,50 @@ Anchoring at zero now means follow-from-the-beginning, anchoring twice is an
 echo rather than a rewind, and the journal's own tests cover it -- but the
 harness is what asked the question.
 
+## 5j. Fidelity is a stream, and that required a change
+
+**The question**, raised by fuzzypickles' reserved COARSE flag: how does the
+same statement reach different recipients at different fidelities -- exact
+location to one peer, city-level to another?
+
+**Three shapes were possible and two are unavailable here.** Redacting a
+signed record in transit breaks the signature unless the body has a selective
+disclosure structure, which means this library would have to understand body
+structure -- and bodies are opaque by design. Layering encrypted detail inside
+one record means defining a body format, which is an encoding sec 2 keeps out.
+That leaves the third: **fidelity is a separate stream, and entitlement is an
+ordinary capability** answered by `chain/`. An issuer signs a coarse record and
+a precise one; a recipient follows what it may.
+
+**That shape needed one thing this library did not have, and the gap was
+measured rather than assumed.** With a sequence per ISSUER, a recipient not
+entitled to some records develops holes it may never fill. Demonstrated before
+anything was built: admit sequence 1, then sequence 3, and the journal answers
+*"ahead of what is held"* and wants 2 -- **for ever, for a record nobody will
+ever send it.** Refusing the gap is correct; one sequence space per issuer is
+what is wrong.
+
+**So a position is per (issuer, stream)**, and `stream` is a new field on
+`fzn_record_t` carried through the journal, `sync` and `log`. Each stream
+numbers from 1 independently, so every recipient's view is contiguous *for
+it*.
+
+**`stream` is deliberately not `kind`,** though they will often hold the same
+value. Permissions need cross-kind ordering -- a grant and a revocation are
+different kinds and must be totally ordered against each other -- so a
+consumer puts them in one stream and its telemetry in another. Collapsing the
+two would make that unsayable, and it is the kind of thing that is only
+noticed once something depends on it.
+
+**What this does not do.** It does not degrade anything: producing a coarse
+record from a precise one is the consumer's arithmetic, as packing a fix is.
+And it does not decide who may follow which stream -- that is a capability,
+and `chain/` already answers it. What the library owes was a sequence space
+that partial entitlement can live in, and now there is one.
+
+The journal's test carries the case directly: two streams from one issuer
+advance independently, and each keeps its own gap.
+
 ## 5i. `location` needs no module, and that is the finding
 
 **Asked to absorb it, the honest answer is that there is nothing to

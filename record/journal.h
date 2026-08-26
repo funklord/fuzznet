@@ -6,8 +6,14 @@
  * can fail, be deferred, or need a reboot -- and a system that tracks only the
  * first cannot tell a sibling that is behind from one that is broken.
  *
- * ORDER COMES FROM SEQUENCES, NOT CLOCKS. Each issuer numbers its own records
- * from 1 upwards. Per issuer rather than globally because a global sequence
+ * A POSITION IS PER (ISSUER, STREAM), NOT PER ISSUER. One sequence space per
+ * issuer cannot serve recipients with different entitlements: a recipient not
+ * allowed to see some records develops holes it may never fill, and a journal
+ * that refuses gaps -- correctly -- then leaves it asking for ever for
+ * something nobody will send. See `record/record.h` on the `stream` field.
+ *
+ * ORDER COMES FROM SEQUENCES, NOT CLOCKS. Each issuer numbers each of its own
+ * streams from 1 upwards. Per issuer rather than globally because a global sequence
  * needs consensus and this design has none: two hosts that never speak must
  * still be able to issue. `issued_at` exists for display and policy and is
  * never consulted here, because clocks disagree and sequences do not.
@@ -69,6 +75,7 @@ typedef enum fzn_journal_err {
  * contiguous, so that it doubles as "everything up to here is present". */
 typedef struct fzn_journal_entry {
 	uint8_t issuer[FZN_PUBKEY_LEN];
+	uint32_t stream;
 	uint64_t received;
 	uint64_t applied;
 	int live;
@@ -89,7 +96,8 @@ fzn_journal_err_t fzn_journal_init(fzn_journal_t *journal, fzn_journal_entry_t *
  * The record itself is not stored and not verified here; a caller that admits
  * an unverified record has skipped a step this module cannot see. */
 fzn_journal_err_t fzn_journal_admit(fzn_journal_t *journal,
-                                     const uint8_t issuer[FZN_PUBKEY_LEN], uint64_t seq);
+                                     const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
+                                     uint64_t seq);
 
 /* Start following an issuer from `seq`, deliberately.
  *
@@ -107,7 +115,8 @@ fzn_journal_err_t fzn_journal_admit(fzn_journal_t *journal,
  * it will fetch anything, deliberately. Anchoring at zero twice is a
  * duplicate rather than a rewind. */
 fzn_journal_err_t fzn_journal_anchor(fzn_journal_t *journal,
-                                      const uint8_t issuer[FZN_PUBKEY_LEN], uint64_t seq);
+                                      const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
+                                      uint64_t seq);
 
 /* Record that everything up to `seq` from this issuer has been APPLIED.
  *
@@ -115,15 +124,17 @@ fzn_journal_err_t fzn_journal_anchor(fzn_journal_t *journal,
  * sibling that has received a rule and not yet applied it is in a different
  * state from one that has, and only the second is safe to depend on. */
 fzn_journal_err_t fzn_journal_confirm(fzn_journal_t *journal,
-                                      const uint8_t issuer[FZN_PUBKEY_LEN], uint64_t seq);
+                                      const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
+                                      uint64_t seq);
 
 /* The sequence this host wants next from `issuer`, which is what a
  * distribution layer asks for. Returns 1 for an issuer never seen. */
-uint64_t fzn_journal_next(const fzn_journal_t *journal, const uint8_t issuer[FZN_PUBKEY_LEN]);
+uint64_t fzn_journal_next(const fzn_journal_t *journal,
+                          const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream);
 
 /* How far behind applying is: received minus applied, zero when settled. */
 uint64_t fzn_journal_pending(const fzn_journal_t *journal,
-                             const uint8_t issuer[FZN_PUBKEY_LEN]);
+                             const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream);
 
 /* A short name for `fzn_journal_err_t`. Never NULL. */
 const char *fzn_journal_err_str(fzn_journal_err_t err);

@@ -8,6 +8,11 @@
  * would reject, its stated product property being greppable JSON. A body
  * here is opaque bytes, as everywhere else in `record/`.
  *
+ * A STREAM IS (ISSUER, STREAM) HERE TOO, so one issuer's telemetry and its
+ * configuration history age out independently rather than competing for the
+ * same slots -- and a recipient entitled to one and not the other keeps a
+ * contiguous position in what it may see. See `record/record.h`.
+ *
  * A LOG EVICTS. THE JOURNAL AND THE STATE DO NOT, and the difference is the
  * design, not an inconsistency:
  *
@@ -68,6 +73,7 @@ typedef enum fzn_log_err {
 
 typedef struct fzn_log_entry {
 	uint8_t issuer[FZN_PUBKEY_LEN];
+	uint32_t stream;
 	uint64_t seq;
 	uint64_t stamp; /* append order, so eviction needs no clock */
 	const uint8_t *body;
@@ -100,12 +106,12 @@ fzn_log_err_t fzn_log_append(fzn_log_t *log, const fzn_record_t *record);
  * still holds for that issuer, and `FZN_LOG_ERR_ABSENT` when it is above the
  * newest. The distinction is the whole reason a caller asks. */
 fzn_log_err_t fzn_log_get(const fzn_log_t *log, const uint8_t issuer[FZN_PUBKEY_LEN],
-                           uint64_t seq, const fzn_log_entry_t **out);
+                           uint32_t stream, uint64_t seq, const fzn_log_entry_t **out);
 
 /* What this log still holds for an issuer. Both are zero when it holds
  * nothing from it. */
-void fzn_log_range(const fzn_log_t *log, const uint8_t issuer[FZN_PUBKEY_LEN], uint64_t *first,
-                   uint64_t *last);
+void fzn_log_range(const fzn_log_t *log, const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
+                   uint64_t *first, uint64_t *last);
 
 /* Entries after `since`, oldest first, for answering a peer's request.
  *
@@ -113,7 +119,8 @@ void fzn_log_range(const fzn_log_t *log, const uint8_t issuer[FZN_PUBKEY_LEN], u
  * `fzn_journal_admit` advances by one and refuses a jump, so newest-first
  * would be refused entry by entry. */
 size_t fzn_log_read_since(const fzn_log_t *log, const uint8_t issuer[FZN_PUBKEY_LEN],
-                          uint64_t since, const fzn_log_entry_t **out, size_t out_cap);
+                          uint32_t stream, uint64_t since, const fzn_log_entry_t **out,
+                          size_t out_cap);
 
 /* How many entries retention has dropped over this log's life. Exposed
  * because a consumer that is losing entries faster than it serves them wants

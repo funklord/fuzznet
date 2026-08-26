@@ -144,11 +144,11 @@ int main(void)
 		memset(issuer, 0x77, sizeof(issuer));
 		if (fzn_journal_init(&journal, slots, 2) != FZN_JOURNAL_OK)
 			return 30;
-		if (fzn_journal_admit(&journal, issuer, 1) != FZN_JOURNAL_OK)
+		if (fzn_journal_admit(&journal, issuer, 0, 1) != FZN_JOURNAL_OK)
 			return 31;
-		if (fzn_journal_admit(&journal, issuer, 1) != FZN_JOURNAL_ERR_DUPLICATE)
+		if (fzn_journal_admit(&journal, issuer, 0, 1) != FZN_JOURNAL_ERR_DUPLICATE)
 			return 32;
-		if (fzn_journal_next(&journal, issuer) != 2)
+		if (fzn_journal_next(&journal, issuer, 0) != 2)
 			return 33;
 		{
 			fzn_sync_position_t theirs;
@@ -156,6 +156,7 @@ int main(void)
 			fzn_sync_plan_t plan;
 
 			memcpy(theirs.issuer, issuer, FZN_PUBKEY_LEN);
+			theirs.stream = 0;
 			theirs.received = 4;
 			if (fzn_sync_plan_fetch(&journal, &theirs, 1, 8, &want, 1, &plan) !=
 			    FZN_SYNC_OK)
@@ -237,9 +238,9 @@ int main(void)
 			if (fzn_log_append(&lg, &r) != FZN_LOG_OK)
 				return 61;
 		}
-		if (fzn_log_get(&lg, r.issuer, 1, &e) != FZN_LOG_ERR_GONE)
+		if (fzn_log_get(&lg, r.issuer, 0, 1, &e) != FZN_LOG_ERR_GONE)
 			return 62;
-		if (fzn_log_get(&lg, r.issuer, 9, &e) != FZN_LOG_ERR_ABSENT)
+		if (fzn_log_get(&lg, r.issuer, 0, 9, &e) != FZN_LOG_ERR_ABSENT)
 			return 63;
 		if (fzn_log_dropped(&lg) != 1)
 			return 64;

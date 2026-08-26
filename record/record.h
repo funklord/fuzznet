@@ -87,6 +87,28 @@ typedef enum fzn_record_err {
 typedef struct fzn_record {
 	uint8_t issuer[FZN_PUBKEY_LEN];
 	uint8_t subject[FZN_SUBJECT_LEN];
+	/* WHICH SEQUENCE THIS BELONGS TO. An issuer numbers each stream from 1
+	 * independently, so `seq` is unique within (issuer, stream) and not
+	 * within issuer.
+	 *
+	 * IT EXISTS BECAUSE OF PARTIAL ENTITLEMENT, and one sequence per issuer
+	 * cannot express it. If a recipient is not allowed to see some of an
+	 * issuer's records, its position develops holes it is not permitted to
+	 * fill -- and `fzn_journal_admit` refuses a gap, correctly, so that
+	 * recipient asks for ever for a record nobody will ever send it.
+	 * Measured before this field existed: admitting sequence 1 then 3
+	 * answers "ahead of what is held", and the journal wants 2 permanently.
+	 *
+	 * So fidelity is a STREAM. A coarse track and a precise one are two
+	 * streams, each contiguous for whoever is entitled to it, and
+	 * entitlement is an ordinary capability question answered by `chain/`.
+	 *
+	 * DELIBERATELY NOT `kind`, though the two are often the same value in
+	 * practice. Permissions need CROSS-KIND ORDERING -- a grant and a
+	 * revocation are different kinds and must be totally ordered against
+	 * each other -- so a consumer puts them in one stream and its telemetry
+	 * in another. Collapsing stream into kind would make that unsayable. */
+	uint32_t stream;
 	uint32_t kind;
 	uint64_t seq;
 	uint64_t issued_at;

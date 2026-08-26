@@ -15,12 +15,13 @@ static int usable(const fzn_log_t *log)
  * match, so a duplicate cannot make the answer depend on insertion order --
  * the argument `local/vocabulary.c` makes about rule tables. */
 static fzn_log_entry_t *find(const fzn_log_t *log, const uint8_t issuer[FZN_PUBKEY_LEN],
-                              uint64_t seq)
+                              uint32_t stream, uint64_t seq)
 {
 	fzn_log_entry_t *hit = NULL;
 
 	for (size_t i = 0; i < log->used; i++) {
 		if (log->entries[i].live && log->entries[i].seq == seq &&
+		    log->entries[i].stream == stream &&
 		    fzn_ct_memeq(log->entries[i].issuer, issuer, FZN_PUBKEY_LEN))
 			hit = &log->entries[i];
 	}
@@ -81,7 +82,7 @@ fzn_log_err_t fzn_log_append(fzn_log_t *log, const fzn_record_t *record)
 	if (record->seq == 0)
 		return FZN_LOG_ERR_MALFORMED;
 
-	if (find(log, record->issuer, record->seq))
+	if (find(log, record->issuer, record->stream, record->seq))
 		return FZN_LOG_ERR_DUPLICATE;
 
 	e = slot_for_append(log);
@@ -89,6 +90,7 @@ fzn_log_err_t fzn_log_append(fzn_log_t *log, const fzn_record_t *record)
 		return FZN_LOG_ERR_MALFORMED;
 
 	memcpy(e->issuer, record->issuer, FZN_PUBKEY_LEN);
+	e->stream = record->stream;
 	e->seq = record->seq;
 	e->kind = record->kind;
 	e->body = record->body;
@@ -99,8 +101,8 @@ fzn_log_err_t fzn_log_append(fzn_log_t *log, const fzn_record_t *record)
 	return FZN_LOG_OK;
 }
 
-void fzn_log_range(const fzn_log_t *log, const uint8_t issuer[FZN_PUBKEY_LEN], uint64_t *first,
-                   uint64_t *last)
+void fzn_log_range(const fzn_log_t *log, const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
+                   uint64_t *first, uint64_t *last)
 {
 	uint64_t lo = 0, hi = 0;
 
@@ -112,7 +114,7 @@ void fzn_log_range(const fzn_log_t *log, const uint8_t issuer[FZN_PUBKEY_LEN], u
 		return;
 
 	for (size_t i = 0; i < log->used; i++) {
-		if (!log->entries[i].live ||
+		if (!log->entries[i].live || log->entries[i].stream != stream ||
 		    !fzn_ct_memeq(log->entries[i].issuer, issuer, FZN_PUBKEY_LEN))
 			continue;
 		if (lo == 0 || log->entries[i].seq < lo)
@@ -128,7 +130,7 @@ void fzn_log_range(const fzn_log_t *log, const uint8_t issuer[FZN_PUBKEY_LEN], u
 }
 
 fzn_log_err_t fzn_log_get(const fzn_log_t *log, const uint8_t issuer[FZN_PUBKEY_LEN],
-                           uint64_t seq, const fzn_log_entry_t **out)
+                           uint32_t stream, uint64_t seq, const fzn_log_entry_t **out)
 {
 	const fzn_log_entry_t *e;
 	uint64_t first, last;
@@ -137,7 +139,7 @@ fzn_log_err_t fzn_log_get(const fzn_log_t *log, const uint8_t issuer[FZN_PUBKEY_
 		return FZN_LOG_ERR_MALFORMED;
 
 	*out = NULL;
-	e = find(log, issuer, seq);
+	e = find(log, issuer, stream, seq);
 	if (e) {
 		*out = e;
 		return FZN_LOG_OK;
@@ -147,7 +149,7 @@ fzn_log_err_t fzn_log_get(const fzn_log_t *log, const uint8_t issuer[FZN_PUBKEY_
 	 * reason a peer asks. Below where this log now starts, retention took
 	 * it and asking again will never help; above the newest, it has simply
 	 * not arrived. */
-	fzn_log_range(log, issuer, &first, &last);
+	fzn_log_range(log, issuer, stream, &first, &last);
 	if (first != 0 && seq < first)
 		return FZN_LOG_ERR_GONE;
 
@@ -155,7 +157,8 @@ fzn_log_err_t fzn_log_get(const fzn_log_t *log, const uint8_t issuer[FZN_PUBKEY_
 }
 
 size_t fzn_log_read_since(const fzn_log_t *log, const uint8_t issuer[FZN_PUBKEY_LEN],
-                          uint64_t since, const fzn_log_entry_t **out, size_t out_cap)
+                          uint32_t stream, uint64_t since, const fzn_log_entry_t **out,
+                          size_t out_cap)
 {
 	size_t n = 0;
 
@@ -172,7 +175,7 @@ size_t fzn_log_read_since(const fzn_log_t *log, const uint8_t issuer[FZN_PUBKEY_
 		for (size_t i = 0; i < log->used; i++) {
 			const fzn_log_entry_t *e = &log->entries[i];
 
-			if (!e->live || e->seq <= taken ||
+			if (!e->live || e->seq <= taken || e->stream != stream ||
 			    !fzn_ct_memeq(e->issuer, issuer, FZN_PUBKEY_LEN))
 				continue;
 			if (!best || e->seq < best->seq)

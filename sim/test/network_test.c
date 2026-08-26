@@ -968,7 +968,7 @@ static void sim_fetch_from(struct sim_net *net, struct sim_host *me, struct sim_
 				continue;
 			}
 
-			err = fzn_journal_admit(&me->journal, want[r].issuer, seq);
+			err = fzn_journal_admit(&me->journal, want[r].issuer, 0, seq);
 			if (err == FZN_JOURNAL_OK) {
 				hold(me, issuer, seq);
 				me->admitted++;
@@ -999,7 +999,7 @@ static void scenario_distribution(void)
 		for (uint8_t issuer = 0; issuer < DIST_HOSTS; issuer++) {
 			if (issuer == i)
 				continue;
-			fzn_journal_anchor(&net.hosts[i].journal, net.hosts[issuer].pubkey, 0);
+			fzn_journal_anchor(&net.hosts[i].journal, net.hosts[issuer].pubkey, 0, 0);
 		}
 	}
 
@@ -1008,7 +1008,7 @@ static void scenario_distribution(void)
 		struct sim_host *h = &net.hosts[i];
 
 		for (uint64_t seq = 1; seq <= DIST_RECORDS; seq++) {
-			if (fzn_journal_admit(&h->journal, h->pubkey, seq) != FZN_JOURNAL_OK)
+			if (fzn_journal_admit(&h->journal, h->pubkey, 0, seq) != FZN_JOURNAL_OK)
 				break;
 			hold(h, i, seq);
 			h->issued = seq;
@@ -1034,13 +1034,13 @@ static void scenario_distribution(void)
 
 			for (uint8_t issuer = 0; issuer < DIST_HOSTS; issuer++) {
 				uint64_t pending = fzn_journal_pending(&h->journal,
-				                                       net.hosts[issuer].pubkey);
+				                                       net.hosts[issuer].pubkey, 0);
 				uint64_t next;
 
 				if (pending == 0)
 					continue;
-				next = fzn_journal_next(&h->journal, net.hosts[issuer].pubkey);
-				if (fzn_journal_confirm(&h->journal, net.hosts[issuer].pubkey,
+				next = fzn_journal_next(&h->journal, net.hosts[issuer].pubkey, 0);
+				if (fzn_journal_confirm(&h->journal, net.hosts[issuer].pubkey, 0,
 				                        next - 1u) == FZN_JOURNAL_OK)
 					h->confirmed++;
 			}
@@ -1053,11 +1053,11 @@ static void scenario_distribution(void)
 
 		total_gaps += h->gaps_seen;
 		for (uint8_t issuer = 0; issuer < DIST_HOSTS; issuer++) {
-			if (fzn_journal_next(&h->journal, net.hosts[issuer].pubkey) !=
+			if (fzn_journal_next(&h->journal, net.hosts[issuer].pubkey, 0) !=
 			    DIST_RECORDS + 1u)
 				complete = 0;
 			total_pending += (unsigned)fzn_journal_pending(&h->journal,
-			                                               net.hosts[issuer].pubkey);
+			                                               net.hosts[issuer].pubkey, 0);
 			for (uint64_t seq = 1; seq <= DIST_RECORDS; seq++)
 				if (!holds(h, issuer, seq))
 					complete = 0;
@@ -1150,7 +1150,7 @@ static void state_fetch(struct sim_net *net, struct sim_host *me, struct sim_hos
 				net->dropped++;
 				continue;
 			}
-			if (fzn_journal_admit(&me->journal, want[r].issuer, seq) != FZN_JOURNAL_OK)
+			if (fzn_journal_admit(&me->journal, want[r].issuer, 0, seq) != FZN_JOURNAL_OK)
 				continue;
 
 			hold(me, issuer, seq);
@@ -1188,7 +1188,7 @@ static void scenario_state(void)
 		for (uint8_t w = 0; w < WRITERS; w++) {
 			if (w == i)
 				continue;
-			fzn_journal_anchor(&net.hosts[i].journal, net.hosts[w].pubkey, 0);
+			fzn_journal_anchor(&net.hosts[i].journal, net.hosts[w].pubkey, 0, 0);
 		}
 	}
 	for (uint8_t w = 0; w < WRITERS; w++) {
@@ -1197,7 +1197,7 @@ static void scenario_state(void)
 		for (uint64_t seq = 1; seq <= 2; seq++) {
 			fzn_record_t rec;
 
-			if (fzn_journal_admit(&h->journal, h->pubkey, seq) != FZN_JOURNAL_OK)
+			if (fzn_journal_admit(&h->journal, h->pubkey, 0, seq) != FZN_JOURNAL_OK)
 				break;
 			hold(h, w, seq);
 			sim_make_record(&rec, h, seq, subject_of(w, seq));

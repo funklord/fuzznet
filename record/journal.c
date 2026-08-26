@@ -11,12 +11,12 @@
  * a table with a duplicate in it should not give a different answer depending
  * on which copy is met first. */
 static fzn_journal_entry_t *find(const fzn_journal_t *journal,
-                                  const uint8_t issuer[FZN_PUBKEY_LEN])
+                                  const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream)
 {
 	fzn_journal_entry_t *hit = NULL;
 
 	for (size_t i = 0; i < journal->used; i++) {
-		if (journal->entries[i].live &&
+		if (journal->entries[i].live && journal->entries[i].stream == stream &&
 		    fzn_ct_memeq(journal->entries[i].issuer, issuer, FZN_PUBKEY_LEN))
 			hit = &journal->entries[i];
 	}
@@ -46,7 +46,8 @@ static int usable(const fzn_journal_t *journal, const uint8_t *issuer)
 }
 
 fzn_journal_err_t fzn_journal_admit(fzn_journal_t *journal,
-                                     const uint8_t issuer[FZN_PUBKEY_LEN], uint64_t seq)
+                                     const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
+                                     uint64_t seq)
 {
 	fzn_journal_entry_t *e;
 
@@ -55,7 +56,7 @@ fzn_journal_err_t fzn_journal_admit(fzn_journal_t *journal,
 	if (seq == 0)
 		return FZN_JOURNAL_ERR_MALFORMED;
 
-	e = find(journal, issuer);
+	e = find(journal, issuer, stream);
 	if (!e) {
 		/* An issuer never seen. Only sequence 1 starts a stream
 		 * implicitly; anything else is a join in progress and needs
@@ -71,6 +72,7 @@ fzn_journal_err_t fzn_journal_admit(fzn_journal_t *journal,
 
 		e = &journal->entries[journal->used++];
 		memcpy(e->issuer, issuer, FZN_PUBKEY_LEN);
+		e->stream = stream;
 		e->received = 1;
 		e->applied = 0;
 		e->live = 1;
@@ -87,19 +89,21 @@ fzn_journal_err_t fzn_journal_admit(fzn_journal_t *journal,
 }
 
 fzn_journal_err_t fzn_journal_anchor(fzn_journal_t *journal,
-                                      const uint8_t issuer[FZN_PUBKEY_LEN], uint64_t seq)
+                                      const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
+                                     uint64_t seq)
 {
 	fzn_journal_entry_t *e;
 
 	if (!usable(journal, issuer))
 		return FZN_JOURNAL_ERR_MALFORMED;
 
-	e = find(journal, issuer);
+	e = find(journal, issuer, stream);
 	if (!e) {
 		if (journal->used >= journal->capacity)
 			return FZN_JOURNAL_ERR_FULL;
 		e = &journal->entries[journal->used++];
 		memcpy(e->issuer, issuer, FZN_PUBKEY_LEN);
+		e->stream = stream;
 		e->live = 1;
 		e->applied = 0;
 		e->received = 0;
@@ -138,14 +142,15 @@ fzn_journal_err_t fzn_journal_anchor(fzn_journal_t *journal,
 }
 
 fzn_journal_err_t fzn_journal_confirm(fzn_journal_t *journal,
-                                      const uint8_t issuer[FZN_PUBKEY_LEN], uint64_t seq)
+                                      const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
+                                     uint64_t seq)
 {
 	fzn_journal_entry_t *e;
 
 	if (!usable(journal, issuer))
 		return FZN_JOURNAL_ERR_MALFORMED;
 
-	e = find(journal, issuer);
+	e = find(journal, issuer, stream);
 	if (!e)
 		return FZN_JOURNAL_ERR_UNKNOWN_ISSUER;
 	if (seq > e->received)
@@ -157,26 +162,27 @@ fzn_journal_err_t fzn_journal_confirm(fzn_journal_t *journal,
 	return FZN_JOURNAL_OK;
 }
 
-uint64_t fzn_journal_next(const fzn_journal_t *journal, const uint8_t issuer[FZN_PUBKEY_LEN])
+uint64_t fzn_journal_next(const fzn_journal_t *journal,
+                          const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream)
 {
 	const fzn_journal_entry_t *e;
 
 	if (!usable(journal, issuer))
 		return 1;
 
-	e = find(journal, issuer);
+	e = find(journal, issuer, stream);
 	return e ? e->received + 1u : 1u;
 }
 
 uint64_t fzn_journal_pending(const fzn_journal_t *journal,
-                             const uint8_t issuer[FZN_PUBKEY_LEN])
+                             const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream)
 {
 	const fzn_journal_entry_t *e;
 
 	if (!usable(journal, issuer))
 		return 0;
 
-	e = find(journal, issuer);
+	e = find(journal, issuer, stream);
 	return e ? e->received - e->applied : 0u;
 }
 
