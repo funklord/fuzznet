@@ -2021,6 +2021,17 @@ devices either way.
 holder's rather than a side effect of adopting a frame. Recommended, with the
 reasoning above, and they will put it up as its own decision.
 
+**And the holder's second remark bounds it: *"(within reason) Let's not
+over-engineer or go overboard with other cost."*** This recommendation is
+cheap on exactly that test -- **no new fuzznet code at all**, because
+`trust/`, `chain/` and `record/sync.h` already do it; the change is one of
+meaning in a consumer. What would be going overboard, and is explicitly not
+proposed: building cross-user capability-tree synchronisation, revocation
+gossip, or any mechanism for discovering a peer's grants. A receiver anchors
+a root and follows a revocation stream it already knows how to follow. If the
+answer ever needs more machinery than that, the right response is to keep the
+zero and write the sentence.
+
 ### Settled: commands pass through fuzznet's decision process
 
 **The holder, 2026-08-26:** *"When it comes to commands, we may need a way to
