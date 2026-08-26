@@ -189,7 +189,7 @@ static int receive_one(struct receiver *r, uint64_t now, const uint8_t *data, si
 	calls_before = signer.calls;
 
 	/* STEPS 2 and 3: freshness, then replay, in one call. */
-	fresh = fzn_replay_admit(&r->window, nonce, expires_at, FZN_FRAME_COMMAND, now);
+	fresh = fzn_replay_admit(&r->window, nonce, expires_at, FZN_EXPIRY_REQUIRED, now);
 	if (fresh != FZN_FRESH_OK) {
 		if (fresh == FZN_FRESH_ERR_REPLAY)
 			cov->replayed++;
@@ -216,7 +216,7 @@ static int receive_one(struct receiver *r, uint64_t now, const uint8_t *data, si
 	 * the property the window exists for and is checked here rather than
 	 * left to the freshness harness, because here it is the SECOND step of
 	 * a sequence rather than a call on its own. */
-	if (fzn_replay_admit(&r->window, nonce, expires_at, FZN_FRAME_COMMAND, now) !=
+	if (fzn_replay_admit(&r->window, nonce, expires_at, FZN_EXPIRY_REQUIRED, now) !=
 	    FZN_FRESH_ERR_REPLAY) {
 		printf("  ORDER: the same nonce was admitted twice in one exchange\n");
 		return 1;

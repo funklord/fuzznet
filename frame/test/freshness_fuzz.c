@@ -88,7 +88,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 	while (pos + 4 <= len) {
 		uint8_t nonce[FZN_NONCE_LEN];
 		uint64_t expires;
-		fzn_frame_kind_t kind;
+		fzn_expiry_rule_t kind;
 		fzn_fresh_err_t err;
 		const char *broke;
 
@@ -100,7 +100,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		 * expire and the window drain. */
 		now += (data[pos + 1] & 0x03u) * 10u;
 		expires = ((data[pos + 2] & 0x0fu) == 0) ? 0u : now + (data[pos + 2] * 3u);
-		kind = (data[pos + 3] & 1u) ? FZN_FRAME_COMMAND : FZN_FRAME_GRANT;
+		kind = (data[pos + 3] & 1u) ? FZN_EXPIRY_REQUIRED : FZN_EXPIRY_OPTIONAL;
 		pos += 4;
 
 		err = fzn_replay_admit(&w, nonce, expires, kind, now);

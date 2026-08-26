@@ -93,20 +93,40 @@ typedef enum fzn_fresh_err {
  * consumer's -- and whether a given message is a command is a fact about
  * its meaning. The consumer says which, per frame, and that is the whole of
  * the coupling. */
-typedef enum fzn_frame_kind {
+/* WHETHER AN EXPIRY IS REQUIRED OF THIS FRAME.
+ *
+ * A RECEIVER'S POLICY, NOT A FIELD. Nothing on the wire carries it: the
+ * caller decides, per frame, which rule applies -- because sec 4.3 puts that
+ * decision with the consumer, since only it knows which of its messages are
+ * commands.
+ *
+ * RENAMED 2026-08-26, from `fzn_frame_kind_t { FZN_FRAME_COMMAND,
+ * FZN_FRAME_GRANT }`, and the reason is a trap rather than taste. The wire
+ * has its OWN `fzn_kind` -- `nop | unit | chunk | ack` -- reported as
+ * `fzn_opened_t.kind`, and the two enums overlapped: 0 and 1 were valid in
+ * both. A consumer holding `opened.kind` and passing it here would have been
+ * silently misclassifying, with wire `unit` (1) reading as the old
+ * `FZN_FRAME_GRANT` (1) -- so a unit frame's expiry became optional, which
+ * inverts the rule this file exists to enforce. Nothing did it, and three
+ * consumers were about to arrive.
+ *
+ * The name says what it decides rather than what it is about, which is also
+ * why it can no longer be confused with a property of the frame. The values
+ * are unchanged in order and therefore in number. */
+typedef enum fzn_expiry_rule {
 	/* Expiry mandatory. Absent or passed, the frame is refused. */
-	FZN_FRAME_COMMAND,
+	FZN_EXPIRY_REQUIRED,
 	/* Expiry optional and by default absent. An absent expiry is not a
 	 * refusal, and a grant is ended by revocation instead (chain.h). */
-	FZN_FRAME_GRANT,
-} fzn_frame_kind_t;
+	FZN_EXPIRY_OPTIONAL,
+} fzn_expiry_rule_t;
 
 /* Is this frame fresh enough to act on? `now` is the caller's clock --
  * nothing here reads one, for the reason chain.h gives at more length.
  *
  * `expires_at` of 0 means "no expiry stated", which is a refusal for a
  * command and the default for a grant. */
-fzn_fresh_err_t fzn_freshness_check(uint64_t expires_at, fzn_frame_kind_t kind, uint64_t now);
+fzn_fresh_err_t fzn_freshness_check(uint64_t expires_at, fzn_expiry_rule_t kind, uint64_t now);
 
 /* One remembered nonce and the moment it stops mattering. */
 typedef struct fzn_replay_entry {
@@ -156,7 +176,7 @@ fzn_fresh_err_t fzn_replay_init(fzn_replay_window_t *window, fzn_replay_entry_t 
  * sizing rule at the top of this file. */
 fzn_fresh_err_t fzn_replay_admit(fzn_replay_window_t *window,
                                   const uint8_t nonce[FZN_NONCE_LEN], uint64_t expires_at,
-                                  fzn_frame_kind_t kind, uint64_t now);
+                                  fzn_expiry_rule_t kind, uint64_t now);
 
 /* Drop entries whose expiry has passed, and report how many went.
  *

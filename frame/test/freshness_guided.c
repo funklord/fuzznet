@@ -69,7 +69,7 @@ static int drive(const uint8_t *data, size_t size)
 		uint8_t op = take8(&c);
 		uint8_t id;
 		uint64_t expires;
-		fzn_frame_kind_t kind;
+		fzn_expiry_rule_t kind;
 		fzn_fresh_err_t err;
 
 		if ((op & 7u) == 0u) {
@@ -84,7 +84,7 @@ static int drive(const uint8_t *data, size_t size)
 		expires = take8(&c);
 		if (expires != 0u)
 			expires += now;
-		kind = (op & 8u) ? FZN_FRAME_GRANT : FZN_FRAME_COMMAND;
+		kind = (op & 8u) ? FZN_EXPIRY_OPTIONAL : FZN_EXPIRY_REQUIRED;
 
 		memset(nonce, id, sizeof(nonce));
 		err = fzn_replay_admit(&window, nonce, expires, kind, now);
@@ -95,7 +95,7 @@ static int drive(const uint8_t *data, size_t size)
 		}
 
 		/* sec 4.3: a command with no expiry must never be admitted. */
-		if (kind == FZN_FRAME_COMMAND && expires == FZN_NO_EXPIRY)
+		if (kind == FZN_EXPIRY_REQUIRED && expires == FZN_NO_EXPIRY)
 			return 1;
 		/* nor one whose expiry has passed. */
 		if (expires != FZN_NO_EXPIRY && expires <= now)

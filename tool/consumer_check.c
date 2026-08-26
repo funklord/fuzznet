@@ -320,9 +320,9 @@ int main(void)
 
 	if (fzn_replay_init(&window, window_storage, 4) != FZN_FRESH_OK)
 		return 3;
-	if (fzn_replay_admit(&window, nonce, 2000, FZN_FRAME_COMMAND, 1000) != FZN_FRESH_OK)
+	if (fzn_replay_admit(&window, nonce, 2000, FZN_EXPIRY_REQUIRED, 1000) != FZN_FRESH_OK)
 		return 4;
-	if (fzn_replay_admit(&window, nonce, 2000, FZN_FRAME_COMMAND, 1000) !=
+	if (fzn_replay_admit(&window, nonce, 2000, FZN_EXPIRY_REQUIRED, 1000) !=
 	    FZN_FRESH_ERR_REPLAY)
 		return 5;
 

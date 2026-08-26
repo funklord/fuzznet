@@ -25,9 +25,9 @@ static int nonce_eq(const uint8_t *a, const uint8_t *b)
 	return memcmp(a, b, FZN_NONCE_LEN) == 0;
 }
 
-fzn_fresh_err_t fzn_freshness_check(uint64_t expires_at, fzn_frame_kind_t kind, uint64_t now)
+fzn_fresh_err_t fzn_freshness_check(uint64_t expires_at, fzn_expiry_rule_t kind, uint64_t now)
 {
-	if (kind == FZN_FRAME_GRANT) {
+	if (kind == FZN_EXPIRY_OPTIONAL) {
 		/* sec 4.3: a grant's expiry is optional and absent by default,
 		 * and authority is ended by revocation rather than by a clock.
 		 * A grant that DOES state one is still held to it -- see sec 14,
@@ -99,7 +99,7 @@ size_t fzn_replay_expire(fzn_replay_window_t *window, uint64_t now)
 
 fzn_fresh_err_t fzn_replay_admit(fzn_replay_window_t *window,
                                   const uint8_t nonce[FZN_NONCE_LEN], uint64_t expires_at,
-                                  fzn_frame_kind_t kind, uint64_t now)
+                                  fzn_expiry_rule_t kind, uint64_t now)
 {
 	fzn_fresh_err_t err;
 

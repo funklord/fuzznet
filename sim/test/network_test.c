@@ -487,7 +487,7 @@ static void sim_receive(struct sim_net *net, struct sim_datagram *d)
 	}
 
 	/* STEPS 2 and 3: freshness then replay, in one call. */
-	fresh = fzn_replay_admit(&h->window, opened.nonce, opened.expires_at, FZN_FRAME_COMMAND,
+	fresh = fzn_replay_admit(&h->window, opened.nonce, opened.expires_at, FZN_EXPIRY_REQUIRED,
 	                         net->now);
 	if (fresh != FZN_FRESH_OK) {
 		h->refused_replay++;

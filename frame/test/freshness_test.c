@@ -51,30 +51,30 @@ static void nonce_of(uint8_t out[FZN_NONCE_LEN], uint8_t seed)
 
 static void test_command_expiry_is_mandatory(void)
 {
-	CHECK(fzn_freshness_check(2000, FZN_FRAME_COMMAND, 1000) == FZN_FRESH_OK,
+	CHECK(fzn_freshness_check(2000, FZN_EXPIRY_REQUIRED, 1000) == FZN_FRESH_OK,
 	      "a live command was refused");
-	CHECK(fzn_freshness_check(1000, FZN_FRAME_COMMAND, 2000) == FZN_FRESH_ERR_EXPIRED,
+	CHECK(fzn_freshness_check(1000, FZN_EXPIRY_REQUIRED, 2000) == FZN_FRESH_ERR_EXPIRED,
 	      "an expired command was accepted");
 
 	/* The half an implementation forgets. Refusing a passed expiry while
 	 * accepting an absent one exempts anybody who omits the field. */
-	CHECK(fzn_freshness_check(0, FZN_FRAME_COMMAND, 1000) == FZN_FRESH_ERR_NO_EXPIRY,
+	CHECK(fzn_freshness_check(0, FZN_EXPIRY_REQUIRED, 1000) == FZN_FRESH_ERR_NO_EXPIRY,
 	      "a command carrying no expiry at all was accepted");
 
 	/* Exactly at the boundary is expired: sec 4.3 wants a receiver to
 	 * refuse one that HAS PASSED, and a command whose last valid instant
 	 * is now has no valid instant left. */
-	CHECK(fzn_freshness_check(1000, FZN_FRAME_COMMAND, 1000) == FZN_FRESH_ERR_EXPIRED,
+	CHECK(fzn_freshness_check(1000, FZN_EXPIRY_REQUIRED, 1000) == FZN_FRESH_ERR_EXPIRED,
 	      "a command expiring exactly now was accepted");
 }
 
 static void test_grants_do_not_expire_by_default(void)
 {
-	CHECK(fzn_freshness_check(0, FZN_FRAME_GRANT, 999999) == FZN_FRESH_OK,
+	CHECK(fzn_freshness_check(0, FZN_EXPIRY_OPTIONAL, 999999) == FZN_FRESH_OK,
 	      "a grant with no expiry was refused -- authority ended by a clock");
-	CHECK(fzn_freshness_check(2000, FZN_FRAME_GRANT, 1000) == FZN_FRESH_OK,
+	CHECK(fzn_freshness_check(2000, FZN_EXPIRY_OPTIONAL, 1000) == FZN_FRESH_OK,
 	      "a live time-boxed grant was refused");
-	CHECK(fzn_freshness_check(1000, FZN_FRAME_GRANT, 2000) == FZN_FRESH_ERR_EXPIRED,
+	CHECK(fzn_freshness_check(1000, FZN_EXPIRY_OPTIONAL, 2000) == FZN_FRESH_ERR_EXPIRED,
 	      "a grant that states an expiry was not held to it");
 }
 
@@ -90,11 +90,11 @@ static void test_replay_is_refused(void)
 	nonce_of(b, 0xb2);
 	CHECK(fzn_replay_init(&w, storage, 4) == FZN_FRESH_OK, "init failed");
 
-	CHECK(fzn_replay_admit(&w, a, 2000, FZN_FRAME_COMMAND, 1000) == FZN_FRESH_OK,
+	CHECK(fzn_replay_admit(&w, a, 2000, FZN_EXPIRY_REQUIRED, 1000) == FZN_FRESH_OK,
 	      "a fresh nonce was refused");
-	CHECK(fzn_replay_admit(&w, a, 2000, FZN_FRAME_COMMAND, 1000) == FZN_FRESH_ERR_REPLAY,
+	CHECK(fzn_replay_admit(&w, a, 2000, FZN_EXPIRY_REQUIRED, 1000) == FZN_FRESH_ERR_REPLAY,
 	      "the same nonce was accepted twice");
-	CHECK(fzn_replay_admit(&w, b, 2000, FZN_FRAME_COMMAND, 1000) == FZN_FRESH_OK,
+	CHECK(fzn_replay_admit(&w, b, 2000, FZN_EXPIRY_REQUIRED, 1000) == FZN_FRESH_OK,
 	      "a different nonce was refused");
 	CHECK(w.used == 2, "used %zu, wanted 2", w.used);
 }
@@ -109,7 +109,7 @@ static void test_expiry_bounds_the_memory(void)
 	 * own expiry passes, and after that the slot comes back. */
 	nonce_of(a, 0xa1);
 	fzn_replay_init(&w, storage, 4);
-	fzn_replay_admit(&w, a, 2000, FZN_FRAME_COMMAND, 1000);
+	fzn_replay_admit(&w, a, 2000, FZN_EXPIRY_REQUIRED, 1000);
 	CHECK(w.used == 1, "nonce was not recorded");
 
 	CHECK(fzn_replay_expire(&w, 2500) == 1, "an expired entry was not reclaimed");
@@ -117,7 +117,7 @@ static void test_expiry_bounds_the_memory(void)
 
 	/* And replaying it now fails on freshness rather than on memory --
 	 * which is why forgetting it was safe. */
-	CHECK(fzn_replay_admit(&w, a, 2000, FZN_FRAME_COMMAND, 2500) == FZN_FRESH_ERR_EXPIRED,
+	CHECK(fzn_replay_admit(&w, a, 2000, FZN_EXPIRY_REQUIRED, 2500) == FZN_FRESH_ERR_EXPIRED,
 	      "a forgotten but expired nonce was accepted");
 }
 
@@ -132,9 +132,9 @@ static void test_a_full_window_refuses_rather_than_evicting(void)
 	nonce_of(c, 0xc3);
 	fzn_replay_init(&w, storage, 2);
 
-	CHECK(fzn_replay_admit(&w, a, 9000, FZN_FRAME_COMMAND, 1000) == FZN_FRESH_OK, "first");
-	CHECK(fzn_replay_admit(&w, b, 9000, FZN_FRAME_COMMAND, 1000) == FZN_FRESH_OK, "second");
-	CHECK(fzn_replay_admit(&w, c, 9000, FZN_FRAME_COMMAND, 1000) ==
+	CHECK(fzn_replay_admit(&w, a, 9000, FZN_EXPIRY_REQUIRED, 1000) == FZN_FRESH_OK, "first");
+	CHECK(fzn_replay_admit(&w, b, 9000, FZN_EXPIRY_REQUIRED, 1000) == FZN_FRESH_OK, "second");
+	CHECK(fzn_replay_admit(&w, c, 9000, FZN_EXPIRY_REQUIRED, 1000) ==
 	              FZN_FRESH_ERR_WINDOW_FULL,
 	      "a full window admitted a third live entry");
 
@@ -142,7 +142,7 @@ static void test_a_full_window_refuses_rather_than_evicting(void)
 	 * so it cannot be replayed. An evicting window would have dropped `a`
 	 * to make room, and `a` would be accepted again here -- which is the
 	 * attack, since the attacker chose the traffic that filled it. */
-	CHECK(fzn_replay_admit(&w, a, 9000, FZN_FRAME_COMMAND, 1000) == FZN_FRESH_ERR_REPLAY,
+	CHECK(fzn_replay_admit(&w, a, 9000, FZN_EXPIRY_REQUIRED, 1000) == FZN_FRESH_ERR_REPLAY,
 	      "the oldest entry was evicted, reopening it to replay");
 }
 
@@ -158,11 +158,11 @@ static void test_a_refused_frame_costs_no_slot(void)
 	nonce_of(a, 0xa1);
 	fzn_replay_init(&w, storage, 2);
 
-	CHECK(fzn_replay_admit(&w, a, 500, FZN_FRAME_COMMAND, 1000) == FZN_FRESH_ERR_EXPIRED,
+	CHECK(fzn_replay_admit(&w, a, 500, FZN_EXPIRY_REQUIRED, 1000) == FZN_FRESH_ERR_EXPIRED,
 	      "an expired frame was admitted");
 	CHECK(w.used == 0, "an expired frame occupied a slot");
 
-	CHECK(fzn_replay_admit(&w, a, 0, FZN_FRAME_COMMAND, 1000) == FZN_FRESH_ERR_NO_EXPIRY,
+	CHECK(fzn_replay_admit(&w, a, 0, FZN_EXPIRY_REQUIRED, 1000) == FZN_FRESH_ERR_NO_EXPIRY,
 	      "a command with no expiry was admitted");
 	CHECK(w.used == 0, "a refused frame occupied a slot");
 }
@@ -192,14 +192,14 @@ static void test_the_sweep_runs_on_calls_that_return_early(void)
 
 	/* Two entries that will be dead by t=3000. */
 	fzn_replay_init(&w, storage, 4);
-	CHECK(fzn_replay_admit(&w, a, 2000, FZN_FRAME_COMMAND, 1000) == FZN_FRESH_OK,
+	CHECK(fzn_replay_admit(&w, a, 2000, FZN_EXPIRY_REQUIRED, 1000) == FZN_FRESH_OK,
 	      "the first entry was refused");
-	CHECK(fzn_replay_admit(&w, b, 2000, FZN_FRAME_COMMAND, 1000) == FZN_FRESH_OK,
+	CHECK(fzn_replay_admit(&w, b, 2000, FZN_EXPIRY_REQUIRED, 1000) == FZN_FRESH_OK,
 	      "the second entry was refused");
 	CHECK(w.used == 2, "the window did not record both");
 
 	/* A GRANT, which returns before recording anything. */
-	CHECK(fzn_replay_admit(&w, a, 0, FZN_FRAME_GRANT, 3000) == FZN_FRESH_OK,
+	CHECK(fzn_replay_admit(&w, a, 0, FZN_EXPIRY_OPTIONAL, 3000) == FZN_FRESH_OK,
 	      "an unexpiring grant was refused");
 	CHECK(w.used == 0,
 	      "a grant returned early without sweeping, so traffic made entirely of "
@@ -207,10 +207,10 @@ static void test_the_sweep_runs_on_calls_that_return_early(void)
 
 	/* And the other early return: a stale command. */
 	fzn_replay_init(&w, storage, 4);
-	CHECK(fzn_replay_admit(&w, a, 2000, FZN_FRAME_COMMAND, 1000) == FZN_FRESH_OK,
+	CHECK(fzn_replay_admit(&w, a, 2000, FZN_EXPIRY_REQUIRED, 1000) == FZN_FRESH_OK,
 	      "the setup entry was refused");
 	CHECK(w.used == 1, "the window did not record it");
-	CHECK(fzn_replay_admit(&w, b, 2500, FZN_FRAME_COMMAND, 3000) == FZN_FRESH_ERR_EXPIRED,
+	CHECK(fzn_replay_admit(&w, b, 2500, FZN_EXPIRY_REQUIRED, 3000) == FZN_FRESH_ERR_EXPIRED,
 	      "a stale command was admitted");
 	CHECK(w.used == 0,
 	      "a stale command returned early without sweeping, so traffic made "
@@ -229,10 +229,10 @@ static void test_grants_are_not_recorded(void)
 	nonce_of(a, 0xa1);
 	fzn_replay_init(&w, storage, 2);
 
-	CHECK(fzn_replay_admit(&w, a, 0, FZN_FRAME_GRANT, 1000) == FZN_FRESH_OK,
+	CHECK(fzn_replay_admit(&w, a, 0, FZN_EXPIRY_OPTIONAL, 1000) == FZN_FRESH_OK,
 	      "an unexpiring grant was refused");
 	CHECK(w.used == 0, "an unexpiring grant occupied a slot forever");
-	CHECK(fzn_replay_admit(&w, a, 0, FZN_FRAME_GRANT, 1000) == FZN_FRESH_OK,
+	CHECK(fzn_replay_admit(&w, a, 0, FZN_EXPIRY_OPTIONAL, 1000) == FZN_FRESH_OK,
 	      "re-presenting a grant was treated as a replay");
 }
 
@@ -250,7 +250,7 @@ static void test_bad_arguments(void)
 	      "null window accepted");
 
 	fzn_replay_init(&w, storage, 2);
-	CHECK(fzn_replay_admit(&w, NULL, 2000, FZN_FRAME_COMMAND, 1000) ==
+	CHECK(fzn_replay_admit(&w, NULL, 2000, FZN_EXPIRY_REQUIRED, 1000) ==
 	              FZN_FRESH_ERR_MALFORMED,
 	      "a null nonce was admitted");
 	CHECK(fzn_replay_expire(NULL, 1000) == 0, "expire on a null window did not return 0");
@@ -267,9 +267,9 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 
 	nonce_of(a, 0x5e);
 	fzn_replay_init(&w, storage, 2);
-	CHECK(fzn_replay_admit(&w, a, 2000, FZN_FRAME_COMMAND, 1000) == FZN_FRESH_OK,
+	CHECK(fzn_replay_admit(&w, a, 2000, FZN_EXPIRY_REQUIRED, 1000) == FZN_FRESH_OK,
 	      "the positive control fails, so every refusal above proves nothing");
-	CHECK(fzn_freshness_check(2000, FZN_FRAME_COMMAND, 1000) == FZN_FRESH_OK,
+	CHECK(fzn_freshness_check(2000, FZN_EXPIRY_REQUIRED, 1000) == FZN_FRESH_OK,
 	      "the freshness positive control fails");
 }
 
@@ -293,14 +293,14 @@ static void test_a_window_whose_fields_disagree_is_refused(void)
 
 	memset(nonce, 0x11, sizeof(nonce));
 	CHECK(fzn_replay_init(&w, storage, 4) == FZN_FRESH_OK, "init refused");
-	CHECK(fzn_replay_admit(&w, nonce, 2000, FZN_FRAME_COMMAND, 1000) == FZN_FRESH_OK,
+	CHECK(fzn_replay_admit(&w, nonce, 2000, FZN_EXPIRY_REQUIRED, 1000) == FZN_FRESH_OK,
 	      "the setup nonce was refused");
 
 	w.used = 5; /* one past the storage it was given */
 	CHECK(fzn_replay_expire(&w, 1000) == 0,
 	      "the sweep compacted a window whose count is past its capacity");
 	CHECK(w.used == 5, "the sweep rewrote `used` on a window it should not have touched");
-	CHECK(fzn_replay_admit(&w, nonce, 2000, FZN_FRAME_COMMAND, 1000) ==
+	CHECK(fzn_replay_admit(&w, nonce, 2000, FZN_EXPIRY_REQUIRED, 1000) ==
 	              FZN_FRESH_ERR_MALFORMED,
 	      "a corrupt window was scanned and appended to");
 
@@ -317,13 +317,13 @@ static void test_a_window_whose_fields_disagree_is_refused(void)
 	CHECK(fzn_replay_init(&w, storage, 4) == FZN_FRESH_OK, "re-init refused");
 	for (uint8_t i = 0; i < 4; i++) {
 		memset(nonce, (int)(0x30u + i), sizeof(nonce));
-		CHECK(fzn_replay_admit(&w, nonce, 5000, FZN_FRAME_COMMAND, 1000) ==
+		CHECK(fzn_replay_admit(&w, nonce, 5000, FZN_EXPIRY_REQUIRED, 1000) ==
 		              FZN_FRESH_OK,
 		      "filling the window was refused at entry %u", i);
 	}
 	CHECK(w.used == 4, "the window holds %zu after four admissions", w.used);
 	memset(nonce, 0x3f, sizeof(nonce));
-	CHECK(fzn_replay_admit(&w, nonce, 5000, FZN_FRAME_COMMAND, 1000) ==
+	CHECK(fzn_replay_admit(&w, nonce, 5000, FZN_EXPIRY_REQUIRED, 1000) ==
 	              FZN_FRESH_ERR_WINDOW_FULL,
 	      "a legitimately full window was reported malformed");
 }
@@ -344,13 +344,13 @@ static void test_every_guard_refuses_its_own_argument(void)
 	CHECK(fzn_replay_expire(NULL, 100) == 0, "a null window was swept");
 	CHECK(fzn_replay_expire(&no_entries, 100) == 0, "a window with no entries was swept");
 
-	CHECK(fzn_replay_admit(NULL, nonce, 200, FZN_FRAME_COMMAND, 100) ==
+	CHECK(fzn_replay_admit(NULL, nonce, 200, FZN_EXPIRY_REQUIRED, 100) ==
 	              FZN_FRESH_ERR_MALFORMED,
 	      "a null window was admitted to");
-	CHECK(fzn_replay_admit(&no_entries, nonce, 200, FZN_FRAME_COMMAND, 100) ==
+	CHECK(fzn_replay_admit(&no_entries, nonce, 200, FZN_EXPIRY_REQUIRED, 100) ==
 	              FZN_FRESH_ERR_MALFORMED,
 	      "a window with no entries was admitted to");
-	CHECK(fzn_replay_admit(&w, NULL, 200, FZN_FRAME_COMMAND, 100) ==
+	CHECK(fzn_replay_admit(&w, NULL, 200, FZN_EXPIRY_REQUIRED, 100) ==
 	              FZN_FRESH_ERR_MALFORMED,
 	      "a null nonce was admitted");
 
