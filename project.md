@@ -1832,6 +1832,50 @@ Anchoring at zero now means follow-from-the-beginning, anchoring twice is an
 echo rather than a rewind, and the journal's own tests cover it -- but the
 harness is what asked the question.
 
+## 5d. `trust/` -- where a pinned root comes from
+
+**Added 2026-08-26 at the holder's instruction: "we also need TOFU as
+fuzzypickles needs it."** This reverses §4.2's "pinned rather than adopted",
+which `chain/chain.h` also stated as non-negotiable, and the reversal is
+recorded rather than quietly applied.
+
+**The argument that made the old decision right is kept, not discarded.**
+`chain.h` said "there is no nullable-root variant on purpose -- one function
+with an optional pin is a function somebody calls without the pin". That is
+still true, so TOFU did **not** arrive as an optional parameter.
+`fzn_chain_verify` is untouched: it still takes a root and still refuses a
+chain rooted anywhere else. `trust/` is only about how a host came to *have*
+that root, and `fzn_trust_root` returns **NULL** when there is none -- which
+`fzn_chain_verify` refuses -- so an unanchored host fails closed rather than
+verifying against a key of zeroes an attacker can also produce.
+
+**Why it had to come in.** Refusing to have a bootstrap path did not remove
+the path; it moved it into the consumer, to be written three times. §5's
+absorption makes host management fuzznet's, and joining is where host
+management starts.
+
+**What TOFU is honestly worth, stated in the header rather than implied.**
+Nothing authenticates the key adopted at first contact: whoever answers first
+is trusted, and an attacker in position at that moment is trusted for ever.
+What it buys is that every *later* contact is authenticated. That is real and
+narrow, so a consumer using it **owes its user an out-of-band check** -- and
+`trust/` records the moment of adoption and whether the anchor was adopted or
+configured, precisely so a consumer can show it. A library cannot make first
+contact safe; it can refuse to hide when it happened.
+
+**The security content is entirely in the second key.** Once anchored, a
+different root is refused: re-anchoring would make it trust on *every* use,
+which is no trust at all, and the failure would be silent -- a host quietly
+following whoever spoke to it most recently. The comparison is constant-time,
+because it is against a value an attacker chooses and repeats. Pinning over an
+adopted anchor is refused too, and adopting over a configured one: a caller
+that must start again wants a new `fzn_trust_t`, on the reasoning
+`record/journal.h` gives for never rewinding.
+
+26 checks at 100% of lines and branches, including a second root differing in
+a single byte, and the installed-header check adopts once and is refused a
+second time.
+
 ## 5c. `state/` -- permissions, rules and config are one thing
 
 **A permission, a rule and a configuration setting are the same object at

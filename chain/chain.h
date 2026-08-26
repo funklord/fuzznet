@@ -26,6 +26,16 @@
  *     refused. There is no nullable-root variant on purpose -- one
  *     function with an optional pin is a function somebody calls without
  *     the pin.
+ *
+ *     STILL TRUE AFTER `trust/` (2026-08-26). TOFU was added at the
+ *     copyright holder's instruction, because fuzzypickles needs it and
+ *     this library is absorbing host management -- but it went into
+ *     `trust/trust.h` rather than here, and this function is unchanged.
+ *     `fzn_trust_root` hands over a root or NULL, and NULL is refused
+ *     below, so an unanchored host cannot verify against nothing. What is
+ *     adopted is the anchor; what is verified against is still a pinned
+ *     root. The argument above is why TOFU did not arrive as an optional
+ *     parameter.
  *   - CAPABILITIES ARE OPAQUE. sec 4.2: fuzzypickles has six types and
  *     netcfgd has three which are INDEPENDENT RATHER THAN A LADDER, so a
  *     library that assumed a total order would be wrong for netcfgd on its

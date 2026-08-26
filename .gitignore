@@ -41,6 +41,7 @@
 /record/test/record_test
 /record/test/sync_test
 /state/test/state_test
+/trust/test/trust_test
 /guided/
 /constant_time/test/secret_flow_valgrind
 

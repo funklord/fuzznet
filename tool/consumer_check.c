@@ -41,6 +41,7 @@
 #include <fuzznet/record/record.h>
 #include <fuzznet/record/sync.h>
 #include <fuzznet/state/state.h>
+#include <fuzznet/trust/trust.h>
 #include <fuzznet/session/random_system.h>
 #include <fuzznet/version/version.h>
 #include <fuzznet/wire/seal.h>
@@ -60,6 +61,7 @@
 #include "record/record.h"
 #include "record/sync.h"
 #include "state/state.h"
+#include "trust/trust.h"
 #include "session/random_system.h"
 #include "version/version.h"
 #include "wire/seal.h"
@@ -186,6 +188,25 @@ int main(void)
 			return 44;
 		if (fzn_state_count(&st) != 1)
 			return 45;
+	}
+
+	/* Trust on first use, through installed headers: adopted once, and a
+	 * second different root refused. */
+	{
+		fzn_trust_t anchor;
+		uint8_t k1[FZN_PUBKEY_LEN], k2[FZN_PUBKEY_LEN];
+
+		memset(k1, 0x31, sizeof(k1));
+		memset(k2, 0x32, sizeof(k2));
+		fzn_trust_init(&anchor);
+		if (fzn_trust_root(&anchor) != NULL)
+			return 50;
+		if (fzn_trust_adopt(&anchor, k1, 7) != FZN_TRUST_OK)
+			return 51;
+		if (fzn_trust_adopt(&anchor, k2, 8) != FZN_TRUST_ERR_ANCHORED)
+			return 52;
+		if (memcmp(fzn_trust_root(&anchor), k1, FZN_PUBKEY_LEN) != 0)
+			return 53;
 	}
 
 	if (fzn_version_number() != (unsigned long)FZN_VERSION_NUMBER)
