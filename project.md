@@ -1832,6 +1832,34 @@ Anchoring at zero now means follow-from-the-beginning, anchoring twice is an
 echo rather than a rewind, and the journal's own tests cover it -- but the
 harness is what asked the question.
 
+## 5l. `wire/seal.c`'s uncovered branches, accounted for one by one
+
+**76% of branches taken both ways is the lowest in the tree, and the number
+was never the question.** An unreachable guard and an untested one look
+identical from a percentage, so the useful output is which each of them is.
+Every remaining branch was traced; **none is a testing gap.**
+
+| what | why it cannot fire |
+|---|---|
+| `tag_covered != SITU_OK`, `!tag` (open and close paths) | every path here has passed `situ_fzn_frame_validate`, whose last act is `situ_in_bounds(view, tag_offset, 16u)`. The tag is known to be inside the frame, which is exactly what these test. |
+| `covered_len < head_len` | the contract states the covered span as "authenticated head ... sealed ...", so it contains the head by construction. |
+| the three views in `fzn_seal_build` | the frame was sized by the line above: `total` is the overhead plus a payload already bounded against the schema's maximum, and `frame_cap` was checked against it. A view over exactly `total` bytes cannot fail for room. |
+| branches at the accessor call sites | inlined `situ_*` internals, not this file's logic at all. |
+
+**They stay, and the reason is not superstition.** Each is the boundary
+between this file's reasoning and the generated code's, and what they refuse
+to assume is that `validate` and `tag_covered` **agree**. That is a claim
+about situ rather than about a frame -- and situ has moved eleven times in
+this project's life, twice in a week. The day it stops holding, this file
+returns `SHAPE` rather than computing an AEAD span from numbers that
+disagree.
+
+**So the ceiling is the guards, not the tests**, and that is now written at
+each of them so the next person hunting the last few branches does not spend
+an afternoon building a fixture that cannot exist. If the percentage is ever
+to rise, it rises by someone deciding to trust the generated code more, which
+is a decision rather than a test.
+
 ## 5k. Normalisation of the central types
 
 **A survey of every public enum, identity-shaped field and length constant,

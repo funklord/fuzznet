@@ -55,6 +55,31 @@ fzn_seal_err_t fzn_seal_open(uint8_t *frame, size_t frame_len,
 	if (!fzn_ct_memeq(situ_fzn_head_commitment_ptr(hv), commitment, FZN_COMMITMENT_LEN))
 		return FZN_SEAL_ERR_COMMITMENT;
 
+	/* THE THREE GUARDS BELOW CANNOT FIRE FOR A FRAME THAT REACHED HERE, and
+	 * that is established rather than assumed -- `make coverage` reports
+	 * them as never taken, and an unreachable guard and an untested one
+	 * look identical from a percentage.
+	 *
+	 * Every path into this point has passed `situ_fzn_frame_validate`,
+	 * whose last act is `situ_in_bounds(view, situ_fzn_frame_tag_offset(
+	 * view), 16u)`. So the tag is known to lie inside the frame, which is
+	 * exactly the precondition `tag_covered` and `tag_ptr` test for. And
+	 * the contract states the covered span as "authenticated head ...
+	 * sealed ...", so it contains the head by construction and cannot be
+	 * shorter than it.
+	 *
+	 * They stay anyway, and the reason is not superstition: they are the
+	 * boundary between this file's reasoning and the generated code's, and
+	 * what they refuse to assume is that `validate` and `tag_covered`
+	 * agree. That is a claim about situ rather than about a frame, and the
+	 * day it stops holding -- a schema change, a codegen change, a
+	 * regenerate somebody did not run the suite after -- this file returns
+	 * SHAPE instead of computing an AEAD span from numbers that disagree.
+	 *
+	 * So: uncovered on purpose, provably unreachable today, and cheap. If a
+	 * future reader is hunting the last few branches in this file, these
+	 * are three of them and they are not worth the fixture it would take to
+	 * force them. */
 	if (situ_fzn_frame_tag_covered(fv, &covered_at, &covered_len) != SITU_OK)
 		return FZN_SEAL_ERR_SHAPE;
 	tag = situ_fzn_frame_tag_ptr(fv);
@@ -166,6 +191,18 @@ fzn_seal_err_t fzn_seal_build(uint8_t *frame, size_t frame_cap, size_t *frame_le
 	if (!fzn_nonce_next(rng, nonce))
 		return FZN_SEAL_ERR_NO_NONCE;
 
+	/* THESE THREE ARE UNREACHABLE TOO, for a different reason from the ones
+	 * in the open path: there the frame came from a stranger and had been
+	 * validated, here it was sized by the line above. `total` is
+	 * FZN_SEAL_OVERHEAD plus a payload already bounded against the schema's
+	 * own maximum, and `frame_cap` was checked against `total` -- so a view
+	 * over exactly `total` bytes cannot fail for want of room, and neither
+	 * can the hop or head views nested inside it.
+	 *
+	 * Kept for the same reason: they are where this file stops assuming the
+	 * generated code agrees with the arithmetic above. A wrong answer here
+	 * would otherwise be a frame built over a view that does not describe
+	 * it. */
 	memset(frame, 0, total);
 	situ_msg_init(&msg, frame, (uint32_t)total);
 	if (situ_fzn_frame_view(&msg, 0, (uint32_t)total, &fv) != SITU_OK)
