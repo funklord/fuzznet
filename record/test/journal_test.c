@@ -57,12 +57,28 @@ int main(void)
 	expect_err(fzn_journal_init(&j, entries, 0), FZN_JOURNAL_ERR_MALFORMED, "zero capacity");
 	expect_err(fzn_journal_init(&j, entries, 3), FZN_JOURNAL_OK, "a well-formed journal");
 
-	/* AN UNKNOWN ISSUER STARTS AT ONE, and anything else is a gap rather
-	 * than a beginning. A stranger opening at a large sequence would
-	 * otherwise suppress every real record below it. */
-	expect_err(fzn_journal_admit(&j, alice, 0, 5), FZN_JOURNAL_ERR_GAP,
+	/* ADMITTING DOES NOT ADOPT. An unknown issuer is refused whatever
+	 * sequence it opens at -- 1 included, which used to open a stream
+	 * implicitly.
+	 *
+	 * That shortcut was safe when a position was per ISSUER, since the key
+	 * space was the set of keys an attacker holds. `stream` is a uint32 the
+	 * issuer picks, which multiplied that space by 2^32: one authorised key
+	 * filled a journal with streams nobody chose and locked out every other
+	 * issuer permanently, since there is no forget.
+	 *
+	 * Both sequences are asserted, because a rule that refused only the
+	 * large one is the rule this file used to hold. */
+	expect_err(fzn_journal_admit(&j, alice, 0, 5), FZN_JOURNAL_ERR_UNKNOWN_ISSUER,
 	           "an unknown issuer opening at 5");
+	expect_err(fzn_journal_admit(&j, alice, 0, 1), FZN_JOURNAL_ERR_UNKNOWN_ISSUER,
+	           "an unknown issuer opening at 1");
 	expect(fzn_journal_next(&j, alice, 0) == 1, "the wanted sequence for an unseen issuer");
+	expect(fzn_journal_pending(&j, alice, 0) == 0, "a refused issuer left no entry");
+
+	/* Following one is deliberate, and then it behaves as before. */
+	expect_err(fzn_journal_anchor(&j, alice, 0, 0), FZN_JOURNAL_OK,
+	           "following an issuer from the beginning");
 	expect_err(fzn_journal_admit(&j, alice, 0, 1), FZN_JOURNAL_OK, "an issuer opening at 1");
 	expect(fzn_journal_next(&j, alice, 0) == 2, "the wanted sequence after one record");
 
@@ -97,8 +113,10 @@ int main(void)
 	/* FULL IS REFUSED, NOT MADE ROOM IN. Three entries, three issuers, and
 	 * a fourth that must not displace one -- because forgetting an issuer
 	 * readmits everything it ever sent. */
-	expect_err(fzn_journal_admit(&j, carol, 0, 1), FZN_JOURNAL_OK, "the third issuer");
-	expect_err(fzn_journal_admit(&j, dave, 0, 1), FZN_JOURNAL_ERR_FULL, "a fourth issuer");
+	expect_err(fzn_journal_anchor(&j, carol, 0, 0), FZN_JOURNAL_OK, "the third issuer");
+	expect_err(fzn_journal_admit(&j, carol, 0, 1), FZN_JOURNAL_OK, "the third issuer's first");
+	expect_err(fzn_journal_admit(&j, dave, 0, 1), FZN_JOURNAL_ERR_UNKNOWN_ISSUER,
+	           "a fourth issuer, unfollowed");
 	expect(fzn_journal_next(&j, alice, 0) == 4, "a full journal did not forget the first");
 	expect_err(fzn_journal_anchor(&j, dave, 0, 7), FZN_JOURNAL_ERR_FULL,
 	           "anchoring a fourth issuer");
@@ -167,6 +185,13 @@ int main(void)
 		fzn_journal_entry_t te[2];
 
 		fzn_journal_init(&two, te, 2);
+		/* Each stream is followed on its own -- which is the property
+		 * under test stated one layer up: if a stream were not its own
+		 * key, one anchor would open both. */
+		expect_err(fzn_journal_anchor(&two, alice, 7, 0), FZN_JOURNAL_OK,
+		           "following stream seven");
+		expect_err(fzn_journal_anchor(&two, alice, 9, 0), FZN_JOURNAL_OK,
+		           "following stream nine");
 		expect_err(fzn_journal_admit(&two, alice, 7, 1), FZN_JOURNAL_OK,
 		           "stream seven, first record");
 		expect_err(fzn_journal_admit(&two, alice, 9, 1), FZN_JOURNAL_OK,

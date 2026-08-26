@@ -92,6 +92,24 @@ fzn_journal_err_t fzn_journal_init(fzn_journal_t *journal, fzn_journal_entry_t *
 
 /* Offer a record's position. Advances `received` by exactly one on success.
  *
+ * ADMITTING DOES NOT ADOPT. A stream this journal is not already following is
+ * refused with `FZN_JOURNAL_ERR_UNKNOWN_ISSUER`, whatever sequence the record
+ * carries -- 1 included. Following a stream is `fzn_journal_anchor`, and it is
+ * a decision rather than a consequence of receiving something.
+ *
+ * This used to open a stream implicitly at sequence 1, which was safe when a
+ * position was per ISSUER: the key space was the set of keys an attacker
+ * holds. `stream` is a uint32 the issuer picks freely, and adding it
+ * multiplied that space by 2^32. One authorised key could then fill a journal
+ * with streams nobody chose, and no other issuer could ever be followed again
+ * -- permanently, since there is no forget and the section above says why
+ * there cannot be one.
+ *
+ * `record/sync.h` already claimed this protection whole. It refuses to ASK a
+ * peer about a stranger, on the reasoning that "record/journal.h already makes
+ * adopting an issuer deliberate"; a PUSHED record was adopted anyway, and
+ * `fzn_sync_plan_offer` means unsolicited pushes are part of the design.
+ *
  * The record itself is not stored and not verified here; a caller that admits
  * an unverified record has skipped a step this module cannot see. */
 fzn_journal_err_t fzn_journal_admit(fzn_journal_t *journal,

@@ -57,26 +57,43 @@ fzn_journal_err_t fzn_journal_admit(fzn_journal_t *journal,
 		return FZN_JOURNAL_ERR_MALFORMED;
 
 	e = find(journal, issuer, stream);
-	if (!e) {
-		/* An issuer never seen. Only sequence 1 starts a stream
-		 * implicitly; anything else is a join in progress and needs
-		 * `fzn_journal_anchor`, so that adopting a stranger's arbitrary
-		 * starting point is always a deliberate act. */
-		if (seq != 1)
-			return FZN_JOURNAL_ERR_GAP;
-		/* `>=` rather than `==`, for the reason chain/revocation.c gives
-		 * at the same place: the append below writes at entries[used],
-		 * and an equality test lets a corrupt `used` through. */
-		if (journal->used >= journal->capacity)
-			return FZN_JOURNAL_ERR_FULL;
-
-		e = &journal->entries[journal->used++];
-		memcpy(e->issuer, issuer, FZN_PUBKEY_LEN);
-		e->stream = stream;
-		e->received = 1;
-		e->applied = 0;
-		return FZN_JOURNAL_OK;
-	}
+	if (!e)
+		/* ADMITTING DOES NOT ADOPT. This used to create an entry for any
+		 * unseen (issuer, stream) arriving at sequence 1, on the
+		 * reasoning that only sequence 1 starts a stream implicitly and
+		 * anything else needs a deliberate anchor.
+		 *
+		 * That reasoning was written when a position was per ISSUER, so
+		 * the key space was the set of keys an attacker holds. `stream`
+		 * is a uint32 the issuer chooses freely, which multiplied that
+		 * space by 2^32, and the safety argument was never re-derived.
+		 *
+		 * Measured: one authorised key opens 64 entries in a 64-entry
+		 * journal, and no other issuer can ever be followed again --
+		 * permanently, because there is no forget and journal.h explains
+		 * why there cannot be one.
+		 *
+		 * `record/sync.h` already claims this protection whole: "record/
+		 * journal.h already makes adopting an issuer deliberate --
+		 * fzn_journal_anchor. This file does not quietly undo that."
+		 * Sync refuses to ASK from strangers; a PUSHED record was
+		 * adopted anyway, and `fzn_sync_plan_offer` means unsolicited
+		 * pushes are part of the design. The door sync guards had a
+		 * second one beside it.
+		 *
+		 * A quota was considered and rejected: a reassembly slot is
+		 * self-clearing, so a sender at quota is served again a moment
+		 * later, while a journal entry is permanent -- the same shape
+		 * would be a LIFETIME cap that locks out a legitimate issuer's
+		 * next stream for ever. Refusing to adopt closes the vector with
+		 * no quota, no new field and no new code.
+		 *
+		 * It also retires a wart: an unknown issuer at a sequence other
+		 * than 1 used to be told GAP, because that test ran before the
+		 * capacity test -- so a caller was instructed to fetch a range
+		 * it had nowhere to put. UNKNOWN_ISSUER names the decision the
+		 * caller actually has to make. */
+		return FZN_JOURNAL_ERR_UNKNOWN_ISSUER;
 
 	if (seq <= e->received)
 		return FZN_JOURNAL_ERR_DUPLICATE;

@@ -1258,12 +1258,14 @@ static void scenario_distribution(void)
 	 * has not adopted, so this is the deliberate step that makes the
 	 * network a network -- and leaving it out is what the first run of
 	 * this scenario did, converging on nothing. */
+	/* INCLUDING ITS OWN, which used to be skipped. `fzn_journal_admit` once
+	 * created an entry for any unseen issuer arriving at sequence 1, so a
+	 * host's own records opened their stream on the way past. Admitting no
+	 * longer adopts -- following a stream is a decision, and a host follows
+	 * its own like any other. */
 	for (uint8_t i = 0; i < DIST_HOSTS; i++) {
-		for (uint8_t issuer = 0; issuer < DIST_HOSTS; issuer++) {
-			if (issuer == i)
-				continue;
+		for (uint8_t issuer = 0; issuer < DIST_HOSTS; issuer++)
 			fzn_journal_anchor(&net.hosts[i].journal, net.hosts[issuer].pubkey, 0, 0);
-		}
 	}
 
 	/* Every host issues, and holds its own from the start. */
@@ -1451,11 +1453,8 @@ static void scenario_state(void)
 	/* Two writers, two records each: one contested subject and one of
 	 * their own. Everyone follows both. */
 	for (uint8_t i = 0; i < STATE_HOSTS; i++) {
-		for (uint8_t w = 0; w < WRITERS; w++) {
-			if (w == i)
-				continue;
+		for (uint8_t w = 0; w < WRITERS; w++)
 			fzn_journal_anchor(&net.hosts[i].journal, net.hosts[w].pubkey, 0, 0);
-		}
 	}
 	for (uint8_t w = 0; w < WRITERS; w++) {
 		struct sim_host *h = &net.hosts[w];
@@ -1713,6 +1712,13 @@ static void scenario_fidelity(void)
 
 	sim_init(&net, FID_HOSTS, 0xbbbbu);
 	net.loss_pct = 20;
+
+	/* The issuer follows both of its own streams before it publishes on
+	 * them. Admitting no longer adopts, so a stream must be followed before
+	 * anything can be admitted to it -- including by the host that issues
+	 * it. */
+	fzn_journal_anchor(&net.hosts[0].journal, net.hosts[0].pubkey, STREAM_COARSE, 0);
+	fzn_journal_anchor(&net.hosts[0].journal, net.hosts[0].pubkey, STREAM_FINE, 0);
 
 	/* The issuer publishes both, each numbered from one. */
 	for (uint64_t seq = 1; seq <= FID_RECORDS; seq++) {

@@ -150,13 +150,18 @@ static int drive(const uint8_t *data, size_t size)
 			fzn_journal_err_t err = fzn_journal_admit(&journal, issuer, str, seq);
 
 			if (err == FZN_JOURNAL_OK) {
-				/* A position advances by EXACTLY one. */
-				if (!m.following[iss][str] && seq != 1u)
+				/* ADMITTING NEVER ADOPTS. A stream nobody chose to
+				 * follow cannot be opened by a record arriving on
+				 * it -- not even at sequence 1, which used to open
+				 * one implicitly. This is the model's whole share
+				 * of that change, and it is the clause that would
+				 * catch it being undone. */
+				if (!m.following[iss][str])
 					return 1;
-				if (m.following[iss][str] && seq != before + 1u)
+				/* A position advances by EXACTLY one. */
+				if (seq != before + 1u)
 					return 1;
 				m.received[iss][str] = seq;
-				m.following[iss][str] = 1;
 			} else if (m.received[iss][str] != before) {
 				return 1; /* a refusal moved the position */
 			}
