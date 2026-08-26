@@ -53,6 +53,7 @@
 
 #include "frame.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -208,11 +209,81 @@ _Static_assert(SITU_FZN_FRAME_SIZE_MIN == SITU_FZN_HOP_SIZE_MAX + SITU_FZN_HEAD_
 _Static_assert(SITU_FZN_FRAME_SIZE_MAX + FZN_IPV6_UDP_HEADERS <= FZN_IPV6_MIN_MTU,
                 "a largest frame no longer fits the smallest link IPv6 guarantees");
 
-/* Internal consistency, which is a weaker claim than the ones above and is
- * here because it belongs with them: the 48 bytes commitment.c derives are
- * the key and the commitment and nothing else. */
-_Static_assert(FZN_DERIVED_LEN == FZN_AEAD_KEY_LEN + FZN_COMMITMENT_LEN,
-                "the derived block is not the key plus the commitment");
+/* THE ASSERT THAT USED TO BE HERE COULD NOT FAIL. It read
+ *
+ *     FZN_DERIVED_LEN == FZN_AEAD_KEY_LEN + FZN_COMMITMENT_LEN
+ *
+ * and `commitment.h:48` defines `FZN_DERIVED_LEN` as literally that sum, so
+ * the two sides were the same expression twice. It sat in a file whose whole
+ * purpose is that a repeated constant gets compared, under a comment saying
+ * the derived block "is the key and the commitment and nothing else" -- so it
+ * read as covering exactly the thing it could not have caught.
+ *
+ * That is this project's vacuous pass wearing the costume of rigour: a check
+ * present where a reader would otherwise have written a real one.
+ *
+ * What is actually worth pinning is the half that is NOT internal. The key
+ * length is a requirement of the AEAD, which exports no macro for it --
+ * Monocypher's `crypto_aead_lock` takes 32 bytes and would take the address
+ * of 32 bytes whatever this said -- so a shrunken constant here would hand it
+ * a short buffer to read past. The commitment half is already pinned to the
+ * schema at the top of this file, which leaves the key as the one unwitnessed
+ * width in the derived block. */
+_Static_assert(FZN_AEAD_KEY_LEN == 32u,
+                "the AEAD key is no longer 32 bytes, which is what the AEAD reads "
+                "regardless of what this constant says");
+
+/* THE TAG WAS THE LAST FRAME FIELD WITH NO WITNESS. `wire/seal.c` hands
+ * `situ_fzn_frame_tag_ptr(fv)` straight to `ops->seal` and `ops->open`, which
+ * write and read FZN_AEAD_TAG_LEN bytes there. The tag is the frame's final
+ * field, so a widened constant writes past the end of the frame -- and the
+ * sum at SITU_FZN_FRAME_SIZE_MIN above stays green, because it uses the
+ * schema's own count rather than the one the AEAD is being told. The test
+ * stubs take the same macro, so they would agree with the bug. */
+_Static_assert(FZN_AEAD_TAG_LEN == SITU_FZN_FRAME_TAG_COUNT,
+                "the AEAD tag and the frame's tag field are different sizes, so "
+                "sealing writes past the end of the frame");
+
+/* THE ARRIVED-SET MUST COVER EVERY INDEX IT IS ASKED ABOUT.
+ * `chunk/reassembly.c` indexes `slot->seen[index >> 3]` for index up to
+ * FZN_REASM_MAX_CHUNKS - 1, while the array is sized
+ * `FZN_REASM_MAX_CHUNKS / 8u` -- an integer division that TRUNCATES. Any
+ * ceiling that is not a multiple of eight therefore gives a one-byte
+ * out-of-bounds write inside `fzn_partial_t`, and no test reassembles
+ * anywhere near the ceiling: the largest chunk counts in chunk/test are 4
+ * and 9, so the top byte of this bitset has never been written at all.
+ *
+ * Comparing the array to the index range rather than checking `% 8u`, since
+ * that is the property the code depends on and it stays correct if the array
+ * is ever sized some other way. */
+_Static_assert(sizeof(((fzn_partial_t *)0)->seen) * 8u >= FZN_REASM_MAX_CHUNKS,
+                "the arrived-set has fewer bits than there are chunk indices, so "
+                "the highest chunks write past it");
+
+/* THE FAIL-CLOSED RULE MUST STAY THE ZERO VALUE. `frame/freshness.c` branches
+ * on `kind == FZN_EXPIRY_OPTIONAL`, so REQUIRED -- the strict reading, which
+ * refuses a command carrying no expiry -- is the default only because it is
+ * first in the enumeration. Prepend an enumerator and a zeroed struct field
+ * or a defaulted argument silently means OPTIONAL, which is the exact
+ * inversion `freshness.h` says the rename existed to prevent. Every test
+ * passes these by name, so every test would still pass. */
+_Static_assert(FZN_EXPIRY_REQUIRED == 0u,
+                "the fail-closed expiry rule is no longer the zero value, so a "
+                "zeroed field now means OPTIONAL");
+_Static_assert(FZN_EXPIRY_OPTIONAL == 1u, "the expiry kinds were renumbered");
+
+/* THE WORKED EXAMPLES IN split.h AND reassembly.h ARE PROSE, and a consumer
+ * sizes buffers from them. Both have been wrong before: split.h records that
+ * its overhead figure was 96 once and "was instructing a caller into the bug
+ * the paragraph above describes", and frame.situ records its payload ceiling
+ * moving off a placeholder. Pinned here because this is the one file that
+ * sees the constant and the schema together. */
+_Static_assert(FZN_SEAL_OVERHEAD == 144u,
+                "split.h's worked example (1500 - 28 - 144) no longer uses the "
+                "real frame overhead");
+_Static_assert((uint64_t)FZN_REASM_MAX_CHUNKS * FZN_SPLIT_MAX_PAYLOAD == 262144u,
+                "reassembly.h's 256 KiB worked example is no longer what the "
+                "constants come to");
 
 static int failures;
 static int checks;
@@ -266,6 +337,6 @@ int main(void)
 	      "the commitment field does not lie within the frame");
 
 	printf("constants_test: %d checks, %d failure(s); %d constants pinned at compile time\n",
-	       checks, failures, 16);
+	       checks, failures, 23);
 	return failures == 0 ? 0 : 1;
 }
