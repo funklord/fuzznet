@@ -151,13 +151,30 @@ void fzn_log_range(const fzn_log_t *log, const uint8_t issuer[FZN_PUBKEY_LEN], u
 		*last = hi;
 }
 
-fzn_log_err_t fzn_log_get(const fzn_log_t *log, const uint8_t issuer[FZN_PUBKEY_LEN],
-                           uint32_t stream, uint64_t seq, const fzn_log_entry_t **out)
+/* A journal this module is willing to read a position out of.
+ *
+ * The same shape as `usable` above and for the same reason -- a corrupt
+ * `used` must be refused at every entry point that scans, which is the
+ * argument `frame/freshness.c` makes and `record/journal.c` repeats -- but
+ * with one addition that is this module's own. `fzn_journal_next` guards
+ * itself and answers 1 for a journal it will not read, which is also its
+ * answer for a stream nobody follows. Those two must not become the same
+ * answer here: taking 1 at face value would call every evicted sequence
+ * ABSENT, which is the ask-for-ever failure `log.h` says GONE exists to
+ * break. So a journal that cannot be read is MALFORMED and says so. */
+static int position_usable(const fzn_journal_t *journal)
+{
+	return journal && journal->entries && journal->used <= journal->capacity;
+}
+
+fzn_log_err_t fzn_log_get(const fzn_log_t *log, const fzn_journal_t *journal,
+                           const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream, uint64_t seq,
+                           const fzn_log_entry_t **out)
 {
 	const fzn_log_entry_t *e;
-	uint64_t first, last;
+	uint64_t next;
 
-	if (!usable(log) || !issuer || !out || seq == 0)
+	if (!usable(log) || !position_usable(journal) || !issuer || !out || seq == 0)
 		return FZN_LOG_ERR_MALFORMED;
 
 	*out = NULL;
@@ -168,11 +185,25 @@ fzn_log_err_t fzn_log_get(const fzn_log_t *log, const uint8_t issuer[FZN_PUBKEY_
 	}
 
 	/* NOT HELD IS TWO DIFFERENT ANSWERS, and telling them apart is the
-	 * reason a peer asks. Below where this log now starts, retention took
-	 * it and asking again will never help; above the newest, it has simply
-	 * not arrived. */
-	fzn_log_range(log, issuer, stream, &first, &last);
-	if (first != 0 && seq < first)
+	 * reason a peer asks. The line between them is the JOURNAL's position,
+	 * not this log's oldest entry: what is still held says nothing about
+	 * what was received and evicted, and deriving GONE from
+	 * `fzn_log_range` was wrong in both directions -- see log.h, which
+	 * carries the three cases and the floor table that was rejected.
+	 *
+	 * `fzn_journal_next` is `received + 1`, saturated at UINT64_MAX, so
+	 * `seq < next` is `seq <= received` everywhere except at the top of an
+	 * exhausted stream, where the saturation makes the two indexes
+	 * indistinguishable. That corner falls to ABSENT, which is the safe
+	 * half: a false ABSENT costs one more request, a false GONE costs an
+	 * `fzn_journal_anchor` that cannot be taken back.
+	 *
+	 * NO `first != 0` GUARD, deliberately. The old code had one, and it is
+	 * exactly what made a stream whose entries had ALL been evicted answer
+	 * ABSENT. Holding nothing is not evidence that nothing was received;
+	 * the journal is the only thing that knows. */
+	next = fzn_journal_next(journal, issuer, stream);
+	if (seq < next)
 		return FZN_LOG_ERR_GONE;
 
 	return FZN_LOG_ERR_ABSENT;
