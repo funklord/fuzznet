@@ -193,6 +193,29 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 	return 0;
 }
 
+
+/* THE FLOOR A COUNTER MUST CLEAR, AND IT IS NEVER ZERO.
+ *
+ * These floors were written as `floor_of(cases, 200u)` directly. Integer division
+ * makes that ZERO for any run under 200 cases, and `unsigned < 0` is never
+ * true -- so every coverage floor in this file switched itself off silently,
+ * exactly when somebody lowered CASES. Which is precisely what one does when
+ * running under a sanitizer, the case the Makefile advertises.
+ *
+ * Measured before this: `make fuzz CASES=199` exited 0 with chain_fuzz
+ * reporting "0 delegated", the counter whose own comment says a run without
+ * it "proves less than it says". At CASES=1 it reported 0 accepted and 0
+ * delegated and still passed.
+ *
+ * One is the weakest honest floor: a harness that reached the interesting
+ * path zero times out of one case has still reached it zero times. */
+static unsigned long floor_of(unsigned long cases, unsigned long per)
+{
+	unsigned long n = cases / per;
+
+	return n != 0ul ? n : 1ul;
+}
+
 int main(int argc, char **argv)
 {
 	unsigned long cases = FUZZ_DEFAULT_CASES;
@@ -221,8 +244,8 @@ int main(int argc, char **argv)
 	/* All three verdicts must occur. A run that never admitted anything
 	 * would satisfy every invariant above by never reaching the case they
 	 * are about. */
-	if (cov.admitted < cases / 200u || cov.refused < cases / 200u ||
-	    cov.unknown < cases / 200u) {
+	if (cov.admitted < floor_of(cases, 200u) || cov.refused < floor_of(cases, 200u) ||
+	    cov.unknown < floor_of(cases, 200u)) {
 		printf("vocabulary_fuzz: REACHED TOO LITTLE -- %lu admitted, %lu refused, "
 		       "%lu unknown in %lu cases.\n",
 		       cov.admitted, cov.refused, cov.unknown, cases);

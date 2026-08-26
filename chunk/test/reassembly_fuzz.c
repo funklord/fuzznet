@@ -262,6 +262,29 @@ static uint32_t next(uint32_t *state)
 	return (*state >> 16) & 0xffffu;
 }
 
+
+/* THE FLOOR A COUNTER MUST CLEAR, AND IT IS NEVER ZERO.
+ *
+ * These floors were written as `floor_of(cases, 200u)` directly. Integer division
+ * makes that ZERO for any run under 200 cases, and `unsigned < 0` is never
+ * true -- so every coverage floor in this file switched itself off silently,
+ * exactly when somebody lowered CASES. Which is precisely what one does when
+ * running under a sanitizer, the case the Makefile advertises.
+ *
+ * Measured before this: `make fuzz CASES=199` exited 0 with chain_fuzz
+ * reporting "0 delegated", the counter whose own comment says a run without
+ * it "proves less than it says". At CASES=1 it reported 0 accepted and 0
+ * delegated and still passed.
+ *
+ * One is the weakest honest floor: a harness that reached the interesting
+ * path zero times out of one case has still reached it zero times. */
+static unsigned long floor_of(unsigned long cases, unsigned long per)
+{
+	unsigned long n = cases / per;
+
+	return n != 0ul ? n : 1ul;
+}
+
 int main(int argc, char **argv)
 {
 	unsigned long cases = FUZZ_DEFAULT_CASES;
@@ -300,7 +323,7 @@ int main(int argc, char **argv)
 	 * manages. It is a smoke alarm rather than a measurement, and it is
 	 * deliberately loose so that tightening the module's refusals does not
 	 * start failing the harness. */
-	if (cov.completed < cases / 200u || cov.admitted == 0) {
+	if (cov.completed < floor_of(cases, 200u) || cov.admitted == 0) {
 		printf("reassembly_fuzz: REACHED NOTHING -- %lu admitted, %lu completed "
 		       "in %lu cases. The generator is not producing inputs the module "
 		       "accepts, so this run proves nothing.\n",
