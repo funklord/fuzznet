@@ -134,6 +134,23 @@ static void put_be32(uint8_t *p, uint32_t v)
 	p[3] = (uint8_t)(v & 0xffu);
 }
 
+/* Whether `needle` appears anywhere in `hay`. Used to prove a refused build
+ * left no plaintext behind, so it searches the whole buffer rather than the
+ * offset the field would have occupied -- a wipe that moved the bytes instead
+ * of clearing them would pass an offset check. */
+static int find_bytes(const uint8_t *hay, size_t hay_len, const uint8_t *needle, size_t needle_len)
+{
+	if (needle_len == 0 || hay_len < needle_len)
+		return 0;
+
+	for (size_t i = 0; i + needle_len <= hay_len; i++) {
+		if (memcmp(hay + i, needle, needle_len) == 0)
+			return 1;
+	}
+
+	return 0;
+}
+
 static const uint8_t PLAIN[PAYLOAD_LEN] = "twenty-four bytes here.";
 static const uint8_t CAP[32] = "a capability identifier, 32 by.";
 
@@ -418,6 +435,38 @@ int main(void)
 		                     &rng, &aead) == FZN_SEAL_ERR_MALFORMED,
 		      "a null payload with a non-zero length");
 		what.payload = PLAIN;
+
+		/* A REFUSED BUILD MUST NOT LEAVE THE INTERIOR AS PLAINTEXT.
+		 *
+		 * Sealing happens in place, so the capability and payload are
+		 * copied into the caller's buffer in the clear before the seal
+		 * runs. Every shape refusal surfaces from `fzn_seal_close`,
+		 * which is after that copy -- so a refused build used to return
+		 * with the 32-byte capability sitting verbatim in the buffer and
+		 * the tag all zeroes. A caller reusing the buffer, or ignoring
+		 * the return, holds or transmits it.
+		 *
+		 * `index` past `chunks` is used as the trigger because it is a
+		 * pure shape fault: the arguments are all valid pointers, so
+		 * nothing is refused before the interior is written. */
+		{
+			uint16_t good_index = what.index;
+
+			memset(built, 0xee, sizeof(built));
+			what.index = 5;
+			what.chunks = 2;
+			check(fzn_seal_build(built, sizeof(built), &built_len, &what, key,
+			                     commitment, &rng, &aead) != FZN_SEAL_OK,
+			      "an index past chunks was accepted");
+			check(find_bytes(built, sizeof(built), CAP, sizeof(CAP)) == 0,
+			      "a refused build left the capability in the caller's buffer "
+			      "as plaintext");
+			check(find_bytes(built, sizeof(built), PLAIN, PAYLOAD_LEN) == 0,
+			      "a refused build left the payload in the caller's buffer "
+			      "as plaintext");
+			what.index = good_index;
+			what.chunks = 1;
+		}
 
 		/* AND THE FRAME TOO SHORT TO BE ONE, which is the other branch
 		 * coverage found at zero: `situ_fzn_frame_view` refusing inside

@@ -271,8 +271,35 @@ fzn_seal_err_t fzn_seal_build(uint8_t *frame, size_t frame_cap, size_t *frame_le
 	{
 		fzn_seal_err_t err = fzn_seal_close(frame, total, key, aead);
 
-		if (err != FZN_SEAL_OK)
+		/* A REFUSAL HERE MUST NOT LEAVE THE INTERIOR AS PLAINTEXT.
+		 *
+		 * The capability and the payload were copied in above, in the
+		 * clear, because sealing happens in place. Every shape refusal
+		 * this function has now surfaces from `fzn_seal_close` -- the
+		 * validate that used to sit above was removed as redundant, and
+		 * it was, for the tag. It was not redundant for this.
+		 *
+		 * Measured before the wipe, with the buffer prefilled 0xEE: a
+		 * `chunks` of zero, a `kind` outside the enum, an `index` past
+		 * `chunks`, and a null `aead->seal` each returned an error with
+		 * the 32-byte capability sitting verbatim at offset 0x60 and the
+		 * payload after it, the tag all zeroes and `*frame_len` still 0.
+		 * A caller reusing the buffer, or one that ignored the return,
+		 * holds or transmits the capability in clear.
+		 *
+		 * project.md records this same class found and fixed for the
+		 * nonce, and says there that "the reason it gives is not
+		 * specific to the nonce, and neither is the harm". These four
+		 * paths are what that sentence was pointing at, and the residue
+		 * here is secret material rather than zeroes.
+		 *
+		 * The whole frame goes, not just the interior: nothing in it is
+		 * usable after a refused build, and wiping a computed span is a
+		 * bound to get wrong later. */
+		if (err != FZN_SEAL_OK) {
+			fzn_wipe(frame, total);
 			return err;
+		}
 	}
 
 	*frame_len = total;
