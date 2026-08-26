@@ -9,6 +9,7 @@
 
 #include "../journal.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -178,6 +179,30 @@ int main(void)
 		       "must not have advanced the other");
 		expect_err(fzn_journal_admit(&two, alice, 9, 3), FZN_JOURNAL_ERR_GAP,
 		           "and each stream keeps its own gap");
+	}
+
+	/* AN EXHAUSTED STREAM MUST NOT ANSWER WITH THE RESERVED SEQUENCE.
+	 * `fzn_journal_next` returned `received + 1`, which is zero once a
+	 * stream has reached the top -- and zero is the one value
+	 * `fzn_record_validate` refuses by name, so the journal was answering
+	 * "what should I ask for next" with the single sequence its own library
+	 * rejects. Two public calls and no corruption reach it. */
+	{
+		fzn_journal_t top;
+		fzn_journal_entry_t te[1];
+
+		fzn_journal_init(&top, te, 1);
+		expect_err(fzn_journal_anchor(&top, alice, 4, UINT64_MAX), FZN_JOURNAL_OK,
+		           "anchoring at the top of the sequence space");
+		expect(fzn_journal_next(&top, alice, 4) != 0,
+		       "an exhausted stream answered with the reserved sequence zero");
+		expect(fzn_journal_next(&top, alice, 4) == UINT64_MAX,
+		       "an exhausted stream must say so rather than wrapping");
+		/* The value it gives back must itself be inadmissible, or the
+		 * advice would merely move the problem to the next call. */
+		expect_err(fzn_journal_admit(&top, alice, 4, UINT64_MAX),
+		           FZN_JOURNAL_ERR_DUPLICATE,
+		           "the exhausted answer must not be admissible");
 	}
 
 	printf("journal_test: %d checks, %d failure(s)\n", checks, failures);

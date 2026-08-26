@@ -128,7 +128,11 @@ fzn_journal_err_t fzn_journal_confirm(fzn_journal_t *journal,
                                       uint64_t seq);
 
 /* The sequence this host wants next from `issuer`, which is what a
- * distribution layer asks for. Returns 1 for an issuer never seen. */
+ * distribution layer asks for. Returns 1 for an issuer never seen.
+ *
+ * Never returns zero, which is reserved. A stream that has run to
+ * UINT64_MAX is exhausted and answers UINT64_MAX: there is no next
+ * sequence, and `fzn_journal_admit` refuses that value as a duplicate. */
 uint64_t fzn_journal_next(const fzn_journal_t *journal,
                           const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream);
 

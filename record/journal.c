@@ -171,7 +171,28 @@ uint64_t fzn_journal_next(const fzn_journal_t *journal,
 		return 1;
 
 	e = find(journal, issuer, stream);
-	return e ? e->received + 1u : 1u;
+	if (!e)
+		return 1u;
+
+	/* SATURATE RATHER THAN WRAP. `received + 1` is UINT64_MAX + 1 == 0 once
+	 * a stream has run to the top, and zero is the one sequence this
+	 * library reserves -- `fzn_record_validate` refuses it by name
+	 * ("sequence zero is reserved"), and journal.h builds the whole
+	 * nothing-received-yet convention on it. So the wrap handed a caller
+	 * the single value guaranteed to be rejected, as the answer to "what
+	 * should I ask for next".
+	 *
+	 * Reachable through two public calls and no corruption at all:
+	 * `fzn_journal_anchor(..., UINT64_MAX)` then `fzn_journal_next(...)`.
+	 *
+	 * UINT64_MAX is the honest answer instead. The stream is exhausted,
+	 * there is no next sequence, and this is the only value that is neither
+	 * reserved nor admissible -- `fzn_journal_admit` refuses it as a
+	 * duplicate, which is exactly what a caller acting on it should meet. */
+	if (e->received == UINT64_MAX)
+		return UINT64_MAX;
+
+	return e->received + 1u;
 }
 
 uint64_t fzn_journal_pending(const fzn_journal_t *journal,
