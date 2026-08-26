@@ -40,6 +40,11 @@
  * returns as soon as two bytes differ, which turns "how long did that take"
  * into "how many leading bytes matched" -- a tag oracle wherever the
  * attacker chooses one side. */
+/* A NULL side answers "not equal" rather than crashing, matching `fzn_wipe`
+ * below in tolerating NULL and differing from it in having an answer to
+ * give. Every caller in this library is asking an authorization question,
+ * and the safe reply to one asked with a missing operand is no. A `len` of
+ * zero still answers equal. */
 int fzn_ct_memeq(const void *a, const void *b, size_t len);
 
 

@@ -18,6 +18,22 @@ int fzn_ct_memeq(const void *a, const void *b, size_t len)
 	const uint8_t *pb = (const uint8_t *)b;
 	volatile uint8_t diff = 0;
 
+	/* A NULL SIDE IS "NOT EQUAL", NOT A CRASH.
+	 *
+	 * `fzn_wipe` in this same file documents that NULL is fine, and nothing
+	 * said what this one did -- so a consumer reading the header met one
+	 * convention and got the other. It segfaulted. This header exists
+	 * precisely so consumers compare secrets with it directly rather than
+	 * reaching for `memcmp`, which makes an undocumented crash on NULL the
+	 * wrong thing for it to have.
+	 *
+	 * Answering "not equal" rather than "equal" because every caller here
+	 * is asking an authorization question, and the safe reply to one asked
+	 * with a missing operand is no. `len == 0` keeps answering equal, which
+	 * it already did and which no caller depends on. */
+	if (!pa || !pb)
+		return len == 0;
+
 	for (size_t i = 0; i < len; i++)
 		diff |= (uint8_t)(pa[i] ^ pb[i]);
 

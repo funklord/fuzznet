@@ -140,8 +140,14 @@ fzn_seal_err_t fzn_seal_build(uint8_t *frame, size_t frame_cap, size_t *frame_le
 	uint8_t nonce[FZN_AEAD_NONCE_LEN];
 	size_t total;
 
+	/* `aead->seal` as well as `aead`, which `fzn_seal_open` and
+	 * `fzn_seal_close` both do and this did not. Without it the null was
+	 * met by `fzn_seal_close` at the very end, long past the memset, so a
+	 * caller got MALFORMED with 152 bytes of their buffer already gone --
+	 * breaking the promise this function makes twenty lines below about
+	 * leaving the buffer untouched when it cannot proceed. */
 	if (!frame || !frame_len || !what || !what->sender || !what->capability || !key ||
-	    !commitment || !rng || !aead)
+	    !commitment || !rng || !aead || !aead->seal)
 		return FZN_SEAL_ERR_MALFORMED;
 	if (!what->payload && what->payload_len != 0)
 		return FZN_SEAL_ERR_MALFORMED;
@@ -178,6 +184,35 @@ fzn_seal_err_t fzn_seal_build(uint8_t *frame, size_t frame_cap, size_t *frame_le
 	 * same decision: clamping would leave the caller believing it sent bytes
 	 * that were dropped. */
 	if (what->payload_len > (size_t)SITU_FZN_HEAD_LENGTH_VALUE_MAX)
+		return FZN_SEAL_ERR_SHAPE;
+	/* AND THE OTHER THREE HEADER RULES, FOR THE SAME REASON.
+	 *
+	 * The payload bound above was moved here so that a refusal leaves the
+	 * caller's buffer untouched. `kind`, `chunks` and `index` are equally
+	 * knowable before anything is written and were not moved with it, so
+	 * they were caught only by `fzn_seal_close` -- after the `memset` below
+	 * and after the interior had been copied in. Measured with the buffer
+	 * prefilled 0xEE, each of them returned an error having modified 152
+	 * bytes, where the payload bound modified none.
+	 *
+	 * Wiping on that path (which this function now also does) stops the
+	 * capability being left in clear, but it does not restore the promise:
+	 * a caller reusing one buffer across frames still loses the previous
+	 * one. Checking first is what keeps it. The wipe stays for the case
+	 * that genuinely cannot be pre-checked, since `fzn_seal_close` reaches
+	 * the schema's validator over bytes only it has assembled.
+	 *
+	 * BORROWING THE SCHEMA'S OWN PREDICATES rather than restating them.
+	 * `situ_fzn_kind_is_known` moves when the enum does, and the index rule
+	 * is copied verbatim from the generated validator including its
+	 * widening to int64_t -- which is load-bearing rather than stylistic:
+	 * `chunks - 1` in uint16_t wraps to 65535 for a `chunks` of zero and
+	 * would admit every index. Widened, a zero `chunks` gives -1 and
+	 * refuses every index, which is how the zero case falls out of the
+	 * index rule instead of needing one of its own. */
+	if (!situ_fzn_kind_is_known((situ_fzn_kind_t)what->kind))
+		return FZN_SEAL_ERR_SHAPE;
+	if ((int64_t)what->index > (int64_t)what->chunks - 1)
 		return FZN_SEAL_ERR_SHAPE;
 
 	total = (size_t)FZN_SEAL_OVERHEAD + what->payload_len;

@@ -6,9 +6,25 @@
 
 #include <string.h>
 
+/* `capacity != 0` IS LOAD-BEARING, not belt and braces.
+ *
+ * This module evicts where its siblings refuse, so it has no
+ * `used >= capacity` test to fall back on. With a capacity of zero the
+ * `used < capacity` branch in `slot_for_append` is not taken, the eviction
+ * branch returns `&entries[0]` of a zero-length array, and `fzn_log_append`
+ * returns FZN_LOG_OK having written 32 bytes past it -- ASan reports the
+ * write at log.c:99. `slot_for_append`'s own comment states the assumption
+ * it could not check: "capacity is non-zero -- `fzn_log_init` refuses zero".
+ * True of the init path and not of a hand-built struct, which this module's
+ * tests already treat as inside the threat model.
+ *
+ * The five siblings holding a caller-owned array -- state, link, journal,
+ * the replay window, the revocation store -- all answer a zero-capacity
+ * struct with their FULL code, because appending is guarded by
+ * `used >= capacity`. This is the one that needed saying out loud. */
 static int usable(const fzn_log_t *log)
 {
-	return log && log->entries && log->used <= log->capacity;
+	return log && log->entries && log->capacity != 0u && log->used <= log->capacity;
 }
 
 /* Every entry for this issuer is scanned rather than stopping at a
