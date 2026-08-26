@@ -63,6 +63,22 @@ typedef struct stub {
 	int fail_on_call; /* 1-based call number to fail, or 0 for none */
 	int signs;       /* how many times sign was asked */
 	int can_sign;    /* whether it agrees to */
+
+	/* WHICH KEY EACH HOP WAS VERIFIED UNDER, recorded in order.
+	 *
+	 * Every signature stub in this tree opened `(void)pubkey;` and threw
+	 * the key away, so the suite could count verifications and see their
+	 * order but not see WHOSE signature was being checked. That left the
+	 * single most damaging mutation in this module invisible: verifying a
+	 * hop under `hop->grantee` instead of `hop->grantor` accepts a chain
+	 * containing no root signature at all -- a total authorization bypass
+	 * -- and chain_test, chain_fuzz and chain_guided were all green on it.
+	 * Verifying every hop under the pinned root passes them too.
+	 *
+	 * Recording the key costs one memcpy per call and turns both into
+	 * ordinary failures. */
+	size_t keys_seen;
+	uint8_t key_seen[FZN_CHAIN_MAX_HOPS][FZN_PUBKEY_LEN];
 } stub_t;
 
 static int stub_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const uint8_t *msg,
@@ -70,7 +86,6 @@ static int stub_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const ui
 {
 	stub_t *s = (stub_t *)ctx;
 
-	(void)pubkey;
 	(void)sig;
 
 	/* The module promises never to hand a verifier an empty region; a
@@ -78,6 +93,11 @@ static int stub_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const ui
 	if (!msg || msg_len == 0) {
 		printf("  FAIL: verifier called with an empty signed region\n");
 		failures++;
+	}
+
+	if (s->keys_seen < FZN_CHAIN_MAX_HOPS) {
+		memcpy(s->key_seen[s->keys_seen], pubkey, FZN_PUBKEY_LEN);
+		s->keys_seen++;
 	}
 
 	s->calls++;
@@ -180,6 +200,28 @@ static void test_accepts_a_good_chain(void)
 	      "grantee is not the last hop's");
 	CHECK(fzn_ct_memeq(f.out.root, f.root, FZN_PUBKEY_LEN), "root not reported back");
 	CHECK(f.stub.calls == 2, "verified %d signatures, wanted 2", f.stub.calls);
+
+	/* EACH HOP UNDER ITS OWN GRANTOR, which is the property that makes a
+	 * chain a chain. Asserted by key rather than by call count: the counts
+	 * above are satisfied by a verifier handed the wrong key twice.
+	 *
+	 * Both mutations this catches are total bypasses. Under
+	 * `hop->grantee`, every hop verifies its own self-assertion and a chain
+	 * containing no root signature is accepted. Under the pinned root, an
+	 * attacker who can get the root to sign anything once can graft it
+	 * anywhere. */
+	CHECK(f.stub.keys_seen == 2, "recorded %zu keys, wanted 2", f.stub.keys_seen);
+	CHECK(f.stub.keys_seen == 2 &&
+	              fzn_ct_memeq(f.stub.key_seen[0], f.hops[0].grantor, FZN_PUBKEY_LEN),
+	      "hop 0 was not verified under its own grantor");
+	CHECK(f.stub.keys_seen == 2 &&
+	              fzn_ct_memeq(f.stub.key_seen[1], f.hops[1].grantor, FZN_PUBKEY_LEN),
+	      "hop 1 was not verified under its own grantor");
+	/* And the two keys must differ, or the check above is satisfied by a
+	 * chain whose hops happen to share a grantor. */
+	CHECK(!fzn_ct_memeq(f.stub.key_seen[0], f.stub.key_seen[1], FZN_PUBKEY_LEN),
+	      "the fixture verifies both hops under one key, so the check above proves "
+	      "nothing");
 }
 
 static void test_root_is_pinned_not_adopted(void)
