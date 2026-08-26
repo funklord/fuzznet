@@ -33,6 +33,8 @@
 /constant_time/test/secret_flow_test
 /wire/test/err_str_test
 /version/test/version_test
+/chunk/test/reassembly_guided
+/guided/
 /constant_time/test/secret_flow_valgrind
 
 # An out-of-tree build, if BUILD_DIR names one.

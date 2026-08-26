@@ -2541,6 +2541,44 @@ reproducible, and a reader should read them as weaker than the ones after it.
 It also turned up that situ's *compiler* was dirty, not only its runtime, so
 the generated C was being compared against an uncommitted emitter as well.
 
+**Coverage-guided fuzzing, and a run of 61 million executions that proved
+nothing** (2026-08-26). `make guided` drives `chunk/reassembly.c` under
+libFuzzer with the address and undefined-behaviour sanitizers. It is a
+different instrument from `make fuzz`, which generates chunk sequences from a
+PRNG and checks them against a model: that finds what the generator was
+written to reach, while a guided search keeps whatever reaches a new edge and
+mutates it, so it walks into states nobody described in advance.
+
+**Result: no defect.** 1.5 million executions, 209 of 400 instrumented edges,
+a 292-unit corpus. The `local/` parsers were run the same way from a scratch
+harness -- `fzn_peer_groups_parse` and `fzn_vocabulary_admit` from one input --
+for 15.3 million executions, coverage 2 to 82, also clean.
+
+**THE FIRST RUN WAS WORTHLESS AND LOOKED FAR BETTER THAN THE SECOND.** It
+reported **61 million executions at half a million per second, zero crashes**.
+Every one of them returned at the first line: the harness called
+`fzn_reasm_init` before `fzn_reasm_slot_init`, and init verifies that every
+slot already has its buffer -- which `reassembly.h` states plainly and the
+harness ignored. The tells were `cov: 8` of 400 and `new_units_added: 0`, not
+the crash count, and the *faster* number was the broken one, because doing
+nothing is quick.
+
+So the discipline this adds to the family is narrow and worth having: **for a
+fuzzer, read the coverage, not the clean bill.** A campaign that grows no
+corpus is not a campaign. `make guided` therefore refuses a run whose corpus
+did not grow past the single unit libFuzzer starts with, and that refusal was
+watched: with the original bug restored it reports *"the corpus has 0 unit(s)
+-- the harness is not reaching the code"* and exits 2.
+
+**The harness is dual-mode**, so it is not a file that only exists under a
+tool most machines lack. Built plainly it is an ordinary test that replays
+inputs -- files named on argv, or four built-in byte strings reaching a
+completion, a conflicting repeat, a quota refusal and an expiry -- and `make
+test` runs it. That is also what makes a future crash reproducible: the bytes
+go into the harness as a named constant, reviewable and running everywhere,
+rather than into a committed binary corpus. **The corpus is deliberately not
+committed**; it is machine-generated, perishable and local.
+
 **situ called this schema's contract BREAKING, and the bytes had not
 moved** (2026-08-26, situ `58b5c21`). `situc wire --check` refused with
 

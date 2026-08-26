@@ -124,7 +124,8 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              chunk/test/roundtrip_fuzz.c \
              constant_time/test/secret_flow_test.c \
              wire/test/err_str_test.c \
-             version/test/version_test.c
+             version/test/version_test.c \
+             chunk/test/reassembly_guided.c
 TEST_OBJS := $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
 TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/chain/test/revocation_test \
@@ -151,7 +152,8 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/chunk/test/roundtrip_fuzz \
              $(BUILD_DIR)/constant_time/test/secret_flow_test \
              $(BUILD_DIR)/wire/test/err_str_test \
-             $(BUILD_DIR)/version/test/version_test
+             $(BUILD_DIR)/version/test/version_test \
+             $(BUILD_DIR)/chunk/test/reassembly_guided
 
 # The Monocypher binding, built only when MONOCYPHER_DIR names a checkout.
 #
@@ -285,7 +287,7 @@ endif
 # failures rather than as a build error.
 DEPS := $(OBJS:.o=.d) $(TEST_OBJS:.o=.d)
 
-.PHONY: all test fuzz installcheck coverage schema style codegencheck ctcheck analyze hooks clean install
+.PHONY: all test fuzz guided installcheck coverage schema style codegencheck ctcheck analyze hooks clean install
 
 # The default build does NOT build tests -- build-and-commit.md, and the
 # discipline it buys is paid for by the dependency rules above being right.
@@ -309,6 +311,13 @@ $(BUILD_DIR)/wire/generated/%.o: wire/generated/%.c
 $(BUILD_DIR)/chain/test/chain_test: $(BUILD_DIR)/chain/test/chain_test.o \
                                      $(BUILD_DIR)/chain/chain.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD_DIR)/chunk/test/reassembly_guided: \
+                     $(BUILD_DIR)/chunk/test/reassembly_guided.o \
+                     $(BUILD_DIR)/chunk/reassembly.o \
+                     $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -572,6 +581,56 @@ codegencheck: $(BUILD_DIR)/constant_time/constant_time.o \
               $(BUILD_DIR)/session/commitment.o
 	python3 tool/codegen_gate.py ct $(BUILD_DIR)/constant_time/constant_time.o
 	python3 tool/codegen_gate.py wipe $(BUILD_DIR)/session/commitment.o
+
+# COVERAGE-GUIDED FUZZING, which is a different instrument from `fuzz`.
+#
+# `fuzz` runs the model-based harnesses: a PRNG generates chunk sequences and
+# a model says what should have happened. That finds what the generator was
+# written to reach. libFuzzer keeps inputs that reach new edges and mutates
+# those, so it walks into states nobody described in advance.
+#
+# GUIDED_TIME is per harness and defaults low enough to be worth running
+# before a commit. A real campaign is `make guided GUIDED_TIME=600`.
+#
+# The corpus is NOT committed. It is tens of thousands of bytes of machine-
+# generated input whose value is local and perishable, and a crash worth
+# keeping goes into the harness as a named byte string instead -- where it is
+# reviewable and runs under plain `make test`.
+#
+# Skips loudly without a clang that has libFuzzer, on the same reasoning as
+# `analyze` and `ctcheck`: an absent tool and a clean run are otherwise the
+# same silence.
+#
+# First campaign 2026-08-26: 1.5M executions over chunk/reassembly.c under the
+# address and undefined sanitizers, 209 of 400 edges, 292 corpus units, no
+# crash. The local/ parsers were run the same way from a scratch harness:
+# 15.3M executions, coverage 2 -> 82, no crash.
+GUIDED_TIME ?= 60
+GUIDED_DIR  ?= $(BUILD_DIR)/guided
+
+guided:
+	@if ! echo 'int LLVMFuzzerTestOneInput(const unsigned char*d,unsigned long s){(void)d;(void)s;return 0;}' \
+	      | clang -fsanitize=fuzzer -x c - -o /dev/null 2>/dev/null; then \
+		echo "guided: no clang with libFuzzer, so it was SKIPPED"; exit 0; \
+	fi
+	@mkdir -p $(GUIDED_DIR)/corpus
+	@clang -O1 -g -fsanitize=fuzzer,address,undefined -DFZN_LIBFUZZER \
+	       -o $(GUIDED_DIR)/reassembly chunk/test/reassembly_guided.c \
+	       chunk/reassembly.c constant_time/constant_time.c
+	@echo "guided: chunk/reassembly.c for $(GUIDED_TIME)s -- read the coverage, not the exit code"
+	@cd $(GUIDED_DIR) && ./reassembly corpus -max_total_time=$(GUIDED_TIME) \
+	        -rss_limit_mb=2048 -max_len=4096 2>&1 | grep -E "INITED|DONE|ERROR|SUMMARY"
+	@# A CORPUS THAT DID NOT GROW MEANS THE HARNESS RETURNED EARLY, which is
+	@# how the first version of this reported 61 million clean executions
+	@# while every one of them bailed on its first line. The check is that
+	@# the run found more than the one unit libFuzzer starts with.
+	@n=`ls $(GUIDED_DIR)/corpus | wc -l`; \
+	if [ "$$n" -lt 2 ]; then \
+		echo "guided: the corpus has $$n unit(s) -- the harness is not reaching the code"; \
+		echo "guided: a run that grows no corpus is not evidence of anything."; \
+		exit 1; \
+	fi; \
+	echo "guided: $$n corpus units, so the search was real"
 
 # IS THE CONSTANT-TIME COMPARISON ACTUALLY CONSTANT-TIME?
 #
