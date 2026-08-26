@@ -141,7 +141,8 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              log/test/log_test.c \
              wire/test/relay_test.c \
              sched/test/sched_test.c \
-             link/test/link_test.c
+             link/test/link_test.c \
+             log/test/fix_stream_test.c
 TEST_OBJS := $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
 TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/chain/test/revocation_test \
@@ -181,7 +182,8 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/log/test/log_test \
              $(BUILD_DIR)/wire/test/relay_test \
              $(BUILD_DIR)/sched/test/sched_test \
-             $(BUILD_DIR)/link/test/link_test
+             $(BUILD_DIR)/link/test/link_test \
+             $(BUILD_DIR)/log/test/fix_stream_test
 
 # The Monocypher binding, built only when MONOCYPHER_DIR names a checkout.
 #
@@ -339,6 +341,12 @@ $(BUILD_DIR)/wire/generated/%.o: wire/generated/%.c
 $(BUILD_DIR)/chain/test/chain_test: $(BUILD_DIR)/chain/test/chain_test.o \
                                      $(BUILD_DIR)/chain/chain.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD_DIR)/log/test/fix_stream_test: $(BUILD_DIR)/log/test/fix_stream_test.o \
+                                       $(BUILD_DIR)/log/log.o \
+                                       $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 

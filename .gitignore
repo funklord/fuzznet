@@ -46,6 +46,7 @@
 /wire/test/relay_test
 /sched/test/sched_test
 /link/test/link_test
+/log/test/fix_stream_test
 /guided/
 /constant_time/test/secret_flow_valgrind
 

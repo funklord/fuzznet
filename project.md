@@ -1832,6 +1832,45 @@ Anchoring at zero now means follow-from-the-beginning, anchoring twice is an
 echo rather than a rewind, and the journal's own tests cover it -- but the
 harness is what asked the question.
 
+## 5i. `location` needs no module, and that is the finding
+
+**Asked to absorb it, the honest answer is that there is nothing to
+absorb** -- and the way to establish that was to build one and see what was
+missing. Nothing was. `log/test/fix_stream_test.c` is the demonstration, and
+it is a test rather than a module for exactly that reason.
+
+**fuzzypickles' own header says so first**: `location.c` is "a log-type
+subsystem like log_relay and group chat history: the same (origin, seq)
+append-only stream over append_log, with the same dedup, high-water and
+catch-up behaviour". That machinery is `record/` and `log/`, already here. A
+track is a bounded per-issuer stream whose oldest entries age out and answer
+`GONE`, served oldest-first for catch-up. The test exercises all of it with a
+19-byte fix as the body.
+
+**What stayed out had to.** A fix is packed little-endian latitude, longitude,
+time, quantised accuracy and bearing, and a flags byte. That is an
+**encoding**, and sec 2 keeps encodings out for the same reason `log/` took
+`append_log`'s sequencing and left its `"<seq> <escaped text>"` line format
+behind. The test packs and unpacks the fix itself, as a consumer would, and
+everything between is fuzznet's -- which is the seam, demonstrated rather than
+described.
+
+**The third kind of stream is the point.** Permissions, logs and now telemetry
+all ride the same (issuer, seq) machinery. Two kinds would be a coincidence;
+three is the claim sec 5 rests on when it says all three consumers use this
+library in almost the same way.
+
+**One genuinely general thing is left unsolved, and it is not location's.**
+fuzzypickles reserves a COARSE flag for **per-peer precision degradation** --
+city-level to one peer, exact to another -- and records it as an open design
+question with nothing degrading anything yet. Generalised, that is *the same
+statement at different fidelities to different recipients*, which is a
+permissions question rather than a telemetry one and would apply to any record
+this library carries. Nothing here stands in its way: a degraded fix is
+different bytes under the same sequence, and the test shows one being written
+and read. **Raised, not designed** -- it needs the holder, and it is bigger
+than the module it was noticed in.
+
 ## 5h. `link/` -- what each link is actually doing
 
 **Absorbed from fuzzypickles' `link.c`**, the companion to `sched/`: this
