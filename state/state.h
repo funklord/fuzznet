@@ -102,7 +102,15 @@ fzn_state_err_t fzn_state_apply(fzn_state_t *state, const fzn_record_t *record);
  *
  * The escape hatch for a consumer that has a conflict rule and has applied
  * it. Separate from `fzn_state_apply` so that resolving a conflict is always
- * a thing somebody wrote, never something that happened. */
+ * a thing somebody wrote, never something that happened.
+ *
+ * IDEMPOTENT, AND `FZN_STATE_ERR_STALE` IS THE ORDINARY ANSWER on a host that
+ * already holds the winner. A rule is applied across a whole network, and
+ * some hosts will have heard the winning issuer first and be right already --
+ * so a caller that treats anything but OK as failure will report a fault on
+ * exactly the hosts that had nothing wrong with them. Found by running a
+ * uniform rule across a simulated network, where half the hosts answered
+ * STALE because they were already correct. */
 fzn_state_err_t fzn_state_resolve(fzn_state_t *state, const fzn_record_t *record);
 
 /* Forget a subject and kind, if the issuer clearing it is the one that set it

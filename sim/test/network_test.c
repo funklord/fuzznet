@@ -29,7 +29,9 @@
 #include "../../chunk/reassembly.h"
 #include "../../chunk/split.h"
 #include "../../record/journal.h"
+#include "../../record/record.h"
 #include "../../record/sync.h"
+#include "../../state/state.h"
 #include "../../frame/freshness.h"
 #include "../../session/aead.h"
 #include "../../session/commitment.h"
@@ -230,6 +232,9 @@ struct sim_host {
 	 * for a scenario and is not how a consumer would store them. */
 	fzn_journal_t journal;
 	fzn_journal_entry_t jentries[SIM_HOSTS];
+	fzn_state_t state;
+	fzn_state_entry_t sentries[8];
+	unsigned conflicts;
 	uint32_t held[SIM_HOSTS];
 	uint64_t issued;
 	unsigned gaps_seen, admitted, confirmed;
@@ -361,6 +366,7 @@ static void sim_init(struct sim_net *net, size_t hosts, uint32_t seed)
 		h->authorised = 1;
 
 		fzn_journal_init(&h->journal, h->jentries, SIM_HOSTS);
+		fzn_state_init(&h->state, h->sentries, 8);
 
 		for (size_t s = 0; s < SIM_SLOTS; s++)
 			fzn_reasm_slot_init(&h->slots[s], h->bufs[s], SIM_SLOT_CAP);
@@ -1048,6 +1054,215 @@ static void scenario_distribution(void)
 	       converged, net.dropped, total_gaps, net.hosts[0].confirmed);
 }
 
+/* ------------------------------------------------------------ scenario 10
+
+   Configuration propagating, and two issuers disagreeing.
+
+   THE BODIES ARE STATIC BECAUSE THE ENTRIES POINT AT THEM. `state.h` says a
+   caller must keep a body alive for as long as an entry refers to it, since
+   nothing in this library allocates. A simulation that built records on the
+   stack would leave every host's state pointing at dead frames, and it would
+   mostly appear to work.
+
+   WHAT A CONFLICT ACTUALLY COSTS, which is the point of the scenario. Records
+   arrive in different orders at different hosts on a lossy network. With no
+   resolution rule, whichever of two issuers a host hears from FIRST is the
+   one it holds -- so hosts genuinely diverge, and `state/` is built so that
+   divergence is REPORTED at every host rather than settled differently at
+   each. The test therefore asserts three things in order: that one issuer
+   alone converges everywhere, that two issuers produce a conflict every host
+   can see, and that a consumer rule applied uniformly brings them back
+   together.  */
+
+#define STATE_HOSTS 6u
+#define KIND_SETTING 42u
+
+/* Deterministic record content, so that both ends of the simulation can build
+ * the same record from an (issuer, sequence) pair without an encoder this
+ * library does not have. */
+static uint8_t state_bodies[STATE_HOSTS][4][16];
+
+static void sim_make_record(fzn_record_t *r, const struct sim_host *issuer, uint64_t seq,
+                            uint8_t subject_seed)
+{
+	memset(r, 0, sizeof(*r));
+	memcpy(r->issuer, issuer->pubkey, FZN_PUBKEY_LEN);
+	memset(r->subject, subject_seed, FZN_SUBJECT_LEN);
+	r->kind = KIND_SETTING;
+	r->seq = seq;
+	r->issued_at = 1;
+	r->body = state_bodies[issuer->id][seq - 1u];
+	r->body_len = sizeof(state_bodies[0][0]);
+}
+
+/* Which subject a given issuer's given record is about. Alice's first record
+ * and Bob's first record deliberately name the SAME subject; everything else
+ * is the issuer's own. */
+static uint8_t subject_of(uint8_t issuer, uint64_t seq)
+{
+	if (seq == 1u)
+		return 0xC0; /* contested by both writers */
+	return (uint8_t)(0xD0u + issuer);
+}
+
+static void state_fetch(struct sim_net *net, struct sim_host *me, struct sim_host *peer,
+                        uint8_t writers)
+{
+	fzn_sync_position_t theirs[SIM_HOSTS];
+	fzn_sync_request_t want[SIM_HOSTS];
+	fzn_sync_plan_t plan;
+	size_t n = fzn_sync_digest(&peer->journal, theirs, SIM_HOSTS);
+
+	if (fzn_sync_plan_fetch(&me->journal, theirs, n, 4, want, SIM_HOSTS, &plan) !=
+	    FZN_SYNC_OK)
+		return;
+
+	for (size_t r = 0; r < plan.request_count; r++) {
+		uint8_t issuer = want[r].issuer[0];
+
+		if (issuer >= writers)
+			continue;
+		for (uint64_t seq = want[r].from; seq < want[r].from + want[r].count; seq++) {
+			fzn_record_t rec;
+
+			if (!holds(peer, issuer, seq))
+				continue;
+			if (net->loss_pct && (sim_random(net) % 100u) < net->loss_pct) {
+				net->dropped++;
+				continue;
+			}
+			if (fzn_journal_admit(&me->journal, want[r].issuer, seq) != FZN_JOURNAL_OK)
+				continue;
+
+			hold(me, issuer, seq);
+			me->admitted++;
+
+			/* RECEIVED IS NOT APPLIED. The record is now held; what
+			 * it means for current state is a separate step, and it
+			 * is where a conflict surfaces. */
+			sim_make_record(&rec, &net->hosts[issuer], seq, subject_of(issuer, seq));
+			if (fzn_state_apply(&me->state, &rec) == FZN_STATE_ERR_CONFLICT)
+				me->conflicts++;
+		}
+	}
+}
+
+static void scenario_state(void)
+{
+	static struct sim_net net;
+	uint8_t contested[FZN_SUBJECT_LEN];
+	unsigned holding_alice = 0, holding_bob = 0, saw_conflict = 0, agreed = 0;
+	const uint8_t WRITERS = 2u;
+
+	sim_init(&net, STATE_HOSTS, 0x9999u);
+	net.loss_pct = 25;
+	memset(contested, 0xC0, sizeof(contested));
+
+	for (uint8_t i = 0; i < STATE_HOSTS; i++)
+		for (size_t k = 0; k < 4; k++)
+			memset(state_bodies[i][k], (int)(0x10u + i * 4u + k),
+			       sizeof(state_bodies[0][0]));
+
+	/* Two writers, two records each: one contested subject and one of
+	 * their own. Everyone follows both. */
+	for (uint8_t i = 0; i < STATE_HOSTS; i++) {
+		for (uint8_t w = 0; w < WRITERS; w++) {
+			if (w == i)
+				continue;
+			fzn_journal_anchor(&net.hosts[i].journal, net.hosts[w].pubkey, 0);
+		}
+	}
+	for (uint8_t w = 0; w < WRITERS; w++) {
+		struct sim_host *h = &net.hosts[w];
+
+		for (uint64_t seq = 1; seq <= 2; seq++) {
+			fzn_record_t rec;
+
+			if (fzn_journal_admit(&h->journal, h->pubkey, seq) != FZN_JOURNAL_OK)
+				break;
+			hold(h, w, seq);
+			sim_make_record(&rec, h, seq, subject_of(w, seq));
+			if (fzn_state_apply(&h->state, &rec) == FZN_STATE_ERR_CONFLICT)
+				h->conflicts++;
+		}
+	}
+
+	for (unsigned round = 0; round < 30u; round++)
+		for (uint8_t i = 0; i < STATE_HOSTS; i++) {
+			uint8_t p = (uint8_t)((i + 1u + round) % STATE_HOSTS);
+
+			if (p != i)
+				state_fetch(&net, &net.hosts[i], &net.hosts[p], WRITERS);
+		}
+
+	/* AN UNCONTESTED SUBJECT CONVERGES EVERYWHERE. */
+	{
+		uint8_t own[FZN_SUBJECT_LEN];
+		unsigned same = 0;
+
+		memset(own, 0xD0, sizeof(own));
+		for (uint8_t i = 0; i < STATE_HOSTS; i++) {
+			const fzn_state_entry_t *e =
+			        fzn_state_get(&net.hosts[i].state, own, KIND_SETTING);
+
+			if (e && e->body == state_bodies[0][1])
+				same++;
+		}
+		check(same == STATE_HOSTS, "an uncontested setting did not reach every host");
+	}
+
+	/* THE CONTESTED ONE. Every host must hold one of the two, and every
+	 * host that met the second must have SEEN the conflict. */
+	for (uint8_t i = 0; i < STATE_HOSTS; i++) {
+		const fzn_state_entry_t *e =
+		        fzn_state_get(&net.hosts[i].state, contested, KIND_SETTING);
+
+		if (!e)
+			continue;
+		if (memcmp(e->issuer, net.hosts[0].pubkey, FZN_PUBKEY_LEN) == 0)
+			holding_alice++;
+		else
+			holding_bob++;
+		saw_conflict += net.hosts[i].conflicts ? 1u : 0u;
+	}
+
+	check(holding_alice + holding_bob == STATE_HOSTS,
+	      "every host should hold one of the two contested values");
+	check(saw_conflict == STATE_HOSTS,
+	      "every host should have seen the conflict rather than silently picking");
+
+	/* THE CONSUMER'S RULE, APPLIED UNIFORMLY: the lower issuer key wins.
+	 * The library supplies no such rule and this is not one it endorses --
+	 * it is the consumer choosing, which is exactly what fzn_state_resolve
+	 * exists to make visible. */
+	for (uint8_t i = 0; i < STATE_HOSTS; i++) {
+		fzn_record_t winner;
+		fzn_state_err_t err;
+
+		sim_make_record(&winner, &net.hosts[0], 1, 0xC0);
+		err = fzn_state_resolve(&net.hosts[i].state, &winner);
+		/* STALE is the ordinary answer on a host that already held the
+		 * winner, and there are always some: a rule applied across a
+		 * network meets hosts that heard the winning issuer first. A
+		 * caller treating anything but OK as failure would report a
+		 * fault on exactly the hosts that had nothing wrong. */
+		check(err == FZN_STATE_OK || err == FZN_STATE_ERR_STALE,
+		      "resolving the conflict was refused");
+	}
+
+	for (uint8_t i = 0; i < STATE_HOSTS; i++) {
+		const fzn_state_entry_t *e =
+		        fzn_state_get(&net.hosts[i].state, contested, KIND_SETTING);
+
+		if (e && memcmp(e->issuer, net.hosts[0].pubkey, FZN_PUBKEY_LEN) == 0)
+			agreed++;
+	}
+	check(agreed == STATE_HOSTS, "the hosts did not converge after the rule was applied");
+
+	printf("  state: %u held alice, %u held bob, %u saw the conflict, %u agreed after\n",
+	       holding_alice, holding_bob, saw_conflict, agreed);
+}
+
 int main(void)
 {
 	scenario_mesh();
@@ -1059,6 +1274,7 @@ int main(void)
 	scenario_lossy();
 	scenario_splice();
 	scenario_distribution();
+	scenario_state();
 
 	printf("network_test: %d checks, %d failure(s); fuzznet %s\n", checks, failures,
 	       fzn_version_string());

@@ -1881,6 +1881,39 @@ Cleared slots are reused now.
 exercises set, supersede, stale and conflict rather than merely including the
 header.
 
+### Configuration across the network, and a real conflict (scenario 10)
+
+**Six hosts, 25% loss, two issuers writing the same subject.** Result:
+
+    state: 3 held alice, 3 held bob, 6 saw the conflict, 6 agreed after
+
+**The divergence is the finding, and it is by design rather than in spite of
+it.** Records arrive in different orders on a lossy network, so with no
+resolution rule whichever issuer a host hears from FIRST is the one it holds.
+Half the network held one value and half the other -- and **every host
+reported the conflict**. That is the property `state/` is built for: without a
+policy, disagreement must be *visible at every host* rather than settled
+differently at each and noticed by nobody. A library that silently took the
+newest would have produced the same split with nothing to show for it.
+
+Applying a consumer rule uniformly -- lowest issuer key wins, which the
+library neither supplies nor endorses -- brought all six back together.
+
+**A usability defect the simulation found that no unit test would have.**
+`fzn_state_resolve` returns `FZN_STATE_ERR_STALE` on a host that already holds
+the winner, and a rule applied across a network always meets some: the hosts
+that happened to hear the winning issuer first were already right. The first
+version of the scenario treated anything but OK as failure and reported a
+fault on exactly the hosts that had nothing wrong with them. **Resolve is
+idempotent and STALE is its ordinary answer**, which the header now says --
+found only because the rule was applied to a whole network rather than to one
+state.
+
+**The bodies are static, and the reason is in the header.** `state.h` says an
+entry points at the caller's bytes and the caller must keep them alive.
+A simulation building records on the stack would leave every host's state
+pointing at dead frames, and would mostly appear to work.
+
 ## 5a. The integration harness
 
 **`sim/test/network_test.c` is a fake network of hosts, and it exists because
