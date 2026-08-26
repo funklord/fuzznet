@@ -1033,6 +1033,71 @@ static void scenario_splice(void)
 	printf("  splice: %u delivered, %u spliced\n", net.hosts[2].delivered, wrong);
 }
 
+/* ------------------------------------------------------------ scenario 8b
+
+   Substitution. A host presents somebody else's grant as its own. Nothing is
+   forged: the chain is genuine, correctly signed, names the right capability
+   and verifies against the pinned root. It simply names a different grantee
+   than the host that is sending.
+
+   This is the cheapest attack on the whole design, because a chain is not a
+   secret -- it travels in the clear and any host that has ever received one
+   holds a copy. What stops it is the receiver comparing the grantee the
+   chain proves against the sender the frame names, and until now nothing
+   exercised that comparison: every scenario sent under its own grant, so the
+   two were equal in every frame the suite had ever produced.  */
+
+static void scenario_substitution(void)
+{
+	static struct sim_net net;
+	static uint8_t msg[256];
+
+	sim_init(&net, 4, 0x8888u);
+	fill_message(msg, sizeof(msg), 23);
+
+	/* Host 2 takes host 0's chain wholesale. The signed regions come with
+	 * it and are re-pointed into host 2's own storage, so the hops do not
+	 * reference another host's memory -- the harness's ownership rule, not
+	 * a property of the attack. */
+	memcpy(net.hosts[2].chain, net.hosts[0].chain, sizeof(net.hosts[0].chain));
+	memcpy(net.hosts[2].signed_region, net.hosts[0].signed_region,
+	       sizeof(net.hosts[0].signed_region));
+	for (size_t i = 0; i < net.hosts[0].chain_len; i++)
+		net.hosts[2].chain[i].signed_region = net.hosts[2].signed_region[i];
+	net.hosts[2].chain_len = net.hosts[0].chain_len;
+
+	check(sim_send(&net, 2, 1, msg, sizeof(msg), net.now + 100u), "the send was refused");
+	sim_run(&net, 3);
+
+	check(net.hosts[1].delivered == 0,
+	      "a host was accepted while acting on somebody else's grant");
+	check(net.hosts[1].refused_auth > 0, "the substituted grant was not refused");
+	/* The frame itself is impeccable -- correct key, correct commitment,
+	 * valid tag. Asserting this separates "refused because the binding
+	 * failed" from "refused because something was malformed". */
+	check(net.hosts[1].refused_shape == 0, "the frame itself should have been well formed");
+
+	/* The control, for the reason the other refusal scenarios carry one:
+	 * host 0 sending under the very same chain must be delivered. */
+	{
+		static struct sim_net control;
+		static uint8_t control_msg[256];
+
+		sim_init(&control, 4, 0x8888u);
+		fill_message(control_msg, sizeof(control_msg), 23);
+		check(sim_send(&control, 0, 1, control_msg, sizeof(control_msg),
+		               control.now + 100u),
+		      "the control send was refused");
+		sim_run(&control, 3);
+		check(control.hosts[1].delivered > 0,
+		      "the same chain did not work for its own grantee either, so the "
+		      "refusal above is not evidence the binding caused it");
+	}
+
+	printf("  substitution: %u refused on authority, %u delivered\n",
+	       net.hosts[1].refused_auth, net.hosts[1].delivered);
+}
+
 /* ------------------------------------------------------------- scenario 9
 
    Records distributed, received and finalised across a lossy network.
@@ -1645,6 +1710,7 @@ int main(void)
 	scenario_delegation();
 	scenario_lossy();
 	scenario_splice();
+	scenario_substitution();
 	scenario_distribution();
 	scenario_state();
 	scenario_join();
