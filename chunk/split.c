@@ -76,6 +76,28 @@ fzn_split_err_t fzn_split_at(const fzn_split_t *plan, uint16_t index, size_t *of
 		return FZN_SPLIT_ERR_MALFORMED;
 	if ((size_t)index > (plan->total - 1u) / plan->chunk_size)
 		return FZN_SPLIT_ERR_MALFORMED;
+	/* AND `chunks` MUST BE THE COUNT THIS STRIDE ACTUALLY PRODUCES.
+	 *
+	 * The guard above establishes only that the piece STARTS inside the
+	 * message. `*len` below is the full stride for any index that is not
+	 * the last, so a plan claiming more chunks than the stride yields makes
+	 * a non-final piece out of the message's tail and runs past the end:
+	 * `{total = 10, chunk_size = 4, chunks = 100}` at index 2 returned OK
+	 * with offset 8 and length 4, which is bytes 8..11 of ten. ASan reports
+	 * the read at the CALL SITE, which is the damage the comment above
+	 * describes -- "a caller does not copy the plan's bytes itself, it
+	 * copies what this function hands back". That reasoning closed the
+	 * last-piece branch and left the other one open.
+	 *
+	 * The opposite error is caught by the same line: a plan understating
+	 * `chunks` makes the final piece many strides long, which overreads
+	 * nothing but is unframeable.
+	 *
+	 * Written as a division rather than `total + chunk_size - 1` because
+	 * that addition can wrap, and this function's whole premise is that the
+	 * plan is untrusted. `total >= 1` holds from the check above. */
+	if ((size_t)plan->chunks != (plan->total - 1u) / plan->chunk_size + 1u)
+		return FZN_SPLIT_ERR_MALFORMED;
 
 	start = (size_t)index * plan->chunk_size;
 
