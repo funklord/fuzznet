@@ -84,8 +84,6 @@
 #define SLOT_BYTES 512
 #define REVS 4
 
-static const uint8_t REGION[] = "a hop, as the schema would lay it out";
-
 /* THE VERDICT IS A FUNCTION OF THE KEY, NOT A GLOBAL YES OR NO.
  *
  * This stub opened `(void)pubkey;` and returned one `answer` whatever key it
@@ -113,6 +111,23 @@ static int stub_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const ui
 	(void)sig;
 	s->calls++;
 	return (int)((s->good >> (pubkey[0] & 31u)) & 1u);
+}
+
+/* The signing half. `stub_verify`'s verdict is a function of the KEY, so the
+ * signature's content is not read -- but a signer must exist, because
+ * `fzn_chain_mint` cannot produce a hop without one. Filling it from the
+ * message keeps it honest rather than constant. */
+static int stub_sign(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg, size_t msg_len)
+{
+	uint32_t acc = 0x9e3779b9u;
+	size_t i;
+
+	(void)ctx;
+	for (i = 0; i < msg_len; i++)
+		acc = (acc * 31u) + msg[i];
+	for (i = 0; i < FZN_SIG_LEN; i++)
+		sig[i] = (uint8_t)(acc >> ((i % 4u) * 8u));
+	return 1;
 }
 
 struct coverage {
@@ -170,7 +185,8 @@ static int receive_one(struct receiver *r, uint64_t now, const uint8_t *data, si
 	fzn_chain_hop_t hop;
 	fzn_chain_t chain;
 	struct signer signer = { 0, 0xffffffffu };
-	fzn_sign_ops_t sign = { stub_verify, NULL, &signer };
+	fzn_sign_ops_t sign = { stub_verify, stub_sign, &signer };
+	uint8_t hop_bytes[FZN_HOP_LEN];
 	uint8_t root[FZN_PUBKEY_LEN], cap[FZN_CAP_ID_LEN], sender[FZN_SENDER_LEN];
 	uint8_t nonce[FZN_NONCE_LEN], payload[64];
 	uint64_t expires_at;
@@ -224,14 +240,25 @@ static int receive_one(struct receiver *r, uint64_t now, const uint8_t *data, si
 		signer.good &= ~(1u << (0x01u & 31u)); /* the root's key, memset below */
 	memset(payload, data[10], sizeof(payload));
 
-	memset(&hop, 0, sizeof(hop));
-	memcpy(hop.grantor, root, sizeof(root));
-	memcpy(hop.capability, cap, sizeof(cap));
-	memset(hop.grantee, 0x09, sizeof(hop.grantee));
-	hop.issued_at = 100;
-	hop.expires_at = 0;
-	hop.signed_region = REGION;
-	hop.signed_region_len = sizeof(REGION) - 1;
+	/* A REAL HOP, ENCODED AND SIGNED. This used to fill a struct and point
+	 * `signed_region` at a fixed literal, so the fields and the bytes the
+	 * signature covered had no relationship -- which is precisely the
+	 * defect the binding closed. A harness cannot demonstrate a property
+	 * the library does not have, and this one could not have. */
+	{
+		uint8_t grantee[FZN_PUBKEY_LEN];
+
+		memset(grantee, 0x09, sizeof(grantee));
+		if (fzn_chain_mint(root, grantee, cap, 100, FZN_NO_EXPIRY, 0, &sign,
+		                   hop_bytes) != FZN_CHAIN_OK) {
+			printf("  ORDER: the harness could not mint a hop\n");
+			return 1;
+		}
+		if (fzn_hop_open(hop_bytes, FZN_HOP_LEN, &hop) != FZN_CHAIN_OK) {
+			printf("  ORDER: the harness could not open the hop it minted\n");
+			return 1;
+		}
+	}
 
 	live_before = 0;
 	for (size_t i = 0; i < SLOTS; i++)

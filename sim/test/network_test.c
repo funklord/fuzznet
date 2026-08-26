@@ -154,31 +154,16 @@ static void sim_sign_bytes(const uint8_t *msg, size_t len, uint8_t sig[FZN_SIG_L
 		sig[i] = (uint8_t)(mix(acc + (uint32_t)i) >> 11);
 }
 
-static void sim_sign_hop(fzn_chain_hop_t *hop, uint8_t *region)
-{
-	fzn_chain_hop_t bare = *hop;
-
-	memset(bare.signature, 0, FZN_SIG_LEN);
-	bare.signed_region = NULL;
-	bare.signed_region_len = 0;
-	memcpy(region, &bare, sizeof(bare));
-	sim_sign_bytes(region, sizeof(bare), hop->signature);
-	hop->signed_region = region;
-	hop->signed_region_len = sizeof(bare);
-}
-
-static void sim_sign_record(fzn_revocation_record_t *rec, uint8_t *region)
-{
-	fzn_revocation_record_t bare = *rec;
-
-	memset(bare.signature, 0, FZN_SIG_LEN);
-	bare.signed_region = NULL;
-	bare.signed_region_len = 0;
-	memcpy(region, &bare, sizeof(bare));
-	sim_sign_bytes(region, sizeof(bare), rec->signature);
-	rec->signed_region = region;
-	rec->signed_region_len = sizeof(bare);
-}
+/* THE TWO SIGNERS THIS FILE USED TO CARRY ARE GONE, and what they were is
+ * worth recording because it is the defect in miniature.
+ *
+ * `sim_sign_hop` did `memcpy(region, &bare, sizeof(bare))` -- it signed the
+ * STRUCT, padding included. That binds within one process and one ABI and
+ * cannot cross a host boundary, and it was the only thing in the tree
+ * producing any agreement at all between a hop's fields and its signed bytes.
+ * It existed because the library had no encoder; there is one now, so the
+ * simulation mints through `fzn_chain_mint` and `fzn_revocation_issue` like
+ * any consumer, and the bytes it signs are the bytes the wire carries. */
 
 /* The signing half of the vtable. Supplying only `verify` is what the first
  * version of this did, and `fzn_chain_delegate` answered "malformed argument"
@@ -215,9 +200,12 @@ struct sim_host {
 
 	/* The chain proving this host may act. One hop for a host the root
 	 * granted directly, two for one that was delegated to. */
+	/* The encoded hops, and views onto them. A hop is a view now, so the
+	 * bytes must outlive it -- which is the property bought: a field
+	 * cannot disagree with the signature because there is one of them. */
+	uint8_t hop_bytes[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
 	fzn_chain_hop_t chain[FZN_CHAIN_MAX_HOPS];
 	size_t chain_len;
-	uint8_t signed_region[FZN_CHAIN_MAX_HOPS][sizeof(fzn_chain_hop_t)];
 	int authorised; /* 0 means the host has no valid grant */
 
 	fzn_replay_window_t window;
@@ -300,6 +288,11 @@ struct sim_net {
  * count that grows with the number of rounds is not a measure of what is
  * checked, and it was mine -- added earlier today. */
 static unsigned total_digest_dropped;
+
+/* Grants the harness could not mint or open while setting a scenario up,
+ * summed over the whole run and asserted once. Same reason as the counter
+ * above: a per-host `check()` inflates the count without measuring more. */
+static unsigned setup_faults;
 
 static uint32_t sim_random(struct sim_net *net)
 {
@@ -385,13 +378,16 @@ static void sim_init(struct sim_net *net, size_t hosts, uint32_t seed)
 		sim_identity(h->id, h->pubkey);
 
 		memset(h->chain, 0, sizeof(h->chain));
-		memcpy(h->chain[0].grantor, net->root, FZN_PUBKEY_LEN);
-		memcpy(h->chain[0].grantee, h->pubkey, FZN_PUBKEY_LEN);
-		memcpy(h->chain[0].capability, net->capability, FZN_CAP_ID_LEN);
-		h->chain[0].issued_at = 1;
-		h->chain[0].expires_at = FZN_NO_EXPIRY;
-		h->chain[0].delegable = 1;
-		sim_sign_hop(&h->chain[0], h->signed_region[0]);
+		/* ACCUMULATED, NOT CHECKED HERE. `sim_init` runs once per
+		 * scenario and mints for every host, so a `check()` in this
+		 * loop is a few hundred of them -- and a check count that grows
+		 * with the number of hosts measures the harness rather than the
+		 * library. Asserted once, in main. */
+		if (fzn_chain_mint(net->root, h->pubkey, net->capability, 1, FZN_NO_EXPIRY, 1,
+		                   &net->sign, h->hop_bytes[0]) != FZN_CHAIN_OK)
+			setup_faults++;
+		if (fzn_hop_open(h->hop_bytes[0], FZN_HOP_LEN, &h->chain[0]) != FZN_CHAIN_OK)
+			setup_faults++;
 		h->chain_len = 1;
 		h->authorised = 1;
 
@@ -738,7 +734,7 @@ static void scenario_revocation(void)
 	static struct sim_net net;
 	static uint8_t msg[3000];
 	fzn_revocation_record_t rec;
-	static uint8_t rec_region[sizeof(fzn_revocation_record_t)];
+	static uint8_t rec_region[FZN_REVOCATION_LEN];
 
 	sim_init(&net, 4, 0x2222u);
 	fill_message(msg, sizeof(msg), 11);
@@ -754,13 +750,12 @@ static void scenario_revocation(void)
 
 	/* Signed by the root, because only the root revokes and the store
 	 * verifies that rather than trusting the caller. */
-	memset(&rec, 0, sizeof(rec));
-	memcpy(rec.capability, net.capability, FZN_CAP_ID_LEN);
-	memcpy(rec.grantee, net.hosts[2].pubkey, FZN_PUBKEY_LEN);
-	memcpy(rec.issuer, net.root, FZN_PUBKEY_LEN);
-	rec.issued_at = net.now;
-	sim_sign_record(&rec, rec_region);
-	check(fzn_revocation_admit(&net.revocations, &rec, net.root, &net.sign) == FZN_CHAIN_OK,
+	check(fzn_revocation_issue(net.root, net.capability, net.hosts[2].pubkey, net.now,
+	                           &net.sign, rec_region) == FZN_CHAIN_OK,
+	      "the simulation could not issue a revocation");
+	check(fzn_revocation_open(rec_region, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK,
+	      "the simulation could not open the revocation it issued");
+	check(fzn_revocation_admit(&net.revocations, rec, net.root, &net.sign) == FZN_CHAIN_OK,
 	      "the signed revocation was refused");
 
 	sim_run(&net, 10);
@@ -866,8 +861,17 @@ static void scenario_unauthorised(void)
 	/* Forge: the grant now claims a capability nobody granted. The
 	 * signature still covers it, so this is a well-formed lie rather than
 	 * a corrupt one. */
-	memset(net.hosts[0].chain[0].capability, 0xee, FZN_CAP_ID_LEN);
-	sim_sign_hop(&net.hosts[0].chain[0], net.hosts[0].signed_region[0]);
+	{
+		uint8_t forged_cap[FZN_CAP_ID_LEN];
+
+		memset(forged_cap, 0xee, sizeof(forged_cap));
+		check(fzn_chain_mint(net.root, net.hosts[0].pubkey, forged_cap, 1, FZN_NO_EXPIRY,
+		                     1, &net.sign, net.hosts[0].hop_bytes[0]) == FZN_CHAIN_OK,
+		      "the forged grant could not be minted");
+		check(fzn_hop_open(net.hosts[0].hop_bytes[0], FZN_HOP_LEN,
+		                   &net.hosts[0].chain[0]) == FZN_CHAIN_OK,
+		      "the forged grant could not be opened");
+	}
 
 	check(sim_send(&net, 0, 1, msg, sizeof(msg), net.now + 100u), "the send was refused");
 	sim_run(&net, 3);
@@ -910,7 +914,6 @@ static void scenario_delegation(void)
 	static struct sim_net net;
 	static uint8_t msg[600];
 	struct sim_host *from = NULL, *to = NULL;
-	fzn_chain_hop_t minted;
 	fzn_chain_err_t err;
 
 	sim_init(&net, 4, 0x5555u);
@@ -920,22 +923,21 @@ static void scenario_delegation(void)
 
 	/* Host 1's own root grant is discarded, so that anything it sends must
 	 * travel on the delegation or not at all. */
-	memset(&minted, 0, sizeof(minted));
+	/* The delegated hop is written straight into the recipient's own
+	 * storage. A hop is a view now, so "take ownership of the region" is
+	 * no longer a step a harness has to remember -- the bytes ARE the hop,
+	 * and minting into `to->hop_bytes[1]` is the whole of it. */
 	err = fzn_chain_delegate(from->chain, from->chain_len, net.root, net.capability, net.now,
-	                         to->pubkey, FZN_NO_EXPIRY, 0, from->signed_region[1],
-	                         sizeof(fzn_chain_hop_t), &net.sign, NULL, 0, &minted);
+	                         to->pubkey, FZN_NO_EXPIRY, 0, &net.sign, NULL, 0,
+	                         to->hop_bytes[1]);
 	check(err == FZN_CHAIN_OK, "the delegation was refused");
 
 	if (err == FZN_CHAIN_OK) {
-		to->chain[0] = from->chain[0];
-		memcpy(to->signed_region[0], from->signed_region[0], sizeof(fzn_chain_hop_t));
-		to->chain[0].signed_region = to->signed_region[0];
-		/* The library minted and signed it; the harness only takes
-		 * ownership of the region so the hop does not point into
-		 * another host's memory. */
-		to->chain[1] = minted;
-		memcpy(to->signed_region[1], minted.signed_region, minted.signed_region_len);
-		to->chain[1].signed_region = to->signed_region[1];
+		memcpy(to->hop_bytes[0], from->hop_bytes[0], FZN_HOP_LEN);
+		check(fzn_hop_open(to->hop_bytes[0], FZN_HOP_LEN, &to->chain[0]) == FZN_CHAIN_OK,
+		      "the copied root grant would not open");
+		check(fzn_hop_open(to->hop_bytes[1], FZN_HOP_LEN, &to->chain[1]) == FZN_CHAIN_OK,
+		      "the delegated hop would not open");
 		to->chain_len = 2;
 
 		check(sim_send(&net, 1, 2, msg, sizeof(msg), net.now + 100u),
@@ -1089,15 +1091,16 @@ static void scenario_substitution(void)
 	sim_init(&net, 4, 0x8888u);
 	fill_message(msg, sizeof(msg), 23);
 
-	/* Host 2 takes host 0's chain wholesale. The signed regions come with
-	 * it and are re-pointed into host 2's own storage, so the hops do not
-	 * reference another host's memory -- the harness's ownership rule, not
-	 * a property of the attack. */
-	memcpy(net.hosts[2].chain, net.hosts[0].chain, sizeof(net.hosts[0].chain));
-	memcpy(net.hosts[2].signed_region, net.hosts[0].signed_region,
-	       sizeof(net.hosts[0].signed_region));
+	/* Host 2 takes host 0's chain wholesale -- the BYTES, which is all a
+	 * chain is. Copying them is exactly what an attacker does, since a
+	 * chain travels in the clear and anyone who has been talked to holds a
+	 * copy. The re-pointing this used to need is gone: a hop is a view, so
+	 * opening host 2's own copy is the whole of taking ownership. */
+	memcpy(net.hosts[2].hop_bytes, net.hosts[0].hop_bytes, sizeof(net.hosts[0].hop_bytes));
 	for (size_t i = 0; i < net.hosts[0].chain_len; i++)
-		net.hosts[2].chain[i].signed_region = net.hosts[2].signed_region[i];
+		check(fzn_hop_open(net.hosts[2].hop_bytes[i], FZN_HOP_LEN,
+		                   &net.hosts[2].chain[i]) == FZN_CHAIN_OK,
+		      "the stolen chain would not open");
 	net.hosts[2].chain_len = net.hosts[0].chain_len;
 
 	check(sim_send(&net, 2, 1, msg, sizeof(msg), net.now + 100u), "the send was refused");
@@ -1669,8 +1672,13 @@ static void scenario_join(void)
 		fzn_chain_t proven;
 		unsigned refused_before;
 
-		memcpy(attacker->chain[0].grantor, rogue_root, FZN_PUBKEY_LEN);
-		sim_sign_hop(&attacker->chain[0], attacker->signed_region[0]);
+		check(fzn_chain_mint(rogue_root, attacker->pubkey, net.capability, 1,
+		                     FZN_NO_EXPIRY, 1, &net.sign,
+		                     attacker->hop_bytes[0]) == FZN_CHAIN_OK,
+		      "the rogue grant could not be minted");
+		check(fzn_hop_open(attacker->hop_bytes[0], FZN_HOP_LEN,
+		                   &attacker->chain[0]) == FZN_CHAIN_OK,
+		      "the rogue grant could not be opened");
 
 		/* It really does verify -- under its own root. Otherwise this
 		 * would be testing a broken chain rather than a foreign one. */
@@ -1847,6 +1855,7 @@ int main(void)
 
 	/* Asserted ONCE, not once per fetch. See `digest_dropped`. */
 	check(total_digest_dropped == 0, "a simulation digest buffer was too small");
+	check(setup_faults == 0, "the simulation could not mint or open a host's grant");
 
 	printf("network_test: %d checks, %d failure(s); fuzznet %s\n", checks, failures,
 	       fzn_version_string());

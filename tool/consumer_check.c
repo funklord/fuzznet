@@ -71,6 +71,7 @@
 #include "trust/trust.h"
 #include "session/random_system.h"
 #include "version/version.h"
+#include "wire/bytes.h"
 #include "wire/relay.h"
 #include "wire/seal.h"
 #endif
@@ -107,10 +108,25 @@ static int always_good(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const ui
 	return 1;
 }
 
+/* The signing half. A consumer that builds a record or mints a hop needs one,
+ * and the installed headers are what this file exercises. */
+static int always_sign(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg, size_t msg_len)
+{
+	uint32_t acc = 0x9e3779b9u;
+	size_t i;
+
+	(void)ctx;
+	for (i = 0; i < msg_len; i++)
+		acc = (acc * 31u) + msg[i];
+	for (i = 0; i < FZN_SIG_LEN; i++)
+		sig[i] = (uint8_t)(acc >> ((i % 4u) * 8u));
+	return 1;
+}
+
 int main(void)
 {
-	static const uint8_t region[] = "a signed region";
-	fzn_sign_ops_t sign = { always_good, NULL, NULL };
+	uint8_t hop_bytes[FZN_HOP_LEN];
+	fzn_sign_ops_t sign = { always_good, always_sign, NULL };
 	fzn_replay_entry_t window_storage[4];
 	fzn_replay_window_t window;
 	fzn_revocation_store_t store;
@@ -144,6 +160,11 @@ int main(void)
 		memset(issuer, 0x77, sizeof(issuer));
 		if (fzn_journal_init(&journal, slots, 2) != FZN_JOURNAL_OK)
 			return 30;
+		/* FOLLOWING AN ISSUER IS A DECISION. Admitting no longer adopts
+		 * one, so a consumer anchors first -- which is the step this
+		 * file exists to show. */
+		if (fzn_journal_anchor(&journal, issuer, 0, 0) != FZN_JOURNAL_OK)
+			return 30;
 		if (fzn_journal_admit(&journal, issuer, 0, 1) != FZN_JOURNAL_OK)
 			return 31;
 		if (fzn_journal_admit(&journal, issuer, 0, 1) != FZN_JOURNAL_ERR_DUPLICATE)
@@ -153,15 +174,15 @@ int main(void)
 		{
 			fzn_sync_position_t theirs;
 			fzn_sync_request_t want;
-			fzn_sync_plan_t plan;
+			fzn_sync_plan_t sync_plan;
 
 			memcpy(theirs.issuer, issuer, FZN_PUBKEY_LEN);
 			theirs.stream = 0;
 			theirs.received = 4;
-			if (fzn_sync_plan_fetch(&journal, &theirs, 1, 8, &want, 1, &plan) !=
+			if (fzn_sync_plan_fetch(&journal, &theirs, 1, 8, &want, 1, &sync_plan) !=
 			    FZN_SYNC_OK)
 				return 34;
-			if (plan.request_count != 1 || want.from != 2 || want.count != 3)
+			if (sync_plan.request_count != 1 || want.from != 2 || want.count != 3)
 				return 35;
 		}
 	}
@@ -172,27 +193,51 @@ int main(void)
 		fzn_state_t st;
 		fzn_state_entry_t slots[2];
 		fzn_record_t r;
+		fzn_sign_ops_t ops;
+		uint8_t alice[FZN_PUBKEY_LEN], mallory[FZN_PUBKEY_LEN];
+		uint8_t subject[FZN_SUBJECT_LEN];
+		static uint8_t wire[FZN_RECORD_MAX_LEN];
 		static const uint8_t body[] = "v";
+		size_t wrote = 0;
 
 		if (fzn_state_init(&st, slots, 2) != FZN_STATE_OK)
 			return 40;
-		memset(&r, 0, sizeof(r));
-		memset(r.issuer, 0x01, sizeof(r.issuer));
-		memset(r.subject, 0x02, sizeof(r.subject));
-		r.kind = 1;
-		r.seq = 1;
-		r.body = body;
-		r.body_len = sizeof(body);
+		memset(&ops, 0, sizeof(ops));
+		ops.sign = always_sign;
+		memset(alice, 0x01, sizeof(alice));
+		memset(mallory, 0x09, sizeof(mallory));
+		memset(subject, 0x02, sizeof(subject));
+
+		/* A RECORD IS BUILT, NOT FILLED IN. This block used to memset a
+		 * struct and set its fields; a record is a view over the bytes
+		 * its signature covers now, so a consumer signs one and opens
+		 * it -- which is what this file exists to demonstrate. */
+		if (fzn_record_sign(alice, subject, 0, 1, 1, 1, body, sizeof(body), &ops, wire,
+		                    sizeof(wire), &wrote) != FZN_RECORD_OK)
+			return 41;
+		if (fzn_record_open(wire, wrote, &r) != FZN_RECORD_OK)
+			return 41;
 		if (fzn_state_apply(&st, &r) != FZN_STATE_OK)
 			return 41;
-		r.seq = 2;
+
+		if (fzn_record_sign(alice, subject, 0, 1, 2, 1, body, sizeof(body), &ops, wire,
+		                    sizeof(wire), &wrote) != FZN_RECORD_OK ||
+		    fzn_record_open(wire, wrote, &r) != FZN_RECORD_OK)
+			return 42;
 		if (fzn_state_apply(&st, &r) != FZN_STATE_OK)
 			return 42;
-		r.seq = 1;
+
+		if (fzn_record_sign(alice, subject, 0, 1, 1, 1, body, sizeof(body), &ops, wire,
+		                    sizeof(wire), &wrote) != FZN_RECORD_OK ||
+		    fzn_record_open(wire, wrote, &r) != FZN_RECORD_OK)
+			return 43;
 		if (fzn_state_apply(&st, &r) != FZN_STATE_ERR_STALE)
 			return 43;
-		memset(r.issuer, 0x09, sizeof(r.issuer));
-		r.seq = 99;
+
+		if (fzn_record_sign(mallory, subject, 0, 1, 99, 1, body, sizeof(body), &ops, wire,
+		                    sizeof(wire), &wrote) != FZN_RECORD_OK ||
+		    fzn_record_open(wire, wrote, &r) != FZN_RECORD_OK)
+			return 44;
 		if (fzn_state_apply(&st, &r) != FZN_STATE_ERR_CONFLICT)
 			return 44;
 		if (fzn_state_count(&st) != 1)
@@ -224,23 +269,42 @@ int main(void)
 		fzn_log_t lg;
 		fzn_log_entry_t slots[2];
 		fzn_record_t r;
+		fzn_journal_t jr;
+		fzn_journal_entry_t jslots[2];
+		fzn_sign_ops_t ops;
 		const fzn_log_entry_t *e;
+		uint8_t who[FZN_PUBKEY_LEN], subject[FZN_SUBJECT_LEN];
+		static uint8_t wire[FZN_RECORD_MAX_LEN];
 		static const uint8_t b[] = "x";
+		size_t wrote = 0;
 
 		if (fzn_log_init(&lg, slots, 2) != FZN_LOG_OK)
 			return 60;
-		memset(&r, 0, sizeof(r));
-		memset(r.issuer, 0x41, sizeof(r.issuer));
-		r.body = b;
-		r.body_len = sizeof(b);
+		if (fzn_journal_init(&jr, jslots, 2) != FZN_JOURNAL_OK)
+			return 60;
+		memset(&ops, 0, sizeof(ops));
+		ops.sign = always_sign;
+		memset(who, 0x41, sizeof(who));
+		memset(subject, 0, sizeof(subject));
+		if (fzn_journal_anchor(&jr, who, 0, 0) != FZN_JOURNAL_OK)
+			return 60;
+
 		for (uint64_t q = 1; q <= 3; q++) {
-			r.seq = q;
+			if (fzn_record_sign(who, subject, 0, 1, q, 1, b, sizeof(b), &ops, wire,
+			                    sizeof(wire), &wrote) != FZN_RECORD_OK ||
+			    fzn_record_open(wire, wrote, &r) != FZN_RECORD_OK)
+				return 61;
 			if (fzn_log_append(&lg, &r) != FZN_LOG_OK)
 				return 61;
+			if (fzn_journal_admit(&jr, who, 0, q) != FZN_JOURNAL_OK)
+				return 61;
 		}
-		if (fzn_log_get(&lg, r.issuer, 0, 1, &e) != FZN_LOG_ERR_GONE)
+		/* GONE COMES FROM THE POSITION, so the journal is a parameter --
+		 * a log alone cannot tell what retention removed from what never
+		 * arrived. */
+		if (fzn_log_get(&lg, &jr, who, 0, 1, &e) != FZN_LOG_ERR_GONE)
 			return 62;
-		if (fzn_log_get(&lg, r.issuer, 0, 9, &e) != FZN_LOG_ERR_ABSENT)
+		if (fzn_log_get(&lg, &jr, who, 0, 9, &e) != FZN_LOG_ERR_ABSENT)
 			return 63;
 		if (fzn_log_dropped(&lg) != 1)
 			return 64;
@@ -322,7 +386,10 @@ int main(void)
 	if (fzn_split_plan(100, 8, &plan) != FZN_SPLIT_OK || plan.chunks != 13)
 		return 2;
 
-	if (fzn_replay_init(&window, window_storage, 4) != FZN_FRESH_OK)
+	/* The horizon is set beside the capacity, because they are two halves
+	 * of one sizing decision: the window must hold what can arrive within
+	 * the longest expiry it will accept. */
+	if (fzn_replay_init(&window, window_storage, 4, 4000) != FZN_FRESH_OK)
 		return 3;
 	if (fzn_replay_admit(&window, nonce, 2000, FZN_EXPIRY_REQUIRED, 1000) != FZN_FRESH_OK)
 		return 4;
@@ -333,13 +400,22 @@ int main(void)
 	if (fzn_revocation_store_init(&store, store_storage, 4) != FZN_CHAIN_OK)
 		return 6;
 
-	memset(&hop, 0, sizeof(hop));
-	memcpy(hop.grantor, root, sizeof(root));
-	memcpy(hop.capability, cap, sizeof(cap));
-	memset(hop.grantee, 0x09, sizeof(hop.grantee));
-	hop.issued_at = 100;
-	hop.signed_region = region;
-	hop.signed_region_len = sizeof(region) - 1;
+	/* A REAL HOP, MINTED AND OPENED. This used to point `signed_region` at
+	 * the literal "a signed region" while filling the fields separately --
+	 * which demonstrated to every consumer reading this file exactly the
+	 * shape that made a captured signature reusable with rewritten fields.
+	 * A hop is a view over the bytes its signature covers now, so there is
+	 * no separate set of fields to disagree. */
+	{
+		uint8_t grantee[FZN_PUBKEY_LEN];
+
+		memset(grantee, 0x09, sizeof(grantee));
+		if (fzn_chain_mint(root, grantee, cap, 100, FZN_NO_EXPIRY, 0, &sign,
+		                   hop_bytes) != FZN_CHAIN_OK)
+			return 7;
+		if (fzn_hop_open(hop_bytes, FZN_HOP_LEN, &hop) != FZN_CHAIN_OK)
+			return 7;
+	}
 
 	if (fzn_chain_verify(&hop, 1, root, cap, 2000, &sign, store.entries, store.used,
 	                     &chain) != FZN_CHAIN_OK)

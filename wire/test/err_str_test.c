@@ -104,7 +104,7 @@ struct subject {
 /* The pinned counts. Each is the number of enumerators in that type, and
  * moving one without moving the other is the failure this table catches. */
 static const struct subject SUBJECTS[] = {
-	{ "fzn_chain_err_str", r_chain, -1, 8 },
+	{ "fzn_chain_err_str", r_chain, -1, 9 },
 	{ "fzn_commitment_err_str", r_commitment, -1, 4 },
 	{ "fzn_fresh_err_str", r_fresh, -1, 7 },
 	{ "fzn_reasm_err_str", r_reasm, -1, 8 },
