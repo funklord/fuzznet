@@ -1,4 +1,5 @@
-/* Revocation: the store, and what it takes to put something in it.
+/* Revocation: the record, the store, and what it takes to put something in
+ * it.
  *
  * project.md sec 4.2 is half built without this. It says a capability chain
  * is "verified against a pinned root rather than adopted, WITH REVOCATION
@@ -27,6 +28,17 @@
  * stranger and still mean something, which is the property "on contact"
  * actually requires.
  *
+ * A RECORD IS A VIEW OVER BYTES (2026-08-27), and it had the same defect a
+ * hop did, one layer worse. This struct used to carry `capability`,
+ * `grantee`, `issuer` and `issued_at` as decoded fields beside an opaque
+ * `signed_region` nothing compared them against, and `fzn_revocation_admit`
+ * pinned the issuer, verified the signature over the region, and then stored
+ * the FIELDS. So one genuine root-signed revocation could be replayed with
+ * `grantee` rewritten to any host an attacker cared to name -- a permanent
+ * forged revocation, since revocation entries are never evicted and nothing
+ * expires them. chain.h's design note carries the reproduction and the
+ * reasoning; this file is the same change.
+ *
  * VERIFIED ONCE, ON ADMISSION. The store keeps only what has already been
  * checked, so the query on the hot path is a comparison rather than a
  * signature check, and what it keeps is exactly the array
@@ -38,28 +50,119 @@
 
 #include "chain.h"
 
-/* A revocation as it travels: what is withdrawn, who says so, and the
- * proof. `signed_region` is the encoded record as the schema lays it out,
- * the same layout boundary chain.h draws -- this module verifies bytes it
- * is given and does not encode them. */
+/* THE REVOCATION LAYOUT. Big-endian, fixed width, no padding, fixed fields
+ * first -- the same rules as the hop, for the same reason.
+ *
+ *     offset  size  field
+ *          0     1  version    (= FZN_SIGNED_VERSION)
+ *          1     1  object     (= FZN_OBJECT_REVOCATION)
+ *          2    32  capability
+ *         34    32  grantee
+ *         66    32  issuer
+ *         98     8  issued_at
+ *        106    64  signature
+ *
+ * The signature covers bytes 0 through 105. The object byte is what stops a
+ * signature made over a hop being presented as a revocation, and vice versa;
+ * wire/bytes.h records what it cost fuzzypickles to learn that two record
+ * types of the same length can have ONE SIGNATURE THAT VERIFIES AS BOTH. */
+#define FZN_REVOCATION_BODY_LEN 106u
+#define FZN_REVOCATION_LEN (FZN_REVOCATION_BODY_LEN + (size_t)FZN_SIG_LEN)
+
+#define FZN_REV_OFF_VERSION 0u
+#define FZN_REV_OFF_OBJECT 1u
+#define FZN_REV_OFF_CAPABILITY 2u
+#define FZN_REV_OFF_GRANTEE 34u
+#define FZN_REV_OFF_ISSUER 66u
+#define FZN_REV_OFF_ISSUED_AT 98u
+#define FZN_REV_OFF_SIGNATURE FZN_REVOCATION_BODY_LEN
+
+/* A revocation as it travels: what is withdrawn, who says so, and the proof.
+ *
+ * A VIEW, exactly as `fzn_chain_hop_t` is. `base` addresses
+ * FZN_REVOCATION_LEN bytes the caller owns, and every field is read from the
+ * bytes the signature covers. */
 typedef struct fzn_revocation_record {
-	uint8_t capability[FZN_CAP_ID_LEN];
-	uint8_t grantee[FZN_PUBKEY_LEN];
-	/* Who issued it. Checked against the pinned root: only the root
-	 * revokes, today.
-	 *
-	 * A grantor revoking what it granted is the obvious extension and is
-	 * deliberately NOT built, because it is a real design question rather
-	 * than an omission -- it would let a compromised intermediate revoke
-	 * its own descendants, which may be wanted or may be the attack, and
-	 * project.md does not say. Root-only fails closed and is the smaller
-	 * claim. */
-	uint8_t issuer[FZN_PUBKEY_LEN];
-	uint64_t issued_at;
-	uint8_t signature[FZN_SIG_LEN];
-	const uint8_t *signed_region;
-	size_t signed_region_len;
+	const uint8_t *base;
 } fzn_revocation_record_t;
+
+/* Take a view over `len` bytes.
+ *
+ * Refuses a wrong length, a version byte that is not ours, and an object
+ * byte that is not FZN_OBJECT_REVOCATION -- all FZN_CHAIN_ERR_SHAPE. Null
+ * arguments are FZN_CHAIN_ERR_MALFORMED, which is the caller's bug rather
+ * than a peer's bytes.
+ *
+ * There is no `delegable` here, so this has one canonicality check fewer
+ * than `fzn_hop_open`: every remaining field is a fixed-width opaque value
+ * or an integer, and each of those has exactly one encoding already. */
+fzn_chain_err_t fzn_revocation_open(const uint8_t *bytes, size_t len,
+                                    fzn_revocation_record_t *out);
+
+/* Lay out a revocation, unsigned. `out` receives FZN_REVOCATION_LEN bytes
+ * with the signature zeroed. The only encoder for this object, on the same
+ * argument `fzn_hop_encode` carries. */
+fzn_chain_err_t fzn_revocation_encode(uint8_t *out, const uint8_t issuer[FZN_PUBKEY_LEN],
+                                      const uint8_t capability[FZN_CAP_ID_LEN],
+                                      const uint8_t grantee[FZN_PUBKEY_LEN],
+                                      uint64_t issued_at);
+
+/* Encode and sign a revocation: `issuer` withdraws `capability` from
+ * `grantee`. `out` receives FZN_REVOCATION_LEN bytes.
+ *
+ * The counterpart to `fzn_chain_mint`, and it exists for the same reason:
+ * without it, the root has no way to produce a revocation and every consumer
+ * -- and every test -- writes its own encoder, which is what the whole
+ * change of 2026-08-27 was about removing.
+ *
+ * `issuer` is a PUBLIC key, used to fill the record's issuer field; whether
+ * the signer actually holds the matching secret is not a question this can
+ * ask, exactly as in `fzn_chain_mint`. */
+fzn_chain_err_t fzn_revocation_issue(const uint8_t issuer[FZN_PUBKEY_LEN],
+                                     const uint8_t capability[FZN_CAP_ID_LEN],
+                                     const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t issued_at,
+                                     const fzn_sign_ops_t *sign, uint8_t *out);
+
+/* The accessors, over an OPENED record -- see chain.h's equivalent note. */
+static inline const uint8_t *fzn_revocation_capability(fzn_revocation_record_t rec)
+{
+	return rec.base + FZN_REV_OFF_CAPABILITY;
+}
+
+static inline const uint8_t *fzn_revocation_grantee(fzn_revocation_record_t rec)
+{
+	return rec.base + FZN_REV_OFF_GRANTEE;
+}
+
+/* Who issued it. Checked against the pinned root: only the root revokes,
+ * today.
+ *
+ * A grantor revoking what it granted is the obvious extension and is
+ * deliberately NOT built, because it is a real design question rather than
+ * an omission -- it would let a compromised intermediate revoke its own
+ * descendants, which may be wanted or may be the attack, and project.md does
+ * not say. Root-only fails closed and is the smaller claim. */
+static inline const uint8_t *fzn_revocation_issuer(fzn_revocation_record_t rec)
+{
+	return rec.base + FZN_REV_OFF_ISSUER;
+}
+
+static inline uint64_t fzn_revocation_issued_at(fzn_revocation_record_t rec)
+{
+	return fzn_get_be64(rec.base + FZN_REV_OFF_ISSUED_AT);
+}
+
+static inline const uint8_t *fzn_revocation_signature(fzn_revocation_record_t rec)
+{
+	return rec.base + FZN_REV_OFF_SIGNATURE;
+}
+
+static inline void fzn_revocation_signed_bytes(fzn_revocation_record_t rec, const uint8_t **at,
+                                               size_t *len)
+{
+	*at = rec.base;
+	*len = FZN_REVOCATION_BODY_LEN;
+}
 
 /* A bounded set of verified revocations, over caller-owned storage.
  *
@@ -82,6 +185,12 @@ fzn_chain_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_rev
  * revocation twice is what happens every time two peers both tell you, and
  * it is not an error.
  *
+ * WHAT IS STORED COMES OUT OF THE BYTES THE SIGNATURE COVERED, which is the
+ * 2026-08-27 change stated as a property. The previous version verified a
+ * region and then stored fields that had never been compared with it, so a
+ * genuine root-signed record could be replayed naming any grantee an
+ * attacker liked -- permanently, since nothing here evicts or expires.
+ *
  * A FULL STORE IS THE DANGEROUS CASE, AND IT IS THE OPPOSITE OF THE REPLAY
  * WINDOW'S. frame/freshness.h refuses when full and that FAILS CLOSED: the
  * worst outcome is a legitimate frame rejected. Here, failing to record a
@@ -103,7 +212,7 @@ fzn_chain_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_rev
  *     deployment can grow into. project.md sec 14 carries it as open.
  */
 fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
-                                const fzn_revocation_record_t *record,
+                                fzn_revocation_record_t record,
                                 const uint8_t root[FZN_PUBKEY_LEN],
                                 const fzn_sign_ops_t *sign);
 

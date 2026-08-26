@@ -1,5 +1,5 @@
-/* Capability chain verification. See chain.h for the design and project.md
- * sec 4.2 for why this piece is the library's own. */
+/* Capability chain encoding and verification. See chain.h for the design and
+ * project.md sec 4.2 for why this piece is the library's own. */
 
 #include "chain.h"
 
@@ -12,15 +12,141 @@
  * independent rather than a ladder (sec 4.2): withdrawing netcfgd's `wifi`
  * from a host must not withdraw its `observe`, and a match on key alone
  * would do exactly that. */
-static int hop_is_revoked(const fzn_chain_hop_t *hop, const fzn_revocation_t *revocations,
+static int hop_is_revoked(fzn_chain_hop_t hop, const fzn_revocation_t *revocations,
                           size_t revocation_count)
 {
 	for (size_t i = 0; i < revocation_count; i++) {
-		if (fzn_ct_memeq(revocations[i].capability, hop->capability, FZN_CAP_ID_LEN) &&
-		    fzn_ct_memeq(revocations[i].grantee, hop->grantee, FZN_PUBKEY_LEN))
+		if (fzn_ct_memeq(revocations[i].capability, fzn_hop_capability(hop),
+		                 FZN_CAP_ID_LEN) &&
+		    fzn_ct_memeq(revocations[i].grantee, fzn_hop_grantee(hop), FZN_PUBKEY_LEN))
 			return 1;
 	}
 	return 0;
+}
+
+fzn_chain_err_t fzn_hop_open(const uint8_t *bytes, size_t len, fzn_chain_hop_t *out)
+{
+	if (!bytes || !out)
+		return FZN_CHAIN_ERR_MALFORMED;
+
+	/* Exactly, not at least. A hop that is allowed to be followed by
+	 * bytes nobody looks at is a hop two implementations can disagree
+	 * about the length of, and the length is what a container's arithmetic
+	 * rests on. */
+	if (len != FZN_HOP_LEN)
+		return FZN_CHAIN_ERR_SHAPE;
+
+	/* Both bytes are INSIDE the signed range, which is what makes them
+	 * worth checking -- see wire/bytes.h. A tag written outside it
+	 * separates nothing, because an attacker rewrites it and the signature
+	 * still checks. */
+	if (bytes[FZN_HOP_OFF_VERSION] != FZN_SIGNED_VERSION)
+		return FZN_CHAIN_ERR_SHAPE;
+	if (bytes[FZN_HOP_OFF_OBJECT] != (uint8_t)FZN_OBJECT_HOP)
+		return FZN_CHAIN_ERR_SHAPE;
+
+	/* One encoding per value. Reading any nonzero byte as true would give
+	 * 255 spellings of a delegable hop, each with its own signature, and
+	 * the first implementation to canonicalise differently would produce
+	 * grants this one rejects. */
+	if (bytes[FZN_HOP_OFF_DELEGABLE] > 1u)
+		return FZN_CHAIN_ERR_SHAPE;
+
+	out->base = bytes;
+	return FZN_CHAIN_OK;
+}
+
+fzn_chain_err_t fzn_hop_encode(uint8_t *out, const uint8_t grantor[FZN_PUBKEY_LEN],
+                               const uint8_t grantee[FZN_PUBKEY_LEN],
+                               const uint8_t capability[FZN_CAP_ID_LEN], uint64_t issued_at,
+                               uint64_t expires_at, int delegable)
+{
+	if (!out || !grantor || !grantee || !capability)
+		return FZN_CHAIN_ERR_MALFORMED;
+
+	out[FZN_HOP_OFF_VERSION] = (uint8_t)FZN_SIGNED_VERSION;
+	out[FZN_HOP_OFF_OBJECT] = (uint8_t)FZN_OBJECT_HOP;
+	memcpy(out + FZN_HOP_OFF_GRANTOR, grantor, FZN_PUBKEY_LEN);
+	memcpy(out + FZN_HOP_OFF_GRANTEE, grantee, FZN_PUBKEY_LEN);
+	memcpy(out + FZN_HOP_OFF_CAPABILITY, capability, FZN_CAP_ID_LEN);
+	fzn_put_be64(out + FZN_HOP_OFF_ISSUED_AT, issued_at);
+	fzn_put_be64(out + FZN_HOP_OFF_EXPIRES_AT, expires_at);
+	/* Normalised here, so that the encoder cannot produce bytes its own
+	 * parser would refuse -- a caller passing 2 for "true" gets the
+	 * canonical 1 rather than a hop nobody can open. */
+	out[FZN_HOP_OFF_DELEGABLE] = delegable ? 1u : 0u;
+
+	/* The signature is the signer's to fill and is zeroed rather than left
+	 * as whatever the caller's buffer held: a hop that failed to be signed
+	 * must not carry a stale signature from the last one that was. */
+	memset(out + FZN_HOP_OFF_SIGNATURE, 0, FZN_SIG_LEN);
+
+	return FZN_CHAIN_OK;
+}
+
+fzn_chain_err_t fzn_chain_open(const uint8_t *bytes, size_t len,
+                               fzn_chain_hop_t out[FZN_CHAIN_MAX_HOPS], size_t *hop_count)
+{
+	size_t n;
+
+	if (!bytes || !out || !hop_count)
+		return FZN_CHAIN_ERR_MALFORMED;
+
+	if (len < FZN_CHAIN_HEADER_LEN)
+		return FZN_CHAIN_ERR_SHAPE;
+	if (bytes[0] != FZN_SIGNED_VERSION)
+		return FZN_CHAIN_ERR_SHAPE;
+
+	n = bytes[1];
+	if (n == 0 || n > FZN_CHAIN_MAX_HOPS)
+		return FZN_CHAIN_ERR_SHAPE;
+
+	/* Exactly the header plus that many hops. Trailing bytes are refused
+	 * rather than ignored: "accept what you understand and skip the rest"
+	 * is how one encoding quietly becomes several, and here it would also
+	 * let a stranger append padding a receiver has to store. */
+	if (len != (size_t)FZN_CHAIN_HEADER_LEN + n * FZN_HOP_LEN)
+		return FZN_CHAIN_ERR_SHAPE;
+
+	for (size_t i = 0; i < n; i++) {
+		fzn_chain_err_t err =
+		        fzn_hop_open(bytes + FZN_CHAIN_HEADER_LEN + i * FZN_HOP_LEN,
+		                     FZN_HOP_LEN, &out[i]);
+
+		if (err != FZN_CHAIN_OK)
+			return err;
+	}
+
+	*hop_count = n;
+	return FZN_CHAIN_OK;
+}
+
+fzn_chain_err_t fzn_chain_pack(const fzn_chain_hop_t *hops, size_t hop_count, uint8_t *out,
+                               size_t cap, size_t *len)
+{
+	size_t need;
+
+	if (!hops || !out || !len)
+		return FZN_CHAIN_ERR_MALFORMED;
+	if (hop_count == 0 || hop_count > FZN_CHAIN_MAX_HOPS)
+		return FZN_CHAIN_ERR_MALFORMED;
+
+	need = (size_t)FZN_CHAIN_HEADER_LEN + hop_count * FZN_HOP_LEN;
+	if (cap < need)
+		return FZN_CHAIN_ERR_MALFORMED;
+
+	for (size_t i = 0; i < hop_count; i++) {
+		if (!hops[i].base)
+			return FZN_CHAIN_ERR_MALFORMED;
+	}
+
+	out[0] = (uint8_t)FZN_SIGNED_VERSION;
+	out[1] = (uint8_t)hop_count;
+	for (size_t i = 0; i < hop_count; i++)
+		memcpy(out + FZN_CHAIN_HEADER_LEN + i * FZN_HOP_LEN, hops[i].base, FZN_HOP_LEN);
+
+	*len = need;
+	return FZN_CHAIN_OK;
 }
 
 fzn_chain_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
@@ -41,54 +167,74 @@ fzn_chain_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
 	if (hop_count == 0 || hop_count > FZN_CHAIN_MAX_HOPS)
 		return FZN_CHAIN_ERR_MALFORMED;
 
+	/* A view that was never opened. The accessors below index off `base`
+	 * unconditionally -- deliberately, so that reading a field is not
+	 * eight bounds tests per hop -- so this is where the pointer is
+	 * established, once, before anything dereferences it. It is MALFORMED
+	 * rather than SHAPE because bytes are not what is missing: the caller
+	 * skipped `fzn_hop_open`. */
+	for (size_t i = 0; i < hop_count; i++) {
+		if (!hops[i].base)
+			return FZN_CHAIN_ERR_MALFORMED;
+	}
+
 	/* The root is pinned, and this is the only place it is consulted. A
 	 * chain that verifies perfectly under somebody else's root gets its
 	 * own error, because on a shared network that is an ordinary event
 	 * rather than an attack. */
-	if (!fzn_ct_memeq(hops[0].grantor, root, FZN_PUBKEY_LEN))
+	if (!fzn_ct_memeq(fzn_hop_grantor(hops[0]), root, FZN_PUBKEY_LEN))
 		return FZN_CHAIN_ERR_WRONG_ROOT;
 
 	/* Pass one: everything that costs nothing. Refusing here keeps a
 	 * malformed chain from buying `hop_count` signature verifications,
-	 * which is the only expensive thing this function does. */
+	 * which is the only expensive thing this function does.
+	 *
+	 * Every read below goes through an accessor over the signed bytes, so
+	 * a hop that survives pass two was judged on the bytes pass two
+	 * authenticated. That is the whole of the 2026-08-27 fix; the checks
+	 * themselves are unchanged. */
 	for (size_t i = 0; i < hop_count; i++) {
-		const fzn_chain_hop_t *hop = &hops[i];
-
-		if (!hop->signed_region || hop->signed_region_len == 0)
-			return FZN_CHAIN_ERR_MALFORMED;
+		fzn_chain_hop_t hop = hops[i];
+		uint64_t expires_at = fzn_hop_expires_at(hop);
 
 		/* Single-capability by construction. A hop that changes what is
 		 * being granted is not a narrowing of the one before it; it is
 		 * two chains spliced at a point where nobody signed the join. */
-		if (!fzn_ct_memeq(hop->capability, capability, FZN_CAP_ID_LEN))
+		if (!fzn_ct_memeq(fzn_hop_capability(hop), capability, FZN_CAP_ID_LEN))
 			return FZN_CHAIN_ERR_CHAIN_INVALID;
 
-		/* Linkage. hops[0].grantor was pinned above; every later hop is
-		 * granted by the one before it received, AND by a hop that said
-		 * it could be passed on. Checking only the first half is what
-		 * fuzzypickles' grant path did before it was fixed, and the
-		 * consequence there was that holding a capability was the same
-		 * as being allowed to hand it out. */
+		/* Linkage. hops[0]'s grantor was pinned above; every later hop
+		 * is granted by the one before it received, AND by a hop that
+		 * said it could be passed on. Checking only the first half is
+		 * what fuzzypickles' grant path did before it was fixed, and
+		 * the consequence there was that holding a capability was the
+		 * same as being allowed to hand it out. */
 		if (i > 0) {
-			if (!fzn_ct_memeq(hop->grantor, hops[i - 1].grantee, FZN_PUBKEY_LEN))
+			if (!fzn_ct_memeq(fzn_hop_grantor(hop), fzn_hop_grantee(hops[i - 1]),
+			                  FZN_PUBKEY_LEN))
 				return FZN_CHAIN_ERR_CHAIN_INVALID;
-			if (!hops[i - 1].delegable)
+			if (!fzn_hop_delegable(hops[i - 1]))
 				return FZN_CHAIN_ERR_CHAIN_INVALID;
 		}
 
-		if (hop->expires_at != FZN_NO_EXPIRY) {
+		if (expires_at != FZN_NO_EXPIRY) {
 			/* A hop that expires before it was issued never had a
 			 * valid moment. That is a malformed grant rather than an
 			 * expired one, and saying so keeps "your clock and mine
-			 * disagree" separable from "this was never a grant". */
-			if (hop->expires_at <= hop->issued_at)
+			 * disagree" separable from "this was never a grant".
+			 *
+			 * It stays HERE rather than moving into fzn_hop_open,
+			 * even though the bytes alone could answer it: it is a
+			 * statement about the grant, not about the shape, and
+			 * the taxonomy is what a caller reads. */
+			if (expires_at <= fzn_hop_issued_at(hop))
 				return FZN_CHAIN_ERR_CHAIN_INVALID;
-			if (hop->expires_at <= now)
+			if (expires_at <= now)
 				return FZN_CHAIN_ERR_EXPIRED;
 
 			/* Weakest link, and an unlimited hop does not win it. */
-			if (soonest == FZN_NO_EXPIRY || hop->expires_at < soonest)
-				soonest = hop->expires_at;
+			if (soonest == FZN_NO_EXPIRY || expires_at < soonest)
+				soonest = expires_at;
 		}
 
 		/* Every hop, not only the last. Revoking a host in the middle
@@ -102,16 +248,18 @@ fzn_chain_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
 	/* Pass two: the expensive half, reached only by a chain that is
 	 * already structurally sound. */
 	for (size_t i = 0; i < hop_count; i++) {
-		const fzn_chain_hop_t *hop = &hops[i];
+		const uint8_t *msg;
+		size_t msg_len;
 
-		if (!sign->verify(sign->ctx, hop->grantor, hop->signed_region,
-		                  hop->signed_region_len, hop->signature))
+		fzn_hop_signed_bytes(hops[i], &msg, &msg_len);
+		if (!sign->verify(sign->ctx, fzn_hop_grantor(hops[i]), msg, msg_len,
+		                  fzn_hop_signature(hops[i])))
 			return FZN_CHAIN_ERR_CHAIN_INVALID;
 	}
 
 	/* Filled only now, so a caller cannot half-read a rejected chain. */
 	memcpy(out->root, root, FZN_PUBKEY_LEN);
-	memcpy(out->grantee, hops[hop_count - 1].grantee, FZN_PUBKEY_LEN);
+	memcpy(out->grantee, fzn_hop_grantee(hops[hop_count - 1]), FZN_PUBKEY_LEN);
 	memcpy(out->capability, capability, FZN_CAP_ID_LEN);
 	out->hop_count = hop_count;
 	out->expires_at = soonest;
@@ -119,20 +267,26 @@ fzn_chain_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
 	return FZN_CHAIN_OK;
 }
 
-/* Fill and sign one hop. Shared by mint and delegate, which differ only in
+/* Encode and sign one hop. Shared by mint and delegate, which differ only in
  * who the grantor is and in what had to be true before they were allowed to
- * ask -- the hop they produce is the same shape and is signed the same way. */
+ * ask -- the hop they produce is the same shape and is signed the same way.
+ *
+ * IT ENCODES RATHER THAN BEING HANDED A REGION, which is the half of the
+ * 2026-08-27 change that makes the other half usable. Signing bytes the
+ * caller supplied, beside fields the caller supplied separately, is what let
+ * the two disagree. */
 static fzn_chain_err_t hop_sign(const uint8_t grantor[FZN_PUBKEY_LEN],
                           const uint8_t grantee[FZN_PUBKEY_LEN],
                           const uint8_t capability[FZN_CAP_ID_LEN], uint64_t issued_at,
-                          uint64_t expires_at, int delegable, const uint8_t *signed_region,
-                          size_t signed_region_len, const fzn_sign_ops_t *sign,
-                          fzn_chain_hop_t *out)
+                          uint64_t expires_at, int delegable, const fzn_sign_ops_t *sign,
+                          uint8_t *out)
 {
+	fzn_chain_err_t err;
 	fzn_chain_hop_t hop;
+	const uint8_t *msg;
+	size_t msg_len;
 
-	if (!grantor || !grantee || !capability || !signed_region || signed_region_len == 0 ||
-	    !sign || !sign->sign || !out)
+	if (!grantor || !grantee || !capability || !sign || !sign->sign || !out)
 		return FZN_CHAIN_ERR_MALFORMED;
 
 	/* A grant that expires before it was issued never had a valid moment,
@@ -142,47 +296,54 @@ static fzn_chain_err_t hop_sign(const uint8_t grantor[FZN_PUBKEY_LEN],
 	if (expires_at != FZN_NO_EXPIRY && expires_at <= issued_at)
 		return FZN_CHAIN_ERR_CHAIN_INVALID;
 
-	memset(&hop, 0, sizeof(hop));
-	memcpy(hop.grantor, grantor, FZN_PUBKEY_LEN);
-	memcpy(hop.grantee, grantee, FZN_PUBKEY_LEN);
-	memcpy(hop.capability, capability, FZN_CAP_ID_LEN);
-	hop.issued_at = issued_at;
-	hop.expires_at = expires_at;
-	hop.delegable = delegable ? 1 : 0;
-	hop.signed_region = signed_region;
-	hop.signed_region_len = signed_region_len;
+	err = fzn_hop_encode(out, grantor, grantee, capability, issued_at, expires_at,
+	                     delegable);
+	if (err != FZN_CHAIN_OK)
+		return err;
 
-	if (!sign->sign(sign->ctx, hop.signature, signed_region, signed_region_len))
+	/* Opened from the bytes just written rather than assumed, so that the
+	 * range handed to the signer is the same one a receiver's verifier
+	 * will compute -- if the encoder and the accessors ever disagreed,
+	 * this is where it would show, on the minting side, before anything
+	 * was published. */
+	err = fzn_hop_open(out, FZN_HOP_LEN, &hop);
+	if (err != FZN_CHAIN_OK)
+		return err;
+
+	fzn_hop_signed_bytes(hop, &msg, &msg_len);
+	if (!sign->sign(sign->ctx, out + FZN_HOP_OFF_SIGNATURE, msg, msg_len)) {
+		/* A refused signing leaves no half-made hop behind. The encode
+		 * above already wrote a body; without this a caller that
+		 * ignored the return code would hold something that opens
+		 * cleanly and carries a zero signature. */
+		memset(out, 0, FZN_HOP_LEN);
 		return FZN_CHAIN_ERR_CHAIN_INVALID;
+	}
 
-	*out = hop;
 	return FZN_CHAIN_OK;
 }
 
 fzn_chain_err_t fzn_chain_mint(const uint8_t root[FZN_PUBKEY_LEN],
                           const uint8_t grantee[FZN_PUBKEY_LEN],
                           const uint8_t capability[FZN_CAP_ID_LEN], uint64_t issued_at,
-                          uint64_t expires_at, int delegable, const uint8_t *signed_region,
-                          size_t signed_region_len, const fzn_sign_ops_t *sign,
-                          fzn_chain_hop_t *out)
+                          uint64_t expires_at, int delegable, const fzn_sign_ops_t *sign,
+                          uint8_t *out)
 {
 	/* The root grants directly, so grantor IS the root. Nothing here
 	 * establishes that the caller holds the matching secret key -- see
 	 * chain.h; the signer either produces something that verifies under
 	 * this key or it does not, and a wrong answer surfaces as a chain
 	 * nobody accepts rather than as a chain that lies. */
-	return hop_sign(root, grantee, capability, issued_at, expires_at, delegable,
-	                signed_region, signed_region_len, sign, out);
+	return hop_sign(root, grantee, capability, issued_at, expires_at, delegable, sign, out);
 }
 
 fzn_chain_err_t fzn_chain_delegate(const fzn_chain_hop_t *hops, size_t hop_count,
                               const uint8_t root[FZN_PUBKEY_LEN],
                               const uint8_t capability[FZN_CAP_ID_LEN], uint64_t now,
                               const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t expires_at,
-                              int delegable, const uint8_t *signed_region,
-                              size_t signed_region_len, const fzn_sign_ops_t *sign,
+                              int delegable, const fzn_sign_ops_t *sign,
                               const fzn_revocation_t *revocations, size_t revocation_count,
-                              fzn_chain_hop_t *out)
+                              uint8_t *out)
 {
 	fzn_chain_t existing;
 	fzn_chain_err_t err;
@@ -205,7 +366,7 @@ fzn_chain_err_t fzn_chain_delegate(const fzn_chain_hop_t *hops, size_t hop_count
 
 	/* Holding is not entitlement to hand out. Its own error, because the
 	 * chain is valid and the holder does hold it. */
-	if (!hops[hop_count - 1].delegable)
+	if (!fzn_hop_delegable(hops[hop_count - 1]))
 		return FZN_CHAIN_ERR_NOT_DELEGABLE;
 
 	/* A grantor cannot hand out more time than it has left. Asking for
@@ -217,8 +378,8 @@ fzn_chain_err_t fzn_chain_delegate(const fzn_chain_hop_t *hops, size_t hop_count
 	    (expires_at == FZN_NO_EXPIRY || expires_at > existing.expires_at))
 		expires_at = existing.expires_at;
 
-	return hop_sign(existing.grantee, grantee, capability, now, expires_at, delegable,
-	                signed_region, signed_region_len, sign, out);
+	return hop_sign(existing.grantee, grantee, capability, now, expires_at, delegable, sign,
+	                out);
 }
 
 /* See chain.h.
@@ -229,6 +390,9 @@ fzn_chain_err_t fzn_chain_delegate(const fzn_chain_hop_t *hops, size_t hop_count
  * makes the compiler notice a code added to fzn_chain_err_t and not rendered here. A
  * default would silence exactly the warning worth having and turn a new code
  * into a silent "unknown" in somebody's log.
+ *
+ * It did its job for FZN_CHAIN_ERR_SHAPE: the code was added to the enum and
+ * the compiler refused to let the switch stay as it was.
  *
  * The fallback then lives after the switch, where it catches a value that is
  * not an enumerator at all -- which no amount of compiler help can rule out,
@@ -252,6 +416,8 @@ const char *fzn_chain_err_str(fzn_chain_err_t err)
 		return "last hop is not delegable";
 	case FZN_CHAIN_ERR_STORE_FULL:
 		return "revocation store is full";
+	case FZN_CHAIN_ERR_SHAPE:
+		return "not the shape the layout describes";
 	}
 
 	return "unknown";
