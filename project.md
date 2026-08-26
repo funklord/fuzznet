@@ -1229,6 +1229,12 @@ lives.
 
 ### Suggested from netcfgd, 2026-08-26: move `append_log` and `diag`, and nothing else
 
+**Widened later the same day to include `log_relay` -- see the entry below
+the correction.** The heading's "and nothing else" is what this entry
+argued from the measurement available when it was written, and the
+measurement changed. Left standing because the reasoning about `log_show`
+and the three loose ends is still what the wider suggestion rests on.
+
 **A suggestion, not a decision, and deliberately narrower than the question
 that was refused above.** That question was "should their log subsystem move",
 and the answer to it can stay no while this one is yes, because the
@@ -1360,6 +1366,61 @@ above assumed.
 **Recorded rather than quietly fixed**, because the wrong version was signalled
 into this document and acted on by nobody yet: a reader who takes the earlier
 entry at face value will believe `log_relay` is entangled and it is not.
+
+### Widened, 2026-08-26: `log_relay` too, in that order
+
+**Supersedes the "and nothing else" above**, on the strength of the correction
+between them: the entanglement that entry declined to move was four doc
+comments and a misnamed file, not code.
+
+**What is now suggested, and the order is forced rather than preferred:**
+
+| step | what moves | implementation | test |
+|---|---|---|---|
+| 1 | `diag` | 151 | 110 |
+| 1 | `append_log` | 678 | 774 |
+| 2 | `log_show`'s sequence and line helpers | 82 of 124 | part of 227 |
+| 3 | `log_relay` | 501 | 421 |
+| | **total** | **~1,412** | **~1,305** |
+
+**Step 2 exists because of where the helpers live, not because anyone wants
+it.** `log_relay`'s mechanism calls `fzp_log_retention_parse_line` and two of
+its constants, which are declared in `log_show_internal.h` and implemented in
+`log_show.c` -- so a file in the consumer gets split 82/30, the helpers going
+with the mechanism and `fzp_log_show` staying. That is the one edit to
+fuzzypickles this suggestion requires rather than a lift, and it should be
+done there, by them, before anything moves.
+
+**Step 3 is last because the mechanism calls six `append_log` functions.**
+Moving `log_relay` first would mean either moving `append_log` with it or
+leaving a dependency pointing back into the consumer.
+
+**Still not suggested:**
+
+- **`fzp_log_show`, the 30-line handler** -- `FZP_CMD_LOG`,
+  `fzp_log_show_resp_t`, a page size. Vocabulary, and the one part of that file
+  that genuinely is.
+- **`daemon/log_retention`** (165 lines) -- how much to keep is a deployment
+  question.
+
+**The codec half is the one open question this does not answer.**
+`log_relay.c`'s first 145 lines build a versioned sub-frame -- header, sub-type
+QUERY or LINES, mode -- *inside* a command payload, using eight `wire.h`
+primitives. It is a payload codec rather than a transport frame, so it does
+not collide with §4.1 or §13 by construction. But whether this library wants a
+second framing layer inside its own, or wants the relay's payloads expressed
+in whatever situ generates, is a design question the measurement cannot
+settle. **Moving it verbatim with the command id parameterised is the cheap
+option and may well be the wrong one**, and that is worth deciding rather than
+defaulting into.
+
+**What has not changed is the part §5 actually tests.** Two real consumers,
+neither accepting the other's as a special case. netcfgd is directed to want
+distributed logs and has built none of this; fuzzypickles has all four modules
+in production. The evidence remains that `append_log` already serves two
+callers inside one tree, which is weaker than the test asks and is still the
+strongest thing available. **The measurements have moved the cost, not the
+admission question** -- and the cost was never what this list was refusing on.
 
 **One caution the numbers do not carry.** Portable is not the same as
 mergeable with §4.4. That chunks a message the sender already holds and pushes
