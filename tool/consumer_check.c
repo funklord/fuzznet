@@ -45,6 +45,7 @@
 #include <fuzznet/trust/trust.h>
 #include <fuzznet/session/random_system.h>
 #include <fuzznet/version/version.h>
+#include <fuzznet/wire/relay.h>
 #include <fuzznet/wire/seal.h>
 #else
 #include "chain/chain.h"
@@ -66,6 +67,7 @@
 #include "trust/trust.h"
 #include "session/random_system.h"
 #include "version/version.h"
+#include "wire/relay.h"
 #include "wire/seal.h"
 #endif
 
@@ -237,6 +239,27 @@ int main(void)
 			return 63;
 		if (fzn_log_dropped(&lg) != 1)
 			return 64;
+	}
+
+	/* The hop budget, through installed headers: an inflated claim must be
+	 * clamped rather than believed. */
+	{
+		uint8_t hop_frame[64];
+		uint8_t budget = 0;
+
+		memset(hop_frame, 0, sizeof(hop_frame));
+		hop_frame[0] = 1;
+		hop_frame[1] = 255;
+		if (fzn_relay_budget(hop_frame, sizeof(hop_frame), FZN_RELAY_MAX_HOPS,
+		                     &budget) != FZN_RELAY_OK)
+			return 70;
+		if (budget != FZN_RELAY_MAX_HOPS)
+			return 71;
+		if (fzn_relay_spend(hop_frame, sizeof(hop_frame), FZN_RELAY_MAX_HOPS) !=
+		    FZN_RELAY_OK)
+			return 72;
+		if (hop_frame[1] != FZN_RELAY_MAX_HOPS - 1u)
+			return 73;
 	}
 
 	if (fzn_version_number() != (unsigned long)FZN_VERSION_NUMBER)

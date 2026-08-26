@@ -43,6 +43,7 @@
 /state/test/state_test
 /trust/test/trust_test
 /log/test/log_test
+/wire/test/relay_test
 /guided/
 /constant_time/test/secret_flow_valgrind
 

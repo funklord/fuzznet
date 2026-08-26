@@ -96,7 +96,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              chain/chain.c chain/revocation.c frame/freshness.c \
              chunk/reassembly.c \
              chunk/split.c \
-             wire/seal.c \
+             wire/seal.c wire/relay.c \
              session/random.c session/random_linux.c \
              version/version.c \
              record/record.c record/journal.c record/sync.c \
@@ -107,7 +107,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              chain/chain.h chain/revocation.h frame/freshness.h \
              chunk/reassembly.h \
              chunk/split.h \
-             wire/seal.h session/aead.h \
+             wire/seal.h wire/relay.h session/aead.h \
              session/random.h session/random_system.h \
              version/version.h \
              record/record.h record/journal.h record/sync.h \
@@ -138,7 +138,8 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              record/test/sync_test.c \
              state/test/state_test.c \
              trust/test/trust_test.c \
-             log/test/log_test.c
+             log/test/log_test.c \
+             wire/test/relay_test.c
 TEST_OBJS := $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
 TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/chain/test/revocation_test \
@@ -175,7 +176,8 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/record/test/sync_test \
              $(BUILD_DIR)/state/test/state_test \
              $(BUILD_DIR)/trust/test/trust_test \
-             $(BUILD_DIR)/log/test/log_test
+             $(BUILD_DIR)/log/test/log_test \
+             $(BUILD_DIR)/wire/test/relay_test
 
 # The Monocypher binding, built only when MONOCYPHER_DIR names a checkout.
 #
@@ -333,6 +335,11 @@ $(BUILD_DIR)/wire/generated/%.o: wire/generated/%.c
 $(BUILD_DIR)/chain/test/chain_test: $(BUILD_DIR)/chain/test/chain_test.o \
                                      $(BUILD_DIR)/chain/chain.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD_DIR)/wire/test/relay_test: $(BUILD_DIR)/wire/test/relay_test.o \
+                                   $(BUILD_DIR)/wire/relay.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -569,6 +576,16 @@ $(BUILD_DIR)/wire/seal.o: wire/seal.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
 
+# Same reason as seal.o: it reads the hop header through the generated
+# accessors, so it needs the generated headers on its include path.
+$(BUILD_DIR)/wire/relay.o: wire/relay.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
+
+$(BUILD_DIR)/wire/test/relay_test.o: wire/test/relay_test.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -MMD -MP -c $< -o $@
+
 $(BUILD_DIR)/wire/test/seal_test.o: wire/test/seal_test.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
@@ -580,6 +597,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/state/state.o \
                                       $(BUILD_DIR)/trust/trust.o \
                                       $(BUILD_DIR)/log/log.o \
+                                      $(BUILD_DIR)/wire/relay.o \
                                       $(BUILD_DIR)/chain/chain.o \
                                       $(BUILD_DIR)/chunk/reassembly.o \
                                       $(BUILD_DIR)/chunk/split.o \

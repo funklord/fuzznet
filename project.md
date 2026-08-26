@@ -1832,6 +1832,53 @@ Anchoring at zero now means follow-from-the-beginning, anchoring twice is an
 echo rather than a rewind, and the journal's own tests cover it -- but the
 harness is what asked the question.
 
+## 5f. `wire/relay.h` -- the hop budget, and what relaying still needs
+
+**`fzn_hop.hops_left` has been in every frame since the schema existed and
+nothing had ever read or written it** -- a byte on the wire, in every
+datagram, paying for a feature that did not exist. This is its first half.
+
+**It is outside the authenticated region, necessarily.** The contract says the
+tag covers `head` and the sealed region; `hop` precedes both. It has to,
+because a relay decrements the budget and a field the tag covered could not be
+changed without invalidating the frame. So **the budget is mutable in flight
+by anyone**, and every property follows from taking that seriously:
+
+- **Clamp, never trust.** A stranger can write 255 into the budget of a frame
+  it did not create. Believing it turns one datagram into as many forwards as
+  the network has paths -- an amplifier built out of a helpful default.
+  `fzn_relay_spend` writes back the *clamped* value, so an inflated budget is
+  cut at the first honest host rather than surviving to the last.
+- **A stranger writing zero costs nothing new.** It drops the frame, which
+  anyone able to rewrite a byte in flight could achieve by discarding it. A
+  budget cannot defend availability against somebody already on the path, and
+  claiming it does would be the wrong claim to make.
+- **What it defends is the network against itself**: loops, and one
+  misconfigured host multiplying traffic. Real, and narrow.
+
+**What is deliberately absent, and it is the open question rather than an
+omission: a relay cannot tell where to send a frame.** The frame has no
+recipient field, on purpose -- `frame.situ` puts the capability inside the
+seal precisely so an observer cannot see which authority is being exercised,
+and a plaintext destination gives back most of what that bought. A receiver
+knows a frame is its own because the key commitment matches a key it derived,
+which is **addressing by decryption**.
+
+So routing needs one of three, and choosing is a wire decision rather than a
+coding one: an out-of-band hint a consumer already holds, flooding within a
+known set, or a destination field -- which costs bytes against §13's budget,
+where a largest frame has **64 to spare** under the IPv6 minimum MTU. Not
+invented here. This file does the part decidable without answering it, as
+`record/sync.h` decides what to fetch and never how to send it.
+
+**Relaying proper waits on fuzzypickles' frame replacement**, which their
+phase 1 covers and which their measurement explains: `log_relay.c` and
+`log_show.c` cannot move while they still speak `peer_wire.h` without dragging
+`control_codec.c` behind them.
+
+25 checks, 100% of lines and 90% of branches. The inflated-budget case is the
+one that matters and it is tested in both directions -- read and spend.
+
 ## 5e. `log/` -- the first piece absorbed from fuzzypickles
 
 **Started 2026-08-26.** What came across is the part fuzzypickles' own
