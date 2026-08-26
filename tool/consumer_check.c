@@ -40,6 +40,7 @@
 #include <fuzznet/record/journal.h>
 #include <fuzznet/log/log.h>
 #include <fuzznet/record/record.h>
+#include <fuzznet/link/link.h>
 #include <fuzznet/sched/sched.h>
 #include <fuzznet/record/sync.h>
 #include <fuzznet/state/state.h>
@@ -63,6 +64,7 @@
 #include "record/journal.h"
 #include "log/log.h"
 #include "record/record.h"
+#include "link/link.h"
 #include "sched/sched.h"
 #include "record/sync.h"
 #include "state/state.h"
@@ -279,6 +281,32 @@ int main(void)
 			return 80;
 		if (fzn_sched_select(pair, 2, &important, &pick) != FZN_SCHED_OK || pick != 1)
 			return 81;
+	}
+
+	/* Link tracking feeding link selection, through installed headers: a
+	 * link that declared itself quick and measures slow must lose. */
+	{
+		fzn_link_table_t lt;
+		fzn_link_entry_t rows[2];
+		fzn_link_t snap[2];
+		fzn_class_t any = { 0, 0, 0, 0, 1, 0 };
+		size_t pick = 99, n;
+
+		if (fzn_link_table_init(&lt, rows, 2) != FZN_LINK_OK)
+			return 90;
+		if (fzn_link_register(&lt, 1, 0, 10, 0, 1500) != FZN_LINK_OK)
+			return 91;
+		if (fzn_link_register(&lt, 2, 0, 60, 0, 1500) != FZN_LINK_OK)
+			return 92;
+		for (int k = 0; k < 40; k++) {
+			if (fzn_link_observe_ack(&lt, 1, 5000, (uint64_t)k) != FZN_LINK_OK)
+				return 93;
+		}
+		n = fzn_link_snapshot(&lt, snap, 2);
+		if (n != 2)
+			return 94;
+		if (fzn_sched_select(snap, n, &any, &pick) != FZN_SCHED_OK || pick != 1)
+			return 95;
 	}
 
 	if (fzn_version_number() != (unsigned long)FZN_VERSION_NUMBER)

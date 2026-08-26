@@ -1832,6 +1832,57 @@ Anchoring at zero now means follow-from-the-beginning, anchoring twice is an
 echo rather than a rewind, and the journal's own tests cover it -- but the
 harness is what asked the question.
 
+## 5h. `link/` -- what each link is actually doing
+
+**Absorbed from fuzzypickles' `link.c`**, the companion to `sched/`: this
+measures, that chooses. Their claim is kept because the shape makes it
+literally true rather than merely intended --
+
+> A LINK is one transport over one address. A peer advertising several
+> addresses, or one address reachable by more than one transport, is several
+> links, each with its own measured latency and availability, competing on
+> cost.
+
+-- and **nothing here knows what any transport IS**. There is no branch on a
+transport tag anywhere; adding a radio, a tunnel or a relay hop is registering
+another link rather than extending the file. A link is a `uint32_t` the
+consumer chose.
+
+**The declared metric is a prior; measurement is evidence.** A far end's
+declared cost is what it believed when it wrote it, and a network degrades
+paths in ways no static declaration expresses and the far end may never learn.
+
+**The prior is seeded rather than special-cased, and that avoids a real
+hazard.** The obvious shape is a sample count and a branch -- report the
+declaration until there is enough evidence, then the measurement -- which has
+a cliff in it and has to answer *what latency does an unmeasured link have?*
+The honest answer, zero, makes a link nobody has ever used look **infinitely
+fast and win every selection in `sched/`**. Seeding the estimate with the
+prior removes the question: there is always a number, and it starts out being
+the one the far end asserted.
+
+**A loss raises the loss estimate and leaves latency untouched**, which is the
+separation the whole design rests on. A lost message has no round trip to
+report, and counting it as some large number would blend a loss signal into a
+latency one -- the collapsing into a single number `sched/` exists to avoid,
+and undetectable in one figure of merit. The test asserts both halves.
+
+**The averaging widens before multiplying**, for the reason `sched/`'s cost
+does: a latency near `UINT32_MAX` times seven overflows 32 bits, and a wrapped
+average reports a terrible link as excellent -- consistently, which looks
+deliberate. Tested at four billion.
+
+**A trap carried across from their header rather than rediscovered:**
+congestion control reads the same loss and round-trip signals and is separate
+work -- and once a controller is throttling a *healthy* path correctly, it
+looks to this table exactly like a degrading link. Telling those apart does
+not arise while everything is uncontrolled, so a design that assumed it could
+would be untestable today.
+
+69 checks, 99% of lines and 87% of branches, and the two modules are tested
+composed: a link that declared itself quick and measures slow loses the
+selection.
+
 ## 5g. `sched/` -- which link a message should take
 
 **Absorbed from fuzzypickles' `sched.c`**, one of the four files their
