@@ -915,37 +915,173 @@ encoding, framing, authentication and encryption with this library, and the
 own rules; none stated the sequence, so a consumer had to derive it from
 five headers and would have been inventing a security property.
 
-The order, and each step's reason for preceding the next:
+**THE RULE THAT GENERATES THE ORDER**, which matters more than the list
+because the list is derivable from it and was twice derived wrongly without
+it:
 
-1. **Peer credentials**, if the frame arrived over the local socket rather
-   than the network (`local/peer.h`). Cheapest, and it decides whether to
-   spend anything else. UNKNOWN denies.
-2. **Freshness** (`frame/freshness.h`). A command with no expiry or a passed
-   one is refused before any cryptography, because the alternative is
-   spending a signature verification on something already dead. This is also
-   what bounds the replay window (§4.3).
-3. **Replay** (`frame/freshness.h`, same call). Before decryption, because a
-   replayed frame is a configuration change (§4.4a) and the cheapest place
-   to refuse one is before it costs anything.
-4. **Key commitment** (`session/commitment.h`). Derive the key and the
-   commitment together, compare against the frame's, refuse on mismatch --
-   **before decrypting.** That is the whole reason the field is in the
-   authenticated header rather than in the seal: a receiver holding the
-   wrong key must learn so without spending a decryption, and must be warned
-   rather than handed plaintext that opens under two keys.
-5. **Tag verification and decryption** (`wire/seal.h`, **built** 2026-08-18).
-   Nothing above this line has touched the sealed region, and nothing below
-   it can be addressed until this step has run: situ's generated gate refuses
-   an interior view without a verdict, so §6's "make parse-before-verify
-   unrepresentable" is enforced here rather than asked for.
-6. **Capability chain** (`chain/chain.h`), against a pinned root and the
-   revocation store. After decryption because the capability identifier is
-   inside the seal (§13), and that placement was chosen so an observer
-   cannot see which authority is being exercised.
-7. **Reassembly** (`chunk/reassembly.h`), last. A chunk is only admitted to
-   a partial message once it has been shown to be fresh, unreplayed,
-   authentic and authorised -- otherwise the memory bound protects a table
-   any stranger may fill.
+> A check may run before tag verification **if and only if it is a pure
+> predicate** -- it reads, it decides, it drops, and it changes nothing the
+> next datagram can observe. And **no attacker-controllable work may be
+> superlinear in receiver state** before authentication.
+
+The first clause is sound because of an asymmetry: for a predicate over
+tag-covered fields, a PASS before the tag is retroactively confirmed by the
+tag, and a FAIL is at worst a wrongly-dropped frame -- a power anyone able to
+flip that bit already had. So pre-tag predicates are free and buy latency;
+pre-tag mutations buy the same latency and hand a stranger a write into
+receiver state. The second clause exists because the first permits leaving an
+O(used) scan on the unauthenticated path, which is where the cost turned out
+to be.
+
+**A COROLLARY THAT IS NOT OPTIONAL: a verdict produced before the tag is a
+verdict the attacker chose.** `commitment`, `expires_at` and `kind` are all
+plaintext and flippable in flight, so a pre-tag verdict may be counted in
+aggregate and must never name a peer, trigger a rekey, or appear in a
+diagnostic sentence about an identity.
+
+The order, and each step's reason for its position:
+
+0. **Peer credentials** (`local/peer.h`) -- **a different channel, and
+   usually a different process.** Not step 1 of this sequence: §3 has the
+   privileged daemon never linking fuzznet, and §2 gives the local hop's
+   socket to the consumer, so the process calling `fzn_peer_from_fd` never
+   sees a frame and the process running the steps below made that connection
+   and never calls `SO_PEERCRED`. Numbering them together invites the reading
+   that a frame may arrive authenticated by either, which is a downgrade path
+   in a threat model that forbids one. The rule instead: **exactly one
+   authenticator per channel**, established before anything else, and a
+   channel that has one does not substitute the other. Per CONNECTION, not
+   per datagram -- the group list is read from `/proc/<pid>/status` after
+   `SO_PEERCRED` returns the pid, so a peer that exits between the two calls
+   and has its pid reused hands the daemon another process's groups.
+1. **Shape** (`situ_fzn_frame_validate`). Forced: the tag's offset and covered
+   span are computed from the layout, and every field read below is a bounds
+   question first. It is now the only thing between a stranger and the AEAD,
+   which raises its importance without moving it -- a schema change that made
+   validation expensive would be a change to the receiver's DoS posture.
+2. **Key selection**, `sender` to a candidate key set. Forced: there is no tag
+   check without a key. The constraint here is negative and is the one a
+   consumer is likeliest to get wrong -- **an unknown sender must produce a
+   drop, not an object.** No session record, no pending-peer entry, no
+   negative cache. Every one of those is an unauthenticated write, and they
+   are the natural thing to write.
+3. **Key commitment** (`session/commitment.h`). Pure, and the one
+   discretionary pre-tag step. It earns its place twice: it is what makes the
+   AEAD key-committing at all (§4.4a: not optional), and `wire/relay.h` names
+   it as the addressing mechanism -- with K candidate keys it turns K tag
+   verifications into K compares plus one.
+4. **Tag verification and decryption** (`wire/seal.h`). **The pivot.** Nothing
+   above this line has changed anything the next datagram can see; nothing
+   below it runs on a stranger's say-so. situ's generated gate enforces the
+   plaintext half; the rule above is the half situ cannot see, because situ
+   guards the FRAME and not the RECEIVER.
+5. **Freshness** (`frame/freshness.h`), now below the tag. §4.7 used to put it
+   at step 2 "because the alternative is spending a **signature
+   verification** on something already dead" -- and a signature verification
+   is the chain, at 200-238 microseconds per hop. **That reason argues for
+   freshness-before-CHAIN and the text placed it before the TAG, which the
+   reason never asked for.** Below the tag, the stated reason is satisfied
+   exactly, and the verdict becomes authentic enough to name a peer.
+6. **Replay** (`frame/freshness.h`, same call). The first mutation, and it
+   must not precede the pivot -- see §4.7b.
+7. **Capability chain** (`chain/chain.h`), after replay rather than before,
+   which is where "predicates before mutations" yields to measurement.
+   Chain-first would refuse a revoked peer before it touches the window, but
+   pays a signature verification on every duplicate and retransmission on a
+   lossy link, where the window catches them for 77 ns. A revoked peer filling
+   the window costs at most `capacity` entries for at most the horizon; a
+   revoked peer forcing 1.6 ms of Ed25519 per datagram is a total denial of
+   service at any line rate.
+8. **Reassembly** (`chunk/reassembly.h`), last. The largest and longest-lived
+   mutation in the path, and every step above it exists so the memory bound
+   protects a table no stranger can reach.
+
+### 4.7b Why replay moved below the tag, and how the old order survived review
+
+**The old order wrote the replay window at step 3 and verified the tag at
+step 5**, so any stranger who could send datagrams wrote into receiver state.
+With no bound on `expires_at` (§4.7c) that is a permanent, total denial of
+service for `capacity` datagrams, off-path, with no key.
+
+The cost argument that placed it there **inverts under measurement**.
+`fzn_replay_admit` is O(used) twice per datagram -- an expiry sweep and a
+linear scan:
+
+    window used    ns per unauthenticated datagram
+    256            571
+    1024           2251
+    4096           11284
+
+against 706 ns to reject a forgery at the tag on a minimum frame and 1627 ns
+on a full one. At any window a real deployment would size, the
+pre-authentication scan already costs **more** than the verify it was meant
+to save -- 6.9x at 4096. And the saving it does claim holds only against a
+blind attacker, because `commitment` is a CLEARTEXT field: anyone who has
+seen one genuine frame copies it and is past that gate for free.
+
+**The premise survived every attempt to break it.** "A replay is authentic by
+construction, so it passes the tag anyway" was attacked on four cases -- a
+different receiver, after key rotation, a chunk of a multi-chunk message, and
+under a group key -- and holds in all four. Rotation argues FOR the change: an
+old frame under a new key is refused at the commitment, but under the old
+order it took a window slot on the way.
+
+**`fzn_replay_admit` therefore stays ONE call.** The pressure to split it into
+a const check and a separate record existed only to straddle the pivot; with
+freshness and replay both below the tag and adjacent, there is no pivot to
+straddle, and the combined call keeps its "a rejected frame never occupies a
+slot" invariant inside the library rather than re-established by convention at
+three call sites. The ordering fix **simplifies** the API, which is the
+opposite of what was expected when the change was proposed.
+
+**Three reasons this got past the tree's defences**, each a shape worth
+keeping:
+
+- **The invariant was stated about the wrong object.** §4.7 said "Nothing
+  above this line has touched the sealed region" -- true, and not the
+  assertion needed. It never said *nothing above this line has touched the
+  receiver*. situ's gate enforces the first and cannot see the second.
+- **The supporting invariant is directional and the bug ran the other way.**
+  "A refusal at any step must not have cost a slot at a later one" -- the tag
+  was step 5 and the window step 3, so a refusal at 5 costing a slot at 3 is
+  not what that sentence forbids.
+- **`frame/test/receive_fuzz.c` structurally cannot see it.** Its own header
+  says steps 4 and 5 are skipped, so every frame it processes is treated as
+  authentic and "state mutated before authentication" is invisible to it by
+  construction. It asserts "a frame refused at any step costs nothing at a
+  later one" over a step set that **omits the pivot the ordering is about**.
+
+**And the tree already contained the refutation.** `sim/test/network_test.c`
+opens the seal first and its scenario 8c derives the property in the right
+words -- "if a frame that FAILED its tag were recorded too, anybody who can
+put bytes on the wire could burn a victim's nonces without holding any key at
+all". It then cites §4.7 for an order §4.7 did not state. **`sim/` was right
+and this document was wrong**; the correction is here, and to `receive_fuzz`'s
+framing, not to `sim/`'s code.
+
+### 4.7c The replay window is the most expensive step, not the cheapest
+
+Measured against the sizing rule §4.3 states -- the window holds what can
+arrive within the longest expiry it will accept -- the step placed first
+because it was cheapest is, at any capacity that rule demands, the most
+expensive thing the receiver does: 597 us at 60000 entries, against 2 us to
+reject a forgery and 201-238 us for one Ed25519 verification. It is
+memory-bandwidth-bound, 60000 x 32 bytes swept twice, well past L2.
+
+**The window needs an index, not a reorder.** The nonce's first 8 bytes are
+uniformly random, so a prefix is a sound hash; an open-addressed table with
+lazy expiry on probe plus an amortised sweep is O(1) and keeps what
+`freshness.h` prizes -- a window stays a value, constructible directly by a
+test and `memcmp`-comparable, because a deterministic probe sequence over
+deterministic input gives a deterministic array.
+
+The chain is 100-1000x everything else in the path, so **memoizing a verdict
+on `(sender, capability)`, invalidated by a generation counter on the
+revocation store**, is the one real latency win available: a naive loop
+verifies the same chain 256 times for one chunked message, which is 51-487 ms
+of signature checking. That memo is itself an instance of the rule -- a
+verdict cached AFTER the tag and keyed by an authenticated identity is safe;
+the same cache before the tag is the same bug in a new place.
 
 **The order is executed now, not only written down** (`frame/test/
 receive_fuzz.c`, 2026-08-18). This section said a consumer deriving the

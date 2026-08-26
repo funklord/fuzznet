@@ -478,7 +478,23 @@ static int sim_send(struct sim_net *net, uint8_t from, uint8_t to, const uint8_t
    sec 4.7's order, executed: the seal first, then freshness and replay
    together, then authorisation, then reassembly. The order is the point --
    each step refuses work the next would otherwise do on a stranger's
-   say-so.  */
+   say-so.
+
+   THIS FILE WAS RIGHT AND THE DOCUMENT WAS WRONG, which is worth recording
+   because the citation above used to be false. sec 4.7 put freshness at step
+   2 and replay at step 3, both BEFORE the tag at step 5, so a stranger who
+   could send datagrams wrote into the replay window -- and with no bound on
+   `expires_at` that is a permanent denial of service for `capacity`
+   datagrams, off-path, with no key.
+
+   This harness opened the seal first anyway, and scenario 8c derives the
+   reason in the right words. It cited sec 4.7 for an order sec 4.7 did not
+   state, and nobody noticed in either direction: the document was not
+   checked against the harness, and the harness's comment was not checked
+   against the document.
+
+   sec 4.7 has since been rewritten to what this file does, so the citation
+   is now true. What changed is the document.  */
 
 static void sim_receive(struct sim_net *net, struct sim_datagram *d)
 {
