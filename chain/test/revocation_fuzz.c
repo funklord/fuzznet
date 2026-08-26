@@ -42,18 +42,33 @@
 
 static const uint8_t REGION[] = "a revocation, as the schema would lay it out";
 
+/* THE VERDICT IS A FUNCTION OF THE KEY, NOT A GLOBAL YES OR NO.
+ *
+ * This stub opened `(void)pubkey;` and returned one `answer` whatever key it
+ * was handed, so it could not tell a verifier that checked the right
+ * signature from one that checked the wrong party's. revocation.c verifies
+ * under `record->issuer`; mutating that to `record->grantee` hands the device
+ * being revoked the power to decide whether its own revocation counts -- it
+ * simply withholds a signature and stays authorised. The issuer is pinned to
+ * the root above the verification, so the mutation changes neither the return
+ * code nor the call count. Only the key tells them apart.
+ *
+ * `good` is the set of identities whose signature verifies, indexed by the
+ * low five bits of the key. Every identity here is a key of repeated bytes,
+ * so those bits ARE the identity. */
 struct stub {
-	int answer;
+	uint32_t good;
 };
 
 static int stub_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const uint8_t *msg,
                        size_t msg_len, const uint8_t sig[FZN_SIG_LEN])
 {
-	(void)pubkey;
+	const struct stub *s = (const struct stub *)ctx;
+
 	(void)msg;
 	(void)msg_len;
 	(void)sig;
-	return ((struct stub *)ctx)->answer;
+	return (int)((s->good >> (pubkey[0] & 31u)) & 1u);
 }
 
 struct arena {
@@ -128,7 +143,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 	struct arena arena;
 	fzn_revocation_store_t store;
 	struct model model;
-	struct stub stub = { 1 };
+	struct stub stub = { 0xffffffffu };
 	fzn_sign_ops_t sign;
 	uint8_t root[FZN_PUBKEY_LEN];
 	size_t pos = 0;
@@ -168,7 +183,14 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		       FZN_PUBKEY_LEN);
 
 		sig_ok = (data[pos + 3] & 0x03u) != 0;
-		stub.answer = sig_ok;
+		/* `sig_ok` is a statement about THE ISSUER'S signature, so it is
+		 * the issuer's bit that gets cleared. Every other identity --
+		 * the grantee included -- keeps a good signature, which is what
+		 * makes a verifier that asks the wrong party visible: it gets a
+		 * yes where the rules below say no. */
+		stub.good = 0xffffffffu;
+		if (!sig_ok)
+			stub.good &= ~(1u << (r.issuer[0] & 31u));
 
 		region_ok = (data[pos + 3] & 0x40u) == 0;
 		r.signed_region = region_ok ? REGION : NULL;

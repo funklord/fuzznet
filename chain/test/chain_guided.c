@@ -53,24 +53,42 @@ static uint64_t take64(struct cursor *c)
 	return v;
 }
 
-/* The fuzzer's per-hop verdict on each signature, taken from a bitmask so a
- * single mutated byte can flip one hop's signature from good to bad. */
+/* The fuzzer's per-KEY verdict on each signature, taken from a bitmask so a
+ * single mutated byte can flip one identity's signature from good to bad.
+ *
+ * IT IS INDEXED BY THE KEY, NOT BY THE CALL NUMBER, AND THAT IS THE POINT.
+ *
+ * This read `(s->good >> (s->calls++ % 16u)) & 1u`: the verdict was a
+ * function of WHEN a verification happened rather than of WHOSE signature was
+ * being checked, and `pubkey` was thrown away with a `(void)`. So the two most
+ * damaging mutations in chain.c changed nothing this harness could observe.
+ * Verifying every hop under `hop->grantee` accepts a chain with no root
+ * signature in it at all; verifying every hop under the pinned `root` lets one
+ * signature by the root be grafted anywhere. Both are total authorisation
+ * bypasses and both were green here.
+ *
+ * Identities in this harness are one byte wide (see the header comment), so
+ * the low bits of the key ARE the identity and a 16-bit mask covers them. */
 struct stub {
 	uint16_t good;
 	unsigned calls;
 };
 
+static int stub_signature_is_good(uint16_t good, const uint8_t *pubkey)
+{
+	return (int)((good >> (pubkey[0] % 16u)) & 1u);
+}
+
 static int stub_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const uint8_t *msg,
                        size_t msg_len, const uint8_t sig[FZN_SIG_LEN])
 {
 	struct stub *s = (struct stub *)ctx;
-	unsigned which = s->calls++;
 
-	(void)pubkey;
 	(void)msg;
 	(void)msg_len;
 	(void)sig;
-	return (s->good >> (which % 16u)) & 1u;
+	s->calls++;
+	return stub_signature_is_good(s->good, pubkey);
 }
 
 static int same(const uint8_t *a, const uint8_t *b, size_t n)
@@ -78,13 +96,21 @@ static int same(const uint8_t *a, const uint8_t *b, size_t n)
 	return memcmp(a, b, n) == 0;
 }
 
-/* The oracle. Returns non-zero when an ACCEPTED chain fails one of the six.
+/* The oracle. Returns non-zero when an ACCEPTED chain fails one of the seven.
  * Deliberately written from sec 4.2 rather than from chain.c, so that a
- * mistake shared with the implementation does not cancel out. */
+ * mistake shared with the implementation does not cancel out.
+ *
+ * The seventh is EACH HOP'S SIGNATURE UNDER ITS OWN GRANTOR, which could not
+ * be asked while the stub answered by call number: a verdict that did not
+ * depend on the key made "verified under the right key" a question with no
+ * observable answer. It is sec 4.2's "verified against a pinned root rather
+ * than adopted" -- a chain is a chain because each grantor signed the hop
+ * giving its authority away, and the root's signature is the one that ties it
+ * to the pin. */
 static int accepted_chain_is_sound(const fzn_chain_hop_t *hops, size_t hop_count,
                                    const uint8_t *root, const uint8_t *capability, uint64_t now,
                                    const fzn_revocation_t *revs, size_t rev_count,
-                                   const fzn_chain_t *out)
+                                   uint16_t good, const fzn_chain_t *out)
 {
 	if (hop_count == 0)
 		return 1;
@@ -92,6 +118,8 @@ static int accepted_chain_is_sound(const fzn_chain_hop_t *hops, size_t hop_count
 		return 1;
 
 	for (size_t i = 0; i < hop_count; i++) {
+		if (!stub_signature_is_good(good, hops[i].grantor))
+			return 1;
 		if (!same(hops[i].capability, capability, FZN_CAP_ID_LEN))
 			return 1;
 		if (hops[i].expires_at != FZN_NO_EXPIRY && hops[i].expires_at <= now)
@@ -164,7 +192,7 @@ static int drive(const uint8_t *data, size_t size)
 		return 0;
 
 	return accepted_chain_is_sound(hops, hop_count, root, capability, now, revs, rev_count,
-	                               &out);
+	                               stub.good, &out);
 }
 
 #ifdef FZN_LIBFUZZER
@@ -179,13 +207,40 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 #else
 
 /* A valid single-hop chain, and the same with the signature marked bad. Short
- * enough to read; the guided run supplies breadth. */
+ * enough to read; the guided run supplies breadth.
+ *
+ * The layout is `drive`'s: root, capability, eight bytes of `now`, two bytes
+ * of the good-signature mask, the hop count, the revocation count, then eight
+ * bytes per hop -- grantor, grantee, capability, issued_at, expires_at,
+ * delegable, signature, signed region. */
 static const uint8_t CASE_VALID[] = { 7, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 1, 0,
 	                              7, 3, 9, 0, 0, 0, 1, 1 };
 static const uint8_t CASE_BADSIG[] = { 7, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0x00, 0x00, 1, 0,
 	                               7, 3, 9, 0, 0, 0, 1, 1 };
 static const uint8_t CASE_TWOHOP[] = { 7, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 2, 0,
 	                               7, 3, 9, 0, 0, 1, 1, 1, 3, 4, 9, 0, 0, 0, 2, 2 };
+
+/* THE TWO CASES THAT NAME THE BYPASSES, and they are here rather than left to
+ * the campaign because a corpus is not evidence a mutation is caught -- it is
+ * evidence somebody once ran a fuzzer.
+ *
+ * Both are two-hop chains root(7) -> 3 -> 4 that a correct chain.c REFUSES,
+ * so both are silent today. Each becomes an accepted-but-unsound chain under
+ * exactly one mutation.
+ *
+ * NO_ROOT_SIG clears bit 7, so the root's own signature is bad and every
+ * other identity's is good. Correct code refuses at hop 0. Verifying each hop
+ * under `hop->grantee` instead checks keys 3 and 4 -- the root is never asked
+ * to have signed anything -- and accepts.
+ *
+ * MID_BADSIG clears bit 3, so the middle identity's signature is bad.
+ * Correct code refuses at hop 1. Verifying every hop under the pinned `root`
+ * instead checks key 7 twice and accepts, which is how one signature by the
+ * root gets grafted onto a hop the root never granted. */
+static const uint8_t CASE_NO_ROOT_SIG[] = { 7, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0x7f, 2, 0,
+	                                    7, 3, 9, 0, 0, 1, 1, 1, 3, 4, 9, 0, 0, 0, 2, 2 };
+static const uint8_t CASE_MID_BADSIG[] = { 7, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xf7, 2, 0,
+	                                   7, 3, 9, 0, 0, 1, 1, 1, 3, 4, 9, 0, 0, 0, 2, 2 };
 
 int main(int argc, char **argv)
 {
@@ -211,14 +266,25 @@ int main(int argc, char **argv)
 			}
 		}
 	} else {
-		const uint8_t *builtin[] = { CASE_VALID, CASE_BADSIG, CASE_TWOHOP };
-		const size_t sizes[] = { sizeof(CASE_VALID), sizeof(CASE_BADSIG),
-			                 sizeof(CASE_TWOHOP) };
+		static const struct {
+			const char *name;
+			const uint8_t *data;
+			size_t size;
+		} BUILTIN[] = {
+			{ "a valid one-hop chain", CASE_VALID, sizeof(CASE_VALID) },
+			{ "a one-hop chain with a bad signature", CASE_BADSIG,
+			  sizeof(CASE_BADSIG) },
+			{ "a valid two-hop chain", CASE_TWOHOP, sizeof(CASE_TWOHOP) },
+			{ "a chain whose root never signed", CASE_NO_ROOT_SIG,
+			  sizeof(CASE_NO_ROOT_SIG) },
+			{ "a chain whose middle hop is unsigned", CASE_MID_BADSIG,
+			  sizeof(CASE_MID_BADSIG) },
+		};
 
-		for (size_t i = 0; i < 3; i++) {
+		for (size_t i = 0; i < sizeof(BUILTIN) / sizeof(BUILTIN[0]); i++) {
 			cases++;
-			if (drive(builtin[i], sizes[i])) {
-				printf("  FAIL: built-in case %zu accepted an unsound chain\n", i);
+			if (drive(BUILTIN[i].data, BUILTIN[i].size)) {
+				printf("  FAIL: %s -- accepted, and unsound\n", BUILTIN[i].name);
 				failures++;
 			}
 		}

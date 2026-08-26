@@ -42,25 +42,41 @@
 
 static const uint8_t REGION[] = "a hop, as the schema would lay it out";
 
+/* THE SIGNATURE VERDICT IS A FUNCTION OF THE KEY, NOT OF THE CALL NUMBER.
+ *
+ * This stub opened `(void)pubkey;` and answered from `s->answer` and a
+ * `fail_on` call counter -- so which signature was good depended on WHEN it
+ * was checked rather than on WHOSE it was, and the model below could not name
+ * a key at all. That made the two total bypasses in chain.c invisible here
+ * across 200000 cases apiece: verifying every hop under `hop->grantee`
+ * accepts a chain carrying no root signature, and verifying every hop under
+ * the pinned `root` lets one signature by the root be grafted onto any hop.
+ *
+ * `good` is a set of identities whose signatures verify, indexed by the low
+ * five bits of the key. Every identity this generator mints is a key of
+ * repeated bytes, so those bits ARE the identity, and `ought_to_verify` can
+ * ask the same question of `hops[i].grantor` that chain.c should be asking of
+ * the verifier. When the two disagree the harness says so. */
 struct stub {
 	int calls;
-	int answer;
-	int fail_on;
+	uint32_t good;
 };
+
+static int signature_is_good(uint32_t good, const uint8_t *pubkey)
+{
+	return (int)((good >> (pubkey[0] & 31u)) & 1u);
+}
 
 static int stub_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const uint8_t *msg,
                        size_t msg_len, const uint8_t sig[FZN_SIG_LEN])
 {
 	struct stub *s = (struct stub *)ctx;
 
-	(void)pubkey;
 	(void)sig;
 	(void)msg;
 	(void)msg_len;
 	s->calls++;
-	if (s->fail_on && s->calls == s->fail_on)
-		return 0;
-	return s->answer;
+	return signature_is_good(s->good, pubkey);
 }
 
 static int stub_sign(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg, size_t msg_len)
@@ -84,7 +100,7 @@ struct coverage {
  * right would agree with it always, including when both are wrong. */
 static int ought_to_verify(const fzn_chain_hop_t *hops, size_t n, const uint8_t *root,
                            const uint8_t *cap, uint64_t now, const fzn_revocation_t *revs,
-                           size_t nrevs)
+                           size_t nrevs, uint32_t good)
 {
 	if (n == 0 || n > MAX_HOPS)
 		return 0;
@@ -93,6 +109,11 @@ static int ought_to_verify(const fzn_chain_hop_t *hops, size_t n, const uint8_t 
 
 	for (size_t i = 0; i < n; i++) {
 		if (!hops[i].signed_region || hops[i].signed_region_len == 0)
+			return 0;
+		/* Each hop signed by the grantor giving its authority away, and
+		 * by nobody else. This is the clause the old stub could not
+		 * express, and it is the one both bypass mutations break. */
+		if (!signature_is_good(good, hops[i].grantor))
 			return 0;
 		if (memcmp(hops[i].capability, cap, FZN_CAP_ID_LEN) != 0)
 			return 0;
@@ -136,7 +157,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 	fzn_chain_hop_t hops[MAX_HOPS];
 	fzn_revocation_t revs[MAX_REVS];
 	uint8_t root[FZN_PUBKEY_LEN], cap[FZN_CAP_ID_LEN];
-	struct stub stub = { 0, 1, 0 };
+	struct stub stub = { 0, 0xffffffffu };
 	fzn_sign_ops_t sign;
 	fzn_chain_t out, before;
 	size_t n, nrevs;
@@ -154,8 +175,30 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 	memset(root, data[0] & 0x03u, sizeof(root));
 	memset(cap, data[1] & 0x03u, sizeof(cap));
 	now = data[2] * 100u;
-	stub.answer = (data[3] & 0x0fu) != 0; /* usually good, sometimes not */
-	stub.fail_on = (data[4] & 0x1fu) == 0 ? 1 + (data[4] >> 5) : 0;
+	/* Usually every signature is good, sometimes none is. */
+	stub.good = (data[3] & 0x0fu) != 0 ? 0xffffffffu : 0u;
+	/* And sometimes exactly ONE identity's signature is bad, which is the
+	 * case that separates a correct verifier from either bypass. It is
+	 * chosen from the bytes this generator actually mints identities from
+	 * -- roots are 0..3 and grantees 0x10..0x17 -- because a bit picked
+	 * uniformly out of 32 would usually name a key no hop presents, and a
+	 * mask that decides nothing tests nothing.
+	 *
+	 * With the root's the bad one, a correct chain.c refuses at hop 0
+	 * while `hop->grantee` never asks the root for anything and accepts.
+	 * With a middle grantee's the bad one, a correct chain.c refuses at
+	 * that hop while `root` checks the root's good signature again and
+	 * accepts. Either way the model and the module disagree, which is a
+	 * failure this harness can print. */
+	if ((data[4] & 0x07u) == 0) {
+		static const uint8_t IDENTITIES[] = { 0, 1, 2, 3, 0x10, 0x11, 0x12, 0x13,
+			                              0x14, 0x15, 0x16, 0x17 };
+
+		stub.good &= ~(1u
+		               << (IDENTITIES[(data[4] >> 3) % (sizeof(IDENTITIES) /
+		                                                sizeof(IDENTITIES[0]))] &
+		                   31u));
+	}
 	n = 1u + (data[5] % (MAX_HOPS + 1u)); /* sometimes one past the ceiling */
 	nrevs = data[6] % (MAX_REVS + 1u);
 	pos = 8;
@@ -223,7 +266,8 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 			printf("  INVARIANT: accepted a chain of %zu hops\n", n);
 			return 1;
 		}
-		if (!ought_to_verify(hops, n, root, cap, now, nrevs ? revs : NULL, nrevs)) {
+		if (!ought_to_verify(hops, n, root, cap, now, nrevs ? revs : NULL, nrevs,
+		                     stub.good)) {
 			printf("  INVARIANT: accepted a chain the rules refuse\n");
 			return 1;
 		}
@@ -252,8 +296,9 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		/* And that a chain the rules accept is not refused -- the
 		 * other direction, which catches an over-eager refusal that
 		 * would look like safety. */
-		if (stub.answer && !stub.fail_on && n <= MAX_HOPS &&
-		    ought_to_verify(hops, n, root, cap, now, nrevs ? revs : NULL, nrevs)) {
+		if (n <= MAX_HOPS &&
+		    ought_to_verify(hops, n, root, cap, now, nrevs ? revs : NULL, nrevs,
+		                    stub.good)) {
 			printf("  INVARIANT: refused a chain the rules accept (err %d)\n",
 			       (int)err);
 			return 1;
