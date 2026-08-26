@@ -1185,6 +1185,57 @@ which is a much smaller risk than the header was weighing, and makes "a user
 revokes its own lost laptop without the root" answerable. Still the holder's
 call; the risk is now nameable.
 
+### Revised 2026-08-26: one user per host is the wrong invariant to lock
+
+**The holder's worry, and it is justified:** netcfgd may have more than one
+admin for a host, so a model in which a host belongs to exactly one user
+paints the design into a corner.
+
+**Measured, the corner is not where it looks, because three different
+authority questions are being called by one name.** netcfgd already answers
+"more than one admin", in its own `project.md`, and not with users at all:
+
+    Principal = Root | Any | User(string) | Group(string)
+    control { observe = "any"; wifi = "group:netdev"; admin = "root" }
+
+`wifi = "group:netdev"` is many admins with **no cryptographic identity
+whatever** -- a Unix group over a local socket. Separate the three and the
+constraint dissolves:
+
+| question | who answers it today |
+|---|---|
+| Who on THIS machine may command the daemon? | `local/`: uid, gid, `fzn_peer_group_verdict` -- §2 |
+| Which REMOTE identity may command this host? | `chain/`: a verified capability chain -- §4.2 |
+| Whose estate is this host part of? | the pinned root: the only genuinely singular one |
+
+**Multiple remote admins already work and always did.** A host verifies each
+commander's chain independently; nothing in `fzn_chain_verify` constrains how
+many distinct identities may hold a capability for one receiver. The
+"one user per host" reading came from equating *user* with *pinned root*, and
+that equation is the mistake rather than the model.
+
+**So the invariant to avoid locking is the anchor, not the user.** Two things
+follow, and they are the recommendation:
+
+- **A host should pin a SET of roots, not one.** `fzn_chain_verify` takes a
+  single `root` and a consumer can loop, at one signature verification per
+  anchor -- workable for small sets and wrong to bake in as "one". Where an
+  organisation is the root and admins are delegatees, one anchor suffices;
+  where two co-equal owners share a machine, it does not, and that case
+  should not require inventing a fictional common root.
+- **Keep ACTOR separate from OWNER.** A permission is better read as
+  *(actor, capability, target)* than *(user, host, capability)*: the actor may
+  be a remote user, a remote host acting for its user, or a local uid or gid
+  with no key at all; the target is normally the receiver itself. The
+  (user, host, capability) triple describes fuzzypickles' case, where a host
+  acts *for* its user -- and netcfgd's case is the other one, where an admin
+  acts *on* a host. Both are wanted, and a model naming only the first is what
+  would create the corner.
+
+**What this does not change:** still no wire change. The frame carries
+`sender[32]`, the acting host; who that host acts for, and which anchors the
+receiver trusts, are both receiver-side questions. §13's 144 bytes stand.
+
 **The open question the holder has not yet answered**, and the one that
 decides how much of the wire moves: does a locked-in permission system give
 the capability bytes structure, or does it sit *above* them -- a shared
