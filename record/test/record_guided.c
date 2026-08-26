@@ -18,8 +18,15 @@
  *   - `state.h`: a later record from the same issuer supersedes and an older
  *     one never does; a different issuer is refused unless resolved; the
  *     entry always names an issuer that actually succeeded.
- *   - `log.h`: `GONE` exactly below the oldest held, `ABSENT` above the
- *     newest, and `dropped` only ever increases.
+ *   - `log.h`: `GONE` for a sequence the journal says was RECEIVED and the
+ *     log no longer holds, `ABSENT` for one that never arrived, and
+ *     `dropped` only ever increases.
+ *
+ *     This clause used to read "GONE exactly below the oldest held, ABSENT
+ *     above the newest" -- the module's own defect, written into the oracle,
+ *     so the fuzzer could never have found it and would have rejected the
+ *     fix. That is `evidence.md`'s independence rule: a model derived from
+ *     the implementation is one witness wearing two hats.
  *
  * THE UNDERFLOW IS THE ONE WORTH NAMING. `fzn_journal_pending` returns
  * `received - applied` as an unsigned value. If confirmation could ever
@@ -72,7 +79,7 @@ static void identity(uint8_t out[FZN_PUBKEY_LEN], uint8_t which)
 /* The log's promises, in their own function so that the checks are not four
  * levels deep inside a switch -- which made every continuation line ambiguous
  * to the style gate and, more to the point, to a reader. */
-static int log_step(fzn_log_t *log, const fzn_record_t *rec,
+static int log_step(fzn_log_t *log, const fzn_journal_t *journal, const fzn_record_t *rec,
                     const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream)
 {
 	const fzn_log_entry_t *got = NULL;
@@ -84,15 +91,39 @@ static int log_step(fzn_log_t *log, const fzn_record_t *rec,
 		return 1; /* dropped went backwards */
 
 	fzn_log_range(log, issuer, stream, &first, &last);
-	if (first == 0)
-		return 0;
-	if (first > last)
+	if (first != 0 && first > last)
 		return 1;
-	/* GONE exactly below the oldest held, ABSENT above the newest. */
-	if (first > 1u && fzn_log_get(log, issuer, stream, first - 1u, &got) != FZN_LOG_ERR_GONE)
-		return 1;
-	if (fzn_log_get(log, issuer, stream, last + 1u, &got) != FZN_LOG_ERR_ABSENT)
-		return 1;
+
+	/* THE VERDICT COMES FROM THE POSITION, NOT FROM WHAT IS HELD, and the
+	 * check runs unconditionally rather than bailing out when the stream
+	 * holds nothing.
+	 *
+	 * `if (first == 0) return 0;` used to sit above this, so the harness
+	 * gave up at exactly the state the module is about -- a stream evicted
+	 * down to nothing, which is the case `log.h` says GONE exists for. The
+	 * two assertions below it were skipped whenever they would have
+	 * mattered most. */
+	{
+		uint64_t next = fzn_journal_next(journal, issuer, stream);
+
+		/* Anything the journal has not received cannot have been
+		 * evicted, whether or not the log holds something older. */
+		if (fzn_log_get(log, journal, issuer, stream, next, &got) != FZN_LOG_ERR_ABSENT)
+			return 1;
+
+		/* And a received sequence the log does not hold was evicted.
+		 * `next - 1` is the newest received; walk down from it and the
+		 * first one not held must say GONE rather than ABSENT. */
+		for (uint64_t seq = next > 1u ? next - 1u : 0u; seq >= 1u; seq--) {
+			fzn_log_err_t err = fzn_log_get(log, journal, issuer, stream, seq, &got);
+
+			if (err == FZN_LOG_OK)
+				continue;
+			if (err != FZN_LOG_ERR_GONE)
+				return 1;
+			break;
+		}
+	}
 
 	return 0;
 }
@@ -222,7 +253,7 @@ static int drive(const uint8_t *data, size_t size)
 			break;
 		}
 		default: /* log append and read back */
-			if (log_step(&log, &rec, issuer, str))
+			if (log_step(&log, &journal, &rec, issuer, str))
 				return 1;
 			break;
 		}
