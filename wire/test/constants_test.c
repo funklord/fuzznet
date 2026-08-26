@@ -249,9 +249,16 @@ _Static_assert(FZN_AEAD_TAG_LEN == SITU_FZN_FRAME_TAG_COUNT,
  * FZN_REASM_MAX_CHUNKS - 1, while the array is sized
  * `FZN_REASM_MAX_CHUNKS / 8u` -- an integer division that TRUNCATES. Any
  * ceiling that is not a multiple of eight therefore gives a one-byte
- * out-of-bounds write inside `fzn_partial_t`, and no test reassembles
- * anywhere near the ceiling: the largest chunk counts in chunk/test are 4
- * and 9, so the top byte of this bitset has never been written at all.
+ * out-of-bounds write inside `fzn_partial_t`.
+ *
+ * The top of the bitset is genuinely unexercised, though not as barely as
+ * this comment first claimed. `chunk/test/split_test.c`'s `round_trip(1000,
+ * 8, 0)` splits 1000 bytes at a cap of 8, which is 125 chunks and reaches
+ * `seen[15]` of the 32 bytes. So half the array is written and the last byte
+ * -- indices 248 to 255, where a ceiling that is not a multiple of eight
+ * would do its damage -- is not. The first version of this said the largest
+ * chunk counts in chunk/test were 4 and 9, which was taken from a report and
+ * repeated without being checked.
  *
  * Comparing the array to the index range rather than checking `% 8u`, since
  * that is the property the code depends on and it stays correct if the array
@@ -337,6 +344,6 @@ int main(void)
 	      "the commitment field does not lie within the frame");
 
 	printf("constants_test: %d checks, %d failure(s); %d constants pinned at compile time\n",
-	       checks, failures, 23);
+	       checks, failures, 22);
 	return failures == 0 ? 0 : 1;
 }

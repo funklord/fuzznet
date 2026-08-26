@@ -75,10 +75,12 @@ typedef enum fzn_commitment_err {
  * module and is silent. `fzn_commitment_derive` branches on `!hash->hash(...)`
  * and, on the success path, copies FZN_AEAD_KEY_LEN bytes out of a stack
  * buffer it never initialises. An implementation returning 0 for success is
- * therefore read as having failed -- which is the harmless direction -- but
- * one returning 0 for FAILURE is read as success, and the caller is handed
- * whatever was on the stack as an AEAD key. Nothing downstream can tell that
- * from a real key: it encrypts, it commits, and it is guessable.
+ * therefore read as having FAILED, which is the harmless direction -- a good
+ * hash is refused. The dangerous one is an implementation that returns
+ * NONZERO on failure: `!nonzero` is false, so the refusal is read as success
+ * and the caller is handed whatever was on the stack as an AEAD key. Nothing
+ * downstream can tell that from a real key: it encrypts, it commits, and it
+ * is guessable.
  *
  * Every other seam in this library says which way round it is. This one did
  * not, and a vendored hash is exactly the code most likely to be written by

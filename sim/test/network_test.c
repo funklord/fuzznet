@@ -283,6 +283,19 @@ struct sim_net {
 	uint32_t forced_msg_id;
 };
 
+/* Digest positions that did not fit a harness buffer, summed over the whole
+ * run and asserted ONCE, in main. File scope because each scenario owns its
+ * own `sim_net`.
+ *
+ * It was a `check()` at each of the three fetch helpers, which sounds
+ * harmless and was not: those helpers run in loops, so one assertion became
+ * 630 of them and this file's headline count went from 86 to 716. Nearly
+ * nine tenths of the number being quoted as coverage was one line about the
+ * HARNESS's own buffers, saying nothing about the library at all. A check
+ * count that grows with the number of rounds is not a measure of what is
+ * checked, and it was mine -- added earlier today. */
+static unsigned total_digest_dropped;
+
 static uint32_t sim_random(struct sim_net *net)
 {
 	net->seed = mix(net->seed + 0x9e3779b9u);
@@ -1198,7 +1211,7 @@ static void sim_fetch_from(struct sim_net *net, struct sim_host *me, struct sim_
 	/* The simulation sizes every digest buffer at SIM_HOSTS, so a drop here
 	 * means the harness has outgrown its own buffers -- which would make
 	 * every sync scenario below quietly partial. */
-	check(dropped == 0, "the simulation's digest buffer was too small");
+	total_digest_dropped += (unsigned)dropped;
 	if (fzn_sync_plan_fetch(&me->journal, theirs, n, 4, want, SIM_HOSTS, &plan) !=
 	    FZN_SYNC_OK)
 		return;
@@ -1383,7 +1396,7 @@ static void state_fetch(struct sim_net *net, struct sim_host *me, struct sim_hos
 	size_t dropped = 0;
 	size_t n = fzn_sync_digest(&peer->journal, theirs, SIM_HOSTS, &dropped);
 
-	check(dropped == 0, "the simulation's digest buffer was too small");
+	total_digest_dropped += (unsigned)dropped;
 
 	if (fzn_sync_plan_fetch(&me->journal, theirs, n, 4, want, SIM_HOSTS, &plan) !=
 	    FZN_SYNC_OK)
@@ -1666,7 +1679,7 @@ static void fidelity_fetch(struct sim_net *net, struct sim_host *me, struct sim_
 	size_t dropped = 0;
 	size_t n = fzn_sync_digest(&peer->journal, theirs, SIM_HOSTS * 2u, &dropped);
 
-	check(dropped == 0, "the simulation's digest buffer was too small");
+	total_digest_dropped += (unsigned)dropped;
 
 	if (fzn_sync_plan_fetch(&me->journal, theirs, n, 4, want, SIM_HOSTS * 2u, &plan) !=
 	    FZN_SYNC_OK)
@@ -1771,6 +1784,9 @@ int main(void)
 	scenario_state();
 	scenario_join();
 	scenario_fidelity();
+
+	/* Asserted ONCE, not once per fetch. See `digest_dropped`. */
+	check(total_digest_dropped == 0, "a simulation digest buffer was too small");
 
 	printf("network_test: %d checks, %d failure(s); fuzznet %s\n", checks, failures,
 	       fzn_version_string());

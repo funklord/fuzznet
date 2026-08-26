@@ -174,7 +174,7 @@ uint64_t fzn_journal_next(const fzn_journal_t *journal,
 
 	/* SATURATE RATHER THAN WRAP. `received + 1` is UINT64_MAX + 1 == 0 once
 	 * a stream has run to the top, and zero is the one sequence this
-	 * library reserves -- `fzn_record_validate` refuses it by name
+	 * library reserves -- `fzn_record_verify` refuses it by name
 	 * ("sequence zero is reserved"), and journal.h builds the whole
 	 * nothing-received-yet convention on it. So the wrap handed a caller
 	 * the single value guaranteed to be rejected, as the answer to "what

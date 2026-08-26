@@ -11,7 +11,7 @@ static int usable(const fzn_log_t *log)
 	return log && log->entries && log->used <= log->capacity;
 }
 
-/* Every live entry for this issuer is scanned rather than stopping at a
+/* Every entry for this issuer is scanned rather than stopping at a
  * match, so a duplicate cannot make the answer depend on insertion order --
  * the argument `local/vocabulary.c` makes about rule tables. */
 static fzn_log_entry_t *find(const fzn_log_t *log, const uint8_t issuer[FZN_PUBKEY_LEN],
@@ -43,8 +43,6 @@ fzn_log_err_t fzn_log_init(fzn_log_t *log, fzn_log_entry_t *entries, size_t capa
 	return FZN_LOG_OK;
 }
 
-/* The slot to write into: a dead one if there is any, otherwise the array's
- * tail, otherwise the oldest by append order -- which is the eviction. */
 /* The slot to write into: the array's tail while it is growing, then the
  * oldest by append order, which is the eviction.
  *
