@@ -40,6 +40,7 @@
 #include <fuzznet/record/journal.h>
 #include <fuzznet/record/record.h>
 #include <fuzznet/record/sync.h>
+#include <fuzznet/state/state.h>
 #include <fuzznet/session/random_system.h>
 #include <fuzznet/version/version.h>
 #include <fuzznet/wire/seal.h>
@@ -58,6 +59,7 @@
 #include "record/journal.h"
 #include "record/record.h"
 #include "record/sync.h"
+#include "state/state.h"
 #include "session/random_system.h"
 #include "version/version.h"
 #include "wire/seal.h"
@@ -151,6 +153,39 @@ int main(void)
 			if (plan.request_count != 1 || want.from != 2 || want.count != 3)
 				return 35;
 		}
+	}
+
+	/* And the state layer: a value set, superseded by its own issuer, and
+	 * refused to another's. Reached through installed headers. */
+	{
+		fzn_state_t st;
+		fzn_state_entry_t slots[2];
+		fzn_record_t r;
+		static const uint8_t body[] = "v";
+
+		if (fzn_state_init(&st, slots, 2) != FZN_STATE_OK)
+			return 40;
+		memset(&r, 0, sizeof(r));
+		memset(r.issuer, 0x01, sizeof(r.issuer));
+		memset(r.subject, 0x02, sizeof(r.subject));
+		r.kind = 1;
+		r.seq = 1;
+		r.body = body;
+		r.body_len = sizeof(body);
+		if (fzn_state_apply(&st, &r) != FZN_STATE_OK)
+			return 41;
+		r.seq = 2;
+		if (fzn_state_apply(&st, &r) != FZN_STATE_OK)
+			return 42;
+		r.seq = 1;
+		if (fzn_state_apply(&st, &r) != FZN_STATE_ERR_STALE)
+			return 43;
+		memset(r.issuer, 0x09, sizeof(r.issuer));
+		r.seq = 99;
+		if (fzn_state_apply(&st, &r) != FZN_STATE_ERR_CONFLICT)
+			return 44;
+		if (fzn_state_count(&st) != 1)
+			return 45;
 	}
 
 	if (fzn_version_number() != (unsigned long)FZN_VERSION_NUMBER)

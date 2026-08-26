@@ -1832,6 +1832,55 @@ Anchoring at zero now means follow-from-the-beginning, anchoring twice is an
 echo rather than a rewind, and the journal's own tests cover it -- but the
 harness is what asked the question.
 
+## 5c. `state/` -- permissions, rules and config are one thing
+
+**A permission, a rule and a configuration setting are the same object at
+this layer**: a value some issuer set, for some subject, of some kind, and the
+current one is whichever that issuer set most recently. `record/` moves and
+orders statements; this resolves them into **what is true now**, which is the
+question a consumer asks on every decision.
+
+**It interprets nothing.** `kind`, `subject` and `body` stay opaque, so the
+permission taxonomy remains the consumer's, per §5.
+
+**Order within an issuer, never across, and that is the whole design
+problem.** A per-issuer sequence totally orders one issuer's statements and
+orders no two issuers against each other. So a later statement from the same
+issuer supersedes, and a statement from a *different* issuer about something
+already set is a **conflict, reported and not resolved**.
+
+**Refusing to resolve is the point rather than indecision.** Every tie-break
+rule -- highest priority, lowest key, latest clock -- is one consumer's
+policy. Taking the newest silently would let any authorised issuer overwrite
+any other's configuration with nothing to show it happened; keeping the oldest
+silently is first-writer-wins, which freezes a value nobody can change. So
+`fzn_state_apply` returns `FZN_STATE_ERR_CONFLICT` and changes nothing, and a
+consumer that has a rule calls `fzn_state_resolve` -- deliberate in the way
+`fzn_journal_anchor` is. **A subject with a single writer never sees one.**
+
+**Two refusals that fail closed**, both on precedent in this tree: an older
+record must not undo a newer one from the same issuer (a re-delivery is
+exactly that, and a state that took it would revert settings whenever the
+network repeated itself), and a full state is refused rather than evicted,
+because dropping a setting reverts it to whatever a consumer's default is --
+a change nobody can trace to the moment it happened.
+
+**The body is not copied.** An entry points at the caller's bytes, as a chain
+hop points at its signed region, because nothing here allocates. The header
+says plainly that a caller must keep a body alive for as long as the entry
+refers to it.
+
+**A defect the test caught before the code shipped: clearing leaked
+capacity.** `fzn_state_clear` marked a slot dead, `used` never shrank, and
+insertion always appended -- so a state that set and cleared the same subject
+repeatedly would fill up while holding almost nothing. Found by a case that
+cleared one subject and then could not add a third into a state of three.
+Cleared slots are reused now.
+
+100% of lines and 92% of branches, 42 checks, and the installed-header check
+exercises set, supersede, stale and conflict rather than merely including the
+header.
+
 ## 5a. The integration harness
 
 **`sim/test/network_test.c` is a fake network of hosts, and it exists because

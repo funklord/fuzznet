@@ -46,6 +46,7 @@
 #include "../../local/peer.h"
 #include "../../record/journal.h"
 #include "../../record/sync.h"
+#include "../../state/state.h"
 #include "../../record/record.h"
 #include "../../session/commitment.h"
 #include "../seal.h"
@@ -81,6 +82,7 @@ static const char *r_peer(int v) { return fzn_peer_verdict_str((fzn_peer_verdict
 static const char *r_record(int v) { return fzn_record_err_str((fzn_record_err_t)v); }
 static const char *r_journal(int v) { return fzn_journal_err_str((fzn_journal_err_t)v); }
 static const char *r_sync(int v) { return fzn_sync_err_str((fzn_sync_err_t)v); }
+static const char *r_state(int v) { return fzn_state_err_str((fzn_state_err_t)v); }
 
 struct subject {
 	const char *name;
@@ -102,6 +104,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_record_err_str", r_record, -1, 5 },
 	{ "fzn_journal_err_str", r_journal, -1, 7 },
 	{ "fzn_sync_err_str", r_sync, -1, 2 },
+	{ "fzn_state_err_str", r_state, -1, 6 },
 };
 
 static void check_subject(const struct subject *s)
