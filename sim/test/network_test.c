@@ -271,6 +271,16 @@ struct sim_net {
 	uint32_t seed;
 	unsigned loss_pct, dup_pct, reorder_pct;
 	unsigned dropped, duplicated, reordered;
+
+	/* Forces every send to use this message identifier instead of deriving
+	 * one. Zero means derive, which is every scenario but the splice.
+	 *
+	 * It exists because the derivation folds the SENDER in -- see
+	 * `sim_send` -- so two hosts cannot collide by accident, and scenario 8
+	 * is about what happens when they do collide. Without a way to force
+	 * it, that scenario sent two messages whose identifiers differed by
+	 * construction and proved nothing. */
+	uint32_t forced_msg_id;
 };
 
 static uint32_t sim_random(struct sim_net *net)
@@ -400,7 +410,10 @@ static int sim_send(struct sim_net *net, uint8_t from, uint8_t to, const uint8_t
 		return 0;
 
 	sim_session_key(from, to, key, commitment);
-	message_id = mix(((uint32_t)from << 16) ^ ((uint32_t)to << 8) ^ (uint32_t)h->sent);
+	message_id = net->forced_msg_id
+	                     ? net->forced_msg_id
+	                     : mix(((uint32_t)from << 16) ^ ((uint32_t)to << 8) ^
+	                           (uint32_t)h->sent);
 
 	for (uint16_t i = 0; i < plan.chunks; i++) {
 		struct sim_datagram *d;
@@ -969,8 +982,42 @@ static void scenario_splice(void)
 	fill_message(a, sizeof(a), 41);
 	fill_message(b, sizeof(b), 97);
 
+	/* THE COLLISION HAS TO BE BUILT, and this scenario used not to build
+	 * it. `sim_send` derives the identifier from `from << 16`, so two
+	 * senders NEVER collide by accident -- the two messages below carried
+	 * different identifiers, and a receiver keyed on the identifier alone
+	 * would have filed them in separate slots and passed this scenario
+	 * exactly as it stands. It asserted the property while arranging for
+	 * the property to be untestable.
+	 *
+	 * Forcing one identifier for both senders is the whole point: now the
+	 * only thing keeping the two messages apart is that reassembly keys on
+	 * the sender too. Verified by mutation -- removing the sender from the
+	 * reassembly key fails this scenario and did not before. */
+	net.forced_msg_id = 0xabcd1234u;
+
 	check(sim_send(&net, 0, 2, a, sizeof(a), net.now + 100u), "sender A was refused");
 	check(sim_send(&net, 1, 2, b, sizeof(b), net.now + 100u), "sender B was refused");
+
+	/* AND THE CHUNKS HAVE TO INTERLEAVE. A shared identifier is still not
+	 * enough on its own: the queue holds A's chunks then B's, so A's
+	 * message completes and frees its slot before B's first chunk is ever
+	 * looked up, and the two never contend for one slot at all. Measured --
+	 * with the identifier forced but the order left alone, removing the
+	 * sender from the reassembly key STILL passed this scenario.
+	 *
+	 * Interleaving them is what puts two senders in the table at once,
+	 * which is the state the sender-keying exists for. Both messages are
+	 * 2000 bytes, so the queue is A0 A1 B0 B1 and one swap gives
+	 * A0 B0 A1 B1. */
+	check(net.queue_len == 4, "the splice scenario expects two chunks from each sender");
+	{
+		struct sim_datagram swap = net.queue[1];
+
+		net.queue[1] = net.queue[2];
+		net.queue[2] = swap;
+	}
+
 	sim_run(&net, 6);
 
 	for (size_t e = 0; e < net.hosts[2].inbox_len; e++) {
