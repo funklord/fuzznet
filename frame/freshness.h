@@ -35,6 +35,24 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* No expiry stated. This header spelled it as a bare 0 in prose and left the
+ * name to `chain/chain.h`, which declares the same value for a hop -- so a
+ * consumer using only the replay window had no name for it, and one using
+ * both had to notice they meant the same thing.
+ *
+ * Defined in BOTH headers rather than moved to one, because neither module
+ * may depend on the other: `frame/` must not pull in the capability model to
+ * ask about a clock, and the dependency-direction argument in
+ * `constant_time/constant_time.h` is the same one. The guard makes including
+ * both harmless in either order.
+ *
+ * That leaves two copies of a protocol constant, which is the arrangement
+ * `wire/tests/constants_test.c` exists for: it asserts the two agree, so a
+ * repetition that stops being a copy stops the build. */
+#ifndef FZN_NO_EXPIRY
+#define FZN_NO_EXPIRY 0u
+#endif
+
 /* XChaCha's nonce, which is what wire/frame.situ carries and why: 24 bytes
  * is what makes a RANDOM nonce safe without a counter negotiated per
  * session, and a self-contained frame (sec 13) cannot negotiate one. */

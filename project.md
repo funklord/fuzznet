@@ -2541,6 +2541,50 @@ reproducible, and a reader should read them as weaker than the ones after it.
 It also turned up that situ's *compiler* was dirty, not only its runtime, so
 the generated C was being compared against an uncommitted emitter as well.
 
+**Replay defence fuzzed, and the oracle was wrong before the code was**
+(2026-08-26). `make guided` now covers `frame/freshness.c` against the
+property the module exists to provide, plus two of §4.3's rules that fail open
+if they break: a command carrying no expiry must be refused, and an expiry
+already passed must be refused.
+
+**The first oracle fired within seconds, and the code was right.** It asserted
+that no nonce is admitted twice while its first admission is live. Reduced
+from the crash unit -- four bytes -- to three lines: admit nonce 0 expiring at
+256, then admit nonce 0 again with **no expiry**, and both return OK.
+
+`fzn_replay_admit` returns OK for `expires_at == 0` **without consulting the
+window at all**, and the comment above that line says why: a grant may
+legitimately carry no expiry, there is nothing to remember it until,
+re-presenting one is how a chain is verified rather than an attack, and
+recording them would build exactly the unbounded set the design avoids.
+
+**Nor is it a hole**, which is the part worth being sure of before moving on.
+A stranger replaying a recorded command cannot turn it into an unexpiring
+grant: `expires_at` and `kind` both sit inside the authenticated head, so
+changing either invalidates the tag.
+
+So the property is narrower than "no nonce twice", and stating it correctly
+was most of the work: **a nonce carrying a stated expiry, once admitted, must
+not be admitted again while that expiry is live.** Narrowed, the campaign is
+clean over 2.9 million executions reaching 112 edges, and the oracle still
+fires -- disabling the nonce lookup produces a deadly signal in under thirty
+seconds.
+
+**`now` only moves forward in the harness**, because a fuzzer handed a
+free-running clock steps it backwards and manufactures replays no receiver
+could experience. A false positive costs more than a missed path: it is the
+report nobody trusts twice.
+
+**A name the library owed and did not provide.** `frame/freshness.h` explained
+that "`expires_at` of 0 means no expiry stated" in prose while `chain/chain.h`
+named the same value `FZN_NO_EXPIRY`, so a consumer of the replay window alone
+had no name for it. Both headers define it now, guarded, because neither
+module may depend on the other -- `frame/` must not pull in the capability
+model to ask about a clock. That leaves two copies of a protocol constant,
+which is what `constants_test.c` is for: it asserts they agree, and the
+assertion is not vacuous, because the include guard makes disagreement
+*silent*.
+
 **The authorisation core, fuzzed against a soundness oracle** (2026-08-26).
 `make guided` now covers `chain/` as well, and it asks a sharper question than
 "does it crash": **when `fzn_chain_verify` says yes, is it right?** Everything

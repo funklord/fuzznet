@@ -35,6 +35,7 @@
 /version/test/version_test
 /chunk/test/reassembly_guided
 /chain/test/chain_guided
+/frame/test/freshness_guided
 /guided/
 /constant_time/test/secret_flow_valgrind
 

@@ -71,7 +71,9 @@
  * no longer exists. Those are statements about different objects. A
  * command's expiry lives in the frame (wire/frame.situ's `expires_at`); a
  * grant's lives here and defaults to absent. */
+#ifndef FZN_NO_EXPIRY
 #define FZN_NO_EXPIRY 0u
+#endif
 
 typedef enum fzn_err {
 	FZN_OK = 0,

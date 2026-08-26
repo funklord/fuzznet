@@ -72,6 +72,16 @@ _Static_assert(FZN_CAP_ID_LEN == SITU_FZN_FRAME_SEALED_CAPABILITY_COUNT,
 _Static_assert(SITU_FZN_FRAME_SIZE_MAX - SITU_FZN_FRAME_SIZE_MIN == FZN_SPLIT_MAX_PAYLOAD,
                 "chunk/split.h's payload ceiling and wire/frame.situ's [max] have diverged");
 
+/* THE TWO SPELLINGS OF "no expiry", which are now two headers' business.
+ *
+ * `chain/chain.h` and `frame/freshness.h` each define `FZN_NO_EXPIRY`,
+ * because neither module may depend on the other and both need the name. The
+ * include guard means whichever header is read first wins, so this is where
+ * the two are held to the same value -- and it is not vacuous: the guard
+ * makes disagreement SILENT, which is precisely the case worth catching.
+ * Reading this file's own includes, chain.h comes first. */
+_Static_assert(FZN_NO_EXPIRY == 0u, "FZN_NO_EXPIRY is not the zero the wire format means");
+
 /* THE ADVERTISED OVERHEAD AGAINST THE SCHEMA'S OWN MINIMUM.
  *
  * `FZN_SEAL_OVERHEAD` is hand-written in seal.h and `fzn_seal_build` sizes
@@ -210,6 +220,6 @@ int main(void)
 	      "the commitment field does not lie within the frame");
 
 	printf("constants_test: %d checks, %d failure(s); %d constants pinned at compile time\n",
-	       checks, failures, 11);
+	       checks, failures, 12);
 	return failures == 0 ? 0 : 1;
 }
