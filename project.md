@@ -1832,6 +1832,50 @@ Anchoring at zero now means follow-from-the-beginning, anchoring twice is an
 echo rather than a rewind, and the journal's own tests cover it -- but the
 harness is what asked the question.
 
+## 5e. `log/` -- the first piece absorbed from fuzzypickles
+
+**Started 2026-08-26.** What came across is the part fuzzypickles' own
+measurement identified as general -- **sequencing, retention and serving a
+range** -- and what did not is the part it identified as specific:
+`append_log.c`'s `"<seq> <escaped text>"` line format, which is an encoding
+choice and the one netcfgd would reject, its stated product property being
+greppable JSON. A body here is opaque bytes, as everywhere in `record/`.
+
+**Their measurement also settled the sequencing.** Of 28,332 lines in
+`core/src`, **only four files are standalone**: `append_log`, `location`,
+`link`, `sched`. Everything else includes `control.h`, `wire.h` or
+`peer_wire.h`, so a subsystem cannot leave while it still speaks their wire
+without dragging `control_codec.c` -- 145 encoders and 107 decoders -- behind
+it, which §5 refuses. So `append_log` is one of the few things that can move
+now, and `log_relay.c` and `log_show.c` cannot: they are frame-blocked until
+the frame is replaced.
+
+**A log evicts. The journal and the state do not**, and the difference is the
+design rather than an inconsistency. A journal refuses when full because
+forgetting an issuer readmits everything it ever sent; a state refuses because
+dropping a setting reverts it to a default nobody can trace. A log is a
+*stream*, and losing its oldest is its normal condition -- one that refused
+once full would stop recording exactly when something interesting started.
+
+**`FZN_LOG_ERR_GONE` is the reason this is a module and not a second
+journal.** `record/sync.h` plans a fetch from what a peer says it holds, and
+`record/journal.h` refuses a jump so a hole is never silently accepted. Put
+those together without a "gone" answer and a host that fell far behind asks
+for a sequence nobody has any more, for ever, and **neither side can tell that
+from a lost datagram**. `GONE` turns it into a decision: the consumer
+re-anchors and accepts that it missed some, deliberately.
+
+**A hole in a log is tolerable; a hole in a permission stream is not -- and no
+flag was needed for that.** fuzzypickles' append log takes any entry whose
+sequence exceeds its high-water mark, so a jump loses what was between and it
+does not mind. `fzn_journal_admit` refuses the jump. A log consumer that
+accepts the loss calls `fzn_journal_anchor`, which is already deliberate; a
+permission consumer never does. The existing API expressed both, which is why
+`log/` takes no policy argument.
+
+39 checks, 100% of lines and 85% of branches, and the installed-header check
+appends past capacity and requires GONE rather than merely absent.
+
 ## 5d. `trust/` -- where a pinned root comes from
 
 **Added 2026-08-26 at the holder's instruction: "we also need TOFU as

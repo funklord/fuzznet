@@ -38,6 +38,7 @@
 #include <fuzznet/session/commitment.h>
 #include <fuzznet/session/random.h>
 #include <fuzznet/record/journal.h>
+#include <fuzznet/log/log.h>
 #include <fuzznet/record/record.h>
 #include <fuzznet/record/sync.h>
 #include <fuzznet/state/state.h>
@@ -58,6 +59,7 @@
 #include "session/commitment.h"
 #include "session/random.h"
 #include "record/journal.h"
+#include "log/log.h"
 #include "record/record.h"
 #include "record/sync.h"
 #include "state/state.h"
@@ -207,6 +209,34 @@ int main(void)
 			return 52;
 		if (memcmp(fzn_trust_root(&anchor), k1, FZN_PUBKEY_LEN) != 0)
 			return 53;
+	}
+
+	/* The log, through installed headers: append past capacity, and the
+	 * evicted sequence must answer GONE rather than merely absent. */
+	{
+		fzn_log_t lg;
+		fzn_log_entry_t slots[2];
+		fzn_record_t r;
+		const fzn_log_entry_t *e;
+		static const uint8_t b[] = "x";
+
+		if (fzn_log_init(&lg, slots, 2) != FZN_LOG_OK)
+			return 60;
+		memset(&r, 0, sizeof(r));
+		memset(r.issuer, 0x41, sizeof(r.issuer));
+		r.body = b;
+		r.body_len = sizeof(b);
+		for (uint64_t q = 1; q <= 3; q++) {
+			r.seq = q;
+			if (fzn_log_append(&lg, &r) != FZN_LOG_OK)
+				return 61;
+		}
+		if (fzn_log_get(&lg, r.issuer, 1, &e) != FZN_LOG_ERR_GONE)
+			return 62;
+		if (fzn_log_get(&lg, r.issuer, 9, &e) != FZN_LOG_ERR_ABSENT)
+			return 63;
+		if (fzn_log_dropped(&lg) != 1)
+			return 64;
 	}
 
 	if (fzn_version_number() != (unsigned long)FZN_VERSION_NUMBER)
