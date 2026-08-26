@@ -2541,6 +2541,43 @@ reproducible, and a reader should read them as weaker than the ones after it.
 It also turned up that situ's *compiler* was dirty, not only its runtime, so
 the generated C was being compared against an uncommitted emitter as well.
 
+**The authorisation core, fuzzed against a soundness oracle** (2026-08-26).
+`make guided` now covers `chain/` as well, and it asks a sharper question than
+"does it crash": **when `fzn_chain_verify` says yes, is it right?** Everything
+it accepts is re-checked against the six things §4.2 requires -- pinned root,
+unbroken grantor/grantee linkage, the capability asked for, nothing expired,
+nothing revoked, and the reported grantee being the last hop's.
+
+A false ACCEPT is an authorisation bypass and is the only failure worth
+hunting this hard. A false reject fails safe, and `chain_fuzz.c` already
+covers that direction against a model.
+
+**The oracle is written from §4.2 rather than from `chain.c`**, deliberately,
+so that a mistake shared with the implementation cannot cancel itself out.
+
+**Result: no unsound chain accepted**, over 1.75 million executions reaching
+163 edges. **And the oracle was watched firing**: with root pinning removed
+from `chain.c` -- one line, `hops[0].grantor` against the pinned root -- the
+campaign reports a deadly signal and writes the crash unit within seconds.
+
+**Identities are one byte wide, expanded to fill the key, and that is the
+whole harness.** A 32-byte key drawn from fuzzer bytes never collides, so
+linkage never holds, so the accept path is never reached and the campaign
+explores rejection code for ever -- millions of clean executions that could
+not have found anything. Same failure as the reassembly harness's first run,
+avoided by design rather than by luck.
+
+**A near-miss worth recording, and the worst of the week.** Restoring
+`chain.c` after that sabotage failed silently: a `cd` into the scratch
+directory in the previous command persisted, so the `cp` wrote nowhere and
+the tree kept a `chain.c` with **root pinning disabled**. The hash check
+caught it only because it too ran in the wrong directory and could not find
+the file -- had the scratch directory happened to contain a `chain/chain.c`,
+it would have reported success. The robust form, used since, is to restore by
+absolute path and verify with `git diff --quiet <path>` from a known
+directory: **check the artifact against the repository, not against a hash
+computed before the thing that moved.**
+
 **Coverage-guided fuzzing, and a run of 61 million executions that proved
 nothing** (2026-08-26). `make guided` drives `chunk/reassembly.c` under
 libFuzzer with the address and undefined-behaviour sanitizers. It is a

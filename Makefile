@@ -125,7 +125,8 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              constant_time/test/secret_flow_test.c \
              wire/test/err_str_test.c \
              version/test/version_test.c \
-             chunk/test/reassembly_guided.c
+             chunk/test/reassembly_guided.c \
+             chain/test/chain_guided.c
 TEST_OBJS := $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
 TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/chain/test/revocation_test \
@@ -153,7 +154,8 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/constant_time/test/secret_flow_test \
              $(BUILD_DIR)/wire/test/err_str_test \
              $(BUILD_DIR)/version/test/version_test \
-             $(BUILD_DIR)/chunk/test/reassembly_guided
+             $(BUILD_DIR)/chunk/test/reassembly_guided \
+             $(BUILD_DIR)/chain/test/chain_guided
 
 # The Monocypher binding, built only when MONOCYPHER_DIR names a checkout.
 #
@@ -287,7 +289,7 @@ endif
 # failures rather than as a build error.
 DEPS := $(OBJS:.o=.d) $(TEST_OBJS:.o=.d)
 
-.PHONY: all test fuzz guided installcheck coverage schema style codegencheck ctcheck analyze hooks clean install
+.PHONY: all test fuzz guided guided-one installcheck coverage schema style codegencheck ctcheck analyze hooks clean install
 
 # The default build does NOT build tests -- build-and-commit.md, and the
 # discipline it buys is paid for by the dependency rules above being right.
@@ -311,6 +313,13 @@ $(BUILD_DIR)/wire/generated/%.o: wire/generated/%.c
 $(BUILD_DIR)/chain/test/chain_test: $(BUILD_DIR)/chain/test/chain_test.o \
                                      $(BUILD_DIR)/chain/chain.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD_DIR)/chain/test/chain_guided: $(BUILD_DIR)/chain/test/chain_guided.o \
+                                      $(BUILD_DIR)/chain/chain.o \
+                                      $(BUILD_DIR)/chain/revocation.o \
+                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -613,24 +622,33 @@ guided:
 	      | clang -fsanitize=fuzzer -x c - -o /dev/null 2>/dev/null; then \
 		echo "guided: no clang with libFuzzer, so it was SKIPPED"; exit 0; \
 	fi
-	@mkdir -p $(GUIDED_DIR)/corpus
+	@# Named one per line rather than discovered, so that adding a harness
+	@# here is a deliberate act and the sources each one needs are visible.
+	@$(MAKE) --no-print-directory guided-one GUIDED_NAME=reassembly \
+	        GUIDED_SRC="chunk/test/reassembly_guided.c chunk/reassembly.c \
+	                    constant_time/constant_time.c"
+	@$(MAKE) --no-print-directory guided-one GUIDED_NAME=chain \
+	        GUIDED_SRC="chain/test/chain_guided.c chain/chain.c chain/revocation.c \
+	                    constant_time/constant_time.c"
+
+guided-one:
+	@mkdir -p $(GUIDED_DIR)/$(GUIDED_NAME)
 	@clang -O1 -g -fsanitize=fuzzer,address,undefined -DFZN_LIBFUZZER \
-	       -o $(GUIDED_DIR)/reassembly chunk/test/reassembly_guided.c \
-	       chunk/reassembly.c constant_time/constant_time.c
-	@echo "guided: chunk/reassembly.c for $(GUIDED_TIME)s -- read the coverage, not the exit code"
-	@cd $(GUIDED_DIR) && ./reassembly corpus -max_total_time=$(GUIDED_TIME) \
+	       -o $(GUIDED_DIR)/$(GUIDED_NAME)/fuzz $(GUIDED_SRC)
+	@echo "guided: $(GUIDED_NAME) for $(GUIDED_TIME)s -- read the coverage, not the exit code"
+	@cd $(GUIDED_DIR)/$(GUIDED_NAME) && ./fuzz . -max_total_time=$(GUIDED_TIME) \
 	        -rss_limit_mb=2048 -max_len=4096 2>&1 | grep -E "INITED|DONE|ERROR|SUMMARY"
 	@# A CORPUS THAT DID NOT GROW MEANS THE HARNESS RETURNED EARLY, which is
 	@# how the first version of this reported 61 million clean executions
 	@# while every one of them bailed on its first line. The check is that
-	@# the run found more than the one unit libFuzzer starts with.
-	@n=`ls $(GUIDED_DIR)/corpus | wc -l`; \
+	@# the run kept more than the one unit libFuzzer starts with.
+	@n=`ls $(GUIDED_DIR)/$(GUIDED_NAME) | grep -c '^[0-9a-f]\{40\}$$' || true`; \
 	if [ "$$n" -lt 2 ]; then \
-		echo "guided: the corpus has $$n unit(s) -- the harness is not reaching the code"; \
+		echo "guided: $(GUIDED_NAME) kept $$n corpus unit(s) -- it is not reaching the code"; \
 		echo "guided: a run that grows no corpus is not evidence of anything."; \
 		exit 1; \
 	fi; \
-	echo "guided: $$n corpus units, so the search was real"
+	echo "guided: $(GUIDED_NAME) kept $$n corpus units, so the search was real"
 
 # IS THE CONSTANT-TIME COMPARISON ACTUALLY CONSTANT-TIME?
 #
