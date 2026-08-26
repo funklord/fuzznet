@@ -218,12 +218,34 @@ fzn_reasm_err_t fzn_reasm_accept(fzn_reasm_t *table, const uint8_t sender[FZN_SE
 
 	*out = NULL;
 
-	/* Freshness first, so a stale chunk never costs a slot -- the same
-	 * ordering frame/freshness.c uses and for the same reason. */
+	/* THE SWEEP BEFORE ANYTHING THAT CAN RETURN EARLY, so "reclaimed on
+	 * every call" is true rather than nearly true.
+	 *
+	 * It used to sit BELOW the freshness return under this, which meant a
+	 * stale chunk skipped it -- so a receiver whose traffic was made
+	 * entirely of stale chunks never handed a slot back. Measured: four
+	 * partials taken at an expiry of 200, then a thousand stale chunks at
+	 * now = 100000, and all four slots were still live holding messages
+	 * that had expired 99800 ticks earlier. An explicit
+	 * `fzn_reasm_expire` then dropped all four, which is the proof they
+	 * were reclaimable the whole time and nothing was reclaiming them.
+	 *
+	 * `frame/freshness.c` records the identical defect and its fix in the
+	 * identical words -- "It used to sit below the two returns beneath
+	 * this ... so traffic made entirely of grants, or entirely of stale
+	 * commands, left dead entries holding slots indefinitely." The two
+	 * modules are the same shape and only one of them had been corrected.
+	 *
+	 * Freshness still comes before a slot is TAKEN, which is what the old
+	 * comment here was really about: a stale chunk must not cost a slot.
+	 * That ordering is unchanged -- the sweep costs nothing and takes
+	 * nothing. */
+	(void)fzn_reasm_expire(table, now);
+
+	/* Freshness before a slot is taken, so a stale chunk never costs one --
+	 * the same ordering frame/freshness.c uses and for the same reason. */
 	if (expires_at != 0 && expires_at <= now)
 		return FZN_REASM_ERR_EXPIRED;
-
-	(void)fzn_reasm_expire(table, now);
 
 	slot = find(table, sender, msg);
 	if (!slot) {

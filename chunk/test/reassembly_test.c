@@ -342,6 +342,61 @@ static void test_release_clears_the_arrived_set(void)
  * `sim/test/network_test.c` escapes it only because it releases inside the
  * same call, which is the consumer's discipline rather than the module's
  * guarantee.  */
+/* SLOTS ARE RECLAIMED EVEN WHEN EVERY CHUNK IS STALE.
+ *
+ * The sweep used to sit below the freshness return, so a stale chunk skipped
+ * it and a receiver whose traffic was made entirely of stale chunks never
+ * handed a slot back. `frame/freshness.c` records the identical defect and
+ * fix in near-identical words; the two modules are the same shape and only
+ * one had been corrected.  */
+static void test_stale_traffic_still_reclaims_slots(void)
+{
+	struct fixture f;
+	fzn_partial_t *done = NULL;
+	uint8_t piece[8];
+	size_t live = 0;
+	size_t i;
+
+	fixture_init(&f, SLOTS);
+	memset(piece, 0x11, sizeof(piece));
+
+	/* Every slot holding a partial that expires at 200. */
+	for (i = 0; i < SLOTS; i++) {
+		uint8_t who[FZN_SENDER_LEN];
+
+		memset(who, (uint8_t)(0x30 + i), sizeof(who));
+		CHECK(fzn_reasm_accept(&f.table, who, 1, 0, 2, piece, sizeof(piece), 200, 100,
+		                       &done) == FZN_REASM_OK,
+		      "a partial was refused while filling the table");
+	}
+	for (i = 0; i < SLOTS; i++)
+		live += f.slots[i].live ? 1u : 0u;
+	CHECK(live == SLOTS, "the table did not fill, so this proves nothing");
+
+	/* Now nothing but stale chunks, long after those expiries. */
+	for (i = 0; i < 50u; i++) {
+		uint8_t who[FZN_SENDER_LEN];
+
+		memset(who, 0xee, sizeof(who));
+		CHECK(fzn_reasm_accept(&f.table, who, 9, 0, 2, piece, sizeof(piece), 150, 100000,
+		                       &done) == FZN_REASM_ERR_EXPIRED,
+		      "a stale chunk was not refused");
+	}
+
+	live = 0;
+	for (i = 0; i < SLOTS; i++)
+		live += f.slots[i].live ? 1u : 0u;
+	CHECK(live == 0, "stale traffic left expired partials holding every slot");
+
+	/* THE CONTROL. A stale chunk must still not TAKE a slot -- the sweep
+	 * reclaims, it does not admit. Without this, "the table emptied" is
+	 * satisfied by a module that let the stale sender in. */
+	CHECK(fzn_reasm_expire(&f.table, 100000) == 0,
+	      "a sweep after the accepts found something left to drop");
+	for (i = 0; i < SLOTS; i++)
+		CHECK(!f.slots[i].live, "a stale chunk took a slot after all");
+}
+
 static void test_a_completed_slot_is_not_taken_from_under_the_caller(void)
 {
 	struct fixture f;
@@ -672,6 +727,7 @@ int main(void)
 	test_full_table_and_expiry();
 	test_last_chunk_first_is_refused();
 	test_release_clears_the_arrived_set();
+	test_stale_traffic_still_reclaims_slots();
 	test_a_completed_slot_is_not_taken_from_under_the_caller();
 	test_a_reused_slot_starts_empty();
 	test_bad_arguments();
