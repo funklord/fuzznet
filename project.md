@@ -1185,6 +1185,53 @@ which is a much smaller risk than the header was weighing, and makes "a user
 revokes its own lost laptop without the root" answerable. Still the holder's
 call; the risk is now nameable.
 
+### Corrected 2026-08-26: the invariant is smaller than the two entries below
+
+**The holder's correction, and it supersedes both entries that follow.** The
+three consumers are equivalent in the only way that matters: they are
+**encrypted networks, with encrypted hosts and encrypted users, carrying
+permissions that change at runtime**. The joins differ, the typical
+configuration differs, the feature selection differs -- and outside that
+invariant *very little about the design is predictable*.
+
+**Both entries below tried to predict it anyway.** Whether a host belongs to
+one user, whether the actor is the host or the user it acts for, whether a
+receiver pins one anchor or several: those are **configuration**, not design,
+and settling them in the library would be choosing one consumer's topology and
+calling it the model. That is the corner, and it is nearer than
+"one user per host" -- the whole *shape* of the permission graph is a thing
+projects will disagree about.
+
+**Read positively, this is what the library already gets right.** An identity
+is a 32-byte key with no type attached -- there is no `user_t` and no `host_t`,
+and there should not be. A capability is 32 opaque bytes (§4.2). A chain is
+any depth up to the bound. A root is a parameter, not a constant. None of that
+predicts a topology, which is exactly why all three consumers can use it. **The
+generality was already correct and the last two entries were arguing to
+narrow it.**
+
+**What the invariant DOES predict is the half that is missing: the dynamic
+one.** Permissions here are static in the sense that matters -- a chain is
+verified when handed one, and nothing in the library moves a grant from where
+it was minted to where it will be used:
+
+- `fzn_chain_mint` and `fzn_chain_delegate` produce hops **locally**. There is
+  no distribution: no way to publish a grant, request one, or learn that one
+  now exists. Every consumer would write that, differently.
+- Revocation is a **bounded store that fails OPEN when full**
+  (`FZN_ERR_STORE_FULL`, and `revocation.h` says at length that it is "not a
+  condition to retry or ignore"). A permission system whose changes arrive at
+  runtime will push against that bound as a matter of course rather than as an
+  incident.
+- Nothing expresses a permission *changing* -- only a grant existing and a
+  revocation existing. Grant-then-narrow, or regrant with a shorter expiry, is
+  a consumer's problem today.
+
+**So the work the absorption implies is not a permission taxonomy. It is
+distribution, revocation at scale, and the config database that holds the
+current answer** -- with the shape of the permission graph left to whoever
+configures it. That is the direction the entries below should be read against.
+
 ### Revised 2026-08-26: one user per host is the wrong invariant to lock
 
 **The holder's worry, and it is justified:** netcfgd may have more than one
