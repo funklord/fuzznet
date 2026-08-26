@@ -145,23 +145,31 @@ static int log_step(fzn_log_t *log, const fzn_journal_t *journal, const fzn_reco
 	 * mattered most. */
 	{
 		uint64_t next = fzn_journal_next(journal, issuer, stream);
+		uint64_t seq;
 
-		/* Anything the journal has not received cannot have been
-		 * evicted, whether or not the log holds something older. */
-		if (fzn_log_get(log, journal, issuer, stream, next, &got) != FZN_LOG_ERR_ABSENT)
-			return 1;
-
-		/* And a received sequence the log does not hold was evicted.
-		 * `next - 1` is the newest received; walk down from it and the
-		 * first one not held must say GONE rather than ABSENT. */
-		for (uint64_t seq = next > 1u ? next - 1u : 0u; seq >= 1u; seq--) {
+		/* THE VERDICT IS DECIDED BY THE POSITION, FOR A SEQUENCE THE LOG
+		 * DOES NOT HOLD. Held is held, whatever the position says.
+		 *
+		 * The first version of this asserted that a sequence at or above
+		 * `next` answers ABSENT outright -- and the guided fuzzer found
+		 * that wrong within seconds, correctly. This harness drives the
+		 * log and the journal INDEPENDENTLY: `log_step` appends, and a
+		 * separate case admits, so a record can sit in the log with the
+		 * journal never told about it. `fzn_log_get` then answers OK,
+		 * which is right, and the oracle called it a violation.
+		 *
+		 * The real invariant is narrower and is the one `log.h` states:
+		 * of the two NOT-HELD answers, which one you get depends on the
+		 * position and on nothing else. */
+		for (seq = 1u; seq <= next + 1u; seq++) {
 			fzn_log_err_t err = fzn_log_get(log, journal, issuer, stream, seq, &got);
 
 			if (err == FZN_LOG_OK)
 				continue;
-			if (err != FZN_LOG_ERR_GONE)
-				return 1;
-			break;
+			if (seq < next && err != FZN_LOG_ERR_GONE)
+				return 1; /* received, not held: retention took it */
+			if (seq >= next && err != FZN_LOG_ERR_ABSENT)
+				return 1; /* never received: it cannot have been evicted */
 		}
 	}
 
