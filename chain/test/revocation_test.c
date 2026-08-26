@@ -446,6 +446,34 @@ static void test_every_guard_refuses_its_own_argument(void)
 	      "admitting with a signer that cannot verify");
 }
 
+static void test_a_corrupt_store_refuses_rather_than_swallowing(void)
+{
+	struct fixture f;
+	fzn_revocation_record_t r;
+	size_t used_before;
+
+	fixture_init(&f);
+	record_of(&r, 0, 0xc0, 1);
+
+	/* `fzn_revocation_covers` answers "is this revoked?" and says YES for a
+	 * corrupt store, because denying is the safe reply to an authorization
+	 * question. `fzn_revocation_admit` asks a different question, and it
+	 * read that same yes as "we hold it already" -- returning OK, recording
+	 * nothing, and never reaching STORE_FULL. revocation.h calls failing to
+	 * record the failure that fails OPEN, so this suppressed the one alarm
+	 * that exists for it.
+	 *
+	 * Both halves are asserted, because a version that refused AFTER
+	 * appending would pass on the return value alone. */
+	f.store.used = f.store.capacity + 1u;
+	used_before = f.store.used;
+	CHECK(fzn_revocation_admit(&f.store, &r, f.root, &f.sign) == FZN_CHAIN_ERR_MALFORMED,
+	      "a corrupt store accepted a revocation");
+	CHECK(f.store.used == used_before, "a refused admit moved the store's count");
+	CHECK(fzn_revocation_covers(&f.store, r.capability, r.grantee) == 1,
+	      "a corrupt store must still deny, which is the other question");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	struct fixture f;
@@ -471,7 +499,22 @@ int main(void)
 	test_merge_without_an_error_out();
 	test_a_store_whose_fields_disagree_denies();
 	test_every_guard_refuses_its_own_argument();
+	test_a_corrupt_store_refuses_rather_than_swallowing();
 	test_the_suite_can_tell_pass_from_fail();
+
+	/* A CORRUPT STORE MUST NOT SWALLOW A REVOCATION SILENTLY.
+	 *
+	 * `fzn_revocation_covers` answers "is this revoked?" and says YES for a
+	 * corrupt store, because denying is the safe reply to an authorization
+	 * question. `fzn_revocation_admit` asks a different question, and it
+	 * used to read that same yes as "we hold it already" -- so it returned
+	 * OK, recorded nothing, and never reached STORE_FULL. revocation.h
+	 * calls failing to record the failure that fails OPEN, and this
+	 * suppressed the one alarm that exists for it.
+	 *
+	 * The test asserts both halves: the refusal, and that nothing was
+	 * written -- because a version that refused after appending would pass
+	 * on the return value alone. */
 
 	printf("revocation_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

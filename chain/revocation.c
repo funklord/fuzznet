@@ -67,6 +67,27 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 	                  record->signed_region_len, record->signature))
 		return FZN_CHAIN_ERR_CHAIN_INVALID;
 
+	/* THE STORE'S OWN INTEGRITY, CHECKED HERE AND NOT BORROWED FROM
+	 * `fzn_revocation_covers`.
+	 *
+	 * That function answers "is this revoked?", and for a corrupt store it
+	 * answers **yes** on purpose -- denying is the safe reply to an
+	 * authorization question. This function asks a different question, and
+	 * the same 1 means "we hold it already" here. Reading one answer as the
+	 * other made a corrupt store swallow every revocation offered to it and
+	 * return FZN_CHAIN_OK: recorded nothing, reported success, and never
+	 * reached the STORE_FULL test below.
+	 *
+	 * That is the failure revocation.h calls the one that fails OPEN -- a
+	 * revoked device stays authorised -- with the alarm that exists for it
+	 * suppressed. Worse than STORE_FULL rather than a variant of it, because
+	 * STORE_FULL is at least visible.
+	 *
+	 * A conservative answer to one question is a wrong answer to another,
+	 * and the two questions have to check separately. */
+	if (store->used > store->capacity)
+		return FZN_CHAIN_ERR_MALFORMED;
+
 	/* Already known is success, not an error. Two peers both telling you
 	 * is what "carried on contact" looks like every time it works, and a
 	 * caller that treated the second as a failure would log an alarm on
@@ -79,9 +100,12 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 	 * against something, so there is no entry it is safe to choose. The
 	 * refusal is therefore final and it fails OPEN -- revocation.h says
 	 * what that costs and why the caller must treat it as an alarm. */
-	/* >= rather than ==, and the explicit check above it, because an
-	 * append writes at `entries[used]`: with `used` past `capacity` an
-	 * equality test passes and the write lands outside the array. */
+	/* >= rather than ==. The guard at the top of this function now refuses
+	 * `used > capacity` outright, so the two are equivalent for any store
+	 * that reaches here -- and `>=` stays because it costs nothing and does
+	 * not depend on that guard remaining the first thing this function
+	 * does. An append writes at `entries[used]`; an equality test lets a
+	 * corrupt `used` through and the write lands outside the array. */
 	if (store->used >= store->capacity)
 		return FZN_CHAIN_ERR_STORE_FULL;
 
