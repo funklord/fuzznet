@@ -5927,6 +5927,416 @@ Two things must be settled before it is written, and neither is settled here:
   the honest question is not "how do we make 32 bytes smaller" but **"why is
   this field here twice."**
 
+## 13a. The design pass of 2026-08-26, and what it settled
+
+Eight parallel reviews, each given a distinct question and several deliberately
+not told the position being tested. What follows is what they settled and what
+they overturned. Every finding below was reproduced by a probe against this
+tree's own sources before it was written down.
+
+**The framing fact, which changes what "expensive" means here.** No consumer
+calls this library. `fuzzypickles` vendors it as a submodule and references
+zero `fzn_` symbols from its own code; `netcfgd` has no linkage and no crypto
+crate in its lockfile; `raidcfgd` compiles exactly one file of it into one test
+binary and uses `fzn_peer_from_fd`. So every change below costs the consumer
+trees nothing today, and none of them will ever be cheaper. Where an argument
+in this document weighs API churn against correctness, that weight is currently
+zero.
+
+### The binding defect, and why the reason for it had expired
+
+The three signed objects each carry an opaque `signed_region` plus PARALLEL
+decoded fields, and nothing compares them. `chain.h:129-142` and `record.h:23`
+decline to reconstruct the bytes because "recomputing them would put a SECOND
+encoder in the tree for the schema to disagree with later."
+
+**There is no first encoder.** Measured: no hop or record encoder or decoder
+exists anywhere in this tree, `wire/frame.situ` describes neither object (its
+`fzn_hop` is the forwarder header, a different object sharing a word), and no
+consumer supplies one. The design avoided a second encoder by having zero, and
+with zero the correspondence has no producer and therefore no guarantee.
+
+Two consequences the tree already showed and nobody had read that way:
+
+- **`fzn_chain_mint` cannot be used as specified.** It takes `signed_region` --
+  the encoded hop -- as an INPUT, so to mint a hop you must already have
+  encoded one. Its field parameters are decoration over `sign->sign()`.
+- **The only code that produced agreement invented a non-format.**
+  `sim/test/network_test.c`'s `sim_sign_hop` memcpy'd the struct, padding
+  included. That binds within one process and one ABI and cannot cross a host.
+
+Reproduced: a hop the root minted for one grantee, one capability, expiring,
+non-delegable, verifies with signature and region byte-identical as a different
+grantee, a different capability, never expiring, and delegable. A single-hop
+chain is therefore a complete authorization bypass needing one genuine
+root-signed triple, which every deployment has by construction.
+
+**The decision: the three objects become views over a canonical encoding, with
+every field an accessor over the bytes the signature covers.** Agreement stops
+being contractual because there is nothing left to agree.
+
+The reasoning that settles it against the alternatives: **an encoder is
+unavoidable in every option that closes the hole**, including re-encode-and-
+compare, since mint must produce bytes and any verifier must relate bytes to
+fields. Once the encoder exists, deriving the fields from those bytes costs
+nothing and deletes the whole defect class. A caller-supplied binding predicate
+was rejected on this document's own argument about the root pin -- "one
+function with an optional pin is a function somebody calls without the pin" --
+and because it makes the property only as strong as the least careful consumer.
+
+**`fuzzypickles` reached the same place independently and by a third route**,
+which is the strongest evidence in the pass. `core/src/capability.c` verifies
+with a decode cursor: `hop_start = r.pos`, read the fields, `signed_len =
+r.pos - hop_start`, then check over `chain_blob + hop_start`. The signed span
+is DERIVED FROM THE DECODE, so fields and covered bytes are one act. Its
+encoder exists and is used only on the mint path, so `chain.h`'s objection to
+re-encoding is honoured whole while the binding is structural.
+
+**Two bytes go inside the signed range, and they are new protocol rather than
+plumbing.** A `version` byte, on `frame.situ`'s own argument applied to objects
+that outlive schema revisions harder than a frame does because grants do not
+expire; and an `object` byte separating hop from revocation from record,
+because one root key signs all three through one seam over opaque bytes.
+
+`fuzzypickles` paid for the second one. Its `core/src/signed_tag.h` exists
+because two of its record types collided -- "Both are 73 bytes when the name is
+30 long... ONE SIGNATURE VERIFIES AS BOTH" -- and that file names its own
+capability chain, whose version and hop count sit OUTSIDE every hop signature,
+as the remaining instance of the anti-pattern it was written to fix. This
+library is designing that transcript from scratch and takes the tag inside the
+signed range from the start rather than inheriting a shape its sibling has
+already identified as wrong.
+
+Neither byte can be added later without a wire break.
+
+### The receive order: §4.7 step 3 moves below step 5
+
+§4.7 puts replay at step 3 and tag verification at step 5, so the window is
+written before authentication. The rationale given is cost -- the cheapest
+place to stop a replay.
+
+**The rationale inverts under measurement.** `fzn_replay_admit` is O(used)
+twice per datagram, before authentication:
+
+    window used    ns per unauthenticated datagram
+    256            571
+    1024           2251
+    4096           11284
+
+against 706 ns for a 144-byte AEAD verify and 1627 ns for a full payload. At
+any window a real deployment would size, the pre-authentication scan already
+costs more than the verify it was supposed to save -- 6.9x at 4096.
+
+The saving it does claim holds only against a blind attacker, because
+`commitment[16]` is a CLEARTEXT field: anyone who has seen one genuine frame
+copies it and is past the commitment gate for free.
+
+**And the premise survived every attempt to break it.** "A replay is authentic
+by construction, so it passes the tag anyway" was attacked on four cases --
+a different receiver, after key rotation, a chunk of a multi-chunk message,
+and under a group key -- and holds in all four. The rotation case argues FOR
+the change: an old frame under a new key is refused at the commitment, but
+under the current order it takes a window slot on the way.
+
+**The rule to carry forward is stronger than the conclusion.** Two independent
+reviews arrived at wordings that combine:
+
+    A check may run before tag verification if and only if it is a PURE
+    PREDICATE -- it reads, it decides, it drops, and it changes nothing the
+    next datagram can observe. And no attacker-controllable work may be
+    SUPERLINEAR IN RECEIVER STATE before authentication.
+
+The first clause is sound because of an asymmetry worth stating: for a
+predicate over tag-covered fields, a PASS before the tag is retroactively
+confirmed by the tag, and a FAIL is at worst a wrongly-dropped frame -- a
+power anyone who could flip that bit already had. Pre-tag predicates are
+therefore free and buy latency; pre-tag mutations buy the same latency and
+hand a stranger a write into receiver state. The second clause exists because
+the first permits leaving the O(used) scan on the unauthenticated path, which
+is where the actual cost turned out to be.
+
+**A COROLLARY THAT IS NOT OPTIONAL: a verdict produced before the tag is a
+verdict the attacker chose.** `commitment`, `expires_at` and `kind` are all
+plaintext and flippable in flight, so a pre-tag verdict may be counted in
+aggregate and must never name a peer, trigger a rekey, or appear in a
+diagnostic sentence about an identity. `wire/seal.h` currently invites the
+opposite -- "A receiver holding the wrong key learns that it holds the wrong
+key ... which is the difference between rotating a key and hunting an
+attacker" -- and an on-path attacker flipping one bit of `commitment` makes
+every frame from a healthy peer say exactly that. The honest signal survives
+only as a RATE: mismatch on every frame means the key is wrong; mismatch on
+one in a thousand means somebody is flipping bits.
+
+**FRESHNESS MOVES BELOW THE TAG TOO**, which was not the first conclusion and
+is what the independent derivation added. §4.7 step 2 justifies putting
+freshness early "because the alternative is spending a SIGNATURE VERIFICATION
+on something already dead" -- and a signature verification is step 6, the
+chain, at 200-238 microseconds per hop. The stated reason argues for
+freshness-before-CHAIN and the text placed it before the TAG, which the reason
+never asked for. Below the tag, §4.7's own justification is satisfied exactly.
+
+What is given up: refusing a genuinely stale frame now costs a tag check
+(0.8-2.0 us) instead of two integer comparisons. That saving does not occur in
+practice -- an attacker generating volume sets a valid expiry, since it is a
+free field, and honest senders set expiries in the future while networks
+deliver in milliseconds. It was a check placed for a saving that does not
+happen, in exchange for `EXPIRED` and `NO_EXPIRY` verdicts an attacker picks.
+
+**So `fzn_replay_admit` STAYS ONE CALL.** The pressure to split it into a
+const check and a separate record existed only to straddle the pivot. With
+freshness and replay both below the tag and adjacent, there is no pivot to
+straddle, and the combined call keeps its "a rejected frame never occupies a
+slot" invariant INSIDE the library rather than re-established by convention at
+three consumer call sites. The ordering fix simplifies the API rather than
+complicating it -- which is the opposite of what was expected when the change
+was proposed, and is recorded because the split looked obviously necessary
+right up until the last step moved.
+
+**The chain runs AFTER replay, not before**, which is where "predicates before
+mutations" yields to measurement. Chain-first would refuse an
+authenticated-but-revoked peer before it touches the window -- but it pays a
+signature verification on every duplicate and every retransmission on a lossy
+network, where the window catches them for 77 ns. A revoked peer filling the
+window costs at most `capacity` entries for at most the horizon; a revoked peer
+forcing 1.6 ms of Ed25519 per datagram is a total denial of service at any line
+rate. The bounded, self-draining resource loses to the unrecoverable one.
+
+**And peer credentials are not step 1 of this sequence at all.** They
+authenticate a DIFFERENT CHANNEL, and the sequence they belong to has one
+step. sec 3 has the privileged daemon never linking fuzznet, and sec 2 gives
+the local hop's socket to the consumer -- so the process that calls
+`fzn_peer_from_fd` never sees a frame, and the process that runs the steps
+above made that connection and never calls `SO_PEERCRED`. **The list describes
+a sequence no single process executes**, and numbering them together invites
+the reading that a frame may arrive authenticated by either, which is a
+downgrade path in a design whose threat model forbids one. The rule instead:
+EXACTLY ONE AUTHENTICATOR PER CHANNEL, established before anything else, and a
+channel that has one does not get to substitute the other.
+
+Credentials also belong per CONNECTION rather than per datagram, on evidence:
+the group list is read from `/proc/<pid>/status` AFTER `SO_PEERCRED` returned
+the pid, so a peer that exits between the two calls and has its pid reused
+hands the daemon a different process's groups. Doing it once at accept keeps
+that window at microseconds; per datagram reopens it for the life of the
+connection.
+
+**And `fzn_peer_from_fd` has a demonstrated vacuous pass.** On an `AF_UNIX`
+`SOCK_DGRAM` receiver that has just received a datagram, `getsockopt` with
+`SO_PEERCRED` RETURNS 0 and reports `pid=0, uid=4294967295`. The function
+checks only the return value and the length, so it returns SUCCESS having
+learned nothing, filling `uid` with `(uid_t)-1`. It fails closed today only by
+luck -- `/proc/0/status` cannot be opened, so `groups_known` stays 0 and a
+group gate answers UNKNOWN -- while a consumer gating on `uid` gets a definite
+wrong answer. Refusing `cred.pid == 0` is one line.
+
+### The replay window is the most expensive step, not the cheapest
+
+A separable finding that fell out of measuring the ordering, and it changes
+what the module needs. §4.7 placed replay first because it was cheapest.
+Measured against the sizing rule sec 4.3 states -- the window holds what can
+arrive within the longest expiry -- that is wrong by two orders of magnitude:
+
+    window capacity    sweep + scan (-Os)
+    1024               9.6 us
+    16384              164.9 us
+    60000              597.5 us
+
+against 2.0 us to reject a forgery at the tag and 201-238 us for one Ed25519
+verification. A window sized honestly for a 300-second horizon at 200
+frames/second holds 60000 entries, and at that size the replay window costs 2.5
+signature verifications per datagram and is the most expensive thing the
+receiver does. It is memory-bandwidth-bound: 60000 x 32 bytes swept twice, well
+past L2.
+
+**The window needs an index, not a reorder.** The nonce's first 8 bytes are
+uniformly random, so a prefix is a sound hash; an open-addressed table with
+lazy expiry on probe plus an amortised sweep is O(1) and preserves what
+`freshness.h` prizes -- a window stays a value, constructible directly by a
+test and `memcmp`-comparable, because a deterministic probe sequence over
+deterministic input gives a deterministic array.
+
+Two more numbers worth carrying: the chain is 100-1000x everything else in the
+path, so **memoizing a verdict on `(sender, capability)` with a generation
+counter on the revocation store** is the one real latency win available -- a
+naive loop verifies the same chain 256 times for one chunked message, which is
+51-487 ms of signature checking. And that memo is itself an instance of the
+rule: a verdict cached AFTER the tag and keyed by an authenticated identity is
+safe; the same cache before the tag is the same bug in a new place.
+
+**The harness cited as establishing this order cannot see the property.**
+`frame/test/receive_fuzz.c` skips steps 4 and 5 by its own header, so every
+frame it processes is treated as authentic and "state mutated before
+authentication" is invisible to it by construction. It DID hit the exhaustion
+-- "a window that never expires anything fills after eight datagrams" -- and
+the symptom was read as a test artifact and fixed by advancing the test's
+clock. Nobody asked whether an attacker could induce it.
+
+### The expiry horizon, which is what makes the window sizable
+
+`freshness.h` states the sizing rule -- the window must hold what can arrive
+"within the longest expiry it will accept" -- and **there is no API by which a
+receiver states a longest acceptable expiry.** `fzn_freshness_check` tests only
+`expires_at <= now`, and `fzn_replay_expire` reclaims on the same test, so
+`expires_at = UINT64_MAX` pins a slot for ever. Measured: 4096 forged frames
+fill the window, a sweep 100 years later drops nothing, and every genuine frame
+after is refused. Permanent, and under the current order it needs no key.
+
+The bound the consumers' own numbers support splits along the line §4.3 already
+draws. For `FZN_EXPIRY_REQUIRED` -- commands -- netcfgd's realistic lifetime is
+its 60-90 second commit-confirm window and fuzzypickles' longest request
+timeout is 300 seconds, so an hour is generous by two orders of magnitude and
+still bounds the window. For `FZN_EXPIRY_OPTIONAL` -- grants -- `expires_at ==
+0` is the normal case and stays unbounded; fuzzypickles is emphatic that
+"losing a device to arithmetic is a worse and far more likely failure than the
+one a timer defends against", and where it does set one its ceiling is 400 days.
+
+**Refused, not clamped**, and the distinction is a hole rather than a taste.
+Clamping the remembered deadline to `now + horizon` while still accepting the
+frame as fresh until its stated expiry means the nonce is forgotten at the
+clamp and the frame replays successfully in the gap between the two -- passing
+freshness, because its real expiry has not passed. `FZN_FRESH_ERR_HORIZON` is
+its own code, distinct from `EXPIRED`, on the reasoning `freshness.h` already
+gives for splitting `EXPIRED` from `NO_EXPIRY`.
+
+The horizon is `longest legitimate command lifetime + largest tolerated clock
+skew`, and the guidance must say so: a consumer who sets it to the lifetime
+alone refuses every frame from a peer whose clock runs fast. That also makes
+`freshness.h`'s sizing rule a formula for the first time -- `capacity >= peak
+arrival rate x max_ahead` -- where it currently reads as advice because the
+API never took the term that would let anyone fail it.
+
+This is needed independently of the ordering change: under the new order an
+authenticated peer can still fill the window without it. And the ordering is
+needed independently of the horizon -- the horizon alone converts a permanent
+outage into an indefinitely repeatable rolling one at negligible cost. Neither
+is sufficient.
+
+### `state/` orders by (issuer, stream), and cross-stream is its own verdict
+
+`record.h:101-103` says `seq` is unique within (issuer, stream) and NOT within
+issuer. `state/state.c` never reads `record->stream` at all, and compares
+sequences from independent spaces. Measured, and the sharp form is not the lost
+write but the order-dependence:
+
+    stream 7 seq 100, then stream 9 seq 100  ->  value is stream 7's
+    stream 9 seq 100, then stream 7 seq 100  ->  value is stream 9's
+
+The same two records, two answers, no error either way. Two hosts holding an
+identical record set hold different permissions.
+
+**The invariant to design against**, which generalises the whole module: the
+value of a cell is a function of the SET of records applied to it, never of the
+order they arrived in; the only permitted exception is a refused conflict, and
+the exception is what the error code reports.
+
+A writer is therefore **(issuer, stream)**, and two streams of one issuer are
+exactly as incomparable as two issuers -- so the argument `state.h` already
+makes for refusing to resolve applies verbatim. `uint32_t stream` joins
+`fzn_state_entry_t`, where it lands in existing padding and costs nothing.
+
+It gets `FZN_STATE_ERR_CROSS_STREAM` rather than folding into `CONFLICT`, on a
+reason worth recording: cross-issuer conflict is exceptional and alarmable --
+"a subject with a single writer cannot conflict" -- while cross-stream
+contention is SYSTEMATIC for a consumer that lays its streams out that way.
+Folding them makes the exceptional one unalarmable, which is what `CONFLICT`
+exists for.
+
+**The amendment that makes it implementable**, found by attacking it: without
+`stream` IN THE ENTRY, `fzn_state_resolve` cannot be used correctly -- a
+consumer cannot see which stream holds the value, and after resolving, the
+entry carries the loser's sequence space so the next comparison is wrong in the
+other direction. The position as first stated moved the incoherence rather than
+removing it.
+
+**The key stays (subject, kind).** Keying by (subject, kind, stream) was
+rejected: it makes `fzn_state_get` ambiguous about which cell is the value,
+and it silos the cross-issuer check so two different issuers on different
+streams would both succeed with no conflict ever reported -- destroying the
+module's security property.
+
+**`issued_at` was rejected as a cross-stream ordering key**, decisively:
+`issued_at = UINT64_MAX` can never be superseded by anything the issuer
+publishes afterwards, on any stream, for ever. That freezes a permission,
+including freezing a REVOCATION out, unrecoverably. `seq` has no equivalent
+and the difference is structural -- `fzn_journal_admit` advances by one and
+refuses gaps, so the journal already bounds how far a sequence can be
+inflated, and nothing bounds a clock. It also contradicts two headers that say
+order comes from sequences and not clocks.
+
+**A tombstone is required rather than optional.** `fzn_state_clear` memsets the
+entry, so replaying any older record from that issuer resurrects the cleared
+setting -- measured, a record fifty places below the clear, reported `ok`.
+Which gives the module one rule instead of two: A CELL IS A REGISTER HOLDING
+(writer, seq, value-or-absence), MERGED BY MAX-SEQ WITHIN ONE WRITER, AND
+`clear` IS AN APPLY WHOSE VALUE IS ABSENCE.
+
+**A consequence that reaches the binding work: `stream` must be inside the
+signed region.** `state/` now derives writer identity from it, so a consumer
+carrying `stream` in an unsigned envelope lets an attacker move a genuine
+record between streams -- wedging a cell at CROSS_STREAM for ever, which is a
+revocation that never lands.
+
+### `log/`: GONE comes from the journal, not from a floor table
+
+`log.h` claims the module "remembers where it now starts". `fzn_log_t` has no
+such field, and `fzn_log_get` derives GONE from the oldest entry CURRENTLY
+HELD -- so it is wrong in both directions. Everything for an issuer evicted
+answers ABSENT and the peer asks for ever, which is the exact failure the
+header says the module exists to prevent; a sequence never seen but below the
+oldest held answers GONE, and the peer re-anchors and accepts an irreversible
+loss that never happened, with `dropped == 0`.
+
+A per-(issuer,stream) floor table was designed and then **overturned under
+attack**, on two grounds. It is monotone and can never shrink -- a forgotten
+floor is a lost GONE -- while `stream` is a `u32`, so one authorised issuer
+mints four billion floors at one record each: the exhaustion problem one level
+worse, not one level down. And it cannot express a hole at the TOP, which
+global-order eviction produces during catch-up back-fill.
+
+**The answer needs no new state.** The journal already keeps `received` per
+(issuer, stream), is already bounded, and already refuses rather than evicts:
+
+    seq <= journal.received and not held  ->  it was evicted     ->  GONE
+    seq >  journal.received               ->  it never arrived   ->  ABSENT
+
+Exact, O(1), and it handles the middle-hole and top-hole cases a prefix floor
+cannot.
+
+### The journal stops adopting issuers implicitly
+
+`fzn_journal_admit` creates an entry for any (issuer, stream) at `seq == 1`,
+and `stream` is a `u32` the issuer chooses. Measured: one authorised key opens
+64 entries in a 64-entry journal and a second legitimate issuer can never be
+followed again -- permanently, because there is no forget and `journal.h`
+explains why there cannot be one.
+
+`sync.h` asserts a protection it does not have: "`record/journal.h` already
+makes adopting an issuer deliberate -- `fzn_journal_anchor`. This file does not
+quietly undo that." Sync refuses to ASK from strangers; a PUSHED record is
+adopted anyway, and `fzn_sync_plan_offer` means unsolicited pushes are part of
+the design. The door sync guards has a second one beside it.
+
+**Delete the implicit-creation branch.** Entries come only from
+`fzn_journal_anchor`, which is what both headers already claim. The exhaustion
+closes with no quota, no new field, and no new error code -- and the
+GAP-into-a-full-journal wart disappears with it, since an unknown issuer never
+reaches the capacity test and so can never be told to fetch a range it has
+nowhere to put.
+
+A per-issuer quota borrowed from `chunk/reassembly.h` was rejected on a
+difference the shape does not survive: a reassembly slot is a SELF-CLEARING
+resource, returned on expiry or completion, so a sender at quota is served
+again a moment later. A journal entry is permanent and unreclaimable, so the
+same quota is a LIFETIME allocation cap and an issuer that legitimately needs
+one more stream is locked out for ever. Reassembly's quota degrades; a journal
+quota is terminal.
+
+The reasoning that permitted the shortcut is visibly stale, and this is
+recorded because the same staleness could recur. §5b reads "An unknown ISSUER
+starts at 1, or not at all" -- safe when a position was per-issuer, since the
+key space was the attacker's keys. `stream` was added the same day and
+multiplied that key space by 2^32. The safety argument was never re-derived.
+
 ## 14. Open, and named rather than left silent
 
 - **`raidcfgd` does not exist.** Two real consumers and one imagined one. Every
