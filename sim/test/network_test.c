@@ -28,6 +28,8 @@
 #include "../../chain/revocation.h"
 #include "../../chunk/reassembly.h"
 #include "../../chunk/split.h"
+#include "../../record/journal.h"
+#include "../../record/sync.h"
 #include "../../frame/freshness.h"
 #include "../../session/aead.h"
 #include "../../session/commitment.h"
@@ -222,6 +224,15 @@ struct sim_host {
 
 	unsigned sent, delivered, refused_shape, refused_replay, refused_auth, refused_reasm;
 	unsigned inbox_overflow;
+
+	/* The record layer. `held` is a bitmask per issuer of which sequences
+	 * this host has the body of -- one bit per sequence, which is enough
+	 * for a scenario and is not how a consumer would store them. */
+	fzn_journal_t journal;
+	fzn_journal_entry_t jentries[SIM_HOSTS];
+	uint32_t held[SIM_HOSTS];
+	uint64_t issued;
+	unsigned gaps_seen, admitted, confirmed;
 };
 
 struct sim_datagram {
@@ -348,6 +359,8 @@ static void sim_init(struct sim_net *net, size_t hosts, uint32_t seed)
 		sim_sign_hop(&h->chain[0], h->signed_region[0]);
 		h->chain_len = 1;
 		h->authorised = 1;
+
+		fzn_journal_init(&h->journal, h->jentries, SIM_HOSTS);
 
 		for (size_t s = 0; s < SIM_SLOTS; s++)
 			fzn_reasm_slot_init(&h->slots[s], h->bufs[s], SIM_SLOT_CAP);
@@ -870,6 +883,171 @@ static void scenario_splice(void)
 	printf("  splice: %u delivered, %u spliced\n", net.hosts[2].delivered, wrong);
 }
 
+/* ------------------------------------------------------------- scenario 9
+
+   Records distributed, received and finalised across a lossy network.
+
+   THIS PATH DOES NOT GO THROUGH `wire/seal.h`, deliberately. A record has no
+   encoding in this library and is not going to get one -- `record.h` takes
+   its signed region as opaque for the reason `chain.h` gives, and framing is
+   the consumer's. What is under test here is the decision and ordering
+   logic: which ranges a host asks for, what it does with what arrives out of
+   order, and whether "received" and "applied" converge. Scenarios 1 to 8
+   already carry bytes over the real frame path.
+
+   THE PROPERTY: with every issuer numbering from 1 and a network that drops
+   a fifth of everything, every host ends up holding every record, in order,
+   having applied all of it -- and no host ever accepts a sequence it has a
+   hole before.  */
+
+#define DIST_HOSTS   8u
+#define DIST_RECORDS 5u
+#define DIST_ROUNDS  40u
+
+static int holds(const struct sim_host *h, uint8_t issuer, uint64_t seq)
+{
+	return (h->held[issuer] >> (seq - 1u)) & 1u;
+}
+
+static void hold(struct sim_host *h, uint8_t issuer, uint64_t seq)
+{
+	h->held[issuer] |= (uint32_t)1u << (seq - 1u);
+}
+
+/* One host fetches from one peer: compare positions, ask for what is
+ * missing, and admit whatever survives the network. */
+static void sim_fetch_from(struct sim_net *net, struct sim_host *me, struct sim_host *peer)
+{
+	fzn_sync_position_t theirs[SIM_HOSTS];
+	fzn_sync_request_t want[SIM_HOSTS];
+	fzn_sync_plan_t plan;
+	size_t n;
+
+	n = fzn_sync_digest(&peer->journal, theirs, SIM_HOSTS);
+	if (fzn_sync_plan_fetch(&me->journal, theirs, n, 4, want, SIM_HOSTS, &plan) !=
+	    FZN_SYNC_OK)
+		return;
+
+	for (size_t r = 0; r < plan.request_count; r++) {
+		uint8_t issuer = want[r].issuer[0];
+
+		for (uint64_t seq = want[r].from; seq < want[r].from + want[r].count; seq++) {
+			fzn_journal_err_t err;
+
+			/* The peer answers only for records it actually has. */
+			if (!holds(peer, issuer, seq))
+				continue;
+			/* The network eats some of them. */
+			if (net->loss_pct && (sim_random(net) % 100u) < net->loss_pct) {
+				net->dropped++;
+				continue;
+			}
+
+			err = fzn_journal_admit(&me->journal, want[r].issuer, seq);
+			if (err == FZN_JOURNAL_OK) {
+				hold(me, issuer, seq);
+				me->admitted++;
+			} else if (err == FZN_JOURNAL_ERR_GAP) {
+				/* Arrived ahead of a hole. Refused, and the next
+				 * round asks for the hole -- which is the whole
+				 * reason a gap is reported rather than absorbed. */
+				me->gaps_seen++;
+			}
+		}
+	}
+}
+
+static void scenario_distribution(void)
+{
+	static struct sim_net net;
+	unsigned converged = 0, total_gaps = 0, total_pending = 0;
+
+	sim_init(&net, DIST_HOSTS, 0x8888u);
+	net.loss_pct = 20;
+
+	/* EVERY HOST DECIDES WHICH ISSUERS IT FOLLOWS, before anything is
+	 * fetched. `record/sync.h` will not request from an issuer this host
+	 * has not adopted, so this is the deliberate step that makes the
+	 * network a network -- and leaving it out is what the first run of
+	 * this scenario did, converging on nothing. */
+	for (uint8_t i = 0; i < DIST_HOSTS; i++) {
+		for (uint8_t issuer = 0; issuer < DIST_HOSTS; issuer++) {
+			if (issuer == i)
+				continue;
+			fzn_journal_anchor(&net.hosts[i].journal, net.hosts[issuer].pubkey, 0);
+		}
+	}
+
+	/* Every host issues, and holds its own from the start. */
+	for (uint8_t i = 0; i < DIST_HOSTS; i++) {
+		struct sim_host *h = &net.hosts[i];
+
+		for (uint64_t seq = 1; seq <= DIST_RECORDS; seq++) {
+			if (fzn_journal_admit(&h->journal, h->pubkey, seq) != FZN_JOURNAL_OK)
+				break;
+			hold(h, i, seq);
+			h->issued = seq;
+		}
+	}
+
+	/* Rounds of pull. The peer changes each round so that a record reaches
+	 * a host that never speaks to its issuer, which is the case a
+	 * relay-shaped network actually has. */
+	for (unsigned round = 0; round < DIST_ROUNDS; round++) {
+		for (uint8_t i = 0; i < DIST_HOSTS; i++) {
+			uint8_t p = (uint8_t)((i + 1u + round) % DIST_HOSTS);
+
+			if (p == i)
+				continue;
+			sim_fetch_from(&net, &net.hosts[i], &net.hosts[p]);
+		}
+
+		/* FINALISATION: apply what has been received. Separate from
+		 * admitting it, which is the point of the two numbers. */
+		for (uint8_t i = 0; i < DIST_HOSTS; i++) {
+			struct sim_host *h = &net.hosts[i];
+
+			for (uint8_t issuer = 0; issuer < DIST_HOSTS; issuer++) {
+				uint64_t pending = fzn_journal_pending(&h->journal,
+				                                       net.hosts[issuer].pubkey);
+				uint64_t next;
+
+				if (pending == 0)
+					continue;
+				next = fzn_journal_next(&h->journal, net.hosts[issuer].pubkey);
+				if (fzn_journal_confirm(&h->journal, net.hosts[issuer].pubkey,
+				                        next - 1u) == FZN_JOURNAL_OK)
+					h->confirmed++;
+			}
+		}
+	}
+
+	for (uint8_t i = 0; i < DIST_HOSTS; i++) {
+		struct sim_host *h = &net.hosts[i];
+		int complete = 1;
+
+		total_gaps += h->gaps_seen;
+		for (uint8_t issuer = 0; issuer < DIST_HOSTS; issuer++) {
+			if (fzn_journal_next(&h->journal, net.hosts[issuer].pubkey) !=
+			    DIST_RECORDS + 1u)
+				complete = 0;
+			total_pending += (unsigned)fzn_journal_pending(&h->journal,
+			                                               net.hosts[issuer].pubkey);
+			for (uint64_t seq = 1; seq <= DIST_RECORDS; seq++)
+				if (!holds(h, issuer, seq))
+					complete = 0;
+		}
+		converged += complete ? 1u : 0u;
+	}
+
+	check(net.dropped > 0, "no record was lost, so the gap path was never exercised");
+	check(total_gaps > 0, "no gap was ever reported, so out-of-order never happened");
+	check(converged == DIST_HOSTS, "not every host converged on every record");
+	check(total_pending == 0, "a host received records it never confirmed applying");
+	printf("  distribution: %u hosts converged, %u dropped, %u gaps refused, %u applied\n",
+	       converged, net.dropped, total_gaps, net.hosts[0].confirmed);
+}
+
 int main(void)
 {
 	scenario_mesh();
@@ -880,6 +1058,7 @@ int main(void)
 	scenario_delegation();
 	scenario_lossy();
 	scenario_splice();
+	scenario_distribution();
 
 	printf("network_test: %d checks, %d failure(s); fuzznet %s\n", checks, failures,
 	       fzn_version_string());

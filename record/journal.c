@@ -93,8 +93,6 @@ fzn_journal_err_t fzn_journal_anchor(fzn_journal_t *journal,
 
 	if (!usable(journal, issuer))
 		return FZN_JOURNAL_ERR_MALFORMED;
-	if (seq == 0)
-		return FZN_JOURNAL_ERR_MALFORMED;
 
 	e = find(journal, issuer);
 	if (!e) {
@@ -104,6 +102,25 @@ fzn_journal_err_t fzn_journal_anchor(fzn_journal_t *journal,
 		memcpy(e->issuer, issuer, FZN_PUBKEY_LEN);
 		e->live = 1;
 		e->applied = 0;
+		e->received = 0;
+
+		/* SEQUENCE ZERO MEANS "FOLLOW FROM THE BEGINNING", and this
+		 * file reserved it for exactly that -- "no record yet, so an
+		 * entry can start empty without a separate flag" -- and then
+		 * refused it, which left no way to express the state.
+		 *
+		 * Found by the integration harness rather than by the unit
+		 * tests, and it could not have been found by them: a test that
+		 * admits records never needs to follow an issuer BEFORE
+		 * receiving from one. A whole network does, because
+		 * `record/sync.h` will not request from an issuer this host
+		 * does not follow, so without this every host stayed at zero
+		 * records for ever and the scenario converged on nothing. */
+		if (seq == 0)
+			return FZN_JOURNAL_OK;
+	} else if (seq == 0) {
+		/* Already following. Asking again is an echo, not a rewind. */
+		return FZN_JOURNAL_ERR_DUPLICATE;
 	}
 
 	/* An anchor never moves BACKWARDS. Re-anchoring lower would readmit

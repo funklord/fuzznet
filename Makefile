@@ -351,6 +351,8 @@ $(BUILD_DIR)/record/test/journal_test: $(BUILD_DIR)/record/test/journal_test.o \
 # links nearly everything and the list is the point: a module absent here is a
 # module the integration test cannot exercise.
 $(BUILD_DIR)/sim/test/network_test: $(BUILD_DIR)/sim/test/network_test.o \
+                                    $(BUILD_DIR)/record/journal.o \
+                                    $(BUILD_DIR)/record/sync.o \
                                     $(BUILD_DIR)/chain/chain.o \
                                     $(BUILD_DIR)/chain/revocation.o \
                                     $(BUILD_DIR)/chunk/reassembly.o \

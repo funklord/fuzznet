@@ -1797,6 +1797,41 @@ nothing requires it.
 plan rather than a single assertion: no request may name an issuer this host
 does not follow.
 
+### Reception and finalisation, end to end (scenario 9)
+
+**Records distributed across eight hosts on a network dropping a fifth of
+everything**, every issuer numbering from 1, forty rounds of pull. The
+property: every host ends up holding every record, in order, having applied
+all of it -- and no host ever accepts a sequence it has a hole before.
+
+Result: **8 hosts converged, 100 records dropped, 80 gaps refused, nothing
+left pending.** The gap count is a check rather than a statistic: a run in
+which nothing ever arrived out of order would not have exercised the path
+that exists for it, so the scenario fails if `total_gaps` is zero -- the same
+discipline as the fuzz harnesses' acceptance floors.
+
+**This path deliberately does not go through `wire/seal.h`.** A record has no
+encoding in this library and is not going to get one, for the reason
+`record.h` gives about signed regions; framing is the consumer's. What is
+under test is the decision and ordering logic. Scenarios 1 to 8 already carry
+bytes over the real frame path.
+
+**And it found a design gap the unit tests could not have found.** The first
+run converged on *nothing*: 0 dropped, 0 gaps, 0 hosts complete.
+`record/sync.h` refuses to request from an issuer this host does not follow --
+deliberately, since fetching because a peer mentioned someone is how one peer
+populates every journal in the network -- and `record/journal.h` had **no way
+to say "I follow this issuer and have nothing yet"**. `fzn_journal_anchor`
+refused sequence zero as malformed, in a file whose own header reserves zero
+to mean "no record yet, so an entry can start empty without a separate flag".
+The reservation existed and the operation that needed it was refused.
+
+**A unit test could not have reached it.** A test that admits records never
+needs to follow an issuer *before* receiving from one; only a network does.
+Anchoring at zero now means follow-from-the-beginning, anchoring twice is an
+echo rather than a rewind, and the journal's own tests cover it -- but the
+harness is what asked the question.
+
 ## 5a. The integration harness
 
 **`sim/test/network_test.c` is a fake network of hosts, and it exists because

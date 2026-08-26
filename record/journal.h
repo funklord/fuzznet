@@ -98,7 +98,14 @@ fzn_journal_err_t fzn_journal_admit(fzn_journal_t *journal,
  * suppress everything real that follows, while insisting on 1 makes it
  * impossible to join a stream already in progress. So the choice is the
  * caller's and it is explicit -- which is also what makes a deliberate
- * re-anchor after a restore distinguishable from a gap. */
+ * re-anchor after a restore distinguishable from a gap.
+ *
+ * `seq` of ZERO means "follow this issuer from the beginning": an entry with
+ * nothing received yet. That is what the reservation of sequence zero is for,
+ * and it is what a host does when it decides to care about an issuer it has
+ * heard of but never received from -- which `record/sync.h` requires before
+ * it will fetch anything, deliberately. Anchoring at zero twice is a
+ * duplicate rather than a rewind. */
 fzn_journal_err_t fzn_journal_anchor(fzn_journal_t *journal,
                                       const uint8_t issuer[FZN_PUBKEY_LEN], uint64_t seq);
 

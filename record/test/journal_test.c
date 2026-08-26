@@ -102,6 +102,25 @@ int main(void)
 	expect_err(fzn_journal_anchor(&j, dave, 7), FZN_JOURNAL_ERR_FULL,
 	           "anchoring a fourth issuer");
 
+	/* FOLLOWING AN ISSUER BEFORE HEARING FROM IT. A fresh journal, so the
+	 * full-journal refusal above does not get in the way. */
+	{
+		fzn_journal_t fresh;
+		fzn_journal_entry_t fe[2];
+
+		fzn_journal_init(&fresh, fe, 2);
+		expect(fzn_journal_next(&fresh, dave) == 1, "an unfollowed issuer wants one");
+		expect_err(fzn_journal_anchor(&fresh, dave, 0), FZN_JOURNAL_OK,
+		           "following an issuer from the beginning");
+		expect(fzn_journal_next(&fresh, dave) == 1, "following changes nothing held");
+		expect(fzn_journal_pending(&fresh, dave) == 0, "nothing received, nothing pending");
+		expect_err(fzn_journal_anchor(&fresh, dave, 0), FZN_JOURNAL_ERR_DUPLICATE,
+		           "following twice is an echo");
+		expect_err(fzn_journal_admit(&fresh, dave, 1), FZN_JOURNAL_OK,
+		           "the first record from a followed issuer");
+		expect(fzn_journal_next(&fresh, dave) == 2, "and the position advances");
+	}
+
 	/* THE GUARDS EVERY ENTRY POINT NEEDS. `used` past `capacity` is a
 	 * corrupt journal, and each function that scans must refuse it rather
 	 * than trusting whichever one was called first -- the same argument
@@ -124,8 +143,14 @@ int main(void)
 	}
 
 	expect_err(fzn_journal_admit(&j, alice, 0), FZN_JOURNAL_ERR_MALFORMED, "sequence zero");
-	expect_err(fzn_journal_anchor(&j, alice, 0), FZN_JOURNAL_ERR_MALFORMED,
-	           "anchoring at zero");
+
+	/* ANCHORING AT ZERO IS FOLLOW-FROM-THE-BEGINNING, not a malformed
+	 * call. It is the state a host is in when it has decided to care about
+	 * an issuer and received nothing yet, and `record/sync.h` requires it
+	 * before it will fetch: without it a whole network converges on
+	 * nothing, which is how this was found. */
+	expect_err(fzn_journal_anchor(&j, alice, 0), FZN_JOURNAL_ERR_DUPLICATE,
+	           "anchoring at zero an issuer already followed");
 	expect_err(fzn_journal_admit(&j, NULL, 1), FZN_JOURNAL_ERR_MALFORMED, "a null issuer");
 	expect(fzn_journal_next(&j, NULL) == 1, "a null issuer wants the beginning");
 	expect(fzn_journal_pending(&j, NULL) == 0, "a null issuer has nothing pending");
