@@ -1127,6 +1127,64 @@ overridden rather than as still standing:**
   ladder. A shared permission system is exactly the thing that would give
   those bytes an agreed meaning.
 
+### Answered 2026-08-26: user signs for hosts, and it is not broken
+
+**The holder's model:** a user is a key that configures hosts and signs; a
+host is also a key that signs for itself; every permission is a
+(user, host, capability) triple. Checked rather than agreed with, because the
+instruction asked whether it is broken.
+
+**It is not, and the reason is stronger than "it works": this library already
+computes that triple.** `fzn_chain_verify` fills an `fzn_chain_t` with
+`root`, `grantee` and `capability`. Under this model the root **is** the user
+and the grantee **is** the host, so a verified chain is exactly a permission
+and the triple needs no new structure at all. The pieces line up one for one:
+
+| the model | what fuzznet already has |
+|---|---|
+| user key, signs for its hosts | the pinned root, §4.2 |
+| host key, signs for itself | a hop's `grantee`, and `sender[32]` on the wire |
+| permission (user, host, capability) | `fzn_chain_t{root, grantee, capability}` |
+| a host may confer only what it holds | `delegable`, and `fzn_chain_delegate` narrowing expiry |
+
+**Confirmed against fuzzypickles rather than assumed from the phrase "just
+like fuzzypickles".** `identity_internal.h` has `user_pubkey`,
+`host_pubkey`, a `host_record` binding one to the other, and a
+`trusted_user_pubkey` a joining host adopts. Host management is itself a
+capability there -- `cap_host_manage` -- and an approver's grants are
+"bounded by what this approver itself holds", which is `delegable` under
+another name.
+
+**A host belongs to exactly one user**, on that reading: `trusted_user_pubkey`
+is singular, and the record speaks of "this host's own user_pubkey". So the
+user is derivable from the host and the triple is explicit rather than
+strictly necessary -- which is the safe direction, and it means a frame
+carrying only `sender` is never ambiguous. **No wire change is implied**, and
+§13's 144 bytes and its 64 bytes of IPv6 headroom stand untouched. Had a host
+been able to serve two users, the frame would have had to say which, and that
+would have been a format decision with an MTU budget attached.
+
+**The one real friction, and it is where "adding hosts" lands.** fuzzypickles
+bootstraps trust by TOFU: a joining host adopts whatever the approval bundle
+asserts, because it is establishing its first anchor. **This library
+deliberately has no such path** -- `chain.h` says so, §4.2 says so, and the
+root is pinned with no nullable-root variant. Absorbing host management means
+either fuzznet grows a bootstrap it was designed to refuse, or joining stays
+above the library and only the steady state comes in. That is a decision, not
+a detail, and it is the holder's.
+
+**One consequence for revocation, which `chain/revocation.h` had already
+flagged as an open question.** Today only the root revokes, and the header
+records why grantor-revokes-descendant was not built: "it would let a
+compromised intermediate revoke its own descendants, which may be wanted or
+may be the attack". Under this model the intermediate is *a user, or a host
+the user trusted with host management*, and the descendants are that same
+user's own hosts. A compromised host revoking its siblings is a denial of
+service inside one user's estate rather than an escalation across users --
+which is a much smaller risk than the header was weighing, and makes "a user
+revokes its own lost laptop without the root" answerable. Still the holder's
+call; the risk is now nameable.
+
 **The open question the holder has not yet answered**, and the one that
 decides how much of the wire moves: does a locked-in permission system give
 the capability bytes structure, or does it sit *above* them -- a shared
