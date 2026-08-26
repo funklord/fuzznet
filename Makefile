@@ -781,13 +781,75 @@ guided:
 	        GUIDED_SRC="frame/test/freshness_guided.c frame/freshness.c \
 	                    constant_time/constant_time.c"
 
+# The least coverage a guided run may report and still be believed. A harness
+# that returns on its first line reports 1; the real ones report 112 to 209
+# after ten seconds. Twenty is far below every real harness and far above the
+# vacuous case, which is what a tripwire wants to be.
+GUIDED_COV_MIN ?= 20
+
 guided-one:
 	@mkdir -p $(GUIDED_DIR)/$(GUIDED_NAME)
 	@clang -O1 -g -fsanitize=fuzzer,address,undefined -DFZN_LIBFUZZER \
 	       -o $(GUIDED_DIR)/$(GUIDED_NAME)/fuzz $(GUIDED_SRC)
-	@echo "guided: $(GUIDED_NAME) for $(GUIDED_TIME)s -- read the coverage, not the exit code"
-	@cd $(GUIDED_DIR)/$(GUIDED_NAME) && ./fuzz . -max_total_time=$(GUIDED_TIME) \
-	        -rss_limit_mb=2048 -max_len=4096 2>&1 | grep -E "INITED|DONE|ERROR|SUMMARY"
+	@echo "guided: $(GUIDED_NAME) for $(GUIDED_TIME)s"
+	@# THE FUZZER'S EXIT STATUS IS READ, and until now it was thrown away.
+	@#
+	@# This line used to pipe the run into `grep -E "INITED|DONE|ERROR|SUMMARY"`,
+	@# so the recipe's status was GREP's. libFuzzer exits non-zero when it finds
+	@# a crash and prints "ERROR: libFuzzer: deadly signal" -- which grep matched,
+	@# and so reported success. Measured: a harness that traps on the input "AB"
+	@# produced a crash artifact, printed the error, and `make guided` exited 0.
+	@#
+	@# A coverage-guided fuzzer that cannot report a crash is the one instrument
+	@# here whose entire purpose is finding them. The old comment on the line
+	@# above -- "read the coverage, not the exit code" -- was an instruction to
+	@# the person watching, standing in for a check nobody had written.
+	@#
+	@# Redirected to a file rather than piped, because `pipefail` is not in
+	@# POSIX sh and make's shell is not guaranteed to have it.
+	@# Paths below are relative BECAUSE OF THE `cd`. The first version of this
+	@# kept the $(GUIDED_DIR)/$(GUIDED_NAME) prefix after changing into that
+	@# directory, so every path resolved one level too deep, `cat` found no
+	@# status file, and the exit-status test silently did nothing. A crashing
+	@# harness was still caught -- by the coverage check below, which is a
+	@# different check answering a different question. The check written for
+	@# crashes had to be watched failing to fire to be found.
+	@cd $(GUIDED_DIR)/$(GUIDED_NAME) && \
+	    { ./fuzz . -max_total_time=$(GUIDED_TIME) -rss_limit_mb=2048 -max_len=4096 \
+	        > run.log 2>&1; echo $$? > run.status; }; \
+	    grep -E "INITED|DONE|ERROR|SUMMARY" run.log || true; \
+	    rc=`cat run.status`; \
+	    if [ "$$rc" -ne 0 ]; then \
+	        echo "guided: $(GUIDED_NAME) FAILED -- the fuzzer exited $$rc."; \
+	        echo "guided: a crash artifact is in $(GUIDED_DIR)/$(GUIDED_NAME)/."; \
+	        exit 1; \
+	    fi
+	@# AND THE COVERAGE IS READ, not merely printed.
+	@#
+	@# libFuzzer reports `cov: N` on its INITED and DONE lines. The check is
+	@# an ABSOLUTE FLOOR rather than growth, and the distinction matters: the
+	@# corpus directory persists between runs, so a saturated corpus
+	@# legitimately finds nothing new and a growth test would fail an honest
+	@# re-run. What must never pass is a harness that reached NOTHING, and
+	@# that is what a floor detects. Measured: a harness whose body is
+	@# `return 0` reports cov 1; the four real harnesses report 112 to 209.
+	@#
+	@# A missing number is a failure too. A grep that matches nothing is not a
+	@# check that passed -- which is the same mistake the piped `grep` above
+	@# was making with the exit status.
+	@d=`grep -o 'DONE *cov: [0-9]*' $(GUIDED_DIR)/$(GUIDED_NAME)/run.log | \
+	     tail -1 | tr -dc '0-9'`; \
+	if [ -z "$$d" ]; then \
+		echo "guided: $(GUIDED_NAME) -- no DONE coverage line, so nothing was checked."; \
+		echo "guided: the run did not finish, or libFuzzer changed its output."; \
+		exit 1; \
+	fi; \
+	if [ "$$d" -lt "$(GUIDED_COV_MIN)" ]; then \
+		echo "guided: $(GUIDED_NAME) reached cov $$d, below the floor of $(GUIDED_COV_MIN)."; \
+		echo "guided: the harness is not reaching the code it is meant to drive."; \
+		exit 1; \
+	fi; \
+	echo "guided: $(GUIDED_NAME) reached cov $$d"
 	@# A CORPUS THAT DID NOT GROW MEANS THE HARNESS RETURNED EARLY, which is
 	@# how the first version of this reported 61 million clean executions
 	@# while every one of them bailed on its first line. The check is that
