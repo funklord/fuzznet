@@ -109,7 +109,12 @@ size_t fzn_reasm_expire(fzn_reasm_t *table, uint64_t now)
 	for (size_t i = 0; i < table->capacity; i++) {
 		fzn_partial_t *slot = &table->slots[i];
 
-		if (slot->live && slot->expires_at != 0 && slot->expires_at <= now) {
+		/* `!slot->handed`, or expiry takes a slot the caller is still
+		 * reading. See `handed` in reassembly.h: the promise is that the
+		 * bytes are the caller's until it releases them, and a sweep is
+		 * exactly what used to break it. */
+		if (slot->live && !slot->handed && slot->expires_at != 0 &&
+		    slot->expires_at <= now) {
 			fzn_reasm_release(slot);
 			dropped++;
 		}
@@ -265,8 +270,10 @@ fzn_reasm_err_t fzn_reasm_accept(fzn_reasm_t *table, const uint8_t sender[FZN_SE
 		slot->bytes += payload_len;
 	}
 
-	if (slot->arrived == slot->chunks)
+	if (slot->arrived == slot->chunks) {
+		slot->handed = 1;
 		*out = slot;
+	}
 
 	return FZN_REASM_OK;
 }

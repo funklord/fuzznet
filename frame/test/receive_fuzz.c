@@ -327,6 +327,21 @@ static int receive_one(struct receiver *r, uint64_t now, const uint8_t *data, si
 				printf("  ORDER: a completed message holds no bytes\n");
 				return 1;
 			}
+			/* AND HAND THE SLOT BACK, which this harness did not do.
+			 *
+			 * A completed slot is the caller's until it releases it,
+			 * so it is no longer reclaimed by expiry -- otherwise a
+			 * sweep takes it out from under a caller still reading
+			 * it. This harness completed messages and never
+			 * released, so once the table filled nothing was ever
+			 * admitted again: 12 admitted in 20000 cases against
+			 * about 1880 before, which the coverage floor caught.
+			 *
+			 * The floor doing that is the floor working. A harness
+			 * that stops reaching the code it drives is exactly what
+			 * it exists to refuse, and the fault was the harness's
+			 * rather than the module's. */
+			fzn_reasm_release(done);
 		}
 	}
 

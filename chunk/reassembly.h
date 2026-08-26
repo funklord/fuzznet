@@ -87,6 +87,25 @@ typedef struct fzn_partial {
 	size_t bytes;      /* held so far */
 	uint8_t seen[FZN_REASM_MAX_CHUNKS / 8u];
 	int live;
+	/* Set when the message completed and this slot was handed to a caller
+	 * through `*out`, cleared by `fzn_reasm_release`.
+	 *
+	 * WITHOUT IT THE OWNERSHIP PROMISE ABOVE IS FALSE. Completion only set
+	 * `*out`; the slot stayed live with its original expiry, so the next
+	 * `fzn_reasm_accept` from anybody swept it, released it, and handed the
+	 * same slot and the same buffer to the next message. Measured: alice
+	 * completes an eight-byte message of 0xAA and the caller queues the
+	 * pointer without releasing; bob sends one chunk later; the pointer the
+	 * caller still holds reads 0xBB with bob's sender. No overrun, so a
+	 * sanitizer is quiet -- the consumer simply attributes bob's bytes to
+	 * alice, and neither side gets an error.
+	 *
+	 * A caller that never releases now exhausts the table and sees FULL.
+	 * That is the honest failure and it is the smaller harm: exhaustion is
+	 * visible and attributable, silent takeover is neither. It is also the
+	 * shape this module already takes everywhere else -- refuse rather than
+	 * recycle something somebody may still be reading. */
+	int handed;
 } fzn_partial_t;
 
 /* A bounded set of half-finished messages. */

@@ -329,6 +329,65 @@ static void test_release_clears_the_arrived_set(void)
 	CHECK(done == NULL, "a stale arrived-set completed the next message early");
 }
 
+/* A COMPLETED SLOT IS THE CALLER'S UNTIL IT RELEASES IT, which is what
+ * reassembly.h promises and what the code did not do.
+ *
+ * Completion only set `*out`. The slot stayed live with its original expiry,
+ * so the next `fzn_reasm_accept` from anybody swept it, released it, and
+ * handed the same slot and the same buffer to the next message -- while the
+ * first caller still held the pointer. No overrun, so a sanitizer stays
+ * quiet: the consumer simply attributes one sender's bytes to another, and
+ * neither side gets an error.
+ *
+ * `sim/test/network_test.c` escapes it only because it releases inside the
+ * same call, which is the consumer's discipline rather than the module's
+ * guarantee.  */
+static void test_a_completed_slot_is_not_taken_from_under_the_caller(void)
+{
+	struct fixture f;
+	fzn_partial_t *mine = NULL;
+	fzn_partial_t *theirs = NULL;
+	uint8_t piece[8];
+
+	/* One slot, so the next sender must take this one or none. */
+	fixture_init(&f, 1);
+	f.table.capacity = 1;
+
+	memset(piece, 0xaa, sizeof(piece));
+	CHECK(fzn_reasm_accept(&f.table, f.alice, 1, 0, 1, piece, sizeof(piece), 1000, 100,
+	                       &mine) == FZN_REASM_OK,
+	      "alice's single-chunk message was refused");
+	CHECK(mine != NULL, "a single-chunk message did not complete");
+	CHECK(mine != NULL && mine->buf[0] == 0xaa, "the completed slot holds the wrong bytes");
+
+	/* Bob arrives long after alice's expiry, and the caller has NOT
+	 * released. The slot must not be swept out from under it. */
+	memset(piece, 0xbb, sizeof(piece));
+	CHECK(fzn_reasm_accept(&f.table, f.bob, 2, 0, 1, piece, sizeof(piece), 5000, 2000,
+	                       &theirs) != FZN_REASM_OK,
+	      "a second sender took the slot a caller was still holding");
+	CHECK(mine != NULL && mine->buf[0] == 0xaa,
+	      "the held slot's bytes were overwritten by another sender");
+	CHECK(mine != NULL && memcmp(mine->sender, f.alice, FZN_SENDER_LEN) == 0,
+	      "the held slot now names another sender");
+
+	/* An explicit sweep must not take it either -- that is the same
+	 * promise through the other door. */
+	CHECK(fzn_reasm_expire(&f.table, 100000) == 0,
+	      "a sweep reclaimed a slot the caller still holds");
+	CHECK(mine != NULL && mine->buf[0] == 0xaa, "the sweep overwrote a held slot");
+
+	/* THE POSITIVE CONTROL. Releasing must free it, or the fix is a leak
+	 * rather than a guarantee and every case above is satisfied by a slot
+	 * that can never be reused at all. */
+	fzn_reasm_release(mine);
+	theirs = NULL;
+	CHECK(fzn_reasm_accept(&f.table, f.bob, 2, 0, 1, piece, sizeof(piece), 5000, 2000,
+	                       &theirs) == FZN_REASM_OK,
+	      "the slot was not reusable after release");
+	CHECK(theirs != NULL && theirs->buf[0] == 0xbb, "the reused slot holds the wrong bytes");
+}
+
 static void test_a_reused_slot_starts_empty(void)
 {
 	struct fixture f;
@@ -613,6 +672,7 @@ int main(void)
 	test_full_table_and_expiry();
 	test_last_chunk_first_is_refused();
 	test_release_clears_the_arrived_set();
+	test_a_completed_slot_is_not_taken_from_under_the_caller();
 	test_a_reused_slot_starts_empty();
 	test_bad_arguments();
 	test_a_wrapping_size_is_refused_before_a_slot_is_taken();
