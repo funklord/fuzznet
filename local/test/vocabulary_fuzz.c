@@ -37,6 +37,30 @@
 #include <string.h>
 
 #define FUZZ_DEFAULT_CASES 20000u
+
+/* THE FLOOR BELOW WHICH THIS HARNESS REFUSES TO REPORT SUCCESS AT ALL.
+ *
+ * `floor_of` below was fixed to never return zero, which closed CASES=1: a run
+ * that demanded nothing could no longer pass by demanding nothing. It did not
+ * close the case above it. A floor of ONE is cleared by luck -- the rarest
+ * branch these harnesses reach occurs about once in 130 cases, so a 199-case
+ * run hits it once and every counter then reports a real, honest, meaningless
+ * number. Measured before this: `receive_fuzz 199` and `peer_fuzz 199` both
+ * exited 0 with plausible counts.
+ *
+ * So this is a bound on the RUN rather than on the counters, and it lives in
+ * the harness rather than in the Makefile deliberately. The Makefile is not
+ * what somebody runs when they are chasing a crash under a sanitizer -- they
+ * run this binary directly, with a small number, and read the exit code. A
+ * bound that exists only in the thing that invokes the binary is not a bound
+ * on the binary.
+ *
+ * 1000 is chosen against the floors themselves, which ask for one occurrence
+ * per 200 cases: below that, every floor in this file collapses to the single
+ * hit luck supplies. A run under it is not a shorter version of the campaign,
+ * it is a different and much weaker claim, so it is refused rather than
+ * reported. */
+#define FUZZ_MIN_CASES 1000u
 #define MAX_RULES 6
 #define MAX_VERBS 4
 
@@ -226,6 +250,14 @@ int main(int argc, char **argv)
 		cases = strtoul(argv[1], NULL, 10);
 		if (cases == 0)
 			cases = FUZZ_DEFAULT_CASES;
+	}
+
+	if (cases < FUZZ_MIN_CASES) {
+		printf("vocabulary_fuzz: %lu cases is below FUZZ_MIN_CASES (%u), so this run will "
+		       "not report success -- every coverage floor below that is "
+		       "cleared by a single lucky hit. Re-run with %u or more.\n",
+		       cases, (unsigned)FUZZ_MIN_CASES, (unsigned)FUZZ_MIN_CASES);
+		return 1;
 	}
 
 	for (unsigned long c = 0; c < cases; c++) {
