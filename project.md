@@ -5573,9 +5573,12 @@ which is why they were buildable while sec 10 steps 2 and 4 were stuck.
 
 `make` builds the objects and nothing else -- the default target does
 not build tests, per `build-and-commit.md`. `make test` builds and runs
-**42 binaries**: 29 report check counts totalling **2670**, and the
-other 13 -- nine model-based fuzz harnesses and four coverage-guided
-drivers -- report cases instead. Zero failures in either group.
+**43 binaries**: 30 report check counts and the other 13 -- nine
+model-based fuzz harnesses and four coverage-guided drivers -- report
+cases instead. Zero failures in either group. **The total is
+deliberately not written here**; `make test` prints it and any figure in
+prose is one commit from being wrong, as the paragraph below this one
+records at length.
 
 **THE FIRST VERSION OF THIS PARAGRAPH SAID 33 BINARIES AND 2637
 CHECKS, AND BOTH WERE WRONG**, which is worth keeping because of when
@@ -5595,10 +5598,30 @@ happened one commit after this document recorded that a hand-maintained
 count had drifted 27 out of date and that only a count taken at run
 time would close the trap -- so the same trap was operating in the
 report describing it. **A number is measured at the moment it is
-quoted, or it is not measured.** The largest are
-`chain/test/chain_test` at 272, `err_str_test` at 253 over 16 renderers,
-`local/test/peer_test` at 253, `state/test/state_test` at 206,
-`sim/test/network_test` at 172 and `chunk/test/reassembly_test` at 170.
+quoted, or it is not measured.**
+
+**AND THIS PARAGRAPH THEN WENT STALE AGAIN, which is the most useful
+thing in it.** It named six binaries by count. Re-measured 2026-08-27,
+five of the six had moved -- `chain_test` 272 to 271, `state_test` 206
+to 220, `network_test` 172 to 166, `reassembly_test` 170 to 193 -- and
+only `err_str_test` and `peer_test` at 253 still held. The sentence
+immediately above says a number is measured when it is quoted; the list
+under it was quoted from a run that had already been superseded, twice,
+by work in this same session.
+
+**So the list is gone rather than corrected.** A per-binary inventory in
+prose is a standing trap: it is wrong the moment anything is added, it
+looks authoritative, and correcting it teaches nobody anything because
+the next change breaks it again. What replaces it is the command --
+`make test` prints every count, and the total is the sum of what it
+prints. Where a specific figure matters to an argument, it belongs
+beside that argument with the date it was taken, which is how the rest
+of this document now carries them.
+
+The shape generalises past this paragraph: **an inventory earns its
+place only if something checks it.** Section 5a's scenario table
+survives because a reader can run the harness and compare; a list of
+counts survives nothing.
 None reads a clock, so there is nothing in any of them that can pass on a
 quiet machine and fail on a loaded one.
 
