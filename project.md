@@ -1897,7 +1897,8 @@ precedent in this tree rather than inventing a policy:
   real record below it. Joining a stream already in progress is
   `fzn_journal_anchor`, which is deliberate, and which never moves backwards.
 
-**Tested at 100% of `record.c` and 94% of `journal.c`'s branches**, 56 checks
+**Tested at 100% of `record.c`'s lines and 96% of its branches, and 99%
+and 96% of `journal.c`'s**, 180 checks
 across two files. The ordering claim is observed rather than asserted: a stub
 signer counts calls, and a record refused for its sequence must not have cost
 a signature verification.
@@ -2456,7 +2457,8 @@ looks to this table exactly like a degrading link. Telling those apart does
 not arise while everything is uncontrolled, so a design that assumed it could
 would be untestable today.
 
-69 checks, 99% of lines and 87% of branches, and the two modules are tested
+75 checks, 100% of `link.c`'s lines and 91% of its branches, and the two
+modules are tested
 composed: a link that declared itself quick and measures slow loses the
 selection.
 
@@ -2507,7 +2509,7 @@ fuzzypickles' reason -- a battery drains because of the screen and forty other
 processes, so a library computing its own consumption would produce a number
 with no relationship to how much is left.
 
-25 checks at 100% of lines and branches.
+28 checks at 100% of lines and branches.
 
 ## 5f. `wire/relay.h` -- the hop budget, and what relaying still needs
 
@@ -2597,7 +2599,7 @@ accepts the loss calls `fzn_journal_anchor`, which is already deliberate; a
 permission consumer never does. The existing API expressed both, which is why
 `log/` takes no policy argument.
 
-39 checks, 100% of lines and 85% of branches, and the installed-header check
+117 checks, 100% of lines and 96% of branches, and the installed-header check
 appends past capacity and requires GONE rather than merely absent.
 
 ## 5d. `trust/` -- where a pinned root comes from
@@ -2640,7 +2642,7 @@ adopted anchor is refused too, and adopting over a configured one: a caller
 that must start again wants a new `fzn_trust_t`, on the reasoning
 `record/journal.h` gives for never rewinding.
 
-26 checks at 100% of lines and branches, including a second root differing in
+31 checks at 100% of lines and branches, including a second root differing in
 a single byte, and the installed-header check adopts once and is refused a
 second time.
 
@@ -4469,7 +4471,8 @@ handled in switch"*, naming it.
 
 `wire/test/err_str_test.c` takes the three things the compiler cannot see --
 that no two codes render the same text, that nothing renders NULL, and that a
-value off the end renders "unknown" and nothing else does. 121 checks.
+value off the end renders "unknown" and nothing else does. 253 checks over
+16 renderers.
 Sabotage: rendering `FZN_SEAL_ERR_COMMITMENT` as `"tag did not verify"`
 compiles cleanly and is caught by name.
 
