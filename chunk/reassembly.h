@@ -121,6 +121,32 @@ typedef struct fzn_reasm {
 	 * identity rather than an address, which is what makes a per-sender
 	 * quota meaningful instead of a thing to spoof around. */
 	size_t per_sender_max;
+	/* The longest a half-finished message may occupy a slot, whatever
+	 * expiry its chunks claim.
+	 *
+	 * WITHOUT IT, `expires_at == 0` MEANT NEVER. That value is legitimate
+	 * on the wire -- `frame/freshness.h` gives it to a grant, where it
+	 * means "no expiry" -- and this module simply held such a slot for
+	 * ever. Measured: four partials with `expires_at = 0`, then
+	 * `fzn_reasm_expire(UINT64_MAX)` dropped none of them, and a new
+	 * sender a century later was refused because every slot was live.
+	 *
+	 * The two modules read the same wire field and disagreed about its
+	 * sentinel: freshness declines to RECORD a zero-expiry frame, so
+	 * nothing accumulates; reassembly held one for ever. Only one of them
+	 * had noticed the field could be zero.
+	 *
+	 * So a slot's deadline is `min(expires_at, now + max_hold)`, and a
+	 * zero expiry means `now + max_hold` rather than never. It is the same
+	 * shape as the replay window's horizon and answers a different
+	 * question: not "how long is this command meaningful" but "how long
+	 * will I hold half a message", which is properly seconds where the
+	 * horizon is minutes.
+	 *
+	 * Zero is REFUSED at init rather than meaning unlimited, for the
+	 * reason `per_sender_max` gives above: an unlimited default is the one
+	 * a caller gets by forgetting the field. */
+	uint64_t max_hold;
 } fzn_reasm_t;
 
 /* Point a table at caller-owned slots. Each slot must already have its
@@ -128,7 +154,7 @@ typedef struct fzn_reasm {
  * than meaning unlimited: an unlimited default is the one a caller gets by
  * forgetting the field. */
 fzn_reasm_err_t fzn_reasm_init(fzn_reasm_t *table, fzn_partial_t *slots, size_t capacity,
-                                size_t per_sender_max);
+                                size_t per_sender_max, uint64_t max_hold);
 
 /* Give one slot its buffer. Separate from the above because the buffers are
  * usually one block the caller carves up, and threading that through

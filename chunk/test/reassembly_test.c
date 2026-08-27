@@ -9,6 +9,11 @@
 #include <stdint.h>
 #include <string.h>
 
+/* How long a half-finished message may hold a slot. Generous, because what
+ * these cases test is the bound EXISTING -- a zero expiry no longer means
+ * for ever -- rather than any particular value of it. */
+#define REASM_MAX_HOLD 1000000u
+
 static int failures;
 static int checks;
 
@@ -54,7 +59,7 @@ static void fixture_init(struct fixture *f, size_t per_sender_max)
 	memset(f, 0, sizeof(*f));
 	for (size_t i = 0; i < SLOTS; i++)
 		fzn_reasm_slot_init(&f->slots[i], f->storage[i], SLOT_BYTES);
-	fzn_reasm_init(&f->table, f->slots, SLOTS, per_sender_max);
+	fzn_reasm_init(&f->table, f->slots, SLOTS, per_sender_max, REASM_MAX_HOLD);
 	memset(f->alice, 0xa1, FZN_SENDER_LEN);
 	memset(f->bob, 0xb2, FZN_SENDER_LEN);
 }
@@ -349,6 +354,73 @@ static void test_release_clears_the_arrived_set(void)
  * handed a slot back. `frame/freshness.c` records the identical defect and
  * fix in near-identical words; the two modules are the same shape and only
  * one had been corrected.  */
+/* A CHUNK CLAIMING NO EXPIRY MUST NOT HOLD A SLOT FOR EVER.
+ *
+ * `expires_at == 0` is legitimate on the wire -- `frame/freshness.h` gives it
+ * to a grant, where it means "no expiry" -- and this module used to read it as
+ * "never reclaim". Measured before `max_hold`: four partials with a zero
+ * expiry, then `fzn_reasm_expire(UINT64_MAX)` dropped NONE of them, and a new
+ * sender a century later was refused because every slot was live.
+ *
+ * The two modules read the same field and disagreed about its sentinel:
+ * freshness declines to RECORD a zero-expiry frame so nothing accumulates,
+ * and reassembly held one for ever. Only one had noticed it could be zero.  */
+static void test_a_zero_expiry_is_bounded_by_max_hold(void)
+{
+	struct fixture f;
+	fzn_partial_t *done = NULL;
+	uint8_t piece[8];
+	size_t i;
+
+	fixture_init(&f, SLOTS);
+	memset(piece, 0x22, sizeof(piece));
+
+	for (i = 0; i < SLOTS; i++) {
+		uint8_t who[FZN_SENDER_LEN];
+
+		memset(who, (uint8_t)(0x60 + i), sizeof(who));
+		CHECK(fzn_reasm_accept(&f.table, who, 1, 0, 2, piece, sizeof(piece), 0, 100,
+		                       &done) == FZN_REASM_OK,
+		      "a chunk claiming no expiry was refused");
+	}
+
+	/* Inside the hold, the slots are still theirs -- the bound must not be
+	 * so eager that a legitimate message cannot finish. */
+	CHECK(fzn_reasm_expire(&f.table, 100 + (REASM_MAX_HOLD / 2u)) == 0,
+	      "a partial was reclaimed while still inside its hold");
+
+	/* Past it, every one goes. */
+	CHECK(fzn_reasm_expire(&f.table, 100 + REASM_MAX_HOLD + 1u) == SLOTS,
+	      "a chunk claiming no expiry held its slot past max_hold");
+
+	/* And the table is usable again, which is what the reclamation is FOR.
+	 * Without this the case above is satisfied by a table that dropped
+	 * everything and can no longer take anything either. */
+	{
+		uint8_t later[FZN_SENDER_LEN];
+
+		memset(later, 0xee, sizeof(later));
+		CHECK(fzn_reasm_accept(&f.table, later, 9, 0, 2, piece, sizeof(piece), 0,
+		                       100 + REASM_MAX_HOLD + 2u, &done) == FZN_REASM_OK,
+		      "a new sender was refused after the holds expired");
+	}
+
+	/* THE OTHER HALF: an expiry SOONER than the hold is still honoured, so
+	 * the bound is a ceiling rather than a replacement. */
+	{
+		struct fixture g;
+		uint8_t who[FZN_SENDER_LEN];
+
+		fixture_init(&g, SLOTS);
+		memset(who, 0x71, sizeof(who));
+		CHECK(fzn_reasm_accept(&g.table, who, 1, 0, 2, piece, sizeof(piece), 200, 100,
+		                       &done) == FZN_REASM_OK,
+		      "a short-expiry chunk was refused");
+		CHECK(fzn_reasm_expire(&g.table, 201) == 1,
+		       "an expiry sooner than max_hold was not honoured");
+	}
+}
+
 static void test_stale_traffic_still_reclaims_slots(void)
 {
 	struct fixture f;
@@ -481,9 +553,9 @@ static void test_bad_arguments(void)
 	fzn_reasm_t t;
 
 	fixture_init(&f, 2);
-	CHECK(fzn_reasm_init(&t, f.slots, SLOTS, 0) == FZN_REASM_ERR_MALFORMED,
+	CHECK(fzn_reasm_init(&t, f.slots, SLOTS, 0, REASM_MAX_HOLD) == FZN_REASM_ERR_MALFORMED,
 	      "per_sender_max of 0 was accepted, and would mean unlimited");
-	CHECK(fzn_reasm_init(&t, f.slots, 0, 1) == FZN_REASM_ERR_MALFORMED,
+	CHECK(fzn_reasm_init(&t, f.slots, 0, 1, REASM_MAX_HOLD) == FZN_REASM_ERR_MALFORMED,
 	      "a zero-capacity table was accepted");
 	CHECK(fzn_reasm_slot_init(&f.slots[0], NULL, 8) == FZN_REASM_ERR_MALFORMED,
 	      "a slot with no buffer was accepted");
@@ -534,7 +606,7 @@ static void test_a_wrapping_size_is_refused_before_a_slot_is_taken(void)
 	memset(sender, 0xa1, sizeof(sender));
 	memset(payload, 0x5a, sizeof(payload));
 	fzn_reasm_slot_init(&slot, storage, sizeof(storage));
-	fzn_reasm_init(&table, &slot, 1, 1);
+	fzn_reasm_init(&table, &slot, 1, 1, REASM_MAX_HOLD);
 
 	CHECK(huge != 0 && huge * 4u == 0,
 	      "the premise is wrong on this platform: the stride must be non-zero and "
@@ -579,7 +651,7 @@ static void test_the_offset_guard_refuses_a_slot_that_cannot_hold_the_chunk(void
 
 	/* A legitimate first chunk: 4 pieces of 8 into 64 bytes. */
 	fzn_reasm_slot_init(&slot, storage, sizeof(storage));
-	fzn_reasm_init(&table, &slot, 1, 1);
+	fzn_reasm_init(&table, &slot, 1, 1, REASM_MAX_HOLD);
 	CHECK(fzn_reasm_accept(&table, sender, 7, 0, 4, payload, 8, 0, 100, &done) ==
 	              FZN_REASM_OK,
 	      "the setup chunk was refused");
@@ -636,10 +708,10 @@ static void test_every_guard_refuses_its_own_argument(void)
 	      "a slot with a zero-length buffer was initialised");
 
 	fzn_reasm_slot_init(&slot, storage, sizeof(storage));
-	CHECK(fzn_reasm_init(NULL, &slot, 1, 1) == FZN_REASM_ERR_MALFORMED, "a null table");
-	CHECK(fzn_reasm_init(&table, NULL, 1, 1) == FZN_REASM_ERR_MALFORMED, "null slots");
-	CHECK(fzn_reasm_init(&table, &slot, 0, 1) == FZN_REASM_ERR_MALFORMED, "zero capacity");
-	CHECK(fzn_reasm_init(&table, &slot, 1, 0) == FZN_REASM_ERR_MALFORMED, "a zero quota");
+	CHECK(fzn_reasm_init(NULL, &slot, 1, 1, REASM_MAX_HOLD) == FZN_REASM_ERR_MALFORMED, "a null table");
+	CHECK(fzn_reasm_init(&table, NULL, 1, 1, REASM_MAX_HOLD) == FZN_REASM_ERR_MALFORMED, "null slots");
+	CHECK(fzn_reasm_init(&table, &slot, 0, 1, REASM_MAX_HOLD) == FZN_REASM_ERR_MALFORMED, "zero capacity");
+	CHECK(fzn_reasm_init(&table, &slot, 1, 0, REASM_MAX_HOLD) == FZN_REASM_ERR_MALFORMED, "a zero quota");
 
 	/* A table whose slots were never given buffers. Each half of that
 	 * check separately, since a slot with a pointer and no capacity is a
@@ -647,11 +719,11 @@ static void test_every_guard_refuses_its_own_argument(void)
 	for (size_t i = 0; i < 2; i++)
 		fzn_reasm_slot_init(&slots[i], storage2[i], sizeof(storage2[i]));
 	slots[1].buf = NULL;
-	CHECK(fzn_reasm_init(&table, slots, 2, 1) == FZN_REASM_ERR_MALFORMED,
+	CHECK(fzn_reasm_init(&table, slots, 2, 1, REASM_MAX_HOLD) == FZN_REASM_ERR_MALFORMED,
 	      "a table holding a slot with no buffer");
 	fzn_reasm_slot_init(&slots[1], storage2[1], sizeof(storage2[1]));
 	slots[1].buf_capacity = 0;
-	CHECK(fzn_reasm_init(&table, slots, 2, 1) == FZN_REASM_ERR_MALFORMED,
+	CHECK(fzn_reasm_init(&table, slots, 2, 1, REASM_MAX_HOLD) == FZN_REASM_ERR_MALFORMED,
 	      "a table holding a slot of zero capacity");
 
 	/* release and expire */
@@ -663,7 +735,7 @@ static void test_every_guard_refuses_its_own_argument(void)
 
 		for (size_t i = 0; i < 2; i++)
 			fzn_reasm_slot_init(&slots[i], storage2[i], sizeof(storage2[i]));
-		fzn_reasm_init(&no_slots, slots, 2, 1);
+		fzn_reasm_init(&no_slots, slots, 2, 1, REASM_MAX_HOLD);
 		no_slots.slots = NULL;
 		CHECK(fzn_reasm_expire(&no_slots, 100) == 0, "a table with no slots was expired");
 		CHECK(fzn_reasm_accept(&no_slots, sender, 7, 0, 1, payload, 8, 0, 100, &done) ==
@@ -673,7 +745,7 @@ static void test_every_guard_refuses_its_own_argument(void)
 
 	/* accept */
 	fzn_reasm_slot_init(&slot, storage, sizeof(storage));
-	fzn_reasm_init(&table, &slot, 1, 1);
+	fzn_reasm_init(&table, &slot, 1, 1, REASM_MAX_HOLD);
 	CHECK(fzn_reasm_accept(NULL, sender, 7, 0, 1, payload, 8, 0, 100, &done) ==
 	              FZN_REASM_ERR_MALFORMED,
 	      "a null table accepted a chunk");
@@ -691,7 +763,7 @@ static void test_every_guard_refuses_its_own_argument(void)
 	 * path's zero-length refusal. Two pieces of eight, then a final piece
 	 * of nothing. */
 	fzn_reasm_slot_init(&slot, storage, sizeof(storage));
-	fzn_reasm_init(&table, &slot, 1, 1);
+	fzn_reasm_init(&table, &slot, 1, 1, REASM_MAX_HOLD);
 	CHECK(fzn_reasm_accept(&table, sender, 7, 0, 2, payload, 8, 0, 100, &done) ==
 	              FZN_REASM_OK,
 	      "the setup chunk was refused");
@@ -727,6 +799,7 @@ int main(void)
 	test_full_table_and_expiry();
 	test_last_chunk_first_is_refused();
 	test_release_clears_the_arrived_set();
+	test_a_zero_expiry_is_bounded_by_max_hold();
 	test_stale_traffic_still_reclaims_slots();
 	test_a_completed_slot_is_not_taken_from_under_the_caller();
 	test_a_reused_slot_starts_empty();

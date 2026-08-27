@@ -39,6 +39,11 @@
 #include <stdio.h>
 #include <string.h>
 
+/* How long a half-finished message may hold a slot. Generous, because what
+ * these cases test is the bound EXISTING -- a zero expiry no longer means
+ * for ever -- rather than any particular value of it. */
+#define REASM_MAX_HOLD 1000000u
+
 #define SLOTS  4
 #define BUFCAP 4096
 
@@ -84,7 +89,7 @@ static int drive(const uint8_t *data, size_t size)
 	for (size_t i = 0; i < SLOTS; i++)
 		if (fzn_reasm_slot_init(&slots[i], bufs[i], BUFCAP) != FZN_REASM_OK)
 			return 1;
-	if (fzn_reasm_init(&table, slots, SLOTS, 2) != FZN_REASM_OK)
+	if (fzn_reasm_init(&table, slots, SLOTS, 2, REASM_MAX_HOLD) != FZN_REASM_OK)
 		return 1;
 
 	while (c.i < c.n) {

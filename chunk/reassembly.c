@@ -64,9 +64,9 @@ fzn_reasm_err_t fzn_reasm_slot_init(fzn_partial_t *slot, uint8_t *buf, size_t ca
 }
 
 fzn_reasm_err_t fzn_reasm_init(fzn_reasm_t *table, fzn_partial_t *slots, size_t capacity,
-                                size_t per_sender_max)
+                                size_t per_sender_max, uint64_t max_hold)
 {
-	if (!table || !slots || capacity == 0 || per_sender_max == 0)
+	if (!table || !slots || capacity == 0 || per_sender_max == 0 || max_hold == 0)
 		return FZN_REASM_ERR_MALFORMED;
 
 	for (size_t i = 0; i < capacity; i++) {
@@ -77,6 +77,7 @@ fzn_reasm_err_t fzn_reasm_init(fzn_reasm_t *table, fzn_partial_t *slots, size_t 
 	table->slots = slots;
 	table->capacity = capacity;
 	table->per_sender_max = per_sender_max;
+	table->max_hold = max_hold;
 
 	return FZN_REASM_OK;
 }
@@ -113,13 +114,27 @@ size_t fzn_reasm_expire(fzn_reasm_t *table, uint64_t now)
 		 * reading. See `handed` in reassembly.h: the promise is that the
 		 * bytes are the caller's until it releases them, and a sweep is
 		 * exactly what used to break it. */
-		if (slot->live && !slot->handed && slot->expires_at != 0 &&
-		    slot->expires_at <= now) {
+		/* NO `expires_at != 0` CLAUSE ANY MORE. A stored deadline is
+		 * never zero: `fzn_reasm_accept` bounds it by `max_hold`, so a
+		 * chunk claiming no expiry gets `now + max_hold` rather than
+		 * for ever. The clause that used to sit here is what made a
+		 * zero-expiry chunk hold a slot permanently. */
+		if (slot->live && !slot->handed && slot->expires_at <= now) {
 			fzn_reasm_release(slot);
 			dropped++;
 		}
 	}
 	return dropped;
+}
+
+/* The latest instant a slot may be held, saturating rather than wrapping --
+ * `now + max_hold` on caller-chosen uint64s overflows, and a wrapped deadline
+ * would expire a slot the moment it was taken. Named after
+ * `frame/freshness.c`'s `horizon_of`, which does the same arithmetic for the
+ * same reason. */
+static uint64_t hold_until(uint64_t now, uint64_t max_hold)
+{
+	return max_hold > UINT64_MAX - now ? UINT64_MAX : now + max_hold;
 }
 
 /* Take a slot for a message not yet being held, sizing it from this chunk. */
@@ -212,6 +227,7 @@ fzn_reasm_err_t fzn_reasm_accept(fzn_reasm_t *table, const uint8_t sender[FZN_SE
 	fzn_partial_t *slot;
 	fzn_reasm_err_t err;
 	size_t offset;
+	uint64_t deadline;
 
 	if (!table || !table->slots || !sender || !payload || !out)
 		return FZN_REASM_ERR_MALFORMED;
@@ -247,9 +263,18 @@ fzn_reasm_err_t fzn_reasm_accept(fzn_reasm_t *table, const uint8_t sender[FZN_SE
 	if (expires_at != 0 && expires_at <= now)
 		return FZN_REASM_ERR_EXPIRED;
 
+	/* THE DEADLINE THIS SLOT WILL ACTUALLY BE HELD TO. A chunk's own
+	 * expiry is honoured when it is sooner, and bounded by `max_hold`
+	 * when it is later or absent -- see `max_hold` in reassembly.h for
+	 * what a zero used to cost. */
+	deadline = expires_at == 0 ? hold_until(now, table->max_hold)
+	                           : (expires_at < hold_until(now, table->max_hold)
+	                                      ? expires_at
+	                                      : hold_until(now, table->max_hold));
+
 	slot = find(table, sender, msg);
 	if (!slot) {
-		err = admit_first(table, sender, msg, index, chunks, payload_len, expires_at,
+		err = admit_first(table, sender, msg, index, chunks, payload_len, deadline,
 		                  &slot);
 		if (err != FZN_REASM_OK)
 			return err;

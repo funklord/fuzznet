@@ -43,6 +43,11 @@
 #include <stdio.h>
 #include <string.h>
 
+/* How long a half-finished message may hold a slot. Generous, because what
+ * these cases test is the bound EXISTING -- a zero expiry no longer means
+ * for ever -- rather than any particular value of it. */
+#define REASM_MAX_HOLD 1000000u
+
 #define SIM_HOSTS      16u
 #define SIM_QUEUE      2048u
 #define SIM_SLOTS      6u
@@ -401,7 +406,7 @@ static void sim_init(struct sim_net *net, size_t hosts, uint32_t seed)
 
 		for (size_t s = 0; s < SIM_SLOTS; s++)
 			fzn_reasm_slot_init(&h->slots[s], h->bufs[s], SIM_SLOT_CAP);
-		fzn_reasm_init(&h->reasm, h->slots, SIM_SLOTS, 3);
+		fzn_reasm_init(&h->reasm, h->slots, SIM_SLOTS, 3, REASM_MAX_HOLD);
 		fzn_replay_init(&h->window, h->entries, SIM_WINDOW, SIM_MAX_AHEAD);
 	}
 }

@@ -58,6 +58,11 @@
 #include <stdio.h>
 #include <string.h>
 
+/* How long a half-finished message may hold a slot. Generous, because what
+ * these cases test is the bound EXISTING -- a zero expiry no longer means
+ * for ever -- rather than any particular value of it. */
+#define REASM_MAX_HOLD 1000000u
+
 /* The schema-versus-C CONSTANTS live in wire/test/constants_test.c, not
  * here. This file is about behavioural agreement -- whether the reassembler
  * enforces what the relation and the constraints say -- and a constant is a
@@ -155,7 +160,7 @@ static int code_says_same(uint8_t s1, uint32_t m1, uint16_t c1, uint8_t s2, uint
 
 	for (size_t i = 0; i < 2; i++)
 		fzn_reasm_slot_init(&slots[i], storage[i], sizeof(storage[i]));
-	fzn_reasm_init(&table, slots, 2, 2);
+	fzn_reasm_init(&table, slots, 2, 2, REASM_MAX_HOLD);
 
 	if (fzn_reasm_accept(&table, sender1, m1, 0, c1, payload, sizeof(payload), 0, 100,
 	                     &done) != FZN_REASM_OK)
@@ -207,7 +212,7 @@ static int code_accepts_shape(uint16_t index, uint16_t chunks)
 	memset(payload, 0x5a, sizeof(payload));
 	memset(sender, 0xa1, sizeof(sender));
 	fzn_reasm_slot_init(&slot, storage, sizeof(storage));
-	fzn_reasm_init(&table, &slot, 1, 1);
+	fzn_reasm_init(&table, &slot, 1, 1, REASM_MAX_HOLD);
 
 	return fzn_reasm_accept(&table, sender, 7, index, chunks, payload, sizeof(payload), 0,
 	                        100, &done) == FZN_REASM_OK;

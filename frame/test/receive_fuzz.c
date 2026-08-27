@@ -48,6 +48,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* How long a half-finished message may hold a slot. Generous, because what
+ * these cases test is the bound EXISTING -- a zero expiry no longer means
+ * for ever -- rather than any particular value of it. */
+#define REASM_MAX_HOLD 1000000u
+
 #define FUZZ_DEFAULT_CASES 20000u
 
 /* THE FLOOR BELOW WHICH THIS HARNESS REFUSES TO REPORT SUCCESS AT ALL.
@@ -174,7 +179,7 @@ static int receiver_init(struct receiver *r)
 		if (fzn_reasm_slot_init(&r->slots[i], r->storage[i], SLOT_BYTES) != FZN_REASM_OK)
 			return 0;
 	}
-	return fzn_reasm_init(&r->table, r->slots, SLOTS, SLOTS) == FZN_REASM_OK;
+	return fzn_reasm_init(&r->table, r->slots, SLOTS, SLOTS, REASM_MAX_HOLD) == FZN_REASM_OK;
 }
 
 /* One datagram, in sec 4.7's order. Returns non-zero on a broken invariant. */

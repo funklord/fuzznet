@@ -15,6 +15,11 @@
 #include <stdio.h>
 #include <string.h>
 
+/* How long a half-finished message may hold a slot. Generous, because what
+ * these cases test is the bound EXISTING -- a zero expiry no longer means
+ * for ever -- rather than any particular value of it. */
+#define REASM_MAX_HOLD 1000000u
+
 static int failures;
 static int checks;
 
@@ -163,7 +168,7 @@ static int round_trip(size_t total, size_t max_payload, int reverse)
 
 	if (fzn_reasm_slot_init(&slots[0], storage, sizeof(storage)) != FZN_REASM_OK)
 		return 0;
-	if (fzn_reasm_init(&table, slots, 1, 1) != FZN_REASM_OK)
+	if (fzn_reasm_init(&table, slots, 1, 1, REASM_MAX_HOLD) != FZN_REASM_OK)
 		return 0;
 
 	for (uint16_t k = 0; k < p.chunks; k++) {
