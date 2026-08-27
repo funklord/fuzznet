@@ -4158,11 +4158,56 @@ those constants are pinned by identity to a schema constant or a field
 length, not by a bound that happens to be generous.
 
 **And the reason it was dark: `make test` does not build the Monocypher
-bindings.** Without `MONOCYPHER_DIR` the three of them and their 43 checks are
-not compiled at all, and a run that never mentions them reads exactly like a
-run in which they passed. `make test` now says so when they are skipped, on
-the same reasoning as `analyze` and `ctcheck`. The checkout the Makefile's own
+bindings.** Without `MONOCYPHER_DIR` the three of them are not compiled at
+all, and a run that never mentions them reads exactly like a run in which
+they passed. `make test` now says so when they are skipped, on the same
+reasoning as `analyze` and `ctcheck`. The checkout the Makefile's own
 example names is present, and the bindings pass with it.
+
+**THE NOTICE WAS NOT ENOUGH, AND 2026-08-27 SHOWED HOW.** At 15:46 that
+day, `55f8bb0` gave `fzn_seal_open` a commitment key and a hash and
+updated every caller it could see -- `wire/seal.c`, `wire/test/seal_test.c`,
+`sim/test/network_test.c`, `tool/consumer_check.c`. It missed
+`session/test/aead_monocypher_test.c`, which a default build never
+compiles. For the rest of that day the suite printed "the Monocypher
+bindings were NOT built", which reads as a skip, and they were in fact
+BROKEN: twelve diagnostics, four call sites, zero chance of ever passing.
+
+The sharpest part is that this file had already written the sentence
+down. `tool/consumer_check.c` carries a comment reading "Found when
+`fzn_seal_open` grew two parameters and every other caller in the tree
+failed to build while this one did not" -- which was true of every caller
+that WAS COMPILED. The tree recorded its own blind spot and could not see
+through it, because the notice tells you a thing was skipped and cannot
+tell you it was skipped while broken.
+
+It surfaced only because a fuzzypickles session offered a published
+XChaCha20-Poly1305 vector and this tree went to build the gated suite to
+verify it. **The vector did not find a crypto fault. It found that a
+module nobody could see was not compiling** -- which is the more useful
+of the two, and is worth stating in those words because a green vector
+would have been reported as a success and this was better.
+
+The vector is in now, `draft-irtf-cfrg-xchacha-03` appendix A.1, frozen
+as literal arrays and exercised in both directions. **The UNLOCK
+direction is the one that earns its place**: it accepts the draft's own
+ciphertext under the draft's own tag, so it catches an encrypt/decrypt
+pair that is self-consistent and wrong together -- which is precisely
+what a vector generated from our own code cannot express. Demonstrated
+rather than asserted: flipping one byte of the draft's tag fails three
+assertions, and the one that matters is "the draft's own ciphertext under
+the draft's own tag was refused", so the unlock leg is load-bearing and
+not mirroring the seal. A one-byte AAD perturbation is a permanent
+assertion in the file, and it was itself proved non-vacuous by weakening
+the perturbation to `^= 0x00` and watching three checks fire.
+
+**One trap of this class is corrected and not closed.** The skip notice
+carried its check count as a hand-maintained number in a Makefile
+comment, and it had drifted 27 out of date -- it said 43 where the
+bindings carried 70. The number is right now; nothing stops it going
+wrong again, because only a count taken at run time would. Recorded
+rather than fixed, since a notice that always prints teaches nobody
+anything and adjusting its comment does not change that.
 
 **The stale-binary trap caught me a third time**, and in a new costume: with
 `BUILD_DIR=build-mono` the target is `build-mono/chain/test/...`, and asking
