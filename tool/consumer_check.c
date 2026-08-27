@@ -422,6 +422,61 @@ int main(void)
 	if (chain.hop_count != 1)
 		return 8;
 
+	/* REVOCATION, END TO END, AND THIS FILE COULD NOT SEE IT BEFORE.
+	 *
+	 * `installcheck` guarantees coverage at HEADER granularity: it refuses
+	 * when an installed header is not named here, and a header that IS
+	 * named passes as loudly whether the functions it declares are called
+	 * or not. `chain/revocation.h` was included and nothing in it was
+	 * called except `fzn_revocation_store_init`, so the consumer-facing
+	 * gate could not see a change to the revocation API at all. Measured:
+	 * giving `fzn_revocation_covers` a bogus extra parameter left
+	 * `make installcheck` at exit 0 while `make test` failed with 15
+	 * errors -- the gate whose whole job is to catch a break a consumer
+	 * would hit was the one that missed it.
+	 *
+	 * So the sequence a consumer actually performs is performed: issue a
+	 * record, open it, ask before, admit, ask after, and hand the store to
+	 * the verifier. Each step's arity and types are now the consumer's
+	 * problem, which is the only way this gate can have an opinion. */
+	{
+		uint8_t rev_bytes[FZN_REVOCATION_LEN];
+		uint8_t grantee[FZN_PUBKEY_LEN];
+		fzn_revocation_record_t rec;
+
+		memset(grantee, 0x09, sizeof(grantee));
+		if (fzn_revocation_issue(root, cap, grantee, 1500, &sign, rev_bytes) !=
+		    FZN_CHAIN_OK)
+			return 100;
+		if (fzn_revocation_open(rev_bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
+			return 101;
+		if (fzn_revocation_covers(&store, fzn_revocation_issuer(rec),
+		                          fzn_revocation_capability(rec),
+		                          fzn_revocation_grantee(rec)) != 0)
+			return 102;
+		if (fzn_revocation_admit(&store, rec, root, &sign) != FZN_CHAIN_OK)
+			return 103;
+		if (store.used != 1)
+			return 104;
+		if (fzn_revocation_covers(&store, fzn_revocation_issuer(rec),
+		                          fzn_revocation_capability(rec),
+		                          fzn_revocation_grantee(rec)) != 1)
+			return 105;
+
+		/* The store reaches the verifier, which is the property the
+		 * signature change of 2026-08-27 exists for: the same hop that
+		 * verified above must now be refused. */
+		if (fzn_chain_verify(&hop, 1, root, cap, 2000, &sign, &store, &chain) !=
+		    FZN_CHAIN_ERR_REVOKED)
+			return 106;
+
+		/* And NULL still means "no revocations known", which is what
+		 * the old `NULL, 0` said and what a consumer holding no store
+		 * relies on. */
+		if (fzn_chain_verify(&hop, 1, root, cap, 2000, &sign, NULL, &chain) !=
+		    FZN_CHAIN_OK)
+			return 107;
+	}
 
 	/* The two modules added after this file was written, and the reason
 	 * `installcheck` now checks its own coverage: both were installed and
