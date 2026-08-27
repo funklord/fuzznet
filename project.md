@@ -2629,11 +2629,29 @@ question a consumer asks on every decision.
 **It interprets nothing.** `kind`, `subject` and `body` stay opaque, so the
 permission taxonomy remains the consumer's, per §5.
 
-**Order within an issuer, never across, and that is the whole design
-problem.** A per-issuer sequence totally orders one issuer's statements and
-orders no two issuers against each other. So a later statement from the same
-issuer supersedes, and a statement from a *different* issuer about something
-already set is a **conflict, reported and not resolved**.
+**Order within a WRITER, never across, and that is the whole design
+problem.** A writer is **(issuer, stream)**, not an issuer -- `record.h` says
+a sequence is unique within a stream and *not* within an issuer, because an
+issuer numbers each stream from 1 independently. So a later statement from the
+same writer supersedes; a statement from a different ISSUER about something
+already set is a **conflict**; and a statement from the same issuer on a
+different STREAM is `FZN_STATE_ERR_CROSS_STREAM`, which is the same refusal
+for the same reason, reported separately.
+
+**This paragraph said "within an issuer" until 2026-08-26**, and had been
+wrong since the day `stream` was added. `state/` was the one module the field
+never reached: journal, sync and log all took it, and the commit that added it
+named exactly the modules it had changed, which reads as a complete list. The
+cost was not the lost write but the ORDER-DEPENDENCE -- stream 7 seq 100 then
+stream 9 seq 100 left stream 7's value, and the reverse order left stream 9's,
+so two hosts holding an identical set of records held different permissions
+with no error either way. §13a records the measurement.
+
+**Why cross-stream is its own code rather than folded into CONFLICT.** A
+cross-issuer conflict is exceptional -- "a subject with a single writer cannot
+conflict" -- and is worth an alarm. Cross-stream contention is SYSTEMATIC for a
+consumer that lays its streams out that way, so folding them makes the
+exceptional one unalarmable, which is what CONFLICT exists for.
 
 **Refusing to resolve is the point rather than indecision.** Every tie-break
 rule -- highest priority, lowest key, latest clock -- is one consumer's
@@ -6184,6 +6202,58 @@ issued_at`, which stays in `fzn_chain_verify` where the error taxonomy
 distinguishes it from a shape fault. Both modules gain a `..._ERR_SHAPE`,
 because bytes from a peer that are the wrong length are not a caller bug and
 MALFORMED means "the caller has a bug" throughout this library.
+
+### What the binding landed as, 2026-08-27
+
+Implemented and merged. The three objects are views; every field is an
+accessor over the bytes the signature covers; and the defect is closed in the
+only way that closes it, which is to leave nothing for a field to disagree
+with.
+
+**Verified against the attack rather than against the suite.** A hop the root
+minted for one grantee, non-delegable and expiring, with `grantee`,
+`capability`, `expires_at` and `delegable` all rewritten in the buffer and the
+signature left untouched, is refused. It verified before, and authorised the
+attacker for any capability, for ever. A record with `seq` rewritten is
+refused, and so is one with `stream` rewritten -- the first resurrects a
+revoked permission through `fzn_state_apply`, the second wedges a cell at
+CROSS_STREAM permanently, which is a revocation that never lands.
+
+**Two additions beyond the design as written.** `FZN_CHAIN_ERR_SHAPE` and
+`FZN_RECORD_ERR_SHAPE`, because bytes from a peer that are the wrong length
+are not a caller bug and MALFORMED means "the caller has a bug" throughout
+this library. And a chain container -- `fzn_chain_open` with a matching
+`fzn_chain_pack` -- taken on the reasoning that a reader with no writer is a
+writer every consumer invents, which is the same argument that produced this
+library.
+
+**What the conversion turned up in the callers is the finding worth keeping.**
+`tool/consumer_check.c` -- the file a consumer reads to learn the installed
+headers -- pointed `signed_region` at the literal "a signed region" while
+filling `grantor`, `grantee` and `capability` separately, and asserted
+FZN_CHAIN_OK. It was teaching every consumer the exact arrangement that made a
+captured signature reusable. And the simulation's `sim_sign_hop` signed the
+STRUCT, padding included, which binds within one process and one ABI and
+cannot cross a host boundary. That was the only thing in the tree producing
+any agreement at all between a hop's fields and its signed bytes, and it was
+in a test.
+
+**Three scenarios got shorter.** Delegation minted into a buffer and then
+re-pointed the hop at the recipient's storage; a hop is its bytes now, so
+minting into the recipient's array is the whole of it. Substitution copied a
+chain and re-pointed every region; it copies bytes and opens them, which is
+also a truer picture of the attack, since a chain travels in the clear and
+copying it is all an attacker does.
+
+**And the guided fuzzer caught the oracle rather than the code.** After the
+merge, `record_guided` began crashing on a clause asserting that a sequence at
+or above the journal's position answers ABSENT outright. That is false: the
+harness drives the log and the journal independently, so a record can sit in
+the log with the journal never told, and `fzn_log_get` correctly answers OK.
+The invariant is narrower -- HELD IS HELD, and the position decides only which
+of the two NOT-HELD answers you get. A model written from the same
+understanding as the code is one witness wearing two hats, and this is the
+third time today that shape has been found in this tree.
 
 ### The receive order: §4.7 step 3 moves below step 5
 
