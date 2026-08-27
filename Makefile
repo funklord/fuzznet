@@ -215,7 +215,8 @@ MONO_HDRS  := chain/sign_monocypher.h session/hash_monocypher.h \
               session/aead_monocypher.h
 MONO_TSRC  := chain/test/sign_monocypher_test.c \
               session/test/hash_monocypher_test.c \
-              session/test/aead_monocypher_test.c
+              session/test/aead_monocypher_test.c \
+              wire/test/golden_frame_test.c
 
 ifneq ($(MONOCYPHER_DIR),)
 MONO_OBJS  := $(BUILD_DIR)/chain/sign_monocypher.o \
@@ -252,9 +253,10 @@ MONO_CONSUMER := -DFZN_CONSUMER_MONOCYPHER -I$(MONO_ABS)/src \
 MONO_BIN   := $(BUILD_DIR)/chain/test/sign_monocypher_test
 MONO_HASH  := $(BUILD_DIR)/session/test/hash_monocypher_test
 MONO_AEAD  := $(BUILD_DIR)/session/test/aead_monocypher_test
+MONO_GOLD  := $(BUILD_DIR)/wire/test/golden_frame_test
 OBJS       += $(MONO_OBJS)
 TEST_OBJS  += $(MONO_TOBJ)
-TEST_BINS  += $(MONO_BIN) $(MONO_HASH) $(MONO_AEAD)
+TEST_BINS  += $(MONO_BIN) $(MONO_HASH) $(MONO_AEAD) $(MONO_GOLD)
 HDRS       += $(MONO_HDRS)
 CPPFLAGS   += -I$(MONOCYPHER_DIR)/src
 
@@ -309,6 +311,29 @@ $(BUILD_DIR)/session/test/aead_monocypher_test.o: session/test/aead_monocypher_t
 # the real AEAD running behind a fake derivation, which is the arrangement
 # wire/test/seal_test.c already covers.
 $(MONO_AEAD): $(BUILD_DIR)/session/test/aead_monocypher_test.o \
+              $(BUILD_DIR)/session/aead_monocypher.o \
+              $(BUILD_DIR)/session/hash_monocypher.o $(BUILD_DIR)/monocypher.o \
+              $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/session/commitment.o \
+              $(BUILD_DIR)/session/random.o \
+              $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# The golden frame vector, which reads the wire and so needs the generated
+# layout on its include path exactly as the AEAD test does.
+$(BUILD_DIR)/wire/test/golden_frame_test.o: wire/test/golden_frame_test.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
+
+# The same object list as $(MONO_AEAD), for the same reasons, and
+# session/hash_monocypher.o is here under the same deliberate exception to the
+# "each names its own objects" rule stated above it: the frame this file
+# freezes carries a commitment that the real BLAKE2b derived, so a stub hash
+# would produce different bytes and there would be nothing to compare.
+# session/random.o comes in because this one calls `fzn_seal_build`, which
+# draws its nonce through `fzn_nonce_next` -- the seam that makes a fixed
+# frame reproducible without letting a caller name a nonce.
+$(MONO_GOLD): $(BUILD_DIR)/wire/test/golden_frame_test.o \
               $(BUILD_DIR)/session/aead_monocypher.o \
               $(BUILD_DIR)/session/hash_monocypher.o $(BUILD_DIR)/monocypher.o \
               $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/session/commitment.o \
