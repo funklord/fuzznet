@@ -6919,6 +6919,19 @@ design question -- see the entry in sec 14.
   verifies a chain the rest of the network revoked last week. Being a
   relay on the path is enough to hold a victim there.
 
+  **The harness now exhibits it rather than hiding it.**
+  `sim/test/network_test.c`'s `scenario_revocation_split` gives two hosts
+  the same root and the same sender's chain, tells one of them about the
+  revocation, and asserts *both* outcomes: the told host refuses and the
+  untold host delivers. Until the revocation store there went per host it
+  was one store shared by every simulated host, so two hosts disagreeing
+  about what is revoked was not a state the simulation had, and
+  `scenario_revocation` proved the cascade while being quoted for
+  revocation entire. The assertion that the untold host delivers is a
+  record of this gap, not an endorsement of it: **closing the gap must
+  break that scenario**, which is the point of writing it as an assertion
+  rather than as a comment.
+
   **The cascade half is NOT this gap, and was re-tested rather than
   assumed.** An audit reported that revoking a granter leaves its grants
   standing. It does not: `chain/chain.c` runs `hop_is_revoked` over

@@ -213,6 +213,23 @@ struct sim_host {
 	size_t chain_len;
 	int authorised; /* 0 means the host has no valid grant */
 
+	/* WHAT THIS HOST KNOWS HAS BEEN REVOKED, and it is per host for the
+	 * same reason the anchor is: a revocation is something a host either
+	 * has been told or has not, and no host holds the network's view of
+	 * them.
+	 *
+	 * It used to live on `struct sim_net`, one store shared by every
+	 * simulated host, and that made a whole class of case unreachable.
+	 * With one store there is no such thing as two hosts disagreeing
+	 * about what is revoked, so `scenario_revocation` proved the cascade
+	 * and could say nothing about propagation -- while sec 14 names the
+	 * propagation half as the serious open gap. A harness that cannot
+	 * exhibit a defect the project knows it has is a check that cannot
+	 * fail. `scenario_revocation_split` is the case this field exists to
+	 * make expressible. */
+	fzn_revocation_store_t revocations;
+	fzn_revocation_t revocation_entries[SIM_REVOCATION];
+
 	fzn_replay_window_t window;
 	fzn_replay_entry_t entries[SIM_WINDOW];
 
@@ -257,9 +274,6 @@ struct sim_net {
 
 	uint8_t root[FZN_PUBKEY_LEN];
 	uint8_t capability[FZN_CAP_ID_LEN];
-
-	fzn_revocation_store_t revocations;
-	fzn_revocation_t revocation_entries[SIM_REVOCATION];
 
 	fzn_aead_ops_t aead;
 	fzn_hash_ops_t hash;
@@ -409,8 +423,6 @@ static void sim_init(struct sim_net *net, size_t hosts, uint32_t seed)
 	net->rng.fill = sim_fill;
 	net->rng.ctx = &rng_ctx;
 
-	fzn_revocation_store_init(&net->revocations, net->revocation_entries, SIM_REVOCATION);
-
 	for (size_t i = 0; i < hosts; i++) {
 		struct sim_host *h = &net->hosts[i];
 
@@ -435,6 +447,12 @@ static void sim_init(struct sim_net *net, size_t hosts, uint32_t seed)
 		 * joining one does not, and scenario 11 is about that. */
 		fzn_trust_init(&h->trust);
 		fzn_trust_pin(&h->trust, net->root);
+
+		/* AND ITS OWN REVOCATION STORE, empty. Nothing is revoked
+		 * until a scenario says so, and it says so at a named host or
+		 * at every one of them -- see `sim_revoke_all`. */
+		fzn_revocation_store_init(&h->revocations, h->revocation_entries,
+		                          SIM_REVOCATION);
 
 		fzn_journal_init(&h->journal, h->jentries, SIM_HOSTS);
 		fzn_state_init(&h->state, h->sentries, 8);
@@ -584,7 +602,13 @@ static void sim_receive(struct sim_net *net, struct sim_datagram *d)
 	 * holds globally, because that is what a host actually has. An
 	 * unanchored host gets NULL from `fzn_trust_root`, which
 	 * `fzn_chain_verify` refuses -- so a host that has not joined fails
-	 * closed rather than verifying against nothing. */
+	 * closed rather than verifying against nothing.
+	 *
+	 * AND AGAINST THIS RECEIVER'S OWN REVOCATIONS, for exactly the same
+	 * reason, which is a reason this line did not use to carry: it passed
+	 * a store the simulation held globally, so every host on the network
+	 * revoked in the same instant and no scenario could describe one that
+	 * had not heard yet. See `struct sim_host`. */
 	anchor = fzn_trust_root(&h->trust);
 	if (!anchor) {
 		h->refused_auth++;
@@ -592,8 +616,8 @@ static void sim_receive(struct sim_net *net, struct sim_datagram *d)
 	}
 	authorised = fzn_chain_verify(sender->chain, sender->chain_len, anchor,
 	                              net->capability, net->now,
-	                              &net->sign, net->revocations.entries,
-	                              net->revocations.used, &proven);
+	                              &net->sign, h->revocations.entries,
+	                              h->revocations.used, &proven);
 	if (authorised != FZN_CHAIN_OK) {
 		h->refused_auth++;
 		return;
@@ -668,6 +692,30 @@ static void fill_message(uint8_t *buf, size_t len, uint8_t seed)
 {
 	for (size_t i = 0; i < len; i++)
 		buf[i] = (uint8_t)(seed + (i * 31u));
+}
+
+/* Tell EVERY host about a revocation, and report how many refused it.
+ *
+ * The store is per host, so a scenario that wants the whole network to agree
+ * has to say so -- which is the honest shape, because agreeing is a state a
+ * network reaches rather than one it starts in. This is what the old
+ * net-wide store did implicitly, and it is used exactly where that store was
+ * being filled.
+ *
+ * A COUNT RATHER THAN A `check()` PER HOST. Admission runs once per host, so
+ * asserting inside the loop would make one property into `host_count` of
+ * them and grow this file's headline count with the size of a mesh -- the
+ * mistake `total_digest_dropped` and `setup_faults` above were both written
+ * to undo. The caller asserts the count, once. */
+static unsigned sim_revoke_all(struct sim_net *net, fzn_revocation_record_t rec)
+{
+	unsigned refused = 0;
+
+	for (size_t i = 0; i < net->host_count; i++)
+		if (fzn_revocation_admit(&net->hosts[i].revocations, rec, net->root,
+		                         &net->sign) != FZN_CHAIN_OK)
+			refused++;
+	return refused;
 }
 
 /* ------------------------------------------------------------- scenario 1
@@ -796,8 +844,7 @@ static void scenario_revocation(void)
 	      "the simulation could not issue a revocation");
 	check(fzn_revocation_open(rec_region, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK,
 	      "the simulation could not open the revocation it issued");
-	check(fzn_revocation_admit(&net.revocations, rec, net.root, &net.sign) == FZN_CHAIN_OK,
-	      "the signed revocation was refused");
+	check(sim_revoke_all(&net, rec) == 0, "the signed revocation was refused");
 
 	sim_run(&net, 10);
 	check(net.hosts[3].delivered == 0, "a revoked sender's message still completed");
@@ -831,6 +878,111 @@ static void scenario_revocation(void)
 	}
 	printf("  revocation: %u chunks refused on authority, %u delivered\n",
 	       net.hosts[3].refused_auth, net.hosts[3].delivered);
+}
+
+/* ------------------------------------------------------------ scenario 3b
+
+   ONE REVOCATION, KNOWN AT ONE HOST AND NOT THE OTHER.
+
+   Two receivers, anchored to the same root, verifying the same sender's
+   chain, sent the same message at the same moment. One of them has been told
+   that the sender is revoked; the other has not. The first refuses. The
+   second delivers.
+
+   THE SECOND DELIVERING IS THE OPEN GAP NAMED IN project.md sec 14, NOT A
+   FAULT IN THIS SCENARIO. That section states it in as many words: a
+   revocation stops a chain only at a host that HAS it, and a host cannot
+   tell "nothing was revoked" from "I am missing the revocations". A
+   revocation is a standalone signed object riding no stream and carrying no
+   sequence, so absence and up to date are the same observation -- and a host
+   that joined this morning, has been offline, or is partitioned by an
+   attacker goes on verifying a chain the rest of the network withdrew last
+   week. Being a relay on the path is enough to hold it there.
+
+   WHEN PROPAGATION IS BUILT, THE ASSERTION ABOUT THE UNTOLD HOST IS THE ONE
+   THAT MUST CHANGE. It records the gap rather than endorsing it: a network
+   that carries revocations on contact makes that host refuse too, and this
+   scenario must then demand the refusal instead. It is written as an
+   assertion and not as a comment precisely so that closing the gap breaks
+   the suite -- a note in a comment is a note nobody is made to read.
+
+   THIS COULD NOT BE WRITTEN UNTIL THE STORE WENT PER HOST. With one store
+   shared by the whole simulation, two hosts disagreeing about what is
+   revoked was not a state the harness had, so `scenario_revocation` above
+   proved the cascade and was quoted for revocation entire. A check that
+   cannot fail is worse than no check, because it is cited afterwards as
+   though it had discriminated.
+
+   THE TWO LEGS ARE EACH OTHER'S CONTROL, which is why this scenario needs
+   no second net the way scenarios 3 to 5 do: same sender, same chain, same
+   root, same bytes, same clock, one revocation. The only thing that differs
+   between them is which receiver was told about it.  */
+
+static void scenario_revocation_split(void)
+{
+	static struct sim_net net;
+	static uint8_t msg[256];
+	static uint8_t rec_region[FZN_REVOCATION_LEN];
+	fzn_revocation_record_t rec;
+	struct sim_host *sender, *told, *untold;
+
+	sim_init(&net, 4, 0x2323u);
+	fill_message(msg, sizeof(msg), 31);
+	sender = &net.hosts[2];
+	told = &net.hosts[0];
+	untold = &net.hosts[1];
+
+	/* THE SAME ROOT AT BOTH RECEIVERS, asserted rather than assumed. If
+	 * the two anchors differed, the refusal below would be the anchor's
+	 * doing and this would be scenario 11 wearing a revocation's name. */
+	check(fzn_trust_root(&told->trust) && fzn_trust_root(&untold->trust) &&
+	              memcmp(fzn_trust_root(&told->trust), fzn_trust_root(&untold->trust),
+	                     FZN_PUBKEY_LEN) == 0,
+	      "the two receivers should be anchored to the same root");
+	/* AND THE SAME CHAIN, which needs no copying: `sim_receive` reads the
+	 * chain out of the SENDING host, so both receivers are handed the one
+	 * chain that exists. */
+	check(sender->chain_len == 1, "the sender should hold a one-hop root grant");
+
+	/* Signed by the root, as scenario 3's is and for the same reason. */
+	check(fzn_revocation_issue(net.root, net.capability, sender->pubkey, net.now,
+	                           &net.sign, rec_region) == FZN_CHAIN_OK,
+	      "the simulation could not issue a revocation");
+	check(fzn_revocation_open(rec_region, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK,
+	      "the simulation could not open the revocation it issued");
+
+	/* ONE HOST HEARS IT. The other is the host that joined this morning,
+	 * or was offline, or sits behind somebody who declines to relay. */
+	check(fzn_revocation_admit(&told->revocations, rec, net.root, &net.sign) == FZN_CHAIN_OK,
+	      "the signed revocation was refused by the host that was told");
+	check(untold->revocations.used == 0, "the host that was not told holds a revocation");
+
+	check(sim_send(&net, sender->id, told->id, msg, sizeof(msg), net.now + 100u),
+	      "the send to the host that was told was refused");
+	check(sim_send(&net, sender->id, untold->id, msg, sizeof(msg), net.now + 100u),
+	      "the send to the host that was not told was refused");
+	sim_run(&net, 4);
+
+	/* THE HALF THAT WORKS: a host holding the revocation refuses. */
+	check(told->delivered == 0, "a revoked sender was delivered at a host that had been told");
+	check(told->refused_auth > 0, "and it should have been refused on authority");
+
+	/* THE HALF THAT DOES NOT, AND IS WHY THIS SCENARIO EXISTS. Both lines
+	 * assert the gap. Read the header before changing either. */
+	check(untold->delivered == 1,
+	      "a host that was never told refused a revoked chain, so either sec 14's "
+	      "gap has closed and this scenario must now demand that refusal, or the "
+	      "message failed to arrive for some reason unrelated to revocation");
+	check(untold->refused_auth == 0,
+	      "the untold host refused on authority for some other reason, so its "
+	      "delivery is not evidence about revocation propagation");
+	check(untold->refused_shape == 0,
+	      "the frames themselves were well formed; only the revocation differs");
+
+	printf("  revocation split: told refused %u on authority and took %u, "
+	       "untold took %u with %zu revocations\n",
+	       told->refused_auth, told->delivered, untold->delivered,
+	       untold->revocations.used);
 }
 
 /* ------------------------------------------------------------- scenario 4
@@ -1725,7 +1877,7 @@ static void scenario_join(void)
 		 * would be testing a broken chain rather than a foreign one. */
 		check(fzn_chain_verify(attacker->chain, attacker->chain_len, rogue_root,
 		                       net.capability, net.now, &net.sign,
-		                       net.revocations.entries, net.revocations.used,
+		                       joiner->revocations.entries, joiner->revocations.used,
 		                       &proven) == FZN_CHAIN_OK,
 		      "the attacker's chain should be valid under its own root");
 
@@ -1882,6 +2034,7 @@ int main(void)
 	scenario_mesh();
 	scenario_replay();
 	scenario_revocation();
+	scenario_revocation_split();
 	scenario_stale();
 	scenario_unauthorised();
 	scenario_delegation();
