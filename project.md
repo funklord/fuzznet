@@ -8363,6 +8363,78 @@ the header, not for declining to build.
   settled**: this document wins over the code, so if the first reading was
   meant, the code is wrong and not the sentence.
 
+## 15a. Consumer weighting, fallout tooling, and situ, 2026-08-28
+
+Three corrections and one measurement, from the holder.
+
+### fuzzypickles is the main consumer; netcfgd is not yet one
+
+**Recorded because this document does not read that way.** Sec 5 says
+"three consumers with one usage", sec 5's admission test turned on "two
+real consumers", and several sections weigh the three as comparable.
+The holder's statement: **fuzzypickles is likely the main consumer,
+netcfgd will only ever use a SUBSET and is less likely to produce
+feedback, and netcfgd is NOT YET A CONSUMER.** raidcfgd exists but is
+nascent.
+
+The consequence is a design one, not bookkeeping. **Generalising for
+consumers that do not yet exist is speculative generality**, and this
+document has been doing it: the admission test asks whether two real
+consumers need a thing, in a world where one real consumer does.
+Feedback that has actually corrected this library has come almost
+entirely from fuzzypickles -- five substantive corrections in one day,
+against none from anywhere else, which is what "less likely to produce
+feedback" means in practice.
+
+This does NOT mean building only for them. The goal is a multi-purpose
+platform. It means that where a design choice is made to serve a
+hypothetical netcfgd need against a measured fuzzypickles one, the
+hypothetical should lose and be recorded as deferred rather than
+decided.
+
+### The fallout tool exists, is unused, and works
+
+The holder asked for tools to analyse the fallout of a change, so a
+better solution can be taken early rather than after the concept
+entrenches. **`situc diff` is that tool and this project has never run
+it.**
+
+Demonstrated on the change sec 13e actually costed -- adding a 32-byte
+per-message ephemeral to the head:
+
+    Regressions:
+      ! fzn_frame.authenticated: size Fixed(91) -> Fixed(123)
+      ! fzn_frame.head: size Fixed(91) -> Fixed(123)
+    Layout changes:
+      ~ eleven field offsets, each named old -> new
+    Added:
+      + fzn_frame.head.ephemeral
+
+**It classifies rather than lists**, and "Regressions" is its own
+category. That is the difference between a diff and a fallout analysis.
+
+### We use four of situc's nineteen subcommands
+
+`build`, `map`, `wire`, `gen-tamper` -- the last adopted yesterday.
+Unused: `diff`, `gen-tests`, `gen-fuzz`, `gen-dissector`, `gen-checks`,
+`gen-derived`, `gen-codec-tests`, `verify`, `explain`, `pack`, `doc`,
+`advise`, `import-proto`, `lsp`, `dump-ast`.
+
+**One correction to what that implies, caught before it was written
+here.** `gen-tests` takes `schema vectors` -- it generates test code
+FROM a vector file, it does not produce vectors. So it would not have
+saved the golden frame this project obtained from fuzzypickles, and it
+must not be recorded as though it would: **the vector's value was that
+an independent implementation produced it**, which no generator can
+supply. What `gen-tests` would replace is the hand-written harness
+around the array, which is the cheaper half.
+
+The rest are unevaluated. `gen-fuzz` against nine hand-written
+harnesses and `gen-dissector` are the next two worth measuring, on the
+same standard `gen-tamper` met: adopt where the generated thing is
+exhaustive over something the schema knows and a hand-written one is
+sampled.
+
 ## 15. The consolidation this library exists for, 2026-08-28
 
 **RESTATED, NOT NEW, AND THAT IS THE FINDING.** The holder said "the
