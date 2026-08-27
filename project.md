@@ -5626,6 +5626,74 @@ delegation: dropping the `delegable` requirement in verify and again in
 delegate, removing the expiry cap, skipping the re-verification, and removing
 the depth ceiling.
 
+### The tamper harness is generated, and it catches what ours did not
+
+**Adopted 2026-08-27: `situc gen-tamper` over `wire/frame.situ`**, emitted
+to `wire/generated/frame_tamper.h`, committed beside the other generated
+sources and verified current by `make schema` -- which now reports
+"contract, map, generated C, tamper harness and vendored runtime all
+match", and was confirmed to FIRE by appending a line to the committed
+copy. A harness that can drift from the schema is worth less than the
+hand-written tests it replaces, so the staleness check is the point of
+adopting a generator rather than a detail of it.
+
+It takes our verifier as a callback and flips every byte the schema
+declares tag-covered plus every tag byte, requiring refusal for each. On
+the golden frame that is **163 flips** -- covered span at 5 for 147, plus
+16 tag bytes -- and 164 verifier calls. **The call count is asserted**,
+so a span computed as zero cannot return SITU_OK having asked nothing.
+
+**It runs UNGATED, on every `make test`.** The stub AEAD in
+`wire/test/seal_test.c` sustains an exhaustive walk because `stub_tag`
+folds with `acc*31 + byte` over the associated data and `acc*17 + byte`
+over the ciphertext: both multipliers odd, so every step is injective mod
+256 and a difference at any byte reaches the tag. That was checked rather
+than hoped -- the brief said a stub that could not sustain it would be a
+FINDING about `seal_test`'s own tamper cases, not a reason to gate.
+
+**What it buys, measured rather than argued.** Narrowing the AEAD's
+sealed span by one byte at each end -- so the last payload byte falls
+outside the tag while the round trip still succeeds:
+
+  seal_test   112 checks, 0 failures   -- completely blind
+  tamper_test 2 failures, naming byte 151, and its call-count guard fires
+
+That is the case for a generated harness in one line. Our hand-written
+tamper cases are sampled and hand-listed; this is exhaustive over the
+schema's own coverage function, so it cannot drift when the layout moves.
+
+**The control is permanent, not something run once.** A verifier that
+restores byte 130 before opening must produce `SITU_ERR_CONSTRAINT` with
+`failed_at == 130` exactly, and a call count showing the harness stopped
+at the first byte it wrongly accepted. Without it, SITU_OK would be a
+pass nobody had watched fail -- which is the failure this harness exists
+to prevent, and reproducing it here would have been absurd.
+
+**Half the generator does not apply, and the test says so.**
+`payload[head.length]` makes `fzn_frame` variable-length, so gen-tamper
+emits only the coverage half; the "bytes outside coverage must not change
+the answer" half is for fixed layouts. The five hop bytes are never
+flipped. `seal_test.c`'s hop-budget case and `golden_frame_test.c`'s
+byte-1 rewrite are the two places that assert that half, and the file
+points at them so a reader does not assume the generator covers it.
+
+**`situc advise` was run at the same time and its one suggestion does not
+apply.** It reports nine tag-covered fields writable in place, each write
+costing a recomputation over 1147 bytes, and suggests moving the
+often-rewritten ones out of coverage. Nothing rewrites them in flight:
+the only caller of `expires_at_set` is `fzn_seal_build`, at construction,
+before the tag exists. It reasons from DECLARED writability rather than
+from actual rewrites. The one genuine in-flight rewrite is `hops_left`,
+already outside coverage and declared `no_tag_invalidation` + `in_place`.
+Recorded as a checked negative so the next session to run `advise` does
+not re-investigate it.
+
+**And `--out` exists.** This document nearly recorded that `gen-tamper`
+writes only into the working directory, which is true of its default and
+not of the tool; it takes `--out` as `situc build` does, so nothing it
+writes lands outside `BUILD_DIR`. The claim was made from one invocation
+and corrected by someone who read the interface.
+
 ### A comparison is only tested by inputs that share a prefix
 
 **Rule, adopted 2026-08-27 in a consumer session's words because they are
@@ -7449,13 +7517,24 @@ of the manifest; from here it reads as a burden.
   differ or a compile-time distinction between the two types, and no
   test can do it.
 
-- **`make installcheck` fails when Monocypher is built**, and it
-  predates all of today's work -- confirmed absent at `89ddb5f` too.
-  `session/aead_monocypher.h` is in `HDRS` but is not included by
-  `tool/consumer_check.c`, so installcheck's own header-coverage rule
-  refuses. The default build never produces that configuration, which is
-  why nobody sees it. Same defect class as the one fixed today, one
-  header over: a gate that only runs in the arrangement nobody uses.
+- **`make installcheck` failed when Monocypher was built. FIXED
+  2026-08-27, and fixing it found something worse.**
+  `session/aead_monocypher.h` was in `HDRS` and not included by
+  `tool/consumer_check.c`. The comment above that include block says
+  "two headers were installable and unverifiable"; the fix that
+  followed it covered two of three and missed this one. **Counting the
+  headers a fix covers against the headers that exist is the check that
+  was missing.**
+
+  Behind it: the block exercising the real bindings hashes a buffer
+  named `region` **which is declared nowhere in the file**, so that
+  block HAD NEVER COMPILED. It could not be noticed, because it builds
+  only under `FZN_CONSUMER_MONOCYPHER` and that arrangement failed the
+  header-coverage check first -- the compiler never reached the line. **A
+  gate that refuses early hides whatever is behind it**, and this one
+  had been hiding a translation unit that does not build. The AEAD
+  binding now gets a call to the same standard as the other two, proved
+  able to fail by nulling its seal op.
 
 - **A revocation store was single-root by assumption, and is not any
   more. FIXED 2026-08-27**; the finding is kept because the fix that was
