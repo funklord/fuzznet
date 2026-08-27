@@ -625,6 +625,44 @@ int main(void)
 
 	test_every_guard_refuses_its_own_argument();
 
+	/* A HORIZON AT THE TOP OF THE RANGE IS AN UNLIMITED ONE, and that is
+	 * recorded as a fact rather than refused -- see `horizon_of` in
+	 * freshness.c for why no threshold can be justified from inside the
+	 * module. The comment there used to claim such a horizon was "still
+	 * bounded by the sweep"; it is not, and this is what that costs.
+	 *
+	 * Asserted so the footgun cannot be forgotten, and so anyone who later
+	 * decides to refuse it has a case that tells them what they changed. */
+	{
+		fzn_replay_window_t wide;
+		fzn_replay_entry_t rows[4];
+		uint8_t n[FZN_NONCE_LEN];
+		size_t i;
+
+		CHECK(fzn_replay_init(&wide, rows, 4, UINT64_MAX) == FZN_FRESH_OK, "a horizon at the top of the range");
+		for (i = 0; i < 4u; i++) {
+			memset(n, (uint8_t)i, sizeof(n));
+			CHECK(fzn_replay_admit(&wide, n, UINT64_MAX, FZN_EXPIRY_REQUIRED, 100) == FZN_FRESH_OK, "a frame claiming the largest expiry");
+		}
+		CHECK(fzn_replay_expire(&wide, UINT64_MAX - 1u) == 0,
+		       "the sweep reclaimed an entry expiring at UINT64_MAX, so the comment "
+		       "about being bounded by the sweep would be true after all");
+		memset(n, 0xee, sizeof(n));
+		CHECK(fzn_replay_admit(&wide, n, 200, FZN_EXPIRY_REQUIRED, 100) == FZN_FRESH_ERR_WINDOW_FULL, "a genuine frame after the window was filled at the top of the range");
+
+		/* THE CONTROL, and it is the whole point: an ordinary horizon
+		 * refuses those frames at the door, so nothing accumulates. */
+		{
+			fzn_replay_window_t sane;
+			fzn_replay_entry_t srows[4];
+
+			CHECK(fzn_replay_init(&sane, srows, 4, 3600) == FZN_FRESH_OK, "an ordinary horizon");
+			memset(n, 0x01, sizeof(n));
+			CHECK(fzn_replay_admit(&sane, n, UINT64_MAX, FZN_EXPIRY_REQUIRED,
+			                            100) == FZN_FRESH_ERR_HORIZON, "an ordinary horizon admitted a frame claiming forever");
+		}
+	}
+
 	printf("freshness_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
 }

@@ -715,6 +715,42 @@ int main(void)
 		expect_err(fzn_record_sign(issuer, subject, STREAM, KIND, SEQ, ISSUED_AT, NULL,
 		                           0, &refuses, small, sizeof(small), &n),
 		           FZN_RECORD_ERR_UNSIGNED, "a signer that refuses");
+
+		/* AND IT LEAVES NO STALE SIGNATURE BEHIND, which matters because
+		 * the header and body are already written by then. A caller
+		 * signing a series into one buffer would otherwise be left with
+		 * the PREVIOUS record's signature sitting under this record's
+		 * header -- measured at 64 non-zero bytes before this was
+		 * fixed. Both siblings zero it and both say why; this one did
+		 * not. */
+		{
+			static uint8_t reused[FZN_RECORD_MAX_LEN];
+			size_t good_len = 0;
+			size_t nonzero = 0;
+			size_t i;
+
+			expect_err(fzn_record_sign(issuer, subject, STREAM, KIND, SEQ, ISSUED_AT,
+			                           body, sizeof(body), &sign, reused,
+			                           sizeof(reused), &good_len),
+			           FZN_RECORD_OK, "the first record into the shared buffer");
+			/* The control: that first signature really is non-zero, or
+			 * the check below passes on an empty buffer. */
+			for (i = good_len - FZN_SIG_LEN; i < good_len; i++)
+				nonzero += reused[i] ? 1u : 0u;
+			expect(nonzero != 0, "the fixture's signature is all zero, so this "
+			                     "proves nothing");
+
+			expect_err(fzn_record_sign(issuer, subject, STREAM, KIND, SEQ + 1u,
+			                           ISSUED_AT, body, sizeof(body), &refuses,
+			                           reused, sizeof(reused), &n),
+			           FZN_RECORD_ERR_UNSIGNED, "the refused record into the same "
+			                                    "buffer");
+			nonzero = 0;
+			for (i = good_len - FZN_SIG_LEN; i < good_len; i++)
+				nonzero += reused[i] ? 1u : 0u;
+			expect(nonzero == 0, "a refused sign left the previous record's "
+			                     "signature in the buffer");
+		}
 	}
 
 	/* Every enumerator renders, including one that is not an enumerator at

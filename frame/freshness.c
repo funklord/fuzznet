@@ -33,7 +33,27 @@ static int nonce_eq(const uint8_t *a, const uint8_t *b)
  * -- an outage with no visible cause, near the top of the clock's range where
  * nobody tests. Saturating at UINT64_MAX means a caller who asks for a
  * horizon wider than the clock gets one exactly that wide, which is what they
- * asked for and is still bounded by the sweep. */
+ * asked for.
+ *
+ * IT IS NOT "STILL BOUNDED BY THE SWEEP", WHICH THIS COMMENT USED TO CLAIM.
+ * `fzn_replay_expire` keeps an entry while `expires_at > now`, and UINT64_MAX
+ * is greater than every representable `now` -- so a horizon at the top of the
+ * range admits frames nothing ever reclaims. Measured: `max_ahead` of
+ * UINT64_MAX, eight frames claiming that expiry, a sweep at UINT64_MAX - 1
+ * dropping NONE of them, and every genuine frame afterwards refused with
+ * WINDOW_FULL. That is freshness.h's own incident reproduced with the horizon
+ * in place.
+ *
+ * So a horizon at or near the top of the range is an unlimited horizon in
+ * practice, and restores exactly the defect the horizon exists to close. The
+ * header refuses `max_ahead == 0` because "an unlimited default is the one a
+ * caller gets by forgetting the field"; this is the same hazard at the other
+ * end of the range, reached deliberately rather than by omission, and it is
+ * named here rather than refused because no threshold between "large" and
+ * "too large" can be justified from inside this file. The sizing rule is the
+ * one that answers it: capacity must hold what arrives within max_ahead, so a
+ * max_ahead no capacity can satisfy is a number the consumer has not
+ * finished choosing. */
 static uint64_t horizon_of(uint64_t now, uint64_t max_ahead)
 {
 	return max_ahead > UINT64_MAX - now ? UINT64_MAX : now + max_ahead;

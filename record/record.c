@@ -148,8 +148,23 @@ fzn_record_err_t fzn_record_sign(const uint8_t issuer[FZN_PUBKEY_LEN],
 	/* THE SIGNATURE GOES AFTER THE BODY AND COVERS EVERYTHING BEFORE IT,
 	 * which is the same range `fzn_record_signed_bytes` hands a verifier.
 	 * One expression of the range, used by both directions. */
-	if (!sign->sign(sign->ctx, out + signed_len, out, signed_len))
+	if (!sign->sign(sign->ctx, out + signed_len, out, signed_len)) {
+		/* NO HALF-MADE RECORD. The header and body are already written,
+		 * and the signature area is whatever the caller's buffer held --
+		 * which, for a caller signing a series into one buffer, is the
+		 * PREVIOUS RECORD'S SIGNATURE. Measured: sign one record, then
+		 * ask a refusing signer for a second into the same buffer, and
+		 * 64 bytes of the first record's signature are still there under
+		 * the second record's header.
+		 *
+		 * Both siblings do this and both say why. `chain.c`: "a hop that
+		 * failed to be signed must not carry a stale signature from the
+		 * last one that was." Three parallel authors, two of three -- so
+		 * the reason is recorded here too rather than left to whoever
+		 * next compares the files. */
+		memset(out + signed_len, 0, FZN_SIG_LEN);
 		return FZN_RECORD_ERR_UNSIGNED;
+	}
 
 	*out_len = signed_len + FZN_SIG_LEN;
 
