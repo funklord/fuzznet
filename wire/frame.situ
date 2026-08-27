@@ -104,6 +104,31 @@ enum fzn_kind : u8 {
 // mutating a covered field marks the tag dirty and the generated API refuses
 // a transmittable buffer until it is recomputed.
 struct fzn_hop {
+	// THIS BYTE IS PLAINTEXT, ATTACKER-MUTABLE, AND NOT COVERED BY THE
+	// TAG -- fzn_hop sits OUTSIDE the authenticated{} block below, which is
+	// deliberate and correct: a relay decrements hops_left in flight, so
+	// covering this struct would make every forward invalidate the tag.
+	//
+	// It is SAFE TODAY AND LATENT, and the distinction is the whole reason
+	// this comment is here rather than in project.md. There is one version,
+	// so `must_eq = 1` turns a flipped byte into a refusal by
+	// situ_fzn_hop_validate -- reached from situ_fzn_frame_validate in
+	// wire/seal.c before the AEAD runs, so it is denial rather than
+	// confusion, and there is nothing to downgrade TO.
+	//
+	// THE MOMENT A VERSION 2 EXISTS, THIS BYTE CHOOSES WHICH PARSER RUNS,
+	// and an attacker on the path picks it for free. Whoever adds one owes
+	// this frame a way to bind the choice -- the version inside the
+	// authenticated head, or a per-version key derivation, or a refusal to
+	// carry two at once. It is written at the line that declares the byte
+	// because that is what the person adding version 2 will be looking at,
+	// and a design document is not.
+	//
+	// NOT THE SAME BYTE AS FZN_SIGNED_VERSION, which is at offset 0 of
+	// every hop, revocation and record in wire/bytes.h and IS inside each
+	// object's signed range. Two version bytes doing two different jobs:
+	// that one authenticates what an object is, this one says how to read a
+	// datagram before anything has been authenticated at all.
 	u8  version   [must_eq = 1];
 	u8  hops_left;
 	// Three bytes so every multi-byte field below keeps its natural
