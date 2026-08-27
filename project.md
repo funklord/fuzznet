@@ -2783,7 +2783,7 @@ stubbed and deliberately not weakened; a wrong key, a forged tag and a forged
 signature all fail, because a stub that accepted them would make every
 scenario vacuous.
 
-Fifteen scenarios, 186 checks:
+Fifteen scenarios, 195 checks:
 
 | scenario | what it establishes |
 |---|---|
@@ -7532,21 +7532,43 @@ of the manifest; from here it reads as a burden.
   spliced and a message is silently lost, which is why the leg asserts a
   refusal COUNT rather than only the absence of a splice.
 
-- **`sim_verify` is key-blind, and no scenario in the harness can catch
-  verification against the wrong key.** Recorded, not fixed. It is
-  `(void)pubkey;` and recomputes from the message alone, so every key
-  verifies everything. Measured: changing `chain/chain.c` to verify every
-  hop against `hops[0]`'s grantor rather than its own -- textbook key
-  confusion -- gives `chain_test` **39 failures** and `network_test`
-  **zero**. Where a scenario appears to establish that a host cannot act
-  on another's grant, the refusal is coming from STRUCTURAL linkage and
-  not from a signature; `scenario_substitution`, `scenario_delegation`
-  and `scenario_join` are named at the function so a reader does not
-  mistake the harness's green for evidence about cryptography.
+- **`sim_verify` was key-blind, and no scenario could catch verification
+  against the wrong key. FIXED 2026-08-27.** It was `(void)pubkey;`
+  recomputing from the message alone, so every key verified everything.
+  Measured: verifying every hop against `hops[0]`'s grantor rather than
+  its own -- textbook key confusion -- gave `chain_test` **39 failures**
+  and `network_test` **zero**.
 
-  This also says what the near-miss legs above are worth: the harness
-  cannot separate identities cryptographically, so those byte
-  comparisons carry the whole weight.
+  `sim_sign_bytes` folds a signer identity, `sim_verify` folds the
+  `pubkey` it is handed, and `sim_sign_op` REFUSES a NULL context so a
+  signing site that forgets to name its signer fails loudly rather than
+  signing as the all-zero identity. The harness now catches the mutation
+  by name: "each hop's signature must be checked against THAT hop's
+  grantor, not against the root".
+
+  **The scoping this was commissioned with was wrong and the worker
+  measured instead of trusting it.** It was handed "signing happens in
+  exactly two places", relayed from an earlier report without
+  verification; there are SEVEN, and all seven had to name a signer.
+  The brief said to grep before relying on the number, which is the only
+  reason it was caught.
+
+  Two proofs beyond the mutation, both worth copying. A second binary
+  was built from the PREVIOUS version of the file against the same
+  objects and the full output diffed byte-identical, so "no scenario
+  changed behaviour" is a measurement rather than a claim. And the two
+  new negative legs were proved falsifiable by sabotaging the stub back
+  to key-blind: exactly those two fail and nothing else.
+
+- **A layer's signature is only tested where the harness verifies it,
+  and `record/` is not.** `fzn_record_verify` is called nowhere in
+  `sim/test/network_test.c` -- the harness signs records through
+  `fzn_record_sign` and never checks one, so the record layer's
+  signature is structural there exactly as chains' was until today.
+  Recorded rather than fixed, and the sequencing matters: adding a
+  record verification BEFORE the key-blindness fix would have been a
+  vacuous check, because every key verified everything. It is worth
+  writing now and was not worth writing yesterday.
 
 - **Two gaps this sweep did NOT close, both named rather than left.**
   `sim/test/network_test.c`'s `sim_identity` is still the
