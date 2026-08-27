@@ -6727,6 +6727,147 @@ starts at 1, or not at all" -- safe when a position was per-issuer, since the
 key space was the attacker's keys. `stream` was added the same day and
 multiplied that key space by 2^32. The safety argument was never re-derived.
 
+## 13b. The revocation-currency pass of 2026-08-27
+
+Three designs were commissioned independently against one defect, plus an
+adversary brief that was told the two directions and forbidden to fix
+anything. None of the three saw another's report. What follows is what
+they agreed on, what they disagreed on, and what is NOT settled -- which
+is most of it, deliberately.
+
+### The defect
+
+A revocation stops a chain only at a host that HAS it. `hop_is_revoked`
+consults a local array and nothing else, and `fzn_chain_verify` accepts
+`revocations == NULL, revocation_count == 0` as readily as a full store.
+So a host that joins fresh, has been offline, or is partitioned verifies
+a chain the rest of the network revoked last week, and **cannot tell
+that it might be wrong**. Sec 4.2 already had half this sentence: a full
+store "says you may be missing revocations YOU WERE TOLD ABOUT". There
+was no notion of one that exists and was never handed over.
+
+Restated at the API, which is the sharpest form and is the stream
+design's contribution: **`fzn_revocation_covers` returns `int`.** A
+boolean has no room for a third answer, so `chain.c`'s
+`if (hop_is_revoked(...))` is a two-way branch over a three-way
+question, and the missing case falls into "not revoked". Every other
+fail-open in this file is documented; this one was structural.
+
+### What the three converged on, independently
+
+The convergence is worth more than any single report, and it is genuine
+-- the reports were not shown to each other, and two of the three found
+the same sentences in this document without being pointed at them:
+
+- **The well-known stream is the transport.** `record.h` reserves the
+  range, names revocations as "the obvious candidate", and declines to
+  assign one because "naming one before anything follows it would be
+  inventing a mechanism ahead of its need." Something follows it now.
+- **A signed head announcement** -- an issuer stating the highest
+  sequence it has issued -- is what converts a silent floor into a
+  claim. Both designs reached it separately, and both put it on a
+  SECOND stream, because heartbeats sharing the revocation stream would
+  make a fresh joiner fetch a year of unskippable prefix to reach the
+  head.
+- **A timestamp must never order anything.** Both found sec 13a's
+  rejection of `issued_at` as an ordering key and applied it to their
+  own field unprompted: `as_of = UINT64_MAX` would freeze a revocation
+  stream against everything the issuer publishes afterwards, which is
+  the replay-window incident of sec 4.7b reached through a different
+  field. `head` orders; the timestamp only measures.
+- **Fail-open on "cannot establish currency" is forbidden by name.**
+  Sec 4.4a's "No downgrade path -- a negotiable security level reached
+  by flipping a plaintext bit is the classic way this goes wrong" reads
+  directly on it.
+
+### The one insight that changes the shape
+
+The freshness design separated two gates that everybody else, including
+the brief, had entangled:
+
+- **Gate 1, completeness. Clock-free.** `journal.received == head`. A
+  host that has never held a head announcement has no `head` and fails.
+  A host missing records fails by a known deficit. **This alone closes
+  "joining fresh defeats revocation", using integer comparison and no
+  clock at all.**
+- **Gate 2, recency. Clock-bound.** Bounds how long an attacker can
+  freeze Gate 1 by withholding new announcements, since a host holding
+  a complete-as-of-last-year view passes Gate 1 for ever.
+
+That split matters because **every contested question lives in Gate 2**
+and none of them live in Gate 1. If the holder rejects a recency
+tolerance -- and sec 4.3 arms that rejection, since fuzzypickles' whole
+position is that no clock may silently disconnect a host -- Gate 1
+survives alone and still closes the stated hole. Refusing to decide
+because you provably lack an issuer's revocations is not a clock ending
+authority; it is the absence of evidence being reported as absence
+rather than as innocence.
+
+### What the adversary said that neither design answers
+
+- **Omission is free and invisible.** `sync.c`'s fetch walks this
+  host's journal and looks each entry up in the peer's digest --
+  `if (!t) continue;`. A peer that simply omits the revocation stream
+  causes the victim to request nothing, for ever, with `truncated` and
+  `positions_ignored` both zero. Claiming parity is cheaper still. The
+  stream makes INTERIOR suppression detectable and leaves TAIL
+  suppression exactly as invisible as it is today.
+- **Reboot is total revocation amnesia**, and the asymmetry is real:
+  the journal has `fzn_journal_anchor` and trust has `fzn_trust_pin`,
+  and **the revocation store has no restore path at all**. A consumer
+  persisting revocations must either re-verify every record at boot --
+  200-238 us each, a cost nobody has budgeted -- or write `store.used`
+  behind the API's back from an unauthenticated file that then decides
+  authorization.
+- **The fail-closed ratio is wrong.** Trigger costs the attacker one
+  comparison per datagram, because `expires_at == 0` is a plaintext
+  marker for grant-class traffic in the authenticated-but-visible head.
+  Exit runs over the path the attacker holds. That is the shape sec
+  4.7b already paid for once, where "the refusal is right, which is
+  exactly why the outage never ended". For netcfgd it is self-locking:
+  the remedy for a bad configuration is the remote administration a
+  fail-closed rule has just switched off.
+- **A sequenced stream destroys a property the current design has by
+  accident.** Today's standalone revocation is a perfect CRDT --
+  no sequence, monotone, merge is set union, so any number of holders
+  of one key can emit concurrently and every host converges. Sequencing
+  it makes two concurrent writers pick the same number, and the loser
+  is dropped by `FZN_JOURNAL_ERR_DUPLICATE`, which this document calls
+  "not a fault". One genuine revocation would be silently dropped by
+  the exact mechanism meant to make dropping detectable.
+
+### Therefore: not built, and the three questions that decide it
+
+**Nothing from this pass is implemented.** The stream design is *wrong*
+rather than merely suboptimal if the revoking key lives in more than one
+place, and this document already records that a user has many hosts and
+that per-issuer sequence assumes one writer. That is a fork, not a
+detail, and it is the holder's:
+
+1. **Does the revoking key live in exactly one place at a time?** If a
+   user's several hosts each hold it, the sequenced stream is the wrong
+   shape and the standalone set-union object was right all along. Note
+   the operational failure this decides, which is worse than the
+   adversarial one: if a revoking host loses its sequence counter and
+   restarts at 1, every existing follower answers DUPLICATE to every
+   new revocation, for ever, silently, and revocation stops working
+   with nothing reporting it.
+2. **Is grantor-revokes-descendant coming?** Sec 5 records it as
+   deliberately not built. It changes the answer to (1), and it
+   activates an attack that is dead today: a compromised intermediate
+   understating its own head to hide a revocation it was compelled to
+   issue.
+3. **Does "cannot establish currency" fail closed unconditionally, or
+   is the tolerance a consumer policy?** Sec 4.4a says no downgrade
+   path. Sec 4.3 says no clock may silently disconnect a host. Both are
+   this document's, they point opposite ways here, and the precedence
+   rule says a conflict between layers is raised rather than resolved
+   in passing.
+
+The one thing that was done rather than asked about is the harness,
+because it is a precondition for judging any of this and is not a
+design question -- see the entry in sec 14.
+
 ## 14. Open, and named rather than left silent
 
 - **`raidcfgd` does not exist.** Two real consumers and one imagined one. Every
@@ -6789,6 +6930,40 @@ multiplied that key space by 2^32. The safety argument was never re-derived.
   declares at `state.h:159` that authorisation is deliberately not its
   business. Recorded because a refuted finding that leaves no trace gets
   found again.
+
+- **A revocation store is single-root by assumption and nothing says so
+  or enforces it.** Confirmed by running it, not by reading.
+  `fzn_revocation_admit` verifies a record's issuer against the `root` it
+  is handed and then stores only `{capability, grantee}` -- the issuer is
+  discarded. `fzn_revocation_covers` then takes **no root at all**, and
+  `fzn_chain_verify` takes `root` and the entries array as independent
+  parameters with nothing comparing them. A store holding root B's
+  revocation therefore answers "revoked" to a query about root A's realm.
+
+  The probe: root B signs a revocation of (cap, grantee), admitted
+  against B's own root, which is correct on B's terms; `covers` then
+  returns 1 for that pair with no root in the question. Nothing in the
+  headers says a store belongs to one root, and `covers`'s signature
+  actively invites the mistake by not asking.
+
+  **It is not theoretical, because fuzzypickles is multi-root by
+  design** -- sec 5's User realm has its own root and the Registered
+  realm is a different user's, TOFU-pinned, and the recommendation
+  adopted was to anchor each peer's root so their revocations are
+  honoured. A host therefore holds several, and the natural reading of
+  this API gives it one store. The consequence is that any anchored peer
+  can revoke any key in any other peer's tree -- which is sec 4.2's own
+  named failure mode, "inventing revocations is a denial of service
+  against exactly the hosts an attacker wants disconnected", closed for
+  unsigned revocations and open for cross-root ones because the
+  signature is checked against the wrong question.
+
+  Every test in the tree uses a single root, in both directions, so this
+  is untested rather than tested-and-passing. The fix is small and
+  structural -- bind the store to a root at init, so `admit` refuses a
+  foreign issuer and `covers` cannot be asked a rootless question -- and
+  it is an API break for a vendored consumer, so it is recorded here
+  rather than taken while a larger revocation decision is open.
 
 - **Whether `chunk/` belongs in the core at all**, or is a layer a consumer
   opts into. It is in the core because netcfgd cannot function without it, but
