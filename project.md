@@ -6836,37 +6836,87 @@ rather than as innocence.
   "not a fault". One genuine revocation would be silently dropped by
   the exact mechanism meant to make dropping detectable.
 
-### Therefore: not built, and the three questions that decide it
+### Answered by the holder, 2026-08-27, and the answer rejects the design
 
-**Nothing from this pass is implemented.** The stream design is *wrong*
-rather than merely suboptimal if the revoking key lives in more than one
-place, and this document already records that a user has many hosts and
-that per-issuer sequence assumes one writer. That is a fork, not a
-detail, and it is the holder's:
+The three questions went to the copyright holder and came back. They
+settle the fork, and they settle it AGAINST the design both independent
+reports converged on. That is the pass working rather than failing: two
+careful designs agreed with each other and were both wrong about this
+tree, because neither could know the answer to the first question.
 
-1. **Does the revoking key live in exactly one place at a time?** If a
-   user's several hosts each hold it, the sequenced stream is the wrong
-   shape and the standalone set-union object was right all along. Note
-   the operational failure this decides, which is worse than the
-   adversarial one: if a revoking host loses its sequence counter and
-   restarts at 1, every existing follower answers DUPLICATE to every
-   new revocation, for ever, silently, and revocation stops working
-   with nothing reporting it.
-2. **Is grantor-revokes-descendant coming?** Sec 5 records it as
-   deliberately not built. It changes the answer to (1), and it
-   activates an attack that is dead today: a compromised intermediate
-   understating its own head to hide a revocation it was compelled to
-   issue.
-3. **Does "cannot establish currency" fail closed unconditionally, or
-   is the tolerance a consumer policy?** Sec 4.4a says no downgrade
-   path. Sec 4.3 says no clock may silently disconnect a host. Both are
-   this document's, they point opposite ways here, and the precedence
-   rule says a conflict between layers is raised rather than resolved
-   in passing.
+1. **The revoking key is REPLICATED across a user's hosts.**
+2. **Grantor-revokes-descendant IS coming.** Sec 5 records it as
+   deliberately not built; it is now deliberately planned.
+3. **Completeness gates; recency does not.** Refuse when a host
+   provably lacks revocations that exist. Never refuse merely because
+   time has passed.
 
-The one thing that was done rather than asked about is the harness,
-because it is a precondition for judging any of this and is not a
-design question -- see the entry in sec 14.
+**The sequenced reserved stream is therefore rejected**, on the ground
+its own author named: with more than one holder of a key, two writers
+pick the same sequence and the loser is dropped by
+`FZN_JOURNAL_ERR_DUPLICATE`, which this document calls "not a fault".
+One genuine revocation would vanish silently by the exact mechanism
+introduced to make vanishing detectable. Answer 2 multiplies writers
+again, so the two answers agree.
+
+**What survives is the property today's design already has by
+accident**, and the adversary report is what identified it as an asset
+rather than an omission: a standalone revocation carries no sequence,
+revocation is monotone, and `fzn_revocation_merge` is a set union --
+commutative, idempotent, order-free. Any number of holders may emit
+concurrently and every host converges. That is a CRDT, it is exactly
+what a replicated key needs, and sequencing it would have destroyed it.
+
+### The shape that satisfies all three answers
+
+Answer 3 asked for a completeness gate, and the mechanism the reports
+proposed for it -- `journal.received == head` -- is a SEQUENCE
+mechanism that answer 1 has just removed. So the gate needs a different
+instrument, and the constraint is that it must merge the way the
+revocations do.
+
+**A manifest over the set, not a head over a sequence.** A holder of
+the revoking key signs a statement naming every revocation it has
+issued, by id -- the id being a hash of the revocation's own signed
+bytes, so it is stable, self-certifying and computable by anyone
+holding the record. A host is COMPLETE for an issuer when it holds a
+revocation for every id in the union of the manifests it has seen, and
+INCOMPLETE by a named deficit otherwise.
+
+Why this fits where a sequence did not:
+
+- **Manifests merge by union**, which is the same CRDT the revocations
+  themselves are. Two holders publishing concurrently is not a
+  collision, it is two sets, and their union is the answer. There is no
+  number for two writers to pick the same value of.
+- **The gate is integer-and-set work, no clock**, which is answer 3.
+- **Rollback is free rather than defended.** An old manifest names a
+  subset, and a subset cannot shrink a union. The sequenced design
+  needed the journal's duplicate refusal to reject a replayed head;
+  monotonicity means a replayed manifest is simply uninformative. That
+  is a property, not a mitigation.
+- **It survives answer 2.** When grantors revoke their descendants
+  there are many issuers rather than one, and a manifest is per issuer
+  by construction -- it is a statement about what THAT key has issued.
+
+What it costs, and the cost is real: **32 bytes per revocation per
+manifest**, growing with the deployment's revocation history rather
+than its working set. That is the same unbounded growth sec 14 already
+records for the store itself, now with a second consumer, and it means
+a manifest exceeds a single frame's payload at 32 revocations and goes
+through `chunk/`. It is not free and it should not be recorded as
+though it were.
+
+**Still not built.** The shape follows from the answers but the layout,
+the id derivation, the merge rule's exact semantics and the deficit
+reporting are a design pass of their own, and this document has just
+demonstrated what commissioning one against an unsettled premise
+produces. What answer 2 does change immediately is the cross-root
+finding in sec 14: with grantors revoking, a store holds entries from
+many issuers rather than one, so binding a store to a single root is no
+longer merely a correctness fix for a multi-root consumer -- it is a
+precondition for the revocation model the holder has just chosen, and
+the entry there is promoted accordingly.
 
 ## 14. Open, and named rather than left silent
 
