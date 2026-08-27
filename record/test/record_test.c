@@ -337,6 +337,21 @@ static void test_is_open_agrees_with_open(void)
 		expect(fzn_record_is_open(bad) == 0, "is_open accepted a record tagged as a hop");
 		buf[FZN_RECORD_OFF_OBJECT] = (uint8_t)FZN_OBJECT_RECORD;
 
+		/* SEQUENCE ZERO, WHICH THIS TEST DID NOT COVER AND THE FUZZER
+		 * FOUND. `fzn_record_open` refusing it is asserted below and
+		 * `fzn_record_sign` refusing it further down, but `is_open` --
+		 * the guard `fzn_record_verify` gates on -- was pinned by
+		 * neither, so a hand-built view at sequence zero was verified.
+		 * The gap was closed in the header this morning after
+		 * `record_fuzz` reported it; deleting the guard again leaves
+		 * this file at 114 checks and zero failures, which is how it
+		 * was measured. Three entry points share one rule and each
+		 * needs its own assertion, because covering two of three reads
+		 * exactly like covering the rule. */
+		fzn_put_be64(buf + FZN_RECORD_OFF_SEQ, 0u);
+		expect(fzn_record_is_open(bad) == 0, "is_open accepted a record at sequence zero");
+		fzn_put_be64(buf + FZN_RECORD_OFF_SEQ, 1u);
+
 		bad.len = wrote + 1u;
 		expect(fzn_record_is_open(bad) == 0, "is_open accepted an over-long buffer");
 	}
