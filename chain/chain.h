@@ -117,9 +117,26 @@
  * reconfigures a router an hour late was computed against a machine that
  * no longer exists. Those are statements about different objects. A
  * command's expiry lives in the frame (wire/frame.situ's `expires_at`); a
- * grant's lives here and defaults to absent. */
+ * grant's lives here and defaults to absent.
+ *
+ * TWO NAMES FOR IT, AND THE PREFIXED ONE IS WHAT IS CHECKED.
+ * `FZN_CHAIN_NO_EXPIRY` is this module's own copy of the value and is
+ * defined unconditionally, so it is always the number this header wrote.
+ * `FZN_NO_EXPIRY` is the public spelling a consumer uses and is an alias
+ * for it, guarded because `frame/freshness.h` offers the same public name
+ * for the same value and neither module may depend on the other.
+ *
+ * The split exists because the guard defeated the check that was supposed
+ * to hold the two copies together. With both headers defining
+ * `FZN_NO_EXPIRY` directly, whichever was read first won and the other's
+ * definition never compiled, so `wire/test/constants_test.c` asserting on
+ * the public name only ever saw one of them. It is `FZN_CHAIN_NO_EXPIRY`
+ * against `FZN_FRESH_NO_EXPIRY` there now -- two unguarded names, both
+ * present in that translation unit whatever the include order -- which is
+ * how `FZN_NONCE_LEN` and `FZN_AEAD_NONCE_LEN` are already handled. */
+#define FZN_CHAIN_NO_EXPIRY 0u
 #ifndef FZN_NO_EXPIRY
-#define FZN_NO_EXPIRY 0u
+#define FZN_NO_EXPIRY FZN_CHAIN_NO_EXPIRY
 #endif
 
 /* PREFIXED LIKE EVERY OTHER MODULE (renamed 2026-08-26). This was `fzn_err_t`

@@ -121,13 +121,35 @@ _Static_assert(FZN_SUBJECT_LEN >= FZN_PUBKEY_LEN,
 
 /* THE TWO SPELLINGS OF "no expiry", which are now two headers' business.
  *
- * `chain/chain.h` and `frame/freshness.h` each define `FZN_NO_EXPIRY`,
- * because neither module may depend on the other and both need the name. The
- * include guard means whichever header is read first wins, so this is where
- * the two are held to the same value -- and it is not vacuous: the guard
- * makes disagreement SILENT, which is precisely the case worth catching.
- * Reading this file's own includes, chain.h comes first. */
-_Static_assert(FZN_NO_EXPIRY == 0u, "FZN_NO_EXPIRY is not the zero the wire format means");
+ * `chain/chain.h` and `frame/freshness.h` both need the name and neither
+ * module may depend on the other, so each carries its own copy of the value
+ * under its own module prefix and offers `FZN_NO_EXPIRY` as a guarded alias
+ * for it. The prefixed pair is what is compared here.
+ *
+ * ASSERTING ON `FZN_NO_EXPIRY` COULD NOT DO IT, and the comment that used to
+ * stand here argued that it could -- "the guard makes disagreement SILENT,
+ * which is precisely the case worth catching ... chain.h comes first". That
+ * reasoning is backwards, and chain.h coming first is what made it so: with
+ * both headers defining the public name directly, the guard meant the second
+ * header's definition never compiled, so this assertion only ever saw
+ * chain.h's number and freshness.h's was witnessed by nothing. Measured
+ * rather than reasoned about: with `frame/freshness.h`'s value set to 1u this
+ * binary compiled clean, linked, and reported every check passing.
+ *
+ * A check whose comment argues it is not vacuous is worse than no check,
+ * because it is the sentence that stops the next reader writing a real one.
+ *
+ * `FZN_CHAIN_NO_EXPIRY` and `FZN_FRESH_NO_EXPIRY` are both defined
+ * unconditionally, so both are present here whatever the include order, and
+ * the first line below fails if either moves. The second pins the value
+ * itself; the third holds the public alias to it, since that is the name a
+ * consumer writes and the wire format means zero by it. */
+_Static_assert(FZN_CHAIN_NO_EXPIRY == FZN_FRESH_NO_EXPIRY,
+                "chain.h's and freshness.h's 'no expiry' are different values");
+_Static_assert(FZN_CHAIN_NO_EXPIRY == 0u,
+                "FZN_CHAIN_NO_EXPIRY is not the zero the wire format means");
+_Static_assert(FZN_NO_EXPIRY == FZN_CHAIN_NO_EXPIRY,
+                "the public FZN_NO_EXPIRY is not the value its own header defines");
 
 /* THE ADVERTISED OVERHEAD AGAINST THE SCHEMA'S OWN MINIMUM.
  *
@@ -385,6 +407,6 @@ int main(void)
 	}
 
 	printf("constants_test: %d checks, %d failure(s); %d constants pinned at compile time\n",
-	       checks, failures, 22);
+	       checks, failures, 24);
 	return failures == 0 ? 0 : 1;
 }

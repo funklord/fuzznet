@@ -84,14 +84,23 @@
  * Defined in BOTH headers rather than moved to one, because neither module
  * may depend on the other: `frame/` must not pull in the capability model to
  * ask about a clock, and the dependency-direction argument in
- * `constant_time/constant_time.h` is the same one. The guard makes including
- * both harmless in either order.
+ * `constant_time/constant_time.h` is the same one.
  *
- * That leaves two copies of a protocol constant, which is the arrangement
- * `wire/test/constants_test.c` exists for: it asserts the two agree, so a
- * repetition that stops being a copy stops the build. */
+ * SO THE VALUE CARRIES THIS MODULE'S NAME AND THE PUBLIC NAME IS AN ALIAS.
+ * `FZN_FRESH_NO_EXPIRY` is defined unconditionally and is therefore always
+ * the number this header wrote; `FZN_NO_EXPIRY` is the public spelling and
+ * is guarded, so including both headers in either order stays harmless.
+ *
+ * The two copies are held together in `wire/test/constants_test.c`, and the
+ * prefixed names are what it compares. Asserting on `FZN_NO_EXPIRY` could
+ * not do it: the guard means one header's definition never compiles, so the
+ * assertion saw whichever header that translation unit read first and the
+ * other copy was unwitnessed. Setting this one to 1 left the build silent.
+ * `FZN_FRESH_NO_EXPIRY` against `FZN_CHAIN_NO_EXPIRY` is the same shape as
+ * `FZN_NONCE_LEN` against `FZN_AEAD_NONCE_LEN`, one file up. */
+#define FZN_FRESH_NO_EXPIRY 0u
 #ifndef FZN_NO_EXPIRY
-#define FZN_NO_EXPIRY 0u
+#define FZN_NO_EXPIRY FZN_FRESH_NO_EXPIRY
 #endif
 
 /* XChaCha's nonce, which is what wire/frame.situ carries and why: 24 bytes

@@ -4031,12 +4031,38 @@ report nobody trusts twice.
 **A name the library owed and did not provide.** `frame/freshness.h` explained
 that "`expires_at` of 0 means no expiry stated" in prose while `chain/chain.h`
 named the same value `FZN_NO_EXPIRY`, so a consumer of the replay window alone
-had no name for it. Both headers define it now, guarded, because neither
-module may depend on the other -- `frame/` must not pull in the capability
-model to ask about a clock. That leaves two copies of a protocol constant,
-which is what `constants_test.c` is for: it asserts they agree, and the
+had no name for it. Both headers define it now, because neither module may
+depend on the other -- `frame/` must not pull in the capability model to ask
+about a clock. That leaves two copies of a protocol constant, which is what
+`constants_test.c` is for.
+
+**And the check it grew could not have caught the divergence it names**
+(2026-08-28). This paragraph used to end "it asserts they agree, and the
 assertion is not vacuous, because the include guard makes disagreement
-*silent*.
+*silent*", and `constants_test.c` said the same thing at greater length. The
+argument runs backwards: with both headers defining `FZN_NO_EXPIRY` behind
+`#ifndef`, the guard means the SECOND header's definition never compiles, so
+an assertion on the public name sees exactly one of the two copies -- the one
+belonging to whichever header that translation unit read first. Measured
+rather than argued: `frame/freshness.h`'s value set to `1u`,
+`wire/test/constants_test` rebuilt from scratch, and it compiled clean,
+linked, ran, and reported 11 checks and 0 failures. Reversing the include
+order is what makes it fail, which is the tell -- a check that depends on
+include order is checking include order.
+
+**The fix is two names, not a bigger assertion**, and it is the arrangement
+`FZN_NONCE_LEN` and `FZN_AEAD_NONCE_LEN` already had. Each header defines its
+own copy unconditionally under its own module prefix --
+`FZN_CHAIN_NO_EXPIRY`, `FZN_FRESH_NO_EXPIRY` -- and offers the public
+`FZN_NO_EXPIRY` as a guarded alias for it, so the public name and its value
+are unchanged for every consumer while both copies are present in
+`constants_test.c` whatever the include order. Setting either private value
+now fails the build at the static assertion, in both directions.
+
+**A check whose comment argues it is not vacuous is worse than a silent
+one**, which is the shape worth keeping out of this document as much as out
+of the source: the sentence is what stops the next reader writing the check
+that would have worked.
 
 **The authorisation core, fuzzed against a soundness oracle** (2026-08-26).
 `make guided` now covers `chain/` as well, and it asks a sharper question than
