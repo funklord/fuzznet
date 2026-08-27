@@ -2185,7 +2185,22 @@ been catching all week.
 **The interim they propose is right for today**: a real `FZP_CAP_SEND` on
 User-realm frames, and a deliberate zero on Registered-realm frames with the
 reason written down -- that the sender's authority is not in the receiver's
-chain, and revocation there is enforced by peer removal instead.
+chain.
+
+**THIS SENTENCE USED TO END "and revocation there is enforced by peer
+removal instead", WHICH IS WRONG ABOUT THEIR TREE.** Corrected
+2026-08-27 by the fuzzypickles session, which went looking for the verb
+and found none -- no `peer-remove` in the CLI, no `fzp_peer_forget` or
+equivalent in the internal headers. What exists is per-peer opt-in
+state. The accurate statement is narrower and lands in the same place:
+**the Registered realm has no revocation because it has no grants**, not
+because removal substitutes for revocation. A capability is never held
+by a contact, so there is nothing for a revocation to withdraw.
+
+It is recorded rather than quietly replaced because it is exactly the
+shape `evidence.md` names -- a claim about another tree written from
+this side, plausible, uncorrected for weeks, and wrong in a way only
+its owner could see.
 
 ### The better answer, and the holder's principle points at it
 
@@ -7543,8 +7558,13 @@ there, and it recommends building LESS than sec 13b describes.
 
 ### The id, which is the load-bearing correction
 
-**id = H(version, object tag, issuer, capability, grantee)** -- a hash
-of the TRIPLE, not of the revocation's bytes. Derived on demand from a
+**SETTLED 2026-08-27: NAME THE PAIR. The hashing subsystem is not
+built.** A manifest line is 64 bytes of `(capability, grantee)`, and
+what would have decided the other way -- a manifest crossing an estate
+boundary -- does not happen. See the answer below.
+
+The rejected form was **H(version, object tag, issuer, capability,
+grantee)** -- a hash of the TRIPLE, not of the revocation's bytes. Derived on demand from a
 store entry's three fields, so it costs **zero additional per-entry
 storage** on the one table sec 14 says only grows. Two revocations of
 one authority collide by construction, which is the wanted answer: one
@@ -7552,19 +7572,39 @@ authority, one id, one store entry, one manifest line, and the store's
 existing dedup agrees with the manifest's by definition rather than by
 care.
 
-**A near-miss worth recording, because it is better on four counts.**
-Naming the pair directly -- 64 bytes of `(capability, grantee)` instead
-of a 32-byte hash -- needs no hash seam in `chain/` at all, and makes
-the completeness predicate `fzn_revocation_covers` ITSELF, which is
-already written, already constant-time, already refusing a corrupt
-store. `chain.h` records this tree's own lesson that the repair is to
-stop having two predicates. What decides against it is **cross-estate
-following**: fuzzypickles is multi-root, and a host following another
-user's root would learn that estate's host keys and capability ids
-outright. Sec 4.4a's metadata-confidentiality rule is what the hash
-buys. **If manifests never cross an estate boundary, name the pair and
-delete a subsystem** -- record the condition, because it is the kind of
-premise that expires quietly.
+**Why the pair wins, now that the condition is answered.** It needs no
+hash seam in `chain/` at all -- that module includes only
+`constant_time.h` and `wire/bytes.h`, so hashing meant a new dependency
+edge or a second vtable of the same shape, which `code-style.md` warns
+about by name. And the completeness predicate becomes
+`fzn_revocation_covers` ITSELF, which is already written, already
+constant-time, already refusing a corrupt store, and already
+mutation-tested. `chain.h` records this tree's own lesson that the
+repair is to stop having two predicates. The deficit is also readable
+by a human -- "I lack I's withdrawal of C from G" -- where an opaque id
+is fetchable only if every peer indexes revocations by id.
+
+**THE ANSWER, from the only consumer positioned to give it.**
+fuzzypickles: manifests never cross an estate boundary, and both
+directions are closed independently rather than by convention.
+OUTBOUND, their propagation is narrowed to siblings -- a contact is not
+a recipient. INBOUND, their revocation install takes NO root parameter;
+it loads the host's own user key from storage, and the index-add has
+exactly one caller inside install, so there is no argument through
+which a foreign-rooted revocation could be offered. The root of it is
+one line of their `capability.h`: **a peer holds none of our
+capabilities**. A contact is never a grantee, so there is nothing a
+revocation could withdraw from one.
+
+**The condition that would reverse it, recorded as the hinge rather
+than the answer**: if fuzzypickles ever grants a capability to another
+user's host -- delegating storage or relay to a contact's device rather
+than one's own -- then contacts become grantees, revocation becomes the
+mechanism for them, and manifests cross. Nothing in their current
+design points that way and their realm taxonomy treats outward-into-
+Registered as different in kind. But it is a design decision at their
+end, not a property of this wire format, so it is theirs to signal and
+ours to watch for.
 
 ### Build in two stages, and stage 1 has no gate
 
@@ -7632,18 +7672,20 @@ the elements. Union merge and accumulators are mutually exclusive.
 Recorded so a later session does not read "stage 1 breaks nothing" as
 "stage 1 is ready".
 
-**Stage 1 waits on fuzzypickles**, not on the holder. The id's form is a
-stage-1 decision and it turns entirely on whether a manifest ever
-crosses an estate boundary -- inside one estate the hash hides nothing,
-since host keys and capability ids are both enumerable by any follower,
-so a 98-byte preimage over a searchable space is a membership oracle
-rather than a secret. fuzzypickles is the only consumer where the
-crossing case is real: netcfgd's agent is one hop from the user key,
-and raidcfgd's brief is not known here. Asked 2026-08-27. **Guessing it
-would mean choosing a wire format on an assumption about another tree,
-which is what `evidence.md` names and what this session already paid
-for once** in the other direction, telling a consumer to move a pin to
-a commit that existed only locally.
+**Stage 1 is UNBLOCKED as of 2026-08-27.** Its one open premise was the
+id's form, which turned on whether a manifest crosses an estate
+boundary. It was asked of fuzzypickles rather than assumed -- they are
+the only consumer where the crossing case is real, since netcfgd's
+agent is one hop from the user key and raidcfgd's brief is not known
+here -- and the answer is that nothing crosses. Name the pair.
+
+**Asking cost one message and saved a subsystem.** Guessing would have
+meant choosing a wire format on an assumption about another tree, which
+is what `evidence.md` names and what this session already paid for once
+in the other direction. It would also have been the conservative guess
+-- hash, more bytes, more machinery, a dependency edge in a module with
+none -- so the cautious answer was the expensive one and the question
+was the cheap one.
 
 **Stage 2 waits on the holder**, on the sec 4.4a reading below.
 
