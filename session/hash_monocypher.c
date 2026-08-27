@@ -11,7 +11,7 @@
  * Bounded here rather than trusted: BLAKE2b's digest length lives in its
  * parameter block, so asking for a length outside 1..64 is not a smaller
  * hash, it is a different function or an assertion inside the library. The
- * seam is called with FZN_DERIVED_LEN today, which is 48, but a caller is
+ * seam is called with FZN_DERIVED_LEN today, which is 64, but a caller is
  * not obliged to know that. */
 static int mono_hash(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in, size_t in_len)
 {

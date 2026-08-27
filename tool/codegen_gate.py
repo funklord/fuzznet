@@ -36,7 +36,7 @@ guessed: the same function with `volatile` removed compiles, at -Os today, to
 one conditional branch, one conditional set and one return -- identical to the
 correct function on the other three. Only the missing store separates them.
 
-fzn_commitment_derive -- the key-material wipe survives. The two loops at the
+fzn_commitment_derive_root -- the key-material wipe survives. The two loops at the
 end zero `derived` and `input`, and `volatile` is what stops dead-store
 elimination removing writes to something never read again. Measured: 411 bytes
 of text with the qualifier and 337 without, and inside the function two
@@ -323,7 +323,7 @@ def check_wipe(insns, obj):
 	"""The key material is still handed to fzn_wipe. Returns (counts, problems).
 
 	WHAT THIS USED TO CHECK, and why it moved. It counted zero-immediate
-	stores in fzn_commitment_derive, because the wipe was two inline loops
+	stores in fzn_commitment_derive_root, because the wipe was two inline loops
 	there and a compiler allowed to delete them left key material on the
 	stack. The wipe is now fzn_wipe in constant_time.c, exported because a
 	consumer holding a derived key needs it too.
@@ -344,21 +344,33 @@ def check_wipe(insns, obj):
 	this would report a false absence. Nothing here builds that way, and a
 	false ALARM is the right direction for a security check to fail in.
 	"""
-	calls = [ln for ln in wipe_calls(obj, "fzn_commitment_derive") if "fzn_wipe" in ln]
+	root = [ln for ln in wipe_calls(obj, "fzn_commitment_derive_root") if "fzn_wipe" in ln]
+	frame = [ln for ln in wipe_calls(obj, "fzn_commitment_for_nonce") if "fzn_wipe" in ln]
 
 	problems = []
-	if len(calls) < 2:
+	if len(root) < 2:
 		problems.append(
-			f"expected 2 calls to fzn_wipe, one per key-material buffer, found "
-			f"{len(calls)}. The derivation is leaving key material behind"
+			f"expected 2 calls to fzn_wipe in fzn_commitment_derive_root, one per "
+			f"key-material buffer, found {len(root)}. The derivation is leaving key "
+			f"material behind"
+		)
+	# ONE, NOT TWO, and the asymmetry is deliberate. The per-frame hash wipes
+	# its input, which holds the commitment key; it does NOT wipe its output,
+	# because the commitment is about to be written into a cleartext header.
+	# Erasing a value that is about to be published is not a security measure,
+	# and a gate demanding it here would be demanding the wrong thing.
+	if len(frame) < 1:
+		problems.append(
+			f"expected 1 call to fzn_wipe in fzn_commitment_for_nonce, for the input "
+			f"holding the commitment key, found {len(frame)}"
 		)
 
-	return f"{len(calls)} wipe call", problems
+	return f"{len(root)} + {len(frame)} wipe calls", problems
 
 
 CHECKS = {
 	"ct": ("fzn_ct_memeq", check_ct_memeq),
-	"wipe": ("fzn_commitment_derive", check_wipe),
+	"wipe": ("fzn_commitment_derive_root", check_wipe),
 }
 
 

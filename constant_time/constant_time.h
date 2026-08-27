@@ -50,7 +50,7 @@ int fzn_ct_memeq(const void *a, const void *b, size_t len);
 
 /* Erase `len` bytes at `p`, and survive the optimiser doing so.
  *
- * THE LIBRARY OWED THIS AND DID NOT PROVIDE IT. `fzn_commitment_derive`
+ * THE LIBRARY OWED THIS AND DID NOT PROVIDE IT. `fzn_commitment_derive_root`
  * hands a caller a 32-byte AEAD key; the obvious way to erase it afterwards
  * is a memset, and a memset whose result is never read again is a dead store
  * the compiler is entitled to delete. This project has MEASURED that

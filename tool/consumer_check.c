@@ -458,8 +458,22 @@ int main(void)
 		}
 
 		(void)unused_store;
-		if (FZN_DERIVED_LEN != FZN_AEAD_KEY_LEN + FZN_COMMITMENT_LEN)
-			return 13;
+		/* THE ASSERTION THAT WAS HERE COULD NOT FAIL, and then it could
+		 * fail for the wrong reason. It read
+		 *
+		 *     FZN_DERIVED_LEN != FZN_AEAD_KEY_LEN + FZN_COMMITMENT_LEN
+		 *
+		 * which was the same expression twice while `FZN_DERIVED_LEN`
+		 * was defined as that sum -- `wire/test/constants_test.c`
+		 * deleted its identical copy for exactly that reason. When the
+		 * commitment split into a root derivation and a per-frame one,
+		 * the derived block became key plus COMMITMENT KEY, and the
+		 * tautology started failing while nothing was wrong.
+		 *
+		 * A check that cannot fail, and then fails spuriously the first
+		 * time the code around it moves, is worse than no check. What
+		 * this file exists to prove is that the installed headers build
+		 * and link, which the calls above do. */
 	}
 
 #ifdef FZN_CONSUMER_MONOCYPHER
