@@ -7271,6 +7271,21 @@ of the manifest; from here it reads as a burden.
   of the one thing here that only grows, and it is worth what it costs:
   what it buys is that an entry answers for the key that signed it. The
   manifest shape in sec 13b is a second consumer of the same growth.
+
+  **AND 96/64 IS THE PER-ENTRY FIGURE ONLY -- THE ENTRY COUNT NOW SCALES
+  WITH THE NUMBER OF ROOTS.** Deduplication is per issuer now, so two
+  roots revoking the SAME `(capability, grantee)` take two slots where
+  they used to take one. Probed rather than reasoned: admit root B's
+  revocation of a pair, then root A's revocation of the same pair, and
+  `store.used` is 2. For a host holding R anchors the worst case is
+  therefore **1.5 x R** times the old bytes, not 1.5x -- and R > 1 is the
+  premise of the fix, since a single-root host never had the defect.
+
+  That is the growth landing on the bound whose refusal fails open, and
+  it was not visible from the per-entry number. Found by an adversarial
+  review of the fix rather than by the fix's own author, which is the
+  argument for having run one: the entry size was measured and reported
+  honestly, and it was the wrong quantity.
 - **A revocation stops a chain only at a host that HAS it, and a host
   cannot tell "nothing was revoked" from "I am missing the
   revocations".** This is the open half of revocation and it is the
