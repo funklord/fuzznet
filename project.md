@@ -7321,9 +7321,20 @@ revocations do.
 
 **A manifest over the set, not a head over a sequence.** A holder of
 the revoking key signs a statement naming every revocation it has
-issued, by id -- the id being a hash of the revocation's own signed
-bytes, so it is stable, self-certifying and computable by anyone
-holding the record. A host is COMPLETE for an issuer when it holds a
+issued, by id.
+
+**THE ID CANNOT BE A HASH OF THE REVOCATION'S SIGNED BYTES**, which is
+what this entry first said and what sec 13d refuted from the struct.
+`fzn_revocation_t` holds `{capability, grantee, issuer}` and admit
+copies exactly those three -- `issued_at` is discarded and is read by
+no library code at all. **So a host cannot recompute the id of a
+revocation it already holds**, which is the one operation the mechanism
+needs. Worse, two re-issues of one authority would get different ids,
+while admit returns OK and stores nothing for a triple already covered
+-- so a re-signed revocation is discarded, its id is never satisfiable,
+and the deficit never drains. The gate would refuse for ever on a host
+that HAS the revocation. Sec 13d carries the id that works: a hash of
+the triple itself, derived on demand, costing no per-entry storage. A host is COMPLETE for an issuer when it holds a
 revocation for every id in the union of the manifests it has seen, and
 INCOMPLETE by a named deficit otherwise.
 
@@ -7347,9 +7358,19 @@ What it costs, and the cost is real: **32 bytes per revocation per
 manifest**, growing with the deployment's revocation history rather
 than its working set. That is the same unbounded growth sec 14 already
 records for the store itself, now with a second consumer, and it means
-a manifest exceeds a single frame's payload at 32 revocations and goes
-through `chunk/`. It is not free and it should not be recorded as
-though it were.
+a manifest exceeds a single frame's payload and goes through `chunk/`.
+
+**AT 29 IDS, NOT 32, and the growth is transient rather than
+permanent.** 32 was the id bytes alone against FZN_SPLIT_MAX_PAYLOAD,
+ignoring a 36-byte header and a 64-byte signature; 28 ids is 996 bytes
+and 29 is 1028, so 32 overshoots by a hundred rather than marginally.
+And the table grows with the DEFICIT rather than the history if ids
+already satisfied are never recorded -- it drains to zero as
+revocations arrive, peaks at a fresh join, and is a second permanent
+consumer of sec 14's growth only if the design stores the union, which
+sec 13d says not to. Both figures were wrong here and are corrected
+from the constants rather than re-derived; the paragraph was quoted
+twice before anybody multiplied it out.
 
 ### Who may issue a revocation, derived rather than accepted
 
