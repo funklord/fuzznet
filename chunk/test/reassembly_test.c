@@ -373,6 +373,42 @@ static void test_release_clears_the_arrived_set(void)
  * slot again. The caller then holds two pointers to one slot and releases
  * twice, which is what the ownership contract asks of it, and the second
  * release lands on a slot another sender has since taken.  */
+/* THE OFFSET GUARD FIRES, so it is not dead code.
+ *
+ * Through the public API with a consistent table it cannot: `admit_first`
+ * bounds the stride by `buf_capacity / chunks`. But the table and its slots
+ * are caller-owned and this module already treats a hand-built one as inside
+ * its threat model. Shrink a slot's capacity below what it already holds and
+ * the guard is the thing standing between that and a memcpy.
+ *
+ * Written because an audit reported the branch as provably unreachable and
+ * this file's own doctrine says dead code is not depth. The doctrine is
+ * right; it does not reach a branch a corrupt argument takes.  */
+static void test_the_offset_guard_is_reachable(void)
+{
+	struct fixture f;
+	fzn_partial_t *done = NULL;
+	uint8_t piece[8];
+
+	fixture_init(&f, SLOTS);
+	memset(piece, 0x31, sizeof(piece));
+
+	CHECK(fzn_reasm_accept(&f.table, f.alice, 1, 0, 4, piece, sizeof(piece), 0, 100,
+	                       &done) == FZN_REASM_OK,
+	      "the first chunk was refused");
+
+	/* The control: with the table consistent, the next chunk is fine. */
+	CHECK(fzn_reasm_accept(&f.table, f.alice, 1, 1, 4, piece, sizeof(piece), 0, 100,
+	                       &done) == FZN_REASM_OK,
+	      "a good chunk was refused, so the refusal below proves nothing");
+
+	/* Now a capacity smaller than what the slot already holds. */
+	f.slots[0].buf_capacity = 4u;
+	CHECK(fzn_reasm_accept(&f.table, f.alice, 1, 2, 4, piece, sizeof(piece), 0, 100,
+	                       &done) == FZN_REASM_ERR_TOO_LARGE,
+	      "a slot whose capacity shrank below its own contents accepted a write");
+}
+
 static void test_a_completed_slot_is_handed_only_once(void)
 {
 	struct fixture f;
@@ -841,6 +877,7 @@ int main(void)
 	test_full_table_and_expiry();
 	test_last_chunk_first_is_refused();
 	test_release_clears_the_arrived_set();
+	test_the_offset_guard_is_reachable();
 	test_a_completed_slot_is_handed_only_once();
 	test_a_zero_expiry_is_bounded_by_max_hold();
 	test_stale_traffic_still_reclaims_slots();

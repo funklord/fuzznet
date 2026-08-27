@@ -43,10 +43,22 @@ static fzn_trust_err_t anchor(fzn_trust_t *trust, const uint8_t root[FZN_PUBKEY_
 	 * handing over a buffer it did not fill, which is what MALFORMED means
 	 * throughout this library.
 	 *
-	 * Not constant time, deliberately, unlike the comparison below. That
-	 * one is against a value an attacker chooses and repeats; this one is
-	 * against a constant, and how long it takes reveals nothing an attacker
-	 * did not already supply. */
+	 * BRANCH-FREE, THOUGH IT NEED NOT BE. The loop accumulates with `|`
+	 * over all 32 bytes and never returns early, so it takes the same time
+	 * whatever the key holds -- which is the constant-time idiom, arrived
+	 * at because it is also the plainest way to ask "is any byte set".
+	 *
+	 * This comment used to claim the opposite: "not constant time,
+	 * deliberately". That was wrong about the code beneath it, and the
+	 * reasoning it offered was sound for a decision nobody had made -- the
+	 * comparison is against a constant, so an early exit WOULD have been
+	 * fine here, and the code does not take one.
+	 *
+	 * Left as it is rather than made to match the comment. A branch-free
+	 * loop over 32 bytes costs nothing worth measuring, and rewriting
+	 * correct code to satisfy a description of it is the wrong direction
+	 * -- `evidence.md` says to suspect the check before the code, and a
+	 * comment is a check a reader runs. */
 	{
 		uint8_t any = 0;
 		size_t i;

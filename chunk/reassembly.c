@@ -299,6 +299,29 @@ fzn_reasm_err_t fzn_reasm_accept(fzn_reasm_t *table, const uint8_t sender[FZN_SE
 		}
 	}
 
+	/* THE LAST CHECK BEFORE A WRITE, AND IT IS NOT DEAD -- which is worth
+	 * saying, because an audit reported it as provably unreachable and
+	 * cited this file's own rule that "dead code that cannot be tested is
+	 * not depth" fifteen lines above.
+	 *
+	 * Through the public API with a consistent table it is unreachable, and
+	 * that much is right: `admit_first` bounds `chunk_size` by
+	 * `buf_capacity / chunks` and `index < chunks`, so `index * chunk_size
+	 * + payload_len <= buf_capacity` by construction. An exhaustive sweep
+	 * over the API fires it zero times.
+	 *
+	 * But `fzn_reasm_t` and its slots are CALLER-OWNED, and this module
+	 * already treats a hand-built table as inside its threat model --
+	 * `usable()` exists for that and `log_test.c` exercises the same shape.
+	 * Measured: take a slot normally, then set `buf_capacity` to something
+	 * smaller than what has already been placed in it, and this returns
+	 * TOO_LARGE. The construction that makes it unreachable lives in a
+	 * DIFFERENT function, and those bounds have moved twice today.
+	 *
+	 * So the rule above is right and does not reach this. What it forbids
+	 * is a branch no input can take; this one takes a corrupt argument, and
+	 * a bounds check immediately before a memcpy is the last place to trade
+	 * a demonstrable branch for a proof that lives elsewhere. */
 	offset = offset_of(slot, index);
 	if (offset > slot->buf_capacity || payload_len > slot->buf_capacity - offset)
 		return FZN_REASM_ERR_TOO_LARGE;

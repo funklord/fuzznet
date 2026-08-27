@@ -209,7 +209,7 @@ int main(void)
 	/* AN EXHAUSTED STREAM MUST NOT ANSWER WITH THE RESERVED SEQUENCE.
 	 * `fzn_journal_next` returned `received + 1`, which is zero once a
 	 * stream has reached the top -- and zero is the one value
-	 * `fzn_record_verify` refuses by name, so the journal was answering
+	 * `fzn_record_open` refuses by name, so the journal was answering
 	 * "what should I ask for next" with the single sequence its own library
 	 * rejects. Two public calls and no corruption reach it. */
 	{

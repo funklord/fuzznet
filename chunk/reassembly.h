@@ -50,8 +50,16 @@
 typedef enum fzn_reasm_err {
 	FZN_REASM_OK = 0,
 	FZN_REASM_ERR_MALFORMED = -1,
-	/* Every slot holds a live, unexpired message. See fzn_reasm_accept --
-	 * refusing is deliberate. */
+	/* No slot is free. See fzn_reasm_accept -- refusing is deliberate.
+	 *
+	 * IT NO LONGER MEANS "live, unexpired", which this said until slots
+	 * grew two other reasons to be held. A slot may be HANDED -- completed
+	 * and waiting on the caller to release it, which the sweep must not
+	 * take -- and a slot's deadline is now bounded by `max_hold` rather
+	 * than by the chunk's claim alone. Both are live and neither is
+	 * reclaimable by waiting, so a consumer reading the old wording would
+	 * conclude that time alone fixes a full table. Releasing what it holds
+	 * is the other half. */
 	FZN_REASM_ERR_FULL = -2,
 	/* This sender already holds its quota of slots. */
 	FZN_REASM_ERR_QUOTA = -3,
