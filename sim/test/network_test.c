@@ -262,6 +262,7 @@ struct sim_net {
 	fzn_revocation_t revocation_entries[SIM_REVOCATION];
 
 	fzn_aead_ops_t aead;
+	fzn_hash_ops_t hash;
 	fzn_sign_ops_t sign;
 	fzn_random_ops_t rng;
 
@@ -336,15 +337,47 @@ static struct sim_rng_ctx rng_ctx;
  * any one of them -- a key and its commitment per (sender, receiver) pair,
  * agreed by magic. What the scenarios below exercise is everything that
  * happens AFTER two hosts have a key, which is the part all three share. */
+/* WHAT A PAIR SHARES IS A KEY AND A COMMITMENT KEY, not a commitment.
+ *
+ * This used to hand back a finished commitment, and that was the design being
+ * modelled: `f(transcript)` is a constant per pair, so the same 16 bytes rode
+ * in the clear on every datagram beside `sender[32]` and any observer read the
+ * two together to get the endpoints of a conversation.
+ *
+ * The commitment is now derived per frame from the nonce, inside
+ * `fzn_seal_build` and `fzn_seal_open`, so the harness cannot precompute one
+ * -- which is the point. Until this changed, the tree's only end-to-end
+ * witness of the receive order was modelling the design the library had
+ * removed. */
 static void sim_session_key(uint8_t from, uint8_t to, uint8_t key[FZN_AEAD_KEY_LEN],
-                            uint8_t commitment[FZN_COMMITMENT_LEN])
+                            uint8_t commitment_key[FZN_COMMITMENT_KEY_LEN])
 {
 	uint32_t acc = mix(0x5eed0000u ^ ((uint32_t)from << 8) ^ to);
 
 	for (size_t i = 0; i < FZN_AEAD_KEY_LEN; i++)
 		key[i] = (uint8_t)(mix(acc + (uint32_t)i) >> 7);
-	for (size_t i = 0; i < FZN_COMMITMENT_LEN; i++)
-		commitment[i] = (uint8_t)(mix(acc + 0x1000u + (uint32_t)i) >> 5);
+	for (size_t i = 0; i < FZN_COMMITMENT_KEY_LEN; i++)
+		commitment_key[i] = (uint8_t)(mix(acc + 0x1000u + (uint32_t)i) >> 5);
+}
+
+/* The hash seam, as a stub. Real BLAKE2b is `session/hash_monocypher.c` and is
+ * exercised there; what the simulation needs is a function of its whole input,
+ * so that a commitment derived from one nonce differs from one derived from
+ * another. A constant here would make every frame's commitment equal and hide
+ * exactly the property the split exists for. */
+static int sim_hash(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in, size_t in_len)
+{
+	uint32_t acc = 0x9e3779b9u;
+	size_t i;
+
+	(void)ctx;
+	if (!out || out_len == 0 || !in)
+		return 0;
+	for (i = 0; i < in_len; i++)
+		acc = mix(acc ^ in[i]);
+	for (i = 0; i < out_len; i++)
+		out[i] = (uint8_t)(mix(acc + (uint32_t)i) >> 9);
+	return 1;
 }
 
 static void sim_identity(uint8_t id, uint8_t out[FZN_PUBKEY_LEN])
@@ -367,6 +400,8 @@ static void sim_init(struct sim_net *net, size_t hosts, uint32_t seed)
 	net->aead.seal = sim_seal;
 	net->aead.open = sim_open;
 	net->aead.ctx = NULL;
+	net->hash.hash = sim_hash;
+	net->hash.ctx = NULL;
 	net->sign.verify = sim_verify;
 	net->sign.sign = sim_sign_op;
 	net->sign.ctx = NULL;
@@ -421,14 +456,14 @@ static int sim_send(struct sim_net *net, uint8_t from, uint8_t to, const uint8_t
                     size_t len, uint64_t expires_at)
 {
 	struct sim_host *h = &net->hosts[from];
-	uint8_t key[FZN_AEAD_KEY_LEN], commitment[FZN_COMMITMENT_LEN];
+	uint8_t key[FZN_AEAD_KEY_LEN], commitment_key[FZN_COMMITMENT_KEY_LEN];
 	fzn_split_t plan;
 	uint32_t message_id;
 
 	if (fzn_split_plan(len, FZN_SPLIT_MAX_PAYLOAD, &plan) != FZN_SPLIT_OK)
 		return 0;
 
-	sim_session_key(from, to, key, commitment);
+	sim_session_key(from, to, key, commitment_key);
 	message_id = net->forced_msg_id
 	                     ? net->forced_msg_id
 	                     : mix(((uint32_t)from << 16) ^ ((uint32_t)to << 8) ^
@@ -456,8 +491,9 @@ static int sim_send(struct sim_net *net, uint8_t from, uint8_t to, const uint8_t
 		what.chunks = plan.chunks;
 		what.kind = 0;
 
-		if (fzn_seal_build(d->frame, sizeof(d->frame), &wrote, &what, key, commitment,
-		                   &net->rng, &net->aead) != FZN_SEAL_OK) {
+		if (fzn_seal_build(d->frame, sizeof(d->frame), &wrote, &what, key,
+		                   commitment_key, &net->hash, &net->rng,
+		                   &net->aead) != FZN_SEAL_OK) {
 			net->queue_len--;
 			return 0;
 		}
@@ -506,7 +542,7 @@ static void sim_receive(struct sim_net *net, struct sim_datagram *d)
 {
 	struct sim_host *h = &net->hosts[d->to];
 	struct sim_host *sender = &net->hosts[d->from];
-	uint8_t key[FZN_AEAD_KEY_LEN], commitment[FZN_COMMITMENT_LEN];
+	uint8_t key[FZN_AEAD_KEY_LEN], commitment_key[FZN_COMMITMENT_KEY_LEN];
 	static uint8_t wire[SIM_FRAME_MAX];
 	fzn_opened_t opened;
 	fzn_partial_t *done = NULL;
@@ -524,12 +560,12 @@ static void sim_receive(struct sim_net *net, struct sim_datagram *d)
 	 * wrong reason. */
 	memcpy(wire, d->frame, d->len);
 
-	sim_session_key(d->from, d->to, key, commitment);
+	sim_session_key(d->from, d->to, key, commitment_key);
 
 	/* STEP 1: the frame is a frame, the commitment matches, the tag
 	 * verifies. Everything after this is about an authenticated datagram. */
-	if (fzn_seal_open(wire, d->len, key, commitment, &net->aead, &opened) !=
-	    FZN_SEAL_OK) {
+	if (fzn_seal_open(wire, d->len, key, commitment_key, &net->hash, &net->aead,
+	                  &opened) != FZN_SEAL_OK) {
 		h->refused_shape++;
 		return;
 	}

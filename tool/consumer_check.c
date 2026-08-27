@@ -476,6 +476,60 @@ int main(void)
 		 * and link, which the calls above do. */
 	}
 
+	/* THESE TWO BLOCKS WERE INSIDE `#ifdef FZN_CONSUMER_MONOCYPHER`, and
+	 * neither needs it: one opens a frame with a NULL AEAD to reach the
+	 * argument guard, the other drives the nonce source. So in a default
+	 * `make installcheck` -- the arrangement almost everyone runs --
+	 * neither was COMPILED, and this file reported that headers and sources
+	 * agree without having asked them about the frame path at all.
+	 *
+	 * Found when `fzn_seal_open` grew two parameters and every other caller
+	 * in the tree failed to build while this one did not. A check that
+	 * cannot fail is a shape this project keeps finding; a check that is
+	 * not compiled is the same shape with the compiler's help removed. */
+	/* The frame path. A consumer takes this to open a datagram, so the
+	 * check is that the header and the source go together and that a
+	 * refused open is refused -- not that the cryptography works, which
+	 * wire/test/seal_test.c covers. A null AEAD is the cheapest refusal
+	 * that reaches the argument guard. */
+	{
+		fzn_opened_t opened;
+		uint8_t frame[144];
+		uint8_t key[FZN_AEAD_KEY_LEN], ckey[FZN_COMMITMENT_KEY_LEN];
+		fzn_hash_ops_t hash;
+
+		memset(frame, 0, sizeof(frame));
+		memset(key, 0x11, sizeof(key));
+		memset(ckey, 0x22, sizeof(ckey));
+		memset(&hash, 0, sizeof(hash));
+		/* The commitment is derived per frame from the nonce now, so a
+		 * consumer hands over the commitment KEY and a hash seam rather
+		 * than a finished commitment it could not have computed. */
+		if (fzn_seal_open(frame, sizeof(frame), key, ckey, &hash, NULL, &opened) !=
+		    FZN_SEAL_ERR_MALFORMED)
+			return 18;
+		if (FZN_AEAD_NONCE_LEN != FZN_NONCE_LEN)
+			return 19;
+	}
+
+	/* The nonce source. A consumer needs one before it can seal anything,
+	 * and the property worth a line here is the refusal: an ops with no
+	 * fill must not produce a nonce, which is what a platform without a
+	 * source leaves behind. */
+	{
+		fzn_random_ops_t rng = { NULL, NULL };
+		uint8_t nonce[FZN_AEAD_NONCE_LEN];
+
+		memset(nonce, 0x5a, sizeof(nonce));
+		if (fzn_nonce_next(&rng, nonce) != 0)
+			return 20;
+		fzn_random_system_init(&rng);
+#if defined(__linux__)
+		if (!rng.fill || fzn_nonce_next(&rng, nonce) != 1)
+			return 21;
+#endif
+	}
+
 #ifdef FZN_CONSUMER_MONOCYPHER
 	/* One call through each binding, which is this file's standard: enough
 	 * to prove the header and the source go together, not a test of the
@@ -502,43 +556,6 @@ int main(void)
 		if (!real_hash.hash(real_hash.ctx, derived, sizeof(derived), region,
 		                    sizeof(region) - 1))
 			return 17;
-	}
-	/* The frame path. A consumer takes this to open a datagram, so the
-	 * check is that the header and the source go together and that a
-	 * refused open is refused -- not that the cryptography works, which
-	 * wire/test/seal_test.c covers. A null AEAD is the cheapest refusal
-	 * that reaches the argument guard. */
-	{
-		fzn_opened_t opened;
-		uint8_t frame[144];
-		uint8_t key[FZN_AEAD_KEY_LEN], commit[FZN_COMMITMENT_LEN];
-
-		memset(frame, 0, sizeof(frame));
-		memset(key, 0x11, sizeof(key));
-		memset(commit, 0x22, sizeof(commit));
-		if (fzn_seal_open(frame, sizeof(frame), key, commit, NULL, &opened) !=
-		    FZN_SEAL_ERR_MALFORMED)
-			return 18;
-		if (FZN_AEAD_NONCE_LEN != FZN_NONCE_LEN)
-			return 19;
-	}
-
-	/* The nonce source. A consumer needs one before it can seal anything,
-	 * and the property worth a line here is the refusal: an ops with no
-	 * fill must not produce a nonce, which is what a platform without a
-	 * source leaves behind. */
-	{
-		fzn_random_ops_t rng = { NULL, NULL };
-		uint8_t nonce[FZN_AEAD_NONCE_LEN];
-
-		memset(nonce, 0x5a, sizeof(nonce));
-		if (fzn_nonce_next(&rng, nonce) != 0)
-			return 20;
-		fzn_random_system_init(&rng);
-#if defined(__linux__)
-		if (!rng.fill || fzn_nonce_next(&rng, nonce) != 1)
-			return 21;
-#endif
 	}
 
 	printf("consumer_check: headers and sources agree, Monocypher bindings included\n");
