@@ -6163,6 +6163,60 @@ already identified as wrong.
 
 Neither byte can be added later without a wire break.
 
+### The commitment stops being a correlator, 2026-08-27
+
+`commitment[16]` was `f(transcript)`. The transcript is long-lived material --
+the simulation models exactly what the design intends, a key and its
+commitment per (sender, receiver) pair -- so **the commitment was a constant
+per pair, in the clear, on every datagram**, beside `sender[32]`.
+
+Any observer reads both together and gets the endpoints of every conversation.
+That includes a relay, which sec 3 makes an unprivileged bridge handling frames
+it is not trusted to author, and relays are the next thing arriving. It also
+defeats the reason sec 13 gives for moving `capability[32]` INSIDE the seal --
+"in the clear it announces which authority is being exercised, so the frames
+worth attacking identify themselves." The same argument applies to a per-pair
+constant and had never been made about it.
+
+**The fix costs zero wire bytes.** The derivation splits in two:
+
+    fzn_commitment_derive_root(transcript)   -> AEAD key + commitment key
+    fzn_commitment_for_nonce(commitment key, nonce) -> this frame's commitment
+
+The nonce is already in the clear and already unique per frame, so the
+commitment becomes unlinkable across frames while staying checkable before
+decryption, which is what sec 4.7 needs.
+
+**THE KEY MUST NOT DEPEND ON THE NONCE, and that is enforced structurally
+rather than by a comment**: the root's declaration has no nonce parameter and
+the per-frame hash has no transcript parameter, so neither mistake is
+spellable. Two peers must derive one key without having seen each other's
+nonces, and a key that varied per frame would need the nonce before the key --
+an order the receive path cannot offer, since it picks a key at step 2.
+
+**Two labels, and the collision they prevent is concrete rather than
+abstract.** Without them the root hashes `transcript` and the per-frame hash
+hashes `commitment_key | nonce`, so a 56-byte transcript equal to some pair's
+commitment key and nonce derives an AEAD key whose first 16 bytes are that
+pair's published commitment. The suite builds exactly that. The root's label
+is bumped to `v2` because the derived block went from 48 bytes to 64 and a
+pre-change peer must not appear to agree.
+
+**WHAT IT COSTS, MEASURED, because the brief that commissioned this said "far
+cheaper" and that was wrong.** At `-Os` against Monocypher on a loaded
+machine, so upper bounds: the per-frame derivation 560 ns against a 47 ns
+compare, an AEAD open rejecting a full 1024-byte payload 2120 ns and a
+64-byte one 1260 ns. **So the saving is about 3.5x at maximum payload and
+about 2x on a small frame -- real, and not the order of magnitude asserted.**
+The number is in `commitment.h` rather than the phrase, because a consumer
+sizing a candidate-key set needs the figure and not a reassurance.
+
+**What is given up.** `wire/relay.h` calls the commitment "addressing by
+decryption" -- a receiver knowing a frame is its own because the commitment
+matches one it derived. With K candidate keys that becomes K hashes rather
+than K table lookups. A consumer wanting a table back can key it on `sender`,
+which is a per-peer constant this change does not pretend to hide.
+
 ### The layouts, and what they cost on the wire
 
 Big-endian, fixed width, no padding, fixed fields first so every fixed field
