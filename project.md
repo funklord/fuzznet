@@ -6993,6 +6993,14 @@ longer merely a correctness fix for a multi-root consumer -- it is a
 precondition for the revocation model the holder has just chosen, and
 the entry there is promoted accordingly.
 
+**Built the same day, and the word "binding" above did not survive
+contact with the reason for it.** A store bound to one root would have
+to be unbound again the moment answer 2 is implemented, so what was
+built keeps the ISSUER on each entry instead: `fzn_revocation_t` carries
+it, `fzn_revocation_covers` asks for it, and `fzn_chain_verify`'s call
+site passes the pinned root and names itself as the line that changes
+when grantors may revoke. Sec 14 carries the detail.
+
 ## 14. Open, and named rather than left silent
 
 - **`raidcfgd` does not exist.** Two real consumers and one imagined one. Every
@@ -7034,6 +7042,12 @@ the entry there is promoted accordingly.
   can grow into, and its refusal fails open. Sizing it needs a number
   nobody has: how many revocations a deployment accumulates over its life.
   Named rather than guessed at.
+
+  **An entry costs 96 bytes, up from 64**, since the cross-root fix below
+  keeps the issuer -- measured with `sizeof`, not derived. It is 50% more
+  of the one thing here that only grows, and it is worth what it costs:
+  what it buys is that an entry answers for the key that signed it. The
+  manifest shape in sec 13b is a second consumer of the same growth.
 - **A revocation stops a chain only at a host that HAS it, and a host
   cannot tell "nothing was revoked" from "I am missing the
   revocations".** This is the open half of revocation and it is the
@@ -7069,10 +7083,12 @@ the entry there is promoted accordingly.
   business. Recorded because a refuted finding that leaves no trace gets
   found again.
 
-- **A revocation store is single-root by assumption and nothing says so
-  or enforces it.** Confirmed by running it, not by reading.
-  `fzn_revocation_admit` verifies a record's issuer against the `root` it
-  is handed and then stores only `{capability, grantee}` -- the issuer is
+- **A revocation store was single-root by assumption, and is not any
+  more. FIXED 2026-08-27**; the finding is kept because the fix that was
+  first proposed here is not the fix that was taken, and the reason is
+  worth more than the entry. Confirmed by running it, not by reading.
+  `fzn_revocation_admit` verified a record's issuer against the `root` it
+  was handed and then stored only `{capability, grantee}` -- the issuer was
   discarded. `fzn_revocation_covers` then takes **no root at all**, and
   `fzn_chain_verify` takes `root` and the entries array as independent
   parameters with nothing comparing them. A store holding root B's
@@ -7096,12 +7112,39 @@ the entry there is promoted accordingly.
   unsigned revocations and open for cross-root ones because the
   signature is checked against the wrong question.
 
-  Every test in the tree uses a single root, in both directions, so this
-  is untested rather than tested-and-passing. The fix is small and
-  structural -- bind the store to a root at init, so `admit` refuses a
-  foreign issuer and `covers` cannot be asked a rootless question -- and
-  it is an API break for a vendored consumer, so it is recorded here
-  rather than taken while a larger revocation decision is open.
+  Every test in the tree used a single root, in both directions, so this
+  was untested rather than tested-and-passing.
+
+  **What was built keeps the ISSUER; it does not bind the store to a
+  root.** This entry used to propose the other shape -- bind the store to
+  a root at init, so `admit` refuses a foreign issuer and `covers` cannot
+  be asked a rootless question -- and sec 13b calls that shape a
+  precondition for the revocation model the holder chose. It is the wrong
+  shape for the same answer that promoted the finding: **answer 2 says
+  grantor-revokes-descendant IS coming**, so a store will hold entries
+  from many issuers, and a store bound to one root would have to be
+  unbound again the moment it arrives. So `fzn_revocation_t` carries
+  `issuer[32]`, filled by `admit` from the RECORD'S OWN SIGNED BYTES
+  rather than from the `root` it is handed -- the same rule the rest of
+  that module already follows -- and `fzn_revocation_covers` takes an
+  issuer and matches on all three of issuer, capability and grantee.
+
+  `chain.c`'s `hop_is_revoked` passes the pinned root as the issuer,
+  because root-only revocation is what is implemented today: `admit`
+  refuses any other issuer, so asking about the root asks about every
+  entry a store can hold. **That call site is the line that changes when
+  grantor-revokes-descendant arrives**, and it says so. Grantor
+  revocation is planned and is deliberately not built here.
+
+  The API break is real and is taken rather than deferred: `covers` grew
+  a parameter, and every caller in the tree was updated. Two tests carry
+  the defect so it cannot come back -- one in `chain/test/chain_test.c`
+  over `hop_is_revoked`'s third axis, and one in
+  `chain/test/revocation_test.c` from a genuinely signed record, where
+  root B's revocation must answer `revoked` under B and `not revoked`
+  under A. Both were proved by mutation: deleting the issuer term from
+  `fzn_revocation_covers` fails the second, and deleting it from
+  `hop_is_revoked` fails the first.
 
 - **Whether `chunk/` belongs in the core at all**, or is a layer a consumer
   opts into. It is in the core because netcfgd cannot function without it, but

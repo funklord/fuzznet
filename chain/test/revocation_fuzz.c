@@ -125,10 +125,12 @@ struct coverage {
 	unsigned long shape_refused;
 };
 
-static int model_holds(const struct model *m, const uint8_t *cap, const uint8_t *grantee)
+static int model_holds(const struct model *m, const uint8_t *issuer, const uint8_t *cap,
+                       const uint8_t *grantee)
 {
 	for (size_t i = 0; i < m->used; i++) {
-		if (memcmp(m->held[i].capability, cap, FZN_CAP_ID_LEN) == 0 &&
+		if (memcmp(m->held[i].issuer, issuer, FZN_PUBKEY_LEN) == 0 &&
+		    memcmp(m->held[i].capability, cap, FZN_CAP_ID_LEN) == 0 &&
 		    memcmp(m->held[i].grantee, grantee, FZN_PUBKEY_LEN) == 0)
 			return 1;
 	}
@@ -150,11 +152,13 @@ static const char *agree(const struct arena *a, const fzn_revocation_store_t *st
 		return "the store holds more than its capacity";
 
 	for (size_t i = 0; i < store->used; i++) {
-		if (!model_holds(m, store->entries[i].capability, store->entries[i].grantee))
+		if (!model_holds(m, store->entries[i].issuer, store->entries[i].capability,
+		                 store->entries[i].grantee))
 			return "the store holds a revocation the rules would not admit";
 	}
 	for (size_t i = 0; i < m->used; i++) {
-		if (!fzn_revocation_covers(store, m->held[i].capability, m->held[i].grantee))
+		if (!fzn_revocation_covers(store, m->held[i].issuer, m->held[i].capability,
+		                           m->held[i].grantee))
 			return "the store dropped a revocation, un-revoking a device";
 	}
 
@@ -162,7 +166,9 @@ static const char *agree(const struct arena *a, const fzn_revocation_store_t *st
 	 * nothing, and the store fails open when it runs out of them. */
 	for (size_t i = 0; i < store->used; i++) {
 		for (size_t k = i + 1; k < store->used; k++) {
-			if (memcmp(store->entries[i].capability,
+			if (memcmp(store->entries[i].issuer, store->entries[k].issuer,
+			           FZN_PUBKEY_LEN) == 0 &&
+			    memcmp(store->entries[i].capability,
 			           store->entries[k].capability, FZN_CAP_ID_LEN) == 0 &&
 			    memcmp(store->entries[i].grantee, store->entries[k].grantee,
 			           FZN_PUBKEY_LEN) == 0)
@@ -273,7 +279,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 			want = FZN_CHAIN_ERR_WRONG_ROOT;
 		else if (!sig_ok)
 			want = FZN_CHAIN_ERR_CHAIN_INVALID;
-		else if (model_holds(&model, capability, grantee))
+		else if (model_holds(&model, issuer, capability, grantee))
 			want = FZN_CHAIN_OK; /* already known is success */
 		else if (model.used == STORE_CAP)
 			want = FZN_CHAIN_ERR_STORE_FULL;
@@ -288,12 +294,13 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		}
 
 		if (want == FZN_CHAIN_OK) {
-			if (model_holds(&model, capability, grantee)) {
+			if (model_holds(&model, issuer, capability, grantee)) {
 				cov->duplicate++;
 			} else {
 				memcpy(model.held[model.used].capability, capability,
 				       FZN_CAP_ID_LEN);
 				memcpy(model.held[model.used].grantee, grantee, FZN_PUBKEY_LEN);
+				memcpy(model.held[model.used].issuer, issuer, FZN_PUBKEY_LEN);
 				model.used++;
 				cov->admitted++;
 			}

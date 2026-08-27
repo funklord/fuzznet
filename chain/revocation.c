@@ -4,10 +4,11 @@
 
 #include <string.h>
 
-static int same(const fzn_revocation_t *entry, const uint8_t *capability,
+static int same(const fzn_revocation_t *entry, const uint8_t *issuer, const uint8_t *capability,
                 const uint8_t *grantee)
 {
-	return fzn_ct_memeq(entry->capability, capability, FZN_CAP_ID_LEN) &&
+	return fzn_ct_memeq(entry->issuer, issuer, FZN_PUBKEY_LEN) &&
+	       fzn_ct_memeq(entry->capability, capability, FZN_CAP_ID_LEN) &&
 	       fzn_ct_memeq(entry->grantee, grantee, FZN_PUBKEY_LEN);
 }
 
@@ -101,10 +102,11 @@ fzn_chain_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_rev
 }
 
 int fzn_revocation_covers(const fzn_revocation_store_t *store,
+                           const uint8_t issuer[FZN_PUBKEY_LEN],
                            const uint8_t capability[FZN_CAP_ID_LEN],
                            const uint8_t grantee[FZN_PUBKEY_LEN])
 {
-	if (!store || !store->entries || !capability || !grantee)
+	if (!store || !store->entries || !issuer || !capability || !grantee)
 		return 0;
 
 	/* `used` bounds a loop over `entries`, which holds `capacity`. A store
@@ -116,7 +118,7 @@ int fzn_revocation_covers(const fzn_revocation_store_t *store,
 		return 1;
 
 	for (size_t i = 0; i < store->used; i++) {
-		if (same(&store->entries[i], capability, grantee))
+		if (same(&store->entries[i], issuer, capability, grantee))
 			return 1;
 	}
 	return 0;
@@ -175,7 +177,8 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 	 * is what "carried on contact" looks like every time it works, and a
 	 * caller that treated the second as a failure would log an alarm on
 	 * the system behaving correctly. */
-	if (fzn_revocation_covers(store, fzn_revocation_capability(record),
+	if (fzn_revocation_covers(store, fzn_revocation_issuer(record),
+	                          fzn_revocation_capability(record),
 	                          fzn_revocation_grantee(record)))
 		return FZN_CHAIN_OK;
 
@@ -195,10 +198,21 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 
 	/* Copied from the record's own bytes, which are the bytes the
 	 * signature above covered. That sentence is the whole of the fix: it
-	 * used to copy decoded fields the caller supplied alongside them. */
+	 * used to copy decoded fields the caller supplied alongside them.
+	 *
+	 * THE ISSUER OBEYS THE SAME RULE, and it is the one field where the
+	 * temptation to break it is real: `root` is right there in the
+	 * argument list and equals the issuer today, because the check above
+	 * has just insisted on it. Taking it from there would be storing what
+	 * a caller supplied beside the bytes rather than what the bytes say --
+	 * the exact shape this module was rewritten to remove -- and it stops
+	 * being merely wrong-in-principle the moment a grantor may revoke its
+	 * own descendants, when the issuer and the root are different keys. */
 	memcpy(store->entries[store->used].capability, fzn_revocation_capability(record),
 	       FZN_CAP_ID_LEN);
 	memcpy(store->entries[store->used].grantee, fzn_revocation_grantee(record),
+	       FZN_PUBKEY_LEN);
+	memcpy(store->entries[store->used].issuer, fzn_revocation_issuer(record),
 	       FZN_PUBKEY_LEN);
 	store->used++;
 

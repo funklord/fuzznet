@@ -163,7 +163,8 @@ static int accepted_chain_is_sound(const fzn_chain_hop_t *hops, size_t hop_count
 		if (i > 0 && !fzn_hop_delegable(hops[i - 1]))
 			return 1;
 		for (size_t r = 0; r < rev_count; r++)
-			if (same(revs[r].capability, fzn_hop_capability(hops[i]),
+			if (same(revs[r].issuer, root, FZN_PUBKEY_LEN) &&
+			    same(revs[r].capability, fzn_hop_capability(hops[i]),
 			         FZN_CAP_ID_LEN) &&
 			    same(revs[r].grantee, fzn_hop_grantee(hops[i]), FZN_PUBKEY_LEN))
 				return 1;
@@ -259,6 +260,11 @@ static int drive(const uint8_t *data, size_t size, int *accepted)
 	for (size_t r = 0; r < rev_count; r++) {
 		memset(revs[r].capability, take8(&c), FZN_CAP_ID_LEN);
 		memset(revs[r].grantee, take8(&c), FZN_PUBKEY_LEN);
+		/* An entry names WHO withdrew it, and the byte is taken from
+		 * the input like every other field: a corpus that could only
+		 * ever name the pinned root would leave the issuer comparison
+		 * with nothing to decide. */
+		memset(revs[r].issuer, take8(&c), FZN_PUBKEY_LEN);
 	}
 
 	sign.verify = stub_verify;
@@ -294,7 +300,8 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
  * The layout is `drive`'s: root, capability, eight bytes of `now`, two bytes
  * of the good-signature mask, the hop count, the revocation count, then eight
  * bytes per hop -- grantor, grantee, capability, issued_at, expires_at,
- * delegable, and two bytes the signing step consumes. */
+ * delegable, and two bytes the signing step consumes -- and finally three
+ * bytes per revocation: capability, grantee, issuer. */
 static const uint8_t CASE_VALID[] = { 7, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 1, 0,
 	                              7, 3, 9, 0, 0, 0, 1, 1 };
 static const uint8_t CASE_BADSIG[] = { 7, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0x00, 0x00, 1, 0,

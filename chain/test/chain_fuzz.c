@@ -198,7 +198,11 @@ static int ought_to_verify(const fzn_chain_hop_t *hops, size_t n, const uint8_t 
 				return 0;
 		}
 		for (size_t r = 0; r < nrevs; r++) {
-			if (memcmp(revs[r].capability, fzn_hop_capability(hops[i]),
+			/* The issuer too: an entry is a statement by somebody,
+			 * and one root's revocation does not answer for
+			 * another's realm. */
+			if (memcmp(revs[r].issuer, root, FZN_PUBKEY_LEN) == 0 &&
+			    memcmp(revs[r].capability, fzn_hop_capability(hops[i]),
 			           FZN_CAP_ID_LEN) == 0 &&
 			    memcmp(revs[r].grantee, fzn_hop_grantee(hops[i]), FZN_PUBKEY_LEN) == 0)
 				return 0;
@@ -344,6 +348,16 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		memset(&revs[r], 0, sizeof(revs[r]));
 		memcpy(revs[r].capability, cap, FZN_CAP_ID_LEN);
 		memset(revs[r].grantee, (uint8_t)(0x10u + (r % MAX_HOPS)), FZN_PUBKEY_LEN);
+
+		/* Usually the pinned root, sometimes a root this chain has
+		 * nothing to do with -- and the "sometimes not" is what makes
+		 * the issuer comparison testable, on the same reasoning the
+		 * grantor of hop 0 above carries. Always naming the root would
+		 * put a term in the model that no input can decide. */
+		if ((data[7] >> (r % 8u)) & 1u)
+			memset(revs[r].issuer, (uint8_t)(0xe0u + r), FZN_PUBKEY_LEN);
+		else
+			memcpy(revs[r].issuer, root, FZN_PUBKEY_LEN);
 	}
 
 	memset(&out, 0xab, sizeof(out));

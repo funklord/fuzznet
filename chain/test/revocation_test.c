@@ -299,8 +299,8 @@ static void test_admits_a_signed_revocation(void)
 	CHECK(fzn_revocation_admit(&f.store, r, f.root, &f.sign) == FZN_CHAIN_OK,
 	      "a properly signed revocation was refused");
 	CHECK(f.store.used == 1, "used %zu, wanted 1", f.store.used);
-	CHECK(fzn_revocation_covers(&f.store, fzn_revocation_capability(r),
-	                            fzn_revocation_grantee(r)),
+	CHECK(fzn_revocation_covers(&f.store, fzn_revocation_issuer(r),
+	                            fzn_revocation_capability(r), fzn_revocation_grantee(r)),
 	      "the store does not report what it just admitted");
 	CHECK(f.stub.calls == 1, "verified %d times, wanted 1", f.stub.calls);
 
@@ -394,7 +394,7 @@ static void test_a_full_store_refuses_and_does_not_evict(void)
 
 		memset(cap, 0xc0, sizeof(cap));
 		key(grantee, 10);
-		CHECK(fzn_revocation_covers(&f.store, cap, grantee),
+		CHECK(fzn_revocation_covers(&f.store, f.root, cap, grantee),
 		      "a full store evicted an earlier revocation, un-revoking a device");
 	}
 }
@@ -418,7 +418,8 @@ static void test_merge_keeps_going_past_a_bad_record(void)
 	n = fzn_revocation_merge(&f.store, batch, 3, f.root, &f.sign, &err);
 	CHECK(n == 2, "admitted %zu of a 3-record batch, wanted 2", n);
 	CHECK(err == FZN_CHAIN_ERR_WRONG_ROOT, "the first failure was not reported back");
-	CHECK(fzn_revocation_covers(&f.store, fzn_revocation_capability(batch[2]),
+	CHECK(fzn_revocation_covers(&f.store, fzn_revocation_issuer(batch[2]),
+	                            fzn_revocation_capability(batch[2]),
 	                            fzn_revocation_grantee(batch[2])),
 	      "a record after the bad one was skipped");
 
@@ -461,6 +462,66 @@ static void test_the_store_feeds_chain_verify_directly(void)
 	CHECK(fzn_chain_verify(hops, 1, f.root, cap, 2000, &f.sign, f.store.entries,
 	                       f.store.used, &out) == FZN_CHAIN_ERR_REVOKED,
 	      "chain verify did not see the revocation the store had admitted");
+}
+
+/* AN ENTRY ANSWERS FOR THE ISSUER THAT SIGNED IT, AND FOR NO OTHER ROOT.
+ *
+ * What this protects. A host that anchors more than one root holds one
+ * store, and an entry used to be `{capability, grantee}` alone -- the issuer
+ * was verified on admission and then discarded, `fzn_revocation_covers` took
+ * no root at all, and `fzn_chain_verify` takes `root` and the entries array
+ * as independent parameters with nothing comparing them. So root B's
+ * revocation answered a question about root A's realm, and any anchored peer
+ * could disconnect any key in any other peer's tree. That is sec 4.2's own
+ * named failure mode -- "inventing revocations is a denial of service
+ * against exactly the hosts an attacker wants disconnected" -- closed for
+ * unsigned revocations and open for cross-root ones, because the signature
+ * was being checked against the wrong question.
+ *
+ * It is not theoretical: fuzzypickles is multi-root by design, its User
+ * realm and its TOFU-pinned Registered realm being different keys.
+ *
+ * Every case elsewhere in this file uses ONE root, in both directions, which
+ * is why the whole suite was green on it.
+ *
+ * Both directions are asserted. Under B the answer must still be `revoked`,
+ * or this case is satisfied by a store that simply lost the entry. */
+static void test_one_roots_revocation_does_not_answer_for_another(void)
+{
+	struct fixture f;
+	uint8_t bytes[FZN_REVOCATION_LEN], hop_bytes[FZN_HOP_LEN];
+	fzn_revocation_record_t r;
+	fzn_chain_hop_t hops[1];
+	fzn_chain_t out;
+	uint8_t root_b[FZN_PUBKEY_LEN], cap[FZN_CAP_ID_LEN], grantee[FZN_PUBKEY_LEN];
+
+	fixture_init(&f); /* f.root is root A */
+	key(root_b, 7);
+	memset(cap, 0xc0, sizeof(cap));
+	key(grantee, 5);
+
+	/* B revokes, and B is entitled to: the record is admitted against B's
+	 * own root, which is correct on B's terms and is the whole point --
+	 * nothing here is forged. */
+	issue(&f, bytes, &r, 7, 0xc0, 5);
+	CHECK(fzn_revocation_admit(&f.store, r, root_b, &f.sign) == FZN_CHAIN_OK,
+	      "B's own revocation was refused under B's own root");
+
+	CHECK(fzn_revocation_covers(&f.store, root_b, cap, grantee) == 1,
+	      "the store lost B's revocation, so the refusal below is not evidence");
+	CHECK(fzn_revocation_covers(&f.store, f.root, cap, grantee) == 0,
+	      "root B's revocation answered a question about root A's realm");
+
+	/* And the consequence end to end, since a store's contents go straight
+	 * into fzn_chain_verify beside a root nothing used to relate them to. */
+	f.stub.identity = 0;
+	CHECK(fzn_chain_mint(f.root, grantee, cap, 1000, FZN_NO_EXPIRY, 0, &f.sign,
+	                     hop_bytes) == FZN_CHAIN_OK,
+	      "minting the hop A granted failed");
+	CHECK(fzn_hop_open(hop_bytes, FZN_HOP_LEN, &hops[0]) == FZN_CHAIN_OK, "open");
+	CHECK(fzn_chain_verify(hops, 1, f.root, cap, 2000, &f.sign, f.store.entries,
+	                       f.store.used, &out) == FZN_CHAIN_OK,
+	      "B revoked a key in A's realm, so any anchored peer can disconnect any host");
 }
 
 /* ---- signature reuse: one mutation per field -------------------------- */
@@ -512,7 +573,7 @@ static void test_forged_grantee_is_refused(void)
 	      "an attacker gets a permanent forged revocation against any host it names");
 	CHECK(f.stub.calls == 1, "grantee: refused before the signature was reached");
 	CHECK(f.store.used == 0, "grantee: the forged record was recorded anyway");
-	CHECK(fzn_revocation_covers(&f.store, cap, victim) == 0,
+	CHECK(fzn_revocation_covers(&f.store, f.root, cap, victim) == 0,
 	      "grantee: a host nobody revoked is reported as revoked");
 }
 
@@ -657,7 +718,8 @@ static void test_bad_arguments(void)
 	CHECK(fzn_revocation_store_init(&s, NULL, 4) == FZN_CHAIN_ERR_MALFORMED, "null entries");
 	CHECK(fzn_revocation_admit(&f.store, r, f.root, NULL) == FZN_CHAIN_ERR_MALFORMED,
 	      "a null signer was accepted");
-	CHECK(fzn_revocation_covers(NULL, fzn_revocation_capability(r),
+	CHECK(fzn_revocation_covers(NULL, fzn_revocation_issuer(r),
+	                            fzn_revocation_capability(r),
 	                            fzn_revocation_grantee(r)) == 0,
 	      "covers on a null store did not answer no");
 
@@ -833,7 +895,8 @@ static void test_a_store_whose_fields_disagree_denies(void)
 	      "the setup record was refused");
 
 	f.store.used = 5; /* one past the four entries it was given */
-	CHECK(fzn_revocation_covers(&f.store, fzn_revocation_capability(r),
+	CHECK(fzn_revocation_covers(&f.store, fzn_revocation_issuer(r),
+	                            fzn_revocation_capability(r),
 	                            fzn_revocation_grantee(r)) == 1,
 	      "a corrupt store was scanned");
 
@@ -844,7 +907,7 @@ static void test_a_store_whose_fields_disagree_denies(void)
 
 		memset(other_cap, 0xc1, sizeof(other_cap));
 		key(other_grantee, 9);
-		CHECK(fzn_revocation_covers(&f.store, other_cap, other_grantee) == 1,
+		CHECK(fzn_revocation_covers(&f.store, f.root, other_cap, other_grantee) == 1,
 		      "a corrupt store answered `not revoked`, which is the fail-open "
 		      "direction");
 	}
@@ -872,15 +935,22 @@ static void test_every_guard_refuses_its_own_argument(void)
 	no_entries = f.store;
 	no_entries.entries = NULL;
 
-	CHECK(fzn_revocation_covers(NULL, fzn_revocation_capability(r),
+	CHECK(fzn_revocation_covers(NULL, fzn_revocation_issuer(r),
+	                            fzn_revocation_capability(r),
 	                            fzn_revocation_grantee(r)) == 0,
 	      "a null store");
-	CHECK(fzn_revocation_covers(&no_entries, fzn_revocation_capability(r),
+	CHECK(fzn_revocation_covers(&no_entries, fzn_revocation_issuer(r),
+	                            fzn_revocation_capability(r),
 	                            fzn_revocation_grantee(r)) == 0,
 	      "a store with no entries");
-	CHECK(fzn_revocation_covers(&f.store, NULL, fzn_revocation_grantee(r)) == 0,
+	CHECK(fzn_revocation_covers(&f.store, NULL, fzn_revocation_capability(r),
+	                            fzn_revocation_grantee(r)) == 0,
+	      "a null issuer");
+	CHECK(fzn_revocation_covers(&f.store, fzn_revocation_issuer(r), NULL,
+	                            fzn_revocation_grantee(r)) == 0,
 	      "a null capability");
-	CHECK(fzn_revocation_covers(&f.store, fzn_revocation_capability(r), NULL) == 0,
+	CHECK(fzn_revocation_covers(&f.store, fzn_revocation_issuer(r),
+	                            fzn_revocation_capability(r), NULL) == 0,
 	      "a null grantee");
 
 	CHECK(fzn_revocation_admit(NULL, r, f.root, &f.sign) == FZN_CHAIN_ERR_MALFORMED,
@@ -920,7 +990,8 @@ static void test_a_corrupt_store_refuses_rather_than_swallowing(void)
 	CHECK(fzn_revocation_admit(&f.store, r, f.root, &f.sign) == FZN_CHAIN_ERR_MALFORMED,
 	      "a corrupt store accepted a revocation");
 	CHECK(f.store.used == used_before, "a refused admit moved the store's count");
-	CHECK(fzn_revocation_covers(&f.store, fzn_revocation_capability(r),
+	CHECK(fzn_revocation_covers(&f.store, fzn_revocation_issuer(r),
+	                            fzn_revocation_capability(r),
 	                            fzn_revocation_grantee(r)) == 1,
 	      "a corrupt store must still deny, which is the other question");
 }
@@ -949,6 +1020,7 @@ int main(void)
 	test_a_full_store_refuses_and_does_not_evict();
 	test_merge_keeps_going_past_a_bad_record();
 	test_the_store_feeds_chain_verify_directly();
+	test_one_roots_revocation_does_not_answer_for_another();
 	test_forged_grantee_is_refused();
 	test_forged_capability_is_refused();
 	test_forged_issuer_is_refused();

@@ -454,10 +454,32 @@ typedef struct fzn_chain {
  * an earlier revision of this comment was wrong to say a signature was
  * unnecessary. The short version: an authenticated datagram attributes its
  * contents to the peer that sent it and to nobody further back, and
- * "carried on contact" means the carrier is not the issuer. */
+ * "carried on contact" means the carrier is not the issuer.
+ *
+ * IT KEEPS THE ISSUER, AND THAT IS A CORRECTION (2026-08-27). This struct
+ * used to hold `capability` and `grantee` alone. `fzn_revocation_admit`
+ * checked a record's issuer against the root it was handed and then threw
+ * the issuer away, `fzn_revocation_covers` took no root at all, and
+ * `fzn_chain_verify` takes `root` and this array as independent parameters
+ * with nothing comparing them -- so a store holding root B's revocation
+ * answered "revoked" about root A's realm. Confirmed by running it, not by
+ * reading: B signs a revocation, it is admitted against B's own root, and
+ * `covers` returns 1 for that pair with no root in the question. Every test
+ * in the tree used a single root, so it was untested rather than
+ * tested-and-passing, and project.md sec 14 carries the reproduction.
+ *
+ * THE FIX KEEPS THE ISSUER RATHER THAN BINDING THE STORE TO ONE ROOT, which
+ * is the smaller-looking change and the wrong one. sec 13b records the
+ * holder's answer of 2026-08-27: grantor-revokes-descendant IS coming, so a
+ * store will hold entries from MANY issuers and a store bound to a single
+ * root would have to be unbound again. An entry says WHO withdrew it, and
+ * the query asks. */
 typedef struct fzn_revocation {
 	uint8_t capability[FZN_CAP_ID_LEN];
 	uint8_t grantee[FZN_PUBKEY_LEN];
+	/* Who withdrew it -- read from the record's own signed bytes on
+	 * admission, never from what a caller supplied alongside them. */
+	uint8_t issuer[FZN_PUBKEY_LEN];
 } fzn_revocation_t;
 
 /* Verify a chain against a pinned root, and report what it authorises.

@@ -642,6 +642,12 @@ static void test_revocation_kills_a_middle_hop(void)
 	memset(&rev, 0, sizeof(rev));
 	memset(rev.capability, 0xc0, FZN_CAP_ID_LEN);
 	key(rev.grantee, 1); /* hop 0's grantee -- the middle of the chain */
+	/* NAMED RATHER THAN LEFT ZERO. An entry says who withdrew it, and only
+	 * the root does today, so every revocation this file builds is the
+	 * root's. The fixture's root happens to be 32 zero bytes, so a
+	 * `memset` alone would match by accident and go on matching until
+	 * somebody changed the root -- an agreement is not a check. */
+	memcpy(rev.issuer, f.root, FZN_PUBKEY_LEN);
 
 	CHECK(run(&f, 2000, &rev, 1) == FZN_CHAIN_ERR_REVOKED,
 	      "revoking the middle of a chain did not kill what it granted");
@@ -664,6 +670,7 @@ static void test_revocation_is_per_capability(void)
 	memset(&rev, 0, sizeof(rev));
 	memset(rev.capability, 0xff, FZN_CAP_ID_LEN); /* a different capability */
 	key(rev.grantee, 2);
+	memcpy(rev.issuer, f.root, FZN_PUBKEY_LEN);
 
 	CHECK(run(&f, 2000, &rev, 1) == FZN_CHAIN_OK,
 	      "revoking one capability withdrew an unrelated one");
@@ -690,6 +697,7 @@ static void test_revocation_is_per_grantee(void)
 	memset(&rev, 0, sizeof(rev));
 	memcpy(rev.capability, f.cap, FZN_CAP_ID_LEN); /* the capability in use */
 	key(rev.grantee, 7);                           /* but somebody else's key */
+	memcpy(rev.issuer, f.root, FZN_PUBKEY_LEN);
 
 	CHECK(run(&f, 2000, &rev, 1) == FZN_CHAIN_OK,
 	      "revoking a capability from one key withdrew it from another");
@@ -699,6 +707,37 @@ static void test_revocation_is_per_grantee(void)
 	memcpy(rev.grantee, fzn_hop_grantee(f.hops[1]), FZN_PUBKEY_LEN);
 	CHECK(run(&f, 2000, &rev, 1) == FZN_CHAIN_ERR_REVOKED,
 	      "revoking the chain's own grantee did not bite");
+}
+
+/* The third axis, and it is the one that was missing entirely.
+ *
+ * An entry also names an ISSUER, because the store it comes from may hold
+ * entries from more than one -- a host anchoring two roots keeps one store.
+ * Until this, `hop_is_revoked` compared the capability and the grantee and
+ * nothing else, so a revocation issued by a root that has nothing to do with
+ * this chain killed it: any anchored peer could disconnect any key in any
+ * other peer's realm. chain/test/revocation_test.c carries the same defect
+ * end to end, from a record that is genuinely signed.
+ *
+ * The positive leg is asserted alongside, on the same reasoning as the two
+ * cases above -- otherwise a revocation matching nobody would satisfy it. */
+static void test_revocation_is_per_issuer(void)
+{
+	struct fixture f;
+	fzn_revocation_t rev;
+
+	fixture_init(&f);
+	memset(&rev, 0, sizeof(rev));
+	memcpy(rev.capability, f.cap, FZN_CAP_ID_LEN);
+	memcpy(rev.grantee, fzn_hop_grantee(f.hops[1]), FZN_PUBKEY_LEN);
+	key(rev.issuer, 7); /* a root this chain was never rooted at */
+
+	CHECK(run(&f, 2000, &rev, 1) == FZN_CHAIN_OK,
+	      "a revocation from a foreign root killed a chain in another root's realm");
+
+	memcpy(rev.issuer, f.root, FZN_PUBKEY_LEN);
+	CHECK(run(&f, 2000, &rev, 1) == FZN_CHAIN_ERR_REVOKED,
+	      "the pinned root's own revocation did not bite");
 }
 
 static void test_a_bad_signature_is_refused(void)
@@ -1263,6 +1302,7 @@ static void test_delegate(void)
 		memset(&rev, 0, sizeof(rev));
 		memset(rev.capability, 0xc0, FZN_CAP_ID_LEN);
 		key(rev.grantee, 1);
+		memcpy(rev.issuer, f.root, FZN_PUBKEY_LEN);
 		CHECK(fzn_chain_delegate(f.hops, 2, f.root, f.cap, 2000, grantee, FZN_NO_EXPIRY,
 		                         0, &f.sign, &rev, 1, bytes) == FZN_CHAIN_ERR_REVOKED,
 		      "delegated from a revoked chain");
@@ -1555,6 +1595,7 @@ int main(void)
 	test_revocation_kills_a_middle_hop();
 	test_revocation_is_per_capability();
 	test_revocation_is_per_grantee();
+	test_revocation_is_per_issuer();
 	test_a_bad_signature_is_refused();
 	test_delegation_needs_permission_not_just_possession();
 	test_forged_delegable_is_refused();

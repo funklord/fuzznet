@@ -229,8 +229,20 @@ size_t fzn_revocation_merge(fzn_revocation_store_t *store,
                              const uint8_t root[FZN_PUBKEY_LEN], const fzn_sign_ops_t *sign,
                              fzn_chain_err_t *err);
 
-/* Whether this capability is withdrawn from this key. */
+/* Whether `issuer` has withdrawn this capability from this key.
+ *
+ * IT ASKS WHO, AND IT DID NOT USED TO. This took no issuer and no root at
+ * all, while `fzn_revocation_admit` verified a record's issuer and then
+ * discarded it, so a store holding root B's revocation answered "revoked"
+ * about root A's realm -- and `fzn_chain_verify` takes `root` and the
+ * entries array as independent parameters with nothing comparing them.
+ * Confirmed by running it: B signs a revocation, it is admitted against B's
+ * own root, and the query returned 1 with no root in it. Nothing said a
+ * store belonged to one root and the old signature actively invited the
+ * mistake by not asking. chain.h records why the issuer is kept per entry
+ * rather than the store being bound to a root. */
 int fzn_revocation_covers(const fzn_revocation_store_t *store,
+                           const uint8_t issuer[FZN_PUBKEY_LEN],
                            const uint8_t capability[FZN_CAP_ID_LEN],
                            const uint8_t grantee[FZN_PUBKEY_LEN]);
 

@@ -5,18 +5,24 @@
 
 #include <string.h>
 
-/* Whether `hop` grants something this revocation list has withdrawn.
+/* Whether `hop` grants something `issuer` has withdrawn.
  *
- * Matched on the pair rather than on the key alone. A revocation names a
+ * Matched on the triple rather than on the key alone. A revocation names a
  * capability AND a grantee because the two consumers' capabilities are
  * independent rather than a ladder (sec 4.2): withdrawing netcfgd's `wifi`
  * from a host must not withdraw its `observe`, and a match on key alone
- * would do exactly that. */
-static int hop_is_revoked(fzn_chain_hop_t hop, const fzn_revocation_t *revocations,
-                          size_t revocation_count)
+ * would do exactly that.
+ *
+ * It names an ISSUER because an entry is a statement by somebody, and the
+ * store this list comes from may hold entries from more than one. Without
+ * that term, a revocation admitted under one root answered for every root a
+ * host had anchored -- see chain.h at `fzn_revocation_t`. */
+static int hop_is_revoked(fzn_chain_hop_t hop, const uint8_t issuer[FZN_PUBKEY_LEN],
+                          const fzn_revocation_t *revocations, size_t revocation_count)
 {
 	for (size_t i = 0; i < revocation_count; i++) {
-		if (fzn_ct_memeq(revocations[i].capability, fzn_hop_capability(hop),
+		if (fzn_ct_memeq(revocations[i].issuer, issuer, FZN_PUBKEY_LEN) &&
+		    fzn_ct_memeq(revocations[i].capability, fzn_hop_capability(hop),
 		                 FZN_CAP_ID_LEN) &&
 		    fzn_ct_memeq(revocations[i].grantee, fzn_hop_grantee(hop), FZN_PUBKEY_LEN))
 			return 1;
@@ -240,8 +246,19 @@ fzn_chain_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
 		/* Every hop, not only the last. Revoking a host in the middle
 		 * has to kill what it went on to grant, or revocation would be
 		 * defeated by the victim having delegated onward first -- which
-		 * is precisely what a stolen device would do. */
-		if (hop_is_revoked(hop, revocations, revocation_count))
+		 * is precisely what a stolen device would do.
+		 *
+		 * THE ISSUER PASSED IS THE PINNED ROOT, BECAUSE ROOT-ONLY
+		 * REVOCATION IS WHAT IS IMPLEMENTED TODAY. `fzn_revocation_admit`
+		 * refuses any record whose issuer is not the root it was handed,
+		 * so an entry issued by anybody else cannot reach a store, and
+		 * asking about the root is asking about every entry there can
+		 * be. Grantor-revokes-descendant is PLANNED and is not built --
+		 * project.md sec 13b, answered by the holder 2026-08-27 -- and
+		 * this is the line that changes when it arrives: a hop would
+		 * then be revoked by the root OR by any grantor above it in the
+		 * chain, which is a walk rather than one comparison. */
+		if (hop_is_revoked(hop, root, revocations, revocation_count))
 			return FZN_CHAIN_ERR_REVOKED;
 	}
 
