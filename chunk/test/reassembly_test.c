@@ -365,6 +365,48 @@ static void test_release_clears_the_arrived_set(void)
  * The two modules read the same field and disagreed about its sentinel:
  * freshness declines to RECORD a zero-expiry frame so nothing accumulates,
  * and reassembly held one for ever. Only one had noticed it could be zero.  */
+/* A COMPLETED SLOT IS HANDED ONCE, NOT ONCE PER RETRANSMISSION.
+ *
+ * `find` matches on `live`, and a handed slot is still live, so an identical
+ * resend of the last chunk -- which this module accepts on purpose, because
+ * that is what loss recovery looks like -- used to hand the caller the same
+ * slot again. The caller then holds two pointers to one slot and releases
+ * twice, which is what the ownership contract asks of it, and the second
+ * release lands on a slot another sender has since taken.  */
+static void test_a_completed_slot_is_handed_only_once(void)
+{
+	struct fixture f;
+	fzn_partial_t *first = NULL;
+	fzn_partial_t *again = NULL;
+	fzn_partial_t *theirs = NULL;
+	uint8_t piece[8];
+
+	fixture_init(&f, SLOTS);
+	memset(piece, 0xaa, sizeof(piece));
+
+	CHECK(fzn_reasm_accept(&f.table, f.alice, 1, 0, 1, piece, sizeof(piece), 0, 100,
+	                       &first) == FZN_REASM_OK,
+	      "alice's single-chunk message was refused");
+	CHECK(first != NULL, "a single-chunk message did not complete");
+
+	/* The identical resend must still be ACCEPTED -- refusing it would
+	 * break loss recovery, which is the other half of the rule. */
+	CHECK(fzn_reasm_accept(&f.table, f.alice, 1, 0, 1, piece, sizeof(piece), 0, 100,
+	                       &again) == FZN_REASM_OK,
+	      "a byte-identical resend was refused");
+	CHECK(again == NULL, "a resend handed the caller the completed slot a second time");
+
+	/* And the consequence, spelled out: release once, let another sender
+	 * take the slot, and the caller must have no second pointer to free. */
+	fzn_reasm_release(first);
+	memset(piece, 0xbb, sizeof(piece));
+	CHECK(fzn_reasm_accept(&f.table, f.bob, 2, 0, 2, piece, sizeof(piece), 0, 200,
+	                       &theirs) == FZN_REASM_OK,
+	      "the released slot was not reusable");
+	CHECK(memcmp(f.slots[0].sender, f.bob, FZN_SENDER_LEN) == 0 || SLOTS > 1,
+	      "the slot did not go to the next sender");
+}
+
 static void test_a_zero_expiry_is_bounded_by_max_hold(void)
 {
 	struct fixture f;
@@ -799,6 +841,7 @@ int main(void)
 	test_full_table_and_expiry();
 	test_last_chunk_first_is_refused();
 	test_release_clears_the_arrived_set();
+	test_a_completed_slot_is_handed_only_once();
 	test_a_zero_expiry_is_bounded_by_max_hold();
 	test_stale_traffic_still_reclaims_slots();
 	test_a_completed_slot_is_not_taken_from_under_the_caller();

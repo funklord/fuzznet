@@ -790,8 +790,8 @@ guided:
 	        GUIDED_SRC="chain/test/chain_guided.c chain/chain.c chain/revocation.c \
 	                    constant_time/constant_time.c"
 	@$(MAKE) --no-print-directory guided-one GUIDED_NAME=record \
-	        GUIDED_SRC="record/test/record_guided.c record/journal.c state/state.c \
-	                    log/log.c constant_time/constant_time.c"
+	        GUIDED_SRC="record/test/record_guided.c record/record.c record/journal.c \
+	                    state/state.c log/log.c constant_time/constant_time.c"
 	@$(MAKE) --no-print-directory guided-one GUIDED_NAME=freshness \
 	        GUIDED_SRC="frame/test/freshness_guided.c frame/freshness.c \
 	                    constant_time/constant_time.c"

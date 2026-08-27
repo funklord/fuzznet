@@ -317,7 +317,32 @@ fzn_reasm_err_t fzn_reasm_accept(fzn_reasm_t *table, const uint8_t sender[FZN_SE
 		slot->bytes += payload_len;
 	}
 
-	if (slot->arrived == slot->chunks) {
+	/* HANDED ONCE, NOT ONCE PER RETRANSMISSION.
+	 *
+	 * `find` matches on `live`, and a handed slot is still live, so an
+	 * identical resend of the last chunk -- which `reassembly.h` says is
+	 * accepted and changes nothing, because that is what loss recovery
+	 * looks like -- used to hand the caller the SAME slot a second time.
+	 *
+	 * The caller then holds two pointers to one slot and releases twice,
+	 * which is exactly what the ownership contract asks of it. Measured:
+	 * alice completes, resends, and is handed the slot twice; the first
+	 * release frees it; bob takes it and puts a chunk in; the second
+	 * release wipes bob's message and bob's next chunk is refused as a
+	 * MISMATCH -- so one peer's ordinary retransmission destroys another's
+	 * message and the damage is blamed on the victim. The completed
+	 * message is also delivered twice, which at sec 4.4a is a router
+	 * reconfigured twice.
+	 *
+	 * `fzn_reasm_release` says it is "safe on a slot that is already
+	 * free", and that is what makes the second release look correct. It is
+	 * not safe on a slot that is free AND REALLOCATED, and nothing in the
+	 * caller can tell those apart.
+	 *
+	 * The `handed` flag was added to keep the sweep off a slot the caller
+	 * still holds. It did that and left this open, so the ownership
+	 * promise it exists to make true was half true. */
+	if (slot->arrived == slot->chunks && !slot->handed) {
 		slot->handed = 1;
 		*out = slot;
 	}
