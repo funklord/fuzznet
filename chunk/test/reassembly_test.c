@@ -210,11 +210,122 @@ static void test_two_senders_do_not_splice(void)
 	      "one sender's chunk was counted against the other's message");
 }
 
+/* A pair of senders agreeing on every byte but the last.
+ *
+ * Every sender in this file is `memset(buf, seed, 32)` -- thirty-two copies
+ * of one byte -- so alice and bob differ at byte 0 and a comparison of ONE
+ * byte separates them exactly as well as a comparison of thirty-two. That is
+ * what made the length in reassembly.c's `memcmp(slot->sender, sender,
+ * FZN_SENDER_LEN)` unfalsifiable in both places it appears: truncating either
+ * to 1 left this whole suite green, measured before these cases were written.
+ *
+ * A seed cannot express the pair that separates a full comparison from a
+ * short one, which is precisely why nothing here could fail. */
+static void twin_senders(uint8_t a[FZN_SENDER_LEN], uint8_t b[FZN_SENDER_LEN])
+{
+	memset(a, 0x5a, FZN_SENDER_LEN);
+	memset(b, 0x5a, FZN_SENDER_LEN);
+	b[FZN_SENDER_LEN - 1u] ^= 0x01u;
+}
+
+static void test_the_twin_fixture_is_what_it_claims(void)
+{
+	uint8_t a[FZN_SENDER_LEN], b[FZN_SENDER_LEN];
+
+	/* Asserted once, here, rather than in each case below, so that a
+	 * fixture which quietly stopped producing a near-miss pair fails by
+	 * name instead of turning three cases green for the wrong reason. */
+	twin_senders(a, b);
+	CHECK(memcmp(a, b, FZN_SENDER_LEN - 1u) == 0,
+	      "the twin senders must agree on every byte but the last, or the cases "
+	      "below are not testing what they say");
+	CHECK(memcmp(a, b, FZN_SENDER_LEN) != 0,
+	      "the twin senders must differ somewhere, or nothing below can fail");
+}
+
+static void test_two_near_senders_do_not_splice(void)
+{
+	struct fixture f;
+	fzn_partial_t *done = NULL;
+	uint8_t twin_a[FZN_SENDER_LEN], twin_b[FZN_SENDER_LEN];
+	uint8_t piece[8];
+
+	/* `test_two_senders_do_not_splice` above asks the right question of
+	 * the wrong pair: alice and bob differ at byte 0, so it passes against
+	 * a key made of ONE byte of the sender. This is that case with a pair
+	 * only a full comparison separates.
+	 *
+	 * What fails open is the same splice, reached by a near-miss key
+	 * rather than by a missing field: a stranger who matches a victim's
+	 * first byte writes into the victim's half-built message, and the
+	 * result authenticates as neither. */
+	twin_senders(twin_a, twin_b);
+	fixture_init(&f, 2);
+	fill(piece, 8, 0x50, 0);
+	CHECK(fzn_reasm_accept(&f.table, twin_a, 1, 0, 2, piece, 8, 0, 100, &done) ==
+	              FZN_REASM_OK,
+	      "the first twin's chunk was refused");
+	fill(piece, 8, 0x55, 0);
+	CHECK(fzn_reasm_accept(&f.table, twin_b, 1, 0, 2, piece, 8, 0, 100, &done) ==
+	              FZN_REASM_OK,
+	      "the second twin's chunk was refused -- it landed in the first twin's "
+	      "slot, so find() is not reading the whole sender");
+	CHECK(done == NULL, "two senders' chunks completed one message");
+	CHECK(f.slots[0].live && f.slots[1].live,
+	      "two senders differing only in their last key byte shared a slot -- "
+	      "find() is not reading the whole sender");
+	CHECK(f.slots[0].arrived == 1 && f.slots[1].arrived == 1,
+	      "one twin's chunk was counted against the other's message");
+}
+
+static void test_a_near_sender_does_not_spend_the_quota(void)
+{
+	struct fixture f;
+	fzn_partial_t *done = NULL;
+	uint8_t twin_a[FZN_SENDER_LEN], twin_b[FZN_SENDER_LEN];
+	uint8_t piece[8];
+
+	/* `held_by` IS A SECOND COMPARISON ON A SEPARATE PATH, and closing the
+	 * one in find() says nothing about it -- the vacuity is one per
+	 * comparison, not one per file. It was vacuous for the same reason and
+	 * measured the same way.
+	 *
+	 * What fails open here is the quota, in the direction the quota exists
+	 * to prevent. `held_by` counts what one sender is already holding, so
+	 * a short compare counts a stranger's partials against a victim: an
+	 * attacker who matches the first byte of a key spends somebody else's
+	 * allowance and the victim is refused a slot it never used. The
+	 * per-sender bound is what stops one sender filling the table, and
+	 * this turns it into a way to deny service to a chosen host.
+	 *
+	 * A quota of ONE, so a single stranger's slot is enough to exhaust it.
+	 * Different message numbers, so that find() cannot fold the two
+	 * together and reach this by another route. */
+	twin_senders(twin_a, twin_b);
+	fixture_init(&f, 1);
+	fill(piece, 8, 0x80, 0);
+	CHECK(fzn_reasm_accept(&f.table, twin_a, 1, 0, 2, piece, 8, 0, 100, &done) ==
+	              FZN_REASM_OK,
+	      "the first twin could not take a slot");
+	CHECK(fzn_reasm_accept(&f.table, twin_b, 2, 0, 2, piece, 8, 0, 100, &done) ==
+	              FZN_REASM_OK,
+	      "one sender's slot was charged to another differing only in its last "
+	      "key byte -- held_by() is not reading the whole sender");
+	CHECK(f.slots[0].live && f.slots[1].live, "the two twins did not take a slot each");
+
+	/* The control, which is what makes the check above mean something: a
+	 * quota that never refuses anything would satisfy it too. The first
+	 * twin is at its own quota of one and must still be refused. */
+	CHECK(fzn_reasm_accept(&f.table, twin_a, 3, 0, 2, piece, 8, 0, 100, &done) ==
+	              FZN_REASM_ERR_QUOTA,
+	      "a sender at its quota was given a second slot");
+}
+
 static void test_retransmission_versus_rewrite(void)
 {
 	struct fixture f;
 	fzn_partial_t *done = NULL;
-	uint8_t piece[8], other[8];
+	uint8_t piece[8], other[8], near[8];
 
 	fixture_init(&f, 2);
 	fill(piece, 8, 0x60, 0);
@@ -233,6 +344,30 @@ static void test_retransmission_versus_rewrite(void)
 	CHECK(fzn_reasm_accept(&f.table, f.alice, 1, 0, 2, other, 8, 0, 100, &done) ==
 	              FZN_REASM_ERR_CONFLICT,
 	      "a chunk was allowed to rewrite one already held");
+
+	/* AND A REPEAT THAT DIFFERS ONLY IN ITS LAST BYTE, because the one
+	 * above does not test the length of that comparison. `piece` and
+	 * `other` differ at byte 0, so a `memcmp` of ONE byte tells them apart
+	 * exactly as well as a memcmp of eight -- truncating the length in
+	 * reassembly.c to 1 left this case, and the whole suite, green.
+	 *
+	 * It is the same vacuity as the sender comparisons in this file, one
+	 * layer down: two inputs that differ at the first byte cannot show how
+	 * much of them was read. What fails open is the distinction
+	 * `reassembly.h` draws between a retransmission and a rewrite -- a
+	 * chunk altered anywhere past the first byte is reported OK, so a
+	 * consumer watching for CONFLICT to see a message being tampered with
+	 * sees nothing at all. */
+	memcpy(near, piece, sizeof(near));
+	near[sizeof(near) - 1u] ^= 0x01u;
+	CHECK(memcmp(near, piece, sizeof(near) - 1u) == 0 &&
+	              memcmp(near, piece, sizeof(near)) != 0,
+	      "the near repeat must agree with the chunk on every byte but the last, "
+	      "or this case is not testing what it says");
+	CHECK(fzn_reasm_accept(&f.table, f.alice, 1, 0, 2, near, 8, 0, 100, &done) ==
+	              FZN_REASM_ERR_CONFLICT,
+	      "a chunk differing only in its last byte was taken for a byte-identical "
+	      "retransmission -- the payload comparison is not reading the whole chunk");
 }
 
 static void test_quota_stops_one_sender_filling_the_table(void)
@@ -872,6 +1007,9 @@ int main(void)
 	test_the_bound_is_enforced_on_the_first_chunk();
 	test_later_chunks_must_agree();
 	test_two_senders_do_not_splice();
+	test_the_twin_fixture_is_what_it_claims();
+	test_two_near_senders_do_not_splice();
+	test_a_near_sender_does_not_spend_the_quota();
 	test_retransmission_versus_rewrite();
 	test_quota_stops_one_sender_filling_the_table();
 	test_full_table_and_expiry();
