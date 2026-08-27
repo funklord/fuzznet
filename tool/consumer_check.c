@@ -88,9 +88,11 @@
 #ifdef FZN_CONSUMER_INSTALLED
 #include <fuzznet/chain/sign_monocypher.h>
 #include <fuzznet/session/hash_monocypher.h>
+#include <fuzznet/session/aead_monocypher.h>
 #else
 #include "chain/sign_monocypher.h"
 #include "session/hash_monocypher.h"
+#include "session/aead_monocypher.h"
 #endif
 #endif
 
@@ -596,7 +598,25 @@ int main(void)
 		fzn_sign_monocypher_t signer;
 		fzn_sign_ops_t real_sign;
 		fzn_hash_ops_t real_hash;
+		/* THE THIRD BINDING, and it was the one left out. The comment
+		 * above says two headers were installable and unverifiable; the
+		 * fix that followed it covered two of the three and missed
+		 * `aead_monocypher.h`, so `make installcheck MONOCYPHER_DIR=...`
+		 * failed on exactly the header nobody had included -- in the
+		 * configuration the default build never produces, which is why
+		 * it went unnoticed. Counting the headers a fix covers against
+		 * the headers that exist is the check that was missing. */
+		fzn_aead_ops_t real_aead;
 		uint8_t derived[FZN_DERIVED_LEN];
+		/* SOMETHING TO HASH, AND IT WAS MISSING ENTIRELY. The call below
+		 * has always named `region`, which is declared nowhere in this
+		 * file -- so this whole block has NEVER COMPILED. It could not
+		 * be noticed, because it builds only under
+		 * FZN_CONSUMER_MONOCYPHER and that arrangement failed the
+		 * header-coverage check first, before the compiler ever reached
+		 * this line. A gate that refuses early hides whatever is behind
+		 * it. */
+		static const uint8_t region[] = "a region to hash";
 
 		memset(&signer, 0, sizeof(signer));
 		fzn_sign_monocypher_init(&real_sign, &signer);
@@ -614,6 +634,14 @@ int main(void)
 		if (!real_hash.hash(real_hash.ctx, derived, sizeof(derived), region,
 		                    sizeof(region) - 1))
 			return 17;
+
+		/* One call through the AEAD binding, to the same standard as the
+		 * two above: enough to prove the header and the source go
+		 * together. A null op here is the whole failure this is watching
+		 * for -- a binding that installs and does not link. */
+		fzn_aead_monocypher_init(&real_aead);
+		if (!real_aead.seal || !real_aead.open)
+			return 18;
 	}
 
 	printf("consumer_check: headers and sources agree, Monocypher bindings included\n");
