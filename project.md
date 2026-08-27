@@ -5584,6 +5584,67 @@ delegation: dropping the `delegable` requirement in verify and again in
 delegate, removing the expiry cap, skipping the re-verification, and removing
 the depth ceiling.
 
+### A comparison is only tested by inputs that share a prefix
+
+**Rule, adopted 2026-08-27 in a consumer session's words because they are
+better than the ones this tree reached:** a key comparison is only tested
+by inputs that AGREE ON A PREFIX AND DIFFER AFTER IT, and nothing
+produces those by accident.
+
+Found by an adversarial review of the revocation-issuer fix. Every
+identity in every `chain/test/` fixture is `memset(buf, seed, 32)` --
+thirty-two copies of one byte -- so any two differ at byte 0, and
+truncating `fzn_ct_memeq(..., FZN_PUBKEY_LEN)` to **one byte** left the
+whole suite green, 200000 fuzz cases included. The shipped code was
+correct. The coverage was theatre.
+
+**THE IDIOM IS NOT THE PROBLEM, WHICH IS WHY THIS IS A RULE AND NOT A
+STYLE NOTE.** Told about it, the fuzzypickles session swept its own tree
+and found four vacuous pins -- including a root pin whose comment reads
+"the check an attacker's chain is built to slip past" -- and their
+fixtures are the OPPOSITE idiom: independently generated random keys,
+which differ at byte 0 roughly 255 times in 256. Uniform keys and random
+keys fail identically. Reaching for "stop using memset" would have been
+the wrong lesson.
+
+Swept across this library, ten sites outside the ones already in hand.
+**Four caught, six vacuous**: `record/journal.c`, `frame/freshness.c`,
+`session/commitment.c` and `trust/trust.c` catch it; `log/log.c` at two
+sites, `state/state.c` at two, `record/sync.c` at two and
+`chunk/reassembly.c` did not.
+
+`trust/` catches it for exactly the reason the consumer's tree became
+testable: its test already used "a second root differing in a single
+byte". **That was the only place in this tree with the shape, it had
+been there for weeks, and nobody generalised from it -- including this
+document, which quotes that test approvingly two sections above.**
+
+Three things the sweep cost, recorded so the next one is cheaper:
+
+- **One case per COMPARISON, not per file.** Closing `log.c`'s `find()`
+  left `fzn_log_range` vacuous: separate loop, separate function, same
+  file. Caught only by re-running the mutation on both lines rather than
+  declaring the file done.
+- **Perturb a PARAMETER rather than a fixture where you can.** A value
+  the caller supplies can be made to near-miss at the last byte, which
+  catches truncation at any prefix; grinding a shared prefix into a
+  fixture only ever catches a short one.
+- **Some pins are untestable without key grinding, and that belongs IN
+  THE TEST.** Where both sides of a comparison come from inside one
+  signed object -- `chain/chain.c`'s grantor-against-previous-grantee is
+  this shape -- neither can be perturbed from outside. Saying so in the
+  file is what stops the next reader assuming three pins means three
+  covered.
+
+The failure mode here differs from the consumer's and is worth
+distinguishing. Their vacuous pins were on ADMISSION paths, so a short
+compare lets something through. All six of ours are on LOOKUP paths --
+find an entry by issuer, match a slot by sender -- so the failure is
+cross-identity CONFUSION: one issuer's log entry answering another's
+question, one sender's reassembly slot taking another's chunks. Less
+alarming to read and worse in one respect, because the wrong answer is
+returned successfully and nothing reports it.
+
 ### Handing a commit to a consumer: make them fetch it
 
 **"Landed and green" and "published" are different facts, and the first
