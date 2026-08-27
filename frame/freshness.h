@@ -33,11 +33,47 @@
  *
  *   - `capacity` is the number of entries handed to `fzn_replay_init`.
  *   - `peak arrival rate` is the greatest number of DISTINCT nonces this
- *     receiver can be offered per unit of time. It counts a stranger's
- *     traffic as well as a peer's, because freshness runs BEFORE signature
- *     verification (sec 4.7) and an unauthenticated frame therefore takes a
- *     slot. It is a property of the link and of whatever rate limiting sits
- *     in front of this, not of the protocol, so only the consumer knows it.
+ *     receiver can ADMIT per unit of time. Admitting is what takes a slot:
+ *     `fzn_replay_admit` records nothing for a frame it refuses, so a
+ *     duplicate, an expired frame and one past the horizon each cost none.
+ *
+ *     WHICH ORDER THAT ASSUMES, because the term is a different number
+ *     under a different one. sec 4.7 verifies the tag at step 4 and runs
+ *     this module at steps 5 and 6, so a forgery dies at the tag and never
+ *     reaches the window. Under that order the term counts what holders of
+ *     a key this receiver accepts can offer, at their combined peak: every
+ *     peer it has a session with, every other holder of a group key it
+ *     accepts, and a peer whose capability has been revoked -- the chain is
+ *     step 7 and runs BELOW the window, so a revoked peer still spends
+ *     slots. The link's rate and whatever rate limiting sits in front of
+ *     this bound that from above rather than being it, and only the
+ *     consumer knows either.
+ *
+ *     A CONSUMER RUNNING THIS MODULE ABOVE THE TAG MUST USE THE OTHER TERM:
+ *     the full offered rate of the link, a stranger's traffic included,
+ *     since every datagram then reaches the window. sec 4.7c is explicit
+ *     that the order is not forced on a consumer, so that is a real case
+ *     rather than a hypothetical -- and it is the LARGER number, which
+ *     means a window sized by the paragraph above is too small for it.
+ *     Check which order the receive path runs before shrinking one.
+ *
+ *     Sizing is the smaller half of that choice. sec 4.7b measures the
+ *     pre-tag window as a permanent denial of service for `capacity`
+ *     datagrams, off-path and with no key, and no capacity closes it: the
+ *     rate that fills it is an attacker's rather than one the receiver
+ *     chose. The answer there is to move the window below the tag, not to
+ *     buy more entries.
+ *
+ *     THIS USED TO SAY IT COUNTS A STRANGER'S TRAFFIC "because freshness
+ *     runs BEFORE signature verification (sec 4.7)", which was true of the
+ *     order sec 4.7 stated before 4.7b moved the window below the tag: the
+ *     citation outlived the order it cited, and named the section that had
+ *     reversed it. sec 4.7 step 5 also names the conflation the sentence
+ *     rested on -- freshness before the CHAIN is what saves a signature
+ *     verification, and that argument never asked for freshness before the
+ *     TAG. `sim/test/network_test.c` scenario 8c is the executed witness:
+ *     a frame that fails its tag spends no nonce, and the genuine frame
+ *     carrying the same one is still delivered.
  *   - `max_ahead` is the furthest ahead of `now` an expiry may be and still
  *     be accepted. It is stated per window at `fzn_replay_init` and enforced
  *     on every frame. Its unit is the caller's clock's, since nothing here

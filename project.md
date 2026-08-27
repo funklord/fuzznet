@@ -1068,6 +1068,36 @@ all". It then cites §4.7 for an order §4.7 did not state. **`sim/` was right
 and this document was wrong**; the correction is here, and to `receive_fuzz`'s
 framing, not to `sim/`'s code.
 
+**The last place the old order survived was a sizing rule** (2026-08-28).
+`frame/freshness.h` defined `peak arrival rate` -- the term a consumer
+multiplies by `max_ahead` to get `capacity` -- as counting "a stranger's
+traffic as well as a peer's, because freshness runs BEFORE signature
+verification (sec 4.7) and an unauthenticated frame therefore takes a slot".
+The citation named the section that had reversed it, and the sentence
+repeated the conflation §4.7 step 5 exists to correct: freshness before the
+CHAIN is what saves a signature verification, and that argument never asked
+for freshness before the TAG. `sim/test/network_test.c` scenario 8c already
+ran the refutation -- a tampered frame refused on its tag, zero replay
+refusals, and the genuine frame carrying the same nonce delivered.
+
+**A citation supporting the opposite of what it is cited for is how a stale
+rule survives review.** The reference is what a reader checks a sentence
+against, so a wrong one does not merely fail to help: following it here led
+to the paragraph that contradicts the sentence, and the sentence stood for
+ten days anyway.
+
+**The term is narrower now, and the header states which order it assumes**,
+because the correction makes a consumer's number SMALLER and a number a
+buffer is sized from must not shrink silently. Under §4.7's order it counts
+what holders of a key this receiver accepts can offer at their combined peak
+-- every session peer, every other holder of an accepted group key, and a
+peer whose capability has been revoked, since the chain is step 7 and runs
+below the window. A consumer who runs freshness above the tag keeps the old
+term, the link's full offered rate, and §4.7c is explicit that the order is
+not forced on one. The header says both, and says that sizing is the smaller
+half of that choice: §4.7b's measured denial of service is not closed by any
+capacity, because the rate filling the window is the attacker's.
+
 ### 4.7c The replay window is the most expensive step, not the cheapest
 
 Measured against the sizing rule §4.3 states -- the window holds what can
