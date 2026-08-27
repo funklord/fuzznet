@@ -7627,6 +7627,28 @@ answer removed. A **Merkle root** would make it O(1) on the wire and
 **cannot be merged** -- union of two roots is not computable without
 the elements. Union merge and accumulators are mutually exclusive.
 
+### Both stages are blocked, on different questions, to different people
+
+Recorded so a later session does not read "stage 1 breaks nothing" as
+"stage 1 is ready".
+
+**Stage 1 waits on fuzzypickles**, not on the holder. The id's form is a
+stage-1 decision and it turns entirely on whether a manifest ever
+crosses an estate boundary -- inside one estate the hash hides nothing,
+since host keys and capability ids are both enumerable by any follower,
+so a 98-byte preimage over a searchable space is a membership oracle
+rather than a secret. fuzzypickles is the only consumer where the
+crossing case is real: netcfgd's agent is one hop from the user key,
+and raidcfgd's brief is not known here. Asked 2026-08-27. **Guessing it
+would mean choosing a wire format on an assumption about another tree,
+which is what `evidence.md` names and what this session already paid
+for once** in the other direction, telling a consumer to move a pin to
+a commit that existed only locally.
+
+**Stage 2 waits on the holder**, on the sec 4.4a reading below.
+
+The two are independent: an answer to either unblocks its own half.
+
 ### A contradiction in this document, flagged rather than resolved
 
 Sec 13b says fail-open on cannot-establish-currency is "forbidden by
