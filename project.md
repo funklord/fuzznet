@@ -7880,6 +7880,62 @@ quoted and did not survive being checked.
   SECRECY** and is recorded as refused so it is not proposed again. A
   receiver holding the root derives any epoch in either direction.
 
+### DECIDED 2026-08-28: shape E. And what decided it was in a header
+
+**The ephemeral breaks key commitment, and this pass did not notice.**
+
+`session/commitment.h` states why the commitment BINDS the key rather
+than merely accompanying it: "the AEAD key and the commitment key are
+the two halves of a single hash over a single input, so producing a
+second AEAD key whose frames carry a given commitment still means
+finding a second preimage of that hash."
+
+Under a per-message ephemeral the AEAD key comes from the DH. **If the
+commitment key stays long-lived so that it can filter strangers before
+the scalar multiplication -- which is shape H, and 13e calls it
+mandatory -- then the two are no longer halves of one hash and the
+commitment stops committing to the key.** It degrades to a per-pair
+authenticator meaning "this sender knows our shared secret". Sec 4.4a
+calls key-committing AEAD not optional.
+
+So G+H is a three-way trade rather than a design:
+
+| | filter | key commitment | wire |
+|---|---|---|---|
+| commitment long-lived (H) | 592 ns | **LOST** | +32 |
+| commitment from the DH | **158 us** | kept | +32 |
+| both tags | 592 ns | kept | **+48**, leaving 16 of 64 headroom |
+
+**E has none of that.** Both halves still come from one hash, one epoch
+at a time, so the binding survives untouched. It costs zero to four
+wire bytes, needs no scalar multiplication anywhere, adds no fifth
+crypto seam, and leaves sec 4.7 step 3's economics exactly as they are.
+
+**AND E IS THE BETTER HALF FOR THIS LIBRARY'S THREAT MODEL, which is
+the argument that settles it rather than the costs.** Sec 4.4a names
+the likely compromise as the receiver -- "the machine most likely to be
+attacked is the one being reconfigured because it is already
+misbehaving". The consumer's per-message property is SENDER-SIDE ONLY:
+their prekey does not rotate, so compromising a recipient opens
+everything ever sent to it. **E gives bounded forward secrecy in BOTH
+directions.** Adopting the ephemeral to match them would buy an
+unbounded property in the direction that does not cover our threat and
+lose key commitment to get it.
+
+**What E does not give** is per-message granularity: a compromise inside
+an epoch opens that epoch. **The measurement that decides whether that
+is enough is the epoch length**, which is bounded below by clock skew,
+since both ends derive it without coordination from `expires_at`, an
+authenticated field already bounded by the freshness horizon. That
+measurement belongs to the build and is the first thing it should
+establish.
+
+**Rotating prekeys are not needed by E** and the work started on them
+was stopped. They are specific to the ephemeral, and the questions that
+pass had to answer -- retention, selection, what a sender does holding
+none -- recur in the epoch shape wearing different clothes, so its
+report is kept.
+
 ### Three refusals
 
 **Do not adopt the consumer's construction because the consumer asked
