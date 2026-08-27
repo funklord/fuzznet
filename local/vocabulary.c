@@ -20,17 +20,33 @@ fzn_peer_verdict_t fzn_vocabulary_admit(const fzn_peer_t *peer, const uint8_t *v
 	if (verb_len == 0 || verb_len > FZN_VERB_MAX)
 		return FZN_PEER_NOT_MEMBER;
 
-	/* EVERY RULE IS SCANNED, with no early return on a match.
+	/* THE SCAN CONTINUES PAST A MATCH THAT DID NOT GRANT, and stops at the
+	 * first that did. MEMBER is the strongest answer this function has, so
+	 * nothing later can improve on it; anything weaker has to keep looking.
 	 *
 	 * Not for the timing: the verdict goes back to the same peer that
 	 * asked, so what an early return would leak is already in the answer.
-	 * It is scanned through because the tri-state needs the whole table --
-	 * a rule matching this verb for a group the peer cannot be shown to
-	 * hold makes the answer UNKNOWN rather than NOT_MEMBER, and that rule
-	 * may sit after one that did not match at all. Returning on the first
-	 * hit would turn "could not tell" into "no" for a table in the wrong
-	 * order, which is a definite wrong answer -- the thing peer.h's
-	 * tri-state exists to prevent. */
+	 *
+	 * THE REASON THIS COMMENT USED TO GIVE WAS UNREACHABLE, and it is worth
+	 * replacing rather than deleting because the shape recurs. It said the
+	 * whole table is needed because "a rule matching this verb for a group
+	 * the peer cannot be shown to hold makes the answer UNKNOWN rather than
+	 * NOT_MEMBER, and that rule may sit after one that did not match" --
+	 * i.e. that one peer could yield both NOT_MEMBER and UNKNOWN depending
+	 * on rule order.
+	 *
+	 * It cannot. `fzn_peer_group_verdict` branches on `peer->groups_known`,
+	 * which is a property of the PEER and does not vary between rules: with
+	 * it clear every gid answers UNKNOWN, and with it set every gid answers
+	 * MEMBER or NOT_MEMBER. The two verdicts the paragraph set against each
+	 * other never coexist for one peer.
+	 *
+	 * The real reason is the plainer one: a rule that GRANTS may sit after
+	 * one that does not, so returning on the first match would answer
+	 * NOT_MEMBER for a peer that a later rule admits. That is what the
+	 * suite's reordered-table case actually catches -- confirmed by
+	 * mutation, since a comment claiming a property is not evidence the
+	 * property is held or that anything checks it. */
 	for (size_t i = 0; i < rule_count; i++) {
 		fzn_peer_verdict_t held;
 

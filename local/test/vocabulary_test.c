@@ -99,10 +99,19 @@ int main(void)
 		      "a verb no rule names became UNKNOWN because the group list was");
 	}
 
-	/* THE TABLE'S ORDER MUST NOT DECIDE THE ANSWER. The same rules with
-	 * the unknown-group entry first: an early return on the first match
-	 * would answer NOT_MEMBER here and UNKNOWN above, from one peer and
-	 * one verb. */
+	/* THE TABLE'S ORDER MUST NOT DECIDE THE ANSWER.
+	 *
+	 * The discriminating half is the READABLE peer below: rule 99 is a
+	 * group it does not hold and rule 6 is one it does, in that order, so
+	 * an implementation returning on the first match answers NOT_MEMBER
+	 * where the rules say MEMBER. Confirmed by mutation.
+	 *
+	 * The unknown-peer half above it does NOT discriminate, and saying so
+	 * is the point: `groups_known` is a property of the peer rather than of
+	 * a rule, so an unreadable peer answers UNKNOWN for every gid and an
+	 * early return would answer UNKNOWN too. It is kept because it is the
+	 * control -- without it, "the reordered table still says MEMBER" is
+	 * satisfied by a function that never reports anything else. */
 	{
 		const fzn_verb_rule_t reordered[] = {
 			{ 99, V(STATUS) }, /* a group the peer does not hold */
