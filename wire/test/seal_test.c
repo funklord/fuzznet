@@ -1,5 +1,25 @@
 /* The open/seal path -- sec 10 step 2, which this file is the evidence for.
  *
+ * THE COMMITMENT IS DERIVED ON BOTH PATHS NOW, WHICH IS WHAT MOST OF THE NEW
+ * CASES BELOW ARE ABOUT. `session/commitment.h` made a frame's commitment a
+ * function of the commitment key AND THAT FRAME'S NONCE, so no caller can
+ * compute one in advance: `fzn_seal_build` draws the nonce itself and must
+ * therefore derive, and `fzn_seal_open` must derive from the nonce the frame
+ * arrived with. Neither takes a finished commitment any more, and the
+ * properties that replaces the old argument's are:
+ *
+ *   - two frames of one pair carry DIFFERENT commitments, which is the leak
+ *     the split exists to close and which a round trip alone cannot see;
+ *   - the commitment in a built frame is the one the nonce in that same
+ *     frame derives, which is what fails if the derivation moves above the
+ *     draw;
+ *   - the derivation still happens BEFORE the AEAD, which the counting stub
+ *     is what proves.
+ *
+ * Every case here has been shown to FAIL for the reason it names, by
+ * mutating wire/seal.c and rebuilding this binary specifically. A test
+ * nobody has watched go red is a comment.
+ *
  * A STUB AEAD, not Monocypher, and deliberately. chain_test.c does the same
  * with its signer: what is under test here is the ORDER of operations and the
  * gate discipline, not the cryptography, and a stub makes every case
@@ -143,6 +163,48 @@ static int refusing_fill(void *ctx, uint8_t *out, size_t len)
 	return 0;
 }
 
+/* A STUB HASH, on the same reasoning as the stub AEAD: what is under test
+ * here is which bytes reach the derivation and when, not BLAKE2b.
+ * `session/test/commitment_test.c` holds the derivation's own properties and
+ * `session/test/hash_monocypher_test.c` runs the real one.
+ *
+ * The only property these cases need of it is that different inputs give
+ * different outputs -- so the counter and the refusal switch are what it is
+ * really for. `refuse` is how FZN_SEAL_ERR_HASH becomes reachable at all: a
+ * seam that is PRESENT and answers no is a different fault from an absent
+ * one, and seal.h gives it a different code because a consumer told to act
+ * on the rate of commitment mismatches would rekey against a healthy peer
+ * on the strength of its own broken hash. */
+struct hash_stub {
+	unsigned calls;
+	int refuse;
+};
+
+static int stub_hash(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in, size_t in_len)
+{
+	struct hash_stub *h = (struct hash_stub *)ctx;
+	uint32_t acc = 0x9e3779b9u;
+
+	h->calls++;
+	if (h->refuse)
+		return 0;
+
+	for (size_t i = 0; i < in_len; i++)
+		acc = (acc ^ in[i]) * 16777619u + (uint32_t)i;
+	for (size_t i = 0; i < out_len; i++) {
+		acc = acc * 1103515245u + 12345u;
+		out[i] = (uint8_t)(acc >> 24);
+	}
+	return 1;
+}
+
+/* File scope rather than a local in main, because `build()` needs the same
+ * two to write a frame this library will open, and threading them through
+ * every call site would say nothing a reader does not already know. */
+static struct hash_stub hash_ctx;
+static fzn_hash_ops_t hash = { stub_hash, &hash_ctx };
+static uint8_t commitment_key[FZN_COMMITMENT_KEY_LEN];
+
 /* Offsets from wire/frame.situ.map, as in generated_test.c and for the same
  * reason: a test that asked the generated code where a field lives could not
  * catch the generated code being wrong about it. */
@@ -197,8 +259,15 @@ static int find_bytes(const uint8_t *hay, size_t hay_len, const uint8_t *needle,
 static const uint8_t PLAIN[PAYLOAD_LEN] = "twenty-four bytes here.";
 static const uint8_t CAP[32] = "a capability identifier, 32 by.";
 
-/* A frame with its header filled and its sealed region still plaintext. */
-static void build(uint8_t *f, const uint8_t *commitment)
+/* A frame with its header filled and its sealed region still plaintext.
+ *
+ * THE COMMITMENT IS DERIVED HERE TOO, from the fixed nonce written two lines
+ * above it, because a hand-built frame carrying any other 16 bytes is one
+ * `fzn_seal_open` now refuses before it reaches the tag -- and every case
+ * below that is about shape, coverage or the AEAD would then be passing for
+ * the wrong reason. Written straight into the frame at the schema's own
+ * offset, which is where the rest of this file addresses fields from. */
+static void build(uint8_t *f)
 {
 	memset(f, 0, FRAME_LEN);
 	f[OFF_VERSION] = 1;
@@ -206,7 +275,7 @@ static void build(uint8_t *f, const uint8_t *commitment)
 	memset(f + OFF_SENDER, 0xa1, 32);
 	put_be32(f + OFF_EXPIRES + 4, 5000); /* u64, big-endian low word */
 	memset(f + OFF_NONCE, 0x33, 24);
-	memcpy(f + OFF_COMMIT, commitment, FZN_COMMITMENT_LEN);
+	fzn_commitment_for_nonce(&hash, commitment_key, f + OFF_NONCE, f + OFF_COMMIT);
 	put_be32(f + OFF_MSG, 7);
 	put_be16(f + OFF_INDEX, 1);
 	put_be16(f + OFF_CHUNKS, 4);
@@ -218,15 +287,16 @@ static void build(uint8_t *f, const uint8_t *commitment)
 int main(void)
 {
 	fzn_aead_ops_t aead = { stub_seal, stub_open, NULL };
-	uint8_t key[FZN_AEAD_KEY_LEN], commitment[FZN_COMMITMENT_LEN];
+	uint8_t key[FZN_AEAD_KEY_LEN];
 	uint8_t frame[FRAME_LEN], sealed[FRAME_LEN];
 	fzn_opened_t opened;
+	fzn_seal_err_t verdict;
 
 	memset(key, 0x77, sizeof(key));
-	memset(commitment, 0xc7, sizeof(commitment));
+	memset(commitment_key, 0x5b, sizeof(commitment_key));
 
 	/* THE ROUND TRIP. */
-	build(frame, commitment);
+	build(frame);
 	check(fzn_seal_close(frame, sizeof(frame), key, &aead) == FZN_SEAL_OK,
 	      "sealing a well-formed frame was refused");
 	check(memcmp(frame + OFF_PAYLOAD, PLAIN, PAYLOAD_LEN) != 0,
@@ -235,16 +305,26 @@ int main(void)
 	      "the capability is still plaintext after sealing -- it is inside the seal");
 	memcpy(sealed, frame, sizeof(frame));
 
-	check(fzn_seal_open(frame, sizeof(frame), key, commitment, &aead, &opened) == FZN_SEAL_OK,
-	      "opening the frame we just sealed was refused");
-	check(opened.payload_len == PAYLOAD_LEN, "payload length came back wrong");
-	check(memcmp(opened.payload, PLAIN, PAYLOAD_LEN) == 0, "the payload did not round trip");
-	check(memcmp(opened.capability, CAP, 32) == 0, "the capability did not round trip");
-	check(opened.msg == 7 && opened.index == 1 && opened.chunks == 4,
+	verdict = fzn_seal_open(frame, sizeof(frame), key, commitment_key, &hash, &aead, &opened);
+	check(verdict == FZN_SEAL_OK, "opening the frame we just sealed was refused");
+	/* EVERY ONE OF THESE IS GUARDED ON THAT VERDICT, and the guard is not
+	 * decoration -- the relay block at the end of this file records the same
+	 * reason. `fzn_seal_open` zeroes `out` before it refuses, so
+	 * `opened.payload` is NULL on any failure and a memcmp through it takes
+	 * the process down after the FAIL above has been printed into a buffer
+	 * nothing will flush. A test that crashes names its reason to nobody. */
+	check(verdict == FZN_SEAL_OK && opened.payload_len == PAYLOAD_LEN,
+	      "payload length came back wrong");
+	check(verdict == FZN_SEAL_OK && memcmp(opened.payload, PLAIN, PAYLOAD_LEN) == 0,
+	      "the payload did not round trip");
+	check(verdict == FZN_SEAL_OK && memcmp(opened.capability, CAP, 32) == 0,
+	      "the capability did not round trip");
+	check(verdict == FZN_SEAL_OK && opened.msg == 7 && opened.index == 1 &&
+	              opened.chunks == 4,
 	      "the decoded header fields came back wrong");
-	check(opened.kind == 2, "kind came back wrong");
-	check(opened.expires_at == 5000, "expires_at came back wrong");
-	check(opened.sender[0] == 0xa1 && opened.nonce[0] == 0x33,
+	check(verdict == FZN_SEAL_OK && opened.kind == 2, "kind came back wrong");
+	check(verdict == FZN_SEAL_OK && opened.expires_at == 5000, "expires_at came back wrong");
+	check(verdict == FZN_SEAL_OK && opened.sender[0] == 0xa1 && opened.nonce[0] == 0x33,
 	      "sender or nonce point at the wrong place");
 
 	/* A TAG THAT DOES NOT VERIFY, and the property that matters: the
@@ -253,7 +333,7 @@ int main(void)
 	 * fail this one. */
 	memcpy(frame, sealed, sizeof(frame));
 	frame[FRAME_LEN - 1] ^= 0x01u;
-	check(fzn_seal_open(frame, sizeof(frame), key, commitment, &aead, &opened) ==
+	check(fzn_seal_open(frame, sizeof(frame), key, commitment_key, &hash, &aead, &opened) ==
 	              FZN_SEAL_ERR_TAG,
 	      "a frame with a corrupted tag was opened");
 	check(memcmp(frame + OFF_PAYLOAD, sealed + OFF_PAYLOAD, PAYLOAD_LEN) == 0,
@@ -265,19 +345,25 @@ int main(void)
 	 * edited in flight; the tag is what makes that detectable. */
 	memcpy(frame, sealed, sizeof(frame));
 	put_be32(frame + OFF_MSG, 9);
-	check(fzn_seal_open(frame, sizeof(frame), key, commitment, &aead, &opened) ==
+	check(fzn_seal_open(frame, sizeof(frame), key, commitment_key, &hash, &aead, &opened) ==
 	              FZN_SEAL_ERR_TAG,
 	      "a frame whose header was edited in flight opened anyway");
 
 	/* THE WRONG KEY IS ANSWERED BY THE COMMITMENT, before a decryption is
 	 * spent, and with an error of its own. A receiver that has rotated its
-	 * key needs to know that rather than to go hunting an attacker. */
+	 * key needs to know that rather than to go hunting an attacker.
+	 *
+	 * A different commitment KEY now, where this used to pass a different
+	 * finished commitment. It is the same receiver -- one holding key
+	 * material the sender was not using -- reaching the same verdict by the
+	 * same route, and it is the only way to say it once the argument is a
+	 * key rather than an answer. */
 	{
-		uint8_t other_commitment[FZN_COMMITMENT_LEN];
+		uint8_t other_commitment_key[FZN_COMMITMENT_KEY_LEN];
 
-		memset(other_commitment, 0x11, sizeof(other_commitment));
+		memset(other_commitment_key, 0x11, sizeof(other_commitment_key));
 		memcpy(frame, sealed, sizeof(frame));
-		check(fzn_seal_open(frame, sizeof(frame), key, other_commitment, &aead,
+		check(fzn_seal_open(frame, sizeof(frame), key, other_commitment_key, &hash, &aead,
 		                    &opened) == FZN_SEAL_ERR_COMMITMENT,
 		      "a frame committing to a different key was not refused as such");
 		check(memcmp(frame, sealed, sizeof(frame)) == 0,
@@ -306,8 +392,8 @@ int main(void)
 		memcpy(frame, sealed, sizeof(frame));
 		frame[OFF_COMMIT + 3] ^= 0x01u; /* frame offset 0x49 */
 		aead_opens = 0;
-		check(fzn_seal_open(frame, sizeof(frame), key, commitment, &counted, &opened) ==
-		              FZN_SEAL_ERR_COMMITMENT,
+		check(fzn_seal_open(frame, sizeof(frame), key, commitment_key, &hash, &counted,
+		                    &opened) == FZN_SEAL_ERR_COMMITMENT,
 		      "a flipped commitment byte did not produce the commitment verdict");
 		check(aead_opens == 0,
 		      "the commitment verdict cost a decryption, so it is not the pre-tag "
@@ -315,11 +401,66 @@ int main(void)
 
 		memcpy(frame, sealed, sizeof(frame));
 		aead_opens = 0;
-		check(fzn_seal_open(frame, sizeof(frame), key, commitment, &counted, &opened) ==
-		              FZN_SEAL_OK,
+		check(fzn_seal_open(frame, sizeof(frame), key, commitment_key, &hash, &counted,
+		                    &opened) == FZN_SEAL_OK,
 		      "the counting aead could not open an untouched frame");
 		check(aead_opens == 1,
 		      "the counting aead was never called, so the zero above was vacuous");
+
+		/* A REWRITTEN NONCE IS NOW ANSWERED HERE TOO, and this case could
+		 * not have existed before the commitment depended on one.
+		 *
+		 * It is what proves the derivation reads the nonce OUT OF THE
+		 * FRAME. An implementation that derived from any other nonce -- a
+		 * cached one, a fixed one, the last frame's -- would answer this
+		 * flip identically to the untouched frame above, and the round
+		 * trip would still pass. `fzn_seal_open` deriving from a constant
+		 * is the mutation this fails for.
+		 *
+		 * The verdict is COMMITMENT rather than TAG even though the tag
+		 * covers the nonce as well, and the order is why: the derived
+		 * commitment no longer matches the frame's field, so the frame is
+		 * refused before the AEAD is reached. The counter says so. */
+		memcpy(frame, sealed, sizeof(frame));
+		frame[OFF_NONCE + 5] ^= 0x01u;
+		aead_opens = 0;
+		check(fzn_seal_open(frame, sizeof(frame), key, commitment_key, &hash, &counted,
+		                    &opened) == FZN_SEAL_ERR_COMMITMENT,
+		      "a frame whose nonce was rewritten in flight still matched the "
+		      "commitment, so the derivation is not reading the frame's nonce");
+		check(aead_opens == 0,
+		      "a rewritten nonce cost a decryption, so the commitment check has "
+		      "moved below the AEAD");
+	}
+
+	/* THE HASH SEAM REFUSING, WHICH IS NOT A COMMITMENT MISMATCH.
+	 *
+	 * Both paths derive now, so a hash that cannot answer is a fault of
+	 * this host's own wiring and it happens on EVERY frame. Reported as
+	 * FZN_SEAL_ERR_COMMITMENT it would be indistinguishable from a peer
+	 * whose key has moved -- and seal.h tells a consumer to act on the rate
+	 * of those, which a broken hash drives to one. The consumer would rekey
+	 * against a healthy peer on the strength of its own missing hash.
+	 *
+	 * THE THIRD CHECK IS THE POSITIVE CONTROL AND IS NOT DECORATION. The
+	 * same frame, the same key, the same everything but the switch, must
+	 * open once the seam answers again -- otherwise "it refused" is
+	 * satisfied by a frame that was never openable. */
+	{
+		fzn_aead_ops_t counted = { stub_seal, counting_open, NULL };
+
+		memcpy(frame, sealed, sizeof(frame));
+		hash_ctx.refuse = 1;
+		aead_opens = 0;
+		check(fzn_seal_open(frame, sizeof(frame), key, commitment_key, &hash, &counted,
+		                    &opened) == FZN_SEAL_ERR_HASH,
+		      "a hash seam that refused was not reported as such");
+		check(aead_opens == 0, "a refused hash still cost a decryption");
+		hash_ctx.refuse = 0;
+		check(fzn_seal_open(frame, sizeof(frame), key, commitment_key, &hash, &counted,
+		                    &opened) == FZN_SEAL_OK,
+		      "the frame did not open once the hash answered again, so the refusal "
+		      "above proved nothing");
 	}
 
 	/* AND THE WRONG KEY WITH THE RIGHT COMMITMENT, which is the case the
@@ -347,7 +488,7 @@ int main(void)
 		memset(other_key, 0x99, sizeof(other_key));
 		memcpy(frame, sealed, sizeof(frame));
 		memset(&opened, 0xee, sizeof(opened));
-		check(fzn_seal_open(frame, sizeof(frame), other_key, commitment, &aead,
+		check(fzn_seal_open(frame, sizeof(frame), other_key, commitment_key, &hash, &aead,
 		                    &opened) == FZN_SEAL_ERR_TAG,
 		      "a frame opened under a completely different key was not refused by "
 		      "the tag");
@@ -363,48 +504,65 @@ int main(void)
 	/* SHAPE, from the schema's own validator rather than restated here. */
 	memcpy(frame, sealed, sizeof(frame));
 	frame[OFF_VERSION] = 2;
-	check(fzn_seal_open(frame, sizeof(frame), key, commitment, &aead, &opened) ==
+	check(fzn_seal_open(frame, sizeof(frame), key, commitment_key, &hash, &aead, &opened) ==
 	              FZN_SEAL_ERR_SHAPE,
 	      "a frame with an unknown version reached the cryptography");
 	memcpy(frame, sealed, sizeof(frame));
 	put_be16(frame + OFF_CHUNKS, 0);
-	check(fzn_seal_open(frame, sizeof(frame), key, commitment, &aead, &opened) ==
+	check(fzn_seal_open(frame, sizeof(frame), key, commitment_key, &hash, &aead, &opened) ==
 	              FZN_SEAL_ERR_SHAPE,
 	      "a frame claiming zero chunks reached the cryptography");
 	memcpy(frame, sealed, sizeof(frame));
 	put_be16(frame + OFF_INDEX, 4);
-	check(fzn_seal_open(frame, sizeof(frame), key, commitment, &aead, &opened) ==
+	check(fzn_seal_open(frame, sizeof(frame), key, commitment_key, &hash, &aead, &opened) ==
 	              FZN_SEAL_ERR_SHAPE,
 	      "a frame whose index is past its own chunk count reached the cryptography");
 
-	check(fzn_seal_open(frame, 4, key, commitment, &aead, &opened) == FZN_SEAL_ERR_SHAPE,
+	check(fzn_seal_open(frame, 4, key, commitment_key, &hash, &aead,
+	                    &opened) == FZN_SEAL_ERR_SHAPE,
 	      "a four-byte frame was accepted");
 
 	/* Arguments. */
-	check(fzn_seal_open(NULL, sizeof(frame), key, commitment, &aead, &opened) ==
+	check(fzn_seal_open(NULL, sizeof(frame), key, commitment_key, &hash, &aead, &opened) ==
 	              FZN_SEAL_ERR_MALFORMED, "a null frame");
-	check(fzn_seal_open(frame, sizeof(frame), NULL, commitment, &aead, &opened) ==
+	check(fzn_seal_open(frame, sizeof(frame), NULL, commitment_key, &hash, &aead, &opened) ==
 	              FZN_SEAL_ERR_MALFORMED, "a null key");
-	check(fzn_seal_open(frame, sizeof(frame), key, NULL, &aead, &opened) ==
-	              FZN_SEAL_ERR_MALFORMED, "a null commitment");
-	check(fzn_seal_open(frame, sizeof(frame), key, commitment, NULL, &opened) ==
+	check(fzn_seal_open(frame, sizeof(frame), key, NULL, &hash, &aead, &opened) ==
+	              FZN_SEAL_ERR_MALFORMED, "a null commitment key");
+	check(fzn_seal_open(frame, sizeof(frame), key, commitment_key, NULL, &aead, &opened) ==
+	              FZN_SEAL_ERR_MALFORMED, "a null hash");
+	{
+		/* ABSENT IS NOT THE SAME FAULT AS REFUSING, which is why this is
+		 * MALFORMED where the block above is FZN_SEAL_ERR_HASH. A seam
+		 * with no function behind it is a caller's mistake, made once at
+		 * wiring time; a seam that answers no is the implementation's
+		 * answer. Same split as a null `rng` against
+		 * FZN_SEAL_ERR_NO_NONCE. */
+		fzn_hash_ops_t no_hash = { NULL, NULL };
+
+		check(fzn_seal_open(frame, sizeof(frame), key, commitment_key, &no_hash, &aead,
+		                    &opened) == FZN_SEAL_ERR_MALFORMED,
+		      "a hash seam with no function behind it");
+	}
+	check(fzn_seal_open(frame, sizeof(frame), key, commitment_key, &hash, NULL, &opened) ==
 	              FZN_SEAL_ERR_MALFORMED, "a null aead");
-	check(fzn_seal_open(frame, sizeof(frame), key, commitment, &aead, NULL) ==
+	check(fzn_seal_open(frame, sizeof(frame), key, commitment_key, &hash, &aead, NULL) ==
 	              FZN_SEAL_ERR_MALFORMED, "a null out");
 	{
 		fzn_aead_ops_t no_open = { stub_seal, NULL, NULL };
 		fzn_aead_ops_t no_seal = { NULL, stub_open, NULL };
 
-		check(fzn_seal_open(frame, sizeof(frame), key, commitment, &no_open, &opened) ==
-		              FZN_SEAL_ERR_MALFORMED, "an aead that cannot open");
+		check(fzn_seal_open(frame, sizeof(frame), key, commitment_key, &hash, &no_open,
+		                    &opened) == FZN_SEAL_ERR_MALFORMED,
+		      "an aead that cannot open");
 		check(fzn_seal_close(frame, sizeof(frame), key, &no_seal) == FZN_SEAL_ERR_MALFORMED,
 		      "an aead that cannot seal");
 	}
 	/* A length that will not fit the u32 the layout addresses with. Refused
 	 * before anything reads the buffer, which is why passing a size larger
 	 * than the array is safe here and nowhere else in this file. */
-	check(fzn_seal_open(frame, (size_t)UINT32_MAX + 1u, key, commitment, &aead, &opened) ==
-	              FZN_SEAL_ERR_SHAPE,
+	check(fzn_seal_open(frame, (size_t)UINT32_MAX + 1u, key, commitment_key, &hash, &aead,
+	                    &opened) == FZN_SEAL_ERR_SHAPE,
 	      "a frame length past UINT32_MAX was accepted");
 	check(fzn_seal_close(frame, (size_t)UINT32_MAX + 1u, key, &aead) == FZN_SEAL_ERR_SHAPE,
 	      "sealing a frame length past UINT32_MAX was accepted");
@@ -415,7 +573,7 @@ int main(void)
 	      "sealing with a null aead");
 	check(fzn_seal_close(frame, sizeof(frame), NULL, &aead) == FZN_SEAL_ERR_MALFORMED,
 	      "sealing with a null key");
-	build(frame, commitment);
+	build(frame);
 	frame[OFF_VERSION] = 3;
 	check(fzn_seal_close(frame, sizeof(frame), key, &aead) == FZN_SEAL_ERR_SHAPE,
 	      "sealing a frame the schema refuses");
@@ -442,22 +600,27 @@ int main(void)
 		what.chunks = 4;
 		what.kind = 2;
 
-		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, commitment,
-		                     &rng, &aead) == FZN_SEAL_OK,
+		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, commitment_key,
+		                     &hash, &rng, &aead) == FZN_SEAL_OK,
 		      "building a frame was refused");
 		check(built_len == FRAME_LEN,
 		      "a built frame is not the overhead plus the payload");
 
-		/* It opens, which is the round trip the send path exists for. */
-		check(fzn_seal_open(built, built_len, key, commitment, &aead, &opened) ==
-		              FZN_SEAL_OK,
-		      "a frame this library built could not be opened by it");
-		check(memcmp(opened.payload, PLAIN, PAYLOAD_LEN) == 0,
+		/* IT OPENS, WHICH IS THE ROUND TRIP THE SEND PATH EXISTS FOR --
+		 * and which is now also the case that fails when the commitment is
+		 * derived from anything other than the nonce this frame carries.
+		 * Deriving before the nonce is drawn hashes an uninitialised
+		 * buffer, and the frame this library just built is one it refuses
+		 * to open. Guarded on the verdict for the reason above. */
+		verdict = fzn_seal_open(built, built_len, key, commitment_key, &hash, &aead,
+		                        &opened);
+		check(verdict == FZN_SEAL_OK, "a frame this library built could not be opened by it");
+		check(verdict == FZN_SEAL_OK && memcmp(opened.payload, PLAIN, PAYLOAD_LEN) == 0,
 		      "the payload did not survive build and open");
-		check(memcmp(opened.capability, CAP, 32) == 0,
+		check(verdict == FZN_SEAL_OK && memcmp(opened.capability, CAP, 32) == 0,
 		      "the capability did not survive build and open");
-		check(opened.msg == 7 && opened.index == 1 && opened.chunks == 4 &&
-		              opened.kind == 2 && opened.expires_at == 5000,
+		check(verdict == FZN_SEAL_OK && opened.msg == 7 && opened.index == 1 &&
+		              opened.chunks == 4 && opened.kind == 2 && opened.expires_at == 5000,
 		      "a header field did not survive build and open");
 
 		/* A FRESH NONCE PER FRAME, which is the trap this call exists to
@@ -465,8 +628,8 @@ int main(void)
 		 * and must differ in the nonce specifically -- not merely in the
 		 * ciphertext, which would also change if the nonce were reused
 		 * but something else moved. */
-		check(fzn_seal_build(again, sizeof(again), &again_len, &what, key, commitment,
-		                     &rng, &aead) == FZN_SEAL_OK,
+		check(fzn_seal_build(again, sizeof(again), &again_len, &what, key, commitment_key,
+		                     &hash, &rng, &aead) == FZN_SEAL_OK,
 		      "building a second frame was refused");
 		check(memcmp(built + OFF_NONCE, again + OFF_NONCE, FZN_AEAD_NONCE_LEN) != 0,
 		      "two frames built from identical arguments carry the same nonce, which "
@@ -474,12 +637,50 @@ int main(void)
 		check(memcmp(built, again, FRAME_LEN) != 0,
 		      "two frames built from identical arguments are byte-identical");
 
+		/* AND A FRESH COMMITMENT PER FRAME, ASSERTED DIRECTLY RATHER THAN
+		 * LEFT TO THE ROUND TRIP.
+		 *
+		 * This is the whole reason the commitment moved inside this call.
+		 * A commitment derived from long-lived material alone is a
+		 * constant per (sender, receiver) pair, sitting in the CLEARTEXT
+		 * head beside `sender[32]` -- so anyone forwarding a datagram
+		 * reads the pair off it, which is the social graph, and it defeats
+		 * the reason `capability[32]` was moved inside the seal.
+		 *
+		 * A build that derived from a FIXED nonce rather than the one it
+		 * drew round-trips perfectly and leaks exactly as much as before,
+		 * so nothing else in this file would notice. That is the mutation
+		 * this line exists for. */
+		check(memcmp(built + OFF_COMMIT, again + OFF_COMMIT, FZN_COMMITMENT_LEN) != 0,
+		      "two frames of one pair carry the same commitment, which is the "
+		      "cleartext per-pair correlator the nonce binding removes");
+
+		/* AND IT IS THE COMMITMENT THAT THIS FRAME'S OWN NONCE DERIVES.
+		 *
+		 * "They differ" is satisfied by a build that derived from anything
+		 * that varies -- a counter, uninitialised stack -- and such a
+		 * frame is one no receiver can open. Deriving independently here,
+		 * from the nonce read back out of the frame, is what pins the two
+		 * together. It is also what goes red if the derivation is moved
+		 * ABOVE the nonce draw, where it hashes a buffer nothing has
+		 * written yet. */
+		{
+			uint8_t want[FZN_COMMITMENT_LEN];
+
+			check(fzn_commitment_for_nonce(&hash, commitment_key, built + OFF_NONCE,
+			                               want) == FZN_COMMITMENT_OK,
+			      "the test's own derivation refused");
+			check(memcmp(built + OFF_COMMIT, want, FZN_COMMITMENT_LEN) == 0,
+			      "the commitment in a built frame is not the one its own nonce "
+			      "derives, so the frame was not sealed with the nonce it carries");
+		}
+
 		/* NO NONCE, NO FRAME. A source that cannot answer must leave the
 		 * caller's buffer untouched rather than produce something
 		 * sealed under a predictable one. */
 		memset(again, 0xee, sizeof(again));
-		check(fzn_seal_build(again, sizeof(again), &again_len, &what, key, commitment,
-		                     &no_rng, &aead) == FZN_SEAL_ERR_NO_NONCE,
+		check(fzn_seal_build(again, sizeof(again), &again_len, &what, key, commitment_key,
+		                     &hash, &no_rng, &aead) == FZN_SEAL_ERR_NO_NONCE,
 		      "a frame was built without a nonce");
 		{
 			int untouched = 1;
@@ -489,10 +690,36 @@ int main(void)
 			check(untouched, "a refused build left a half-written frame in the buffer");
 		}
 
+		/* AND NO HASH, NO FRAME, which is the same promise one step
+		 * along. The commitment is derived before the buffer is touched
+		 * for exactly this reason: a seam that refuses must leave a
+		 * caller's buffer as it found it, or a caller reusing one buffer
+		 * across frames loses the previous frame to the refusal.
+		 *
+		 * A different code from the nonce case, deliberately -- see
+		 * seal.h. Both halves are checked because fixing either alone
+		 * looks like success: the derivation could happen after the memset
+		 * and still return the right code. */
+		memset(again, 0xee, sizeof(again));
+		hash_ctx.refuse = 1;
+		check(fzn_seal_build(again, sizeof(again), &again_len, &what, key, commitment_key,
+		                     &hash, &rng, &aead) == FZN_SEAL_ERR_HASH,
+		      "a frame was built with a hash that could not derive its commitment");
+		hash_ctx.refuse = 0;
+		{
+			int untouched = 1;
+
+			for (size_t i = 0; i < sizeof(again); i++)
+				untouched = untouched && again[i] == 0xee;
+			check(untouched,
+			      "a build refused for the hash left a half-written frame in the "
+			      "buffer");
+		}
+
 		/* Capacity, which a sender gets wrong by forgetting the
 		 * overhead rather than by miscounting the payload. */
-		check(fzn_seal_build(built, FRAME_LEN - 1u, &built_len, &what, key, commitment,
-		                     &rng, &aead) == FZN_SEAL_ERR_CAPACITY,
+		check(fzn_seal_build(built, FRAME_LEN - 1u, &built_len, &what, key, commitment_key,
+		                     &hash, &rng, &aead) == FZN_SEAL_ERR_CAPACITY,
 		      "a frame was built into a buffer one byte short");
 		/* The overhead is checked in wire/test/constants_test.c, against
 		 * SITU_FZN_FRAME_SIZE_MIN rather than against the literal 144 that
@@ -501,31 +728,44 @@ int main(void)
 		/* A shape the schema refuses must be refused before the tag is
 		 * spent, on the way out as well as on the way in. */
 		what.chunks = 0;
-		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, commitment,
-		                     &rng, &aead) == FZN_SEAL_ERR_SHAPE,
+		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, commitment_key,
+		                     &hash, &rng, &aead) == FZN_SEAL_ERR_SHAPE,
 		      "a frame claiming zero chunks was built and sealed");
 		what.chunks = 4;
 		what.index = 9;
-		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, commitment,
-		                     &rng, &aead) == FZN_SEAL_ERR_SHAPE,
+		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, commitment_key,
+		                     &hash, &rng, &aead) == FZN_SEAL_ERR_SHAPE,
 		      "a frame whose index is past its chunk count was built and sealed");
 		what.index = 1;
 
 		/* Arguments. */
-		check(fzn_seal_build(NULL, sizeof(built), &built_len, &what, key, commitment,
-		                     &rng, &aead) == FZN_SEAL_ERR_MALFORMED, "a null frame");
-		check(fzn_seal_build(built, sizeof(built), NULL, &what, key, commitment, &rng,
-		                     &aead) == FZN_SEAL_ERR_MALFORMED, "a null length out");
-		check(fzn_seal_build(built, sizeof(built), &built_len, NULL, key, commitment,
-		                     &rng, &aead) == FZN_SEAL_ERR_MALFORMED, "a null send struct");
-		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, commitment,
-		                     NULL, &aead) == FZN_SEAL_ERR_MALFORMED, "a null rng");
-		check(fzn_seal_build(built, sizeof(built), &built_len, &what, NULL, commitment,
-		                     &rng, &aead) == FZN_SEAL_ERR_MALFORMED, "a null key");
-		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, NULL,
-		                     &rng, &aead) == FZN_SEAL_ERR_MALFORMED, "a null commitment");
-		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, commitment,
-		                     &rng, NULL) == FZN_SEAL_ERR_MALFORMED, "a null aead");
+		check(fzn_seal_build(NULL, sizeof(built), &built_len, &what, key, commitment_key,
+		                     &hash, &rng, &aead) == FZN_SEAL_ERR_MALFORMED,
+		      "a null frame");
+		check(fzn_seal_build(built, sizeof(built), NULL, &what, key, commitment_key, &hash,
+		                     &rng, &aead) == FZN_SEAL_ERR_MALFORMED, "a null length out");
+		check(fzn_seal_build(built, sizeof(built), &built_len, NULL, key, commitment_key,
+		                     &hash, &rng, &aead) == FZN_SEAL_ERR_MALFORMED,
+		      "a null send struct");
+		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, commitment_key,
+		                     &hash, NULL, &aead) == FZN_SEAL_ERR_MALFORMED, "a null rng");
+		check(fzn_seal_build(built, sizeof(built), &built_len, &what, NULL, commitment_key,
+		                     &hash, &rng, &aead) == FZN_SEAL_ERR_MALFORMED, "a null key");
+		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, NULL, &hash,
+		                     &rng, &aead) == FZN_SEAL_ERR_MALFORMED,
+		      "a null commitment key");
+		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, commitment_key,
+		                     NULL, &rng, &aead) == FZN_SEAL_ERR_MALFORMED, "a null hash");
+		{
+			fzn_hash_ops_t no_hash = { NULL, NULL };
+
+			check(fzn_seal_build(built, sizeof(built), &built_len, &what, key,
+			                     commitment_key, &no_hash, &rng,
+			                     &aead) == FZN_SEAL_ERR_MALFORMED,
+			      "a hash seam with no function behind it");
+		}
+		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, commitment_key,
+		                     &hash, &rng, NULL) == FZN_SEAL_ERR_MALFORMED, "a null aead");
 
 		/* THE TWO INSIDE THE SEND STRUCT, which the matrix above cannot
 		 * reach by passing NULL for an argument. Both were unexercised
@@ -540,18 +780,20 @@ int main(void)
 		 * read from a null pointer in the middle of a half-built frame
 		 * rather than a refusal before one exists. */
 		what.sender = NULL;
-		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, commitment,
-		                     &rng, &aead) == FZN_SEAL_ERR_MALFORMED, "a null sender");
+		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, commitment_key,
+		                     &hash, &rng, &aead) == FZN_SEAL_ERR_MALFORMED,
+		      "a null sender");
 		what.sender = sealed + OFF_SENDER;
 
 		what.capability = NULL;
-		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, commitment,
-		                     &rng, &aead) == FZN_SEAL_ERR_MALFORMED, "a null capability");
+		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, commitment_key,
+		                     &hash, &rng, &aead) == FZN_SEAL_ERR_MALFORMED,
+		      "a null capability");
 		what.capability = CAP;
 
 		what.payload = NULL;
-		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, commitment,
-		                     &rng, &aead) == FZN_SEAL_ERR_MALFORMED,
+		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, commitment_key,
+		                     &hash, &rng, &aead) == FZN_SEAL_ERR_MALFORMED,
 		      "a null payload with a non-zero length");
 		what.payload = PLAIN;
 
@@ -575,7 +817,7 @@ int main(void)
 			what.index = 5;
 			what.chunks = 2;
 			check(fzn_seal_build(built, sizeof(built), &built_len, &what, key,
-			                     commitment, &rng, &aead) != FZN_SEAL_OK,
+			                     commitment_key, &hash, &rng, &aead) != FZN_SEAL_OK,
 			      "an index past chunks was accepted");
 			check(find_bytes(built, sizeof(built), CAP, sizeof(CAP)) == 0,
 			      "a refused build left the capability in the caller's buffer "
@@ -594,12 +836,12 @@ int main(void)
 		 * it something smaller than the fixed part. */
 		{
 			uint8_t stub[FZN_SEAL_OVERHEAD - 1];
-			fzn_opened_t opened;
+			fzn_opened_t stub_opened;
 
 			memset(stub, 0, sizeof(stub));
 			stub[0] = 1;
-			check(fzn_seal_open(stub, sizeof(stub), key, commitment, &aead,
-			                    &opened) == FZN_SEAL_ERR_SHAPE,
+			check(fzn_seal_open(stub, sizeof(stub), key, commitment_key, &hash, &aead,
+			                    &stub_opened) == FZN_SEAL_ERR_SHAPE,
 			      "a frame shorter than the fixed part was not refused");
 		}
 	}
@@ -639,14 +881,14 @@ int main(void)
 		 * only refused something far too large would pass with the bound
 		 * set anywhere above it. */
 		what.payload_len = bound;
-		check(fzn_seal_build(big, sizeof(big), &wrote, &what, key, commitment, &rng,
-		                     &aead) == FZN_SEAL_OK,
+		check(fzn_seal_build(big, sizeof(big), &wrote, &what, key, commitment_key, &hash,
+		                     &rng, &aead) == FZN_SEAL_OK,
 		      "the largest payload the schema allows was refused");
 
 		what.payload_len = bound + 1u;
 		memset(big, 0x5A, sizeof(big));
-		check(fzn_seal_build(big, sizeof(big), &wrote, &what, key, commitment, &rng,
-		                     &aead) == FZN_SEAL_ERR_SHAPE,
+		check(fzn_seal_build(big, sizeof(big), &wrote, &what, key, commitment_key, &hash,
+		                     &rng, &aead) == FZN_SEAL_ERR_SHAPE,
 		      "a payload one byte past the schema's bound was accepted");
 
 		for (size_t i = 0; i < sizeof(big); i++)
@@ -682,8 +924,8 @@ int main(void)
 		size_t accepted = 0;
 
 		memcpy(padded, sealed, FRAME_LEN);
-		check(fzn_seal_open(padded, FRAME_LEN, key, commitment, &aead, &padded_opened) ==
-		              FZN_SEAL_OK,
+		check(fzn_seal_open(padded, FRAME_LEN, key, commitment_key, &hash, &aead,
+		                    &padded_opened) == FZN_SEAL_OK,
 		      "the unpadded frame stopped opening");
 		check(padded_opened.payload_len == PAYLOAD_LEN &&
 		              memcmp(padded_opened.payload, PLAIN, PAYLOAD_LEN) == 0,
@@ -694,8 +936,8 @@ int main(void)
 		for (size_t extra = 1; extra <= 4096; extra++) {
 			memcpy(padded, sealed, FRAME_LEN);
 			memset(padded + FRAME_LEN, 0x5A, extra);
-			if (fzn_seal_open(padded, FRAME_LEN + extra, key, commitment, &aead,
-			                  &padded_opened) != FZN_SEAL_ERR_SHAPE)
+			if (fzn_seal_open(padded, FRAME_LEN + extra, key, commitment_key, &hash,
+			                  &aead, &padded_opened) != FZN_SEAL_ERR_SHAPE)
 				accepted++;
 		}
 		check(accepted == 0,
@@ -706,7 +948,7 @@ int main(void)
 		 * caller sealing over a padded buffer would otherwise produce a
 		 * frame every receiver now refuses, and learn about it from
 		 * somebody else's logs. */
-		build(padded, commitment);
+		build(padded);
 		memset(padded + FRAME_LEN, 0x5A, 8);
 		check(fzn_seal_close(padded, FRAME_LEN + 8, key, &aead) == FZN_SEAL_ERR_SHAPE,
 		      "sealing over a buffer longer than the frame it holds was accepted");
@@ -758,8 +1000,8 @@ int main(void)
 		 * default budget": the second reading would turn those callers
 		 * into traffic sources without one of them changing a line. */
 		what.hops = 0;
-		check(fzn_seal_build(hopped, sizeof(hopped), &hopped_len, &what, key, commitment,
-		                     &rng, &aead) == FZN_SEAL_OK,
+		check(fzn_seal_build(hopped, sizeof(hopped), &hopped_len, &what, key,
+		                     commitment_key, &hash, &rng, &aead) == FZN_SEAL_OK,
 		      "building a frame with no hop budget was refused");
 		check(fzn_relay_budget(hopped, hopped_len, FZN_RELAY_MAX_HOPS, &budget) ==
 		                      FZN_RELAY_OK &&
@@ -768,8 +1010,8 @@ int main(void)
 		check(fzn_relay_spend(hopped, hopped_len, FZN_RELAY_MAX_HOPS) ==
 		              FZN_RELAY_ERR_EXHAUSTED,
 		      "a frame built with hops = 0 was forwardable");
-		check(fzn_seal_open(hopped, hopped_len, key, commitment, &aead, &after) ==
-		              FZN_SEAL_OK,
+		check(fzn_seal_open(hopped, hopped_len, key, commitment_key, &hash, &aead,
+		                    &after) == FZN_SEAL_OK,
 		      "a frame with no hop budget stopped opening -- zero costs reach, not "
 		      "delivery");
 
@@ -777,8 +1019,8 @@ int main(void)
 		 * No `frame[1]` anywhere in this block, which is the half of the
 		 * finding a raw-offset assertion could not have shown. */
 		what.hops = FZN_RELAY_MAX_HOPS;
-		check(fzn_seal_build(hopped, sizeof(hopped), &hopped_len, &what, key, commitment,
-		                     &rng, &aead) == FZN_SEAL_OK,
+		check(fzn_seal_build(hopped, sizeof(hopped), &hopped_len, &what, key,
+		                     commitment_key, &hash, &rng, &aead) == FZN_SEAL_OK,
 		      "building a relayable frame was refused");
 		check(fzn_relay_budget(hopped, hopped_len, FZN_RELAY_MAX_HOPS, &budget) ==
 		                      FZN_RELAY_OK &&
@@ -821,8 +1063,8 @@ int main(void)
 			fzn_seal_err_t reopened;
 
 			memset(&after, 0xee, sizeof(after));
-			reopened = fzn_seal_open(hopped, hopped_len, key, commitment, &aead,
-			                         &after);
+			reopened = fzn_seal_open(hopped, hopped_len, key, commitment_key, &hash,
+			                         &aead, &after);
 			check(reopened == FZN_SEAL_OK,
 			      "a frame relayed its full budget no longer opens -- the tag "
 			      "covers `hop`, which it must not");
@@ -864,20 +1106,20 @@ int main(void)
 			size_t probe_len = 0;
 
 			check(fzn_seal_build(probe, sizeof(probe), &probe_len, &what, key,
-			                     commitment, &rng, &aead) == FZN_SEAL_OK,
+			                     commitment_key, &hash, &rng, &aead) == FZN_SEAL_OK,
 			      "building the coverage probe was refused");
 			probe[4] ^= 0x7Fu;
-			check(fzn_seal_open(probe, probe_len, key, commitment, &aead, &after) ==
-			              FZN_SEAL_ERR_SHAPE,
+			check(fzn_seal_open(probe, probe_len, key, commitment_key, &hash, &aead,
+			                    &after) == FZN_SEAL_ERR_SHAPE,
 			      "the last byte of `hop` was answered by the tag, so the tag "
 			      "covers more than it should");
 
 			check(fzn_seal_build(probe, sizeof(probe), &probe_len, &what, key,
-			                     commitment, &rng, &aead) == FZN_SEAL_OK,
+			                     commitment_key, &hash, &rng, &aead) == FZN_SEAL_OK,
 			      "rebuilding the coverage probe was refused");
 			probe[5] ^= 0x01u;
-			check(fzn_seal_open(probe, probe_len, key, commitment, &aead, &after) ==
-			              FZN_SEAL_ERR_TAG,
+			check(fzn_seal_open(probe, probe_len, key, commitment_key, &hash, &aead,
+			                    &after) == FZN_SEAL_ERR_TAG,
 			      "the first authenticated byte was not answered by the tag, so "
 			      "the tag covers less than it should");
 		}
@@ -895,13 +1137,14 @@ int main(void)
 
 			what.hops = FZN_RELAY_MAX_HOPS;
 			check(fzn_seal_build(hopped, sizeof(hopped), &wrote, &what, key,
-			                     commitment, &rng, &aead) == FZN_SEAL_OK,
+			                     commitment_key, &hash, &rng, &aead) == FZN_SEAL_OK,
 			      "the largest budget this library forwards was refused");
 
 			what.hops = FZN_RELAY_MAX_HOPS + 1u;
 			memset(hopped, 0xee, sizeof(hopped));
 			check(fzn_seal_build(hopped, sizeof(hopped), &wrote, &what, key,
-			                     commitment, &rng, &aead) == FZN_SEAL_ERR_MALFORMED,
+			                     commitment_key, &hash, &rng,
+			                     &aead) == FZN_SEAL_ERR_MALFORMED,
 			      "a budget past what this library will forward was accepted");
 			for (size_t i = 0; i < sizeof(hopped); i++)
 				if (hopped[i] != 0xee)

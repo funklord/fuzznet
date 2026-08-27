@@ -54,17 +54,20 @@ static int views(uint8_t *frame, size_t frame_len, situ_msg_t *msg, situ_view_t 
 
 fzn_seal_err_t fzn_seal_open(uint8_t *frame, size_t frame_len,
                               const uint8_t key[FZN_AEAD_KEY_LEN],
-                              const uint8_t commitment[FZN_COMMITMENT_LEN],
-                              const fzn_aead_ops_t *aead, fzn_opened_t *out)
+                              const uint8_t commitment_key[FZN_COMMITMENT_KEY_LEN],
+                              const fzn_hash_ops_t *hash, const fzn_aead_ops_t *aead,
+                              fzn_opened_t *out)
 {
 	situ_msg_t msg;
 	situ_view_t fv, hv;
 	situ_fzn_frame_sealed_t gate;
 	uint32_t covered_at, covered_len;
+	uint8_t derived[FZN_COMMITMENT_LEN];
 	uint8_t *tag;
 	int verified;
 
-	if (!frame || !key || !commitment || !aead || !aead->open || !out)
+	if (!frame || !key || !commitment_key || !hash || !hash->hash || !aead || !aead->open ||
+	    !out)
 		return FZN_SEAL_ERR_MALFORMED;
 
 	memset(out, 0, sizeof(*out));
@@ -73,11 +76,34 @@ fzn_seal_err_t fzn_seal_open(uint8_t *frame, size_t frame_len,
 		return FZN_SEAL_ERR_SHAPE;
 
 	/* THE COMMITMENT FIRST, before a decryption is spent on a frame this
-	 * key was never going to open. Constant time because it is compared
-	 * against a value derived from the key: a timing oracle here would
-	 * leak which key a receiver holds, which is the metadata the sealed
-	 * capability was moved inside the seal to protect. */
-	if (!fzn_ct_memeq(situ_fzn_head_commitment_ptr(hv), commitment, FZN_COMMITMENT_LEN))
+	 * key was never going to open -- and DERIVED here rather than supplied,
+	 * because it is a function of the nonce this frame arrived carrying and
+	 * nobody could have computed it before the frame existed. See seal.h
+	 * for what that costs and what to do when the candidate set is large.
+	 *
+	 * THE NONCE COMES OUT OF THE FRAME, not from the caller, and there is
+	 * no other nonce it could come from: `views()` has just proved the head
+	 * is inside the buffer, and the head is where the sender put the nonce
+	 * it drew. Deriving from anything else -- a cached nonce, a peer's last
+	 * one -- would refuse every good frame, which is what
+	 * `wire/test/seal_test.c` mutates this line to check.
+	 *
+	 * A HASH THAT REFUSES IS NOT A MISMATCH. It is a local fault that
+	 * happens on every frame, and reported as FZN_SEAL_ERR_COMMITMENT it
+	 * would look exactly like a peer whose key has moved -- which seal.h
+	 * tells a consumer to act on when its rate is high. Hence the separate
+	 * code.
+	 *
+	 * The comparison is `fzn_commitment_check` rather than a bare
+	 * `fzn_ct_memeq`, so that the reason it must be constant time lives in
+	 * one place: the received half is an attacker's and the derived half is
+	 * a function of long-lived key material, so a byte-at-a-time timing
+	 * oracle taken over enough frames searches the commitment key rather
+	 * than one frame's commitment. */
+	if (fzn_commitment_for_nonce(hash, commitment_key, situ_fzn_head_nonce_ptr(hv),
+	                             derived) != FZN_COMMITMENT_OK)
+		return FZN_SEAL_ERR_HASH;
+	if (fzn_commitment_check(derived, situ_fzn_head_commitment_ptr(hv)) != FZN_COMMITMENT_OK)
 		return FZN_SEAL_ERR_COMMITMENT;
 
 	/* THE THREE GUARDS BELOW CANNOT FIRE FOR A FRAME THAT REACHED HERE, and
@@ -156,13 +182,15 @@ fzn_seal_err_t fzn_seal_open(uint8_t *frame, size_t frame_len,
 
 fzn_seal_err_t fzn_seal_build(uint8_t *frame, size_t frame_cap, size_t *frame_len,
                                const fzn_send_t *what, const uint8_t key[FZN_AEAD_KEY_LEN],
-                               const uint8_t commitment[FZN_COMMITMENT_LEN],
-                               const fzn_random_ops_t *rng, const fzn_aead_ops_t *aead)
+                               const uint8_t commitment_key[FZN_COMMITMENT_KEY_LEN],
+                               const fzn_hash_ops_t *hash, const fzn_random_ops_t *rng,
+                               const fzn_aead_ops_t *aead)
 {
 	situ_msg_t msg;
 	situ_view_t fv, hv, hopv;
 	situ_fzn_frame_sealed_t gate;
 	uint8_t nonce[FZN_AEAD_NONCE_LEN];
+	uint8_t commitment[FZN_COMMITMENT_LEN];
 	size_t total;
 
 	/* `aead->seal` as well as `aead`, which `fzn_seal_open` and
@@ -172,7 +200,7 @@ fzn_seal_err_t fzn_seal_build(uint8_t *frame, size_t frame_cap, size_t *frame_le
 	 * breaking the promise this function makes twenty lines below about
 	 * leaving the buffer untouched when it cannot proceed. */
 	if (!frame || !frame_len || !what || !what->sender || !what->capability || !key ||
-	    !commitment || !rng || !aead || !aead->seal)
+	    !commitment_key || !hash || !hash->hash || !rng || !aead || !aead->seal)
 		return FZN_SEAL_ERR_MALFORMED;
 	if (!what->payload && what->payload_len != 0)
 		return FZN_SEAL_ERR_MALFORMED;
@@ -264,6 +292,32 @@ fzn_seal_err_t fzn_seal_build(uint8_t *frame, size_t frame_cap, size_t *frame_le
 	 * half-built frame for anybody to send by mistake. */
 	if (!fzn_nonce_next(rng, nonce))
 		return FZN_SEAL_ERR_NO_NONCE;
+
+	/* AND THE COMMITMENT FROM THAT NONCE, still before the buffer is
+	 * touched.
+	 *
+	 * IT IS DERIVED HERE BECAUSE NOBODY ELSE CAN. The nonce is drawn above
+	 * rather than taken from the caller -- a nonce a caller supplied is a
+	 * nonce a caller can repeat -- and since session/commitment.h made the
+	 * commitment a function of the nonce, this function is the only party
+	 * that knows the input. A caller handing in a finished commitment could
+	 * only be handing in one derived from some OTHER frame's nonce, which is
+	 * the per-pair constant the split exists to abolish.
+	 *
+	 * FROM THE NONCE JUST DRAWN, NOT FROM ANY OTHER. Deriving before the
+	 * draw hashes an uninitialised buffer and produces a frame this library
+	 * refuses to open; deriving from a fixed nonce gives every frame of a
+	 * pair the same commitment, which is the correlator all of this was to
+	 * remove. `wire/test/seal_test.c` mutates both and requires them red --
+	 * the second one asserts directly that two frames built from identical
+	 * arguments carry DIFFERENT commitments, because a round trip alone
+	 * passes happily while the leak is back.
+	 *
+	 * Before the memset for the reason the nonce draw is: a hash that
+	 * refuses must leave the caller's buffer as it found it, so there is no
+	 * half-built frame for anybody to send by mistake. */
+	if (fzn_commitment_for_nonce(hash, commitment_key, nonce, commitment) != FZN_COMMITMENT_OK)
+		return FZN_SEAL_ERR_HASH;
 
 	/* THESE THREE ARE UNREACHABLE TOO, for a different reason from the ones
 	 * in the open path: there the frame came from a stranger and had been
@@ -460,6 +514,8 @@ const char *fzn_seal_err_str(fzn_seal_err_t err)
 		return "no nonce could be drawn";
 	case FZN_SEAL_ERR_CAPACITY:
 		return "caller buffer too small";
+	case FZN_SEAL_ERR_HASH:
+		return "hash seam refused";
 	}
 
 	return "unknown";

@@ -296,9 +296,12 @@ $(BUILD_DIR)/session/test/aead_monocypher_test.o: session/test/aead_monocypher_t
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
 
+# session/commitment.o for the same reason seal_test links it: wire/seal.o
+# derives the commitment now instead of being handed one.
 $(MONO_AEAD): $(BUILD_DIR)/session/test/aead_monocypher_test.o \
               $(BUILD_DIR)/session/aead_monocypher.o $(BUILD_DIR)/monocypher.o \
-              $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/session/random.o \
+              $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/session/commitment.o \
+              $(BUILD_DIR)/session/random.o \
               $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -665,8 +668,15 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
 # frame survives being relayed -- the one property `wire/relay.h` is built on.
 # seal_test now spends the whole hop budget between build and open, which needs
 # both halves in one process.
+# AND commitment.o, WHICH IT DID NOT NEED WHILE THE COMMITMENT WAS AN
+# ARGUMENT. `fzn_seal_open` and `fzn_seal_build` derive the frame's commitment
+# themselves now -- it depends on the nonce, which the build path draws and the
+# open path reads out of the frame, so no caller can hand one in -- and that
+# makes session/commitment.o a link-time dependency of wire/seal.o rather than
+# of its callers.
 $(BUILD_DIR)/wire/test/seal_test: $(BUILD_DIR)/wire/test/seal_test.o \
                                    $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/wire/relay.o \
+                                   $(BUILD_DIR)/session/commitment.o \
                                    $(BUILD_DIR)/session/random.o \
                                    $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
