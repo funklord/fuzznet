@@ -2781,18 +2781,32 @@ stubbed and deliberately not weakened; a wrong key, a forged tag and a forged
 signature all fail, because a stub that accepted them would make every
 scenario vacuous.
 
-Eight scenarios, 32 checks:
+Fifteen scenarios, 170 checks:
 
 | scenario | what it establishes |
 |---|---|
 | mesh | 16 hosts, 240 multi-chunk messages, all delivered byte-exact |
 | replay | every datagram doubled; the second refused, never delivered twice |
 | revocation | revoked mid-message; remaining chunks refused, message never completes |
+| revocation split | one host told of a revocation and one not; the untold host delivers, which is sec 14's open gap asserted rather than hidden |
 | stale | expiry passed, refused on freshness, and the chain never consulted |
 | unauthorised | a validly signed grant naming a capability nobody granted |
 | delegation | a two-hop chain minted by the library, accepted under the same root |
 | lossy | 20% loss and 40% reordering; some messages lost, none wrong |
 | splice | two senders, one message id; no cross-sender splice |
+| substitution | a host acting on somebody else's grant is refused |
+| tamper | a mutated frame fails its tag, and the failure does not spend the nonce |
+| distribution | records converge across 20% loss, and a gap is reported rather than absorbed |
+| state | two writers contend for one cell; every host converges and every host sees the conflict |
+| join | a host with no anchor refuses, and a rogue root does not become one |
+| fidelity | a host not entitled to the fine stream never holds part of it |
+
+**This table said "Eight scenarios, 32 checks" until 2026-08-27** and had
+said so through the addition of seven scenarios. The count is measured
+from `make test` rather than derived. It is recorded because an inventory
+that lags its subject reads exactly like a complete one, and the harness
+is the thing this document points at when it claims a property is
+integration-tested.
 
 **Four faults, all in the harness, none in the library.** Worth listing
 because each is a way an integration test can look like it works:
