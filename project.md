@@ -8363,6 +8363,79 @@ the header, not for declining to build.
   settled**: this document wins over the code, so if the first reading was
   meant, the code is wrong and not the sentence.
 
+## 15b. Streaming will want multi-path and heavy FEC, 2026-08-28
+
+**Stated by the holder as an eventual requirement**: low-latency
+streaming along the lines of ROC-toolkit -- multiple simultaneous
+connections and heavy forward error correction. Not now, and that is
+why it is written down now: it collides with three things this library
+has already decided, and each is cheap to accommodate today and
+expensive after the concepts entrench.
+
+### It contradicts `chunk/`'s completion rule, which is all-or-nothing
+
+`chunk/reassembly.c:388` completes on `slot->arrived == slot->chunks`.
+Every chunk is required, tracked by a bitmap of seen indices. **FEC is
+k-of-n**: reconstruct once ANY k of n symbols arrive, and the remaining
+n-k are pure redundancy that should be discarded rather than waited
+for. Those are different completion predicates over the same data
+structure, and the current one has no `k`.
+
+`FZN_REASM_MAX_CHUNKS` is 256 and the `seen` bitmap is
+`FZN_REASM_MAX_CHUNKS / 8` bytes, so the machinery for tracking which
+symbols arrived exists and is the right shape. **What is missing is a
+second number** -- how many are enough -- and a reconstruction seam,
+which is a fifth vtable of the kind this library already has four of.
+
+### It contradicts `sched/`, which selects exactly one link
+
+`fzn_sched_select(links, count, class, *chosen)` returns ONE index.
+Multi-path striping wants several links carrying complementary symbols
+at once, which is not a harder version of choosing one -- it is a
+different question with a different answer shape.
+
+**But `sched/`'s own reasoning already points at it.** Its hard
+constraints can exclude every link so that `FZN_SCHED_ERR_NONE` is the
+answer, and importance is deliberately not a scalar because "a
+fire-and-forget voice frame wants the fastest link and is happily
+dropped". A striping selector is the same class model answering "which
+SET" instead of "which one", and the component weighting survives the
+change. The single-link signature does not.
+
+### The head has no room for FEC and the fields that look reusable are not
+
+`fzn_head` carries `msg`, `index [max = chunks - 1]`, `chunks` and
+`length`. It is tempting to read `index`/`chunks` as symbol id and n.
+**They cannot be, and the constraint is in the schema**: `index` is
+bounded by `chunks - 1` and enforced by the generated validator before
+decryption. An FEC block needs at minimum a `k`, and a repair symbol's
+index is not bounded by the source count in the same way.
+
+**And the frame has 32 bytes of headroom, not more** -- max frame 1168
+plus 48 of IPv6/UDP against a 1280 minimum MTU is 64 spare, of which a
+per-message ephemeral would take 32 if forward secrecy is also taken.
+**Two future features are competing for the same 64 bytes**, and
+nothing currently records that they compete.
+
+### What this changes about decisions in front of the holder now
+
+- **The signed-object namespace** (`wire/bytes.h`) is a one-byte enum
+  with four values that cannot be extended after deployment. FEC does
+  not obviously need a new signed object, but streaming might, and this
+  is the cheapest thing on the list to get right now.
+- **The forward-secrecy decision now has a competitor for the same
+  headroom.** Sec 13e priced the ephemeral at 32 bytes against 64
+  spare. If FEC needs header room, those 32 bytes are no longer free
+  and the epoch shape -- which costs zero to four bytes -- gets
+  materially more attractive.
+- **`chunk/` should not have its completion rule hardened further**
+  until k-of-n is designed, because every assertion that "all chunks
+  are required" is a statement a future FEC path must contradict.
+
+**Nothing here is a request to build.** It is recorded so that the next
+person to touch `chunk/`, `sched/` or the head knows which of the
+current constraints are deliberate and which are merely current.
+
 ## 15a. Consumer weighting, fallout tooling, and situ, 2026-08-28
 
 Three corrections and one measurement, from the holder.
