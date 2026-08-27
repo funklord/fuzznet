@@ -7395,7 +7395,7 @@ than its working set. That is the same unbounded growth sec 14 already
 records for the store itself, now with a second consumer, and it means
 a manifest exceeds a single frame's payload and goes through `chunk/`.
 
-**AT 29 IDS, NOT 32, and the growth is transient rather than
+**AT 28 IDS, NOT 32, and the growth is transient rather than
 permanent.** 32 was the id bytes alone against FZN_SPLIT_MAX_PAYLOAD,
 ignoring a 36-byte header and a 64-byte signature; 28 ids is 996 bytes
 and 29 is 1028, so 32 overshoots by a hundred rather than marginally.

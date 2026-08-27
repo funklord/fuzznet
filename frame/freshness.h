@@ -88,7 +88,7 @@
  * both harmless in either order.
  *
  * That leaves two copies of a protocol constant, which is the arrangement
- * `wire/tests/constants_test.c` exists for: it asserts the two agree, so a
+ * `wire/test/constants_test.c` exists for: it asserts the two agree, so a
  * repetition that stops being a copy stops the build. */
 #ifndef FZN_NO_EXPIRY
 #define FZN_NO_EXPIRY 0u
