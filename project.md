@@ -5452,24 +5452,42 @@ alternative failure.
 
 ## 11. Where this is, for whoever picks it up
 
-**`chain/` (verification, delegation, revocation), `frame/freshness.c`,
-`chunk/reassembly.c` and `chunk/split.c` are built and tested; nothing else
-is.**
-Alongside them: this document, `wire/frame.situ`, a `code-style.md` copied
-from the global source, the shared `style_gate.py` and `commit-msg`, and a
-`VERSION`. `make style` passes over thirty-two files.
+**Fourteen modules are built and tested**, measured 2026-08-27 rather than
+remembered: `chain/` (verification, delegation, revocation), `chunk/`
+(split and reassembly), `constant_time/`, `frame/` (freshness and the
+replay window), `link/`, `local/` (peer identity), `log/`, `record/`
+(records, journal, sync), `sched/`, `session/` (aead, commitment,
+random), `state/`, `trust/`, `version/` and `wire/` (seal, relay,
+bytes). `sim/` holds the integration harness and `guided/` the
+coverage-guided drivers.
 
-Both are the pieces §7a assigns to this library rather than to situ, which is
-also why they were buildable while §10 steps 2 and 4 are stuck: neither needs
-generated code. `chain/` is the capability model; `frame/freshness.c` is
-§4.3's policy half, the expiry rules and the replay window they pay for.
+Alongside them: this document, `wire/frame.situ`, a `code-style.md`
+copied from the global source, the shared `style_gate.py` and
+`commit-msg`, and a `VERSION`. `make style` passes over 107 files.
 
-`make` builds the objects and nothing else — the default target does not
-build tests, per `build-and-commit.md`. `make test` builds and runs two
-binaries: `chain/test/chain_test` at 64 checks over a stub verifier and an
-injected clock, `frame/test/freshness_test` at 34, and
-`chain/test/revocation_test` at 31, `chunk/test/reassembly_test` at 58,
-and `chunk/test/split_test` at 52.
+**THIS PARAGRAPH SAID "`chain/`, `frame/freshness.c`,
+`chunk/reassembly.c` and `chunk/split.c` are built and tested; nothing
+else is" UNTIL 2026-08-27**, and the paragraph below it said `make test`
+builds "two binaries" and then listed five. Section 11 is the section a
+reader lands on to find out where the project is, so it is the worst one
+in the document to leave lagging -- somebody picking this up would have
+concluded that `record/`, `state/`, `trust/`, `log/`, `link/`, `sched/`,
+`session/`, `local/` and `wire/` did not exist. The counts below are
+taken from `make test` and are the kind of number that goes stale by
+being true when written; that is an argument for measuring them when
+they are cited, not for leaving them out.
+
+`chain/` is the capability model and `frame/freshness.c` is sec 4.3's
+policy half; those two were first because neither needs generated code,
+which is why they were buildable while sec 10 steps 2 and 4 were stuck.
+
+`make` builds the objects and nothing else -- the default target does
+not build tests, per `build-and-commit.md`. `make test` builds and runs
+**33 binaries reporting 2637 checks**, with zero failures, plus four
+coverage-guided drivers replaying their corpora. The largest are
+`chain/test/chain_test` at 260, `err_str_test` at 253 over 16 renderers,
+`local/test/peer_test` at 253, `state/test/state_test` at 206, and
+`chunk/test/reassembly_test` and `sim/test/network_test` at 170 each.
 None reads a clock, so there is nothing in any of them that can pass on a
 quiet machine and fail on a loaded one.
 
