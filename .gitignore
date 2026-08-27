@@ -74,6 +74,15 @@ __pycache__/
 /.situ-head/
 /.gen.new/
 
+# `installcheck`'s DESTDIR staging tree. BUILD_DIR defaults to `.`, so this
+# lands in the repository root, and the target's `rm -rf` runs at both ends
+# of a SUCCESSFUL run only -- a FAILED one leaves it. Found by breaking an
+# API on purpose: installcheck exited 2 and left 372K of staged install
+# sitting untracked, which is precisely the shape `CLAUDE.md` warns a
+# blanket `git add` sweeps in. The next run clears it; between a failure and
+# that run it is somebody's `git status` noise or worse.
+/installcheck/
+
 # Git worktrees created when more than one agent works in this tree at once.
 # Each is a full checkout, so leaving them untracked and unswept matters: the
 # style gate's tree walks prune this path for the same reason.

@@ -343,6 +343,47 @@ int main(void)
 	check(commitment >= frame && commitment + FZN_COMMITMENT_LEN <= frame + sizeof(frame),
 	      "the commitment field does not lie within the frame");
 
+	/* THE BIG-ENDIAN ACCESSORS, AND ONE OF THEM WAS CALLED NOWHERE.
+	 *
+	 * `wire/bytes.h` declares six. Five are exercised somewhere in the
+	 * tree; `fzn_get_be32` was called by NO library source and NO test --
+	 * grepped across every `.c`, not inferred. Its writer `fzn_put_be32`
+	 * is used by `record/record.c` and asserted in `record_test`, so the
+	 * pair was half covered: bytes went out and nothing ever read them
+	 * back.
+	 *
+	 * That matters because these are PUBLIC. A consumer decoding a field
+	 * this library encoded is exactly who calls the getter, and a reader
+	 * that disagreed with the writer -- byte-swapped, or sign-extending --
+	 * would produce wrong values in their tree and none in ours. The
+	 * round trip is the assertion that binds the two halves; the literal
+	 * is what makes it more than the two functions agreeing with each
+	 * other, since a matched pair of wrong implementations round-trips
+	 * perfectly. */
+	{
+		uint8_t be[8];
+		static const uint8_t WANT32[4] = { 0xde, 0xad, 0xbe, 0xef };
+
+		memset(be, 0, sizeof(be));
+		fzn_put_be32(be, 0xdeadbeefu);
+		check(memcmp(be, WANT32, sizeof(WANT32)) == 0,
+		      "fzn_put_be32 did not write big-endian bytes");
+		check(fzn_get_be32(be) == 0xdeadbeefu,
+		      "fzn_get_be32 did not read back what fzn_put_be32 wrote");
+		check(fzn_get_be32(WANT32) == 0xdeadbeefu,
+		      "fzn_get_be32 disagrees with a literal big-endian encoding -- a "
+		      "matched pair of wrong implementations round-trips perfectly, so "
+		      "this is the check that is not just the two agreeing");
+
+		fzn_put_be16(be, 0xbeefu);
+		check(be[0] == 0xbeu && be[1] == 0xefu && fzn_get_be16(be) == 0xbeefu,
+		      "the 16-bit pair does not round trip against a literal");
+		fzn_put_be64(be, 0x0123456789abcdefull);
+		check(be[0] == 0x01u && be[7] == 0xefu &&
+		              fzn_get_be64(be) == 0x0123456789abcdefull,
+		      "the 64-bit pair does not round trip against a literal");
+	}
+
 	printf("constants_test: %d checks, %d failure(s); %d constants pinned at compile time\n",
 	       checks, failures, 22);
 	return failures == 0 ? 0 : 1;
