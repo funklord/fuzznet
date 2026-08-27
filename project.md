@@ -8493,6 +8493,53 @@ it is a different lifecycle over the same wire fields, plus a
 reconstruction seam, which is a fifth vtable of the kind this library
 already has four of.
 
+### The tuning lever is a different variable in each, and one exists
+
+**Download's lever is the chunk size**, because it sets both the
+per-frame overhead ratio and the cost of a retransmission -- a lost
+piece costs exactly one chunk to replace. **That lever already exists
+and is the caller's**: `fzn_split_plan(total, max_payload, out)` takes
+`max_payload` per message, bounded by `FZN_SPLIT_MAX_PAYLOAD` 1024.
+Nothing needs adding.
+
+**Streaming's lever is the amount of FEC**, and it has no equivalent
+here because there is no FEC. It is also a different KIND of variable:
+chunk size is set once per message from what is being sent, while a FEC
+ratio is adjusted continuously against measured loss, so it is a
+feedback input rather than a plan parameter. A module whose main
+tunable is adjusted per-second cannot be `fzn_split_plan`'s caller.
+
+### Watch-and-record: the case that settles the split rather than complicating it
+
+**Flagged as research by the holder, and not designed here.** A stream
+that is simultaneously watched live and recorded to disk is the
+interesting hybrid, and it is worth stating why it does not argue for
+one general module.
+
+Both consumers see the SAME arriving frames and want contradictory
+things from them:
+
+- **the playout path** wants deliver-now-or-discard: a symbol past its
+  deadline is worthless and holding it costs latency;
+- **the recording path** wants keep-everything: no deadline at all,
+  gaps noted and filled later, and a late piece is exactly as valuable
+  as a punctual one.
+
+A single module would need its deadline field to mean both at once,
+which is the `max_hold`-versus-playout trap above. **Two disciplines
+over one wire is the only shape that expresses it**, and the recording
+half can be `chunk/`'s existing discipline more or less as it stands.
+So the hybrid requires the modules to be separate; it is unbuildable if
+they are merged.
+
+What research would have to settle, since it is a genuine interaction
+rather than a detail: **whether a repair symbol can fill a recording
+gap without a retransmission.** If it can, the two paths share the FEC
+stream and the recording path's retransmit requests drop sharply; if
+not, they are independent and the frame carries traffic for both. That
+question decides how much the two modules share, and it cannot be
+answered from either module's side alone.
+
 ### It contradicts `sched/`, which selects exactly one link
 
 `fzn_sched_select(links, count, class, *chosen)` returns ONE index.
