@@ -753,10 +753,24 @@ runtests: $(TEST_BINS)
 	@for t in $(TEST_BINS); do echo "running $$t"; $$t || exit 1; done
 	@# SAY WHEN THE MONOCYPHER BINDINGS WERE NOT BUILT, rather than leaving
 	@# their absence to look like their success. Without MONOCYPHER_DIR the
-	@# three bindings and their 81 checks are not compiled at all, and a run
-	@# that never mentions them reads exactly like a run in which they
-	@# passed. Same discipline as `analyze` and `ctcheck`, which skip loudly
-	@# for the same reason.
+	@# three bindings are not compiled at all, and a run that never mentions
+	@# them reads exactly like a run in which they passed. Same discipline
+	@# as `analyze` and `ctcheck`, which skip loudly for the same reason.
+	@#
+	@# NO CHECK COUNT HERE, DELIBERATELY, AND IT USED TO SAY 43. The
+	@# bindings carried 70 by then and carry more now; nobody noticed
+	@# because a number in a comment is maintained by whoever remembers it
+	@# exists. It was corrected once and would have drifted again -- the
+	@# only figure that cannot is one taken at run time, and this target
+	@# cannot take one for binaries it did not build. So the notice states
+	@# what it can know: three bindings, not compiled. The count belongs to
+	@# the gated run, which prints its own.
+	@#
+	@# The same trap then caught a REPORT about this comment, one commit
+	@# later: a total measured correctly and quoted three commits after it
+	@# was true. project.md sec 11 carries that incident, under the rule it
+	@# produced -- a number is measured at the moment it is quoted, or it is
+	@# not measured.
 	@#
 	@# Found by mutation: FZN_SECRET_KEY_LEN could be changed in either
 	@# direction with the whole suite still green, because the module
