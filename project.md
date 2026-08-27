@@ -8460,6 +8460,44 @@ begins:
   window and the key-committing filter all working for both.
 - **What order minimises drama?** Which pieces move first so that each
   step is small and no step strands the other tree mid-migration.
+- **What must NOT be merged, because it looks mergeable?** The
+  consumer's question, adopted as stated: **a shared name is a CLAIM
+  that two designs agreed, and every proposed unification must name the
+  case where the two behaviours differ. If it cannot, the unification is
+  unestablished rather than safe.** Losing code is visible and a diff
+  catches it; two things with one name and one width doing different
+  jobs is what a consolidation reading headers unifies without noticing.
+
+### Instances of the fifth question, from this side
+
+- **`fzn_revocation_covers` returns `int` and its two callers ask
+  different questions.** Verification asks "is this withdrawn";
+  admission asks "do I already hold this". A pass this week proposed
+  widening it to a tri-state and `chain/revocation.c` refused, because a
+  conservative answer to one question is a wrong answer to the other.
+  Anything that sees a boolean called `covers` and unifies it with a
+  same-named predicate merges two questions sharing a name and a return
+  type and nothing else.
+
+- **The failure-class axis, and fuzznet has two classes where a
+  consumer may have three.** `covers` distinguishes them explicitly and
+  the distinction is load-bearing: an ABSENT store answers 0, because
+  NULL means "no revocations known" and that is the contract
+  `fzn_chain_verify` rests on; a CORRUPT store answers 1, because
+  entries that might answer exist and cannot be read, so they must be
+  assumed to say yes; a MISSING TRIPLE OPERAND answers 0, because what
+  is absent is the QUESTION rather than the answer, and denying would
+  turn one null pointer into a blanket refusal reported as a revocation
+  no issuer ever signed.
+
+  **This library has no I/O**, so it has no storage-failure class at
+  all -- walked, not grepped: there is no `open`, `read` or `mmap` in
+  any non-test source, and every store is caller-owned memory. A
+  consumer that reads from disk has a third class whose right answer is
+  neither of ours, and **a merged predicate would have to answer for a
+  failure mode one side cannot even produce.** That is the fifth
+  question's shape exactly, and it is why "same function, both
+  correct" is not enough to justify unifying two.
 
 **Nothing about consolidation is decided here.** This section exists so
 that the next decision is made with the target in view rather than
