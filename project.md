@@ -6942,6 +6942,46 @@ a manifest exceeds a single frame's payload at 32 revocations and goes
 through `chunk/`. It is not free and it should not be recorded as
 though it were.
 
+### Who may issue a revocation, derived rather than accepted
+
+A consumer session (fuzzypickles) raised a design point against the
+cross-root fix in sec 14 that is better than the fix, and it is recorded
+here because the fix is a step toward it rather than away from it.
+
+Their equivalent defect cannot occur, and not through care at the call
+sites: their install function takes NO root parameter. It loads the
+host's own key from storage itself, so there is no argument through
+which a foreign-rooted revocation could be offered. **Storing the issuer
+means every future call site must pass the right root and every future
+query must compare it, which is a rule that holds while people are
+paying attention. Removing the parameter means there is no wrong root to
+pass.**
+
+**Neither of their two moves is available here, and the second reason is
+the interesting one.** There is nowhere to derive from: this library has
+no I/O and no mutable globals, so the closest move is taking a
+`const fzn_trust_t *` rather than a raw pointer, which narrows the
+target without removing it. And once grantor-revokes-descendant exists,
+**the issuer of a legitimate revocation is not the root at all** -- it is
+an intermediate -- so deriving "the root" would reject exactly the
+revocations the new model carries. Their shape is correct for their tree
+because only the user's own root revokes there, and it stops being
+available here by decision rather than by drift.
+
+**The principle survives one level up, and that is the direction for
+grantor-revocation.** The set of issuers entitled to revoke a given hop
+is neither caller-supplied nor local state: it is derivable from THE
+CHAIN BEING VERIFIED. The question is "is this revocation's issuer the
+root, or an ancestor of the hop it names, in this chain?", and
+`fzn_chain_verify` already walks that chain with every hop's grantor in
+hand. It does not need to be told and cannot be told wrong.
+
+That is derive-don't-accept applied to the thing that actually varies,
+and it is a better place for it than either tree's current design. It is
+also why the sec 14 fix keeps the issuer ON THE ENTRY rather than
+binding the store to a root: the entry's issuer is what that ancestry
+check will read.
+
 **Still not built.** The shape follows from the answers but the layout,
 the id derivation, the merge rule's exact semantics and the deficit
 reporting are a design pass of their own, and this document has just
