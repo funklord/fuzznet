@@ -230,6 +230,57 @@ int main(void)
 		           "the exhausted answer must not be admissible");
 	}
 
+	/* TWO ISSUERS AGREEING ON EVERY BYTE BUT THE LAST.
+	 *
+	 * `identity()` gives every issuer in this file a distinct first byte,
+	 * so a comparison of ONE byte separates any two of them exactly as
+	 * well as a comparison of thirty-two. Measured before this case
+	 * existed: truncating `find`'s `fzn_ct_memeq` to 1 left THIS FILE at
+	 * 66 checks and zero failures. `record/test/sync_test.c` caught it --
+	 * a different module's test, reporting "one position produced more
+	 * than one request" -- which is how it came to be recorded as
+	 * covered. "The suite catches it" and "this module's test catches it"
+	 * are different claims and the first reads like the second.
+	 *
+	 * WHAT FAILS OPEN IS TWO ISSUERS SHARING ONE POSITION. `find` keys on
+	 * (issuer, stream), so a short comparison makes one issuer's sequence
+	 * answer for another's: admitting a record from the twin advances the
+	 * first twin's position, and the first twin's genuine next record is
+	 * then refused as a duplicate, for ever. That is the journal
+	 * refusing a real record on the strength of a stranger's, and
+	 * nothing reports it. */
+	{
+		fzn_journal_t tj;
+		fzn_journal_entry_t tentries[4];
+		uint8_t twin_a[FZN_PUBKEY_LEN], twin_b[FZN_PUBKEY_LEN];
+
+		identity(twin_a, 0x5a);
+		memcpy(twin_b, twin_a, sizeof(twin_b));
+		twin_b[FZN_PUBKEY_LEN - 1u] ^= 0x01u;
+
+		expect(memcmp(twin_a, twin_b, FZN_PUBKEY_LEN - 1u) == 0,
+		       "the twins must agree on every byte but the last");
+		expect(memcmp(twin_a, twin_b, FZN_PUBKEY_LEN) != 0,
+		       "the twins must differ somewhere, or nothing here can fail");
+
+		expect_err(fzn_journal_init(&tj, tentries, 4), FZN_JOURNAL_OK, "a journal for twins");
+		expect_err(fzn_journal_anchor(&tj, twin_a, 0, 0), FZN_JOURNAL_OK,
+		           "following the first twin");
+		expect_err(fzn_journal_anchor(&tj, twin_b, 0, 0), FZN_JOURNAL_OK,
+		           "following the second twin");
+
+		expect_err(fzn_journal_admit(&tj, twin_a, 0, 1), FZN_JOURNAL_OK,
+		           "the first twin's first record");
+		expect(fzn_journal_next(&tj, twin_b, 0) == 1u,
+		       "admitting the first twin's record advanced the SECOND twin's "
+		       "position -- the issuer comparison is not reading the whole key");
+		expect_err(fzn_journal_admit(&tj, twin_b, 0, 1), FZN_JOURNAL_OK,
+		           "the second twin's own first record was refused as a duplicate "
+		           "of the first twin's");
+		expect(fzn_journal_next(&tj, twin_a, 0) == 2u,
+		       "the first twin's position is not its own");
+	}
+
 	printf("journal_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
 }
