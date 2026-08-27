@@ -7596,6 +7596,18 @@ one line of their `capability.h`: **a peer holds none of our
 capabilities**. A contact is never a grantee, so there is nothing a
 revocation could withdraw from one.
 
+**WHAT THE ANSWER COSTS, measured rather than waved at.** A pair line
+is 64 bytes where a hashed id was 32, so **the pair form halves
+per-frame capacity: 14 pairs fit one frame against the hash form's
+28.** Both land on 996 bytes, which is a coincidence of the 100-byte
+fixed overhead and worth not reading as significance. Above 14 a
+manifest goes through `chunk/`, so an issuer with a few dozen
+revocations chunks where the hash form would not have. That is the
+price of deleting the hashing subsystem and it is the right trade --
+the machinery removed is permanent and the bytes are per message -- but
+it is a real cost of the settled answer rather than a free win, and
+sec 13d's O(history) republication paragraph is where it compounds.
+
 **The condition that would reverse it, recorded as the hinge rather
 than the answer**: if fuzzypickles ever grants a capability to another
 user's host -- delegating storage or relay to a contact's device rather
