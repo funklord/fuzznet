@@ -6499,7 +6499,9 @@ The conclusion is unchanged and better supported at each correction: 106 and
 
 More instructive is *what* it spends the bytes on. There is **no nonce field at
 all** -- the AEAD nonce is all-zero, which is safe only because a fresh
-ephemeral makes the derived key single-use. So it pays 32 bytes for an
+ephemeral makes the derived key single-use **for the sender's
+contribution, which is the qualifier their own header carries and this
+document dropped** (`crypto_msg_internal.h:82`). So it pays 32 bytes for an
 ephemeral rather than 24 for a nonce, and 32 more to say who is speaking. That
 is a deliberate purchase: **every datagram is self-contained, and no session
 state is required at either end.**
@@ -7755,6 +7757,96 @@ is entirely downstream of which reading was meant**, and this document
 cannot settle a question about its own sentences. It goes to the
 copyright holder.
 
+## 13e. Forward secrecy: what the shapes cost, 2026-08-28
+
+Commissioned when a consumer's adoption turned out to be blocked on the
+absence. **Not built.** Two things the brief asserted were wrong and
+both cut the same way -- see sec 14 for the consumer's property being
+half what was claimed, and below for the CPU.
+
+### The surprise: an ephemeral does NOT cost the self-contained frame
+
+The brief was written expecting a conflict with sec 13's axis and there
+is none. **A per-message ephemeral rides IN THE FRAME and the
+recipient's key is long-lived, so `DH(recipient_sk, ephemeral_pk)` is
+computable at any later time by any host holding the recipient's static
+key.** A stored datagram opens hours later, from a relay, on a host
+that rebooted and never spoke to the sender. Self-containment survives
+an ephemeral completely.
+
+**Only the RATCHET family costs the axis, and there the trade is exact
+and unfixable.** Forward secrecy *is* the deletion of key material;
+relay-hours-later *is* the requirement to still hold it. One variable
+read from two ends, so any parameter improving one degrades the other
+by exactly as much. That is the plain statement, and it disqualifies a
+symmetric ratchet here regardless of its other merits.
+
+### What an ephemeral costs instead: the receive path
+
+**Rejecting a stranger goes from 640 ns to 158 us -- 247x.** Under an
+ephemeral the AEAD key is a function of the DH, so sec 4.7 step 3's
+commitment check cannot run until the scalar multiplication has. At
+100 Mbit/s of 176-byte frames -- 71,000/s -- that is **eleven cores
+saturated rejecting garbage**, against 4.5% of one core today. It
+satisfies sec 4.7's rule literally (it is O(1) in receiver state) and
+violates its purpose completely.
+
+**X25519 IS 158 us HERE, NOT THE 50-60 THE BRIEF SUPPOSED** -- 2.7x
+out. Measured against the Monocypher this family vendors, at -Os, and
+calibrated: the same harness reads Ed25519 at 221.7 us, inside this
+document's own published 201-238. A first attempt read 301 and was
+discarded, because a 60 ms batch on a loaded machine cannot avoid
+preemption. **The number was invented in the brief and measured in the
+answer**, which is the third figure this session that survived being
+quoted and did not survive being checked.
+
+### The shapes worth naming
+
+- **E -- epoch re-derivation, root deleted, N epochs retained.** The
+  cheap honest answer. Zero to four wire bytes, no scalar
+  multiplication anywhere, sec 4.7 step 3's economics untouched, no
+  synchronised state. **Its bound is not arbitrary**: retain each epoch
+  key for `max_ahead + skew` and every command frame that was still
+  DELIVERABLE is still openable, because `frame/freshness.h` already
+  refuses anything outside that horizon. The forward-secrecy window and
+  the delivery window become one number. What it cannot protect is
+  traffic with no expiry -- grants -- and those are signed rather than
+  confidential, so the class it misses is the class that was never
+  secret.
+- **G + H -- the full property.** A per-message ephemeral with
+  ROTATING RECIPIENT PREKEYS distributed through `record/`, plus
+  today's long-lived commitment kept as a pre-DH filter. Two-sided
+  forward secrecy bounded by the rotation window, self-containment
+  intact, chunking at one DH per message via a post-tag cache sec 4.7c
+  already blesses, and **the flood closed at 592 ns** because a
+  stranger who lacks the commitment key never reaches the DH.
+- **D -- epoch re-derivation with the root retained -- IS NOT FORWARD
+  SECRECY** and is recorded as refused so it is not proposed again. A
+  receiver holding the root derives any epoch in either direction.
+
+### Three refusals
+
+**Do not adopt the consumer's construction because the consumer asked
+for it.** They are right that the absence matters and right that it was
+recorded nowhere. They are describing a property their own header
+states more narrowly than this document did, and it is the half that
+does not protect the machine sec 4.4a says is most likely to be
+attacked.
+
+**Do not build a symmetric ratchet**, which is the only shape costing
+the axis. **Do not build D**, which looks like the property and is not.
+
+### The category change that belongs in the decision
+
+Today **every secret this library touches is a caller-owned array it
+only reads** -- confirmed against the complete public struct inventory,
+not one of which holds secret material. C, E, F and G all make the
+library the owner of a MUTABLE SECRET, and the deletion is only real if
+the consumer's persistence cooperates. A consumer that snapshots and
+restores has E's costs and today's guarantees, silently, and this
+library cannot detect it. That is an argument for saying so loudly in
+the header, not for declining to build.
+
 ## 14. Open, and named rather than left silent
 
 - **There is NO PER-MESSAGE FORWARD SECRECY, and until 2026-08-28 this
@@ -7768,7 +7860,26 @@ copyright holder.
   rather than deriving one from the layout: their frame carries a fresh
   ephemeral per message, which makes their derived key single-use, and
   they wanted to know whether our 24-byte nonce was doing the same job
-  over a static secret. It is not. **A grep for "forward secrecy" over
+  over a static secret. It is not.
+
+  **BUT WHAT THEY HAVE IS HALF OF WHAT THIS DOCUMENT SAID, AND THEIR
+  OWN HEADER CARRIES THE QUALIFIER WE DROPPED.**
+  `crypto_msg_internal.h:82` reads "per-message forward secrecy **for
+  the sender's contribution**". Their construction is one-pass
+  ephemeral-static: their open path computes both DHs from the
+  recipient's long-lived prekey secret and wire fields, and that prekey
+  does not rotate -- their own header calls it "a long-lived" keypair.
+  **So compromising the RECIPIENT opens every recorded datagram ever
+  sent to it, retroactively.** They have forward secrecy against
+  compromise of the SENDING host.
+
+  **That is decisive for this library rather than a footnote.** Sec 4.4a
+  names the expected compromise: "the machine most likely to be attacked
+  is the one being reconfigured **because it is already misbehaving**".
+  That is the RECEIVER. Adopting their construction verbatim would buy
+  forward secrecy against compromise of the controller and nothing
+  against compromise of the router -- the wrong half, in the threat
+  model this document wrote down. **A grep for "forward secrecy" over
   this whole document returned nothing**, in a file that compares the
   two frame layouts four times and had priced their ephemeral as "32
   bytes rather than 24".
