@@ -969,7 +969,16 @@ The order, and each step's reason for its position:
    discretionary pre-tag step. It earns its place twice: it is what makes the
    AEAD key-committing at all (§4.4a: not optional), and `wire/relay.h` names
    it as the addressing mechanism -- with K candidate keys it turns K tag
-   verifications into K compares plus one.
+   verifications into K derivations plus K compares.
+
+   **THAT USED TO SAY "K compares plus one", and it is K HASHES now.** The
+   commitment varies per frame (13a), so a receiver derives one per candidate
+   rather than looking one up. Measured through `fzn_seal_open` itself:
+   rejecting a candidate costs about 600 ns against 2100 ns of AEAD at maximum
+   payload and 1200 ns on a small frame -- so 3.6x and 2.1x, real and not the
+   order of magnitude "K compares" implied. A receiver with a large K should
+   index on `sender`, which is a per-peer constant already in the cleartext
+   head and therefore gives back none of the privacy the change bought.
 4. **Tag verification and decryption** (`wire/seal.h`). **The pivot.** Nothing
    above this line has changed anything the next datagram can see; nothing
    below it runs on a stranger's say-so. situ's generated gate enforces the
@@ -1928,8 +1937,25 @@ nothing requires it.
   request is bounded work, and the next comparison asks for the next window.
 - **Truncation is counted, not dropped.** A plan that returned a short list
   would look complete, and the ranges left out would never be asked for again.
+- **An unmentioned stream is counted, never offered** -- the mirror of the
+  first refusal, added 2026-08-27. A zero-length digest used to be read as
+  "behind on everything", so replying to one offered the whole history of
+  every stream, bounded only by `max_per_request x out_cap`: 32768 records
+  from a 64-entry journal, measured. "Reply to a digest with an offer" reads
+  as safe and was an amplifier.
 
-31 checks, and the one that matters most is written as a loop over the whole
+**AND THE RECEIVER DECIDES THE ORDER OF ITS OWN PLAN.** `fzn_sync_plan_fetch`
+walks THIS HOST'S journal and looks each entry up in the peer's digest, rather
+than walking the peer's. It used to walk theirs, so a peer claiming huge
+positions filled every request slot with phantom ranges and the host's genuine
+fetches were the ones truncated -- every round, with `truncated > 0` the only
+symptom. Now `out_cap` of `journal->used` cannot be truncated by anything
+arriving from outside, and `positions_ignored` is separate from `truncated` so
+a padding peer cannot be mistaken for an undersized buffer. `their_count` is
+bounded by `FZN_SYNC_MAX_POSITIONS`: 200000 claimed positions against a
+64-entry journal went from 2051 ms and zero requests to 19 ms.
+
+81 checks, and the one that matters most is written as a loop over the whole
 plan rather than a single assertion: no request may name an issuer this host
 does not follow.
 
@@ -2681,7 +2707,7 @@ repeatedly would fill up while holding almost nothing. Found by a case that
 cleared one subject and then could not add a third into a state of three.
 Cleared slots are reused now.
 
-100% of lines and 92% of branches, 42 checks, and the installed-header check
+100% of lines and 92% of branches, 206 checks, and the installed-header check
 exercises set, supersede, stale and conflict rather than merely including the
 header.
 
