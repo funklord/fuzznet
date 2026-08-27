@@ -8362,3 +8362,76 @@ the header, not for declining to build.
   and `chain.h` says so at the point of decision. **Flagged rather than
   settled**: this document wins over the code, so if the first reading was
   meant, the code is wrong and not the sentence.
+
+## 15. The consolidation this library exists for, 2026-08-28
+
+**Stated by the copyright holder**: the crypto, the network code and the
+generic services move mostly INTO fuzznet. Two constraints come with it,
+and they are what make it a design question rather than a schedule.
+
+**Do not lose work or ideas that came from very costly development.**
+That is mostly fuzzypickles' side. Their group ratchet, prekey channel,
+propagation, peer frame and revocation model are years of hard-won
+work, and a consolidation that reaches the same place by rewriting them
+has destroyed the thing it was meant to collect. **An idea can be lost
+without a line being deleted** -- it is lost when the reason for it is
+not carried across and the next design re-derives something worse.
+
+**Analyse implementation details WITH the larger picture in view, so
+later change need not be dramatic.** The failure mode is a sequence of
+locally-correct decisions that make the eventual merge expensive. Today
+produced several, and one of them reversed on hearing the goal.
+
+### The decision this goal reverses, and it was already in front of the holder
+
+Sec 13e evaluated a shape it called **session-only forward secrecy** --
+one wire format, two key schedules, chosen by what the receiver holds
+rather than by any bit on the wire. It was judged **coherent and beside
+the point**: it protects live exchanges and leaves stored, relayed and
+asleep traffic untouched, which is the traffic sec 13's axis exists
+for.
+
+**Under consolidation that judgement inverts.** fuzzypickles' group
+ratchet IS session-oriented and their peer frame IS self-contained.
+**A merged library must host both**, so a design supporting two key
+schedules selected by held material is not a half-measure -- it is the
+shape the target needs. The same analysis, the same shape, opposite
+verdict, and the only thing that changed was knowing where this is
+going.
+
+That is the concrete argument for the holder's instruction. **Sec 13e's
+recommendation should not be acted on until the target shape is known**,
+because the cheap option (epoch re-derivation) is cheap partly by
+declining to grow a session concept, and declining to grow one is
+exactly what consolidation forbids.
+
+### What the shape of the work is, and it is joint
+
+Neither tree can draw this alone. fuzznet knows what it holds and what
+its axis costs; fuzzypickles knows which of its pieces are generic,
+which are chat-specific, and which carry reasons that would be lost in
+translation. Today established that **the two trees find each other's
+errors reliably and their own poorly** -- a claim of ours about their
+forward secrecy, a claim of theirs about four identical fields, a
+number of ours measured in one file, all corrected from the other side.
+
+The questions that need answering together, before any migration
+begins:
+
+- **What is generic and what is chat?** Their group ratchet is generic
+  cryptography; their contact model is not. The boundary is theirs to
+  draw and ours to host.
+- **What must survive in reason rather than in code?** Where fuzznet
+  would rewrite rather than move, the REASON has to come across or the
+  rewrite re-derives something worse. Their "assume the peer is asleep"
+  is already load-bearing here and arrived as prose, not as code.
+- **What does hosting both traffic models cost?** Self-contained and
+  session-oriented in one library, with the receive order, the replay
+  window and the key-committing filter all working for both.
+- **What order minimises drama?** Which pieces move first so that each
+  step is small and no step strands the other tree mid-migration.
+
+**Nothing about consolidation is decided here.** This section exists so
+that the next decision is made with the target in view rather than
+locally, which is the instruction.
+
