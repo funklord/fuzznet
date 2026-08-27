@@ -324,7 +324,7 @@ endif
 # failures rather than as a build error.
 DEPS := $(OBJS:.o=.d) $(TEST_OBJS:.o=.d)
 
-.PHONY: all test fuzz guided guided-one installcheck coverage schema style codegencheck ctcheck analyze hooks clean install
+.PHONY: runtests all test fuzz guided guided-one installcheck coverage schema style codegencheck ctcheck analyze hooks clean install
 
 # The default build does NOT build tests -- build-and-commit.md, and the
 # discipline it buys is paid for by the dependency rules above being right.
@@ -720,7 +720,27 @@ $(BUILD_DIR)/chunk/test/agreement_test: $(BUILD_DIR)/chunk/test/agreement_test.o
 # after a plain build appears to pass either way.
 # ctcheck runs first because it is about the library rather than the tests, and
 # because a failure there is more interesting than any assertion below it.
-test: codegencheck $(TEST_BINS)
+test: codegencheck runtests
+
+# The suite without the codegen gate, which exists for ONE caller.
+#
+# `coverage` builds this tree with `--coverage`, and that instrumentation
+# adds counters to every basic block -- so `codegen_gate.py`, which reads a
+# disassembly and pins the shape of the constant-time primitives and the
+# wipe, cannot pass and never could. `make coverage` has therefore been
+# failing for as long as the gate has existed, with the tripwire's own
+# "read the disassembly and decide" message on the way out. Nobody could
+# re-measure a coverage figure, which is why several in `project.md` named
+# a total from before the binary grew.
+#
+# THE GATE IS NOT WEAKENED, and skipping it here is not a relaxation: its
+# subject is the code this library SHIPS, and an instrumented build is not
+# that code. Making it pass under `--coverage` would mean teaching it to
+# accept a shape we never ship, which is the direction `evidence.md` warns
+# about -- bending the world around a check rather than asking what the
+# check can be right about. `test` still runs it first, which is where it
+# belongs.
+runtests: $(TEST_BINS)
 	@for t in $(TEST_BINS); do echo "running $$t"; $$t || exit 1; done
 	@# SAY WHEN THE MONOCYPHER BINDINGS WERE NOT BUILT, rather than leaving
 	@# their absence to look like their success. Without MONOCYPHER_DIR the
@@ -1204,7 +1224,7 @@ coverage:
 	@test -n "$(BUILD_DIR)" || { echo "BUILD_DIR is empty; refusing"; exit 1; }
 	@case "$(BUILD_DIR)" in /*) echo "BUILD_DIR must be relative; refusing"; exit 1 ;; esac
 	@rm -rf $(BUILD_DIR)-coverage *.gcov
-	@$(MAKE) --no-print-directory test BUILD_DIR=$(BUILD_DIR)-coverage \
+	@$(MAKE) --no-print-directory runtests BUILD_DIR=$(BUILD_DIR)-coverage \
 	         CFLAGS="-Og -g --coverage" GEN_EXTRA="--coverage" >/dev/null
 	@printf '%-30s %-14s %s\n' file lines "branches both ways"
 	@unexercised=; \
