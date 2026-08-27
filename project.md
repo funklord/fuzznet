@@ -5518,6 +5518,46 @@ delegation: dropping the `delegable` requirement in verify and again in
 delegate, removing the expiry cap, skipping the re-verification, and removing
 the depth ceiling.
 
+### Handing a commit to a consumer: make them fetch it
+
+**"Landed and green" and "published" are different facts, and the first
+reads like the second.** Recorded 2026-08-27 because this tree got it
+wrong with a real consumer on the same day it was being careful about
+everything else.
+
+A fuzzypickles session was told the cross-root revocation fix had
+"landed and is green", with a SHA, and invited to move its vendored pin.
+Every gate had passed -- test, style, installcheck, fuzz, guided -- and
+the tree was clean. It was also **66 commits ahead of `origin/master`**,
+so the named commit existed nowhere but here. The consumer found out by
+trying to act on it: `git fetch` moved origin to a commit that was not
+it, and `git log -1 <sha>` said *unknown revision*.
+
+The published head at that moment still had `fzn_revocation_covers` with
+no issuer parameter -- the defective signature -- and
+`session/commitment.c` still carried the single retired
+`FZN_KDF_LABEL "fuzznet-kdf-v1"` rather than the two current labels. So
+anyone vendoring on the strength of that message would have taken the
+defect, and a frame vector generated from it would have pinned a retired
+layout while reading as though it pinned the current one.
+
+**The rule: hand over a commit by having the other side FETCH it, not by
+naming a SHA.** A fetch that fails is self-correcting; a named SHA is a
+claim the receiver cannot check until they have already reorganised
+around it.
+
+This is `evidence.md`'s "a claim about another tree is a measurement you
+did not take" pointed the other way, which is the direction it is easy to
+miss: the unmeasured claim was about **this** tree's visibility to
+somebody else, which feels like the safe case and is not. One
+`git status -sb` would have answered it at any point. It was not run
+because the gates were green, and green felt like done.
+
+The verification that should accompany a push is `git show
+origin/master:<file>` after a fresh fetch -- read the artifact, not a
+fresh measurement of where it came from -- rather than looking at the
+working tree the push came from.
+
 ### The reassembly fuzzer, and what it can and cannot see
 
 `chunk/test/reassembly_fuzz` runs a bounded, seeded sweep over
