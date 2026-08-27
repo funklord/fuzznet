@@ -5694,6 +5694,49 @@ not of the tool; it takes `--out` as `situc build` does, so nothing it
 writes lands outside `BUILD_DIR`. The claim was made from one invocation
 and corrected by someone who read the interface.
 
+### A mutation's catch belongs to one binary, and the suite hides which
+
+**Rule, 2026-08-27, and it is the sharper half of the one below.** That
+rule says what input to build. This one says where to look for the
+answer: **run the module's own test, not the suite.** "The suite catches
+it" and "this module's test catches it" are different claims, and the
+first reads exactly like the second.
+
+Found by paying for it twice on the same day the sweep was run. Four
+sites were recorded as covered on the strength of `make test` going red,
+without asking WHICH binary went red. Three were genuine. Two were not:
+
+- **`frame/freshness.c`'s nonce comparison.** `freshness_test`: 120
+  checks, 0 failures. `receive_fuzz`: order held throughout. Only the
+  integration harness objected, and only as "not every message arrived
+  on a lossless network" -- a downstream symptom naming nothing. The
+  module whose entire job is refusing replays could not tell whether it
+  compared whole nonces.
+- **`record/journal.c`'s issuer comparison.** `journal_test`: 66 checks,
+  0 failures. `record/test/sync_test.c` caught it, reporting "one
+  position produced more than one request" -- a different module's test,
+  describing a symptom in its own vocabulary.
+
+Both are fixed and both now fail by name in their own suite. Every one
+of the eleven mutations in the session's battery is now caught by the
+test of the module it lives in.
+
+**Why the suite hides it, mechanically:** `make test` stops at the first
+failing binary, so a mutation caught by an early test says nothing about
+the later ones -- and a mutation caught only by a LATE test looks
+identical to one caught by its own. Neither ordering tells you anything
+without asking. The cheap form is `make <path-to-test-binary>` and run
+that one binary, checking its mtime moved first.
+
+**And the direction of a missing refusal decides how bad it is.** A
+check that fails OPEN is an authorization defect; one that fails CLOSED
+is a denial of service, and closed is the harder of the two to notice
+because the component's job is to refuse and it is still refusing. The
+journal's truncated issuer is the second kind: two issuers share one
+position, admitting the twin's record advances the first's, and the
+first's genuine next record is refused as a duplicate for ever. Nothing
+reports it, because refusing is what a journal does.
+
 ### A comparison is only tested by inputs that share a prefix
 
 **Rule, adopted 2026-08-27 in a consumer session's words because they are
