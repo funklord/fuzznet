@@ -7535,6 +7535,109 @@ issuer, so grantor-revocation multiplies issuers and makes completeness
 gating dearer -- sec 13b recorded "it survives answer 2" as a property
 of the manifest; from here it reads as a burden.
 
+## 13d. The manifest design, and where it says stop
+
+Commissioned 2026-08-27 once sec 13b's premises were settled. **Not
+built.** It corrected two figures sec 13b gave it, which are fixed
+there, and it recommends building LESS than sec 13b describes.
+
+### The id, which is the load-bearing correction
+
+**id = H(version, object tag, issuer, capability, grantee)** -- a hash
+of the TRIPLE, not of the revocation's bytes. Derived on demand from a
+store entry's three fields, so it costs **zero additional per-entry
+storage** on the one table sec 14 says only grows. Two revocations of
+one authority collide by construction, which is the wanted answer: one
+authority, one id, one store entry, one manifest line, and the store's
+existing dedup agrees with the manifest's by definition rather than by
+care.
+
+**A near-miss worth recording, because it is better on four counts.**
+Naming the pair directly -- 64 bytes of `(capability, grantee)` instead
+of a 32-byte hash -- needs no hash seam in `chain/` at all, and makes
+the completeness predicate `fzn_revocation_covers` ITSELF, which is
+already written, already constant-time, already refusing a corrupt
+store. `chain.h` records this tree's own lesson that the repair is to
+stop having two predicates. What decides against it is **cross-estate
+following**: fuzzypickles is multi-root, and a host following another
+user's root would learn that estate's host keys and capability ids
+outright. Sec 4.4a's metadata-confidentiality rule is what the hash
+buys. **If manifests never cross an estate boundary, name the pair and
+delete a subsystem** -- record the condition, because it is the kind of
+premise that expires quietly.
+
+### Build in two stages, and stage 1 has no gate
+
+**Stage 1**: the manifest object, the derived id, follow/admit, the
+deficit table with a STICKY OVERFLOW FLAG, and the reporting calls.
+`fzn_chain_verify` untouched. It breaks nothing and delivers most of
+sec 13b's defect statement -- a host can finally SAY what it is missing
+-- without creating a new refusal path. It also turns sec 14's
+unanswerable sizing question into an observable: **the manifest is the
+number nobody had**, and it arrives before the revocations do, so
+`FZN_CHAIN_ERR_STORE_FULL`'s fail-open becomes a fail-closed capacity
+refusal at follow time.
+
+**Stage 2**: the gate inside `fzn_chain_verify`, `ERR_INCOMPLETE`, and
+UNKNOWN. Sequence it with sec 13c's ancestry walk, not before, because
+the entitled-issuer set the gate iterates IS the set that walk
+computes; doing them apart means writing one derivation twice.
+
+**UNKNOWN must gate or the design does not close its own defect.** A
+union has a property a sequence head does not: no manifest is an empty
+union is a zero deficit, so a fresh joiner is COMPLETE by vacuity. A
+number's absence is distinguishable from zero; a set's is not.
+
+**Two things are not optional in any version**: the derived-not-stored
+id, and the sticky overflow flag. Without the flag a dropped id makes a
+host look MORE complete than it is -- a second silent fail-open on top
+of the one the exercise exists to close, and the design would then make
+storage strictly worse than it found it.
+
+### What it makes worse, stated rather than buried
+
+- **Manifest omission becomes a denial of service.** Withholding a
+  manifest leaves a victim UNKNOWN, which refuses; previously omission
+  left it permissive. The trade favours it -- the victim knows what it
+  lacks and any honest peer repairs it -- but it is a new attack.
+- **An entitled issuer can name unsatisfiable ids** and wedge every
+  chain it is entitled for, permanently, and this is CHEAPER than
+  revoking since it needs no valid revocation. Mitigation: make the
+  issuing call derive its id set from the issuer's own store, so an
+  honest implementation cannot name an id it does not hold.
+- **`fzn_revocation_issue` becomes half an operation.** A key that
+  revokes without republishing has revoked in a way the gate cannot
+  see, and it looks successful.
+- **Tail suppression gets a green light.** Today a suppressed host has
+  no verdict; after this it has a positive COMPLETE verdict that is
+  false. The union grows only when somebody hands you a LARGER
+  manifest, and a peer handing you last year's leaves you complete
+  against a stale set for ever. Only recency catches it and answer 3
+  forbids recency. The defence is naming: the verdict is *complete
+  against the manifests held*, never *up to date*. That is weak and is
+  not dressed up as more.
+
+### O(history) republication is forced, not chosen
+
+A manifest is a full-set statement, re-signed and re-sent whole on
+every change: 500 revocations is 16 frames through `chunk/` per new
+revocation per follower. Both escapes die on answer 1. A **delta**
+needs an ordering to say which last, and ordering is the sequence that
+answer removed. A **Merkle root** would make it O(1) on the wire and
+**cannot be merged** -- union of two roots is not computable without
+the elements. Union merge and accumulators are mutually exclusive.
+
+### A contradiction in this document, flagged rather than resolved
+
+Sec 13b says fail-open on cannot-establish-currency is "forbidden by
+name", citing sec 4.4a. The designer reads sec 4.4a's actual text as
+forbidding "a negotiable security level reached by flipping a PLAINTEXT
+BIT" -- an attacker-reachable downgrade -- and holds that a
+consumer-side policy chosen in source is a different object. **Stage 2
+is entirely downstream of which reading was meant**, and this document
+cannot settle a question about its own sentences. It goes to the
+copyright holder.
+
 ## 14. Open, and named rather than left silent
 
 - **`raidcfgd` EXISTS, and the decisions above were made when it did
