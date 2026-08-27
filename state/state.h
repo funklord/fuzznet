@@ -19,6 +19,54 @@
  * departure is a record this file REFUSES, and the error code is what reports
  * it -- a refusal is visible, a silent reordering is not.
  *
+ * REFUSED HAS AN EXACT SPELLING, so that the sentence above can be checked
+ * rather than believed: a code whose name carries `ERR_` stored nothing, and
+ * `FZN_STATE_OK` and `FZN_STATE_ABSENT` both stored. Those are the only two
+ * that store. `FZN_STATE_ABSENT` used to be `FZN_STATE_ERR_ABSENT` and used
+ * to be a refusal; it is renamed because it no longer refuses, and leaving
+ * `ERR_` on it would have made this paragraph's rule the one thing in the
+ * file that had to be remembered instead of read.
+ *
+ * THE CLEAR PATH IS WHERE THIS WAS FALSE, and every gap in it failed in the
+ * direction where a revocation does not land. Measured 2026-08-27 over the
+ * two-record set { apply(alice, stream 7, seq 5, "GRANT"),
+ * clear(alice, stream 7, seq 10, "REVOKE") }:
+ *
+ *	apply(5)=ok       clear(10)=ok      -> count 0, NULL   (revoked)
+ *	clear(10)=ABSENT  apply(5)=ok       -> count 1, "GRANT" (granted)
+ *
+ * One record set, two permissions, and the refusal was byte-identical to
+ * clearing a subject nobody had ever set -- so a consumer could not tell "your
+ * revocation was dropped" from "there was nothing to revoke". A clear now
+ * lands whether or not the thing it supersedes has arrived; see
+ * `fzn_state_clear`. Journal contiguity makes the reordering unreachable
+ * within a gated stream, which is not a defence: nothing in this paragraph
+ * requires journal gating, and `record.h` names the locally-authored case as
+ * this file's ordinary use.
+ *
+ * FOUR ENTRY POINTS, BECAUSE THERE ARE TWO INDEPENDENT AXES. What is being
+ * written is one question -- a value, or absence -- and whose cell is being
+ * written is another:
+ *
+ *	                    set a value        clear to absence
+ *	the cell's writer   fzn_state_apply    fzn_state_clear
+ *	over another writer fzn_state_resolve  fzn_state_resolve_clear
+ *
+ * The bottom right was missing until 2026-08-27, and its absence was the
+ * second half of the same defect. There was no way to clear a cell held by
+ * somebody else: `fzn_state_clear` answered CONFLICT, and `fzn_state_resolve`
+ * -- the only call that returned OK -- stored the revocation as a LIVE
+ * SETTING, so `fzn_state_get` handed the permission back with the revocation
+ * as its value and the subject read as granted, by the revoker. A consumer
+ * had no correct call to make.
+ *
+ * THEY ARE FOUR NAMES RATHER THAN TWO WITH A FLAG, for the reason `chain.h`
+ * gives about its pinned root: one function with an optional pin is a
+ * function somebody calls without the pin. Overriding another writer is the
+ * dangerous half of each axis and it has to be typed out; a caller that wants
+ * it names it, and a caller that does not cannot reach it by leaving an
+ * argument at its default.
+ *
  * A WRITER IS (ISSUER, STREAM), NOT AN ISSUER. `record.h` numbers each
  * issuer's records from 1 PER STREAM, so `seq` is unique within
  * (issuer, stream) and not within issuer. Two streams of one issuer are
@@ -36,6 +84,43 @@
  * from a DIFFERENT issuer, a **conflict**; from a different stream of the
  * SAME issuer, **cross-stream contention**. Both are reported and neither is
  * resolved.
+ *
+ * WHICH OF THOSE TWO A RECORD IS TOLD IS ORDER-DEPENDENT, AND THE COUNTS ARE
+ * NOT COMPARABLE ACROSS HOSTS. This is a limit of the design rather than a
+ * defect with a fix, and it is written down because the paragraph on
+ * `FZN_STATE_ERR_CROSS_STREAM` below builds an alarming policy on the
+ * distinction and would otherwise be read as promising more than it can.
+ *
+ * Measured 2026-08-27 over all six orders of three records at one sequence --
+ * alice on stream 1, alice on stream 2, bob -- all naming one subject:
+ *
+ *	alice/1, alice/2, bob  -> ok, CROSS_STREAM, CONFLICT
+ *	bob, alice/1, alice/2  -> ok, CONFLICT,     CONFLICT
+ *
+ * Two hosts holding that identical record set raise different alarm counts
+ * depending on the order the packets arrived in.
+ *
+ * THE CAUSE IS THE CELL, NOT THE COMPARISON. A cell holds ONE writer, so an
+ * arriving record can only be compared against that one, and which writer
+ * holds the cell is first-writer-wins among writers that have no shared zero
+ * -- which is already this file's documented policy, three paragraphs up, and
+ * already makes the VALUE order-dependent in the same case. Converging the
+ * two counts would need every writer that ever contended for a cell to be
+ * remembered, which is unbounded storage in a module that allocates nothing
+ * (sec 2); a bounded loser list would go order-dependent the moment it
+ * overflowed, which trades a divergence a consumer can see for one it cannot.
+ * So no mechanism was invented for it.
+ *
+ * WHAT IS SAFE TO RELY ON, and it is what a consumer actually needs: a record
+ * from a writer other than the one holding the cell is ALWAYS refused as one
+ * of these two, never as `FZN_STATE_ERR_STALE` and never accepted. That is
+ * order-independent and is the property that keeps a stranger out. What is
+ * not order-independent is which of the two names it, so an alarm keyed on
+ * counting CONFLICTs is a per-host figure and comparing two hosts' totals is
+ * comparing two rulers again. A consumer wanting a host-comparable alarm has
+ * to key it on something it holds itself -- the set of distinct writers it
+ * admitted records from for a subject, say -- because this file does not keep
+ * one.
  *
  * REFUSING TO RESOLVE A CONFLICT IS THE POINT, and it is not indecision.
  * Picking a winner needs a rule -- highest priority, lowest key, most recent
@@ -117,8 +202,30 @@ typedef enum fzn_state_err {
 	/* A different ISSUER already holds this subject and kind. See the
 	 * header: reported, never resolved here. */
 	FZN_STATE_ERR_CONFLICT = -4,
-	/* Nothing is set for this subject and kind. */
-	FZN_STATE_ERR_ABSENT = -5,
+	/* NOT A REFUSAL, AND THE ONE CODE HERE THAT STORED SOMETHING WITHOUT
+	 * BEING `FZN_STATE_OK`. A clear arrived for a subject and kind nothing
+	 * had set, and it LANDED: a tombstone was created naming the clearing
+	 * writer and its sequence, so anything at or below that sequence is
+	 * refused afterwards exactly as it would be over a value. This says
+	 * what was true before the clear, which is the question a revoker
+	 * wants answered -- it has just learnt that the grant it is revoking
+	 * had not reached this host, which usually means the journal is behind
+	 * or the grant was forgotten for capacity.
+	 *
+	 * It was `FZN_STATE_ERR_ABSENT` and it did refuse, storing nothing.
+	 * That dropped the revocation, and the header records the two orders
+	 * that then held two different permissions. The value is unchanged at
+	 * -5 so that `fzn_state_err_str`'s pinned code count does not move; the
+	 * spelling changed because a code that stores must not read as a code
+	 * that refuses.
+	 *
+	 * A CALLER THAT TREATS ANYTHING BUT OK AS FAILURE will log a fault
+	 * here on a clear that worked. That is the noisy direction rather than
+	 * the dangerous one, and the mistake has been made in this tree once
+	 * already: a simulated network reported a fault on every host that
+	 * `fzn_state_resolve` answered STALE, which were the hosts that were
+	 * already right. Read the code, do not test it for zero. */
+	FZN_STATE_ABSENT = -5,
 	/* The same issuer already holds this subject and kind, from one of its
 	 * OTHER streams. Their sequences are numbered independently, so there
 	 * is nothing to compare and this file will not invent an order.
@@ -130,7 +237,15 @@ typedef enum fzn_state_err {
 	 * a consumer that lays its streams out so that two of them touch one
 	 * subject: it will see this constantly and correctly. Folding the two
 	 * would bury the rare alarmable case inside a common expected one,
-	 * which takes away the exact thing CONFLICT exists to give. */
+	 * which takes away the exact thing CONFLICT exists to give.
+	 *
+	 * THE ALARM IS PER HOST, NOT COMPARABLE BETWEEN TWO. Which of these two
+	 * codes a given record is told depends on which writer got to the cell
+	 * first. The header measures it: two hosts with one record set raised
+	 * one CROSS_STREAM and one CONFLICT in one order, and two CONFLICTs in
+	 * another. The distinction above is still worth having and every
+	 * individual answer is still true; what it will not support is
+	 * subtracting one host's totals from another's. */
 	FZN_STATE_ERR_CROSS_STREAM = -6,
 } fzn_state_err_t;
 
@@ -187,6 +302,12 @@ fzn_state_err_t fzn_state_apply(fzn_state_t *state, const fzn_record_t *record);
  * because they are the same problem and a consumer with a rule for one has
  * had to answer the other.
  *
+ * IT SETS A VALUE. A consumer holding a record that MEANS "unset" wants
+ * `fzn_state_resolve_clear`, not this: passing a revocation here stores it as
+ * the subject's live value, which reads as a grant. Named here because that
+ * is the mistake this pair made available for as long as the fourth entry
+ * point was missing.
+ *
  * IDEMPOTENT, AND `FZN_STATE_ERR_STALE` IS THE ORDINARY ANSWER on a host that
  * already holds the winner. A rule is applied across a whole network, and
  * some hosts will have heard the winning writer first and be right already --
@@ -211,13 +332,60 @@ fzn_state_err_t fzn_state_resolve(fzn_state_t *state, const fzn_record_t *record
  * triple. The record already carries every field, and it is the object the
  * caller has.
  *
- * A clear against a subject with no cell is `FZN_STATE_ERR_ABSENT` and
- * allocates nothing: an absence that nothing has ever written is what a fresh
- * state is full of, and spending a slot to say so would let a stream of
- * clears fill a state that holds no values. It is the same position a
- * consumer is in when a tombstone has been forgotten for capacity, and the
- * fail-safe argument there covers it -- see `fzn_state_forgotten`. */
+ * A CLEAR AGAINST A SUBJECT WITH NO CELL TAKES A SLOT AND LEAVES A TOMBSTONE,
+ * answering `FZN_STATE_ABSENT` -- which reports what was there before and not
+ * a refusal. A revocation that arrives before the grant it supersedes is the
+ * whole reason: without the tombstone the clear stored nothing, and the grant
+ * then landed behind it and stood. The header has the two orders and the two
+ * different permissions they produced.
+ *
+ * THE EARLIER DESIGN REFUSED IT, on the argument that it "spends a slot to
+ * record an absence" and that a stream of clears could fill a state holding
+ * no values. The first half is true and is the price; the second half does
+ * not survive being weighed against `slot`, which forgets a tombstone before
+ * it refuses a new subject. So a state full of tombstones still admits every
+ * live setting offered to it, and the flood the argument feared costs
+ * evictions rather than service -- while a flood of live records for junk
+ * subjects, which the old rule permitted freely, could not be evicted at all
+ * and was strictly worse. What the old rule bought was a slot; what it cost
+ * was a revocation that silently did not land, and those are not the same
+ * size.
+ *
+ * `FZN_STATE_ERR_FULL` IS STILL POSSIBLE HERE, and it is the one place a
+ * clear can fail to land. It needs every slot to hold a LIVE setting, since
+ * anything else is evictable. There is no better answer available: the only
+ * remaining move would be to evict a live setting, which reverts it to a
+ * consumer's default with nothing to trace -- see `fzn_state_forgotten` for
+ * why that is the worse of the two. It is at least visible, which is what the
+ * header's invariant asks of a departure. */
 fzn_state_err_t fzn_state_clear(fzn_state_t *state, const fzn_record_t *record);
+
+/* Clear a cell held by a DIFFERENT writer, leaving that writer's tombstone.
+ *
+ * `fzn_state_resolve` for the clearing axis, and the fourth of the four
+ * entry points the header tabulates. Same escape hatch, same contract, same
+ * two kinds of contention overridden -- a different issuer and a different
+ * stream of the same issuer -- and the same reason for being its own name
+ * rather than a flag on `fzn_state_clear`.
+ *
+ * WHY IT HAD TO EXIST. Bob revoking alice's grant had no correct call before
+ * 2026-08-27. `fzn_state_clear` answered `FZN_STATE_ERR_CONFLICT` and changed
+ * nothing, which drops the revocation; `fzn_state_resolve` answered OK and
+ * stored bob's revocation as a LIVE setting, so `fzn_state_get` returned it
+ * and the subject read as GRANTED, with the revocation as the granted value
+ * and bob as the issuer who granted it. Measured, both of them. A consumer
+ * following the header's own advice -- "a consumer that HAS a rule applies it
+ * and calls `fzn_state_resolve`" -- reached the second of those, which is why
+ * this is a gap in the library rather than a mistake available to callers.
+ *
+ * The header claimed resolve covered both kinds of contention. That was true
+ * of setting a value and false of clearing one, and clearing is the direction
+ * where being wrong leaves a permission standing.
+ *
+ * IDEMPOTENT, AND STALE IS AN ORDINARY ANSWER, exactly as for
+ * `fzn_state_resolve`: a rule applied across a network meets hosts that are
+ * already correct. */
+fzn_state_err_t fzn_state_resolve_clear(fzn_state_t *state, const fzn_record_t *record);
 
 /* The current value, or NULL. NULL for a tombstone as well as for a subject
  * nothing has ever set: a caller asking what a subject says must not have to
