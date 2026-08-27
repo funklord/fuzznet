@@ -8,6 +8,32 @@
 
 #include <string.h>
 
+/* The head's nonce field and the AEAD's nonce are the same 24 bytes, and
+ * this file reads each through the other's length.
+ *
+ * WHAT IT GUARDS IS AN OUT-OF-BOUNDS ACCESS ON BOTH PATHS, not a mismatch
+ * -- the same shape session/commitment.c asserts for its own nonce, and for
+ * the same reason. Sending, `fzn_seal_build` memcpys SITU_FZN_HEAD_NONCE_COUNT
+ * bytes OUT of a buffer declared FZN_AEAD_NONCE_LEN. Receiving,
+ * `fzn_seal_open` hands `situ_fzn_head_nonce_ptr` straight to `aead->open`,
+ * which reads FZN_AEAD_NONCE_LEN bytes out of a field the schema sized. A
+ * schema whose nonce field grew would overrun the first; one that shrank
+ * would overrun the second. Neither peer would disagree with the other, so
+ * nothing would fail and the read would be found by a sanitizer or by
+ * nobody.
+ *
+ * IT WAS ASSERTED ONLY IN wire/test/constants_test.c, WHICH A LIBRARY BUILD
+ * NEVER COMPILES. Tests are built by the test target and only by it
+ * (build-and-commit.md), which is deliberate and right -- but it means a
+ * consumer, who builds the library and does not run our suite, had no guard
+ * at all on the two lines that need one. `make -n | grep constants_test`
+ * returns nothing and `make -n test` returns one; that is how this was
+ * established rather than by reading the Makefile. The test copy stays: it
+ * pairs FZN_NONCE_LEN in as well, which is frame/freshness.h's constant and
+ * not this file's business. */
+_Static_assert(SITU_FZN_HEAD_NONCE_COUNT == FZN_AEAD_NONCE_LEN,
+               "the head's nonce field has drifted from the AEAD's nonce");
+
 /* The head's own view, and the frame's, established once. Returns non-zero
  * only when the frame is the shape the schema describes. */
 static int views(uint8_t *frame, size_t frame_len, situ_msg_t *msg, situ_view_t *fv,

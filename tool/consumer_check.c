@@ -518,14 +518,19 @@ int main(void)
 	 * source leaves behind. */
 	{
 		fzn_random_ops_t rng = { NULL, NULL };
-		uint8_t nonce[FZN_AEAD_NONCE_LEN];
+		/* `aead_nonce` rather than `nonce`, which is taken by the
+		 * outer FZN_NONCE_LEN buffer. The two constants are equal
+		 * and wire/seal.c now asserts they stay so, but a consumer
+		 * building with -Wshadow should not have to establish that
+		 * from a warning our own conformance check emitted. */
+		uint8_t aead_nonce[FZN_AEAD_NONCE_LEN];
 
-		memset(nonce, 0x5a, sizeof(nonce));
-		if (fzn_nonce_next(&rng, nonce) != 0)
+		memset(aead_nonce, 0x5a, sizeof(aead_nonce));
+		if (fzn_nonce_next(&rng, aead_nonce) != 0)
 			return 20;
 		fzn_random_system_init(&rng);
 #if defined(__linux__)
-		if (!rng.fill || fzn_nonce_next(&rng, nonce) != 1)
+		if (!rng.fill || fzn_nonce_next(&rng, aead_nonce) != 1)
 			return 21;
 #endif
 	}
