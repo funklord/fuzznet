@@ -3428,6 +3428,48 @@ output is noise nobody reads, which is how a warning that matters gets
 missed. They happen to be clean under the full set today; that is luck to
 enjoy rather than a rule to enforce on somebody else's emitter.
 
+**And the tamper harness** (2026-08-27). `situc gen-tamper wire/frame.situ`
+emits `wire/generated/frame_tamper.h`: `situ_fzn_frame_tamper` takes our
+verifier as a callback, flips every byte the schema declares tag-covered and
+every byte of the tag one at a time, restores each flip, and requires the
+verifier to refuse each one. `wire/test/tamper_test.c` drives it with
+`fzn_seal_open` behind the same stub AEAD and stub hash `seal_test.c` uses,
+so it runs on **every** `make test` rather than only where `MONOCYPHER_DIR`
+names a checkout. Against a 168-byte frame it makes 163 flips -- 147 covered
+bytes plus the tag's 16 -- and the test asserts that count rather than only
+the verdict, because a covered span reported as zero would return `SITU_OK`
+having asked nothing.
+
+**The reason to generate this rather than write it** is the one this section
+keeps arriving at from the other direction: a hand-written tamper case is a
+SAMPLE, chosen once, and it cannot notice a field added to the schema
+afterwards or a span that moved under it. Measured rather than asserted --
+narrowing the AEAD's sealed span by one byte at both ends, so the last
+payload byte falls outside the tag and the round trip still succeeds, leaves
+**`seal_test.c` green across all 112 of its checks** and is caught by
+`tamper_test.c` naming byte 151. `golden_frame_test.c` catches it too, by
+byte comparison, and only where Monocypher is present; the ungated suite had
+nothing that would.
+
+**`make schema` verifies it like the rest**, regenerating into
+`$(BUILD_DIR)/.gen.new` and refusing on any difference -- confirmed to fire,
+by appending a line to the committed copy. `situc gen-tamper` writes
+`frame_tamper.h` into the CURRENT DIRECTORY by default, so the recipe passes
+`--out` and nothing situc writes ever lands outside `$(BUILD_DIR)`. A
+harness that could drift from the schema would keep flipping the bytes the
+layout used to have and keep reporting `SITU_OK`, which is worth less than
+the hand-written cases it supplements.
+
+**What it does not cover.** gen-tamper's converse half -- bytes OUTSIDE the
+covered span must NOT change the answer -- is emitted only for a fixed
+layout, and `fzn_frame` is variable length (`payload[head.length]`). So the
+five hop bytes are simply never flipped, and nothing in `tamper_test.c` says
+a relay can still rewrite `hops_left`. That property stays where it already
+is: `seal_test.c` spends the whole hop budget between build and open, and
+`golden_frame_test.c` rewrites byte 1 of the frozen vector under the real
+AEAD. The test file says so at the top, so a green run is not read as
+covering the hop.
+
 #### The vendored runtime is a deliberate exception to "submodule what you link"
 
 `wire/generated/situ.h` and `situ.c` are copied from situ at `18b3537`, and

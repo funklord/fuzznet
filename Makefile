@@ -119,6 +119,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              session/test/commitment_test.c local/test/peer_test.c \
              wire/test/generated_test.c chunk/test/agreement_test.c \
              wire/test/constants_test.c wire/test/seal_test.c \
+             wire/test/tamper_test.c \
              session/test/random_test.c local/test/vocabulary_test.c \
              local/test/vocabulary_fuzz.c local/test/admit_test.c \
              local/test/peer_fuzz.c local/test/peer_linux_test.c \
@@ -154,6 +155,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/generated_test \
              $(BUILD_DIR)/wire/test/constants_test \
              $(BUILD_DIR)/wire/test/seal_test \
+             $(BUILD_DIR)/wire/test/tamper_test \
              $(BUILD_DIR)/session/test/random_test \
              $(BUILD_DIR)/local/test/vocabulary_test \
              $(BUILD_DIR)/local/test/vocabulary_fuzz \
@@ -635,9 +637,11 @@ $(BUILD_DIR)/local/test/peer_linux_test: $(BUILD_DIR)/local/test/peer_linux_test
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
-# Three tests read situ's output and need the generated include path, so each
+# Four tests read situ's output and need the generated include path, so each
 # has its own compile rule rather than the pattern's. This comment said "the
-# only test" until there were three of them.
+# only test" until there were three of them, and three until tamper_test
+# arrived -- which is the one that reads a generated header nothing else
+# includes, `wire/generated/frame_tamper.h`.
 $(BUILD_DIR)/wire/test/generated_test.o: wire/test/generated_test.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
@@ -694,6 +698,16 @@ $(BUILD_DIR)/wire/test/seal_test.o: wire/test/seal_test.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
 
+# The generated tamper harness is a header of static inline functions, so it
+# reaches the compiler through this test and nowhere else -- there is no
+# object of its own to build and none to install. `make schema` is what keeps
+# it honest against the schema; this rule only has to put
+# wire/generated on the include path so `#include "frame_tamper.h"` resolves,
+# exactly as the three rules above do for `frame.h`.
+$(BUILD_DIR)/wire/test/tamper_test.o: wire/test/tamper_test.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
+
 $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/record/record.o \
                                       $(BUILD_DIR)/record/journal.o \
@@ -733,6 +747,21 @@ $(BUILD_DIR)/wire/test/seal_test: $(BUILD_DIR)/wire/test/seal_test.o \
                                    $(BUILD_DIR)/session/commitment.o \
                                    $(BUILD_DIR)/session/random.o \
                                    $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# seal_test's object list without relay.o: this file never forwards a frame,
+# because the hop is the one span the generated harness deliberately does not
+# reach and asserting it here would be a second copy of a case seal_test.c and
+# golden_frame_test.c already carry. commitment.o and random.o are here for
+# the reasons stated above them -- `fzn_seal_open` derives the frame's
+# commitment itself, and seal.o references the nonce draw whether or not this
+# binary calls the build path.
+$(BUILD_DIR)/wire/test/tamper_test: $(BUILD_DIR)/wire/test/tamper_test.o \
+                                     $(BUILD_DIR)/wire/seal.o \
+                                     $(BUILD_DIR)/session/commitment.o \
+                                     $(BUILD_DIR)/session/random.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -1394,7 +1423,25 @@ schema:
 	@rm -rf $(BUILD_DIR)/.gen.new && mkdir -p $(BUILD_DIR)/.gen.new
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --layer relate \
 	         --out $(BUILD_DIR)/.gen.new wire/frame.situ >/dev/null 2>&1
-	@for f in frame.c frame.h frame_relate.c frame_relate.h; do \
+	@# AND THE TAMPER HARNESS, on exactly the same argument. It is
+	@# `wire/test/tamper_test.c`'s statement of which bytes the tag reaches,
+	@# and a harness that could drift from the schema is worth less than the
+	@# hand-written cases it supplements: it would keep flipping the bytes
+	@# the layout used to have and keep reporting SITU_OK.
+	@#
+	@# `--out` IS NOT DECORATION HERE. `situc gen-tamper` writes
+	@# `frame_tamper.h` into the CURRENT DIRECTORY by default rather than to
+	@# stdout, so a run of it from a repository root drops a header in the
+	@# root -- which is how this was first met. Naming the scratch directory
+	@# keeps every byte situc writes inside $(BUILD_DIR), which is already
+	@# gitignored and already removed below, so a situc that fails halfway
+	@# leaves a partial file there for the comparison to refuse and never a
+	@# half-written header in wire/.
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tamper wire/frame.situ \
+	         --out $(BUILD_DIR)/.gen.new >/dev/null 2>&1 || { \
+		echo "schema: situc gen-tamper failed"; \
+		rm -rf $(BUILD_DIR)/.gen.new $(BUILD_DIR)/.situ-head; exit 1; }
+	@for f in frame.c frame.h frame_relate.c frame_relate.h frame_tamper.h; do \
 		cmp -s $(BUILD_DIR)/.gen.new/$$f wire/generated/$$f || { \
 			echo "schema: wire/generated/$$f is stale"; \
 			rm -rf $(BUILD_DIR)/.gen.new $(BUILD_DIR)/.situ-head; exit 1; }; \
@@ -1407,7 +1454,7 @@ schema:
 	done
 	@rm -rf $(BUILD_DIR)/.gen.new
 	@rm -rf $(BUILD_DIR)/.situ-head
-	@echo "schema: contract, map, generated C and vendored runtime all match"
+	@echo "schema: contract, map, generated C, tamper harness and vendored runtime all match"
 
 # Does a consumer outside this tree still work? Nothing else asks.
 #
