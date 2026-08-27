@@ -8437,11 +8437,61 @@ n-k are pure redundancy that should be discarded rather than waited
 for. Those are different completion predicates over the same data
 structure, and the current one has no `k`.
 
-`FZN_REASM_MAX_CHUNKS` is 256 and the `seen` bitmap is
-`FZN_REASM_MAX_CHUNKS / 8` bytes, so the machinery for tracking which
-symbols arrived exists and is the right shape. **What is missing is a
-second number** -- how many are enough -- and a reconstruction seam,
-which is a fifth vtable of the kind this library already has four of.
+**AND THE FIRST VERSION OF THIS ENTRY WAS WRONG ABOUT WHAT THAT
+MEANS.** It said the `seen` bitmap is "the right shape already" and
+that only a second number was missing. The holder pushed back --
+download and streaming protocols make OPPOSITE choices in almost every
+aspect, one optimising for buffering and the other for eliminating it
+-- and the pushback is correct. **A module is its lifecycle, not its
+data structure.** The bitmap is a fine primitive; `chunk/`'s lifecycle
+is what opposes streaming, and pointing at the primitive to argue the
+module generalises was the error.
+
+### The opposition, field by field, from the code
+
+| `chunk/` (transfer) | streaming (ROC-like) |
+|---|---|
+| accumulate until whole, hand over ONCE (`handed`, `arrived == chunks`) | deliver continuously; accumulating IS the failure |
+| every chunk required | k-of-n, loss expected, repaired or concealed |
+| `max_hold` is when to RECLAIM MEMORY | the deadline is when data becomes WORTHLESS |
+| a late chunk is still valuable | a late symbol is garbage |
+| slot buffer up to 262144 bytes | jitter buffer of milliseconds -- ~320 bytes for 40 ms of 64 kbit/s audio |
+| order irrelevant | order essential |
+
+**`max_hold` and a playout deadline are the trap.** Same width, same
+position, both "a time after which this slot is done" -- and opposite
+in kind. One is resource reclamation, where being late costs memory.
+The other is a correctness property, where being late costs the data.
+That is the fifth question's shape waiting to be walked into, and it
+would be walked into by anyone generalising `chunk/` rather than
+writing beside it.
+
+Three orders of magnitude between the buffers is the measurable form of
+the same point.
+
+### The tree already refused this merge once
+
+`project.md:342` records fuzzypickles' chunking as "for
+content-addressed assets -- a different problem, where the content has
+a hash-derived name and the transfer is pull-based and
+requester-coordinated", and sec 5 adds that **two mechanisms with
+different control flow can share primitives without becoming one
+thing.** So there are already two chunking-shaped mechanisms this tree
+declined to unify, and streaming is a third. The precedent is the
+tree's own.
+
+**What is genuinely shared is thin and already lives in the frame**:
+the fields that identify a fragment -- `sender`, `msg`, `index` -- and
+a per-sender bound so a stranger cannot exhaust memory. Even the bound
+differs in kind: `chunk/`'s quota is memory, streaming's constraint is
+a latency budget. So the sharing is at the HEAD, and `chunk/` is one
+consumer of those fields rather than the general mechanism.
+
+**Verdict: a separate module beside `chunk/`, not a generalisation of
+it.** What is missing is not a second number in the existing slot --
+it is a different lifecycle over the same wire fields, plus a
+reconstruction seam, which is a fifth vtable of the kind this library
+already has four of.
 
 ### It contradicts `sched/`, which selects exactly one link
 
