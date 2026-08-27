@@ -1,8 +1,20 @@
 /* The hop budget, which is the one part of relaying that is decidable today.
  *
  * `fzn_hop.hops_left` has been in every frame since the schema existed and
- * **nothing has ever read or written it** -- a byte on the wire paying for a
- * feature that did not exist. This is that feature's first half.
+ * for a long time **nothing read or wrote it** -- a byte on the wire paying
+ * for a feature that did not exist. This file was the first half of that
+ * feature and, until `fzn_send.hops`, the only half: `fzn_seal_build` memset
+ * the frame and set `version` alone, so EVERY frame this library could build
+ * carried a budget of zero and every one of the answers below was the same
+ * answer. A consumer wanting a relayable frame had to write `frame[1]` by
+ * hand, which is the raw-offset knowledge `wire/seal.h` exists to spare it.
+ *
+ * That is also why the seal -> relay -> open round trip went unwritten for as
+ * long as it did: it could not be written against the public API at all, so
+ * the property this whole file rests on -- that a frame survives having its
+ * budget spent -- was asserted nowhere. `wire/test/seal_test.c` asserts it
+ * now, by spending the entire budget between build and open and requiring the
+ * payload and capability back byte-identical.
  *
  * IT IS OUTSIDE THE AUTHENTICATED REGION, NECESSARILY. The tag covers `head`
  * and the sealed region; `hop` is before both. It has to be: a relay

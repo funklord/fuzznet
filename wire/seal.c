@@ -24,6 +24,31 @@ static int views(uint8_t *frame, size_t frame_len, situ_msg_t *msg, situ_view_t 
 	 * change to frame.situ reaches this file by regeneration. */
 	if (situ_fzn_frame_validate(*fv) != SITU_OK)
 		return 0;
+	/* EXACTLY THE FRAME, AND NOTHING AFTER IT.
+	 *
+	 * `validate` answers whether the bytes are a frame; it does not answer
+	 * whether they are ONLY a frame. Nothing else here could: the tag
+	 * covers `head` and the sealed region and stops at the tag, so bytes
+	 * appended after it are outside every span this file computes and the
+	 * AEAD verifies happily around them. Measured before this line: a valid
+	 * 168-byte frame handed in as 232 bytes -- and at every size up to
+	 * 168 + 4096 -- returned FZN_SEAL_OK with `payload_len` unchanged.
+	 *
+	 * The schema already says this, and says it somewhere that never
+	 * reaches here: `wire/frame.situ` has `require canonical(fzn_frame)`,
+	 * which situc checks at codegen time. A codegen-time proof that one
+	 * encoding exists per value is worth nothing against a datagram if the
+	 * runtime accepts a second encoding of the same frame, and an appended
+	 * suffix is exactly that -- unlimited encodings, all of which open.
+	 *
+	 * The end is derived rather than recomputed: `tag_offset` is where the
+	 * covered span stops, so the frame ends one tag later. Widened to
+	 * size_t before the add, because `frame_len` is a size_t and both terms
+	 * are uint32_t. `validate` has already proved the tag lies inside the
+	 * view, so the sum cannot exceed `frame_len` and this can only catch a
+	 * buffer that is too LONG -- a short one was refused above. */
+	if (frame_len != (size_t)situ_fzn_frame_tag_offset(*fv) + SITU_FZN_FRAME_TAG_COUNT)
+		return 0;
 	return situ_fzn_frame_head_view(*fv, hv) == SITU_OK;
 }
 
@@ -151,6 +176,20 @@ fzn_seal_err_t fzn_seal_build(uint8_t *frame, size_t frame_cap, size_t *frame_le
 		return FZN_SEAL_ERR_MALFORMED;
 	if (!what->payload && what->payload_len != 0)
 		return FZN_SEAL_ERR_MALFORMED;
+	/* THE HOP BUDGET, BOUNDED BY WHAT THIS LIBRARY WOULD FORWARD.
+	 *
+	 * `fzn_relay_budget` clamps a claimed budget to the host's ceiling at
+	 * the first honest host, so a frame built claiming 200 hops travels the
+	 * same distance as one claiming 8 -- and the caller that asked for 200
+	 * has no way to learn that. Refused rather than clamped for the reason
+	 * `chunk/split.c` gives about payload bytes: clamping leaves a caller
+	 * believing in something that did not happen.
+	 *
+	 * Here rather than lower down, with the other argument checks, so that
+	 * a refusal leaves the buffer untouched -- the promise this function
+	 * makes below, and the one the payload bound was moved up to keep. */
+	if (what->hops > FZN_RELAY_MAX_HOPS)
+		return FZN_SEAL_ERR_MALFORMED;
 	/* THE PAYLOAD BOUND, CHECKED BEFORE THE BUFFER IS TOUCHED.
 	 *
 	 * It used to read `> UINT16_MAX`, which only made the cast to `uint16_t`
@@ -248,6 +287,20 @@ fzn_seal_err_t fzn_seal_build(uint8_t *frame, size_t frame_cap, size_t *frame_le
 		return FZN_SEAL_ERR_SHAPE;
 
 	situ_fzn_hop_version_set(hopv, 1);
+	/* THE BUDGET, WHICH NOTHING IN THIS LIBRARY WROTE UNTIL NOW. Every
+	 * frame it could build carried zero here, so `fzn_relay_budget`
+	 * answered 0 and `fzn_relay_spend` answered EXHAUSTED for every frame
+	 * that had ever been built through the public API -- see
+	 * `fzn_send.hops`, which documents what zero means now that it is a
+	 * choice rather than the only possibility.
+	 *
+	 * The PLAIN setter, not a coverage-aware one, and that is the schema
+	 * speaking rather than an oversight: `frame.situ` says
+	 * `require no_tag_invalidation(fzn_frame.hop.hops_left)`, so situ
+	 * generates no `situ_fzn_frame_hop_*_set` family for it at all. A
+	 * relay must be able to decrement this byte without a key, so a setter
+	 * that dirtied the tag would contradict the field's whole purpose. */
+	situ_fzn_hop_hops_left_set(hopv, what->hops);
 
 	/* THROUGH THE COVERAGE-AWARE SETTERS, which take the message and mark
 	 * the tag stale. The plain `situ_fzn_head_*_set` family would write

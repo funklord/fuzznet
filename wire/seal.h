@@ -30,6 +30,10 @@
 #include "../session/commitment.h"
 #include "../session/random.h"
 
+/* For FZN_RELAY_MAX_HOPS. A sender now states a hop budget and this library
+ * refuses one larger than it would itself forward -- see `fzn_send.hops`. */
+#include "relay.h"
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -40,17 +44,44 @@
 
 typedef enum fzn_seal_err {
 	FZN_SEAL_OK = 0,
+	/* An argument this library cannot act on: a null pointer where one is
+	 * required, a payload pointer absent with a non-zero length, or a hop
+	 * budget past FZN_RELAY_MAX_HOPS. Distinct from ERR_SHAPE, which is
+	 * about the bytes of a frame rather than about what a caller asked
+	 * for. */
 	FZN_SEAL_ERR_MALFORMED = -1,
 	/* The frame is not the shape the schema describes -- too short, a bad
-	 * version, an index past its own chunk count. Refused before any
-	 * cryptography, because a frame that is not a frame is not worth a
-	 * decryption. */
+	 * version, an index past its own chunk count, or LONGER than the frame
+	 * it contains. Refused before any cryptography, because a frame that is
+	 * not a frame is not worth a decryption.
+	 *
+	 * SHORT AND OVER-LONG ARE ONE CODE AND NOT ONE FAULT, which is worth
+	 * knowing when one of them is being diagnosed. A short buffer is a
+	 * TRUNCATED datagram: bytes the sender wrote that did not arrive, which
+	 * a network does by itself and which every check below notices because
+	 * the missing bytes were authenticated. An over-long buffer is bytes
+	 * the sender did NOT write and somebody else appended: the frame inside
+	 * it is intact and its tag verifies, because the tag covers `head` and
+	 * the sealed region and stops there, so no amount of cryptography would
+	 * ever object to a suffix.
+	 *
+	 * `wire/frame.situ` says `require canonical(fzn_frame)`, which situc
+	 * checks at codegen time and which never reached this C. Until this
+	 * check existed a valid 168-byte frame handed in as 232 bytes -- and at
+	 * every size up to 168 + 4096 -- returned FZN_SEAL_OK with
+	 * `payload_len` unchanged. Anything keyed on the DATAGRAM rather than
+	 * on the frame inside it -- a dedup cache, a forwarding relay, one
+	 * capture compared against another -- then sees a single frame wearing
+	 * as many identities as an attacker cares to append, at no cost and
+	 * with no key. */
 	FZN_SEAL_ERR_SHAPE = -2,
 	/* The tag did not verify. Says nothing about who sent it or why: a
 	 * forgery and a corrupted datagram are the same answer here. */
 	FZN_SEAL_ERR_TAG = -3,
 	/* The key-commitment in the header is not the one this key derives.
-	 * DISTINCT FROM A BAD TAG on purpose -- see fzn_seal_open(). */
+	 * DISTINCT FROM A BAD TAG on purpose, and A VERDICT AN ATTACKER MAY
+	 * CHOOSE -- fzn_seal_open() states both halves, and the second one
+	 * governs what a consumer may do about it. */
 	FZN_SEAL_ERR_COMMITMENT = -4,
 	/* No nonce could be drawn. A refusal rather than a frame sealed under
 	 * something predictable -- see session/random.h. */
@@ -88,10 +119,45 @@ typedef struct fzn_opened {
  *   4. only then the gate, and only then any plaintext.
  *
  * Step 2 is why `commitment` is in the authenticated header rather than
- * inside the seal, and why its failure is a DIFFERENT error from a bad tag. A
- * receiver holding the wrong key learns that it holds the wrong key, rather
- * than that somebody sent it rubbish -- which is the difference between
- * rotating a key and hunting an attacker.
+ * inside the seal, and why its failure is a DIFFERENT error from a bad tag:
+ * with K candidate keys it turns K tag verifications into K compares and one
+ * verification, which is what makes `wire/relay.h`'s addressing-by-decryption
+ * affordable at all.
+ *
+ * WHAT FZN_SEAL_ERR_COMMITMENT DOES NOT MEAN, AND THIS HEADER USED TO SAY THE
+ * OPPOSITE. It said the difference was "between rotating a key and hunting an
+ * attacker", which reads as an instruction to rotate. It is not one, and the
+ * reason is the order above rather than anything about key management:
+ * `commitment` is a PLAINTEXT header field compared BEFORE the AEAD runs, so
+ * the verdict is reached entirely from bytes anybody on the path may rewrite.
+ * Measured here with a call-counting stub: flipping one byte at frame offset
+ * 0x49 turns FZN_SEAL_OK into this error with the AEAD never called.
+ *
+ * A consumer acting on a single one of these has therefore handed a stranger
+ * a remote control -- one flipped byte per datagram and a healthy receiver
+ * concludes its own key is wrong. project.md sec 4.7 states the corollary in
+ * general, and it governs every pre-tag verdict rather than only this one:
+ *
+ *   - COUNT IT IN AGGREGATE AND ACT ON THE RATE, which is the only form the
+ *     honest signal survives in. Mismatch on every frame from a peer means
+ *     the key really has moved. Mismatch on one frame in a thousand means
+ *     somebody is flipping bits, and no single frame can tell the two apart.
+ *   - NEVER let one on its own trigger a rekey, evict a peer, or reach a
+ *     sentence that names an identity. A verdict reached before the tag names
+ *     nobody, because nothing it was reached from was authenticated.
+ *
+ * THE ORDER IS NOT WHAT WAS WRONG and does not move. Checking the commitment
+ * first is what saves the decryptions; putting it below the tag would cost
+ * exactly what it was put there to buy. What was wrong was the advice about
+ * the answer.
+ *
+ * `frame_len` MUST BE THE FRAME EXACTLY. A buffer longer than the frame it
+ * holds is refused as FZN_SEAL_ERR_SHAPE, and it has to be refused HERE
+ * because nothing else can: the tag covers `head` and the sealed region and
+ * stops there, so a suffix after the tag changes nothing any check below
+ * looks at. See FZN_SEAL_ERR_SHAPE for what an appended suffix buys an
+ * attacker, and for why an over-long buffer is a different fault from a short
+ * one even though it is the same code.
  */
 fzn_seal_err_t fzn_seal_open(uint8_t *frame, size_t frame_len,
                               const uint8_t key[FZN_AEAD_KEY_LEN],
@@ -113,6 +179,43 @@ typedef struct fzn_send {
 	uint16_t index;
 	uint16_t chunks;
 	uint8_t kind;
+	/* THE HOP BUDGET, and the first thing on the send path that has ever
+	 * written one.
+	 *
+	 * `fzn_hop.hops_left` has been in every frame since the schema existed
+	 * and until this field nothing in this library set it. `fzn_seal_build`
+	 * memset the frame and wrote only `version`, so EVERY frame this
+	 * library could build carried a budget of zero: `fzn_relay_budget`
+	 * answered 0 and `fzn_relay_spend` answered FZN_RELAY_ERR_EXHAUSTED,
+	 * for every frame, always. A consumer wanting a relayable frame had to
+	 * poke `frame[1]` by hand -- exactly the raw-offset knowledge this
+	 * header exists to spare it. It is also the mechanical reason the
+	 * seal -> relay -> open round trip had never been written: it could
+	 * not be written against the public API.
+	 *
+	 * ZERO MEANS THIS FRAME IS NOT OFFERED FOR RELAYING. The first host to
+	 * receive it does not forward it. That is what a `memset` to zero
+	 * leaves behind, and the coincidence is deliberate rather than
+	 * convenient: relaying is opted INTO. A zero meaning FZN_RELAY_MAX_HOPS
+	 * would turn every consumer written before this field existed into a
+	 * traffic source without one of them changing a line, and it would do
+	 * it by making the safest-looking initialisation the most expansive
+	 * one.
+	 *
+	 * REFUSED ABOVE FZN_RELAY_MAX_HOPS, with FZN_SEAL_ERR_MALFORMED, before
+	 * the buffer is touched. A frame claiming more hops than this library
+	 * will forward states a reach the same library refuses on receipt --
+	 * `fzn_relay_budget` clamps it at the first honest host -- so accepting
+	 * it would leave the caller believing in a reach it does not have.
+	 * Refused rather than clamped, on `chunk/split.c`'s argument for the
+	 * same decision: clamping leaves a caller believing something was sent.
+	 *
+	 * AND IT IS A REQUEST RATHER THAN A GUARANTEE. The byte sits before the
+	 * authenticated region, necessarily, because a relay decrements it --
+	 * so anyone on the path may rewrite it, and `wire/relay.h` says what
+	 * does and does not follow from that. A sender states a budget; it does
+	 * not set one. */
+	uint8_t hops;
 } fzn_send_t;
 
 /* Build one frame and seal it, which is the send path's whole order in one
@@ -135,6 +238,14 @@ typedef struct fzn_send {
  *      span the tag was taken over.
  *   3. **The capability and the payload inside the seal**, written as
  *      plaintext and encrypted in place by the same call.
+ *   4. **The hop budget, from `what->hops`**, which is the one header field
+ *      the tag deliberately does NOT cover -- see `fzn_send.hops` and
+ *      `wire/relay.h`. Written before the seal here, though nothing requires
+ *      it to be: the whole point of the field's position is that changing it
+ *      neither invalidates nor needs the tag. `wire/test/seal_test.c` asserts
+ *      that property directly rather than restating it, by spending the
+ *      entire budget between build and open and requiring the frame to still
+ *      open with its payload and capability byte-identical.
  *
  * `frame` receives the whole datagram and `*frame_len` its length. The buffer
  * must have room for FZN_SEAL_OVERHEAD + `payload_len`.

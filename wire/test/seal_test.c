@@ -15,6 +15,8 @@
 
 #include "../seal.h"
 
+#include "../relay.h"
+
 #include "../../session/random.h"
 
 #include "frame.h"
@@ -100,6 +102,25 @@ static int stub_open(void *ctx, const uint8_t *key, const uint8_t *nonce, const 
 	for (size_t i = 0; i < text_len; i++)
 		text[i] = (uint8_t)(text[i] ^ key[i % FZN_AEAD_KEY_LEN]);
 	return 1;
+}
+
+/* THE SAME AEAD, COUNTING ITS OPENS.
+ *
+ * `seal.h` claims FZN_SEAL_ERR_COMMITMENT is reached with the cryptography
+ * never running, and the whole of finding 3 rests on that: a verdict produced
+ * before the AEAD is a verdict produced from bytes an attacker may rewrite. A
+ * counter is what turns the claim into something the suite can fail on --
+ * checking only the error code would be satisfied by an implementation that
+ * decrypted first and reported the mismatch afterwards, which is exactly the
+ * shape that would make the error trustworthy and the advice wrong. */
+static unsigned aead_opens;
+
+static int counting_open(void *ctx, const uint8_t *key, const uint8_t *nonce,
+                         const uint8_t *aad, size_t aad_len, uint8_t *text, size_t text_len,
+                         const uint8_t *tag)
+{
+	aead_opens++;
+	return stub_open(ctx, key, nonce, aad, aad_len, text, text_len, tag);
 }
 
 /* Entropy stubs for the send path: one that counts so nonces are known and
@@ -261,6 +282,44 @@ int main(void)
 		      "a frame committing to a different key was not refused as such");
 		check(memcmp(frame, sealed, sizeof(frame)) == 0,
 		      "the frame was touched before the commitment was checked");
+	}
+
+	/* THE COMMITMENT VERDICT IS ONE AN ON-PATH ATTACKER CHOOSES, and this is
+	 * the case that shows it rather than the one above.
+	 *
+	 * The block above passes a different commitment ARGUMENT, which is a
+	 * receiver holding the wrong key. This flips a byte of the commitment
+	 * IN THE FRAME, which is a stranger with no key at all: `commitment` is
+	 * a plaintext header field and the check that reads it runs before the
+	 * AEAD, so one flipped byte per datagram makes a healthy receiver
+	 * report that its key does not match.
+	 *
+	 * The counter is the point. A consumer may only ever act on the RATE of
+	 * these -- see `seal.h` -- and the reason is precisely that nothing
+	 * cryptographic has run by the time the verdict exists. `aead_opens`
+	 * asserts that, and the unflipped frame below is the positive control:
+	 * a counter that stays at zero because nothing ever calls the AEAD
+	 * would pass the first half and prove nothing. */
+	{
+		fzn_aead_ops_t counted = { stub_seal, counting_open, NULL };
+
+		memcpy(frame, sealed, sizeof(frame));
+		frame[OFF_COMMIT + 3] ^= 0x01u; /* frame offset 0x49 */
+		aead_opens = 0;
+		check(fzn_seal_open(frame, sizeof(frame), key, commitment, &counted, &opened) ==
+		              FZN_SEAL_ERR_COMMITMENT,
+		      "a flipped commitment byte did not produce the commitment verdict");
+		check(aead_opens == 0,
+		      "the commitment verdict cost a decryption, so it is not the pre-tag "
+		      "verdict seal.h describes");
+
+		memcpy(frame, sealed, sizeof(frame));
+		aead_opens = 0;
+		check(fzn_seal_open(frame, sizeof(frame), key, commitment, &counted, &opened) ==
+		              FZN_SEAL_OK,
+		      "the counting aead could not open an untouched frame");
+		check(aead_opens == 1,
+		      "the counting aead was never called, so the zero above was vacuous");
 	}
 
 	/* AND THE WRONG KEY WITH THE RIGHT COMMITMENT, which is the case the
@@ -594,6 +653,263 @@ int main(void)
 			if (big[i] != 0x5A)
 				touched++;
 		check(touched == 0, "a refused build wrote into the caller's buffer");
+	}
+
+	/* TRAILING UNAUTHENTICATED BYTES, WHICH USED TO OPEN.
+	 *
+	 * The tag covers `head` and the sealed region and stops at the tag, so
+	 * bytes appended AFTER the tag are outside every span `fzn_seal_open`
+	 * computes: the cryptography verifies happily around them and cannot be
+	 * the thing that objects. Measured before the check existed: this exact
+	 * 168-byte frame, handed in at every length from 169 to 168 + 4096,
+	 * returned FZN_SEAL_OK with `payload_len` unchanged.
+	 *
+	 * `wire/frame.situ` says `require canonical(fzn_frame)`, which situc
+	 * checks at codegen time and which never reached the C -- so the suite
+	 * was green on a schema requirement the runtime did not keep. What it
+	 * costs is not a decryption but an IDENTITY: anything keyed on the
+	 * datagram rather than on the frame inside it -- a dedup cache, a
+	 * forwarding relay, one capture compared against another -- sees a
+	 * single frame wearing as many identities as an attacker cares to
+	 * append, at no cost and with no key.
+	 *
+	 * THE UNPADDED FRAME IS CHECKED FIRST AND IN THE SAME BLOCK. "It was
+	 * refused" is satisfied by an implementation that refuses everything,
+	 * and the sweep below would then pass for the wrong reason. */
+	{
+		static uint8_t padded[FRAME_LEN + 4096];
+		fzn_opened_t padded_opened;
+		size_t accepted = 0;
+
+		memcpy(padded, sealed, FRAME_LEN);
+		check(fzn_seal_open(padded, FRAME_LEN, key, commitment, &aead, &padded_opened) ==
+		              FZN_SEAL_OK,
+		      "the unpadded frame stopped opening");
+		check(padded_opened.payload_len == PAYLOAD_LEN &&
+		              memcmp(padded_opened.payload, PLAIN, PAYLOAD_LEN) == 0,
+		      "the unpadded frame no longer round trips");
+
+		/* Every length, not a sample: a bound written one byte wrong would
+		 * pass a check that compared against a single padded size. */
+		for (size_t extra = 1; extra <= 4096; extra++) {
+			memcpy(padded, sealed, FRAME_LEN);
+			memset(padded + FRAME_LEN, 0x5A, extra);
+			if (fzn_seal_open(padded, FRAME_LEN + extra, key, commitment, &aead,
+			                  &padded_opened) != FZN_SEAL_ERR_SHAPE)
+				accepted++;
+		}
+		check(accepted == 0,
+		      "a frame with bytes appended after its tag was opened rather than "
+		      "refused as a shape");
+
+		/* AND THE SEND SIDE, which shares `views()` with the open side. A
+		 * caller sealing over a padded buffer would otherwise produce a
+		 * frame every receiver now refuses, and learn about it from
+		 * somebody else's logs. */
+		build(padded, commitment);
+		memset(padded + FRAME_LEN, 0x5A, 8);
+		check(fzn_seal_close(padded, FRAME_LEN + 8, key, &aead) == FZN_SEAL_ERR_SHAPE,
+		      "sealing over a buffer longer than the frame it holds was accepted");
+	}
+
+	/* THE SEAL -> RELAY -> OPEN ROUND TRIP, WHICH COULD NOT BE WRITTEN
+	 * UNTIL `fzn_send.hops` EXISTED.
+	 *
+	 * `fzn_seal_build` memset the frame and wrote only `version`, and
+	 * `fzn_send_t` had no hop field, so every frame this library could
+	 * build carried `hops_left = 0`: `fzn_relay_budget` answered 0 and
+	 * `fzn_relay_spend` answered EXHAUSTED, always. Writing this round trip
+	 * meant poking `frame[1]` by hand -- the raw-offset knowledge `seal.h`
+	 * exists to spare a consumer -- so it was never written, and the
+	 * property it proves went unasserted in a tree that depends on it.
+	 *
+	 * THE PROPERTY: the tag excludes `hop` and nothing but `hop`, so a
+	 * relay may spend the whole budget in flight and the frame still opens
+	 * with its interior byte-identical. That is what makes `relay.h`
+	 * possible at all. A schema revision pulling `hop` inside the
+	 * authenticated region would make `fzn_relay_spend` corrupt every frame
+	 * it touched -- and before this block the whole suite would have stayed
+	 * green while it did, because relaying and sealing were only ever
+	 * tested apart. */
+	{
+		unsigned counter = 0;
+		fzn_random_ops_t rng = { counting_fill, &counter };
+		uint8_t hopped[FRAME_LEN];
+		size_t hopped_len = 0;
+		uint8_t budget = 0xee;
+		fzn_send_t what;
+		fzn_opened_t after;
+		int spent_all = 1, walked_down = 1;
+
+		memset(&what, 0, sizeof(what));
+		what.sender = sealed + OFF_SENDER;
+		what.capability = CAP;
+		what.payload = PLAIN;
+		what.payload_len = PAYLOAD_LEN;
+		what.expires_at = 5000;
+		what.msg = 7;
+		what.index = 1;
+		what.chunks = 4;
+		what.kind = 2;
+
+		/* ZERO FIRST, because it is what a `memset` leaves behind and so
+		 * what every caller written before the field existed passes. It
+		 * must mean "not offered for relaying" and must not mean "the
+		 * default budget": the second reading would turn those callers
+		 * into traffic sources without one of them changing a line. */
+		what.hops = 0;
+		check(fzn_seal_build(hopped, sizeof(hopped), &hopped_len, &what, key, commitment,
+		                     &rng, &aead) == FZN_SEAL_OK,
+		      "building a frame with no hop budget was refused");
+		check(fzn_relay_budget(hopped, hopped_len, FZN_RELAY_MAX_HOPS, &budget) ==
+		                      FZN_RELAY_OK &&
+		              budget == 0,
+		      "a frame built with hops = 0 offered a budget anyway");
+		check(fzn_relay_spend(hopped, hopped_len, FZN_RELAY_MAX_HOPS) ==
+		              FZN_RELAY_ERR_EXHAUSTED,
+		      "a frame built with hops = 0 was forwardable");
+		check(fzn_seal_open(hopped, hopped_len, key, commitment, &aead, &after) ==
+		              FZN_SEAL_OK,
+		      "a frame with no hop budget stopped opening -- zero costs reach, not "
+		      "delivery");
+
+		/* A BUDGET STATED THROUGH THE PUBLIC API AND READ BACK THROUGH IT.
+		 * No `frame[1]` anywhere in this block, which is the half of the
+		 * finding a raw-offset assertion could not have shown. */
+		what.hops = FZN_RELAY_MAX_HOPS;
+		check(fzn_seal_build(hopped, sizeof(hopped), &hopped_len, &what, key, commitment,
+		                     &rng, &aead) == FZN_SEAL_OK,
+		      "building a relayable frame was refused");
+		check(fzn_relay_budget(hopped, hopped_len, FZN_RELAY_MAX_HOPS, &budget) ==
+		                      FZN_RELAY_OK &&
+		              budget == FZN_RELAY_MAX_HOPS,
+		      "a budget the sender stated did not reach the frame");
+
+		/* SPEND THE LOT, checking the budget after every hop rather than
+		 * only at the end. A spend that RAISED the budget, or that
+		 * underflowed past zero, would still leave a plausible-looking
+		 * number at the end of a loop that only counted iterations. */
+		for (unsigned i = FZN_RELAY_MAX_HOPS; i > 0; i--) {
+			uint8_t left = 0xee;
+
+			if (fzn_relay_spend(hopped, hopped_len, FZN_RELAY_MAX_HOPS) !=
+			    FZN_RELAY_OK)
+				spent_all = 0;
+			if (fzn_relay_budget(hopped, hopped_len, FZN_RELAY_MAX_HOPS, &left) !=
+			            FZN_RELAY_OK ||
+			    left != (uint8_t)(i - 1u))
+				walked_down = 0;
+		}
+		check(spent_all, "a hop was refused before the stated budget ran out");
+		check(walked_down,
+		      "a spend must leave exactly one less -- neither raising the budget nor "
+		      "underflowing past zero");
+		check(fzn_relay_spend(hopped, hopped_len, FZN_RELAY_MAX_HOPS) ==
+		              FZN_RELAY_ERR_EXHAUSTED,
+		      "a ninth hop was granted on an eight-hop budget");
+		check(fzn_relay_budget(hopped, hopped_len, FZN_RELAY_MAX_HOPS, &budget) ==
+		                      FZN_RELAY_OK &&
+		              budget == 0,
+		      "a refused spend underflowed the budget it refused");
+
+		/* THE POSITIVE CONTROL, and the assertion this whole block exists
+		 * for. After the entire budget has been spent in flight the frame
+		 * must STILL open, and the interior must come back byte-identical
+		 * -- otherwise "the relay did not break it" is satisfied by a
+		 * build that never worked. */
+		{
+			fzn_seal_err_t reopened;
+
+			memset(&after, 0xee, sizeof(after));
+			reopened = fzn_seal_open(hopped, hopped_len, key, commitment, &aead,
+			                         &after);
+			check(reopened == FZN_SEAL_OK,
+			      "a frame relayed its full budget no longer opens -- the tag "
+			      "covers `hop`, which it must not");
+			/* THE THREE BELOW ARE GUARDED ON THAT VERDICT, and the guard
+			 * is not decoration. `fzn_seal_open` zeroes `out` before it
+			 * refuses, so `after.payload` is NULL on any failure and a
+			 * memcmp through it takes the process down -- after the line
+			 * above has printed its FAIL but before the run can report a
+			 * count. A test that crashes is a test that names its reason
+			 * to nobody, which is the whole value of the message. */
+			check(reopened == FZN_SEAL_OK && after.payload_len == PAYLOAD_LEN &&
+			              memcmp(after.payload, PLAIN, PAYLOAD_LEN) == 0,
+			      "the payload did not survive eight hops byte-identical");
+			check(reopened == FZN_SEAL_OK &&
+			              memcmp(after.capability, CAP, sizeof(CAP)) == 0,
+			      "the capability did not survive eight hops byte-identical");
+			check(reopened == FZN_SEAL_OK && after.msg == 7 && after.index == 1 &&
+			              after.chunks == 4 && after.kind == 2 &&
+			              after.expires_at == 5000,
+			      "a header field did not survive eight hops");
+		}
+
+		/* WHERE THE TAG'S COVERAGE BEGINS, PROBED FROM BOTH SIDES.
+		 *
+		 * The round trip above shows the budget byte is outside it. This
+		 * shows the boundary is where the schema puts it and not one byte
+		 * either way: offset 4 is the last byte of `hop`, and corrupting
+		 * it is answered by the hop validator as a shape rather than by
+		 * the tag; offset 5 is the first authenticated byte, and
+		 * corrupting it is answered by the tag and by nothing before it.
+		 *
+		 * `kind` at offset 5 is flipped from 2 to 3, both of which
+		 * `situ_fzn_kind_is_known` accepts, so the frame passes validation
+		 * and the answer can only have come from the cryptography. A flip
+		 * producing an unknown kind would return SHAPE and prove nothing
+		 * about coverage. */
+		{
+			uint8_t probe[FRAME_LEN];
+			size_t probe_len = 0;
+
+			check(fzn_seal_build(probe, sizeof(probe), &probe_len, &what, key,
+			                     commitment, &rng, &aead) == FZN_SEAL_OK,
+			      "building the coverage probe was refused");
+			probe[4] ^= 0x7Fu;
+			check(fzn_seal_open(probe, probe_len, key, commitment, &aead, &after) ==
+			              FZN_SEAL_ERR_SHAPE,
+			      "the last byte of `hop` was answered by the tag, so the tag "
+			      "covers more than it should");
+
+			check(fzn_seal_build(probe, sizeof(probe), &probe_len, &what, key,
+			                     commitment, &rng, &aead) == FZN_SEAL_OK,
+			      "rebuilding the coverage probe was refused");
+			probe[5] ^= 0x01u;
+			check(fzn_seal_open(probe, probe_len, key, commitment, &aead, &after) ==
+			              FZN_SEAL_ERR_TAG,
+			      "the first authenticated byte was not answered by the tag, so "
+			      "the tag covers less than it should");
+		}
+
+		/* A BUDGET THIS LIBRARY WOULD NOT FORWARD IS REFUSED, and refused
+		 * before the buffer is touched. Accepting it would tell the caller
+		 * it had sent a frame with a reach of 200 when `fzn_relay_budget`
+		 * clamps it to 8 at the first honest host. Exactly the ceiling
+		 * must build and one past it must not: a check that only refused
+		 * something far too large would pass with the bound set anywhere
+		 * above it. */
+		{
+			size_t wrote = 0;
+			size_t touched = 0;
+
+			what.hops = FZN_RELAY_MAX_HOPS;
+			check(fzn_seal_build(hopped, sizeof(hopped), &wrote, &what, key,
+			                     commitment, &rng, &aead) == FZN_SEAL_OK,
+			      "the largest budget this library forwards was refused");
+
+			what.hops = FZN_RELAY_MAX_HOPS + 1u;
+			memset(hopped, 0xee, sizeof(hopped));
+			check(fzn_seal_build(hopped, sizeof(hopped), &wrote, &what, key,
+			                     commitment, &rng, &aead) == FZN_SEAL_ERR_MALFORMED,
+			      "a budget past what this library will forward was accepted");
+			for (size_t i = 0; i < sizeof(hopped); i++)
+				if (hopped[i] != 0xee)
+					touched++;
+			check(touched == 0,
+			      "a build refused for its hop budget wrote into the caller's "
+			      "buffer");
+		}
 	}
 
 	printf("seal_test: %d checks, %d failure(s)\n", checks, failures);
