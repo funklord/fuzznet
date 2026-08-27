@@ -6163,6 +6163,70 @@ already identified as wrong.
 
 Neither byte can be added later without a wire break.
 
+### `state/`'s clear path, completed 2026-08-27
+
+Three findings from an independent audit turned out to be one: **the clear
+path was underdeveloped relative to the apply path, and every gap in it failed
+dangerous** -- the direction where a revocation does not land.
+
+**A clear arriving before the apply it supersedes was dropped.** A clear with
+no cell answered ABSENT and stored nothing, so:
+
+    { apply(alice, stream 7, seq 5, GRANT), clear(alice, stream 7, seq 10) }
+    apply then clear -> revoked
+    clear then apply -> THE GRANT STANDS
+
+Two values from one set, which is exactly what `state.h`'s headline invariant
+forbids -- and the refusal was byte-identical to clearing a subject nobody
+ever set, so a consumer could not tell "your revocation was dropped" from
+"there was nothing to revoke".
+
+**A clear of an absent cell now leaves a tombstone**, and the objection a
+previous pass raised against that does not survive measurement. It was that a
+stream of clears would fill a state holding no values. But `slot()` forgets a
+tombstone BEFORE refusing a new subject, so a state full of tombstones still
+admits every live setting offered to it -- a flood costs evictions, never
+service. The old rule, meanwhile, spent slots on live records for junk
+subjects, and those are NOT evictable. It was the worse denial, not the safer
+one.
+
+`FZN_STATE_ERR_ABSENT` becomes `FZN_STATE_ABSENT`, same value. It is no longer
+a refusal -- the record is stored -- and it reports what was true BEFORE the
+clear, which is what a revoker wants to know. That leaves `ERR_` meaning
+exactly "stored nothing", which turns "a refusal is visible" from a sentence
+into something checkable.
+
+**The fourth combination is a fourth name.** `resolve` is override-and-live,
+`clear` is neither; there was no override-and-clear, so a revocation from
+another writer could only be installed through `resolve` -- which stores it as
+a LIVE setting, and the permission then reads as GRANTED, by the revoker.
+`fzn_state_resolve_clear` is a separate entry point rather than a flag, on
+`chain.h`'s argument that "one function with an optional pin is a function
+somebody calls without the pin". Overriding another writer is the dangerous
+half of each axis and now has to be typed.
+
+**THE ALARM COUNTS DO NOT CONVERGE, AND THE HEADER STOPS CLAIMING THEY DO.**
+Over the six orders of three same-sequence records, `ABC` gives one
+CROSS_STREAM and one CONFLICT while `CAB` gives two CONFLICTs. The
+order-dependence is not in the comparison rule but in WHICH WRITER THE CELL
+HOLDS, and that is first-writer-wins among incomparable writers -- policy the
+header already documents, and already lets make the VALUE order-dependent.
+
+Converging the counts would need every writer that ever contended to be
+remembered: unbounded storage in a module that allocates nothing, and a
+bounded loser list would go order-dependent on overflow -- trading a visible
+divergence for a hidden one. No mechanism was invented. What the header says
+instead is the part that IS safe and checkable: a record from a writer other
+than the holder is ALWAYS refused as one of the two, never STALE and never
+accepted. Both halves are pinned, and folding the two codes together leaves
+the safety half passing while the pins go red, which is how they were shown
+to be independent claims.
+
+**The permutation property was the test that should have caught A and could
+not.** It ran 120 orders of five records and called only `fzn_state_apply`.
+It now dispatches per record through apply or clear and runs 40320 orders of
+eight. 124 checks to 206.
+
 ### The commitment stops being a correlator, 2026-08-27
 
 `commitment[16]` was `f(transcript)`. The transcript is long-lived material --
