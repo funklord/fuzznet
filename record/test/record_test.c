@@ -29,6 +29,7 @@
 #include "../record.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static int failures;
@@ -391,6 +392,58 @@ static void test_is_open_agrees_with_open(void)
  * The bound is pinned from both sides. 512 with a 668-byte buffer must be
  * ACCEPTED and 513 with a 669-byte buffer REFUSED, so a guard that refuses
  * everything long scores nothing here and `>=` in place of `>` goes red. */
+/* A VIEW SHORTER THAN A HEADER, ON A BUFFER SIZED EXACTLY TO IT.
+ *
+ * `fzn_record_is_open` opens with `r.len < FZN_RECORD_MIN_LEN`, and that
+ * half of the guard is what BOUNDS THE THREE HEADER READS below it -- the
+ * version byte, the object byte and the big-endian `body_len`. The
+ * closing `r.len == HEADER + body_len + SIG` already implies the length,
+ * so removing the guard changes the VERDICT for no input: it still
+ * answers 0. It just reads past the end first.
+ *
+ * SO THIS CASE CANNOT DISCRIMINATE BY ITS ASSERTION, and pretending
+ * otherwise would be the vacuous shape this file has spent a day
+ * removing. What it contributes is the INPUT: a heap buffer sized
+ * exactly to a short view, which is a thing no other harness here
+ * produces -- every one of them hands `is_open` at least
+ * FZN_RECORD_MAX_LEN bytes, so the read has always landed inside slack
+ * nobody was using. Under `make test SANITIZE=1` this case is what gives
+ * ASan something to see. Measured with the length half removed:
+ * `heap-buffer-overflow READ of size 1 ... in fzn_record_is_open
+ * record/record.h:268`, through `fzn_get_be16`.
+ *
+ * The buffer is malloc'd rather than a stack array on purpose: an exact
+ * heap allocation puts a redzone immediately after the last byte, where
+ * a stack array may sit inside padding the compiler chose. */
+static void test_is_open_bounds_its_own_reads(void)
+{
+	static const size_t SHORT_LENS[] = { 1u, 2u, 3u, 4u, 91u, FZN_RECORD_MIN_LEN - 1u };
+	unsigned accepted = 0;
+
+	for (size_t i = 0; i < sizeof(SHORT_LENS) / sizeof(SHORT_LENS[0]); i++) {
+		uint8_t *tiny = malloc(SHORT_LENS[i]);
+		fzn_record_t r;
+
+		if (!tiny) {
+			expect(0, "the fixture could not allocate a short view");
+			return;
+		}
+		memset(tiny, 0, SHORT_LENS[i]);
+		if (SHORT_LENS[i] > FZN_RECORD_OFF_VERSION)
+			tiny[FZN_RECORD_OFF_VERSION] = (uint8_t)FZN_SIGNED_VERSION;
+		if (SHORT_LENS[i] > FZN_RECORD_OFF_OBJECT)
+			tiny[FZN_RECORD_OFF_OBJECT] = (uint8_t)FZN_OBJECT_RECORD;
+
+		r.base = tiny;
+		r.len = SHORT_LENS[i];
+		if (fzn_record_is_open(r))
+			accepted++;
+		free(tiny);
+	}
+
+	expect(accepted == 0, "is_open accepted a view shorter than a record header");
+}
+
 static void test_is_open_bounds_the_body(void)
 {
 	/* 156 + 600. Deliberately past FZN_RECORD_MAX_LEN, and the only buffer
@@ -865,6 +918,7 @@ int main(void)
 	       (unsigned)FZN_RECORD_HEADER_LEN, (unsigned)FZN_SIG_LEN,
 	       (size_t)FZN_RECORD_MIN_LEN, (size_t)FZN_RECORD_MAX_LEN);
 	test_is_open_agrees_with_open();
+	test_is_open_bounds_its_own_reads();
 	test_is_open_bounds_the_body();
 	printf("record_test: %d checks, %d failure(s)\n", checks, failures);
 
