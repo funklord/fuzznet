@@ -5666,6 +5666,32 @@ nothing this module signs can reach it, because `fzn_record_sign` refuses an
 oversized body too, so only a hand-built view gets there, which is exactly the
 input class `is_open` exists for.
 
+**`chunk/reassembly.c`'s chunk ceiling.** Sabotaging `chunks >
+FZN_REASM_MAX_CHUNKS` away while keeping the `chunks == 0` half left
+`reassembly_test`, `reassembly_fuzz`, `reassembly_guided`, `roundtrip_fuzz`,
+`split_test` and `sim/test/network_test` all green. Only
+`chunk/test/agreement_test` failed, and it failed at the API level --
+"chunks=257 should be schema-legal and code-refused" -- without ever reaching
+what an admitted count does. `reassembly_test` already had an assertion for
+it and that assertion could not fail: its slots are 64 bytes, so `payload_len
+> buf_capacity / chunks` -- 8 against 64/257, which is 0 -- refuses a large
+count whether the ceiling is there or not. A real refusal standing in as
+evidence for a different one, which is `evidence.md`'s vacuous pass wearing a
+sizing bound's clothes.
+
+**What an admitted count does.** `seen` is
+`uint8_t[FZN_REASM_MAX_CHUNKS / 8]`, 32 bytes, sized against that ceiling and
+against nothing else. Measured on a 1-slot table with an 8192-byte buffer,
+`chunks = 300` and a 16-byte payload: index 0 is admitted, because 8192/300 is
+27 and the payload is 16, and index 260 is admitted too -- at which point
+marking it seen writes byte 32 of a 32-byte array, one past its end and onto
+the `fzn_partial_t` members that follow it. `live` came back 17. **No
+sanitizer sees it**: the write stays inside the slot's own allocation, so the
+object it corrupts is one it was allowed to touch, which is why no ASan run
+has ever caught it. The new case uses a slot wide enough that division refuses
+nothing, with exactly FZN_REASM_MAX_CHUNKS admitted as the control, so the
+ceiling is the only thing left that can do the refusing.
+
 ### The tamper harness is generated, and it catches what ours did not
 
 **Adopted 2026-08-27: `situc gen-tamper` over `wire/frame.situ`**, emitted

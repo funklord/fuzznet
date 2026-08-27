@@ -159,11 +159,99 @@ static void test_the_bound_is_enforced_on_the_first_chunk(void)
 	      "a message larger than the slot was admitted");
 	CHECK(f.slots[0].live == 0, "a refused message took a slot anyway");
 
-	/* And a claim beyond the compile-time ceiling never reaches sizing. */
+	/* And a claim beyond the compile-time ceiling never reaches sizing.
+	 *
+	 * ON THIS FIXTURE THAT ASSERTION CANNOT FAIL, and the case below is
+	 * what makes it mean something. SLOT_BYTES is 64, so `payload_len >
+	 * buf_capacity / chunks` -- 8 against 64/257, which is 0 -- refuses 257
+	 * chunks whether or not the ceiling exists. The refusal is real and the
+	 * evidence for the ceiling is not. */
 	fixture_init(&f, 2);
 	CHECK(fzn_reasm_accept(&f.table, f.alice, 1, 0, (uint16_t)(FZN_REASM_MAX_CHUNKS + 1),
 	                       piece, 8, 0, 100, &done) == FZN_REASM_ERR_TOO_LARGE,
 	      "a chunk count past FZN_REASM_MAX_CHUNKS was admitted");
+}
+
+/* THE CEILING ITSELF, ON A SLOT BIG ENOUGH THAT NOTHING ELSE CAN DO THE
+ * REFUSING.
+ *
+ * `chunks > FZN_REASM_MAX_CHUNKS` could be deleted from `admit_first` with
+ * `reassembly_test`, `reassembly_fuzz`, `reassembly_guided`, `roundtrip_fuzz`,
+ * `split_test` and `sim/test/network_test` all still green -- measured, by
+ * deleting it. Only `chunk/test/agreement_test` noticed, and it noticed at the
+ * API level ("chunks=257 should be schema-legal and code-refused") without ever
+ * reaching what an admitted count does.
+ *
+ * WHAT IT DOES. `seen` is `uint8_t[FZN_REASM_MAX_CHUNKS / 8]`, 32 bytes, sized
+ * against that ceiling and against nothing else. Measured on a 1-slot table
+ * with an 8192-byte buffer, `chunks = 300` and a 16-byte payload: index 0 is
+ * admitted, because the per-chunk bound is satisfied -- 8192/300 is 27 and the
+ * payload is 16 -- and index 260 is admitted too, at which point marking it
+ * seen writes byte 32 of a 32-byte array, one past its end and onto the
+ * `fzn_partial_t` members that follow it. `live` came back 17. NO SANITIZER
+ * SEES IT: the write stays inside the slot's own allocation, so the object it
+ * corrupts is the one it was allowed to touch.
+ *
+ * So the size of the slot is the whole point of this fixture. On the 64-byte
+ * slots above, division refuses every large count before the ceiling is
+ * consulted; here it refuses none of them, and the ceiling is the only thing
+ * left. The control is FZN_REASM_MAX_CHUNKS exactly, which must be ADMITTED --
+ * without it "large counts are refused" is satisfied by a slot too small to
+ * take any of them, which is precisely the state the case above was in. */
+static void test_the_chunk_ceiling_is_what_refuses_a_large_count(void)
+{
+	/* 300 chunks of 16 bytes is 4800, so the per-chunk bound has nothing
+	 * to say about any count this case uses. */
+	static uint8_t storage[8192];
+	fzn_reasm_t table;
+	fzn_partial_t slot;
+	fzn_partial_t *done = NULL;
+	uint8_t sender[FZN_SENDER_LEN];
+	uint8_t piece[16];
+
+	memset(sender, 0xa1, sizeof(sender));
+	fill(piece, sizeof(piece), 0x70, 0);
+
+	CHECK(fzn_reasm_slot_init(&slot, storage, sizeof(storage)) == FZN_REASM_OK,
+	      "the wide fixture's slot would not initialise");
+	CHECK(fzn_reasm_init(&table, &slot, 1, 1, REASM_MAX_HOLD) == FZN_REASM_OK,
+	      "the wide fixture's table would not initialise");
+
+	/* THE CONTROL. Exactly at the ceiling, and the slot must take it --
+	 * otherwise every refusal below is the buffer being too small. */
+	CHECK(fzn_reasm_accept(&table, sender, 1, 0, (uint16_t)FZN_REASM_MAX_CHUNKS, piece,
+	                       sizeof(piece), 0, 100, &done) == FZN_REASM_OK,
+	      "the wide fixture refused a claim of exactly FZN_REASM_MAX_CHUNKS, so it "
+	      "is too small to test the ceiling with");
+	CHECK(slot.live == 1, "a claim at the ceiling was accepted without taking a slot");
+
+	/* ONE PAST IT. Same buffer, same payload, one more chunk. */
+	fzn_reasm_slot_init(&slot, storage, sizeof(storage));
+	fzn_reasm_init(&table, &slot, 1, 1, REASM_MAX_HOLD);
+	CHECK(fzn_reasm_accept(&table, sender, 1, 0, (uint16_t)(FZN_REASM_MAX_CHUNKS + 1u),
+	                       piece, sizeof(piece), 0, 100, &done) == FZN_REASM_ERR_TOO_LARGE,
+	      "a claim of one past FZN_REASM_MAX_CHUNKS was admitted by a slot wide "
+	      "enough to hold it");
+	CHECK(slot.live == 0, "a claim past the ceiling took a slot anyway");
+
+	/* AND THE COUNT THAT REACHES PAST `seen`, refused at the first chunk,
+	 * so that nothing ever gets as far as an index the bitmap cannot
+	 * address. */
+	fzn_reasm_slot_init(&slot, storage, sizeof(storage));
+	fzn_reasm_init(&table, &slot, 1, 1, REASM_MAX_HOLD);
+	CHECK(fzn_reasm_accept(&table, sender, 1, 0, 300, piece, sizeof(piece), 0, 100,
+	                       &done) == FZN_REASM_ERR_TOO_LARGE,
+	      "a claim of 300 chunks was admitted");
+
+	/* The index that would write past `seen`, asked for directly. It is
+	 * refused for the same reason and not for its index: no slot was ever
+	 * taken, so there is no bitmap for it to reach past. */
+	CHECK(fzn_reasm_accept(&table, sender, 1, 260, 300, piece, sizeof(piece), 0, 100,
+	                       &done) == FZN_REASM_ERR_TOO_LARGE,
+	      "index 260 of a 300-chunk claim was admitted, which marks a bit past the "
+	      "end of a 32-byte seen set");
+	CHECK(slot.live == 0, "a claim of 300 chunks took a slot anyway");
+	CHECK(done == NULL, "a refused claim completed a message");
 }
 
 static void test_later_chunks_must_agree(void)
@@ -1005,6 +1093,7 @@ int main(void)
 	test_reassembles_out_of_order();
 	test_a_short_last_chunk_is_allowed();
 	test_the_bound_is_enforced_on_the_first_chunk();
+	test_the_chunk_ceiling_is_what_refuses_a_large_count();
 	test_later_chunks_must_agree();
 	test_two_senders_do_not_splice();
 	test_the_twin_fixture_is_what_it_claims();
