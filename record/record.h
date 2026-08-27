@@ -269,6 +269,24 @@ static inline int fzn_record_is_open(fzn_record_t r)
 	if (body_len > FZN_RECORD_BODY_MAX)
 		return 0;
 
+	/* SEQUENCE ZERO, which this omitted and the paragraph above claimed it
+	 * covered. `fzn_record_open` refuses it by name and journal.h reserves
+	 * it for "nothing received yet", so it is as structural as the version
+	 * byte -- and the sentence above says only the SIGNATURE is left out.
+	 *
+	 * It is not a memory-safety gap: the sequence lives inside a buffer
+	 * either guard admits. What it costs is that `fzn_record_verify` gates
+	 * on this function, so a hand-built view carrying sequence zero was
+	 * VERIFIED, and `state/` and `log/` would then admit it through a gate
+	 * `fzn_record_open` would have closed.
+	 *
+	 * Found by `record/test/record_fuzz.c`, which compares the two
+	 * functions on every input it generates rather than on the cases
+	 * somebody thought to enumerate. The disagreement was 10561 of 20000
+	 * cases and every one of them was this. */
+	if (fzn_get_be64(r.base + FZN_RECORD_OFF_SEQ) == 0u)
+		return 0;
+
 	/* EXACT, not "at least". A buffer longer than the record it holds is a
 	 * different fault from a short one and neither is a record. */
 	return r.len == (size_t)FZN_RECORD_HEADER_LEN + body_len + FZN_SIG_LEN;

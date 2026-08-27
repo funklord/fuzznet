@@ -451,7 +451,21 @@ static int probe(const uint8_t *bytes, size_t len, struct coverage *cov, int *ac
 	view.base = bytes;
 	view.len = len;
 	guard = fzn_record_is_open(view);
-	guard_want = want == FZN_RECORD_OK || want == FZN_RECORD_ERR_SEQ_ZERO;
+	/* THE TWO GUARDS NOW AGREE ON EVERY INPUT, so the oracle is simply
+	 * `open` accepted it.
+	 *
+	 * This read `want == OK || want == SEQ_ZERO` when the harness was
+	 * written, because `fzn_record_is_open` did not test the sequence --
+	 * the one input class on which the two disagreed. That was 10561 of
+	 * 20000 cases, and this harness is what found it: it compares them on
+	 * every input it generates rather than on the cases somebody thought
+	 * to enumerate.
+	 *
+	 * The gap mattered because `fzn_record_verify` gates on `is_open`, so
+	 * a hand-built view carrying sequence zero was verified and `state/`
+	 * and `log/` would admit it through a gate `open` would have closed.
+	 * The guard covers the sequence now, so the exception is gone. */
+	guard_want = want == FZN_RECORD_OK;
 
 	/* AND THE ACCESSORS RUN ON WHATEVER THE GUARD APPROVED, before anything
 	 * below decides whether approving it was right. This is what a consumer
@@ -477,17 +491,15 @@ static int probe(const uint8_t *bytes, size_t len, struct coverage *cov, int *ac
 		return 1;
 	}
 	if (guard != *accepted) {
-		/* The known divergence, and ONLY it. Anything else here is the
-		 * two guards drifting apart again, which is what let an
-		 * ASan-proven overflow reach consumer code. */
-		if (want != FZN_RECORD_ERR_SEQ_ZERO) {
-			printf("  INVARIANT: is_open and open disagree at len %zu for a "
-			       "reason that is not sequence zero (\"%s\")\n",
-			       len, fzn_record_err_str(want));
-			return 1;
-		}
-		cov->guard_gap++;
+		/* NO KNOWN DIVERGENCE REMAINS. There was exactly one -- sequence
+		 * zero -- and it is closed, so any disagreement here is the two
+		 * guards drifting apart again, which is what let an ASan-proven
+		 * overflow reach consumer code the first time. */
+		printf("  INVARIANT: is_open and open disagree at len %zu (\"%s\")\n", len,
+		       fzn_record_err_str(want));
+		return 1;
 	}
+	(void)cov;
 
 	return 0;
 }
