@@ -7782,6 +7782,24 @@ copyright holder.
   needs per-message key material in the frame, which is the 32 bytes
   fuzzypickles pays.
 
+  **AND IT IS NOW DECISION-BLOCKING FOR A NAMED CONSUMER**, which is a
+  different thing from an open item and should be prioritised as one.
+  fuzzypickles recorded our answer against their phase 1 entry
+  (`2ad6a19`) and reports it as **the largest single item against
+  adoption from their side**. Their sentence changed from "38 bytes for
+  relay, chunking and per-frame revocation" to "38 bytes, PLUS GIVING UP
+  PER-MESSAGE FORWARD SECRECY, for relay, chunking and per-frame
+  revocation" -- because 71 of the delta is capability they lack and 33
+  is a property they would surrender, and the net figure hid the second
+  half entirely. If this ever closes, they want to re-run the
+  arithmetic.
+
+  So this entry has what most of sec 14 does not: a consumer who cannot
+  adopt until it moves, and who has said so in writing in their own
+  tree. That does not decide it -- the cost is 32 bytes on every
+  datagram of a protocol whose whole axis is the self-contained frame --
+  but it means the question is live rather than theoretical.
+
 - **`raidcfgd` EXISTS, and the decisions above were made when it did
   not.** This entry said "raidcfgd does not exist -- two real consumers
   and one imagined one" until 2026-08-27, while sec 4.8 said "raidcfgd
