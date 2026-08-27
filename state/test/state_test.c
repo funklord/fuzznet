@@ -119,18 +119,23 @@ static int fixture_sign(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg,
 static uint8_t wire[WIRE_SLOTS][FZN_RECORD_MAX_LEN];
 static size_t wire_next;
 
-static void make(fzn_record_t *r, uint8_t issuer_seed, uint32_t stream, uint8_t subject_seed,
-                 uint32_t kind, uint64_t seq, const uint8_t *body, size_t body_len)
+/* A record with its writer and its subject spelled out byte for byte.
+ *
+ * `make` below is this with two memsets in front of it, and the twin cases at
+ * the end of `main` need what a seed cannot express: two keys that agree on
+ * every byte but the last. A seed gives thirty-two copies of one byte, so any
+ * two seeds differ at byte 0 -- which is what made every key comparison in
+ * `state.c` unfalsifiable. */
+static void make_keyed(fzn_record_t *r, const uint8_t issuer[FZN_PUBKEY_LEN],
+                       const uint8_t subject[FZN_SUBJECT_LEN], uint32_t stream, uint32_t kind,
+                       uint64_t seq, const uint8_t *body, size_t body_len)
 {
-	uint8_t issuer[FZN_PUBKEY_LEN], subject[FZN_SUBJECT_LEN];
 	fzn_sign_ops_t ops;
 	uint8_t *slot = wire[wire_next % WIRE_SLOTS];
 	size_t wrote = 0;
 
 	wire_next++;
 
-	memset(issuer, issuer_seed, sizeof(issuer));
-	memset(subject, subject_seed, sizeof(subject));
 	memset(&ops, 0, sizeof(ops));
 	ops.sign = fixture_sign;
 
@@ -146,6 +151,16 @@ static void make(fzn_record_t *r, uint8_t issuer_seed, uint32_t stream, uint8_t 
 		failures++;
 		memset(r, 0, sizeof(*r));
 	}
+}
+
+static void make(fzn_record_t *r, uint8_t issuer_seed, uint32_t stream, uint8_t subject_seed,
+                 uint32_t kind, uint64_t seq, const uint8_t *body, size_t body_len)
+{
+	uint8_t issuer[FZN_PUBKEY_LEN], subject[FZN_SUBJECT_LEN];
+
+	memset(issuer, issuer_seed, sizeof(issuer));
+	memset(subject, subject_seed, sizeof(subject));
+	make_keyed(r, issuer, subject, stream, kind, seq, body, body_len);
 }
 
 /* ---- the order-independence property ---------------------------------- */
@@ -1104,6 +1119,122 @@ int main(void)
 	expect_err(fzn_state_clear(&st, NULL), FZN_STATE_ERR_MALFORMED, "clearing with no record");
 	expect_err(fzn_state_clear(NULL, &rec), FZN_STATE_ERR_MALFORMED,
 	           "clearing a null state");
+
+	/* TWO SUBJECTS THAT AGREE ON EVERY BYTE BUT THE LAST.
+	 *
+	 * Every other subject in this file is `memset(buf, seed, 32)`, so any
+	 * two of them differ at byte 0 and a comparison of ONE byte separates
+	 * them exactly as well as a comparison of thirty-two. That made the
+	 * length in `fzn_ct_memeq(state->entries[i].subject, subject,
+	 * FZN_SUBJECT_LEN)` unfalsifiable: truncating it to 1 left this whole
+	 * suite green, measured before this case was written.
+	 *
+	 * WHAT FAILS OPEN IS TWO SUBJECTS SHARING ONE CELL. `find` is the
+	 * lookup behind both `fzn_state_get` and `put`, so a short compare
+	 * makes one subject's setting answer a question about another's AND
+	 * lets a record for one overwrite the other's value in place -- with
+	 * no CONFLICT reported, because a single writer holds both. A subject
+	 * is a configuration key; this is one host's setting quietly becoming
+	 * another's, which is the fault `state.h` says keying by stream would
+	 * cause and is the same fault by a different route. */
+	{
+		uint8_t twin_a[FZN_SUBJECT_LEN], twin_b[FZN_SUBJECT_LEN];
+		uint8_t writer[FZN_PUBKEY_LEN];
+		fzn_state_t tst;
+		fzn_state_entry_t tentries[4];
+		const fzn_state_entry_t *got;
+		fzn_record_t ta, tb;
+
+		memset(twin_a, 0x5a, sizeof(twin_a));
+		memset(twin_b, 0x5a, sizeof(twin_b));
+		twin_b[FZN_SUBJECT_LEN - 1u] ^= 0x01u;
+		memset(writer, 0xc1, sizeof(writer));
+
+		expect(memcmp(twin_a, twin_b, FZN_SUBJECT_LEN - 1u) == 0,
+		       "the twin subjects must agree on every byte but the last, or this "
+		       "case is not testing what it says");
+		expect(memcmp(twin_a, twin_b, FZN_SUBJECT_LEN) != 0,
+		       "the twin subjects must differ somewhere, or nothing here can fail");
+
+		expect_err(fzn_state_init(&tst, tentries, 4), FZN_STATE_OK,
+		           "a state to hold the twin subjects");
+		make_keyed(&ta, writer, twin_a, 3, 1, 1, BODY_A, sizeof(BODY_A));
+		make_keyed(&tb, writer, twin_b, 3, 1, 2, BODY_B, sizeof(BODY_B));
+		expect_err(fzn_state_apply(&tst, &ta), FZN_STATE_OK,
+		           "the first twin subject is set");
+		/* ONE WRITER ON ONE STREAM, so a folded lookup does not stop at
+		 * a contention code: it finds the first twin's cell, agrees on
+		 * the issuer and the stream, sees a higher sequence and
+		 * overwrites in place, reporting OK. */
+		expect_err(fzn_state_apply(&tst, &tb), FZN_STATE_OK,
+		           "the second twin subject is set");
+
+		expect(fzn_state_count(&tst) == 2,
+		       "two subjects differing only in their last byte landed in one cell "
+		       "-- the subject comparison is not reading the whole subject");
+
+		got = fzn_state_get(&tst, twin_a, 1);
+		expect(got != NULL && got->body_len == sizeof(BODY_A) &&
+		                       memcmp(got->body, BODY_A, got->body_len) == 0,
+		       "the first twin subject reads back as the second's value -- "
+		       "fzn_state_get is not reading the whole subject");
+		got = fzn_state_get(&tst, twin_b, 1);
+		expect(got != NULL && got->body_len == sizeof(BODY_B) &&
+		                       memcmp(got->body, BODY_B, got->body_len) == 0,
+		       "the second twin subject is not holding its own value");
+	}
+
+	/* AND TWO WRITERS THAT AGREE ON EVERY BYTE BUT THE LAST, which is a
+	 * SEPARATE COMPARISON on a separate path -- the contention test in
+	 * `put`, not the lookup above. Truncating it to one byte left the case
+	 * above green and the whole suite with it, so closing one says nothing
+	 * about the other: the vacuity is one per comparison, not one per file.
+	 *
+	 * WHAT FAILS OPEN IS THE CONTENTION ALARM ITSELF. `put` reports
+	 * CONFLICT when the record's issuer is not the cell's, and that
+	 * refusal is the only thing standing between an authorised writer and
+	 * another writer's configuration. A short compare takes a stranger for
+	 * the cell's own writer, drops through to the sequence test, and
+	 * overwrites the value with nothing to show it happened -- the silent
+	 * resolution this file's opening paragraph names as the cost. */
+	{
+		uint8_t twin_a[FZN_PUBKEY_LEN], twin_b[FZN_PUBKEY_LEN];
+		uint8_t subject[FZN_SUBJECT_LEN];
+		fzn_state_t tst;
+		fzn_state_entry_t tentries[4];
+		const fzn_state_entry_t *got;
+		fzn_record_t ta, tb;
+
+		memset(twin_a, 0x3c, sizeof(twin_a));
+		memset(twin_b, 0x3c, sizeof(twin_b));
+		twin_b[FZN_PUBKEY_LEN - 1u] ^= 0x01u;
+		memset(subject, 0x77, sizeof(subject));
+
+		expect(memcmp(twin_a, twin_b, FZN_PUBKEY_LEN - 1u) == 0,
+		       "the twin writers must agree on every byte but the last, or this "
+		       "case is not testing what it says");
+		expect(memcmp(twin_a, twin_b, FZN_PUBKEY_LEN) != 0,
+		       "the twin writers must differ somewhere, or nothing here can fail");
+
+		expect_err(fzn_state_init(&tst, tentries, 4), FZN_STATE_OK,
+		           "a state for the twin writers");
+		/* The same stream, so that a stranger reaching the sequence
+		 * test is refused for being a stranger and not for being on
+		 * another stream, and a higher sequence, so that nothing but
+		 * the issuer comparison can refuse it. */
+		make_keyed(&ta, twin_a, subject, 1, 1, 5, BODY_A, sizeof(BODY_A));
+		make_keyed(&tb, twin_b, subject, 1, 1, 9, BODY_B, sizeof(BODY_B));
+		expect_err(fzn_state_apply(&tst, &ta), FZN_STATE_OK,
+		           "the first twin writer takes the cell");
+		expect_err(fzn_state_apply(&tst, &tb), FZN_STATE_ERR_CONFLICT,
+		           "a writer differing from the cell's in one key byte was taken "
+		           "for the cell's own -- the issuer comparison is not reading "
+		           "the whole key");
+		got = fzn_state_get(&tst, subject, 1);
+		expect(got != NULL && got->body_len == sizeof(BODY_A) &&
+		                       memcmp(got->body, BODY_A, got->body_len) == 0,
+		       "and the refused record left the first twin writer's value alone");
+	}
 
 	property_state_is_a_function_of_the_set();
 	property_a_divergence_is_reported();
