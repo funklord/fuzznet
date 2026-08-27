@@ -7836,6 +7836,32 @@ attacked.
 **Do not build a symmetric ratchet**, which is the only shape costing
 the axis. **Do not build D**, which looks like the property and is not.
 
+### Our own receive order does not have the flood, and could lose it
+
+A consumer handed the question back after finding the same shape in
+their own path, and it was read rather than reassured. `fzn_seal_open`
+runs shape validation, then one hash for the commitment (~640 ns), then
+the AEAD (~2100 ns). **No scalar multiplication exists anywhere in this
+library.**
+
+**The filter is not gated on public knowledge, and that is the whole
+difference.** Passing the commitment check needs the per-pair
+commitment key, so a stranger who knows a host's public key -- which
+anyone who has seen one datagram has -- cannot produce a commitment
+that verifies and dies at 640 ns having cost one hash. The consumer's
+equivalent gate is a lookup by host public key, so their price of
+admission is knowing something public where ours is knowing something
+shared. That is why 2000 packets/s/core is their number and not ours.
+
+**We are one decision away from their position.** Adopting an ephemeral
+moves the AEAD key behind the DH, which moves the commitment check
+below it, which is the 640 ns to 158 us change above. **Shape H is
+therefore not optional if the ephemeral is taken** -- keep the
+commitment derived from long-lived material as a pre-DH filter, so a
+stranger still dies at 592 ns and only a frame already proving per-pair
+knowledge costs a scalar multiplication. It exists in this design only
+because the consumer's question sent somebody to measure the flood.
+
 ### The category change that belongs in the decision
 
 Today **every secret this library touches is a caller-owned array it
