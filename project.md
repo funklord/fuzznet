@@ -6768,6 +6768,28 @@ multiplied that key space by 2^32. The safety argument was never re-derived.
   can grow into, and its refusal fails open. Sizing it needs a number
   nobody has: how many revocations a deployment accumulates over its life.
   Named rather than guessed at.
+- **A revocation stops a chain only at a host that HAS it, and a host
+  cannot tell "nothing was revoked" from "I am missing the
+  revocations".** This is the open half of revocation and it is the
+  serious one. Revocations are standalone signed objects that ride no
+  stream and carry no sequence, so absence and up-to-date are the same
+  observation. A host that joins fresh, has been offline, or is
+  partitioned by an attacker anchors an issuer with an empty journal and
+  verifies a chain the rest of the network revoked last week. Being a
+  relay on the path is enough to hold a victim there.
+
+  **The cascade half is NOT this gap, and was re-tested rather than
+  assumed.** An audit reported that revoking a granter leaves its grants
+  standing. It does not: `chain/chain.c` runs `hop_is_revoked` over
+  EVERY hop rather than the last, so revoking a host in the middle kills
+  what it went on to delegate -- which is what a stolen device would do
+  first. Narrowing that walk to `i + 1 == hop_count` was tried and
+  `chain_test.c:646` failed, so the check discriminates and the test is
+  not vacuous. The audit had also filed it against `state/`, which
+  declares at `state.h:159` that authorisation is deliberately not its
+  business. Recorded because a refuted finding that leaves no trace gets
+  found again.
+
 - **Whether `chunk/` belongs in the core at all**, or is a layer a consumer
   opts into. It is in the core because netcfgd cannot function without it, but
   fuzzypickles will not use it — its own transfers are content-addressed.
