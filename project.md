@@ -5531,8 +5531,29 @@ which is why they were buildable while sec 10 steps 2 and 4 were stuck.
 
 `make` builds the objects and nothing else -- the default target does
 not build tests, per `build-and-commit.md`. `make test` builds and runs
-**33 binaries reporting 2637 checks**, with zero failures, plus four
-coverage-guided drivers replaying their corpora. The largest are
+**42 binaries**: 29 report check counts totalling **2648**, and the
+other 13 -- nine model-based fuzz harnesses and four coverage-guided
+drivers -- report cases instead. Zero failures in either group.
+
+**THE FIRST VERSION OF THIS PARAGRAPH SAID 33 BINARIES AND 2637
+CHECKS, AND BOTH WERE WRONG**, which is worth keeping because of when
+it happened. 2637 was measured correctly and then CARRIED across three
+further commits that added checks -- revocation_test 125 to 132,
+chain_test 260 to 262, network_test 170 to 172, which is exactly the
+11 it was short by. It was quoted in a report written after those
+landed. "33" was a grep for `failure(s)` that also matched the four
+guided drivers' `case(s), 0 failure(s)` lines, so it counted 29 real
+summaries plus 4 of something else and missed 9 fuzz harnesses
+entirely.
+
+A consumer session caught both by rebuilding this tree and failing to
+reproduce the totals, having first ruled out double counting and
+confirmed the figure was stable across two consecutive heads. It
+happened one commit after this document recorded that a hand-maintained
+count had drifted 27 out of date and that only a count taken at run
+time would close the trap -- so the same trap was operating in the
+report describing it. **A number is measured at the moment it is
+quoted, or it is not measured.** The largest are
 `chain/test/chain_test` at 260, `err_str_test` at 253 over 16 renderers,
 `local/test/peer_test` at 253, `state/test/state_test` at 206, and
 `chunk/test/reassembly_test` and `sim/test/network_test` at 170 each.
