@@ -330,6 +330,22 @@ static void put_body_len(uint8_t *bytes, uint16_t body_len)
 	bytes[WANT_OFF_BODY_LEN + 1u] = (uint8_t)(body_len & 0xffu);
 }
 
+/* THE LENGTH A BUFFER'S OWN DECLARATION IMPLIES: what `len` would have to be
+ * for the two to agree. Read by hand for the same reason `put_body_len`
+ * writes by hand.
+ *
+ * It can exceed anything this harness will allocate -- the field is sixteen
+ * bits, so the largest it implies is 65691 -- and the caller is what bounds
+ * it. */
+static size_t implied_len(const uint8_t *bytes)
+{
+	size_t body_len;
+
+	body_len = ((size_t)bytes[WANT_OFF_BODY_LEN] << 8) | (size_t)bytes[WANT_OFF_BODY_LEN + 1u];
+
+	return (size_t)WANT_HEADER_LEN + body_len + WANT_SIG_LEN;
+}
+
 /* And what `fzn_record_sign` must answer, in the order the header states the
  * refusals: a caller's bug, then the two fields with a bound, then the
  * capacity. Written out for the same reason `open_ought` is. */
@@ -627,7 +643,30 @@ static int sweep_lengths(const uint8_t *bytes, size_t rec_len, struct coverage *
  * fed only those would report a parser refusing everything as correct; a
  * harness that fed only single-byte flips would reach `body_len` of exactly
  * 512 or a sequence of exactly zero about never. These are the values the
- * refusals are written against, so they are produced on purpose. */
+ * refusals are written against, so they are produced on purpose.
+ *
+ * EACH BUFFER IS PROBED TWICE: at the record's own length, and at the length
+ * its rewritten declaration implies. The second is the half that was missing,
+ * and its absence hid a live hole.
+ *
+ * Case 4 writes `body_len = 513` and this file probed only at `rec_len`, where
+ * the declaration and the buffer disagree -- so `fzn_record_is_open` refused it
+ * on the length rule and the body bound above that rule was never the thing
+ * doing the refusing. `sweep_lengths` varies the length and never touches
+ * `body_len`. Both halves of the case existed; nothing applied them to the same
+ * buffer, and `body_len > FZN_RECORD_BODY_MAX` could be deleted from
+ * `fzn_record_is_open` with all 47 binaries in this suite still green.
+ *
+ * Combining them reaches it: a 669-byte buffer declaring a 513-byte body is
+ * refused by `fzn_record_open` as BODY_TOO_LARGE and, without that bound in the
+ * guard, satisfies every other test `fzn_record_is_open` makes -- so the two
+ * disagree and property 5 goes red. `fzn_record_verify` gates on `is_open`,
+ * which is what makes that divergence a record past the bound being verified
+ * and admitted by `state/` and `log/` through a gate `fzn_record_open` closes.
+ *
+ * This costs no more room. The implied length is bounded by PROBE_CAP, which
+ * already has three bytes to spare over the 669 the case needs, and cases that
+ * leave `body_len` alone imply `rec_len` and are not probed twice. */
 static int corrupt_fields(const uint8_t *bytes, size_t rec_len, uint16_t draw,
                           struct coverage *cov)
 {
@@ -636,7 +675,13 @@ static int corrupt_fields(const uint8_t *bytes, size_t rec_len, uint16_t draw,
 
 	for (which = 0; which < 8; which++) {
 		int accepted = 0;
+		size_t implied;
 
+		/* THE TAIL IS FILLED, NOT LEFT OVER. A probe at a length past
+		 * `rec_len` reads bytes `memcpy` never wrote, and a buffer whose
+		 * contents depend on what the last case left there is a case
+		 * nobody can reproduce from its inputs. */
+		memset(probe_buf, 0x5c, sizeof(probe_buf));
 		memcpy(probe_buf, bytes, rec_len);
 		switch (which) {
 		case 0: /* a version this build does not speak */
@@ -667,6 +712,16 @@ static int corrupt_fields(const uint8_t *bytes, size_t rec_len, uint16_t draw,
 
 		if (probe(probe_buf, rec_len, cov, &accepted))
 			return 1;
+
+		/* AND AT THE LENGTH THE REWRITTEN DECLARATION ASKS FOR, when
+		 * that is a different length and one this buffer holds. A
+		 * sixteen-bit field implies up to 65691 bytes, which is the
+		 * caller's to refuse rather than the harness's to allocate. */
+		implied = implied_len(probe_buf);
+		if (implied != rec_len && implied <= PROBE_CAP) {
+			if (probe(probe_buf, implied, cov, &accepted))
+				return 1;
+		}
 	}
 
 	return 0;

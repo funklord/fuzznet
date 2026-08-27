@@ -363,6 +363,92 @@ static void test_is_open_agrees_with_open(void)
 	expect(fzn_record_is_open(v) == 1, "is_open refuses everything, so it checks nothing");
 }
 
+/* THE BODY BOUND IN `is_open`, WHICH NOTHING PINNED.
+ *
+ * The case above patches `body_len` to 512 and watches both functions refuse
+ * it -- but 512 IS the bound, so what refuses that buffer is the exact-length
+ * rule below it, not the bound at all. Delete `body_len > FZN_RECORD_BODY_MAX`
+ * from `fzn_record_is_open` and every one of the 47 binaries in this suite
+ * still passes, this file included. Measured, by doing it.
+ *
+ * WHAT THE HOLE COSTS. A buffer whose length AGREES with an oversized
+ * declaration satisfies everything else `is_open` tests, so the bound is the
+ * only thing standing in front of it: 756 bytes declaring a 600-byte body is
+ * refused by `fzn_record_open` ("body exceeds what a record carries") and, with
+ * the bound gone, admitted by `fzn_record_is_open` -- with
+ * `fzn_record_body_len` then reporting 600 against a ceiling of 512.
+ * `fzn_record_verify` GATES ON `is_open`, and `state/` and `log/` call it
+ * directly before reading, so a record 88 bytes past the bound verifies and is
+ * admitted through a gate `fzn_record_open` closes. The same divergence class
+ * as the sequence-zero one above, and the same consequence.
+ *
+ * The buffer has to be bigger than FZN_RECORD_MAX_LEN, which is why this is
+ * its own function rather than another block in the one above: nothing this
+ * module signs can reach the case, because `fzn_record_sign` refuses an
+ * oversized body too. Only a hand-built view gets here -- which is exactly the
+ * input class `is_open` exists for.
+ *
+ * The bound is pinned from both sides. 512 with a 668-byte buffer must be
+ * ACCEPTED and 513 with a 669-byte buffer REFUSED, so a guard that refuses
+ * everything long scores nothing here and `>=` in place of `>` goes red. */
+static void test_is_open_bounds_the_body(void)
+{
+	/* 156 + 600. Deliberately past FZN_RECORD_MAX_LEN, and the only buffer
+	 * in this file that is. */
+	static uint8_t oversize[(size_t)FZN_RECORD_HEADER_LEN + 600u + FZN_SIG_LEN];
+	fzn_sign_ops_t ops;
+	struct stub st;
+	fzn_record_t view;
+	fzn_record_t opened;
+
+	memset(&st, 0, sizeof(st));
+	memset(&ops, 0, sizeof(ops));
+	ops.verify = stub_verify;
+	ops.sign = stub_sign;
+	ops.ctx = &st;
+
+	/* Every structural field the guard reads, set to something it accepts,
+	 * so that the body length is the ONLY thing left to refuse it. */
+	memset(oversize, 0, sizeof(oversize));
+	oversize[FZN_RECORD_OFF_VERSION] = (uint8_t)FZN_SIGNED_VERSION;
+	oversize[FZN_RECORD_OFF_OBJECT] = (uint8_t)FZN_OBJECT_RECORD;
+	fzn_put_be64(oversize + FZN_RECORD_OFF_SEQ, 1u);
+	fzn_put_be16(oversize + FZN_RECORD_OFF_BODY_LEN, 600u);
+
+	view.base = oversize;
+	view.len = sizeof(oversize);
+
+	/* WHAT `open` SAYS, first, because the whole point is that the two
+	 * must agree. BODY_TOO_LARGE rather than SHAPE: the length and the
+	 * declaration do agree, so the only fault is the size. */
+	expect_err(fzn_record_open(oversize, sizeof(oversize), &opened),
+	           FZN_RECORD_ERR_BODY_TOO_LARGE,
+	           "opening a 756-byte buffer declaring a 600-byte body");
+	expect(fzn_record_is_open(view) == 0,
+	       "is_open accepted a body 88 bytes past the bound, which open refuses");
+
+	/* AND THE CONSEQUENCE ITSELF, not merely the guard. `fzn_record_verify`
+	 * gates on `is_open`, so the refusal has to arrive as MALFORMED without
+	 * a key ever being spent -- and with the bound gone this instead reaches
+	 * the verifier and answers UNSIGNED. */
+	expect_err(fzn_record_verify(view, &ops), FZN_RECORD_ERR_MALFORMED,
+	           "verifying a view whose body length is past the bound");
+	expect(st.verifies == 0,
+	       "an oversized body reached the verifier, so a key was spent on it");
+
+	/* THE BOUND ITSELF, from both sides, on the same bytes. */
+	fzn_put_be16(oversize + FZN_RECORD_OFF_BODY_LEN, (uint16_t)FZN_RECORD_BODY_MAX);
+	view.len = FZN_RECORD_MAX_LEN;
+	expect(fzn_record_is_open(view) == 1,
+	       "is_open refused a body of exactly FZN_RECORD_BODY_MAX, so it refuses "
+	       "everything long and this proves nothing");
+
+	fzn_put_be16(oversize + FZN_RECORD_OFF_BODY_LEN, (uint16_t)(FZN_RECORD_BODY_MAX + 1u));
+	view.len = FZN_RECORD_MAX_LEN + 1u;
+	expect(fzn_record_is_open(view) == 0,
+	       "is_open accepted a body one byte past FZN_RECORD_BODY_MAX");
+}
+
 int main(void)
 {
 	struct stub stub;
@@ -779,6 +865,7 @@ int main(void)
 	       (unsigned)FZN_RECORD_HEADER_LEN, (unsigned)FZN_SIG_LEN,
 	       (size_t)FZN_RECORD_MIN_LEN, (size_t)FZN_RECORD_MAX_LEN);
 	test_is_open_agrees_with_open();
+	test_is_open_bounds_the_body();
 	printf("record_test: %d checks, %d failure(s)\n", checks, failures);
 
 	return failures == 0 ? 0 : 1;

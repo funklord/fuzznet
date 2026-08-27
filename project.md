@@ -5626,6 +5626,46 @@ delegation: dropping the `delegable` requirement in verify and again in
 delegate, removing the expiry cap, skipping the re-verification, and removing
 the depth ceiling.
 
+### Guards that were correct and that nothing held to account
+
+A 56-sabotage sweep on 2026-08-27 found two defensive checks whose removal
+nothing in the 47-binary suite catches. Both are present and correct in the
+shipped code; what was missing in each case was any test that would notice
+them going away. They are recorded together because they fail the same way --
+a check that cannot be the thing doing the refusing is a check nobody is
+measuring.
+
+**`fzn_record_is_open`'s body bound.** Sabotaging `body_len >
+FZN_RECORD_BODY_MAX` to `if (0)` in `record/record.h` left every one of the
+47 binaries green, `record_fuzz` included. What it costs: a 756-byte buffer
+declaring a 600-byte body is refused by `fzn_record_open` as BODY_TOO_LARGE
+and, without the bound, admitted by `fzn_record_is_open`, with
+`fzn_record_body_len` then reporting 600 against a ceiling of 512.
+`fzn_record_verify` gates on `is_open`, and `state/` and `log/` call it
+directly before reading, so a record 88 bytes past the bound verifies and is
+admitted through a gate `fzn_record_open` closes. The same divergence class as
+the sequence-zero gap `record_fuzz` found, and the same consequence.
+
+**`record_fuzz` held both halves of that case and never combined them.**
+`corrupt_fields` writes `body_len = 513` and then probes at the genuine
+`rec_len`, where the declaration and the buffer disagree -- so the length rule
+refuses the buffer and the bound sitting above that rule is never what refuses
+it. `sweep_lengths` varies the length and never touches `body_len`. Neither is
+short of room: PROBE_CAP is 672 and the case needs 669, with three bytes to
+spare, so this was never a capacity shortfall. Each mutated buffer is now
+probed twice, at `rec_len` and at the length its own rewritten declaration
+implies where that differs and fits, which reaches it -- 669 bytes declaring a
+513-byte body, refused by `open` and admitted by a `is_open` without the bound.
+The combined class found **nothing beyond the bound itself**, over 200000 cases
+under AddressSanitizer and UndefinedBehaviorSanitizer. It costs no storage and
+about 3.5 percent more run time (3.86s to 4.00s at 200000 cases), and it moved
+real coverage: buffers `open` accepted rose 53676 to 67819 per 20000 cases and
+BODY_TOO_LARGE refusals 21087 to 31648. `record_test.c` carries the case
+directly as well, on a buffer deliberately larger than FZN_RECORD_MAX_LEN --
+nothing this module signs can reach it, because `fzn_record_sign` refuses an
+oversized body too, so only a hand-built view gets there, which is exactly the
+input class `is_open` exists for.
+
 ### The tamper harness is generated, and it catches what ours did not
 
 **Adopted 2026-08-27: `situc gen-tamper` over `wire/frame.situ`**, emitted
