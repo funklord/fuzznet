@@ -592,6 +592,49 @@ int main(void)
 			expect(lo == 1u && hi == 2u,
 			       "the second twin's range is not its own two sequences");
 		}
+
+		/* AND `fzn_log_read_since`, A THIRD LOOP OVER A THIRD
+		 * COMPARISON -- the selection pass that takes the lowest
+		 * sequence still above what has been drained. Truncating it to
+		 * one byte left BOTH cases above green, which is the same
+		 * lesson a third time: a vacuous comparison is one per
+		 * FUNCTION, not one per file, and closing two says nothing
+		 * about the next.
+		 *
+		 * WHAT FAILS OPEN HERE IS A READER'S CATCH-UP. `read_since` is
+		 * how a consumer drains a stream it has fallen behind on, so a
+		 * short compare hands it another issuer's records under the
+		 * issuer it asked for -- provenance forged at the one call a
+		 * consumer trusts to say what an issuer wrote. The first twin
+		 * holds one sequence and the second holds two, so a folded
+		 * comparison returns two records to a twin that wrote one. */
+		{
+			const fzn_log_entry_t *drained[4] = { NULL, NULL, NULL, NULL };
+			size_t foreign = 0;
+			size_t n;
+
+			n = fzn_log_read_since(&tlog, twin_a, 0, 0, drained, 4);
+			expect(n == 1u,
+			       "reading since 0 for the first twin returned more than the "
+			       "one record it wrote -- fzn_log_read_since is not reading "
+			       "the whole issuer");
+			/* Counted and asserted once, rather than a check per
+			 * entry: a loop of checks inflates the total without
+			 * testing anything more. */
+			for (size_t i = 0; i < n; i++) {
+				if (!drained[i] ||
+				    memcmp(drained[i]->issuer, twin_a, FZN_PUBKEY_LEN) != 0)
+					foreign++;
+			}
+			expect(foreign == 0,
+			       "fzn_log_read_since handed the first twin a record belonging "
+			       "to the second");
+
+			n = fzn_log_read_since(&tlog, twin_b, 0, 0, drained, 4);
+			expect(n == 2u,
+			       "reading since 0 for the second twin is not its own two "
+			       "records");
+		}
 	}
 
 	printf("log_test: %d checks, %d failure(s)\n", checks, failures);
