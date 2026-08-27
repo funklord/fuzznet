@@ -447,6 +447,131 @@ int main(void)
 		expect(all_zero, "a refused offer left the caller's plan holding stale numbers");
 	}
 
+	/* TWO ISSUERS THAT AGREE ON EVERY BYTE BUT THE LAST.
+	 *
+	 * Every identity above comes from `identity()`, which is
+	 * `memset(out, seed, 32)` -- thirty-two copies of one byte -- so any
+	 * two of them differ at byte 0 and a comparison of ONE byte separates
+	 * them exactly as well as a comparison of thirty-two. That made both
+	 * key comparisons in `sync.c` unfalsifiable: truncating either to 1
+	 * left this whole suite green, measured before these cases were
+	 * written. A test that cannot fail for a defect is not coverage of it.
+	 *
+	 * The two sites sit on different paths and get a block each. Closing
+	 * one says nothing about the other -- the vacuity is one per
+	 * COMPARISON, not one per file.
+	 *
+	 * FIRST, `follows`, WHICH DECIDES WHETHER AN ISSUER IS OURS AT ALL.
+	 * What fails open is the rule sync.h states as "reported, never
+	 * requested": a host must not adopt an issuer because a peer mentioned
+	 * it, or one peer fills every journal in the network. A short compare
+	 * makes a stranger whose key shares a prefix with something we follow
+	 * look like something we follow, so it is never counted as unknown --
+	 * and that count is the only place a consumer can see it happening.
+	 *
+	 * The hostile half is paired with an honest one, as every case in this
+	 * file is: "the stranger was counted" is satisfied by a `follows` that
+	 * always says no, so the issuer we really do follow must still plan a
+	 * request and must still not be counted. */
+	{
+		uint8_t twin_a[FZN_PUBKEY_LEN], twin_b[FZN_PUBKEY_LEN];
+		fzn_journal_t tj;
+		fzn_journal_entry_t tentries[4];
+		fzn_sync_position_t tpos[1];
+		fzn_sync_request_t tout[4];
+		fzn_sync_plan_t tplan;
+
+		identity(twin_a, 0x5a);
+		identity(twin_b, 0x5a);
+		twin_b[FZN_PUBKEY_LEN - 1u] ^= 0x01u;
+
+		expect(memcmp(twin_a, twin_b, FZN_PUBKEY_LEN - 1u) == 0,
+		       "the twins must agree on every byte but the last, or this case is "
+		       "not testing what it says");
+		expect(memcmp(twin_a, twin_b, FZN_PUBKEY_LEN) != 0,
+		       "the twins must differ somewhere, or nothing here can fail");
+
+		fzn_journal_init(&tj, tentries, 4);
+		follow(&tj, twin_a, 10);
+
+		/* The peer names the twin we do NOT follow. */
+		position(&tpos[0], twin_b, 40);
+		expect(fzn_sync_plan_fetch(&tj, tpos, 1, 100, tout, 4, &tplan) == FZN_SYNC_OK,
+		       "planning against a stranger's position");
+		expect(tplan.unknown_issuers == 1,
+		       "an issuer this host does not follow was taken for one it does -- "
+		       "the issuer comparison in follows() is not reading the whole key");
+
+		/* The honest control: the twin we DO follow is not a stranger,
+		 * and its gap is still planned. */
+		position(&tpos[0], twin_a, 40);
+		expect(fzn_sync_plan_fetch(&tj, tpos, 1, 100, tout, 4, &tplan) == FZN_SYNC_OK,
+		       "planning against a followed issuer");
+		expect(tplan.unknown_issuers == 0,
+		       "an issuer this host follows was counted as a stranger");
+		expect(tplan.request_count == 1 && plan_names(tout, &tplan, twin_a),
+		       "the followed twin's gap was not asked for");
+	}
+
+	/* SECOND, `theirs_for`, WHICH FINDS THE PEER'S POSITION FOR ONE OF OUR
+	 * STREAMS. A separate loop over a separate comparison, and truncating
+	 * it left the block above green.
+	 *
+	 * What fails open here is the number that decides how much moves. In
+	 * one direction the peer's `received` says how far behind we are, so a
+	 * short compare answers a question about one issuer with another
+	 * issuer's number: this host then asks for records under a key whose
+	 * owner never claimed them. In the other the same fold hides a
+	 * stranger, which is the amplifier sync.h records -- an absent position
+	 * must be COUNTED and not read as a position of zero, and it cannot be
+	 * counted if a near-miss key finds one.
+	 *
+	 * This host follows BOTH twins here, so `follows` is satisfied either
+	 * way and nothing but `theirs_for` can move these numbers. */
+	{
+		uint8_t twin_a[FZN_PUBKEY_LEN], twin_b[FZN_PUBKEY_LEN];
+		fzn_journal_t tj;
+		fzn_journal_entry_t tentries[4];
+		fzn_sync_position_t tpos[1];
+		fzn_sync_request_t tout[4];
+		fzn_sync_plan_t tplan;
+
+		identity(twin_a, 0x3c);
+		identity(twin_b, 0x3c);
+		twin_b[FZN_PUBKEY_LEN - 1u] ^= 0x01u;
+
+		expect(memcmp(twin_a, twin_b, FZN_PUBKEY_LEN - 1u) == 0,
+		       "the twins must agree on every byte but the last, or this case is "
+		       "not testing what it says");
+		expect(memcmp(twin_a, twin_b, FZN_PUBKEY_LEN) != 0,
+		       "the twins must differ somewhere, or nothing here can fail");
+
+		fzn_journal_init(&tj, tentries, 4);
+		follow(&tj, twin_a, 10);
+		follow(&tj, twin_b, 10);
+
+		/* The peer is ahead on the second twin and says nothing about
+		 * the first. */
+		position(&tpos[0], twin_b, 40);
+		expect(fzn_sync_plan_fetch(&tj, tpos, 1, 100, tout, 4, &tplan) == FZN_SYNC_OK,
+		       "planning against one twin's position");
+		expect(!plan_names(tout, &tplan, twin_a),
+		       "a range was planned for a twin the peer never mentioned -- "
+		       "theirs_for is not reading the whole issuer");
+		expect(tplan.request_count == 1, "one position produced more than one request");
+		expect(plan_names(tout, &tplan, twin_b),
+		       "the twin the peer really is ahead on was left out");
+
+		/* AND THE OTHER DIRECTION, which shares this comparison. The
+		 * peer said nothing about the first twin, so it must be counted
+		 * as unknown rather than found under the second's position. */
+		expect(fzn_sync_plan_offer(&tj, tpos, 1, 100, tout, 4, &tplan) == FZN_SYNC_OK,
+		       "planning an offer against one twin's position");
+		expect(tplan.unknown_issuers == 1,
+		       "an offer found a position for a twin the peer never mentioned -- "
+		       "theirs_for is not reading the whole issuer");
+	}
+
 	/* Arguments. */
 	expect(fzn_sync_plan_fetch(NULL, theirs, 3, 100, out, 4, &plan) == FZN_SYNC_ERR_MALFORMED,
 	       "a null journal");
