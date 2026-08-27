@@ -32,9 +32,19 @@
  * reason chain_fuzz gives: a model that asked the module what it did would
  * agree with it always, including when both are wrong.
  *
+ * IT NAMES TWO ROOTS (2026-08-27), and that is not breadth for its own
+ * sake. It pinned one, and `fzn_revocation_admit` refuses any other issuer,
+ * so every entry the store or the model could hold carried that single key
+ * -- which left the model's issuer term decided by nothing at all. Proven
+ * by deleting the comparison: the whole run's output was byte-identical.
+ * The state the term exists for is a store holding two revocations that
+ * differ ONLY in who withdrew them, which is what a host anchoring two
+ * roots reaches on an ordinary day, and no harness in the tree modelled it.
+ *
  * Bounded and seeded like the others, and it counts what it reached --
- * admissions, refusals, duplicates, a full store and both answers from the
- * parser must all occur, or the run exercised less than it appears to.
+ * admissions, refusals, duplicates, a full store, both answers from the
+ * parser, and the two states above must all occur, or the run exercised
+ * less than it appears to.
  */
 
 #include "../revocation.h"
@@ -104,6 +114,43 @@ static int stub_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const ui
 	return memcmp(want, sig, FZN_SIG_LEN) == 0;
 }
 
+/* Expand a one-byte identity into a full-length value.
+ *
+ * BYTE 0 IS THE SEED, BECAUSE THE STUB ABOVE KEYS ITS MAC OFF `pubkey[0]`.
+ * Every later byte varies with its position, and that is the half this
+ * harness was missing: it built every key and capability as thirty-two
+ * copies of one seed, so a value answered any prefix exactly as it answered
+ * the whole. `memeq(a, b, 1)` and `memeq(a, b, FZN_PUBKEY_LEN)` were the
+ * same function over everything generated here, and all three comparisons
+ * in `chain/revocation.c`'s `same()` could be cut to a single byte without
+ * one of 200000 cases noticing. */
+static void expand(uint8_t *out, size_t len, uint8_t seed)
+{
+	out[0] = seed;
+	for (size_t i = 1; i < len; i++)
+		out[i] = (uint8_t)(seed ^ (uint8_t)i);
+}
+
+/* The same value with only its LAST byte changed -- the pair that decides a
+ * comparison's LENGTH.
+ *
+ * Position-varying values do not close the gap on their own: two built from
+ * equal seeds are equal everywhere, so a truncated comparison still answers
+ * what a full one would. A near miss agrees on every byte a short read
+ * reaches and differs on one it does not, so a single pair settles every
+ * truncation from one byte to thirty-one.
+ *
+ * Identity is untouched, so a near-miss issuer still signs and verifies and
+ * reaches the duplicate test rather than being turned away at the
+ * signature. That is what makes the fail-open direction reachable: a
+ * duplicate test reading a prefix calls two genuine revocations one, drops
+ * the second, and returns FZN_CHAIN_OK. */
+static void expand_near(uint8_t *out, size_t len, uint8_t seed)
+{
+	expand(out, len, seed);
+	out[len - 1] = (uint8_t)(out[len - 1] ^ 0xffu);
+}
+
 struct arena {
 	uint8_t front[CANARY];
 	fzn_revocation_t entries[STORE_CAP];
@@ -123,6 +170,8 @@ struct coverage {
 	unsigned long full;
 	unsigned long shape_ok;
 	unsigned long shape_refused;
+	unsigned long issuer_only;
+	unsigned long near_miss;
 };
 
 static int model_holds(const struct model *m, const uint8_t *issuer, const uint8_t *cap,
@@ -132,6 +181,65 @@ static int model_holds(const struct model *m, const uint8_t *issuer, const uint8
 		if (memcmp(m->held[i].issuer, issuer, FZN_PUBKEY_LEN) == 0 &&
 		    memcmp(m->held[i].capability, cap, FZN_CAP_ID_LEN) == 0 &&
 		    memcmp(m->held[i].grantee, grantee, FZN_PUBKEY_LEN) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+/* THE TWO COUNTERS BELOW EXIST BECAUSE A MODEL TERM NO INPUT CAN DECIDE IS
+ * NOT A MODEL TERM. Each names a state the store has to reach, and each is
+ * floored in `main`, so a later change to the generator that stops producing
+ * it fails the run instead of quietly reporting the same numbers.
+ *
+ * Does the model already hold an entry with this capability and grantee but
+ * a DIFFERENT issuer? That pair -- two revocations differing only in who
+ * withdrew them -- is the whole reason `model_holds` compares the issuer at
+ * all, and this harness could not reach it: it pinned one root, and
+ * `fzn_revocation_admit` refuses every other issuer, so every entry the
+ * store or the model could hold carried that one key. Proven: deleting the
+ * issuer comparison from `model_holds` left this file's output
+ * byte-identical over 20000 cases. Two roots is what gives the term
+ * something to decide, and a host anchoring two roots keeps one store, so
+ * the state is the deployment rather than a contrivance. */
+static int model_holds_under_another_issuer(const struct model *m, const uint8_t *issuer,
+                                            const uint8_t *cap, const uint8_t *grantee)
+{
+	for (size_t i = 0; i < m->used; i++) {
+		if (memcmp(m->held[i].capability, cap, FZN_CAP_ID_LEN) == 0 &&
+		    memcmp(m->held[i].grantee, grantee, FZN_PUBKEY_LEN) == 0 &&
+		    memcmp(m->held[i].issuer, issuer, FZN_PUBKEY_LEN) != 0)
+			return 1;
+	}
+	return 0;
+}
+
+static int differs_only_in_the_last_byte(const uint8_t *a, const uint8_t *b, size_t len)
+{
+	return memcmp(a, b, len - 1u) == 0 && a[len - 1u] != b[len - 1u];
+}
+
+/* And does it hold one this entry agrees with in two fields and differs from
+ * in the third only at its LAST byte? That is the pair a comparison's LENGTH
+ * decides, and the store reaching it is what makes a truncated `same()`
+ * observable: the duplicate test calls the two one revocation, drops the
+ * second, and returns FZN_CHAIN_OK. */
+static int model_holds_a_near_miss(const struct model *m, const uint8_t *issuer,
+                                   const uint8_t *cap, const uint8_t *grantee)
+{
+	for (size_t i = 0; i < m->used; i++) {
+		const fzn_revocation_t *e = &m->held[i];
+		int issuer_same = memcmp(e->issuer, issuer, FZN_PUBKEY_LEN) == 0;
+		int cap_same = memcmp(e->capability, cap, FZN_CAP_ID_LEN) == 0;
+		int grantee_same = memcmp(e->grantee, grantee, FZN_PUBKEY_LEN) == 0;
+
+		if (cap_same && grantee_same &&
+		    differs_only_in_the_last_byte(e->issuer, issuer, FZN_PUBKEY_LEN))
+			return 1;
+		if (issuer_same && grantee_same &&
+		    differs_only_in_the_last_byte(e->capability, cap, FZN_CAP_ID_LEN))
+			return 1;
+		if (issuer_same && cap_same &&
+		    differs_only_in_the_last_byte(e->grantee, grantee, FZN_PUBKEY_LEN))
 			return 1;
 	}
 	return 0;
@@ -198,13 +306,21 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 	fzn_revocation_store_t store;
 	struct model model;
 	fzn_sign_ops_t sign;
-	uint8_t root[FZN_PUBKEY_LEN];
+	uint8_t roots[2][FZN_PUBKEY_LEN];
 	size_t pos = 0;
 
 	memset(&arena, CANARY_BYTE, sizeof(arena));
 	memset(arena.entries, 0, sizeof(arena.entries));
 	memset(&model, 0, sizeof(model));
-	memset(root, 0x01, sizeof(root));
+
+	/* TWO ROOTS, ONE STORE, AND EACH RECORD ADMITTED UNDER THE ROOT IT
+	 * NAMES. See `model_holds_under_another_issuer` for what pinning a
+	 * single root cost: the model's issuer term was decided by nothing,
+	 * and deleting it changed no byte of this file's output. chain_fuzz
+	 * records the same trap in the same words -- always naming the root
+	 * puts a term in the model that no input can decide. */
+	expand(roots[0], FZN_PUBKEY_LEN, 0x01u);
+	expand(roots[1], FZN_PUBKEY_LEN, 0x02u);
 
 	sign.verify = stub_verify;
 	sign.sign = NULL;
@@ -220,21 +336,45 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		fzn_revocation_record_t record;
 		fzn_chain_err_t err, want;
 		const char *broke;
+		unsigned which;
 		int issuer_ok, sig_ok, shape_ok, opened;
+
+		/* WHICH OF THE TWO ROOTS THIS RECORD IS OFFERED TO. The store
+		 * is one store either way, so it ends up holding entries from
+		 * both -- including pairs that differ only in the issuer. */
+		which = data[pos + 2] & 1u;
 
 		/* Small sets, so duplicates and a full store both actually
 		 * happen. With random 32-byte values neither would, and the
 		 * paths this file exists to check would never be reached --
-		 * the failure recorded against the reassembly harness. */
-		memset(capability, data[pos] & 0x03u, FZN_CAP_ID_LEN);
-		memset(grantee, data[pos + 1] & 0x07u, FZN_PUBKEY_LEN);
+		 * the failure recorded against the reassembly harness.
+		 *
+		 * Sometimes a NEAR MISS instead -- the same value with only
+		 * its last byte changed. That is the pair `same()`'s length
+		 * decides, and without it every value here was one byte
+		 * repeated and the length decided nothing. */
+		if ((data[pos + 3] & 0x0cu) == 0)
+			expand_near(capability, FZN_CAP_ID_LEN, data[pos] & 0x03u);
+		else
+			expand(capability, FZN_CAP_ID_LEN, data[pos] & 0x03u);
+		if ((data[pos + 3] & 0x30u) == 0)
+			expand_near(grantee, FZN_PUBKEY_LEN, data[pos + 1] & 0x07u);
+		else
+			expand(grantee, FZN_PUBKEY_LEN, data[pos + 1] & 0x07u);
 
-		/* Usually the root, sometimes a carrier pretending. The
-		 * "sometimes" is what makes the pinning check testable at all,
-		 * which chain_fuzz learned the hard way. */
-		issuer_ok = (data[pos + 2] & 0x07u) != 0;
-		memset(issuer, issuer_ok ? 0x01u : (uint8_t)(0x80u + data[pos + 2]),
-		       FZN_PUBKEY_LEN);
+		/* Usually the root this record is offered to, sometimes a
+		 * carrier pretending. The "sometimes" is what makes the
+		 * pinning check testable at all, which chain_fuzz learned the
+		 * hard way -- and one of those pretenders is the root with a
+		 * single byte changed at the far end, which is what makes the
+		 * pin's LENGTH testable too. */
+		issuer_ok = (data[pos + 2] & 0x0eu) != 0;
+		if (issuer_ok)
+			memcpy(issuer, roots[which], FZN_PUBKEY_LEN);
+		else if ((data[pos + 2] & 0x70u) == 0)
+			expand_near(issuer, FZN_PUBKEY_LEN, (uint8_t)(0x01u + which));
+		else
+			expand(issuer, FZN_PUBKEY_LEN, (uint8_t)(0x80u + data[pos + 2]));
 
 		sig_ok = (data[pos + 3] & 0x03u) != 0;
 		shape_ok = (data[pos + 3] & 0x40u) == 0;
@@ -286,7 +426,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		else
 			want = FZN_CHAIN_OK;
 
-		err = fzn_revocation_admit(&store, record, root, &sign);
+		err = fzn_revocation_admit(&store, record, roots[which], &sign);
 
 		if (err != want) {
 			printf("  MODEL: admit returned %d, rules say %d\n", (int)err, (int)want);
@@ -297,6 +437,15 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 			if (model_holds(&model, issuer, capability, grantee)) {
 				cov->duplicate++;
 			} else {
+				/* Counted BEFORE the append, so each counts the
+				 * entry that reached the state rather than
+				 * every entry that stays in it. */
+				if (model_holds_under_another_issuer(&model, issuer,
+				                                     capability, grantee))
+					cov->issuer_only++;
+				if (model_holds_a_near_miss(&model, issuer, capability,
+				                            grantee))
+					cov->near_miss++;
 				memcpy(model.held[model.used].capability, capability,
 				       FZN_CAP_ID_LEN);
 				memcpy(model.held[model.used].grantee, grantee, FZN_PUBKEY_LEN);
@@ -323,7 +472,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 #ifdef FZN_LIBFUZZER
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
-	struct coverage cov = { 0, 0, 0, 0, 0, 0 };
+	struct coverage cov = { 0, 0, 0, 0, 0, 0, 0, 0 };
 
 	(void)fuzz_one(data, size, &cov);
 	return 0;
@@ -362,7 +511,7 @@ static unsigned long floor_of(unsigned long cases, unsigned long per)
 int main(int argc, char **argv)
 {
 	unsigned long cases = FUZZ_DEFAULT_CASES;
-	struct coverage cov = { 0, 0, 0, 0, 0, 0 };
+	struct coverage cov = { 0, 0, 0, 0, 0, 0, 0, 0 };
 	uint8_t buf[128];
 
 	if (argc > 1) {
@@ -397,21 +546,31 @@ int main(int argc, char **argv)
 	 * filled one has not tested the case that matters most. The two parser
 	 * counters are the same argument: a parser that refused everything
 	 * would satisfy a run that never watched it accept anything. */
+	/* The last two are floors on the STATES the model's own terms need in
+	 * order to be decided by anything, rather than on paths through the
+	 * module. A run that never held two entries differing only in their
+	 * issuer has not tested the issuer comparison, however many records it
+	 * pushed through; a run that never held two differing only in a
+	 * field's last byte has not tested any comparison's length. Both were
+	 * unreachable before, and a counter is what stops them becoming
+	 * unreachable again without a word. */
 	if (cov.admitted < floor_of(cases, 200u) || cov.refused < floor_of(cases, 200u) ||
 	    cov.duplicate < floor_of(cases, 200u) || cov.full == 0 ||
-	    cov.shape_ok < floor_of(cases, 200u) || cov.shape_refused < floor_of(cases, 200u)) {
+	    cov.shape_ok < floor_of(cases, 200u) || cov.shape_refused < floor_of(cases, 200u) ||
+	    cov.issuer_only < floor_of(cases, 200u) || cov.near_miss < floor_of(cases, 200u)) {
 		printf("revocation_fuzz: REACHED TOO LITTLE -- %lu admitted, %lu refused, "
-		       "%lu duplicate, %lu full, %lu shapes accepted, %lu shapes refused in "
-		       "%lu cases.\n",
+		       "%lu duplicate, %lu full, %lu shapes accepted, %lu shapes refused, "
+		       "%lu issuer-only pairs, %lu near misses in %lu cases.\n",
 		       cov.admitted, cov.refused, cov.duplicate, cov.full, cov.shape_ok,
-		       cov.shape_refused, cases);
+		       cov.shape_refused, cov.issuer_only, cov.near_miss, cases);
 		return 1;
 	}
 
 	printf("revocation_fuzz: %lu cases, %lu admitted, %lu refused, %lu duplicate, "
-	       "%lu full, %lu shapes accepted, %lu shapes refused, model agreed throughout\n",
+	       "%lu full, %lu shapes accepted, %lu shapes refused, %lu issuer-only pairs, "
+	       "%lu near misses, model agreed throughout\n",
 	       cases, cov.admitted, cov.refused, cov.duplicate, cov.full, cov.shape_ok,
-	       cov.shape_refused);
+	       cov.shape_refused, cov.issuer_only, cov.near_miss);
 	return 0;
 }
 #endif

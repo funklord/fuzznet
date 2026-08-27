@@ -7477,6 +7477,19 @@ of the manifest; from here it reads as a burden.
   with no alarm attached, since "already known" is what success looks
   like every time carriage works.
 
+  **And the harness that models admission could not decide the issuer
+  term at all.** `chain/test/revocation_fuzz.c` pinned one root, and
+  `fzn_revocation_admit` refuses any other issuer, so every entry the
+  store or the model could hold carried that single key: deleting the
+  issuer comparison from the model left the run's output byte-identical.
+  It names two roots now and admits each record under the one it names,
+  so the store reaches the state the term exists for -- two revocations
+  differing only in who withdrew them, which is an ordinary day for a
+  host anchoring two roots, and which no harness in the tree modelled.
+  Two coverage counters floor that state and the near-miss state, so a
+  generator that stops producing either fails the run rather than
+  reporting the same numbers.
+
 - **Whether `chunk/` belongs in the core at all**, or is a layer a consumer
   opts into. It is in the core because netcfgd cannot function without it, but
   fuzzypickles will not use it — its own transfers are content-addressed.
