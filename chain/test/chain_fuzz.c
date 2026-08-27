@@ -136,21 +136,68 @@ static int stub_sign(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg, si
 	return 1;
 }
 
+/* Expand a one-byte identity into a full-length value.
+ *
+ * BYTE 0 IS THE SEED, because the stub above keys its MAC off `pubkey[0]`
+ * and `signature_is_good` below indexes the good set by the same byte. Every
+ * later byte varies with its position.
+ *
+ * IT USED TO BE THIRTY-TWO COPIES OF THE SEED, and that made every length
+ * constant in chain.c unobservable: a value of one repeated byte answers any
+ * prefix exactly as it answers the whole, so `memeq(a, b, 1)` and
+ * `memeq(a, b, FZN_PUBKEY_LEN)` were the same function over everything this
+ * harness generates. Measured against the tree as it stood: cutting
+ * `hop_is_revoked`'s issuer comparison to one byte left 20000 cases here,
+ * and the rest of `make test`, green. */
+static void expand(uint8_t *out, size_t len, uint8_t seed)
+{
+	out[0] = seed;
+	for (size_t i = 1; i < len; i++)
+		out[i] = (uint8_t)(seed ^ (uint8_t)i);
+}
+
+/* The same value with only its LAST byte changed -- the pair a comparison's
+ * LENGTH decides, and the reason position-varying values are not enough on
+ * their own: two built from equal seeds are equal everywhere, so a truncated
+ * comparison still answers what a full one would. A near miss agrees on
+ * every byte a short read reaches and differs on one it does not, settling
+ * every truncation from one byte to thirty-one at once.
+ *
+ * Identity is untouched, so a near miss is still signed and verified by the
+ * stub and reaches the structural comparison under test rather than being
+ * refused earlier for a bad signature. */
+static void expand_near(uint8_t *out, size_t len, uint8_t seed)
+{
+	expand(out, len, seed);
+	out[len - 1] = (uint8_t)(out[len - 1] ^ 0xffu);
+}
+
+/* And the same, from a value rather than a seed, for the cases whose
+ * reference is a key already built -- the previous hop's grantee, or the
+ * pinned root. */
+static void copy_near(uint8_t *out, const uint8_t *from, size_t len)
+{
+	memcpy(out, from, len);
+	out[len - 1] = (uint8_t)(out[len - 1] ^ 0xffu);
+}
+
 struct coverage {
 	unsigned long verified_ok;
 	unsigned long refused;
 	unsigned long delegated_ok;
 	unsigned long shape_ok;
 	unsigned long shape_refused;
+	unsigned long near_miss;
 };
 
 /* WHOSE SIGNATURE IS GOOD, decided by the generator and consulted by the
  * model.
  *
  * `good` is a set of identities, indexed by the low five bits of the key.
- * Every identity this generator mints is a key of repeated bytes, so those
- * bits ARE the identity. A hop whose grantor is in the set is signed
- * correctly; one whose grantor is not gets a signature that will not verify.
+ * Every identity this generator mints carries its seed in byte 0 (see
+ * `expand`), so those bits ARE the identity. A hop whose grantor is in the
+ * set is signed correctly; one whose grantor is not gets a signature that
+ * will not verify.
  * The model asks the same question of `fzn_hop_grantor` that chain.c should
  * be asking of the verifier, and when the two disagree the harness says so.
  *
@@ -263,8 +310,8 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 	sign.sign = stub_sign;
 	sign.ctx = &stub;
 
-	memset(root, data[0] & 0x03u, sizeof(root));
-	memset(cap, data[1] & 0x03u, sizeof(cap));
+	expand(root, FZN_PUBKEY_LEN, data[0] & 0x03u);
+	expand(cap, FZN_CAP_ID_LEN, data[1] & 0x03u);
 	now = data[2] * 100u;
 	/* Usually every signature is good, sometimes none is. */
 	good = (data[3] & 0x0fu) != 0 ? 0xffffffffu : 0u;
@@ -297,6 +344,14 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		uint8_t grantor[FZN_PUBKEY_LEN], grantee[FZN_PUBKEY_LEN];
 		uint8_t hop_cap[FZN_CAP_ID_LEN];
 
+		/* A NEAR MISS: the value that ought to match, with only its
+		 * last byte changed. It is what decides a comparison's LENGTH
+		 * -- see `expand_near` -- and every key here used to be one
+		 * byte repeated, so no length in chain.c was decided by
+		 * anything. Rare on purpose, since the accept path is what
+		 * this harness is expensive to reach. */
+		uint8_t near = (pos + 4 <= len) ? (uint8_t)(data[pos + 3] & 0x07u) : 1u;
+
 		if (i == 0) {
 			/* Usually the pinned root, sometimes NOT -- and the
 			 * "sometimes not" is the whole value of this line. An
@@ -307,20 +362,32 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 			 * cannot produce the input a check rejects cannot test
 			 * that check. */
 			if ((pos + 4 <= len) && (data[pos + 2] & 0x07u) == 0)
-				memset(grantor, (uint8_t)(0xd0u + b), FZN_PUBKEY_LEN);
-			else
+				expand(grantor, FZN_PUBKEY_LEN, (uint8_t)(0xd0u + b));
+			else if (near == 0) {
+				copy_near(grantor, root, FZN_PUBKEY_LEN);
+				cov->near_miss++;
+			} else
 				memcpy(grantor, root, FZN_PUBKEY_LEN);
 		}
-		else if (linked)
-			memcpy(grantor, fzn_hop_grantee(hops[i - 1]), FZN_PUBKEY_LEN);
+		else if (linked) {
+			if (near == 0) {
+				copy_near(grantor, fzn_hop_grantee(hops[i - 1]),
+				          FZN_PUBKEY_LEN);
+				cov->near_miss++;
+			} else
+				memcpy(grantor, fzn_hop_grantee(hops[i - 1]), FZN_PUBKEY_LEN);
+		}
 		else
-			memset(grantor, b, FZN_PUBKEY_LEN);
+			expand(grantor, FZN_PUBKEY_LEN, b);
 
-		memset(grantee, (uint8_t)(0x10u + i), FZN_PUBKEY_LEN);
-		if ((b & 0x0fu) != 0)
+		expand(grantee, FZN_PUBKEY_LEN, (uint8_t)(0x10u + i));
+		if ((b & 0x0fu) == 0)
+			expand(hop_cap, FZN_CAP_ID_LEN, b);
+		else if (near == 1) {
+			copy_near(hop_cap, cap, FZN_CAP_ID_LEN);
+			cov->near_miss++;
+		} else
 			memcpy(hop_cap, cap, FZN_CAP_ID_LEN);
-		else
-			memset(hop_cap, b, FZN_CAP_ID_LEN);
 
 		if (fzn_hop_encode(hop_bytes[i], grantor, grantee, hop_cap, 100,
 		                   ((b >> 4) & 1u) ? 0u : (uint64_t)b * 50u,
@@ -345,18 +412,44 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 	}
 
 	for (size_t r = 0; r < nrevs; r++) {
+		/* Two bits per entry, choosing which of its three fields is a
+		 * NEAR MISS of the value that would match. That is what makes
+		 * `hop_is_revoked`'s three comparison LENGTHS testable: an
+		 * entry differing from a real match in one byte at the far end
+		 * must not bite, and a comparison reading a prefix says it
+		 * does. Every value here used to be one byte repeated, so all
+		 * three lengths could be cut to 1 unnoticed. */
+		uint8_t near = (pos + r < len) ? (uint8_t)(data[pos + r] & 0x03u)
+		                               : (uint8_t)(r & 0x03u);
+
 		memset(&revs[r], 0, sizeof(revs[r]));
-		memcpy(revs[r].capability, cap, FZN_CAP_ID_LEN);
-		memset(revs[r].grantee, (uint8_t)(0x10u + (r % MAX_HOPS)), FZN_PUBKEY_LEN);
+
+		if (near == 1) {
+			copy_near(revs[r].capability, cap, FZN_CAP_ID_LEN);
+			cov->near_miss++;
+		} else
+			memcpy(revs[r].capability, cap, FZN_CAP_ID_LEN);
+
+		if (near == 2) {
+			expand_near(revs[r].grantee, FZN_PUBKEY_LEN,
+			            (uint8_t)(0x10u + (r % MAX_HOPS)));
+			cov->near_miss++;
+		} else
+			expand(revs[r].grantee, FZN_PUBKEY_LEN,
+			       (uint8_t)(0x10u + (r % MAX_HOPS)));
 
 		/* Usually the pinned root, sometimes a root this chain has
-		 * nothing to do with -- and the "sometimes not" is what makes
-		 * the issuer comparison testable, on the same reasoning the
-		 * grantor of hop 0 above carries. Always naming the root would
-		 * put a term in the model that no input can decide. */
+		 * nothing to do with, and sometimes the root with one byte
+		 * changed at the far end -- and the "sometimes not" is what
+		 * makes the issuer comparison testable, on the same reasoning
+		 * the grantor of hop 0 above carries. Always naming the root
+		 * would put a term in the model that no input can decide. */
 		if ((data[7] >> (r % 8u)) & 1u)
-			memset(revs[r].issuer, (uint8_t)(0xe0u + r), FZN_PUBKEY_LEN);
-		else
+			expand(revs[r].issuer, FZN_PUBKEY_LEN, (uint8_t)(0xe0u + r));
+		else if (near == 3) {
+			copy_near(revs[r].issuer, root, FZN_PUBKEY_LEN);
+			cov->near_miss++;
+		} else
 			memcpy(revs[r].issuer, root, FZN_PUBKEY_LEN);
 	}
 
@@ -485,7 +578,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		fzn_chain_hop_t fresh_view;
 		uint8_t grantee[FZN_PUBKEY_LEN];
 
-		memset(grantee, 0xf0, sizeof(grantee));
+		expand(grantee, FZN_PUBKEY_LEN, 0xf0u);
 		stub.identity = fzn_hop_grantee(hops[n - 1])[0];
 		if (fzn_chain_delegate(hops, n, root, cap, now, grantee, 0, 0, &sign,
 		                       nrevs ? revs : NULL, nrevs, fresh) == FZN_CHAIN_OK) {
@@ -514,7 +607,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 #ifdef FZN_LIBFUZZER
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
-	struct coverage cov = { 0, 0, 0, 0, 0 };
+	struct coverage cov = { 0, 0, 0, 0, 0, 0 };
 
 	(void)fuzz_one(data, size, &cov);
 	return 0;
@@ -553,7 +646,7 @@ static unsigned long floor_of(unsigned long cases, unsigned long per)
 int main(int argc, char **argv)
 {
 	unsigned long cases = FUZZ_DEFAULT_CASES;
-	struct coverage cov = { 0, 0, 0, 0, 0 };
+	struct coverage cov = { 0, 0, 0, 0, 0, 0 };
 	uint8_t buf[128];
 
 	if (argc > 1) {
@@ -598,21 +691,29 @@ int main(int argc, char **argv)
 	 * which is the way a floor stops meaning anything -- it gets raised
 	 * until it is noise. cases/1000 still catches delegation
 	 * disappearing, which is what it is for. */
+	/* `near_miss` is a floor on the INPUT rather than on a path, and it is
+	 * the only thing that keeps every length constant in chain.c decided
+	 * by something. A generator that stopped producing near misses would
+	 * report the same accept and refuse counts it does now, and every
+	 * comparison here could be truncated again in silence. */
 	if (cov.verified_ok < floor_of(cases, 200u) || cov.refused < floor_of(cases, 200u) ||
 	    cov.delegated_ok < floor_of(cases, 1000u) ||
-	    cov.shape_ok < floor_of(cases, 200u) || cov.shape_refused < floor_of(cases, 1000u)) {
+	    cov.shape_ok < floor_of(cases, 200u) || cov.shape_refused < floor_of(cases, 1000u) ||
+	    cov.near_miss < floor_of(cases, 200u)) {
 		printf("chain_fuzz: REACHED TOO LITTLE -- %lu accepted, %lu refused, "
-		       "%lu delegated, %lu shapes accepted, %lu shapes refused in %lu cases. "
+		       "%lu delegated, %lu shapes accepted, %lu shapes refused, "
+		       "%lu near misses in %lu cases. "
 		       "All must happen or this run proves less than it says.\n",
 		       cov.verified_ok, cov.refused, cov.delegated_ok, cov.shape_ok,
-		       cov.shape_refused, cases);
+		       cov.shape_refused, cov.near_miss, cases);
 		return 1;
 	}
 
 	printf("chain_fuzz: %lu cases, %lu accepted, %lu refused, %lu delegated, "
-	       "%lu shapes accepted, %lu shapes refused, no invariant broken\n",
+	       "%lu shapes accepted, %lu shapes refused, %lu near misses, "
+	       "no invariant broken\n",
 	       cases, cov.verified_ok, cov.refused, cov.delegated_ok, cov.shape_ok,
-	       cov.shape_refused);
+	       cov.shape_refused, cov.near_miss);
 	return 0;
 }
 #endif

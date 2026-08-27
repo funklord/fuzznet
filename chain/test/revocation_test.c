@@ -55,7 +55,7 @@ static void check_at(int ok, int line, const char *fmt, ...)
 /* The same toy MAC chain_test.c uses, and the same argument for it: what a
  * test signer owes this suite is an answer that depends on every byte of the
  * message and on who signed. Identity is the key's first byte, and every key
- * here is 32 copies of one seed. */
+ * here carries its seed there -- see `expand`. */
 static void mac(uint8_t out[FZN_SIG_LEN], uint8_t identity, const uint8_t *msg, size_t len)
 {
 	uint64_t h = 0xcbf29ce484222325ull;
@@ -129,9 +129,59 @@ static int stub_sign(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg, si
 	return 1;
 }
 
+/* Distinct 32-byte values, built from a single seed byte so a failure
+ * message can name them.
+ *
+ * BYTE 0 IS THE SEED AND EVERY LATER BYTE VARIES WITH ITS POSITION. It used
+ * to be thirty-two copies of the seed, and that left every length constant
+ * in `chain/revocation.c` unobservable: a value of one repeated byte
+ * answers any prefix exactly as it answers the whole, so `same()`'s three
+ * comparisons could each be cut to a single byte and this file -- and the
+ * rest of the suite, fuzz campaigns included -- stayed green.
+ *
+ * Byte 0 stays the seed because the stub above derives identity from
+ * `pubkey[0]`. */
+static void expand(uint8_t *out, size_t len, uint8_t seed)
+{
+	out[0] = seed;
+	for (size_t i = 1; i < len; i++)
+		out[i] = (uint8_t)(seed ^ (uint8_t)i);
+}
+
+/* The same value with only its LAST byte changed -- the pair that decides a
+ * comparison's LENGTH.
+ *
+ * Position-varying values are not enough on their own: two built from equal
+ * seeds are equal in every byte, so a truncated comparison still answers
+ * what a full one would. A near miss agrees on every byte a short read
+ * reaches and differs on one it does not, which settles every truncation
+ * from one byte to thirty-one at once. Identity is untouched, so a near
+ * miss can still be signed and verified and reach the comparison under
+ * test. */
+static void expand_near(uint8_t *out, size_t len, uint8_t seed)
+{
+	expand(out, len, seed);
+	out[len - 1] = (uint8_t)(out[len - 1] ^ 0xffu);
+}
+
 static void key(uint8_t out[FZN_PUBKEY_LEN], uint8_t seed)
 {
-	memset(out, seed, FZN_PUBKEY_LEN);
+	expand(out, FZN_PUBKEY_LEN, seed);
+}
+
+static void key_near(uint8_t out[FZN_PUBKEY_LEN], uint8_t seed)
+{
+	expand_near(out, FZN_PUBKEY_LEN, seed);
+}
+
+static void capability_id(uint8_t out[FZN_CAP_ID_LEN], uint8_t seed)
+{
+	expand(out, FZN_CAP_ID_LEN, seed);
+}
+
+static void capability_id_near(uint8_t out[FZN_CAP_ID_LEN], uint8_t seed)
+{
+	expand_near(out, FZN_CAP_ID_LEN, seed);
 }
 
 struct fixture {
@@ -166,17 +216,13 @@ static void stub_reset(stub_t *s)
  * every one of them at a single shared `REGION` string literal, which was
  * possible only because nothing related a record's bytes to its fields --
  * the design defect wearing its test-suite costume. */
-static void issue(struct fixture *f, uint8_t *bytes, fzn_revocation_record_t *view,
-                  uint8_t issuer, uint8_t cap, uint8_t grantee)
+static void issue_keys(struct fixture *f, uint8_t *bytes, fzn_revocation_record_t *view,
+                       const uint8_t *issuer_key, const uint8_t *capability,
+                       const uint8_t *grantee_key)
 {
-	uint8_t issuer_key[FZN_PUBKEY_LEN], grantee_key[FZN_PUBKEY_LEN], cap_id[FZN_CAP_ID_LEN];
+	f->stub.identity = issuer_key[0];
 
-	key(issuer_key, issuer);
-	key(grantee_key, grantee);
-	memset(cap_id, cap, FZN_CAP_ID_LEN);
-	f->stub.identity = issuer;
-
-	if (fzn_revocation_issue(issuer_key, cap_id, grantee_key, 1000, &f->sign, bytes) !=
+	if (fzn_revocation_issue(issuer_key, capability, grantee_key, 1000, &f->sign, bytes) !=
 	    FZN_CHAIN_OK) {
 		printf("  FAIL: the fixture could not issue a revocation\n");
 		failures++;
@@ -187,6 +233,19 @@ static void issue(struct fixture *f, uint8_t *bytes, fzn_revocation_record_t *vi
 		failures++;
 	}
 	stub_reset(&f->stub);
+}
+
+/* The same, named by seed, which is what nearly every case here wants. */
+static void issue(struct fixture *f, uint8_t *bytes, fzn_revocation_record_t *view,
+                  uint8_t issuer, uint8_t cap, uint8_t grantee)
+{
+	uint8_t issuer_key[FZN_PUBKEY_LEN], grantee_key[FZN_PUBKEY_LEN];
+	uint8_t capability[FZN_CAP_ID_LEN];
+
+	key(issuer_key, issuer);
+	key(grantee_key, grantee);
+	capability_id(capability, cap);
+	issue_keys(f, bytes, view, issuer_key, capability, grantee_key);
 }
 
 /* ---- the layout ------------------------------------------------------- */
@@ -208,7 +267,7 @@ static void test_layout_and_round_trip(void)
 	fixture_init(&f);
 	key(issuer, 0);
 	key(grantee, 5);
-	memset(cap, 0xc0, sizeof(cap));
+	capability_id(cap, 0xc0);
 
 	CHECK(fzn_revocation_encode(bytes, issuer, cap, grantee, 0x0102030405060708ull) ==
 	              FZN_CHAIN_OK,
@@ -392,7 +451,7 @@ static void test_a_full_store_refuses_and_does_not_evict(void)
 	{
 		uint8_t cap[FZN_CAP_ID_LEN], grantee[FZN_PUBKEY_LEN];
 
-		memset(cap, 0xc0, sizeof(cap));
+		capability_id(cap, 0xc0);
 		key(grantee, 10);
 		CHECK(fzn_revocation_covers(&f.store, f.root, cap, grantee),
 		      "a full store evicted an earlier revocation, un-revoking a device");
@@ -444,7 +503,7 @@ static void test_the_store_feeds_chain_verify_directly(void)
 	 * the records: `entries` and `used` go straight into chain verify,
 	 * with no conversion step for the two to disagree about. */
 	fixture_init(&f);
-	memset(cap, 0xc0, sizeof(cap));
+	capability_id(cap, 0xc0);
 	key(grantee, 5);
 
 	f.stub.identity = 0;
@@ -497,7 +556,7 @@ static void test_one_roots_revocation_does_not_answer_for_another(void)
 
 	fixture_init(&f); /* f.root is root A */
 	key(root_b, 7);
-	memset(cap, 0xc0, sizeof(cap));
+	capability_id(cap, 0xc0);
 	key(grantee, 5);
 
 	/* B revokes, and B is entitled to: the record is admitted against B's
@@ -522,6 +581,89 @@ static void test_one_roots_revocation_does_not_answer_for_another(void)
 	CHECK(fzn_chain_verify(hops, 1, f.root, cap, 2000, &f.sign, f.store.entries,
 	                       f.store.used, &out) == FZN_CHAIN_OK,
 	      "B revoked a key in A's realm, so any anchored peer can disconnect any host");
+}
+
+/* EVERY COMPARISON IN `same()` READS THE WHOLE FIELD, and until this nothing
+ * in the tree could tell whether one did.
+ *
+ * A comparison's LENGTH is not decided by values that differ in their first
+ * byte, and every value this file built was thirty-two copies of one seed.
+ * Measured against the tree as it stood: cutting all three of `same()`'s
+ * comparisons to a single byte left `make test` green, 200000 fuzz cases
+ * included.
+ *
+ * A near miss -- the same value with only its last byte changed -- is what
+ * decides a length, and one pair settles every truncation from one byte to
+ * thirty-one at once.
+ *
+ * BOTH DIRECTIONS ARE ASSERTED, because `same()` is read as two different
+ * questions and a short comparison fails a different way in each. Through
+ * `fzn_revocation_covers` it answers "is this revoked?", and reporting a
+ * near miss as a match refuses a chain nobody revoked. Through
+ * `fzn_revocation_admit` it answers "do we hold this already?", and
+ * reporting a near miss as a match makes a genuine revocation return
+ * FZN_CHAIN_OK and be DROPPED -- the fail-open direction, and the one with
+ * no alarm attached to it, since "already held" is what success looks like
+ * every time carriage works. */
+static void test_a_comparison_reads_the_whole_field(void)
+{
+	struct fixture f;
+	uint8_t bytes[FZN_REVOCATION_LEN];
+	fzn_revocation_record_t r;
+	uint8_t cap[FZN_CAP_ID_LEN], near_cap[FZN_CAP_ID_LEN];
+	uint8_t grantee[FZN_PUBKEY_LEN], near_grantee[FZN_PUBKEY_LEN];
+	uint8_t near_root[FZN_PUBKEY_LEN];
+
+	fixture_init(&f);
+	capability_id(cap, 0xc0);
+	capability_id_near(near_cap, 0xc0);
+	key(grantee, 5);
+	key_near(near_grantee, 5);
+	key_near(near_root, 0);
+
+	issue(&f, bytes, &r, 0, 0xc0, 5);
+	CHECK(fzn_revocation_admit(&f.store, r, f.root, &f.sign) == FZN_CHAIN_OK,
+	      "the setup record was refused, so nothing below proves anything");
+	CHECK(fzn_revocation_covers(&f.store, f.root, cap, grantee) == 1,
+	      "covers: the control fails, so the three legs below prove nothing");
+
+	CHECK(fzn_revocation_covers(&f.store, near_root, cap, grantee) == 0,
+	      "an ISSUER matching the entry only in its first byte was reported revoked");
+	CHECK(fzn_revocation_covers(&f.store, f.root, near_cap, grantee) == 0,
+	      "a CAPABILITY matching the entry only in its first byte was reported revoked");
+	CHECK(fzn_revocation_covers(&f.store, f.root, cap, near_grantee) == 0,
+	      "a GRANTEE matching the entry only in its first byte was reported revoked");
+
+	/* THE ADMISSION SIDE. The root revokes host 5 and then revokes a
+	 * second host whose key differs from host 5's only in its last byte.
+	 * That is two revocations, and a store holding one of them has
+	 * silently dropped a real one. */
+	issue_keys(&f, bytes, &r, f.root, cap, near_grantee);
+	CHECK(fzn_revocation_admit(&f.store, r, f.root, &f.sign) == FZN_CHAIN_OK,
+	      "the second revocation was refused");
+	CHECK(f.store.used == 2,
+	      "the store holds %zu entries after two different revocations: a duplicate "
+	      "test that reads a prefix reports a genuine revocation as already held and "
+	      "drops it, which un-revokes a device and logs nothing",
+	      f.store.used);
+	CHECK(fzn_revocation_covers(&f.store, f.root, cap, near_grantee) == 1,
+	      "the second revocation is not in the store it reported admitting");
+
+	/* And the same with the CAPABILITY as the byte that differs. */
+	issue_keys(&f, bytes, &r, f.root, near_cap, grantee);
+	CHECK(fzn_revocation_admit(&f.store, r, f.root, &f.sign) == FZN_CHAIN_OK,
+	      "the third revocation was refused");
+	CHECK(f.store.used == 3,
+	      "the store holds %zu entries after three different revocations", f.store.used);
+
+	/* THE ROOT PIN, which reads the whole key for the same reason. A
+	 * record issued by a key one byte from the root is not the root's. */
+	fixture_init(&f);
+	issue_keys(&f, bytes, &r, near_root, cap, grantee);
+	CHECK(fzn_revocation_admit(&f.store, r, f.root, &f.sign) == FZN_CHAIN_ERR_WRONG_ROOT,
+	      "a record whose issuer matches the pinned root only in its first byte was "
+	      "admitted");
+	CHECK(f.store.used == 0, "it was recorded anyway");
 }
 
 /* ---- signature reuse: one mutation per field -------------------------- */
@@ -556,7 +698,7 @@ static void test_forged_grantee_is_refused(void)
 	fixture_init(&f);
 	issue(&f, bytes, &r, 0, 0xc0, 5);
 	memcpy(genuine, bytes, FZN_REVOCATION_LEN);
-	memset(cap, 0xc0, sizeof(cap));
+	capability_id(cap, 0xc0);
 	key(victim, 9);
 
 	CHECK(fzn_revocation_admit(&f.store, r, f.root, &f.sign) == FZN_CHAIN_OK,
@@ -595,7 +737,7 @@ static void test_forged_capability_is_refused(void)
 	      "capability: the control fails, so the refusal below proves nothing");
 
 	fixture_init(&f);
-	memset(bytes + FZN_REV_OFF_CAPABILITY, 0xff, FZN_CAP_ID_LEN);
+	capability_id(bytes + FZN_REV_OFF_CAPABILITY, 0xff);
 	assert_signature_kept(bytes, genuine, "capability");
 	CHECK(fzn_revocation_open(bytes, FZN_REVOCATION_LEN, &r) == FZN_CHAIN_OK, "open");
 	stub_reset(&f.stub);
@@ -905,7 +1047,7 @@ static void test_a_store_whose_fields_disagree_denies(void)
 	{
 		uint8_t other_cap[FZN_CAP_ID_LEN], other_grantee[FZN_PUBKEY_LEN];
 
-		memset(other_cap, 0xc1, sizeof(other_cap));
+		capability_id(other_cap, 0xc1);
 		key(other_grantee, 9);
 		CHECK(fzn_revocation_covers(&f.store, f.root, other_cap, other_grantee) == 1,
 		      "a corrupt store answered `not revoked`, which is the fail-open "
@@ -1021,6 +1163,7 @@ int main(void)
 	test_merge_keeps_going_past_a_bad_record();
 	test_the_store_feeds_chain_verify_directly();
 	test_one_roots_revocation_does_not_answer_for_another();
+	test_a_comparison_reads_the_whole_field();
 	test_forged_grantee_is_refused();
 	test_forged_capability_is_refused();
 	test_forged_issuer_is_refused();

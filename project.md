@@ -5531,7 +5531,7 @@ which is why they were buildable while sec 10 steps 2 and 4 were stuck.
 
 `make` builds the objects and nothing else -- the default target does
 not build tests, per `build-and-commit.md`. `make test` builds and runs
-**42 binaries**: 29 report check counts totalling **2648**, and the
+**42 binaries**: 29 report check counts totalling **2670**, and the
 other 13 -- nine model-based fuzz harnesses and four coverage-guided
 drivers -- report cases instead. Zero failures in either group.
 
@@ -5554,9 +5554,9 @@ count had drifted 27 out of date and that only a count taken at run
 time would close the trap -- so the same trap was operating in the
 report describing it. **A number is measured at the moment it is
 quoted, or it is not measured.** The largest are
-`chain/test/chain_test` at 260, `err_str_test` at 253 over 16 renderers,
-`local/test/peer_test` at 253, `state/test/state_test` at 206, and
-`chunk/test/reassembly_test` and `sim/test/network_test` at 170 each.
+`chain/test/chain_test` at 272, `err_str_test` at 253 over 16 renderers,
+`local/test/peer_test` at 253, `state/test/state_test` at 206,
+`sim/test/network_test` at 172 and `chunk/test/reassembly_test` at 170.
 None reads a clock, so there is nothing in any of them that can pass on a
 quiet machine and fail on a loaded one.
 
@@ -7444,6 +7444,38 @@ of the manifest; from here it reads as a burden.
   under A. Both were proved by mutation: deleting the issuer term from
   `fzn_revocation_covers` fails the second, and deleting it from
   `hop_is_revoked` fails the first.
+
+  **THE TERM WAS PROVED PRESENT AND NOT PROVED WHOLE**, and an
+  adversarial review found the difference. Deleting a comparison is one
+  mutation; TRUNCATING it is another, and nothing in the tree could
+  catch the second. Every key and capability these suites built was
+  `memset(buf, seed, 32)` -- thirty-two copies of one byte -- so a value
+  answered any prefix exactly as it answered the whole, and
+  `fzn_ct_memeq(a, b, 1)` and `fzn_ct_memeq(a, b, 32)` were the same
+  function over every fixture. Measured: cutting `hop_is_revoked`'s
+  issuer comparison to one byte left `make test` at exit 0, and so did
+  cutting all three of `same()`'s in `chain/revocation.c`, 200000 fuzz
+  cases included. `FZN_CAP_ID_LEN == FZN_PUBKEY_LEN == 32`, so a swapped
+  length constant was equally invisible.
+
+  The fix is in the fixtures rather than in the assertions: byte 0 stays
+  the seed, because the stub verifiers derive identity from `pubkey[0]`
+  and keys that differ in every byte would leave signer and verifier
+  disagreeing about who is who, and every later byte varies with its
+  position. That alone is not enough -- two values built from equal seeds
+  are still equal everywhere -- so the suites also build a NEAR MISS, the
+  value that ought to match with only its LAST byte changed. One such
+  pair settles every truncation from one byte to thirty-one at once, and
+  it keeps its identity, so it reaches the comparison under test instead
+  of being refused earlier at the signature.
+
+  Both directions of `same()` are asserted, because the two readings fail
+  differently. Through `covers` a short comparison reports an unrelated
+  entry as revoked and refuses a chain nobody withdrew. Through `admit`
+  it reports a genuine revocation as already held, returns
+  `FZN_CHAIN_OK`, and DROPS it -- the fail-open direction, and the one
+  with no alarm attached, since "already known" is what success looks
+  like every time carriage works.
 
 - **Whether `chunk/` belongs in the core at all**, or is a layer a consumer
   opts into. It is in the core because netcfgd cannot function without it, but

@@ -78,8 +78,8 @@ static void check_at(int ok, int line, const char *fmt, ...)
  * BYTE of the message and on who signed, so that rewriting a field is
  * visible and leaving it alone is not.
  *
- * Identity is the key's first byte. Every key here is 32 copies of one seed
- * (see `key`), so that byte IS the identity -- the same idiom the fuzz
+ * Identity is the key's first byte. Every key here carries its seed there
+ * (see `expand`), so that byte IS the identity -- the same idiom the fuzz
  * harnesses beside this file use. */
 static void mac(uint8_t out[FZN_SIG_LEN], uint8_t identity, const uint8_t *msg, size_t len)
 {
@@ -174,10 +174,63 @@ static int stub_sign(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg, si
 /* ---- fixtures --------------------------------------------------------- */
 
 /* Distinct 32-byte values, built from a single byte so a failure message
- * can name them. Key 0 is the root by convention in these tests. */
+ * can name them. Key 0 is the root by convention in these tests.
+ *
+ * BYTE 0 IS THE SEED AND EVERY LATER BYTE VARIES WITH ITS POSITION. It used
+ * to be thirty-two copies of the seed, and that made a length constant
+ * unobservable: a value of one repeated byte answers any prefix exactly as
+ * it answers the whole, so `fzn_ct_memeq(a, b, 1)` and `fzn_ct_memeq(a, b,
+ * FZN_PUBKEY_LEN)` were the same function over every fixture in this file.
+ * Measured: cutting `hop_is_revoked`'s issuer comparison to a single byte
+ * left `make test` green, and so did cutting all three of
+ * `chain/revocation.c`'s.
+ *
+ * Byte 0 stays the seed because the stub above derives identity from
+ * `pubkey[0]` -- a generator whose keys differ in every byte would leave
+ * the signer and the verifier disagreeing about who is who. */
+static void expand(uint8_t *out, size_t len, uint8_t seed)
+{
+	out[0] = seed;
+	for (size_t i = 1; i < len; i++)
+		out[i] = (uint8_t)(seed ^ (uint8_t)i);
+}
+
+/* The same value with only its LAST byte changed.
+ *
+ * Position-varying keys alone do not close the gap above: two keys built
+ * from equal seeds are equal in every byte, so a truncated comparison still
+ * answers what a full one would. What decides a comparison's LENGTH is a
+ * pair that agrees on every byte a short read would reach and differs on
+ * one it would not -- and the last byte is the pair that decides every
+ * truncation at once, from one byte to thirty-one.
+ *
+ * Identity is unchanged, so a near miss can still be signed and verified by
+ * the stub. That is deliberate: it lets a near miss reach the comparison
+ * being tested instead of being refused earlier for a bad signature. */
+static void expand_near(uint8_t *out, size_t len, uint8_t seed)
+{
+	expand(out, len, seed);
+	out[len - 1] = (uint8_t)(out[len - 1] ^ 0xffu);
+}
+
 static void key(uint8_t out[FZN_PUBKEY_LEN], uint8_t seed)
 {
-	memset(out, seed, FZN_PUBKEY_LEN);
+	expand(out, FZN_PUBKEY_LEN, seed);
+}
+
+static void key_near(uint8_t out[FZN_PUBKEY_LEN], uint8_t seed)
+{
+	expand_near(out, FZN_PUBKEY_LEN, seed);
+}
+
+static void cap_id(uint8_t out[FZN_CAP_ID_LEN], uint8_t seed)
+{
+	expand(out, FZN_CAP_ID_LEN, seed);
+}
+
+static void cap_id_near(uint8_t out[FZN_CAP_ID_LEN], uint8_t seed)
+{
+	expand_near(out, FZN_CAP_ID_LEN, seed);
 }
 
 struct fixture {
@@ -217,7 +270,7 @@ static fzn_chain_err_t mint_hop(struct fixture *f, uint8_t *out, uint8_t grantor
 
 	key(grantor, grantor_seed);
 	key(grantee, grantee_seed);
-	memset(cap, cap_seed, FZN_CAP_ID_LEN);
+	cap_id(cap, cap_seed);
 	f->stub.identity = grantor_seed;
 
 	return fzn_chain_mint(grantor, grantee, cap, issued_at, expires_at, delegable,
@@ -239,7 +292,7 @@ static void forge_dates(struct fixture *f, uint8_t *out, uint8_t grantor_seed,
 	(void)f;
 	key(grantor, grantor_seed);
 	key(grantee, grantee_seed);
-	memset(cap, cap_seed, FZN_CAP_ID_LEN);
+	cap_id(cap, cap_seed);
 	fzn_hop_encode(out, grantor, grantee, cap, issued_at, expires_at, 1);
 	mac(out + FZN_HOP_OFF_SIGNATURE, grantor_seed, out, FZN_HOP_BODY_LEN);
 }
@@ -261,7 +314,7 @@ static void fixture_init(struct fixture *f)
 {
 	memset(f, 0, sizeof(*f));
 	key(f->root, 0);
-	memset(f->cap, 0xc0, FZN_CAP_ID_LEN);
+	cap_id(f->cap, 0xc0);
 	f->stub.can_sign = 1;
 	f->sign.verify = stub_verify;
 	f->sign.sign = stub_sign;
@@ -313,7 +366,7 @@ static void test_layout_is_the_one_the_header_describes(void)
 
 	key(grantor, 0x11);
 	key(grantee, 0x22);
-	memset(cap, 0x33, sizeof(cap));
+	cap_id(cap, 0x33);
 	CHECK(fzn_hop_encode(buf, grantor, grantee, cap, 0x0102030405060708ull,
 	                     0x1112131415161718ull, 1) == FZN_CHAIN_OK,
 	      "encoding a hop failed");
@@ -368,7 +421,7 @@ static void test_encode_open_round_trip(void)
 
 		key(grantor, 0);
 		key(grantee, 1);
-		memset(cap, 0xc0, sizeof(cap));
+		cap_id(cap, 0xc0);
 		CHECK(fzn_ct_memeq(fzn_hop_grantor(hop), grantor, FZN_PUBKEY_LEN),
 		      "grantor did not survive the round trip");
 		CHECK(fzn_ct_memeq(fzn_hop_grantee(hop), grantee, FZN_PUBKEY_LEN),
@@ -640,7 +693,7 @@ static void test_revocation_kills_a_middle_hop(void)
 	 * was revoked must not survive by hiding behind what it granted. */
 	fixture_init(&f);
 	memset(&rev, 0, sizeof(rev));
-	memset(rev.capability, 0xc0, FZN_CAP_ID_LEN);
+	cap_id(rev.capability, 0xc0);
 	key(rev.grantee, 1); /* hop 0's grantee -- the middle of the chain */
 	/* NAMED RATHER THAN LEFT ZERO. An entry says who withdrew it, and only
 	 * the root does today, so every revocation this file builds is the
@@ -668,7 +721,7 @@ static void test_revocation_is_per_capability(void)
 	 * revoking one from a key must leave the others alone. */
 	fixture_init(&f);
 	memset(&rev, 0, sizeof(rev));
-	memset(rev.capability, 0xff, FZN_CAP_ID_LEN); /* a different capability */
+	cap_id(rev.capability, 0xff); /* a different capability */
 	key(rev.grantee, 2);
 	memcpy(rev.issuer, f.root, FZN_PUBKEY_LEN);
 
@@ -738,6 +791,106 @@ static void test_revocation_is_per_issuer(void)
 	memcpy(rev.issuer, f.root, FZN_PUBKEY_LEN);
 	CHECK(run(&f, 2000, &rev, 1) == FZN_CHAIN_ERR_REVOKED,
 	      "the pinned root's own revocation did not bite");
+}
+
+/* EVERY IDENTITY COMPARISON READS THE WHOLE VALUE, and until this nothing
+ * in the tree could tell whether one did.
+ *
+ * A comparison's LENGTH is not decided by a pair of values that differ in
+ * their first byte, and every value this file built was thirty-two copies
+ * of one seed -- so `fzn_ct_memeq(a, b, 1)` answered exactly as
+ * `fzn_ct_memeq(a, b, FZN_PUBKEY_LEN)` did, everywhere. Measured against
+ * the tree as it stood: cutting `hop_is_revoked`'s issuer comparison to a
+ * single byte left the whole suite green, fuzz campaigns included.
+ *
+ * What decides a length is a NEAR MISS -- the same value with only its last
+ * byte changed. It agrees on every byte a short read reaches and differs on
+ * one it does not, so a single pair settles every truncation from one byte
+ * to thirty-one. `key_near` keeps byte 0, which is the stub's identity, so
+ * a near miss still signs and verifies and reaches the comparison under
+ * test rather than being turned away earlier.
+ *
+ * The three revocation legs are the ones that fail OPEN in the other
+ * direction: a short comparison there reports an unrelated entry as a match
+ * and refuses a chain nobody revoked, and the same short comparison inside
+ * `fzn_revocation_admit`'s duplicate test silently DROPS a genuine
+ * revocation as already held. revocation_test.c asserts that half.
+ *
+ * Each leg carries its positive control, or "the near miss was ignored"
+ * would be satisfied by a fixture that verifies nothing. */
+static void test_a_comparison_reads_the_whole_value(void)
+{
+	struct fixture f;
+	uint8_t near_key[FZN_PUBKEY_LEN], grantee[FZN_PUBKEY_LEN];
+	uint8_t near_cap[FZN_CAP_ID_LEN];
+	fzn_revocation_t rev;
+
+	/* THE PINNED ROOT. A chain rooted one byte away from the pin is a
+	 * chain rooted somewhere else. */
+	fixture_init(&f);
+	CHECK(run(&f, 2000, NULL, 0) == FZN_CHAIN_OK,
+	      "root: the control fails, so the refusal below proves nothing");
+	key_near(f.root, 0);
+	CHECK(run(&f, 2000, NULL, 0) == FZN_CHAIN_ERR_WRONG_ROOT,
+	      "a root matching the pin only in its first byte was adopted");
+
+	/* LINKAGE. Hop 1 is granted by a key that is hop 0's grantee in every
+	 * byte but the last, and is genuinely signed by it -- so the only
+	 * thing wrong with the chain is the join. */
+	fixture_init(&f);
+	key_near(near_key, 1);
+	key(grantee, 2);
+	f.stub.identity = 1;
+	CHECK(fzn_chain_mint(near_key, grantee, f.cap, 1000, FZN_NO_EXPIRY, 0, &f.sign,
+	                     f.bytes[1]) == FZN_CHAIN_OK,
+	      "linkage: minting the near-miss hop failed");
+	fixture_open(&f, 1);
+	stub_reset(&f.stub);
+	CHECK(run(&f, 2000, NULL, 0) == FZN_CHAIN_ERR_CHAIN_INVALID,
+	      "a grantor matching the previous grantee only in its first byte linked");
+
+	/* THE CAPABILITY ASKED FOR. Same shape: asking for a capability one
+	 * byte away from the one every hop names is asking for a different
+	 * one. The hops are the fixture's, so nothing else about the chain has
+	 * changed between the control and the refusal. */
+	fixture_init(&f);
+	cap_id_near(near_cap, 0xc0);
+	CHECK(run(&f, 2000, NULL, 0) == FZN_CHAIN_OK,
+	      "capability: the control fails, so the refusal below proves nothing");
+	memcpy(f.cap, near_cap, FZN_CAP_ID_LEN);
+	stub_reset(&f.stub);
+	CHECK(run(&f, 2000, NULL, 0) == FZN_CHAIN_ERR_CHAIN_INVALID,
+	      "a capability matching every hop only in its first byte was accepted");
+
+	/* THE REVOCATION'S THREE FIELDS. The control bites; each near miss
+	 * must not. */
+	fixture_init(&f);
+	memset(&rev, 0, sizeof(rev));
+	memcpy(rev.capability, f.cap, FZN_CAP_ID_LEN);
+	memcpy(rev.grantee, fzn_hop_grantee(f.hops[1]), FZN_PUBKEY_LEN);
+	memcpy(rev.issuer, f.root, FZN_PUBKEY_LEN);
+	CHECK(run(&f, 2000, &rev, 1) == FZN_CHAIN_ERR_REVOKED,
+	      "revocation: the control fails, so the three legs below prove nothing");
+
+	memcpy(rev.issuer, f.root, FZN_PUBKEY_LEN);
+	rev.issuer[FZN_PUBKEY_LEN - 1] ^= 0xffu;
+	CHECK(run(&f, 2000, &rev, 1) == FZN_CHAIN_OK,
+	      "a revocation whose ISSUER matches the root only in its first byte killed "
+	      "a chain in another root's realm");
+
+	memcpy(rev.issuer, f.root, FZN_PUBKEY_LEN);
+	memcpy(rev.capability, f.cap, FZN_CAP_ID_LEN);
+	rev.capability[FZN_CAP_ID_LEN - 1] ^= 0xffu;
+	CHECK(run(&f, 2000, &rev, 1) == FZN_CHAIN_OK,
+	      "a revocation whose CAPABILITY matches only in its first byte withdrew an "
+	      "unrelated capability");
+
+	memcpy(rev.capability, f.cap, FZN_CAP_ID_LEN);
+	memcpy(rev.grantee, fzn_hop_grantee(f.hops[1]), FZN_PUBKEY_LEN);
+	rev.grantee[FZN_PUBKEY_LEN - 1] ^= 0xffu;
+	CHECK(run(&f, 2000, &rev, 1) == FZN_CHAIN_OK,
+	      "a revocation whose GRANTEE matches only in its first byte disconnected "
+	      "somebody else");
 }
 
 static void test_a_bad_signature_is_refused(void)
@@ -993,8 +1146,8 @@ static void test_forged_capability_is_refused(void)
 	CHECK(run_one(&f, 2000) == FZN_CHAIN_OK,
 	      "capability: the control fails, so the refusal below proves nothing");
 
-	memset(f.bytes[0] + FZN_HOP_OFF_CAPABILITY, 0xff, FZN_CAP_ID_LEN);
-	memset(f.cap, 0xff, FZN_CAP_ID_LEN);
+	cap_id(f.bytes[0] + FZN_HOP_OFF_CAPABILITY, 0xff);
+	cap_id(f.cap, 0xff);
 	assert_signature_kept(f.bytes[0], genuine, "capability");
 	fixture_open(&f, 0);
 	stub_reset(&f.stub);
@@ -1300,7 +1453,7 @@ static void test_delegate(void)
 		fzn_revocation_t rev;
 
 		memset(&rev, 0, sizeof(rev));
-		memset(rev.capability, 0xc0, FZN_CAP_ID_LEN);
+		cap_id(rev.capability, 0xc0);
 		key(rev.grantee, 1);
 		memcpy(rev.issuer, f.root, FZN_PUBKEY_LEN);
 		CHECK(fzn_chain_delegate(f.hops, 2, f.root, f.cap, 2000, grantee, FZN_NO_EXPIRY,
@@ -1596,6 +1749,7 @@ int main(void)
 	test_revocation_is_per_capability();
 	test_revocation_is_per_grantee();
 	test_revocation_is_per_issuer();
+	test_a_comparison_reads_the_whole_value();
 	test_a_bad_signature_is_refused();
 	test_delegation_needs_permission_not_just_possession();
 	test_forged_delegable_is_refused();

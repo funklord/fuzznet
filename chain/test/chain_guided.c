@@ -129,6 +129,40 @@ static int same(const uint8_t *a, const uint8_t *b, size_t n)
 	return memcmp(a, b, n) == 0;
 }
 
+/* Expand a one-byte identity into a full-length value.
+ *
+ * BYTE 0 IS THE SEED -- the header above says why identities are one byte
+ * wide, and the MAC and the good-signature mask both read that byte. Every
+ * later byte varies with its position.
+ *
+ * IT USED TO BE THIRTY-TWO COPIES OF THE SEED, which made every length
+ * constant in chain.c unobservable here: a value of one repeated byte
+ * answers any prefix exactly as it answers the whole, so a pin, a linkage
+ * or a capability comparison could read one byte and this file's oracle --
+ * which compares the same values at full length -- would agree with it. */
+static void expand(uint8_t *out, size_t len, uint8_t seed)
+{
+	out[0] = seed;
+	for (size_t i = 1; i < len; i++)
+		out[i] = (uint8_t)(seed ^ (uint8_t)i);
+}
+
+/* The same value with only its LAST byte changed -- the pair that decides a
+ * comparison's LENGTH, and the reason position-varying values are not
+ * enough on their own: two built from equal seeds are equal everywhere, so
+ * a truncated comparison still answers what a full one would.
+ *
+ * Identity is untouched, so a near-miss grantor is still signed and
+ * verified and reaches the structural comparison rather than being refused
+ * at the signature. That is what makes the FALSE ACCEPT reachable, which is
+ * the only failure this file hunts: a linkage comparison reading a prefix
+ * joins two hops that do not join, and the oracle below says so. */
+static void expand_near(uint8_t *out, size_t len, uint8_t seed)
+{
+	expand(out, len, seed);
+	out[len - 1] = (uint8_t)(out[len - 1] ^ 0xffu);
+}
+
 /* The oracle. Returns non-zero when an ACCEPTED chain fails one of the
  * conditions. Deliberately written from sec 4.2 rather than from chain.c, so
  * that a mistake shared with the implementation does not cancel out.
@@ -209,8 +243,8 @@ static int drive(const uint8_t *data, size_t size, int *accepted)
 	if (size < 16)
 		return 0;
 
-	memset(root, take8(&c), sizeof(root));
-	memset(capability, take8(&c), sizeof(capability));
+	expand(root, FZN_PUBKEY_LEN, take8(&c));
+	expand(capability, FZN_CAP_ID_LEN, take8(&c));
 	now = take64(&c);
 	good = (uint16_t)((take8(&c) << 8) | take8(&c));
 	hop_count = take8(&c) % (FZN_CHAIN_MAX_HOPS + 1u);
@@ -221,20 +255,20 @@ static int drive(const uint8_t *data, size_t size, int *accepted)
 		uint8_t grantor[FZN_PUBKEY_LEN], grantee[FZN_PUBKEY_LEN];
 		uint8_t hop_cap[FZN_CAP_ID_LEN];
 		uint64_t issued_at, expires_at;
-		uint8_t fill;
+		uint8_t grantor_seed, grantee_seed, cap_seed, fill, near;
 		int delegable;
 
-		memset(grantor, take8(&c), FZN_PUBKEY_LEN);
-		memset(grantee, take8(&c), FZN_PUBKEY_LEN);
-		memset(hop_cap, take8(&c), FZN_CAP_ID_LEN);
+		/* EIGHT BYTES PER HOP, READ IN THE ORDER THE CORPUS BELOW
+		 * WRITES THEM, then used. Reading them all first is what lets
+		 * the last one decide how the first three are built without
+		 * moving any of them -- the layout is a corpus format and a
+		 * reordering silently reinterprets every stored case. */
+		grantor_seed = take8(&c);
+		grantee_seed = take8(&c);
+		cap_seed = take8(&c);
 		issued_at = take8(&c);
 		expires_at = take8(&c);
 		delegable = take8(&c) & 1;
-
-		if (fzn_hop_encode(hop_bytes[i], grantor, grantee, hop_cap, issued_at,
-		                   expires_at, delegable) != FZN_CHAIN_OK)
-			return 0;
-
 		/* Signed correctly exactly when the grantor's identity is in
 		 * the mask, and with rubbish otherwise.
 		 *
@@ -245,7 +279,33 @@ static int drive(const uint8_t *data, size_t size, int *accepted)
 		 * one it was written at -- and a corpus entry would mean
 		 * something different after a one-bit change to the mask. */
 		fill = take8(&c);
-		(void)take8(&c);
+		near = take8(&c);
+
+		/* THE EIGHTH BYTE WAS DISCARDED AND NOW CHOOSES A NEAR MISS,
+		 * which costs the corpus nothing: it is read where it always
+		 * was, and the pattern below is absent from every built-in
+		 * case, so each still means what its comment says.
+		 *
+		 * A near miss is the value that ought to match with only its
+		 * last byte changed, and it is the only input that decides a
+		 * comparison's LENGTH. It matters most on the grantor, where
+		 * a linkage comparison reading a prefix joins two hops that do
+		 * not join -- a FALSE ACCEPT, which is what this file exists
+		 * to find. */
+		expand(grantor, FZN_PUBKEY_LEN, grantor_seed);
+		expand(grantee, FZN_PUBKEY_LEN, grantee_seed);
+		expand(hop_cap, FZN_CAP_ID_LEN, cap_seed);
+		if ((near & 0xc0u) == 0xc0u)
+			expand_near(grantor, FZN_PUBKEY_LEN, grantor_seed);
+		if ((near & 0x30u) == 0x30u)
+			expand_near(grantee, FZN_PUBKEY_LEN, grantee_seed);
+		if ((near & 0x0cu) == 0x0cu)
+			expand_near(hop_cap, FZN_CAP_ID_LEN, cap_seed);
+
+		if (fzn_hop_encode(hop_bytes[i], grantor, grantee, hop_cap, issued_at,
+		                   expires_at, delegable) != FZN_CHAIN_OK)
+			return 0;
+
 		if (stub_signature_is_good(good, grantor))
 			mac(hop_bytes[i] + FZN_HOP_OFF_SIGNATURE, grantor[0], hop_bytes[i],
 			    FZN_HOP_BODY_LEN);
@@ -258,13 +318,28 @@ static int drive(const uint8_t *data, size_t size, int *accepted)
 
 	memset(revs, 0, sizeof(revs));
 	for (size_t r = 0; r < rev_count; r++) {
-		memset(revs[r].capability, take8(&c), FZN_CAP_ID_LEN);
-		memset(revs[r].grantee, take8(&c), FZN_PUBKEY_LEN);
+		uint8_t rev_cap_seed = take8(&c);
+		uint8_t rev_grantee_seed = take8(&c);
 		/* An entry names WHO withdrew it, and the byte is taken from
 		 * the input like every other field: a corpus that could only
 		 * ever name the pinned root would leave the issuer comparison
 		 * with nothing to decide. */
-		memset(revs[r].issuer, take8(&c), FZN_PUBKEY_LEN);
+		uint8_t rev_issuer_seed = take8(&c);
+		/* And a fourth, choosing a near miss, on the same reasoning as
+		 * the hops: a comparison that could only ever be handed values
+		 * differing in their first byte leaves its LENGTH deciding
+		 * nothing. */
+		uint8_t rev_near = take8(&c);
+
+		expand(revs[r].capability, FZN_CAP_ID_LEN, rev_cap_seed);
+		expand(revs[r].grantee, FZN_PUBKEY_LEN, rev_grantee_seed);
+		expand(revs[r].issuer, FZN_PUBKEY_LEN, rev_issuer_seed);
+		if ((rev_near & 0xc0u) == 0xc0u)
+			expand_near(revs[r].capability, FZN_CAP_ID_LEN, rev_cap_seed);
+		if ((rev_near & 0x30u) == 0x30u)
+			expand_near(revs[r].grantee, FZN_PUBKEY_LEN, rev_grantee_seed);
+		if ((rev_near & 0x0cu) == 0x0cu)
+			expand_near(revs[r].issuer, FZN_PUBKEY_LEN, rev_issuer_seed);
 	}
 
 	sign.verify = stub_verify;
@@ -300,8 +375,13 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
  * The layout is `drive`'s: root, capability, eight bytes of `now`, two bytes
  * of the good-signature mask, the hop count, the revocation count, then eight
  * bytes per hop -- grantor, grantee, capability, issued_at, expires_at,
- * delegable, and two bytes the signing step consumes -- and finally three
- * bytes per revocation: capability, grantee, issuer. */
+ * delegable, the signature fill and a near-miss selector -- and finally four
+ * bytes per revocation: capability, grantee, issuer, near-miss selector.
+ *
+ * Every case here declares NO revocations, so the fourth revocation byte
+ * costs them nothing; the eighth hop byte was always read and thrown away,
+ * and none of these cases carries the bit pattern that now selects a near
+ * miss, so each still means exactly what its comment says. */
 static const uint8_t CASE_VALID[] = { 7, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 1, 0,
 	                              7, 3, 9, 0, 0, 0, 1, 1 };
 static const uint8_t CASE_BADSIG[] = { 7, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0x00, 0x00, 1, 0,
@@ -330,6 +410,33 @@ static const uint8_t CASE_NO_ROOT_SIG[] = { 7, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 
 	                                    7, 3, 9, 0, 0, 1, 1, 1, 3, 4, 9, 0, 0, 0, 2, 2 };
 static const uint8_t CASE_MID_BADSIG[] = { 7, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xf7, 2, 0,
 	                                   7, 3, 9, 0, 0, 1, 1, 1, 3, 4, 9, 0, 0, 0, 2, 2 };
+
+/* AND THE THREE THAT NAME A TRUNCATED COMPARISON, which is a mutation no
+ * case in this tree could catch.
+ *
+ * Every value these harnesses built was thirty-two copies of one seed, so a
+ * comparison of one byte answered exactly as a comparison of thirty-two
+ * did, and every length constant in chain.c decided nothing. Measured
+ * against the tree as it stood: cutting `hop_is_revoked`'s issuer
+ * comparison to a single byte left `make test` green.
+ *
+ * Each case below sets the eighth byte of a hop -- the near-miss selector --
+ * so that one field is the value that ought to match with only its LAST
+ * byte changed. Correct code refuses all three: the first is rooted one byte
+ * from the pin, the second joins one byte short, the third names a
+ * capability one byte from the one asked for. Each is signed correctly, so
+ * nothing else can be doing the refusing; and each becomes an accepted chain
+ * the oracle calls unsound the moment the matching comparison reads a prefix
+ * instead of the whole value.
+ *
+ * They are here rather than left to the campaign for the reason the two
+ * above are: a corpus is not evidence a mutation is caught. */
+static const uint8_t CASE_NEAR_ROOT[] = { 7, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 1, 0,
+	                                  7, 3, 9, 0, 0, 0, 1, 0xc0 };
+static const uint8_t CASE_NEAR_LINK[] = { 7, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 2, 0,
+	                                  7, 3, 9, 0, 0, 1, 1, 1, 3, 4, 9, 0, 0, 0, 2, 0xc0 };
+static const uint8_t CASE_NEAR_CAP[] = { 7, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 1, 0,
+	                                 7, 3, 9, 0, 0, 0, 1, 0x0c };
 
 int main(int argc, char **argv)
 {
@@ -369,6 +476,12 @@ int main(int argc, char **argv)
 			  sizeof(CASE_NO_ROOT_SIG), 0 },
 			{ "a chain whose middle hop is unsigned", CASE_MID_BADSIG,
 			  sizeof(CASE_MID_BADSIG), 0 },
+			{ "a chain rooted one byte from the pin", CASE_NEAR_ROOT,
+			  sizeof(CASE_NEAR_ROOT), 0 },
+			{ "a chain that joins one byte short", CASE_NEAR_LINK,
+			  sizeof(CASE_NEAR_LINK), 0 },
+			{ "a chain naming a capability one byte off", CASE_NEAR_CAP,
+			  sizeof(CASE_NEAR_CAP), 0 },
 		};
 
 		for (size_t i = 0; i < sizeof(BUILTIN) / sizeof(BUILTIN[0]); i++) {
