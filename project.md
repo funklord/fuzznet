@@ -7862,6 +7862,44 @@ stranger still dies at 592 ns and only a frame already proving per-pair
 knowledge costs a scalar multiplication. It exists in this design only
 because the consumer's question sent somebody to measure the flood.
 
+### Two fields agreeing in size is not two fields agreeing
+
+A claim of ours went to the consumer as settled corroboration and did
+not survive their read of it. It was that **four fields are identical
+in size and purpose across the two protocols** -- sender 32, tag/mac
+16, kind/cmd 1, commitment 16 -- offered as two designs converging
+independently, which is worth something precisely because two
+documents agreeing are one witness when the same hand wrote both.
+
+**It is three.** The commitment does not belong on the list. Both are
+sixteen bytes and both commit to a key, and that is where it stops:
+theirs comes out of the SAME hash as their AEAD key, over a transcript
+containing a per-message DH, so it structurally cannot be checked until
+both scalar multiplications are done. Ours takes no per-message DH and
+sits AHEAD of the expensive work. **Same width, opposite position in
+the pipeline** -- and from outside, comparing layouts, the two are the
+same sixteen bytes at the same offset.
+
+The error was comparing a FIELD LIST. Width and stated purpose matched,
+so convergence was inferred; what differed was where each sits relative
+to authentication, which a layout does not show and only reading the
+receive order reveals.
+
+### The gate is the finding, not the microseconds
+
+Recorded because the number was nearly all that got written down. The
+headline was 640 ns against 158 us, and the reason is the part another
+tree can use: **passing our first filter needs the per-pair commitment
+key, which is shared and unguessable. Passing theirs needs a peer's
+host public key, which anyone who has seen one datagram has.** Their
+stranger dies for three scalar multiplications; ours for one hash.
+
+That is the whole 750x and it has nothing to do with arithmetic speed.
+A design that put a cheap filter first but gated it on something public
+would have the same ordering and none of the benefit. **What a filter
+COSTS is a property of the algorithm; what it is GATED ON is a property
+of the design**, and only the second transfers.
+
 ### The category change that belongs in the decision
 
 Today **every secret this library touches is a caller-owned array it
