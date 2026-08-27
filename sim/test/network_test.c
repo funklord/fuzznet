@@ -412,7 +412,15 @@ static unsigned total_digest_dropped;
 
 /* Grants the harness could not mint or open while setting a scenario up,
  * summed over the whole run and asserted once. Same reason as the counter
- * above: a per-host `check()` inflates the count without measuring more. */
+ * above: a per-host `check()` inflates the count without measuring more.
+ *
+ * `sim_make_record` FEEDS THIS TOO, since 2026-08-27. It carried two
+ * `check()` calls and runs thirty times a run, so SIXTY of this file's
+ * checks were the harness asserting it could sign and open its own
+ * records -- more than a quarter of the total, measuring nothing about
+ * the library. That is the third time this pattern has been undone here
+ * and the first two are the counters above; a helper that checks is a
+ * helper whose call count becomes a test count. */
 static unsigned setup_faults;
 
 static uint32_t sim_random(struct sim_net *net)
@@ -1972,17 +1980,26 @@ static void sim_make_record(struct sim_net *net, fzn_record_t *r, const struct s
 	size_t wrote = 0;
 
 	memset(subject, subject_seed, sizeof(subject));
+	/* ZEROED FIRST, so a failure leaves the caller a view that refuses
+	 * rather than one holding whatever was on its stack. Callers do not
+	 * test this helper's outcome -- it cannot fail on genuine input --
+	 * and before this they would have carried an uninitialised
+	 * `fzn_record_t` into the library. Found by sabotaging the signing
+	 * call to prove the fault counter below fires: it segfaulted instead
+	 * of counting, which is the wrong way to learn a helper has no
+	 * failure path. */
+	memset(r, 0, sizeof(*r));
 	/* THE ISSUER SIGNS, and `fzn_record_verify` checks against
 	 * `fzn_record_issuer` -- so the two agree only for a record whose issuer
 	 * really made it. `sim_receive_record` below is where that check now
 	 * happens, and `scenario_forgery` is what proves it discriminates. */
-	check(fzn_record_sign(issuer->pubkey, subject, STREAM_STATE, KIND_SETTING, seq, 1,
-	                      state_bodies[issuer->id][seq - 1u], sizeof(state_bodies[0][0]),
-	                      sim_signer(&signer, &net->sign, issuer->pubkey),
-	                      wire, FZN_RECORD_MAX_LEN, &wrote) == FZN_RECORD_OK,
-	      "the simulation could not sign a record");
-	check(fzn_record_open(wire, wrote, r) == FZN_RECORD_OK,
-	      "the simulation could not open the record it just signed");
+	if (fzn_record_sign(issuer->pubkey, subject, STREAM_STATE, KIND_SETTING, seq, 1,
+	                    state_bodies[issuer->id][seq - 1u], sizeof(state_bodies[0][0]),
+	                    sim_signer(&signer, &net->sign, issuer->pubkey),
+	                    wire, FZN_RECORD_MAX_LEN, &wrote) != FZN_RECORD_OK)
+		setup_faults++;
+	else if (fzn_record_open(wire, wrote, r) != FZN_RECORD_OK)
+		setup_faults++;
 }
 
 /* Which subject a given issuer's given record is about. Alice's first record
@@ -2731,7 +2748,8 @@ int main(void)
 
 	/* Asserted ONCE, not once per fetch. See `digest_dropped`. */
 	check(total_digest_dropped == 0, "a simulation digest buffer was too small");
-	check(setup_faults == 0, "the simulation could not mint or open a host's grant");
+	check(setup_faults == 0,
+	      "the simulation could not mint, open or sign something it set up");
 
 	printf("network_test: %d checks, %d failure(s); fuzznet %s\n", checks, failures,
 	       fzn_version_string());
