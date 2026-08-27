@@ -8419,6 +8419,69 @@ the header, not for declining to build.
   settled**: this document wins over the code, so if the first reading was
   meant, the code is wrong and not the sentence.
 
+## 15c. Vendoring: Monocypher yes, flog no, 2026-08-28
+
+The holder asks whether the crypto library and flog should be vendored
+here so that consumers of this library need not.
+
+### Monocypher: yes, and the shape matters more than the answer
+
+**The current arrangement is the antipattern `harmonization.md` names.**
+`MONOCYPHER_DIR` points at a LIVE SIBLING CHECKOUT -- in practice
+`../fuzzypickles/monocypher` -- and the guideline is explicit that a
+live sibling "is whatever its session left it as, mid-work included",
+where a vendored copy "is a version you chose, it clones with your
+tree, and it fails loudly at update time instead of quietly at build
+time". Sec 11 already recorded the intent: *"the real answer is a
+submodule, at whatever step takes it."*
+
+**But vendoring it into the LIBRARY would be wrong, and the reason is
+the consumer.** fuzzypickles already vendors Monocypher. If fuzznet
+vendored it too and fuzzypickles linked both, one program would carry
+two copies of `crypto_blake2b` and friends -- the exact hazard
+`code-style.md` names under prefixes and visibility, where a deliberate
+parallel copy in two archives detonates at a link that changed nothing.
+
+**The shape that answers the holder's question is the one the library
+already has.** fuzznet's crypto is four vtables --
+`fzn_sign_ops`, `fzn_hash_ops`, `fzn_aead_ops`, `fzn_random_ops` -- and
+**the library itself calls no primitive.** Only the optional bindings
+and the tests do. So:
+
+- **vendor Monocypher as a submodule for THIS TREE'S tests and its
+  optional bindings**, replacing the live-sibling variable;
+- **ship the seams, not the implementation.** A consumer plugs in
+  whatever it already has, which is precisely "users of this lib do not
+  have to".
+
+That is not a compromise between the two answers. It is what makes both
+true at once: fuzznet builds and tests standalone, and no consumer
+inherits a second copy of a crypto library it already carries.
+
+### flog: no, and it is a fifth-question instance
+
+**fuzznet does not reference flog anywhere** -- grepped across every
+source, header and the Makefile. Nothing to vendor.
+
+**And `log/` is not flog.** They share a word and are different
+objects: flog is diagnostic logging with levels, outputs and message
+ids, writing through `fopen`/`fprintf`; `log/` is a bounded evicting
+store of SIGNED APPLICATION STATEMENTS, sequenced per issuer and
+servable to peers. Sec 5e records what came across from fuzzypickles as
+"sequencing, retention and serving a range" -- not a logging library.
+
+**The decisive point is structural.** This library has one `fopen` in
+the entire tree, at `local/peer_linux.c:85`, reading a proc file behind
+a documented Linux-only boundary. A diagnostic logger writing to files
+and consoles is against the property that every other module holds, and
+adopting it would put I/O in a library whose no-I/O invariant is load-
+bearing in at least four recorded arguments. **Vendoring flog would
+mean acquiring a dependency this library has deliberately never had.**
+
+Where a consumer wants fuzznet's events in its own log, the seam is a
+vtable like the other four, or an error string the consumer prints --
+which is what `fzn_*_err_str` already exists for.
+
 ## 15b. Streaming will want multi-path and heavy FEC, 2026-08-28
 
 **Stated by the holder as an eventual requirement**: low-latency
