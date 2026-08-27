@@ -92,12 +92,20 @@ static inline void fzn_put_be64(uint8_t *p, uint64_t v)
  *
  * fuzzypickles paid for this. Its `core/src/signed_tag.h` exists because two
  * of its record types collided -- "Both are 73 bytes when the name is 30 long
- * ... and ONE SIGNATURE VERIFIES AS BOTH" -- and that file names its own
- * capability chain, whose version sits OUTSIDE every hop signature, as the
- * remaining instance of the anti-pattern it was written to fix. This library
- * is writing its transcript from scratch and takes the tag inside the signed
- * range from the start rather than inheriting a shape its sibling has already
- * identified as wrong.
+ * ... and ONE SIGNATURE VERIFIES AS BOTH" -- and that file named its own
+ * capability chain, whose version then sat OUTSIDE every hop signature, as
+ * the remaining instance of the anti-pattern it was written to fix. This
+ * library is writing its transcript from scratch and takes the tag inside
+ * the signed range from the start rather than inheriting a shape its
+ * sibling had already identified as wrong.
+ *
+ * THEIR INSTANCE IS FIXED as of 2026-08-28 and this comment said otherwise
+ * until they read it. `capability.c` captures the hop's start BEFORE the
+ * version byte and signs `r.pos - hop_start`, so version and tag are both
+ * inside the span now. Verified in their source rather than taken from
+ * their message, which is the rule that found it in the first place: they
+ * looked because this comment cited them, and a claim about another tree
+ * decays silently because only its owner can see it go stale.
  *
  * INSIDE THE SIGNED RANGE IS THE WHOLE POINT. A tag written outside it
  * separates nothing: an attacker rewrites it and the signature still checks.
