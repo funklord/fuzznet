@@ -512,14 +512,12 @@ static void test_the_store_feeds_chain_verify_directly(void)
 	      "minting the hop this case revokes failed");
 	CHECK(fzn_hop_open(hop_bytes, FZN_HOP_LEN, &hops[0]) == FZN_CHAIN_OK, "open");
 
-	CHECK(fzn_chain_verify(hops, 1, f.root, cap, 2000, &f.sign, f.store.entries,
-	                       f.store.used, &out) == FZN_CHAIN_OK,
+	CHECK(fzn_chain_verify(hops, 1, f.root, cap, 2000, &f.sign, &f.store, &out) == FZN_CHAIN_OK,
 	      "an unrevoked chain was refused with an empty store");
 
 	issue(&f, bytes, &r, 0, 0xc0, 5);
 	CHECK(fzn_revocation_admit(&f.store, r, f.root, &f.sign) == FZN_CHAIN_OK, "admit");
-	CHECK(fzn_chain_verify(hops, 1, f.root, cap, 2000, &f.sign, f.store.entries,
-	                       f.store.used, &out) == FZN_CHAIN_ERR_REVOKED,
+	CHECK(fzn_chain_verify(hops, 1, f.root, cap, 2000, &f.sign, &f.store, &out) == FZN_CHAIN_ERR_REVOKED,
 	      "chain verify did not see the revocation the store had admitted");
 }
 
@@ -571,15 +569,14 @@ static void test_one_roots_revocation_does_not_answer_for_another(void)
 	CHECK(fzn_revocation_covers(&f.store, f.root, cap, grantee) == 0,
 	      "root B's revocation answered a question about root A's realm");
 
-	/* And the consequence end to end, since a store's contents go straight
-	 * into fzn_chain_verify beside a root nothing used to relate them to. */
+	/* And the consequence end to end, since the store goes straight into
+	 * fzn_chain_verify beside a root nothing used to relate them to. */
 	f.stub.identity = 0;
 	CHECK(fzn_chain_mint(f.root, grantee, cap, 1000, FZN_NO_EXPIRY, 0, &f.sign,
 	                     hop_bytes) == FZN_CHAIN_OK,
 	      "minting the hop A granted failed");
 	CHECK(fzn_hop_open(hop_bytes, FZN_HOP_LEN, &hops[0]) == FZN_CHAIN_OK, "open");
-	CHECK(fzn_chain_verify(hops, 1, f.root, cap, 2000, &f.sign, f.store.entries,
-	                       f.store.used, &out) == FZN_CHAIN_OK,
+	CHECK(fzn_chain_verify(hops, 1, f.root, cap, 2000, &f.sign, &f.store, &out) == FZN_CHAIN_OK,
 	      "B revoked a key in A's realm, so any anchored peer can disconnect any host");
 }
 

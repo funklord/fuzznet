@@ -417,18 +417,17 @@ int main(void)
 			return 7;
 	}
 
-	if (fzn_chain_verify(&hop, 1, root, cap, 2000, &sign, store.entries, store.used,
-	                     &chain) != FZN_CHAIN_OK)
+	if (fzn_chain_verify(&hop, 1, root, cap, 2000, &sign, &store, &chain) != FZN_CHAIN_OK)
 		return 7;
 	if (chain.hop_count != 1)
 		return 8;
+
 
 	/* The two modules added after this file was written, and the reason
 	 * `installcheck` now checks its own coverage: both were installed and
 	 * neither was included here, so a break in either would have passed. */
 	{
 		fzn_peer_t peer;
-		fzn_revocation_store_t unused_store;
 
 		memset(&peer, 0, sizeof(peer));
 		if (fzn_peer_groups_parse("Groups:\t20 24\n", 14, &peer) != 1)
@@ -457,7 +456,6 @@ int main(void)
 				return 23;
 		}
 
-		(void)unused_store;
 		/* THE ASSERTION THAT WAS HERE COULD NOT FAIL, and then it could
 		 * fail for the wrong reason. It read
 		 *

@@ -482,12 +482,60 @@ typedef struct fzn_revocation {
 	uint8_t issuer[FZN_PUBKEY_LEN];
 } fzn_revocation_t;
 
+/* The store, DECLARED here and DEFINED in revocation.h.
+ *
+ * `fzn_chain_verify` takes a store rather than an array and a count, and the
+ * type it takes belongs to the module that owns admission, so this end holds
+ * the name only. A consumer that has no revocations passes NULL and never
+ * includes revocation.h; one that has any includes it and gets the fields.
+ *
+ * The incomplete type is the point rather than a compromise: nothing on this
+ * side of the library may reach into a store, because reaching in is exactly
+ * what the array-and-count signature used to invite. See `fzn_chain_verify`
+ * below for what that cost. */
+typedef struct fzn_revocation_store fzn_revocation_store_t;
+
 /* Verify a chain against a pinned root, and report what it authorises.
  *
  * `hops` is an array of OPENED views, in delegation order: hops[0] is signed
  * by the root, and each later hop is signed by the previous hop's grantee.
- * `now` is the caller's clock. `revocations` may be NULL with
- * `revocation_count` 0.
+ * `now` is the caller's clock. `revocations` is a store, and NULL means
+ * "this host knows of no revocations" -- which is the whole of what the old
+ * `NULL, 0` said.
+ *
+ * IT TAKES THE STORE, AND THAT IS A CORRECTION (2026-08-27, the second of
+ * the day). It used to take `(const fzn_revocation_t *, size_t)`, while the
+ * documented calling pattern everywhere -- in this header, in revocation.h,
+ * in every consumer and every suite -- was `store.entries, store.used`. So
+ * `used` bounded a loop over an array whose length is `capacity`, and this
+ * function had no `capacity` to check it against.
+ *
+ * `fzn_revocation_covers` refuses to scan a store where `used > capacity`
+ * and answers REVOKED, deliberately, because denying is the safe reply to
+ * an authorization question -- and revocation_test.c asserts that state as
+ * real rather than impossible. This function could not make the same
+ * refusal, and reached one entry past the array instead. Reproduced under
+ * AddressSanitizer with a two-entry store and `used = capacity + 1`:
+ *
+ *     ERROR: AddressSanitizer: heap-buffer-overflow
+ *     READ of size 1 ... in fzn_ct_memeq constant_time/constant_time.c:38
+ *       #1 hop_is_revoked chain/chain.c:24
+ *       #2 fzn_chain_verify chain/chain.c:261
+ *
+ * A memory-safety fault on the authorization path, in the fail-open
+ * direction, reached from a state the module's own suite calls reachable.
+ *
+ * THE REPAIR IS TO STOP HAVING TWO PREDICATES. The 2026-08-27 issuer fix
+ * gave `fzn_revocation_covers` the same question this function was asking
+ * privately, and corrupt-store handling became the only thing that differed
+ * between them -- which is the shape a later simplification deletes the
+ * wrong half of. There is one implementation now: this function calls that
+ * one, and inherits its refusal by construction rather than by both being
+ * kept in step.
+ *
+ * A second API break in one day, taken deliberately: the consumer that
+ * vendors this library links no symbol from it yet and would rather take
+ * breaks now than after it does.
  *
  * Every hop is checked, in this order, and the order is chosen so that the
  * cheap structural refusals happen before any signature verification:
@@ -528,8 +576,8 @@ typedef struct fzn_revocation {
 fzn_chain_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
                             const uint8_t root[FZN_PUBKEY_LEN],
                             const uint8_t capability[FZN_CAP_ID_LEN], uint64_t now,
-                            const fzn_sign_ops_t *sign, const fzn_revocation_t *revocations,
-                            size_t revocation_count, fzn_chain_t *out);
+                            const fzn_sign_ops_t *sign,
+                            const fzn_revocation_store_t *revocations, fzn_chain_t *out);
 
 /* Mint hop 0: the root grants `capability` to `grantee`, directly. `out`
  * receives FZN_HOP_LEN bytes -- the encoded hop, signed.
@@ -562,7 +610,7 @@ fzn_chain_err_t fzn_chain_mint(const uint8_t root[FZN_PUBKEY_LEN],
  * receives FZN_HOP_LEN bytes, the NEW hop only.
  *
  * The existing chain is RE-VERIFIED first, in full, against the pinned root
- * and the same revocation list a receiver would use. That is defence in
+ * and the same revocation store a receiver would use. That is defence in
  * depth and it is not redundant: never delegate from a chain that has
  * expired, been revoked, or stopped checking out, because the result would
  * be a hop that looks freshly minted while resting on something dead.
@@ -591,8 +639,7 @@ fzn_chain_err_t fzn_chain_delegate(const fzn_chain_hop_t *hops, size_t hop_count
                               const uint8_t capability[FZN_CAP_ID_LEN], uint64_t now,
                               const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t expires_at,
                               int delegable, const fzn_sign_ops_t *sign,
-                              const fzn_revocation_t *revocations, size_t revocation_count,
-                              uint8_t *out);
+                              const fzn_revocation_store_t *revocations, uint8_t *out);
 
 /* Constant-time comparison comes from constant_time.h, which chain.h
  * includes so that existing users of fzn_ct_memeq keep compiling. New code

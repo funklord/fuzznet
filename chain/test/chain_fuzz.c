@@ -42,6 +42,8 @@
  */
 
 #include "../chain.h"
+/* For the store's definition, which `fzn_chain_verify` takes now. */
+#include "../revocation.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -293,6 +295,11 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 	uint8_t hop_bytes[MAX_HOPS + 1][FZN_HOP_LEN];
 	fzn_chain_hop_t hops[MAX_HOPS + 1];
 	fzn_revocation_t revs[MAX_REVS];
+	/* `fzn_chain_verify` takes the store now, so the harness holds one over
+	 * the same array. `capacity` is the array's real length rather than
+	 * `nrevs`, which is what the old (array, count) signature had no way to
+	 * be told -- see chain.h. */
+	fzn_revocation_store_t rev_store = { revs, MAX_REVS, 0 };
 	uint8_t root[FZN_PUBKEY_LEN], cap[FZN_CAP_ID_LEN];
 	struct stub stub = { 0, 0 };
 	fzn_sign_ops_t sign;
@@ -456,7 +463,8 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 	memset(&out, 0xab, sizeof(out));
 	before = out;
 
-	err = fzn_chain_verify(hops, n, root, cap, now, &sign, nrevs ? revs : NULL, nrevs,
+	rev_store.used = nrevs;
+	err = fzn_chain_verify(hops, n, root, cap, now, &sign, nrevs ? &rev_store : NULL,
 	                       &out);
 
 	if (err == FZN_CHAIN_OK) {
@@ -532,7 +540,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		memset(&again, 0xab, sizeof(again));
 		stub.calls = 0;
 		if (fzn_chain_verify(reopened, reopened_n, root, cap, now, &sign,
-		                     nrevs ? revs : NULL, nrevs, &again) != err) {
+		                     nrevs ? &rev_store : NULL, &again) != err) {
 			printf("  INVARIANT: the container changed the verdict\n");
 			return 1;
 		}
@@ -581,7 +589,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		expand(grantee, FZN_PUBKEY_LEN, 0xf0u);
 		stub.identity = fzn_hop_grantee(hops[n - 1])[0];
 		if (fzn_chain_delegate(hops, n, root, cap, now, grantee, 0, 0, &sign,
-		                       nrevs ? revs : NULL, nrevs, fresh) == FZN_CHAIN_OK) {
+		                       nrevs ? &rev_store : NULL, fresh) == FZN_CHAIN_OK) {
 			cov->delegated_ok++;
 
 			if (!fzn_hop_delegable(hops[n - 1])) {

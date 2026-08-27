@@ -29,6 +29,9 @@
  */
 
 #include "../chain.h"
+/* For the store's definition: `fzn_chain_verify` takes one now, and chain.h
+ * declares it as an incomplete type. */
+#include "../revocation.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -330,16 +333,27 @@ static void fixture_init(struct fixture *f)
 	stub_reset(&f->stub);
 }
 
+/* THE SHIM IS HERE AND NOT AT EVERY CALL SITE (2026-08-27).
+ * `fzn_chain_verify` takes a store rather than an array and a count, because
+ * `used` bounded a loop over an array whose length only `capacity` knows --
+ * see chain.h. This helper keeps its own (array, count) signature so that the
+ * twenty-eight callers below are untouched, and wraps them in a store here.
+ * A caller that means "no revocations" passes NULL, which stays NULL. */
 static fzn_chain_err_t run(struct fixture *f, uint64_t now, const fzn_revocation_t *revs,
                            size_t nrevs)
 {
-	return fzn_chain_verify(f->hops, 2, f->root, f->cap, now, &f->sign, revs, nrevs,
-	                        &f->out);
+	fzn_revocation_store_t store;
+
+	store.entries = (fzn_revocation_t *)revs;
+	store.capacity = nrevs;
+	store.used = nrevs;
+	return fzn_chain_verify(f->hops, 2, f->root, f->cap, now, &f->sign,
+	                        revs ? &store : NULL, &f->out);
 }
 
 static fzn_chain_err_t run_one(struct fixture *f, uint64_t now)
 {
-	return fzn_chain_verify(f->hops, 1, f->root, f->cap, now, &f->sign, NULL, 0, &f->out);
+	return fzn_chain_verify(f->hops, 1, f->root, f->cap, now, &f->sign, NULL, &f->out);
 }
 
 /* ---- the layout ------------------------------------------------------- */
@@ -926,7 +940,7 @@ static void test_bounds(void)
 	fzn_chain_hop_t many[FZN_CHAIN_MAX_HOPS + 1];
 
 	fixture_init(&f);
-	CHECK(fzn_chain_verify(f.hops, 0, f.root, f.cap, 2000, &f.sign, NULL, 0, &f.out) ==
+	CHECK(fzn_chain_verify(f.hops, 0, f.root, f.cap, 2000, &f.sign, NULL, &f.out) ==
 	              FZN_CHAIN_ERR_MALFORMED,
 	      "a zero-hop chain was not refused");
 
@@ -939,17 +953,21 @@ static void test_bounds(void)
 	}
 	stub_reset(&f.stub);
 	CHECK(fzn_chain_verify(many, FZN_CHAIN_MAX_HOPS + 1u, f.root, f.cap, 2000, &f.sign,
-	                       NULL, 0, &f.out) == FZN_CHAIN_ERR_MALFORMED,
+	                       NULL, &f.out) == FZN_CHAIN_ERR_MALFORMED,
 	      "a chain past FZN_CHAIN_MAX_HOPS was not refused");
 	CHECK(f.stub.calls == 0, "spent verifications on an over-long chain");
 
 	fixture_init(&f);
-	CHECK(fzn_chain_verify(NULL, 2, f.root, f.cap, 2000, &f.sign, NULL, 0, &f.out) ==
+	CHECK(fzn_chain_verify(NULL, 2, f.root, f.cap, 2000, &f.sign, NULL, &f.out) ==
 	              FZN_CHAIN_ERR_MALFORMED,
 	      "null hops accepted");
-	CHECK(fzn_chain_verify(f.hops, 2, f.root, f.cap, 2000, &f.sign, NULL, 3, &f.out) ==
-	              FZN_CHAIN_ERR_MALFORMED,
-	      "a nonzero revocation count with a null list was accepted");
+	/* THE CASE THAT WENT WITH THE PARAMETER (2026-08-27). This asserted
+	 * that `NULL` with a count of 3 was refused, and there is no count to
+	 * be inconsistent with any more: `fzn_chain_verify` takes a store, and
+	 * a store carries its own bound. The condition it stood in for -- a
+	 * count describing entries that are not there -- is now judged inside
+	 * `fzn_revocation_covers`, which DENIES rather than refusing, and
+	 * revocation_test.c is where that belongs. */
 
 	/* A view that was never opened. It is MALFORMED rather than SHAPE:
 	 * nothing about any bytes is wrong, the caller skipped fzn_hop_open. */
@@ -1315,7 +1333,7 @@ static void test_mint(void)
 	 * and verifying disagree about what a chain is -- which is the bug
 	 * this pairing exists to catch, and which is now a claim about bytes
 	 * rather than about two structs agreeing. */
-	CHECK(fzn_chain_verify(&hop, 1, f.root, f.cap, 2000, &f.sign, NULL, 0, &out) == FZN_CHAIN_OK,
+	CHECK(fzn_chain_verify(&hop, 1, f.root, f.cap, 2000, &f.sign, NULL, &out) == FZN_CHAIN_OK,
 	      "a freshly minted hop does not verify");
 	CHECK(out.hop_count == 1, "hop_count %zu, wanted 1", out.hop_count);
 
@@ -1370,7 +1388,7 @@ static void test_delegate(void)
 	stub_reset(&f.stub);
 	f.stub.identity = 2;
 	CHECK(fzn_chain_delegate(f.hops, 2, f.root, f.cap, 2000, grantee, FZN_NO_EXPIRY, 0,
-	                         &f.sign, NULL, 0, bytes) == FZN_CHAIN_OK,
+	                         &f.sign, NULL, bytes) == FZN_CHAIN_OK,
 	      "delegating from a good chain failed");
 	CHECK(fzn_hop_open(bytes, FZN_HOP_LEN, &hop) == FZN_CHAIN_OK, "the new hop does not open");
 	CHECK(fzn_ct_memeq(fzn_hop_grantor(hop), fzn_hop_grantee(f.hops[1]), FZN_PUBKEY_LEN),
@@ -1388,7 +1406,7 @@ static void test_delegate(void)
 		three[1] = f.hops[1];
 		three[2] = hop;
 		stub_reset(&f.stub);
-		CHECK(fzn_chain_verify(three, 3, f.root, f.cap, 2000, &f.sign, NULL, 0, &out) ==
+		CHECK(fzn_chain_verify(three, 3, f.root, f.cap, 2000, &f.sign, NULL, &out) ==
 		              FZN_CHAIN_OK,
 		      "the chain a delegation produced does not verify");
 		CHECK(fzn_ct_memeq(out.grantee, grantee, FZN_PUBKEY_LEN),
@@ -1400,7 +1418,7 @@ static void test_delegate(void)
 	fixture_init(&f);
 	f.stub.identity = 2;
 	CHECK(fzn_chain_delegate(f.hops, 2, f.root, f.cap, 2000, grantee, FZN_NO_EXPIRY, 0,
-	                         &f.sign, NULL, 0, bytes) == FZN_CHAIN_ERR_NOT_DELEGABLE,
+	                         &f.sign, NULL, bytes) == FZN_CHAIN_ERR_NOT_DELEGABLE,
 	      "delegated from a chain that does not permit it");
 	CHECK(f.stub.signs == 0, "signed a hop it was not entitled to make");
 
@@ -1413,7 +1431,7 @@ static void test_delegate(void)
 	stub_reset(&f.stub);
 	f.stub.identity = 2;
 	CHECK(fzn_chain_delegate(f.hops, 2, f.root, f.cap, 2000, grantee, 9000, 0, &f.sign,
-	                         NULL, 0, bytes) == FZN_CHAIN_OK,
+	                         NULL, bytes) == FZN_CHAIN_OK,
 	      "delegating within a time-boxed chain failed");
 	CHECK(fzn_hop_open(bytes, FZN_HOP_LEN, &hop) == FZN_CHAIN_OK, "open");
 	CHECK(fzn_hop_expires_at(hop) == 5000, "expiry %llu, wanted the grantor's 5000",
@@ -1421,7 +1439,7 @@ static void test_delegate(void)
 
 	f.stub.identity = 2;
 	CHECK(fzn_chain_delegate(f.hops, 2, f.root, f.cap, 2000, grantee, FZN_NO_EXPIRY, 0,
-	                         &f.sign, NULL, 0, bytes) == FZN_CHAIN_OK,
+	                         &f.sign, NULL, bytes) == FZN_CHAIN_OK,
 	      "delegating without asking for an expiry failed");
 	CHECK(fzn_hop_open(bytes, FZN_HOP_LEN, &hop) == FZN_CHAIN_OK, "open");
 	CHECK(fzn_hop_expires_at(hop) == 5000, "asking for no expiry escaped the grantor's cap");
@@ -1434,7 +1452,7 @@ static void test_delegate(void)
 	 * none asked for less. */
 	f.stub.identity = 2;
 	CHECK(fzn_chain_delegate(f.hops, 2, f.root, f.cap, 2000, grantee, 3000, 0, &f.sign,
-	                         NULL, 0, bytes) == FZN_CHAIN_OK,
+	                         NULL, bytes) == FZN_CHAIN_OK,
 	      "delegating a shorter grant failed");
 	CHECK(fzn_hop_open(bytes, FZN_HOP_LEN, &hop) == FZN_CHAIN_OK, "open");
 	CHECK(fzn_hop_expires_at(hop) == 3000, "expiry %llu, wanted the requested 3000 -- the "
@@ -1451,13 +1469,14 @@ static void test_delegate(void)
 	f.stub.identity = 2;
 	{
 		fzn_revocation_t rev;
+		fzn_revocation_store_t revs = { &rev, 1, 1 };
 
 		memset(&rev, 0, sizeof(rev));
 		cap_id(rev.capability, 0xc0);
 		key(rev.grantee, 1);
 		memcpy(rev.issuer, f.root, FZN_PUBKEY_LEN);
 		CHECK(fzn_chain_delegate(f.hops, 2, f.root, f.cap, 2000, grantee, FZN_NO_EXPIRY,
-		                         0, &f.sign, &rev, 1, bytes) == FZN_CHAIN_ERR_REVOKED,
+		                         0, &f.sign, &revs, bytes) == FZN_CHAIN_ERR_REVOKED,
 		      "delegated from a revoked chain");
 		CHECK(f.stub.signs == 0, "signed a hop resting on a revoked chain");
 	}
@@ -1478,7 +1497,7 @@ static void test_delegate(void)
 		}
 		stub_reset(&f.stub);
 		CHECK(fzn_chain_delegate(full, FZN_CHAIN_MAX_HOPS, f.root, f.cap, 2000, grantee,
-		                         FZN_NO_EXPIRY, 0, &f.sign, NULL, 0,
+		                         FZN_NO_EXPIRY, 0, &f.sign, NULL,
 		                         bytes) == FZN_CHAIN_ERR_MALFORMED,
 		      "extended a chain already at the depth ceiling");
 	}
@@ -1513,7 +1532,7 @@ static void test_container_round_trip(void)
 	 * worth having -- a framing that loses a byte is a framing that turns
 	 * every chain into a bad signature. */
 	stub_reset(&f.stub);
-	CHECK(fzn_chain_verify(opened, n, f.root, f.cap, 2000, &f.sign, NULL, 0, &out) ==
+	CHECK(fzn_chain_verify(opened, n, f.root, f.cap, 2000, &f.sign, NULL, &out) ==
 	              FZN_CHAIN_OK,
 	      "a chain that went through the container does not verify");
 }
@@ -1649,17 +1668,17 @@ static void test_every_guard_refuses_its_own_argument(void)
 	CHECK((call) == FZN_CHAIN_ERR_MALFORMED, "%s was accepted", what)
 
 	/* fzn_chain_verify */
-	REFUSED(fzn_chain_verify(NULL, 1, f.root, f.cap, 100, &f.sign, NULL, 0, &f.out),
+	REFUSED(fzn_chain_verify(NULL, 1, f.root, f.cap, 100, &f.sign, NULL, &f.out),
 	        "a null hop array");
-	REFUSED(fzn_chain_verify(f.hops, 1, NULL, f.cap, 100, &f.sign, NULL, 0, &f.out),
+	REFUSED(fzn_chain_verify(f.hops, 1, NULL, f.cap, 100, &f.sign, NULL, &f.out),
 	        "a null root");
-	REFUSED(fzn_chain_verify(f.hops, 1, f.root, NULL, 100, &f.sign, NULL, 0, &f.out),
+	REFUSED(fzn_chain_verify(f.hops, 1, f.root, NULL, 100, &f.sign, NULL, &f.out),
 	        "a null capability");
-	REFUSED(fzn_chain_verify(f.hops, 1, f.root, f.cap, 100, NULL, NULL, 0, &f.out),
+	REFUSED(fzn_chain_verify(f.hops, 1, f.root, f.cap, 100, NULL, NULL, &f.out),
 	        "a null signer");
-	REFUSED(fzn_chain_verify(f.hops, 1, f.root, f.cap, 100, &no_verify, NULL, 0, &f.out),
+	REFUSED(fzn_chain_verify(f.hops, 1, f.root, f.cap, 100, &no_verify, NULL, &f.out),
 	        "a signer with no verify function");
-	REFUSED(fzn_chain_verify(f.hops, 1, f.root, f.cap, 100, &f.sign, NULL, 0, NULL),
+	REFUSED(fzn_chain_verify(f.hops, 1, f.root, f.cap, 100, &f.sign, NULL, NULL),
 	        "a null out");
 
 	/* A view that was never opened, which is the guard that replaced the
@@ -1668,7 +1687,7 @@ static void test_every_guard_refuses_its_own_argument(void)
 		fzn_chain_hop_t unopened;
 
 		unopened.base = NULL;
-		REFUSED(fzn_chain_verify(&unopened, 1, f.root, f.cap, 100, &f.sign, NULL, 0,
+		REFUSED(fzn_chain_verify(&unopened, 1, f.root, f.cap, 100, &f.sign, NULL,
 		                         &f.out),
 		        "a hop that was never opened");
 	}
@@ -1701,19 +1720,19 @@ static void test_every_guard_refuses_its_own_argument(void)
 
 	/* fzn_chain_delegate */
 	REFUSED(fzn_chain_delegate(NULL, 1, f.root, f.cap, 100, grantee, 200, 0, &f.sign, NULL,
-	                           0, bytes),
+	                           bytes),
 	        "delegating from a null chain");
 	REFUSED(fzn_chain_delegate(f.hops, 1, f.root, f.cap, 100, NULL, 200, 0, &f.sign, NULL,
-	                           0, bytes),
+	                           bytes),
 	        "delegating to a null grantee");
 	REFUSED(fzn_chain_delegate(f.hops, 1, f.root, f.cap, 100, grantee, 200, 0, NULL, NULL,
-	                           0, bytes),
+	                           bytes),
 	        "delegating with a null signer");
 	REFUSED(fzn_chain_delegate(f.hops, 1, f.root, f.cap, 100, grantee, 200, 0, &no_verify,
-	                           NULL, 0, bytes),
+	                           NULL, bytes),
 	        "delegating with a signer that cannot verify");
 	REFUSED(fzn_chain_delegate(f.hops, 1, f.root, f.cap, 100, grantee, 200, 0, &f.sign,
-	                           NULL, 0, NULL),
+	                           NULL, NULL),
 	        "delegating into a null buffer");
 
 #undef REFUSED

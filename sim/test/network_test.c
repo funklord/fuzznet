@@ -616,8 +616,7 @@ static void sim_receive(struct sim_net *net, struct sim_datagram *d)
 	}
 	authorised = fzn_chain_verify(sender->chain, sender->chain_len, anchor,
 	                              net->capability, net->now,
-	                              &net->sign, h->revocations.entries,
-	                              h->revocations.used, &proven);
+	                              &net->sign, &h->revocations, &proven);
 	if (authorised != FZN_CHAIN_OK) {
 		h->refused_auth++;
 		return;
@@ -1153,7 +1152,7 @@ static void scenario_delegation(void)
 	 * no longer a step a harness has to remember -- the bytes ARE the hop,
 	 * and minting into `to->hop_bytes[1]` is the whole of it. */
 	err = fzn_chain_delegate(from->chain, from->chain_len, net.root, net.capability, net.now,
-	                         to->pubkey, FZN_NO_EXPIRY, 0, &net.sign, NULL, 0,
+	                         to->pubkey, FZN_NO_EXPIRY, 0, &net.sign, NULL,
 	                         to->hop_bytes[1]);
 	check(err == FZN_CHAIN_OK, "the delegation was refused");
 
@@ -1909,8 +1908,7 @@ static void scenario_join(void)
 		 * would be testing a broken chain rather than a foreign one. */
 		check(fzn_chain_verify(attacker->chain, attacker->chain_len, rogue_root,
 		                       net.capability, net.now, &net.sign,
-		                       joiner->revocations.entries, joiner->revocations.used,
-		                       &proven) == FZN_CHAIN_OK,
+		                       &joiner->revocations, &proven) == FZN_CHAIN_OK,
 		      "the attacker's chain should be valid under its own root");
 
 		refused_before = joiner->refused_auth;

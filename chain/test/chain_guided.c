@@ -229,6 +229,10 @@ static int drive(const uint8_t *data, size_t size, int *accepted)
 	static uint8_t hop_bytes[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
 	fzn_chain_hop_t hops[FZN_CHAIN_MAX_HOPS];
 	fzn_revocation_t revs[MAX_REVOCATIONS];
+	/* The store over that array, since `fzn_chain_verify` takes one now.
+	 * `capacity` is the array's real length; only `used` follows the
+	 * corpus. */
+	fzn_revocation_store_t rev_store = { revs, MAX_REVOCATIONS, 0 };
 	uint8_t root[FZN_PUBKEY_LEN], capability[FZN_CAP_ID_LEN];
 	struct cursor c = { data, size, 0 };
 	struct stub stub = { 0 };
@@ -347,7 +351,8 @@ static int drive(const uint8_t *data, size_t size, int *accepted)
 	sign.ctx = &stub;
 	memset(&out, 0, sizeof(out));
 
-	if (fzn_chain_verify(hops, hop_count, root, capability, now, &sign, revs, rev_count,
+	rev_store.used = rev_count;
+	if (fzn_chain_verify(hops, hop_count, root, capability, now, &sign, &rev_store,
 	                     &out) != FZN_CHAIN_OK)
 		return 0;
 

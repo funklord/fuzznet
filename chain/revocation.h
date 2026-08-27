@@ -41,8 +41,8 @@
  *
  * VERIFIED ONCE, ON ADMISSION. The store keeps only what has already been
  * checked, so the query on the hot path is a comparison rather than a
- * signature check, and what it keeps is exactly the array
- * fzn_chain_verify already takes.
+ * signature check, and the store itself is what `fzn_chain_verify` is
+ * handed.
  */
 
 #ifndef FZN_REVOCATION_H
@@ -193,16 +193,28 @@ static inline void fzn_revocation_signed_bytes(fzn_revocation_record_t rec, cons
 
 /* A bounded set of verified revocations, over caller-owned storage.
  *
- * `entries` is exactly what fzn_chain_verify takes, so a caller passes
- * `store.entries, store.used` straight into it. That is the reason the
- * signature is checked at admission and not at query: a chain verification
- * walks the whole list, and re-checking a signature per hop per revocation
- * would make revocation cost grow with the square of nothing useful. */
-typedef struct fzn_revocation_store {
+ * The signature is checked at admission and not at query, which is what
+ * makes this a set of decided facts rather than of evidence: a chain
+ * verification walks the whole set per hop, and re-checking a signature per
+ * hop per revocation would make revocation cost grow with the square of
+ * nothing useful.
+ *
+ * A CALLER PASSES THE STORE, AND THIS COMMENT USED TO SAY OTHERWISE. It said
+ * "`entries` is exactly what fzn_chain_verify takes, so a caller passes
+ * `store.entries, store.used` straight into it", and that pattern is what
+ * every consumer and every suite in the tree followed. `used` is a count of
+ * live entries and `capacity` is the length of the array; splitting them at
+ * the call boundary handed the verifier the count and kept the bound behind,
+ * and it read one entry past the array for any store where the two had
+ * diverged -- a heap overflow on the authorization path, reproduced under
+ * AddressSanitizer. chain.h carries the report. `fzn_chain_verify` takes a
+ * `const fzn_revocation_store_t *` now, and the three fields travel
+ * together because they only mean anything together. */
+struct fzn_revocation_store {
 	fzn_revocation_t *entries;
 	size_t capacity;
 	size_t used;
-} fzn_revocation_store_t;
+};
 
 fzn_chain_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_revocation_t *entries,
                                      size_t capacity);

@@ -3,32 +3,14 @@
 
 #include "chain.h"
 
-#include <string.h>
+/* FOR THE STORE'S DEFINITION AND FOR `fzn_revocation_covers`, which is the
+ * one implementation of "is this revoked?" this file used to keep a second
+ * copy of. chain.h declares the store as an incomplete type, so a consumer
+ * with no revocations still needs nothing from here; this file is the
+ * library, and the library may know both halves. */
+#include "revocation.h"
 
-/* Whether `hop` grants something `issuer` has withdrawn.
- *
- * Matched on the triple rather than on the key alone. A revocation names a
- * capability AND a grantee because the two consumers' capabilities are
- * independent rather than a ladder (sec 4.2): withdrawing netcfgd's `wifi`
- * from a host must not withdraw its `observe`, and a match on key alone
- * would do exactly that.
- *
- * It names an ISSUER because an entry is a statement by somebody, and the
- * store this list comes from may hold entries from more than one. Without
- * that term, a revocation admitted under one root answered for every root a
- * host had anchored -- see chain.h at `fzn_revocation_t`. */
-static int hop_is_revoked(fzn_chain_hop_t hop, const uint8_t issuer[FZN_PUBKEY_LEN],
-                          const fzn_revocation_t *revocations, size_t revocation_count)
-{
-	for (size_t i = 0; i < revocation_count; i++) {
-		if (fzn_ct_memeq(revocations[i].issuer, issuer, FZN_PUBKEY_LEN) &&
-		    fzn_ct_memeq(revocations[i].capability, fzn_hop_capability(hop),
-		                 FZN_CAP_ID_LEN) &&
-		    fzn_ct_memeq(revocations[i].grantee, fzn_hop_grantee(hop), FZN_PUBKEY_LEN))
-			return 1;
-	}
-	return 0;
-}
+#include <string.h>
 
 fzn_chain_err_t fzn_hop_open(const uint8_t *bytes, size_t len, fzn_chain_hop_t *out)
 {
@@ -158,15 +140,21 @@ fzn_chain_err_t fzn_chain_pack(const fzn_chain_hop_t *hops, size_t hop_count, ui
 fzn_chain_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
                             const uint8_t root[FZN_PUBKEY_LEN],
                             const uint8_t capability[FZN_CAP_ID_LEN], uint64_t now,
-                            const fzn_sign_ops_t *sign, const fzn_revocation_t *revocations,
-                            size_t revocation_count, fzn_chain_t *out)
+                            const fzn_sign_ops_t *sign,
+                            const fzn_revocation_store_t *revocations, fzn_chain_t *out)
 {
 	uint64_t soonest = FZN_NO_EXPIRY;
 
 	if (!hops || !root || !capability || !sign || !sign->verify || !out)
 		return FZN_CHAIN_ERR_MALFORMED;
-	if (revocation_count > 0 && !revocations)
-		return FZN_CHAIN_ERR_MALFORMED;
+
+	/* NO CHECK ON THE STORE HERE, and its absence is the fix rather than an
+	 * omission. This used to refuse `revocation_count > 0 && !revocations`,
+	 * which is the only sanity a caller-split array-and-count admits of --
+	 * and it could not check the one thing that mattered, because the bound
+	 * stayed behind with the store. A store is judged by the function that
+	 * owns it, once, below: NULL means no revocations are known, and a store
+	 * whose count describes memory it does not have is refused there. */
 
 	/* Bounded before a single hop is touched, so a hop_count off the wire
 	 * cannot spend a verification it was never entitled to ask for. */
@@ -248,6 +236,18 @@ fzn_chain_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
 		 * defeated by the victim having delegated onward first -- which
 		 * is precisely what a stolen device would do.
 		 *
+		 * Asked on the TRIPLE rather than on the key alone. The two
+		 * consumers' capabilities are independent rather than a ladder
+		 * (sec 4.2): withdrawing netcfgd's `wifi` from a host must not
+		 * withdraw its `observe`, and a match on key alone would do
+		 * exactly that.
+		 *
+		 * It asks about an ISSUER because an entry is a statement by
+		 * somebody, and the store this comes from may hold entries from
+		 * more than one. Without that term, a revocation admitted under one
+		 * root answered for every root a host had anchored -- see chain.h
+		 * at `fzn_revocation_t`.
+		 *
 		 * THE ISSUER PASSED IS THE PINNED ROOT, BECAUSE ROOT-ONLY
 		 * REVOCATION IS WHAT IS IMPLEMENTED TODAY. `fzn_revocation_admit`
 		 * refuses any record whose issuer is not the root it was handed,
@@ -258,7 +258,8 @@ fzn_chain_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
 		 * this is the line that changes when it arrives: a hop would
 		 * then be revoked by the root OR by any grantor above it in the
 		 * chain, which is a walk rather than one comparison. */
-		if (hop_is_revoked(hop, root, revocations, revocation_count))
+		if (fzn_revocation_covers(revocations, root, fzn_hop_capability(hop),
+		                          fzn_hop_grantee(hop)))
 			return FZN_CHAIN_ERR_REVOKED;
 	}
 
@@ -359,8 +360,7 @@ fzn_chain_err_t fzn_chain_delegate(const fzn_chain_hop_t *hops, size_t hop_count
                               const uint8_t capability[FZN_CAP_ID_LEN], uint64_t now,
                               const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t expires_at,
                               int delegable, const fzn_sign_ops_t *sign,
-                              const fzn_revocation_t *revocations, size_t revocation_count,
-                              uint8_t *out)
+                              const fzn_revocation_store_t *revocations, uint8_t *out)
 {
 	fzn_chain_t existing;
 	fzn_chain_err_t err;
@@ -377,7 +377,7 @@ fzn_chain_err_t fzn_chain_delegate(const fzn_chain_hop_t *hops, size_t hop_count
 	 * revoked, or stopped checking out -- the new hop would look freshly
 	 * minted while resting on something dead. */
 	err = fzn_chain_verify(hops, hop_count, root, capability, now, sign, revocations,
-	                       revocation_count, &existing);
+	                       &existing);
 	if (err != FZN_CHAIN_OK)
 		return err;
 

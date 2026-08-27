@@ -289,6 +289,7 @@ $(BUILD_DIR)/monocypher.o: $(MONOCYPHER_DIR)/src/monocypher.c
 $(MONO_BIN): $(BUILD_DIR)/chain/test/sign_monocypher_test.o \
              $(BUILD_DIR)/chain/sign_monocypher.o $(BUILD_DIR)/monocypher.o \
              $(BUILD_DIR)/chain/chain.o \
+             $(BUILD_DIR)/chain/revocation.o \
              $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -379,8 +380,15 @@ $(BUILD_DIR)/wire/generated/%.o: wire/generated/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated -MMD -MP -c $< -o $@
 
+# revocation.o IS NOT OPTIONAL HERE, and it became so on 2026-08-27.
+# `fzn_chain_verify` asks `fzn_revocation_covers` rather than keeping a second
+# copy of the same predicate -- which is what let the two disagree about a
+# corrupt store, and cost a heap overflow on the authorization path. One
+# predicate means one definition, and chain.o now carries an undefined
+# reference to it.
 $(BUILD_DIR)/chain/test/chain_test: $(BUILD_DIR)/chain/test/chain_test.o \
                                      $(BUILD_DIR)/chain/chain.o \
+                                     $(BUILD_DIR)/chain/revocation.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -564,6 +572,7 @@ $(BUILD_DIR)/chunk/test/reassembly_fuzz: $(BUILD_DIR)/chunk/test/reassembly_fuzz
 
 $(BUILD_DIR)/chain/test/chain_fuzz: $(BUILD_DIR)/chain/test/chain_fuzz.o \
                                      $(BUILD_DIR)/chain/chain.o \
+                                     $(BUILD_DIR)/chain/revocation.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -696,6 +705,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/sched/sched.o \
                                       $(BUILD_DIR)/link/link.o \
                                       $(BUILD_DIR)/chain/chain.o \
+                                      $(BUILD_DIR)/chain/revocation.o \
                                       $(BUILD_DIR)/chunk/reassembly.o \
                                       $(BUILD_DIR)/chunk/split.o \
                                       $(BUILD_DIR)/frame/freshness.o \
