@@ -8699,7 +8699,23 @@ nothing currently records that they compete.
 ### What this changes about decisions in front of the holder now
 
 - **The signed-object namespace** (`wire/bytes.h`) is a one-byte enum
-  with four values that cannot be extended after deployment. FEC does
+  with four values. **THAT WAS RECORDED AS "cannot be extended after
+  deployment" AND IT IS WRONG** -- corrected 2026-08-28 after the claim
+  reached a consumer and they prioritised on it. `wire/bytes.h` says
+  "neither BYTE can be added later without invalidating every signature
+  already issued", which is about the version and object bytes existing
+  in the format at all, and that is already done. Adding a new
+  ENUMERATOR invalidates nothing: an existing object's signed bytes do
+  not change, and each decoder refuses a tag that is not its own, which
+  is the correct treatment of an unknown type. The space is 255 values,
+  not 4.
+
+  **The real constraint is coordination, not capacity**, and it is
+  still real: a tag deployed before peers know it is refused by every
+  peer that does not, so allocation has to be agreed before either side
+  ships. A consumer with twelve signed object types fits with room to
+  spare -- what it needs is stable numbers agreed once, not more room.
+  FEC does
   not obviously need a new signed object, but streaming might, and this
   is the cheapest thing on the list to get right now.
 - **The forward-secrecy decision now has a competitor for the same
