@@ -208,6 +208,72 @@ int main(void)
 		       "a steady 500 ms link must estimate 500 ms, not a little under");
 	}
 
+	/* A CORRUPT TABLE MUST BE REFUSED AT EVERY ENTRY POINT, and none of
+	 * them was tested.
+	 *
+	 * `usable_table` guards six functions on `table->used <= capacity`.
+	 * Measured: deleting the guard in `fzn_link_register` left this file
+	 * green, and an ASan probe on a two-entry heap table with `used = 3`
+	 * then reported `heap-buffer-overflow READ of size 4 ... in find
+	 * link/link.c:17`. `find` walks `used` entries, so a table claiming
+	 * more than it has reads past the array.
+	 *
+	 * `chain/revocation.c` refuses the same shape for its store and
+	 * `revocation_test` covers it; this module had the guard and not the
+	 * assertion. The state is reachable the same way it is there -- a
+	 * caller-owned struct whose `used` was written by something other
+	 * than this library, which is every consumer restoring one from
+	 * disk.
+	 *
+	 * Every entry point is asserted rather than one, because six
+	 * functions sharing a guard is six places a later edit can drop it,
+	 * and covering one reads exactly like covering the rule.
+	 *
+	 * BUT ONLY THREE OF THE SIX FAIL BY NAME, and the difference is
+	 * worth knowing before somebody trusts this block further than it
+	 * goes. Removing the guard was tried at each site:
+	 *
+	 *   register, observe_loss, set_usable -- a named assertion here.
+	 *   observe_ack, get, snapshot         -- the binary SEGFAULTS.
+	 *
+	 * For those three the guard is what makes the following code
+	 * defined at all, so removing it is undefined behaviour rather than
+	 * a wrong answer, and no assertion can be more precise than the
+	 * crash. That still fails the suite, which is what stops a
+	 * regression; it just names its reason to nobody. `wire/seal.c`'s
+	 * sealed gate and `chunk/reassembly.c`'s table-full refusal are the
+	 * same shape and were found the same way. Recorded rather than
+	 * papered over, because "six entry points asserted" would otherwise
+	 * read as six clean discriminating checks and it is three. */
+	{
+		fzn_link_table_t bad;
+		fzn_link_entry_t slots[2];
+		fzn_sched_candidate_t out[2];
+
+		expect_err(fzn_link_table_init(&bad, slots, 2), FZN_LINK_OK, "a table to corrupt");
+		expect_err(fzn_link_register(&bad, 1, 10, 5, 0, 1500), FZN_LINK_OK,
+		           "one genuine link first, so the corruption is the only change");
+
+		bad.used = bad.capacity + 1u;
+
+		expect_err(fzn_link_register(&bad, 2, 10, 5, 0, 1500), FZN_LINK_ERR_MALFORMED,
+		           "register accepted a table claiming more entries than it has");
+		expect_err(fzn_link_observe_ack(&bad, 1, 5, 0), FZN_LINK_ERR_MALFORMED,
+		           "observe_ack accepted a corrupt table");
+		expect_err(fzn_link_observe_loss(&bad, 1, 0), FZN_LINK_ERR_MALFORMED,
+		           "observe_loss accepted a corrupt table");
+		expect_err(fzn_link_set_usable(&bad, 1, 0), FZN_LINK_ERR_MALFORMED,
+		           "set_usable accepted a corrupt table");
+		expect(fzn_link_get(&bad, 1) == NULL, "get answered from a corrupt table");
+		expect(fzn_link_snapshot(&bad, out, 2, 0) == 0,
+		       "snapshot read from a corrupt table");
+
+		bad.used = 1u;
+		expect(fzn_link_get(&bad, 1) != NULL,
+		       "the table stopped working once repaired, so the checks above "
+		       "may be refusing for some other reason");
+	}
+
 	printf("link_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
 }
