@@ -4,6 +4,26 @@
 
 #include <string.h>
 
+/* `seen` is sized FZN_REASM_MAX_CHUNKS / 8, and that division truncates.
+ *
+ * WHAT IT GUARDS IS AN OUT-OF-BOUNDS WRITE, which is the worse half of this
+ * pair -- `seen_set` below indexes `seen[index >> 3]` for any index the
+ * caller has already bounded against `chunks`, so a FZN_REASM_MAX_CHUNKS
+ * that is not a multiple of eight leaves the top indices addressing a byte
+ * the array does not have. At 20 the array is two bytes and index 19 wants
+ * the third. It is 256 today and the question never arises; the point is
+ * that changing it to something reasonable-looking and odd is a one-token
+ * edit whose consequence is a heap write past the end of a caller's table.
+ *
+ * IT WAS ASSERTED ONLY IN wire/test/constants_test.c, WHICH A LIBRARY BUILD
+ * NEVER COMPILES -- the same finding as wire/seal.c's nonce pairing, found
+ * by the same sweep and for the same reason. The test copy stays; this one
+ * is what a consumer gets. */
+_Static_assert(FZN_REASM_MAX_CHUNKS % 8u == 0u,
+               "FZN_REASM_MAX_CHUNKS must be a multiple of 8 or `seen` is short");
+_Static_assert(sizeof(((fzn_partial_t *)0)->seen) * 8u >= FZN_REASM_MAX_CHUNKS,
+               "the chunk bitmap is too small for the chunk bound");
+
 static int seen_get(const fzn_partial_t *slot, uint16_t index)
 {
 	return (slot->seen[index >> 3] >> (index & 7u)) & 1u;

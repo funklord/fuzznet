@@ -34,6 +34,17 @@
 _Static_assert(SITU_FZN_HEAD_NONCE_COUNT == FZN_AEAD_NONCE_LEN,
                "the head's nonce field has drifted from the AEAD's nonce");
 
+/* The nonce is not the only field this file reads through two names. Every
+ * pairing below has at least one memcpy or index in non-test library code
+ * that would go out of bounds if the two sides diverged, and every one of
+ * them was asserted only in the test file. Same finding, same fix, listed
+ * together because they are one seam: what fuzznet's headers call a field
+ * and what the generated schema calls it. */
+_Static_assert(SITU_FZN_HEAD_COMMITMENT_COUNT == FZN_COMMITMENT_LEN,
+               "the head's commitment field has drifted from FZN_COMMITMENT_LEN");
+_Static_assert(SITU_FZN_FRAME_TAG_COUNT == FZN_AEAD_TAG_LEN,
+               "the frame's tag field has drifted from the AEAD's tag");
+
 /* The head's own view, and the frame's, established once. Returns non-zero
  * only when the frame is the shape the schema describes. */
 static int views(uint8_t *frame, size_t frame_len, situ_msg_t *msg, situ_view_t *fv,
