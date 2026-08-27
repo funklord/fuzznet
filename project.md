@@ -7646,6 +7646,29 @@ host look MORE complete than it is -- a second silent fail-open on top
 of the one the exercise exists to close, and the design would then make
 storage strictly worse than it found it.
 
+**AND THE FLAG'S CLEARING RULE AS WRITTEN HERE WAS INCOMPLETE.** This
+entry said the flag "clears only on a re-admission that appends every
+pair it could not record before", which sounds sufficient and is not:
+**a REPLAYED OLDER MANIFEST satisfies it.** An earlier manifest names a
+subset, every pair of that subset is already held or already listed,
+nothing is dropped -- and the flag clears while the pairs that
+overflowed are still missing. The host then reports a sound deficit
+that is not sound, and **a carrier needs no key to arrange it**, only a
+copy of something the issuer signed earlier.
+
+Found by building it, not by reading it. The fix is a per-issuer
+high-water mark on the count seen: an honest issuer's count never
+shrinks, because revocations only accumulate, so a smaller manifest is
+exactly the rollback case and can clear nothing. One word per followed
+issuer. `chain/test/manifest_test.c` proves it by removing the guard
+and watching the replay case fail by name.
+
+That is the second time a design recorded here has been corrected by
+the attempt to implement it -- the id was the first -- and both were
+fail-open. **A design pass and a build pass are different instruments**,
+and the second one reads the first's prose the way an attacker reads a
+protocol.
+
 ### What it makes worse, stated rather than buried
 
 - **Manifest omission becomes a denial of service.** Withholding a
