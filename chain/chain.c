@@ -242,22 +242,48 @@ fzn_chain_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
 		 * withdraw its `observe`, and a match on key alone would do
 		 * exactly that.
 		 *
-		 * It asks about an ISSUER because an entry is a statement by
-		 * somebody, and the store this comes from may hold entries from
-		 * more than one. Without that term, a revocation admitted under one
-		 * root answered for every root a host had anchored -- see chain.h
-		 * at `fzn_revocation_t`.
+		 * THE ISSUER ASKED ABOUT IS THE PINNED ROOT, BECAUSE ROOT-ONLY
+		 * REVOCATION IS WHAT IS IMPLEMENTED TODAY -- and that is the
+		 * whole of the reason. This comment used to give a second one
+		 * and it was FALSE: it said `fzn_revocation_admit` "refuses any
+		 * record whose issuer is not the root it was handed, so an entry
+		 * issued by anybody else cannot reach a store, and asking about
+		 * the root is asking about every entry there can be". A store is
+		 * not bound to a root. `root` is a per-call argument to
+		 * `admit`, so two roots' revocations go into one store as
+		 * readily as one root's -- admit(rec_A, root_A) and
+		 * admit(rec_B, root_B) both return OK, `used` reaches 2, and
+		 * `covers` answers 1 under either issuer. The same commit that
+		 * wrote the false sentence wrote the true one: chain.h at
+		 * `fzn_revocation_t` says "a store will hold entries from MANY
+		 * issuers", which is why an entry keeps its issuer at all. The
+		 * two contradicted each other from the day they landed, and
+		 * this file carried both.
 		 *
-		 * THE ISSUER PASSED IS THE PINNED ROOT, BECAUSE ROOT-ONLY
-		 * REVOCATION IS WHAT IS IMPLEMENTED TODAY. `fzn_revocation_admit`
-		 * refuses any record whose issuer is not the root it was handed,
-		 * so an entry issued by anybody else cannot reach a store, and
-		 * asking about the root is asking about every entry there can
-		 * be. Grantor-revokes-descendant is PLANNED and is not built --
-		 * project.md sec 13b, answered by the holder 2026-08-27 -- and
-		 * this is the line that changes when it arrives: a hop would
-		 * then be revoked by the root OR by any grantor above it in the
-		 * chain, which is a walk rather than one comparison. */
+		 * So the line is right and its old justification was an
+		 * invariant nothing enforces. What is true is narrower and
+		 * weaker: the root is the only issuer whose entries this
+		 * library will HONOUR, because nothing else is implemented yet.
+		 * A store may hold an entry from any issuer a caller has fed it,
+		 * and every such entry is ignored here.
+		 *
+		 * THAT MATTERS BECAUSE OF WHAT THE FALSE VERSION INVITED. Read
+		 * as written, it says the issuer term is redundant -- that a
+		 * store can only ever contain root entries, so comparing against
+		 * the root cannot exclude anything. A later reader trusting it
+		 * would drop the term as dead weight, and a store holding two
+		 * roots' entries would then answer for both realms: exactly the
+		 * defect the 2026-08-27 issuer fix was made to close, reopened
+		 * on the authority of a comment.
+		 *
+		 * Grantor-revokes-descendant is PLANNED and is not built --
+		 * project.md sec 13b and 13c, answered by the holder
+		 * 2026-08-27 -- and this is the line that changes when it
+		 * arrives: a hop would then be revoked by the root OR by any
+		 * grantor above it in the chain, which is a walk over this
+		 * function's own hops rather than one comparison. The set of
+		 * entitled issuers widens; the fact that this function decides
+		 * it, rather than the store, does not. */
 		if (fzn_revocation_covers(revocations, root, fzn_hop_capability(hop),
 		                          fzn_hop_grantee(hop)))
 			return FZN_CHAIN_ERR_REVOKED;
