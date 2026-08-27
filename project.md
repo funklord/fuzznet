@@ -6939,7 +6939,7 @@ is most of it, deliberately.
 
 ### The defect
 
-A revocation stops a chain only at a host that HAS it. `hop_is_revoked`
+A revocation stops a chain only at a host that HAS it. `fzn_revocation_covers` (as called from `fzn_chain_verify`)
 consults a local array and nothing else, and `fzn_chain_verify` accepts
 `revocations == NULL, revocation_count == 0` as readily as a full store.
 So a host that joins fresh, has been offline, or is partitioned verifies
@@ -6951,7 +6951,7 @@ was no notion of one that exists and was never handed over.
 Restated at the API, which is the sharpest form and is the stream
 design's contribution: **`fzn_revocation_covers` returns `int`.** A
 boolean has no room for a third answer, so `chain.c`'s
-`if (hop_is_revoked(...))` is a two-way branch over a three-way
+`if (fzn_revocation_covers(...))` is a two-way branch over a three-way
 question, and the missing case falls into "not revoked". Every other
 fail-open in this file is documented; this one was structural.
 
@@ -7189,7 +7189,7 @@ serving as one for free, because a set of one entitled issuer is also a
 very good quota. **Admission is a resource decision, not an
 authorisation decision, and it must be allowed to be coarse.** It cannot
 grant anything: the worst a wrongly-admitted entry does is occupy
-storage, because `hop_is_revoked` decides what is honoured. Admit must
+storage, because `fzn_revocation_covers` (as called from `fzn_chain_verify`) decides what is honoured. Admit must
 not try to be verify -- which is the trap `revocation.c` already names
 in the other direction, where a conservative answer to one question is a
 wrong answer to another.
@@ -7372,7 +7372,7 @@ of the manifest; from here it reads as a burden.
 
   **The cascade half is NOT this gap, and was re-tested rather than
   assumed.** An audit reported that revoking a granter leaves its grants
-  standing. It does not: `chain/chain.c` runs `hop_is_revoked` over
+  standing. It does not: `chain/chain.c` runs the revocation check over
   EVERY hop rather than the last, so revoking a host in the middle kills
   what it went on to delegate -- which is what a stolen device would do
   first. Narrowing that walk to `i + 1 == hop_count` was tried and
@@ -7381,6 +7381,39 @@ of the manifest; from here it reads as a burden.
   declares at `state.h:159` that authorisation is deliberately not its
   business. Recorded because a refuted finding that leaves no trace gets
   found again.
+
+- **`fzn_chain_verify` takes the STORE now, and `hop_is_revoked` is
+  gone.** Fixed 2026-08-27. It took `(entries, count)`, so it looped a
+  caller's count with no capacity to check it against -- while
+  `fzn_revocation_covers` deliberately refuses to scan a store whose
+  `used` exceeds its `capacity` and denies. Two parallel implementations
+  of one predicate, differing in exactly the case that matters: ASan
+  reported a heap-buffer-overflow READ on the authorization path with
+  `used = capacity + 1`, which every documented calling pattern
+  (`store.entries, store.used`) could produce. There is one
+  implementation now and the refusal is inherited rather than
+  duplicated. Verified independently of the implementing agent with a
+  probe that mints a REAL hop -- the first version passed a zero hop,
+  which `fzn_hop_open` refuses, so verification returned MALFORMED
+  before ever reaching the revocation walk and the probe proved nothing.
+
+- **Two gaps this sweep did NOT close, both named rather than left.**
+  `sim/test/network_test.c`'s `sim_identity` is still the
+  `memset(out, id, 32)` idiom, feeding the integration harness's root
+  and every host key -- so the end-to-end suite remains unable to catch
+  a truncated comparison in whatever it exercises. And
+  `FZN_CAP_ID_LEN == FZN_PUBKEY_LEN == 32`, so a SWAPPED length constant
+  is undetectable by any fixture; closing that needs the constants to
+  differ or a compile-time distinction between the two types, and no
+  test can do it.
+
+- **`make installcheck` fails when Monocypher is built**, and it
+  predates all of today's work -- confirmed absent at `89ddb5f` too.
+  `session/aead_monocypher.h` is in `HDRS` but is not included by
+  `tool/consumer_check.c`, so installcheck's own header-coverage rule
+  refuses. The default build never produces that configuration, which is
+  why nobody sees it. Same defect class as the one fixed today, one
+  header over: a gate that only runs in the arrangement nobody uses.
 
 - **A revocation store was single-root by assumption, and is not any
   more. FIXED 2026-08-27**; the finding is kept because the fix that was
@@ -7428,7 +7461,7 @@ of the manifest; from here it reads as a burden.
   that module already follows -- and `fzn_revocation_covers` takes an
   issuer and matches on all three of issuer, capability and grantee.
 
-  `chain.c`'s `hop_is_revoked` passes the pinned root as the issuer,
+  `chain.c`'s `fzn_revocation_covers` (as called from `fzn_chain_verify`) passes the pinned root as the issuer,
   because root-only revocation is what is implemented today: `admit`
   refuses any other issuer, so asking about the root asks about every
   entry a store can hold. **That call site is the line that changes when
@@ -7438,12 +7471,12 @@ of the manifest; from here it reads as a burden.
   The API break is real and is taken rather than deferred: `covers` grew
   a parameter, and every caller in the tree was updated. Two tests carry
   the defect so it cannot come back -- one in `chain/test/chain_test.c`
-  over `hop_is_revoked`'s third axis, and one in
+  over `fzn_revocation_covers` (as called from `fzn_chain_verify`)'s third axis, and one in
   `chain/test/revocation_test.c` from a genuinely signed record, where
   root B's revocation must answer `revoked` under B and `not revoked`
   under A. Both were proved by mutation: deleting the issuer term from
   `fzn_revocation_covers` fails the second, and deleting it from
-  `hop_is_revoked` fails the first.
+  `fzn_revocation_covers` (as called from `fzn_chain_verify`) fails the first.
 
   **THE TERM WAS PROVED PRESENT AND NOT PROVED WHOLE**, and an
   adversarial review found the difference. Deleting a comparison is one
@@ -7452,7 +7485,7 @@ of the manifest; from here it reads as a burden.
   `memset(buf, seed, 32)` -- thirty-two copies of one byte -- so a value
   answered any prefix exactly as it answered the whole, and
   `fzn_ct_memeq(a, b, 1)` and `fzn_ct_memeq(a, b, 32)` were the same
-  function over every fixture. Measured: cutting `hop_is_revoked`'s
+  function over every fixture. Measured: cutting the revocation check's
   issuer comparison to one byte left `make test` at exit 0, and so did
   cutting all three of `same()`'s in `chain/revocation.c`, 200000 fuzz
   cases included. `FZN_CAP_ID_LEN == FZN_PUBKEY_LEN == 32`, so a swapped
