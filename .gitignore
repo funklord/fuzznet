@@ -20,6 +20,7 @@
 /wire/test/constants_test
 /chunk/test/agreement_test
 /chain/test/revocation_test
+/chain/test/manifest_test
 /chain/test/sign_monocypher_test
 /session/test/hash_monocypher_test
 /frame/test/freshness_test

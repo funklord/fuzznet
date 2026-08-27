@@ -426,7 +426,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		else
 			want = FZN_CHAIN_OK;
 
-		err = fzn_revocation_admit(&store, record, roots[which], &sign);
+		err = fzn_revocation_admit(&store, record, roots[which], &sign, NULL);
 
 		if (err != want) {
 			printf("  MODEL: admit returned %d, rules say %d\n", (int)err, (int)want);

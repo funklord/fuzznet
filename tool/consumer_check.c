@@ -27,6 +27,7 @@
 
 #ifdef FZN_CONSUMER_INSTALLED
 #include <fuzznet/chain/chain.h>
+#include <fuzznet/chain/manifest.h>
 #include <fuzznet/chain/revocation.h>
 #include <fuzznet/chunk/reassembly.h>
 #include <fuzznet/chunk/split.h>
@@ -51,6 +52,7 @@
 #include <fuzznet/wire/seal.h>
 #else
 #include "chain/chain.h"
+#include "chain/manifest.h"
 #include "chain/revocation.h"
 #include "chunk/reassembly.h"
 #include "chunk/split.h"
@@ -456,7 +458,7 @@ int main(void)
 		                          fzn_revocation_capability(rec),
 		                          fzn_revocation_grantee(rec)) != 0)
 			return 102;
-		if (fzn_revocation_admit(&store, rec, root, &sign) != FZN_CHAIN_OK)
+		if (fzn_revocation_admit(&store, rec, root, &sign, NULL) != FZN_CHAIN_OK)
 			return 103;
 		if (store.used != 1)
 			return 104;
@@ -478,6 +480,74 @@ int main(void)
 		if (fzn_chain_verify(&hop, 1, root, cap, 2000, &sign, NULL, &chain) !=
 		    FZN_CHAIN_OK)
 			return 107;
+	}
+
+	/* THE MANIFEST, END TO END, for the reason the block above states: a
+	 * header named in HDRS and called by nothing passes this gate as
+	 * loudly as one a consumer really exercises. So the whole sequence
+	 * runs -- follow, issue from the issuer's own store, open, admit
+	 * against a host that holds nothing, read the deficit back, then admit
+	 * the revocation and watch the deficit drain. */
+	{
+		static uint8_t man_bytes[FZN_MANIFEST_LEN(4)];
+		fzn_manifest_state_t manifest;
+		fzn_manifest_issuer_t followed[2];
+		fzn_manifest_deficit_t missing[4];
+		fzn_manifest_pair_t want[4];
+		fzn_manifest_record_t man;
+		fzn_revocation_store_t fresh;
+		fzn_revocation_t fresh_storage[4];
+		fzn_revocation_record_t rec;
+		uint8_t rev_bytes[FZN_REVOCATION_LEN];
+		uint8_t grantee[FZN_PUBKEY_LEN];
+		size_t man_len = 0, dropped = 1;
+
+		memset(grantee, 0x09, sizeof(grantee));
+		if (fzn_manifest_init(&manifest, followed, 2, missing, 4) != FZN_MANIFEST_OK)
+			return 110;
+		if (fzn_manifest_follow(&manifest, root) != FZN_MANIFEST_OK)
+			return 111;
+
+		/* `store` holds the one revocation the block above admitted,
+		 * so the manifest derived from it names exactly that pair. */
+		if (fzn_manifest_issue(root, &store, &sign, man_bytes, sizeof(man_bytes),
+		                       &man_len) != FZN_MANIFEST_OK)
+			return 112;
+		if (man_len != FZN_MANIFEST_LEN(1))
+			return 113;
+		if (fzn_manifest_open(man_bytes, man_len, &man) != FZN_MANIFEST_OK)
+			return 114;
+		if (fzn_manifest_count(man) != 1)
+			return 115;
+
+		/* Admitted by a host that knows of no revocations, which is
+		 * the fresh joiner: the pair it names is a deficit. */
+		if (fzn_manifest_admit(&manifest, NULL, man, &sign) != FZN_MANIFEST_OK)
+			return 116;
+		if (fzn_manifest_pending(&manifest, root) != 1)
+			return 117;
+		if (fzn_manifest_overflowed(&manifest, root) != 0)
+			return 118;
+		if (fzn_manifest_deficit(&manifest, root, want, 4, &dropped) != 1 || dropped != 0)
+			return 119;
+		if (!fzn_ct_memeq(want[0].grantee, grantee, FZN_PUBKEY_LEN))
+			return 120;
+
+		/* And the revocation arriving settles it, which is the whole
+		 * of the parameter `fzn_revocation_admit` gained. */
+		if (fzn_revocation_store_init(&fresh, fresh_storage, 4) != FZN_CHAIN_OK)
+			return 121;
+		if (fzn_revocation_issue(root, cap, grantee, 1500, &sign, rev_bytes) !=
+		    FZN_CHAIN_OK)
+			return 122;
+		if (fzn_revocation_open(rev_bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
+			return 123;
+		if (fzn_revocation_admit(&fresh, rec, root, &sign, &manifest) != FZN_CHAIN_OK)
+			return 124;
+		if (fzn_manifest_pending(&manifest, root) != 0)
+			return 125;
+		if (fzn_manifest_err_str(FZN_MANIFEST_ERR_UNKNOWN_ISSUER) == NULL)
+			return 126;
 	}
 
 	/* The two modules added after this file was written, and the reason

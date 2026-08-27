@@ -93,7 +93,7 @@ GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
-             chain/chain.c chain/revocation.c frame/freshness.c \
+             chain/chain.c chain/revocation.c chain/manifest.c frame/freshness.c \
              chunk/reassembly.c \
              chunk/split.c \
              wire/seal.c wire/relay.c \
@@ -104,7 +104,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
 OBJS      := $(SRCS:%.c=$(BUILD_DIR)/%.o) $(GEN_OBJS)
 HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h local/vocabulary.h \
-             chain/chain.h chain/revocation.h frame/freshness.h \
+             chain/chain.h chain/revocation.h chain/manifest.h frame/freshness.h \
              chunk/reassembly.h \
              chunk/split.h \
              wire/seal.h wire/relay.h wire/bytes.h session/aead.h \
@@ -114,6 +114,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              state/state.h trust/trust.h log/log.h sched/sched.h link/link.h
 
 TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
+             chain/test/manifest_test.c \
              frame/test/freshness_test.c \
              chunk/test/reassembly_test.c chunk/test/split_test.c \
              session/test/commitment_test.c local/test/peer_test.c \
@@ -149,6 +150,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
 TEST_OBJS := $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
 TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/chain/test/revocation_test \
+             $(BUILD_DIR)/chain/test/manifest_test \
              $(BUILD_DIR)/frame/test/freshness_test \
              $(BUILD_DIR)/session/test/commitment_test \
              $(BUILD_DIR)/local/test/peer_test \
@@ -292,6 +294,7 @@ $(MONO_BIN): $(BUILD_DIR)/chain/test/sign_monocypher_test.o \
              $(BUILD_DIR)/chain/sign_monocypher.o $(BUILD_DIR)/monocypher.o \
              $(BUILD_DIR)/chain/chain.o \
              $(BUILD_DIR)/chain/revocation.o \
+             $(BUILD_DIR)/chain/manifest.o \
              $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -391,6 +394,7 @@ $(BUILD_DIR)/wire/generated/%.o: wire/generated/%.c
 $(BUILD_DIR)/chain/test/chain_test: $(BUILD_DIR)/chain/test/chain_test.o \
                                      $(BUILD_DIR)/chain/chain.o \
                                      $(BUILD_DIR)/chain/revocation.o \
+                                     $(BUILD_DIR)/chain/manifest.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -495,6 +499,7 @@ $(BUILD_DIR)/sim/test/network_test: $(BUILD_DIR)/sim/test/network_test.o \
                                     $(BUILD_DIR)/record/sync.o \
                                     $(BUILD_DIR)/chain/chain.o \
                                     $(BUILD_DIR)/chain/revocation.o \
+                                    $(BUILD_DIR)/chain/manifest.o \
                                     $(BUILD_DIR)/chunk/reassembly.o \
                                     $(BUILD_DIR)/chunk/split.o \
                                     $(BUILD_DIR)/frame/freshness.o \
@@ -516,6 +521,7 @@ $(BUILD_DIR)/frame/test/freshness_guided: \
 $(BUILD_DIR)/chain/test/chain_guided: $(BUILD_DIR)/chain/test/chain_guided.o \
                                       $(BUILD_DIR)/chain/chain.o \
                                       $(BUILD_DIR)/chain/revocation.o \
+                                      $(BUILD_DIR)/chain/manifest.o \
                                       $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -558,7 +564,21 @@ $(BUILD_DIR)/chunk/test/split_test: $(BUILD_DIR)/chunk/test/split_test.o \
 
 $(BUILD_DIR)/chain/test/revocation_test: $(BUILD_DIR)/chain/test/revocation_test.o \
                                           $(BUILD_DIR)/chain/revocation.o \
+                                          $(BUILD_DIR)/chain/manifest.o \
                                           $(BUILD_DIR)/chain/chain.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# revocation.o is here for the same reason chain.o is in revocation_test's
+# rule: the suite drives the manifest through the calls a consumer makes, and
+# one of them is `fzn_revocation_admit` settling a deficit. chain.o comes with
+# it because `fzn_revocation_covers` is what the completeness test asks, and
+# that is the whole of sec 13d's reason for naming the pair.
+$(BUILD_DIR)/chain/test/manifest_test: $(BUILD_DIR)/chain/test/manifest_test.o \
+                                        $(BUILD_DIR)/chain/manifest.o \
+                                        $(BUILD_DIR)/chain/revocation.o \
+                                        $(BUILD_DIR)/chain/chain.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -575,6 +595,7 @@ $(BUILD_DIR)/chunk/test/reassembly_fuzz: $(BUILD_DIR)/chunk/test/reassembly_fuzz
 $(BUILD_DIR)/chain/test/chain_fuzz: $(BUILD_DIR)/chain/test/chain_fuzz.o \
                                      $(BUILD_DIR)/chain/chain.o \
                                      $(BUILD_DIR)/chain/revocation.o \
+                                     $(BUILD_DIR)/chain/manifest.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -585,6 +606,7 @@ $(BUILD_DIR)/frame/test/receive_fuzz: $(BUILD_DIR)/frame/test/receive_fuzz.o \
                                        $(BUILD_DIR)/frame/freshness.o \
                                        $(BUILD_DIR)/chain/chain.o \
                                        $(BUILD_DIR)/chain/revocation.o \
+                                       $(BUILD_DIR)/chain/manifest.o \
                                        $(BUILD_DIR)/chunk/reassembly.o \
                                        $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
@@ -597,6 +619,7 @@ $(BUILD_DIR)/frame/test/freshness_fuzz: $(BUILD_DIR)/frame/test/freshness_fuzz.o
 
 $(BUILD_DIR)/chain/test/revocation_fuzz: $(BUILD_DIR)/chain/test/revocation_fuzz.o \
                                           $(BUILD_DIR)/chain/revocation.o \
+                                          $(BUILD_DIR)/chain/manifest.o \
                                           $(BUILD_DIR)/chain/chain.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
@@ -720,6 +743,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/link/link.o \
                                       $(BUILD_DIR)/chain/chain.o \
                                       $(BUILD_DIR)/chain/revocation.o \
+                                      $(BUILD_DIR)/chain/manifest.o \
                                       $(BUILD_DIR)/chunk/reassembly.o \
                                       $(BUILD_DIR)/chunk/split.o \
                                       $(BUILD_DIR)/frame/freshness.o \
@@ -922,7 +946,7 @@ guided:
 	                    constant_time/constant_time.c"
 	@$(MAKE) --no-print-directory guided-one GUIDED_NAME=chain \
 	        GUIDED_SRC="chain/test/chain_guided.c chain/chain.c chain/revocation.c \
-	                    constant_time/constant_time.c"
+	                    chain/manifest.c constant_time/constant_time.c"
 	@$(MAKE) --no-print-directory guided-one GUIDED_NAME=record \
 	        GUIDED_SRC="record/test/record_guided.c record/record.c record/journal.c \
 	                    state/state.c log/log.c constant_time/constant_time.c"

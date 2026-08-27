@@ -40,6 +40,7 @@
  */
 
 #include "../../chain/chain.h"
+#include "../../chain/manifest.h"
 #include "../../chunk/reassembly.h"
 #include "../../chunk/split.h"
 #include "../../frame/freshness.h"
@@ -78,6 +79,7 @@ static void expect(int ok, const char *subject, const char *what)
  * through a common function pointer and a cast between function types with
  * different parameter types would not be one this library should rely on. */
 static const char *r_chain(int v) { return fzn_chain_err_str((fzn_chain_err_t)v); }
+static const char *r_manifest(int v) { return fzn_manifest_err_str((fzn_manifest_err_t)v); }
 static const char *r_commitment(int v) { return fzn_commitment_err_str((fzn_commitment_err_t)v); }
 static const char *r_fresh(int v) { return fzn_fresh_err_str((fzn_fresh_err_t)v); }
 static const char *r_reasm(int v) { return fzn_reasm_err_str((fzn_reasm_err_t)v); }
@@ -105,6 +107,7 @@ struct subject {
  * moving one without moving the other is the failure this table catches. */
 static const struct subject SUBJECTS[] = {
 	{ "fzn_chain_err_str", r_chain, -1, 9 },
+	{ "fzn_manifest_err_str", r_manifest, -1, 7 },
 	{ "fzn_commitment_err_str", r_commitment, -1, 4 },
 	{ "fzn_fresh_err_str", r_fresh, -1, 7 },
 	{ "fzn_reasm_err_str", r_reasm, -1, 8 },

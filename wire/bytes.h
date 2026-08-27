@@ -110,6 +110,17 @@ typedef enum fzn_signed_object {
 	FZN_OBJECT_HOP = 1u,
 	FZN_OBJECT_REVOCATION = 2u,
 	FZN_OBJECT_RECORD = 3u,
+	/* A revocation manifest: one issuer's statement of every revocation it
+	 * has issued. `chain/manifest.h` carries the layout and project.md
+	 * sec 13d the design. It is the fourth object one root key signs
+	 * through this seam, and it is the one that makes the paragraph above
+	 * concrete rather than cautionary: a manifest of n pairs is 100 + 64n
+	 * bytes, a record is 156 to 668, so a one-pair manifest and a record
+	 * with an 8-byte body are both 164 -- and every manifest from one
+	 * pair to eight has a record of exactly its length. Same seam, same
+	 * key, colliding lengths, which is fuzzypickles' incident with the
+	 * numbers changed. The tag is what separates them. */
+	FZN_OBJECT_MANIFEST = 4u,
 } fzn_signed_object_t;
 
 #endif /* FZN_BYTES_H */

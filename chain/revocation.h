@@ -219,6 +219,19 @@ struct fzn_revocation_store {
 fzn_chain_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_revocation_t *entries,
                                      size_t capacity);
 
+/* The manifest state, DECLARED here and DEFINED in manifest.h.
+ *
+ * Admitting a revocation settles a deficit: what a manifest said this host
+ * was missing, it now holds. So `fzn_revocation_admit` needs the NAME of that
+ * table -- and nothing more than the name, because the only thing it does
+ * with one is hand it to `fzn_manifest_satisfy`.
+ *
+ * The same arrangement `chain.h` uses for `fzn_revocation_store_t`, and the
+ * incomplete type is the point rather than a compromise: a module that cannot
+ * see a table's fields cannot grow a second copy of the rule for finding an
+ * entry in it, which is what `chain.h` records a heap overflow for. */
+typedef struct fzn_manifest_state fzn_manifest_state_t;
+
 /* Verify a revocation and record it. Returns FZN_CHAIN_OK if it is now in the
  * store, including when it was already there -- admitting the same
  * revocation twice is what happens every time two peers both tell you, and
@@ -249,11 +262,26 @@ fzn_chain_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_rev
  *     cost and it is stated here rather than discovered: revocations only
  *     accumulate, so this is the one bound in the library that a long-lived
  *     deployment can grow into. project.md sec 14 carries it as open.
- */
+ *
+ * `manifest` IS OPTIONAL AND NULL PRESERVES THE OLD BEHAVIOUR EXACTLY. When
+ * one is passed, a revocation that lands in the store also drops the matching
+ * pair from that state's deficit table -- the host was told it was missing
+ * this and now is not. Without it the deficit never drains, so every consumer
+ * that follows a manifest wants to pass one; the parameter is optional rather
+ * than required because `chain/manifest.h` is stage 1 of project.md sec 13d
+ * and a consumer that has not adopted it must not be forced to.
+ *
+ * DRAINING HAPPENS ON THE ALREADY-HELD PATH TOO. Admitting a revocation a
+ * second time returns FZN_CHAIN_OK without storing anything, which is what
+ * "carried on contact" looks like every time it works -- and if only the
+ * storing path drained, a host that received the revocation before the
+ * manifest would keep reporting it as missing for ever, having held it all
+ * along. The two orders must converge, because a set is what this is. */
 fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
                                 fzn_revocation_record_t record,
                                 const uint8_t root[FZN_PUBKEY_LEN],
-                                const fzn_sign_ops_t *sign);
+                                const fzn_sign_ops_t *sign,
+                                fzn_manifest_state_t *manifest);
 
 /* Absorb a batch, which is what "on contact" looks like. Returns the number
  * admitted and reports the first failure through *err, so a caller can tell
@@ -262,11 +290,17 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
  *
  * Keeps going after a bad record rather than stopping: one forged entry in
  * a batch must not stop a host learning the genuine ones travelling with
- * it, which would make forging a record a way to suppress revocation. */
+ * it, which would make forging a record a way to suppress revocation.
+ *
+ * `manifest` is passed through to `fzn_revocation_admit` unchanged, and NULL
+ * means what it means there. It is here rather than only on the single
+ * admission because THIS is the call a batch arrives through: a merge that
+ * could not settle a deficit would leave the drain wired to the path
+ * consumers use least. */
 size_t fzn_revocation_merge(fzn_revocation_store_t *store,
                              const fzn_revocation_record_t *records, size_t count,
                              const uint8_t root[FZN_PUBKEY_LEN], const fzn_sign_ops_t *sign,
-                             fzn_chain_err_t *err);
+                             fzn_chain_err_t *err, fzn_manifest_state_t *manifest);
 
 /* Whether `issuer` has withdrawn this capability from this key.
  *

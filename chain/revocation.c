@@ -2,6 +2,11 @@
 
 #include "revocation.h"
 
+/* For `fzn_manifest_satisfy` alone. revocation.h holds only the incomplete
+ * type, so nothing in this file can reach into a deficit table -- it can only
+ * tell the module that owns one that a pair has been settled. */
+#include "manifest.h"
+
 #include <string.h>
 
 static int same(const fzn_revocation_t *entry, const uint8_t *issuer, const uint8_t *capability,
@@ -188,7 +193,8 @@ int fzn_revocation_covers(const fzn_revocation_store_t *store,
 fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
                                 fzn_revocation_record_t record,
                                 const uint8_t root[FZN_PUBKEY_LEN],
-                                const fzn_sign_ops_t *sign)
+                                const fzn_sign_ops_t *sign,
+                                fzn_manifest_state_t *manifest)
 {
 	const uint8_t *msg;
 	size_t msg_len;
@@ -240,8 +246,21 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 	 * the system behaving correctly. */
 	if (fzn_revocation_covers(store, fzn_revocation_issuer(record),
 	                          fzn_revocation_capability(record),
-	                          fzn_revocation_grantee(record)))
+	                          fzn_revocation_grantee(record))) {
+		/* SETTLED HERE TOO, AND NOT ONLY WHERE SOMETHING IS STORED.
+		 * A deficit entry can coexist with a stored revocation
+		 * whenever the manifest was admitted against a different view
+		 * of the store than this one -- NULL while a consumer was
+		 * still wiring itself up, most obviously. From then on every
+		 * arrival of that revocation takes this branch and no other,
+		 * so a drain wired only to the storing path below would leave
+		 * the host reporting for ever that it lacks something it
+		 * holds. This is a set; the orders have to converge. */
+		fzn_manifest_satisfy(manifest, fzn_revocation_issuer(record),
+		                     fzn_revocation_capability(record),
+		                     fzn_revocation_grantee(record));
 		return FZN_CHAIN_OK;
+	}
 
 	/* Nothing is evicted to make room, and nothing expires. A revocation
 	 * that lapses un-revokes a device, and every entry is protecting
@@ -277,13 +296,20 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 	       FZN_PUBKEY_LEN);
 	store->used++;
 
+	/* What a manifest said this host was missing, it now holds. NULL is
+	 * the consumer that has not adopted the manifest, and this is the
+	 * whole of what the parameter does. */
+	fzn_manifest_satisfy(manifest, fzn_revocation_issuer(record),
+	                     fzn_revocation_capability(record),
+	                     fzn_revocation_grantee(record));
+
 	return FZN_CHAIN_OK;
 }
 
 size_t fzn_revocation_merge(fzn_revocation_store_t *store,
                              const fzn_revocation_record_t *records, size_t count,
                              const uint8_t root[FZN_PUBKEY_LEN], const fzn_sign_ops_t *sign,
-                             fzn_chain_err_t *err)
+                             fzn_chain_err_t *err, fzn_manifest_state_t *manifest)
 {
 	size_t admitted = 0;
 	fzn_chain_err_t first = FZN_CHAIN_OK;
@@ -295,7 +321,8 @@ size_t fzn_revocation_merge(fzn_revocation_store_t *store,
 	}
 
 	for (size_t i = 0; i < count; i++) {
-		fzn_chain_err_t one = fzn_revocation_admit(store, records[i], root, sign);
+		fzn_chain_err_t one =
+		        fzn_revocation_admit(store, records[i], root, sign, manifest);
 
 		if (one == FZN_CHAIN_OK) {
 			admitted++;
