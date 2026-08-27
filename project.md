@@ -8386,11 +8386,45 @@ entirely from fuzzypickles -- five substantive corrections in one day,
 against none from anywhere else, which is what "less likely to produce
 feedback" means in practice.
 
-This does NOT mean building only for them. The goal is a multi-purpose
-platform. It means that where a design choice is made to serve a
-hypothetical netcfgd need against a measured fuzzypickles one, the
-hypothetical should lose and be recorded as deferred rather than
-decided.
+**REFINED THE SAME DAY, BECAUSE THE FIRST VERSION WAS TOO BROAD.** It
+concluded that a hypothetical netcfgd need should lose to a measured
+fuzzypickles one. The holder's clarification splits that in two, and
+the split is the rule:
+
+- **ALL consumers use the most central and the hardest parts.** Those
+  are not a subset and must be designed for everyone. Chains,
+  revocation, framing, freshness, records, the receive order -- every
+  consumer depends on them, and a choice made there to suit one
+  consumer is a choice made for all of them.
+- **FEATURE BREADTH is fuzzypickles', and they will drive it.** They
+  need far more of it and use it far harder. netcfgd is expected to
+  want GPS -- for RF-network choice and for navigation -- and audio
+  streaming over a Bluetooth network, which is real work rather than a
+  thin subset, but it will arrive after fuzzypickles has pushed the
+  same machinery forward.
+
+So the corrected rule is not "the hypothetical loses". It is: **in the
+core, design for all of them; in features, follow the consumer who is
+actually exercising it, and expect the others to arrive at the same
+place later.**
+
+**AND THE PATTERN IS ALREADY VISIBLE IN `sched/`, WHICH VALIDATES IT.**
+netcfgd's future audio streaming is served by a design already in the
+tree -- "a fire-and-forget voice frame wants the fastest link and is
+happily dropped", with hard constraints able to exclude every link so
+that `FZN_SCHED_ERR_NONE` is the answer and the caller drops rather
+than being handed the least-bad survivor. **That reasoning came from
+fuzzypickles' own header and is quoted there as theirs.** One consumer
+drove it, the module absorbed it, and a different consumer's unbuilt
+feature is already accounted for. That is the instruction working
+before it was given.
+
+GPS for RF-network choice lands in the same place: `link/`'s prior is
+"what the far end declared about it", and an RF link's quality is
+predictable from geometry, so position informs a declared metric rather
+than adding a fourth axis to `sched/`. GPS for NAVIGATION is
+application data and belongs in a record kind this library never
+interprets.
 
 ### The fallout tool exists, is unused, and works
 
