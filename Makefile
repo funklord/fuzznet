@@ -660,8 +660,14 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# LINKS relay.o, WHICH IT DID NOT UNTIL THE ROUND TRIP EXISTED. Sealing and
+# relaying were tested in separate binaries, so nothing anywhere asserted that a
+# frame survives being relayed -- the one property `wire/relay.h` is built on.
+# seal_test now spends the whole hop budget between build and open, which needs
+# both halves in one process.
 $(BUILD_DIR)/wire/test/seal_test: $(BUILD_DIR)/wire/test/seal_test.o \
-                                   $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/session/random.o \
+                                   $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/wire/relay.o \
+                                   $(BUILD_DIR)/session/random.o \
                                    $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
