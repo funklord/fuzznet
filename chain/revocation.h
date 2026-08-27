@@ -279,7 +279,24 @@ size_t fzn_revocation_merge(fzn_revocation_store_t *store,
  * own root, and the query returned 1 with no root in it. Nothing said a
  * store belonged to one root and the old signature actively invited the
  * mistake by not asking. chain.h records why the issuer is kept per entry
- * rather than the store being bound to a root. */
+ * rather than the store being bound to a root.
+ *
+ * THREE ANSWERS, AND THE ORDER THEY ARE DECIDED IN IS PART OF THE CONTRACT:
+ *
+ *   - A NULL store answers 0. It means "this host knows of no revocations",
+ *     which is what `fzn_chain_verify` relies on when a consumer holding no
+ *     store passes NULL.
+ *   - A CORRUPT store answers 1 -- `used` past `capacity`, or a nonzero
+ *     `used` with no array. Entries that cannot be scanned may hold the
+ *     answer, and denying is the safe reply to an authorization question.
+ *     Decided BEFORE anything else, so nothing gets a "no" out of a store
+ *     that cannot be read.
+ *   - A missing issuer, capability or grantee answers 0, because the
+ *     question has no subject rather than because the answer is permissive.
+ *     revocation.c argues that at length and records the alternative.
+ *
+ * This is a QUERY and not a verification: everything in the store was
+ * checked on admission. */
 int fzn_revocation_covers(const fzn_revocation_store_t *store,
                            const uint8_t issuer[FZN_PUBKEY_LEN],
                            const uint8_t capability[FZN_CAP_ID_LEN],

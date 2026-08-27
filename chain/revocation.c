@@ -106,16 +106,77 @@ int fzn_revocation_covers(const fzn_revocation_store_t *store,
                            const uint8_t capability[FZN_CAP_ID_LEN],
                            const uint8_t grantee[FZN_PUBKEY_LEN])
 {
-	if (!store || !store->entries || !issuer || !capability || !grantee)
+	/* AN ABSENT STORE IS AN ANSWER, NOT A MISSING ONE. A caller with no
+	 * store knows of no revocations, and "no revocations known" is what
+	 * NULL has always meant here -- it is the contract `fzn_chain_verify`
+	 * rests on, since NULL is how a consumer holding none calls it. This
+	 * is the one null case that is not a caller's mistake, and it is
+	 * separated from the rest for exactly that reason. */
+	if (!store)
 		return 0;
 
-	/* `used` bounds a loop over `entries`, which holds `capacity`. A store
-	 * where it exceeds that is corrupt, and this answers an authorization
-	 * question, so the safe reply is the one that denies: report the
+	/* THE STORE'S INTEGRITY IS JUDGED BEFORE THE QUESTION IS, and the
+	 * ORDER is load-bearing rather than incidental -- it used to come
+	 * second, below a null guard that answered 0.
+	 *
+	 * `used` bounds a loop over `entries`, which holds `capacity`. A store
+	 * where the count exceeds the array, or where the count is nonzero and
+	 * there is no array at all, is corrupt: it describes entries that
+	 * cannot be scanned, and any one of them may be the entry that answers
+	 * this question. So the answer is the one that denies -- report the
 	 * capability as revoked rather than scan memory that is not the store.
-	 * Saying "not revoked" would be the fail-open answer. */
-	if (store->used > store->capacity)
+	 * Saying "not revoked" would be the fail-open answer, and failing open
+	 * here means a withdrawn capability keeps working.
+	 *
+	 * Asked first so that NOTHING can be answered "no" against a corrupt
+	 * store. Underneath the null guard, a caller that passed a corrupt
+	 * store AND a null operand got 0 -- permitted -- which is the wrong
+	 * answer arrived at by the more conservative-looking check being
+	 * shadowed by the less. */
+	if (store->used > store->capacity || (store->used > 0 && !store->entries))
 		return 1;
+
+	/* A MISSING TRIPLE OPERAND IS PERMITTED, DELIBERATELY, AND IT IS NOT
+	 * THE SAME QUESTION AS THE ONE ABOVE.
+	 *
+	 * The store above is corrupt: the question is well formed, entries
+	 * that might answer it exist, and we cannot read them -- so we must
+	 * assume they say yes. Here the store is sound and readable, and what
+	 * is missing is the question. There is no issuer, capability or
+	 * grantee to match, so no entry in this store or any other names one,
+	 * and 0 is not a permission being granted but the literal truth that
+	 * nothing here matches what was asked.
+	 *
+	 * Denying instead would deny a triple nobody named. It cannot protect
+	 * the grantee the caller meant, because the caller named no grantee;
+	 * what it would do is turn one null pointer into a blanket refusal of
+	 * every capability, reported as a revocation no issuer ever signed --
+	 * an outage wearing policy's clothes, in a module whose entries are
+	 * never evicted and never expire. A caller bug should look like a
+	 * caller bug.
+	 *
+	 * THE GUARD IS NOT REDUNDANT, and the reason is not the null pointers.
+	 * Deleting it leaves the suite green, because `fzn_ct_memeq` answers
+	 * "not equal" for a NULL side and `same()` therefore fails for every
+	 * entry anyway. But that is a promise constant_time.h makes about
+	 * ITSELF -- made for callers asking an authorization question, where
+	 * "not equal" is the conservative answer. It is not conservative here:
+	 * this is the one caller in the library where "not equal" propagates
+	 * to PERMIT, because the thing being matched is a prohibition rather
+	 * than a credential. Resting on it would be resting on a guarantee
+	 * that was reasoned about for the opposite polarity, and a
+	 * constant-time comparison that stopped making it -- by delegating to
+	 * memcmp, say -- would turn all three of these into a null
+	 * dereference on the authorization path.
+	 *
+	 * The alternative -- denying, for consistency with the branch above --
+	 * was weighed and is defensible. What settles it against is that the
+	 * corrupt-store branch, now that it is asked first, already covers
+	 * every case where denying protects something real: a store that may
+	 * hold the answer. What is left is a question with no subject, and
+	 * there is nothing there to protect. */
+	if (!store->entries || !issuer || !capability || !grantee)
+		return 0;
 
 	for (size_t i = 0; i < store->used; i++) {
 		if (same(&store->entries[i], issuer, capability, grantee))
