@@ -300,8 +300,17 @@ $(BUILD_DIR)/session/test/aead_monocypher_test.o: session/test/aead_monocypher_t
 
 # session/commitment.o for the same reason seal_test links it: wire/seal.o
 # derives the commitment now instead of being handed one.
+#
+# AND session/hash_monocypher.o, WHICH IS THE ONE PLACE THIS FILE'S "each
+# names its own objects" RULE ABOVE IS DELIBERATELY NOT FOLLOWED. That rule
+# exists so a binary cannot pass on a binding it does not exercise; here the
+# AEAD test genuinely exercises both, because the derivation `fzn_seal_open`
+# performs is part of the frame path it is testing. A stub hash would leave
+# the real AEAD running behind a fake derivation, which is the arrangement
+# wire/test/seal_test.c already covers.
 $(MONO_AEAD): $(BUILD_DIR)/session/test/aead_monocypher_test.o \
-              $(BUILD_DIR)/session/aead_monocypher.o $(BUILD_DIR)/monocypher.o \
+              $(BUILD_DIR)/session/aead_monocypher.o \
+              $(BUILD_DIR)/session/hash_monocypher.o $(BUILD_DIR)/monocypher.o \
               $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/session/commitment.o \
               $(BUILD_DIR)/session/random.o \
               $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
@@ -744,7 +753,7 @@ runtests: $(TEST_BINS)
 	@for t in $(TEST_BINS); do echo "running $$t"; $$t || exit 1; done
 	@# SAY WHEN THE MONOCYPHER BINDINGS WERE NOT BUILT, rather than leaving
 	@# their absence to look like their success. Without MONOCYPHER_DIR the
-	@# three bindings and their 43 checks are not compiled at all, and a run
+	@# three bindings and their 81 checks are not compiled at all, and a run
 	@# that never mentions them reads exactly like a run in which they
 	@# passed. Same discipline as `analyze` and `ctcheck`, which skip loudly
 	@# for the same reason.
