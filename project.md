@@ -8419,6 +8419,69 @@ the header, not for declining to build.
   settled**: this document wins over the code, so if the first reading was
   meant, the code is wrong and not the sentence.
 
+## 15d. Parity before migration, and the first namespace clash
+
+**The holder's ordering, 2026-08-28**: every feature fuzzypickles needs
+should exist here BEFORE they move, so the transition is a switch
+rather than a co-development. Migration planning, including a namespace
+scheme, comes after parity. **fuzzypickles development is frozen**,
+which is what makes the ordering work -- a frozen consumer is a
+STATIONARY TARGET, so a gap list computed today stays true while it is
+closed. A moving one could not be caught up with.
+
+### What this library has no concept of, measured
+
+Grepped every non-test, non-generated header, then read the hits to
+separate API from prose:
+
+| concept | in fuzznet |
+|---|---|
+| group messaging, group key, membership, fan-out | **nothing** |
+| ratchet | **nothing** -- zero mentions anywhere |
+| prekey distribution | **nothing** -- zero API |
+| contact / peer management, roster, presence | **nothing** -- "contact" appears only as prose, in "on contact" and "first contact" |
+| media, codecs, streaming | **nothing** -- sec 15b is future work |
+
+That is the visible half of the gap. **The invisible half is the row
+neither tree has thought of**, which is why the list has to come from
+fuzzypickles rather than be inferred from their headers here -- inferring
+it would be the claim-about-another-tree error this session has made
+twice and been corrected on both times.
+
+### THE FIRST NAMESPACE CLASH IS ALREADY IN THE TREE, AND IT IS `group`
+
+`local/peer.h` uses `group` to mean a **POSIX group**: `primary_gid`,
+`groups[FZN_PEER_MAX_GROUPS]`, `group_count`, populated from
+`SO_PEERCRED` and `getgroups()`. `local/vocabulary.h` gates a verb on
+one -- "this group may ask for this verb".
+
+fuzzypickles' `group` is **a set of peers sharing a ratchet**. Same
+word, and not merely different -- one is a local kernel credential that
+never crosses the network, the other is a distributed cryptographic
+object that exists only on the network.
+
+**Neither can be renamed away from its own domain.** `primary_gid` is
+POSIX's word and `local/peer.h` records that it is spelled that way
+deliberately, "so that nobody gates on it by accident". A group ratchet
+is what the literature calls it. So the clash is not a naming accident
+to be tidied; **both names are correct in their own module** and the
+merge has to keep them apart rather than pick one.
+
+This is the fifth question arriving before any migration has started,
+and it is the argument for writing the namespace plan from a KNOWN
+inventory rather than from a prefix convention. `fzn_` against `fzp_`
+prevents symbol collision and prevents nothing about this: after a
+migration both concepts live under `fzn_`, and `fzn_group` would mean
+two things.
+
+**The plan is not written yet, deliberately.** A namespace scheme that
+does not know what is moving is a guess, and the gap list is what tells
+it. Three clashes are already foreseeable and recorded so they are not
+rediscovered: this one; two copies of Monocypher if both trees vendor
+it, answered in sec 15c by vendoring for tests only; and the
+transitional period where one function exists under both prefixes,
+which is `code-style.md`'s parallel-copy hazard.
+
 ## 15c. Vendoring: Monocypher yes, flog no, 2026-08-28
 
 The holder asks whether the crypto library and flog should be vendored
