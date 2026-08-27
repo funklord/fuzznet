@@ -343,6 +343,16 @@ struct sim_host {
 	fzn_state_t state;
 	fzn_state_entry_t sentries[8];
 	unsigned conflicts;
+
+	/* RECORDS THIS HOST REFUSED BECAUSE THE ISSUER DID NOT SIGN THEM.
+	 *
+	 * Same shape as `refused_auth` and `refused_shape` above, and for the
+	 * same reason: every scenario here that moves records runs on a lossy
+	 * network, so a record that is merely not admitted is indistinguishable
+	 * from one the network ate. The count is what tells the two apart.
+	 * Incremented in `sim_receive_record` and asserted once per scenario --
+	 * never inside a fetch loop, per `total_digest_dropped`. */
+	unsigned refused_record;
 	uint32_t held[SIM_HOSTS][2];
 	uint64_t issued;
 	unsigned gaps_seen, admitted, confirmed;
@@ -1964,8 +1974,8 @@ static void sim_make_record(struct sim_net *net, fzn_record_t *r, const struct s
 	memset(subject, subject_seed, sizeof(subject));
 	/* THE ISSUER SIGNS, and `fzn_record_verify` checks against
 	 * `fzn_record_issuer` -- so the two agree only for a record whose issuer
-	 * really made it. Nothing in this file verifies a record yet, which is
-	 * its own gap; signing as somebody in particular is what would let it. */
+	 * really made it. `sim_receive_record` below is where that check now
+	 * happens, and `scenario_forgery` is what proves it discriminates. */
 	check(fzn_record_sign(issuer->pubkey, subject, STREAM_STATE, KIND_SETTING, seq, 1,
 	                      state_bodies[issuer->id][seq - 1u], sizeof(state_bodies[0][0]),
 	                      sim_signer(&signer, &net->sign, issuer->pubkey),
@@ -1983,6 +1993,47 @@ static uint8_t subject_of(uint8_t issuer, uint64_t seq)
 	if (seq == 1u)
 		return 0xC0; /* contested by both writers */
 	return (uint8_t)(0xD0u + issuer);
+}
+
+/* ONE RECORD ARRIVING AT ONE HOST, in the order a consumer has to use.
+ *
+ * THE SIGNATURE FIRST, AND BEFORE THE JOURNAL MOVES. `record/journal.h` says
+ * it in as many words -- "the record itself is not stored and not verified
+ * here; a caller that admits an unverified record has skipped a step this
+ * module cannot see" -- and the cost of skipping it is not just that a
+ * forgery lands. `fzn_journal_admit` ADVANCES the stream's position, so a
+ * forged record admitted at sequence n has spent n, and the genuine record
+ * carrying n is refused as a duplicate for ever afterwards. Refusing before
+ * admitting is what keeps a stranger from wedging a stream it cannot write.
+ *
+ * AGAINST THE RECORD'S OWN COORDINATES. The issuer, stream and sequence are
+ * read out of the record rather than taken from the caller, because that is
+ * what the binding bought: they live inside the range the signature covers,
+ * so a verified record cannot be admitted under a name or at a position its
+ * signer did not write. A caller passing its own copy of them would be back
+ * to two representations that can disagree.
+ *
+ * REFUSED AND COUNTED, never dropped. See `struct sim_host::refused_record`.
+ *
+ * Returns 1 when the record was admitted, 0 when it was refused. */
+static int sim_receive_record(struct sim_net *net, struct sim_host *me, fzn_record_t rec)
+{
+	if (fzn_record_verify(rec, &net->sign) != FZN_RECORD_OK) {
+		me->refused_record++;
+		return 0;
+	}
+
+	if (fzn_journal_admit(&me->journal, fzn_record_issuer(rec), fzn_record_stream(rec),
+	                      fzn_record_seq(rec)) != FZN_JOURNAL_OK)
+		return 0;
+	me->admitted++;
+
+	/* RECEIVED IS NOT APPLIED. The record is now held; what it means for
+	 * current state is a separate step, and it is where a conflict
+	 * surfaces. */
+	if (fzn_state_apply(&me->state, &rec) == FZN_STATE_ERR_CONFLICT)
+		me->conflicts++;
+	return 1;
 }
 
 static void state_fetch(struct sim_net *net, struct sim_host *me, struct sim_host *peer,
@@ -2014,20 +2065,26 @@ static void state_fetch(struct sim_net *net, struct sim_host *me, struct sim_hos
 				net->dropped++;
 				continue;
 			}
-			if (fzn_journal_admit(&me->journal, want[r].issuer, STREAM_STATE, seq) !=
-			    FZN_JOURNAL_OK)
+			/* THE RECORD THE PEER ANSWERS WITH, built here because
+			 * this library has no transport: what a real peer would
+			 * put on the wire is exactly these bytes. It is checked
+			 * before it is worth anything to the receiver, which is
+			 * what `sim_receive_record` is for -- and it is built
+			 * BEFORE the journal is asked, because verifying after
+			 * admitting is the ordering that check exists to refuse.
+			 *
+			 * Measured on both sides of the move, because a
+			 * reordering that changed how often the builder ran
+			 * would move this file's check count without moving
+			 * anything real: `fzn_journal_admit` never once refuses
+			 * in this loop, 0 refusals against 20 admissions, so
+			 * building the record earlier costs nothing. */
+			sim_make_record(net, &rec, &net->hosts[issuer], seq,
+			                subject_of(issuer, seq));
+			if (!sim_receive_record(net, me, rec))
 				continue;
 
 			hold(me, issuer, seq);
-			me->admitted++;
-
-			/* RECEIVED IS NOT APPLIED. The record is now held; what
-			 * it means for current state is a separate step, and it
-			 * is where a conflict surfaces. */
-			sim_make_record(net, &rec, &net->hosts[issuer], seq,
-			                subject_of(issuer, seq));
-			if (fzn_state_apply(&me->state, &rec) == FZN_STATE_ERR_CONFLICT)
-				me->conflicts++;
 		}
 	}
 }
@@ -2037,6 +2094,7 @@ static void scenario_state(void)
 	static struct sim_net net;
 	uint8_t contested[FZN_SUBJECT_LEN];
 	unsigned holding_alice = 0, holding_bob = 0, saw_conflict = 0, agreed = 0;
+	unsigned refused_records = 0;
 	const uint8_t WRITERS = 2u;
 
 	sim_init(&net, STATE_HOSTS, 0x9999u);
@@ -2077,6 +2135,16 @@ static void scenario_state(void)
 			if (p != i)
 				state_fetch(&net, &net.hosts[i], &net.hosts[p], WRITERS);
 		}
+
+	/* EVERY RECORD HERE IS GENUINE, so none of them may be refused. Summed
+	 * and asserted once rather than checked per fetch, and it is the half
+	 * that stops the convergence checks below from being satisfied by a
+	 * verifier that says no to everything: such a host would converge on
+	 * nothing, and this says so by name instead of leaving it to be
+	 * inferred from an empty state. */
+	for (uint8_t i = 0; i < STATE_HOSTS; i++)
+		refused_records += net.hosts[i].refused_record;
+	check(refused_records == 0, "a genuine record was refused for its signature");
 
 	/* AN UNCONTESTED SUBJECT CONVERGES EVERYWHERE. */
 	{
@@ -2150,8 +2218,215 @@ static void scenario_state(void)
 	}
 	check(agreed == STATE_HOSTS, "the hosts did not converge after the rule was applied");
 
-	printf("  state: %u held alice, %u held bob, %u saw the conflict, %u agreed after\n",
-	       holding_alice, holding_bob, saw_conflict, agreed);
+	printf("  state: %u held alice, %u held bob, %u saw the conflict, %u agreed after,"
+	       " %u refused unsigned\n",
+	       holding_alice, holding_bob, saw_conflict, agreed, refused_records);
+}
+
+/* ----------------------------------------------------------- scenario 10b
+
+   A record whose CONTENT is beyond reproach and whose SIGNATURE is somebody
+   else's.
+
+   WHY THIS IS WORTH WRITING NOW AND WAS NOT BEFORE. Until `sim_verify` began
+   folding the key it is handed, every identity in this harness verified
+   everything, so a record check here would have been a check that could not
+   fail and this scenario would have been decoration. The verifier is
+   key-bound now -- see the measurement above it -- which is what gives the
+   refusals below something to be about.
+
+   The forgery names the right issuer, rides the right stream, carries the
+   right sequence and the same body, and agrees with the genuine record on
+   every byte the signature covers. Only the pen differs. So the case asserts
+   that agreement BEFORE it asserts any outcome, and then presents the same
+   content correctly signed and requires it to be ACCEPTED: a leg that only
+   shows a refusal cannot tell a working signature check from a receiver that
+   refuses everything, or from a record malformed for some other reason.
+
+   THE ORDER OF THE TWO PRESENTATIONS IS LOAD-BEARING. The forgery goes first,
+   at the sequence the genuine record will claim. Presented second it would be
+   refused by `fzn_journal_admit` as a duplicate whatever its signature said,
+   and the leg would pass without the signature being consulted at all.
+
+   AND A NEAR MISS, following `scenario_splice` and `scenario_join`: a signer
+   agreeing with the issuer on every byte but the last. Hosts 0 and 1 differ
+   at byte 0, so the first leg survives a key comparison truncated to one
+   byte; only the near miss gives that comparison a LENGTH it can get wrong.  */
+
+#define FORGE_HOSTS 3u
+#define FORGE_BODY  16u
+
+/* Build a record NAMING one identity and SIGNED BY another.
+ *
+ * The two keys are the same for a genuine record and different for a forged
+ * one, and nothing else varies -- which is what lets this scenario say a
+ * refusal was about the signature. `fzn_record_sign` writes `issuer` into the
+ * buffer and asks the vtable for a signature over it, and the vtable's `ctx`
+ * is who holds the pen; the two are independent here exactly as they are for
+ * an attacker holding its own key and somebody else's name.
+ *
+ * Returns the encoded length, or 0 if signing was refused. */
+static size_t sim_sign_record_as(const struct sim_net *net,
+                                 const uint8_t issuer[FZN_PUBKEY_LEN],
+                                 const uint8_t signer[FZN_PUBKEY_LEN], uint64_t seq,
+                                 uint8_t subject_seed, uint8_t *out)
+{
+	uint8_t subject[FZN_SUBJECT_LEN];
+	uint8_t body[FORGE_BODY];
+	struct sim_signer who;
+	size_t wrote = 0;
+
+	memset(subject, subject_seed, sizeof(subject));
+	memset(body, subject_seed, sizeof(body));
+	if (fzn_record_sign(issuer, subject, STREAM_STATE, KIND_SETTING, seq, 1, body,
+	                    sizeof(body), sim_signer(&who, &net->sign, signer), out,
+	                    FZN_RECORD_MAX_LEN, &wrote) != FZN_RECORD_OK)
+		return 0;
+	return wrote;
+}
+
+static void scenario_forgery(void)
+{
+	static struct sim_net net;
+	/* THE BYTES A RECORD IS A VIEW OF must outlive the view and everything
+	 * the view was stored into -- `record.h` says so and `state/` stores
+	 * one, so a stack array here would be dead under the entry that
+	 * `fzn_state_get` hands back. Same reason `state_wire` above is static. */
+	static uint8_t wire[4][FZN_RECORD_MAX_LEN];
+	struct sim_host *issuer, *impostor, *receiver;
+	uint8_t near_key[FZN_PUBKEY_LEN];
+	uint8_t first[FZN_SUBJECT_LEN], second[FZN_SUBJECT_LEN];
+	fzn_record_t genuine, forged, near, genuine_two;
+	size_t wrote[4];
+	const uint8_t *at_a, *at_b;
+	size_t len_a, len_b;
+	unsigned refused;
+
+	sim_init(&net, FORGE_HOSTS, 0xccccu);
+	issuer = &net.hosts[0];
+	impostor = &net.hosts[1];
+	receiver = &net.hosts[2];
+	memset(first, 0xC0, sizeof(first));
+	memset(second, 0xC1, sizeof(second));
+
+	/* The receiver follows the issuer's stream. Without this nothing is
+	 * admissible at all, and every refusal below would be the journal
+	 * declining an issuer nobody adopted rather than a signature failing. */
+	check(fzn_journal_anchor(&receiver->journal, issuer->pubkey, STREAM_STATE, 0) ==
+	      FZN_JOURNAL_OK, "the receiver could not follow the issuer's stream");
+
+	wrote[0] = sim_sign_record_as(&net, issuer->pubkey, issuer->pubkey, 1u, 0xC0u, wire[0]);
+	wrote[1] = sim_sign_record_as(&net, issuer->pubkey, impostor->pubkey, 1u, 0xC0u,
+	                              wire[1]);
+	check(wrote[0] != 0 && wrote[1] != 0, "the scenario could not sign its records");
+	check(fzn_record_open(wire[0], wrote[0], &genuine) == FZN_RECORD_OK,
+	      "the genuine record is not shaped like a record");
+	check(fzn_record_open(wire[1], wrote[1], &forged) == FZN_RECORD_OK,
+	      "the forged record must be well formed, or it would be refused for its "
+	      "shape rather than for its signature");
+
+	/* THE FIXTURE, ASSERTED BEFORE ANYTHING RESTS ON IT. */
+	check(memcmp(issuer->pubkey, impostor->pubkey, FZN_PUBKEY_LEN) != 0,
+	      "the impostor must be a different identity from the issuer");
+	check(memcmp(fzn_record_issuer(forged), issuer->pubkey, FZN_PUBKEY_LEN) == 0,
+	      "the forged record must name the real issuer, or it is somebody else's "
+	      "record rather than a forgery");
+	fzn_record_signed_bytes(genuine, &at_a, &len_a);
+	fzn_record_signed_bytes(forged, &at_b, &len_b);
+	check(len_a == len_b && memcmp(at_a, at_b, len_a) == 0,
+	      "the two records must agree on every signed byte, or a refusal below "
+	      "could be about their content rather than about who signed");
+	check(memcmp(fzn_record_signature(genuine), fzn_record_signature(forged),
+	             FZN_SIG_LEN) != 0,
+	      "the two signatures must differ, or nothing here can fail");
+
+	/* THE FORGERY IS REFUSED, and the refusal is visible. */
+	refused = receiver->refused_record;
+	check(fzn_record_verify(forged, &net.sign) == FZN_RECORD_ERR_UNSIGNED,
+	      "the forged record should be refused as unsigned rather than as malformed");
+	check(sim_receive_record(&net, receiver, forged) == 0,
+	      "a record signed by a host that is not its issuer was accepted");
+	check(receiver->refused_record == refused + 1u,
+	      "the refusal was not counted, so a forged record is indistinguishable "
+	      "from one the network ate");
+	check(fzn_journal_next(&receiver->journal, issuer->pubkey, STREAM_STATE) == 1u,
+	      "the forged record moved the journal position, so the sequence it claimed "
+	      "is spent and the genuine record carrying it can never land");
+	check(fzn_state_get(&receiver->state, first, KIND_SETTING) == NULL,
+	      "the forged record reached the receiver's state");
+
+	/* AND THE SAME CONTENT, CORRECTLY SIGNED, IS ACCEPTED. Without this the
+	 * leg above passes just as loudly against a receiver that refuses every
+	 * record it is offered. */
+	check(sim_receive_record(&net, receiver, genuine) == 1,
+	      "the genuine record was refused");
+	check(receiver->refused_record == refused + 1u,
+	      "the genuine record was counted as a refusal");
+	check(fzn_journal_next(&receiver->journal, issuer->pubkey, STREAM_STATE) == 2u,
+	      "the genuine record did not move the journal position");
+	{
+		const fzn_state_entry_t *e = fzn_state_get(&receiver->state, first,
+		                                           KIND_SETTING);
+
+		check(e != NULL && memcmp(e->issuer, issuer->pubkey, FZN_PUBKEY_LEN) == 0,
+		      "the genuine record did not reach the receiver's state");
+	}
+
+	/* AND AGAIN WITH A SIGNER ONLY A FULL COMPARISON SEPARATES FROM THE
+	 * ISSUER. Everything above survives a key folded one byte at a time and
+	 * stopped after the first, because hosts 0 and 1 differ at byte 0 --
+	 * the same hole `sim_near_identity` was written for and the same one
+	 * `scenario_splice` and `scenario_join` close one layer down. A
+	 * signature is checked against a key an attacker chooses, so the LENGTH
+	 * of that key is the property, and only a near miss asks about it.
+	 *
+	 * SEQUENCE 2, not 1. At 1 the journal would refuse the near miss as a
+	 * duplicate and the leg would be green with the signature never
+	 * consulted -- which is the same trap the ordering note above names. */
+	sim_near_identity(issuer->pubkey, near_key);
+	check(memcmp(near_key, issuer->pubkey, FZN_PUBKEY_LEN - 1u) == 0,
+	      "the near signer must agree with the issuer on every byte but the last, "
+	      "or this leg is not testing what it says");
+	check(memcmp(near_key, issuer->pubkey, FZN_PUBKEY_LEN) != 0,
+	      "the near signer must differ somewhere, or nothing here can fail");
+
+	wrote[2] = sim_sign_record_as(&net, issuer->pubkey, near_key, 2u, 0xC1u, wire[2]);
+	wrote[3] = sim_sign_record_as(&net, issuer->pubkey, issuer->pubkey, 2u, 0xC1u,
+	                              wire[3]);
+	check(wrote[2] != 0 && wrote[3] != 0,
+	      "the scenario could not sign its near-miss records");
+	check(fzn_record_open(wire[2], wrote[2], &near) == FZN_RECORD_OK,
+	      "the near-miss record is not shaped like a record");
+	check(fzn_record_open(wire[3], wrote[3], &genuine_two) == FZN_RECORD_OK,
+	      "the near-miss pair's genuine half is not shaped like a record");
+	fzn_record_signed_bytes(near, &at_a, &len_a);
+	fzn_record_signed_bytes(genuine_two, &at_b, &len_b);
+	check(len_a == len_b && memcmp(at_a, at_b, len_a) == 0,
+	      "the near-miss pair must agree on every signed byte, or its refusal "
+	      "could be about content rather than about the key's last byte");
+
+	refused = receiver->refused_record;
+	check(sim_receive_record(&net, receiver, near) == 0,
+	      "a record signed by a key differing from the issuer's only in its last "
+	      "byte was accepted -- the signature is not checked against the whole key");
+	check(receiver->refused_record == refused + 1u,
+	      "the near-miss refusal was not counted");
+	check(fzn_journal_next(&receiver->journal, issuer->pubkey, STREAM_STATE) == 2u,
+	      "the near-miss record moved the journal position");
+	check(fzn_state_get(&receiver->state, second, KIND_SETTING) == NULL,
+	      "the near-miss record reached the receiver's state");
+
+	check(sim_receive_record(&net, receiver, genuine_two) == 1,
+	      "the near-miss pair's genuine half was refused");
+	check(fzn_journal_next(&receiver->journal, issuer->pubkey, STREAM_STATE) == 3u,
+	      "the near-miss pair's genuine half did not move the journal position");
+	check(fzn_state_get(&receiver->state, second, KIND_SETTING) != NULL,
+	      "the near-miss pair's genuine half did not reach the receiver's state");
+
+	printf("  forgery: %u refused unsigned, %u admitted, journal at %llu\n",
+	       receiver->refused_record, receiver->admitted,
+	       (unsigned long long)fzn_journal_next(&receiver->journal, issuer->pubkey,
+	                                            STREAM_STATE));
 }
 
 /* ------------------------------------------------------------ scenario 11
@@ -2450,6 +2725,7 @@ int main(void)
 	scenario_tamper();
 	scenario_distribution();
 	scenario_state();
+	scenario_forgery();
 	scenario_join();
 	scenario_fidelity();
 
