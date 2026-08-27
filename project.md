@@ -8365,9 +8365,36 @@ the header, not for declining to build.
 
 ## 15. The consolidation this library exists for, 2026-08-28
 
-**Stated by the copyright holder**: the crypto, the network code and the
-generic services move mostly INTO fuzznet. Two constraints come with it,
-and they are what make it a design question rather than a schedule.
+**RESTATED, NOT NEW, AND THAT IS THE FINDING.** The holder said "the
+end goal as you know", and the "as you know" is literally accurate:
+sec 5 has carried it since **2026-08-26**, in more detail than this
+section adds. It names the subsystems -- "the whole log subsystem,
+relaying, adding hosts, creating rules and permissions, the config
+database, chunked transfer for file transfer, and streaming media --
+generalised for use by other projects", with "what network code remains
+in fuzzypickles is open, and expected to be little".
+
+So the goal changed nothing. **What changed is that somebody looked.**
+
+**AND THE COST OF NOT LOOKING IS MEASURABLE, in this document, from
+yesterday.** Sec 13e's forward-secrecy pass judged session-only forward
+secrecy "coherent and beside the point" -- correct against sec 13's axis
+and wrong against a target architecture recorded two days earlier in a
+section the pass was never told to read. The brief named secs 4.4a,
+4.5, 13 and 14 and the `session/`, `wire/` and `trust/` headers. It did
+not name sec 5. **That omission is the author's, not the agent's**: a
+design pass scoped to the crypto sections cannot see a decision about
+which subsystems this library will host, and the shape it dismissed is
+the shape a merged library needs, because a group ratchet is
+session-oriented and a peer frame is self-contained and consolidation
+means hosting both.
+
+**The general form, and it is worth more than the instance: a document
+long enough to need scoping is a document whose scope is a decision,
+and scoping a design brief to the sections about the SUBJECT will omit
+the sections about the DESTINATION.** Two constraints come with the
+goal, and they are what make it a design question rather than a
+schedule.
 
 **Do not lose work or ideas that came from very costly development.**
 That is mostly fuzzypickles' side. Their group ratchet, prekey channel,
@@ -8391,7 +8418,8 @@ the point**: it protects live exchanges and leaves stored, relayed and
 asleep traffic untouched, which is the traffic sec 13's axis exists
 for.
 
-**Under consolidation that judgement inverts.** fuzzypickles' group
+**Under consolidation that judgement inverts -- and consolidation was
+already decided when the judgement was made.** fuzzypickles' group
 ratchet IS session-oriented and their peer frame IS self-contained.
 **A merged library must host both**, so a design supporting two key
 schedules selected by held material is not a half-measure -- it is the
@@ -8399,8 +8427,10 @@ shape the target needs. The same analysis, the same shape, opposite
 verdict, and the only thing that changed was knowing where this is
 going.
 
-That is the concrete argument for the holder's instruction. **Sec 13e's
-recommendation should not be acted on until the target shape is known**,
+That is the concrete argument for the holder's instruction, and it is
+sharper for the verdict having been reachable at the time. **Sec 13e's
+recommendation should not be acted on until the target shape is
+known**,
 because the cheap option (epoch re-derivation) is cheap partly by
 declining to grow a session concept, and declining to grow one is
 exactly what consolidation forbids.
