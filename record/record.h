@@ -224,15 +224,54 @@ typedef struct fzn_record {
  * so a caller cannot half-read a rejected buffer. */
 fzn_record_err_t fzn_record_open(const uint8_t *bytes, size_t len, fzn_record_t *out);
 
-/* Did `fzn_record_open` fill this view?
+/* Is this view one an accessor may be called on?
  *
  * For a boundary that takes a record from somewhere it cannot see -- a public
  * entry point in `state/` or `log/`, which must answer an error rather than
- * read through whatever a caller passed. A view this answers 0 for is one no
- * accessor may be called on. */
+ * read through whatever a caller passed.
+ *
+ * IT REPEATS THE STRUCTURAL PART OF `fzn_record_open`, and the repetition is
+ * the point rather than an oversight. It used to test only `base != NULL &&
+ * len >= FZN_RECORD_MIN_LEN`, and that is not enough to make any accessor
+ * safe: `fzn_record_body_len` reads `body_len` from the bytes, so a view whose
+ * embedded length disagrees with its buffer hands a caller a pointer and a
+ * size that do not belong together.
+ *
+ * Measured. Take a genuine 157-byte record and patch `body_len` to 512.
+ * `fzn_record_open` refuses it -- "not the shape of a record", which is the
+ * check whose comment says canonical is what makes it signable. The old
+ * `is_open` returned 1, `fzn_state_apply` returned OK, and the consumer was
+ * handed an entry claiming 512 bytes over a 157-byte buffer. ASan reports the
+ * overflow in the CONSUMER, past anything this library can be blamed for by
+ * a reader looking at the crash.
+ *
+ * A shorter variant faulted inside `state/`'s own `seq == 0` test -- a check
+ * vacuous for every legal input, whose only live input class is the one where
+ * evaluating it is itself the out-of-bounds read.
+ *
+ * So the guard has to be a real one. It is a handful of loads and no hashing,
+ * which is what "cheap" was always supposed to mean here. What it does NOT
+ * repeat is the signature -- authenticity is `fzn_record_verify`'s, and a
+ * caller that admits an unverified record has skipped a step this module
+ * cannot see. */
 static inline int fzn_record_is_open(fzn_record_t r)
 {
-	return r.base != NULL && r.len >= FZN_RECORD_MIN_LEN;
+	size_t body_len;
+
+	if (r.base == NULL || r.len < FZN_RECORD_MIN_LEN)
+		return 0;
+	if (r.base[FZN_RECORD_OFF_VERSION] != (uint8_t)FZN_SIGNED_VERSION)
+		return 0;
+	if (r.base[FZN_RECORD_OFF_OBJECT] != (uint8_t)FZN_OBJECT_RECORD)
+		return 0;
+
+	body_len = (size_t)fzn_get_be16(r.base + FZN_RECORD_OFF_BODY_LEN);
+	if (body_len > FZN_RECORD_BODY_MAX)
+		return 0;
+
+	/* EXACT, not "at least". A buffer longer than the record it holds is a
+	 * different fault from a short one and neither is a record. */
+	return r.len == (size_t)FZN_RECORD_HEADER_LEN + body_len + FZN_SIG_LEN;
 }
 
 /* WHO IS ASSERTING THIS. 32 bytes, and the key the signature is checked

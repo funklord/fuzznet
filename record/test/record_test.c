@@ -266,6 +266,88 @@ static void refused_shape(const char *field, const uint8_t *genuine, size_t len,
 	expect_err(fzn_record_open(copy, len, &r), want, what);
 }
 
+/* THE GUARD `state/` AND `log/` USE MUST REFUSE WHAT `open` REFUSES.
+ *
+ * `fzn_record_is_open` used to test only `base != NULL` and a minimum length.
+ * That is not enough to make an accessor safe: `fzn_record_body_len` reads
+ * the length out of the bytes, so a view whose embedded length disagrees with
+ * its buffer hands a caller a pointer and a size that do not belong together
+ * -- and the overflow lands in the CONSUMER, past anything a reader looking
+ * at the crash would blame on this library.
+ *
+ * Every case here is a byte string `fzn_record_open` rejects, so the two must
+ * agree; the last is the control, without which "is_open refuses" is
+ * satisfied by a guard that refuses everything.  */
+static void test_is_open_agrees_with_open(void)
+{
+	uint8_t buf[FZN_RECORD_MAX_LEN];
+	uint8_t issuer[FZN_PUBKEY_LEN], subject[FZN_SUBJECT_LEN], body[4];
+	fzn_sign_ops_t ops;
+	struct stub st;
+	fzn_record_t v;
+	size_t wrote = 0;
+
+	memset(issuer, 0xa1, sizeof(issuer));
+	memset(subject, 0x51, sizeof(subject));
+	memset(body, 7, sizeof(body));
+	memset(&st, 0, sizeof(st));
+	memcpy(st.key, issuer, sizeof(st.key));
+	memset(&ops, 0, sizeof(ops));
+	ops.sign = stub_sign;
+	ops.ctx = &st;
+
+	expect(fzn_record_sign(issuer, subject, 0, 1, 1, 1, body, sizeof(body), &ops, buf,
+	                      sizeof(buf), &wrote) == FZN_RECORD_OK,
+	      "the fixture could not sign a record");
+
+	/* THE CONTROL FIRST: the genuine record must pass both. */
+	expect(fzn_record_open(buf, wrote, &v) == FZN_RECORD_OK, "a genuine record would not open");
+	expect(fzn_record_is_open(v) == 1, "a genuine record was not recognised as open");
+
+	/* A body length past the buffer -- the case that reached a consumer. */
+	{
+		fzn_record_t forged;
+
+		buf[FZN_RECORD_OFF_BODY_LEN] = 0x02;
+		buf[FZN_RECORD_OFF_BODY_LEN + 1u] = 0x00;
+		forged.base = buf;
+		forged.len = wrote;
+		expect(fzn_record_open(buf, wrote, &v) != FZN_RECORD_OK,
+		      "open accepted a body length past the buffer");
+		expect(fzn_record_is_open(forged) == 0,
+		      "is_open accepted a body length past the buffer, which open refuses");
+		buf[FZN_RECORD_OFF_BODY_LEN] = 0x00;
+		buf[FZN_RECORD_OFF_BODY_LEN + 1u] = (uint8_t)sizeof(body);
+	}
+
+	/* A wrong version, a wrong object tag, and a buffer longer than the
+	 * record it holds -- each refused by `open`, so each must be refused
+	 * here. */
+	{
+		fzn_record_t bad;
+
+		bad.base = buf;
+		bad.len = wrote;
+
+		buf[FZN_RECORD_OFF_VERSION] = 2;
+		expect(fzn_record_is_open(bad) == 0, "is_open accepted a wrong version byte");
+		buf[FZN_RECORD_OFF_VERSION] = (uint8_t)FZN_SIGNED_VERSION;
+
+		buf[FZN_RECORD_OFF_OBJECT] = (uint8_t)FZN_OBJECT_HOP;
+		expect(fzn_record_is_open(bad) == 0, "is_open accepted a record tagged as a hop");
+		buf[FZN_RECORD_OFF_OBJECT] = (uint8_t)FZN_OBJECT_RECORD;
+
+		bad.len = wrote + 1u;
+		expect(fzn_record_is_open(bad) == 0, "is_open accepted an over-long buffer");
+	}
+
+	/* And the control again at the end, so a guard that simply started
+	 * refusing everything cannot pass this function. */
+	expect(fzn_record_open(buf, wrote, &v) == FZN_RECORD_OK,
+	      "the record did not survive being put back");
+	expect(fzn_record_is_open(v) == 1, "is_open refuses everything, so it checks nothing");
+}
+
 int main(void)
 {
 	struct stub stub;
@@ -645,6 +727,7 @@ int main(void)
 	printf("record_test: layout %u + body + %u, %zu..%zu bytes\n",
 	       (unsigned)FZN_RECORD_HEADER_LEN, (unsigned)FZN_SIG_LEN,
 	       (size_t)FZN_RECORD_MIN_LEN, (size_t)FZN_RECORD_MAX_LEN);
+	test_is_open_agrees_with_open();
 	printf("record_test: %d checks, %d failure(s)\n", checks, failures);
 
 	return failures == 0 ? 0 : 1;
