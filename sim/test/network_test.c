@@ -140,19 +140,29 @@ static int sim_open(void *ctx, const uint8_t *key, const uint8_t *nonce, const u
 	return 1;
 }
 
-/* A signature over exactly the bytes of a signed region, which is what a real
- * one is. The region EXCLUDES the signature field -- an earlier version of
- * this signed a struct that contained its own signature, which is circular
- * and only worked because nothing depended on the exclusion.
+/* A signature over exactly the bytes of a signed region, BY A NAMED
+ * IDENTITY, which is what a real one is. The region EXCLUDES the signature
+ * field -- an earlier version of this signed a struct that contained its own
+ * signature, which is circular and only worked because nothing depended on
+ * the exclusion.
+ *
+ * `signer` is folded in first and in full, so a signature is a function of
+ * who made it as well as of what it covers, and two identities agreeing on
+ * every byte but the last produce different signatures over the same
+ * message. That is what gives a key comparison anywhere below it a length
+ * that can be wrong.
  *
  * Forging means producing a matching signature, which no scenario below does
  * by guessing. The one that forges a grant calls the signer honestly and
  * lies about the capability instead: a well-formed lie rather than a corrupt
  * frame, which is the harder case to refuse. */
-static void sim_sign_bytes(const uint8_t *msg, size_t len, uint8_t sig[FZN_SIG_LEN])
+static void sim_sign_bytes(const uint8_t signer[FZN_PUBKEY_LEN], const uint8_t *msg, size_t len,
+                           uint8_t sig[FZN_SIG_LEN])
 {
 	uint32_t acc = 0xabcdefu;
 
+	for (size_t i = 0; i < FZN_PUBKEY_LEN; i++)
+		acc = mix(acc ^ signer[i]);
 	for (size_t i = 0; i < len; i++)
 		acc = mix(acc ^ msg[i]);
 	for (size_t i = 0; i < FZN_SIG_LEN; i++)
@@ -172,56 +182,104 @@ static void sim_sign_bytes(const uint8_t *msg, size_t len, uint8_t sig[FZN_SIG_L
 
 /* The signing half of the vtable. Supplying only `verify` is what the first
  * version of this did, and `fzn_chain_delegate` answered "malformed argument"
- * -- correctly, since minting a hop requires a signer. */
+ * -- correctly, since minting a hop requires a signer.
+ *
+ * `ctx` IS THE SIGNING IDENTITY, and it is the only way it could be. The
+ * vtable's sign op takes no key by design -- "Nothing here takes a secret
+ * key", `chain.h` -- so a stub that binds a signature to an identity has to
+ * be told who is holding the pen some other way. `sim_signer` below fills it.
+ *
+ * REFUSING WHEN NOBODY IS NAMED is the half that keeps the binding honest.
+ * `net->sign` carries a NULL `ctx` and is what verify-only callers pass; a
+ * signing site that reaches for it has forgotten to say who signs, and
+ * signing as the all-zero identity would produce a hop that verifies under
+ * nobody while looking exactly like a minting failure nobody checked. It
+ * fails loudly instead: every caller here tests the result. */
 static int sim_sign_op(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg, size_t msg_len)
 {
-	(void)ctx;
-	sim_sign_bytes(msg, msg_len, sig);
+	const uint8_t *signer = (const uint8_t *)ctx;
+
+	if (!signer)
+		return 0;
+	sim_sign_bytes(signer, msg, msg_len, sig);
 	return 1;
 }
 
-/* THIS VERIFIER IS KEY-BLIND, AND EVERY SCENARIO BELOW INHERITS THE LIMIT.
+/* A KEY-BOUND VERIFIER: the answer is a function of `pubkey` as well as of
+ * the message, so a signature made by one identity verifies under that
+ * identity and under no other. It agrees with `sim_sign_op` above exactly
+ * when the key that signed is the key being verified against.
  *
- * `pubkey` is discarded and the answer is a function of the MESSAGE ALONE, so
- * every key "signs" identically and every key verifies everything. Nothing
- * here can distinguish a signature made by one party from one made by
- * another.
- *
- * WHAT THAT COSTS, measured rather than reasoned. Changing `chain/chain.c` so
- * that every hop's signature is verified against `fzn_hop_grantor(hops[0])`
- * -- the root -- instead of against its own grantor is textbook key
- * confusion, and it gives:
+ * IT USED TO DISCARD `pubkey`, and what that cost was measured rather than
+ * argued. With the answer a function of the MESSAGE ALONE, every key
+ * "signed" identically and every key verified everything. Changing
+ * `chain/chain.c` so that every hop's signature is checked against
+ * `fzn_hop_grantor(hops[0])` -- the root -- instead of against its own
+ * grantor is textbook key confusion, and it gave:
  *
  *     chain_test    271 checks, 39 failure(s)
- *     network_test  172 checks,  0 failure(s)
+ *     network_test  186 checks,  0 failure(s)
  *
  * `chain/test/chain_test.c`'s stub records which keys it was handed, which is
- * why it notices; this one cannot notice anything about keys at all. So no
- * scenario in this file can catch verification against the wrong key, and
- * where a scenario here appears to establish that a host cannot act on
- * another's grant -- `scenario_substitution`, `scenario_delegation`,
- * `scenario_join` -- the refusal is coming from STRUCTURAL linkage (a
- * grantee field compared against a sender field, a grantor field compared
- * against a pinned root) and not from a signature.
+ * why it noticed; this one could notice nothing about keys at all. So no
+ * scenario in this file could catch verification against the wrong key, and
+ * where a scenario appeared to establish that a host cannot act on another's
+ * grant -- `scenario_substitution`, `scenario_delegation`, `scenario_join` --
+ * the refusal came from STRUCTURAL linkage (a grantee field compared against
+ * a sender field, a grantor field compared against a pinned root) and not
+ * from a signature. Every cryptographic claim the harness made was really a
+ * structural one, including the one at the top of this file saying the
+ * signature depends on who signed what.
  *
- * Those structural comparisons are therefore carrying the whole weight in
- * this harness, which is why the near-miss legs below matter more than their
- * size suggests: they are what gives those comparisons a length that can be
- * wrong.
+ * THE MEASUREMENT IS KEPT BECAUSE IT IS THE REASON. A fix whose motivation
+ * has been deleted gets reverted by somebody who cannot see why it exists,
+ * and the shape of this one invites that: folding a key into a digest looks
+ * like decoration until the second number is beside the first.
  *
- * FIXING IT IS NOT A COMMENT'S WORTH OF WORK. The signing vtable takes no key
- * by design -- "Nothing here takes a secret key", `chain.h` -- so a stub that
- * bound one would need a per-host signer context threaded through every mint
- * and every verify in this file. Recorded here rather than done. */
+ * WHAT IT TOOK, since the asymmetry is the interesting part. Verification
+ * needed no plumbing -- `verify` is handed the very key it must check
+ * against. Only SIGNING needed a context, because the sign op takes no key,
+ * so each signing site names its signer through `sim_signer`.
+ *
+ * The mutation above now fails `scenario_delegation` by name, at 195 checks
+ * and 3 failures -- the assertion that says a hop's signature is checked
+ * against that hop's grantor, plus the two delivery counts downstream of it.
+ * The structural
+ * comparisons are still worth what they were and the near-miss legs below
+ * still matter: nothing here replaces them, and what changed is that they
+ * are no longer carrying the whole weight of the harness's crypto. */
 static int sim_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const uint8_t *msg,
                       size_t msg_len, const uint8_t sig[FZN_SIG_LEN])
 {
 	uint8_t want[FZN_SIG_LEN];
 
 	(void)ctx;
-	(void)pubkey;
-	sim_sign_bytes(msg, msg_len, want);
+	sim_sign_bytes(pubkey, msg, msg_len, want);
 	return memcmp(want, sig, FZN_SIG_LEN) == 0;
+}
+
+/* A per-signer copy of a signing vtable, naming the identity that signs.
+ *
+ * The base vtable is copied rather than rebuilt, so a signing op added to
+ * `fzn_sign_ops_t` reaches every signer here without a second edit; only
+ * `ctx` differs, and it points at this signer's own copy of the key so that
+ * the caller's key may be a const array or a temporary.
+ *
+ * A CALLER'S `struct sim_signer` MUST OUTLIVE THE CALL IT IS PASSED TO.
+ * Every use below is a local in the block that makes the call, which is the
+ * shape that cannot get this wrong. */
+struct sim_signer {
+	uint8_t key[FZN_PUBKEY_LEN];
+	fzn_sign_ops_t ops;
+};
+
+static const fzn_sign_ops_t *sim_signer(struct sim_signer *who, const fzn_sign_ops_t *base,
+                                        const uint8_t key[FZN_PUBKEY_LEN])
+{
+	memcpy(who->key, key, FZN_PUBKEY_LEN);
+	who->ops = *base;
+	who->ops.ctx = who->key;
+	return &who->ops;
 }
 
 /* ------------------------------------------------------------------ hosts */
@@ -495,7 +553,14 @@ static void sim_near_identity(const uint8_t base[FZN_PUBKEY_LEN], uint8_t out[FZ
 static void sim_regrant(struct sim_net *net, struct sim_host *h,
                         const uint8_t root[FZN_PUBKEY_LEN])
 {
-	if (fzn_chain_mint(root, h->pubkey, net->capability, 1, FZN_NO_EXPIRY, 1, &net->sign,
+	struct sim_signer signer;
+
+	/* SIGNED BY THE ROOT THIS GRANT NAMES, which is the whole of what
+	 * `sim_signer` buys: a caller re-grafting a host onto a near-miss root
+	 * gets a hop signed by that root, so the grant checks out under it and
+	 * under nothing else. Passing `&net->sign` here would refuse to sign. */
+	if (fzn_chain_mint(root, h->pubkey, net->capability, 1, FZN_NO_EXPIRY, 1,
+	                   sim_signer(&signer, &net->sign, root),
 	                   h->hop_bytes[0]) != FZN_CHAIN_OK)
 		setup_faults++;
 	if (fzn_hop_open(h->hop_bytes[0], FZN_HOP_LEN, &h->chain[0]) != FZN_CHAIN_OK)
@@ -951,6 +1016,7 @@ static void scenario_revocation(void)
 	static struct sim_net net;
 	static uint8_t msg[3000];
 	fzn_revocation_record_t rec;
+	struct sim_signer root_signer;
 	static uint8_t rec_region[FZN_REVOCATION_LEN];
 
 	sim_init(&net, 4, 0x2222u);
@@ -966,9 +1032,12 @@ static void scenario_revocation(void)
 	check(net.hosts[3].delivered == 0, "a multi-chunk message completed on one chunk");
 
 	/* Signed by the root, because only the root revokes and the store
-	 * verifies that rather than trusting the caller. */
+	 * verifies that rather than trusting the caller -- and now signed WITH
+	 * the root's key rather than merely naming it as issuer, so
+	 * `fzn_revocation_admit` is checking a signature and not a field. */
 	check(fzn_revocation_issue(net.root, net.capability, net.hosts[2].pubkey, net.now,
-	                           &net.sign, rec_region) == FZN_CHAIN_OK,
+	                           sim_signer(&root_signer, &net.sign, net.root),
+	                           rec_region) == FZN_CHAIN_OK,
 	      "the simulation could not issue a revocation");
 	check(fzn_revocation_open(rec_region, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK,
 	      "the simulation could not open the revocation it issued");
@@ -1053,6 +1122,7 @@ static void scenario_revocation_split(void)
 	static uint8_t rec_region[FZN_REVOCATION_LEN];
 	fzn_revocation_record_t rec;
 	struct sim_host *sender, *told, *untold;
+	struct sim_signer root_signer;
 
 	sim_init(&net, 4, 0x2323u);
 	fill_message(msg, sizeof(msg), 31);
@@ -1074,7 +1144,8 @@ static void scenario_revocation_split(void)
 
 	/* Signed by the root, as scenario 3's is and for the same reason. */
 	check(fzn_revocation_issue(net.root, net.capability, sender->pubkey, net.now,
-	                           &net.sign, rec_region) == FZN_CHAIN_OK,
+	                           sim_signer(&root_signer, &net.sign, net.root),
+	                           rec_region) == FZN_CHAIN_OK,
 	      "the simulation could not issue a revocation");
 	check(fzn_revocation_open(rec_region, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK,
 	      "the simulation could not open the revocation it issued");
@@ -1184,10 +1255,12 @@ static void scenario_unauthorised(void)
 	 * a corrupt one. */
 	{
 		uint8_t forged_cap[FZN_CAP_ID_LEN];
+		struct sim_signer root_signer;
 
 		memset(forged_cap, 0xee, sizeof(forged_cap));
 		check(fzn_chain_mint(net.root, net.hosts[0].pubkey, forged_cap, 1, FZN_NO_EXPIRY,
-		                     1, &net.sign, net.hosts[0].hop_bytes[0]) == FZN_CHAIN_OK,
+		                     1, sim_signer(&root_signer, &net.sign, net.root),
+		                     net.hosts[0].hop_bytes[0]) == FZN_CHAIN_OK,
 		      "the forged grant could not be minted");
 		check(fzn_hop_open(net.hosts[0].hop_bytes[0], FZN_HOP_LEN,
 		                   &net.hosts[0].chain[0]) == FZN_CHAIN_OK,
@@ -1235,6 +1308,7 @@ static void scenario_delegation(void)
 	static struct sim_net net;
 	static uint8_t msg[600];
 	struct sim_host *from = NULL, *to = NULL;
+	struct sim_signer from_signer;
 	fzn_chain_err_t err;
 
 	sim_init(&net, 4, 0x5555u);
@@ -1247,9 +1321,15 @@ static void scenario_delegation(void)
 	/* The delegated hop is written straight into the recipient's own
 	 * storage. A hop is a view now, so "take ownership of the region" is
 	 * no longer a step a harness has to remember -- the bytes ARE the hop,
-	 * and minting into `to->hop_bytes[1]` is the whole of it. */
+	 * and minting into `to->hop_bytes[1]` is the whole of it.
+	 *
+	 * SIGNED BY THE DELEGATING HOST, which is who the new hop names as its
+	 * grantor -- `fzn_chain_delegate` passes `existing.grantee` to its
+	 * signer. The same vtable re-verifies the chain being delegated from,
+	 * which needs no signer at all: `verify` reads the key it is handed. */
 	err = fzn_chain_delegate(from->chain, from->chain_len, net.root, net.capability, net.now,
-	                         to->pubkey, FZN_NO_EXPIRY, 0, &net.sign, NULL,
+	                         to->pubkey, FZN_NO_EXPIRY, 0,
+	                         sim_signer(&from_signer, &net.sign, from->pubkey), NULL,
 	                         to->hop_bytes[1]);
 	check(err == FZN_CHAIN_OK, "the delegation was refused");
 
@@ -1266,6 +1346,79 @@ static void scenario_delegation(void)
 		sim_run(&net, 4);
 		check(net.hosts[2].delivered == 1, "a delegated host's message was not delivered");
 		check(net.hosts[2].refused_auth == 0, "a delegated host was refused on authority");
+	}
+
+	/* WHICH KEY EACH HOP IS CHECKED AGAINST, asked directly rather than
+	 * through a delivery count.
+	 *
+	 * This is the leg the harness could not carry until `sim_verify` bound
+	 * the key. With a verifier that ignored `pubkey`, `chain/chain.c` could
+	 * be changed to check every hop against the ROOT and this whole file
+	 * stayed green -- chain_test 271 checks and 39 failures on that mutation,
+	 * this file 186 checks and none -- while the two refusals below could not
+	 * be written at all, since a key-blind verifier accepts a hop signed by
+	 * anybody. A two-hop chain is where the question first exists at all,
+	 * because hop 1's grantor is the delegating host and hop 0's is the
+	 * root, so the two keys are only the same key in a one-hop chain --
+	 * which is every other scenario in this file.
+	 *
+	 * The two directions are separate properties and neither implies the
+	 * other. The first fails for a verifier that checks the right signature
+	 * against the wrong key; the second for one that does not check the key
+	 * at all, and it is the one the old stub made unaskable. */
+	if (err == FZN_CHAIN_OK && to->chain_len == 2) {
+		struct sim_signer impostor;
+		fzn_chain_hop_t hops[2];
+		fzn_chain_t proven;
+		uint8_t forged[FZN_HOP_LEN];
+		uint8_t near_grantor[FZN_PUBKEY_LEN];
+
+		check(fzn_chain_verify(to->chain, to->chain_len, net.root, net.capability,
+		                       net.now, &net.sign, NULL, &proven) == FZN_CHAIN_OK,
+		      "a delegated hop signed by its own grantor was refused -- each hop's "
+		      "signature must be checked against THAT hop's grantor, not against the "
+		      "root");
+
+		/* The same shape of hop, structurally perfect: its grantor is the
+		 * delegating host, so the linkage check that ties hop 1 to hop 0's
+		 * grantee passes and the capability and dates are the chain's own.
+		 * The only thing wrong with it is who held the pen. */
+		check(fzn_chain_mint(from->pubkey, to->pubkey, net.capability, net.now,
+		                     FZN_NO_EXPIRY, 0,
+		                     sim_signer(&impostor, &net.sign, net.hosts[2].pubkey),
+		                     forged) == FZN_CHAIN_OK,
+		      "the impostor's hop could not be minted");
+		hops[0] = to->chain[0];
+		check(fzn_hop_open(forged, FZN_HOP_LEN, &hops[1]) == FZN_CHAIN_OK,
+		      "the impostor's hop would not open");
+		check(fzn_chain_verify(hops, 2, net.root, net.capability, net.now, &net.sign,
+		                       NULL, &proven) == FZN_CHAIN_ERR_CHAIN_INVALID,
+		      "a hop whose grantor names one host and whose signature was made by "
+		      "another was accepted -- the signature is not being checked against a "
+		      "key at all");
+
+		/* AND ONCE MORE WITH A SIGNER THE GRANTOR ONLY ALMOST IS, for the
+		 * reason the near-miss legs elsewhere exist: a key comparison has a
+		 * LENGTH, and a stub folding part of a key would pass the case
+		 * above and fail here. The fixture is asserted before anything
+		 * rests on it. */
+		sim_near_identity(from->pubkey, near_grantor);
+		check(memcmp(near_grantor, from->pubkey, FZN_PUBKEY_LEN - 1u) == 0,
+		      "the near-miss signer must agree with the grantor on every byte but "
+		      "the last, or this case is not testing what it says");
+		check(memcmp(near_grantor, from->pubkey, FZN_PUBKEY_LEN) != 0,
+		      "the near-miss signer must differ somewhere, or nothing here can fail");
+		check(fzn_chain_mint(from->pubkey, to->pubkey, net.capability, net.now,
+		                     FZN_NO_EXPIRY, 0,
+		                     sim_signer(&impostor, &net.sign, near_grantor),
+		                     forged) == FZN_CHAIN_OK,
+		      "the near-miss signer's hop could not be minted");
+		check(fzn_hop_open(forged, FZN_HOP_LEN, &hops[1]) == FZN_CHAIN_OK,
+		      "the near-miss signer's hop would not open");
+		check(fzn_chain_verify(hops, 2, net.root, net.capability, net.now, &net.sign,
+		                       NULL, &proven) == FZN_CHAIN_ERR_CHAIN_INVALID,
+		      "a hop signed by a key matching its grantor in all but its last byte "
+		      "was accepted -- the signature check is not reading the whole key");
 	}
 	printf("  delegation: %s, %u delivered\n", fzn_chain_err_str(err), net.hosts[2].delivered);
 }
@@ -1805,12 +1958,18 @@ static void sim_make_record(struct sim_net *net, fzn_record_t *r, const struct s
 {
 	uint8_t subject[FZN_SUBJECT_LEN];
 	uint8_t *wire = state_wire[issuer->id][seq - 1u];
+	struct sim_signer signer;
 	size_t wrote = 0;
 
 	memset(subject, subject_seed, sizeof(subject));
+	/* THE ISSUER SIGNS, and `fzn_record_verify` checks against
+	 * `fzn_record_issuer` -- so the two agree only for a record whose issuer
+	 * really made it. Nothing in this file verifies a record yet, which is
+	 * its own gap; signing as somebody in particular is what would let it. */
 	check(fzn_record_sign(issuer->pubkey, subject, STREAM_STATE, KIND_SETTING, seq, 1,
 	                      state_bodies[issuer->id][seq - 1u], sizeof(state_bodies[0][0]),
-	                      &net->sign, wire, FZN_RECORD_MAX_LEN, &wrote) == FZN_RECORD_OK,
+	                      sim_signer(&signer, &net->sign, issuer->pubkey),
+	                      wire, FZN_RECORD_MAX_LEN, &wrote) == FZN_RECORD_OK,
 	      "the simulation could not sign a record");
 	check(fzn_record_open(wire, wrote, r) == FZN_RECORD_OK,
 	      "the simulation could not open the record it just signed");
@@ -2060,11 +2219,13 @@ static void scenario_join(void)
 	 * out against that root and against no other. */
 	{
 		struct sim_host *attacker = &net.hosts[1];
+		struct sim_signer rogue_signer;
 		fzn_chain_t proven;
 		unsigned refused_before;
 
 		check(fzn_chain_mint(rogue_root, attacker->pubkey, net.capability, 1,
-		                     FZN_NO_EXPIRY, 1, &net.sign,
+		                     FZN_NO_EXPIRY, 1,
+		                     sim_signer(&rogue_signer, &net.sign, rogue_root),
 		                     attacker->hop_bytes[0]) == FZN_CHAIN_OK,
 		      "the rogue grant could not be minted");
 		check(fzn_hop_open(attacker->hop_bytes[0], FZN_HOP_LEN,
