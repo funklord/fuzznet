@@ -106,6 +106,42 @@ static void test_replay_is_refused(void)
 	CHECK(fzn_replay_admit(&w, b, 2000, FZN_EXPIRY_REQUIRED, 1000) == FZN_FRESH_OK,
 	      "a different nonce was refused");
 	CHECK(w.used == 2, "used %zu, wanted 2", w.used);
+
+	/* TWO NONCES AGREEING ON EVERY BYTE BUT THE LAST, which is what makes
+	 * the comparison's LENGTH testable at all.
+	 *
+	 * `nonce_of` fills all 24 bytes with one value, so any two nonces in
+	 * this file differ at byte 0 and a comparison of ONE byte separates
+	 * them exactly as well as a comparison of twenty-four. Measured
+	 * before this case existed: truncating `same_nonce`'s `memcmp` to 1
+	 * left this file at 120 checks and zero failures, and left
+	 * `receive_fuzz` reporting order held throughout. Only the
+	 * integration harness noticed, and only as "not every message arrived
+	 * on a lossless network" -- a downstream symptom naming nothing.
+	 *
+	 * WHAT FAILS OPEN IS A REFUSAL, not an acceptance, which is why it is
+	 * worth a case rather than a shrug: a short comparison makes a
+	 * GENUINE frame look like a replay of one already seen, so a peer
+	 * whose nonce happens to share a prefix is silently dropped. The
+	 * replay window is the one place in this library whose job is to
+	 * refuse, and a defect that makes it refuse MORE hides inside that
+	 * job. */
+	{
+		uint8_t near[FZN_NONCE_LEN];
+
+		memcpy(near, b, sizeof(near));
+		near[FZN_NONCE_LEN - 1u] ^= 0x01u;
+
+		CHECK(memcmp(near, b, FZN_NONCE_LEN - 1u) == 0,
+		      "the twins must agree on every byte but the last");
+		CHECK(memcmp(near, b, FZN_NONCE_LEN) != 0,
+		      "the twins must differ somewhere, or nothing here can fail");
+
+		CHECK(fzn_replay_admit(&w, near, 2000, FZN_EXPIRY_REQUIRED, 1000) == FZN_FRESH_OK,
+		      "a nonce differing from a seen one only in its last byte was "
+		      "refused as a replay -- the window is not reading the whole nonce");
+		CHECK(w.used == 3, "used %zu, wanted 3 -- the near miss took no slot", w.used);
+	}
 }
 
 static void test_expiry_bounds_the_memory(void)
