@@ -7769,6 +7769,37 @@ copyright holder.
   nobody has: how many revocations a deployment accumulates over its life.
   Named rather than guessed at.
 
+  **AND THE FAIL-OPEN IS STRUCTURAL, NOT AN OVERSIGHT** -- established
+  2026-08-27 by comparing with a consumer that has the same bound and
+  the OPPOSITE disposition. fuzzypickles bounds its revocation list at
+  64 and its index-add refuses when full, exactly as this store does.
+  It fails toward HONOURING the revocation anyway, because it stores the
+  revocation RECORD before it touches the index: past the limit the
+  revocation is in force locally and what is lost is the relay hop. Their
+  own summary -- "losing a relay hop is recoverable by any other host
+  that heard it; refusing to honour a revocation is not."
+
+  **fuzznet cannot do that, and the reason is architectural.**
+  `fzn_revocation_store_t` is both the record and the index: it is the
+  only memory that a revocation happened. When it is full there is
+  nowhere to put the fact, so `fzn_revocation_admit` refuses and the
+  revocation is not in force at all. Their split of "in force here" from
+  "propagates onward" is what makes failing safe available to them, and
+  this library has no such split to exploit.
+
+  So this entry should not be read as a defect awaiting a small fix.
+  **The available mitigation is the manifest** (sec 13d), and this is
+  the strongest argument for building it: a manifest names the count
+  BEFORE the revocations arrive, so a host can refuse at follow time,
+  loudly, with a number -- instead of discovering months later that a
+  table filled and a revoked device stayed authorised. It does not make
+  the store fail safe. It makes the bound checkable while there is still
+  something to do about it.
+
+  Recorded as mirror images rather than as a shared defect, because
+  "the consumer has the same fail-open" would be wrong in the one
+  direction that matters.
+
   **An entry costs 96 bytes, up from 64**, since the cross-root fix below
   keeps the issuer -- measured with `sizeof`, not derived. It is 50% more
   of the one thing here that only grows, and it is worth what it costs:
