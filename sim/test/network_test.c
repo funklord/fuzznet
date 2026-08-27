@@ -707,14 +707,46 @@ static void fill_message(uint8_t *buf, size_t len, uint8_t seed)
  * them and grow this file's headline count with the size of a mesh -- the
  * mistake `total_digest_dropped` and `setup_faults` above were both written
  * to undo. The caller asserts the count, once. */
+/* Admit to every host, and REFUSE TO ADMIT UNDER A ROOT THE HOST HAS NOT
+ * ANCHORED.
+ *
+ * The simulation holds one root and pins it into every host, so `net->root`
+ * and `fzn_trust_root(&h->trust)` are the same key -- which is why this
+ * helper could pass the simulation's copy and be right. It is right by
+ * coincidence. `sim_receive` verifies against the host's OWN anchor,
+ * deliberately, because that is what a host actually has; admitting against
+ * a key the simulation happens to hold is the same shortcut this harness
+ * already had to remove once, when the revocation store was global while the
+ * anchor was per host.
+ *
+ * Now that a store entry keeps its issuer, the two coinciding is load-
+ * bearing rather than cosmetic: a host whose anchor differed from the key
+ * its revocations were admitted under would silently stop honouring them,
+ * and every scenario here would still pass. So the helper asserts the
+ * identity rather than assuming it, and admits under the host's own anchor.
+ */
 static unsigned sim_revoke_all(struct sim_net *net, fzn_revocation_record_t rec)
 {
-	unsigned refused = 0;
+	unsigned refused = 0, unanchored = 0, mismatched = 0;
 
-	for (size_t i = 0; i < net->host_count; i++)
-		if (fzn_revocation_admit(&net->hosts[i].revocations, rec, net->root,
+	for (size_t i = 0; i < net->host_count; i++) {
+		const uint8_t *anchor = fzn_trust_root(&net->hosts[i].trust);
+
+		if (!anchor) {
+			unanchored++;
+			continue;
+		}
+		if (memcmp(anchor, net->root, FZN_PUBKEY_LEN) != 0)
+			mismatched++;
+		if (fzn_revocation_admit(&net->hosts[i].revocations, rec, anchor,
 		                         &net->sign) != FZN_CHAIN_OK)
 			refused++;
+	}
+
+	check(unanchored == 0, "a host had no anchor to admit a revocation under");
+	check(mismatched == 0,
+	      "a host's anchor differs from the simulation's root, so admitting under "
+	      "the simulation's copy would have recorded an issuer the host cannot match");
 	return refused;
 }
 
