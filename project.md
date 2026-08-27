@@ -8468,6 +8468,31 @@ begins:
   catches it; two things with one name and one width doing different
   jobs is what a consolidation reading headers unifies without noticing.
 
+### The hazard this document is most exposed to
+
+**Prose is what survives a rewrite**, and that cuts against us harder
+than against anyone. The consumer's tree proved it twice in one file: a
+documented reason citing a sibling function and a stated discipline,
+applied faithfully and inverting a polarity -- and thirty lines above
+it, the same file doing the RIGHT thing with no comment at all. A
+consolidation carries the documented one across and drops the
+undocumented one, because prose is what a rewrite reads.
+
+**This library is the most heavily commented of the family**, which is
+usually an asset and here is a specific risk: a merge will
+preferentially preserve fuzznet's reasoning, INCLUDING WHICHEVER OF IT
+IS WRONG. In one day this document was found to carry a stale blocker
+telling the next session not to start unblocked work, a count quoted
+after it had been superseded twice, an inventory nothing checked, a
+claim about a consumer's tree its owner had to correct, and a design
+record whose id derivation could not work. Every one was confidently
+written, several cited real constants, and all would have been carried
+into a merged tree.
+
+So a reasons list is not only a record of what to keep. **It is a list
+of what will be preserved whether or not it is right**, and whoever
+merges should read it that way.
+
 ### Instances of the fifth question, from this side
 
 - **`fzn_revocation_covers` returns `int` and its two callers ask
@@ -8498,6 +8523,25 @@ begins:
   failure mode one side cannot even produce.** That is the fifth
   question's shape exactly, and it is why "same function, both
   correct" is not enough to justify unifying two.
+
+- **The corrupt-store branch is right HERE and wrong THERE, for a
+  structural reason, and it is the cleanest instance yet.** Our store
+  denies on corruption because entries that might answer exist, cannot
+  be read, and are caller-owned memory this function never verified. A
+  consumer whose equivalent record FAILS ITS SIGNATURE is in a
+  different position: their install path verifies before storing, so
+  such a record cannot have arrived by propagation and means disk
+  corruption, or a key rotation invalidating records signed under an
+  old root. **Denying there would let a corrupt file or a key rotation
+  revoke capabilities nobody withdrew.**
+
+  Same-shaped branch, opposite correct answers, and the difference is
+  structural rather than a matter of taste: whether anything verified
+  the thing before it was stored. **Neither is evidence about the
+  other.** The consumer had been carrying their answer as a weakness on
+  their side and was about to adopt ours on the strength of our
+  agreeing elsewhere -- which would have been corroboration doing the
+  opposite of its job.
 
 **Nothing about consolidation is decided here.** This section exists so
 that the next decision is made with the target in view rather than
