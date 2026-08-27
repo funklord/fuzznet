@@ -7738,10 +7738,27 @@ copyright holder.
 - **Licensing**, unresolved across the whole family per `harmonization.md`, and
   a shared library is where it starts to bite: this one is linked by projects
   that may not agree.
-- **Key-committing AEAD has no field to commit into**, and the extern codec
-  cannot be written until that is settled. §4.5 carries the three options
-  and what each costs. This is the second thing blocking real code, after
-  §10 step 4, and unlike step 4 it does not wait on situ.
+- **~~Key-committing AEAD has no field to commit into.~~ FALSE SINCE THE
+  FIELD WAS ADDED, and this entry went on saying it.** Corrected
+  2026-08-27. Sec 4.5 line 630 reads "**Settled: `commitment[16]` goes
+  in the authenticated header**" and line 692 records the half that does
+  not wait on situ as built. The code agrees with sec 4.5 and not with
+  this entry: `wire/frame.situ` declares `u8 commitment[16]`,
+  `wire/seal.c` asserts it against `FZN_COMMITMENT_LEN` at compile time,
+  and `fzn_commitment_for_nonce` derives one per frame.
+
+  **A STALE BLOCKER IS THE EXPENSIVE KIND OF STALENESS.** A stale count
+  misleads a reader; a stale blocker tells the next session not to start
+  work that is already unblocked, and it does it from the section whose
+  whole purpose is to say what is open. This one had two sections of
+  this document disagreeing, with the code siding against the one a
+  reader consults for what to do next.
+
+  **What is NOT established here is whether the extern codec has OTHER
+  blockers.** The clause "cannot be written until that is settled" is
+  removed because its stated reason is gone, not because anybody checked
+  the codec. If it is still blocked, it is blocked on something nobody
+  has written down.
 - **What bounds a group member's requests.** raidcfgd's hazard in §2 --
   a group that can destroy arrays is root for that group -- is not
   answered by `local/peer.c`, which only establishes who a caller is. Where
