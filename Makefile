@@ -143,7 +143,8 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              sched/test/sched_test.c \
              link/test/link_test.c \
              log/test/fix_stream_test.c \
-             record/test/record_guided.c
+             record/test/record_guided.c \
+             record/test/record_fuzz.c
 TEST_OBJS := $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
 TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/chain/test/revocation_test \
@@ -185,7 +186,8 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/sched/test/sched_test \
              $(BUILD_DIR)/link/test/link_test \
              $(BUILD_DIR)/log/test/fix_stream_test \
-             $(BUILD_DIR)/record/test/record_guided
+             $(BUILD_DIR)/record/test/record_guided \
+             $(BUILD_DIR)/record/test/record_fuzz
 
 # The Monocypher binding, built only when MONOCYPHER_DIR names a checkout.
 #
@@ -421,6 +423,14 @@ $(BUILD_DIR)/record/test/sync_test: $(BUILD_DIR)/record/test/sync_test.o \
 $(BUILD_DIR)/record/test/record_test: $(BUILD_DIR)/record/test/record_test.o \
                                       $(BUILD_DIR)/record/record.o \
                                       $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# The byte-level fuzz harness for the same module record_test.c covers with
+# named cases. It links record.o alone: nothing above `record/` is on trial
+# here, which is what separates it from record_guided.c next door.
+$(BUILD_DIR)/record/test/record_fuzz: $(BUILD_DIR)/record/test/record_fuzz.o \
+                                      $(BUILD_DIR)/record/record.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -736,7 +746,8 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/chain/test/revocation_fuzz \
              $(BUILD_DIR)/chunk/test/roundtrip_fuzz \
              $(BUILD_DIR)/local/test/peer_fuzz \
-             $(BUILD_DIR)/local/test/vocabulary_fuzz
+             $(BUILD_DIR)/local/test/vocabulary_fuzz \
+             $(BUILD_DIR)/record/test/record_fuzz
 
 fuzz: $(FUZZ_BINS)
 	@for f in $(FUZZ_BINS); do echo "== $$f $(CASES)"; $$f $(CASES) || exit 1; done
