@@ -492,6 +492,108 @@ int main(void)
 		           "and the top itself is answered absent, the safe half");
 	}
 
+	/* TWO ISSUERS THAT AGREE ON EVERY BYTE BUT THE LAST.
+	 *
+	 * Every other identity in this file is `memset(buf, seed, 32)`, so any
+	 * two of them differ at byte 0 and a comparison of ONE byte tells them
+	 * apart exactly as well as a comparison of thirty-two. That makes the
+	 * length in `fzn_ct_memeq(entries[i].issuer, issuer, FZN_PUBKEY_LEN)`
+	 * unfalsifiable: truncating it to 1 left this whole suite green, in
+	 * both `find` and `fzn_log_range`, measured before this case was
+	 * written.
+	 *
+	 * WHAT WOULD FAIL OPEN IS A CROSS-ISSUER ANSWER. `find` matches on
+	 * (issuer, stream, seq), so a short compare makes one issuer's entry
+	 * answer a question about another's -- the same shape as the
+	 * cross-root revocation defect fixed today, one layer up, and a log is
+	 * where a consumer looks to decide what happened.
+	 *
+	 * The pair below is built so that ONLY a full-length comparison
+	 * separates them. `trust/test/trust_test.c` already had this shape --
+	 * a second root differing in a single byte -- which is why truncating
+	 * its comparison IS caught. This is that case, brought to `log/`. */
+	{
+		uint8_t twin_a[FZN_PUBKEY_LEN], twin_b[FZN_PUBKEY_LEN];
+		fzn_record_t ra, rb;
+		fzn_log_t tlog;
+		fzn_log_entry_t tentries[4];
+		fzn_journal_t tjournal;
+		fzn_journal_entry_t tpositions[4];
+		const fzn_log_entry_t *hit = NULL;
+
+		memset(twin_a, 0x5a, sizeof(twin_a));
+		memset(twin_b, 0x5a, sizeof(twin_b));
+		twin_b[FZN_PUBKEY_LEN - 1u] ^= 0x01u;
+
+		expect(memcmp(twin_a, twin_b, FZN_PUBKEY_LEN - 1u) == 0,
+		       "the twins must agree on every byte but the last, or this "
+		       "case is not testing what it says");
+		expect(memcmp(twin_a, twin_b, FZN_PUBKEY_LEN) != 0,
+		       "the twins must differ somewhere, or nothing here can fail");
+
+		fzn_log_init(&tlog, tentries, 4);
+		fzn_journal_init(&tjournal, tpositions, 4);
+		expect(fzn_journal_anchor(&tjournal, twin_a, 0, 0) == FZN_JOURNAL_OK,
+		       "following the first twin");
+		expect(fzn_journal_anchor(&tjournal, twin_b, 0, 0) == FZN_JOURNAL_OK,
+		       "following the second twin");
+
+		/* Same stream, same sequence, different issuer. A truncated
+		 * comparison cannot tell these two entries apart at all. */
+		expect(fixture_record(&ra, twin_a, twin_a, 0, 3, 1, BODIES[1], sizeof(BODIES[0])),
+		       "building the first twin's record");
+		expect(fixture_record(&rb, twin_b, twin_b, 0, 3, 1, BODIES[2], sizeof(BODIES[0])),
+		       "building the second twin's record");
+		expect(fzn_log_append(&tlog, &ra) == FZN_LOG_OK, "appending the first twin's");
+		expect(fzn_log_append(&tlog, &rb) == FZN_LOG_OK, "appending the second twin's");
+		expect(fzn_journal_admit(&tjournal, twin_a, 0, 1) == FZN_JOURNAL_OK,
+		       "admitting the first twin's position");
+		expect(fzn_journal_admit(&tjournal, twin_b, 0, 1) == FZN_JOURNAL_OK,
+		       "admitting the second twin's position");
+
+		expect_err(fzn_log_get(&tlog, &tjournal, twin_a, 0, 1, &hit), FZN_LOG_OK,
+		           "the first twin's entry is found");
+		expect(hit && memcmp(hit->issuer, twin_a, FZN_PUBKEY_LEN) == 0,
+		       "a lookup for the first twin returned an entry belonging to the "
+		       "second -- the issuer comparison is not reading the whole key");
+
+		hit = NULL;
+		expect_err(fzn_log_get(&tlog, &tjournal, twin_b, 0, 1, &hit), FZN_LOG_OK,
+		           "the second twin's entry is found");
+		expect(hit && memcmp(hit->issuer, twin_b, FZN_PUBKEY_LEN) == 0,
+		       "a lookup for the second twin returned an entry belonging to the "
+		       "first -- the issuer comparison is not reading the whole key");
+
+		/* AND THE SAME FOR `fzn_log_range`, WHICH IS A SEPARATE LOOP OVER
+		 * A SEPARATE COMPARISON. Truncating log.c's OTHER `fzn_ct_memeq`
+		 * left the case above green -- one vacuous comparison per
+		 * function, and closing one says nothing about the other.
+		 *
+		 * Give the second twin a sequence the first does not have. Then a
+		 * short comparison folds the two issuers together and reports a
+		 * range of 1..2 for a twin that holds only one of them. */
+		{
+			fzn_record_t rb2;
+			uint64_t lo = 0, hi = 0;
+
+			expect(fixture_record(&rb2, twin_b, twin_b, 0, 3, 2, BODIES[3],
+			                      sizeof(BODIES[0])),
+			       "building the second twin's later record");
+			expect(fzn_log_append(&tlog, &rb2) == FZN_LOG_OK,
+			       "appending the second twin's later record");
+
+			fzn_log_range(&tlog, twin_a, 0, &lo, &hi);
+			expect(lo == 1u && hi == 1u,
+			       "the first twin's range swallowed a sequence only the second "
+			       "holds -- fzn_log_range is not reading the whole issuer");
+
+			lo = hi = 0;
+			fzn_log_range(&tlog, twin_b, 0, &lo, &hi);
+			expect(lo == 1u && hi == 2u,
+			       "the second twin's range is not its own two sequences");
+		}
+	}
+
 	printf("log_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
 }
