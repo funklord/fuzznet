@@ -2783,7 +2783,7 @@ stubbed and deliberately not weakened; a wrong key, a forged tag and a forged
 signature all fail, because a stub that accepted them would make every
 scenario vacuous.
 
-Fifteen scenarios, 170 checks:
+Fifteen scenarios, 186 checks:
 
 | scenario | what it establishes |
 |---|---|
@@ -2795,7 +2795,7 @@ Fifteen scenarios, 170 checks:
 | unauthorised | a validly signed grant naming a capability nobody granted |
 | delegation | a two-hop chain minted by the library, accepted under the same root |
 | lossy | 20% loss and 40% reordering; some messages lost, none wrong |
-| splice | two senders, one message id; no cross-sender splice |
+| splice | two senders, one message id; no cross-sender splice -- and a NEAR-MISS leg, two senders whose keys differ only in the last byte, which is what makes this row's claim falsifiable |
 | substitution | a host acting on somebody else's grant is refused |
 | tamper | a mutated frame fails its tag, and the failure does not spend the nonce |
 | distribution | records converge across 20% loss, and a gap is reported rather than absorbed |
@@ -7506,6 +7506,47 @@ of the manifest; from here it reads as a burden.
   probe that mints a REAL hop -- the first version passed a zero hop,
   which `fzn_hop_open` refuses, so verification returned MALFORMED
   before ever reaching the revocation walk and the probe proved nothing.
+
+- **The harness could not discriminate the identities whose separation
+  it exists to assert. FIXED 2026-08-27.** `sim_identity` zeroed 32
+  bytes and set two, so every identity shared bytes 2..31 and differed
+  only in the prefix. Measured before the fix: truncating
+  `chunk/reassembly.c`'s sender comparison to one byte and rebuilding
+  left `network_test` at 172 checks, 0 failures, with the splice
+  scenario still printing "0 spliced" -- while `reassembly_test` caught
+  the same mutation with 3. Same for the root pin: `chain_test` caught
+  it, the harness did not.
+
+  **It landed on a claim rather than on tidiness.** Sec 5a cites the
+  splice scenario for "no cross-sender splice", and real public keys
+  share a first byte one time in 256 -- so that truncation would splice
+  in deployment and the harness asserting the property could not see it.
+  Identities now spread across all 32 bytes and two near-miss legs were
+  added, one for the sender comparison and one for the root pin. Both
+  mutations now fail the harness, verified by re-running them after the
+  merge rather than taking the report's word.
+
+  The mechanism the fix exposed is worth keeping: a near-miss intruder's
+  chunk is refused as a DUPLICATE INDEX, so the victim's message
+  completes without it and the stranger's never completes. Nothing is
+  spliced and a message is silently lost, which is why the leg asserts a
+  refusal COUNT rather than only the absence of a splice.
+
+- **`sim_verify` is key-blind, and no scenario in the harness can catch
+  verification against the wrong key.** Recorded, not fixed. It is
+  `(void)pubkey;` and recomputes from the message alone, so every key
+  verifies everything. Measured: changing `chain/chain.c` to verify every
+  hop against `hops[0]`'s grantor rather than its own -- textbook key
+  confusion -- gives `chain_test` **39 failures** and `network_test`
+  **zero**. Where a scenario appears to establish that a host cannot act
+  on another's grant, the refusal is coming from STRUCTURAL linkage and
+  not from a signature; `scenario_substitution`, `scenario_delegation`
+  and `scenario_join` are named at the function so a reader does not
+  mistake the harness's green for evidence about cryptography.
+
+  This also says what the near-miss legs above are worth: the harness
+  cannot separate identities cryptographically, so those byte
+  comparisons carry the whole weight.
 
 - **Two gaps this sweep did NOT close, both named rather than left.**
   `sim/test/network_test.c`'s `sim_identity` is still the
