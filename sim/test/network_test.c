@@ -180,6 +180,39 @@ static int sim_sign_op(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg, 
 	return 1;
 }
 
+/* THIS VERIFIER IS KEY-BLIND, AND EVERY SCENARIO BELOW INHERITS THE LIMIT.
+ *
+ * `pubkey` is discarded and the answer is a function of the MESSAGE ALONE, so
+ * every key "signs" identically and every key verifies everything. Nothing
+ * here can distinguish a signature made by one party from one made by
+ * another.
+ *
+ * WHAT THAT COSTS, measured rather than reasoned. Changing `chain/chain.c` so
+ * that every hop's signature is verified against `fzn_hop_grantor(hops[0])`
+ * -- the root -- instead of against its own grantor is textbook key
+ * confusion, and it gives:
+ *
+ *     chain_test    271 checks, 39 failure(s)
+ *     network_test  172 checks,  0 failure(s)
+ *
+ * `chain/test/chain_test.c`'s stub records which keys it was handed, which is
+ * why it notices; this one cannot notice anything about keys at all. So no
+ * scenario in this file can catch verification against the wrong key, and
+ * where a scenario here appears to establish that a host cannot act on
+ * another's grant -- `scenario_substitution`, `scenario_delegation`,
+ * `scenario_join` -- the refusal is coming from STRUCTURAL linkage (a
+ * grantee field compared against a sender field, a grantor field compared
+ * against a pinned root) and not from a signature.
+ *
+ * Those structural comparisons are therefore carrying the whole weight in
+ * this harness, which is why the near-miss legs below matter more than their
+ * size suggests: they are what gives those comparisons a length that can be
+ * wrong.
+ *
+ * FIXING IT IS NOT A COMMENT'S WORTH OF WORK. The signing vtable takes no key
+ * by design -- "Nothing here takes a secret key", `chain.h` -- so a stub that
+ * bound one would need a per-host signer context threaded through every mint
+ * and every verify in this file. Recorded here rather than done. */
 static int sim_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const uint8_t *msg,
                       size_t msg_len, const uint8_t sig[FZN_SIG_LEN])
 {
@@ -394,11 +427,80 @@ static int sim_hash(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in, 
 	return 1;
 }
 
+/* An identity, spread across the WHOLE key.
+ *
+ * It used to be `out[0] = id; out[1] = id ^ 0x5a;` with the other thirty
+ * bytes left zero, so any two identities in the simulation differed at byte 0
+ * and a comparison of ONE byte separated them exactly as well as a comparison
+ * of thirty-two. That made every key comparison this harness reaches
+ * unfalsifiable from here. Measured, before this was changed: truncating
+ * `chunk/reassembly.c`'s `memcmp(slot->sender, sender, FZN_SENDER_LEN)` to
+ * `1u` left this file at 172 checks and 0 failures, with `scenario_splice`
+ * still printing `2 delivered, 0 spliced`, while
+ * `chunk/test/reassembly_test` failed three times. Truncating
+ * `chain/chain.c`'s root pin the same way was the same story against
+ * `chain/test/chain_test`. The gap was specifically at the integration
+ * level: the modules' own suites caught both.
+ *
+ * WHY THAT IS NOT TIDINESS. Real public keys are effectively random, so two
+ * senders share a first byte one time in 256 -- a truncated sender
+ * comparison would splice in deployment, and sec 5a cites `scenario_splice`
+ * as what establishes "two senders, one message id; no cross-sender splice".
+ * The harness making the claim could not see the defect the claim is about.
+ *
+ * Spreading the bytes is necessary and not sufficient: two ids still differ
+ * at byte 0. What decides a LENGTH is a near miss, which is
+ * `sim_near_identity` below.
+ *
+ * Byte 0 stays the id. Nothing in this file reads it -- hosts are addressed
+ * by `struct sim_host::id` and datagrams by index, never by a key byte --
+ * but it costs nothing and a key that names its host is easier to read in a
+ * dump. */
 static void sim_identity(uint8_t id, uint8_t out[FZN_PUBKEY_LEN])
 {
-	memset(out, 0, FZN_PUBKEY_LEN);
 	out[0] = id;
-	out[1] = (uint8_t)(id ^ 0x5au);
+	for (size_t i = 1; i < FZN_PUBKEY_LEN; i++)
+		out[i] = (uint8_t)(id ^ i);
+}
+
+/* A SECOND IDENTITY AGREEING WITH `base` ON EVERY BYTE BUT THE LAST.
+ *
+ * This is the pair that gives a key comparison a length to get wrong: only a
+ * full-length comparison separates the two, so a scenario built on one fails
+ * when the comparison is truncated and passes when it is not. Same shape as
+ * `twin_senders` in `chunk/test/reassembly_test.c` and the twin cases in
+ * `log/test/log_test.c` and `state/test/state_test.c`; this is that shape
+ * brought to the integration harness, where the comparisons run against a
+ * whole receive path rather than against one function.
+ *
+ * A case using it asserts the property of the pair FIRST -- that they agree
+ * on the first thirty-one bytes and differ somewhere -- so that a fixture
+ * which quietly stopped producing a near miss fails by name instead of
+ * turning the case green for the wrong reason. */
+static void sim_near_identity(const uint8_t base[FZN_PUBKEY_LEN], uint8_t out[FZN_PUBKEY_LEN])
+{
+	memcpy(out, base, FZN_PUBKEY_LEN);
+	out[FZN_PUBKEY_LEN - 1u] ^= 0x01u;
+}
+
+/* Re-mint a host's grant, for a scenario that has changed the host's key or
+ * the root it answers to.
+ *
+ * A chain names its grantee, and `sim_receive` compares that grantee against
+ * the sender the frame carries -- so a scenario that rewrites `h->pubkey`
+ * without re-minting is not testing a near miss, it is testing the
+ * substitution check, which `scenario_substitution` already owns. This is
+ * `sim_init`'s minting, lifted out so both callers do it the same way, and
+ * it accumulates into `setup_faults` for the same reason `sim_init` does. */
+static void sim_regrant(struct sim_net *net, struct sim_host *h,
+                        const uint8_t root[FZN_PUBKEY_LEN])
+{
+	if (fzn_chain_mint(root, h->pubkey, net->capability, 1, FZN_NO_EXPIRY, 1, &net->sign,
+	                   h->hop_bytes[0]) != FZN_CHAIN_OK)
+		setup_faults++;
+	if (fzn_hop_open(h->hop_bytes[0], FZN_HOP_LEN, &h->chain[0]) != FZN_CHAIN_OK)
+		setup_faults++;
+	h->chain_len = 1;
 }
 
 static void sim_init(struct sim_net *net, size_t hosts, uint32_t seed)
@@ -435,12 +537,7 @@ static void sim_init(struct sim_net *net, size_t hosts, uint32_t seed)
 		 * loop is a few hundred of them -- and a check count that grows
 		 * with the number of hosts measures the harness rather than the
 		 * library. Asserted once, in main. */
-		if (fzn_chain_mint(net->root, h->pubkey, net->capability, 1, FZN_NO_EXPIRY, 1,
-		                   &net->sign, h->hop_bytes[0]) != FZN_CHAIN_OK)
-			setup_faults++;
-		if (fzn_hop_open(h->hop_bytes[0], FZN_HOP_LEN, &h->chain[0]) != FZN_CHAIN_OK)
-			setup_faults++;
-		h->chain_len = 1;
+		sim_regrant(net, h, net->root);
 		h->authorised = 1;
 
 		/* An established host has its root configured out of band. A
@@ -1236,7 +1333,7 @@ static void scenario_splice(void)
 {
 	static struct sim_net net;
 	static uint8_t a[2000], b[2000];
-	unsigned wrong = 0;
+	unsigned wrong = 0, near_wrong = 0;
 
 	sim_init(&net, 4, 0x7777u);
 	fill_message(a, sizeof(a), 41);
@@ -1291,6 +1388,76 @@ static void scenario_splice(void)
 	check(net.hosts[2].delivered == 2, "both messages should have arrived");
 	check(wrong == 0, "a message was spliced from two senders' chunks");
 	printf("  splice: %u delivered, %u spliced\n", net.hosts[2].delivered, wrong);
+
+	/* AND AGAIN WITH A PAIR ONLY A FULL COMPARISON SEPARATES.
+	 *
+	 * Everything above survives a sender comparison truncated to one byte,
+	 * because hosts 0 and 1 differ at byte 0. Measured: `chunk/reassembly.c`'s
+	 * `memcmp(slot->sender, sender, FZN_SENDER_LEN)` cut to `1u` left this
+	 * file at 172 checks and 0 failures and this scenario still printing
+	 * `2 delivered, 0 spliced`, while `chunk/test/reassembly_test` failed
+	 * three times. The property sec 5a cites this scenario for was being
+	 * asserted by a fixture that could not express its violation.
+	 *
+	 * So run the same collision between two senders whose keys agree on
+	 * every byte but the last. Now the only thing holding the two messages
+	 * apart is a comparison of the WHOLE sender, and a short one folds a
+	 * stranger's chunk into a victim's half-built message -- which on a real
+	 * network needs no near miss to arrange, only the one first byte in 256
+	 * that two random keys share. */
+	sim_init(&net, 4, 0x7778u);
+	sim_near_identity(net.hosts[0].pubkey, net.hosts[1].pubkey);
+	sim_regrant(&net, &net.hosts[1], net.root);
+
+	/* THE FIXTURE, ASSERTED BEFORE ANYTHING RESTS ON IT. A pair that
+	 * quietly stopped being a near miss would turn every check below green
+	 * for the wrong reason, which is the failure this whole leg exists to
+	 * remove rather than to reproduce one level up. */
+	check(memcmp(net.hosts[0].pubkey, net.hosts[1].pubkey, FZN_PUBKEY_LEN - 1u) == 0,
+	      "the twin senders must agree on every byte but the last, or this leg is "
+	      "not testing what it says");
+	check(memcmp(net.hosts[0].pubkey, net.hosts[1].pubkey, FZN_PUBKEY_LEN) != 0,
+	      "the twin senders must differ somewhere, or nothing here can fail");
+
+	net.forced_msg_id = 0xabcd1234u;
+	check(sim_send(&net, 0, 2, a, sizeof(a), net.now + 100u),
+	      "the first twin sender was refused");
+	check(sim_send(&net, 1, 2, b, sizeof(b), net.now + 100u),
+	      "the second twin sender was refused");
+	check(net.queue_len == 4, "the near-miss leg expects two chunks from each sender");
+	{
+		struct sim_datagram swap = net.queue[1];
+
+		net.queue[1] = net.queue[2];
+		net.queue[2] = swap;
+	}
+
+	sim_run(&net, 6);
+
+	for (size_t e = 0; e < net.hosts[2].inbox_len; e++) {
+		struct sim_inbox_entry *in = &net.hosts[2].inbox[e];
+		const uint8_t *want = in->from == 0 ? a : b;
+
+		if (in->len != sizeof(a) || memcmp(in->bytes, want, in->len) != 0)
+			near_wrong++;
+	}
+
+	/* Three ways the same defect surfaces, and it is worth naming all
+	 * three: the intruding chunk is refused as a duplicate index, so the
+	 * victim's message completes without it and the stranger's never
+	 * completes at all. A count of refusals is the one that fingers
+	 * reassembly rather than the network. */
+	check(net.hosts[2].refused_reasm == 0,
+	      "a chunk from a sender differing only in its last key byte was refused -- "
+	      "it was looked up in the other sender's slot, so reassembly is not reading "
+	      "the whole sender");
+	check(net.hosts[2].delivered == 2,
+	      "both near-miss senders' messages should have arrived");
+	check(near_wrong == 0,
+	      "a message was spliced from two senders whose keys differ only in their "
+	      "last byte");
+	printf("  splice near miss: %u delivered, %u spliced, %u refused by reassembly\n",
+	       net.hosts[2].delivered, near_wrong, net.hosts[2].refused_reasm);
 }
 
 /* ------------------------------------------------------------ scenario 8b
@@ -1917,6 +2084,54 @@ static void scenario_join(void)
 		sim_run(&net, 3);
 		check(joiner->delivered == before,
 		      "a chain rooted elsewhere was accepted after joining");
+		check(joiner->refused_auth > refused_before,
+		      "and it should have been refused on authority");
+	}
+
+	/* AND A ROOT THAT MISSES THE PIN BY ONE BYTE.
+	 *
+	 * The rogue root above is `memset(0x66)` against a pinned root whose
+	 * first byte is 0xff, so the refusal it proves survives
+	 * `chain/chain.c`'s pin truncated to a single byte -- measured, along
+	 * with the whole of this file: 172 checks, 0 failures, while
+	 * `chain/test/chain_test` failed on exactly that mutation. A pin is a
+	 * comparison against an attacker-chosen key, so its LENGTH is the
+	 * property, and a near miss is the only fixture that asks about it.
+	 *
+	 * Host 2 is re-grafted onto a root agreeing with the pin on every byte
+	 * but the last, and signs honestly. A short pin admits it, and the
+	 * joiner ends up acting on a grant issued by somebody it never
+	 * anchored. */
+	{
+		struct sim_host *attacker = &net.hosts[2];
+		uint8_t near_root[FZN_PUBKEY_LEN];
+		fzn_chain_t proven;
+		unsigned refused_before;
+
+		sim_near_identity(net.root, near_root);
+		check(memcmp(near_root, net.root, FZN_PUBKEY_LEN - 1u) == 0,
+		      "the near root must agree with the pin on every byte but the last, "
+		      "or this case is not testing what it says");
+		check(memcmp(near_root, net.root, FZN_PUBKEY_LEN) != 0,
+		      "the near root must differ somewhere, or nothing here can fail");
+
+		sim_regrant(&net, attacker, near_root);
+
+		/* It really does verify -- under its own root. Otherwise this
+		 * would be testing a broken chain rather than a near-miss one. */
+		check(fzn_chain_verify(attacker->chain, attacker->chain_len, near_root,
+		                       net.capability, net.now, &net.sign,
+		                       &joiner->revocations, &proven) == FZN_CHAIN_OK,
+		      "the near-miss chain should be valid under its own root");
+
+		refused_before = joiner->refused_auth;
+		before = joiner->delivered;
+		check(sim_send(&net, 2, 3, msg, sizeof(msg), net.now + 100u),
+		      "the near-miss attacker's send");
+		sim_run(&net, 3);
+		check(joiner->delivered == before,
+		      "a chain rooted at a key matching the pin only in its first byte was "
+		      "accepted -- the root pin is not reading the whole key");
 		check(joiner->refused_auth > refused_before,
 		      "and it should have been refused on authority");
 	}
