@@ -114,7 +114,7 @@ static void store(fzn_state_entry_t *e, fzn_record_t record, int live)
  * meeting a value.
  *
  *	no cell, setting             -> store, OK
- *	no cell, clearing            -> ABSENT
+ *	no cell, clearing            -> store a tombstone, ABSENT
  *	different issuer             -> CONFLICT
  *	same issuer, other stream    -> CROSS_STREAM
  *	same writer, seq  > e->seq   -> store, OK
@@ -124,7 +124,18 @@ static void store(fzn_state_entry_t *e, fzn_record_t record, int live)
  * said, in a function named for it, that another writer may take this subject
  * over. It skips the two contention rows and nothing else -- in particular it
  * does not compare sequences across writers, because there is no shared zero
- * to compare them against. */
+ * to compare them against.
+ *
+ * ROW TWO STORES, AND USED TO RETURN ABSENT WITHOUT STORING. That dropped a
+ * revocation whenever it outran the grant it superseded: measured, the set
+ * { apply(alice/7, seq 5, "GRANT"), clear(alice/7, seq 10, "REVOKE") } left
+ * the subject unset in one order and GRANTED in the other, with the refusal
+ * in the second order spelled identically to clearing a subject nobody had
+ * ever set. Both rows now take a slot, so the cell converges on the writer's
+ * highest sequence whichever of the two arrived first -- which is what makes
+ * the header's invariant true rather than nearly true. `slot` is what pays
+ * for it: a tombstone is forgotten before a live setting is refused, so the
+ * extra cells cannot deny room to a value. */
 static fzn_state_err_t put(fzn_state_t *state, const fzn_record_t *record, int override, int live)
 {
 	fzn_state_entry_t *e;
@@ -147,15 +158,18 @@ static fzn_state_err_t put(fzn_state_t *state, const fzn_record_t *record, int o
 
 	e = find(state, fzn_record_subject(*record), fzn_record_kind(*record));
 	if (!e) {
-		if (!live)
-			return FZN_STATE_ERR_ABSENT;
-
 		e = slot(state);
 		if (!e)
 			return FZN_STATE_ERR_FULL;
 
 		store(e, *record, live);
-		return FZN_STATE_OK;
+		/* ABSENT reports what was here before, and the record is
+		 * stored either way. It is deliberately not OK: a revoker
+		 * learning that the grant it is revoking never reached this
+		 * host is learning something -- usually that the journal is
+		 * behind -- and it is the only way left to tell a clear that
+		 * superseded a value from one that got in first. */
+		return live ? FZN_STATE_OK : FZN_STATE_ABSENT;
 	}
 
 	if (!fzn_ct_memeq(e->issuer, fzn_record_issuer(*record), FZN_PUBKEY_LEN)) {
@@ -223,6 +237,22 @@ fzn_state_err_t fzn_state_clear(fzn_state_t *state, const fzn_record_t *record)
 	return put(state, record, 0, 0);
 }
 
+fzn_state_err_t fzn_state_resolve_clear(fzn_state_t *state, const fzn_record_t *record)
+{
+	/* The fourth combination, and the last one to exist. `resolve` was
+	 * (override, live) and `clear` was (neither), so there was no way to
+	 * clear a cell another writer held: `clear` answered CONFLICT and
+	 * dropped the revocation, and `resolve` -- the only call that returned
+	 * OK -- stored the revocation as the subject's LIVE VALUE, so the
+	 * permission read as granted by whoever had tried to revoke it.
+	 *
+	 * Its own name rather than a flag on `clear`, per chain.h: one function
+	 * with an optional pin is a function somebody calls without the pin.
+	 * Overriding another writer is the dangerous half of the axis, so it
+	 * costs a name a caller has to type. */
+	return put(state, record, 1, 0);
+}
+
 const fzn_state_entry_t *fzn_state_get(const fzn_state_t *state,
                                         const uint8_t subject[FZN_SUBJECT_LEN], uint32_t kind)
 {
@@ -267,8 +297,8 @@ const char *fzn_state_err_str(fzn_state_err_t err)
 		return "older than what is held";
 	case FZN_STATE_ERR_CONFLICT:
 		return "another issuer holds this";
-	case FZN_STATE_ERR_ABSENT:
-		return "nothing set for this subject";
+	case FZN_STATE_ABSENT:
+		return "nothing was set, and a tombstone now says so";
 	case FZN_STATE_ERR_CROSS_STREAM:
 		return "another stream of this issuer holds this";
 	}

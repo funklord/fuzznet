@@ -8,13 +8,29 @@
  * that erased a cleared cell instead of tombstoning it lets any replay of any
  * older record undo a revocation.
  *
- * THE PROPERTY UNDERNEATH ALL OF THEM, and the last two tests here: the value
- * of a cell is a function of the SET of records applied to it and not of
- * their order, and where two orders must differ, the loser is REFUSED so that
- * the difference is visible. The defect that produced this file's
- * `stream` work was exactly that with a refusal missing -- stream 7 seq 100
- * then stream 9 seq 100 left stream 7's value, the reverse left stream 9's,
- * and both orders reported success.
+ * THE PROPERTY UNDERNEATH ALL OF THEM, and the five `property_` tests at the
+ * end: the value of a cell is a function of the SET of records applied to it
+ * and not of their order, and where two orders must differ, the loser is
+ * REFUSED so that the difference is visible. The defect that produced this
+ * file's `stream` work was exactly that with a refusal missing -- stream 7
+ * seq 100 then stream 9 seq 100 left stream 7's value, the reverse left
+ * stream 9's, and both orders reported success.
+ *
+ * AND THE CLEAR PATH WAS THE HALF THAT WENT UNTESTED. The permutation
+ * property was written to catch this class of defect and could not, because
+ * it fed the set through `fzn_state_apply` alone: a suite proving order does
+ * not matter never ordered a clear against an apply. It does now, and the
+ * three properties added beside it in 2026-08-27 are the three the gap hid --
+ * a revocation outrunning its grant, a revocation against a cell somebody
+ * else holds, and the one order-dependence here that is NOT fixable, pinned
+ * so that `state.h`'s admission of it cannot quietly stop being true.
+ *
+ * Every case here has been shown to fail for the reason it names, by putting
+ * the defect back: a clear of an absent cell storing nothing (35 checks red,
+ * the permutation property among them), the fourth entry point storing a live
+ * value (5), a clear made permanent (69), the fixture ring shrunk below the
+ * set it holds (1), the two contention codes folded together (10), and a
+ * tombstone that forgets its sequence (18).
  */
 
 #include "../../chain/chain.h" /* fzn_sign_ops_t */
@@ -48,6 +64,13 @@ static void expect_err(fzn_state_err_t got, fzn_state_err_t want, const char *wh
 static const uint8_t BODY_A[] = "value from alice";
 static const uint8_t BODY_B[] = "value from bob";
 static const uint8_t BODY_A2[] = "alice's second thought";
+/* A body for the records that go through `fzn_state_clear`. This module does
+ * not read it -- a clear stores absence and drops the body -- but the record
+ * carries one, and giving it text that says what it is keeps a fixture honest
+ * about which axis a record is on. It is also the body that showed up as a
+ * LIVE SETTING when a revocation was pushed through `fzn_state_resolve`, so
+ * the test for that reads a permission whose value is the word REVOKE. */
+static const uint8_t BODY_REVOKE[] = "REVOKE";
 
 /* A record, with its writer spelled in full.
  *
@@ -80,13 +103,21 @@ static int fixture_sign(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg,
  * there is nothing for it to disagree with.
  *
  * A ring rather than one buffer, because a test holds several records at once
- * -- the conflict cases hold two, the permutation property holds four. Thirty
- * two is far more than any case here needs, and `wire` is asserted below to
- * have wrapped no further than that. */
+ * -- the conflict cases hold two, the permutation property holds eight.
+ * Thirty two is far more than any case here needs.
+ *
+ * THAT LAST SENTENCE USED TO SAY `wire` WAS "asserted below to have wrapped
+ * no further than that", AND NOTHING ASSERTED IT. There was a `wire_made`
+ * counter, written on every call and read by nobody, which is what a check
+ * that is not there looks like from the inside: the claim was in the comment,
+ * the variable was in the file, and a set larger than the ring would have
+ * been a set of records silently pointing into each other's encodings. The
+ * counter is gone and the permutation property checks the thing that actually
+ * matters -- that every record it holds is still open at its own sequence
+ * when the set is complete. */
 #define WIRE_SLOTS 32u
 static uint8_t wire[WIRE_SLOTS][FZN_RECORD_MAX_LEN];
 static size_t wire_next;
-static size_t wire_made;
 
 static void make(fzn_record_t *r, uint8_t issuer_seed, uint32_t stream, uint8_t subject_seed,
                  uint32_t kind, uint64_t seq, const uint8_t *body, size_t body_len)
@@ -97,7 +128,6 @@ static void make(fzn_record_t *r, uint8_t issuer_seed, uint32_t stream, uint8_t 
 	size_t wrote = 0;
 
 	wire_next++;
-	wire_made++;
 
 	memset(issuer, issuer_seed, sizeof(issuer));
 	memset(subject, subject_seed, sizeof(subject));
@@ -219,20 +249,42 @@ static int next_permutation(int *a, int n)
 	return 1;
 }
 
-/* Apply the records in this order to a fresh state. Returns the first refusal,
+/* Which entry point a record in a permuted set goes through.
+ *
+ * IT IS A PARAMETER BECAUSE IT WAS NOT ONE, which is the same fault the
+ * `stream` note above records one layer down. The permutation property below
+ * called `fzn_state_apply` and nothing else, so a suite that existed to prove
+ * order does not matter never once ordered a clear against an apply -- and
+ * that is precisely the pair whose two orders left two different
+ * permissions. A fixture that cannot express a distinction cannot test one. */
+enum op {
+	OP_APPLY,
+	OP_CLEAR,
+};
+
+/* Run the records in this order into a fresh state. Returns the first refusal,
  * or OK if there was none -- and the refusal's identity is the point, not
- * merely that there was one. See `property_a_divergence_is_reported`. */
-static fzn_state_err_t run_order(const fzn_record_t *recs, const int *order, int n,
-                                  fzn_state_t *st, fzn_state_entry_t *entries, size_t capacity)
+ * merely that there was one. See `property_a_divergence_is_reported`.
+ *
+ * `FZN_STATE_ABSENT` IS NOT COUNTED AS A REFUSAL, because it is not one: the
+ * record was stored. Counting it would make this function report a departure
+ * from the header's invariant on exactly the orders that now uphold it -- a
+ * clear arriving before the thing it supersedes -- which is the defect's own
+ * shape reappearing in the instrument that measures it. */
+static fzn_state_err_t run_order(const fzn_record_t *recs, const enum op *ops, const int *order,
+                                  int n, fzn_state_t *st, fzn_state_entry_t *entries,
+                                  size_t capacity)
 {
 	fzn_state_err_t first = FZN_STATE_OK;
 
 	fzn_state_init(st, entries, capacity);
 
 	for (int i = 0; i < n; i++) {
-		fzn_state_err_t err = fzn_state_apply(st, &recs[order[i]]);
+		int k = order[i];
+		fzn_state_err_t err = (ops[k] == OP_CLEAR) ? fzn_state_clear(st, &recs[k])
+		                                           : fzn_state_apply(st, &recs[k]);
 
-		if (err != FZN_STATE_OK && first == FZN_STATE_OK)
+		if (err != FZN_STATE_OK && err != FZN_STATE_ABSENT && first == FZN_STATE_OK)
 			first = err;
 	}
 
@@ -242,36 +294,82 @@ static fzn_state_err_t run_order(const fzn_record_t *recs, const int *order, int
 /* ONE RECORD SET, ONE STATE, WHATEVER ORDER IT ARRIVES IN.
  *
  * Every cell here has exactly one writer, so nothing is refused for
- * contention and the property is unconditional: the value is the writer's
- * highest sequence, and a re-delivery of a lower one changes nothing. The
- * capacity is larger than the number of cells on purpose -- FULL is a
- * capacity effect and would be a legitimate reason for two orders to differ,
- * so it is kept out of the way of the property being measured. */
+ * contention and the property is unconditional: the cell holds whichever of
+ * its writer's records carries the highest sequence -- value or absence --
+ * and a re-delivery of a lower one changes nothing. The capacity is larger
+ * than the number of cells on purpose: FULL is a capacity effect and would be
+ * a legitimate reason for two orders to differ, so it is kept out of the way
+ * of the property being measured.
+ *
+ * CLEARS ARE IN THE SET NOW, AND THAT IS THE WHOLE POINT OF THIS REVISION.
+ * The property was written to catch exactly this class of defect and could
+ * not, because it only ever called `fzn_state_apply`. A clear that outran the
+ * apply it superseded stored nothing and answered ABSENT, so the apply landed
+ * behind it and the grant stood -- one record set, two permissions, and the
+ * fail-dangerous one reachable by nothing worse than packet reordering.
+ *
+ * Two of the three cells exist to hold the two halves apart, and neither is
+ * redundant:
+ *
+ *   - `0x51/1` ends as a TOMBSTONE, its writer's last word being a clear.
+ *     This is the half that diverged: with the clear dropped, the orders that
+ *     delivered it first left the cell LIVE and counted. It is what fails
+ *     when the defect is put back.
+ *   - `0x51/2` ends LIVE, re-granted at a sequence ABOVE its clear. This is
+ *     the control demanded of any fix -- "a clear is not undone" must not be
+ *     satisfied by a clear that is permanent -- and it converges under the
+ *     defect too, which is what makes it a control rather than a second
+ *     symptom. A fix that simply froze cleared cells passes everything above
+ *     and fails here. */
+#define PERM_N 8
+
 static void property_state_is_a_function_of_the_set(void)
 {
-	fzn_record_t recs[5];
-	int order[5] = { 0, 1, 2, 3, 4 };
+	fzn_record_t recs[PERM_N];
+	static const enum op OPS[PERM_N] = {
+		OP_APPLY, OP_APPLY, OP_APPLY, OP_CLEAR,
+		OP_APPLY, OP_CLEAR, OP_APPLY,
+		OP_APPLY,
+	};
+	static const uint64_t SEQ[PERM_N] = { 10, 12, 11, 13, 4, 5, 6, 7 };
+	int order[PERM_N] = { 0, 1, 2, 3, 4, 5, 6, 7 };
 	fzn_state_t st;
-	fzn_state_entry_t entries[8];
+	fzn_state_entry_t entries[12];
 	struct view reference, current;
-	int permutations = 1, divergent = 0;
+	int permutations = 1, divergent = 0, intact = 0;
 
-	/* One cell written three times by one writer, out of sequence order. */
-	make(&recs[0], 0xa1, 1, 0x51, 1, 10, BODY_A, sizeof(BODY_A));
-	make(&recs[1], 0xa1, 1, 0x51, 1, 12, BODY_A2, sizeof(BODY_A2));
-	make(&recs[2], 0xa1, 1, 0x51, 1, 11, BODY_B, sizeof(BODY_B));
-	/* A second cell, a different issuer. */
-	make(&recs[3], 0xb2, 1, 0x52, 1, 7, BODY_B, sizeof(BODY_B));
-	/* A third cell: same subject as the first, different kind, and a
-	 * different stream of the same issuer -- which is a different cell and
-	 * must not contend with anything. */
-	make(&recs[4], 0xa1, 2, 0x51, 2, 4, BODY_A, sizeof(BODY_A));
+	/* Cell `0x51/1`, one writer, written three times out of sequence order
+	 * and then cleared above all three. */
+	make(&recs[0], 0xa1, 1, 0x51, 1, SEQ[0], BODY_A, sizeof(BODY_A));
+	make(&recs[1], 0xa1, 1, 0x51, 1, SEQ[1], BODY_A2, sizeof(BODY_A2));
+	make(&recs[2], 0xa1, 1, 0x51, 1, SEQ[2], BODY_B, sizeof(BODY_B));
+	make(&recs[3], 0xa1, 1, 0x51, 1, SEQ[3], BODY_REVOKE, sizeof(BODY_REVOKE));
+	/* Cell `0x51/2`: the same subject, another kind, and another stream of
+	 * the same issuer -- a different cell that must not contend with
+	 * anything. Set, cleared, and set again above the clear. */
+	make(&recs[4], 0xa1, 2, 0x51, 2, SEQ[4], BODY_A, sizeof(BODY_A));
+	make(&recs[5], 0xa1, 2, 0x51, 2, SEQ[5], BODY_REVOKE, sizeof(BODY_REVOKE));
+	make(&recs[6], 0xa1, 2, 0x51, 2, SEQ[6], BODY_B, sizeof(BODY_B));
+	/* Cell `0x52/1`, a different issuer, set once. */
+	make(&recs[7], 0xb2, 1, 0x52, 1, SEQ[7], BODY_B, sizeof(BODY_B));
 
-	run_order(recs, order, 5, &st, entries, 8);
+	/* THE RING HELD ALL EIGHT, which the comment on `wire` claimed was
+	 * asserted and which nothing checked. Every record here must still be
+	 * open at its own sequence: `make` writes into a ring of WIRE_SLOTS
+	 * buffers and a record is a VIEW over its bytes, so a set larger than
+	 * the ring would silently be a set of records pointing at each other's
+	 * encodings, and every conclusion below it would be about a fixture
+	 * that had eaten itself. Verified by dropping WIRE_SLOTS to 4: this
+	 * reports four intact instead of eight. */
+	for (int i = 0; i < PERM_N; i++)
+		intact += (fzn_record_is_open(recs[i]) && fzn_record_seq(recs[i]) == SEQ[i]) ? 1 : 0;
+	expect(intact == PERM_N, "the fixture ring held every record of the set at once");
+
+	run_order(recs, OPS, order, PERM_N, &st, entries, 12);
 	snapshot(&st, &reference);
 
-	while (next_permutation(order, 5)) {
-		run_order(recs, order, 5, &st, entries, 8);
+	while (next_permutation(order, PERM_N)) {
+		run_order(recs, OPS, order, PERM_N, &st, entries, 12);
 		snapshot(&st, &current);
 		permutations++;
 		if (!view_eq(&reference, &current))
@@ -280,15 +378,23 @@ static void property_state_is_a_function_of_the_set(void)
 
 	/* The count is checked because a loop that ran no permutations would
 	 * report zero divergences just as loudly as one that ran them all. */
-	expect(permutations == 120, "five records have 120 orders and all of them ran");
+	expect(permutations == 40320, "eight records have 40320 orders and all of them ran");
 	expect(divergent == 0, "every order of one record set leaves one state");
 
-	expect(reference.count == 3, "three cells, whatever the order");
-	expect(memcmp(reference.cell[0].body, BODY_A2, reference.cell[0].body_len) == 0 && reference.cell[0].seq == 12,
-	       "the highest sequence of the writer holds the first cell");
-	expect(memcmp(reference.cell[1].body, BODY_A, reference.cell[1].body_len) == 0 && reference.cell[1].stream == 2,
-	       "another kind of the same subject is its own cell");
-	expect(memcmp(reference.cell[2].body, BODY_B, reference.cell[2].body_len) == 0 && reference.cell[2].seq == 7,
+	expect(reference.count == 2, "two live cells and a tombstone, whatever the order");
+	/* THE CELL THE DEFECT LIVED IN. A clear that failed to land leaves this
+	 * one live and counted, so this pair is what turns red when the old
+	 * behaviour comes back. */
+	expect(reference.cell[0].present == 0,
+	       "a clear above everything its writer said leaves the cell unset");
+	/* THE CONTROL. A permanent clear would satisfy the line above and fail
+	 * this one. */
+	expect(reference.cell[1].present && reference.cell[1].seq == 6 &&
+	               memcmp(reference.cell[1].body, BODY_B, reference.cell[1].body_len) == 0,
+	       "and a record above the clear sets that cell again, in every order");
+	expect(reference.cell[1].stream == 2, "still held by the stream that wrote it");
+	expect(reference.cell[2].present && reference.cell[2].seq == 7 &&
+	               memcmp(reference.cell[2].body, BODY_B, reference.cell[2].body_len) == 0,
 	       "and the second subject is bob's");
 }
 
@@ -312,6 +418,7 @@ static void property_state_is_a_function_of_the_set(void)
 static void property_a_divergence_is_reported(void)
 {
 	fzn_record_t recs[2];
+	static const enum op OPS[2] = { OP_APPLY, OP_APPLY };
 	int forward[2] = { 0, 1 }, backward[2] = { 1, 0 };
 	fzn_state_t st;
 	fzn_state_entry_t entries[4];
@@ -321,9 +428,9 @@ static void property_a_divergence_is_reported(void)
 	make(&recs[0], 0xa1, 7, 0x51, 1, 100, BODY_A, sizeof(BODY_A));
 	make(&recs[1], 0xa1, 9, 0x51, 1, 100, BODY_B, sizeof(BODY_B));
 
-	err_forward = run_order(recs, forward, 2, &st, entries, 4);
+	err_forward = run_order(recs, OPS, forward, 2, &st, entries, 4);
 	snapshot(&st, &first);
-	err_backward = run_order(recs, backward, 2, &st, entries, 4);
+	err_backward = run_order(recs, OPS, backward, 2, &st, entries, 4);
 	snapshot(&st, &second);
 
 	/* Not vacuous: the two orders really do leave different values, which
@@ -335,6 +442,305 @@ static void property_a_divergence_is_reported(void)
 	           "so the order that lost stream 9 called it contention");
 	expect_err(err_backward, FZN_STATE_ERR_CROSS_STREAM,
 	           "and the order that lost stream 7 said the same");
+}
+
+/* A REVOCATION THAT OUTRUNS ITS GRANT STILL LANDS -- the defect, written out
+ * with the two orders that measured it.
+ *
+ * The permutation property above covers this as one order among 40320. This
+ * case exists beside it because a property that fails tells you a set
+ * diverged and not which pair did it, and this pair is the whole reason the
+ * clear path was reworked. Measured against the old code:
+ *
+ *	apply(5)=ok       clear(10)=ok      -> count 0, NULL    (revoked)
+ *	clear(10)=ABSENT  apply(5)=ok       -> count 1, "GRANT" (granted)
+ *
+ * Two hosts, one record set, and one of them believes the permission is still
+ * granted. Nothing forged and nothing lost: a packet arrived early.
+ *
+ * THE MANDATORY DISTINCTION IS CHECKED HERE TOO, and it is the reason the
+ * clear does not simply answer OK. Under the old code the second line's
+ * refusal was byte-identical to clearing a subject nobody had ever set, so a
+ * consumer could not tell "your revocation was dropped" from "there was
+ * nothing to revoke". Nothing is dropped now, but the two situations are
+ * still different and a revoker still wants to know which it is in: a clear
+ * that superseded a value answers OK, and a clear that got in first answers
+ * ABSENT. */
+static void property_a_clear_lands_before_its_grant(void)
+{
+	fzn_record_t grant, revoke;
+	fzn_state_t st;
+	fzn_state_entry_t entries[4];
+	uint8_t subj[FZN_SUBJECT_LEN];
+	fzn_state_err_t first, second;
+	const fzn_state_entry_t *got;
+
+	memset(subj, 0x51, sizeof(subj));
+	make(&grant, 0xa1, 7, 0x51, 1, 5, BODY_A, sizeof(BODY_A));
+	make(&revoke, 0xa1, 7, 0x51, 1, 10, BODY_REVOKE, sizeof(BODY_REVOKE));
+
+	/* The order that always worked. */
+	fzn_state_init(&st, entries, 4);
+	first = fzn_state_apply(&st, &grant);
+	second = fzn_state_clear(&st, &revoke);
+	expect_err(first, FZN_STATE_OK, "the grant arrives");
+	expect_err(second, FZN_STATE_OK, "and the revocation supersedes it");
+	expect(fzn_state_get(&st, subj, 1) == NULL && fzn_state_count(&st) == 0,
+	       "leaving the subject revoked");
+
+	/* The order that did not. */
+	fzn_state_init(&st, entries, 4);
+	first = fzn_state_clear(&st, &revoke);
+	second = fzn_state_apply(&st, &grant);
+	expect_err(first, FZN_STATE_ABSENT,
+	           "the revocation arrives first and lands on nothing");
+	expect_err(second, FZN_STATE_ERR_STALE,
+	           "so the grant behind it is refused as older than the revocation");
+	got = fzn_state_get(&st, subj, 1);
+	expect(got == NULL && fzn_state_count(&st) == 0,
+	       "and the subject is revoked in this order too");
+
+	/* THE TOMBSTONE IS THE REVOKER'S, not a blank. Without this, a clear
+	 * that merely refused everything afterwards would pass the two lines
+	 * above -- and it would refuse the revoker's own later re-grant as
+	 * well, which is the failure the next block catches. */
+	{
+		const fzn_state_entry_t *cell = &st.entries[0];
+		uint8_t alice[FZN_PUBKEY_LEN];
+
+		memset(alice, 0xa1, sizeof(alice));
+		expect(st.used == 1 && cell->live == 0 && cell->seq == 10 && cell->stream == 7 &&
+		               memcmp(cell->issuer, alice, FZN_PUBKEY_LEN) == 0,
+		       "the pre-emptive tombstone names its writer and its sequence");
+		expect(cell->body == NULL && cell->body_len == 0,
+		       "and holds absence rather than the revocation's body");
+	}
+
+	/* THE CONTROL FOR THE CONTROL: a clear that got in first must still be
+	 * distinguishable from one that superseded a value, and it is -- the
+	 * two orders above answered ABSENT and OK for the same pair of
+	 * records. And the writer can still change its mind afterwards. */
+	{
+		fzn_record_t regrant;
+
+		make(&regrant, 0xa1, 7, 0x51, 1, 11, BODY_B, sizeof(BODY_B));
+		expect_err(fzn_state_apply(&st, &regrant), FZN_STATE_OK,
+		           "a record above the pre-emptive tombstone sets the subject");
+		got = fzn_state_get(&st, subj, 1);
+		expect(got != NULL && got->seq == 11 && fzn_state_count(&st) == 1,
+		       "and the pre-emptive tombstone was not permanent");
+	}
+}
+
+/* CLEARING A CELL ANOTHER WRITER HOLDS -- the fourth entry point, and the
+ * combination that did not exist.
+ *
+ * `fzn_state_resolve` is (override, live) and `fzn_state_clear` is (neither),
+ * so bob revoking alice's grant had no correct call at all. Measured against
+ * the old code:
+ *
+ *	fzn_state_clear   -> CONFLICT, nothing stored: the revocation is dropped
+ *	fzn_state_resolve -> OK, and fzn_state_get returns a LIVE cell
+ *	                     whose body is "REVOKE" and whose issuer is bob
+ *
+ * The second is the dangerous one and it is the one the header sent people
+ * to: a consumer that "HAS a rule and applies it" calls resolve, and the
+ * permission it meant to revoke reads as granted afterwards, by the revoker,
+ * with the word REVOKE as its value. Both halves are asserted below, because
+ * the second is still resolve's correct behaviour -- resolve sets a value and
+ * a revocation is not a value -- and it is what makes the fourth name
+ * necessary rather than merely tidy.
+ *
+ * A FLAG ON `fzn_state_clear` WOULD HAVE DONE THE SAME WORK. It is four names
+ * instead for chain.h's reason: one function with an optional pin is a
+ * function somebody calls without the pin. Overriding another writer is the
+ * dangerous half of the axis and it has to be typed. Nothing here can test
+ * that -- a name that must be typed is a compile-time property -- so it is
+ * recorded rather than asserted. */
+static void property_a_revocation_can_take_another_writers_cell(void)
+{
+	fzn_record_t grant, revoke, later;
+	fzn_state_t st;
+	fzn_state_entry_t entries[4];
+	uint8_t subj[FZN_SUBJECT_LEN], alice[FZN_PUBKEY_LEN], bob[FZN_PUBKEY_LEN];
+	const fzn_state_entry_t *got;
+
+	memset(subj, 0x51, sizeof(subj));
+	memset(alice, 0xa1, sizeof(alice));
+	memset(bob, 0xb2, sizeof(bob));
+
+	make(&grant, 0xa1, 7, 0x51, 1, 5, BODY_A, sizeof(BODY_A));
+	make(&revoke, 0xb2, 3, 0x51, 1, 10, BODY_REVOKE, sizeof(BODY_REVOKE));
+
+	/* WHAT RESOLVE DOES WITH A REVOCATION, asserted so that the reason for
+	 * the fourth name is in the suite and not only in a comment. This is
+	 * resolve behaving correctly and being the wrong tool. */
+	fzn_state_init(&st, entries, 4);
+	expect_err(fzn_state_apply(&st, &grant), FZN_STATE_OK, "alice grants");
+	expect_err(fzn_state_resolve(&st, &revoke), FZN_STATE_OK, "bob resolves with a revocation");
+	got = fzn_state_get(&st, subj, 1);
+	expect(got != NULL && got->live && got->body_len == sizeof(BODY_REVOKE) &&
+	               memcmp(got->body, BODY_REVOKE, got->body_len) == 0,
+	       "and the subject reads as SET, with the revocation as its value");
+	expect(got != NULL && memcmp(got->issuer, bob, FZN_PUBKEY_LEN) == 0,
+	       "granted, on this reading, by the writer that meant to revoke it");
+
+	/* WHAT THE FOURTH ENTRY POINT DOES WITH IT. */
+	fzn_state_init(&st, entries, 4);
+	expect_err(fzn_state_apply(&st, &grant), FZN_STATE_OK, "alice grants again");
+	expect_err(fzn_state_clear(&st, &revoke), FZN_STATE_ERR_CONFLICT,
+	           "bob cannot clear alice's cell without saying so");
+	expect(fzn_state_get(&st, subj, 1) != NULL, "and the refused clear left the grant alone");
+	expect_err(fzn_state_resolve_clear(&st, &revoke), FZN_STATE_OK,
+	           "bob clearing alice's cell, deliberately");
+	expect(fzn_state_get(&st, subj, 1) == NULL && fzn_state_count(&st) == 0,
+	       "and the subject is revoked rather than re-granted");
+	expect(st.used == 1 && st.entries[0].live == 0 && st.entries[0].seq == 10 &&
+	               st.entries[0].stream == 3 &&
+	               memcmp(st.entries[0].issuer, bob, FZN_PUBKEY_LEN) == 0,
+	       "the tombstone is bob's, at bob's sequence and stream");
+	expect(st.entries[0].body == NULL && st.entries[0].body_len == 0,
+	       "holding absence, not the revocation's body");
+
+	/* THE REVOCATION IS DURABLE AGAINST THE WRITER IT TOOK THE CELL FROM.
+	 * Without this, a resolve-clear that merely emptied the cell would pass
+	 * everything above and let alice's next record -- or a replay of the
+	 * grant just revoked -- put the permission back. */
+	expect_err(fzn_state_apply(&st, &grant), FZN_STATE_ERR_CONFLICT,
+	           "a replay of the revoked grant is refused");
+	make(&later, 0xa1, 7, 0x51, 1, 900, BODY_A2, sizeof(BODY_A2));
+	expect_err(fzn_state_apply(&st, &later), FZN_STATE_ERR_CONFLICT,
+	           "and so is alice at a far higher sequence, the cell being bob's now");
+	expect(fzn_state_get(&st, subj, 1) == NULL, "the subject stays revoked");
+
+	/* THE POSITIVE CONTROL. A resolve-clear that simply wedged the cell
+	 * shut would satisfy every line above. The writer that took it must
+	 * still be able to use it. */
+	make(&later, 0xb2, 3, 0x51, 1, 11, BODY_B, sizeof(BODY_B));
+	expect_err(fzn_state_apply(&st, &later), FZN_STATE_OK,
+	           "and bob, who holds the cell, can set it again");
+	got = fzn_state_get(&st, subj, 1);
+	expect(got != NULL && got->seq == 11, "so the cell is not wedged");
+
+	/* RESOLVE-CLEAR OVERRIDES CROSS-STREAM TOO, which is the other half of
+	 * what its name promises: it is `fzn_state_resolve` on the clearing
+	 * axis, and resolve overrides both kinds. */
+	make(&later, 0xb2, 9, 0x51, 1, 2, BODY_REVOKE, sizeof(BODY_REVOKE));
+	expect_err(fzn_state_clear(&st, &later), FZN_STATE_ERR_CROSS_STREAM,
+	           "another stream of the holder cannot clear it by accident");
+	expect_err(fzn_state_resolve_clear(&st, &later), FZN_STATE_OK, "and can when it says so");
+	expect(fzn_state_get(&st, subj, 1) == NULL, "leaving the subject unset");
+	expect(st.entries[0].stream == 9 && st.entries[0].seq == 2,
+	       "with the clearing stream and its own sequence in the cell");
+
+	/* IDEMPOTENT, AND STALE IS THE ORDINARY ANSWER on a host already
+	 * holding the winner -- the finding the simulated network made about
+	 * `fzn_state_resolve`, which applies here for the same reason: a rule
+	 * is applied across a whole network and some hosts were already
+	 * right. */
+	expect_err(fzn_state_resolve_clear(&st, &later), FZN_STATE_ERR_STALE,
+	           "resolving the same clear twice is stale, not a fault");
+
+	/* ARGUMENTS, on the new entry point as on the other three. */
+	expect_err(fzn_state_resolve_clear(&st, NULL), FZN_STATE_ERR_MALFORMED,
+	           "resolve-clearing with no record");
+	expect_err(fzn_state_resolve_clear(NULL, &later), FZN_STATE_ERR_MALFORMED,
+	           "resolve-clearing a null state");
+	{
+		fzn_record_t never;
+
+		memset(&never, 0, sizeof(never));
+		expect_err(fzn_state_resolve_clear(&st, &never), FZN_STATE_ERR_MALFORMED,
+		           "resolve-clearing with a record never opened");
+	}
+}
+
+/* WHICH CONTENTION CODE A RECORD IS TOLD DEPENDS ON THE ORDER, AND THIS IS
+ * WHAT THAT COSTS.
+ *
+ * Not a defect with a fix. A cell holds ONE writer, so an arriving record can
+ * only be compared against that one, and which writer holds the cell is
+ * first-writer-wins among writers with no shared zero -- policy `state.h`
+ * documents and already lets make the VALUE order-dependent. Converging the
+ * two counts needs every writer that ever contended to be remembered, which
+ * is unbounded storage in a module that allocates nothing.
+ *
+ * SO THE HONEST THING IS TO PIN IT RATHER THAN HIDE IT. Two assertions, doing
+ * different jobs:
+ *
+ *   - The SAFETY property, which holds in every order and is what a consumer
+ *     actually depends on: exactly one record is taken, and every record from
+ *     a writer other than the holder is refused as one of the two contention
+ *     codes. Never STALE -- which would read as a harmless echo -- and never
+ *     accepted.
+ *   - The measured DIVERGENCE, pinned so that the paragraph in `state.h`
+ *     saying the counts are not comparable across hosts cannot quietly stop
+ *     being true. If somebody makes them converge, this fails and sends them
+ *     to that paragraph.
+ *
+ * Measured 2026-08-27, all six orders of three records at one sequence:
+ * alice on stream 1 and alice on stream 2 and bob each got ok once, and the
+ * orders that seated alice first reported one CROSS_STREAM and one CONFLICT
+ * while the orders that seated bob first reported two CONFLICTs. */
+static void property_the_contention_alarm_is_per_host(void)
+{
+	static const int ORDER[6][3] = {
+		{ 0, 1, 2 }, { 0, 2, 1 }, { 1, 0, 2 }, { 1, 2, 0 }, { 2, 0, 1 }, { 2, 1, 0 },
+	};
+	fzn_record_t recs[3];
+	fzn_state_t st;
+	fzn_state_entry_t entries[4];
+	int conflicts[6], crosses[6];
+	int sound = 0, distinct_shapes = 0;
+
+	/* One subject, one sequence, three writers: two streams of alice and
+	 * bob. Every pair of them is incomparable. */
+	make(&recs[0], 0xa1, 1, 0x51, 1, 50, BODY_A, sizeof(BODY_A));
+	make(&recs[1], 0xa1, 2, 0x51, 1, 50, BODY_A2, sizeof(BODY_A2));
+	make(&recs[2], 0xb2, 1, 0x51, 1, 50, BODY_B, sizeof(BODY_B));
+
+	for (int i = 0; i < 6; i++) {
+		int taken = 0, other = 0;
+
+		conflicts[i] = 0;
+		crosses[i] = 0;
+		fzn_state_init(&st, entries, 4);
+
+		for (int j = 0; j < 3; j++) {
+			fzn_state_err_t err = fzn_state_apply(&st, &recs[ORDER[i][j]]);
+
+			switch (err) {
+			case FZN_STATE_OK:
+				taken++;
+				break;
+			case FZN_STATE_ERR_CONFLICT:
+				conflicts[i]++;
+				break;
+			case FZN_STATE_ERR_CROSS_STREAM:
+				crosses[i]++;
+				break;
+			default:
+				other++;
+				break;
+			}
+		}
+
+		if (taken == 1 && conflicts[i] + crosses[i] == 2 && other == 0 &&
+		    fzn_state_count(&st) == 1)
+			sound++;
+	}
+
+	expect(sound == 6,
+	       "in every order one writer is seated and the other two are refused as contention");
+
+	for (int i = 1; i < 6; i++)
+		if (conflicts[i] != conflicts[0] || crosses[i] != crosses[0])
+			distinct_shapes++;
+	expect(distinct_shapes > 0,
+	       "and the two alarm counts are NOT the same across orders -- see state.h");
+	expect(conflicts[0] == 1 && crosses[0] == 1,
+	       "alice seated first: one cross-stream and one conflict");
+	expect(conflicts[4] == 2 && crosses[4] == 0, "bob seated first: two conflicts");
 }
 
 int main(void)
@@ -494,9 +900,31 @@ int main(void)
 	make(&rec, 0xb2, 5, 0x51, 1, 2, BODY_B, sizeof(BODY_B));
 	expect_err(fzn_state_clear(&st, &rec), FZN_STATE_ERR_STALE,
 	           "bob clearing with an older sequence");
+	/* CLEARING SOMETHING NEVER SET IS NOT A REFUSAL ANY MORE. It takes a
+	 * slot, leaves that writer's tombstone, and says ABSENT -- which
+	 * reports what was here before rather than what was done. Read the
+	 * count either side: a refusal would have left `used` where it was, so
+	 * this is the assertion that the pre-emptive tombstone is real rather
+	 * than the error code merely being renamed. */
 	make(&rec, 0xb2, 5, 0x51, 9, 200, BODY_B, sizeof(BODY_B));
-	expect_err(fzn_state_clear(&st, &rec), FZN_STATE_ERR_ABSENT,
-	           "clearing something never set");
+	{
+		size_t before = st.used;
+
+		expect_err(fzn_state_clear(&st, &rec), FZN_STATE_ABSENT,
+		           "clearing something never set");
+		expect(st.used == before + 1, "took a slot for the tombstone");
+		expect(fzn_state_count(&st) == 2, "which counts as no value");
+		expect(fzn_state_get(&st, subj, 9) == NULL, "and reads as unset");
+	}
+	/* AND THE PRE-EMPTIVE TOMBSTONE ORDERS WHAT COMES AFTER IT, which is
+	 * the entire reason it costs a slot: this is the record the old code
+	 * accepted, leaving the subject SET by something the revocation had
+	 * already superseded. */
+	make(&rec, 0xb2, 5, 0x51, 9, 199, BODY_B, sizeof(BODY_B));
+	expect_err(fzn_state_apply(&st, &rec), FZN_STATE_ERR_STALE,
+	           "a grant below a pre-emptive tombstone does not get in behind it");
+	expect(fzn_state_get(&st, subj, 9) == NULL, "and the subject stays unset");
+
 	make(&rec, 0xb2, 5, 0x51, 1, 200, BODY_B, sizeof(BODY_B));
 	expect_err(fzn_state_clear(&st, &rec), FZN_STATE_OK, "bob clearing his own");
 	expect(fzn_state_get(&st, subj, 1) == NULL, "and it reads as unset");
@@ -562,19 +990,92 @@ int main(void)
 		expect(fzn_state_count(&cycles) == 2, "and both values are still there");
 	}
 
-	/* FULL IS REFUSED, NOT EVICTED. */
+	/* FULL IS REFUSED, NOT EVICTED.
+	 *
+	 * THE FIRST ONE IS TAKEN NOW, and the reason is the design change: the
+	 * `0x51/9` clear above left a pre-emptive tombstone in the third slot,
+	 * and a tombstone is forgotten before a new subject is refused. That is
+	 * the eviction policy working, and it is exactly the answer to the
+	 * objection the old design raised -- a state carrying tombstones for
+	 * subjects nothing ever set still admits every live setting offered to
+	 * it. The line used to read `forgotten == 0` because no tombstone
+	 * existed to forget. */
 	{
 		uint8_t other[FZN_SUBJECT_LEN];
 
+		expect(fzn_state_forgotten(&st) == 0, "nothing forgotten yet");
 		make(&rec, 0xa1, 1, 0x60, 1, 1, BODY_A, sizeof(BODY_A));
 		expect_err(fzn_state_apply(&st, &rec), FZN_STATE_OK, "a third subject");
+		expect(fzn_state_forgotten(&st) == 1,
+		       "which took the pre-emptive tombstone's slot");
 		make(&rec, 0xa1, 1, 0x61, 1, 1, BODY_A, sizeof(BODY_A));
 		expect_err(fzn_state_apply(&st, &rec), FZN_STATE_ERR_FULL, "a fourth subject");
-		expect(fzn_state_forgotten(&st) == 0, "with no tombstone to forget");
+		expect(fzn_state_forgotten(&st) == 1, "with no tombstone left to forget");
 
 		memset(other, 0x60, sizeof(other));
 		expect(fzn_state_get(&st, other, 1) != NULL,
 		       "a full state must not have evicted an earlier subject");
+
+		/* AND A CLEAR OF AN ABSENT SUBJECT CAN NOW BE REFUSED FOR
+		 * CAPACITY, which is the one way left for a revocation not to
+		 * land and is why `state.h` names it. Every slot here holds a
+		 * LIVE setting, so there is nothing evictable; the alternative
+		 * would be to evict a value, which reverts it to a consumer's
+		 * default with nothing to trace. It is at least visible, which
+		 * is what the invariant asks of a departure. */
+		make(&rec, 0xa1, 1, 0x62, 1, 1, BODY_REVOKE, sizeof(BODY_REVOKE));
+		expect_err(fzn_state_clear(&st, &rec), FZN_STATE_ERR_FULL,
+		           "a clear into a state of nothing but live settings");
+		expect(fzn_state_count(&st) == 3, "and it evicted no value to make room");
+	}
+
+	/* A FLOOD OF CLEARS COSTS EVICTIONS, NEVER SERVICE.
+	 *
+	 * This is the objection the rejected design raised -- "spending a slot
+	 * to say so would let a stream of clears fill a state that holds no
+	 * values" -- measured instead of assumed. Clears for distinct subjects
+	 * do fill the state, and every one of those cells is a tombstone, so
+	 * `slot` forgets one rather than refusing the live setting that arrives
+	 * next. The old rule spent no slot on a clear and spent them freely on
+	 * live records for junk subjects, which cannot be evicted at all: it
+	 * was the worse denial of the two, not the safer one. */
+	{
+		fzn_state_t flood;
+		fzn_state_entry_t fentries[2];
+		uint8_t only[FZN_SUBJECT_LEN];
+
+		expect_err(fzn_state_init(&flood, fentries, 2), FZN_STATE_OK, "a small state");
+		for (uint8_t s = 0x80; s < 0x88; s++) {
+			make(&rec, 0xa1, 3, s, 1, 1, BODY_REVOKE, sizeof(BODY_REVOKE));
+			expect_err(fzn_state_clear(&flood, &rec), FZN_STATE_ABSENT,
+			           "a clear for a subject nothing ever set");
+		}
+		expect(fzn_state_count(&flood) == 0, "eight clears hold no values");
+		expect(fzn_state_forgotten(&flood) == 6, "and forgot the six they displaced");
+
+		make(&rec, 0xa1, 3, 0x90, 1, 1, BODY_A, sizeof(BODY_A));
+		expect_err(fzn_state_apply(&flood, &rec), FZN_STATE_OK,
+		           "and a live setting is still admitted after the flood");
+		memset(only, 0x90, sizeof(only));
+		expect(fzn_state_get(&flood, only, 1) != NULL, "and readable");
+
+		/* REPEATED CLEARS OF ONE SUBJECT COST NOTHING, because `find`
+		 * hits the tombstone and it is rewritten in place -- the same
+		 * property the set-and-clear cycle above has, on the path that
+		 * never had a cell to begin with. */
+		{
+			uint64_t before = fzn_state_forgotten(&flood);
+
+			for (uint64_t seq = 1; seq < 20; seq++) {
+				make(&rec, 0xa1, 3, 0x91, 1, seq, BODY_REVOKE,
+				     sizeof(BODY_REVOKE));
+				expect_err(fzn_state_clear(&flood, &rec),
+				           seq == 1 ? FZN_STATE_ABSENT : FZN_STATE_OK,
+				           "clearing an already-cleared subject");
+			}
+			expect(fzn_state_forgotten(&flood) == before + 1,
+			       "nineteen clears of one subject took one slot between them");
+		}
 	}
 
 	/* Arguments. */
@@ -606,6 +1107,9 @@ int main(void)
 
 	property_state_is_a_function_of_the_set();
 	property_a_divergence_is_reported();
+	property_a_clear_lands_before_its_grant();
+	property_a_revocation_can_take_another_writers_cell();
+	property_the_contention_alarm_is_per_host();
 
 	printf("state_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
