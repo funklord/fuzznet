@@ -7107,11 +7107,128 @@ it, `fzn_revocation_covers` asks for it, and `fzn_chain_verify`'s call
 site passes the pinned root and names itself as the line that changes
 when grantors may revoke. Sec 14 carries the detail.
 
+## 13c. Bounding revocation admission, once grantors may revoke
+
+Commissioned after sec 13b's answers settled, against the half they left
+open. Not built; the shape is recorded because the reasoning is the
+expensive part.
+
+### The reframing that decides it
+
+`fzn_revocation_admit`'s root check does TWO jobs, and sec 13b's
+answered half moves only one:
+
+- **authorisation** -- "is this issuer entitled to revoke?", answerable
+  at admit today only because root-only revocation makes it so;
+- **an admission bound** -- "is this record worth 96 bytes of a table
+  that never evicts and never expires?"
+
+`FZN_CHAIN_ERR_WRONG_ROOT` was never a storage policy and has been
+serving as one for free, because a set of one entitled issuer is also a
+very good quota. **Admission is a resource decision, not an
+authorisation decision, and it must be allowed to be coarse.** It cannot
+grant anything: the worst a wrongly-admitted entry does is occupy
+storage, because `hop_is_revoked` decides what is honoured. Admit must
+not try to be verify -- which is the trap `revocation.c` already names
+in the other direction, where a conservative answer to one question is a
+wrong answer to another.
+
+### The recommendation
+
+**Admit a non-root revocation exactly when its issuer presents a chain
+that verifies against the pinned root for the capability being
+withdrawn, whose last hop is `delegable`.** Put sharply: admit a
+revocation from a key if and only if `fzn_chain_delegate` would let that
+key GRANT the thing it is withdrawing. Revoking a descendant is the
+inverse of granting one and takes the same standing.
+
+The `delegable` term is free and not decoration: a key can only be an
+ancestor if it appears as a grantor of some hop, and `chain.c` refuses
+any such hop unless its predecessor was `delegable`. So a non-delegable
+holder can never be an ancestor, its revocations can never be honoured,
+and admitting them is pure waste. That excludes every leaf in an estate
+-- most keys -- from spending the store.
+
+Costs, measured rather than derived: **zero additional bytes per entry**
+(still 96), 16 bytes once per store for two quota fields, **zero
+persistent per-issuer state**, and up to 1498 bytes of caller stack per
+non-root admission. Zero extra CPU for a root-issued record; one chain
+verification otherwise.
+
+Two invariants that are cheap to break by accident and invisible when
+broken, both of which would destroy the CRDT sec 13b preserved:
+
+- **Admission is revocation-blind.** Verify the issuer's chain with no
+  revocations, or admitting the root's revocation of H1 first makes
+  H1's earlier revocation inadmissible and the store becomes
+  order-dependent.
+- **Admission is clock-blind.** Refusing a revocation because the
+  REVOKER'S OWN grant lapsed would silently re-connect a revoked device.
+
+And a third temptation to refuse: do not use the store as a cache
+("this issuer already has an entry, skip the chain check"). It looks
+free and makes the outcome order-dependent.
+
+### Two questions the code raised, both answered
+
+**A revocation does NOT need to name which grant it withdraws, and an
+id would fail open.** The motivating case -- two grantors granting the
+same capability to the same grantee -- is already separated by the
+per-chain ancestry check, which is per-grant-path by construction. What
+an id would add is only "withdraw Tuesday's grant but not Friday's",
+and it costs +32 on the wire and +32 per entry in the one table that
+only grows. Worse, **a hop-id revocation is escaped by re-issuing the
+same grant** -- one signature brings a stolen device back. The coarse
+`(capability, grantee)` form names the AUTHORITY rather than the paper,
+and re-issuing the same authority does not escape it.
+
+**When the revoking grantor is itself later revoked, its revocation
+STANDS.** If it fell, adding an entry to the store would REMOVE a
+derivable fact, so a host that later learned the root's revocation of H1
+would UN-REVOKE H1's descendants -- and an attacker could arrange it:
+steal H1, delegate to D, get caught, and the root's clean-up revocation
+of H1 rescues D. With "stands", verdicts only accumulate and the union
+stays commutative, idempotent and order-free. A grant's validity is
+continuously re-evaluated; a revocation is a withdrawal already
+performed, by a party entitled at the time, and nothing continues to
+re-evaluate. The cost is that a compromised grantor denies its
+descendants permanently -- accepted, because the holder already accepted
+that class, and because **recovery costs one mint**: the entry bites
+only chains in which that grantor appears, so a fresh root-to-descendant
+chain is clean. Recovery is by re-granting AROUND the revoker, never by
+un-revoking.
+
+### What it does not solve
+
+It does not bound the store; it bounds who may spend it to the estate,
+and makes spending it cost compromised delegable keys rather than
+generated keypairs. Sec 14's sizing problem now depends on the
+delegation graph's WIDTH as well as the history's length -- two unknowns
+where there was one. The store still fills legitimately with inert
+entries an entitled insider produced against keys it is not an ancestor
+of: permanent, by design, unmitigated. And sec 13b's manifest is per
+issuer, so grantor-revocation multiplies issuers and makes completeness
+gating dearer -- sec 13b recorded "it survives answer 2" as a property
+of the manifest; from here it reads as a burden.
+
 ## 14. Open, and named rather than left silent
 
-- **`raidcfgd` does not exist.** Two real consumers and one imagined one. Every
-  decision above is made from the two that exist; `local/` is the piece most
-  exposed to this and is scheduled last for that reason.
+- **`raidcfgd` EXISTS, and the decisions above were made when it did
+  not.** This entry said "raidcfgd does not exist -- two real consumers
+  and one imagined one" until 2026-08-27, while sec 4.8 said "raidcfgd
+  exists now" and quoted a requirement it stated on 2026-08-18. Two
+  sentences in one document that could not both be current; the tree is
+  on disk and committing. Caught by a design agent reading both.
+
+  The factual half is corrected here. **The design half is not, and is
+  the open item**: every decision above was reasoned from two consumers,
+  and there are three. `local/` is the piece most exposed and is
+  scheduled last for that reason, but sec 2's hazard -- a group that can
+  destroy arrays is root for that group -- is the case that most wants
+  grantor-revocation, since the natural revoker of a group member is the
+  group's administrator and not the root. Whether the decisions want
+  re-checking against a third brief is the holder's call, not a thing to
+  settle by editing a bullet.
 - **Which package the agent ships in** is netcfgd's open question, and matters
   here only in that it is a daemon that listens on a network — a thing netcfgd
   has deliberately never had.
