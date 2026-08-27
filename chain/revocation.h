@@ -137,16 +137,43 @@ static inline const uint8_t *fzn_revocation_grantee(fzn_revocation_record_t rec)
 /* Who issued it. Checked against the pinned root: only the root revokes,
  * today.
  *
- * A grantor revoking what it granted is the obvious extension and is
- * deliberately NOT built, because it is a real design question rather than
- * an omission -- it would let a compromised intermediate revoke its own
- * descendants, which may be wanted or may be the attack, and project.md does
- * not say. Root-only fails closed and is the smaller claim. */
+ * A grantor revoking what it granted is NOT BUILT, and as of 2026-08-27 it
+ * is PLANNED rather than an open question. This comment used to say the
+ * extension was declined because "project.md does not say" whether letting
+ * a compromised intermediate revoke its descendants is wanted or is the
+ * attack. project.md says now: the copyright holder settled that grantor-
+ * revokes-descendant is coming, on the reasoning that it is a denial of
+ * service inside one user's estate rather than an escalation across users.
+ * The code is unchanged and still correct; only the reason was stale.
+ *
+ * WHEN IT ARRIVES, THE ISSUER STOPS BEING THE ROOT, and the check that
+ * replaces "issuer == root" is not a wider parameter but a narrower one:
+ * the entitled issuers for a hop are the root and that hop's ancestors IN
+ * THE CHAIN BEING VERIFIED, which `fzn_chain_verify` already walks with
+ * every grantor in hand. It cannot be told the wrong set because it is not
+ * told. See project.md sec 13b, which records where that shape came from. */
 static inline const uint8_t *fzn_revocation_issuer(fzn_revocation_record_t rec)
 {
 	return rec.base + FZN_REV_OFF_ISSUER;
 }
 
+/* When the issuer says it revoked. DISPLAY AND POLICY ONLY, and it MUST
+ * NEVER BECOME AN ORDERING KEY.
+ *
+ * It is inside the signed range, so it cannot be rewritten in flight -- and
+ * that is exactly what makes it tempting. NO LIBRARY CODE READS IT: the
+ * only callers in the tree are three lines of revocation_test.c, and
+ * `fzn_revocation_admit` stores the issuer, capability and grantee and not
+ * this. A field that is signed, free to read and load-bearing nowhere is
+ * one somebody makes load-bearing.
+ *
+ * project.md sec 13a rejects that move for `state/` and the reasoning is
+ * worse here: nothing bounds a clock, so `issued_at = UINT64_MAX` can never
+ * be superseded by anything the issuer publishes afterwards -- which would
+ * freeze a REVOCATION out, unrecoverably, which is the one direction this
+ * module must never fail in. sec 4.7b measured the same shape live, where
+ * 4096 frames at `expires_at = UINT64_MAX` pinned a replay window
+ * permanently and needed no key to do it. */
 static inline uint64_t fzn_revocation_issued_at(fzn_revocation_record_t rec)
 {
 	return fzn_get_be64(rec.base + FZN_REV_OFF_ISSUED_AT);
