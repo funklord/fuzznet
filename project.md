@@ -6504,6 +6504,24 @@ ephemeral rather than 24 for a nonce, and 32 more to say who is speaking. That
 is a deliberate purchase: **every datagram is self-contained, and no session
 state is required at either end.**
 
+**AND CALLING THAT "32 BYTES RATHER THAN 24" UNDERSTATES IT, WHICH THIS
+PARAGRAPH DID UNTIL 2026-08-28.** It is not a byte trade, it is a
+GUARANTEE difference, and the consumer asking a direct question is what
+surfaced it. Their fresh ephemeral per message makes the derived key
+SINGLE-USE, so a compromise of their long-lived key does not open
+messages already sent. **fuzznet has no equivalent and therefore no
+per-message forward secrecy.** `session/commitment.h` says so at the
+derivation without drawing the conclusion: the AEAD key is
+"**Long-lived, per peer, and IT TAKES NO NONCE**", derived once over a
+transcript and reused for every frame, with only the nonce varying.
+Compromise that key and every frame ever sealed under it opens.
+
+So the 38-byte adoption delta cuts both ways and should be read that
+way. Their side of the decomposition -- 33 bytes we do not carry, 32 of
+them the ephemeral -- is not overhead we avoided. It is a property we do
+not have. Sec 14 carries it as open; it had been carried nowhere at all,
+in a document that compares the two frames four times.
+
 Which is fuzzypickles' §8, "assume the peer is asleep", honoured at the frame
 level. Store and forward works because a stored datagram needs no live
 counterpart to make sense of it later. A session handle would trade exactly
@@ -7738,6 +7756,31 @@ cannot settle a question about its own sentences. It goes to the
 copyright holder.
 
 ## 14. Open, and named rather than left silent
+
+- **There is NO PER-MESSAGE FORWARD SECRECY, and until 2026-08-28 this
+  document did not say so anywhere.** The AEAD key is derived once per
+  peer over a transcript -- `session/commitment.h` calls it "long-lived,
+  per peer, and it takes no nonce" -- and every frame is sealed under it
+  with only the nonce varying. Compromise it and every frame ever sealed
+  under it opens, including those already sent.
+
+  Found by a consumer asking a direct question about the key schedule
+  rather than deriving one from the layout: their frame carries a fresh
+  ephemeral per message, which makes their derived key single-use, and
+  they wanted to know whether our 24-byte nonce was doing the same job
+  over a static secret. It is not. **A grep for "forward secrecy" over
+  this whole document returned nothing**, in a file that compares the
+  two frame layouts four times and had priced their ephemeral as "32
+  bytes rather than 24".
+
+  Not recorded as a defect, because nothing here promised it and the
+  self-contained-frame axis sec 13 keeps meeting is a real reason to
+  land where we did. Recorded because **an absent security property that
+  is written down nowhere is indistinguishable from one nobody
+  considered**, and a consumer evaluating adoption cannot tell those
+  apart. Whether to want it is the holder's, and it is expensive: it
+  needs per-message key material in the frame, which is the 32 bytes
+  fuzzypickles pays.
 
 - **`raidcfgd` EXISTS, and the decisions above were made when it did
   not.** This entry said "raidcfgd does not exist -- two real consumers
