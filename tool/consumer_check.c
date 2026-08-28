@@ -29,6 +29,7 @@
 #include <fuzznet/chain/chain.h>
 #include <fuzznet/chain/manifest.h>
 #include <fuzznet/blob/blob.h>
+#include <fuzznet/ratchet/ratchet.h>
 #include <fuzznet/chain/revocation.h>
 #include <fuzznet/chunk/reassembly.h>
 #include <fuzznet/chunk/split.h>
@@ -55,6 +56,7 @@
 #include "chain/chain.h"
 #include "chain/manifest.h"
 #include "blob/blob.h"
+#include "ratchet/ratchet.h"
 #include "chain/revocation.h"
 #include "chunk/reassembly.h"
 #include "chunk/split.h"
@@ -832,6 +834,44 @@ int main(void)
 		if (fzn_blob_proof_verify(&bhash, leaf[0], 1u, 2u, siblings, sibling_count,
 		                          blob_root) != FZN_BLOB_ERR_PROOF)
 			return 139;
+	}
+
+	/* The ratchet, walked rather than compiled: one step, a fast-forward
+	 * that must agree with stepping, and the two refusals a consumer has
+	 * to be able to tell apart. */
+	{
+		fzn_hash_ops_t rhash = { consumer_hash, NULL };
+		fzn_ratchet_chain_t ratchet;
+		uint8_t ck[FZN_CHAIN_KEY_LEN];
+		uint8_t stepped[FZN_CHAIN_KEY_LEN];
+		uint8_t mk[FZN_MESSAGE_KEY_LEN];
+		uint8_t jumped[FZN_MESSAGE_KEY_LEN];
+		unsigned i;
+
+		memset(ck, 0x71, sizeof(ck));
+		memcpy(stepped, ck, sizeof(stepped));
+		for (i = 0; i <= 3u; i++)
+			if (fzn_ratchet_derive(&rhash, stepped, mk, stepped) != FZN_RATCHET_OK)
+				return 140;
+
+		fzn_ratchet_init(&ratchet, ck, 0);
+		if (fzn_ratchet_advance(&rhash, &ratchet, 3u, jumped, NULL, 0, NULL, NULL)
+		    != FZN_RATCHET_OK)
+			return 141;
+		if (memcmp(jumped, mk, FZN_MESSAGE_KEY_LEN) != 0)
+			return 142;
+		if (ratchet.seq != 4u)
+			return 143;
+		/* A duplicate and a caller bug must not share a code, which is
+		 * the distinction a consumer's logging depends on. */
+		if (fzn_ratchet_advance(&rhash, &ratchet, 0, jumped, NULL, 0, NULL, NULL)
+		    != FZN_RATCHET_ERR_BEHIND)
+			return 144;
+		if (fzn_ratchet_advance(&rhash, &ratchet,
+		                        ratchet.seq + (uint64_t)FZN_RATCHET_MAX_ADVANCE + 1u,
+		                        jumped, NULL, 0, NULL, NULL) != FZN_RATCHET_ERR_TOO_FAR)
+			return 145;
+		fzn_ratchet_wipe(&ratchet);
 	}
 
 	/* The frame path. A consumer takes this to open a datagram, so the

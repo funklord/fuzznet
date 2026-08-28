@@ -31,6 +31,7 @@
 /chain/test/manifest_test
 /blob/test/blob_test
 /blob/test/blob_fuzz
+/ratchet/test/ratchet_test
 /chain/test/sign_monocypher_test
 /session/test/hash_monocypher_test
 /frame/test/freshness_test

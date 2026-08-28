@@ -9128,6 +9128,118 @@ it was written for, and copying it across copies a claim that may no longer
 be true.** Found by mutating both sides at once rather than one, which is the
 only way the question can be asked.
 
+## 17. The group ratchet, and why it is not called group
+
+fuzzypickles' gap list has group messaging as a blocking row. Their tree is
+`group_ratchet.c` at 280 lines under about 1300 of chat, and they warned
+before anything was written that **the seam is not where the file boundary
+is**. They then drew it from inside their tree, which is the only place it
+could have been drawn from.
+
+### What is generic, per their reading of their own code
+
+- **One KDF step**: chain key in, message key and next chain key out. No
+  storage, no names, no group concept.
+- **The bounded fast-forward**, and the bound comes WITH the feature rather
+  than after it. A receiver that missed messages re-derives forward without
+  needing the intermediates to have arrived -- the property that makes a
+  chain usable over a lossy transport -- and that same property is an
+  unbounded loop driven by whatever sequence number a stranger wrote.
+- **Two reasons that had to survive rather than be re-derived**: a target
+  behind the stored position is expected rather than hostile, and the step
+  must be alias-safe.
+
+### What is theirs
+
+Storage, a group identified by a NAME STRING, and rotation policy. Their
+"generic" file already includes their chat headers for `FZP_PEER_NAME_MAX`
+and `fzp_is_valid_peer_name`, which is exactly why the file was never the
+seam. A generic library wants an opaque id it never interprets -- the way
+`chain/` treats a capability as 32 bytes it compares and never reads.
+
+### It is `ratchet/`, not `group/`, and that is sec 15d being spent
+
+`group` means two things in this workspace already: a POSIX gid in `local/`
+and a set of people in a chat. That clash was recorded before either tree
+moved. **Naming the module for the mechanism rather than for the one
+application that wanted it is what having found it early is worth** -- the
+second time in two days the fifth question has been applied prospectively
+rather than to damage already done, after `blob/`'s leaves.
+
+### It could not have been a port, and they said so first
+
+Their ratchet is storage-backed throughout: it loads, advances and persists
+inside one call. Nothing here does I/O. So this is state-in, state-out,
+caller-owned, like `record/journal.h` -- the same algorithm with the
+persistence turned inside out, which most of their 280 lines do not survive.
+They offered the edge cases their tests pin and then said they would rather
+this tree derived the shape and asked, **given what a transplanted test had
+just cost** -- which is the finding from the blob pass being spent within the
+day, by the tree that received it.
+
+### What this library does that theirs does not: skipped keys
+
+`fzn_ratchet_advance` writes the keys for the sequence numbers it jumped over
+into a caller's buffer, if one is given, and reports how many did not fit.
+
+**The reasoning is a disagreement worth recording rather than settling.**
+fuzzypickles treats a behind-position target as a duplicate whose plaintext
+is already in local history. That covers a REPLAY. It does not cover a
+genuinely late first delivery, which was never decrypted and so is in
+nobody's history -- and on a datagram transport late is ordinary rather than
+exceptional. A chain moves one way, so a message that arrives after the chain
+has passed it can never be opened again.
+
+Rather than decide that for a consumer, the material is handed back and the
+choice is theirs: retaining a skipped key is a real cost, since it stays
+decryptable until dropped. Signalled to them as a question about their
+transport, not as a defect.
+
+### The bound costs 62 ms, measured, and the number needs a layer to mean anything
+
+`ratchet_test.c` ASSERTS the derivation count -- 100001 for a jump to the
+bound -- so the count cannot drift. The wall clock is a separate measurement
+against the Monocypher BLAKE2b binding and is asserted nowhere, because a
+timing pinned by a test fails on somebody else's laptop: **62 ms, about 620
+ns a step.**
+
+A ~40-byte header naming a far-future sequence buys that. Bounded, which is
+the difference between a defence and none, and not free -- sec 13c did this
+arithmetic for the manifest and did not like the answer either. **Whether it
+matters is a layering question rather than a ratchet one**: reached only
+after a frame's own AEAD has opened, the cost is an insider's; reached from a
+number a stranger can write, it is a stranger's. This module cannot tell
+which, so it refuses rather than clamps and hands the caller the size of the
+jump it declined.
+
+**The measurement was nearly reported wrong.** The first probe failed to
+compile -- a missing feature macro -- and the shell ran a STALE BINARY of the
+same name from an earlier benchmarking session, which printed a full table of
+plausible, unrelated figures. It was caught because the numbers were the
+wrong benchmark's, not because anything checked. `build-and-commit.md` names
+this exactly: never conclude anything from a binary the build step did not
+produce. Fixed by building to a fresh name and reading its mtime before
+running it.
+
+### Seven mutations, and one of them was not a mutation
+
+Six caught: the two halves made one half twice, the bound compared with `>=`,
+a behind-position target accepted, the chain committed before the loop rather
+than after, the final step dropped, and the dropped count not counted.
+
+**The seventh -- swapping the order of the two output writes -- changed
+nothing, and that is a property of the design rather than a hole in the
+suite.** Both halves are computed into a temporary before either is written,
+so write order cannot matter and no single-line edit reintroduces the alias
+hazard. The mutation that CAN express it is a restructuring: two derivations,
+each re-reading `chain_key` -- which is the implementation rejected here on
+cost, since it doubles the work of the one operation that has a bound. Under
+it the suite fails 35 checks, `derive(k, mk, k)` first among them.
+
+Worth separating because "the mutation survived" and "the mutation was not a
+mutation" look identical in a results table, and only one of them is a
+finding.
+
 
 ## 15d. Parity before migration, and the first namespace clash
 
