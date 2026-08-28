@@ -631,6 +631,10 @@ $(BUILD_DIR)/sim/test/network_test: $(BUILD_DIR)/sim/test/network_test.o \
                                     $(BUILD_DIR)/frame/freshness.o \
                                     $(BUILD_DIR)/session/commitment.o \
                                     $(BUILD_DIR)/session/random.o \
+                                    $(BUILD_DIR)/session/agree.o \
+                                    $(BUILD_DIR)/session/session.o \
+                                    $(BUILD_DIR)/prekey/prekey.o \
+                                    $(BUILD_DIR)/ratchet/ratchet.o \
                                     $(BUILD_DIR)/version/version.o \
                                     $(BUILD_DIR)/wire/seal.o \
                                     $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)

@@ -36,6 +36,11 @@
 #include "../../frame/freshness.h"
 #include "../../session/aead.h"
 #include "../../session/commitment.h"
+#include "../../session/agree.h"
+#include "../../session/session.h"
+#include "../../prekey/prekey.h"
+#include "../../ratchet/ratchet.h"
+#include "../../chain/authz.h"
 #include "../../session/random.h"
 #include "../../version/version.h"
 #include "../../wire/seal.h"
@@ -500,6 +505,35 @@ static int sim_hash(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in, 
 		acc = mix(acc ^ in[i]);
 	for (i = 0; i < out_len; i++)
 		out[i] = (uint8_t)(mix(acc + (uint32_t)i) >> 9);
+	return 1;
+}
+
+/* The key-agreement seam, as a stub, and COMMUTATIVE -- which is the only
+ * property `scenario_session` asks of it. Real X25519 is
+ * `session/agree_monocypher.c` and is exercised there against the published
+ * low-order points; what the simulation needs is that two hosts reach the
+ * same secret from opposite halves, so that a disagreement below is the
+ * session layer's and not the arithmetic's. */
+static int sim_agree_public(void *ctx, uint8_t out[FZN_AGREE_PUBLIC_LEN],
+                            const uint8_t secret[FZN_AGREE_SECRET_LEN])
+{
+	size_t i;
+
+	(void)ctx;
+	for (i = 0; i < FZN_AGREE_PUBLIC_LEN; i++)
+		out[i] = (uint8_t)(secret[i] ^ 0x3cu);
+	return 1;
+}
+
+static int sim_agree_shared(void *ctx, uint8_t out[FZN_AGREE_SHARED_LEN],
+                            const uint8_t secret[FZN_AGREE_SECRET_LEN],
+                            const uint8_t peer[FZN_AGREE_PUBLIC_LEN])
+{
+	size_t i;
+
+	(void)ctx;
+	for (i = 0; i < FZN_AGREE_SHARED_LEN; i++)
+		out[i] = (uint8_t)(secret[i] ^ (peer[i] ^ 0x3cu));
 	return 1;
 }
 
@@ -2729,6 +2763,189 @@ static void scenario_fidelity(void)
 	       coarse_complete, FID_HOSTS - 1u, fine_complete, leaked, net.dropped);
 }
 
+/* ------------------------------------------------------------------------
+ * A SESSION, END TO END, BETWEEN TWO SIMULATED HOSTS.
+ *
+ * WHY THIS SCENARIO EXISTS AND WHY IT IS LAST. This file's own opening says
+ * module tests "cannot find a defect BETWEEN modules". Six modules were added
+ * in one day -- prekey, agree, session, ratchet, authz, blob -- and this file
+ * reached NONE of them, which was measured rather than noticed: a grep for
+ * each module's prefix returned zero.
+ *
+ * That is exactly the gap the day's sharpest defect lived in. `ratchet/` was
+ * written correct, tested, fuzzed, and had NO CALLERS AT ALL until
+ * `fzn_session_chains` was written hours later -- a correct function that was
+ * not a working feature, and no module test could have said so.
+ *
+ * So this walks the whole path with nothing stubbed above the vtables: each
+ * host mints a prekey, publishes a signed record, the other pins it on first
+ * use, both derive the same session root from opposite points of view, both
+ * derive directed chain seeds, both ratchet, and the message keys must match.
+ * Then a rotation, and the root must move.
+ */
+static void scenario_session(void)
+{
+	struct sim_net net;
+	fzn_agree_ops_t agree_ops = { sim_agree_public, sim_agree_shared, NULL };
+	fzn_hash_ops_t hash_ops = { sim_hash, NULL };
+	fzn_agree_secret_t sk[2];
+	fzn_prekey_peer_t pinned[2];
+	uint8_t secret[2][FZN_AGREE_SECRET_LEN];
+	uint8_t record_bytes[2][FZN_PREKEY_LEN_TOTAL];
+	fzn_prekey_record_t record[2];
+	uint8_t key[2][FZN_AEAD_KEY_LEN], ckey[2][FZN_COMMITMENT_KEY_LEN];
+	uint8_t send_chain[2][FZN_CHAIN_KEY_LEN], recv_chain[2][FZN_CHAIN_KEY_LEN];
+	fzn_ratchet_chain_t chain_a, chain_b, moved;
+	uint8_t mk_a[FZN_MESSAGE_KEY_LEN], mk_b[FZN_MESSAGE_KEY_LEN];
+	unsigned h;
+	int ok = 1;
+
+	sim_init(&net, 2, 0x5e5510au);
+
+	/* Each host mints a prekey and publishes a record signed under its
+	 * own identity. The record is real bytes, signed and reopened, not a
+	 * struct filled in -- the property this file already holds for hops. */
+	for (h = 0; h < 2u; h++) {
+		unsigned i;
+
+		memset(&sk[h], 0, sizeof(sk[h]));
+		fzn_prekey_peer_init(&pinned[h]);
+		for (i = 0; i < FZN_AGREE_SECRET_LEN; i++)
+			secret[h][i] = (uint8_t)((h * 61u) + (i * 7u) + 3u);
+		if (fzn_agree_secret_install(&sk[h], &agree_ops, secret[h]) != FZN_AGREE_OK)
+			ok = 0;
+		if (!fzn_agree_secret_public(&sk[h]))
+			ok = 0;
+	}
+	check(ok, "a simulated host could not mint a prekey");
+	if (!ok)
+		return;
+
+	for (h = 0; h < 2u; h++) {
+		struct sim_signer who;
+		const fzn_sign_ops_t *signer =
+		        sim_signer(&who, &net.sign, net.hosts[h].pubkey);
+
+		if (fzn_prekey_issue(net.hosts[h].pubkey, fzn_agree_secret_public(&sk[h]),
+		                     500u + h, signer, record_bytes[h]) != FZN_PREKEY_OK)
+			ok = 0;
+		if (fzn_prekey_open(record_bytes[h], FZN_PREKEY_LEN_TOTAL, &record[h])
+		    != FZN_PREKEY_OK)
+			ok = 0;
+	}
+	check(ok, "a simulated host could not publish a prekey record");
+	if (!ok)
+		return;
+
+	/* FIRST USE, EACH PINNING THE OTHER. Adopted rather than confirmed,
+	 * because a simulated network has no out-of-band channel -- which is
+	 * exactly the provenance `trust/` exists to keep visible. */
+	check(fzn_prekey_pin(&pinned[0], record[1], &net.sign, FZN_TRUST_ADOPTED, net.now)
+	              == FZN_PREKEY_OK, "host 0 could not pin host 1's prekey");
+	check(fzn_prekey_pin(&pinned[1], record[0], &net.sign, FZN_TRUST_ADOPTED, net.now)
+	              == FZN_PREKEY_OK, "host 1 could not pin host 0's prekey");
+	check(fzn_trust_source_of(&pinned[0].trust) == FZN_TRUST_ADOPTED,
+	      "a pin over the network reported itself as out-of-band confirmed");
+
+	/* THE SESSION, FROM OPPOSITE POINTS OF VIEW AND WITH NO ROLE AGREED.
+	 * This is the assertion the whole scenario is for: two hosts that
+	 * never negotiated who started must land on the same root. */
+	check(fzn_session_establish(&sk[0], &agree_ops, &hash_ops, net.hosts[0].pubkey,
+	                           net.hosts[1].pubkey, pinned[0].prekey, key[0], ckey[0])
+	              == FZN_SESSION_OK, "host 0 could not establish");
+	check(fzn_session_establish(&sk[1], &agree_ops, &hash_ops, net.hosts[1].pubkey,
+	                           net.hosts[0].pubkey, pinned[1].prekey, key[1], ckey[1])
+	              == FZN_SESSION_OK, "host 1 could not establish");
+	check(memcmp(key[0], key[1], FZN_AEAD_KEY_LEN) == 0,
+	      "two hosts derived different session roots, so they cannot talk");
+	check(memcmp(ckey[0], ckey[1], FZN_COMMITMENT_KEY_LEN) == 0,
+	      "two hosts derived different commitment keys");
+
+	/* THE DIRECTED SEEDS, AND THE RATCHET THEY DRIVE. A message goes one
+	 * way: host 0's send chain must be host 1's receive chain, and the
+	 * first message key on each side must match. This is the composition
+	 * that did not exist at all until hours after the ratchet was
+	 * written. */
+	check(fzn_session_chains(&hash_ops, key[0], net.hosts[0].pubkey, net.hosts[1].pubkey,
+	                        send_chain[0], recv_chain[0]) == FZN_SESSION_OK,
+	      "host 0 could not derive its chain seeds");
+	check(fzn_session_chains(&hash_ops, key[1], net.hosts[1].pubkey, net.hosts[0].pubkey,
+	                        send_chain[1], recv_chain[1]) == FZN_SESSION_OK,
+	      "host 1 could not derive its chain seeds");
+	check(memcmp(send_chain[0], recv_chain[1], FZN_CHAIN_KEY_LEN) == 0,
+	      "host 0's send chain is not host 1's receive chain");
+	check(memcmp(send_chain[0], recv_chain[0], FZN_CHAIN_KEY_LEN) != 0,
+	      "the two directions share a chain, so a message replayed at its sender "
+	      "decrypts under the key it is waiting to receive under");
+
+	fzn_ratchet_init(&chain_a, send_chain[0], 0);
+	fzn_ratchet_init(&chain_b, recv_chain[1], 0);
+	check(fzn_ratchet_advance(&hash_ops, &chain_a, 0, mk_a, &moved, NULL, 0, NULL, NULL)
+	              == FZN_RATCHET_OK, "the sender could not advance");
+	check(fzn_ratchet_advance(&hash_ops, &chain_b, 0, mk_b, &moved, NULL, 0, NULL, NULL)
+	              == FZN_RATCHET_OK, "the receiver could not advance");
+	check(memcmp(mk_a, mk_b, FZN_MESSAGE_KEY_LEN) == 0,
+	      "the two hosts derived different message keys for the first message, so "
+	      "the session and the ratchet do not compose");
+
+	/* AND A ROTATION MOVES THE ROOT, which is where the forward secrecy
+	 * comes from and is worthless if a rotated prekey derives the same
+	 * session. */
+	{
+		uint8_t rotated[FZN_AGREE_SECRET_LEN];
+		uint8_t after[FZN_AEAD_KEY_LEN], after_ck[FZN_COMMITMENT_KEY_LEN];
+		unsigned i;
+
+		for (i = 0; i < FZN_AGREE_SECRET_LEN; i++)
+			rotated[i] = (uint8_t)((i * 13u) + 41u);
+		check(fzn_agree_secret_install(&sk[1], &agree_ops, rotated) == FZN_AGREE_OK,
+		      "host 1 could not rotate its prekey");
+		{
+			struct sim_signer who;
+			const fzn_sign_ops_t *signer =
+			        sim_signer(&who, &net.sign, net.hosts[1].pubkey);
+
+			check(fzn_prekey_issue(net.hosts[1].pubkey,
+			                       fzn_agree_secret_public(&sk[1]), 900u, signer,
+			                       record_bytes[1]) == FZN_PREKEY_OK,
+			      "host 1 could not publish its rotated prekey");
+		}
+		check(fzn_prekey_open(record_bytes[1], FZN_PREKEY_LEN_TOTAL, &record[1])
+		              == FZN_PREKEY_OK, "the rotated record does not open");
+		check(fzn_prekey_pin(&pinned[0], record[1], &net.sign, FZN_TRUST_ADOPTED,
+		                     net.now) == FZN_PREKEY_OK,
+		      "host 0 refused a legitimate rotation");
+		check(fzn_session_establish(&sk[0], &agree_ops, &hash_ops, net.hosts[0].pubkey,
+		                            net.hosts[1].pubkey, pinned[0].prekey, after,
+		                            after_ck) == FZN_SESSION_OK,
+		      "host 0 could not re-establish after the rotation");
+		check(memcmp(key[0], after, FZN_AEAD_KEY_LEN) != 0,
+		      "a rotated prekey derived the same session root, so rotation buys "
+		      "no forward secrecy");
+
+		/* AND THE ROLLBACK: host 1's OLD record, replayed by anybody
+		 * who saw it, must not take. */
+		{
+			struct sim_signer who;
+			const fzn_sign_ops_t *signer =
+			        sim_signer(&who, &net.sign, net.hosts[1].pubkey);
+
+			check(fzn_prekey_issue(net.hosts[1].pubkey,
+			                       fzn_agree_secret_public(&sk[0]), 500u, signer,
+			                       record_bytes[1]) == FZN_PREKEY_OK,
+			      "could not build the replayed record");
+		}
+		check(fzn_prekey_open(record_bytes[1], FZN_PREKEY_LEN_TOTAL, &record[1])
+		              == FZN_PREKEY_OK, "the replayed record does not open");
+		check(fzn_prekey_pin(&pinned[0], record[1], &net.sign, FZN_TRUST_ADOPTED,
+		                     net.now) == FZN_PREKEY_ERR_ROLLBACK,
+		      "an older, genuine, correctly signed prekey was accepted over a newer");
+	}
+
+	for (h = 0; h < 2u; h++)
+		fzn_agree_secret_wipe(&sk[h]);
+}
+
 int main(void)
 {
 	scenario_mesh();
@@ -2747,6 +2964,7 @@ int main(void)
 	scenario_forgery();
 	scenario_join();
 	scenario_fidelity();
+	scenario_session();
 
 	/* Asserted ONCE, not once per fetch. See `digest_dropped`. */
 	check(total_digest_dropped == 0, "a simulation digest buffer was too small");

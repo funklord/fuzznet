@@ -9935,6 +9935,35 @@ visible. And it makes this answer independent of `fzn_chain_verify`
 continuing to refuse an empty chain -- a contract that file states and could
 relax without this one noticing.
 
+### The simulation reached none of the six new modules
+
+Measured rather than noticed: a grep for each module's prefix over
+`sim/test/network_test.c` returned **zero** for `blob`, `ratchet`, `prekey`,
+`agree`, `session` and `authz`, against 26 for `chain` and 35 for `journal`.
+
+That file's own opening says why it matters: module tests "are the right
+shape for finding a defect inside a module and they cannot find one BETWEEN
+modules". **Which is exactly where the day's sharpest defect lived** --
+`ratchet/` was written correct, unit-tested, fuzzed, and had NO CALLERS AT
+ALL for several hours. No module test could have said so, and the one file
+whose job is to say so did not reach it.
+
+`scenario_session` walks the whole path with nothing stubbed above the
+vtables: each host mints a prekey, publishes a signed record, the other pins
+it on first use as ADOPTED -- a simulated network has no out-of-band channel,
+which is the provenance `trust/` exists to keep visible -- both derive the
+same root from opposite points of view with no role agreed, both derive
+directed chain seeds, both ratchet, and the first message keys must match.
+Then a rotation moves the root, and host 1's own older record replayed back
+is refused as a rollback.
+
+**It discriminates.** Deriving both directions alike instead of directed
+fails three of its checks, naming the send/receive mismatch, the shared
+chain, and the composition. 172 checks to 191, and the new ones are the only
+place in this tree where the six modules are asked to work together.
+
+Green under sanitizers as well as a plain build.
+
 ### Sanitized, with a control
 
 Six modules were written this session -- `blob/`, `ratchet/`, `prekey/`,
