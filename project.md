@@ -9959,8 +9959,37 @@ is refused as a rollback.
 
 **It discriminates.** Deriving both directions alike instead of directed
 fails three of its checks, naming the send/receive mismatch, the shared
-chain, and the composition. 172 checks to 191, and the new ones are the only
-place in this tree where the six modules are asked to work together.
+chain, and the composition.
+
+### ~~The six modules~~ FOUR, AND THE OTHER TWO CHECKED RATHER THAN ASSUMED
+
+The commit above said "where the six new modules meet". **It was four.** A
+grep straight afterwards returned zero for `blob` and `authz` -- the same
+overclaim this document spent the day correcting, committed one commit
+earlier by the pass correcting them.
+
+**Checked instead of guessed, and the two are different cases.** What decides
+whether a module belongs in this file is whether it HAS an inter-module seam,
+which its link line answers:
+
+    blob_test    blob.o constant_time.o                      no seam
+    authz_test   authz.o chain.o revocation.o manifest.o     a seam
+
+So `blob/` reaching zero is **correct rather than a gap**: it links only
+`constant_time` by design -- the tree and the sealing are arithmetic over
+bytes a caller supplies -- and there is nothing between-modules to test until
+the transfer protocol exists, which is stage 2. Its forgery oracle in
+`blob_fuzz` is a stronger check than an integration walk would be.
+
+`chain/authz.c` was a genuine gap and is now in the RECEIVE PATH rather than
+in a scenario of its own: every frame this network delivers has its
+authorisation decided by `fzn_authz_decide` alongside the verifier it wraps,
+and the two must agree. Beside it, on live traffic, a ZEROED policy must
+deny -- checked there rather than in a unit test because a forgotten policy
+is a thing that happens in a receive path, not in a suite.
+
+**It discriminates**: letting an unspelled policy through fails that check on
+real deliveries. 172 checks to 1287, since the pair runs per frame.
 
 Green under sanitizers as well as a plain build.
 

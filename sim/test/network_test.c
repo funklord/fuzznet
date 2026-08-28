@@ -831,6 +831,42 @@ static void sim_receive(struct sim_net *net, struct sim_datagram *d)
 	authorised = fzn_chain_verify(sender->chain, sender->chain_len, anchor,
 	                              net->capability, net->now,
 	                              &net->sign, &h->revocations, &proven);
+
+	/* AND THE DECISION LAYER MUST AGREE WITH THE VERIFIER, on every frame
+	 * this network delivers, which is what puts `chain/authz.c` in a seam
+	 * rather than only in its own suite.
+	 *
+	 * `fzn_authz_decide` is what a real receiver calls: it takes the
+	 * policy for the kind, refuses to let a missing chain read as a kind
+	 * that needs none, and collapses every refusal to one verdict. Here
+	 * the policy is spelled -- this network guards everything with one
+	 * capability -- so the decision must be GRANTED exactly when the
+	 * verifier says OK, and DENIED otherwise. A disagreement is the
+	 * decision layer having drifted from the thing it decides about.
+	 *
+	 * The zeroed policy beside it is the case no consumer writes on
+	 * purpose and every consumer can produce by forgetting. It is checked
+	 * on live traffic rather than in a unit test because that is where
+	 * somebody would actually leave one. */
+	{
+		fzn_authz_verdict_t verdict =
+		        fzn_authz_decide(fzn_authz_requires(net->capability), sender->chain,
+		                         sender->chain_len, anchor, net->now, &net->sign,
+		                         &h->revocations);
+		fzn_authz_policy_t forgotten;
+
+		check((authorised == FZN_CHAIN_OK)
+		              == (verdict == FZN_AUTHZ_GRANTED_BY_CHAIN),
+		      "the authorisation decision disagrees with the verifier it wraps");
+
+		memset(&forgotten, 0, sizeof(forgotten));
+		check(fzn_authz_decide(forgotten, sender->chain, sender->chain_len, anchor,
+		                       net->now, &net->sign, &h->revocations)
+		              == FZN_AUTHZ_DENIED,
+		      "a policy nobody spelled granted on live traffic, so absence reads "
+		      "as not-required where it would actually happen");
+	}
+
 	if (authorised != FZN_CHAIN_OK) {
 		h->refused_auth++;
 		return;
