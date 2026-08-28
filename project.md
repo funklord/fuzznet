@@ -7880,7 +7880,52 @@ quoted and did not survive being checked.
   SECRECY** and is recorded as refused so it is not proposed again. A
   receiver holding the root derives any epoch in either direction.
 
-### DECIDED 2026-08-28: shape E. And what decided it was in a header
+### THE DECISION BELOW WAS PREMATURE, AND THE REASON IS SEC 4.5
+
+**Recorded 2026-08-28, within the hour, by the agent that had been
+stopped from building it.** Shape E was chosen on the argument below,
+which stands as far as it goes and does not go far enough.
+
+**E and D differ only in whether the material the epoch keys derive
+from is DELETED, and nothing says what E derives from once the root is
+gone.** There are exactly two candidates:
+
+- **From the transcript.** Then the transcript IS the root and deleting
+  the derived 64 bytes buys nothing -- a receiver holding the transcript
+  derives any epoch in either direction. **That is D**, which this
+  section refuses by name.
+- **From epoch key k by a one-way step.** A symmetric hash ratchet.
+  This section disqualified the ratchet family for the
+  RELAY-HOURS-LATER reason, which E's retention window already answers
+  -- so this branch may be viable. But it requires the transcript to be
+  destroyed after the first epoch, and a rebooted peer holding only its
+  identity key then **cannot resynchronise**, because the material it
+  would re-derive from is gone. That is a self-containment cost on the
+  peer-comes-back axis rather than the stored-datagram axis this
+  section checked.
+
+**And the first branch is the live hazard.** `session/commitment.h`
+declines to say what the transcript holds -- "a protocol decision that
+depends on the session model, and sec 4.5's prekey half is not
+settled". If the answer is the obvious one, a static-static DH plus two
+identity keys, then **a compromised host recomputes the transcript from
+its own identity secret and the peer's public key, and every epoch with
+it. E collapses into D silently**, and nothing in this library can
+detect it.
+
+**So the real question is not E against the ephemeral. It is WHAT GOES
+IN THE TRANSCRIPT, and both shapes are downstream of it.** E does not
+remove sec 4.5's prekey half; it relocates it. Rotating prekeys were
+one of the two ways to get deletable material into a transcript, which
+is why stopping that work does not settle anything by itself.
+
+**This is the second decision in an hour overturned by a reading**, and
+both readings were of `session/commitment.h`. The first found that an
+ephemeral breaks key commitment; the second that an epoch may provide
+no forward secrecy at all. **Neither was a measurement -- both sentences
+were in the file the whole time.**
+
+### The argument for E, which stands where it stands
 
 **The ephemeral breaks key commitment, and this pass did not notice.**
 
@@ -7935,6 +7980,62 @@ was stopped. They are specific to the ephemeral, and the questions that
 pass had to answer -- retention, selection, what a sender does holding
 none -- recur in the epoch shape wearing different clothes, so its
 report is kept.
+
+### What the stopped pass established that survives the shape question
+
+Kept because these questions recur in whatever shape wins, and because
+the pass answered them better than the design it was given.
+
+- **The epoch number is a MANDATORY WIRE FIELD, not "zero to four
+  bytes".** If it is clock-derived the receiver does not know which
+  epoch key to derive the per-frame commitment under, so it tries every
+  retained one. `commitment.h`'s measured figures make it concrete: 560
+  ns to derive plus 47 to compare, so K candidate keys already cost
+  ~610K ns at step 3, and a clock-derived epoch makes it 610.K.N where
+  N is the retention count. With an hour of `max_ahead` and minute
+  epochs, N is 60 and the 640 ns this section defends becomes ~38 us.
+  **Carrying it leaks nothing new** -- `expires_at` is already a
+  cleartext absolute second in the head and an epoch is coarser, and
+  unlike the old per-pair commitment it is not per-pair, so it does not
+  recreate the social-graph leak.
+- **`max_ahead + skew` is right for E and is NOT a double count**, which
+  it looks like since `max_ahead` already includes skew. Under E the
+  epoch boundary is IMPLICIT, so a sender may still be sealing under
+  epoch k up to one skew after the receiver thinks k ended. A PUBLISHED
+  boundary -- a signed `not_after` both sides read off the same bytes --
+  would be `not_after + max_ahead` with no second skew. **The formula
+  distinguishes the shapes and getting it wrong silently loses
+  deliverable traffic.**
+- **The retention bound does not cover traffic with no expiry, and this
+  section answered the wrong objection.** `frame/freshness.h` keeps
+  nothing for `expires_at == 0`, and sec 4.3 says grants do not expire,
+  so a grant frame has no deliverability bound and any retention derived
+  from `max_ahead` loses it. This section answered "those are signed
+  rather than confidential" -- which answers a CONFIDENTIALITY objection
+  to an AVAILABILITY problem. The receiver cannot open the frame at all.
+  Identical under both shapes, so not a discriminator, but unresolved.
+- **Make the downgrade UNSPELLABLE ON THE WIRE, not discouraged.** If
+  the field naming a recipient key is a record `seq`, and `seq == 0`
+  already means "no record yet", a frame naming 0 is refused
+  structurally -- there is no in-band way to say "I could not do the
+  secure thing, here is the long-lived key", which is sec 4.4a's
+  forbidden shape. **The epoch shape has the same question and the same
+  answer: reserve epoch 0 and refuse it.**
+- **A body needs its own discriminator only when nothing already inside
+  the signed range distinguishes it from another body under the same
+  object tag.** A record carries `stream` and `kind`, both 4 bytes at
+  fixed offsets inside the signature, so they separate a prekey body
+  from a configuration body that share `FZN_OBJECT_RECORD`. A later
+  layout revision is a new `kind` rather than a bumped
+  `FZN_SIGNED_VERSION`, which would invalidate every signature ever
+  issued for every object type.
+- **`record.h`'s reason for declining to assign a well-known stream had
+  EXPIRED.** It declined because "naming one before anything follows it
+  would be inventing a mechanism ahead of its need" -- and a sender
+  fetching a peer's keys knowing only its identity is exactly the case
+  it anticipated. Whenever anything becomes the first well-known
+  stream, that is the argument that admits it. Not stream 0 and not
+  kind 0: zero is what a partially-initialised struct lands in.
 
 ### Three refusals
 
