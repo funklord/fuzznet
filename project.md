@@ -9902,6 +9902,43 @@ visible. And it makes this answer independent of `fzn_chain_verify`
 continuing to refuse an empty chain -- a contract that file states and could
 relax without this one noticing.
 
+### The reachability lens, run and clean
+
+`working-practice.md` says to derive the next lens from the last bug rather
+than from a list decided up front. Today's sharpest defect was **the ratchet
+with no callers** -- a correct mechanism nothing composed with -- and it sits
+beside two of the same shape: `prekey/` published a key nothing could agree
+with, and `session/commitment.h` offered a transcript nothing could fill.
+
+So the lens is: **what else is declared here and reached by nothing?**
+
+**Population derived, subtractions shown**, per the rule this session
+produced twice:
+
+    35   tracked headers, vendored and generated excluded
+   196   functions DECLARED in them
+     0   called by nothing anywhere in the tree
+
+**The first run said three and all three were the instrument.** Extracting
+identifiers with a bare grep over headers matched
+`situ_fzn_frame_sealed_open` and `situ_fzn_frame_tag_covered` as substrings
+of generated names, and `fzn_peer_in_group` -- which appears only in
+`local/peer.h`'s PROSE, as the mistake that type exists to prevent, and is
+deliberately not a function. Stripping comments and anchoring on a word
+boundary took 199 identifiers to 196 declarations and the findings to zero.
+
+**And the negative carries a control**, because a probe that cannot speak is
+one whose silence means nothing: a declared function nothing defines or calls
+was planted in `chain/authz.h`, the sweep named it, and it was removed. So
+"no instances" here is measured rather than assumed -- the distinction this
+tree insisted on with fuzzypickles an hour earlier, applied to its own
+result.
+
+**The lens found nothing, and that is the finding.** The three instances it
+was derived from were all closed today, and there is no fourth. An
+unreachable declaration is now a state this library has been swept for once,
+with an instrument shown able to detect one.
+
 ### What is still open
 
 **Chain delivery's transport**, narrowed from the sec 19 row: a receiver
