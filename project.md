@@ -8418,7 +8418,40 @@ preserved whether or not it is right.**
 
 ## 14. Open, and named rather than left silent
 
-- **There is NO PER-MESSAGE FORWARD SECRECY, and until 2026-08-28 this
+- **~~There is NO PER-MESSAGE FORWARD SECRECY.~~ CLOSED 2026-08-28, LATER
+  THE SAME DAY, and this entry is kept rather than deleted because the
+  analysis under it is the reasoning that produced the fix.**
+
+  What landed, all of it in sec 20 with the measurements: `session/agree.h`
+  -- the key-agreement seam this library did not have at all, without which
+  no transcript could hold deletable material; `session/session.h` -- the
+  transcript settled as TWO ROTATING PREKEYS, giving forward secrecy at
+  rotation granularity from either side while surviving a reboot;
+  `fzn_session_chains` -- the directed seeds that finally connect the
+  session root to `ratchet/`, which had been written that morning and had
+  **no callers at all**; and `fzn_session_establish_initiator` /
+  `_responder`, the sender ephemeral, which needed no wire change because
+  the base session is derivable from published prekeys and the ephemeral
+  rides a sealed payload.
+
+  So the property is now: rotation-granularity secrecy from the prekeys,
+  per-message from the ratchet above it, and initiator-side per-session
+  from the ephemeral. Composition tested rather than assumed -- one ratchet
+  step on each side, message keys required to match.
+
+  **The consumer's arithmetic reversed twice and ended somewhere neither
+  tree predicted.** Their phase-1 sentence went from "38 bytes for relay,
+  chunking and per-frame revocation" to "plus giving up per-message forward
+  secrecy" to -- once they measured their own recipient exposure as
+  UNBOUNDED, since their DH uses the recipient's long-lived prekey -- "on
+  forward secrecy it now gives up nothing". The 38 bytes stand, because the
+  ephemeral does not travel in the frame.
+
+  The original entry follows, unchanged, because it is the record of how a
+  document came to be wrong about its own code and how a consumer's direct
+  question found it.
+
+  **There was NO PER-MESSAGE FORWARD SECRECY, and until 2026-08-28 this
   document did not say so anywhere.** The AEAD key is derived once per
   peer over a transcript -- `session/commitment.h` calls it "long-lived,
   per peer, and it takes no nonce" -- and every frame is sealed under it
