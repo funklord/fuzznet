@@ -9592,6 +9592,54 @@ believes is about a CONTACT would silently not follow them. **What is missing
 is the decision, not the mechanism**, and it is recorded in their tree as
 open rather than resolved.
 
+### `state/` answers a second row, and it fits -- measured
+
+fuzzypickles re-read their own list rather than recalling it and found one row
+they had under-specified: "contact and peer management" named peer-add and the
+realms and never named the **replication** half, `peer_sync.c`, which carries a
+user's contacts between their own hosts. They would have discovered that at
+switch time.
+
+They then ran the shape instrument on it -- describe the shape without the
+name -- and got: a signed record per subject carrying a sequence, replicated
+between hosts sharing a principal, where two hosts that have seen the same
+records agree regardless of arrival order. Which is `state/state.h` almost
+word for word: "the SET of records applied to it, never of the order they
+arrived in", supersession per (issuer, stream), and a refusal visible where a
+silent reordering is not.
+
+**What this side could add is the arithmetic they did not have.** A peer-sync
+body is three 32-byte keys, an 8-byte timestamp, a name and an address. Their
+`FZP_PEER_NAME_MAX` is 32 and `FZP_PEER_ADDRESS_MAX` is 64, cited by name from
+`core/src/peer_limits.h`, so with two-byte lengths the body is **204 bytes**
+against `FZN_RECORD_BODY_MAX` at **512**. It fits with 308 to spare.
+
+That is the useful division: they recognised the shape, this tree measured
+whether it holds. A shape match that did not fit would have been a worse
+finding than no match, because it would have read as parity.
+
+### The shape instrument, and why it counts as validated
+
+Three results in three days, and they are not all the same move:
+
+- **`state/` as the per-peer-per-capability map**, found by a question
+  precise about the shape and blind to the name.
+- **`state/` as `peer_sync`**, found the same way, on a row whose own author
+  had written it badly.
+- **`realm` already meaning the scope of a root key** in `revocation.h` --
+  found by a NAME search that a shape question had sent somebody looking for.
+  The strongest of the three, because it was already in the tree rather than
+  about to be introduced.
+
+The third is the other direction of the same move, which is why the
+instrument is not "search by shape instead of by name": it is that a
+shape-question and a name-search find different classes, and each one tells
+you which to run next.
+
+**Adopted as this migration's working instrument** in both trees, rather than
+recorded as an observation. For each thing a consumer needs: describe its
+shape without using its name, and ask whether anything here has that shape.
+
 ### Gap lists have a blind spot that belongs to gap lists as such
 
 Neither side could have found `state/`. Theirs searched for `realm`,
