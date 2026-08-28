@@ -30,6 +30,7 @@
 #include <fuzznet/chain/manifest.h>
 #include <fuzznet/blob/blob.h>
 #include <fuzznet/ratchet/ratchet.h>
+#include <fuzznet/prekey/prekey.h>
 #include <fuzznet/chain/revocation.h>
 #include <fuzznet/chunk/reassembly.h>
 #include <fuzznet/chunk/split.h>
@@ -57,6 +58,7 @@
 #include "chain/manifest.h"
 #include "blob/blob.h"
 #include "ratchet/ratchet.h"
+#include "prekey/prekey.h"
 #include "chain/revocation.h"
 #include "chunk/reassembly.h"
 #include "chunk/split.h"
@@ -834,6 +836,59 @@ int main(void)
 		if (fzn_blob_proof_verify(&bhash, leaf[0], 1u, 2u, siblings, sibling_count,
 		                          blob_root) != FZN_BLOB_ERR_PROOF)
 			return 139;
+	}
+
+	/* The prekey record and the act of pinning it, which are one feature
+	 * and are exercised as one: issue, open, verify, pin, then the three
+	 * refusals a consumer has to be able to tell apart. */
+	{
+		uint8_t host[FZN_PUBKEY_LEN], pk1[FZN_PREKEY_LEN], pk2[FZN_PREKEY_LEN];
+		uint8_t other[FZN_PUBKEY_LEN];
+		uint8_t rec1[FZN_PREKEY_LEN_TOTAL], rec2[FZN_PREKEY_LEN_TOTAL];
+		uint8_t rec3[FZN_PREKEY_LEN_TOTAL];
+		fzn_prekey_record_t r1, r2, r3;
+		fzn_prekey_peer_t peer;
+
+		memset(host, 0x2a, sizeof(host));
+		memset(other, 0x2b, sizeof(other));
+		memset(pk1, 0x3a, sizeof(pk1));
+		memset(pk2, 0x3b, sizeof(pk2));
+
+		if (fzn_prekey_issue(host, pk1, 100u, &sign, rec1) != FZN_PREKEY_OK)
+			return 150;
+		if (fzn_prekey_issue(host, pk2, 200u, &sign, rec2) != FZN_PREKEY_OK)
+			return 151;
+		if (fzn_prekey_issue(other, pk1, 300u, &sign, rec3) != FZN_PREKEY_OK)
+			return 152;
+		if (fzn_prekey_open(rec1, sizeof(rec1), &r1) != FZN_PREKEY_OK)
+			return 153;
+		if (fzn_prekey_open(rec2, sizeof(rec2), &r2) != FZN_PREKEY_OK)
+			return 154;
+		if (fzn_prekey_open(rec3, sizeof(rec3), &r3) != FZN_PREKEY_OK)
+			return 155;
+		if (fzn_prekey_verify(r1, &sign) != FZN_PREKEY_OK)
+			return 156;
+
+		fzn_prekey_peer_init(&peer);
+		if (fzn_prekey_pin(&peer, r1, &sign, FZN_TRUST_ADOPTED, 1u) != FZN_PREKEY_OK)
+			return 157;
+		if (fzn_trust_source_of(&peer.trust) != FZN_TRUST_ADOPTED)
+			return 158;
+		/* A rotation forward, then the same record back again, then a
+		 * different host: three outcomes, three codes. */
+		if (fzn_prekey_pin(&peer, r2, &sign, FZN_TRUST_ADOPTED, 2u) != FZN_PREKEY_OK)
+			return 159;
+		if (fzn_prekey_pin(&peer, r1, &sign, FZN_TRUST_ADOPTED, 3u)
+		    != FZN_PREKEY_ERR_ROLLBACK)
+			return 160;
+		if (fzn_prekey_pin(&peer, r3, &sign, FZN_TRUST_ADOPTED, 4u)
+		    != FZN_PREKEY_ERR_WRONG_HOST)
+			return 161;
+		/* And a rotation must not raise an adopted anchor to a
+		 * confirmed one, which is the provenance a consumer shows its
+		 * user. */
+		if (fzn_trust_source_of(&peer.trust) != FZN_TRUST_ADOPTED)
+			return 162;
 	}
 
 	/* The ratchet, walked rather than compiled: one step, a fast-forward

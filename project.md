@@ -9306,6 +9306,100 @@ and this is a worked instance: the branches were "return the skipped keys" and
 "do not", and what was actually wrong was the order of two operations in a
 tree neither branch was about.
 
+## 18. The prekey record and the act of pinning it, 2026-08-28
+
+This library asked fuzzypickles which of two rows to take first -- prekey
+distribution or contact management with realms -- and was told the question
+had the wrong shape. **They are not two things there.** From their own
+storage layout: the `peer_<name>` record's fields come "FROM THE VERIFIED
+PREKEY_RECORD AT ADD-TIME". There is no separate distribution mechanism; the
+prekey record is the thing that travels, verifying it is what an add does,
+and pinning it IS the trust-on-first-use act.
+
+**So the record and the act are built together, and the realm and opt-in
+state follow.** A record with no pinning act is a blob nobody adopts -- half
+of one thing rather than one of two. This is the boundary-runs-through-the-
+file case a third time: their `identity.c` holds both the TOFU discipline,
+which is generic, and the contact record, which is not.
+
+### What verifying one proves, and what it does not
+
+The record is SELF-SIGNED: the host signs its own prekey under its own
+long-term key. A valid signature proves that whoever holds that secret key
+made the record, and proves **nothing** about whether the key belongs to the
+party the user meant. That is not a weakness to fix; it is what trust on
+first use is, and `trust/trust.h` already says a consumer owes its user a way
+to check the anchor out of band. The same debt is owed here and is written
+where a caller will read it.
+
+### The tag matters more here, not less
+
+`FZN_OBJECT_PREKEY` is 132, in the library half. A self-signed record is one
+whose signer and subject are the same 32 bytes, so **without a tag it is
+separated from anything else that key signs by nothing but its length** --
+and it is 138 bytes, which sits inside a journal record's 156-to-668 range at
+no distance at all.
+
+### The rollback is the case a signature cannot catch
+
+Three outcomes on an already-pinned peer, each its own code because each is
+its own event: a newer prekey from the same host is a rotation and is taken;
+the same record again is a re-delivery and is not an event; **a different
+prekey that is not newer is a rollback** -- a real, correctly signed, older
+record replayed by anyone who saw it, and if that prekey has since leaked,
+accepting it is the whole attack. Nothing about the bytes is wrong, which is
+exactly why the signature cannot catch it.
+
+The clock used is the HOST'S OWN and orders two of that host's statements
+against each other. Sec 13b settled that a clock does not gate admission
+here; this is not admission.
+
+**Equal timestamps with different keys are a rollback too.** Two prekeys
+claiming one instant cannot be ordered, so the safe answer is to keep what is
+held.
+
+### A rotation must not launder provenance
+
+Raising an ADOPTED anchor to PINNED on rotation would let a peer upgrade its
+own provenance, after which the consumer tells a user "you verified this key"
+about a key nobody checked. **Two independent things prevent it**, and the
+mutation is what showed the second: `prekey.c`'s rotation path anchors
+nothing, and `trust.c`'s `anchor()` refuses a second anchoring outright. The
+mutation that added a `fzn_trust_pin` call to the rotation path changed
+nothing at all -- because trust/ declined it. Defence in depth, arrived at
+without anybody planning it, and worth recording as measured rather than
+claiming this module enforces it alone.
+
+### The mutation that segfaulted instead of failing
+
+Shortening the signed range so the signature covered 66 bytes instead of 74
+did not fail the suite. **It crashed it**, and printed nothing at all,
+because the output was block-buffered into a file that a SIGSEGV never
+flushed.
+
+The cause was two `CHECK`s that reported a failure and then carried on into
+a dereference: a fixture that did not build, and -- the real one, found under
+ASan at `prekey_test.c:255` -- a `memcmp` against `fzn_trust_root`, which
+returns **NULL** when the pin it follows was refused. A crash is technically
+a failure. It is also a run that names nothing, stops every later case, and
+buries the one line that said what was wrong.
+
+`REQUIRE` is `CHECK` that abandons the case, applied to every fixture build
+and every pin a later line depends on. The same mutation now exits 1 with 7
+failures and a check count that visibly drops -- 120 against 152 -- because
+cases bail out early, which is itself the signal.
+
+**The condition is evaluated once, into a local.** Spelling it
+`CHECK(c); if (!(c)) return;` would build the fixture twice, which is the
+sort of macro that works until the expression has an effect.
+
+**And two instrument errors in the chase**, both self-caught and both worth
+the line: reading `$?` after a pipeline gets the exit status of `tail`, not
+of the binary; and an `-fsanitize=address` build refused to run at all under
+`stdbuf` -- "ASan runtime does not come first in initial library list" --
+which is a diagnostic about the wrapper, not about the code, and would have
+read as a broken test to anybody in a hurry.
+
 
 ## 15d. Parity before migration, and the first namespace clash
 

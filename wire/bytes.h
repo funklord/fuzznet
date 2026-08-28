@@ -192,6 +192,17 @@ typedef enum fzn_signed_object {
 	 * key, colliding lengths, which is fuzzypickles' incident with the
 	 * numbers changed. The tag is what separates them. */
 	FZN_OBJECT_MANIFEST = 131u,
+	/* A prekey record: a host's statement of its own key-agreement key,
+	 * signed under its own long-term key. `prekey/prekey.h` carries the
+	 * layout and project.md sec 18 the design.
+	 *
+	 * IT IS SELF-SIGNED, WHICH IS WHY IT NEEDS THE TAG AS MUCH AS ANY
+	 * OTHER OBJECT AND NOT LESS. A self-signed record is one whose signer
+	 * and subject are the same 32 bytes -- so without a tag, a host's
+	 * prekey record and any other object that key signs are separated by
+	 * nothing but their lengths, and this one is 138 bytes, which is
+	 * inside a record's 156-to-668 range at no distance at all. */
+	FZN_OBJECT_PREKEY = 132u,
 } fzn_signed_object_t;
 
 /* THE ALLOCATION DISCIPLINE, CHECKED BY THE COMPILER RATHER THAN BY A TEST,
@@ -206,16 +217,21 @@ typedef enum fzn_signed_object {
 _Static_assert(FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_HOP)
                && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_REVOCATION)
                && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_RECORD)
-               && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_MANIFEST),
+               && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_MANIFEST)
+               && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_PREKEY),
                "a signed-object tag has been allocated into the consumer half");
 _Static_assert(FZN_OBJECT_HOP != FZN_OBJECT_REVOCATION
                && FZN_OBJECT_HOP != FZN_OBJECT_RECORD
                && FZN_OBJECT_HOP != FZN_OBJECT_MANIFEST
                && FZN_OBJECT_REVOCATION != FZN_OBJECT_RECORD
                && FZN_OBJECT_REVOCATION != FZN_OBJECT_MANIFEST
-               && FZN_OBJECT_RECORD != FZN_OBJECT_MANIFEST,
+               && FZN_OBJECT_RECORD != FZN_OBJECT_MANIFEST
+               && FZN_OBJECT_PREKEY != FZN_OBJECT_HOP
+               && FZN_OBJECT_PREKEY != FZN_OBJECT_REVOCATION
+               && FZN_OBJECT_PREKEY != FZN_OBJECT_RECORD
+               && FZN_OBJECT_PREKEY != FZN_OBJECT_MANIFEST,
                "two signed-object tags share a value, which shares their signatures");
-_Static_assert(FZN_OBJECT_MANIFEST <= 255u,
+_Static_assert(FZN_OBJECT_PREKEY <= 255u,
                "a signed-object tag must fit the one byte the transcript gives it");
 
 #endif /* FZN_BYTES_H */
