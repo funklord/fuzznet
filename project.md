@@ -9608,15 +9608,84 @@ word for word: "the SET of records applied to it, never of the order they
 arrived in", supersession per (issuer, stream), and a refusal visible where a
 silent reordering is not.
 
-**What this side could add is the arithmetic they did not have.** A peer-sync
-body is three 32-byte keys, an 8-byte timestamp, a name and an address. Their
-`FZP_PEER_NAME_MAX` is 32 and `FZP_PEER_ADDRESS_MAX` is 64, cited by name from
-`core/src/peer_limits.h`, so with two-byte lengths the body is **204 bytes**
-against `FZN_RECORD_BODY_MAX` at **512**. It fits with 308 to spare.
+~~A peer-sync body is 204 bytes against FZN_RECORD_BODY_MAX at 512, so it fits
+with 308 to spare.~~ **WRONG, BY 88%, AND CORRECTED THE SAME HOUR. It is
+1794 bytes and it does not fit.**
 
-That is the useful division: they recognised the shape, this tree measured
-whether it holds. A shape match that did not fit would have been a worse
-finding than no match, because it would have read as parity.
+Expanded with the compiler from their own header rather than added up --
+`FZP_PEER_SYNC_RECORD_BLOB_LEN`, `peer_sync_internal.h:97`:
+
+    FZP_PEER_SYNC_SIGNED_LEN      278
+    FZP_CAP_CHAIN_BLOB_LEN       1450
+    signature                      64
+    total                        1794     against FZN_RECORD_BODY_MAX 512
+
+**Two errors, and the second is the interesting one.** The signed part alone
+is 278 where this tree computed 204 -- it carries a writer, an origin and a
+sequence that were not in the description. And 1450 bytes of it are the
+AUTHORISING CAPABILITY CHAIN, which the description did not mention at all.
+88% of the record was a field nobody named.
+
+**IT WAS MEASURED FROM PROSE RATHER THAN FROM A CONSTANT**, which is the rule
+this library has been applying all week, broken by this library. fuzzypickles
+wrote the shape -- "a signed record per subject, carrying a sequence,
+replicated between hosts sharing a principal" -- every word true and complete
+by 12% of the bytes. Measuring it faithfully produced a number that was
+faithful to the wrong thing. **A description standing in for a name is the
+fourth count caught this way in three days**, in both directions, and this
+one is the clearest because the arithmetic was correct and the input was not.
+
+**The paragraph that predicted it was in the same message.** "A shape match
+that did not fit would have been a worse finding than no match, because it
+would have read as parity." That is exactly what nearly happened, and the only
+thing that stopped it was measuring AFTER matching rather than stopping at the
+match. The instrument caught its own failure mode one step later than anybody
+designed it to.
+
+### Where the row actually lands for this library, measured
+
+**The two trees agree almost exactly what a chain costs, and disagree about
+where it travels.** Expanded from this tree's own constants:
+
+    FZN_HOP_LEN                     179
+    FZN_CHAIN_MAX_HOPS                8
+    a full chain on the wire       1432      against their 1450
+    FZN_RECORD_MAX_LEN              668
+    FZN_SPLIT_MAX_PAYLOAD          1024
+    largest reassembled message  262144
+
+**A record here never carries a chain, and that is settled rather than
+convenient.** `record.h` separates the two questions on purpose:
+`fzn_record_verify` answers "is this what its issuer signed" and explicitly
+not "was the issuer allowed to say it", which is `fzn_chain_verify` against a
+capability the consumer chooses for that `kind`. The reason given is that a
+consumer authorising by capability chain and one authorising by local uid both
+need the first and neither needs the other's answer.
+
+So the 1794-byte object does not exist here. The equivalent is a record of at
+most 668 bytes plus hops admitted separately, and a full 8-hop chain at 1432
+is two chunks against a reassembly ceiling of 262144 -- headroom of two orders
+of magnitude, not a squeeze.
+
+**WHAT IS NOT SETTLED, and it is stated as open rather than resolved because
+this section has already been wrong once today**:
+
+- **Chain delivery has no named mechanism here.** A receiver that must verify
+  a record's authorisation needs the hops, and nothing in this library says
+  how they arrive. fuzzypickles solved that by inlining, which is what makes
+  their record 1794 bytes; this tree has declined to inline and has not said
+  what it does instead.
+- **What binds a separately-travelling chain to the record it authorises.**
+  The design's answer is the issuer key and the capability, both inside the
+  record's signature -- so a chain is not "attached" to a record, it grants a
+  capability to a key, and the consumer picks which capability a `kind`
+  requires. That appears sound and it is a security argument, which means it
+  wants a second reader rather than this section's confidence.
+
+**The row goes back on the blocking list and it belongs to neither tree's
+original list.** It was found by measuring a match instead of accepting it,
+and the honest form of the finding is that fuzzypickles' answer does not port
+and this library's answer is half-written.
 
 ### The shape instrument, and why it counts as validated
 
