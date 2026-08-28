@@ -28,6 +28,7 @@
 #ifdef FZN_CONSUMER_INSTALLED
 #include <fuzznet/chain/chain.h>
 #include <fuzznet/chain/manifest.h>
+#include <fuzznet/blob/blob.h>
 #include <fuzznet/chain/revocation.h>
 #include <fuzznet/chunk/reassembly.h>
 #include <fuzznet/chunk/split.h>
@@ -53,6 +54,7 @@
 #else
 #include "chain/chain.h"
 #include "chain/manifest.h"
+#include "blob/blob.h"
 #include "chain/revocation.h"
 #include "chunk/reassembly.h"
 #include "chunk/split.h"
@@ -122,6 +124,69 @@ static int always_good(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const ui
 	(void)msg;
 	(void)msg_len;
 	(void)sig;
+	return 1;
+}
+
+/* A mixing function and a toy AEAD, so the blob path below can be exercised
+ * rather than merely compiled. Neither is cryptography and neither pretends
+ * to be -- blob/test/blob_test.c is where the properties are checked. What
+ * this file asks is narrower and is the thing an installed header can get
+ * wrong: that the declarations, the constants and the sources agree, and
+ * that a consumer holding only the installed prefix can call them. */
+static int consumer_hash(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in,
+                         size_t in_len)
+{
+	uint64_t h = 0xcbf29ce484222325ull;
+	size_t i;
+
+	(void)ctx;
+	h ^= (uint64_t)out_len;
+	h *= 0x100000001b3ull;
+	for (i = 0; i < in_len; i++) {
+		h ^= in[i];
+		h *= 0x100000001b3ull;
+	}
+	for (i = 0; i < out_len; i++) {
+		h ^= (uint64_t)i + 0x9e3779b97f4a7c15ull;
+		h *= 0x100000001b3ull;
+		out[i] = (uint8_t)(h >> 32);
+	}
+	return 1;
+}
+
+static void consumer_seal(void *ctx, const uint8_t key[FZN_AEAD_KEY_LEN],
+                          const uint8_t nonce[FZN_AEAD_NONCE_LEN], const uint8_t *aad,
+                          size_t aad_len, uint8_t *text, size_t text_len,
+                          uint8_t tag[FZN_AEAD_TAG_LEN])
+{
+	size_t i;
+
+	(void)ctx;
+	(void)aad;
+	(void)aad_len;
+	for (i = 0; i < text_len; i++)
+		text[i] = (uint8_t)(text[i] ^ key[i % FZN_AEAD_KEY_LEN] ^ nonce[i % FZN_AEAD_NONCE_LEN]);
+	for (i = 0; i < FZN_AEAD_TAG_LEN; i++)
+		tag[i] = (uint8_t)(key[i] ^ nonce[i] ^ (uint8_t)text_len);
+}
+
+static int consumer_open(void *ctx, const uint8_t key[FZN_AEAD_KEY_LEN],
+                         const uint8_t nonce[FZN_AEAD_NONCE_LEN], const uint8_t *aad,
+                         size_t aad_len, uint8_t *text, size_t text_len,
+                         const uint8_t tag[FZN_AEAD_TAG_LEN])
+{
+	uint8_t want[FZN_AEAD_TAG_LEN];
+	size_t i;
+
+	(void)ctx;
+	(void)aad;
+	(void)aad_len;
+	for (i = 0; i < FZN_AEAD_TAG_LEN; i++)
+		want[i] = (uint8_t)(key[i] ^ nonce[i] ^ (uint8_t)text_len);
+	if (memcmp(want, tag, FZN_AEAD_TAG_LEN) != 0)
+		return 0;
+	for (i = 0; i < text_len; i++)
+		text[i] = (uint8_t)(text[i] ^ key[i % FZN_AEAD_KEY_LEN] ^ nonce[i % FZN_AEAD_NONCE_LEN]);
 	return 1;
 }
 
@@ -712,6 +777,63 @@ int main(void)
 	 * in the tree failed to build while this one did not. A check that
 	 * cannot fail is a shape this project keeps finding; a check that is
 	 * not compiled is the same shape with the compiler's help removed. */
+	/* The blob path, walked end to end rather than compiled: seal two
+	 * leaves, hash them, build the tree, take the root, and verify an
+	 * inclusion proof against it. A header named in HDRS and called by
+	 * nothing passes this gate as loudly as one a consumer exercises,
+	 * which is the same argument the manifest block above makes. */
+	{
+		fzn_hash_ops_t bhash = { consumer_hash, NULL };
+		fzn_aead_ops_t baead = { consumer_seal, consumer_open, NULL };
+		fzn_blob_tree_t tree;
+		uint8_t ckey[FZN_BLOB_KEY_LEN];
+		uint8_t plain[64];
+		uint8_t sealed[FZN_BLOB_SEALED_MAX];
+		uint8_t leaf[2][FZN_BLOB_HASH_LEN];
+		uint8_t blob_root[FZN_BLOB_HASH_LEN];
+		uint8_t siblings[FZN_BLOB_MAX_DEPTH * FZN_BLOB_HASH_LEN];
+		uint8_t back[64];
+		size_t sealed_len = 0, back_len = 0;
+		unsigned sibling_count = 0;
+		unsigned i;
+
+		memset(ckey, 0x3c, sizeof(ckey));
+		memset(plain, 0x5e, sizeof(plain));
+
+		fzn_blob_tree_init(&tree);
+		for (i = 0; i < 2u; i++) {
+			plain[0] = (uint8_t)i;
+			if (fzn_blob_leaf_seal(&bhash, &baead, ckey, i, plain, sizeof(plain),
+			                       sealed, sizeof(sealed), &sealed_len)
+			    != FZN_BLOB_OK)
+				return 130;
+			if (sealed_len != sizeof(plain) + FZN_BLOB_LEAF_OVERHEAD)
+				return 131;
+			if (fzn_blob_leaf_hash(&bhash, sealed, sealed_len, leaf[i]) != FZN_BLOB_OK)
+				return 132;
+			if (fzn_blob_tree_push(&bhash, &tree, leaf[i]) != FZN_BLOB_OK)
+				return 133;
+		}
+		if (fzn_blob_leaf_open(&bhash, &baead, ckey, 1u, sealed, sealed_len, back,
+		                       sizeof(back), &back_len) != FZN_BLOB_OK)
+			return 134;
+		if (back_len != sizeof(plain) || back[0] != 1u)
+			return 135;
+		if (fzn_blob_tree_root(&bhash, &tree, blob_root) != FZN_BLOB_OK)
+			return 136;
+		if (fzn_blob_proof_build(&bhash, leaf[0], 2u, 1u, siblings, sizeof(siblings),
+		                         &sibling_count) != FZN_BLOB_OK)
+			return 137;
+		if (fzn_blob_proof_verify(&bhash, leaf[1], 1u, 2u, siblings, sibling_count,
+		                          blob_root) != FZN_BLOB_OK)
+			return 138;
+		/* And a refusal, so the acceptance above is not the only
+		 * outcome this consumer can observe. */
+		if (fzn_blob_proof_verify(&bhash, leaf[0], 1u, 2u, siblings, sibling_count,
+		                          blob_root) != FZN_BLOB_ERR_PROOF)
+			return 139;
+	}
+
 	/* The frame path. A consumer takes this to open a datagram, so the
 	 * check is that the header and the source go together and that a
 	 * refused open is refused -- not that the cryptography works, which

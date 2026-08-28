@@ -8878,6 +8878,169 @@ preserved whether or not it is right.**
   settled**: this document wins over the code, so if the first reading was
   meant, the code is wrong and not the sentence.
 
+## 16. Content addressing: the design, 2026-08-28
+
+fuzzypickles' gap list puts this first among the absences and calls it
+larger than the gap this tree called largest. Measured there: `merkle`,
+`blob`, `convergent` and `content.address` are **zero files here**
+against their `blob.c` at 1893 lines, with stickers, `file_ref` and
+group assets standing on it.
+
+**The contract below is read from their `core/src/blob_internal.h` at
+`2073cbe` and adopted where it is right, which is most of it.** The commit
+is part of the citation, per the rule the tag-space pass just produced: a
+name alone does not say which of two true readings was taken. Their design is
+better than a fresh one would be, and the parts worth restating are
+the ones this library changes.
+
+### What is adopted whole, and why each is load-bearing
+
+**The Merkle tree is over CIPHERTEXT, not plaintext, and that ordering
+is the design.** Two verifiers answering different questions: any host
+checks a leaf against the root **with no key at all**, so a relay or
+cache serves bytes it cannot read; the recipient additionally checks
+the AEAD, which is what authenticates the plaintext. A relay needs the
+first and must never need the second.
+
+**Sealing is deterministic** -- the nonce comes from the leaf index,
+not from entropy -- because two people holding the same file must
+produce byte-identical ciphertext or dedup does not work at all. Safe
+only because a content key is per blob and each (key, index) is used
+once. Reusing a content key across different content is catastrophic in
+the ordinary way, and the API has to make that hard to spell.
+
+**Key-committing per leaf**, which this library already has the shape
+for: `session/commitment.h`'s one hash producing an AEAD key and a
+commitment from a single input. The blob's derivation is that
+construction with its own label, not a second implementation.
+
+**The leaf is 1024 bytes**, adopted with their arithmetic rather than
+re-derived -- `FZP_BLOB_LEAF_SIZE`, sized so a sealed leaf and its
+framing fit one datagram inside IPv6's guaranteed 1280 MTU. The
+property that matters is not the packing: **the leaf size is exactly
+how much UNVERIFIED data an attacker can make a host buffer.** At
+datagram size every arriving datagram is independently verifiable on
+arrival, so the classic P2P exhaustion vector closes by construction
+rather than by a heuristic. It costs ~3% in AEAD overhead forever, and
+bisection addressing is what keeps that affordable.
+
+**It is identity-affecting and therefore permanent.** The blob id is
+the root over leaves of this size, so a different size is a different
+id for the same file and a disjoint swarm.
+
+### What this library changes, and why
+
+**They are LEAVES here, never chunks.** `chunk/` in this tree is
+datagram fragmentation with a transient lifecycle; a blob leaf is
+content-addressed and permanent. Two things called chunk, one module
+apart, is the fifth question arriving inside a single tree rather
+than between two -- and the earlier finding stands that a module is its
+lifecycle rather than its data structure. The word is spent; blob/ uses
+leaf.
+
+**Nothing allocates, which their design does not have to worry about
+and this one does.** A tree over a gigabyte cannot hold its leaf hashes.
+The construction is therefore STREAMING: a stack of at most
+`FZN_BLOB_MAX_DEPTH` interior hashes, folded as leaves arrive, so the
+working set is 40 hashes regardless of blob size and the caller owns
+every byte. That is the same discipline as the rest of the library and
+it is not a compromise -- a streaming tree is what a receiver verifying
+in arrival order wants anyway.
+
+**Leaf and interior hashing are domain-separated**, by a distinct
+prefix byte on each. Without it a Merkle tree has the classic
+second-preimage weakness: an interior node's two child hashes are 64
+bytes that can be presented as a leaf's content, so a tree of depth d
+over n leaves has forgeries that no key would catch. The keyless
+verifier is exactly the one that would accept them, and the keyless
+verifier is the one strangers use. Asserted by a test that constructs
+the collision, not by a comment.
+
+**Bisection addressing names a subtree by (index, depth)**, so a peer
+moves a whole subtree for one small integer. This is what makes a fine
+leaf affordable and it is the reason the ~3% is a deliberate purchase
+rather than a regret.
+
+### The seam, and what stage 1 is
+
+Stage 1 is the generic half and nothing else: leaf key derivation, leaf
+seal and open, the streaming root, an inclusion proof and its verifier,
+and subtree verification. It calls `fzn_hash_ops_t` and
+`fzn_aead_ops_t` and no primitive, like everything else here.
+
+**Stage 2 is the transfer protocol -- HAVE, WANT, the batch -- and it
+is deliberately not in stage 1.** It is transport, their own gap list
+marks transport as not blocking if the first switch is crypto and
+records, and it carries a decision this tree has not taken: their WANT
+needs a return-routability cookie because a ~45-byte query answers with
+up to 64 KiB, a ~1500x reflection against the ~388x this tree already
+measured for the manifest. That belongs with the rest of the
+amplification work in sec 13c, not inside a hashing module.
+
+**Convergent encryption is a stage 2 question too, and it is a policy
+rather than a mechanism**: deriving the content key from the content
+makes identical files dedup across users and makes a confirmation-of-a-
+file attack possible against low-entropy content. Stage 1 takes the
+content key as an argument and has no opinion, which is the honest
+place for the seam to sit until the holder decides.
+
+### Stage 1 built, and what building it corrected
+
+`blob/blob.c`, `blob/blob.h`, `blob/test/blob_test.c` -- 1445 checks. The
+module links `constant_time/` and nothing else: the tree and the sealing are
+arithmetic over bytes the caller supplies, and the crypto arrives through the
+two vtables, which is the shape sec 16 asked for and is worth having been
+checked rather than intended.
+
+**THE ROOT DOES NOT COMMIT TO THE LEAF COUNT, and the design section above
+did not know it.** A case was written asserting flatly that a proof does not
+verify against a tree of a different size. It failed, correctly: leaf 4 of an
+11-leaf tree sits inside the complete left subtree of eight, which is
+identical in a 12-leaf tree, so the path, the siblings and the root are all
+the same and the proof IS valid for both. Only a leaf whose depth actually
+differs -- leaf 10 of 11 against 12 -- is refused.
+
+That is RFC 6962's property inherited whole, and the consequence is a
+caller's: **whatever record carries a blob id must carry its length beside
+it, inside the same signature.** A root alone names a set of trees rather
+than one blob, and a receiver told "n leaves" by an attacker can be walked to
+a truncation of the file it asked for. It is written at
+`fzn_blob_proof_verify`, where the caller who needs it will be, and it is a
+requirement on stage 2 rather than something stage 1 can fix.
+
+**The design pass would not have found it.** Sec 16 was written from a
+correct reading of a good header and still carried a false claim about the
+construction it was adopting -- which is sec 13f's asymmetry again, on the
+day after it was recorded: four designs wrong, all four found by building.
+
+**One definition of the tree's shape, deliberately.** `subtree_root`, which
+proof building needs, is built on `fzn_blob_tree_push` rather than on its own
+recursion. A second recursive definition would agree today and be free to
+drift, and the whole apparatus of proofs is worthless the moment the prover
+and the builder disagree about what the tree is. It costs O(n log n) for a
+proof, which is the seeder's cost over hashes it already holds.
+
+**The test's reference is a THIRD implementation and looks nothing like
+either**: RFC 6962's recursion, written from the definition, checked against
+the streaming builder for every leaf count from 1 to 130 rather than a
+sample. A sample chosen by hand is a sample chosen to pass, and the counts
+that catch a fold-direction error are the ones just past a power of two.
+
+**Eight mutations, eight refusals.** The node prefix set equal to the leaf
+prefix, the root folded left-to-right, the index dropped from the key
+derivation, the sibling count compared with `>` instead of `!=`, the wipe
+removed from a refused open, and the commitment check disabled -- each
+asserted present before the run.
+
+**Two were caught by the compiler rather than by the suite, and were re-run
+without their compile-time guard**, because a `_Static_assert` catching a
+mutation says the assert works and nothing about whether the test does. With
+the assert deleted, the prefix collision fails the second-preimage case; with
+`index` kept syntactically used, dropping it from the derivation fails the
+index-binding case. A mutation stopped at compile time is a mutation whose
+test has not been tried.
+
+
 ## 15d. Parity before migration, and the first namespace clash
 
 **The holder's ordering, 2026-08-28**: every feature fuzzypickles needs
@@ -9010,13 +9173,37 @@ out and the assert is what keeps the copy honest -- which is the whole
 technique in one line, and it was being used correctly in one file out
 of three.
 
+**A cross-tree constant needs a COMMIT attached, not only a name.** They
+read three values in `wire/bytes.h` where this tree has four, and neither
+reading was wrong: they read `76a3485`, the commit they pin, and
+`FZN_OBJECT_MANIFEST` landed on master after it. `evidence.md`'s rule --
+cite the owner's constant by name -- is incomplete for exactly this
+situation, because **a vendored pin and the owner's tip are two facts
+wearing one name**, and the consumer reads one while the owner reads the
+other. It will recur on every citation either tree makes during the
+migration, so every cross-tree reference in this document and in the
+headers now carries the commit it was read at.
+
 **Signalled to fuzzypickles rather than acted on there**, per
 `harmonization.md`. Two things they may want: their `MANIFEST_STATEMENT`
 (9) and this library's `MANIFEST` (131) are different objects with one
-name, which is sec 17's fifth question; and their header's rule against
+name, which is the fifth question again; and their header's rule against
 renumbering rests on a reason -- old signatures existing -- that does
-not yet apply to either tree, which makes today the last day it is free
-for them too. Neither is ours to decide.
+not obviously apply while nothing is deployed, which looked like it made
+today the last free day for them too.
+
+**They measured it and it is not free, which is the correction worth
+keeping.** Signed material persists in their tree and is RE-VERIFIED ON
+LOAD rather than trusted for being on disk -- `fzp_capability_is_revoked`
+calls `verify_revocation` on every query -- so old signatures do exist,
+on a desktop and on a phone carrying a build from this morning.
+Renumbering invalidates them. The cost is bounded by re-provisioning
+rather than absent, and that is the number their holder's decision
+should be taken against. **The argument was right and the premise was
+wrong**: "nothing is deployed" is a claim about another tree, which is
+exactly the kind this library keeps getting wrong by not asking.
+
+Neither is ours to decide.
 
 
 ## 15c. Vendoring: Monocypher yes, flog no, 2026-08-28
