@@ -7565,7 +7565,33 @@ wrong answer to another.
 
 **Admit a non-root revocation exactly when its issuer presents a chain
 that verifies against the pinned root for the capability being
-withdrawn, whose last hop is `delegable`.** Put sharply: admit a
+withdrawn, whose last hop is `delegable`.**
+
+**AS STATED THAT RULE IS EXPLOITABLE, AND THE BUILD FOUND IT BY WRITING
+THE TEST RATHER THAN BY RE-READING THE PROSE.** It relates the chain to
+NOTHING. Chains are public. **A freshly generated keypair signs a
+revocation naming itself as issuer and staples somebody else's
+delegable chain to it** -- the capability checks out, the root checks
+out, the last hop is delegable, both stated conditions hold, and the
+bound costs one keypair. That is precisely what the paragraph below
+claims this rule prevents.
+
+Two things must be added, and the sharp form of the rule -- "admit if
+`fzn_chain_delegate` would let that key GRANT the thing it is
+withdrawing" -- already implies the first:
+
+- **The verified chain's grantee must equal the record's issuer.**
+  Without it any published chain stands for anybody who copies it.
+- **The depth ceiling is part of the rule.** A key at the end of a full
+  chain has no room for the hop that would make it an ancestor, so its
+  revocations can never be honoured -- the `delegable` argument applied
+  to depth.
+
+**The prose and the sharp form disagreed and the prose is what would
+have been built from.** Recorded rather than silently corrected,
+because this section was written to be built from and was, and the
+gap between a rule's careful statement and its one-line summary is
+where the exploit lived. Put sharply: admit a
 revocation from a key if and only if `fzn_chain_delegate` would let that
 key GRANT the thing it is withdrawing. Revoking a descendant is the
 inverse of granting one and takes the same standing.
