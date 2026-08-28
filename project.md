@@ -9935,6 +9935,39 @@ visible. And it makes this answer independent of `fzn_chain_verify`
 continuing to refuse an empty chain -- a contract that file states and could
 relax without this one noticing.
 
+### The one decoder of stranger bytes with no harness
+
+Derived rather than surveyed: every other decoder here has a fuzz harness --
+chain, revocation, record, reassembly, freshness, peer, vocabulary, blob --
+and `prekey/` did not. It is the module whose input is most obviously an
+attacker's: a prekey record travels, it is SELF-SIGNED so it authenticates
+only its own author, and `fzn_prekey_pin` mutates local trust state from it.
+
+**Model-based, for revocation_fuzz's reason.** A pin bug is not an overrun.
+It is a record accepted that should not have been -- a rolled-back prekey, a
+stranger's key adopted into a pinned peer -- or one refused that should have
+been kept, which stops a legitimate rotation. Neither breaks a spot
+invariant; both break a model. So the harness keeps an independent shadow,
+decides for itself what each record ought to do, and compares every field
+after every call including the refused ones.
+
+**Records are real bytes**, issued and verified over their own signed body --
+the mistake revocation_fuzz was once found to have made, where every record
+pointed at one shared literal and the field a case set had nothing to do with
+the bytes the module read.
+
+**Coverage floors are on STATES, not calls**, and the tie is the one worth
+naming: a run that never offered two different prekeys claiming one instant
+has not tested the case where neither can be ordered. At 2000 cases: 2000
+first uses, 1224 rotations, 3402 rollbacks, 5064 wrong hosts, 3892 forged
+signatures, 418 re-deliveries, 1113 ties.
+
+**Four mutations, four caught, each within four cases**: a rollback accepted
+by comparing `<` instead of `<=`, a wrong host accepted, a rotation that
+moves the timestamp without the prekey, and the verification skipped
+entirely. The last is the one that matters most -- it fails on case 0,
+because a forged signature is offered in the first round.
+
 ### The reachability lens, run and clean
 
 `working-practice.md` says to derive the next lens from the last bug rather

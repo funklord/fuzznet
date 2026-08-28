@@ -149,7 +149,8 @@ CORE_HDRS := $(HDRS)
 TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              chain/test/manifest_test.c chain/test/authz_test.c \
              blob/test/blob_test.c ratchet/test/ratchet_test.c \
-             prekey/test/prekey_test.c session/test/agree_test.c \
+             prekey/test/prekey_test.c prekey/test/prekey_fuzz.c \
+             session/test/agree_test.c \
              session/test/session_test.c \
              blob/test/blob_fuzz.c \
              frame/test/freshness_test.c \
@@ -235,7 +236,8 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/log/test/fix_stream_test \
              $(BUILD_DIR)/record/test/record_guided \
              $(BUILD_DIR)/record/test/record_fuzz \
-             $(BUILD_DIR)/blob/test/blob_fuzz
+             $(BUILD_DIR)/blob/test/blob_fuzz \
+             $(BUILD_DIR)/prekey/test/prekey_fuzz
 
 # The Monocypher binding, built against the VENDORED submodule by default.
 #
@@ -728,6 +730,13 @@ $(BUILD_DIR)/session/test/agree_test: $(BUILD_DIR)/session/test/agree_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+$(BUILD_DIR)/prekey/test/prekey_fuzz: $(BUILD_DIR)/prekey/test/prekey_fuzz.o \
+                                       $(BUILD_DIR)/prekey/prekey.o \
+                                       $(BUILD_DIR)/trust/trust.o \
+                                       $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # prekey/ reaches trust/, which is the point rather than an accident: the
 # record and the act of pinning it are one feature, and a record with no
 # pinning act is a blob nobody adopts.
@@ -1078,7 +1087,8 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/local/test/peer_fuzz \
              $(BUILD_DIR)/local/test/vocabulary_fuzz \
              $(BUILD_DIR)/record/test/record_fuzz \
-             $(BUILD_DIR)/blob/test/blob_fuzz
+             $(BUILD_DIR)/blob/test/blob_fuzz \
+             $(BUILD_DIR)/prekey/test/prekey_fuzz
 
 fuzz: $(FUZZ_BINS)
 	@for f in $(FUZZ_BINS); do echo "== $$f $(CASES)"; $$f $(CASES) || exit 1; done

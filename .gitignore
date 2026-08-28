@@ -34,6 +34,7 @@
 /blob/test/blob_fuzz
 /ratchet/test/ratchet_test
 /prekey/test/prekey_test
+/prekey/test/prekey_fuzz
 /session/test/agree_test
 /session/test/session_test
 /session/test/agree_monocypher_test
