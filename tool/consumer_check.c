@@ -1045,6 +1045,39 @@ int main(void)
 		                          fzn_agree_secret_public(&pb), kc, ca)
 		    != FZN_SESSION_ERR_SELF)
 			return 210;
+
+		/* And the ephemeral exchange, both halves, since a consumer
+		 * that wants sender-side forward secrecy drives exactly this
+		 * pair and needs them to agree. */
+		{
+			fzn_agree_secret_t eph;
+			uint8_t es[FZN_AGREE_SECRET_LEN];
+			uint8_t ki[FZN_AEAD_KEY_LEN], kr[FZN_AEAD_KEY_LEN];
+			uint8_t cki[FZN_COMMITMENT_KEY_LEN], ckr[FZN_COMMITMENT_KEY_LEN];
+
+			memset(&eph, 0, sizeof(eph));
+			for (i = 0; i < FZN_AGREE_SECRET_LEN; i++)
+				es[i] = (uint8_t)((i * 13u) + 7u);
+			if (fzn_agree_secret_install(&eph, &aops, es) != FZN_AGREE_OK)
+				return 211;
+			if (fzn_session_establish_initiator(&pa, &eph, &aops, &shash, ida, idb,
+			                                    fzn_agree_secret_public(&pb), ki,
+			                                    cki) != FZN_SESSION_OK)
+				return 212;
+			if (fzn_session_establish_responder(&pb, &aops, &shash, idb, ida,
+			                                    fzn_agree_secret_public(&pa),
+			                                    fzn_agree_secret_public(&eph), kr,
+			                                    ckr) != FZN_SESSION_OK)
+				return 213;
+			if (memcmp(ki, kr, FZN_AEAD_KEY_LEN) != 0)
+				return 214;
+			/* And it is a different session from the base one. */
+			if (memcmp(ki, kc, FZN_AEAD_KEY_LEN) == 0)
+				return 215;
+			/* The ephemeral is destroyed by the caller, which is
+			 * the property; this is where a consumer does it. */
+			fzn_agree_secret_wipe(&eph);
+		}
 		fzn_agree_secret_wipe(&pa);
 		fzn_agree_secret_wipe(&pb);
 	}

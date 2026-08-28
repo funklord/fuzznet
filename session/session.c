@@ -192,6 +192,196 @@ out:
 	return err;
 }
 
+_Static_assert(FZN_SESSION_TRANSCRIPT_V2_LEN == 241u,
+               "the v2 transcript's length has moved; every peer must agree");
+
+/*
+ * The v2 transcript, built once and used from both sides.
+ *
+ * ROLE-ORDERED, initiator first. There is a real asymmetry -- one host owns
+ * the ephemeral -- so ordering by role is correct here where it would not
+ * have been for the base transcript, which has no roles at derivation time.
+ * The two callers differ only in which of them is the initiator, which is why
+ * this takes them by role and they pass themselves in the right slot.
+ */
+static fzn_session_err_t transcript_v2(const uint8_t initiator_id[FZN_SESSION_IDENTITY_LEN],
+                                        const uint8_t initiator_prekey[FZN_AGREE_PUBLIC_LEN],
+                                        const uint8_t responder_id[FZN_SESSION_IDENTITY_LEN],
+                                        const uint8_t responder_prekey[FZN_AGREE_PUBLIC_LEN],
+                                        const uint8_t ephemeral_public[FZN_AGREE_PUBLIC_LEN],
+                                        const uint8_t prekey_shared[FZN_AGREE_SHARED_LEN],
+                                        const uint8_t ephemeral_shared[FZN_AGREE_SHARED_LEN],
+                                        uint8_t out[FZN_SESSION_TRANSCRIPT_V2_LEN])
+{
+	size_t at = 0;
+
+	if (memcmp(initiator_id, responder_id, FZN_SESSION_IDENTITY_LEN) == 0)
+		return FZN_SESSION_ERR_SELF;
+
+	memcpy(out + at, FZN_SESSION_LABEL, sizeof(FZN_SESSION_LABEL));
+	at += sizeof(FZN_SESSION_LABEL);
+	/* THE VERSION KEEPS THE TWO SHAPES APART -- BUT NOT TODAY, AND SAYING
+	 * SO IS THE POINT.
+	 *
+	 * A mutation setting this to 1 fails nothing, because the v1
+	 * transcript is 177 bytes and this one is 241: the LENGTHS already
+	 * separate them, and the base and ephemeral roots differ whatever this
+	 * byte says.
+	 *
+	 * It earns its place the first time a version keeps the length --
+	 * swapping two fields, replacing one 32-byte value with another --
+	 * and at that moment it is the only thing standing between two shapes
+	 * that hash the same number of bytes. So it is written now, when it
+	 * costs one byte, rather than added later by somebody who would first
+	 * have to notice they needed it.
+	 *
+	 * Recorded as prospective rather than load-bearing, which is the
+	 * fourth line in this session to need that distinction: an untested
+	 * line and an untested property are not the same thing, and a comment
+	 * that claims the second when it has the first is how a guard gets
+	 * deleted as dead. */
+	out[at++] = (uint8_t)FZN_SESSION_TRANSCRIPT_V2;
+
+	memcpy(out + at, initiator_id, FZN_SESSION_IDENTITY_LEN);
+	at += FZN_SESSION_IDENTITY_LEN;
+	memcpy(out + at, initiator_prekey, FZN_AGREE_PUBLIC_LEN);
+	at += FZN_AGREE_PUBLIC_LEN;
+	memcpy(out + at, responder_id, FZN_SESSION_IDENTITY_LEN);
+	at += FZN_SESSION_IDENTITY_LEN;
+	memcpy(out + at, responder_prekey, FZN_AGREE_PUBLIC_LEN);
+	at += FZN_AGREE_PUBLIC_LEN;
+
+	/* The ephemeral needs no owner marked beside it: it is the
+	 * initiator's by construction, and the initiator is the first slot. */
+	memcpy(out + at, ephemeral_public, FZN_AGREE_PUBLIC_LEN);
+	at += FZN_AGREE_PUBLIC_LEN;
+
+	memcpy(out + at, prekey_shared, FZN_AGREE_SHARED_LEN);
+	at += FZN_AGREE_SHARED_LEN;
+	memcpy(out + at, ephemeral_shared, FZN_AGREE_SHARED_LEN);
+	at += FZN_AGREE_SHARED_LEN;
+
+	return (at == FZN_SESSION_TRANSCRIPT_V2_LEN) ? FZN_SESSION_OK
+	                                             : FZN_SESSION_ERR_MALFORMED;
+}
+
+/* Both halves end the same way: hash the transcript, forget everything. */
+static fzn_session_err_t finish_v2(const fzn_hash_ops_t *hash,
+                                    uint8_t transcript[FZN_SESSION_TRANSCRIPT_V2_LEN],
+                                    uint8_t key_out[FZN_AEAD_KEY_LEN],
+                                    uint8_t commitment_key_out[FZN_COMMITMENT_KEY_LEN])
+{
+	fzn_session_err_t err = FZN_SESSION_OK;
+
+	if (fzn_commitment_derive_root(hash, transcript, FZN_SESSION_TRANSCRIPT_V2_LEN, key_out,
+	                               commitment_key_out) != FZN_COMMITMENT_OK)
+		err = FZN_SESSION_ERR_HASH;
+
+	fzn_wipe(transcript, FZN_SESSION_TRANSCRIPT_V2_LEN);
+	return err;
+}
+
+fzn_session_err_t fzn_session_establish_initiator(
+        const fzn_agree_secret_t *self_prekey, const fzn_agree_secret_t *ephemeral,
+        const fzn_agree_ops_t *agree, const fzn_hash_ops_t *hash,
+        const uint8_t self_identity[FZN_SESSION_IDENTITY_LEN],
+        const uint8_t peer_identity[FZN_SESSION_IDENTITY_LEN],
+        const uint8_t peer_prekey[FZN_AGREE_PUBLIC_LEN], uint8_t key_out[FZN_AEAD_KEY_LEN],
+        uint8_t commitment_key_out[FZN_COMMITMENT_KEY_LEN])
+{
+	uint8_t dh_prekey[FZN_AGREE_SHARED_LEN];
+	uint8_t dh_ephemeral[FZN_AGREE_SHARED_LEN];
+	uint8_t transcript[FZN_SESSION_TRANSCRIPT_V2_LEN];
+	const uint8_t *self_pk;
+	const uint8_t *eph_pk;
+	fzn_session_err_t err;
+
+	if (!self_prekey || !ephemeral || !self_identity || !peer_identity || !peer_prekey
+	    || !key_out || !commitment_key_out)
+		return FZN_SESSION_ERR_MALFORMED;
+
+	self_pk = fzn_agree_secret_public(self_prekey);
+	eph_pk = fzn_agree_secret_public(ephemeral);
+	if (!self_pk || !eph_pk)
+		return FZN_SESSION_ERR_AGREE;
+
+	/* TWO AGREEMENTS, and the ephemeral one is what an initiator's later
+	 * compromise cannot reproduce -- provided the caller destroys the
+	 * ephemeral secret afterwards, which this cannot do for it because the
+	 * public half may still need sending. */
+	if (fzn_agree_shared(self_prekey, agree, peer_prekey, dh_prekey) != FZN_AGREE_OK) {
+		err = FZN_SESSION_ERR_AGREE;
+		goto out;
+	}
+	if (fzn_agree_shared(ephemeral, agree, peer_prekey, dh_ephemeral) != FZN_AGREE_OK) {
+		err = FZN_SESSION_ERR_AGREE;
+		goto out;
+	}
+
+	err = transcript_v2(self_identity, self_pk, peer_identity, peer_prekey, eph_pk,
+	                    dh_prekey, dh_ephemeral, transcript);
+	if (err != FZN_SESSION_OK)
+		goto out;
+
+	err = finish_v2(hash, transcript, key_out, commitment_key_out);
+
+out:
+	fzn_wipe(dh_prekey, sizeof(dh_prekey));
+	fzn_wipe(dh_ephemeral, sizeof(dh_ephemeral));
+	fzn_wipe(transcript, sizeof(transcript));
+	return err;
+}
+
+fzn_session_err_t fzn_session_establish_responder(
+        const fzn_agree_secret_t *self_prekey, const fzn_agree_ops_t *agree,
+        const fzn_hash_ops_t *hash, const uint8_t self_identity[FZN_SESSION_IDENTITY_LEN],
+        const uint8_t peer_identity[FZN_SESSION_IDENTITY_LEN],
+        const uint8_t peer_prekey[FZN_AGREE_PUBLIC_LEN],
+        const uint8_t peer_ephemeral[FZN_AGREE_PUBLIC_LEN],
+        uint8_t key_out[FZN_AEAD_KEY_LEN], uint8_t commitment_key_out[FZN_COMMITMENT_KEY_LEN])
+{
+	uint8_t dh_prekey[FZN_AGREE_SHARED_LEN];
+	uint8_t dh_ephemeral[FZN_AGREE_SHARED_LEN];
+	uint8_t transcript[FZN_SESSION_TRANSCRIPT_V2_LEN];
+	const uint8_t *self_pk;
+	fzn_session_err_t err;
+
+	if (!self_prekey || !self_identity || !peer_identity || !peer_prekey || !peer_ephemeral
+	    || !key_out || !commitment_key_out)
+		return FZN_SESSION_ERR_MALFORMED;
+
+	self_pk = fzn_agree_secret_public(self_prekey);
+	if (!self_pk)
+		return FZN_SESSION_ERR_AGREE;
+
+	/* THE RESPONDER NEEDS NO EPHEMERAL OF ITS OWN, which is what makes a
+	 * reboot survivable: both of its agreements use the prekey secret it
+	 * persists, so a restarted host can still open what was sealed to it.
+	 * The asymmetry is the design rather than an omission. */
+	if (fzn_agree_shared(self_prekey, agree, peer_prekey, dh_prekey) != FZN_AGREE_OK) {
+		err = FZN_SESSION_ERR_AGREE;
+		goto out;
+	}
+	if (fzn_agree_shared(self_prekey, agree, peer_ephemeral, dh_ephemeral) != FZN_AGREE_OK) {
+		err = FZN_SESSION_ERR_AGREE;
+		goto out;
+	}
+
+	/* Peer is the initiator here, so it takes the first slot. */
+	err = transcript_v2(peer_identity, peer_prekey, self_identity, self_pk, peer_ephemeral,
+	                    dh_prekey, dh_ephemeral, transcript);
+	if (err != FZN_SESSION_OK)
+		goto out;
+
+	err = finish_v2(hash, transcript, key_out, commitment_key_out);
+
+out:
+	fzn_wipe(dh_prekey, sizeof(dh_prekey));
+	fzn_wipe(dh_ephemeral, sizeof(dh_ephemeral));
+	fzn_wipe(transcript, sizeof(transcript));
+	return err;
+}
+
 /* One direction's chain key: label | from | to | root. Static because the
  * only thing that may call it is the function below, which calls it twice
  * with the identities swapped -- and that swap is the whole mechanism. */

@@ -411,6 +411,116 @@ static void test_the_seeds_drive_a_ratchet(void)
 	      "different message keys for the first message");
 }
 
+static void test_the_ephemeral_exchange_agrees_and_differs(void)
+{
+	fzn_agree_secret_t pre_a, pre_b, eph;
+	uint8_t sec_a[FZN_AGREE_SECRET_LEN], sec_b[FZN_AGREE_SECRET_LEN];
+	uint8_t sec_e[FZN_AGREE_SECRET_LEN];
+	uint8_t id_a[FZN_SESSION_IDENTITY_LEN], id_b[FZN_SESSION_IDENTITY_LEN];
+	uint8_t key_i[FZN_AEAD_KEY_LEN], key_r[FZN_AEAD_KEY_LEN], key_base[FZN_AEAD_KEY_LEN];
+	uint8_t ck_i[FZN_COMMITMENT_KEY_LEN], ck_r[FZN_COMMITMENT_KEY_LEN];
+	uint8_t ck_base[FZN_COMMITMENT_KEY_LEN];
+
+	memset(&pre_a, 0, sizeof(pre_a));
+	memset(&pre_b, 0, sizeof(pre_b));
+	memset(&eph, 0, sizeof(eph));
+	fill(sec_a, sizeof(sec_a), 0x63);
+	fill(sec_b, sizeof(sec_b), 0x73);
+	fill(sec_e, sizeof(sec_e), 0x83);
+	fill(id_a, sizeof(id_a), 0x18);
+	fill(id_b, sizeof(id_b), 0x98);
+
+	REQUIRE(fzn_agree_secret_install(&pre_a, &AGREE, sec_a) == FZN_AGREE_OK, "install A");
+	REQUIRE(fzn_agree_secret_install(&pre_b, &AGREE, sec_b) == FZN_AGREE_OK, "install B");
+	REQUIRE(fzn_agree_secret_install(&eph, &AGREE, sec_e) == FZN_AGREE_OK, "install E");
+	REQUIRE(fzn_agree_secret_public(&pre_a) && fzn_agree_secret_public(&pre_b)
+	                && fzn_agree_secret_public(&eph), "an installed secret has no public");
+
+	/* THE PROPERTY. A is the initiator and mints the ephemeral; B is the
+	 * responder and mixes the ephemeral public with its own prekey
+	 * secret. Both must land on the same root with no negotiation beyond
+	 * knowing which of them started. */
+	REQUIRE(fzn_session_establish_initiator(&pre_a, &eph, &AGREE, &HASH, id_a, id_b,
+	                                        fzn_agree_secret_public(&pre_b), key_i, ck_i)
+	                == FZN_SESSION_OK, "the initiator could not establish");
+	REQUIRE(fzn_session_establish_responder(&pre_b, &AGREE, &HASH, id_b, id_a,
+	                                        fzn_agree_secret_public(&pre_a),
+	                                        fzn_agree_secret_public(&eph), key_r, ck_r)
+	                == FZN_SESSION_OK, "the responder could not establish");
+	CHECK(memcmp(key_i, key_r, FZN_AEAD_KEY_LEN) == 0,
+	      "initiator and responder derived different keys");
+	CHECK(memcmp(ck_i, ck_r, FZN_COMMITMENT_KEY_LEN) == 0,
+	      "initiator and responder derived different commitment keys");
+
+	/* AND IT IS NOT THE BASE SESSION'S ROOT. A host doing the ephemeral
+	 * exchange and one doing the base exchange must fail to talk, loudly,
+	 * rather than one of them silently getting less than it believed --
+	 * which is what the version byte in the transcript is for. */
+	REQUIRE(fzn_session_establish(&pre_a, &AGREE, &HASH, id_a, id_b,
+	                              fzn_agree_secret_public(&pre_b), key_base, ck_base)
+	                == FZN_SESSION_OK, "the base establish refused");
+	CHECK(memcmp(key_i, key_base, FZN_AEAD_KEY_LEN) != 0,
+	      "the ephemeral exchange and the base exchange give the same root, so a peer "
+	      "doing one silently interoperates with a peer doing the other");
+
+	/* A DIFFERENT EPHEMERAL GIVES A DIFFERENT ROOT, which is the whole of
+	 * what the ephemeral buys: two sessions between the same pair, with
+	 * the same prekeys, are unrelated. */
+	{
+		fzn_agree_secret_t eph2;
+		uint8_t sec_e2[FZN_AGREE_SECRET_LEN];
+		uint8_t key2[FZN_AEAD_KEY_LEN], ck2[FZN_COMMITMENT_KEY_LEN];
+
+		memset(&eph2, 0, sizeof(eph2));
+		fill(sec_e2, sizeof(sec_e2), 0x93);
+		REQUIRE(fzn_agree_secret_install(&eph2, &AGREE, sec_e2) == FZN_AGREE_OK,
+		        "install E2");
+		REQUIRE(fzn_session_establish_initiator(&pre_a, &eph2, &AGREE, &HASH, id_a,
+		                                        id_b, fzn_agree_secret_public(&pre_b),
+		                                        key2, ck2) == FZN_SESSION_OK,
+		        "the second establish refused");
+		CHECK(memcmp(key_i, key2, FZN_AEAD_KEY_LEN) != 0,
+		      "two sessions with different ephemerals share a root, so the ephemeral "
+		      "buys nothing");
+	}
+
+	/* THE ROLES ARE NOT INTERCHANGEABLE. Running the initiator's half from
+	 * B's point of view must not reproduce the same root -- if it did, the
+	 * role-ordering would be decorative and either party could claim to
+	 * have started. */
+	{
+		uint8_t swapped[FZN_AEAD_KEY_LEN], ck_s[FZN_COMMITMENT_KEY_LEN];
+
+		REQUIRE(fzn_session_establish_initiator(&pre_b, &eph, &AGREE, &HASH, id_b, id_a,
+		                                        fzn_agree_secret_public(&pre_a),
+		                                        swapped, ck_s) == FZN_SESSION_OK,
+		        "the swapped establish refused");
+		CHECK(memcmp(key_i, swapped, FZN_AEAD_KEY_LEN) != 0,
+		      "the two roles are interchangeable, so ordering by role is decorative");
+	}
+
+	/* And a host cannot run either half against itself. */
+	CHECK(fzn_session_establish_initiator(&pre_a, &eph, &AGREE, &HASH, id_a, id_a,
+	                                      fzn_agree_secret_public(&pre_b), key_i, ck_i)
+	              == FZN_SESSION_ERR_SELF, "an initiator established with itself");
+	CHECK(fzn_session_establish_responder(&pre_b, &AGREE, &HASH, id_b, id_b,
+	                                      fzn_agree_secret_public(&pre_a),
+	                                      fzn_agree_secret_public(&eph), key_r, ck_r)
+	              == FZN_SESSION_ERR_SELF, "a responder established with itself");
+
+	/* An uninstalled ephemeral is AGREE, not MALFORMED: a host that has
+	 * not minted one yet is in a state rather than holding a bug. */
+	{
+		fzn_agree_secret_t empty;
+
+		memset(&empty, 0, sizeof(empty));
+		CHECK(fzn_session_establish_initiator(&pre_a, &empty, &AGREE, &HASH, id_a, id_b,
+		                                      fzn_agree_secret_public(&pre_b), key_i,
+		                                      ck_i) == FZN_SESSION_ERR_AGREE,
+		      "an uninstalled ephemeral established a session");
+	}
+}
+
 static void test_every_guard_refuses_its_own_argument(void)
 {
 	fzn_agree_secret_t sk;
@@ -461,6 +571,7 @@ int main(void)
 	test_a_rotation_changes_the_root();
 	test_the_two_directions_are_different_and_agree();
 	test_the_seeds_drive_a_ratchet();
+	test_the_ephemeral_exchange_agrees_and_differs();
 	test_every_guard_refuses_its_own_argument();
 	test_the_suite_can_tell_pass_from_fail();
 

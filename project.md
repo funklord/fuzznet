@@ -9685,9 +9685,67 @@ which is a different question and not obviously the wrong way round. Their
 holder has it in those terms, and the row it reopens -- rotating recipient
 prekeys, recorded absent in their sec 8 this morning -- is theirs.
 
+### The sender ephemeral, and why it needed no wire change
+
+**It is built.** `fzn_session_establish_initiator` and `..._responder`.
+
+**The frame could not carry it and did not have to.** Checked before
+designing: the head is a fixed 91 bytes generated from `wire/frame.situ`, and
+`fzn_kind` is **a closed set of four settled by the copyright holder
+2026-08-26**, where "adding to it is a conversation rather than an edit" and
+an implementor must motivate a new kind rather than assign one. So a
+handshake frame was never this session's to invent.
+
+It needs neither. A consumer establishes the BASE session first -- derivable
+from published prekeys with nothing on the wire at all -- and sends the
+ephemeral public key inside a **sealed payload**, which `frame.situ` says is
+where this library never looks. Delivery is the consumer's; the derivation is
+ours. That split is the same one that settled realms and the prekey record,
+arrived at for the third time.
+
+**Role-ordered, which is the corrected rule applying a third time in one
+file.** There is a real asymmetry -- one host owns the ephemeral and the
+other does not -- so ordering by role is right here where it would have been
+wrong for the base transcript. Spelled as two functions rather than one with
+a flag, so a caller states its role rather than passing a boolean it can get
+backwards. A mutation letting the responder claim the initiator slot fails
+two checks.
+
+**The responder needs no ephemeral of its own**, and that is the design
+rather than an omission: both of its agreements use the prekey secret it
+persists, so a restarted host can still open what was sealed to it. The
+initiator's ephemeral is what its own later compromise cannot reproduce --
+provided the caller destroys it, which the library cannot do for them because
+the public half may still need sending, and which the header says at the call
+site.
+
+### A fourth conditional guard, and the distinction that keeps needing making
+
+The v2 transcript carries version 2, and **a mutation setting it to 1 fails
+nothing**: v1 is 177 bytes and v2 is 241, so the LENGTHS already separate
+them and the two roots differ whatever the byte says.
+
+It earns its place the first time a version keeps the length -- swapping two
+fields, replacing one 32-byte value with another -- and at that moment it is
+the only thing between two shapes that hash the same number of bytes. Written
+now, when it costs one byte, rather than added later by somebody who would
+first have to notice they needed it.
+
+**That is the fourth line in this session to need "prospective, not
+load-bearing"**, after the rotation wipe, the public-key memset and the
+transcript wipe. The distinction is not pedantry: an untested LINE and an
+untested PROPERTY are different things, and a comment claiming the second
+when it has the first is exactly how a guard gets deleted as dead by the next
+reader who mutates it and sees nothing fail.
+
 ### What is still open
 
-**The sender ephemeral.** What remains is the
+**Chain delivery**, which is the row from sec 19 and is unchanged: a receiver
+that must check a record's authorisation needs the hops, this library says
+how they are verified and not how they arrive, and the constraint recorded
+there is that it must not become an adoption path.
+
+ What remains is the
 canonical builder -- which keys, in what order -- so that two peers cannot
 disagree, plus the question of whether the initiator contributes a
 per-session ephemeral on top of the responder's rotating prekey. That is a

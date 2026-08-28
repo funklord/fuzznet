@@ -43,6 +43,10 @@
  *     since the last rotation is readable to whoever takes the prekey
  *     secret. Rotation cadence is the knob and it is the consumer's.
  *
+ * THE EPHEMERAL VARIANT IS BELOW, and it needs no wire change. See
+ * `fzn_session_establish_initiator`.
+ *
+ * (Historical note, kept because the reasoning was wrong in a useful way.)
  * NO SENDER EPHEMERAL, and it is a live question rather than a closed one.
  * An initiator contributing a per-session ephemeral would protect against
  * ITS OWN later compromise immediately rather than at the next rotation, and
@@ -217,5 +221,83 @@ fzn_session_err_t fzn_session_chains(const fzn_hash_ops_t *hash,
                                      const uint8_t peer_identity[FZN_SESSION_IDENTITY_LEN],
                                      uint8_t send_chain_out[FZN_CHAIN_KEY_LEN],
                                      uint8_t recv_chain_out[FZN_CHAIN_KEY_LEN]);
+
+/*
+ * ---- the ephemeral variant ---------------------------------------------
+ *
+ * A session that ALSO mixes in a per-session key the initiator throws away.
+ *
+ * WHAT IT ADDS. The base session above is bounded by rotation: a compromise
+ * of either host discloses everything back to its last prekey rotation. With
+ * an ephemeral, an initiator's later compromise discloses nothing at all
+ * about a session it has finished, because the material is gone the moment
+ * the handshake completes. The responder's exposure is unchanged and still
+ * bounded by rotation, since its prekey is the thing that must survive a
+ * reboot.
+ *
+ * IT NEEDS NO WIRE CHANGE, WHICH IS WHY IT IS HERE AND NOT WAITING. The
+ * ephemeral public key cannot travel in a frame head -- the head is a fixed
+ * 91 bytes generated from `wire/frame.situ` -- and it cannot take a new
+ * `fzn_kind`, because that enum is a CLOSED SET OF FOUR settled by the
+ * copyright holder 2026-08-26, where "adding to it is a conversation rather
+ * than an edit". It does not need either: a consumer establishes the base
+ * session first, which both sides can derive from published prekeys alone,
+ * and sends the ephemeral inside a SEALED PAYLOAD, where `frame.situ` says
+ * this library never looks. Delivery is the consumer's; the derivation is
+ * ours.
+ *
+ * ROLE-ORDERED, DELIBERATELY, WHICH IS THE OPPOSITE OF THE BASE TRANSCRIPT.
+ * There is a real asymmetry here -- one host owns the ephemeral and the other
+ * does not -- so by the rule stated above, ordering by role is correct where
+ * ordering the base transcript by role would not have been. It is spelled as
+ * two functions rather than one with a flag, so that a caller states which it
+ * is rather than passing a boolean it can get backwards.
+ *
+ * VERSION 2 IN THE TRANSCRIPT. A host doing the ephemeral exchange and one
+ * doing the base exchange derive different roots and fail to talk, loudly,
+ * rather than one of them silently getting less than it thought. That is what
+ * the version byte was put there for.
+ */
+#define FZN_SESSION_TRANSCRIPT_V2 2u
+
+/* label | version | initiator id | initiator prekey | responder id |
+ * responder prekey | ephemeral public | prekey shared | ephemeral shared */
+#define FZN_SESSION_TRANSCRIPT_V2_LEN                                              \
+	(16u + 1u + (2u * FZN_SESSION_IDENTITY_LEN) + (3u * FZN_AGREE_PUBLIC_LEN) \
+	 + (2u * FZN_AGREE_SHARED_LEN))
+
+/*
+ * The initiator's half.
+ *
+ * `ephemeral` is a secret this host has just minted and MUST DESTROY once
+ * the session is established -- that destruction is the entire property, and
+ * this function cannot do it because the caller may still need the public
+ * half to send. `fzn_agree_secret_wipe` is the call, and a caller that skips
+ * it has the base session's guarantees and a longer transcript.
+ *
+ * The public half the peer must receive is `fzn_agree_secret_public` of that
+ * same secret. It is not returned here, because a caller that has to ask for
+ * it is a caller that has it.
+ */
+fzn_session_err_t fzn_session_establish_initiator(
+        const fzn_agree_secret_t *self_prekey, const fzn_agree_secret_t *ephemeral,
+        const fzn_agree_ops_t *agree, const fzn_hash_ops_t *hash,
+        const uint8_t self_identity[FZN_SESSION_IDENTITY_LEN],
+        const uint8_t peer_identity[FZN_SESSION_IDENTITY_LEN],
+        const uint8_t peer_prekey[FZN_AGREE_PUBLIC_LEN], uint8_t key_out[FZN_AEAD_KEY_LEN],
+        uint8_t commitment_key_out[FZN_COMMITMENT_KEY_LEN]);
+
+/*
+ * The responder's half. `peer_ephemeral` is the public key that arrived; this
+ * host mixes it with its own prekey secret, which is why the responder needs
+ * no ephemeral of its own and why a reboot does not lose the session.
+ */
+fzn_session_err_t fzn_session_establish_responder(
+        const fzn_agree_secret_t *self_prekey, const fzn_agree_ops_t *agree,
+        const fzn_hash_ops_t *hash, const uint8_t self_identity[FZN_SESSION_IDENTITY_LEN],
+        const uint8_t peer_identity[FZN_SESSION_IDENTITY_LEN],
+        const uint8_t peer_prekey[FZN_AGREE_PUBLIC_LEN],
+        const uint8_t peer_ephemeral[FZN_AGREE_PUBLIC_LEN],
+        uint8_t key_out[FZN_AEAD_KEY_LEN], uint8_t commitment_key_out[FZN_COMMITMENT_KEY_LEN]);
 
 #endif /* FZN_SESSION_H */
