@@ -712,6 +712,7 @@ $(BUILD_DIR)/session/test/session_test: $(BUILD_DIR)/session/test/session_test.o
                                          $(BUILD_DIR)/session/session.o \
                                          $(BUILD_DIR)/session/agree.o \
                                          $(BUILD_DIR)/session/commitment.o \
+                                         $(BUILD_DIR)/ratchet/ratchet.o \
                                          $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@

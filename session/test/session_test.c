@@ -15,6 +15,7 @@
 #include "../session.h"
 
 #include "../../chain/chain.h"
+#include "../../ratchet/ratchet.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -322,6 +323,94 @@ static void test_a_rotation_changes_the_root(void)
 	      "rotating a prekey did not change the session root, so rotation buys nothing");
 }
 
+static void test_the_two_directions_are_different_and_agree(void)
+{
+	uint8_t id_a[FZN_SESSION_IDENTITY_LEN], id_b[FZN_SESSION_IDENTITY_LEN];
+	uint8_t root[FZN_AEAD_KEY_LEN];
+	uint8_t a_send[FZN_CHAIN_KEY_LEN], a_recv[FZN_CHAIN_KEY_LEN];
+	uint8_t b_send[FZN_CHAIN_KEY_LEN], b_recv[FZN_CHAIN_KEY_LEN];
+
+	fill(id_a, sizeof(id_a), 0x16);
+	fill(id_b, sizeof(id_b), 0x96);
+	fill(root, sizeof(root), 0x27);
+
+	REQUIRE(fzn_session_chains(&HASH, root, id_a, id_b, a_send, a_recv) == FZN_SESSION_OK,
+	        "A could not derive its chains");
+	REQUIRE(fzn_session_chains(&HASH, root, id_b, id_a, b_send, b_recv) == FZN_SESSION_OK,
+	        "B could not derive its chains");
+
+	/* THE MECHANISM. A's send chain and B's receive chain are the same
+	 * key, and neither side had to say which it was -- both are keyed
+	 * (A, B). Same the other way. */
+	CHECK(memcmp(a_send, b_recv, FZN_CHAIN_KEY_LEN) == 0,
+	      "A's send chain is not B's receive chain, so they cannot talk");
+	CHECK(memcmp(b_send, a_recv, FZN_CHAIN_KEY_LEN) == 0,
+	      "B's send chain is not A's receive chain");
+
+	/* AND THE TWO DIRECTIONS DIFFER, which is the point of ordering by
+	 * role here rather than canonically. A canonical order would give one
+	 * chain for both directions -- and a message replayed back at its
+	 * sender would then decrypt under the key that sender is waiting to
+	 * receive under. */
+	CHECK(memcmp(a_send, a_recv, FZN_CHAIN_KEY_LEN) != 0,
+	      "the two directions share a chain, so a message can be replayed back at "
+	      "its own sender");
+
+	/* Neither is the root it came from. */
+	CHECK(memcmp(a_send, root, FZN_CHAIN_KEY_LEN) != 0, "the send chain is the root");
+
+	/* A different root gives different chains, so the derivation reads
+	 * the root rather than only the identities. */
+	{
+		uint8_t other_root[FZN_AEAD_KEY_LEN];
+		uint8_t other_send[FZN_CHAIN_KEY_LEN], other_recv[FZN_CHAIN_KEY_LEN];
+
+		fill(other_root, sizeof(other_root), 0x37);
+		REQUIRE(fzn_session_chains(&HASH, other_root, id_a, id_b, other_send,
+		                           other_recv) == FZN_SESSION_OK, "refused");
+		CHECK(memcmp(a_send, other_send, FZN_CHAIN_KEY_LEN) != 0,
+		      "two different session roots gave the same send chain");
+	}
+
+	/* A host has no direction to itself. */
+	CHECK(fzn_session_chains(&HASH, root, id_a, id_a, a_send, a_recv) == FZN_SESSION_ERR_SELF,
+	      "a host derived a chain to itself");
+}
+
+/* And the seeds are what `ratchet/` takes, walked one step so the two modules
+ * are shown to compose rather than merely to have compatible lengths. */
+static void test_the_seeds_drive_a_ratchet(void)
+{
+	uint8_t id_a[FZN_SESSION_IDENTITY_LEN], id_b[FZN_SESSION_IDENTITY_LEN];
+	uint8_t root[FZN_AEAD_KEY_LEN];
+	uint8_t a_send[FZN_CHAIN_KEY_LEN], a_recv[FZN_CHAIN_KEY_LEN];
+	uint8_t b_send[FZN_CHAIN_KEY_LEN], b_recv[FZN_CHAIN_KEY_LEN];
+	fzn_ratchet_chain_t sender, receiver, moved;
+	uint8_t mk_send[FZN_MESSAGE_KEY_LEN], mk_recv[FZN_MESSAGE_KEY_LEN];
+
+	fill(id_a, sizeof(id_a), 0x17);
+	fill(id_b, sizeof(id_b), 0x97);
+	fill(root, sizeof(root), 0x28);
+
+	REQUIRE(fzn_session_chains(&HASH, root, id_a, id_b, a_send, a_recv) == FZN_SESSION_OK,
+	        "A could not derive its chains");
+	REQUIRE(fzn_session_chains(&HASH, root, id_b, id_a, b_send, b_recv) == FZN_SESSION_OK,
+	        "B could not derive its chains");
+
+	/* A sends on its send chain; B receives on the chain it derived for
+	 * that direction. The message keys must match, which is the whole
+	 * composition in one assertion. */
+	fzn_ratchet_init(&sender, a_send, 0);
+	fzn_ratchet_init(&receiver, b_recv, 0);
+	REQUIRE(fzn_ratchet_advance(&HASH, &sender, 0, mk_send, &moved, NULL, 0, NULL, NULL)
+	                == FZN_RATCHET_OK, "the sender could not advance");
+	REQUIRE(fzn_ratchet_advance(&HASH, &receiver, 0, mk_recv, &moved, NULL, 0, NULL, NULL)
+	                == FZN_RATCHET_OK, "the receiver could not advance");
+	CHECK(memcmp(mk_send, mk_recv, FZN_MESSAGE_KEY_LEN) == 0,
+	      "a session's seed and the ratchet do not compose: the two sides derived "
+	      "different message keys for the first message");
+}
+
 static void test_every_guard_refuses_its_own_argument(void)
 {
 	fzn_agree_secret_t sk;
@@ -370,6 +459,8 @@ int main(void)
 	test_a_session_with_yourself_is_refused();
 	test_two_hosts_establish_the_same_root();
 	test_a_rotation_changes_the_root();
+	test_the_two_directions_are_different_and_agree();
+	test_the_seeds_drive_a_ratchet();
 	test_every_guard_refuses_its_own_argument();
 	test_the_suite_can_tell_pass_from_fail();
 

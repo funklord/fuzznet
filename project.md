@@ -9609,6 +9609,82 @@ tested -- the third such line in this session, and the third time the honest
 answer was to say so rather than invent a test that would only assert the
 compiler's stack layout.
 
+### Canonical or by role: the rule, corrected by the consumer
+
+The first draft of `session.h` said "ordered canonically by identity, not by
+role" flat, as though canonical ordering were simply better. fuzzypickles
+corrected it by contrasting **their own two transcripts**, which order
+differently and are both right:
+
+- `prekey_channel.c` sorts, as this does. A symmetric pairwise channel has NO
+  ROLES at derivation time, so canonical ordering is required or the two sides
+  derive different keys.
+- `crypto_msg.c` is sender-then-recipient and does not sort. A directed
+  message has REAL roles that both sides agree on from the frame, and the
+  transcript SHOULD distinguish A-to-B from B-to-A -- flipping them must
+  change the key.
+
+**So the rule is: canonically when the relationship is symmetric; by role when
+the roles are real, asymmetric, and covered by what is signed.** Recorded
+before generalising from one case, which is what would have happened.
+
+### The ratchet was unwired, measured, and now is not
+
+Their hinge question was whether this tree's ratchet covers the one-to-one
+path. **Measured rather than answered: outside its own tests,
+`fzn_ratchet_init` had no callers at all.** The library had
+rotation-granularity forward secrecy from the session root and per-message
+forward secrecy from the ratchet, and **no path between them** -- two
+mechanisms and no composition, which is not the same as having both halves.
+
+`fzn_session_chains` is that path, and **the corrected rule applies inside
+this very file**: the transcript is canonical because the relationship is
+symmetric, and the two chain seeds are DIRECTED because a message goes one
+way. A-to-B and B-to-A must not share a chain, or a message replayed back at
+its sender decrypts under the key that sender is waiting to receive under.
+
+Both sides compute both keys and agree without either saying which it is:
+this host's send chain and the other's receive chain are both keyed
+`(self, peer)`. Tested by walking one ratchet step on each side and requiring
+the message keys to match -- the composition in one assertion, rather than
+two modules with compatible lengths.
+
+Four of five mutations caught, including the one that matters: deriving both
+directions canonically fails four checks.
+
+### A domain-separation claim must say at which boundary it holds
+
+The fifth mutation -- swapping the directed label for the transcript's --
+**failed nothing**, and the reason is an outer label nobody remembers.
+`fzn_commitment_derive_root` prepends its own `fuzznet-kdf-v2` to whatever it
+is handed, so a transcript reaching the hash always begins with that while
+`chain_for` calls the hash directly. The two inputs differ in their first
+sixteen bytes whatever the inner constant says.
+
+Where it does matter is the path the header advertises: a caller may build a
+transcript and hash it itself, and then the two are separated by exactly this
+difference and nothing else. So it is conditional defence for a supported
+composition rather than a property of the code as it stands.
+
+**The general shape is worth more than the instance, and it has bitten this
+file twice today: a claim that two labels must differ needs to say AT WHICH
+BOUNDARY**, because an outer label upstream may be doing the work the inner
+one is being credited with.
+
+### The comparison, corrected in the direction that was flattering to nobody
+
+This library framed rotating prekeys as LESS than a sender ephemeral. From
+fuzzypickles' side it is more, on the axis that matters most: theirs is
+per-message and **sender-side only**, since their DH uses the recipient's
+long-lived prekey -- so a recipient compromise opens every datagram ever sent
+to it, retroactively and without bound. Rotation bounds that to a window.
+
+So the trade is not "give up forward secrecy for relay and chunking". It is
+**"trade unbounded recipient exposure for coarser sender granularity"**,
+which is a different question and not obviously the wrong way round. Their
+holder has it in those terms, and the row it reopens -- rotating recipient
+prekeys, recorded absent in their sec 8 this morning -- is theirs.
+
 ### What is still open
 
 **The sender ephemeral.** What remains is the

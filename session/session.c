@@ -16,8 +16,38 @@
  */
 static const char FZN_SESSION_LABEL[16] = "fuzznet-sess-v1\0";
 
+/*
+ * The directed label.
+ *
+ * DISTINCT FROM THE TRANSCRIPT'S, AND NOT LOAD-BEARING BY THE LIBRARY'S OWN
+ * PATH -- which is worth saying, because a mutation swapping this for
+ * FZN_SESSION_LABEL fails nothing and a reader who found that would
+ * reasonably delete one of the two.
+ *
+ * The reason it fails nothing is an OUTER label nobody remembers:
+ * `fzn_commitment_derive_root` prepends its own `fuzznet-kdf-v2` to whatever
+ * it is handed, so a transcript reaching the hash always begins with that,
+ * while `chain_for` below calls the hash directly. The two inputs differ in
+ * their first sixteen bytes whatever this constant says.
+ *
+ * WHERE IT DOES MATTER is the path this header advertises: a caller may build
+ * a transcript with `fzn_session_transcript` and hash it itself, for its own
+ * reasons, without going through the KDF. Then the transcript begins with
+ * FZN_SESSION_LABEL and a chain input begins with this one, and the two are
+ * separated by exactly this difference and nothing else.
+ *
+ * So it is conditional defence for a supported composition rather than a
+ * property of the code as it stands. Recorded that way because the general
+ * shape has bitten this file twice today: A DOMAIN-SEPARATION CLAIM MUST SAY
+ * AT WHICH BOUNDARY IT HOLDS, since an outer label upstream can be doing the
+ * work the inner one is being credited with.
+ */
+static const char FZN_SESSION_DIR_LABEL[16] = "fuzznet-dir-v1\0\0";
+
 _Static_assert(sizeof(FZN_SESSION_LABEL) == 16,
                "the session label must be the fixed width the layout assumes");
+_Static_assert(sizeof(FZN_SESSION_DIR_LABEL) == sizeof(FZN_SESSION_LABEL),
+               "the two labels must be one length, or their inputs can overlap");
 _Static_assert(FZN_SESSION_TRANSCRIPT_LEN == 177u,
                "the transcript's length has moved; every peer that derives a root must agree");
 
@@ -160,6 +190,78 @@ out:
 	fzn_wipe(shared, sizeof(shared));
 	fzn_wipe(transcript, sizeof(transcript));
 	return err;
+}
+
+/* One direction's chain key: label | from | to | root. Static because the
+ * only thing that may call it is the function below, which calls it twice
+ * with the identities swapped -- and that swap is the whole mechanism. */
+static fzn_session_err_t chain_for(const fzn_hash_ops_t *hash,
+                                    const uint8_t key[FZN_AEAD_KEY_LEN],
+                                    const uint8_t from[FZN_SESSION_IDENTITY_LEN],
+                                    const uint8_t to[FZN_SESSION_IDENTITY_LEN],
+                                    uint8_t out[FZN_CHAIN_KEY_LEN])
+{
+	uint8_t input[sizeof(FZN_SESSION_DIR_LABEL) + (2u * FZN_SESSION_IDENTITY_LEN)
+	              + FZN_AEAD_KEY_LEN];
+	size_t at = 0;
+	fzn_session_err_t err = FZN_SESSION_OK;
+
+	memcpy(input + at, FZN_SESSION_DIR_LABEL, sizeof(FZN_SESSION_DIR_LABEL));
+	at += sizeof(FZN_SESSION_DIR_LABEL);
+	memcpy(input + at, from, FZN_SESSION_IDENTITY_LEN);
+	at += FZN_SESSION_IDENTITY_LEN;
+	memcpy(input + at, to, FZN_SESSION_IDENTITY_LEN);
+	at += FZN_SESSION_IDENTITY_LEN;
+	memcpy(input + at, key, FZN_AEAD_KEY_LEN);
+	at += FZN_AEAD_KEY_LEN;
+
+	if (!hash->hash(hash->ctx, out, FZN_CHAIN_KEY_LEN, input, at)) {
+		fzn_wipe(out, FZN_CHAIN_KEY_LEN);
+		err = FZN_SESSION_ERR_HASH;
+	}
+
+	/* The input holds the session root and is wiped whichever way this
+	 * went. A caller that got a refusal must not be able to find the root
+	 * on the stack behind it. */
+	fzn_wipe(input, sizeof(input));
+	return err;
+}
+
+fzn_session_err_t fzn_session_chains(const fzn_hash_ops_t *hash,
+                                     const uint8_t key[FZN_AEAD_KEY_LEN],
+                                     const uint8_t self_identity[FZN_SESSION_IDENTITY_LEN],
+                                     const uint8_t peer_identity[FZN_SESSION_IDENTITY_LEN],
+                                     uint8_t send_chain_out[FZN_CHAIN_KEY_LEN],
+                                     uint8_t recv_chain_out[FZN_CHAIN_KEY_LEN])
+{
+	fzn_session_err_t err;
+
+	if (!key || !self_identity || !peer_identity || !send_chain_out || !recv_chain_out)
+		return FZN_SESSION_ERR_MALFORMED;
+	if (!hash || !hash->hash)
+		return FZN_SESSION_ERR_HASH;
+	/* Refused for the same reason the transcript refuses it: a host has
+	 * no direction to itself, and the two chains below would be one. */
+	if (memcmp(self_identity, peer_identity, FZN_SESSION_IDENTITY_LEN) == 0)
+		return FZN_SESSION_ERR_SELF;
+
+	/* SEND IS (self -> peer) AND RECEIVE IS (peer -> self), which is what
+	 * makes the two sides agree without saying which they are: this
+	 * host's send chain and the other host's receive chain are both keyed
+	 * (self, peer) and are therefore the same key. */
+	err = chain_for(hash, key, self_identity, peer_identity, send_chain_out);
+	if (err != FZN_SESSION_OK)
+		return err;
+	err = chain_for(hash, key, peer_identity, self_identity, recv_chain_out);
+	if (err != FZN_SESSION_OK) {
+		/* One of the two failed, so neither is usable: a caller left
+		 * holding a send chain and no receive chain would ratchet
+		 * forward into a conversation it cannot hear. */
+		fzn_wipe(send_chain_out, FZN_CHAIN_KEY_LEN);
+		return err;
+	}
+
+	return FZN_SESSION_OK;
 }
 
 /* See session.h. No `default:`, so -Wswitch names a code added and not

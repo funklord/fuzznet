@@ -58,6 +58,7 @@
 
 #include "agree.h"
 #include "commitment.h"
+#include "../ratchet/ratchet.h" /* FZN_CHAIN_KEY_LEN */
 
 /*
  * A long-term identity key, as this module sees it.
@@ -117,11 +118,27 @@ const char *fzn_session_err_str(fzn_session_err_t err);
 /*
  * Builds the transcript.
  *
- * ORDERED CANONICALLY BY IDENTITY, not by role. The two hosts sort their
- * identity keys and lay the pairs down in that order, so both build
- * byte-identical transcripts without negotiating who is the initiator. A
- * role-ordered transcript would need the role to be agreed first, and a role
- * nobody signed is a thing an attacker can flip.
+ * ORDERED CANONICALLY BY IDENTITY, not by role, BECAUSE THIS RELATIONSHIP IS
+ * SYMMETRIC. The two hosts sort their identity keys and lay the pairs down in
+ * that order, so both build byte-identical transcripts without negotiating
+ * who is the initiator.
+ *
+ * THE QUALIFIER MATTERS AND THE FIRST DRAFT LEFT IT OUT, which fuzzypickles
+ * caught by contrasting their two transcripts. The rule is not "order
+ * canonically". It is:
+ *
+ *   - canonically, when the relationship is SYMMETRIC and has no roles at
+ *     derivation time -- as here, where a role nobody signed would be a thing
+ *     an attacker can flip, and where two sides ordering differently derive
+ *     different keys and simply cannot talk;
+ *   - BY ROLE, when the roles are real, asymmetric, and covered by what is
+ *     signed -- a directed message, where sender-then-recipient is the point
+ *     and flipping them must change the key.
+ *
+ * Their `prekey_channel.c` is the first kind and sorts, as this does; their
+ * `crypto_msg.c` is the second and does not, correctly. `fzn_session_chains`
+ * below is the second kind inside this very file, which is why the
+ * distinction is stated here rather than left as a preference.
  *
  * `self_*` and `peer_*` are named from the caller's point of view precisely
  * because the OUTPUT does not depend on which is which -- that is the
@@ -166,5 +183,39 @@ fzn_session_err_t fzn_session_establish(const fzn_agree_secret_t *self_prekey,
                                         const uint8_t peer_prekey[FZN_AGREE_PUBLIC_LEN],
                                         uint8_t key_out[FZN_AEAD_KEY_LEN],
                                         uint8_t commitment_key_out[FZN_COMMITMENT_KEY_LEN]);
+
+/*
+ * The two ratchet chain keys a session seeds, one per DIRECTION.
+ *
+ * WHY THIS EXISTS: THE RATCHET WAS UNWIRED. `ratchet/ratchet.h` is a
+ * symmetric key chain that takes a seed from its caller, and until this
+ * function nothing in this library gave it one -- measured, not assumed:
+ * outside its own tests, `fzn_ratchet_init` had no callers at all. So the
+ * library had rotation-granularity forward secrecy from the session root and
+ * per-message forward secrecy from the ratchet, and no path between them.
+ *
+ * DIRECTED, NOT CANONICAL, WHICH IS THE OPPOSITE OF THE TRANSCRIPT ABOVE AND
+ * IS THE SAME RULE. A message goes one way. A-to-B and B-to-A must not share
+ * a chain, or a message replayed back at its sender decrypts under the key
+ * the sender is expecting to receive under -- and the direction IS a real
+ * role, agreed by both sides from the frame, so ordering by it is correct
+ * where ordering the transcript by it would not have been.
+ *
+ * Both sides compute both keys and agree on them: A's send chain is keyed
+ * (A, B) and B's receive chain is keyed (A, B) too, so they match without
+ * either side having to say which it is.
+ *
+ * SEEDS, NOT STATE. What comes back is two chain keys for the caller to hand
+ * to `fzn_ratchet_init`. This module holds no ratchet and no sequence
+ * numbers, because a chain's position is exactly the state `ratchet/` says
+ * belongs to the caller -- and a session that owned it would have to be
+ * persisted, which is the storage this library does not do.
+ */
+fzn_session_err_t fzn_session_chains(const fzn_hash_ops_t *hash,
+                                     const uint8_t key[FZN_AEAD_KEY_LEN],
+                                     const uint8_t self_identity[FZN_SESSION_IDENTITY_LEN],
+                                     const uint8_t peer_identity[FZN_SESSION_IDENTITY_LEN],
+                                     uint8_t send_chain_out[FZN_CHAIN_KEY_LEN],
+                                     uint8_t recv_chain_out[FZN_CHAIN_KEY_LEN]);
 
 #endif /* FZN_SESSION_H */
