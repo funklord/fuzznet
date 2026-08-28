@@ -78,15 +78,29 @@
 #include "wire/seal.h"
 #endif
 
-/* The optional Monocypher bindings, which ship only when MONOCYPHER_DIR names
- * a checkout -- and which `install` then puts in the tree alongside the rest.
+/* The optional Monocypher bindings, which `install` puts in the tree
+ * alongside the rest.
  *
  * They are here because the HDRS check above them found them missing: with
  * the bindings built, `make installcheck` refused, saying it would "pass
  * whatever those headers did". It was right. Two headers were installable and
  * unverifiable, in the configuration that is hardest to notice because the
- * default build never produces it. */
-#ifdef FZN_CONSUMER_MONOCYPHER
+ * default build never produces it.
+ *
+ * THE INCLUDES ARE UNCONDITIONAL AND THE USE BELOW IS NOT, which is the
+ * point rather than an inconsistency. None of these three headers includes
+ * <monocypher.h> -- they declare vtables over this library's own types --
+ * so they compile in the arrangement that has no Monocypher at all, and
+ * that is the arrangement in which they most need checking: they ship
+ * whether or not the consumer has the primitive, and a header nobody can
+ * compile without a dependency it does not name is the fault this whole
+ * target exists to find. Guarding the includes as well as the use put them
+ * back out of reach of the only arm that could have caught it -- the HDRS
+ * check greps this file for a NAME, so a mention inside a dead #ifdef
+ * satisfied it and proved nothing.
+ *
+ * What still needs the define is the reference to the vtable OBJECTS, which
+ * needs them linked. */
 #ifdef FZN_CONSUMER_INSTALLED
 #include <fuzznet/chain/sign_monocypher.h>
 #include <fuzznet/session/hash_monocypher.h>
@@ -95,7 +109,6 @@
 #include "chain/sign_monocypher.h"
 #include "session/hash_monocypher.h"
 #include "session/aead_monocypher.h"
-#endif
 #endif
 
 #include <stdio.h>

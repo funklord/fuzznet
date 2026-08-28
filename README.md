@@ -38,8 +38,13 @@ primitive. Monocypher is vendored at `monocypher/` as a submodule so that
 clean clone -- `git submodule update --init` and nothing else. It is for this
 tree's tests and its optional bindings only: `make install` ships headers,
 never Monocypher, so a consumer that already carries its own copy does not
-inherit a second one. `MONOCYPHER_DIR=<path>` still points the bindings at
-another checkout, and `MONOCYPHER_DIR=` builds without them.
+inherit a second one. That promise is a gate rather than a sentence --
+`make installcheck` builds a consumer against `CORE_SRCS` with Monocypher
+nowhere on the command line, and refuses if any core object so much as
+defines a primitive's name. Compile `CORE_SRCS` rather than `SRCS`: the
+latter gains the three binding sources whenever the bindings are built, and
+those do need Monocypher. `MONOCYPHER_DIR=<path>` still points the bindings
+at another checkout, and `MONOCYPHER_DIR=` builds without them.
 
 Three things to know before reading further, because each contradicts what a
 shared protocol library usually looks like:

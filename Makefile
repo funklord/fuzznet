@@ -113,6 +113,33 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              record/record.h record/journal.h record/sync.h \
              state/state.h trust/trust.h log/log.h sched/sched.h link/link.h
 
+# THE LIBRARY WITHOUT ITS OPTIONAL BINDINGS, frozen here because the
+# Monocypher conditional below appends to SRCS and HDRS and this is the last
+# line at which they mean "the core".
+#
+# WHAT THEY EXIST FOR IS A GATE, not a second build path. `installcheck`
+# compiles a consumer against these with no Monocypher anywhere -- no define,
+# no include path, no vendored tree -- because that is the arrangement the
+# README promises and sec 15c decided: the library calls no primitive, so a
+# consumer that already carries its own Monocypher, as fuzzypickles does,
+# inherits nothing from us.
+#
+# IT USED TO BE PROVED BY THE DEFAULT and now has to be proved on purpose.
+# While the binding was off unless MONOCYPHER_DIR was set, a plain
+# `make installcheck` WAS the core-only arrangement and demonstrated the
+# property without meaning to. Vendoring turned the binding on by default, so
+# that same command began proving the opposite -- that a consumer builds WITH
+# Monocypher -- and the promise stopped being checked by anything while the
+# gate went on passing. A check whose subject changes under it is worse than
+# one that was never written, because it is quoted afterwards.
+CORE_SRCS := $(SRCS)
+
+# The primitive names installcheck looks for, spelled once because the probe
+# and the control that proves the probe works must not be able to drift
+# apart. Two patterns would be two claims.
+CRYPTO_SYMS := crypto_|blake2|chacha|poly1305|argon2|x25519|ed25519
+CORE_HDRS := $(HDRS)
+
 TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              chain/test/manifest_test.c \
              frame/test/freshness_test.c \
@@ -208,10 +235,19 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
 # The library calls no primitive -- crypto is four vtables, and only
 # chain/sign_monocypher.c, session/hash_monocypher.c and
 # session/aead_monocypher.c reach past them. So `make install` ships no
-# Monocypher and $(SRCS) pulls none in: a consumer that already vendors it,
-# as fuzzypickles does, cannot end up linking two copies of crypto_blake2b.
-# That is code-style.md's landmine under prefixes and visibility, and it
-# detonates at a link that changed nothing.
+# Monocypher, and CORE_SRCS pulls none in: a consumer that already vendors
+# it, as fuzzypickles does, cannot end up linking two copies of
+# crypto_blake2b. That is code-style.md's landmine under prefixes and
+# visibility, and it detonates at a link that changed nothing.
+#
+# CORE_SRCS, NOT SRCS, AND THE DISTINCTION IS WHAT THE DEFAULT FLIP COST.
+# SRCS gains the three binding sources whenever the binding is built, which
+# is now every build -- so a consumer handed $(SRCS) is handed three files
+# that `#include <monocypher.h>` and does not compile without it. The first
+# draft of this comment said SRCS and was measured false the same hour.
+# CORE_SRCS is the list that means what this paragraph promises, and
+# `installcheck` now compiles a consumer from it with Monocypher nowhere,
+# so the promise is a gate rather than a sentence.
 #
 # The override survives, because sec 15c removes the default and not the
 # knob. A consumer or developer with its own checkout points this elsewhere:
@@ -1282,6 +1318,16 @@ style:
 	@# install` never ships -- which surfaces as a consumer's include
 	@# failing on a machine that is not this one.
 	@#
+	@# ./installcheck/ IS EXCLUDED BECAUSE IT IS A COPY OF THIS LIST. It is
+	@# installcheck's DESTDIR staging tree, and BUILD_DIR defaults to `.`,
+	@# so it lands in the root. The target removes it at both ends -- but
+	@# only on the paths it reaches, and an installcheck that FAILS leaves
+	@# it behind, at which point `make style` reports all 28 installed
+	@# headers as unlisted. That is a false finding in a gate, and it says
+	@# nothing about the tree: every path it names is a copy of a file the
+	@# walk has already accepted a line above. .gitignore has carried the
+	@# same incident since it happened; the walk had not been told.
+	@#
 	@# MONO_HDRS is unioned in because HDRS gains it only when the
 	@# binding is built, exactly as MONO_SRCS is unioned into the C
 	@# source check above. Generated headers are situ's and tool/ is not
@@ -1290,6 +1336,7 @@ style:
 	for h in `find . -name '*.h' -not -path './.git/*' -not -path './.claude/*' \
 	                 -not -path './wire/generated/*' -not -path './tool/*' \
 	                 -not -path './build/*' -not -path './san/*' \
+	                 -not -path './installcheck/*' \
 	                 -not -path './*-coverage/*' $(VENDOR_PRUNE) \
 	                 | sed 's|^\./||' | sort`; do \
 		n=$$((n + 1)); \
@@ -1563,7 +1610,11 @@ schema:
 # The staging directory is created here and removed here. It is guarded
 # rather than trusted: an unset BUILD_DIR would make the rm below something
 # else entirely, which is the failure `build-and-commit.md` names.
-installcheck: $(HDRS) $(SRCS) tool/consumer_check.c
+# Depends on the OBJECTS as well as the sources now, because the symbol probe
+# below reads them. Naming them as prerequisites is what makes the probe's
+# subject exist; the explicit absence check inside is the backstop for anyone
+# who runs the recipe another way.
+installcheck: $(HDRS) $(SRCS) $(OBJS) tool/consumer_check.c
 	@test -n "$(BUILD_DIR)" || { echo "BUILD_DIR is empty; refusing"; exit 1; }
 	@# Every installed header must be one the consumer actually includes.
 	@# Without this the target's guarantee narrows silently as modules are
@@ -1582,6 +1633,72 @@ installcheck: $(HDRS) $(SRCS) tool/consumer_check.c
 	@case "$(BUILD_DIR)" in /*) echo "BUILD_DIR must be relative; refusing"; exit 1 ;; esac
 	@rm -rf $(BUILD_DIR)/installcheck
 	@$(MAKE) --no-print-directory install DESTDIR=$(BUILD_DIR)/installcheck PREFIX=/usr >/dev/null
+	@# FIRST, THE ARRANGEMENT A CONSUMER ACTUALLY HAS: the core sources, the
+	@# installed headers, and Monocypher nowhere on the command line. This
+	@# arm is the one that can fail if a core source ever grows an include
+	@# of a primitive, and it is deliberately first because the two arms
+	@# below cannot: they hand the compiler Monocypher, so a core source
+	@# that included it would compile there and be found by nobody.
+	@echo "installcheck: the core alone, with no Monocypher anywhere"
+	@$(CC) $(CFLAGS) -DFZN_CONSUMER_INSTALLED \
+	       -I$(BUILD_DIR)/installcheck/usr/include \
+	       -o $(BUILD_DIR)/installcheck/consumer_core \
+	       -Iwire/generated tool/consumer_check.c $(CORE_SRCS) $(GEN_SRCS)
+	@$(BUILD_DIR)/installcheck/consumer_core
+	@# THAT ARM'S REAL FORCE IS THE LINK, and it is worth saying which
+	@# failure it is. A core source that INCLUDED <monocypher.h> would not
+	@# compile, there being no include path; one that CALLED a primitive
+	@# through a declaration of its own would compile and fail to link. Both
+	@# are hard failures of the arm above, so there is nothing left for a
+	@# symbol probe to add on that side -- a linked binary has no undefined
+	@# crypto symbol to find, because it could not have linked.
+	@#
+	@# WHAT THE LINK CANNOT SEE is a core source that DEFINES a primitive --
+	@# a copy of BLAKE2b pasted into the tree links perfectly and gives a
+	@# consumer the second implementation sec 15c exists to prevent. So the
+	@# probe asks the object files for definitions, not the binary for
+	@# references.
+	@#
+	@# AND IT CARRIES ITS CONTROL, because an empty answer otherwise means
+	@# only that the pattern was wrong. The same pattern is run against a
+	@# translation unit known to define these -- the vendored monocypher.o --
+	@# and must find some. Without that this is evidence.md's probe that
+	@# could not have succeeded, reported as a clean result.
+	@if [ -n "$(MONO_ON)" ]; then \
+		if [ ! -f $(BUILD_DIR)/monocypher.o ]; then \
+			echo "installcheck: monocypher.o absent, so the control cannot run."; \
+			exit 1; \
+		fi; \
+		ctl=`nm --defined-only $(BUILD_DIR)/monocypher.o 2>/dev/null \
+		     | grep -Ec '$(CRYPTO_SYMS)'`; \
+		if [ "$$ctl" = "0" ]; then \
+			echo "installcheck: the crypto-symbol pattern matches nothing in"; \
+			echo "installcheck: monocypher.o -- the probe below proves nothing."; \
+			exit 1; \
+		fi; \
+		echo "installcheck: symbol probe verified against monocypher.o ($$ctl symbols)"; \
+	fi
+	@# AND THE OBJECTS MUST BE THERE TO ASK. nm over a path that does not
+	@# exist prints a diagnostic and nothing else, which greps to empty and
+	@# reads exactly like a clean core -- the vacuous pass one more time, in
+	@# the check written to stop one. This target does not depend on the
+	@# objects, so a probe run before a build would have found nothing every
+	@# time; the count is what makes the difference visible.
+	@absent=; for o in $(CORE_SRCS:%.c=$(BUILD_DIR)/%.o) $(GEN_OBJS); do \
+		[ -f "$$o" ] || absent="$$absent $$o"; \
+	done; \
+	if [ -n "$$absent" ]; then \
+		echo "installcheck: cannot probe -- objects absent:$$absent"; \
+		echo "installcheck: run 'make' first; an unbuilt probe finds nothing."; \
+		exit 1; \
+	fi
+	@defined=`nm --defined-only $(CORE_SRCS:%.c=$(BUILD_DIR)/%.o) $(GEN_OBJS) 2>/dev/null \
+	          | grep -E '$(CRYPTO_SYMS)'`; \
+	if [ -n "$$defined" ]; then \
+		echo "installcheck: a core object DEFINES a crypto primitive:"; \
+		echo "$$defined" | sed 's/^/  /'; \
+		exit 1; \
+	fi
 	@echo "installcheck: against the installed headers"
 	@$(CC) $(CFLAGS) -DFZN_CONSUMER_INSTALLED \
 	       -I$(BUILD_DIR)/installcheck/usr/include \
@@ -1596,7 +1713,7 @@ installcheck: $(HDRS) $(SRCS) tool/consumer_check.c
 	       $(patsubst %,$(CURDIR)/%,$(GEN_SRCS)) $(MONO_CONSUMER)
 	@$(BUILD_DIR)/installcheck/consumer_source
 	@rm -rf $(BUILD_DIR)/installcheck
-	@echo "installcheck: both arrangements build and run"
+	@echo "installcheck: all three arrangements build and run"
 
 # Named targets only, and it lists them. No rm -rf of a directory and no
 # wildcard sweep: a clean target is the one thing everybody runs without

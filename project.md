@@ -9086,6 +9086,85 @@ and the disagreement will be visible as two directories rather than as a
 build failure. That is an argument for moving both pins in one pass, not
 against vendoring.
 
+### The default flip moved what the gate proved, and nobody would have seen it
+
+**Turning the binding on by default silently changed the subject of
+`make installcheck`.** While `MONOCYPHER_DIR` defaulted to empty, a plain
+`make installcheck` WAS the core-only arrangement: it compiled a consumer
+against `SRCS` with no Monocypher on the command line and thereby
+demonstrated, without meaning to, the exact property this section promises.
+Vendoring made the binding the default, `SRCS += MONO_SRCS` fired, and the
+same command began proving the opposite -- that a consumer builds WITH
+Monocypher. The promise stopped being checked by anything, and the gate went
+on passing at the same volume.
+
+This is `evidence.md`'s rule in a form it does not yet name: not a check that
+inspected an empty list, and not one whose passing condition includes the
+failure, but **a check whose SUBJECT changed under it**. It was green before
+and green after, and the two greens mean different things. Nothing in the
+diff looked like a weakening; the weakening was two words in a variable that
+the conditional above it now expanded differently.
+
+**The measurement that found it.** `$(SRCS)` was 27 sources with three
+`*_monocypher.c` among them, and handing that list to a compiler with no
+Monocypher include path fails on `monocypher.h: No such file or directory`
+-- twice, once per binding source that names it. So the Makefile comment
+introduced by the same commit, saying `$(SRCS)` "pulls none in", was false
+within the hour of being written, and false in the direction that matters:
+a consumer handed `SRCS` inherits the dependency this whole section exists
+to keep out.
+
+**The fix is a list that means what the prose promises.** `CORE_SRCS` and
+`CORE_HDRS` are frozen at the last line before the Monocypher conditional
+can append to them, and `make installcheck` gained a THIRD arm, run first:
+compile a consumer against `CORE_SRCS` and the installed headers with no
+define, no include path and no vendored tree. A core source that included
+`<monocypher.h>` cannot compile there; one that CALLED a primitive through
+its own declaration compiles and cannot link. Both are hard failures of that
+arm.
+
+**And the case neither compiling nor linking can see** is a core source that
+*defines* a primitive -- a copy of BLAKE2b pasted into the tree links
+perfectly and hands a consumer the second implementation. So a symbol probe
+asks the core OBJECTS for definitions rather than the binary for references,
+and **carries its control**: the same pattern is run against `monocypher.o`
+and must match something (it matches 49) or the probe is refused as proving
+nothing. The pattern is spelled once, in `CRYPTO_SYMS`, because a probe and
+the control that validates it must not be able to drift apart -- two
+patterns would be two claims.
+
+**Four mutations, four refusals**, each with the mutation asserted present
+before the run:
+
+- a core source *defines* `crypto_blake2b` -- caught by the symbol probe,
+  naming both planted symbols;
+- a core source *calls* `crypto_blake2b` -- caught by the link, naming the
+  file and line;
+- `CRYPTO_SYMS` changed to a string matching nothing -- caught by the
+  control, which refused rather than reporting a clean core;
+- a shipped binding header made to include `<monocypher.h>` -- caught by
+  the core arm.
+
+**The last of those closed a vacuity in the header check.** `installcheck`
+requires every installed header to be named in `tool/consumer_check.c`, and
+the three binding headers satisfied it from inside `#ifdef
+FZN_CONSUMER_MONOCYPHER` -- the check greps for a NAME, so a mention in a
+dead branch passed and proved nothing. None of the three includes
+`monocypher.h`, so the includes are unconditional now and only the reference
+to the vtable objects is guarded. That is the arrangement in which those
+headers most need checking: they ship whether or not the consumer has the
+primitive.
+
+**The 28th, 27th and 26th headers ship, and that is now argued rather than
+inherited.** The default flip added the three binding seam headers to the
+installed set. They declare vtables over this library's own types, include
+no Monocypher header, and are proved to compile in the arrangement that has
+none -- so a consumer without Monocypher carries three headers it will not
+include, and one with Monocypher (fuzzypickles, which is the consumer) finds
+the bindings already there. Shipping them costs nothing measurable and saves
+the consumer a step.
+
+
 ## 15b. Streaming will want multi-path and heavy FEC, 2026-08-28
 
 **Stated by the holder as an eventual requirement**: low-latency
