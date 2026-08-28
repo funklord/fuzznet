@@ -9455,6 +9455,79 @@ arriving in a test harness: **a macro that cannot express "abandon this case"
 is one that relies on remembering, and the unsafe version is the only version
 with a spelling.**
 
+## 19. Contacts and realms: half of it was already here, 2026-08-28
+
+Two questions were put to fuzzypickles before writing anything, because both
+are shapes this library could get wrong in a way that survives every test
+anybody would think to write. They answered from their tree at e1b5b7c.
+
+### A realm is a verb, not a column
+
+**Nothing stores one.** Their four realms are established by four different
+mechanisms -- `SO_PEERCRED` on a local socket, capability-chain cross-signing,
+the existence of a peer record, an out-of-band scoped credential -- so a realm
+is a property of **the authenticated relationship on the channel a message
+arrived over**, computed per arrival. The same principal is Registered over
+the peer wire and is not Local, and reclassifying by which socket it came in
+on is the entire point.
+
+**A `realm` field on a peer record would be wrong, and it is exactly what
+this library would have built.** Their words, and they are right: the obvious
+build is the wrong one. The classifier is therefore NOT written yet -- they
+asked to be asked again before it is, because it is the piece most likely to
+come out as a stored field, and the two previous times this tree assumed a
+seam it cost a round.
+
+### Opt-in is per-peer-per-capability, and this tree already has it
+
+Theirs is `share_location`, a named boolean on the peer record with
+`fzp_peer_may_share_location` as its gate -- **not** a generic map. They were
+explicit that a generic map is a design change rather than a port, and that
+their tree would have to grow into it.
+
+**For a library serving three consumers the generic form is forced**, since
+there cannot be a field per subsystem in a library that does not know the
+subsystems. And it is not something to build: `state/` already is it. A cell
+is keyed on a 32-byte SUBJECT and a u32 KIND -- put the peer's key in the
+subject and the capability in the kind and the map exists, with a property a
+stored boolean does not have, since the value is a function of the SET of
+records applied rather than of their arrival order.
+
+**This is `working-practice.md`'s rule paying out**: before deferring or
+building, check whether the project has already decided it somewhere else
+under a different name. The gap list could not have seen this, because it was
+searching for `realm`, `contact` and `peer-add` and the answer is called
+`state`.
+
+**Demonstrated rather than asserted**, in `tool/consumer_check.c` through the
+installed headers: granted, read back as permitted, a different capability
+for the same peer read back as a different cell, then withdrawn by its own
+issuer and read back as absent. The withdrawal is the half a boolean gets
+right by accident and a map has to be shown doing.
+
+**And the block discriminates.** Making the lookup ignore the kind -- which
+is the one thing "per capability" means -- fails `installcheck` at exit 175,
+the line asserting that a different capability is a different cell.
+
+**What is genuinely different, and is not papered over**: fuzzypickles' opt-in
+is a boolean a user sets, while this one requires the setting to be expressed
+as a signed record. That is heavier, and it is the price of the order
+independence. Whether it is the right trade for their case is theirs.
+
+### The polarity finding got a third site from answering an unrelated question
+
+Recorded because the mechanism is worth more than the instance. Their
+`may_share_location` states the same fail-closed discipline as
+`host_has_capability`, and both are correct -- because in both, 1 means
+permitted. `capability_is_revoked` applies the same discipline and is wrong,
+because there 1 means DENIED. **Applied faithfully in all three, wrong in
+exactly the one where the polarity flips.**
+
+That is stronger evidence than the original finding carried, and it fell out
+of answering a question about something else entirely. A rule stated as
+"every failure path must land on the safe value" is one that survives being
+copied into a function where the safe value is the other one.
+
 
 ## 15d. Parity before migration, and the first namespace clash
 

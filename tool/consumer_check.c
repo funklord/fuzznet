@@ -838,6 +838,71 @@ int main(void)
 			return 139;
 	}
 
+	/* PER-PEER-PER-CAPABILITY OPT-IN, WHICH THIS TREE ALREADY HAS UNDER
+	 * ANOTHER NAME, and this block is here to prove that rather than let
+	 * project.md assert it.
+	 *
+	 * fuzzypickles carries `share_location` as a named boolean on their
+	 * peer record with `fzp_peer_may_share_location` as its gate. A
+	 * library serving three consumers cannot have a field per subsystem,
+	 * so the generic form is forced -- and `state/` already is it: a cell
+	 * keyed on a 32-byte SUBJECT and a u32 KIND. Put the peer's key in
+	 * the subject and the capability in the kind and the map exists.
+	 *
+	 * Granted, read back as permitted, withdrawn by its own issuer, read
+	 * back as absent. The withdrawal is the half a boolean gets right by
+	 * accident and a map has to be shown doing.
+	 */
+	{
+		fzn_state_t opt;
+		fzn_state_entry_t opt_slots[2];
+		fzn_record_t r;
+		fzn_sign_ops_t ops;
+		const fzn_state_entry_t *cell;
+		uint8_t owner[FZN_PUBKEY_LEN];
+		uint8_t peer_key[FZN_SUBJECT_LEN];
+		static uint8_t wire[FZN_RECORD_MAX_LEN];
+		static const uint8_t yes[] = "1";
+		/* A capability the consumer names; this library never reads it. */
+		const uint32_t KIND_SHARE_LOCATION = 0x10cu;
+		size_t wrote = 0;
+
+		memset(&ops, 0, sizeof(ops));
+		ops.sign = always_sign;
+		memset(owner, 0x51, sizeof(owner));
+		memset(peer_key, 0x52, sizeof(peer_key));
+
+		if (fzn_state_init(&opt, opt_slots, 2) != FZN_STATE_OK)
+			return 170;
+		if (fzn_record_sign(owner, peer_key, 0, KIND_SHARE_LOCATION, 1, 1, yes,
+		                    sizeof(yes), &ops, wire, sizeof(wire), &wrote)
+		    != FZN_RECORD_OK)
+			return 171;
+		if (fzn_record_open(wire, wrote, &r) != FZN_RECORD_OK)
+			return 172;
+		if (fzn_state_apply(&opt, &r) != FZN_STATE_OK)
+			return 173;
+
+		cell = fzn_state_get(&opt, peer_key, KIND_SHARE_LOCATION);
+		if (!cell || !cell->live)
+			return 174;
+		/* And a DIFFERENT capability for the same peer is a different
+		 * cell, which is the whole of "per capability". */
+		if (fzn_state_get(&opt, peer_key, KIND_SHARE_LOCATION + 1u) != NULL)
+			return 175;
+
+		if (fzn_record_sign(owner, peer_key, 0, KIND_SHARE_LOCATION, 2, 1, yes,
+		                    sizeof(yes), &ops, wire, sizeof(wire), &wrote)
+		    != FZN_RECORD_OK)
+			return 176;
+		if (fzn_record_open(wire, wrote, &r) != FZN_RECORD_OK)
+			return 177;
+		if (fzn_state_clear(&opt, &r) != FZN_STATE_OK)
+			return 178;
+		if (fzn_state_get(&opt, peer_key, KIND_SHARE_LOCATION) != NULL)
+			return 179;
+	}
+
 	/* The prekey record and the act of pinning it, which are one feature
 	 * and are exercised as one: issue, open, verify, pin, then the three
 	 * refusals a consumer has to be able to tell apart. */
