@@ -9,6 +9,14 @@
 *.o
 *.d
 
+# NOTHING HERE NAMES monocypher/, AND THAT IS DELIBERATE. It is a submodule,
+# so its contents are its own repository's business -- the patterns above do
+# not reach inside one, and the gitlink itself is tracked and must stay
+# visible: an ignored submodule is one whose pin can move without `git
+# status` saying so. `monocypher.o` at the root is OURS, built from the
+# vendored source into BUILD_DIR so the checkout stays clean, and `*.o`
+# already covers it.
+
 # The test binaries. Named rather than globbed, because a pattern here would
 # also hide a source file somebody adds under that name by mistake.
 /chain/test/chain_test

@@ -32,8 +32,14 @@ codegencheck` checks that two security-critical functions still compile to the
 shape they must.
 
 The crypto is a seam rather than a dependency: signing, hashing, AEAD and
-entropy are each a vtable a consumer fills. `MONOCYPHER_DIR=<path>` builds the
-bindings this tree ships and three more test binaries.
+entropy are each a vtable a consumer fills, and the library itself calls no
+primitive. Monocypher is vendored at `monocypher/` as a submodule so that
+`make test` exercises those seams against a real implementation out of a
+clean clone -- `git submodule update --init` and nothing else. It is for this
+tree's tests and its optional bindings only: `make install` ships headers,
+never Monocypher, so a consumer that already carries its own copy does not
+inherit a second one. `MONOCYPHER_DIR=<path>` still points the bindings at
+another checkout, and `MONOCYPHER_DIR=` builds without them.
 
 Three things to know before reading further, because each contradicts what a
 shared protocol library usually looks like:

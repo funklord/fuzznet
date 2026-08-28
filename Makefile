@@ -193,26 +193,81 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/record/test/record_guided \
              $(BUILD_DIR)/record/test/record_fuzz
 
-# The Monocypher binding, built only when MONOCYPHER_DIR names a checkout.
+# The Monocypher binding, built against the VENDORED submodule by default.
 #
-# project.md sec 7 says a submodule and sec 10 has not reached that step, so
-# there is nothing vendored here to build against and adding a dependency is
-# not a thing to do in passing. During bring-up sec 7 blesses exactly this
-# shape -- a sibling directory behind a variable, not a second build path:
+# project.md sec 15c took the step sec 7 named and sec 11 called temporary.
+# The variable used to default to empty and be pointed at a live sibling --
+# `../fuzzypickles/monocypher` in practice -- which harmonization.md names as
+# the antipattern: a live sibling "is whatever its session left it as,
+# mid-work included", where a vendored copy "is a version you chose, it
+# clones with your tree, and it fails loudly at update time instead of
+# quietly at build time". A crypto test that says "the AEAD round-trips" is
+# not a claim unless the reader can say which bytes it round-tripped against.
+#
+# WHAT IS VENDORED IS FOR THIS TREE'S TESTS AND ITS OPTIONAL BINDINGS ONLY.
+# The library calls no primitive -- crypto is four vtables, and only
+# chain/sign_monocypher.c, session/hash_monocypher.c and
+# session/aead_monocypher.c reach past them. So `make install` ships no
+# Monocypher and $(SRCS) pulls none in: a consumer that already vendors it,
+# as fuzzypickles does, cannot end up linking two copies of crypto_blake2b.
+# That is code-style.md's landmine under prefixes and visibility, and it
+# detonates at a link that changed nothing.
+#
+# The override survives, because sec 15c removes the default and not the
+# knob. A consumer or developer with its own checkout points this elsewhere:
 #
 #   make test MONOCYPHER_DIR=../fuzzypickles/monocypher
+#   make test MONOCYPHER_DIR=            # off, and the notice below says so
+MONO_VENDORED  := monocypher
+MONOCYPHER_DIR ?= $(MONO_VENDORED)
+
+# WHETHER THE BINDING IS BUILT IS DECIDED BY THE SOURCE BEING THERE, not by
+# the variable being non-empty, and the three cases are deliberately not one.
+# A clone without `--recurse-submodules` leaves monocypher/ an empty
+# directory, so a default that only checked for a non-empty variable would
+# turn the binding on and fail in the linker talking about a missing
+# `monocypher/src/monocypher.c` -- an error about the build for what is
+# really an unfinished clone. It skips instead, and names the command.
 #
-# Without it the library builds and every test above still runs, which is
-# the property chain.h's signer vtable exists to give. With it, one more
-# binary runs a real Ed25519 round trip, because a seam that has only ever
-# had a stub behind it is a seam nobody has checked.
-MONOCYPHER_DIR ?=
+# An OVERRIDE that points at nothing is the other way round and is an error,
+# not a skip. Somebody asked for those tests by naming a path; quietly not
+# running them is exactly the vacuous pass evidence.md warns about, wearing
+# the costume of a build that succeeded.
+MONO_SRC := $(wildcard $(MONOCYPHER_DIR)/src/monocypher.c)
+
+ifeq ($(MONOCYPHER_DIR),)
+MONO_SKIP := MONOCYPHER_DIR is empty, which switches them off.
+else ifneq ($(MONO_SRC),)
+MONO_ON   := 1
+else ifeq ($(MONOCYPHER_DIR),$(MONO_VENDORED))
+MONO_SKIP := the vendored $(MONO_VENDORED)/ is empty. Run 'git submodule update --init'.
+else
+$(error MONOCYPHER_DIR=$(MONOCYPHER_DIR) has no src/monocypher.c. \
+        Leave it unset to use the vendored $(MONO_VENDORED)/, or set it to \
+        empty to build without the bindings)
+endif
+
+# EVERY TREE WALK IN THIS FILE PRUNES THE VENDORED SUBMODULE, and it is one
+# variable rather than four spellings so that the next walk cannot be added
+# without it and the reason cannot drift between copies.
+#
+# The walks exist to hold OUR hand-maintained lists against the filesystem --
+# every .c in a list, every .h in HDRS, every *_fuzz.c in FUZZ_BINS, every
+# object gone after `clean`. A vendored tree answers none of those questions:
+# its 56 C sources and 46 headers are in no list of ours by design, `make
+# install` ships none of them, and `clean` must not remove a file this build
+# did not create. Measured unpruned: the C-source walk fails first, naming
+# all 56 as "in no list", and the header walk behind it would have named 46
+# more. A gate reporting 102 files nobody can act on is a gate that has
+# stopped saying anything, which is why the prune is not a nicety.
+VENDOR_PRUNE := -not -path './$(MONO_VENDORED)/*'
 
 # Named OUTSIDE the conditional, because these files exist in the tree whether
 # or not this build compiles them, and `make style` compares the source lists
-# against what is actually there. Inside the `ifneq` they would be empty in a
-# plain build and the check would report two real sources as unlisted -- a
-# false finding, which is worse in a gate than no finding at all.
+# against what is actually there. Inside the `ifdef MONO_ON` they would be
+# empty in a build that skipped the binding, and the check would report two
+# real sources as unlisted -- a false finding, which is worse in a gate than
+# no finding at all.
 MONO_SRCS  := chain/sign_monocypher.c session/hash_monocypher.c \
               session/aead_monocypher.c
 MONO_HDRS  := chain/sign_monocypher.h session/hash_monocypher.h \
@@ -222,7 +277,7 @@ MONO_TSRC  := chain/test/sign_monocypher_test.c \
               session/test/aead_monocypher_test.c \
               wire/test/golden_frame_test.c
 
-ifneq ($(MONOCYPHER_DIR),)
+ifdef MONO_ON
 MONO_OBJS  := $(BUILD_DIR)/chain/sign_monocypher.o \
               $(BUILD_DIR)/session/hash_monocypher.o \
               $(BUILD_DIR)/session/aead_monocypher.o \
@@ -843,10 +898,20 @@ test: codegencheck runtests
 runtests: $(TEST_BINS)
 	@for t in $(TEST_BINS); do echo "running $$t"; $$t || exit 1; done
 	@# SAY WHEN THE MONOCYPHER BINDINGS WERE NOT BUILT, rather than leaving
-	@# their absence to look like their success. Without MONOCYPHER_DIR the
-	@# three bindings are not compiled at all, and a run that never mentions
-	@# them reads exactly like a run in which they passed. Same discipline
-	@# as `analyze` and `ctcheck`, which skip loudly for the same reason.
+	@# their absence to look like their success. Skipped, the three bindings
+	@# are not compiled at all, and a run that never mentions them reads
+	@# exactly like a run in which they passed. Same discipline as `analyze`
+	@# and `ctcheck`, which skip loudly for the same reason.
+	@#
+	@# IT ASKS MONO_SKIP, NOT MONOCYPHER_DIR, and that distinction is what
+	@# vendoring cost. The variable now defaults to the submodule, so an
+	@# empty-variable test would say "built" for a clone whose monocypher/
+	@# is an empty directory -- the notice reporting the bindings ran in the
+	@# one case they could not have. MONO_SKIP is set by the same conditional
+	@# that decides whether to compile them, so the notice and the build
+	@# cannot disagree, and it carries the REASON because "not built" and
+	@# "you have not run git submodule update --init" are different problems
+	@# with different fixes.
 	@#
 	@# NO CHECK COUNT HERE, DELIBERATELY, AND IT USED TO SAY 43. The
 	@# bindings carried 70 by then and carry more now; nobody noticed
@@ -866,9 +931,9 @@ runtests: $(TEST_BINS)
 	@# Found by mutation: FZN_SECRET_KEY_LEN could be changed in either
 	@# direction with the whole suite still green, because the module
 	@# declaring it is dark in a default build.
-	@if [ -z "$(MONOCYPHER_DIR)" ]; then \
+	@if [ -n "$(MONO_SKIP)" ]; then \
 		echo "test: the Monocypher bindings were NOT built, so their tests did"; \
-		echo "test: not run. Pass MONOCYPHER_DIR=<checkout> to include them."; \
+		echo "test: not run -- $(MONO_SKIP)"; \
 	fi
 
 CASES ?= 200000
@@ -1134,7 +1199,7 @@ style:
 	unlisted=; n=0; \
 	for c in `find . -name '*.c' -not -path './build/*' -not -path './san/*' \
 	                 -not -path './*-coverage/*' -not -path './.claude/*' \
-	                 | sed 's|^\./||' | sort`; do \
+	                 $(VENDOR_PRUNE) | sed 's|^\./||' | sort`; do \
 		n=$$((n + 1)); \
 		case "$$known" in *" $$c "*) ;; *) unlisted="$$unlisted $$c" ;; esac; \
 	done; \
@@ -1164,7 +1229,7 @@ style:
 	for b in $(FUZZ_BINS); do listed="$$listed $${b#$(BUILD_DIR)/}"; done; \
 	for f in `find . -name '*_fuzz.c' -not -path './build/*' -not -path './san/*' \
 	                 -not -path './*-coverage/*' -not -path './.claude/*' \
-	                 | sed 's|^\./||' | sort`; do \
+	                 $(VENDOR_PRUNE) | sed 's|^\./||' | sort`; do \
 		n=$$((n + 1)); \
 		bin=`echo "$$f" | sed 's/\.c$$//'`; \
 		case " $$listed " in *" $$bin "*) ;; *) missing="$$missing $$bin" ;; esac; \
@@ -1217,15 +1282,16 @@ style:
 	@# install` never ships -- which surfaces as a consumer's include
 	@# failing on a machine that is not this one.
 	@#
-	@# MONO_HDRS is unioned in because HDRS gains it only when
-	@# MONOCYPHER_DIR is set, exactly as MONO_SRCS is unioned into the C
+	@# MONO_HDRS is unioned in because HDRS gains it only when the
+	@# binding is built, exactly as MONO_SRCS is unioned into the C
 	@# source check above. Generated headers are situ's and tool/ is not
 	@# installed, so both are excluded rather than listed.
 	@known=" $(HDRS) $(MONO_HDRS) "; missing=; n=0; \
 	for h in `find . -name '*.h' -not -path './.git/*' -not -path './.claude/*' \
 	                 -not -path './wire/generated/*' -not -path './tool/*' \
 	                 -not -path './build/*' -not -path './san/*' \
-	                 -not -path './*-coverage/*' | sed 's|^\./||' | sort`; do \
+	                 -not -path './*-coverage/*' $(VENDOR_PRUNE) \
+	                 | sed 's|^\./||' | sort`; do \
 		n=$$((n + 1)); \
 		case "$$known" in *" $$h "*) ;; *) missing="$$missing $$h" ;; esac; \
 	done; \
@@ -1536,15 +1602,18 @@ installcheck: $(HDRS) $(SRCS) tool/consumer_check.c
 # wildcard sweep: a clean target is the one thing everybody runs without
 # reading, and an unset variable in an `rm -rf $(VAR)` is how one eats
 # something it should not.
-# WHAT MONOCYPHER_DIR BUILT IS NAMED UNCONDITIONALLY, because clean is
-# usually run without it.
+# WHAT THE MONOCYPHER BINDING BUILT IS NAMED UNCONDITIONALLY, because the
+# build that made those files and the one running `clean` need not agree
+# about whether the binding was on.
 #
 # OBJS, TEST_OBJS and TEST_BINS gain the Monocypher half only inside the
-# `ifneq` above, so `make test MONOCYPHER_DIR=...` followed by a plain `make
-# clean` left thirteen objects and three binaries in the tree and printed
-# "fuzznet: clean". That is build-and-commit.md's warning in its other
+# `ifdef MONO_ON` above, so `make test MONOCYPHER_DIR=...` followed by a plain
+# `make clean` left thirteen objects and three binaries in the tree and
+# printed "fuzznet: clean". That is build-and-commit.md's warning in its other
 # direction: a clean target that removes LESS than was built, and says so as
-# loudly as one that removed everything.
+# loudly as one that removed everything. It survives the vendored default,
+# which only moves the case: `make clean MONOCYPHER_DIR=` is now the way to
+# reach it.
 #
 # Named rather than globbed, per the same rule. MONO_SRCS and MONO_TSRC are
 # already outside the conditional for the style check, so the names are here
@@ -1562,10 +1631,19 @@ clean:
 	@# nothing" and "removed everything" stop looking alike. Only for the
 	@# in-place default: an out-of-tree BUILD_DIR leaves the tree with no
 	@# artifacts to find whether it worked or not.
+	@#
+	@# THE VENDORED TREE IS PRUNED, and here that matters twice over. This
+	@# build never writes into it -- monocypher.o is kept under $(BUILD_DIR),
+	@# which is fuzzypickles' refinement and keeps the checkout clean -- but
+	@# somebody who ran the submodule's OWN makefile would leave objects
+	@# there, and without the prune `clean` would fail naming files it must
+	@# not remove. build-and-commit.md forbids a `find .` from the root that
+	@# walks a vendored tree, and the check is the one place here that still
+	@# does one.
 	@if [ "$(BUILD_DIR)" = "." ]; then \
 		left=`find . \( -name '*.o' -o -name '*.d' -o -name '*.gcno' \
 		                 -o -name '*.gcda' \) -not -path './.git/*' \
-		                 -not -path './.claude/*' | sort`; \
+		                 -not -path './.claude/*' $(VENDOR_PRUNE) | sort`; \
 		if [ -n "$$left" ]; then \
 			echo "clean: build artifacts survived:"; \
 			echo "$$left" | sed 's/^/  /'; \

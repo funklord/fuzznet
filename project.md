@@ -5700,10 +5700,15 @@ counts survives nothing.
 None reads a clock, so there is nothing in any of them that can pass on a
 quiet machine and fail on a loaded one.
 
-**`make test MONOCYPHER_DIR=../fuzzypickles/monocypher`** additionally builds
-the binding and runs 9 more checks against real Ed25519. That is the sibling
--directory-behind-a-variable shape §7 blesses for bring-up, and it is
-temporary: the real answer is a submodule, at whatever step takes it.
+**`make test`** additionally builds the bindings and runs four more binaries
+against real Ed25519, BLAKE2b and XChaCha20-Poly1305, because Monocypher is
+vendored at `monocypher/` and the default no longer names a sibling. The
+count belongs to the run, which prints its own; a figure here would be the
+same trap this section has already sprung twice. The
+sibling-directory-behind-a-variable shape §7 blessed for bring-up was
+temporary and its step has been taken -- §15c decided it, and the paragraph
+below §15c records what building it changed. `MONOCYPHER_DIR` survives as an
+override, which is what §15c removed the default of rather than the knob.
 
 **The suites were checked by breaking the code, not by watching them pass.**
 Twenty-three sabotages, each rebuilt through `make test` rather than
@@ -8998,6 +9003,88 @@ mean acquiring a dependency this library has deliberately never had.**
 Where a consumer wants fuzznet's events in its own log, the seam is a
 vtable like the other four, or an error string the consumer prints --
 which is what `fzn_*_err_str` already exists for.
+
+### What building it changed, 2026-08-28
+
+Built as decided above. `monocypher/` is a submodule of
+`https://github.com/LoupVaillant/Monocypher.git` pinned at
+**`ab2b16dd619ad5f6979a4fbe69cfa324a6fcc35f`** -- the same commit
+fuzzypickles pins, tagged 4.0.3. The path and the pin are both
+fuzzypickles': it vendors its six dependencies as submodules at the
+repository root under the dependency's own lowercase name, §7 records
+that matching it costs nothing, and `.style-gate.toml` already excluded
+`monocypher` before there was one there to exclude. **Deliberately the
+same commit, not merely the current one.** Upstream had moved to
+`1830c06` by the day this was taken, and two trees in one family
+disagreeing about which Monocypher they trust is a thing somebody should
+choose rather than drift into -- so it is chosen here, and moving it is a
+pass across both trees rather than an upgrade in one.
+
+**The default moved; the knob did not.** `MONOCYPHER_DIR ?= monocypher`,
+and an override still points elsewhere. What is new is that there are
+now three cases where there were two, and the Makefile keeps them apart:
+
+- the source is there -- build the bindings;
+- `MONOCYPHER_DIR=` -- do not, and say so;
+- the source is missing. Where the path is the vendored default this is
+  a clone nobody ran `git submodule update --init` in, so it SKIPS and
+  names that command. Where it is an override it is an ERROR, because
+  somebody asked for those tests by naming a path and quietly not
+  running them is the vacuous pass `evidence.md` warns of.
+
+**The test notice had to stop asking the variable.** It read
+`[ -z "$(MONOCYPHER_DIR)" ]`, which with a vendored default reports
+"built" for exactly the one case they could not have been -- an
+uninitialised submodule. It asks `MONO_SKIP` now, set by the same
+conditional that decides whether to compile, so the notice and the build
+cannot disagree, and it carries the reason because "not built" and "you
+have not initialised the submodule" have different fixes.
+
+**Four tree walks had to learn to prune, and this is the finding worth
+keeping.** The Makefile holds its hand-maintained lists against the
+filesystem -- every `.c` in a list, every `.h` in `HDRS`, every
+`*_fuzz.c` in `FUZZ_BINS`, every object gone after `clean`. A vendored
+tree answers none of those questions and it is not small: 56 C sources
+and 46 headers. Unpruned, `make style` reported 56 real files as
+unlisted, which is a gate that has stopped saying anything. `clean` is
+the sharper case, because there the prune is a safety property rather
+than a nuisance: `build-and-commit.md` forbids a `find .` from the root
+that walks a vendored tree, and this build never writes into the
+submodule -- `monocypher.o` lands in `$(BUILD_DIR)`, which is
+fuzzypickles' own refinement for keeping the checkout clean -- but
+somebody who ran the submodule's own makefile would leave objects there
+and `clean` would then fail naming files it must not remove. It is one
+`VENDOR_PRUNE` variable rather than four spellings, so the next walk
+cannot be added without it.
+
+**That the library still calls no primitive was measured, not asserted**,
+because it is the claim the whole shape rests on. `nm --undefined-only`
+across the **27** library objects finds **zero** references to
+`crypto_*`, BLAKE2b, ChaCha, Poly1305, Argon2, X25519 or Ed25519; the
+same probe against the three binding objects finds **six**
+-- `crypto_aead_lock`, `crypto_aead_unlock`, `crypto_blake2b`,
+`crypto_eddsa_check`, `crypto_eddsa_sign`, `crypto_wipe`. The control is
+the point: a probe that returns nothing has found nothing only if it
+could have found something.
+
+**And what a consumer inherits was measured the same way.** `make
+install` stages 28 headers and no Monocypher source or header among
+them. The three seam headers are shipped and none of them includes
+`monocypher.h` -- confirmed by compiling all three from the installed
+prefix with nothing else on the include path, against the control of
+compiling `chain/sign_monocypher.c` the same way, which fails on
+`monocypher.h: No such file or directory`. So the header offers the
+binding and the `.c` beside it is what needs the library, which is the
+seam/implementation split holding at the only boundary where it matters.
+
+**One consequence to know rather than to fix.** fuzzypickles vendors
+both fuzznet and Monocypher, so a `--recurse-submodules` clone of it now
+has two Monocypher checkouts on disk. They are the same commit and only
+one is ever compiled, so it costs disk and not correctness -- but if
+either tree bumps its pin alone, that is the moment the two disagree,
+and the disagreement will be visible as two directories rather than as a
+build failure. That is an argument for moving both pins in one pass, not
+against vendoring.
 
 ## 15b. Streaming will want multi-path and heavy FEC, 2026-08-28
 
