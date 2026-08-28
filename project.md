@@ -9616,11 +9616,46 @@ Expanded with the compiler from their own header rather than added up --
 `FZP_PEER_SYNC_RECORD_BLOB_LEN`, `peer_sync_internal.h:97`:
 
     FZP_PEER_SYNC_SIGNED_LEN      278
-    FZP_CAP_CHAIN_BLOB_LEN       1450
+    FZP_CAP_CHAIN_BLOB_LEN       1450     <- A CEILING, not the value
     signature                      64
-    total                        1794     against FZN_RECORD_BODY_MAX 512
+    worst case                   1794     against FZN_RECORD_BODY_MAX 512
 
-**Two errors, and the second is the interesting one.** The signed part alone
+**AND 1794 IS THE WORST CASE, WHICH THIS SECTION THEN QUOTED AS THE SIZE.**
+fuzzypickles corrected their own correction within the hour. Expanded per
+case:
+
+    empty signer_chain    344   fits, 168 spare
+    1 delegation hop      527   over by 15
+    2 hops                708   over by 196
+    ...                         +181 per hop
+    8 hops               1794   over by 1282
+
+**The common case fits comfortably. One delegation hop misses by fifteen
+bytes.** Only deep delegation is far over. So the row is not "peer-sync must
+chunk" but "peer-sync chunks beyond one delegation hop", which is a much
+smaller question -- and possibly not a chunking question at all, since
+`FZN_RECORD_BODY_MAX` is a JUDGEMENT rather than a derivation: `record.h`
+says small "because a record is a statement rather than a payload", not
+because anything forces 512. Fifteen bytes is a conversation, not a wall.
+
+**THREE ERRORS ON ONE RECORD IN ONE EVENING, and the third was made while
+applying the rule the first two produced.** Counted honestly because the
+count is the finding:
+
+1. **204**, computed from a prose shape. Wrong by 88%.
+2. **"1794, does not fit"** -- a ceiling quoted as a value, adopted from a
+   correction without asking whether it was a maximum.
+3. **525 for a figure that is 527**, computed while deliberately expanding
+   constants -- by substituting `FZP_CAP_CHAIN_HOP_LEN` for the chain blob's
+   length and dropping the blob's own two-byte header.
+
+The third is the sharpest. **Composing from named constants is still a
+derivation.** "Cite the name" was not enough and "expand the constant" was
+not enough either; what worked was expanding the exact expression the owner
+composes -- `1 + 1 + n * FZP_CAP_CHAIN_HOP_LEN` -- rather than assembling
+something equivalent-looking out of its parts.
+
+**Two errors in the first count, and the second is the interesting one.** The signed part alone
 is 278 where this tree computed 204 -- it carries a writer, an origin and a
 sequence that were not in the description. And 1450 bytes of it are the
 AUTHORISING CAPABILITY CHAIN, which the description did not mention at all.
@@ -9734,6 +9769,32 @@ Recorded, not built. The mechanism is the open row, and building the half
 that records a policy while the half that delivers a chain does not exist is
 the "half of one thing rather than one of two" mistake this document already
 made once today.
+
+### Two independent arguments for one decision, which is the corroboration that counts
+
+This library told fuzzypickles that its 1450-byte inline chain BUYS something
+rather than only costing: a chain arriving with the thing it authorises never
+becomes a reason to fetch from a stranger, which is the property this tree's
+journal spends a whole design refusing.
+
+**They went and read their own comment and it gives a different reason.**
+`control.h:106`: fetching the chain separately "would cost the manifest its
+self-certifying-bearer-object property (sec 10), the thing the whole
+propagation design leans on."
+
+So one decision has two arguments, reached from opposite directions and
+neither hand aware of the other's. **Mine is about who a host is induced to
+talk to; theirs is about what a bearer object must carry to certify itself.**
+
+`evidence.md` says corroboration is evidence only when the two sides arrived
+separately, and warns that two documents agreeing are one witness if the same
+hand wrote both. This is the case that clears that bar, demonstrably: neither
+tree knew the other's argument, and the check is not that they agree but that
+they are ABOUT DIFFERENT THINGS and support the same choice.
+
+Recorded because every other corroboration this week landed on a number. This
+one landed on a design decision, which is the harder thing to get independent
+confirmation of and the thing this migration will need more of.
 
 ### Chain delivery cannot ride the journal, and the reason is a refusal
 
