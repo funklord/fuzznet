@@ -93,7 +93,8 @@ GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
-             chain/chain.c chain/revocation.c chain/manifest.c frame/freshness.c \
+             chain/chain.c chain/revocation.c chain/manifest.c chain/authz.c \
+             frame/freshness.c \
              blob/blob.c ratchet/ratchet.c prekey/prekey.c \
              chunk/reassembly.c \
              chunk/split.c \
@@ -106,7 +107,8 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
 OBJS      := $(SRCS:%.c=$(BUILD_DIR)/%.o) $(GEN_OBJS)
 HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h local/vocabulary.h \
-             chain/chain.h chain/revocation.h chain/manifest.h frame/freshness.h \
+             chain/chain.h chain/revocation.h chain/manifest.h chain/authz.h \
+             frame/freshness.h \
              blob/blob.h ratchet/ratchet.h prekey/prekey.h \
              chunk/reassembly.h \
              chunk/split.h \
@@ -145,7 +147,7 @@ CRYPTO_SYMS := crypto_|blake2|chacha|poly1305|argon2|x25519|ed25519
 CORE_HDRS := $(HDRS)
 
 TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
-             chain/test/manifest_test.c \
+             chain/test/manifest_test.c chain/test/authz_test.c \
              blob/test/blob_test.c ratchet/test/ratchet_test.c \
              prekey/test/prekey_test.c session/test/agree_test.c \
              session/test/session_test.c \
@@ -186,6 +188,7 @@ TEST_OBJS := $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
 TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/chain/test/revocation_test \
              $(BUILD_DIR)/chain/test/manifest_test \
+             $(BUILD_DIR)/chain/test/authz_test \
              $(BUILD_DIR)/blob/test/blob_test \
              $(BUILD_DIR)/ratchet/test/ratchet_test \
              $(BUILD_DIR)/prekey/test/prekey_test \
@@ -740,6 +743,17 @@ $(BUILD_DIR)/prekey/test/prekey_test: $(BUILD_DIR)/prekey/test/prekey_test.o \
 $(BUILD_DIR)/ratchet/test/ratchet_test: $(BUILD_DIR)/ratchet/test/ratchet_test.o \
                                          $(BUILD_DIR)/ratchet/ratchet.o \
                                          $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# authz links the chain layer it collapses to a verdict, and manifest because
+# revocation.o reaches it.
+$(BUILD_DIR)/chain/test/authz_test: $(BUILD_DIR)/chain/test/authz_test.o \
+                                     $(BUILD_DIR)/chain/authz.o \
+                                     $(BUILD_DIR)/chain/chain.o \
+                                     $(BUILD_DIR)/chain/revocation.o \
+                                     $(BUILD_DIR)/chain/manifest.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 

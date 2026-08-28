@@ -28,6 +28,7 @@
 #ifdef FZN_CONSUMER_INSTALLED
 #include <fuzznet/chain/chain.h>
 #include <fuzznet/chain/manifest.h>
+#include <fuzznet/chain/authz.h>
 #include <fuzznet/blob/blob.h>
 #include <fuzznet/ratchet/ratchet.h>
 #include <fuzznet/prekey/prekey.h>
@@ -58,6 +59,7 @@
 #else
 #include "chain/chain.h"
 #include "chain/manifest.h"
+#include "chain/authz.h"
 #include "blob/blob.h"
 #include "ratchet/ratchet.h"
 #include "prekey/prekey.h"
@@ -936,6 +938,37 @@ int main(void)
 			return 178;
 		if (fzn_state_get(&opt, peer_key, KIND_SHARE_LOCATION) != NULL)
 			return 179;
+	}
+
+	/* The authorisation decision, which is the question a consumer asks
+	 * before it trusts a record's issuer. Walked rather than compiled,
+	 * because the case that matters is the one a consumer produces by
+	 * FORGETTING: a zeroed policy must deny. */
+	{
+		fzn_authz_policy_t zeroed;
+		fzn_revocation_store_t empty;
+		fzn_revocation_t empty_slots[1];
+		uint8_t any_cap[FZN_CAP_ID_LEN];
+
+		memset(&zeroed, 0, sizeof(zeroed));
+		memset(any_cap, 0x5b, sizeof(any_cap));
+		if (fzn_revocation_store_init(&empty, empty_slots, 1) != FZN_CHAIN_OK)
+			return 220;
+
+		/* A memset policy is not "unguarded". */
+		if (fzn_authz_decide(zeroed, NULL, 0, root, 1000, &sign, &empty)
+		    != FZN_AUTHZ_DENIED)
+			return 221;
+		/* Nor is a required capability with no chain held. */
+		if (fzn_authz_decide(fzn_authz_requires(any_cap), NULL, 0, root, 1000, &sign,
+		                     &empty) != FZN_AUTHZ_DENIED)
+			return 222;
+		/* Only saying so out loud grants, and it says which grant it is. */
+		if (fzn_authz_decide(fzn_authz_unguarded(), NULL, 0, root, 1000, &sign, &empty)
+		    != FZN_AUTHZ_GRANTED_UNGUARDED)
+			return 223;
+		if ((int)FZN_AUTHZ_DENIED != 0)
+			return 224;
 	}
 
 	/* Key agreement: the seam a consumer fills to get deletable material

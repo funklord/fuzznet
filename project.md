@@ -9844,9 +9844,67 @@ What caught it was that ALL 31 failed, not that anything checked. The re-run
 carries a control: the unmutated build is compiled and run first, so a build
 failure afterwards means the mutation rather than the harness.
 
+### The authorisation decision, built after the deferral dissolved
+
+Sec 19 declined to build this, on the grounds that it would be "the half
+that records a policy while the half that delivers a chain does not exist".
+**Measuring dissolved the premise.** `fzn_chain_open` and `fzn_chain_pack`
+already carry a chain as a bounded container, `fzn_chain_verify` already
+checks one, and transport is the consumer's by the same split that settled
+realms, the prekey record and the ephemeral. **The delivery half largely did
+exist; what did not was the decision.**
+
+That is `working-practice.md`'s rule paying out in its own terms: measure the
+feared cost before deliberating, because it often dissolves the question
+rather than informing it. The deferral was written carefully and was wrong
+about a fact, and nothing but looking would have found it -- a wrongly
+deferred question is caught by nothing.
+
+**`chain/authz.h`. A zeroed policy is not "unguarded", it is invalid.** There
+are exactly two ways to spell a policy and both are a call:
+`fzn_authz_requires` names a capability, `fzn_authz_unguarded` says out loud
+that a kind needs none. A `memset` leaves neither and `fzn_authz_decide`
+denies it -- so **absence cannot read as not-required, because absence is not
+a spelling.** This library's "the unsafe version has no spelling", pointed at
+a gap rather than at a field.
+
+**Zero is denial**, so a zeroed struct, an uninitialised read and a failure
+path that forgets to assign all land on "no". That is the polarity lesson
+from fuzzypickles' three-site finding, applied at the point where it costs
+one enumerator.
+
+**The two grants are distinguishable** -- by chain, or explicitly unguarded --
+because a consumer's log must tell "authorised" from "not guarded", and
+because somebody auditing what a consumer leaves unguarded can then grep for
+one name and find every instance. There is no way to arrive at the same place
+by omission.
+
+**Six mutations, five caught**, including an unspelled policy treated as
+unguarded (2 failures), `DENIED` moved off zero (1), and `requires(NULL)`
+quietly becoming unguarded (1).
+
+### The wipe rule generalises past wipes
+
+The sixth mutation survived: deleting the "no chain held" guard fails
+nothing, because `fzn_chain_verify` already refuses a null `hops` and a zero
+`hop_count`.
+
+**It is a guard duplicated by a lower layer, which is the same class as an
+unobservable wipe and a wider one.** The rule derived this session -- a guard
+over the CALLER's memory is testable, a guard over a local is not --
+generalises: **any guard the layer beneath already enforces is prospective,
+and the test that would catch its removal is a test of that lower layer.**
+
+Kept, for two reasons that are not "it might matter one day". It states at
+the level where the DECISION is made that holding no chain is an ordinary
+state rather than an error, which is the distinction the file exists to keep
+visible. And it makes this answer independent of `fzn_chain_verify`
+continuing to refuse an empty chain -- a contract that file states and could
+relax without this one noticing.
+
 ### What is still open
 
-**Chain delivery**, which is the row from sec 19 and is unchanged: a receiver
+**Chain delivery's transport**, narrowed from the sec 19 row: a receiver
 that must check a record's authorisation needs the hops, this library says
 how they are verified and not how they arrive, and the constraint recorded
 there is that it must not become an adoption path.

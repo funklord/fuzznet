@@ -29,6 +29,7 @@
 /chunk/test/agreement_test
 /chain/test/revocation_test
 /chain/test/manifest_test
+/chain/test/authz_test
 /blob/test/blob_test
 /blob/test/blob_fuzz
 /ratchet/test/ratchet_test
