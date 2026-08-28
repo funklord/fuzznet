@@ -458,13 +458,34 @@ fzn_seal_err_t fzn_seal_build(uint8_t *frame, size_t frame_cap, size_t *frame_le
 		 * validate that used to sit above was removed as redundant, and
 		 * it was, for the tag. It was not redundant for this.
 		 *
-		 * Measured before the wipe, with the buffer prefilled 0xEE: a
+		 * ~~Measured before the wipe, with the buffer prefilled 0xEE: a
 		 * `chunks` of zero, a `kind` outside the enum, an `index` past
 		 * `chunks`, and a null `aead->seal` each returned an error with
-		 * the 32-byte capability sitting verbatim at offset 0x60 and the
-		 * payload after it, the tag all zeroes and `*frame_len` still 0.
+		 * the 32-byte capability sitting verbatim at offset 0x60.~~
+		 *
+		 * RE-MEASURED 2026-08-28 AND IT NO LONGER HOLDS. All four of
+		 * those refusals now return BEFORE the capability is copied in
+		 * -- the three shape ones with MALFORMED -- so with the wipe
+		 * disabled and the buffer prefilled 0xEE, the capability
+		 * appears nowhere in it for any of them. The wipe is therefore
+		 * PROSPECTIVE today rather than load-bearing, and its own
+		 * reproduction cases do not reach it.
+		 *
+		 * The likely cause is in this file: the validate that used to
+		 * sit above was removed as redundant, and removing it moved
+		 * when a shape refusal surfaces. The measurement was true when
+		 * written and nothing re-took it.
+		 *
+		 * KEPT, because the hazard is real the moment any refusal
+		 * surfaces after the copy, and the cost is one call on a path
+		 * that has already failed. Labelled honestly instead, so the
+		 * next reader who mutates it and sees nothing fail deletes it
+		 * knowing what they are removing rather than believing the
+		 * paragraph above.
+		 *
 		 * A caller reusing the buffer, or one that ignored the return,
-		 * holds or transmits the capability in clear.
+		 * would hold or transmit the capability in clear -- which is
+		 * what this defends against if that day comes.
 		 *
 		 * project.md records this same class found and fixed for the
 		 * nonce, and says there that "the reason it gives is not

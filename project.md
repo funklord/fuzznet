@@ -9782,6 +9782,38 @@ a refusal, or a function whose whole job is forgetting, it is load-bearing
 and there should be a test naming it. The four here are exactly the second
 kind and each has one.
 
+**AND THE SWEEP ITSELF MISSED TWO, WHICH IS THE SHARPER FINDING.** It said
+"every `fzn_wipe` in the library" and iterated **a hand-written list of five
+files**. There are 33 wipes in seven. The two skipped were
+`constant_time/constant_time.c` -- which is `fzn_wipe`'s own implementation
+and correctly not in the class -- and **`wire/seal.c`, which holds a wipe of
+the CALLER's frame on an error path**: the load-bearing kind by the
+classification above, and untested.
+
+That is `evidence.md`'s *a name that claims exhaustiveness is not a check that
+achieved it*, committed by the pass that was measuring exhaustiveness. The
+population was derived from a list somebody typed.
+
+**Chasing it found something better than a missing test.** Two drafts of the
+new case passed with the wipe deleted, so the conditions were measured rather
+than guessed a third time: with the wipe disabled and the buffer prefilled
+0xEE, **none of the four refusals `seal.c`'s own comment names leaves the
+capability anywhere in the buffer.** All four return before the copy.
+
+**So that comment records a measurement that has gone stale**, and the likely
+cause is in the same file: the validate that used to sit above it was removed
+as redundant, which moved when a shape refusal surfaces. The measurement was
+true when written and nothing re-took it -- which is the same decay this
+document has been cataloguing about other trees' constants, occurring inside
+one function.
+
+The wipe is kept and relabelled prospective. The test is kept too, and its
+comment says what it actually pins: **the outcome a caller depends on -- a
+refused build leaves no capability and reports no length -- which EITHER an
+early refusal OR the wipe satisfies.** It fails the day a refusal moves after
+the copy while the wipe is absent, which is exactly the pair nobody would
+notice separately.
+
 **The instrument failed first and was caught by implausibility rather than by
 checking**, which is worth recording beside the result. The first sweep
 neutered each call as `(void)(0) && fzn_wipe(...)` -- invalid C, since

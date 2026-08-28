@@ -637,6 +637,61 @@ int main(void)
 		check(memcmp(built, again, FRAME_LEN) != 0,
 		      "two frames built from identical arguments are byte-identical");
 
+		/* A REFUSED BUILD MUST NOT LEAVE THE CAPABILITY IN CLEAR.
+		 *
+		 * `wire/seal.c` wipes the whole frame when `fzn_seal_close`
+		 * refuses, because the capability and payload were copied in
+		 * BEFORE sealing -- sealing happens in place. Its comment says
+		 * the residue was measured with the buffer prefilled 0xEE and
+		 * the 32-byte capability sitting verbatim at offset 0x60.
+		 *
+		 * WHAT THIS ASSERTS IS THE OUTCOME, NOT THE WIPE, and the
+		 * distinction is the whole reason the comment is this long.
+		 *
+		 * A sweep classified every `fzn_wipe` in the library and flagged
+		 * that one as clearing the caller's buffer on an error path --
+		 * the load-bearing kind -- with nothing testing it. Two drafts
+		 * of this case then passed with the wipe deleted, which sent
+		 * somebody to measure instead of guess: with the wipe disabled
+		 * and the buffer prefilled 0xEE, NONE of the four refusals
+		 * seal.c's own comment names leaves the capability anywhere in
+		 * the buffer. They all return before the copy now.
+		 *
+		 * So the wipe is prospective today and this case cannot fail by
+		 * removing it. What it pins is the property a caller depends on
+		 * -- a refused build leaves no capability in the buffer and
+		 * reports no length -- which EITHER an early refusal OR the
+		 * wipe satisfies. That is worth having: it fails the day a
+		 * refusal moves after the copy while the wipe is absent, which
+		 * is exactly the pair nobody would notice separately. */
+		{
+			static uint8_t refused[FRAME_LEN];
+			size_t refused_len = 0;
+			fzn_send_t bad = what;
+			size_t i;
+			int capability_in_clear = 0;
+
+			bad.chunks = 0;
+			memset(refused, 0xEE, sizeof(refused));
+			check(fzn_seal_build(refused, sizeof(refused), &refused_len, &bad, key,
+			                     commitment_key, &hash, &rng, &aead) != FZN_SEAL_OK,
+			      "a build with chunks = 0 was accepted");
+
+			for (i = 0; i + 32u <= sizeof(refused); i++) {
+				if (memcmp(refused + i, CAP, 32) == 0) {
+					capability_in_clear = 1;
+					break;
+				}
+			}
+			check(!capability_in_clear,
+			      "a refused build left the 32-byte capability in the caller's "
+			      "buffer, so a caller that ignores the status transmits it in "
+			      "clear");
+			check(refused_len == 0,
+			      "a refused build reported a length, so a caller would send the "
+			      "buffer it was told nothing was written to");
+		}
+
 		/* AND A FRESH COMMITMENT PER FRAME, ASSERTED DIRECTLY RATHER THAN
 		 * LEFT TO THE ROUND TRIP.
 		 *
