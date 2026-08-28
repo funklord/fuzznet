@@ -33,6 +33,8 @@
 /blob/test/blob_fuzz
 /ratchet/test/ratchet_test
 /prekey/test/prekey_test
+/session/test/agree_test
+/session/test/agree_monocypher_test
 /chain/test/sign_monocypher_test
 /session/test/hash_monocypher_test
 /frame/test/freshness_test

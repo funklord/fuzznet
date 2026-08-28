@@ -9454,6 +9454,119 @@ was never enforced anywhere. That is this tree's own rule about the ratchet
 arriving in a test harness: **a macro that cannot express "abandon this case"
 is one that relies on remembering, and the unsafe version is the only version
 with a spelling.**
+## 20. Key agreement: the seam that was missing, 2026-08-28
+
+The holder settled sec 4.5: **a rotating prekey goes in the transcript**, not
+a per-session ephemeral, because reboot survivability matters and a persisted
+prekey secret gives it while a vanished ephemeral does not. Forward secrecy
+then holds at rotation granularity, and the ratchet built earlier today
+supplies it per-message above that.
+
+### What building it found first: there was nothing to agree with
+
+**This library had four vtables -- sign, hash, AEAD, entropy -- and no key
+agreement at all.** `prekey/prekey.h`, written hours earlier, publishes a
+32-byte key its own comment calls the one that "agrees", and nothing agreed.
+
+That is why `session/commitment.h` could say "the transcript is the caller's"
+for weeks without anybody noticing **the transcript had nothing deletable to
+put in it**. A long-term identity key cannot be deleted -- it is what makes a
+host itself -- so without an agreement over rotatable keys, every session key
+is recomputable by whoever later obtains the identity secret, and no
+arrangement of the layers above can fix it.
+
+`session/agree.h` is that seam. X25519-shaped and named for the operation:
+32-byte secret, 32-byte public, 32-byte shared. **A post-quantum KEM does not
+fit and gets its own seam rather than this one widened** -- encapsulation is
+not symmetric and its ciphertext travels -- recorded so the decision is
+visible rather than discovered.
+
+### The rotation discipline is a type, not a rule
+
+`fzn_agree_secret_t` holds the secret, its public half and a generation
+count, and **there is no accessor that hands the secret out**. Installing a
+second secret rotates: the previous one is destroyed and the generation
+advances, and no branch keeps it. A caller wanting a copy has to write the
+`memcpy` itself and can be seen doing it.
+
+The reason is the one this tree keeps arriving at: forward secrecy here is
+bounded by the rotation window and by nothing else, and "delete the old one"
+held by a comment lasts until the first caller who keeps a backup for
+debugging.
+
+**A failed rotation destroys nothing.** The public half is derived BEFORE
+anything is wiped, so a binding that refuses leaves the host holding the
+secret it had -- rather than a wiped struct and no replacement, which is a
+host that cannot decrypt its own queued traffic because a key derivation
+failed.
+
+### Monocypher 4 does not report a low-order key, and this file said it did
+
+The binding was written from memory of Monocypher 3, where `crypto_x25519`
+returned `int`. In 4.0.3 -- the version this tree vendors -- it returns
+`void`. **The compiler caught the code; nothing would have caught the
+comment**, which asserted a behaviour the library does not have. A
+description of an interface standing in for the interface, which is the same
+error catalogued at length one section earlier about layouts, arriving in a
+vendored dependency this tree pinned itself.
+
+The check is therefore in the binding, because the reason for it did not go
+away: a low-order peer key yields a shared secret **the attacker chose**, and
+that secret goes into a transcript deriving a key commitment -- a commitment
+over an attacker-chosen constant commits to nothing.
+
+**Detection measured, not read from the manual.** All five published
+small-order points produce an all-zero shared secret, and an honest key does
+not:
+
+    low-order point 0..4   ALL ZERO
+    control, honest key    nonzero
+
+Those five are now the gated test's fixtures. They are **published
+constants** rather than values this tree generated, which is what makes them
+evidence instead of a second copy of the implementation's opinion.
+
+### Two mutations survived, and both were construction-guaranteed
+
+Same shape as the ratchet's seventh mutation this morning: "the mutation
+survived" and "the mutation was not a mutation" look identical in a results
+table.
+
+**Deleting the wipe before the rotation's `memcpy` failed nothing**, because
+the copy covers every byte. Rather than assert the line is load-bearing or
+delete it as dead, four builds were run -- {wipe, no wipe} x {full copy,
+short by one}:
+
+    wipe, full copy      gone
+    no wipe, full copy   gone      <- why the mutation passed
+    wipe, short copy     gone
+    no wipe, short copy  SURVIVES  <- the case it is there for
+
+So the wipe is unreachable-by-test today and is the difference between a
+partial copy losing a byte and leaking one. Kept, recorded as conditional.
+
+**A `_Static_assert` was tried first and did not assert what its comment
+claimed** -- it compares the buffer's size against the constant, which stays
+true when the CALL's length argument shrinks. Removed. **A comment claiming
+an assertion covers something it does not is worse than no assertion**, and
+that was the third overclaiming comment caught in one session.
+
+Deleting the public-key `memset` in `fzn_agree_secret_wipe` likewise fails
+nothing, since `live` is what the accessor consults. Kept for the reader who
+reaches into the struct directly, and recorded as construction-guaranteed
+rather than tested.
+
+### What is still open
+
+The seam exists; **the transcript layout does not**. What remains is the
+canonical builder -- which keys, in what order -- so that two peers cannot
+disagree, plus the question of whether the initiator contributes a
+per-session ephemeral on top of the responder's rotating prekey. That is a
+strict improvement in forward secrecy at no reboot cost, since the ephemeral
+is the SENDER's and a sender can always re-handshake; but it needs the
+ephemeral public key on the wire, and this library has no handshake message
+to carry it. Raised rather than assumed.
+
 
 ## 19. Contacts and realms: half of it was already here, 2026-08-28
 

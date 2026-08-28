@@ -31,6 +31,7 @@
 #include <fuzznet/blob/blob.h>
 #include <fuzznet/ratchet/ratchet.h>
 #include <fuzznet/prekey/prekey.h>
+#include <fuzznet/session/agree.h>
 #include <fuzznet/chain/revocation.h>
 #include <fuzznet/chunk/reassembly.h>
 #include <fuzznet/chunk/split.h>
@@ -59,6 +60,7 @@
 #include "blob/blob.h"
 #include "ratchet/ratchet.h"
 #include "prekey/prekey.h"
+#include "session/agree.h"
 #include "chain/revocation.h"
 #include "chunk/reassembly.h"
 #include "chunk/split.h"
@@ -111,10 +113,12 @@
 #include <fuzznet/chain/sign_monocypher.h>
 #include <fuzznet/session/hash_monocypher.h>
 #include <fuzznet/session/aead_monocypher.h>
+#include <fuzznet/session/agree_monocypher.h>
 #else
 #include "chain/sign_monocypher.h"
 #include "session/hash_monocypher.h"
 #include "session/aead_monocypher.h"
+#include "session/agree_monocypher.h"
 #endif
 
 #include <stdio.h>
@@ -191,6 +195,35 @@ static int consumer_open(void *ctx, const uint8_t key[FZN_AEAD_KEY_LEN],
 		return 0;
 	for (i = 0; i < text_len; i++)
 		text[i] = (uint8_t)(text[i] ^ key[i % FZN_AEAD_KEY_LEN] ^ nonce[i % FZN_AEAD_NONCE_LEN]);
+	return 1;
+}
+
+/* A toy key agreement: commutative, which is the one property the block below
+ * asserts. Not Diffie-Hellman -- a consumer supplies the real thing, and
+ * session/test/agree_monocypher_test.c exercises X25519 behind this seam. */
+static int consumer_public_of(void *ctx, uint8_t out[FZN_AGREE_PUBLIC_LEN],
+                              const uint8_t secret[FZN_AGREE_SECRET_LEN])
+{
+	unsigned i;
+
+	(void)ctx;
+	for (i = 0; i < FZN_AGREE_PUBLIC_LEN; i++)
+		out[i] = (uint8_t)(secret[i] ^ 0x3cu);
+	return 1;
+}
+
+static int consumer_agree(void *ctx, uint8_t out[FZN_AGREE_SHARED_LEN],
+                          const uint8_t secret[FZN_AGREE_SECRET_LEN],
+                          const uint8_t peer[FZN_AGREE_PUBLIC_LEN])
+{
+	unsigned i;
+
+	(void)ctx;
+	/* Commutative because `peer` is the other side's secret xored with a
+	 * constant, so undoing it before combining gives both sides the same
+	 * answer. */
+	for (i = 0; i < FZN_AGREE_SHARED_LEN; i++)
+		out[i] = (uint8_t)(secret[i] ^ (peer[i] ^ 0x3cu));
 	return 1;
 }
 
@@ -903,6 +936,56 @@ int main(void)
 			return 179;
 	}
 
+	/* Key agreement: the seam a consumer fills to get deletable material
+	 * into a session transcript. Walked rather than compiled -- install,
+	 * agree both ways, rotate, and confirm the rotation destroyed what it
+	 * replaced, which is the property forward secrecy rests on. */
+	{
+		fzn_agree_ops_t aops = { consumer_public_of, consumer_agree, NULL };
+		fzn_agree_secret_t a, b;
+		uint8_t a_sec[FZN_AGREE_SECRET_LEN], b_sec[FZN_AGREE_SECRET_LEN];
+		uint8_t rotated[FZN_AGREE_SECRET_LEN];
+		uint8_t sa[FZN_AGREE_SHARED_LEN], sb[FZN_AGREE_SHARED_LEN];
+		uint8_t after[FZN_AGREE_SHARED_LEN];
+		unsigned i;
+
+		memset(&a, 0, sizeof(a));
+		memset(&b, 0, sizeof(b));
+		for (i = 0; i < FZN_AGREE_SECRET_LEN; i++) {
+			a_sec[i] = (uint8_t)(i + 2u);
+			b_sec[i] = (uint8_t)((i * 3u) + 5u);
+			rotated[i] = (uint8_t)((i * 7u) + 13u);
+		}
+		if (fzn_agree_secret_install(&a, &aops, a_sec) != FZN_AGREE_OK)
+			return 180;
+		if (fzn_agree_secret_install(&b, &aops, b_sec) != FZN_AGREE_OK)
+			return 181;
+		if (!fzn_agree_secret_public(&a) || !fzn_agree_secret_public(&b))
+			return 182;
+		if (fzn_agree_shared(&a, &aops, fzn_agree_secret_public(&b), sa) != FZN_AGREE_OK)
+			return 183;
+		if (fzn_agree_shared(&b, &aops, fzn_agree_secret_public(&a), sb) != FZN_AGREE_OK)
+			return 184;
+		if (memcmp(sa, sb, FZN_AGREE_SHARED_LEN) != 0)
+			return 185;
+
+		/* Rotate, and the old secret must be gone. */
+		if (fzn_agree_secret_install(&a, &aops, rotated) != FZN_AGREE_OK)
+			return 186;
+		if (fzn_agree_secret_generation(&a) != 1u)
+			return 187;
+		if (fzn_agree_shared(&a, &aops, fzn_agree_secret_public(&b), after) != FZN_AGREE_OK)
+			return 188;
+		if (memcmp(sa, after, FZN_AGREE_SHARED_LEN) == 0)
+			return 189;
+		fzn_agree_secret_wipe(&a);
+		if (fzn_agree_secret_public(&a) != NULL)
+			return 190;
+		if (fzn_agree_shared(&a, &aops, fzn_agree_secret_public(&b), after)
+		    != FZN_AGREE_ERR_ABSENT)
+			return 191;
+	}
+
 	/* The prekey record and the act of pinning it, which are one feature
 	 * and are exercised as one: issue, open, verify, pin, then the three
 	 * refusals a consumer has to be able to tell apart. */
@@ -1105,6 +1188,17 @@ int main(void)
 		fzn_aead_monocypher_init(&real_aead);
 		if (!real_aead.seal || !real_aead.open)
 			return 18;
+
+		/* And the agreement binding, to the same standard: a binding
+		 * that installs and does not link is the failure this watches
+		 * for. */
+		{
+			fzn_agree_ops_t real_agree;
+
+			fzn_agree_monocypher_init(&real_agree);
+			if (!real_agree.public_of || !real_agree.agree)
+				return 19;
+		}
 	}
 
 	printf("consumer_check: headers and sources agree, Monocypher bindings included\n");

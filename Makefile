@@ -98,7 +98,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              chunk/reassembly.c \
              chunk/split.c \
              wire/seal.c wire/relay.c \
-             session/random.c session/random_linux.c \
+             session/random.c session/random_linux.c session/agree.c \
              version/version.c \
              record/record.c record/journal.c record/sync.c \
              state/state.c trust/trust.c log/log.c sched/sched.c link/link.c
@@ -110,7 +110,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              chunk/reassembly.h \
              chunk/split.h \
              wire/seal.h wire/relay.h wire/bytes.h session/aead.h \
-             session/random.h session/random_system.h \
+             session/random.h session/random_system.h session/agree.h \
              version/version.h \
              record/record.h record/journal.h record/sync.h \
              state/state.h trust/trust.h log/log.h sched/sched.h link/link.h
@@ -145,7 +145,7 @@ CORE_HDRS := $(HDRS)
 TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              chain/test/manifest_test.c \
              blob/test/blob_test.c ratchet/test/ratchet_test.c \
-             prekey/test/prekey_test.c \
+             prekey/test/prekey_test.c session/test/agree_test.c \
              blob/test/blob_fuzz.c \
              frame/test/freshness_test.c \
              chunk/test/reassembly_test.c chunk/test/split_test.c \
@@ -186,6 +186,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/blob/test/blob_test \
              $(BUILD_DIR)/ratchet/test/ratchet_test \
              $(BUILD_DIR)/prekey/test/prekey_test \
+             $(BUILD_DIR)/session/test/agree_test \
              $(BUILD_DIR)/frame/test/freshness_test \
              $(BUILD_DIR)/session/test/commitment_test \
              $(BUILD_DIR)/local/test/peer_test \
@@ -314,12 +315,13 @@ VENDOR_PRUNE := -not -path './$(MONO_VENDORED)/*'
 # real sources as unlisted -- a false finding, which is worse in a gate than
 # no finding at all.
 MONO_SRCS  := chain/sign_monocypher.c session/hash_monocypher.c \
-              session/aead_monocypher.c
+              session/aead_monocypher.c session/agree_monocypher.c
 MONO_HDRS  := chain/sign_monocypher.h session/hash_monocypher.h \
-              session/aead_monocypher.h
+              session/aead_monocypher.h session/agree_monocypher.h
 MONO_TSRC  := chain/test/sign_monocypher_test.c \
               session/test/hash_monocypher_test.c \
               session/test/aead_monocypher_test.c \
+              session/test/agree_monocypher_test.c \
               wire/test/golden_frame_test.c
 
 ifdef MONO_ON
@@ -357,10 +359,11 @@ MONO_CONSUMER := -DFZN_CONSUMER_MONOCYPHER -I$(MONO_ABS)/src \
 MONO_BIN   := $(BUILD_DIR)/chain/test/sign_monocypher_test
 MONO_HASH  := $(BUILD_DIR)/session/test/hash_monocypher_test
 MONO_AEAD  := $(BUILD_DIR)/session/test/aead_monocypher_test
+MONO_AGREE := $(BUILD_DIR)/session/test/agree_monocypher_test
 MONO_GOLD  := $(BUILD_DIR)/wire/test/golden_frame_test
 OBJS       += $(MONO_OBJS)
 TEST_OBJS  += $(MONO_TOBJ)
-TEST_BINS  += $(MONO_BIN) $(MONO_HASH) $(MONO_AEAD) $(MONO_GOLD)
+TEST_BINS  += $(MONO_BIN) $(MONO_HASH) $(MONO_AEAD) $(MONO_AGREE) $(MONO_GOLD)
 HDRS       += $(MONO_HDRS)
 CPPFLAGS   += -I$(MONOCYPHER_DIR)/src
 
@@ -422,6 +425,17 @@ $(MONO_AEAD): $(BUILD_DIR)/session/test/aead_monocypher_test.o \
               $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/session/commitment.o \
               $(BUILD_DIR)/session/random.o \
               $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# The agreement binding names its own objects, per the rule the AEAD test
+# above is the one exception to: agree.o, its binding, and Monocypher. It
+# reads no wire and derives nothing, so there is nothing else it could be
+# passing on.
+$(MONO_AGREE): $(BUILD_DIR)/session/test/agree_monocypher_test.o \
+               $(BUILD_DIR)/session/agree_monocypher.o \
+               $(BUILD_DIR)/session/agree.o $(BUILD_DIR)/monocypher.o \
+               $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -683,6 +697,14 @@ $(BUILD_DIR)/chain/test/manifest_test: $(BUILD_DIR)/chain/test/manifest_test.o \
                                         $(BUILD_DIR)/chain/revocation.o \
                                         $(BUILD_DIR)/chain/chain.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# session/agree.c links only constant_time: the rotation discipline is
+# bookkeeping over a wiped buffer, and the arithmetic arrives through a vtable.
+$(BUILD_DIR)/session/test/agree_test: $(BUILD_DIR)/session/test/agree_test.o \
+                                       $(BUILD_DIR)/session/agree.o \
+                                       $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
