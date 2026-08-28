@@ -9735,6 +9735,50 @@ that records a policy while the half that delivers a chain does not exist is
 the "half of one thing rather than one of two" mistake this document already
 made once today.
 
+### Chain delivery cannot ride the journal, and the reason is a refusal
+
+The obvious first move on the delivery row is to notice that a hop is 179
+bytes, a record body holds 512, and `record/sync.h` already replicates signed
+records between hosts. **Numerically it fits, and it is the wrong answer** --
+which is the third shape match today that had to be measured rather than
+accepted.
+
+Read rather than assumed, from `record/sync.h` and `record/journal.h`:
+
+> A NEW ISSUER IS NOT FOLLOWED AUTOMATICALLY. If a peer advertises an issuer
+> this host has never seen, that is reported as a COUNT and never as a
+> request. Fetching from a stranger because a peer mentioned them is how one
+> compromised peer fills every journal in the network with issuers nobody
+> chose.
+
+and `fzn_journal_anchor` is "a decision rather than a consequence of receiving
+something".
+
+**So the replication layer exists in order to refuse exactly what chain
+delivery needs.** A host needs hops ABOUT AN ISSUER IT HAS NOT CHOSEN -- that
+is the whole point, since the chain is how it decides whether to trust them.
+Routing chains through the journal would either fail (the issuer is not
+followed) or, if made to work, would reopen the hole `fzn_journal_anchor` was
+narrowed to close: one authorised key filling every journal with streams
+nobody chose.
+
+**That is a constraint on the mechanism, not a defeat.** Two things follow and
+both are stated as constraints rather than as a design, because designing it
+is the open row:
+
+- **Chain delivery is not replication.** It is either pushed alongside the
+  message that needs it, or pulled as a scoped answer to one question -- "the
+  hops from root R to issuer I for capability C" -- and in neither case does
+  it enter the journal or make the host follow anybody.
+- **It must not become an adoption path.** Whatever carries hops has to leave
+  `fzn_journal_anchor` the only way an issuer becomes followed, or the
+  narrowing is undone by the back door. This tree has already had one
+  instance of a guarded door with a second one open beside it, recorded in
+  `sync.h`, and that is the shape to check against.
+
+Recorded with the fail-closed constraint above as what the mechanism must
+satisfy on day one.
+
 **The row goes back on the blocking list and it belongs to neither tree's
 original list.** It was found by measuring a match instead of accepting it,
 and the honest form of the finding is that fuzzypickles' answer does not port
