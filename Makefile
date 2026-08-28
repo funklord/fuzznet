@@ -1361,6 +1361,54 @@ style:
 	@# install` never ships -- which surfaces as a consumer's include
 	@# failing on a machine that is not this one.
 	@#
+	@# NO INSTALLED HEADER DECLARES A REALM, and this is a gate rather
+	@# than a comment because the discipline it enforces cannot be
+	@# expressed any other way.
+	@#
+	@# project.md sec 19: a realm is established by four different
+	@# mechanisms and is a property of the authenticated relationship on
+	@# the channel a message arrived over, computed per arrival. It is a
+	@# verb, not a column. fuzzypickles settled that from inside their own
+	@# tree, and settled it by quoting THIS library's rule back at it --
+	@# chain.h's "capabilities are opaque ... a library that assumed a
+	@# total order would be wrong for netcfgd on its first day". A realm
+	@# enum is that same error one layer up: Registered and Unregistered
+	@# are propositions about a chat product and mean nothing to a library
+	@# reconfiguring a router.
+	@#
+	@# THE STRUCTURAL FORM IS THE POINT. "Computed per arrival, never
+	@# stored" held by a comment lasts until the next session that reaches
+	@# for the obvious field -- which is what this one nearly built. If
+	@# the library offers nowhere to PUT a realm, the discipline is
+	@# enforced by there being no field to store it in, which is the same
+	@# move as the ratchet's unsafe advance having no spelling.
+	@#
+	@# IT MATCHES DECLARATIONS, NOT THE WORD. `realm` already appears in
+	@# this tree meaning something else entirely -- "root A's realm", the
+	@# scope of a root key, in revocation.h and two test files -- which is
+	@# the fifth question sitting in the tree before anybody looked. A
+	@# check on the word would fire on correct prose; this one fires on a
+	@# type or a field.
+	@#
+	@# AND IT CARRIES ITS CONTROL, because a pattern that matches nothing
+	@# and a tree that declares nothing look identical. The control is a
+	@# declaration this gate must reject, classified before any header is
+	@# read.
+	@ctl='	fzn_realm_t realm;'; \
+	if ! printf '%s\n' "$$ctl" | grep -qE 'fzn_realm|[^a-z_]realm[ \t]*(;|\[)'; then \
+		echo "style: the realm pattern does not match its own control,"; \
+		echo "style: so a clean result below would mean nothing."; \
+		exit 2; \
+	fi
+	@found=`grep -nE 'fzn_realm|[^a-z_]realm[ \t]*(;|\[)' $(HDRS) $(MONO_HDRS) 2>/dev/null`; \
+	if [ -n "$$found" ]; then \
+		echo "style: an installed header declares a realm:"; \
+		echo "$$found" | sed 's/^/  /'; \
+		echo "style: a realm is computed per arrival and never stored -- sec 19."; \
+		exit 1; \
+	fi; \
+	echo "style: no installed header declares a realm, and the pattern was checked"
+
 	@# ./installcheck/ IS EXCLUDED BECAUSE IT IS A COPY OF THIS LIST. It is
 	@# installcheck's DESTDIR staging tree, and BUILD_DIR defaults to `.`,
 	@# so it lands in the root. The target removes it at both ends -- but

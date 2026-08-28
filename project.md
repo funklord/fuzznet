@@ -9514,6 +9514,97 @@ is a boolean a user sets, while this one requires the setting to be expressed
 as a signed record. That is heavier, and it is the price of the order
 independence. Whether it is the right trade for their case is theirs.
 
+### The classifier is a discipline, not a function, and this library's own rule said so
+
+**Nothing is built, and that is the result.** fuzzypickles answered by
+quoting `chain/chain.h` back at this tree:
+
+> CAPABILITIES ARE OPAQUE. fuzzypickles has six types and netcfgd has three
+> which are INDEPENDENT RATHER THAN A LADDER, so a library that assumed a
+> total order would be wrong for netcfgd on its first day.
+
+**A realm enum is that same error one layer up.** Registered and Unregistered
+are propositions about a chat product with a peer-add flow and a
+stranger-buying-a-soda case. They mean nothing to a library reconfiguring a
+router, and a library enumerating them has taken a position on a consumer's
+product exactly as a capability ladder would have. The rule was written here
+and it decided this case before either tree asked the question.
+
+**The evidence is generic; the verdict is not.** All four facts are already
+reachable, measured rather than assumed:
+
+| fact | where |
+|---|---|
+| this channel is `SO_PEERCRED`-authenticated as uid N | `fzn_peer_from_fd` |
+| this chain verifies to root R | `fzn_chain_verify`, which takes the root |
+| this peer key is pinned, and how it arrived | `fzn_trust_root`, `fzn_trust_source_of` |
+| this credential is scoped and unrooted | the same verify against the credential's own issuer, which the caller knows is not its pinned anchor |
+
+The two-by-two that turns four facts into four names stays in the consumer,
+because the two-by-two IS their sec 6 and sec 6 is their product.
+
+### `realm` already means something else here, and nobody had noticed
+
+`revocation.h` and two test files say "root A's realm", meaning **the scope
+of a root key** -- an entirely different thing from an authenticated
+relationship class. Building `fzn_realm_t` would have put two meanings on one
+word inside a single tree.
+
+That is the fifth question sitting in this tree unnoticed, found only because
+the classifier question forced somebody to grep for the word. Third instance
+in three days, after `blob/`'s leaves and `ratchet/`'s name -- and the first
+of the three that was already there rather than about to be introduced.
+
+### The discipline is a gate, not a comment
+
+"Computed per arrival, never stored" held by prose lasts until the next
+session reaches for the obvious field, **which is what this one nearly
+built**. So `make style` refuses an installed header that DECLARES a realm:
+if there is nowhere to put one, the discipline is enforced by there being no
+field to store it in. Same move as the ratchet's unsafe advance having no
+spelling, and it was fuzzypickles who pointed out that this library's own
+principle applied to it.
+
+**It matches declarations, not the word**, precisely because of the finding
+above -- a check on the word would fire on correct prose in `revocation.h`.
+And it carries a control: a declaration the pattern must reject, classified
+before any header is read, because a pattern that matches nothing and a tree
+that declares nothing look identical.
+
+Three cases run: a `realm` field on `fzn_prekey_peer_t` -- the exact thing
+this session was about to write -- is refused; an `fzn_realm_t` enum is
+refused; and `revocation.h`'s correct prose does not fire.
+
+### Their check on the difference, which did not go the flattering way
+
+This library flagged its signed-record opt-in as heavier than their boolean
+and said so. **They then checked rather than agreeing**: `share_location`
+appears nowhere in their peer-sync record, which carries name, address, host
+key, prekey, root key and a timestamp. So their opt-in is **per-device by
+construction** -- enabling sharing on a phone has not enabled it on a
+desktop.
+
+They decline to call that a defect and the reasoning is worth keeping: for
+LOCATION, per-device is defensible, since a desktop's location is not a thing
+its owner meant to share by ticking a box on a phone. For a general
+per-peer-per-capability opt-in it would be wrong, because a preference a user
+believes is about a CONTACT would silently not follow them. **What is missing
+is the decision, not the mechanism**, and it is recorded in their tree as
+open rather than resolved.
+
+### Gap lists have a blind spot that belongs to gap lists as such
+
+Neither side could have found `state/`. Theirs searched for `realm`,
+`contact` and `peer-add`; this one listed what it believed absent. The answer
+was called `state` and the words never met.
+
+**That is a failure mode of the instrument rather than of either list.** A
+capability existing under a name neither side would search for is invisible
+to an inventory of what one has AND to an inventory of what the other lacks,
+and no amount of care in writing either list closes it. What found it was a
+question precise enough about the SHAPE -- "per peer per capability" -- to be
+recognised in a module whose name shares no vocabulary with it.
+
 ### The polarity finding got a third site from answering an unrelated question
 
 Recorded because the mechanism is worth more than the instance. Their
