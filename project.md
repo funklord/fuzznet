@@ -9676,11 +9676,64 @@ this section has already been wrong once today**:
   their record 1794 bytes; this tree has declined to inline and has not said
   what it does instead.
 - **What binds a separately-travelling chain to the record it authorises.**
-  The design's answer is the issuer key and the capability, both inside the
-  record's signature -- so a chain is not "attached" to a record, it grants a
-  capability to a key, and the consumer picks which capability a `kind`
-  requires. That appears sound and it is a security argument, which means it
-  wants a second reader rather than this section's confidence.
+  ~~The issuer key and the capability, both inside the record's signature.~~
+  **One indirection short, and fuzzypickles caught it on a second read of
+  `record.h`.** The issuer is signed. **The capability is not -- there is no
+  capability field in a record at all.** The real path is:
+
+      kind (signed) -> consumer policy -> required capability -> chain lookup
+                                          for that issuer
+
+  Still sound, and sound for a reason worth stating: which capability a
+  `kind` requires is properly the VERIFIER's policy rather than the issuer's
+  claim, which is how capability systems are meant to work. But the extra hop
+  IS consumer policy, so two consumers may map one `kind` differently without
+  either being wrong -- and the original sentence hid that. Given how much of
+  this document separates what a module asserts from what a caller decides,
+  the hop belongs visible.
+
+  They also confirmed the premise rather than granting it: version, object,
+  issuer, subject, stream, kind, seq, issued_at and body_len all precede the
+  signature, **so `kind` is signed**, which is what stops a record authorised
+  for one purpose being re-presented as another. That is the signed-tag
+  lesson already applied and it is the load-bearing part of the argument.
+
+### The hazard is fail-open, not forgery, and it is half closed
+
+fuzzypickles' sharper point: forgery is not the risk, because
+`fzn_chain_verify` takes a required pinned root and refuses NULL, so an
+attacker cannot supply a useful chain. **The risk is what a receiver does
+when it LACKS the chain** -- fail-open against fail-closed, one layer up from
+`fzp_capability_is_revoked` and from their group ratchet, both of today's
+defects there and both the same question.
+
+**Measured rather than assumed**, by calling it:
+
+    empty chain, null hops  -> FZN_CHAIN_ERR_MALFORMED
+    empty chain, real array -> FZN_CHAIN_ERR_MALFORMED
+    no root at all          -> FZN_CHAIN_ERR_MALFORMED
+
+So the library fails closed **at the verify boundary**: an absent chain and an
+absent anchor are both refusals, and `sim/test/network_test.c` already routes
+an unanchored host to `refused_auth` rather than verifying against nothing.
+
+**What is NOT closed is one step earlier, and it is their formulation that
+makes it precise: absence must not read as not-required.** A consumer that
+cannot distinguish "I hold no chain for this issuer" from "this `kind` needs
+no capability" has **the vacuous pass in authorization form** -- and nothing
+forces the call to `fzn_chain_verify` in the first place. A consumer that
+decides a `kind` is unguarded never reaches the boundary that fails closed.
+
+**And because no delivery mechanism exists, that decision is written
+nowhere**, so it will be made implicitly by whoever writes the first consumer
+-- the worst available place for it. That is this library's own "nowhere to
+put it" principle pointed at a GAP rather than at a field, which is a use of
+it neither tree had made.
+
+Recorded, not built. The mechanism is the open row, and building the half
+that records a policy while the half that delivers a chain does not exist is
+the "half of one thing rather than one of two" mistake this document already
+made once today.
 
 **The row goes back on the blocking list and it belongs to neither tree's
 original list.** It was found by measuring a match instead of accepting it,
