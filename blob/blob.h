@@ -249,27 +249,28 @@ fzn_blob_err_t fzn_blob_tree_root(const fzn_hash_ops_t *hash, const fzn_blob_tre
  * receiver never calls it. `fzn_blob_proof_verify` needs the one leaf, the
  * siblings, and the root, which is what arrives on the wire.
  *
- * `leaf_count` decides the SHAPE of the climb and is therefore part of what
- * is verified -- but only where the shape depends on it, and the difference
- * is a caller's problem rather than a footnote.
+ * `leaf_count` is part of what is verified, twice over. It decides the shape
+ * of the climb, AND IT IS BOUND INTO THE ROOT -- so a verifier handed an
+ * attacker's count recomputes a different root and refuses.
  *
- * THE ROOT DOES NOT COMMIT TO THE LEAF COUNT. That is RFC 6962's property
- * and this tree inherits it: a leaf inside a complete subtree has the same
- * path, the same siblings and the same root in a tree of 11 leaves and one
- * of 12, so a proof valid under one is valid under the other and this
- * function accepts both. Only a leaf whose depth actually differs is
- * refused.
+ * THAT BINDING IS WHY THERE IS NO RULE HERE FOR CALLERS TO REMEMBER, and the
+ * history is worth one paragraph because the first version of this header
+ * carried the rule instead.
  *
- * SO WHATEVER CARRIES A BLOB ID MUST CARRY ITS LENGTH BESIDE IT, inside the
- * same signature. A root alone names a set of trees rather than one blob,
- * and a receiver told "n leaves" by an attacker can be walked to a
- * truncation of the file it asked for. This library cannot fix that here --
- * the fix belongs to whatever record references a blob -- and it is stated
- * here because this is the function whose caller needs to know.
+ * Without the binding, a leaf inside a complete subtree has the same path,
+ * the same siblings and the same apex in a tree of 11 leaves and one of 12 --
+ * RFC 6962's shape does not commit to its size -- so a proof valid under one
+ * verifies under the other, and a receiver told "n leaves" by an attacker can
+ * be walked to a truncation of the file it asked for. This header said so,
+ * and told callers to carry a blob's length inside whatever signature carries
+ * its id. That was correct and CONDITIONAL: it holds until somebody writes a
+ * caller that does not, it fails silently when they do, and this module
+ * cannot detect it.
  *
- * Found by the test asserting the flat version of this and failing, which is
- * the honest order: the first draft claimed a proof never verifies against a
- * tree of another size, and it does.
+ * fuzzypickles answered with their finaliser and it is adopted here: the root
+ * is `H(label | u64be(leaf_count) | apex)`, at every place a root is produced
+ * or checked. Same guarantee, one hash, and no caller can get it wrong
+ * because no caller is involved.
  */
 fzn_blob_err_t fzn_blob_proof_build(const fzn_hash_ops_t *hash, const uint8_t *leaf_hashes,
                                      uint64_t leaf_count, uint64_t index, uint8_t *out,

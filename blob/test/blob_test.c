@@ -192,7 +192,7 @@ static const fzn_aead_ops_t AEAD = { stub_seal, stub_open, NULL };
  * Recursion is fine here and not in the library: this is a test over at most
  * a few hundred leaves, and the library's rule about bounded stacks exists
  * for bytes that arrive from strangers. */
-static void reference_root(const uint8_t *leaves, uint64_t n, uint8_t out[FZN_BLOB_HASH_LEN])
+static void reference_apex(const uint8_t *leaves, uint64_t n, uint8_t out[FZN_BLOB_HASH_LEN])
 {
 	uint8_t left[FZN_BLOB_HASH_LEN];
 	uint8_t right[FZN_BLOB_HASH_LEN];
@@ -205,9 +205,28 @@ static void reference_root(const uint8_t *leaves, uint64_t n, uint8_t out[FZN_BL
 	while ((k << 1) < n)
 		k <<= 1;
 
-	reference_root(leaves, k, left);
-	reference_root(leaves + ((size_t)k * FZN_BLOB_HASH_LEN), n - k, right);
+	reference_apex(leaves, k, left);
+	reference_apex(leaves + ((size_t)k * FZN_BLOB_HASH_LEN), n - k, right);
 	(void)fzn_blob_node_hash(&HASH, left, right, out);
+}
+
+/* The finaliser, written out here rather than called, because the library's
+ * is `static` and because a reference that called it would agree with it by
+ * construction. The label is spelled again for the same reason -- if the two
+ * copies ever disagree the tests fail, which is the point of having two. */
+static void reference_root(const uint8_t *leaves, uint64_t n, uint8_t out[FZN_BLOB_HASH_LEN])
+{
+	uint8_t apex[FZN_BLOB_HASH_LEN];
+	uint8_t input[16u + 8u + FZN_BLOB_HASH_LEN];
+	static const char label[16] = "fuzznet-root-v1\0";
+	size_t i;
+
+	reference_apex(leaves, n, apex);
+	memcpy(input, label, sizeof(label));
+	for (i = 0; i < 8u; i++)
+		input[16u + i] = (uint8_t)(n >> ((7u - i) * 8u));
+	memcpy(input + 24u, apex, FZN_BLOB_HASH_LEN);
+	(void)stub_hash(NULL, out, FZN_BLOB_HASH_LEN, input, sizeof(input));
 }
 
 /* Fills `out` with `n` distinct leaf hashes, derived so that no two agree
@@ -310,6 +329,66 @@ static void test_the_leaf_and_node_prefixes_stop_a_forgery(void)
 	      "is second-preimage weak and a relay would serve the forgery");
 }
 
+static void test_distinct_leaf_counts_give_distinct_roots(void)
+{
+	static uint8_t leaves[16u * FZN_BLOB_HASH_LEN];
+	uint8_t roots[9][FZN_BLOB_HASH_LEN];
+	uint8_t dup[4u * FZN_BLOB_HASH_LEN];
+	uint8_t dup_root[FZN_BLOB_HASH_LEN];
+	uint64_t a;
+	uint64_t b;
+
+	/* ONE SHARED LEAF ARRAY, walked from 1 to 8, so every pair of trees
+	 * AGREES ON A PREFIX and differs only in how far it runs -- the
+	 * truncation shape exactly, and a construction that does not happen
+	 * by accident. Taken from fuzzypickles'
+	 * test_distinct_leaf_counts_give_distinct_roots.
+	 *
+	 * AND IT DOES NOT PROVE WHAT THEIRS PROVES, WHICH IS THE POINT OF
+	 * SAYING SO. Measured, by removing the count from the finaliser AND
+	 * from the reference together: this case still passes. It has to.
+	 * This tree does not pad, so a tree over three leaves and one over
+	 * four have different APEXES whatever the finaliser does, and no
+	 * amount of shared prefix changes that. In fuzzypickles the same
+	 * assertion is load-bearing because they DO pad, and padding is
+	 * exactly what can make two counts fold to one apex.
+	 *
+	 * The case that discriminates here is the proof verified against a
+	 * different leaf count, in test_a_proof_that_is_wrong_is_refused, and
+	 * under that mutation it is the ONLY case in this file that fails.
+	 * Kept anyway, because "we do not pad" is a property somebody can
+	 * change and this is what would notice.
+	 *
+	 * The general form is worth more than the instance: adopting a
+	 * sibling's test brings its rationale with it, and a rationale is
+	 * true of the construction it was written for. */
+	make_leaves(leaves, 16u);
+	for (a = 1u; a <= 8u; a++)
+		CHECK(streamed_root(leaves, a, roots[a]) == FZN_BLOB_OK,
+		      "the tree over %llu leaves refused", (unsigned long long)a);
+
+	for (a = 1u; a <= 8u; a++)
+		for (b = a + 1u; b <= 8u; b++)
+			CHECK(memcmp(roots[a], roots[b], FZN_BLOB_HASH_LEN) != 0,
+			      "trees over %llu and %llu leaves share a root, so a blob id "
+			      "does not commit to its length",
+			      (unsigned long long)a, (unsigned long long)b);
+
+	/* CVE-2012-2459, BY NAME. Bitcoin's Merkle tree duplicated a final
+	 * odd leaf, so a tree over three leaves and one over four whose
+	 * fourth repeats the third had the same root -- two different blocks
+	 * with one id. This tree does not pad and so does not have that bug
+	 * by construction; the case is here anyway, because "we do not pad"
+	 * is a property somebody can change and this is what would notice. */
+	memcpy(dup, leaves, 3u * FZN_BLOB_HASH_LEN);
+	memcpy(dup + (3u * FZN_BLOB_HASH_LEN), leaves + (2u * FZN_BLOB_HASH_LEN),
+	       FZN_BLOB_HASH_LEN);
+	CHECK(streamed_root(dup, 4u, dup_root) == FZN_BLOB_OK, "the duplicate tree refused");
+	CHECK(memcmp(roots[3], dup_root, FZN_BLOB_HASH_LEN) != 0,
+	      "a three-leaf tree and a four-leaf tree repeating its last leaf share a "
+	      "root -- CVE-2012-2459");
+}
+
 static void test_a_proof_reaches_the_root(void)
 {
 	static uint8_t leaves[MAX_TEST_LEAVES * FZN_BLOB_HASH_LEN];
@@ -371,31 +450,27 @@ static void test_a_proof_that_is_wrong_is_refused(void)
 	                            siblings, count, root) == FZN_BLOB_ERR_PROOF,
 	      "a leaf verified at an index it does not occupy");
 
-	/* A DIFFERENT LEAF COUNT, WHERE IT CHANGES THE SHAPE, and the
-	 * qualifier is the finding.
+	/* A DIFFERENT LEAF COUNT, AND THE HISTORY IS WORTH THE PARAGRAPH.
 	 *
-	 * The first draft of this case asserted flatly that a proof does not
-	 * verify against a tree of another size, used index 4 of 11 against
-	 * 12, and FAILED -- correctly. Leaf 4 sits inside the complete left
-	 * subtree of eight, which is identical in both trees, so the path,
-	 * the siblings and the root are all the same and the proof IS valid
-	 * for both. Accepting it is right.
+	 * This case was written asserting flatly that a proof does not verify
+	 * against a tree of another size. It FAILED, correctly: leaf 4 sits
+	 * inside the complete left subtree of eight, identical in a tree of
+	 * 11 and one of 12, so path, siblings and apex all matched and the
+	 * proof was genuinely valid for both. The assertion was relaxed and
+	 * the caveat written into blob.h -- whatever carries a blob id must
+	 * carry its length under the same signature.
 	 *
-	 * Leaf 10 is the case where the shape genuinely differs: in a tree of
-	 * 11 it hangs two levels down on the right, in a tree of 12 it hangs
-	 * three, so the sibling count no longer matches and the proof is
-	 * refused.
-	 *
-	 * WHAT THE FIRST DRAFT ASSUMED IS FALSE AND MATTERS BEYOND THIS TEST:
-	 * this root, like RFC 6962's, does not commit to the leaf count.
-	 * blob.h says so where a caller will read it, because the consequence
-	 * is a caller's -- whatever carries a blob id must carry its length
-	 * beside it, inside the same signature. */
+	 * fuzzypickles read that and answered with their finaliser, which
+	 * binds the leaf count into the root. The caveat is gone and this
+	 * assertion is true again, unconditionally and without a rule anybody
+	 * has to remember. Kept in this shape as the case that discriminates:
+	 * it passes only because the count is bound, and it is what fails if
+	 * the finaliser ever stops binding it.
+	 */
 	CHECK(fzn_blob_proof_verify(&HASH, leaves + (index * FZN_BLOB_HASH_LEN), index, n + 1u,
-	                            siblings, count, root) == FZN_BLOB_OK,
-	      "leaf %llu has the same path in a tree of %llu and one of %llu, so a proof "
-	      "that verifies under one must verify under the other",
-	      (unsigned long long)index, (unsigned long long)n, (unsigned long long)(n + 1u));
+	                            siblings, count, root) == FZN_BLOB_ERR_PROOF,
+	      "a proof verified against a tree of a different size, so the root does not "
+	      "commit to the leaf count and a receiver can be walked to a truncation");
 
 	{
 		uint8_t edge_sib[FZN_BLOB_MAX_DEPTH * FZN_BLOB_HASH_LEN];
@@ -412,7 +487,7 @@ static void test_a_proof_that_is_wrong_is_refused(void)
 		                            n + 1u, edge_sib, edge_count, root)
 		              == FZN_BLOB_ERR_PROOF,
 		      "a proof for the last leaf of an 11-leaf tree verified against a "
-		      "12-leaf one, where its depth differs");
+		      "12-leaf one");
 	}
 
 	/* ONE SIBLING CORRUPTED, at every position in turn: a verifier that
@@ -745,6 +820,7 @@ int main(void)
 	test_the_streaming_tree_agrees_with_the_definition();
 	test_a_tree_with_no_leaves_has_no_root();
 	test_the_leaf_and_node_prefixes_stop_a_forgery();
+	test_distinct_leaf_counts_give_distinct_roots();
 	test_a_proof_reaches_the_root();
 	test_a_proof_that_is_wrong_is_refused();
 	test_sealing_is_deterministic_and_reversible();

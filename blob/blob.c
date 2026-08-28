@@ -35,8 +35,16 @@
 
 static const char FZN_BLOB_KEY_LABEL[16] = "fuzznet-blob-v1\0";
 
+/* THE ROOT LABEL, and the finaliser below is the whole reason it exists.
+ *
+ * Sixteen bytes like the key label, and distinct from it so that no input to
+ * one derivation can equal an input to the other. */
+static const char FZN_BLOB_ROOT_LABEL[16] = "fuzznet-root-v1\0";
+
 _Static_assert(sizeof(FZN_BLOB_KEY_LABEL) == 16,
                "the blob key label must be the fixed width the derivation assumes");
+_Static_assert(sizeof(FZN_BLOB_ROOT_LABEL) == sizeof(FZN_BLOB_KEY_LABEL),
+               "the two labels must be one length, or their inputs can overlap");
 _Static_assert(FZN_BLOB_LEAF_PREFIX != FZN_BLOB_NODE_PREFIX,
                "the leaf and node prefixes must differ or the tree is second-preimage weak");
 
@@ -275,18 +283,23 @@ fzn_blob_err_t fzn_blob_tree_push(const fzn_hash_ops_t *hash, fzn_blob_tree_t *t
 	return FZN_BLOB_OK;
 }
 
-fzn_blob_err_t fzn_blob_tree_root(const fzn_hash_ops_t *hash, const fzn_blob_tree_t *tree,
-                                   uint8_t root_out[FZN_BLOB_HASH_LEN])
+/*
+ * The APEX: the top of the tree over what has been pushed, before the leaf
+ * count is bound into it.
+ *
+ * SEPARATE FROM THE ROOT BECAUSE A SIBLING IS AN APEX AND NOT A ROOT. A
+ * subtree's hash, as it appears in a proof, must be the plain fold -- it is
+ * an interior node of a larger tree, not the identity of a blob. Finalising
+ * it would make every sibling commit to the size of the subtree it came
+ * from, which is a different tree from the one being proved.
+ */
+static fzn_blob_err_t tree_apex(const fzn_hash_ops_t *hash, const fzn_blob_tree_t *tree,
+                                 uint8_t out[FZN_BLOB_HASH_LEN])
 {
 	uint8_t acc[FZN_BLOB_HASH_LEN];
 	unsigned i;
 	fzn_blob_err_t err;
 
-	if (!hash || !tree || !root_out)
-		return FZN_BLOB_ERR_MALFORMED;
-	/* NO LEAVES, NO ROOT. An empty blob is deliberately not addressable:
-	 * the hash of nothing would give every empty file one id, shared with
-	 * a tree nobody built, and there is no content to serve under it. */
 	if (tree->depth == 0u)
 		return FZN_BLOB_ERR_MALFORMED;
 
@@ -302,8 +315,68 @@ fzn_blob_err_t fzn_blob_tree_root(const fzn_hash_ops_t *hash, const fzn_blob_tre
 			return err;
 	}
 
-	memcpy(root_out, acc, FZN_BLOB_HASH_LEN);
+	memcpy(out, acc, FZN_BLOB_HASH_LEN);
 	return FZN_BLOB_OK;
+}
+
+/*
+ * THE LEAF COUNT IS BOUND INTO THE ROOT, so a blob id commits to its length
+ * as well as its content.
+ *
+ * ADOPTED FROM fuzzypickles' `finalise_root` in core/src/blob.c at 816fa35,
+ * after this library shipped the alternative and they read it. The first
+ * version here left the count out and stated the consequence as a rule for
+ * callers -- whatever carries a blob id must carry its length under the same
+ * signature -- which is CORRECT AND CONDITIONAL. It holds until somebody
+ * writes a caller that does not, it fails silently when they do, and this
+ * module cannot detect it. Binding the count here cannot be got wrong by a
+ * caller because no caller is involved: same guarantee, one hash, no ongoing
+ * obligation.
+ *
+ * WHAT IT CLOSES. Without it, a leaf inside a complete subtree has the same
+ * path, siblings and apex in a tree of 11 leaves and one of 12, so a proof
+ * valid under one verifies under the other and a receiver told "n leaves" by
+ * an attacker can be walked to a truncation of the file it asked for. With
+ * it, the verifier recomputes a different root and refuses.
+ *
+ * IT IS CALLED FROM EVERY PLACE A ROOT IS PRODUCED OR CHECKED -- the tree's
+ * root and the proof verifier -- and from nowhere else. A binding that held
+ * only at construction would not answer a question about a proof, which is
+ * the question that produced it.
+ */
+static fzn_blob_err_t finalise_root(const fzn_hash_ops_t *hash,
+                                     const uint8_t apex[FZN_BLOB_HASH_LEN], uint64_t leaf_count,
+                                     uint8_t out[FZN_BLOB_HASH_LEN])
+{
+	uint8_t input[sizeof(FZN_BLOB_ROOT_LABEL) + 8u + FZN_BLOB_HASH_LEN];
+
+	memcpy(input, FZN_BLOB_ROOT_LABEL, sizeof(FZN_BLOB_ROOT_LABEL));
+	fzn_put_be64(input + sizeof(FZN_BLOB_ROOT_LABEL), leaf_count);
+	memcpy(input + sizeof(FZN_BLOB_ROOT_LABEL) + 8u, apex, FZN_BLOB_HASH_LEN);
+
+	if (!hash->hash(hash->ctx, out, FZN_BLOB_HASH_LEN, input, sizeof(input)))
+		return FZN_BLOB_ERR_HASH;
+	return FZN_BLOB_OK;
+}
+
+fzn_blob_err_t fzn_blob_tree_root(const fzn_hash_ops_t *hash, const fzn_blob_tree_t *tree,
+                                   uint8_t root_out[FZN_BLOB_HASH_LEN])
+{
+	uint8_t apex[FZN_BLOB_HASH_LEN];
+	fzn_blob_err_t err;
+
+	if (!hash || !hash->hash || !tree || !root_out)
+		return FZN_BLOB_ERR_MALFORMED;
+	/* NO LEAVES, NO ROOT. An empty blob is deliberately not addressable:
+	 * the hash of nothing would give every empty file one id, shared with
+	 * a tree nobody built, and there is no content to serve under it. */
+	if (tree->depth == 0u)
+		return FZN_BLOB_ERR_MALFORMED;
+
+	err = tree_apex(hash, tree, apex);
+	if (err != FZN_BLOB_OK)
+		return err;
+	return finalise_root(hash, apex, tree->leaves, root_out);
 }
 
 /*
@@ -356,7 +429,7 @@ static fzn_blob_err_t subtree_root(const fzn_hash_ops_t *hash, const uint8_t *le
 		if (err != FZN_BLOB_OK)
 			return err;
 	}
-	return fzn_blob_tree_root(hash, &tree, out);
+	return tree_apex(hash, &tree, out);
 }
 
 fzn_blob_err_t fzn_blob_proof_build(const fzn_hash_ops_t *hash, const uint8_t *leaf_hashes,
@@ -487,6 +560,15 @@ fzn_blob_err_t fzn_blob_proof_verify(const fzn_hash_ops_t *hash,
 		if (err != FZN_BLOB_OK)
 			return err;
 	}
+
+	/* AND THE CLIMB ENDS AT AN APEX, NOT A ROOT. The leaf count is bound
+	 * in here, exactly as the builder binds it, so a verifier handed an
+	 * attacker's count recomputes a different root and refuses. This is
+	 * the call site that made the binding worth adopting: one that held
+	 * only at construction would not answer a question about a proof. */
+	err = finalise_root(hash, acc, leaf_count, acc);
+	if (err != FZN_BLOB_OK)
+		return err;
 
 	/* Constant time, though the root is public: the habit is what keeps
 	 * `constant_time.h`'s point legible, and a comparison that is careful

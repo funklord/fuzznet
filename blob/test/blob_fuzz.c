@@ -150,7 +150,7 @@ static const fzn_aead_ops_t AEAD = { stub_seal, stub_open, NULL };
 
 /* ---- the oracle ------------------------------------------------------- */
 
-static void reference_root(const uint8_t *leaves, uint64_t n, uint8_t out[FZN_BLOB_HASH_LEN])
+static void reference_apex(const uint8_t *leaves, uint64_t n, uint8_t out[FZN_BLOB_HASH_LEN])
 {
 	uint8_t left[FZN_BLOB_HASH_LEN];
 	uint8_t right[FZN_BLOB_HASH_LEN];
@@ -162,9 +162,26 @@ static void reference_root(const uint8_t *leaves, uint64_t n, uint8_t out[FZN_BL
 	}
 	while ((k << 1) < n)
 		k <<= 1;
-	reference_root(leaves, k, left);
-	reference_root(leaves + ((size_t)k * FZN_BLOB_HASH_LEN), n - k, right);
+	reference_apex(leaves, k, left);
+	reference_apex(leaves + ((size_t)k * FZN_BLOB_HASH_LEN), n - k, right);
 	(void)fzn_blob_node_hash(&HASH, left, right, out);
+}
+
+/* The finaliser spelled out rather than called: the library's is static, and
+ * a reference that called it would agree with it by construction. */
+static void reference_root(const uint8_t *leaves, uint64_t n, uint8_t out[FZN_BLOB_HASH_LEN])
+{
+	uint8_t apex[FZN_BLOB_HASH_LEN];
+	uint8_t input[16u + 8u + FZN_BLOB_HASH_LEN];
+	static const char label[16] = "fuzznet-root-v1\0";
+	size_t i;
+
+	reference_apex(leaves, n, apex);
+	memcpy(input, label, sizeof(label));
+	for (i = 0; i < 8u; i++)
+		input[16u + i] = (uint8_t)(n >> ((7u - i) * 8u));
+	memcpy(input + 24u, apex, FZN_BLOB_HASH_LEN);
+	(void)stub_hash(NULL, out, FZN_BLOB_HASH_LEN, input, sizeof(input));
 }
 
 struct coverage {

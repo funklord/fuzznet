@@ -9000,13 +9000,11 @@ identical in a 12-leaf tree, so the path, the siblings and the root are all
 the same and the proof IS valid for both. Only a leaf whose depth actually
 differs -- leaf 10 of 11 against 12 -- is refused.
 
-That is RFC 6962's property inherited whole, and the consequence is a
-caller's: **whatever record carries a blob id must carry its length beside
-it, inside the same signature.** A root alone names a set of trees rather
-than one blob, and a receiver told "n leaves" by an attacker can be walked to
-a truncation of the file it asked for. It is written at
-`fzn_blob_proof_verify`, where the caller who needs it will be, and it is a
-requirement on stage 2 rather than something stage 1 can fix.
+That is RFC 6962's property inherited whole, and the consequence was
+recorded as a caller's: ~~whatever record carries a blob id must carry its
+length beside it, inside the same signature.~~ **Superseded within the hour
+-- see the entry below. The constraint is gone; the root binds the count
+now.**
 
 **The design pass would not have found it.** Sec 16 was written from a
 correct reading of a good header and still carried a false claim about the
@@ -9077,6 +9075,58 @@ supplies the maximum buffer cannot express an over-read, however hostile its
 inputs. That is `evidence.md`'s probe placed where the error is not
 expressible -- and the thing that found it was mutating the code to test the
 HARNESS, rather than mutating it to test the module.
+
+### The root binds the leaf count, and the caller constraint is gone
+
+**Adopted from fuzzypickles' `finalise_root`, `core/src/blob.c` at 816fa35**,
+after they read the constraint above and answered with the line that removes
+it. The root is `H(label | u64be(leaf_count) | apex)`.
+
+**Verified in their source rather than taken from their message**, which is
+the rule that has now paid twice in two days. Four call sites: the root
+computation, BOTH proof verifiers, and their streaming path. That last check
+mattered -- the question was about a PROOF, and a binding that held only at
+construction would not have answered it.
+
+**Why take it rather than keep the constraint.** Theirs was the sharper
+argument and it is worth stating in their terms: this library's answer was
+correct and CONDITIONAL -- on every present and future caller carrying a
+length inside the same signature. That is a rule which holds until somebody
+writes a caller that does not, fails silently when they do, and lives in a
+module that cannot detect it. Binding the count cannot be got wrong by a
+caller because no caller is involved. Same guarantee, one hash, no ongoing
+obligation.
+
+**The apex and the root are now different things**, which is what adopting it
+costs and is worth naming. A sibling in a proof is an APEX -- an interior
+node of a larger tree -- and finalising it would make every sibling commit to
+the size of the subtree it came from, which is a different tree from the one
+being proved. So `tree_apex` is internal and unfinalised, `subtree_root`
+returns an apex, and only `fzn_blob_tree_root` and `fzn_blob_proof_verify`
+finalise. Mutating `subtree_root` to finalise fails 563 checks, which is what
+that separation is worth.
+
+### Adopting a sibling's test brings its rationale, and the rationale may not travel
+
+**Their `test_distinct_leaf_counts_give_distinct_roots` was taken along with
+the finaliser, and it does not prove here what it proves there.** Measured by
+removing the count from the finaliser AND from the test's reference together:
+that case still passes, and **exactly one case in the file fails** -- the
+proof verified against a different leaf count.
+
+The reason is a difference between the two constructions. **fuzzypickles
+pads** to a power of two, so two different leaf counts can fold to one apex
+and their assertion is load-bearing; it is also why they pin CVE-2012-2459 by
+name, which is Bitcoin's duplicated final leaf giving two blocks one id.
+**This tree does not pad**, so distinct counts have distinct apexes whatever
+the finaliser does, and the case cannot fail for the reason it was written.
+
+Kept anyway -- "we do not pad" is a property somebody can change and this is
+what would notice -- but with its comment saying what it does and does not
+prove. **The general form: a test carries the reasoning of the construction
+it was written for, and copying it across copies a claim that may no longer
+be true.** Found by mutating both sides at once rather than one, which is the
+only way the question can be asked.
 
 
 ## 15d. Parity before migration, and the first namespace clash
