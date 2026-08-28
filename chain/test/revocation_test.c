@@ -39,11 +39,11 @@ static void check_at(int ok, int line, const char *fmt, ...)
 		return;
 
 	failures++;
-	printf("  FAIL revocation_test.c:%d: ", line);
+	fprintf(stderr, "  FAIL revocation_test.c:%d: ", line);
 	va_start(ap, fmt);
-	vprintf(fmt, ap);
+	vfprintf(stderr, fmt, ap);
 	va_end(ap);
-	printf("\n");
+	fprintf(stderr, "\n");
 }
 
 #define CHECK(cond, ...) check_at((cond) ? 1 : 0, __LINE__, __VA_ARGS__)
@@ -99,7 +99,7 @@ static int stub_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const ui
 	uint8_t want[FZN_SIG_LEN];
 
 	if (!msg || msg_len == 0) {
-		printf("  FAIL: verifier called with an empty signed region\n");
+		fprintf(stderr, "  FAIL: verifier called with an empty signed region\n");
 		failures++;
 		return 0;
 	}
@@ -119,7 +119,7 @@ static int stub_sign(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg, si
 	stub_t *s = (stub_t *)ctx;
 
 	if (!msg || msg_len == 0) {
-		printf("  FAIL: signer called with an empty region\n");
+		fprintf(stderr, "  FAIL: signer called with an empty region\n");
 		failures++;
 		return 0;
 	}
@@ -224,12 +224,12 @@ static void issue_keys(struct fixture *f, uint8_t *bytes, fzn_revocation_record_
 
 	if (fzn_revocation_issue(issuer_key, capability, grantee_key, 1000, &f->sign, bytes) !=
 	    FZN_CHAIN_OK) {
-		printf("  FAIL: the fixture could not issue a revocation\n");
+		fprintf(stderr, "  FAIL: the fixture could not issue a revocation\n");
 		failures++;
 		return;
 	}
 	if (fzn_revocation_open(bytes, FZN_REVOCATION_LEN, view) != FZN_CHAIN_OK) {
-		printf("  FAIL: the fixture issued a record that will not open\n");
+		fprintf(stderr, "  FAIL: the fixture issued a record that will not open\n");
 		failures++;
 	}
 	stub_reset(&f->stub);
@@ -284,12 +284,12 @@ static void mint_hop(struct fixture *f, uint8_t *bytes, fzn_chain_hop_t *hop,
 
 	if (fzn_chain_mint(grantor, grantee, capability, issued_at, expires_at, delegable,
 	                   &f->sign, bytes) != FZN_CHAIN_OK) {
-		printf("  FAIL: the fixture could not mint a hop\n");
+		fprintf(stderr, "  FAIL: the fixture could not mint a hop\n");
 		failures++;
 		return;
 	}
 	if (fzn_hop_open(bytes, FZN_HOP_LEN, hop) != FZN_CHAIN_OK) {
-		printf("  FAIL: the fixture minted a hop that will not open\n");
+		fprintf(stderr, "  FAIL: the fixture minted a hop that will not open\n");
 		failures++;
 	}
 	stub_reset(&f->stub);

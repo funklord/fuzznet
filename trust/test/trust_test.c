@@ -20,7 +20,7 @@ static void expect(int ok, const char *what)
 	checks++;
 	if (!ok) {
 		failures++;
-		printf("  FAIL: %s\n", what);
+		fprintf(stderr, "  FAIL: %s\n", what);
 	}
 }
 
@@ -29,7 +29,7 @@ static void expect_err(fzn_trust_err_t got, fzn_trust_err_t want, const char *wh
 	checks++;
 	if (got != want) {
 		failures++;
-		printf("  FAIL: %s -- got \"%s\", wanted \"%s\"\n", what, fzn_trust_err_str(got),
+		fprintf(stderr, "  FAIL: %s -- got \"%s\", wanted \"%s\"\n", what, fzn_trust_err_str(got),
 		       fzn_trust_err_str(want));
 	}
 }
@@ -85,7 +85,8 @@ int main(void)
 	/* FIRST USE. */
 	expect_err(fzn_trust_adopt(&t, first, 4242), FZN_TRUST_OK, "adopting on first contact");
 	expect(fzn_trust_root(&t) != NULL, "an anchored trust offers a root");
-	expect(memcmp(fzn_trust_root(&t), first, FZN_PUBKEY_LEN) == 0, "and it is the one adopted");
+	expect(fzn_trust_root(&t) && memcmp(fzn_trust_root(&t), first, FZN_PUBKEY_LEN) == 0,
+	       "and it is the one adopted");
 	expect(fzn_trust_source_of(&t) == FZN_TRUST_ADOPTED, "recorded as adopted, not pinned");
 	expect(fzn_trust_adopted_at(&t) == 4242, "and when");
 
@@ -98,14 +99,14 @@ int main(void)
 	/* A DIFFERENT KEY IS REFUSED. This is the whole of "first use". */
 	expect_err(fzn_trust_adopt(&t, second, 5000), FZN_TRUST_ERR_ANCHORED,
 	           "a second, different root");
-	expect(memcmp(fzn_trust_root(&t), first, FZN_PUBKEY_LEN) == 0,
+	expect(fzn_trust_root(&t) && memcmp(fzn_trust_root(&t), first, FZN_PUBKEY_LEN) == 0,
 	       "the refused adoption must not have changed the anchor");
 
 	/* Including one that differs in a single byte, which is the shape an
 	 * attacker probing the comparison would send. */
 	expect_err(fzn_trust_adopt(&t, nearly, 5001), FZN_TRUST_ERR_ANCHORED,
 	           "a root differing in one byte");
-	expect(memcmp(fzn_trust_root(&t), first, FZN_PUBKEY_LEN) == 0,
+	expect(fzn_trust_root(&t) && memcmp(fzn_trust_root(&t), first, FZN_PUBKEY_LEN) == 0,
 	       "and still unchanged");
 
 	/* PINNING IS REFUSED OVER AN EXISTING ANCHOR TOO. An operator who must
@@ -125,7 +126,7 @@ int main(void)
 		expect(fzn_trust_adopted_at(&p) == 0, "a pinned root has no adoption moment");
 		expect_err(fzn_trust_adopt(&p, second, 1), FZN_TRUST_ERR_ANCHORED,
 		           "adopting over a configured root");
-		expect(memcmp(fzn_trust_root(&p), first, FZN_PUBKEY_LEN) == 0,
+		expect(fzn_trust_root(&p) && memcmp(fzn_trust_root(&p), first, FZN_PUBKEY_LEN) == 0,
 		       "the configured root stands");
 	}
 

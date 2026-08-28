@@ -47,7 +47,7 @@ static void expect(int ok, const char *what)
 	checks++;
 	if (!ok) {
 		failures++;
-		printf("  FAIL: %s\n", what);
+		fprintf(stderr, "  FAIL: %s\n", what);
 	}
 }
 
@@ -56,7 +56,7 @@ static void expect_err(fzn_state_err_t got, fzn_state_err_t want, const char *wh
 	checks++;
 	if (got != want) {
 		failures++;
-		printf("  FAIL: %s -- got \"%s\", wanted \"%s\"\n", what, fzn_state_err_str(got),
+		fprintf(stderr, "  FAIL: %s -- got \"%s\", wanted \"%s\"\n", what, fzn_state_err_str(got),
 		       fzn_state_err_str(want));
 	}
 }
@@ -141,13 +141,13 @@ static void make_keyed(fzn_record_t *r, const uint8_t issuer[FZN_PUBKEY_LEN],
 
 	if (fzn_record_sign(issuer, subject, stream, kind, seq, 1, body, body_len, &ops, slot,
 	                    FZN_RECORD_MAX_LEN, &wrote) != FZN_RECORD_OK) {
-		printf("  FAIL: the fixture could not sign a record\n");
+		fprintf(stderr, "  FAIL: the fixture could not sign a record\n");
 		failures++;
 		memset(r, 0, sizeof(*r));
 		return;
 	}
 	if (fzn_record_open(slot, wrote, r) != FZN_RECORD_OK) {
-		printf("  FAIL: the fixture could not open the record it signed\n");
+		fprintf(stderr, "  FAIL: the fixture could not open the record it signed\n");
 		failures++;
 		memset(r, 0, sizeof(*r));
 	}

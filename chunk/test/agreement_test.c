@@ -78,7 +78,7 @@ static void check(int ok, const char *what, uint8_t s2, uint32_t m2, uint16_t c2
 	checks++;
 	if (!ok) {
 		failures++;
-		printf("  FAIL: %s (sender=%02x msg=%u chunks=%u)\n", what, s2, m2, c2);
+		fprintf(stderr, "  FAIL: %s (sender=%02x msg=%u chunks=%u)\n", what, s2, m2, c2);
 	}
 }
 
@@ -245,7 +245,7 @@ static void shapes(void)
 		checks++;
 		if (schema < 0 || code < 0) {
 			failures++;
-			printf("  FAIL: neither side could answer for chunks=%u\n", c);
+			fprintf(stderr, "  FAIL: neither side could answer for chunks=%u\n", c);
 			continue;
 		}
 
@@ -254,7 +254,7 @@ static void shapes(void)
 		checks++;
 		if (code && !schema) {
 			failures++;
-			printf("  FAIL: chunk/reassembly.c accepts chunks=%u which the "
+			fprintf(stderr, "  FAIL: chunk/reassembly.c accepts chunks=%u which the "
 			       "schema refuses\n", c);
 		}
 
@@ -263,13 +263,13 @@ static void shapes(void)
 		checks++;
 		if (c > 0 && c <= FZN_REASM_MAX_CHUNKS && !(schema && code)) {
 			failures++;
-			printf("  FAIL: chunks=%u is inside both bounds and was refused "
+			fprintf(stderr, "  FAIL: chunks=%u is inside both bounds and was refused "
 			       "(schema=%d code=%d)\n", c, schema, code);
 		}
 		checks++;
 		if (c > FZN_REASM_MAX_CHUNKS && !(schema && !code)) {
 			failures++;
-			printf("  FAIL: chunks=%u should be schema-legal and code-refused "
+			fprintf(stderr, "  FAIL: chunks=%u should be schema-legal and code-refused "
 			       "(schema=%d code=%d)\n", c, schema, code);
 		}
 	}
@@ -280,7 +280,7 @@ static void shapes(void)
 	checks++;
 	if (schema_accepts_shape(4, 4) || code_accepts_shape(4, 4)) {
 		failures++;
-		printf("  FAIL: index 4 of 4 was accepted by one of the two\n");
+		fprintf(stderr, "  FAIL: index 4 of 4 was accepted by one of the two\n");
 	}
 
 	/* THE SECOND DELIBERATE DIVERGENCE, found by this test failing on its
@@ -298,12 +298,12 @@ static void shapes(void)
 	checks++;
 	if (!schema_accepts_shape(3, 4)) {
 		failures++;
-		printf("  FAIL: the schema refuses index 3 of 4, which is a legal frame\n");
+		fprintf(stderr, "  FAIL: the schema refuses index 3 of 4, which is a legal frame\n");
 	}
 	checks++;
 	if (code_accepts_shape(3, 4)) {
 		failures++;
-		printf("  FAIL: the reassembler accepted a last-chunk-first arrival\n");
+		fprintf(stderr, "  FAIL: the reassembler accepted a last-chunk-first arrival\n");
 	}
 
 	/* And a non-last index of the same message is accepted by both, so the
@@ -311,7 +311,7 @@ static void shapes(void)
 	checks++;
 	if (!schema_accepts_shape(2, 4) || !code_accepts_shape(2, 4)) {
 		failures++;
-		printf("  FAIL: index 2 of 4 was refused by one of the two\n");
+		fprintf(stderr, "  FAIL: index 2 of 4 was refused by one of the two\n");
 	}
 }
 

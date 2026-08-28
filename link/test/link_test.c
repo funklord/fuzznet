@@ -23,7 +23,7 @@ static void expect(int ok, const char *what)
 	checks++;
 	if (!ok) {
 		failures++;
-		printf("  FAIL: %s\n", what);
+		fprintf(stderr, "  FAIL: %s\n", what);
 	}
 }
 
@@ -32,7 +32,7 @@ static void expect_err(fzn_link_err_t got, fzn_link_err_t want, const char *what
 	checks++;
 	if (got != want) {
 		failures++;
-		printf("  FAIL: %s -- got \"%s\", wanted \"%s\"\n", what, fzn_link_err_str(got),
+		fprintf(stderr, "  FAIL: %s -- got \"%s\", wanted \"%s\"\n", what, fzn_link_err_str(got),
 		       fzn_link_err_str(want));
 	}
 }
@@ -84,19 +84,27 @@ int main(void)
 		uint16_t loss_before;
 
 		e = fzn_link_get(&table, 1);
+		if (!e) {
+			expect(0, "the link this block is about is not in the table");
+			return 1;
+		}
 		latency_before = e->latency_ms;
 		loss_before = e->loss_permille;
 
 		expect_err(fzn_link_observe_loss(&table, 1, 200), FZN_LINK_OK, "observing a loss");
 		e = fzn_link_get(&table, 1);
-		expect(e->loss_permille > loss_before, "a loss must raise the loss estimate");
-		expect(e->latency_ms == latency_before,
+		expect(e && e->loss_permille > loss_before, "a loss must raise the loss estimate");
+		expect(e && e->latency_ms == latency_before,
 		       "a loss must not move the latency estimate -- there was no round trip");
 	}
 
 	/* A LINK THE CONSUMER KNOWS IS DOWN. No measurement can tell this. */
 	expect_err(fzn_link_set_usable(&table, 1, 0), FZN_LINK_OK, "marking a link down");
-	expect(fzn_link_get(&table, 1)->usable == 0, "and it is down");
+	{
+		const fzn_link_entry_t *down = fzn_link_get(&table, 1);
+
+		expect(down && down->usable == 0, "and it is down");
+	}
 	expect_err(fzn_link_set_usable(&table, 1, 1), FZN_LINK_OK, "and up again");
 
 	/* THE SNAPSHOT IS WHAT sched/ CHOOSES FROM. */
@@ -169,7 +177,9 @@ int main(void)
 		fzn_link_table_init(&big, one, 1);
 		fzn_link_register(&big, 7, 0, 4000000000u, 0, 1500);
 		fzn_link_observe_ack(&big, 7, 4000000000u, 1);
-		expect(fzn_link_get(&big, 7)->latency_ms > 3000000000u,
+		const fzn_link_entry_t *huge = fzn_link_get(&big, 7);
+
+		expect(huge && huge->latency_ms > 3000000000u,
 		       "a large average must not have wrapped");
 	}
 
@@ -195,16 +205,16 @@ int main(void)
 
 		for (i = 0; i < 100; i++)
 			fzn_link_observe_loss(&ext, 11, (uint64_t)i);
-		expect(fzn_link_get(&ext, 11)->loss_permille == 1000,
+		expect(fzn_link_get(&ext, 11) && fzn_link_get(&ext, 11)->loss_permille == 1000,
 		       "a link losing everything must be able to report total loss");
 
 		/* And back down, which truncation already handled -- asserted so
 		 * that a fix biased the other way would be caught too. */
 		for (i = 0; i < 100; i++)
 			fzn_link_observe_ack(&ext, 11, 500, (uint64_t)i);
-		expect(fzn_link_get(&ext, 11)->loss_permille == 0,
+		expect(fzn_link_get(&ext, 11) && fzn_link_get(&ext, 11)->loss_permille == 0,
 		       "a link losing nothing must be able to report no loss");
-		expect(fzn_link_get(&ext, 11)->latency_ms == 500,
+		expect(fzn_link_get(&ext, 11) && fzn_link_get(&ext, 11)->latency_ms == 500,
 		       "a steady 500 ms link must estimate 500 ms, not a little under");
 	}
 

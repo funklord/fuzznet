@@ -43,11 +43,11 @@ static void check_at(int ok, int line, const char *fmt, ...)
 		return;
 
 	failures++;
-	printf("  FAIL blob_test.c:%d: ", line);
+	fprintf(stderr, "  FAIL blob_test.c:%d: ", line);
 	va_start(ap, fmt);
-	vprintf(fmt, ap);
+	vfprintf(stderr, fmt, ap);
 	va_end(ap);
-	printf("\n");
+	fprintf(stderr, "\n");
 }
 
 #define CHECK(cond, ...) check_at((cond) ? 1 : 0, __LINE__, __VA_ARGS__)

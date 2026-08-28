@@ -36,7 +36,7 @@ static void check(int ok, const char *what)
 	checks++;
 	if (!ok) {
 		failures++;
-		printf("  FAIL: %s\n", what);
+		fprintf(stderr, "  FAIL: %s\n", what);
 	}
 }
 
@@ -57,7 +57,7 @@ int main(void)
 	int n;
 
 	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) {
-		printf("  FAIL: socketpair\n");
+		fprintf(stderr, "  FAIL: socketpair\n");
 		return 1;
 	}
 
@@ -103,7 +103,7 @@ int main(void)
 		 * direction is the property with teeth. */
 		for (int i = 0; i < n; i++) {
 			if (!holds(&p, (uint32_t)mine[i])) {
-				printf("  FAIL: getgroups reports %u and the parser did not\n",
+				fprintf(stderr, "  FAIL: getgroups reports %u and the parser did not\n",
 				       (unsigned)mine[i]);
 				agreed = 0;
 				failures++;

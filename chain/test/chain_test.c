@@ -65,11 +65,11 @@ static void check_at(int ok, int line, const char *fmt, ...)
 		return;
 
 	failures++;
-	printf("  FAIL chain_test.c:%d: ", line);
+	fprintf(stderr, "  FAIL chain_test.c:%d: ", line);
 	va_start(ap, fmt);
-	vprintf(fmt, ap);
+	vfprintf(stderr, fmt, ap);
 	va_end(ap);
-	printf("\n");
+	fprintf(stderr, "\n");
 }
 
 #define CHECK(cond, ...) check_at((cond) ? 1 : 0, __LINE__, __VA_ARGS__)
@@ -134,7 +134,7 @@ static int stub_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const ui
 	/* The module promises never to hand a verifier an empty region; a
 	 * stub that quietly accepted one would hide that. */
 	if (!msg || msg_len == 0) {
-		printf("  FAIL: verifier called with an empty signed region\n");
+		fprintf(stderr, "  FAIL: verifier called with an empty signed region\n");
 		failures++;
 		return 0;
 	}
@@ -162,7 +162,7 @@ static int stub_sign(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg, si
 	stub_t *s = (stub_t *)ctx;
 
 	if (!msg || msg_len == 0) {
-		printf("  FAIL: signer called with an empty region\n");
+		fprintf(stderr, "  FAIL: signer called with an empty region\n");
 		failures++;
 		return 0;
 	}
@@ -303,7 +303,7 @@ static void forge_dates(struct fixture *f, uint8_t *out, uint8_t grantor_seed,
 static void fixture_open(struct fixture *f, size_t i)
 {
 	if (fzn_hop_open(f->bytes[i], FZN_HOP_LEN, &f->hops[i]) != FZN_CHAIN_OK) {
-		printf("  FAIL: the fixture built a hop that will not open\n");
+		fprintf(stderr, "  FAIL: the fixture built a hop that will not open\n");
 		failures++;
 	}
 }
@@ -325,7 +325,7 @@ static void fixture_init(struct fixture *f)
 
 	if (mint_hop(f, f->bytes[0], 0, 1, 0xc0, 1000, FZN_NO_EXPIRY, 1) != FZN_CHAIN_OK ||
 	    mint_hop(f, f->bytes[1], 1, 2, 0xc0, 1000, FZN_NO_EXPIRY, 0) != FZN_CHAIN_OK) {
-		printf("  FAIL: the fixture could not mint its own chain\n");
+		fprintf(stderr, "  FAIL: the fixture could not mint its own chain\n");
 		failures++;
 	}
 	fixture_open(f, 0);
@@ -898,13 +898,13 @@ static void test_an_ancestor_revokes_forward_and_never_backward(void)
 	if (mint_hop(&f, bytes[0], 0, 1, 0xc0, 1000, FZN_NO_EXPIRY, 1) != FZN_CHAIN_OK ||
 	    mint_hop(&f, bytes[1], 1, 2, 0xc0, 1000, FZN_NO_EXPIRY, 1) != FZN_CHAIN_OK ||
 	    mint_hop(&f, bytes[2], 2, 3, 0xc0, 1000, FZN_NO_EXPIRY, 0) != FZN_CHAIN_OK) {
-		printf("  FAIL: the fixture could not mint a three-hop chain\n");
+		fprintf(stderr, "  FAIL: the fixture could not mint a three-hop chain\n");
 		failures++;
 		return;
 	}
 	for (size_t i = 0; i < 3; i++) {
 		if (fzn_hop_open(bytes[i], FZN_HOP_LEN, &hops[i]) != FZN_CHAIN_OK) {
-			printf("  FAIL: the fixture built a hop that will not open\n");
+			fprintf(stderr, "  FAIL: the fixture built a hop that will not open\n");
 			failures++;
 			return;
 		}

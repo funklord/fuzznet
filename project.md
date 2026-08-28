@@ -9400,6 +9400,61 @@ of the binary; and an `-fsanitize=address` build refused to run at all under
 which is a diagnostic about the wrapper, not about the code, and would have
 read as a broken test to anybody in a hurry.
 
+### The report-and-continue sweep, measured here after warning them
+
+fuzzypickles measured their tree on this library's warning and found
+seventeen. **This tree owed itself the same measurement and had not taken
+it** -- the warning was issued from a fix in one file, which is
+`evidence.md`'s rule about claims concerning another tree, pointed the
+embarrassing way round.
+
+Measured across every harness:
+
+- **Five unguarded arrow dereferences**, all in `link/test/link_test.c`,
+  plus one assign-then-dereference. `fzn_link_get` returns NULL for an
+  absent link and the tests read `->usable` straight off it.
+- **Five unguarded `fzn_trust_root` dereferences** -- four in
+  `trust/test/trust_test.c`, one in `sim/test/network_test.c`. That accessor
+  returns NULL when nothing is anchored, which is exactly the state a failed
+  anchor leaves.
+- `state/test/state_test.c` was already correct throughout, using
+  `expect(got != NULL && got->live && ...)`. Short-circuit `&&` is the
+  cheapest form of this and it was in the tree all along, in one file.
+
+**Their correction, which halves the finding here and is worth recording as
+theirs**: their `CHECK` writes to **stderr**, unbuffered, so a crash there
+still prints the diagnosis. Every one of this tree's eleven harnesses printed
+to **stdout**, which is block-buffered the moment output is redirected to a
+file -- so a crashing run here lost the FAIL lines entirely. The buffering
+half was this library's alone; the dereference half was shared.
+
+### Both fixed, and the bulk change carried a proof
+
+**104 sites across 39 files** moved from `printf` to `fprintf(stderr, ...)`.
+The invariant is that only the STREAM changes: no message text, nothing else
+in any file. The converter maps its own output back -- `fprintf(stderr, "` to
+`printf("`, `vfprintf(stderr, fmt, ap)` to `vprintf(fmt, ap)` -- and refuses
+to write unless the inverse reproduces the original byte for byte. It did,
+for all 39.
+
+Demonstrated rather than asserted: with a mutation that crashes
+`prekey_test`, the run now leaves **1 line on stdout and 8 on stderr**,
+including the two FAIL lines that say what broke. Before, the same run
+printed nothing at all.
+
+The dereferences are guarded with short-circuit `&&`, matching the one file
+that already had it right. **Proven by sabotage**: `fzn_link_get` made to
+return NULL unconditionally now produces 8 FAIL lines and exit 1, where
+before it would have faulted on the first one.
+
+**The 33 hand-written bails in their tree are the sharpest part of their
+report and the lesson is not about tests.** Somebody wrote `if (!x) return`
+by hand thirty-three times, so the hazard was understood the entire time and
+was never enforced anywhere. That is this tree's own rule about the ratchet
+arriving in a test harness: **a macro that cannot express "abandon this case"
+is one that relies on remembering, and the unsafe version is the only version
+with a spelling.**
+
 
 ## 15d. Parity before migration, and the first namespace clash
 

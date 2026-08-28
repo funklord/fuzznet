@@ -76,7 +76,7 @@ static void check(int ok, const char *what)
 	checks++;
 	if (!ok) {
 		failures++;
-		printf("  FAIL: %s\n", what);
+		fprintf(stderr, "  FAIL: %s\n", what);
 	}
 }
 
@@ -2504,7 +2504,8 @@ static void scenario_join(void)
 	memset(rogue_root, 0x66, sizeof(rogue_root));
 	check(fzn_trust_adopt(&joiner->trust, rogue_root, net.now) == FZN_TRUST_ERR_ANCHORED,
 	      "a second root was not refused");
-	check(memcmp(fzn_trust_root(&joiner->trust), net.root, FZN_PUBKEY_LEN) == 0,
+	check(fzn_trust_root(&joiner->trust)
+	              && memcmp(fzn_trust_root(&joiner->trust), net.root, FZN_PUBKEY_LEN) == 0,
 	      "the refused adoption moved the anchor");
 
 	/* AND A WELL-FORMED CHAIN UNDER THE WRONG ROOT IS REFUSED. Host 1 is

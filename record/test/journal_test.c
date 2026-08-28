@@ -21,7 +21,7 @@ static void expect(int ok, const char *what)
 	checks++;
 	if (!ok) {
 		failures++;
-		printf("  FAIL: %s\n", what);
+		fprintf(stderr, "  FAIL: %s\n", what);
 	}
 }
 
@@ -30,7 +30,7 @@ static void expect_err(fzn_journal_err_t got, fzn_journal_err_t want, const char
 	checks++;
 	if (got != want) {
 		failures++;
-		printf("  FAIL: %s -- got \"%s\", wanted \"%s\"\n", what, fzn_journal_err_str(got),
+		fprintf(stderr, "  FAIL: %s -- got \"%s\", wanted \"%s\"\n", what, fzn_journal_err_str(got),
 		       fzn_journal_err_str(want));
 	}
 }

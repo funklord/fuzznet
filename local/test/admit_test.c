@@ -39,7 +39,7 @@ static void check(int ok, const char *what)
 	checks++;
 	if (!ok) {
 		failures++;
-		printf("  FAIL: %s\n", what);
+		fprintf(stderr, "  FAIL: %s\n", what);
 	}
 }
 
@@ -55,7 +55,7 @@ int main(void)
 	uint32_t held_gid;
 
 	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) {
-		printf("  FAIL: socketpair\n");
+		fprintf(stderr, "  FAIL: socketpair\n");
 		return 1;
 	}
 

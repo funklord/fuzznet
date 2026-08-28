@@ -40,7 +40,7 @@ static void expect_err(fzn_record_err_t got, fzn_record_err_t want, const char *
 	checks++;
 	if (got != want) {
 		failures++;
-		printf("  FAIL: %s -- got \"%s\", wanted \"%s\"\n", what, fzn_record_err_str(got),
+		fprintf(stderr, "  FAIL: %s -- got \"%s\", wanted \"%s\"\n", what, fzn_record_err_str(got),
 		       fzn_record_err_str(want));
 	}
 }
@@ -50,7 +50,7 @@ static void expect(int ok, const char *what)
 	checks++;
 	if (!ok) {
 		failures++;
-		printf("  FAIL: %s\n", what);
+		fprintf(stderr, "  FAIL: %s\n", what);
 	}
 }
 
@@ -195,7 +195,7 @@ static void tampered(const char *field, const uint8_t *genuine, size_t len, size
 	if (fzn_record_open(copy, len, &r) != FZN_RECORD_OK ||
 	    fzn_record_verify(r, sign) != FZN_RECORD_OK) {
 		failures++;
-		printf("  FAIL: control for the %s case -- the untampered copy did not "
+		fprintf(stderr, "  FAIL: control for the %s case -- the untampered copy did not "
 		       "verify, so any refusal below proves nothing\n", field);
 		return;
 	}
@@ -204,7 +204,7 @@ static void tampered(const char *field, const uint8_t *genuine, size_t len, size
 	checks++;
 	if (memcmp(copy + off, patch, width) == 0) {
 		failures++;
-		printf("  FAIL: the %s case patches in the value already present, so it "
+		fprintf(stderr, "  FAIL: the %s case patches in the value already present, so it "
 		       "mutates nothing\n", field);
 		return;
 	}
@@ -216,7 +216,7 @@ static void tampered(const char *field, const uint8_t *genuine, size_t len, size
 	err = fzn_record_open(copy, len, &r);
 	if (err != FZN_RECORD_OK) {
 		failures++;
-		printf("  FAIL: the %s case was refused by open (\"%s\") before the "
+		fprintf(stderr, "  FAIL: the %s case was refused by open (\"%s\") before the "
 		       "signature was consulted\n", field, fzn_record_err_str(err));
 		return;
 	}
@@ -225,7 +225,7 @@ static void tampered(const char *field, const uint8_t *genuine, size_t len, size
 	err = fzn_record_verify(r, sign);
 	if (err != FZN_RECORD_ERR_UNSIGNED) {
 		failures++;
-		printf("  FAIL: a record with a tampered %s verified -- got \"%s\", wanted "
+		fprintf(stderr, "  FAIL: a record with a tampered %s verified -- got \"%s\", wanted "
 		       "\"%s\"\n", field, fzn_record_err_str(err),
 		       fzn_record_err_str(FZN_RECORD_ERR_UNSIGNED));
 	}
@@ -249,7 +249,7 @@ static void refused_shape(const char *field, const uint8_t *genuine, size_t len,
 	if (fzn_record_open(copy, len, &r) != FZN_RECORD_OK ||
 	    fzn_record_verify(r, sign) != FZN_RECORD_OK) {
 		failures++;
-		printf("  FAIL: control for the %s case -- the untampered copy did not "
+		fprintf(stderr, "  FAIL: control for the %s case -- the untampered copy did not "
 		       "verify, so any refusal below proves nothing\n", field);
 		return;
 	}
@@ -257,7 +257,7 @@ static void refused_shape(const char *field, const uint8_t *genuine, size_t len,
 	checks++;
 	if (memcmp(copy + off, patch, width) == 0) {
 		failures++;
-		printf("  FAIL: the %s case patches in the value already present, so it "
+		fprintf(stderr, "  FAIL: the %s case patches in the value already present, so it "
 		       "mutates nothing\n", field);
 		return;
 	}

@@ -470,7 +470,7 @@ int main(int argc, char **argv)
 			size_t n;
 
 			if (!f) {
-				printf("  FAIL: cannot open %s\n", argv[i]);
+				fprintf(stderr, "  FAIL: cannot open %s\n", argv[i]);
 				failures++;
 				continue;
 			}
@@ -478,7 +478,7 @@ int main(int argc, char **argv)
 			fclose(f);
 			cases++;
 			if (drive(buf, n, NULL)) {
-				printf("  FAIL: %s -- an accepted chain was unsound\n", argv[i]);
+				fprintf(stderr, "  FAIL: %s -- an accepted chain was unsound\n", argv[i]);
 				failures++;
 			}
 		}
@@ -510,14 +510,14 @@ int main(int argc, char **argv)
 
 			cases++;
 			if (drive(BUILTIN[i].data, BUILTIN[i].size, &accepted)) {
-				printf("  FAIL: %s -- accepted, and unsound\n", BUILTIN[i].name);
+				fprintf(stderr, "  FAIL: %s -- accepted, and unsound\n", BUILTIN[i].name);
 				failures++;
 			}
 			/* The positive controls. Two of the five must verify,
 			 * and a run in which they do not is a run whose four
 			 * refusal cases prove nothing -- see `drive`. */
 			if (BUILTIN[i].must_accept && !accepted) {
-				printf("  FAIL: %s -- was REFUSED, so every case here is "
+				fprintf(stderr, "  FAIL: %s -- was REFUSED, so every case here is "
 				       "satisfied by a verifier that accepts nothing\n",
 				       BUILTIN[i].name);
 				failures++;

@@ -191,7 +191,7 @@ int main(int argc, char **argv)
 			size_t n;
 
 			if (!f) {
-				printf("  FAIL: cannot open %s\n", argv[i]);
+				fprintf(stderr, "  FAIL: cannot open %s\n", argv[i]);
 				failures++;
 				continue;
 			}
@@ -199,7 +199,7 @@ int main(int argc, char **argv)
 			fclose(f);
 			cases++;
 			if (drive(buf, n)) {
-				printf("  FAIL: %s -- a replay or stale frame was admitted\n",
+				fprintf(stderr, "  FAIL: %s -- a replay or stale frame was admitted\n",
 				       argv[i]);
 				failures++;
 			}
@@ -217,7 +217,7 @@ int main(int argc, char **argv)
 		for (size_t i = 0; i < sizeof(sizes) / sizeof(sizes[0]); i++) {
 			cases++;
 			if (drive(builtin[i], sizes[i])) {
-				printf("  FAIL: built-in case %zu admitted what it should not\n",
+				fprintf(stderr, "  FAIL: built-in case %zu admitted what it should not\n",
 				       i);
 				failures++;
 			}

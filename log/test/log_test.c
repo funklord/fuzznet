@@ -32,7 +32,7 @@ static void expect(int ok, const char *what)
 	checks++;
 	if (!ok) {
 		failures++;
-		printf("  FAIL: %s\n", what);
+		fprintf(stderr, "  FAIL: %s\n", what);
 	}
 }
 
@@ -41,7 +41,7 @@ static void expect_err(fzn_log_err_t got, fzn_log_err_t want, const char *what)
 	checks++;
 	if (got != want) {
 		failures++;
-		printf("  FAIL: %s -- got \"%s\", wanted \"%s\"\n", what, fzn_log_err_str(got),
+		fprintf(stderr, "  FAIL: %s -- got \"%s\", wanted \"%s\"\n", what, fzn_log_err_str(got),
 		       fzn_log_err_str(want));
 	}
 }
@@ -100,7 +100,7 @@ static void make_on(fzn_record_t *r, uint8_t issuer_seed, uint32_t stream, uint6
 	memset(subject, 0, sizeof(subject));
 	if (!fixture_record(r, issuer, subject, stream, 3, seq, BODIES[seq % 16u],
 	                    sizeof(BODIES[0]))) {
-		printf("  FAIL: the fixture could not build a record\n");
+		fprintf(stderr, "  FAIL: the fixture could not build a record\n");
 		failures++;
 		memset(r, 0, sizeof(*r));
 	}
