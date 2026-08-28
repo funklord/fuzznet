@@ -9738,6 +9738,59 @@ untested PROPERTY are different things, and a comment claiming the second
 when it has the first is exactly how a guard gets deleted as dead by the next
 reader who mutates it and sees nothing fail.
 
+### The prospective-guard sweep: it was 27, not 4, and the rule is inspectable
+
+fuzzypickles signalled the labelling rule to `claude-guidelines` as `f14b36a`
+and recorded honestly that **all four measured instances were this tree's,
+and that their tree had not been swept.** The same is true here in a way that
+needed measuring: four instances were the ones this session happened to
+mutate, which is not the same as four being all there are.
+
+**Swept every `fzn_wipe` in the library -- 31 of them, one mutation each,
+neutered with `if (0)` and the affected suite re-run:**
+
+    27 PASSED   deleting the wipe fails nothing
+     4 caught   deleting the wipe fails a test
+
+So it is not an occasional mislabelling. **In a library that allocates
+nothing, most wipes are unobservable through its own API by construction**,
+and any comment calling them load-bearing is wrong by default rather than by
+accident.
+
+**And the four that are caught share one shape, exactly, with no exceptions
+across all 31:**
+
+    caught     fzn_wipe(shared_out, ...)      the caller's out-buffer
+    caught     fzn_wipe(sk->secret, ...)      the caller's struct
+    caught     fzn_wipe(chain->key, ...)      the caller's struct
+    caught     fzn_wipe(out, plain_len)       the caller's out-buffer
+
+    passes     fzn_wipe(shared, ...)          a local
+    passes     fzn_wipe(transcript, ...)      a local
+    passes     fzn_wipe(derived, ...)         a local
+    passes     fzn_wipe(input, ...)           a local
+    passes     fzn_wipe(message_key, ...)     a local
+    passes     fzn_wipe(work.key, ...)        a local
+
+**A wipe of memory the CALLER owns is testable. A wipe of a LOCAL is not.**
+That is the whole rule and it holds for every one of the 31.
+
+**Which turns the labelling discipline from a habit into a lookup.** Nobody
+needs to mutate to know which kind a wipe is -- read what it is wiping. If
+it is a local, the comment says prospective; if it is the caller's memory on
+a refusal, or a function whose whole job is forgetting, it is load-bearing
+and there should be a test naming it. The four here are exactly the second
+kind and each has one.
+
+**The instrument failed first and was caught by implausibility rather than by
+checking**, which is worth recording beside the result. The first sweep
+neutered each call as `(void)(0) && fzn_wipe(...)` -- invalid C, since
+`fzn_wipe` returns void -- and reported 31 BUILD-FAILs. Read as results those
+would have said every wipe was load-bearing, the exact opposite of the truth.
+What caught it was that ALL 31 failed, not that anything checked. The re-run
+carries a control: the unmutated build is compiled and run first, so a build
+failure afterwards means the mutation rather than the harness.
+
 ### What is still open
 
 **Chain delivery**, which is the row from sec 19 and is unchanged: a receiver
