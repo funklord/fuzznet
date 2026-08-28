@@ -9040,6 +9040,44 @@ the assert deleted, the prefix collision fails the second-preimage case; with
 index-binding case. A mutation stopped at compile time is a mutation whose
 test has not been tried.
 
+### The fuzz harness, and the mutation that survived it
+
+`blob/test/blob_fuzz.c`, with two oracles. The root oracle is RFC 6962's
+recursion, as in the unit suite. The proof oracle is the stronger one and is
+why the file exists: **for any (index, leaf_count) the only sibling sequence
+that may verify is the one `fzn_blob_proof_build` produces**, so every
+accepted proof is compared against the built one and a second proof for the
+same leaf is reported as a forgery rather than tolerated as arithmetic.
+
+A spot invariant cannot give that. "The verifier did not crash" is satisfied
+by a verifier that accepts everything, and a content-addressed store whose
+verifier accepts everything serves whatever it was handed.
+
+**THE HARNESS WAS MUTATION-TESTED AND ONE MUTATION SURVIVED IT.** Relaxing
+`sibling_count != depth` to `sibling_count > depth` left the run reporting
+"no invariant broken" over two thousand cases -- while the unit suite caught
+it. Worth understanding rather than patching, because the reason is a
+property of the harness and not of the check.
+
+The climb indexes `siblings[depth - 1]` downwards from the TREE's depth, not
+from the count the caller gave, so **a proof shorter than the tree is deep
+reads past the caller's buffer.** The check is a memory guard as much as a
+strictness one. The harness could not see it because it always passed a
+buffer of `FZN_BLOB_MAX_DEPTH` siblings, so an over-read landed inside the
+same array and was indistinguishable from a hit.
+
+**The fix is placement, not another assertion.** The offered proof is laid
+flush against the END of its buffer, so reading one sibling too many runs off
+the array. Under AddressSanitizer the relaxed check now fails on the second
+case with a stack-buffer-overflow. It costs one pointer and no allocator,
+which is a guard page built out of arithmetic.
+
+**The general form is worth more than the instance**: a harness that always
+supplies the maximum buffer cannot express an over-read, however hostile its
+inputs. That is `evidence.md`'s probe placed where the error is not
+expressible -- and the thing that found it was mutating the code to test the
+HARNESS, rather than mutating it to test the module.
+
 
 ## 15d. Parity before migration, and the first namespace clash
 

@@ -145,6 +145,7 @@ CORE_HDRS := $(HDRS)
 TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              chain/test/manifest_test.c \
              blob/test/blob_test.c \
+             blob/test/blob_fuzz.c \
              frame/test/freshness_test.c \
              chunk/test/reassembly_test.c chunk/test/split_test.c \
              session/test/commitment_test.c local/test/peer_test.c \
@@ -222,7 +223,8 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/link/test/link_test \
              $(BUILD_DIR)/log/test/fix_stream_test \
              $(BUILD_DIR)/record/test/record_guided \
-             $(BUILD_DIR)/record/test/record_fuzz
+             $(BUILD_DIR)/record/test/record_fuzz \
+             $(BUILD_DIR)/blob/test/blob_fuzz
 
 # The Monocypher binding, built against the VENDORED submodule by default.
 #
@@ -690,6 +692,12 @@ $(BUILD_DIR)/blob/test/blob_test: $(BUILD_DIR)/blob/test/blob_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+$(BUILD_DIR)/blob/test/blob_fuzz: $(BUILD_DIR)/blob/test/blob_fuzz.o \
+                                   $(BUILD_DIR)/blob/blob.o \
+                                   $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # The fuzz harness. It runs a FIXED number of cases from a seeded generator
 # -- argv[1] or its own default -- so `make test` terminates and a failing
 # case is reproducible from the source alone. `make fuzz CASES=n` runs a
@@ -995,7 +1003,8 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/chunk/test/roundtrip_fuzz \
              $(BUILD_DIR)/local/test/peer_fuzz \
              $(BUILD_DIR)/local/test/vocabulary_fuzz \
-             $(BUILD_DIR)/record/test/record_fuzz
+             $(BUILD_DIR)/record/test/record_fuzz \
+             $(BUILD_DIR)/blob/test/blob_fuzz
 
 fuzz: $(FUZZ_BINS)
 	@for f in $(FUZZ_BINS); do echo "== $$f $(CASES)"; $$f $(CASES) || exit 1; done

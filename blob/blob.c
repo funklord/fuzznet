@@ -457,10 +457,22 @@ fzn_blob_err_t fzn_blob_proof_verify(const fzn_hash_ops_t *hash,
 		depth++;
 	}
 
-	/* EXACTLY AS MANY SIBLINGS AS THE TREE HAS LEVELS. A proof with too
-	 * few is short of the root; one with too many climbs past it. Either
-	 * is a refusal rather than something to tolerate, because a verifier
-	 * that accepts a different count accepts a different tree. */
+	/* EXACTLY AS MANY SIBLINGS AS THE TREE HAS LEVELS, AND THIS GUARDS A
+	 * READ AS WELL AS A CLAIM.
+	 *
+	 * The claim half: a verifier that accepts a different count accepts a
+	 * different tree, so a proof short of the root or climbing past it is
+	 * a refusal rather than something to tolerate.
+	 *
+	 * The memory half is the one that is easy to miss, and it is why this
+	 * is `!=` and not `<=`. The climb below indexes
+	 * `siblings[depth - 1]` downwards from the tree's depth, NOT from
+	 * `sibling_count` -- so a proof shorter than the tree is deep reads
+	 * past whatever the caller passed. Relaxing this to
+	 * `sibling_count > depth` is a stack-buffer-overflow, demonstrated:
+	 * blob/test/blob_fuzz.c lays the offered proof flush against the end
+	 * of its buffer for exactly this reason, and the relaxed form trips
+	 * AddressSanitizer on the second case. */
 	if (sibling_count != depth)
 		return FZN_BLOB_ERR_PROOF;
 
