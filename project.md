@@ -9649,7 +9649,20 @@ count is the finding:
    constants -- by substituting `FZP_CAP_CHAIN_HOP_LEN` for the chain blob's
    length and dropping the blob's own two-byte header.
 
-The third is the sharpest. **Composing from named constants is still a
+**THE SWEEP WAS THEN TAKEN IN BOTH TREES RATHER THAN LEFT AS A LESSON**, and
+it found nothing further here. Every `FZP_` constant this tree cites -- 19 of
+them -- is either named in prose ABOUT the constant or expanded. The only
+number turned into arithmetic was the peer-sync body, already corrected.
+
+And the figure that has travelled furthest was re-expanded rather than
+trusted: the per-frame overhead is `FZP_PEER_HEADER_LEN` 82 plus
+`FZP_PEER_STIME_LEN` 8 plus `FZP_PEER_MAC_LEN` 16 = **106**, three
+fixed-width fields with no ceiling among them, corroborated independently by
+`FZP_PEER_MIN_FRAME` at 107 -- the same fields plus one byte of text. That
+number was wrong once, long ago, as 98; it is right now and it is right for a
+reason that can be re-checked in one command.
+
+The third error is the sharpest. **Composing from named constants is still a
 derivation.** "Cite the name" was not enough and "expand the constant" was
 not enough either; what worked was expanding the exact expression the owner
 composes -- `1 + 1 + n * FZP_CAP_CHAIN_HOP_LEN` -- rather than assembling
