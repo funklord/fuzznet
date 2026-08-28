@@ -9935,6 +9935,31 @@ visible. And it makes this answer independent of `fzn_chain_verify`
 continuing to refuse an empty chain -- a contract that file states and could
 relax without this one noticing.
 
+### Sanitized, with a control
+
+Six modules were written this session -- `blob/`, `ratchet/`, `prekey/`,
+`session/agree`, `session/session`, `chain/authz` -- carrying a good deal of
+buffer arithmetic: a Merkle tree, three transcript layouts, a 138-byte record
+and two directed key derivations. None of it had been run under a sanitizer.
+
+    make test SANITIZE=1 BUILD_DIR=san     41 suites, exit 0, 0 findings
+    make fuzz SANITIZE=1 BUILD_DIR=san     11 harnesses at 20000 cases,
+                                           exit 0, 0 findings
+
+`-fno-sanitize-recover=all` is already in the flags, so a finding aborts
+rather than being counted.
+
+**And the clean run carries a control**, because a sanitized build that
+cannot report is indistinguishable from one with nothing to report -- which
+is this document's oldest rule and the one that has needed restating most
+often today. A one-byte over-read was planted in `fzn_blob_leaf_hash`,
+`memcpy`ing `sealed_len + 1`, and the sanitized suite aborted with a
+stack-buffer-overflow at that call. Removed afterwards.
+
+So the negative is measured. The fuzz half matters more than the unit half:
+those are the harnesses feeding hostile input, and they had never been
+instrumented while doing it.
+
 ### The one decoder of stranger bytes with no harness
 
 Derived rather than surveyed: every other decoder here has a fuzz harness --
