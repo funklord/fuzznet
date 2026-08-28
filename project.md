@@ -9993,6 +9993,32 @@ real deliveries. 172 checks to 1287, since the pair runs per frame.
 
 Green under sanitizers as well as a plain build.
 
+### The session's own counts, re-checked at the end
+
+`wire/seal.c` was found this afternoon to carry a measurement that had gone
+stale -- four named reproductions, none of which still reached the line,
+because an unrelated change in the same function moved when a refusal
+surfaces. True when written, never re-taken.
+
+**The obvious question is whether this document's own numbers did the same
+thing, in one sitting**, since several modules were edited after being
+counted. Re-derived from `git ls-files` at the end of the session rather
+than trusted:
+
+    fzn_wipe calls        38   recorded 38    still true
+    declared functions   196   recorded 196   still true
+    unreached               0   recorded 0     still true
+
+They hold because the counts were taken after the last edit to the files
+they cover, which was luck rather than sequencing -- `fzn_session_chains`
+and the ephemeral variant landed before the wipe sweep, and `chain/authz.c`
+before the reachability sweep, in both cases by an accident of ordering.
+
+**Recorded because a number in a document is a claim with a timestamp
+nobody writes down.** The next session's counts will not have been taken
+after its own edits unless somebody re-takes them, and the cost of finding
+out is one command.
+
 ### Sanitized, with a control
 
 Six modules were written this session -- `blob/`, `ratchet/`, `prekey/`,
