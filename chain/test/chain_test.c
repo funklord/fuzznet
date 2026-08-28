@@ -387,7 +387,7 @@ static void test_layout_is_the_one_the_header_describes(void)
 
 	CHECK(buf[FZN_HOP_OFF_VERSION] == 1u, "version byte is %u, wanted 1",
 	      buf[FZN_HOP_OFF_VERSION]);
-	CHECK(buf[FZN_HOP_OFF_OBJECT] == 1u, "object byte is %u, wanted FZN_OBJECT_HOP",
+	CHECK(buf[FZN_HOP_OFF_OBJECT] == 128u, "object byte is %u, wanted FZN_OBJECT_HOP",
 	      buf[FZN_HOP_OFF_OBJECT]);
 
 	/* BIG-ENDIAN, spelled out. wire/bytes.h says network order is the only
@@ -522,10 +522,12 @@ static void test_open_refuses_what_is_not_our_shape(void)
 	 * revocations through the same seam; the tag inside the signed range
 	 * is what stops a signature made for one being presented as the other.
 	 * A hop that says it is a revocation is not a hop. */
-	buf[FZN_HOP_OFF_OBJECT] = 2u;
+	buf[FZN_HOP_OFF_OBJECT] = (uint8_t)FZN_OBJECT_REVOCATION;
 	CHECK(fzn_hop_open(buf, FZN_HOP_LEN, &hop) == FZN_CHAIN_ERR_SHAPE,
 	      "an otherwise valid hop tagged as a revocation was accepted as a hop");
-	buf[FZN_HOP_OFF_OBJECT] = 1u;
+	buf[FZN_HOP_OFF_OBJECT] = (uint8_t)FZN_OBJECT_HOP;
+	CHECK(fzn_hop_open(buf, FZN_HOP_LEN, &hop) == FZN_CHAIN_OK,
+	      "putting the object tag back did not restore the control");
 
 	/* NON-CANONICAL `delegable`. Any nonzero byte would mean the same
 	 * thing to a lenient reader, and then one grant has 255 spellings,

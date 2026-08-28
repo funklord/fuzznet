@@ -110,14 +110,77 @@ static inline void fzn_put_be64(uint8_t *p, uint64_t v)
  * INSIDE THE SIGNED RANGE IS THE WHOLE POINT. A tag written outside it
  * separates nothing: an attacker rewrites it and the signature still checks.
  *
- * Neither byte can be added later without invalidating every signature
- * already issued, which is why they are here before anything is deployed. */
+ * NEITHER *FIELD* CAN BE ADDED TO THE FORMAT LATER without invalidating
+ * every signature already issued, which is why both are here before anything
+ * is deployed. That is a statement about the two BYTES existing in the
+ * transcript, and it says nothing about the enum below gaining enumerators:
+ * a new tag invalidates nothing, because an existing object's signed bytes
+ * do not change and every decoder refuses a tag that is not its own.
+ *
+ * IT IS SPELLED OUT BECAUSE THE OLD WORDING WAS READ THE OTHER WAY, by this
+ * tree first and then by fuzzypickles, who made "their enum cannot be
+ * extended, so four cannot carry our twelve" the top row of a critical-path
+ * list before reading the header they vendor. Retracted the same day at both
+ * ends. A sentence that two careful readers took to mean the stronger thing
+ * is a sentence, not a reader, at fault.
+ *
+ *
+ * THE TAG BYTE IS ONE NAMESPACE, SHARED BY THIS LIBRARY AND ITS CONSUMERS,
+ * and that is forced rather than chosen. Separation only works across
+ * EVERYTHING ONE KEY SIGNS -- and a consumer's root key signs this library's
+ * hops and revocations alongside its own application objects, so a tag that
+ * separated only within the library would leave exactly the collision the
+ * byte exists to prevent, one layer out.
+ *
+ * SPLIT BY THE HIGH BIT. 1..127 belong to consumers, allocated in blocks and
+ * recorded below; 128..255 are this library's own. So the bit says who
+ * minted an object without anybody consulting a table, a third consumer
+ * needs no renegotiation with the first two, and neither side can allocate
+ * into the other's half by accident.
+ *
+ * WHY THE LIBRARY TOOK THE HIGH HALF AND NOT THE LOW ONE. fuzzypickles
+ * already holds 1..12 and its own header forbids renumbering -- rightly: a
+ * tag is part of a signature's meaning, so reusing one silently revalidates
+ * an old signature as a new type. This library's four had the same numbers,
+ * every one colliding with a DIFFERENT object over there (our HOP against
+ * their HOST_RECORD, our REVOCATION against their PREKEY_RECORD, our RECORD
+ * against their CONTACT_CARD, our MANIFEST against their PAIRING_REQUEST),
+ * which is the failure the byte exists to prevent, arriving on the day the
+ * two trees merge. One of the two sides had to move. Nothing depends on
+ * these values here -- they appear symbolically and in two test literals --
+ * and something does depend on theirs, so it was ours to move, and it is
+ * free exactly once.
+ *
+ * A RETIRED TAG IS NEVER REUSED, which is fuzzypickles' rule adopted whole.
+ * When their capability hops become this library's, their tag 10 retires; it
+ * does not become anything else. That is why the merged object takes a
+ * number from this half rather than inheriting theirs -- during a transition
+ * both encodings exist, and they must not be able to verify as each other.
+ *
+ * THE CONSUMER HALF, as allocated today. This library never assigns into it;
+ * the block is the consumer's to fill, and it is recorded here because a
+ * registry both trees read has to live in one file, and the format is ours:
+ *
+ *   1..12    fuzzypickles, `core/src/signed_tag.h` -- host record, prekey
+ *            record, contact card, pairing request, pairing response, join
+ *            request, config record, peer-sync record, manifest statement,
+ *            capability hop, capability revocation, group roster.
+ *   13..31   held for fuzzypickles' growth during the transition.
+ *   32..127  unallocated. A consumer asks; it is written here.
+ *
+ * The names are quoted from their header rather than derived, so that a
+ * reader can check this table against the file that owns it. */
 #define FZN_SIGNED_VERSION 1u
 
+/* True for a tag this library minted. Not a validity check -- a decoder
+ * still compares against its own constant -- but the predicate a merged
+ * dispatcher needs, and the thing the split above is for. */
+#define FZN_OBJECT_IS_LIBRARY(tag) (((unsigned)(tag) & 0x80u) != 0u)
+
 typedef enum fzn_signed_object {
-	FZN_OBJECT_HOP = 1u,
-	FZN_OBJECT_REVOCATION = 2u,
-	FZN_OBJECT_RECORD = 3u,
+	FZN_OBJECT_HOP = 128u,
+	FZN_OBJECT_REVOCATION = 129u,
+	FZN_OBJECT_RECORD = 130u,
 	/* A revocation manifest: one issuer's statement of every revocation it
 	 * has issued. `chain/manifest.h` carries the layout and project.md
 	 * sec 13d the design. It is the fourth object one root key signs
@@ -128,7 +191,31 @@ typedef enum fzn_signed_object {
 	 * pair to eight has a record of exactly its length. Same seam, same
 	 * key, colliding lengths, which is fuzzypickles' incident with the
 	 * numbers changed. The tag is what separates them. */
-	FZN_OBJECT_MANIFEST = 4u,
+	FZN_OBJECT_MANIFEST = 131u,
 } fzn_signed_object_t;
+
+/* THE ALLOCATION DISCIPLINE, CHECKED BY THE COMPILER RATHER THAN BY A TEST,
+ * because it is a property of the values themselves and there is nothing to
+ * run. A tag added into the consumer half -- which is what "1, 2, 3" looks
+ * like to somebody adding the fifth object without reading the table above --
+ * fails to build here rather than colliding on the day the trees merge.
+ *
+ * Distinctness is asserted PAIRWISE and not by counting, because the count is
+ * the thing that goes stale: a fifth enumerator added with a duplicate value
+ * would leave any "four distinct values" assertion true and wrong. */
+_Static_assert(FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_HOP)
+               && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_REVOCATION)
+               && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_RECORD)
+               && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_MANIFEST),
+               "a signed-object tag has been allocated into the consumer half");
+_Static_assert(FZN_OBJECT_HOP != FZN_OBJECT_REVOCATION
+               && FZN_OBJECT_HOP != FZN_OBJECT_RECORD
+               && FZN_OBJECT_HOP != FZN_OBJECT_MANIFEST
+               && FZN_OBJECT_REVOCATION != FZN_OBJECT_RECORD
+               && FZN_OBJECT_REVOCATION != FZN_OBJECT_MANIFEST
+               && FZN_OBJECT_RECORD != FZN_OBJECT_MANIFEST,
+               "two signed-object tags share a value, which shares their signatures");
+_Static_assert(FZN_OBJECT_MANIFEST <= 255u,
+               "a signed-object tag must fit the one byte the transcript gives it");
 
 #endif /* FZN_BYTES_H */

@@ -321,7 +321,7 @@ static void test_layout_and_round_trip(void)
 	      "encoding a revocation failed");
 	CHECK(bytes[FZN_REV_OFF_VERSION] == 1u, "version byte is %u, wanted 1",
 	      bytes[FZN_REV_OFF_VERSION]);
-	CHECK(bytes[FZN_REV_OFF_OBJECT] == 2u,
+	CHECK(bytes[FZN_REV_OFF_OBJECT] == 129u,
 	      "object byte is %u, wanted FZN_OBJECT_REVOCATION", bytes[FZN_REV_OFF_OBJECT]);
 	/* Big-endian, spelled out rather than only round-tripped through this
 	 * library's own accessors -- which would pass just as happily on bytes
@@ -376,10 +376,10 @@ static void test_open_refuses_what_is_not_our_shape(void)
 	 * revocations through the same seam, so without this byte -- inside
 	 * the signed range -- a signature made for one could be presented as
 	 * the other wherever the encodings can be made to collide. */
-	bytes[FZN_REV_OFF_OBJECT] = 1u;
+	bytes[FZN_REV_OFF_OBJECT] = (uint8_t)FZN_OBJECT_HOP;
 	CHECK(fzn_revocation_open(bytes, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_ERR_SHAPE,
 	      "an otherwise valid revocation tagged as a hop was accepted as a revocation");
-	bytes[FZN_REV_OFF_OBJECT] = 2u;
+	bytes[FZN_REV_OFF_OBJECT] = (uint8_t)FZN_OBJECT_REVOCATION;
 	CHECK(fzn_revocation_open(bytes, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK,
 	      "putting the object byte back did not restore the control");
 

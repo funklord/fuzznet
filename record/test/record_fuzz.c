@@ -141,7 +141,7 @@
  * The asserts below are what makes that affordable. A deliberate layout
  * change fails the build here, at the line that needs editing. */
 #define WANT_VERSION      1u
-#define WANT_OBJECT       3u
+#define WANT_OBJECT       130u
 #define WANT_OFF_SEQ      74u
 #define WANT_OFF_BODY_LEN 90u
 #define WANT_HEADER_LEN   92u

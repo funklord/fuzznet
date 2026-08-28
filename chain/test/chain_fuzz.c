@@ -296,6 +296,32 @@ static uint64_t ought_expiry(const fzn_chain_hop_t *hops, size_t n)
 	return soonest;
 }
 
+/* The constants this second implementation restates, named and asserted
+ * against the header rather than written as bare literals inside the
+ * predicate below.
+ *
+ * WHY IT IS WORTH THE FOUR LINES. Written as literals, a deliberate change
+ * to either byte does not fail the build; it fails a fuzz case, and it fails
+ * it as "the parser and the layout disagree at offset 43" on some seed --
+ * a report about the parser, for an edit in a header, pointing at neither.
+ * Measured: renumbering the object tag produced exactly that message, and
+ * `record/test/record_fuzz.c` -- which already keeps its oracle this way,
+ * as WANT_OBJECT and a _Static_assert -- failed at the line needing the
+ * edit and named it. Two oracles for the same kind of fact, and only one
+ * of them was pointing at itself.
+ *
+ * The oracle must still restate the value rather than read the enum: an
+ * oracle that says `!= FZN_OBJECT_HOP` agrees with the parser by
+ * construction and is a second copy of it, not a second implementation. So
+ * the number is written out and the assert is what keeps the copy honest. */
+#define WANT_HOP_VERSION 1u
+#define WANT_HOP_OBJECT  128u
+
+_Static_assert(WANT_HOP_VERSION == (unsigned)FZN_SIGNED_VERSION,
+               "oracle: the version byte moved");
+_Static_assert(WANT_HOP_OBJECT == (unsigned)FZN_OBJECT_HOP,
+               "oracle: the object byte moved");
+
 /* The shape rules, as a second implementation. `fzn_hop_open` must accept
  * exactly this set -- no more, which would be a canonicality hole, and no
  * less, which would refuse hops a correct peer produces. */
@@ -303,9 +329,9 @@ static int shape_is_ours(const uint8_t *bytes, size_t len)
 {
 	if (len != FZN_HOP_LEN)
 		return 0;
-	if (bytes[FZN_HOP_OFF_VERSION] != 1u)
+	if (bytes[FZN_HOP_OFF_VERSION] != WANT_HOP_VERSION)
 		return 0;
-	if (bytes[FZN_HOP_OFF_OBJECT] != 1u)
+	if (bytes[FZN_HOP_OFF_OBJECT] != WANT_HOP_OBJECT)
 		return 0;
 	if (bytes[FZN_HOP_OFF_DELEGABLE] > 1u)
 		return 0;

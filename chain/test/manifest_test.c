@@ -248,7 +248,7 @@ static size_t build_raw(uint8_t *out, uint8_t identity, const uint8_t issuer[FZN
 	uint8_t *at = out + FZN_MANIFEST_OFF_PAIRS;
 
 	out[FZN_MANIFEST_OFF_VERSION] = 1u;
-	out[FZN_MANIFEST_OFF_OBJECT] = 4u;
+	out[FZN_MANIFEST_OFF_OBJECT] = (uint8_t)FZN_OBJECT_MANIFEST;
 	memcpy(out + FZN_MANIFEST_OFF_ISSUER, issuer, FZN_PUBKEY_LEN);
 	fzn_put_be16(out + FZN_MANIFEST_OFF_COUNT, (uint16_t)count);
 	for (size_t i = 0; i < count; i++) {
@@ -367,7 +367,7 @@ static void test_layout_and_round_trip(void)
 	      FZN_MANIFEST_LEN(2));
 	CHECK(bytes[FZN_MANIFEST_OFF_VERSION] == 1u, "version byte is %u, wanted 1",
 	      bytes[FZN_MANIFEST_OFF_VERSION]);
-	CHECK(bytes[FZN_MANIFEST_OFF_OBJECT] == 4u,
+	CHECK(bytes[FZN_MANIFEST_OFF_OBJECT] == 131u,
 	      "object byte is %u, wanted FZN_OBJECT_MANIFEST", bytes[FZN_MANIFEST_OFF_OBJECT]);
 	/* Big-endian, spelled out rather than only round-tripped through this
 	 * library's own accessors -- which would pass just as happily on bytes
@@ -450,7 +450,7 @@ static void test_the_object_tag_is_in_the_transcript(void)
 	      "the control could not be encoded");
 	mac(as_manifest, 0, bytes, FZN_MANIFEST_BODY_LEN(1));
 
-	bytes[FZN_MANIFEST_OFF_OBJECT] = 2u; /* FZN_OBJECT_REVOCATION */
+	bytes[FZN_MANIFEST_OFF_OBJECT] = 129u; /* FZN_OBJECT_REVOCATION */
 	mac(as_revocation, 0, bytes, FZN_MANIFEST_BODY_LEN(1));
 
 	CHECK(memcmp(as_manifest, as_revocation, FZN_SIG_LEN) != 0,
@@ -519,11 +519,11 @@ static void test_open_refuses_what_is_not_our_shape(void)
 	 * makes wire/bytes.h's argument concrete: a one-pair manifest and a
 	 * record with an eight-byte body are both 164 bytes, signed by the
 	 * same key through the same seam. */
-	bytes[FZN_MANIFEST_OFF_OBJECT] = 2u;
+	bytes[FZN_MANIFEST_OFF_OBJECT] = (uint8_t)FZN_OBJECT_REVOCATION;
 	CHECK(fzn_manifest_open(bytes, len, &rec) == FZN_MANIFEST_ERR_SHAPE,
 	      "an otherwise valid manifest tagged as a revocation was accepted as a "
 	      "manifest");
-	bytes[FZN_MANIFEST_OFF_OBJECT] = 4u;
+	bytes[FZN_MANIFEST_OFF_OBJECT] = (uint8_t)FZN_OBJECT_MANIFEST;
 	CHECK(fzn_manifest_open(bytes, len, &rec) == FZN_MANIFEST_OK,
 	      "putting the object byte back did not restore the control");
 
@@ -577,7 +577,7 @@ static void test_the_pair_ceiling_is_a_ceiling(void)
 	key(issuer, 0);
 	memset(huge, 0, sizeof(huge));
 	huge[FZN_MANIFEST_OFF_VERSION] = 1u;
-	huge[FZN_MANIFEST_OFF_OBJECT] = 4u;
+	huge[FZN_MANIFEST_OFF_OBJECT] = (uint8_t)FZN_OBJECT_MANIFEST;
 	memcpy(huge + FZN_MANIFEST_OFF_ISSUER, issuer, FZN_PUBKEY_LEN);
 
 	/* Ascending by construction, so the ordering check cannot be what

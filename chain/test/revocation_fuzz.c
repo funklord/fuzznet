@@ -287,15 +287,28 @@ static const char *agree(const struct arena *a, const fzn_revocation_store_t *st
 	return NULL;
 }
 
+/* The constants the oracle restates, named and asserted against the header.
+ * Same discipline as `chain/test/chain_fuzz.c` and `record/test/record_fuzz.c`
+ * -- the value is written out so the oracle stays a SECOND implementation
+ * rather than a second reading of the enum, and the assert is what makes a
+ * deliberate change fail at this line instead of on some seed. */
+#define WANT_REV_VERSION 1u
+#define WANT_REV_OBJECT  129u
+
+_Static_assert(WANT_REV_VERSION == (unsigned)FZN_SIGNED_VERSION,
+               "oracle: the version byte moved");
+_Static_assert(WANT_REV_OBJECT == (unsigned)FZN_OBJECT_REVOCATION,
+               "oracle: the object byte moved");
+
 /* The shape rules as a second implementation, so that `fzn_revocation_open`
  * is held to accepting exactly the set the layout describes. */
 static int shape_is_ours(const uint8_t *bytes, size_t len)
 {
 	if (len != FZN_REVOCATION_LEN)
 		return 0;
-	if (bytes[FZN_REV_OFF_VERSION] != 1u)
+	if (bytes[FZN_REV_OFF_VERSION] != WANT_REV_VERSION)
 		return 0;
-	if (bytes[FZN_REV_OFF_OBJECT] != 2u)
+	if (bytes[FZN_REV_OFF_OBJECT] != WANT_REV_OBJECT)
 		return 0;
 	return 1;
 }
@@ -398,7 +411,9 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		/* And sometimes the bytes are not our shape at all, which is
 		 * the parser's business rather than admission's. */
 		if (!shape_ok)
-			bytes[FZN_REV_OFF_OBJECT] = (uint8_t)(1u + (data[pos + 3] >> 7));
+			bytes[FZN_REV_OFF_OBJECT] =
+			        (data[pos + 3] >> 7) ? (uint8_t)FZN_OBJECT_REVOCATION
+			                             : (uint8_t)FZN_OBJECT_HOP;
 
 		pos += 4;
 

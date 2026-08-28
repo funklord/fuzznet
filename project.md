@@ -8941,6 +8941,84 @@ it, answered in sec 15c by vendoring for tests only; and the
 transitional period where one function exists under both prefixes,
 which is `code-style.md`'s parallel-copy hazard.
 
+### The signed-object tag space: settled, 2026-08-28
+
+**Every one of this library's four tags collided with a DIFFERENT object
+in fuzzypickles**, and the collision was arriving on the day the two
+trees merge -- which is precisely the failure the byte exists to
+prevent, one layer out from where it was designed to work.
+
+Measured from `core/src/signed_tag.h` rather than recalled:
+
+| tag | fuzznet (was) | fuzzypickles |
+|---|---|---|
+| 1 | `HOP` | `HOST_RECORD` |
+| 2 | `REVOCATION` | `PREKEY_RECORD` |
+| 3 | `RECORD` | `CONTACT_CARD` |
+| 4 | `MANIFEST` | `PAIRING_REQUEST` |
+
+They hold 1..12. Their header forbids renumbering, and is right to:
+"a tag is part of a signature's meaning, so changing one silently
+revalidates old signatures as a new type."
+
+**So one side had to move, and it was this one.** Nothing here depended
+on the values -- they appear symbolically, in three fuzz oracles and in
+three test literals -- and something depends on theirs. It was free
+exactly once, today.
+
+**The shape is a split byte, not a renumber.** A tag separates
+everything ONE KEY signs, and a consumer's root key signs this library's
+hops alongside its own contact cards, so library and consumer objects
+are in one namespace by necessity. The high bit says which minted it:
+1..127 consumers, 128..255 this library. A third consumer needs no
+negotiation with the first two, and neither half can allocate into the
+other by accident. `FZN_OBJECT_HOP` is 128, and the registry of the
+consumer half lives in `wire/bytes.h` because a table both trees read
+has to be in one file and the format is ours.
+
+**A retired tag is never reused**, adopted whole from their header.
+When their capability hops become this library's, their tag 10 retires
+rather than becoming anything else -- which is exactly why the merged
+object takes a number from this half instead of inheriting theirs.
+During a transition both encodings exist, and they must not be able to
+verify as each other.
+
+**Checked by the compiler, not by a test**, since it is a property of
+the values: one `_Static_assert` for the high bit and one pairwise for
+distinctness. Distinctness is pairwise rather than a count because the
+count is what goes stale -- a fifth enumerator with a duplicate value
+leaves "four distinct values" true and wrong. Both mutations were run:
+`MANIFEST = 4u` fails with "allocated into the consumer half",
+`RECORD = 128u` with "two signed-object tags share a value".
+
+### The renumber found an asymmetry between three oracles
+
+**Three fuzz harnesses restate these constants as a second
+implementation, and only one of them pointed at itself when the
+constant moved.** `record_fuzz` names `WANT_OBJECT` and asserts it
+against the header, so the change failed the build at the line needing
+the edit. `chain_fuzz` and `revocation_fuzz` wrote bare literals, so the
+same change failed as *"the parser and the layout disagree at offset
+43"* on seed 8 -- a report about the parser, for an edit in a header,
+naming neither.
+
+Both now carry the named constant and the assert. **The oracle must
+still restate the value rather than read the enum**: an oracle written
+`!= FZN_OBJECT_HOP` agrees with the parser by construction and is a
+second copy of it, not a second implementation. The number is written
+out and the assert is what keeps the copy honest -- which is the whole
+technique in one line, and it was being used correctly in one file out
+of three.
+
+**Signalled to fuzzypickles rather than acted on there**, per
+`harmonization.md`. Two things they may want: their `MANIFEST_STATEMENT`
+(9) and this library's `MANIFEST` (131) are different objects with one
+name, which is sec 17's fifth question; and their header's rule against
+renumbering rests on a reason -- old signatures existing -- that does
+not yet apply to either tree, which makes today the last day it is free
+for them too. Neither is ours to decide.
+
+
 ## 15c. Vendoring: Monocypher yes, flog no, 2026-08-28
 
 The holder asks whether the crypto library and flog should be vendored
