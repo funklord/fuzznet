@@ -189,6 +189,7 @@ static void test_a_step_is_alias_safe(void)
 
 static void test_a_fast_forward_equals_stepping(void)
 {
+	fzn_ratchet_chain_t moved;
 	uint8_t k[FZN_CHAIN_KEY_LEN];
 	fzn_ratchet_chain_t chain;
 	uint8_t stepped_key[FZN_CHAIN_KEY_LEN];
@@ -210,8 +211,9 @@ static void test_a_fast_forward_equals_stepping(void)
 		              == FZN_RATCHET_OK, "step %u refused", i);
 
 	fzn_ratchet_init(&chain, k, 0);
-	CHECK(fzn_ratchet_advance(&HASH, &chain, 5u, jumped_mk, skipped[0], 8, &kept, &lost)
-	              == FZN_RATCHET_OK, "the fast-forward refused");
+	CHECK(fzn_ratchet_advance(&HASH, &chain, 5u, jumped_mk, &moved, skipped[0], 8, &kept,
+	                          &lost) == FZN_RATCHET_OK, "the fast-forward refused");
+	chain = moved;
 	CHECK(memcmp(jumped_mk, stepped_mk, FZN_MESSAGE_KEY_LEN) == 0,
 	      "jumping to 5 and stepping to 5 gave different message keys");
 	CHECK(memcmp(chain.key, stepped_key, FZN_CHAIN_KEY_LEN) == 0,
@@ -240,6 +242,7 @@ static void test_a_fast_forward_equals_stepping(void)
 
 static void test_a_zero_length_advance_is_one_step(void)
 {
+	fzn_ratchet_chain_t moved;
 	uint8_t k[FZN_CHAIN_KEY_LEN];
 	fzn_ratchet_chain_t chain;
 	uint8_t mk[FZN_MESSAGE_KEY_LEN];
@@ -257,8 +260,9 @@ static void test_a_zero_length_advance_is_one_step(void)
 	 * "the one it will produce" exists to prevent, and it would surface as
 	 * two peers failing to authenticate rather than as anything local. */
 	fzn_ratchet_init(&chain, k, 0);
-	CHECK(fzn_ratchet_advance(&HASH, &chain, 0, mk, skipped[0], 1, &kept, &lost)
+	CHECK(fzn_ratchet_advance(&HASH, &chain, 0, mk, &moved, skipped[0], 1, &kept, &lost)
 	              == FZN_RATCHET_OK, "an in-order advance refused");
+	chain = moved;
 	CHECK(memcmp(mk, direct_mk, FZN_MESSAGE_KEY_LEN) == 0,
 	      "the in-order message key is not one step from the chain key");
 	CHECK(memcmp(chain.key, next, FZN_CHAIN_KEY_LEN) == 0, "the chain did not advance once");
@@ -268,6 +272,7 @@ static void test_a_zero_length_advance_is_one_step(void)
 
 static void test_behind_is_refused_and_is_not_an_attack(void)
 {
+	fzn_ratchet_chain_t moved;
 	uint8_t k[FZN_CHAIN_KEY_LEN];
 	fzn_ratchet_chain_t chain;
 	fzn_ratchet_chain_t before;
@@ -277,7 +282,7 @@ static void test_behind_is_refused_and_is_not_an_attack(void)
 	fzn_ratchet_init(&chain, k, 10u);
 	before = chain;
 
-	CHECK(fzn_ratchet_advance(&HASH, &chain, 9u, mk, NULL, 0, NULL, NULL)
+	CHECK(fzn_ratchet_advance(&HASH, &chain, 9u, mk, &moved, NULL, 0, NULL, NULL)
 	              == FZN_RATCHET_ERR_BEHIND,
 	      "a target behind the chain was accepted, so the chain runs backwards");
 	CHECK(memcmp(&before, &chain, sizeof(chain)) == 0,
@@ -292,6 +297,7 @@ static void test_behind_is_refused_and_is_not_an_attack(void)
 
 static void test_the_fast_forward_is_bounded(void)
 {
+	fzn_ratchet_chain_t moved;
 	uint8_t k[FZN_CHAIN_KEY_LEN];
 	fzn_ratchet_chain_t chain;
 	fzn_ratchet_chain_t before;
@@ -308,7 +314,7 @@ static void test_the_fast_forward_is_bounded(void)
 	before = chain;
 	hash_calls = 0;
 	CHECK(fzn_ratchet_advance(&HASH, &chain, (uint64_t)FZN_RATCHET_MAX_ADVANCE + 1u, mk,
-	                          NULL, 0, NULL, NULL) == FZN_RATCHET_ERR_TOO_FAR,
+	                          &moved, NULL, 0, NULL, NULL) == FZN_RATCHET_ERR_TOO_FAR,
 	      "a jump past the bound was accepted");
 	CHECK(hash_calls == 0u, "a refused jump cost %lu derivations, so the bound is not "
 	      "a defence", hash_calls);
@@ -320,8 +326,8 @@ static void test_the_fast_forward_is_bounded(void)
 	 * sequence actually costs a receiver. */
 	fzn_ratchet_init(&chain, k, 0);
 	hash_calls = 0;
-	CHECK(fzn_ratchet_advance(&HASH, &chain, (uint64_t)FZN_RATCHET_MAX_ADVANCE, mk, NULL, 0,
-	                          NULL, NULL) == FZN_RATCHET_OK,
+	CHECK(fzn_ratchet_advance(&HASH, &chain, (uint64_t)FZN_RATCHET_MAX_ADVANCE, mk, &moved,
+	                          NULL, 0, NULL, NULL) == FZN_RATCHET_OK,
 	      "a jump of exactly FZN_RATCHET_MAX_ADVANCE was refused");
 	at_the_bound = hash_calls;
 	CHECK(at_the_bound == (unsigned long)FZN_RATCHET_MAX_ADVANCE + 1u,
@@ -332,6 +338,7 @@ static void test_the_fast_forward_is_bounded(void)
 
 static void test_a_refused_hash_leaves_the_chain_alone(void)
 {
+	fzn_ratchet_chain_t moved;
 	uint8_t k[FZN_CHAIN_KEY_LEN];
 	fzn_ratchet_chain_t chain;
 	fzn_ratchet_chain_t before;
@@ -346,16 +353,16 @@ static void test_a_refused_hash_leaves_the_chain_alone(void)
 	 * survived by a function that mutated as it went. */
 	hash_calls = 0;
 	refuse_after = 3u;
-	CHECK(fzn_ratchet_advance(&BUDGET, &chain, 5u, mk, NULL, 0, NULL, NULL)
+	CHECK(fzn_ratchet_advance(&BUDGET, &chain, 5u, mk, &moved, NULL, 0, NULL, NULL)
 	              == FZN_RATCHET_ERR_HASH,
 	      "a refusing hash did not stop the fast-forward");
 	CHECK(memcmp(&before, &chain, sizeof(chain)) == 0,
-	      "a fast-forward that failed part-way left the chain moved, so the two ends "
-	      "can no longer be resynchronised");
+	      "a fast-forward that failed part-way moved its source chain");
 }
 
 static void test_the_skipped_cap_reports_what_it_dropped(void)
 {
+	fzn_ratchet_chain_t moved;
 	uint8_t k[FZN_CHAIN_KEY_LEN];
 	fzn_ratchet_chain_t chain;
 	uint8_t mk[FZN_MESSAGE_KEY_LEN];
@@ -368,15 +375,92 @@ static void test_the_skipped_cap_reports_what_it_dropped(void)
 	/* A caller that asked for less than there was must be TOLD, rather
 	 * than left to infer it from a count that stopped short -- which is
 	 * `fzn_manifest_deficit`'s shape and the same argument. */
-	CHECK(fzn_ratchet_advance(&HASH, &chain, 5u, mk, skipped[0], 2, &kept, &lost)
+	CHECK(fzn_ratchet_advance(&HASH, &chain, 5u, mk, &moved, skipped[0], 2, &kept, &lost)
 	              == FZN_RATCHET_OK, "the advance refused");
+	chain = moved;
 	CHECK(kept == 2u, "kept %zu with room for two", kept);
 	CHECK(lost == 3u, "reported %zu dropped, wanted 3", lost);
 	CHECK(chain.seq == 6u, "a capped advance did not reach the target");
 }
 
+static void test_a_live_chain_cannot_be_advanced_in_place(void)
+{
+	uint8_t k[FZN_CHAIN_KEY_LEN];
+	fzn_ratchet_chain_t chain;
+	fzn_ratchet_chain_t before;
+	fzn_ratchet_chain_t moved;
+	uint8_t mk[FZN_MESSAGE_KEY_LEN];
+
+	seed(k, 0xc0);
+	fzn_ratchet_init(&chain, k, 4u);
+	before = chain;
+
+	/* THE DEFECT THIS SIGNATURE EXISTS TO MAKE UNSPELLABLE, and it is not
+	 * hypothetical -- fuzzypickles traced it in their own live path at
+	 * a311c7f after this library asked them a question about CPU cost.
+	 *
+	 * A receiver reads a sequence number out of an arriving frame,
+	 * fast-forwards, derives a key and only then tries to open the
+	 * ciphertext. With the chain advanced first, a frame that FAILS to
+	 * open has still moved it -- so every later genuine message from that
+	 * sender is behind the position, is refused as a duplicate, and its
+	 * keys are unrecoverable. One forged datagram from anyone who has seen
+	 * a real one ends that sender's delivery permanently, silently, with
+	 * no key material.
+	 *
+	 * A comment saying "commit only after the frame opens" would hold
+	 * until the first caller who did not read it. This returns
+	 * FZN_RATCHET_ERR_IN_PLACE instead. */
+	CHECK(fzn_ratchet_advance(&HASH, &chain, 6u, mk, &chain, NULL, 0, NULL, NULL)
+	              == FZN_RATCHET_ERR_IN_PLACE,
+	      "a live chain was advanced in place, so a forged frame can end a sender's "
+	      "delivery permanently");
+	CHECK(memcmp(&before, &chain, sizeof(chain)) == 0,
+	      "the refused in-place advance moved the chain anyway");
+
+	/* And the two-step form works, which is what makes the refusal a
+	 * redirection rather than a wall. */
+	CHECK(fzn_ratchet_advance(&HASH, &chain, 6u, mk, &moved, NULL, 0, NULL, NULL)
+	              == FZN_RATCHET_OK, "the separate-destination form refused");
+	CHECK(memcmp(&before, &chain, sizeof(chain)) == 0,
+	      "a successful advance moved the source chain, so the caller cannot decline "
+	      "to commit");
+	CHECK(moved.seq == 7u, "the derived position is %llu, wanted 7",
+	      (unsigned long long)moved.seq);
+
+	/* THE COMMIT IS THE CALLER'S AND IS A PLAIN ASSIGNMENT, which is the
+	 * whole recipe: derive, verify, then this line. */
+	chain = moved;
+	CHECK(chain.seq == 7u, "committing did not take");
+}
+
+static void test_a_refused_advance_does_not_write_the_destination(void)
+{
+	uint8_t k[FZN_CHAIN_KEY_LEN];
+	fzn_ratchet_chain_t chain;
+	fzn_ratchet_chain_t moved;
+	fzn_ratchet_chain_t untouched;
+	uint8_t mk[FZN_MESSAGE_KEY_LEN];
+
+	seed(k, 0xd0);
+	fzn_ratchet_init(&chain, k, 0);
+	/* A destination carrying a recognisable position, so a partial write
+	 * is visible rather than merely plausible. */
+	fzn_ratchet_init(&moved, k, 0xfeedu);
+	untouched = moved;
+
+	hash_calls = 0;
+	refuse_after = 3u;
+	CHECK(fzn_ratchet_advance(&BUDGET, &chain, 5u, mk, &moved, NULL, 0, NULL, NULL)
+	              == FZN_RATCHET_ERR_HASH, "a refusing hash did not stop the advance");
+	CHECK(memcmp(&untouched, &moved, sizeof(moved)) == 0,
+	      "a failed advance wrote a position into the destination, so a caller has "
+	      "neither the old chain nor a usable new one");
+}
+
 static void test_every_guard_refuses_its_own_argument(void)
 {
+	fzn_ratchet_chain_t moved;
 	uint8_t k[FZN_CHAIN_KEY_LEN];
 	uint8_t mk[FZN_MESSAGE_KEY_LEN];
 	uint8_t next[FZN_CHAIN_KEY_LEN];
@@ -392,20 +476,22 @@ static void test_every_guard_refuses_its_own_argument(void)
 	CHECK(fzn_ratchet_derive(&HASH, k, NULL, next) == FZN_RATCHET_ERR_MALFORMED, "null mk");
 	CHECK(fzn_ratchet_derive(&HASH, k, mk, NULL) == FZN_RATCHET_ERR_MALFORMED, "null next");
 
-	CHECK(fzn_ratchet_advance(NULL, &chain, 0, mk, NULL, 0, NULL, NULL)
+	CHECK(fzn_ratchet_advance(NULL, &chain, 0, mk, &moved, NULL, 0, NULL, NULL)
 	              == FZN_RATCHET_ERR_MALFORMED, "null ops");
-	CHECK(fzn_ratchet_advance(&HASH, NULL, 0, mk, NULL, 0, NULL, NULL)
-	              == FZN_RATCHET_ERR_MALFORMED, "null chain");
-	CHECK(fzn_ratchet_advance(&HASH, &chain, 0, NULL, NULL, 0, NULL, NULL)
+	CHECK(fzn_ratchet_advance(&HASH, NULL, 0, mk, &moved, NULL, 0, NULL, NULL)
+	              == FZN_RATCHET_ERR_MALFORMED, "null from");
+	CHECK(fzn_ratchet_advance(&HASH, &chain, 0, mk, NULL, NULL, 0, NULL, NULL)
+	              == FZN_RATCHET_ERR_MALFORMED, "null to");
+	CHECK(fzn_ratchet_advance(&HASH, &chain, 0, NULL, &moved, NULL, 0, NULL, NULL)
 	              == FZN_RATCHET_ERR_MALFORMED, "null message key out");
 	/* A capacity with no buffer, and a buffer with no count to report
 	 * into: both are the caller asking for skipped keys and giving this
 	 * function no way to hand them over. */
-	CHECK(fzn_ratchet_advance(&HASH, &chain, 0, mk, NULL, 4, NULL, NULL)
+	CHECK(fzn_ratchet_advance(&HASH, &chain, 0, mk, &moved, NULL, 4, NULL, NULL)
 	              == FZN_RATCHET_ERR_MALFORMED, "a capacity with no buffer");
-	CHECK(fzn_ratchet_advance(&HASH, &chain, 0, mk, skipped[0], 2, NULL, &lost)
+	CHECK(fzn_ratchet_advance(&HASH, &chain, 0, mk, &moved, skipped[0], 2, NULL, &lost)
 	              == FZN_RATCHET_ERR_MALFORMED, "a buffer with no count");
-	CHECK(fzn_ratchet_advance(&HASH, &chain, 0, mk, skipped[0], 2, &kept, NULL)
+	CHECK(fzn_ratchet_advance(&HASH, &chain, 0, mk, &moved, skipped[0], 2, &kept, NULL)
 	              == FZN_RATCHET_ERR_MALFORMED, "a buffer with nowhere to report drops");
 
 	/* Nulls into the helpers must not fault, which is the whole of what
@@ -456,6 +542,8 @@ int main(void)
 	test_the_fast_forward_is_bounded();
 	test_a_refused_hash_leaves_the_chain_alone();
 	test_the_skipped_cap_reports_what_it_dropped();
+	test_a_live_chain_cannot_be_advanced_in_place();
+	test_a_refused_advance_does_not_write_the_destination();
 	test_every_guard_refuses_its_own_argument();
 	test_a_wipe_forgets_the_key();
 	test_the_suite_can_tell_pass_from_fail();

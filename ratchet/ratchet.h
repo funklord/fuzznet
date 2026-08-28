@@ -93,6 +93,16 @@ typedef enum fzn_ratchet_err {
 	 * sequence number, or a chain that has genuinely fallen that far
 	 * behind and needs re-keying rather than re-deriving. */
 	FZN_RATCHET_ERR_TOO_FAR,
+	/*
+	 * `to` and `from` are the same chain.
+	 *
+	 * ITS OWN CODE BECAUSE IT IS ITS OWN MISTAKE, and the error string
+	 * spells out the whole hazard. Advancing a live chain in one step is
+	 * the spelling that destroys a peer's delivery when a forged frame
+	 * moves it -- see `fzn_ratchet_advance`, which refuses it rather than
+	 * documenting against it.
+	 */
+	FZN_RATCHET_ERR_IN_PLACE,
 } fzn_ratchet_err_t;
 
 const char *fzn_ratchet_err_str(fzn_ratchet_err_t err);
@@ -138,39 +148,80 @@ void fzn_ratchet_init(fzn_ratchet_chain_t *chain, const uint8_t key[FZN_CHAIN_KE
                       uint64_t seq);
 
 /*
- * Advances the chain to `target_seq`, yielding that sequence number's message
- * key and leaving the chain at `target_seq + 1`.
+ * Derives the message key for `target_seq` from `from`, and writes the chain
+ * position that follows it into `to`.
  *
- * SKIPPED KEYS ARE OFFERED RATHER THAN DISCARDED, and this is the one place
- * this library deliberately does more than the tree it took the seam from.
- * The keys for the sequence numbers jumped over are written to `skipped_out`
- * if it is given, most recent last, and `*skipped_count` says how many. A
- * caller that does not want them passes NULL and they are simply lost.
+ * `to` MUST NOT BE `from`, AND PASSING THE SAME CHAIN IS REFUSED. That is the
+ * whole design of this function and it is worth the paragraphs, because the
+ * obvious signature -- advance a chain in place and hand back a key -- is the
+ * one that has already cost a sibling project a defect.
  *
- * WHY IT MATTERS: a chain moves one way, so a message that arrives after the
- * chain has passed it can never be opened again -- and on a datagram
- * transport, late is not exceptional, it is Tuesday. fuzzypickles can treat
- * a behind-position target as a duplicate because their history holds the
- * plaintext; that reasoning covers a REPLAY and not a genuinely late first
- * delivery, which was never decrypted and so is in nobody's history. Rather
- * than decide that for a consumer, this returns the material and lets them
- * choose. Retaining a skipped key is a real cost -- it stays decryptable
- * until dropped -- which is exactly why the choice is not this module's.
+ * WHAT GOES WRONG WHEN A CHAIN ADVANCES BEFORE A FRAME IS VERIFIED. A
+ * receiver reads a sequence number out of an arriving frame, fast-forwards to
+ * it, derives the key, and only then tries to open the ciphertext. If the
+ * chain has already moved, a frame that FAILS to open has still advanced it.
+ * A ratchet moves one way, so every later genuine message from that sender is
+ * now behind the position and is refused as a duplicate -- and its keys are
+ * gone, because the chain key they came from has been overwritten.
+ *
+ * One forged datagram from anyone who has seen a real one therefore ENDS that
+ * sender's delivery to that receiver, permanently, with no key material, and
+ * reports itself as an ordinary duplicate. Irreversible, silent, and cheaper
+ * than the denial-of-service the bound below is about: a flood stops when the
+ * packets stop and this does not.
+ *
+ * Traced by fuzzypickles in their own live path at a311c7f, after this
+ * library asked them a question about CPU cost. The answer was not about CPU.
+ *
+ * SO THE ORDER IS FORCED HERE RATHER THAN WRITTEN DOWN:
+ *
+ *     fzn_ratchet_chain_t next;
+ *
+ *     err = fzn_ratchet_advance(hash, &chain, seq, mk, &next, ...);
+ *     if (err != FZN_RATCHET_OK) ...
+ *     if (frame_opens_under(mk))
+ *             chain = next;          <- committed only now
+ *
+ * A genuine gap still fast-forwards, because a genuine frame opens. A forged
+ * one costs the derivations and changes nothing. The commit is a plain
+ * assignment the caller makes after verifying, which is the one moment it can
+ * be made safely -- and there is no way to spell the unsafe version, because
+ * `to == from` returns FZN_RATCHET_ERR_IN_PLACE.
+ *
+ * THAT REFUSAL IS THE POINT AND NOT A CONVENIENCE. A rule saying "verify
+ * before you commit" holds until somebody writes the caller that does not,
+ * fails silently when they do, and lives in a module that cannot detect it.
+ * fuzzypickles made this library that argument about a blob's leaf count a
+ * day earlier and it was right then too.
+ *
+ * SKIPPED KEYS ARE OFFERED RATHER THAN DISCARDED. The keys for the sequence
+ * numbers jumped over are written to `skipped_out` if it is given, oldest
+ * first, and `*skipped_count` says how many. A caller that does not want them
+ * passes NULL and they are lost.
+ *
+ * A chain moves one way, so a message that arrives after the chain has passed
+ * it can never be opened again -- and on a datagram transport, late is not
+ * exceptional. Treating a behind-position target as a duplicate covers a
+ * REPLAY and not a genuinely late first delivery, which was never decrypted
+ * and so is in nobody's history. Rather than decide that for a consumer, this
+ * returns the material and lets them choose; retaining a skipped key is a
+ * real cost, since it stays decryptable until dropped.
  *
  * `*skipped_count` is capped at `skipped_cap` and `*dropped` reports how many
  * did not fit, following `fzn_manifest_deficit`'s shape: a caller that asked
- * for less than there was must be told, rather than left to infer it from a
+ * for less than there was must be told rather than left to infer it from a
  * count that stopped short.
  *
- * ATOMIC. A refused advance leaves the chain exactly as it was -- not
- * part-way -- because a chain that moved during a failure is one nobody can
- * resynchronise.
+ * `to` IS NOT WRITTEN AT ALL UNLESS THE CALL SUCCEEDS, so a refusal part-way
+ * through cannot leave a caller holding a position that is neither the old
+ * one nor a usable new one.
  */
-fzn_ratchet_err_t fzn_ratchet_advance(const fzn_hash_ops_t *hash, fzn_ratchet_chain_t *chain,
-                                       uint64_t target_seq,
+fzn_ratchet_err_t fzn_ratchet_advance(const fzn_hash_ops_t *hash,
+                                       const fzn_ratchet_chain_t *from, uint64_t target_seq,
                                        uint8_t message_key_out[FZN_MESSAGE_KEY_LEN],
-                                       uint8_t *skipped_out, size_t skipped_cap,
-                                       size_t *skipped_count, size_t *dropped);
+                                       fzn_ratchet_chain_t *to, uint8_t *skipped_out,
+                                       size_t skipped_cap, size_t *skipped_count,
+                                       size_t *dropped);
 
 /* Erases a chain's key. A caller-owned secret needs a way to be forgotten,
  * and `constant_time.h`'s wipe is not something a consumer should have to

@@ -80,17 +80,18 @@ void fzn_ratchet_wipe(fzn_ratchet_chain_t *chain)
 	chain->seq = 0;
 }
 
-fzn_ratchet_err_t fzn_ratchet_advance(const fzn_hash_ops_t *hash, fzn_ratchet_chain_t *chain,
-                                       uint64_t target_seq,
+fzn_ratchet_err_t fzn_ratchet_advance(const fzn_hash_ops_t *hash,
+                                       const fzn_ratchet_chain_t *from, uint64_t target_seq,
                                        uint8_t message_key_out[FZN_MESSAGE_KEY_LEN],
-                                       uint8_t *skipped_out, size_t skipped_cap,
-                                       size_t *skipped_count, size_t *dropped)
+                                       fzn_ratchet_chain_t *to, uint8_t *skipped_out,
+                                       size_t skipped_cap, size_t *skipped_count,
+                                       size_t *dropped)
 {
-	/* WORKED ON A COPY AND COMMITTED AT THE END, so a refused advance
-	 * leaves the caller's chain exactly as it was. A chain that moved
-	 * part-way through a failure is one nobody can resynchronise: the
-	 * peer's position is unchanged and this one's is a number no message
-	 * will ever name. */
+	/* WORKED ON A COPY AND WRITTEN OUT AT THE END, so `to` is untouched
+	 * unless the whole call succeeds. A caller left holding a position
+	 * that is neither the old one nor a usable new one has no way back:
+	 * the peer's position has not moved and this one's is a number no
+	 * message will ever name. */
 	fzn_ratchet_chain_t work;
 	uint8_t message_key[FZN_MESSAGE_KEY_LEN];
 	uint64_t jump;
@@ -99,8 +100,15 @@ fzn_ratchet_err_t fzn_ratchet_advance(const fzn_hash_ops_t *hash, fzn_ratchet_ch
 	size_t lost = 0;
 	fzn_ratchet_err_t err = FZN_RATCHET_OK;
 
-	if (!hash || !chain || !message_key_out)
+	if (!hash || !from || !to || !message_key_out)
 		return FZN_RATCHET_ERR_MALFORMED;
+	/* THE REFUSAL THAT IS THE WHOLE DESIGN. Advancing a live chain in one
+	 * step is how a forged frame permanently ends a sender's delivery --
+	 * ratchet.h has the trace. Refused rather than documented against,
+	 * because a rule that says "verify before you commit" holds until
+	 * somebody writes the caller that does not. */
+	if (to == from)
+		return FZN_RATCHET_ERR_IN_PLACE;
 	if (skipped_cap > 0u && !skipped_out)
 		return FZN_RATCHET_ERR_MALFORMED;
 	if (!skipped_count != !skipped_out)
@@ -108,15 +116,14 @@ fzn_ratchet_err_t fzn_ratchet_advance(const fzn_hash_ops_t *hash, fzn_ratchet_ch
 	if (skipped_out && !dropped)
 		return FZN_RATCHET_ERR_MALFORMED;
 
-	/* BEHIND IS ITS OWN ANSWER AND IS NOT AN ERROR CONDITION IN THE
-	 * ORDINARY SENSE. A chain moves one way, so this is what a duplicate
-	 * or a replay looks like from inside -- ordinary network weather on a
-	 * datagram transport, and a caller that treats it as an intrusion
-	 * will be alarming on it hourly. */
-	if (target_seq < chain->seq)
+	/* BEHIND IS ITS OWN ANSWER AND IS NOT AN ERROR IN THE ORDINARY SENSE.
+	 * A chain moves one way, so this is what a duplicate or a replay looks
+	 * like from inside -- ordinary weather on a datagram transport, and a
+	 * caller that treats it as an intrusion will alarm on it hourly. */
+	if (target_seq < from->seq)
 		return FZN_RATCHET_ERR_BEHIND;
 
-	jump = target_seq - chain->seq;
+	jump = target_seq - from->seq;
 	/* THE SAFETY VALVE. The number of derivations below is whatever
 	 * sequence number a stranger wrote in a header, so without this a
 	 * ~40-byte message buys an unbounded loop. Refused rather than
@@ -124,7 +131,7 @@ fzn_ratchet_err_t fzn_ratchet_advance(const fzn_hash_ops_t *hash, fzn_ratchet_ch
 	if (jump > (uint64_t)FZN_RATCHET_MAX_ADVANCE)
 		return FZN_RATCHET_ERR_TOO_FAR;
 
-	work = *chain;
+	work = *from;
 
 	/* The keys for the sequence numbers being jumped over. Handed back
 	 * rather than discarded, because a message that arrives after the
@@ -152,7 +159,7 @@ fzn_ratchet_err_t fzn_ratchet_advance(const fzn_hash_ops_t *hash, fzn_ratchet_ch
 	work.seq++;
 
 	memcpy(message_key_out, message_key, FZN_MESSAGE_KEY_LEN);
-	*chain = work;
+	*to = work;
 	if (skipped_count)
 		*skipped_count = kept;
 	if (dropped)
@@ -184,6 +191,8 @@ const char *fzn_ratchet_err_str(fzn_ratchet_err_t err)
 		return "target is behind the chain, so a duplicate or a replay";
 	case FZN_RATCHET_ERR_TOO_FAR:
 		return "jump exceeds the fast-forward bound";
+	case FZN_RATCHET_ERR_IN_PLACE:
+		return "advanced a live chain in place: derive, verify, then commit";
 	}
 
 	return "unknown";

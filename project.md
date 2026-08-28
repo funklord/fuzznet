@@ -9240,6 +9240,72 @@ Worth separating because "the mutation survived" and "the mutation was not a
 mutation" look identical in a results table, and only one of them is a
 finding.
 
+### The layering question was not a performance question
+
+This library asked fuzzypickles whether their fast-forward sits above or
+below a frame's own AEAD, wanting to know whose 62 ms it was. **They traced
+it and found a defect, a311c7f, and it is with their holder.** The CPU cost
+was the smaller half.
+
+**Their path, as they reported it**: a group datagram arrives raw on UDP;
+nothing authenticates the envelope; `chat_id`, sender and `seq` are cleartext
+payload fields; two gates follow and neither needs a secret, both values
+being visible in any group datagram an attacker has observed. The advance
+then runs on the attacker's `seq` -- **before** the only step that would
+prove the frame genuine -- and it PERSISTS the moved chain before returning
+the key. The AEAD then fails on the forged ciphertext and the frame is
+rejected, with the stored chain already moved.
+
+A ratchet moves one way. So every later genuine message from that sender is
+behind the position and is refused as a duplicate, and its keys are gone with
+the overwritten chain key. **One forged datagram, from anyone who has seen a
+real one, permanently ends that sender's delivery to that receiver** -- no
+key material, not a confidentiality break, irreversible, and reported as an
+ordinary duplicate, which is what would have kept it invisible.
+
+**It is theirs to fix and it is not fixed here.** What is ours is that this
+library's API made the same mistake the natural one to write.
+
+### The fix is a signature, not a warning
+
+`fzn_ratchet_advance` took a chain and moved it. A caller reading a sequence
+number off the wire would fast-forward, derive, and only then try to open --
+which is the defect, spelled in one call.
+
+It now takes `const fzn_ratchet_chain_t *from` and writes a separate `*to`,
+**and returns `FZN_RATCHET_ERR_IN_PLACE` when they are the same chain.** The
+commit is a plain assignment the caller makes after the frame opens, which is
+the one moment it can be made safely, and there is no way to spell the unsafe
+version:
+
+    err = fzn_ratchet_advance(hash, &chain, seq, mk, &next, ...);
+    if (frame_opens_under(mk))
+            chain = next;
+
+A genuine gap still fast-forwards, because a genuine frame opens. A forged
+one costs the derivations and changes nothing.
+
+**Refused rather than documented, and the reason is a day old.** A rule
+saying "verify before you commit" holds until somebody writes the caller that
+does not, fails silently when they do, and lives in a module that cannot
+detect it. That is exactly the argument fuzzypickles made to this tree about
+the blob root's leaf count, and it is now paying in the other direction.
+
+### And the skipped-key disagreement was the same bug from another angle
+
+They agree their behind-position reasoning covers a replay and not a late
+first delivery, and add the connection this side had not made: **the same
+"advance first, verify later" ordering is what makes a forged jump destroy
+genuine traffic AND what makes a late arrival unopenable.** One ordering,
+two symptoms, and the disagreement was the visible end of it.
+
+That is the second time in three days that declining to settle a
+disagreement produced more than either answer would have -- `working
+practice.md` says holding one open produces answers neither branch contains,
+and this is a worked instance: the branches were "return the skipped keys" and
+"do not", and what was actually wrong was the order of two operations in a
+tree neither branch was about.
+
 
 ## 15d. Parity before migration, and the first namespace clash
 

@@ -842,6 +842,7 @@ int main(void)
 	{
 		fzn_hash_ops_t rhash = { consumer_hash, NULL };
 		fzn_ratchet_chain_t ratchet;
+		fzn_ratchet_chain_t next_ratchet;
 		uint8_t ck[FZN_CHAIN_KEY_LEN];
 		uint8_t stepped[FZN_CHAIN_KEY_LEN];
 		uint8_t mk[FZN_MESSAGE_KEY_LEN];
@@ -855,23 +856,33 @@ int main(void)
 				return 140;
 
 		fzn_ratchet_init(&ratchet, ck, 0);
-		if (fzn_ratchet_advance(&rhash, &ratchet, 3u, jumped, NULL, 0, NULL, NULL)
-		    != FZN_RATCHET_OK)
+		/* THE WHOLE RECIPE, since it is the thing a consumer has to get
+		 * right: derive into a SEPARATE chain, verify, then commit. The
+		 * in-place form is refused, so there is no other way to spell
+		 * it. */
+		if (fzn_ratchet_advance(&rhash, &ratchet, 3u, jumped, &next_ratchet, NULL, 0,
+		                        NULL, NULL) != FZN_RATCHET_OK)
 			return 141;
 		if (memcmp(jumped, mk, FZN_MESSAGE_KEY_LEN) != 0)
 			return 142;
-		if (ratchet.seq != 4u)
+		if (ratchet.seq != 0u || next_ratchet.seq != 4u)
 			return 143;
+		ratchet = next_ratchet; /* committed, as a real caller would after opening */
+		if (fzn_ratchet_advance(&rhash, &ratchet, 3u, jumped, &ratchet, NULL, 0, NULL,
+		                        NULL) != FZN_RATCHET_ERR_IN_PLACE)
+			return 144;
 		/* A duplicate and a caller bug must not share a code, which is
 		 * the distinction a consumer's logging depends on. */
-		if (fzn_ratchet_advance(&rhash, &ratchet, 0, jumped, NULL, 0, NULL, NULL)
-		    != FZN_RATCHET_ERR_BEHIND)
-			return 144;
+		if (fzn_ratchet_advance(&rhash, &ratchet, 0, jumped, &next_ratchet, NULL, 0,
+		                        NULL, NULL) != FZN_RATCHET_ERR_BEHIND)
+			return 145;
 		if (fzn_ratchet_advance(&rhash, &ratchet,
 		                        ratchet.seq + (uint64_t)FZN_RATCHET_MAX_ADVANCE + 1u,
-		                        jumped, NULL, 0, NULL, NULL) != FZN_RATCHET_ERR_TOO_FAR)
-			return 145;
+		                        jumped, &next_ratchet, NULL, 0, NULL, NULL)
+		    != FZN_RATCHET_ERR_TOO_FAR)
+			return 146;
 		fzn_ratchet_wipe(&ratchet);
+		fzn_ratchet_wipe(&next_ratchet);
 	}
 
 	/* The frame path. A consumer takes this to open a datagram, so the
