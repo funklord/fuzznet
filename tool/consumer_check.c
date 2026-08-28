@@ -32,6 +32,7 @@
 #include <fuzznet/ratchet/ratchet.h>
 #include <fuzznet/prekey/prekey.h>
 #include <fuzznet/session/agree.h>
+#include <fuzznet/session/session.h>
 #include <fuzznet/chain/revocation.h>
 #include <fuzznet/chunk/reassembly.h>
 #include <fuzznet/chunk/split.h>
@@ -61,6 +62,7 @@
 #include "ratchet/ratchet.h"
 #include "prekey/prekey.h"
 #include "session/agree.h"
+#include "session/session.h"
 #include "chain/revocation.h"
 #include "chunk/reassembly.h"
 #include "chunk/split.h"
@@ -984,6 +986,67 @@ int main(void)
 		if (fzn_agree_shared(&a, &aops, fzn_agree_secret_public(&b), after)
 		    != FZN_AGREE_ERR_ABSENT)
 			return 191;
+	}
+
+	/* A session, established from both sides. The property a consumer
+	 * depends on is that two hosts reach the same root without agreeing
+	 * who started it, so this checks exactly that through the installed
+	 * headers -- and then that rotating a prekey moves the root, which is
+	 * where the forward secrecy comes from. */
+	{
+		fzn_agree_ops_t aops = { consumer_public_of, consumer_agree, NULL };
+		fzn_hash_ops_t shash = { consumer_hash, NULL };
+		fzn_agree_secret_t pa, pb;
+		uint8_t sa[FZN_AGREE_SECRET_LEN], sb[FZN_AGREE_SECRET_LEN];
+		uint8_t rot[FZN_AGREE_SECRET_LEN];
+		uint8_t ida[FZN_SESSION_IDENTITY_LEN], idb[FZN_SESSION_IDENTITY_LEN];
+		uint8_t ka[FZN_AEAD_KEY_LEN], kb[FZN_AEAD_KEY_LEN], kc[FZN_AEAD_KEY_LEN];
+		uint8_t ca[FZN_COMMITMENT_KEY_LEN], cb[FZN_COMMITMENT_KEY_LEN];
+		unsigned i;
+
+		memset(&pa, 0, sizeof(pa));
+		memset(&pb, 0, sizeof(pb));
+		for (i = 0; i < FZN_AGREE_SECRET_LEN; i++) {
+			sa[i] = (uint8_t)(i + 17u);
+			sb[i] = (uint8_t)((i * 5u) + 23u);
+			rot[i] = (uint8_t)((i * 11u) + 41u);
+		}
+		memset(ida, 0x1a, sizeof(ida));
+		memset(idb, 0xb2, sizeof(idb));
+
+		if (fzn_agree_secret_install(&pa, &aops, sa) != FZN_AGREE_OK)
+			return 200;
+		if (fzn_agree_secret_install(&pb, &aops, sb) != FZN_AGREE_OK)
+			return 201;
+		if (!fzn_agree_secret_public(&pa) || !fzn_agree_secret_public(&pb))
+			return 202;
+		if (fzn_session_establish(&pa, &aops, &shash, ida, idb,
+		                          fzn_agree_secret_public(&pb), ka, ca) != FZN_SESSION_OK)
+			return 203;
+		if (fzn_session_establish(&pb, &aops, &shash, idb, ida,
+		                          fzn_agree_secret_public(&pa), kb, cb) != FZN_SESSION_OK)
+			return 204;
+		/* No role was negotiated and both sides must still agree. */
+		if (memcmp(ka, kb, FZN_AEAD_KEY_LEN) != 0)
+			return 205;
+		if (memcmp(ca, cb, FZN_COMMITMENT_KEY_LEN) != 0)
+			return 206;
+
+		/* And a rotation must move the root, or rotation buys nothing. */
+		if (fzn_agree_secret_install(&pb, &aops, rot) != FZN_AGREE_OK)
+			return 207;
+		if (fzn_session_establish(&pa, &aops, &shash, ida, idb,
+		                          fzn_agree_secret_public(&pb), kc, ca) != FZN_SESSION_OK)
+			return 208;
+		if (memcmp(ka, kc, FZN_AEAD_KEY_LEN) == 0)
+			return 209;
+		/* A session with yourself has no canonical order and is refused. */
+		if (fzn_session_establish(&pa, &aops, &shash, ida, ida,
+		                          fzn_agree_secret_public(&pb), kc, ca)
+		    != FZN_SESSION_ERR_SELF)
+			return 210;
+		fzn_agree_secret_wipe(&pa);
+		fzn_agree_secret_wipe(&pb);
 	}
 
 	/* The prekey record and the act of pinning it, which are one feature

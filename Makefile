@@ -99,6 +99,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              chunk/split.c \
              wire/seal.c wire/relay.c \
              session/random.c session/random_linux.c session/agree.c \
+             session/session.c \
              version/version.c \
              record/record.c record/journal.c record/sync.c \
              state/state.c trust/trust.c log/log.c sched/sched.c link/link.c
@@ -111,6 +112,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              chunk/split.h \
              wire/seal.h wire/relay.h wire/bytes.h session/aead.h \
              session/random.h session/random_system.h session/agree.h \
+             session/session.h \
              version/version.h \
              record/record.h record/journal.h record/sync.h \
              state/state.h trust/trust.h log/log.h sched/sched.h link/link.h
@@ -146,6 +148,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              chain/test/manifest_test.c \
              blob/test/blob_test.c ratchet/test/ratchet_test.c \
              prekey/test/prekey_test.c session/test/agree_test.c \
+             session/test/session_test.c \
              blob/test/blob_fuzz.c \
              frame/test/freshness_test.c \
              chunk/test/reassembly_test.c chunk/test/split_test.c \
@@ -187,6 +190,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/ratchet/test/ratchet_test \
              $(BUILD_DIR)/prekey/test/prekey_test \
              $(BUILD_DIR)/session/test/agree_test \
+             $(BUILD_DIR)/session/test/session_test \
              $(BUILD_DIR)/frame/test/freshness_test \
              $(BUILD_DIR)/session/test/commitment_test \
              $(BUILD_DIR)/local/test/peer_test \
@@ -697,6 +701,18 @@ $(BUILD_DIR)/chain/test/manifest_test: $(BUILD_DIR)/chain/test/manifest_test.o \
                                         $(BUILD_DIR)/chain/revocation.o \
                                         $(BUILD_DIR)/chain/chain.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# session/session.c is the transcript layout and the establish path, so it
+# links agree.o for the secret's discipline and commitment.o for the KDF it
+# hands the transcript to. It reaches chain/ only in the test, for the tether
+# that checks the two agree about an identity's length.
+$(BUILD_DIR)/session/test/session_test: $(BUILD_DIR)/session/test/session_test.o \
+                                         $(BUILD_DIR)/session/session.o \
+                                         $(BUILD_DIR)/session/agree.o \
+                                         $(BUILD_DIR)/session/commitment.o \
+                                         $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 

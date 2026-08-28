@@ -9556,9 +9556,62 @@ nothing, since `live` is what the accessor consults. Kept for the reader who
 reaches into the struct directly, and recorded as construction-guaranteed
 rather than tested.
 
+### The transcript, settled and built
+
+`session/session.h`. The model is **two rotating prekeys**: each host
+publishes a signed prekey and keeps its secret across restarts, the agreement
+is between those two, and the root is a hash over both identities, both
+prekeys and the shared secret. 177 bytes.
+
+**Canonically ordered by identity, not by role.** Both hosts sort the two
+identity keys and lay the pairs down in that order, so they build
+byte-identical transcripts without negotiating who initiated. A role-ordered
+transcript would need the role agreed first, and **a role nobody signed is a
+thing an attacker can flip**.
+
+Equal identities are refused with their own code. The order has no tie-break,
+so a session with yourself would make the layout depend on which branch
+happened to be taken.
+
+**A version byte is inside the transcript**, not on the wire. Two peers built
+against different layouts derive different roots and fail to talk rather than
+appearing to agree -- which is what makes adding a sender ephemeral later a
+safe change rather than a silent one.
+
+`created_at` from the prekey record is deliberately absent: a rotation already
+changes the prekey's public bytes and therefore the root, so a timestamp would
+bind two clocks for no property the key does not give.
+
+**`fzn_session_establish` exists so that a consumer never holds the shared
+secret or the transcript.** Both are wiped on every path, and the transcript
+contains the shared secret, so forgetting one and not the other forgets
+neither.
+
+### Two more mutations survived, and one was worse than that
+
+**Regrouping the transcript as identity|identity|prekey|prekey failed
+nothing** -- and the comment claiming the interleaving prevents pairing one
+host's identity with the other's key was wrong. The CANONICAL ORDER provides
+that: `first` is always the lower identity and its prekey, whichever order the
+four fields are laid down in. Interleaving is readability. Corrected.
+
+**Worse, a test was named for a property it did not test.**
+`test_a_prekey_travels_with_its_own_identity` passes under both layouts,
+because both distinguish the swap it performs. It is renamed to what it
+checks -- that the two prekeys are not interchangeable -- which is real, and
+is what the assertion always expressed. A test whose NAME is the claim is one
+whose name gets quoted; this is the second time in two days that a name has
+outrun its assertion, after `every_x_reaches_something_that_uses_it`.
+
+Deleting the transcript wipe likewise fails nothing, both being locals.
+Recorded as construction-guaranteed-unobservable rather than left looking
+tested -- the third such line in this session, and the third time the honest
+answer was to say so rather than invent a test that would only assert the
+compiler's stack layout.
+
 ### What is still open
 
-The seam exists; **the transcript layout does not**. What remains is the
+**The sender ephemeral.** What remains is the
 canonical builder -- which keys, in what order -- so that two peers cannot
 disagree, plus the question of whether the initiator contributes a
 per-session ephemeral on top of the responder's rotating prekey. That is a
