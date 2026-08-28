@@ -10047,6 +10047,19 @@ hops are verified against a root already pinned, and the issuer never enters
 the journal. `record/sync.h` guards that door for records; nothing must open
 a second one beside it.
 
+**AND IT IS NOT A LIVE NEED ON THEIR SIDE EITHER, WHICH THIS SECTION WOULD
+OTHERWISE HAVE IMPLIED.** fuzzypickles measured it when accepting the row:
+**twenty-nine record types there carry `signer_chain` INLINE and nothing
+fetches a chain separately** -- the single grep hit is `control.h:106`, prose
+naming the alternative they rejected. So the row **arises if and only if they
+move to a record that does not inline**, and today's answer is the one this
+document already credited back to them: an inlined chain never becomes a
+reason to fetch from a stranger.
+
+Worth stating exactly, in their words: a row on a list with no condition
+attached gets picked up by somebody with time, and this one should be picked
+up only by somebody doing the migration.
+
 **Recorded as decided rather than deferred.** The row closes on this side
 with a reason, which is what it lacked -- and `working-practice.md` is
 explicit that a wrongly-deferred question is caught by nothing and looks
