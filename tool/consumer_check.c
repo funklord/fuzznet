@@ -458,7 +458,8 @@ int main(void)
 		                          fzn_revocation_capability(rec),
 		                          fzn_revocation_grantee(rec)) != 0)
 			return 102;
-		if (fzn_revocation_admit(&store, rec, root, &sign, NULL) != FZN_CHAIN_OK)
+		if (fzn_revocation_admit(&store, fzn_revocation_offer_root(rec), root, &sign,
+		                         NULL) != FZN_CHAIN_OK)
 			return 103;
 		if (store.used != 1)
 			return 104;
@@ -480,6 +481,91 @@ int main(void)
 		if (fzn_chain_verify(&hop, 1, root, cap, 2000, &sign, NULL, &chain) !=
 		    FZN_CHAIN_OK)
 			return 107;
+	}
+
+	/* GRANTOR-REVOKES-DESCENDANT, END TO END, for the reason the block
+	 * above states about header granularity. `fzn_revocation_admit` and
+	 * `fzn_revocation_merge` changed shape on 2026-08-28 -- both take an
+	 * `fzn_revocation_offer_t` now, because a batch whose members are
+	 * issued by different keys cannot be an array of records with one
+	 * chain beside it -- and a consumer that only ever built root offers
+	 * would compile against the new header and exercise none of it.
+	 *
+	 * So the sequence a consumer performs is performed: mint a delegable
+	 * grant, delegate it onward, have the MIDDLE key withdraw the
+	 * capability from the leaf, admit that with the chain that entitles
+	 * it, and watch the two-hop chain be refused. */
+	{
+		uint8_t mid_bytes[FZN_HOP_LEN], leaf_bytes[FZN_HOP_LEN];
+		uint8_t rev_bytes[FZN_REVOCATION_LEN];
+		uint8_t mid[FZN_PUBKEY_LEN], leaf[FZN_PUBKEY_LEN];
+		fzn_chain_hop_t pair[2];
+		fzn_revocation_record_t rec;
+		fzn_revocation_store_t estate;
+		fzn_revocation_t estate_storage[4];
+		fzn_chain_err_t merged = FZN_CHAIN_OK;
+		fzn_revocation_offer_t offer;
+
+		memset(mid, 0x21, sizeof(mid));
+		memset(leaf, 0x22, sizeof(leaf));
+
+		if (fzn_revocation_store_init(&estate, estate_storage, 4) != FZN_CHAIN_OK)
+			return 130;
+		if (fzn_chain_mint(root, mid, cap, 100, FZN_NO_EXPIRY, 1, &sign, mid_bytes) !=
+		    FZN_CHAIN_OK)
+			return 131;
+		if (fzn_hop_open(mid_bytes, FZN_HOP_LEN, &pair[0]) != FZN_CHAIN_OK)
+			return 132;
+		if (fzn_chain_delegate(pair, 1, root, cap, 2000, leaf, FZN_NO_EXPIRY, 0, &sign,
+		                       NULL, leaf_bytes) != FZN_CHAIN_OK)
+			return 133;
+		if (fzn_hop_open(leaf_bytes, FZN_HOP_LEN, &pair[1]) != FZN_CHAIN_OK)
+			return 134;
+		if (fzn_chain_verify(pair, 2, root, cap, 2000, &sign, &estate, &chain) !=
+		    FZN_CHAIN_OK)
+			return 135;
+
+		/* The middle key withdraws the capability from the leaf. */
+		if (fzn_revocation_issue(mid, cap, leaf, 1500, &sign, rev_bytes) !=
+		    FZN_CHAIN_OK)
+			return 136;
+		if (fzn_revocation_open(rev_bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
+			return 137;
+
+		/* With no chain it is a stranger's record, refused exactly as
+		 * it always was -- which is what makes the offer below the
+		 * thing that changed. */
+		if (fzn_revocation_admit(&estate, fzn_revocation_offer_root(rec), root, &sign,
+		                         NULL) != FZN_CHAIN_ERR_WRONG_ROOT)
+			return 138;
+
+		offer = fzn_revocation_offer_chain(rec, pair, 1);
+		if (fzn_revocation_merge(&estate, &offer, 1, root, &sign, &merged, NULL) != 1 ||
+		    merged != FZN_CHAIN_OK)
+			return 139;
+		if (estate.used != 1)
+			return 140;
+		if (fzn_chain_verify(pair, 2, root, cap, 2000, &sign, &estate, &chain) !=
+		    FZN_CHAIN_ERR_REVOKED)
+			return 141;
+
+		/* And the entitled set is derived from the chain rather than
+		 * supplied: the same store says nothing about the middle key's
+		 * own one-hop chain, which the middle key is not an ancestor
+		 * of. */
+		if (fzn_chain_verify(pair, 1, root, cap, 2000, &sign, &estate, &chain) !=
+		    FZN_CHAIN_OK)
+			return 142;
+
+		/* The verify-side predicate directly, so a change to its arity
+		 * or its types is the consumer's problem too. */
+		{
+			uint8_t revoked[FZN_CHAIN_MAX_HOPS];
+
+			fzn_revocation_covers_chain(&estate, pair, 2, cap, revoked);
+			if (revoked[0] != 0 || revoked[1] != 1)
+				return 143;
+		}
 	}
 
 	/* THE MANIFEST, END TO END, for the reason the block above states: a
@@ -542,7 +628,8 @@ int main(void)
 			return 122;
 		if (fzn_revocation_open(rev_bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
 			return 123;
-		if (fzn_revocation_admit(&fresh, rec, root, &sign, &manifest) != FZN_CHAIN_OK)
+		if (fzn_revocation_admit(&fresh, fzn_revocation_offer_root(rec), root, &sign,
+		                         &manifest) != FZN_CHAIN_OK)
 			return 124;
 		if (fzn_manifest_pending(&manifest, root) != 0)
 			return 125;

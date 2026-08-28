@@ -144,6 +144,7 @@ fzn_chain_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
                             const fzn_revocation_store_t *revocations, fzn_chain_t *out)
 {
 	uint64_t soonest = FZN_NO_EXPIRY;
+	uint8_t revoked[FZN_CHAIN_MAX_HOPS];
 
 	if (!hops || !root || !capability || !sign || !sign->verify || !out)
 		return FZN_CHAIN_ERR_MALFORMED;
@@ -178,6 +179,27 @@ fzn_chain_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
 	 * rather than an attack. */
 	if (!fzn_ct_memeq(fzn_hop_grantor(hops[0]), root, FZN_PUBKEY_LEN))
 		return FZN_CHAIN_ERR_WRONG_ROOT;
+
+	/* WHICH HOPS ARE REVOKED, DECIDED ONCE FOR THE WHOLE CHAIN, before a
+	 * hop is looked at. The answer is read inside pass one at the place
+	 * the old per-hop query sat, so the order the taxonomy depends on is
+	 * unchanged -- what moves is the SCAN, not the decision point.
+	 *
+	 * It is hoisted because the entitled-issuer rule made the query
+	 * quadratic: hop `i` is now revocable by the root OR by any of hop
+	 * `i`'s ancestors in this chain, and asking per hop about every
+	 * ancestor is O(hops^2) scans of a store that only grows.
+	 * `fzn_revocation_covers_chain` turns it inside out and places each
+	 * entry once, which is O(R * hops) -- what the single-issuer loop
+	 * already cost. revocation.c carries the argument.
+	 *
+	 * It is asked AFTER the root pin above and not before, because that
+	 * pin is what makes the root a member of every hop's entitled set:
+	 * the set is `{grantor(hops[j]) : j <= i}` and `grantor(hops[0])` has
+	 * just been established to BE the root. Nothing tells the store which
+	 * issuers are entitled -- it is asked about a chain, and derives
+	 * them. */
+	fzn_revocation_covers_chain(revocations, hops, hop_count, capability, revoked);
 
 	/* Pass one: everything that costs nothing. Refusing here keeps a
 	 * malformed chain from buying `hop_count` signature verifications,
@@ -236,56 +258,30 @@ fzn_chain_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
 		 * defeated by the victim having delegated onward first -- which
 		 * is precisely what a stolen device would do.
 		 *
-		 * Asked on the TRIPLE rather than on the key alone. The two
-		 * consumers' capabilities are independent rather than a ladder
-		 * (sec 4.2): withdrawing netcfgd's `wifi` from a host must not
-		 * withdraw its `observe`, and a match on key alone would do
-		 * exactly that.
+		 * THIS WAS THE LINE THAT CHANGED, AND IT HAS (2026-08-28). It
+		 * used to ask `fzn_revocation_covers(revocations, root, ...)`
+		 * -- one comparison against the pinned root, because root-only
+		 * revocation was what was implemented. project.md sec 13b's
+		 * answers and sec 13c's design replace that with the entitled
+		 * set: the root OR any of this hop's ancestors in this chain.
 		 *
-		 * THE ISSUER ASKED ABOUT IS THE PINNED ROOT, BECAUSE ROOT-ONLY
-		 * REVOCATION IS WHAT IS IMPLEMENTED TODAY -- and that is the
-		 * whole of the reason. This comment used to give a second one
-		 * and it was FALSE: it said `fzn_revocation_admit` "refuses any
-		 * record whose issuer is not the root it was handed, so an entry
-		 * issued by anybody else cannot reach a store, and asking about
-		 * the root is asking about every entry there can be". A store is
-		 * not bound to a root. `root` is a per-call argument to
-		 * `admit`, so two roots' revocations go into one store as
-		 * readily as one root's -- admit(rec_A, root_A) and
-		 * admit(rec_B, root_B) both return OK, `used` reaches 2, and
-		 * `covers` answers 1 under either issuer. The same commit that
-		 * wrote the false sentence wrote the true one: chain.h at
-		 * `fzn_revocation_t` says "a store will hold entries from MANY
-		 * issuers", which is why an entry keeps its issuer at all. The
-		 * two contradicted each other from the day they landed, and
-		 * this file carried both.
+		 * The comment here used to carry a long correction about why
+		 * the root was named, and the half of it worth keeping is why
+		 * the ISSUER TERM IS NOT DEAD WEIGHT. A store is not bound to a
+		 * root -- `root` is a per-call argument to `admit`, so two
+		 * roots' revocations go into one store as readily as one
+		 * root's, and an earlier version of this file claimed the
+		 * opposite. Dropping the issuer term would make a store holding
+		 * two roots' entries answer for both realms, which is the
+		 * defect the 2026-08-27 issuer fix closed. The term is now
+		 * doing MORE work rather than less: it is what an entry is
+		 * matched against the chain's own grantors by.
 		 *
-		 * So the line is right and its old justification was an
-		 * invariant nothing enforces. What is true is narrower and
-		 * weaker: the root is the only issuer whose entries this
-		 * library will HONOUR, because nothing else is implemented yet.
-		 * A store may hold an entry from any issuer a caller has fed it,
-		 * and every such entry is ignored here.
-		 *
-		 * THAT MATTERS BECAUSE OF WHAT THE FALSE VERSION INVITED. Read
-		 * as written, it says the issuer term is redundant -- that a
-		 * store can only ever contain root entries, so comparing against
-		 * the root cannot exclude anything. A later reader trusting it
-		 * would drop the term as dead weight, and a store holding two
-		 * roots' entries would then answer for both realms: exactly the
-		 * defect the 2026-08-27 issuer fix was made to close, reopened
-		 * on the authority of a comment.
-		 *
-		 * Grantor-revokes-descendant is PLANNED and is not built --
-		 * project.md sec 13b and 13c, answered by the holder
-		 * 2026-08-27 -- and this is the line that changes when it
-		 * arrives: a hop would then be revoked by the root OR by any
-		 * grantor above it in the chain, which is a walk over this
-		 * function's own hops rather than one comparison. The set of
-		 * entitled issuers widens; the fact that this function decides
-		 * it, rather than the store, does not. */
-		if (fzn_revocation_covers(revocations, root, fzn_hop_capability(hop),
-		                          fzn_hop_grantee(hop)))
+		 * The decision is still this function's rather than the
+		 * store's. What widened is the set it decides against, and it
+		 * derives that set from the hops it was given -- see the call
+		 * above the loop. */
+		if (revoked[i])
 			return FZN_CHAIN_ERR_REVOKED;
 	}
 

@@ -490,7 +490,12 @@ typedef struct fzn_chain {
  * holder's answer of 2026-08-27: grantor-revokes-descendant IS coming, so a
  * store will hold entries from MANY issuers and a store bound to a single
  * root would have to be unbound again. An entry says WHO withdrew it, and
- * the query asks. */
+ * the query asks.
+ *
+ * IT CAME ON 2026-08-28, and the issuer field is what carries it: an entry
+ * is matched against the grantors of the chain being verified, so a
+ * grantor's withdrawal from its own descendant is honoured and a stranger's
+ * is not. A store bound to one root could not have expressed that. */
 typedef struct fzn_revocation {
 	uint8_t capability[FZN_CAP_ID_LEN];
 	uint8_t grantee[FZN_PUBKEY_LEN];
@@ -568,7 +573,11 @@ typedef struct fzn_revocation_store fzn_revocation_store_t;
  *   4. dates: expires_at, WHEN SET, must be after issued_at and after now
  *   5. revocation, against every hop rather than only the last -- revoking
  *      a host in the middle has to kill everything it went on to grant,
- *      which is the whole point of revoking it
+ *      which is the whole point of revoking it. A hop is revoked by the
+ *      pinned root OR by any of that hop's ANCESTORS IN THIS CHAIN, which
+ *      is a set this function derives from the hops it was handed and
+ *      cannot be told wrong; `fzn_revocation_covers_chain` computes it,
+ *      once, hoisted out of the loop
  *   6. signatures, last, because they are the expensive part
  *
  * Every one of those reads the bytes the signature covers, which is the

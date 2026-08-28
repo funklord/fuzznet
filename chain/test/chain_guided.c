@@ -196,12 +196,28 @@ static int accepted_chain_is_sound(const fzn_chain_hop_t *hops, size_t hop_count
 			return 1;
 		if (i > 0 && !fzn_hop_delegable(hops[i - 1]))
 			return 1;
-		for (size_t r = 0; r < rev_count; r++)
-			if (same(revs[r].issuer, root, FZN_PUBKEY_LEN) &&
-			    same(revs[r].capability, fzn_hop_capability(hops[i]),
+		/* WHO MAY WITHDRAW THIS HOP: the root, or one of this hop's
+		 * ancestors IN THIS CHAIN. The root is `hops[0]`'s grantor --
+		 * the pin above has refused any chain where it is not -- so
+		 * the whole entitled set is the grantors at or before `i`.
+		 *
+		 * Written the naive quadratic way on purpose, where chain.c
+		 * hoists it into one pass over the store. A model that shared
+		 * the implementation's shape could not disagree with it. */
+		for (size_t r = 0; r < rev_count; r++) {
+			int entitled = 0;
+
+			for (size_t j = 0; j <= i; j++)
+				if (same(revs[r].issuer, fzn_hop_grantor(hops[j]),
+				         FZN_PUBKEY_LEN))
+					entitled = 1;
+			if (!entitled)
+				continue;
+			if (same(revs[r].capability, fzn_hop_capability(hops[i]),
 			         FZN_CAP_ID_LEN) &&
 			    same(revs[r].grantee, fzn_hop_grantee(hops[i]), FZN_PUBKEY_LEN))
 				return 1;
+		}
 	}
 
 	if (!same(out->grantee, fzn_hop_grantee(hops[hop_count - 1]), FZN_PUBKEY_LEN))

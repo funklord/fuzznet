@@ -386,11 +386,14 @@ $(BUILD_DIR)/wire/generated/%.o: wire/generated/%.c
 	$(CC) $(GEN_CFLAGS) -Iwire/generated -MMD -MP -c $< -o $@
 
 # revocation.o IS NOT OPTIONAL HERE, and it became so on 2026-08-27.
-# `fzn_chain_verify` asks `fzn_revocation_covers` rather than keeping a second
-# copy of the same predicate -- which is what let the two disagree about a
-# corrupt store, and cost a heap overflow on the authorization path. One
+# `fzn_chain_verify` asks the module that owns the store rather than keeping a
+# second copy of the same predicate -- which is what let the two disagree about
+# a corrupt store, and cost a heap overflow on the authorization path. One
 # predicate means one definition, and chain.o now carries an undefined
-# reference to it.
+# reference to it. The symbol is `fzn_revocation_covers_chain` since
+# 2026-08-28, when the query started asking about a whole chain rather than
+# about one issuer; the argument is unchanged and is why the walk did not move
+# into chain.c with it.
 $(BUILD_DIR)/chain/test/chain_test: $(BUILD_DIR)/chain/test/chain_test.o \
                                      $(BUILD_DIR)/chain/chain.o \
                                      $(BUILD_DIR)/chain/revocation.o \

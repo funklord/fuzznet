@@ -323,7 +323,8 @@ static void revoke(struct fixture *f, const uint8_t issuer[FZN_PUBKEY_LEN],
 		failures++;
 		return;
 	}
-	if (fzn_revocation_admit(&f->store, rec, issuer, &f->sign, NULL) != FZN_CHAIN_OK) {
+	if (fzn_revocation_admit(&f->store, fzn_revocation_offer_root(rec), issuer, &f->sign,
+	                         NULL) != FZN_CHAIN_OK) {
 		printf("  FAIL: the fixture's revocation was refused\n");
 		failures++;
 	}
@@ -1155,7 +1156,7 @@ static void test_the_deficit_reads_the_whole_field(void)
 		              FZN_CHAIN_OK,
 		      "issue");
 		CHECK(fzn_revocation_open(rev, FZN_REVOCATION_LEN, &r) == FZN_CHAIN_OK, "open");
-		CHECK(fzn_revocation_admit(&joiner.store, r, f.root, &joiner.sign,
+		CHECK(fzn_revocation_admit(&joiner.store, fzn_revocation_offer_root(r), f.root, &joiner.sign,
 		                           &joiner.manifest) == FZN_CHAIN_OK,
 		      "admit");
 		CHECK(fzn_manifest_pending(&joiner.manifest, f.root) == 3,
@@ -1270,7 +1271,7 @@ static void test_the_overflow_flag_is_sticky(void)
 			      "issue");
 			CHECK(fzn_revocation_open(rev, FZN_REVOCATION_LEN, &r) == FZN_CHAIN_OK,
 			      "open");
-			CHECK(fzn_revocation_admit(&side.store, r, f.root, &side.sign,
+			CHECK(fzn_revocation_admit(&side.store, fzn_revocation_offer_root(r), f.root, &side.sign,
 			                           &small) == FZN_CHAIN_OK,
 			      "admit");
 		}
@@ -1549,6 +1550,7 @@ static void test_a_revocation_settles_what_it_covers(void)
 	uint8_t rev[2][FZN_REVOCATION_LEN];
 	fzn_manifest_record_t rec;
 	fzn_revocation_record_t batch[2];
+	fzn_revocation_offer_t offers[2];
 	uint8_t cap_a[FZN_CAP_ID_LEN], cap_b[FZN_CAP_ID_LEN], grantee[FZN_PUBKEY_LEN];
 	fzn_chain_err_t err = FZN_CHAIN_OK;
 	size_t len = 0, n;
@@ -1588,7 +1590,8 @@ static void test_a_revocation_settles_what_it_covers(void)
 
 	/* NULL PRESERVES TODAY'S BEHAVIOUR EXACTLY, which is what makes the
 	 * parameter optional rather than a break. */
-	CHECK(fzn_revocation_admit(&joiner.store, batch[0], f.root, &joiner.sign, NULL) ==
+	CHECK(fzn_revocation_admit(&joiner.store, fzn_revocation_offer_root(batch[0]), f.root,
+	                           &joiner.sign, NULL) ==
 	              FZN_CHAIN_OK,
 	      "admit with no manifest state");
 	CHECK(fzn_manifest_pending(&joiner.manifest, f.root) == 2,
@@ -1598,7 +1601,8 @@ static void test_a_revocation_settles_what_it_covers(void)
 	/* THE ALREADY-HELD PATH DRAINS TOO, or a host that received the
 	 * revocation before wiring up its manifest reports a gap it has
 	 * filled, for ever. */
-	CHECK(fzn_revocation_admit(&joiner.store, batch[0], f.root, &joiner.sign,
+	CHECK(fzn_revocation_admit(&joiner.store, fzn_revocation_offer_root(batch[0]), f.root,
+	                           &joiner.sign,
 	                           &joiner.manifest) == FZN_CHAIN_OK,
 	      "re-admitting a revocation already held was an error");
 	CHECK(fzn_manifest_pending(&joiner.manifest, f.root) == 1,
@@ -1610,7 +1614,9 @@ static void test_a_revocation_settles_what_it_covers(void)
 	/* Two, not one: the first is already held, and `fzn_revocation_merge`
 	 * counts an already-held record as admitted because hearing it twice
 	 * is what carriage looks like when it works. */
-	n = fzn_revocation_merge(&joiner.store, batch, 2, f.root, &joiner.sign, &err,
+	offers[0] = fzn_revocation_offer_root(batch[0]);
+	offers[1] = fzn_revocation_offer_root(batch[1]);
+	n = fzn_revocation_merge(&joiner.store, offers, 2, f.root, &joiner.sign, &err,
 	                         &joiner.manifest);
 	CHECK(n == 2 && err == FZN_CHAIN_OK, "merge admitted %zu, err %d", n, (int)err);
 	CHECK(fzn_manifest_pending(&joiner.manifest, f.root) == 0,

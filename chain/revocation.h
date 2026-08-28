@@ -134,24 +134,19 @@ static inline const uint8_t *fzn_revocation_grantee(fzn_revocation_record_t rec)
 	return rec.base + FZN_REV_OFF_GRANTEE;
 }
 
-/* Who issued it. Checked against the pinned root: only the root revokes,
- * today.
+/* Who issued it. The root, or a grantor withdrawing from its own descendant.
  *
- * A grantor revoking what it granted is NOT BUILT, and as of 2026-08-27 it
- * is PLANNED rather than an open question. This comment used to say the
- * extension was declined because "project.md does not say" whether letting
- * a compromised intermediate revoke its descendants is wanted or is the
- * attack. project.md says now: the copyright holder settled that grantor-
- * revokes-descendant is coming, on the reasoning that it is a denial of
- * service inside one user's estate rather than an escalation across users.
- * The code is unchanged and still correct; only the reason was stale.
+ * IT ARRIVED (2026-08-28), and this comment used to describe it as planned.
+ * project.md sec 13b records the copyright holder's answer of 2026-08-27 --
+ * grantor-revokes-descendant is coming, on the reasoning that it is a denial
+ * of service inside one user's estate rather than an escalation across users
+ * -- and sec 13c is the design that was built from it.
  *
- * WHEN IT ARRIVES, THE ISSUER STOPS BEING THE ROOT, and the check that
- * replaces "issuer == root" is not a wider parameter but a narrower one:
- * the entitled issuers for a hop are the root and that hop's ancestors IN
- * THE CHAIN BEING VERIFIED, which `fzn_chain_verify` already walks with
- * every grantor in hand. It cannot be told the wrong set because it is not
- * told. See project.md sec 13b, which records where that shape came from. */
+ * THE ENTITLED ISSUERS ARE NOT A WIDER PARAMETER BUT A NARROWER ONE. For a
+ * hop, they are the root and that hop's ancestors IN THE CHAIN BEING
+ * VERIFIED, which `fzn_chain_verify` already walks with every grantor in
+ * hand -- see `fzn_revocation_covers_chain` below. It cannot be told the
+ * wrong set because it is not told. */
 static inline const uint8_t *fzn_revocation_issuer(fzn_revocation_record_t rec)
 {
 	return rec.base + FZN_REV_OFF_ISSUER;
@@ -232,10 +227,120 @@ fzn_chain_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_rev
  * entry in it, which is what `chain.h` records a heap overflow for. */
 typedef struct fzn_manifest_state fzn_manifest_state_t;
 
+/* A REVOCATION AS IT IS OFFERED TO A STORE: the record, plus the standing of
+ * whoever signed it.
+ *
+ * The root needs no standing -- it is the pin, and `hop_count == 0` says so.
+ * Anybody else has to show the chain that makes them an ancestor of what
+ * they are withdrawing, and `hops` is that chain, OPENED, exactly as
+ * `fzn_chain_verify` takes one.
+ *
+ * WHY A STRUCT RATHER THAN TWO MORE PARAMETERS. `fzn_revocation_merge`
+ * absorbs a BATCH, which is what "carried on contact" looks like, and a
+ * batch whose members may each carry a different chain cannot be an array of
+ * records with one chain beside it. The two halves travel together because
+ * they only mean anything together -- the same argument that made
+ * `fzn_chain_verify` take a store rather than an array and a count.
+ *
+ * `hop_count == 0` IS ROOT-ISSUED AND REPRODUCES THE OLD BEHAVIOUR EXACTLY:
+ * the issuer is compared against the pinned root and nothing else is
+ * consulted, which is every admission this library performed before
+ * 2026-08-28. `hops` is then ignored and NULL is the honest spelling. */
+typedef struct fzn_revocation_offer {
+	fzn_revocation_record_t record;
+	const fzn_chain_hop_t *hops;
+	size_t hop_count;
+} fzn_revocation_offer_t;
+
+/* The two spellings of an offer, so that no caller assembles one field by
+ * field and leaves the other holding whatever its stack held. An offer with
+ * a stale `hops` and a zero `hop_count` is harmless; the reverse is a read
+ * through a pointer nobody set. */
+static inline fzn_revocation_offer_t fzn_revocation_offer_root(fzn_revocation_record_t record)
+{
+	fzn_revocation_offer_t offer;
+
+	offer.record = record;
+	offer.hops = NULL;
+	offer.hop_count = 0;
+	return offer;
+}
+
+static inline fzn_revocation_offer_t fzn_revocation_offer_chain(fzn_revocation_record_t record,
+                                                                const fzn_chain_hop_t *hops,
+                                                                size_t hop_count)
+{
+	fzn_revocation_offer_t offer;
+
+	offer.record = record;
+	offer.hops = hops;
+	offer.hop_count = hop_count;
+	return offer;
+}
+
 /* Verify a revocation and record it. Returns FZN_CHAIN_OK if it is now in the
  * store, including when it was already there -- admitting the same
  * revocation twice is what happens every time two peers both tell you, and
  * it is not an error.
+ *
+ * WHO MAY SPEND THE STORE, AND IT IS NOT AN AUTHORISATION DECISION.
+ * project.md sec 13c is the design and its reframing is what decides the
+ * shape: the old root check did two jobs, and only one of them was
+ * authorisation. What is honoured is decided by `fzn_revocation_covers_chain`
+ * at verification time; the worst a wrongly-admitted entry can do is occupy
+ * 96 bytes of a table that never evicts and never expires. So this is an
+ * ADMISSION BOUND, it is allowed to be coarse, and it must not try to be
+ * verify.
+ *
+ * The bound: a non-root revocation is admitted exactly when its issuer
+ * presents a chain that verifies against the pinned root FOR THE CAPABILITY
+ * BEING WITHDRAWN, whose last hop's grantee is that issuer, and whose last
+ * hop is `delegable`. Put sharply -- admit a revocation from a key if and
+ * only if `fzn_chain_delegate` would let that key GRANT the thing it is
+ * withdrawing. Revoking a descendant is the inverse of granting one and
+ * takes the same standing.
+ *
+ * `delegable` IS NOT DECORATION. A key can only be an ancestor if it appears
+ * as some hop's grantor, and `fzn_chain_verify` refuses any such hop whose
+ * predecessor was not `delegable`. So a non-delegable holder can never be an
+ * ancestor, its revocations can never be honoured, and admitting them is
+ * pure waste -- which excludes every leaf in an estate, most keys, from
+ * spending the store. The depth ceiling is the same argument: a chain
+ * already at FZN_CHAIN_MAX_HOPS has no room for the hop that would make its
+ * grantee somebody's ancestor, which is exactly why `fzn_chain_delegate`
+ * refuses to extend one.
+ *
+ * THREE INVARIANTS, EACH CHEAP TO BREAK BY ACCIDENT AND INVISIBLE WHEN
+ * BROKEN. All three exist to keep this a CRDT -- project.md sec 13b records
+ * that a standalone revocation carries no sequence, that revocation is
+ * monotone, and that merge is set union, so any number of holders of one
+ * replicated key may emit concurrently and every host converges. Order
+ * dependence anywhere in admission destroys that.
+ *
+ *   - ADMISSION IS REVOCATION-BLIND. The issuer's chain is verified with no
+ *     revocations at all. Otherwise admitting the root's withdrawal from H1
+ *     first would make H1's own earlier revocation inadmissible, and what a
+ *     store ends up holding would depend on the order two peers happened to
+ *     tell you things.
+ *   - ADMISSION IS CLOCK-BLIND. There is no `now` parameter to pass wrongly.
+ *     Refusing a revocation because the REVOKER'S OWN grant had lapsed would
+ *     silently re-connect a revoked device, which is the one direction this
+ *     module must never fail in.
+ *   - THE STORE IS NOT A CACHE. "This issuer already has an entry, so skip
+ *     the chain check" looks free and makes the outcome order-dependent.
+ *     Every non-root admission carries its chain, every time, including one
+ *     that turns out to be a duplicate.
+ *
+ * AND ONE SEMANTIC, SETTLED IN SEC 13C RATHER THAN DECIDED HERE: when the
+ * revoking grantor is itself later revoked, ITS REVOCATION STANDS. If it
+ * fell, adding an entry to a store would REMOVE a derivable fact, and an
+ * attacker could arrange it -- steal a host, delegate onward, get caught,
+ * and the root's clean-up revocation of the parent would RESCUE the stolen
+ * descendant. A grant's validity is continuously re-evaluated; a revocation
+ * is a withdrawal already performed, by a party entitled at the time, and
+ * nothing re-evaluates it. Recovery is by re-granting AROUND the revoker --
+ * the entry bites only chains in which that grantor appears -- and never by
+ * un-revoking.
  *
  * WHAT IS STORED COMES OUT OF THE BYTES THE SIGNATURE COVERED, which is the
  * 2026-08-27 change stated as a property. The previous version verified a
@@ -278,7 +383,7 @@ typedef struct fzn_manifest_state fzn_manifest_state_t;
  * manifest would keep reporting it as missing for ever, having held it all
  * along. The two orders must converge, because a set is what this is. */
 fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
-                                fzn_revocation_record_t record,
+                                fzn_revocation_offer_t offer,
                                 const uint8_t root[FZN_PUBKEY_LEN],
                                 const fzn_sign_ops_t *sign,
                                 fzn_manifest_state_t *manifest);
@@ -296,9 +401,14 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
  * means what it means there. It is here rather than only on the single
  * admission because THIS is the call a batch arrives through: a merge that
  * could not settle a deficit would leave the drain wired to the path
- * consumers use least. */
+ * consumers use least.
+ *
+ * IT TAKES OFFERS RATHER THAN RECORDS (2026-08-28), because each member of a
+ * batch may be issued by a different key and so may need a different chain.
+ * A batch of records with one chain beside it could only ever have carried
+ * one issuer's, which is the old root-only world with extra parameters. */
 size_t fzn_revocation_merge(fzn_revocation_store_t *store,
-                             const fzn_revocation_record_t *records, size_t count,
+                             const fzn_revocation_offer_t *offers, size_t count,
                              const uint8_t root[FZN_PUBKEY_LEN], const fzn_sign_ops_t *sign,
                              fzn_chain_err_t *err, fzn_manifest_state_t *manifest);
 
@@ -335,5 +445,51 @@ int fzn_revocation_covers(const fzn_revocation_store_t *store,
                            const uint8_t issuer[FZN_PUBKEY_LEN],
                            const uint8_t capability[FZN_CAP_ID_LEN],
                            const uint8_t grantee[FZN_PUBKEY_LEN]);
+
+/* WHICH HOPS OF THIS CHAIN ARE REVOKED, by an issuer entitled to revoke
+ * them. `revoked` receives FZN_CHAIN_MAX_HOPS bytes, one per hop position,
+ * 1 where that hop's grant has been withdrawn and 0 where it has not;
+ * positions at or past `hop_count` are always 0.
+ *
+ * THE ENTITLED SET IS DERIVED, NOT ACCEPTED, and that is the whole reason
+ * this takes a chain rather than an issuer. The issuers entitled to revoke
+ * hop `i` are the root and hop `i`'s ancestors IN THIS CHAIN -- exactly
+ * `{fzn_hop_grantor(hops[j]) : j <= i}`, which includes the root because
+ * `fzn_chain_verify` has pinned `hops[0]`'s grantor to it. There is no
+ * parameter through which a caller could name a wrong set, because there is
+ * no parameter: project.md sec 13b calls this derive-don't-accept applied to
+ * the thing that actually varies.
+ *
+ * IT IS WRITTEN HOISTED, and the naive form is the obvious one. Asking, per
+ * hop, about every ancestor of that hop is O(hops^2) queries and each query
+ * scans the store, which is O(hops^2 * R) for a table project.md sec 14
+ * says only grows. Turned inside out it is O(R * hops): each entry names one
+ * issuer, so find the SMALLEST `j` whose grantor is that issuer and the
+ * entry applies to every hop from `j` onward. One pass over the store, two
+ * bounded walks of the chain inside it -- the same cost the single-issuer
+ * loop already paid.
+ *
+ * THE THREE ANSWERS ARE `fzn_revocation_covers`' THREE ANSWERS, decided in
+ * the same order and for the same reasons, because it is the same store
+ * being read for the same kind of question:
+ *
+ *   - A NULL store revokes nothing. It means "this host knows of no
+ *     revocations", which is what `fzn_chain_verify` relies on when a
+ *     consumer holding no store passes NULL.
+ *   - A CORRUPT store revokes EVERY hop -- `used` past `capacity`, or a
+ *     nonzero `used` with no array. Entries that cannot be scanned may hold
+ *     the answer, and denying is the safe reply to an authorization
+ *     question. Decided before anything else.
+ *   - A missing `hops` or `capability`, a zero `hop_count`, or one past
+ *     FZN_CHAIN_MAX_HOPS revokes nothing, because the question has no
+ *     subject rather than because the answer is permissive. `revocation.c`
+ *     argues that at length for the sibling function.
+ *
+ * A NULL `revoked` is the one argument with nothing to say: there is
+ * nowhere to write an answer, so it writes none. */
+void fzn_revocation_covers_chain(const fzn_revocation_store_t *store,
+                                  const fzn_chain_hop_t *hops, size_t hop_count,
+                                  const uint8_t capability[FZN_CAP_ID_LEN],
+                                  uint8_t revoked[FZN_CHAIN_MAX_HOPS]);
 
 #endif /* FZN_REVOCATION_H */

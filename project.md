@@ -5385,10 +5385,14 @@ hand-written transport and situ is generating most of it (§7a). Steps 2, 4 and
    rather than a working set, and `FZN_ERR_STORE_FULL` is an alarm rather
    than a retry. §14 carries the growth as open.
 
-   Only the root revokes today. A grantor revoking what it granted is the
-   obvious extension and is deliberately not built: it would let a
-   compromised intermediate revoke its own descendants, which may be wanted
-   or may be the attack, and this document does not say.
+   **A grantor revokes its own descendants (2026-08-28)**, which this
+   paragraph used to record as deliberately not built on the grounds that
+   "this document does not say" whether it is wanted or is the attack. It
+   says now: the holder settled it in §13b, and §13c is the design. The
+   entitled issuers for a hop are the root and that hop's ancestors IN THE
+   CHAIN BEING VERIFIED -- a set `fzn_chain_verify` derives from the hops
+   it was handed and cannot be told wrong -- and admission takes an
+   `fzn_revocation_offer_t` carrying the issuer's own chain.
 
    **Minting and delegation are built too** (2026-08-14), which finishes the
    semantics half of step 3. `fzn_chain_mint` signs hop 0 as the root;
@@ -7522,10 +7526,19 @@ it, `fzn_revocation_covers` asks for it, and `fzn_chain_verify`'s call
 site passes the pinned root and names itself as the line that changes
 when grantors may revoke. Sec 14 carries the detail.
 
+**And the line changed on 2026-08-28**, one day later, which is the
+shortest a decision recorded here has ever waited. Keeping the issuer on
+the entry is what made it a change to one query -- `fzn_chain_verify`
+asks `fzn_revocation_covers_chain` about the whole chain and each entry's
+issuer is matched against the chain's own grantors. Sec 13c records what
+its own design got wrong.
+
 ## 13c. Bounding revocation admission, once grantors may revoke
 
 Commissioned after sec 13b's answers settled, against the half they left
-open. Not built; the shape is recorded because the reasoning is the
+open. **BUILT 2026-08-28** -- see *What building it changed* at the end of
+this section, which records the two things this design got wrong and the
+one it left out. The reasoning below is unchanged and is still the
 expensive part.
 
 ### The reframing that decides it
@@ -7625,6 +7638,142 @@ of: permanent, by design, unmitigated. And sec 13b's manifest is per
 issuer, so grantor-revocation multiplies issuers and makes completeness
 gating dearer -- sec 13b recorded "it survives answer 2" as a property
 of the manifest; from here it reads as a burden.
+
+### What building it changed, 2026-08-28
+
+The design above was implemented as written except in three places, and
+the first of them is a hole rather than a detail. This is the third time
+a design recorded here has been corrected by the attempt to implement it
+-- sec 13d's id and its flag-clearing rule were the first two -- and it
+is the third that was fail-open. **A design pass and a build pass are
+different instruments**, and the second one reads the first's prose the
+way an attacker reads a protocol.
+
+**THE RULE AS WRITTEN ADMITS ANYBODY WHO CAN COPY A CHAIN.** The
+recommendation says to admit a non-root revocation "exactly when its
+issuer presents a chain that verifies against the pinned root for the
+capability being withdrawn, whose last hop is `delegable`". Nothing in
+that sentence relates the CHAIN to the ISSUER. A chain is public -- it is
+what a peer presents to prove authority, so every host that has ever been
+talked to holds copies -- and a freshly generated keypair can sign a
+revocation naming itself as issuer and staple somebody else's delegable
+chain to it. Both stated conditions hold. The bound this section exists to
+impose would then cost an attacker one keypair, which is exactly what its
+own closing paragraph claims it stops: "makes spending it cost compromised
+delegable keys rather than generated keypairs."
+
+The fix is one comparison and it is in the sharp form of the rule already:
+`fzn_chain_delegate` would let a key grant only if that key IS the chain's
+last grantee. So admission checks that the verified chain's grantee is the
+record's issuer, and refuses FZN_CHAIN_ERR_CHAIN_INVALID otherwise. Found
+by writing the test for "somebody else's chain" rather than by re-reading
+the sentence.
+
+**THE DEPTH CEILING IS PART OF THE RULE AND THIS SECTION DOES NOT MENTION
+IT.** `fzn_chain_delegate` refuses to extend a chain already at
+FZN_CHAIN_MAX_HOPS, and the sharp form of the rule therefore refuses a
+revocation from a key at the end of a full one. It is not a technicality
+borrowed for symmetry: a key at the ceiling has no room for the hop that
+would make it somebody's grantor, so its revocations could never be
+honoured -- which is the SAME argument the `delegable` term rests on,
+applied to depth rather than to permission. Admission refuses with
+FZN_CHAIN_ERR_MALFORMED, as delegate does.
+
+**THE TWO QUOTA FIELDS WERE NOT BUILT.** The costs paragraph promises "16
+bytes once per store for two quota fields", and no other sentence here
+says what they would count or what they would refuse. Nothing was added,
+so a store is the same 96 bytes per entry and the same three fields it
+was. The recommendation stands without them -- what bounds admission is
+standing in the estate, not a counter -- and inventing a quota from a line
+in a cost table would have been building a mechanism ahead of its need.
+**Recorded as unbuilt rather than silently dropped**, because sec 14's
+sizing question is still open and whoever reopens it should know this was
+considered and left.
+
+**One ordering this section does not decide, decided in the build.** A
+chain may carry FZN_CHAIN_MAX_HOPS - 1 hops, so checking standing before
+the record's own signature would let one unsigned scrap of bytes with a
+long chain stapled to it buy seven signature verifications -- a
+receiver's CPU for the price of a datagram, which sec 4.4a's threat model
+is explicit about. The record's own signature is verified first and the
+walk sits below it; the root path is unaffected, since its check is a
+comparison and still happens above both.
+`chain/test/revocation_test.c` pins it by counting: a forged record with
+a three-hop chain must cost one verification, and moving the walk up
+makes it cost four.
+
+**What the verify side cost, as written.** The entitled set for hop `i`
+is `{fzn_hop_grantor(hops[j]) : j <= i}` -- the root included, because
+`fzn_chain_verify` has already pinned `hops[0]`'s grantor to it -- and
+the query is hoisted exactly as this section asks. One pass over the
+store places each entry once: find the smallest `j` whose grantor is that
+entry's issuer, and the entry applies to every hop from `j` onward. That
+is **O(R * hops)**, two bounded walks of the chain per entry, which is
+what the single-issuer loop it replaced already cost. The naive form --
+per hop, per ancestor, a full store scan -- is O(hops^2 * R).
+
+**SMALLEST `j`, NOT ANY `j`, and the two are a security difference rather
+than an optimisation.** Matching an entry against every grantor in the
+chain would let a key deep in one branch withdraw the ROOT's grant at hop
+0 -- an estate's newest leaf disconnecting its own parent, which is an
+escalation upwards and the opposite of "descendant". The same rule one
+level tighter says a key cannot withdraw the grant that made it, since
+its own hop's grantee is itself and its earliest appearance as a grantor
+is the hop after. `chain/test/chain_test.c` pins both over a three-hop
+chain, which is the shortest one where the difference is observable.
+
+**Where the code lives, and why it is not in `chain.c`.** The walk reads
+store entries, and `chain.h` records what a second predicate over that
+array cost once already: a heap overflow on the authorization path,
+because `chain.c` kept its own copy of "is this revoked?" and the two
+disagreed about a corrupt store. So `fzn_revocation_covers_chain` lives
+in `chain/revocation.c` beside `fzn_revocation_covers`, the two share one
+definition of "corrupt", and `chain.c` asks rather than scans. Its three
+answers are the sibling's three answers in the same order: a NULL store
+revokes nothing, a corrupt store revokes EVERY hop, and a question with
+no subject revokes nothing. That last pairing was reachable through
+`fzn_chain_verify` before and had no test at that seam; it has one now,
+because the rule moved into new code.
+
+**The three invariants are pinned by tests that fail when they are
+broken**, which is the only form in which an invisible property is worth
+recording:
+
+- **Revocation-blind.** Two hosts admit the same two offers -- the root's
+  withdrawal from a grantor, and that grantor's own withdrawal from its
+  descendant -- in opposite orders, and the resulting stores are compared
+  as SETS. Passing the caller's store into the issuer's verification
+  leaves one store with one entry and the other with two.
+- **Clock-blind.** A grantor whose own grant expired long ago still
+  revokes. The magic value is asserted in the test rather than assumed:
+  verifying at `now = 0` refuses nothing only because FZN_NO_EXPIRY IS
+  ZERO, so the one `expires_at` that could satisfy `<= 0` is the one
+  `fzn_chain_verify`'s outer test has already excluded. If that constant
+  ever moved, admission would start expiring grants and a device would
+  quietly un-revoke itself.
+- **Not a cache.** The same record is offered twice, the second time with
+  a chain that does not entitle it, and must be refused although its
+  triple is sitting in the store. Moving the duplicate test above the
+  walk -- free, obviously correct -- makes the answer depend on whether
+  this host happened to hear the record before.
+
+**Fifteen mutations, each caught by a named check.** The two model-based
+harnesses were widened with the rule: `chain_fuzz.c` and
+`chain_guided.c` both re-derive the entitled set the NAIVE way, so the
+hoisted implementation is checked against the definition rather than
+against a second copy of itself. `chain_fuzz.c` also gained a generator
+case that names an ANCESTOR'S key as an issuer, and a floor on how often
+that decides something -- without one the widened branch was a term no
+input could decide, which is how the root pin escaped that file once
+already.
+
+**The API break.** `fzn_revocation_admit` and `fzn_revocation_merge` take
+an `fzn_revocation_offer_t` -- the record plus the issuer's opened chain
+-- rather than a bare record. `hop_count == 0` means root-issued and
+reproduces the old behaviour exactly, which is asserted rather than
+assumed. Merge takes an array of them because each member of a batch may
+be issued by a different key, and a batch of records with one chain
+beside it could only ever have carried one issuer's standing.
 
 ## 13d. The manifest design, and where it says stop
 
@@ -8503,6 +8652,16 @@ the header, not for declining to build.
   entry a store can hold. **That call site is the line that changes when
   grantor-revokes-descendant arrives**, and it says so. Grantor
   revocation is planned and is deliberately not built here.
+
+  **IT ARRIVED ON 2026-08-28 and that line has changed** -- see §13c's
+  *What building it changed*. `fzn_chain_verify` asks
+  `fzn_revocation_covers_chain` about the whole chain now, and an entry's
+  issuer is matched against the chain's own grantors rather than against
+  the pinned root. The paragraph above is kept because its reasoning is
+  what decided the shape: an entry keeps its ISSUER precisely so that this
+  widening was a change to one query rather than to the store's model.
+  Note the sentence "`admit` refuses any other issuer" is no longer true
+  and was already only true of root-issued offers.
 
   The API break is real and is taken rather than deferred: `covers` grew
   a parameter, and every caller in the tree was updated. Two tests carry

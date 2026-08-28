@@ -190,6 +190,7 @@ struct coverage {
 	unsigned long shape_ok;
 	unsigned long shape_refused;
 	unsigned long near_miss;
+	unsigned long ancestor_bite;
 };
 
 /* WHOSE SIGNATURE IS GOOD, decided by the generator and consulted by the
@@ -247,11 +248,32 @@ static int ought_to_verify(const fzn_chain_hop_t *hops, size_t n, const uint8_t 
 				return 0;
 		}
 		for (size_t r = 0; r < nrevs; r++) {
-			/* The issuer too: an entry is a statement by somebody,
-			 * and one root's revocation does not answer for
-			 * another's realm. */
-			if (memcmp(revs[r].issuer, root, FZN_PUBKEY_LEN) == 0 &&
-			    memcmp(revs[r].capability, fzn_hop_capability(hops[i]),
+			int entitled = 0;
+
+			/* WHO MAY WITHDRAW THIS HOP, AND THE NAIVE FORM IS THE
+			 * POINT. The entitled issuers for hop `i` are the root
+			 * and hop `i`'s ancestors in this chain, and the root
+			 * is `fzn_hop_grantor(hops[0])` -- the pin above has
+			 * already refused any chain where it is not. So the
+			 * whole rule is this quadratic walk.
+			 *
+			 * chain.c writes it HOISTED, one pass over the store
+			 * placing each entry once, because the naive form is
+			 * O(hops^2 * R) against a table that only grows. Two
+			 * shapes of one rule is exactly what a model is for:
+			 * if the hoisting ever stopped agreeing with the
+			 * definition, this is what says so. */
+			for (size_t j = 0; j <= i; j++) {
+				if (memcmp(revs[r].issuer, fzn_hop_grantor(hops[j]),
+				           FZN_PUBKEY_LEN) == 0) {
+					entitled = 1;
+					break;
+				}
+			}
+			if (!entitled)
+				continue;
+
+			if (memcmp(revs[r].capability, fzn_hop_capability(hops[i]),
 			           FZN_CAP_ID_LEN) == 0 &&
 			    memcmp(revs[r].grantee, fzn_hop_grantee(hops[i]), FZN_PUBKEY_LEN) == 0)
 				return 0;
@@ -428,6 +450,10 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		 * three lengths could be cut to 1 unnoticed. */
 		uint8_t near = (pos + r < len) ? (uint8_t)(data[pos + r] & 0x03u)
 		                               : (uint8_t)(r & 0x03u);
+		/* Two more bits of the same byte, choosing WHO the entry says
+		 * withdrew it -- see the issuer block below. */
+		uint8_t who = (pos + r < len) ? (uint8_t)((data[pos + r] >> 2) & 0x03u)
+		                              : (uint8_t)((r >> 2) & 0x03u);
 
 		memset(&revs[r], 0, sizeof(revs[r]));
 
@@ -450,14 +476,67 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		 * changed at the far end -- and the "sometimes not" is what
 		 * makes the issuer comparison testable, on the same reasoning
 		 * the grantor of hop 0 above carries. Always naming the root
-		 * would put a term in the model that no input can decide. */
+		 * would put a term in the model that no input can decide.
+		 *
+		 * AND SOMETIMES AN ANCESTOR'S KEY, which is the case the whole
+		 * of grantor-revokes-descendant lives in and which this
+		 * generator could not produce until 2026-08-28. Grantees here
+		 * are `0x10 + i`, so a linked hop's grantor is `0x10 + (i-1)`;
+		 * naming one of those is naming a key that IS in the chain.
+		 * Without it the widened rule's whole branch was a term no
+		 * input could decide, and deleting it would have changed no
+		 * outcome in any number of cases -- which is precisely how the
+		 * root pin escaped this file once already.
+		 *
+		 * The near miss beside it is what decides that comparison's
+		 * LENGTH: an entry naming an ancestor's key in every byte but
+		 * the last must not bite. */
 		if ((data[7] >> (r % 8u)) & 1u)
 			expand(revs[r].issuer, FZN_PUBKEY_LEN, (uint8_t)(0xe0u + r));
 		else if (near == 3) {
 			copy_near(revs[r].issuer, root, FZN_PUBKEY_LEN);
 			cov->near_miss++;
+		} else if (who == 1)
+			expand(revs[r].issuer, FZN_PUBKEY_LEN,
+			       (uint8_t)(0x10u + (r % MAX_HOPS)));
+		else if (who == 2) {
+			expand_near(revs[r].issuer, FZN_PUBKEY_LEN,
+			            (uint8_t)(0x10u + (r % MAX_HOPS)));
+			cov->near_miss++;
 		} else
 			memcpy(revs[r].issuer, root, FZN_PUBKEY_LEN);
+	}
+
+	/* DID THE WIDENED RULE ACTUALLY DECIDE ANYTHING? Counted from the
+	 * generated inputs rather than from the verdict, because the verdict
+	 * cannot say WHY a chain was refused -- an expired hop and an
+	 * ancestor's revocation are the same `err != FZN_CHAIN_OK` from out
+	 * here. An entry that is not the root's, whose issuer IS a grantor of
+	 * this chain, and which names a hop at or after that grantor's, is one
+	 * the old root-only rule would have ignored and this one honours.
+	 *
+	 * It is floored below, for the reason `near_miss` is: a generator that
+	 * stopped producing them would report the same accept and refuse
+	 * counts, and the branch could be deleted in silence. */
+	if (n <= MAX_HOPS) {
+		for (size_t r = 0; r < nrevs; r++) {
+			if (memcmp(revs[r].issuer, root, FZN_PUBKEY_LEN) == 0)
+				continue;
+			for (size_t j = 0; j < n; j++) {
+				if (memcmp(revs[r].issuer, fzn_hop_grantor(hops[j]),
+				           FZN_PUBKEY_LEN) != 0)
+					continue;
+				for (size_t i = j; i < n; i++) {
+					if (memcmp(revs[r].capability,
+					           fzn_hop_capability(hops[i]),
+					           FZN_CAP_ID_LEN) == 0 &&
+					    memcmp(revs[r].grantee, fzn_hop_grantee(hops[i]),
+					           FZN_PUBKEY_LEN) == 0)
+						cov->ancestor_bite++;
+				}
+				break;
+			}
+		}
 	}
 
 	memset(&out, 0xab, sizeof(out));
@@ -615,7 +694,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 #ifdef FZN_LIBFUZZER
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
-	struct coverage cov = { 0, 0, 0, 0, 0, 0 };
+	struct coverage cov = { 0, 0, 0, 0, 0, 0, 0 };
 
 	(void)fuzz_one(data, size, &cov);
 	return 0;
@@ -654,7 +733,7 @@ static unsigned long floor_of(unsigned long cases, unsigned long per)
 int main(int argc, char **argv)
 {
 	unsigned long cases = FUZZ_DEFAULT_CASES;
-	struct coverage cov = { 0, 0, 0, 0, 0, 0 };
+	struct coverage cov = { 0, 0, 0, 0, 0, 0, 0 };
 	uint8_t buf[128];
 
 	if (argc > 1) {
@@ -707,21 +786,22 @@ int main(int argc, char **argv)
 	if (cov.verified_ok < floor_of(cases, 200u) || cov.refused < floor_of(cases, 200u) ||
 	    cov.delegated_ok < floor_of(cases, 1000u) ||
 	    cov.shape_ok < floor_of(cases, 200u) || cov.shape_refused < floor_of(cases, 1000u) ||
-	    cov.near_miss < floor_of(cases, 200u)) {
+	    cov.near_miss < floor_of(cases, 200u) ||
+	    cov.ancestor_bite < floor_of(cases, 1000u)) {
 		printf("chain_fuzz: REACHED TOO LITTLE -- %lu accepted, %lu refused, "
 		       "%lu delegated, %lu shapes accepted, %lu shapes refused, "
-		       "%lu near misses in %lu cases. "
+		       "%lu near misses, %lu ancestor revocations in %lu cases. "
 		       "All must happen or this run proves less than it says.\n",
 		       cov.verified_ok, cov.refused, cov.delegated_ok, cov.shape_ok,
-		       cov.shape_refused, cov.near_miss, cases);
+		       cov.shape_refused, cov.near_miss, cov.ancestor_bite, cases);
 		return 1;
 	}
 
 	printf("chain_fuzz: %lu cases, %lu accepted, %lu refused, %lu delegated, "
 	       "%lu shapes accepted, %lu shapes refused, %lu near misses, "
-	       "no invariant broken\n",
+	       "%lu ancestor revocations, no invariant broken\n",
 	       cases, cov.verified_ok, cov.refused, cov.delegated_ok, cov.shape_ok,
-	       cov.shape_refused, cov.near_miss);
+	       cov.shape_refused, cov.near_miss, cov.ancestor_bite);
 	return 0;
 }
 #endif

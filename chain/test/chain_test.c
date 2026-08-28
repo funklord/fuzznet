@@ -807,6 +807,272 @@ static void test_revocation_is_per_issuer(void)
 	      "the pinned root's own revocation did not bite");
 }
 
+/* ---- grantor-revokes-descendant (2026-08-28) -------------------------- */
+
+/* A revocation entry, named by seed. Every field is set, because an entry
+ * left zero matches whatever a fixture's zeroed key happens to be and goes on
+ * matching until somebody changes it -- an agreement is not a check. */
+static void entry(fzn_revocation_t *rev, uint8_t issuer_seed, uint8_t cap_seed,
+                  uint8_t grantee_seed)
+{
+	memset(rev, 0, sizeof(*rev));
+	key(rev->issuer, issuer_seed);
+	cap_id(rev->capability, cap_seed);
+	key(rev->grantee, grantee_seed);
+}
+
+/* `run` for a chain the fixture does not hold, which the deeper cases below
+ * need: the fixture is two hops and the entitled set only becomes interesting
+ * at three, where a key can be an ancestor of one hop and not of another. */
+static fzn_chain_err_t run_chain(struct fixture *f, const fzn_chain_hop_t *hops, size_t n,
+                                 const fzn_revocation_t *revs, size_t nrevs)
+{
+	fzn_revocation_store_t store;
+
+	store.entries = (fzn_revocation_t *)revs;
+	store.capacity = nrevs;
+	store.used = nrevs;
+	return fzn_chain_verify(hops, n, f->root, f->cap, 2000, &f->sign,
+	                        revs ? &store : NULL, &f->out);
+}
+
+/* THE WIDENED RULE, in its simplest form. project.md sec 13b records the
+ * copyright holder's answer of 2026-08-27 and sec 13c the design: a hop is
+ * revoked by the pinned root OR by any of that hop's ancestors in the chain
+ * being verified.
+ *
+ * The negative legs are what make it a rule rather than a hole. A key that
+ * appears nowhere in this chain has no standing here whatever it has
+ * elsewhere, and the chain's own LEAF -- the party being granted to -- is
+ * not a grantor of anything and so cannot withdraw its own grant. */
+static void test_a_grantor_revokes_its_own_descendant(void)
+{
+	struct fixture f;
+	fzn_revocation_t rev;
+
+	fixture_init(&f);
+	CHECK(run(&f, 2000, NULL, 0) == FZN_CHAIN_OK,
+	      "the control fails, so nothing below proves anything");
+
+	/* Hop 0's grantee is key 1, which is hop 1's grantor -- an ancestor
+	 * of hop 1 and entitled to withdraw what it granted. */
+	entry(&rev, 1, 0xc0, 2);
+	CHECK(run(&f, 2000, &rev, 1) == FZN_CHAIN_ERR_REVOKED,
+	      "a grantor could not withdraw the capability from its own descendant");
+
+	/* The leaf. Key 2 receives hop 1 and grants nothing, so it is in the
+	 * chain without being anybody's ancestor. */
+	entry(&rev, 2, 0xc0, 2);
+	CHECK(run(&f, 2000, &rev, 1) == FZN_CHAIN_OK,
+	      "the chain's own leaf revoked a grant it is not an ancestor of");
+
+	/* And a key with no part in this chain at all, which is the case the
+	 * pinned-root era already refused and must go on refusing. */
+	entry(&rev, 7, 0xc0, 2);
+	CHECK(run(&f, 2000, &rev, 1) == FZN_CHAIN_OK,
+	      "a stranger to this chain revoked a hop of it");
+}
+
+/* THE SMALLEST j, NOT ANY j, AND THIS IS THE CASE THAT SEPARATES THEM.
+ *
+ * The entitled issuers for hop `i` are `{grantor(hops[j]) : j <= i}`, so a
+ * key that grants at hop `j` is an ancestor of everything from `j` on and of
+ * NOTHING BEFORE IT. Matching an entry against every grantor in the chain,
+ * rather than against the ones at or before the hop, would let a key deep in
+ * one branch withdraw the root's own grant at hop 0 -- an estate's newest
+ * leaf disconnecting its own parent, which is a privilege escalation
+ * upwards and exactly what "descendant" excludes.
+ *
+ * A three-hop chain is the shortest one where the difference is observable:
+ * root -> A -> B -> C, so B is an ancestor of hop 2 and not of hop 0. */
+static void test_an_ancestor_revokes_forward_and_never_backward(void)
+{
+	struct fixture f;
+	uint8_t bytes[3][FZN_HOP_LEN];
+	fzn_chain_hop_t hops[3];
+	fzn_revocation_t rev;
+
+	fixture_init(&f);
+	if (mint_hop(&f, bytes[0], 0, 1, 0xc0, 1000, FZN_NO_EXPIRY, 1) != FZN_CHAIN_OK ||
+	    mint_hop(&f, bytes[1], 1, 2, 0xc0, 1000, FZN_NO_EXPIRY, 1) != FZN_CHAIN_OK ||
+	    mint_hop(&f, bytes[2], 2, 3, 0xc0, 1000, FZN_NO_EXPIRY, 0) != FZN_CHAIN_OK) {
+		printf("  FAIL: the fixture could not mint a three-hop chain\n");
+		failures++;
+		return;
+	}
+	for (size_t i = 0; i < 3; i++) {
+		if (fzn_hop_open(bytes[i], FZN_HOP_LEN, &hops[i]) != FZN_CHAIN_OK) {
+			printf("  FAIL: the fixture built a hop that will not open\n");
+			failures++;
+			return;
+		}
+	}
+	stub_reset(&f.stub);
+
+	CHECK(run_chain(&f, hops, 3, NULL, 0) == FZN_CHAIN_OK,
+	      "the three-hop control fails, so nothing below proves anything");
+
+	/* FORWARD. A, two levels above the leaf, reaches it. */
+	entry(&rev, 1, 0xc0, 3);
+	CHECK(run_chain(&f, hops, 3, &rev, 1) == FZN_CHAIN_ERR_REVOKED,
+	      "an ancestor two hops up could not withdraw from the leaf");
+
+	/* And the hop immediately below A, which is the ordinary case. */
+	entry(&rev, 1, 0xc0, 2);
+	CHECK(run_chain(&f, hops, 3, &rev, 1) == FZN_CHAIN_ERR_REVOKED,
+	      "a grantor could not withdraw from the key it granted to");
+
+	/* B reaches the leaf as well, being its immediate grantor. */
+	entry(&rev, 2, 0xc0, 3);
+	CHECK(run_chain(&f, hops, 3, &rev, 1) == FZN_CHAIN_ERR_REVOKED,
+	      "the leaf's own grantor could not withdraw from it");
+
+	/* BACKWARD, AND THIS IS THE ONE. B grants at hop 2, so hop 0 -- whose
+	 * grantee is A -- is not B's to touch. */
+	entry(&rev, 2, 0xc0, 1);
+	CHECK(run_chain(&f, hops, 3, &rev, 1) == FZN_CHAIN_OK,
+	      "a key that grants at hop 2 withdrew the ROOT's grant at hop 0, so the "
+	      "entitled set is every grantor in the chain rather than the ancestors "
+	      "of the hop being judged");
+
+	/* The same shape one level tighter: A grants at hop 1, and hop 0's
+	 * grantee is A itself. A key cannot withdraw the grant that made it. */
+	entry(&rev, 1, 0xc0, 1);
+	CHECK(run_chain(&f, hops, 3, &rev, 1) == FZN_CHAIN_OK,
+	      "a key withdrew the grant it was itself given, so its own hop is inside "
+	      "its entitled set");
+
+	/* And the leaf, which grants nothing anywhere. */
+	entry(&rev, 3, 0xc0, 1);
+	CHECK(run_chain(&f, hops, 3, &rev, 1) == FZN_CHAIN_OK,
+	      "the leaf of a three-hop chain revoked a hop above it");
+}
+
+/* A STORE THAT CANNOT BE READ REFUSES THE WHOLE CHAIN, and this seam was
+ * untested until the query moved.
+ *
+ * `fzn_revocation_covers` has answered 1 for a corrupt store since
+ * 2026-08-27 -- entries that cannot be scanned may hold the answer, and
+ * denying is the safe reply to an authorization question -- and chain.h
+ * records the heap overflow that reaching one entry past the array cost.
+ * Nothing in this file ever drove `fzn_chain_verify` with such a store,
+ * because the refusal arrived through a function somebody else's suite
+ * tested. `fzn_revocation_covers_chain` is a second reader of that rule now,
+ * so it gets asked here.
+ *
+ * The entry names nothing in this chain, which is what makes the control
+ * verify and the refusal attributable to the store's shape rather than to
+ * its contents. */
+static void test_a_corrupt_store_refuses_the_whole_chain(void)
+{
+	struct fixture f;
+	fzn_revocation_t revs[1];
+	fzn_revocation_store_t store;
+
+	fixture_init(&f);
+	entry(&revs[0], 7, 0xff, 9);
+	store.entries = revs;
+	store.capacity = 1;
+	store.used = 1;
+	CHECK(fzn_chain_verify(f.hops, 2, f.root, f.cap, 2000, &f.sign, &store, &f.out) ==
+	              FZN_CHAIN_OK,
+	      "the control fails, so the two refusals below prove nothing");
+
+	/* A count past the array: entries this loop cannot reach. */
+	store.used = 2;
+	CHECK(fzn_chain_verify(f.hops, 2, f.root, f.cap, 2000, &f.sign, &store, &f.out) ==
+	              FZN_CHAIN_ERR_REVOKED,
+	      "a store whose count exceeds its array was scanned rather than denied, "
+	      "which is a read past the end on the authorization path");
+
+	/* A count with no array at all. */
+	store.entries = NULL;
+	store.capacity = 4;
+	store.used = 1;
+	CHECK(fzn_chain_verify(f.hops, 2, f.root, f.cap, 2000, &f.sign, &store, &f.out) ==
+	              FZN_CHAIN_ERR_REVOKED,
+	      "a store claiming entries it does not have was read rather than denied");
+}
+
+/* THE NEW KEY COMPARISON, AND ITS LENGTH. project.md sec 11: a key
+ * comparison is only tested by inputs that agree on a prefix and differ
+ * after it, and nothing produces those by accident.
+ *
+ * The comparison this pins is an entry's issuer against a hop's GRANTOR,
+ * which did not exist before 2026-08-28. Truncating it fails in the loud
+ * direction: a short read makes an entry from a key that merely resembles
+ * an ancestor bite a chain nobody revoked.
+ *
+ * The fixture property is asserted first, because a near miss that is not
+ * one turns the whole case into a second copy of the control. */
+static void test_the_grantor_comparison_reads_the_whole_key(void)
+{
+	struct fixture f;
+	uint8_t exact[FZN_PUBKEY_LEN], near[FZN_PUBKEY_LEN];
+	fzn_revocation_t rev;
+
+	key(exact, 1);
+	key_near(near, 1);
+	CHECK(memcmp(exact, near, FZN_PUBKEY_LEN - 1u) == 0,
+	      "the near miss does not share a prefix with the key it near-misses, so it "
+	      "decides no comparison length");
+	CHECK(exact[FZN_PUBKEY_LEN - 1u] != near[FZN_PUBKEY_LEN - 1u],
+	      "the near miss is the same value, so it is a second copy of the control");
+
+	fixture_init(&f);
+	entry(&rev, 1, 0xc0, 2);
+	CHECK(run(&f, 2000, &rev, 1) == FZN_CHAIN_ERR_REVOKED,
+	      "grantor: the control fails, so the refusal below proves nothing");
+
+	memcpy(rev.issuer, near, FZN_PUBKEY_LEN);
+	CHECK(run(&f, 2000, &rev, 1) == FZN_CHAIN_OK,
+	      "an entry whose issuer matches an ancestor only in its first byte "
+	      "revoked a chain that ancestor never touched");
+}
+
+/* WHEN THE REVOKING GRANTOR IS ITSELF LATER REVOKED, ITS REVOCATION STANDS.
+ *
+ * project.md sec 13c settles this and gives the attack that decides it: if a
+ * revocation fell with its issuer, adding an entry to a store would REMOVE a
+ * derivable fact -- steal a host, delegate onward, get caught, and the
+ * root's clean-up revocation of the parent would RESCUE the stolen
+ * descendant. A grant's validity is continuously re-evaluated; a revocation
+ * is a withdrawal already performed, by a party entitled at the time, and
+ * nothing re-evaluates it.
+ *
+ * The two entries name DIFFERENT capabilities on purpose. Withdrawing the
+ * chain's own capability from key 1 would kill this chain at hop 0 whatever
+ * the rule, and a case that both entries satisfy separates nothing. Here the
+ * root has withdrawn something else from key 1, so key 1 is a revoked key
+ * whose fall cannot be what refuses the chain. */
+static void test_a_revoked_grantors_revocation_still_stands(void)
+{
+	struct fixture f;
+	fzn_revocation_t revs[2], reversed[2];
+
+	fixture_init(&f);
+	entry(&revs[0], 1, 0xc0, 2); /* key 1 withdraws the chain's capability */
+	entry(&revs[1], 0, 0xff, 1); /* the root withdraws something else from key 1 */
+
+	CHECK(run(&f, 2000, &revs[1], 1) == FZN_CHAIN_OK,
+	      "the root's withdrawal of an unrelated capability killed this chain, so "
+	      "the case below cannot say which entry refused it");
+	CHECK(run(&f, 2000, &revs[0], 1) == FZN_CHAIN_ERR_REVOKED,
+	      "the revoker's own entry does not bite, so nothing below proves anything");
+
+	CHECK(run(&f, 2000, revs, 2) == FZN_CHAIN_ERR_REVOKED,
+	      "a grantor's revocation stopped being honoured once the grantor was "
+	      "itself revoked, so learning one more fact UN-REVOKED a device");
+
+	/* And the store is a set: the same two facts in the other order are
+	 * the same two facts. */
+	reversed[0] = revs[1];
+	reversed[1] = revs[0];
+	CHECK(run(&f, 2000, reversed, 2) == FZN_CHAIN_ERR_REVOKED,
+	      "the verdict depends on the order the store happens to hold two entries "
+	      "in, so it is not a set");
+}
+
 /* EVERY IDENTITY COMPARISON READS THE WHOLE VALUE, and until this nothing
  * in the tree could tell whether one did.
  *
@@ -1768,6 +2034,11 @@ int main(void)
 	test_revocation_is_per_capability();
 	test_revocation_is_per_grantee();
 	test_revocation_is_per_issuer();
+	test_a_grantor_revokes_its_own_descendant();
+	test_an_ancestor_revokes_forward_and_never_backward();
+	test_a_corrupt_store_refuses_the_whole_chain();
+	test_the_grantor_comparison_reads_the_whole_key();
+	test_a_revoked_grantors_revocation_still_stands();
 	test_a_comparison_reads_the_whole_value();
 	test_a_bad_signature_is_refused();
 	test_delegation_needs_permission_not_just_possession();
