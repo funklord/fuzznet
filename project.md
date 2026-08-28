@@ -9782,6 +9782,27 @@ a refusal, or a function whose whole job is forgetting, it is load-bearing
 and there should be a test naming it. The four here are exactly the second
 kind and each has one.
 
+**RE-DERIVED A THIRD TIME, FROM `git ls-files`, AND THE NUMBERS NOW
+RECONCILE.** fuzzypickles found their own population was also wrong -- a glob
+under a directory they had chosen by hand, 193 calls rather than 190 -- and
+their rule is the operational half neither of us had: **derive the file set
+from the tree, never name any part of it.**
+
+Applied here, with every exclusion visible instead of assumed:
+
+    38   fzn_wipe calls in 9 tracked files, vendored excluded
+    -2   fzn_wipe's own declaration and definition
+    -4   in constant_time/test/secret_flow_test.c, a harness rather than a guard
+    ---
+    32   library guards, which is the set classified above
+
+**The re-derivation did not change the conclusion, and that is luck rather
+than method** -- the same thing fuzzypickles said about their own survival.
+The classification had already been corrected by adding `wire/seal.c`; had
+that file been the one this third derivation surfaced instead, the earlier
+count would have been quoted for a week. A population that turns out not to
+have mattered is not evidence that populations do not matter.
+
 **AND THE SWEEP ITSELF MISSED TWO, WHICH IS THE SHARPER FINDING.** It said
 "every `fzn_wipe` in the library" and iterated **a hand-written list of five
 files**. There are 33 wipes in seven. The two skipped were
