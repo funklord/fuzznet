@@ -8299,6 +8299,118 @@ restores has E's costs and today's guarantees, silently, and this
 library cannot detect it. That is an argument for saying so loudly in
 the header, not for declining to build.
 
+## 13f. What two days of this taught about method
+
+Folded rather than accumulated. The individual findings are in the
+sections that produced them; this is what survives paraphrase.
+
+### A design pass reads its own prose charitably; a build reads it as an attacker
+
+**Four designs recorded here were wrong, and all four were found by
+BUILDING them, none by reviewing them.**
+
+- The **sequenced revocation stream**, which two independent passes
+  converged on and which the holder's answer killed -- with a replicated
+  key, two writers pick the same sequence and the loser vanishes by the
+  mechanism introduced to make vanishing detectable.
+- The **manifest id** as a hash of a revocation's signed bytes. The
+  store keeps three fields and discards `issued_at`, so a host cannot
+  recompute the id of a revocation it holds -- the one operation the
+  mechanism needs.
+- **Shape H**, a long-lived commitment kept as a pre-DH filter, called
+  mandatory by the pass that proposed it. It silently ends key
+  commitment, because the binding exists only while the AEAD key and
+  the commitment key are two halves of one hash.
+- **Sec 13c's admission rule**, whose prose related the offered chain to
+  nothing, so a fresh keypair could staple somebody else's chain and
+  revoke under it for the price of one keygen.
+
+The last is the sharpest, because **the same section's one-line summary
+was correct**: "admit if `fzn_chain_delegate` would let that key grant
+the thing it is withdrawing" implies the missing check; the careful
+paragraph did not. **The summary is not a lossy copy of the rule. They
+are two statements that can disagree, and the prose is what gets built
+from.** Where a design gives both, check them against each other -- the
+gap between them is where the exploit lived.
+
+**The practical consequence: prefer building a small thing to designing
+a large one.** A build pass has produced a correction every time it has
+been run here; a design pass has produced one that needed correcting
+every time. That is not an argument against designing, since three of
+the four errors above were caught only because a design existed to be
+checked. It is an argument against acting on a design that no build has
+read.
+
+### Almost every instrument error looked like diligence
+
+Roughly ten edits and probes in this run failed to apply -- a pattern
+matching a comment instead of code, a `sed` hitting a line number that
+had moved, a grep counting function names inside prose, a filter that
+excluded the line it was aimed at. **Not one produced an error. Every
+one produced a PASS**, because a mutation that does not apply leaves the
+code correct and the suite green.
+
+So the rule is not "be careful with sed". It is: **a probe must prove
+it changed something before its result means anything.** Assert the
+mutated text is present; check the binary's mtime moved; and where a
+script writes, assert before writing so a failed match writes nothing.
+Every one of the ten was caught that way and none by noticing a
+suspicious result.
+
+The same shape at three other scales, all found here: a check whose
+comment argued it was not vacuous while the include guard made it so; a
+count quoted three commits after it was measured; an inventory of test
+binaries that nothing compared to the binaries.
+
+### Two trees find each other's errors and their own poorly
+
+Measured rather than felt. In one day the consumer corrected this tree
+on its forward-secrecy claim, on four fields being three, on a scalar
+count bounded by one file, on a stale statement about their own hop
+version, and on the object-tag enum. This tree corrected theirs on an
+inverted polarity, a fail-open they had documented as a discipline, and
+a claim about our constant they had never read.
+
+**None was self-caught, and the mechanism is not diligence but
+position**: a claim about another tree decays silently because only its
+owner can see it go stale, and only a citation makes them look. So
+**cite the other tree's constant by name** -- it is the citation that
+produces the correction, and a name you have not read is not a
+citation.
+
+**And agreement between two entangled trees is the weakest evidence
+either can produce.** Both sides nearly adopted the other's answer to a
+branch where the correct answers differ structurally -- whether anything
+verified a record before it was stored. Corroboration doing the opposite
+of its job is what independent halves, written before exchange, exist
+to prevent.
+
+### Where a number came from is part of the number
+
+A figure is measured at the moment it is quoted or it is not measured.
+Two consequences that cost something here: a per-binary inventory was
+deleted rather than corrected, because an inventory nothing checks is
+wrong the moment anything is added and looks authoritative meanwhile;
+and every cross-tree count now says which VERSION it read, after both
+trees read the same enum correctly and got three against four, one at a
+pin and one at HEAD.
+
+### Prose survives a rewrite, so wrong prose survives it too
+
+The consumer's tree carried a documented reason that cited a sibling
+function and a stated discipline, applied it faithfully, and inverted a
+polarity -- while thirty lines above, the same file did the right thing
+with no comment at all. **A consolidation carries the documented one
+across and drops the undocumented one.**
+
+This library is the most heavily commented of the family, which makes
+that a specific risk rather than a general caution. In one day this
+document was found carrying a stale blocker telling the next session
+not to start unblocked work, a count superseded twice, an inventory
+nothing checked, a claim its owner had to correct, and a design record
+whose id could not work. **A reasons list is a list of what will be
+preserved whether or not it is right.**
+
 ## 14. Open, and named rather than left silent
 
 - **There is NO PER-MESSAGE FORWARD SECRECY, and until 2026-08-28 this
