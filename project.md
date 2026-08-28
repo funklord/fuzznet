@@ -10005,12 +10005,67 @@ was derived from were all closed today, and there is no fourth. An
 unreachable declaration is now a state this library has been swept for once,
 with an instrument shown able to detect one.
 
+### Chain delivery: the request half is not this library's either, and here is why
+
+Sec 19 left this as a design row and two later passes called it "not
+tonight's", which is a deferral rather than a decision. The strongest
+argument for it being fuzznet's was never tested, so it was tested:
+`record/sync.h` already establishes that **deciding what to ask for is in
+this library while sending is not** -- "the distribution layer's decision and
+nothing else. It does not send, does not schedule, does not encode."
+
+**The precedent does not transfer, and the reason is what `sync` actually
+does.** `fzn_sync_plan_fetch` earns its place by doing work with a security
+property: it builds the plan from THIS HOST'S OWN ENTRIES rather than from
+what the peer claims, so a peer naming phantom issuers cannot decide who gets
+asked about first -- a failure that file records having had -- and it is
+bounded by what `fzn_journal_anchor` deliberately followed.
+
+A chain request has neither property to establish. It is three fields this
+host already holds: the pinned root, the issuer whose standing is in
+question, and the capability its own policy says the kind requires. There is
+no derivation to get wrong, no peer input to distrust, and nothing to bound.
+
+**So it is a struct, and a struct nobody has asked for.** The split that
+settled realms, the prekey record and the sender ephemeral applies unchanged:
+delivery is the consumer's and the DERIVATION is the library's -- and here
+there is no derivation. A type invented on this side would be a wire format
+guessed before any consumer needed it, which is what `frame.situ`'s closed
+`fzn_kind` set exists to prevent one layer down.
+
+**What this library owes is already built**: `fzn_chain_pack` and
+`fzn_chain_open` carry a chain as a bounded container, `fzn_chain_verify`
+checks one against a pinned root, and `fzn_authz_decide` says when a host
+needs one and refuses to let absence read as not-required. A consumer that
+wants hops asks for them in its own vocabulary and hands the bytes to
+`fzn_chain_open`.
+
+**The constraint stands and is the part to carry forward**: whatever a
+consumer builds must leave `fzn_journal_anchor` the only way an issuer
+becomes followed. Requesting hops about an issuer is not adopting it -- the
+hops are verified against a root already pinned, and the issuer never enters
+the journal. `record/sync.h` guards that door for records; nothing must open
+a second one beside it.
+
+**Recorded as decided rather than deferred.** The row closes on this side
+with a reason, which is what it lacked -- and `working-practice.md` is
+explicit that a wrongly-deferred question is caught by nothing and looks
+exactly like diligence.
+
 ### What is still open
 
-**Chain delivery's transport**, narrowed from the sec 19 row: a receiver
-that must check a record's authorisation needs the hops, this library says
-how they are verified and not how they arrive, and the constraint recorded
-there is that it must not become an adoption path.
+**Nothing in this library, on the parity path.** The seven blocking rows
+fuzzypickles named are closed: the tag space by the split, content addressing,
+group messaging as `ratchet/`, prekey distribution and pinning, contact and
+peer management as `prekey/` plus `state/` plus a classifier deliberately not
+built and gated against, per-message forward secrecy, and its
+pre-authentication filter. Chain delivery, which was neither tree's row until
+measuring a match surfaced it, is decided above.
+
+What remains is the consumer's and the holder's: fuzzypickles has four items
+with their holder including two defects they traced and did not fix, and the
+transport by which hops reach a receiver is theirs to spell in their own
+vocabulary under the constraint above.
 
  What remains is the
 canonical builder -- which keys, in what order -- so that two peers cannot
