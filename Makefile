@@ -96,6 +96,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              chain/chain.c chain/revocation.c chain/manifest.c chain/authz.c \
              frame/freshness.c \
              blob/blob.c ratchet/ratchet.c prekey/prekey.c \
+             persist/persist.c \
              chunk/reassembly.c \
              chunk/split.c \
              wire/seal.c wire/relay.c \
@@ -110,6 +111,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              chain/chain.h chain/revocation.h chain/manifest.h chain/authz.h \
              frame/freshness.h \
              blob/blob.h ratchet/ratchet.h prekey/prekey.h \
+             persist/persist.h \
              chunk/reassembly.h \
              chunk/split.h \
              wire/seal.h wire/relay.h wire/bytes.h session/aead.h \
@@ -150,6 +152,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              chain/test/manifest_test.c chain/test/authz_test.c \
              blob/test/blob_test.c ratchet/test/ratchet_test.c \
              prekey/test/prekey_test.c prekey/test/prekey_fuzz.c \
+             persist/test/persist_test.c \
              session/test/agree_test.c \
              session/test/session_test.c \
              blob/test/blob_fuzz.c \
@@ -193,6 +196,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/blob/test/blob_test \
              $(BUILD_DIR)/ratchet/test/ratchet_test \
              $(BUILD_DIR)/prekey/test/prekey_test \
+             $(BUILD_DIR)/persist/test/persist_test \
              $(BUILD_DIR)/session/test/agree_test \
              $(BUILD_DIR)/session/test/session_test \
              $(BUILD_DIR)/frame/test/freshness_test \
@@ -238,6 +242,74 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/record/test/record_fuzz \
              $(BUILD_DIR)/blob/test/blob_fuzz \
              $(BUILD_DIR)/prekey/test/prekey_fuzz
+
+# ---------------------------------------------------------------------------
+# SUBSYSTEMS: detected, overridable, and loud about which.
+#
+# The holder's shape, 2026-08-29: like a kernel or an embedded build --
+# detect where detection is possible, and always leave a manual setting,
+# "as it cannot always be known". So each subsystem below is TRI-STATE:
+#
+#     auto   probe, and build it if the probe passes
+#     1      build it, and FAIL THE BUILD if it cannot be built
+#     0      do not build it
+#
+# FORCED-ON-BUT-UNAVAILABLE IS AN ERROR RATHER THAN A SKIP, which is the
+# half worth stating. Somebody who wrote FZN_PERSIST_FILE=1 asked for a
+# subsystem by name; quietly not building it is the vacuous pass wearing a
+# build flag, and on an embedded target it is the difference between "no
+# filesystem backend, as configured" and "no filesystem backend, and nobody
+# noticed". `analyze`, `ctcheck` and the Monocypher bindings already skip
+# loudly for the same reason; this makes the third state explicit.
+#
+# WHAT IS NEVER OPTIONAL. `persist/persist.c` is the format and the contract
+# -- it allocates nothing and does no I/O, so there is no target that cannot
+# have it, and a consumer needs the pack functions whether or not it uses
+# our backend. Only the backend is a subsystem.
+FZN_PERSIST_FILE ?= auto
+
+# The probe: does this toolchain have the POSIX the backend uses? Compiled
+# rather than guessed from a platform name, because a name is a claim about
+# a toolchain and this is a question about one.
+FZN_PROBE_POSIX := $(shell printf '%s\n' '#define _POSIX_C_SOURCE 200809L' \
+                    '#include <fcntl.h>' '#include <unistd.h>' \
+                    'int main(void){int f=open("/dev/null",O_RDONLY);fsync(f);return close(f);}' \
+                    | $(CC) -x c - -o /dev/null 2>/dev/null && echo yes || echo no)
+
+ifeq ($(FZN_PERSIST_FILE),auto)
+ifeq ($(FZN_PROBE_POSIX),yes)
+PERSIST_FILE_ON := 1
+else
+PERSIST_FILE_SKIP := no POSIX file API was detected. Set FZN_PERSIST_FILE=1 to insist.
+endif
+else ifeq ($(FZN_PERSIST_FILE),1)
+ifeq ($(FZN_PROBE_POSIX),yes)
+PERSIST_FILE_ON := 1
+else
+$(error FZN_PERSIST_FILE=1 was asked for and no POSIX file API was detected. \
+        Set FZN_PERSIST_FILE=0 to build without it, or auto to let the probe decide)
+endif
+else ifeq ($(FZN_PERSIST_FILE),0)
+PERSIST_FILE_SKIP := FZN_PERSIST_FILE=0.
+else
+$(error FZN_PERSIST_FILE must be auto, 1 or 0 -- got "$(FZN_PERSIST_FILE)")
+endif
+
+# Named OUTSIDE the conditional, for the reason MONO_SRCS is: `make style`
+# compares the source lists against what is in the tree, and a list that
+# empties itself when a subsystem is off makes the gate report two real
+# files as unlisted. A false finding in a gate is worse than no finding.
+PERSIST_FILE_SRCS := persist/persist_file.c
+PERSIST_FILE_HDRS := persist/persist_file.h
+PERSIST_FILE_TSRC := persist/test/persist_file_test.c
+
+ifdef PERSIST_FILE_ON
+CPPFLAGS  += -DFZN_PERSIST_FILE_ON
+SRCS      += $(PERSIST_FILE_SRCS)
+HDRS      += $(PERSIST_FILE_HDRS)
+TEST_SRCS += $(PERSIST_FILE_TSRC)
+TEST_BINS += $(BUILD_DIR)/persist/test/persist_file_test
+endif
 
 # The Monocypher binding, built against the VENDORED submodule by default.
 #
@@ -742,6 +814,27 @@ $(BUILD_DIR)/prekey/test/prekey_fuzz: $(BUILD_DIR)/prekey/test/prekey_fuzz.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# persist/ links the four types whose loss a restart must not cause, which is
+# what its contract is about. No I/O here -- persist.c is the format.
+PERSIST_OBJS := $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/trust/trust.o \
+                $(BUILD_DIR)/session/agree.o $(BUILD_DIR)/prekey/prekey.o \
+                $(BUILD_DIR)/ratchet/ratchet.o \
+                $(BUILD_DIR)/constant_time/constant_time.o
+
+$(BUILD_DIR)/persist/test/persist_test: $(BUILD_DIR)/persist/test/persist_test.o \
+                                         $(PERSIST_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# The backend's own test, built only when the backend is. It runs in a
+# directory it makes and removes, and asserts it left nothing -- a cleanup
+# nobody counts is one that silently stops working.
+$(BUILD_DIR)/persist/test/persist_file_test: \
+        $(BUILD_DIR)/persist/test/persist_file_test.o \
+        $(BUILD_DIR)/persist/persist_file.o $(PERSIST_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # prekey/ reaches trust/, which is the point rather than an accident: the
 # record and the act of pinning it are one feature, and a record with no
 # pinning act is a blob nobody adopts.
@@ -1079,6 +1172,14 @@ runtests: $(TEST_BINS)
 	@if [ -n "$(MONO_SKIP)" ]; then \
 		echo "test: the Monocypher bindings were NOT built, so their tests did"; \
 		echo "test: not run -- $(MONO_SKIP)"; \
+	fi
+	@# AND WHICH SUBSYSTEMS ARE OFF, for the same reason: a subsystem that
+	@# is absent and one that was never asked for look identical in a green
+	@# run. The reason is carried, because "off" and "you have no POSIX" are
+	@# different problems with different fixes.
+	@if [ -n "$(PERSIST_FILE_SKIP)" ]; then \
+		echo "test: the file-backed persist backend was NOT built, so its tests"; \
+		echo "test: did not run -- $(PERSIST_FILE_SKIP)"; \
 	fi
 
 CASES ?= 200000
@@ -1799,6 +1900,11 @@ installcheck: $(HDRS) $(SRCS) $(OBJS) tool/consumer_check.c
 	@# below cannot: they hand the compiler Monocypher, so a core source
 	@# that included it would compile there and be found by nobody.
 	@echo "installcheck: the core alone, with no Monocypher anywhere"
+	@# NO SUBSYSTEM DEFINES ON THIS ARM. It compiles CORE_SRCS, which is
+	@# frozen before any subsystem can append to it -- so claiming a
+	@# subsystem here would promise a symbol this arm does not link, which
+	@# is what it did for one build until the linker said so. The core arm
+	@# is about the core.
 	@$(CC) $(CFLAGS) -DFZN_CONSUMER_INSTALLED \
 	       -I$(BUILD_DIR)/installcheck/usr/include \
 	       -o $(BUILD_DIR)/installcheck/consumer_core \
@@ -1859,13 +1965,14 @@ installcheck: $(HDRS) $(SRCS) $(OBJS) tool/consumer_check.c
 		exit 1; \
 	fi
 	@echo "installcheck: against the installed headers"
-	@$(CC) $(CFLAGS) -DFZN_CONSUMER_INSTALLED \
+	@$(CC) $(CFLAGS) $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) -DFZN_CONSUMER_INSTALLED \
 	       -I$(BUILD_DIR)/installcheck/usr/include \
 	       -o $(BUILD_DIR)/installcheck/consumer_installed \
 	       -Iwire/generated $(MONO_CONSUMER) tool/consumer_check.c $(SRCS) $(GEN_SRCS)
 	@$(BUILD_DIR)/installcheck/consumer_installed
 	@echo "installcheck: against the source tree, from another directory"
-	@cd $(BUILD_DIR)/installcheck && $(CC) $(CFLAGS) -I$(CURDIR) \
+	@cd $(BUILD_DIR)/installcheck && $(CC) $(CFLAGS) \
+	       $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) -I$(CURDIR) \
 	       -I$(CURDIR)/wire/generated \
 	       -o consumer_source $(CURDIR)/tool/consumer_check.c \
 	       $(patsubst %,$(CURDIR)/%,$(SRCS)) \

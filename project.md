@@ -10198,6 +10198,121 @@ is the SENDER's and a sender can always re-handshake; but it needs the
 ephemeral public key on the wire, and this library has no handshake message
 to carry it. Raised rather than assumed.
 
+## 21. Persistence: the contract, the seam, and a working default, 2026-08-29
+
+The holder asked where the no-I/O and no-allocation rules came from, and the
+two turned out to have very different standing.
+
+**The no-transport rule is a measured finding.** Sec 2 carries a table of
+three consumers whose local hop differs in encoding, transport and
+authentication, and concludes that "the obvious shape of a shared protocol
+library is the shape at least one consumer cannot adopt". That is a finding
+with its measurement attached.
+
+**The no-allocation rule was never decided.** Searched for: every occurrence
+in this document asserts it in passing -- "because nothing here allocates" --
+as though somebody had settled it. The one decision-shaped hit is situ's
+`no allocation, ever`, which is SITU's constraint, situ being a code
+generator for embedded targets. It was inherited and then quoted as though
+weighed. That is `working-practice.md`'s own warning arriving here: a rule
+written under one configuration may never have been tested against the
+question it is actually answering.
+
+**And the library was never pure anyway.** `local/peer_linux.c` calls
+`getsockopt(SO_PEERCRED)` and reads `/proc/<pid>/status`. One end has always
+been attached, and nobody minded.
+
+### What the strictness was costing
+
+Nine caller-owned types are lost on a restart and **nothing said which of
+them must not be.** Losing `fzn_trust_t` means a host comes back with no
+anchor and adopts whatever root it is next told about -- the whole of
+trust-on-first-use, gone, with no error anywhere. That gap existed BECAUSE
+storage was out of scope: nobody owned the contract. **Scope is not the same
+as silence.** A library may decline to write a file and still owe a statement
+of what belongs in one.
+
+### The holder's shape
+
+Allocation and file-writing confined to named subsystems, each shipping a
+working default, each pluggable, each disableable -- and a manual override
+because "it cannot always be known". Kernel-shaped rather than absolute.
+
+**The most valuable thing in the contract is an ordering rule that did not
+exist until it was written down.** Persisting a ratchet chain at the wrong
+moment is worse than not persisting it, and the safe order is OPPOSITE per
+direction:
+
+- **Send: save the advanced chain BEFORE sealing.** Crash after saving, a key
+  is skipped and the peer fast-forwards. Crash after sending and before
+  saving, the same key is derived again for a second message -- key and nonce
+  reuse, which is the one thing the AEAD rests on not happening.
+- **Receive: save AFTER opening.** Crash after saving, that message can never
+  be opened. Crash after opening, the key is re-derived for a message already
+  handled and the replay window refuses it.
+
+Both errors are silent in the moment. One is a compromise; one is a lost
+message.
+
+### The subsystem gate, and the state that must not be quiet
+
+Tri-state, per the holder: `auto` probes, `1` insists, `0` refuses. **Forced-
+on-but-unavailable is an ERROR rather than a skip**, which is the half worth
+stating -- somebody who wrote `FZN_PERSIST_FILE=1` asked for a subsystem by
+name, and quietly not building it is the vacuous pass wearing a build flag.
+The probe COMPILES a POSIX fragment rather than guessing from a platform
+name, because a name is a claim about a toolchain and this is a question
+about one. All four states exercised by asking `make -p` what SRCS holds --
+the first check counted compile lines and could not tell the states apart,
+since nothing linked the backend yet.
+
+### What the default backend is for
+
+`fopen`, `fwrite`, done, would have been four lines. It is longer for two
+reasons and both are failure modes:
+
+- **Atomic by rename.** A torn trust anchor is worse than an absent one:
+  absent is refused loudly and a host stops, while half a key is bytes that
+  parse. Write a temporary, `fsync`, rename -- and flush BEFORE the rename,
+  or a crash can leave the name pointing at an empty file, which reads as
+  absent, which means the host quietly re-anchors.
+- **Mode 0600 at creation.** `fopen` takes the umask; chmod afterwards leaves
+  a prekey secret readable for exactly as long as the write.
+
+Three consumers each writing that is three chances to get it wrong, and the
+thing being written is an anchor and a secret.
+
+### Four errors while building it, and the fourth is the instructive one
+
+- A five-function platform indirection layer invented for a file whose whole
+  purpose is BEING the POSIX backend. Deleted.
+- The blob TAG conflated with the key SLOT, which forced the chain packer to
+  write `SEND` into every blob while its comment claimed it wrote something
+  neutral. They are different concepts: a slot is how a backend files
+  something, a tag is what the bytes are.
+- A subsystem check that counted compile lines and returned zero for every
+  state.
+- **A header mentioned inside a dead `#ifdef` satisfying `installcheck`.**
+  The gate greps `tool/consumer_check.c` for the header's NAME, so a mention
+  in an unreachable branch passed it -- the exact vacuity fixed for the
+  Monocypher headers hours earlier, reintroduced by the same session. Found
+  because a Makefile edit aborted on a bad anchor and the gate passed anyway,
+  which is the tell: a gate that goes green after a change that did not apply
+  was not testing the change.
+
+### Six mutations on the format, five caught, and the sixth was a test gap
+
+Deleting the blob-tag check failed nothing. Not because the guard is
+redundant -- because the four blobs are 43, 42, 83 and **42** bytes, so
+`SECRET` and `CHAIN` are the same length and the tag is the ONLY thing
+separating them, and the test never tried that pair. Every other cross-open
+was caught by the length check first.
+
+That pair is now the case, with a `REQUIRE` that the two lengths still match
+so the case cannot silently stop isolating the tag. Constructing the case
+where two answers would differ is the whole technique; a pair chosen to
+confirm would have passed either way.
+
 
 ## 19. Contacts and realms: half of it was already here, 2026-08-28
 

@@ -60,3 +60,15 @@ shared protocol library usually looks like:
   separate unprivileged process, so a defect here is not a root defect. §3.
 - **Grants do not expire; commands do.** The two consumers' rules look like
   they conflict and do not. §4.3.
+
+## Who wrote this
+
+    Copyright (C) 2026 Nabeel Sowan <nabeel@vibes.se>
+
+Attribution, not a licence. Naming the holder states who wrote the work and
+grants nothing; this project's licensing is a separate question and is not
+settled here.
+
+The same line is available to a program that links the library, as
+`fzn_copyright()` in `version/version.h` -- separate from
+`fzn_version_string()`, which has machine consumers and keeps its shape.

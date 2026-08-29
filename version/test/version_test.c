@@ -73,6 +73,28 @@ int main(void)
 	       "the linked library reports a different version number than the header");
 	expect(fzn_version_string() != NULL, "fzn_version_string returned NULL");
 
+	/* THE ATTRIBUTION, AND THE ONE ASSERTION THAT MATTERS IS THE NEGATIVE.
+	 *
+	 * `harmonization.md` carries the caution that a version string with a
+	 * stable format is an interface, and this one has two machine
+	 * consumers: `make style` extracts it with a sed regex to compare
+	 * against the VERSION file, and the strcmp above. So the thing worth
+	 * testing is not that the copyright exists -- it is that it has NOT
+	 * been folded into the version string by a later pass trying to be
+	 * helpful, which is exactly the edit the caution anticipates.
+	 *
+	 * A `strstr` rather than a length check, because appending would leave
+	 * the version string a valid prefix and a length check would only fail
+	 * for some spellings. */
+	expect(fzn_copyright() != NULL, "fzn_copyright returned NULL");
+	expect(strstr(fzn_copyright(), "Nabeel Sowan <nabeel@vibes.se>") != NULL,
+	       "the attribution does not name the holder and address");
+	expect(strstr(FZN_VERSION_STRING, "Copyright") == NULL,
+	       "the copyright has been folded into FZN_VERSION_STRING, which make style "
+	       "parses with a regex and this file compares with strcmp");
+	expect(strcmp(fzn_version_string(), FZN_VERSION_STRING) == 0,
+	       "fzn_version_string no longer spells exactly FZN_VERSION_STRING");
+
 	printf("version_test: %d checks, %d failure(s); library reports %s\n", checks, failures,
 	       fzn_version_string());
 	return failures == 0 ? 0 : 1;

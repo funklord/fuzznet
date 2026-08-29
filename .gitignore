@@ -35,6 +35,8 @@
 /ratchet/test/ratchet_test
 /prekey/test/prekey_test
 /prekey/test/prekey_fuzz
+/persist/test/persist_test
+/persist/test/persist_file_test
 /session/test/agree_test
 /session/test/session_test
 /session/test/agree_monocypher_test

@@ -34,6 +34,16 @@
 #include <fuzznet/prekey/prekey.h>
 #include <fuzznet/session/agree.h>
 #include <fuzznet/session/session.h>
+#include <fuzznet/persist/persist.h>
+/* The default backend's header ships whenever the subsystem is built, so the
+ * installcheck gate requires this file to include it -- a header named in
+ * HDRS and included by nothing passes that gate as loudly as one a consumer
+ * exercises. It declares a type and one function over `persist.h`'s own
+ * types and pulls in no POSIX of its own, so including it costs a consumer
+ * that never calls it exactly nothing. */
+#ifdef FZN_PERSIST_FILE_ON
+#include <fuzznet/persist/persist_file.h>
+#endif
 #include <fuzznet/chain/revocation.h>
 #include <fuzznet/chunk/reassembly.h>
 #include <fuzznet/chunk/split.h>
@@ -65,6 +75,10 @@
 #include "prekey/prekey.h"
 #include "session/agree.h"
 #include "session/session.h"
+#include "persist/persist.h"
+#ifdef FZN_PERSIST_FILE_ON
+#include "persist/persist_file.h"
+#endif
 #include "chain/revocation.h"
 #include "chunk/reassembly.h"
 #include "chunk/split.h"
@@ -938,6 +952,50 @@ int main(void)
 			return 178;
 		if (fzn_state_get(&opt, peer_key, KIND_SHARE_LOCATION) != NULL)
 			return 179;
+	}
+
+	/* Persistence: the contract a consumer needs before its first restart.
+	 * Walked rather than compiled, because the property that matters is
+	 * the one a naive round trip would lose -- an adopted anchor coming
+	 * back adopted rather than claiming it was confirmed. */
+	{
+		fzn_trust_t anchor_in, anchor_back;
+		uint8_t blob[FZN_PERSIST_MAX];
+		uint8_t k[FZN_PUBKEY_LEN];
+		size_t blob_len = 0;
+
+		memset(k, 0x64, sizeof(k));
+		fzn_trust_init(&anchor_in);
+		if (fzn_trust_adopt(&anchor_in, k, 99u) != FZN_TRUST_OK)
+			return 230;
+		if (fzn_persist_trust_pack(&anchor_in, blob, sizeof(blob), &blob_len)
+		    != FZN_PERSIST_OK)
+			return 231;
+		if (fzn_persist_trust_open(blob, blob_len, &anchor_back) != FZN_PERSIST_OK)
+			return 232;
+		if (!fzn_trust_root(&anchor_back))
+			return 233;
+		if (memcmp(fzn_trust_root(&anchor_back), k, FZN_PUBKEY_LEN) != 0)
+			return 234;
+		if (fzn_trust_source_of(&anchor_back) != FZN_TRUST_ADOPTED)
+			return 235;
+		/* An unanchored trust must not pack: saving one over a real
+		 * anchor would succeed and erase it. */
+		fzn_trust_init(&anchor_in);
+		if (fzn_persist_trust_pack(&anchor_in, blob, sizeof(blob), &blob_len)
+		    != FZN_PERSIST_ERR_MALFORMED)
+			return 236;
+
+#ifdef FZN_PERSIST_FILE_ON
+		/* And the default backend installs, which is the whole point of
+		 * shipping one: a consumer should not have to write it. */
+		{
+			fzn_persist_file_t backend;
+
+			if (fzn_persist_file_init(&backend, NULL) != NULL)
+				return 237;
+		}
+#endif
 	}
 
 	/* The authorisation decision, which is the question a consumer asks

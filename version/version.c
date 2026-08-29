@@ -14,6 +14,11 @@ const char *fzn_version_string(void)
 	return FZN_VERSION_STRING;
 }
 
+const char *fzn_copyright(void)
+{
+	return FZN_COPYRIGHT;
+}
+
 unsigned long fzn_version_number(void)
 {
 	return (unsigned long)FZN_VERSION_NUMBER;
