@@ -10313,6 +10313,72 @@ so the case cannot silently stop isolating the tag. Constructing the case
 where two answers would differ is the whole technique; a pair chosen to
 confirm would have passed either way.
 
+## 22. The piece store, 2026-08-29
+
+The holder's ask was that a consumer should not have to implement "the mmaped
+file writing of a protocol that is like bittorrent". `blob/` gives a Merkle
+tree, a keyless verifier and a per-leaf AEAD; what it does not give is
+somewhere to put a leaf that arrived out of order, a way to know which of a
+million are missing, or a way to resume.
+
+**IT DID NOT NEED THE TRANSFER PROTOCOL FIRST, AND THAT ASSUMPTION HAD BEEN
+MADE TWICE.** Sec 16 deferred the store to stage 2 on the belief that it
+needs HAVE and WANT; the same session had already nearly invented a handshake
+frame for the sender ephemeral on the same kind of belief, and been wrong.
+A store needs a root, a leaf count, verified leaves in any order, and
+resumability. Where the leaves came from is the consumer's, exactly as the
+ephemeral's delivery was.
+
+**`spool/spool.c` IS CORE, WHICH SURPRISED THE PASS THAT WROTE IT.** The
+bitmap is the caller's and the backend is a vtable, so the policy half
+allocates nothing and writes nothing -- it runs on a target with no heap and
+a fixed buffer. Only a backend is a subsystem, which is the same split
+`persist/` has, arrived at independently.
+
+### The three orderings that make it safe to point at a stranger
+
+- **Verify, then write.** A store that placed first and checked later would
+  let anybody fill a disk with bytes that fail to assemble -- and "later" is
+  after the disk is full. The test asserts on the WRITE COUNT rather than on
+  the return code, because a refusal that had already written is still a
+  refusal.
+- **Write, then set the bit.** A bit set over a failed write is a hole the
+  store never fills: `next_missing` skips it, nothing re-requests it, and the
+  transfer reports complete over a corrupt blob.
+- **Recount `have` from the bits at open**, never take it from a caller. A
+  restored count and a restored bitmap can be a torn pair, and a count saying
+  complete over a bitmap that is not is a blob with holes reporting success.
+
+**The verifier used is `blob/`'s KEYLESS one**, so a relay holding no content
+key runs the placement path unchanged. That is the property the whole
+ciphertext-over-plaintext Merkle ordering exists for, and this store is its
+first caller.
+
+### Two numbers that are policy rather than format
+
+`blob/` bounds a tree at 2^40 leaves because that is where a crafted proof
+stops being able to make a verifier loop. A store has a different question:
+at one bit per leaf, 2^40 is a **128 GiB bitmap**, which is not a bound but an
+outage. `FZN_SPOOL_MAX_LEAVES` is 2^22 -- 4 GiB of content, a 512 KiB bitmap
+-- and is checked at open, so a peer claiming a trillion leaves costs a
+comparison rather than an allocation.
+
+And the last leaf occupies a full slot rather than being packed tight. Tight
+packing saves at most 1055 bytes and makes every offset depend on the blob's
+exact length, which a receiver does not know until the last leaf arrives --
+so an out-of-order transfer could place nothing until it had the end. A fixed
+stride is what makes arrival order free.
+
+**Six mutations, six caught**: writing before verifying, setting the bit
+before the write, skipping the proof, taking `have` on trust, rewriting a
+duplicate, and dropping the ceiling.
+
+### What is left
+
+`spool/spool_file.c` -- the default backend, positional reads and writes over
+a sparse file, gated like `persist/persist_file.c`. The seam is the same
+shape and the policy above does not change with it.
+
 
 ## 19. Contacts and realms: half of it was already here, 2026-08-28
 

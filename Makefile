@@ -97,6 +97,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              frame/freshness.c \
              blob/blob.c ratchet/ratchet.c prekey/prekey.c \
              persist/persist.c \
+             spool/spool.c \
              chunk/reassembly.c \
              chunk/split.c \
              wire/seal.c wire/relay.c \
@@ -112,6 +113,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              frame/freshness.h \
              blob/blob.h ratchet/ratchet.h prekey/prekey.h \
              persist/persist.h \
+             spool/spool.h \
              chunk/reassembly.h \
              chunk/split.h \
              wire/seal.h wire/relay.h wire/bytes.h session/aead.h \
@@ -153,6 +155,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              blob/test/blob_test.c ratchet/test/ratchet_test.c \
              prekey/test/prekey_test.c prekey/test/prekey_fuzz.c \
              persist/test/persist_test.c \
+             spool/test/spool_test.c \
              session/test/agree_test.c \
              session/test/session_test.c \
              blob/test/blob_fuzz.c \
@@ -197,6 +200,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/ratchet/test/ratchet_test \
              $(BUILD_DIR)/prekey/test/prekey_test \
              $(BUILD_DIR)/persist/test/persist_test \
+             $(BUILD_DIR)/spool/test/spool_test \
              $(BUILD_DIR)/session/test/agree_test \
              $(BUILD_DIR)/session/test/session_test \
              $(BUILD_DIR)/frame/test/freshness_test \
@@ -811,6 +815,16 @@ $(BUILD_DIR)/prekey/test/prekey_fuzz: $(BUILD_DIR)/prekey/test/prekey_fuzz.o \
                                        $(BUILD_DIR)/prekey/prekey.o \
                                        $(BUILD_DIR)/trust/trust.o \
                                        $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# spool/ is CORE despite being about storage: the bitmap is the caller's and
+# the backend is a vtable, so it allocates nothing and writes nothing itself.
+# Only a backend needs a subsystem, which is the same split persist/ has.
+$(BUILD_DIR)/spool/test/spool_test: $(BUILD_DIR)/spool/test/spool_test.o \
+                                     $(BUILD_DIR)/spool/spool.o \
+                                     $(BUILD_DIR)/blob/blob.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 

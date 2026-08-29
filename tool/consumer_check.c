@@ -35,6 +35,7 @@
 #include <fuzznet/session/agree.h>
 #include <fuzznet/session/session.h>
 #include <fuzznet/persist/persist.h>
+#include <fuzznet/spool/spool.h>
 /* The default backend's header ships whenever the subsystem is built, so the
  * installcheck gate requires this file to include it -- a header named in
  * HDRS and included by nothing passes that gate as loudly as one a consumer
@@ -76,6 +77,7 @@
 #include "session/agree.h"
 #include "session/session.h"
 #include "persist/persist.h"
+#include "spool/spool.h"
 #ifdef FZN_PERSIST_FILE_ON
 #include "persist/persist_file.h"
 #endif
@@ -952,6 +954,31 @@ int main(void)
 			return 178;
 		if (fzn_state_get(&opt, peer_key, KIND_SHARE_LOCATION) != NULL)
 			return 179;
+	}
+
+	/* The piece store, which is what a consumer assembling a blob out of
+	 * order needs and should not have to write. The property walked here
+	 * is the one that makes it safe to point at a stranger: an unverified
+	 * leaf never reaches the backend. */
+	{
+		fzn_spool_t sp;
+		uint8_t map[FZN_SPOOL_BITMAP_LEN(2)];
+		uint8_t fake_root[FZN_BLOB_HASH_LEN];
+		fzn_spool_ops_t nops;
+
+		memset(&nops, 0, sizeof(nops));
+		memset(fake_root, 0x77, sizeof(fake_root));
+		/* A backend with no write is refused at open rather than at the
+		 * first placement. */
+		if (fzn_spool_open(&sp, fake_root, 2u, map, sizeof(map), &nops)
+		    != FZN_SPOOL_ERR_MALFORMED)
+			return 240;
+		/* And a blob past the ceiling costs a comparison, not a bitmap. */
+		if (fzn_spool_open(&sp, fake_root, (uint64_t)FZN_SPOOL_MAX_LEAVES + 1u, map,
+		                   sizeof(map), &nops) != FZN_SPOOL_ERR_MALFORMED
+		    && fzn_spool_open(&sp, fake_root, (uint64_t)FZN_SPOOL_MAX_LEAVES + 1u, map,
+		                      sizeof(map), &nops) != FZN_SPOOL_ERR_TOO_LARGE)
+			return 241;
 	}
 
 	/* Persistence: the contract a consumer needs before its first restart.
