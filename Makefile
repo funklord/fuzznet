@@ -98,6 +98,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              blob/blob.c ratchet/ratchet.c prekey/prekey.c \
              persist/persist.c \
              spool/spool.c \
+             spool/plan.c \
              chunk/reassembly.c \
              chunk/split.c \
              wire/seal.c wire/relay.c \
@@ -114,6 +115,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              blob/blob.h ratchet/ratchet.h prekey/prekey.h \
              persist/persist.h \
              spool/spool.h \
+             spool/plan.h \
              chunk/reassembly.h \
              chunk/split.h \
              wire/seal.h wire/relay.h wire/bytes.h session/aead.h \
@@ -156,6 +158,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              prekey/test/prekey_test.c prekey/test/prekey_fuzz.c \
              persist/test/persist_test.c \
              spool/test/spool_test.c \
+             spool/test/plan_test.c \
              session/test/agree_test.c \
              session/test/session_test.c \
              blob/test/blob_fuzz.c \
@@ -201,6 +204,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/prekey/test/prekey_test \
              $(BUILD_DIR)/persist/test/persist_test \
              $(BUILD_DIR)/spool/test/spool_test \
+             $(BUILD_DIR)/spool/test/plan_test \
              $(BUILD_DIR)/session/test/agree_test \
              $(BUILD_DIR)/session/test/session_test \
              $(BUILD_DIR)/frame/test/freshness_test \
@@ -910,6 +914,14 @@ $(BUILD_DIR)/spool/test/spool_test: $(BUILD_DIR)/spool/test/spool_test.o \
 # blob through a real file rather than testing the three ops in isolation,
 # because the property it exists for -- a reopened file still holding what it
 # held -- is only expressible with a store on top asking for leaves back.
+$(BUILD_DIR)/spool/test/plan_test: $(BUILD_DIR)/spool/test/plan_test.o \
+                                   $(BUILD_DIR)/spool/plan.o \
+                                   $(BUILD_DIR)/spool/spool.o \
+                                   $(BUILD_DIR)/blob/blob.o \
+                                   $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/spool/test/spool_file_test: $(BUILD_DIR)/spool/test/spool_file_test.o \
                                           $(BUILD_DIR)/spool/spool_file.o \
                                           $(BUILD_DIR)/spool/spool.o \

@@ -36,6 +36,7 @@
 #include <fuzznet/session/session.h>
 #include <fuzznet/persist/persist.h>
 #include <fuzznet/spool/spool.h>
+#include <fuzznet/spool/plan.h>
 /* The default backend's header ships whenever the subsystem is built, so the
  * installcheck gate requires this file to include it -- a header named in
  * HDRS and included by nothing passes that gate as loudly as one a consumer
@@ -81,6 +82,7 @@
 #include "session/session.h"
 #include "persist/persist.h"
 #include "spool/spool.h"
+#include "spool/plan.h"
 #ifdef FZN_PERSIST_FILE_ON
 #include "persist/persist_file.h"
 #endif
@@ -985,6 +987,35 @@ int main(void)
 		    && fzn_spool_open(&sp, fake_root, (uint64_t)FZN_SPOOL_MAX_LEAVES + 1u, map,
 		                      sizeof(map), &nops) != FZN_SPOOL_ERR_TOO_LARGE)
 			return 241;
+
+		/* The transfer planners, which is what a consumer needs to
+		 * ask a peer for what it lacks. The property walked is the
+		 * one a consumer would get wrong: a request naming nothing
+		 * must buy nothing, which is the defect `record/sync` shipped
+		 * once and this library must not ship twice. */
+		{
+			fzn_spool_range_t ranges[2];
+			size_t plan_n = 99u;
+
+			if (fzn_spool_open(&sp, fake_root, 2u, map, sizeof(map), &nops)
+			    != FZN_SPOOL_ERR_MALFORMED)
+				return 245;
+			memset(&sp, 0, sizeof(sp));
+			sp.present = map;
+			sp.leaves = 2u;
+			sp.present_len = sizeof(map);
+			map[0] = 0x03u;
+			if (fzn_spool_plan_offer(&sp, NULL, 0u, 100u, ranges, 2u, &plan_n)
+			    != FZN_SPOOL_OK)
+				return 246;
+			if (plan_n != 0u)
+				return 247;
+			/* And a bound a caller forgot is refused rather than
+			 * read as no bound. */
+			if (fzn_spool_plan_want(&sp, 0u, ranges, 2u, &plan_n)
+			    != FZN_SPOOL_ERR_MALFORMED)
+				return 248;
+		}
 
 #ifdef FZN_SPOOL_FILE_ON
 		/* And the default backend refuses a path it cannot open rather

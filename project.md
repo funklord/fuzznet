@@ -10584,6 +10584,73 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 25. A deferral that had already been decided elsewhere, 2026-08-30
+
+Sec 16 staged the transfer protocol out of stage 1 and gave a reason: its
+WANT needs a return-routability cookie, and "that belongs with the rest of
+the amplification work in sec 13c". **Sec 13c is about bounding revocation
+admission and says nothing on the subject.** The pointer went nowhere and
+nobody followed it, which is what a deferral is for.
+
+**The decision had been taken, under a different name, in `record/sync.c`.**
+That module had already met the identical problem for records -- a cheap
+query must not buy an expensive answer -- and answered it three ways, each
+paid for by something that went wrong:
+
+- **A request naming nothing gets nothing.** Sync's own measured defect: an
+  absent position used to mean "send me your whole history", so the cheapest
+  message in the protocol was the amplifier in it. A zero-length digest
+  bought 64 ranges over 32,768 records, at least 5 MB, from an input with
+  nothing in it.
+- **A ceiling, because the peer chooses the number.** 1024 positions, with
+  the 200,000-position measurement behind it: 8.8 MB of digest buying 2.05
+  seconds of somebody else's CPU.
+- **Zero is refused rather than meaning unlimited.**
+
+This is `working-practice.md`'s rule paying out exactly as written -- **check
+whether the project has already decided it somewhere else under a different
+name** -- and its companion, that a working sibling explaining itself is a
+cheaper source of a project's decisions than the document is. Nobody found it
+because everybody was looking for the name rather than for the shape.
+
+`spool/plan.c` is the two planners, `fzn_spool_plan_want` and
+`fzn_spool_plan_offer`, inheriting all three rules rather than re-arguing
+them. Policy over the bitmap: no allocation, no I/O, no wire format, so it is
+core like the rest of `spool/`.
+
+### What is still open, stated so it does not get deferred a second time
+
+**The cookie is genuinely undecided and is not settled by any of the above.**
+Bounding the answer caps the GAIN; it does not stop a reflection at a spoofed
+victim. Those are different halves and only the first is done. What the
+planners contribute toward the second is the property that makes the cheapest
+spoofable packet worthless -- an empty want buys nothing, so a zero-effort
+forgery has a gain of zero rather than a blob. A cookie is about WHOM to
+answer; this is about WHAT, and the first is a protocol change belonging to
+whoever owns the transport.
+
+The batch is also still out: sec 16's stage 2 is "HAVE, WANT, the batch", and
+how many leaves ride in one message is `chunk/`'s question and depends on a
+transport this library does not choose.
+
+### Eight mutations, seven caught, and the eighth was a guard that cannot fail
+
+Removing the zero-length-want-range check changed no result, because `left`
+becomes zero for such a range and the inner loop does not run. It is removed
+rather than kept: a guard that cannot fail is how it stops being possible to
+see which guards matter. The BEHAVIOUR is still asserted in `plan_test.c`,
+since it is a rule a later rewrite must not lose even though this shape gets
+it free.
+
+**And one test case was written that could not have failed.** The check that
+a peer's range count is capped originally sent many identical ranges and
+asserted on the output length -- which fills the caller's array at 16 whether
+or not the cap exists, so it would have passed against a planner with no cap
+at all. The fixture now names an absent leaf in every range inside the cap
+and a held one in the eight past it, so the cap is the only thing that
+decides the answer, and a second case checks the planner is capping rather
+than merely mute.
+
 ## 24. Four correct bindings are not a working host, 2026-08-30
 
 Same lens, one layer down. There are four Monocypher tests -- Ed25519,
@@ -10642,9 +10709,8 @@ compiler's message, rather than by trusting that it would.
 
 ### What is left
 
-Nothing in the store, and resume is now whole. The transfer protocol -- HAVE and WANT over the wire,
-and the return-routability cookie that stops it being an amplifier -- is still
-the consumer's, and sec 16's staging stands for that half.
+Nothing in the store. See sec 25: half of what sec 16 staged as "the
+transfer protocol" turned out to be decided already and is now built.
 
 
 ## 19. Contacts and realms: half of it was already here, 2026-08-28
