@@ -10584,6 +10584,62 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 24. Four correct bindings are not a working host, 2026-08-30
+
+Same lens, one layer down. There are four Monocypher tests -- Ed25519,
+BLAKE2b, ChaCha20-Poly1305, X25519 -- and **not one of them calls a
+composition function in this library**, while `sim/test/network_test.c`,
+which calls all of them, runs entirely on stubs. So "a real host can complete
+a conversation" was held by nothing. `sim/test/real_crypto_test.c` holds it:
+prekey to session to chains to ratchet to a sealed frame, on real keys, in
+one binary, and it is the only binary that links all four bindings at once.
+
+### The hazard it was written for was already held, and by a better guard
+
+The file was written for a hazard one constant wide.
+`fzn_commitment_derive_root` asks the hash seam for FZN_DERIVED_LEN bytes in
+one call; that is **64 today and 64 is BLAKE2b's maximum**, so `mono_hash`
+refuses anything larger while the FNV stub produces any length for ever.
+Grow the constant and no real host can establish a session.
+
+**Checked rather than told, and it failed.** Growing the constant turns
+`session/test/commitment_test.c:165` red with Monocypher switched OFF: that
+stub is not a passive fake, it COUNTS WHAT IT WAS ASKED FOR and asserts on
+the number. The story was good and the guard already existed.
+
+### The honest result: no unique catch, measured over five mutations
+
+The search was widened rather than dropped. Five mutations -- the agreement
+binding's arguments swapped, the hash binding's length cap raised, the
+derived length grown, a chain seed asking for 65 bytes, one asking for zero
+-- and **not one is caught by the new file and missed by the rest of the
+suite.** Each fell to the binding's own test, to a stub that counts, or to
+the sanitizers. The 65-byte case looked unique until the sanitized run with
+Monocypher off was tried, which is the instrument the first comparison
+skipped.
+
+**And the first comparison was invalid for a second reason worth recording**:
+`MONOCYPHER_DIR ?= $(MONO_VENDORED)` since sec 15c, so "with stubs" and "with
+real crypto" were the SAME configuration and the two runs differed in
+nothing. A comparison whose two arms are identical reports agreement no
+matter what is true. `MONOCYPHER_DIR=` is the off arm.
+
+So the file is kept as a judgement rather than as evidence, and its own
+header says so at length: it is a positive control for the COMPOSITION,
+which is the argument `sign_monocypher_test.c` already makes for one seam,
+applied to the chain of seams. The mismatch it would catch is between two
+modules that each pass their own tests. Anybody citing it as coverage should
+cite one of the guards above instead.
+
+### One thing did change in the library
+
+`session/hash_monocypher.c` now carries
+`_Static_assert(FZN_DERIVED_LEN <= 64)`. `commitment_test.c` remains the real
+guard, because it holds with no Monocypher present at all; the assert adds
+earliness, turning the growth into a failure to build the binding that could
+not serve it. Confirmed to fire by growing the constant and reading the
+compiler's message, rather than by trusting that it would.
+
 ### What is left
 
 Nothing in the store, and resume is now whole. The transfer protocol -- HAVE and WANT over the wire,

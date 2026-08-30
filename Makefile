@@ -461,6 +461,7 @@ MONO_TSRC  := chain/test/sign_monocypher_test.c \
               session/test/hash_monocypher_test.c \
               session/test/aead_monocypher_test.c \
               session/test/agree_monocypher_test.c \
+              sim/test/real_crypto_test.c \
               wire/test/golden_frame_test.c
 
 ifdef MONO_ON
@@ -500,9 +501,11 @@ MONO_HASH  := $(BUILD_DIR)/session/test/hash_monocypher_test
 MONO_AEAD  := $(BUILD_DIR)/session/test/aead_monocypher_test
 MONO_AGREE := $(BUILD_DIR)/session/test/agree_monocypher_test
 MONO_GOLD  := $(BUILD_DIR)/wire/test/golden_frame_test
+MONO_REAL  := $(BUILD_DIR)/sim/test/real_crypto_test
 OBJS       += $(MONO_OBJS)
 TEST_OBJS  += $(MONO_TOBJ)
-TEST_BINS  += $(MONO_BIN) $(MONO_HASH) $(MONO_AEAD) $(MONO_AGREE) $(MONO_GOLD)
+TEST_BINS  += $(MONO_BIN) $(MONO_HASH) $(MONO_AEAD) $(MONO_AGREE) $(MONO_GOLD) \
+              $(MONO_REAL)
 HDRS       += $(MONO_HDRS)
 CPPFLAGS   += -I$(MONOCYPHER_DIR)/src
 
@@ -597,6 +600,26 @@ $(MONO_GOLD): $(BUILD_DIR)/wire/test/golden_frame_test.o \
               $(BUILD_DIR)/session/hash_monocypher.o $(BUILD_DIR)/monocypher.o \
               $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/session/commitment.o \
               $(BUILD_DIR)/session/random.o \
+              $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# THE ONLY BINARY THAT LINKS ALL FOUR BINDINGS AT ONCE, which is the whole
+# reason it exists -- every other Monocypher test names one binding on purpose,
+# so that a green result says which primitive was exercised. This one is the
+# opposite claim and needs the opposite link line: a host has all four.
+$(MONO_REAL): $(BUILD_DIR)/sim/test/real_crypto_test.o \
+              $(BUILD_DIR)/chain/sign_monocypher.o \
+              $(BUILD_DIR)/session/hash_monocypher.o \
+              $(BUILD_DIR)/session/aead_monocypher.o \
+              $(BUILD_DIR)/session/agree_monocypher.o $(BUILD_DIR)/monocypher.o \
+              $(BUILD_DIR)/session/session.o $(BUILD_DIR)/session/agree.o \
+              $(BUILD_DIR)/session/commitment.o $(BUILD_DIR)/session/random.o \
+              $(BUILD_DIR)/session/random_linux.o \
+              $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/ratchet/ratchet.o \
+              $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/chain/chain.o \
+              $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
+              $(BUILD_DIR)/wire/seal.o \
               $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
