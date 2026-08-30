@@ -45,6 +45,9 @@
 #ifdef FZN_PERSIST_FILE_ON
 #include <fuzznet/persist/persist_file.h>
 #endif
+#ifdef FZN_SPOOL_FILE_ON
+#include <fuzznet/spool/spool_file.h>
+#endif
 #include <fuzznet/chain/revocation.h>
 #include <fuzznet/chunk/reassembly.h>
 #include <fuzznet/chunk/split.h>
@@ -80,6 +83,9 @@
 #include "spool/spool.h"
 #ifdef FZN_PERSIST_FILE_ON
 #include "persist/persist_file.h"
+#endif
+#ifdef FZN_SPOOL_FILE_ON
+#include "spool/spool_file.h"
 #endif
 #include "chain/revocation.h"
 #include "chunk/reassembly.h"
@@ -979,6 +985,23 @@ int main(void)
 		    && fzn_spool_open(&sp, fake_root, (uint64_t)FZN_SPOOL_MAX_LEAVES + 1u, map,
 		                      sizeof(map), &nops) != FZN_SPOOL_ERR_TOO_LARGE)
 			return 241;
+
+#ifdef FZN_SPOOL_FILE_ON
+		/* And the default backend refuses a path it cannot open rather
+		 * than handing back ops that fail later. A consumer checking
+		 * NULL here is checking the whole of it. */
+		{
+			fzn_spool_file_t backend;
+
+			if (fzn_spool_file_open(&backend, NULL) != NULL)
+				return 242;
+			/* Safe on a struct that never opened -- which is the
+			 * shape of every cleanup path a caller writes after
+			 * the line above returns NULL. */
+			backend.fd = -1;
+			fzn_spool_file_close(&backend);
+		}
+#endif
 	}
 
 	/* Persistence: the contract a consumer needs before its first restart.

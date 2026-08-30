@@ -134,7 +134,13 @@ static int build_blob(void)
 	for (i = 0; i < TEST_LEAVES; i++) {
 		size_t j;
 
-		sealed_len[i] = 64u + i;
+		/* ONE LEAF IS FULL-LENGTH, deliberately. A slot is
+		 * FZN_BLOB_SEALED_MAX wide and a short leaf has its tail
+		 * filled, so a fixture whose leaves are ALL short cannot tell
+		 * the fill apart from the leaf write -- and one whose leaves
+		 * are all full cannot see the fill at all. The mixture is what
+		 * lets the write counts below discriminate. */
+		sealed_len[i] = (i == 2u) ? (size_t)FZN_BLOB_SEALED_MAX : 64u + i;
 		for (j = 0; j < sealed_len[i]; j++)
 			sealed[i][j] = (uint8_t)((i * 37u) + j + 1u);
 		if (fzn_blob_leaf_hash(&HASH, sealed[i], sealed_len[i], leaf_hash[i])
@@ -151,6 +157,18 @@ static int build_blob(void)
 			return 0;
 	}
 	return 1;
+}
+
+/* Derived from the fixture rather than written out, so that changing a
+ * leaf's length cannot leave a hand-typed constant asserting the old shape:
+ * one write for the leaf, and a second only where the slot needs filling. */
+static unsigned expected_writes(unsigned upto)
+{
+	unsigned i, n = 0;
+
+	for (i = 0; i < upto; i++)
+		n += (sealed_len[i] < FZN_BLOB_SEALED_MAX) ? 2u : 1u;
+	return n;
 }
 
 static void reset(fzn_spool_t *spool, uint8_t *map, size_t map_len)
@@ -184,8 +202,8 @@ static void test_leaves_arrive_in_any_order(void)
 		CHECK(fzn_spool_has(&spool, i), "leaf %u is not recorded as present", i);
 	}
 	CHECK(fzn_spool_complete(&spool), "the blob is not complete after every leaf arrived");
-	CHECK(disk.writes == TEST_LEAVES, "%u writes for %u leaves", disk.writes,
-	      (unsigned)TEST_LEAVES);
+	CHECK(disk.writes == expected_writes(TEST_LEAVES), "%u writes for %u leaves, expected %u",
+	      disk.writes, (unsigned)TEST_LEAVES, expected_writes(TEST_LEAVES));
 }
 
 static void test_an_unverified_leaf_never_reaches_the_disk(void)
@@ -260,16 +278,29 @@ static void test_a_duplicate_is_free(void)
 	REQUIRE(build_blob(), "the blob fixture does not build");
 	reset(&spool, map, sizeof(map));
 
-	CHECK(fzn_spool_place(&spool, &HASH, 0u, sealed[0], sealed_len[0], proof[0],
-	                      proof_len[0]) == FZN_SPOOL_OK, "the first placement refused");
+	/* LEAF 2, the full-length one, so that "one write" means the leaf and
+	 * nothing else -- with a short leaf this would be two and the
+	 * duplicate check below would be reading a number it had to explain. */
+	CHECK(fzn_spool_place(&spool, &HASH, 2u, sealed[2], sealed_len[2], proof[2],
+	                      proof_len[2]) == FZN_SPOOL_OK, "the first placement refused");
 	CHECK(disk.writes == 1u, "the first placement did not write");
-	CHECK(fzn_spool_place(&spool, &HASH, 0u, sealed[0], sealed_len[0], proof[0],
-	                      proof_len[0]) == FZN_SPOOL_OK, "a duplicate was refused");
+	CHECK(fzn_spool_place(&spool, &HASH, 2u, sealed[2], sealed_len[2], proof[2],
+	                      proof_len[2]) == FZN_SPOOL_OK, "a duplicate was refused");
 	/* Duplicates are ordinary on a lossy transport. Rewriting would turn
 	 * every one into disk traffic, and re-verifying would let a flood buy
 	 * the hashing. */
 	CHECK(disk.writes == 1u, "a duplicate was written again: %u writes", disk.writes);
 	CHECK(spool.have == 1u, "a duplicate was counted twice");
+
+	/* A SHORT LEAF TAKES TWO WRITES AND ITS DUPLICATE TAKES NONE. Both
+	 * halves matter: the first says the slot is filled at all, the second
+	 * that a flood of duplicates cannot buy the extra write either. */
+	CHECK(fzn_spool_place(&spool, &HASH, 0u, sealed[0], sealed_len[0], proof[0],
+	                      proof_len[0]) == FZN_SPOOL_OK, "a short leaf was refused");
+	CHECK(disk.writes == 3u, "a short leaf did not fill its slot: %u writes", disk.writes);
+	CHECK(fzn_spool_place(&spool, &HASH, 0u, sealed[0], sealed_len[0], proof[0],
+	                      proof_len[0]) == FZN_SPOOL_OK, "a short duplicate was refused");
+	CHECK(disk.writes == 3u, "a short duplicate was written again: %u writes", disk.writes);
 }
 
 static void test_resume_recounts_from_the_bits(void)

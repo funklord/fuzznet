@@ -315,6 +315,60 @@ TEST_SRCS += $(PERSIST_FILE_TSRC)
 TEST_BINS += $(BUILD_DIR)/persist/test/persist_file_test
 endif
 
+# The spool's sparse-file backend, gated the same way and SEPARATELY.
+#
+# Separately because they are different capabilities and a target can have
+# one without the other: a device with a small config partition can persist
+# four keys and have nowhere to assemble a 4 GiB blob, and that host wants
+# FZN_PERSIST_FILE=1 FZN_SPOOL_FILE=0 rather than a single switch that makes
+# it choose between both and neither. The cost of the separation is one more
+# probe; the cost of merging them is a knob nobody can express their machine
+# with.
+FZN_SPOOL_FILE ?= auto
+
+# ITS OWN PROBE, asking about pread and pwrite rather than reusing the one
+# above. The two overlap almost entirely and reusing it would be shorter --
+# and would mean persist refusing to build on a toolchain that has `open`
+# and lacks `pwrite`, which is a subsystem failing for a function it never
+# calls. A probe belongs to the thing it gates.
+FZN_PROBE_PWRITE := $(shell printf '%s\n' '#define _POSIX_C_SOURCE 200809L' \
+                     '#include <fcntl.h>' '#include <unistd.h>' \
+                     'int main(void){char b=0;int f=open("/dev/null",O_RDWR);' \
+                     'if(pwrite(f,&b,1,0)<0){}if(pread(f,&b,1,0)<0){}fsync(f);return close(f);}' \
+                     | $(CC) -x c - -o /dev/null 2>/dev/null && echo yes || echo no)
+
+ifeq ($(FZN_SPOOL_FILE),auto)
+ifeq ($(FZN_PROBE_PWRITE),yes)
+SPOOL_FILE_ON := 1
+else
+SPOOL_FILE_SKIP := no positional read/write was detected. Set FZN_SPOOL_FILE=1 to insist.
+endif
+else ifeq ($(FZN_SPOOL_FILE),1)
+ifeq ($(FZN_PROBE_PWRITE),yes)
+SPOOL_FILE_ON := 1
+else
+$(error FZN_SPOOL_FILE=1 was asked for and no positional read/write was detected. \
+        Set FZN_SPOOL_FILE=0 to build without it, or auto to let the probe decide)
+endif
+else ifeq ($(FZN_SPOOL_FILE),0)
+SPOOL_FILE_SKIP := FZN_SPOOL_FILE=0.
+else
+$(error FZN_SPOOL_FILE must be auto, 1 or 0 -- got "$(FZN_SPOOL_FILE)")
+endif
+
+# Outside the conditional, for the reason PERSIST_FILE_SRCS is.
+SPOOL_FILE_SRCS := spool/spool_file.c
+SPOOL_FILE_HDRS := spool/spool_file.h
+SPOOL_FILE_TSRC := spool/test/spool_file_test.c
+
+ifdef SPOOL_FILE_ON
+CPPFLAGS  += -DFZN_SPOOL_FILE_ON
+SRCS      += $(SPOOL_FILE_SRCS)
+HDRS      += $(SPOOL_FILE_HDRS)
+TEST_SRCS += $(SPOOL_FILE_TSRC)
+TEST_BINS += $(BUILD_DIR)/spool/test/spool_file_test
+endif
+
 # The Monocypher binding, built against the VENDORED submodule by default.
 #
 # project.md sec 15c took the step sec 7 named and sec 11 called temporary.
@@ -828,6 +882,18 @@ $(BUILD_DIR)/spool/test/spool_test: $(BUILD_DIR)/spool/test/spool_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# The backend's own test, built only when the backend is. It drives a REAL
+# blob through a real file rather than testing the three ops in isolation,
+# because the property it exists for -- a reopened file still holding what it
+# held -- is only expressible with a store on top asking for leaves back.
+$(BUILD_DIR)/spool/test/spool_file_test: $(BUILD_DIR)/spool/test/spool_file_test.o \
+                                          $(BUILD_DIR)/spool/spool_file.o \
+                                          $(BUILD_DIR)/spool/spool.o \
+                                          $(BUILD_DIR)/blob/blob.o \
+                                          $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # persist/ links the four types whose loss a restart must not cause, which is
 # what its contract is about. No I/O here -- persist.c is the format.
 PERSIST_OBJS := $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/trust/trust.o \
@@ -1194,6 +1260,10 @@ runtests: $(TEST_BINS)
 	@if [ -n "$(PERSIST_FILE_SKIP)" ]; then \
 		echo "test: the file-backed persist backend was NOT built, so its tests"; \
 		echo "test: did not run -- $(PERSIST_FILE_SKIP)"; \
+	fi
+	@if [ -n "$(SPOOL_FILE_SKIP)" ]; then \
+		echo "test: the file-backed spool backend was NOT built, so its tests"; \
+		echo "test: did not run -- $(SPOOL_FILE_SKIP)"; \
 	fi
 
 CASES ?= 200000
@@ -1979,14 +2049,14 @@ installcheck: $(HDRS) $(SRCS) $(OBJS) tool/consumer_check.c
 		exit 1; \
 	fi
 	@echo "installcheck: against the installed headers"
-	@$(CC) $(CFLAGS) $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) -DFZN_CONSUMER_INSTALLED \
+	@$(CC) $(CFLAGS) $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) -DFZN_CONSUMER_INSTALLED \
 	       -I$(BUILD_DIR)/installcheck/usr/include \
 	       -o $(BUILD_DIR)/installcheck/consumer_installed \
 	       -Iwire/generated $(MONO_CONSUMER) tool/consumer_check.c $(SRCS) $(GEN_SRCS)
 	@$(BUILD_DIR)/installcheck/consumer_installed
 	@echo "installcheck: against the source tree, from another directory"
 	@cd $(BUILD_DIR)/installcheck && $(CC) $(CFLAGS) \
-	       $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) -I$(CURDIR) \
+	       $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) -I$(CURDIR) \
 	       -I$(CURDIR)/wire/generated \
 	       -o consumer_source $(CURDIR)/tool/consumer_check.c \
 	       $(patsubst %,$(CURDIR)/%,$(SRCS)) \

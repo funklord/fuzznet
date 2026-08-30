@@ -114,6 +114,43 @@ fzn_spool_err_t fzn_spool_place(fzn_spool_t *spool, const fzn_hash_ops_t *hash, 
 	if (!spool->ops->write_at(spool->ops->ctx, offset_of(index), sealed, sealed_len))
 		return FZN_SPOOL_ERR_BACKEND;
 
+	/*
+	 * AND THE REST OF THE SLOT IS FILLED, which is not padding for its own
+	 * sake -- it is what makes `fzn_spool_read`'s promise below true.
+	 *
+	 * THE DEFECT IT FIXES was invisible against the in-memory backend this
+	 * module was first tested with, and appeared the moment a real file
+	 * was put underneath. A slot is FZN_BLOB_SEALED_MAX wide and a read
+	 * asks for the whole of it; a SHORT leaf that is the highest one
+	 * placed so far therefore leaves the file ending part-way through its
+	 * own slot, and reading it back runs past the end. An array-backed
+	 * store cannot express that, because the array is already full size --
+	 * so every leaf read back correctly and the store looked right.
+	 *
+	 * It is not only the last leaf. Leaves arrive out of order, so
+	 * whichever short leaf currently sits highest is the one that cannot
+	 * be read, and which leaf that is changes as the transfer proceeds --
+	 * a read that worked a moment ago starts failing when nothing about it
+	 * changed.
+	 *
+	 * IT COSTS NOTHING IN THE ORDINARY CASE. A full leaf seals to exactly
+	 * FZN_BLOB_SEALED_MAX, so the only leaf this writes for is the blob's
+	 * last one and any deliberately short leaf -- one extra write per
+	 * blob, not per leaf.
+	 *
+	 * The zeros are also what stops a slot handing back the TAIL OF A
+	 * PREVIOUS BLOB when a spool file is reused: without this, a shorter
+	 * leaf written over a longer one leaves the difference readable, and
+	 * `fzn_spool_read` would return it inside the slot it reports.
+	 */
+	if (sealed_len < FZN_BLOB_SEALED_MAX) {
+		static const uint8_t ZEROS[FZN_BLOB_SEALED_MAX] = { 0 };
+
+		if (!spool->ops->write_at(spool->ops->ctx, offset_of(index) + sealed_len, ZEROS,
+		                          FZN_BLOB_SEALED_MAX - sealed_len))
+			return FZN_SPOOL_ERR_BACKEND;
+	}
+
 	/* THE BIT IS SET AFTER THE WRITE SUCCEEDS, never before. A bit set
 	 * over a failed write is a hole the store will never fill again,
 	 * because `next_missing` skips it and nothing re-requests it -- a
@@ -144,11 +181,13 @@ fzn_spool_err_t fzn_spool_read(const fzn_spool_t *spool, uint64_t index, uint8_t
 
 	/* THE STRIDE IS READ, NOT THE LEAF'S OWN LENGTH, because a store does
 	 * not know it -- the sealed length lives in the blob's own framing and
-	 * the last leaf is short. A caller reading a full slot gets the
-	 * trailing bytes of the slot with it and `fzn_blob_leaf_open` refuses
-	 * a length that is not the one it sealed. That is a real edge and it
-	 * is the caller's to resolve with the length it requested, which is
-	 * why this reports what it read rather than pretending to know. */
+	 * the last leaf is short. A caller reading a short leaf gets ZEROS
+	 * after it, because `fzn_spool_place` fills the rest of the slot -- so
+	 * what comes back is defined rather than whatever the medium held, and
+	 * `fzn_blob_leaf_open` refuses a length that is not the one it sealed.
+	 * Resolving the length is still the caller's, with the length it
+	 * requested from the manifest; this reports what it read rather than
+	 * pretending to know. */
 	want = cap < FZN_BLOB_SEALED_MAX ? cap : FZN_BLOB_SEALED_MAX;
 	if (!spool->ops->read_at(spool->ops->ctx, offset_of(index), out, want))
 		return FZN_SPOOL_ERR_BACKEND;

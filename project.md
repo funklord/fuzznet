@@ -10373,11 +10373,97 @@ stride is what makes arrival order free.
 before the write, skipping the proof, taking `have` on trust, rewriting a
 duplicate, and dropping the ceiling.
 
+### The default backend, and the defect it found immediately, 2026-08-30
+
+`spool/spool_file.c` is written and is the second subsystem, `FZN_SPOOL_FILE`,
+gated tri-state beside `FZN_PERSIST_FILE`. **Separately gated, not together**:
+a device with a small config partition can persist four keys and have nowhere
+to assemble a 4 GiB blob, and that host wants one on and the other off rather
+than a switch that makes it choose between both and neither.
+
+**IT IS `pread`/`pwrite` RATHER THAN mmap, which the ask named.** Both fit the
+seam, so the reasoning is recorded rather than the choice being silent. A leaf
+is 1056 bytes, so one syscall per leaf is dwarfed by the packet that carried
+it -- the syscall count mmap saves is not the cost here. mmap's failure mode
+is worse: a mapping over a file another process truncates raises SIGBUS at the
+faulting instruction, and this store is deliberately pointed at bytes from
+strangers, so its failure paths want to be returnable. And a 4 GiB mapping is
+not addressable at all on a 32-bit target. mmap earns its place for a seeder
+serving one popular blob repeatedly, and that is a **second** backend the seam
+already admits.
+
+**Nothing is pre-allocated.** `ftruncate` to the blob's length would make the
+file size meaningful and let a resume sanity-check it -- and on a filesystem
+without sparse support it would turn a 4 GiB transfer into a 4 GiB commitment
+on the first packet. `pwrite` extends the file as leaves land; the bitmap
+stays the only thing that says what is present.
+
+#### The real backend found a defect the array-backed one structurally could not
+
+`spool.c` passed six mutations against an in-memory backend. Putting a file
+underneath failed on the first run, and the fault was in `spool.c` rather than
+in the new file:
+
+**A slot is `FZN_BLOB_SEALED_MAX` wide and a read asks for the whole of it, so
+a SHORT leaf that is the highest one placed so far left the file ending
+part-way through its own slot -- and reading it back ran past the end.** Not
+only the last leaf: leaves arrive out of order, so whichever short leaf
+currently sits highest is the unreadable one, and which leaf that is changes
+as the transfer proceeds. A read that worked a moment ago starts failing with
+nothing about it changed.
+
+**An array-backed store cannot express it**, because the array is already full
+size -- every leaf read back correctly and the store looked right. This is
+`evidence.md`'s probe rule with the polarity that is hardest to see: the test
+double was not wrong about anything it modelled, it simply had no way to be
+wrong in the direction the defect lay. What found it was not a better test
+against the double; it was the real thing underneath.
+
+The fix is in `spool.c` rather than in the backend, because the fixed-width
+slot is the store's promise and not the medium's: `fzn_spool_place` fills the
+rest of the slot when a leaf is short. **It costs nothing in the ordinary
+case** -- a full leaf seals to exactly `FZN_BLOB_SEALED_MAX`, so the extra
+write happens once per blob rather than once per leaf. It also stops a reused
+spool file handing back the tail of a previous blob inside a slot it reports.
+
+The fixture that now defends it has ONE full-length leaf among short ones,
+deliberately: all-short cannot tell the fill apart from the leaf write, and
+all-full cannot see the fill at all. The write counts are derived from the
+fixture's lengths rather than typed out, so changing a leaf's length cannot
+leave a constant asserting the old shape.
+
+#### What the tests hold, measured by mutation
+
+Sixteen mutations. **Held**: the slot fill (removed, one byte short, and
+written over the leaf -- all three caught), the absent `O_TRUNC` (adding one
+fails the resume case), both positional offsets, the refusal of a read past
+the end, and the 0600 mode.
+
+**Not held, and prospective rather than load-bearing**: the `fd < 0` guards in
+all three ops. Removing them changes no result, because `pread`, `pwrite` and
+`fsync` refuse a negative descriptor with the same failure the guard produces.
+They stay because they say what the function expects; the note exists so that
+nobody later cites them as tested.
+
+**Not held, and not testable from here**: the short-read and short-write
+loops, and that `sync` reaches the disk at all. Inducing a short `pwrite`
+needs a signal delivered mid-syscall and proving an `fsync` needs the power
+cut, so a backend faking either would pass. That is the honest limit of a
+suite that runs on a working filesystem.
+
+**And two of the sixteen produced no result and were nearly read as
+survivals.** The anchor for "read ignores its offset" matched twice, so the
+edit was refused and the harness ran the UNMUTATED file -- printing SURVIVED
+for a sabotage that never landed, which is indistinguishable from a check that
+cannot fail. The harness now diffs the mutated file against the original and
+says "no result" rather than reporting one. Re-run with unique anchors, both
+were caught.
+
 ### What is left
 
-`spool/spool_file.c` -- the default backend, positional reads and writes over
-a sparse file, gated like `persist/persist_file.c`. The seam is the same
-shape and the policy above does not change with it.
+Nothing in the store. The transfer protocol -- HAVE and WANT over the wire,
+and the return-routability cookie that stops it being an amplifier -- is still
+the consumer's, and sec 16's staging stands for that half.
 
 
 ## 19. Contacts and realms: half of it was already here, 2026-08-28
