@@ -39,6 +39,7 @@
 #include "../../session/agree.h"
 #include "../../session/session.h"
 #include "../../prekey/prekey.h"
+#include "../../persist/persist.h"
 #include "../../ratchet/ratchet.h"
 #include "../../chain/authz.h"
 #include "../../session/random.h"
@@ -2982,6 +2983,283 @@ static void scenario_session(void)
 		fzn_agree_secret_wipe(&sk[h]);
 }
 
+/*
+ * A HOST THAT LOSES ITS MEMORY AND COMES BACK, which nothing in this file
+ * could express before it.
+ *
+ * `persist/` exists for exactly one reason -- four kinds of state must
+ * survive a restart -- and every scenario here keeps its hosts alive from
+ * the first line to the last, so the one question the module answers was the
+ * one question the simulation could not ask. `persist_test.c` round-trips
+ * each blob and checks its fields, which proves the PACKERS; it cannot prove
+ * the SET is sufficient, because sufficiency is a property of a host trying
+ * to carry on afterwards. That is `evidence.md`'s correct-function-versus-
+ * working-feature split, and this is the missing half.
+ *
+ * THE SCRUB IS CHECKED BEFORE IT IS RELIED ON. Between destroying host 1's
+ * state and restoring it, the scenario asserts that host 1 CANNOT follow the
+ * conversation. Without that, a scrub that quietly failed to land -- a
+ * memset over the wrong struct, a copy left in a local -- would leave the
+ * restore looking like it worked when nothing had been lost in the first
+ * place. A sabotage that did not apply and a check that cannot fail are
+ * indistinguishable from the output.
+ */
+static void scenario_restart(void)
+{
+	struct sim_net net;
+	fzn_agree_ops_t agree_ops = { sim_agree_public, sim_agree_shared, NULL };
+	fzn_hash_ops_t hash_ops = { sim_hash, NULL };
+	fzn_agree_secret_t sk[2];
+	fzn_prekey_peer_t pinned[2];
+	uint8_t secret[2][FZN_AGREE_SECRET_LEN];
+	uint8_t record_bytes[2][FZN_PREKEY_LEN_TOTAL];
+	fzn_prekey_record_t record[2];
+	uint8_t key[2][FZN_AEAD_KEY_LEN], ckey[2][FZN_COMMITMENT_KEY_LEN];
+	uint8_t send_chain[2][FZN_CHAIN_KEY_LEN], recv_chain[2][FZN_CHAIN_KEY_LEN];
+	fzn_ratchet_chain_t sender, receiver, moved;
+	uint8_t mk_send[FZN_MESSAGE_KEY_LEN], mk_recv[FZN_MESSAGE_KEY_LEN];
+	uint8_t blob_secret[FZN_PERSIST_MAX], blob_peer[FZN_PERSIST_MAX];
+	uint8_t blob_chain[FZN_PERSIST_MAX];
+	size_t len_secret = 0, len_peer = 0, len_chain = 0;
+	unsigned h, n;
+	int ok = 1;
+
+	sim_init(&net, 2, 0x7e51a27u);
+
+	for (h = 0; h < 2u; h++) {
+		unsigned i;
+
+		memset(&sk[h], 0, sizeof(sk[h]));
+		fzn_prekey_peer_init(&pinned[h]);
+		for (i = 0; i < FZN_AGREE_SECRET_LEN; i++)
+			secret[h][i] = (uint8_t)((h * 47u) + (i * 11u) + 5u);
+		if (fzn_agree_secret_install(&sk[h], &agree_ops, secret[h]) != FZN_AGREE_OK)
+			ok = 0;
+	}
+	for (h = 0; h < 2u; h++) {
+		struct sim_signer who;
+		const fzn_sign_ops_t *signer = sim_signer(&who, &net.sign, net.hosts[h].pubkey);
+
+		if (fzn_prekey_issue(net.hosts[h].pubkey, fzn_agree_secret_public(&sk[h]),
+		                     700u + h, signer, record_bytes[h]) != FZN_PREKEY_OK)
+			ok = 0;
+		if (fzn_prekey_open(record_bytes[h], FZN_PREKEY_LEN_TOTAL, &record[h])
+		    != FZN_PREKEY_OK)
+			ok = 0;
+	}
+	check(ok, "the restart scenario could not set its hosts up");
+	if (!ok)
+		return;
+
+	check(fzn_prekey_pin(&pinned[0], record[1], &net.sign, FZN_TRUST_ADOPTED, net.now)
+	              == FZN_PREKEY_OK, "host 0 could not pin host 1");
+	check(fzn_prekey_pin(&pinned[1], record[0], &net.sign, FZN_TRUST_ADOPTED, net.now)
+	              == FZN_PREKEY_OK, "host 1 could not pin host 0");
+	check(fzn_session_establish(&sk[0], &agree_ops, &hash_ops, net.hosts[0].pubkey,
+	                            net.hosts[1].pubkey, pinned[0].prekey, key[0], ckey[0])
+	              == FZN_SESSION_OK, "host 0 could not establish");
+	check(fzn_session_establish(&sk[1], &agree_ops, &hash_ops, net.hosts[1].pubkey,
+	                            net.hosts[0].pubkey, pinned[1].prekey, key[1], ckey[1])
+	              == FZN_SESSION_OK, "host 1 could not establish");
+	check(fzn_session_chains(&hash_ops, key[0], net.hosts[0].pubkey, net.hosts[1].pubkey,
+	                         send_chain[0], recv_chain[0]) == FZN_SESSION_OK,
+	      "host 0 could not derive chains");
+	check(fzn_session_chains(&hash_ops, key[1], net.hosts[1].pubkey, net.hosts[0].pubkey,
+	                         send_chain[1], recv_chain[1]) == FZN_SESSION_OK,
+	      "host 1 could not derive chains");
+
+	/* THREE MESSAGES BEFORE THE RESTART, so the chain is somewhere other
+	 * than its seed. A restart tested at sequence zero would pass against
+	 * a chain blob that stored the seed and forgot the counter, which is
+	 * the field a restart is most likely to lose. */
+	fzn_ratchet_init(&sender, send_chain[0], 0);
+	fzn_ratchet_init(&receiver, recv_chain[1], 0);
+	for (n = 0; n < 3u; n++) {
+		check(fzn_ratchet_advance(&hash_ops, &sender, n, mk_send, &moved, NULL, 0, NULL,
+		                          NULL) == FZN_RATCHET_OK, "the sender could not advance");
+		sender = moved;
+		check(fzn_ratchet_advance(&hash_ops, &receiver, n, mk_recv, &moved, NULL, 0, NULL,
+		                          NULL) == FZN_RATCHET_OK,
+		      "the receiver could not advance");
+		receiver = moved;
+		check(memcmp(mk_send, mk_recv, FZN_MESSAGE_KEY_LEN) == 0,
+		      "a message did not agree before the restart");
+	}
+
+	/* WHAT HOST 1 WRITES DOWN. Three of the four kinds: its own agreement
+	 * secret, the peer it pinned, and the receive chain it is following.
+	 * The trust anchor rides inside the peer blob, and its provenance is
+	 * asserted below rather than assumed. */
+	check(fzn_persist_secret_pack(&sk[1], blob_secret, sizeof(blob_secret), &len_secret)
+	              == FZN_PERSIST_OK, "host 1 could not persist its agreement secret");
+	check(fzn_persist_peer_pack(&pinned[1], blob_peer, sizeof(blob_peer), &len_peer)
+	              == FZN_PERSIST_OK, "host 1 could not persist the peer it pinned");
+	check(fzn_persist_chain_pack(&receiver, blob_chain, sizeof(blob_chain), &len_chain)
+	              == FZN_PERSIST_OK, "host 1 could not persist its receive chain");
+
+	/*
+	 * AND THE OPENERS WRITE EVERY BYTE THEY CLAIM, which is what makes the
+	 * scrubs below honest for the peer and the chain.
+	 *
+	 * Removing either of those two scrubs changes no result -- measured --
+	 * because their restore overwrites the same storage, so there is no
+	 * leftover for a later assertion to pass on. That is only true while
+	 * the restore is TOTAL, and nothing said it was. A field an opener
+	 * forgot would keep whatever the struct held, which on a real host is
+	 * the previous run's value or uninitialised stack, and a scenario like
+	 * this one would never see it.
+	 *
+	 * So it is asserted as a relationship rather than a value: open the
+	 * same blob into two buffers poisoned differently, and the results
+	 * must be identical. A byte the opener LEAKS from the caller's buffer
+	 * differs, and neither buffer had to be right for the difference to
+	 * show.
+	 *
+	 * WHAT IT DOES AND DOES NOT COVER, measured rather than claimed. The
+	 * openers call `fzn_prekey_peer_init` and `fzn_ratchet_init` first, so
+	 * a field one of them forgot comes back as init's value from BOTH
+	 * poisons -- identical, and this check stays green. That is correct
+	 * and not a hole: with the init in place a forgotten field is a wrong
+	 * VALUE, which is `persist_test.c`'s business, rather than a leak of
+	 * whatever the caller had. Dropping the init alone also stays green,
+	 * because the openers do write every field. Dropping the init AND
+	 * forgetting a field is caught, which is the pair that constitutes the
+	 * leak. Stated because the first draft of this comment claimed the
+	 * check caught a forgotten field outright, and it does not.
+	 */
+	{
+		fzn_prekey_peer_t peer_a, peer_b;
+		fzn_ratchet_chain_t chain_a, chain_b;
+
+		memset(&peer_a, 0x00, sizeof(peer_a));
+		memset(&peer_b, 0xa5, sizeof(peer_b));
+		check(fzn_persist_peer_open(blob_peer, len_peer, &peer_a) == FZN_PERSIST_OK
+		              && fzn_persist_peer_open(blob_peer, len_peer, &peer_b)
+		                 == FZN_PERSIST_OK,
+		      "the peer blob did not open twice");
+		check(memcmp(&peer_a, &peer_b, sizeof(peer_a)) == 0,
+		      "opening one peer blob into two differently-poisoned buffers gave two "
+		      "different peers, so the opener leaves a field holding whatever was "
+		      "there before");
+
+		memset(&chain_a, 0x00, sizeof(chain_a));
+		memset(&chain_b, 0xa5, sizeof(chain_b));
+		check(fzn_persist_chain_open(blob_chain, len_chain, &chain_a) == FZN_PERSIST_OK
+		              && fzn_persist_chain_open(blob_chain, len_chain, &chain_b)
+		                 == FZN_PERSIST_OK,
+		      "the chain blob did not open twice");
+		check(memcmp(&chain_a, &chain_b, sizeof(chain_a)) == 0,
+		      "opening one chain blob into two differently-poisoned buffers gave two "
+		      "different chains");
+	}
+
+	/* THE RESTART. Everything host 1 held in memory is destroyed -- not
+	 * zeroed, which a struct might read as a valid empty, but filled with
+	 * a byte that is wrong in every field. */
+	memset(&sk[1], 0xdd, sizeof(sk[1]));
+	memset(&pinned[1], 0xdd, sizeof(pinned[1]));
+	memset(&receiver, 0xdd, sizeof(receiver));
+	memset(key[1], 0xdd, sizeof(key[1]));
+	memset(ckey[1], 0xdd, sizeof(ckey[1]));
+	memset(recv_chain[1], 0xdd, sizeof(recv_chain[1]));
+	memset(secret[1], 0xdd, sizeof(secret[1]));
+
+	/* THE CONTROL, and the scenario is worth nothing without it. Host 0
+	 * sends message 3; a host whose state really is gone must not be able
+	 * to follow it. */
+	check(fzn_ratchet_advance(&hash_ops, &sender, 3u, mk_send, &moved, NULL, 0, NULL, NULL)
+	              == FZN_RATCHET_OK, "the sender could not advance past the restart");
+	sender = moved;
+	{
+		uint8_t lost[FZN_MESSAGE_KEY_LEN];
+		fzn_ratchet_chain_t scratch = receiver, went;
+		int followed = fzn_ratchet_advance(&hash_ops, &scratch, 3u, lost, &went, NULL, 0,
+		                                   NULL, NULL) == FZN_RATCHET_OK
+		               && memcmp(lost, mk_send, FZN_MESSAGE_KEY_LEN) == 0;
+
+		check(!followed, "a host whose memory was scrubbed still followed the "
+		                 "conversation, so the scrub did not land and everything "
+		                 "below proves nothing");
+	}
+
+	/* AND A SECOND CONTROL, FOR THE OTHER HALF. The one above proves the
+	 * CHAIN is gone and says nothing about the secret -- so with the
+	 * secret left in memory, the re-establish below would pass on what
+	 * survived rather than on what was written down, and the two look
+	 * identical from the output. Found by removing the secret's scrub and
+	 * watching the scenario stay green: one control does not cover two
+	 * claims. */
+	{
+		uint8_t stale[FZN_AEAD_KEY_LEN], stale_ck[FZN_COMMITMENT_KEY_LEN];
+		/* THE PEER'S REAL PREKEY, not the scrubbed `pinned[1]`. With
+		 * the scrubbed one this control cannot fire at all: the
+		 * establish fails on the garbage prekey whether or not the
+		 * secret survived, so it would be testing the conjunction of
+		 * the two scrubs and reporting it as either. Measured -- with
+		 * the secret's scrub removed it stayed green until this line
+		 * used host 0's live public key. */
+		int derived = fzn_session_establish(&sk[1], &agree_ops, &hash_ops,
+		                                    net.hosts[1].pubkey, net.hosts[0].pubkey,
+		                                    fzn_agree_secret_public(&sk[0]), stale,
+		                                    stale_ck) == FZN_SESSION_OK
+		              && memcmp(stale, key[0], FZN_AEAD_KEY_LEN) == 0;
+
+		check(!derived, "a host whose secret was scrubbed still derived the session "
+		                "root, so the re-establish below proves nothing");
+	}
+
+	/* AND BACK. Only the blobs are read; nothing else survived. */
+	check(fzn_persist_secret_open(blob_secret, len_secret, &agree_ops, &sk[1])
+	              == FZN_PERSIST_OK, "the agreement secret did not come back");
+	check(fzn_persist_peer_open(blob_peer, len_peer, &pinned[1]) == FZN_PERSIST_OK,
+	      "the pinned peer did not come back");
+	check(fzn_persist_chain_open(blob_chain, len_chain, &receiver) == FZN_PERSIST_OK,
+	      "the receive chain did not come back");
+
+	/* PROVENANCE SURVIVES, which is the field a restart is most likely to
+	 * launder: a peer taken on faith must not come back claiming it was
+	 * confirmed out of band. */
+	check(fzn_trust_source_of(&pinned[1].trust) == FZN_TRUST_ADOPTED,
+	      "a peer adopted on faith came back reporting out-of-band confirmation");
+
+	/* THE SUFFICIENCY CLAIM, HALF ONE: the restored secret and peer are
+	 * enough to derive the same session root again. */
+	check(fzn_session_establish(&sk[1], &agree_ops, &hash_ops, net.hosts[1].pubkey,
+	                            net.hosts[0].pubkey, pinned[1].prekey, key[1], ckey[1])
+	              == FZN_SESSION_OK, "the restarted host could not re-establish");
+	check(memcmp(key[0], key[1], FZN_AEAD_KEY_LEN) == 0,
+	      "the restarted host derived a different session root, so what it wrote "
+	      "down was not enough to come back");
+	check(memcmp(ckey[0], ckey[1], FZN_COMMITMENT_KEY_LEN) == 0,
+	      "the restarted host derived a different commitment key");
+
+	/* HALF TWO: the restored chain is where the conversation is, not back
+	 * at its seed. This is the half re-deriving cannot supply. */
+	check(fzn_ratchet_advance(&hash_ops, &receiver, 3u, mk_recv, &moved, NULL, 0, NULL, NULL)
+	              == FZN_RATCHET_OK, "the restarted host could not advance its chain");
+	receiver = moved;
+	check(memcmp(mk_send, mk_recv, FZN_MESSAGE_KEY_LEN) == 0,
+	      "the restarted host derived a different key for the first message after "
+	      "the restart, so the conversation is over");
+
+	/* AND IT KEEPS GOING. One message could agree by luck of a chain that
+	 * happened to land right; four more cannot. */
+	for (n = 4u; n < 8u; n++) {
+		check(fzn_ratchet_advance(&hash_ops, &sender, n, mk_send, &moved, NULL, 0, NULL,
+		                          NULL) == FZN_RATCHET_OK, "the sender stalled");
+		sender = moved;
+		check(fzn_ratchet_advance(&hash_ops, &receiver, n, mk_recv, &moved, NULL, 0, NULL,
+		                          NULL) == FZN_RATCHET_OK, "the restarted host stalled");
+		receiver = moved;
+		check(memcmp(mk_send, mk_recv, FZN_MESSAGE_KEY_LEN) == 0,
+		      "a later message after the restart did not agree, so the restored "
+		      "chain landed right once by luck rather than being the chain");
+	}
+
+	for (h = 0; h < 2u; h++)
+		fzn_agree_secret_wipe(&sk[h]);
+}
+
 int main(void)
 {
 	scenario_mesh();
@@ -3001,6 +3279,7 @@ int main(void)
 	scenario_join();
 	scenario_fidelity();
 	scenario_session();
+	scenario_restart();
 
 	/* Asserted ONCE, not once per fetch. See `digest_dropped`. */
 	check(total_digest_dropped == 0, "a simulation digest buffer was too small");

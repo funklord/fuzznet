@@ -10518,6 +10518,72 @@ Both need the power cut -- surviving one is their entire purpose -- so they
 carry their argument in prose beside the code rather than resting on a green
 run.
 
+## 23. A host that loses its memory, 2026-08-30
+
+The lens came from the two defects above, both of which were **a double that
+could not express the failure**. Applied to the simulation, it lands
+immediately: seventeen scenarios, and every one keeps its hosts alive from
+the first line to the last. `persist/` exists for exactly one reason -- four
+kinds of state must survive a restart -- so **the one question that module
+answers was the one question the simulation could not ask**, and `persist`
+appeared nowhere in the file.
+
+`persist_test.c` round-trips each blob and checks its fields, which proves
+the PACKERS. It cannot prove the SET is sufficient, because sufficiency is a
+property of a host trying to carry on afterwards. That is the
+correct-function-versus-working-feature split, and `scenario_restart` is the
+missing half: host 1 exchanges three messages, writes down its secret, its
+pinned peer and its receive chain, has every byte of its live state filled
+with 0xdd, comes back from the blobs alone, and must follow message four and
+the four after it.
+
+Five mutations on the format, all caught: a chain that forgets its sequence,
+a chain that forgets its key, a peer that forgets the prekey, and an adopted
+anchor coming back pinned. The last is the provenance-laundering case, and it
+was worth having twice -- `persist_test.c` holds it for a bare trust, and this
+holds it for a peer that has been through a real pinning.
+
+### Two controls, because one control covered one claim
+
+The scenario asserts BEFORE restoring that the scrubbed host cannot follow
+the conversation. Without that, a scrub that quietly failed to land would
+leave the restore looking like it worked when nothing had been lost.
+
+**One control was not enough and the mutation said so.** The first version
+checked only the chain. Removing the secret's scrub left the suite green,
+because the re-establish half would then have passed on memory that survived
+rather than on the blob -- the two are indistinguishable from the output. A
+second control was added for the secret, and **it did not work either**: it
+used the scrubbed peer's prekey, so the establish failed on the garbage
+prekey whether or not the secret had survived. It was testing the
+CONJUNCTION of two scrubs and reporting it as either. Using host 0's live
+public key is what made it discriminate, and only then did removing the
+secret's scrub turn the suite red.
+
+Two attempts, both plausible, both green, neither testing what its message
+said. The general form is already in this document twice this week: **a probe
+gets checked against the mechanism its author had in mind rather than against
+the failure it is meant to catch.**
+
+### The two remaining scrubs are model faithfulness, not evidence
+
+Removing the peer's scrub or the root's changes no result, measured. That is
+not a gap: their restore overwrites the same storage, so there is no leftover
+for a later assertion to pass on. It is only true while the restore is TOTAL,
+and nothing said it was.
+
+So that is asserted as a relationship rather than a value -- open one blob
+into two buffers poisoned differently and require the results to be identical.
+**And the check's reach was then measured rather than assumed, which changed
+what the comment beside it says.** A field an opener forgot comes back as
+`fzn_prekey_peer_init`'s value from both poisons, so the check stays green:
+correct, because with the init in place that is a wrong VALUE and the
+packer tests own it, not a leak of the caller's bytes. Dropping the init
+alone is also green, since the openers do write every field. Dropping the
+init AND forgetting a field is caught. The first draft of the comment claimed
+the check caught a forgotten field outright; it does not, and saying so is
+the difference between a fact and a fact with its method.
+
 ### What is left
 
 Nothing in the store, and resume is now whole. The transfer protocol -- HAVE and WANT over the wire,
