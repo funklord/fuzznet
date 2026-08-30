@@ -22,17 +22,41 @@
  *   expects, not because anything would break -- and this note is here so
  *   that nobody later cites them as tested.
  *
+ *   HELD, on the sidecar: the version byte, the whole root (a prefix
+ *   comparison is caught), the leaf count, the pre-zero of the caller's
+ *   buffer, the discard of a partly-read bitmap, and the refusal to
+ *   checkpoint through a closed descriptor.
+ *
  *   NOT HELD, and not testable from here: the short-read and short-write
- *   loops, and that `sync` reaches the disk at all. Inducing a short pwrite
- *   needs a signal delivered mid-syscall, and proving an fsync needs the
- *   power cut. A backend that faked either would pass this suite. That is
- *   the honest limit of a test that runs on a working filesystem.
+ *   loops, that `sync` reaches the disk at all, that the data fsync really
+ *   precedes the sidecar write, and that the sidecar is renamed into place
+ *   rather than written over. Inducing a short pwrite needs a signal
+ *   delivered mid-syscall, and the last three all need the power cut --
+ *   surviving one is their entire purpose. A backend faking any of them
+ *   would pass this suite. That is the honest limit of a test that runs on
+ *   a working filesystem, and the reason those lines carry their argument
+ *   in prose beside them rather than resting on a green run.
  */
 
 #include "spool_file.h"
 
+#include "../wire/bytes.h"
+
 #include <fcntl.h>
+#include <stdio.h>
+#include <string.h>
 #include <unistd.h>
+
+/* The sidecar's header: a version, the root it belongs to, and the leaf
+ * count. Everything after it is the bitmap.
+ *
+ * THE ROOT AND THE COUNT ARE THE POINT. Without them the file is opaque bits
+ * that any blob will accept -- see spool_file.h. With them a resume onto the
+ * wrong blob is a comparison rather than a corrupt transfer. */
+#define BITS_VERSION 1u
+#define BITS_OFF_ROOT 1u
+#define BITS_OFF_LEAVES (BITS_OFF_ROOT + FZN_BLOB_HASH_LEN)
+#define BITS_HEAD_LEN (BITS_OFF_LEAVES + 8u)
 
 static int file_read(void *ctx, uint64_t offset, uint8_t *out, size_t len)
 {
@@ -92,6 +116,13 @@ const fzn_spool_ops_t *fzn_spool_file_open(fzn_spool_file_t *file, const char *p
 	 * a transfer starting over while the bitmap still claimed the leaves
 	 * were present. The bitmap and the file are restored together or the
 	 * store is wrong about itself. */
+	/* The sidecar's name is derived once, and its length is checked BEFORE
+	 * the data file is created -- a path that fits but whose sidecar does
+	 * not would otherwise leave a spool nothing could ever checkpoint, and
+	 * the caller would learn at the first pause rather than at start-up. */
+	if ((size_t)snprintf(file->bits, sizeof(file->bits), "%s.bits", path) >= sizeof(file->bits))
+		return NULL;
+
 	file->fd = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
 	if (file->fd < 0)
 		return NULL;
@@ -101,6 +132,123 @@ const fzn_spool_ops_t *fzn_spool_file_open(fzn_spool_file_t *file, const char *p
 	file->ops.sync = file_sync;
 	file->ops.ctx = file;
 	return &file->ops;
+}
+
+fzn_spool_err_t fzn_spool_file_resume(const fzn_spool_file_t *file,
+                                      const uint8_t root[FZN_BLOB_HASH_LEN], uint64_t leaves,
+                                      uint8_t *present, size_t present_len)
+{
+	uint8_t head[BITS_HEAD_LEN];
+	size_t want;
+	FILE *f;
+
+	if (!file || !root || !present || leaves == 0u)
+		return FZN_SPOOL_ERR_MALFORMED;
+	if (leaves > (uint64_t)FZN_SPOOL_MAX_LEAVES)
+		return FZN_SPOOL_ERR_TOO_LARGE;
+	want = FZN_SPOOL_BITMAP_LEN(leaves);
+	if (present_len < want)
+		return FZN_SPOOL_ERR_MALFORMED;
+
+	/* ZEROED BEFORE ANYTHING IS READ, so that every path out of here --
+	 * absent, mismatched, truncated, refused -- leaves the caller with a
+	 * fresh transfer rather than with whatever the buffer held. A caller
+	 * ignoring the return value gets the safe answer. */
+	memset(present, 0, want);
+
+	f = fopen(file->bits, "rb");
+	if (!f)
+		return FZN_SPOOL_ERR_ABSENT;
+
+	if (fread(head, 1u, sizeof(head), f) != sizeof(head)) {
+		(void)fclose(f);
+		return FZN_SPOOL_ERR_ABSENT;
+	}
+	/* A MISMATCH IS "ABSENT", NOT AN ERROR, deliberately. A sidecar from
+	 * another blob is not a fault a caller can repair -- it means the path
+	 * was reused -- and the correct response is the same as having no
+	 * sidecar at all: start over. Reporting it as a failure would tempt a
+	 * caller into treating a reused path as fatal. */
+	if (head[0] != BITS_VERSION || memcmp(head + BITS_OFF_ROOT, root, FZN_BLOB_HASH_LEN) != 0
+	    || fzn_get_be64(head + BITS_OFF_LEAVES) != leaves) {
+		(void)fclose(f);
+		return FZN_SPOOL_ERR_ABSENT;
+	}
+
+	if (fread(present, 1u, want, f) != want) {
+		/* A TRUNCATED SIDECAR IS DISCARDED RATHER THAN PARTLY USED.
+		 * The bits that did arrive are real, but the ones that did not
+		 * read as zero -- which is stale-fewer and therefore safe --
+		 * and half a bitmap is not worth the branch it costs to reason
+		 * about later. */
+		memset(present, 0, want);
+		(void)fclose(f);
+		return FZN_SPOOL_ERR_ABSENT;
+	}
+	(void)fclose(f);
+	return FZN_SPOOL_OK;
+}
+
+fzn_spool_err_t fzn_spool_file_checkpoint(const fzn_spool_file_t *file, const fzn_spool_t *spool)
+{
+	char temp[FZN_SPOOL_FILE_PATH_MAX];
+	uint8_t head[BITS_HEAD_LEN];
+	size_t want;
+	FILE *f;
+	int fd;
+	int ok;
+
+	if (!file || file->fd < 0 || !spool || !spool->present || spool->leaves == 0u)
+		return FZN_SPOOL_ERR_MALFORMED;
+	want = FZN_SPOOL_BITMAP_LEN(spool->leaves);
+	if (spool->present_len < want)
+		return FZN_SPOOL_ERR_MALFORMED;
+	if ((size_t)snprintf(temp, sizeof(temp), "%s.tmp", file->bits) >= sizeof(temp))
+		return FZN_SPOOL_ERR_MALFORMED;
+
+	/* THE DATA IS SYNCED BEFORE THE BITMAP IS WRITTEN. See spool_file.h:
+	 * stale-fewer costs a re-request, stale-more loses leaves for good, so
+	 * the order is the guarantee and it is enforced here rather than asked
+	 * of a caller. */
+	if (fsync(file->fd) != 0)
+		return FZN_SPOOL_ERR_BACKEND;
+
+	head[0] = (uint8_t)BITS_VERSION;
+	memcpy(head + BITS_OFF_ROOT, spool->root, FZN_BLOB_HASH_LEN);
+	fzn_put_be64(head + BITS_OFF_LEAVES, spool->leaves);
+
+	fd = open(temp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+	if (fd < 0)
+		return FZN_SPOOL_ERR_BACKEND;
+	f = fdopen(fd, "wb");
+	if (!f) {
+		(void)close(fd);
+		(void)unlink(temp);
+		return FZN_SPOOL_ERR_BACKEND;
+	}
+
+	ok = fwrite(head, 1u, sizeof(head), f) == sizeof(head);
+	if (ok)
+		ok = fwrite(spool->present, 1u, want, f) == want;
+	if (ok)
+		ok = fflush(f) == 0;
+	if (ok)
+		ok = fsync(fileno(f)) == 0;
+	if (fclose(f) != 0)
+		ok = 0;
+
+	if (!ok) {
+		(void)unlink(temp);
+		return FZN_SPOOL_ERR_BACKEND;
+	}
+	/* RENAMED OVER, so a crash mid-write leaves the PREVIOUS bitmap rather
+	 * than a torn one. A torn bitmap is the stale-more case arriving by
+	 * accident: garbage bits set over leaves that are not there. */
+	if (rename(temp, file->bits) != 0) {
+		(void)unlink(temp);
+		return FZN_SPOOL_ERR_BACKEND;
+	}
+	return FZN_SPOOL_OK;
 }
 
 void fzn_spool_file_close(fzn_spool_file_t *file)

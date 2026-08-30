@@ -1000,6 +1000,18 @@ int main(void)
 			 * the line above returns NULL. */
 			backend.fd = -1;
 			fzn_spool_file_close(&backend);
+			/* And the resume half, which is what a consumer
+			 * needs before its first restart mid-transfer: a
+			 * checkpoint through a backend that is not open
+			 * must refuse rather than write a bitmap for data
+			 * it cannot sync. */
+			if (fzn_spool_file_checkpoint(&backend, &sp) != FZN_SPOOL_ERR_MALFORMED)
+				return 243;
+			if (fzn_spool_file_resume(&backend, fake_root, 2u, map, sizeof(map))
+			    != FZN_SPOOL_ERR_MALFORMED
+			    && fzn_spool_file_resume(&backend, fake_root, 2u, map, sizeof(map))
+			       != FZN_SPOOL_ERR_ABSENT)
+				return 244;
 		}
 #endif
 	}

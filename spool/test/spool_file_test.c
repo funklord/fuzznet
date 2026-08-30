@@ -16,6 +16,10 @@
  *     first leaf to land is routinely the last one.
  */
 
+/* For ftruncate and fileno, which the sidecar cases use to damage a file
+ * deliberately. The backend's own translation unit sets this too. */
+#define _POSIX_C_SOURCE 200809L
+
 #include "../spool_file.h"
 
 #include <stdarg.h>
@@ -189,17 +193,30 @@ static void test_a_reopened_spool_still_has_what_it_had(void)
 		      "reading that leaf back runs past the end");
 	}
 
+	/* CHECKPOINTED THROUGH THE SHIPPED PATH rather than carried across by
+	 * hand. Carrying the bitmap in a variable that survives the close is
+	 * what a test does and what a restart cannot, so a test doing it
+	 * proves the file and not the resume. */
+	CHECK(fzn_spool_file_checkpoint(&backend, &spool) == FZN_SPOOL_OK, "the checkpoint failed");
 	fzn_spool_file_close(&backend);
 
-	/* THE RESTART. Same file, same bitmap, a fresh store. */
+	/* THE RESTART. The bitmap is scribbled over first, so anything that
+	 * survives is something `resume` put there. */
+	memset(map, 0xff, sizeof(map));
 	ops = fzn_spool_file_open(&backend, path);
 	CHECK(ops != NULL, "the backend refused to reopen its own file");
 	if (!ops)
 		return;
+	CHECK(fzn_spool_file_resume(&backend, root, TEST_LEAVES, map, sizeof(map)) == FZN_SPOOL_OK,
+	      "the sidecar did not restore");
 	CHECK(fzn_spool_open(&spool, root, TEST_LEAVES, map, sizeof(map), ops) == FZN_SPOOL_OK,
 	      "the store refused to resume");
+	CHECK(spool.have == 2u, "the resumed store holds %u leaves, expected 2",
+	      (unsigned)spool.have);
 	CHECK(fzn_spool_has(&spool, 4u) && fzn_spool_has(&spool, 1u),
 	      "the resumed store forgot which leaves it held");
+	CHECK(!fzn_spool_has(&spool, 0u) && !fzn_spool_has(&spool, 3u),
+	      "the resumed store claims leaves it never had -- the scribble survived");
 
 	CHECK(fzn_spool_read(&spool, 4u, out, sizeof(out), &out_len) == FZN_SPOOL_OK,
 	      "a leaf written before the restart could not be read after it");
@@ -244,6 +261,179 @@ static void test_a_reopened_spool_still_has_what_it_had(void)
 
 	CHECK(ops->sync(ops->ctx), "the backend refused to sync a file it holds open");
 	fzn_spool_file_close(&backend);
+}
+
+/* THE CASE THE SIDECAR'S HEADER EXISTS FOR, and the reason it carries more
+ * than bits. A bitmap is opaque: `fzn_spool_open` takes a root and a bitmap
+ * and cannot tell they belong together, so a bitmap restored for the wrong
+ * blob makes the store report leaves present that hold another blob's
+ * ciphertext -- and the transfer completes without ever re-requesting them.
+ *
+ * A reused path is how it happens, not an attack. */
+static void test_a_bitmap_from_another_blob_is_refused(void)
+{
+	fzn_spool_file_t backend;
+	const fzn_spool_ops_t *ops;
+	fzn_spool_t spool;
+	uint8_t map[FZN_SPOOL_BITMAP_LEN(TEST_LEAVES)];
+	uint8_t other_root[FZN_BLOB_HASH_LEN];
+	unsigned i;
+
+	memset(map, 0, sizeof(map));
+	ops = fzn_spool_file_open(&backend, path);
+	CHECK(ops != NULL, "the backend refused a path it should have opened");
+	if (!ops)
+		return;
+
+	CHECK(fzn_spool_open(&spool, root, TEST_LEAVES, map, sizeof(map), ops) == FZN_SPOOL_OK,
+	      "the store refused to open");
+	CHECK(fzn_spool_place(&spool, &HASH, 0u, sealed[0], sealed_len[0], proof[0], proof_len[0])
+	              == FZN_SPOOL_OK,
+	      "placing a leaf failed");
+	CHECK(fzn_spool_file_checkpoint(&backend, &spool) == FZN_SPOOL_OK, "the checkpoint failed");
+
+	/* A ROOT DIFFERING IN ONE BYTE. The whole-root case would also pass
+	 * against a header that compared only a prefix. */
+	memcpy(other_root, root, sizeof(other_root));
+	other_root[FZN_BLOB_HASH_LEN - 1u] ^= 0x01u;
+	memset(map, 0xff, sizeof(map));
+	CHECK(fzn_spool_file_resume(&backend, other_root, TEST_LEAVES, map, sizeof(map))
+	              == FZN_SPOOL_ERR_ABSENT,
+	      "a sidecar written for another blob was restored onto it");
+	for (i = 0; i < sizeof(map); i++)
+		CHECK(map[i] == 0u, "a refused resume left byte %u of the bitmap set, so the "
+		                    "caller would report leaves it does not have", i);
+
+	/* AND A DIFFERENT LEAF COUNT, which is the same blob's root over a
+	 * different manifest -- refused for the same reason. */
+	memset(map, 0xff, sizeof(map));
+	CHECK(fzn_spool_file_resume(&backend, root, TEST_LEAVES - 1u, map, sizeof(map))
+	              == FZN_SPOOL_ERR_ABSENT,
+	      "a sidecar written for a different leaf count was restored");
+	CHECK(map[0] == 0u, "a refused resume left the bitmap set");
+
+	/* The matching pair still restores, so the refusals above are not a
+	 * resume that never works. */
+	memset(map, 0xff, sizeof(map));
+	CHECK(fzn_spool_file_resume(&backend, root, TEST_LEAVES, map, sizeof(map)) == FZN_SPOOL_OK,
+	      "the matching sidecar was refused too, so the checks reject everything");
+	CHECK(map[0] == 0x01u, "the restored bitmap does not hold leaf 0 alone: %02x", map[0]);
+
+	fzn_spool_file_close(&backend);
+}
+
+/* NOTHING TO RESTORE, A TRUNCATED SIDECAR, AND A VERSION THAT MOVED all take
+ * the same exit, and all must zero the caller's buffer. A caller that
+ * ignores the return value has to get the fresh transfer, because the other
+ * direction is a store claiming leaves that are nowhere. */
+static void test_an_unusable_sidecar_leaves_a_fresh_transfer(void)
+{
+	fzn_spool_file_t backend;
+	const fzn_spool_ops_t *ops;
+	fzn_spool_t spool;
+	uint8_t map[FZN_SPOOL_BITMAP_LEN(TEST_LEAVES)];
+	char bits[512];
+	FILE *f;
+
+	snprintf(bits, sizeof(bits), "%s.bits", path);
+
+	ops = fzn_spool_file_open(&backend, path);
+	CHECK(ops != NULL, "the backend refused a path it should have opened");
+	if (!ops)
+		return;
+
+	memset(map, 0xff, sizeof(map));
+	CHECK(fzn_spool_file_resume(&backend, root, TEST_LEAVES, map, sizeof(map))
+	              == FZN_SPOOL_ERR_ABSENT,
+	      "a resume with no sidecar reported success");
+	CHECK(map[0] == 0u, "a resume with no sidecar left the buffer as it found it");
+
+	memset(map, 0, sizeof(map));
+	CHECK(fzn_spool_open(&spool, root, TEST_LEAVES, map, sizeof(map), ops) == FZN_SPOOL_OK,
+	      "the store refused to open");
+	CHECK(fzn_spool_place(&spool, &HASH, 3u, sealed[3], sealed_len[3], proof[3], proof_len[3])
+	              == FZN_SPOOL_OK,
+	      "placing a leaf failed");
+	CHECK(fzn_spool_file_checkpoint(&backend, &spool) == FZN_SPOOL_OK, "the checkpoint failed");
+
+	/* TRUNCATED INTO THE BITMAP, not before the header: a file cut short
+	 * of its header is caught by the header read, which is a different
+	 * branch and would hide this one. */
+	f = fopen(bits, "r+b");
+	CHECK(f != NULL, "the sidecar was not written");
+	if (f) {
+		CHECK(ftruncate(fileno(f), 41) == 0, "could not truncate the sidecar");
+		(void)fclose(f);
+	}
+	memset(map, 0xff, sizeof(map));
+	CHECK(fzn_spool_file_resume(&backend, root, TEST_LEAVES, map, sizeof(map))
+	              == FZN_SPOOL_ERR_ABSENT,
+	      "a sidecar with a header and no bits was restored");
+	CHECK(map[0] == 0u, "a truncated sidecar left the buffer set");
+
+	/* A VERSION THAT MOVED. A future format must not be read as this one
+	 * -- the bits would be interpreted under the wrong layout. */
+	CHECK(fzn_spool_file_checkpoint(&backend, &spool) == FZN_SPOOL_OK, "the checkpoint failed");
+	f = fopen(bits, "r+b");
+	if (f) {
+		uint8_t bad = 0xfeu;
+
+		CHECK(fwrite(&bad, 1u, 1u, f) == 1u, "could not rewrite the version byte");
+		(void)fclose(f);
+	}
+	memset(map, 0xff, sizeof(map));
+	CHECK(fzn_spool_file_resume(&backend, root, TEST_LEAVES, map, sizeof(map))
+	              == FZN_SPOOL_ERR_ABSENT,
+	      "a sidecar of an unknown version was read as this one");
+	CHECK(map[0] == 0u, "an unknown version left the buffer set");
+
+	/* A BITMAP CUT THROUGH THE MIDDLE, which needs a blob whose bitmap is
+	 * more than one byte -- TEST_LEAVES is five, so its bitmap is a single
+	 * byte and a partial read of it cannot happen. The first version of
+	 * this case truncated to the header and proved nothing: `fread`
+	 * returned zero, the pre-zero had already cleared the buffer, and
+	 * deleting the second clear changed no result.
+	 *
+	 * `resume` needs no blob, only a root and a count, so the sidecar is
+	 * written by hand at a size that can tear. */
+	{
+		uint8_t hand[41u + 2u];
+		uint8_t wide_root[FZN_BLOB_HASH_LEN];
+		uint8_t two[2];
+
+		memset(wide_root, 0x2d, sizeof(wide_root));
+		memset(hand, 0, sizeof(hand));
+		hand[0] = 1u;
+		memcpy(hand + 1u, wide_root, sizeof(wide_root));
+		hand[33u + 7u] = 16u; /* leaves = 16, big-endian, so a 2-byte bitmap */
+		hand[41u] = 0xffu;
+		hand[42u] = 0xffu;
+
+		f = fopen(bits, "wb");
+		CHECK(f != NULL, "could not write a sidecar by hand");
+		if (f) {
+			/* One byte of the two, so the read is SHORT rather
+			 * than empty. */
+			CHECK(fwrite(hand, 1u, 42u, f) == 42u, "short hand-write");
+			(void)fclose(f);
+		}
+		memset(two, 0xff, sizeof(two));
+		CHECK(fzn_spool_file_resume(&backend, wide_root, 16u, two, sizeof(two))
+		              == FZN_SPOOL_ERR_ABSENT,
+		      "a bitmap cut through the middle was accepted");
+		CHECK(two[0] == 0u && two[1] == 0u,
+		      "a partly-read bitmap was left partly used: %02x %02x -- the store "
+		      "would claim leaves whose bytes are not on the disk",
+		      two[0], two[1]);
+	}
+
+	/* And a checkpoint on a closed backend refuses rather than writing a
+	 * bitmap for data it can no longer sync. */
+	fzn_spool_file_close(&backend);
+	CHECK(fzn_spool_file_checkpoint(&backend, &spool) == FZN_SPOOL_ERR_MALFORMED,
+	      "a closed backend checkpointed, so the bitmap outran its own fsync");
+
+	(void)unlink(bits);
 }
 
 /* A CLOSED OR NEVER-OPENED BACKEND RETURNS, rather than reading through a
@@ -343,10 +533,26 @@ int main(void)
 	}
 
 	test_a_reopened_spool_still_has_what_it_had();
+	{
+		char bits[512];
+
+		snprintf(bits, sizeof(bits), "%s.bits", path);
+		(void)unlink(bits);
+	}
 	(void)unlink(path);
 	test_a_closed_backend_refuses_rather_than_faults();
 	(void)unlink(path);
 	test_a_hole_is_refused_rather_than_read_as_zeros();
+	(void)unlink(path);
+	test_a_bitmap_from_another_blob_is_refused();
+	{
+		char bits[512];
+
+		snprintf(bits, sizeof(bits), "%s.bits", path);
+		(void)unlink(bits);
+	}
+	(void)unlink(path);
+	test_an_unusable_sidecar_leaves_a_fresh_transfer();
 	(void)unlink(path);
 	test_the_arguments_are_checked();
 
@@ -356,9 +562,17 @@ int main(void)
 	(void)unlink(path);
 	{
 		struct stat st;
+		char bits[512];
+		char tmp[512];
 
+		snprintf(bits, sizeof(bits), "%s.bits", path);
+		snprintf(tmp, sizeof(tmp), "%s.bits.tmp", path);
+		(void)unlink(bits);
+		(void)unlink(tmp);
 		left = stat(path, &st) == 0 ? 1 : 0;
-		CHECK(!left, "the test left its spool file behind");
+		left |= stat(bits, &st) == 0 ? 2 : 0;
+		left |= stat(tmp, &st) == 0 ? 4 : 0;
+		CHECK(!left, "the test left files behind (mask %d)", left);
 	}
 
 	printf("spool_file_test: %d checks, %d failure(s)\n", checks, failures);

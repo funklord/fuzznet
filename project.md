@@ -10459,9 +10459,68 @@ cannot fail. The harness now diffs the mutated file against the original and
 says "no result" rather than reporting one. Re-run with unique anchors, both
 were caught.
 
+### The bitmap had nowhere to live, which made resume half a feature
+
+`spool.c` keeps the bitmap in a buffer the caller lends it -- that is what
+makes the policy core -- and `spool.h` said only that this module "does not
+decide where a bitmap is kept between restarts, and `persist/` is the obvious
+place". **Nothing said.** So the one piece of state a transfer cannot resume
+without was left to a consumer to invent a format for, which is the same
+intimacy the backend exists to spare them. It does not fit `persist/` either:
+that contract is fixed records of at most 96 bytes and a bitmap at this
+library's ceiling is 512 KiB.
+
+`fzn_spool_file_resume` and `fzn_spool_file_checkpoint` write a sidecar
+beside the spool file, `<path>.bits`, atomically replaced.
+
+**IT CARRIES THE ROOT AND THE LEAF COUNT, and that closes a hole that was
+already open.** `fzn_spool_open` takes a root and a bitmap and has NO WAY TO
+TELL THEY BELONG TOGETHER -- a bitmap is opaque bits. So a bitmap restored
+for the wrong blob makes the store report leaves present that hold another
+blob's ciphertext; the transfer completes, never re-requests them, and hands
+back something corrupt. That is exactly the failure the write-then-set-the-bit
+ordering exists to prevent, arriving by the one door that ordering does not
+cover, and a reused path is how it happens rather than an attack. A resume
+now refuses anything whose root or leaf count does not match.
+
+**The two stale directions are not symmetric, and the fsync ordering is the
+whole guarantee.** A bitmap that is stale-FEWER costs a re-request of leaves
+already held: bandwidth, and a correct blob. A bitmap that is stale-MORE
+claims leaves whose bytes never reached the disk, and nothing asks for them
+again. So `checkpoint` syncs the data file itself before writing the sidecar,
+rather than documenting the order and hoping -- the same asymmetry `persist.h`
+records for send and receive chains, met from the other side.
+
+Every path out of `resume` -- absent, mismatched, truncated, refused -- zeroes
+the caller's buffer FIRST, so a caller ignoring the return value starts a
+fresh transfer. That is the direction that costs bandwidth rather than
+correctness.
+
+#### A case that could not express its own failure, again
+
+Nine mutations. The version byte, the whole root, the leaf count, the
+pre-zero and the closed-descriptor refusal were all caught. **Discarding a
+partly-read bitmap was not**, and the reason is the shape this section keeps
+finding: `TEST_LEAVES` is five, so its bitmap is ONE BYTE, and a partial read
+of one byte cannot happen. The case truncated the sidecar to its header,
+`fread` returned zero, the pre-zero had already cleared the buffer, and
+deleting the second clear changed nothing.
+
+`resume` needs no blob -- only a root and a count -- so the sidecar for a
+16-leaf blob is now written by hand at a size that can tear. With that, the
+mutation is caught. Same lesson as the slot fill above and worth stating as a
+rule: **a fixture too small to hold the failure reports the same green as a
+guard that works.**
+
+Not held, and not testable here: that the data fsync really precedes the
+sidecar write, and that the sidecar is renamed rather than written over.
+Both need the power cut -- surviving one is their entire purpose -- so they
+carry their argument in prose beside the code rather than resting on a green
+run.
+
 ### What is left
 
-Nothing in the store. The transfer protocol -- HAVE and WANT over the wire,
+Nothing in the store, and resume is now whole. The transfer protocol -- HAVE and WANT over the wire,
 and the return-routability cookie that stops it being an amplifier -- is still
 the consumer's, and sec 16's staging stands for that half.
 
