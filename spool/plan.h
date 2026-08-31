@@ -78,20 +78,59 @@ typedef struct fzn_spool_range {
 } fzn_spool_range_t;
 
 /*
- * The leaves this store still needs, as coalesced runs.
+ * The leaves this store still needs, as coalesced runs, walked CIRCULARLY
+ * from `from`.
+ *
+ * `from` IS THE WHOLE OF THE FETCH POLICY, and it is the caller's. This
+ * function had no such argument and always walked from leaf zero, which
+ * silently made in-order the only policy -- and its comment justified that
+ * with bitmap compressibility, which is a much weaker reason than the real
+ * one. The real one is that the two modes this library serves want opposite
+ * orders:
+ *
+ *   - STREAMING is latency minimisation. `from` is the playback position, so
+ *     the leaves nearest the playhead come back first and a caller with a
+ *     small `cap` gets exactly the urgent set.
+ *   - CHUNKED DOWNLOADING is throughput maximisation. `from` differs per
+ *     peer -- any de-correlating function of the peer will do -- so a
+ *     thousand hosts are not all asked for leaf zero.
+ *
+ * Expressing the policy as a NUMBER THE CALLER PICKS rather than as an enum
+ * this file interprets is the same split the rest of the library makes: a
+ * capability is 32 opaque bytes to `chain/`, a verb is opaque bytes to
+ * `local/`, and a fetch order is an index here. It also means a third policy
+ * needs no change.
+ *
+ * WHAT IT CANNOT EXPRESS, said rather than implied: rarest-first. That needs
+ * what the OTHER peers hold, which is not in this store and is the
+ * multi-peer assignment problem this file does not solve.
+ *
+ * IT WRAPS, AND THAT IS THE "WATCH AND RECORD" PROPERTY. After reaching the
+ * last leaf it continues from zero up to `from`, so leaves behind the
+ * playhead are still eventually asked for -- a stream that is also a
+ * recording wants all of them, just not urgently. A run is never emitted
+ * across the wrap, because leaf `leaves - 1` and leaf 0 are not contiguous
+ * and a peer would read such a range as something else entirely.
  *
  * `max_per_range` splits a long run so that no single range asks for more
  * than a peer should answer at once; zero is refused. Stops at `cap` ranges
- * and reports how many were written, so a caller with a small array gets the
- * lowest-numbered gaps -- which is the useful half, since a transfer that
- * fills from the bottom keeps its own bitmap compressible.
+ * and reports how many were written.
  *
  * A COMPLETE STORE PRODUCES ZERO RANGES rather than an error: "I need
  * nothing" is an answer and a caller should not have to distinguish it from a
  * failure.
+ *
+ * THERE IS NO DEADLINE ARGUMENT, and the omission is deliberate rather than
+ * unfinished. A deadline needs a clock, this library calls none, and urgency
+ * turns out to be positional anyway: the urgent set IS the first few ranges
+ * from the playhead, which a small `cap` already returns. Asking several
+ * peers for that same set -- spending bandwidth to buy latency -- is the
+ * caller's act, and `fzn_spool_place` already accepts a duplicate without
+ * rewriting it, so the store needs nothing added to tolerate it.
  */
-fzn_spool_err_t fzn_spool_plan_want(const fzn_spool_t *spool, uint64_t max_per_range,
-                                    fzn_spool_range_t *out, size_t cap, size_t *count);
+fzn_spool_err_t fzn_spool_plan_want(const fzn_spool_t *spool, uint64_t from,
+                                    uint64_t max_per_range, fzn_spool_range_t *out, size_t cap,
+                                    size_t *count);
 
 /*
  * The leaves this store can send in answer to a peer's want.

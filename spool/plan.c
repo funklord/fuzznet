@@ -30,10 +30,11 @@ static int emit(fzn_spool_range_t *out, size_t cap, size_t *count, uint64_t firs
 	return 1;
 }
 
-fzn_spool_err_t fzn_spool_plan_want(const fzn_spool_t *spool, uint64_t max_per_range,
-                                    fzn_spool_range_t *out, size_t cap, size_t *count)
+fzn_spool_err_t fzn_spool_plan_want(const fzn_spool_t *spool, uint64_t from,
+                                    uint64_t max_per_range, fzn_spool_range_t *out, size_t cap,
+                                    size_t *count)
 {
-	uint64_t i, run_first = 0, run = 0;
+	uint64_t step, run_first = 0, run = 0;
 
 	if (!spool || !spool->present || !out || !count)
 		return FZN_SPOOL_ERR_MALFORMED;
@@ -43,10 +44,33 @@ fzn_spool_err_t fzn_spool_plan_want(const fzn_spool_t *spool, uint64_t max_per_r
 	 * the rule rather than re-deciding it. */
 	if (max_per_range == 0u)
 		return FZN_SPOOL_ERR_MALFORMED;
+	/* A START PAST THE BLOB IS REFUSED RATHER THAN WRAPPED TO ZERO. A
+	 * playhead outside the content is a caller that has lost track of
+	 * where it is, and silently answering as though it had asked from the
+	 * beginning would hand a video player the wrong part of the film and
+	 * look like it worked. */
+	if (spool->leaves == 0u || from >= spool->leaves)
+		return FZN_SPOOL_ERR_MALFORMED;
 
 	*count = 0;
-	for (i = 0; i < spool->leaves; i++) {
+	for (step = 0; step < spool->leaves; step++) {
+		uint64_t i = from + step;
+
+		if (i >= spool->leaves)
+			i -= spool->leaves;
+
 		if (!bit_get(spool->present, i)) {
+			/* A RUN NEVER CROSSES THE WRAP. The last leaf and leaf
+			 * zero are not contiguous, so a range spanning them
+			 * would name a span the peer reads as something else
+			 * entirely -- and would ask for leaves in between that
+			 * this store already holds. Closing the run at index
+			 * zero is what keeps a range meaning what it says. */
+			if (run > 0u && i == 0u) {
+				if (!emit(out, cap, count, run_first, run, max_per_range))
+					return FZN_SPOOL_OK;
+				run = 0;
+			}
 			if (run == 0u)
 				run_first = i;
 			run++;
@@ -56,10 +80,10 @@ fzn_spool_err_t fzn_spool_plan_want(const fzn_spool_t *spool, uint64_t max_per_r
 			return FZN_SPOOL_OK;
 		run = 0;
 	}
-	/* The run that reaches the end of the blob. Written outside the loop
+	/* The run still open when the walk completes. Written outside the loop
 	 * because the loop only closes a run when it meets a leaf it HAS, and
-	 * a store missing its tail never does -- which is the ordinary case at
-	 * the start of a transfer, not an edge one. */
+	 * a store missing the leaves before `from` never does -- which is the
+	 * ordinary case at the start of a transfer, not an edge one. */
 	if (run > 0u)
 		(void)emit(out, cap, count, run_first, run, max_per_range);
 

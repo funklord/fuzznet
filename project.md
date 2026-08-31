@@ -10584,6 +10584,150 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 29. Streaming and downloading: one substrate, two policies, 2026-08-31
+
+The holder named the two modes and they are not two mechanisms:
+
+- **Streaming is latency minimisation**, with retry, for *watch and record*.
+- **Chunked downloading is throughput maximisation** -- BitTorrent-shaped
+  buffer and network saturation, encrypted, and meant to beat BitTorrent.
+
+**The recording IS the spool**, which is what collapses them. Both fetch
+leaves into the same store; they differ only in WHICH leaf to ask for next
+and whether to ask more than one peer for it. No second mechanism is needed.
+
+### The latency win over BitTorrent is structural rather than tuning
+
+BitTorrent cannot use a byte of a piece until the whole piece hashes --
+typically 256 KiB buffered and unverifiable. Here a leaf is 1056 bytes,
+verified against the Merkle root ON ARRIVAL, usable immediately. **Time to
+usable is one datagram instead of one piece, and the unverified buffer is
+1056 bytes instead of 256 KiB.** That is sec 16's ciphertext-over-plaintext
+ordering paying out on a use case it was not chosen for.
+
+### `from` is the fetch policy, and it was silently absent
+
+`fzn_spool_plan_want` walked from leaf zero, always. Its header justified that
+with bitmap compressibility, **which is a much weaker reason than the real
+one** -- in-order-from-the-bottom is the STREAMING policy, and it is exactly
+wrong for throughput, where a thousand peers all asking for leaf zero is the
+failure. One day old, and the default was a policy nobody had chosen.
+
+It now takes `from`:
+
+- **streaming** passes the playback position, so the leaves at the playhead
+  come back first;
+- **downloading** passes anything that differs per peer, so a thousand hosts
+  de-correlate.
+
+**Expressed as a number the caller picks rather than an enum this file
+interprets**, which is the split the library makes everywhere else: a
+capability is 32 opaque bytes to `chain/`, a verb is opaque bytes to
+`local/`, a fetch order is an index here. A third policy then needs no
+change. **What it cannot express is rarest-first**, which needs what OTHER
+peers hold -- said in the header rather than left to be discovered.
+
+**It wraps, and that is the watch-and-record half.** Past the last leaf the
+walk continues from zero up to `from`, so leaves behind the playhead are
+still asked for eventually -- a stream that is also a recording wants all of
+them, just not urgently. **A run is never emitted across the wrap**: leaf
+`leaves - 1` and leaf 0 are not contiguous, and merging them names a leaf
+past the end of the blob.
+
+**There is no deadline argument, and the omission is a finding rather than an
+unfinished edge.** A deadline needs a clock this library does not call -- and
+urgency turns out to be positional anyway: the urgent set IS the first few
+ranges from the playhead, which a small `cap` already returns. Asking several
+peers for that same set, spending bandwidth to buy latency, is the caller's
+act, and `fzn_spool_place` already accepts a duplicate without rewriting it.
+The feature dissolved on being measured rather than needing an API.
+
+**Five mutations, five caught**: `from` ignored, the wrap removed, a run
+crossing the wrap, a start past the blob wrapped instead of refused, and the
+trailing run dropped.
+
+### The scale arithmetic, measured
+
+Target: hundreds to thousands of simultaneous active peers. Per-peer resident
+state, from `sizeof` rather than estimate:
+
+| structure | bytes |
+|---|---|
+| `fzn_prekey_peer_t` (embeds its trust) | 88 |
+| `fzn_ratchet_chain_t` x 2, send and receive | 80 |
+| `fzn_replay_entry_t` | 32 |
+| `fzn_link_entry_t` | 48 |
+| **per peer** | **~248** |
+
+**A thousand peers is about 250 KB.** That is a non-issue, on a router
+included.
+
+**Exactly one structure does not scale, and it is not on the bulk path.**
+`fzn_partial_t` is 120 bytes of metadata plus a buffer of up to 256 KiB
+(`FZN_REASM_MAX_CHUNKS` 256 x 1024). A thousand concurrent partial messages is
+**256 MB**. `chunk/reassembly` is for CONTROL RESPONSES -- netcfgd's `status`
+-- which are point to point and few.
+
+**So the rule, which nothing currently states: bulk and streaming go through
+`spool/`, never through `chunk/`.** `chunk/split` is the obvious
+general-purpose "message too big for a datagram" path, so a consumer
+streaming through it is a mistake somebody will make, and at this scale it
+presents as a memory bug rather than as a routing error.
+
+**The CPU story is better than the memory one.** Leaf verification is KEYLESS
+-- a hash and a Merkle path, about 22 hashes for a 4M-leaf blob -- so there is
+**no signature on the bulk path at all**. Signatures are per new peer, in
+chain verification, not per datagram.
+
+### Two corrections to what this pass said one exchange earlier
+
+Both were generated inside this conversation, which is the point: the holder
+warned that the estate could cause "unforeseen consequences from poor
+optimization", and two arrived within a message.
+
+- **The sync ceiling.** This pass argued that the estate invariant makes
+  estate size the tight replacement for `record/sync`'s 1024-position
+  ceiling, because both hosts are in one estate. **Under cross-estate sync
+  they are not.** A fuzzypickles host syncing with a contact is bounded by
+  THAT estate's size, which it cannot know and must not trust a claim about.
+  The original 1024 -- deliberately a policy and not a derivation -- was right
+  for the dominant case. The change is dropped.
+- **Relay bounded by estate membership** would have deleted fuzzypickles'
+  relay outright. Their own estate-boundary decision says why: *"A peer holds
+  none of our capabilities, so relaying for one is gated by the operator's
+  opt-in instead."* A capability-derived relay bound is structurally
+  unavailable to them, and this pass proposed exactly the bound their design
+  had already ruled out -- having quoted that sentence two messages earlier.
+
+**The constraint both corrections point at**, and it belongs in this file
+because it will be violated again otherwise:
+
+> **The estate bounds directory and permission state. It does not bound the
+> peer set.** In fuzzypickles, estate-to-estate traffic dwarfs
+> estate-internal, and may not exist at all in netcfgd. Any hot path tuned on
+> the intra-estate assumption is tuned for the case one consumer barely uses.
+
+The three places that assumption would get baked in silently are sync
+ceilings derived from one's own estate, relay admission derived from one's own
+capability graph, and link residency policies that assume the candidate set is
+the membership list.
+
+**And the two costs have different units**, which is what both corrections got
+wrong: **estate is the unit of directory and permission state; host is the
+unit of link and route cost.** A contact is tracked as an estate, not as five
+devices; a route is maintained per device. Bounding either by the other's unit
+is the error.
+
+### What is deferred, and by whom
+
+**Multi-peer assignment** -- given N peers each advertising a HAVE set, decide
+who to ask for what, and near a deadline who to ask redundantly -- is not
+here and is the genuinely new piece. It forces a question sec 15b already
+parked: **`sched/` selects exactly one link**, which multi-path contradicts,
+and that section framed single-link selection as deliberate. So it is the
+holder's call rather than a gap to fill, and `plan_want` is deliberately
+peer-blind until it is answered.
+
 ## 28. Estate: settled, and it was settled before this pass, 2026-08-31
 
 **The word is `estate`.** Chosen by the holder over `kingdom` on length, and

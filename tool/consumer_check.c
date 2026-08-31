@@ -1012,7 +1012,7 @@ int main(void)
 				return 247;
 			/* And a bound a caller forgot is refused rather than
 			 * read as no bound. */
-			if (fzn_spool_plan_want(&sp, 0u, ranges, 2u, &plan_n)
+			if (fzn_spool_plan_want(&sp, 0u, 0u, ranges, 2u, &plan_n)
 			    != FZN_SPOOL_ERR_MALFORMED)
 				return 248;
 		}

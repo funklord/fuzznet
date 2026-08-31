@@ -96,7 +96,7 @@ static void test_a_want_names_the_gaps(void)
 	size_t n = 0;
 
 	CHECK(with("####....####...#####"), "the fixture would not build");
-	CHECK(fzn_spool_plan_want(&spool, 100u, got, 8u, &n) == FZN_SPOOL_OK, "want refused");
+	CHECK(fzn_spool_plan_want(&spool, 0u, 100u, got, 8u, &n) == FZN_SPOOL_OK, "want refused");
 	{
 		static const uint64_t WANT[] = { 4, 4, 12, 3 };
 
@@ -108,7 +108,7 @@ static void test_a_want_names_the_gaps(void)
 	 * than an error -- a caller must not have to tell "I need nothing"
 	 * from "something went wrong". */
 	CHECK(with("####################"), "the fixture would not build");
-	CHECK(fzn_spool_plan_want(&spool, 100u, got, 8u, &n) == FZN_SPOOL_OK,
+	CHECK(fzn_spool_plan_want(&spool, 0u, 100u, got, 8u, &n) == FZN_SPOOL_OK,
 	      "a complete store reported an error rather than an empty plan");
 	CHECK(n == 0u, "a complete store asked for %u ranges", (unsigned)n);
 
@@ -117,7 +117,7 @@ static void test_a_want_names_the_gaps(void)
 	 * run when it meets a leaf the store HAS, and a store missing its tail
 	 * never does. */
 	CHECK(with("####................"), "the fixture would not build");
-	CHECK(fzn_spool_plan_want(&spool, 100u, got, 8u, &n) == FZN_SPOOL_OK, "want refused");
+	CHECK(fzn_spool_plan_want(&spool, 0u, 100u, got, 8u, &n) == FZN_SPOOL_OK, "want refused");
 	{
 		static const uint64_t WANT[] = { 4, 16 };
 
@@ -132,7 +132,7 @@ static void test_a_long_run_is_split_and_a_small_array_stops(void)
 	size_t n = 0;
 
 	CHECK(with("...................."), "the fixture would not build");
-	CHECK(fzn_spool_plan_want(&spool, 6u, got, 8u, &n) == FZN_SPOOL_OK, "want refused");
+	CHECK(fzn_spool_plan_want(&spool, 0u, 6u, got, 8u, &n) == FZN_SPOOL_OK, "want refused");
 	{
 		static const uint64_t WANT[] = { 0, 6, 6, 6, 12, 6, 18, 2 };
 
@@ -143,13 +143,113 @@ static void test_a_long_run_is_split_and_a_small_array_stops(void)
 	/* A SMALL ARRAY STOPS RATHER THAN OVERFLOWING, and keeps the lowest
 	 * gaps -- a transfer that fills from the bottom keeps its own bitmap
 	 * compressible. */
-	CHECK(fzn_spool_plan_want(&spool, 6u, got, 2u, &n) == FZN_SPOOL_OK, "want refused");
+	CHECK(fzn_spool_plan_want(&spool, 0u, 6u, got, 2u, &n) == FZN_SPOOL_OK, "want refused");
 	CHECK(n == 2u && got[0].first == 0u && got[1].first == 6u,
 	      "a short array did not stop at the lowest two gaps");
 
 	/* ZERO IS REFUSED RATHER THAN MEANING UNLIMITED. */
-	CHECK(fzn_spool_plan_want(&spool, 0u, got, 8u, &n) == FZN_SPOOL_ERR_MALFORMED,
+	CHECK(fzn_spool_plan_want(&spool, 0u, 0u, got, 8u, &n) == FZN_SPOOL_ERR_MALFORMED,
 	      "a zero range bound was accepted, so a caller that forgot one got no bound");
+}
+
+/*
+ * `from` IS THE FETCH POLICY, and these are the two modes it has to express.
+ *
+ * Before it existed the walk always started at leaf zero, so in-order was the
+ * only policy a caller could get -- correct for streaming and exactly wrong
+ * for throughput, where a thousand peers all asked for leaf zero.
+ */
+static void test_the_walk_starts_where_the_caller_says(void)
+{
+	fzn_spool_range_t got[8];
+	size_t n = 0;
+
+	CHECK(with("####....####...#####"), "the fixture would not build");
+
+	/* STREAMING: the playhead is 10, so the gap at 12 is urgent and the
+	 * gap at 4 -- behind the playhead, wanted for the recording but not
+	 * now -- comes after it. With no `from` these arrived the other way
+	 * round, which is the whole defect. */
+	CHECK(fzn_spool_plan_want(&spool, 10u, 100u, got, 8u, &n) == FZN_SPOOL_OK, "want refused");
+	{
+		static const uint64_t WANT[] = { 12, 3, 4, 4 };
+
+		CHECK(same(got, n, WANT, 2u),
+		      "the walk did not start at the playhead: %u ranges, first at %llu",
+		      (unsigned)n, n ? (unsigned long long)got[0].first : 0ull);
+	}
+
+	/* AND IT WRAPS, which is the "watch and record" half: everything is
+	 * still asked for, just not first. Starting inside a gap splits that
+	 * gap, which is correct -- the part ahead of the playhead is urgent
+	 * and the part behind it is not. */
+	CHECK(fzn_spool_plan_want(&spool, 13u, 100u, got, 8u, &n) == FZN_SPOOL_OK, "want refused");
+	{
+		static const uint64_t WANT[] = { 13, 2, 4, 4, 12, 1 };
+
+		CHECK(same(got, n, WANT, 3u), "a gap straddling the start was not split: %u",
+		      (unsigned)n);
+	}
+
+	/* THROUGHPUT: a different `from` per peer de-correlates them. Same
+	 * store, same everything else, different first range -- which is the
+	 * entire mechanism, so it is asserted rather than described. */
+	CHECK(with("...................."), "the fixture would not build");
+	{
+		fzn_spool_range_t a[4], b[4];
+		size_t an = 0, bn = 0;
+
+		CHECK(fzn_spool_plan_want(&spool, 0u, 100u, a, 4u, &an) == FZN_SPOOL_OK, "refused");
+		CHECK(fzn_spool_plan_want(&spool, 7u, 100u, b, 4u, &bn) == FZN_SPOOL_OK, "refused");
+		CHECK(an > 0u && bn > 0u && a[0].first != b[0].first,
+		      "two peers given different starts asked for the same leaves first, so "
+		      "nothing de-correlates them");
+	}
+
+	/* A SMALL `cap` FROM THE PLAYHEAD IS THE URGENT SET, which is why
+	 * there is no deadline argument: urgency is positional. */
+	CHECK(fzn_spool_plan_want(&spool, 10u, 100u, got, 1u, &n) == FZN_SPOOL_OK, "refused");
+	{
+		static const uint64_t WANT[] = { 10, 10 };
+
+		CHECK(same(got, n, WANT, 1u), "the urgent set was not the leaves at the "
+		                              "playhead: %u ranges", (unsigned)n);
+	}
+
+	/* A START PAST THE BLOB IS REFUSED, NOT WRAPPED. A playhead outside
+	 * the content is a caller that has lost its place, and answering as
+	 * though it had asked from the beginning hands a player the wrong part
+	 * of the film and looks like it worked. */
+	CHECK(fzn_spool_plan_want(&spool, LEAVES, 100u, got, 8u, &n) == FZN_SPOOL_ERR_MALFORMED,
+	      "a start at the leaf count was accepted");
+	CHECK(fzn_spool_plan_want(&spool, LEAVES + 99u, 100u, got, 8u, &n)
+	              == FZN_SPOOL_ERR_MALFORMED,
+	      "a start far past the blob was accepted");
+}
+
+/*
+ * A RUN NEVER CROSSES THE WRAP, and this is the case that separates a
+ * circular walk done right from one done by arithmetic.
+ *
+ * Leaf 19 and leaf 0 are both missing and are adjacent IN THE WALK, and are
+ * not adjacent in the blob. Emitting them as one range of two starting at 19
+ * asks for leaf 20, which does not exist -- and on a peer that clips rather
+ * than refuses, asks for nothing at all.
+ */
+static void test_a_run_never_crosses_the_wrap(void)
+{
+	fzn_spool_range_t got[8];
+	size_t n = 0;
+
+	CHECK(with(".##################."), "the fixture would not build");
+	CHECK(fzn_spool_plan_want(&spool, 19u, 100u, got, 8u, &n) == FZN_SPOOL_OK, "want refused");
+	{
+		static const uint64_t WANT[] = { 19, 1, 0, 1 };
+
+		CHECK(same(got, n, WANT, 2u),
+		      "the last leaf and the first were merged into one range, which names "
+		      "a leaf past the end of the blob");
+	}
 }
 
 /* THE CASE THIS FILE EXISTS FOR. `record/sync` shipped the opposite: an
@@ -300,6 +400,8 @@ int main(void)
 {
 	test_a_want_names_the_gaps();
 	test_a_long_run_is_split_and_a_small_array_stops();
+	test_the_walk_starts_where_the_caller_says();
+	test_a_run_never_crosses_the_wrap();
 	test_a_want_that_names_nothing_gets_nothing();
 	test_an_offer_sends_only_what_it_holds();
 	test_an_offer_is_bounded();
