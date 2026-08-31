@@ -10640,6 +10640,34 @@ covers the no-binding consumer arrangement.
 **Every command in the workflow was run locally before it was committed**, in
 both arms, rather than discovered by a red first run.
 
+### Two of sec 26's open items are now measured
+
+**SSH does bypass the missing `workflow` scope.** Sec 26 recorded the token
+as carrying no `workflow` scope, said an SSH push of a workflow file *should*
+go through, and marked that **untested** rather than claiming it. Tested: the
+push succeeded and the workflow registered. No `gh auth refresh` is needed.
+
+**The billing block DOES reach this tree**, and sec 26 recorded the peer's
+"it does not touch you" as reported rather than measured. It was true only
+because there was no workflow to block. Run 33386232739 created both jobs and
+neither started:
+
+    The job was not started because recent account payments have failed or
+    your spending limit needs to be increased.
+
+**Nothing is wrong with the workflow** -- both jobs were dispatched, and the
+refusal is upstream of anything this repository controls.
+
+**The file is left in place rather than reverted**, and that is a judgement
+worth stating because the other reading is defensible. A permanently-red CI
+is the "switched off by instalments" hazard: a gate that is always red is one
+nobody reads, and it will mask a real failure later. Against that: the
+workflow is correct and reviewed, it starts working the moment billing is
+resolved with no further action, and the red X is itself the signal that
+billing needs attention -- which is a truer state than silence. **If billing
+is not going to be resolved soon, deleting the file is the better call**, and
+that is the holder's to make.
+
 ## 33. The five open decisions, taken 2026-08-31
 
 The holder handed these back rather than answering them. Each is decided
