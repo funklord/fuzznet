@@ -10584,6 +10584,92 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 28. Estate: settled, and it was settled before this pass, 2026-08-31
+
+**The word is `estate`.** Chosen by the holder over `kingdom` on length, and
+the choice was less open than it looked: `kingdom` occurs **zero times** in
+fuzzypickles, in any case, in any file type, while `estate` is already a
+dated decision there -- *"Capabilities stop at the estate boundary
+(2026-08-27)"*. Do not spell it `realm`: that word has 77 occurrences in that
+tree and means the per-arrival authentication concept, which is sec 27's
+`fzn_origin_t`. One word, two meanings, four projects is how a family becomes
+unlearnable.
+
+### The structure was already recorded here, and this pass re-derived it
+
+Two rounds were spent arguing from first principles that the grouping concept
+should be a rooted chain -- a root with two kinds of member, hosts and users,
+the user-to-host relation carried as a capability rather than as a level in a
+tree. That is correct, and **it is already in this file**, at the table in
+sec 4.2 that separates three questions which look like one:
+
+    | Whose estate is this host part of? | the pinned root: the only
+    | genuinely singular one |
+
+**Third instance this week of the same failure**, after sec 25's deferral that
+`record/sync.c` had already decided and sec 24's hazard that
+`commitment_test.c` already held. The search that finds these is for the
+SHAPE, not the name -- and the one that failed here was mine, three days after
+writing the rule down. A rule recorded is not a rule applied.
+
+### The invariant, and what it retires
+
+**No host and no user exists on two estates simultaneously.** Set by the
+holder, with the reasoning stated: *"No complete overview is the path to
+overcomplication, and estate gives us that overview."* Where a need for
+crossing arises it is special-cased some other way, deliberately, rather than
+by weakening the invariant.
+
+So the estate is one administrative world and it is the overview. Several
+users over a mixed, overlapping set of hosts is expressed WITHIN one estate --
+members are users and hosts, and which user reaches which host is a
+capability, not a structure. That is what answers the O(hosts) objection that
+started this: adding an admin is one grant rather than one per machine, and
+`chain/revocation.c` makes removing one a single act rather than N.
+
+**It retires the anchor-set index this pass was about to propose.**
+`fzn_trust_t` holds exactly one root, and under this invariant that is not a
+limitation to work around -- it is the invariant, already structural. The
+multi-root set, its two-directional index and its per-root provenance are all
+unneeded, and none of it will be written.
+
+fuzzypickles enforces the host half **structurally rather than by
+convention**: `fzp_capability_revocation_install` takes no root parameter at
+all, loading the host's own `user_pubkey` from storage. There is no argument
+to pass, so a host there cannot belong to a second estate even if somebody
+wanted it to.
+
+### The known cost, recorded rather than discovered later
+
+**A person administering two estates holds two identities, not one identity
+in two places.** Two keys, two client profiles, for one human. That is
+compartmentalisation and is arguably the correct answer, but it is a
+consequence rather than a free property, and it was accepted knowingly: the
+holder pre-authorised the special-case route for whatever case makes it
+intolerable.
+
+### fuzzypickles is the collapsed case, and pays nothing
+
+Estate = user there: the identity key is the root, the devices are members,
+there are no other users, so the middle concept has exactly one element and
+no interface. **It is not a simplification granted to them** -- an estate with
+one user is indistinguishable from no estate. If fully-trusted family members
+are ever wanted, that is a second member under the root they already have:
+no new concept, no migration, and not a word a non-technical user ever meets.
+The over-complication only arrives if the concept is EXPOSED, and nothing
+forces that.
+
+That asymmetry is the whole reason the two can share code. netcfgd's operators
+are technical and get the vocabulary; fuzzypickles' users never see it; both
+run the same verification.
+
+### What this changes in the library: nothing yet, deliberately
+
+`chain/` is already root to grantee with a 32-byte opaque capability the
+library never interprets, so *member* and *admin* are consumer vocabulary in
+exactly the way `local/vocabulary.h` describes. No mechanism is missing. What
+is missing is the WORD, used consistently, and this section is that.
+
 ## 27. Three transports, and the thing that related them, 2026-08-31
 
 The holder stated the shape this library actually serves, and it is not one
