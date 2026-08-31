@@ -533,6 +533,43 @@ int main(void)
 	if (fzn_split_plan(100, 8, &plan) != FZN_SPLIT_OK || plan.chunks != 13)
 		return 2;
 
+	/*
+	 * REASSEMBLY, WHICH THIS FILE HAS NEVER TOUCHED despite being one of
+	 * the two halves a consumer takes from `chunk/`. The property walked
+	 * is the one a consumer reaches by FORGETTING -- ignoring the return
+	 * code and reading the range count as the answer.
+	 *
+	 * A plan for a message the table does not hold must be ABSENT and not
+	 * OK-with-nothing, because OK with zero ranges reads as "I have every
+	 * chunk". That is the fail-open direction, and a zeroed sender with id
+	 * zero is the exact query that reaches a free slot -- release and
+	 * expire both zero a slot, so no other query can.
+	 */
+	{
+		fzn_reasm_t table;
+		fzn_partial_t slot;
+		uint8_t slot_bytes[64];
+		uint8_t nobody[FZN_SENDER_LEN];
+		fzn_reasm_range_t ranges[4];
+		size_t range_count = 99u;
+
+		memset(&slot, 0, sizeof(slot));
+		memset(nobody, 0, sizeof(nobody));
+		if (fzn_reasm_slot_init(&slot, slot_bytes, sizeof(slot_bytes)) != FZN_REASM_OK)
+			return 96;
+		if (fzn_reasm_init(&table, &slot, 1u, 1u, 1000u) != FZN_REASM_OK)
+			return 97;
+		if (fzn_reasm_plan_want(&table, nobody, 0u, 8u, ranges, 4u, &range_count)
+		    != FZN_REASM_ERR_ABSENT)
+			return 98;
+		/* And a bound a caller forgot is refused rather than read as no
+		 * bound, which is `record/sync.h`'s rule that every planner in
+		 * this library inherits. */
+		if (fzn_reasm_plan_want(&table, nobody, 0u, 0u, ranges, 4u, &range_count)
+		    != FZN_REASM_ERR_MALFORMED)
+			return 99;
+	}
+
 	/* The horizon is set beside the capacity, because they are two halves
 	 * of one sizing decision: the window must hold what can arrive within
 	 * the longest expiry it will accept. */

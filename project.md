@@ -10644,10 +10644,16 @@ finds a slot whose `chunks` is 0, emits nothing, and returns OK -- and OK with
 no ranges reads as "I have everything". That case is now in the suite and the
 mutation is caught.
 
-**`chunk/reassembly` is still not exercised by `tool/consumer_check.c` at
-all** -- it was not before this either, so nothing regressed, but the new
-accessor is exactly the kind of thing that file exists to prove reachable
-from an installed arrangement. Worth adding; not done here.
+**`chunk/reassembly` was not exercised by `tool/consumer_check.c` at all**,
+despite being one of the two halves a consumer takes from `chunk/`. It is
+now, and the case walked is the one a consumer reaches by FORGETTING --
+ignoring the return code and reading the range count as the answer. A plan
+for a message the table does not hold must be ABSENT rather than
+OK-with-nothing, because OK with zero ranges reads as "I have every chunk".
+
+**Confirmed it can fail**: with `plan_want` returning OK for an absent
+message, `make installcheck` exits 2. A consumer check that has never been
+seen to refuse anything is a compile test wearing a gate's clothes.
 
 ## 31. Adoption gaps and open items, folded down 2026-08-31
 
@@ -10759,8 +10765,8 @@ Each names whose decision it is, so none of them reads as settled.
 - ~~**`fzn_reasm_plan_want`**~~ **-- BUILT, see sec 32.** It turned out to be
   one accessor over a bitmap that already existed, and the sender side needed
   nothing at all.
-- **Exercise `chunk/reassembly` in `tool/consumer_check.c`**, which does not
-  touch it today.
+- ~~**Exercise `chunk/reassembly` in `tool/consumer_check.c`**~~ -- done,
+  see sec 32, and shown to refuse rather than merely to pass.
 
 **Deliberately not being done:**
 
