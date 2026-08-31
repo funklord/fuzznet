@@ -8450,6 +8450,15 @@ check that discriminates, which is what the key-blindness entry below
 exists to say. Each closed gap now carries a `tool/sabotage.py` entry, so
 the next reader gets a red suite rather than a paragraph.
 
+**And the part of this audit a machine can do now runs on every build.**
+`make style` invokes `tool/style_gate.py docs`, which fuzznet carried and
+never called -- the one private project of seventeen not to. It holds
+project.md's headings and the files it names against the tree, which is
+this audit's question at the level a tool can reach: it cannot tell whether
+a claim about behaviour has gone stale, and it can tell when a heading is
+ambiguous or a named file has moved. It found one of the first on its first
+run, recorded under sec 15c.
+
 
 - **~~There is NO PER-MESSAGE FORWARD SECRECY.~~ CLOSED 2026-08-28, LATER
   THE SAME DAY, and this entry is kept rather than deleted because the
@@ -13336,7 +13345,7 @@ Where a consumer wants fuzznet's events in its own log, the seam is a
 vtable like the other four, or an error string the consumer prints --
 which is what `fzn_*_err_str` already exists for.
 
-### What building it changed, 2026-08-28
+### What building the vendoring changed, 2026-08-28
 
 Built as decided above. `monocypher/` is a submodule of
 `https://github.com/LoupVaillant/Monocypher.git` pinned at

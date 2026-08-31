@@ -1939,6 +1939,24 @@ style:
 	fi; \
 	echo "style: version/version.h and VERSION agree at $$v"
 
+	@# AND project.md IS HELD TO THE TREE. `docs` is a mode of the same gate
+	@# this target opens with, and fuzznet was the ONE private project of
+	@# seventeen carrying the tool and never running it -- measured by
+	@# grepping every sibling Makefile, sixteen run it.
+	@#
+	@# What it buys is the failure this document is most prone to. A heading
+	@# that appears twice means whichever one you find, the other is the one
+	@# with the answer; a named file that does not exist sends a reader
+	@# looking for something that moved. Both are silent, both survive every
+	@# other gate here, and project.md is 13000 lines and authoritative over
+	@# the code.
+	@#
+	@# It found one on its first run: "What building it changed, 2026-08-28"
+	@# was the heading of sec 13c's implementation notes AND of sec 15c's,
+	@# two unrelated subjects, in a file that cites sections by name. The
+	@# vendoring one is renamed; 13c's keeps the name its two citations use.
+	python3 tool/style_gate.py docs
+
 # Installs the commit-msg hook from tool/hooks/ into .git/hooks/. In the tree
 # rather than only in .git so that it is reviewable, survives a clone, and can
 # be diffed against its siblings in the other projects.
