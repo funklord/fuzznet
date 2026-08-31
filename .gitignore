@@ -52,6 +52,7 @@
 /chain/test/chain_fuzz
 /frame/test/freshness_fuzz
 /chain/test/revocation_fuzz
+/chain/test/manifest_fuzz
 /chunk/test/roundtrip_fuzz
 /constant_time/test/secret_flow_test
 /wire/test/err_str_test

@@ -10584,6 +10584,102 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 41. manifest_fuzz, and the four mutations that justify it, 2026-09-01
+
+Sec 40 closed with three independent findings in `chain/manifest.c` in one
+day and the observation that eleven fuzz harnesses covered every module but
+that one. This is the twelfth, built on the holder's instruction.
+
+**Model-based, following `revocation_fuzz`.** An independent shadow of what
+`fzn_manifest_admit` should do, compared against the module after every call
+in both directions. The rules it has to get right are admit's tail, where
+they interact: a pair the store covers is skipped, so is one the deficit
+table holds, one that will not fit sets the issuer's overflow flag and the
+walk CONTINUES, and the flag clears only when nothing was dropped AND the
+manifest is at least as large as the largest that issuer has shown.
+
+    20000 cases, 76127 admitted, 53092 unknown issuer, 13456 bad signature,
+    4784 covered, 6948 duplicate, 17325 full, 325 cleared,
+    3589 rollbacks refused, 6284 satisfied, model agreed throughout
+
+Runs in 0.45s, so `make fuzz CASES=20000` pays almost nothing for it.
+
+### Whether it earns its place, asked properly
+
+**A harness that catches only what the unit tests already catch is
+decoration**, so the question was put as a measurement rather than left to
+the fact that fuzzing is generally good. Nine mutations of `manifest.c`,
+each built and run against `manifest_test` and `manifest_fuzz` separately.
+
+**The first five said the harness was decoration**, and that is worth
+recording because it was nearly the answer:
+
+    drop the already-in-table skip      test caught    fuzz caught
+    drop the already-covered skip       test caught    fuzz caught
+    never set the overflow flag         test caught    fuzz caught
+    never record a drop                 test caught    fuzz caught
+    never raise the high-water mark     test caught    fuzz caught
+
+`manifest_test` covers admit's individual rules well. Had the measurement
+stopped there the honest report would have been that the harness adds
+nothing, and the entry below would not exist.
+
+**The next four are the justification, and they are all one class:**
+
+    overflow flag lands on issuer 0     test PASSES    fuzz caught
+    high-water mark lands on issuer 0   test PASSES    fuzz caught
+    clearing lands on issuer 0          test PASSES    fuzz caught
+    deficit lookup ignores the issuer   test PASSES    fuzz caught
+
+**Per-issuer state written to, or read from, the wrong issuer.** Every one
+compiles, every one is a plausible slip, and `manifest_test` reports all
+four green.
+
+**The reason is the one `revocation_fuzz` already wrote down and this tree
+had not carried across.** That harness records naming two roots as "not
+breadth for its own sake": with a single key every entry carries it and the
+issuer term in the comparison is decided by nothing, *proven by deleting the
+comparison and getting byte-identical output*. `manifest_test` exercises the
+overflow and high-water rules an issuer at a time, so the issuer term in
+`entry->overflowed` and `entry->pairs_seen` was decided by nothing in
+exactly the same way. This harness follows two issuers and does not follow a
+third, so the same (capability, grantee) under two keys is an ordinary
+state and the term is load-bearing on every case.
+
+**The lesson generalises past both modules: a rule that is per-something is
+only tested by a fixture that holds two of that something.** A suite can
+cover every branch of such a rule and still decide nothing about which
+instance it wrote to.
+
+### What the coverage floors cost, and what they bought
+
+`cov.rollback` is sec 13d's replayed older manifest -- smaller than the
+largest that issuer has shown, so it drops nothing and must still not clear
+the flag. `cov.cleared` is its honest twin: without both, a rule that never
+cleared and a rule that always did would look identical from here.
+
+**The floors failed the harness three times before it passed**, which is
+them working. `cleared` came in at 4 per 20000 because nothing in the
+harness ever freed a deficit slot -- so `fzn_manifest_satisfy` was added to
+the round, which is also the only coverage this module's satisfy path has.
+Then at 16, then at 325 once each case ran eight rounds against one evolving
+state rather than four. A harness given a fresh state every few admissions
+cannot reach a transition that needs a history.
+
+**Tuning the fixture rather than the floor is the whole of it.** The floor
+that keeps failing is a fact about what the harness reaches, and lowering it
+to fit is how a counter stops meaning anything -- `evidence.md`'s switched
+off by instalments, arriving through the one door that looks like
+arithmetic.
+
+### And the sabotage list keeps the reason alive
+
+`manifest-overflow-wrong-issuer` is in `tool/sabotage.py` now: the flag
+landing on issuer 0, which `manifest_test` passes and the harness catches.
+It is there so that the harness's REASON is held rather than just the
+harness -- if manifest_fuzz ever stops modelling two followed issuers, that
+entry goes quiet and `make sabotage` says so.
+
 ## 40. The ceilings, audited, 2026-09-01
 
 This file records amplification as a measured defect class more than once --

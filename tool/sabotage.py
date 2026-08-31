@@ -208,6 +208,18 @@ SABOTAGES = [
 		"\t/* sabotage */\n",
 		"the ceiling on how many wants a peer can make this walk",
 	),
+	# THE PROPERTY manifest_fuzz WAS BUILT FOR. Per-issuer state written to
+	# the wrong issuer: manifest_test PASSES this and the harness catches it,
+	# measured across four mutations of the same class. Kept so that the
+	# harness's reason for existing is itself held -- if manifest_fuzz ever
+	# stops modelling two followed issuers, this goes quiet and says so.
+	(
+		"manifest-overflow-wrong-issuer",
+		"chain/manifest.c",
+		"\t\t\tentry->overflowed = 1;\n",
+		"\t\t\tstate->issuers[0].overflowed = 1;\n",
+		"the overflow flag is per issuer, and only the fuzz harness says so",
+	),
 	(
 		"prekey-peer-zero",
 		"prekey/prekey.c",

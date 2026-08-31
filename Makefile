@@ -216,6 +216,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              local/test/peer_fuzz.c local/test/peer_linux_test.c \
              chunk/test/reassembly_fuzz.c chain/test/chain_fuzz.c \
              frame/test/freshness_fuzz.c chain/test/revocation_fuzz.c \
+             chain/test/manifest_fuzz.c \
              frame/test/receive_fuzz.c \
              chunk/test/roundtrip_fuzz.c \
              constant_time/test/secret_flow_test.c \
@@ -271,6 +272,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/frame/test/freshness_fuzz \
              $(BUILD_DIR)/frame/test/receive_fuzz \
              $(BUILD_DIR)/chain/test/revocation_fuzz \
+             $(BUILD_DIR)/chain/test/manifest_fuzz \
              $(BUILD_DIR)/chunk/test/roundtrip_fuzz \
              $(BUILD_DIR)/constant_time/test/secret_flow_test \
              $(BUILD_DIR)/wire/test/err_str_test \
@@ -1091,6 +1093,16 @@ $(BUILD_DIR)/frame/test/freshness_fuzz: $(BUILD_DIR)/frame/test/freshness_fuzz.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# The same objects as manifest_test, because this harness admits real signed
+# manifests against a real revocation store rather than filling structs.
+$(BUILD_DIR)/chain/test/manifest_fuzz: $(BUILD_DIR)/chain/test/manifest_fuzz.o \
+                                        $(BUILD_DIR)/chain/manifest.o \
+                                        $(BUILD_DIR)/chain/revocation.o \
+                                        $(BUILD_DIR)/chain/chain.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/chain/test/revocation_fuzz: $(BUILD_DIR)/chain/test/revocation_fuzz.o \
                                           $(BUILD_DIR)/chain/revocation.o \
                                           $(BUILD_DIR)/chain/manifest.o \
@@ -1398,6 +1410,7 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/frame/test/freshness_fuzz \
              $(BUILD_DIR)/frame/test/receive_fuzz \
              $(BUILD_DIR)/chain/test/revocation_fuzz \
+             $(BUILD_DIR)/chain/test/manifest_fuzz \
              $(BUILD_DIR)/chunk/test/roundtrip_fuzz \
              $(BUILD_DIR)/local/test/peer_fuzz \
              $(BUILD_DIR)/local/test/vocabulary_fuzz \
