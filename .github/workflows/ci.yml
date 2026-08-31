@@ -1,0 +1,70 @@
+# fuzznet CI.
+#
+# TWO JOBS BECAUSE THERE ARE TWO BUILDS, and the second checks something a
+# desktop structurally cannot. `git archive` and a submodule-less checkout
+# carry no submodule contents, so the `core` job builds the library with no
+# crypto binding at all -- the arrangement an embedded target actually uses,
+# and one nobody exercises by hand because a developer's tree always has the
+# submodule.
+#
+# MONOCYPHER_DIR MUST BE SET EXPLICITLY FOR THAT, and this was measured
+# rather than assumed. An un-checked-out submodule leaves `monocypher/`
+# present and EMPTY, and the Makefile refuses that by name -- it does not
+# fall back to building without the bindings, deliberately, because silently
+# building something other than what was asked for is worse. So `core` passes
+# `MONOCYPHER_DIR=` and gets the loud skip; a job that merely omitted the
+# submodule would fail on the first target.
+#
+# `make schema` is absent from both jobs on purpose: it needs SITU_DIR
+# pointing at a situ checkout, and a second repository is a cost this
+# workflow does not pay to duplicate a gate that runs locally.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  core:
+    name: core (no crypto binding)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        # Deliberately without submodules: this job is the no-binding build.
+      - name: build and test
+        run: make test MONOCYPHER_DIR=
+      - name: style gate
+        run: make style MONOCYPHER_DIR=
+      # NO `installcheck` HERE, and the reason is a latent bug rather than a
+      # judgement: `make installcheck MONOCYPHER_DIR=` does not work at all.
+      # `tool/consumer_check.c` includes the four binding headers
+      # unconditionally, on purpose -- a header that cannot compile without a
+      # dependency it does not name is the fault that target exists to find --
+      # but those headers are only INSTALLED when the bindings are built, so
+      # the installed-headers arm cannot find them. Nothing runs that
+      # combination today, which is why it has never been noticed.
+      #
+      # It costs nothing here: `installcheck`'s own first arm is "the core
+      # alone, with no Monocypher anywhere", so the `full` job below already
+      # covers the no-binding consumer arrangement.
+
+  full:
+    name: full (vendored Monocypher)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: build and test
+        run: make test
+      - name: style gate
+        run: make style
+      - name: consumer arrangements
+        run: make installcheck
+      - name: sanitizers
+        run: make SANITIZE=1 BUILD_DIR=san test
+      # Reduced from the default 200000 cases. The harnesses are what this
+      # proves still run; the long sweep belongs on a developer's machine
+      # where it costs nobody's minutes.
+      - name: fuzz harnesses
+        run: make fuzz CASES=20000

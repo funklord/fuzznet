@@ -10584,6 +10584,144 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 34. CI, and two things it corrected before it ran, 2026-08-31
+
+Two jobs, because there are two builds. `core` builds with no crypto binding
+at all -- the arrangement an embedded target uses and one nobody exercises by
+hand, because a developer's tree always has the submodule. `full` builds
+against the vendored Monocypher and adds sanitizers and the fuzz harnesses.
+
+`make schema` is in neither, deliberately: it needs `SITU_DIR` pointing at a
+situ checkout, and a second repository is a cost this workflow does not pay to
+duplicate a gate that runs locally.
+
+The fuzz sweep is reduced from 200000 cases to 20000. What CI proves is that
+the harnesses still run; the long sweep belongs where it costs nobody's
+minutes.
+
+### Sec 26 said the two arms come free from the checkout mode. They do not.
+
+That section recorded that a checkout WITHOUT submodules would exercise the
+`MONOCYPHER_DIR=` arm, since `git archive` and a submodule-less checkout carry
+no submodule contents. **Measured before writing the workflow: it fails.** An
+un-checked-out submodule leaves `monocypher/` present and EMPTY, and the
+Makefile refuses that by name rather than falling back --
+
+    MONOCYPHER_DIR=... has no src/monocypher.c. Leave it unset to use the
+    vendored monocypher/, or set it to empty to build without the bindings.
+
+**That refusal is correct and better than what sec 26 assumed.** Silently
+building something other than what was asked for is the worse behaviour. So
+the arm is not free from the checkout mode: `MONOCYPHER_DIR=` is passed
+explicitly, and a job that merely omitted the submodule would fail on its
+first target.
+
+### And a latent bug the workflow found by trying to use it
+
+**`make installcheck MONOCYPHER_DIR=` does not work at all.**
+`tool/consumer_check.c` includes the four binding headers UNCONDITIONALLY,
+which is deliberate and argued in that file -- a header that cannot compile
+without a dependency it does not name is the fault the target exists to find,
+and guarding the includes put them out of reach of the only arm that could
+catch it. But those headers are only INSTALLED when the bindings are built, so
+the installed-headers arm cannot find them.
+
+Nothing has ever run that combination, which is why it has never been noticed.
+
+**Not fixed here, deliberately.** The fix is either to install the binding
+headers unconditionally -- they include no Monocypher header and compile
+standalone, so this is defensible -- or to narrow the target. Both change
+installation semantics, and doing that as a side effect of adding a workflow
+is the kind of unrelated change that makes a commit hard to review and a
+revert hard to scope. It costs nothing today: `installcheck`'s own first arm
+is "the core alone, with no Monocypher anywhere", so the `full` job already
+covers the no-binding consumer arrangement.
+
+**Every command in the workflow was run locally before it was committed**, in
+both arms, rather than discovered by a red first run.
+
+## 33. The five open decisions, taken 2026-08-31
+
+The holder handed these back rather than answering them. Each is decided
+below with its reasoning, and two of the five dissolved rather than needing
+an answer.
+
+### 1. Multi-peer assignment is NOT blocked, and sec 31 was wrong to say so
+
+**Correction first.** Sec 31 records that multi-peer assignment "forces sec
+15b's parked question, since `sched/` selects exactly one link". **That is
+wrong**, and it was written from that section's HEADING rather than its text
+-- the same failure this file has now recorded four times, committed while
+recording it.
+
+Read properly, sec 15b's contradiction is about **multi-path striping**:
+several links carrying COMPLEMENTARY SYMBOLS of one message to one
+destination, which is FEC. Fetching leaves from N peers is N separate
+messages to N destinations, each routed over one link, with
+`fzn_sched_select` asked once per message and the answers independent.
+Nothing contradicts anything. **`sched/` does not stand in the way of
+multi-host download.**
+
+**And having unblocked it, it is still not built, for a reason rather than
+from caution.** What multi-peer assignment adds over what exists is
+rarest-first, and rarest-first needs other peers' HAVE sets. The two things a
+thousand-peer fetch actually needs are already here:
+
+- **de-correlation** -- a different `from` per peer, which sec 29 added and
+  which needs no knowledge of what peers hold;
+- **redundant requests near a deadline** -- the caller sends one want to
+  several peers, and `fzn_spool_place` already accepts a duplicate without
+  rewriting.
+
+Rarest-first pays late in a swarm, when peers' HAVE sets have genuinely
+diverged. **Build it when a measurement shows de-correlation is not enough**,
+not before -- the missing piece is real but its value is late, and speculative
+scheduling is how a library grows a wing nobody flies.
+
+### 2. The position indirection is ONE HOP
+
+"My position follows that host", depth one, not arbitrary.
+
+- **Cycles become trivial**: with one hop the only cycle is self-reference,
+  which is one comparison. Arbitrary depth needs real detection.
+- **Staleness compounding is bounded** to a single link rather than a chain
+  whose total nobody computes.
+- **It covers the case that motivated it** -- several hosts at one site where
+  one has the GPS.
+- **It is the reversible direction.** One to N later is a widening and nothing
+  breaks; N to one is a breaking change for anybody who used depth 2. When two
+  options are otherwise close, take the one that can be undone.
+
+### 3. Recipe digest per record is NOT this library's decision
+
+It dissolves rather than resolving. A recipe lives in a descriptor's BODY, and
+bodies are opaque to `record/` -- so whether each record repeats a digest of
+its stream's recipe is a consumer's encoding choice, exactly as sec 5i keeps
+the position fix's layout out. fuzznet has no opinion to hold here and should
+not acquire one.
+
+What this file can usefully say, and now does: descriptor-only is smaller and
+cannot disagree with itself, since a stream has one recipe by construction;
+the trigger that would justify the digest is a use case where records are
+consumed without access to their stream's descriptor.
+
+### 4. The shared algorithm vocabulary is premature
+
+`fuse`, `filter`, `merge`, `reduce` and the algorithm names under them are
+worth agreeing across trees **when a second tree implements derivation**.
+Today **zero do** -- sec 30 is design ahead of code, deliberately. Inventing a
+cross-project vocabulary for one hypothetical implementer is how a convention
+gets adopted before anybody has met the cases that would shape it.
+
+**The trigger is named instead**: when a second project implements stream
+derivation, the vocabulary goes to `claude-guidelines`' signal list as a
+cross-project naming question, which is the mechanism `harmonization.md`
+prescribes and which a delegation to this session does not replace.
+
+### 5. CI: yes, and it buys a property the desktop structurally cannot
+
+Built -- see sec 34.
+
 ## 32. The missing accessor, built 2026-08-31
 
 Sec 31 named `fzn_reasm_plan_want` as the one unblocked piece of code and the
@@ -10743,20 +10881,20 @@ Each names whose decision it is, so none of them reads as settled.
 
 **Blocked on the holder:**
 
-- **Multi-peer assignment** -- given N peers each advertising a HAVE set,
-  decide who to ask for what and, near a deadline, who to ask redundantly. It
-  forces sec 15b's parked question, since `sched/` selects exactly one link
-  and that was framed as deliberate. `spool/plan.c` is peer-blind until this
-  is answered.
-- **The position indirection's depth** -- "my position follows that host",
+- ~~**Multi-peer assignment**~~ -- **decided, sec 33.** Not blocked by
+  `sched/` after all, and not built yet for a stated reason: what it adds
+  over `from`-based de-correlation is rarest-first, which pays late in a
+  swarm.
+- ~~**The position indirection's depth**~~ -- **decided: one hop, sec 33.** Original text: -- "my position follows that host",
   one hop or arbitrary? One hop kills the cycle and compounding-staleness
   problems outright and covers the multi-host-one-site case; arbitrary depth
   is more general and brings all three failure modes. See sec 30.
-- **Recipe digest per record, or descriptor only** -- sec 30.
-- **Whether the derivation algorithm vocabulary is shared across trees** --
+- ~~**Recipe digest per record**~~ -- **dissolved, sec 33**: it is a consumer encoding choice, not this library's.
+- ~~**Shared algorithm vocabulary**~~ -- **deferred with a named trigger, sec 33**. Original text:
   a cross-project naming decision, which `harmonization.md` says is not one to
   take in passing.
-- **CI** -- `gh` works and Actions is enabled with no workflow present; sec 26
+- ~~**CI**~~ -- **built, sec 34**, and it corrected sec 26 and found a latent
+  bug before its first run. Original text: `gh` works and Actions is enabled with no workflow present; sec 26
   has the two-arm design and the missing `workflow` scope. It spends the
   holder's minutes, so it is theirs to authorise.
 
