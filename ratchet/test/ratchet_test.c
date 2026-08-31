@@ -103,6 +103,65 @@ static void seed(uint8_t key[FZN_CHAIN_KEY_LEN], uint8_t byte)
 
 /* ---- the cases -------------------------------------------------------- */
 
+/* INIT IS TOTAL, ON THE ONE PATH NOTHING TAKES.
+ *
+ * `fzn_ratchet_init` zeroes the chain, copies the key ONLY IF it is
+ * non-NULL, and sets the sequence. So with a key the struct is written in
+ * full either way and the zeroing cannot be observed -- but with NULL it is
+ * the only thing putting `key` in a known state, and removing it leaves the
+ * chain carrying whatever the caller's memory held. Every key the ratchet
+ * then derives comes off that.
+ *
+ * NINE CALL SITES AND NOT ONE PASSES NULL, measured across the tree: two in
+ * session_test.c, one in tool/consumer_check.c, one in persist.c restoring
+ * from bytes, and five here. So the branch is never executed and removing
+ * the zeroing changed no result -- which is how `make sabotage` found it and
+ * why it needs a case rather than a reader.
+ *
+ * WHAT IS ASSERTED IS DETERMINISM, NOT A VALUE. ratchet.h documents the
+ * struct and the meaning of `seq` and says nothing about a NULL key; the
+ * `if (key)` in ratchet.c is the only statement that the case exists. So
+ * this pins what the zeroing actually provides -- that the result does not
+ * depend on the caller's memory -- rather than inventing a promise about
+ * what a keyless chain contains, which is not this test's to make.
+ *
+ * The `with a key` half is here to show the asymmetry rather than to guard
+ * it: it passes with the zeroing removed, and a version of this test that
+ * only did that would prove nothing. */
+static void test_init_does_not_depend_on_what_the_memory_held(void)
+{
+	fzn_ratchet_chain_t dirty, clean;
+	uint8_t k[FZN_CHAIN_KEY_LEN];
+
+	memset(k, 0x5c, sizeof(k));
+
+	/* The control: 0xab must differ from what init leaves behind, or the
+	 * comparison below is between two copies of nothing. */
+	memset(&dirty, 0xab, sizeof(dirty));
+	fzn_ratchet_init(&dirty, k, 7u);
+	CHECK(memcmp(dirty.key, k, sizeof(k)) == 0 && dirty.seq == 7u,
+	      "init with a key did not write the chain, so this test cannot fail");
+
+	/* With a key, both start states converge because the copy covers every
+	 * byte. This half holds with the zeroing deleted. */
+	memset(&dirty, 0xab, sizeof(dirty));
+	memset(&clean, 0, sizeof(clean));
+	fzn_ratchet_init(&dirty, k, 3u);
+	fzn_ratchet_init(&clean, k, 3u);
+	CHECK(memcmp(&dirty, &clean, sizeof(dirty)) == 0,
+	      "init with a key depends on the caller's memory");
+
+	/* With NO key, only the zeroing makes the two agree. This is the half
+	 * that fails when it is removed. */
+	memset(&dirty, 0xab, sizeof(dirty));
+	memset(&clean, 0, sizeof(clean));
+	fzn_ratchet_init(&dirty, NULL, 3u);
+	fzn_ratchet_init(&clean, NULL, 3u);
+	CHECK(memcmp(&dirty, &clean, sizeof(dirty)) == 0,
+	      "init with no key left the caller's bytes in the chain, so every "
+	      "key derived from it would come off whatever the memory held");
+}
+
 static void test_a_step_produces_two_different_keys(void)
 {
 	uint8_t k[FZN_CHAIN_KEY_LEN];
@@ -533,6 +592,7 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 
 int main(void)
 {
+	test_init_does_not_depend_on_what_the_memory_held();
 	test_a_step_produces_two_different_keys();
 	test_a_step_is_a_function_of_the_chain_key();
 	test_a_step_is_alias_safe();

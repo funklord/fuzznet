@@ -10596,7 +10596,7 @@ init that zeroes a struct before filling part of it.
 
     trust-init-zero              CAUGHT     trust adoption provenance
     seal-open-clears-out         CAUGHT     seal_test, on a wrong-key open
-    ratchet-init-zero            SURVIVED   -> a real gap, closed next
+    ratchet-init-zero            CAUGHT     ratchet_test, once written
     persist-install-clears-out   SURVIVED   -> NOT a test gap, below
     sync-clear-plan              HUNG       -> a third answer, below
 
@@ -10606,6 +10606,37 @@ because sec 36's prekey test rests on it. That test keeps
 `fzn_trust_t` and missed by `fzn_trust_init` would be caught by nothing
 else. Had `fzn_trust_init` itself been unheld, the argument would have been
 resting on air. It is not.
+
+### `fzn_ratchet_init(chain, NULL, seq)` is supported and nothing calls it
+
+**The line above now reads CAUGHT**, and this is what closed it.
+
+`fzn_ratchet_chain_t` is a key and a sequence number. The init zeroes the
+struct, copies the key **only if it is non-NULL**, and sets the sequence. So
+with a key the struct is written in full and the zeroing cannot be observed;
+with NULL it is the only thing putting `key` in a known state.
+
+**Nine call sites, measured, and not one passes NULL** -- two in
+`session_test.c`, one in `tool/consumer_check.c`, one in `persist.c`
+restoring from bytes, five in `ratchet_test.c`. The branch is never
+executed, which is why removing the zeroing changed no result. What it costs
+is not a wrong error code: a chain initialised with no key would carry
+**whatever the caller's memory held**, and every key the ratchet derives
+comes off that.
+
+`ratchet.h` documents the struct and the meaning of `seq` and **says nothing
+about a NULL key** -- the `if (key)` in the .c is the only statement that
+the case exists. So the test asserts DETERMINISM rather than a value: init
+from dirty memory must equal init from clean memory. That pins what the
+zeroing provides without inventing a promise about what a keyless chain
+contains, which is not a test's to make, and it does not have to be
+rewritten if the holder later decides a NULL key should be refused outright.
+
+It carries the with-a-key case too, which **passes with the zeroing
+deleted**. That half is there to show the asymmetry, not to guard it; a test
+that only did that would prove nothing. Proven both ways: 179 checks green,
+and `FAIL ratchet_test.c:160` with the `memset` removed.
+
 
 ### One that is not a test gap: two modules promising opposites
 
