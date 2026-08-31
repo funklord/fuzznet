@@ -82,20 +82,114 @@ const char *fzn_authz_verdict_str(fzn_authz_verdict_t verdict);
  * distinguishable from a deliberate one, and it is the field the whole
  * design rests on.
  */
+/*
+ * WHICH TRANSPORT A REQUEST ARRIVED OVER, and the holder's 2026-08-31
+ * statement that this library serves three fundamentally different network
+ * and auth types rather than one:
+ *
+ *   1. a user's client to a daemon running as that same user, many to one;
+ *   2. a user's client to a ROOT daemon, many to one, authenticated by local
+ *      means -- `local/peer.h` and `local/vocabulary.h` are that type;
+ *   3. the encrypted decentralised protocol, many to many, authenticated by
+ *      a signed capability chain -- the rest of this library.
+ *
+ * All three existed and NOTHING RELATED THEM. There was no way to say what a
+ * request may do as a function of which one carried it, so both consumers
+ * computed it in their own trees: netcfgd decided that "origin is which
+ * socket you arrived on, and nothing a client says" (its decision 0128, read
+ * at f7a7fdf), and fuzzypickles that a realm "is a verb, not a column",
+ * recomputed per arrival. Two consumers independently building the same
+ * missing thing is what says it belongs here.
+ *
+ * IT IS OBSERVED, NEVER CLAIMED, AND THAT IS STRUCTURAL. This type has no
+ * wire encoding: it is absent from `wire/frame.situ`, so no frame can carry
+ * one and no parser can produce one. A caller supplies it from what it
+ * observed -- which socket accepted the connection, what `SO_PEERCRED` said,
+ * that the bytes came off the network path -- and a peer has no field to
+ * forge because there is no field. netcfgd reached that sentence first; what
+ * changes by moving it here is that it stops being each consumer's discipline
+ * and becomes a property of the type.
+ *
+ * ZERO IS "NOT STATED" AND ALWAYS DENIES, for the reason the verdict above
+ * gives at length: a zeroed struct and a forgotten assignment must land on
+ * no. A caller that did not observe an origin has not earned one.
+ */
+typedef enum fzn_origin {
+	FZN_ORIGIN_NONE = 0,
+	/*
+	 * Type 1: a daemon running as the same user as its clients.
+	 *
+	 * IT IS NOT "NO AUTH", AND THE HOLDER SAID SO IN THOSE WORDS
+	 * (2026-08-31): the local socket's access IS the authentication. The
+	 * kernel enforced it, from the socket's path and mode, before a byte
+	 * was parsed -- there is nothing further to check because the check
+	 * already happened, not because none was required.
+	 *
+	 * The distinction is not pedantry. "No auth" invites somebody to move
+	 * that socket somewhere world-writable, or to widen its mode for a
+	 * convenience, and nothing then fails: every request still arrives,
+	 * still names this origin, and is still admitted -- because the thing
+	 * that was doing the work was the mode, and it was removed by a person
+	 * who had been told there was no authentication to remove.
+	 *
+	 * So a consumer naming this origin is ASSERTING that the socket is so
+	 * bounded. This library cannot check that for them, which is exactly
+	 * why it is written down here rather than assumed.
+	 */
+	FZN_ORIGIN_SAME_USER = 1,
+	/* Type 2. A local socket whose peer credentials were read -- see
+	 * `local/peer.h`, whose tri-state exists because an unreadable group
+	 * list must not read as "in no groups". */
+	FZN_ORIGIN_LOCAL = 2,
+	/* Type 3. Off the machine, authenticated by a chain rather than by
+	 * the kernel. */
+	FZN_ORIGIN_REMOTE = 3,
+} fzn_origin_t;
+
+/* The bit a mask sets for an origin. Bit 0 is FZN_ORIGIN_NONE's and is
+ * meaningless: `fzn_authz_decide` refuses FZN_ORIGIN_NONE before consulting
+ * the mask, so a caller cannot admit "not stated" even by setting every bit. */
+#define FZN_ORIGIN_BIT(origin) (1u << (unsigned)(origin))
+
+/* Reachable from anywhere a caller might observe. Spelled out rather than
+ * written as ~0u so that adding an origin later does not silently widen every
+ * policy that used it -- a new transport should have to be admitted by name. */
+#define FZN_ORIGIN_ANY                                                    \
+	(FZN_ORIGIN_BIT(FZN_ORIGIN_SAME_USER) | FZN_ORIGIN_BIT(FZN_ORIGIN_LOCAL) \
+	 | FZN_ORIGIN_BIT(FZN_ORIGIN_REMOTE))
+
 typedef struct fzn_authz_policy {
 	int spelled;
 	int guarded;
+	/* Which origins may reach this kind AT ALL, before any question of
+	 * capability. Zero reaches nothing, which is what a zeroed policy
+	 * must mean -- so a forgotten policy now denies on two independent
+	 * counts rather than one. */
+	unsigned origins;
 	uint8_t capability[FZN_CAP_ID_LEN];
 } fzn_authz_policy_t;
 
 /* This kind requires `capability`. */
-static inline fzn_authz_policy_t fzn_authz_requires(const uint8_t capability[FZN_CAP_ID_LEN])
+/*
+ * THE ARITY CHANGED RATHER THAN THE STRUCT GAINING A FIELD QUIETLY, and that
+ * is deliberate. `origins` could have been added to the struct alone, and
+ * every existing call site would have kept compiling while getting whatever
+ * the default was -- either a policy reachable from nowhere, which fails
+ * loudly but at run time, or one reachable from everywhere, which never fails
+ * at all and silently retires the check. `wire/seal.h` records the identical
+ * hazard for its commitment key and answers it the same way: an added
+ * argument makes every call site fail to compile, which is the loud failure
+ * and the only one C offers.
+ */
+static inline fzn_authz_policy_t fzn_authz_requires(const uint8_t capability[FZN_CAP_ID_LEN],
+                                                    unsigned origins)
 {
 	fzn_authz_policy_t policy;
 	size_t i;
 
 	policy.spelled = 1;
 	policy.guarded = 1;
+	policy.origins = origins;
 	for (i = 0; i < FZN_CAP_ID_LEN; i++)
 		policy.capability[i] = capability ? capability[i] : 0u;
 	/* A null capability is a caller that has not decided. It leaves
@@ -114,13 +208,14 @@ static inline fzn_authz_policy_t fzn_authz_requires(const uint8_t capability[FZN
  * and finds every instance; there is no way to arrive at the same place by
  * omission.
  */
-static inline fzn_authz_policy_t fzn_authz_unguarded(void)
+static inline fzn_authz_policy_t fzn_authz_unguarded(unsigned origins)
 {
 	fzn_authz_policy_t policy;
 	size_t i;
 
 	policy.spelled = 1;
 	policy.guarded = 0;
+	policy.origins = origins;
 	for (i = 0; i < FZN_CAP_ID_LEN; i++)
 		policy.capability[i] = 0u;
 	return policy;
@@ -140,7 +235,27 @@ static inline fzn_authz_policy_t fzn_authz_unguarded(void)
  * to the question a caller actually has, and it has one shape so there is no
  * status to forget to check.
  */
-fzn_authz_verdict_t fzn_authz_decide(fzn_authz_policy_t policy, const fzn_chain_hop_t *hops,
+/*
+ * Whether `origin` may reach `policy` at all, capability aside.
+ *
+ * A SEPARATE PREDICATE RATHER THAN A SECOND DENIAL CODE. The verdict enum's
+ * contract is that zero denies and every other value grants, and a consumer
+ * reading it as a truth value is reading it correctly -- adding
+ * DENIED_BY_ORIGIN as a nonzero enumerator would turn a refusal into a grant
+ * at every such site. That is precisely the polarity defect the verdict's own
+ * comment records fuzzypickles tracing. So the enforcement stays inside
+ * `fzn_authz_decide`, which denies, and this exists so a consumer's LOG can
+ * say which of the two reasons it was -- the same argument that keeps
+ * GRANTED_UNGUARDED distinct from GRANTED_BY_CHAIN.
+ *
+ * It is an explanation, never a substitute: deciding with this and then
+ * calling `fzn_authz_decide` without an origin is not possible, because the
+ * origin is one of its arguments.
+ */
+int fzn_authz_origin_permitted(fzn_authz_policy_t policy, fzn_origin_t origin);
+
+fzn_authz_verdict_t fzn_authz_decide(fzn_authz_policy_t policy, fzn_origin_t origin,
+                                     const fzn_chain_hop_t *hops,
                                      size_t hop_count, const uint8_t root[FZN_PUBKEY_LEN],
                                      uint64_t now, const fzn_sign_ops_t *sign,
                                      const fzn_revocation_store_t *revocations);

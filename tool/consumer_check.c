@@ -1107,15 +1107,15 @@ int main(void)
 			return 220;
 
 		/* A memset policy is not "unguarded". */
-		if (fzn_authz_decide(zeroed, NULL, 0, root, 1000, &sign, &empty)
+		if (fzn_authz_decide(zeroed, FZN_ORIGIN_REMOTE, NULL, 0, root, 1000, &sign, &empty)
 		    != FZN_AUTHZ_DENIED)
 			return 221;
 		/* Nor is a required capability with no chain held. */
-		if (fzn_authz_decide(fzn_authz_requires(any_cap), NULL, 0, root, 1000, &sign,
+		if (fzn_authz_decide(fzn_authz_requires(any_cap, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, NULL, 0, root, 1000, &sign,
 		                     &empty) != FZN_AUTHZ_DENIED)
 			return 222;
 		/* Only saying so out loud grants, and it says which grant it is. */
-		if (fzn_authz_decide(fzn_authz_unguarded(), NULL, 0, root, 1000, &sign, &empty)
+		if (fzn_authz_decide(fzn_authz_unguarded(FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, NULL, 0, root, 1000, &sign, &empty)
 		    != FZN_AUTHZ_GRANTED_UNGUARDED)
 			return 223;
 		if ((int)FZN_AUTHZ_DENIED != 0)

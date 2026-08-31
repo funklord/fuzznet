@@ -851,7 +851,7 @@ static void sim_receive(struct sim_net *net, struct sim_datagram *d)
 	 * somebody would actually leave one. */
 	{
 		fzn_authz_verdict_t verdict =
-		        fzn_authz_decide(fzn_authz_requires(net->capability), sender->chain,
+		        fzn_authz_decide(fzn_authz_requires(net->capability, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, sender->chain,
 		                         sender->chain_len, anchor, net->now, &net->sign,
 		                         &h->revocations);
 		fzn_authz_policy_t forgotten;
@@ -861,7 +861,7 @@ static void sim_receive(struct sim_net *net, struct sim_datagram *d)
 		      "the authorisation decision disagrees with the verifier it wraps");
 
 		memset(&forgotten, 0, sizeof(forgotten));
-		check(fzn_authz_decide(forgotten, sender->chain, sender->chain_len, anchor,
+		check(fzn_authz_decide(forgotten, FZN_ORIGIN_REMOTE, sender->chain, sender->chain_len, anchor,
 		                       net->now, &net->sign, &h->revocations)
 		              == FZN_AUTHZ_DENIED,
 		      "a policy nobody spelled granted on live traffic, so absence reads "

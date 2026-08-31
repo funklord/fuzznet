@@ -2,7 +2,39 @@
 
 #include "authz.h"
 
-fzn_authz_verdict_t fzn_authz_decide(fzn_authz_policy_t policy, const fzn_chain_hop_t *hops,
+/*
+ * FZN_ORIGIN_ANY IS A LIST, NOT A WILDCARD, and these hold it to that.
+ *
+ * Written as ~0u it would behave identically today and would silently admit
+ * every origin added afterwards -- a fourth transport arriving already
+ * permitted by every policy in every consumer, which is the widening nobody
+ * decides and nobody sees. Spelling the three out means a new one has to be
+ * admitted by name.
+ *
+ * These exist because no behaviour test can tell a list from a wildcard while
+ * there are only three origins: measured, widening ANY to 0xffffffff left the
+ * whole suite green. A property no test can hold is one an assertion has to.
+ */
+_Static_assert((FZN_ORIGIN_ANY & FZN_ORIGIN_BIT(FZN_ORIGIN_NONE)) == 0u,
+               "FZN_ORIGIN_ANY admits FZN_ORIGIN_NONE, which means 'not observed'");
+_Static_assert(FZN_ORIGIN_ANY
+                       == (FZN_ORIGIN_BIT(FZN_ORIGIN_SAME_USER) | FZN_ORIGIN_BIT(FZN_ORIGIN_LOCAL)
+                           | FZN_ORIGIN_BIT(FZN_ORIGIN_REMOTE)),
+               "FZN_ORIGIN_ANY is not exactly the named origins -- admit a new one here "
+               "deliberately rather than by widening a wildcard");
+
+int fzn_authz_origin_permitted(fzn_authz_policy_t policy, fzn_origin_t origin)
+{
+	/* NOT STATED IS REFUSED BEFORE THE MASK IS CONSULTED, so a caller
+	 * cannot admit it even by setting every bit. An origin a caller did
+	 * not observe is not an origin, and bit 0 therefore means nothing. */
+	if (origin == FZN_ORIGIN_NONE)
+		return 0;
+	return (policy.origins & FZN_ORIGIN_BIT(origin)) != 0u;
+}
+
+fzn_authz_verdict_t fzn_authz_decide(fzn_authz_policy_t policy, fzn_origin_t origin,
+                                     const fzn_chain_hop_t *hops,
                                      size_t hop_count, const uint8_t root[FZN_PUBKEY_LEN],
                                      uint64_t now, const fzn_sign_ops_t *sign,
                                      const fzn_revocation_store_t *revocations)
@@ -15,6 +47,24 @@ fzn_authz_verdict_t fzn_authz_decide(fzn_authz_policy_t policy, const fzn_chain_
 	 * capability". Only `fzn_authz_unguarded` says that, and it says it by
 	 * setting `spelled`. */
 	if (!policy.spelled)
+		return FZN_AUTHZ_DENIED;
+
+	/*
+	 * THE ORIGIN IS CHECKED BEFORE THE CAPABILITY, AND BEFORE `guarded`,
+	 * which is the ordering that makes it worth having.
+	 *
+	 * An unguarded kind is the case that matters: a consumer says "this
+	 * needs no capability" meaning it locally, and without this line that
+	 * sentence also admits the whole network. netcfgd's local policy is
+	 * deliberately open enough that a distribution could put every user in
+	 * its group, and the same policy reaching the wire is the failure its
+	 * decision 0128 was written to prevent. Checking after `guarded` would
+	 * have let exactly that through.
+	 *
+	 * It also means a policy that is reachable from nowhere denies whatever
+	 * else it says, so a zeroed struct now fails on two independent counts.
+	 */
+	if (!fzn_authz_origin_permitted(policy, origin))
 		return FZN_AUTHZ_DENIED;
 
 	if (!policy.guarded)

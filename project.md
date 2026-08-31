@@ -10584,6 +10584,76 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 27. Three transports, and the thing that related them, 2026-08-31
+
+The holder stated the shape this library actually serves, and it is not one
+protocol: **three fundamentally different network and auth types.**
+
+1. A user's client to a daemon running as **that same user**, many to one.
+   **It is not "no auth"** -- their words: the local socket's access IS the
+   authentication, applied by the kernel from the socket's path and mode
+   before a byte is parsed. There is nothing further to check because the
+   check already happened, not because none was required. The distinction is
+   load-bearing: "no auth" invites somebody to widen that socket's mode for a
+   convenience, and nothing then fails, because the thing doing the work was
+   the mode and it was removed by a person who had been told there was no
+   authentication to remove.
+2. A user's client to a **root** daemon, many to one, authenticated locally.
+   `local/peer.h` and `local/vocabulary.h` are this type, and both exist
+   because a consumer hit something: netcfgd found that `SO_PEERCRED` carries
+   the PRIMARY gid only, so a `netdev` gate denies nearly everyone it was
+   written to admit while reading as correct; raidcfgd required that what a
+   member may then ASK FOR be bounded, or the group boundary is a root
+   boundary wearing a different name.
+3. The encrypted decentralised protocol, many to many, authenticated by a
+   signed capability chain -- the rest of this library.
+
+**All three existed and nothing related them.** There was no way to say what a
+request may do as a function of which one carried it, so both consumers built
+that computation in their own trees: netcfgd decided "origin is which socket
+you arrived on, and nothing a client says" (its 0128, read at f7a7fdf), and
+fuzzypickles that a realm "is a verb, not a column". Two consumers
+independently building the same missing thing is what says it belongs here.
+
+### `fzn_origin_t`, observed and never claimed
+
+The type has **no wire encoding** -- it is absent from `wire/frame.situ`, so
+no frame can carry one and no parser can produce one. A caller supplies it
+from what it observed. netcfgd reached "there is no field to forge, because
+there is no field" first; what changes by moving it here is that it stops
+being each consumer's discipline and becomes a property of the type.
+
+**The origin is checked before `guarded`, and that ordering is the whole
+point.** An unguarded kind is the case that matters: a consumer saying "this
+needs no capability" means it locally, and without the check that sentence
+also admits the entire network. Checking after `guarded` lets exactly that
+through -- mutation-confirmed, it fails the test written for it.
+
+**Zero denies, and no new denial code was added.** The verdict enum's contract
+is that zero denies and every other value grants; a `DENIED_BY_ORIGIN`
+enumerator would have turned a refusal into a grant at every site reading the
+verdict as a truth value -- which is the polarity defect that enum's own
+comment records fuzzypickles tracing. The reason lives in a separate
+predicate, `fzn_authz_origin_permitted`, for a consumer's log; the enforcement
+stays in `fzn_authz_decide`, which denies.
+
+**The arity changed rather than the struct gaining a field quietly.** Adding
+`origins` to `fzn_authz_policy_t` alone would have left every call site
+compiling with whatever the default was -- reachable from nowhere, which fails
+at run time, or from everywhere, which never fails and silently retires the
+check. `wire/seal.h` records the identical hazard for its commitment key and
+answers it the same way. Eighteen call sites failed to compile, which is the
+loud failure and the only one C offers.
+
+### Four mutations, three caught, and the fourth needed an assertion
+
+Origin checked after `guarded`, origin never checked, and FZN_ORIGIN_NONE
+admitted by the mask were all caught. **Widening `FZN_ORIGIN_ANY` to
+0xffffffff left the whole suite green**, and no behaviour test can tell a list
+from a wildcard while only three origins exist -- the difference is entirely
+about the fourth. So it is two `_Static_assert`s instead: ANY must exclude
+NONE's bit, and must equal exactly the named origins. Confirmed to fire.
+
 ## 26. What a consumer cites to freeze a vector, 2026-08-31
 
 Written after a peer session relayed that the holder was low on tokens and
