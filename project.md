@@ -10584,6 +10584,124 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 31. Adoption gaps and open items, folded down 2026-08-31
+
+Written so a session starting cold does not have to reconstruct this from a
+conversation. Sections 22 to 30 hold the work; this holds what is LEFT, and
+one pattern about how this week went wrong.
+
+### The one measured gap a consumer is actually blocked on
+
+netcfgd's `doc/shared-protocol-brief.md` says it consumes `wire/` and nothing
+else -- envelope, capabilities, signing, verification, chunking, reassembly --
+and everything on that list is built. **Read at f7a7fdf on 2026-08-31, and
+the holder says that tree is diverging fast, so treat the citations as dated
+rather than current.**
+
+**Its first explicit ask is already satisfied, and its brief may not know.**
+Section 5 there asks: *"please make expiry mandatory for commands rather than
+optional"*, on the reasoning that commands expire and grants do not.
+`frame/freshness.c:81` refuses a command carrying `expires_at == 0`, and
+`:227` lets a grant legitimately carry none. `freshness.h:195` names netcfgd
+as the reason it exists. Nothing to do.
+
+**Its second explicit ask is the real gap, and it is one function.** The same
+section asks for chunking *"with retransmission of missing pieces"* and calls
+it "the largest single piece of new work and the highest-risk part".
+
+`fzn_partial_t` already carries `seen[FZN_REASM_MAX_CHUNKS / 8u]` -- a 32-byte
+arrival bitmap. **`seen_get` and `seen_set` are `static` in
+`chunk/reassembly.c`, and the six public functions are `init`, `slot_init`,
+`expire`, `accept`, `release` and `err_str`.** So a receiver knows exactly
+which chunks it lacks and has no way to tell anybody. Verified twice.
+
+**The template is already in the tree**: `spool/plan.c` does this over the
+spool's bitmap, carrying `record/sync`'s three anti-amplification rules -- a
+request naming nothing gets nothing, a ceiling because the peer chooses the
+number, zero refused rather than meaning unlimited. A `fzn_reasm_plan_want` is
+the same shape over a different bitmap, and it should carry the same rules
+rather than re-deciding them.
+
+Worth knowing beside it: the largest reassembled message is
+`FZN_SPLIT_MAX_PAYLOAD` 1024 x `FZN_REASM_MAX_CHUNKS` 256 = **256 KiB**.
+Whether a twelve-interface router's `status` fits under that is netcfgd's
+measurement, not one to take on their behalf.
+
+### Two consumer questions answered without code
+
+**QR pairing is already the model rather than a feature to add.** `trust/`
+separates `FZN_TRUST_PINNED` -- confirmed out of band -- from
+`FZN_TRUST_ADOPTED`, and refuses to let a rotation launder one into the other.
+A QR code IS the out-of-band channel, so scanning one is what makes a pin
+PINNED. The payload is a `fzn_prekey_record_t`, `FZN_PREKEY_LEN_TOTAL` bytes,
+self-signed. The only thing arguably missing is a text alphabet, which is the
+consumer's choice.
+
+**Users overlapping hosts is a non-problem here.** This library has no user
+type and no host type; there are keys, and a grant is (root, grantee,
+capability). Nothing types a key, so one key may be a grantee under several
+roots, a root itself, or both. There is no partition assumption for the
+overlapping case to violate -- see sec 28 for the estate invariant that sits
+above this.
+
+### The pattern this week, stated once because it recurred
+
+**Four times a decision already taken was argued from first principles**, and
+three of them cost real effort:
+
+- sec 24: a hazard already held by `commitment_test.c:165`, whose stub counts
+  what it was asked for;
+- sec 25: a deferral `record/sync.c` had already decided, three ways;
+- sec 28: an estate structure already sitting in sec 4.2's table -- and missed
+  three days after writing the rule about it;
+- and then positioning, where sec 5i WAS read first and immediately answered
+  the whole "absorb a positioning service" ask with "there is nothing to
+  absorb".
+
+**The one that went right is the one where the search happened before the
+reasoning**, which is the whole lesson. The search that works is for the
+SHAPE, not the name: `record/sync` did not say "amplification policy for blob
+transfer", and sec 4.2's table did not say "estate model". A working sibling
+explaining itself is a cheaper source of this project's decisions than this
+document is, because it is where the decision is being obeyed rather than
+where it was written.
+
+### Open items, in one place
+
+Each names whose decision it is, so none of them reads as settled.
+
+**Blocked on the holder:**
+
+- **Multi-peer assignment** -- given N peers each advertising a HAVE set,
+  decide who to ask for what and, near a deadline, who to ask redundantly. It
+  forces sec 15b's parked question, since `sched/` selects exactly one link
+  and that was framed as deliberate. `spool/plan.c` is peer-blind until this
+  is answered.
+- **The position indirection's depth** -- "my position follows that host",
+  one hop or arbitrary? One hop kills the cycle and compounding-staleness
+  problems outright and covers the multi-host-one-site case; arbitrary depth
+  is more general and brings all three failure modes. See sec 30.
+- **Recipe digest per record, or descriptor only** -- sec 30.
+- **Whether the derivation algorithm vocabulary is shared across trees** --
+  a cross-project naming decision, which `harmonization.md` says is not one to
+  take in passing.
+- **CI** -- `gh` works and Actions is enabled with no workflow present; sec 26
+  has the two-arm design and the missing `workflow` scope. It spends the
+  holder's minutes, so it is theirs to authorise.
+
+**Unblocked, and the next code I would write:**
+
+- **`fzn_reasm_plan_want`**, above. One function, a proven template, and the
+  thing a consumer has called its highest risk.
+
+**Deliberately not being done:**
+
+- The multi-root anchor set, retired by sec 28's invariant.
+- Deriving `record/sync`'s ceiling from estate size, withdrawn in sec 29 --
+  it is wrong under cross-estate sync.
+- Relay bounded by estate membership, withdrawn in sec 29 -- it would delete
+  fuzzypickles' relay.
+
 ## 30. Stream derivation: recipes, descriptors, and what must not be derived, 2026-08-31
 
 Reached by asking whether the compound-position idea generalises to filtered
