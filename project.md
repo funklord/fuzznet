@@ -10584,6 +10584,128 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 26. What a consumer cites to freeze a vector, 2026-08-31
+
+Written after a peer session relayed that the holder was low on tokens and
+asked every tree to fold session-held knowledge into its records. Two of the
+three things it named turned out to be recorded already, and saying so is the
+point of this section: **the next session should not spend an hour
+rediscovering that.**
+
+### The frame layout's history is not at risk, and here is where it lives
+
+The message's central worry was that the per-pair to per-frame commitment
+move lives only in a session, so the next consumer would freeze a golden
+vector against the old shape. Measured against this file: the move and its
+reasoning are in **sec 13e**, which sets out the three-way trade in a table
+-- a long-lived commitment key filters a stranger in 592 ns and LOSES the key
+commitment, deriving it from the DH keeps the commitment and costs 158 us,
+carrying both tags keeps everything for 48 wire bytes -- and **sec 13a**
+carries the per-pair privacy argument that started it. `session/commitment.c`
+carries the same reasoning at the code, including why the root label says v2.
+
+### The golden frame goes the other way, which matters for who owes whom
+
+The message has fuzzypickles waiting on a sealed frame from this tree.
+**It is the reverse**, and sec 15a records it: this project HOLDS a golden
+frame that fuzzypickles produced, in `wire/test/golden_frame_test.c`, and
+that section's own correction says why it is kept rather than generated --
+"the vector's value was that an independent implementation produced it, which
+no generator can supply".
+
+So there is nothing outstanding in that direction from here. If fuzzypickles
+now wants a vector against the CURRENT layout, that is a new ask and the
+section below is what it needs.
+
+### The gap that was real: the spans, by name, in one place
+
+Nothing here listed **which constants fix the frame's spans**, and that is
+exactly what `evidence.md` says a consumer must be given rather than left to
+derive -- its worked failure is a sibling's per-frame overhead stated as 98
+by arithmetic over a layout when the owner's constants said 106.
+
+The frame is 144 bytes of overhead and the constants that say so are, in wire
+order:
+
+| span | constant | today |
+|---|---|---|
+| hop | `SITU_FZN_HOP_SIZE_FIXED` | 5 |
+| head | `SITU_FZN_HEAD_SIZE_FIXED` | 91 |
+| sealed capability | `SITU_FZN_FRAME_SEALED_CAPABILITY_COUNT` | 32 |
+| tag | `SITU_FZN_FRAME_TAG_COUNT` | 16 |
+| **total overhead** | `FZN_SEAL_OVERHEAD` = `SITU_FZN_FRAME_SIZE_MIN` | **144** |
+
+Inside the head, the three a vector's reader will want by name:
+`SITU_FZN_HEAD_SENDER_COUNT` 32, `SITU_FZN_HEAD_NONCE_COUNT` 24 (which is
+`FZN_AEAD_NONCE_LEN`), `SITU_FZN_HEAD_COMMITMENT_COUNT` 16 (which is
+`FZN_COMMITMENT_LEN`). The payload ceiling is
+`SITU_FZN_HEAD_LENGTH_VALUE_MAX` 1024, so a frame runs 144 to
+`SITU_FZN_FRAME_SIZE_MAX` 1168.
+
+**The decomposition was checked rather than asserted**: 5 + 91 + 32 + 16 is
+144, which two independent constants agree on -- the hand-written
+`FZN_SEAL_OVERHEAD` and situ's generated `SITU_FZN_FRAME_SIZE_MIN` -- and
+144 + 1024 is 1168, which `SITU_FZN_FRAME_SIZE_MAX` agrees with. Two
+generated numbers and one hand-written one meeting is the corroboration;
+either alone would be this file deriving a number nobody can re-take.
+
+**Cite the names, not the numbers.** The numbers above are true on
+2026-08-31 and are printed so a reader can sanity-check an implementation,
+not so anybody can copy them. `make schema` is what holds the generated half
+to the committed contract.
+
+### What is genuinely unwritten: the CI position, measured 2026-08-31
+
+The holder asked whether `gh` access works for CI. It does, and there is no
+CI:
+
+- `gh` 2.46.0, authenticated as `funklord` through the keyring, git over SSH.
+- `funklord/fuzznet` is private, default branch `master`, and **Actions is
+  enabled** -- `{"enabled":true,"allowed_actions":"all"}`.
+- **No `.github/workflows/`, `actions/workflows` total_count 0, no runs
+  ever.** Eight private siblings carry a workflow and this tree does not.
+- The token's scopes are `admin:public_key, gist, read:org, repo`. **There is
+  no `workflow` scope**, so `gh` cannot create or update a workflow file
+  through the API. Git here is SSH and GitHub's workflow-scope rule applies
+  to token-authenticated pushes, so an SSH push should go through --
+  **untested, and recorded as untested.** One push settles it; `gh auth
+  refresh -s workflow` is the fix if it is refused.
+- The peer reports a billing block affecting six trees and says it does not
+  touch this one. That is a claim about other trees and is recorded as
+  reported rather than measured.
+
+**And there is a design point already sitting here, which is why this is
+worth writing down rather than rediscovering.** Monocypher is a submodule
+pinned at `ab2b16d` (4.0.3), and `git archive HEAD` carries no submodule
+contents -- the property `harmonization.md` records for beerssh, where the
+container structurally checks what the working tree cannot. Here the two
+build arms fall out of the checkout mode for free:
+
+- checkout **without** submodules exercises the `MONOCYPHER_DIR=` arm, the
+  stub-only build;
+- checkout **with** `submodules: recursive` exercises the real-crypto arm,
+  including `sim/test/real_crypto_test`.
+
+Both are arms that were run by hand through 2026-08-30 and neither is run by
+anything that does not depend on somebody remembering. `make schema` is the
+one gate needing a second repository (`SITU_DIR`), so a workflow either skips
+it or checks situ out beside this tree.
+
+No workflow was written: it runs on the holder's account and spends their
+minutes, which is theirs to authorise.
+
+### Attribution: already done, both surfaces
+
+`harmonization.md`'s directive wants the holder named in `--version`, in an
+About window, and in the README. This is a library with no `--version`, so
+the surface is the symbol a consumer prints, and both are already in place:
+`FZN_COPYRIGHT` in `version/version.h:68` and the line in `README.md:66`.
+`version/version.h` also records why it is a SEPARATE symbol rather than
+appended to `FZN_VERSION_STRING` -- `make style` extracts that string by
+regex and `version_test.c` strcmps it, so appending would break both.
+
+Recorded so that the next pass reading the directive can stop here.
+
 ## 25. A deferral that had already been decided elsewhere, 2026-08-30
 
 Sec 16 staged the transfer protocol out of stage 1 and gave a reason: its
