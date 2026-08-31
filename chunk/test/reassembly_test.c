@@ -273,6 +273,56 @@ static void test_later_chunks_must_agree(void)
 	      "an index past the total was accepted");
 }
 
+/* A REFUSAL CLEARS THE COMPLETION POINTER, AND A CALLER IS MEANT TO READ IT.
+ *
+ * reassembly.h states the contract: "When the message completes, *out is
+ * pointed at the slot and the caller owns its bytes until it calls
+ * fzn_reasm_release. Until then *out is left NULL, so 'did this finish
+ * something' needs no second call." That last clause is why this matters --
+ * the header invites a caller to keep one `fzn_partial_t *` and test it
+ * after every accept, which is the natural way to write the loop.
+ *
+ * `*out = NULL` at the top of fzn_reasm_accept is what makes it true, and
+ * removing it left all 63 binaries green. What it costs is a caller whose
+ * pointer still names the slot from the LAST completion: released, possibly
+ * re-sized for another sender, and read as "this finished something".
+ *
+ * THE REFUSAL HAS TO HAPPEN AFTER THE CLEAR, which is the part that decides
+ * the shape of this case. A malformed-argument refusal returns before
+ * `*out` is touched -- correctly, since a null `out` is one of the things it
+ * is refusing -- so the expiry branch is used instead: it sits below the
+ * clear and needs only a chunk whose deadline has passed.
+ *
+ * The control is the completion itself. Without it, "the pointer is NULL
+ * after a refusal" is satisfied by an accept that never sets it at all. */
+static void test_a_refusal_clears_the_completion_pointer(void)
+{
+	struct fixture f;
+	fzn_partial_t *done = NULL;
+	uint8_t piece[8];
+
+	fixture_init(&f, 2);
+	fill(piece, 8, 0x40, 0);
+
+	/* The control: a one-chunk message completes and hands over a slot. */
+	CHECK(fzn_reasm_accept(&f.table, f.alice, 1, 0, 1, piece, 8, 0, 100, &done) ==
+	              FZN_REASM_OK,
+	      "the control message was not accepted");
+	CHECK(done != NULL,
+	      "a completed message did not point *out at its slot, so nothing below "
+	      "can fail");
+	fzn_reasm_release(done);
+
+	/* `done` still names the slot just released. A refused accept must not
+	 * leave it there. */
+	CHECK(fzn_reasm_accept(&f.table, f.alice, 2, 0, 1, piece, 8, 50, 100, &done) ==
+	              FZN_REASM_ERR_EXPIRED,
+	      "a chunk past its expiry was accepted");
+	CHECK(done == NULL,
+	      "a refused accept left the caller's pointer on the slot from the last "
+	      "completion, which has since been released");
+}
+
 static void test_two_senders_do_not_splice(void)
 {
 	struct fixture f;
@@ -1247,6 +1297,7 @@ int main(void)
 	test_the_bound_is_enforced_on_the_first_chunk();
 	test_the_chunk_ceiling_is_what_refuses_a_large_count();
 	test_later_chunks_must_agree();
+	test_a_refusal_clears_the_completion_pointer();
 	test_two_senders_do_not_splice();
 	test_the_twin_fixture_is_what_it_claims();
 	test_two_near_senders_do_not_splice();

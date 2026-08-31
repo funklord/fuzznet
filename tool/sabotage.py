@@ -145,6 +145,28 @@ SABOTAGES = [
 		"\t/* sabotage */\n",
 		"clear_plan is the plan's only zeroing",
 	),
+	# BATCH THREE, from an audit rather than a shape. Of the 32 public
+	# functions that can refuse and take an output, 13 write that output and
+	# 3 can still refuse afterwards -- measured with comments and string
+	# literals excluded, because the first pass matched the word `memset` in
+	# a comment explaining a `memset` that had been removed. All three turn
+	# out to be correct, so the tree's convention holds everywhere: a refused
+	# call leaves no plausible bytes in the caller's output. These two ask
+	# whether the correct ones are HELD.
+	(
+		"blob-leaf-auth-wipe",
+		"blob/blob.c",
+		"\t\tfzn_wipe(out, plain_len);\n",
+		"\t\t/* sabotage */\n",
+		"a refused AEAD leaves ciphertext in the caller's plaintext buffer",
+	),
+	(
+		"reasm-accept-clears-out",
+		"chunk/reassembly.c",
+		"\t*out = NULL;\n",
+		"\t/* sabotage */\n",
+		"*out points at a slot only on completion, and this is what makes that true",
+	),
 	(
 		"prekey-peer-zero",
 		"prekey/prekey.c",

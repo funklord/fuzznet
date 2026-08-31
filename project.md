@@ -10584,6 +10584,82 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 38. What a refused call owes the caller, audited, 2026-08-31
+
+Sec 37's persist finding was a module's behaviour toward its OUTPUT on a
+refusal contradicting a promise made elsewhere. That is a lens rather than
+an instance, so it was pointed at every function that can refuse.
+
+**Thirty-two public functions take an output and can refuse.** Thirteen
+write that output at all; **three can still refuse after writing it**, which
+is the persist shape exactly:
+
+    fzn_blob_leaf_open     blob/blob.c           memcpy(out, ...)
+    fzn_reasm_accept       chunk/reassembly.c    *out = NULL
+    fzn_seal_open          wire/seal.c           memset(out, ...)
+
+**All three are correct**, and that is the finding rather than a
+disappointment. `fzn_reasm_accept` and `fzn_seal_open` clear the output
+BEFORE any refusal can happen, so a refused call leaves a known state.
+`fzn_blob_leaf_open` cannot -- it decrypts in place, so the caller's buffer
+holds ciphertext by the time the AEAD can refuse -- and it wipes on that
+path, with a comment saying why: *"a caller that ignores the return value
+must not find plausible-looking bytes there."*
+
+**So the tree has one convention and follows it: a refused call leaves no
+plausible bytes in the caller's output.** That is worth more than a fourth
+defect would have been, because it changes what sec 37's persist fix was.
+It was not a choice between three defensible readings; it was **restoring
+the invariant the other twelve functions already keep.** The reading that
+would have kept the clearing and documented it in `persist.h` would have
+made persist the one module that answers this question differently.
+
+### The instrument was wrong first, and in a way worth recording
+
+The first pass reported `fzn_persist_secret_open` as still writing its
+output before a refusal -- the function that had just been fixed. It was
+matching `memset(out, 0, ...)` **inside the comment explaining why that
+`memset` had been removed.** A probe that reads code must read code:
+comments and string literals are now stripped before matching, which took
+the candidate list from four to three and removed the one that was a
+quotation of history rather than a fact about the present.
+
+That is the fourth probe this session to need correcting after it fired, and
+every one was caught by reading what the hits WERE rather than by counting
+them. `evidence.md` names the pattern: a control proves a probe can fire,
+not that it is aimed at the right population.
+
+### And then: are the correct ones HELD?
+
+An audit says the code is right today. It says nothing about whether
+anything would notice if it stopped being. Both were put through
+`make sabotage`:
+
+    blob-leaf-auth-wipe        CAUGHT     blob_test.c:678
+    reasm-accept-clears-out    SURVIVED
+
+**`fzn_reasm_accept`'s `*out = NULL` is documented, load-bearing and was
+held by nothing.** `reassembly.h` states the contract and, in the same
+sentence, the reason a caller depends on it: *"When the message completes,
+*out is pointed at the slot and the caller owns its bytes until it calls
+fzn_reasm_release. Until then *out is left NULL, so 'did this finish
+something' needs no second call."*
+
+That last clause is what makes the gap expensive rather than untidy. The
+header invites a caller to keep one `fzn_partial_t *` and test it after
+every accept, which is the natural way to write the loop. Without the clear,
+a refused accept leaves that pointer naming the slot from the LAST
+completion -- released by then, possibly re-sized for another sender, and
+read as "this finished something". **A use-after-release reachable by
+following the header's own advice.**
+
+**The refusal has to happen after the clear**, which decided the test's
+shape: a malformed-argument refusal returns before `*out` is touched, and
+correctly so, since a null `out` is among the things it is refusing. The
+expiry branch sits below the clear and needs only a chunk whose deadline has
+passed. Proven both ways -- 215 checks green, and
+`FAIL reassembly_test.c:321` with the clear removed.
+
 ## 37. A second sweep, and what it taught the harness, 2026-08-31
 
 Sec 36's sweep chose seven guards by shape. This one was aimed by **where
