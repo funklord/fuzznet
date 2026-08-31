@@ -708,7 +708,7 @@ endif
 # failures rather than as a build error.
 DEPS := $(OBJS:.o=.d) $(TEST_OBJS:.o=.d)
 
-.PHONY: runtests all test fuzz guided guided-one installcheck coverage schema style codegencheck ctcheck analyze sabotage hooks clean install
+.PHONY: check runtests all test fuzz guided guided-one installcheck coverage schema style codegencheck ctcheck analyze sabotage hooks clean install
 
 # The default build does NOT build tests -- build-and-commit.md, and the
 # discipline it buys is paid for by the dependency rules above being right.
@@ -1678,6 +1678,26 @@ analyze:
 # `make sabotage ARGS=--list` prints the entries without running anything.
 sabotage:
 	@python3 tool/sabotage.py $(ARGS)
+
+# EVERY GATE THIS PROJECT HAS, under the name thirteen of the seventeen
+# private projects already use. Measured by collecting `.PHONY` across every
+# sibling Makefile: `check` is there and it means the same thing everywhere
+# -- hydra and beerssh spell it `style test`, fmake adds its version check,
+# situ adds typecheck and lint. fuzznet had the gates and no entry point, so
+# somebody arriving from another tree typed `make check` and got "No rule to
+# make target".
+#
+# WHAT IS DELIBERATELY NOT IN IT. `schema` needs SITU_DIR and refuses
+# without it, so it would make this target fail on a machine with no situ
+# checkout -- it is a gate that runs when a second repository is present and
+# says so when it is not. `fuzz` at its default 200000 cases and `coverage`
+# and `analyze` are measurements rather than gates, and report without
+# refusing. `sabotage` REWRITES TRACKED FILES, which nothing that reads as
+# "check my work" should ever do.
+#
+# `test` already depends on `codegencheck`, so the constant-time and wipe
+# tripwires are inside this without being named.
+check: style test installcheck
 
 style:
 	python3 tool/style_gate.py check
