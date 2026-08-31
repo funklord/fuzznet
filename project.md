@@ -10700,10 +10700,48 @@ Seven guards out of 347 error returns across 39 sources. The seven were
 chosen by the lens -- cleanup on a refusal path, and a predicate that might
 duplicate a parser -- and not by coverage, so **this is a sample and the
 three findings are what one afternoon of one lens produced**, not a census.
-The harness is in a scratch directory rather than the tree; whether it earns
-a place in `tool/` is a decision for the holder, and the argument for it is
-`evidence.md`'s: what a standing harness buys is not care, it is the removal
-of the moment where care is a choice.
+
+**The harness is `tool/sabotage.py` and `make sabotage` runs it**, on the
+holder's instruction. What a standing harness buys is not care but the
+removal of the moment where care is a choice, which is `evidence.md`'s
+argument and the reason this one was not left in a scratch directory.
+
+**It is not part of `make test`, and the reason is not that it is slow.**
+It REWRITES TRACKED FILES IN PLACE, which is not something a routine gate
+should do in a tree more than one session works in. So it **refuses
+outright when the files it edits have uncommitted changes**: it restores
+from memory, so a hard kill leaves `git checkout` as the recovery, and
+CLAUDE.md is emphatic that a discard is unrecoverable in a way a bad commit
+is not. Requiring those files to be clean first is what makes that recovery
+safe to recommend. It restores on SIGINT and SIGTERM too, since the suite is
+the long part of every iteration and an interrupt almost always arrives with
+a file mutated.
+
+**Two exit codes that are not degrees of the same thing.** 1 means a guard
+nothing catches. 2 means the run itself cannot be trusted -- a control that
+was not caught, a pattern that matched nothing, a restore that did not
+reproduce the original, a git that would not answer. The second does not
+qualify the output above it; it says that output means nothing.
+
+**`manifest-sig-zero-sign` is carried as an EXPECTED_SURVIVOR** rather than
+deleted from the list, so a clean run reads as clean while the question
+stays asked. If something ever does catch it the tool says so and asks for
+it to be taken off the list, which is the direction that would otherwise go
+unnoticed.
+
+**And landing it cost a lesson about this tree's own style gate.** The file
+was written with four-space indents and converted with
+`unexpand --first-only`, which turns EVERY leading blank into tabs --
+including the alignment under an open paren, which `code-style.md` reserves
+spaces for. The result rendered identically at tab width 4 and moved at any
+other, which is precisely what the tabs-and-spaces split exists to prevent.
+**`make style` passed it**, because its own message says what it checks:
+whitespace and indentation "except under-indentation". Over-indentation by
+tab where a space was meant is not in its remit. The fix converts structural
+depth to tabs and the remainder to spaces, proved the way
+`harmonization.md` asks -- expanding the tabs at width 4 reproduces the
+original columns on every line, and the non-whitespace content is
+byte-identical -- rather than by the gate agreeing.
 
 **One structural observation, whose decision it is not mine to take.** There
 are eleven fuzz harnesses and none for `manifest/`, which is the module both

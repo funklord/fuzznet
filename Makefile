@@ -708,7 +708,7 @@ endif
 # failures rather than as a build error.
 DEPS := $(OBJS:.o=.d) $(TEST_OBJS:.o=.d)
 
-.PHONY: runtests all test fuzz guided guided-one installcheck coverage schema style codegencheck ctcheck analyze hooks clean install
+.PHONY: runtests all test fuzz guided guided-one installcheck coverage schema style codegencheck ctcheck analyze sabotage hooks clean install
 
 # The default build does NOT build tests -- build-and-commit.md, and the
 # discipline it buys is paid for by the dependency rules above being right.
@@ -1608,6 +1608,27 @@ analyze:
 		echo "analyze: no cppcheck on PATH, so it was SKIPPED"; \
 	fi
 	@echo "analyze: done -- read the output above; this target reports and does not gate"
+
+# WHICH GUARDS IS ANYTHING ACTUALLY HOLDING TO ACCOUNT? Breaks one at a time
+# and rebuilds through `make test`. See tool/sabotage.py, which carries the
+# list and the reasoning; project.md sec 36 has what the first sweep found.
+#
+# DELIBERATELY NOT PART OF `make test`, and not because it is slow. It
+# REWRITES TRACKED FILES IN PLACE and restores them afterwards, which is not
+# something a routine gate should do in a tree more than one session works
+# in. It refuses outright if the files it edits have uncommitted changes, so
+# the worst case after a hard kill is `git checkout` on files that had
+# nothing to lose.
+#
+# It exits 1 when a guard nothing catches is found, and 2 when the run
+# itself cannot be trusted -- a control that was not caught, a pattern that
+# matched nothing, a restore that did not reproduce the original. The second
+# is not a milder version of the first: it means the output above it says
+# nothing at all.
+#
+# `make sabotage ARGS=--list` prints the entries without running anything.
+sabotage:
+	@python3 tool/sabotage.py $(ARGS)
 
 style:
 	python3 tool/style_gate.py check
