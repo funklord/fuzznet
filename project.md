@@ -10584,6 +10584,86 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 40. The ceilings, audited, 2026-09-01
+
+This file records amplification as a measured defect class more than once --
+sec 25's zero-length digest answered with 32,768 records is the sharpest --
+so the ceilings are worth asking about as a set rather than one at a time.
+**Twenty are declared across the public headers. Sixteen are compared in a
+non-test source.**
+
+The four that are not are derived sizes rather than gates, and three of them
+are held anyway: `FZN_RECORD_MAX_LEN` by `_Static_assert` in both `record.c`
+and `record_test.c`; `FZN_CHAIN_MAX_LEN` by `chain_test.c` sizing buffers at
+it and at `+ 1`; `FZN_SPOOL_FILE_PATH_MAX` by `snprintf` against
+`sizeof(buffer)`, which is the better idiom because `sizeof` cannot drift
+from the array it measures.
+
+### The instrument was wrong first, again, and the same way
+
+The first pass reported **six** unenforced ceilings. Five were artifacts: the
+pattern required the constant immediately after the comparison operator, and
+the code casts -- `if (leaves > (uint64_t)FZN_SPOOL_MAX_LEAVES)`,
+`if (jump > (uint64_t)FZN_RATCHET_MAX_ADVANCE)`. Every one was found by
+reading the SIX rather than trusting the count, which is the fifth probe
+this session to need correcting after it fired and the fifth caught the same
+way.
+
+Worth stating as a pattern rather than five incidents: **the probes that
+failed all failed by being too literal about syntax** -- a regex over source
+text matching a comment, a cast, a tab, an alignment. The ones that held
+asked a tool that parses the language instead: `tokenize` for Python
+statements, `make -n` for what a target would run, `make --eval` for what a
+variable expands to. Where a probe must read C, it is reading a language
+nothing here parses, and the correction is to widen it and then read every
+hit -- not to trust it.
+
+### `FZN_MANIFEST_MAX_LEN` was the subject of nothing
+
+The fourth is the finding. It is defined as
+`FZN_MANIFEST_LEN(FZN_MANIFEST_MAX_PAIRS)`, it is public, and a consumer
+would size a buffer with it -- and **it appears in no source and no test in
+the tree.**
+
+`manifest_test.c` does check the quantity, and checks it well, both at the
+bound and past it:
+
+    _Static_assert(FZN_MANIFEST_LEN(FZN_MANIFEST_MAX_PAIRS) <= FZN_REASSEMBLED_MAX, ...)
+    _Static_assert(FZN_MANIFEST_LEN(FZN_MANIFEST_MAX_PAIRS + 1u) > FZN_REASSEMBLED_MAX, ...)
+
+**But it spells the quantity out rather than naming the constant, so it
+recomputes what the constant is defined as and the constant itself is a
+bystander.** A wrong redefinition of `FZN_MANIFEST_MAX_LEN` leaves both
+assertions passing, because neither mentions it.
+
+Proven in both directions rather than argued. Redefining it to
+`FZN_MANIFEST_LEN(FZN_MANIFEST_MAX_PAIRS + 1u)` -- one pair too many, the
+plausible slip -- and building:
+
+    old spelling, wrong definition    builds clean
+    new spelling, wrong definition    static assertion failed
+    new spelling, right definition    builds
+
+The first assertion names the constant now. That is not the tautology that
+asserting it equals its own definition would be: it is checked against a
+bound owned by another module, what reassembly will carry, so a wrong
+definition fails and a consumer's buffer size is the thing being defended.
+`record/` never had this gap -- it asserts `FZN_RECORD_MAX_LEN` itself, in
+two places.
+
+### And manifest is the odd one out for the third time today
+
+Sec 36 found `chain/manifest.c` missing the refusing-signer case its sibling
+`chain/chain.c` had; sec 36 also noted there are eleven fuzz harnesses and
+none for `manifest/`; and this is a third instance of the same shape --
+three sibling maximum-length constants, two held and the manifest one held
+by nothing.
+
+**Three independent findings in one module is a fact about the module rather
+than three coincidences.** Whether it wants a fuzz harness is sec 36's open
+question and still the holder's; what this adds is that the case for one is
+no longer a single data point.
+
 ## 39. Four guards that are one decision, 2026-08-31
 
 Batch four took the sweep into the modules it had never touched -- `state/`,

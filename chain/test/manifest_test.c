@@ -37,7 +37,20 @@
 
 #define FZN_REASSEMBLED_MAX ((size_t)FZN_SPLIT_MAX_PAYLOAD * (size_t)FZN_REASM_MAX_CHUNKS)
 
-_Static_assert(FZN_MANIFEST_LEN(FZN_MANIFEST_MAX_PAIRS) <= FZN_REASSEMBLED_MAX,
+/* SPELLED WITH THE PUBLIC CONSTANT, not with the expression behind it.
+ *
+ * This read `FZN_MANIFEST_LEN(FZN_MANIFEST_MAX_PAIRS)`, which is what
+ * manifest.h defines FZN_MANIFEST_MAX_LEN to be -- so the check recomputed
+ * the value and the constant a consumer actually sizes a buffer with was
+ * never the subject of anything. Redefining it wrongly left every assertion
+ * here passing. `record/` does not have that gap: record.c and
+ * record_test.c both assert FZN_RECORD_MAX_LEN itself.
+ *
+ * Naming the constant here is not tautological the way asserting it equals
+ * its own definition would be. It is checked against a bound from another
+ * module -- what reassembly will carry -- so a wrong definition fails,
+ * which is the whole of what a consumer needs from it. */
+_Static_assert(FZN_MANIFEST_MAX_LEN <= FZN_REASSEMBLED_MAX,
                 "the largest manifest does not fit the largest message reassembly will take");
 _Static_assert(FZN_MANIFEST_LEN(FZN_MANIFEST_MAX_PAIRS + 1u) > FZN_REASSEMBLED_MAX,
                 "FZN_MANIFEST_MAX_PAIRS is below the ceiling, so it is not the ceiling");
