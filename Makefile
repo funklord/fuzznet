@@ -461,6 +461,28 @@ MONO_SRCS  := chain/sign_monocypher.c session/hash_monocypher.c \
               session/aead_monocypher.c session/agree_monocypher.c
 MONO_HDRS  := chain/sign_monocypher.h session/hash_monocypher.h \
               session/aead_monocypher.h session/agree_monocypher.h
+# AND THE HEADERS SHIP OUTSIDE THE CONDITIONAL TOO, which the sources
+# deliberately do not. `HDRS += $(MONO_HDRS)` lived inside `ifdef MONO_ON`
+# until `make installcheck MONOCYPHER_DIR=` was first run and could not
+# compile at all: tool/consumer_check.c includes the four binding headers
+# unconditionally and argues why, so the two arms that use installed headers
+# looked for files `install` had not shipped.
+#
+# THE ASYMMETRY IS THE POINT. A source is compiled or it is not, and
+# MONO_SRCS stays conditional because without the submodule there is nothing
+# to compile it against. A header is a declaration: these four declare
+# vtables over this library's own types, include no <monocypher.h>, and
+# compile standalone -- which is exactly what the consumer check exists to
+# prove, in the arrangement that has no Monocypher at all.
+#
+# What decides it is that the gate is a property of the CHECKOUT rather than
+# of the platform. MONO_ON is off when nobody ran `git submodule update`;
+# persist/ and spool/ are off when the target has no POSIX. An installed
+# header set that varies with the first is describing somebody's working
+# copy rather than the library, and this project installs headers and
+# nothing else -- a consumer compiles the sources itself, so whether OUR
+# tree had the submodule is not a fact about what THEY can build.
+HDRS       += $(MONO_HDRS)
 MONO_TSRC  := chain/test/sign_monocypher_test.c \
               session/test/hash_monocypher_test.c \
               session/test/aead_monocypher_test.c \
@@ -510,7 +532,6 @@ OBJS       += $(MONO_OBJS)
 TEST_OBJS  += $(MONO_TOBJ)
 TEST_BINS  += $(MONO_BIN) $(MONO_HASH) $(MONO_AEAD) $(MONO_AGREE) $(MONO_GOLD) \
               $(MONO_REAL)
-HDRS       += $(MONO_HDRS)
 CPPFLAGS   += -I$(MONOCYPHER_DIR)/src
 
 # Vendored, so it is compiled with its own terms rather than ours.
@@ -1689,7 +1710,7 @@ style:
 		echo "style: so a clean result below would mean nothing."; \
 		exit 2; \
 	fi
-	@found=`grep -nE 'fzn_realm|[^a-z_]realm[ \t]*(;|\[)' $(HDRS) $(MONO_HDRS) 2>/dev/null`; \
+	@found=`grep -nE 'fzn_realm|[^a-z_]realm[ \t]*(;|\[)' $(HDRS) 2>/dev/null`; \
 	if [ -n "$$found" ]; then \
 		echo "style: an installed header declares a realm:"; \
 		echo "$$found" | sed 's/^/  /'; \
@@ -1708,11 +1729,20 @@ style:
 	@# walk has already accepted a line above. .gitignore has carried the
 	@# same incident since it happened; the walk had not been told.
 	@#
-	@# MONO_HDRS is unioned in because HDRS gains it only when the
-	@# binding is built, exactly as MONO_SRCS is unioned into the C
-	@# source check above. Generated headers are situ's and tool/ is not
-	@# installed, so both are excluded rather than listed.
-	@known=" $(HDRS) $(MONO_HDRS) "; missing=; n=0; \
+	@# MONO_HDRS IS NO LONGER UNIONED IN, and its absence is now doing
+	@# work rather than merely being tidy. HDRS gained the binding headers
+	@# only under `ifdef MONO_ON` until `make installcheck MONOCYPHER_DIR=`
+	@# proved that wrong, and the union here is what kept this walk quiet
+	@# about it -- the four headers were in the tree, absent from what
+	@# `install` shipped, and named by the union anyway. Asking $(HDRS)
+	@# alone means a re-conditionalising of that append fails here, with
+	@# the message below saying exactly what would break.
+	@#
+	@# MONO_SRCS stays unioned into the C source check above, and the
+	@# asymmetry is deliberate: those sources genuinely are not compiled
+	@# without the submodule. Generated headers are situ's and tool/ is
+	@# not installed, so both are excluded rather than listed.
+	@known=" $(HDRS) "; missing=; n=0; \
 	for h in `find . -name '*.h' -not -path './.git/*' -not -path './.claude/*' \
 	                 -not -path './wire/generated/*' -not -path './tool/*' \
 	                 -not -path './build/*' -not -path './san/*' \

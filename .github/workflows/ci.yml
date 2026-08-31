@@ -35,18 +35,23 @@ jobs:
         run: make test MONOCYPHER_DIR=
       - name: style gate
         run: make style MONOCYPHER_DIR=
-      # NO `installcheck` HERE, and the reason is a latent bug rather than a
-      # judgement: `make installcheck MONOCYPHER_DIR=` does not work at all.
-      # `tool/consumer_check.c` includes the four binding headers
-      # unconditionally, on purpose -- a header that cannot compile without a
-      # dependency it does not name is the fault that target exists to find --
-      # but those headers are only INSTALLED when the bindings are built, so
-      # the installed-headers arm cannot find them. Nothing runs that
-      # combination today, which is why it has never been noticed.
+      # `installcheck` RUNS HERE NOW, and this job is the only thing that
+      # ever asks it the question. `make installcheck MONOCYPHER_DIR=` used
+      # to fail outright: tool/consumer_check.c includes the four binding
+      # headers unconditionally and argues why, while `install` shipped them
+      # only when the bindings were built, so both arms that compile against
+      # installed headers looked for files that were not there. HDRS gains
+      # MONO_HDRS outside the conditional now -- see the Makefile, which has
+      # the reasoning -- and all three arms build and run with no Monocypher
+      # anywhere.
       #
-      # It costs nothing here: `installcheck`'s own first arm is "the core
-      # alone, with no Monocypher anywhere", so the `full` job below already
-      # covers the no-binding consumer arrangement.
+      # Keeping it is the point rather than a tidy-up. The `full` job below
+      # runs `installcheck` too, but its first arm is the only no-binding
+      # thing in it; this job reaches the other two, which is the
+      # arrangement an embedded consumer actually has and one nobody
+      # exercises by hand.
+      - name: consumer arrangements
+        run: make installcheck MONOCYPHER_DIR=
 
   full:
     name: full (vendored Monocypher)

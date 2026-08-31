@@ -10618,7 +10618,9 @@ first target.
 
 ### And a latent bug the workflow found by trying to use it
 
-**`make installcheck MONOCYPHER_DIR=` does not work at all.**
+**`make installcheck MONOCYPHER_DIR=` did not work at all.** Fixed the same
+day; the diagnosis below stands and what followed from it is at the end of
+this subsection.
 `tool/consumer_check.c` includes the four binding headers UNCONDITIONALLY,
 which is deliberate and argued in that file -- a header that cannot compile
 without a dependency it does not name is the fault the target exists to find,
@@ -10628,14 +10630,65 @@ the installed-headers arm cannot find them.
 
 Nothing has ever run that combination, which is why it has never been noticed.
 
-**Not fixed here, deliberately.** The fix is either to install the binding
+**~~Not fixed here, deliberately.~~ Fixed 2026-08-31, and the deferral was
+the right call at the time**: the fix is either to install the binding
 headers unconditionally -- they include no Monocypher header and compile
 standalone, so this is defensible -- or to narrow the target. Both change
 installation semantics, and doing that as a side effect of adding a workflow
 is the kind of unrelated change that makes a commit hard to review and a
-revert hard to scope. It costs nothing today: `installcheck`'s own first arm
-is "the core alone, with no Monocypher anywhere", so the `full` job already
-covers the no-binding consumer arrangement.
+revert hard to scope. So it waited until it was the subject of a change
+rather than a passenger on one.
+
+**One correction to the description above, found by running it.** It says
+"the installed-headers arm cannot find them", singular. Two arms compile
+with `-DFZN_CONSUMER_INSTALLED`, and the failure lands on the FIRST of them
+-- "the core alone, with no Monocypher anywhere" -- which is the arm the
+target most exists for. The paragraph was written from the code and is off
+by one arm; the reproduction says so in one line.
+
+**The first option was taken: `HDRS += $(MONO_HDRS)` moved out of
+`ifdef MONO_ON`.** What decides it is not that the headers compile
+standalone, though they do. It is that **the gate is a property of the
+CHECKOUT rather than of the platform.** `MONO_ON` is off when nobody ran
+`git submodule update`; `persist/` and `spool/` are off when the target has
+no POSIX, which is why THEIR headers are rightly conditional and are not a
+precedent here. An installed header set that varies with whether somebody
+fetched a submodule is describing a working copy rather than a library --
+and this project installs headers and nothing else, so a consumer compiles
+the sources itself and whether OUR tree had the submodule is not a fact
+about what THEY can build.
+
+**Narrowing the target was rejected, and it is worth saying why, because it
+is the cheaper-looking option.** It changes no installation semantics at
+all and it matches an idiom this tree already has -- `MONO_SKIP`,
+`PERSIST_FILE_SKIP` and `SPOOL_FILE_SKIP` all skip loudly rather than
+silently. But what it would skip is the no-binding consumer arrangement in
+the one job that exists to exercise it, so the `core` job would have been
+left running two gates and declining the third for want of the thing that
+job is defined by NOT having. A skip is honest about a subsystem that was
+not built; it is not honest about the whole point of an arm.
+
+**The sources stay conditional, and the asymmetry is the fix.** A source is
+compiled or it is not, and `MONO_SRCS` has nothing to compile against
+without the submodule. A header is a declaration.
+
+**The style gate is now the regression test for it**, which fell out rather
+than being designed. Its header walk used to union `MONO_HDRS` into the
+known list *because* `HDRS` gained it only under the conditional -- so the
+walk was structurally unable to report the very gap that made
+`installcheck` fail: four headers in the tree, absent from what `install`
+shipped, and named by the union anyway. Asking `$(HDRS)` alone was checked
+by putting the append back inside the conditional and watching
+`make style MONOCYPHER_DIR=` fail at exit 2, naming all four and saying
+"'make install' would not ship them."
+
+**And `installcheck` runs in the `core` CI job now.** That is the whole
+value of the fix: the bug existed because nothing had ever run that
+combination, and the job that wanted to is the reason it was found.
+
+Four configurations were run rather than reasoned about --
+`installcheck` and `style`, each with and without Monocypher, all green,
+plus `make test` unchanged at 63 binaries and 6600 checks.
 
 **Every command in the workflow was run locally before it was committed**, in
 both arms, rather than discovered by a red first run.
