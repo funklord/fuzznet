@@ -221,25 +221,7 @@ SABOTAGES = [
 # that a clean run reads as clean: an expected survivor reported as a finding
 # every time is how a report stops being read. Removing an id from here is
 # how you ask the question again.
-EXPECTED_SURVIVORS = {
-	"manifest-sig-zero-sign",
-	# THE FOUR TABLE INITS, and they are one finding rather than four.
-	# Each zeroes a caller-supplied entry array and then sets `used = 0`.
-	# Measured: every loop in state.c, log.c, link.c and journal.c is bounded
-	# by `used` and none by `capacity`, so no path reads an entry past it and
-	# the zeroing is unobservable through the API today.
-	#
-	# Listed rather than tested, and rather than deleted. Four near-identical
-	# determinism tests would carry one rationale four times, and deleting
-	# the zeroing is what the NEXT person measuring exactly this will propose
-	# -- which is the risk the entries are here to keep visible. Whether they
-	# earn tests or removal is one decision about a shared pattern, not four
-	# taken in passing. project.md sec 39.
-	"state-init-zeroes-entries",
-	"log-init-zeroes-entries",
-	"link-init-zeroes-entries",
-	"journal-init-zeroes-entries",
-}
+EXPECTED_SURVIVORS = {"manifest-sig-zero-sign"}
 
 
 def make_env():

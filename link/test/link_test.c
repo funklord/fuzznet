@@ -14,6 +14,7 @@
 #include "../link.h"
 
 #include <stdio.h>
+#include <string.h>
 
 static int failures;
 static int checks;
@@ -282,6 +283,37 @@ int main(void)
 		expect(fzn_link_get(&bad, 1) != NULL,
 		       "the table stopped working once repaired, so the checks above "
 		       "may be refusing for some other reason");
+	}
+
+	/* INIT LEAVES THE CALLER'S ENTRY ARRAY IN A KNOWN STATE.
+	 *
+	 * No lookup in link.c can observe it -- every loop there is bounded by
+	 * `used` -- so removing the zeroing fails nothing, which is how
+	 * `make sabotage` found it. It is held anyway because what would remove
+	 * it is somebody measuring exactly that and concluding it is dead, and a
+	 * later lookup that scans `capacity` would need it. project.md sec 39
+	 * has the reasoning once; three sibling modules carry the same eight
+	 * lines and the same case.
+	 *
+	 * Determinism is asserted rather than a value: init from dirty memory
+	 * must equal init from clean. The header promises nothing about what a
+	 * fresh entry contains, and this case is not the place to invent it. */
+	{
+		fzn_link_table_t from_dirty, from_clean;
+		fzn_link_entry_t dirty_entries[3], clean_entries[3];
+
+		memset(dirty_entries, 0xab, sizeof(dirty_entries));
+		memset(clean_entries, 0, sizeof(clean_entries));
+		expect(memcmp(dirty_entries, clean_entries, sizeof(dirty_entries)) != 0,
+		       "the two arrays start equal, so the comparison below cannot fail");
+
+		expect(fzn_link_table_init(&from_dirty, dirty_entries, 3) == FZN_LINK_OK,
+		       "init refused a dirty array");
+		expect(fzn_link_table_init(&from_clean, clean_entries, 3) == FZN_LINK_OK,
+		       "init refused a clean array");
+		expect(memcmp(dirty_entries, clean_entries, sizeof(dirty_entries)) == 0,
+		       "init left the caller's bytes in the entry array, so what a fresh "
+		       "table holds depends on what its memory held");
 	}
 
 	printf("link_test: %d checks, %d failure(s)\n", checks, failures);

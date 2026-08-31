@@ -10607,40 +10607,55 @@ by `used`, and none by `capacity`.** Ten loops across the four files. So no
 path reads an entry past `used`, and the zeroing cannot be observed through
 the API as the code stands. That is why removing it changes no result.
 
-### Why they are listed rather than tested
+### ~~Why they are listed rather than tested~~ Why they are tested after all
+
+**They were listed first, and the argument for listing them was wrong.** It
+is kept here because the error is a useful one: it looked like a judgement
+about cost and was a confusion between two different things.
 
 The tree's precedent points at a test. Sec 11 records reassembly's
-`admit_first`, where `release` already did the clearing and the answer was a
-case that reaches the dirty state directly; sec 36 and 37 did the same for
-`fzn_prekey_peer_init` and `fzn_ratchet_init`, both on the argument that the
-"written before read" reasoning is a property of TODAY's code.
+`admit_first`, where `release` already did the clearing; secs 36 and 37 did
+the same for `fzn_prekey_peer_init` and `fzn_ratchet_init`, both on the
+argument that "written before read" is a property of TODAY's code. That
+argument holds here exactly.
 
-That argument holds here too. What does not is the shape of the remedy.
-**Four near-identical determinism tests would carry one rationale four
-times**, in four suites, and the rationale is the whole value -- the
-assertion itself is three lines. A suite that grows four copies of one
-paragraph is one nobody reads for intent, which is the cost `evidence.md`
-warns about from the other direction.
+What was offered against it was that **four near-identical determinism tests
+would carry one rationale four times**, and that a suite growing four copies
+of one paragraph is one nobody reads for intent.
 
-**And the risk they guard against is worth naming precisely, because it is
-not a runtime fault.** Nothing can observe these memsets today. The exposure
-is that **the next person to measure exactly what was measured above will
-conclude they are dead and remove them** -- and if a lookup that scans
-`capacity` is ever added, a free-slot search being the obvious one, the
-zeroing is what would have made it correct. The entries keep that visible in
-a place somebody runs, which a comment in four files would not.
+**That conflated the test with the paragraph.** The assertion is three lines;
+the rationale is the length. This tree already cross-references -- comments
+here cite `sync.h`, `frame.situ` and numbered sections of this file
+constantly -- so four short cases each pointing at THIS section costs four
+pointers, not four paragraphs. The reasoning lives once, where it already
+was.
 
-So they are `EXPECTED_SURVIVORS` in `tool/sabotage.py`, with the measurement
-and the reason recorded once beside them. `make sabotage` stays green and
-says nothing about them until something catches one, at which point it asks
-for the entry to be taken off the list.
+**And the cost of listing them was higher than it looked.** An entry in
+`EXPECTED_SURVIVORS` makes `make sabotage` say nothing about a guard, which
+is the same shape as an ignore list on a gate: the question is still asked
+in principle and nobody hears the answer. Four of the nineteen entries
+quiet, for tedium rather than for a reason like
+`manifest-sig-zero-sign`'s, is how a sweep stops covering what it claims to.
+`evidence.md` calls it switched off by instalments, and it does not stop
+being that because the person doing it wrote down why.
 
-**Whether they earn four tests, or removal, is one decision about a shared
-pattern and it is the holder's.** Taking it in passing is what
-`harmonization.md` forbids for a change that would set a pattern the others
-follow, and the same logic applies inside one tree: four modules doing one
-thing identically is a convention, and a session that happens to be sweeping
-is not where a convention gets changed.
+So the four are tested and delisted, and each case asserts DETERMINISM
+rather than a value -- init from dirty memory must equal init from clean.
+None of the four headers promises anything about what a fresh entry
+contains, and a test is not the place to invent it. Each carries a control
+asserting the two arrays differ BEFORE init, since otherwise the comparison
+after it cannot fail.
+
+    state-init-zeroes-entries     CAUGHT
+    log-init-zeroes-entries       CAUGHT
+    link-init-zeroes-entries      CAUGHT
+    journal-init-zeroes-entries   CAUGHT
+
+**The risk they guard is still not a runtime fault**, and that is why the
+comment in each names it: nothing can observe these memsets today, so the
+exposure is that the next person to measure what is measured above concludes
+they are dead and removes them. The tests are what make that a red suite
+rather than a plausible cleanup.
 
 ### The one that was caught is worth a line
 
