@@ -42,7 +42,9 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TIMEOUT = 1800
+# Roughly ten times a healthy `make test` on this tree. The old 1800 was
+# headroom nothing needed, and it bought a single hang half an hour.
+TIMEOUT = 600
 
 # id, file, exact text to remove, what replaces it, why it is a candidate.
 #
@@ -95,6 +97,46 @@ SABOTAGES = [
 		"\t\tmemset(out, 0, FZN_MANIFEST_LEN(count));\n",
 		"\t\t/* sabotage */\n",
 		"a refused issue must leave no openable manifest",
+	),
+	# BATCH TWO, aimed by where batch one landed. Both gaps it found were in
+	# chain/manifest.c -- a module with no fuzz or guided harness of its own,
+	# and 30 of the 39 library sources are in that set. So these are the same
+	# two shapes, chosen from modules nothing sweeps: a clear on a refusal
+	# path, and an init that zeroes a struct before filling part of it.
+	(
+		"trust-init-zero",
+		"trust/trust.c",
+		"\tmemset(trust, 0, sizeof(*trust));\n",
+		"\t/* sabotage */\n",
+		"fzn_trust_init's totality is what prekey_test's init case assumes",
+	),
+	(
+		"ratchet-init-zero",
+		"ratchet/ratchet.c",
+		"\tmemset(chain, 0, sizeof(*chain));\n",
+		"\t/* sabotage */\n",
+		"the key is copied only if non-NULL, so this is the NULL path's zero",
+	),
+	(
+		"seal-open-clears-out",
+		"wire/seal.c",
+		"\tmemset(out, 0, sizeof(*out));\n",
+		"\t/* sabotage */\n",
+		"clears the caller's output before any refusal below it",
+	),
+	(
+		"persist-install-clears-out",
+		"persist/persist.c",
+		"\tmemset(out, 0, sizeof(*out));\n",
+		"\t/* sabotage */\n",
+		"clears the secret before install, which may then fail",
+	),
+	(
+		"sync-clear-plan",
+		"record/sync.c",
+		"\tmemset(plan, 0, sizeof(*plan));\n",
+		"\t/* sabotage */\n",
+		"clear_plan is the plan's only zeroing",
 	),
 	(
 		"prekey-peer-zero",
@@ -229,16 +271,59 @@ def main(argv):
 				refuse("%s: the file did not change on disk." % sid,
 				       "a mutation that did not apply looks exactly like a",
 				       "guard nothing catches, so this stops instead.")
-			run = subprocess.run(["make", "test"], cwd=ROOT, env=make_env(),
-			                     capture_output=True, text=True,
-			                     timeout=args.timeout)
+			# A SABOTAGE THAT HANGS IS A THIRD ANSWER, not a crash. Removing
+			# record/sync.c's clear_plan made `make test` run past half an
+			# hour: the suite consumed a plan full of the caller's bytes and
+			# looped on a count that was never zeroed. Letting TimeoutExpired
+			# propagate lost every entry after it and printed a traceback
+			# where a result belonged -- so it is caught, reported as HUNG,
+			# and the sweep carries on.
+			#
+			# It is deliberately NOT folded into CAUGHT. A hang does stop a
+			# green suite, but as a detection it is the worst kind: it names
+			# nothing, it costs the whole timeout, and in CI it looks like
+			# infrastructure rather than a fault. A guard whose absence hangs
+			# the suite wants a test that fails fast, and calling that CAUGHT
+			# would retire the question.
+			#
+			# AND THE TIMEOUT KILLS THE PROCESS GROUP, not the `make` it
+			# started. subprocess's own timeout signals the direct child
+			# only, so the recipe's `for t in ...; do $t; done` shell and
+			# whichever test binary is looping are reparented to init and go
+			# on running. Measured: one hang left a shell loop alive for 34
+			# minutes, found by `ps --ppid 1` afterwards and not by anything
+			# in the run. running-code.md is about exactly this -- a bound
+			# that stops the supervisor while the work continues is worse
+			# than no bound, because it converts a runaway into an invisible
+			# one. start_new_session puts make in its own group; killpg takes
+			# the whole tree.
+			run = None
+			proc = subprocess.Popen(["make", "test"], cwd=ROOT,
+			                        env=make_env(), stdout=subprocess.PIPE,
+			                        stderr=subprocess.STDOUT, text=True,
+			                        start_new_session=True)
+			try:
+				out, _ = proc.communicate(timeout=args.timeout)
+				run = subprocess.CompletedProcess(proc.args, proc.returncode,
+			                                          out, "")
+			except subprocess.TimeoutExpired:
+				try:
+					os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+				except (ProcessLookupError, PermissionError):
+					proc.kill()
+				proc.wait()
 			io.open(path, "w", encoding="utf-8").write(text)
 			if digest_of(path) != digests[rel]:
 				refuse("%s: restore did not reproduce the original." % rel)
+			if run is None:
+				results.append((sid, "HUNG", why))
+				print("%-24s %-9s make test did not finish in %ds"
+				      % (sid, "HUNG", args.timeout), flush=True)
+				continue
 			verdict = "CAUGHT" if run.returncode != 0 else "SURVIVED"
 			detail = ""
 			if run.returncode != 0:
-				named = [ln for ln in (run.stdout + run.stderr).splitlines()
+				named = [ln for ln in (run.stdout or "").splitlines()
 				         if "FAIL" in ln and "deliberate" not in ln]
 				detail = named[-1].strip()[:70] if named else ""
 			results.append((sid, verdict, detail or why))
@@ -261,6 +346,11 @@ def main(argv):
 		       % len(missed),
 		       "a stale pattern reports a guard as defended without testing it.")
 
+	hung = [(sid, why) for sid, verdict, why in results if verdict == "HUNG"]
+	for sid, why in hung:
+		print("\nsabotage: %s HUNG the suite rather than failing it." % sid)
+		print("sabotage: the guard is load-bearing and its absence is not")
+		print("sabotage: diagnosable -- it wants a test that fails fast. %s" % why)
 	surprises = [(sid, why) for sid, verdict, why in results
 	             if verdict == "SURVIVED" and sid not in EXPECTED_SURVIVORS]
 	unexpected_catch = [sid for sid, verdict, _ in results
@@ -269,9 +359,11 @@ def main(argv):
 		print("\nsabotage: %s is listed as an expected survivor and was "
 		      "CAUGHT." % sid)
 		print("sabotage: something now tests it -- take it off the list.")
-	if not surprises:
+	if not surprises and not hung:
 		print("\nsabotage: every guard is held to account by something.")
 		return 0
+	if not surprises:
+		return 1
 	print("\nsabotage: %d guard(s) nothing noticed:" % len(surprises))
 	for sid, why in surprises:
 		print("   %s: %s" % (sid, why))

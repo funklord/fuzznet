@@ -10584,6 +10584,116 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 37. A second sweep, and what it taught the harness, 2026-08-31
+
+Sec 36's sweep chose seven guards by shape. This one was aimed by **where
+the first one landed**: both gaps were in `chain/manifest.c`, which has no
+fuzz or guided harness of its own. Measured by matching each library
+source's basename against `FUZZ_BINS` and the guided drivers, **30 of the 39
+are in that set**, so it is a population rather than a coincidence. Five more
+guards drawn from it, same two shapes -- a clear on a refusal path, and an
+init that zeroes a struct before filling part of it.
+
+    trust-init-zero              CAUGHT     trust adoption provenance
+    seal-open-clears-out         CAUGHT     seal_test, on a wrong-key open
+    ratchet-init-zero            SURVIVED   -> a real gap, closed next
+    persist-install-clears-out   SURVIVED   -> NOT a test gap, below
+    sync-clear-plan              HUNG       -> a third answer, below
+
+**`trust-init-zero` being caught is worth as much as either survivor**,
+because sec 36's prekey test rests on it. That test keeps
+`fzn_prekey_peer_init`'s zeroing on the argument that a field added to
+`fzn_trust_t` and missed by `fzn_trust_init` would be caught by nothing
+else. Had `fzn_trust_init` itself been unheld, the argument would have been
+resting on air. It is not.
+
+### One that is not a test gap: two modules promising opposites
+
+**`fzn_persist_secret_open` zeroes the caller's secret before an operation
+that can refuse, and `session/agree.c` says in terms that this must not
+happen.**
+
+    memset(out, 0, sizeof(*out));
+    if (fzn_agree_secret_install(out, agree, bytes + OFF_BODY) != FZN_AGREE_OK)
+            return FZN_PERSIST_ERR_BACKEND;
+
+`fzn_agree_secret_install`'s comment, above the check that makes it true:
+*"DERIVED BEFORE ANYTHING IS DESTROYED. A binding that refuses must leave
+the caller holding the secret it had, not a wiped struct and no replacement
+-- which would be a host that cannot decrypt its own queued traffic because
+a key derivation failed."* It orders its work so a refusal touches nothing.
+The `memset` above it undoes that from outside: install is careful not to
+destroy the caller's secret on the way to refusing, and persist has already
+destroyed it before install is called. The named consequence is reachable by
+the route agree.c names, since `public_of` returning false is a real binding
+failure over material read from disk rather than a programming error.
+
+**Not resolved here, in either direction**, per `working-practice.md`. How
+reachable it is depends on the caller: a host restoring at startup passes a
+struct holding nothing and the zeroing costs it nothing; a host restoring
+from a backup while running, or retrying after a failed attempt, passes a
+live one. `persist.h` documents no contract for `out` on a refusal at all,
+so nothing tells a caller which it may do. Three readings are defensible --
+persist is wrong and should drop the `memset`; persist is right and the
+contract belongs in `persist.h` where it is absent; or the question is the
+caller's and what is missing is the statement of which.
+
+**What makes it worth the section is how it was found.** The sabotage was
+filed expecting a missing test, on the model of the two sec 36 closed. The
+survivor meant the opposite of what a survivor usually means here: not "this
+guard is unheld" but "this guard may be the fault". A sweep that only ever
+produces tests is one whose findings are being read through a single lens.
+
+It is left **unsuppressed** in `tool/sabotage.py`, unlike
+`manifest-sig-zero-sign`, so `make sabotage` reports it every run. An open
+question is not a settled one.
+
+### The third answer, and two faults it found in the harness
+
+**`sync-clear-plan` did not fail the suite. It hung it.** Removing
+`clear_plan`'s `memset` in `record/sync.c` takes `sim/test/network_test`
+past any sensible bound -- 40 binaries complete, the 41st does not return.
+The plan is consumed with the caller's bytes in it and something loops on a
+count that was never zeroed.
+
+That is a real answer about the guard and it broke the harness twice.
+
+**A timeout was a crash rather than a result.** `TimeoutExpired` propagated
+out of the loop, so the run ended in a traceback, `prekey-peer-zero` never
+ran, and the report was lost. A hang is now recorded as HUNG and the sweep
+carries on. It is deliberately **not** folded into CAUGHT: a hang does stop
+a green suite, but as a detection it names nothing, costs the whole timeout,
+and in CI reads as infrastructure rather than as a fault. A guard whose
+absence hangs the suite wants a test that fails fast, and calling it CAUGHT
+would retire that.
+
+**And the timeout leaked a runaway, which is the worse of the two.**
+`subprocess`'s timeout signals the process it started -- `make` -- and not
+its children, so the recipe's `for t in ...; do $t; done` shell and the
+looping binary were reparented to init and went on running. Found by
+`ps --ppid 1` afterwards rather than by anything in the run: **one shell
+loop alive for 34 minutes.** `running-code.md` is about exactly this, and
+names the shape -- a bound that stops the supervisor while the work
+continues is worse than no bound, because it turns a runaway into an
+invisible one. The harness starts `make` in its own session now and kills
+the process group; verified by re-running the hang and finding nothing under
+init afterwards.
+
+**The default per-entry timeout came down from 1800s to 600s** in the same
+pass. A healthy `make test` here is about a minute, so half an hour was
+headroom for nothing and bought a single hang thirty minutes.
+
+**A full run therefore costs its timeout on top of the builds**, for as long
+as this entry stands. That is the finding rather than a fault in the target,
+and `ARGS=--only ...` narrows it meanwhile.
+
+**One correction to sec 36's own text, measured here:** it said the tool
+exits 1 for a finding and 2 for a run that cannot be trusted, which is true
+of the tool and not of `make sabotage`. Make reports any failed recipe as
+its own exit 2, so through the target the distinction survives in the
+printed text and not in `$?`. Run the tool directly where a script needs to
+tell them apart.
+
 ## 36. A sabotage sweep aimed by the last bug, 2026-08-31
 
 The build-system findings above were all one shape -- a check that cannot

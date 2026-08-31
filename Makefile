@@ -1620,11 +1620,22 @@ analyze:
 # the worst case after a hard kill is `git checkout` on files that had
 # nothing to lose.
 #
-# It exits 1 when a guard nothing catches is found, and 2 when the run
-# itself cannot be trusted -- a control that was not caught, a pattern that
-# matched nothing, a restore that did not reproduce the original. The second
-# is not a milder version of the first: it means the output above it says
-# nothing at all.
+# tool/sabotage.py exits 1 when it finds a guard nothing catches, and 2 when
+# the run itself cannot be trusted -- a control that was not caught, a
+# pattern that matched nothing, a restore that did not reproduce the
+# original. The second is not a milder version of the first: it means the
+# output above it says nothing at all.
+#
+# THROUGH THIS TARGET BOTH ARRIVE AS make's EXIT 2, because make reports any
+# failed recipe that way, so the distinction survives in the printed text
+# and not in $?. Read the last lines, or run the tool directly when a script
+# needs to tell the two apart. This comment said otherwise until the
+# difference was measured.
+#
+# ONE ENTRY IS KNOWN TO HANG rather than fail -- sync-clear-plan, which
+# takes sim/test/network_test past any sensible bound -- so a full run costs
+# its timeout on top of the builds. That is the finding rather than a fault
+# in the target, and `ARGS=--only ...` skips it while it stands.
 #
 # `make sabotage ARGS=--list` prints the entries without running anything.
 sabotage:
