@@ -246,6 +246,17 @@ SABOTAGES = [
 		"\t\t    1)\n",
 		"the issuer term in the journal lookup",
 	),
+	# RECORD KEY CONFUSION, which sec 14 recorded the integration harness as
+	# unable to see. It can: fzn_record_verify is called from network_test
+	# and the near-miss pair decides the key. Kept so it stays that way.
+	(
+		"record-verify-wrong-key",
+		"record/record.c",
+		"\tif (!sign->verify(sign->ctx, fzn_record_issuer(record), at, len,\n",
+		"\tif (!sign->verify(sign->ctx, at, at, len,\n",
+		"a record must verify under its own issuer and no other",
+	),
+
 	# THE LENGTH, not the term. Batch five asks whether a key comparison
 	# happens at all; this asks whether it reads the whole key. They are
 	# different questions and a fixture can answer one and not the other --

@@ -8418,6 +8418,39 @@ preserved whether or not it is right.**
 
 ## 14. Open, and named rather than left silent
 
+**AUDITED 2026-09-01, and two of the eighteen entries were stale.** The
+list was read against the code rather than against itself, which is the
+only way a list like this can be checked -- an entry describing a gap is
+a claim about the tree, and the tree moves.
+
+    entries marked CLOSED or FIXED already      7
+    design questions, open by their nature      4
+    other trees' questions                      2
+    licensing, which CLAUDE.md forbids raising  1
+    live claims about THIS tree, checkable      4
+
+Of the four checkable, two stand and two were stale:
+
+    the revocation store only grows        STANDS   revocation.c:489 says so
+    peer_linux_test cannot discriminate    STANDS   uid == gid == 1001 here
+    sim_identity cannot catch a truncation  STALE   sim_near_identity closed it
+    record/ is never verified in the sim    STALE   network_test.c:2144
+
+**Both stale entries named a real gap, somebody closed it, and the record
+went on reporting it open.** Neither was wrong when written. That is the
+failure mode a list of open items has, and it is more expensive than a
+wrong entry would be: a reader trusts it and rebuilds what is already
+there. The second is the sharper case, because the entry closes with "it
+is worth writing now and was not worth writing yesterday" -- somebody
+took its advice, and it did not notice.
+
+**Both were confirmed by re-running the experiment the entry itself
+described**, not by finding the code. A call that is present is not a
+check that discriminates, which is what the key-blindness entry below
+exists to say. Each closed gap now carries a `tool/sabotage.py` entry, so
+the next reader gets a red suite rather than a paragraph.
+
+
 - **~~There is NO PER-MESSAGE FORWARD SECRECY.~~ CLOSED 2026-08-28, LATER
   THE SAME DAY, and this entry is kept rather than deleted because the
   analysis under it is the reasoning that produced the fix.**
@@ -8737,15 +8770,36 @@ preserved whether or not it is right.**
   new negative legs were proved falsifiable by sabotaging the stub back
   to key-blind: exactly those two fail and nothing else.
 
-- **A layer's signature is only tested where the harness verifies it,
-  and `record/` is not.** `fzn_record_verify` is called nowhere in
-  `sim/test/network_test.c` -- the harness signs records through
-  `fzn_record_sign` and never checks one, so the record layer's
-  signature is structural there exactly as chains' was until today.
-  Recorded rather than fixed, and the sequencing matters: adding a
-  record verification BEFORE the key-blindness fix would have been a
-  vacuous check, because every key verified everything. It is worth
-  writing now and was not worth writing yesterday.
+- **~~A layer's signature is only tested where the harness verifies it,
+  and `record/` is not.~~ CLOSED, and this entry had gone stale.
+  Re-measured 2026-09-01.**
+
+  It said `fzn_record_verify` is "called nowhere in
+  `sim/test/network_test.c`", so the record layer's signature was
+  structural there. It is called, at `network_test.c:2144`, under a
+  comment reading "THE ISSUER SIGNS, and `fzn_record_verify` checks
+  against". Somebody took the entry's own advice -- it closes with "it
+  is worth writing now and was not worth writing yesterday" -- and the
+  entry was not updated.
+
+  **Verified by measurement rather than by finding the call.** A call
+  that is present is not a check that discriminates, which is the whole
+  lesson of the key-blindness entry above it. Rewriting
+  `fzn_record_verify` to verify against the message rather than the
+  record's issuer -- textbook key confusion, the same mutation that once
+  gave `chain_test` 39 failures and `network_test` zero:
+
+      network_test    FAIL: the near-miss pair's genuine half did not reach
+      record_test     FAIL: verifying a record with no body
+
+  So the integration level sees it now, and for the reason the entry
+  predicted: the key-blindness fix had to land first, or the check would
+  have been vacuous. `tool/sabotage.py` carries the mutation as
+  `record-verify-wrong-key`.
+
+  **Both halves of the sequencing argument held.** It was not worth
+  writing before the key-blindness fix, it was worth writing after, and
+  what the record failed to do was notice that somebody had written it.
 
 - **~~Two gaps this sweep did NOT close~~ -- ONE of them is closed, and
   this entry had gone stale. Re-measured 2026-09-01.**
