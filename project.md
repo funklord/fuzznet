@@ -10645,6 +10645,49 @@ withdrawing a capability**, and a safety pass that quietly does the second
 under cover of the first is how a build system loses options nobody meant
 to spend.
 
+### And a third instance: a gate a comment could satisfy
+
+The same lens, run once more because two of three paying out is not a
+reason to stop. `installcheck` requires every installed header to be one
+`tool/consumer_check.c` actually includes -- the check that stopped two
+headers being installable and unverifiable. It asked
+`grep -q "$h" tool/consumer_check.c`, which is the header's NAME anywhere
+in the file. **A mention in a comment satisfies that exactly as loudly as
+an include**, so the gate could report a header checked while nothing
+compiled it.
+
+**Measured before changing anything, with a positive control, because a
+clean result from a probe that cannot speak is worth nothing.** The probe
+classifies each of the 40 entries by whether any line matching it is an
+`#include`; the control appends a prose-only mention and requires the
+probe to flag it. Control fires; **zero of the 40 are currently satisfied
+by prose.** So this closes a class rather than fixing an instance -- and
+the class has bitten here before, in the dead-`#ifdef` form recorded
+above, which was fixed by hand and caught only because a Makefile edit
+aborted and the gate went green anyway.
+
+The gate now wants an `#include` line, with an optional `fuzznet/` so one
+pattern covers both forms the file carries. All 40 already matched it,
+measured before the edit, so nothing that passes today is newly refused.
+
+**Proved on the discriminating case rather than by watching it pass.**
+Demoting both includes of `chain/manifest.h` to a comment that still
+names it leaves the old gate's question answered yes -- `grep -q` finds
+the name -- and makes the new gate refuse at exit 1, naming that header.
+That is the one input on which the two gates disagree, which is what
+`evidence.md` asks for and what watching either of them pass would not
+have supplied.
+
+**What it still cannot do, stated rather than implied.** It cannot tell a
+live include from one in a branch the arrangement does not compile. Only
+asking the compiler for its dependency list would, and that is a larger
+change than the present gap justifies: `persist_file.h` and
+`spool_file.h` are the two conditional includes, and the Makefile turns
+their define on in the same place it appends them to `HDRS`, so the two
+cannot disagree. If a third conditional header ever arrives whose define
+and whose `HDRS` entry are decided in different places, that reasoning
+expires and the dependency-list check is what replaces it.
+
 ## 34. CI, and two things it corrected before it ran, 2026-08-31
 
 Two jobs, because there are two builds. `core` builds with no crypto binding

@@ -2074,9 +2074,29 @@ installcheck: $(HDRS) $(SRCS) $(OBJS) tool/consumer_check.c
 	@# added: it can only catch a break in a header somebody remembered to
 	@# include, and `session/commitment.h` and `local/peer.h` were both
 	@# installed and unchecked for several commits.
+	@# AN #include LINE, NOT A MENTION. This asked `grep -q "$$h"` for the
+	@# header's NAME anywhere in the file, and a name in a COMMENT satisfied
+	@# that as loudly as a real include -- so the gate could report a header
+	@# checked while nothing compiled it. The dead-`#ifdef` form of the same
+	@# vacuity has already bitten once here and was fixed by hand, which is
+	@# the argument for closing the prose form before it does.
+	@#
+	@# Measured before tightening rather than after: all 40 entries already
+	@# match the stricter pattern, so this refuses nothing that passes today.
+	@# The optional `fuzznet/` is what makes one pattern cover both forms the
+	@# file carries -- `<fuzznet/chain/chain.h>` installed and
+	@# `"chain/chain.h"` from the source tree.
+	@#
+	@# It still cannot tell a live include from one in a branch this
+	@# arrangement does not compile; only asking the compiler for its
+	@# dependency list would, and that is a bigger change than the gap
+	@# currently justifies. persist_file.h and spool_file.h are the two
+	@# conditional includes, and the Makefile turns their define on in the
+	@# same place it adds them to HDRS, so the two cannot disagree.
 	@missing=; \
 	for h in $(HDRS); do \
-		grep -q "$$h" tool/consumer_check.c || missing="$$missing $$h"; \
+		grep -qE "^[ \t]*#[ \t]*include[ \t]*[<\"](fuzznet/)?$$h[\">]" \
+		     tool/consumer_check.c || missing="$$missing $$h"; \
 	done; \
 	if [ -n "$$missing" ]; then \
 		echo "installcheck: installed but not included by the consumer:$$missing"; \
