@@ -10584,6 +10584,67 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 35. A guard that runs after the damage, 2026-08-31
+
+`build-and-commit.md` asks a `clean`-like target to verify its directory
+before deleting: non-empty and relative, never something that could resolve
+to a source tree, a home directory or `/`. Two targets here did that and two
+did not, which is the ordinary half of this finding. **The useful half is
+that one of the two that did could not work.**
+
+### What each target would have run, from `make -n` rather than from reading
+
+    make installcheck BUILD_DIR=   mkdir -p /constant_time/
+                                   cc ... -o /constant_time/constant_time.o
+    make schema BUILD_DIR=         rm -rf /.situ-head && mkdir -p /.situ-head
+                                   (six sites, `/.gen.new` as well)
+    make analyze BUILD_DIR=        rm -rf -analyze
+    make coverage BUILD_DIR=       BUILD_DIR is empty; refusing
+
+`make -n` is the whole method and it is worth naming: it expands the recipe
+without running it, so the dangerous expansion can be read rather than
+triggered. Nothing was executed to obtain the lines above.
+
+### The one that could not fire
+
+`installcheck` opens with `test -n "$(BUILD_DIR)" || ... exit 1`, written
+against exactly this hazard and correct as a line of shell. Its
+prerequisites are `$(HDRS) $(SRCS) $(OBJS)`. **make builds prerequisites
+before it runs the recipe**, and `$(OBJS)` under an empty BUILD_DIR is
+`/constant_time/constant_time.o` -- so the objects are attempted at the
+filesystem root, and the guard's own line is never reached. It is the
+`evidence.md` shape almost exactly: a check that cannot be the thing doing
+the refusing is a check nobody is measuring. What made it invisible is that
+the guard is not wrong, and reading it tells you nothing -- only asking
+*when it runs relative to everything else* does.
+
+`coverage` has the same guard and it does fire, because that target has no
+prerequisites. **Two identical lines, one load-bearing and one decorative,
+and the difference is not in either line.**
+
+### The fix is at parse time, and only for the empty case
+
+`ifeq ($(strip $(BUILD_DIR)),)` with `$(error)` beside the definition. Make
+reads the file before it does anything else -- before a recipe, before a
+prerequisite, and again in a sub-make that re-enters with
+`BUILD_DIR=$(BUILD_DIR)-coverage` -- so one check covers all four targets
+and every target added later. Verified across the seven targets that exist:
+each refuses at parse time, and `make -n installcheck BUILD_DIR=` prints
+zero root-path commands where it printed two.
+
+The recipe checks stay. They are correct and cost nothing, and removing a
+guard to tidy up is how the next one goes missing.
+
+**ONLY THE EMPTY CASE WAS HOISTED, and the restraint is the decision.**
+`coverage` and `installcheck` also refuse an ABSOLUTE BUILD_DIR, and that
+stays local to them -- installcheck's staging tree has to sit inside the
+tree it stages. Hoisting it would newly forbid `make BUILD_DIR=/tmp/x` for
+an ordinary build, which works today and which nobody asked to remove.
+**Refusing a value that can only be a mistake is not the same act as
+withdrawing a capability**, and a safety pass that quietly does the second
+under cover of the first is how a build system loses options nobody meant
+to spend.
+
 ## 34. CI, and two things it corrected before it ran, 2026-08-31
 
 Two jobs, because there are two builds. `core` builds with no crypto binding

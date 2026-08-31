@@ -12,6 +12,49 @@
 # need, and the need this would answer is one nobody has.
 
 BUILD_DIR ?= .
+
+# AN EMPTY BUILD_DIR IS REFUSED HERE, WHERE make READS THE FILE, and not in a
+# recipe -- because a recipe is too late and two targets proved it.
+#
+# `coverage` and `installcheck` each open with
+# `test -n "$(BUILD_DIR)" || ... exit 1`, written against exactly the hazard
+# build-and-commit.md names: an unset variable turning `rm -rf $(VAR)/x` into
+# something else. Both checks are correct and `coverage`'s fires. **The one
+# in `installcheck` cannot.** Its prerequisites are `$(HDRS) $(SRCS) $(OBJS)`,
+# make builds prerequisites before it runs the recipe, and `$(OBJS)` with an
+# empty BUILD_DIR is `/constant_time/constant_time.o`. Measured with
+# `make -n installcheck BUILD_DIR=`, which prints `mkdir -p /constant_time/`
+# and a compile into it before the guard's line appears anywhere. A guard
+# that cannot be the thing doing the refusing is a guard nobody is measuring.
+#
+# Two more targets had no guard at all, and `make -n` says what each would
+# have run:
+#
+#     make schema BUILD_DIR=    rm -rf /.situ-head && mkdir -p /.situ-head
+#     make analyze BUILD_DIR=   rm -rf -analyze
+#
+# The first is six sites operating at the filesystem root, `mkdir` included.
+# The second is worse than it looks for being harmless: `-analyze` is a
+# leading-dash argument, so rm parses it as options rather than as a path,
+# and the failure says nothing about BUILD_DIR.
+#
+# `$(error)` at parse time closes all four and every target added later,
+# because nothing -- no recipe, no prerequisite, no sub-make re-reading this
+# file with `BUILD_DIR=$(BUILD_DIR)-coverage` -- runs before the file is
+# read. The recipe checks are left where they are: they are correct, they
+# cost nothing, and removing a guard to tidy up is how the next one goes
+# missing.
+#
+# ONLY THE EMPTY CASE IS GLOBAL. `coverage` and `installcheck` also refuse an
+# ABSOLUTE BUILD_DIR and keep doing so for their own reasons -- installcheck's
+# staging tree has to be inside the tree it is staging. Hoisting that one
+# would newly forbid `make BUILD_DIR=/tmp/x` for an ordinary build, which
+# works today and which nobody has asked to remove. Withdrawing a capability
+# is a decision; refusing a value that can only be a mistake is not.
+ifeq ($(strip $(BUILD_DIR)),)
+$(error BUILD_DIR is empty. Every path this build writes would be rooted at / -- objects at /constant_time/, scratch at /.situ-head. Leave it unset for an in-place build, or name a directory)
+endif
+
 CC        ?= cc
 DESTDIR   ?=
 PREFIX    ?= /usr/local
