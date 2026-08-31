@@ -10672,6 +10672,25 @@ to fit is how a counter stops meaning anything -- `evidence.md`'s switched
 off by instalments, arriving through the one door that looks like
 arithmetic.
 
+### The lens run across the other five tables, and manifest was the outlier
+
+"A rule that is per-something is only tested by a fixture holding two of
+that something" is a lens rather than a fact about manifest, so it was
+pointed at every keyed table: `state/`, `log/`, `record/journal.c`,
+`chunk/reassembly.c` and `link/`. Each lookup's KEY TERM was made always
+true, so the first entry answers for every key.
+
+**All five are caught**, and by assertions that name the case exactly -- "and
+the second subject is bob's", "the second twin's own first record was
+refused as a duplicate", "reading since 0 for the second twin is not its own
+two records". Those suites already hold two of the thing they are keyed by.
+
+So the lens found nothing new, which is the useful half: **manifest was the
+outlier rather than one of six.** The entries are kept in `tool/sabotage.py`
+regardless -- they are the net that keeps those terms held when a lookup is
+next refactored, and they record that the question was asked of every table
+rather than of the one that failed.
+
 ### And the sabotage list keeps the reason alive
 
 `manifest-overflow-wrong-issuer` is in `tool/sabotage.py` now: the flag

@@ -220,6 +220,46 @@ SABOTAGES = [
 		"\t\t\tstate->issuers[0].overflowed = 1;\n",
 		"the overflow flag is per issuer, and only the fuzz harness says so",
 	),
+	# BATCH FIVE: "a rule that is per-something is only tested by a fixture
+	# holding two of that something", which is what manifest_fuzz measured
+	# (sec 41) and what revocation_fuzz recorded before it. Each of these
+	# makes a table's KEY TERM always true, so the first entry answers for
+	# every key. If nothing goes red, that term is decided by nothing.
+	(
+		"state-lookup-ignores-subject",
+		"state/state.c",
+		"\t\t    fzn_ct_memeq(state->entries[i].subject, subject, FZN_SUBJECT_LEN))\n",
+		"\t\t    1)\n",
+		"the subject term in the state lookup",
+	),
+	(
+		"log-lookup-ignores-issuer",
+		"log/log.c",
+		"\t\t    fzn_ct_memeq(log->entries[i].issuer, issuer, FZN_PUBKEY_LEN))\n\t\t\thit = &log->entries[i];\n",
+		"\t\t    1)\n\t\t\thit = &log->entries[i];\n",
+		"the issuer term in the log lookup",
+	),
+	(
+		"journal-lookup-ignores-issuer",
+		"record/journal.c",
+		"\t\t    fzn_ct_memeq(journal->entries[i].issuer, issuer, FZN_PUBKEY_LEN))\n",
+		"\t\t    1)\n",
+		"the issuer term in the journal lookup",
+	),
+	(
+		"reasm-lookup-ignores-sender",
+		"chunk/reassembly.c",
+		"\t\t    memcmp(slot->sender, sender, FZN_SENDER_LEN) == 0)\n\t\t\treturn slot;\n",
+		"\t\t    1)\n\t\t\treturn slot;\n",
+		"the sender term in the reassembly slot lookup",
+	),
+	(
+		"link-lookup-ignores-id",
+		"link/link.c",
+		"\t\tif (table->entries[i].id == id)\n",
+		"\t\tif (1)\n",
+		"the id term in the link lookup",
+	),
 	(
 		"prekey-peer-zero",
 		"prekey/prekey.c",
