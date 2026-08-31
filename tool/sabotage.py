@@ -285,6 +285,42 @@ SABOTAGES = [
 		"\t\tif (1)\n",
 		"the id term in the link lookup",
 	),
+	# BATCH SIX: wipes that clear a CALLER-VISIBLE buffer on a refusal.
+	#
+	# Most of this library's 32 fzn_wipe calls scrub locals, and their
+	# absence is unobservable through the API by construction -- agree.c says
+	# so itself, recording its own as "unreachable-by-test today". Sweeping
+	# those would produce survivors that mean nothing. These four are the
+	# subset a caller CAN see, so a missing one is a real leak into somebody
+	# else's buffer and a test can say so.
+	(
+		"session-hash-fail-wipes-out",
+		"session/session.c",
+		"\t\tfzn_wipe(out, FZN_CHAIN_KEY_LEN);\n\t\terr = FZN_SESSION_ERR_HASH;\n",
+		"\t\terr = FZN_SESSION_ERR_HASH;\n",
+		"a failed derivation must not leave a partial chain key with the caller",
+	),
+	(
+		"session-half-pair-wipes-send",
+		"session/session.c",
+		"\t\tfzn_wipe(send_chain_out, FZN_CHAIN_KEY_LEN);\n\t\treturn err;\n",
+		"\t\treturn err;\n",
+		"one chain without the other is unusable and must not be handed back",
+	),
+	(
+		"agree-degenerate-wipes-shared",
+		"session/agree.c",
+		"\t\tfzn_wipe(shared_out, FZN_AGREE_SHARED_LEN);\n\t\treturn FZN_AGREE_ERR_DEGENERATE;\n",
+		"\t\treturn FZN_AGREE_ERR_DEGENERATE;\n",
+		"a degenerate agreement must not leave a shared secret with the caller",
+	),
+	(
+		"seal-refused-build-wipes-frame",
+		"wire/seal.c",
+		"\t\t\tfzn_wipe(frame, total);\n\t\t\treturn err;\n",
+		"\t\t\treturn err;\n",
+		"a refused build must not leave frame material with the caller",
+	),
 	(
 		"prekey-peer-zero",
 		"prekey/prekey.c",
@@ -298,7 +334,18 @@ SABOTAGES = [
 # that a clean run reads as clean: an expected survivor reported as a finding
 # every time is how a report stops being read. Removing an id from here is
 # how you ask the question again.
-EXPECTED_SURVIVORS = {"manifest-sig-zero-sign"}
+EXPECTED_SURVIVORS = {
+	"manifest-sig-zero-sign",
+	# PROSPECTIVE BY THE CODE'S OWN MEASUREMENT, not for want of a test.
+	# wire/seal.c's comment re-measured this on 2026-08-28: every shape
+	# refusal now returns BEFORE the capability is copied in, so the wipe's
+	# own reproduction cases no longer reach it. It is kept because the
+	# hazard returns the moment any refusal surfaces after the copy, and the
+	# comment says so in order that "the next reader who mutates it and sees
+	# nothing fail deletes it knowing what they are removing" -- which is
+	# this entry's reader exactly.
+	"seal-refused-build-wipes-frame",
+}
 
 
 def make_env():

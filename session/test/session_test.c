@@ -107,6 +107,34 @@ static int stub_agree(void *ctx, uint8_t out[FZN_AGREE_SHARED_LEN],
 }
 
 static const fzn_hash_ops_t HASH = { stub_hash, NULL };
+
+/* A HASH THAT WRITES AND THEN REFUSES, on the call the fixture chooses.
+ *
+ * WRITING FIRST IS THE WHOLE POINT, and agree_test.c's degenerate binding
+ * makes the same argument: a real binding computes into the caller's buffer
+ * and only then finds it cannot certify the result. A stub that refuses
+ * without writing leaves the caller's bytes untouched, so the wipe under
+ * test has nothing to remove and the case would pass with it deleted --
+ * a test that cannot fail for the defect it names.
+ *
+ * `fail_on` is 1-based and counts calls, because fzn_session_chains derives
+ * TWO chains and the interesting refusals are at different depths: the first
+ * call exercises chain_for's own wipe of `out`, the second exercises
+ * fzn_session_chains wiping the send chain it had already produced. */
+static unsigned refusing_calls;
+static unsigned refusing_fail_on;
+
+static int refusing_hash(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in,
+                         size_t in_len)
+{
+	refusing_calls++;
+	(void)stub_hash(ctx, out, out_len, in, in_len);
+	if (refusing_calls == refusing_fail_on)
+		return 0;
+	return 1;
+}
+
+static const fzn_hash_ops_t REFUSING = { refusing_hash, NULL };
 static const fzn_agree_ops_t AGREE = { stub_public_of, stub_agree, NULL };
 
 static void fill(uint8_t *p, size_t n, uint8_t seed)
@@ -521,6 +549,80 @@ static void test_the_ephemeral_exchange_agrees_and_differs(void)
 	}
 }
 
+/* A REFUSED DERIVATION HANDS BACK NO KEY MATERIAL.
+ *
+ * Both wipes here were measured by `make sabotage` and neither was held by
+ * anything: removing them left all 64 binaries green. They are not
+ * defence in depth -- each clears a buffer the CALLER owns, on a path that
+ * returns an error, so what they prevent is a caller who ignores the return
+ * value hashing a half-derived chain key into a transcript.
+ *
+ * `session/agree.c` has the same shape and agree_test.c:241 already holds
+ * it. This is the sibling case that was missing, which is the third time
+ * today a module's guard turned out to be defended in one place and not in
+ * the module next to it.
+ *
+ * THE BUFFERS ARE DIRTIED FIRST and the stub WRITES BEFORE IT REFUSES, or
+ * neither case can fail: against a zeroed buffer, or a binding that refuses
+ * without computing, a deleted wipe is indistinguishable from a working
+ * one. */
+static void test_a_refused_derivation_leaves_no_key_with_the_caller(void)
+{
+	uint8_t root[FZN_AEAD_KEY_LEN];
+	uint8_t id_a[FZN_SESSION_IDENTITY_LEN], id_b[FZN_SESSION_IDENTITY_LEN];
+	uint8_t send[FZN_CHAIN_KEY_LEN], recv[FZN_CHAIN_KEY_LEN];
+	int all_zero;
+	size_t i;
+
+	fill(root, sizeof(root), 0x5b);
+	fill(id_a, sizeof(id_a), 0x11);
+	fill(id_b, sizeof(id_b), 0x22);
+
+	/* FIRST DERIVATION REFUSES: chain_for wipes the buffer it wrote. */
+	refusing_calls = 0;
+	refusing_fail_on = 1;
+	memset(send, 0x33, sizeof(send));
+	memset(recv, 0x33, sizeof(recv));
+	CHECK(fzn_session_chains(&REFUSING, root, id_a, id_b, send, recv) ==
+	              FZN_SESSION_ERR_HASH,
+	      "a refusing hash was reported as success");
+	all_zero = 1;
+	for (i = 0; i < FZN_CHAIN_KEY_LEN; i++)
+		if (send[i] != 0u)
+			all_zero = 0;
+	CHECK(all_zero, "a refused derivation left a partial chain key with the caller");
+
+	/* SECOND DERIVATION REFUSES: the send chain succeeded and must not be
+	 * handed back on its own. A caller holding a send chain and no receive
+	 * chain ratchets forward into a conversation it cannot hear. */
+	refusing_calls = 0;
+	refusing_fail_on = 2;
+	memset(send, 0x33, sizeof(send));
+	memset(recv, 0x33, sizeof(recv));
+	CHECK(fzn_session_chains(&REFUSING, root, id_a, id_b, send, recv) ==
+	              FZN_SESSION_ERR_HASH,
+	      "a hash refusing on the second chain was reported as success");
+	all_zero = 1;
+	for (i = 0; i < FZN_CHAIN_KEY_LEN; i++)
+		if (send[i] != 0u)
+			all_zero = 0;
+	CHECK(all_zero, "half a chain pair was left with the caller");
+
+	/* The control: the same fixture with an honest hash produces a real
+	 * pair, so neither assertion above is satisfied by a call that never
+	 * derives anything. */
+	refusing_calls = 0;
+	refusing_fail_on = 0;
+	memset(send, 0x33, sizeof(send));
+	CHECK(fzn_session_chains(&REFUSING, root, id_a, id_b, send, recv) == FZN_SESSION_OK,
+	      "the control derivation was refused");
+	all_zero = 1;
+	for (i = 0; i < FZN_CHAIN_KEY_LEN; i++)
+		if (send[i] != 0u)
+			all_zero = 0;
+	CHECK(!all_zero, "the control produced a zero chain key, so zero proves nothing");
+}
+
 static void test_every_guard_refuses_its_own_argument(void)
 {
 	fzn_agree_secret_t sk;
@@ -572,6 +674,7 @@ int main(void)
 	test_the_two_directions_are_different_and_agree();
 	test_the_seeds_drive_a_ratchet();
 	test_the_ephemeral_exchange_agrees_and_differs();
+	test_a_refused_derivation_leaves_no_key_with_the_caller();
 	test_every_guard_refuses_its_own_argument();
 	test_the_suite_can_tell_pass_from_fail();
 

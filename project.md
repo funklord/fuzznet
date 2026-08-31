@@ -10677,6 +10677,74 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 42. The wipes a caller can see, 2026-09-01
+
+This library makes 32 `fzn_wipe` calls. **Sweeping them all would have been
+the wrong instrument**, and saying why is most of this section: a wipe of a
+LOCAL is unobservable through the API by construction, so its sabotage
+survives whatever the code does, and thirty survivors that mean nothing bury
+the ones that do. `session/agree.c` already records its own as
+"unreachable-by-test today ... kept, and recorded as conditional rather than
+load-bearing".
+
+The subset worth asking about is the wipes that clear a buffer **the caller
+owns**, on a path that returns an error. There a missing wipe is a real leak
+into somebody else's memory, and a test can say so. Four of the 32:
+
+    agree-degenerate-wipes-shared    CAUGHT     agree_test.c:241
+    session-hash-fail-wipes-out      SURVIVED   -> tested, below
+    session-half-pair-wipes-send     SURVIVED   -> tested, below
+    seal-refused-build-wipes-frame   SURVIVED   -> prospective, below
+
+**`session/agree.c` was defended and `session/session.c` was not**, which is
+the third time today a guard turned out to be held in one module and not in
+the one beside it -- after `chain/` against `chain/manifest.c`, and
+`record/` against `chain/manifest.c` again.
+
+### What the two session wipes cost
+
+`chain_for` wipes the caller's `out` when the hash refuses, and
+`fzn_session_chains` wipes the send chain when the second derivation fails
+after the first succeeded. Neither was held: removing either left all 64
+binaries green.
+
+They are not defence in depth. A caller who ignores the return value is left
+holding a **partial chain key**, or a send chain with no receive chain --
+and session.c's own comment names that second one: it "would ratchet forward
+into a conversation it cannot hear".
+
+**The stub has to write before it refuses, or neither case can fail.**
+`agree_test.c` makes the same argument for its degenerate binding: a real
+binding computes into the caller's buffer and only then finds it cannot
+certify the result. A stub that refuses without writing leaves the caller's
+bytes untouched, the wipe has nothing to remove, and the test passes with it
+deleted. The fixture also dirties the buffers with `0x33` first, for the
+same reason, and carries a control asserting an honest derivation produces a
+NON-zero key -- otherwise "it is all zero" is satisfied by a call that never
+derived anything.
+
+Proven both ways: `FAIL session_test.c:593` and `:609` with the respective
+wipe removed, 266 checks green with them in.
+
+### The third is prospective, and the code said so first
+
+`wire/seal.c`'s wipe of the whole frame on a refused build survives, and
+**that is not a gap.** Its own comment carries the measurement: it was
+re-taken on 2026-08-28 and every shape refusal now returns BEFORE the
+capability is copied in, so the wipe's own reproduction cases no longer
+reach it. The likely cause is named too -- a redundant validate was removed
+from that file and removing it moved when a refusal surfaces.
+
+It is kept because the hazard returns the moment any refusal surfaces after
+the copy, and the comment gives its reason as wanting "the next reader who
+mutates it and sees nothing fail" to delete it knowingly rather than
+believing a stale paragraph. **That reader is this sweep**, so the entry is
+an `EXPECTED_SURVIVOR` pointing at the comment rather than a finding.
+
+That is the second legitimate suppression, beside `manifest-sig-zero-sign`.
+Both have a measured reason in the code; neither is the tedium that sec 39
+wrongly suppressed four entries for.
+
 ## 41. manifest_fuzz, and the four mutations that justify it, 2026-09-01
 
 Sec 40 closed with three independent findings in `chain/manifest.c` in one
