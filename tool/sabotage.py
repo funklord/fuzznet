@@ -124,12 +124,19 @@ SABOTAGES = [
 		"\t/* sabotage */\n",
 		"clears the caller's output before any refusal below it",
 	),
+	# INVERTED, BECAUSE THE GUARD TURNED OUT TO BE THE FAULT. This entry
+	# used to delete a `memset(out, 0, ...)` from fzn_persist_secret_open and
+	# report SURVIVED. It was not an unheld guard: the clearing destroyed the
+	# caller's secret before an install that promises not to, and it is gone.
+	# So the sabotage is now to PUT IT BACK, and persist_test must notice.
+	# See project.md sec 37.
 	(
-		"persist-install-clears-out",
+		"persist-open-must-not-clear",
 		"persist/persist.c",
-		"\tmemset(out, 0, sizeof(*out));\n",
-		"\t/* sabotage */\n",
-		"clears the secret before install, which may then fail",
+		"\tif (fzn_agree_secret_install(out, agree, bytes + OFF_BODY) != FZN_AGREE_OK)\n",
+		"\tmemset(out, 0, sizeof(*out));\n"
+		"\tif (fzn_agree_secret_install(out, agree, bytes + OFF_BODY) != FZN_AGREE_OK)\n",
+		"a refused restore must leave the caller's secret in place",
 	),
 	(
 		"sync-clear-plan",

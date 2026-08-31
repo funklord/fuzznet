@@ -174,6 +174,29 @@ fzn_persist_err_t fzn_persist_trust_open(const uint8_t *bytes, size_t len, fzn_t
 
 fzn_persist_err_t fzn_persist_secret_pack(const fzn_agree_secret_t *secret, uint8_t *out,
                                            size_t cap, size_t *len);
+
+/*
+ * A REFUSED OPEN LEAVES `out` AS IT FOUND IT, on every path -- a null
+ * argument, a header this is not, and a binding that will not derive.
+ *
+ * Stated because it was not, and because the absence let the three refusals
+ * drift apart: two preserved the caller's secret and the third cleared it
+ * before calling `fzn_agree_secret_install`, which is the one function in
+ * the pair that promises not to. agree.h has that promise and the cost of
+ * breaking it -- a host that cannot decrypt its own queued traffic because a
+ * key derivation failed -- and this is the same guarantee one layer out.
+ *
+ * WHAT IT LETS A CALLER DO is retry. A host restoring from a backup while
+ * running, or making a second attempt after a first was refused, may pass a
+ * LIVE secret here and still hold it afterwards if the restore does not
+ * happen. Without this, the safe way to call it was to restore into a
+ * scratch struct and copy on success, which is a discipline no signature
+ * asked for and none of the other `_open` functions here need.
+ *
+ * On success `out` is written in full and the stored generation is restored
+ * over the one installing would have derived -- see the note in persist.c
+ * about why the generation is put back rather than left at zero.
+ */
 fzn_persist_err_t fzn_persist_secret_open(const uint8_t *bytes, size_t len,
                                            const fzn_agree_ops_t *agree,
                                            fzn_agree_secret_t *out);

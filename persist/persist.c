@@ -182,7 +182,35 @@ fzn_persist_err_t fzn_persist_secret_open(const uint8_t *bytes, size_t len,
 	if (err != FZN_PERSIST_OK)
 		return err;
 
-	memset(out, 0, sizeof(*out));
+	/* NOT CLEARED FIRST, and that is the whole of this path's contract.
+	 *
+	 * `fzn_agree_secret_install` derives the public key BEFORE it destroys
+	 * anything, so that a binding which refuses leaves the caller holding
+	 * the secret it had -- agree.c says so above the check that makes it
+	 * true, and names the cost: a host that cannot decrypt its own queued
+	 * traffic because a key derivation failed. A `memset(out, 0, ...)`
+	 * here undid that from outside. Install was careful on the way to
+	 * refusing and this function had already wiped the secret before
+	 * install was called.
+	 *
+	 * IT ALSO MADE THIS FUNCTION DISAGREE WITH ITSELF, which is what
+	 * settled it. The two refusals above -- a null argument, and a header
+	 * this is not -- leave `out` untouched. Only the binding's refusal
+	 * destroyed it. Two of three preserving is an accident rather than a
+	 * policy, and the odd one out was the one contradicting a documented
+	 * promise.
+	 *
+	 * NOTHING IS LOST ON THE SUCCESS PATH. Install writes every field of
+	 * `fzn_agree_secret_t` -- secret, public_key, generation, live -- so
+	 * the clearing was never what made a restored secret whole. The only
+	 * thing it influenced was install's `next`, computed from `sk->live`,
+	 * and the line below overwrites the generation with the stored one
+	 * regardless.
+	 *
+	 * Found by `make sabotage`: removing the clear failed nothing, which
+	 * is how a guard that is not merely unheld but pointing the wrong way
+	 * looks from inside a sweep. project.md sec 37 has the reasoning and
+	 * the two readings that were not taken. */
 	if (fzn_agree_secret_install(out, agree, bytes + OFF_BODY) != FZN_AGREE_OK)
 		return FZN_PERSIST_ERR_BACKEND;
 

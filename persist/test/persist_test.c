@@ -165,6 +165,65 @@ static void test_a_prekey_secret_survives_with_its_generation(void)
 	      "the generation reset on restore, so a restarted host looks older than it is");
 }
 
+/* A REFUSED RESTORE LEAVES THE CALLER HOLDING WHAT IT HAD.
+ *
+ * `fzn_agree_secret_install` derives the public key before it destroys
+ * anything, so a binding that refuses leaves the secret in place; agree.c
+ * names the cost of breaking that as a host unable to decrypt its own queued
+ * traffic. `fzn_persist_secret_open` used to `memset` the caller's struct
+ * before calling it, which undid the guarantee from outside -- install was
+ * careful on the way to refusing and the secret was already gone.
+ *
+ * It also made that one function disagree with itself: a null argument and a
+ * header it does not recognise both leave `out` alone, and only the
+ * binding's refusal cleared it. Two of three preserving is an accident, and
+ * removing the clear failed no test, which is how `make sabotage` surfaced
+ * it.
+ *
+ * THE REFUSAL IS DRIVEN WITH A NULL `agree`, which reaches install and is
+ * turned into FZN_AGREE_ERR_OPS there -- `fzn_persist_secret_open` checks
+ * `bytes` and `out` and deliberately does not check `agree`, so this is the
+ * one refusal that happens INSIDE install rather than before it. That is the
+ * path the guarantee is about; the two earlier refusals never touch `out` at
+ * all and are covered by the guard sweep.
+ *
+ * The control is the copy comparison itself: `keep` is taken from a secret
+ * that is live and at a known generation, so an implementation that wiped
+ * `out` fails on the first differing byte rather than on a flag. */
+static void test_a_refused_restore_keeps_the_secret_it_had(void)
+{
+	fzn_agree_secret_t sk, keep;
+	uint8_t secret[FZN_AGREE_SECRET_LEN];
+	uint8_t blob[FZN_PERSIST_MAX];
+	size_t len = 0;
+
+	fill(secret, sizeof(secret), 0x77);
+	memset(&sk, 0, sizeof(sk));
+	REQUIRE(fzn_agree_secret_install(&sk, &AGREE, secret) == FZN_AGREE_OK,
+	        "the fixture's install refused");
+	REQUIRE(fzn_persist_secret_pack(&sk, blob, sizeof(blob), &len) == FZN_PERSIST_OK,
+	        "the fixture's pack refused");
+	REQUIRE(fzn_agree_secret_public(&sk) != NULL,
+	        "the fixture's secret is not live, so nothing below could be lost");
+	keep = sk;
+
+	/* A binding that cannot derive. The blob is good, so nothing before
+	 * install can be what refuses. */
+	CHECK(fzn_persist_secret_open(blob, len, NULL, &sk) == FZN_PERSIST_ERR_BACKEND,
+	      "a restore with no binding was not refused");
+	CHECK(memcmp(&sk, &keep, sizeof(sk)) == 0,
+	      "a refused restore destroyed the secret the caller was holding");
+	CHECK(fzn_agree_secret_public(&sk) != NULL,
+	      "a refused restore left the caller's secret not live");
+
+	/* AND THE SAME CALL WITH A WORKING BINDING MUST STILL RESTORE, or the
+	 * assertion above is satisfied by an open that does nothing at all. */
+	CHECK(fzn_persist_secret_open(blob, len, &AGREE, &sk) == FZN_PERSIST_OK,
+	      "the same blob with a working binding was refused");
+	CHECK(fzn_agree_secret_generation(&sk) == fzn_agree_secret_generation(&keep),
+	      "the restore did not bring back the stored generation");
+}
+
 static void test_a_pinned_peer_and_a_chain_round_trip(void)
 {
 	fzn_prekey_peer_t peer, peer_back;
@@ -324,6 +383,7 @@ int main(void)
 	test_an_anchor_comes_back_with_its_provenance();
 	test_an_empty_anchor_is_not_stored();
 	test_a_prekey_secret_survives_with_its_generation();
+	test_a_refused_restore_keeps_the_secret_it_had();
 	test_a_pinned_peer_and_a_chain_round_trip();
 	test_a_blob_does_not_open_as_another_kind();
 	test_every_guard_refuses_its_own_argument();

@@ -10597,7 +10597,7 @@ init that zeroes a struct before filling part of it.
     trust-init-zero              CAUGHT     trust adoption provenance
     seal-open-clears-out         CAUGHT     seal_test, on a wrong-key open
     ratchet-init-zero            CAUGHT     ratchet_test, once written
-    persist-install-clears-out   SURVIVED   -> NOT a test gap, below
+    persist-install-clears-out   SURVIVED   -> the guard was the fault
     sync-clear-plan              HUNG       -> the harness's fault, below
 
 **`trust-init-zero` being caught is worth as much as either survivor**,
@@ -10659,15 +10659,43 @@ destroyed it before install is called. The named consequence is reachable by
 the route agree.c names, since `public_of` returning false is a real binding
 failure over material read from disk rather than a programming error.
 
-**Not resolved here, in either direction**, per `working-practice.md`. How
-reachable it is depends on the caller: a host restoring at startup passes a
-struct holding nothing and the zeroing costs it nothing; a host restoring
-from a backup while running, or retrying after a failed attempt, passes a
-live one. `persist.h` documents no contract for `out` on a refusal at all,
-so nothing tells a caller which it may do. Three readings are defensible --
-persist is wrong and should drop the `memset`; persist is right and the
-contract belongs in `persist.h` where it is absent; or the question is the
-caller's and what is missing is the statement of which.
+**It was put to the holder as three defensible readings and came back as an
+instruction to fix it.** Two of the three turned out to be the same answer,
+and one fact decided which:
+
+**`fzn_persist_secret_open` disagreed with itself.** Its other two refusals
+-- a null argument, and a header it does not recognise -- leave `out`
+untouched. Only the binding's refusal cleared it. **Two of three preserving
+is an accident rather than a policy**, and the odd one out was the one
+contradicting a promise another module states in terms. That is what settles
+it without anybody having to weigh how often a caller passes a live secret.
+
+**The clearing is gone, and nothing is lost on the success path.** Install
+writes every field of `fzn_agree_secret_t` -- secret, public_key, generation
+and live -- so the `memset` was never what made a restored secret whole. The
+only thing it influenced was install's `next`, computed from `sk->live`, and
+the line below it overwrites the generation with the stored one regardless.
+Measured, not reasoned: `persist_test` is green with the clearing removed.
+
+**And the contract is now written down, which was the other reading.** It
+was absent from `persist.h` entirely, and that absence is what let the three
+refusal paths drift apart in the first place -- so stating it is not an
+alternative to removing the clearing but the thing that keeps the three
+together. What it buys a caller is the retry: a host restoring from a backup
+while running, or making a second attempt after a refusal, may pass a live
+secret and still hold it afterwards. Without it the safe way to call this
+was to restore into a scratch struct and copy on success, a discipline no
+signature asked for and no sibling `_open` needs.
+
+**The test drives the refusal with a null `agree`**, which is the one
+refusal that happens INSIDE install rather than before it -- persist checks
+`bytes` and `out` and deliberately does not check `agree`. Proven both ways:
+60 checks green, and `FAIL persist_test.c:214` with the clearing put back.
+
+**The sabotage entry is inverted rather than deleted.** It used to remove
+the `memset` and report SURVIVED; it now PUTS IT BACK and must be caught. A
+guard that turned out to be the fault leaves a hole in the sweep exactly
+where the question was, and an inverted entry is what keeps asking it.
 
 **What makes it worth the section is how it was found.** The sabotage was
 filed expecting a missing test, on the model of the two sec 36 closed. The
