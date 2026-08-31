@@ -102,6 +102,84 @@ fzn_reasm_err_t fzn_reasm_init(fzn_reasm_t *table, fzn_partial_t *slots, size_t 
 	return FZN_REASM_OK;
 }
 
+/* Appends a run, split so no range exceeds `limit`. Returns 0 when the
+ * caller's array is full, which is a stop rather than an error: a partial
+ * plan is a legitimate answer and the caller may ask again. Written once
+ * because the loop below needs it twice and two copies drift. */
+static int emit_run(fzn_reasm_range_t *out, size_t cap, size_t *at, uint32_t *first,
+                    uint32_t *run, uint16_t limit)
+{
+	while (*run > 0u) {
+		uint32_t take = *run < limit ? *run : limit;
+
+		if (*at >= cap)
+			return 0;
+		out[*at].first = (uint16_t)*first;
+		out[*at].count = (uint16_t)take;
+		(*at)++;
+		*first += take;
+		*run -= take;
+	}
+	return 1;
+}
+
+/* See reassembly.h. The bitmap this walks has always been here; only the
+ * accessor was missing. */
+fzn_reasm_err_t fzn_reasm_plan_want(const fzn_reasm_t *table,
+                                     const uint8_t sender[FZN_SENDER_LEN], uint32_t msg,
+                                     uint16_t max_per_range, fzn_reasm_range_t *out, size_t cap,
+                                     size_t *count)
+{
+	const fzn_partial_t *slot = NULL;
+	uint32_t i;
+	uint32_t run_first = 0, run = 0;
+	size_t at = 0;
+
+	if (!table || !table->slots || !sender || !out || !count)
+		return FZN_REASM_ERR_MALFORMED;
+	/* ZERO IS REFUSED RATHER THAN MEANING UNLIMITED, which is
+	 * `record/sync.h`'s rule inherited rather than re-decided. */
+	if (max_per_range == 0u)
+		return FZN_REASM_ERR_MALFORMED;
+
+	/* `find` takes a mutable table and this function must not, so the
+	 * search is repeated rather than casting the constness away -- eight
+	 * lines against a cast that would let a later edit write through it. */
+	for (i = 0; i < table->capacity; i++) {
+		const fzn_partial_t *candidate = &table->slots[i];
+
+		if (candidate->live && candidate->msg == msg
+		    && memcmp(candidate->sender, sender, FZN_SENDER_LEN) == 0) {
+			slot = candidate;
+			break;
+		}
+	}
+	if (!slot)
+		return FZN_REASM_ERR_ABSENT;
+
+	*count = 0;
+	/* `i` and the run counters are uint32 against a uint16 `chunks` so
+	 * that `chunks` at its maximum cannot make the loop bound wrap. */
+	for (i = 0; i < (uint32_t)slot->chunks; i++) {
+		if (!seen_get(slot, (uint16_t)i)) {
+			if (run == 0u)
+				run_first = i;
+			run++;
+			continue;
+		}
+		if (!emit_run(out, cap, &at, &run_first, &run, max_per_range))
+			break;
+		*count = at;
+	}
+	/* The run reaching the last chunk. Outside the loop because the loop
+	 * only closes a run on meeting a chunk that HAS arrived, and a message
+	 * missing its tail never does -- the ordinary case, not an edge one. */
+	(void)emit_run(out, cap, &at, &run_first, &run, max_per_range);
+	*count = at;
+
+	return FZN_REASM_OK;
+}
+
 void fzn_reasm_release(fzn_partial_t *slot)
 {
 	uint8_t *buf;
@@ -424,6 +502,8 @@ const char *fzn_reasm_err_str(fzn_reasm_err_t err)
 		return "message exceeds what a slot holds";
 	case FZN_REASM_ERR_EXPIRED:
 		return "chunk expiry has passed";
+	case FZN_REASM_ERR_ABSENT:
+		return "no live message for that sender and id";
 	}
 
 	return "unknown";

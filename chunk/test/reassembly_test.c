@@ -520,6 +520,158 @@ static void test_full_table_and_expiry(void)
 	CHECK(f.slots[0].live == 0, "an expired chunk took a slot");
 }
 
+/* Offers chunk `index` of a `chunks`-piece message, so the cases below read
+ * as the arrival pattern they are testing rather than as argument lists. */
+static void offer(struct fixture *f, const uint8_t *who, uint32_t msg, uint16_t index,
+                  uint16_t chunks)
+{
+	fzn_partial_t *done = NULL;
+	uint8_t piece[8];
+
+	fill(piece, sizeof(piece), 0x40, index);
+	(void)fzn_reasm_accept(&f->table, who, msg, index, chunks, piece, sizeof(piece), 0, 10,
+	                       &done);
+}
+
+static int ranges_are(const fzn_reasm_range_t *got, size_t n, const uint16_t *want, size_t want_n)
+{
+	if (n != want_n)
+		return 0;
+	for (size_t i = 0; i < n; i++)
+		if (got[i].first != want[i * 2u] || got[i].count != want[i * 2u + 1u])
+			return 0;
+	return 1;
+}
+
+/*
+ * WHAT A RECEIVER IS STILL MISSING, which it has always known and never been
+ * able to say. The `seen` bitmap has existed since reassembly did; only the
+ * accessor was absent, so loss recovery on this path could only be "wait and
+ * hope the sender repeats itself".
+ */
+static void test_a_receiver_can_name_what_it_lacks(void)
+{
+	struct fixture f;
+	fzn_reasm_range_t got[8];
+	size_t n = 0;
+
+	/* Chunks 0, 3 and 4 of eight arrive: gaps at 1-2 and 5-7. */
+	fixture_init(&f, 4);
+	offer(&f, f.alice, 1, 0, 8);
+	offer(&f, f.alice, 1, 3, 8);
+	offer(&f, f.alice, 1, 4, 8);
+
+	CHECK(fzn_reasm_plan_want(&f.table, f.alice, 1, 100, got, 8, &n) == FZN_REASM_OK,
+	      "a live message reported no plan");
+	{
+		static const uint16_t WANT[] = { 1, 2, 5, 3 };
+
+		CHECK(ranges_are(got, n, WANT, 2),
+		      "the gaps were not coalesced into two runs: %u ranges", (unsigned)n);
+	}
+
+	/* THE TRAILING GAP IS THE ORDINARY CASE, not an edge one: the walk
+	 * only closes a run on meeting a chunk that arrived, and a message
+	 * missing its tail never does. It is emitted outside the loop, which
+	 * is exactly the kind of line a rewrite drops. */
+	CHECK(got[1].first == 5 && got[1].count == 3,
+	      "the run reaching the last chunk was dropped");
+
+	/* SPLIT, because a peer should not be asked for an unbounded run in
+	 * one range. */
+	CHECK(fzn_reasm_plan_want(&f.table, f.alice, 1, 2, got, 8, &n) == FZN_REASM_OK,
+	      "a split plan was refused");
+	{
+		static const uint16_t WANT[] = { 1, 2, 5, 2, 7, 1 };
+
+		CHECK(ranges_are(got, n, WANT, 3), "a bound of 2 did not split the runs: %u",
+		      (unsigned)n);
+	}
+
+	/* A SHORT ARRAY STOPS AND SAYS HOW FAR IT GOT, rather than
+	 * overflowing or reporting a plan it did not write. */
+	CHECK(fzn_reasm_plan_want(&f.table, f.alice, 1, 100, got, 1, &n) == FZN_REASM_OK,
+	      "a short array was an error");
+	CHECK(n == 1 && got[0].first == 1 && got[0].count == 2,
+	      "a short array did not stop at the first gap: %u ranges", (unsigned)n);
+
+	/* ZERO IS REFUSED RATHER THAN MEANING UNLIMITED. */
+	CHECK(fzn_reasm_plan_want(&f.table, f.alice, 1, 0, got, 8, &n) == FZN_REASM_ERR_MALFORMED,
+	      "a zero bound was accepted, so a caller that forgot one got no bound");
+}
+
+/*
+ * ABSENT IS ITS OWN CODE, because "nothing outstanding" and "I could not
+ * look" must not be the same answer to a caller deciding whether to ask a
+ * peer for anything.
+ */
+static void test_a_message_this_table_does_not_hold_is_absent(void)
+{
+	struct fixture f;
+	fzn_reasm_range_t got[8];
+	size_t n = 99;
+	fzn_partial_t *done = NULL;
+	uint8_t piece[8];
+
+	fixture_init(&f, 4);
+	offer(&f, f.alice, 1, 0, 8);
+
+	CHECK(fzn_reasm_plan_want(&f.table, f.alice, 2, 100, got, 8, &n) == FZN_REASM_ERR_ABSENT,
+	      "a message id nobody sent reported a plan");
+	/* SAME ID, DIFFERENT SENDER. Without the sender in the match, bob
+	 * would learn which chunks of ALICE's message this host still lacks --
+	 * a small leak, and the same splice the accept path refuses. */
+	CHECK(fzn_reasm_plan_want(&f.table, f.bob, 1, 100, got, 8, &n) == FZN_REASM_ERR_ABSENT,
+	      "another sender's message answered for this id");
+
+	/* AND A COMPLETED MESSAGE IS ABSENT ONCE RELEASED, which is what makes
+	 * the code ordinary rather than a fault. */
+	fixture_init(&f, 4);
+	fill(piece, sizeof(piece), 0x40, 0);
+	CHECK(fzn_reasm_accept(&f.table, f.alice, 5, 0, 2, piece, sizeof(piece), 0, 10, &done)
+	              == FZN_REASM_OK, "setup");
+	fill(piece, sizeof(piece), 0x40, 1);
+	CHECK(fzn_reasm_accept(&f.table, f.alice, 5, 1, 2, piece, sizeof(piece), 0, 10, &done)
+	              == FZN_REASM_OK, "setup");
+	CHECK(done != NULL, "the message did not complete");
+	fzn_reasm_release(done);
+	CHECK(fzn_reasm_plan_want(&f.table, f.alice, 5, 100, got, 8, &n) == FZN_REASM_ERR_ABSENT,
+	      "a released message still reported a plan");
+
+	/*
+	 * A FREE SLOT MUST NOT ANSWER, and this is the one shape that can
+	 * reach it. `fzn_reasm_release` zeroes a whole slot and
+	 * `fzn_reasm_expire` goes through it, so a dead slot's `msg` is 0 and
+	 * its sender is all zeroes -- which means the ONLY query that can
+	 * match a non-live slot is exactly this one.
+	 *
+	 * It matters because the failure is fail-open: without the `live`
+	 * test the walk finds a slot whose `chunks` is 0, emits no ranges, and
+	 * returns OK -- and OK with no ranges reads as "I have everything".
+	 * Found by mutation; the released-message case above cannot catch it,
+	 * because release had already zeroed the id it queries.
+	 */
+	{
+		struct fixture empty;
+		uint8_t nobody[FZN_SENDER_LEN];
+
+		fixture_init(&empty, 4);
+		memset(nobody, 0, sizeof(nobody));
+		n = 99;
+		CHECK(fzn_reasm_plan_want(&empty.table, nobody, 0, 100, got, 8, &n)
+		              == FZN_REASM_ERR_ABSENT,
+		      "an empty table answered for a zeroed sender and id, so a caller is "
+		      "told it has every chunk of a message nobody sent");
+	}
+
+	CHECK(fzn_reasm_plan_want(NULL, f.alice, 1, 100, got, 8, &n) == FZN_REASM_ERR_MALFORMED,
+	      "a null table was accepted");
+	CHECK(fzn_reasm_plan_want(&f.table, NULL, 1, 100, got, 8, &n) == FZN_REASM_ERR_MALFORMED,
+	      "a null sender was accepted");
+	CHECK(fzn_reasm_plan_want(&f.table, f.alice, 1, 100, NULL, 8, &n)
+	              == FZN_REASM_ERR_MALFORMED, "a null output was accepted");
+}
+
 static void test_last_chunk_first_is_refused(void)
 {
 	struct fixture f;
@@ -1102,6 +1254,8 @@ int main(void)
 	test_retransmission_versus_rewrite();
 	test_quota_stops_one_sender_filling_the_table();
 	test_full_table_and_expiry();
+	test_a_receiver_can_name_what_it_lacks();
+	test_a_message_this_table_does_not_hold_is_absent();
 	test_last_chunk_first_is_refused();
 	test_release_clears_the_arrived_set();
 	test_the_offset_guard_is_reachable();

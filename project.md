@@ -10584,6 +10584,71 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 32. The missing accessor, built 2026-08-31
+
+Sec 31 named `fzn_reasm_plan_want` as the one unblocked piece of code and the
+thing netcfgd's brief calls "the largest single piece of new work and the
+highest-risk part". **Almost all of it was already built.** `fzn_partial_t`
+has carried a `seen` bitmap since reassembly existed; `seen_get` and
+`seen_set` are static, and `fzn_reasm_accept` points `*out` at a slot only on
+COMPLETION. So a receiver has always known exactly which chunks it lacked and
+had no way to say so -- loss recovery on this path could only ever be "wait
+and hope the sender repeats itself".
+
+**The sender side needed nothing.** `fzn_split_at` already yields the bytes
+for any index and refuses one at or past the total, so a peer answering a
+retransmission request walks the ranges and rejects a fabricated index without
+help. What looked like the largest piece of new work was one accessor.
+
+### What was NOT copied from `spool/plan.c`, and why
+
+The template was next door and the temptation was to mirror it. Two things
+were deliberately left out:
+
+- **No `from` argument.** It exists in `spool/plan.h` for playback order and
+  to de-correlate a thousand peers fetching one blob. Neither applies to one
+  message from one sender: there is no playhead and there is only ever one
+  peer to ask. Copying an API's shape where its reason does not transfer is
+  how a parameter nobody can explain gets added.
+- **No offer side.** For a blob both peers hold a bitmap; for a message the
+  sender holds the whole thing and needs no plan.
+
+What WAS inherited is the rule rather than the code: zero refused rather than
+meaning unlimited, which `record/sync.h` decided and `spool/plan.c` also
+inherits rather than re-deciding.
+
+### `FZN_REASM_ERR_ABSENT`, and the pin that caught it
+
+Absent needed its own code: a caller asking what it still needs must tell
+"nothing outstanding" from "I could not look", and a completed message is
+released, so absence is ordinary rather than a fault.
+
+**Adding it failed `wire/test/err_str_test.c`**, which pins how many codes
+each renderer emits and walks until the fallback answers. That gate was not
+written for this and caught it anyway -- a renderer that grows a code and
+forgets to render it, or renders one twice, fails there. The table went from 8
+to 9.
+
+### Seven mutations, and the seventh needed a case only mutation would find
+
+Caught: the trailing run dropped, the sender not matched, a zero bound
+allowed, absent reported as OK, the split bound ignored, and `cap` ignored.
+
+**Dropping the `live` check survived**, and working out why is the finding.
+`fzn_reasm_release` zeroes a whole slot and `fzn_reasm_expire` goes through
+it, so a dead slot's `msg` is 0 and its sender is all zeroes -- which means
+the released-message case could not catch it, because release had already
+zeroed the id that case queries. **The only query that can reach a non-live
+slot is a zeroed sender with id 0**, and the failure is fail-open: the walk
+finds a slot whose `chunks` is 0, emits nothing, and returns OK -- and OK with
+no ranges reads as "I have everything". That case is now in the suite and the
+mutation is caught.
+
+**`chunk/reassembly` is still not exercised by `tool/consumer_check.c` at
+all** -- it was not before this either, so nothing regressed, but the new
+accessor is exactly the kind of thing that file exists to prove reachable
+from an installed arrangement. Worth adding; not done here.
+
 ## 31. Adoption gaps and open items, folded down 2026-08-31
 
 Written so a session starting cold does not have to reconstruct this from a
@@ -10691,8 +10756,11 @@ Each names whose decision it is, so none of them reads as settled.
 
 **Unblocked, and the next code I would write:**
 
-- **`fzn_reasm_plan_want`**, above. One function, a proven template, and the
-  thing a consumer has called its highest risk.
+- ~~**`fzn_reasm_plan_want`**~~ **-- BUILT, see sec 32.** It turned out to be
+  one accessor over a bitmap that already existed, and the sender side needed
+  nothing at all.
+- **Exercise `chunk/reassembly` in `tool/consumer_check.c`**, which does not
+  touch it today.
 
 **Deliberately not being done:**
 

@@ -78,6 +78,11 @@ typedef enum fzn_reasm_err {
 	FZN_REASM_ERR_TOO_LARGE = -6,
 	/* The chunk's expiry has passed. */
 	FZN_REASM_ERR_EXPIRED = -7,
+	/* This table holds no live message for that sender and id. Its own
+	 * code because it is not a fault: a caller asking what it still needs
+	 * must be able to tell "nothing outstanding" from "I could not look",
+	 * and a completed message is released, so an absent one is ordinary. */
+	FZN_REASM_ERR_ABSENT = -8,
 } fzn_reasm_err_t;
 
 /* One half-finished message. The buffer is the caller's; nothing here
@@ -211,6 +216,55 @@ fzn_reasm_err_t fzn_reasm_accept(fzn_reasm_t *table, const uint8_t sender[FZN_SE
 
 /* Hand a slot back. Safe on a slot that is already free. */
 void fzn_reasm_release(fzn_partial_t *slot);
+
+/* A run of consecutive chunk indices. `count` is never zero in anything this
+ * file produces -- an empty range is a second spelling of "nothing", which
+ * every caller would then have to test for. */
+typedef struct fzn_reasm_range {
+	uint16_t first;
+	uint16_t count;
+} fzn_reasm_range_t;
+
+/*
+ * WHICH CHUNKS OF A MESSAGE ARE STILL MISSING, so a receiver can ask for them
+ * again.
+ *
+ * THE STATE WAS ALREADY HERE AND UNREACHABLE. `fzn_partial_t` has carried a
+ * `seen` bitmap since reassembly existed, `seen_get` and `seen_set` are
+ * static, and `fzn_reasm_accept` points `*out` at a slot only when a message
+ * COMPLETES. So a receiver has always known exactly which chunks it lacked
+ * and had no way to say so, which is why loss recovery on this path could
+ * only ever be "wait and hope the sender repeats itself".
+ *
+ * netcfgd's shared-protocol brief asks for chunking "with retransmission of
+ * missing pieces" and calls it the largest single piece of new work and the
+ * highest-risk part. Almost all of it was already built; this is the missing
+ * accessor.
+ *
+ * THE SENDER SIDE NEEDS NOTHING. `fzn_split_at` already yields the bytes for
+ * any index and refuses one at or past the total, so a peer answering this
+ * walks the ranges and refuses a fabricated index without help.
+ *
+ * NO `from` ARGUMENT, DELIBERATELY, and the omission is worth stating because
+ * `spool/plan.h` has one and the symmetry is tempting. That argument exists
+ * there for playback order and to de-correlate a thousand peers fetching one
+ * blob. Neither applies to one message from one sender: there is no playhead
+ * and there is only ever one peer to ask. Copying an API's shape where its
+ * reason does not transfer is how a parameter nobody can explain gets added.
+ *
+ * `max_per_range` splits a long run, and ZERO IS REFUSED rather than meaning
+ * unlimited -- `record/sync.h` refuses a zero bound for the same reason and
+ * `spool/plan.c` inherits it rather than re-deciding. Stops at `cap` ranges
+ * and reports how many were written.
+ *
+ * FZN_REASM_ERR_ABSENT when this table holds no live message for that sender
+ * and id, which is ordinary rather than a fault -- a completed message has
+ * been released.
+ */
+fzn_reasm_err_t fzn_reasm_plan_want(const fzn_reasm_t *table,
+                                     const uint8_t sender[FZN_SENDER_LEN], uint32_t msg,
+                                     uint16_t max_per_range, fzn_reasm_range_t *out, size_t cap,
+                                     size_t *count);
 
 /* A short name for `fzn_reasm_err_t`, for a log line or a message to a user.
  *
