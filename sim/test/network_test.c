@@ -1857,6 +1857,40 @@ static void hold(struct sim_host *h, uint8_t issuer, uint64_t seq)
 
 /* One host fetches from one peer: compare positions, ask for what is
  * missing, and admit whatever survives the network. */
+/* THE COUNT THIS HARNESS ITERATES IS THE LIBRARY'S, AND IT IS BOUNDED.
+ *
+ * sync.h promises `request_count <= out_cap`, and `add_range` keeps that by
+ * counting a range it cannot fit rather than writing past the array. Three
+ * scenarios below then walk `plan.request_count`, which is exactly what a
+ * real consumer does.
+ *
+ * WHY IT IS CHECKED RATHER THAN TRUSTED, and it is not about defending the
+ * library. A `fzn_sync_plan_t` that reaches a caller uncleared carries the
+ * caller's previous bytes AS A LENGTH -- record/test/sync_test.c measures
+ * one at 3689348814741910323 from a plan pre-filled with 0x33, and refuses
+ * it there by name. Walking that is an unbounded loop over memory nothing
+ * wrote.
+ *
+ * Measured with `make sabotage`: removing `clear_plan`'s zeroing in
+ * record/sync.c took this binary past any bound, and because it runs BEFORE
+ * the unit tests of the modules it composes, the twenty-two binaries after
+ * it never ran -- including sync_test, which catches that same defect in
+ * under a second and says which line. So the cost of trusting the number
+ * was not this scenario; it was every diagnostic behind it.
+ *
+ * One comparison converts that into a named failure. running-code.md is the
+ * general form: the bound that matters lives inside the program, because a
+ * wrapper only guards the way somebody did not run it.
+ */
+static size_t plan_requests(const fzn_sync_plan_t *plan, size_t cap)
+{
+	if (plan->request_count > cap) {
+		check(0, "the plan's request_count is past the array it was given");
+		return 0;
+	}
+	return plan->request_count;
+}
+
 static void sim_fetch_from(struct sim_net *net, struct sim_host *me, struct sim_host *peer)
 {
 	fzn_sync_position_t theirs[SIM_HOSTS];
@@ -1874,7 +1908,7 @@ static void sim_fetch_from(struct sim_net *net, struct sim_host *me, struct sim_
 	    FZN_SYNC_OK)
 		return;
 
-	for (size_t r = 0; r < plan.request_count; r++) {
+	for (size_t r = 0, nreq = plan_requests(&plan, SIM_HOSTS); r < nreq; r++) {
 		uint8_t issuer = want[r].issuer[0];
 
 		for (uint64_t seq = want[r].from; seq < want[r].from + want[r].count; seq++) {
@@ -2140,7 +2174,7 @@ static void state_fetch(struct sim_net *net, struct sim_host *me, struct sim_hos
 	    FZN_SYNC_OK)
 		return;
 
-	for (size_t r = 0; r < plan.request_count; r++) {
+	for (size_t r = 0, nreq = plan_requests(&plan, SIM_HOSTS); r < nreq; r++) {
 		uint8_t issuer = want[r].issuer[0];
 
 		if (issuer >= writers)
@@ -2710,7 +2744,7 @@ static void fidelity_fetch(struct sim_net *net, struct sim_host *me, struct sim_
 	    FZN_SYNC_OK)
 		return;
 
-	for (size_t r = 0; r < plan.request_count; r++) {
+	for (size_t r = 0, nreq = plan_requests(&plan, SIM_HOSTS * 2u); r < nreq; r++) {
 		uint32_t stream = want[r].stream;
 
 		for (uint64_t seq = want[r].from; seq < want[r].from + want[r].count; seq++) {

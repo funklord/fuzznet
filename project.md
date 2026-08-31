@@ -10598,7 +10598,7 @@ init that zeroes a struct before filling part of it.
     seal-open-clears-out         CAUGHT     seal_test, on a wrong-key open
     ratchet-init-zero            CAUGHT     ratchet_test, once written
     persist-install-clears-out   SURVIVED   -> NOT a test gap, below
-    sync-clear-plan              HUNG       -> a third answer, below
+    sync-clear-plan              HUNG       -> the harness's fault, below
 
 **`trust-init-zero` being caught is worth as much as either survivor**,
 because sec 36's prekey test rests on it. That test keeps
@@ -10684,8 +10684,38 @@ question is not a settled one.
 **`sync-clear-plan` did not fail the suite. It hung it.** Removing
 `clear_plan`'s `memset` in `record/sync.c` takes `sim/test/network_test`
 past any sensible bound -- 40 binaries complete, the 41st does not return.
-The plan is consumed with the caller's bytes in it and something loops on a
-count that was never zeroed.
+
+**THE FAST TEST FOR IT ALREADY EXISTED, which is why none was written.**
+`record/test/sync_test.c` carries "THE PLAN IS CLEARED BEFORE THE ARGUMENTS
+ARE CHECKED": it fills a plan with `0x33`, forces a refusal, and asserts
+every byte came back zero, citing the measured
+`request_count = 3689348814741910323` as "a length a caller iterates". Run
+alone against the sabotage it fails in under a second, on that assertion by
+name and twelve others. Writing a second test would have duplicated a better
+one -- and the first draft of this section said the guard "wants a test that
+fails fast", which was the wrong diagnosis stated confidently.
+
+**The defect was the harness, twice over.** `sim/test/network_test.c` walks
+`plan.request_count` at three sites, which is what a real consumer does --
+and with a corrupt plan that is an unbounded loop over memory nothing wrote.
+Worse, it runs BEFORE the unit tests of the modules it composes, so the
+twenty-two binaries after it never ran, `sync_test` among them. **The cost
+of trusting that number was not this scenario; it was every diagnostic
+behind it.**
+
+`sync.h` promises `request_count <= out_cap` and `add_range` keeps it, so
+the harness can check it for one comparison. It does now, and the sabotage
+went from a 600-second timeout to **1.8 seconds and 639 named failures**.
+`running-code.md` is the general form: the bound that matters lives inside
+the program, because a wrapper only guards the way somebody did not run it.
+
+**The ordering is worth stating and is not fixed here.** An integration
+harness that runs before the unit tests of what it integrates will always
+report the vaguer failure first, and here it prevented the precise one
+entirely. The bound above makes that harmless for this defect and not for
+the next one; whether `TEST_BINS` should put the composed suites last is a
+change to the suite's shape rather than a fix to a fault, so it is recorded
+rather than taken.
 
 That is a real answer about the guard and it broke the harness twice.
 
