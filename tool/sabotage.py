@@ -167,6 +167,47 @@ SABOTAGES = [
 		"\t/* sabotage */\n",
 		"*out points at a slot only on completion, and this is what makes that true",
 	),
+	# BATCH FOUR: the four table `_init`s, in modules the sweep had never
+	# touched. Same shape as prekey and ratchet -- zero a caller-supplied
+	# array, then set the fields that say how much of it is in use. Whether
+	# the zeroing is load-bearing depends on whether anything scans capacity
+	# rather than `used`, which is a question to answer by breaking it rather
+	# than by reading four lookup loops.
+	(
+		"state-init-zeroes-entries",
+		"state/state.c",
+		"\tmemset(entries, 0, capacity * sizeof(*entries));\n",
+		"\t/* sabotage */\n",
+		"init sets used=0; whether the array zeroing is also load-bearing",
+	),
+	(
+		"log-init-zeroes-entries",
+		"log/log.c",
+		"\tmemset(entries, 0, capacity * sizeof(*entries));\n",
+		"\t/* sabotage */\n",
+		"init sets used=0; whether the array zeroing is also load-bearing",
+	),
+	(
+		"link-init-zeroes-entries",
+		"link/link.c",
+		"\tmemset(entries, 0, capacity * sizeof(*entries));\n",
+		"\t/* sabotage */\n",
+		"init sets used=0; whether the array zeroing is also load-bearing",
+	),
+	(
+		"journal-init-zeroes-entries",
+		"record/journal.c",
+		"\tmemset(entries, 0, capacity * sizeof(*entries));\n",
+		"\t/* sabotage */\n",
+		"init sets used=0; whether the array zeroing is also load-bearing",
+	),
+	(
+		"spool-want-ceiling",
+		"spool/plan.c",
+		"\tif (want_count > FZN_SPOOL_MAX_WANT)\n\t\twant_count = FZN_SPOOL_MAX_WANT;\n",
+		"\t/* sabotage */\n",
+		"the ceiling on how many wants a peer can make this walk",
+	),
 	(
 		"prekey-peer-zero",
 		"prekey/prekey.c",
@@ -180,7 +221,25 @@ SABOTAGES = [
 # that a clean run reads as clean: an expected survivor reported as a finding
 # every time is how a report stops being read. Removing an id from here is
 # how you ask the question again.
-EXPECTED_SURVIVORS = {"manifest-sig-zero-sign"}
+EXPECTED_SURVIVORS = {
+	"manifest-sig-zero-sign",
+	# THE FOUR TABLE INITS, and they are one finding rather than four.
+	# Each zeroes a caller-supplied entry array and then sets `used = 0`.
+	# Measured: every loop in state.c, log.c, link.c and journal.c is bounded
+	# by `used` and none by `capacity`, so no path reads an entry past it and
+	# the zeroing is unobservable through the API today.
+	#
+	# Listed rather than tested, and rather than deleted. Four near-identical
+	# determinism tests would carry one rationale four times, and deleting
+	# the zeroing is what the NEXT person measuring exactly this will propose
+	# -- which is the risk the entries are here to keep visible. Whether they
+	# earn tests or removal is one decision about a shared pattern, not four
+	# taken in passing. project.md sec 39.
+	"state-init-zeroes-entries",
+	"log-init-zeroes-entries",
+	"link-init-zeroes-entries",
+	"journal-init-zeroes-entries",
+}
 
 
 def make_env():

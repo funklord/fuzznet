@@ -10584,6 +10584,72 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 39. Four guards that are one decision, 2026-08-31
+
+Batch four took the sweep into the modules it had never touched -- `state/`,
+`log/`, `link/`, `sched/`, `spool/` and `record/journal.c`. Five entries, one
+caught and four survived, and **the four survivors are one finding rather
+than four.**
+
+    spool-want-ceiling            CAUGHT     plan_test.c:382
+    state-init-zeroes-entries     SURVIVED
+    log-init-zeroes-entries       SURVIVED
+    link-init-zeroes-entries      SURVIVED
+    journal-init-zeroes-entries   SURVIVED
+
+`fzn_state_init`, `fzn_log_init`, `fzn_link_table_init` and
+`fzn_journal_init` are the same eight lines with four names: refuse a null
+or zero-capacity argument, `memset` the caller's entry array, then set
+`entries`, `capacity` and `used = 0`.
+
+**Measured rather than reasoned: every loop in the four modules is bounded
+by `used`, and none by `capacity`.** Ten loops across the four files. So no
+path reads an entry past `used`, and the zeroing cannot be observed through
+the API as the code stands. That is why removing it changes no result.
+
+### Why they are listed rather than tested
+
+The tree's precedent points at a test. Sec 11 records reassembly's
+`admit_first`, where `release` already did the clearing and the answer was a
+case that reaches the dirty state directly; sec 36 and 37 did the same for
+`fzn_prekey_peer_init` and `fzn_ratchet_init`, both on the argument that the
+"written before read" reasoning is a property of TODAY's code.
+
+That argument holds here too. What does not is the shape of the remedy.
+**Four near-identical determinism tests would carry one rationale four
+times**, in four suites, and the rationale is the whole value -- the
+assertion itself is three lines. A suite that grows four copies of one
+paragraph is one nobody reads for intent, which is the cost `evidence.md`
+warns about from the other direction.
+
+**And the risk they guard against is worth naming precisely, because it is
+not a runtime fault.** Nothing can observe these memsets today. The exposure
+is that **the next person to measure exactly what was measured above will
+conclude they are dead and remove them** -- and if a lookup that scans
+`capacity` is ever added, a free-slot search being the obvious one, the
+zeroing is what would have made it correct. The entries keep that visible in
+a place somebody runs, which a comment in four files would not.
+
+So they are `EXPECTED_SURVIVORS` in `tool/sabotage.py`, with the measurement
+and the reason recorded once beside them. `make sabotage` stays green and
+says nothing about them until something catches one, at which point it asks
+for the entry to be taken off the list.
+
+**Whether they earn four tests, or removal, is one decision about a shared
+pattern and it is the holder's.** Taking it in passing is what
+`harmonization.md` forbids for a change that would set a pattern the others
+follow, and the same logic applies inside one tree: four modules doing one
+thing identically is a convention, and a session that happens to be sweeping
+is not where a convention gets changed.
+
+### The one that was caught is worth a line
+
+`spool/plan.c`'s `want_count > FZN_SPOOL_MAX_WANT` ceiling is held by
+`plan_test.c:382`, which drives 264 ranges at a 256-range bound and asserts
+what comes back. That is the anti-amplification rule `record/sync` paid for,
+tested where it is spelled -- so the sweep's first pass through `spool/`
+found its bound already defended.
+
 ## 38. What a refused call owes the caller, audited, 2026-08-31
 
 Sec 37's persist finding was a module's behaviour toward its OUTPUT on a
