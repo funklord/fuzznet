@@ -240,6 +240,53 @@ static void test_open_refuses_what_is_not_our_shape(void)
 	      "putting the tag back did not restore the control");
 }
 
+/* INIT IS TOTAL: the peer it produces does not depend on what the memory
+ * held.
+ *
+ * `fzn_prekey_peer_init` zeroes the whole struct and then calls
+ * `fzn_trust_init` on the trust half. The zeroing therefore contributes
+ * exactly `prekey` and `created_at` -- and both are written before they are
+ * read on every path through `fzn_prekey_pin`, so removing it leaves all 63
+ * binaries green. It was measured that way before this test was written.
+ *
+ * That makes it defence in depth, and the reason to hold it to account
+ * rather than delete it is what it defends: the "written before read"
+ * argument above is a property of TODAY's `fzn_trust_t` and of
+ * `fzn_trust_init` covering all of it. A field added to either that init
+ * does not set would be caught by this zeroing and by nothing else, and
+ * would surface as a peer that inherits a stale `created_at` -- which
+ * `fzn_prekey_pin` reads as a rollback and refuses, so a legitimate
+ * rotation would be dropped on a peer whose memory happened to be dirty.
+ *
+ * project.md sec 11 records the same shape in reassembly's `admit_first`,
+ * where `release` already did the clearing: a guard that is correct, that
+ * nothing holds to account, and that a later change quietly makes
+ * load-bearing.
+ *
+ * The comparison is against a peer initialised from ZEROED memory, which is
+ * the reference every caller of a `_init` believes it is getting. Asserting
+ * the whole struct rather than the two fields is deliberate: naming them
+ * would go stale the moment one is added, which is the failure this is
+ * defending against in the first place. */
+static void test_init_does_not_depend_on_what_the_memory_held(void)
+{
+	fzn_prekey_peer_t dirty, clean;
+
+	memset(&dirty, 0xab, sizeof(dirty));
+	memset(&clean, 0, sizeof(clean));
+
+	fzn_prekey_peer_init(&dirty);
+	fzn_prekey_peer_init(&clean);
+
+	/* The control: 0xab must actually differ from what init writes, or an
+	 * agreement below would be agreement between two copies of nothing. */
+	CHECK(sizeof(dirty) > 0 && ((const unsigned char *)&clean)[0] != 0xab,
+	      "the dirty pattern is what init writes, so this test cannot fail");
+	CHECK(memcmp(&dirty, &clean, sizeof(dirty)) == 0,
+	      "init left the caller's bytes behind, so a peer's state depends on "
+	      "what its memory happened to hold");
+}
+
 static void test_first_use_pins_and_records_how(void)
 {
 	struct fixture f;
@@ -457,6 +504,7 @@ int main(void)
 	test_every_signed_byte_is_signed();
 	test_a_record_signed_by_another_host_is_refused();
 	test_open_refuses_what_is_not_our_shape();
+	test_init_does_not_depend_on_what_the_memory_held();
 	test_first_use_pins_and_records_how();
 	test_a_rotation_is_accepted_and_a_rollback_is_not();
 	test_a_rotation_does_not_launder_provenance();

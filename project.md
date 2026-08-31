@@ -10584,6 +10584,133 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 36. A sabotage sweep aimed by the last bug, 2026-08-31
+
+The build-system findings above were all one shape -- a check that cannot
+report the gap it exists for. `working-practice.md` says to derive the next
+lens from the last bug rather than from a list decided in advance, so the
+same lens was pointed at the library: **a guard whose removal nothing
+notices.** Seven mutations, each rebuilt through `make test`.
+
+### The harness, and the two things it had to get right
+
+**A mutation that does not apply and a check that cannot fail are
+indistinguishable from the output.** Sec 4 of this file already records one
+of those -- a pattern for `peer.c` that matched nothing while the sweep
+reported a clean result. So every mutation is asserted to have changed the
+file's hash on disk before the build starts, and every restore is asserted
+to bring the hash back.
+
+**Everything goes through `make test`.** `build-and-commit.md` is explicit
+that a claim about a test must not come from a binary the build step did not
+rebuild, and this is exactly the sweep that would otherwise re-run 63 stale
+ones.
+
+### The controls, because here a GREEN suite is the finding
+
+This is the inverted case and it is worth naming, because the usual
+instinct is backwards. Everywhere else a passing check is the thing to
+distrust; in a sabotage sweep the *survivor* is the result, so a harness
+that silently mutated nothing would report seven findings and be wrong about
+every one of them.
+
+Two controls, chosen to fail through different machinery:
+
+    CONTROL-wipe        removes an fzn_wipe    -> codegen_gate, "2 + 1 wipe calls"
+    CONTROL-delegable   inverts delegable      -> chain_test's assertions
+
+Both were caught, and by the two different gates, so the suite and the
+codegen tripwire were each shown to be live before any survivor was
+believed.
+
+### Four caught, three survived, and the shape of the split
+
+    hop-sig-zero             CAUGHT     chain_test
+    hop-refused-clear        CAUGHT     chain_test.c:1634
+    manifest-sig-zero-sign   SURVIVED
+    manifest-refused-clear   SURVIVED
+    prekey-peer-zero         SURVIVED
+
+**`chain/chain.c`'s guards are defended and `chain/manifest.c`'s identical
+ones are not.** Same guard, same comment almost word for word, one module
+held to account and its sibling not. That is what makes the gap a test gap
+rather than a design question: nobody has to decide whether the guard is
+wanted, because the answer is already written down next door.
+
+**And the machinery was already there.** `manifest_test.c`'s stub carries a
+`can_sign` flag; `fixture_init` sets it to 1 and **nothing has ever set it
+to 0**, so the refusal branch of `fzn_manifest_issue` was unreachable from
+that file. The flag was written for a test that was never finished.
+
+**One mechanism was nearly attributed wrongly, which is worth keeping.**
+`fail_on_call` in `chain_test.c` is only ever reset to 0, never set, and no
+`manifest_fuzz` exists -- so the obvious explanation for the chain half
+being defended was `chain_fuzz`, whose line 604 asserts that a refused chain
+leaves `*out` untouched. Plausible, and wrong. Re-running the single
+sabotage and reading which binary failed named `chain_test.c:1634` instead.
+**A comfortable explanation that ends an investigation is more expensive
+than no explanation**, and this one cost a single build to disprove.
+
+### What was written
+
+**`manifest_test.c` gains the refusing-signer case**, modelled on the chain
+one including the part that matters: **the buffer is dirtied with `0xab`
+first.** Against a zeroed buffer the guard is indistinguishable from its own
+absence, because the bytes it writes are the bytes already there -- so the
+obvious version of this test passes with the clear deleted and proves
+nothing. Proven both ways: 263 checks green on correct code, and
+`FAIL manifest_test.c:886` with the `memset` removed.
+
+**`prekey_test.c` gains "init is total".** `fzn_prekey_peer_init` zeroes the
+struct and then calls `fzn_trust_init` on the trust half, so the zeroing
+contributes exactly `prekey` and `created_at` -- both written before they
+are read on every path through `fzn_prekey_pin`, which is why removing it
+changed nothing. It is kept and tested rather than deleted, because the
+"written before read" argument is a property of TODAY's `fzn_trust_t`: a
+field added that `fzn_trust_init` does not set would be caught by this
+zeroing and by nothing else, and would surface as a peer inheriting a stale
+`created_at`, which `fzn_prekey_pin` reads as a rollback and refuses. A
+legitimate rotation dropped because the caller's memory was dirty.
+
+The test compares a peer initialised from `0xab` memory against one from
+zeroed memory and asserts the whole struct rather than the two fields --
+naming them would go stale the moment a third is added, which is the
+failure being defended against. Proven both ways: 154 checks green, and
+`FAIL prekey_test.c:285` with the `memset` removed.
+
+### The third survivor is NOT a defect, and saying so is the point
+
+**`manifest-sig-zero-sign` is genuinely unobservable, and it is recorded
+here so the next sweep does not spend a day rediscovering it.**
+`fzn_manifest_issue` zeroes the signature area, opens the bytes it just
+wrote to check their ordering, then signs into that area. Every path
+overwrites or clears it: signing succeeds and the signature lands on top;
+signing is refused and the whole record is cleared a few lines below; the
+open fails and the buffer is not a manifest either way, the signed range
+excluding the signature field so its contents cannot change what `open`
+decides. The suite passing without it is correct rather than a gap.
+
+**No test was written for it, deliberately.** A test manufactured to reach
+an unreachable state would assert something the code does not promise, and
+a suite that grows those is one nobody can read for intent later.
+
+### What this sweep did not do
+
+Seven guards out of 347 error returns across 39 sources. The seven were
+chosen by the lens -- cleanup on a refusal path, and a predicate that might
+duplicate a parser -- and not by coverage, so **this is a sample and the
+three findings are what one afternoon of one lens produced**, not a census.
+The harness is in a scratch directory rather than the tree; whether it earns
+a place in `tool/` is a decision for the holder, and the argument for it is
+`evidence.md`'s: what a standing harness buys is not care, it is the removal
+of the moment where care is a choice.
+
+**One structural observation, whose decision it is not mine to take.** There
+are eleven fuzz harnesses and none for `manifest/`, which is the module both
+test gaps were in. Whether that is worth a twelfth is a question about where
+this library's risk actually sits, not one to settle from inside a sweep
+that happened to land there.
+
 ## 35. A guard that runs after the damage, 2026-08-31
 
 `build-and-commit.md` asks a `clean`-like target to verify its directory

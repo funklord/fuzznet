@@ -834,6 +834,59 @@ static void test_issue_derives_from_the_issuers_own_store(void)
  * An unreadable store yields no matching entries, and no entries is a signed
  * statement that this key has revoked nothing -- published under the issuer's
  * own signature and indistinguishable from the truth at every receiver. */
+/* A SIGNER THAT REFUSES MUST LEAVE NOTHING A READER WOULD OPEN.
+ *
+ * `fzn_manifest_issue` lays the body down before it signs, so a caller who
+ * ignored the return code would otherwise hold a well-formed manifest
+ * carrying whatever the buffer had in it. manifest.c clears the record on
+ * that path, and until now nothing here held it to that: sabotaging the
+ * `memset` away left all 63 binaries green.
+ *
+ * chain_test.c has this case for `fzn_chain_mint` and has had it for some
+ * time -- same guard, same comment, same shape -- which is what makes the
+ * gap a test gap rather than a design question. The stub has carried a
+ * `can_sign` flag the whole time; `fixture_init` sets it to 1 and nothing
+ * ever set it to 0, so the refusal branch was unreachable from this file.
+ *
+ * THE BUFFER IS DIRTIED FIRST, and that is the whole test. Against a zeroed
+ * buffer the guard is indistinguishable from its own absence, because the
+ * bytes it writes are the bytes already there -- so a version of this case
+ * that skipped the memset below would pass with the clear deleted and prove
+ * nothing. */
+static void test_a_refusing_signer_leaves_no_manifest_behind(void)
+{
+	struct fixture f;
+	static uint8_t bytes[FIXTURE_BYTES];
+	fzn_manifest_record_t rec;
+	uint8_t cap_a[FZN_CAP_ID_LEN];
+	uint8_t g5[FZN_PUBKEY_LEN];
+	size_t len = 0;
+
+	fixture_init(&f);
+	capability_id(cap_a, 0x10);
+	key(g5, 5);
+	revoke(&f, f.root, cap_a, g5);
+
+	/* The positive control: with a willing signer this same call produces
+	 * a manifest that opens. Without it, the refusal below is satisfied by
+	 * an issue that never worked in the first place. */
+	f.stub.identity = 0;
+	CHECK(fzn_manifest_issue(f.root, &f.store, &f.sign, bytes, sizeof(bytes), &len) ==
+	              FZN_MANIFEST_OK,
+	      "the control manifest was not issued, so the refusal proves nothing");
+	CHECK(fzn_manifest_open(bytes, len, &rec) == FZN_MANIFEST_OK,
+	      "the control manifest will not open, so the refusal proves nothing");
+
+	f.stub.identity = 0;
+	f.stub.can_sign = 0;
+	memset(bytes, 0xab, sizeof(bytes));
+	CHECK(fzn_manifest_issue(f.root, &f.store, &f.sign, bytes, sizeof(bytes), &len) ==
+	              FZN_MANIFEST_ERR_SIGNATURE,
+	      "a refusing signer still produced a manifest");
+	CHECK(fzn_manifest_open(bytes, FZN_MANIFEST_LEN(1), &rec) != FZN_MANIFEST_OK,
+	      "a refused issue left something that opens as a manifest");
+}
+
 static void test_issue_refuses_a_store_it_cannot_read(void)
 {
 	struct fixture f;
@@ -1822,6 +1875,7 @@ int main(void)
 	test_encode_refuses_what_open_would();
 	test_issue_derives_from_the_issuers_own_store();
 	test_issue_refuses_a_store_it_cannot_read();
+	test_a_refusing_signer_leaves_no_manifest_behind();
 	test_issuing_is_deterministic();
 	test_following_is_deliberate();
 	test_the_deficit_is_what_this_host_lacks();
