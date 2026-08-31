@@ -10584,6 +10584,192 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 30. Stream derivation: recipes, descriptors, and what must not be derived, 2026-08-31
+
+Reached by asking whether the compound-position idea generalises to filtered
+logs. It does, and **it closes a question this file already had open**, which
+is what makes it worth adopting rather than merely coherent.
+
+### It answers sec 5i's COARSE question
+
+That section raised per-peer precision degradation -- "city-level to one peer,
+exact to another" -- as **"raised, not designed"** and bigger than the module
+it was noticed in, framing it as a permissions question rather than a
+telemetry one. Under derived streams it stops being hard: a coarse position is
+a DERIVED STREAM, and "who gets which fidelity" becomes **which streams a peer
+may follow** -- a permission over a stream, which anchoring and capabilities
+already express. No per-recipient byte degradation and no COARSE machinery.
+
+Three distinct uses -- fusion, filtering, fidelity -- is the bar sec 5i itself
+set for streams: two kinds would be a coincidence, three is a claim.
+
+### Terminology
+
+- **Source stream** -- readings from something that can fail on its own.
+- **Derived stream** -- records computed from one or more other streams.
+- **Recipe** -- the canonical description of a derivation. ONE PER STREAM, for
+  the life of that stream.
+- **Descriptor** -- the record announcing a stream's role and, for a derived
+  stream, its recipe.
+
+"Compound" is not a category; it is one KIND of derivation:
+
+| kind | shape | example recipe |
+|---|---|---|
+| **fuse** | N to 1 | `v1 fuse wmean gnss:3=800 cell:5=200` |
+| **filter** | 1 to 1, selecting | `v1 filter src:2 from=1 sev>=warn` |
+| **merge** | N to 1, interleaving | `v1 merge src:2 src:4 by=issued` |
+| **reduce** | 1 to 1, transforming | `v1 reduce quantise src:7 grid=1000m` |
+
+### A recipe change opens a new stream, and that is how history "changes"
+
+An append-only log with per-issuer sequences cannot have history rewritten --
+followers have applied those sequences already. So a configuration change
+**never mutates a stream; it opens a new one, sequenced from 1.** The holder's
+three listener actions then need no new mechanism, because they are operations
+that already exist:
+
+| the listener wants | the mechanism |
+|---|---|
+| drop the older one | stop anchoring the old stream |
+| store it away | keep its records; it ages out on its own retention |
+| fetch the rewritten history | anchor the new stream, catch up oldest-first |
+
+The cheap case falls out of the same rule: a publisher that changes config and
+does not backfill simply starts the new stream at the current moment.
+
+**Raw retention bounds re-derivation.** History can only be re-derived while
+its sources are still held, so "retain raw briefly, compound long" trades away
+the ability to re-derive. That is a real operational choice and not a free one.
+
+### Dense numbering from 1, with the origin pinned -- the log case revealed this
+
+A fusion emits one record per tick and is naturally dense. **A filter selects a
+subset**, and that is where it bites: a derived stream inheriting its source's
+sequence numbers has HOLES, and in this design *a gap is not an error, it is an
+instruction* -- so `record/sync` would chase records that were deliberately
+filtered away, forever, because they do not exist.
+
+So: **a derived stream is densely numbered from 1, and the recipe pins its
+origin** (`from=1` above). Without the pin, re-deriving from a different start
+silently renumbers everything and two followers who began at different times
+disagree about what record 500 is.
+
+That also makes **lazy materialisation safe**: a publisher need not compute a
+derived stream nobody follows, and may compute it on first request, because
+the numbering is a deterministic function of the recipe rather than of when it
+was run. With five logs at four severities apiece, that matters.
+
+### The recipe format, and the four rules it must satisfy
+
+The holder's sketch was `GNSS=0.8,GSM=0.2`. Four changes, each with a rule
+this tree already applies elsewhere:
+
+1. **Name the algorithm.** Weights are meaningless without knowing whether it
+   is a weighted mean, a Kalman filter or pick-best-above-threshold.
+2. **Integer per-mille, not floats.** `0.8`, `0.80` and `8e-1` are one recipe
+   and three strings. `chain.h` refuses exactly this shape for `delegable`:
+   "255 encodings of one grant exist... Refusing here leaves exactly one."
+   Integers also sum to a checkable 1000.
+3. **Reference streams by number**, not by a role word -- `gnss:3` says which
+   stream, where `GNSS` says only what somebody called it.
+4. **Sort, and version the grammar.** Unsorted, two hosts with identical
+   fusion publish different strings and every listener believes the config
+   changed. The `v1` prefix makes a grammar change loud, which is why
+   `session/commitment.c` puts its version digit inside the domain label.
+
+**Canonicality is the whole property**: one recipe, exactly one byte string.
+A listener then needs only `memcmp` to answer "did the derivation change?",
+which is the only question the three actions above require. Parsing is for
+humans and for troubleshooting, never for the decision.
+
+### Descriptors, and where they live -- measured, and it changed the answer
+
+Descriptors ARE the self-describing stream directory, which answers the
+stream-numbering question raised earlier: a follower anchoring "host X, stream
+3" needs to know what X means by 3.
+
+**Reserving stream 0 for descriptors was the obvious answer and is wrong.**
+Measured: stream 0 has no special meaning in `record/`, and it is what the
+tests use as the ordinary default -- 11 of 14 anchors. Making it the
+descriptor stream collides with the natural "just use 0" pick that already
+exists in practice.
+
+**Reserve the TOP of the uint32 range instead**, which is the split this tree
+already made and validated for the signed-object tag space, where
+`FZN_OBJECT_IS_LIBRARY` gives the library 128 and up and leaves 1..127 to the
+consumer. Observed stream picks are 0, 4, 7 and 9, so a high reservation
+cannot collide with anything an issuer would choose freely.
+
+### What must NOT be derived, and it is a hard boundary
+
+**Never derive a stream that carries authority.**
+
+A filtered permission stream that drops a revocation is **byte-identical to
+one that never saw it.** The safety of `chain/` plus `record/` rests on a
+revocation being a positive statement that propagates; a derivation whose job
+is omission destroys exactly that, and the failure is silent and fail-open.
+
+Telemetry and logs are safe to derive because omission there costs fidelity.
+Permissions are not, because omission there costs authority. **Derivable and
+non-derivable are part of the terminology, not a matter of judgement.**
+
+### Inherited hazard, and two open items
+
+Derived-from-derived is natural -- filtering a merge -- and brings back the
+cycle problem from the "my position follows that host" indirection: a recipe
+transitively naming its own stream. Bound the depth or detect the cycle, and
+fail to NO STREAM rather than to a loop.
+
+Open, and named so they are not silently decided:
+
+- **Recipe digest per record, or descriptor only?** Descriptor-only is smaller
+  and cannot disagree with itself, since a stream has one recipe by
+  construction. It loses self-description for a record separated from its
+  stream -- copied into another log, forwarded out of band. An 8-byte digest
+  on each record buys that back.
+- **Is the algorithm vocabulary shared across trees?** Weights mean nothing
+  without the algorithm name, and if netcfgd and fuzzypickles spell one fusion
+  differently, cross-project diagnosis breaks. `harmonization.md` says a
+  cross-tree naming decision is not one to make in passing.
+
+### What this costs the library: nothing yet
+
+Bodies are opaque to `record/`, so a recipe and a descriptor are consumer
+encodings exactly as sec 5i keeps the position fix's encoding out. What is
+shared is the METHODOLOGY -- canonical spelling, integer weights, named
+algorithm, streams by number, versioned grammar, recipe-change-means-new-
+stream, dense-from-1 with a pinned origin, and the derivable boundary.
+
+### Positioning, resolved by the above
+
+The original ask -- absorb a positioning service and add network positioning
+-- needs no module, which sec 5i established by building one and finding
+nothing missing. What the last exchanges settled on top of that:
+
+- **Two disparate sources are free.** A journal is keyed `(issuer, stream)`
+  and `stream` is a uint32 the issuer picks, so GNSS and network positioning
+  are two streams under one issuer with independent sequences, high-water
+  marks, catch-up and staleness. A follower may follow one and not the other.
+- **Publish the raw sources AND a compound.** An unsubscribed stream costs an
+  uninterested follower nothing, so raw sources are worth publishing for
+  diagnosis -- which is what lets an operator troubleshoot a remote host whose
+  fused answer is wrong. The compound is what everyone anchors normally.
+- **The compound is virtual locally and materialised on the wire.** A remote
+  follower anchoring only the compound has nothing to derive it from.
+- **GSM/LTE is not automatically a third stream.** The boundary is where a
+  FOLLOWER must decide differently; where only the PUBLISHER must, that is
+  fusion and happens before publishing. Which sources contributed belongs in
+  the body's flags, at zero streams and full detail.
+- **Retention differs per stream** for free, since sequencing is per stream:
+  the compound path is what you keep, the raw sources are diagnostic.
+- **A client fetches nothing.** A GUI beside a daemon on one phone arrives as
+  `FZN_ORIGIN_SAME_USER` or `FZN_ORIGIN_LOCAL` and asks the daemon, so there is
+  no second position reader and no indirection needed for that case. The
+  "my position follows that host" indirection earns its place on the
+  MULTI-HOST one-site case instead, and its design -- one hop or arbitrary
+  depth -- is still the holder's.
+
 ## 29. Streaming and downloading: one substrate, two policies, 2026-08-31
 
 The holder named the two modes and they are not two mechanisms:
