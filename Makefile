@@ -278,7 +278,6 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/chunk/test/reassembly_guided \
              $(BUILD_DIR)/chain/test/chain_guided \
              $(BUILD_DIR)/frame/test/freshness_guided \
-             $(BUILD_DIR)/sim/test/network_test \
              $(BUILD_DIR)/record/test/journal_test \
              $(BUILD_DIR)/record/test/record_test \
              $(BUILD_DIR)/record/test/sync_test \
@@ -573,8 +572,7 @@ MONO_GOLD  := $(BUILD_DIR)/wire/test/golden_frame_test
 MONO_REAL  := $(BUILD_DIR)/sim/test/real_crypto_test
 OBJS       += $(MONO_OBJS)
 TEST_OBJS  += $(MONO_TOBJ)
-TEST_BINS  += $(MONO_BIN) $(MONO_HASH) $(MONO_AEAD) $(MONO_AGREE) $(MONO_GOLD) \
-              $(MONO_REAL)
+TEST_BINS  += $(MONO_BIN) $(MONO_HASH) $(MONO_AEAD) $(MONO_AGREE) $(MONO_GOLD)
 CPPFLAGS   += -I$(MONOCYPHER_DIR)/src
 
 # Vendored, so it is compiled with its own terms rather than ours.
@@ -1313,6 +1311,33 @@ test: codegencheck runtests
 # about -- bending the world around a check rather than asking what the
 # check can be right about. `test` still runs it first, which is where it
 # belongs.
+# THE COMPOSED SUITES RUN LAST, and this append is deliberately the final
+# word on TEST_BINS rather than a line in the list above -- the subsystem and
+# Monocypher blocks append after that list, so anything placed there would
+# still have unit tests behind it.
+#
+# WHY THE ORDER IS LOAD-BEARING AT ALL. `runtests` stops at the first binary
+# that fails, so the order decides which diagnostic a reader gets. sim/ walks
+# the whole library through scenarios; a failure there says a session did not
+# converge. The per-module suites say which function broke and on what input.
+# When one defect fails both, the second is the one worth printing, and until
+# now the first was printed instead.
+#
+# MEASURED, AND IT COST MORE THAN A WORSE MESSAGE. `sim/test/network_test`
+# sat mid-list, ahead of record/, state/, trust/, log/, sched/ and link/.
+# Sabotaging record/sync.c's plan clearing took it past any bound, so the
+# twenty-two binaries behind it never ran -- including record/test/sync_test,
+# which catches that same defect by name in under a second and had been
+# written for it years' worth of commits earlier. The harness is bounded now
+# (see plan_requests there), so that particular defect fails fast either way;
+# the ordering is what stops the NEXT one hiding behind it.
+#
+# $(MONO_REAL) is sim/test/real_crypto_test and joins it here rather than in
+# the Monocypher block above, so that "every per-module suite runs before
+# every composed one" holds however this tree is configured. It expands to
+# nothing when the bindings are not built.
+TEST_BINS += $(BUILD_DIR)/sim/test/network_test $(MONO_REAL)
+
 runtests: $(TEST_BINS)
 	@for t in $(TEST_BINS); do echo "running $$t"; $$t || exit 1; done
 	@# SAY WHEN THE MONOCYPHER BINDINGS WERE NOT BUILT, rather than leaving

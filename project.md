@@ -10737,13 +10737,32 @@ went from a 600-second timeout to **1.8 seconds and 639 named failures**.
 `running-code.md` is the general form: the bound that matters lives inside
 the program, because a wrapper only guards the way somebody did not run it.
 
-**The ordering is worth stating and is not fixed here.** An integration
-harness that runs before the unit tests of what it integrates will always
-report the vaguer failure first, and here it prevented the precise one
-entirely. The bound above makes that harmless for this defect and not for
-the next one; whether `TEST_BINS` should put the composed suites last is a
-change to the suite's shape rather than a fix to a fault, so it is recorded
-rather than taken.
+**~~The ordering is worth stating and is not fixed here.~~ Taken on the
+holder's instruction.** An integration harness that runs before the unit
+tests of what it integrates will always report the vaguer failure first, and
+here it prevented the precise one entirely. The bound above makes that
+harmless for THIS defect and not for the next one, which is the argument for
+moving the order as well as bounding the loop.
+
+`TEST_BINS` now appends the composed suites -- `sim/test/network_test` and
+`sim/test/real_crypto_test` -- **after every conditional block rather than
+inside the list**, because the subsystem and Monocypher appends come after
+it and anything placed in the list would still have unit tests behind it.
+`$(MONO_REAL)` moved out of the Monocypher append for the same reason and
+expands to nothing when the bindings are off.
+
+The invariant is stated so it can be checked rather than read: **every
+per-module suite runs before every composed one.** Measured in both
+configurations -- with the bindings, 61 per-module then 2 composed; without,
+`network_test` last of 57.
+
+**What it buys, on the defect that motivated it.** The same sabotage that
+once hung the suite for 600 seconds with no output now stops it at
+`record/test/sync_test` in 1.7 seconds, 43 binaries in, naming the
+assertions written for exactly that fault. `runtests` stops at the first
+failure, so the order decides which diagnostic a reader gets; sim/ says a
+session did not converge, and the per-module suites say which function broke
+and on what input.
 
 That is a real answer about the guard and it broke the harness twice.
 
