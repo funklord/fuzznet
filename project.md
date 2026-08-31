@@ -8747,15 +8747,45 @@ preserved whether or not it is right.**
   vacuous check, because every key verified everything. It is worth
   writing now and was not worth writing yesterday.
 
-- **Two gaps this sweep did NOT close, both named rather than left.**
-  `sim/test/network_test.c`'s `sim_identity` is still the
-  `memset(out, id, 32)` idiom, feeding the integration harness's root
-  and every host key -- so the end-to-end suite remains unable to catch
-  a truncated comparison in whatever it exercises. And
-  `FZN_CAP_ID_LEN == FZN_PUBKEY_LEN == 32`, so a SWAPPED length constant
-  is undetectable by any fixture; closing that needs the constants to
-  differ or a compile-time distinction between the two types, and no
-  test can do it.
+- **~~Two gaps this sweep did NOT close~~ -- ONE of them is closed, and
+  this entry had gone stale. Re-measured 2026-09-01.**
+
+  The first half said `sim/test/network_test.c`'s `sim_identity` was
+  still the `memset(out, id, 32)` idiom, leaving the end-to-end suite
+  unable to catch a truncated comparison. **It is not, and has not been
+  for some time.** `sim_identity` spreads the id across the whole key,
+  `sim_near_identity` produces a second identity agreeing on every byte
+  but the last, and five call sites use it -- including the root, the
+  splice scenario's two senders and a grantor.
+
+  **Verified by re-running the experiment the entry itself describes**,
+  rather than by reading either the code or the comment beside it.
+  Truncating `chunk/reassembly.c`'s
+  `memcmp(slot->sender, sender, FZN_SENDER_LEN)` to `1u`:
+
+      network_test       FAIL: both near-miss senders' messages should have arrived
+      reassembly_test    FAIL reassembly_test.c:415
+
+  The entry records that this same sabotage once left network_test at
+  "172 checks and 0 failures". It fails now, so the integration level
+  sees it, and `tool/sabotage.py` carries the mutation as
+  `reasm-sender-compare-length` so that it goes on being seen. That is
+  a different question from batch five's `reasm-lookup-ignores-sender`:
+  one asks whether the comparison happens, this asks whether it reads
+  the whole key, and a fixture can answer one and not the other.
+
+  **The second half stands.** `FZN_CAP_ID_LEN == FZN_PUBKEY_LEN == 32`,
+  re-checked, so a SWAPPED length constant changes no behaviour and is
+  undetectable by any fixture. Closing it needs the constants to differ
+  or a compile-time distinction between the two types, and no test can
+  do it.
+
+  **What is worth keeping is that the entry aged in the direction that
+  flatters nobody**: it named a real gap, somebody closed it, and the
+  record went on reporting it as open -- so a reader would have spent a
+  day rebuilding what was already there. This file's own rule, that a
+  fact recorded without its method has a shelf life, applies to its open
+  list first.
 
 - **`make installcheck` failed when Monocypher was built. FIXED
   2026-08-27, and fixing it found something worse.**

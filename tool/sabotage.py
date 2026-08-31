@@ -246,6 +246,20 @@ SABOTAGES = [
 		"\t\t    1)\n",
 		"the issuer term in the journal lookup",
 	),
+	# THE LENGTH, not the term. Batch five asks whether a key comparison
+	# happens at all; this asks whether it reads the whole key. They are
+	# different questions and a fixture can answer one and not the other --
+	# two identities differing at byte 0 decide the term and say nothing
+	# about the length. project.md sec 14 recorded the integration harness
+	# as unable to see this; `sim_near_identity` closed it and this entry is
+	# what keeps it closed.
+	(
+		"reasm-sender-compare-length",
+		"chunk/reassembly.c",
+		"\t\t    memcmp(slot->sender, sender, FZN_SENDER_LEN) == 0)\n\t\t\treturn slot;\n",
+		"\t\t    memcmp(slot->sender, sender, 1u) == 0)\n\t\t\treturn slot;\n",
+		"the sender comparison must read the whole key, not its first byte",
+	),
 	(
 		"reasm-lookup-ignores-sender",
 		"chunk/reassembly.c",
