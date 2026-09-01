@@ -2243,6 +2243,154 @@ static void test_a_want_list_is_answered_by_a_peer_that_holds_some(void)
 	              == FZN_MANIFEST_ERR_MALFORMED, "a null plan was not refused");
 }
 
+/* THE WHOLE LOOP, ACROSS TWO PEERS NEITHER OF WHICH HOLDS EVERYTHING.
+ *
+ * The two tests above each use ONE peer: one proves the cursor sweeps, one
+ * proves a want list is answered. Both are single-peer cases, and a network
+ * is not -- the reason a host asks more than one peer is that no single peer
+ * has the whole set, which is exactly the case neither test covers.
+ *
+ * WHAT IT DOES NOT TEST IS THE CURSOR, and the first draft of this comment
+ * claimed it did. Measured: disabling the cursor -- `from = 0` on every call
+ * -- leaves this case GREEN and fails only the sweep test above.
+ *
+ * The reason is worth keeping, because it is why a fetch loop is easier to
+ * get right than it looks: **admitting a revocation DRAINS the deficit**, so
+ * the table shrinks under a fixed window and the next call sees new pairs
+ * anyway. The cursor earns its place where nothing drains -- a peer that
+ * holds none of what it was asked for, which is the case the sweep test
+ * builds deliberately. Here every pair is held by one of the two peers, so
+ * something drains every round and the window advances by consumption rather
+ * than by the cursor.
+ *
+ * So this test proves the PAIR converges across peers, and the sweep test
+ * proves the cursor covers a deficit nothing is draining. Two properties,
+ * two tests, and the comment said one of them twice until it was checked.
+ */
+static void test_two_partial_peers_between_them_complete_the_set(void)
+{
+	struct fixture issuer, a, b, joiner;
+	static uint8_t bytes[FIXTURE_BYTES];
+	fzn_manifest_record_t rec;
+	fzn_cap_id_t cap[4];
+	uint8_t grantee[4][FZN_PUBKEY_LEN];
+	uint8_t rev[4][FZN_REVOCATION_LEN];
+	fzn_manifest_pair_t window[2];
+	fzn_manifest_deficit_t asks[2];
+	fzn_manifest_offer_t plan;
+	uint8_t holds[2];
+	size_t len = 0, dropped = 0, next = 0, i, j;
+	unsigned round;
+
+	/* The issuer revokes four. */
+	fixture_init(&issuer);
+	for (i = 0; i < 4; i++) {
+		capability_id(&cap[i], (uint8_t)(0xd0u + i));
+		key(grantee[i], (uint8_t)(0xe0u + i));
+		revoke(&issuer, issuer.root, &cap[i], grantee[i]);
+	}
+	issuer.stub.identity = 0;
+	CHECK(fzn_manifest_issue(issuer.root, &issuer.store, &issuer.sign, bytes,
+	                         sizeof(bytes), &len) == FZN_MANIFEST_OK, "issue");
+	CHECK(fzn_manifest_open(bytes, len, &rec) == FZN_MANIFEST_OK, "open");
+	for (i = 0; i < 4; i++)
+		CHECK(fzn_revocation_issue(issuer.root, &cap[i], grantee[i], 1000,
+		                           &issuer.sign, rev[i]) == FZN_CHAIN_OK, "issue rev");
+
+	/* TWO PEERS SPLITTING THE SET, and neither can finish the joiner alone. */
+	fixture_init(&a);
+	fixture_init(&b);
+	a.stub.identity = 0;
+	b.stub.identity = 0;
+	for (i = 0; i < 2; i++)
+		revoke(&a, issuer.root, &cap[i], grantee[i]);
+	for (i = 2; i < 4; i++)
+		revoke(&b, issuer.root, &cap[i], grantee[i]);
+
+	fixture_init(&joiner);
+	joiner.stub.identity = 0;
+	CHECK(fzn_manifest_follow(&joiner.manifest, issuer.root) == FZN_MANIFEST_OK, "follow");
+	CHECK(fzn_manifest_admit(&joiner.manifest, NULL, rec, &joiner.sign) == FZN_MANIFEST_OK,
+	      "admit");
+	CHECK(fzn_manifest_pending(&joiner.manifest, issuer.root) == 4, "deficit is not four");
+
+	/* Alternate peers, two wants at a time, feeding the cursor back. Six
+	 * rounds is three laps of a four-pair deficit at a window of two, which
+	 * is more than convergence needs and less than a loop that stalls would
+	 * survive. */
+	for (round = 0; round < 6u; round++) {
+		struct fixture *peer = (round & 1u) ? &b : &a;
+		size_t got = fzn_manifest_deficit_from(&joiner.manifest, issuer.root, next,
+		                                       window, 2, &dropped, &next);
+
+		if (got == 0)
+			break;
+		for (i = 0; i < got; i++) {
+			memcpy(asks[i].issuer, issuer.root, FZN_PUBKEY_LEN);
+			asks[i].capability = window[i].capability;
+			memcpy(asks[i].grantee, window[i].grantee, FZN_PUBKEY_LEN);
+		}
+		CHECK(fzn_manifest_plan_offer(&peer->store, asks, got, holds, 2, &plan)
+		              == FZN_MANIFEST_OK, "a peer refused a well-formed request");
+
+		for (i = 0; i < got; i++) {
+			fzn_revocation_record_t r;
+
+			if (!holds[i])
+				continue;
+			for (j = 0; j < 4; j++) {
+				if (!fzn_ct_memeq(asks[i].capability.b, cap[j].b, FZN_CAP_ID_LEN))
+					continue;
+				CHECK(fzn_revocation_open(rev[j], FZN_REVOCATION_LEN, &r)
+				              == FZN_CHAIN_OK, "open rev");
+				CHECK(fzn_revocation_admit(&joiner.store,
+				                           fzn_revocation_offer_root(r),
+				                           issuer.root, &joiner.sign,
+				                           &joiner.manifest) == FZN_CHAIN_OK,
+				      "admit rev");
+			}
+		}
+	}
+
+	/* THE PROPERTY: neither peer could finish it and together they did. */
+	CHECK(fzn_manifest_pending(&joiner.manifest, issuer.root) == 0,
+	      "the deficit is %zu after alternating two partial peers, wanted zero",
+	      fzn_manifest_pending(&joiner.manifest, issuer.root));
+
+	/* AND THE CONTROL, without which the above is satisfied by one peer
+	 * having held everything: each peer alone leaves two outstanding. */
+	{
+		struct fixture solo;
+		size_t d2 = 0, n2 = 0;
+		fzn_manifest_pair_t all[4];
+
+		fixture_init(&solo);
+		solo.stub.identity = 0;
+		CHECK(fzn_manifest_follow(&solo.manifest, issuer.root) == FZN_MANIFEST_OK,
+		      "follow");
+		CHECK(fzn_manifest_admit(&solo.manifest, NULL, rec, &solo.sign)
+		              == FZN_MANIFEST_OK, "admit");
+		n2 = fzn_manifest_deficit(&solo.manifest, issuer.root, all, 4, &d2);
+		CHECK(n2 == 4, "the solo joiner does not lack four");
+		{
+			fzn_manifest_deficit_t four[4];
+			uint8_t h4[4];
+
+			for (i = 0; i < 4; i++) {
+				memcpy(four[i].issuer, issuer.root, FZN_PUBKEY_LEN);
+				four[i].capability = all[i].capability;
+				memcpy(four[i].grantee, all[i].grantee, FZN_PUBKEY_LEN);
+			}
+			CHECK(fzn_manifest_plan_offer(&a.store, four, 4, h4, 4, &plan)
+			              == FZN_MANIFEST_OK && plan.held == 2,
+			      "peer A alone offered %zu of four, wanted two", plan.held);
+			CHECK(fzn_manifest_plan_offer(&b.store, four, 4, h4, 4, &plan)
+			              == FZN_MANIFEST_OK && plan.held == 2,
+			      "peer B alone offered %zu of four, wanted two", plan.held);
+		}
+	}
+}
+
 int main(void)
 {
 	test_layout_and_round_trip();
@@ -2260,6 +2408,7 @@ int main(void)
 	test_the_deficit_report_resumes_and_covers_everything();
 	test_the_recovery_loop_drains_what_a_partial_peer_can_supply();
 	test_a_want_list_is_answered_by_a_peer_that_holds_some();
+	test_two_partial_peers_between_them_complete_the_set();
 	test_the_deficit_reads_the_whole_field();
 	test_the_overflow_flag_is_sticky();
 	test_a_corrupt_store_is_refused_rather_than_believed();
