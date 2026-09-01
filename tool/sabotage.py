@@ -328,6 +328,30 @@ SABOTAGES = [
 		"\t/* sabotage */\n",
 		"peer init must not depend on what the memory held",
 	),
+	# THE TWO DOMAIN LABELS, WHICH ARE PROTOCOL RATHER THAN GUARDS -- the
+	# only entries here that break no check and refuse nothing. They earn
+	# their place because both SURVIVED before session_kat_test existed:
+	# every session test derives both sides with the same code, so a label
+	# change moved both halves together and 64 binaries stayed green.
+	#
+	# What they hold to account is the vector itself. Delete it, or let it
+	# stop reaching these bytes, and the protocol is silently unpinned
+	# again -- which is the state this library was in until 2026-09-01 and
+	# could not see. See project.md sec 45.
+	(
+		"session-label-is-protocol",
+		"session/session.c",
+		'static const char FZN_SESSION_LABEL[16] = "fuzznet-sess-v1\\0";',
+		'static const char FZN_SESSION_LABEL[16] = "fuzznet-sess-v2\\0";',
+		"the session domain label is pinned against silent change",
+	),
+	(
+		"root-label-is-protocol",
+		"session/commitment.c",
+		'static const char FZN_ROOT_LABEL[16] = "fuzznet-kdf-v2\\0\\0";',
+		'static const char FZN_ROOT_LABEL[16] = "fuzznet-kdf-v3\\0\\0";',
+		"the root derivation label is pinned against silent change",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

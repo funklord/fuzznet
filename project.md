@@ -10899,6 +10899,13 @@ retraction.
     root label      fuzznet-kdf-v2  -> -v3     was SURVIVED, now CAUGHT
     transcript regrouped id|id|pk|pk           was SURVIVED, now CAUGHT
 
+**The first two are permanent entries in `tool/sabotage.py` now**, and they
+are the only ones there that break no check and refuse nothing -- a label is
+protocol, not a guard. What they hold to account is the VECTOR: delete it, or
+let it stop reaching these bytes, and the protocol is silently unpinned again,
+which is the state this library was in until today and could not see. The
+sweep is 33 entries.
+
 The third is the mutation session.c documented as failing nothing. **It is
 caught for a reason that is not a security argument**, and the two are worth
 keeping apart: the layout is protocol, so any change to it is a failure
