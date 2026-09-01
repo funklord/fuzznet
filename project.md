@@ -10975,6 +10975,53 @@ went red". Each is a real discipline pointed at the wrong question, and the
 care spent describing it is what stops a reader asking whether it could have
 failed.
 
+### Which generated facts have a second witness, and which had none
+
+`claude-guidelines` filed the signal at `024e193` and generalised the fourth
+instance into a rule worth applying here rather than only receiving: **a gate
+that compares an artifact to its generator tests agreement.** Regenerate-and-
+diff proves the artifact is what THIS generator produces and says nothing
+about whether that is right, in the same words either way.
+
+So the question for this tree is which generated facts have an independent
+statement and which are checked only against situ. Measured:
+
+- **Ten constants are asserted equal to a hand-written counterpart** --
+  `FZN_SEAL_OVERHEAD == SITU_FZN_FRAME_SIZE_MIN`, the tag, nonce, sender,
+  commitment and capability widths, and the four kind values added today.
+- **The frame's MAXIMUM is witnessed too**, by
+  `SITU_FZN_FRAME_SIZE_MAX - SITU_FZN_FRAME_SIZE_MIN == FZN_SPLIT_MAX_PAYLOAD`
+  and by a second assert placing it inside the IPv6 minimum MTU. So both ends
+  of the range the map now prints are independently pinned.
+- **The field OFFSETS are witnessed by `golden_frame_test.c`**, which freezes
+  168 real bytes produced by a different tree. An offset that moved would
+  fail it whatever situ said.
+- **The struct SIZE had no second witness at all.** Nothing in this library
+  reads it, six test files transcribe OFFSETS from the map and none of them
+  transcribes a size, and no consumer compiles against it.
+
+**That is exactly why `size=144` survived twelve days of green gates.** Not
+because the gate was weak in general -- the same file's offsets are pinned by
+frozen bytes from another tree -- but because that one field was the only
+part of the artifact nothing else stated. **The rot went to the one place
+with a single witness, which is where rot goes.**
+
+**And it is tolerable that it stays that way**, which is worth saying so the
+next reader does not build something. A per-struct size assertion would be a
+second statement of a number nothing consumes; the map is read by people, and
+what it cost was twelve days of a document telling a human reader that a
+variable-size struct was fixed. Sec 5 refuses a mechanism added for nobody
+and this would be one. **What was missing was not a gate but the knowledge of
+which half of the artifact carried a witness**, which is now written down.
+
+**One slip while measuring this, recorded because it is the day's own
+lesson.** The command that checked whether the maximum had a counterpart
+printed six hits and a line reading "nothing outside generated/ = no
+hand-written counterpart" -- **the interpretation was written into the
+command before the data arrived**, and it contradicted the output directly
+above it. The finding it would have produced was false in the direction of
+more work: an assert added for a property already asserted twice.
+
 ### Signalled to the workspace: a bound reported as a value, four instances
 
 Sent to `claude-guidelines` 2026-09-01, at the consumer's request and on
