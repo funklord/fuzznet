@@ -332,6 +332,21 @@ typedef struct fzn_peek {
 	uint16_t index;
 	uint16_t chunks;
 	uint8_t kind;
+	/* NO `length`, AND THAT IS DELIBERATE. The head carries nine fields and
+	 * this struct has eight, which a reader comparing the two will notice.
+	 *
+	 * `length` is the payload size and the caller already holds it:
+	 * `frame_len - FZN_SEAL_OVERHEAD`, exactly. Returning it would be a
+	 * second statement of a number the caller passed in, and this tree has
+	 * spent enough on numbers stated twice.
+	 *
+	 * THE DERIVATION IS SOUND ONLY BECAUSE OF A RULE ENFORCED ELSEWHERE,
+	 * which is why it is written here rather than assumed: the shape check
+	 * refuses a frame with bytes after the tag, so `frame_len` is exactly
+	 * the frame and not an upper bound on it. Without that rule a caller
+	 * could hold a buffer longer than the frame and the subtraction would
+	 * be wrong -- and `wire/seal.c` records that a valid 168-byte frame
+	 * handed in at every size up to 168 + 4096 once opened happily. */
 } fzn_peek_t;
 
 fzn_seal_err_t fzn_seal_peek(const uint8_t *frame, size_t frame_len, fzn_peek_t *out);
