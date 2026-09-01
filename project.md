@@ -1507,6 +1507,24 @@ to close.
 
 ### Signalled from netcfgd, 2026-08-26: the holder's direction, and what a move would cost
 
+> **EVERY LINE COUNT OF FUZZYPICKLES BELOW WAS RE-MEASURED AT `94f6c32`,
+> 2026-09-01, BY THE SESSION IN THAT TREE.** Method: `wc -l`, blanks
+> included -- which is what the original figures used, inferred from the
+> exact matches and confirmed against the ones that agree to the line.
+>
+> Twelve of fifteen were exact or within noise. Two are corrected in place
+> (`common_internal` 199 to 240, `blob_test.c` 2,403 to 2,667) and the rest
+> stand. **The correction that mattered was not a number at all** -- see the
+> leaf-and-trunk paragraph below.
+>
+> The stamp matters more than the numbers and is the reason it is here
+> rather than in a footnote. A count of another tree can only be re-taken by
+> going there, so nobody does, and an uncited one is indistinguishable from
+> a current one at any distance. Sec 49 records the general form: this is
+> the same failure as a `grep -w` on a stem, an artifact reporting absence
+> of doubt in exactly the words a real absence uses.
+
+
 **Two of the three grounds above have moved, and the third has not.** Sent
 from netcfgd because that is where it was said and where the measurement was
 taken. Nothing here decides anything; the entry above is still this library's
@@ -1553,13 +1571,15 @@ was holding one.
 | `core/src/blob.c` | 1,772 |
 | `core/src/blob_internal.h` | 902 |
 | **implementation** | **2,674** |
-| `core/tests/blob_test.c` | 2,403 |
+| `core/tests/blob_test.c` | 2,667 |
 | `core/src/file_ref.c` + header, which the test pulls in | 207 |
 
 **Its entire external surface**, by grepping the source for every symbol it
 names that the file does not define:
 
-- **Zero uses of `fzp_core_t`.** The type appears once in 2,674 lines, inside
+- **Zero uses of `fzp_core_t`.** The type appears once in the 2,674
+  implementation lines of the table above -- `blob.c` plus
+  `blob_internal.h`, and NOT the test or `file_ref` -- inside
   a comment saying blob keeps "state out of `fzp_core_t`, which deliberately
   holds none". The decoupling is already done and was done on purpose.
 - **Two injected vtables**, which are the whole porting seam:
@@ -1644,7 +1664,7 @@ measurements were taken the same way a day apart:
 
 | | implementation ports | tests port |
 |---|---|---|
-| `blob` | cleanly -- two vtables, six byte primitives, one command tag | **no** -- 2,403 lines naming the app 35 times |
+| `blob` | cleanly -- two vtables, six byte primitives, one command tag | **no** -- 2,667 lines naming the app 517 times |
 | the log | `diag` and `append_log` cleanly; `log_relay` not | **yes** -- all four tests name the app zero times |
 
 So the piece with the harder implementation has the harder tests too, and the
@@ -1674,8 +1694,26 @@ and the answer to it can stay no while this one is yes, because the
 measurement showed the subsystem is five modules and only two of them are the
 thing §5 would call infrastructure.
 
-**What is suggested: `append_log` (678 lines) and `diag` (151).** 829 lines of
-implementation, 884 lines of test, and no command tag between them.
+**What is suggested: `append_log` (693 lines) and `diag` (151).** 844 lines of
+implementation, 884 lines of test, and no command tag between them --
+confirmed still true at `94f6c32`, by grepping both modules and both their
+internal headers for `FZP_CMD_` and `fzp_ctrl_`: none of the four matches.
+
+**BUT THEY ARE NOT ALIKE AND THIS PARAGRAPH PAIRED THEM AS THOUGH THEY
+WERE.** fuzzypickles' own sequencing rule is LEAVES BEFORE TRUNKS -- move
+what has no dependants inside their tree first -- and `append_log.c` has
+**eighteen dependants** there. So the two claims this paragraph runs
+together come apart:
+
+- **"These are extractable"** holds for both, and is what the command-tag
+  evidence supports.
+- **"Start here"** holds for `diag` alone. It is a genuine leaf.
+  `append_log` is a trunk, and being the most obvious overlap is what made
+  it look early.
+
+A line count cannot show this and no re-measurement of one would have
+found it. It came from the tree that has the dependants, which is the
+argument for asking rather than grepping stated in the other direction.
 
 **What is not, and why each stays:**
 
@@ -1706,14 +1744,14 @@ implementation, 884 lines of test, and no command tag between them.
   caller to serve two is the one most likely to survive being pulled out for a
   third.
 - **The tests come with it.** 884 lines naming the application zero times.
-  Contrast the blob, whose 2,403 lines of test name it 35 times: there the
+  Contrast the blob, whose 2,667 lines of test name it 517 times: there the
   tests are the work, here they are not.
 
 **Three loose ends, named because a suggestion that hides them is a proposal
 rather than a measurement:**
 
 1. **`fzp_escape_text`, `fzp_unescape_text` and `fzp_core_hex_encode`** come
-   from `common_internal` (199 lines total). `append_log` uses exactly those
+   from `common_internal` (240 lines total). `append_log` uses exactly those
    three; `diag` uses none of it. So either three functions move or the whole
    small file does, and that is a judgement for whoever does it rather than a
    blocker.
