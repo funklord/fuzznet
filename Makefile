@@ -553,7 +553,8 @@ MONO_TSRC  := chain/test/sign_monocypher_test.c \
               session/test/aead_monocypher_test.c \
               session/test/agree_monocypher_test.c \
               sim/test/real_crypto_test.c \
-              wire/test/golden_frame_test.c
+              wire/test/golden_frame_test.c \
+              session/test/session_kat_test.c
 
 ifdef MONO_ON
 MONO_OBJS  := $(BUILD_DIR)/chain/sign_monocypher.o \
@@ -592,10 +593,12 @@ MONO_HASH  := $(BUILD_DIR)/session/test/hash_monocypher_test
 MONO_AEAD  := $(BUILD_DIR)/session/test/aead_monocypher_test
 MONO_AGREE := $(BUILD_DIR)/session/test/agree_monocypher_test
 MONO_GOLD  := $(BUILD_DIR)/wire/test/golden_frame_test
+MONO_KAT   := $(BUILD_DIR)/session/test/session_kat_test
 MONO_REAL  := $(BUILD_DIR)/sim/test/real_crypto_test
 OBJS       += $(MONO_OBJS)
 TEST_OBJS  += $(MONO_TOBJ)
-TEST_BINS  += $(MONO_BIN) $(MONO_HASH) $(MONO_AEAD) $(MONO_AGREE) $(MONO_GOLD)
+TEST_BINS  += $(MONO_BIN) $(MONO_HASH) $(MONO_AEAD) $(MONO_AGREE) $(MONO_GOLD) \
+              $(MONO_KAT)
 CPPFLAGS   += -I$(MONOCYPHER_DIR)/src
 
 # Vendored, so it is compiled with its own terms rather than ours.
@@ -690,6 +693,22 @@ $(MONO_GOLD): $(BUILD_DIR)/wire/test/golden_frame_test.o \
               $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/session/commitment.o \
               $(BUILD_DIR)/session/random.o \
               $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# The session root vector. It recomputes the derivation from the DOCUMENTED
+# specification using Monocypher directly, so it needs the real X25519 and the
+# real BLAKE2b -- and it needs session/, agree/ and commitment/ to have the
+# answer to compare against. `monocypher.o` is linked once and serves both
+# sides of that comparison, which is exactly what the file's header comment
+# says is NOT a second implementation: the primitives are shared and only the
+# construction over them is written twice.
+$(MONO_KAT): $(BUILD_DIR)/session/test/session_kat_test.o \
+             $(BUILD_DIR)/session/session.o $(BUILD_DIR)/session/agree.o \
+             $(BUILD_DIR)/session/agree_monocypher.o \
+             $(BUILD_DIR)/session/hash_monocypher.o \
+             $(BUILD_DIR)/session/commitment.o \
+             $(BUILD_DIR)/constant_time/constant_time.o $(BUILD_DIR)/monocypher.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 

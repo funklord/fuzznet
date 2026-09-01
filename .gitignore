@@ -42,6 +42,7 @@
 /spool/test/spool_test
 /session/test/agree_test
 /session/test/session_test
+/session/test/session_kat_test
 /session/test/agree_monocypher_test
 /chain/test/sign_monocypher_test
 /session/test/hash_monocypher_test

@@ -111,7 +111,13 @@ fzn_session_err_t fzn_session_transcript(const uint8_t self_identity[FZN_SESSION
 	 * assignment unambiguous, since `first_*` is always the lower identity
 	 * and its prekey whichever order the four fields are laid down in.
 	 * Interleaved because it reads as two hosts rather than two lists;
-	 * kept, and no longer credited with a property the sort provides. */
+	 * kept, and no longer credited with a property the sort provides.
+	 *
+	 * THE MUTATION IS CAUGHT NOW, and by something that is not a security
+	 * argument: `session/test/session_kat_test.c` recomputes this layout
+	 * from the header and compares, so any change to the field order is a
+	 * failure whether or not it costs anything. That is the right reason
+	 * -- the order is protocol, and a peer cannot see this comment. */
 	memcpy(out + at, first_id, FZN_SESSION_IDENTITY_LEN);
 	at += FZN_SESSION_IDENTITY_LEN;
 	memcpy(out + at, first_pk, FZN_AGREE_PUBLIC_LEN);

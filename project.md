@@ -10828,6 +10828,106 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 45. The key nothing pinned, 2026-09-01
+
+`wire/test/golden_frame_test.c` freezes one whole sealed frame against bytes
+this tree did not produce, and it is the model for this section. **Look at
+what it takes as INPUT, though:** `KEY` and `COMMITMENT_KEY` are literals. It
+pins what goes on the wire GIVEN a key. Nothing pinned how the key is
+derived.
+
+### Measured before anything was written
+
+`FZN_SESSION_LABEL` changed from `fuzznet-sess-v1` to `-v2`, rebuilt through
+`make test`: **64 binaries, all green.** The root label in `commitment.c`,
+likewise green. A wire-visible, interop-breaking change to the most
+security-critical derivation in the library failed nothing.
+
+It is the failure golden_frame_test's own comment names one layer down --
+"nothing would have noticed a change to it as long as both halves of our own
+round trip moved together" -- and **every session test derives both sides
+with the same code**, so all of them move together by construction.
+`session_test.c` proves the initiator and responder agree WITH EACH OTHER,
+which is a different claim from agreeing with the protocol, and only the
+second is what a peer across a network needs.
+
+### Where the authority comes from, since a second implementation was not available
+
+golden_frame_test warns in terms against regenerating a vector from the code
+beside it, because that freezes whatever the code does INCLUDING WHATEVER IT
+DOES WRONG. That warning applies here, so the authority is a different one:
+`expected_root` in `session/test/session_kat_test.c` is written **from the
+documentation** -- session.h's transcript layout, commitment.h's root
+construction -- and computes the answer with Monocypher directly, never
+calling into `session/` or `commitment/`.
+
+So the two things compared are **the library and the specification**, and the
+labels are repeated as literals rather than included, deliberately: a
+constant shared between code and its own test cannot detect a change to
+itself, and those sixteen bytes are protocol exactly as a field offset is.
+
+**This is a weaker claim than the golden frame's and the difference is
+stated in the file.** It cannot catch a specification that is itself wrong,
+because one hand wrote the reading of it. It catches the code drifting from
+the documented protocol, which is the failure that leaves two
+implementations unable to talk.
+
+### It found a defect before it compiled
+
+Writing the transcript out from session.h found that **session.h:96 stated
+the field order wrong.** It read `identity | identity | prekey | prekey` --
+which is the REGROUPING that session.c, session_test.c and this file all
+name as the rejected alternative -- while the code interleaves each identity
+with its own prekey.
+
+**That is the header a consumer implements interop from.** A peer building a
+transcript in the documented order derives a different root and cannot talk,
+which is the outcome session.h's own preamble warns about. Nothing
+executable had ever read the line.
+
+The same header also still carried the security claim session.c retracted:
+that interleaving stops a transcript being reassembled by pairing one host's
+identity with the other's prekey. The canonical sort provides that, the
+interleaving is readability, and sec 39's mutation established it -- **in
+session.c, which is where the correction was made and where it stayed.** A
+retraction applied to one file and not the header beside it outlives its own
+retraction.
+
+### What the vector now holds
+
+    session label   fuzznet-sess-v1 -> -v2     was SURVIVED, now CAUGHT
+    root label      fuzznet-kdf-v2  -> -v3     was SURVIVED, now CAUGHT
+    transcript regrouped id|id|pk|pk           was SURVIVED, now CAUGHT
+
+The third is the mutation session.c documented as failing nothing. **It is
+caught for a reason that is not a security argument**, and the two are worth
+keeping apart: the layout is protocol, so any change to it is a failure
+whether or not it costs a property. The sort is still what makes the
+assignment unambiguous.
+
+Twelve checks, both arms of the canonical sort exercised (one host's identity
+sorts first, the other's second, same expected bytes reached through each
+branch), and **a control** -- the derived key is asserted non-zero and the two
+halves of the root asserted different, because without it a derivation
+returning zeroes satisfies every comparison above perfectly.
+
+### Why this was the shape worth taking
+
+Sec 43 concluded that blanket sweeping has low yield and that what pays is a
+shape aimed by something real. This one came from asking which 32-byte
+confusion is actually DANGEROUS after sec 44 typed the capability. The answer
+turned out to be none of them at the API: **the agreement secret is already
+an opaque `fzn_agree_secret_t`**, so a secret cannot be passed where a public
+belongs -- the library had already typed the side that matters, which is why
+sec 44's remaining `fzn_pubkey_t` work buys less than it looks like.
+
+What that left was adjacent same-type arguments, which no width-based type
+can separate -- and **a frozen vector catches every one of them at once**,
+including `root` and `grantee` in `fzn_chain_mint`, which sec 44 records as
+unclosable by typing. The question therefore moved from "what else can be
+typed" to "what is pinned", and that had an answer nobody had asked for.
+
+
 ## 44. A capability is a type now, 2026-09-01
 
 Sec 14 recorded `FZN_CAP_ID_LEN == FZN_PUBKEY_LEN == 32` as a confusion no

@@ -93,7 +93,16 @@
  */
 #define FZN_SESSION_TRANSCRIPT_VERSION 1u
 
-/* label | version | identity | identity | prekey | prekey | shared */
+/* label | version | identity | ITS prekey | identity | ITS prekey | shared,
+ * the two hosts ordered canonically -- see `fzn_session_transcript` below.
+ *
+ * THIS LINE READ `identity | identity | prekey | prekey` UNTIL 2026-09-01,
+ * which is not what the code writes and never was: it is the REGROUPING that
+ * session.c names as the rejected alternative. It mattered because this is
+ * the header a consumer implements interop FROM, and a peer building a
+ * transcript in that order derives a different root and simply cannot talk --
+ * the exact outcome the preamble above warns about. Nothing executable had
+ * ever read it; `session/test/session_kat_test.c` does now. */
 #define FZN_SESSION_TRANSCRIPT_LEN                                            \
 	(16u + 1u + (2u * FZN_SESSION_IDENTITY_LEN) + (2u * FZN_AGREE_PUBLIC_LEN) \
 	 + FZN_AGREE_SHARED_LEN)
@@ -150,8 +159,17 @@ const char *fzn_session_err_str(fzn_session_err_t err);
  * supply them already ordered and get it wrong.
  *
  * The prekeys travel WITH their identities rather than in a block of their
- * own, so a transcript cannot be reassembled by pairing one host's identity
- * with the other's prekey.
+ * own. READABILITY, NOT SECURITY -- and this paragraph claimed otherwise until
+ * 2026-09-01, after session.c had already retracted it. What stops a
+ * transcript being reassembled by pairing one host's identity with the other's
+ * prekey is the CANONICAL ORDER above: `first` is the lower identity and its
+ * own prekey whichever order the four fields are laid down in. A mutation
+ * regrouping them failed nothing at the time, and it should not have.
+ *
+ * It fails now, for a different reason worth keeping separate: the layout is
+ * PROTOCOL, so session_kat_test refuses any change to it whether or not the
+ * change costs a security property. A correction made in one file and not in
+ * the header beside it is how a retracted claim outlives its retraction.
  *
  * `created_at` from the prekey record is deliberately NOT included. A
  * rotation changes the prekey's public bytes, which already changes the
