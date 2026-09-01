@@ -6107,6 +6107,34 @@ supply a number for it.
 | `link/link.c` | 100.00% of 95 | **98.21% of 56** |
 | `chain/chain.c` | 100.00% of 132 | **98.48% of 132** |
 
+**RE-TAKEN 2026-09-01 AFTER SEVEN NEW TEST FILES, AND IT DID NOT MOVE.**
+Five byte-level vectors, a sim scenario and a set of layout assertions were
+added between the measurement above and this line. The table is unchanged --
+10 files at 100%, 28 below, 2318 branches, ~300 never both ways. Not one row
+shifted.
+
+**Identical totals are the shape of a measurement that did not happen**, so
+the run was checked for having inspected anything before the result was
+believed. `make -n runtests` names all five vector binaries and
+`network_test`, so they were built instrumented and executed. The first
+attempt at that check was itself wrong -- it grepped the coverage log for the
+new test names, which cannot appear, because the target sends `runtests`
+stdout to `/dev/null` and only stderr leaks through.
+
+**The reason it did not move is the useful part.** Every vector exercises a
+path that was already exercised: minting a correct hop, establishing a
+session, sealing a leaf, packing a blob. They take no branch that was not
+already taken. What they check is which BYTES those branches produce.
+
+**So branch coverage is blind to this entire class by construction, and the
+class is blind to coverage.** A permuted field offset, a changed domain
+label, a nonce built at the wrong end of a buffer -- each takes exactly the
+same branches as the correct version, in the same order, with the same
+outcome at every decision. Nine gaps were closed today and the coverage
+number is the same to two decimal places; conversely, the ~300 unexercised
+branches below are exactly as unexercised as they were. **Neither measure
+substitutes for the other and neither is a proxy for "tested".**
+
 **What this is and is not.** It is a worklist, not a defect list: an
 unexercised branch is usually a defensive refusal nobody has driven, which
 is the same population sec 43 sampled and found to be mostly redundant
