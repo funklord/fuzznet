@@ -10883,6 +10883,132 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 47. Costing what is actually open on revocation currency, 2026-09-01
+
+The holder asked for the three commissioned designs to be costed against
+each other. **That fork is closed and re-opening it would be the expensive
+mistake**, so this section says why, then costs what is genuinely open.
+
+### The three designs are not a live choice
+
+Sec 13b commissioned three designs plus an adversary brief. Two converged
+independently on the same shape -- a **sequenced reserved stream** with a
+signed head announcement -- and the holder's answers of 2026-08-27 rejected
+it, on the ground its own adversary named: **the revoking key is REPLICATED
+across a user's hosts**, so two writers pick the same sequence and the loser
+vanishes under `FZN_JOURNAL_ERR_DUPLICATE`, which this document calls "not a
+fault". One genuine revocation would disappear by the exact mechanism
+introduced to make disappearance detectable. Grantor-revokes-descendant
+multiplies writers again, so the two answers agree.
+
+What survived is what the design already had by accident and the adversary
+identified as an asset: **a standalone revocation is a CRDT** -- no sequence,
+monotone, merge is set union -- which is what a replicated key needs.
+
+**So there is no three-way comparison to make.** The successor is sec 13d's
+manifest over the SET, and its two-stage plan is where the live questions
+are.
+
+### Where the build actually stands, checked rather than assumed
+
+    stage 1   the object, follow/admit, the deficit table,
+              the sticky overflow flag, the high-water mark    BUILT
+    13c       the ancestry walk stage 2 must sequence with     BUILT
+    stage 2   the gate, ERR_INCOMPLETE, UNKNOWN                NOT BUILT
+
+`chain/manifest.h` says it in terms: "there is no UNKNOWN verdict, and no new
+refusal path exists". **A host can already SAY what it lacks and nothing acts
+on it.** Sec 13d's sequencing constraint -- do not build stage 2 before 13c's
+ancestry walk, or the entitled-issuer derivation gets written twice -- is
+satisfied, so stage 2 is the cheapest it will ever be.
+
+### The live options
+
+**A. Stop at stage 1.** The deficit is reportable; `fzn_chain_verify` ignores
+it. The defect stands: a host that joins fresh, has been offline, or is
+partitioned verifies a chain the network revoked last week.
+
+**B. Stage 2 in the library.** The gate inside `fzn_chain_verify`,
+`ERR_INCOMPLETE`, and UNKNOWN refusing. Closes the defect for every consumer
+at once.
+
+**C. Stage 2 as a consumer policy.** The library computes and exposes the
+verdict; refusing is each consumer's call. **This is B with the refusal moved,
+not a third design**, and whether the move is legitimate IS the sec 4.4a
+question: is a fail-open chosen in a consumer's source the "negotiable
+security level reached by flipping a plaintext bit" that 4.4a forbids, or a
+different object because no attacker can reach it?
+
+Two are already ruled out and are named so they are not re-proposed: a
+**recency grace** for a returning host is forbidden by answer 3, and the
+**sequenced stream** by answer 1.
+
+### What the fourth consumer and shattered estates add, which 13d could not know
+
+Sec 13d was written 2026-08-27. The holder has since specified a fourth
+consumer, estates that SHATTER, and healing as a requirement. **That does not
+choose between the options; it adds a cost to B and C alike that was not on
+the table.**
+
+**A returning device is INCOMPLETE by construction.** It has been away, so it
+provably lacks revocations -- which is exactly the condition the gate exists
+to refuse on. Under B it refuses every chain until it has caught up. That is
+correct by the design's own logic, and it is also **the self-locking shape the
+adversary named for netcfgd, arriving through the front door rather than as an
+attack**: the remedy for a device that cannot verify is administration the
+device has just refused.
+
+**It forces an ordering on healing that sec 46 does not currently have.**
+Revocation catch-up must come FIRST, before a returning device can do
+anything else. And the catch-up is not symmetric with records: `record/sync.h`
+has `fzn_sync_plan_fetch` to turn "what am I missing" into ranges to request,
+and **revocations have the deficit table but no equivalent plan**. Stage 1
+gives a returning host the list; turning that list into requests is consumer
+work that does not exist yet, in any of the four trees, and under B it sits on
+the critical path of every recovery.
+
+**And it compounds with the clock finding above.** A device back with a
+regressed clock cannot publish a usable prekey, so peers keep offering a
+prekey it may no longer hold -- while under B it also refuses every chain
+until it has caught up. Each failure alone is recoverable; together they
+describe a device that can neither be reached nor act, which is a brick until
+a person intervenes.
+
+### The costs, side by side
+
+    closes the stated defect        A no    B yes    C per consumer
+    new refusal path               A none  B yes    C yes, per consumer
+    manifest omission becomes DoS  A no    B yes    C yes
+    returning device refuses all   A no    B yes    C consumer's choice
+    revocation fetch path needed   A no    B yes    C yes
+    library work                   A none  B one gate, cheapest now
+                                                    C less than B
+    consumer work                  A none  B none   C four times, four
+                                                    chances to differ
+    reversible later               A yes   B hard   C per consumer
+
+**The cost of deferring rises with consumer count.** Going from A to B is a
+behaviour change for every deployed host -- chains that verified now refuse --
+and a fourth consumer has just arrived. That is an argument about TIMING
+rather than about which option is right, and it is the one thing here that
+gets worse by waiting.
+
+### What this section does not do
+
+It does not choose. The sec 4.4a reading is a question about this document's
+own sentences and belongs to the holder, as sec 13d already records. **What
+has changed since 13d is not the argument but the consequence**: whichever of
+B or C is taken, a returning device needs a revocation catch-up path before
+the gate can be turned on without bricking it, and that path is neither
+designed nor built.
+
+**The cheap thing that is unblocked either way** is the fetch path itself. It
+is useful under A -- a host that can request what its deficit names is better
+off whether or not anything refuses -- and it is a precondition for B and C.
+Building it does not commit the holder to the 4.4a answer, which is the
+property worth having while that question is open.
+
+
 ## 46. A fourth consumer, shared estates, and healing a shattered one, 2026-09-01
 
 hydra joins as a fourth consumer, using fuzznet as fuzzypickles does and
