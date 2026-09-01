@@ -11092,6 +11092,27 @@ right.** The table above had the answer inside it -- a ceiling and a per-hop
 constant, two lines apart -- and nobody asked, so the answer sat there being
 correct and unused.
 
+**APPLIED RATHER THAN ONLY RECORDED, AND IT FOUND NOTHING FURTHER.** Every
+ceiling this library defines was expanded with the compiler and its value
+searched for in this document, excluding mentions that already qualify it:
+
+    FZN_CHAIN_MAX_LEN 1434     FZN_MANIFEST_MAX_LEN 262116
+    FZN_RECORD_MAX_LEN 668     FZN_MANIFEST_MAX_PAIRS 4094
+    FZN_BLOB_SEALED_MAX 1056   FZN_BLOB_MAX_LEAVES 1099511627776
+
+One hit, and it is correct: a journal record's "156-to-668 range", which is
+a range and says so. **So the two instances above are the whole of it and
+not the visible part of a habit** -- which is worth knowing, because a
+document that had done this throughout would need a different remedy from
+one that did it twice under the same paragraph's influence.
+
+The consumer retracted the sourcing rule to `claude-guidelines` before it
+landed, on the ground that neither tree's instance was a sourcing failure.
+**Their retraction is the part worth recording about the exchange**: they
+had this tree's plain statement of provenance in hand and had written a more
+convenient one, in the paragraph arguing that people substitute convenient
+claims for measured ones.
+
 ### The truncation rule, reached independently in two trees
 
 Sec 49's `head` finding has a second witness, and it is the real kind. That
