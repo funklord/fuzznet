@@ -5110,6 +5110,29 @@ are named unconditionally, which they can be because `MONO_SRCS` and
 everything" and "removed what it happened to know about" stop looking alike.
 Dropping one entry from its list makes it refuse and name the file.
 
+**And the same target then caught the CI step added to run it**
+(2026-09-01). `clean` went into `ci.yml` precisely because nothing ran it,
+so it had gone on being right about a tree it no longer described. The
+first end-to-end run of the completed gate set failed at that step: the job
+builds the sanitizer tree under `BUILD_DIR=san`, and a default `make clean`
+removed everything it knew about and then refused --
+
+    clean: something the build produces is in no list clean reads.
+
+-- naming the `san/` tree. **The check was right and the workflow was
+wrong.** A clean can only remove the directory it is told about, so a job
+creating two build trees owes a clean to each; `ci.yml` now runs one per
+directory, and the sanitizer-through-clean tail passes.
+
+Not measured, and so not claimed: whether CI has actually gone red on this.
+What is measured is that the workflow runs this sequence and the sequence
+fails locally, which is the same thing arriving by a different route.
+
+**The shape is worth more than the fix.** The step added to stop a gate
+going unrun was itself unfinished, and the only thing that could find that
+was running it -- a gate written into CI is not a gate that has run, and
+the interval between the two is exactly where this one lived.
+
 **A fuzz harness existed that `make fuzz` had never run** (2026-08-18).
 `local/test/vocabulary_fuzz.c` was in `TEST_SRCS` and `TEST_BINS`, so
 `make test` ran it at the default 20000 cases, and absent from `FUZZ_BINS`, so

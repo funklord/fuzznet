@@ -82,5 +82,14 @@ jobs:
       # conditional blocks, so both backends' objects survived every clean.
       # Found in a consumer's tree while moving their submodule pin, which is
       # the one place `clean` gets run by somebody who did not write it.
+      # ONCE PER BUILD DIRECTORY, because `clean` can only remove the one
+      # it is told about. The sanitizer step above builds into a second
+      # tree, and a default clean neither removes it nor could know to --
+      # so it removed everything it knew and then refused, naming that
+      # tree as something the build produces that is in no list clean
+      # reads. The refusal is the target working: it found a step this
+      # file had added and not finished.
       - name: clean removes what the build made
-        run: make clean
+        run: |
+          make clean BUILD_DIR=san
+          make clean
