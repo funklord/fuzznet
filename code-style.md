@@ -169,11 +169,11 @@ Settled exceptions:
   `CMakeLists.txt`, `AndroidManifest.xml`, `Dockerfile`, `Cargo.toml`.
 - **Root files with an established convention** -- `README.md`, `LICENSE`,
   `CHANGELOG.md`, `AUTHORS`, `VERSION`. The last is this workspace's own
-  rather than the wider world's, and is settled by use: thirteen of the
-  fourteen private projects track one, and a build reads it for the
+  rather than the wider world's, and is settled by use: a project that
+  packages or ships a version tracks one, and a build reads it for the
   package version and for whatever the program prints, so the number
-  lives in exactly one place. `claude-guidelines` is the one without it,
-  and it packages nothing.
+  lives in exactly one place. `claude-guidelines` is the exception,
+  because it packages nothing.
 - **Package-system spellings** -- kebab-case where Cargo or Debian require
   it. That is now the same spelling prose uses, so a crate directory and
   the design note beside it agree by construction rather than by
@@ -202,7 +202,16 @@ name it demands is plural, singular, capitalised or none of those.
 Present here: **Cargo** looks for `tests/`, `examples/` and `benches/` by
 those exact names, and `cargo-fuzz` for `fuzz_targets/`. **GitHub**
 requires `.github/workflows/`. **git** keeps `hooks/`, which is why
-`tool/hooks/` is spelled that way.
+`tool/hooks/` is spelled that way. And a **foreign package's directory
+names are the same exception one layer out**: the Android SDK ships
+`platform-tools/` and `build-tools/`, and those spellings are the SDK's
+however this tree spells its own. The rename pass learned that by
+breaking them -- a word-boundary rewrite of `tools/` reaches into
+`platform-tools/` because the hyphen is a boundary, so every adb target
+in four projects pointed at a binary that was not there and the
+signature check went quiet by a new route. A sweep must skip compound
+names it does not own, and package-system spellings (Cargo crates,
+Debian packages) under *Filenames* above are this same carve-out.
 
 **Second: a plural an ecosystem has settled**, which is a convention rather
 than a requirement -- nothing breaks, but a reader would be surprised by
@@ -345,10 +354,45 @@ is that project's rule working correctly, **not drift, and not something to
 reconcile back**. What must match is every rule and every exception, in
 substance.
 
+**`sync.py --check` now reports the copies that have fallen behind**, which
+until 2026-08-24 nothing did. The three files spread verbatim were checked on
+every run and this one -- the document that says what the rules are -- was
+checked by nobody, so drift was indistinguishable from the adaptation the
+section above asks for. It found real losses: four copies had dropped
+*Precedence*, the section saying this source outranks them; three had dropped
+*Formatters*, whose rule was paid for by a formatter rewriting committed
+files; one had dropped *ASCII in source*; and seven had dropped this very
+section, which is the one that would have told a reader to look.
+
+It asks the weaker question that can actually be answered -- does the copy
+still carry a section for every section here -- and it never writes this
+file, because overwriting a copy would delete the part the project owns. A
+heading that *extends* one of these satisfies it, since that is what
+recording a project's own formatter verdict looks like.
+
 **If you notice a copy diverging from the source, reconcile it as soon as
 you notice** -- do not leave it for later and do not work around it. If the
 divergence looks deliberate rather than stale, that is the conflict case
 above: ask.
+
+**And keep a census out of this document, because a copied number goes
+stale sixteen times at once.** The `VERSION` exception above used to
+carry one -- "sixteen of seventeen, re-counted 2026-08-27" -- and on
+2026-09-01 fifteen of the sixteen copies still held an older generation
+of it or had rewritten the sentence locally to say something true about
+their own tree instead. Not one of them was wrong about the RULE.
+
+That drift was undetectable by construction. The audit compares
+headings, and every heading was intact; a prose diff cannot help either,
+because this section says in as many words that a copy may differ
+textually and be correct. So a fact that changes, written into a
+document that is copied and permitted to vary, cannot be kept true and
+cannot be checked.
+
+The fix is not a better comparison. **State the rule and the criterion
+that decides it, and keep the count where it can be recounted once.**
+The exception above now says which projects track a `VERSION` and why,
+without saying how many.
 
 Noticing requires looking. **Re-read this source before writing or
 reconciling any project's copy**, rather than working from what was loaded
