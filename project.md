@@ -8787,6 +8787,24 @@ run, recorded under sec 15c.
   where they do not, and the test says so at run time rather than leaving a
   reader to assume otherwise.
 
+  **RE-TAKEN 2026-09-01 UNDER A SECOND USER, AND THE REASON IS STRONGER
+  THAN THE ENTRY CLAIMED.** The suite now also runs as uid 1001, which
+  likewise has gid 1001, so the premise holds for both users on this
+  machine rather than for the one it was written under. More usefully,
+  "no test written here could catch it" reads as an omission and is
+  actually a **structural** limit: constructing the discriminating case
+  needs a process whose gid differs from its uid, and an unprivileged
+  process cannot reach one. Measured rather than reasoned -- `setgid` was
+  called for three groups this process is genuinely a member of (users,
+  docker, sudo) and all three returned EPERM, as did `setegid`. Belonging
+  to a group is not permission to adopt it as the primary one.
+
+  So on a host where the two happen to be equal, this is not a test
+  somebody could write better; it is a case that cannot be built without
+  privilege. **Where they differ the check discriminates and the sabotage
+  would be caught**, which is why the check earns its place and why the
+  contingency is on the USER rather than on the machine.
+
   The previous entry here said `peer_linux.c` needed "a socket and a
   cooperating process" and was **wrong about the second**: a socketpair has
   both ends in one process, so `SO_PEERCRED` reports us. It is tested now,
