@@ -10975,6 +10975,53 @@ went red". Each is a real discipline pointed at the wrong question, and the
 care spent describing it is what stops a reader asking whether it could have
 failed.
 
+### Four things a consumer found by building, and a commit that hides them
+
+Reported by fuzzypickles while wiring the frame end to end, all four found
+by building rather than by reading. **Two were documentation and two were
+API surface this library did not have.**
+
+- **`fzn_random_system_init` calls `getrandom(2)`**, so a consumer that keeps
+  I/O in its hosts would link a syscall into its core -- compiling, passing
+  every test on a Linux developer machine, and failing on the target. The
+  fourth instance of the obvious-name-is-the-wrong-call shape in one day.
+  The bridging hazard is beside it now: `fill` returns 1 only when every
+  byte came from the source, the opposite of the 0-means-success convention
+  a consumer's own callback may follow.
+- **A zeroed `fzn_send_t` is invalid**, because `chunks` must be at least 1
+  even for a `unit` frame, and the refusal names no field. **The inverse of
+  the care `hops` gets**, where zero means "not offered for relaying" so the
+  safest-looking initialisation is the safest behaviour.
+- **The kind values existed only as generated `SITU_FZN_*` names**, so a
+  send path could not fill `kind` without including situ's output -- which
+  also cost the property that every module but `wire/` builds without situ.
+  Hand-written now, held equal by `_Static_assert` where both are visible.
+- **`fzn_seal_peek_sender`, because this header gave advice the API could
+  not follow.** `wire/seal.h` tells a receiver to select on `sender` at sec
+  4.7 step 2; `sender` arrived only in `fzn_opened_t`, which
+  `fzn_seal_open` produces, which needs the key that step 2 is choosing.
+  The consumer had implemented the advice by reading the plaintext head
+  through generated accessors -- correct, and layout knowledge no consumer
+  should need.
+
+### And the commit that carries them says none of it
+
+**`8c6da93` is titled "take situ's map fix" and contains all five files.**
+The four above were staged, the schema gate then went red, and the map fix
+was committed without re-reading `git diff --cached --name-only` -- which is
+the one check that sees what is actually in the index rather than what the
+last command put there.
+
+`build-and-commit.md` describes this exactly, and its stated cost is the one
+paid here: **the record, because a `git log --grep` for `peek_sender` now
+finds a commit about a schema map.** The code is right, the tests are right,
+and the history is wrong.
+
+**Not repaired by rewriting**, because it is pushed and a second session
+commits to this tree, so amending would break a clone to fix a message. This
+entry is the repair: it names the commit and says what is in it, which is
+what a reader searching for the API will find instead.
+
 ### What this frame costs a consumer, as a rule rather than a number
 
 Asked by the consumer during the frame migration, who had a number and wanted
