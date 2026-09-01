@@ -274,7 +274,8 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              link/test/link_test.c \
              log/test/fix_stream_test.c \
              record/test/record_guided.c \
-             record/test/record_fuzz.c
+             record/test/record_fuzz.c \
+             tree/test/tree_fuzz.c
 # Recursive for OBJS's reason: the file backends append to TEST_SRCS below.
 TEST_OBJS  = $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
 TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
@@ -332,6 +333,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/log/test/fix_stream_test \
              $(BUILD_DIR)/record/test/record_guided \
              $(BUILD_DIR)/record/test/record_fuzz \
+             $(BUILD_DIR)/tree/test/tree_fuzz \
              $(BUILD_DIR)/blob/test/blob_fuzz \
              $(BUILD_DIR)/prekey/test/prekey_fuzz
 
@@ -934,6 +936,15 @@ $(BUILD_DIR)/record/test/record_fuzz: $(BUILD_DIR)/record/test/record_fuzz.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# The newest decoder of stranger bytes. Links tree.o and record.o and
+# nothing else: a node is parsed out of a record body, so record/ is the
+# only thing beneath it, and nothing above tree/ is on trial here.
+$(BUILD_DIR)/tree/test/tree_fuzz: $(BUILD_DIR)/tree/test/tree_fuzz.o \
+                                  $(BUILD_DIR)/tree/tree.o \
+                                  $(BUILD_DIR)/record/record.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/record/test/journal_test: $(BUILD_DIR)/record/test/journal_test.o \
                                        $(BUILD_DIR)/record/journal.o \
                                        $(BUILD_DIR)/constant_time/constant_time.o
@@ -1528,6 +1539,7 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/local/test/peer_fuzz \
              $(BUILD_DIR)/local/test/vocabulary_fuzz \
              $(BUILD_DIR)/record/test/record_fuzz \
+             $(BUILD_DIR)/tree/test/tree_fuzz \
              $(BUILD_DIR)/blob/test/blob_fuzz \
              $(BUILD_DIR)/prekey/test/prekey_fuzz
 

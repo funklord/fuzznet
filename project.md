@@ -11118,6 +11118,77 @@ Still open and theirs: the content-type registry, whether a group share reuses
 the roster or the group-message path, re-import, and where the tree lives at
 rest.
 
+### The harness, and four failures of my own controls while building it
+
+sec 20 states the criterion by derivation rather than survey: every decoder
+of stranger bytes here has a fuzz harness. `fzn_tree_open` reads a 32-byte
+parent, a 64-bit order and a 16-bit content type out of a body a sender
+chose, and publishes a `content` pointer and length derived from a length
+that sender also chose. It was the ninth decoder and the only one without a
+harness. `tree/test/tree_fuzz.c` closes that.
+
+**Six properties, each a claim the header makes**: a view that stays inside
+its body; round trip through the encoder at the edges rather than the middle;
+refusal writes nothing, witnessed by poison that must survive; the order key
+always in `[lo, hi]` and strictly between when it says OK; children bounded,
+sorted and honest, with a canary one past `out_cap`; and **reachability as a
+function of the set rather than the order**, checked by running the same
+nodes again in a permutation and requiring the same reachable SET. That last
+one is the property the module exists for, and a walk that depended on
+arrival order would pass every case in `tree_test.c` and fail here.
+
+Termination is the property no assertion can express -- a harness that hangs
+is not a harness that failed -- so the generator builds cycles deliberately
+and often rather than hoping for one.
+
+    20000 cases: 29560 opened, 10440 refused, 18799 with something
+    unreachable, 32750 orphan parents, 5805 truncations, 6268 exhausted
+    keys, 46129 contested ids
+
+Every one of those is a floor the run fails without, because a generator
+emitting nothing but short garbage would otherwise score a clean sweep.
+
+**Six mutations, all caught against a passing control**: single-pass
+reachability, `content_len` not reduced by the header, one write past
+`out_cap`, `(lo + hi) / 2`, an id written before a refusal, and the sibling
+sort dropped.
+
+### And the controls were wrong four times, each in a different costume
+
+Worth more than the harness. Building it, four of my own checks returned a
+verdict they could not have earned, and each was caught only by asking what
+the check had actually discriminated:
+
+- **A mutation reported SURVIVED that had never been applied.** The
+  replacement string was mangled by shell escaping, so the build was the
+  control. A pattern miss and a real survival are byte-identical in the
+  output. Re-run with `assert count == 1` before the write: CAUGHT.
+- **A planted-fault control reported `rc=127` and I read it as success.**
+  127 is "command not found" -- the planted build had not compiled, and I
+  had written the test as "non-zero means the sanitizer can report". A
+  NOT-BUILT wearing a pass.
+- **The plant that did compile was caught by the harness's own bounds
+  assertion before it could become a read**, so it proved the harness and
+  not the sanitizer. Good result, wrong control.
+- **The instrumentation probe said NOT PROVEN while the instrument was
+  plainly working.** It aborted with a *UBSan* message and my grep looked
+  only for `AddressSanitizer`. A search narrower than the fact, reporting the
+  fact absent -- with the consequence that I nearly recorded a clean
+  sanitized run as unproven, having earlier nearly recorded an unproven one
+  as clean.
+
+The instrument is live, established by a heap over-read that aborts, and ASan
+is linked -- 23 `__asan` symbols in the binary. So the sanitized 20000-case
+run at exit 0 is evidence rather than a formality.
+
+**The pattern across all four is one thing: a verdict that cannot
+discriminate reads exactly like one that did.** SURVIVED and NOT-APPLIED,
+127 and 0, caught-by-harness and caught-by-sanitizer, absent and
+searched-for-wrongly. None of them is a wrong answer. Each is a right answer
+to a question other than the one asked, which is this document's oldest
+finding arriving four more times in one afternoon, in the file written to
+apply it.
+
 ## 49. The integration, done from both sides at once, 2026-09-01
 
 > **THIS SECTION IS LONG AND IS DELIBERATELY NOT BEING SPLIT YET.** Decided
@@ -11870,11 +11941,16 @@ a question**, and the fragment stays unbuilt until one appears that cannot.
 
 ## 48. bitchat as a possible transport, scouted 2026-09-01
 
-**STATUS, FROM THE HOLDER, 2026-09-01: this is for FUTURE OFF-INTERNET
-COMMS AND IS UNDECIDED.** Recorded so the section is not read as a plan. It
-is scouted, the arithmetic is here, and nothing is committed -- no bearer is
-chosen, no consumer is waiting on it, and the LoRa comparison beside it is a
-comparison rather than a shortlist. The reason it is worth having written
+**STATUS, FROM THE HOLDER, 2026-09-02: WE ARE NOT DOING BITCHAT.** It was
+mined for ideas toward a future alternative to LoRa, and that is the whole of
+its purpose here. This supersedes the 2026-09-01 status, which read
+"undecided" -- that was true when written and is not a thing still waiting on
+an answer, so anybody planning around a pending bitchat decision should stop.
+
+What survives is the ideas rather than the bearer: the arithmetic below, and
+what a BLE-mesh-shaped transport would cost this frame. Nothing is committed
+-- no bearer is chosen, no consumer is waiting on one, and the LoRa comparison
+beside it is a comparison rather than a shortlist. The reason it is worth having written
 down at all is that a bearer decision constrains the frame, and this section
 says by how much before anybody is under pressure to answer quickly.
 
