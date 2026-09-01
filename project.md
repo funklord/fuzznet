@@ -10885,6 +10885,14 @@ the difference between a fact and a fact with its method.
 
 ## 48. bitchat as a possible transport, scouted 2026-09-01
 
+**STATUS, FROM THE HOLDER, 2026-09-01: this is for FUTURE OFF-INTERNET
+COMMS AND IS UNDECIDED.** Recorded so the section is not read as a plan. It
+is scouted, the arithmetic is here, and nothing is committed -- no bearer is
+chosen, no consumer is waiting on it, and the LoRa comparison beside it is a
+comparison rather than a shortlist. The reason it is worth having written
+down at all is that a bearer decision constrains the frame, and this section
+says by how much before anybody is under pressure to answer quickly.
+
 The holder raised **bitchat**, a Bluetooth-LE mesh chat network, as a
 transport this library might eventually run over -- an alternative to LoRa,
 which is itself not yet recorded anywhere here. **This is a scouting note and
