@@ -73,3 +73,14 @@ jobs:
       # where it costs nobody's minutes.
       - name: fuzz harnesses
         run: make fuzz CASES=20000
+
+      # LAST, BECAUSE IT REMOVES WHAT THE STEPS ABOVE BUILT, and that is also
+      # why it is worth running: `clean` checks its own work and refuses when
+      # a build artifact is in no list it reads. Nothing ran it here, so it
+      # went on being right about a tree it was no longer describing --
+      # OBJS and TEST_OBJS were snapshots taken above the two file backends'
+      # conditional blocks, so both backends' objects survived every clean.
+      # Found in a consumer's tree while moving their submodule pin, which is
+      # the one place `clean` gets run by somebody who did not write it.
+      - name: clean removes what the build made
+        run: make clean

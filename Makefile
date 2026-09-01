@@ -171,7 +171,19 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              version/version.c \
              record/record.c record/journal.c record/sync.c \
              state/state.c trust/trust.c log/log.c sched/sched.c link/link.c
-OBJS      := $(SRCS:%.c=$(BUILD_DIR)/%.o) $(GEN_OBJS)
+# RECURSIVE, NOT SNAPSHOT, and that is a fix rather than a style choice.
+# This was `:=`, evaluated here -- ABOVE the conditional blocks that append
+# the two file backends to SRCS. So OBJS named neither of them, and neither
+# did TEST_OBJS or the DEPS derived from both. `make clean` then left
+# persist_file and spool_file objects behind and its own self-check caught
+# it: "something the build produces is in no list clean reads".
+#
+# THE BUG WAS IN THIS TREE AND WAS FOUND IN SOMEBODY ELSE'S -- while moving
+# fuzzypickles' submodule pin, because a consumer runs `clean` and this tree
+# has it in neither `check` nor CI. The Monocypher objects escaped only
+# because they are appended with `+=` further down, which is the same
+# accident pointing the other way.
+OBJS       = $(SRCS:%.c=$(BUILD_DIR)/%.o) $(GEN_OBJS)
 HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h local/vocabulary.h \
              chain/chain.h chain/revocation.h chain/manifest.h chain/authz.h \
@@ -260,7 +272,8 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              log/test/fix_stream_test.c \
              record/test/record_guided.c \
              record/test/record_fuzz.c
-TEST_OBJS := $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
+# Recursive for OBJS's reason: the file backends append to TEST_SRCS below.
+TEST_OBJS  = $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
 TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/chain/test/revocation_test \
              $(BUILD_DIR)/chain/test/manifest_test \
@@ -787,7 +800,7 @@ endif
 # a field ends up with one layout in the library and another in the binary
 # linked against it -- which surfaces as a pile of nonsense assertion
 # failures rather than as a build error.
-DEPS := $(OBJS:.o=.d) $(TEST_OBJS:.o=.d)
+DEPS = $(OBJS:.o=.d) $(TEST_OBJS:.o=.d)
 
 .PHONY: check runtests all test fuzz guided guided-one installcheck coverage schema style codegencheck ctcheck analyze sabotage hooks clean install
 
