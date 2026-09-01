@@ -11043,6 +11043,55 @@ This is the better outcome than building it. A seam accepted on a
 consumer's account and never filled is worse than an absent one, because the
 next reader takes its existence as evidence that somebody needed it.
 
+### A diligence marker that was TRUE, about the wrong step
+
+The sharpest instance of the day, and it is this document's own. Sec 22's
+peer-sync paragraph reads:
+
+    Expanded with the compiler from their own header rather than added up --
+    `FZP_PEER_SYNC_RECORD_BLOB_LEN`, `peer_sync_internal.h:97`:
+
+        FZP_PEER_SYNC_SIGNED_LEN      278
+        FZP_CAP_CHAIN_BLOB_LEN       1450     <- A CEILING, not the value
+        signature                      64
+        worst case                   1794
+
+**Every input is correct and correctly labelled.** The source is the
+consumer's header, not their document. The expansion is the compiler's, not
+an addition. The ceiling is identified AS a ceiling, in the table. The sum
+is named a worst case, in the table. **And the next paragraph calls 1794 the
+size.**
+
+So the defect is not in the sourcing, the citation, or the annotation, and
+no rule about any of those would have caught it. The consumer proposed
+"cite the constant, not the document that quotes it" and it is a good rule
+that does not describe this: the constant WAS cited, from the header, and
+expanded by a compiler.
+
+**What failed is one step later, and the marker of care is what protected
+it.** "Expanded with the compiler rather than added up" is a true claim
+about the arithmetic, and the arithmetic was never in doubt. It reads as
+rigour and it IS rigour -- about the sum. The open question was what the sum
+meant, and the sentence demonstrating care about the first is what stopped
+anyone re-reading the second.
+
+**THIS IS WHY IT IS WORSE THAN A FALSE MARKER.** A `grep -w` on a stem is a
+claim of anchoring that could not have held, and checking it finds
+something. Here there is nothing to find by checking: the compiler really did
+expand it, the header really is the source, the number really is 1794. **A
+diligence claim that is true, and about the wrong operation, cannot be
+falsified by examining it** -- only by asking what question it was answering.
+
+`FZN_CHAIN_MAX_LEN` quoted as 1432 is the same shape a third time: a real
+constant, in hand, with the product of its two factors written instead of
+the constant. Arithmetic performed carefully on the wrong operands.
+
+**The remedy is the consumer's and it is the only thing that reaches all
+three: ask what the number is a function of before asking whether it is
+right.** The table above had the answer inside it -- a ceiling and a per-hop
+constant, two lines apart -- and nobody asked, so the answer sat there being
+correct and unused.
+
 ### The truncation rule, reached independently in two trees
 
 Sec 49's `head` finding has a second witness, and it is the real kind. That
