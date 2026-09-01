@@ -11034,6 +11034,22 @@ that cannot fail is not evidence; a test whose FAILURE CODE cannot be
 expressed is worse, because it passes loudly for a reason unrelated to what
 it checked. `evidence.md`'s vacuous pass, reached through an integer.
 
+**AND IT REORDERS THE WORK THAT FOUND IT.** The queued task was to add
+today's new public surface to `consumer_check` -- `fzn_seal_peek`,
+`fzn_seal_peek_sender`, `fzn_manifest_deficit_from`,
+`fzn_manifest_plan_offer` -- which needs about five codes and would leave
+two. **That is the wall, brought forward by the work that noticed it**, and
+it would violate the comment now at the top of that file telling the next
+person not to take 249 through 255 without reading on.
+
+So the order is: **the scheme first, the coverage second.** Any real repair
+is a scripted change across 213 sites -- a macro that prints which check
+failed and returns one code -- which is mechanical but wants verifying,
+so it waits for the machine rather than the decision. Recorded because a
+dependency created by one's own finding is the easy kind to walk into: the
+coverage work is the obvious next step, it is blocked, and nothing else
+would have said so.
+
 **Not fixed at the moment of finding, deliberately.** The obvious repair --
 print what failed and return one small code -- changes how every one of 213
 sites reports, which is not a change to make while another tree is using
