@@ -10923,6 +10923,25 @@ the difference between a fact and a fact with its method.
 
 ## 49. The integration, done from both sides at once, 2026-09-01
 
+> **THIS SECTION IS LONG AND IS DELIBERATELY NOT BEING SPLIT YET.** Decided
+> by the holder 2026-09-01, asked because `code-style.md` says notes exist
+> for whoever reads them next rather than as a transcript of the session
+> that produced them, and this is 473 lines of one day organised
+> chronologically.
+>
+> **The trigger is the merge settling, not a tidy-up.** Two other trees cite
+> it as it stands -- `claude-guidelines 024e193` cites instances from here by
+> number, and fuzzypickles' own sections reference it -- so renumbering or
+> restructuring mid-migration would break citations this tree does not own,
+> to fix a shape.
+>
+> When it comes: split what a CONSUMER needs (the frame-cost rule, the
+> `spool/` coupling, the API contracts, the pin-jump compatibility) from what
+> was learned about METHOD, most of which belongs in the workspace guidelines
+> where one instance has already gone. The chronology is the part with no
+> reader.
+
+
 fuzznet is wired into fuzzypickles and green. The work was done by a session
 in each tree rather than by one session reaching across, and three things
 came back that this tree should hold.
