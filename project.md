@@ -10993,6 +10993,54 @@ and a fourth consumer has just arrived. That is an argument about TIMING
 rather than about which option is right, and it is the one thing here that
 gets worse by waiting.
 
+### The fetch path, built 2026-09-01, and it was smaller than the gap looked
+
+Commissioned from the paragraph above. **Most of it already existed**, which
+is worth saying because the section had described it as consumer work that
+does not exist in any of the four trees: stage 1 already computes what is
+missing, and `fzn_manifest_deficit` already copies it out, bounded, with the
+count that did not fit.
+
+**What was absent is coverage, and the function's own comment named it**: "the
+scan runs in table order, so a host that overflows drops the same pairs every
+round and never asks for them at all". A frame holds about ten pairs and a
+returning host's deficit is a year of them, so the plain call hands back the
+same prefix for ever and the tail is never requested. **The host converges on
+the part it could already see and stalls on the rest** -- this section's own
+shattered-estate case, arriving through the one function meant to answer it.
+
+`fzn_manifest_deficit_from` takes a cursor and wraps. Feeding `next` back in
+sweeps the whole deficit in `ceil(total / out_cap)` calls and then repeats.
+**That is the property `record/sync.h` gets for free and this could not**: a
+journal position ADVANCES, so the next request naturally asks for something
+new; a deficit does not advance, it DRAINS, and until a pair arrives it stays
+exactly where it was. The cursor is what a position is for records.
+
+The rotation is arithmetic rather than two sweeps -- a pair's offset from the
+cursor is `(pos - from) mod total`, and it is in the window exactly when that
+offset is below `out_cap`. `fzn_manifest_deficit` is now the `from == 0` case
+of it rather than a second scan, on the argument this file already makes for
+`fzn_revocation_admit` calling `fzn_manifest_satisfy` rather than reaching
+into the table: two copies of one rule is how two answers drift.
+
+**The cursor is a hint and the header says so.** Entries leave as revocations
+arrive, so positions shift under it and a call after a drain may repeat a pair
+or step over one. Asking twice is idempotent and the wrap catches what was
+stepped over on the next lap, so both are harmless -- and saying that is
+cheaper than a stability promise the table cannot keep.
+
+**The test demonstrates the hazard before closing it**: it first asks the
+plain call for two pairs twice and requires the same two back, so the reason
+the new function exists is exhibited rather than asserted. It then asserts
+COVERAGE rather than order, since the header says nothing may depend on the
+admission order. Verified live by disabling the cursor, which fails it by
+name.
+
+**It commits nobody to the 4.4a answer**, which was the point of doing this
+one first: a host that can request what its deficit names is better off under
+option A, and B and C both need it before their gate can be turned on without
+bricking a returning device.
+
 ### What this section does not do
 
 It does not choose. The sec 4.4a reading is a question about this document's
