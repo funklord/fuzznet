@@ -70,6 +70,7 @@
 /record/test/record_test
 /record/test/sync_test
 /state/test/state_test
+/tree/test/tree_test
 /trust/test/trust_test
 /log/test/log_test
 /wire/test/relay_test

@@ -165,6 +165,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              spool/plan.c \
              chunk/reassembly.c \
              chunk/split.c \
+             tree/tree.c \
              wire/seal.c wire/relay.c \
              session/random.c session/random_linux.c session/agree.c \
              session/session.c \
@@ -194,6 +195,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              spool/plan.h \
              chunk/reassembly.h \
              chunk/split.h \
+             tree/tree.h \
              wire/seal.h wire/relay.h wire/bytes.h session/aead.h \
              session/random.h session/random_system.h session/agree.h \
              session/session.h \
@@ -262,6 +264,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              sim/test/network_test.c \
              record/test/journal_test.c \
              record/test/record_test.c \
+             tree/test/tree_test.c \
              record/test/sync_test.c \
              state/test/state_test.c \
              trust/test/trust_test.c \
@@ -318,6 +321,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/frame/test/freshness_guided \
              $(BUILD_DIR)/record/test/journal_test \
              $(BUILD_DIR)/record/test/record_test \
+             $(BUILD_DIR)/tree/test/tree_test \
              $(BUILD_DIR)/record/test/sync_test \
              $(BUILD_DIR)/state/test/state_test \
              $(BUILD_DIR)/trust/test/trust_test \
@@ -912,6 +916,13 @@ $(BUILD_DIR)/record/test/sync_test: $(BUILD_DIR)/record/test/sync_test.o \
 $(BUILD_DIR)/record/test/record_test: $(BUILD_DIR)/record/test/record_test.o \
                                       $(BUILD_DIR)/record/record.o \
                                       $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD_DIR)/tree/test/tree_test: $(BUILD_DIR)/tree/test/tree_test.o \
+                                  $(BUILD_DIR)/tree/tree.o \
+                                  $(BUILD_DIR)/record/record.o \
+                                  $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 

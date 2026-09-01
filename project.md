@@ -10944,6 +10944,180 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 50. `tree/`: nesting that replicates, and the resolution it refuses, 2026-09-01
+
+Authorised by the holder after a consumer designed it and declined to build
+the generic half. What arrived was a design with its reasoning attached and
+one claim about this tree that turned out to be false -- and the false claim
+was the load-bearing one, so finding it is what shaped the module.
+
+### What is generic, and the line is a precedent rather than a preference
+
+A note's shape is one product's model. A title, a colour, a checklist, a pin,
+a reminder and an archive flag mean nothing to a router holding an annotation
+against an interface, and `chain.h` already refused a capability ladder
+because "fuzzypickles has six types and netcfgd has three which are
+INDEPENDENT RATHER THAN A LADDER". sec 18 refused a realm enum on the same
+argument.
+
+So `tree/` owns the two things a consumer cannot express in an opaque body --
+**which node is a node's parent, and where it sits among its siblings** -- and
+nothing else. Content is a two-byte type the consumer registers plus opaque
+bytes, exactly `record/`'s discipline for `kind`. The consumer stated the test
+themselves: if they hand over a struct with a `title` in it, the right outcome
+is that it is refused.
+
+**A node is a record, and there is no second signed object.** `subject` is
+already 32 opaque bytes meaning "what this statement is about", which is a
+node id without inventing anything. The body carries parent, order and
+content-type ahead of the consumer's bytes:
+
+    off  size  field
+      0    32  parent        (all-zero means a child of the root)
+     32     8  order
+     40     2  content_type
+     42     n  content       (n = body_len - 42, at most 470)
+
+### The claim that was false, and it was the cheap half of the design
+
+The design said each node's parent is last-writer-wins on
+`(issued_at, issuer)` -- "the supersession `state/` already does. **No new
+mechanism.**"
+
+`state/` does not do that. `state/state.h:82` is explicit: **ORDER WITHIN A
+WRITER, NEVER ACROSS.** A later statement from the same `(issuer, stream)`
+supersedes; from a different issuer it is a **conflict**, from a different
+stream of the same issuer it is **cross-stream contention**, and *neither is
+resolved*. The measurement behind the refusal is in that header -- stream 7
+then stream 9 at one sequence leaving one value, the reverse order leaving
+the other, same record set and two answers.
+
+A user's own two hosts are either two issuers or two streams of one issuer, so
+a concurrent reparent lands squarely in the branch `state/` declined to
+settle. **The design therefore contained one new mechanism, not none**, and it
+was a total order over a clock.
+
+### Which is why it is not built, and the reason is sec 47's
+
+Ordering moves by `issued_at` inherits the regressed-clock finding. sec 47
+records a device returning from a long absence whose regressed clock cannot
+publish a usable prekey, concluding it "can neither be reached nor act, which
+is a brick until a person intervenes". Time-order its moves as well and it
+loses **every** reparenting race, silently and correctly by the rule, for as
+long as it is behind -- and a device returning from a long absence is exactly
+the population a healing estate exists to serve.
+
+The consumer's own sentence is the one worth keeping: **a tie-break that
+quietly disenfranchises the returning host is worse than a conflict somebody
+can see.** So `tree/` resolves nothing, `state/` keeps its refusal, and the
+product carries the mess.
+
+### What refusing costs, and it is not a softening
+
+Nothing resolved means a node may carry **more than one parent claim**. The
+applied set is not a tree, not a forest, but a directed graph that can contain
+cycles, and `fzn_tree_children` reports a contested node under every parent
+claiming it. A consumer showing a note in two places is this working.
+
+**The cost lands on traversal, and that is where the design summary implied
+away an API.** With one parent per node a walk needs no memory. With several,
+a walk that does not remember where it has been does not terminate. sec 2 says
+nothing here allocates, so `fzn_tree_reachable` takes a caller-owned mark
+array with a capacity -- `fzn_manifest_plan_offer`'s shape, arrived at again
+by the same constraint.
+
+### Reachability replaced cycle repair, and answers a case the repair did not
+
+The design repaired cycles at read time: walk to the root, and on a cycle
+reparent the lowest id in it to the root for that traversal. That needs cycle
+MEMBERSHIP, which means distinguishing the loop from the tail leading into it.
+
+**Reachability needs neither.** Mark what the root reaches; everything else is
+shown at top level. It keeps all three properties the repair was chosen for --
+deterministic over the applied set, writes nothing, deletes nothing -- in one
+pass with no cycle enumeration, and it also answers **the node whose parent
+has not arrived yet**, which the repair rule did not handle at all. A consumer
+shows an orphan and a cycle the same way, so the module does not distinguish
+them.
+
+It is a fixed point rather than a stack, for the same no-allocation reason: at
+most depth+1 passes, `O(count * depth)` comparisons, and it terminates on a
+cyclic set structurally rather than by a check -- a node in a cycle is never
+reached, so nothing ever marks it.
+
+### The order key, and the third corner nobody had listed
+
+The consumer offered two ends and did not like either: refuse-and-renumber,
+which loses one-record-per-insert exactly when a user is doing something
+repetitive, or a variable-length key, which puts an unbounded field in a
+record with a body maximum.
+
+**The third is fixed-width with the tie-break made part of the order.** Sibling
+order is `(order, id)`, total because ids are unique and both hosts hold them.
+Two hosts inserting between the same neighbours pick the same midpoint and
+tie, and the tie resolves identically everywhere -- two notes in an order
+nobody chose, which was already the accepted worst case.
+
+**So exhaustion stops being an error.** 64 bits runs out of midpoints between
+one pair after at most 63 inserts; `fzn_tree_order_between` reports
+FZN_TREE_ORDER_EXHAUSTED *and still writes a usable key*, the low neighbour's
+own, which ties and is therefore ordered by id. It degrades to the accepted
+worst case instead of refusing, and a consumer that minds can renumber, which
+is writing records and not this library's business.
+
+The code carries no `ERR_` for that reason, following `state/state.h`: a code
+spelled `ERR_` wrote nothing. The same rule caught a defect in the first draft
+of this module, where the reversed-neighbour case returned
+`FZN_TREE_ERR_CAPACITY` while writing its output; it is now
+`FZN_TREE_ERR_RANGE` and writes nothing.
+
+### Built, and made to fail before being believed
+
+`tree/tree.h` 264 lines, `tree/tree.c` 266, `tree/test/tree_test.c` 345 carrying 55 checks.
+Clean first compile under the full flag set. `make check` green: style, every
+test, and all four `installcheck` arrangements, with the new API exercised in
+`tool/consumer_check.c` rather than merely included -- an include proves only
+that a header parses.
+
+**Five mutations, all CAUGHT, against a control that passes**, because a suite
+nobody has seen fail is not evidence:
+
+    single pass instead of the fixed point    CAUGHT
+    children appended rather than sorted      CAUGHT
+    cmp drops the id tie-break                CAUGHT
+    midpoint written as (lo + hi) / 2         CAUGHT
+    only the first parent claim kept          CAUGHT
+
+The fourth is the one worth naming: `(lo + hi) / 2` overflows for neighbours
+in the top half of the range, which is precisely where a list that has been
+appended to for a long time lives. The implementation is `lo + (hi - lo) / 2`
+and the test pins it at `UINT64_MAX - 4`.
+
+**The cycle cases run first and the file says so when it starts.** A hang is
+not a failure a suite reports -- it is a suite that never finishes -- so the
+one failure mode this file cannot report about itself is announced in the line
+above it.
+
+### Settled elsewhere, and not ours
+
+Import has no hierarchy to preserve, which settles more than it looks: Keep
+Takeout is per-note JSON with flat labels and a note may carry several, so a
+label cannot be a parent, and KNotes is flat `VJOURNAL`. **The hierarchy is
+the user's to build and an importer must not invent one** -- a guess would
+produce a structure the user never made, once, irreversibly, at the moment
+they had least context. It is host-side work with files in it, and this
+library has no I/O.
+
+Read-only sharing is cheap for one reason worth saying out loud: **there is a
+single writer**, so every hazard above is a hazard of two and none arises. The
+unit is a subtree, a share cannot be unshared, and attachments inherit sec 20's
+addressing bill. All three are consumer decisions about which records to hand
+over, not mechanisms here.
+
+Still open and theirs: the content-type registry, whether a group share reuses
+the roster or the group-message path, re-import, and where the tree lives at
+rest.
+
 ## 49. The integration, done from both sides at once, 2026-09-01
 
 > **THIS SECTION IS LONG AND IS DELIBERATELY NOT BEING SPLIT YET.** Decided

@@ -82,6 +82,7 @@
 #include <fuzznet/record/journal.h>
 #include <fuzznet/log/log.h>
 #include <fuzznet/record/record.h>
+#include <fuzznet/tree/tree.h>
 #include <fuzznet/link/link.h>
 #include <fuzznet/sched/sched.h>
 #include <fuzznet/record/sync.h>
@@ -122,6 +123,7 @@
 #include "record/journal.h"
 #include "log/log.h"
 #include "record/record.h"
+#include "tree/tree.h"
 #include "link/link.h"
 #include "sched/sched.h"
 #include "record/sync.h"
@@ -1496,6 +1498,66 @@ int main(void)
 		if (!rng.fill || fzn_nonce_next(&rng, aead_nonce) != 1)
 			FAIL(21);
 #endif
+	}
+
+	/* THE TREE, EXERCISED RATHER THAN MERELY INCLUDED. `installcheck`
+	 * requires every installed header to be included here, and an include
+	 * alone proves only that the header parses. These calls are the ones a
+	 * consumer building a nesting structure actually makes, and the two
+	 * that matter are the ones with no single right answer to guess:
+	 * running out of order keys, and a set the root cannot fully reach. */
+	{
+		uint8_t parent[FZN_TREE_ID_LEN];
+		uint8_t ids[2][FZN_TREE_ID_LEN];
+		uint8_t body[FZN_RECORD_BODY_MAX];
+		fzn_tree_node_t nodes[2];
+		const fzn_tree_node_t *kids[2];
+		fzn_tree_walk_t walk;
+		uint8_t mark[2];
+		uint64_t order = 0u;
+		size_t body_len = 0u;
+
+		memset(parent, 0, sizeof parent);
+		if (!fzn_tree_is_root(parent))
+			FAIL(249);
+
+		if (fzn_tree_body(parent, 100u, 1u, NULL, 0u,
+		                  body, sizeof body, &body_len) != FZN_TREE_OK)
+			FAIL(250);
+		if (body_len != (size_t)FZN_TREE_BODY_HEADER_LEN)
+			FAIL(251);
+
+		/* Adjacent neighbours have no midpoint, and the library says so
+		 * without refusing to answer -- a consumer inserting between two
+		 * notes needs the key back either way. */
+		if (fzn_tree_order_between(4u, 5u, &order) != FZN_TREE_ORDER_EXHAUSTED)
+			FAIL(252);
+		if (order != 4u)
+			FAIL(253);
+
+		memset(ids[0], 1, sizeof ids[0]);
+		memset(ids[1], 2, sizeof ids[1]);
+		nodes[0].id = ids[0];
+		nodes[0].parent = parent;
+		nodes[0].content = NULL;
+		nodes[0].content_len = 0u;
+		nodes[0].order = 10u;
+		nodes[0].content_type = 0u;
+		/* Node 2 names node 2 as its own parent: a one-node cycle, which
+		 * is the shape a walk without a mark array never returns from. */
+		nodes[1] = nodes[0];
+		nodes[1].id = ids[1];
+		nodes[1].parent = ids[1];
+
+		if (fzn_tree_children(nodes, 2u, parent, kids, 2u, &walk) != FZN_TREE_OK)
+			FAIL(254);
+		if (walk.emitted != 1u || walk.truncated != 0)
+			FAIL(255);
+
+		if (fzn_tree_reachable(nodes, 2u, mark, sizeof mark, &walk) != FZN_TREE_OK)
+			FAIL(13);
+		if (mark[0] == 0u || mark[1] != 0u)
+			FAIL(24);
 	}
 
 #ifdef FZN_CONSUMER_MONOCYPHER
