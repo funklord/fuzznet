@@ -195,6 +195,26 @@ typedef struct fzn_opened {
  * Concretely: 100 candidate keys cost about 60 microseconds to decide a
  * frame is not yours, against about 215 microseconds of AEAD.
  *
+ * A REJECTED CANDIDATE LEAVES THE FRAME BYTE-IDENTICAL, so trying the next
+ * one needs no copy. Stated because the arithmetic above is useless without
+ * it: a receiver told only that this call "decrypts in place" must copy the
+ * frame per candidate to be safe, which at 100 candidates is 100 memcpys to
+ * avoid a hazard that is not there.
+ *
+ * Measured rather than reasoned: between this function's first line and its
+ * call to `aead->open` there is no write to `frame` at all -- four read-only
+ * accessors and nothing else. So every rejection reachable before the AEAD
+ * (MALFORMED, SHAPE, HASH, COMMITMENT) returns with the buffer as it arrived,
+ * and COMMITMENT is the one a wrong candidate takes.
+ *
+ * THE EXCEPTION, and it is the only one: once `aead->open` has run the buffer
+ * may be modified whatever it returned, so a candidate that passes the
+ * commitment and fails the TAG is not retryable. Reaching that state with a
+ * wrong candidate needs a 16-byte commitment collision, which is the property
+ * `session/commitment.h` argues is a second-preimage problem -- so it is not
+ * a case to code around, but it IS the reason this paragraph says "before the
+ * AEAD" rather than "on failure".
+ *
  * THAT IS A GOOD TRADE AND IT IS NOT AN ORDER OF MAGNITUDE, which is what
  * this header used to imply by saying the step turned K verifications into
  * K compares. It turns K verifications into K hashes, and the factor is
