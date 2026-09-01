@@ -6049,6 +6049,81 @@ is what catches it. Both are needed and neither substitutes.
 Measured rather than assumed, and it answered the question this library kept
 hedging: is there test work left.
 
+**RE-MEASURED 2026-09-01, AND THE CLAIM BELOW HAD GONE STALE.** The table
+that stood here was taken 2026-08-18 over **15 files** and closed with
+"every branch in the library goes both ways now, with one exception". That
+was true of the library it measured. `make coverage` reports **42 sources**
+today, and the standard did not follow the growth:
+
+    at 100% of branches      10 files
+    below 100%               28 files
+    no branches at all        1 file   (version/version.c)
+    total branches         2318, of which ~300 (13%) never go both ways
+
+**Twenty of the twenty-eight shortfalls are in modules that did not exist
+when the table was written** -- `blob/`, `spool/`, `persist/`, `prekey/`,
+`ratchet/`, `record/`, `state/`, `log/`, `link/`, `chain/manifest.c`,
+`session/session.c` and `session/agree.c`. The other eight are modules that
+were at 100% and have since grown: `chain/chain.c` had 84 branches and has
+132, `chunk/reassembly.c` had 98 and has 150. **The standard was met once,
+for the code that existed, and nothing carried it forward** -- which is what
+a percentage in a document cannot tell you and a re-measurement can.
+
+**And the empty column is not a zero.** `version/version.c` reports its line
+figure and nothing beside it, because three functions returning constants
+have no branches to take. A first pass at this read the blank as 0.00% and
+put version.c at the top of the list as the worst file in the library. The
+gcov summary omits what does not exist; a reader, and a script, must not
+supply a number for it.
+
+| file | lines | branches both ways |
+|---|---|---|
+| `spool/spool.c` | 82.19% of 73 | **63.29% of 79** |
+| `persist/persist.c` | 90.98% of 122 | **66.67% of 72** |
+| `session/random_linux.c` | 86.67% of 15 | **66.67% of 12** |
+| `session/session.c` | 88.24% of 170 | **66.67% of 84** |
+| `persist/persist_file.c` | 90.48% of 84 | **67.31% of 52** |
+| `local/peer_linux.c` | 95.83% of 24 | **68.75% of 16** |
+| `blob/blob.c` | 92.59% of 216 | **70.81% of 161** |
+| `spool/spool_file.c` | 90.43% of 94 | **73.26% of 86** |
+| `session/agree_monocypher.c` | 100.00% of 17 | **75.00% of 4** |
+| `wire/seal.c` | 97.58% of 124 | **78.20% of 133** |
+| `prekey/prekey.c` | 82.61% of 69 | **81.25% of 64** |
+| `session/agree.c` | 81.40% of 43 | **81.58% of 38** |
+| `spool/plan.c` | 100.00% of 58 | **83.33% of 66** |
+| `ratchet/ratchet.c` | 86.25% of 80 | **86.79% of 53** |
+| `constant_time/constant_time.c` | 92.86% of 14 | **87.50% of 8** |
+| `chain/authz.c` | 77.78% of 18 | **87.50% of 16** |
+| `wire/relay.c` | 100.00% of 35 | **90.48% of 21** |
+| `chain/manifest.c` | 97.85% of 233 | **91.83% of 208** |
+| `chain/revocation.c` | 100.00% of 122 | **94.20% of 138** |
+| `record/sync.c` | 100.00% of 90 | **94.52% of 73** |
+| `state/state.c` | 100.00% of 91 | **94.87% of 78** |
+| `record/journal.c` | 98.73% of 79 | **95.59% of 68** |
+| `chunk/reassembly.c` | 100.00% of 158 | **96.00% of 150** |
+| `record/record.c` | 100.00% of 58 | **96.23% of 53** |
+| `chunk/split.c` | 100.00% of 34 | **97.14% of 35** |
+| `log/log.c` | 100.00% of 103 | **97.22% of 108** |
+| `link/link.c` | 100.00% of 95 | **98.21% of 56** |
+| `chain/chain.c` | 100.00% of 132 | **98.48% of 132** |
+
+**What this is and is not.** It is a worklist, not a defect list: an
+unexercised branch is usually a defensive refusal nobody has driven, which
+is the same population sec 43 sampled and found to be mostly redundant
+guards. What makes it worth having is the direction of travel rather than
+any row -- the number went from "one exception" to 300 branches across 28
+files while nobody was reading it, and the modules furthest behind
+(`spool/spool.c` at 63%, `session/session.c` and `persist/persist.c` at 67%)
+are the newest rather than the most complex.
+
+**The method, so it can be re-taken:** `make coverage`, which builds
+instrumented into its own BUILD_DIR and runs `runtests`. The branch column
+is the honest one; 100% of lines is compatible with every decision in the
+library having only ever gone one way, which is why the table carries both.
+
+### The 2026-08-18 measurement, kept because its argument survives
+
+
 | file | lines | branches both ways |
 |---|---|---|
 | `constant_time/constant_time.c` | 100% of 7 | 100% of 2 |
