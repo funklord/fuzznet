@@ -3038,6 +3038,131 @@ static void scenario_session(void)
  * place. A sabotage that did not apply and a check that cannot fail are
  * indistinguishable from the output.
  */
+/*
+ * A HOST THAT WAS AWAY FOR A LONG TIME, AND THE NETWORK MOVED ON.
+ *
+ * `scenario_restart` covers a host that loses its memory and comes back; this
+ * is the other absence, and they are not the same shape. There the host is
+ * gone for no TIME -- the conversation waits for it -- and the question is
+ * whether `persist/` carried enough. Here the host keeps everything it had
+ * and the question is whether it can catch up on what happened without it.
+ *
+ * WHY IT NEEDED WRITING. project.md sec 46 answers the holder's shattered-
+ * estate requirement partly by claiming that healing is already built: sync
+ * is pull-shaped, so "a host that missed eighteen months asks for eighteen
+ * months". That claim was made from reading `record/sync.h` and nothing
+ * exercised it. `scenario_distribution` converges eight hosts under loss, but
+ * every one of them starts empty at the same moment and follows the same five
+ * records -- nobody is ever far behind anybody.
+ *
+ * THE PART THAT COULD PLAUSIBLY FAIL IS THE BOUND. `fzn_sync_plan_fetch`
+ * takes `max_per_request`, and this harness passes 4, so a host twenty-four
+ * records behind cannot be answered in one exchange -- it must ask, apply,
+ * and ask again from its new position, six times at least. A plan that
+ * computed the gap from the peer's numbers rather than from this host's own
+ * would stall or re-ask forever, and neither shows up when the gap is smaller
+ * than the bound. So the assertion is not merely that it converges: it is
+ * that convergence took MORE THAN ONE ROUND, which is what says the bound was
+ * actually exercised rather than stepped over.
+ *
+ * THE ABSENCE IS CHECKED BEFORE THE RECOVERY IS, for `scenario_restart`'s
+ * reason: a returning host that had quietly never fallen behind would satisfy
+ * every check below while proving nothing, and an absence that did not happen
+ * looks exactly like a recovery that worked.
+ */
+
+#define ABS_HOSTS    3u
+#define ABS_RECORDS  24u
+#define ABS_ROUNDS   40u
+
+static void scenario_absence(void)
+{
+	static struct sim_net net;
+	struct sim_host *issuer, *present, *away;
+	unsigned round, returned_at = 0, converged_at = 0;
+	uint64_t seq;
+
+	sim_init(&net, ABS_HOSTS, 0x5151u);
+
+	issuer = &net.hosts[0];
+	present = &net.hosts[1];
+	away = &net.hosts[2];
+
+	for (uint8_t i = 0; i < ABS_HOSTS; i++)
+		fzn_journal_anchor(&net.hosts[i].journal, issuer->pubkey, 0, 0);
+
+	for (seq = 1; seq <= ABS_RECORDS; seq++) {
+		if (fzn_journal_admit(&issuer->journal, issuer->pubkey, 0, seq)
+		    != FZN_JOURNAL_OK)
+			break;
+		hold(issuer, 0, seq);
+		issuer->issued = seq;
+	}
+	check(issuer->issued == ABS_RECORDS, "the issuer published its whole run");
+
+	/* The absence. `away` simply does not fetch, which is what being off
+	 * the network is -- no refusal, no error, nothing to observe locally. */
+	for (round = 0; round < 12u; round++) {
+		sim_fetch_from(&net, present, issuer);
+		{
+			uint64_t next = fzn_journal_next(&present->journal, issuer->pubkey, 0);
+
+			if (next > 1u)
+				fzn_journal_confirm(&present->journal, issuer->pubkey, 0,
+				                    next - 1u);
+		}
+	}
+
+	/* THE ABSENCE, CHECKED. Without this the rest is satisfied by a host
+	 * that was never behind. */
+	check(fzn_journal_next(&present->journal, issuer->pubkey, 0) == ABS_RECORDS + 1u,
+	      "the present host kept up while the other was away");
+	check(fzn_journal_next(&away->journal, issuer->pubkey, 0) == 1u,
+	      "the absent host holds nothing, so it really was away");
+
+	/* It comes back and asks. Nothing tells it how far behind it is: it
+	 * compares positions and asks for what is missing, which is the whole
+	 * of the healing story sec 46 relies on. */
+	returned_at = round;
+	for (; round < ABS_ROUNDS; round++) {
+		uint64_t next;
+
+		sim_fetch_from(&net, away, issuer);
+		next = fzn_journal_next(&away->journal, issuer->pubkey, 0);
+		if (next > 1u)
+			fzn_journal_confirm(&away->journal, issuer->pubkey, 0, next - 1u);
+		if (fzn_journal_next(&away->journal, issuer->pubkey, 0) == ABS_RECORDS + 1u) {
+			converged_at = round + 1u;
+			break;
+		}
+	}
+
+	check(converged_at != 0, "the returning host caught up at all");
+	check(fzn_journal_next(&away->journal, issuer->pubkey, 0) == ABS_RECORDS + 1u,
+	      "the returning host reached the position the network was at");
+
+	/* THE BOUND WAS EXERCISED, which is the assertion that distinguishes
+	 * this from a gap small enough to be answered in one exchange. */
+	check(converged_at - returned_at > 1u,
+	      "catching up took more than one exchange, so max_per_request was "
+	      "actually iterated rather than stepped over");
+
+	/* And it holds every record, not merely a position that claims so. A
+	 * journal position is a number; the bitmap is what was received. */
+	{
+		unsigned missing = 0;
+
+		for (seq = 1; seq <= ABS_RECORDS; seq++)
+			if (!holds(away, 0, seq))
+				missing++;
+		check(missing == 0, "the returning host holds every record it missed");
+	}
+
+	printf("  absence: away %u rounds, caught up in %u exchanges, %llu records\n",
+	       returned_at, converged_at - returned_at,
+	       (unsigned long long)ABS_RECORDS);
+}
+
 static void scenario_restart(void)
 {
 	struct sim_net net;
@@ -3314,6 +3439,7 @@ int main(void)
 	scenario_fidelity();
 	scenario_session();
 	scenario_restart();
+	scenario_absence();
 
 	/* Asserted ONCE, not once per fetch. See `digest_dropped`. */
 	check(total_digest_dropped == 0, "a simulation digest buffer was too small");

@@ -11004,6 +11004,47 @@ does not start over, and no amount of healing logic supplies one. This is
 the same compartmentalisation cost sec 28 already accepted for two
 estates, arriving from the other direction.
 
+### The healing claim is exercised now, and it was not when it was made
+
+Most of sec 46 above was written from reading `record/sync.h`. **One line of
+it was a claim about behaviour** -- that sync is pull-shaped, so a host that
+missed eighteen months asks for eighteen months -- and nothing ran it.
+`scenario_distribution` converges eight hosts under twenty percent loss, but
+every one starts empty at the same moment and follows the same five records:
+**nobody is ever far behind anybody.** `scenario_restart` is the other
+absence and a different shape -- there the host is gone for no TIME, the
+conversation waits, and the question is whether `persist/` carried enough.
+
+`scenario_absence` is the missing one: the issuer publishes twenty-four
+records while one host does not fetch at all, then that host returns and has
+to catch up on a network that moved without it.
+
+**The part that could plausibly fail is the bound.** `fzn_sync_plan_fetch`
+takes `max_per_request` and the harness passes 4, so a host twenty-four
+records behind cannot be answered in one exchange: it must ask, apply, and
+ask again FROM ITS NEW POSITION. A plan computing the gap from the peer's
+numbers rather than from this host's own would stall or re-ask forever, and
+neither shows up when the gap is smaller than the bound. It converges in six
+exchanges, which is exactly 24/4.
+
+**So the assertion is not that it converges.** It is that convergence took
+MORE THAN ONE exchange, which is what says the bound was exercised rather
+than stepped over -- and that assertion was checked for being able to fail,
+by shrinking the run to four records: it converges in one exchange and the
+check goes red. A test that cannot fail is not evidence of anything.
+
+The absence is also checked before the recovery is, for `scenario_restart`'s
+reason: a returning host that had quietly never fallen behind satisfies every
+check while proving nothing. And the final state is read from the harness's
+own bitmap rather than from the journal position, because a position is a
+number the library maintains and the bitmap is what actually arrived.
+
+**What this does NOT show** is the thing sec 46 names as the blocker. The
+returning host catches up on RECORDS, which carry sequence numbers and can
+therefore be counted. Revocations ride no stream, so nothing here says how it
+learns what it is missing of those -- and `scenario_revocation_split` already
+exhibits that, deliberately, from the other side.
+
 ### What is decided here and what is not
 
 Decided: **apps are members**, and that needs no protocol change. Also
