@@ -578,6 +578,43 @@ size_t fzn_manifest_deficit(const fzn_manifest_state_t *state,
                             const uint8_t issuer[FZN_PUBKEY_LEN], fzn_manifest_pair_t *out,
                             size_t out_cap, size_t *dropped);
 
+/* The same report, RESUMABLE, which is what turns it into a fetch path.
+ *
+ * WHY THE PLAIN CALL IS NOT ENOUGH, and its own comment says so: "the scan
+ * runs in table order, so a host that overflows drops the same pairs every
+ * round and never asks for them at all". With a deficit larger than `out_cap`
+ * -- a frame holds ten pairs, and a returning host's deficit is a year of
+ * them -- the same prefix comes back for ever and the tail is never
+ * requested. The host converges on the part it could already see and stalls
+ * on the rest, which is project.md sec 47's shattered-estate case arriving
+ * through the one function meant to answer it.
+ *
+ * `from` is a position in THIS issuer's run of the table, reduced modulo the
+ * run's length, and the window wraps. `next` receives where to resume, so a
+ * caller that passes back what it was given last time sweeps the whole
+ * deficit in `ceil(total / out_cap)` calls and then repeats. That is the
+ * property `record/sync.h` gets for free from a journal position advancing;
+ * a deficit does not advance, it drains, so the cursor has to be explicit.
+ *
+ * THE CURSOR IS A HINT AND NOT A GUARANTEE. Entries leave the table as
+ * revocations arrive, so positions shift under it, and a call after a drain
+ * may repeat a pair or step over one. Both are harmless -- asking twice is
+ * idempotent and the wrap catches what was stepped over on the next lap --
+ * and saying so is cheaper than a stability promise this table cannot keep.
+ * A caller wanting determinism passes `from = 0`, which is the plain call.
+ *
+ * `dropped` now reports every pair NOT written rather than only those past
+ * the end of the scan, since with a wrap there is no end: it is the deficit
+ * that did not fit this request, which is the number a caller sizing its next
+ * one wants. For `from = 0` and a table that fits, both readings are zero.
+ *
+ * `next` may be NULL for a caller that does not resume. `dropped` may not,
+ * for the reason above. */
+size_t fzn_manifest_deficit_from(const fzn_manifest_state_t *state,
+                                const uint8_t issuer[FZN_PUBKEY_LEN], size_t from,
+                                fzn_manifest_pair_t *out, size_t out_cap, size_t *dropped,
+                                size_t *next);
+
 /* A short name for `fzn_manifest_err_t`, for a log line or a message to a
  * user.
  *

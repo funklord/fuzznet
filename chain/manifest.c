@@ -545,38 +545,72 @@ int fzn_manifest_overflowed(const fzn_manifest_state_t *state,
 	return state->issuers[which].overflowed != 0;
 }
 
-size_t fzn_manifest_deficit(const fzn_manifest_state_t *state,
-                            const uint8_t issuer[FZN_PUBKEY_LEN], fzn_manifest_pair_t *out,
-                            size_t out_cap, size_t *dropped)
+size_t fzn_manifest_deficit_from(const fzn_manifest_state_t *state,
+                                const uint8_t issuer[FZN_PUBKEY_LEN], size_t from,
+                                fzn_manifest_pair_t *out, size_t out_cap, size_t *dropped,
+                                size_t *next)
 {
+	size_t total = 0;
 	size_t written = 0;
-	size_t missed = 0;
+	size_t pos = 0;
 
 	/* REQUIRED, not optional, and refused first so that a caller which
 	 * forgot it gets nothing rather than a report it cannot size. */
 	if (!dropped)
 		return 0;
 	*dropped = 0;
+	if (next)
+		*next = 0;
 
 	if (!state_sound(state) || !state->deficit || !issuer || (out_cap > 0 && !out))
 		return 0;
 
+	/* COUNTED BEFORE IT IS WALKED, because `from` is meaningless until
+	 * there is a total to reduce it by. One extra pass over a table that
+	 * is already bounded, and it removes every special case below. */
+	for (size_t i = 0; i < state->deficit_used; i++)
+		if (fzn_ct_memeq(state->deficit[i].issuer, issuer, FZN_PUBKEY_LEN))
+			total++;
+	if (total == 0)
+		return 0;
+	from %= total;
+
+	/* THE ROTATION, done by arithmetic rather than by two sweeps. Each
+	 * matching pair has a position `pos` in this issuer's run; its offset
+	 * from the cursor is `(pos - from) mod total`, and it belongs in the
+	 * output exactly when that offset is inside the window. Writing it
+	 * straight to that index puts the window in cursor order without the
+	 * caller sorting anything. */
 	for (size_t i = 0; i < state->deficit_used; i++) {
 		const fzn_manifest_deficit_t *d = &state->deficit[i];
+		size_t rel;
 
 		if (!fzn_ct_memeq(d->issuer, issuer, FZN_PUBKEY_LEN))
 			continue;
-		if (written >= out_cap) {
-			missed++;
+		rel = (pos + total - from) % total;
+		pos++;
+		if (rel >= out_cap)
 			continue;
-		}
-		out[written].capability = d->capability;
-		memcpy(out[written].grantee, d->grantee, FZN_PUBKEY_LEN);
+		out[rel].capability = d->capability;
+		memcpy(out[rel].grantee, d->grantee, FZN_PUBKEY_LEN);
 		written++;
 	}
 
-	*dropped = missed;
+	*dropped = total - written;
+	if (next)
+		*next = (from + written) % total;
 	return written;
+}
+
+size_t fzn_manifest_deficit(const fzn_manifest_state_t *state,
+                            const uint8_t issuer[FZN_PUBKEY_LEN], fzn_manifest_pair_t *out,
+                            size_t out_cap, size_t *dropped)
+{
+	/* THE `from == 0` CASE, expressed as one rather than duplicated. Two
+	 * copies of a scan is how two answers drift, and this file already
+	 * argues that where `fzn_revocation_admit` calls `fzn_manifest_satisfy`
+	 * rather than reaching into the table itself. */
+	return fzn_manifest_deficit_from(state, issuer, 0, out, out_cap, dropped, NULL);
 }
 
 const char *fzn_manifest_err_str(fzn_manifest_err_t err)

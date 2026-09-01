@@ -1887,6 +1887,121 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 	      "the positive control recorded no deficit");
 }
 
+/* THE DEFICIT REPORT, RESUMED, which is what makes it a fetch path.
+ *
+ * `fzn_manifest_deficit`'s own comment names the hazard this closes: "the
+ * scan runs in table order, so a host that overflows drops the same pairs
+ * every round and never asks for them at all". A frame holds about ten pairs
+ * and a returning host's deficit is a year of them, so the plain call hands
+ * back the same prefix for ever and the tail is never requested -- the host
+ * converges on what it could already see and stalls on the rest.
+ *
+ * THE PROPERTY IS COVERAGE, NOT ORDER. With a window smaller than the
+ * deficit, feeding `next` back in must sweep every pair in
+ * ceil(total / out_cap) calls and then start again. The test asserts that by
+ * marking off which pairs it has seen and requiring a full set -- asserting a
+ * particular sequence would pin the table's admission order, which the header
+ * says nothing may depend on.
+ */
+static void test_the_deficit_report_resumes_and_covers_everything(void)
+{
+	struct fixture f, joiner;
+	static uint8_t bytes[FIXTURE_BYTES];
+	fzn_manifest_record_t rec;
+	fzn_manifest_pair_t window[2];
+	fzn_cap_id_t cap[4];
+	uint8_t grantee[4][FZN_PUBKEY_LEN];
+	size_t len = 0, dropped = 0, next = 0, calls;
+	int seen[4] = { 0, 0, 0, 0 };
+	size_t i, j;
+
+	/* Four revocations from one issuer, so the manifest names four pairs
+	 * and the deficit table -- which holds exactly four -- fills without
+	 * overflowing. An overflow here would make the sweep incomplete for a
+	 * reason that is not the one under test. */
+	fixture_init(&f);
+	for (i = 0; i < 4; i++) {
+		capability_id(&cap[i], (uint8_t)(0x40u + i));
+		key(grantee[i], (uint8_t)(0x50u + i));
+		revoke(&f, f.root, &cap[i], grantee[i]);
+	}
+	f.stub.identity = 0;
+	CHECK(fzn_manifest_issue(f.root, &f.store, &f.sign, bytes, sizeof(bytes), &len)
+	              == FZN_MANIFEST_OK, "issue");
+	CHECK(fzn_manifest_open(bytes, len, &rec) == FZN_MANIFEST_OK, "open");
+
+	fixture_init(&joiner);
+	CHECK(fzn_manifest_follow(&joiner.manifest, f.root) == FZN_MANIFEST_OK, "follow");
+	CHECK(fzn_manifest_admit(&joiner.manifest, NULL, rec, &joiner.sign) == FZN_MANIFEST_OK,
+	      "admit");
+	CHECK(fzn_manifest_pending(&joiner.manifest, f.root) == 4,
+	      "the deficit is %zu, wanted four", fzn_manifest_pending(&joiner.manifest, f.root));
+	CHECK(fzn_manifest_overflowed(&joiner.manifest, f.root) == 0, "the table overflowed");
+
+	/* THE PLAIN CALL CANNOT DO THIS, and showing it is what makes the new
+	 * function an argument rather than an assertion: asked twice for two
+	 * pairs, it returns the same two, for ever. */
+	{
+		fzn_manifest_pair_t a[2], b[2];
+		size_t da = 0, db = 0;
+
+		CHECK(fzn_manifest_deficit(&joiner.manifest, f.root, a, 2, &da) == 2, "two");
+		CHECK(fzn_manifest_deficit(&joiner.manifest, f.root, b, 2, &db) == 2, "again");
+		CHECK(memcmp(a, b, sizeof(a)) == 0,
+		      "the plain report returned different pairs on an unchanged table, "
+		      "so the hazard this test exists for is not real");
+		CHECK(da == 2 && db == 2, "the pairs that did not fit were not counted");
+	}
+
+	next = 0;
+	for (calls = 0; calls < 2; calls++) {
+		size_t got = fzn_manifest_deficit_from(&joiner.manifest, f.root, next, window,
+		                                       2, &dropped, &next);
+
+		CHECK(got == 2, "a full window returned %zu pairs, wanted 2", got);
+		CHECK(dropped == 2, "the pairs outside the window were not counted");
+		for (i = 0; i < got; i++)
+			for (j = 0; j < 4; j++)
+				if (fzn_ct_memeq(window[i].capability.b, cap[j].b,
+				                 FZN_CAP_ID_LEN))
+					seen[j]++;
+	}
+	for (j = 0; j < 4; j++)
+		CHECK(seen[j] == 1, "pair %zu was returned %d times in a full sweep, wanted once",
+		      j, seen[j]);
+
+	/* AND IT WRAPS. A fetch path that went quiet after one lap would stall
+	 * a host whose peer did not hold the pairs it asked for first. */
+	CHECK(next == 0, "the cursor did not wrap to the start after a full sweep");
+	CHECK(fzn_manifest_deficit_from(&joiner.manifest, f.root, next, window, 2, &dropped,
+	                                &next) == 2,
+	      "the report went quiet after one lap");
+
+	{
+		fzn_manifest_pair_t a[4], b[4];
+		size_t da = 0, db = 0;
+
+		CHECK(fzn_manifest_deficit(&joiner.manifest, f.root, a, 4, &da) == 4, "plain");
+		CHECK(fzn_manifest_deficit_from(&joiner.manifest, f.root, 0, b, 4, &db, NULL)
+		              == 4, "from zero");
+		CHECK(memcmp(a, b, sizeof(a)) == 0 && da == db,
+		      "from = 0 does not agree with the plain call");
+	}
+
+	/* A cursor past the end is reduced rather than refused: a caller that
+	 * kept one across a drain must not fall off the table. */
+	CHECK(fzn_manifest_deficit_from(&joiner.manifest, f.root, 9999u, window, 2, &dropped,
+	                                &next) == 2,
+	      "a cursor past the end returned nothing");
+
+	CHECK(fzn_manifest_deficit_from(&joiner.manifest, f.root, 0, window, 2, NULL, &next)
+	              == 0, "a missing dropped counter was not refused");
+	CHECK(fzn_manifest_deficit_from(&joiner.manifest, f.root, 0, window, 2, &dropped, NULL)
+	              == 2, "a NULL cursor was refused");
+	CHECK(fzn_manifest_deficit_from(NULL, f.root, 0, window, 2, &dropped, &next) == 0,
+	      "a NULL state reported a deficit");
+}
+
 int main(void)
 {
 	test_layout_and_round_trip();
@@ -1901,6 +2016,7 @@ int main(void)
 	test_issuing_is_deterministic();
 	test_following_is_deliberate();
 	test_the_deficit_is_what_this_host_lacks();
+	test_the_deficit_report_resumes_and_covers_everything();
 	test_the_deficit_reads_the_whole_field();
 	test_the_overflow_flag_is_sticky();
 	test_a_corrupt_store_is_refused_rather_than_believed();
