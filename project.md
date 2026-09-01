@@ -11528,6 +11528,50 @@ had this tree's plain statement of provenance in hand and had written a more
 convenient one, in the paragraph arguing that people substitute convenient
 claims for measured ones.
 
+### The same shape a fourth time, caught before it was final
+
+`-fsyntax-only` on `tool/consumer_check.c` after the 204-site `FAIL(code)`
+conversion was clean, and I let it stand as the verification in a summary.
+**The claim was true and about one arrangement of four.** That file compiles
+four ways and its Monocypher includes sit inside `#ifdef
+FZN_CONSUMER_INSTALLED` / `#else`. The conversion introduced `fprintf` into
+a file with ZERO `fprintf` uses before it, so the live question was whether
+`<stdio.h>` sat inside one of those branches: if it did, the change builds
+in the arrangement I checked and fails in the other three, and the clean
+syntax check would have been a true diligence marker about the wrong
+arrangement.
+
+It is at line 172, outside both branches. **Closed by reading the
+conditional nesting rather than running the same check again**, which is the
+whole of the remedy: when a check cannot be run, the cheaper proxy is not
+that check on the same arrangement, it is asking which question the check
+you DID run actually answered.
+
+**Then the check itself, once the consumer released the box.** All four
+arrangements build and run, exit 0, and the symbol probe verified against
+`monocypher.o` at 49 symbols -- so the control ran rather than the pattern
+matching nothing.
+
+**A green run proves the macro COMPILES in four arrangements and nothing
+about the output it exists for.** Same shape once more, and cheap to close:
+on a copy in scratch, `FAIL(9001)` injected at the top of `main`, built
+through the manifest arm's own command line.
+
+    consumer_check: failed check 9001, line 319
+    exit: 1
+
+Code, line, stderr, exit 1, and the tree never dirty. **`5b4ae35`'s message
+now rests on something other than the fact that it compiled.**
+
+**The amendment owed to `claude-guidelines`, which is not a fifth
+instance.** The filed entry's four routes are all a probe finding NOTHING --
+a grep over an empty list, a `head`-truncated match, an absent path, a
+pattern that could not have hit. This is a probe finding SOMETHING,
+correctly, about an ADJACENT question, and no amount of examining the probe
+falsifies it. Not written into that tree: what goes into another project's
+document is the holder's call, and a session writing into many trees owes
+each one a check it cannot perform from outside.
+
 ### The truncation rule, reached independently in two trees
 
 Sec 49's `head` finding has a second witness, and it is the real kind. That
