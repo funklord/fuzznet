@@ -265,6 +265,38 @@ typedef struct fzn_opened {
  * attacker, and for why an over-long buffer is a different fault from a short
  * one even though it is the same code.
  */
+/* The sender a frame CLAIMS, before any key has been chosen.
+ *
+ * WHY THIS EXISTS: this header already tells a receiver what to do, and until
+ * now the API could not do it. sec 4.7 step 2 is "select on `sender`", which
+ * "reduces K to the keys held for one sender, which is usually one" -- and
+ * `sender` arrived only in `fzn_opened_t`, which `fzn_seal_open` produces,
+ * which needs the key. **The one field a receiver must have before choosing a
+ * key was offered only after using one.** The alternative is trying every key
+ * against every datagram, which is the shape step 2 exists to discourage.
+ * Reported by fuzzypickles 2026-09-01, who had implemented the advice by
+ * reading the plaintext head through the generated accessors -- correct, and
+ * layout knowledge no consumer should need.
+ *
+ * IT IS A CLAIM AND NOT A FACT, which is the whole of the contract. The head
+ * is plaintext, so anyone can write any sender into a frame. Nothing is
+ * authenticated until `fzn_seal_open` verifies the tag.
+ *
+ *   - SAFE: choosing which key to try. A wrong claim costs one failed open.
+ *   - NOT SAFE: anything that treats it as identity before the tag verifies
+ *     -- logging it as the sender, rate-limiting by it, counting it, or any
+ *     authorization question. `fzn_opened_t.sender` is the authenticated one
+ *     and is the same bytes only when the frame was genuine.
+ *
+ * The frame is shape-checked exactly as `fzn_seal_open` checks it -- the
+ * schema's own constraints and the no-trailing-bytes rule -- so a malformed
+ * or suffixed frame is refused here too rather than yielding a pointer into
+ * something that is not a frame.
+ *
+ * `*out` points INTO `frame` and is valid for as long as it is. */
+fzn_seal_err_t fzn_seal_peek_sender(const uint8_t *frame, size_t frame_len,
+                                     const uint8_t **out);
+
 fzn_seal_err_t fzn_seal_open(uint8_t *frame, size_t frame_len,
                               const uint8_t key[FZN_AEAD_KEY_LEN],
                               const uint8_t commitment_key[FZN_COMMITMENT_KEY_LEN],
@@ -281,6 +313,28 @@ fzn_seal_err_t fzn_seal_open(uint8_t *frame, size_t frame_len,
  * from the nonce, so the only party that could compute it is the one holding
  * the nonce, and that is `fzn_seal_build` rather than anybody calling it.
  * A caller hands in the commitment KEY instead. */
+/* WHAT A DATAGRAM IS FOR, hand-written so a consumer need not reach into
+ * situ's output to fill `fzn_send_t.kind`.
+ *
+ * The generated `SITU_FZN_KIND_*` enumerators are the schema's and move with
+ * it; sec 16 records that they are not the anchor a consumer should hold,
+ * which is why `FZN_SEAL_OVERHEAD` is hand-written too. Without these a send
+ * path could not name a kind without including the generated header, which
+ * also costs the property that every module but `wire/` builds without situ.
+ *
+ * Held to the generated values by `_Static_assert` in `wire/seal.c`, which
+ * has both -- so the two cannot drift, and the assert rather than this
+ * comment is what says so. Reported by fuzzypickles 2026-09-01.
+ *
+ * A CLOSED SET: `fzn_head_validate` refuses anything else and adding a value
+ * is a conversation rather than an edit -- `wire/frame.situ` says why, and it
+ * is that two networks assigning 0x04 differently would each refuse the
+ * other's traffic as malformed and neither would be wrong. */
+#define FZN_KIND_NOP   0u
+#define FZN_KIND_UNIT  1u
+#define FZN_KIND_CHUNK 2u
+#define FZN_KIND_ACK   3u
+
 typedef struct fzn_send {
 	const uint8_t *sender;     /* 32 bytes */
 	const uint8_t *capability; /* FZN_CAP_ID_LEN, sealed rather than sent clear */
@@ -289,7 +343,23 @@ typedef struct fzn_send {
 	uint64_t expires_at;
 	uint32_t msg;
 	uint16_t index;
+	/* MUST BE AT LEAST 1, INCLUDING FOR A `unit` FRAME, so a zeroed
+	 * struct is invalid rather than minimal.
+	 *
+	 * The schema bounds `index [max = chunks - 1]`, so `chunks = 0` has
+	 * no legal index and `fzn_seal_build` refuses with
+	 * FZN_SEAL_ERR_SHAPE. A one-piece message states `chunks = 1,
+	 * index = 0` -- one shape on the wire rather than two, which the
+	 * schema argues for and which costs exactly this.
+	 *
+	 * IT IS THE INVERSE OF `hops` BELOW AND THE CONTRAST IS THE POINT.
+	 * Zero hops means "not offered for relaying", so the safest-looking
+	 * initialisation is the safest behaviour. Zero chunks is simply
+	 * invalid, so `memset` yields a struct that cannot be sent and an
+	 * error naming no field. Reported by fuzzypickles 2026-09-01, who
+	 * hit it building a send path and had nothing to act on. */
 	uint16_t chunks;
+	/* One of FZN_KIND_* above. */
 	uint8_t kind;
 	/* THE HOP BUDGET, and the first thing on the send path that has ever
 	 * written one.

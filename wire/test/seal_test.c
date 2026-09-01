@@ -295,6 +295,57 @@ int main(void)
 	memset(key, 0x77, sizeof(key));
 	memset(commitment_key, 0x5b, sizeof(commitment_key));
 
+	/* PEEKING THE SENDER BEFORE ANY KEY IS CHOSEN, which is the whole
+	 * reason `fzn_seal_peek_sender` exists: sec 4.7 step 2 says select on
+	 * `sender`, and until it existed `sender` came only out of
+	 * `fzn_seal_open`, which needs the key that step 2 is choosing.
+	 *
+	 * Deliberately BEFORE the round trip below and with no key passed, so
+	 * the test cannot accidentally prove it by having opened first. */
+	{
+		uint8_t peek_frame[FRAME_LEN];
+		uint8_t want_sender[32];
+		const uint8_t *who = NULL;
+
+		memset(want_sender, 0xa1, sizeof(want_sender)); /* what build() writes */
+		build(peek_frame);
+		check(fzn_seal_peek_sender(peek_frame, sizeof(peek_frame), &who) == FZN_SEAL_OK,
+		      "peeking a well-formed frame was refused");
+		check(who != NULL && memcmp(who, want_sender, 32) == 0,
+		      "the peeked sender is not the one the frame carries");
+		/* It points INTO the frame rather than at a copy, which is the
+		 * house style and is what the header promises a caller. */
+		check(who == peek_frame + OFF_SENDER,
+		      "the peeked sender is a copy rather than a view");
+
+		/* SHAPE-CHECKED EXACTLY AS open IS. A short frame and a frame
+		 * with bytes appended are both refused, so a caller cannot get a
+		 * pointer into something that is not a frame. The suffix case is
+		 * the one that would otherwise pass: the tag covers nothing after
+		 * itself. */
+		who = (const uint8_t *)1;
+		check(fzn_seal_peek_sender(peek_frame, FRAME_LEN - 1u, &who)
+		              == FZN_SEAL_ERR_SHAPE,
+		      "a truncated frame was peeked rather than refused");
+		check(who == NULL, "a refused peek left the caller a pointer");
+
+		{
+			uint8_t longer[FRAME_LEN + 8];
+
+			memset(longer, 0, sizeof(longer));
+			memcpy(longer, peek_frame, FRAME_LEN);
+			check(fzn_seal_peek_sender(longer, sizeof(longer), &who)
+			              == FZN_SEAL_ERR_SHAPE,
+			      "a frame with bytes appended was peeked rather than refused");
+		}
+
+		check(fzn_seal_peek_sender(NULL, FRAME_LEN, &who) == FZN_SEAL_ERR_MALFORMED,
+		      "a null frame was not refused");
+		check(fzn_seal_peek_sender(peek_frame, sizeof(peek_frame), NULL)
+		              == FZN_SEAL_ERR_MALFORMED,
+		      "a null out-pointer was not refused");
+	}
+
 	/* THE ROUND TRIP. */
 	build(frame);
 	check(fzn_seal_close(frame, sizeof(frame), key, &aead) == FZN_SEAL_OK,

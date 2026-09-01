@@ -89,6 +89,16 @@ static int views(uint8_t *frame, size_t frame_len, situ_msg_t *msg, situ_view_t 
 	return situ_fzn_frame_head_view(*fv, hv) == SITU_OK;
 }
 
+/* THE HAND-WRITTEN KINDS AGAINST THE GENERATED ONES. seal.h carries the
+ * FZN_KIND_* a consumer fills `fzn_send_t.kind` with, so a send path need not
+ * include situ's output; this file has both and is where they are held equal.
+ * Two names for one value drift silently otherwise, which is the failure
+ * `wire/test/constants_test.c` exists for one layer over. */
+_Static_assert(FZN_KIND_NOP == SITU_FZN_KIND_NOP, "kind: nop moved");
+_Static_assert(FZN_KIND_UNIT == SITU_FZN_KIND_UNIT, "kind: unit moved");
+_Static_assert(FZN_KIND_CHUNK == SITU_FZN_KIND_CHUNK, "kind: chunk moved");
+_Static_assert(FZN_KIND_ACK == SITU_FZN_KIND_ACK, "kind: ack moved");
+
 fzn_seal_err_t fzn_seal_open(uint8_t *frame, size_t frame_len,
                               const uint8_t key[FZN_AEAD_KEY_LEN],
                               const uint8_t commitment_key[FZN_COMMITMENT_KEY_LEN],
@@ -214,6 +224,30 @@ fzn_seal_err_t fzn_seal_open(uint8_t *frame, size_t frame_len,
 	 * two compilers disagreeing about whether it is worth mentioning. */
 	out->kind = (uint8_t)situ_fzn_head_kind_get(hv);
 
+	return FZN_SEAL_OK;
+}
+
+fzn_seal_err_t fzn_seal_peek_sender(const uint8_t *frame, size_t frame_len,
+                                     const uint8_t **out)
+{
+	situ_msg_t msg;
+	situ_view_t fv, hv;
+
+	if (!frame || !out)
+		return FZN_SEAL_ERR_MALFORMED;
+	*out = NULL;
+
+	/* THE CAST IS READ-ONLY AND THE FUNCTION IS NOT. `situ_msg_init` takes
+	 * a mutable pointer because situ's general API can write through one;
+	 * nothing on this path does, and `views` only reads. Taking a
+	 * `uint8_t *` here instead would be the honest signature for the cast
+	 * and a dishonest one for the function, which never modifies a byte --
+	 * so the cast is confined to this line and explained rather than
+	 * pushed out to every caller. */
+	if (!views((uint8_t *)(uintptr_t)frame, frame_len, &msg, &fv, &hv))
+		return FZN_SEAL_ERR_SHAPE;
+
+	*out = situ_fzn_head_sender_ptr(hv);
 	return FZN_SEAL_OK;
 }
 
