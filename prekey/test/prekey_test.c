@@ -317,6 +317,70 @@ static void test_first_use_pins_and_records_how(void)
 	      "a confirmed anchor does not say it was confirmed");
 }
 
+/* A HOST THAT CAME BACK WITH ITS CLOCK BEHIND, which is the shattered-estate
+ * case in project.md sec 46 and is NOT a defect in the rule above.
+ *
+ * The rollback rule is `record.created_at <= peer->created_at`, and it is
+ * right: a replayed older record whose prekey has since leaked is the whole
+ * attack, and a signature cannot catch it because nothing about the bytes is
+ * wrong. What this case adds is the consequence when the host is honest.
+ *
+ * Hardware that is gone for a long time can come back with a clock that lost
+ * time -- a dead RTC cell, a first boot before any time source is reachable.
+ * It then issues a GENUINE prekey, with NEW key material, correctly signed,
+ * carrying a `created_at` earlier than the one its peers already hold. Every
+ * peer refuses it, and goes on offering the OLD prekey, which is the one the
+ * returning host may no longer hold the secret for.
+ *
+ * THE HOST CANNOT SEE THIS. The refusal happens at each peer; from the
+ * returning side the network is simply quiet. And it cannot compute a safe
+ * floor from its own stored state either: `persist/` keeps the agreement
+ * secret with a GENERATION COUNTER, while the record carries a TIMESTAMP, and
+ * nothing links the two. That asymmetry is recorded in sec 46 -- it is the
+ * strongest argument there for the healing story needing a step that asks a
+ * person, since no automated recovery inside this library has the number it
+ * would need.
+ *
+ * PINNED HERE so the consequence is exhibited rather than discovered, in the
+ * spirit of `scenario_revocation_split`: this test passing means the library
+ * still behaves this way, not that the behaviour is desirable. */
+static void test_a_returning_host_with_a_clock_behind_cannot_rotate(void)
+{
+	struct fixture original, returned;
+	fzn_prekey_peer_t peer;
+
+	REQUIRE(build(&original, 0x41, 0x42, 5000u), "the fixture does not build");
+	fzn_prekey_peer_init(&peer);
+	REQUIRE(fzn_prekey_pin(&peer, original.record, &OPS, FZN_TRUST_ADOPTED, 1u)
+	                == FZN_PREKEY_OK, "first use refused");
+
+	/* Away for a long time. It returns with a clock reading earlier than
+	 * when it last published, and rotates to key material it has never
+	 * used before -- everything an honest host should do. */
+	REQUIRE(build(&returned, 0x41, 0x99, 900u), "the fixture does not build");
+	CHECK(memcmp(returned.prekey, original.prekey, FZN_PREKEY_LEN) != 0,
+	      "the returning host offered the same prekey, so this tests nothing");
+
+	CHECK(fzn_prekey_pin(&peer, returned.record, &OPS, FZN_TRUST_ADOPTED, 9000u)
+	              == FZN_PREKEY_ERR_ROLLBACK,
+	      "a genuine rotation from a host whose clock went backwards was accepted");
+
+	/* AND THE PEER IS LEFT ON THE OLD KEY, which is the part that bites:
+	 * the returning host is not merely un-rotated, it is unreachable at
+	 * the only prekey anyone will use for it. */
+	CHECK(memcmp(peer.prekey, original.prekey, FZN_PREKEY_LEN) == 0,
+	      "the refused rotation moved the pin anyway");
+	CHECK(peer.created_at == 5000u, "the refused rotation moved the timestamp");
+
+	/* THE RECEIVER'S OWN CLOCK IS NOT WHAT DECIDES IT. 9000 was passed as
+	 * `now` above, far ahead of both records, and the refusal is unchanged
+	 * -- prekey.c says the comparison orders two statements by one key
+	 * rather than gating on a clock, and this is that claim exercised. */
+	CHECK(fzn_prekey_pin(&peer, returned.record, &OPS, FZN_TRUST_ADOPTED, 1u)
+	              == FZN_PREKEY_ERR_ROLLBACK,
+	      "the receiver's own clock changed the verdict");
+}
+
 static void test_a_rotation_is_accepted_and_a_rollback_is_not(void)
 {
 	struct fixture first, newer, older, same;
@@ -507,6 +571,7 @@ int main(void)
 	test_init_does_not_depend_on_what_the_memory_held();
 	test_first_use_pins_and_records_how();
 	test_a_rotation_is_accepted_and_a_rollback_is_not();
+	test_a_returning_host_with_a_clock_behind_cannot_rotate();
 	test_a_rotation_does_not_launder_provenance();
 	test_a_different_host_is_a_different_peer();
 	test_pinning_verifies_before_it_compares();

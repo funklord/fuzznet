@@ -10975,6 +10975,48 @@ them twice:
   half plans ranges for issuers already followed, and the half that needs a
   user is the half the library already declines to take on its own.
 
+### The clock is the second thing that does not heal, and it was found by testing the claim
+
+Sec 46 said above that pins survive an absence: identities are long-term,
+only peers' prekeys go stale, and a prekey record is self-signed by an
+identity that has not changed -- **so re-fetching is safe, mechanical, and
+needs no user.** Testing that claim found the direction it does not hold in.
+
+**Re-fetching a peer's rotated prekey is fine. PUBLISHING one after a long
+absence may not be.** `fzn_prekey_pin` refuses `record.created_at <=
+peer->created_at`, and that rule is right -- a replayed older record whose
+prekey has since leaked is the whole attack, and no signature catches it
+because nothing about the bytes is wrong.
+
+Now give the returning host a clock that lost time: a dead RTC cell, or a
+first boot before any time source is reachable. It issues a GENUINE prekey,
+NEW key material, correctly signed, carrying a `created_at` earlier than the
+one its peers already hold. **Every peer refuses it and goes on offering the
+old prekey -- the one the returning host may no longer hold the secret for.**
+It is not merely un-rotated; it is unreachable at the only prekey anyone will
+use for it.
+
+**And it cannot see this happening.** The refusal is at each peer; from the
+returning side the network is quiet. Nor can it compute a safe floor from its
+own stored state: **`persist/` keeps the agreement secret with a GENERATION
+COUNTER while the record carries a TIMESTAMP, and nothing links the two.** A
+host that persisted everything the library asks it to persist still does not
+know the `created_at` it last published.
+
+**This is the strongest argument in this section for the healing story
+needing a step that asks a person**, which is what the holder anticipated.
+No automated recovery inside this library has the number it would need. What
+a consumer can do is persist its own last `created_at` beside the secret --
+which is a consumer's decision, since `fzn_prekey_issue` takes the timestamp
+from its caller and the library never chose it.
+
+`prekey_test.c` exhibits it rather than leaving it to be discovered, in the
+spirit of `scenario_revocation_split`: the test passing means the library
+still behaves this way, not that the behaviour is desirable. It also pins the
+half that IS right -- the receiver's own clock does not decide the verdict,
+which is prekey.c's claim that the comparison orders two statements by one
+key rather than gating on a clock.
+
 ### What does NOT heal, and a shatter is its worst case
 
 **Revocations ride no stream and carry no sequence, so absence and
