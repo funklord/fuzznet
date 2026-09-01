@@ -275,7 +275,8 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              log/test/fix_stream_test.c \
              record/test/record_guided.c \
              record/test/record_fuzz.c \
-             tree/test/tree_fuzz.c
+             tree/test/tree_fuzz.c \
+             tree/test/tree_kat_test.c
 # Recursive for OBJS's reason: the file backends append to TEST_SRCS below.
 TEST_OBJS  = $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
 TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
@@ -323,6 +324,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/record/test/journal_test \
              $(BUILD_DIR)/record/test/record_test \
              $(BUILD_DIR)/tree/test/tree_test \
+             $(BUILD_DIR)/tree/test/tree_kat_test \
              $(BUILD_DIR)/record/test/sync_test \
              $(BUILD_DIR)/state/test/state_test \
              $(BUILD_DIR)/trust/test/trust_test \
@@ -939,6 +941,15 @@ $(BUILD_DIR)/record/test/record_fuzz: $(BUILD_DIR)/record/test/record_fuzz.o \
 # The newest decoder of stranger bytes. Links tree.o and record.o and
 # nothing else: a node is parsed out of a record body, so record/ is the
 # only thing beneath it, and nothing above tree/ is on trial here.
+# The layout table in tree.h, as literals. Links the same two objects as
+# the fuzz harness for the same reason: a node body is parsed out of a
+# record, so record/ is the only thing beneath it.
+$(BUILD_DIR)/tree/test/tree_kat_test: $(BUILD_DIR)/tree/test/tree_kat_test.o \
+                                      $(BUILD_DIR)/tree/tree.o \
+                                      $(BUILD_DIR)/record/record.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/tree/test/tree_fuzz: $(BUILD_DIR)/tree/test/tree_fuzz.o \
                                   $(BUILD_DIR)/tree/tree.o \
                                   $(BUILD_DIR)/record/record.o

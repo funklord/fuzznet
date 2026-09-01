@@ -71,6 +71,7 @@
 /record/test/sync_test
 /state/test/state_test
 /tree/test/tree_test
+/tree/test/tree_kat_test
 /tree/test/tree_fuzz
 /trust/test/trust_test
 /log/test/log_test

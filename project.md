@@ -11264,6 +11264,53 @@ the user with the most devices. That applies to netcfgd and raidcfgd
 identically, which is what earned it a line in the header rather than a note
 here.
 
+### The vector, and the permutation that everything else passed
+
+The gap was demonstrated before it was closed. `FZN_TREE_OFF_ORDER` and
+`FZN_TREE_OFF_CONTENT_TYPE` were exchanged -- content_type to 32, order to
+34, content still at 42, so **the body stays 42 bytes and every length is
+unchanged**. A pure layout change, and the whole suite stayed green:
+
+    tree_test      55 checks, 0 failures
+    tree_fuzz      20000 cases, counts identical to the digit
+    network_test   1411 checks, 0 failures
+
+Every test `tree/` had was the encoder meeting the parser, so the offsets
+cancel out of both sides of every comparison. sec 12's coverage note has the
+general form: a permuted offset takes the same branches as the correct
+version, in the same order, with the same outcome at every decision.
+
+**The layout assertions in `tree_test.c` did not help, and the reason is the
+sharpest part.** They read `body[FZN_TREE_OFF_ORDER] == 0x01`, which uses the
+constant -- so the check moves with the permutation. **A test written in terms
+of the thing it is checking cannot catch that thing moving.** That is a
+different failure from the ones collected today: not a probe that could not
+succeed, not a bound reported as a value, but an assertion whose subject and
+whose yardstick are the same symbol.
+
+`tree/test/tree_kat_test.c` takes every offset as a LITERAL from the table in
+`tree.h`, then asserts the constants equal the literals -- so drift is caught
+whichever side drifts. 25 checks. Against the permutation it reports five
+failures including the byte and its diagnosis:
+
+    byte 32 is 0xBE, the table says 0x01
+
+**Both directions, deliberately.** The encoder is checked against hand-written
+bytes, and separately a hand-written body is fed to the parser and its fields
+checked. An encoder-only vector leaves a parser reading the wrong offsets
+uncaught, which is the half a receiver depends on.
+
+It carries `session_kat_test`'s limit unchanged: this compares the library
+against its own documented layout, not against an independently produced
+artifact, so it cannot catch a table that is itself wrong. It catches the code
+drifting from the table, and the table is what a consumer implements.
+
+**No Monocypher gate.** A node body is plain bytes and `fzn_record_open` does
+not verify, so the record around it is built by hand and the vector runs in
+every arrangement rather than only where the real Ed25519 is present. That is
+one more arrangement than `hop_kat_test` reaches, and the difference is the
+absence of a signature rather than any virtue of this file.
+
 ## 49. The integration, done from both sides at once, 2026-09-01
 
 > **THIS SECTION IS LONG AND IS DELIBERATELY NOT BEING SPLIT YET.** Decided
