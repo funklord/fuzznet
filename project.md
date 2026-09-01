@@ -6121,6 +6121,47 @@ instrumented into its own BUILD_DIR and runs `runtests`. The branch column
 is the honest one; 100% of lines is compatible with every decision in the
 library having only ever gone one way, which is why the table carries both.
 
+**AND THE WORKLIST IS CLASSIFIED, which is what decides whether to act on
+it.** The 79 untaken-branch source lines in the four weakest modules --
+`spool/spool.c`, `session/session.c`, `persist/persist.c`, `blob/blob.c` --
+sort into five kinds:
+
+    null-argument chain     28  (35%)   if (!trust || !out || !len)
+    dependency failure      25  (32%)   if (fzn_trust_pin(...) != FZN_TRUST_OK)
+    other                   13  (16%)   } else if (source == FZN_TRUST_ADOPTED)
+    bound or index           9  (11%)   if (tree->leaves >= FZN_BLOB_MAX_LEAVES)
+    switch / err-string      4  ( 5%)   switch (err)
+
+**The first kind is arithmetic rather than coverage.** Each `||` term in a
+guard is its own branch, so one unexercised pointer in a five-term chain
+reads as five percent of a module. The 2026-08-18 table closed the last
+round of these with "about ninety dull assertions", and a third of this
+round is the same work again.
+
+**The second kind is the one worth driving, and this session is the
+evidence.** A dependency-failure branch is a binding or a backend refusing
+mid-operation, reachable only with a stub that fails on demand -- and both
+real defects found in `session/` today were exactly there: `chain_for`'s
+wipe when the hash refuses, and `fzn_session_chains` wiping the send chain
+when the second derivation fails. Neither was found by coverage; both sit in
+this 32%.
+
+**What was checked and found sound**, so the next reader does not re-walk
+it: the DH failures in `fzn_session_establish_initiator` and `_responder`
+(session.c:312, 316, 361, 365) all leave through a single `goto out` that
+wipes every local unconditionally, and on an early failure `key_out` is
+never written, so the caller keeps what it had -- which is
+`fzn_agree_secret_install`'s convention and the one sec 37 restored in
+`persist`.
+
+**Getting the per-branch detail took three attempts and the failure is worth
+recording**, because it is this session's own recurring one. `gcov -b -o
+<objdir> <source>` must be run FROM THE PROJECT ROOT, which is how the
+`coverage` target invokes it; run from anywhere else it writes a four-line
+header, no source, and no branch records at all, and reports nothing wrong.
+Two instrumented builds produced empty files that a careless reading would
+have taken for "no unexercised branches".
+
 ### The 2026-08-18 measurement, kept because its argument survives
 
 
