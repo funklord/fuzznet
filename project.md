@@ -10906,6 +10906,67 @@ its security properties are not, and nothing below depends on them.
     store-and-forward  outbox 100/peer 24 h; couriers 4-8 copies, 24 h;
                        gossip cache 1000 packets, 6 h
 
+### The transport is the interesting part, and the novelty is what it AVOIDS
+
+The holder's interest is the bearer rather than bitchat's protocol: **Bluetooth
+is on every phone and laptop already**, which no other radio this library
+might use can say.
+
+**The novel move is not using Bluetooth Mesh.** The SIG has a mesh standard,
+and its advertising bearer carries **27 octets of payload** -- this library's
+frame header alone is 144 bytes, so a single fuzznet datagram would be six
+bearer PDUs before any payload at all, on a bearer with no connection state to
+amortise them against. Standard Bluetooth Mesh is not a plausible carrier for
+this protocol and would not become one by tuning.
+
+What bitchat does instead is **make a mesh out of ordinary GATT connections**:
+every device runs as Central and Peripheral SIMULTANEOUSLY, advertising while
+scanning, connecting while accepting connections, and relaying across those
+links in a controlled flood. That is a use of the stack rather than an
+extension of it, which is why it runs on unmodified phones with no
+provisioning step -- and it buys a bearer unit of hundreds of bytes instead of
+27.
+
+**That difference is the whole reason Bluetooth is viable here**, and it is a
+transport-layer fact rather than anything about their protocol.
+
+### What the bearers actually offer this library's 144-byte frame
+
+    bearer                        usable unit   a 144-byte header is
+    BLE GATT, negotiated MTU      ~185-517 B    12-78% of one unit
+    bitchat's fragment            ~469 B        31% of one unit
+    Bluetooth SIG Mesh, adv       27 B          six PDUs, payload extra
+    LoRaWAN, most generous DR     ~222 B        65% of one unit
+    LoRaWAN, longest range DR     ~51 B         does not fit at all
+
+**THE LORA FIGURES ARE NOT VERIFIED HERE.** They are the commonly cited
+EU868 numbers and a fetch of the source returned no content, so they are
+recorded as approximate. **The conclusion does not depend on them**, which is
+why they are usable anyway: at the most generous end a 144-byte header still
+eats two thirds of the unit, and at the long-range end it does not fit. Both
+readings say the same thing across the whole range of uncertainty, and the
+1% duty cycle in EU868 is a legal ceiling on top of that -- for a protocol
+whose frames are this size, the duty cycle is what actually decides it rather
+than the payload.
+
+**So the two radios are not alternatives, they are complements.** BLE gets
+range from DENSITY -- hops through a crowd, ~10-100 m each -- and LoRa gets it
+from LINK BUDGET, kilometres with nobody in between. BLE works where there are
+people and LoRa works where there are not, and a deployment wanting both wants
+both.
+
+### The constraint that will actually decide it
+
+Not the radio and not this protocol: **the platform's background execution
+policy.** A phone mesh is only a mesh while the app may advertise and scan
+with the screen off, and iOS and Android both restrict that. Throughput is
+already modest -- iOS negotiates around a 185-byte ATT MTU and passes a
+handful of packets per 15 ms connection interval -- but throughput is not the
+question for a protocol sending 1168-byte datagrams occasionally. **Whether a
+backgrounded device relays at all is the question**, and it is a platform
+policy rather than an engineering one, so it should be measured on real
+handsets before anything is designed around it.
+
 ### Why this library fits a mesh of untrusted relays already
 
 **It was built for exactly this shape and did not know it.** Sec 3 puts an
