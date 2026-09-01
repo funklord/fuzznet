@@ -20,33 +20,25 @@
  * checks the answers it can check, because its job is to prove the headers
  * and sources go together, not to test behaviour the suites already cover.
  *
- * THE EXIT STATUS CAN OVERFLOW INTO SUCCESS, AND THAT IS NOT URGENT.
+ * A FAILURE PRINTS ITSELF. See `FAIL` below: each check keeps its own small
+ * code, and the code and line are written to stderr rather than encoded in
+ * the exit status, which is 1 for every failure.
  *
- * Every failure here returns a small integer so a failing arm names itself.
- * An exit status is truncated to eight bits, so a `return 256;` would leave
- * this process at status **0** and `make installcheck` would report a PASS --
- * the gate announcing the opposite of what it found, for a reason unrelated
- * to anything it checked.
+ * WHAT THIS REPLACED, because the reasoning is worth keeping and one half of
+ * it was wrong. The codes used to BE the report, so reading a failure meant
+ * finding the number in this file. A comment here also claimed the scheme
+ * was nearly exhausted -- "213 distinct codes, seven remain" -- and both
+ * figures were wrong: 213 counted every `return <literal>` line including
+ * the vtable callbacks above, whose `return 1;` is the seam's success
+ * convention, and "seven" was 255 minus 248, **a ceiling minus a maximum
+ * presented as remaining capacity**. Measured, there were 204 sites, 174
+ * distinct codes, and 81 free values.
  *
- * **MEASURED, AFTER A FIRST VERSION OF THIS PARAGRAPH GOT IT WRONG.** There
- * are 204 failure sites in `main` using **174 distinct codes**, the highest
- * is 248, and **81 values in 1..255 are free** -- 74 of them below the
- * highest, because the codes were never densely packed. Codes are also
- * reused deliberately where sites belong to one check: 7 appears three
- * times, 18 twice.
- *
- * The first version said "213 distinct codes, seven remain". 213 counted
- * every `return <literal>` line in the file, including the vtable callbacks
- * above -- whose `return 1;` is the seam's success convention and not a
- * failure code at all -- and "seven" was 255 minus 248, **a ceiling minus a
- * maximum presented as remaining capacity.** project.md sec 49 carries that
- * as its own instance of the class it spent the day on.
- *
- * SO: TAKE A FREE CODE, of which there are plenty, and do not renumber
- * anything. The overflow is a real edge that wants knowing about and is
- * nowhere near. A literal `return` cannot carry a `_Static_assert`, so this
- * paragraph is the whole of the enforcement, and what it asks is only that
- * whoever adds the 256th check prints instead of returning.
+ * So the change was made for the OUTPUT and not for the exhaustion. It does
+ * retire a real edge as a side effect -- a 256th code would have exited 0
+ * and reported a pass -- but that edge was 81 codes away and was not the
+ * reason. project.md sec 49 carries the wrong arithmetic as its own instance
+ * of a class this tree signalled to the workspace the same day.
  *
  * Compiled twice by `make installcheck`: once against an installed tree
  * with angle-bracket includes, once against the source tree with module
@@ -298,6 +290,30 @@ static int always_sign(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg, 
 	return 1;
 }
 
+/* WHERE A FAILURE SAYS WHAT IT WAS.
+ *
+ * Each check used to `return` its own small integer and the exit status was
+ * the whole report, so reading a failure meant finding that number in this
+ * file. The number is better on stderr: it costs nothing, it can carry the
+ * LINE as well, and the arrangement that failed is already printed by the
+ * Makefile above it.
+ *
+ * The codes are unchanged and still identify a check -- 174 of them, reused
+ * where sites belong to one check. What changed is that they are printed
+ * rather than encoded in eight bits of exit status, which also retires the
+ * edge the previous comment here was about: a 256th code would have exited
+ * 0 and reported a pass. That is now impossible rather than distant, and it
+ * is a side effect of the change and not its reason.
+ *
+ * Returns 1 for every failure, because `make` asks only whether this
+ * process failed and the detail it used to encode is now in the output. */
+#define FAIL(code)                                                             \
+	do {                                                                   \
+		fprintf(stderr, "consumer_check: failed check %d, line %d\n",  \
+		        (code), __LINE__);                                     \
+		return 1;                                                      \
+	} while (0)
+
 int main(void)
 {
 	uint8_t hop_bytes[FZN_HOP_LEN];
@@ -318,7 +334,7 @@ int main(void)
 	memset(nonce, 0x03, sizeof(nonce));
 
 	if (!fzn_ct_memeq(equal_a, equal_b, sizeof(equal_a)))
-		return 1;
+		FAIL(1);
 
 	/* The version a consumer compiled against must be the one it linked.
 	 * This is the comparison version.h asks every consumer to make at
@@ -335,18 +351,18 @@ int main(void)
 
 		memset(issuer, 0x77, sizeof(issuer));
 		if (fzn_journal_init(&journal, slots, 2) != FZN_JOURNAL_OK)
-			return 30;
+			FAIL(30);
 		/* FOLLOWING AN ISSUER IS A DECISION. Admitting no longer adopts
 		 * one, so a consumer anchors first -- which is the step this
 		 * file exists to show. */
 		if (fzn_journal_anchor(&journal, issuer, 0, 0) != FZN_JOURNAL_OK)
-			return 30;
+			FAIL(30);
 		if (fzn_journal_admit(&journal, issuer, 0, 1) != FZN_JOURNAL_OK)
-			return 31;
+			FAIL(31);
 		if (fzn_journal_admit(&journal, issuer, 0, 1) != FZN_JOURNAL_ERR_DUPLICATE)
-			return 32;
+			FAIL(32);
 		if (fzn_journal_next(&journal, issuer, 0) != 2)
-			return 33;
+			FAIL(33);
 		{
 			fzn_sync_position_t theirs;
 			fzn_sync_request_t want;
@@ -357,9 +373,9 @@ int main(void)
 			theirs.received = 4;
 			if (fzn_sync_plan_fetch(&journal, &theirs, 1, 8, &want, 1, &sync_plan) !=
 			    FZN_SYNC_OK)
-				return 34;
+				FAIL(34);
 			if (sync_plan.request_count != 1 || want.from != 2 || want.count != 3)
-				return 35;
+				FAIL(35);
 		}
 	}
 
@@ -377,7 +393,7 @@ int main(void)
 		size_t wrote = 0;
 
 		if (fzn_state_init(&st, slots, 2) != FZN_STATE_OK)
-			return 40;
+			FAIL(40);
 		memset(&ops, 0, sizeof(ops));
 		ops.sign = always_sign;
 		memset(alice, 0x01, sizeof(alice));
@@ -390,34 +406,34 @@ int main(void)
 		 * it -- which is what this file exists to demonstrate. */
 		if (fzn_record_sign(alice, subject, 0, 1, 1, 1, body, sizeof(body), &ops, wire,
 		                    sizeof(wire), &wrote) != FZN_RECORD_OK)
-			return 41;
+			FAIL(41);
 		if (fzn_record_open(wire, wrote, &r) != FZN_RECORD_OK)
-			return 41;
+			FAIL(41);
 		if (fzn_state_apply(&st, &r) != FZN_STATE_OK)
-			return 41;
+			FAIL(41);
 
 		if (fzn_record_sign(alice, subject, 0, 1, 2, 1, body, sizeof(body), &ops, wire,
 		                    sizeof(wire), &wrote) != FZN_RECORD_OK ||
 		    fzn_record_open(wire, wrote, &r) != FZN_RECORD_OK)
-			return 42;
+			FAIL(42);
 		if (fzn_state_apply(&st, &r) != FZN_STATE_OK)
-			return 42;
+			FAIL(42);
 
 		if (fzn_record_sign(alice, subject, 0, 1, 1, 1, body, sizeof(body), &ops, wire,
 		                    sizeof(wire), &wrote) != FZN_RECORD_OK ||
 		    fzn_record_open(wire, wrote, &r) != FZN_RECORD_OK)
-			return 43;
+			FAIL(43);
 		if (fzn_state_apply(&st, &r) != FZN_STATE_ERR_STALE)
-			return 43;
+			FAIL(43);
 
 		if (fzn_record_sign(mallory, subject, 0, 1, 99, 1, body, sizeof(body), &ops, wire,
 		                    sizeof(wire), &wrote) != FZN_RECORD_OK ||
 		    fzn_record_open(wire, wrote, &r) != FZN_RECORD_OK)
-			return 44;
+			FAIL(44);
 		if (fzn_state_apply(&st, &r) != FZN_STATE_ERR_CONFLICT)
-			return 44;
+			FAIL(44);
 		if (fzn_state_count(&st) != 1)
-			return 45;
+			FAIL(45);
 	}
 
 	/* Trust on first use, through installed headers: adopted once, and a
@@ -430,13 +446,13 @@ int main(void)
 		memset(k2, 0x32, sizeof(k2));
 		fzn_trust_init(&anchor);
 		if (fzn_trust_root(&anchor) != NULL)
-			return 50;
+			FAIL(50);
 		if (fzn_trust_adopt(&anchor, k1, 7) != FZN_TRUST_OK)
-			return 51;
+			FAIL(51);
 		if (fzn_trust_adopt(&anchor, k2, 8) != FZN_TRUST_ERR_ANCHORED)
-			return 52;
+			FAIL(52);
 		if (memcmp(fzn_trust_root(&anchor), k1, FZN_PUBKEY_LEN) != 0)
-			return 53;
+			FAIL(53);
 	}
 
 	/* The log, through installed headers: append past capacity, and the
@@ -455,35 +471,35 @@ int main(void)
 		size_t wrote = 0;
 
 		if (fzn_log_init(&lg, slots, 2) != FZN_LOG_OK)
-			return 60;
+			FAIL(60);
 		if (fzn_journal_init(&jr, jslots, 2) != FZN_JOURNAL_OK)
-			return 60;
+			FAIL(60);
 		memset(&ops, 0, sizeof(ops));
 		ops.sign = always_sign;
 		memset(who, 0x41, sizeof(who));
 		memset(subject, 0, sizeof(subject));
 		if (fzn_journal_anchor(&jr, who, 0, 0) != FZN_JOURNAL_OK)
-			return 60;
+			FAIL(60);
 
 		for (uint64_t q = 1; q <= 3; q++) {
 			if (fzn_record_sign(who, subject, 0, 1, q, 1, b, sizeof(b), &ops, wire,
 			                    sizeof(wire), &wrote) != FZN_RECORD_OK ||
 			    fzn_record_open(wire, wrote, &r) != FZN_RECORD_OK)
-				return 61;
+				FAIL(61);
 			if (fzn_log_append(&lg, &r) != FZN_LOG_OK)
-				return 61;
+				FAIL(61);
 			if (fzn_journal_admit(&jr, who, 0, q) != FZN_JOURNAL_OK)
-				return 61;
+				FAIL(61);
 		}
 		/* GONE COMES FROM THE POSITION, so the journal is a parameter --
 		 * a log alone cannot tell what retention removed from what never
 		 * arrived. */
 		if (fzn_log_get(&lg, &jr, who, 0, 1, &e) != FZN_LOG_ERR_GONE)
-			return 62;
+			FAIL(62);
 		if (fzn_log_get(&lg, &jr, who, 0, 9, &e) != FZN_LOG_ERR_ABSENT)
-			return 63;
+			FAIL(63);
 		if (fzn_log_dropped(&lg) != 1)
-			return 64;
+			FAIL(64);
 	}
 
 	/* The hop budget, through installed headers: an inflated claim must be
@@ -497,14 +513,14 @@ int main(void)
 		hop_frame[1] = 255;
 		if (fzn_relay_budget(hop_frame, sizeof(hop_frame), FZN_RELAY_MAX_HOPS,
 		                     &budget) != FZN_RELAY_OK)
-			return 70;
+			FAIL(70);
 		if (budget != FZN_RELAY_MAX_HOPS)
-			return 71;
+			FAIL(71);
 		if (fzn_relay_spend(hop_frame, sizeof(hop_frame), FZN_RELAY_MAX_HOPS) !=
 		    FZN_RELAY_OK)
-			return 72;
+			FAIL(72);
 		if (hop_frame[1] != FZN_RELAY_MAX_HOPS - 1u)
-			return 73;
+			FAIL(73);
 	}
 
 	/* Link selection, through installed headers: two classes over the same
@@ -519,9 +535,9 @@ int main(void)
 		size_t pick = 99;
 
 		if (fzn_sched_select(pair, 2, &voice, &pick) != FZN_SCHED_OK || pick != 0)
-			return 80;
+			FAIL(80);
 		if (fzn_sched_select(pair, 2, &important, &pick) != FZN_SCHED_OK || pick != 1)
-			return 81;
+			FAIL(81);
 	}
 
 	/* Link tracking feeding link selection, through installed headers: a
@@ -534,33 +550,33 @@ int main(void)
 		size_t pick = 99, n;
 
 		if (fzn_link_table_init(&lt, rows, 2) != FZN_LINK_OK)
-			return 90;
+			FAIL(90);
 		if (fzn_link_register(&lt, 1, 0, 10, 0, 1500) != FZN_LINK_OK)
-			return 91;
+			FAIL(91);
 		if (fzn_link_register(&lt, 2, 0, 60, 0, 1500) != FZN_LINK_OK)
-			return 92;
+			FAIL(92);
 		for (int k = 0; k < 40; k++) {
 			if (fzn_link_observe_ack(&lt, 1, 5000, (uint64_t)k) != FZN_LINK_OK)
-				return 93;
+				FAIL(93);
 		}
 		{
 			size_t dropped = 1;
 
 			n = fzn_link_snapshot(&lt, snap, 2, &dropped);
 			if (n != 2 || dropped != 0)
-				return 94;
+				FAIL(94);
 		}
 		if (fzn_sched_select(snap, n, &any, &pick) != FZN_SCHED_OK || pick != 1)
-			return 95;
+			FAIL(95);
 	}
 
 	if (fzn_version_number() != (unsigned long)FZN_VERSION_NUMBER)
-		return 20;
+		FAIL(20);
 	if (strcmp(fzn_version_string(), FZN_VERSION_STRING) != 0)
-		return 21;
+		FAIL(21);
 
 	if (fzn_split_plan(100, 8, &plan) != FZN_SPLIT_OK || plan.chunks != 13)
-		return 2;
+		FAIL(2);
 
 	/*
 	 * REASSEMBLY, WHICH THIS FILE HAS NEVER TOUCHED despite being one of
@@ -585,33 +601,33 @@ int main(void)
 		memset(&slot, 0, sizeof(slot));
 		memset(nobody, 0, sizeof(nobody));
 		if (fzn_reasm_slot_init(&slot, slot_bytes, sizeof(slot_bytes)) != FZN_REASM_OK)
-			return 96;
+			FAIL(96);
 		if (fzn_reasm_init(&table, &slot, 1u, 1u, 1000u) != FZN_REASM_OK)
-			return 97;
+			FAIL(97);
 		if (fzn_reasm_plan_want(&table, nobody, 0u, 8u, ranges, 4u, &range_count)
 		    != FZN_REASM_ERR_ABSENT)
-			return 98;
+			FAIL(98);
 		/* And a bound a caller forgot is refused rather than read as no
 		 * bound, which is `record/sync.h`'s rule that every planner in
 		 * this library inherits. */
 		if (fzn_reasm_plan_want(&table, nobody, 0u, 0u, ranges, 4u, &range_count)
 		    != FZN_REASM_ERR_MALFORMED)
-			return 99;
+			FAIL(99);
 	}
 
 	/* The horizon is set beside the capacity, because they are two halves
 	 * of one sizing decision: the window must hold what can arrive within
 	 * the longest expiry it will accept. */
 	if (fzn_replay_init(&window, window_storage, 4, 4000) != FZN_FRESH_OK)
-		return 3;
+		FAIL(3);
 	if (fzn_replay_admit(&window, nonce, 2000, FZN_EXPIRY_REQUIRED, 1000) != FZN_FRESH_OK)
-		return 4;
+		FAIL(4);
 	if (fzn_replay_admit(&window, nonce, 2000, FZN_EXPIRY_REQUIRED, 1000) !=
 	    FZN_FRESH_ERR_REPLAY)
-		return 5;
+		FAIL(5);
 
 	if (fzn_revocation_store_init(&store, store_storage, 4) != FZN_CHAIN_OK)
-		return 6;
+		FAIL(6);
 
 	/* A REAL HOP, MINTED AND OPENED. This used to point `signed_region` at
 	 * the literal "a signed region" while filling the fields separately --
@@ -625,15 +641,15 @@ int main(void)
 		memset(grantee, 0x09, sizeof(grantee));
 		if (fzn_chain_mint(root, grantee, &cap, 100, FZN_NO_EXPIRY, 0, &sign,
 		                   hop_bytes) != FZN_CHAIN_OK)
-			return 7;
+			FAIL(7);
 		if (fzn_hop_open(hop_bytes, FZN_HOP_LEN, &hop) != FZN_CHAIN_OK)
-			return 7;
+			FAIL(7);
 	}
 
 	if (fzn_chain_verify(&hop, 1, root, &cap, 2000, &sign, &store, &chain) != FZN_CHAIN_OK)
-		return 7;
+		FAIL(7);
 	if (chain.hop_count != 1)
-		return 8;
+		FAIL(8);
 
 	/* REVOCATION, END TO END, AND THIS FILE COULD NOT SEE IT BEFORE.
 	 *
@@ -660,36 +676,36 @@ int main(void)
 		memset(grantee, 0x09, sizeof(grantee));
 		if (fzn_revocation_issue(root, &cap, grantee, 1500, &sign, rev_bytes) !=
 		    FZN_CHAIN_OK)
-			return 100;
+			FAIL(100);
 		if (fzn_revocation_open(rev_bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
-			return 101;
+			FAIL(101);
 		if (fzn_revocation_covers(&store, fzn_revocation_issuer(rec),
 		                          fzn_revocation_capability(rec),
 		                          fzn_revocation_grantee(rec)) != 0)
-			return 102;
+			FAIL(102);
 		if (fzn_revocation_admit(&store, fzn_revocation_offer_root(rec), root, &sign,
 		                         NULL) != FZN_CHAIN_OK)
-			return 103;
+			FAIL(103);
 		if (store.used != 1)
-			return 104;
+			FAIL(104);
 		if (fzn_revocation_covers(&store, fzn_revocation_issuer(rec),
 		                          fzn_revocation_capability(rec),
 		                          fzn_revocation_grantee(rec)) != 1)
-			return 105;
+			FAIL(105);
 
 		/* The store reaches the verifier, which is the property the
 		 * signature change of 2026-08-27 exists for: the same hop that
 		 * verified above must now be refused. */
 		if (fzn_chain_verify(&hop, 1, root, &cap, 2000, &sign, &store, &chain) !=
 		    FZN_CHAIN_ERR_REVOKED)
-			return 106;
+			FAIL(106);
 
 		/* And NULL still means "no revocations known", which is what
 		 * the old `NULL, 0` said and what a consumer holding no store
 		 * relies on. */
 		if (fzn_chain_verify(&hop, 1, root, &cap, 2000, &sign, NULL, &chain) !=
 		    FZN_CHAIN_OK)
-			return 107;
+			FAIL(107);
 	}
 
 	/* GRANTOR-REVOKES-DESCENDANT, END TO END, for the reason the block
@@ -719,44 +735,44 @@ int main(void)
 		memset(leaf, 0x22, sizeof(leaf));
 
 		if (fzn_revocation_store_init(&estate, estate_storage, 4) != FZN_CHAIN_OK)
-			return 130;
+			FAIL(130);
 		if (fzn_chain_mint(root, mid, &cap, 100, FZN_NO_EXPIRY, 1, &sign, mid_bytes) !=
 		    FZN_CHAIN_OK)
-			return 131;
+			FAIL(131);
 		if (fzn_hop_open(mid_bytes, FZN_HOP_LEN, &pair[0]) != FZN_CHAIN_OK)
-			return 132;
+			FAIL(132);
 		if (fzn_chain_delegate(pair, 1, root, &cap, 2000, leaf, FZN_NO_EXPIRY, 0, &sign,
 		                       NULL, leaf_bytes) != FZN_CHAIN_OK)
-			return 133;
+			FAIL(133);
 		if (fzn_hop_open(leaf_bytes, FZN_HOP_LEN, &pair[1]) != FZN_CHAIN_OK)
-			return 134;
+			FAIL(134);
 		if (fzn_chain_verify(pair, 2, root, &cap, 2000, &sign, &estate, &chain) !=
 		    FZN_CHAIN_OK)
-			return 135;
+			FAIL(135);
 
 		/* The middle key withdraws the capability from the leaf. */
 		if (fzn_revocation_issue(mid, &cap, leaf, 1500, &sign, rev_bytes) !=
 		    FZN_CHAIN_OK)
-			return 136;
+			FAIL(136);
 		if (fzn_revocation_open(rev_bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
-			return 137;
+			FAIL(137);
 
 		/* With no chain it is a stranger's record, refused exactly as
 		 * it always was -- which is what makes the offer below the
 		 * thing that changed. */
 		if (fzn_revocation_admit(&estate, fzn_revocation_offer_root(rec), root, &sign,
 		                         NULL) != FZN_CHAIN_ERR_WRONG_ROOT)
-			return 138;
+			FAIL(138);
 
 		offer = fzn_revocation_offer_chain(rec, pair, 1);
 		if (fzn_revocation_merge(&estate, &offer, 1, root, &sign, &merged, NULL) != 1 ||
 		    merged != FZN_CHAIN_OK)
-			return 139;
+			FAIL(139);
 		if (estate.used != 1)
-			return 140;
+			FAIL(140);
 		if (fzn_chain_verify(pair, 2, root, &cap, 2000, &sign, &estate, &chain) !=
 		    FZN_CHAIN_ERR_REVOKED)
-			return 141;
+			FAIL(141);
 
 		/* And the entitled set is derived from the chain rather than
 		 * supplied: the same store says nothing about the middle key's
@@ -764,7 +780,7 @@ int main(void)
 		 * of. */
 		if (fzn_chain_verify(pair, 1, root, &cap, 2000, &sign, &estate, &chain) !=
 		    FZN_CHAIN_OK)
-			return 142;
+			FAIL(142);
 
 		/* The verify-side predicate directly, so a change to its arity
 		 * or its types is the consumer's problem too. */
@@ -773,7 +789,7 @@ int main(void)
 
 			fzn_revocation_covers_chain(&estate, pair, 2, &cap, revoked);
 			if (revoked[0] != 0 || revoked[1] != 1)
-				return 143;
+				FAIL(143);
 		}
 	}
 
@@ -799,51 +815,51 @@ int main(void)
 
 		memset(grantee, 0x09, sizeof(grantee));
 		if (fzn_manifest_init(&manifest, followed, 2, missing, 4) != FZN_MANIFEST_OK)
-			return 110;
+			FAIL(110);
 		if (fzn_manifest_follow(&manifest, root) != FZN_MANIFEST_OK)
-			return 111;
+			FAIL(111);
 
 		/* `store` holds the one revocation the block above admitted,
 		 * so the manifest derived from it names exactly that pair. */
 		if (fzn_manifest_issue(root, &store, &sign, man_bytes, sizeof(man_bytes),
 		                       &man_len) != FZN_MANIFEST_OK)
-			return 112;
+			FAIL(112);
 		if (man_len != FZN_MANIFEST_LEN(1))
-			return 113;
+			FAIL(113);
 		if (fzn_manifest_open(man_bytes, man_len, &man) != FZN_MANIFEST_OK)
-			return 114;
+			FAIL(114);
 		if (fzn_manifest_count(man) != 1)
-			return 115;
+			FAIL(115);
 
 		/* Admitted by a host that knows of no revocations, which is
 		 * the fresh joiner: the pair it names is a deficit. */
 		if (fzn_manifest_admit(&manifest, NULL, man, &sign) != FZN_MANIFEST_OK)
-			return 116;
+			FAIL(116);
 		if (fzn_manifest_pending(&manifest, root) != 1)
-			return 117;
+			FAIL(117);
 		if (fzn_manifest_overflowed(&manifest, root) != 0)
-			return 118;
+			FAIL(118);
 		if (fzn_manifest_deficit(&manifest, root, want, 4, &dropped) != 1 || dropped != 0)
-			return 119;
+			FAIL(119);
 		if (!fzn_ct_memeq(want[0].grantee, grantee, FZN_PUBKEY_LEN))
-			return 120;
+			FAIL(120);
 
 		/* And the revocation arriving settles it, which is the whole
 		 * of the parameter `fzn_revocation_admit` gained. */
 		if (fzn_revocation_store_init(&fresh, fresh_storage, 4) != FZN_CHAIN_OK)
-			return 121;
+			FAIL(121);
 		if (fzn_revocation_issue(root, &cap, grantee, 1500, &sign, rev_bytes) !=
 		    FZN_CHAIN_OK)
-			return 122;
+			FAIL(122);
 		if (fzn_revocation_open(rev_bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
-			return 123;
+			FAIL(123);
 		if (fzn_revocation_admit(&fresh, fzn_revocation_offer_root(rec), root, &sign,
 		                         &manifest) != FZN_CHAIN_OK)
-			return 124;
+			FAIL(124);
 		if (fzn_manifest_pending(&manifest, root) != 0)
-			return 125;
+			FAIL(125);
 		if (fzn_manifest_err_str(FZN_MANIFEST_ERR_UNKNOWN_ISSUER) == NULL)
-			return 126;
+			FAIL(126);
 	}
 
 	/* The two modules added after this file was written, and the reason
@@ -854,13 +870,13 @@ int main(void)
 
 		memset(&peer, 0, sizeof(peer));
 		if (fzn_peer_groups_parse("Groups:\t20 24\n", 14, &peer) != 1)
-			return 9;
+			FAIL(9);
 		if (peer.group_count != 2 || !peer.groups_known)
-			return 10;
+			FAIL(10);
 		if (fzn_peer_is_member(&peer, 24) != 1)
-			return 11;
+			FAIL(11);
 		if (fzn_peer_group_verdict(&peer, 999) != FZN_PEER_NOT_MEMBER)
-			return 12;
+			FAIL(12);
 
 		/* The vocabulary bound over the same peer: a table that
 		 * names the verb for a group it holds admits it, and an
@@ -873,10 +889,10 @@ int main(void)
 
 			if (fzn_vocabulary_admit(&peer, verb, sizeof(verb) - 1u,
 			                         rules, 1) != FZN_PEER_MEMBER)
-				return 22;
+				FAIL(22);
 			if (fzn_vocabulary_admit(&peer, verb, sizeof(verb) - 1u,
 			                         rules, 0) != FZN_PEER_NOT_MEMBER)
-				return 23;
+				FAIL(23);
 		}
 
 		/* THE ASSERTION THAT WAS HERE COULD NOT FAIL, and then it could
@@ -937,32 +953,32 @@ int main(void)
 			if (fzn_blob_leaf_seal(&bhash, &baead, ckey, i, plain, sizeof(plain),
 			                       sealed, sizeof(sealed), &sealed_len)
 			    != FZN_BLOB_OK)
-				return 130;
+				FAIL(130);
 			if (sealed_len != sizeof(plain) + FZN_BLOB_LEAF_OVERHEAD)
-				return 131;
+				FAIL(131);
 			if (fzn_blob_leaf_hash(&bhash, sealed, sealed_len, leaf[i]) != FZN_BLOB_OK)
-				return 132;
+				FAIL(132);
 			if (fzn_blob_tree_push(&bhash, &tree, leaf[i]) != FZN_BLOB_OK)
-				return 133;
+				FAIL(133);
 		}
 		if (fzn_blob_leaf_open(&bhash, &baead, ckey, 1u, sealed, sealed_len, back,
 		                       sizeof(back), &back_len) != FZN_BLOB_OK)
-			return 134;
+			FAIL(134);
 		if (back_len != sizeof(plain) || back[0] != 1u)
-			return 135;
+			FAIL(135);
 		if (fzn_blob_tree_root(&bhash, &tree, blob_root) != FZN_BLOB_OK)
-			return 136;
+			FAIL(136);
 		if (fzn_blob_proof_build(&bhash, leaf[0], 2u, 1u, siblings, sizeof(siblings),
 		                         &sibling_count) != FZN_BLOB_OK)
-			return 137;
+			FAIL(137);
 		if (fzn_blob_proof_verify(&bhash, leaf[1], 1u, 2u, siblings, sibling_count,
 		                          blob_root) != FZN_BLOB_OK)
-			return 138;
+			FAIL(138);
 		/* And a refusal, so the acceptance above is not the only
 		 * outcome this consumer can observe. */
 		if (fzn_blob_proof_verify(&bhash, leaf[0], 1u, 2u, siblings, sibling_count,
 		                          blob_root) != FZN_BLOB_ERR_PROOF)
-			return 139;
+			FAIL(139);
 	}
 
 	/* PER-PEER-PER-CAPABILITY OPT-IN, WHICH THIS TREE ALREADY HAS UNDER
@@ -1000,34 +1016,34 @@ int main(void)
 		memset(peer_key, 0x52, sizeof(peer_key));
 
 		if (fzn_state_init(&opt, opt_slots, 2) != FZN_STATE_OK)
-			return 170;
+			FAIL(170);
 		if (fzn_record_sign(owner, peer_key, 0, KIND_SHARE_LOCATION, 1, 1, yes,
 		                    sizeof(yes), &ops, wire, sizeof(wire), &wrote)
 		    != FZN_RECORD_OK)
-			return 171;
+			FAIL(171);
 		if (fzn_record_open(wire, wrote, &r) != FZN_RECORD_OK)
-			return 172;
+			FAIL(172);
 		if (fzn_state_apply(&opt, &r) != FZN_STATE_OK)
-			return 173;
+			FAIL(173);
 
 		cell = fzn_state_get(&opt, peer_key, KIND_SHARE_LOCATION);
 		if (!cell || !cell->live)
-			return 174;
+			FAIL(174);
 		/* And a DIFFERENT capability for the same peer is a different
 		 * cell, which is the whole of "per capability". */
 		if (fzn_state_get(&opt, peer_key, KIND_SHARE_LOCATION + 1u) != NULL)
-			return 175;
+			FAIL(175);
 
 		if (fzn_record_sign(owner, peer_key, 0, KIND_SHARE_LOCATION, 2, 1, yes,
 		                    sizeof(yes), &ops, wire, sizeof(wire), &wrote)
 		    != FZN_RECORD_OK)
-			return 176;
+			FAIL(176);
 		if (fzn_record_open(wire, wrote, &r) != FZN_RECORD_OK)
-			return 177;
+			FAIL(177);
 		if (fzn_state_clear(&opt, &r) != FZN_STATE_OK)
-			return 178;
+			FAIL(178);
 		if (fzn_state_get(&opt, peer_key, KIND_SHARE_LOCATION) != NULL)
-			return 179;
+			FAIL(179);
 	}
 
 	/* The piece store, which is what a consumer assembling a blob out of
@@ -1046,13 +1062,13 @@ int main(void)
 		 * first placement. */
 		if (fzn_spool_open(&sp, fake_root, 2u, map, sizeof(map), &nops)
 		    != FZN_SPOOL_ERR_MALFORMED)
-			return 240;
+			FAIL(240);
 		/* And a blob past the ceiling costs a comparison, not a bitmap. */
 		if (fzn_spool_open(&sp, fake_root, (uint64_t)FZN_SPOOL_MAX_LEAVES + 1u, map,
 		                   sizeof(map), &nops) != FZN_SPOOL_ERR_MALFORMED
 		    && fzn_spool_open(&sp, fake_root, (uint64_t)FZN_SPOOL_MAX_LEAVES + 1u, map,
 		                      sizeof(map), &nops) != FZN_SPOOL_ERR_TOO_LARGE)
-			return 241;
+			FAIL(241);
 
 		/* The transfer planners, which is what a consumer needs to
 		 * ask a peer for what it lacks. The property walked is the
@@ -1065,7 +1081,7 @@ int main(void)
 
 			if (fzn_spool_open(&sp, fake_root, 2u, map, sizeof(map), &nops)
 			    != FZN_SPOOL_ERR_MALFORMED)
-				return 245;
+				FAIL(245);
 			memset(&sp, 0, sizeof(sp));
 			sp.present = map;
 			sp.leaves = 2u;
@@ -1073,14 +1089,14 @@ int main(void)
 			map[0] = 0x03u;
 			if (fzn_spool_plan_offer(&sp, NULL, 0u, 100u, ranges, 2u, &plan_n)
 			    != FZN_SPOOL_OK)
-				return 246;
+				FAIL(246);
 			if (plan_n != 0u)
-				return 247;
+				FAIL(247);
 			/* And a bound a caller forgot is refused rather than
 			 * read as no bound. */
 			if (fzn_spool_plan_want(&sp, 0u, 0u, ranges, 2u, &plan_n)
 			    != FZN_SPOOL_ERR_MALFORMED)
-				return 248;
+				FAIL(248);
 		}
 
 #ifdef FZN_SPOOL_FILE_ON
@@ -1091,7 +1107,7 @@ int main(void)
 			fzn_spool_file_t backend;
 
 			if (fzn_spool_file_open(&backend, NULL) != NULL)
-				return 242;
+				FAIL(242);
 			/* Safe on a struct that never opened -- which is the
 			 * shape of every cleanup path a caller writes after
 			 * the line above returns NULL. */
@@ -1103,12 +1119,12 @@ int main(void)
 			 * must refuse rather than write a bitmap for data
 			 * it cannot sync. */
 			if (fzn_spool_file_checkpoint(&backend, &sp) != FZN_SPOOL_ERR_MALFORMED)
-				return 243;
+				FAIL(243);
 			if (fzn_spool_file_resume(&backend, fake_root, 2u, map, sizeof(map))
 			    != FZN_SPOOL_ERR_MALFORMED
 			    && fzn_spool_file_resume(&backend, fake_root, 2u, map, sizeof(map))
 			       != FZN_SPOOL_ERR_ABSENT)
-				return 244;
+				FAIL(244);
 		}
 #endif
 	}
@@ -1126,24 +1142,24 @@ int main(void)
 		memset(k, 0x64, sizeof(k));
 		fzn_trust_init(&anchor_in);
 		if (fzn_trust_adopt(&anchor_in, k, 99u) != FZN_TRUST_OK)
-			return 230;
+			FAIL(230);
 		if (fzn_persist_trust_pack(&anchor_in, blob, sizeof(blob), &blob_len)
 		    != FZN_PERSIST_OK)
-			return 231;
+			FAIL(231);
 		if (fzn_persist_trust_open(blob, blob_len, &anchor_back) != FZN_PERSIST_OK)
-			return 232;
+			FAIL(232);
 		if (!fzn_trust_root(&anchor_back))
-			return 233;
+			FAIL(233);
 		if (memcmp(fzn_trust_root(&anchor_back), k, FZN_PUBKEY_LEN) != 0)
-			return 234;
+			FAIL(234);
 		if (fzn_trust_source_of(&anchor_back) != FZN_TRUST_ADOPTED)
-			return 235;
+			FAIL(235);
 		/* An unanchored trust must not pack: saving one over a real
 		 * anchor would succeed and erase it. */
 		fzn_trust_init(&anchor_in);
 		if (fzn_persist_trust_pack(&anchor_in, blob, sizeof(blob), &blob_len)
 		    != FZN_PERSIST_ERR_MALFORMED)
-			return 236;
+			FAIL(236);
 
 #ifdef FZN_PERSIST_FILE_ON
 		/* And the default backend installs, which is the whole point of
@@ -1152,7 +1168,7 @@ int main(void)
 			fzn_persist_file_t backend;
 
 			if (fzn_persist_file_init(&backend, NULL) != NULL)
-				return 237;
+				FAIL(237);
 		}
 #endif
 	}
@@ -1170,22 +1186,22 @@ int main(void)
 		memset(&zeroed, 0, sizeof(zeroed));
 		memset(any_cap.b, 0x5b, sizeof(any_cap.b));
 		if (fzn_revocation_store_init(&empty, empty_slots, 1) != FZN_CHAIN_OK)
-			return 220;
+			FAIL(220);
 
 		/* A memset policy is not "unguarded". */
 		if (fzn_authz_decide(zeroed, FZN_ORIGIN_REMOTE, NULL, 0, root, 1000, &sign, &empty)
 		    != FZN_AUTHZ_DENIED)
-			return 221;
+			FAIL(221);
 		/* Nor is a required capability with no chain held. */
 		if (fzn_authz_decide(fzn_authz_requires(&any_cap, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, NULL, 0, root, 1000, &sign,
 		                     &empty) != FZN_AUTHZ_DENIED)
-			return 222;
+			FAIL(222);
 		/* Only saying so out loud grants, and it says which grant it is. */
 		if (fzn_authz_decide(fzn_authz_unguarded(FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, NULL, 0, root, 1000, &sign, &empty)
 		    != FZN_AUTHZ_GRANTED_UNGUARDED)
-			return 223;
+			FAIL(223);
 		if ((int)FZN_AUTHZ_DENIED != 0)
-			return 224;
+			FAIL(224);
 	}
 
 	/* Key agreement: the seam a consumer fills to get deletable material
@@ -1209,33 +1225,33 @@ int main(void)
 			rotated[i] = (uint8_t)((i * 7u) + 13u);
 		}
 		if (fzn_agree_secret_install(&a, &aops, a_sec) != FZN_AGREE_OK)
-			return 180;
+			FAIL(180);
 		if (fzn_agree_secret_install(&b, &aops, b_sec) != FZN_AGREE_OK)
-			return 181;
+			FAIL(181);
 		if (!fzn_agree_secret_public(&a) || !fzn_agree_secret_public(&b))
-			return 182;
+			FAIL(182);
 		if (fzn_agree_shared(&a, &aops, fzn_agree_secret_public(&b), sa) != FZN_AGREE_OK)
-			return 183;
+			FAIL(183);
 		if (fzn_agree_shared(&b, &aops, fzn_agree_secret_public(&a), sb) != FZN_AGREE_OK)
-			return 184;
+			FAIL(184);
 		if (memcmp(sa, sb, FZN_AGREE_SHARED_LEN) != 0)
-			return 185;
+			FAIL(185);
 
 		/* Rotate, and the old secret must be gone. */
 		if (fzn_agree_secret_install(&a, &aops, rotated) != FZN_AGREE_OK)
-			return 186;
+			FAIL(186);
 		if (fzn_agree_secret_generation(&a) != 1u)
-			return 187;
+			FAIL(187);
 		if (fzn_agree_shared(&a, &aops, fzn_agree_secret_public(&b), after) != FZN_AGREE_OK)
-			return 188;
+			FAIL(188);
 		if (memcmp(sa, after, FZN_AGREE_SHARED_LEN) == 0)
-			return 189;
+			FAIL(189);
 		fzn_agree_secret_wipe(&a);
 		if (fzn_agree_secret_public(&a) != NULL)
-			return 190;
+			FAIL(190);
 		if (fzn_agree_shared(&a, &aops, fzn_agree_secret_public(&b), after)
 		    != FZN_AGREE_ERR_ABSENT)
-			return 191;
+			FAIL(191);
 	}
 
 	/* A session, established from both sides. The property a consumer
@@ -1265,36 +1281,36 @@ int main(void)
 		memset(idb, 0xb2, sizeof(idb));
 
 		if (fzn_agree_secret_install(&pa, &aops, sa) != FZN_AGREE_OK)
-			return 200;
+			FAIL(200);
 		if (fzn_agree_secret_install(&pb, &aops, sb) != FZN_AGREE_OK)
-			return 201;
+			FAIL(201);
 		if (!fzn_agree_secret_public(&pa) || !fzn_agree_secret_public(&pb))
-			return 202;
+			FAIL(202);
 		if (fzn_session_establish(&pa, &aops, &shash, ida, idb,
 		                          fzn_agree_secret_public(&pb), ka, ca) != FZN_SESSION_OK)
-			return 203;
+			FAIL(203);
 		if (fzn_session_establish(&pb, &aops, &shash, idb, ida,
 		                          fzn_agree_secret_public(&pa), kb, cb) != FZN_SESSION_OK)
-			return 204;
+			FAIL(204);
 		/* No role was negotiated and both sides must still agree. */
 		if (memcmp(ka, kb, FZN_AEAD_KEY_LEN) != 0)
-			return 205;
+			FAIL(205);
 		if (memcmp(ca, cb, FZN_COMMITMENT_KEY_LEN) != 0)
-			return 206;
+			FAIL(206);
 
 		/* And a rotation must move the root, or rotation buys nothing. */
 		if (fzn_agree_secret_install(&pb, &aops, rot) != FZN_AGREE_OK)
-			return 207;
+			FAIL(207);
 		if (fzn_session_establish(&pa, &aops, &shash, ida, idb,
 		                          fzn_agree_secret_public(&pb), kc, ca) != FZN_SESSION_OK)
-			return 208;
+			FAIL(208);
 		if (memcmp(ka, kc, FZN_AEAD_KEY_LEN) == 0)
-			return 209;
+			FAIL(209);
 		/* A session with yourself has no canonical order and is refused. */
 		if (fzn_session_establish(&pa, &aops, &shash, ida, ida,
 		                          fzn_agree_secret_public(&pb), kc, ca)
 		    != FZN_SESSION_ERR_SELF)
-			return 210;
+			FAIL(210);
 
 		/* And the ephemeral exchange, both halves, since a consumer
 		 * that wants sender-side forward secrecy drives exactly this
@@ -1309,21 +1325,21 @@ int main(void)
 			for (i = 0; i < FZN_AGREE_SECRET_LEN; i++)
 				es[i] = (uint8_t)((i * 13u) + 7u);
 			if (fzn_agree_secret_install(&eph, &aops, es) != FZN_AGREE_OK)
-				return 211;
+				FAIL(211);
 			if (fzn_session_establish_initiator(&pa, &eph, &aops, &shash, ida, idb,
 			                                    fzn_agree_secret_public(&pb), ki,
 			                                    cki) != FZN_SESSION_OK)
-				return 212;
+				FAIL(212);
 			if (fzn_session_establish_responder(&pb, &aops, &shash, idb, ida,
 			                                    fzn_agree_secret_public(&pa),
 			                                    fzn_agree_secret_public(&eph), kr,
 			                                    ckr) != FZN_SESSION_OK)
-				return 213;
+				FAIL(213);
 			if (memcmp(ki, kr, FZN_AEAD_KEY_LEN) != 0)
-				return 214;
+				FAIL(214);
 			/* And it is a different session from the base one. */
 			if (memcmp(ki, kc, FZN_AEAD_KEY_LEN) == 0)
-				return 215;
+				FAIL(215);
 			/* The ephemeral is destroyed by the caller, which is
 			 * the property; this is where a consumer does it. */
 			fzn_agree_secret_wipe(&eph);
@@ -1349,40 +1365,40 @@ int main(void)
 		memset(pk2, 0x3b, sizeof(pk2));
 
 		if (fzn_prekey_issue(host, pk1, 100u, &sign, rec1) != FZN_PREKEY_OK)
-			return 150;
+			FAIL(150);
 		if (fzn_prekey_issue(host, pk2, 200u, &sign, rec2) != FZN_PREKEY_OK)
-			return 151;
+			FAIL(151);
 		if (fzn_prekey_issue(other, pk1, 300u, &sign, rec3) != FZN_PREKEY_OK)
-			return 152;
+			FAIL(152);
 		if (fzn_prekey_open(rec1, sizeof(rec1), &r1) != FZN_PREKEY_OK)
-			return 153;
+			FAIL(153);
 		if (fzn_prekey_open(rec2, sizeof(rec2), &r2) != FZN_PREKEY_OK)
-			return 154;
+			FAIL(154);
 		if (fzn_prekey_open(rec3, sizeof(rec3), &r3) != FZN_PREKEY_OK)
-			return 155;
+			FAIL(155);
 		if (fzn_prekey_verify(r1, &sign) != FZN_PREKEY_OK)
-			return 156;
+			FAIL(156);
 
 		fzn_prekey_peer_init(&peer);
 		if (fzn_prekey_pin(&peer, r1, &sign, FZN_TRUST_ADOPTED, 1u) != FZN_PREKEY_OK)
-			return 157;
+			FAIL(157);
 		if (fzn_trust_source_of(&peer.trust) != FZN_TRUST_ADOPTED)
-			return 158;
+			FAIL(158);
 		/* A rotation forward, then the same record back again, then a
 		 * different host: three outcomes, three codes. */
 		if (fzn_prekey_pin(&peer, r2, &sign, FZN_TRUST_ADOPTED, 2u) != FZN_PREKEY_OK)
-			return 159;
+			FAIL(159);
 		if (fzn_prekey_pin(&peer, r1, &sign, FZN_TRUST_ADOPTED, 3u)
 		    != FZN_PREKEY_ERR_ROLLBACK)
-			return 160;
+			FAIL(160);
 		if (fzn_prekey_pin(&peer, r3, &sign, FZN_TRUST_ADOPTED, 4u)
 		    != FZN_PREKEY_ERR_WRONG_HOST)
-			return 161;
+			FAIL(161);
 		/* And a rotation must not raise an adopted anchor to a
 		 * confirmed one, which is the provenance a consumer shows its
 		 * user. */
 		if (fzn_trust_source_of(&peer.trust) != FZN_TRUST_ADOPTED)
-			return 162;
+			FAIL(162);
 	}
 
 	/* The ratchet, walked rather than compiled: one step, a fast-forward
@@ -1402,7 +1418,7 @@ int main(void)
 		memcpy(stepped, ck, sizeof(stepped));
 		for (i = 0; i <= 3u; i++)
 			if (fzn_ratchet_derive(&rhash, stepped, mk, stepped) != FZN_RATCHET_OK)
-				return 140;
+				FAIL(140);
 
 		fzn_ratchet_init(&ratchet, ck, 0);
 		/* THE WHOLE RECIPE, since it is the thing a consumer has to get
@@ -1411,25 +1427,25 @@ int main(void)
 		 * it. */
 		if (fzn_ratchet_advance(&rhash, &ratchet, 3u, jumped, &next_ratchet, NULL, 0,
 		                        NULL, NULL) != FZN_RATCHET_OK)
-			return 141;
+			FAIL(141);
 		if (memcmp(jumped, mk, FZN_MESSAGE_KEY_LEN) != 0)
-			return 142;
+			FAIL(142);
 		if (ratchet.seq != 0u || next_ratchet.seq != 4u)
-			return 143;
+			FAIL(143);
 		ratchet = next_ratchet; /* committed, as a real caller would after opening */
 		if (fzn_ratchet_advance(&rhash, &ratchet, 3u, jumped, &ratchet, NULL, 0, NULL,
 		                        NULL) != FZN_RATCHET_ERR_IN_PLACE)
-			return 144;
+			FAIL(144);
 		/* A duplicate and a caller bug must not share a code, which is
 		 * the distinction a consumer's logging depends on. */
 		if (fzn_ratchet_advance(&rhash, &ratchet, 0, jumped, &next_ratchet, NULL, 0,
 		                        NULL, NULL) != FZN_RATCHET_ERR_BEHIND)
-			return 145;
+			FAIL(145);
 		if (fzn_ratchet_advance(&rhash, &ratchet,
 		                        ratchet.seq + (uint64_t)FZN_RATCHET_MAX_ADVANCE + 1u,
 		                        jumped, &next_ratchet, NULL, 0, NULL, NULL)
 		    != FZN_RATCHET_ERR_TOO_FAR)
-			return 146;
+			FAIL(146);
 		fzn_ratchet_wipe(&ratchet);
 		fzn_ratchet_wipe(&next_ratchet);
 	}
@@ -1454,9 +1470,9 @@ int main(void)
 		 * than a finished commitment it could not have computed. */
 		if (fzn_seal_open(frame, sizeof(frame), key, ckey, &hash, NULL, &opened) !=
 		    FZN_SEAL_ERR_MALFORMED)
-			return 18;
+			FAIL(18);
 		if (FZN_AEAD_NONCE_LEN != FZN_NONCE_LEN)
-			return 19;
+			FAIL(19);
 	}
 
 	/* The nonce source. A consumer needs one before it can seal anything,
@@ -1474,11 +1490,11 @@ int main(void)
 
 		memset(aead_nonce, 0x5a, sizeof(aead_nonce));
 		if (fzn_nonce_next(&rng, aead_nonce) != 0)
-			return 20;
+			FAIL(20);
 		fzn_random_system_init(&rng);
 #if defined(__linux__)
 		if (!rng.fill || fzn_nonce_next(&rng, aead_nonce) != 1)
-			return 21;
+			FAIL(21);
 #endif
 	}
 
@@ -1513,19 +1529,19 @@ int main(void)
 		memset(&signer, 0, sizeof(signer));
 		fzn_sign_monocypher_init(&real_sign, &signer);
 		if (!real_sign.verify || real_sign.ctx != &signer)
-			return 14;
+			FAIL(14);
 
 		/* A verify-only signer holds no key and must not claim to sign. */
 		if (signer.can_sign)
-			return 15;
+			FAIL(15);
 		fzn_sign_monocypher_wipe(&signer);
 
 		fzn_hash_monocypher_init(&real_hash);
 		if (!real_hash.hash)
-			return 16;
+			FAIL(16);
 		if (!real_hash.hash(real_hash.ctx, derived, sizeof(derived), region,
 		                    sizeof(region) - 1))
-			return 17;
+			FAIL(17);
 
 		/* One call through the AEAD binding, to the same standard as the
 		 * two above: enough to prove the header and the source go
@@ -1533,7 +1549,7 @@ int main(void)
 		 * for -- a binding that installs and does not link. */
 		fzn_aead_monocypher_init(&real_aead);
 		if (!real_aead.seal || !real_aead.open)
-			return 18;
+			FAIL(18);
 
 		/* And the agreement binding, to the same standard: a binding
 		 * that installs and does not link is the failure this watches
@@ -1543,7 +1559,7 @@ int main(void)
 
 			fzn_agree_monocypher_init(&real_agree);
 			if (!real_agree.public_of || !real_agree.agree)
-				return 19;
+				FAIL(19);
 		}
 	}
 
