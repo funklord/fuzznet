@@ -11043,7 +11043,7 @@ cheaper alternative noted: a comment at the ceiling is worth having whatever
 is decided about the scheme, because the person who hits it is the person
 adding the 256th code.
 
-### Every wrong claim about the consumer's tree was an inference, not a relay
+### Their fact in their voice, my finding in mine -- filed as `d10fcbd`
 
 Prompted by the consumer correcting one: a note at `fzn_send_t.expires_at`
 said the replay-window fork was raised "against a bound they were sizing at
@@ -11083,6 +11083,48 @@ by the consumer the moment they read it, because it is about them and they
 know. A wrong inference reads as a fact they supplied, so they have no
 particular reason to check it -- the one above survived until they happened
 to look at that field for a different purpose.
+
+### The rule widened, and the widening had to be checked rather than taken
+
+Signalled with the limitation stated -- one tree's evidence, and a bar for
+filing: **an instance from a tree that is not fuzznet.** It arrived within
+the hour and not by anybody searching for it. `claude-guidelines` checked
+their own tree because the shape was familiar, and found that a sweep of
+sixteen projects had reported **as facts about them** that qtty, beerssh and
+fuzzypickles "all stop dead" on a target-name collision. All four claims were
+the harness: every tree had been unpacked into a scratch directory named `t`,
+which became the project name. **The `t_` prefix was in their output for an
+hour and looked like data.**
+
+**That pair breaks the rule as this tree had it.** Mine were inferences;
+theirs were measurements. So "did I reason or did I measure" separates
+nothing, and the entry cannot be about inference.
+
+Their proposed test was *would they recognise this as something they told
+me*, and they asked for it to be CHECKED rather than accepted -- correctly,
+because it over-catches. Counting sixty mentions of a symbol in another
+tree and reporting the number is an observation they never made and there is
+nothing wrong with it. **A rule phrased that way forbids looking**, which is
+what their own sweep should have been.
+
+**The cut is VOICE, not origin**, and it is now the filed rule:
+
+    "qtty stops dead on a collision"      their fact, my scratch directory
+    "in my copy, qtty's build stopped"    my finding, and checkable
+
+Same observation. The first invites nothing; the second invites *which
+copy?*, and that question kills a wrong claim in one exchange.
+
+**The asymmetry above is the MECHANISM and not a companion fact**, which is
+what had to be said for the test to stop drifting back to origin: a claim in
+the subject's voice reads as theirs so nobody checks it, and a claim in the
+writer's voice is visibly the writer's so the subject checks it against what
+they know. One idea rather than two.
+
+**And the signalling note, which earned its place by being demonstrated
+twice in one evening in both directions:** the cost of a bad signal is paid
+by whoever files it, so a sender's stated caveat is worth more than a
+filer's scepticism. The morning's retraction went the other way.
 
 ### Which generated facts have a second witness, and which had none
 
