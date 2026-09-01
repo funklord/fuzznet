@@ -11762,6 +11762,45 @@ order is not something a test may assume.
 Verified live: disabling the cursor fails it with "a pair the peer held was
 left outstanding", which is the stall named rather than a count going wrong.
 
+### The library half is complete, walked step by step rather than asserted
+
+`fzn_manifest_plan_offer` was built 2026-09-01 as the serve side, and with it
+the loop closes. **Verified by walking it rather than by declaring it done**,
+because "looks complete" is the shape of claim this document spent the day
+learning not to make:
+
+    1  follow an issuer            fzn_manifest_follow
+    2  admit a manifest            fzn_manifest_admit
+    3  know what I lack            fzn_manifest_deficit_from   (bounded, resumable)
+    4  is that report sound        fzn_manifest_overflowed, fzn_manifest_pending
+    5  put a want on the wire      CONSUMER
+    6  answer a peer's want        fzn_manifest_plan_offer
+    7  triple -> stored record     CONSUMER, keyed by the three accessors
+    8  admit what arrives          fzn_revocation_admit  (drains the deficit)
+    9  am I done                   fzn_manifest_pending, qualified by 4
+
+**Steps 5 and 7 are the consumer's and that is the same division `record/`
+already has** -- it plans ranges and leaves the message and the records to a
+consumer. Step 7 closes because `fzn_revocation_issuer`, `_capability` and
+`_grantee` let a consumer derive the triple from a record it holds, and the
+triple is exactly what `fzn_manifest_deficit_t` carries. So a consumer keys
+its own record storage by the same three fields a want names, and nothing has
+to be invented to join them.
+
+**THE TERMINATION TEST IS NOT `pending == 0`, and that is the trap in the
+loop.** Stage 1's own warning applies to the fetch path: a zero deficit from
+an issuer that is not followed is the absence of a question rather than a
+claim of completeness, and a sticky overflow means pairs were dropped for
+want of room and the count is under-reported. **A loop that stops at zero
+without asking `fzn_manifest_overflowed` stops early and reports success.**
+
+Proven across three cases rather than one: the cursor sweeps a deficit
+nothing is draining, one partial peer drains what it can and no more, and two
+peers neither of which holds everything complete the set between them. The
+third does NOT exercise the cursor -- checked, and it stays green with the
+cursor disabled -- because admitting drains the table and the window advances
+by consumption. Two properties, two tests.
+
 **It commits nobody to the 4.4a answer**, which was the point of doing this
 one first: a host that can request what its deficit names is better off under
 option A, and B and C both need it before their gate can be turned on without
