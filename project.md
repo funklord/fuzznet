@@ -11010,6 +11010,39 @@ went red". Each is a real discipline pointed at the wrong question, and the
 care spent describing it is what stops a reader asking whether it could have
 failed.
 
+### `consumer_check` will report a failure as a pass, and soon
+
+Found by a free read while holding a machine window: **248 of 255 exit
+codes are used**, across 213 coded returns. The next contributor to need
+more than seven writes `return 256;` and the OS truncates it to eight bits,
+so the process exits **0** and `make installcheck` reports a pass.
+
+The Makefile runs the binary bare and treats non-zero as failure, which is
+correct and is not the problem. **The problem is that the failure code
+itself can overflow into the success value**, and nothing in the file says
+so -- there is no comment about the ceiling, and a literal `return` cannot
+carry a `_Static_assert`.
+
+**It is near rather than theoretical.** Adding today's new public surface --
+`fzn_seal_peek`, `fzn_seal_peek_sender`, `fzn_manifest_deficit_from`,
+`fzn_manifest_plan_offer` and the kind constants -- needs about five codes
+and leaves two. The file grows with the API by design, so the wall arrives
+on the next module.
+
+**This is the day's own shape in the gate that checks consumers.** A test
+that cannot fail is not evidence; a test whose FAILURE CODE cannot be
+expressed is worse, because it passes loudly for a reason unrelated to what
+it checked. `evidence.md`'s vacuous pass, reached through an integer.
+
+**Not fixed at the moment of finding, deliberately.** The obvious repair --
+print what failed and return one small code -- changes how every one of 213
+sites reports, which is not a change to make while another tree is using
+the machine for a window this session promised to leave alone, and not one
+to make unverified. Recorded here, queued behind the window, with the
+cheaper alternative noted: a comment at the ceiling is worth having whatever
+is decided about the scheme, because the person who hits it is the person
+adding the 256th code.
+
 ### Every wrong claim about the consumer's tree was an inference, not a relay
 
 Prompted by the consumer correcting one: a note at `fzn_send_t.expires_at`
