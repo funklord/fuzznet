@@ -46,6 +46,22 @@ latter gains the three binding sources whenever the bindings are built, and
 those do need Monocypher. `MONOCYPHER_DIR=<path>` still points the bindings
 at another checkout, and `MONOCYPHER_DIR=` builds without them.
 
+**A build that is not make asks for the list rather than copying it.**
+`make manifest` prints one `key value` per line -- `source`, `generated`,
+`include`, and separately `binding` and `backend` for the two things a
+consumer takes deliberately rather than by following a list. A binding needs
+the consumer's own Monocypher; a backend carries the define that switches it
+on. Nothing is checked in, because a generated list that gets committed is
+the stale copy it exists to prevent, and `make installcheck` compiles a
+consumer from nothing but that output so an omission fails here rather than
+in the consuming tree. From CMake:
+
+    execute_process(COMMAND make -s manifest
+                    WORKING_DIRECTORY ${FUZZNET_DIR}
+                    OUTPUT_VARIABLE fzn_manifest)
+    string(REGEX MATCHALL "source ([^\n]+)" fzn_sources "${fzn_manifest}")
+
+
 Three things to know before reading further, because each contradicts what a
 shared protocol library usually looks like:
 
