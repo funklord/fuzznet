@@ -207,7 +207,7 @@ typedef enum fzn_manifest_err {
  * re-issuing the same grant, so one signature brings a stolen device back.
  * The coarse pair cannot be escaped that way. */
 typedef struct fzn_manifest_pair {
-	uint8_t capability[FZN_CAP_ID_LEN];
+	fzn_cap_id_t capability;
 	uint8_t grantee[FZN_PUBKEY_LEN];
 } fzn_manifest_pair_t;
 
@@ -271,14 +271,24 @@ static inline size_t fzn_manifest_count(fzn_manifest_record_t rec)
 
 /* The `i`th pair's two halves. `i` must be below `fzn_manifest_count`, which
  * `fzn_manifest_open` has already related to the buffer's length. */
-static inline const uint8_t *fzn_manifest_capability(fzn_manifest_record_t rec, size_t i)
+/* THE CAST THAT MAKES THE VIEW TYPED LIVES HERE, and this is the only kind
+ * of place it appears. A capability on the wire is thirty-two bytes inside a
+ * frame nobody may copy, so the accessor hands back a pointer to them under
+ * the type they are -- alignment 1, so the cast is sound, and every caller is
+ * then type-checked without ever writing one itself. */
+static inline const fzn_cap_id_t *fzn_manifest_capability(fzn_manifest_record_t rec, size_t i)
 {
-	return rec.base + FZN_MANIFEST_OFF_PAIRS + FZN_MANIFEST_PAIR_LEN * i;
+	return (const fzn_cap_id_t *)(rec.base + FZN_MANIFEST_OFF_PAIRS +
+	                              FZN_MANIFEST_PAIR_LEN * i);
 }
 
+/* Computed from the base rather than by offsetting the capability above:
+ * that pointer is a `fzn_cap_id_t *` now, and adding a byte count to it
+ * would need casting back out of the type this exists to keep. */
 static inline const uint8_t *fzn_manifest_grantee(fzn_manifest_record_t rec, size_t i)
 {
-	return fzn_manifest_capability(rec, i) + FZN_CAP_ID_LEN;
+	return rec.base + FZN_MANIFEST_OFF_PAIRS + FZN_MANIFEST_PAIR_LEN * i +
+	       FZN_CAP_ID_LEN;
 }
 
 static inline const uint8_t *fzn_manifest_signature(fzn_manifest_record_t rec)
@@ -373,7 +383,7 @@ typedef struct fzn_manifest_issuer {
  * other would compile, run, and answer every question backwards. */
 typedef struct fzn_manifest_deficit {
 	uint8_t issuer[FZN_PUBKEY_LEN];
-	uint8_t capability[FZN_CAP_ID_LEN];
+	fzn_cap_id_t capability;
 	uint8_t grantee[FZN_PUBKEY_LEN];
 } fzn_manifest_deficit_t;
 
@@ -514,7 +524,7 @@ fzn_manifest_err_t fzn_manifest_admit(fzn_manifest_state_t *state,
  * tell "it was missing and now is not" from "it was never listed". A NULL
  * state or a missing operand removes nothing. */
 size_t fzn_manifest_satisfy(fzn_manifest_state_t *state, const uint8_t issuer[FZN_PUBKEY_LEN],
-                            const uint8_t capability[FZN_CAP_ID_LEN],
+                            const fzn_cap_id_t *capability,
                             const uint8_t grantee[FZN_PUBKEY_LEN]);
 
 /* How many revocations this issuer says it made that this host does not hold.

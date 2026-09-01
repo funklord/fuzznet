@@ -95,6 +95,37 @@
 
 #define FZN_PUBKEY_LEN 32
 #define FZN_CAP_ID_LEN 32
+
+/*
+ * A CAPABILITY ID, AS A TYPE RATHER THAN AS THIRTY-TWO BYTES.
+ *
+ * `FZN_CAP_ID_LEN` and `FZN_PUBKEY_LEN` are both 32, so until this existed a
+ * capability and a public key were the same type to the compiler and
+ * swapping them at a call site produced no diagnostic. project.md sec 14
+ * recorded that as unclosable -- "no test can do it" -- and it is right that
+ * no test can: `fzn_chain_mint(root, capability, grantee, ...)` compiled
+ * clean under -Wall -Wextra -Wpedantic -Wconversion and always had.
+ *
+ * WRAPPING ONE SIDE IS ENOUGH. A struct and a `const uint8_t *` are
+ * incompatible in BOTH directions, so a key passed where a capability
+ * belongs, and a capability passed where a key belongs, are both hard
+ * errors. Keys stay byte arrays here; project.md sec 44 records why both
+ * sides is the intended end state and this is the first half of it.
+ *
+ * BY POINTER, NOT BY VALUE, because this library's accessors return VIEWS
+ * INTO WIRE BUFFERS -- `fzn_manifest_capability` points into the manifest's
+ * own bytes and must not copy. The cast that produces such a view lives
+ * inside the accessor, so no caller writes one; a caller that casts a raw
+ * buffer to this type has defeated the check deliberately, which is the most
+ * C offers and is still an improvement on the confusion being invisible.
+ *
+ * The layout is exactly the array it replaces -- a struct of one
+ * `uint8_t[32]` has that size and alignment 1 -- so nothing on the wire
+ * moves, and `wire/generated/` mentions neither constant.
+ */
+typedef struct fzn_cap_id {
+	uint8_t b[FZN_CAP_ID_LEN];
+} fzn_cap_id_t;
 #define FZN_SIG_LEN 64
 
 /* A ceiling on delegation depth, checked before any hop is looked at.
@@ -278,7 +309,7 @@ fzn_chain_err_t fzn_hop_open(const uint8_t *bytes, size_t len, fzn_chain_hop_t *
  * have to be added deliberately rather than by accident. */
 fzn_chain_err_t fzn_hop_encode(uint8_t *out, const uint8_t grantor[FZN_PUBKEY_LEN],
                                const uint8_t grantee[FZN_PUBKEY_LEN],
-                               const uint8_t capability[FZN_CAP_ID_LEN], uint64_t issued_at,
+                               const fzn_cap_id_t *capability, uint64_t issued_at,
                                uint64_t expires_at, int delegable);
 
 /* The accessors. Each reads the bytes the signature covers, so there is
@@ -298,9 +329,11 @@ static inline const uint8_t *fzn_hop_grantee(fzn_chain_hop_t hop)
 	return hop.base + FZN_HOP_OFF_GRANTEE;
 }
 
-static inline const uint8_t *fzn_hop_capability(fzn_chain_hop_t hop)
+/* Typed, like the manifest and revocation accessors: the cast that gives a
+ * wire view its type is here so that no caller writes one. */
+static inline const fzn_cap_id_t *fzn_hop_capability(fzn_chain_hop_t hop)
 {
-	return hop.base + FZN_HOP_OFF_CAPABILITY;
+	return (const fzn_cap_id_t *)(hop.base + FZN_HOP_OFF_CAPABILITY);
 }
 
 static inline uint64_t fzn_hop_issued_at(fzn_chain_hop_t hop)
@@ -453,7 +486,7 @@ typedef struct fzn_sign_ops {
 typedef struct fzn_chain {
 	uint8_t root[FZN_PUBKEY_LEN];
 	uint8_t grantee[FZN_PUBKEY_LEN];   /* who this chain authorises */
-	uint8_t capability[FZN_CAP_ID_LEN];
+	fzn_cap_id_t capability;
 	size_t hop_count;
 	/* The soonest REAL expiry across all hops, or FZN_NO_EXPIRY when no
 	 * hop sets one. A chain is only as strong as its weakest link, and an
@@ -497,7 +530,7 @@ typedef struct fzn_chain {
  * grantor's withdrawal from its own descendant is honoured and a stranger's
  * is not. A store bound to one root could not have expressed that. */
 typedef struct fzn_revocation {
-	uint8_t capability[FZN_CAP_ID_LEN];
+	fzn_cap_id_t capability;
 	uint8_t grantee[FZN_PUBKEY_LEN];
 	/* Who withdrew it -- read from the record's own signed bytes on
 	 * admission, never from what a caller supplied alongside them. */
@@ -601,7 +634,7 @@ typedef struct fzn_revocation_store fzn_revocation_store_t;
  * and which reading was meant is not this file's to decide. */
 fzn_chain_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
                             const uint8_t root[FZN_PUBKEY_LEN],
-                            const uint8_t capability[FZN_CAP_ID_LEN], uint64_t now,
+                            const fzn_cap_id_t *capability, uint64_t now,
                             const fzn_sign_ops_t *sign,
                             const fzn_revocation_store_t *revocations, fzn_chain_t *out);
 
@@ -628,7 +661,7 @@ fzn_chain_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
  * impossible. */
 fzn_chain_err_t fzn_chain_mint(const uint8_t root[FZN_PUBKEY_LEN],
                           const uint8_t grantee[FZN_PUBKEY_LEN],
-                          const uint8_t capability[FZN_CAP_ID_LEN], uint64_t issued_at,
+                          const fzn_cap_id_t *capability, uint64_t issued_at,
                           uint64_t expires_at, int delegable, const fzn_sign_ops_t *sign,
                           uint8_t *out);
 
@@ -662,7 +695,7 @@ fzn_chain_err_t fzn_chain_mint(const uint8_t root[FZN_PUBKEY_LEN],
  * `fzn_chain_pack` is there for exactly that. */
 fzn_chain_err_t fzn_chain_delegate(const fzn_chain_hop_t *hops, size_t hop_count,
                               const uint8_t root[FZN_PUBKEY_LEN],
-                              const uint8_t capability[FZN_CAP_ID_LEN], uint64_t now,
+                              const fzn_cap_id_t *capability, uint64_t now,
                               const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t expires_at,
                               int delegable, const fzn_sign_ops_t *sign,
                               const fzn_revocation_store_t *revocations, uint8_t *out);

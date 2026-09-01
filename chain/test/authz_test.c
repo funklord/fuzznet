@@ -101,19 +101,19 @@ static void key(uint8_t out[FZN_PUBKEY_LEN], uint8_t seed)
 		out[i] = (uint8_t)(seed + (i * 7u));
 }
 
-static void cap_id(uint8_t out[FZN_CAP_ID_LEN], uint8_t seed)
+static void cap_id(fzn_cap_id_t *out, uint8_t seed)
 {
 	size_t i;
 
 	for (i = 0; i < FZN_CAP_ID_LEN; i++)
-		out[i] = (uint8_t)(seed + (i * 11u));
+		out->b[i] = (uint8_t)(seed + (i * 11u));
 }
 
 struct fixture {
 	uint8_t bytes[FZN_HOP_LEN];
 	fzn_chain_hop_t hop;
 	uint8_t root[FZN_PUBKEY_LEN];
-	uint8_t cap[FZN_CAP_ID_LEN];
+	fzn_cap_id_t cap;
 	fzn_revocation_store_t store;
 	fzn_revocation_t storage[2];
 };
@@ -124,9 +124,9 @@ static int build(struct fixture *f)
 
 	key(f->root, 0x11);
 	key(grantee, 0x22);
-	cap_id(f->cap, 0x33);
+	cap_id(&f->cap, 0x33);
 	signing_as = 0x11;
-	if (fzn_chain_mint(f->root, grantee, f->cap, 100, 5000, 1, &OPS, f->bytes)
+	if (fzn_chain_mint(f->root, grantee, &f->cap, 100, 5000, 1, &OPS, f->bytes)
 	    != FZN_CHAIN_OK)
 		return 0;
 	if (fzn_hop_open(f->bytes, FZN_HOP_LEN, &f->hop) != FZN_CHAIN_OK)
@@ -178,10 +178,10 @@ static void test_a_required_capability_with_no_chain_denies(void)
 	/* THE CASE FUZZYPICKLES NAMED. "I hold no chain for this issuer" is an
 	 * ordinary state, not an error, and it must not be confusable with
 	 * "this kind needs no capability". */
-	CHECK(fzn_authz_decide(fzn_authz_requires(f.cap, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, NULL, 0, f.root, 1000, &OPS, &f.store)
+	CHECK(fzn_authz_decide(fzn_authz_requires(&f.cap, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, NULL, 0, f.root, 1000, &OPS, &f.store)
 	              == FZN_AUTHZ_DENIED,
 	      "a required capability with no chain was granted");
-	CHECK(fzn_authz_decide(fzn_authz_requires(f.cap, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, &f.hop, 0, f.root, 1000, &OPS,
+	CHECK(fzn_authz_decide(fzn_authz_requires(&f.cap, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, &f.hop, 0, f.root, 1000, &OPS,
 	                       &f.store) == FZN_AUTHZ_DENIED,
 	      "a required capability with an empty chain was granted");
 }
@@ -192,7 +192,7 @@ static void test_a_good_chain_grants_and_says_how(void)
 
 	REQUIRE(build(&f), "the fixture does not build");
 
-	CHECK(fzn_authz_decide(fzn_authz_requires(f.cap, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, &f.hop, 1, f.root, 1000, &OPS,
+	CHECK(fzn_authz_decide(fzn_authz_requires(&f.cap, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, &f.hop, 1, f.root, 1000, &OPS,
 	                       &f.store) == FZN_AUTHZ_GRANTED_BY_CHAIN,
 	      "a valid chain for the required capability was refused, so every denial "
 	      "above proves nothing");
@@ -246,7 +246,7 @@ static void test_an_unguarded_kind_is_still_bounded_by_where_it_arrived(void)
 	 * disallowed origin is still a denial. */
 	{
 		fzn_authz_policy_t local_cap =
-		        fzn_authz_requires(f.cap, FZN_ORIGIN_BIT(FZN_ORIGIN_LOCAL));
+		        fzn_authz_requires(&f.cap, FZN_ORIGIN_BIT(FZN_ORIGIN_LOCAL));
 
 		CHECK(fzn_authz_decide(local_cap, FZN_ORIGIN_REMOTE, &f.hop, 1, f.root, 1000,
 		                       &OPS, &f.store) == FZN_AUTHZ_DENIED,
@@ -303,13 +303,13 @@ static void test_an_unobserved_origin_denies(void)
 static void test_a_chain_for_another_capability_denies(void)
 {
 	struct fixture f;
-	uint8_t other[FZN_CAP_ID_LEN];
+	fzn_cap_id_t other;
 
 	REQUIRE(build(&f), "the fixture does not build");
-	cap_id(other, 0x44);
+	cap_id(&other, 0x44);
 
 	/* The chain is valid and grants something. It does not grant THIS. */
-	CHECK(fzn_authz_decide(fzn_authz_requires(other, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, &f.hop, 1, f.root, 1000, &OPS,
+	CHECK(fzn_authz_decide(fzn_authz_requires(&other, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, &f.hop, 1, f.root, 1000, &OPS,
 	                       &f.store) == FZN_AUTHZ_DENIED,
 	      "a chain granting one capability authorised a different one");
 }
@@ -326,16 +326,16 @@ static void test_every_refusal_of_the_verifier_is_a_denial(void)
 	 * treat a nonzero error code as truthy. Each of these is a distinct
 	 * refusal inside fzn_chain_verify and all of them are one answer
 	 * here. */
-	CHECK(fzn_authz_decide(fzn_authz_requires(f.cap, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, &f.hop, 1, wrong_root, 1000, &OPS,
+	CHECK(fzn_authz_decide(fzn_authz_requires(&f.cap, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, &f.hop, 1, wrong_root, 1000, &OPS,
 	                       &f.store) == FZN_AUTHZ_DENIED,
 	      "a chain under a foreign root was granted");
-	CHECK(fzn_authz_decide(fzn_authz_requires(f.cap, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, &f.hop, 1, NULL, 1000, &OPS, &f.store)
+	CHECK(fzn_authz_decide(fzn_authz_requires(&f.cap, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, &f.hop, 1, NULL, 1000, &OPS, &f.store)
 	              == FZN_AUTHZ_DENIED,
 	      "a null root was granted");
-	CHECK(fzn_authz_decide(fzn_authz_requires(f.cap, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, &f.hop, 1, f.root, 1000, NULL,
+	CHECK(fzn_authz_decide(fzn_authz_requires(&f.cap, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, &f.hop, 1, f.root, 1000, NULL,
 	                       &f.store) == FZN_AUTHZ_DENIED,
 	      "a null signer was granted");
-	CHECK(fzn_authz_decide(fzn_authz_requires(f.cap, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, &f.hop, 1, f.root, 9000, &OPS,
+	CHECK(fzn_authz_decide(fzn_authz_requires(&f.cap, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, &f.hop, 1, f.root, 9000, &OPS,
 	                       &f.store) == FZN_AUTHZ_DENIED,
 	      "an expired chain was granted");
 

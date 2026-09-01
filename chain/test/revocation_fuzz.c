@@ -174,12 +174,12 @@ struct coverage {
 	unsigned long near_miss;
 };
 
-static int model_holds(const struct model *m, const uint8_t *issuer, const uint8_t *cap,
+static int model_holds(const struct model *m, const uint8_t *issuer, const fzn_cap_id_t *cap,
                        const uint8_t *grantee)
 {
 	for (size_t i = 0; i < m->used; i++) {
 		if (memcmp(m->held[i].issuer, issuer, FZN_PUBKEY_LEN) == 0 &&
-		    memcmp(m->held[i].capability, cap, FZN_CAP_ID_LEN) == 0 &&
+		    memcmp(m->held[i].capability.b, cap, FZN_CAP_ID_LEN) == 0 &&
 		    memcmp(m->held[i].grantee, grantee, FZN_PUBKEY_LEN) == 0)
 			return 1;
 	}
@@ -202,10 +202,10 @@ static int model_holds(const struct model *m, const uint8_t *issuer, const uint8
  * something to decide, and a host anchoring two roots keeps one store, so
  * the state is the deployment rather than a contrivance. */
 static int model_holds_under_another_issuer(const struct model *m, const uint8_t *issuer,
-                                            const uint8_t *cap, const uint8_t *grantee)
+                                            const fzn_cap_id_t *cap, const uint8_t *grantee)
 {
 	for (size_t i = 0; i < m->used; i++) {
-		if (memcmp(m->held[i].capability, cap, FZN_CAP_ID_LEN) == 0 &&
+		if (memcmp(m->held[i].capability.b, cap, FZN_CAP_ID_LEN) == 0 &&
 		    memcmp(m->held[i].grantee, grantee, FZN_PUBKEY_LEN) == 0 &&
 		    memcmp(m->held[i].issuer, issuer, FZN_PUBKEY_LEN) != 0)
 			return 1;
@@ -224,19 +224,19 @@ static int differs_only_in_the_last_byte(const uint8_t *a, const uint8_t *b, siz
  * observable: the duplicate test calls the two one revocation, drops the
  * second, and returns FZN_CHAIN_OK. */
 static int model_holds_a_near_miss(const struct model *m, const uint8_t *issuer,
-                                   const uint8_t *cap, const uint8_t *grantee)
+                                   const fzn_cap_id_t *cap, const uint8_t *grantee)
 {
 	for (size_t i = 0; i < m->used; i++) {
 		const fzn_revocation_t *e = &m->held[i];
 		int issuer_same = memcmp(e->issuer, issuer, FZN_PUBKEY_LEN) == 0;
-		int cap_same = memcmp(e->capability, cap, FZN_CAP_ID_LEN) == 0;
+		int cap_same = memcmp(e->capability.b, cap, FZN_CAP_ID_LEN) == 0;
 		int grantee_same = memcmp(e->grantee, grantee, FZN_PUBKEY_LEN) == 0;
 
 		if (cap_same && grantee_same &&
 		    differs_only_in_the_last_byte(e->issuer, issuer, FZN_PUBKEY_LEN))
 			return 1;
 		if (issuer_same && grantee_same &&
-		    differs_only_in_the_last_byte(e->capability, cap, FZN_CAP_ID_LEN))
+		    differs_only_in_the_last_byte(e->capability.b, cap->b, FZN_CAP_ID_LEN))
 			return 1;
 		if (issuer_same && cap_same &&
 		    differs_only_in_the_last_byte(e->grantee, grantee, FZN_PUBKEY_LEN))
@@ -260,12 +260,12 @@ static const char *agree(const struct arena *a, const fzn_revocation_store_t *st
 		return "the store holds more than its capacity";
 
 	for (size_t i = 0; i < store->used; i++) {
-		if (!model_holds(m, store->entries[i].issuer, store->entries[i].capability,
+		if (!model_holds(m, store->entries[i].issuer, &store->entries[i].capability,
 		                 store->entries[i].grantee))
 			return "the store holds a revocation the rules would not admit";
 	}
 	for (size_t i = 0; i < m->used; i++) {
-		if (!fzn_revocation_covers(store, m->held[i].issuer, m->held[i].capability,
+		if (!fzn_revocation_covers(store, m->held[i].issuer, &m->held[i].capability,
 		                           m->held[i].grantee))
 			return "the store dropped a revocation, un-revoking a device";
 	}
@@ -276,8 +276,8 @@ static const char *agree(const struct arena *a, const fzn_revocation_store_t *st
 		for (size_t k = i + 1; k < store->used; k++) {
 			if (memcmp(store->entries[i].issuer, store->entries[k].issuer,
 			           FZN_PUBKEY_LEN) == 0 &&
-			    memcmp(store->entries[i].capability,
-			           store->entries[k].capability, FZN_CAP_ID_LEN) == 0 &&
+			    memcmp(store->entries[i].capability.b,
+			           store->entries[k].capability.b, FZN_CAP_ID_LEN) == 0 &&
 			    memcmp(store->entries[i].grantee, store->entries[k].grantee,
 			           FZN_PUBKEY_LEN) == 0)
 				return "the store holds the same revocation twice";
@@ -344,7 +344,8 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 
 	while (pos + 4 <= len) {
 		uint8_t bytes[FZN_REVOCATION_LEN];
-		uint8_t capability[FZN_CAP_ID_LEN], grantee[FZN_PUBKEY_LEN];
+		uint8_t grantee[FZN_PUBKEY_LEN];
+		fzn_cap_id_t capability;
 		uint8_t issuer[FZN_PUBKEY_LEN];
 		fzn_revocation_record_t record;
 		fzn_chain_err_t err, want;
@@ -367,9 +368,9 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		 * decides, and without it every value here was one byte
 		 * repeated and the length decided nothing. */
 		if ((data[pos + 3] & 0x0cu) == 0)
-			expand_near(capability, FZN_CAP_ID_LEN, data[pos] & 0x03u);
+			expand_near(capability.b, FZN_CAP_ID_LEN, data[pos] & 0x03u);
 		else
-			expand(capability, FZN_CAP_ID_LEN, data[pos] & 0x03u);
+			expand(capability.b, FZN_CAP_ID_LEN, data[pos] & 0x03u);
 		if ((data[pos + 3] & 0x30u) == 0)
 			expand_near(grantee, FZN_PUBKEY_LEN, data[pos + 1] & 0x07u);
 		else
@@ -392,7 +393,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		sig_ok = (data[pos + 3] & 0x03u) != 0;
 		shape_ok = (data[pos + 3] & 0x40u) == 0;
 
-		if (fzn_revocation_encode(bytes, issuer, capability, grantee, 1000) !=
+		if (fzn_revocation_encode(bytes, issuer, &capability, grantee, 1000) !=
 		    FZN_CHAIN_OK) {
 			printf("  MODEL: the generator could not encode a record\n");
 			return 1;
@@ -434,7 +435,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 			want = FZN_CHAIN_ERR_WRONG_ROOT;
 		else if (!sig_ok)
 			want = FZN_CHAIN_ERR_CHAIN_INVALID;
-		else if (model_holds(&model, issuer, capability, grantee))
+		else if (model_holds(&model, issuer, &capability, grantee))
 			want = FZN_CHAIN_OK; /* already known is success */
 		else if (model.used == STORE_CAP)
 			want = FZN_CHAIN_ERR_STORE_FULL;
@@ -449,19 +450,19 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		}
 
 		if (want == FZN_CHAIN_OK) {
-			if (model_holds(&model, issuer, capability, grantee)) {
+			if (model_holds(&model, issuer, &capability, grantee)) {
 				cov->duplicate++;
 			} else {
 				/* Counted BEFORE the append, so each counts the
 				 * entry that reached the state rather than
 				 * every entry that stays in it. */
 				if (model_holds_under_another_issuer(&model, issuer,
-				                                     capability, grantee))
+				                                     &capability, grantee))
 					cov->issuer_only++;
-				if (model_holds_a_near_miss(&model, issuer, capability,
+				if (model_holds_a_near_miss(&model, issuer, &capability,
 				                            grantee))
 					cov->near_miss++;
-				memcpy(model.held[model.used].capability, capability,
+				memcpy(model.held[model.used].capability.b, capability.b,
 				       FZN_CAP_ID_LEN);
 				memcpy(model.held[model.used].grantee, grantee, FZN_PUBKEY_LEN);
 				memcpy(model.held[model.used].issuer, issuer, FZN_PUBKEY_LEN);

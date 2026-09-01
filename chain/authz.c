@@ -102,7 +102,7 @@ fzn_authz_verdict_t fzn_authz_decide(fzn_authz_policy_t policy, fzn_origin_t ori
 	 * here rather than passed through: a caller that needs the taxonomy
 	 * calls it directly, and a caller that needs a decision must not be
 	 * handed an error code it can treat as truthy. */
-	if (fzn_chain_verify(hops, hop_count, root, policy.capability, now, sign, revocations,
+	if (fzn_chain_verify(hops, hop_count, root, &policy.capability, now, sign, revocations,
 	                     &proven) != FZN_CHAIN_OK)
 		return FZN_AUTHZ_DENIED;
 

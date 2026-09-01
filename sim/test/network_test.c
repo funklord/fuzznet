@@ -380,7 +380,7 @@ struct sim_net {
 	size_t queue_len;
 
 	uint8_t root[FZN_PUBKEY_LEN];
-	uint8_t capability[FZN_CAP_ID_LEN];
+	fzn_cap_id_t capability;
 
 	fzn_aead_ops_t aead;
 	fzn_hash_ops_t hash;
@@ -612,7 +612,7 @@ static void sim_regrant(struct sim_net *net, struct sim_host *h,
 	 * `sim_signer` buys: a caller re-grafting a host onto a near-miss root
 	 * gets a hop signed by that root, so the grant checks out under it and
 	 * under nothing else. Passing `&net->sign` here would refuse to sign. */
-	if (fzn_chain_mint(root, h->pubkey, net->capability, 1, FZN_NO_EXPIRY, 1,
+	if (fzn_chain_mint(root, h->pubkey, &net->capability, 1, FZN_NO_EXPIRY, 1,
 	                   sim_signer(&signer, &net->sign, root),
 	                   h->hop_bytes[0]) != FZN_CHAIN_OK)
 		setup_faults++;
@@ -629,7 +629,7 @@ static void sim_init(struct sim_net *net, size_t hosts, uint32_t seed)
 	net->now = 1000;
 
 	sim_identity(0xff, net->root);
-	memset(net->capability, 0xc0, sizeof(net->capability));
+	memset(net->capability.b, 0xc0, sizeof(net->capability));
 
 	net->aead.seal = sim_seal;
 	net->aead.open = sim_open;
@@ -715,7 +715,7 @@ static int sim_send(struct sim_net *net, uint8_t from, uint8_t to, const uint8_t
 		d = &net->queue[net->queue_len++];
 		memset(&what, 0, sizeof(what));
 		what.sender = h->pubkey;
-		what.capability = net->capability;
+		what.capability = net->capability.b;
 		what.payload = msg + offset;
 		what.payload_len = piece;
 		what.expires_at = expires_at;
@@ -830,7 +830,7 @@ static void sim_receive(struct sim_net *net, struct sim_datagram *d)
 		return;
 	}
 	authorised = fzn_chain_verify(sender->chain, sender->chain_len, anchor,
-	                              net->capability, net->now,
+	                              &net->capability, net->now,
 	                              &net->sign, &h->revocations, &proven);
 
 	/* AND THE DECISION LAYER MUST AGREE WITH THE VERIFIER, on every frame
@@ -851,7 +851,7 @@ static void sim_receive(struct sim_net *net, struct sim_datagram *d)
 	 * somebody would actually leave one. */
 	{
 		fzn_authz_verdict_t verdict =
-		        fzn_authz_decide(fzn_authz_requires(net->capability, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, sender->chain,
+		        fzn_authz_decide(fzn_authz_requires(&net->capability, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, sender->chain,
 		                         sender->chain_len, anchor, net->now, &net->sign,
 		                         &h->revocations);
 		fzn_authz_policy_t forgotten;
@@ -1124,7 +1124,7 @@ static void scenario_revocation(void)
 	 * verifies that rather than trusting the caller -- and now signed WITH
 	 * the root's key rather than merely naming it as issuer, so
 	 * `fzn_revocation_admit` is checking a signature and not a field. */
-	check(fzn_revocation_issue(net.root, net.capability, net.hosts[2].pubkey, net.now,
+	check(fzn_revocation_issue(net.root, &net.capability, net.hosts[2].pubkey, net.now,
 	                           sim_signer(&root_signer, &net.sign, net.root),
 	                           rec_region) == FZN_CHAIN_OK,
 	      "the simulation could not issue a revocation");
@@ -1232,7 +1232,7 @@ static void scenario_revocation_split(void)
 	check(sender->chain_len == 1, "the sender should hold a one-hop root grant");
 
 	/* Signed by the root, as scenario 3's is and for the same reason. */
-	check(fzn_revocation_issue(net.root, net.capability, sender->pubkey, net.now,
+	check(fzn_revocation_issue(net.root, &net.capability, sender->pubkey, net.now,
 	                           sim_signer(&root_signer, &net.sign, net.root),
 	                           rec_region) == FZN_CHAIN_OK,
 	      "the simulation could not issue a revocation");
@@ -1344,11 +1344,11 @@ static void scenario_unauthorised(void)
 	 * signature still covers it, so this is a well-formed lie rather than
 	 * a corrupt one. */
 	{
-		uint8_t forged_cap[FZN_CAP_ID_LEN];
+		fzn_cap_id_t forged_cap;
 		struct sim_signer root_signer;
 
-		memset(forged_cap, 0xee, sizeof(forged_cap));
-		check(fzn_chain_mint(net.root, net.hosts[0].pubkey, forged_cap, 1, FZN_NO_EXPIRY,
+		memset(forged_cap.b, 0xee, sizeof(forged_cap));
+		check(fzn_chain_mint(net.root, net.hosts[0].pubkey, &forged_cap, 1, FZN_NO_EXPIRY,
 		                     1, sim_signer(&root_signer, &net.sign, net.root),
 		                     net.hosts[0].hop_bytes[0]) == FZN_CHAIN_OK,
 		      "the forged grant could not be minted");
@@ -1417,7 +1417,7 @@ static void scenario_delegation(void)
 	 * grantor -- `fzn_chain_delegate` passes `existing.grantee` to its
 	 * signer. The same vtable re-verifies the chain being delegated from,
 	 * which needs no signer at all: `verify` reads the key it is handed. */
-	err = fzn_chain_delegate(from->chain, from->chain_len, net.root, net.capability, net.now,
+	err = fzn_chain_delegate(from->chain, from->chain_len, net.root, &net.capability, net.now,
 	                         to->pubkey, FZN_NO_EXPIRY, 0,
 	                         sim_signer(&from_signer, &net.sign, from->pubkey), NULL,
 	                         to->hop_bytes[1]);
@@ -1463,7 +1463,7 @@ static void scenario_delegation(void)
 		uint8_t forged[FZN_HOP_LEN];
 		uint8_t near_grantor[FZN_PUBKEY_LEN];
 
-		check(fzn_chain_verify(to->chain, to->chain_len, net.root, net.capability,
+		check(fzn_chain_verify(to->chain, to->chain_len, net.root, &net.capability,
 		                       net.now, &net.sign, NULL, &proven) == FZN_CHAIN_OK,
 		      "a delegated hop signed by its own grantor was refused -- each hop's "
 		      "signature must be checked against THAT hop's grantor, not against the "
@@ -1473,7 +1473,7 @@ static void scenario_delegation(void)
 		 * delegating host, so the linkage check that ties hop 1 to hop 0's
 		 * grantee passes and the capability and dates are the chain's own.
 		 * The only thing wrong with it is who held the pen. */
-		check(fzn_chain_mint(from->pubkey, to->pubkey, net.capability, net.now,
+		check(fzn_chain_mint(from->pubkey, to->pubkey, &net.capability, net.now,
 		                     FZN_NO_EXPIRY, 0,
 		                     sim_signer(&impostor, &net.sign, net.hosts[2].pubkey),
 		                     forged) == FZN_CHAIN_OK,
@@ -1481,7 +1481,7 @@ static void scenario_delegation(void)
 		hops[0] = to->chain[0];
 		check(fzn_hop_open(forged, FZN_HOP_LEN, &hops[1]) == FZN_CHAIN_OK,
 		      "the impostor's hop would not open");
-		check(fzn_chain_verify(hops, 2, net.root, net.capability, net.now, &net.sign,
+		check(fzn_chain_verify(hops, 2, net.root, &net.capability, net.now, &net.sign,
 		                       NULL, &proven) == FZN_CHAIN_ERR_CHAIN_INVALID,
 		      "a hop whose grantor names one host and whose signature was made by "
 		      "another was accepted -- the signature is not being checked against a "
@@ -1498,14 +1498,14 @@ static void scenario_delegation(void)
 		      "the last, or this case is not testing what it says");
 		check(memcmp(near_grantor, from->pubkey, FZN_PUBKEY_LEN) != 0,
 		      "the near-miss signer must differ somewhere, or nothing here can fail");
-		check(fzn_chain_mint(from->pubkey, to->pubkey, net.capability, net.now,
+		check(fzn_chain_mint(from->pubkey, to->pubkey, &net.capability, net.now,
 		                     FZN_NO_EXPIRY, 0,
 		                     sim_signer(&impostor, &net.sign, near_grantor),
 		                     forged) == FZN_CHAIN_OK,
 		      "the near-miss signer's hop could not be minted");
 		check(fzn_hop_open(forged, FZN_HOP_LEN, &hops[1]) == FZN_CHAIN_OK,
 		      "the near-miss signer's hop would not open");
-		check(fzn_chain_verify(hops, 2, net.root, net.capability, net.now, &net.sign,
+		check(fzn_chain_verify(hops, 2, net.root, &net.capability, net.now, &net.sign,
 		                       NULL, &proven) == FZN_CHAIN_ERR_CHAIN_INVALID,
 		      "a hop signed by a key matching its grantor in all but its last byte "
 		      "was accepted -- the signature check is not reading the whole key");
@@ -2622,7 +2622,7 @@ static void scenario_join(void)
 		fzn_chain_t proven;
 		unsigned refused_before;
 
-		check(fzn_chain_mint(rogue_root, attacker->pubkey, net.capability, 1,
+		check(fzn_chain_mint(rogue_root, attacker->pubkey, &net.capability, 1,
 		                     FZN_NO_EXPIRY, 1,
 		                     sim_signer(&rogue_signer, &net.sign, rogue_root),
 		                     attacker->hop_bytes[0]) == FZN_CHAIN_OK,
@@ -2634,7 +2634,7 @@ static void scenario_join(void)
 		/* It really does verify -- under its own root. Otherwise this
 		 * would be testing a broken chain rather than a foreign one. */
 		check(fzn_chain_verify(attacker->chain, attacker->chain_len, rogue_root,
-		                       net.capability, net.now, &net.sign,
+		                       &net.capability, net.now, &net.sign,
 		                       &joiner->revocations, &proven) == FZN_CHAIN_OK,
 		      "the attacker's chain should be valid under its own root");
 
@@ -2680,7 +2680,7 @@ static void scenario_join(void)
 		/* It really does verify -- under its own root. Otherwise this
 		 * would be testing a broken chain rather than a near-miss one. */
 		check(fzn_chain_verify(attacker->chain, attacker->chain_len, near_root,
-		                       net.capability, net.now, &net.sign,
+		                       &net.capability, net.now, &net.sign,
 		                       &joiner->revocations, &proven) == FZN_CHAIN_OK,
 		      "the near-miss chain should be valid under its own root");
 

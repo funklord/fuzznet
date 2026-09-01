@@ -166,7 +166,7 @@ typedef struct fzn_authz_policy {
 	 * must mean -- so a forgotten policy now denies on two independent
 	 * counts rather than one. */
 	unsigned origins;
-	uint8_t capability[FZN_CAP_ID_LEN];
+	fzn_cap_id_t capability;
 } fzn_authz_policy_t;
 
 /* This kind requires `capability`. */
@@ -181,7 +181,7 @@ typedef struct fzn_authz_policy {
  * argument makes every call site fail to compile, which is the loud failure
  * and the only one C offers.
  */
-static inline fzn_authz_policy_t fzn_authz_requires(const uint8_t capability[FZN_CAP_ID_LEN],
+static inline fzn_authz_policy_t fzn_authz_requires(const fzn_cap_id_t *capability,
                                                     unsigned origins)
 {
 	fzn_authz_policy_t policy;
@@ -191,7 +191,7 @@ static inline fzn_authz_policy_t fzn_authz_requires(const uint8_t capability[FZN
 	policy.guarded = 1;
 	policy.origins = origins;
 	for (i = 0; i < FZN_CAP_ID_LEN; i++)
-		policy.capability[i] = capability ? capability[i] : 0u;
+		policy.capability.b[i] = capability ? capability->b[i] : 0u;
 	/* A null capability is a caller that has not decided. It leaves
 	 * `spelled` set and `guarded` set with a capability of zeroes, which
 	 * `fzn_chain_verify` will refuse to match -- denial rather than a
@@ -217,7 +217,7 @@ static inline fzn_authz_policy_t fzn_authz_unguarded(unsigned origins)
 	policy.guarded = 0;
 	policy.origins = origins;
 	for (i = 0; i < FZN_CAP_ID_LEN; i++)
-		policy.capability[i] = 0u;
+		policy.capability.b[i] = 0u;
 	return policy;
 }
 

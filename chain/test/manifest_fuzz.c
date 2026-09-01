@@ -131,7 +131,7 @@ struct arena {
  * agree with it always, including when both are wrong. */
 struct model {
 	uint8_t issuer[DEFICIT_CAP][FZN_PUBKEY_LEN];
-	uint8_t capability[DEFICIT_CAP][FZN_CAP_ID_LEN];
+	fzn_cap_id_t capability[DEFICIT_CAP];
 	uint8_t grantee[DEFICIT_CAP][FZN_PUBKEY_LEN];
 	size_t used;
 
@@ -142,7 +142,7 @@ struct model {
 /* What the store holds, kept beside it so `covers` can be predicted rather
  * than asked. */
 struct held {
-	uint8_t capability[8][FZN_CAP_ID_LEN];
+	fzn_cap_id_t capability[8];
 	uint8_t grantee[8][FZN_PUBKEY_LEN];
 	uint8_t issuer[8][FZN_PUBKEY_LEN];
 	size_t used;
@@ -160,24 +160,24 @@ struct coverage {
 	unsigned long satisfied;
 };
 
-static int model_holds(const struct model *m, const uint8_t *issuer, const uint8_t *cap,
+static int model_holds(const struct model *m, const uint8_t *issuer, const fzn_cap_id_t *cap,
                        const uint8_t *grantee)
 {
 	for (size_t i = 0; i < m->used; i++) {
 		if (memcmp(m->issuer[i], issuer, FZN_PUBKEY_LEN) == 0 &&
-		    memcmp(m->capability[i], cap, FZN_CAP_ID_LEN) == 0 &&
+		    memcmp(m->capability[i].b, cap, FZN_CAP_ID_LEN) == 0 &&
 		    memcmp(m->grantee[i], grantee, FZN_PUBKEY_LEN) == 0)
 			return 1;
 	}
 	return 0;
 }
 
-static int store_holds(const struct held *h, const uint8_t *issuer, const uint8_t *cap,
+static int store_holds(const struct held *h, const uint8_t *issuer, const fzn_cap_id_t *cap,
                        const uint8_t *grantee)
 {
 	for (size_t i = 0; i < h->used; i++) {
 		if (memcmp(h->issuer[i], issuer, FZN_PUBKEY_LEN) == 0 &&
-		    memcmp(h->capability[i], cap, FZN_CAP_ID_LEN) == 0 &&
+		    memcmp(h->capability[i].b, cap, FZN_CAP_ID_LEN) == 0 &&
 		    memcmp(h->grantee[i], grantee, FZN_PUBKEY_LEN) == 0)
 			return 1;
 	}
@@ -197,7 +197,7 @@ static size_t model_pending(const struct model *m, const uint8_t *issuer)
 
 static int pair_gt(const fzn_manifest_pair_t *a, const fzn_manifest_pair_t *b)
 {
-	int cmp = memcmp(a->capability, b->capability, FZN_CAP_ID_LEN);
+	int cmp = memcmp(a->capability.b, b->capability.b, FZN_CAP_ID_LEN);
 
 	if (cmp != 0)
 		return cmp > 0;
@@ -235,7 +235,7 @@ static const char *fuzz_one(const uint8_t *data, size_t len, struct coverage *co
 	struct model m;
 	struct held held;
 	uint8_t keys[KEYS][FZN_PUBKEY_LEN];
-	uint8_t caps[CAPS][FZN_CAP_ID_LEN];
+	fzn_cap_id_t caps[CAPS];
 	uint8_t grantees[GRANTEES][FZN_PUBKEY_LEN];
 	uint8_t identity = 0;
 	fzn_sign_ops_t sign;
@@ -253,7 +253,7 @@ static const char *fuzz_one(const uint8_t *data, size_t len, struct coverage *co
 	for (size_t i = 0; i < KEYS; i++)
 		expand(keys[i], FZN_PUBKEY_LEN, (uint8_t)(0x10u + i));
 	for (size_t i = 0; i < CAPS; i++)
-		expand(caps[i], FZN_CAP_ID_LEN, (uint8_t)(0x40u + i));
+		expand(caps[i].b, FZN_CAP_ID_LEN, (uint8_t)(0x40u + i));
 	for (size_t i = 0; i < GRANTEES; i++)
 		expand(grantees[i], FZN_PUBKEY_LEN, (uint8_t)(0x70u + i));
 
@@ -285,7 +285,7 @@ static const char *fuzz_one(const uint8_t *data, size_t len, struct coverage *co
 		fzn_revocation_record_t rrec;
 
 		identity = keys[ki][0];
-		if (fzn_revocation_issue(keys[ki], caps[ci], grantees[gi], 1000u, &sign, rbytes) !=
+		if (fzn_revocation_issue(keys[ki], &caps[ci], grantees[gi], 1000u, &sign, rbytes) !=
 		    FZN_CHAIN_OK)
 			return "the fixture could not issue a revocation";
 		if (fzn_revocation_open(rbytes, FZN_REVOCATION_LEN, &rrec) != FZN_CHAIN_OK)
@@ -293,9 +293,9 @@ static const char *fuzz_one(const uint8_t *data, size_t len, struct coverage *co
 		if (fzn_revocation_admit(&store, fzn_revocation_offer_root(rrec), keys[ki], &sign,
 		                         NULL) != FZN_CHAIN_OK)
 			continue;
-		if (!store_holds(&held, keys[ki], caps[ci], grantees[gi]) && held.used < 8u) {
+		if (!store_holds(&held, keys[ki], &caps[ci], grantees[gi]) && held.used < 8u) {
 			memcpy(held.issuer[held.used], keys[ki], FZN_PUBKEY_LEN);
-			memcpy(held.capability[held.used], caps[ci], FZN_CAP_ID_LEN);
+			memcpy(held.capability[held.used].b, caps[ci].b, FZN_CAP_ID_LEN);
 			memcpy(held.grantee[held.used], grantees[gi], FZN_PUBKEY_LEN);
 			held.used++;
 		}
@@ -323,10 +323,10 @@ static const char *fuzz_one(const uint8_t *data, size_t len, struct coverage *co
 			fzn_manifest_pair_t p;
 			int seen = 0;
 
-			memcpy(p.capability, caps[TAKE() % CAPS], FZN_CAP_ID_LEN);
+			memcpy(p.capability.b, caps[TAKE() % CAPS].b, FZN_CAP_ID_LEN);
 			memcpy(p.grantee, grantees[TAKE() % GRANTEES], FZN_PUBKEY_LEN);
 			for (size_t j = 0; j < npairs; j++) {
-				if (memcmp(pairs[j].capability, p.capability, FZN_CAP_ID_LEN) == 0 &&
+				if (memcmp(pairs[j].capability.b, p.capability.b, FZN_CAP_ID_LEN) == 0 &&
 				    memcmp(pairs[j].grantee, p.grantee, FZN_PUBKEY_LEN) == 0)
 					seen = 1;
 			}
@@ -356,14 +356,14 @@ static const char *fuzz_one(const uint8_t *data, size_t len, struct coverage *co
 		 * module. */
 		if ((TAKE() & 1u) == 0u) {
 			size_t si = TAKE() % FOLLOWED;
-			const uint8_t *sc = caps[TAKE() % CAPS];
+			const fzn_cap_id_t *sc = &caps[TAKE() % CAPS];
 			const uint8_t *sg = grantees[TAKE() % GRANTEES];
 			size_t removed = fzn_manifest_satisfy(&state, keys[si], sc, sg);
 			size_t expect = 0;
 
 			for (size_t i = 0; i < m.used;) {
 				if (memcmp(m.issuer[i], keys[si], FZN_PUBKEY_LEN) == 0 &&
-				    memcmp(m.capability[i], sc, FZN_CAP_ID_LEN) == 0 &&
+				    memcmp(m.capability[i].b, sc, FZN_CAP_ID_LEN) == 0 &&
 				    memcmp(m.grantee[i], sg, FZN_PUBKEY_LEN) == 0) {
 					m.used--;
 					memmove(&m.issuer[i], &m.issuer[i + 1u],
@@ -409,12 +409,12 @@ static const char *fuzz_one(const uint8_t *data, size_t len, struct coverage *co
 			cov->bad_signature++;
 		} else {
 			for (size_t i = 0; i < npairs; i++) {
-				if (store_holds(&held, keys[ki], pairs[i].capability,
+				if (store_holds(&held, keys[ki], &pairs[i].capability,
 				                pairs[i].grantee)) {
 					cov->covered_skip++;
 					continue;
 				}
-				if (model_holds(&m, keys[ki], pairs[i].capability,
+				if (model_holds(&m, keys[ki], &pairs[i].capability,
 				                pairs[i].grantee)) {
 					cov->duplicate_skip++;
 					continue;
@@ -425,7 +425,7 @@ static const char *fuzz_one(const uint8_t *data, size_t len, struct coverage *co
 					continue;
 				}
 				memcpy(m.issuer[m.used], keys[ki], FZN_PUBKEY_LEN);
-				memcpy(m.capability[m.used], pairs[i].capability, FZN_CAP_ID_LEN);
+				memcpy(m.capability[m.used].b, pairs[i].capability.b, FZN_CAP_ID_LEN);
 				memcpy(m.grantee[m.used], pairs[i].grantee, FZN_PUBKEY_LEN);
 				m.used++;
 			}

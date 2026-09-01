@@ -281,11 +281,12 @@ int main(void)
 	fzn_chain_hop_t hop;
 	fzn_chain_t chain;
 	fzn_split_t plan;
-	uint8_t root[FZN_PUBKEY_LEN], cap[FZN_CAP_ID_LEN], nonce[FZN_NONCE_LEN];
+	uint8_t root[FZN_PUBKEY_LEN], nonce[FZN_NONCE_LEN];
+	fzn_cap_id_t cap;
 	uint8_t equal_a[4] = { 0 }, equal_b[4] = { 0 };
 
 	memset(root, 0x01, sizeof(root));
-	memset(cap, 0x02, sizeof(cap));
+	memset(cap.b, 0x02, sizeof(cap.b));
 	memset(nonce, 0x03, sizeof(nonce));
 
 	if (!fzn_ct_memeq(equal_a, equal_b, sizeof(equal_a)))
@@ -594,14 +595,14 @@ int main(void)
 		uint8_t grantee[FZN_PUBKEY_LEN];
 
 		memset(grantee, 0x09, sizeof(grantee));
-		if (fzn_chain_mint(root, grantee, cap, 100, FZN_NO_EXPIRY, 0, &sign,
+		if (fzn_chain_mint(root, grantee, &cap, 100, FZN_NO_EXPIRY, 0, &sign,
 		                   hop_bytes) != FZN_CHAIN_OK)
 			return 7;
 		if (fzn_hop_open(hop_bytes, FZN_HOP_LEN, &hop) != FZN_CHAIN_OK)
 			return 7;
 	}
 
-	if (fzn_chain_verify(&hop, 1, root, cap, 2000, &sign, &store, &chain) != FZN_CHAIN_OK)
+	if (fzn_chain_verify(&hop, 1, root, &cap, 2000, &sign, &store, &chain) != FZN_CHAIN_OK)
 		return 7;
 	if (chain.hop_count != 1)
 		return 8;
@@ -629,7 +630,7 @@ int main(void)
 		fzn_revocation_record_t rec;
 
 		memset(grantee, 0x09, sizeof(grantee));
-		if (fzn_revocation_issue(root, cap, grantee, 1500, &sign, rev_bytes) !=
+		if (fzn_revocation_issue(root, &cap, grantee, 1500, &sign, rev_bytes) !=
 		    FZN_CHAIN_OK)
 			return 100;
 		if (fzn_revocation_open(rev_bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
@@ -651,14 +652,14 @@ int main(void)
 		/* The store reaches the verifier, which is the property the
 		 * signature change of 2026-08-27 exists for: the same hop that
 		 * verified above must now be refused. */
-		if (fzn_chain_verify(&hop, 1, root, cap, 2000, &sign, &store, &chain) !=
+		if (fzn_chain_verify(&hop, 1, root, &cap, 2000, &sign, &store, &chain) !=
 		    FZN_CHAIN_ERR_REVOKED)
 			return 106;
 
 		/* And NULL still means "no revocations known", which is what
 		 * the old `NULL, 0` said and what a consumer holding no store
 		 * relies on. */
-		if (fzn_chain_verify(&hop, 1, root, cap, 2000, &sign, NULL, &chain) !=
+		if (fzn_chain_verify(&hop, 1, root, &cap, 2000, &sign, NULL, &chain) !=
 		    FZN_CHAIN_OK)
 			return 107;
 	}
@@ -691,22 +692,22 @@ int main(void)
 
 		if (fzn_revocation_store_init(&estate, estate_storage, 4) != FZN_CHAIN_OK)
 			return 130;
-		if (fzn_chain_mint(root, mid, cap, 100, FZN_NO_EXPIRY, 1, &sign, mid_bytes) !=
+		if (fzn_chain_mint(root, mid, &cap, 100, FZN_NO_EXPIRY, 1, &sign, mid_bytes) !=
 		    FZN_CHAIN_OK)
 			return 131;
 		if (fzn_hop_open(mid_bytes, FZN_HOP_LEN, &pair[0]) != FZN_CHAIN_OK)
 			return 132;
-		if (fzn_chain_delegate(pair, 1, root, cap, 2000, leaf, FZN_NO_EXPIRY, 0, &sign,
+		if (fzn_chain_delegate(pair, 1, root, &cap, 2000, leaf, FZN_NO_EXPIRY, 0, &sign,
 		                       NULL, leaf_bytes) != FZN_CHAIN_OK)
 			return 133;
 		if (fzn_hop_open(leaf_bytes, FZN_HOP_LEN, &pair[1]) != FZN_CHAIN_OK)
 			return 134;
-		if (fzn_chain_verify(pair, 2, root, cap, 2000, &sign, &estate, &chain) !=
+		if (fzn_chain_verify(pair, 2, root, &cap, 2000, &sign, &estate, &chain) !=
 		    FZN_CHAIN_OK)
 			return 135;
 
 		/* The middle key withdraws the capability from the leaf. */
-		if (fzn_revocation_issue(mid, cap, leaf, 1500, &sign, rev_bytes) !=
+		if (fzn_revocation_issue(mid, &cap, leaf, 1500, &sign, rev_bytes) !=
 		    FZN_CHAIN_OK)
 			return 136;
 		if (fzn_revocation_open(rev_bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
@@ -725,7 +726,7 @@ int main(void)
 			return 139;
 		if (estate.used != 1)
 			return 140;
-		if (fzn_chain_verify(pair, 2, root, cap, 2000, &sign, &estate, &chain) !=
+		if (fzn_chain_verify(pair, 2, root, &cap, 2000, &sign, &estate, &chain) !=
 		    FZN_CHAIN_ERR_REVOKED)
 			return 141;
 
@@ -733,7 +734,7 @@ int main(void)
 		 * supplied: the same store says nothing about the middle key's
 		 * own one-hop chain, which the middle key is not an ancestor
 		 * of. */
-		if (fzn_chain_verify(pair, 1, root, cap, 2000, &sign, &estate, &chain) !=
+		if (fzn_chain_verify(pair, 1, root, &cap, 2000, &sign, &estate, &chain) !=
 		    FZN_CHAIN_OK)
 			return 142;
 
@@ -742,7 +743,7 @@ int main(void)
 		{
 			uint8_t revoked[FZN_CHAIN_MAX_HOPS];
 
-			fzn_revocation_covers_chain(&estate, pair, 2, cap, revoked);
+			fzn_revocation_covers_chain(&estate, pair, 2, &cap, revoked);
 			if (revoked[0] != 0 || revoked[1] != 1)
 				return 143;
 		}
@@ -803,7 +804,7 @@ int main(void)
 		 * of the parameter `fzn_revocation_admit` gained. */
 		if (fzn_revocation_store_init(&fresh, fresh_storage, 4) != FZN_CHAIN_OK)
 			return 121;
-		if (fzn_revocation_issue(root, cap, grantee, 1500, &sign, rev_bytes) !=
+		if (fzn_revocation_issue(root, &cap, grantee, 1500, &sign, rev_bytes) !=
 		    FZN_CHAIN_OK)
 			return 122;
 		if (fzn_revocation_open(rev_bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
@@ -1136,10 +1137,10 @@ int main(void)
 		fzn_authz_policy_t zeroed;
 		fzn_revocation_store_t empty;
 		fzn_revocation_t empty_slots[1];
-		uint8_t any_cap[FZN_CAP_ID_LEN];
+		fzn_cap_id_t any_cap;
 
 		memset(&zeroed, 0, sizeof(zeroed));
-		memset(any_cap, 0x5b, sizeof(any_cap));
+		memset(any_cap.b, 0x5b, sizeof(any_cap.b));
 		if (fzn_revocation_store_init(&empty, empty_slots, 1) != FZN_CHAIN_OK)
 			return 220;
 
@@ -1148,7 +1149,7 @@ int main(void)
 		    != FZN_AUTHZ_DENIED)
 			return 221;
 		/* Nor is a required capability with no chain held. */
-		if (fzn_authz_decide(fzn_authz_requires(any_cap, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, NULL, 0, root, 1000, &sign,
+		if (fzn_authz_decide(fzn_authz_requires(&any_cap, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, NULL, 0, root, 1000, &sign,
 		                     &empty) != FZN_AUTHZ_DENIED)
 			return 222;
 		/* Only saying so out loud grants, and it says which grant it is. */

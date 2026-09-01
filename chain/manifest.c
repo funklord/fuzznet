@@ -36,7 +36,7 @@ static int pair_cmp(const uint8_t *a, const uint8_t *b)
  * order the wire uses. */
 static int pair_struct_cmp(const fzn_manifest_pair_t *a, const fzn_manifest_pair_t *b)
 {
-	int cmp = memcmp(a->capability, b->capability, FZN_CAP_ID_LEN);
+	int cmp = memcmp(a->capability.b, b->capability.b, FZN_CAP_ID_LEN);
 
 	if (cmp != 0)
 		return cmp;
@@ -107,13 +107,13 @@ static size_t find_issuer(const fzn_manifest_state_t *state, const uint8_t *issu
  * the deficit -- the fail-open direction, and the one with no alarm attached
  * to it. */
 static int deficit_holds(const fzn_manifest_state_t *state, const uint8_t *issuer,
-                         const uint8_t *capability, const uint8_t *grantee)
+                         const fzn_cap_id_t *capability, const uint8_t *grantee)
 {
 	for (size_t i = 0; i < state->deficit_used; i++) {
 		const fzn_manifest_deficit_t *d = &state->deficit[i];
 
 		if (fzn_ct_memeq(d->issuer, issuer, FZN_PUBKEY_LEN) &&
-		    fzn_ct_memeq(d->capability, capability, FZN_CAP_ID_LEN) &&
+		    fzn_ct_memeq(d->capability.b, capability->b, FZN_CAP_ID_LEN) &&
 		    fzn_ct_memeq(d->grantee, grantee, FZN_PUBKEY_LEN))
 			return 1;
 	}
@@ -205,7 +205,7 @@ fzn_manifest_err_t fzn_manifest_encode(uint8_t *out, size_t out_cap,
 
 	at = out + FZN_MANIFEST_OFF_PAIRS;
 	for (size_t i = 0; i < count; i++) {
-		memcpy(at, pairs[i].capability, FZN_CAP_ID_LEN);
+		memcpy(at, pairs[i].capability.b, FZN_CAP_ID_LEN);
 		memcpy(at + FZN_CAP_ID_LEN, pairs[i].grantee, FZN_PUBKEY_LEN);
 		at += FZN_MANIFEST_PAIR_LEN;
 	}
@@ -265,7 +265,7 @@ fzn_manifest_err_t fzn_manifest_issue(const uint8_t issuer[FZN_PUBKEY_LEN],
 		if (out_cap < FZN_MANIFEST_LEN(count + 1u))
 			return FZN_MANIFEST_ERR_MALFORMED;
 
-		memcpy(candidate, e->capability, FZN_CAP_ID_LEN);
+		memcpy(candidate, e->capability.b, FZN_CAP_ID_LEN);
 		memcpy(candidate + FZN_CAP_ID_LEN, e->grantee, FZN_PUBKEY_LEN);
 
 		for (at = 0; at < count; at++) {
@@ -405,7 +405,7 @@ fzn_manifest_err_t fzn_manifest_admit(fzn_manifest_state_t *state,
 	count = fzn_manifest_count(record);
 
 	for (size_t i = 0; i < count; i++) {
-		const uint8_t *capability = fzn_manifest_capability(record, i);
+		const fzn_cap_id_t *capability = fzn_manifest_capability(record, i);
 		const uint8_t *grantee = fzn_manifest_grantee(record, i);
 		fzn_manifest_deficit_t *slot;
 
@@ -430,7 +430,7 @@ fzn_manifest_err_t fzn_manifest_admit(fzn_manifest_state_t *state,
 
 		slot = &state->deficit[state->deficit_used];
 		memcpy(slot->issuer, issuer, FZN_PUBKEY_LEN);
-		memcpy(slot->capability, capability, FZN_CAP_ID_LEN);
+		slot->capability = *capability;
 		memcpy(slot->grantee, grantee, FZN_PUBKEY_LEN);
 		state->deficit_used++;
 	}
@@ -453,7 +453,7 @@ fzn_manifest_err_t fzn_manifest_admit(fzn_manifest_state_t *state,
 }
 
 size_t fzn_manifest_satisfy(fzn_manifest_state_t *state, const uint8_t issuer[FZN_PUBKEY_LEN],
-                            const uint8_t capability[FZN_CAP_ID_LEN],
+                            const fzn_cap_id_t *capability,
                             const uint8_t grantee[FZN_PUBKEY_LEN])
 {
 	size_t removed = 0;
@@ -467,7 +467,7 @@ size_t fzn_manifest_satisfy(fzn_manifest_state_t *state, const uint8_t issuer[FZ
 		const fzn_manifest_deficit_t *d = &state->deficit[i];
 
 		if (fzn_ct_memeq(d->issuer, issuer, FZN_PUBKEY_LEN) &&
-		    fzn_ct_memeq(d->capability, capability, FZN_CAP_ID_LEN) &&
+		    fzn_ct_memeq(d->capability.b, capability->b, FZN_CAP_ID_LEN) &&
 		    fzn_ct_memeq(d->grantee, grantee, FZN_PUBKEY_LEN)) {
 			/* Compacted by moving the tail down, which keeps the
 			 * table dense and the report's order the admission
@@ -544,7 +544,7 @@ size_t fzn_manifest_deficit(const fzn_manifest_state_t *state,
 			missed++;
 			continue;
 		}
-		memcpy(out[written].capability, d->capability, FZN_CAP_ID_LEN);
+		out[written].capability = d->capability;
 		memcpy(out[written].grantee, d->grantee, FZN_PUBKEY_LEN);
 		written++;
 	}

@@ -8981,11 +8981,18 @@ run, recorded under sec 15c.
   one asks whether the comparison happens, this asks whether it reads
   the whole key, and a fixture can answer one and not the other.
 
-  **The second half stands.** `FZN_CAP_ID_LEN == FZN_PUBKEY_LEN == 32`,
-  re-checked, so a SWAPPED length constant changes no behaviour and is
-  undetectable by any fixture. Closing it needs the constants to differ
-  or a compile-time distinction between the two types, and no test can
-  do it.
+  **~~The second half stands.~~ CLOSED 2026-09-01 for the capability
+  half, see sec 44.** It read: a SWAPPED length constant changes no
+  behaviour and is undetectable by any fixture, and closing it needs the
+  constants to differ or a compile-time distinction between the two
+  types. The second of those was taken -- `fzn_cap_id_t` makes a key
+  passed as a capability a compile error, in both directions.
+
+  **The entry was right that no TEST can do it**, which is why the
+  answer had to be a type. What remains open is narrower and worth
+  keeping in view: `root` and `grantee` are both public keys and sit
+  adjacently in `fzn_chain_mint`, so exchanging THOSE is still
+  invisible and no width-based type can help.
 
   **What is worth keeping is that the entry aged in the direction that
   flatters nobody**: it named a real gap, somebody closed it, and the
@@ -10820,6 +10827,96 @@ alone is also green, since the openers do write every field. Dropping the
 init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
+
+## 44. A capability is a type now, 2026-09-01
+
+Sec 14 recorded `FZN_CAP_ID_LEN == FZN_PUBKEY_LEN == 32` as a confusion no
+fixture could catch: "closing that needs the constants to differ or a
+compile-time distinction between the two types, and no test can do it."
+
+**It was right that no test can, and it was measured rather than assumed**
+before anything changed. `fzn_chain_mint(root, capability, grantee, ...)`
+with two arguments exchanged compiled clean under `-Wall -Wextra -Wpedantic
+-Wconversion` and produced an object.
+
+### Wrapping one side, and why that is enough
+
+`fzn_cap_id_t` wraps the thirty-two bytes. **A struct and a
+`const uint8_t *` are incompatible in BOTH directions**, so typing the
+capability makes a key passed for one, and one passed for a key, equally a
+hard error -- and the keys stay byte arrays. That is 188 mentions across 22
+files rather than 779 across 52, for the same guarantee.
+
+Proven both ways, with the object removed first so no stale artifact could
+answer: the swap fails to compile and writes nothing; the correct call
+compiles and produces an object.
+
+### By pointer, and the cheaper option deletes a contract
+
+By value would have removed roughly **132 of the 189** test errors, because
+`mint(root, grantee, cap, ...)` stays textually correct when `cap` is a
+value. It was tried and reverted.
+
+`if (!capability)` becomes meaningless for a value, and **a null capability
+is documented behaviour**: `authz.h` says "a null capability is a caller
+that has not decided", the library refuses one with MALFORMED, and
+`test_every_guard_refuses_its_own_argument` asserts it. The cheaper option
+removes an API contract, which is not a cost a mechanical convenience gets
+to pay.
+
+### The casts live in three accessors and nowhere else
+
+`fzn_hop_capability`, `fzn_manifest_capability` and
+`fzn_revocation_capability` each cast a pointer into a wire buffer to the
+type those bytes are. **That containment is the design, not an
+implementation detail.** This library's style is views into wire buffers, so
+the type has to reach a caller without copying -- and a cast at each call
+site instead would have reintroduced the confusion at every boundary, which
+is precisely where a capability arrives from a stranger.
+
+`wire/seal.h` keeps raw bytes deliberately: `wire/` sits below `chain/` and
+never includes it, so typing that field would invert the layering. It is
+also the right place to stop, since a capability becomes bytes on the wire
+on purpose and a caller assigning one now writes `.b` rather than having it
+converted silently.
+
+### What it does not close, which is the likelier confusion
+
+**`fzn_chain_mint` takes `root` and `grantee` adjacently and both are public
+keys.** Exchanging those is still invisible, and no width-based type can
+separate them: a grantee becomes a grantor in the next hop, so they are the
+same kind of thing and a distinct type would be a lie. A caller can also
+still defeat the check with an explicit cast.
+
+So this closes the confusion sec 14 named and leaves a neighbouring one
+open, and the neighbouring one is arguably more likely. That is worth
+knowing before anyone reads the type as making argument order safe.
+
+### Typing the keys as well is the intended end state
+
+The capability side is a strict subset of typing both, so nothing here is
+wasted if `fzn_pubkey_t` follows. **The tree is asymmetric until it does**,
+and that asymmetry is a real cost -- capabilities are structs while keys are
+arrays, which every reader and both consumers meet. It was taken in this
+order because the capability side is a quarter of the work for the whole
+guarantee, and because a compiler-guided refactor either builds or does not,
+so each half can be landed green.
+
+### The proof that behaviour did not move
+
+Mechanical changes carry a proof, and this one's is that nothing observable
+changed: **master and the converted branch both run 64 binaries and 6643
+checks at rc 0.** The wire format cannot have moved -- `wire/generated/`
+mentions neither constant, `make schema` passes against situ HEAD, and a
+struct of one `uint8_t[32]` has the size and alignment of the array it
+replaces. `style`, `installcheck` in both Monocypher arrangements, the
+sanitized build and `make sabotage` all pass.
+
+**The refactor also found a bug that had nothing to do with it**, recorded
+in the commit that fixed it: converting the headers should have broken every
+dependent object and `make` reported success, because the default goal was
+`monocypher.o` and a plain `make` built no library at all.
+
 
 ## 43. How much sweeping is left, measured rather than felt, 2026-09-01
 

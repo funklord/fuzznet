@@ -121,6 +121,12 @@ typedef enum fzn_seal_err {
  * this library does not own and does not copy. Valid only while that buffer
  * is, and only after FZN_SEAL_OK. */
 typedef struct fzn_opened {
+	/* Bytes rather than `fzn_cap_id_t`, and the layering is the reason:
+	 * `wire/` sits below `chain/` and never includes it, so the type
+	 * cannot reach here without inverting that. It is also the right
+	 * place to stop -- a capability becomes bytes on the wire
+	 * deliberately, and a caller assigning a typed one must write
+	 * `->b`, which is explicit rather than a silent conversion. */
 	const uint8_t *capability; /* FZN_CAP_ID_LEN bytes */
 	const uint8_t *payload;
 	size_t payload_len;

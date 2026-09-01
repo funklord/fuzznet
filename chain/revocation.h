@@ -103,7 +103,7 @@ fzn_chain_err_t fzn_revocation_open(const uint8_t *bytes, size_t len,
  * with the signature zeroed. The only encoder for this object, on the same
  * argument `fzn_hop_encode` carries. */
 fzn_chain_err_t fzn_revocation_encode(uint8_t *out, const uint8_t issuer[FZN_PUBKEY_LEN],
-                                      const uint8_t capability[FZN_CAP_ID_LEN],
+                                      const fzn_cap_id_t *capability,
                                       const uint8_t grantee[FZN_PUBKEY_LEN],
                                       uint64_t issued_at);
 
@@ -119,14 +119,16 @@ fzn_chain_err_t fzn_revocation_encode(uint8_t *out, const uint8_t issuer[FZN_PUB
  * the signer actually holds the matching secret is not a question this can
  * ask, exactly as in `fzn_chain_mint`. */
 fzn_chain_err_t fzn_revocation_issue(const uint8_t issuer[FZN_PUBKEY_LEN],
-                                     const uint8_t capability[FZN_CAP_ID_LEN],
+                                     const fzn_cap_id_t *capability,
                                      const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t issued_at,
                                      const fzn_sign_ops_t *sign, uint8_t *out);
 
 /* The accessors, over an OPENED record -- see chain.h's equivalent note. */
-static inline const uint8_t *fzn_revocation_capability(fzn_revocation_record_t rec)
+/* Typed, like `fzn_manifest_capability`: the cast that makes a wire view
+ * carry its type lives in the accessor so that no caller writes one. */
+static inline const fzn_cap_id_t *fzn_revocation_capability(fzn_revocation_record_t rec)
 {
-	return rec.base + FZN_REV_OFF_CAPABILITY;
+	return (const fzn_cap_id_t *)(rec.base + FZN_REV_OFF_CAPABILITY);
 }
 
 static inline const uint8_t *fzn_revocation_grantee(fzn_revocation_record_t rec)
@@ -443,7 +445,7 @@ size_t fzn_revocation_merge(fzn_revocation_store_t *store,
  * checked on admission. */
 int fzn_revocation_covers(const fzn_revocation_store_t *store,
                            const uint8_t issuer[FZN_PUBKEY_LEN],
-                           const uint8_t capability[FZN_CAP_ID_LEN],
+                           const fzn_cap_id_t *capability,
                            const uint8_t grantee[FZN_PUBKEY_LEN]);
 
 /* WHICH HOPS OF THIS CHAIN ARE REVOKED, by an issuer entitled to revoke
@@ -489,7 +491,7 @@ int fzn_revocation_covers(const fzn_revocation_store_t *store,
  * nowhere to write an answer, so it writes none. */
 void fzn_revocation_covers_chain(const fzn_revocation_store_t *store,
                                   const fzn_chain_hop_t *hops, size_t hop_count,
-                                  const uint8_t capability[FZN_CAP_ID_LEN],
+                                  const fzn_cap_id_t *capability,
                                   uint8_t revoked[FZN_CHAIN_MAX_HOPS]);
 
 #endif /* FZN_REVOCATION_H */

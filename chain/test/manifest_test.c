@@ -213,14 +213,14 @@ static void key_near(uint8_t out[FZN_PUBKEY_LEN], uint8_t seed)
 	expand_near(out, FZN_PUBKEY_LEN, seed);
 }
 
-static void capability_id(uint8_t out[FZN_CAP_ID_LEN], uint8_t seed)
+static void capability_id(fzn_cap_id_t *out, uint8_t seed)
 {
-	expand(out, FZN_CAP_ID_LEN, seed);
+	expand(out->b, FZN_CAP_ID_LEN, seed);
 }
 
-static void capability_id_near(uint8_t out[FZN_CAP_ID_LEN], uint8_t seed)
+static void capability_id_near(fzn_cap_id_t *out, uint8_t seed)
 {
-	expand_near(out, FZN_CAP_ID_LEN, seed);
+	expand_near(out->b, FZN_CAP_ID_LEN, seed);
 }
 
 /* The suite's own ordering, written out rather than borrowed, so that a
@@ -228,7 +228,7 @@ static void capability_id_near(uint8_t out[FZN_CAP_ID_LEN], uint8_t seed)
  * fixtures with it. */
 static int suite_pair_cmp(const fzn_manifest_pair_t *a, const fzn_manifest_pair_t *b)
 {
-	int cmp = memcmp(a->capability, b->capability, FZN_CAP_ID_LEN);
+	int cmp = memcmp(a->capability.b, b->capability.b, FZN_CAP_ID_LEN);
 
 	if (cmp != 0)
 		return cmp;
@@ -265,7 +265,7 @@ static size_t build_raw(uint8_t *out, uint8_t identity, const uint8_t issuer[FZN
 	memcpy(out + FZN_MANIFEST_OFF_ISSUER, issuer, FZN_PUBKEY_LEN);
 	fzn_put_be16(out + FZN_MANIFEST_OFF_COUNT, (uint16_t)count);
 	for (size_t i = 0; i < count; i++) {
-		memcpy(at, pairs[i].capability, FZN_CAP_ID_LEN);
+		memcpy(at, pairs[i].capability.b, FZN_CAP_ID_LEN);
 		memcpy(at + FZN_CAP_ID_LEN, pairs[i].grantee, FZN_PUBKEY_LEN);
 		at += FZN_MANIFEST_PAIR_LEN;
 	}
@@ -311,14 +311,14 @@ static void stub_reset(stub_t *s)
 
 static void pair_of(fzn_manifest_pair_t *p, uint8_t cap_seed, uint8_t grantee_seed)
 {
-	capability_id(p->capability, cap_seed);
+	capability_id(&p->capability, cap_seed);
 	key(p->grantee, grantee_seed);
 }
 
 /* Put a real, signed revocation into the store, so that the manifest derived
  * from it names something. */
 static void revoke(struct fixture *f, const uint8_t issuer[FZN_PUBKEY_LEN],
-                   const uint8_t capability[FZN_CAP_ID_LEN],
+                   const fzn_cap_id_t *capability,
                    const uint8_t grantee[FZN_PUBKEY_LEN])
 {
 	uint8_t bytes[FZN_REVOCATION_LEN];
@@ -392,11 +392,11 @@ static void test_layout_and_round_trip(void)
 	CHECK(fzn_manifest_count(rec) == 2, "count reads back as %zu", fzn_manifest_count(rec));
 	CHECK(fzn_ct_memeq(fzn_manifest_issuer(rec), issuer, FZN_PUBKEY_LEN),
 	      "issuer did not survive the round trip");
-	CHECK(fzn_ct_memeq(fzn_manifest_capability(rec, 0), pairs[0].capability, FZN_CAP_ID_LEN) &&
+	CHECK(fzn_ct_memeq(fzn_manifest_capability(rec, 0), pairs[0].capability.b, FZN_CAP_ID_LEN) &&
 	              fzn_ct_memeq(fzn_manifest_grantee(rec, 0), pairs[0].grantee,
 	                           FZN_PUBKEY_LEN),
 	      "pair 0 did not survive the round trip");
-	CHECK(fzn_ct_memeq(fzn_manifest_capability(rec, 1), pairs[1].capability, FZN_CAP_ID_LEN) &&
+	CHECK(fzn_ct_memeq(fzn_manifest_capability(rec, 1), pairs[1].capability.b, FZN_CAP_ID_LEN) &&
 	              fzn_ct_memeq(fzn_manifest_grantee(rec, 1), pairs[1].grantee,
 	                           FZN_PUBKEY_LEN),
 	      "pair 1 did not survive the round trip");
@@ -420,7 +420,7 @@ static void test_layout_and_round_trip(void)
 		fzn_manifest_pair_t read_back[2];
 
 		for (size_t i = 0; i < 2; i++) {
-			memcpy(read_back[i].capability, fzn_manifest_capability(rec, i),
+			memcpy(read_back[i].capability.b, fzn_manifest_capability(rec, i),
 			       FZN_CAP_ID_LEN);
 			memcpy(read_back[i].grantee, fzn_manifest_grantee(rec, i),
 			       FZN_PUBKEY_LEN);
@@ -642,21 +642,21 @@ static void test_the_ordering_reads_the_whole_pair(void)
 	fzn_manifest_record_t rec;
 	fzn_manifest_pair_t pairs[2], swapped[2];
 	uint8_t issuer[FZN_PUBKEY_LEN];
-	uint8_t cap[FZN_CAP_ID_LEN], near_cap[FZN_CAP_ID_LEN];
+	fzn_cap_id_t cap, near_cap;
 	uint8_t grantee[FZN_PUBKEY_LEN], near_grantee[FZN_PUBKEY_LEN];
 	size_t len;
 
 	fixture_init(&f);
 	key(issuer, 0);
-	capability_id(cap, 0x10);
-	capability_id_near(near_cap, 0x10);
+	capability_id(&cap, 0x10);
+	capability_id_near(&near_cap, 0x10);
 	key(grantee, 5);
 	key_near(near_grantee, 5);
 
 	/* THE FIXTURE PROPERTY, ASSERTED FIRST. Everything below is worthless
 	 * if the two values differ anywhere a short comparison would reach. */
-	CHECK(memcmp(cap, near_cap, FZN_CAP_ID_LEN - 1u) == 0 &&
-	              cap[FZN_CAP_ID_LEN - 1u] != near_cap[FZN_CAP_ID_LEN - 1u],
+	CHECK(memcmp(cap.b, near_cap.b, FZN_CAP_ID_LEN - 1u) == 0 &&
+	              cap.b[FZN_CAP_ID_LEN - 1u] != near_cap.b[FZN_CAP_ID_LEN - 1u],
 	      "the two capabilities do not agree on every byte but the last, so they do "
 	      "not decide a comparison's length");
 	CHECK(memcmp(grantee, near_grantee, FZN_PUBKEY_LEN - 1u) == 0 &&
@@ -665,9 +665,9 @@ static void test_the_ordering_reads_the_whole_pair(void)
 
 	/* TWO GRANTEES UNDER ONE CAPABILITY, differing only in the last byte.
 	 * Sorted, so the manifest is canonical and must be accepted. */
-	memcpy(pairs[0].capability, cap, FZN_CAP_ID_LEN);
+	memcpy(pairs[0].capability.b, cap.b, FZN_CAP_ID_LEN);
 	memcpy(pairs[0].grantee, grantee, FZN_PUBKEY_LEN);
-	memcpy(pairs[1].capability, cap, FZN_CAP_ID_LEN);
+	memcpy(pairs[1].capability.b, cap.b, FZN_CAP_ID_LEN);
 	memcpy(pairs[1].grantee, near_grantee, FZN_PUBKEY_LEN);
 	sort_pairs(pairs, 2);
 
@@ -687,9 +687,9 @@ static void test_the_ordering_reads_the_whole_pair(void)
 	      "a descending pair set was accepted, so one set has many encodings");
 
 	/* TWO CAPABILITIES UNDER ONE GRANTEE, the same way round. */
-	memcpy(pairs[0].capability, cap, FZN_CAP_ID_LEN);
+	memcpy(pairs[0].capability.b, cap.b, FZN_CAP_ID_LEN);
 	memcpy(pairs[0].grantee, grantee, FZN_PUBKEY_LEN);
-	memcpy(pairs[1].capability, near_cap, FZN_CAP_ID_LEN);
+	memcpy(pairs[1].capability.b, near_cap.b, FZN_CAP_ID_LEN);
 	memcpy(pairs[1].grantee, grantee, FZN_PUBKEY_LEN);
 	sort_pairs(pairs, 2);
 
@@ -773,26 +773,26 @@ static void test_issue_derives_from_the_issuers_own_store(void)
 	static uint8_t bytes[FIXTURE_BYTES];
 	fzn_manifest_record_t rec;
 	uint8_t other[FZN_PUBKEY_LEN];
-	uint8_t cap_a[FZN_CAP_ID_LEN], cap_b[FZN_CAP_ID_LEN], cap_c[FZN_CAP_ID_LEN];
+	fzn_cap_id_t cap_a, cap_b, cap_c;
 	uint8_t g5[FZN_PUBKEY_LEN], g6[FZN_PUBKEY_LEN];
 	size_t len = 0;
 
 	fixture_init(&f);
 	key(other, 7);
-	capability_id(cap_a, 0x10);
-	capability_id(cap_b, 0x20);
-	capability_id(cap_c, 0x30);
+	capability_id(&cap_a, 0x10);
+	capability_id(&cap_b, 0x20);
+	capability_id(&cap_c, 0x30);
 	key(g5, 5);
 	key(g6, 6);
 
 	/* Inserted out of order on purpose: the manifest's order is the
 	 * canonical one, not the store's. */
-	revoke(&f, f.root, cap_c, g5);
-	revoke(&f, f.root, cap_a, g6);
-	revoke(&f, f.root, cap_b, g5);
+	revoke(&f, f.root, &cap_c, g5);
+	revoke(&f, f.root, &cap_a, g6);
+	revoke(&f, f.root, &cap_b, g5);
 	/* And one from a different issuer, which must not appear: a manifest
 	 * is a statement about what THAT key has issued. */
-	revoke(&f, other, cap_a, g5);
+	revoke(&f, other, &cap_a, g5);
 	CHECK(f.store.used == 4, "the fixture stored %zu revocations, wanted 4", f.store.used);
 
 	f.stub.identity = 0;
@@ -806,9 +806,9 @@ static void test_issue_derives_from_the_issuers_own_store(void)
 	CHECK(fzn_manifest_count(rec) == 3,
 	      "the manifest names %zu pairs; another issuer's revocation was included",
 	      fzn_manifest_count(rec));
-	CHECK(fzn_ct_memeq(fzn_manifest_capability(rec, 0), cap_a, FZN_CAP_ID_LEN) &&
-	              fzn_ct_memeq(fzn_manifest_capability(rec, 1), cap_b, FZN_CAP_ID_LEN) &&
-	              fzn_ct_memeq(fzn_manifest_capability(rec, 2), cap_c, FZN_CAP_ID_LEN),
+	CHECK(fzn_ct_memeq(fzn_manifest_capability(rec, 0), cap_a.b, FZN_CAP_ID_LEN) &&
+	              fzn_ct_memeq(fzn_manifest_capability(rec, 1), cap_b.b, FZN_CAP_ID_LEN) &&
+	              fzn_ct_memeq(fzn_manifest_capability(rec, 2), cap_c.b, FZN_CAP_ID_LEN),
 	      "the issued manifest is in the store's order rather than sorted");
 	CHECK(fzn_ct_memeq(fzn_manifest_issuer(rec), f.root, FZN_PUBKEY_LEN),
 	      "the issued manifest names somebody else as its issuer");
@@ -871,14 +871,14 @@ static void test_a_refusing_signer_leaves_no_manifest_behind(void)
 	struct fixture f;
 	static uint8_t bytes[FIXTURE_BYTES];
 	fzn_manifest_record_t rec;
-	uint8_t cap_a[FZN_CAP_ID_LEN];
+	fzn_cap_id_t cap_a;
 	uint8_t g5[FZN_PUBKEY_LEN];
 	size_t len = 0;
 
 	fixture_init(&f);
-	capability_id(cap_a, 0x10);
+	capability_id(&cap_a, 0x10);
 	key(g5, 5);
-	revoke(&f, f.root, cap_a, g5);
+	revoke(&f, f.root, &cap_a, g5);
 
 	/* The positive control: with a willing signer this same call produces
 	 * a manifest that opens. Without it, the refusal below is satisfied by
@@ -904,13 +904,14 @@ static void test_issue_refuses_a_store_it_cannot_read(void)
 {
 	struct fixture f;
 	static uint8_t bytes[FIXTURE_BYTES];
-	uint8_t cap[FZN_CAP_ID_LEN], grantee[FZN_PUBKEY_LEN];
+	uint8_t grantee[FZN_PUBKEY_LEN];
+	fzn_cap_id_t cap;
 	size_t len = 0;
 
 	fixture_init(&f);
-	capability_id(cap, 0x10);
+	capability_id(&cap, 0x10);
 	key(grantee, 5);
-	revoke(&f, f.root, cap, grantee);
+	revoke(&f, f.root, &cap, grantee);
 
 	f.stub.identity = 0;
 	CHECK(fzn_manifest_issue(f.root, &f.store, &f.sign, bytes, sizeof(bytes), &len) ==
@@ -935,27 +936,27 @@ static void test_issuing_is_deterministic(void)
 {
 	struct fixture a, b;
 	static uint8_t first[FIXTURE_BYTES], second[FIXTURE_BYTES];
-	uint8_t cap_a[FZN_CAP_ID_LEN], cap_b[FZN_CAP_ID_LEN], cap_c[FZN_CAP_ID_LEN];
+	fzn_cap_id_t cap_a, cap_b, cap_c;
 	uint8_t g5[FZN_PUBKEY_LEN], g6[FZN_PUBKEY_LEN];
 	size_t first_len = 0, second_len = 0;
 
-	capability_id(cap_a, 0x10);
-	capability_id(cap_b, 0x20);
-	capability_id(cap_c, 0x30);
+	capability_id(&cap_a, 0x10);
+	capability_id(&cap_b, 0x20);
+	capability_id(&cap_c, 0x30);
 	key(g5, 5);
 	key(g6, 6);
 
 	fixture_init(&a);
-	revoke(&a, a.root, cap_a, g5);
-	revoke(&a, a.root, cap_b, g6);
-	revoke(&a, a.root, cap_c, g5);
+	revoke(&a, a.root, &cap_a, g5);
+	revoke(&a, a.root, &cap_b, g6);
+	revoke(&a, a.root, &cap_c, g5);
 
 	/* The same three, learned in a different order, which is what two
 	 * hosts of one user actually experience. */
 	fixture_init(&b);
-	revoke(&b, b.root, cap_c, g5);
-	revoke(&b, b.root, cap_a, g5);
-	revoke(&b, b.root, cap_b, g6);
+	revoke(&b, b.root, &cap_c, g5);
+	revoke(&b, b.root, &cap_a, g5);
+	revoke(&b, b.root, &cap_b, g6);
 
 	a.stub.identity = 0;
 	b.stub.identity = 0;
@@ -980,17 +981,18 @@ static void test_following_is_deliberate(void)
 	static uint8_t bytes[FIXTURE_BYTES];
 	fzn_manifest_record_t rec;
 	uint8_t near_root[FZN_PUBKEY_LEN], other[FZN_PUBKEY_LEN], third[FZN_PUBKEY_LEN];
-	uint8_t cap[FZN_CAP_ID_LEN], grantee[FZN_PUBKEY_LEN];
+	uint8_t grantee[FZN_PUBKEY_LEN];
+	fzn_cap_id_t cap;
 	size_t len = 0;
 
 	fixture_init(&f);
 	key_near(near_root, 0);
 	key(other, 7);
 	key(third, 8);
-	capability_id(cap, 0x10);
+	capability_id(&cap, 0x10);
 	key(grantee, 5);
 
-	revoke(&f, f.root, cap, grantee);
+	revoke(&f, f.root, &cap, grantee);
 	f.stub.identity = 0;
 	CHECK(fzn_manifest_issue(f.root, &f.store, &f.sign, bytes, sizeof(bytes), &len) ==
 	              FZN_MANIFEST_OK,
@@ -1064,19 +1066,19 @@ static void test_the_deficit_is_what_this_host_lacks(void)
 	static uint8_t bytes[FIXTURE_BYTES];
 	fzn_manifest_record_t rec;
 	fzn_manifest_pair_t want[4];
-	uint8_t cap_a[FZN_CAP_ID_LEN], cap_b[FZN_CAP_ID_LEN];
+	fzn_cap_id_t cap_a, cap_b;
 	uint8_t g5[FZN_PUBKEY_LEN], g6[FZN_PUBKEY_LEN];
 	size_t len = 0, dropped = 99;
 
-	capability_id(cap_a, 0x10);
-	capability_id(cap_b, 0x20);
+	capability_id(&cap_a, 0x10);
+	capability_id(&cap_b, 0x20);
 	key(g5, 5);
 	key(g6, 6);
 
 	/* The issuer's own view: two revocations, so a two-pair manifest. */
 	fixture_init(&f);
-	revoke(&f, f.root, cap_a, g5);
-	revoke(&f, f.root, cap_b, g6);
+	revoke(&f, f.root, &cap_a, g5);
+	revoke(&f, f.root, &cap_b, g6);
 	f.stub.identity = 0;
 	CHECK(fzn_manifest_issue(f.root, &f.store, &f.sign, bytes, sizeof(bytes), &len) ==
 	              FZN_MANIFEST_OK,
@@ -1104,8 +1106,8 @@ static void test_the_deficit_is_what_this_host_lacks(void)
 		CHECK(fzn_manifest_deficit(&joiner.manifest, f.root, want, 4, &dropped) == 2 &&
 		              dropped == 0,
 		      "the deficit report does not name both pairs");
-		CHECK(fzn_ct_memeq(want[0].capability, cap_a, FZN_CAP_ID_LEN) &&
-		              fzn_ct_memeq(want[1].capability, cap_b, FZN_CAP_ID_LEN),
+		CHECK(fzn_ct_memeq(want[0].capability.b, cap_a.b, FZN_CAP_ID_LEN) &&
+		              fzn_ct_memeq(want[1].capability.b, cap_b.b, FZN_CAP_ID_LEN),
 		      "the deficit report names the wrong pairs");
 
 		/* Admitting the same manifest again must not double it: it is
@@ -1135,7 +1137,7 @@ static void test_the_deficit_is_what_this_host_lacks(void)
 		struct fixture partial;
 
 		fixture_init(&partial);
-		revoke(&partial, partial.root, cap_a, g5);
+		revoke(&partial, partial.root, &cap_a, g5);
 		CHECK(fzn_manifest_follow(&partial.manifest, f.root) == FZN_MANIFEST_OK,
 		      "follow");
 		CHECK(fzn_manifest_admit(&partial.manifest, &partial.store, rec,
@@ -1146,7 +1148,7 @@ static void test_the_deficit_is_what_this_host_lacks(void)
 		      fzn_manifest_pending(&partial.manifest, f.root));
 		dropped = 99;
 		CHECK(fzn_manifest_deficit(&partial.manifest, f.root, want, 4, &dropped) == 1 &&
-		              fzn_ct_memeq(want[0].capability, cap_b, FZN_CAP_ID_LEN),
+		              fzn_ct_memeq(want[0].capability.b, cap_b.b, FZN_CAP_ID_LEN),
 		      "the pair this host already holds is the one it says it lacks");
 	}
 }
@@ -1163,17 +1165,17 @@ static void test_the_deficit_reads_the_whole_field(void)
 	struct fixture f, joiner;
 	static uint8_t bytes[FIXTURE_BYTES];
 	fzn_manifest_record_t rec;
-	uint8_t cap[FZN_CAP_ID_LEN], near_cap[FZN_CAP_ID_LEN];
+	fzn_cap_id_t cap, near_cap;
 	uint8_t grantee[FZN_PUBKEY_LEN], near_grantee[FZN_PUBKEY_LEN];
 	size_t len = 0;
 
-	capability_id(cap, 0x10);
-	capability_id_near(near_cap, 0x10);
+	capability_id(&cap, 0x10);
+	capability_id_near(&near_cap, 0x10);
 	key(grantee, 5);
 	key_near(near_grantee, 5);
 
-	CHECK(memcmp(cap, near_cap, FZN_CAP_ID_LEN - 1u) == 0 &&
-	              cap[FZN_CAP_ID_LEN - 1u] != near_cap[FZN_CAP_ID_LEN - 1u],
+	CHECK(memcmp(cap.b, near_cap.b, FZN_CAP_ID_LEN - 1u) == 0 &&
+	              cap.b[FZN_CAP_ID_LEN - 1u] != near_cap.b[FZN_CAP_ID_LEN - 1u],
 	      "the two capabilities do not share a thirty-one byte prefix");
 	CHECK(memcmp(grantee, near_grantee, FZN_PUBKEY_LEN - 1u) == 0 &&
 	              grantee[FZN_PUBKEY_LEN - 1u] != near_grantee[FZN_PUBKEY_LEN - 1u],
@@ -1182,10 +1184,10 @@ static void test_the_deficit_reads_the_whole_field(void)
 	/* Four pairs from two capabilities and two grantees, each differing
 	 * from its sibling only in the last byte. */
 	fixture_init(&f);
-	revoke(&f, f.root, cap, grantee);
-	revoke(&f, f.root, cap, near_grantee);
-	revoke(&f, f.root, near_cap, grantee);
-	revoke(&f, f.root, near_cap, near_grantee);
+	revoke(&f, f.root, &cap, grantee);
+	revoke(&f, f.root, &cap, near_grantee);
+	revoke(&f, f.root, &near_cap, grantee);
+	revoke(&f, f.root, &near_cap, near_grantee);
 	CHECK(f.store.used == 4,
 	      "the store holds %zu of four revocations that differ only in a last byte, so "
 	      "the fixture cannot tell the four apart either",
@@ -1218,7 +1220,7 @@ static void test_the_deficit_reads_the_whole_field(void)
 		fzn_revocation_record_t r;
 
 		joiner.stub.identity = 0;
-		CHECK(fzn_revocation_issue(f.root, cap, grantee, 1000, &joiner.sign, rev) ==
+		CHECK(fzn_revocation_issue(f.root, &cap, grantee, 1000, &joiner.sign, rev) ==
 		              FZN_CHAIN_OK,
 		      "issue");
 		CHECK(fzn_revocation_open(rev, FZN_REVOCATION_LEN, &r) == FZN_CHAIN_OK, "open");
@@ -1248,18 +1250,18 @@ static void test_the_overflow_flag_is_sticky(void)
 	fzn_manifest_deficit_t deficit[2];
 	static uint8_t bytes[FIXTURE_BYTES];
 	fzn_manifest_record_t rec;
-	uint8_t caps[4][FZN_CAP_ID_LEN];
+	fzn_cap_id_t caps[4];
 	uint8_t grantee[FZN_PUBKEY_LEN];
 	size_t len = 0, dropped = 99;
 	fzn_manifest_pair_t want[4];
 
 	key(grantee, 5);
 	for (uint8_t i = 0; i < 4; i++)
-		capability_id(caps[i], (uint8_t)(0x10u + i * 0x10u));
+		capability_id(&caps[i], (uint8_t)(0x10u + i * 0x10u));
 
 	fixture_init(&f);
 	for (uint8_t i = 0; i < 4; i++)
-		revoke(&f, f.root, caps[i], grantee);
+		revoke(&f, f.root, &caps[i], grantee);
 	f.stub.identity = 0;
 	CHECK(fzn_manifest_issue(f.root, &f.store, &f.sign, bytes, sizeof(bytes), &len) ==
 	              FZN_MANIFEST_OK,
@@ -1332,7 +1334,7 @@ static void test_the_overflow_flag_is_sticky(void)
 		fixture_init(&side);
 		side.stub.identity = 0;
 		for (size_t i = 0; i < 2; i++) {
-			CHECK(fzn_revocation_issue(f.root, want[i].capability, want[i].grantee,
+			CHECK(fzn_revocation_issue(f.root, &want[i].capability, want[i].grantee,
 			                           1000, &side.sign, rev) == FZN_CHAIN_OK,
 			      "issue");
 			CHECK(fzn_revocation_open(rev, FZN_REVOCATION_LEN, &r) == FZN_CHAIN_OK,
@@ -1365,14 +1367,15 @@ static void test_a_corrupt_store_is_refused_rather_than_believed(void)
 	struct fixture f, joiner;
 	static uint8_t bytes[FIXTURE_BYTES];
 	fzn_manifest_record_t rec;
-	uint8_t cap[FZN_CAP_ID_LEN], grantee[FZN_PUBKEY_LEN];
+	uint8_t grantee[FZN_PUBKEY_LEN];
+	fzn_cap_id_t cap;
 	size_t len = 0;
 
-	capability_id(cap, 0x10);
+	capability_id(&cap, 0x10);
 	key(grantee, 5);
 
 	fixture_init(&f);
-	revoke(&f, f.root, cap, grantee);
+	revoke(&f, f.root, &cap, grantee);
 	f.stub.identity = 0;
 	CHECK(fzn_manifest_issue(f.root, &f.store, &f.sign, bytes, sizeof(bytes), &len) ==
 	              FZN_MANIFEST_OK,
@@ -1426,15 +1429,16 @@ static void test_a_forged_pair_is_refused(void)
 	struct fixture f, joiner;
 	static uint8_t bytes[FIXTURE_BYTES], genuine[FIXTURE_BYTES];
 	fzn_manifest_record_t rec;
-	uint8_t cap[FZN_CAP_ID_LEN], grantee[FZN_PUBKEY_LEN], victim[FZN_PUBKEY_LEN];
+	uint8_t grantee[FZN_PUBKEY_LEN], victim[FZN_PUBKEY_LEN];
+	fzn_cap_id_t cap;
 	size_t len = 0;
 
-	capability_id(cap, 0x10);
+	capability_id(&cap, 0x10);
 	key(grantee, 5);
 	key(victim, 9);
 
 	fixture_init(&f);
-	revoke(&f, f.root, cap, grantee);
+	revoke(&f, f.root, &cap, grantee);
 	f.stub.identity = 0;
 	CHECK(fzn_manifest_issue(f.root, &f.store, &f.sign, bytes, sizeof(bytes), &len) ==
 	              FZN_MANIFEST_OK,
@@ -1466,7 +1470,7 @@ static void test_a_forged_pair_is_refused(void)
 
 	/* THE CAPABILITY, on the same argument. */
 	memcpy(bytes, genuine, len);
-	capability_id(bytes + FZN_MANIFEST_OFF_PAIRS, 0xff);
+	capability_id((fzn_cap_id_t *)(bytes + FZN_MANIFEST_OFF_PAIRS), 0xff);
 	assert_signature_kept(bytes, genuine, FZN_MANIFEST_BODY_LEN(1), "capability");
 	CHECK(fzn_manifest_open(bytes, len, &rec) == FZN_MANIFEST_OK, "open");
 	stub_reset(&joiner.stub);
@@ -1513,16 +1517,17 @@ static void test_a_truncated_manifest_is_refused(void)
 	struct fixture f, joiner;
 	static uint8_t bytes[FIXTURE_BYTES], cut[FIXTURE_BYTES];
 	fzn_manifest_record_t rec;
-	uint8_t cap_a[FZN_CAP_ID_LEN], cap_b[FZN_CAP_ID_LEN], grantee[FZN_PUBKEY_LEN];
+	uint8_t grantee[FZN_PUBKEY_LEN];
+	fzn_cap_id_t cap_a, cap_b;
 	size_t len = 0;
 
-	capability_id(cap_a, 0x10);
-	capability_id(cap_b, 0x20);
+	capability_id(&cap_a, 0x10);
+	capability_id(&cap_b, 0x20);
 	key(grantee, 5);
 
 	fixture_init(&f);
-	revoke(&f, f.root, cap_a, grantee);
-	revoke(&f, f.root, cap_b, grantee);
+	revoke(&f, f.root, &cap_a, grantee);
+	revoke(&f, f.root, &cap_b, grantee);
 	f.stub.identity = 0;
 	CHECK(fzn_manifest_issue(f.root, &f.store, &f.sign, bytes, sizeof(bytes), &len) ==
 	              FZN_MANIFEST_OK && len == FZN_MANIFEST_LEN(2),
@@ -1569,14 +1574,15 @@ static void test_stage_one_does_not_gate(void)
 	fzn_manifest_record_t rec;
 	fzn_chain_hop_t hops[1];
 	fzn_chain_t out;
-	uint8_t cap[FZN_CAP_ID_LEN], grantee[FZN_PUBKEY_LEN];
+	uint8_t grantee[FZN_PUBKEY_LEN];
+	fzn_cap_id_t cap;
 	size_t len = 0;
 
-	capability_id(cap, 0x10);
+	capability_id(&cap, 0x10);
 	key(grantee, 5);
 
 	fixture_init(&f);
-	revoke(&f, f.root, cap, grantee);
+	revoke(&f, f.root, &cap, grantee);
 	f.stub.identity = 0;
 	CHECK(fzn_manifest_issue(f.root, &f.store, &f.sign, bytes, sizeof(bytes), &len) ==
 	              FZN_MANIFEST_OK,
@@ -1585,11 +1591,11 @@ static void test_stage_one_does_not_gate(void)
 
 	fixture_init(&joiner);
 	joiner.stub.identity = 0;
-	CHECK(fzn_chain_mint(joiner.root, grantee, cap, 1000, FZN_NO_EXPIRY, 0, &joiner.sign,
+	CHECK(fzn_chain_mint(joiner.root, grantee, &cap, 1000, FZN_NO_EXPIRY, 0, &joiner.sign,
 	                     hop_bytes) == FZN_CHAIN_OK,
 	      "minting the hop this case is about failed");
 	CHECK(fzn_hop_open(hop_bytes, FZN_HOP_LEN, &hops[0]) == FZN_CHAIN_OK, "open");
-	CHECK(fzn_chain_verify(hops, 1, joiner.root, cap, 2000, &joiner.sign, &joiner.store,
+	CHECK(fzn_chain_verify(hops, 1, joiner.root, &cap, 2000, &joiner.sign, &joiner.store,
 	                       &out) == FZN_CHAIN_OK,
 	      "an unrevoked chain was refused before any manifest arrived");
 
@@ -1601,7 +1607,7 @@ static void test_stage_one_does_not_gate(void)
 	      "this host does not know it is missing anything, so the check below is about "
 	      "nothing");
 
-	CHECK(fzn_chain_verify(hops, 1, joiner.root, cap, 2000, &joiner.sign, &joiner.store,
+	CHECK(fzn_chain_verify(hops, 1, joiner.root, &cap, 2000, &joiner.sign, &joiner.store,
 	                       &out) == FZN_CHAIN_OK,
 	      "a known deficit changed what fzn_chain_verify answers -- stage 1 is not "
 	      "supposed to gate, and stage 2 is blocked on the copyright holder");
@@ -1617,17 +1623,18 @@ static void test_a_revocation_settles_what_it_covers(void)
 	fzn_manifest_record_t rec;
 	fzn_revocation_record_t batch[2];
 	fzn_revocation_offer_t offers[2];
-	uint8_t cap_a[FZN_CAP_ID_LEN], cap_b[FZN_CAP_ID_LEN], grantee[FZN_PUBKEY_LEN];
+	uint8_t grantee[FZN_PUBKEY_LEN];
+	fzn_cap_id_t cap_a, cap_b;
 	fzn_chain_err_t err = FZN_CHAIN_OK;
 	size_t len = 0, n;
 
-	capability_id(cap_a, 0x10);
-	capability_id(cap_b, 0x20);
+	capability_id(&cap_a, 0x10);
+	capability_id(&cap_b, 0x20);
 	key(grantee, 5);
 
 	fixture_init(&f);
-	revoke(&f, f.root, cap_a, grantee);
-	revoke(&f, f.root, cap_b, grantee);
+	revoke(&f, f.root, &cap_a, grantee);
+	revoke(&f, f.root, &cap_b, grantee);
 	f.stub.identity = 0;
 	CHECK(fzn_manifest_issue(f.root, &f.store, &f.sign, bytes, sizeof(bytes), &len) ==
 	              FZN_MANIFEST_OK,
@@ -1643,10 +1650,10 @@ static void test_a_revocation_settles_what_it_covers(void)
 	CHECK(fzn_manifest_pending(&joiner.manifest, f.root) == 2, "pending is %zu",
 	      fzn_manifest_pending(&joiner.manifest, f.root));
 
-	CHECK(fzn_revocation_issue(f.root, cap_a, grantee, 1000, &joiner.sign, rev[0]) ==
+	CHECK(fzn_revocation_issue(f.root, &cap_a, grantee, 1000, &joiner.sign, rev[0]) ==
 	              FZN_CHAIN_OK,
 	      "issue");
-	CHECK(fzn_revocation_issue(f.root, cap_b, grantee, 1000, &joiner.sign, rev[1]) ==
+	CHECK(fzn_revocation_issue(f.root, &cap_b, grantee, 1000, &joiner.sign, rev[1]) ==
 	              FZN_CHAIN_OK,
 	      "issue");
 	CHECK(fzn_revocation_open(rev[0], FZN_REVOCATION_LEN, &batch[0]) == FZN_CHAIN_OK,
@@ -1745,10 +1752,10 @@ static void test_every_guard_refuses_its_own_argument(void)
 		      "admitting with a null signer");
 	}
 
-	CHECK(fzn_manifest_satisfy(NULL, f.root, f.root, f.root) == 0, "satisfy on a null state");
-	CHECK(fzn_manifest_satisfy(&f.manifest, NULL, f.root, f.root) == 0, "a null issuer");
+	CHECK(fzn_manifest_satisfy(NULL, f.root, &(fzn_cap_id_t){ { 0 } }, f.root) == 0, "satisfy on a null state");
+	CHECK(fzn_manifest_satisfy(&f.manifest, NULL, &(fzn_cap_id_t){ { 0 } }, f.root) == 0, "a null issuer");
 	CHECK(fzn_manifest_satisfy(&f.manifest, f.root, NULL, f.root) == 0, "a null capability");
-	CHECK(fzn_manifest_satisfy(&f.manifest, f.root, f.root, NULL) == 0, "a null grantee");
+	CHECK(fzn_manifest_satisfy(&f.manifest, f.root, &(fzn_cap_id_t){ { 0 } }, NULL) == 0, "a null grantee");
 
 	CHECK(fzn_manifest_pending(NULL, f.root) == 0, "pending on a null state");
 	CHECK(fzn_manifest_pending(&f.manifest, NULL) == 0, "pending for a null issuer");
@@ -1808,14 +1815,15 @@ static void test_a_state_whose_fields_disagree_is_refused(void)
 	static uint8_t bytes[FIXTURE_BYTES];
 	fzn_manifest_record_t rec;
 	fzn_manifest_pair_t want[2];
-	uint8_t cap[FZN_CAP_ID_LEN], grantee[FZN_PUBKEY_LEN];
+	uint8_t grantee[FZN_PUBKEY_LEN];
+	fzn_cap_id_t cap;
 	size_t len = 0, dropped = 99;
 
-	capability_id(cap, 0x10);
+	capability_id(&cap, 0x10);
 	key(grantee, 5);
 
 	fixture_init(&f);
-	revoke(&f, f.root, cap, grantee);
+	revoke(&f, f.root, &cap, grantee);
 	f.stub.identity = 0;
 	CHECK(fzn_manifest_issue(f.root, &f.store, &f.sign, bytes, sizeof(bytes), &len) ==
 	              FZN_MANIFEST_OK,
@@ -1833,7 +1841,7 @@ static void test_a_state_whose_fields_disagree_is_refused(void)
 	dropped = 99;
 	CHECK(fzn_manifest_deficit(&f.manifest, f.root, want, 2, &dropped) == 0 && dropped == 0,
 	      "a corrupt state was scanned to report a deficit");
-	CHECK(fzn_manifest_satisfy(&f.manifest, f.root, cap, grantee) == 0,
+	CHECK(fzn_manifest_satisfy(&f.manifest, f.root, &cap, grantee) == 0,
 	      "a corrupt state was written to");
 	CHECK(fzn_manifest_follow(&f.manifest, grantee) == FZN_MANIFEST_ERR_MALFORMED,
 	      "a corrupt state followed another issuer");
@@ -1853,14 +1861,15 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 	struct fixture f, joiner;
 	static uint8_t bytes[FIXTURE_BYTES];
 	fzn_manifest_record_t rec;
-	uint8_t cap[FZN_CAP_ID_LEN], grantee[FZN_PUBKEY_LEN];
+	uint8_t grantee[FZN_PUBKEY_LEN];
+	fzn_cap_id_t cap;
 	size_t len = 0;
 
-	capability_id(cap, 0x10);
+	capability_id(&cap, 0x10);
 	key(grantee, 5);
 
 	fixture_init(&f);
-	revoke(&f, f.root, cap, grantee);
+	revoke(&f, f.root, &cap, grantee);
 	f.stub.identity = 0;
 	CHECK(fzn_manifest_issue(f.root, &f.store, &f.sign, bytes, sizeof(bytes), &len) ==
 	              FZN_MANIFEST_OK,

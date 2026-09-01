@@ -208,15 +208,15 @@ int main(void)
 	{
 		static const uint8_t PAYLOAD[] = "a real datagram, sealed under real keys";
 		uint8_t frame[FZN_SEAL_OVERHEAD + sizeof(PAYLOAD)];
-		uint8_t cap[FZN_CAP_ID_LEN];
+		fzn_cap_id_t cap;
 		size_t frame_len = 0;
 		fzn_send_t what;
 		fzn_opened_t got;
 
-		memset(cap, 0x4c, sizeof(cap));
+		memset(cap.b, 0x4c, sizeof(cap));
 		memset(&what, 0, sizeof(what));
 		what.sender = pubkey[0];
-		what.capability = cap;
+		what.capability = cap.b;
 		what.payload = PAYLOAD;
 		what.payload_len = sizeof(PAYLOAD);
 		what.expires_at = 2000u;

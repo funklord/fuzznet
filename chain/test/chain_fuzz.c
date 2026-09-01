@@ -219,7 +219,7 @@ static int signature_is_good(uint32_t good, const uint8_t *pubkey)
  * call into the first: a checker that asked chain.c whether chain.c was
  * right would agree with it always, including when both are wrong. */
 static int ought_to_verify(const fzn_chain_hop_t *hops, size_t n, const uint8_t *root,
-                           const uint8_t *cap, uint64_t now, const fzn_revocation_t *revs,
+                           const fzn_cap_id_t *cap, uint64_t now, const fzn_revocation_t *revs,
                            size_t nrevs, uint32_t good)
 {
 	if (n == 0 || n > MAX_HOPS)
@@ -273,7 +273,7 @@ static int ought_to_verify(const fzn_chain_hop_t *hops, size_t n, const uint8_t 
 			if (!entitled)
 				continue;
 
-			if (memcmp(revs[r].capability, fzn_hop_capability(hops[i]),
+			if (memcmp(revs[r].capability.b, fzn_hop_capability(hops[i]),
 			           FZN_CAP_ID_LEN) == 0 &&
 			    memcmp(revs[r].grantee, fzn_hop_grantee(hops[i]), FZN_PUBKEY_LEN) == 0)
 				return 0;
@@ -348,7 +348,8 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 	 * `nrevs`, which is what the old (array, count) signature had no way to
 	 * be told -- see chain.h. */
 	fzn_revocation_store_t rev_store = { revs, MAX_REVS, 0 };
-	uint8_t root[FZN_PUBKEY_LEN], cap[FZN_CAP_ID_LEN];
+	uint8_t root[FZN_PUBKEY_LEN];
+	fzn_cap_id_t cap;
 	struct stub stub = { 0, 0 };
 	fzn_sign_ops_t sign;
 	fzn_chain_t out, before;
@@ -366,7 +367,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 	sign.ctx = &stub;
 
 	expand(root, FZN_PUBKEY_LEN, data[0] & 0x03u);
-	expand(cap, FZN_CAP_ID_LEN, data[1] & 0x03u);
+	expand(cap.b, FZN_CAP_ID_LEN, data[1] & 0x03u);
 	now = data[2] * 100u;
 	/* Usually every signature is good, sometimes none is. */
 	good = (data[3] & 0x0fu) != 0 ? 0xffffffffu : 0u;
@@ -397,7 +398,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		uint8_t b = (pos + 4 <= len) ? data[pos] : (uint8_t)i;
 		uint8_t linked = (pos + 4 <= len) ? (data[pos + 1] & 0x07u) : 1u;
 		uint8_t grantor[FZN_PUBKEY_LEN], grantee[FZN_PUBKEY_LEN];
-		uint8_t hop_cap[FZN_CAP_ID_LEN];
+		fzn_cap_id_t hop_cap;
 
 		/* A NEAR MISS: the value that ought to match, with only its
 		 * last byte changed. It is what decides a comparison's LENGTH
@@ -437,14 +438,14 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 
 		expand(grantee, FZN_PUBKEY_LEN, (uint8_t)(0x10u + i));
 		if ((b & 0x0fu) == 0)
-			expand(hop_cap, FZN_CAP_ID_LEN, b);
+			expand(hop_cap.b, FZN_CAP_ID_LEN, b);
 		else if (near == 1) {
-			copy_near(hop_cap, cap, FZN_CAP_ID_LEN);
+			copy_near(hop_cap.b, cap.b, FZN_CAP_ID_LEN);
 			cov->near_miss++;
 		} else
-			memcpy(hop_cap, cap, FZN_CAP_ID_LEN);
+			memcpy(hop_cap.b, cap.b, FZN_CAP_ID_LEN);
 
-		if (fzn_hop_encode(hop_bytes[i], grantor, grantee, hop_cap, 100,
+		if (fzn_hop_encode(hop_bytes[i], grantor, grantee, &hop_cap, 100,
 		                   ((b >> 4) & 1u) ? 0u : (uint64_t)b * 50u,
 		                   (linked & 1u) ? 1 : 0) != FZN_CHAIN_OK) {
 			printf("  INVARIANT: the generator could not encode a hop\n");
@@ -484,10 +485,10 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		memset(&revs[r], 0, sizeof(revs[r]));
 
 		if (near == 1) {
-			copy_near(revs[r].capability, cap, FZN_CAP_ID_LEN);
+			copy_near(revs[r].capability.b, cap.b, FZN_CAP_ID_LEN);
 			cov->near_miss++;
 		} else
-			memcpy(revs[r].capability, cap, FZN_CAP_ID_LEN);
+			memcpy(revs[r].capability.b, cap.b, FZN_CAP_ID_LEN);
 
 		if (near == 2) {
 			expand_near(revs[r].grantee, FZN_PUBKEY_LEN,
@@ -553,7 +554,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 				           FZN_PUBKEY_LEN) != 0)
 					continue;
 				for (size_t i = j; i < n; i++) {
-					if (memcmp(revs[r].capability,
+					if (memcmp(revs[r].capability.b,
 					           fzn_hop_capability(hops[i]),
 					           FZN_CAP_ID_LEN) == 0 &&
 					    memcmp(revs[r].grantee, fzn_hop_grantee(hops[i]),
@@ -569,7 +570,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 	before = out;
 
 	rev_store.used = nrevs;
-	err = fzn_chain_verify(hops, n, root, cap, now, &sign, nrevs ? &rev_store : NULL,
+	err = fzn_chain_verify(hops, n, root, &cap, now, &sign, nrevs ? &rev_store : NULL,
 	                       &out);
 
 	if (err == FZN_CHAIN_OK) {
@@ -579,7 +580,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 			printf("  INVARIANT: accepted a chain of %zu hops\n", n);
 			return 1;
 		}
-		if (!ought_to_verify(hops, n, root, cap, now, nrevs ? revs : NULL, nrevs,
+		if (!ought_to_verify(hops, n, root, &cap, now, nrevs ? revs : NULL, nrevs,
 		                     good)) {
 			printf("  INVARIANT: accepted a chain the rules refuse\n");
 			return 1;
@@ -610,7 +611,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		 * other direction, which catches an over-eager refusal that
 		 * would look like safety. */
 		if (n <= MAX_HOPS &&
-		    ought_to_verify(hops, n, root, cap, now, nrevs ? revs : NULL, nrevs, good)) {
+		    ought_to_verify(hops, n, root, &cap, now, nrevs ? revs : NULL, nrevs, good)) {
 			printf("  INVARIANT: refused a chain the rules accept (err %d)\n",
 			       (int)err);
 			return 1;
@@ -644,7 +645,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		}
 		memset(&again, 0xab, sizeof(again));
 		stub.calls = 0;
-		if (fzn_chain_verify(reopened, reopened_n, root, cap, now, &sign,
+		if (fzn_chain_verify(reopened, reopened_n, root, &cap, now, &sign,
 		                     nrevs ? &rev_store : NULL, &again) != err) {
 			printf("  INVARIANT: the container changed the verdict\n");
 			return 1;
@@ -693,7 +694,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 
 		expand(grantee, FZN_PUBKEY_LEN, 0xf0u);
 		stub.identity = fzn_hop_grantee(hops[n - 1])[0];
-		if (fzn_chain_delegate(hops, n, root, cap, now, grantee, 0, 0, &sign,
+		if (fzn_chain_delegate(hops, n, root, &cap, now, grantee, 0, 0, &sign,
 		                       nrevs ? &rev_store : NULL, fresh) == FZN_CHAIN_OK) {
 			cov->delegated_ok++;
 

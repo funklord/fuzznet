@@ -174,7 +174,7 @@ static void expand_near(uint8_t *out, size_t len, uint8_t seed)
  * is a chain because each grantor signed the hop giving its authority away,
  * and the root's signature is the one that ties it to the pin. */
 static int accepted_chain_is_sound(const fzn_chain_hop_t *hops, size_t hop_count,
-                                   const uint8_t *root, const uint8_t *capability, uint64_t now,
+                                   const uint8_t *root, const fzn_cap_id_t *capability, uint64_t now,
                                    const fzn_revocation_t *revs, size_t rev_count,
                                    uint16_t good, const fzn_chain_t *out)
 {
@@ -186,7 +186,7 @@ static int accepted_chain_is_sound(const fzn_chain_hop_t *hops, size_t hop_count
 	for (size_t i = 0; i < hop_count; i++) {
 		if (!stub_signature_is_good(good, fzn_hop_grantor(hops[i])))
 			return 1;
-		if (!same(fzn_hop_capability(hops[i]), capability, FZN_CAP_ID_LEN))
+		if (!same(fzn_hop_capability(hops[i])->b, capability->b, FZN_CAP_ID_LEN))
 			return 1;
 		if (fzn_hop_expires_at(hops[i]) != FZN_NO_EXPIRY &&
 		    fzn_hop_expires_at(hops[i]) <= now)
@@ -213,7 +213,7 @@ static int accepted_chain_is_sound(const fzn_chain_hop_t *hops, size_t hop_count
 					entitled = 1;
 			if (!entitled)
 				continue;
-			if (same(revs[r].capability, fzn_hop_capability(hops[i]),
+			if (same(revs[r].capability.b, fzn_hop_capability(hops[i])->b,
 			         FZN_CAP_ID_LEN) &&
 			    same(revs[r].grantee, fzn_hop_grantee(hops[i]), FZN_PUBKEY_LEN))
 				return 1;
@@ -249,7 +249,8 @@ static int drive(const uint8_t *data, size_t size, int *accepted)
 	 * `capacity` is the array's real length; only `used` follows the
 	 * corpus. */
 	fzn_revocation_store_t rev_store = { revs, MAX_REVOCATIONS, 0 };
-	uint8_t root[FZN_PUBKEY_LEN], capability[FZN_CAP_ID_LEN];
+	uint8_t root[FZN_PUBKEY_LEN];
+	fzn_cap_id_t capability;
 	struct cursor c = { data, size, 0 };
 	struct stub stub = { 0 };
 	uint16_t good;
@@ -264,7 +265,7 @@ static int drive(const uint8_t *data, size_t size, int *accepted)
 		return 0;
 
 	expand(root, FZN_PUBKEY_LEN, take8(&c));
-	expand(capability, FZN_CAP_ID_LEN, take8(&c));
+	expand(capability.b, FZN_CAP_ID_LEN, take8(&c));
 	now = take64(&c);
 	good = (uint16_t)((take8(&c) << 8) | take8(&c));
 	hop_count = take8(&c) % (FZN_CHAIN_MAX_HOPS + 1u);
@@ -273,7 +274,7 @@ static int drive(const uint8_t *data, size_t size, int *accepted)
 	memset(hops, 0, sizeof(hops));
 	for (size_t i = 0; i < hop_count; i++) {
 		uint8_t grantor[FZN_PUBKEY_LEN], grantee[FZN_PUBKEY_LEN];
-		uint8_t hop_cap[FZN_CAP_ID_LEN];
+		fzn_cap_id_t hop_cap;
 		uint64_t issued_at, expires_at;
 		uint8_t grantor_seed, grantee_seed, cap_seed, fill, near;
 		int delegable;
@@ -314,15 +315,15 @@ static int drive(const uint8_t *data, size_t size, int *accepted)
 		 * to find. */
 		expand(grantor, FZN_PUBKEY_LEN, grantor_seed);
 		expand(grantee, FZN_PUBKEY_LEN, grantee_seed);
-		expand(hop_cap, FZN_CAP_ID_LEN, cap_seed);
+		expand(hop_cap.b, FZN_CAP_ID_LEN, cap_seed);
 		if ((near & 0xc0u) == 0xc0u)
 			expand_near(grantor, FZN_PUBKEY_LEN, grantor_seed);
 		if ((near & 0x30u) == 0x30u)
 			expand_near(grantee, FZN_PUBKEY_LEN, grantee_seed);
 		if ((near & 0x0cu) == 0x0cu)
-			expand_near(hop_cap, FZN_CAP_ID_LEN, cap_seed);
+			expand_near(hop_cap.b, FZN_CAP_ID_LEN, cap_seed);
 
-		if (fzn_hop_encode(hop_bytes[i], grantor, grantee, hop_cap, issued_at,
+		if (fzn_hop_encode(hop_bytes[i], grantor, grantee, &hop_cap, issued_at,
 		                   expires_at, delegable) != FZN_CHAIN_OK)
 			return 0;
 
@@ -351,11 +352,11 @@ static int drive(const uint8_t *data, size_t size, int *accepted)
 		 * nothing. */
 		uint8_t rev_near = take8(&c);
 
-		expand(revs[r].capability, FZN_CAP_ID_LEN, rev_cap_seed);
+		expand(revs[r].capability.b, FZN_CAP_ID_LEN, rev_cap_seed);
 		expand(revs[r].grantee, FZN_PUBKEY_LEN, rev_grantee_seed);
 		expand(revs[r].issuer, FZN_PUBKEY_LEN, rev_issuer_seed);
 		if ((rev_near & 0xc0u) == 0xc0u)
-			expand_near(revs[r].capability, FZN_CAP_ID_LEN, rev_cap_seed);
+			expand_near(revs[r].capability.b, FZN_CAP_ID_LEN, rev_cap_seed);
 		if ((rev_near & 0x30u) == 0x30u)
 			expand_near(revs[r].grantee, FZN_PUBKEY_LEN, rev_grantee_seed);
 		if ((rev_near & 0x0cu) == 0x0cu)
@@ -368,14 +369,14 @@ static int drive(const uint8_t *data, size_t size, int *accepted)
 	memset(&out, 0, sizeof(out));
 
 	rev_store.used = rev_count;
-	if (fzn_chain_verify(hops, hop_count, root, capability, now, &sign, &rev_store,
+	if (fzn_chain_verify(hops, hop_count, root, &capability, now, &sign, &rev_store,
 	                     &out) != FZN_CHAIN_OK)
 		return 0;
 
 	if (accepted)
 		*accepted = 1;
 
-	return accepted_chain_is_sound(hops, hop_count, root, capability, now, revs, rev_count,
+	return accepted_chain_is_sound(hops, hop_count, root, &capability, now, revs, rev_count,
 	                               good, &out);
 }
 

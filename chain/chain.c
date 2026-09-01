@@ -46,7 +46,7 @@ fzn_chain_err_t fzn_hop_open(const uint8_t *bytes, size_t len, fzn_chain_hop_t *
 
 fzn_chain_err_t fzn_hop_encode(uint8_t *out, const uint8_t grantor[FZN_PUBKEY_LEN],
                                const uint8_t grantee[FZN_PUBKEY_LEN],
-                               const uint8_t capability[FZN_CAP_ID_LEN], uint64_t issued_at,
+                               const fzn_cap_id_t *capability, uint64_t issued_at,
                                uint64_t expires_at, int delegable)
 {
 	if (!out || !grantor || !grantee || !capability)
@@ -139,7 +139,7 @@ fzn_chain_err_t fzn_chain_pack(const fzn_chain_hop_t *hops, size_t hop_count, ui
 
 fzn_chain_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
                             const uint8_t root[FZN_PUBKEY_LEN],
-                            const uint8_t capability[FZN_CAP_ID_LEN], uint64_t now,
+                            const fzn_cap_id_t *capability, uint64_t now,
                             const fzn_sign_ops_t *sign,
                             const fzn_revocation_store_t *revocations, fzn_chain_t *out)
 {
@@ -300,7 +300,7 @@ fzn_chain_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
 	/* Filled only now, so a caller cannot half-read a rejected chain. */
 	memcpy(out->root, root, FZN_PUBKEY_LEN);
 	memcpy(out->grantee, fzn_hop_grantee(hops[hop_count - 1]), FZN_PUBKEY_LEN);
-	memcpy(out->capability, capability, FZN_CAP_ID_LEN);
+	out->capability = *capability;
 	out->hop_count = hop_count;
 	out->expires_at = soonest;
 
@@ -317,7 +317,7 @@ fzn_chain_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
  * the two disagree. */
 static fzn_chain_err_t hop_sign(const uint8_t grantor[FZN_PUBKEY_LEN],
                           const uint8_t grantee[FZN_PUBKEY_LEN],
-                          const uint8_t capability[FZN_CAP_ID_LEN], uint64_t issued_at,
+                          const fzn_cap_id_t *capability, uint64_t issued_at,
                           uint64_t expires_at, int delegable, const fzn_sign_ops_t *sign,
                           uint8_t *out)
 {
@@ -365,7 +365,7 @@ static fzn_chain_err_t hop_sign(const uint8_t grantor[FZN_PUBKEY_LEN],
 
 fzn_chain_err_t fzn_chain_mint(const uint8_t root[FZN_PUBKEY_LEN],
                           const uint8_t grantee[FZN_PUBKEY_LEN],
-                          const uint8_t capability[FZN_CAP_ID_LEN], uint64_t issued_at,
+                          const fzn_cap_id_t *capability, uint64_t issued_at,
                           uint64_t expires_at, int delegable, const fzn_sign_ops_t *sign,
                           uint8_t *out)
 {
@@ -379,7 +379,7 @@ fzn_chain_err_t fzn_chain_mint(const uint8_t root[FZN_PUBKEY_LEN],
 
 fzn_chain_err_t fzn_chain_delegate(const fzn_chain_hop_t *hops, size_t hop_count,
                               const uint8_t root[FZN_PUBKEY_LEN],
-                              const uint8_t capability[FZN_CAP_ID_LEN], uint64_t now,
+                              const fzn_cap_id_t *capability, uint64_t now,
                               const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t expires_at,
                               int delegable, const fzn_sign_ops_t *sign,
                               const fzn_revocation_store_t *revocations, uint8_t *out)

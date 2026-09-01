@@ -192,7 +192,8 @@ static int receive_one(struct receiver *r, uint64_t now, const uint8_t *data, si
 	struct signer signer = { 0, 0xffffffffu };
 	fzn_sign_ops_t sign = { stub_verify, stub_sign, &signer };
 	uint8_t hop_bytes[FZN_HOP_LEN];
-	uint8_t root[FZN_PUBKEY_LEN], cap[FZN_CAP_ID_LEN], sender[FZN_SENDER_LEN];
+	uint8_t root[FZN_PUBKEY_LEN], sender[FZN_SENDER_LEN];
+	fzn_cap_id_t cap;
 	uint8_t nonce[FZN_NONCE_LEN], payload[64];
 	uint64_t expires_at;
 	uint32_t msg;
@@ -217,7 +218,7 @@ static int receive_one(struct receiver *r, uint64_t now, const uint8_t *data, si
 	 * make re-presentation ordinary, which is what a receiver facing a
 	 * stranger with a recording actually sees. */
 	memset(nonce, (int)(data[1] % 16u), sizeof(nonce));
-	memset(cap, data[2], sizeof(cap));
+	memset(cap.b, data[2], sizeof(cap));
 	memset(root, 0x01, sizeof(root));
 	msg = data[3];
 	chunks = (uint16_t)(1u + (data[4] % 4u));
@@ -254,7 +255,7 @@ static int receive_one(struct receiver *r, uint64_t now, const uint8_t *data, si
 		uint8_t grantee[FZN_PUBKEY_LEN];
 
 		memset(grantee, 0x09, sizeof(grantee));
-		if (fzn_chain_mint(root, grantee, cap, 100, FZN_NO_EXPIRY, 0, &sign,
+		if (fzn_chain_mint(root, grantee, &cap, 100, FZN_NO_EXPIRY, 0, &sign,
 		                   hop_bytes) != FZN_CHAIN_OK) {
 			printf("  ORDER: the harness could not mint a hop\n");
 			return 1;
@@ -305,7 +306,7 @@ static int receive_one(struct receiver *r, uint64_t now, const uint8_t *data, si
 	}
 
 	/* STEP 6: the capability chain, against the pinned root. */
-	authorised = fzn_chain_verify(&hop, 1, root, cap, now, &sign, &r->store, &chain);
+	authorised = fzn_chain_verify(&hop, 1, root, &cap, now, &sign, &r->store, &chain);
 
 	/* AND UNDER WHOSE KEY. The hop is well formed, unexpiring, carries the
 	 * capability asked for and matches no revocation -- the store is never

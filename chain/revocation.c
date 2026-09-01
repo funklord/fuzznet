@@ -9,11 +9,11 @@
 
 #include <string.h>
 
-static int same(const fzn_revocation_t *entry, const uint8_t *issuer, const uint8_t *capability,
-                const uint8_t *grantee)
+static int same(const fzn_revocation_t *entry, const uint8_t *issuer,
+                const fzn_cap_id_t *capability, const uint8_t *grantee)
 {
 	return fzn_ct_memeq(entry->issuer, issuer, FZN_PUBKEY_LEN) &&
-	       fzn_ct_memeq(entry->capability, capability, FZN_CAP_ID_LEN) &&
+	       fzn_ct_memeq(entry->capability.b, capability->b, FZN_CAP_ID_LEN) &&
 	       fzn_ct_memeq(entry->grantee, grantee, FZN_PUBKEY_LEN);
 }
 
@@ -57,7 +57,7 @@ fzn_chain_err_t fzn_revocation_open(const uint8_t *bytes, size_t len,
 }
 
 fzn_chain_err_t fzn_revocation_encode(uint8_t *out, const uint8_t issuer[FZN_PUBKEY_LEN],
-                                      const uint8_t capability[FZN_CAP_ID_LEN],
+                                      const fzn_cap_id_t *capability,
                                       const uint8_t grantee[FZN_PUBKEY_LEN],
                                       uint64_t issued_at)
 {
@@ -76,7 +76,7 @@ fzn_chain_err_t fzn_revocation_encode(uint8_t *out, const uint8_t issuer[FZN_PUB
 }
 
 fzn_chain_err_t fzn_revocation_issue(const uint8_t issuer[FZN_PUBKEY_LEN],
-                                     const uint8_t capability[FZN_CAP_ID_LEN],
+                                     const fzn_cap_id_t *capability,
                                      const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t issued_at,
                                      const fzn_sign_ops_t *sign, uint8_t *out)
 {
@@ -124,7 +124,7 @@ fzn_chain_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_rev
 
 int fzn_revocation_covers(const fzn_revocation_store_t *store,
                            const uint8_t issuer[FZN_PUBKEY_LEN],
-                           const uint8_t capability[FZN_CAP_ID_LEN],
+                           const fzn_cap_id_t *capability,
                            const uint8_t grantee[FZN_PUBKEY_LEN])
 {
 	/* AN ABSENT STORE IS AN ANSWER, NOT A MISSING ONE. A caller with no
@@ -208,7 +208,7 @@ int fzn_revocation_covers(const fzn_revocation_store_t *store,
 
 void fzn_revocation_covers_chain(const fzn_revocation_store_t *store,
                                   const fzn_chain_hop_t *hops, size_t hop_count,
-                                  const uint8_t capability[FZN_CAP_ID_LEN],
+                                  const fzn_cap_id_t *capability,
                                   uint8_t revoked[FZN_CHAIN_MAX_HOPS])
 {
 	/* Nowhere to put an answer. Checked first because everything below
@@ -289,7 +289,7 @@ void fzn_revocation_covers_chain(const fzn_revocation_store_t *store,
 		 * consumers' capabilities are independent rather than a ladder
 		 * (project.md sec 4.2): withdrawing netcfgd's `wifi` from a
 		 * host must not withdraw its `observe`. */
-		if (!fzn_ct_memeq(entry->capability, capability, FZN_CAP_ID_LEN))
+		if (!fzn_ct_memeq(entry->capability.b, capability->b, FZN_CAP_ID_LEN))
 			continue;
 
 		/* Every hop from `first` on, not only the last. Revoking a
@@ -512,8 +512,7 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 	 * the exact shape this module was rewritten to remove -- and it stops
 	 * being merely wrong-in-principle the moment a grantor may revoke its
 	 * own descendants, when the issuer and the root are different keys. */
-	memcpy(store->entries[store->used].capability, fzn_revocation_capability(record),
-	       FZN_CAP_ID_LEN);
+	store->entries[store->used].capability = *fzn_revocation_capability(record);
 	memcpy(store->entries[store->used].grantee, fzn_revocation_grantee(record),
 	       FZN_PUBKEY_LEN);
 	memcpy(store->entries[store->used].issuer, fzn_revocation_issuer(record),
