@@ -1142,7 +1142,7 @@ int main(void)
 		uint8_t writer[FZN_PUBKEY_LEN];
 		fzn_state_t tst;
 		fzn_state_entry_t tentries[4];
-		const fzn_state_entry_t *got;
+		const fzn_state_entry_t *tgot;
 		fzn_record_t ta, tb;
 
 		memset(twin_a, 0x5a, sizeof(twin_a));
@@ -1173,14 +1173,14 @@ int main(void)
 		       "two subjects differing only in their last byte landed in one cell "
 		       "-- the subject comparison is not reading the whole subject");
 
-		got = fzn_state_get(&tst, twin_a, 1);
-		expect(got != NULL && got->body_len == sizeof(BODY_A) &&
-		                       memcmp(got->body, BODY_A, got->body_len) == 0,
+		tgot = fzn_state_get(&tst, twin_a, 1);
+		expect(tgot != NULL && tgot->body_len == sizeof(BODY_A) &&
+		                       memcmp(tgot->body, BODY_A, tgot->body_len) == 0,
 		       "the first twin subject reads back as the second's value -- "
 		       "fzn_state_get is not reading the whole subject");
-		got = fzn_state_get(&tst, twin_b, 1);
-		expect(got != NULL && got->body_len == sizeof(BODY_B) &&
-		                       memcmp(got->body, BODY_B, got->body_len) == 0,
+		tgot = fzn_state_get(&tst, twin_b, 1);
+		expect(tgot != NULL && tgot->body_len == sizeof(BODY_B) &&
+		                       memcmp(tgot->body, BODY_B, tgot->body_len) == 0,
 		       "the second twin subject is not holding its own value");
 	}
 
@@ -1202,7 +1202,7 @@ int main(void)
 		uint8_t subject[FZN_SUBJECT_LEN];
 		fzn_state_t tst;
 		fzn_state_entry_t tentries[4];
-		const fzn_state_entry_t *got;
+		const fzn_state_entry_t *tgot;
 		fzn_record_t ta, tb;
 
 		memset(twin_a, 0x3c, sizeof(twin_a));
@@ -1230,9 +1230,9 @@ int main(void)
 		           "a writer differing from the cell's in one key byte was taken "
 		           "for the cell's own -- the issuer comparison is not reading "
 		           "the whole key");
-		got = fzn_state_get(&tst, subject, 1);
-		expect(got != NULL && got->body_len == sizeof(BODY_A) &&
-		                       memcmp(got->body, BODY_A, got->body_len) == 0,
+		tgot = fzn_state_get(&tst, subject, 1);
+		expect(tgot != NULL && tgot->body_len == sizeof(BODY_A) &&
+		                       memcmp(tgot->body, BODY_A, tgot->body_len) == 0,
 		       "and the refused record left the first twin writer's value alone");
 	}
 
