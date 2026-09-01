@@ -45,6 +45,35 @@ _Static_assert(sizeof(FZN_BLOB_KEY_LABEL) == 16,
                "the blob key label must be the fixed width the derivation assumes");
 _Static_assert(sizeof(FZN_BLOB_ROOT_LABEL) == sizeof(FZN_BLOB_KEY_LABEL),
                "the two labels must be one length, or their inputs can overlap");
+/* AND BOTH ARE OUTSIDE THE SPACE EVERY OTHER DERIVATION USES, which is what
+ * separates the tree from everything else reached through `fzn_hash_ops_t`
+ * rather than merely separating leaf from node.
+ *
+ * MEASURED 2026-09-01, prompted by fuzzypickles, who collapsed exactly this
+ * mixed state in their own tree and asked the right question about ours:
+ * does anything here hash BARE, into a space where a root, a node or a leaf
+ * could present? Eight calls reach that seam and NONE of them hashes bare.
+ * Six open with a sixteen-byte ASCII label -- the KDF root and binding, the
+ * directed chain, the ratchet step, this module's content key and its
+ * finaliser -- and every one of those labels begins "fuzznet", so its first
+ * byte is 'f'. The other two are the leaf and node below.
+ *
+ * So the separation is BY FIRST BYTE, with disjoint values, and not by the
+ * input lengths happening not to coincide. That distinction is the whole of
+ * their finding: their own instance was safe only because a revocation blob
+ * opened with a version byte at a length that could not present as a node,
+ * which is separation by an encoding nobody had written down as a security
+ * property. Asserting it here is what stops this becoming that.
+ *
+ * WHAT IT DOES NOT DEFEND is a ninth derivation added later that reaches for
+ * a one-byte prefix because this module has one. The assert catches the
+ * collision, not the design drift; their argument that two discriminators
+ * for one job is how the second gets dropped stands, and is recorded in
+ * project.md rather than answered here. */
+_Static_assert(FZN_BLOB_LEAF_PREFIX < 0x20u && FZN_BLOB_NODE_PREFIX < 0x20u,
+               "a tree prefix must be outside the ASCII range every domain label starts in, "
+               "or a labelled derivation could present as a leaf or a node");
+
 _Static_assert(FZN_BLOB_LEAF_PREFIX != FZN_BLOB_NODE_PREFIX,
                "the leaf and node prefixes must differ or the tree is second-preimage weak");
 
