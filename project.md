@@ -11032,6 +11032,42 @@ does not start over, and no amount of healing logic supplies one. This is
 the same compartmentalisation cost sec 28 already accepted for two
 estates, arriving from the other direction.
 
+### The decision's own argument is exercised now too
+
+Members were chosen over a shared identity on one argument: **a revocation
+names `(capability, grantee, issuer)`, so retiring one application without
+touching another is already sayable, and a shared identity cannot express it
+at all.** That was read out of `chain/revocation.h` and nothing ran it.
+
+`scenario_revocation` revokes a sender and proves the refusal is caused by the
+revocation, with a positive control on a second network. **What it never asks
+is whether the revocation is CONFINED** -- every host there is either the
+revoked one or a receiver, so a revocation that stopped everybody would pass
+it.
+
+`scenario_estate` puts two members under one root and retires one. The two
+sends differ in exactly one thing -- same root, same capability, same
+receiver, same network, same moment, one grantee revoked and the other not --
+which is what makes it a statement about the grantee FIELD rather than about
+revocation working. Both legs run on one network for that reason: in
+`scenario_revocation` the comparison is between worlds, here it is within one.
+
+The surviving member is checked **after** the revocation is in force, and both
+members are checked to work **before** it, so neither leg can be satisfied by
+a member that never had a usable grant.
+
+**Checked for being able to fail**, by retiring member 1 -- the one the
+scenario then expects to survive. All four assertions go red, including
+"revoking one member stopped another member under the same root". The checks
+are therefore sensitive to WHICH grantee the revocation names, which is the
+whole property.
+
+A blunter probe was tried first and discarded: making `same()` grantee-blind
+breaks deduplication before it breaks confinement, so the store fills and
+`revocation_test` fails for an unrelated reason. **A mutation that reaches the
+property through some other failure proves nothing about the property** --
+the same lesson as pointing ASan at a logic redundancy in sec 43.
+
 ### The healing claim is exercised now, and it was not when it was made
 
 Most of sec 46 above was written from reading `record/sync.h`. **One line of

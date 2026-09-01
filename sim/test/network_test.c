@@ -3075,6 +3075,99 @@ static void scenario_session(void)
 #define ABS_RECORDS  24u
 #define ABS_ROUNDS   40u
 
+/*
+ * TWO MEMBERS UNDER ONE ROOT, AND ONLY ONE OF THEM RETIRED.
+ *
+ * project.md sec 46 answers the holder's question about a fourth consumer by
+ * recommending that each application be a MEMBER under the estate root rather
+ * than a co-holder of the root key -- and the argument that decides it is
+ * revocation granularity: a revocation names `(capability, grantee, issuer)`,
+ * so retiring one application without touching another is already sayable,
+ * whereas a shared identity cannot express it at all.
+ *
+ * THAT WAS AN ARGUMENT FROM READING `chain/revocation.h`, and nothing ran it.
+ * `scenario_revocation` revokes a sender and proves the refusal is caused by
+ * the revocation, with a positive control on a second network. What it does
+ * not ask is whether the revocation is CONFINED -- every host in that
+ * scenario is either the revoked one or a receiver.
+ *
+ * THE TWO SENDS DIFFER IN EXACTLY ONE THING. Same root, same capability, same
+ * receiver, same network, same moment; one grantee is revoked and the other
+ * is not. That is what makes this a statement about the grantee field rather
+ * than about revocation working at all, and it is why both legs run on ONE
+ * network instead of the two `scenario_revocation` needs -- there the
+ * comparison is between worlds, here it is within one.
+ *
+ * THE SURVIVING MEMBER IS CHECKED AFTER THE REVOCATION IS IN FORCE, not
+ * before. A send that arrived before anything was revoked would prove only
+ * that the network works, which is the failure mode the positive control in
+ * `scenario_revocation` exists to catch, one step along.
+ */
+
+#define EST_ROUNDS 10u
+
+static void scenario_estate(void)
+{
+	static struct sim_net net;
+	static uint8_t msg[200];
+	static uint8_t rec_region[FZN_REVOCATION_LEN];
+	fzn_revocation_record_t rec;
+	struct sim_signer root_signer;
+	unsigned delivered_before, refused_before;
+
+	sim_init(&net, 4, 0x6363u);
+	fill_message(msg, sizeof(msg), 23);
+
+	/* Both members work to begin with. Without this the refusal below could
+	 * be a member that never had a usable grant. */
+	check(sim_send(&net, 1, 3, msg, sizeof(msg), net.now + 100u),
+	      "the first member's send was refused");
+	sim_run(&net, EST_ROUNDS);
+	check(net.hosts[3].delivered > 0, "the first member could not reach the receiver");
+
+	check(sim_send(&net, 2, 3, msg, sizeof(msg), net.now + 100u),
+	      "the second member's send was refused");
+	sim_run(&net, EST_ROUNDS);
+	check(net.hosts[3].delivered > 1, "the second member could not reach the receiver");
+	check(net.hosts[3].refused_auth == 0,
+	      "something was refused on authority before anything was revoked");
+
+	/* Retire the SECOND member only. */
+	check(fzn_revocation_issue(net.root, &net.capability, net.hosts[2].pubkey, net.now,
+	                           sim_signer(&root_signer, &net.sign, net.root),
+	                           rec_region) == FZN_CHAIN_OK,
+	      "the simulation could not issue the revocation");
+	check(fzn_revocation_open(rec_region, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK,
+	      "the simulation could not open the revocation it issued");
+	check(sim_revoke_all(&net, rec) == 0, "the signed revocation was refused");
+
+	/* The retired member is refused. */
+	delivered_before = net.hosts[3].delivered;
+	refused_before = net.hosts[3].refused_auth;
+	check(sim_send(&net, 2, 3, msg, sizeof(msg), net.now + 100u),
+	      "the retired member's send was refused before it left");
+	sim_run(&net, EST_ROUNDS);
+	check(net.hosts[3].delivered == delivered_before,
+	      "the retired member still reached the receiver");
+	check(net.hosts[3].refused_auth > refused_before,
+	      "the retired member's frames were not refused on authority");
+
+	/* AND THE SIBLING IS UNTOUCHED, which is the whole scenario. Same root,
+	 * same capability, same receiver, with the revocation in force. */
+	delivered_before = net.hosts[3].delivered;
+	refused_before = net.hosts[3].refused_auth;
+	check(sim_send(&net, 1, 3, msg, sizeof(msg), net.now + 100u),
+	      "the surviving member's send was refused before it left");
+	sim_run(&net, EST_ROUNDS);
+	check(net.hosts[3].delivered > delivered_before,
+	      "revoking one member stopped another member under the same root");
+	check(net.hosts[3].refused_auth == refused_before,
+	      "the surviving member's frames were refused on authority");
+
+	printf("  estate: %u delivered, %u refused on authority, one member retired\n",
+	       net.hosts[3].delivered, net.hosts[3].refused_auth);
+}
+
 static void scenario_absence(void)
 {
 	static struct sim_net net;
@@ -3440,6 +3533,7 @@ int main(void)
 	scenario_session();
 	scenario_restart();
 	scenario_absence();
+	scenario_estate();
 
 	/* Asserted ONCE, not once per fetch. See `digest_dropped`. */
 	check(total_digest_dropped == 0, "a simulation digest buffer was too small");
