@@ -11349,6 +11349,47 @@ ask the same question. netcfgd, raidcfgd and hydra can compute their own
 figure from the two clauses above without anybody re-deriving it, and the
 clauses are stable in a way a number is not.
 
+### The rule gives displacement per FRAME; their number is per MESSAGE
+
+The consumer came back with **+269 bytes per message**, against the +9 the
+rule above derives. The gap is not a disagreement -- the two figures measure
+different things, and the larger one is what a consumer actually pays.
+
+Their decomposition, **their figure in their voice**; I have not re-derived
+it from their tree:
+
+    text frame        +47   displacement on the one frame carrying content
+    acknowledgements +222   66-byte ack against a 177-byte frame, +111, twice
+                     ----
+                     +269   per message
+
+**What this library can confirm is the floor, not the decomposition.**
+`FZN_SEAL_OVERHEAD` is 144 and hand-written, so every frame this library
+emits costs 144 plus its sealed payload -- an acknowledgement included, which
+is the same frame as everything else with a smaller payload in it. **There is
+no light frame.** A consumer whose own protocol had a cheap ack does not pay
+*displacement* on it; it pays the whole 144-byte floor, once per ack.
+
+**And the floor checks their number without re-deriving it.** 177 - 144 = 33
+sealed bytes, which is exactly the shape the rule above forces: a command
+byte, plus 32 bytes of something needing confidentiality. Their figure is
+consistent with this library's own overhead constant, arrived at from the
+other side. That is corroboration; it is not independent confirmation of the
++269, because the ack COUNT is theirs alone and nothing here can see it.
+
+**The multiplier is what a per-frame rule cannot see, and the consumer's own
+protocol sets it.** Two acks per message is their design, not this library's
+-- but expressed in fuzznet frames, the ack count multiplies the *floor*
+rather than the displacement, which is why +9 per frame becomes +269 per
+message. The rule is still right and still stable. It answers "what does this
+frame cost me" when the question being asked is "what does this message cost
+me", and only the consumer's frame count closes the distance.
+
+**Recorded because the three consumers still coming will read the rule and
+stop there.** netcfgd, raidcfgd and hydra each get a correct per-frame answer
+from it and a wrong per-message one, and the correction is one question: how
+many frames is a message, acknowledgements included?
+
 ### `spool/` depends on `blob/`'s CONSTRUCTION, which nobody had measured
 
 Asked by the consumer, who wanted to know whether their own content
