@@ -11009,19 +11009,63 @@ addressing can adopt the frame and the record layer and leave `blob/` alone.
 `blob/` exists for the consumers who do NOT have one, and its existence is
 not an argument that the one who does should switch.
 
-### A tree seam was offered and deliberately not built
+### A tree seam was offered and declined, by the only consumer it could serve
 
 The obvious fix is to make the tree a vtable the way the crypto already is:
 this library calls no primitive, so `leaf_hash` and `proof_verify` behind an
 `fzn_tree_ops_t` is the same move one layer up, two call sites, both already
 taking a `hash` vtable.
 
-**Not built, because sec 5 refuses a seam added for nobody.** It is worth
-building only if the consumer with its own tree would then take `spool/`, and
-that is theirs to answer. Recorded here so that the next consumer to ask --
-netcfgd, raidcfgd or hydra, none of which has a blob layer -- finds the
-question already framed and the cost already measured rather than
-rediscovering it.
+**Not built, because sec 5 refuses a seam added for nobody**, and the
+consumer answered within the hour: **they decline `spool/`, so the seam
+serves nobody and is declined with it.**
+
+Their reason is the one worth keeping, because "we already have that" is the
+claim that is usually half true and they measured it instead. Resumable
+transfer exists above their own blob layer and the RESUME half is wired
+rather than merely present: a partial-leaf set with encode/decode, a
+random-access backend distinct from their two other store interfaces on the
+argument that "a partially-transferred blob is neither" a whole named blob
+nor an append-only stream, a `.have` sidecar persisted per root with
+temp-and-rename, and **a caller they checked rather than assumed** -- one
+call site in their daemon, on the path that starts a transfer.
+
+**The seam serves exactly one shape of consumer: one that has its own tree
+AND wants `spool/`.** That is their tree and only theirs, and theirs does not
+want it. netcfgd and hydra will take `spool/` with `blob/` and need no seam.
+
+**Two triggers reopen it, both checkable rather than matters of taste**, and
+they are recorded in their tree: a fourth consumer arriving with its own
+tree, or that tree finding something in `spool/` its own transfer path lacks.
+Neither is true today.
+
+This is the better outcome than building it. A seam accepted on a
+consumer's account and never filled is worse than an absent one, because the
+next reader takes its existence as evidence that somebody needed it.
+
+### The truncation rule, reached independently in two trees
+
+Sec 49's `head` finding has a second witness, and it is the real kind. That
+tree recorded the same rule at `4d4bcc1` on **2026-08-31, a day earlier**,
+from an unrelated incident: a citation check ran `grep ... | head -12`, the
+hit sat at line 3348, the truncation cut it out, and a correction to a
+CORRECT document was one edit away.
+
+**Two trees, two incidents, neither hand writing the other's** -- which is
+the standard `evidence.md` sets and which most corroboration in this workspace
+does not meet, since the usual case is one session's finding quoted into two
+documents.
+
+They pair it with their loose-pattern rule and the pairing sharpens both:
+**there the pattern was too loose, here the view was too short, and both
+produced a confident wrong answer about a tree the session was standing in.**
+And the half this tree adds is why truncation is the worse of the two: **a
+loose pattern over-matches and you notice; a short view under-matches and
+hands you the answer you were hoping for.** Every one of the three instances
+here was reassuring -- a submodule that was fine, a build system that was
+current, a coupling confined to an optional backend.
+
+
 
 **And the first measurement of this was wrong in the reassuring direction.**
 It reported "only the optional file backend touches blob", because a `head`
