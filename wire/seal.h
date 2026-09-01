@@ -285,6 +285,57 @@ typedef struct fzn_opened {
  * attacker, and for why an over-long buffer is a different fault from a short
  * one even though it is the same code.
  */
+/* The whole plaintext head, before any key has been chosen.
+ *
+ * `fzn_opened_t` MINUS THE SEALED FIELDS, which is exactly the authenticated
+ * head: no capability and no payload, because those are inside the seal and
+ * this call opens nothing.
+ *
+ * WHY THE WHOLE HEAD AND NOT MORE ACCESSORS. `fzn_seal_peek_sender` answered
+ * sec 4.7 step 2, and building against it showed the step is not alone:
+ * fuzzypickles' ratchet needs the SEQUENCE before it can derive a key, and
+ * the nonce and commitment before it spends the derivation on a stranger.
+ * Four reads, each needing the same shape check, is one call.
+ *
+ * **AND FOR A DERIVED KEY THIS IS NOT AN OPTIMISATION.** A stored key can be
+ * tried -- `fzn_seal_open` rejects a wrong candidate at the commitment for
+ * about 600 ns against 2100 of AEAD, which is why step 3 needs no accessor
+ * for a receiver holding a key set. **A derived key cannot be tried at any
+ * price.** `fzn_ratchet_advance` takes a target sequence, so a receiver must
+ * know the sequence to know how far to advance, and advancing is bounded at
+ * FZN_RATCHET_MAX_ADVANCE precisely because a stranger writes that number.
+ * So a consumer whose key is per-message has no candidate loop available and
+ * must read the head first. That is the case this call exists for.
+ *
+ * IT IS A CLAIM AND NOT A FACT, exactly as `fzn_seal_peek_sender` is, and the
+ * contract is the same one: the head is plaintext, so anyone can write any of
+ * these values into a frame, and nothing is authenticated until
+ * `fzn_seal_open` verifies the tag.
+ *
+ *   - SAFE: deciding which key to derive or try, and refusing early.
+ *   - NOT SAFE: treating any field as true before the tag verifies -- naming
+ *     the sender, trusting `expires_at`, counting by `msg`, or advancing a
+ *     ratchet PAST a sequence a stranger chose. Deriving to a claimed
+ *     sequence is fine; KEEPING the advanced chain before the tag verifies is
+ *     how a stranger moves your ratchet.
+ *
+ * Shape-checked exactly as `fzn_seal_open` checks it, so a truncated or
+ * suffixed frame is refused rather than yielding pointers into something that
+ * is not a frame. The three pointers point INTO `frame` and are valid for as
+ * long as it is. */
+typedef struct fzn_peek {
+	const uint8_t *sender;     /* 32 bytes */
+	const uint8_t *nonce;      /* FZN_AEAD_NONCE_LEN bytes */
+	const uint8_t *commitment; /* FZN_COMMITMENT_LEN bytes */
+	uint64_t expires_at;
+	uint32_t msg;
+	uint16_t index;
+	uint16_t chunks;
+	uint8_t kind;
+} fzn_peek_t;
+
+fzn_seal_err_t fzn_seal_peek(const uint8_t *frame, size_t frame_len, fzn_peek_t *out);
+
 /* The sender a frame CLAIMS, before any key has been chosen.
  *
  * WHY THIS EXISTS: this header already tells a receiver what to do, and until

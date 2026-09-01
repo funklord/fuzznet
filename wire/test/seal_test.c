@@ -295,6 +295,49 @@ int main(void)
 	memset(key, 0x77, sizeof(key));
 	memset(commitment_key, 0x5b, sizeof(commitment_key));
 
+	/* THE WHOLE PLAINTEXT HEAD BEFORE ANY KEY, and the check that matters
+	 * is that it AGREES WITH `fzn_seal_open`. Two readers of one layout
+	 * disagreeing is the failure a peek API can have that nothing else
+	 * would catch: each is self-consistent, both compile, and the frame
+	 * that opens is not the frame that was routed. */
+	{
+		uint8_t peek_frame[FRAME_LEN];
+		fzn_peek_t head;
+		fzn_opened_t o2;
+		uint8_t want_sender2[32], want_nonce[24];
+
+		memset(want_sender2, 0xa1, sizeof(want_sender2));
+		memset(want_nonce, 0x33, sizeof(want_nonce));
+
+		build(peek_frame);
+		check(fzn_seal_peek(peek_frame, sizeof(peek_frame), &head) == FZN_SEAL_OK,
+		       "peeking a well-formed frame was refused");
+		check(head.sender && memcmp(head.sender, want_sender2, 32) == 0,
+		       "the peeked sender is wrong");
+		check(head.nonce && memcmp(head.nonce, want_nonce, 24) == 0,
+		       "the peeked nonce is wrong");
+		check(head.commitment == peek_frame + OFF_COMMIT,
+		       "the peeked commitment is not a view into the frame");
+		check(head.expires_at == 5000u, "the peeked expiry is wrong");
+		check(head.msg == 7u, "the peeked msg is wrong");
+		check(head.index == 1u && head.chunks == 4u, "the peeked chunking is wrong");
+		check(head.kind == 2u, "the peeked kind is wrong");
+
+		/* NOW OPEN THE SAME FRAME AND REQUIRE THE SAME ANSWERS. This is
+		 * the only assertion here that neither reader can pass alone. */
+		check(fzn_seal_close(peek_frame, sizeof(peek_frame), key, &aead) == FZN_SEAL_OK,
+		       "sealing the peeked frame failed");
+		check(fzn_seal_open(peek_frame, sizeof(peek_frame), key, commitment_key,
+		                     &hash, &aead, &o2) == FZN_SEAL_OK,
+		       "opening the peeked frame failed");
+		check(memcmp(o2.sender, want_sender2, 32) == 0
+		               && o2.expires_at == head.expires_at && o2.msg == head.msg
+		               && o2.index == head.index && o2.chunks == head.chunks
+		               && o2.kind == head.kind
+		               && memcmp(o2.nonce, want_nonce, 24) == 0,
+		       "peek and open disagree about the head they both read");
+	}
+
 	/* PEEKING THE SENDER BEFORE ANY KEY IS CHOSEN, which is the whole
 	 * reason `fzn_seal_peek_sender` exists: sec 4.7 step 2 says select on
 	 * `sender`, and until it existed `sender` came only out of

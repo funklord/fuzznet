@@ -227,27 +227,53 @@ fzn_seal_err_t fzn_seal_open(uint8_t *frame, size_t frame_len,
 	return FZN_SEAL_OK;
 }
 
-fzn_seal_err_t fzn_seal_peek_sender(const uint8_t *frame, size_t frame_len,
-                                     const uint8_t **out)
+fzn_seal_err_t fzn_seal_peek(const uint8_t *frame, size_t frame_len, fzn_peek_t *out)
 {
 	situ_msg_t msg;
 	situ_view_t fv, hv;
 
 	if (!frame || !out)
 		return FZN_SEAL_ERR_MALFORMED;
-	*out = NULL;
+	memset(out, 0, sizeof(*out));
 
 	/* THE CAST IS READ-ONLY AND THE FUNCTION IS NOT. `situ_msg_init` takes
 	 * a mutable pointer because situ's general API can write through one;
 	 * nothing on this path does, and `views` only reads. Taking a
-	 * `uint8_t *` here instead would be the honest signature for the cast
-	 * and a dishonest one for the function, which never modifies a byte --
-	 * so the cast is confined to this line and explained rather than
-	 * pushed out to every caller. */
+	 * `uint8_t *` here would be the honest signature for the cast and a
+	 * dishonest one for the function, which never modifies a byte. */
 	if (!views((uint8_t *)(uintptr_t)frame, frame_len, &msg, &fv, &hv))
 		return FZN_SEAL_ERR_SHAPE;
 
-	*out = situ_fzn_head_sender_ptr(hv);
+	out->sender = situ_fzn_head_sender_ptr(hv);
+	out->nonce = situ_fzn_head_nonce_ptr(hv);
+	out->commitment = situ_fzn_head_commitment_ptr(hv);
+	out->expires_at = situ_fzn_head_expires_at_get(hv);
+	out->msg = situ_fzn_head_msg_get(hv);
+	out->index = situ_fzn_head_index_get(hv);
+	out->chunks = situ_fzn_head_chunks_get(hv);
+	out->kind = (uint8_t)situ_fzn_head_kind_get(hv);
+	return FZN_SEAL_OK;
+}
+
+fzn_seal_err_t fzn_seal_peek_sender(const uint8_t *frame, size_t frame_len,
+                                     const uint8_t **out)
+{
+	fzn_peek_t head;
+	fzn_seal_err_t err;
+
+	if (!out)
+		return FZN_SEAL_ERR_MALFORMED;
+	*out = NULL;
+
+	/* THE NARROW CASE OF `fzn_seal_peek`, not a second scan. Two functions
+	 * validating the same frame two ways is how the two answers drift, and
+	 * this file already argues that where `fzn_manifest_deficit` became the
+	 * `from = 0` case of its resumable form. The extra reads are seven
+	 * loads from a view already computed. */
+	err = fzn_seal_peek(frame, frame_len, &head);
+	if (err != FZN_SEAL_OK)
+		return err;
+	*out = head.sender;
 	return FZN_SEAL_OK;
 }
 
