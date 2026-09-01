@@ -221,6 +221,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              blob/test/blob_test.c ratchet/test/ratchet_test.c \
              prekey/test/prekey_test.c prekey/test/prekey_fuzz.c \
              persist/test/persist_test.c \
+             persist/test/persist_kat_test.c \
              spool/test/spool_test.c \
              spool/test/plan_test.c \
              session/test/agree_test.c \
@@ -268,6 +269,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/ratchet/test/ratchet_test \
              $(BUILD_DIR)/prekey/test/prekey_test \
              $(BUILD_DIR)/persist/test/persist_test \
+             $(BUILD_DIR)/persist/test/persist_kat_test \
              $(BUILD_DIR)/spool/test/spool_test \
              $(BUILD_DIR)/spool/test/plan_test \
              $(BUILD_DIR)/session/test/agree_test \
@@ -1081,6 +1083,14 @@ PERSIST_OBJS := $(BUILD_DIR)/persist/persist.o $(BUILD_DIR)/trust/trust.o \
 
 $(BUILD_DIR)/persist/test/persist_test: $(BUILD_DIR)/persist/test/persist_test.o \
                                          $(PERSIST_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# The on-disk vector. Same objects as persist_test: the blobs are byte
+# assembly with no primitive in them, so this needs no binding and runs in
+# every build rather than only where Monocypher is.
+$(BUILD_DIR)/persist/test/persist_kat_test: \
+                $(BUILD_DIR)/persist/test/persist_kat_test.o $(PERSIST_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 

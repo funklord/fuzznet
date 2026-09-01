@@ -353,6 +353,13 @@ SABOTAGES = [
 		"the hop's field offsets are pinned against silent change",
 	),
 	(
+		"persist-version-is-protocol",
+		"persist/persist.h",
+		"#define FZN_PERSIST_VERSION 1u",
+		"#define FZN_PERSIST_VERSION 2u",
+		"the on-disk version byte is pinned against silent change",
+	),
+	(
 		"ratchet-label-is-protocol",
 		"ratchet/ratchet.c",
 		'static const char FZN_RATCHET_LABEL[16] = "fuzznet-ratchet1";',

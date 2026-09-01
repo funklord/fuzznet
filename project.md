@@ -11285,6 +11285,49 @@ cannot be cheap enough to put in every module. So the rule taken here is that
 **every hand-written layout gets asserts, and the artifacts that travel
 between hosts and carry authority get a vector as well.**
 
+### The boundary where the bytes are ours on both sides
+
+The wire layouts travel between hosts, so a consumer eventually disagrees
+with us and the error surfaces. **The on-disk format has no such party**, and
+that is why it survived longest.
+
+`persist/`'s peer blob was permuted -- `prekey` and `created_at` exchanged, in
+the packer and the opener together, so the total length, the version byte and
+the slot byte were all unchanged. **The whole suite stayed green.** Pack and
+open are the only two readers of those bytes, so a layout change moves both
+halves at once and nothing downstream can tell.
+
+**The disagreeing party is this host later**, reading a file it wrote before
+an upgrade -- which makes it sec 46's shattered-estate case exactly. A device
+that goes away for a long time and returns reads its own trust anchor, its own
+prekey and its own ratchet chains.
+
+**`head_check` is careful and catches nearly everything else.** It requires an
+EXACT length ("a trailing byte is a second encoding of one blob"), the right
+version byte, and the right slot byte -- and persist.c argues the slot byte is
+not redundant with the filename, so "a caller that asks the wrong slot must
+not have a trust anchor parsed out of a ratchet chain". All of that holds. What
+none of it can see is a layout permuted WITHOUT a version bump: same length,
+same version, same slot, different meaning. The permuted peer blob restores
+eight bytes of a timestamp into the first eight bytes of a prekey.
+
+**So what the vector pins is the discipline rather than only the bytes.**
+Changing the layout now fails, and the failure arrives at the moment somebody
+has to decide whether `FZN_PERSIST_VERSION` should have moved. Nothing
+prompted that decision before.
+
+`persist/test/persist_kat_test.c` builds each blob from the documented
+composition and checks BOTH directions: that the packer produces those bytes,
+and that the opener restores the values from a LITERAL blob this file wrote
+rather than from whatever the packer just produced -- so the reader is held to
+the format rather than to the writer. Both halves fail under the permutation.
+It also proves the two refusals `head_check` exists for, since a check that
+the guard works is cheaper than the argument that it does.
+
+**It is not gated on Monocypher**, because packing these blobs is byte
+assembly with no primitive in it -- so unlike the other five vectors it runs
+in every build, including the one with no bindings at all.
+
 ### Why this was the shape worth taking
 
 Sec 43 concluded that blanket sweeping has low yield and that what pays is a
