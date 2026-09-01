@@ -6154,6 +6154,34 @@ never written, so the caller keeps what it had -- which is
 `fzn_agree_secret_install`'s convention and the one sec 37 restored in
 `persist`.
 
+**AND THE CLASSIFICATION OVER-PROMISED, tested by drilling into its own top
+candidate.** The 32% was offered as the slice worth driving. The sharpest
+instance in the weakest module is `spool/spool.c:149` -- a backend write
+refusing -- in a module whose whole job is durable storage and whose header
+warns that stale-more loses leaves for good.
+
+It is already covered in substance. `spool_test.c` carries
+`test_a_failed_write_does_not_claim_the_leaf`, which refuses the write and
+asserts the bit is not set, under the assertion "a leaf whose write failed
+is recorded as present, so it will never be re-requested and the blob will
+complete corrupt". The branch that is unexercised is the SECOND write --
+the zero-fill for a leaf shorter than the maximum -- reached only when the
+first write succeeds, which the fixture's `refuse_writes` never allows.
+Its handling is the same line of code and the safe direction either way.
+
+**So the slice is not uniformly valuable, and a percentage cannot say
+which parts are.** A guard whose first branch carries a named assertion and
+whose second is the same handling one condition further in is the dull class
+wearing the interesting class's clothes. What made the two `session/`
+findings real was not that they were dependency failures; it was that
+nothing anywhere asserted the property, which coverage does not distinguish
+from a sibling branch of a tested guard.
+
+**Recorded rather than acted on**, because writing the padding-write case
+would have been producing something rather than finding something -- and
+this file's own rule is that a finding earns its place when acting on it
+would change the code, the build, or a decision.
+
 **Getting the per-branch detail took three attempts and the failure is worth
 recording**, because it is this session's own recurring one. `gcov -b -o
 <objdir> <source>` must be run FROM THE PROJECT ROOT, which is how the
