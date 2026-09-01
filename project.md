@@ -11005,6 +11005,39 @@ now pinned for the second reason while the first reason's honest limit stands
 unchanged -- which is why the sabotage entries for the labels are commented as
 protocol rather than as guards.
 
+### The same question, one layer up: a whole artifact that only meets itself
+
+Labels were the constants. **The layouts are the artifacts**, and the same
+blindness applies: every chain test mints with this library and verifies with
+this library, so a field offset cancels out of both sides.
+
+`FZN_HOP_OFF_GRANTOR` and `FZN_HOP_OFF_GRANTEE` were exchanged -- 2 and 34,
+both 32-byte fields, so every length is unchanged and it is a pure layout
+change. **The suite stayed green.** Exchanging `ISSUED_AT` and `EXPIRES_AT`
+survived too.
+
+**A hop is a signed certificate that travels between hosts and carries
+authority**, and chain.h prints its offset table with the reason: "two
+implementations which agree on this table cannot produce different bytes for
+the same grant, which is exactly what a signature over them requires". That
+is a claim ABOUT A SECOND IMPLEMENTATION, and the table was a comment.
+
+`wire/test/constants_test.c` is the nearest thing that existed and it is
+worth saying why it does not reach here: it compares hand-written constants
+against the GENERATED ones from `wire/frame.situ`. **A hop is a chain
+certificate rather than a frame field, so it has no generated counterpart to
+disagree with** -- which is exactly why nothing noticed.
+
+`chain/test/hop_kat_test.c` assembles the 179 bytes from the table, with the
+offsets and the two type bytes written as LITERALS rather than through the
+macros, and signs the body with Ed25519 directly -- deterministic, so a hop
+from a fixed seed is reproducible with no seam for randomness, which is the
+property golden_frame_test had to get from `fzn_random_ops_t`. Then it
+compares the whole artifact rather than field by field, since comparing
+through the library's own offsets would reintroduce the blindness. Both
+mutations are caught, with zero compile errors -- checked, after the
+`fzn_put_le64` probe above.
+
 ### Why this was the shape worth taking
 
 Sec 43 concluded that blanket sweeping has low yield and that what pays is a

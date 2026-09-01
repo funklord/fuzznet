@@ -556,7 +556,8 @@ MONO_TSRC  := chain/test/sign_monocypher_test.c \
               wire/test/golden_frame_test.c \
               session/test/session_kat_test.c \
               ratchet/test/ratchet_kat_test.c \
-              blob/test/blob_kat_test.c
+              blob/test/blob_kat_test.c \
+              chain/test/hop_kat_test.c
 
 ifdef MONO_ON
 MONO_OBJS  := $(BUILD_DIR)/chain/sign_monocypher.o \
@@ -598,11 +599,12 @@ MONO_GOLD  := $(BUILD_DIR)/wire/test/golden_frame_test
 MONO_KAT   := $(BUILD_DIR)/session/test/session_kat_test
 MONO_RKAT  := $(BUILD_DIR)/ratchet/test/ratchet_kat_test
 MONO_BKAT  := $(BUILD_DIR)/blob/test/blob_kat_test
+MONO_HKAT  := $(BUILD_DIR)/chain/test/hop_kat_test
 MONO_REAL  := $(BUILD_DIR)/sim/test/real_crypto_test
 OBJS       += $(MONO_OBJS)
 TEST_OBJS  += $(MONO_TOBJ)
 TEST_BINS  += $(MONO_BIN) $(MONO_HASH) $(MONO_AEAD) $(MONO_AGREE) $(MONO_GOLD) \
-              $(MONO_KAT) $(MONO_RKAT) $(MONO_BKAT)
+              $(MONO_KAT) $(MONO_RKAT) $(MONO_BKAT) $(MONO_HKAT)
 CPPFLAGS   += -I$(MONOCYPHER_DIR)/src
 
 # Vendored, so it is compiled with its own terms rather than ours.
@@ -731,6 +733,19 @@ $(MONO_RKAT): $(BUILD_DIR)/ratchet/test/ratchet_kat_test.o \
 $(MONO_BKAT): $(BUILD_DIR)/blob/test/blob_kat_test.o \
               $(BUILD_DIR)/blob/blob.o \
               $(BUILD_DIR)/session/hash_monocypher.o \
+              $(BUILD_DIR)/constant_time/constant_time.o $(BUILD_DIR)/monocypher.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# The hop layout vector. Ed25519 signing is deterministic, so a hop minted
+# from a fixed seed is reproducible with no seam for randomness. The object
+# list is $(MONO_BIN)'s: `fzn_chain_verify` consults both the revocation
+# store and the manifest, and each was discovered by the linker asking
+# rather than by guessing at the dependency.
+$(MONO_HKAT): $(BUILD_DIR)/chain/test/hop_kat_test.o \
+              $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/chain/revocation.o \
+              $(BUILD_DIR)/chain/manifest.o \
+              $(BUILD_DIR)/chain/sign_monocypher.o \
               $(BUILD_DIR)/constant_time/constant_time.o $(BUILD_DIR)/monocypher.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@

@@ -346,6 +346,13 @@ SABOTAGES = [
 		"the session domain label is pinned against silent change",
 	),
 	(
+		"hop-layout-is-protocol",
+		"chain/chain.h",
+		"#define FZN_HOP_OFF_GRANTOR 2u\n#define FZN_HOP_OFF_GRANTEE 34u",
+		"#define FZN_HOP_OFF_GRANTOR 34u\n#define FZN_HOP_OFF_GRANTEE 2u",
+		"the hop's field offsets are pinned against silent change",
+	),
+	(
 		"ratchet-label-is-protocol",
 		"ratchet/ratchet.c",
 		'static const char FZN_RATCHET_LABEL[16] = "fuzznet-ratchet1";',
