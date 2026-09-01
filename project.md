@@ -10883,6 +10883,99 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 48. bitchat as a possible transport, scouted 2026-09-01
+
+The holder raised **bitchat**, a Bluetooth-LE mesh chat network, as a
+transport this library might eventually run over -- an alternative to LoRa,
+which is itself not yet recorded anywhere here. **This is a scouting note and
+not a design.** Nothing below asks for a library change, and the reason it
+does not is the finding.
+
+**PROVENANCE, BECAUSE IT IS ONE WITNESS.** The numbers are read from
+bitchat's own whitepaper, which is the project describing itself. Protocol
+constants are the kind of claim a project's own spec is authoritative for;
+its security properties are not, and nothing below depends on them.
+
+    hop limit          TTL 7, reduced to 5 on dense graphs
+    fragment           ~469 bytes, 8-byte fragment id, index/total
+    reassembly         128 concurrent, 30 s timeout, 1 MiB cap
+    dedup              LRU of 1000, 5-minute expiry
+    identity           Curve25519 static key; 8-byte peer id is the
+                       first 8 bytes of its SHA-256 fingerprint
+    crypto             Noise XX, ChaCha20-Poly1305, Ed25519 announcements
+    store-and-forward  outbox 100/peer 24 h; couriers 4-8 copies, 24 h;
+                       gossip cache 1000 packets, 6 h
+
+### Why this library fits a mesh of untrusted relays already
+
+**It was built for exactly this shape and did not know it.** Sec 3 puts an
+UNPRIVILEGED BRIDGE between the network and the daemon, and `wire/frame.situ`
+keeps the forwarder's fields outside every covered region so a relay may
+rewrite them without recomputing a tag. A BLE mesh is a network of relays
+nobody trusts, which is the assumption already in the frame layout.
+
+The datagram is self-contained, carries its own sender and capability, and is
+authenticated per datagram rather than per session -- so a packet that arrives
+by an arbitrary flood path over an arbitrary number of hops is exactly as
+verifiable as one off a socket. Nothing in `wire/`, `chain/` or `frame/`
+assumes ordering, reliability, or a return path.
+
+### The one real consequence: double fragmentation, and it is avoidable
+
+**`chunk/` exists to avoid fragmentation below it.** `wire/frame.situ` says
+so: "what bounds a chunk is the smallest path it must cross whole, since
+fragmented UDP is widely dropped and avoiding it is why this library chunks
+at all", and 1024 is derived from IPv6's guaranteed 1280 less 48 of headers
+less 144 of frame.
+
+**That derivation is about IP and a BLE mesh is not IP.** A full 1168-byte
+fuzznet frame becomes three bitchat fragments, and losing any one of the
+three loses the whole frame -- so the design's own reasoning, applied to this
+link, says the per-datagram payload should be chosen so **one sealed frame is
+one link fragment**.
+
+**And that costs nothing, because the payload is already a per-path
+parameter.** `fzn_split_plan` takes `max_payload` and bounds it by
+`FZN_SPLIT_MAX_PAYLOAD` rather than fixing it, and `split.h` already tells a
+caller to raise it "as far as" the ceiling. A BLE path simply passes a lower
+one. Arithmetic: about 469 less the 144-byte frame gives roughly 325 bytes of
+payload.
+
+**That number is not measured and must not be used as though it were.**
+Whether ~469 is the fragment's payload or its total is ambiguous in the
+whitepaper's own phrasing, and the answer belongs to the implementation
+rather than the document. It is stated here as an order of magnitude to show
+the mechanism suffices, not as a constant to copy.
+
+### Two hazards worth naming before anybody builds it
+
+**Double encryption invites a downgrade.** bitchat carries Noise XX with
+ChaCha20-Poly1305; this library seals with XChaCha20-Poly1305 and a key
+commitment. Running one inside the other is wasteful and harmless -- the
+hazard is the conversation that follows, in which somebody proposes using the
+carrier's encryption instead. That would discard the capability chain, the key
+commitment and the replay window, and sec 4.4a's "no downgrade path" is
+written against exactly that move. **The carrier's crypto is not this
+library's, and this library's guarantees do not degrade to it.**
+
+**Nothing the carrier says may be credited.** Its dedup is an LRU of 1000
+with a five-minute expiry -- a transport convenience, not a replay defence,
+and `frame/freshness.h` remains the authority. Its 8-byte peer id is 64 bits
+of a fingerprint, which is a link address and not an identity; this library's
+identity is the 32-byte key a chain is rooted in. A consumer that keyed
+anything on the peer id would have replaced an authenticated identity with a
+truncated hint.
+
+### What it does not solve, which is the thing recently asked about
+
+bitchat's store-and-forward is real and it is the right shape -- couriers,
+an outbox, a gossip cache. **Its horizon is 24 hours and six hours.** Sec 46's
+shattered estate is a device gone for months, so these mechanisms help a
+device that missed an evening and do nothing for the case the holder actually
+raised. The timescales differ by three orders of magnitude, and reading the
+first as covering the second is the mistake this paragraph exists to prevent.
+
+
 ## 47. Costing what is actually open on revocation currency, 2026-09-01
 
 The holder asked for the three commissioned designs to be costed against
