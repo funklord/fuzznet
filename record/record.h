@@ -125,7 +125,28 @@
 /* The largest body this will carry. Bounded because nothing here allocates,
  * and small because a record is a statement rather than a payload: a
  * configuration value, a rule, a grant. Anything larger is a message, and
- * `chunk/` already carries messages. */
+ * `chunk/` already carries messages.
+ *
+ * AND IT IS NOT A NUMBER TO RAISE WHEN SOMETHING DOES NOT FIT, which is
+ * worth saying here because a consumer arrived fifteen bytes over and
+ * fifteen bytes reads like a rounding problem. Theirs was a delegation
+ * chain carried inside a record. A chain is `FZN_CHAIN_HEADER_LEN` plus
+ * `FZN_HOP_LEN` per hop -- 181 bytes at one hop, 360 at two, 539 at three
+ * before any content at all, and 1434 at the eight this library allows,
+ * which exceeds even a frame's whole payload.
+ *
+ * So the overage is the first value of a function of the delegation depth
+ * of whoever is speaking, sampled where it happens to be closest. Raising
+ * this to 544 buys exactly one hop and fails at the next, and each hop
+ * after costs another 179 whatever the bound is. **The sender does not
+ * control that depth and no bound here can.**
+ *
+ * WHICH MAKES THE SEPARATION BELOW LOAD-BEARING RATHER THAN A PREFERENCE.
+ * This module puts authorisation outside the record -- whether a signer was
+ * allowed to say a thing is `fzn_chain_verify` against a capability, and the
+ * record carries the issuer's key and no chain. That reads as layering
+ * taste until the arithmetic above, which is the reason: a record that
+ * carried its chain would work at one hop, work at two, and stop. */
 #define FZN_RECORD_BODY_MAX 512u
 
 /* Stream numbers below this are fuzznet's to assign a meaning to; at or above
