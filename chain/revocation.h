@@ -442,7 +442,26 @@ size_t fzn_revocation_merge(fzn_revocation_store_t *store,
  *     revocation.c argues that at length and records the alternative.
  *
  * This is a QUERY and not a verification: everything in the store was
- * checked on admission. */
+ * checked on admission.
+ *
+ * IT ANSWERS ABOUT ONE GRANTEE, AND A CHAIN IS NOT ONE GRANTEE.
+ * `fzn_revocation_covers_chain` below takes the hops and writes a verdict
+ * PER HOP, which is the question a caller holding a chain is actually
+ * asking. Reaching for this one on a chain's final grantee tests the last
+ * hop and misses a revoked intermediate -- and it returns a confident 0
+ * while doing it, because the grantee it was asked about really is not
+ * revoked.
+ *
+ * `fzn_chain_verify` uses the per-hop form, so a consumer that verifies
+ * through it is already right. This matters for a consumer doing its own
+ * walk, which is the case that has no compiler to help it.
+ *
+ * The pointer used to run only the other way -- the sibling names this
+ * function and this one did not name the sibling -- which is the wrong
+ * direction for the pair: **the weaker call is the one a reader arrives at
+ * first and the one that has to say what it does not cover.** Found by
+ * sweeping every public function here whose name is a prefix of another's,
+ * after the same shape turned up twice in one day elsewhere. */
 int fzn_revocation_covers(const fzn_revocation_store_t *store,
                            const uint8_t issuer[FZN_PUBKEY_LEN],
                            const fzn_cap_id_t *capability,
