@@ -569,6 +569,19 @@ int fzn_manifest_overflowed(const fzn_manifest_state_t *state,
  * table order, so a host that overflows drops the same pairs every round and
  * never asks for them at all.
  *
+ * **AND THAT IS WHY `fzn_manifest_deficit_from` EXISTS, WHICH THIS COMMENT
+ * DESCRIBED THE HAZARD OF AND DID NOT NAME.** A deficit larger than `out_cap`
+ * -- a frame holds about ten pairs and a returning host's is a year of them
+ * -- comes back as the same prefix for ever, so the tail is never requested
+ * and the host stalls on it. The resumable form below takes a cursor and
+ * wraps; use it for anything that fetches. This call is the `from = 0` case
+ * and is right for a report a human reads.
+ *
+ * Stating the hazard and not the remedy is the same shape as
+ * `fzn_session_establish` not naming the ephemeral pair, found the same day
+ * and one file over: **the obvious name describes its own inadequacy and
+ * leaves the reader to discover that the fix is adjacent.**
+ *
  * The order is the table's, which is the order the pairs were admitted in.
  * That is a fact about this host's history and not about the issuer's
  * manifest, and NOTHING SHOULD DEPEND ON IT -- the manifest's own order is

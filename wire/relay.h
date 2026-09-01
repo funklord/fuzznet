@@ -64,7 +64,29 @@
  *
  * Eight because a budget is a loop bound rather than a route length: it needs
  * to be larger than any plausible path and small enough that a loop dies
- * quickly. A consumer that knows its topology passes its own smaller number. */
+ * quickly. A consumer that knows its topology passes its own smaller number.
+ *
+ * AND IT IS HALF A FRAME-FORMAT DISCRIMINATOR IN A CONSUMER, WHICH IS NOT
+ * WHAT IT WAS WRITTEN FOR. Reported by fuzzypickles 2026-09-01, during a
+ * migration in which one UDP port carries both their format and this one.
+ * Their demultiplexer works on offset 1 alone: this frame has
+ * `fzn_hop.hops_left` there, which `fzn_seal_build` refuses above this bound,
+ * so the byte is 0..8; theirs has a command byte whose lowest reaching value
+ * is 0x0E. **Offset 0 cannot help** -- their version byte is 1 and
+ * `fzn_hop.version` is `must_eq = 1`, so both are the byte 1. The whole
+ * disambiguation rests on this constant staying below theirs.
+ *
+ * **Safe up to and including 13; 14 collides.** Raising it past that would
+ * make their demultiplexer read this frame's hop count as their pairing
+ * command -- silently, on a live path, with no compile error in either tree.
+ * They have pinned the invariant on their side, which fails once somebody has
+ * already changed this; **this paragraph is the half that fires first**,
+ * because it is where the person raising the bound is looking.
+ *
+ * The coupling is theirs to hold and is not a constraint on this library --
+ * a bound this small is not one anybody has a reason to raise, and if a
+ * reason appears it is a message to send rather than a veto to obey. What
+ * would be wrong is discovering it afterwards. */
 #define FZN_RELAY_MAX_HOPS 8u
 
 typedef enum fzn_relay_err {
