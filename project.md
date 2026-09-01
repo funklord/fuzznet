@@ -10975,6 +10975,63 @@ went red". Each is a real discipline pointed at the wrong question, and the
 care spent describing it is what stops a reader asking whether it could have
 failed.
 
+### `spool/` depends on `blob/`'s CONSTRUCTION, which nobody had measured
+
+Asked by the consumer, who wanted to know whether their own content
+addressing could stay above this library's frame indefinitely rather than
+migrating. The question was sharp: **does anything here assume its consumer
+uses `fzn_blob_*`?**
+
+    chunk/    one mention, in a COMMENT contrasting a message with a blob
+    record/   zero
+    sync      zero
+    spool/    16 mentions in spool.h, 23 in spool.c -- and two CALLS
+
+Three are independent. **`spool/` is coupled, and semantically rather than
+nominally**, which is the distinction that decides the answer. `spool.h`
+includes `blob.h` and types `fzn_spool_t.root` as `uint8_t[FZN_BLOB_HASH_LEN]`
+-- that much is nominal, and a library merely CARRYING a 32-byte root would
+accept any consumer's. It does not merely carry it. `spool.c:108` and `:111`
+call `fzn_blob_leaf_hash` and `fzn_blob_proof_verify`, so admitting a leaf
+runs this library's tree shape, its one-byte prefixes and its finaliser --
+all three of the things the addressing measurement found the two trees
+differing on.
+
+**A spool keyed by a foreign root would reject every leaf, and reject it at
+the proof rather than at the type.** Nothing would fail to compile. That is
+the shape worth recording: the coupling is invisible to a consumer reading
+headers, because the types agree and only the construction does not.
+
+**It is the one module where "keep your own blob layer" and "take fuzznet's"
+are exclusive.** Everything else -- chunking, the journal, sync -- is
+genuinely independent of blob ids, so a consumer that already has content
+addressing can adopt the frame and the record layer and leave `blob/` alone.
+`blob/` exists for the consumers who do NOT have one, and its existence is
+not an argument that the one who does should switch.
+
+### A tree seam was offered and deliberately not built
+
+The obvious fix is to make the tree a vtable the way the crypto already is:
+this library calls no primitive, so `leaf_hash` and `proof_verify` behind an
+`fzn_tree_ops_t` is the same move one layer up, two call sites, both already
+taking a `hash` vtable.
+
+**Not built, because sec 5 refuses a seam added for nobody.** It is worth
+building only if the consumer with its own tree would then take `spool/`, and
+that is theirs to answer. Recorded here so that the next consumer to ask --
+netcfgd, raidcfgd or hydra, none of which has a blob layer -- finds the
+question already framed and the cost already measured rather than
+rediscovering it.
+
+**And the first measurement of this was wrong in the reassuring direction.**
+It reported "only the optional file backend touches blob", because a `head`
+truncated the grep and `spool.h`'s sixteen hits were below the cut. Re-run
+unbounded before it was sent. That is the third time on 2026-09-01 that a
+truncated command produced a confident wrong claim -- the same cause told
+the consumer their submodule was a stale vendored directory. **A pager on a
+measurement is a probe that answers about the first ten lines and reports
+about the file.**
+
 ### Twenty-four measurements of somebody else's tree, uncited
 
 Found by turning the advice around. Having told the consumer to ask for
