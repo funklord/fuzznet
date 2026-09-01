@@ -10918,6 +10918,55 @@ branch), and **a control** -- the derived key is asserted non-zero and the two
 halves of the root asserted different, because without it a derivation
 returning zeroes satisfies every comparison above perfectly.
 
+### The finding generated its own sweep, which is the part that scaled
+
+Sec 43 says the sweeps that pay are aimed by a shape derived from the last
+defect. This one supplied a shape immediately: **a domain label is a constant
+both sides move together**, so every one of them is blind in the same way.
+There are seven in the library, and each was mutated and run.
+
+    session label      fuzznet-sess-v1   SURVIVED -> now pinned
+    root label         fuzznet-kdf-v2    SURVIVED -> now pinned
+    directed label     fuzznet-dir-v1    SURVIVED -> now pinned
+    v2 version byte    2u                SURVIVED -> now pinned
+    commitment bind    fuzznet-bind-v1   held, by golden_frame_test
+    signed version     1u                held, at COMPILE time
+    blob root          fuzznet-root-v1   held
+    ratchet label      fuzznet-ratchet1  SURVIVED -- open, below
+    blob key label     fuzznet-blob-v1   SURVIVED -- open, below
+
+**The v2 version byte is the one that matters most and was found last.** The
+first vector pinned v1 only, and v2 is the FORWARD-SECRECY path -- the
+decision sec 14 spends its longest entry on, and the one this library exists
+to have got right. A vector that stops at v1 pins the weaker of the two
+protocols and reads as though it pinned the derivation.
+
+**The two already held show what pinning by accident looks like**, and one of
+them is the cheapest form of this whole idea. `FZN_SIGNED_VERSION` is caught
+at COMPILE time by an oracle `_Static_assert` in `chain_fuzz.c` -- "the
+version byte moved" -- because the fuzz harness's independent model states the
+constant separately and the two are asserted equal. It costs no run time and
+cannot rot. The bind label is caught by golden_frame_test, which carries a
+commitment the real hash derived.
+
+**`ratchet/` and `blob/` are left open deliberately**, recorded rather than
+bolted onto a session test: they are other modules, the per-message key
+schedule and the content key schedule respectively, and each wants its own
+vector written from its own header. Measured, named, and not pretended to be
+closed.
+
+### What the directed label's survival did NOT mean
+
+session.c already recorded that `FZN_SESSION_DIR_LABEL` "fails nothing" and
+explained why: the KDF prepends its own label upstream, so inputs differ in
+their first sixteen bytes whatever this constant says. **That argument is
+about collision resistance and it is still correct.** It says nothing about
+interop, and the two were being conflated by the absence of any check at all:
+a consumer deriving chain keys needs these exact sixteen bytes. The label is
+now pinned for the second reason while the first reason's honest limit stands
+unchanged -- which is why the sabotage entries for the labels are commented as
+protocol rather than as guards.
+
 ### Why this was the shape worth taking
 
 Sec 43 concluded that blanket sweeping has low yield and that what pays is a

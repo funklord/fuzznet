@@ -46,6 +46,24 @@
  * cannot talk, which is precisely the outcome session.h's own preamble warns
  * about. Nothing executable had ever read that line.
  *
+ * WHAT IT COVERS, AND WHY THE LIST GREW. The first version pinned the v1
+ * root and nothing else, so the same question was put to every other domain
+ * label in the library by mutating each one and running the suite. Four more
+ * survived: the directed chain label, the ratchet label, the blob key label,
+ * and the v2 transcript's version byte -- THE LAST BEING THE FORWARD-SECRECY
+ * PATH, which is the one sec 14 records as the decision this library exists
+ * to have got right. The two in this module are pinned below. `ratchet/` and
+ * `blob/` are other modules and want their own vectors, recorded as measured
+ * and open rather than bolted onto a session test.
+ *
+ * The two that were already held are worth naming, because they show what
+ * pinning looks like when it happens by accident: the commitment BIND label
+ * is caught by golden_frame_test, which carries a commitment the real hash
+ * derived, and FZN_SIGNED_VERSION is caught at COMPILE time by an oracle
+ * _Static_assert in chain_fuzz.c -- "the version byte moved". A constant
+ * asserted against an independent model is the cheapest form of this whole
+ * idea and the only one that costs no run time.
+ *
  * GATED ON MONOCYPHER because the recomputation needs the real X25519 and the
  * real BLAKE2b. A stub of either derives different bytes and there is nothing
  * to compare.
@@ -208,6 +226,108 @@ static void expected_root(const uint8_t self_secret[32], const uint8_t self_id[3
 	crypto_wipe(derived, sizeof(derived));
 }
 
+/*
+ * THE V2 TRANSCRIPT, which is the forward-secrecy path.
+ *
+ * ROLE-ORDERED, NOT SORTED, and that is the opposite of v1 above ON PURPOSE:
+ * session.h argues the distinction at length. The relationship here is
+ * asymmetric -- one side brought an ephemeral and the other did not -- so the
+ * initiator goes first whatever the identities compare as. A reimplementation
+ * that sorted, as v1 does, would derive a different root, and this is the file
+ * that would say so.
+ *
+ *   label(16) | version=2 | initiator id | initiator prekey
+ *             | responder id | responder prekey | ephemeral public
+ *             | prekey shared | ephemeral shared
+ *
+ * The two DH results, from session.c's own pairing:
+ *   prekey shared    = DH(initiator prekey, responder prekey)
+ *   ephemeral shared = DH(initiator ephemeral, responder prekey)
+ * Both sides reach both, which is what makes the responder's arguments a
+ * mirror rather than a second protocol.
+ */
+static void expected_root_v2(const uint8_t init_prekey_sk[32], const uint8_t init_id[32],
+                             const uint8_t init_eph_sk[32], const uint8_t resp_prekey_sk[32],
+                             const uint8_t resp_id[32], uint8_t key_out[FZN_AEAD_KEY_LEN],
+                             uint8_t ckey_out[FZN_COMMITMENT_KEY_LEN])
+{
+	static const char SESSION_LABEL[16] = "fuzznet-sess-v1\0";
+	static const char ROOT_LABEL[16] = "fuzznet-kdf-v2\0\0";
+
+	uint8_t init_pk[32], init_eph_pk[32], resp_pk[32];
+	uint8_t dh_prekey[32], dh_eph[32];
+	uint8_t transcript[FZN_SESSION_TRANSCRIPT_V2_LEN];
+	uint8_t input[16 + FZN_SESSION_TRANSCRIPT_V2_LEN];
+	uint8_t derived[FZN_DERIVED_LEN];
+	size_t at = 0;
+
+	crypto_x25519_public_key(init_pk, init_prekey_sk);
+	crypto_x25519_public_key(init_eph_pk, init_eph_sk);
+	crypto_x25519_public_key(resp_pk, resp_prekey_sk);
+	crypto_x25519(dh_prekey, init_prekey_sk, resp_pk);
+	crypto_x25519(dh_eph, init_eph_sk, resp_pk);
+
+	memcpy(transcript + at, SESSION_LABEL, 16);
+	at += 16;
+	transcript[at++] = 2u;
+	memcpy(transcript + at, init_id, 32);
+	at += 32;
+	memcpy(transcript + at, init_pk, 32);
+	at += 32;
+	memcpy(transcript + at, resp_id, 32);
+	at += 32;
+	memcpy(transcript + at, resp_pk, 32);
+	at += 32;
+	memcpy(transcript + at, init_eph_pk, 32);
+	at += 32;
+	memcpy(transcript + at, dh_prekey, 32);
+	at += 32;
+	memcpy(transcript + at, dh_eph, 32);
+	at += 32;
+
+	check(at == FZN_SESSION_TRANSCRIPT_V2_LEN && at == 241u,
+	      "the v2 transcript this file builds is the 241 bytes session.h declares");
+
+	memcpy(input, ROOT_LABEL, 16);
+	memcpy(input + 16, transcript, FZN_SESSION_TRANSCRIPT_V2_LEN);
+	crypto_blake2b(derived, sizeof(derived), input, sizeof(input));
+
+	memcpy(key_out, derived, FZN_AEAD_KEY_LEN);
+	memcpy(ckey_out, derived + FZN_AEAD_KEY_LEN, FZN_COMMITMENT_KEY_LEN);
+
+	crypto_wipe(dh_prekey, sizeof(dh_prekey));
+	crypto_wipe(dh_eph, sizeof(dh_eph));
+	crypto_wipe(transcript, sizeof(transcript));
+	crypto_wipe(input, sizeof(input));
+	crypto_wipe(derived, sizeof(derived));
+}
+
+/*
+ * ONE DIRECTION'S CHAIN KEY: label | from | to | root.
+ *
+ * DIRECTED, WHICH IS THE POINT -- send is (self -> peer) and receive is
+ * (peer -> self), so flipping the pair must change the key or the two chains
+ * would be one. The label is `fuzznet-dir-v1`, and session.c records that it
+ * is NOT load-bearing for domain separation by the library's own path, since
+ * the KDF prepends its own label upstream while this calls the hash directly.
+ * That argument is about collision resistance and it stands. It says nothing
+ * about interop: a consumer deriving chain keys needs these exact sixteen
+ * bytes, and until this check nothing anywhere held them.
+ */
+static void expected_chain(const uint8_t root[FZN_AEAD_KEY_LEN], const uint8_t from[32],
+                           const uint8_t to[32], uint8_t out[FZN_CHAIN_KEY_LEN])
+{
+	static const char DIR_LABEL[16] = "fuzznet-dir-v1\0\0";
+	uint8_t input[16 + 32 + 32 + FZN_AEAD_KEY_LEN];
+
+	memcpy(input, DIR_LABEL, 16);
+	memcpy(input + 16, from, 32);
+	memcpy(input + 48, to, 32);
+	memcpy(input + 80, root, FZN_AEAD_KEY_LEN);
+	crypto_blake2b(out, FZN_CHAIN_KEY_LEN, input, sizeof(input));
+	crypto_wipe(input, sizeof(input));
+}
+
 int main(void)
 {
 	fzn_agree_ops_t agree;
@@ -261,6 +381,77 @@ int main(void)
 	      "B derives the same AEAD key from the mirrored arguments");
 	check(memcmp(b_ckey, want_ckey, sizeof(want_ckey)) == 0,
 	      "B derives the same commitment key from the mirrored arguments");
+
+	/* THE FORWARD-SECRECY PATH. A's prekey plus a fresh ephemeral against
+	 * B's prekey, role-ordered with A as the initiator. Its version byte
+	 * survived a mutation to 9 before this check existed. */
+	{
+		static const uint8_t SECRET_E[FZN_AGREE_SECRET_LEN] = {
+			0x5a, 0x5a, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06,
+			0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+			0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16,
+			0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e,
+		};
+		fzn_agree_secret_t eph;
+		uint8_t eph_pub[32];
+		uint8_t want2_key[FZN_AEAD_KEY_LEN], want2_ckey[FZN_COMMITMENT_KEY_LEN];
+		uint8_t got2_key[FZN_AEAD_KEY_LEN], got2_ckey[FZN_COMMITMENT_KEY_LEN];
+		uint8_t r_key[FZN_AEAD_KEY_LEN], r_ckey[FZN_COMMITMENT_KEY_LEN];
+
+		check(fzn_agree_secret_install(&eph, &agree, SECRET_E) == FZN_AGREE_OK,
+		      "the ephemeral installs");
+		crypto_x25519_public_key(eph_pub, SECRET_E);
+
+		expected_root_v2(SECRET_A, ID_LOW, SECRET_E, SECRET_B, ID_HIGH, want2_key,
+		                 want2_ckey);
+
+		check(fzn_session_establish_initiator(&sk_a, &eph, &agree, &hash, ID_LOW,
+		                                      ID_HIGH, pub_b, got2_key, got2_ckey)
+		              == FZN_SESSION_OK,
+		      "the initiator establishes");
+		check(memcmp(got2_key, want2_key, sizeof(want2_key)) == 0,
+		      "the initiator's key is the one the documented v2 derivation produces");
+		check(memcmp(got2_ckey, want2_ckey, sizeof(want2_ckey)) == 0,
+		      "the initiator's commitment key matches the documented v2 derivation");
+
+		/* The responder reaches the same root through mirrored arguments
+		 * and a DIFFERENT pair of DH calls -- its ephemeral shared comes
+		 * from its own prekey against the peer's ephemeral. Same bytes,
+		 * or the two halves are not one protocol. */
+		check(fzn_session_establish_responder(&sk_b, &agree, &hash, ID_HIGH, ID_LOW,
+		                                      pub_a, eph_pub, r_key, r_ckey)
+		              == FZN_SESSION_OK,
+		      "the responder establishes");
+		check(memcmp(r_key, want2_key, sizeof(want2_key)) == 0,
+		      "the responder reaches the documented v2 root too");
+
+		/* v1 and v2 over the same two hosts must not collide. The version
+		 * byte is the only thing separating them for a peer that supports
+		 * both, which is why its mutation mattered. */
+		check(memcmp(want2_key, want_key, sizeof(want_key)) != 0,
+		      "v1 and v2 derive different roots for the same pair");
+	}
+
+	/* THE DIRECTED CHAIN KEYS. Send is (self -> peer), receive is the
+	 * reverse, and `fuzznet-dir-v1` survived a mutation to -v9 before this
+	 * existed. */
+	{
+		uint8_t send_got[FZN_CHAIN_KEY_LEN], recv_got[FZN_CHAIN_KEY_LEN];
+		uint8_t send_want[FZN_CHAIN_KEY_LEN], recv_want[FZN_CHAIN_KEY_LEN];
+
+		expected_chain(want_key, ID_LOW, ID_HIGH, send_want);
+		expected_chain(want_key, ID_HIGH, ID_LOW, recv_want);
+
+		check(fzn_session_chains(&hash, want_key, ID_LOW, ID_HIGH, send_got, recv_got)
+		              == FZN_SESSION_OK,
+		      "chains derive");
+		check(memcmp(send_got, send_want, FZN_CHAIN_KEY_LEN) == 0,
+		      "the send chain is the one the documented derivation produces");
+		check(memcmp(recv_got, recv_want, FZN_CHAIN_KEY_LEN) == 0,
+		      "the receive chain is the one the documented derivation produces");
+		check(memcmp(send_got, recv_got, FZN_CHAIN_KEY_LEN) != 0,
+		      "the two directions are not the same key");
+	}
 
 	/* THE CONTROL, and without it every check above is satisfied by a
 	 * derivation that returned zeroes. `expected_root` and the library

@@ -346,6 +346,20 @@ SABOTAGES = [
 		"the session domain label is pinned against silent change",
 	),
 	(
+		"dir-label-is-protocol",
+		"session/session.c",
+		'static const char FZN_SESSION_DIR_LABEL[16] = "fuzznet-dir-v1\\0\\0";',
+		'static const char FZN_SESSION_DIR_LABEL[16] = "fuzznet-dir-v9\\0\\0";',
+		"the directed chain label is pinned against silent change",
+	),
+	(
+		"transcript-v2-version-is-protocol",
+		"session/session.h",
+		"#define FZN_SESSION_TRANSCRIPT_V2 2u",
+		"#define FZN_SESSION_TRANSCRIPT_V2 9u",
+		"the v2 transcript version byte is pinned against silent change",
+	),
+	(
 		"root-label-is-protocol",
 		"session/commitment.c",
 		'static const char FZN_ROOT_LABEL[16] = "fuzznet-kdf-v2\\0\\0";',
