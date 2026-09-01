@@ -8830,6 +8830,15 @@ run, recorded under sec 15c.
   verifies a chain the rest of the network revoked last week. Being a
   relay on the path is enough to hold a victim there.
 
+  **AND IT IS NOW DECISION-BLOCKING FOR A FOURTH CONSUMER**, which is a
+  change of status rather than of content: sec 46 records that hydra
+  joins, that estates are expected to SHATTER, and that healing one is a
+  requirement. The revocations a returning device most needs are the ones
+  issued BECAUSE devices went missing, so the longer the absence the more
+  certain the gap -- and the fail-open lands exactly on the case the
+  feature exists for. Nothing about the defect moved; what moved is that
+  a deployment now depends on it.
+
   **The harness now exhibits it rather than hiding it.**
   `sim/test/network_test.c`'s `scenario_revocation_split` gives two hosts
   the same root and the same sender's chain, tells one of them about the
@@ -10827,6 +10836,187 @@ alone is also green, since the openers do write every field. Dropping the
 init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
+
+## 46. A fourth consumer, shared estates, and healing a shattered one, 2026-09-01
+
+hydra joins as a fourth consumer, using fuzznet as fuzzypickles does and
+with fewer features. The holder's requirement is larger than that: **the
+same credentials and the same network across every consumer**, with
+netcfgd-shaped configuration possibly living inside fuzzypickles, and the
+projects possibly merging. Plus estates that SHATTER -- hardware gone for a
+long time -- and a strategy for healing one afterwards, automated where it
+can be and asking the user where it cannot.
+
+### The question turned on a claim that was wrong
+
+The first answer given was that session keys are per identity-pair with no
+app field, so two apps sharing an identity would share an AEAD key, a
+commitment key and a ratchet -- and that a service discriminator therefore
+had to go into the transcript before anything shipped.
+
+**The holder rejected the framing on the right grounds**: another app is
+another host, and if that were a problem hosts would already have it. The
+challenge was correct and the claim was not.
+
+The transcript binds `identity | prekey` for BOTH parties, not identity
+alone. Two hosts differ in both, so nothing collides, and **the prekey is
+already the scope discriminator the transcript was said to lack.** Two apps
+sharing an identity but holding different prekeys derive different roots,
+different chain keys and different message keys, with no wire change at all.
+
+The collision needs both apps to hold the SAME PREKEY SECRET, which is
+cloning key material -- the hazard of copying a server key to two machines,
+not a property of this protocol. Nothing forces it, and "share credentials"
+does not imply it.
+
+### The real gap is one layer over: a prekey cannot say what it is for
+
+A prekey record is `version | object | host | prekey | created_at |
+signature`. **No field names what the prekey is FOR.** Several concurrent
+prekeys per host are expressible -- each record is independent and
+self-signed -- but they are not distinguishable, and the only discriminator
+is `created_at`, which reads as ROTATION rather than as scope. `prekey.h`
+leaves the table to the consumer in terms: "keeping a table of them is a
+consumer's business".
+
+So the obvious implementation -- key by host, newest wins -- treats a second
+app's prekey as a rotation of the first's and replaces it, **collapsing the
+apps back onto one prekey and manufacturing the sharing that was not
+otherwise there.** The mechanism for separation exists; the addressing for
+it does not, and the default behaviour destroys it.
+
+### Apps should be MEMBERS, which needs no protocol change at all
+
+Not a transcript field, and not a scope field in the prekey record either.
+**Each app holds its own delegated identity key under the estate root**,
+exactly as devices already do -- sec 28's estate model, where the root is
+the estate and members are delegated.
+
+Each app then publishes a prekey record naming ITS OWN host key, so every
+consumer table keyed by host works unchanged and the addressing gap above
+never arises. What it buys:
+
+- **per-app sessions**, automatically, because the identities differ;
+- **per-app revocation**, which a shared identity cannot express at all -- a
+  revocation names `(capability, grantee, issuer)`, so retiring hydra
+  without touching fuzzypickles is already sayable;
+- **per-app capabilities**, which the "fewer features" requirement wanted
+  anyway, and which `chain/` already leaves opaque;
+- **one root**, one estate, one anchor the user checks out of band once,
+  which is what "same credentials" has to mean.
+
+The costs, stated rather than buried: an app's key is not the root, so
+anything needing root authority needs the root; and a host runs N prekey
+rotations rather than one. The alternative -- one identity, per-app prekeys
+-- works cryptographically, but needs a scope field to be addressable, buys
+no revocation granularity, and leaves "rotation or second app?" ambiguous.
+**Members are strictly better and invent nothing.**
+
+**One thing to reconcile on the consumer side**, which cannot be checked
+from this tree: fuzzypickles enforces one-root-per-host structurally --
+`fzp_capability_revocation_install` takes no root argument and loads the
+host's own `user_pubkey`. If that code assumes the host's own key IS the
+root, an app holding a DELEGATED key meets an assumption that no longer
+holds. That is their reconciliation, not this library's.
+
+### Shattered estates: what already heals, and it is most of it
+
+A device gone for a long time and returning is, mechanically, a host that
+is behind. `record/sync.h` is exactly that machinery and needs nothing
+added: positions are per `(issuer, stream)`, the plan answers "which ranges
+are missing, and which way round", and it is **PULL rather than push
+precisely so it survives loss without acknowledgements** -- a host that
+missed something asks again next time it compares. A device that missed
+eighteen months asks for eighteen months.
+
+Three more things already fall out and are worth stating so nobody builds
+them twice:
+
+- **Pins survive.** Identity keys are long-term, so a returning device's
+  trust anchors are still valid. What went stale is peers' PREKEYS, and a
+  prekey record is self-signed by an identity that has not changed -- so
+  re-fetching is safe, mechanical, and needs no user.
+- **Entitlement gaps are already solved.** Sec 19's `stream` is what lets a
+  host hold a contiguous position in what it is allowed to see, rather than
+  treating every record it was not entitled to as an unfillable hole.
+- **The library already stops where a human belongs.** `record/sync.h`
+  reports an issuer this host has never followed **as a COUNT and never as
+  a request**, on the reasoning that fetching from a stranger because a peer
+  mentioned them is how one compromised peer fills every journal in the
+  network. That refusal is the natural seat of the dialog: the automated
+  half plans ranges for issuers already followed, and the half that needs a
+  user is the half the library already declines to take on its own.
+
+### What does NOT heal, and a shatter is its worst case
+
+**Revocations ride no stream and carry no sequence, so absence and
+up-to-date are the same observation.** Sec 14 carries this as the serious
+open half: a host that joins fresh, has been offline, or is partitioned
+verifies a chain the rest of the network revoked last week and cannot tell
+it might be wrong.
+
+**The shatter requirement is what makes this decision-blocking rather than
+theoretical.** The revocations a returning device most needs are the ones
+issued BECAUSE devices went missing -- so the longer the absence, the more
+certain it is that the gap is real, and the fail-open lands exactly on the
+case the feature exists for. A device written off as lost and quietly
+re-admitting itself is the whole failure.
+
+Two aggravations sit on top of it:
+
+- **The store only grows and fails open when full.** `fzn_revocation_admit`
+  refuses past capacity, and refusing to record a revocation means it is not
+  in force AT ALL. A device ingesting a long backlog is the likeliest way to
+  reach that bound, and it reaches it while catching up. Sec 13d's manifest
+  is the named mitigation and this is its strongest argument: **it names the
+  count before the revocations arrive**, so a host can refuse at follow time,
+  loudly, with a number.
+- **A revocation cannot be lifted.** `revocation.h`: "a revocation that
+  lapses un-revokes a device; there is no safe eviction policy". So healing
+  a device that WAS written off is not un-revoking it -- it is issuing a new
+  delegated key to a new grantee, and the retired one stays retired forever.
+  That is correct, and it is a user-facing consequence rather than an
+  implementation detail: the dialog is "this device was retired; re-admit it
+  as new?" and there is no other shape available.
+
+**The fix has a shape and it is already in the tree, one module over.**
+`record/` solves precisely "can I tell that I am missing something?" --
+per-`(issuer, stream)` positions, `fzn_journal_admit` refusing a gap,
+`fzn_sync_plan` naming the missing ranges. Revocations do not use any of it.
+Carried on a stream with sequence numbers, a returning device would know HOW
+MANY it is missing and could decline to verify until caught up, turning a
+silent fail-open into a countable, healable gap. **That is not a new
+mechanism; it is an existing one this object does not yet ride.** It is not
+designed here and the three commissioned designs in sec 25 are the input.
+
+### Root availability is the other half of a shatter
+
+If the root key lives on hardware that goes away, **no member can be
+delegated and no revocation can be issued** -- the estate cannot heal
+itself, whatever the sync layer does. `chain/` already carries the
+mechanism: hops have a `delegable` bit and chains run to
+`FZN_CHAIN_MAX_HOPS` (8), so an intermediate holding a delegable grant can
+mint members while the root stays offline.
+
+**Using it is a decision to take BEFORE a shatter, not after.** An estate
+whose only minting key is the one that vanished has no recovery path that
+does not start over, and no amount of healing logic supplies one. This is
+the same compartmentalisation cost sec 28 already accepted for two
+estates, arriving from the other direction.
+
+### What is decided here and what is not
+
+Decided: **apps are members**, and that needs no protocol change. Also
+decided, in the sense of ruled out: a service field in the transcript, which
+would have duplicated the prekey, and a scope field in the prekey record,
+which members make unnecessary.
+
+Not decided, and named as the blocker: **how a host learns it is missing
+revocations.** Everything else about shattered estates is either already
+built or follows from mechanisms that are. Until that one is settled, the
+healing story ends with a host that has caught up on everything it can count
+and cannot count the thing that matters most.
+
 
 ## 45. The key nothing pinned, 2026-09-01
 
