@@ -10975,6 +10975,40 @@ went red". Each is a real discipline pointed at the wrong question, and the
 care spent describing it is what stops a reader asking whether it could have
 failed.
 
+### Signalled to the workspace: a bound reported as a value, four instances
+
+Sent to `claude-guidelines` 2026-09-01, at the consumer's request and on
+their reasoning that a signal is worth more from the tree that hit it --
+the fourth instance is situ's finding surfaced in this tree's gate.
+
+    1  fuzzypickles  1794 as a record's size; it is the eight-hop ceiling
+    2  fuzznet       204 then 1794, two ends of one line, each called a size
+    3  fuzznet       FZN_CHAIN_MAX_LEN 1434 written as 1432, its factors
+    4  situ          `size=144` in the generated map; the answer is 144..1168
+
+**The fourth is the one the workspace needed.** The first three are
+documents, where a reader can in principle re-derive. **A generator's output
+is committed, gated, and re-derived by nobody**: this tree's
+`wire/frame.situ.map` carried `size=144` from 2026-08-15, and `make schema`
+went green over it every time, because the gate compared the artifact against
+a generator that agreed with itself. It surfaced only when situ fixed the
+generator and the two stopped agreeing.
+
+**What was deliberately NOT signalled** is a sourcing rule. An earlier draft
+of this signal -- the consumer's, retracted before it landed -- proposed
+"cite the constant, not the document that quotes it", and instance 2 refutes
+it: the constant was cited, from the header, expanded by a compiler, and
+annotated `<- A CEILING, not the value` two lines above the paragraph that
+called it the size. **There is no sourcing failure in any of the four.** The
+failure is always one step after sourcing, and a rule aimed at the step
+before it would have been filed against examples that contradict it.
+
+The sharpening sent with it is the counter-intuitive half and is the reason
+instance 2 outlived a correction that was itself wrong: **a false claim of
+rigour is caught by verifying it, and a true one about an adjacent step stops
+the reader** -- the paragraph has demonstrated care, and nobody asks which
+step the care was about.
+
 ### Four things a consumer found by building, and a commit that hides them
 
 Reported by fuzzypickles while wiring the frame end to end, all four found
