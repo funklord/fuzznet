@@ -10677,6 +10677,74 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 43. How much sweeping is left, measured rather than felt, 2026-09-01
+
+Six shapes were swept deliberately (secs 36 to 42) and the last two found
+nothing: the key-term lens across five keyed tables, and the documented
+check-orderings, which are held by thirteen call-count assertions tree-wide.
+**Two consecutive null lenses is the point at which guessing a seventh
+becomes manufacturing work**, so the question changed from "what else can I
+think of" to "how much is left", which is answerable.
+
+### The method, recorded so it can be re-taken
+
+Every one-line `if (cond)` whose next line is a bare
+`return FZN_..._ERR...;`, comments stripped, keeping only those whose exact
+text occurs once so a mutation is unambiguous: **254 in the library**. Each
+turned into `if (0)` so the guard never fires -- a mutation that always
+compiles, unlike editing a condition. Systematic sample of every tenth, 25
+guards, each rebuilt through `make test` with the harness's disciplines
+(clean tree required, mutation asserted to land, process group killed on a
+timeout, restore verified).
+
+    caught 19    survived 6    hung 0    did not build 0
+
+### The six survivors are redundant, and the check that decided it was wrong
+
+Three of the six are minimum-length or bounds guards on parsers, which
+looked like a memory-safety class: disable `len < FZN_MANIFEST_MIN_LEN` and
+the count is read at offset 34 of a buffer that may be shorter. So they were
+re-run under `make SANITIZE=1 BUILD_DIR=san test`, expecting ASan to catch
+what the plain suite could not.
+
+**ASan caught none of them, and the reason is the finding.** A test passes a
+SHORT LENGTH with a FULL-SIZE BUFFER -- `manifest_test` opens at
+`FZN_MANIFEST_MIN_LEN - 1`, which is 67 bytes claimed against an allocation
+of the full manifest. Reading offset 34 is inside the allocation, so there
+is no out-of-bounds access for a sanitizer to see. **The mutation tests a
+logic redundancy and ASan answers a memory question; pointing it at this was
+asking the wrong instrument.**
+
+What actually happens is that a later check refuses the same input.
+`manifest.c:157`'s `len != FZN_MANIFEST_LEN(count)` rejects every length
+that is not exactly right, short ones included, so `MIN_LEN` is defence in
+depth. `record_test` proves the same for `record/` from the other side: it
+sweeps `SHORT_LENS = {1, 2, 3, 4, 91, MIN_LEN - 1}`, so short buffers ARE
+fed, and the suite still passing with the guard disabled means something
+else refused them.
+
+### What the number actually says
+
+    the guard's EFFECT is held                     25 of 25
+    this specific LINE is what refuses             19 of 25
+
+**That distinction is the whole result.** A survivor here is not a gap; it
+is a guard whose sibling covers the same input. Six in twenty-five is a
+measure of how much defence in depth this library carries, which is a
+property somebody chose, not a deficiency.
+
+**So further blanket sweeping has low expected yield**, and the reason is
+not that the tree is perfect. It is that the survivors a blanket sweep
+produces are mostly redundant guards, and telling those from real gaps costs
+a manual investigation each -- the six above took one sanitized run and two
+readings to classify. The sweeps that paid were aimed by a SHAPE derived
+from the last bug, and every one of the eight findings in secs 36 to 42 came
+from those rather than from breadth.
+
+**What would change this** is a new shape, and the honest way to get one is
+the way the others arrived: from the next real defect, not from a list
+written in advance.
+
 ## 42. The wipes a caller can see, 2026-09-01
 
 This library makes 32 `fzn_wipe` calls. **Sweeping them all would have been
