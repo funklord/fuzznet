@@ -11381,6 +11381,44 @@ mutation must be checked for being the mutation intended**, not merely for
 landing -- `sabotage.py` asserts that its edit applies and this is the next
 question along, which none of these ad-hoc probes was asking.
 
+### The harness had the same flaw, and now says HOW it caught something
+
+Three ad-hoc probes reported catches they had not earned, so the obvious
+question was whether `tool/sabotage.py` -- which does this properly, with a
+clean-tree refusal, an assertion that the mutation lands, a process-group kill
+on timeout and a verified restore -- was immune. **It was not.** Its verdict
+was `CAUGHT if returncode != 0`, which is exactly the test that let
+`fzn_put_le64` through.
+
+It is not a one-line fix, because for this sweep **a failed build is
+sometimes the guard working.** The layout entries added above are held by
+`_Static_assert`, so refusing to compile IS the catch, and the loudest and
+cheapest form of it. Two compile failures that must be told apart:
+
+    a static assertion fired      CAUGHT     -- the guard did its job
+    any other compile error       NOT-BUILT  -- the entry tested nothing
+
+`NOT-BUILT` now refuses the whole sweep rather than being reported, on the
+same reasoning as a stale pattern one step earlier: an entry that looks like a
+result and is not one is worse than a sweep that stops.
+
+Re-run against the original mistake, it reports `NOT-BUILT` and exits 2 where
+it would have said `CAUGHT`.
+
+### And exploring is the same operation, so it is the same tool now
+
+`--probe FILE OLD NEW` runs one mutation that is not in the table. It exists
+because the alternative was written by hand about eight times in one session
+and got three of them wrong -- and every discipline it kept getting wrong is
+already in the harness. The hand-written version also grepped for `FAIL` and
+matched each suite's own deliberate self-test, which the harness has always
+excluded.
+
+**A probe runs no control, and says so.** The table's controls are what prove
+the suite can fail at all; a one-off borrows no such proof, so its `SURVIVED`
+means "the suite did not fail" rather than "the suite could have". Printing
+that is cheaper than someone assuming otherwise.
+
 ### Why this was the shape worth taking
 
 Sec 43 concluded that blanket sweeping has low yield and that what pays is a

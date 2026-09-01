@@ -465,6 +465,18 @@ def main(argv):
 	                     "nothing")
 	ap.add_argument("--timeout", type=int, default=TIMEOUT, metavar="SECONDS",
 	                help="ceiling on one `make test` (default %d)" % TIMEOUT)
+	# ONE-OFF MUTATIONS BELONG HERE TOO, and this argument exists because
+	# they were repeatedly written by hand instead. Exploring "is this
+	# constant pinned by anything?" is the same operation as an entry in
+	# the table -- clean tree, mutation asserted to land, process group
+	# killed on a timeout, restore verified, the verdict distinguishing a
+	# failed build from a failed test -- and every one of those disciplines
+	# was got wrong at least once in the hand-written version. Three probes
+	# reported catches they had not earned. See project.md sec 45.
+	ap.add_argument("--probe", nargs=3, metavar=("FILE", "OLD", "NEW"),
+	                help="run ONE mutation not in the table and report it, "
+	                     "then restore. For asking whether something is "
+	                     "pinned before deciding to pin it")
 	args = ap.parse_args(argv)
 
 	if args.list:
@@ -474,7 +486,21 @@ def main(argv):
 		return 0
 
 	chosen = SABOTAGES
-	if args.only:
+	if args.probe:
+		if args.only:
+			refuse("--probe runs one mutation of its own; --only selects "
+			       "from the table. Use one or the other.")
+		rel, old_text, new_text = args.probe
+		if old_text == new_text:
+			refuse("--probe was given the same text twice, so the mutation "
+			       "cannot land and the run would prove nothing.")
+		# NO CONTROL IS AVAILABLE for a one-off, and that is a real
+		# limitation rather than an oversight: the table's controls prove
+		# the suite can fail at all, and a probe borrows no such proof. So
+		# a SURVIVED here is weaker evidence than a SURVIVED below, and
+		# saying so is cheaper than someone assuming otherwise.
+		chosen = [("PROBE", rel, old_text, new_text, "one-off probe")]
+	elif args.only:
 		wanted = set(args.only) | {s[0] for s in SABOTAGES
 		                           if s[0].startswith("CONTROL")}
 		unknown = set(args.only) - {s[0] for s in SABOTAGES}
@@ -580,11 +606,41 @@ def main(argv):
 				print("%-24s %-9s make test did not finish in %ds"
 				      % (sid, "HUNG", args.timeout), flush=True)
 				continue
-			verdict = "CAUGHT" if run.returncode != 0 else "SURVIVED"
-			detail = ""
-			if run.returncode != 0:
-				named = [ln for ln in (run.stdout or "").splitlines()
-				         if "FAIL" in ln and "deliberate" not in ln]
+			# WHICH KIND OF CAUGHT, because they are not the same
+			# evidence and a non-zero exit does not distinguish them.
+			#
+			# A FAILED BUILD EXITS NON-ZERO EXACTLY AS A FAILING TEST
+			# DOES. This cost a wrong result: `fzn_put_be64` was swapped
+			# for `fzn_put_le64` to check that blob's index encoding was
+			# pinned, the run came back non-zero, and it was recorded as
+			# CAUGHT. `fzn_put_le64` does not exist in this library. The
+			# mutation was a compile error and the probe had tested
+			# nothing -- see project.md sec 45.
+			#
+			# A STATIC ASSERTION IS THE OPPOSITE CASE and also does not
+			# build. Since the layout entries are held by
+			# `_Static_assert`, refusing to compile IS the guard working,
+			# and it is the loudest, cheapest form available. So the two
+			# must be told apart rather than both called "did not build":
+			# an assertion firing is a catch, any other compile error
+			# means the entry stopped being evidence and needs fixing.
+			out = run.stdout or ""
+			asserts = [ln for ln in out.splitlines()
+			           if "static assertion failed" in ln]
+			errors = [ln for ln in out.splitlines()
+			          if "error:" in ln and "static assertion" not in ln]
+			named = [ln for ln in out.splitlines()
+			         if "FAIL" in ln and "deliberate" not in ln]
+			if run.returncode == 0:
+				verdict, detail = "SURVIVED", ""
+			elif asserts:
+				verdict = "CAUGHT"
+				detail = asserts[0].split("failed:", 1)[-1].strip()[:70]
+			elif errors:
+				verdict = "NOT-BUILT"
+				detail = errors[0].strip()[-70:]
+			else:
+				verdict = "CAUGHT"
 				detail = named[-1].strip()[:70] if named else ""
 			results.append((sid, verdict, detail or why))
 			print("%-24s %-9s %s" % (sid, verdict, detail), flush=True)
@@ -594,6 +650,15 @@ def main(argv):
 			if digest_of(os.path.join(ROOT, rel)) != digests[rel]:
 				sys.stderr.write("sabotage: %s NOT RESTORED\n" % rel)
 				return 2
+
+	if args.probe:
+		verdict = results[0][1] if results else "PATTERN"
+		print("\nsabotage: probe %s." % verdict)
+		if verdict == "SURVIVED":
+			print("sabotage: nothing in the suite noticed. NOTE that a probe")
+			print("sabotage: runs no control, so this says the suite did not")
+			print("sabotage: fail -- not that it could have.")
+		return 0 if verdict in ("CAUGHT", "SURVIVED") else 2
 
 	controls = [r for r in results if r[0].startswith("CONTROL")]
 	if not controls or any(v != "CAUGHT" for _, v, _ in controls):
@@ -605,6 +670,21 @@ def main(argv):
 		refuse("%d pattern(s) matched nothing, so the sweep is incomplete."
 		       % len(missed),
 		       "a stale pattern reports a guard as defended without testing it.")
+
+	# A MUTATION THAT DID NOT COMPILE TESTED NOTHING, and it is the same
+	# failure as a stale pattern one step later: the entry looks like a
+	# result and is not one. Refused rather than reported, because a sweep
+	# that prints CAUGHT beside an entry it never ran is worse than a sweep
+	# that stops -- see `evidence.md` on a gate that inspected nothing.
+	broken = [(sid, why) for sid, verdict, why in results
+	          if verdict == "NOT-BUILT"]
+	if broken:
+		refuse("%d entr(y/ies) failed to COMPILE rather than to test:"
+		       % len(broken),
+		       *["  %s: %s" % (sid, why) for sid, why in broken],
+		       "a build that fails exits non-zero exactly as a failing test",
+		       "does, so this would otherwise have been reported as CAUGHT.",
+		       "fix the mutation so it compiles, or the entry proves nothing.")
 
 	hung = [(sid, why) for sid, verdict, why in results if verdict == "HUNG"]
 	for sid, why in hung:
