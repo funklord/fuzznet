@@ -447,9 +447,23 @@ typedef struct fzn_send {
 	 * So for anything that is not a grant this is a choice with a cost
 	 * either way -- no window slot and no replay defence, or one slot per
 	 * frame -- and it is the choice a caller makes by not making it.
-	 * Raised by fuzzypickles' ack migration 2026-09-01, where two acks per
-	 * delivered message put three entries in the window per exchange
-	 * rather than one, against a bound they were sizing at the time.
+	 * Raised by fuzzypickles' ack migration 2026-09-01: two acks per
+	 * delivered message would put three entries in the window per
+	 * exchange rather than one.
+	 *
+	 * THEY THEN CHECKED AND IT DOES NOT REACH THEM, which is worth more
+	 * than the warning. Nothing in their tree calls `fzn_replay_admit` or
+	 * `fzn_freshness_check` -- they took `wire/` and not `frame/`, and
+	 * refuse a replay a layer up instead. So the zero is right there for a
+	 * reason they wrote down, and the condition that reopens it is named:
+	 * adopting `frame/` puts this window in their path, and an
+	 * acknowledgement wanting replay protection then needs a real expiry
+	 * and a window sized for three entries per exchange.
+	 *
+	 * Recorded that way because a consumer who CHECKED and found a hazard
+	 * absent is evidence about this API, and "they were sizing a bound"
+	 * -- which this said first -- was a guess about their tree that turned
+	 * out to be wrong.
 	 *
 	 * The receiving half is separate and is passed rather than inferred:
 	 * `fzn_freshness_check` refuses a REQUIRED-expiry frame that carries
