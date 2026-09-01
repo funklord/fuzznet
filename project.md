@@ -11036,6 +11036,24 @@ COVERAGE rather than order, since the header says nothing may depend on the
 admission order. Verified live by disabling the cursor, which fails it by
 name.
 
+**AND THE LOOP IS PROVEN TO CONVERGE, which is a different claim from the
+cursor working.** A fetch path that plans perfectly and never converges heals
+nothing, so a second test runs the loop against a peer that is DELIBERATELY
+PARTIAL -- it does not hold the two pairs the plain report hands back first.
+That is the stall in its purest form: with `fzn_manifest_deficit` the host
+asks for those two for ever, is answered no for ever, and never asks about the
+pairs the peer does hold. A live host, a willing peer, and no progress.
+
+The deficit must drain to **exactly** what the peer could not supply, and the
+pairs left outstanding are then checked to BE those two -- without which the
+count is satisfied by a loop that fetched the wrong pair and left a right one
+behind. Which two the peer lacks is decided by asking the plain report what it
+would return first rather than by picking indices, since the table's admission
+order is not something a test may assume.
+
+Verified live: disabling the cursor fails it with "a pair the peer held was
+left outstanding", which is the stall named rather than a count going wrong.
+
 **It commits nobody to the 4.4a answer**, which was the point of doing this
 one first: a host that can request what its deficit names is better off under
 option A, and B and C both need it before their gate can be turned on without
