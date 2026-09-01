@@ -10937,6 +10937,44 @@ went red". Each is a real discipline pointed at the wrong question, and the
 care spent describing it is what stops a reader asking whether it could have
 failed.
 
+### Twenty-four measurements of somebody else's tree, uncited
+
+Found by turning the advice around. Having told the consumer to ask for
+counts rather than grep this tree -- because a cross-tree probe is the shape
+their `-w` finding names -- **this document turned out to be holding twenty
+of theirs.**
+
+    line-count claims in project.md          30
+    carrying a commit citation                6
+
+So a reader cannot tell a figure measured at `2073cbe` from one measured
+yesterday, and that tree has moved since most of them were taken: the CMake
+build removed, `core/Makefile` rewritten, the submodule pin moved.
+
+**A count of another tree ages invisibly and in a way a count of this one
+does not.** This tree's own numbers are re-derivable by anyone reading it --
+`make coverage` re-takes the coverage table, `wc -l` re-takes a module size.
+A number about somebody else's tree can only be re-taken by going there, so
+nobody does, and it is quoted instead. Sec 19 already reached the right rule
+for the schema constants -- "cite the names, not the numbers ... printed so a
+reader can sanity-check an implementation, not so anybody can copy them" --
+and it was never applied to the cross-tree figures.
+
+**The individual numbers are symptoms and the citation is the fix.** Most
+support arguments that do not turn on ten percent. The exception is the
+extraction analysis, which recommends `append_log` plus `diag` on the
+strength of "829 lines of implementation, 884 of test, and no command tag
+between them" -- if a command tag has since appeared in either, the
+recommendation is void rather than dated, and that is a different failure
+from a stale figure.
+
+Asked of the session in that tree rather than re-measured from here, which
+is the same rule this section just recorded in the other direction. **What
+was asked for is not corrected numbers but which claims are now wrong in a
+way that changes what they support** -- and the offer stands to date all of
+them with a commit regardless, which is strictly better than what is there
+and costs that tree nothing.
+
 ### The core/binding split is enforced in the consumer's tree, which is better than here
 
 `make manifest` classifies what it emits -- `source`, `generated`, `binding`,
