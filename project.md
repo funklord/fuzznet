@@ -11328,6 +11328,59 @@ the guard works is cheaper than the argument that it does.
 assembly with no primitive in it -- so unlike the other five vectors it runs
 in every build, including the one with no bindings at all.
 
+### Checking the sweep was finished, which it was not
+
+The table above was a claim about completeness, so it was checked rather than
+declared: every module that assembles bytes positionally was enumerated --
+`fzn_put_be*` or a `memcpy` into an output buffer -- which is ten of them.
+**Three were not covered by anything the table listed.**
+
+    blob leaf nonce        index at the END of 24 bytes   SURVIVED
+    blob root leaf_count   big-endian                     held, and see below
+    spool sidecar header   version | root | leaves        SURVIVED
+    persist_file paths     directory | name | suffix      not a silent failure
+
+**`blob/` was the over-claim.** The first vector pinned the key schedule and
+stopped, which read as though the module were done. `nonce_for_index` puts the
+leaf index big-endian at the END of a 24-byte nonce; moving it to the front
+left the whole suite green, because the nonce is built in one place and both
+sides call it. **blob.c predicted exactly this**: "a nonce whose bytes have to
+be explained is one somebody eventually re-derives differently". The comment
+named the failure and nothing held it to the explanation.
+
+Sealing one leaf and comparing the whole artifact pins three things at once --
+the nonce, the `commitment | ciphertext | tag` layout, and the commitment
+being the AAD, which blob.c argues is what stops a peer swapping one leaf's
+commitment for another's. It carries a control that the same plaintext at a
+different index seals differently, without which a nonce ignoring the index
+satisfies every byte comparison, both sides ignoring it together.
+
+**The blob root's leaf count was already held, and by the strongest thing in
+the tree**: `blob_test.c` computes the tree twice, streaming and by
+definition, and the two disagree when the encoding moves. Two implementations
+rather than a restated constant.
+
+**`persist_file`'s path construction is the one place a permutation is not
+silent** -- a wrong path is a missing file, which fails loudly and is
+recoverable. Named so the next reader does not go looking for a vector that
+should not exist.
+
+### Three probes that reported catches they had not earned
+
+`fzn_put_le64` (above) was the first. Two more followed, and they share a
+cause worth naming: **an offset defined in terms of the offset before it
+cannot be permuted by exchanging two lines.** `FZN_PREKEY_OFF_CREATED_AT`
+followed `OFF_PREKEY`, so exchanging HOST and PREKEY collided two fields
+rather than swapping them; `BITS_HEAD_LEN` was computed from
+`BITS_OFF_LEAVES`, so the same exchange truncated the header from 41 bytes to
+9. Both came back non-zero and both would have been scored as CAUGHT.
+
+The DID-NOT-BUILD verdict caught the first; the second built cleanly and had
+to be caught by reading which assertion fired. **The general form is that a
+mutation must be checked for being the mutation intended**, not merely for
+landing -- `sabotage.py` asserts that its edit applies and this is the next
+question along, which none of these ad-hoc probes was asking.
+
 ### Why this was the shape worth taking
 
 Sec 43 concluded that blanket sweeping has low yield and that what pays is a

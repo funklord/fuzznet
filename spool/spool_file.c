@@ -58,6 +58,27 @@
 #define BITS_OFF_LEAVES (BITS_OFF_ROOT + FZN_BLOB_HASH_LEN)
 #define BITS_HEAD_LEN (BITS_OFF_LEAVES + 8u)
 
+/* THE SIDECAR'S HEADER, ASSERTED FIELD BY FIELD.
+ *
+ * MEASURED: exchanging BITS_OFF_ROOT and BITS_OFF_LEAVES, with BITS_HEAD_LEN
+ * kept at 41 so the file is the same size, left the whole suite green. The
+ * header is written in one place and read in one place, so a permutation
+ * moves both and nothing downstream can tell -- the same blindness
+ * project.md sec 45 records for the wire layouts and for `persist/`.
+ *
+ * `bits_read` already checks the version byte, that the root matches and that
+ * the leaf count matches, which is most of what can go wrong. What it cannot
+ * see is the layout moving underneath all three, and the party that disagrees
+ * is this host after an upgrade -- a spool is RESUMED rather than re-fetched,
+ * so a misread sidecar loses leaves that will never be asked for again.
+ *
+ * Literals, because a constant checked against itself checks nothing.
+ */
+_Static_assert(BITS_VERSION == 1u, "sidecar layout: the version byte moved");
+_Static_assert(BITS_OFF_ROOT == 1u, "sidecar layout: the root moved");
+_Static_assert(BITS_OFF_LEAVES == 33u, "sidecar layout: the leaf count moved");
+_Static_assert(BITS_HEAD_LEN == 41u, "sidecar layout: the header is not 41 bytes");
+
 static int file_read(void *ctx, uint64_t offset, uint8_t *out, size_t len)
 {
 	const fzn_spool_file_t *file = (const fzn_spool_file_t *)ctx;

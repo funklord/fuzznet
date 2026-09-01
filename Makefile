@@ -734,6 +734,7 @@ $(MONO_RKAT): $(BUILD_DIR)/ratchet/test/ratchet_kat_test.o \
 
 $(MONO_BKAT): $(BUILD_DIR)/blob/test/blob_kat_test.o \
               $(BUILD_DIR)/blob/blob.o \
+              $(BUILD_DIR)/session/aead_monocypher.o \
               $(BUILD_DIR)/session/hash_monocypher.o \
               $(BUILD_DIR)/constant_time/constant_time.o $(BUILD_DIR)/monocypher.o
 	@mkdir -p $(dir $@)

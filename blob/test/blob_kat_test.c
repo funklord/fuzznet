@@ -24,11 +24,27 @@
  * because a constant shared between code and its own test cannot detect a
  * change to itself.
  *
- * GATED ON MONOCYPHER because it needs the real BLAKE2b.
+ * THE SEALED LEAF IS PINNED TOO, AND IT WAS A SECOND GAP. The first version
+ * of this file pinned the key schedule and stopped, which read as though blob
+ * were done. It was not: `nonce_for_index` puts the leaf index big-endian at
+ * the END of a 24-byte nonce, and moving it to the front left the whole suite
+ * green -- the nonce is built in one place and both sides call it, so the
+ * layout cancels out exactly as a domain label does. blob.c's own comment
+ * predicts this: "a nonce whose bytes have to be explained is one somebody
+ * eventually re-derives differently". Nothing held it to an explanation.
+ *
+ * Sealing one leaf and comparing the whole artifact pins three things at once
+ * -- the nonce construction, the `commitment | ciphertext | tag` layout, and
+ * the choice of the commitment as AAD, which blob.c argues is what stops a
+ * peer swapping one leaf's commitment for another's.
+ *
+ * GATED ON MONOCYPHER because it needs the real BLAKE2b, and now the real
+ * XChaCha20-Poly1305 as well.
  */
 
 #include "../blob.h"
 
+#include "../../session/aead_monocypher.h"
 #include "../../session/hash_monocypher.h"
 
 #include "monocypher.h"
@@ -125,6 +141,69 @@ int main(void)
 		check(memcmp(want_key, prev_key, sizeof(want_key)) != 0,
 		      "a different leaf index gives a different key");
 		memcpy(prev_key, want_key, sizeof(prev_key));
+	}
+
+	/* ---- one sealed leaf, whole ---------------------------------------- */
+	{
+		static const uint8_t PLAIN[] = "fuzznet blob leaf vector";
+		const size_t plain_len = sizeof(PLAIN) - 1u;
+		const uint64_t index = 0x0102030405060708u;
+
+		fzn_aead_ops_t aead;
+		uint8_t sealed[FZN_BLOB_SEALED_MAX];
+		uint8_t key[FZN_AEAD_KEY_LEN];
+		uint8_t com[FZN_COMMITMENT_LEN];
+		uint8_t nonce[FZN_AEAD_NONCE_LEN];
+		uint8_t want[FZN_BLOB_SEALED_MAX];
+		size_t sealed_len = 0;
+		unsigned k;
+
+		fzn_aead_monocypher_init(&aead);
+
+		/* The nonce, written from blob.c's description rather than taken
+		 * from it: zero bytes, then the index big-endian at the END, so
+		 * the whole 24 bytes read as one big-endian integer. This is the
+		 * construction whose mutation survived. */
+		memset(nonce, 0, sizeof(nonce));
+		for (k = 0u; k < 8u; k++)
+			nonce[FZN_AEAD_NONCE_LEN - 8u + k] =
+			        (uint8_t)(index >> (8u * (7u - k)));
+
+		expected_leaf(CONTENT_KEY, index, key, com);
+
+		/* The layout: commitment in the clear, then the ciphertext, then
+		 * the tag -- and the commitment is the AAD, not part of the
+		 * plaintext. */
+		memcpy(want, com, FZN_COMMITMENT_LEN);
+		crypto_aead_lock(want + FZN_COMMITMENT_LEN,
+		                 want + FZN_COMMITMENT_LEN + plain_len, key, nonce, com,
+		                 FZN_COMMITMENT_LEN, PLAIN, plain_len);
+
+		check(fzn_blob_leaf_seal(&hash, &aead, CONTENT_KEY, index, PLAIN, plain_len,
+		                         sealed, sizeof(sealed), &sealed_len)
+		              == FZN_BLOB_OK,
+		      "the leaf seals");
+		check(sealed_len == plain_len + FZN_BLOB_LEAF_OVERHEAD,
+		      "a sealed leaf is the plaintext plus commitment and tag");
+		check(memcmp(sealed, want, plain_len + FZN_BLOB_LEAF_OVERHEAD) == 0,
+		      "the sealed leaf is the bytes blob.c's construction specifies");
+
+		/* THE CONTROL for the nonce specifically: the same plaintext under
+		 * the same content key at a DIFFERENT index must not produce the
+		 * same ciphertext. A nonce that ignored the index would satisfy
+		 * every byte comparison above, because both sides would ignore it
+		 * together -- which is exactly how the mutation survived. */
+		{
+			uint8_t other[FZN_BLOB_SEALED_MAX];
+			size_t other_len = 0;
+			check(fzn_blob_leaf_seal(&hash, &aead, CONTENT_KEY, index + 1u, PLAIN,
+			                         plain_len, other, sizeof(other), &other_len)
+			              == FZN_BLOB_OK,
+			      "the neighbouring leaf seals");
+			check(memcmp(sealed + FZN_COMMITMENT_LEN, other + FZN_COMMITMENT_LEN,
+			             plain_len) != 0,
+			      "the same plaintext at a different index seals differently");
+		}
 	}
 
 	if (failures == 0)
