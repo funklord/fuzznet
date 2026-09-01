@@ -11,6 +11,27 @@
 # build-and-commit.md says not to add an archive step without a specific
 # need, and the need this would answer is one nobody has.
 
+# THE DEFAULT GOAL IS NAMED, not left to whichever rule comes first.
+#
+# It was `monocypher.o` -- measured with `make -p`, not guessed. The vendored
+# Monocypher rule sits at line 594 and `all: $(OBJS)` at 715, and make takes
+# the first target of the first rule it reads. So a plain `make` on a clean
+# tree built Monocypher, printed nothing, exited 0, and produced NO LIBRARY
+# OBJECT AT ALL. Verified by removing chain/chain.o and running it: rc 0 and
+# the object still absent.
+#
+# It stayed silent because nothing depends on the default goal. `make test`,
+# `installcheck`, `coverage` and the sanitized build all name what they need,
+# so every gate was building the library the long way round while the command
+# a reader types first did nothing and said so cheerfully.
+#
+# build-and-commit.md has this exact failure from bbq-predictor, where an
+# include above `all` made a preflight the default goal and "a plain `make`
+# runs the preflight, fails for want of a kit, and builds nothing" for four
+# sessions. Naming the goal is stronger than ordering the rules, because it
+# cannot be undone by adding a rule above.
+.DEFAULT_GOAL := all
+
 BUILD_DIR ?= .
 
 # AN EMPTY BUILD_DIR IS REFUSED HERE, WHERE make READS THE FILE, and not in a
