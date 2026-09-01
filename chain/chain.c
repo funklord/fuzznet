@@ -362,6 +362,35 @@ static fzn_chain_err_t hop_sign(const uint8_t grantor[FZN_PUBKEY_LEN],
 
 	return FZN_CHAIN_OK;
 }
+/* THE LAYOUT, ASSERTED FIELD BY FIELD.
+ *
+ * `record/record.c` has done this since it was written and states the reason
+ * beside it: the offsets are checked individually rather than only the total,
+ * because a total is the one thing that survives two fields swapping widths.
+ * The reasoning was right and it was applied to exactly one module.
+ *
+ * MEASURED BEFORE BEING WRITTEN, which is why these are here rather than as
+ * tidiness: exchanging FZN_HOP_OFF_GRANTOR and FZN_HOP_OFF_GRANTEE --
+ * both 32-byte fields, so every length is unchanged -- left all 64 binaries
+ * green until chain/test/hop_kat_test.c existed. This is the compile-time
+ * half of that: the vector proves the bytes, these refuse the edit.
+ *
+ * The numbers are literals. A constant checked against itself checks nothing,
+ * and the point is that a peer cannot see this file -- project.md sec 45 makes
+ * the same argument for the domain labels in their vectors.
+ */
+_Static_assert(FZN_HOP_OFF_VERSION == 0u, "hop layout: version moved");
+_Static_assert(FZN_HOP_OFF_OBJECT == 1u, "hop layout: object moved");
+_Static_assert(FZN_HOP_OFF_GRANTOR == 2u, "hop layout: grantor moved");
+_Static_assert(FZN_HOP_OFF_GRANTEE == 34u, "hop layout: grantee moved");
+_Static_assert(FZN_HOP_OFF_CAPABILITY == 66u, "hop layout: capability moved");
+_Static_assert(FZN_HOP_OFF_ISSUED_AT == 98u, "hop layout: issued_at moved");
+_Static_assert(FZN_HOP_OFF_EXPIRES_AT == 106u, "hop layout: expires_at moved");
+_Static_assert(FZN_HOP_OFF_DELEGABLE == 114u, "hop layout: delegable moved");
+_Static_assert(FZN_HOP_OFF_SIGNATURE == 115u, "hop layout: the signature moved");
+_Static_assert(FZN_HOP_BODY_LEN == 115u, "hop layout: the signed body is not 115 bytes");
+_Static_assert(FZN_HOP_LEN == 179u, "hop layout: a hop is not 179 bytes");
+
 
 fzn_chain_err_t fzn_chain_mint(const uint8_t root[FZN_PUBKEY_LEN],
                           const uint8_t grantee[FZN_PUBKEY_LEN],

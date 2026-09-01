@@ -119,6 +119,32 @@ static int deficit_holds(const fzn_manifest_state_t *state, const uint8_t *issue
 	}
 	return 0;
 }
+/* THE LAYOUT, ASSERTED FIELD BY FIELD.
+ *
+ * `record/record.c` has done this since it was written and states the reason
+ * beside it: the offsets are checked individually rather than only the total,
+ * because a total is the one thing that survives two fields swapping widths.
+ * The reasoning was right and it was applied to exactly one module.
+ *
+ * MEASURED BEFORE BEING WRITTEN, which is why these are here rather than as
+ * tidiness: this module had no compile-time layout check of any kind,
+ * and both its neighbours' swaps survived. A manifest has no same-width pair
+ * to exchange, so no mutation demonstrates it -- which is a reason to state
+ * the layout rather than a reason not to.
+ *
+ * The numbers are literals. A constant checked against itself checks nothing,
+ * and the point is that a peer cannot see this file -- project.md sec 45 makes
+ * the same argument for the domain labels in their vectors.
+ */
+_Static_assert(FZN_MANIFEST_OFF_VERSION == 0u, "manifest layout: version moved");
+_Static_assert(FZN_MANIFEST_OFF_OBJECT == 1u, "manifest layout: object moved");
+_Static_assert(FZN_MANIFEST_OFF_ISSUER == 2u, "manifest layout: issuer moved");
+_Static_assert(FZN_MANIFEST_OFF_COUNT == 34u, "manifest layout: count moved");
+_Static_assert(FZN_MANIFEST_OFF_PAIRS == 36u, "manifest layout: the pairs moved");
+_Static_assert(FZN_MANIFEST_HEADER_LEN == 36u,
+               "manifest layout: the header is not 36 bytes");
+_Static_assert(FZN_MANIFEST_PAIR_LEN == 64u, "manifest layout: a pair is not 64 bytes");
+
 
 fzn_manifest_err_t fzn_manifest_open(const uint8_t *bytes, size_t len,
                                      fzn_manifest_record_t *out)

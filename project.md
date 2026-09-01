@@ -11228,6 +11228,63 @@ through the library's own offsets would reintroduce the blindness. Both
 mutations are caught, with zero compile errors -- checked, after the
 `fzn_put_le64` probe above.
 
+### Finishing the layouts, and one module had the answer all along
+
+The hop was the first hand-written layout measured. Three more were put to
+the same swap -- two fields of equal width exchanged, so every length is
+unchanged and it is a pure interop break:
+
+    hop        GRANTOR <-> GRANTEE     SURVIVED  -> vector + asserts
+    revocation GRANTEE <-> ISSUER      SURVIVED  -> asserts
+    prekey     HOST    <-> PREKEY      SURVIVED  -> asserts
+    record     SEQ     <-> ISSUED_AT   refused at COMPILE time
+
+**`record/record.c` had been doing it right since it was written**, and says
+why beside the asserts: "the offsets are checked individually rather than
+only the total, because a total is the one thing that survives two fields
+swapping widths". Eleven asserts, every offset and every total.
+
+`chain.c`, `manifest.c` and `revocation.c` had **none at all**. `prekey.c`
+had exactly one -- `FZN_PREKEY_LEN_TOTAL == 138u` -- which is the check the
+comment above predicts will fail: **exchanging HOST and PREKEY preserves the
+total exactly**, so the guard held while the layout moved underneath it.
+
+So the reasoning existed in this tree, was written down, was correct, and was
+applied to one module out of five. That is the third instance of the same
+shape in two days, after `fuzznet-root-v1` held while `fuzznet-blob-v1` was
+not, four lines apart in one file.
+
+### The prekey swap is the one with teeth
+
+The other two exchange fields of the same KIND -- two public keys in a
+revocation, a grantor and a grantee in a hop -- and cost interop.
+
+`prekey` exchanges **an Ed25519 identity key with an X25519 prekey**, and
+`prekey.h` names that hazard in terms: they are "different keys with
+different jobs -- the long-term identity signs, the prekey agrees -- and a
+future that changes one must not silently change the other". Swapped, a peer
+pins a ROTATING key as a permanent identity and agrees against a signing key.
+The header stated the danger, gave the two constants separate names to guard
+against it, and nothing checked the result.
+
+**It is also the confusion sec 44 could not reach.** Typing the capability
+made a key-for-capability swap a compile error; two 32-byte keys with
+different jobs remained interchangeable, and a width-based type cannot
+separate them. A literal offset assert can, and costs nothing at run time.
+
+### Where a vector and an assert each belong
+
+The hop now has both, and they answer different questions. **The vector
+proves the bytes** -- that the minted artifact is what the table specifies,
+including the big-endian timestamps and the signed range. **The asserts
+refuse the edit**, at compile time, before anything runs.
+
+An assert cannot catch a wrong ENCODING: it says `ISSUED_AT == 98u` and has
+nothing to say about whether the eight bytes there are big-endian. A vector
+cannot be cheap enough to put in every module. So the rule taken here is that
+**every hand-written layout gets asserts, and the artifacts that travel
+between hosts and carry authority get a vector as well.**
+
 ### Why this was the shape worth taking
 
 Sec 43 concluded that blanket sweeping has low yield and that what pays is a

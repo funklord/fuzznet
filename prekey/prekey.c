@@ -7,6 +7,34 @@
 
 #include <string.h>
 
+/* THE LAYOUT, ASSERTED FIELD BY FIELD.
+ *
+ * `record/record.c` has done this since it was written and states the reason
+ * beside it: the offsets are checked individually rather than only the total,
+ * because a total is the one thing that survives two fields swapping widths.
+ * The reasoning was right and it was applied to exactly one module.
+ *
+ * MEASURED BEFORE BEING WRITTEN, which is why these are here rather than as
+ * tidiness: the total length was the ONLY thing asserted here, and
+ * exchanging FZN_PREKEY_OFF_HOST and FZN_PREKEY_OFF_PREKEY preserves it
+ * exactly -- the swap surviving the check meant to be the guard. prekey.h
+ * names the hazard in terms: the two are different keys with different
+ * jobs, the long-term identity signs and the prekey agrees, and a future
+ * that changes one must not silently change the other. Swapped, a peer
+ * pins a ROTATING key as an identity and agrees against a signing key.
+ *
+ * The numbers are literals. A constant checked against itself checks nothing,
+ * and the point is that a peer cannot see this file -- project.md sec 45 makes
+ * the same argument for the domain labels in their vectors.
+ */
+_Static_assert(FZN_PREKEY_OFF_VERSION == 0u, "prekey layout: version moved");
+_Static_assert(FZN_PREKEY_OFF_OBJECT == 1u, "prekey layout: object moved");
+_Static_assert(FZN_PREKEY_OFF_HOST == 2u, "prekey layout: host moved");
+_Static_assert(FZN_PREKEY_OFF_PREKEY == 34u, "prekey layout: the prekey moved");
+_Static_assert(FZN_PREKEY_OFF_CREATED_AT == 66u, "prekey layout: created_at moved");
+_Static_assert(FZN_PREKEY_OFF_SIGNATURE == 74u, "prekey layout: the signature moved");
+_Static_assert(FZN_PREKEY_BODY_LEN == 74u,
+               "prekey layout: the signed body is not 74 bytes");
 _Static_assert(FZN_PREKEY_LEN_TOTAL == 138u,
                "the record's length has moved; every peer that pins one must agree");
 

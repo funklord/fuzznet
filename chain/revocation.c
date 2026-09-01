@@ -8,6 +8,34 @@
 #include "manifest.h"
 
 #include <string.h>
+/* THE LAYOUT, ASSERTED FIELD BY FIELD.
+ *
+ * `record/record.c` has done this since it was written and states the reason
+ * beside it: the offsets are checked individually rather than only the total,
+ * because a total is the one thing that survives two fields swapping widths.
+ * The reasoning was right and it was applied to exactly one module.
+ *
+ * MEASURED BEFORE BEING WRITTEN, which is why these are here rather than as
+ * tidiness: exchanging FZN_REV_OFF_GRANTEE and FZN_REV_OFF_ISSUER --
+ * both 32-byte public keys -- left the whole suite green. A revocation names
+ * WHO IS REVOKED and WHO SAID SO, and nothing distinguished the two.
+ *
+ * The numbers are literals. A constant checked against itself checks nothing,
+ * and the point is that a peer cannot see this file -- project.md sec 45 makes
+ * the same argument for the domain labels in their vectors.
+ */
+_Static_assert(FZN_REV_OFF_VERSION == 0u, "revocation layout: version moved");
+_Static_assert(FZN_REV_OFF_OBJECT == 1u, "revocation layout: object moved");
+_Static_assert(FZN_REV_OFF_CAPABILITY == 2u, "revocation layout: capability moved");
+_Static_assert(FZN_REV_OFF_GRANTEE == 34u, "revocation layout: grantee moved");
+_Static_assert(FZN_REV_OFF_ISSUER == 66u, "revocation layout: issuer moved");
+_Static_assert(FZN_REV_OFF_ISSUED_AT == 98u, "revocation layout: issued_at moved");
+_Static_assert(FZN_REV_OFF_SIGNATURE == 106u, "revocation layout: the signature moved");
+_Static_assert(FZN_REVOCATION_BODY_LEN == 106u,
+               "revocation layout: the signed body is not 106 bytes");
+_Static_assert(FZN_REVOCATION_LEN == 170u,
+               "revocation layout: a revocation is not 170 bytes");
+
 
 static int same(const fzn_revocation_t *entry, const uint8_t *issuer,
                 const fzn_cap_id_t *capability, const uint8_t *grantee)
