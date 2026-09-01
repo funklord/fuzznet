@@ -346,6 +346,20 @@ SABOTAGES = [
 		"the session domain label is pinned against silent change",
 	),
 	(
+		"ratchet-label-is-protocol",
+		"ratchet/ratchet.c",
+		'static const char FZN_RATCHET_LABEL[16] = "fuzznet-ratchet1";',
+		'static const char FZN_RATCHET_LABEL[16] = "fuzznet-ratchet9";',
+		"the ratchet label is pinned against silent change",
+	),
+	(
+		"blob-key-label-is-protocol",
+		"blob/blob.c",
+		'static const char FZN_BLOB_KEY_LABEL[16] = "fuzznet-blob-v1\\0";',
+		'static const char FZN_BLOB_KEY_LABEL[16] = "fuzznet-blob-v9\\0";',
+		"the blob content-key label is pinned against silent change",
+	),
+	(
 		"dir-label-is-protocol",
 		"session/session.c",
 		'static const char FZN_SESSION_DIR_LABEL[16] = "fuzznet-dir-v1\\0\\0";',

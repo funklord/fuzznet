@@ -554,7 +554,9 @@ MONO_TSRC  := chain/test/sign_monocypher_test.c \
               session/test/agree_monocypher_test.c \
               sim/test/real_crypto_test.c \
               wire/test/golden_frame_test.c \
-              session/test/session_kat_test.c
+              session/test/session_kat_test.c \
+              ratchet/test/ratchet_kat_test.c \
+              blob/test/blob_kat_test.c
 
 ifdef MONO_ON
 MONO_OBJS  := $(BUILD_DIR)/chain/sign_monocypher.o \
@@ -594,11 +596,13 @@ MONO_AEAD  := $(BUILD_DIR)/session/test/aead_monocypher_test
 MONO_AGREE := $(BUILD_DIR)/session/test/agree_monocypher_test
 MONO_GOLD  := $(BUILD_DIR)/wire/test/golden_frame_test
 MONO_KAT   := $(BUILD_DIR)/session/test/session_kat_test
+MONO_RKAT  := $(BUILD_DIR)/ratchet/test/ratchet_kat_test
+MONO_BKAT  := $(BUILD_DIR)/blob/test/blob_kat_test
 MONO_REAL  := $(BUILD_DIR)/sim/test/real_crypto_test
 OBJS       += $(MONO_OBJS)
 TEST_OBJS  += $(MONO_TOBJ)
 TEST_BINS  += $(MONO_BIN) $(MONO_HASH) $(MONO_AEAD) $(MONO_AGREE) $(MONO_GOLD) \
-              $(MONO_KAT)
+              $(MONO_KAT) $(MONO_RKAT) $(MONO_BKAT)
 CPPFLAGS   += -I$(MONOCYPHER_DIR)/src
 
 # Vendored, so it is compiled with its own terms rather than ours.
@@ -709,6 +713,25 @@ $(MONO_KAT): $(BUILD_DIR)/session/test/session_kat_test.o \
              $(BUILD_DIR)/session/hash_monocypher.o \
              $(BUILD_DIR)/session/commitment.o \
              $(BUILD_DIR)/constant_time/constant_time.o $(BUILD_DIR)/monocypher.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# The two other key schedules, pinned for the reasons project.md sec 45 gives.
+# Each links only its own module plus the real BLAKE2b: a green result has to
+# say WHICH schedule was exercised, which is the same rule the four binding
+# tests follow and the reason real_crypto_test is the only one linking
+# everything at once.
+$(MONO_RKAT): $(BUILD_DIR)/ratchet/test/ratchet_kat_test.o \
+              $(BUILD_DIR)/ratchet/ratchet.o \
+              $(BUILD_DIR)/session/hash_monocypher.o \
+              $(BUILD_DIR)/constant_time/constant_time.o $(BUILD_DIR)/monocypher.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(MONO_BKAT): $(BUILD_DIR)/blob/test/blob_kat_test.o \
+              $(BUILD_DIR)/blob/blob.o \
+              $(BUILD_DIR)/session/hash_monocypher.o \
+              $(BUILD_DIR)/constant_time/constant_time.o $(BUILD_DIR)/monocypher.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 

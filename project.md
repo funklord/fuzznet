@@ -10949,11 +10949,49 @@ constant separately and the two are asserted equal. It costs no run time and
 cannot rot. The bind label is caught by golden_frame_test, which carries a
 commitment the real hash derived.
 
-**`ratchet/` and `blob/` are left open deliberately**, recorded rather than
-bolted onto a session test: they are other modules, the per-message key
-schedule and the content key schedule respectively, and each wants its own
-vector written from its own header. Measured, named, and not pretended to be
-closed.
+**`ratchet/` and `blob/` were left open for one commit**, recorded rather
+than bolted onto a session test: they are other modules, the per-message key
+schedule and the content key schedule, and each wanted its own vector written
+from its own header. Both are closed now --
+`ratchet/test/ratchet_kat_test.c` and `blob/test/blob_kat_test.c`, 15 and 12
+checks -- so all seven labels are held.
+
+**The ratchet vector takes three steps rather than one**, and the extra two
+are the point: one step pins the label and the split, a chain pins that the
+second step's input is the FIRST STEP'S OUTPUT rather than anything else
+that happens to be 32 bytes. That is what makes it a ratchet rather than a
+repeated hash, and it is the part a reimplementation gets wrong.
+
+**The blob vector pins the index encoding, which is half its value.** The
+leaf index enters the hash as a BIG-ENDIAN 64-bit integer, and nothing in
+the suite could tell that from little-endian: both peers are this library,
+both encode the same way, every leaf round-trips. A consumer reaching for
+the host's byte order would derive a different key for every leaf BUT THE
+FIRST -- and index 0 is the one a first test reaches for, which is exactly
+how that survives review. Indices 0, 1 and 0x0102030405060708 are checked,
+the last separating the two encodings in every byte so a partial reversal
+has nowhere to hide.
+
+Its sibling `fuzznet-root-v1` was already held. **The two labels sit four
+lines apart in blob.c and only one of them was pinned by anything**, which
+is not a distinction anybody made on purpose -- it is what an accidental
+guarantee looks like from the inside.
+
+### A probe that reported a catch it had not earned
+
+The blob vector's endianness claim was checked by swapping `fzn_put_be64`
+for `fzn_put_le64`, which came back CAUGHT. **`fzn_put_le64` does not exist
+in this library.** The mutation was a compile error, and a build that fails
+exits non-zero exactly as a failing test does, so the probe reported success
+for the wrong reason.
+
+`tool/sabotage.py` gets this right -- it records DID NOT BUILD as a distinct
+verdict, for precisely this reason -- and the ad-hoc probe written beside it
+did not, which is how a discipline that exists in one place fails to apply
+two directories away. Redone with a real little-endian loop: caught, zero
+compile errors. **The claim survived and its first proof did not**, which is
+the order this file's own rule on evidence asks for -- check that the
+instrument inspected something before quoting what it found.
 
 ### What the directed label's survival did NOT mean
 
