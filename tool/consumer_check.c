@@ -20,26 +20,33 @@
  * checks the answers it can check, because its job is to prove the headers
  * and sources go together, not to test behaviour the suites already cover.
  *
- * THE RETURN CODES ARE NEARLY EXHAUSTED, AND THE OVERFLOW IS SILENT.
+ * THE EXIT STATUS CAN OVERFLOW INTO SUCCESS, AND THAT IS NOT URGENT.
  *
- * Every failure here returns a distinct small integer so a failing arm names
- * itself. 213 of them exist and the highest is 248, so **seven remain**. An
- * exit status is truncated to eight bits, so a `return 256;` leaves this
- * process with status **0** and `make installcheck` reports a PASS.
+ * Every failure here returns a small integer so a failing arm names itself.
+ * An exit status is truncated to eight bits, so a `return 256;` would leave
+ * this process at status **0** and `make installcheck` would report a PASS --
+ * the gate announcing the opposite of what it found, for a reason unrelated
+ * to anything it checked.
  *
- * The Makefile running the binary bare and treating non-zero as failure is
- * correct and is not the hazard. The hazard is that the FAILURE CODE can
- * overflow into the success value, so the gate does not merely miss a fault
- * -- it announces the opposite, for a reason unrelated to anything it
- * checked. That is `evidence.md`'s vacuous pass reached through an integer.
+ * **MEASURED, AFTER A FIRST VERSION OF THIS PARAGRAPH GOT IT WRONG.** There
+ * are 204 failure sites in `main` using **174 distinct codes**, the highest
+ * is 248, and **81 values in 1..255 are free** -- 74 of them below the
+ * highest, because the codes were never densely packed. Codes are also
+ * reused deliberately where sites belong to one check: 7 appears three
+ * times, 18 twice.
  *
- * A literal `return` cannot carry a `_Static_assert`, so nothing enforces
- * this and this paragraph is the enforcement. **If you are here because you
- * ran out, do not take 249 through 255 without reading the next sentence.**
- * The repair is to print what failed and return one small code, which
- * changes how all 213 sites report and is a decision rather than an edit --
- * project.md records it as queued, with this comment as the cheaper half
- * that is worth having whichever way it goes.
+ * The first version said "213 distinct codes, seven remain". 213 counted
+ * every `return <literal>` line in the file, including the vtable callbacks
+ * above -- whose `return 1;` is the seam's success convention and not a
+ * failure code at all -- and "seven" was 255 minus 248, **a ceiling minus a
+ * maximum presented as remaining capacity.** project.md sec 49 carries that
+ * as its own instance of the class it spent the day on.
+ *
+ * SO: TAKE A FREE CODE, of which there are plenty, and do not renumber
+ * anything. The overflow is a real edge that wants knowing about and is
+ * nowhere near. A literal `return` cannot carry a `_Static_assert`, so this
+ * paragraph is the whole of the enforcement, and what it asks is only that
+ * whoever adds the 256th check prints instead of returning.
  *
  * Compiled twice by `make installcheck`: once against an installed tree
  * with angle-bracket includes, once against the source tree with module

@@ -11010,12 +11010,34 @@ went red". Each is a real discipline pointed at the wrong question, and the
 care spent describing it is what stops a reader asking whether it could have
 failed.
 
-### `consumer_check` will report a failure as a pass, and soon
+### A ceiling minus a maximum, called remaining capacity -- mine, today
 
-Found by a free read while holding a machine window: **248 of 255 exit
-codes are used**, across 213 coded returns. The next contributor to need
-more than seven writes `return 256;` and the OS truncates it to eight bits,
-so the process exits **0** and `make installcheck` reports a pass.
+**THE HAZARD IS REAL AND THE URGENCY WAS INVENTED, BY THE ARITHMETIC THIS
+DOCUMENT SIGNALLED AGAINST THIS MORNING.**
+
+The real edge: an exit status truncates to eight bits, so `return 256;`
+would leave the process at **0** and `make installcheck` would report a
+pass -- the gate announcing the opposite of what it found.
+
+What was claimed with it, and was wrong: *"248 of 255 exit codes are used,
+across 213 coded returns ... seven remain."* Measured properly:
+
+    failure sites in main          204
+    DISTINCT codes                 174
+    highest code                   248
+    free values in 1..255           81   (74 of them BELOW the highest)
+
+**213 counted every `return <literal>` line in the file** -- including the
+vtable callbacks, whose `return 1;` is the seam's success convention and
+not a failure code -- and codes are reused on purpose where sites belong to
+one check, 7 appearing three times. **And "seven remain" was 255 minus 248:
+a ceiling minus a maximum, presented as remaining capacity.**
+
+That is sec 45's class exactly, committed here hours after this tree
+signalled it to the workspace with four instances, in a comment warning
+about a different silent failure. The signal named 1794 as a ceiling read
+as a value; this is the same read on a smaller number, by the same
+subtraction, in the same document's own tooling.
 
 The Makefile runs the binary bare and treats non-zero as failure, which is
 correct and is not the problem. **The problem is that the failure code
@@ -11034,21 +11056,24 @@ that cannot fail is not evidence; a test whose FAILURE CODE cannot be
 expressed is worse, because it passes loudly for a reason unrelated to what
 it checked. `evidence.md`'s vacuous pass, reached through an integer.
 
-**AND IT REORDERS THE WORK THAT FOUND IT.** The queued task was to add
-today's new public surface to `consumer_check` -- `fzn_seal_peek`,
-`fzn_seal_peek_sender`, `fzn_manifest_deficit_from`,
-`fzn_manifest_plan_offer` -- which needs about five codes and would leave
-two. **That is the wall, brought forward by the work that noticed it**, and
-it would violate the comment now at the top of that file telling the next
-person not to take 249 through 255 without reading on.
+**THE DEPENDENCY IT CREATED WAS ALSO IMAGINARY, AND WAS ACTED ON.** The
+queued task -- adding today's new public surface to `consumer_check` -- was
+recorded as BLOCKED on fixing the scheme first, because five more codes
+against seven would hit the wall. With 81 free there is no wall and no
+dependency. **A wrong number produced a wrong plan, and the plan was
+written down as a constraint on later work**, which is how a measurement
+error becomes a process one.
 
-So the order is: **the scheme first, the coverage second.** Any real repair
-is a scripted change across 213 sites -- a macro that prints which check
-failed and returns one code -- which is mechanical but wants verifying,
-so it waits for the machine rather than the decision. Recorded because a
-dependency created by one's own finding is the easy kind to walk into: the
-coverage work is the obvious next step, it is blocked, and nothing else
-would have said so.
+The repair the holder then asked for -- a scripted macro across every site
+-- **is not warranted and was not done.** 204 sites rewritten to solve an
+exhaustion that is 81 codes away would have been a large change resting
+entirely on the subtraction. The comment at the top of the file carries the
+measured numbers now and says to take a free code.
+
+**What survives is the edge itself**, which is worth a paragraph and not a
+rewrite: whoever adds the 256th check must print rather than return, and a
+literal `return` cannot carry a `_Static_assert`, so the comment is the
+whole of the enforcement.
 
 **Not fixed at the moment of finding, deliberately.** The obvious repair --
 print what failed and return one small code -- changes how every one of 213
