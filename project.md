@@ -10975,6 +10975,60 @@ went red". Each is a real discipline pointed at the wrong question, and the
 care spent describing it is what stops a reader asking whether it could have
 failed.
 
+### What this frame costs a consumer, as a rule rather than a number
+
+Asked by the consumer during the frame migration, who had a number and wanted
+it derived independently rather than confirmed. The number was theirs; the
+rule is this library's and had never been written down.
+
+**The structure is what forces it:**
+
+    fzn_hop   5    plaintext, OUTSIDE the tag (a relay rewrites hops_left)
+    head     91    plaintext, covered by the tag, readable by anyone on path
+    encrypted{ capability 32   sealed, explicitly the LIBRARY's field
+               payload    N }  sealed, the ONLY consumer-owned space
+    tag      16
+
+**A consumer's forced payload content is exactly two things:**
+
+1. **A command byte, always.** `fzn_kind` is a closed four-value set the
+   library reads, and the schema puts a consumer's command vocabulary in the
+   sealed payload by name. Not negotiable and not zero.
+2. **A sealed duplicate of any head field it needs CONFIDENTIAL.** The head
+   is plaintext on purpose -- a recipient must decide whether to spend a
+   decryption before spending it -- so confidentiality for anything it
+   carries means carrying it again, inside.
+
+Nothing else, because there is nowhere else: no consumer slot exists outside
+the payload, and `length_preserving` on the ciphertext core means **no
+padding expansion**, so the sealed region is exactly what a consumer puts in
+it.
+
+**Applied to the consumer asking**, whose only confidentiality requirement
+over the head was a timestamp -- mine is plaintext so a relay can expire a
+frame without opening it -- the forced displacement is 1 + 8 = 9, giving 153
+against their own 106. **The same 9 they had reached from their side, by a
+route that did not read theirs.**
+
+**The rule says something an enumeration cannot: where the degree of freedom
+is.** The command byte is unremovable while `fzn_kind` stays closed. The
+eight is removable only by dropping the sealed-timestamp requirement, which
+their own document forbids. So the figure is not a measurement that could
+drift -- it is this frame's fixed overhead plus one byte this library forces
+plus eight bytes their document forbids them to save, and **the only thing
+that moves it is this head changing.**
+
+**And the largest single item is on neither side's displaced list**, because
+it is not displaced: the 24-byte nonce sits in the head, and their all-zero
+nonce was safe only while a key was used once. A transmitted nonce is what
+lets a key be used more than once, so it is the biggest line item with no
+alternative.
+
+**Recorded as a rule because three more consumers are coming** and each will
+ask the same question. netcfgd, raidcfgd and hydra can compute their own
+figure from the two clauses above without anybody re-deriving it, and the
+clauses are stable in a way a number is not.
+
 ### `spool/` depends on `blob/`'s CONSTRUCTION, which nobody had measured
 
 Asked by the consumer, who wanted to know whether their own content
