@@ -196,6 +196,24 @@ fzn_session_err_t fzn_session_transcript(const uint8_t self_identity[FZN_SESSION
  *
  * The prekey secret stays inside `fzn_agree_secret_t` throughout and is
  * never copied out.
+ *
+ * THIS IS THE VARIANT WITHOUT A SENDER EPHEMERAL, AND THE NAME DOES NOT SAY
+ * SO. `fzn_session_establish_initiator` and `_responder` below are the pair
+ * that adds one, and a caller wanting the stronger property has to know they
+ * exist to reach them -- this function is the obvious name and is the weaker
+ * protocol.
+ *
+ * WHAT THE DIFFERENCE IS, so the choice is made rather than defaulted: both
+ * derive a real AEAD key and a real commitment key, and nothing fails if this
+ * one is used. What the ephemeral buys is that a compromise of the
+ * initiator's own long-term material stops opening recorded traffic
+ * IMMEDIATELY rather than at the next prekey rotation. With this function the
+ * window is a rotation interval; with the pair below it is one session.
+ *
+ * Written here rather than only at the transcript above, where it was, because
+ * a caller choosing an entry point is looking at this line and not at a
+ * paragraph a hundred and fifty lines earlier. Found when a consumer began
+ * building a key schedule against this header.
  */
 fzn_session_err_t fzn_session_establish(const fzn_agree_secret_t *self_prekey,
                                         const fzn_agree_ops_t *agree,
