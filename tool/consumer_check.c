@@ -20,6 +20,27 @@
  * checks the answers it can check, because its job is to prove the headers
  * and sources go together, not to test behaviour the suites already cover.
  *
+ * THE RETURN CODES ARE NEARLY EXHAUSTED, AND THE OVERFLOW IS SILENT.
+ *
+ * Every failure here returns a distinct small integer so a failing arm names
+ * itself. 213 of them exist and the highest is 248, so **seven remain**. An
+ * exit status is truncated to eight bits, so a `return 256;` leaves this
+ * process with status **0** and `make installcheck` reports a PASS.
+ *
+ * The Makefile running the binary bare and treating non-zero as failure is
+ * correct and is not the hazard. The hazard is that the FAILURE CODE can
+ * overflow into the success value, so the gate does not merely miss a fault
+ * -- it announces the opposite, for a reason unrelated to anything it
+ * checked. That is `evidence.md`'s vacuous pass reached through an integer.
+ *
+ * A literal `return` cannot carry a `_Static_assert`, so nothing enforces
+ * this and this paragraph is the enforcement. **If you are here because you
+ * ran out, do not take 249 through 255 without reading the next sentence.**
+ * The repair is to print what failed and return one small code, which
+ * changes how all 213 sites report and is a decision rather than an edit --
+ * project.md records it as queued, with this comment as the cheaper half
+ * that is worth having whichever way it goes.
+ *
  * Compiled twice by `make installcheck`: once against an installed tree
  * with angle-bracket includes, once against the source tree with module
  * paths, which are the two arrangements a consumer can be in.
