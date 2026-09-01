@@ -2130,6 +2130,119 @@ static void test_the_recovery_loop_drains_what_a_partial_peer_can_supply(void)
 	}
 }
 
+/* THE SERVE SIDE, AND THE ROUND TRIP THAT MAKES IT A PAIR.
+ *
+ * `fzn_manifest_deficit_from` turns this host's deficit into a request;
+ * `fzn_manifest_plan_offer` turns a peer's request into an answer. Either
+ * alone is half a fetch path, so the case that matters is one host's want
+ * list handed to another host's store -- which is what a fetch actually is
+ * and what neither function's own test can show.
+ */
+static void test_a_want_list_is_answered_by_a_peer_that_holds_some(void)
+{
+	struct fixture holder, joiner;
+	static uint8_t bytes[FIXTURE_BYTES];
+	fzn_manifest_record_t rec;
+	fzn_manifest_pair_t want[4];
+	fzn_manifest_deficit_t asks[4];
+	fzn_manifest_offer_t plan;
+	fzn_cap_id_t cap[4];
+	uint8_t grantee[4][FZN_PUBKEY_LEN];
+	uint8_t holds[4];
+	size_t len = 0, dropped = 0, n, i;
+
+	/* The holder issued four revocations and holds all four. */
+	fixture_init(&holder);
+	for (i = 0; i < 4; i++) {
+		capability_id(&cap[i], (uint8_t)(0xb0u + i));
+		key(grantee[i], (uint8_t)(0xc0u + i));
+		revoke(&holder, holder.root, &cap[i], grantee[i]);
+	}
+	holder.stub.identity = 0;
+	CHECK(fzn_manifest_issue(holder.root, &holder.store, &holder.sign, bytes,
+	                         sizeof(bytes), &len) == FZN_MANIFEST_OK, "issue");
+	CHECK(fzn_manifest_open(bytes, len, &rec) == FZN_MANIFEST_OK, "open");
+
+	/* The joiner follows, admits the manifest, holds none of them. */
+	fixture_init(&joiner);
+	joiner.stub.identity = 0;
+	CHECK(fzn_manifest_follow(&joiner.manifest, holder.root) == FZN_MANIFEST_OK, "follow");
+	CHECK(fzn_manifest_admit(&joiner.manifest, NULL, rec, &joiner.sign) == FZN_MANIFEST_OK,
+	      "admit");
+	CHECK(fzn_manifest_pending(&joiner.manifest, holder.root) == 4, "deficit is not four");
+
+	/* THE REQUEST: the joiner's deficit, as it would go on the wire. */
+	n = fzn_manifest_deficit(&joiner.manifest, holder.root, want, 4, &dropped);
+	CHECK(n == 4 && dropped == 0, "the joiner's request does not name four pairs");
+	for (i = 0; i < 4; i++) {
+		memcpy(asks[i].issuer, holder.root, FZN_PUBKEY_LEN);
+		asks[i].capability = want[i].capability;
+		memcpy(asks[i].grantee, want[i].grantee, FZN_PUBKEY_LEN);
+	}
+
+	/* THE ANSWER: the holder's store against that request. */
+	memset(holds, 0xee, sizeof(holds));
+	CHECK(fzn_manifest_plan_offer(&holder.store, asks, 4, holds, 4, &plan)
+	              == FZN_MANIFEST_OK, "the holder refused a well-formed request");
+	CHECK(plan.held == 4 && plan.examined == 4 && plan.truncated == 0,
+	      "the holder holds %zu of four, examined %zu", plan.held, plan.examined);
+	for (i = 0; i < 4; i++)
+		CHECK(holds[i] == 1u, "want %zu was not offered by a host that holds it", i);
+
+	/* A HOST THAT HOLDS NOTHING ANSWERS NOTHING, which is the control: without
+	 * it every check above is satisfied by a function that always says 1. */
+	memset(holds, 0xee, sizeof(holds));
+	CHECK(fzn_manifest_plan_offer(&joiner.store, asks, 4, holds, 4, &plan)
+	              == FZN_MANIFEST_OK, "the joiner refused a well-formed request");
+	CHECK(plan.held == 0 && plan.examined == 4,
+	      "a host holding none of them offered %zu", plan.held);
+	for (i = 0; i < 4; i++)
+		CHECK(holds[i] == 0u, "want %zu was offered by a host that lacks it", i);
+
+	/* A PARTIAL HOLDER, since that is the real case and the one the loop
+	 * test already showed converging: drop one pair from the holder's store
+	 * by asking about a pair nobody issued. */
+	{
+		fzn_manifest_deficit_t mixed[2];
+		uint8_t two[2];
+
+		mixed[0] = asks[0];
+		mixed[1] = asks[1];
+		capability_id(&mixed[1].capability, 0xfeu); /* never revoked */
+		CHECK(fzn_manifest_plan_offer(&holder.store, mixed, 2, two, 2, &plan)
+		              == FZN_MANIFEST_OK, "the mixed request was refused");
+		CHECK(plan.held == 1 && two[0] == 1u && two[1] == 0u,
+		      "a partial holder did not answer one of two");
+	}
+
+	/* THE THREE RULES A SERVE PATH OWES, since the peer picks the number. */
+	CHECK(fzn_manifest_plan_offer(&holder.store, asks, 0, holds, 4, &plan)
+	              == FZN_MANIFEST_OK && plan.held == 0 && plan.examined == 0,
+	      "a request naming nothing did not get nothing");
+	CHECK(fzn_manifest_plan_offer(&holder.store, asks, 4, holds, 0, &plan)
+	              == FZN_MANIFEST_ERR_MALFORMED,
+	      "a zero capacity was read as unlimited rather than refused");
+	CHECK(fzn_manifest_plan_offer(&holder.store, asks, 4, holds, 2, &plan)
+	              == FZN_MANIFEST_OK && plan.examined == 2 && plan.truncated == 1,
+	      "a request past the ceiling was not clipped and reported");
+
+	/* AN UNSOUND STORE IS REFUSED, NOT ANSWERED -- the polarity that differs
+	 * from `fzn_revocation_covers`, whose 1 for an unscannable store would
+	 * make this promise every pair the peer named. */
+	{
+		fzn_revocation_store_t broken = holder.store;
+
+		broken.used = broken.capacity + 1u;
+		CHECK(fzn_manifest_plan_offer(&broken, asks, 4, holds, 4, &plan)
+		              == FZN_MANIFEST_ERR_MALFORMED,
+		      "a corrupt store answered instead of being refused");
+		CHECK(plan.held == 0, "a refused offer still reported holdings");
+	}
+
+	CHECK(fzn_manifest_plan_offer(&holder.store, asks, 4, holds, 4, NULL)
+	              == FZN_MANIFEST_ERR_MALFORMED, "a null plan was not refused");
+}
+
 int main(void)
 {
 	test_layout_and_round_trip();
@@ -2146,6 +2259,7 @@ int main(void)
 	test_the_deficit_is_what_this_host_lacks();
 	test_the_deficit_report_resumes_and_covers_everything();
 	test_the_recovery_loop_drains_what_a_partial_peer_can_supply();
+	test_a_want_list_is_answered_by_a_peer_that_holds_some();
 	test_the_deficit_reads_the_whole_field();
 	test_the_overflow_flag_is_sticky();
 	test_a_corrupt_store_is_refused_rather_than_believed();

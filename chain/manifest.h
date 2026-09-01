@@ -628,6 +628,66 @@ size_t fzn_manifest_deficit_from(const fzn_manifest_state_t *state,
                                 fzn_manifest_pair_t *out, size_t out_cap, size_t *dropped,
                                 size_t *next);
 
+/* What a peer's request cost this host to answer, and what it could not.
+ *
+ * The same shape `record/sync.h` and `spool/plan.h` return, and for their
+ * reason: a caller sizing its next message needs to know whether this one was
+ * the whole answer. */
+typedef struct fzn_manifest_offer {
+	/* Wants this host holds a revocation for and can therefore serve. */
+	size_t held;
+	/* Wants actually looked at. Less than `want_count` when the ceiling
+	 * clipped the request. */
+	size_t examined;
+	/* Set when the peer named more than `holds_cap` could answer. The
+	 * unexamined tail is NOT reported as "not held", because that is a
+	 * different answer and a peer would act on it. */
+	int truncated;
+} fzn_manifest_offer_t;
+
+/* Which of a peer's missing revocations this host can serve.
+ *
+ * THE OTHER HALF OF `fzn_manifest_deficit_from`. That call turns this host's
+ * deficit into a request; this one turns a peer's request into an answer, and
+ * between them they are the fetch path project.md sec 47 names as the thing
+ * both stage-2 options need and neither commits to. `record/` has had this
+ * pair since it was written -- `fzn_sync_plan_fetch` and
+ * `fzn_sync_plan_offer` -- and revocations had the first without the second.
+ *
+ * WHAT IT DOES NOT DO IS PRODUCE THE RECORDS, and it cannot. This store keeps
+ * `{capability, grantee, issuer}` and discards the signed bytes on admission,
+ * so a host holds the FACT of a revocation and not the evidence. The signed
+ * record is the consumer's storage, exactly as `record/` leaves the records
+ * to a consumer and plans only the ranges. So `holds[i]` says "look this one
+ * up and send it", not "here it is".
+ *
+ * `holds` receives one byte per want examined: 1 where this host holds a
+ * matching revocation, 0 where it does not. Parallel to `wants`, which is
+ * `fzn_revocation_covers_chain`'s idiom for a per-item verdict rather than a
+ * filtered copy -- a caller that wanted the triples already has them.
+ *
+ * THE THREE RULES `record/sync.h` ARGUES ARE KEPT, because a serve path is
+ * where a stranger chooses the number:
+ *
+ *   - **A request naming nothing gets nothing.** `want_count` of zero is OK
+ *     and answers zero, rather than being read as "send everything".
+ *   - **A ceiling, because the peer picks `want_count`.** More wants than
+ *     `holds_cap` are clipped to what fits and `truncated` says so.
+ *   - **Zero is refused rather than meaning unlimited.** A `holds_cap` of
+ *     zero is MALFORMED, not an invitation.
+ *
+ * AN UNSOUND STORE IS REFUSED RATHER THAN ANSWERED, on the argument
+ * `store_sound` already makes in this module: `fzn_revocation_covers` answers
+ * 1 for a store it cannot scan because denying is safe for an AUTHORIZATION
+ * question, and that same 1 here would make this host promise to serve every
+ * pair a peer named. The question is "do we hold this", so the polarity is
+ * this module's and not `chain/`'s. */
+fzn_manifest_err_t fzn_manifest_plan_offer(const fzn_revocation_store_t *store,
+                                           const fzn_manifest_deficit_t *wants,
+                                           size_t want_count, uint8_t *holds,
+                                           size_t holds_cap,
+                                           fzn_manifest_offer_t *plan);
+
 /* A short name for `fzn_manifest_err_t`, for a log line or a message to a
  * user.
  *

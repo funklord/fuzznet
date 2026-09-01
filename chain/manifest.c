@@ -545,6 +545,51 @@ int fzn_manifest_overflowed(const fzn_manifest_state_t *state,
 	return state->issuers[which].overflowed != 0;
 }
 
+fzn_manifest_err_t fzn_manifest_plan_offer(const fzn_revocation_store_t *store,
+                                           const fzn_manifest_deficit_t *wants,
+                                           size_t want_count, uint8_t *holds,
+                                           size_t holds_cap,
+                                           fzn_manifest_offer_t *plan)
+{
+	size_t i, n;
+
+	if (!plan)
+		return FZN_MANIFEST_ERR_MALFORMED;
+	plan->held = 0;
+	plan->examined = 0;
+	plan->truncated = 0;
+
+	/* Zero capacity is refused rather than read as unlimited -- the rule
+	 * `spool/plan.h` states, and the one a serve path most needs, since
+	 * the peer chose the number that would otherwise fill the buffer. */
+	if (!holds || holds_cap == 0)
+		return FZN_MANIFEST_ERR_MALFORMED;
+	if (want_count > 0 && !wants)
+		return FZN_MANIFEST_ERR_MALFORMED;
+	/* Judged here rather than inherited from `fzn_revocation_covers`,
+	 * whose answer for an unscannable store is 1 and would make this
+	 * promise everything. See `store_sound`. */
+	if (!store_sound(store))
+		return FZN_MANIFEST_ERR_MALFORMED;
+
+	n = want_count;
+	if (n > holds_cap) {
+		n = holds_cap;
+		plan->truncated = 1;
+	}
+
+	for (i = 0; i < n; i++) {
+		int have = fzn_revocation_covers(store, wants[i].issuer,
+		                                 &wants[i].capability, wants[i].grantee);
+
+		holds[i] = have ? 1u : 0u;
+		if (have)
+			plan->held++;
+	}
+	plan->examined = n;
+	return FZN_MANIFEST_OK;
+}
+
 size_t fzn_manifest_deficit_from(const fzn_manifest_state_t *state,
                                 const uint8_t issuer[FZN_PUBKEY_LEN], size_t from,
                                 fzn_manifest_pair_t *out, size_t out_cap, size_t *dropped,
