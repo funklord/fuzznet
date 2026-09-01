@@ -11189,6 +11189,81 @@ to a question other than the one asked, which is this document's oldest
 finding arriving four more times in one afternoon, in the file written to
 apply it.
 
+### The sim, and the scenario that tested none of what it claimed
+
+`scenario_tree` in `sim/test/network_test.c`. Eight node records signed by
+five hosts, gossiped with 30% loss so hosts end at different subsets, and
+three properties over the result: two hosts with the same records compute the
+same reachable set; a host whose records are a SUBSET of another's has a
+subset of its reachable nodes; and the root's children come back in the same
+order everywhere.
+
+The graph is awkward on purpose -- a rooted chain three deep, a two-node
+cycle, an orphan whose parent nobody ever issues, and one id claimed by two
+issuers naming two different parents. Without the cycle and the orphan,
+"reachable" is "everything" and every check passes against a function
+returning all ones.
+
+**Monotonicity is the property nothing else here tests**, and it is the
+CRDT-shaped half of this section: records only ever ADD parent claims, and a
+path to the root that existed cannot stop existing, so learning more can
+reveal a node and can never hide one.
+
+**AND THE FIRST VERSION TESTED NEITHER OF THE OTHER TWO.** Both survived
+mutation, against a control that passed:
+
+    reachable: single pass (order-dependent)   SURVIVED
+    children: sort dropped                     SURVIVED
+
+The cause is one mistake with two faces. Each host built its node array by
+walking the plan in index order, so **every parent preceded its children in
+every host's array** -- a reachability pass that propagated one level per
+sweep answered correctly, and the order-independence claim was tested by
+nothing. The same fixed order made both hosts build identical arrays, so
+unsorted children came back identical on both, and a check comparing host A
+to host B agrees whenever the two are wrong in the same way.
+
+The gossip varied WHICH nodes a host held. It never varied the ORDER, which
+is the whole property. **A scenario can vary the input it was built to vary
+and still hold the variable that matters constant.**
+
+Fixed by giving each host a stride coprime with the node count, so the same
+set is walked in a different order per host, and by checking the root's
+children against the order the plan dictates -- nodes 1 and 8 tie at order
+10, so id decides -- rather than only against each other. Two hosts agreeing
+is satisfied by two hosts being wrong together.
+
+Four mutations now caught: single-pass reachability, marking everything, the
+sort dropped, and the id tie-break dropped. 1411 checks in the sim, and three
+coverage floors refuse a run in which no pair was identical, no pair was a
+subset, or no pair held both root children -- because each of the three
+checks above is satisfied by having no pairs to check.
+
+### What the first consumer's encoding measured back
+
+Signalled at their `befdfbb` and recorded here because it is a consequence of
+this layout rather than of their design. Content is 470 bytes; their own note
+header costs 28, leaving 442 for title, text and labels together. **A sticky
+note fits and a paragraph does not.** So the blob layer is their ordinary
+path rather than an escape hatch, and they have written it that way rather
+than filing long content as an exception -- which would be describing the
+exception as the rule.
+
+`FZN_RECORD_BODY_MAX` is 512 for reasons that predate `tree/` and it is not
+being revisited; the number is recorded so the next consumer does the
+arithmetic before designing against a size it assumed. `tree.h` now carries
+it.
+
+**And their sharpest point is now a rule in the header**: an unknown content
+type must be shown and re-published unchanged, never dropped. It follows from
+the split rather than from their product -- `parent` and `order` are this
+module's, so a node's PLACE parses whatever its content turns out to be.
+Hosts do not upgrade together, and a consumer that discarded what it could
+not read would silently delete a newer host's nodes on every sync, worst for
+the user with the most devices. That applies to netcfgd and raidcfgd
+identically, which is what earned it a line in the header rather than a note
+here.
+
 ## 49. The integration, done from both sides at once, 2026-09-01
 
 > **THIS SECTION IS LONG AND IS DELIBERATELY NOT BEING SPLIT YET.** Decided

@@ -960,6 +960,7 @@ $(BUILD_DIR)/sim/test/network_test: $(BUILD_DIR)/sim/test/network_test.o \
                                     $(BUILD_DIR)/record/record.o \
                                     $(BUILD_DIR)/record/journal.o \
                                     $(BUILD_DIR)/record/sync.o \
+                                    $(BUILD_DIR)/tree/tree.o \
                                     $(BUILD_DIR)/chain/chain.o \
                                     $(BUILD_DIR)/chain/revocation.o \
                                     $(BUILD_DIR)/chain/manifest.o \

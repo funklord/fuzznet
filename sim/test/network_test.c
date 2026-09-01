@@ -29,6 +29,7 @@
 #include "../../chunk/reassembly.h"
 #include "../../chunk/split.h"
 #include "../../record/journal.h"
+#include "../../tree/tree.h"
 #include "../../record/record.h"
 #include "../../record/sync.h"
 #include "../../state/state.h"
@@ -3256,6 +3257,328 @@ static void scenario_absence(void)
 	       (unsigned long long)ABS_RECORDS);
 }
 
+/* ================================ tree ================================
+ *
+ * WHAT THIS SCENARIO IS FOR, AND WHAT IT DELIBERATELY IS NOT.
+ *
+ * `tree/` makes one claim that unit tests over hand-built arrays cannot
+ * reach: **the structure a host computes is a function of the SET of node
+ * records it holds, never of the order they arrived in.** sec 50 refuses to
+ * resolve concurrent reparents for that reason, so what replaces resolution
+ * is this property, and until now it was held by fixtures I wrote myself.
+ *
+ * HOW THE SET IS BUILT HERE IS NOT `record/sync`'s JOB TWICE. Distribution
+ * over the journal, gaps, digests and fetch plans are `scenario_distribution`
+ * and are tested there. What this needs is hosts arriving at DIFFERENT
+ * SUBSETS in DIFFERENT ORDERS, which a lossy gossip over the same signed
+ * records produces directly. Reusing the fetch path would test the fetch
+ * path a second time and the tree claim no harder.
+ *
+ * THREE PROPERTIES, and the second is the one worth the scenario:
+ *
+ *   1. CONVERGENCE. Two hosts holding the same records compute the same
+ *      reachable set. This is the claim.
+ *
+ *   2. MONOTONICITY. If one host's set is a SUBSET of another's, its
+ *      reachable set is a subset too. Records only ever add parent claims,
+ *      and a path to the root that existed cannot stop existing -- so
+ *      learning more can reveal a node and can never hide one. That is the
+ *      CRDT-shaped half of sec 50 and nothing else here tests it.
+ *
+ *   3. SIBLING ORDER AGREES. Restricted to nodes two hosts both hold, the
+ *      children of the root come back in the same order on both -- because
+ *      the order is `(order, id)` and both hosts have both fields.
+ *
+ * THE GRAPH IS BUILT TO BE AWKWARD ON PURPOSE: a rooted chain, a two-node
+ * cycle, an orphan whose parent is never issued by anybody, and one node id
+ * claimed by two different issuers naming two different parents. Without the
+ * cycle and the orphan, "reachable" is "everything" and the checks below
+ * pass against a function that returns all ones.
+ */
+
+#define TREE_HOSTS 5u
+#define TREE_NODES 8u
+#define KIND_NODE 77u
+#define STREAM_TREE 5u
+
+static uint8_t tree_wire[TREE_NODES][FZN_RECORD_MAX_LEN];
+static size_t tree_wire_len[TREE_NODES];
+
+/* Which issuer signs each node, and what it says. `parent` 0 means the root;
+ * 9 is an id nobody ever issues, so node 6 is a permanent orphan. Nodes 3 and
+ * 4 name each other, which is the cycle. Node 7 re-uses node 2's id under a
+ * different issuer and a different parent: two parent claims, unresolved. */
+static const struct {
+	uint8_t issuer, id, parent, order;
+} tree_plan[TREE_NODES] = {
+	{ 0u, 1u, 0u, 10u },  /* under the root */
+	{ 0u, 2u, 1u, 20u },  /* under 1 */
+	{ 1u, 5u, 2u, 30u },  /* under 2, so depth three */
+	{ 1u, 3u, 4u, 40u },  /* cycle with 4 */
+	{ 2u, 4u, 3u, 50u },  /* cycle with 3 */
+	{ 2u, 6u, 9u, 60u },  /* orphan: parent 9 is never issued */
+	{ 3u, 8u, 0u, 10u },  /* ties with node 1 on order, so id decides */
+	{ 4u, 2u, 8u, 20u },  /* SECOND claim on id 2, parent 8 */
+};
+
+static void tree_id(uint8_t out[FZN_TREE_ID_LEN], uint8_t n)
+{
+	memset(out, n, FZN_TREE_ID_LEN);
+}
+
+/* Sign one node record. The body is `fzn_tree_body`'s, so the sim is the
+ * consumer here in the way a consumer actually is: it chooses `kind`, and
+ * the library reads the body. */
+static void tree_make(struct sim_net *net, size_t n)
+{
+	uint8_t id[FZN_TREE_ID_LEN], parent[FZN_TREE_ID_LEN];
+	uint8_t body[FZN_RECORD_BODY_MAX];
+	uint8_t content[4] = { 0xC0, 0x0D, 0xE0, 0x00 };
+	struct sim_host *h = &net->hosts[tree_plan[n].issuer];
+	struct sim_signer signer;
+	size_t body_len = 0u;
+
+	tree_id(id, tree_plan[n].id);
+	if (tree_plan[n].parent == 0u)
+		memset(parent, 0, sizeof(parent));
+	else
+		tree_id(parent, tree_plan[n].parent);
+
+	content[3] = (uint8_t)n;
+	if (fzn_tree_body(parent, tree_plan[n].order, 1u, content, sizeof(content),
+	                  body, sizeof(body), &body_len) != FZN_TREE_OK) {
+		setup_faults++;
+		return;
+	}
+	if (fzn_record_sign(h->pubkey, id, STREAM_TREE, KIND_NODE, (uint64_t)n + 1u, 1,
+	                    body, body_len,
+	                    sim_signer(&signer, &net->sign, h->pubkey),
+	                    tree_wire[n], FZN_RECORD_MAX_LEN, &tree_wire_len[n])
+	    != FZN_RECORD_OK)
+		setup_faults++;
+}
+
+/* The nodes one host holds, opened from the wire it holds them on. A record
+ * that will not open or will not verify is not counted -- which is what makes
+ * the refusal counter below meaningful rather than decorative. */
+/* `step` is what makes two hosts see the same SET in a different ORDER, and
+ * it is not decoration. Walking the plan in index order puts every parent
+ * ahead of its children in every host's array, so a reachability pass that
+ * only ever propagated one level would answer correctly here and the
+ * order-independence claim would be tested by nothing. Measured: with the
+ * walk fixed at index order, removing the fixed point from
+ * `fzn_tree_reachable` left this scenario green. A stride coprime with
+ * TREE_NODES visits every index exactly once and hands each host a
+ * different order. */
+static size_t tree_nodes_of(struct sim_net *net, uint32_t holds, size_t step,
+                            fzn_tree_node_t *out, fzn_record_t *recs,
+                            size_t *plan_index)
+{
+	size_t count = 0u, k;
+
+	for (k = 0; k < TREE_NODES; k++) {
+		size_t n = (k * step + step) % TREE_NODES;
+
+		if (!((holds >> n) & 1u))
+			continue;
+		if (fzn_record_open(tree_wire[n], tree_wire_len[n], &recs[count])
+		    != FZN_RECORD_OK)
+			continue;
+		if (fzn_record_verify(recs[count], &net->sign) != FZN_RECORD_OK)
+			continue;
+		if (fzn_tree_open(recs[count], &out[count]) != FZN_TREE_OK)
+			continue;
+		if (plan_index != NULL)
+			plan_index[count] = n;
+		count++;
+	}
+	return count;
+}
+
+/* The reachable set as a bitmask over PLAN INDICES rather than over array
+ * positions, so two hosts holding different subsets can be compared at all.
+ * Comparing positions would compare two different things and agree by
+ * accident on the empty case. */
+static uint32_t tree_reach_mask(struct sim_net *net, uint32_t holds, size_t step)
+{
+	fzn_tree_node_t nodes[TREE_NODES];
+	fzn_record_t recs[TREE_NODES];
+	size_t plan_index[TREE_NODES];
+	uint8_t mark[TREE_NODES];
+	fzn_tree_walk_t walk;
+	uint32_t mask = 0u;
+	size_t count, k;
+
+	count = tree_nodes_of(net, holds, step, nodes, recs, plan_index);
+	if (count == 0u)
+		return 0u;
+	if (fzn_tree_reachable(nodes, count, mark, sizeof(mark), &walk) != FZN_TREE_OK)
+		return 0u;
+
+	/* The mask is over PLAN indices, so two hosts that walked the same set
+	 * in different orders produce comparable answers. Deriving it from the
+	 * walk position instead would compare two different things. */
+	for (k = 0; k < count; k++)
+		if (mark[k])
+			mask |= (uint32_t)1u << plan_index[k];
+	return mask;
+}
+
+static void scenario_tree(void)
+{
+	static struct sim_net net;
+	uint32_t holds[TREE_HOSTS];
+	uint32_t reach[TREE_HOSTS];
+	unsigned round, pairs_same = 0, pairs_subset = 0, refused = 0;
+	unsigned ordered_pairs = 0;
+	size_t n, i, j;
+
+	sim_init(&net, TREE_HOSTS, 0x7373u);
+	net.loss_pct = 30;
+
+	for (n = 0; n < TREE_NODES; n++)
+		tree_make(&net, n);
+
+	/* Each issuer starts holding its own. */
+	for (i = 0; i < TREE_HOSTS; i++)
+		holds[i] = 0u;
+	for (n = 0; n < TREE_NODES; n++)
+		holds[tree_plan[n].issuer] |= (uint32_t)1u << n;
+
+	/* Lossy gossip. Deliberately stopped while hosts still disagree: a run
+	 * long enough for everyone to hold everything would make the subset
+	 * check vacuous, and the subset check is the one that tests
+	 * monotonicity. */
+	for (round = 0; round < 6u; round++) {
+		for (i = 0; i < TREE_HOSTS; i++) {
+			size_t p = (i + 1u + round) % TREE_HOSTS;
+
+			if (p == i)
+				continue;
+			for (n = 0; n < TREE_NODES; n++) {
+				if (!((holds[p] >> n) & 1u))
+					continue;
+				if ((sim_random(&net) % 100u) < net.loss_pct)
+					continue;
+				holds[i] |= (uint32_t)1u << n;
+			}
+		}
+	}
+
+	/* Strides 1, 3, 5, 7, 9 -- each coprime with TREE_NODES (8), so each
+	 * host visits every held node exactly once in a different order. */
+	for (i = 0; i < TREE_HOSTS; i++)
+		reach[i] = tree_reach_mask(&net, holds[i], 2u * i + 1u);
+
+	/* A host that holds everything is the reference: the cycle pair and the
+	 * orphan must be unreachable, and the rooted chain reachable. Without
+	 * this the two relational checks below are satisfied by a function that
+	 * marks nothing. */
+	{
+		uint32_t all = ((uint32_t)1u << TREE_NODES) - 1u;
+		uint32_t full = tree_reach_mask(&net, all, 3u);
+
+		check((full & (1u << 0)) != 0u, "the node under the root was not reachable");
+		check((full & (1u << 1)) != 0u, "the node one level down was not reachable");
+		check((full & (1u << 2)) != 0u, "the node three deep was not reachable");
+		check((full & (1u << 3)) == 0u, "a node in a cycle was reported reachable");
+		check((full & (1u << 4)) == 0u, "the other node in the cycle was reachable");
+		check((full & (1u << 5)) == 0u, "an orphan was reported reachable");
+		check((full & (1u << 6)) != 0u, "the second root child was not reachable");
+		check((full & (1u << 7)) != 0u,
+		      "the contested id was not reachable by its second claim");
+	}
+
+	for (i = 0; i < TREE_HOSTS; i++) {
+		for (j = i + 1u; j < TREE_HOSTS; j++) {
+			if (holds[i] == holds[j]) {
+				pairs_same++;
+				check(reach[i] == reach[j],
+				      "two hosts with the same records disagreed about the tree");
+			}
+			if ((holds[i] & ~holds[j]) == 0u && holds[i] != holds[j]) {
+				pairs_subset++;
+				check((reach[i] & ~reach[j]) == 0u,
+				      "a host learned a record and lost a reachable node");
+			}
+			if ((holds[j] & ~holds[i]) == 0u && holds[i] != holds[j]) {
+				pairs_subset++;
+				check((reach[j] & ~reach[i]) == 0u,
+				      "a host learned a record and lost a reachable node");
+			}
+		}
+	}
+
+	/* Sibling order, restricted to what two hosts both hold. */
+	for (i = 0; i + 1u < TREE_HOSTS; i++) {
+		fzn_tree_node_t na[TREE_NODES], nb[TREE_NODES];
+		fzn_record_t ra[TREE_NODES], rb[TREE_NODES];
+		const fzn_tree_node_t *ca[TREE_NODES], *cb[TREE_NODES];
+		fzn_tree_walk_t wa, wb;
+		uint32_t both = holds[i] & holds[i + 1u];
+		uint8_t root[FZN_TREE_ID_LEN];
+		size_t cnt_a, cnt_b, k;
+
+		memset(root, 0, sizeof(root));
+		/* DIFFERENT STRIDES ON PURPOSE. Handing both hosts the same walk
+		 * order makes the comparison below agree whenever the two are
+		 * wrong in the same way -- measured: with both at index order,
+		 * dropping the insertion sort from `fzn_tree_children` left this
+		 * scenario green, because unsorted output is identical on two
+		 * hosts that built their arrays identically. */
+		cnt_a = tree_nodes_of(&net, both, 1u, na, ra, NULL);
+		cnt_b = tree_nodes_of(&net, both, 3u, nb, rb, NULL);
+		check(cnt_a == cnt_b, "the same held set opened to two different counts");
+		if (fzn_tree_children(na, cnt_a, root, ca, TREE_NODES, &wa) != FZN_TREE_OK ||
+		    fzn_tree_children(nb, cnt_b, root, cb, TREE_NODES, &wb) != FZN_TREE_OK) {
+			check(0, "children refused a valid call in the simulation");
+			continue;
+		}
+		check(wa.emitted == wb.emitted, "two hosts saw different numbers of root children");
+		for (k = 0; k < wa.emitted && k < wb.emitted; k++)
+			check(memcmp(ca[k]->id, cb[k]->id, FZN_TREE_ID_LEN) == 0,
+			      "two hosts ordered the root's children differently");
+
+		/* AND AGAINST THE ORDER THE PLAN DICTATES, not only against each
+		 * other. Nodes 1 and 8 are both children of the root at order 10,
+		 * so the tie breaks on id and 1 must come first. Two hosts
+		 * agreeing is satisfied by two hosts being wrong together; this
+		 * is what says which answer is right. */
+		if (wa.emitted == 2u) {
+			check(ca[0]->id[0] == 1u,
+			      "the lower id did not come first at an equal order");
+			check(ca[1]->id[0] == 8u,
+			      "the higher id did not come second at an equal order");
+			ordered_pairs++;
+		}
+	}
+
+	for (n = 0; n < TREE_NODES; n++)
+		if (tree_wire_len[n] == 0u)
+			refused++;
+	check(refused == 0u, "a node record was never signed");
+
+	/* COVERAGE FLOORS, because both relational checks above are satisfied
+	 * by having no pairs to check. If the gossip ever converges fully every
+	 * pair is identical and the subset check tests nothing; if it converges
+	 * not at all there are no identical pairs and convergence tests
+	 * nothing. Neither would fail, and neither would be reported -- which
+	 * is the vacuous pass this file exists to refuse elsewhere. */
+	check(pairs_same > 0u,
+	      "no two hosts ended with the same records, so convergence was not tested");
+	check(pairs_subset > 0u,
+	      "no host's records were a subset of another's, so monotonicity was not tested");
+	check(ordered_pairs > 0u,
+	      "no pair held both root children, so sibling order was never checked");
+
+	printf("  tree: %u nodes, %u hosts, %u identical pairs, %u subset pairs, "
+	       "%u of %u reachable at full knowledge\n",
+	       (unsigned)TREE_NODES, (unsigned)TREE_HOSTS, pairs_same, pairs_subset,
+	       (unsigned)__builtin_popcount(tree_reach_mask(&net,
+	                       ((uint32_t)1u << TREE_NODES) - 1u, 3u)),
+	       (unsigned)TREE_NODES);
+}
+
 static void scenario_restart(void)
 {
 	struct sim_net net;
@@ -3534,6 +3857,7 @@ int main(void)
 	scenario_restart();
 	scenario_absence();
 	scenario_estate();
+	scenario_tree();
 
 	/* Asserted ONCE, not once per fetch. See `digest_dropped`. */
 	check(total_digest_dropped == 0, "a simulation digest buffer was too small");

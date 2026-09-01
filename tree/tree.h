@@ -37,6 +37,29 @@
  * reason `chain.h` refused a capability ladder, and a content-type registry
  * is the consumer's for exactly that argument.
  *
+ * AN UNKNOWN CONTENT TYPE IS SHOWN AND RE-PUBLISHED UNCHANGED, NEVER
+ * DROPPED. Signalled by the first consumer as the rule most likely to be got
+ * wrong, and it is a property of the split above rather than of any one
+ * consumer: `parent` and `order` are this module's, so they parse whatever
+ * the content turns out to be, and **a node's PLACE is knowable even when its
+ * content is not**. Hosts do not upgrade together. A consumer that discarded
+ * what it could not read would silently delete a newer host's nodes on every
+ * sync -- and would do it worst to the user with the most devices, which is
+ * the user most likely to have one host ahead of the others. Carry the bytes,
+ * render what you can, and hand them on.
+ *
+ * WHAT A CONTENT BUDGET ACTUALLY IS, since it decides more for a consumer
+ * than it looks. `FZN_RECORD_BODY_MAX` is 512 for reasons that predate this
+ * module, so content is 470 once these fields are in. The first consumer
+ * measured what that leaves them: 442 after their own note header, which
+ * holds a sticky note and does not hold a paragraph. **So a consumer with
+ * variable-length content should expect the blob layer to be its ordinary
+ * path rather than an escape hatch**, and should size the decision that way
+ * rather than filing long content as the exception. This module does not
+ * size itself around one consumer's content and 470 is not a target; it is
+ * stated here so the arithmetic is done before somebody designs against a
+ * number they assumed.
+ *
  * ================= WHAT THIS MODULE REFUSES TO DECIDE =================
  *
  * TWO HOSTS CAN REPARENT THE SAME NODE, AND THIS DOES NOT PICK A WINNER.
