@@ -87,9 +87,29 @@ enum fzn_kind : u8 {
 	unit      = 0x01,
 	// One piece of something larger -- see the chunk fields below.
 	chunk     = 0x02,
-	// Acknowledgement, carrying the bitmap. sec 12's open question is
-	// whether this should be a kind at all or a policy the header states;
-	// it is a kind here because that is what can be measured today.
+	// An acknowledgement. ANY acknowledgement -- this says what the
+	// transport should do with the frame and not what the frame contains.
+	//
+	// THIS SAID "carrying the bitmap" AND A CONSUMER READ IT AS A
+	// CONSTRAINT, correctly, because it is written as one. It described
+	// what THIS library's own ack would carry, at a time when that was the
+	// only one anybody had imagined, and fuzzypickles asked in 2026-09-01
+	// whether an acknowledgement carrying a sealed commitment and a tag
+	// rather than a bitmap was entitled to the value.
+	//
+	// It is. Nothing in this library branches on this value: the generated
+	// validator accepts the four and rejects the rest, and no code path
+	// reads `ack` and expects a bitmap. So the bitmap was never a property
+	// of the KIND, and a comment describing one use as though it were the
+	// definition is the same shape as a reason recorded once and inherited
+	// by everything after it.
+	//
+	// WHAT IS STILL CLOSED is the SET. Assigning an unused value remains a
+	// conversation rather than an edit, per the 2026-08-26 settlement. Using
+	// an assigned one for the plain meaning of its name is not assigning.
+	//
+	// sec 12's open question -- whether this should be a kind at all or a
+	// policy the header states -- is unchanged by any of this.
 	ack       = 0x03,
 }
 

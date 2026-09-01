@@ -353,6 +353,10 @@ fzn_seal_err_t fzn_seal_open(uint8_t *frame, size_t frame_len,
 #define FZN_KIND_NOP   0u
 #define FZN_KIND_UNIT  1u
 #define FZN_KIND_CHUNK 2u
+/* ANY acknowledgement, not this library's bitmap specifically -- the schema
+ * said "carrying the bitmap" until 2026-09-01 and a consumer reasonably read
+ * that as a constraint. Nothing branches on this value; it says what the
+ * transport should do and not what the frame holds. */
 #define FZN_KIND_ACK   3u
 
 typedef struct fzn_send {
