@@ -430,6 +430,32 @@ typedef struct fzn_send {
 	const uint8_t *capability; /* FZN_CAP_ID_LEN, sealed rather than sent clear */
 	const uint8_t *payload;
 	size_t payload_len;
+	/* ZERO MEANS TWO THINGS AND ONLY ONE OF THEM IS "NO EXPIRY".
+	 *
+	 * A frame carrying no expiry is also NEVER ENTERED IN THE REPLAY
+	 * WINDOW -- `fzn_replay_admit` returns OK without recording it, so a
+	 * captured copy is admitted again every time it is re-injected.
+	 *
+	 * That is correct for what the rule was written for. A grant may
+	 * legitimately carry none, re-presenting one is how a chain gets
+	 * verified rather than an attack, and recording them would fill the
+	 * window with entries that never expire -- the unbounded set the
+	 * design avoids. **But the rule keys on THIS FIELD and not on `kind`,**
+	 * so it reaches every frame a consumer builds, and zero is what a
+	 * zeroed struct supplies.
+	 *
+	 * So for anything that is not a grant this is a choice with a cost
+	 * either way -- no window slot and no replay defence, or one slot per
+	 * frame -- and it is the choice a caller makes by not making it.
+	 * Raised by fuzzypickles' ack migration 2026-09-01, where two acks per
+	 * delivered message put three entries in the window per exchange
+	 * rather than one, against a bound they were sizing at the time.
+	 *
+	 * The receiving half is separate and is passed rather than inferred:
+	 * `fzn_freshness_check` refuses a REQUIRED-expiry frame that carries
+	 * none, and a caller says which rule applies per frame. A frame meant
+	 * to be grant-like must be admitted as optional, not merely built with
+	 * a zero here. */
 	uint64_t expires_at;
 	uint32_t msg;
 	uint16_t index;
