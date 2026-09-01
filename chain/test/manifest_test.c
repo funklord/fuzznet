@@ -2002,6 +2002,134 @@ static void test_the_deficit_report_resumes_and_covers_everything(void)
 	      "a NULL state reported a deficit");
 }
 
+/* THE RECOVERY LOOP CONVERGES, which is the claim the cursor exists to
+ * support and is not the same claim as the cursor working.
+ *
+ * `test_the_deficit_report_resumes_and_covers_everything` proves the function:
+ * a full sweep names every pair once and wraps. This proves SUFFICIENCY --
+ * that a host far behind, asking a peer in frame-sized windows, actually
+ * reaches a zero deficit. That is `evidence.md`'s correct-function-versus-
+ * working-feature split, and project.md sec 47 needs the second one: a fetch
+ * path that plans perfectly and never converges heals nothing.
+ *
+ * THE PEER IS DELIBERATELY PARTIAL, and that is the whole design of this
+ * case. It does not hold the two pairs the plain report would hand back
+ * first. With `fzn_manifest_deficit` the host asks for those two for ever,
+ * is answered "no" for ever, and never asks about the pairs the peer DOES
+ * hold -- a live host, a willing peer, and no progress. The cursor is what
+ * turns that into convergence, so the test asserts the deficit drains to
+ * exactly what the peer could not supply, and no further.
+ */
+static void test_the_recovery_loop_drains_what_a_partial_peer_can_supply(void)
+{
+	struct fixture f, joiner;
+	static uint8_t bytes[FIXTURE_BYTES];
+	fzn_manifest_record_t rec;
+	fzn_manifest_pair_t window[2];
+	fzn_cap_id_t cap[4];
+	uint8_t grantee[4][FZN_PUBKEY_LEN];
+	uint8_t rev[4][FZN_REVOCATION_LEN];
+	size_t len = 0, dropped = 0, next = 0;
+	unsigned round;
+	size_t i, j;
+
+	fixture_init(&f);
+	for (i = 0; i < 4; i++) {
+		capability_id(&cap[i], (uint8_t)(0x70u + i));
+		key(grantee[i], (uint8_t)(0x80u + i));
+		revoke(&f, f.root, &cap[i], grantee[i]);
+	}
+	f.stub.identity = 0;
+	CHECK(fzn_manifest_issue(f.root, &f.store, &f.sign, bytes, sizeof(bytes), &len)
+	              == FZN_MANIFEST_OK, "issue");
+	CHECK(fzn_manifest_open(bytes, len, &rec) == FZN_MANIFEST_OK, "open");
+
+	fixture_init(&joiner);
+	joiner.stub.identity = 0;
+	CHECK(fzn_manifest_follow(&joiner.manifest, f.root) == FZN_MANIFEST_OK, "follow");
+	CHECK(fzn_manifest_admit(&joiner.manifest, NULL, rec, &joiner.sign) == FZN_MANIFEST_OK,
+	      "admit");
+	CHECK(fzn_manifest_pending(&joiner.manifest, f.root) == 4, "the deficit is not four");
+
+	/* The revocation records the PEER holds. The library's store keeps the
+	 * triple and not the signed bytes, so re-serving one is the consumer's
+	 * storage -- which is why these live in the test rather than being read
+	 * back out of `f.store`. */
+	for (i = 0; i < 4; i++)
+		CHECK(fzn_revocation_issue(f.root, &cap[i], grantee[i], 1000, &joiner.sign,
+		                           rev[i]) == FZN_CHAIN_OK, "issue revocation");
+
+	/* WHICH TWO THE PEER LACKS is decided by asking the plain report what it
+	 * would hand back first, rather than by picking indices -- the table's
+	 * admission order is not something a test may assume, and choosing by
+	 * hand would make this case depend on it. */
+	{
+		fzn_manifest_pair_t first[2];
+		size_t d0 = 0;
+		int peer_has[4] = { 1, 1, 1, 1 };
+
+		CHECK(fzn_manifest_deficit(&joiner.manifest, f.root, first, 2, &d0) == 2,
+		      "the plain report did not name two pairs");
+		for (i = 0; i < 2; i++)
+			for (j = 0; j < 4; j++)
+				if (fzn_ct_memeq(first[i].capability.b, cap[j].b,
+				                 FZN_CAP_ID_LEN))
+					peer_has[j] = 0;
+
+		/* Rounds of ask-and-answer. Four rounds is more than the two a
+		 * full sweep needs, so a loop that converges has room to and one
+		 * that stalls has run out of excuses. */
+		next = 0;
+		for (round = 0; round < 4u; round++) {
+			size_t got = fzn_manifest_deficit_from(&joiner.manifest, f.root, next,
+			                                       window, 2, &dropped, &next);
+
+			for (i = 0; i < got; i++) {
+				fzn_revocation_record_t r;
+
+				for (j = 0; j < 4; j++) {
+					if (!fzn_ct_memeq(window[i].capability.b, cap[j].b,
+					                  FZN_CAP_ID_LEN))
+						continue;
+					if (!peer_has[j])
+						continue;
+					CHECK(fzn_revocation_open(rev[j], FZN_REVOCATION_LEN, &r)
+					              == FZN_CHAIN_OK, "open");
+					CHECK(fzn_revocation_admit(&joiner.store,
+					                           fzn_revocation_offer_root(r),
+					                           f.root, &joiner.sign,
+					                           &joiner.manifest)
+					              == FZN_CHAIN_OK, "admit");
+				}
+			}
+		}
+
+		/* EXACTLY WHAT THE PEER COULD NOT SUPPLY, and no more. Two is the
+		 * right answer: it says the loop got everything obtainable and
+		 * did not invent progress on what it could not obtain. */
+		CHECK(fzn_manifest_pending(&joiner.manifest, f.root) == 2,
+		      "the deficit drained to %zu, wanted the two the peer lacked",
+		      fzn_manifest_pending(&joiner.manifest, f.root));
+
+		/* AND THE TWO LEFT ARE THE TWO THE PEER LACKED, not two others --
+		 * without this the count above is satisfied by a loop that
+		 * fetched the wrong pair and left a right one behind. */
+		{
+			fzn_manifest_pair_t left[4];
+			size_t dl = 0, n;
+
+			n = fzn_manifest_deficit(&joiner.manifest, f.root, left, 4, &dl);
+			CHECK(n == 2 && dl == 0, "the remaining deficit does not fit in four");
+			for (i = 0; i < n; i++)
+				for (j = 0; j < 4; j++)
+					if (fzn_ct_memeq(left[i].capability.b, cap[j].b,
+					                 FZN_CAP_ID_LEN))
+						CHECK(peer_has[j] == 0,
+						      "a pair the peer held was left outstanding");
+		}
+	}
+}
+
 int main(void)
 {
 	test_layout_and_round_trip();
@@ -2017,6 +2145,7 @@ int main(void)
 	test_following_is_deliberate();
 	test_the_deficit_is_what_this_host_lacks();
 	test_the_deficit_report_resumes_and_covers_everything();
+	test_the_recovery_loop_drains_what_a_partial_peer_can_supply();
 	test_the_deficit_reads_the_whole_field();
 	test_the_overflow_flag_is_sticky();
 	test_a_corrupt_store_is_refused_rather_than_believed();
