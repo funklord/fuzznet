@@ -11010,6 +11010,47 @@ went red". Each is a real discipline pointed at the wrong question, and the
 care spent describing it is what stops a reader asking whether it could have
 failed.
 
+### Every wrong claim about the consumer's tree was an inference, not a relay
+
+Prompted by the consumer correcting one: a note at `fzn_send_t.expires_at`
+said the replay-window fork was raised "against a bound they were sizing at
+the time", and they then established that **nothing in their tree calls
+`fzn_replay_admit` or `fzn_freshness_check` at all** -- they took `wire/` and
+not `frame/`. They were not sizing that window.
+
+That prompted the obvious question, since this code now carries about sixty
+claims about their tree. **The ones added on 2026-09-01 sort cleanly into two
+kinds, and only one kind was ever wrong:**
+
+    RELAYED -- what they reported, quoted           every one held
+      the demux resting on FZN_RELAY_MAX_HOPS
+      the ratchet needing the sequence pre-open
+      peek_sender's advice implemented by hand
+      a zeroed send_t refused with no field named
+      getrandom caught with nm rather than a test
+
+    INFERRED -- a consequence deduced for them      all three wrong
+      "not a submodule, a stale vendored copy"
+      "their build question is open" (CMake had gone)
+      "a bound they were sizing at the time"
+
+**The rule is narrow enough to be usable: relay what a consumer reports, and
+do not deduce a consequence inside their tree and then state it as theirs.**
+Three failures, no exceptions, against roughly ten relays that all held.
+
+Two of the three also had a proximate cause already recorded here -- a
+truncated `grep` and an unread commit whose hash was in my own push output --
+but the truncation is why the inference was available, not why it was made.
+**The inference is the step that turns a bad measurement into a false claim
+about somebody else**, and it is the step this tree can refuse without
+needing a better grep.
+
+**And the asymmetry that makes it worth a rule**: a wrong relay is corrected
+by the consumer the moment they read it, because it is about them and they
+know. A wrong inference reads as a fact they supplied, so they have no
+particular reason to check it -- the one above survived until they happened
+to look at that field for a different purpose.
+
 ### Which generated facts have a second witness, and which had none
 
 `claude-guidelines` filed the signal at `024e193` and generalised the fourth
