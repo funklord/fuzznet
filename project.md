@@ -14581,8 +14581,20 @@ arrived in", supersession per (issuer, stream), and a refusal visible where a
 silent reordering is not.
 
 ~~A peer-sync body is 204 bytes against FZN_RECORD_BODY_MAX at 512, so it fits
-with 308 to spare.~~ **WRONG, BY 88%, AND CORRECTED THE SAME HOUR. It is
-1794 bytes and it does not fit.**
+with 308 to spare.~~ **WRONG, AND CORRECTED THE SAME HOUR: it does not fit.**
+
+**AND THE CORRECTION WAS ALSO WRONG, IN THE OPPOSITE DIRECTION, FOUND
+2026-09-01.** It said "it is 1794 bytes", and 1794 is
+`FZP_PEER_SYNC_RECORD_BLOB_LEN` -- **their EIGHT-HOP WORST CASE, not the size
+of a record.** Their actual one-hop record is 527. That tree found the same
+error in its own document independently and told this one, which is how it
+was caught here: a ceiling quoted as a size.
+
+**The right statement is a function, not either number**: about 347 bytes of
+content plus ~181 per delegation hop, so 527 at one hop, 708 at two, 1794 at
+the eight their format allows. Every version of this paragraph before now
+picked one point on that line and called it the size -- first the smallest,
+then the largest -- and both readings are the same defect.
 
 Expanded with the compiler from their own header rather than added up --
 `FZP_PEER_SYNC_RECORD_BLOB_LEN`, `peer_sync_internal.h:97`:
@@ -14682,10 +14694,15 @@ capability the consumer chooses for that `kind`. The reason given is that a
 consumer authorising by capability chain and one authorising by local uid both
 need the first and neither needs the other's answer.
 
-So the 1794-byte object does not exist here. The equivalent is a record of at
-most 668 bytes plus hops admitted separately, and a full 8-hop chain at 1432
-is two chunks against a reassembly ceiling of 262144 -- headroom of two orders
-of magnitude, not a squeeze.
+So that object does not exist here. The equivalent is a record of at most 668
+bytes plus hops admitted separately, and a full 8-hop chain at
+`FZN_CHAIN_MAX_LEN` **1434** -- 2 bytes of header and 8 x 179 -- is two chunks
+against a reassembly ceiling of 262144, headroom of two orders of magnitude
+rather than a squeeze.
+
+**This said 1432, which is 8 x 179 and omits the two-byte header**, so it
+quoted the hops and named them a chain. A smaller instance of the same thing
+as the paragraph above and found in the same pass.
 
 **WHAT IS NOT SETTLED, and it is stated as open rather than resolved because
 this section has already been wrong once today**:
@@ -14693,8 +14710,15 @@ this section has already been wrong once today**:
 - **Chain delivery has no named mechanism here.** A receiver that must verify
   a record's authorisation needs the hops, and nothing in this library says
   how they arrive. fuzzypickles solved that by inlining, which is what makes
-  their record 1794 bytes; this tree has declined to inline and has not said
-  what it does instead.
+  their record grow ~181 bytes per hop to a 1794-byte ceiling; this tree has
+  declined to inline and has not said what it does instead.
+
+  **Their inlining now has a measured reason to stop**, supplied from here on
+  2026-09-01 and confirmed there: the reason for it was recorded ONCE, for the
+  manifest, whose self-certifying-bearer property depends on it -- and was
+  then inherited by twenty-eight other record types that do not carry it.
+  `peer_sync` is siblings-only and reaches no relay, so nothing carries it
+  that cannot verify it.
 - **What binds a separately-travelling chain to the record it authorises.**
   ~~The issuer key and the capability, both inside the record's signature.~~
   **One indirection short, and fuzzypickles caught it on a second read of
