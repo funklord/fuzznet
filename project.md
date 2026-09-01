@@ -10940,6 +10940,22 @@ the difference between a fact and a fact with its method.
 > was learned about METHOD, most of which belongs in the workspace guidelines
 > where one instance has already gone. The chronology is the part with no
 > reader.
+>
+> **AND THE PRINCIPLE HAS A NAME, ARRIVED AT INDEPENDENTLY THE SAME HOUR.**
+> fuzzypickles `56f54b5`, about the retracted sourcing rule: *"the window in
+> which a wrong rule is cheap to remove is short, and it closes when the rule
+> gets quoted rather than when it gets written."* Removing that one cost a
+> single message because the receipt arrived before the entry settled; a day
+> later it would have been in seventeen trees with an example attached, and
+> the example is the part that travels.
+>
+> **Theirs is about removing something WRONG and this is about restructuring
+> something RIGHT, and the principle is the same: quotation is the event that
+> fixes an artifact.** For a wrong rule that argues for acting fast. For a
+> correct one it argues for not reshaping it now that others have inherited
+> its shape. Neither tree derived this from the other -- theirs came from a
+> retraction and this from a tidy-up -- which is the corroboration standard
+> `evidence.md` sets, on a question about process rather than measurement.
 
 
 fuzznet is wired into fuzzypickles and green. The work was done by a session
