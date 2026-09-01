@@ -10883,6 +10883,88 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 49. The integration, done from both sides at once, 2026-09-01
+
+fuzznet is wired into fuzzypickles and green. The work was done by a session
+in each tree rather than by one session reaching across, and three things
+came back that this tree should hold.
+
+### The freeze was real, was relayed accurately, and has narrowed
+
+Sec 18's development freeze on fuzzypickles reached that tree **only through
+this one** and was recorded there as a fuzznet report rather than as
+authority -- correctly, and the fresh session there said so before doing
+anything. The holder has now confirmed it directly in that tree: **the freeze
+was theirs, its purpose was to stop fuzzypickles being a moving target for
+fuzznet, and now that the two are being merged it narrows to FEATURE
+ADDITIONS ONLY until the merge is done.**
+
+Recorded here as CONTEXT rather than as a rule this tree follows, because it
+was never about this tree. Two things follow that are worth writing down:
+**the merge is on**, which sec 46 assumed and did not know; and integration,
+fixes, tests and records are not frozen there, so a request that would once
+have been declined may now be fine.
+
+**Parity-first is a different row and is still unconfirmed.** It reached them
+the same way, through this tree, and nothing has confirmed it -- not to them
+and not here. It stays relayed on both sides. **This tree was the relay and
+was never the authority**, and the correction worth keeping is that a claim
+does not become settled by being repeated between two documents that both
+cite the same origin. `evidence.md` says two witnesses are one when the same
+hand wrote both; this is that, spread over two trees and a week.
+
+### A probe that could not have succeeded, which is the sharpest name yet
+
+Their sec 18 recorded that its counts "survived re-measurement with `-w`".
+**`grep -w reassembl` cannot match `reassembly`** -- a word-boundary search on
+a truncated stem is guaranteed to find nothing, and it reports that nothing in
+exactly the words a real absence uses. `chunk/reassembly.c` existed at the
+commit measured, so the row was false when written rather than merely stale.
+
+**Checked here rather than assumed to be theirs alone**: no `grep -w` on a
+stem appears in this document or in this tree's tooling, so it does not
+propagate. It is recorded anyway because it names a class this document spent
+2026-09-01 on, and names it better than the entries that found it. Sec 45 has
+three instances of the same shape -- a mutation that failed to COMPILE scoring
+as CAUGHT, then two more where an offset defined in terms of the offset before
+it collided or truncated instead of permuting.
+
+**The general form, and it is the part worth quoting: stating carefully how a
+probe was anchored makes a vacuous pass MORE credible, not less.** "Survived
+re-measurement with `-w`" reads as rigour. So does "checked with the
+sanitizer" for a logic redundancy, and so does "the mutation landed, the suite
+went red". Each is a real discipline pointed at the wrong question, and the
+care spent describing it is what stops a reader asking whether it could have
+failed.
+
+### The core/binding split is enforced in the consumer's tree, which is better than here
+
+`make manifest` classifies what it emits -- `source`, `generated`, `binding`,
+`backend` -- and sec 47 built that so a consumer would not transcribe a list.
+**The consumer found a better reason for the classification than the one it
+was built on.**
+
+Their build gives `-I../monocypher/src` to the four `binding` translation
+units and to nothing else. So this tree's promise that **the core calls no
+primitive** is now enforced in their tree as well as this one, by
+construction, by a party who did not write the promise: a core source that
+started including a crypto header fails **there**, in the tree that has to
+live with it. `installcheck` is this tree checking its own claim; that is this
+tree's claim being checked by somebody else.
+
+`CORE_SRCS` alone cannot express it -- a flat list has no way to say which
+translation units are allowed to see a primitive. **The classification earns
+its place on that rather than on convenience**, and the entry is corrected
+here to say so.
+
+They also declined the includable `.mk` fragment offered in sec 47, on
+staleness rather than cost: a generated file needs a rule that regenerates it,
+and "a rule that quietly does not run" is a failure class their document
+collects three instances of, none of which produced a build error. A `$(shell)`
+cannot go stale. **That is the right trade for a consumer whose build can ask
+a question**, and the fragment stays unbuilt until one appears that cannot.
+
+
 ## 48. bitchat as a possible transport, scouted 2026-09-01
 
 **STATUS, FROM THE HOLDER, 2026-09-01: this is for FUTURE OFF-INTERNET
