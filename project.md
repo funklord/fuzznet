@@ -16556,191 +16556,197 @@ the bindings already there. Shipping them costs nothing measurable and saves
 the consumer a step.
 
 
-## 15b. Streaming will want multi-path and heavy FEC, 2026-08-28
+## 15b. Streaming and download are one transfer, parameterised, 2026-09-02
 
-**Stated by the holder as an eventual requirement**: low-latency
-streaming along the lines of ROC-toolkit -- multiple simultaneous
-connections and heavy forward error correction. Not now, and that is
-why it is written down now: it collides with three things this library
-has already decided, and each is cheap to accommodate today and
-expensive after the concepts entrench.
+**SUPERSEDES THE 2026-08-28 VERSION OF THIS SECTION, and the premise is
+what changed rather than the reasoning.** That entry concluded "a separate
+module beside `chunk/`, not a generalisation of it", on the holder's
+argument that download and streaming "make OPPOSITE choices in almost every
+aspect, one optimising for buffering and the other for eliminating it".
+That was right about the claim it answered -- which was that `chunk/`
+generalises by growing a `k` -- and it is kept below, because the reasons
+it gives are still true of that claim.
 
-### It contradicts `chunk/`'s completion rule, which is all-or-nothing
+**What changed: the holder states that BOTH are to be multi-source.** With
+that, the axis the old entry divided on stops dividing, and so does every
+replacement axis tried since.
 
-`chunk/reassembly.c:388` completes on `slot->arrived == slot->chunks`.
-Every chunk is required, tracked by a bitmap of seen indices. **FEC is
-k-of-n**: reconstruct once ANY k of n symbols arrive, and the remaining
-n-k are pure redundancy that should be discarded rather than waited
-for. Those are different completion predicates over the same data
-structure, and the current one has no `k`.
+### The axes that do not divide, worked through
 
-**AND THE FIRST VERSION OF THIS ENTRY WAS WRONG ABOUT WHAT THAT
-MEANS.** It said the `seen` bitmap is "the right shape already" and
-that only a second number was missing. The holder pushed back --
-download and streaming protocols make OPPOSITE choices in almost every
-aspect, one optimising for buffering and the other for eliminating it
--- and the pushback is correct. **A module is its lifecycle, not its
-data structure.** The bitmap is a fine primitive; `chunk/`'s lifecycle
-is what opposes streaming, and pointing at the primitive to argue the
-module generalises was the error.
+**FEC against retransmission, ordering, and greed for rare pieces are not
+three differences.** They are one, and it is continuous. The parameter is
+the deadline measured in round trips:
 
-### The opposition, field by field, from the code
+    deadline < 1 RTT     retry is IMPOSSIBLE, not merely dear. Redundancy
+                         must be sent before the loss is known. In order,
+                         late pieces discarded.
+    deadline > a few     retry is strictly cheaper than blanket redundancy,
+                         and ordering is free to be rarest-first.
 
-| `chunk/` (transfer) | streaming (ROC-like) |
-|---|---|
-| accumulate until whole, hand over ONCE (`handed`, `arrived == chunks`) | deliver continuously; accumulating IS the failure |
-| every chunk required | k-of-n, loss expected, repaired or concealed |
-| `max_hold` is when to RECLAIM MEMORY | the deadline is when data becomes WORTHLESS |
-| a late chunk is still valuable | a late symbol is garbage |
-| slot buffer up to 262144 bytes | jitter buffer of milliseconds -- ~320 bytes for 40 ms of 64 kbit/s audio |
-| order irrelevant | order essential |
+That is a dial. A progressive transfer, a voice message played while it
+arrives, a large file with a soft deadline -- all sit in the middle, and
+**two APIs would force a false choice exactly there**, which is the
+confusion the holder anticipated. There is one genuine discontinuity on the
+dial, at one RTT, where retransmission stops being expensive and becomes
+unavailable; that is a value, not an interface.
 
-**`max_hold` and a playout deadline are the trap.** Same width, same
-position, both "a time after which this slot is done" -- and opposite
-in kind. One is resource reclamation, where being late costs memory.
-The other is a correctness property, where being late costs the data.
-That is the fifth question's shape waiting to be walked into, and it
-would be walked into by anyone generalising `chunk/` rather than
-writing beside it.
+**Source count does not divide either, and was tried.** One authenticated
+peer needs no per-piece proof -- the frame's tag already covers each piece
+-- while a swarm does, and rarest-first only means anything with a swarm.
+That looked binary and clean. It is not available: the holder wants both
+multi-source, so both need per-piece verification for the same reason, and
+nothing is left on that side.
 
-Three orders of magnitude between the buffers is the measurable form of
-the same point.
+### The one constraint that does divide, and it is not policy
 
-### The tree already refused this merge once
+**Does the root exist when the transfer starts?**
 
-`project.md:342` records fuzzypickles' chunking as "for
-content-addressed assets -- a different problem, where the content has
-a hash-derived name and the transfer is pull-based and
-requester-coordinated", and sec 5 adds that **two mechanisms with
-different control flow can share primitives without becoming one
-thing.** So there are already two chunking-shaped mechanisms this tree
-declined to unify, and streaming is a third. The precedent is the
-tree's own.
+A download has its root before it begins; it came from a manifest or a
+link. A live stream does not, and cannot: **there is no proving membership
+in a tree over data that has not been produced.** No parameter fixes that.
+It is the only hard difference found, and it is a fact about time rather
+than a choice about protocol.
 
-**What is genuinely shared is thin and already lives in the frame**:
-the fields that identify a fragment -- `sender`, `msg`, `index` -- and
-a per-sender bound so a stranger cannot exhaust memory. Even the bound
-differs in kind: `chunk/`'s quota is memory, streaming's constraint is
-a latency budget. So the sharing is at the HEAD, and `chunk/` is one
-consumer of those fields rather than the general mechanism.
+**And the standard resolution collapses it rather than defending it.**
+Segment the stream into short COMPLETED objects, each with its own root,
+and a live stream becomes a sequence of finite transfers. That is what HLS
+and DASH do and it is why they can reuse ordinary object delivery. One API
+then covers both, and streaming-versus-download reduces to three numbers:
+segment length, deadline, redundancy ratio. Nothing sits between them
+because the middle is intermediate values of three dials.
 
-**Verdict: a separate module beside `chunk/`, not a generalisation of
-it.** What is missing is not a second number in the existing slot --
-it is a different lifecycle over the same wire fields, plus a
-reconstruction seam, which is a fifth vtable of the kind this library
-already has four of.
+Note what this is NOT claiming, since the old entry rejected something that
+sounds similar: not that `chunk/`'s reassembler stretches to cover
+streaming by gaining a `k`. It is that a live stream is expressible as a
+sequence of rooted objects, so neither module has to stretch.
 
-### The tuning lever is a different variable in each, and one exists
+### What per-piece verification costs, measured
 
-**Download's lever is the chunk size**, because it sets both the
-per-frame overhead ratio and the cost of a retransmission -- a lost
-piece costs exactly one chunk to replace. **That lever already exists
-and is the caller's**: `fzn_split_plan(total, max_payload, out)` takes
-`max_payload` per message, bounded by `FZN_SPLIT_MAX_PAYLOAD` 1024.
-Nothing needs adding.
+    frame overhead        144        sealed leaf max      1056
+    blob hash              32        max proof depth        40
 
-**Streaming's lever is the amount of FEC**, and it has no equivalent
-here because there is no FEC. It is also a different KIND of variable:
-chunk size is set once per message from what is being sent, while a FEC
-ratio is adjusted continuously against measured loss, so it is a
-feedback input rather than a plan parameter. A module whose main
-tunable is adjusted per-second cannot be `fzn_split_plan`'s caller.
+    leaves   depth   proof bytes
+    2^10        10       320
+    2^16        16       512
+    2^20        20       640
+    2^40        40      1280
 
-### Watch-and-record: the case that settles the split rather than complicating it
+**At 2^20 leaves a proof is 640 bytes against a 1056-byte leaf -- 60%
+overhead. At 2^40 the proof exceeds the payload it authenticates.** So
+whether a transfer carries proofs is a real cost decision and not a
+formality.
 
-**Flagged as research by the holder, and not designed here.** A stream
-that is simultaneously watched live and recorded to disk is the
-interesting hybrid, and it is worth stating why it does not argue for
-one general module.
+**Segment size is the lever for both problems at once**, which is the
+strongest evidence the unified shape is right: streaming wants short
+segments for latency, short segments are shallow trees, and shallow trees
+are cheap proofs. A stream segmented at 2^10 leaves pays 320 bytes a piece.
+The two requirements pull the same way rather than against each other.
 
-Both consumers see the SAME arriving frames and want contradictory
-things from them:
+### The downgrade keys on the deadline, not on the source count
 
-- **the playout path** wants deliver-now-or-discard: a symbol past its
-  deadline is worthless and holding it costs latency;
-- **the recording path** wants keep-everything: no deadline at all,
-  gaps noted and filled later, and a late piece is exactly as valuable
-  as a punctual one.
+The holder proposes auto-downgrading the protocol for a one-to-one
+transfer. **Right idea, wrong trigger.**
 
-A single module would need its deadline field to mean both at once,
-which is the `max_hold`-versus-playout trap above. **Two disciplines
-over one wire is the only shape that expresses it**, and the recording
-half can be `chunk/`'s existing discipline more or less as it stands.
-So the hybrid requires the modules to be separate; it is unbuildable if
-they are merged.
+With a loose deadline, verification can be DEFERRED to the end of the
+object: corruption is still detected, just late, and the answer is to
+retry the whole thing. Per-piece proofs buy early attribution, which is
+worth their bytes when pieces come from several peers and worth nothing
+when they come from one.
 
-What research would have to settle, since it is a genuine interaction
-rather than a detail: **whether a repair symbol can fill a recording
-gap without a retransmission.** If it can, the two paths share the FEC
-stream and the recording path's retransmit requests drop sharply; if
-not, they are independent and the frame carries traffic for both. That
-question decides how much the two modules share, and it cannot be
-answered from either module's side alone.
+With a tight deadline **the data is consumed before the end exists**, so
+deferral is not available at any source count. A single-source stream still
+has to verify each piece as it lands, because it plays each piece as it
+lands.
 
-### It contradicts `sched/`, which selects exactly one link
+So the safe rule is: skip proofs when you can afford to verify late. That
+is a deadline question which merely CORRELATES with source count, and
+keying on the correlate is how a downgrade ends up unsafe in the one case
+that matters.
 
-`fzn_sched_select(links, count, class, *chosen)` returns ONE index.
-Multi-path striping wants several links carrying complementary symbols
-at once, which is not a harder version of choosing one -- it is a
-different question with a different answer shape.
+### A NACK protocol, and its payload is already written three times
 
-**But `sched/`'s own reasoning already points at it.** Its hard
-constraints can exclude every link so that `FZN_SCHED_ERR_NONE` is the
-answer, and importance is deliberately not a scalar because "a
-fire-and-forget voice frame wants the fastest link and is happily
-dropped". A striping selector is the same class model answering "which
-SET" instead of "which one", and the component weighting survives the
-change. The single-link signature does not.
+**Raised by the holder 2026-09-02, and it is the feedback channel this
+shape wants.** Acknowledgement scales badly here: with several sources,
+every sender tracks what every receiver confirmed. A receiver already knows
+exactly what it lacks, and saying so is one message instead of N tallies.
 
-### The head has no room for FEC and the fields that look reusable are not
+**The payload exists in this library three times over**, which is the
+argument that it is the right shape rather than a preference:
 
-`fzn_head` carries `msg`, `index [max = chunks - 1]`, `chunks` and
-`length`. It is tempting to read `index`/`chunks` as symbol id and n.
-**They cannot be, and the constraint is in the schema**: `index` is
-bounded by `chunks - 1` and enforced by the generated validator before
-decryption. An FEC block needs at minimum a `k`, and a repair symbol's
-index is not bounded by the source count in the same way.
+    fzn_spool_plan_want        which leaves of a blob are missing
+    fzn_reasm_plan_want        which chunks of a message are missing
+    fzn_manifest_deficit_from  which revocations are still pending
 
-**And the frame has 32 bytes of headroom, not more** -- max frame 1168
-plus 48 of IPv6/UDP against a 1280 minimum MTU is 64 spare, of which a
-per-message ephemeral would take 32 if forward secrecy is also taken.
-**Two future features are competing for the same 64 bytes**, and
-nothing currently records that they compete.
+All three answer "what do I lack", as ranges, bounded by the caller's array
+with the excess reported. `fzn_manifest_deficit_from` additionally resumes
+across frame-sized windows, which is what a NACK needs when the gap list is
+longer than a datagram.
 
-### What this changes about decisions in front of the holder now
+**FEC changes the payload shape and is worth knowing before either is
+built.** Without FEC a NACK is a list of what is missing. With k-of-n it is
+a COUNT -- "block B still needs three more symbols, any three" -- because
+the symbols are interchangeable and naming them is both larger and wrong. A
+NACK format that assumes ranges will not carry the FEC case.
 
-- **The signed-object namespace** (`wire/bytes.h`) is a one-byte enum
-  with four values. **THAT WAS RECORDED AS "cannot be extended after
-  deployment" AND IT IS WRONG** -- corrected 2026-08-28 after the claim
-  reached a consumer and they prioritised on it. `wire/bytes.h` says
-  "neither BYTE can be added later without invalidating every signature
-  already issued", which is about the version and object bytes existing
-  in the format at all, and that is already done. Adding a new
-  ENUMERATOR invalidates nothing: an existing object's signed bytes do
-  not change, and each decoder refuses a tag that is not its own, which
-  is the correct treatment of an unknown type. The space is 255 values,
-  not 4.
+**And it needs no schema change to try.** `fzn_kind` is a closed four-value
+set, but nothing in this library branches on it -- measured: the only
+mentions outside tests are the static assertions binding the hand-written
+values to the schema. A consumer's command vocabulary lives in the sealed
+payload, and `FZN_KIND_ACK` is documented as any acknowledgement. So a
+consumer can carry a NACK today and find out what the format wants before
+anything is spent on a wire change.
 
-  **The real constraint is coordination, not capacity**, and it is
-  still real: a tag deployed before peers know it is refused by every
-  peer that does not, so allocation has to be agreed before either side
-  ships. A consumer with twelve signed object types fits with room to
-  spare -- what it needs is stable numbers agreed once, not more room.
-  FEC does
-  not obviously need a new signed object, but streaming might, and this
-  is the cheapest thing on the list to get right now.
-- **The forward-secrecy decision now has a competitor for the same
-  headroom.** Sec 13e priced the ephemeral at 32 bytes against 64
-  spare. If FEC needs header room, those 32 bytes are no longer free
-  and the epoch shape -- which costs zero to four bytes -- gets
-  materially more attractive.
-- **`chunk/` should not have its completion rule hardened further**
-  until k-of-n is designed, because every assertion that "all chunks
-  are required" is a statement a future FEC path must contradict.
+**The open question is suppression**, and it is the one that bites in a
+swarm rather than in a pair: if many receivers report the same loss at
+once, the source is flooded by the reports. That is a protocol design
+question, it has known answers, and none of them belong in this library --
+but a NACK API that cannot express "I already heard someone else ask for
+this" would have to be replaced rather than extended.
 
-**Nothing here is a request to build.** It is recorded so that the next
-person to touch `chunk/`, `sched/` or the head knows which of the
-current constraints are deliberate and which are merely current.
+### Watch-and-record becomes easy under this shape, which is a test of it
+
+The old entry used the hybrid -- a stream watched live and recorded to disk
+-- as the case PROVING the split, on the ground that one module's deadline
+field cannot mean both deliver-now-or-discard and keep-everything.
+
+**Under a parameterised transfer it is two consumers of one arriving
+sequence with two deadlines**, which is two values rather than two modules.
+The playout path takes a tight deadline and discards late pieces; the
+recording path takes none and fills gaps afterwards. They read the same
+frames and neither needs the other's discipline imposed on it.
+
+That the awkward case gets simpler rather than harder is the strongest
+evidence available that the axis is now the right one. The research
+question the old entry raised survives untouched and is still the right
+question: **whether a repair symbol can fill a recording gap without a
+retransmission.** It decides how much the two paths share, and it cannot be
+answered from either side alone.
+
+### What survives from the superseded entry, unchanged
+
+- **The head has no room for FEC.** `fzn_head` carries `msg`, `index [max =
+  chunks - 1]`, `chunks` and `length`, and `index` is bounded by the source
+  count in the schema, enforced before decryption -- a repair symbol's
+  index is not. Max frame 1168 plus 48 of IPv6/UDP against a 1280 minimum
+  MTU leaves 64 spare, of which a per-message ephemeral takes 32 if forward
+  secrecy is also taken. **Two future features compete for the same 64
+  bytes**, and this is still the only place that records it.
+- **`sched/` selects exactly one link.** Multi-path striping wants a set,
+  which is a different answer shape rather than a harder version of the
+  same question. Its class model and component weighting survive the
+  change; the single-link signature does not. Sec 5g now also records that
+  `usable` is boolean and cannot express a link in backoff, which is the
+  same interface running out of room in a second direction.
+- **The signed-object namespace has 255 values, not 4**, corrected
+  2026-08-28. The constraint is coordination rather than capacity: a tag
+  deployed before peers know it is refused by every peer that does not, so
+  allocation must be agreed before either side ships.
+- **`chunk/`'s completion rule should not be hardened further** until
+  k-of-n is designed. Every assertion that all chunks are required is a
+  statement a future FEC path must contradict.
+- **Nothing here is a request to build.** It is recorded so the next person
+  to touch `chunk/`, `spool/`, `sched/` or the head knows which constraints
+  are deliberate and which are merely current.
 
 ## 15a. Consumer weighting, fallout tooling, and situ, 2026-08-28
 
