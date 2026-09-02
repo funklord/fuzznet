@@ -927,6 +927,234 @@ static void test_issue_refuses_a_store_it_cannot_read(void)
 	CHECK(len == 0, "a refused issue reported a length");
 }
 
+/* THE CEILING `fzn_manifest_issue` KEEPS IS ITS OWN, AND NOTHING HERE REACHED
+ * IT.
+ *
+ * `test_the_pair_ceiling_is_a_ceiling` above holds `fzn_manifest_open` to
+ * FZN_MANIFEST_MAX_PAIRS, which is a bound on what a PEER may make this host
+ * carry. The bound inside `issue` is a different question wearing the same
+ * number: how large a manifest this host may make of its OWN store. A peer
+ * cannot set that, so refusing a peer's does not cover it, and the largest
+ * store anywhere in this file held eight.
+ *
+ * THE FAILURE IT PREVENTS IS SILENT. Deleting the guard does not overflow
+ * `out` -- the `out_cap` case below is what catches that -- it writes a count
+ * of 4095 into the sixteen-bit field and signs it, producing a manifest that
+ * no receiver's `open` will accept, from the one function that is meant to be
+ * unable to lie. The issuer learns nothing; every receiver refuses.
+ *
+ * THE STORE IS BUILT THROUGH `fzn_revocation_admit` RATHER THAN FILLED IN.
+ * Every entry arrived as a signed record through the public door, so the
+ * ceiling is shown to bound reachable behaviour rather than a struct a test
+ * assembled. That distinction earns its cost here and does not below, where
+ * the state under test is one `admit` cannot produce at all.
+ *
+ * DESCENDING ARRIVAL is deliberate twice over: it puts every insertion at
+ * position 0, which makes this the only case in the file that moves a full
+ * tail, and it is the cheap order -- ascending would run the position scan to
+ * its end 4095 times.
+ *
+ * `out_cap` IS FZN_MANIFEST_MAX_LEN, AND THAT IS THE WHOLE TEST rather than a
+ * detail. A larger buffer makes the guard unobservable: with it deleted the
+ * loop simply runs on, writes a count of 4095, and the `fzn_manifest_open`
+ * this function performs on its own bytes refuses it -- same error, same
+ * absent manifest, nothing to see. The first version of this case used
+ * `sizeof(huge)` and passed with the guard cut out.
+ *
+ * At exactly MAX_LEN the two answers diverge, and the divergence is the point
+ * of the guard. A consumer that sized `out` to the largest manifest this
+ * library carries has a CORRECT buffer and a store that has outgrown what can
+ * be said in one; SHAPE tells it so, while the `out_cap` line reached in the
+ * guard's absence answers MALFORMED and sends it to grow a buffer that is
+ * already at the ceiling. */
+static fzn_revocation_store_t crowd_store;
+static fzn_revocation_t crowd_entries[FZN_MANIFEST_MAX_PAIRS + 1u];
+
+static void test_issue_stops_at_its_own_pair_ceiling(void)
+{
+	struct fixture f;
+	fzn_manifest_record_t rec;
+	size_t len = 0;
+
+	fixture_init(&f);
+	fzn_revocation_store_init(&crowd_store, crowd_entries,
+	                          (size_t)FZN_MANIFEST_MAX_PAIRS + 1u);
+
+	for (size_t i = 0; i <= FZN_MANIFEST_MAX_PAIRS; i++) {
+		uint8_t bytes[FZN_REVOCATION_LEN];
+		fzn_revocation_record_t r;
+		fzn_cap_id_t cap;
+		uint8_t grantee[FZN_PUBKEY_LEN];
+
+		capability_id(&cap, 0x40);
+		fzn_put_be16(cap.b, (uint16_t)(FZN_MANIFEST_MAX_PAIRS - i));
+		key(grantee, 5);
+
+		f.stub.identity = f.root[0];
+		if (fzn_revocation_issue(f.root, &cap, grantee, 1000, &f.sign, bytes) !=
+		            FZN_CHAIN_OK ||
+		    fzn_revocation_open(bytes, FZN_REVOCATION_LEN, &r) != FZN_CHAIN_OK ||
+		    fzn_revocation_admit(&crowd_store, fzn_revocation_offer_root(r), f.root,
+		                         &f.sign, NULL) != FZN_CHAIN_OK) {
+			CHECK(0, "the fixture could not admit entry %zu of %u", i,
+			      (unsigned)FZN_MANIFEST_MAX_PAIRS + 1u);
+			return;
+		}
+		stub_reset(&f.stub);
+	}
+	CHECK(crowd_store.used == (size_t)FZN_MANIFEST_MAX_PAIRS + 1u,
+	      "the store holds %zu entries and wanted %u, so the fixture deduplicated and "
+	      "the ceiling is not what either call below reaches",
+	      crowd_store.used, (unsigned)FZN_MANIFEST_MAX_PAIRS + 1u);
+
+	/* THE CONTROL, and it is what makes the refusal mean the ceiling: one
+	 * entry fewer, the same store, the same buffer, the same call. */
+	crowd_store.used = FZN_MANIFEST_MAX_PAIRS;
+	f.stub.identity = f.root[0];
+	CHECK(fzn_manifest_issue(f.root, &crowd_store, &f.sign, huge, FZN_MANIFEST_MAX_LEN,
+	                         &len) == FZN_MANIFEST_OK,
+	      "a store holding exactly the ceiling could not be issued into a buffer of "
+	      "exactly FZN_MANIFEST_MAX_LEN, so the refusal below proves nothing");
+	CHECK(len == FZN_MANIFEST_MAX_LEN,
+	      "the full manifest is %zu bytes rather than %zu, so it is not the largest "
+	      "one this library will carry", len, (size_t)FZN_MANIFEST_MAX_LEN);
+	if (fzn_manifest_open(huge, len, &rec) == FZN_MANIFEST_OK) {
+		CHECK(fzn_manifest_count(rec) == FZN_MANIFEST_MAX_PAIRS,
+		      "the full manifest names %zu pairs rather than %u",
+		      fzn_manifest_count(rec), (unsigned)FZN_MANIFEST_MAX_PAIRS);
+	} else {
+		CHECK(0, "the largest manifest this issuer can derive does not open, so the "
+		         "refusal below proves nothing");
+	}
+
+	crowd_store.used = (size_t)FZN_MANIFEST_MAX_PAIRS + 1u;
+	len = 0;
+	f.stub.identity = f.root[0];
+	CHECK(fzn_manifest_issue(f.root, &crowd_store, &f.sign, huge, FZN_MANIFEST_MAX_LEN,
+	                         &len) == FZN_MANIFEST_ERR_SHAPE,
+	      "a store one entry past the ceiling did not answer SHAPE against a buffer "
+	      "of exactly FZN_MANIFEST_MAX_LEN -- MALFORMED here blames a buffer that is "
+	      "already as large as this library will carry");
+	CHECK(len == 0, "a refused issue reported a length");
+}
+
+/* AN `out_cap` THAT FITS THE FIRST PAIRS AND NOT THE LAST.
+ *
+ * `fzn_manifest_issue` checks `out_cap` twice: once against
+ * FZN_MANIFEST_MIN_LEN before it starts, which
+ * `test_every_guard_refuses_its_own_argument` covers, and once per pair as
+ * the count grows -- which nothing covered. The second is the one that stops
+ * the insertion sort writing past the buffer, and it is the only guard a
+ * caller has: how many entries the store holds for this issuer is not a
+ * number the caller passed in, so a buffer sized for the estate as it was is
+ * how this is reached in practice rather than by mistake.
+ *
+ * THE CONTROL IS ONE PAIR LARGER, so the refusal is the bound landing in the
+ * right place rather than a small buffer failing for any reason. */
+static void test_issue_refuses_an_output_too_small_for_the_store(void)
+{
+	struct fixture f;
+	static uint8_t bytes[FIXTURE_BYTES];
+	fzn_cap_id_t cap_a, cap_b, cap_c;
+	uint8_t g5[FZN_PUBKEY_LEN];
+	size_t len = 0;
+
+	fixture_init(&f);
+	capability_id(&cap_a, 0x10);
+	capability_id(&cap_b, 0x20);
+	capability_id(&cap_c, 0x30);
+	key(g5, 5);
+	revoke(&f, f.root, &cap_a, g5);
+	revoke(&f, f.root, &cap_b, g5);
+	revoke(&f, f.root, &cap_c, g5);
+
+	f.stub.identity = f.root[0];
+	CHECK(fzn_manifest_issue(f.root, &f.store, &f.sign, bytes, FZN_MANIFEST_LEN(3),
+	                         &len) == FZN_MANIFEST_OK,
+	      "three pairs will not fit a buffer sized for three, so the refusal below "
+	      "proves nothing");
+	CHECK(len == FZN_MANIFEST_LEN(3), "it is %zu bytes rather than %zu", len,
+	      FZN_MANIFEST_LEN(3));
+
+	/* Room for two against a store holding three -- and comfortably past
+	 * FZN_MANIFEST_MIN_LEN, so the opening guard cannot be what refuses. */
+	len = 0;
+	f.stub.identity = f.root[0];
+	CHECK(fzn_manifest_issue(f.root, &f.store, &f.sign, bytes, FZN_MANIFEST_LEN(2),
+	                         &len) == FZN_MANIFEST_ERR_MALFORMED,
+	      "a buffer sized for two pairs took a store holding three");
+	CHECK(len == 0, "a refused issue reported a length");
+}
+
+/* THE DUPLICATE `issue` SKIPS IS ONE ITS OWN STORE SAYS CANNOT BE THERE.
+ *
+ * manifest.c states the case and why it is handled anyway: a pair emitted
+ * twice is a manifest signed by this issuer that no receiver's `open` will
+ * accept, produced by the one function meant to be unable to lie. The skip
+ * costs a comparison the position search was doing regardless.
+ *
+ * IT CANNOT BE REACHED THROUGH `fzn_revocation_admit`, AND THAT IS WHY THE
+ * ENTRIES ARE WRITTEN IN DIRECTLY rather than a reason to leave it untested.
+ * `store_sound` is the whole of what this module asks about a store, and a
+ * store holding one pair twice satisfies it -- `used` is within `capacity`
+ * and `entries` is not NULL. So the state is inside what the module accepts,
+ * and what it does with it is exactly the open question. The alternative,
+ * treating "admit cannot produce this" as coverage, is the reasoning that
+ * left the guard unexecuted while the comment above it explained itself.
+ *
+ * THE CONTROL MAKES THE DUPLICATE DISTINCT IN ITS LAST BYTE, which is two
+ * assertions in one: three pairs out means the missing second above was the
+ * skip and not an entry lost elsewhere, and it means the skip compared all
+ * sixty-four bytes rather than a prefix. */
+static void test_issue_skips_a_duplicate_the_store_should_not_hold(void)
+{
+	struct fixture f;
+	static uint8_t bytes[FIXTURE_BYTES];
+	fzn_manifest_record_t rec;
+	size_t len = 0;
+
+	fixture_init(&f);
+	f.store.used = 3;
+	capability_id(&f.entries[0].capability, 0x10);
+	key(f.entries[0].grantee, 5);
+	memcpy(f.entries[0].issuer, f.root, FZN_PUBKEY_LEN);
+	f.entries[1] = f.entries[0]; /* the duplicate, byte for byte */
+	capability_id(&f.entries[2].capability, 0x20);
+	key(f.entries[2].grantee, 5);
+	memcpy(f.entries[2].issuer, f.root, FZN_PUBKEY_LEN);
+
+	f.stub.identity = f.root[0];
+	CHECK(fzn_manifest_issue(f.root, &f.store, &f.sign, bytes, sizeof(bytes), &len) ==
+	              FZN_MANIFEST_OK,
+	      "a store holding one pair twice could not be issued at all");
+	CHECK(len == FZN_MANIFEST_LEN(2),
+	      "it is %zu bytes rather than the %zu the two distinct pairs take", len,
+	      FZN_MANIFEST_LEN(2));
+	CHECK(fzn_manifest_open(bytes, len, &rec) == FZN_MANIFEST_OK,
+	      "the manifest a duplicated store produced will not open, which is the "
+	      "failure the skip exists to prevent");
+
+	fixture_init(&f);
+	f.store.used = 3;
+	capability_id(&f.entries[0].capability, 0x10);
+	key(f.entries[0].grantee, 5);
+	memcpy(f.entries[0].issuer, f.root, FZN_PUBKEY_LEN);
+	f.entries[1] = f.entries[0];
+	capability_id_near(&f.entries[1].capability, 0x10);
+	capability_id(&f.entries[2].capability, 0x20);
+	key(f.entries[2].grantee, 5);
+	memcpy(f.entries[2].issuer, f.root, FZN_PUBKEY_LEN);
+
+	len = 0;
+	f.stub.identity = f.root[0];
+	CHECK(fzn_manifest_issue(f.root, &f.store, &f.sign, bytes, sizeof(bytes), &len) ==
+	                      FZN_MANIFEST_OK &&
+	              len == FZN_MANIFEST_LEN(3),
+	      "three pairs differing only in one byte produced %zu bytes rather than %zu, "
+	      "so the skip above is not what removed the second", len,
+	      FZN_MANIFEST_LEN(3));
+}
+
 /* TWO ENCODES OF ONE SET ARE THE SAME BYTES, which is what the absent
  * `issued_at` buys and is the reason sec 13b's first answer -- the revoking
  * key is REPLICATED across a user's hosts -- costs nothing here. Two holders
@@ -2494,6 +2722,9 @@ int main(void)
 	test_encode_refuses_what_open_would();
 	test_issue_derives_from_the_issuers_own_store();
 	test_issue_refuses_a_store_it_cannot_read();
+	test_issue_stops_at_its_own_pair_ceiling();
+	test_issue_refuses_an_output_too_small_for_the_store();
+	test_issue_skips_a_duplicate_the_store_should_not_hold();
 	test_a_refusing_signer_leaves_no_manifest_behind();
 	test_issuing_is_deterministic();
 	test_following_is_deliberate();

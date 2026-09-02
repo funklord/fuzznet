@@ -355,7 +355,16 @@ fzn_manifest_err_t fzn_manifest_encode(uint8_t *out, size_t out_cap,
  * unreadable store yields no pairs, and no pairs is a signed statement that
  * this key has revoked nothing -- the fail-open answer, published under the
  * issuer's own signature and indistinguishable from the truth at every
- * receiver. */
+ * receiver.
+ *
+ * FZN_MANIFEST_ERR_SHAPE for a store holding more than FZN_MANIFEST_MAX_PAIRS
+ * entries for THIS issuer, and FZN_MANIFEST_ERR_MALFORMED for an `out_cap`
+ * that cannot hold them -- both judged against the store, which is a
+ * different question from the one `fzn_manifest_open` answers about what a
+ * peer sent. Neither is a number the caller passed, so a caller that sized
+ * `out` for the estate as it was reaches the second by growing rather than by
+ * mistake. On both, `*out_len` is untouched and `out` may hold partial
+ * bytes. */
 fzn_manifest_err_t fzn_manifest_issue(const uint8_t issuer[FZN_PUBKEY_LEN],
                                       const fzn_revocation_store_t *store,
                                       const fzn_sign_ops_t *sign, uint8_t *out, size_t out_cap,
