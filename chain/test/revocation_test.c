@@ -1786,6 +1786,88 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 	      "the positive control fails, so every refusal above proves nothing");
 }
 
+/* A FUNCTION WITH NO DIRECT TEST, and its guards are the reason it exists.
+ *
+ * `fzn_revocation_covers_chain` is reached by this suite only through
+ * `fzn_chain_verify`, which hands it a store it just validated, a hop array
+ * it just parsed and a count it already bounded -- so not one of its own
+ * argument guards has ever fired. Its header names the caller they are for:
+ * "a consumer doing its own walk", holding a chain it parsed itself. That
+ * consumer is precisely the one this suite never plays.
+ *
+ * The three answers are the header's, and they are NOT all the same answer,
+ * which is why each needs driving separately: a null store revokes nothing,
+ * a CORRUPT store revokes everything, and a question with no subject -- no
+ * hops, no capability, a zero or oversized count -- revokes nothing, because
+ * the question is absent rather than the answer permissive. Getting the
+ * corrupt case backwards would be a store that cannot be read silently
+ * authorising every hop in a chain. */
+static void test_the_chain_walk_answers_its_own_guards(void)
+{
+	fzn_revocation_store_t store;
+	fzn_revocation_t storage[2];
+	fzn_chain_hop_t hops[FZN_CHAIN_MAX_HOPS];
+	fzn_cap_id_t cap;
+	uint8_t revoked[FZN_CHAIN_MAX_HOPS];
+	size_t i;
+
+	memset(&cap, 0x21, sizeof(cap));
+	memset(hops, 0, sizeof(hops));
+	CHECK(fzn_revocation_store_init(&store, storage, 2) == FZN_CHAIN_OK,
+	      "store init refused");
+
+	/* A NULL STORE REVOKES NOTHING -- what a consumer holding none relies
+	 * on, and the answer `fzn_chain_verify` is built around. */
+	memset(revoked, 0xff, sizeof(revoked));
+	fzn_revocation_covers_chain(NULL, hops, 2u, &cap, revoked);
+	for (i = 0; i < 2u; i++)
+		CHECK(revoked[i] == 0u,
+		      "a null store revoked hop %u", (unsigned)i);
+
+	/* A CORRUPT STORE REVOKES EVERY HOP. `used` past `capacity` is a store
+	 * whose entries cannot be scanned, and entries that cannot be read may
+	 * hold the answer -- so denying is the safe reply to an authorisation
+	 * question. This is the one answer that must NOT be the permissive
+	 * one, and the direction a mistake would go unnoticed. */
+	{
+		fzn_revocation_store_t broken = store;
+
+		broken.used = broken.capacity + 1u;
+		memset(revoked, 0u, sizeof(revoked));
+		fzn_revocation_covers_chain(&broken, hops, 2u, &cap, revoked);
+		for (i = 0; i < 2u; i++)
+			CHECK(revoked[i] == 1u,
+			      "a store that cannot be scanned left hop %u authorised",
+			      (unsigned)i);
+	}
+
+	/* A QUESTION WITH NO SUBJECT REVOKES NOTHING, and each way of having
+	 * no subject is its own guard. */
+	memset(revoked, 0xff, sizeof(revoked));
+	fzn_revocation_covers_chain(&store, NULL, 2u, &cap, revoked);
+	CHECK(revoked[0] == 0u, "a walk with no hops revoked one");
+
+	memset(revoked, 0xff, sizeof(revoked));
+	fzn_revocation_covers_chain(&store, hops, 0u, &cap, revoked);
+	CHECK(revoked[0] == 0u, "a walk of zero hops revoked one");
+
+	/* ONE PAST THE CEILING, which is a peer's number in a consumer that
+	 * parsed the chain itself -- the exact caller the guard is for. */
+	memset(revoked, 0xff, sizeof(revoked));
+	fzn_revocation_covers_chain(&store, hops, FZN_CHAIN_MAX_HOPS + 1u, &cap,
+	                            revoked);
+	CHECK(revoked[0] == 0u, "a walk past the hop ceiling revoked one");
+
+	memset(revoked, 0xff, sizeof(revoked));
+	fzn_revocation_covers_chain(&store, hops, 2u, NULL, revoked);
+	CHECK(revoked[0] == 0u, "a walk with no capability revoked one");
+
+	/* A NULL OUTPUT HAS NOWHERE TO WRITE AN ANSWER, so it writes none --
+	 * and must not fall over trying. */
+	fzn_revocation_covers_chain(&store, hops, 2u, &cap, NULL);
+	CHECK(1, "a walk with nowhere to answer returned");
+}
+
 int main(void)
 {
 	test_layout_and_round_trip();
@@ -1821,6 +1903,7 @@ int main(void)
 	test_a_forged_record_costs_one_verification();
 	test_an_offer_that_names_a_chain_it_does_not_carry();
 	test_a_batch_carries_each_issuers_own_chain();
+	test_the_chain_walk_answers_its_own_guards();
 	test_the_suite_can_tell_pass_from_fail();
 
 	printf("revocation_test: %d checks, %d failure(s)\n", checks, failures);

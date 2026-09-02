@@ -896,6 +896,36 @@ static void test_a_zero_expiry_is_bounded_by_max_hold(void)
 	CHECK(fzn_reasm_expire(&f.table, 100 + REASM_MAX_HOLD + 1u) == SLOTS,
 	      "a chunk claiming no expiry held its slot past max_hold");
 
+	/* A CHUNK THAT CLAIMS A LATER EXPIRY THAN THE POLICY ALLOWS, which is
+	 * the other half of the same bound and the half nothing drove.
+	 *
+	 * Zero meaning "no expiry" is tested above. A sender naming a REAL but
+	 * absurd deadline was not -- and it is the hostile shape rather than
+	 * the careless one: `expires_at` arrives on the wire, so a sender can
+	 * claim UINT64_MAX and, without the clamp, pin a slot until the heat
+	 * death of the receiver. The header promises `min(expires_at,
+	 * now + max_hold)`; every test until now passed an expiry far BELOW
+	 * the hold, so the min always chose the chunk's own value and the
+	 * other arm never ran.
+	 *
+	 * A memory bound that a stranger can talk you out of is not a bound. */
+	{
+		uint8_t greedy[FZN_SENDER_LEN];
+
+		memset(greedy, 0x7f, sizeof(greedy));
+		CHECK(fzn_reasm_accept(&f.table, greedy, 2, 0, 2, piece, sizeof(piece),
+		                       UINT64_MAX, 100, &done) == FZN_REASM_OK,
+		      "a chunk claiming a distant expiry was refused outright");
+		/* Inside the hold it keeps its slot, exactly as an honest one
+		 * does -- the clamp must not be a refusal in disguise. */
+		CHECK(fzn_reasm_expire(&f.table, 100 + (REASM_MAX_HOLD / 2u)) == 0,
+		      "a partial was reclaimed while still inside its hold");
+		/* Past the POLICY bound it goes, though its own claim says
+		 * otherwise by some sixteen quintillion. */
+		CHECK(fzn_reasm_expire(&f.table, 100 + REASM_MAX_HOLD + 1u) == 1,
+		      "a chunk claiming UINT64_MAX held its slot past max_hold");
+	}
+
 	/* And the table is usable again, which is what the reclamation is FOR.
 	 * Without this the case above is satisfied by a table that dropped
 	 * everything and can no longer take anything either. */
