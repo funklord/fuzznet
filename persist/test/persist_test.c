@@ -342,6 +342,137 @@ static void test_a_blob_does_not_open_as_another_kind(void)
 	      "a blob with a trailing byte was opened, so the length is not exact");
 }
 
+/* BYTES THAT ARE THE RIGHT SHAPE AND THE WRONG CONTENT.
+ *
+ * This is what `persist/` exists to refuse and what nothing had driven. Every
+ * existing case here corrupts a blob's LENGTH or its TAG -- both caught before
+ * the body is looked at. A blob whose header is perfect and whose body is
+ * rubbish reaches further in, to `fzn_trust_pin` and `fzn_trust_adopt`, and
+ * those refusals had never run: a stored anchor of all-zero bytes is not a
+ * key anybody generated, and a `source` byte that names neither PINNED nor
+ * ADOPTED is not a provenance at all.
+ *
+ * The header is explicit that the second is refused rather than defaulted --
+ * quietly treating an unknown provenance as "adopted" would launder a pinned
+ * anchor into an adopted one across a restart, which is the one direction
+ * that must not happen. */
+static void test_a_blob_with_the_right_shape_and_wrong_bytes_is_refused(void)
+{
+	fzn_trust_t trust, back;
+	uint8_t root[FZN_PUBKEY_LEN];
+	uint8_t blob[FZN_PERSIST_MAX];
+	uint8_t broken[FZN_PERSIST_MAX];
+	size_t len = 0, i;
+	int found_source = 0;
+
+	fill(root, sizeof(root), 0x63);
+	fzn_trust_init(&trust);
+	REQUIRE(fzn_trust_adopt(&trust, root, 7u) == FZN_TRUST_OK, "adopt refused");
+	REQUIRE(fzn_persist_trust_pack(&trust, blob, sizeof(blob), &len) ==
+	        FZN_PERSIST_OK, "packing refused");
+	/* The control: unmodified, it opens. Without this every refusal below
+	 * is satisfied by an opener that refuses everything. */
+	REQUIRE(fzn_persist_trust_open(blob, len, &back) == FZN_PERSIST_OK,
+	        "the control blob did not open");
+
+	/* AN ALL-ZERO ROOT. The length and the tag are untouched, so this gets
+	 * past both header checks and is refused by the trust layer beneath. */
+	memcpy(broken, blob, len);
+	for (i = 0; i + FZN_PUBKEY_LEN <= len; i++) {
+		if (memcmp(broken + i, root, FZN_PUBKEY_LEN) == 0) {
+			memset(broken + i, 0, FZN_PUBKEY_LEN);
+			found_source = 1;
+			break;
+		}
+	}
+	REQUIRE(found_source, "the fixture could not find the root in the blob");
+	CHECK(fzn_persist_trust_open(broken, len, &back) != FZN_PERSIST_OK,
+	      "an anchor of all-zero bytes was restored as a key");
+
+	/* A PROVENANCE THAT IS NEITHER. Every byte value that is not one of
+	 * the two real sources, so this cannot pass by picking a lucky one --
+	 * and it must be refused rather than defaulted, because defaulting is
+	 * how a pinned anchor becomes an adopted one across a restart. */
+	for (i = 0; i < 256u; i++) {
+		size_t at;
+
+		if (i == (size_t)FZN_TRUST_PINNED || i == (size_t)FZN_TRUST_ADOPTED)
+			continue;
+		memcpy(broken, blob, len);
+		/* The source byte is whichever position holds the real one; find
+		 * it by the value the pack just produced rather than by an
+		 * offset this test would then be asserting twice. */
+		for (at = 0; at < len; at++) {
+			if (blob[at] == (uint8_t)FZN_TRUST_ADOPTED) {
+				broken[at] = (uint8_t)i;
+				break;
+			}
+		}
+		REQUIRE(at < len, "the fixture could not find the source byte");
+		if (fzn_persist_trust_open(broken, len, &back) == FZN_PERSIST_OK) {
+			CHECK(0, "a source byte of %u was accepted as a provenance",
+			      (unsigned)i);
+			break;
+		}
+	}
+	CHECK(1, "no unknown provenance byte was accepted");
+}
+
+/* A PEER BLOB OPENED AS SOMETHING ELSE, which the cross-open test above
+ * covers for trust, chain and secret and not for peer -- an asymmetry in an
+ * otherwise thorough test, and peer is the largest of the four so it is the
+ * one whose length check hides the most. */
+static void test_a_peer_blob_does_not_open_as_another_kind(void)
+{
+	fzn_prekey_peer_t peer, peer_back;
+	fzn_trust_t trust_back;
+	fzn_ratchet_chain_t chain_back;
+	uint8_t blob[FZN_PERSIST_MAX], other[FZN_PERSIST_MAX];
+	uint8_t root[FZN_PUBKEY_LEN], key[FZN_CHAIN_KEY_LEN];
+	uint8_t prekey[FZN_PREKEY_LEN];
+	fzn_ratchet_chain_t chain;
+	fzn_prekey_peer_t bare;
+	uint8_t scratch[FZN_PERSIST_MAX];
+	size_t len = 0, olen = 0, blen = 0;
+
+	fill(root, sizeof(root), 0x91);
+	fill(key, sizeof(key), 0x92);
+	fill(prekey, sizeof(prekey), 0x93);
+	fzn_ratchet_init(&chain, key, 0);
+
+	/* A PEER WHOSE TRUST WAS NEVER ANCHORED CANNOT BE PACKED, which is a
+	 * refusal in its own right and one nothing drove -- found by writing
+	 * this test with a zeroed peer and having it refused. A peer is its
+	 * anchor plus a prekey; storing one without the anchor would put a
+	 * prekey on disk with nothing saying whose it is. */
+	fzn_prekey_peer_init(&bare);
+	CHECK(fzn_persist_peer_pack(&bare, scratch, sizeof(scratch), &blen) !=
+	      FZN_PERSIST_OK,
+	      "a peer with no anchor was packed");
+
+	fzn_prekey_peer_init(&peer);
+	REQUIRE(fzn_trust_adopt(&peer.trust, root, 9u) == FZN_TRUST_OK,
+	        "adopt refused");
+	memcpy(peer.prekey, prekey, FZN_PREKEY_LEN);
+	peer.created_at = 4321u;
+
+	REQUIRE(fzn_persist_peer_pack(&peer, blob, sizeof(blob), &len) ==
+	        FZN_PERSIST_OK, "packing a peer refused");
+	REQUIRE(fzn_persist_chain_pack(&chain, other, sizeof(other), &olen) ==
+	        FZN_PERSIST_OK, "packing a chain refused");
+
+	CHECK(fzn_persist_peer_open(other, olen, &peer_back) != FZN_PERSIST_OK,
+	      "a chain blob opened as a peer");
+	CHECK(fzn_persist_trust_open(blob, len, &trust_back) != FZN_PERSIST_OK,
+	      "a peer blob opened as a trust anchor");
+	CHECK(fzn_persist_chain_open(blob, len, &chain_back) != FZN_PERSIST_OK,
+	      "a peer blob opened as a ratchet chain");
+	/* The control, so the three refusals above are not an opener that
+	 * refuses everything. */
+	CHECK(fzn_persist_peer_open(blob, len, &peer_back) == FZN_PERSIST_OK,
+	      "a peer blob did not open as a peer");
+}
+
 static void test_every_guard_refuses_its_own_argument(void)
 {
 	fzn_trust_t t;
@@ -364,6 +495,18 @@ static void test_every_guard_refuses_its_own_argument(void)
 	CHECK(fzn_persist_trust_open(NULL, 8u, &t) == FZN_PERSIST_ERR_MALFORMED, "null bytes");
 
 	CHECK(strcmp(fzn_persist_err_str(FZN_PERSIST_OK), "ok") == 0, "ok does not render");
+	/* EVERY NAMED CODE, not two of six. These four are produced constantly
+	 * as return values and never once fed back to the renderer, so the
+	 * enum and its string table could drift apart silently -- the reader
+	 * of a log line being the first to find out. */
+	CHECK(strcmp(fzn_persist_err_str(FZN_PERSIST_ERR_MALFORMED), "unknown") != 0,
+	      "MALFORMED does not render");
+	CHECK(strcmp(fzn_persist_err_str(FZN_PERSIST_ERR_SHAPE), "unknown") != 0,
+	      "SHAPE does not render");
+	CHECK(strcmp(fzn_persist_err_str(FZN_PERSIST_ERR_BACKEND), "unknown") != 0,
+	      "BACKEND does not render");
+	CHECK(strcmp(fzn_persist_err_str(FZN_PERSIST_ERR_ABSENT), "unknown") != 0,
+	      "ABSENT does not render");
 	CHECK(strcmp(fzn_persist_err_str((fzn_persist_err_t)66), "unknown") == 0,
 	      "a value that is not an enumerator does not render as unknown");
 }
@@ -386,6 +529,8 @@ int main(void)
 	test_a_refused_restore_keeps_the_secret_it_had();
 	test_a_pinned_peer_and_a_chain_round_trip();
 	test_a_blob_does_not_open_as_another_kind();
+	test_a_peer_blob_does_not_open_as_another_kind();
+	test_a_blob_with_the_right_shape_and_wrong_bytes_is_refused();
 	test_every_guard_refuses_its_own_argument();
 	test_the_suite_can_tell_pass_from_fail();
 

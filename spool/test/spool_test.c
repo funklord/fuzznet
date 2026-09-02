@@ -359,6 +359,95 @@ static void test_the_ceiling_is_refused_before_anything_is_touched(void)
 	CHECK(fzn_spool_place(&spool, &HASH, TEST_LEAVES, sealed[0], sealed_len[0], proof[0],
 	                      proof_len[0]) == FZN_SPOOL_ERR_TOO_LARGE,
 	      "a leaf index past the blob was accepted");
+
+	/* THE OTHER NUMBER A PEER CHOOSES, and it had no test. The index
+	 * ceiling above is driven; the LENGTH ceiling beside it was not, even
+	 * though `sealed_len` arrives on the wire exactly as `index` does. A
+	 * length of zero and a length past what a leaf can be are both refused
+	 * before the hash seam is called, which is the same argument the index
+	 * check is made on -- a peer's number should cost a comparison. */
+	CHECK(fzn_spool_place(&spool, &HASH, 0u, sealed[0], 0u, proof[0],
+	                      proof_len[0]) == FZN_SPOOL_ERR_UNVERIFIED,
+	      "a leaf claiming no bytes was accepted");
+	CHECK(fzn_spool_place(&spool, &HASH, 0u, sealed[0],
+	                      (size_t)FZN_BLOB_SEALED_MAX + 1u, proof[0],
+	                      proof_len[0]) == FZN_SPOOL_ERR_UNVERIFIED,
+	      "a leaf longer than a leaf can be was accepted");
+	/* AND NEITHER CLAIMED THE SLOT. A refusal that marked the bitmap would
+	 * lose the leaf for good, since a spool never asks twice. */
+	CHECK(fzn_spool_has(&spool, 0u) == 0,
+	      "a refused length still claimed the leaf");
+}
+
+/* THE TERMINAL ANSWER, which the header describes and nothing drove.
+ * `spool.h` says `fzn_spool_next_missing` returns FZN_SPOOL_ERR_ABSENT "when
+ * there are none left, which is how a caller walks" the gaps -- so it is the
+ * loop condition of every consumer that fetches a blob, and every existing
+ * test stopped while a gap remained. A walk whose termination is untested is
+ * a walk nobody has seen end. */
+static void test_the_walk_over_gaps_ends(void)
+{
+	fzn_spool_t spool;
+	uint8_t map[FZN_SPOOL_BITMAP_LEN(TEST_LEAVES)];
+	uint64_t want = 0u;
+	unsigned i, seen = 0u;
+
+	REQUIRE(build_blob(), "the blob fixture does not build");
+	reset(&spool, map, sizeof(map));
+
+	/* Walk from empty to full, following the module's own answer rather
+	 * than counting independently -- if `next_missing` is wrong about
+	 * which leaf is absent, this loop stops early or never stops. */
+	while (fzn_spool_next_missing(&spool, 0u, &want) == FZN_SPOOL_OK) {
+		REQUIRE(want < TEST_LEAVES, "a gap outside the blob was named");
+		CHECK(fzn_spool_place(&spool, &HASH, (uint64_t)want, sealed[want],
+		                      sealed_len[want], proof[want],
+		                      proof_len[want]) == FZN_SPOOL_OK,
+		      "the leaf the walk named was refused");
+		seen++;
+		if (seen > TEST_LEAVES)
+			break;
+	}
+	CHECK(seen == TEST_LEAVES,
+	      "the walk did not name every leaf exactly once");
+	CHECK(fzn_spool_complete(&spool) == 1,
+	      "the blob is not complete after the walk filled it");
+
+	/* AND NOW THE ANSWER THE HEADER PROMISES. */
+	want = 0xdeadbeefu;
+	CHECK(fzn_spool_next_missing(&spool, 0u, &want) == FZN_SPOOL_ERR_ABSENT,
+	      "a complete spool still reported a gap");
+
+	/* Also from a start past the last gap, which is the other way a caller
+	 * reaches the end -- resuming a walk rather than beginning one. */
+	reset(&spool, map, sizeof(map));
+	for (i = 0; i < TEST_LEAVES; i++)
+		REQUIRE(fzn_spool_place(&spool, &HASH, i, sealed[i], sealed_len[i],
+		                        proof[i], proof_len[i]) == FZN_SPOOL_OK,
+		        "filling for the resume case");
+	CHECK(fzn_spool_next_missing(&spool, TEST_LEAVES - 1u, &want) ==
+	      FZN_SPOOL_ERR_ABSENT,
+	      "a walk resumed past the last gap reported one");
+}
+
+/* Out-of-range reads and queries, which the two accessors refuse and nothing
+ * asked them to. `place` has its ceiling tested above; these two share the
+ * bound and did not. */
+static void test_an_index_past_the_blob_is_refused(void)
+{
+	fzn_spool_t spool;
+	uint8_t map[FZN_SPOOL_BITMAP_LEN(TEST_LEAVES)];
+	uint8_t back[FZN_BLOB_SEALED_MAX];
+	size_t back_len = 0u;
+
+	REQUIRE(build_blob(), "the blob fixture does not build");
+	reset(&spool, map, sizeof(map));
+
+	CHECK(fzn_spool_read(&spool, TEST_LEAVES, back, sizeof(back), &back_len) ==
+	      FZN_SPOOL_ERR_TOO_LARGE,
+	      "reading past the blob was accepted");
+	CHECK(fzn_spool_has(&spool, TEST_LEAVES) == 0,
+	      "a leaf past the blob was reported present");
 }
 
 static void test_a_leaf_reads_back(void)
@@ -400,6 +489,8 @@ int main(void)
 	test_a_duplicate_is_free();
 	test_resume_recounts_from_the_bits();
 	test_the_ceiling_is_refused_before_anything_is_touched();
+	test_the_walk_over_gaps_ends();
+	test_an_index_past_the_blob_is_refused();
 	test_a_leaf_reads_back();
 	test_the_suite_can_tell_pass_from_fail();
 
