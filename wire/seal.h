@@ -322,7 +322,15 @@ typedef struct fzn_opened {
  * Shape-checked exactly as `fzn_seal_open` checks it, so a truncated or
  * suffixed frame is refused rather than yielding pointers into something that
  * is not a frame. The three pointers point INTO `frame` and are valid for as
- * long as it is. */
+ * long as it is.
+ *
+ * A REFUSAL CLEARS THE OUTPUT RATHER THAN LEAVING IT. `*out` is zeroed before
+ * anything is validated, and `fzn_seal_peek_sender` nulls its pointer the same
+ * way, so a caller that forgets to check the return code reads zeroes and a
+ * null rather than whatever was on its stack. That was already what the code
+ * did and is written down here because a consumer cannot rely on reading the
+ * source -- and because the alternative, leaving the caller's buffer alone,
+ * is the one a reader would otherwise assume from the rest of this header. */
 typedef struct fzn_peek {
 	const uint8_t *sender;     /* 32 bytes */
 	const uint8_t *nonce;      /* FZN_AEAD_NONCE_LEN bytes */

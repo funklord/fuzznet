@@ -171,6 +171,7 @@
 #include "session/agree_monocypher.h"
 #endif
 
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -846,6 +847,31 @@ int main(void)
 		if (!fzn_ct_memeq(want[0].grantee, grantee, FZN_PUBKEY_LEN))
 			FAIL(120);
 
+		/* THE RESUMABLE FORM, AND `from = 0` MUST BE THE PLAIN ONE.
+		 * `fzn_manifest_deficit` is defined as this call's zero case, so
+		 * a consumer that has adopted the cursor and one that has not
+		 * must get the same answer for the same table. Checked against
+		 * the result above rather than restated, so the two cannot drift
+		 * apart without this failing. */
+		{
+			fzn_manifest_pair_t resumed[4];
+			size_t from_dropped = 1, next = 1;
+
+			memset(resumed, 0, sizeof(resumed));
+			if (fzn_manifest_deficit_from(&manifest, root, 0, resumed, 4,
+			                              &from_dropped, &next) != 1)
+				FAIL(36);
+			if (from_dropped != 0)
+				FAIL(37);
+			/* A table that fits leaves nothing for a next request,
+			 * and `next` says so rather than pointing past the end. */
+			if (next != 0)
+				FAIL(38);
+			if (!fzn_ct_memeq(resumed[0].grantee, want[0].grantee,
+			                  FZN_PUBKEY_LEN))
+				FAIL(39);
+		}
+
 		/* And the revocation arriving settles it, which is the whole
 		 * of the parameter `fzn_revocation_admit` gained. */
 		if (fzn_revocation_store_init(&fresh, fresh_storage, 4) != FZN_CHAIN_OK)
@@ -860,6 +886,44 @@ int main(void)
 			FAIL(124);
 		if (fzn_manifest_pending(&manifest, root) != 0)
 			FAIL(125);
+
+		/* THE SERVE SIDE, and it must come after the admit above:
+		 * `fresh` is the store that now holds the one revocation, so a
+		 * peer naming that triple is answered "held" and a peer naming a
+		 * grantee nobody revoked is answered "not held" rather than
+		 * being left out -- the per-item verdict the header argues for.
+		 * Placed before the admit in the first draft, where it failed
+		 * against an empty store, which is the check working. */
+		{
+			fzn_manifest_deficit_t asked[2];
+			uint8_t holds[2] = { 9u, 9u };
+			fzn_manifest_offer_t offer;
+
+			memset(asked, 0, sizeof(asked));
+			memcpy(asked[0].issuer, root, FZN_PUBKEY_LEN);
+			asked[0].capability = want[0].capability;
+			memcpy(asked[0].grantee, want[0].grantee, FZN_PUBKEY_LEN);
+			asked[1] = asked[0];
+			memset(asked[1].grantee, 0xEE, FZN_PUBKEY_LEN);
+
+			memset(&offer, 0, sizeof(offer));
+			if (fzn_manifest_plan_offer(&fresh, asked, 2, holds, 2,
+			                            &offer) != FZN_MANIFEST_OK)
+				FAIL(46);
+			if (offer.examined != 2 || offer.truncated != 0)
+				FAIL(47);
+			if (holds[0] != 1u || holds[1] != 0u)
+				FAIL(48);
+			if (offer.held != 1)
+				FAIL(49);
+
+			/* A ceiling of zero is refused rather than read as
+			 * unlimited, which is the rule a serve path needs
+			 * because the peer chooses the count. */
+			if (fzn_manifest_plan_offer(&fresh, asked, 2, holds, 0,
+			                            &offer) != FZN_MANIFEST_ERR_MALFORMED)
+				FAIL(54);
+		}
 		if (fzn_manifest_err_str(FZN_MANIFEST_ERR_UNKNOWN_ISSUER) == NULL)
 			FAIL(126);
 	}
@@ -1475,6 +1539,60 @@ int main(void)
 			FAIL(18);
 		if (FZN_AEAD_NONCE_LEN != FZN_NONCE_LEN)
 			FAIL(19);
+
+		/* PEEKING REFUSES WHAT OPENING REFUSES, which is the property a
+		 * consumer selecting a key depends on: `fzn_seal_peek_sender`
+		 * runs before any key is chosen, so if it accepted frames
+		 * `fzn_seal_open` will not, a receiver would select on a pointer
+		 * into something that is not a frame. Asked of the same buffer
+		 * the line above just had refused, so the two answers are about
+		 * one input rather than two. */
+		{
+			fzn_peek_t peek, zeroed;
+			const uint8_t *claimed = (const uint8_t *)&peek;
+
+			memset(&peek, 0xA5, sizeof(peek));
+			memset(&zeroed, 0, sizeof(zeroed));
+			/* SHAPE, NOT MALFORMED, AND THE DIFFERENCE IS THE
+			 * POINT. `fzn_seal_open` above answers MALFORMED for
+			 * this buffer because it was handed a null AEAD --
+			 * a caller's bug. Peek takes no ops at all, so the only
+			 * thing it can object to is the bytes, and it says so
+			 * with its own code: an all-zero frame is not the shape
+			 * the schema describes. A consumer that folded the two
+			 * together would report its own mistakes as a peer's
+			 * bad datagrams. */
+			if (fzn_seal_peek(frame, sizeof(frame), &peek) !=
+			    FZN_SEAL_ERR_SHAPE)
+				FAIL(25);
+			/* A REFUSAL LEAVES THE STRUCT ZEROED, which is better
+			 * than leaving it alone and is what a consumer can
+			 * rely on: both peek calls clear their output BEFORE
+			 * validating, so a caller that ignores the return code
+			 * reads zeroes rather than whatever was on its stack.
+			 * Compared whole rather than field by field, because a
+			 * check naming two fields passes a refusal that wrote
+			 * a third. */
+			if (memcmp(&peek, &zeroed, sizeof(peek)) != 0)
+				FAIL(26);
+			if (fzn_seal_peek_sender(frame, sizeof(frame), &claimed) !=
+			    FZN_SEAL_ERR_SHAPE)
+				FAIL(27);
+			/* And the narrow call nulls its pointer for the same
+			 * reason, rather than leaving the caller's sentinel. */
+			if (claimed != NULL)
+				FAIL(28);
+		}
+
+		/* THE COMMAND VOCABULARY, AS LITERALS. `fzn_kind` is a closed
+		 * four-value set with a consumer's own commands in the sealed
+		 * payload beneath it, so these numbers are part of what two
+		 * implementations must agree on. Written out rather than
+		 * compared against each other: a check that says only that they
+		 * differ is satisfied by any four values. */
+		if (FZN_KIND_NOP != 0u || FZN_KIND_UNIT != 1u ||
+		    FZN_KIND_CHUNK != 2u || FZN_KIND_ACK != 3u)
+			FAIL(29);
 	}
 
 	/* The nonce source. A consumer needs one before it can seal anything,
@@ -1596,6 +1714,115 @@ int main(void)
 		/* A verify-only signer holds no key and must not claim to sign. */
 		if (signer.can_sign)
 			FAIL(15);
+
+		/* PEEK AGAINST A FRAME THAT REALLY IS ONE. The block in the
+		 * common path proves peek refuses what open refuses; it cannot
+		 * prove peek reads the right fields, because a frame peek would
+		 * accept needs the crypto to build. So the positive half lives
+		 * here, and it is the half a receiver depends on: `sender` is
+		 * what sec 4.7 step 2 selects a key on, and it must be the
+		 * sender that was put in rather than some other 32 bytes of a
+		 * plaintext head. */
+		{
+			fzn_send_t what;
+			fzn_peek_t peek;
+			const uint8_t *claimed = NULL;
+			fzn_random_ops_t sys_rng;
+			fzn_hash_ops_t peek_hash;
+			fzn_aead_ops_t peek_aead;
+			uint8_t built[FZN_SEAL_OVERHEAD + 8];
+			uint8_t sender_id[FZN_PUBKEY_LEN];
+			uint8_t cap_id[FZN_CAP_ID_LEN];
+			uint8_t seal_key[FZN_AEAD_KEY_LEN];
+			uint8_t seal_ckey[FZN_COMMITMENT_KEY_LEN];
+			static const uint8_t payload[8] = "peekable";
+			size_t built_len = 0;
+
+			memset(sender_id, 0x7E, sizeof(sender_id));
+			memset(cap_id, 0x3C, sizeof(cap_id));
+			memset(seal_key, 0x41, sizeof(seal_key));
+			memset(seal_ckey, 0x42, sizeof(seal_ckey));
+			fzn_hash_monocypher_init(&peek_hash);
+			fzn_aead_monocypher_init(&peek_aead);
+			fzn_random_system_init(&sys_rng);
+
+			memset(&what, 0, sizeof(what));
+			what.sender = sender_id;
+			what.capability = cap_id;
+			what.payload = payload;
+			what.payload_len = sizeof(payload);
+			what.expires_at = 0x0102030405060708ull;
+			what.msg = 0xCAFEBABEu;
+			what.index = 2u;
+			what.chunks = 5u;
+			what.kind = FZN_KIND_CHUNK;
+
+			if (fzn_seal_build(built, sizeof(built), &built_len, &what,
+			                   seal_key, seal_ckey, &peek_hash, &sys_rng,
+			                   &peek_aead) != FZN_SEAL_OK)
+				FAIL(55);
+			if (built_len != sizeof(built))
+				FAIL(56);
+
+			/* Every field the head carries, against what went in,
+			 * one at a time so a failure names which field moved
+			 * rather than only that the head disagrees. */
+			if (fzn_seal_peek(built, built_len, &peek) != FZN_SEAL_OK)
+				FAIL(57);
+			if (memcmp(peek.sender, sender_id, FZN_PUBKEY_LEN) != 0)
+				FAIL(58);
+			if (peek.expires_at != what.expires_at)
+				FAIL(59);
+			if (peek.msg != what.msg)
+				FAIL(62);
+			if (peek.index != what.index)
+				FAIL(63);
+			if (peek.chunks != what.chunks)
+				FAIL(64);
+			if (peek.kind != FZN_KIND_CHUNK)
+				FAIL(65);
+			/* The two pointers are into the frame, so they must land
+			 * inside it rather than merely be non-null. */
+			if (peek.nonce < built || peek.nonce >= built + built_len)
+				FAIL(66);
+			if (peek.commitment < built ||
+			    peek.commitment >= built + built_len)
+				FAIL(67);
+
+			/* AND THE CHEAP ACCESSOR AGREES WITH THE WHOLE HEAD.
+			 * Two functions reading one field is exactly where a
+			 * layout change breaks one and not the other. */
+			if (fzn_seal_peek_sender(built, built_len, &claimed) !=
+			    FZN_SEAL_OK)
+				FAIL(68);
+			if (claimed != peek.sender)
+				FAIL(69);
+
+			/* A CLAIM, NOT A FACT, MADE CHECKABLE. The head is
+			 * plaintext, so anyone can write any sender into a
+			 * frame: rewriting it must still peek, and must report
+			 * the NEW bytes. A consumer reading this should see
+			 * that peek is for choosing a key, not for deciding who
+			 * sent something. The byte is reached through the
+			 * pointer peek returned rather than through an offset,
+			 * which needs no layout knowledge -- the same thing
+			 * peek exists to spare a consumer. */
+			{
+				uint8_t *in_head = (uint8_t *)(uintptr_t)peek.sender;
+
+				in_head[0] ^= 0xFFu;
+				if (fzn_seal_peek_sender(built, built_len,
+				                         &claimed) != FZN_SEAL_OK)
+					FAIL(70);
+				if (memcmp(claimed, sender_id,
+				           FZN_PUBKEY_LEN) == 0)
+					FAIL(71);
+				in_head[0] ^= 0xFFu;
+				if (memcmp(claimed, sender_id,
+				           FZN_PUBKEY_LEN) != 0)
+					FAIL(72);
+			}
+		}
 		fzn_sign_monocypher_wipe(&signer);
 
 		fzn_hash_monocypher_init(&real_hash);
