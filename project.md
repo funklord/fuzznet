@@ -10562,6 +10562,97 @@ literal inside the generated source without exporting a macro, so there is
 nothing to assert against. Unpinnable rather than unpinned -- and a situ
 question rather than a fuzznet one.
 
+### The coverage worklist, worked -- and what seven parallel readings found
+
+sec 12's table was re-taken after tonight's five new test files: 37 sources,
+**7 at 100% of branches**. Then every uncovered branch in the six worst
+hand-written files was classified as unreachable by construction, a defensive
+refusal nobody drives, or a real gap. The project's own note predicted mostly
+the middle, and it was right -- with two exceptions that were worth the whole
+exercise.
+
+    tree/tree.c    22 uncovered   19 guards, 3 unreachable, 0 gaps
+    wire/seal.c    29 uncovered   4 guards, 25 unreachable, 0 gaps
+    blob/blob.c    47 uncovered   plumbing only; see below
+    session/...    28 uncovered   ONE REAL GAP, and it is the security one
+
+**`wire/seal.c`'s 79.43% badly understates it.** Twenty-five of its
+twenty-nine are compiler-inserted bound checks on fortified `memcpy`s and
+guards the file's own comments already prove redundant against
+`situ_fzn_frame_validate`. Four were real and are now driven: an AEAD with
+`open` but no `seal` -- a receive-only vtable handed to a send call -- a kind
+outside the closed set refused at BUILD time rather than at open, and a frame
+with no payload at all, which is what a NOP or an acknowledgement is and
+whose skip-the-copy branch had never been taken.
+
+**`blob/`'s proof verifier was the thing to check and it came back clean.**
+The question was whether any rejection path in `fzn_blob_proof_verify` is
+unexercised -- the difference between verifying proofs and verifying the
+proofs our own tests build. It is not: every branch that answers
+attacker-chosen sibling bytes, an attacker-chosen sibling count or a wrong
+root is driven, by hand-written adversarial cases and by the fuzzer's forgery
+oracle. What is uncovered there is plumbing -- null guards, buffer-size
+guards, hash-refusal propagation. Worth recording as a negative result,
+because "the fuzzer leaves 47 branches dark" reads alarming and is not.
+
+### The gap that was worth seven agents
+
+**A refused key agreement stops session establishment at five call sites, and
+not one of them was ever exercised.**
+
+`session/agree.c` refuses a peer public key whose shared secret is a value
+the attacker chose -- the low-order and small-subgroup case -- and returns
+`FZN_AGREE_ERR_DEGENERATE`. `agree_test.c` proves the primitive detects it.
+But nothing threaded that refusal through `fzn_session_establish`,
+`_initiator` or `_responder`: the stub in `session_test.c` always succeeded,
+and `real_crypto_test.c` runs a genuine handshake between well-formed keys,
+which by construction never refuses.
+
+**What that would have cost.** `fzn_agree_shared` wipes its output on refusal,
+so a dropped or inverted check at any of the five sites would hash a KNOWN
+all-zero shared secret into the transcript -- and an attacker offering a
+crafted prekey or ephemeral could derive the session key from public
+information alone. That is precisely the attack `FZN_AGREE_ERR_DEGENERATE`
+exists to stop, and the check existed while nothing proved it fires.
+
+All five now do, at all three entry points, with a positive control -- without
+which every assertion is satisfied by an establish that refuses everything.
+
+**And the test found something by being wrong.** It first asserted that a
+refused establish leaves `key_out` ZEROED. All three cases failed. Measured
+rather than argued: on refusal all 32 bytes are exactly what the caller left
+there -- the library writes nothing. That is the better behaviour of the two
+and `session.h` did not say so, which it now does: a wiped buffer is all-zero
+and looks like a key, an untouched one looks like whatever the caller had, so
+a caller ignoring the return code cannot mistake a refusal for a session.
+
+### A criterion that was a proxy, and two false positives it produced
+
+The endianness sweep asked which modules would survive a big-to-little flip
+applied consistently to both encoder and decoder, and the criterion I gave was
+"a test asserting literal bytes at a LITERAL offset". `chain/revocation` and
+`chain/manifest` came back UNPROTECTED because their checks read
+`bytes[FZN_REV_OFF_ISSUED_AT]` rather than `bytes[98]`.
+
+**They are protected.** `revocation.c` asserts `FZN_REV_OFF_ISSUED_AT == 98u`
+and `manifest.c` asserts `FZN_MANIFEST_OFF_COUNT == 34u`, both at compile
+time, so the constant cannot drift from the literal. My criterion was a PROXY
+for "the offset cannot move", and these modules achieve that another way --
+so applying it literally reported failures that were not there.
+
+Worth recording as its own shape: **a criterion that stands in for a property,
+applied to a system that satisfies the property differently, produces false
+positives that look like findings.** And fanning it out multiplied it -- one
+wrong criterion, several modules, every answer consistent with every other
+because they shared the fault.
+
+**`prekey/prekey.c` was the real one.** Its offset is pinned like the others,
+but nothing checked `created_at`'s byte ORDER at all -- only round trips
+through the library's own accessor, which would pass just as happily on bytes
+written backwards. A prekey record is published to peers and `created_at`
+drives the rollback rule, so two implementations disagreeing about it agree
+about nothing. It has a check now.
+
 ### The session's own counts, re-checked at the end
 
 `wire/seal.c` was found this afternoon to carry a measurement that had gone

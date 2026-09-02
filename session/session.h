@@ -328,6 +328,16 @@ fzn_session_err_t fzn_session_establish_initiator(
  * host mixes it with its own prekey secret, which is why the responder needs
  * no ephemeral of its own and why a reboot does not lose the session.
  */
+/* A REFUSAL WRITES NOTHING INTO `key_out` OR `commitment_key_out`, at all
+ * three entry points. Measured 2026-09-02 while testing that a refused key
+ * agreement stops establishment: on refusal both buffers hold exactly what
+ * the caller left in them.
+ *
+ * It is written down because it is a security property and the alternative
+ * looks equally reasonable. A WIPED buffer is all-zero, which looks like a
+ * key; an untouched one looks like whatever the caller had, so a caller that
+ * ignores the return code cannot mistake a refusal for a session. Nothing
+ * partially derived is ever left behind either way. */
 fzn_session_err_t fzn_session_establish_responder(
         const fzn_agree_secret_t *self_prekey, const fzn_agree_ops_t *agree,
         const fzn_hash_ops_t *hash, const uint8_t self_identity[FZN_SESSION_IDENTITY_LEN],

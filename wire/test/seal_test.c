@@ -916,6 +916,64 @@ int main(void)
 		check(fzn_seal_build(built, sizeof(built), &built_len, &what, key, commitment_key,
 		                     &hash, &rng, NULL) == FZN_SEAL_ERR_MALFORMED, "a null aead");
 
+		/* AN AEAD THAT CAN OPEN BUT NOT SEAL, which is a receive-only
+		 * vtable handed to a send call -- a plausible wiring mistake
+		 * rather than a contrived one. The identical guard in
+		 * `fzn_seal_close` is tested above; this one never was. */
+		{
+			fzn_aead_ops_t open_only = { NULL, stub_open, NULL };
+
+			check(fzn_seal_build(built, sizeof(built), &built_len, &what,
+			                     key, commitment_key, &hash, &rng,
+			                     &open_only) == FZN_SEAL_ERR_MALFORMED,
+			      "an aead with no seal function");
+		}
+
+		/* A KIND THIS BUILD DOES NOT SPEAK, refused when a frame is
+		 * BUILT rather than when one is opened. Every other kind case
+		 * here flips a byte in a finished frame and goes through the
+		 * shape path; the build-time guard had never run. */
+		{
+			uint8_t saved_kind = what.kind;
+
+			what.kind = (uint8_t)(FZN_KIND_ACK + 1u);
+			check(fzn_seal_build(built, sizeof(built), &built_len, &what,
+			                     key, commitment_key, &hash, &rng,
+			                     &aead) == FZN_SEAL_ERR_SHAPE,
+			      "a kind outside the closed set is refused at build");
+			what.kind = saved_kind;
+		}
+
+		/* A FRAME WITH NO PAYLOAD AT ALL, which is legal and is what a
+		 * NOP or an acknowledgement is. The null-payload ERROR case --
+		 * a null pointer with a non-zero length -- is tested below; the
+		 * legal combination of both zero was not, so the branch that
+		 * SKIPS the payload copy had never been taken. */
+		{
+			const uint8_t *saved = what.payload;
+			size_t saved_len = what.payload_len;
+			fzn_opened_t empty;
+
+			what.payload = NULL;
+			what.payload_len = 0u;
+			check(fzn_seal_build(built, sizeof(built), &built_len, &what,
+			                     key, commitment_key, &hash, &rng,
+			                     &aead) == FZN_SEAL_OK,
+			      "a frame carrying no payload is built");
+			check(built_len == FRAME_MIN,
+			      "an empty frame is exactly the overhead");
+			/* Opened as well as built: a payload the sender omitted
+			 * must come back as zero length rather than as whatever
+			 * the length field happened to hold. */
+			check(fzn_seal_open(built, built_len, key, commitment_key, &hash,
+			                    &aead, &empty) == FZN_SEAL_OK,
+			      "an empty frame opens");
+			check(empty.payload_len == 0u,
+			      "an empty frame opens with a zero-length payload");
+			what.payload = saved;
+			what.payload_len = saved_len;
+		}
+
 		/* THE TWO INSIDE THE SEND STRUCT, which the matrix above cannot
 		 * reach by passing NULL for an argument. Both were unexercised
 		 * until now -- branch coverage put `!what->sender` and

@@ -210,6 +210,50 @@ static void test_a_record_signed_by_another_host_is_refused(void)
 	      "a record signed by a key other than the host it names verified");
 }
 
+/* THE ONE FIELD THIS RECORD CARRIES AS A NUMBER, spelled out rather than
+ * round-tripped. Everything else here reads `created_at` back through
+ * `fzn_prekey_record_t` and compares it to what was passed in -- which passes
+ * just as happily on bytes written the wrong way round, because the encoder
+ * and the accessor would be wrong together and cancel out. A prekey record is
+ * published to peers and its `created_at` drives the rollback rule, so two
+ * implementations that disagree about byte order agree about nothing.
+ *
+ * The offset is `FZN_PREKEY_OFF_CREATED_AT` rather than a bare 66 because
+ * `prekey.c` already pins it -- `_Static_assert(FZN_PREKEY_OFF_CREATED_AT ==
+ * 66u)` -- so the constant cannot drift from the literal without a compile
+ * error. What was missing was never the offset; it was any check at all on
+ * the VALUE's byte order. */
+static void test_created_at_is_big_endian(void)
+{
+	struct fixture f;
+
+	expand(f.host, 0x71);
+	expand(f.prekey, 0x72);
+	signing_as = 0x71;
+	/* 0x0102030405060708 -- every byte distinct, so a reversal, a rotation
+	 * and a partial write are all separable in the failure message. */
+	REQUIRE(fzn_prekey_issue(f.host, f.prekey, 0x0102030405060708ull, &OPS,
+	                         f.bytes) == FZN_PREKEY_OK,
+	        "issuing refused");
+
+	CHECK(f.bytes[FZN_PREKEY_OFF_CREATED_AT] == 0x01u,
+	      "created_at's high byte is not first: got 0x%02x",
+	      f.bytes[FZN_PREKEY_OFF_CREATED_AT]);
+	CHECK(f.bytes[FZN_PREKEY_OFF_CREATED_AT + 7u] == 0x08u,
+	      "created_at's low byte is not last: got 0x%02x",
+	      f.bytes[FZN_PREKEY_OFF_CREATED_AT + 7u]);
+	CHECK(f.bytes[FZN_PREKEY_OFF_CREATED_AT + 3u] == 0x04u,
+	      "created_at's middle bytes are not in order: got 0x%02x",
+	      f.bytes[FZN_PREKEY_OFF_CREATED_AT + 3u]);
+
+	/* And the accessor agrees with those bytes, so the check binds the
+	 * read path as well as the write path. */
+	REQUIRE(fzn_prekey_open(f.bytes, sizeof(f.bytes), &f.record) == FZN_PREKEY_OK,
+	        "the record should open");
+	CHECK(f.record.created_at == 0x0102030405060708ull,
+	      "the accessor did not read back what the bytes say");
+}
+
 static void test_open_refuses_what_is_not_our_shape(void)
 {
 	struct fixture f;
@@ -568,6 +612,7 @@ int main(void)
 	test_every_signed_byte_is_signed();
 	test_a_record_signed_by_another_host_is_refused();
 	test_open_refuses_what_is_not_our_shape();
+	test_created_at_is_big_endian();
 	test_init_does_not_depend_on_what_the_memory_held();
 	test_first_use_pins_and_records_how();
 	test_a_rotation_is_accepted_and_a_rollback_is_not();

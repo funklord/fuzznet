@@ -106,6 +106,22 @@ static int stub_agree(void *ctx, uint8_t out[FZN_AGREE_SHARED_LEN],
 	return 1;
 }
 
+/* A BINDING THAT REFUSES, and it writes before it refuses -- which is what a
+ * real one does. `fzn_agree_shared` computes into the caller's buffer and
+ * only then finds the result degenerate, so a caller that ignores the return
+ * code finds a plausible-looking secret sitting there. That is the whole
+ * reason the propagation below is worth a test. */
+static int refusing_agree(void *ctx, uint8_t out[FZN_AGREE_SHARED_LEN],
+                          const uint8_t secret[FZN_AGREE_SECRET_LEN],
+                          const uint8_t peer[FZN_AGREE_PUBLIC_LEN])
+{
+	(void)ctx;
+	(void)secret;
+	(void)peer;
+	memset(out, 0x5e, FZN_AGREE_SHARED_LEN);
+	return 0;
+}
+
 static const fzn_hash_ops_t HASH = { stub_hash, NULL };
 
 /* A HASH THAT WRITES AND THEN REFUSES, on the call the fixture chooses.
@@ -136,6 +152,7 @@ static int refusing_hash(void *ctx, uint8_t *out, size_t out_len, const uint8_t 
 
 static const fzn_hash_ops_t REFUSING = { refusing_hash, NULL };
 static const fzn_agree_ops_t AGREE = { stub_public_of, stub_agree, NULL };
+static const fzn_agree_ops_t DEGENERATE = { stub_public_of, refusing_agree, NULL };
 
 static void fill(uint8_t *p, size_t n, uint8_t seed)
 {
@@ -663,12 +680,106 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 	checks -= 1;
 }
 
+/* A REFUSED KEY AGREEMENT MUST STOP SESSION ESTABLISHMENT, at every entry.
+ *
+ * `session/agree.c` refuses a peer public key whose shared secret is a value
+ * the attacker chose -- the low-order / small-subgroup case -- and
+ * `agree_test.c` proves the primitive detects it. **Nothing threaded that
+ * refusal through session establishment.** `session.c` checks it at five call
+ * sites, and until this test every one of them was unexercised: the stub here
+ * always succeeded and `real_crypto_test.c` runs a genuine handshake between
+ * well-formed keys, which by construction never refuses.
+ *
+ * WHAT WOULD HAVE BEEN MISSED. `fzn_agree_shared` wipes its output on
+ * refusal, so a dropped or inverted check at any of those sites would hash a
+ * KNOWN all-zero "shared secret" into the transcript, and an attacker
+ * offering a crafted prekey or ephemeral could derive the session key from
+ * public information alone. That is the exact attack the refusal exists to
+ * stop, and the difference between having the check and having tested it.
+ *
+ * All three entry points, because they do not share one code path: the base
+ * call agrees once, the initiator twice, the responder twice. */
+static void test_a_refused_agreement_stops_establishment(void)
+{
+	fzn_agree_secret_t sk_a, sk_b, eph;
+	uint8_t id_a[FZN_SESSION_IDENTITY_LEN], id_b[FZN_SESSION_IDENTITY_LEN];
+	uint8_t secret_a[FZN_AGREE_SECRET_LEN], secret_b[FZN_AGREE_SECRET_LEN];
+	uint8_t secret_e[FZN_AGREE_SECRET_LEN];
+	uint8_t key[FZN_AEAD_KEY_LEN], ck[FZN_COMMITMENT_KEY_LEN];
+	uint8_t untouched[FZN_AEAD_KEY_LEN];
+
+	fill(id_a, sizeof(id_a), 0x11);
+	fill(id_b, sizeof(id_b), 0x22);
+	fill(secret_a, sizeof(secret_a), 0x33);
+	fill(secret_b, sizeof(secret_b), 0x44);
+	fill(secret_e, sizeof(secret_e), 0x55);
+	memset(untouched, 0xA5, sizeof(untouched));
+
+	REQUIRE(fzn_agree_secret_install(&sk_a, &AGREE, secret_a) == FZN_AGREE_OK,
+	        "installing A's prekey");
+	REQUIRE(fzn_agree_secret_install(&sk_b, &AGREE, secret_b) == FZN_AGREE_OK,
+	        "installing B's prekey");
+	REQUIRE(fzn_agree_secret_install(&eph, &AGREE, secret_e) == FZN_AGREE_OK,
+	        "installing an ephemeral");
+
+	/* THE BASE PATH. */
+	memset(key, 0xA5, sizeof(key));
+	memset(ck, 0xA5, sizeof(ck));
+	CHECK(fzn_session_establish(&sk_a, &DEGENERATE, &HASH, id_a, id_b,
+	                            fzn_agree_secret_public(&sk_b), key, ck)
+	              == FZN_SESSION_ERR_AGREE,
+	      "a refused agreement did not stop fzn_session_establish");
+	/* AND NOTHING WAS WRITTEN. Measured rather than assumed: on refusal all
+	 * 32 bytes are exactly what the caller left there. That is the right
+	 * behaviour and better than wiping -- a wiped buffer looks like a key
+	 * and an untouched one looks like whatever the caller had, so a caller
+	 * that ignores the return code cannot mistake a refusal for success.
+	 * The first draft of this test asserted the buffer was ZEROED, which
+	 * `session.h` never promised and the code never does. */
+	CHECK(memcmp(key, untouched, sizeof(key)) == 0,
+	      "a refused establish wrote into the key buffer");
+
+	/* THE INITIATOR, which agrees twice -- once on the peer's prekey and
+	 * once on the ephemeral. Either refusal must stop it. */
+	memset(key, 0xA5, sizeof(key));
+	CHECK(fzn_session_establish_initiator(&sk_a, &eph, &DEGENERATE, &HASH,
+	                                      id_a, id_b,
+	                                      fzn_agree_secret_public(&sk_b),
+	                                      key, ck) == FZN_SESSION_ERR_AGREE,
+	      "a refused agreement did not stop the initiator");
+	CHECK(memcmp(key, untouched, sizeof(key)) == 0,
+	      "a refused initiator wrote into the key buffer");
+
+	/* THE RESPONDER, which also agrees twice -- the peer's prekey and the
+	 * peer's ephemeral. */
+	memset(key, 0xA5, sizeof(key));
+	CHECK(fzn_session_establish_responder(&sk_a, &DEGENERATE, &HASH,
+	                                      id_a, id_b,
+	                                      fzn_agree_secret_public(&sk_b),
+	                                      fzn_agree_secret_public(&eph),
+	                                      key, ck) == FZN_SESSION_ERR_AGREE,
+	      "a refused agreement did not stop the responder");
+	CHECK(memcmp(key, untouched, sizeof(key)) == 0,
+	      "a refused responder wrote into the key buffer");
+
+	/* THE POSITIVE CONTROL, without which every check above is satisfied by
+	 * an establish that refuses everything. Same inputs, working seam. */
+	memset(key, 0xA5, sizeof(key));
+	CHECK(fzn_session_establish(&sk_a, &AGREE, &HASH, id_a, id_b,
+	                            fzn_agree_secret_public(&sk_b), key, ck)
+	              == FZN_SESSION_OK,
+	      "the control: a working agreement still establishes");
+	CHECK(memcmp(key, untouched, sizeof(key)) != 0,
+	      "the control did not write a key at all");
+}
+
 int main(void)
 {
 	test_both_sides_build_the_same_transcript();
 	test_a_prekey_is_not_interchangeable_with_the_others();
 	test_every_input_reaches_the_transcript();
 	test_a_session_with_yourself_is_refused();
+	test_a_refused_agreement_stops_establishment();
 	test_two_hosts_establish_the_same_root();
 	test_a_rotation_changes_the_root();
 	test_the_two_directions_are_different_and_agree();
