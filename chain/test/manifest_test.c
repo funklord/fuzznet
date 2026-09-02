@@ -1903,6 +1903,99 @@ static void test_the_suite_can_tell_pass_from_fail(void)
  * particular sequence would pin the table's admission order, which the header
  * says nothing may depend on.
  */
+/* TWO ISSUERS IN ONE TABLE, WHICH NOTHING HAD EVER PUT THERE.
+ *
+ * Every existing deficit test follows exactly one issuer, so the filter in
+ * `fzn_manifest_deficit_from` -- the skip that decides whether an entry
+ * belongs to the issuer being asked about -- has only ever seen entries that
+ * match. Both its arms, the counting skip and the writing skip, were dark.
+ *
+ * A host following two issuers is the ordinary case rather than an exotic
+ * one: an estate root and a delegated signer, or two estates sharing a host.
+ * If that filter compared the wrong operand, or a truncated key, this host's
+ * request to a peer would name another issuer's pending revocations -- asking
+ * for what it does not need and, worse, reporting a deficit as satisfied when
+ * the pairs that satisfied it belonged to somebody else.
+ *
+ * The two issuers get DIFFERENT numbers of pairs on purpose. Equal counts
+ * would let a filter that ignores the issuer entirely still produce the right
+ * total for each, which is the shape of an assertion that cannot fail. */
+static void test_the_deficit_report_separates_two_issuers(void)
+{
+	struct fixture a, b, joiner;
+	static uint8_t bytes_a[FIXTURE_BYTES], bytes_b[FIXTURE_BYTES];
+	fzn_manifest_record_t rec_a, rec_b;
+	fzn_manifest_pair_t got[4];
+	fzn_cap_id_t cap[3];
+	uint8_t grantee[3][FZN_PUBKEY_LEN];
+	size_t len_a = 0, len_b = 0, dropped = 0, next = 0, n, i;
+
+	for (i = 0; i < 3; i++) {
+		capability_id(&cap[i], (uint8_t)(0xa0u + i));
+		key(grantee[i], (uint8_t)(0xb0u + i));
+	}
+
+	/* Issuer A revokes one pair; issuer B revokes two. */
+	fixture_init(&a);
+	key(a.root, 0x11);
+	revoke(&a, a.root, &cap[0], grantee[0]);
+	a.stub.identity = a.root[0];
+	CHECK(fzn_manifest_issue(a.root, &a.store, &a.sign, bytes_a, sizeof(bytes_a),
+	                         &len_a) == FZN_MANIFEST_OK, "issuing A's manifest");
+	CHECK(fzn_manifest_open(bytes_a, len_a, &rec_a) == FZN_MANIFEST_OK, "opening A");
+
+	fixture_init(&b);
+	key(b.root, 0x22);
+	revoke(&b, b.root, &cap[1], grantee[1]);
+	revoke(&b, b.root, &cap[2], grantee[2]);
+	b.stub.identity = b.root[0];
+	CHECK(fzn_manifest_issue(b.root, &b.store, &b.sign, bytes_b, sizeof(bytes_b),
+	                         &len_b) == FZN_MANIFEST_OK, "issuing B's manifest");
+	CHECK(fzn_manifest_open(bytes_b, len_b, &rec_b) == FZN_MANIFEST_OK, "opening B");
+
+	/* One host follows both and admits both, so its deficit table holds
+	 * three entries belonging to two different issuers. */
+	fixture_init(&joiner);
+	CHECK(fzn_manifest_follow(&joiner.manifest, a.root) == FZN_MANIFEST_OK,
+	      "following A");
+	CHECK(fzn_manifest_follow(&joiner.manifest, b.root) == FZN_MANIFEST_OK,
+	      "following B");
+	joiner.stub.identity = a.root[0];
+	CHECK(fzn_manifest_admit(&joiner.manifest, NULL, rec_a, &joiner.sign) ==
+	      FZN_MANIFEST_OK, "admitting A's manifest");
+	joiner.stub.identity = b.root[0];
+	CHECK(fzn_manifest_admit(&joiner.manifest, NULL, rec_b, &joiner.sign) ==
+	      FZN_MANIFEST_OK, "admitting B's manifest");
+
+	CHECK(fzn_manifest_pending(&joiner.manifest, a.root) == 1,
+	      "A's deficit is not one");
+	CHECK(fzn_manifest_pending(&joiner.manifest, b.root) == 2,
+	      "B's deficit is not two");
+
+	/* ASKED FOR A, ANSWERED ABOUT A. The array is larger than either
+	 * answer, so a filter that ignored the issuer would return all three
+	 * and this would catch it on the count alone. */
+	memset(got, 0, sizeof(got));
+	next = 0;
+	n = fzn_manifest_deficit_from(&joiner.manifest, a.root, 0, got, 4, &dropped,
+	                              &next);
+	CHECK(n == 1, "asking about A returned %zu pairs, wanted one", n);
+	CHECK(dropped == 0, "A's answer dropped something with room to spare");
+	CHECK(fzn_ct_memeq(got[0].grantee, grantee[0], FZN_PUBKEY_LEN),
+	      "asking about A returned a pair that is not A's");
+
+	/* And about B, which has a different number -- so neither answer can
+	 * be right by accident. */
+	memset(got, 0, sizeof(got));
+	next = 0;
+	n = fzn_manifest_deficit_from(&joiner.manifest, b.root, 0, got, 4, &dropped,
+	                              &next);
+	CHECK(n == 2, "asking about B returned %zu pairs, wanted two", n);
+	for (i = 0; i < n; i++)
+		CHECK(!fzn_ct_memeq(got[i].grantee, grantee[0], FZN_PUBKEY_LEN),
+		      "asking about B returned A's pair");
+}
+
 static void test_the_deficit_report_resumes_and_covers_everything(void)
 {
 	struct fixture f, joiner;
@@ -2405,6 +2498,7 @@ int main(void)
 	test_issuing_is_deterministic();
 	test_following_is_deliberate();
 	test_the_deficit_is_what_this_host_lacks();
+	test_the_deficit_report_separates_two_issuers();
 	test_the_deficit_report_resumes_and_covers_everything();
 	test_the_recovery_loop_drains_what_a_partial_peer_can_supply();
 	test_a_want_list_is_answered_by_a_peer_that_holds_some();

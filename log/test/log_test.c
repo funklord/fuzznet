@@ -312,6 +312,29 @@ int main(void)
 		corrupt.used = corrupt.capacity + 1u;
 		expect_err(fzn_log_append(&corrupt, &rec), FZN_LOG_ERR_MALFORMED,
 		           "appending to a corrupt log");
+		/* THE TWO CLAUSES THE FILE'S OWN COMMENT CALLS LOAD-BEARING and
+		 * nothing drove. That comment records an overflow found by a
+		 * sanitizer from exactly this shape -- "`capacity != 0` IS
+		 * LOAD-BEARING, not belt and braces" -- and says it is true of
+		 * a hand-built struct rather than of the init path. A test that
+		 * corrupts `used` and stops has taken the claim on trust for
+		 * the other half. */
+		{
+			fzn_log_t hollow = log;
+			fzn_log_t empty = log;
+
+			hollow.entries = NULL;
+			expect_err(fzn_log_append(&hollow, &rec), FZN_LOG_ERR_MALFORMED,
+			           "appending to a log with no array");
+			expect(fzn_log_dropped(&hollow) == 0,
+			       "a log with no array reports drops");
+
+			empty.capacity = 0u;
+			expect_err(fzn_log_append(&empty, &rec), FZN_LOG_ERR_MALFORMED,
+			           "appending to a log of no capacity");
+			expect(fzn_log_dropped(&empty) == 0,
+			       "a log of no capacity reports drops");
+		}
 		expect_err(fzn_log_get(&corrupt, &journal, alice, 0, 1, &got), FZN_LOG_ERR_MALFORMED,
 		           "reading a corrupt log");
 		expect(fzn_log_read_since(&corrupt, alice, 0, 0, page, 8) == 0,

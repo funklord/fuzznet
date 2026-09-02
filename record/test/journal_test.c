@@ -161,6 +161,33 @@ int main(void)
 		       "a corrupt journal should report nothing pending");
 	}
 
+	/* THE OTHER TWO WAYS TO BE UNUSABLE, which the guard also names and
+	 * which nothing drove. `used` past `capacity` is tested above; a
+	 * journal with no array, and a null journal, reach the same guard by
+	 * different clauses. A caller who builds this struct by hand -- which
+	 * this test file already treats as inside the threat model, one field
+	 * over -- can produce either. */
+	{
+		fzn_journal_t hollow = j;
+
+		hollow.entries = NULL;
+		expect_err(fzn_journal_admit(&hollow, alice, 0, 4), FZN_JOURNAL_ERR_MALFORMED,
+		           "admitting into a journal with no array");
+		expect_err(fzn_journal_anchor(&hollow, alice, 0, 9), FZN_JOURNAL_ERR_MALFORMED,
+		           "anchoring in a journal with no array");
+		expect_err(fzn_journal_confirm(&hollow, alice, 0, 1), FZN_JOURNAL_ERR_MALFORMED,
+		           "confirming in a journal with no array");
+		expect(fzn_journal_next(&hollow, alice, 0) == 1,
+		       "a journal with no array should ask from the beginning");
+		expect(fzn_journal_pending(&hollow, alice, 0) == 0,
+		       "a journal with no array should report nothing pending");
+
+		expect_err(fzn_journal_admit(NULL, alice, 0, 4), FZN_JOURNAL_ERR_MALFORMED,
+		           "admitting into no journal at all");
+		expect(fzn_journal_next(NULL, alice, 0) == 1,
+		       "no journal at all should ask from the beginning");
+	}
+
 	expect_err(fzn_journal_admit(&j, alice, 0, 0), FZN_JOURNAL_ERR_MALFORMED, "sequence zero");
 
 	/* ANCHORING AT ZERO IS FOLLOW-FROM-THE-BEGINNING, not a malformed
