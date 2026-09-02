@@ -313,10 +313,103 @@ static void test_the_root_is_all_zero_and_is_not_a_node(void)
 /* Every enumerator renders, and a value that is not one renders as unknown --
  * the same check `record_test` makes, for the same reason: a switch that has
  * fallen behind its enum returns a stale string rather than failing. */
+/* EVERY PUBLIC ENTRY REFUSES A MISSING ARGUMENT, and until now none of these
+ * had been driven -- 19 of this module's 22 unexercised branches were argument
+ * guards, which is what a coverage report is FOR. They are cheap to write and
+ * they are not decoration: `fzn_tree_open` taking a record by value means a
+ * caller can hand it a zeroed struct, and a guard that has never run is a
+ * guard nobody has seen work. */
+static void test_a_missing_argument_is_refused(void)
+{
+	uint8_t ids[3][FZN_TREE_ID_LEN], parents[3][FZN_TREE_ID_LEN];
+	fzn_tree_node_t nodes[3], node;
+	const fzn_tree_node_t *out[3];
+	uint8_t body[FZN_RECORD_BODY_MAX];
+	uint8_t mark[3];
+	fzn_tree_walk_t walk;
+	fzn_record_t closed;
+	uint8_t parent[FZN_TREE_ID_LEN];
+	const uint8_t content[4] = { 1u, 2u, 3u, 4u };
+	uint64_t order = 0u;
+	size_t body_len = 0u;
+	size_t i;
+
+	memset(parent, 7, sizeof parent);
+	memset(&closed, 0, sizeof closed);
+	for (i = 0; i < 3u; i++)
+		nodes[i] = make(ids[i], parents[i], (uint8_t)(i + 1u), 0u, 10u);
+
+	expect_err(fzn_tree_open(closed, NULL), FZN_TREE_ERR_NULL,
+	           "opening into a null node is refused");
+	/* A ZEROED RECORD IS NOT AN OPEN ONE, and this is the guard that
+	 * matters most here: `fzn_record_t` is passed by value, so nothing
+	 * stops a caller handing over a struct `fzn_record_open` never
+	 * touched. */
+	expect_err(fzn_tree_open(closed, &node), FZN_TREE_ERR_CLOSED,
+	           "a record that was never opened is refused");
+
+	expect_err(fzn_tree_body(NULL, 0u, 0u, content, sizeof content,
+	                         body, sizeof body, &body_len),
+	           FZN_TREE_ERR_NULL, "a null parent is refused");
+	expect_err(fzn_tree_body(parent, 0u, 0u, content, sizeof content,
+	                         NULL, sizeof body, &body_len),
+	           FZN_TREE_ERR_NULL, "a null output is refused");
+	expect_err(fzn_tree_body(parent, 0u, 0u, content, sizeof content,
+	                         body, sizeof body, NULL),
+	           FZN_TREE_ERR_NULL, "a null length is refused");
+	/* Content absent but claimed: the mismatch, not the emptiness. An
+	 * empty body with a null pointer is legal and is tested elsewhere. */
+	expect_err(fzn_tree_body(parent, 0u, 0u, NULL, 5u,
+	                         body, sizeof body, &body_len),
+	           FZN_TREE_ERR_NULL, "content claimed but absent is refused");
+
+	expect_err(fzn_tree_order_between(0u, 1u, NULL), FZN_TREE_ERR_NULL,
+	           "a null order output is refused");
+
+	expect_err(fzn_tree_children(nodes, 3u, NULL, out, 3u, &walk),
+	           FZN_TREE_ERR_NULL, "children of a null parent are refused");
+	expect_err(fzn_tree_children(nodes, 3u, parent, out, 3u, NULL),
+	           FZN_TREE_ERR_NULL, "children with no walk to report are refused");
+	expect_err(fzn_tree_children(NULL, 3u, parent, out, 3u, &walk),
+	           FZN_TREE_ERR_NULL, "a null node array with a count is refused");
+	expect_err(fzn_tree_children(nodes, 3u, parent, NULL, 3u, &walk),
+	           FZN_TREE_ERR_NULL, "a null output with a capacity is refused");
+
+	expect_err(fzn_tree_reachable(nodes, 3u, mark, sizeof mark, NULL),
+	           FZN_TREE_ERR_NULL, "reachability with no walk is refused");
+	expect_err(fzn_tree_reachable(NULL, 3u, mark, sizeof mark, &walk),
+	           FZN_TREE_ERR_NULL, "reachability over null nodes is refused");
+	expect_err(fzn_tree_reachable(nodes, 3u, NULL, sizeof mark, &walk),
+	           FZN_TREE_ERR_NULL, "reachability with no mark array is refused");
+	/* A HARD REFUSAL, unlike children's graceful truncation. The two are
+	 * deliberately different: a short output for children still answers a
+	 * question, while a short mark array cannot terminate the walk at all. */
+	expect_err(fzn_tree_reachable(nodes, 3u, mark, 2u, &walk),
+	           FZN_TREE_ERR_CAPACITY,
+	           "a mark array smaller than the node count is refused outright");
+
+	(void)order;
+}
+
 static void test_every_error_renders(void)
 {
 	expect(strcmp(fzn_tree_err_str(FZN_TREE_OK), "ok") == 0,
 	       "ok renders");
+	/* EVERY ENUMERATOR, not a sample. A switch that has fallen behind its
+	 * enum returns "unknown" for the newest one, and a test naming three of
+	 * eight cannot see which. */
+	expect(strcmp(fzn_tree_err_str(FZN_TREE_ERR_SHORT_BODY), "unknown") != 0,
+	       "SHORT_BODY renders");
+	expect(strcmp(fzn_tree_err_str(FZN_TREE_ERR_CONTENT_LEN), "unknown") != 0,
+	       "CONTENT_LEN renders");
+	expect(strcmp(fzn_tree_err_str(FZN_TREE_ERR_NULL), "unknown") != 0,
+	       "NULL renders");
+	expect(strcmp(fzn_tree_err_str(FZN_TREE_ERR_CAPACITY), "unknown") != 0,
+	       "CAPACITY renders");
+	expect(strcmp(fzn_tree_err_str(FZN_TREE_ERR_CLOSED), "unknown") != 0,
+	       "CLOSED renders");
+	expect(strcmp(fzn_tree_err_str(FZN_TREE_ORDER_EXHAUSTED), "unknown") != 0,
+	       "ORDER_EXHAUSTED renders");
 	expect(strcmp(fzn_tree_err_str(FZN_TREE_ERR_RANGE), "unknown") != 0,
 	       "the newest enumerator is not missing from the switch");
 	expect(strcmp(fzn_tree_err_str((fzn_tree_err_t)999), "unknown") == 0,
@@ -338,6 +431,7 @@ int main(void)
 	test_order_exhaustion_is_reported_and_still_usable();
 	test_body_round_trips_through_a_record();
 	test_the_root_is_all_zero_and_is_not_a_node();
+	test_a_missing_argument_is_refused();
 	test_every_error_renders();
 	printf("tree_test: %d checks, %d failure(s)\n", checks, failures);
 
