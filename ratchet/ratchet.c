@@ -169,7 +169,18 @@ out:
 	/* `work` holds a chain key on every path, including the failing one,
 	 * and it is a live secret rather than an intermediate. `message_key`
 	 * likewise: on success a copy has gone to the caller, and the copy
-	 * here is one more place it lives than it needs to. */
+	 * here is one more place it lives than it needs to.
+	 *
+	 * AND NO TEST CAN OBSERVE THIS, which is worth saying rather than
+	 * leaving for somebody to discover while chasing coverage. Both are
+	 * stack locals that never escape to the caller on the failing path, so
+	 * there is no buffer an external test could inspect afterwards --
+	 * unlike `fzn_ratchet_wipe`, whose effect a test does check byte by
+	 * byte. `session/agree.c` records the same limit about its own
+	 * pre-overwrite wipe; this file did not, and the difference was
+	 * noticed while classifying what this module's uncovered branches
+	 * mean. Unobservable is not the same as unnecessary: the wipe is what
+	 * keeps a chain key from outliving the frame that derived it. */
 	fzn_wipe(message_key, sizeof(message_key));
 	fzn_wipe(work.key, sizeof(work.key));
 	return err;

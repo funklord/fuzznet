@@ -395,6 +395,60 @@ static void test_the_fast_forward_is_bounded(void)
 	printf("ratchet_test: a jump to the bound costs %lu derivations\n", at_the_bound);
 }
 
+/* THE REFUSAL ON THE STEP EVERY ORDINARY MESSAGE TAKES.
+ *
+ * `fzn_ratchet_advance` derives twice in different places: once per skipped
+ * message inside the fast-forward loop, and once at the end for the key it
+ * actually hands back. The two failures are different code paths and only
+ * the loop's was driven -- every existing test refuses after three calls
+ * while advancing five, so the refusal always lands inside the loop.
+ *
+ * **On an in-order advance there is no loop.** `target_seq == from->seq` skips
+ * nothing, so the trailing derive is the ONLY one, and it is the shape every
+ * message that arrives in order takes -- the common case, with its failure
+ * path unexercised. Refusing the very first call is what reaches it.
+ *
+ * The atomicity guarantee is what makes it worth a test rather than a
+ * curiosity: `to` must not be written unless the whole call succeeds, and a
+ * failure at the last step is the one a function that mutated as it went
+ * would survive by accident. */
+static void test_a_refusal_on_the_last_step_writes_nothing(void)
+{
+	fzn_ratchet_chain_t chain, before, moved;
+	uint8_t k[FZN_CHAIN_KEY_LEN];
+	uint8_t mk[FZN_MESSAGE_KEY_LEN];
+	uint8_t mk_before[FZN_MESSAGE_KEY_LEN];
+
+	seed(k, 0x90);
+	fzn_ratchet_init(&chain, k, 0);
+	before = chain;
+	memset(&moved, 0xA5, sizeof(moved));
+	memset(mk, 0xA5, sizeof(mk));
+	memcpy(mk_before, mk, sizeof(mk));
+
+	/* Refuse the FIRST derive, on an advance that skips nothing. */
+	hash_calls = 0;
+	refuse_after = 0u;
+	CHECK(fzn_ratchet_advance(&BUDGET, &chain, 0u, mk, &moved, NULL, 0, NULL, NULL)
+	              == FZN_RATCHET_ERR_HASH,
+	      "a hash refusing on the only step did not stop the advance");
+	CHECK(memcmp(&before, &chain, sizeof(chain)) == 0,
+	      "a refusal on the last step moved the source chain");
+	CHECK(memcmp(mk_before, mk, sizeof(mk)) == 0,
+	      "a refusal on the last step wrote a message key");
+
+	/* THE POSITIVE CONTROL, without which the three checks above are
+	 * satisfied by an advance that refuses everything: the same call with
+	 * a working hash must succeed and must produce a key. */
+	hash_calls = 0;
+	refuse_after = 99u;
+	CHECK(fzn_ratchet_advance(&BUDGET, &chain, 0u, mk, &moved, NULL, 0, NULL, NULL)
+	              == FZN_RATCHET_OK,
+	      "the control: an in-order advance with a working hash");
+	CHECK(memcmp(mk_before, mk, sizeof(mk)) != 0,
+	      "the control produced no message key");
+}
+
 static void test_a_refused_hash_leaves_the_chain_alone(void)
 {
 	fzn_ratchet_chain_t moved;
@@ -601,6 +655,7 @@ int main(void)
 	test_behind_is_refused_and_is_not_an_attack();
 	test_the_fast_forward_is_bounded();
 	test_a_refused_hash_leaves_the_chain_alone();
+	test_a_refusal_on_the_last_step_writes_nothing();
 	test_the_skipped_cap_reports_what_it_dropped();
 	test_a_live_chain_cannot_be_advanced_in_place();
 	test_a_refused_advance_does_not_write_the_destination();
