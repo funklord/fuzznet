@@ -10502,6 +10502,66 @@ rather than read from the code, so the file is a second witness to what the
 table SAYS -- and if the assertions were ever removed as clutter, the vector
 still holds.
 
+### What the schema guards actually cover, audited rather than assumed
+
+Prompted by finding `tree.c` unpinned, and the audit answered a different
+question than the one asked -- twice, both times correcting me.
+
+**Every wire decoder was already pinned.** `record` 10 assertions,
+`chain/hop` 11, `chain/revocation` 9, `chain/manifest` 7, `prekey` 8,
+`spool_file` 4. `tree/` was the only module with an offset table and nothing
+holding it, and that gap was one evening old rather than long-standing.
+`wire/` has no hand-written offset table at all -- its layout is generated,
+so there is nothing to permute by hand.
+
+`persist/persist.c` is the one remainder and is a near miss rather than a
+gap: it has four assertions and every one is a BOUND check --
+`OFF_BODY + PEER_BODY <= FZN_PERSIST_MAX` -- with no assertion that
+`OFF_TAG` is 1. Its field order is covered instead by
+`persist/test/persist_kat_test.c`, whose own header records that permuting
+`peer`'s `prekey` and `created_at` "stayed green" until that vector existed.
+The same defect, closed by the other mechanism, and written down there
+already.
+
+### `FZN_SEAL_OVERHEAD` was pinned only where a library build never looks
+
+**`FZN_KIND_*` is tied to the schema, contrary to what I assumed when I sent
+the audit.** `wire/seal.c` carries four `_Static_assert`s against
+`SITU_FZN_KIND_*`, and because `seal.c` is in `SRCS` they compile on every
+ordinary build. That is a stronger guard than `constants_test.c` gives
+anything, and I had it filed as the weak case.
+
+**The genuinely weak one was next to it.** `FZN_SEAL_OVERHEAD` -- the number
+every `fzn_seal_build` caller sizes a buffer with -- had exactly one tie to
+`SITU_FZN_FRAME_SIZE_MIN`, in `wire/test/constants_test.c`. That file is in
+`TEST_BINS` and not in `SRCS`, so **`make` alone never compiles it**:
+a consumer who builds this library and not its suite had no guard on it at
+all. `seal.c` now asserts it too, and the assertion was shown to fire --
+`FZN_SEAL_OVERHEAD` moved to 148 gives one compile error, restored gives a
+clean build. `constants_test.c` keeps its copy; the two fail in different
+circumstances and neither is redundant.
+
+### The hole all of these share, and nothing routine can see it
+
+Every guard named above compares **two committed artifacts** -- a
+hand-written constant against `wire/generated/`. None of them reads
+`wire/frame.situ`. So the failure where the SCHEMA changes and nobody
+regenerates is invisible to all of them simultaneously, because both sides
+stay in lockstep.
+
+The only thing that reads the schema is `make schema`, which needs a sibling
+`situ` checkout and is deliberately outside `test`, `check` and `all` -- a
+decision with its own reasons, recorded where the target is defined. Stated
+here because the guards look like more coverage than they are: they are
+strong against a hand-written constant drifting and blind, as a set, to the
+generator's input moving.
+
+`FZN_SIGNED_VERSION` is a third case and not fixable this way at all. The
+schema states it as `must_eq = 1`, and `situc` compiles that into a bare
+literal inside the generated source without exporting a macro, so there is
+nothing to assert against. Unpinnable rather than unpinned -- and a situ
+question rather than a fuzznet one.
+
 ### The session's own counts, re-checked at the end
 
 `wire/seal.c` was found this afternoon to carry a measurement that had gone

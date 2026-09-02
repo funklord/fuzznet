@@ -99,6 +99,21 @@ _Static_assert(FZN_KIND_UNIT == SITU_FZN_KIND_UNIT, "kind: unit moved");
 _Static_assert(FZN_KIND_CHUNK == SITU_FZN_KIND_CHUNK, "kind: chunk moved");
 _Static_assert(FZN_KIND_ACK == SITU_FZN_KIND_ACK, "kind: ack moved");
 
+/* AND THE OVERHEAD, WHICH WAS PINNED ONLY WHERE A LIBRARY BUILD NEVER LOOKS.
+ * `FZN_SEAL_OVERHEAD` is what every `fzn_seal_build` caller sizes a buffer
+ * with, and its only tie to the schema was an assertion in
+ * `wire/test/constants_test.c` -- a file in TEST_BINS and not in SRCS, so
+ * `make` alone never compiles it. A consumer who builds this library and not
+ * its test suite had no guard at all on the one number their buffer
+ * arithmetic depends on.
+ *
+ * The same argument the four above are here for, and the same fix: this file
+ * compiles on every ordinary build, so the check travels with the code rather
+ * than with the suite. `constants_test.c` keeps its copy; two assertions of
+ * one equality cost nothing and they fail in different circumstances. */
+_Static_assert(FZN_SEAL_OVERHEAD == SITU_FZN_FRAME_SIZE_MIN,
+               "seal: the advertised overhead is not the schema's minimum frame");
+
 fzn_seal_err_t fzn_seal_open(uint8_t *frame, size_t frame_len,
                               const uint8_t key[FZN_AEAD_KEY_LEN],
                               const uint8_t commitment_key[FZN_COMMITMENT_KEY_LEN],
