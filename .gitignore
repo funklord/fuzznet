@@ -95,6 +95,7 @@
 # Python's, from running tool/style_gate.py.
 __pycache__/
 /wire/test/seal_test
+/wire/test/seal_fuzz
 /wire/test/tamper_test
 /session/test/aead_monocypher_test
 /wire/test/golden_frame_test

@@ -10401,6 +10401,61 @@ real deliveries. 172 checks to 1287, since the pair runs per frame.
 
 Green under sanitizers as well as a plain build.
 
+### The outermost decoder had no harness, and it was the oldest gap here
+
+Found by asking sec 20's criterion of every module rather than of the one
+just written. `wire/seal.c` is the first thing a datagram meets -- every byte
+from the network reaches it before anything else in this library -- and it
+had no fuzz harness. Measured before writing one: **no `*_fuzz.c` anywhere
+mentioned `fzn_seal_open`, `fzn_seal_peek` or `fzn_seal_peek_sender`**, and
+`frame/test/receive_fuzz.c` says in its own header that steps 4 and 5 "live
+in `wire/seal.c`" and are skipped there. So the gap was visible in a file
+written to close a neighbouring one.
+
+**What was already covered, so this is not sold as more than it is.**
+`seal_test.c` drives hand-written cases, `golden_frame_test.c` pins a fixed
+vector, and `tamper_test.c` flips every tag-covered byte one at a time and
+requires each to be refused. Strong, and they share one population: **a frame
+that is already valid.** The bytes nobody had handed this decoder are the ones
+that were never a frame.
+
+**`fzn_seal_peek` is the most exposed function in the library** and shipped
+this same day with unit coverage only. It runs BEFORE a key is chosen -- that
+is what it is for -- so it is reachable by anyone who can put a packet on the
+wire, with no authentication ahead of it at all.
+
+Six properties: no pointer escapes the buffer; peek and peek_sender agree in
+verdict and in pointer; a refusal clears the output; **peek does not write to
+the frame**, which pins `seal.c`'s "THE CAST IS READ-ONLY AND THE FUNCTION IS
+NOT" comment; peek refuses what open refuses; and a valid frame is accepted at
+exactly one length.
+
+That last is the regression it exists for. `seal.c` records that a valid
+168-byte frame handed in at every size up to 168 + 4096 once opened happily,
+so the harness presents a built frame at every length from zero to eight past
+its own and requires **exactly one** acceptance -- counted, so the sweep is
+known to have run rather than the assertion merely not having fired.
+
+    20000 cases: 13476 refused, 6524 accepted, 10000 near misses,
+    1 length sweep, 13476 peek/open comparisons
+
+**Half the cases are near misses on purpose.** Random bytes essentially never
+form a frame, so a harness driven only by them exercises the refusal path and
+nothing else -- 6524 acceptances come from corrupting a real frame, which is
+where a parser's accept path is actually tested.
+
+**Four mutations, all caught against a passing control**: the no-trailing-bytes
+rule removed, the schema constraints not enforced, peek not clearing its
+output, peek_sender not nulling its pointer.
+
+One of the four first reported PATTERN-MISS rather than a verdict, because
+`memset(out, 0, sizeof(*out))` appears twice in the file and the harness
+refuses to mutate an ambiguous match. Re-run against line 237 specifically --
+the one inside `fzn_seal_peek` -- it is CAUGHT. **A mutation tool that
+silently took the first of two matches would have reported a result about the
+wrong function**, which is this document's shape one more time and the reason
+the count is asserted before the write.
+
 ### The session's own counts, re-checked at the end
 
 `wire/seal.c` was found this afternoon to carry a measurement that had gone

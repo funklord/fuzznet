@@ -276,7 +276,8 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              record/test/record_guided.c \
              record/test/record_fuzz.c \
              tree/test/tree_fuzz.c \
-             tree/test/tree_kat_test.c
+             tree/test/tree_kat_test.c \
+             wire/test/seal_fuzz.c
 # Recursive for OBJS's reason: the file backends append to TEST_SRCS below.
 TEST_OBJS  = $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
 TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
@@ -336,6 +337,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/record/test/record_guided \
              $(BUILD_DIR)/record/test/record_fuzz \
              $(BUILD_DIR)/tree/test/tree_fuzz \
+             $(BUILD_DIR)/wire/test/seal_fuzz \
              $(BUILD_DIR)/blob/test/blob_fuzz \
              $(BUILD_DIR)/prekey/test/prekey_fuzz
 
@@ -1388,6 +1390,18 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
 # open path reads out of the frame, so no caller can hand one in -- and that
 # makes session/commitment.o a link-time dependency of wire/seal.o rather than
 # of its callers.
+# THE OUTERMOST DECODER, over bytes that were never a frame. seal_test's
+# object list without relay.o: this harness never forwards, it only
+# decodes. Stubs stand in for the crypto, so it runs in every
+# arrangement rather than only where Monocypher is present.
+$(BUILD_DIR)/wire/test/seal_fuzz: $(BUILD_DIR)/wire/test/seal_fuzz.o \
+                                   $(BUILD_DIR)/wire/seal.o \
+                                   $(BUILD_DIR)/session/commitment.o \
+                                   $(BUILD_DIR)/session/random.o \
+                                   $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/wire/test/seal_test: $(BUILD_DIR)/wire/test/seal_test.o \
                                    $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/wire/relay.o \
                                    $(BUILD_DIR)/session/commitment.o \
@@ -1552,6 +1566,7 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/local/test/vocabulary_fuzz \
              $(BUILD_DIR)/record/test/record_fuzz \
              $(BUILD_DIR)/tree/test/tree_fuzz \
+             $(BUILD_DIR)/wire/test/seal_fuzz \
              $(BUILD_DIR)/blob/test/blob_fuzz \
              $(BUILD_DIR)/prekey/test/prekey_fuzz
 
