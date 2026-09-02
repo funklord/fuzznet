@@ -11244,6 +11244,115 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 51. A ceiling that was compared and not held, 2026-09-02
+
+`fzn_manifest_issue` derives a manifest from the issuer's own store, so the
+bounds it keeps are about **what this host holds** rather than what a peer
+sent. Three of them had no case:
+
+    count >= FZN_MANIFEST_MAX_PAIRS        the store outgrew one manifest
+    out_cap < FZN_MANIFEST_LEN(count + 1u) the buffer outgrew by one pair
+    if (duplicate) continue                a pair the store holds twice
+
+The suite's existing ceiling case is `fzn_manifest_open`'s, which is the
+same number answering a different question -- how much work a **peer** may
+set. The largest store anywhere in the file held eight entries.
+
+### The first version of the case passed with the guard cut out
+
+Sized `out_cap` at the test's whole scratch buffer, deleting the ceiling
+changes nothing a caller can see. The loop runs on, writes a count of 4095,
+and reaches the `fzn_manifest_open` that this function performs **on its own
+bytes** before signing -- which refuses the oversized count. Same error,
+same absent manifest, and a case that asserts the outcome learns nothing.
+
+**At exactly `FZN_MANIFEST_MAX_LEN` the two answers diverge**, and the
+divergence is what the guard is for:
+
+    guard present   FZN_MANIFEST_ERR_SHAPE      your store outgrew a manifest
+    guard absent    FZN_MANIFEST_ERR_MALFORMED  your buffer is too small
+
+A consumer that sized `out` with the public constant for the largest
+manifest this library carries has a **correct** buffer. Told MALFORMED, it
+goes to enlarge something already at the ceiling and finds no size that
+works. So the guard is not redundant with the re-open; it is the only thing
+that answers truthfully, and only a buffer at the bound can observe it.
+
+### Sec 40's criterion counted this ceiling as enforced
+
+That audit asked, of twenty declared ceilings, **which are compared in a
+non-test source**. `FZN_MANIFEST_MAX_PAIRS` is compared in two, both in
+`chain/manifest.c`. It passed.
+
+The property wanted was that each ceiling is held to account. The criterion
+measured whether the constant is mentioned in a comparison, which is
+satisfied by a comparison nothing tests -- and the guard here was one. This
+is the same substitution as the coverage sweep's literal-offset rule, which
+called `revocation` and `manifest` unprotected for spelling an offset as a
+constant: a proxy applied to a system that satisfies the real property
+somewhere the proxy cannot look, or fails it somewhere the proxy does not
+look. **The correction is the same one sec 40 already drew about its own
+regex and did not extend to its result:** read every hit, and ask what the
+hit proves rather than that there was one.
+
+### The re-open shadow is one module's, not a pattern
+
+Three functions here open their output before signing it -- `hop_sign`,
+`fzn_revocation_issue`, `fzn_manifest_issue` -- and the practice is right:
+it is where an encoder and its accessors would be caught disagreeing. It
+also puts a second, stricter judge downstream of every guard above it, which
+is how a guard becomes invisible.
+
+Both other sites were checked rather than assumed. `fzn_revocation_issue`
+has nothing above its re-open but the argument check its encoder repeats,
+and there is no ceiling in a fixed-length record. `hop_sign`'s
+expires-before-issued guard, cut out, fails `chain_test` twice. So the
+shadow fell on one function.
+
+**It is nonetheless the fourth finding in `chain/manifest.c`.** Sec 36 found
+its missing refusing-signer case, sec 40 its unheld maximum-length constant
+and the absent fuzz harness; this is a bound its sibling modules do not have
+to keep. Sec 40 called three findings in one module a fact about the module.
+A fourth does not change that conclusion, but it does say the module went on
+producing them after the observation was made -- which is an argument for
+the harness sec 36 left open rather than more findings of this kind.
+
+### The three guards are in the sabotage table now
+
+A measurement taken once is a fact about a Tuesday. Batch four of
+`tool/sabotage.py`:
+
+    manifest-issue-ceiling      CAUGHT   manifest_test.c:1033
+    manifest-issue-out-cap      CAUGHT   manifest_test.c:1086
+    manifest-issue-dedup-skip   CAUGHT   manifest_test.c:1133
+
+with `CONTROL-wipe` and `CONTROL-delegable` both CAUGHT in the same run, so
+the sweep was mutating. The entry text records **why the buffer size
+matters**, because an entry is worth exactly as much as the case that feeds
+it: a later edit that enlarges `out_cap` in that test would turn
+`manifest-issue-ceiling` into a survivor with nothing to explain it.
+
+### The duplicate skip is written in directly, and that is the argument
+
+`fzn_revocation_admit` deduplicates, so a store holding one pair twice
+cannot be built through the public door. `manifest.c` handles it anyway, and
+says why: a repeated pair is a manifest signed by this issuer that no
+receiver's `open` will accept, from the one function meant to be unable to
+lie.
+
+The case writes the entries into the store rather than admitting them, on
+the ground that `store_sound` is the whole of what this module asks about a
+store, and one pair twice satisfies it -- `used` within `capacity`, `entries`
+not NULL. The state is inside what the module accepts, so what it does with
+it is the open question. The alternative, treating "admit cannot produce
+this" as coverage, is exactly the reasoning that left the guard unexecuted
+while the comment above it explained itself.
+
+The ceiling case, by contrast, grows its store **through** `admit` -- 4095
+signed records through the public door -- because there the point is that
+the bound holds against reachable behaviour. Two fixtures, two different
+arguments, and neither generalises to the other.
+
 ## 50. `tree/`: nesting that replicates, and the resolution it refuses, 2026-09-01
 
 Authorised by the holder after a consumer designed it and declined to build

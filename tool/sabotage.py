@@ -394,6 +394,53 @@ SABOTAGES = [
 		'static const char FZN_ROOT_LABEL[16] = "fuzznet-kdf-v3\\0\\0";',
 		"the root derivation label is pinned against silent change",
 	),
+	# BATCH FOUR: GUARDS A LATER CHECK IN THE SAME FUNCTION MAY BE HIDING.
+	#
+	# `fzn_manifest_issue`, `fzn_revocation_issue` and `hop_sign` all open
+	# their own output before signing it, which is a deliberate and good
+	# thing -- it is where an encoder and its accessors would be caught
+	# disagreeing. It also means every guard ABOVE that re-open is judged a
+	# second time by a parser that refuses more than the guard did, so
+	# deleting one can leave the return code unchanged and the sweep with
+	# nothing to see.
+	#
+	# The three below are `issue`'s bounds on the ISSUER'S OWN STORE, as
+	# distinct from the bounds `fzn_manifest_open` keeps on what a peer
+	# sent. They were added the day their suite was written, because the
+	# first version of that suite passed with the ceiling cut out: at an
+	# `out_cap` larger than FZN_MANIFEST_MAX_LEN the re-open refuses the
+	# oversized count and the guard is invisible. It is the buffer size
+	# that makes the difference observable, so an entry here is only worth
+	# as much as the case that feeds it -- which is the argument for
+	# listing them rather than trusting the case to stay pointed.
+	#
+	# Checked at the other two re-open sites when this batch was written:
+	# `fzn_revocation_issue` has no guard above its re-open beyond the
+	# argument check its encoder repeats, and `hop_sign`'s expiry guard is
+	# caught by chain_test. So this shape is one module's, not a pattern.
+	(
+		"manifest-issue-ceiling",
+		"chain/manifest.c",
+		"\t\tif (count >= FZN_MANIFEST_MAX_PAIRS)\n"
+		"\t\t\treturn FZN_MANIFEST_ERR_SHAPE;\n",
+		"\t\t/* sabotage */\n",
+		"the ceiling on how large a manifest an issuer's own store may make",
+	),
+	(
+		"manifest-issue-out-cap",
+		"chain/manifest.c",
+		"\t\tif (out_cap < FZN_MANIFEST_LEN(count + 1u))\n"
+		"\t\t\treturn FZN_MANIFEST_ERR_MALFORMED;\n",
+		"\t\t/* sabotage */\n",
+		"the per-pair bound that stops the insertion sort leaving the buffer",
+	),
+	(
+		"manifest-issue-dedup-skip",
+		"chain/manifest.c",
+		"\t\tif (duplicate)\n\t\t\tcontinue;\n",
+		"\t\t/* sabotage */\n",
+		"the duplicate skip, which the store's own dedup should make unreachable",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so
