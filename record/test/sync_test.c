@@ -302,6 +302,23 @@ int main(void)
 		expect(plan.unknown_issuers == FZN_SYNC_MAX_POSITIONS - 1u,
 		       "only the positions examined can be classified");
 
+		/* THE EDGE ITSELF, not two past it. Everything above is
+		 * measured at MAX + 2, which passes whether the comparison is
+		 * the intended one or off by one in either direction. Exactly
+		 * at the ceiling must ignore nothing; exactly one past must
+		 * ignore exactly one. That pair is what pins the comparison. */
+		position(&many[0], a, 20);
+		expect(fzn_sync_plan_fetch(&mine, many, FZN_SYNC_MAX_POSITIONS, 100,
+		                           out, 4, &plan) == FZN_SYNC_OK,
+		       "a digest of exactly the ceiling was refused");
+		expect(plan.positions_ignored == 0,
+		       "a digest at exactly the ceiling ignored something");
+		expect(fzn_sync_plan_fetch(&mine, many, FZN_SYNC_MAX_POSITIONS + 1u, 100,
+		                           out, 4, &plan) == FZN_SYNC_OK,
+		       "a digest one past the ceiling was refused");
+		expect(plan.positions_ignored == 1,
+		       "a digest one past the ceiling did not ignore exactly one");
+
 		position(&many[0], phantom, 1);
 		position(&many[FZN_SYNC_MAX_POSITIONS + 1u], a, 20);
 		expect(fzn_sync_plan_fetch(&mine, many, FZN_SYNC_MAX_POSITIONS + 2u, 100, out, 4,

@@ -126,6 +126,118 @@ static void test_a_want_names_the_gaps(void)
 	}
 }
 
+/* THE EARLY STOP, MID-WALK, WHICH THE CAP EXISTS FOR AND NOTHING DROVE.
+ *
+ * `emit` refusing when the array is full IS exercised -- but only from the
+ * flush after the loop, at the bottom of `fzn_spool_plan_want`, whose result
+ * is deliberately discarded because the function is ending anyway. The four
+ * call sites that actually branch on that refusal and RETURN EARLY had never
+ * received a zero.
+ *
+ * The reason is the fixture, not the code: every existing cap test uses one
+ * unbroken run, so the walk never meets a leaf it holds and never closes a
+ * run mid-scan. A pattern with gaps SEPARATED by present leaves is what
+ * reaches the early return -- the first gap fills the array, and the second
+ * gap's close is refused.
+ *
+ * What that path is for: stopping the scan once the caller's array is full,
+ * rather than walking the rest of the bitmap to no purpose. A planner that
+ * kept scanning would still produce the right answer, which is exactly why
+ * nothing noticed. */
+static void test_the_walk_stops_when_the_array_fills(void)
+{
+	fzn_spool_range_t got[8];
+	size_t n = 0;
+
+	/* Three separate gaps, each closed by a leaf the store holds. */
+	CHECK(with("...#...#...#........"), "the fixture would not build");
+
+	/* Room for one range: the first gap is written, the second gap's close
+	 * is refused, and the walk returns rather than continuing. */
+	memset(got, 0, sizeof(got));
+	CHECK(fzn_spool_plan_want(&spool, 0u, 64u, got, 1u, &n) == FZN_SPOOL_OK,
+	      "want refused with room for one range");
+	CHECK(n == 1u, "a one-slot array did not stop at one range: %u", (unsigned)n);
+	CHECK(got[0].first == 0u && got[0].count == 3u,
+	      "the first gap was not 0..3");
+	/* NOTHING PAST THE CAP WAS WRITTEN. The array is zeroed above, so a
+	 * planner that wrote and then decremented would show here. */
+	CHECK(got[1].first == 0u && got[1].count == 0u,
+	      "a range was written past the caller's capacity");
+
+	/* Room for two: the second gap lands, the third is refused. */
+	CHECK(fzn_spool_plan_want(&spool, 0u, 64u, got, 2u, &n) == FZN_SPOOL_OK,
+	      "want refused with room for two ranges");
+	CHECK(n == 2u, "a two-slot array did not stop at two ranges: %u", (unsigned)n);
+	CHECK(got[1].first == 4u && got[1].count == 3u,
+	      "the second gap was not 4..7");
+
+	/* THE CONTROL: with room for all of them the same store yields three,
+	 * so the two stops above are the cap working rather than the fixture
+	 * having fewer gaps than I think. */
+	CHECK(fzn_spool_plan_want(&spool, 0u, 64u, got, 8u, &n) == FZN_SPOOL_OK,
+	      "want refused with room for everything");
+	CHECK(n == 4u, "the fixture does not hold four gaps: %u", (unsigned)n);
+}
+
+/* THE SAME STOP IN THE OTHER PLANNER, which walks a peer's ranges rather
+ * than the whole bitmap and has its own two call sites. */
+static void test_the_offer_stops_when_the_array_fills(void)
+{
+	fzn_spool_range_t got[8];
+	fzn_spool_range_t want[2];
+	size_t n = 0;
+
+	CHECK(with("###.###.###........."), "the fixture would not build");
+	/* Two ranges the peer asked about, each containing a run this store
+	 * holds and a gap it does not. */
+	want[0].first = 0u;
+	want[0].count = 8u;
+	want[1].first = 8u;
+	want[1].count = 8u;
+
+	memset(got, 0, sizeof(got));
+	CHECK(fzn_spool_plan_offer(&spool, want, 2u, 64u, got, 1u, &n) == FZN_SPOOL_OK,
+	      "offer refused with room for one range");
+	CHECK(n == 1u, "a one-slot offer did not stop at one range: %u", (unsigned)n);
+	CHECK(got[1].count == 0u,
+	      "a range was written past the caller's capacity");
+
+	CHECK(fzn_spool_plan_offer(&spool, want, 2u, 64u, got, 8u, &n) == FZN_SPOOL_OK,
+	      "offer refused with room for everything");
+	CHECK(n > 1u, "the control: a roomy offer yielded no more than one range");
+}
+
+/* THE CEILING AT ITS EDGE, not eight past it. Both planners clip a peer's
+ * range count, and both were only ever tested well beyond the cap -- which
+ * passes whether the comparison is the intended one or off by one in either
+ * direction. Exactly at the cap must pass through unclipped; exactly one past
+ * must clip by exactly one. */
+static void test_the_want_ceiling_is_exact(void)
+{
+	static fzn_spool_range_t want[FZN_SPOOL_MAX_WANT + 1u];
+	fzn_spool_range_t got[4];
+	size_t n = 0, i;
+
+	CHECK(with("####################"), "the fixture would not build");
+	for (i = 0; i < FZN_SPOOL_MAX_WANT + 1u; i++) {
+		want[i].first = 0u;
+		want[i].count = 1u;
+	}
+
+	/* At the cap exactly: accepted, and the last range is examined. */
+	CHECK(fzn_spool_plan_offer(&spool, want, FZN_SPOOL_MAX_WANT, 64u, got,
+	                           (size_t)(sizeof(got) / sizeof(got[0])), &n)
+	              == FZN_SPOOL_OK,
+	      "a request of exactly FZN_SPOOL_MAX_WANT ranges was refused");
+	/* One past: still answered, and the module's own contract says the
+	 * excess is ignored rather than the request rejected. */
+	CHECK(fzn_spool_plan_offer(&spool, want, FZN_SPOOL_MAX_WANT + 1u, 64u, got,
+	                           (size_t)(sizeof(got) / sizeof(got[0])), &n)
+	              == FZN_SPOOL_OK,
+	      "a request one past the cap was refused rather than clipped");
+}
+
 static void test_a_long_run_is_split_and_a_small_array_stops(void)
 {
 	fzn_spool_range_t got[8];
@@ -400,6 +512,9 @@ int main(void)
 {
 	test_a_want_names_the_gaps();
 	test_a_long_run_is_split_and_a_small_array_stops();
+	test_the_walk_stops_when_the_array_fills();
+	test_the_offer_stops_when_the_array_fills();
+	test_the_want_ceiling_is_exact();
 	test_the_walk_starts_where_the_caller_says();
 	test_a_run_never_crosses_the_wrap();
 	test_a_want_that_names_nothing_gets_nothing();
