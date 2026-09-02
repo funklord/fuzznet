@@ -2594,6 +2594,54 @@ with no relationship to how much is left.
 
 28 checks at 100% of lines and branches.
 
+
+### `usable` is boolean, and that costs a host in backoff its only link
+
+Found by the first consumer while adopting this module 2026-09-02, and it is
+a limitation of this interface rather than of their adoption -- recorded here
+because they worked around it correctly and the next consumer will meet it
+without their reasons to hand.
+
+**The shape.** `fzn_sched_link_t.usable` is an `int` meaning "the consumer
+says this link is up". A consumer with backoff has a third state: a link that
+is up, is being rested after failures, and should be avoided **if there is an
+alternative**. There is nowhere to put that. Marking it unusable removes it
+from consideration entirely, and marking it usable hides the demotion.
+
+**Why that is not merely a lost preference.** Hard constraints come first and
+can exclude everything -- the paragraph above says so and defends it -- so
+`fzn_sched_select` answers `FZN_SCHED_ERR_NONE` when nothing survives, and
+the caller drops. For a host whose ONLY link is in backoff, marking it
+unusable is therefore not "prefer another"; it is **drop the message**. That
+host must still send. A consumer that took the obvious route would have built
+a rested link into an unreachable host, and it would show up as a host that
+goes quiet under exactly the conditions that caused the backoff.
+
+**So the consumer kept backoff demotion on their side**, along with energy
+(not a question about which link, and this module says so) and budget (drains,
+and needs a clock the selector does not take). Only the first of those three
+is a gap here; the other two are correct exclusions.
+
+**What a fix would look like, and why it is not being built today.** The
+scoring path already has a weight per dimension, so a demotion is naturally a
+penalty rather than a veto -- which is precisely what sec 5's "a failing link
+is skipped rather than penalised" argues AGAINST, on the ground that a penalty
+large enough elsewhere brings a failing link back. Those two are not in
+conflict once the cases are separated: a link that cannot meet a deadline is
+excluded, and a link that is merely rested is preferred against. The interface
+cannot express the difference because one boolean is carrying both.
+
+**Not built for sec 5's reason: no consumer needs it yet.** fuzzypickles has
+a working answer on their side and declined to wait for one here. netcfgd and
+hydra have not adopted `sched/` at all. A third state added now would be a
+seam accepted on nobody's account, which this document has refused twice
+already -- and refusing it is only defensible if the limitation is written
+down where the next consumer will find it, which is what this is.
+
+**The trigger that reopens it**, checkable rather than a matter of taste: a
+second consumer arriving with backoff, or fuzzypickles finding their
+host-side demotion and this module's selection disagreeing about which link
+wins.
 ## 5f. `wire/relay.h` -- the hop budget, and what relaying still needs
 
 **`fzn_hop.hops_left` has been in every frame since the schema existed and
