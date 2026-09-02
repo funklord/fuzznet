@@ -68,6 +68,7 @@
 /sim/test/network_test
 /record/test/journal_test
 /record/test/record_test
+/record/test/record_kat_test
 /record/test/sync_test
 /state/test/state_test
 /tree/test/tree_test

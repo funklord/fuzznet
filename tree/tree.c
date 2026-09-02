@@ -4,6 +4,24 @@
 
 #include <string.h>
 
+/* THE TABLE, PINNED AT COMPILE TIME, which `record/record.c` has had since it
+ * was written and this module did not. `tree/test/tree_kat_test.c` catches a
+ * moved field when it runs; these catch it when it builds, which is earlier
+ * and cheaper, and the two are not redundant: an assertion cannot check the
+ * BYTES a field produces and a vector cannot fail before a consumer has
+ * compiled. Found missing on 2026-09-02 while writing record/'s vector --
+ * permuting record/'s offsets would not compile, and permuting this module's
+ * had built happily an hour earlier. */
+_Static_assert(FZN_TREE_OFF_PARENT == 0u, "tree layout: parent moved");
+_Static_assert(FZN_TREE_OFF_ORDER == 32u, "tree layout: order moved");
+_Static_assert(FZN_TREE_OFF_CONTENT_TYPE == 40u, "tree layout: content_type moved");
+_Static_assert(FZN_TREE_OFF_CONTENT == 42u, "tree layout: content moved");
+_Static_assert(FZN_TREE_BODY_HEADER_LEN == 42u,
+               "tree layout: the body header is not 42 bytes");
+_Static_assert(FZN_TREE_CONTENT_MAX == 470u,
+               "tree layout: content max is not 470 bytes");
+_Static_assert(FZN_TREE_ID_LEN == 32u, "tree layout: a node id is not 32 bytes");
+
 /* Constant-time is not a property this file needs: a node id is public, a
  * parent pointer is public, and sibling order is public. `memcmp` is
  * therefore the right comparison here, and saying so stops the next reader

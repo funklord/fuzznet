@@ -277,7 +277,8 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              record/test/record_fuzz.c \
              tree/test/tree_fuzz.c \
              tree/test/tree_kat_test.c \
-             wire/test/seal_fuzz.c
+             wire/test/seal_fuzz.c \
+             record/test/record_kat_test.c
 # Recursive for OBJS's reason: the file backends append to TEST_SRCS below.
 TEST_OBJS  = $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
 TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
@@ -324,6 +325,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/frame/test/freshness_guided \
              $(BUILD_DIR)/record/test/journal_test \
              $(BUILD_DIR)/record/test/record_test \
+             $(BUILD_DIR)/record/test/record_kat_test \
              $(BUILD_DIR)/tree/test/tree_test \
              $(BUILD_DIR)/tree/test/tree_kat_test \
              $(BUILD_DIR)/record/test/sync_test \
@@ -935,6 +937,16 @@ $(BUILD_DIR)/tree/test/tree_test: $(BUILD_DIR)/tree/test/tree_test.o \
 # The byte-level fuzz harness for the same module record_test.c covers with
 # named cases. It links record.o alone: nothing above `record/` is on trial
 # here, which is what separates it from record_guided.c next door.
+# The layout table in record.h, as literals. Its offsets are already
+# pinned by _Static_assert in record.c; what this adds is the byte ORDER,
+# which nothing else checks -- a little-endian encoder agrees perfectly
+# with a little-endian decoder.
+$(BUILD_DIR)/record/test/record_kat_test: \
+                                      $(BUILD_DIR)/record/test/record_kat_test.o \
+                                      $(BUILD_DIR)/record/record.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/record/test/record_fuzz: $(BUILD_DIR)/record/test/record_fuzz.o \
                                       $(BUILD_DIR)/record/record.o
 	@mkdir -p $(dir $@)

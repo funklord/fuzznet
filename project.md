@@ -10456,6 +10456,52 @@ silently took the first of two matches would have reported a result about the
 wrong function**, which is this document's shape one more time and the reason
 the count is asserted before the write.
 
+### `record/`'s vector, and the reason for it was not the reason I had
+
+Written on `tree/`'s argument -- self-consistency survives a permuted table --
+and that argument turned out not to apply. **`record/record.c` carries ten
+`_Static_assert`s pinning every offset to a literal**, so exchanging `issuer`
+and `subject` does not fail a test, it fails to compile:
+
+    record/record.c:14: static assertion failed: "record layout: issuer moved"
+
+That is stronger than any run-time vector, and it is why `record/` was never
+in the position `tree/` was in. The premise was wrong and trying it is what
+said so.
+
+**What nothing pinned is byte order.** No assertion anywhere states that a
+multi-byte field is big-endian, and a little-endian encoder agrees perfectly
+with a little-endian decoder. Measured rather than argued -- `fzn_record_sign`
+and `fzn_record_stream` BOTH changed to little-endian, so the two sides still
+agree with each other:
+
+    record_fuzz    4000 cases   SURVIVED
+    record_kat     43 checks    CAUGHT
+
+A record format that no longer matches its own documented table, and the
+canonicality property -- "an OPENED record re-encodes, from its accessors
+alone, to the identical bytes" -- is exactly the property that cannot see it.
+
+**The first attempt at that mutation was wrong too, and reported the opposite.**
+Flipping only the ENCODER was caught by `record_fuzz` immediately, because the
+two sides then disagreed. That is a real result about a different defect, and
+reading it as "the fuzzer covers endianness" would have closed the question on
+a case nobody was asking about. **Self-consistency is only blind to changes
+that are themselves consistent**, which is a narrower and more useful statement
+than the one I started with.
+
+**And the exercise found a gap in `tree/` rather than in `record/`.** `tree.c`
+had no static assertions at all -- which is why its permutation compiled
+happily an hour earlier. It now pins its table the way `record.c` does. The
+two are not redundant: an assertion cannot check the BYTES a field produces,
+and a vector cannot fail before a consumer has compiled.
+
+The offset checks in `record_kat_test.c` stay, deliberately duplicating the
+assertions. The table there is transcribed by hand from the header comment
+rather than read from the code, so the file is a second witness to what the
+table SAYS -- and if the assertions were ever removed as clutter, the vector
+still holds.
+
 ### The session's own counts, re-checked at the end
 
 `wire/seal.c` was found this afternoon to carry a measurement that had gone
