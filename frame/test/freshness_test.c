@@ -389,6 +389,31 @@ static void test_every_guard_refuses_its_own_argument(void)
 	CHECK(fzn_replay_expire(NULL, 100) == 0, "a null window was swept");
 	CHECK(fzn_replay_expire(&no_entries, 100) == 0, "a window with no entries was swept");
 
+	/* AND ONE THAT CLAIMS ENTRIES IT DOES NOT HAVE, which is the state the
+	 * `!window->entries` term exists for and the one the line above does
+	 * not reach.
+	 *
+	 * `no_entries` is a copy of a freshly initialised window, so its `used`
+	 * is zero: the `used > capacity` test below the term declines, the
+	 * compaction loop runs no iterations, and 0 comes back whether the
+	 * term is there or not. Measured 2026-09-03 -- dropping it left the
+	 * whole suite green.
+	 *
+	 * Two claimed entries inside a capacity of four passes the fields-agree
+	 * test, so the term is the only thing left standing between this call
+	 * and `window->entries[0].expires_at` through a null pointer. The
+	 * detection is therefore the crash, and that is inherent: the guard
+	 * exists to prevent exactly that dereference, so having it and not
+	 * having it differ in nothing else. A hand-built window is a shape this
+	 * header invites -- the fixture above builds one. */
+	{
+		fzn_replay_window_t lying = no_entries;
+
+		lying.used = 2;
+		CHECK(fzn_replay_expire(&lying, 100) == 0,
+		      "a window claiming two entries behind a null pointer was swept");
+	}
+
 	CHECK(fzn_replay_admit(NULL, nonce, 200, FZN_EXPIRY_REQUIRED, 100) ==
 	              FZN_FRESH_ERR_MALFORMED,
 	      "a null window was admitted to");

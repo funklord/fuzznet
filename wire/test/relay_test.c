@@ -11,6 +11,7 @@
 
 #include "frame.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -120,6 +121,35 @@ int main(void)
 	build(frame, sizeof(frame), 1, 4);
 	expect_err(fzn_relay_budget(frame, 2, FZN_RELAY_MAX_HOPS, &budget), FZN_RELAY_ERR_SHAPE,
 	           "something too short to hold a hop header");
+
+	/* A LENGTH THAT DOES NOT SURVIVE THE CAST, which is the guard nothing
+	 * here reached.
+	 *
+	 * `situ_msg_init` takes a `uint32_t`, so a `size_t` length above
+	 * UINT32_MAX truncates on the way in. Every bounds check downstream is
+	 * then computed against a number that is not the buffer's length.
+	 * Measured 2026-09-03: deleting the guard left the whole suite green,
+	 * because no case in the tree ever passed a length above UINT32_MAX.
+	 *
+	 * THE BUFFER IS REAL AND THE LENGTH IS THE LIE, so a sabotaged run
+	 * reads only bytes this frame actually has -- the truncated value is
+	 * `sizeof(frame)`, a length the frame genuinely is. So without the
+	 * guard the call SUCCEEDS and hands back a budget, which is the
+	 * failure. A case that instead crashed would be measuring the
+	 * sanitizer.
+	 *
+	 * Guarded on the model, because the cast is lossless where `size_t` is
+	 * 32 bits and there is then nothing here to test. */
+#if SIZE_MAX > UINT32_MAX
+	build(frame, sizeof(frame), 1, 4);
+	budget = 0xeeu;
+	expect_err(fzn_relay_budget(frame, ((size_t)UINT32_MAX + 1u) + sizeof(frame),
+	                            FZN_RELAY_MAX_HOPS, &budget),
+	           FZN_RELAY_ERR_SHAPE,
+	           "a length past what the message header can hold was truncated rather "
+	           "than refused");
+	expect(budget == 0xeeu, "and the refusal wrote no budget");
+#endif
 
 	/* Arguments. */
 	expect_err(fzn_relay_budget(NULL, sizeof(frame), FZN_RELAY_MAX_HOPS, &budget),

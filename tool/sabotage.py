@@ -538,6 +538,53 @@ SABOTAGES = [
 		"\twalk->emitted = 0u;\n",
 		"a reused walk must not report the previous call's count added to its own",
 	),
+	# BATCH SIX, 2026-09-03: frame/ and wire/relay.c, the two sources batch
+	# five left over. Same census, same method, and one of the three unheld
+	# guards here is the amplification clamp's neighbour rather than the
+	# clamp itself -- which is why the clamp is listed beside them as a
+	# caught control rather than left out for being obviously covered.
+	(
+		"relay-len-truncation",
+		"wire/relay.c",
+		"\tif (!frame || frame_len > UINT32_MAX)\n\t\treturn 0;\n",
+		"\tif (!frame)\n\t\treturn 0;\n",
+		"a size_t length above UINT32_MAX must not be truncated into the message",
+	),
+	(
+		"relay-budget-clamp",
+		"wire/relay.c",
+		"\t*out = claimed < allowed ? claimed : allowed;\n",
+		"\t*out = claimed;\n",
+		"the clamp on a stranger's hop count, which is the amplifier if believed",
+	),
+	(
+		"relay-hop-header-min",
+		"wire/relay.c",
+		"\tif (frame_len < SITU_FZN_HOP_SIZE_MAX)\n\t\treturn 0;\n",
+		"",
+		"KNOWN SURVIVOR: situ's generated accessor bounds-checks first (expected)",
+	),
+	(
+		"freshness-sweep-entries",
+		"frame/freshness.c",
+		"\tif (!window || !window->entries)\n\t\treturn 0;\n",
+		"\tif (!window)\n\t\treturn 0;\n",
+		"a window claiming entries behind a null pointer (caught by the crash)",
+	),
+	(
+		"freshness-horizon-sat",
+		"frame/freshness.c",
+		"\treturn max_ahead > UINT64_MAX - now ? UINT64_MAX : now + max_ahead;\n",
+		"\treturn now + max_ahead;\n",
+		"the horizon saturates rather than wrapping, held by one assertion",
+	),
+	(
+		"freshness-admit-corrupt",
+		"frame/freshness.c",
+		"\tif (window->used > window->capacity)\n\t\treturn FZN_FRESH_ERR_MALFORMED;\n",
+		"",
+		"a window whose fields disagree is refused rather than scanned and appended to",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so
@@ -555,6 +602,17 @@ EXPECTED_SURVIVORS = {
 	# nothing fail deletes it knowing what they are removing" -- which is
 	# this entry's reader exactly.
 	"seal-refused-build-wipes-frame",
+	# REDUNDANT WITH ANOTHER PROJECT'S GENERATED CODE, which is why it is
+	# kept rather than deleted. `situ_view_at` bounds-checks before any
+	# accessor reads, so a frame too short for the hop header is refused
+	# there and this returns the same 0 either way -- measured 2026-09-03.
+	# Two redundant checks inside one file have been deleted here twice, on
+	# the argument that a reader should not have to work out which is
+	# load-bearing; this one guards against a change in a schema compiler
+	# that lives in a different repository and is not covered by this
+	# tree's gates, which is a different risk and not one to trade away
+	# without the holder.
+	"relay-hop-header-min",
 }
 
 

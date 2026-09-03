@@ -11422,6 +11422,50 @@ MISSING guard, and this technique finds unheld guards, not absent ones.** Worth
 stating because a table growing by coverage invites the assumption that a
 covered module is a complete one.
 
+### The two sources that pass left behind, and how they were nearly lost
+
+`frame/freshness.c` and `wire/relay.c` were in the fifteen and their reading
+came back with three unheld guards -- and none of them was confirmed in that
+pass, because **the probe batch running them was killed mid-run** and the
+work moved on to the modules whose probes had finished. The findings sat
+unverified for the rest of the day behind a summary that did not mention
+them.
+
+Worth recording as its own small lesson: **an interrupted measurement is not
+a null result, and it does not announce itself as one.** What the killed job
+left behind was one line reading `got ?`, in a file nothing re-read. The
+recovery was going back to a list, not remembering.
+
+Confirmed on the second pass, all three SURVIVED, and two of them are gaps
+with the same shape as the rest:
+
+**`wire/relay.c`'s `frame_len > UINT32_MAX`.** `situ_msg_init` takes a
+`uint32_t`, so a `size_t` length above it truncates on the way in and every
+bounds check downstream is computed against a number that is not the
+buffer's. No case in the tree ever passed such a length. The case now does,
+with a **real buffer and a lying length** whose truncated value is
+`sizeof(frame)` -- so the sabotaged run SUCCEEDS and answers a budget rather
+than crashing, which is the failure worth catching. A case that crashed
+instead would be measuring the sanitizer.
+
+**`frame/freshness.c`'s `!window->entries`.** The case aimed at it copies a
+freshly initialised window, so `used` is zero, the compaction loop runs no
+iterations, and 0 comes back with or without the term. Two claimed entries
+inside a capacity of four passes the fields-agree test below it and leaves
+the term as the only thing between the call and `entries[0]` through a null
+pointer.
+
+**And `wire/relay.c`'s hop-header minimum is an expected survivor rather
+than a gap.** `situ_view_at` bounds-checks before any accessor reads, so a
+frame too short for the hop header is refused there and this returns the
+same 0 either way. Kept rather than deleted, and the distinction is worth
+stating because this file has deleted redundant defence twice on the
+argument that a reader should not have to work out which check is
+load-bearing: **that argument is about two checks in one file.** This one
+guards against a change in a schema compiler that lives in another
+repository and is not covered by any gate here, which is a different risk
+and not one to trade away without the holder.
+
 ### And the pattern rule from sec 52 paid for itself three times
 
 Three of the five readings hit a snippet matching two sites while constructing
