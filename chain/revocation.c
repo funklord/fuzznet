@@ -30,12 +30,42 @@ _Static_assert(FZN_REV_OFF_CAPABILITY == 2u, "revocation layout: capability move
 _Static_assert(FZN_REV_OFF_GRANTEE == 34u, "revocation layout: grantee moved");
 _Static_assert(FZN_REV_OFF_ISSUER == 66u, "revocation layout: issuer moved");
 _Static_assert(FZN_REV_OFF_ISSUED_AT == 98u, "revocation layout: issued_at moved");
-_Static_assert(FZN_REV_OFF_SIGNATURE == 106u, "revocation layout: the signature moved");
-_Static_assert(FZN_REVOCATION_BODY_LEN == 106u,
-               "revocation layout: the signed body is not 106 bytes");
-_Static_assert(FZN_REVOCATION_LEN == 170u,
-               "revocation layout: a revocation is not 170 bytes");
+_Static_assert(FZN_REV_OFF_SUPERSEDES == 106u, "revocation layout: supersedes moved");
+_Static_assert(FZN_REV_OFF_SIGNATURE == 138u, "revocation layout: the signature moved");
+_Static_assert(FZN_REVOCATION_BODY_LEN == 138u,
+               "revocation layout: the signed body is not 138 bytes");
+_Static_assert(FZN_REVOCATION_LEN == 202u,
+               "revocation layout: a revocation is not 202 bytes");
+/* THE FIELD IS INSIDE THE SIGNED RANGE, which is the whole of what makes it
+ * worth anything. A supersedes a peer could rewrite in flight would let one
+ * relay turn a chained re-revocation into an un-chained one, or point a
+ * withdrawal at a different revocation than the issuer named. The body ends
+ * at the signature, so asserting the field is below FZN_REV_OFF_SIGNATURE
+ * says it is covered. */
+_Static_assert(FZN_REV_OFF_SUPERSEDES + FZN_REVOCATION_ID_LEN == FZN_REV_OFF_SIGNATURE,
+               "revocation layout: supersedes is not the last signed field");
 
+
+/* All-zero, which is how "names nothing" is spelled in a hash field.
+ *
+ * NOT `fzn_ct_memeq` AGAINST A ZERO BUFFER, because that would need a
+ * 32-byte zero array in scope and this is not a secret comparison: a record's
+ * supersedes field is public, travels in the clear, and its being zero is
+ * already visible in its length-invariant position. Constant time here would
+ * buy nothing and read as though it were protecting something.
+ *
+ * Accumulated rather than early-returned all the same, because the habit is
+ * cheap and the next reader should not have to work out which comparisons in
+ * this file are which. */
+static int all_zero(const uint8_t *p, size_t len)
+{
+	uint8_t seen = 0;
+	size_t i;
+
+	for (i = 0; i < len; i++)
+		seen |= p[i];
+	return seen == 0;
+}
 
 static int same(const fzn_revocation_t *entry, const uint8_t *issuer,
                 const fzn_cap_id_t *capability, const uint8_t *grantee)
@@ -77,36 +107,66 @@ fzn_chain_err_t fzn_revocation_open(const uint8_t *bytes, size_t len,
 	 * both hops and revocations through the same seam is one collision
 	 * away from a signature that verifies as either. wire/bytes.h names
 	 * the sibling project this already happened to. */
-	if (bytes[FZN_REV_OFF_OBJECT] != (uint8_t)FZN_OBJECT_REVOCATION)
+	if (bytes[FZN_REV_OFF_OBJECT] != (uint8_t)FZN_OBJECT_REVOCATION &&
+	    bytes[FZN_REV_OFF_OBJECT] != (uint8_t)FZN_OBJECT_WITHDRAWAL)
+		return FZN_CHAIN_ERR_SHAPE;
+	/* A WITHDRAWAL MUST NAME SOMETHING, and this is the one canonicality
+	 * check the pair does not share. A withdrawal whose target is all-zero
+	 * names no revocation, so nothing can ever be matched against it --
+	 * and a stored one would sit there answering "not revoked" for a pair
+	 * whose revocation it never undid, which is a permanent grant nobody
+	 * signed for. Refused at `open` so no reader has to remember. */
+	if (bytes[FZN_REV_OFF_OBJECT] == (uint8_t)FZN_OBJECT_WITHDRAWAL &&
+	    all_zero(bytes + FZN_REV_OFF_SUPERSEDES, FZN_REVOCATION_ID_LEN))
 		return FZN_CHAIN_ERR_SHAPE;
 
 	out->base = bytes;
 	return FZN_CHAIN_OK;
 }
 
-fzn_chain_err_t fzn_revocation_encode(uint8_t *out, const uint8_t issuer[FZN_PUBKEY_LEN],
+fzn_chain_err_t fzn_revocation_encode(uint8_t *out, uint8_t object,
+                                      const uint8_t issuer[FZN_PUBKEY_LEN],
                                       const fzn_cap_id_t *capability,
                                       const uint8_t grantee[FZN_PUBKEY_LEN],
-                                      uint64_t issued_at)
+                                      uint64_t issued_at,
+                                      const uint8_t supersedes[FZN_REVOCATION_ID_LEN])
 {
 	if (!out || !issuer || !capability || !grantee)
 		return FZN_CHAIN_ERR_MALFORMED;
+	if (object != (uint8_t)FZN_OBJECT_REVOCATION &&
+	    object != (uint8_t)FZN_OBJECT_WITHDRAWAL)
+		return FZN_CHAIN_ERR_MALFORMED;
+	/* Refused here as well as at `open`, so the encoder cannot produce
+	 * bytes its own parser rejects -- the argument chain.h makes about
+	 * every encoder in this library. */
+	if (object == (uint8_t)FZN_OBJECT_WITHDRAWAL &&
+	    (!supersedes || all_zero(supersedes, FZN_REVOCATION_ID_LEN)))
+		return FZN_CHAIN_ERR_MALFORMED;
 
 	out[FZN_REV_OFF_VERSION] = (uint8_t)FZN_SIGNED_VERSION;
-	out[FZN_REV_OFF_OBJECT] = (uint8_t)FZN_OBJECT_REVOCATION;
+	out[FZN_REV_OFF_OBJECT] = object;
 	memcpy(out + FZN_REV_OFF_CAPABILITY, capability, FZN_CAP_ID_LEN);
 	memcpy(out + FZN_REV_OFF_GRANTEE, grantee, FZN_PUBKEY_LEN);
 	memcpy(out + FZN_REV_OFF_ISSUER, issuer, FZN_PUBKEY_LEN);
 	fzn_put_be64(out + FZN_REV_OFF_ISSUED_AT, issued_at);
+	if (supersedes)
+		memcpy(out + FZN_REV_OFF_SUPERSEDES, supersedes, FZN_REVOCATION_ID_LEN);
+	else
+		memset(out + FZN_REV_OFF_SUPERSEDES, 0, FZN_REVOCATION_ID_LEN);
 	memset(out + FZN_REV_OFF_SIGNATURE, 0, FZN_SIG_LEN);
 
 	return FZN_CHAIN_OK;
 }
 
-fzn_chain_err_t fzn_revocation_issue(const uint8_t issuer[FZN_PUBKEY_LEN],
-                                     const fzn_cap_id_t *capability,
-                                     const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t issued_at,
-                                     const fzn_sign_ops_t *sign, uint8_t *out)
+/* The one body behind the three public minting calls. They differ in the
+ * object tag and in what they name, and in nothing else -- so there is one
+ * encode-open-sign-or-wipe sequence rather than three that must be kept in
+ * step, which is the shape chain.h records paying for once. */
+static fzn_chain_err_t mint(uint8_t object, const uint8_t issuer[FZN_PUBKEY_LEN],
+                            const fzn_cap_id_t *capability,
+                            const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t issued_at,
+                            const uint8_t supersedes[FZN_REVOCATION_ID_LEN],
+                            const fzn_sign_ops_t *sign, uint8_t *out)
 {
 	fzn_chain_err_t err;
 	fzn_revocation_record_t rec;
@@ -116,7 +176,8 @@ fzn_chain_err_t fzn_revocation_issue(const uint8_t issuer[FZN_PUBKEY_LEN],
 	if (!issuer || !capability || !grantee || !sign || !sign->sign || !out)
 		return FZN_CHAIN_ERR_MALFORMED;
 
-	err = fzn_revocation_encode(out, issuer, capability, grantee, issued_at);
+	err = fzn_revocation_encode(out, object, issuer, capability, grantee, issued_at,
+	                            supersedes);
 	if (err != FZN_CHAIN_OK)
 		return err;
 
@@ -135,6 +196,41 @@ fzn_chain_err_t fzn_revocation_issue(const uint8_t issuer[FZN_PUBKEY_LEN],
 	}
 
 	return FZN_CHAIN_OK;
+}
+
+fzn_chain_err_t fzn_revocation_issue(const uint8_t issuer[FZN_PUBKEY_LEN],
+                                     const fzn_cap_id_t *capability,
+                                     const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t issued_at,
+                                     const fzn_sign_ops_t *sign, uint8_t *out)
+{
+	return mint((uint8_t)FZN_OBJECT_REVOCATION, issuer, capability, grantee, issued_at,
+	            NULL, sign, out);
+}
+
+fzn_chain_err_t fzn_revocation_reissue(const uint8_t issuer[FZN_PUBKEY_LEN],
+                                       const fzn_cap_id_t *capability,
+                                       const uint8_t grantee[FZN_PUBKEY_LEN],
+                                       uint64_t issued_at,
+                                       const uint8_t supersedes[FZN_REVOCATION_ID_LEN],
+                                       const fzn_sign_ops_t *sign, uint8_t *out)
+{
+	/* A reissue naming nothing is `fzn_revocation_issue` spelled the long
+	 * way, and a caller reaching for this one believes it is chaining. */
+	if (!supersedes || all_zero(supersedes, FZN_REVOCATION_ID_LEN))
+		return FZN_CHAIN_ERR_MALFORMED;
+	return mint((uint8_t)FZN_OBJECT_REVOCATION, issuer, capability, grantee, issued_at,
+	            supersedes, sign, out);
+}
+
+fzn_chain_err_t fzn_revocation_issue_withdrawal(const uint8_t issuer[FZN_PUBKEY_LEN],
+                                                const fzn_cap_id_t *capability,
+                                                const uint8_t grantee[FZN_PUBKEY_LEN],
+                                                uint64_t issued_at,
+                                                const uint8_t target[FZN_REVOCATION_ID_LEN],
+                                                const fzn_sign_ops_t *sign, uint8_t *out)
+{
+	return mint((uint8_t)FZN_OBJECT_WITHDRAWAL, issuer, capability, grantee, issued_at,
+	            target, sign, out);
 }
 
 fzn_chain_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_revocation_t *entries,

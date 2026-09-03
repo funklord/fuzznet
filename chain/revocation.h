@@ -66,7 +66,12 @@
  * signature made over a hop being presented as a revocation, and vice versa;
  * wire/bytes.h records what it cost fuzzypickles to learn that two record
  * types of the same length can have ONE SIGNATURE THAT VERIFIES AS BOTH. */
-#define FZN_REVOCATION_BODY_LEN 106u
+/* The hash that names another record. 32 bytes, and spelled here rather than
+ * borrowed from blob/ so that chain/ does not depend on it -- the same
+ * independence chain/manifest.h keeps from chunk/. */
+#define FZN_REVOCATION_ID_LEN 32u
+
+#define FZN_REVOCATION_BODY_LEN 138u
 #define FZN_REVOCATION_LEN (FZN_REVOCATION_BODY_LEN + (size_t)FZN_SIG_LEN)
 
 #define FZN_REV_OFF_VERSION 0u
@@ -75,6 +80,25 @@
 #define FZN_REV_OFF_GRANTEE 34u
 #define FZN_REV_OFF_ISSUER 66u
 #define FZN_REV_OFF_ISSUED_AT 98u
+/* The record this one answers, by hash, or all-zero for none.
+ *
+ * ON A REVOCATION it is the PREVIOUS revocation of the same (issuer,
+ * capability, grantee), and all-zero for the first. It exists to make a
+ * re-revocation a different record: without it, revoking a pair, withdrawing
+ * it and revoking it again produces bytes identical to the first revocation
+ * -- same fields, same `issued_at` at one-second resolution, and a
+ * deterministic signer -- which therefore hashes to the record the
+ * withdrawal names, and is refused as the stale copy it is not. The pair
+ * would be revocable once, withdrawable once, and never revocable again.
+ *
+ * ON A WITHDRAWAL it is the revocation being undone, and must not be zero.
+ *
+ * IT IS AN IDENTITY AND NEVER AN ORDER. `issued_at` above carries a NEVER
+ * BECOME AN ORDERING KEY argument, and a per-pair counter here would be that
+ * argument again under another name: a clock that cannot be bounded and a
+ * counter that cannot be bounded are the same hazard. A hash is compared for
+ * equality and never for magnitude, which is what makes it safe. */
+#define FZN_REV_OFF_SUPERSEDES 106u
 #define FZN_REV_OFF_SIGNATURE FZN_REVOCATION_BODY_LEN
 
 /* A revocation as it travels: what is withdrawn, who says so, and the proof.
@@ -102,10 +126,23 @@ fzn_chain_err_t fzn_revocation_open(const uint8_t *bytes, size_t len,
 /* Lay out a revocation, unsigned. `out` receives FZN_REVOCATION_LEN bytes
  * with the signature zeroed. The only encoder for this object, on the same
  * argument `fzn_hop_encode` carries. */
-fzn_chain_err_t fzn_revocation_encode(uint8_t *out, const uint8_t issuer[FZN_PUBKEY_LEN],
+/* `object` is FZN_OBJECT_REVOCATION or FZN_OBJECT_WITHDRAWAL; `supersedes`
+ * is the record this one answers, or NULL for none, which writes zeros.
+ *
+ * BOTH ARE ARGUMENTS RATHER THAN A SECOND FUNCTION OR A DEFAULTED FIELD.
+ * chain/authz.h records the reasoning at length for its own `origins`: a
+ * field added to a struct leaves every existing call site compiling while
+ * getting whatever the default was, and a default here is either "this is a
+ * revocation" -- which silently mints the wrong object for a caller meaning
+ * to withdraw -- or "supersedes nothing", which silently mints the
+ * un-chained re-revocation the field exists to prevent. An added argument
+ * makes every call site fail to compile, which is the loud failure. */
+fzn_chain_err_t fzn_revocation_encode(uint8_t *out, uint8_t object,
+                                      const uint8_t issuer[FZN_PUBKEY_LEN],
                                       const fzn_cap_id_t *capability,
                                       const uint8_t grantee[FZN_PUBKEY_LEN],
-                                      uint64_t issued_at);
+                                      uint64_t issued_at,
+                                      const uint8_t supersedes[FZN_REVOCATION_ID_LEN]);
 
 /* Encode and sign a revocation: `issuer` withdraws `capability` from
  * `grantee`. `out` receives FZN_REVOCATION_LEN bytes.
@@ -123,6 +160,38 @@ fzn_chain_err_t fzn_revocation_issue(const uint8_t issuer[FZN_PUBKEY_LEN],
                                      const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t issued_at,
                                      const fzn_sign_ops_t *sign, uint8_t *out);
 
+/* THE THREE MINTING CALLS, and the split is the whole of how the chaining
+ * rule is enforced rather than documented.
+ *
+ * `fzn_revocation_issue` above mints a FIRST revocation: `supersedes` is
+ * zero. `fzn_revocation_reissue` mints one that supersedes a named earlier
+ * revocation of the same triple. `fzn_revocation_issue_withdrawal` mints the
+ * record that undoes one.
+ *
+ * A caller cannot get this wrong by omission, because a caller cannot omit
+ * anything: re-revoking with `issue` produces a zero `supersedes`, and
+ * `fzn_revocation_admit` REFUSES that against a store already holding a
+ * withdrawal for the pair. The rule is a refusal at admission and not a
+ * sentence in a header -- see the admission notes below.
+ *
+ * `target` for a withdrawal is the hash of the FZN_REVOCATION_LEN bytes of
+ * the record being undone, and must be non-zero. Hashing the whole record
+ * rather than its signed range is deliberate: what a peer holds and relays
+ * is the whole record, so its identity is the thing that travelled. */
+fzn_chain_err_t fzn_revocation_reissue(const uint8_t issuer[FZN_PUBKEY_LEN],
+                                       const fzn_cap_id_t *capability,
+                                       const uint8_t grantee[FZN_PUBKEY_LEN],
+                                       uint64_t issued_at,
+                                       const uint8_t supersedes[FZN_REVOCATION_ID_LEN],
+                                       const fzn_sign_ops_t *sign, uint8_t *out);
+
+fzn_chain_err_t fzn_revocation_issue_withdrawal(const uint8_t issuer[FZN_PUBKEY_LEN],
+                                                const fzn_cap_id_t *capability,
+                                                const uint8_t grantee[FZN_PUBKEY_LEN],
+                                                uint64_t issued_at,
+                                                const uint8_t target[FZN_REVOCATION_ID_LEN],
+                                                const fzn_sign_ops_t *sign, uint8_t *out);
+
 /* The accessors, over an OPENED record -- see chain.h's equivalent note. */
 /* Typed, like `fzn_manifest_capability`: the cast that makes a wire view
  * carry its type lives in the accessor so that no caller writes one. */
@@ -134,6 +203,24 @@ static inline const fzn_cap_id_t *fzn_revocation_capability(fzn_revocation_recor
 static inline const uint8_t *fzn_revocation_grantee(fzn_revocation_record_t rec)
 {
 	return rec.base + FZN_REV_OFF_GRANTEE;
+}
+
+static inline const uint8_t *fzn_revocation_supersedes(fzn_revocation_record_t rec)
+{
+	return rec.base + FZN_REV_OFF_SUPERSEDES;
+}
+
+/* WHICH OF THE TWO THIS IS, read from the signed tag rather than inferred.
+ *
+ * A withdrawal and a revocation are the same length and differ in one byte
+ * and one field, so nothing about a record's shape distinguishes them. Every
+ * reader that acts on a record must ask -- and in particular a store must
+ * not treat the PRESENCE of an entry as the answer to "is this revoked",
+ * because after a withdrawal the entry is still there and says the
+ * opposite. */
+static inline int fzn_revocation_is_withdrawal(fzn_revocation_record_t rec)
+{
+	return rec.base[FZN_REV_OFF_OBJECT] == (uint8_t)FZN_OBJECT_WITHDRAWAL;
 }
 
 /* Who issued it. The root, or a grantor withdrawing from its own descendant.

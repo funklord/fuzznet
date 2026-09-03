@@ -393,7 +393,8 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		sig_ok = (data[pos + 3] & 0x03u) != 0;
 		shape_ok = (data[pos + 3] & 0x40u) == 0;
 
-		if (fzn_revocation_encode(bytes, issuer, &capability, grantee, 1000) !=
+		if (fzn_revocation_encode(bytes, (uint8_t)FZN_OBJECT_REVOCATION, issuer,
+		                          &capability, grantee, 1000, NULL) !=
 		    FZN_CHAIN_OK) {
 			printf("  MODEL: the generator could not encode a record\n");
 			return 1;

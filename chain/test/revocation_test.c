@@ -305,20 +305,39 @@ static void test_layout_and_round_trip(void)
 	uint8_t issuer[FZN_PUBKEY_LEN], grantee[FZN_PUBKEY_LEN];
 	fzn_cap_id_t cap;
 
-	CHECK(FZN_REVOCATION_BODY_LEN == 106u, "revocation body is %u bytes, the table says 106",
+	/* The table, written out here from the header's own offsets so that a
+	 * layout change has to be made twice and agreed both times.
+	 *
+	 *    0    1  version
+	 *    1    1  object       REVOCATION or WITHDRAWAL
+	 *    2   32  capability
+	 *   34   32  grantee
+	 *   66   32  issuer
+	 *   98    8  issued_at
+	 *  106   32  supersedes   the record this one answers, or zero
+	 *  138   64  signature
+	 */
+	CHECK(FZN_REVOCATION_BODY_LEN == 138u, "revocation body is %u bytes, the table says 138",
 	      (unsigned)FZN_REVOCATION_BODY_LEN);
-	CHECK(FZN_REVOCATION_LEN == 170u, "revocation is %u bytes, the table says 170",
+	CHECK(FZN_REVOCATION_LEN == 202u, "revocation is %u bytes, the table says 202",
 	      (unsigned)FZN_REVOCATION_LEN);
+	CHECK(FZN_REV_OFF_SUPERSEDES == 106u, "supersedes is at %u, the table says 106",
+	      (unsigned)FZN_REV_OFF_SUPERSEDES);
 	CHECK(FZN_REV_OFF_SIGNATURE == FZN_REVOCATION_BODY_LEN,
 	      "the signature does not begin where the body ends");
+	/* IT IS SIGNED, and that is what makes it worth having: a supersedes a
+	 * relay could rewrite would let one turn a chained re-revocation into
+	 * an un-chained one in flight. */
+	CHECK(FZN_REV_OFF_SUPERSEDES + FZN_REVOCATION_ID_LEN <= FZN_REV_OFF_SIGNATURE,
+	      "supersedes lies outside the signed body");
 
 	fixture_init(&f);
 	key(issuer, 0);
 	key(grantee, 5);
 	capability_id(&cap, 0xc0);
 
-	CHECK(fzn_revocation_encode(bytes, issuer, &cap, grantee, 0x0102030405060708ull) ==
-	              FZN_CHAIN_OK,
+	CHECK(fzn_revocation_encode(bytes, (uint8_t)FZN_OBJECT_REVOCATION, issuer, &cap,
+	                            grantee, 0x0102030405060708ull, NULL) == FZN_CHAIN_OK,
 	      "encoding a revocation failed");
 	CHECK(bytes[FZN_REV_OFF_VERSION] == 1u, "version byte is %u, wanted 1",
 	      bytes[FZN_REV_OFF_VERSION]);
@@ -343,12 +362,141 @@ static void test_layout_and_round_trip(void)
 
 	/* ...and open -> re-encode reproduces the bytes, which is the half
 	 * that says the accessors and the encoder describe one layout. */
-	CHECK(fzn_revocation_encode(again, fzn_revocation_issuer(rec),
+	CHECK(fzn_revocation_encode(again, (uint8_t)FZN_OBJECT_REVOCATION,
+	                            fzn_revocation_issuer(rec),
 	                            fzn_revocation_capability(rec), fzn_revocation_grantee(rec),
-	                            fzn_revocation_issued_at(rec)) == FZN_CHAIN_OK,
+	                            fzn_revocation_issued_at(rec),
+	                            fzn_revocation_supersedes(rec)) == FZN_CHAIN_OK,
 	      "re-encoding from the accessors failed");
 	CHECK(memcmp(again, bytes, FZN_REVOCATION_BODY_LEN) == 0,
 	      "re-encoding what the accessors read did not reproduce the signed bytes");
+}
+
+/* THE COLLISION THE `supersedes` FIELD EXISTS FOR, AND IT IS REAL HERE.
+ *
+ * Reported by fuzzypickles from their own implementation: revoke a pair,
+ * withdraw it, revoke it again, and the third record is byte-identical to
+ * the first. Same capability, same grantee, same issuer, the same
+ * `issued_at` at one-second resolution, and a deterministic signer -- so it
+ * hashes to the record the withdrawal names, and any reader refusing "the
+ * revocation this withdrawal undid" refuses it. The pair becomes revocable
+ * once, withdrawable once, and never revocable again.
+ *
+ * Confirmed in this tree before the field was added: nothing in the record
+ * varied between two revocations of one triple. This case pins BOTH halves
+ * -- that the collision is real without chaining, and that naming the
+ * earlier record removes it -- because a test of only the second half would
+ * pass against a field nothing needed. */
+static void test_a_reissue_is_a_different_record(void)
+{
+	struct fixture f;
+	uint8_t first[FZN_REVOCATION_LEN], again[FZN_REVOCATION_LEN];
+	uint8_t chained[FZN_REVOCATION_LEN];
+	uint8_t issuer[FZN_PUBKEY_LEN], grantee[FZN_PUBKEY_LEN];
+	uint8_t id[FZN_REVOCATION_ID_LEN];
+	fzn_cap_id_t cap;
+	size_t i;
+
+	fixture_init(&f);
+	key(issuer, 0);
+	key(grantee, 5);
+	capability_id(&cap, 0xc0);
+	for (i = 0; i < sizeof(id); i++)
+		id[i] = (uint8_t)(0xa0u + i);
+
+	f.stub.identity = 0;
+	CHECK(fzn_revocation_issue(issuer, &cap, grantee, 1000, &f.sign, first) ==
+	              FZN_CHAIN_OK, "the first revocation was refused");
+	CHECK(fzn_revocation_issue(issuer, &cap, grantee, 1000, &f.sign, again) ==
+	              FZN_CHAIN_OK, "the second revocation was refused");
+
+	/* THE HAZARD, ASSERTED RATHER THAN DESCRIBED. If this ever stops being
+	 * true the field below has lost its reason and somebody should know. */
+	CHECK(memcmp(first, again, FZN_REVOCATION_LEN) == 0,
+	      "two revocations of one triple at one instant already differ, so the "
+	      "chaining field is defending against something that is no longer there");
+
+	CHECK(fzn_revocation_reissue(issuer, &cap, grantee, 1000, id, &f.sign, chained) ==
+	              FZN_CHAIN_OK, "the chained reissue was refused");
+	CHECK(memcmp(first, chained, FZN_REVOCATION_LEN) != 0,
+	      "a reissue naming the record it supersedes is still byte-identical to it");
+
+	/* And it differs in the field it is supposed to differ in, rather than
+	 * anywhere else -- everything up to `supersedes` must still match. */
+	CHECK(memcmp(first, chained, FZN_REV_OFF_SUPERSEDES) == 0,
+	      "a reissue changed a field other than supersedes");
+
+	/* A reissue that names nothing is `issue` spelled the long way, and a
+	 * caller reaching for it believes it is chaining. */
+	CHECK(fzn_revocation_reissue(issuer, &cap, grantee, 1000, NULL, &f.sign, chained) ==
+	              FZN_CHAIN_ERR_MALFORMED, "a reissue naming nothing was accepted");
+	memset(id, 0, sizeof(id));
+	CHECK(fzn_revocation_reissue(issuer, &cap, grantee, 1000, id, &f.sign, chained) ==
+	              FZN_CHAIN_ERR_MALFORMED, "a reissue naming all-zero was accepted");
+}
+
+/* A WITHDRAWAL IS THE SAME SHAPE AND THE OPPOSITE STATEMENT, so the tag is
+ * the only thing between them and it is inside the signed range. */
+static void test_a_withdrawal_is_its_own_object(void)
+{
+	struct fixture f;
+	uint8_t rev[FZN_REVOCATION_LEN], wd[FZN_REVOCATION_LEN];
+	uint8_t issuer[FZN_PUBKEY_LEN], grantee[FZN_PUBKEY_LEN];
+	uint8_t id[FZN_REVOCATION_ID_LEN];
+	fzn_revocation_record_t rec;
+	fzn_cap_id_t cap;
+	size_t i;
+
+	fixture_init(&f);
+	key(issuer, 0);
+	key(grantee, 5);
+	capability_id(&cap, 0xc0);
+	for (i = 0; i < sizeof(id); i++)
+		id[i] = (uint8_t)(0xa0u + i);
+
+	f.stub.identity = 0;
+	CHECK(fzn_revocation_issue_withdrawal(issuer, &cap, grantee, 1000, id, &f.sign, wd) ==
+	              FZN_CHAIN_OK, "a withdrawal was refused");
+	CHECK(fzn_revocation_open(wd, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK,
+	      "a withdrawal will not open");
+	CHECK(fzn_revocation_is_withdrawal(rec) == 1, "a withdrawal does not say it is one");
+	CHECK(memcmp(fzn_revocation_supersedes(rec), id, sizeof(id)) == 0,
+	      "a withdrawal did not carry the record it names");
+
+	/* The same triple as a revocation: every field but the tag agrees, and
+	 * the two are still different bytes. A reader that ignored the tag
+	 * would see one record. */
+	CHECK(fzn_revocation_reissue(issuer, &cap, grantee, 1000, id, &f.sign, rev) ==
+	              FZN_CHAIN_OK, "the revocation twin was refused");
+	CHECK(memcmp(rev, wd, FZN_REVOCATION_LEN) != 0,
+	      "a revocation and a withdrawal of the same pair are the same bytes");
+	CHECK(memcmp(rev + FZN_REV_OFF_CAPABILITY, wd + FZN_REV_OFF_CAPABILITY,
+	             FZN_REV_OFF_SIGNATURE - FZN_REV_OFF_CAPABILITY) == 0,
+	      "they differ somewhere other than the object tag");
+	CHECK(fzn_revocation_open(rev, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK &&
+	              fzn_revocation_is_withdrawal(rec) == 0,
+	      "a revocation reports itself a withdrawal");
+
+	/* A WITHDRAWAL NAMING NOTHING NAMES NOTHING, refused by the encoder
+	 * and by the parser. Stored, it would answer "not revoked" for a pair
+	 * whose revocation it never undid -- a permanent grant nobody signed
+	 * for. */
+	memset(id, 0, sizeof(id));
+	CHECK(fzn_revocation_issue_withdrawal(issuer, &cap, grantee, 1000, id, &f.sign, wd) ==
+	              FZN_CHAIN_ERR_MALFORMED, "a withdrawal naming all-zero was minted");
+	CHECK(fzn_revocation_encode(wd, (uint8_t)FZN_OBJECT_WITHDRAWAL, issuer, &cap, grantee,
+	                            1000, NULL) == FZN_CHAIN_ERR_MALFORMED,
+	      "a withdrawal naming nothing was encoded");
+
+	/* And the parser refuses it independently, so a record arriving from a
+	 * peer that used a different encoder is refused too. */
+	CHECK(fzn_revocation_issue_withdrawal(issuer, &cap, grantee, 1000,
+	                                      (const uint8_t[FZN_REVOCATION_ID_LEN]){ 1 },
+	                                      &f.sign, wd) == FZN_CHAIN_OK,
+	      "the fixture could not mint a withdrawal to corrupt");
+	memset(wd + FZN_REV_OFF_SUPERSEDES, 0, FZN_REVOCATION_ID_LEN);
+	CHECK(fzn_revocation_open(wd, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_ERR_SHAPE,
+	      "a withdrawal whose target was zeroed in flight still opens");
 }
 
 static void test_open_refuses_what_is_not_our_shape(void)
@@ -970,7 +1118,9 @@ static void test_bad_arguments(void)
 		      "issuing with a null signer");
 		CHECK(fzn_revocation_issue(k, &(fzn_cap_id_t){ { 0 } }, k, 1, &f.sign, NULL) == FZN_CHAIN_ERR_MALFORMED,
 		      "issuing into a null buffer");
-		CHECK(fzn_revocation_encode(NULL, k, &(fzn_cap_id_t){ { 0 } }, k, 1) == FZN_CHAIN_ERR_MALFORMED,
+		CHECK(fzn_revocation_encode(NULL, (uint8_t)FZN_OBJECT_REVOCATION, k,
+		                            &(fzn_cap_id_t){ { 0 } }, k, 1, NULL) ==
+		              FZN_CHAIN_ERR_MALFORMED,
 		      "encoding into a null buffer");
 
 		/* A signer that refuses leaves nothing that opens behind. */
@@ -2014,6 +2164,8 @@ static void test_a_repeated_grantor_is_entitled_from_its_first_hop(void)
 int main(void)
 {
 	test_layout_and_round_trip();
+	test_a_reissue_is_a_different_record();
+	test_a_withdrawal_is_its_own_object();
 	test_open_refuses_what_is_not_our_shape();
 	test_admits_a_signed_revocation();
 	test_a_carrier_cannot_invent_one();
