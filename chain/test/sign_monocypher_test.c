@@ -118,7 +118,7 @@ int main(void)
 	      "minting with a real Ed25519 key failed");
 	check(fzn_hop_open(bytes, FZN_HOP_LEN, &hop) == FZN_CHAIN_OK,
 	      "a hop minted with a real key does not open");
-	check(fzn_chain_verify(&hop, 1, pubkey, &cap, 2000, &ops, NULL, &out) == FZN_CHAIN_OK,
+	check(fzn_chain_verify(&hop, 1, pubkey, &cap, 2000, &ops, NULL, NULL, &out) == FZN_CHAIN_OK,
 	      "a genuinely signed hop did not verify");
 	memcpy(genuine, bytes, FZN_HOP_LEN);
 
@@ -127,7 +127,7 @@ int main(void)
 	 * still pass and this would not -- so a suite with only the case above
 	 * would report a working binding either way. */
 	bytes[FZN_HOP_OFF_SIGNATURE] ^= 0x01;
-	check(fzn_chain_verify(&hop, 1, pubkey, &cap, 2000, &ops, NULL, &out) ==
+	check(fzn_chain_verify(&hop, 1, pubkey, &cap, 2000, &ops, NULL, NULL, &out) ==
 	              FZN_CHAIN_ERR_CHAIN_INVALID,
 	      "a tampered signature verified");
 	memcpy(bytes, genuine, FZN_HOP_LEN);
@@ -180,7 +180,7 @@ int main(void)
 			check(fzn_hop_open(bytes, FZN_HOP_LEN, &forged) == FZN_CHAIN_OK,
 			      "a forged hop no longer opens, so the case below would be "
 			      "about its shape rather than about its signature");
-			check(fzn_chain_verify(&forged, 1, pubkey, &cap, 2000, &ops, NULL,
+			check(fzn_chain_verify(&forged, 1, pubkey, &cap, 2000, &ops, NULL, NULL,
 			                       &out) == FZN_CHAIN_ERR_CHAIN_INVALID,
 			      "a genuine Ed25519 signature was reused over rewritten bytes "
 			      "and the chain verified");
@@ -201,16 +201,16 @@ int main(void)
 		              FZN_CHAIN_OK,
 		      "minting a time-boxed grant failed");
 		check(fzn_hop_open(boxed, FZN_HOP_LEN, &forged) == FZN_CHAIN_OK, "open");
-		check(fzn_chain_verify(&forged, 1, pubkey, &cap, 1400, &ops, NULL, &out) ==
+		check(fzn_chain_verify(&forged, 1, pubkey, &cap, 1400, &ops, NULL, NULL, &out) ==
 		              FZN_CHAIN_OK,
 		      "the control for the expiry forgery does not verify while it is live");
-		check(fzn_chain_verify(&forged, 1, pubkey, &cap, 2000, &ops, NULL, &out) ==
+		check(fzn_chain_verify(&forged, 1, pubkey, &cap, 2000, &ops, NULL, NULL, &out) ==
 		              FZN_CHAIN_ERR_EXPIRED,
 		      "the grant did not expire, so there is nothing to forge past");
 
 		memset(boxed + FZN_HOP_OFF_EXPIRES_AT, 0, 8);
 		check(fzn_hop_open(boxed, FZN_HOP_LEN, &forged) == FZN_CHAIN_OK, "open");
-		check(fzn_chain_verify(&forged, 1, pubkey, &cap, 2000, &ops, NULL, &out) ==
+		check(fzn_chain_verify(&forged, 1, pubkey, &cap, 2000, &ops, NULL, NULL, &out) ==
 		              FZN_CHAIN_ERR_CHAIN_INVALID,
 		      "expires_at was rewritten to FZN_NO_EXPIRY under a genuine Ed25519 "
 		      "signature and the expired grant verified");
@@ -223,7 +223,7 @@ int main(void)
 		crypto_eddsa_key_pair(other_sk, other_pub, other_seed);
 		crypto_wipe(other_sk, sizeof(other_sk));
 	}
-	check(fzn_chain_verify(&hop, 1, other_pub, &cap, 1500, &ops, NULL, &out) ==
+	check(fzn_chain_verify(&hop, 1, other_pub, &cap, 1500, &ops, NULL, NULL, &out) ==
 	              FZN_CHAIN_ERR_WRONG_ROOT,
 	      "a hop verified under somebody else's root");
 
@@ -241,7 +241,7 @@ int main(void)
 	      "re-minting failed");
 	check(fzn_hop_open(bytes, FZN_HOP_LEN, &hop) == FZN_CHAIN_OK,
 	      "the re-minted hop does not open");
-	check(fzn_chain_verify(&hop, 1, pubkey, &cap, 2000, &verify_only, NULL, &out) == FZN_CHAIN_OK,
+	check(fzn_chain_verify(&hop, 1, pubkey, &cap, 2000, &verify_only, NULL, NULL, &out) == FZN_CHAIN_OK,
 	      "a verify-only signer could not verify");
 
 	fzn_sign_monocypher_wipe(&signer);

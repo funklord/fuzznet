@@ -245,6 +245,21 @@ typedef enum fzn_chain_err {
 	 * rather than to raise an alarm. Folding it into CHAIN_INVALID would
 	 * make ordinary propagation look like an attack. */
 	FZN_CHAIN_ERR_UNKNOWN_TARGET = -9,
+	/* This host knows it is missing revocations from an issuer that grants
+	 * in this chain, so it cannot say the chain is unrevoked -- only that
+	 * it has not heard otherwise.
+	 *
+	 * IT IS NOT A REFUSAL OF THE CHAIN. The chain may be perfectly good;
+	 * what is wrong is this host's evidence. project.md sec 13d names the
+	 * defect it closes: a host that joined this morning, was offline, or is
+	 * partitioned goes on verifying a chain the rest of the network
+	 * withdrew last week, and cannot tell "nothing was revoked" from "I am
+	 * missing the revocations".
+	 *
+	 * SCOPED TO THE GRANTORS IN THIS CHAIN, and that scoping is what makes
+	 * the gate safe to have. A deficit about an unrelated issuer says
+	 * nothing about this chain and does not refuse it. */
+	FZN_CHAIN_ERR_INCOMPLETE = -10,
 } fzn_chain_err_t;
 
 /* THE HOP LAYOUT. Big-endian, fixed width, no padding, fixed fields first,
@@ -602,6 +617,14 @@ typedef struct fzn_revocation {
  * below for what that cost. */
 typedef struct fzn_revocation_store fzn_revocation_store_t;
 
+/* The manifest state, DECLARED here as well as in revocation.h and DEFINED in
+ * manifest.h, on the same argument the store carries: `fzn_chain_verify`
+ * takes one and this end holds only the name. A consumer that follows no
+ * issuer passes NULL and never includes manifest.h; one that does includes it
+ * and gets the fields. C11 permits the repeated typedef, and repeating it is
+ * better than either header reaching for the other. */
+typedef struct fzn_manifest_state fzn_manifest_state_t;
+
 /* Verify a chain against a pinned root, and report what it authorises.
  *
  * `hops` is an array of OPENED views, in delegation order: hops[0] is signed
@@ -688,7 +711,8 @@ fzn_chain_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
                             const uint8_t root[FZN_PUBKEY_LEN],
                             const fzn_cap_id_t *capability, uint64_t now,
                             const fzn_sign_ops_t *sign,
-                            const fzn_revocation_store_t *revocations, fzn_chain_t *out);
+                            const fzn_revocation_store_t *revocations,
+                            const fzn_manifest_state_t *manifest, fzn_chain_t *out);
 
 /* Mint hop 0: the root grants `capability` to `grantee`, directly. `out`
  * receives FZN_HOP_LEN bytes -- the encoded hop, signed.

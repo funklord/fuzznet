@@ -1109,14 +1109,14 @@ static void test_the_store_feeds_chain_verify_directly(void)
 	      "minting the hop this case revokes failed");
 	CHECK(fzn_hop_open(hop_bytes, FZN_HOP_LEN, &hops[0]) == FZN_CHAIN_OK, "open");
 
-	CHECK(fzn_chain_verify(hops, 1, f.root, &cap, 2000, &f.sign, &f.store, &out) == FZN_CHAIN_OK,
+	CHECK(fzn_chain_verify(hops, 1, f.root, &cap, 2000, &f.sign, &f.store, NULL, &out) == FZN_CHAIN_OK,
 	      "an unrevoked chain was refused with an empty store");
 
 	issue(&f, bytes, &r, 0, 0xc0, 5);
 	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(r), f.root, &f.sign, &HASH_OPS,
 	                           NULL) == FZN_CHAIN_OK,
 	      "admit");
-	CHECK(fzn_chain_verify(hops, 1, f.root, &cap, 2000, &f.sign, &f.store, &out) == FZN_CHAIN_ERR_REVOKED,
+	CHECK(fzn_chain_verify(hops, 1, f.root, &cap, 2000, &f.sign, &f.store, NULL, &out) == FZN_CHAIN_ERR_REVOKED,
 	      "chain verify did not see the revocation the store had admitted");
 }
 
@@ -1177,7 +1177,7 @@ static void test_one_roots_revocation_does_not_answer_for_another(void)
 	                     hop_bytes) == FZN_CHAIN_OK,
 	      "minting the hop A granted failed");
 	CHECK(fzn_hop_open(hop_bytes, FZN_HOP_LEN, &hops[0]) == FZN_CHAIN_OK, "open");
-	CHECK(fzn_chain_verify(hops, 1, f.root, &cap, 2000, &f.sign, &f.store, &out) == FZN_CHAIN_OK,
+	CHECK(fzn_chain_verify(hops, 1, f.root, &cap, 2000, &f.sign, &f.store, NULL, &out) == FZN_CHAIN_OK,
 	      "B revoked a key in A's realm, so any anchored peer can disconnect any host");
 }
 
@@ -2004,7 +2004,7 @@ static void test_admission_is_clock_blind(void)
 
 	/* A grant that ran out long ago. */
 	mint_hop(&f, hop_bytes, &hop, 0, 1, &cap, 100, 200, 1);
-	CHECK(fzn_chain_verify(&hop, 1, f.root, &cap, 2000, &f.sign, NULL, &out) ==
+	CHECK(fzn_chain_verify(&hop, 1, f.root, &cap, 2000, &f.sign, NULL, NULL, &out) ==
 	              FZN_CHAIN_ERR_EXPIRED,
 	      "the fixture's grant has not expired at a real clock, so the case below is "
 	      "about nothing");

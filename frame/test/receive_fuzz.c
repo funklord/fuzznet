@@ -306,7 +306,7 @@ static int receive_one(struct receiver *r, uint64_t now, const uint8_t *data, si
 	}
 
 	/* STEP 6: the capability chain, against the pinned root. */
-	authorised = fzn_chain_verify(&hop, 1, root, &cap, now, &sign, &r->store, &chain);
+	authorised = fzn_chain_verify(&hop, 1, root, &cap, now, &sign, &r->store, NULL, &chain);
 
 	/* AND UNDER WHOSE KEY. The hop is well formed, unexpiring, carries the
 	 * capability asked for and matches no revocation -- the store is never

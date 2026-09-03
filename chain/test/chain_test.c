@@ -350,12 +350,12 @@ static fzn_chain_err_t run(struct fixture *f, uint64_t now, const fzn_revocation
 	store.capacity = nrevs;
 	store.used = nrevs;
 	return fzn_chain_verify(f->hops, 2, f->root, &f->cap, now, &f->sign,
-	                        revs ? &store : NULL, &f->out);
+	                        revs ? &store : NULL, NULL, &f->out);
 }
 
 static fzn_chain_err_t run_one(struct fixture *f, uint64_t now)
 {
-	return fzn_chain_verify(f->hops, 1, f->root, &f->cap, now, &f->sign, NULL, &f->out);
+	return fzn_chain_verify(f->hops, 1, f->root, &f->cap, now, &f->sign, NULL, NULL, &f->out);
 }
 
 /* ---- the layout ------------------------------------------------------- */
@@ -839,7 +839,7 @@ static fzn_chain_err_t run_chain(struct fixture *f, const fzn_chain_hop_t *hops,
 	store.capacity = nrevs;
 	store.used = nrevs;
 	return fzn_chain_verify(hops, n, f->root, &f->cap, 2000, &f->sign,
-	                        revs ? &store : NULL, &f->out);
+	                        revs ? &store : NULL, NULL, &f->out);
 }
 
 /* THE WIDENED RULE, in its simplest form. project.md sec 13b records the
@@ -980,13 +980,13 @@ static void test_a_corrupt_store_refuses_the_whole_chain(void)
 	store.entries = revs;
 	store.capacity = 1;
 	store.used = 1;
-	CHECK(fzn_chain_verify(f.hops, 2, f.root, &f.cap, 2000, &f.sign, &store, &f.out) ==
+	CHECK(fzn_chain_verify(f.hops, 2, f.root, &f.cap, 2000, &f.sign, &store, NULL, &f.out) ==
 	              FZN_CHAIN_OK,
 	      "the control fails, so the two refusals below prove nothing");
 
 	/* A count past the array: entries this loop cannot reach. */
 	store.used = 2;
-	CHECK(fzn_chain_verify(f.hops, 2, f.root, &f.cap, 2000, &f.sign, &store, &f.out) ==
+	CHECK(fzn_chain_verify(f.hops, 2, f.root, &f.cap, 2000, &f.sign, &store, NULL, &f.out) ==
 	              FZN_CHAIN_ERR_REVOKED,
 	      "a store whose count exceeds its array was scanned rather than denied, "
 	      "which is a read past the end on the authorization path");
@@ -995,7 +995,7 @@ static void test_a_corrupt_store_refuses_the_whole_chain(void)
 	store.entries = NULL;
 	store.capacity = 4;
 	store.used = 1;
-	CHECK(fzn_chain_verify(f.hops, 2, f.root, &f.cap, 2000, &f.sign, &store, &f.out) ==
+	CHECK(fzn_chain_verify(f.hops, 2, f.root, &f.cap, 2000, &f.sign, &store, NULL, &f.out) ==
 	              FZN_CHAIN_ERR_REVOKED,
 	      "a store claiming entries it does not have was read rather than denied");
 }
@@ -1212,7 +1212,7 @@ static void test_bounds(void)
 	fzn_chain_hop_t many[FZN_CHAIN_MAX_HOPS + 1];
 
 	fixture_init(&f);
-	CHECK(fzn_chain_verify(f.hops, 0, f.root, &f.cap, 2000, &f.sign, NULL, &f.out) ==
+	CHECK(fzn_chain_verify(f.hops, 0, f.root, &f.cap, 2000, &f.sign, NULL, NULL, &f.out) ==
 	              FZN_CHAIN_ERR_MALFORMED,
 	      "a zero-hop chain was not refused");
 
@@ -1225,12 +1225,12 @@ static void test_bounds(void)
 	}
 	stub_reset(&f.stub);
 	CHECK(fzn_chain_verify(many, FZN_CHAIN_MAX_HOPS + 1u, f.root, &f.cap, 2000, &f.sign,
-	                       NULL, &f.out) == FZN_CHAIN_ERR_MALFORMED,
+	                       NULL, NULL, &f.out) == FZN_CHAIN_ERR_MALFORMED,
 	      "a chain past FZN_CHAIN_MAX_HOPS was not refused");
 	CHECK(f.stub.calls == 0, "spent verifications on an over-long chain");
 
 	fixture_init(&f);
-	CHECK(fzn_chain_verify(NULL, 2, f.root, &f.cap, 2000, &f.sign, NULL, &f.out) ==
+	CHECK(fzn_chain_verify(NULL, 2, f.root, &f.cap, 2000, &f.sign, NULL, NULL, &f.out) ==
 	              FZN_CHAIN_ERR_MALFORMED,
 	      "null hops accepted");
 	/* THE CASE THAT WENT WITH THE PARAMETER (2026-08-27). This asserted
@@ -1605,7 +1605,7 @@ static void test_mint(void)
 	 * and verifying disagree about what a chain is -- which is the bug
 	 * this pairing exists to catch, and which is now a claim about bytes
 	 * rather than about two structs agreeing. */
-	CHECK(fzn_chain_verify(&hop, 1, f.root, &f.cap, 2000, &f.sign, NULL, &out) == FZN_CHAIN_OK,
+	CHECK(fzn_chain_verify(&hop, 1, f.root, &f.cap, 2000, &f.sign, NULL, NULL, &out) == FZN_CHAIN_OK,
 	      "a freshly minted hop does not verify");
 	CHECK(out.hop_count == 1, "hop_count %zu, wanted 1", out.hop_count);
 
@@ -1678,7 +1678,7 @@ static void test_delegate(void)
 		three[1] = f.hops[1];
 		three[2] = hop;
 		stub_reset(&f.stub);
-		CHECK(fzn_chain_verify(three, 3, f.root, &f.cap, 2000, &f.sign, NULL, &out) ==
+		CHECK(fzn_chain_verify(three, 3, f.root, &f.cap, 2000, &f.sign, NULL, NULL, &out) ==
 		              FZN_CHAIN_OK,
 		      "the chain a delegation produced does not verify");
 		CHECK(fzn_ct_memeq(out.grantee, grantee, FZN_PUBKEY_LEN),
@@ -1804,7 +1804,7 @@ static void test_container_round_trip(void)
 	 * worth having -- a framing that loses a byte is a framing that turns
 	 * every chain into a bad signature. */
 	stub_reset(&f.stub);
-	CHECK(fzn_chain_verify(opened, n, f.root, &f.cap, 2000, &f.sign, NULL, &out) ==
+	CHECK(fzn_chain_verify(opened, n, f.root, &f.cap, 2000, &f.sign, NULL, NULL, &out) ==
 	              FZN_CHAIN_OK,
 	      "a chain that went through the container does not verify");
 }
@@ -1940,17 +1940,17 @@ static void test_every_guard_refuses_its_own_argument(void)
 	CHECK((call) == FZN_CHAIN_ERR_MALFORMED, "%s was accepted", what)
 
 	/* fzn_chain_verify */
-	REFUSED(fzn_chain_verify(NULL, 1, f.root, &f.cap, 100, &f.sign, NULL, &f.out),
+	REFUSED(fzn_chain_verify(NULL, 1, f.root, &f.cap, 100, &f.sign, NULL, NULL, &f.out),
 	        "a null hop array");
-	REFUSED(fzn_chain_verify(f.hops, 1, NULL, &f.cap, 100, &f.sign, NULL, &f.out),
+	REFUSED(fzn_chain_verify(f.hops, 1, NULL, &f.cap, 100, &f.sign, NULL, NULL, &f.out),
 	        "a null root");
-	REFUSED(fzn_chain_verify(f.hops, 1, f.root, NULL, 100, &f.sign, NULL, &f.out),
+	REFUSED(fzn_chain_verify(f.hops, 1, f.root, NULL, 100, &f.sign, NULL, NULL, &f.out),
 	        "a null capability");
-	REFUSED(fzn_chain_verify(f.hops, 1, f.root, &f.cap, 100, NULL, NULL, &f.out),
+	REFUSED(fzn_chain_verify(f.hops, 1, f.root, &f.cap, 100, NULL, NULL, NULL, &f.out),
 	        "a null signer");
-	REFUSED(fzn_chain_verify(f.hops, 1, f.root, &f.cap, 100, &no_verify, NULL, &f.out),
+	REFUSED(fzn_chain_verify(f.hops, 1, f.root, &f.cap, 100, &no_verify, NULL, NULL, &f.out),
 	        "a signer with no verify function");
-	REFUSED(fzn_chain_verify(f.hops, 1, f.root, &f.cap, 100, &f.sign, NULL, NULL),
+	REFUSED(fzn_chain_verify(f.hops, 1, f.root, &f.cap, 100, &f.sign, NULL, NULL, NULL),
 	        "a null out");
 
 	/* A view that was never opened, which is the guard that replaced the
@@ -1959,7 +1959,7 @@ static void test_every_guard_refuses_its_own_argument(void)
 		fzn_chain_hop_t unopened;
 
 		unopened.base = NULL;
-		REFUSED(fzn_chain_verify(&unopened, 1, f.root, &f.cap, 100, &f.sign, NULL,
+		REFUSED(fzn_chain_verify(&unopened, 1, f.root, &f.cap, 100, &f.sign, NULL, NULL,
 		                         &f.out),
 		        "a hop that was never opened");
 	}

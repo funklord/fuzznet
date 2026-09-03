@@ -369,7 +369,7 @@ static int drive(const uint8_t *data, size_t size, int *accepted)
 	memset(&out, 0, sizeof(out));
 
 	rev_store.used = rev_count;
-	if (fzn_chain_verify(hops, hop_count, root, &capability, now, &sign, &rev_store,
+	if (fzn_chain_verify(hops, hop_count, root, &capability, now, &sign, &rev_store, NULL,
 	                     &out) != FZN_CHAIN_OK)
 		return 0;
 

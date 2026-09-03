@@ -653,7 +653,7 @@ int main(void)
 			FAIL(7);
 	}
 
-	if (fzn_chain_verify(&hop, 1, root, &cap, 2000, &sign, &store, &chain) != FZN_CHAIN_OK)
+	if (fzn_chain_verify(&hop, 1, root, &cap, 2000, &sign, &store, NULL, &chain) != FZN_CHAIN_OK)
 		FAIL(7);
 	if (chain.hop_count != 1)
 		FAIL(8);
@@ -703,14 +703,14 @@ int main(void)
 		/* The store reaches the verifier, which is the property the
 		 * signature change of 2026-08-27 exists for: the same hop that
 		 * verified above must now be refused. */
-		if (fzn_chain_verify(&hop, 1, root, &cap, 2000, &sign, &store, &chain) !=
+		if (fzn_chain_verify(&hop, 1, root, &cap, 2000, &sign, &store, NULL, &chain) !=
 		    FZN_CHAIN_ERR_REVOKED)
 			FAIL(106);
 
 		/* And NULL still means "no revocations known", which is what
 		 * the old `NULL, 0` said and what a consumer holding no store
 		 * relies on. */
-		if (fzn_chain_verify(&hop, 1, root, &cap, 2000, &sign, NULL, &chain) !=
+		if (fzn_chain_verify(&hop, 1, root, &cap, 2000, &sign, NULL, NULL, &chain) !=
 		    FZN_CHAIN_OK)
 			FAIL(107);
 	}
@@ -753,7 +753,7 @@ int main(void)
 			FAIL(133);
 		if (fzn_hop_open(leaf_bytes, FZN_HOP_LEN, &pair[1]) != FZN_CHAIN_OK)
 			FAIL(134);
-		if (fzn_chain_verify(pair, 2, root, &cap, 2000, &sign, &estate, &chain) !=
+		if (fzn_chain_verify(pair, 2, root, &cap, 2000, &sign, &estate, NULL, &chain) !=
 		    FZN_CHAIN_OK)
 			FAIL(135);
 
@@ -777,7 +777,7 @@ int main(void)
 			FAIL(139);
 		if (estate.used != 1)
 			FAIL(140);
-		if (fzn_chain_verify(pair, 2, root, &cap, 2000, &sign, &estate, &chain) !=
+		if (fzn_chain_verify(pair, 2, root, &cap, 2000, &sign, &estate, NULL, &chain) !=
 		    FZN_CHAIN_ERR_REVOKED)
 			FAIL(141);
 
@@ -785,7 +785,7 @@ int main(void)
 		 * supplied: the same store says nothing about the middle key's
 		 * own one-hop chain, which the middle key is not an ancestor
 		 * of. */
-		if (fzn_chain_verify(pair, 1, root, &cap, 2000, &sign, &estate, &chain) !=
+		if (fzn_chain_verify(pair, 1, root, &cap, 2000, &sign, &estate, NULL, &chain) !=
 		    FZN_CHAIN_OK)
 			FAIL(142);
 
@@ -1418,15 +1418,15 @@ int main(void)
 			FAIL(220);
 
 		/* A memset policy is not "unguarded". */
-		if (fzn_authz_decide(zeroed, FZN_ORIGIN_REMOTE, NULL, 0, root, 1000, &sign, &empty)
+		if (fzn_authz_decide(zeroed, FZN_ORIGIN_REMOTE, NULL, 0, root, 1000, &sign, &empty, NULL)
 		    != FZN_AUTHZ_DENIED)
 			FAIL(221);
 		/* Nor is a required capability with no chain held. */
 		if (fzn_authz_decide(fzn_authz_requires(&any_cap, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, NULL, 0, root, 1000, &sign,
-		                     &empty) != FZN_AUTHZ_DENIED)
+		                     &empty, NULL) != FZN_AUTHZ_DENIED)
 			FAIL(222);
 		/* Only saying so out loud grants, and it says which grant it is. */
-		if (fzn_authz_decide(fzn_authz_unguarded(FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, NULL, 0, root, 1000, &sign, &empty)
+		if (fzn_authz_decide(fzn_authz_unguarded(FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, NULL, 0, root, 1000, &sign, &empty, NULL)
 		    != FZN_AUTHZ_GRANTED_UNGUARDED)
 			FAIL(223);
 		if ((int)FZN_AUTHZ_DENIED != 0)

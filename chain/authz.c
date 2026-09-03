@@ -37,7 +37,8 @@ fzn_authz_verdict_t fzn_authz_decide(fzn_authz_policy_t policy, fzn_origin_t ori
                                      const fzn_chain_hop_t *hops,
                                      size_t hop_count, const uint8_t root[FZN_PUBKEY_LEN],
                                      uint64_t now, const fzn_sign_ops_t *sign,
-                                     const fzn_revocation_store_t *revocations)
+                                     const fzn_revocation_store_t *revocations,
+                                     const fzn_manifest_state_t *manifest)
 {
 	fzn_chain_t proven;
 
@@ -103,7 +104,7 @@ fzn_authz_verdict_t fzn_authz_decide(fzn_authz_policy_t policy, fzn_origin_t ori
 	 * calls it directly, and a caller that needs a decision must not be
 	 * handed an error code it can treat as truthy. */
 	if (fzn_chain_verify(hops, hop_count, root, &policy.capability, now, sign, revocations,
-	                     &proven) != FZN_CHAIN_OK)
+	                     manifest, &proven) != FZN_CHAIN_OK)
 		return FZN_AUTHZ_DENIED;
 
 	return FZN_AUTHZ_GRANTED_BY_CHAIN;

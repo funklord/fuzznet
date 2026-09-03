@@ -2209,7 +2209,7 @@ static void test_a_truncated_manifest_is_refused(void)
  * table says it is missing a revocation, and whose overflow flag is set,
  * verifies exactly what it verified before. Stage 2 is where that changes,
  * and it waits on the copyright holder. */
-static void test_stage_one_does_not_gate(void)
+static void test_stage_two_gates_on_this_chains_grantors(void)
 {
 	struct fixture f, joiner;
 	static uint8_t bytes[FIXTURE_BYTES];
@@ -2238,7 +2238,7 @@ static void test_stage_one_does_not_gate(void)
 	                     hop_bytes) == FZN_CHAIN_OK,
 	      "minting the hop this case is about failed");
 	CHECK(fzn_hop_open(hop_bytes, FZN_HOP_LEN, &hops[0]) == FZN_CHAIN_OK, "open");
-	CHECK(fzn_chain_verify(hops, 1, joiner.root, &cap, 2000, &joiner.sign, &joiner.store,
+	CHECK(fzn_chain_verify(hops, 1, joiner.root, &cap, 2000, &joiner.sign, &joiner.store, NULL,
 	                       &out) == FZN_CHAIN_OK,
 	      "an unrevoked chain was refused before any manifest arrived");
 
@@ -2250,10 +2250,65 @@ static void test_stage_one_does_not_gate(void)
 	      "this host does not know it is missing anything, so the check below is about "
 	      "nothing");
 
+	/* STAGE 1 STILL DOES NOT GATE ON ITS OWN. Passing no state is passing
+	 * no knowledge, and a host that follows nobody has no grounds to
+	 * believe it is behind. */
 	CHECK(fzn_chain_verify(hops, 1, joiner.root, &cap, 2000, &joiner.sign, &joiner.store,
-	                       &out) == FZN_CHAIN_OK,
-	      "a known deficit changed what fzn_chain_verify answers -- stage 1 is not "
-	      "supposed to gate, and stage 2 is blocked on the copyright holder");
+	                       NULL, &out) == FZN_CHAIN_OK,
+	      "a known deficit changed what fzn_chain_verify answers with no manifest "
+	      "state passed, so the gate is not the state's to open");
+
+	/* AND STAGE 2 DOES. This assertion is the one that changed when the
+	 * gate landed; it read that a deficit must change nothing, with
+	 * "stage 2 is blocked on the copyright holder" beside it. */
+	CHECK(fzn_chain_verify(hops, 1, joiner.root, &cap, 2000, &joiner.sign, &joiner.store,
+	                       &joiner.manifest, &out) == FZN_CHAIN_ERR_INCOMPLETE,
+	      "a host that knows it is missing revocations from this chain's grantor "
+	      "verified the chain anyway, which is the defect sec 13d names: it cannot "
+	      "tell 'nothing was revoked' from 'I am missing the revocations'");
+
+	/* THE SCOPING, WHICH IS WHAT MAKES THE GATE SAFE TO HAVE. A deficit
+	 * about an unrelated issuer says nothing about this chain. Without
+	 * this the gate is sec 13d's "returning device refuses all", which
+	 * together with the clock finding describes a brick. */
+	{
+		struct fixture other, host;
+		static uint8_t other_bytes[FIXTURE_BYTES];
+		fzn_manifest_record_t other_rec;
+		uint8_t stranger[FZN_PUBKEY_LEN];
+		size_t other_len = 0;
+
+		key(stranger, 7);
+		fixture_init(&other);
+		revoke(&other, stranger, &cap, grantee);
+		other.stub.identity = stranger[0];
+		CHECK(fzn_manifest_issue(stranger, &other.store, &other.sign, other_bytes,
+		                         sizeof(other_bytes), &other_len) ==
+		              FZN_MANIFEST_OK,
+		      "a stranger could not state its own revocations");
+		CHECK(fzn_manifest_open(other_bytes, other_len, &other_rec) ==
+		              FZN_MANIFEST_OK, "open");
+
+		fixture_init(&host);
+		host.stub.identity = 0;
+		CHECK(fzn_manifest_follow(&host.manifest, stranger) == FZN_MANIFEST_OK,
+		      "following the stranger was refused");
+		CHECK(fzn_manifest_admit(&host.manifest, &host.store, other_rec,
+		                         &host.sign) == FZN_MANIFEST_OK,
+		      "the stranger's manifest was refused");
+		CHECK(fzn_manifest_pending(&host.manifest, stranger) == 1,
+		      "this host does not know it is missing the stranger's revocation, "
+		      "so the check below is about nothing");
+		CHECK(fzn_manifest_pending(&host.manifest, host.root) == 0,
+		      "it also thinks it is missing something from the chain's grantor, "
+		      "so a refusal below would not show the scoping");
+
+		CHECK(fzn_chain_verify(hops, 1, host.root, &cap, 2000, &host.sign,
+		                       &host.store, &host.manifest, &out) == FZN_CHAIN_OK,
+		      "a deficit about an issuer that grants nothing in this chain "
+		      "refused it, so the gate is unscoped and a returning device "
+		      "refuses everything until it has caught up on everybody");
+	}
 }
 
 /* ---- the revocation side of the seam ---------------------------------- */
@@ -3158,7 +3213,7 @@ int main(void)
 	test_a_corrupt_store_is_refused_rather_than_believed();
 	test_a_forged_pair_is_refused();
 	test_a_truncated_manifest_is_refused();
-	test_stage_one_does_not_gate();
+	test_stage_two_gates_on_this_chains_grantors();
 	test_a_revocation_settles_what_it_covers();
 	test_every_guard_refuses_its_own_argument();
 	test_a_state_whose_fields_disagree_is_refused();

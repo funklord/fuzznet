@@ -9,6 +9,9 @@
  * with no revocations still needs nothing from here; this file is the
  * library, and the library may know both halves. */
 #include "revocation.h"
+/* For fzn_manifest_pending: stage 2 asks the manifest state whether this
+ * host knows it is behind about a grantor in the chain. */
+#include "manifest.h"
 
 #include <string.h>
 
@@ -141,7 +144,8 @@ fzn_chain_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
                             const uint8_t root[FZN_PUBKEY_LEN],
                             const fzn_cap_id_t *capability, uint64_t now,
                             const fzn_sign_ops_t *sign,
-                            const fzn_revocation_store_t *revocations, fzn_chain_t *out)
+                            const fzn_revocation_store_t *revocations,
+                            const fzn_manifest_state_t *manifest, fzn_chain_t *out)
 {
 	uint64_t soonest = FZN_NO_EXPIRY;
 	uint8_t revoked[FZN_CHAIN_MAX_HOPS];
@@ -283,6 +287,36 @@ fzn_chain_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
 		 * above the loop. */
 		if (revoked[i])
 			return FZN_CHAIN_ERR_REVOKED;
+	}
+
+	/* AND WHETHER THIS HOST IS IN A POSITION TO SAY SO -- stage 2 of
+	 * project.md sec 13d, and the defect it closes is stated there: a host
+	 * that joined this morning, was offline, or is partitioned goes on
+	 * verifying a chain the network withdrew last week, and cannot tell
+	 * "nothing was revoked" from "I am missing the revocations".
+	 *
+	 * SCOPED TO THE GRANTORS OF THIS CHAIN, which is the whole of what
+	 * makes it safe to have. The alternative -- refuse whenever anything
+	 * anywhere is outstanding -- is what sec 13d costed as "returning
+	 * device refuses all", and combined with the clock finding it
+	 * describes a device that can neither be reached nor act. A deficit
+	 * about an unrelated issuer says nothing about this chain, so it does
+	 * not refuse it.
+	 *
+	 * AFTER THE REVOCATION CHECK, so a chain this host KNOWS is revoked is
+	 * reported revoked rather than merely unknowable. Both deny; the more
+	 * specific answer is the more useful one.
+	 *
+	 * A NULL STATE IS NO GATE, and that is not a defaulted-off security
+	 * control. It means this host follows no issuer -- it has not asked
+	 * anyone what they have revoked, so it has no grounds to believe it is
+	 * behind. The protection is proportional to what a consumer asked for,
+	 * which is the honest shape when following is deliberate. */
+	if (manifest) {
+		for (size_t i = 0; i < hop_count; i++) {
+			if (fzn_manifest_pending(manifest, fzn_hop_grantor(hops[i])) > 0)
+				return FZN_CHAIN_ERR_INCOMPLETE;
+		}
 	}
 
 	/* Pass two: the expensive half, reached only by a chain that is
@@ -427,7 +461,12 @@ fzn_chain_err_t fzn_chain_delegate(const fzn_chain_hop_t *hops, size_t hop_count
 	/* Defence in depth. Never delegate from a chain that has expired, been
 	 * revoked, or stopped checking out -- the new hop would look freshly
 	 * minted while resting on something dead. */
+	/* NO COMPLETENESS GATE ON DELEGATION, deliberately. Minting a hop is
+	 * this host acting on its own authority, not judging somebody else's
+	 * traffic -- and a host that could not delegate while behind would be
+	 * unable to hand out the very grants a catch-up needs. */
 	err = fzn_chain_verify(hops, hop_count, root, capability, now, sign, revocations,
+	                       NULL,
 	                       &existing);
 	if (err != FZN_CHAIN_OK)
 		return err;
@@ -488,6 +527,8 @@ const char *fzn_chain_err_str(fzn_chain_err_t err)
 		return "not the shape the layout describes";
 	case FZN_CHAIN_ERR_UNKNOWN_TARGET:
 		return "withdrawal names a revocation this store does not hold";
+	case FZN_CHAIN_ERR_INCOMPLETE:
+		return "this host is missing revocations from a grantor in this chain";
 	}
 
 	return "unknown";

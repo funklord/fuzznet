@@ -148,12 +148,12 @@ static void test_a_zeroed_policy_denies(void)
 	 * consumer produces by forgetting, and it must not read as "this kind
 	 * needs no capability". If this ever returns GRANTED_UNGUARDED, every
 	 * unguarded path in every consumer becomes reachable by omission. */
-	CHECK(fzn_authz_decide(zeroed, FZN_ORIGIN_REMOTE, &f.hop, 1, f.root, 1000, &OPS, &f.store)
+	CHECK(fzn_authz_decide(zeroed, FZN_ORIGIN_REMOTE, &f.hop, 1, f.root, 1000, &OPS, &f.store, NULL)
 	              == FZN_AUTHZ_DENIED,
 	      "a zeroed policy did not deny, so absence reads as not-required");
 
 	/* And with no chain either, which is the state a fresh host is in. */
-	CHECK(fzn_authz_decide(zeroed, FZN_ORIGIN_REMOTE, NULL, 0, f.root, 1000, &OPS, &f.store)
+	CHECK(fzn_authz_decide(zeroed, FZN_ORIGIN_REMOTE, NULL, 0, f.root, 1000, &OPS, &f.store, NULL)
 	              == FZN_AUTHZ_DENIED,
 	      "a zeroed policy with no chain did not deny");
 
@@ -183,7 +183,7 @@ static void test_a_zeroed_policy_denies(void)
 		half.origins = FZN_ORIGIN_ANY;
 
 		CHECK(fzn_authz_decide(half, FZN_ORIGIN_REMOTE, &f.hop, 1, f.root, 1000,
-		                       &OPS, &f.store) == FZN_AUTHZ_DENIED,
+		                       &OPS, &f.store, NULL) == FZN_AUTHZ_DENIED,
 		      "a policy whose origins were filled and whose `spelled` was not "
 		      "did not deny -- so forgetting the one field that says a policy "
 		      "was written at all reads as not-required");
@@ -194,7 +194,7 @@ static void test_a_zeroed_policy_denies(void)
 		 * answers so. */
 		half.spelled = 1;
 		CHECK(fzn_authz_decide(half, FZN_ORIGIN_REMOTE, &f.hop, 1, f.root, 1000,
-		                       &OPS, &f.store) == FZN_AUTHZ_GRANTED_UNGUARDED,
+		                       &OPS, &f.store, NULL) == FZN_AUTHZ_GRANTED_UNGUARDED,
 		      "the same policy with `spelled` set did not grant, so the refusal "
 		      "above is the origin mask rather than the spelled check");
 	}
@@ -220,11 +220,11 @@ static void test_a_required_capability_with_no_chain_denies(void)
 	/* THE CASE FUZZYPICKLES NAMED. "I hold no chain for this issuer" is an
 	 * ordinary state, not an error, and it must not be confusable with
 	 * "this kind needs no capability". */
-	CHECK(fzn_authz_decide(fzn_authz_requires(&f.cap, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, NULL, 0, f.root, 1000, &OPS, &f.store)
+	CHECK(fzn_authz_decide(fzn_authz_requires(&f.cap, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, NULL, 0, f.root, 1000, &OPS, &f.store, NULL)
 	              == FZN_AUTHZ_DENIED,
 	      "a required capability with no chain was granted");
 	CHECK(fzn_authz_decide(fzn_authz_requires(&f.cap, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, &f.hop, 0, f.root, 1000, &OPS,
-	                       &f.store) == FZN_AUTHZ_DENIED,
+	                       &f.store, NULL) == FZN_AUTHZ_DENIED,
 	      "a required capability with an empty chain was granted");
 }
 
@@ -235,14 +235,14 @@ static void test_a_good_chain_grants_and_says_how(void)
 	REQUIRE(build(&f), "the fixture does not build");
 
 	CHECK(fzn_authz_decide(fzn_authz_requires(&f.cap, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, &f.hop, 1, f.root, 1000, &OPS,
-	                       &f.store) == FZN_AUTHZ_GRANTED_BY_CHAIN,
+	                       &f.store, NULL) == FZN_AUTHZ_GRANTED_BY_CHAIN,
 	      "a valid chain for the required capability was refused, so every denial "
 	      "above proves nothing");
 
 	/* AND THE TWO GRANTS ARE DISTINGUISHABLE, which is what lets a
 	 * consumer's log separate "authorised" from "not guarded" -- and lets
 	 * somebody find every unguarded path by grepping for one value. */
-	CHECK(fzn_authz_decide(fzn_authz_unguarded(FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, NULL, 0, f.root, 1000, &OPS, &f.store)
+	CHECK(fzn_authz_decide(fzn_authz_unguarded(FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, NULL, 0, f.root, 1000, &OPS, &f.store, NULL)
 	              == FZN_AUTHZ_GRANTED_UNGUARDED,
 	      "an explicitly unguarded kind did not report itself as unguarded");
 	CHECK(FZN_AUTHZ_GRANTED_BY_CHAIN != FZN_AUTHZ_GRANTED_UNGUARDED,
@@ -269,7 +269,7 @@ static void test_an_unguarded_kind_is_still_bounded_by_where_it_arrived(void)
 	                                 | FZN_ORIGIN_BIT(FZN_ORIGIN_LOCAL));
 
 	CHECK(fzn_authz_decide(local_only, FZN_ORIGIN_REMOTE, NULL, 0, f.root, 1000, &OPS,
-	                       &f.store) == FZN_AUTHZ_DENIED,
+	                       &f.store, NULL) == FZN_AUTHZ_DENIED,
 	      "a kind needing no capability was reachable from the network, so an "
 	      "openly-local policy is an open network policy");
 
@@ -277,10 +277,10 @@ static void test_an_unguarded_kind_is_still_bounded_by_where_it_arrived(void)
 	 * origins it names. Without this the case above passes against a
 	 * decision that denies everything. */
 	CHECK(fzn_authz_decide(local_only, FZN_ORIGIN_LOCAL, NULL, 0, f.root, 1000, &OPS,
-	                       &f.store) == FZN_AUTHZ_GRANTED_UNGUARDED,
+	                       &f.store, NULL) == FZN_AUTHZ_GRANTED_UNGUARDED,
 	      "a local-only policy refused a local request too");
 	CHECK(fzn_authz_decide(local_only, FZN_ORIGIN_SAME_USER, NULL, 0, f.root, 1000, &OPS,
-	                       &f.store) == FZN_AUTHZ_GRANTED_UNGUARDED,
+	                       &f.store, NULL) == FZN_AUTHZ_GRANTED_UNGUARDED,
 	      "a policy naming SAME_USER refused one");
 
 	/* A GUARDED KIND IS BOUNDED THE SAME WAY, so the check is not a
@@ -291,10 +291,10 @@ static void test_an_unguarded_kind_is_still_bounded_by_where_it_arrived(void)
 		        fzn_authz_requires(&f.cap, FZN_ORIGIN_BIT(FZN_ORIGIN_LOCAL));
 
 		CHECK(fzn_authz_decide(local_cap, FZN_ORIGIN_REMOTE, &f.hop, 1, f.root, 1000,
-		                       &OPS, &f.store) == FZN_AUTHZ_DENIED,
+		                       &OPS, &f.store, NULL) == FZN_AUTHZ_DENIED,
 		      "a valid chain was accepted from an origin the policy excludes");
 		CHECK(fzn_authz_decide(local_cap, FZN_ORIGIN_LOCAL, &f.hop, 1, f.root, 1000,
-		                       &OPS, &f.store) == FZN_AUTHZ_GRANTED_BY_CHAIN,
+		                       &OPS, &f.store, NULL) == FZN_AUTHZ_GRANTED_BY_CHAIN,
 		      "the same chain was refused from the origin the policy names, so the "
 		      "denial above proves nothing");
 	}
@@ -309,10 +309,10 @@ static void test_an_unobserved_origin_denies(void)
 	REQUIRE(build(&f), "the fixture does not build");
 
 	CHECK(fzn_authz_decide(fzn_authz_unguarded(FZN_ORIGIN_ANY), FZN_ORIGIN_NONE, NULL, 0,
-	                       f.root, 1000, &OPS, &f.store) == FZN_AUTHZ_DENIED,
+	                       f.root, 1000, &OPS, &f.store, NULL) == FZN_AUTHZ_DENIED,
 	      "a caller that stated no origin was admitted by a policy naming every one");
 	CHECK(fzn_authz_decide(fzn_authz_unguarded(0xffffffffu), FZN_ORIGIN_NONE, NULL, 0,
-	                       f.root, 1000, &OPS, &f.store) == FZN_AUTHZ_DENIED,
+	                       f.root, 1000, &OPS, &f.store, NULL) == FZN_AUTHZ_DENIED,
 	      "setting every bit admitted the one origin that means 'not observed'");
 
 	/* A POLICY REACHABLE FROM NOWHERE DENIES WHATEVER ELSE IT SAYS, which
@@ -323,7 +323,7 @@ static void test_an_unobserved_origin_denies(void)
 		fzn_authz_policy_t nowhere = fzn_authz_unguarded(0u);
 
 		CHECK(fzn_authz_decide(nowhere, FZN_ORIGIN_LOCAL, NULL, 0, f.root, 1000, &OPS,
-		                       &f.store) == FZN_AUTHZ_DENIED,
+		                       &f.store, NULL) == FZN_AUTHZ_DENIED,
 		      "a policy reachable from no origin granted anyway");
 	}
 
@@ -352,7 +352,7 @@ static void test_a_chain_for_another_capability_denies(void)
 
 	/* The chain is valid and grants something. It does not grant THIS. */
 	CHECK(fzn_authz_decide(fzn_authz_requires(&other, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, &f.hop, 1, f.root, 1000, &OPS,
-	                       &f.store) == FZN_AUTHZ_DENIED,
+	                       &f.store, NULL) == FZN_AUTHZ_DENIED,
 	      "a chain granting one capability authorised a different one");
 }
 
@@ -369,22 +369,22 @@ static void test_every_refusal_of_the_verifier_is_a_denial(void)
 	 * refusal inside fzn_chain_verify and all of them are one answer
 	 * here. */
 	CHECK(fzn_authz_decide(fzn_authz_requires(&f.cap, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, &f.hop, 1, wrong_root, 1000, &OPS,
-	                       &f.store) == FZN_AUTHZ_DENIED,
+	                       &f.store, NULL) == FZN_AUTHZ_DENIED,
 	      "a chain under a foreign root was granted");
-	CHECK(fzn_authz_decide(fzn_authz_requires(&f.cap, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, &f.hop, 1, NULL, 1000, &OPS, &f.store)
+	CHECK(fzn_authz_decide(fzn_authz_requires(&f.cap, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, &f.hop, 1, NULL, 1000, &OPS, &f.store, NULL)
 	              == FZN_AUTHZ_DENIED,
 	      "a null root was granted");
 	CHECK(fzn_authz_decide(fzn_authz_requires(&f.cap, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, &f.hop, 1, f.root, 1000, NULL,
-	                       &f.store) == FZN_AUTHZ_DENIED,
+	                       &f.store, NULL) == FZN_AUTHZ_DENIED,
 	      "a null signer was granted");
 	CHECK(fzn_authz_decide(fzn_authz_requires(&f.cap, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, &f.hop, 1, f.root, 9000, &OPS,
-	                       &f.store) == FZN_AUTHZ_DENIED,
+	                       &f.store, NULL) == FZN_AUTHZ_DENIED,
 	      "an expired chain was granted");
 
 	/* An unguarded kind grants without any of those mattering, which is
 	 * the point of saying so out loud -- and is why the constructor is a
 	 * call somebody has to write. */
-	CHECK(fzn_authz_decide(fzn_authz_unguarded(FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, NULL, 0, NULL, 9000, NULL, NULL)
+	CHECK(fzn_authz_decide(fzn_authz_unguarded(FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, NULL, 0, NULL, 9000, NULL, NULL, NULL)
 	              == FZN_AUTHZ_GRANTED_UNGUARDED,
 	      "an unguarded kind was denied for reasons that cannot apply to it");
 }
@@ -399,7 +399,7 @@ static void test_a_null_capability_does_not_guard_nothing(void)
 	 * not become an unguarded policy by accident: the capability is left
 	 * as zeroes, which no chain in this library grants. */
 	CHECK(fzn_authz_decide(fzn_authz_requires(NULL, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, &f.hop, 1, f.root, 1000, &OPS,
-	                       &f.store) == FZN_AUTHZ_DENIED,
+	                       &f.store, NULL) == FZN_AUTHZ_DENIED,
 	      "requiring a null capability granted, so an undecided caller is unguarded");
 }
 

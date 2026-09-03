@@ -254,10 +254,27 @@ static inline fzn_authz_policy_t fzn_authz_unguarded(unsigned origins)
  */
 int fzn_authz_origin_permitted(fzn_authz_policy_t policy, fzn_origin_t origin);
 
+/* `manifest` is what this host has been told about revocations, or NULL if it
+ * follows nobody. It is passed straight to `fzn_chain_verify`, whose stage-2
+ * gate refuses a chain when this host knows it is missing revocations from
+ * one of that chain's grantors -- see FZN_CHAIN_ERR_INCOMPLETE in chain.h.
+ *
+ * IT IS AN ARGUMENT AND NOT A FIELD ON THE POLICY, on the reasoning `origins`
+ * already carries here: a field added to the struct leaves every existing
+ * call site compiling while getting whatever the default was, and the default
+ * that matters is "no gate". An added argument makes every call site fail to
+ * compile, which is the loud failure.
+ *
+ * A DENIED verdict does not distinguish "revoked" from "I cannot tell", and
+ * that is this function's existing contract rather than a new omission: it
+ * answers a decision, and both answers are deny. A consumer that needs to
+ * tell them apart calls `fzn_chain_verify` directly, which is what the code
+ * comment above the call in authz.c already says about error codes. */
 fzn_authz_verdict_t fzn_authz_decide(fzn_authz_policy_t policy, fzn_origin_t origin,
                                      const fzn_chain_hop_t *hops,
                                      size_t hop_count, const uint8_t root[FZN_PUBKEY_LEN],
                                      uint64_t now, const fzn_sign_ops_t *sign,
-                                     const fzn_revocation_store_t *revocations);
+                                     const fzn_revocation_store_t *revocations,
+                                     const fzn_manifest_state_t *manifest);
 
 #endif /* FZN_AUTHZ_H */

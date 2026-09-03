@@ -761,6 +761,14 @@ SABOTAGES = [
 		"same record and they cleared means this host is behind, not agreed",
 	),
 	(
+		"chain-stage-two-gate",
+		"chain/chain.c",
+		"\t\t\tif (fzn_manifest_pending(manifest, fzn_hop_grantor(hops[i])) > 0)\n"
+		"\t\t\t\treturn FZN_CHAIN_ERR_INCOMPLETE;\n",
+		"",
+		"a host that knows it is behind must not answer as though it were current",
+	),
+	(
 		"rev-withdrawal-tombstone",
 		"chain/revocation.c",
 		"\t\t\tstore->entries[store->used].withdrawn = 1;\n\t\t\tstore->used++;\n"

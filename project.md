@@ -11244,6 +11244,87 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 58. Revocation stage 2, scoped to the chain, 2026-09-03
+
+Sec 13d split revocation manifests into two stages and stage 2 -- the gate,
+`ERR_INCOMPLETE`, UNKNOWN refusing -- was NOT BUILT, pending the holder. The
+defect it closes is stated there: **a host that joined this morning, was
+offline, or is partitioned goes on verifying a chain the network withdrew
+last week, and cannot tell "nothing was revoked" from "I am missing the
+revocations".**
+
+### Why B, and what §4.4a actually forbids
+
+Option C moved the refusal into each consumer, and whether that is legitimate
+was framed as a §4.4a question. Reading it settles the framing rather than
+the option: §4.4a's clause is **"a negotiable security level reached by
+flipping a plaintext bit"**, which is about a level an ATTACKER can lower over
+the wire. A fail-open written in a consumer's source is not reachable that
+way, so C is not what that clause forbids.
+
+The clause that governs is the next one -- *"neither is a constant-time tag
+comparison. The extern codec owns the first; this library owns the second and
+must not leave it to the consumer."* Where a property can be owned here, it
+is. And sec 13d's own cost table already says C is "four times, four chances
+to differ".
+
+### The scoping is what makes B safe, and it is not what 13d costed
+
+13d costed B as **"returning device refuses all"**, and beside the clock
+finding called the pair "a device that can neither be reached nor act, which
+is a brick until a person intervenes". That cost belongs to a gate that
+refuses whenever ANYTHING is outstanding. It is not the only gate available.
+
+**The gate is scoped to the grantors of the chain being verified.** A deficit
+about an issuer that grants nothing in this chain says nothing about this
+chain and does not refuse it. So a returning device refuses the chains it
+provably cannot judge and goes on serving every other one, and it recovers
+issuer by issuer rather than all-or-nothing.
+
+    unscoped   any outstanding deficit refuses every chain      the brick
+    scoped     a deficit refuses chains that issuer grants in   built
+
+**And a NULL state is no gate, which is not a defaulted-off control.** It
+means the host follows nobody: it has not asked anyone what they have
+revoked, so it has no grounds to believe it is behind. The protection is
+proportional to what a consumer asked for, which is the honest shape when
+following is deliberate. A host that follows the issuers it cares about gets
+the gate for exactly those.
+
+### The one place it must NOT apply, which is load-bearing
+
+`fzn_revocation_admit` verifies a chain when a non-root issuer offers a
+revocation. **That call passes NULL deliberately.** Admitting a revocation is
+how a host stops missing them, so gating it would make catching up require
+being caught up: the deficit would refuse the very records that drain it, and
+a host that fell behind could never return. `fzn_chain_delegate` passes NULL
+for a related reason -- minting is acting on one's own authority rather than
+judging somebody else's traffic.
+
+That asymmetry is the whole difference between a gate and a deadlock, and it
+is two lines of argument in two files rather than anything the type system
+can hold.
+
+### What it cost, and the objection that had already expired
+
+An added ARGUMENT on `fzn_chain_verify` and on `fzn_authz_decide` rather than
+a field on a struct, on the reasoning authz.h already carries for `origins`:
+a field leaves every call site compiling while getting the default, and the
+default that matters is "no gate". Fifty-three call sites failed to build,
+which is the loud failure.
+
+13d's cost table listed **"revocation fetch path needed"** against B. That
+was true when written and was built on 2026-09-01 -- `fzn_manifest_deficit`
+and the resumable `_deficit_from`. The objection expired before the decision
+was taken, which is worth noticing: a cost table is a snapshot, and the row
+that blocks a choice can be quietly paid off by unrelated work.
+
+`FZN_AUTHZ_DENIED` still does not distinguish "revoked" from "I cannot tell".
+That is `fzn_authz_decide`'s existing contract -- it answers a decision and
+both answers are deny -- and a consumer needing the distinction calls
+`fzn_chain_verify`, which is what the comment above that call already said
+about error codes.
+
 ## 57. How a withdrawal travels, and the cheap design that cannot, 2026-09-03
 
 Sec 56 built withdrawal and left it converging nobody: a manifest states

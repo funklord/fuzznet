@@ -833,7 +833,7 @@ static void sim_receive(struct sim_net *net, struct sim_datagram *d)
 	}
 	authorised = fzn_chain_verify(sender->chain, sender->chain_len, anchor,
 	                              &net->capability, net->now,
-	                              &net->sign, &h->revocations, &proven);
+	                              &net->sign, &h->revocations, NULL, &proven);
 
 	/* AND THE DECISION LAYER MUST AGREE WITH THE VERIFIER, on every frame
 	 * this network delivers, which is what puts `chain/authz.c` in a seam
@@ -855,7 +855,7 @@ static void sim_receive(struct sim_net *net, struct sim_datagram *d)
 		fzn_authz_verdict_t verdict =
 		        fzn_authz_decide(fzn_authz_requires(&net->capability, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, sender->chain,
 		                         sender->chain_len, anchor, net->now, &net->sign,
-		                         &h->revocations);
+		                         &h->revocations, NULL);
 		fzn_authz_policy_t forgotten;
 
 		check((authorised == FZN_CHAIN_OK)
@@ -864,7 +864,7 @@ static void sim_receive(struct sim_net *net, struct sim_datagram *d)
 
 		memset(&forgotten, 0, sizeof(forgotten));
 		check(fzn_authz_decide(forgotten, FZN_ORIGIN_REMOTE, sender->chain, sender->chain_len, anchor,
-		                       net->now, &net->sign, &h->revocations)
+		                       net->now, &net->sign, &h->revocations, NULL)
 		              == FZN_AUTHZ_DENIED,
 		      "a policy nobody spelled granted on live traffic, so absence reads "
 		      "as not-required where it would actually happen");
@@ -1670,7 +1670,7 @@ static void scenario_delegation(void)
 		uint8_t near_grantor[FZN_PUBKEY_LEN];
 
 		check(fzn_chain_verify(to->chain, to->chain_len, net.root, &net.capability,
-		                       net.now, &net.sign, NULL, &proven) == FZN_CHAIN_OK,
+		                       net.now, &net.sign, NULL, NULL, &proven) == FZN_CHAIN_OK,
 		      "a delegated hop signed by its own grantor was refused -- each hop's "
 		      "signature must be checked against THAT hop's grantor, not against the "
 		      "root");
@@ -1688,7 +1688,7 @@ static void scenario_delegation(void)
 		check(fzn_hop_open(forged, FZN_HOP_LEN, &hops[1]) == FZN_CHAIN_OK,
 		      "the impostor's hop would not open");
 		check(fzn_chain_verify(hops, 2, net.root, &net.capability, net.now, &net.sign,
-		                       NULL, &proven) == FZN_CHAIN_ERR_CHAIN_INVALID,
+		                       NULL, NULL, &proven) == FZN_CHAIN_ERR_CHAIN_INVALID,
 		      "a hop whose grantor names one host and whose signature was made by "
 		      "another was accepted -- the signature is not being checked against a "
 		      "key at all");
@@ -1712,7 +1712,7 @@ static void scenario_delegation(void)
 		check(fzn_hop_open(forged, FZN_HOP_LEN, &hops[1]) == FZN_CHAIN_OK,
 		      "the near-miss signer's hop would not open");
 		check(fzn_chain_verify(hops, 2, net.root, &net.capability, net.now, &net.sign,
-		                       NULL, &proven) == FZN_CHAIN_ERR_CHAIN_INVALID,
+		                       NULL, NULL, &proven) == FZN_CHAIN_ERR_CHAIN_INVALID,
 		      "a hop signed by a key matching its grantor in all but its last byte "
 		      "was accepted -- the signature check is not reading the whole key");
 	}
@@ -2841,7 +2841,7 @@ static void scenario_join(void)
 		 * would be testing a broken chain rather than a foreign one. */
 		check(fzn_chain_verify(attacker->chain, attacker->chain_len, rogue_root,
 		                       &net.capability, net.now, &net.sign,
-		                       &joiner->revocations, &proven) == FZN_CHAIN_OK,
+		                       &joiner->revocations, NULL, &proven) == FZN_CHAIN_OK,
 		      "the attacker's chain should be valid under its own root");
 
 		refused_before = joiner->refused_auth;
@@ -2887,7 +2887,7 @@ static void scenario_join(void)
 		 * would be testing a broken chain rather than a near-miss one. */
 		check(fzn_chain_verify(attacker->chain, attacker->chain_len, near_root,
 		                       &net.capability, net.now, &net.sign,
-		                       &joiner->revocations, &proven) == FZN_CHAIN_OK,
+		                       &joiner->revocations, NULL, &proven) == FZN_CHAIN_OK,
 		      "the near-miss chain should be valid under its own root");
 
 		refused_before = joiner->refused_auth;

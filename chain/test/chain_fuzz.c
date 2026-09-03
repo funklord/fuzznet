@@ -570,7 +570,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 	before = out;
 
 	rev_store.used = nrevs;
-	err = fzn_chain_verify(hops, n, root, &cap, now, &sign, nrevs ? &rev_store : NULL,
+	err = fzn_chain_verify(hops, n, root, &cap, now, &sign, nrevs ? &rev_store : NULL, NULL,
 	                       &out);
 
 	if (err == FZN_CHAIN_OK) {
@@ -646,7 +646,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		memset(&again, 0xab, sizeof(again));
 		stub.calls = 0;
 		if (fzn_chain_verify(reopened, reopened_n, root, &cap, now, &sign,
-		                     nrevs ? &rev_store : NULL, &again) != err) {
+		                     nrevs ? &rev_store : NULL, NULL, &again) != err) {
 			printf("  INVARIANT: the container changed the verdict\n");
 			return 1;
 		}

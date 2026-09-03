@@ -584,9 +584,15 @@ static fzn_chain_err_t entitled_by_chain(fzn_revocation_offer_t offer,
 	 * time. If FZN_NO_EXPIRY ever stopped being zero, this line would
 	 * start expiring grants and the failure would be a device quietly
 	 * un-revoking itself. chain/test/revocation_test.c pins it. */
+	/* NULL MANIFEST, AND THIS ONE IS LOAD-BEARING RATHER THAN A DEFAULT.
+	 * Stage 2's gate refuses a chain when this host knows it is missing
+	 * revocations from one of its grantors -- and admitting a revocation
+	 * is how a host stops missing them. Gating it would make catching up
+	 * require being caught up: the deficit would refuse the very records
+	 * that drain it, and a host that fell behind could never return. */
 	err = fzn_chain_verify(offer.hops, offer.hop_count, root,
 	                       fzn_revocation_capability(offer.record), 0, sign, NULL,
-	                       &issuers);
+	                       NULL, &issuers);
 	if (err != FZN_CHAIN_OK)
 		return err;
 
