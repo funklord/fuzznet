@@ -631,6 +631,27 @@ size_t fzn_revocation_merge(fzn_revocation_store_t *store,
  * withdrawal. The replication question, as against
  * `fzn_revocation_covers`'s authorization one -- see revocation.c for why
  * they must not be confused and what confusing them costs. */
+/* What this store holds about a triple: 1 and the outputs filled if it holds
+ * anything, 0 otherwise.
+ *
+ * THE THIRD PREDICATE, and it exists because comparing two hosts' views of a
+ * pair needs more than a yes. `fzn_revocation_covers` answers authorization,
+ * `fzn_revocation_known` answers "must I still fetch this", and this one
+ * answers "what exactly do I have", which is what a manifest comparison
+ * requires: same record and same state is agreement, same record and a
+ * withdrawal on their side means I am behind, and a different record means
+ * neither of us can tell who is ahead from the hashes alone.
+ *
+ * All three go through one matching rule -- see revocation.c -- so there is
+ * still one definition of "same triple". A store it cannot scan answers 0
+ * and fills nothing; a caller comparing views must judge that separately,
+ * which `chain/manifest.c` does through `store_sound` before it asks. */
+int fzn_revocation_lookup(const fzn_revocation_store_t *store,
+                           const uint8_t issuer[FZN_PUBKEY_LEN],
+                           const fzn_cap_id_t *capability,
+                           const uint8_t grantee[FZN_PUBKEY_LEN],
+                           uint8_t id_out[FZN_REVOCATION_ID_LEN], int *withdrawn_out);
+
 int fzn_revocation_known(const fzn_revocation_store_t *store,
                           const uint8_t issuer[FZN_PUBKEY_LEN],
                           const fzn_cap_id_t *capability,

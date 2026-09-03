@@ -166,10 +166,16 @@ struct model {
 
 /* What the store holds, kept beside it so `covers` can be predicted rather
  * than asked. */
+/* WHAT THE STORE HOLDS, TRACKED INDEPENDENTLY, and it grew an id and a
+ * state when a manifest entry did. The model must decide "am I behind about
+ * this pair" from its OWN bookkeeping; asking the library would make this a
+ * second copy of the code under test rather than a witness against it. */
 struct held {
 	fzn_cap_id_t capability[8];
 	uint8_t grantee[8][FZN_PUBKEY_LEN];
 	uint8_t issuer[8][FZN_PUBKEY_LEN];
+	uint8_t id[8][FZN_REVOCATION_ID_LEN];
+	int withdrawn[8];
 	size_t used;
 };
 
@@ -197,16 +203,47 @@ static int model_holds(const struct model *m, const uint8_t *issuer, const fzn_c
 	return 0;
 }
 
-static int store_holds(const struct held *h, const uint8_t *issuer, const fzn_cap_id_t *cap,
-                       const uint8_t *grantee)
+static size_t held_at(const struct held *h, const uint8_t *issuer, const fzn_cap_id_t *cap,
+                      const uint8_t *grantee)
 {
-	for (size_t i = 0; i < h->used; i++) {
+	size_t i;
+
+	for (i = 0; i < h->used; i++) {
 		if (memcmp(h->issuer[i], issuer, FZN_PUBKEY_LEN) == 0 &&
 		    memcmp(h->capability[i].b, cap, FZN_CAP_ID_LEN) == 0 &&
 		    memcmp(h->grantee[i], grantee, FZN_PUBKEY_LEN) == 0)
-			return 1;
+			break;
 	}
-	return 0;
+	return i;
+}
+
+static int store_holds(const struct held *h, const uint8_t *issuer, const fzn_cap_id_t *cap,
+                       const uint8_t *grantee)
+{
+	return held_at(h, issuer, cap, grantee) < h->used;
+}
+
+/* THE RULE, RESTATED FROM THE DESIGN RATHER THAN FROM THE CODE. A host is
+ * behind an issuer about a pair unless it holds the same record and is not
+ * the one missing a withdrawal:
+ *
+ *   holds nothing            -- behind
+ *   same record, same state  -- agreed
+ *   same record, they cleared and this host has not  -- behind
+ *   same record, this host cleared  -- ahead
+ *   different records        -- cannot tell from hashes, so behind (ask)
+ */
+static int model_behind(const struct held *h, const uint8_t *issuer,
+                        const fzn_cap_id_t *cap, const uint8_t *grantee,
+                        const uint8_t *their_id, int their_withdrawn)
+{
+	size_t at = held_at(h, issuer, cap, grantee);
+
+	if (at == h->used)
+		return 1;
+	if (memcmp(h->id[at], their_id, FZN_REVOCATION_ID_LEN) != 0)
+		return 1;
+	return their_withdrawn && !h->withdrawn[at];
 }
 
 static size_t model_pending(const struct model *m, const uint8_t *issuer)
@@ -322,6 +359,14 @@ static const char *fuzz_one(const uint8_t *data, size_t len, struct coverage *co
 			memcpy(held.issuer[held.used], keys[ki], FZN_PUBKEY_LEN);
 			memcpy(held.capability[held.used].b, caps[ci].b, FZN_CAP_ID_LEN);
 			memcpy(held.grantee[held.used], grantees[gi], FZN_PUBKEY_LEN);
+			/* The record's identity, computed here with the same
+			 * seam the store was given -- not read back out of the
+			 * store, which would be the model asking the code
+			 * under test what it should expect. */
+			if (!stub_hash(NULL, held.id[held.used], FZN_REVOCATION_ID_LEN,
+			               rbytes, FZN_REVOCATION_LEN))
+				return "the fixture could not hash a revocation";
+			held.withdrawn[held.used] = 0;
 			held.used++;
 		}
 	}
@@ -415,10 +460,23 @@ static const char *fuzz_one(const uint8_t *data, size_t len, struct coverage *co
 		}
 
 		identity = keys[ki][0];
+		/* THE ID MATCHES THE STORE'S WHERE THE STORE HAS THE PAIR, and
+		 * that is what keeps the interesting rows reachable. With
+		 * synthetic ids everywhere, every entry would differ from
+		 * everything held and the generator would only ever exercise
+		 * "cannot tell, so ask" -- the three rows that say agreed,
+		 * behind and ahead would never be built. */
 		for (size_t e = 0; e < npairs; e++) {
+			size_t at = held_at(&held, keys[ki], &pairs[e].capability,
+			                    pairs[e].grantee);
+
 			entries[e].pair = pairs[e];
-			memset(entries[e].id, 0, sizeof(entries[e].id));
-			entries[e].id[0] = (uint8_t)(e + 1u);
+			if (at < held.used) {
+				memcpy(entries[e].id, held.id[at], FZN_REVOCATION_ID_LEN);
+			} else {
+				memset(entries[e].id, 0, sizeof(entries[e].id));
+				entries[e].id[0] = (uint8_t)(e + 1u);
+			}
 			entries[e].state = (e & 1u) ? (uint8_t)FZN_MANIFEST_WITHDRAWN
 			                            : (uint8_t)FZN_MANIFEST_REVOKED;
 		}
@@ -448,8 +506,10 @@ static const char *fuzz_one(const uint8_t *data, size_t len, struct coverage *co
 			cov->bad_signature++;
 		} else {
 			for (size_t i = 0; i < npairs; i++) {
-				if (store_holds(&held, keys[ki], &pairs[i].capability,
-				                pairs[i].grantee)) {
+				if (!model_behind(&held, keys[ki], &pairs[i].capability,
+				                  pairs[i].grantee, entries[i].id,
+				                  entries[i].state ==
+				                          (uint8_t)FZN_MANIFEST_WITHDRAWN)) {
 					cov->covered_skip++;
 					continue;
 				}

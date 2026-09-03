@@ -503,22 +503,45 @@ fzn_manifest_err_t fzn_manifest_admit(fzn_manifest_state_t *state,
 		const uint8_t *grantee = fzn_manifest_grantee(record, i);
 		fzn_manifest_deficit_t *slot;
 
-		/* THE COMPLETENESS PREDICATE IS `fzn_revocation_known`, which
-		 * is sec 13d's reason for naming the pair rather than hashing
-		 * the triple: the question is answered against the store
-		 * directly and there is no second matching rule to drift from
-		 * this one -- `known` and `covers` share `find_entry`.
+		/* AM I BEHIND THE ISSUER ABOUT THIS PAIR? which is a different
+		 * question from "do I hold it" and became one when an entry
+		 * started carrying state.
 		 *
-		 * IT IS `known` AND NOT `covers` BECAUSE THIS IS A
-		 * REPLICATION QUESTION. A withdrawn pair is one whose history
-		 * this host already has, so it is not missing; asking `covers`
-		 * would call it missing, the consumer would fetch the
-		 * revocation, admission would recognise the stale copy and
-		 * store nothing, and the next comparison would report it
-		 * missing again -- for ever, against every peer that had not
-		 * heard the withdrawal. */
-		if (fzn_revocation_known(store, issuer, capability, grantee))
-			continue;
+		 *   I hold nothing            -- behind, whatever they say
+		 *   same record, same state   -- agreed, nothing to fetch
+		 *   same record, they cleared -- behind: they have the
+		 *                                withdrawal and I do not
+		 *   same record, I cleared    -- AHEAD, and asking would fetch
+		 *                                a record I would refuse
+		 *   different records         -- neither of us can tell who is
+		 *                                ahead from hashes alone, so
+		 *                                ask; admission sorts it out
+		 *
+		 * THE LAST ROW IS WHY ADMISSION DRAINS ON ITS "I AM AHEAD"
+		 * PATHS. Asking when I am in fact ahead fetches a record that
+		 * is refused as stale or unchained, and without the drain this
+		 * entry would be re-recorded on every comparison and re-fetched
+		 * for ever against every peer that is behind. `revocation.c`
+		 * calls `fzn_manifest_satisfy` on both of those refusals for
+		 * exactly this. */
+		{
+			uint8_t mine[FZN_REVOCATION_ID_LEN];
+			int mine_withdrawn = 0;
+			int ahead;
+
+			if (!fzn_revocation_lookup(store, issuer, capability, grantee,
+			                           mine, &mine_withdrawn))
+				ahead = 0;
+			else if (memcmp(mine, fzn_manifest_id(record, i),
+			                FZN_REVOCATION_ID_LEN) != 0)
+				ahead = 0;
+			else
+				ahead = !(fzn_manifest_is_withdrawn(record, i) &&
+				          !mine_withdrawn);
+
+			if (ahead)
+				continue;
+		}
 		if (deficit_holds(state, issuer, capability, grantee))
 			continue;
 

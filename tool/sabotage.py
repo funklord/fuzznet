@@ -693,18 +693,16 @@ SABOTAGES = [
 	(
 		"rev-stale-copy-ignored",
 		"chain/revocation.c",
-		"\t\t\tif (fzn_ct_memeq(id, entry->id, FZN_REVOCATION_ID_LEN))\n"
-		"\t\t\t\treturn FZN_CHAIN_OK;\n",
-		"",
+		"\t\t\tif (fzn_ct_memeq(id, entry->id, FZN_REVOCATION_ID_LEN)) {\n",
+		"\t\t\tif (0) {\n",
 		"a re-relayed copy of a withdrawn revocation must not re-revoke",
 	),
 	(
 		"rev-reissue-must-chain",
 		"chain/revocation.c",
 		"\t\t\tif (!fzn_ct_memeq(fzn_revocation_supersedes(record), entry->id,\n"
-		"\t\t\t                  FZN_REVOCATION_ID_LEN))\n"
-		"\t\t\t\treturn FZN_CHAIN_ERR_UNKNOWN_TARGET;\n",
-		"",
+		"\t\t\t                  FZN_REVOCATION_ID_LEN)) {\n",
+		"\t\t\tif (0) {\n",
 		"where the chaining rule is a mechanism rather than a sentence",
 	),
 	(
@@ -756,9 +754,11 @@ SABOTAGES = [
 	(
 		"manifest-deficit-is-replication",
 		"chain/manifest.c",
-		"\t\tif (fzn_revocation_known(store, issuer, capability, grantee))\n\t\t\tcontinue;\n",
-		"\t\tif (fzn_revocation_covers(store, issuer, capability, grantee))\n\t\t\tcontinue;\n",
-		"asking the authorization question here loops against every peer behind",
+		"\t\t\telse\n"
+		"\t\t\t\tahead = !(fzn_manifest_is_withdrawn(record, i) &&\n"
+		"\t\t\t\t          !mine_withdrawn);\n",
+		"\t\t\telse\n\t\t\t\tahead = 1;\n",
+		"same record and they cleared means this host is behind, not agreed",
 	),
 	(
 		"rev-withdrawal-tombstone",

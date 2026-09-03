@@ -377,6 +377,36 @@ int fzn_revocation_covers(const fzn_revocation_store_t *store,
  * revocation, admission would recognise the stale copy and store nothing,
  * and the deficit would report it missing again on the next comparison,
  * for ever, against every peer that had not heard the withdrawal. */
+int fzn_revocation_lookup(const fzn_revocation_store_t *store,
+                           const uint8_t issuer[FZN_PUBKEY_LEN],
+                           const fzn_cap_id_t *capability,
+                           const uint8_t grantee[FZN_PUBKEY_LEN],
+                           uint8_t id_out[FZN_REVOCATION_ID_LEN], int *withdrawn_out)
+{
+	size_t at;
+
+	if (!store || !id_out || !withdrawn_out)
+		return 0;
+	/* A store that cannot be scanned reports nothing rather than
+	 * guessing. Unlike the two predicates above there is no conservative
+	 * answer available here: the outputs would have to be invented, and a
+	 * caller comparing views against invented state is worse off than one
+	 * told nothing. `chain/manifest.c` judges soundness itself before it
+	 * asks. */
+	if (corrupt(store))
+		return 0;
+	if (!store->entries || !issuer || !capability || !grantee)
+		return 0;
+
+	at = find_entry(store, issuer, capability, grantee);
+	if (at == store->used)
+		return 0;
+
+	memcpy(id_out, store->entries[at].id, FZN_REVOCATION_ID_LEN);
+	*withdrawn_out = store->entries[at].withdrawn;
+	return 1;
+}
+
 int fzn_revocation_known(const fzn_revocation_store_t *store,
                           const uint8_t issuer[FZN_PUBKEY_LEN],
                           const fzn_cap_id_t *capability,
@@ -781,8 +811,22 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 			 * Ignored rather than refused: nothing is wrong, a
 			 * peer is behind. Reporting an error would make an
 			 * alarm out of the network converging. */
-			if (fzn_ct_memeq(id, entry->id, FZN_REVOCATION_ID_LEN))
+			if (fzn_ct_memeq(id, entry->id, FZN_REVOCATION_ID_LEN)) {
+				/* AND THE DEFICIT DRAINS, which is not obvious
+				 * and is what stops a loop. A peer that has not
+				 * heard the withdrawal keeps naming this pair
+				 * as revoked, so a comparison keeps recording
+				 * "I lack something about it" -- and the fetch
+				 * lands here every time, changing nothing. The
+				 * request is answered even though the store is
+				 * not: this host demonstrably knows MORE about
+				 * the pair than the peer that sent it. */
+				fzn_manifest_satisfy(manifest,
+				                     fzn_revocation_issuer(record),
+				                     fzn_revocation_capability(record),
+				                     fzn_revocation_grantee(record));
 				return FZN_CHAIN_OK;
+			}
 
 			/* A GENUINELY NEW REVOCATION OVER A WITHDRAWAL MUST
 			 * CHAIN TO IT. This is where the rule lives: minting
@@ -791,8 +835,20 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 			 * the un-chained re-revocation is refused here rather
 			 * than warned about in a header. */
 			if (!fzn_ct_memeq(fzn_revocation_supersedes(record), entry->id,
-			                  FZN_REVOCATION_ID_LEN))
+			                  FZN_REVOCATION_ID_LEN)) {
+				/* Refused, and the deficit still drains: a
+				 * record that does not chain to the withdrawal
+				 * this host holds is one this host is ahead
+				 * of, so asking for it again would ask the
+				 * same peer the same question for ever. The
+				 * refusal is what a consumer sees; the drain
+				 * is what stops the asking. */
+				fzn_manifest_satisfy(manifest,
+				                     fzn_revocation_issuer(record),
+				                     fzn_revocation_capability(record),
+				                     fzn_revocation_grantee(record));
 				return FZN_CHAIN_ERR_UNKNOWN_TARGET;
+			}
 
 			entry->withdrawn = 0;
 			memcpy(entry->id, id, FZN_REVOCATION_ID_LEN);
@@ -804,6 +860,26 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 	}
 
 	if (at < store->used) {
+		fzn_revocation_t *entry = &store->entries[at];
+
+		/* A REISSUE OVER A LIVE REVOCATION ADVANCES THE ID, and it was
+		 * dropped as "already known" until this existed.
+		 *
+		 * The authorization answer does not change -- the pair was
+		 * revoked and stays revoked -- so it looks like nothing worth
+		 * storing. But `id` is what a later withdrawal must name, and
+		 * leaving it at the superseded record means the issuer's own
+		 * withdrawal of the CURRENT one is refused as a mismatch. The
+		 * pair would then be revocable, reissuable, and unwithdrawable.
+		 *
+		 * Chained only: a record naming something else is one this
+		 * host cannot place, and the pair is already revoked either
+		 * way, so the store is left alone. */
+		if (!fzn_ct_memeq(id, entry->id, FZN_REVOCATION_ID_LEN) &&
+		    fzn_ct_memeq(fzn_revocation_supersedes(record), entry->id,
+		                 FZN_REVOCATION_ID_LEN))
+			memcpy(entry->id, id, FZN_REVOCATION_ID_LEN);
+
 		/* SETTLED HERE TOO, AND NOT ONLY WHERE SOMETHING IS STORED.
 		 * A deficit entry can coexist with a stored revocation
 		 * whenever the manifest was admitted against a different view
