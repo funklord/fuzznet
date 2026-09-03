@@ -307,6 +307,38 @@ static void test_a_plan_whose_fields_disagree_is_refused(void)
 	CHECK(fzn_split_at(&plan, 5, &offset, &len) == FZN_SPLIT_ERR_MALFORMED,
 	      "a piece starting past the end of the message was accepted");
 
+	/* A COUNT THAT AGREES WITH NEITHER, AND THE ONLY CASE THAT REACHES THE
+	 * CHECK FOR IT.
+	 *
+	 * Both cases above are refused by an EARLIER guard -- the first by the
+	 * stride bound, the second by the start-inside-the-message bound -- and
+	 * both return the same MALFORMED either way, so neither one could tell
+	 * whether the count agreement was tested at all. Measured 2026-09-03:
+	 * removing it left the whole suite green.
+	 *
+	 * Ten bytes in strides of four is three pieces; this plan claims a
+	 * hundred. Index 2 clears every other guard -- the stride fits, the
+	 * piece starts at 8 which is inside the message, and 2 is below 100 --
+	 * so this line is the only thing that refuses it.
+	 *
+	 * WHAT IT COSTS IS OFF-MODULE. Accepted, the answer is offset 8 length
+	 * 4 over a ten-byte message: index 2 is not the last of a hundred, so
+	 * it gets a full stride rather than the two bytes that remain, and the
+	 * caller copies from two bytes past the end of its own message. */
+	memset(&plan, 0, sizeof(plan));
+	plan.total = 10;
+	plan.chunk_size = 4;
+	plan.chunks = 100;
+	offset = 0;
+	len = 0;
+	CHECK(fzn_split_at(&plan, 2, &offset, &len) == FZN_SPLIT_ERR_MALFORMED,
+	      "a plan whose count agrees with neither its total nor its stride was "
+	      "accepted, and the piece it describes runs past the message");
+	CHECK(len == 0, "a length of %zu was written for a refused call", len);
+	CHECK(offset + len <= 10u,
+	      "the refused piece spans [%zu, %zu) of a ten-byte message", offset,
+	      offset + len);
+
 	/* And the guard refuses nothing a real plan produces. Every index of
 	 * a genuine plan must still answer, including the last, which is the
 	 * one the underflow lived on. */

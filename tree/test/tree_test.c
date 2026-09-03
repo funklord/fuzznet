@@ -101,12 +101,45 @@ static void test_a_cycle_terminates_and_loses_nothing(void)
 	nodes[1] = make(ids[1], parents[1], 2u, 1u, 20u);
 	nodes[2] = make(ids[2], parents[2], 3u, 0u, 30u);
 
+	/* THE WALK IS DIRTIED FIRST, and that is what makes the three
+	 * assertions below about this function rather than about the stack.
+	 *
+	 * `walk` was an uninitialised local, so `emitted`, `examined` and
+	 * `truncated` were whatever the frame happened to hold -- and a
+	 * version of `fzn_tree_reachable` that reset none of them would have
+	 * been judged by garbage, passing or failing for reasons no compiler
+	 * flag controls. Same discipline as manifest_test.c's refused-signer
+	 * case: against a buffer that is already zero, a clear is
+	 * indistinguishable from its own absence.
+	 *
+	 * `examined` had no assertion at all here. Measured 2026-09-03:
+	 * deleting its reset in `fzn_tree_reachable` left the whole suite
+	 * green, because both readers of that field in the tree --
+	 * tree_test.c and tree_fuzz.c -- follow `fzn_tree_children` and never
+	 * this function. `walk` is a caller-owned struct the header invites
+	 * you to reuse, so without the reset a second call reports the first
+	 * one's count added to its own. */
+	walk.emitted = 99u;
+	walk.examined = 99u;
+	walk.truncated = 1;
+
 	expect_err(fzn_tree_reachable(nodes, 3u, mark, sizeof mark, &walk),
 	           FZN_TREE_OK, "a cyclic set is walked rather than refused");
 	expect(mark[2] != 0u, "the node under the root is reachable");
 	expect(mark[0] == 0u, "a node in a cycle is not reachable");
 	expect(mark[1] == 0u, "the other node in the cycle is not reachable");
 	expect(walk.emitted == 1u, "exactly one node is reachable");
+	/* A RANGE RATHER THAN A NUMBER, because the exact count is the
+	 * fixed-point schedule and not a promise. `examined` counts each
+	 * still-unmarked node once per pass, so it is at least `count` and at
+	 * most `count * (depth + 1)`, and the module's own comment bounds the
+	 * passes at depth+1. Three nodes here give five; asserting five would
+	 * freeze a loop the module is free to improve. The range still catches
+	 * the thing under test, since a count carried in from the caller is
+	 * far outside it. */
+	expect(walk.examined >= 3u && walk.examined <= 3u * 4u,
+	       "reachability's examined count is outside what three nodes can "
+	       "produce, so it carries what the caller left in the walk");
 	expect(walk.truncated == 0, "reachability writes no bounded output");
 }
 

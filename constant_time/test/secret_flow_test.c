@@ -159,6 +159,31 @@ static void check_wipe(void)
 	fzn_wipe(NULL, 16);
 	fzn_wipe(buf, 0);
 	expect(buf[sizeof(buf) - 1] == 0xA5, "a zero-length wipe erased something");
+
+	/* THE SAME PROMISE FOR THE COMPARISON, and the header states it: a
+	 * NULL side answers "not equal" rather than crashing, because every
+	 * caller here is asking an authorization question and the safe reply
+	 * to one with a missing operand is no.
+	 *
+	 * NOTHING IN THIS TREE HELD IT. The commit that added the guard added
+	 * it to constant_time.c and constant_time.h and to no test file at
+	 * all; its message records "NULL compares without crashing", measured
+	 * by hand, once. Measured again 2026-09-03 by deleting the guard: the
+	 * suite stayed green apart from the crash.
+	 *
+	 * A CRASH IS THE DETECTION, AND THAT IS INHERENT rather than a
+	 * weakness here. The guard exists to stop a dereference, so the only
+	 * difference between having it and not is whether the process
+	 * survives: the `len == 0` case answers the same either way, because
+	 * an empty loop leaves the accumulator at zero. Said plainly so that
+	 * the next reader does not go hunting for a stronger assertion than
+	 * this can carry. */
+	expect(fzn_ct_memeq(NULL, buf, sizeof(buf)) == 0,
+	       "a comparison with no left operand did not answer not-equal");
+	expect(fzn_ct_memeq(buf, NULL, sizeof(buf)) == 0,
+	       "a comparison with no right operand did not answer not-equal");
+	expect(fzn_ct_memeq(NULL, NULL, 0) == 1,
+	       "an empty comparison of two absent buffers did not answer equal");
 }
 
 int main(int argc, char **argv)

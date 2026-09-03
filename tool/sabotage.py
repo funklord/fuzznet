@@ -467,6 +467,77 @@ SABOTAGES = [
 		"\t\t/* sabotage */\n",
 		"the duplicate skip, which the store's own dedup should make unreachable",
 	),
+	# BATCH FIVE, 2026-09-03: THE FIFTEEN SOURCES THIS TABLE HAD NEVER
+	# TOUCHED.
+	#
+	# Batches one to four grew by shape. This one grew by ABSENCE: nineteen
+	# library sources had an entry and fifteen had none, which is a list a
+	# reader can compute and nobody had. Seven guards in that set turned out
+	# to be unheld, each confirmed with `--probe` before a line of test was
+	# written -- and three of the seven were unheld behind a test that names
+	# them, which is this tree's recurring shape rather than a coincidence:
+	#
+	#   revocation_test.c drove the hop ceiling against a store whose `used`
+	#   was zero, so the loop the ceiling guards never ran;
+	#   split_test.c's two disagreeing plans were both refused by an EARLIER
+	#   guard, returning the same error either way;
+	#   spool_test.c asked `has` for index 6 against a one-byte bitmap, so
+	#   the out-of-range read landed in the same byte.
+	#
+	# Each now has a case that discriminates, and each case was checked by
+	# deleting the guard and watching it fail. project.md sec 53.
+	(
+		"rev-covers-hop-ceiling",
+		"chain/revocation.c",
+		" || hop_count > (size_t)FZN_CHAIN_MAX_HOPS",
+		"",
+		"the only bound on a consumer walking a chain it parsed itself",
+	),
+	(
+		"rev-first-break",
+		"chain/revocation.c",
+		"\t\t\t\tfirst = j;\n\t\t\t\tbreak;\n",
+		"\t\t\t\tfirst = j;\n",
+		"entitlement starts at a key's FIRST grant; the break is what makes it",
+	),
+	(
+		"split-count-agreement",
+		"chunk/split.c",
+		"\tif ((size_t)plan->chunks != (plan->total - 1u) / plan->chunk_size + 1u)\n"
+		"\t\treturn FZN_SPLIT_ERR_MALFORMED;\n",
+		"\t/* sabotage */\n",
+		"the one plan check the three around it do not imply",
+	),
+	(
+		"spool-read-cap",
+		"spool/spool.c",
+		"\twant = cap < FZN_BLOB_SEALED_MAX ? cap : FZN_BLOB_SEALED_MAX;\n",
+		"\twant = FZN_BLOB_SEALED_MAX;\n",
+		"the caller's buffer size is what bounds the write into it",
+	),
+	(
+		"spool-has-index",
+		"spool/spool.c",
+		"\tif (!spool || index >= spool->leaves)\n\t\treturn 0;\n",
+		"\tif (!spool)\n\t\treturn 0;\n",
+		"the bound keeping bit_get inside the bitmap the caller lent",
+	),
+	(
+		"ct-null-operand",
+		"constant_time/constant_time.c",
+		"\tif (!pa || !pb)\n\t\treturn len == 0;\n",
+		"\t/* sabotage */\n",
+		"a missing operand answers not-equal rather than crashing (caught by the crash)",
+	),
+	(
+		"tree-reachable-examined",
+		"tree/tree.c",
+		"\tif (mark_cap < count)\n\t\treturn FZN_TREE_ERR_CAPACITY;\n\n"
+		"\twalk->emitted = 0u;\n\twalk->examined = 0u;\n",
+		"\tif (mark_cap < count)\n\t\treturn FZN_TREE_ERR_CAPACITY;\n\n"
+		"\twalk->emitted = 0u;\n",
+		"a reused walk must not report the previous call's count added to its own",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

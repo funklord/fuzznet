@@ -436,18 +436,76 @@ static void test_the_walk_over_gaps_ends(void)
 static void test_an_index_past_the_blob_is_refused(void)
 {
 	fzn_spool_t spool;
-	uint8_t map[FZN_SPOOL_BITMAP_LEN(TEST_LEAVES)];
+	uint8_t map[FZN_SPOOL_BITMAP_LEN(TEST_LEAVES) + 1u];
 	uint8_t back[FZN_BLOB_SEALED_MAX];
 	size_t back_len = 0u;
 
 	REQUIRE(build_blob(), "the blob fixture does not build");
-	reset(&spool, map, sizeof(map));
+	reset(&spool, map, FZN_SPOOL_BITMAP_LEN(TEST_LEAVES));
 
 	CHECK(fzn_spool_read(&spool, TEST_LEAVES, back, sizeof(back), &back_len) ==
 	      FZN_SPOOL_ERR_TOO_LARGE,
 	      "reading past the blob was accepted");
 	CHECK(fzn_spool_has(&spool, TEST_LEAVES) == 0,
 	      "a leaf past the blob was reported present");
+
+	/* AND ONE FAR ENOUGH PAST TO LEAVE THE BITMAP, which the line above
+	 * is not.
+	 *
+	 * TEST_LEAVES is 6 and the bitmap is one byte, so `bit_get(map, 6)`
+	 * reads `map[0] >> 6` -- inside the array, zero after `reset`, and the
+	 * assertion above passes with the bound deleted. Measured 2026-09-03:
+	 * it left the whole suite green.
+	 *
+	 * Index 8 is the first that addresses a second byte. The array carries
+	 * one, set to 0xff AFTER `reset` has zeroed the map, so the answer
+	 * without the bound is 1 rather than whatever the stack held -- a
+	 * caught mutation rather than a coin toss. `present` is a buffer the
+	 * caller lends, and this bound is the only thing keeping `bit_get`
+	 * inside it. */
+	map[FZN_SPOOL_BITMAP_LEN(TEST_LEAVES)] = 0xffu;
+	CHECK(fzn_spool_has(&spool, 8u) == 0,
+	      "an index past the end of the caller's bitmap was answered from the "
+	      "byte after it rather than refused");
+	CHECK(map[FZN_SPOOL_BITMAP_LEN(TEST_LEAVES)] == 0xffu,
+	      "the answer disturbed the byte after the caller's bitmap");
+}
+
+/* A SHORT READ STAYS INSIDE THE BUFFER IT WAS GIVEN.
+ *
+ * `cap` is the caller's buffer and `want = cap < FZN_BLOB_SEALED_MAX ? ...`
+ * is the only thing bounding the write. Every `fzn_spool_read` call in the
+ * tree -- three here and two in spool_file_test.c -- passes
+ * `cap == FZN_BLOB_SEALED_MAX`, which is exactly the value at which dropping
+ * the `cap` term changes nothing. Measured 2026-09-03: it left the suite
+ * green, and a relay asking for a short read got a full 1056-byte slot.
+ *
+ * THE BUFFER IS FULL-SIZED AND THE CAP IS NOT, so a sabotaged run overwrites
+ * the tail of a buffer that is genuinely there rather than smashing this
+ * function's frame. What is asserted is that the bytes past `cap` are
+ * untouched -- which is the promise, and is not the same as "it did not
+ * crash". */
+static void test_a_short_read_stays_inside_the_callers_buffer(void)
+{
+	fzn_spool_t spool;
+	uint8_t map[FZN_SPOOL_BITMAP_LEN(TEST_LEAVES)];
+	uint8_t out[FZN_BLOB_SEALED_MAX];
+	const size_t cap = 64u;
+	size_t len = 0u;
+
+	REQUIRE(build_blob(), "the blob fixture does not build");
+	reset(&spool, map, sizeof(map));
+	CHECK(fzn_spool_place(&spool, &HASH, 0u, sealed[0], sealed_len[0], proof[0],
+	                      proof_len[0]) == FZN_SPOOL_OK,
+	      "the fixture could not place leaf 0, so the read below proves nothing");
+
+	memset(out, 0xa5u, sizeof(out));
+	CHECK(fzn_spool_read(&spool, 0u, out, cap, &len) == FZN_SPOOL_OK,
+	      "a read bounded by the caller's own buffer was refused");
+	CHECK(len == cap, "a read of %zu bytes was reported for a cap of %zu", len, cap);
+	CHECK(out[cap] == 0xa5u,
+	      "a read wrote past the cap it was given, so the caller's buffer size is "
+	      "not what bounds it");
 }
 
 static void test_a_leaf_reads_back(void)
@@ -491,6 +549,7 @@ int main(void)
 	test_the_ceiling_is_refused_before_anything_is_touched();
 	test_the_walk_over_gaps_ends();
 	test_an_index_past_the_blob_is_refused();
+	test_a_short_read_stays_inside_the_callers_buffer();
 	test_a_leaf_reads_back();
 	test_the_suite_can_tell_pass_from_fail();
 

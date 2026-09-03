@@ -11244,6 +11244,131 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 53. The sources the sabotage table had never touched, 2026-09-03
+
+Sec 52 fixed an entry that had stopped matching. The obvious next question is
+the one that fix does not answer: **which guards have no entry at all.** The
+table grew by shape -- a clear on a refusal path, an init that zeroes, a
+protocol constant -- and never by coverage. Counted: of thirty-four library
+sources, **nineteen had an entry and fifteen had none**, and that is a list
+anyone could compute and nobody had.
+
+Five parallel readings of those fifteen, each told to propose a mutation, name
+the assertion it expected to fail, and **verify its own snippet matched
+exactly one site**. Seven guards came back predicted unheld. All seven were
+confirmed with `sabotage.py --probe` before a line of test was written, and
+three CAUGHT predictions were probed alongside them -- a method checked only
+where it predicts failure is not checked.
+
+### Three were unheld behind a test that names them
+
+This is the shape the last three days keep producing, and it is worth seeing
+the three side by side because the mechanism differs each time.
+
+    revocation_test.c   the ceiling case ran against a store whose `used`
+                        was zero, so the loop the ceiling guards never ran
+    split_test.c        both disagreeing plans were refused by an EARLIER
+                        guard, returning the same error either way
+    spool_test.c        `has` was asked for index 6 against a one-byte
+                        bitmap, so the out-of-range read stayed in byte 0
+
+None is a careless test. Each names the right property, and each is defeated
+by a detail of the fixture rather than of the assertion -- an empty store, a
+guard order, a bitmap that rounds up. **A test is only as sharp as the state
+it puts the code in**, and that state is the part nobody re-reads.
+
+### What the four with consequence actually cost
+
+`fzn_revocation_covers_chain`'s hop ceiling is the worst. It is the only bound
+protecting a consumer that parsed a chain itself -- the caller its own comment
+names, and the one `fzn_chain_verify` never plays, since verify bounds the
+count before calling. Without it the walk reads `hops[]` and **writes
+`revoked[]`** past the end of both, on the authorisation path.
+
+`chunk/split.c`'s count agreement is the only one of four sibling plan checks
+the other three do not imply. Its own comment names the shape it exists for --
+`{total = 10, chunk_size = 4, chunks = 100}` at index 2 -- and no test built
+it. Accepted, that returns offset 8 length 4 over a ten-byte message, because
+index 2 is not the last of a hundred and so gets a full stride: a two-byte
+overread at the caller's `memcpy`, off-module.
+
+`spool/spool.c`'s `want = cap < FZN_BLOB_SEALED_MAX ? ...` is the only thing
+bounding a write into the caller's buffer, and **all five call sites in the
+tree pass `cap == FZN_BLOB_SEALED_MAX`** -- exactly the value at which
+dropping the term changes nothing. A relay asking for a short read got a full
+1056-byte slot.
+
+`fzn_spool_has`'s index bound is the same story one size down: the bitmap is
+the caller's, and the bound is what keeps `bit_get` inside it.
+
+### Two that are unheld for reasons worth stating rather than fixing
+
+`fzn_ct_memeq`'s NULL refusal had **no test anywhere**. The commit that added
+it records "NULL compares without crashing" -- measured by hand, once, and
+never again. It is now driven, and the detection is a crash: the guard exists
+to stop a dereference, so with it gone the only observable difference is
+whether the process survives. The `len == 0` answers are identical either way,
+because an empty loop leaves the accumulator at zero. That is inherent, and
+the case says so rather than leaving a reader hunting for a stronger assertion
+than it can carry.
+
+`covers_chain`'s `break` -- the one that makes entitlement start at a key's
+**first** grant rather than its last -- could not be reached by any fixture in
+the tree. Every one seeds grantor `i` and grantee `i + 1`, and `chain_fuzz`
+cannot build a counterexample either: a chain that verifies must be linked, so
+its grantors are pairwise distinct by construction and smallest equals
+largest. The case builds the shape by calling `covers_chain` directly, which
+does not check linkage. The failure direction is fail-open -- taking the last
+appearance lets a chain that re-uses a key escape a withdrawal that should
+bite the hops between.
+
+### One prediction was wrong, and only probing found it
+
+`session/random_linux.c`'s null-buffer guard was predicted SURVIVED on the
+reasoning that `getrandom(NULL, 24, 0)` returns `EFAULT`, so the function
+returns 0 either way and `random_test.c`'s assertion passes. It came back
+CAUGHT. Reproduced directly: **SIGSEGV**. The assertion that appears to hold
+that guard never executes at all -- the process dies inside the call, and the
+message it would print cannot print. The guard is held; the test that looks
+like it holds it does not.
+
+Kept as the reason the CAUGHT predictions were probed too. Six of seven
+agreed; the seventh was a confident, well-argued, wrong mechanism, and no
+amount of re-reading it would have shown that.
+
+### Two things the readings found that were not guards at all
+
+**A test asserting on uninitialised memory.** `tree_test.c` declared
+`fzn_tree_walk_t walk;` and then asserted `walk.truncated == 0` after the
+call. Correct today only because the function writes the field; a version that
+reset nothing would have been judged by whatever the frame held. The walk is
+dirtied first now, which is the same discipline manifest_test.c's refused-signer
+case already carries.
+
+**A limitation that mutation testing cannot reach.** Sec 5g records that
+`sched/`'s `usable` is boolean and that this costs a host in backoff its only
+link. The guard around `usable` is tested in both directions; there is no
+backoff clamp anywhere in `sched/sched.c` to sabotage. **The limitation is a
+MISSING guard, and this technique finds unheld guards, not absent ones.** Worth
+stating because a table growing by coverage invites the assumption that a
+covered module is a complete one.
+
+### And the pattern rule from sec 52 paid for itself three times
+
+Three of the five readings hit a snippet matching two sites while constructing
+their proposals -- in `wire/relay.c`, `spool/spool.c` and `tree/tree.c`. Each
+would have produced an entry that tested nothing, exactly like the seal entry.
+They were caught because each reading was required to count its own matches
+before proposing, which is the same check `--verify` now runs over the table.
+
+**One correction taken here rather than shipped:** the first `examined`
+assertion read `== 3` for three nodes and failed against unmutated code.
+`examined` counts each still-unmarked node once per fixed-point pass, so three
+nodes give five. The assertion is a range bounded by the module's own
+documented cost, because the exact number is the loop's schedule and not a
+promise -- freezing it would make a legitimate improvement look like a
+regression.
+
 ## 52. The sweep run in full, and the entry that had stopped testing, 2026-09-03
 
 Forty-two entries, every one of them:

@@ -1868,6 +1868,149 @@ static void test_the_chain_walk_answers_its_own_guards(void)
 	CHECK(1, "a walk with nowhere to answer returned");
 }
 
+/* THE CEILING, ASKED OF A STORE THAT HAS SOMETHING TO SAY.
+ *
+ * The case above drives `hop_count` one past FZN_CHAIN_MAX_HOPS and CANNOT
+ * FAIL. Its store is freshly initialised, so `used` is zero, and the entry
+ * loop the ceiling stands in front of never runs: nothing is written and
+ * `revoked[0] == 0` holds whether the guard is there or not. Measured
+ * 2026-09-03 with `sabotage.py --probe` -- removing the ceiling term leaves
+ * the whole suite green.
+ *
+ * That is this file's own warning turned on itself. The case is headed "a
+ * function with no direct test, and its guards are the reason it exists",
+ * and it drives five guards that way; four of them refuse before the loop
+ * and are held. This one only bites at the loop, so an empty store hides it.
+ *
+ * ONE ADMITTED ENTRY IS THE WHOLE DIFFERENCE. With `used == 1` the walk
+ * runs, and an oversized count then reads `hops[]` and writes `revoked[]`
+ * past the end of both -- on the authorisation path, in a consumer that
+ * parsed the chain itself, which is the caller the guard's own comment
+ * names and the one `fzn_chain_verify` never plays.
+ *
+ * THE ARRAYS CARRY ONE SLOT MORE THAN THE CEILING, so a sabotaged run is
+ * measuring the library rather than wandering off the test's own stack.
+ * `revoked[FZN_CHAIN_MAX_HOPS]` is a canary: the function clears exactly
+ * FZN_CHAIN_MAX_HOPS bytes, so nothing legitimate reaches it.
+ *
+ * EVERY SLOT HOLDS A REAL OPENED HOP, the same one. Zeroed views would make
+ * `fzn_hop_grantor` a pointer into nothing the moment the guard came out,
+ * and a case whose sabotaged form dies on its own fixture has measured the
+ * fixture. */
+static void test_the_hop_ceiling_gates_a_walk_that_would_answer(void)
+{
+	struct fixture f;
+	uint8_t hop_bytes[FZN_HOP_LEN], bytes[FZN_REVOCATION_LEN];
+	fzn_chain_hop_t one, hops[FZN_CHAIN_MAX_HOPS + 1u];
+	uint8_t revoked[FZN_CHAIN_MAX_HOPS + 1u];
+	fzn_revocation_record_t r;
+	fzn_cap_id_t cap;
+	size_t i;
+
+	fixture_init(&f);
+	capability_id(&cap, 0xc0);
+
+	/* The root grants to key 1, then withdraws it from key 1. */
+	mint_hop(&f, hop_bytes, &one, 0, 1, &cap, 1000, FZN_NO_EXPIRY, 1);
+	issue(&f, bytes, &r, 0, 0xc0, 1);
+	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(r), f.root,
+	                           &f.sign, NULL) == FZN_CHAIN_OK,
+	      "the fixture's revocation was refused, so nothing below is asking a "
+	      "store that can answer");
+	CHECK(f.store.used == 1, "the store holds %zu entries, wanted 1", f.store.used);
+
+	for (i = 0; i < FZN_CHAIN_MAX_HOPS + 1u; i++)
+		hops[i] = one;
+
+	/* THE POSITIVE CONTROL. Without it the refusal below is satisfied by a
+	 * store that answers nothing to any question, which is exactly how the
+	 * case above came to prove nothing. */
+	memset(revoked, 0u, sizeof(revoked));
+	revoked[FZN_CHAIN_MAX_HOPS] = 0xa5u;
+	fzn_revocation_covers_chain(&f.store, hops, 1u, &cap, revoked);
+	CHECK(revoked[0] == 1u,
+	      "a one-hop chain was not revoked by an entry naming its grantor, its "
+	      "capability and its grantee -- so this store answers nothing and the "
+	      "ceiling case below would pass against silence");
+	CHECK(revoked[FZN_CHAIN_MAX_HOPS] == 0xa5u,
+	      "a walk of one hop wrote past FZN_CHAIN_MAX_HOPS");
+
+	/* ONE PAST THE CEILING: the store that just revoked must now say
+	 * nothing, and must not have read or written to say it. */
+	memset(revoked, 0u, sizeof(revoked));
+	revoked[FZN_CHAIN_MAX_HOPS] = 0xa5u;
+	fzn_revocation_covers_chain(&f.store, hops, FZN_CHAIN_MAX_HOPS + 1u, &cap,
+	                            revoked);
+	CHECK(revoked[0] == 0u,
+	      "a walk past the hop ceiling answered rather than refusing, so a peer's "
+	      "count decides how far this reads");
+	CHECK(revoked[FZN_CHAIN_MAX_HOPS] == 0xa5u,
+	      "a walk past the hop ceiling wrote past the end of the caller's array");
+}
+
+/* A KEY THAT GRANTS TWICE IS ENTITLED FROM ITS FIRST APPEARANCE.
+ *
+ * `covers_chain` takes the SMALLEST `j` whose grantor is the entry's issuer,
+ * and its comment calls that "the whole of the entitlement rule": a key is an
+ * ancestor of every hop after where it grants and of nothing before it, so a
+ * key deep in one branch must not reach back and withdraw the root's own
+ * grant at hop 0. The `break` is what makes it the smallest.
+ *
+ * NO CASE IN THIS TREE BUILT A CHAIN WITH A REPEATED GRANTOR. Every fixture
+ * here seeds grantor `i` and grantee `i + 1`, and `chain_fuzz` cannot make
+ * one either -- a chain that verifies must be linked, so its grantors are
+ * pairwise distinct by construction. With every grantor unique, smallest and
+ * largest are the same `j` and the `break` is invisible. Measured 2026-09-03:
+ * deleting it left the whole suite green.
+ *
+ * THE DIRECTION OF THE FAILURE IS FAIL-OPEN. Taking the last appearance
+ * instead of the first moves entitlement later in the chain, so the hops
+ * between the two appearances stop being revoked -- a chain that re-uses a
+ * key escapes a withdrawal that should bite it.
+ *
+ * Hop 1 sits between the two appearances and names a different grantee, so
+ * it is NOT revoked either way. It is there to prove the walk is selecting
+ * on the grantee rather than painting everything from `first` onward. */
+static void test_a_repeated_grantor_is_entitled_from_its_first_hop(void)
+{
+	struct fixture f;
+	uint8_t hop_bytes[3][FZN_HOP_LEN], bytes[FZN_REVOCATION_LEN];
+	fzn_chain_hop_t hops[3];
+	uint8_t revoked[FZN_CHAIN_MAX_HOPS];
+	fzn_revocation_record_t r;
+	fzn_cap_id_t cap;
+
+	fixture_init(&f);
+	capability_id(&cap, 0xc0);
+
+	/* The root grants to key 2, somebody else grants to key 3, and the
+	 * root grants to key 2 again. Only `covers_chain` reads this array and
+	 * it does not check linkage, which is what lets a case build the shape
+	 * a verified chain cannot. */
+	mint_hop(&f, hop_bytes[0], &hops[0], 0, 2, &cap, 1000, FZN_NO_EXPIRY, 1);
+	mint_hop(&f, hop_bytes[1], &hops[1], 9, 3, &cap, 1000, FZN_NO_EXPIRY, 1);
+	mint_hop(&f, hop_bytes[2], &hops[2], 0, 2, &cap, 1000, FZN_NO_EXPIRY, 1);
+
+	issue(&f, bytes, &r, 0, 0xc0, 2);
+	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(r), f.root,
+	                           &f.sign, NULL) == FZN_CHAIN_OK,
+	      "the fixture's revocation was refused, so nothing below is asking a "
+	      "store that can answer");
+
+	memset(revoked, 0u, sizeof(revoked));
+	fzn_revocation_covers_chain(&f.store, hops, 3u, &cap, revoked);
+
+	CHECK(revoked[0] == 1u,
+	      "the root's withdrawal did not reach hop 0, so entitlement was taken "
+	      "from the key's LAST appearance and the hops before it escaped");
+	CHECK(revoked[2] == 1u,
+	      "the root's withdrawal did not reach hop 2, so the control fails and "
+	      "the check above proves nothing");
+	CHECK(revoked[1] == 0u,
+	      "a hop naming a different grantee was revoked, so the walk paints "
+	      "every hop from the first rather than selecting on the grantee");
+}
+
 int main(void)
 {
 	test_layout_and_round_trip();
@@ -1904,6 +2047,8 @@ int main(void)
 	test_an_offer_that_names_a_chain_it_does_not_carry();
 	test_a_batch_carries_each_issuers_own_chain();
 	test_the_chain_walk_answers_its_own_guards();
+	test_the_hop_ceiling_gates_a_walk_that_would_answer();
+	test_a_repeated_grantor_is_entitled_from_its_first_hop();
 	test_the_suite_can_tell_pass_from_fail();
 
 	printf("revocation_test: %d checks, %d failure(s)\n", checks, failures);
