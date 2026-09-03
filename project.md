@@ -11244,6 +11244,99 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 52. The sweep run in full, and the entry that had stopped testing, 2026-09-03
+
+Forty-two entries, every one of them:
+
+    CAUGHT        39
+    SURVIVED       2   both on the expected list, sec 36 and sec 42
+    PATTERN-MISS   1   -> the finding
+
+Tool exit 2, which means the sweep is incomplete rather than that a guard is
+undefended. Read through `tee`, so the shell's `$?` was the pipe's; the code
+came from `PIPESTATUS[0]`. Sec 37 already records that `make sabotage`
+flattens both outcomes into make's own 2 -- this is the same trap one layer
+out, and the same answer: ask the tool.
+
+### `seal-open-clears-out` had been testing nothing for two days
+
+The entry matched a bare `memset(out, 0, sizeof(*out));` in `wire/seal.c`
+and requires exactly one occurrence. There are two:
+
+    wire/seal.c:135   fzn_seal_open   1e0d7da, 2026-08-18   the intended target
+    wire/seal.c:252   fzn_seal_peek   3131bc0, 2026-09-01   the collision
+
+`3131bc0` is the commit that made `peek` read the whole plaintext head. It
+gave `peek` the same clear on the same argument name, and in doing so retired
+the entry -- which then sat in a table of thirty-nine reading as coverage.
+
+**The harness was right and nothing was wrong with it.** It refused to guess
+which `memset` was meant, said so, and set the exit code that means the
+output cannot be trusted. What failed is that a sweep is the only thing that
+asks, and none had been run since the collision landed.
+
+### Two entries now, both spelled with their neighbours
+
+`fzn_seal_peek`'s clear is a promise `seal.h` makes to callers, so it earns
+an entry of its own rather than disambiguation alone:
+
+    seal-open-clears-out   CAUGHT   an open refused for the wrong key left pointers behind
+    seal-peek-clears-out   CAUGHT   seal_fuzz, on case 0
+
+The rule the table now carries: **a pattern is spelled with enough context to
+name one call site even where the bare line is unique today.** A module
+growing a second caller of the same idiom is ordinary, and it must not be
+able to silently retire an entry.
+
+### The gate that makes this cheap, and why it could not be `sabotage`
+
+`make sabotage` is outside `make check` for a good reason -- it rewrites
+tracked files, and nothing that reads as "check my work" should. That reason
+is about the *mutations*, and it was quietly taken to cover the table as
+well. Everything needed to catch `3131bc0` on the afternoon it landed was a
+substring count.
+
+`sabotage.py --verify` opens no compiler and writes no byte. It checks that
+each entry's text matches exactly one site in a file that exists, that no
+entry replaces its text with itself, and that every id exempted in
+`EXPECTED_SURVIVORS` still names an entry -- the same rot pointed the other
+way, where a rename leaves an exemption behind ready to silence a real
+survivor. `make style` runs it; the whole check is 43 substring counts.
+
+Proven to discriminate rather than asserted, by patching the table in memory:
+
+    matches nothing            reported, exit 2
+    matches two sites          reported, exit 2      <- the real defect
+    replaces its text with itself   reported, exit 2
+    names a file that is gone   reported, exit 2
+    stale survivor exemption    reported, exit 2
+
+and then against the real gate: inserting one blank line into `fzn_seal_peek`
+made `make style` fail, naming the entry. `wire/seal.c` restored byte-identical.
+
+**One probe in that sequence did not apply** -- an anchor assumed unique was
+not -- and the `make style` run after it came back clean. That clean run is
+worth nothing, and it is the shape sec 40 names: a mutation that did not land
+and a check that cannot fail are indistinguishable from the output. It was
+caught only because the probe asserted its own match count first.
+
+### Two claims that outlived their fix
+
+Sec 37 and the `sabotage:` comment in the Makefile both say `sync-clear-plan`
+hangs, costs a full timeout, and that a complete run is priced accordingly.
+Measured today: **CAUGHT in under ten seconds.**
+
+`a1af82d` bounded the plan count that harness walks, on 2026-08-31 -- the same
+day sec 37 was written. The note describing the hang as a standing condition
+was stale within hours of being recorded, and the Makefile's estimate has been
+telling every reader since to budget half an hour that was never needed.
+
+Worth naming as its own small lesson: **a note that says "for as long as this
+stands" is a claim with no expiry check on it.** The commit that fixed the
+hang did not know a paragraph elsewhere described it as permanent, and nothing
+connects the two. Where a document states a current condition rather than a
+decision, it wants either a measurement beside it or nothing at all.
+
 ## 51. A ceiling that was compared and not held, 2026-09-02
 
 `fzn_manifest_issue` derives a manifest from the issuer's own store, so the
@@ -14374,6 +14467,12 @@ headroom for nothing and bought a single hang thirty minutes.
 **A full run therefore costs its timeout on top of the builds**, for as long
 as this entry stands. That is the finding rather than a fault in the target,
 and `ARGS=--only ...` narrows it meanwhile.
+
+**That stopped being true the same day**, and this paragraph did not notice
+for two. `a1af82d` bounded the plan count `network_test` walks, so the
+sabotage now fails on an assertion instead of looping; measured on
+2026-09-03 at under ten seconds. Sec 52 has the measurement and what the
+stale note cost.
 
 **One correction to sec 36's own text, measured here:** it said the tool
 exits 1 for a finding and 2 for a run that cannot be trusted, which is true

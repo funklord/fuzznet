@@ -1834,10 +1834,18 @@ analyze:
 # needs to tell the two apart. This comment said otherwise until the
 # difference was measured.
 #
-# ONE ENTRY IS KNOWN TO HANG rather than fail -- sync-clear-plan, which
-# takes sim/test/network_test past any sensible bound -- so a full run costs
-# its timeout on top of the builds. That is the finding rather than a fault
-# in the target, and `ARGS=--only ...` skips it while it stands.
+# `sync-clear-plan` USED TO HANG rather than fail, taking
+# sim/test/network_test past any sensible bound, and this comment priced a
+# full run at its timeout accordingly. a1af82d bounded the plan count that
+# harness walks and the entry has failed fast since; measured 2026-09-03 at
+# under ten seconds, two days after the fix and with the warning still here.
+# A full sweep is builds plus one `make test` each, and nothing budgets a
+# timeout. See project.md sec 52.
+#
+# `make sabotage ARGS=--verify` is the read-only half: it checks that every
+# entry still names exactly one site, builds nothing, and is what `make
+# style` runs. An entry whose pattern has stopped matching tests nothing
+# while sitting in a table that reads as coverage.
 #
 # `make sabotage ARGS=--list` prints the entries without running anything.
 sabotage:
@@ -1865,6 +1873,17 @@ check: style test installcheck
 
 style:
 	python3 tool/style_gate.py check
+	@# THE SABOTAGE TABLE IS A LIST KEPT BY HAND, and it is the one list
+	@# here whose staleness is invisible. `make sabotage` says so when it
+	@# runs, and it rewrites tracked files, so it is deliberately outside
+	@# `check` and gets run when somebody remembers -- which left
+	@# `seal-open-clears-out` matching two sites, and therefore testing
+	@# nothing, from 2026-09-01 to 2026-09-03. See project.md sec 52.
+	@#
+	@# `--verify` counts substrings. It opens no compiler and writes no
+	@# byte, which is what makes it safe to put in a routine gate that
+	@# `sabotage` itself can never be part of.
+	python3 tool/sabotage.py --verify
 	@# EVERY .c IN THE TREE MUST BE IN A LIST -- the fourth instance of one
 	@# pattern and the last that was not mechanically checked. HDRS against
 	@# `install`, GEN_SRCS against `coverage`, TEST_BINS against .gitignore,

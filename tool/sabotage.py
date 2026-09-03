@@ -117,12 +117,38 @@ SABOTAGES = [
 		"\t/* sabotage */\n",
 		"the key is copied only if non-NULL, so this is the NULL path's zero",
 	),
+	# BOTH SEAL ENTRIES CARRY CONTEXT, and the reason is a finding rather
+	# than a style choice. This was one entry matching a bare
+	# `memset(out, 0, sizeof(*out));`, which was unique in wire/seal.c until
+	# 3131bc0 (2026-09-01) gave `fzn_seal_peek` the same clear. From then
+	# until the 2026-09-03 sweep the entry reported PATTERN-MISS and tested
+	# nothing, and nothing else would have said so -- see project.md sec 52.
+	#
+	# So a pattern here is spelled with enough of its neighbours to name ONE
+	# call site, even where the bare line happens to be unique today. A
+	# second caller of the same idiom is a normal thing for a module to
+	# grow, and it must not silently retire an entry.
 	(
 		"seal-open-clears-out",
 		"wire/seal.c",
+		"\tmemset(out, 0, sizeof(*out));\n"
+		"\n"
+		"\tif (!views(frame, frame_len, &msg, &fv, &hv))\n",
+		"\t/* sabotage */\n"
+		"\n"
+		"\tif (!views(frame, frame_len, &msg, &fv, &hv))\n",
+		"fzn_seal_open clears the caller's output before any refusal below it",
+	),
+	(
+		"seal-peek-clears-out",
+		"wire/seal.c",
+		"\tif (!frame || !out)\n"
+		"\t\treturn FZN_SEAL_ERR_MALFORMED;\n"
 		"\tmemset(out, 0, sizeof(*out));\n",
+		"\tif (!frame || !out)\n"
+		"\t\treturn FZN_SEAL_ERR_MALFORMED;\n"
 		"\t/* sabotage */\n",
-		"clears the caller's output before any refusal below it",
+		"fzn_seal_peek promises the same clear in seal.h and was never swept",
 	),
 	# INVERTED, BECAUSE THE GUARD TURNED OUT TO BE THE FAULT. This entry
 	# used to delete a `memset(out, 0, ...)` from fzn_persist_secret_open and
@@ -501,6 +527,55 @@ def dirty_files(paths):
 	return [line[3:] for line in out.stdout.splitlines() if line.strip()]
 
 
+# EVERY ENTRY STILL NAMES EXACTLY ONE SITE.
+#
+# An entry whose `old` text has stopped matching is not a milder version of a
+# finding -- it is an entry that reports nothing while sitting in a table that
+# reads as coverage. The sweep already says so when it runs, and the whole
+# problem is that it runs rarely, because it rewrites tracked files and cannot
+# be part of a routine gate.
+#
+# Nothing here opens a compiler or writes a byte, so it can be. The check that
+# would have caught 3131bc0 the same afternoon is a substring count.
+#
+# IT ALSO CHECKS THE SURVIVOR LIST, for the same reason in the other
+# direction. An id in EXPECTED_SURVIVORS that no longer names an entry is a
+# silenced verdict with nothing behind it: rename an entry and its exemption
+# stays, ready to suppress a real survivor that happens to reuse the name.
+def verify():
+	bad = 0
+	for sid, rel, old, new, _ in SABOTAGES:
+		path = os.path.join(ROOT, rel)
+		if not os.path.exists(path):
+			print("sabotage: %s names %s, which does not exist" % (sid, rel))
+			bad += 1
+			continue
+		seen = io.open(path, encoding="utf-8").read().count(old)
+		if seen == 0:
+			print("sabotage: %s matches nothing in %s" % (sid, rel))
+			bad += 1
+		elif seen > 1:
+			print("sabotage: %s matches %d sites in %s, wanted 1 -- spell it "
+			      "with enough context to name one" % (sid, seen, rel))
+			bad += 1
+		if old == new:
+			print("sabotage: %s replaces its text with itself" % sid)
+			bad += 1
+	ids = {sid for sid, _, _, _, _ in SABOTAGES}
+	for sid in sorted(EXPECTED_SURVIVORS):
+		if sid not in ids:
+			print("sabotage: %s is exempted as an expected survivor and is "
+			      "not in the table" % sid)
+			bad += 1
+	if bad:
+		print("sabotage: %d stale entr(ies). A stale entry reports a guard "
+		      "as defended without testing it." % bad)
+		return 2
+	print("sabotage: %d entries, each naming exactly one site (nothing was "
+	      "built or changed)" % len(SABOTAGES))
+	return 0
+
+
 def main(argv):
 	ap = argparse.ArgumentParser(
 		description="break one guard at a time and rebuild through make test")
@@ -512,6 +587,14 @@ def main(argv):
 	                     "nothing")
 	ap.add_argument("--timeout", type=int, default=TIMEOUT, metavar="SECONDS",
 	                help="ceiling on one `make test` (default %d)" % TIMEOUT)
+	# READ-ONLY, BUILDS NOTHING, AND THAT IS WHY `make style` CAN CALL IT.
+	# The full sweep rewrites tracked files, so it is deliberately outside
+	# `make check` and gets run when somebody remembers. That left a stale
+	# pattern undetected for two days -- see project.md sec 52. Everything
+	# needed to notice it was a substring count.
+	ap.add_argument("--verify", action="store_true",
+	                help="check every entry still names exactly one site, "
+	                     "without mutating or building anything")
 	# ONE-OFF MUTATIONS BELONG HERE TOO, and this argument exists because
 	# they were repeatedly written by hand instead. Exploring "is this
 	# constant pinned by anything?" is the same operation as an entry in
@@ -531,6 +614,9 @@ def main(argv):
 			mark = " (expected survivor)" if sid in EXPECTED_SURVIVORS else ""
 			print("%-24s %-22s %s%s" % (sid, rel, why, mark))
 		return 0
+
+	if args.verify:
+		return verify()
 
 	chosen = SABOTAGES
 	if args.probe:
