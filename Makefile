@@ -1665,7 +1665,67 @@ fuzz: $(FUZZ_BINS)
 # check added here should be a deliberate line somebody wrote.
 codegencheck: $(BUILD_DIR)/constant_time/constant_time.o \
               $(BUILD_DIR)/session/commitment.o
-	python3 tool/codegen_gate.py ct $(BUILD_DIR)/constant_time/constant_time.o
+	@# THE CONTROL, DERIVED FROM THE REAL SOURCE AND BUILT WITH THIS
+	@# BUILD'S OWN CC AND FLAGS.
+	@#
+	@# Measured 2026-09-03 across eight cells: at clang -Os the ct check
+	@# reports "shape unchanged" for an early-exit fzn_ct_memeq -- a mutant
+	@# that preserves every result and destroys the only property
+	@# constant_time/ exists for. -Os is this build's level and clang is
+	@# what `fuzz` and `ctcheck` already use, so that is a green verdict
+	@# meaning nothing on a supported toolchain.
+	@#
+	@# IT CANNOT BE DETECTED FROM THE OBJECT. codegen_gate.py skips for
+	@# -O0, for a sanitizer build and off x86-64, all read from DWARF's
+	@# producer string -- and clang records only its version there, with no
+	@# flags at all, which that tool's own comment says. Nothing in a clang
+	@# object says -Os.
+	@#
+	@# So the question is asked by experiment instead: compile a known-bad
+	@# variant with the same CC and CFLAGS and see whether the gate rejects
+	@# it. Rejected, the gate can discriminate here and its verdict on the
+	@# real object means something. ACCEPTED, it cannot, and it says so and
+	@# skips rather than reporting a pass. Same shape as `ctcheck`'s own
+	@# positive control.
+	@#
+	@# DERIVED BY SUBSTITUTION RATHER THAN WRITTEN OUT, and that is the
+	@# second version. The first was a hand-written early-exit memeq and it
+	@# was REJECTED at clang -Os -- so it would have reported "this
+	@# toolchain can discriminate" while the real mutant still passed. It
+	@# differed from the real function in dropping `volatile uint8_t diff`,
+	@# which is enough to change what clang emits. A control that is not
+	@# the real function minus one line is a different program, and this
+	@# one was a non-discriminating check inside the fix for a
+	@# non-discriminating check.
+	@#
+	@# THE SUBSTITUTION IS ASSERTED TO MATCH EXACTLY ONE LINE, and that is
+	@# stronger than checking the result differs. A pattern matching twice
+	@# would build a control with two mutations, and a pattern matching
+	@# nothing would build one identical to the real function -- which the
+	@# gate would accept, correctly reporting that it cannot discriminate,
+	@# but for a reason that is this recipe's fault rather than the
+	@# compiler's. Naming the count tells those apart.
+	@#
+	@# PIPED TO THE COMPILER RATHER THAN WRITTEN OUT. BUILD_DIR defaults to
+	@# `.` for the in-place build, so a generated .c lands in the source
+	@# tree -- it did, in `tool/`, and `make style` refused it for its
+	@# indentation. The gate catching that is the gate working; leaving a
+	@# generated source where a person might read it as tracked is not
+	@# something to fix by adding an exclusion.
+	@mkdir -p $(BUILD_DIR)/tool
+	@n=`grep -c 'diff |=' constant_time/constant_time.c`; \
+	if [ "$$n" -ne 1 ]; then \
+		echo "codegencheck: the control substitution matches $$n lines of" >&2; \
+		echo "codegencheck: constant_time.c, wanted exactly 1 -- the control" >&2; \
+		echo "codegencheck: it would build proves nothing." >&2; \
+		exit 1; \
+	fi
+	@sed 's#^.*diff |=.*$$#        if (pa[i] != pb[i]) return 0;#' \
+	  constant_time/constant_time.c \
+	  | $(CC) $(FZN_PROBE_CPPFLAGS) $(CFLAGS) -Iconstant_time \
+	    -x c - -c -o $(BUILD_DIR)/tool/ct_control.o
+	python3 tool/codegen_gate.py ct $(BUILD_DIR)/constant_time/constant_time.o \
+	                               $(BUILD_DIR)/tool/ct_control.o
 	python3 tool/codegen_gate.py wipe $(BUILD_DIR)/session/commitment.o
 
 # COVERAGE-GUIDED FUZZING, which is a different instrument from `fuzz`.

@@ -372,10 +372,46 @@ CHECKS = {
 
 
 def main():
-	if len(sys.argv) != 3 or sys.argv[1] not in CHECKS:
-		fail(f"usage: codegen_gate.py {{{'|'.join(CHECKS)}}} <object>")
+	if len(sys.argv) not in (3, 4) or sys.argv[1] not in CHECKS:
+		fail(f"usage: codegen_gate.py {{{'|'.join(CHECKS)}}} <object> [<control>]")
 	function, checker = CHECKS[sys.argv[1]]
 	obj = sys.argv[2]
+	control = sys.argv[3] if len(sys.argv) == 4 else None
+
+	# A CONTROL THAT MUST BE REJECTED, AND A SKIP WHEN IT IS NOT.
+	#
+	# The three skips above ask DWARF how the object was made. That works
+	# for -O0 and for a sanitizer build and it cannot work for a compiler's
+	# optimisation level, because clang records only its version in
+	# DW_AT_producer -- the reason `unoptimised` returns None for it. So
+	# there is nothing in a clang object saying -Os, and at clang -Os this
+	# check was measured accepting an early-exit `fzn_ct_memeq`: a mutant
+	# that keeps every result and destroys the only property the function
+	# has. See project.md sec 53 for the eight-cell matrix.
+	#
+	# A control compiled with the same CC and the same CFLAGS answers the
+	# question without needing to name the toolchain. Rejected, this gate
+	# can discriminate here and its verdict below means something.
+	# ACCEPTED, it cannot, and it must not then report a pass -- which is
+	# this file's own rule, applied to itself rather than to the object.
+	#
+	# It exits 0, like the other skips: a compiler whose codegen blinds the
+	# tripwire is not a fault in the source and must not fail the build. It
+	# is loud instead, because a silent one would be the thing it exists to
+	# prevent.
+	if control is not None:
+		_, control_problems = checker(
+			body(disassemble(control), control, function), control)
+		if not control_problems:
+			print(f"codegen-gate: SKIPPED -- the control object {control} was "
+			      f"ACCEPTED, so this toolchain's codegen makes {function}'s "
+			      "shape indistinguishable from a known-bad one and a pass "
+			      "here would say nothing. Run `make ctcheck`, which observes "
+			      "the branch rather than inferring it from shape.")
+			return
+		print(f"codegen-gate: control rejected, as it must be "
+		      f"({len(control_problems)} problem(s)), so this toolchain can "
+		      "tell the two apart")
 
 	insns = body(disassemble(obj), obj, function)
 	counts, problems = checker(insns, obj)

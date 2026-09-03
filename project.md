@@ -11677,6 +11677,46 @@ declining to accept it into a document to turn eight cells into a
 measurement -- and the measurement says something stronger and in a
 different direction than either of us guessed.
 
+### The gate now says when it cannot tell, and the control took three goes
+
+A false pass is the one verdict this file argues nothing may produce, so
+`codegencheck` gained a positive control: a known-bad `fzn_ct_memeq`,
+compiled with the SAME `CC` and `CFLAGS`, which the gate must reject before
+its verdict on the real object counts for anything. Rejected, the toolchain
+can discriminate. **Accepted, the gate says so and SKIPS**, pointing at
+`ctcheck`, rather than reporting a shape unchanged. It exits 0 like the
+other three skips: a compiler whose codegen blinds a tripwire is not a fault
+in the source and must not fail a build.
+
+Asking by experiment is what makes it work at all. The existing skips read
+DWARF's producer string, and that cannot answer this one -- **clang records
+only its version there, with no flags**, which is written in the tool's own
+comment as the reason a "no -O seen" rule was removed. Nothing in a clang
+object says `-Os`. Compiling a control with the flags in hand needs to know
+neither the compiler nor the level.
+
+**The first control was hand-written and did not reproduce the hole.** An
+early-exit memeq, written from scratch, is REJECTED at clang -Os -- so the
+gate would have announced "this toolchain can discriminate" while the real
+mutant sailed through. It differed from the real function by dropping
+`volatile uint8_t diff`, which is enough to change what clang emits. A
+control that is not the real function minus one line is a different program.
+That is a non-discriminating check inside the fix for a non-discriminating
+check, which is the third instance in a day.
+
+So it is derived by substitution from `constant_time.c` instead, and the
+recipe asserts the pattern matches **exactly one** line -- stronger than
+checking the output differs, because two matches would build a control with
+two mutations and zero would build one identical to the real function, and
+those fail for different reasons.
+
+**The second version wrote a `.c` into the source tree.** `BUILD_DIR`
+defaults to `.` for the in-place build, so `$(BUILD_DIR)/tool/ct_control.c`
+is `tool/ct_control.c`, and `make style` refused it on its indentation. The
+gate catching a generated file is the gate working; the answer was to stop
+generating the file rather than to add an exclusion, so the substitution now
+pipes straight into the compiler and only the object lands.
+
 ### And the pattern rule from sec 52 paid for itself three times
 
 Three of the five readings hit a snippet matching two sites while constructing
