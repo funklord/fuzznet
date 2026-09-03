@@ -1275,6 +1275,147 @@ static void scenario_revocation_split(void)
 	       untold->revocations.used);
 }
 
+/* ------------------------------------------------------------ scenario 3c
+
+   A WITHDRAWAL, AND THE HALF OF IT THAT REACHES NOBODY.
+
+   Two receivers, anchored to the same root, holding the same revocation of
+   the same sender. One of them is then handed the withdrawal that undoes it;
+   the other is not. The first delivers again. The second still refuses.
+
+   THE SECOND STILL REFUSING IS THE OPEN GAP NAMED IN project.md sec 56 AND
+   IN chain/revocation.h, NOT A FAULT HERE. A withdrawal has no distribution
+   path in this library. `fzn_manifest_issue` omits withdrawn pairs --
+   correctly, since a manifest states what IS revoked and publishing a
+   restored pair would tell every receiver to revoke it again under the
+   withdrawing issuer's own signature -- and the deficit machinery is the
+   wrong shape rather than missing a case: it computes what THIS host lacks
+   from a peer's manifest, and a withdrawal is something this host HAS that
+   the peer lacks.
+
+   SO A HOST THAT WITHDRAWS CONVERGES NOBODY. The record is well formed and
+   admission is idempotent, so a consumer can carry it by whatever path it
+   already uses for records; what the library gives no host is any way to
+   LEARN that it should ask.
+
+   WHEN PROPAGATION IS BUILT, THE ASSERTION ABOUT THE UNTOLD HOST IS THE ONE
+   THAT MUST CHANGE, exactly as in scenario 3b. It is written as an assertion
+   rather than a comment so that closing the gap breaks this suite: a note in
+   a comment is a note nobody is made to read.
+
+   THE THIRD LEG IS WHAT SEPARATES A MISSING MECHANISM FROM A BROKEN ONE.
+   After the untold host is handed the same record directly, it delivers too.
+   Without that leg, "the untold host refuses" would be satisfied by a
+   withdrawal that did not work at all, and the scenario would be evidence
+   for the wrong thing.  */
+static void scenario_withdrawal(void)
+{
+	static struct sim_net net;
+	static uint8_t msg[256];
+	static uint8_t rec_region[FZN_REVOCATION_LEN];
+	static uint8_t wd_region[FZN_REVOCATION_LEN];
+	uint8_t id[FZN_REVOCATION_ID_LEN];
+	fzn_revocation_record_t rec, wd;
+	struct sim_host *sender, *told, *untold;
+	struct sim_signer root_signer;
+
+	sim_init(&net, 4, 0x2424u);
+	fill_message(msg, sizeof(msg), 37);
+	sender = &net.hosts[2];
+	told = &net.hosts[0];
+	untold = &net.hosts[1];
+
+	check(fzn_trust_root(&told->trust) && fzn_trust_root(&untold->trust) &&
+	              memcmp(fzn_trust_root(&told->trust), fzn_trust_root(&untold->trust),
+	                     FZN_PUBKEY_LEN) == 0,
+	      "the two receivers should be anchored to the same root");
+
+	/* The root revokes the sender, and BOTH receivers hear it. That is the
+	 * difference from scenario 3b: there the split is in the revocation,
+	 * here it is in the withdrawal. */
+	check(fzn_revocation_issue(net.root, &net.capability, sender->pubkey, net.now,
+	                           sim_signer(&root_signer, &net.sign, net.root),
+	                           rec_region) == FZN_CHAIN_OK,
+	      "the simulation could not issue a revocation");
+	check(fzn_revocation_open(rec_region, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK,
+	      "the simulation could not open the revocation it issued");
+	check(sim_revoke_all(&net, rec) == 0, "the signed revocation was refused");
+	check(fzn_revocation_covers(&told->revocations, net.root, &net.capability,
+	                            sender->pubkey) == 1 &&
+	              fzn_revocation_covers(&untold->revocations, net.root, &net.capability,
+	                                    sender->pubkey) == 1,
+	      "both receivers should hold the sender revoked before the withdrawal");
+
+	/* The root changes its mind. The withdrawal names the revocation by
+	 * hash -- over the whole record, which is what travelled. */
+	check(sim_hash(NULL, id, sizeof(id), rec_region, FZN_REVOCATION_LEN),
+	      "the simulation could not hash the revocation");
+	check(fzn_revocation_issue_withdrawal(net.root, &net.capability, sender->pubkey,
+	                                      net.now + 1u, id,
+	                                      sim_signer(&root_signer, &net.sign, net.root),
+	                                      wd_region) == FZN_CHAIN_OK,
+	      "the simulation could not issue a withdrawal");
+	check(fzn_revocation_open(wd_region, FZN_REVOCATION_LEN, &wd) == FZN_CHAIN_OK,
+	      "the simulation could not open the withdrawal it issued");
+	check(fzn_revocation_is_withdrawal(wd), "it is not a withdrawal");
+
+	/* ONE HOST IS HANDED IT. Nothing in the library would have carried it
+	 * there; a consumer did. */
+	check(fzn_revocation_admit(&told->revocations, fzn_revocation_offer_root(wd),
+	                           net.root, &net.sign, &net.hash, NULL) == FZN_CHAIN_OK,
+	      "the withdrawal was refused by the host that was told");
+	check(told->revocations.used == 1,
+	      "the withdrawal appended rather than replacing, so the entry that "
+	      "recognises a stale copy is not the one being read");
+
+	check(sim_send(&net, sender->id, told->id, msg, sizeof(msg), net.now + 100u),
+	      "the send to the host that was told was refused");
+	check(sim_send(&net, sender->id, untold->id, msg, sizeof(msg), net.now + 100u),
+	      "the send to the host that was not told was refused");
+	sim_run(&net, 4);
+
+	/* THE HALF THAT WORKS: the host holding the withdrawal delivers again,
+	 * which is the outage ending. */
+	check(told->delivered == 1,
+	      "a host holding the withdrawal still refused the restored sender, so a "
+	      "withdrawn capability does not come back");
+	check(told->refused_auth == 0,
+	      "and it refused something on authority, so the delivery above is not "
+	      "evidence that the withdrawal took effect");
+
+	/* THE HALF THAT DOES NOT. Read sec 56 before changing either line. */
+	check(untold->delivered == 0,
+	      "a host that was never handed the withdrawal delivered anyway, so either "
+	      "propagation has been built and this scenario must now demand that "
+	      "delivery, or its store stopped honouring a revocation it holds");
+	check(untold->refused_auth > 0,
+	      "the untold host refused for some reason other than authority, so its "
+	      "refusal is not evidence about withdrawal propagation");
+
+	/* THE THIRD LEG. The same record, handed over directly, converges it --
+	 * so what is missing is discovery and not the mechanism. */
+	check(fzn_revocation_admit(&untold->revocations, fzn_revocation_offer_root(wd),
+	                           net.root, &net.sign, &net.hash, NULL) == FZN_CHAIN_OK,
+	      "the same withdrawal was refused by the second host");
+	check(fzn_revocation_covers(&untold->revocations, net.root, &net.capability,
+	                            sender->pubkey) == 0,
+	      "the second host still holds the sender revoked after admitting the "
+	      "withdrawal, so the record does not work rather than merely not "
+	      "travelling");
+
+	check(sim_send(&net, sender->id, untold->id, msg, sizeof(msg), net.now + 100u),
+	      "the second send to the untold host was refused");
+	sim_run(&net, 4);
+	check(untold->delivered == 1,
+	      "the second host did not deliver after being handed the withdrawal, so "
+	      "the gap is in the mechanism and not only in its distribution");
+
+	printf("  withdrawal: told took %u and refused %u; untold refused %u until "
+	       "handed the record, then took %u\n",
+	       told->delivered, told->refused_auth, untold->refused_auth,
+	       untold->delivered);
+}
+
 /* ------------------------------------------------------------- scenario 4
 
    Staleness. A frame whose expiry has passed is refused, and refused BEFORE
@@ -3841,6 +3982,7 @@ int main(void)
 	scenario_replay();
 	scenario_revocation();
 	scenario_revocation_split();
+	scenario_withdrawal();
 	scenario_stale();
 	scenario_unauthorised();
 	scenario_delegation();

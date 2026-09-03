@@ -11435,6 +11435,26 @@ cost a consumer a day; a feature whose distribution half does not exist is
 the same shape with more at stake, because everything a reader can test by
 hand on one host works.
 
+**And asserted rather than only written down.** `sim/test/network_test.c`
+gained `scenario_withdrawal`, on scenario 3b's model: two receivers holding
+the same revocation, one handed the withdrawal and one not, and the untold
+host's continued refusal written as a CHECK. Closing the gap therefore
+breaks the suite, which a comment does not -- 3b's own header makes that
+argument for the revocation-propagation gap and it applies here unchanged.
+
+**The third leg is what separates a missing mechanism from a broken one.**
+Handed the same record directly, the untold host converges and delivers.
+Without that leg "the untold host refuses" would be satisfied by a
+withdrawal that did not work at all, and the scenario would be evidence for
+the wrong thing.
+
+It also earns its place as a check rather than a demonstration: sabotaging
+either reader of the entry's action -- `fzn_revocation_covers` and the chain
+walk -- is caught here independently, the walk by the first leg and the
+query by the third. The unit suite catches both too; this catches them
+through a lossy network with per-host stores, which is the arrangement the
+gap lives in.
+
 ### Three of the seven new guards were unheld when written
 
 Measured with `--probe` after the fact, which is the only reason it is known:
