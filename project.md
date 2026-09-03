@@ -12777,7 +12777,23 @@ every arrangement rather than only where the real Ed25519 is present. That is
 one more arrangement than `hop_kat_test` reaches, and the difference is the
 absence of a signature rather than any virtue of this file.
 
-## 49. The integration, done from both sides at once, 2026-09-01
+## 49. The integration, measured, 2026-09-01
+
+Eighteen findings came out of integrating with the fourth consumer over one
+day, and they were three different kinds of thing under one heading: numbers
+measured across two trees, an account of how a fact travels between trees and
+the ways it went wrong, and what a consumer found by building against this
+library. **Split on 2026-09-03, once the merge had settled**, because a reader
+arriving from a citation had 750 lines to search and the three threads answer
+different questions.
+
+    49   the arithmetic, and what it costs a consumer
+    49a  how a fact travels between trees, and the five ways it went wrong
+    49b  what the consumer found, and the commit that hides it
+
+`tool/consumer_check.c` cites sec 49 for the wrong-arithmetic instance, which
+stays here.
+
 
 > **THIS SECTION IS LONG AND IS DELIBERATELY NOT BEING SPLIT YET.** Decided
 > by the holder 2026-09-01, asked because `code-style.md` says notes exist
@@ -12817,54 +12833,6 @@ absence of a signature rather than any virtue of this file.
 fuzznet is wired into fuzzypickles and green. The work was done by a session
 in each tree rather than by one session reaching across, and three things
 came back that this tree should hold.
-
-### The freeze was real, was relayed accurately, and has narrowed
-
-Sec 18's development freeze on fuzzypickles reached that tree **only through
-this one** and was recorded there as a fuzznet report rather than as
-authority -- correctly, and the fresh session there said so before doing
-anything. The holder has now confirmed it directly in that tree: **the freeze
-was theirs, its purpose was to stop fuzzypickles being a moving target for
-fuzznet, and now that the two are being merged it narrows to FEATURE
-ADDITIONS ONLY until the merge is done.**
-
-Recorded here as CONTEXT rather than as a rule this tree follows, because it
-was never about this tree. Two things follow that are worth writing down:
-**the merge is on**, which sec 46 assumed and did not know; and integration,
-fixes, tests and records are not frozen there, so a request that would once
-have been declined may now be fine.
-
-**Parity-first is a different row and is still unconfirmed.** It reached them
-the same way, through this tree, and nothing has confirmed it -- not to them
-and not here. It stays relayed on both sides. **This tree was the relay and
-was never the authority**, and the correction worth keeping is that a claim
-does not become settled by being repeated between two documents that both
-cite the same origin. `evidence.md` says two witnesses are one when the same
-hand wrote both; this is that, spread over two trees and a week.
-
-### A probe that could not have succeeded, which is the sharpest name yet
-
-Their sec 18 recorded that its counts "survived re-measurement with `-w`".
-**`grep -w reassembl` cannot match `reassembly`** -- a word-boundary search on
-a truncated stem is guaranteed to find nothing, and it reports that nothing in
-exactly the words a real absence uses. `chunk/reassembly.c` existed at the
-commit measured, so the row was false when written rather than merely stale.
-
-**Checked here rather than assumed to be theirs alone**: no `grep -w` on a
-stem appears in this document or in this tree's tooling, so it does not
-propagate. It is recorded anyway because it names a class this document spent
-2026-09-01 on, and names it better than the entries that found it. Sec 45 has
-three instances of the same shape -- a mutation that failed to COMPILE scoring
-as CAUGHT, then two more where an offset defined in terms of the offset before
-it collided or truncated instead of permuting.
-
-**The general form, and it is the part worth quoting: stating carefully how a
-probe was anchored makes a vacuous pass MORE credible, not less.** "Survived
-re-measurement with `-w`" reads as rigour. So does "checked with the
-sanitizer" for a logic redundancy, and so does "the mutation landed, the suite
-went red". Each is a real discipline pointed at the wrong question, and the
-care spent describing it is what stops a reader asking whether it could have
-failed.
 
 ### A ceiling minus a maximum, called remaining capacity -- mine, today
 
@@ -12939,6 +12907,255 @@ to make unverified. Recorded here, queued behind the window, with the
 cheaper alternative noted: a comment at the ceiling is worth having whatever
 is decided about the scheme, because the person who hits it is the person
 adding the 256th code.
+
+### What this frame costs a consumer, as a rule rather than a number
+
+Asked by the consumer during the frame migration, who had a number and wanted
+it derived independently rather than confirmed. The number was theirs; the
+rule is this library's and had never been written down.
+
+**The structure is what forces it:**
+
+    fzn_hop   5    plaintext, OUTSIDE the tag (a relay rewrites hops_left)
+    head     91    plaintext, covered by the tag, readable by anyone on path
+    encrypted{ capability 32   sealed, explicitly the LIBRARY's field
+               payload    N }  sealed, the ONLY consumer-owned space
+    tag      16
+
+**A consumer's forced payload content is exactly two things:**
+
+1. **A command byte, always.** `fzn_kind` is a closed four-value set the
+   library reads, and the schema puts a consumer's command vocabulary in the
+   sealed payload by name. Not negotiable and not zero.
+2. **A sealed duplicate of any head field it needs CONFIDENTIAL.** The head
+   is plaintext on purpose -- a recipient must decide whether to spend a
+   decryption before spending it -- so confidentiality for anything it
+   carries means carrying it again, inside.
+
+Nothing else, because there is nowhere else: no consumer slot exists outside
+the payload, and `length_preserving` on the ciphertext core means **no
+padding expansion**, so the sealed region is exactly what a consumer puts in
+it.
+
+**Applied to the consumer asking**, whose only confidentiality requirement
+over the head was a timestamp -- mine is plaintext so a relay can expire a
+frame without opening it -- the forced displacement is 1 + 8 = 9, giving 153
+against their own 106. **The same 9 they had reached from their side, by a
+route that did not read theirs.**
+
+**The rule says something an enumeration cannot: where the degree of freedom
+is.** The command byte is unremovable while `fzn_kind` stays closed. The
+eight is removable only by dropping the sealed-timestamp requirement, which
+their own document forbids. So the figure is not a measurement that could
+drift -- it is this frame's fixed overhead plus one byte this library forces
+plus eight bytes their document forbids them to save, and **the only thing
+that moves it is this head changing.**
+
+**And the largest single item is on neither side's displaced list**, because
+it is not displaced: the 24-byte nonce sits in the head, and their all-zero
+nonce was safe only while a key was used once. A transmitted nonce is what
+lets a key be used more than once, so it is the biggest line item with no
+alternative.
+
+**Recorded as a rule because three more consumers are coming** and each will
+ask the same question. netcfgd, raidcfgd and hydra can compute their own
+figure from the two clauses above without anybody re-deriving it, and the
+clauses are stable in a way a number is not.
+
+### The rule gives displacement per FRAME; their number is per MESSAGE
+
+The consumer came back with **+269 bytes per message**, against the +9 the
+rule above derives. The gap is not a disagreement -- the two figures measure
+different things, and the larger one is what a consumer actually pays.
+
+Their decomposition, **their figure in their voice**; I have not re-derived
+it from their tree:
+
+    text frame        +47   displacement on the one frame carrying content
+    acknowledgements +222   66-byte ack against a 177-byte frame, +111, twice
+                     ----
+                     +269   per message
+
+**What this library can confirm is the floor, not the decomposition.**
+`FZN_SEAL_OVERHEAD` is 144 and hand-written, so every frame this library
+emits costs 144 plus its sealed payload -- an acknowledgement included, which
+is the same frame as everything else with a smaller payload in it. **There is
+no light frame.** A consumer whose own protocol had a cheap ack does not pay
+*displacement* on it; it pays the whole 144-byte floor, once per ack.
+
+**And the floor checks their number without re-deriving it.** 177 - 144 = 33
+sealed bytes, which is exactly the shape the rule above forces: a command
+byte, plus 32 bytes of something needing confidentiality. Their figure is
+consistent with this library's own overhead constant, arrived at from the
+other side. That is corroboration; it is not independent confirmation of the
++269, because the ack COUNT is theirs alone and nothing here can see it.
+
+**The multiplier is what a per-frame rule cannot see, and the consumer's own
+protocol sets it.** Two acks per message is their design, not this library's
+-- but expressed in fuzznet frames, the ack count multiplies the *floor*
+rather than the displacement, which is why +9 per frame becomes +269 per
+message. The rule is still right and still stable. It answers "what does this
+frame cost me" when the question being asked is "what does this message cost
+me", and only the consumer's frame count closes the distance.
+
+**Recorded because the three consumers still coming will read the rule and
+stop there.** netcfgd, raidcfgd and hydra each get a correct per-frame answer
+from it and a wrong per-message one, and the correction is one question: how
+many frames is a message, acknowledgements included?
+
+### `spool/` depends on `blob/`'s CONSTRUCTION, which nobody had measured
+
+Asked by the consumer, who wanted to know whether their own content
+addressing could stay above this library's frame indefinitely rather than
+migrating. The question was sharp: **does anything here assume its consumer
+uses `fzn_blob_*`?**
+
+    chunk/    one mention, in a COMMENT contrasting a message with a blob
+    record/   zero
+    sync      zero
+    spool/    16 mentions in spool.h, 23 in spool.c -- and two CALLS
+
+Three are independent. **`spool/` is coupled, and semantically rather than
+nominally**, which is the distinction that decides the answer. `spool.h`
+includes `blob.h` and types `fzn_spool_t.root` as `uint8_t[FZN_BLOB_HASH_LEN]`
+-- that much is nominal, and a library merely CARRYING a 32-byte root would
+accept any consumer's. It does not merely carry it. `spool.c:108` and `:111`
+call `fzn_blob_leaf_hash` and `fzn_blob_proof_verify`, so admitting a leaf
+runs this library's tree shape, its one-byte prefixes and its finaliser --
+all three of the things the addressing measurement found the two trees
+differing on.
+
+**A spool keyed by a foreign root would reject every leaf, and reject it at
+the proof rather than at the type.** Nothing would fail to compile. That is
+the shape worth recording: the coupling is invisible to a consumer reading
+headers, because the types agree and only the construction does not.
+
+**It is the one module where "keep your own blob layer" and "take fuzznet's"
+are exclusive.** Everything else -- chunking, the journal, sync -- is
+genuinely independent of blob ids, so a consumer that already has content
+addressing can adopt the frame and the record layer and leave `blob/` alone.
+`blob/` exists for the consumers who do NOT have one, and its existence is
+not an argument that the one who does should switch.
+
+### A tree seam was offered and declined, by the only consumer it could serve
+
+The obvious fix is to make the tree a vtable the way the crypto already is:
+this library calls no primitive, so `leaf_hash` and `proof_verify` behind an
+`fzn_tree_ops_t` is the same move one layer up, two call sites, both already
+taking a `hash` vtable.
+
+**Not built, because sec 5 refuses a seam added for nobody**, and the
+consumer answered within the hour: **they decline `spool/`, so the seam
+serves nobody and is declined with it.**
+
+Their reason is the one worth keeping, because "we already have that" is the
+claim that is usually half true and they measured it instead. Resumable
+transfer exists above their own blob layer and the RESUME half is wired
+rather than merely present: a partial-leaf set with encode/decode, a
+random-access backend distinct from their two other store interfaces on the
+argument that "a partially-transferred blob is neither" a whole named blob
+nor an append-only stream, a `.have` sidecar persisted per root with
+temp-and-rename, and **a caller they checked rather than assumed** -- one
+call site in their daemon, on the path that starts a transfer.
+
+**The seam serves exactly one shape of consumer: one that has its own tree
+AND wants `spool/`.** That is their tree and only theirs, and theirs does not
+want it. netcfgd and hydra will take `spool/` with `blob/` and need no seam.
+
+**Two triggers reopen it, both checkable rather than matters of taste**, and
+they are recorded in their tree: a fourth consumer arriving with its own
+tree, or that tree finding something in `spool/` its own transfer path lacks.
+Neither is true today.
+
+This is the better outcome than building it. A seam accepted on a
+consumer's account and never filled is worse than an absent one, because the
+next reader takes its existence as evidence that somebody needed it.
+
+### The core/binding split is enforced in the consumer's tree, which is better than here
+
+`make manifest` classifies what it emits -- `source`, `generated`, `binding`,
+`backend` -- and sec 47 built that so a consumer would not transcribe a list.
+**The consumer found a better reason for the classification than the one it
+was built on.**
+
+Their build gives `-I../monocypher/src` to the four `binding` translation
+units and to nothing else. So this tree's promise that **the core calls no
+primitive** is now enforced in their tree as well as this one, by
+construction, by a party who did not write the promise: a core source that
+started including a crypto header fails **there**, in the tree that has to
+live with it. `installcheck` is this tree checking its own claim; that is this
+tree's claim being checked by somebody else.
+
+`CORE_SRCS` alone cannot express it -- a flat list has no way to say which
+translation units are allowed to see a primitive. **The classification earns
+its place on that rather than on convenience**, and the entry is corrected
+here to say so.
+
+They also declined the includable `.mk` fragment offered in sec 47, on
+staleness rather than cost: a generated file needs a rule that regenerates it,
+and "a rule that quietly does not run" is a failure class their document
+collects three instances of, none of which produced a build error. A `$(shell)`
+cannot go stale. **That is the right trade for a consumer whose build can ask
+a question**, and the fragment stays unbuilt until one appears that cannot.
+
+
+
+## 49a. How a fact travels between trees, 2026-09-01
+
+Split out of sec 49 on 2026-09-03. Ten findings, and they are one subject:
+**a fact measured in one tree and used in another is a different object from
+a fact measured where it is used**, and every way that went wrong here was a
+way the difference was lost -- a bound reported as a value, a marker true
+about the wrong step, a rule widened without being re-checked, twenty-four
+measurements of somebody else's tree carried without citation.
+
+### The freeze was real, was relayed accurately, and has narrowed
+
+Sec 18's development freeze on fuzzypickles reached that tree **only through
+this one** and was recorded there as a fuzznet report rather than as
+authority -- correctly, and the fresh session there said so before doing
+anything. The holder has now confirmed it directly in that tree: **the freeze
+was theirs, its purpose was to stop fuzzypickles being a moving target for
+fuzznet, and now that the two are being merged it narrows to FEATURE
+ADDITIONS ONLY until the merge is done.**
+
+Recorded here as CONTEXT rather than as a rule this tree follows, because it
+was never about this tree. Two things follow that are worth writing down:
+**the merge is on**, which sec 46 assumed and did not know; and integration,
+fixes, tests and records are not frozen there, so a request that would once
+have been declined may now be fine.
+
+**Parity-first is a different row and is still unconfirmed.** It reached them
+the same way, through this tree, and nothing has confirmed it -- not to them
+and not here. It stays relayed on both sides. **This tree was the relay and
+was never the authority**, and the correction worth keeping is that a claim
+does not become settled by being repeated between two documents that both
+cite the same origin. `evidence.md` says two witnesses are one when the same
+hand wrote both; this is that, spread over two trees and a week.
+
+### A probe that could not have succeeded, which is the sharpest name yet
+
+Their sec 18 recorded that its counts "survived re-measurement with `-w`".
+**`grep -w reassembl` cannot match `reassembly`** -- a word-boundary search on
+a truncated stem is guaranteed to find nothing, and it reports that nothing in
+exactly the words a real absence uses. `chunk/reassembly.c` existed at the
+commit measured, so the row was false when written rather than merely stale.
+
+**Checked here rather than assumed to be theirs alone**: no `grep -w` on a
+stem appears in this document or in this tree's tooling, so it does not
+propagate. It is recorded anyway because it names a class this document spent
+2026-09-01 on, and names it better than the entries that found it. Sec 45 has
+three instances of the same shape -- a mutation that failed to COMPILE scoring
+as CAUGHT, then two more where an offset defined in terms of the offset before
+it collided or truncated instead of permuting.
+
+**The general form, and it is the part worth quoting: stating carefully how a
+probe was anchored makes a vacuous pass MORE credible, not less.** "Survived
+re-measurement with `-w`" reads as rigour. So does "checked with the
+sanitizer" for a logic redundancy, and so does "the mutation landed, the suite
+went red". Each is a real discipline pointed at the wrong question, and the
+care spent describing it is what stops a reader asking whether it could have
+failed.
 
 ### Their fact in their voice, my finding in mine -- filed as `d10fcbd`
 
@@ -13103,216 +13320,6 @@ instance 2 outlived a correction that was itself wrong: **a false claim of
 rigour is caught by verifying it, and a true one about an adjacent step stops
 the reader** -- the paragraph has demonstrated care, and nobody asks which
 step the care was about.
-
-### Four things a consumer found by building, and a commit that hides them
-
-Reported by fuzzypickles while wiring the frame end to end, all four found
-by building rather than by reading. **Two were documentation and two were
-API surface this library did not have.**
-
-- **`fzn_random_system_init` calls `getrandom(2)`**, so a consumer that keeps
-  I/O in its hosts would link a syscall into its core -- compiling, passing
-  every test on a Linux developer machine, and failing on the target. The
-  fourth instance of the obvious-name-is-the-wrong-call shape in one day.
-  The bridging hazard is beside it now: `fill` returns 1 only when every
-  byte came from the source, the opposite of the 0-means-success convention
-  a consumer's own callback may follow.
-- **A zeroed `fzn_send_t` is invalid**, because `chunks` must be at least 1
-  even for a `unit` frame, and the refusal names no field. **The inverse of
-  the care `hops` gets**, where zero means "not offered for relaying" so the
-  safest-looking initialisation is the safest behaviour.
-- **The kind values existed only as generated `SITU_FZN_*` names**, so a
-  send path could not fill `kind` without including situ's output -- which
-  also cost the property that every module but `wire/` builds without situ.
-  Hand-written now, held equal by `_Static_assert` where both are visible.
-- **`fzn_seal_peek_sender`, because this header gave advice the API could
-  not follow.** `wire/seal.h` tells a receiver to select on `sender` at sec
-  4.7 step 2; `sender` arrived only in `fzn_opened_t`, which
-  `fzn_seal_open` produces, which needs the key that step 2 is choosing.
-  The consumer had implemented the advice by reading the plaintext head
-  through generated accessors -- correct, and layout knowledge no consumer
-  should need.
-
-### And the commit that carries them says none of it
-
-**`8c6da93` is titled "take situ's map fix" and contains all five files.**
-The four above were staged, the schema gate then went red, and the map fix
-was committed without re-reading `git diff --cached --name-only` -- which is
-the one check that sees what is actually in the index rather than what the
-last command put there.
-
-`build-and-commit.md` describes this exactly, and its stated cost is the one
-paid here: **the record, because a `git log --grep` for `peek_sender` now
-finds a commit about a schema map.** The code is right, the tests are right,
-and the history is wrong.
-
-**Not repaired by rewriting**, because it is pushed and a second session
-commits to this tree, so amending would break a clone to fix a message. This
-entry is the repair: it names the commit and says what is in it, which is
-what a reader searching for the API will find instead.
-
-### What this frame costs a consumer, as a rule rather than a number
-
-Asked by the consumer during the frame migration, who had a number and wanted
-it derived independently rather than confirmed. The number was theirs; the
-rule is this library's and had never been written down.
-
-**The structure is what forces it:**
-
-    fzn_hop   5    plaintext, OUTSIDE the tag (a relay rewrites hops_left)
-    head     91    plaintext, covered by the tag, readable by anyone on path
-    encrypted{ capability 32   sealed, explicitly the LIBRARY's field
-               payload    N }  sealed, the ONLY consumer-owned space
-    tag      16
-
-**A consumer's forced payload content is exactly two things:**
-
-1. **A command byte, always.** `fzn_kind` is a closed four-value set the
-   library reads, and the schema puts a consumer's command vocabulary in the
-   sealed payload by name. Not negotiable and not zero.
-2. **A sealed duplicate of any head field it needs CONFIDENTIAL.** The head
-   is plaintext on purpose -- a recipient must decide whether to spend a
-   decryption before spending it -- so confidentiality for anything it
-   carries means carrying it again, inside.
-
-Nothing else, because there is nowhere else: no consumer slot exists outside
-the payload, and `length_preserving` on the ciphertext core means **no
-padding expansion**, so the sealed region is exactly what a consumer puts in
-it.
-
-**Applied to the consumer asking**, whose only confidentiality requirement
-over the head was a timestamp -- mine is plaintext so a relay can expire a
-frame without opening it -- the forced displacement is 1 + 8 = 9, giving 153
-against their own 106. **The same 9 they had reached from their side, by a
-route that did not read theirs.**
-
-**The rule says something an enumeration cannot: where the degree of freedom
-is.** The command byte is unremovable while `fzn_kind` stays closed. The
-eight is removable only by dropping the sealed-timestamp requirement, which
-their own document forbids. So the figure is not a measurement that could
-drift -- it is this frame's fixed overhead plus one byte this library forces
-plus eight bytes their document forbids them to save, and **the only thing
-that moves it is this head changing.**
-
-**And the largest single item is on neither side's displaced list**, because
-it is not displaced: the 24-byte nonce sits in the head, and their all-zero
-nonce was safe only while a key was used once. A transmitted nonce is what
-lets a key be used more than once, so it is the biggest line item with no
-alternative.
-
-**Recorded as a rule because three more consumers are coming** and each will
-ask the same question. netcfgd, raidcfgd and hydra can compute their own
-figure from the two clauses above without anybody re-deriving it, and the
-clauses are stable in a way a number is not.
-
-### The rule gives displacement per FRAME; their number is per MESSAGE
-
-The consumer came back with **+269 bytes per message**, against the +9 the
-rule above derives. The gap is not a disagreement -- the two figures measure
-different things, and the larger one is what a consumer actually pays.
-
-Their decomposition, **their figure in their voice**; I have not re-derived
-it from their tree:
-
-    text frame        +47   displacement on the one frame carrying content
-    acknowledgements +222   66-byte ack against a 177-byte frame, +111, twice
-                     ----
-                     +269   per message
-
-**What this library can confirm is the floor, not the decomposition.**
-`FZN_SEAL_OVERHEAD` is 144 and hand-written, so every frame this library
-emits costs 144 plus its sealed payload -- an acknowledgement included, which
-is the same frame as everything else with a smaller payload in it. **There is
-no light frame.** A consumer whose own protocol had a cheap ack does not pay
-*displacement* on it; it pays the whole 144-byte floor, once per ack.
-
-**And the floor checks their number without re-deriving it.** 177 - 144 = 33
-sealed bytes, which is exactly the shape the rule above forces: a command
-byte, plus 32 bytes of something needing confidentiality. Their figure is
-consistent with this library's own overhead constant, arrived at from the
-other side. That is corroboration; it is not independent confirmation of the
-+269, because the ack COUNT is theirs alone and nothing here can see it.
-
-**The multiplier is what a per-frame rule cannot see, and the consumer's own
-protocol sets it.** Two acks per message is their design, not this library's
--- but expressed in fuzznet frames, the ack count multiplies the *floor*
-rather than the displacement, which is why +9 per frame becomes +269 per
-message. The rule is still right and still stable. It answers "what does this
-frame cost me" when the question being asked is "what does this message cost
-me", and only the consumer's frame count closes the distance.
-
-**Recorded because the three consumers still coming will read the rule and
-stop there.** netcfgd, raidcfgd and hydra each get a correct per-frame answer
-from it and a wrong per-message one, and the correction is one question: how
-many frames is a message, acknowledgements included?
-
-### `spool/` depends on `blob/`'s CONSTRUCTION, which nobody had measured
-
-Asked by the consumer, who wanted to know whether their own content
-addressing could stay above this library's frame indefinitely rather than
-migrating. The question was sharp: **does anything here assume its consumer
-uses `fzn_blob_*`?**
-
-    chunk/    one mention, in a COMMENT contrasting a message with a blob
-    record/   zero
-    sync      zero
-    spool/    16 mentions in spool.h, 23 in spool.c -- and two CALLS
-
-Three are independent. **`spool/` is coupled, and semantically rather than
-nominally**, which is the distinction that decides the answer. `spool.h`
-includes `blob.h` and types `fzn_spool_t.root` as `uint8_t[FZN_BLOB_HASH_LEN]`
--- that much is nominal, and a library merely CARRYING a 32-byte root would
-accept any consumer's. It does not merely carry it. `spool.c:108` and `:111`
-call `fzn_blob_leaf_hash` and `fzn_blob_proof_verify`, so admitting a leaf
-runs this library's tree shape, its one-byte prefixes and its finaliser --
-all three of the things the addressing measurement found the two trees
-differing on.
-
-**A spool keyed by a foreign root would reject every leaf, and reject it at
-the proof rather than at the type.** Nothing would fail to compile. That is
-the shape worth recording: the coupling is invisible to a consumer reading
-headers, because the types agree and only the construction does not.
-
-**It is the one module where "keep your own blob layer" and "take fuzznet's"
-are exclusive.** Everything else -- chunking, the journal, sync -- is
-genuinely independent of blob ids, so a consumer that already has content
-addressing can adopt the frame and the record layer and leave `blob/` alone.
-`blob/` exists for the consumers who do NOT have one, and its existence is
-not an argument that the one who does should switch.
-
-### A tree seam was offered and declined, by the only consumer it could serve
-
-The obvious fix is to make the tree a vtable the way the crypto already is:
-this library calls no primitive, so `leaf_hash` and `proof_verify` behind an
-`fzn_tree_ops_t` is the same move one layer up, two call sites, both already
-taking a `hash` vtable.
-
-**Not built, because sec 5 refuses a seam added for nobody**, and the
-consumer answered within the hour: **they decline `spool/`, so the seam
-serves nobody and is declined with it.**
-
-Their reason is the one worth keeping, because "we already have that" is the
-claim that is usually half true and they measured it instead. Resumable
-transfer exists above their own blob layer and the RESUME half is wired
-rather than merely present: a partial-leaf set with encode/decode, a
-random-access backend distinct from their two other store interfaces on the
-argument that "a partially-transferred blob is neither" a whole named blob
-nor an append-only stream, a `.have` sidecar persisted per root with
-temp-and-rename, and **a caller they checked rather than assumed** -- one
-call site in their daemon, on the path that starts a transfer.
-
-**The seam serves exactly one shape of consumer: one that has its own tree
-AND wants `spool/`.** That is their tree and only theirs, and theirs does not
-want it. netcfgd and hydra will take `spool/` with `blob/` and need no seam.
-
-**Two triggers reopen it, both checkable rather than matters of taste**, and
-they are recorded in their tree: a fourth consumer arriving with its own
-tree, or that tree finding something in `spool/` its own transfer path lacks.
-Neither is true today.
-
-This is the better outcome than building it. A seam accepted on a
-consumer's account and never filled is worse than an absent one, because the
-next reader takes its existence as evidence that somebody needed it.
 
 ### A diligence marker that was TRUE, about the wrong step
 
@@ -13499,33 +13506,60 @@ way that changes what they support** -- and the offer stands to date all of
 them with a commit regardless, which is strictly better than what is there
 and costs that tree nothing.
 
-### The core/binding split is enforced in the consumer's tree, which is better than here
 
-`make manifest` classifies what it emits -- `source`, `generated`, `binding`,
-`backend` -- and sec 47 built that so a consumer would not transcribe a list.
-**The consumer found a better reason for the classification than the one it
-was built on.**
+## 49b. What the consumer found by building, 2026-09-01
 
-Their build gives `-I../monocypher/src` to the four `binding` translation
-units and to nothing else. So this tree's promise that **the core calls no
-primitive** is now enforced in their tree as well as this one, by
-construction, by a party who did not write the promise: a core source that
-started including a crypto header fails **there**, in the tree that has to
-live with it. `installcheck` is this tree checking its own claim; that is this
-tree's claim being checked by somebody else.
+Split out of sec 49 on 2026-09-03. Four findings a consumer produced by
+compiling against this library rather than by reading it, and the commit
+that carries them while saying none of it -- which is why they are kept
+together and apart from the arithmetic they arrived beside.
 
-`CORE_SRCS` alone cannot express it -- a flat list has no way to say which
-translation units are allowed to see a primitive. **The classification earns
-its place on that rather than on convenience**, and the entry is corrected
-here to say so.
+### Four things a consumer found by building, and a commit that hides them
 
-They also declined the includable `.mk` fragment offered in sec 47, on
-staleness rather than cost: a generated file needs a rule that regenerates it,
-and "a rule that quietly does not run" is a failure class their document
-collects three instances of, none of which produced a build error. A `$(shell)`
-cannot go stale. **That is the right trade for a consumer whose build can ask
-a question**, and the fragment stays unbuilt until one appears that cannot.
+Reported by fuzzypickles while wiring the frame end to end, all four found
+by building rather than by reading. **Two were documentation and two were
+API surface this library did not have.**
 
+- **`fzn_random_system_init` calls `getrandom(2)`**, so a consumer that keeps
+  I/O in its hosts would link a syscall into its core -- compiling, passing
+  every test on a Linux developer machine, and failing on the target. The
+  fourth instance of the obvious-name-is-the-wrong-call shape in one day.
+  The bridging hazard is beside it now: `fill` returns 1 only when every
+  byte came from the source, the opposite of the 0-means-success convention
+  a consumer's own callback may follow.
+- **A zeroed `fzn_send_t` is invalid**, because `chunks` must be at least 1
+  even for a `unit` frame, and the refusal names no field. **The inverse of
+  the care `hops` gets**, where zero means "not offered for relaying" so the
+  safest-looking initialisation is the safest behaviour.
+- **The kind values existed only as generated `SITU_FZN_*` names**, so a
+  send path could not fill `kind` without including situ's output -- which
+  also cost the property that every module but `wire/` builds without situ.
+  Hand-written now, held equal by `_Static_assert` where both are visible.
+- **`fzn_seal_peek_sender`, because this header gave advice the API could
+  not follow.** `wire/seal.h` tells a receiver to select on `sender` at sec
+  4.7 step 2; `sender` arrived only in `fzn_opened_t`, which
+  `fzn_seal_open` produces, which needs the key that step 2 is choosing.
+  The consumer had implemented the advice by reading the plaintext head
+  through generated accessors -- correct, and layout knowledge no consumer
+  should need.
+
+### And the commit that carries them says none of it
+
+**`8c6da93` is titled "take situ's map fix" and contains all five files.**
+The four above were staged, the schema gate then went red, and the map fix
+was committed without re-reading `git diff --cached --name-only` -- which is
+the one check that sees what is actually in the index rather than what the
+last command put there.
+
+`build-and-commit.md` describes this exactly, and its stated cost is the one
+paid here: **the record, because a `git log --grep` for `peek_sender` now
+finds a commit about a schema map.** The code is right, the tests are right,
+and the history is wrong.
+
+**Not repaired by rewriting**, because it is pushed and a second session
+commits to this tree, so amending would break a clone to fix a message. This
+entry is the repair: it names the commit and says what is in it, which is
+what a reader searching for the API will find instead.
 
 ## 48. bitchat as a possible transport, scouted 2026-09-01
 
