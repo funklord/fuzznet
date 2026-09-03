@@ -11316,8 +11316,8 @@ MINTS A FRESH PREKEY AND DISCARDS A LIVE IDENTITY, while treating a first run
 as broken stops a host that would have worked. The comment exists because
 somebody saw that; the mechanism it promises does not exist.
 
-**Three answers and they are not equivalent**, which is why this is recorded
-rather than fixed:
+**Three answers and they are not equivalent**, which is why this went to the
+holder rather than being fixed in passing:
 
     widen the seam    `load` reports absent distinctly -- a public API
                       change, and every consumer's backend implements it
@@ -11326,10 +11326,25 @@ rather than fixed:
     say it is theirs  document the code as one a CONSUMER's layer may
                       return, which this library never does
 
-The first is the only one that delivers what the comment promises. It is a
-change to a published seam and to what every consumer must implement, so it
-is the copyright holder's rather than a thing to settle while sweeping error
-codes.
+The first is the only one that delivers what the comment promises, and it is
+a change to a published seam and to what every consumer must implement.
+
+**ASKED AND ANSWERED, 2026-09-04: leave it recorded.** No seam change, no
+deletion, and the header keeps the comment it has. **That is a decision and
+not a deferral**, which is the distinction this file has been burned by twice
+in two days -- sec 58's stage 2 sat "pending the holder" in three places for a
+day after it was built, and sec 56's design question stayed "open and the
+holder's" after sec 57 answered it. An entry that reads as an unanswered
+question gets asked again by whoever picks this up, in this tree and in each
+of the four consumers, and the asking is the cost the record exists to avoid.
+
+**So what a later session should take from this entry is the finding, not a
+task.** The gap is real and is written down: a consumer cannot tell a first
+run from a broken store, and the default it must therefore choose is the one
+that mints a fresh prekey over a live identity. What is settled is that
+nothing changes here today. What would reopen it is a consumer meeting the
+case for real -- which is the evidence this entry does not have and the
+holder does not owe.
 
 ### The instrument was wrong first, in the direction that inflates
 
