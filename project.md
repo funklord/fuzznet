@@ -6117,12 +6117,36 @@ Three things the sweep cost, recorded so the next one is cheaper:
   the caller supplies can be made to near-miss at the last byte, which
   catches truncation at any prefix; grinding a shared prefix into a
   fixture only ever catches a short one.
-- **Some pins are untestable without key grinding, and that belongs IN
-  THE TEST.** Where both sides of a comparison come from inside one
-  signed object -- `chain/chain.c`'s grantor-against-previous-grantee is
-  this shape -- neither can be perturbed from outside. Saying so in the
-  file is what stops the next reader assuming three pins means three
-  covered.
+- **~~Some pins are untestable without key grinding.~~ WRONG, AND IT WAS
+  WRONG TWELVE MINUTES AFTER IT WAS WRITTEN.** The bullet said that where
+  both sides of a comparison come from inside one signed object --
+  `chain/chain.c`'s grantor-against-previous-grantee is the shape --
+  neither can be perturbed from outside, so the pin could not be near-
+  missed.
+
+  `chain/test/chain_test.c`'s `test_a_comparison_reads_the_whole_value`
+  near-misses exactly that pin: *"a grantor matching the previous grantee
+  only in its first byte linked"*. **Perturbing is not the only way to get
+  a near miss -- minting is the other**, and it is available because the
+  test signer signs whatever it is handed and `key_near` keeps byte 0, the
+  stub's identity, so a near-miss key still signs, still verifies, and
+  reaches the comparison under test rather than being turned away earlier.
+
+  **The dates are the lesson rather than the error.** The claim landed in
+  `c11bbd8` at 18:10 on 2026-08-27 and the test in `4b7a90b` at 18:22, five
+  commits later, in the same session. It was true when written and false
+  before the hour was out, and nothing pointed at the sentence afterwards
+  -- which is `evidence.md`'s *a claim that outlived its subject*, at the
+  shortest span this document has recorded.
+
+  **And "cannot be perturbed" was never "cannot be tested", which is the
+  form worth keeping.** Sec 61 met the same shape from the other end the
+  same week: `blob.h` says `FZN_BLOB_ERR_FULL` "cannot happen to a caller
+  who is not trying", which is true at a bound of 2^40 and is not a claim
+  about testability either. **Both were closed by CONSTRUCTING the state
+  rather than arriving at it** -- mint the near miss, assign the leaf count
+  -- and in both the sentence that read as a limit was describing the front
+  door while the test came in through the struct.
 
 The failure mode here differs from the consumer's and is worth
 distinguishing. Their vacuous pins were on ADMISSION paths, so a short
@@ -11310,6 +11334,68 @@ alone is also green, since the openers do write every field. Dropping the
 init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
+
+## 62. Nine claims that a test could not exist, 2026-09-04
+
+`evidence.md` argues for sweeping a document for claims of IMPOSSIBILITY
+rather than of absence: they are rarer, so the precision is better, and the
+harm is worse in kind -- an absence claim that has been closed wastes a
+reader's time, while **an impossibility claim that was never true tells the
+next person not to write a test that would work.** Its workspace score is one
+confirmed deterrent in thirty.
+
+Run over this file -- "no test can", "cannot be tested", "untestable",
+"invisible to any check" and their neighbours -- **nine hits over eight
+distinct claims, and one of the eight is live.** The correction is in sec 11,
+where the sentence is, rather than here.
+
+    sec 11   grantor-against-previous-grantee cannot be near-missed   LIVE
+    sec 5h   a design that assumed it could would be untestable       hypothetical
+    sec 11   dead code that cannot be tested is not depth             a principle,
+                                                                     and applied
+    sec 22   short read, short write, and that fsync reaches disk     a real limit:
+                                                                     needs a signal
+                                                                     mid-syscall or
+                                                                     a power cut
+    sec 22   data fsync ordering, and rename over write               the same limit
+    sec 44   no compile-time distinction between the two types        measured, and
+                                                                     the next line
+                                                                     says it was
+    sec 55   `/proc/<pid>/status` past 8192 bytes                     limit, and the
+                                                                     remedy is in
+                                                                     the next line
+    sec 61   FZN_BLOB_ERR_FULL "cannot happen to a caller who is
+             not trying"                                             says outright
+                                                                     it is not a
+                                                                     testability
+                                                                     claim
+
+**Seven of the eight are fine and the reason is the same one `evidence.md`
+gives: the deterrent is the impossibility claim with NO REMEDY BESIDE IT.**
+Every one of the seven is followed within a sentence or two by the workaround
+it motivated, the argument it carries in prose instead, or the measurement
+that settled it. The live one is the only one that stops there.
+
+**THE FIRST VERSION OF THIS TABLE PUT THREE OF THEM IN THE WRONG SECTION** --
+sec 5h as 5g, both of sec 22's as 21 and 22, and sec 44's as 33 -- because the
+sections were read off line numbers taken before this session's own edits had
+moved them. Nothing in the finding changed and the table would have been
+quoted anyway, which is the whole hazard: a row that sends a reader to the
+wrong section costs them the search and tells them nothing is there. Rebuilt
+by walking the file and carrying the last heading seen, which is the same
+"ask the artifact" move sec 60's correction turned on its own population.
+
+**Recording the eight is the point of writing this down at all.** A sweep with
+no record licenses nothing: somebody re-runs the same grep in a month, reads
+the same nine lines, and cannot tell which were looked at. The lens is spent
+for this document until somebody adds a sentence of that shape.
+
+**One note on running it here.** This document is a LOG rather than a STATUS
+document -- entries open by stating a gap and close by fixing it -- and
+`evidence.md` says the absence sweep is close to worthless against that genre
+for exactly that reason. The impossibility sweep survives it, and the nine
+hits above are why: a claim that a test cannot exist is not the setup sentence
+of a remedy, so the genre does not manufacture them.
 
 ## 61. Every error code, against every test that names one, 2026-09-04
 
