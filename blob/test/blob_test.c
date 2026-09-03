@@ -755,6 +755,65 @@ static void test_a_refusing_hash_carries_its_refusal_out(void)
 	      "the fold did not carry the hash's refusal out");
 }
 
+/* THE STREAMING TREE'S TWO CAPACITY REFUSALS, WHICH NO TEST NAMED.
+ *
+ * `FZN_BLOB_ERR_FULL` is produced at two places in `fzn_blob_tree_push` and
+ * was named by nothing in this tree -- the only one of 117 error constants in
+ * that state. project.md sec 61 has the sweep.
+ *
+ * REACHED BY CONSTRUCTING THE STATE RATHER THAN BY ARRIVING AT IT, and the
+ * header's sentence is what licenses that: the leaf bound "needs
+ * FZN_BLOB_MAX_LEAVES leaves and therefore cannot happen to a caller who is
+ * not trying". That is true and it is not a claim that the guard cannot be
+ * tested -- 2^40 pushes is not a test, a tree is caller-owned memory whose
+ * fields this header publishes, and a test is exactly the caller who is
+ * trying.
+ *
+ * EACH BOUND WITH THE OTHER SLACK, or one of the two guards could be deleted
+ * and this would still pass on the survivor. And each with its own just-under
+ * case, so a `>=` quietly becoming a `>` is caught as well as a guard going
+ * missing. */
+static void test_the_tree_refuses_when_it_is_full(void)
+{
+	uint8_t leaf[FZN_BLOB_HASH_LEN];
+	fzn_blob_tree_t tree;
+	unsigned i;
+
+	memset(leaf, 0x5c, sizeof(leaf));
+
+	/* THE LEAF BOUND, with the stack empty so nothing else can refuse. */
+	fzn_blob_tree_init(&tree);
+	tree.leaves = FZN_BLOB_MAX_LEAVES - 1u;
+	CHECK(fzn_blob_tree_push(&HASH, &tree, leaf) == FZN_BLOB_OK,
+	      "a tree one leaf below the bound refused, so the bound is off by one");
+	CHECK(tree.leaves == FZN_BLOB_MAX_LEAVES,
+	      "the accepted push did not count, so the refusal below is not about a "
+	      "full tree");
+	CHECK(fzn_blob_tree_push(&HASH, &tree, leaf) == FZN_BLOB_ERR_FULL,
+	      "a tree holding FZN_BLOB_MAX_LEAVES accepted another leaf");
+
+	/* THE DEPTH BOUND, with the leaf count nowhere near its own. The levels
+	 * are strictly decreasing, which is the invariant the header states for
+	 * this stack, so no fold runs and the depth is what refuses rather than
+	 * the binary counter unwinding it. */
+	fzn_blob_tree_init(&tree);
+	for (i = 0; i < FZN_BLOB_MAX_DEPTH; i++)
+		tree.level[i] = (uint8_t)(FZN_BLOB_MAX_DEPTH - i);
+	tree.depth = FZN_BLOB_MAX_DEPTH - 1u;
+	CHECK(fzn_blob_tree_push(&HASH, &tree, leaf) == FZN_BLOB_OK,
+	      "a stack one level below the bound refused, so the bound is off by one");
+	CHECK(tree.depth == FZN_BLOB_MAX_DEPTH,
+	      "the accepted push folded instead of growing the stack, so the refusal "
+	      "below is not about a full one");
+	CHECK(fzn_blob_tree_push(&HASH, &tree, leaf) == FZN_BLOB_ERR_FULL,
+	      "a stack at FZN_BLOB_MAX_DEPTH accepted another leaf, so the write "
+	      "would land past the end of the array");
+
+	/* And it renders, which is the half `fzn_blob_err_str` owes a log. */
+	CHECK(strcmp(fzn_blob_err_str(FZN_BLOB_ERR_FULL), "unknown") != 0,
+	      "the only error code no test named also has no string");
+}
+
 static void test_every_guard_refuses_its_own_argument(void)
 {
 	uint8_t key[FZN_BLOB_KEY_LEN];
@@ -830,6 +889,7 @@ int main(void)
 	test_an_empty_leaf_is_refused();
 	test_a_strangers_lengths_are_refused_as_shape();
 	test_a_refusing_hash_carries_its_refusal_out();
+	test_the_tree_refuses_when_it_is_full();
 	test_every_guard_refuses_its_own_argument();
 	test_the_suite_can_tell_pass_from_fail();
 

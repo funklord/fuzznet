@@ -11254,6 +11254,96 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 61. Every error code, against every test that names one, 2026-09-04
+
+`evidence.md` gained a section this evening reporting situ's measurement:
+**93 of 302 `error(...)` call sites are never produced by any test**, and what
+an unproduced diagnostic loses is not the refusal but the WORDING. The C
+analogue is cheaper to ask than situ's, because an error code is a symbol
+rather than a sentence: which codes does this library produce that no test
+ever names, and which does it declare that nothing can produce?
+
+    error constants declared                117
+    produced somewhere in the library       116
+    named by some test, fuzz or tool        116
+
+**That is a healthy answer and it agrees with sec 43**, which found this
+tree's guards mostly held and its survivors mostly redundant. Two items fell
+out of it, and they are different kinds.
+
+### `FZN_BLOB_ERR_FULL`: produced twice, named by nothing
+
+The only code of the 117 the library returns and no test observes.
+`blob.h` says it "needs FZN_BLOB_MAX_LEAVES leaves and therefore cannot happen
+to a caller who is not trying", which is true -- the bound is 2^40 -- and is
+**not** a claim that it cannot be tested. A tree is caller-owned memory whose
+fields that header publishes, so the state is constructible in one assignment,
+and a test is exactly the caller who is trying.
+
+`test_the_tree_refuses_when_it_is_full` takes both bounds separately, each
+with the other slack so that deleting one guard cannot pass on the survivor,
+and each with its own just-under case so that `>=` becoming `>` is caught as
+well as a guard going missing. Both are `tool/sabotage.py` entries and all
+three mutations were watched failing at the check written for them.
+
+**And the depth bound turned out not to be dead code**, which is worth
+recording because the source says otherwise in passing: the fold's comment
+argues that the binary-counter invariant "is why the stack cannot exceed the
+depth bound". True of a tree built by pushing; the guard defends a tree
+somebody hands you, and with a constructed stack it fires. A guard that is
+unreachable through the front door and reachable through the struct is not
+redundant, it is the struct's guard.
+
+### `FZN_PERSIST_ERR_ABSENT`: declared, and nothing can produce it
+
+The other direction, and it is not a test gap. The code carries a rationale:
+
+    /* Nothing stored under that slot. An ordinary state on first run, and
+     * its own code so a caller can tell it from a backend failure --
+     * which is the distinction that decides whether to mint a fresh
+     * prekey or to stop and shout. */
+
+**No library function returns it, and the seam it would have to come from
+cannot express it.** `fzn_persist_ops_t::load` returns `int`; the file backend
+answers 0 for a slot that is absent and 0 for one it could not read, and
+`persist_file_test.c` asserts exactly that. So the distinction the comment
+says a caller needs is not available to a caller anywhere.
+
+**The consequence is the one the comment itself names, pointing the wrong
+way.** A consumer that cannot tell absent from broken must choose a default,
+and the two errors are not symmetric: treating a broken store as a first run
+MINTS A FRESH PREKEY AND DISCARDS A LIVE IDENTITY, while treating a first run
+as broken stops a host that would have worked. The comment exists because
+somebody saw that; the mechanism it promises does not exist.
+
+**Three answers and they are not equivalent**, which is why this is recorded
+rather than fixed:
+
+    widen the seam    `load` reports absent distinctly -- a public API
+                      change, and every consumer's backend implements it
+    delete the code   honest, and throws away a distinction that was
+                      thought worth having
+    say it is theirs  document the code as one a CONSUMER's layer may
+                      return, which this library never does
+
+The first is the only one that delivers what the comment promises. It is a
+change to a published seam and to what every consumer must implement, so it
+is the copyright holder's rather than a thing to settle while sweeping error
+codes.
+
+### The instrument was wrong first, in the direction that inflates
+
+The first pass matched `return FZN_..._ERR_...;` literally and reported SIX
+codes as never returned. Five of the six are produced by an assignment or a
+ternary -- `err = FZN_RATCHET_ERR_HASH;`, `... : FZN_COMMITMENT_ERR_MISMATCH`
+-- and are tested. Only one of the six was real.
+
+**A five-in-six false positive rate, all in the direction that makes the
+finding look bigger**, which `evidence.md` names as the error least likely to
+be questioned. What caught it was reading each hit against the source before
+writing any of them down -- the same discriminator as sec 60's correction, and
+the same one that section says to distrust: the cut, not the enumeration.
+
 ## 60. The forwarding lens, and the three drains nobody could reach, 2026-09-04
 
 Sec 59's finding gave a shape: **a parameter threaded through a call is not a

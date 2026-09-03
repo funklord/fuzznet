@@ -769,6 +769,22 @@ SABOTAGES = [
 		"a host that knows it is behind must not answer as though it were current",
 	),
 	(
+		"blob-tree-leaf-bound",
+		"blob/blob.c",
+		"\tif (tree->leaves >= FZN_BLOB_MAX_LEAVES)\n"
+		"\t\treturn FZN_BLOB_ERR_FULL;\n",
+		"",
+		"the streaming tree refuses a leaf past its bound rather than counting on",
+	),
+	(
+		"blob-tree-depth-bound",
+		"blob/blob.c",
+		"\tif (tree->depth >= FZN_BLOB_MAX_DEPTH)\n"
+		"\t\treturn FZN_BLOB_ERR_FULL;\n",
+		"",
+		"a push onto a full stack would write past the end of the array",
+	),
+	(
 		"rev-drain-stale-copy",
 		"chain/revocation.c",
 		"\t\t\t\tfzn_manifest_satisfy(manifest,\n"
