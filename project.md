@@ -11621,21 +11621,61 @@ SKIPPED for a non-x86-64, sanitized or `-O0` object, so a SURVIVED here on
 some future machine means the gate skipped rather than that the function
 changed.
 
-**Its margin is thinner than expected, and this is the measurement worth
-keeping.** The gate fails on four independent conditions and the reading
-that proposed this entry predicted three of them would fire. One did:
+**IT DOES NOT CATCH IT ON CLANG, and the first version of this paragraph
+said otherwise.** What was written here on 2026-09-03 was that the margin is
+"thinner than expected" but "not a defect today", from one measurement on
+one compiler at one level. Challenged from outside the tree -- if gcc
+keeping the conditional set is compiler-specific, the margin is a property
+of gcc-on-this-box and might be four-deep elsewhere -- and measured across
+eight cells rather than argued:
 
-    fzn_ct_memeq, early-exit mutant, gcc -Os:
-      4 conditional branch, 1 conditional set, 2 return, 1 accumulator store
-      codegen-gate: expected exactly 1 return, found 2
+    real function                     mutant (early exit on first mismatch)
+    gcc   -O1  FAIL (2 return)        gcc   -O1  FAIL
+    gcc   -O2  FAIL (2 return)        gcc   -O2  FAIL
+    gcc   -Os  pass                   gcc   -Os  FAIL (2 return)
+    gcc   -O3  FAIL (2 return)        gcc   -O3  FAIL
+    clang -O1  pass                   clang -O1  FAIL
+    clang -O2  pass                   clang -O2  FAIL
+    clang -Os  pass                   clang -Os  PASS  <- "shape unchanged"
+    clang -O3  pass                   clang -O3  FAIL
 
-The conditional set and the accumulator store both SURVIVED the canonical
-mutation -- gcc kept them. So the return count carried the catch alone, and
-a compiler that produced a single-return early exit, via a flag and a break,
-would leave three of four conditions satisfied. That is not a defect today
-and it is not a reason to add conditions on speculation; it is the number to
-have written down before somebody reads "four independent checks" and
-concludes the margin is four deep.
+**At clang -Os the gate reports "shape unchanged" for a mutant that has
+destroyed the only property this module exists for.** `-Os` is this build's
+own optimisation level, clang is installed here and is what `make fuzz` and
+`ctcheck` already use, and `codegen_gate.py` skips for a non-x86-64,
+sanitized or `-O0` object but not for a compiler.
+
+**The discriminator is present in the output and deliberately unused.** Real
+and mutant differ at clang -Os only in the conditional branch count, 3
+against 4 -- the one number the gate prints and does not fail on. That
+decision was correct and should stand: across the eight cells the REAL
+function's branch count ranges 3 to 5, so failing on it would refuse honest
+builds. There is no stable invariant in the gate's vocabulary separating
+these two objects.
+
+The gcc column is the other half of the same fact. At -O1, -O2 and -O3 the
+gate fails the UNMUTATED function, so it is calibrated to the level this
+project builds at rather than being a general property of the source.
+
+**What does catch it is `ctcheck`, and it is in neither `make test` nor
+`make check`.** Run against the mutant it fails with the frame named:
+
+    ==27344==    at 0x10981E: fzn_ct_memeq (constant_time.c:38)
+    ==27344==    by 0x1094AE: compare_secret (secret_flow_test.c:92)
+
+That is portable in a way the tripwire cannot be, because valgrind OBSERVES
+a branch on secret data rather than inferring from shape. So the standing
+arrangement is: `make check` carries the tripwire and not the witness, and
+the tripwire has a measured hole at this project's own optimisation level on
+an installed compiler. Whether `ctcheck` joins `check` is a build-policy
+question for the holder -- it needs valgrind present, and the Makefile's
+list of deliberate exclusions from `check` does not mention it either way.
+
+**The correction is the point, not the finding.** The first paragraph was
+written from one cell and read as a property of the gate. It took somebody
+declining to accept it into a document to turn eight cells into a
+measurement -- and the measurement says something stronger and in a
+different direction than either of us guessed.
 
 ### And the pattern rule from sec 52 paid for itself three times
 

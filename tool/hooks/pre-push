@@ -1,0 +1,57 @@
+#!/bin/sh
+# What is about to become public, printed before it does.
+#
+# WHY THIS EXISTS. CLAUDE.md requires the pusher to know what is in
+# `origin/<branch>..HEAD` before publishing, because these trees are worked
+# in by more than one session at a time and the index and the branch are
+# shared. A session that pushes its own commit publishes every commit under
+# it, including another session's work, with that session's timing decision
+# taken away. It happened here twice on 2026-09-03: `git fetch && git push`
+# with nothing in between, so two sync commits from another session went out
+# unseen. `git fetch` answers "am I behind"; nothing was asking "what am I
+# about to publish".
+#
+# WHY IT PRINTS RATHER THAN REFUSES, which is the part worth reading before
+# anyone strengthens it. Every commit in this clone carries the same author
+# and the same reflog, so git cannot tell one session's commit from
+# another's -- there is no signal to refuse on. A threshold ("more than one
+# commit") would refuse the ordinary case of publishing a few of your own,
+# and a rule that fires on the wrong thing gets disabled, which is worse
+# than one that never fired.
+#
+# So it does the one thing that is both decidable and useful: it makes the
+# range impossible not to have seen. The judgement stays with the pusher,
+# which is where it has to be.
+#
+# HOW IT STOPS: one pass over the refs git writes on stdin, no loop that is
+# not bounded by that input, no network, no writes. It always exits 0.
+
+# The all-zero sha git uses for "no such ref", written out rather than
+# generated: `seq` is not everywhere and a literal cannot be miscomputed.
+z40=0000000000000000000000000000000000000000
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+	# A deletion pushes nothing.
+	[ "$local_sha" = "$z40" ] && continue
+
+	if [ "$remote_sha" = "$z40" ]; then
+		range="$local_sha"
+		what="a new remote ref"
+	else
+		range="$remote_sha..$local_sha"
+		what="$remote_ref"
+	fi
+
+	n=$(git rev-list --count "$range" 2>/dev/null) || n="?"
+	echo "pre-push: publishing $n commit(s) to $what --" >&2
+	# ORDER MATTERS AND GOT THIS WRONG FIRST. `2>/dev/null >&2` redirects
+	# left to right: stderr goes to /dev/null, then stdout is duplicated
+	# onto it -- so the whole list went to /dev/null while the count above
+	# printed correctly and the hook looked like it worked.
+	git log --format='  %h %an  %s' "$range" >&2 2>/dev/null
+	echo "pre-push: a commit here that is not yours is another session's, and" >&2
+	echo "pre-push: pushing it takes their timing decision. Nothing is refused;" >&2
+	echo "pre-push: git cannot tell whose is whose in a shared clone." >&2
+done
+
+exit 0

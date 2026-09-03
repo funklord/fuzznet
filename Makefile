@@ -2224,6 +2224,8 @@ style:
 hooks:
 	@install -m 0755 tool/hooks/commit-msg .git/hooks/commit-msg
 	@echo "installed .git/hooks/commit-msg"
+	@install -m 0755 tool/hooks/pre-push .git/hooks/pre-push
+	@echo "installed .git/hooks/pre-push"
 
 # Headers only. project.md sec 7 is explicit that this is not a system
 # package and not a shared library -- a .so would put wire compatibility in
