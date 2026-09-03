@@ -11455,6 +11455,22 @@ query by the third. The unit suite catches both too; this catches them
 through a lossy network with per-host stores, which is the arrangement the
 gap lives in.
 
+**And `tool/consumer_check.c` performs the cycle**, which is a different
+question from either: not whether the library is right but whether a
+consumer can USE it. Revoke, read the pair back, compute the record's
+identity, withdraw, watch the two predicates diverge, then re-revoke --
+which is where a consumer meets the chaining rule as a REFUSAL rather than
+as a paragraph, and is the step most likely to be got wrong. Plus the
+withdrawal arriving first, in its own store, because the point of that leg
+is a host that never held the revocation.
+
+It discriminates too, measured the same way: sabotaging the action read, the
+tombstone, or the chaining rule fails `installcheck` at a named check
+number. Worth having because `installcheck`'s whole argument is that a
+header named in HDRS and called by nothing passes as loudly as one a
+consumer really exercises -- and until now the withdrawal API was exactly
+that, compiled against and never called.
+
 ### Three of the seven new guards were unheld when written
 
 Measured with `--probe` after the fact, which is the only reason it is known:

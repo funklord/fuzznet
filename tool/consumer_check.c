@@ -800,6 +800,165 @@ int main(void)
 		}
 	}
 
+
+	/* WITHDRAWAL, END TO END, for the reason the two blocks around it
+	 * state: a header named in HDRS and called by nothing passes this gate
+	 * as loudly as one a consumer really exercises. `fzn_revocation_admit`
+	 * and `fzn_revocation_merge` grew a hash seam on 2026-09-03 and the
+	 * record grew a `supersedes` field, so a consumer that only ever
+	 * revoked would compile against the new header and exercise none of
+	 * it.
+	 *
+	 * THE SEQUENCE IS THE ONE A CONSUMER PERFORMS, in the order it
+	 * performs it: revoke, discover the pair is revoked, withdraw, watch
+	 * it come back, then try to revoke again -- which is where a consumer
+	 * meets the chaining rule as a REFUSAL rather than as a paragraph, and
+	 * is the step most likely to be got wrong. The last leg is the
+	 * withdrawal arriving before the revocation it undoes, which on a mesh
+	 * is ordinary rather than exceptional. */
+	{
+		uint8_t rev_bytes[FZN_REVOCATION_LEN];
+		uint8_t wd_bytes[FZN_REVOCATION_LEN];
+		uint8_t again_bytes[FZN_REVOCATION_LEN];
+		uint8_t id[FZN_REVOCATION_ID_LEN];
+		uint8_t grantee[FZN_PUBKEY_LEN];
+		fzn_revocation_record_t rec;
+		fzn_revocation_store_t store;
+		fzn_revocation_t storage[4];
+
+		memset(grantee, 0x31, sizeof(grantee));
+		if (fzn_revocation_store_init(&store, storage, 4) != FZN_CHAIN_OK)
+			FAIL(260);
+
+		/* Revoke, and read the pair back as revoked. */
+		if (fzn_revocation_issue(root, &cap, grantee, 1000, &sign, rev_bytes) !=
+		    FZN_CHAIN_OK)
+			FAIL(261);
+		if (fzn_revocation_open(rev_bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
+			FAIL(262);
+		if (fzn_revocation_is_withdrawal(rec))
+			FAIL(263);
+		if (fzn_revocation_admit(&store, fzn_revocation_offer_root(rec), root, &sign,
+		                         &CONSUMER_HASH, NULL) != FZN_CHAIN_OK)
+			FAIL(264);
+		if (fzn_revocation_covers(&store, root, &cap, grantee) != 1)
+			FAIL(265);
+
+		/* THE RECORD'S IDENTITY IS THE CONSUMER'S TO COMPUTE, over the
+		 * whole record and with the same seam it hands to `admit`. A
+		 * consumer that hashed the signed range instead would build a
+		 * withdrawal naming nothing this store holds. */
+		if (!consumer_hash(NULL, id, sizeof(id), rev_bytes, FZN_REVOCATION_LEN))
+			FAIL(266);
+
+		if (fzn_revocation_issue_withdrawal(root, &cap, grantee, 2000, id, &sign,
+		                                    wd_bytes) != FZN_CHAIN_OK)
+			FAIL(267);
+		if (fzn_revocation_open(wd_bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
+			FAIL(268);
+		if (!fzn_revocation_is_withdrawal(rec))
+			FAIL(269);
+		if (memcmp(fzn_revocation_supersedes(rec), id, sizeof(id)) != 0)
+			FAIL(270);
+		if (fzn_revocation_admit(&store, fzn_revocation_offer_root(rec), root, &sign,
+		                         &CONSUMER_HASH, NULL) != FZN_CHAIN_OK)
+			FAIL(271);
+
+		/* THE TWO PREDICATES ANSWER DIFFERENTLY NOW, and a consumer
+		 * that reads the wrong one loops. `covers` is the
+		 * authorization question and says no; `known` is the
+		 * replication question -- do I still need to fetch this -- and
+		 * says yes, because the entry is still here. */
+		if (fzn_revocation_covers(&store, root, &cap, grantee) != 0)
+			FAIL(272);
+		if (fzn_revocation_known(&store, root, &cap, grantee) != 1)
+			FAIL(273);
+		if (store.used != 1)
+			FAIL(274);
+
+		/* RE-REVOKING WITH `issue` IS REFUSED, and this is the step a
+		 * consumer gets wrong. The record it mints names nothing, and
+		 * against a store holding a withdrawal for this triple that is
+		 * exactly the un-chained re-revocation the design forbids. The
+		 * error is its own so the consumer can tell it from a forgery.
+		 *
+		 * A LATER `issued_at` IS WHAT REACHES THE RULE. At the
+		 * original instant the record is byte-identical to the first
+		 * and is refused one line earlier, as the stale copy it cannot
+		 * be told apart from. */
+		if (fzn_revocation_issue(root, &cap, grantee, 4000, &sign, again_bytes) !=
+		    FZN_CHAIN_OK)
+			FAIL(275);
+		if (fzn_revocation_open(again_bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
+			FAIL(276);
+		if (fzn_revocation_admit(&store, fzn_revocation_offer_root(rec), root, &sign,
+		                         &CONSUMER_HASH, NULL) != FZN_CHAIN_ERR_UNKNOWN_TARGET)
+			FAIL(277);
+		if (fzn_revocation_covers(&store, root, &cap, grantee) != 0)
+			FAIL(278);
+
+		/* And the call that is correct for this case. */
+		if (fzn_revocation_reissue(root, &cap, grantee, 5000, id, &sign,
+		                           again_bytes) != FZN_CHAIN_OK)
+			FAIL(279);
+		if (fzn_revocation_open(again_bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
+			FAIL(280);
+		if (fzn_revocation_admit(&store, fzn_revocation_offer_root(rec), root, &sign,
+		                         &CONSUMER_HASH, NULL) != FZN_CHAIN_OK)
+			FAIL(281);
+		if (fzn_revocation_covers(&store, root, &cap, grantee) != 1)
+			FAIL(282);
+		if (store.used != 1)
+			FAIL(283);
+	}
+
+	/* THE WITHDRAWAL THAT ARRIVES FIRST, which is a separate store because
+	 * the point is a host that has never held the revocation. On a mesh
+	 * this is what happens whenever the withdrawing host has a shorter
+	 * path to a peer than the revoking host did. */
+	{
+		uint8_t rev_bytes[FZN_REVOCATION_LEN];
+		uint8_t wd_bytes[FZN_REVOCATION_LEN];
+		uint8_t id[FZN_REVOCATION_ID_LEN];
+		uint8_t grantee[FZN_PUBKEY_LEN];
+		fzn_revocation_record_t rec;
+		fzn_revocation_store_t store;
+		fzn_revocation_t storage[4];
+
+		memset(grantee, 0x32, sizeof(grantee));
+		if (fzn_revocation_store_init(&store, storage, 4) != FZN_CHAIN_OK)
+			FAIL(284);
+
+		/* Minted in order, delivered in the other. */
+		if (fzn_revocation_issue(root, &cap, grantee, 1000, &sign, rev_bytes) !=
+		    FZN_CHAIN_OK)
+			FAIL(285);
+		if (!consumer_hash(NULL, id, sizeof(id), rev_bytes, FZN_REVOCATION_LEN))
+			FAIL(286);
+		if (fzn_revocation_issue_withdrawal(root, &cap, grantee, 2000, id, &sign,
+		                                    wd_bytes) != FZN_CHAIN_OK)
+			FAIL(287);
+
+		if (fzn_revocation_open(wd_bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
+			FAIL(288);
+		if (fzn_revocation_admit(&store, fzn_revocation_offer_root(rec), root, &sign,
+		                         &CONSUMER_HASH, NULL) != FZN_CHAIN_OK)
+			FAIL(289);
+
+		/* The revocation it undoes, arriving late. It must not take
+		 * effect -- not "take effect and then be undone", which would
+		 * leave a window in which the host was revoked. */
+		if (fzn_revocation_open(rev_bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
+			FAIL(290);
+		if (fzn_revocation_admit(&store, fzn_revocation_offer_root(rec), root, &sign,
+		                         &CONSUMER_HASH, NULL) != FZN_CHAIN_OK)
+			FAIL(291);
+		if (fzn_revocation_covers(&store, root, &cap, grantee) != 0)
+			FAIL(292);
+		if (store.used != 1)
+			FAIL(293);
+	}
+
 	/* THE MANIFEST, END TO END, for the reason the block above states: a
 	 * header named in HDRS and called by nothing passes this gate as
 	 * loudly as one a consumer really exercises. So the whole sequence
