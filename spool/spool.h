@@ -159,6 +159,58 @@ int fzn_spool_has(const fzn_spool_t *spool, uint64_t index);
 int fzn_spool_complete(const fzn_spool_t *spool);
 
 /*
+ * ---- integrity at rest, which is the CONSUMER'S and is already reachable --
+ *
+ * `fzn_spool_place` verifies a leaf against `root` before it writes a byte,
+ * and nothing verifies it again. `fzn_spool_read` takes no hash and no proof
+ * by design, so a leaf that was right when placed and has since rotted comes
+ * back as good, and a relay serving from a spool serves what the medium now
+ * says. The far end's own `place` refuses it -- but the relay cannot tell its
+ * own bad sector from a hostile peer, cannot repair, and cannot report.
+ *
+ * THERE IS NO `fzn_spool_scrub` AND THAT IS DELIBERATE, because it would have
+ * to learn something this module refuses to know. Re-hashing a leaf needs its
+ * true sealed length, and the paragraph above says why a store does not have
+ * one: the stride is what is read, the last leaf is short, and resolving the
+ * length is the caller's with the length the manifest gave. A scrub here
+ * would be a second copy of the manifest's lengths kept in step by hand.
+ *
+ * SO IT IS THE CONSUMER'S, AND EVERY PIECE ALREADY EXISTS. Written out
+ * because nothing said so, and a reader who looks for at-rest detection and
+ * finds an absence concludes it was not thought about:
+ *
+ *     fzn_blob_tree_t tree;
+ *     uint8_t leaf[FZN_BLOB_HASH_LEN], got[FZN_BLOB_HASH_LEN];
+ *
+ *     fzn_blob_tree_init(&tree);
+ *     for (i = 0; i < spool->leaves; i++) {
+ *             fzn_spool_read(spool, i, buf, sizeof buf, &n);
+ *             fzn_blob_leaf_hash(hash, buf, sealed_len[i], leaf);
+ *             fzn_blob_tree_push(hash, &tree, leaf);
+ *     }
+ *     fzn_blob_tree_root(hash, &tree, got);
+ *     -- compare `got` against `spool->root`, which is in the struct.
+ *
+ * `sealed_len[i]` is the manifest's, not this module's. The tree folds as
+ * leaves arrive and holds at most FZN_BLOB_MAX_DEPTH hashes whatever the
+ * blob's size, so this allocates nothing and is O(leaves) reads.
+ *
+ * IT REQUIRES A COMPLETE SPOOL, and the limit is arithmetic rather than a
+ * missing feature: verifying leaf `i` needs the sibling hashes on its path,
+ * and those are computed from leaves you do not have yet. `fzn_spool_complete`
+ * is the precondition. An incomplete spool can only be re-verified against
+ * retained per-leaf proofs, and whether to keep those is a storage decision
+ * this module has no business making for a consumer.
+ *
+ * AND A SCRUB NOTHING CALLS IS NOT DETECTION. A library that does not
+ * schedule cannot make this periodic -- sec 2 keeps timers out for the same
+ * reason it keeps transport out -- so the consumer owns when. Named here so
+ * that it is the obvious thing to reach for rather than something each
+ * consumer has to invent, which is the argument `fzn_spool_next_missing`
+ * already makes about resumption.
+ */
+
+/*
  * The next leaf this store still needs, at or after `from`. Returns
  * FZN_SPOOL_ERR_ABSENT when there are none left, which is how a caller walks
  * the gaps without asking about every index.

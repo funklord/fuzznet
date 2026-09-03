@@ -1,5 +1,13 @@
 /* A bounded log of records, and what to say when retention has eaten one.
  *
+ * ABSORBED IS NOT ADOPTED, AND THE ORIGINATING CONSUMER DOES NOT USE THIS.
+ * Reported by fuzzypickles on 2026-09-03: they still ship their own `flog/`
+ * and include nothing from here for it. Unlike `link/` below no line-by-line
+ * comparison has been made, so no claim of drift is made either -- only that
+ * the absorption has not landed back, and that nothing here has been
+ * exercised by the consumer it came from. Whether it should is the copyright
+ * holder's.
+ *
  * The first piece absorbed from fuzzypickles' log subsystem (project.md sec
  * 5). What came across is the part their own measurement identified as
  * general -- **sequencing, retention and serving a range** -- and what did

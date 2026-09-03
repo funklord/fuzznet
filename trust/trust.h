@@ -11,6 +11,19 @@
  * A joining host has no anchor and must get one somehow; refusing to have a
  * path meant the path existed anyway, in the consumer, written three times.
  *
+ * NOT YET INCLUDED BY THAT CONSUMER, as of 2026-09-03. fuzzypickles reported
+ * -- unprompted, having audited the headers it does not use -- that it
+ * includes nothing from here for TOFU and its own implementation is still
+ * the one running.
+ *
+ * Recorded as a fact and nothing more. The instruction above stands; this
+ * says only that the adoption it anticipated has not happened yet, so
+ * nothing in this file has been exercised by the consumer it was written
+ * for. That matters to a reader deciding how much this design has been
+ * tested by contact rather than by argument. Whether and when it is adopted
+ * is the copyright holder's, and fuzzypickles has raised it with them
+ * directly.
+ *
  * HOW BOTH HOLD AT ONCE. `fzn_chain_verify` is untouched: it still takes a
  * root and still refuses a chain rooted anywhere else. This file is only
  * about how a host CAME to have that root, and it hands one over through

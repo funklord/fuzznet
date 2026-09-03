@@ -1,5 +1,31 @@
 /* What each link is actually doing, as opposed to what it claimed.
  *
+ * ABSORBED IS NOT ADOPTED, AND THE ORIGINATING CONSUMER DOES NOT USE THIS.
+ * Measured by fuzzypickles on 2026-09-03, reported unprompted: they still
+ * ship their own `core/src/link.c`, last touched 2026-07-28, and include no
+ * header from here for it. So nothing about this module has been exercised
+ * by the consumer it was absorbed from -- it runs in this project's unit
+ * tests and nowhere else, while `sched/`, its other half, does have them as
+ * a consumer. Anyone weighing what the pair has been proved to do should
+ * read that as proved about one half.
+ *
+ * AND THE TWO HAVE DIVERGED PAST A SWAP. Their API is addresses, transports
+ * and byte budgets; this one is ids and metrics over caller-owned entries
+ * feeding `fzn_sched_candidate_t`:
+ *
+ *     theirs: fzp_link_add(address, address_len, transport),
+ *             fzp_link_note_attempt / _note_reply(rtt_ms) / _note_timeout,
+ *             fzp_link_set_budget(limit, window_ms)
+ *     here:   fzn_link_register(id, metric), fzn_link_observe_ack(id, rtt_ms),
+ *             fzn_link_observe_loss(id, now), fzn_link_set_usable(id),
+ *             fzn_link_snapshot -> fzn_sched_candidate_t
+ *
+ * Neither is a superset: their budget window has no counterpart here and the
+ * snapshot-into-candidates has none there. Adopting this would be a rewrite
+ * of their call sites rather than an include swap, which is the fact worth
+ * having before anyone decides the direction. Recorded rather than acted on:
+ * whether an absorption is meant to land back is the copyright holder's.
+ *
  * Absorbed from fuzzypickles' `link.c` (project.md sec 5), the companion to
  * `sched/`: this measures, that chooses. Their header states the claim this
  * exists to make true, and it is kept --
