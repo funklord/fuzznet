@@ -2202,13 +2202,19 @@ static void test_a_truncated_manifest_is_refused(void)
 	CHECK(joiner.manifest.deficit_used == 0, "truncation: it recorded something anyway");
 }
 
-/* ---- what stage 1 deliberately does NOT do ---------------------------- */
+/* ---- the gate, and what opens it -------------------------------------- */
 
-/* NO GATE. sec 13d splits the work so that stage 1 breaks nothing, and this
- * is that claim as an assertion rather than a sentence: a host whose deficit
- * table says it is missing a revocation, and whose overflow flag is set,
- * verifies exactly what it verified before. Stage 2 is where that changes,
- * and it waits on the copyright holder. */
+/* WHICH STATE GATES AND WHICH DOES NOT. This test carries both halves of sec
+ * 13d's split, because the pair is what the gate means: passing no state
+ * changes nothing, and passing a state that reports a deficit against THIS
+ * chain's grantor refuses. project.md sec 58 records the decision and the
+ * scoping that makes it safe.
+ *
+ * THE HEADING AND THIS COMMENT BOTH SAID STAGE 2 WAS UNBUILT AND WAITING ON
+ * THE COPYRIGHT HOLDER, for a day after it was built and while the function
+ * below was already asserting the gate -- the function was renamed and its
+ * comment was not. project.md sec 59 records the sweep that found it and the
+ * three places in that document which said the same thing. */
 static void test_stage_two_gates_on_this_chains_grantors(void)
 {
 	struct fixture f, joiner;

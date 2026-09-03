@@ -329,6 +329,25 @@ struct sim_host {
 	fzn_revocation_store_t revocations;
 	fzn_revocation_t revocation_entries[SIM_REVOCATION];
 
+	/* WHAT THIS HOST HAS BEEN TOLD IT IS MISSING, or NULL for a host that
+	 * follows nobody. Handed to `fzn_chain_verify`, whose stage-2 gate
+	 * refuses a chain granted by an issuer this host knows it is behind on
+	 * -- project.md sec 58.
+	 *
+	 * NULL BY DEFAULT, WHICH IS THE CONTRACT AND NOT A CONVENIENCE. `chain.h`
+	 * says a NULL state is no gate because the host has not asked anyone what
+	 * they revoked, so it has no grounds to believe it is behind. Every
+	 * scenario written before the gate existed therefore keeps saying exactly
+	 * what it said, and `scenario_incomplete` is the one that installs a
+	 * state.
+	 *
+	 * A POINTER RATHER THAN A COPY. The follow and the admissions happen in
+	 * the scenario, and a host holding a state by value would be a second
+	 * copy of a table the scenario is draining -- two views of one fact,
+	 * which is the shape this harness moved the revocation store per host to
+	 * get away from. */
+	const fzn_manifest_state_t *gate;
+
 	fzn_replay_window_t window;
 	fzn_replay_entry_t entries[SIM_WINDOW];
 
@@ -341,6 +360,19 @@ struct sim_host {
 
 	unsigned sent, delivered, refused_shape, refused_replay, refused_auth, refused_reasm;
 	unsigned inbox_overflow;
+
+	/* FRAMES REFUSED BECAUSE THIS HOST COULD NOT JUDGE THE CHAIN, counted
+	 * apart from `refused_auth` because they are not the same finding:
+	 * `chain.h` is explicit that FZN_CHAIN_ERR_INCOMPLETE "is not a refusal
+	 * of the chain -- the chain may be perfectly good; what is wrong is this
+	 * host's evidence".
+	 *
+	 * AND WITHOUT THE SPLIT NO SCENARIO CAN TELL THE GATE FROM A REVOCATION.
+	 * Both end in a frame not delivered by a host that holds something about
+	 * the sender's grantor, which is the arrangement `scenario_incomplete`
+	 * runs in; one counter for both would be satisfied by either. Same
+	 * argument as `refused_record` below. */
+	unsigned refused_incomplete;
 
 	/* The record layer. `held` is a bitmask per issuer of which sequences
 	 * this host has the body of -- one bit per sequence, which is enough
@@ -833,7 +865,7 @@ static void sim_receive(struct sim_net *net, struct sim_datagram *d)
 	}
 	authorised = fzn_chain_verify(sender->chain, sender->chain_len, anchor,
 	                              &net->capability, net->now,
-	                              &net->sign, &h->revocations, NULL, &proven);
+	                              &net->sign, &h->revocations, h->gate, &proven);
 
 	/* AND THE DECISION LAYER MUST AGREE WITH THE VERIFIER, on every frame
 	 * this network delivers, which is what puts `chain/authz.c` in a seam
@@ -855,7 +887,7 @@ static void sim_receive(struct sim_net *net, struct sim_datagram *d)
 		fzn_authz_verdict_t verdict =
 		        fzn_authz_decide(fzn_authz_requires(&net->capability, FZN_ORIGIN_ANY), FZN_ORIGIN_REMOTE, sender->chain,
 		                         sender->chain_len, anchor, net->now, &net->sign,
-		                         &h->revocations, NULL);
+		                         &h->revocations, h->gate);
 		fzn_authz_policy_t forgotten;
 
 		check((authorised == FZN_CHAIN_OK)
@@ -864,10 +896,20 @@ static void sim_receive(struct sim_net *net, struct sim_datagram *d)
 
 		memset(&forgotten, 0, sizeof(forgotten));
 		check(fzn_authz_decide(forgotten, FZN_ORIGIN_REMOTE, sender->chain, sender->chain_len, anchor,
-		                       net->now, &net->sign, &h->revocations, NULL)
+		                       net->now, &net->sign, &h->revocations, h->gate)
 		              == FZN_AUTHZ_DENIED,
 		      "a policy nobody spelled granted on live traffic, so absence reads "
 		      "as not-required where it would actually happen");
+	}
+
+	/* COUNTED APART, because it is a different finding. The chain was not
+	 * refused; this host was unable to judge it, and every other scenario
+	 * asserts on `refused_auth` -- so folding the two together would let a
+	 * gate that fires when it should not pass as an authority refusal
+	 * somewhere else in this file. See `struct sim_host::refused_incomplete`. */
+	if (authorised == FZN_CHAIN_ERR_INCOMPLETE) {
+		h->refused_incomplete++;
+		return;
 	}
 
 	if (authorised != FZN_CHAIN_OK) {
@@ -1478,6 +1520,243 @@ static void scenario_withdrawal(void)
 	       "handed the record, then took %u\n",
 	       told->delivered, told->refused_auth, untold->refused_auth,
 	       untold->delivered);
+}
+
+/* ------------------------------------------------------------ scenario 3d
+
+   INCOMPLETE. A host that knows it is missing revocations from an issuer
+   granting in the chain it is asked to judge refuses that chain -- and goes
+   on serving every chain that issuer does not grant in.
+
+   THE ARRANGEMENT IS WHAT THIS ADDS. project.md sec 58 built the gate and
+   held it in `chain/test/manifest_test.c`, where the state is assembled by
+   hand beside the chain it gates. The defect it closes is a NETWORK
+   condition: a host that joined this morning, was offline, or is
+   partitioned. Until this scenario every call site in this file passed NULL,
+   so the harness that walks the library through a lossy network with per-host
+   stores could not tell the gate from its absence -- which is the same thing
+   `scenario_revocation_split` exists to say about propagation.
+
+   FOUR LEGS, and the middle two are the ones that discriminate:
+
+     a state installed, following nobody   delivers.  An empty state is no
+                                           deficit, not a closed gate
+     a deficit about a STRANGER issuer     delivers.  The scoping, which is
+                                           the whole of what makes the gate
+                                           safe to have
+     a deficit about THIS chain's grantor  refused, and refused as INCOMPLETE
+                                           rather than on authority
+     the missing revocation admitted       delivers again.  It recovers
+                                           issuer by issuer rather than
+                                           needing a person
+
+   THE UNGATED HOST RECEIVES EVERY SEND and is the control. It follows nobody
+   and delivers throughout, so a refusal at the gated host is the gate rather
+   than anything about the sender, the frame or the network.
+
+   THE PAIR THAT IS REVOKED IS A THIRD HOST'S, deliberately. Revoking the
+   sender would make the last leg unreadable: the host would drain its deficit
+   and then refuse on the revocation it had just admitted, and "still refuses"
+   would be satisfied by the gate never having opened.  */
+
+static void scenario_incomplete(void)
+{
+	static struct sim_net net;
+	static uint8_t msg[256];
+	static uint8_t root_region[FZN_REVOCATION_LEN];
+	uint8_t stranger[FZN_PUBKEY_LEN];
+	fzn_revocation_record_t root_rec;
+	fzn_manifest_state_t mstate;
+	fzn_manifest_issuer_t followed[2];
+	fzn_manifest_deficit_t missing[4];
+	struct sim_host *sender, *gated, *ungated, *bystander;
+
+	sim_init(&net, 4, 0x3d3du);
+	fill_message(msg, sizeof(msg), 61);
+	gated = &net.hosts[0];
+	ungated = &net.hosts[1];
+	sender = &net.hosts[2];
+	bystander = &net.hosts[3];
+	sim_identity(0x5a, stranger);
+
+	check(fzn_manifest_init(&mstate, followed, 2, missing, 4) == FZN_MANIFEST_OK,
+	      "the manifest state would not initialise");
+	gated->gate = &mstate;
+
+	/* LEG 1. THE STATE IS INSTALLED AND FOLLOWS NOBODY, which must change
+	 * nothing. An empty union is a zero deficit, and `chain.h` is explicit
+	 * that a host with no state has no grounds to believe it is behind --
+	 * so this leg is what separates "the gate is installed" from "the gate
+	 * is closed", and without it every later delivery could be explained by
+	 * the state never having been consulted at all. */
+	check(sim_send(&net, sender->id, gated->id, msg, sizeof(msg), net.now + 100u),
+	      "the send to the gated host was refused");
+	check(sim_send(&net, sender->id, ungated->id, msg, sizeof(msg), net.now + 100u),
+	      "the send to the ungated host was refused");
+	sim_run(&net, 4);
+	check(gated->delivered == 1,
+	      "a host holding a manifest state that follows nobody refused a good "
+	      "chain, so an empty state is being read as a deficit");
+	check(gated->refused_incomplete == 0,
+	      "and it refused as incomplete, so the gate fires on no knowledge at all");
+	check(ungated->delivered == 1, "the ungated control did not deliver");
+
+	/* LEG 2. A DEFICIT ABOUT AN ISSUER THAT GRANTS NOTHING HERE. This is
+	 * the scoping, and it is the assertion that separates the gate that was
+	 * built from the one sec 13d costed as "returning device refuses all" --
+	 * which, with the clock finding beside it, that section calls a brick.
+	 *
+	 * THE STRANGER'S STORE IS A SCRATCH ONE. A manifest is the ISSUER's
+	 * statement about its own revocations, and no host in this simulation
+	 * stands in for the stranger; what the call needs is a store holding
+	 * what that issuer would say. */
+	{
+		static uint8_t man[FZN_MANIFEST_LEN(4)];
+		uint8_t region[FZN_REVOCATION_LEN];
+		fzn_revocation_store_t their_store;
+		fzn_revocation_t their_entries[2];
+		fzn_revocation_record_t rec;
+		fzn_manifest_record_t man_rec;
+		struct sim_signer signer;
+		size_t man_len = 0;
+
+		fzn_revocation_store_init(&their_store, their_entries, 2);
+		check(fzn_revocation_issue(stranger, &net.capability, bystander->pubkey, net.now,
+		                           sim_signer(&signer, &net.sign, stranger),
+		                           region) == FZN_CHAIN_OK,
+		      "the stranger could not issue a revocation of its own");
+		check(fzn_revocation_open(region, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK,
+		      "the stranger's revocation will not open");
+		check(fzn_revocation_admit(&their_store, fzn_revocation_offer_root(rec), stranger,
+		                           &net.sign, &net.hash, NULL) == FZN_CHAIN_OK,
+		      "the stranger's own store refused the stranger's revocation");
+		check(fzn_manifest_issue(stranger, &their_store,
+		                         sim_signer(&signer, &net.sign, stranger), man,
+		                         sizeof(man), &man_len) == FZN_MANIFEST_OK,
+		      "the stranger could not state what it has revoked");
+		check(fzn_manifest_open(man, man_len, &man_rec) == FZN_MANIFEST_OK,
+		      "the stranger's manifest will not open");
+
+		check(fzn_manifest_follow(&mstate, stranger) == FZN_MANIFEST_OK,
+		      "following the stranger was refused");
+		check(fzn_manifest_admit(&mstate, &gated->revocations, man_rec, &net.sign) ==
+		              FZN_MANIFEST_OK,
+		      "the gated host refused the stranger's manifest");
+		check(fzn_manifest_pending(&mstate, stranger) == 1,
+		      "the gated host does not know it is behind the stranger, so the "
+		      "delivery below is about nothing");
+	}
+
+	check(sim_send(&net, sender->id, gated->id, msg, sizeof(msg), net.now + 100u),
+	      "the second send to the gated host was refused");
+	check(sim_send(&net, sender->id, ungated->id, msg, sizeof(msg), net.now + 100u),
+	      "the second send to the ungated host was refused");
+	sim_run(&net, 4);
+	check(gated->delivered == 2,
+	      "a deficit about an issuer that grants nothing in this chain refused "
+	      "the chain, so the gate is not scoped to this chain's grantors and "
+	      "every returning device refuses everything");
+	check(gated->refused_incomplete == 0,
+	      "and it refused as incomplete, which is that same failure named");
+	check(ungated->delivered == 2, "the ungated control stopped delivering");
+
+	/* LEG 3. A DEFICIT ABOUT THE ROOT, which grants every chain here.
+	 *
+	 * The revocation is of the BYSTANDER's grant, so nothing about the
+	 * sender's authority changes -- what changes is that this host now knows
+	 * it has not heard everything the root has said. */
+	{
+		static uint8_t man[FZN_MANIFEST_LEN(4)];
+		fzn_revocation_store_t issuer_store;
+		fzn_revocation_t issuer_entries[2];
+		fzn_manifest_record_t man_rec;
+		struct sim_signer signer;
+		size_t man_len = 0;
+
+		fzn_revocation_store_init(&issuer_store, issuer_entries, 2);
+		check(fzn_revocation_issue(net.root, &net.capability, bystander->pubkey, net.now,
+		                           sim_signer(&signer, &net.sign, net.root),
+		                           root_region) == FZN_CHAIN_OK,
+		      "the root could not revoke the bystander");
+		check(fzn_revocation_open(root_region, FZN_REVOCATION_LEN, &root_rec) ==
+		              FZN_CHAIN_OK,
+		      "the root's revocation will not open");
+		check(fzn_revocation_admit(&issuer_store, fzn_revocation_offer_root(root_rec),
+		                           net.root, &net.sign, &net.hash, NULL) == FZN_CHAIN_OK,
+		      "the issuer's own store refused the root's revocation");
+		check(fzn_manifest_issue(net.root, &issuer_store,
+		                         sim_signer(&signer, &net.sign, net.root), man,
+		                         sizeof(man), &man_len) == FZN_MANIFEST_OK,
+		      "the root could not state what it has revoked");
+		check(fzn_manifest_open(man, man_len, &man_rec) == FZN_MANIFEST_OK,
+		      "the root's manifest will not open");
+
+		check(fzn_manifest_follow(&mstate, net.root) == FZN_MANIFEST_OK,
+		      "following the root was refused");
+		check(fzn_manifest_admit(&mstate, &gated->revocations, man_rec, &net.sign) ==
+		              FZN_MANIFEST_OK,
+		      "the gated host refused the root's manifest");
+		check(fzn_manifest_pending(&mstate, net.root) == 1,
+		      "the gated host does not know it is behind the root, so the refusal "
+		      "below would be about something else");
+		check(fzn_revocation_covers(&gated->revocations, net.root, &net.capability,
+		                            sender->pubkey) == 0,
+		      "the gated host holds the SENDER revoked, so a refusal below would "
+		      "be the revocation rather than the gate");
+	}
+
+	check(sim_send(&net, sender->id, gated->id, msg, sizeof(msg), net.now + 100u),
+	      "the third send to the gated host was refused");
+	check(sim_send(&net, sender->id, ungated->id, msg, sizeof(msg), net.now + 100u),
+	      "the third send to the ungated host was refused");
+	sim_run(&net, 4);
+	check(gated->delivered == 2,
+	      "a host that knows it is missing revocations from this chain's grantor "
+	      "delivered anyway, which is the defect sec 13d names: it cannot tell "
+	      "'nothing was revoked' from 'I am missing the revocations'");
+	check(gated->refused_incomplete == 1,
+	      "the frame was refused for some reason other than the gate, so the "
+	      "non-delivery above is not evidence that the gate fired");
+	check(gated->refused_auth == 0,
+	      "and something was refused on authority, so the gate is being reported "
+	      "as a revocation -- the two are different findings and chain.h says so");
+	check(ungated->delivered == 3,
+	      "the ungated control stopped delivering the same traffic, so the "
+	      "refusal above is about the frames rather than about the gate");
+
+	/* LEG 4. AND IT RECOVERS. Admitting the record the deficit named drains
+	 * the table -- `fzn_revocation_admit` calls `fzn_manifest_satisfy` -- and
+	 * this host judges the root's chains again. That is sec 58's "recovers
+	 * issuer by issuer rather than all-or-nothing" as an observation.
+	 *
+	 * THE STRANGER'S DEFICIT IS STILL OUTSTANDING and is asserted to be, so
+	 * the recovery below is one issuer draining rather than the table being
+	 * cleared. */
+	check(fzn_revocation_admit(&gated->revocations, fzn_revocation_offer_root(root_rec),
+	                           net.root, &net.sign, &net.hash, &mstate) == FZN_CHAIN_OK,
+	      "the gated host refused the revocation its own deficit asked for");
+	check(fzn_manifest_pending(&mstate, net.root) == 0,
+	      "admitting the missing revocation did not drain the deficit, so a host "
+	      "that catches up cannot tell that it has");
+	check(fzn_manifest_pending(&mstate, stranger) == 1,
+	      "draining the root's deficit cleared the stranger's, so the table is not "
+	      "per issuer and recovery is all-or-nothing after all");
+
+	check(sim_send(&net, sender->id, gated->id, msg, sizeof(msg), net.now + 100u),
+	      "the fourth send to the gated host was refused");
+	sim_run(&net, 4);
+	check(gated->delivered == 3,
+	      "the host did not deliver after draining the deficit that refused it, so "
+	      "the gate is a brick rather than a gate");
+	check(gated->refused_incomplete == 1,
+	      "and it refused as incomplete again after catching up");
+	check(gated->refused_auth == 0,
+	      "and it refused on authority, so the delivery is not what it appears");
+
+	printf("  incomplete: gated took %u, refused %u it could not judge, and "
+	       "still lacks %u issuer's; ungated took %u\n",
+	       gated->delivered, gated->refused_incomplete,
+	       (unsigned)fzn_manifest_pending(&mstate, stranger), ungated->delivered);
 }
 
 /* ------------------------------------------------------------- scenario 4
@@ -4047,6 +4326,7 @@ int main(void)
 	scenario_revocation();
 	scenario_revocation_split();
 	scenario_withdrawal();
+	scenario_incomplete();
 	scenario_stale();
 	scenario_unauthorised();
 	scenario_delegation();

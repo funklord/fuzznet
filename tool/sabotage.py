@@ -769,6 +769,28 @@ SABOTAGES = [
 		"a host that knows it is behind must not answer as though it were current",
 	),
 	(
+		"chain-gate-unscoped",
+		"chain/chain.c",
+		"\t\tfor (size_t i = 0; i < hop_count; i++) {\n"
+		"\t\t\tif (fzn_manifest_pending(manifest, fzn_hop_grantor(hops[i])) > 0)\n"
+		"\t\t\t\treturn FZN_CHAIN_ERR_INCOMPLETE;\n"
+		"\t\t}\n",
+		"\t\tfor (size_t i = 0; i < manifest->issuer_used; i++) {\n"
+		"\t\t\tif (fzn_manifest_pending(manifest, manifest->issuers[i].issuer) > 0)\n"
+		"\t\t\t\treturn FZN_CHAIN_ERR_INCOMPLETE;\n"
+		"\t\t}\n",
+		"the gate is scoped to this chain's grantors -- unscoped it is sec 13d's "
+		"returning device that refuses everything, one line away",
+	),
+	(
+		"authz-drops-manifest",
+		"chain/authz.c",
+		"\t                     manifest, &proven) != FZN_CHAIN_OK)\n",
+		"\t                     NULL, &proven) != FZN_CHAIN_OK)\n",
+		"the decision layer must hand the verifier what it was given, or the "
+		"gate is absent from the call a consumer actually makes",
+	),
+	(
 		"rev-withdrawal-tombstone",
 		"chain/revocation.c",
 		"\t\t\tstore->entries[store->used].withdrawn = 1;\n\t\t\tstore->used++;\n"

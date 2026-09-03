@@ -8259,11 +8259,13 @@ in the other direction. It would also have been the conservative guess
 none -- so the cautious answer was the expensive one and the question
 was the cheap one.
 
-**Stage 2 waits on the holder**, on the sec 4.4a reading below.
+**Stage 2 waited on the holder** until 2026-09-03, on the sec 4.4a reading
+below. It is BUILT; sec 58 records what was taken and why, and the scoping
+that made the cost table's objection to it not apply.
 
 The two are independent: an answer to either unblocks its own half.
 
-### A contradiction in this document, flagged rather than resolved
+### A contradiction in this document, flagged and then resolved
 
 Sec 13b says fail-open on cannot-establish-currency is "forbidden by
 name", citing sec 4.4a. The designer reads sec 4.4a's actual text as
@@ -8274,6 +8276,14 @@ is entirely downstream of which reading was meant**, and this document
 cannot settle a question about its own sentences. It goes to the
 copyright holder.
 
+**RESOLVED 2026-09-03, and reading it settled the FRAMING rather than the
+option.** The designer's reading of 4.4a is right -- that clause is about a
+level an attacker can lower over the wire, and a fail-open written in a
+consumer's source is not reachable that way -- so 4.4a was never what
+decided between B and C. The clause that governs is the next one, which says
+this library owns what it can own and "must not leave it to the consumer",
+and 13d's own cost table already prices C at four consumers and four chances
+to differ. Sec 58 has the argument in full.
 ## 13e. Forward secrecy: what the shapes cost, 2026-08-28
 
 Commissioned when a consumer's adoption turned out to be blocked on the
@@ -11244,6 +11254,114 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 59. The gate held where the defect lives, and a guard nothing held, 2026-09-04
+
+Sec 58 built the stage-2 gate and held it in `chain/test/manifest_test.c`,
+where the manifest state is assembled by hand beside the chain it gates.
+**The defect it closes is a network condition** -- a host that joined this
+morning, was offline, or is partitioned -- and `sim/test/network_test.c`
+passed NULL at every one of its call sites, so the harness that walks this
+library through a lossy network with per-host stores could not tell the gate
+from its absence.
+
+`scenario_incomplete` is that arrangement. A host installs a manifest state,
+the others do not, and one ungated host receives every send as the control.
+
+    a state installed, following nobody   delivers -- an empty union is a
+                                          zero deficit, not a closed gate
+    a deficit about a STRANGER issuer     delivers -- the scoping
+    a deficit about THIS chain's grantor  refused, as INCOMPLETE and not
+                                          on authority
+    the missing revocation admitted       delivers again
+
+**The first leg is what stops the other three being satisfied by an
+uninstalled state**, and the last is sec 58's "recovers issuer by issuer"
+as an observation rather than a claim: the stranger's deficit is asserted to
+be still outstanding after the root's has drained, so the recovery is one
+issuer draining and not the table being cleared.
+
+**The pair revoked belongs to a THIRD host, deliberately.** Revoking the
+sender would make the last leg unreadable -- the host would drain its deficit
+and then refuse on the revocation it had just admitted, and "still refuses"
+would be satisfied by the gate never having opened.
+
+### Both sabotages are caught, and by the leg written for each
+
+Measured against `sim/test/network_test` alone, the file saved first and
+written back afterwards, so that the report is about this scenario rather
+than about whichever suite runs earliest:
+
+    the gate removed        leg 3 and leg 4 fail; leg 2 stays green,
+                            correctly -- an absent gate refuses nothing
+    the gate unscoped       leg 2 fails, by name: "the gate is not scoped to
+                            this chain's grantors and every returning device
+                            refuses everything"
+
+**NEITHER OF THOSE TWO IS A GUARD THAT WAS UNHELD**, and saying so is the
+point of measuring the suites separately. Sec 58 pinned the gate, and its own
+scoping control in `chain/test/manifest_test.c` catches the unscoped variant
+first when the whole suite runs -- `tool/sabotage.py` reports
+`manifest_test.c:2312` for `chain-gate-unscoped`, not this scenario. What
+these two legs add is a SECOND holder in the arrangement the defect lives in:
+a unit test asks the question with the state built beside the chain, and this
+asks it of a host on a lossy network with its own store, which is where a
+returning device actually is.
+
+`chain-gate-unscoped` is a new entry in `tool/sabotage.py` all the same. The
+unscoped gate is one line from the built one, it is sec 13d's "returning
+device refuses all" which that section costed as a brick, and a guard held by
+one suite and named by no sabotage is a guard nobody will notice losing.
+
+### AND THE DECISION LAYER'S FORWARDING WAS HELD BY NOTHING
+
+`fzn_authz_decide` gained the manifest argument in sec 58 and passes it to
+`fzn_chain_verify`. **Replacing that argument with NULL in `chain/authz.c`
+left the entire suite green** -- `make test`, exit 0, 103 seconds, measured at
+HEAD before this scenario existed. `chain/test/authz_test.c` does not contain
+the word `manifest`; the 53 call sites that were made to fail to build all
+pass the state IN, and nothing checked that the function passed it ON.
+
+So the gate was reachable through `fzn_chain_verify` and absent from the call
+a consumer actually makes, and no test in the tree could tell.
+
+It is caught now, and by one check with a name: `sim_receive` asserts on every
+delivered frame that the decision layer agrees with the verifier it wraps, and
+with a gated host on the network the two disagree the moment the forwarding is
+dropped. `tool/sabotage.py` carries it as `authz-drops-manifest`.
+
+**The lens that found it is the one this document keeps arriving at from the
+other end.** Sec 55's is that a precondition true and unwritten looks exactly
+like one nobody thought of; this is its sibling for arguments -- **a parameter
+threaded through a call is not a parameter that arrives**, and the compiler
+checks that every caller supplies one, never that the callee uses it. The
+53-call-site failure sec 58 counted as the loud failure is loud about the
+callers and silent about the body.
+
+### Three places said stage 2 was unbuilt, a day after it was built
+
+Found by reading what sec 58 changed against what still pointed at it:
+
+    sec 13d   "Stage 2 waits on the holder"                     rewritten
+    sec 13d   "A contradiction ... flagged rather than resolved" rewritten
+    sec 47    the build table's NOT BUILT row, and "It does not
+              choose"                                            rewritten
+    sec 56    "The design question is open and is the holder's"   rewritten
+    manifest_test.c   a comment saying the gate "waits on the
+                      copyright holder", above the function that
+                      asserts it                                 rewritten
+
+The last is the sharpest: sec 58 renamed `test_stage_one_does_not_gate` to
+`test_stage_two_gates_on_this_chains_grantors` and left the comment above it
+saying stage 2 was blocked. **A rename moves the name and not the paragraph.**
+
+None of the five was wrong when written, and that is the whole of the failure
+mode -- `evidence.md` has it as a claim outliving its subject, and
+`working-practice.md` as closing an entry updating the entry and not the
+pointers. What is worth adding is WHERE they were: sec 58 is a careful,
+complete record of the decision, and every one of the five sits in a section
+sec 58 cites. **The pointers that go stale are the ones the new work read**,
+because reading them is what makes them feel already accounted for.
+
 ## 58. Revocation stage 2, scoped to the chain, 2026-09-03
 
 Sec 13d split revocation manifests into two stages and stage 2 -- the gate,
@@ -11595,11 +11713,16 @@ side. On an authorization path a sentence a reader can take backwards is
 worse than no sentence, because the reader who takes it backwards concludes
 the safe choice was made for the unsafe reason.
 
-### And it converges nobody, which is the half that is not built
+### And it converged nobody, which was the half that was not built
+
+**CLOSED THE SAME DAY BY SEC 57**, which took the third of the three shapes
+named at the end of this subsection. What follows is the statement of the gap
+as it stood, kept because it is the reasoning the shape was chosen against
+and because the deficit's wrong-way-round-ness is not obvious from the API.
 
 The record works, the store works, admission works -- **on the host that
-performs the withdrawal.** Nothing carries it to another host and nothing
-tells another host it should ask.
+performs the withdrawal.** Nothing carried it to another host and nothing
+told another host it should ask.
 
     A revokes P and B learns it.            both hold P revoked
     A withdraws P.                          A: withdrawn.  B: revoked
@@ -11622,9 +11745,12 @@ host, which is idempotent, and refused with UNKNOWN_TARGET on a host that
 never held the revocation rather than mis-stored. What a consumer cannot do
 is rely on the manifest exchange to converge it.
 
-**The design question is open and is the holder's**, because every answer
-changes what a manifest means: a second section, a manifest of withdrawals,
-or a pair's entry becoming a state rather than a set membership.
+**The design question was open, because every answer changes what a manifest
+means: a second section, a manifest of withdrawals, or a pair's entry
+becoming a state rather than a set membership.** Sec 57 took the third -- an
+entry carries its state, which is `fzn_revocation_t` on the wire -- and says
+why the other two are weaker and why absence cannot carry a withdrawal at
+all.
 
 **Recorded in both headers rather than left in this file.** Sec 55 has the
 two cases where an absent precondition read as an oversight, one of which
@@ -13760,6 +13886,7 @@ are.
               the sticky overflow flag, the high-water mark    BUILT
     13c       the ancestry walk stage 2 must sequence with     BUILT
     stage 2   the gate, ERR_INCOMPLETE, UNKNOWN                NOT BUILT
+                                                              -> BUILT 09-03
 
 `chain/manifest.h` says it in terms: "there is no UNKNOWN verdict, and no new
 refusal path exists". **A host can already SAY what it lacks and nothing acts
@@ -13768,6 +13895,12 @@ ancestry walk, or the entitled-issuer derivation gets written twice -- is
 satisfied, so stage 2 is the cheapest it will ever be.
 
 ### The live options
+
+**TAKEN 2026-09-03: B, SCOPED TO THE GRANTORS OF THE CHAIN BEING VERIFIED.**
+Sec 58 records the decision, the 4.4a reading that turned out not to decide
+it, and the scoping -- which is not the B this section costed. The three are
+kept below as written, because a decision is only as good as what it was
+taken against and the costing is that.
 
 **A. Stop at stage 1.** The deficit is reportable; `fzn_chain_verify` ignores
 it. The defect stands: a host that joins fresh, has been offline, or is
@@ -13943,21 +14076,26 @@ one first: a host that can request what its deficit names is better off under
 option A, and B and C both need it before their gate can be turned on without
 bricking a returning device.
 
-### What this section does not do
+### What this section did not do, and what then took the decision
 
-It does not choose. The sec 4.4a reading is a question about this document's
-own sentences and belongs to the holder, as sec 13d already records. **What
-has changed since 13d is not the argument but the consequence**: whichever of
-B or C is taken, a returning device needs a revocation catch-up path before
-the gate can be turned on without bricking it, and that path is neither
+It did not choose, and said so: the sec 4.4a reading was a question about this
+document's own sentences and belonged to the holder. **What it added to 13d
+was not an argument but a consequence** -- whichever of B or C were taken, a
+returning device needs a revocation catch-up path before the gate can be
+turned on without bricking it, and on 2026-09-01 that path was neither
 designed nor built.
 
-**The cheap thing that is unblocked either way** is the fetch path itself. It
-is useful under A -- a host that can request what its deficit names is better
-off whether or not anything refuses -- and it is a precondition for B and C.
-Building it does not commit the holder to the 4.4a answer, which is the
-property worth having while that question is open.
+**The cheap thing that was unblocked either way** is the fetch path itself,
+and building it first was the point: it is useful under A, it is a
+precondition for B and C, and it committed the holder to nothing.
 
+**TWO DAYS LATER IT DECIDED THE QUESTION IT WAS BUILT TO AVOID DECIDING.**
+Sec 58 took B, and the row this section costed against B -- "revocation fetch
+path needed" -- had been paid off by the fetch path above before the choice
+was made. **A cost table is a snapshot, and the row that blocks a choice can
+be quietly settled by work that was not about the choice at all.** The
+scoping is the other half: this section costed B as "returning device refuses
+all", which is the unscoped gate and not the one that was built.
 
 ## 46. A fourth consumer, shared estates, and healing a shattered one, 2026-09-01
 
