@@ -11244,6 +11244,83 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 57. How a withdrawal travels, and the cheap design that cannot, 2026-09-03
+
+Sec 56 built withdrawal and left it converging nobody: a manifest states
+what IS revoked, so a withdrawn pair is omitted, and the deficit computes
+what THIS host lacks from a peer's manifest while a withdrawal is something
+this host HAS that the peer lacks. The scenario in `sim/test/network_test.c`
+asserts the gap so that closing it breaks the suite.
+
+### The design that needs no format change, and why it is a rollback hole
+
+**A manifest is a COMPLETE statement of an issuer's live revocations**, not a
+delta -- `fzn_manifest_issue` emits every entry in the store for that issuer.
+So absence from a manifest looks like a withdrawal signal that is already
+authenticated: a receiver holding P revoked by issuer I, reading I's signed
+manifest that does not name P, could conclude I has withdrawn P. No new
+field, no new object, no new code.
+
+**It is unsafe, and the reason is the one this design has been avoiding
+everywhere else.** A manifest carries no `issued_at` and nothing monotonic,
+deliberately -- sec 13d bought determinism with that absence, so an issuer's
+manifest over a given set is one unique byte string. Two manifests from one
+issuer are therefore indistinguishable in age. **Replaying an old signed
+manifest would un-revoke everything the issuer added since it was made**, and
+the replay needs no key: the signature is genuine.
+
+Adding a sequence to fix it destroys the determinism it was bought with, and
+a sequence nobody can bound is `issued_at`'s NEVER BECOME AN ORDERING KEY
+argument arriving under a third name.
+
+**So absence cannot carry it, and the reason generalises: absence is only as
+trustworthy as the recency of the document it is absent from.** A complete
+signed set says nothing about when it was complete.
+
+### What works instead is identity, which is order-free
+
+The same property that made `supersedes` safe makes this safe. A manifest
+entry that says "P: clear, and the revocation I withdrew hashes to X" is
+checkable whenever it arrives: the receiver either holds a revocation of P
+hashing to X, in which case it applies the withdrawal, or it does not, in
+which case it stores a tombstone naming X and the revocation is refused if
+it ever turns up. **Nothing in that depends on which manifest is newer.**
+
+### Which of the three shapes, and why not the other two
+
+**A second section of withdrawn HASHES alone (shape 1) is strictly weaker.**
+A bare hash does not say which pair it belongs to, so a receiver that does
+not already hold the revocation cannot build the tombstone -- and the
+tombstone is what makes arrival order irrelevant, which sec 56 records
+fuzzypickles paying for. Carrying the pair beside the hash fixes it and
+turns shape 1 into shape 3 with two counts instead of one.
+
+**A separate withdrawal manifest (shape 2)** duplicates follow, admit,
+deficit and the resumable report for a second object carrying the same
+information. More code for the same statement.
+
+**So every entry carries its state (shape 3):** capability, grantee, the
+hash of the most recent revocation for that pair, and whether it is revoked
+or withdrawn. Which is precisely `fzn_revocation_t` -- the store's own entry,
+put on the wire. fuzzypickles observed that their store is shaped this way
+and that every reader deciding from the action is what makes withdrawal work
+in their tree; it generalises because the manifest is the store's statement
+about itself.
+
+### The two costs, stated rather than discovered later
+
+**A pair grows from 64 bytes to 97**, so one manifest carries fewer of them
+-- `FZN_MANIFEST_MAX_PAIRS` is arithmetic against what reassembly will
+deliver whole, and the ceiling moves with the entry size. The deficit report
+is already resumable across frame-sized windows, so the ceiling bounds one
+object rather than an estate.
+
+**And a manifest can no longer shrink.** A withdrawn pair stays in it for
+ever, because a withdrawal that is forgotten cannot be propagated and there
+is no point at which forgetting is safe -- the same argument `revocation.h`
+already makes for never evicting an entry, arriving on the wire. The store
+grew monotonically before this; the manifest now says so out loud.
+
 ## 56. Withdrawal: undoing a revocation without a clock, 2026-09-03
 
 Revocation was permanent by construction. `issued_at` carries a NEVER BECOME
