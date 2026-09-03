@@ -11394,9 +11394,23 @@ something OTHER than what a held entry carries is still refused. They hold
 one record per pair and a withdrawal overwrites it; this store tracks the
 chain in `id`, so a mismatch means a withdrawal of a revocation that has
 already been superseded, and applying it would restore the pair on the
-authority of a record answering a different question. The remaining cost is
-that a withdrawal overtaking a REISSUE is dropped -- narrower than what was
-dropped before, and the case where being wrong fails open.
+authority of a record answering a different question.
+
+**The two errors point opposite ways, which is what settles it.** Accepting
+a mismatched withdrawal FAILS OPEN -- a pair restored on a record that
+withdrew something else, so a revoked host is authorised again. Refusing
+fails CLOSED: a withdrawal that overtook a reissue is dropped and the pair
+stays revoked until it is re-sent. An outage against a hole, and the outage
+is the one to take. The cost is also narrower than what was dropped before
+this branch existed, which was every withdrawal that overtook a FIRST
+revocation.
+
+**The first wording of that sentence read the other way round**, and it sat
+in the source and here for two hours: "the case where being wrong is
+fail-open" attaches to the DROPPED withdrawal, which is the fail-closed
+side. On an authorization path a sentence a reader can take backwards is
+worse than no sentence, because the reader who takes it backwards concludes
+the safe choice was made for the unsafe reason.
 
 ### And it converges nobody, which is the half that is not built
 

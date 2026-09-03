@@ -718,10 +718,17 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 	 * tracks the chain in `id`, so a withdrawal naming something other
 	 * than what is held is a withdrawal of a revocation that has already
 	 * been superseded, and applying it would restore the pair on the
-	 * authority of a record answering a different question. The cost is
-	 * that a withdrawal overtaking a REISSUE is still dropped -- narrower
-	 * than what was refused before, and the case where being wrong is
-	 * fail-open. */
+	 * authority of a record answering a different question.
+	 *
+	 * THE TWO ERRORS POINT OPPOSITE WAYS, which is what settles it.
+	 * Accepting a mismatched withdrawal FAILS OPEN: a pair is restored on
+	 * a record that withdrew something else, and a revoked host is
+	 * authorised again. Refusing it fails CLOSED: a withdrawal that
+	 * overtook a reissue is dropped and the pair stays revoked until the
+	 * withdrawal is re-sent. The second is an outage and the first is a
+	 * hole, so the second is the one to take -- and the cost is narrower
+	 * than what was dropped before this branch existed, which was every
+	 * withdrawal that overtook a FIRST revocation. */
 	if (fzn_revocation_is_withdrawal(record)) {
 		if (at == store->used) {
 			if (store->used >= store->capacity)
