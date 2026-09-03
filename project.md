@@ -11356,6 +11356,43 @@ exactly this** -- "there is no second predicate to drift from this one" --
 and the answer is that both go through one `find_entry` and differ only in
 what they make of the result. One definition of "same triple", two readings.
 
+### And it converges nobody, which is the half that is not built
+
+The record works, the store works, admission works -- **on the host that
+performs the withdrawal.** Nothing carries it to another host and nothing
+tells another host it should ask.
+
+    A revokes P and B learns it.            both hold P revoked
+    A withdraws P.                          A: withdrawn.  B: revoked
+    A's manifest OMITS P                    correctly -- see below
+    B's manifest NAMES P                    A answers `known`, records no
+                                            deficit, asks nothing, says
+                                            nothing
+    B stays revoked                         and so does every host but A
+
+The omission is right and is not the bug: a manifest states what IS revoked,
+and publishing a restored pair would tell every receiver to revoke it again
+under the withdrawing issuer's own signature. **The deficit is simply the
+wrong shape**, not missing a case -- it computes what THIS host lacks from a
+peer's manifest, and a withdrawal is something this host HAS that the peer
+lacks. There is no "here is what you hold that I have since undone" anywhere
+in `chain/manifest.h`.
+
+A consumer can move it: hand the record to `fzn_revocation_admit` on each
+host, which is idempotent, and refused with UNKNOWN_TARGET on a host that
+never held the revocation rather than mis-stored. What a consumer cannot do
+is rely on the manifest exchange to converge it.
+
+**The design question is open and is the holder's**, because every answer
+changes what a manifest means: a second section, a manifest of withdrawals,
+or a pair's entry becoming a state rather than a set membership.
+
+**Recorded in both headers rather than left in this file.** Sec 55 has the
+two cases where an absent precondition read as an oversight, one of which
+cost a consumer a day; a feature whose distribution half does not exist is
+the same shape with more at stake, because everything a reader can test by
+hand on one host works.
+
 ### Three of the seven new guards were unheld when written
 
 Measured with `--probe` after the fact, which is the only reason it is known:

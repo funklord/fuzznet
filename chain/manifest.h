@@ -364,7 +364,22 @@ fzn_manifest_err_t fzn_manifest_encode(uint8_t *out, size_t out_cap,
  * peer sent. Neither is a number the caller passed, so a caller that sized
  * `out` for the estate as it was reaches the second by growing rather than by
  * mistake. On both, `*out_len` is untouched and `out` may hold partial
- * bytes. */
+ * bytes.
+ *
+ * A WITHDRAWN PAIR IS NOT IN THE MANIFEST, and that is right and has a
+ * consequence worth knowing. `chain/revocation.h`'s withdrawal replaces a
+ * revocation in place rather than removing it, so the store still holds the
+ * triple -- but this function skips it, because a manifest states what IS
+ * revoked and naming a restored pair would tell every receiver to revoke it
+ * again under this issuer's own signature.
+ *
+ * SO A MANIFEST CANNOT CARRY A WITHDRAWAL, AND NOTHING ELSE HERE CAN
+ * EITHER. The deficit is the wrong shape for it rather than missing a case:
+ * it computes what THIS host lacks from a peer's manifest, and a withdrawal
+ * is something this host HAS that the peer lacks. A host that withdraws
+ * converges nobody else through this file; the consumer must deliver the
+ * record. `chain/revocation.h` carries the trace and the open design
+ * question. */
 fzn_manifest_err_t fzn_manifest_issue(const uint8_t issuer[FZN_PUBKEY_LEN],
                                       const fzn_revocation_store_t *store,
                                       const fzn_sign_ops_t *sign, uint8_t *out, size_t out_cap,

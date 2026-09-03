@@ -191,6 +191,50 @@ fzn_chain_err_t fzn_revocation_issue_withdrawal(const uint8_t issuer[FZN_PUBKEY_
                                                 const uint8_t target[FZN_REVOCATION_ID_LEN],
                                                 const fzn_sign_ops_t *sign, uint8_t *out);
 
+/*
+ * ---- A WITHDRAWAL HAS NO DISTRIBUTION PATH IN THIS LIBRARY -------------
+ *
+ * STATED BECAUSE ITS ABSENCE READS AS AN OVERSIGHT. Everything above works
+ * on the host that performs the withdrawal -- the record is minted, admitted
+ * and stored, `fzn_revocation_covers` answers no, and a stale copy of the
+ * withdrawn revocation is refused. None of that reaches another host by
+ * itself, and nothing here tells another host it should ask.
+ *
+ * Two hosts, and the trace is the whole of it:
+ *
+ *   A revokes P and B learns it. Both hold P revoked.
+ *   A withdraws P. A's entry says withdrawn; B's still says revoked.
+ *   A's manifest OMITS P -- `fzn_manifest_issue` skips withdrawn entries,
+ *     correctly, since a manifest states what IS revoked and publishing P
+ *     would tell every receiver to revoke a pair A has restored, under A's
+ *     own signature.
+ *   B's manifest NAMES P. A admits it and answers `fzn_revocation_known`,
+ *     so A records no deficit, asks for nothing, and says nothing.
+ *   B stays revoked. So does every host but A.
+ *
+ * The deficit machinery is the wrong shape for this and not merely missing a
+ * case: it computes what THIS host lacks from a peer's manifest, and a
+ * withdrawal is a thing this host HAS that the peer lacks. There is no
+ * "here is what you are holding that I have since undone" anywhere in
+ * `chain/manifest.h`, and a manifest cannot carry one without becoming a
+ * statement about two kinds of thing.
+ *
+ * WHAT A CONSUMER MUST DO TODAY: hand the withdrawal record to
+ * `fzn_revocation_admit` on every host that needs it, by whatever path it
+ * already uses to move records. Admission is idempotent, so re-delivery is
+ * free and delivering to a host that never held the revocation is refused
+ * with FZN_CHAIN_ERR_UNKNOWN_TARGET rather than mis-stored. What a consumer
+ * CANNOT do is rely on the manifest exchange to converge it.
+ *
+ * THE DESIGN QUESTION IS OPEN and is not this header's to settle: whether a
+ * manifest gains a second section, whether withdrawals get a manifest of
+ * their own, or whether a pair's entry becomes a state rather than a set
+ * membership. Each changes what a manifest means, so it is the copyright
+ * holder's. Recorded here rather than left for the next reader to derive
+ * from an absence -- which is how `record/sync.h`'s append-only
+ * precondition came to cost a consumer a day.
+ */
+
 /* The accessors, over an OPENED record -- see chain.h's equivalent note. */
 /* Typed, like `fzn_manifest_capability`: the cast that makes a wire view
  * carry its type lives in the accessor so that no caller writes one. */
