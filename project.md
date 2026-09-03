@@ -11321,6 +11321,31 @@ is no point at which forgetting is safe -- the same argument `revocation.h`
 already makes for never evicting an entry, arriving on the wire. The store
 grew monotonically before this; the manifest now says so out loud.
 
+### Built, and the assertion that was written to break has broken
+
+`sim/test/network_test.c`'s `scenario_withdrawal` said, in a CHECK rather
+than a comment, that a host never handed the withdrawal keeps refusing --
+"so either propagation has been built and this scenario must now demand that
+delivery". Sec 56 wrote it that way on scenario 3b's model so that closing
+the gap would fail the suite rather than being noticed by somebody
+re-reading a comment. **It has been taken.**
+
+The scenario now runs the exchange: the issuer's manifest names the pair
+WITHDRAWN, the untold host admits it, and its deficit reports exactly that
+pair. Before, the same manifest could not say it and the host had no way to
+learn.
+
+**What is still the consumer's is the FETCH, and that is not a residual
+gap.** Sec 2 keeps transport out, so what this library owes a host is the
+knowledge that it is behind and a name for what it lacks; it has both now.
+The scenario's last leg hands the record over exactly as before, and the
+difference is that the host asked for it.
+
+**Both new guards are caught through the network as well as in the unit
+suites** -- publishing a withdrawn pair as revoked, and reading the
+comparison as "same record means agreed". Each fails the scenario by name,
+which is the arrangement the gap actually lived in.
+
 ## 56. Withdrawal: undoing a revocation without a clock, 2026-09-03
 
 Revocation was permanent by construction. `issued_at` carries a NEVER BECOME

@@ -26,6 +26,7 @@
 
 #include "../../chain/chain.h"
 #include "../../chain/revocation.h"
+#include "../../chain/manifest.h"
 #include "../../chunk/reassembly.h"
 #include "../../chunk/split.h"
 #include "../../record/journal.h"
@@ -1283,25 +1284,24 @@ static void scenario_revocation_split(void)
    the same sender. One of them is then handed the withdrawal that undoes it;
    the other is not. The first delivers again. The second still refuses.
 
-   THE SECOND STILL REFUSING IS THE OPEN GAP NAMED IN project.md sec 56 AND
-   IN chain/revocation.h, NOT A FAULT HERE. A withdrawal has no distribution
-   path in this library. `fzn_manifest_issue` omits withdrawn pairs --
-   correctly, since a manifest states what IS revoked and publishing a
-   restored pair would tell every receiver to revoke it again under the
-   withdrawing issuer's own signature -- and the deficit machinery is the
-   wrong shape rather than missing a case: it computes what THIS host lacks
-   from a peer's manifest, and a withdrawal is something this host HAS that
-   the peer lacks.
+   PROPAGATION IS BUILT NOW AND THE ASSERTION HAS FLIPPED, which is what it
+   was written for. It used to read "a host that was never handed the
+   withdrawal delivered anyway, so either propagation has been built and this
+   scenario must now demand that delivery" -- sec 56 put it that way so that
+   closing the gap would break this suite rather than being noticed by
+   somebody re-reading a comment. sec 57 closed it; this is the break, taken.
 
-   SO A HOST THAT WITHDRAWS CONVERGES NOBODY. The record is well formed and
-   admission is idempotent, so a consumer can carry it by whatever path it
-   already uses for records; what the library gives no host is any way to
-   LEARN that it should ask.
+   WHAT CHANGED IS THE MANIFEST, NOT THE RECORD. An entry carries its state,
+   so an issuer's signed statement can say a pair is WITHDRAWN. It could not
+   before, and absence could not say it either: a manifest holds nothing
+   monotonic, so an old one replayed would un-revoke whatever the issuer had
+   added since. The deficit compares state now rather than presence, and the
+   untold host reads its own position out of the comparison.
 
-   WHEN PROPAGATION IS BUILT, THE ASSERTION ABOUT THE UNTOLD HOST IS THE ONE
-   THAT MUST CHANGE, exactly as in scenario 3b. It is written as an assertion
-   rather than a comment so that closing the gap breaks this suite: a note in
-   a comment is a note nobody is made to read.
+   THE FETCH IS STILL THE CONSUMER'S, and that is not a remaining gap. This
+   library does not carry bytes -- sec 2 -- so what it owes a host is the
+   knowledge that it is behind and a name for what it lacks. It now has
+   both.
 
    THE THIRD LEG IS WHAT SEPARATES A MISSING MECHANISM FROM A BROKEN ONE.
    After the untold host is handed the same record directly, it delivers too.
@@ -1383,17 +1383,81 @@ static void scenario_withdrawal(void)
 	      "and it refused something on authority, so the delivery above is not "
 	      "evidence that the withdrawal took effect");
 
-	/* THE HALF THAT DOES NOT. Read sec 56 before changing either line. */
+	/* AND THE HOST THAT HAS NOT HEARD IT STILL REFUSES, which is correct
+	 * rather than a gap: it holds a revocation and nothing has told it
+	 * otherwise yet. */
 	check(untold->delivered == 0,
-	      "a host that was never handed the withdrawal delivered anyway, so either "
-	      "propagation has been built and this scenario must now demand that "
-	      "delivery, or its store stopped honouring a revocation it holds");
+	      "a host that was never handed the withdrawal delivered anyway, so its "
+	      "store stopped honouring a revocation it holds");
 	check(untold->refused_auth > 0,
 	      "the untold host refused for some reason other than authority, so its "
 	      "refusal is not evidence about withdrawal propagation");
 
-	/* THE THIRD LEG. The same record, handed over directly, converges it --
-	 * so what is missing is discovery and not the mechanism. */
+	/* THE MANIFEST LEG, AND THIS IS THE ASSERTION THAT FLIPPED.
+	 *
+	 * It read "a host that was never handed the withdrawal delivered
+	 * anyway, so either propagation has been built and this scenario must
+	 * now demand that delivery" -- written that way in sec 56 so that
+	 * closing the gap would break this suite rather than being noticed by
+	 * somebody re-reading a comment. sec 57 closed it and this is the
+	 * break, taken.
+	 *
+	 * A manifest entry carries its state now, so the issuer's own
+	 * statement can say a pair is withdrawn -- which it could not before,
+	 * and which absence could not say for it, since a manifest holds
+	 * nothing monotonic and an old one replayed would un-revoke whatever
+	 * the issuer added since.
+	 *
+	 * ISSUED FROM THE TOLD HOST'S STORE UNDER THE ROOT'S KEY. A manifest
+	 * is the ISSUER's statement about its own revocations, and the told
+	 * host holds exactly what the issuer would say; the simulation has no
+	 * separate host standing in for the root. */
+	{
+		static uint8_t man[FZN_MANIFEST_LEN(4)];
+		fzn_manifest_state_t mstate;
+		fzn_manifest_issuer_t followed[1];
+		fzn_manifest_deficit_t missing[4];
+		fzn_manifest_pair_t lacking[4];
+		fzn_manifest_record_t man_rec;
+		size_t man_len = 0, dropped = 0, n;
+
+		check(fzn_manifest_init(&mstate, followed, 1, missing, 4) == FZN_MANIFEST_OK,
+		      "the manifest state would not initialise");
+		check(fzn_manifest_issue(net.root, &told->revocations,
+		                         sim_signer(&root_signer, &net.sign, net.root),
+		                         man, sizeof(man), &man_len) == FZN_MANIFEST_OK,
+		      "the issuer could not state what it now holds");
+		check(fzn_manifest_open(man, man_len, &man_rec) == FZN_MANIFEST_OK,
+		      "the manifest it produced will not open");
+		check(fzn_manifest_count(man_rec) == 1 &&
+		              fzn_manifest_is_withdrawn(man_rec, 0),
+		      "the manifest does not name the pair as withdrawn, so it cannot "
+		      "carry the withdrawal however it is delivered");
+
+		check(fzn_manifest_follow(&mstate, net.root) == FZN_MANIFEST_OK,
+		      "following the root was refused");
+		check(fzn_manifest_admit(&mstate, &untold->revocations, man_rec,
+		                         &net.sign) == FZN_MANIFEST_OK,
+		      "the untold host refused the issuer's manifest");
+
+		/* IT NOW KNOWS IT IS BEHIND, which is the thing that did not
+		 * exist. The deficit is what a consumer drives a fetch from;
+		 * fetching is the consumer's, exactly as every other transport
+		 * question in this library is. */
+		n = fzn_manifest_deficit(&mstate, net.root, lacking, 4, &dropped);
+		check(n == 1,
+		      "the untold host did not report exactly one missing pair, so the "
+		      "manifest did not tell it that the pair it holds revoked has "
+		      "been withdrawn");
+		check(memcmp(lacking[0].capability.b, net.capability.b, FZN_CAP_ID_LEN) == 0 &&
+		              memcmp(lacking[0].grantee, sender->pubkey, FZN_PUBKEY_LEN) == 0,
+		      "it is missing some other pair than the one that was withdrawn");
+		check(dropped == 0, "the deficit table overflowed");
+	}
+
+	/* AND THEN THE FETCH, which the deficit above is what a consumer would
+	 * drive. The record itself is unchanged -- what changed is that this
+	 * host now knows to ask for it. */
 	check(fzn_revocation_admit(&untold->revocations, fzn_revocation_offer_root(wd),
 	                           net.root, &net.sign, &net.hash, NULL) == FZN_CHAIN_OK,
 	      "the same withdrawal was refused by the second host");
