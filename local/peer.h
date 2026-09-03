@@ -91,7 +91,27 @@ typedef enum fzn_peer_verdict {
  * `groups_known` to 1 with a count of 0. A missing `Groups:` line is not:
  * that is "could not tell". Those two look identical in a naive parser and
  * are the reason this function exists rather than a sscanf at the call
- * site. */
+ * site.
+ *
+ * `text` MUST HOLD WHOLE LINES, AND THAT IS THE CALLER'S TO GUARANTEE. A
+ * `Groups:` line running to `len` with no newline after it is parsed as a
+ * complete line, so a caller that hands over a buffer its read merely
+ * FILLED gets every gid before the cut, `groups_known` set, and possibly a
+ * half-read number at the end -- 250 as 25 -- which is a definite
+ * FZN_PEER_NOT_MEMBER for a real member. Exactly what the tri-state exists
+ * to prevent, arriving through the caller rather than the parser.
+ *
+ * It is stated rather than checked because it CANNOT be checked here: `len`
+ * does not say whether it means "the whole file" or "as much as fitted",
+ * and only the caller knows which. A caller reading into a fixed buffer
+ * trims to the last newline first; `fzn_peer_from_fd` does. A caller
+ * holding the whole of a short text passes it as it is, and an unterminated
+ * last line is then genuinely the last line -- which is why this is a
+ * precondition and not a bug to fix by refusing.
+ *
+ * Written down because its absence reads as an oversight. A reader who
+ * finds the truncation hazard and no statement beside it concludes the
+ * hazard was missed, which is the more expensive mistake of the two. */
 int fzn_peer_groups_parse(const char *text, size_t len, fzn_peer_t *peer);
 
 /* What do we know about this peer's membership of `gid`? Checks the

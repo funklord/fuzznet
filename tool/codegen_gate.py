@@ -68,9 +68,6 @@ RETURN = re.compile(r"^ret\b")
 # gcc with a frame pointer uses %rbp, and the property is that the accumulator
 # goes through memory rather than which register addresses it.
 STACK_STORE = re.compile(r"^mov[a-z]*\s+[^,]+,\s*-?(0x[0-9a-f]+)?\(%r[sb]p\)")
-# A store of an immediate zero anywhere: `movb $0x0,-0x21(%rbp)`. This is what
-# a wipe compiles to and what dead-store elimination removes.
-ZERO_STORE = re.compile(r"^mov[a-z]*\s+\$0x0,")
 
 
 def fail(message):

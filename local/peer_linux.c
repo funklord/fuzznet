@@ -93,6 +93,35 @@ int fzn_peer_from_fd(int fd, fzn_peer_t *peer)
 	 * truncated read and needs no separate path to get wrong. */
 	if (ferror(f))
 		got = 0;
+	/* A READ THAT FILLED THE BUFFER MAY HAVE STOPPED MID-LINE, and the
+	 * paragraph above is only true once that line is dropped.
+	 *
+	 * `fzn_peer_groups_parse` requires whole lines -- peer.h says so -- and
+	 * cannot check it, because `len` alone does not say whether it means
+	 * "the whole file" or "as much as fitted". THIS is the caller that
+	 * knows, so this is where it is answered.
+	 *
+	 * A SHORT READ IS NOT A FAILED READ and `ferror` sees nothing here. A
+	 * status file longer than this buffer comes back full and clean. The
+	 * Groups: line is early in the file but it is also the LONGEST line in
+	 * it -- a process in a few hundred supplementary groups runs it into
+	 * the kilobytes -- so the many-groups case is exactly the one where
+	 * the cut lands inside it. Handed on uncut, every gid before the cut
+	 * parses, `groups_known` comes back 1, and the number AT the cut may
+	 * be half a number: 250 read as 25, which is not a missing entry but a
+	 * wrong one no caller can tell from a real 25. A definite
+	 * FZN_PEER_NOT_MEMBER for a real member, which is what peer.h's
+	 * tri-state exists to prevent.
+	 *
+	 * Trimming to the last newline rather than discarding the read, so a
+	 * large status file whose Groups: line arrived whole is still
+	 * answered. If nothing survives, `got` is 0 and the parser says
+	 * "could not tell", which is the honest answer and the one this
+	 * function already gives for a file it could not open. */
+	else if (got == sizeof(status)) {
+		while (got > 0 && status[got - 1] != '\n')
+			got--;
+	}
 	fclose(f);
 
 	(void)fzn_peer_groups_parse(status, got, peer);

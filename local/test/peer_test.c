@@ -270,6 +270,46 @@ static void test_bad_arguments(void)
 	}
 }
 
+/* THE UNTERMINATED LINE IS PARSED, AND THAT IS THE CONTRACT RATHER THAN A
+ * DEFECT. This case exists to say so, because it reads as a defect.
+ *
+ * A `Groups:` line running to `len` with no newline is taken for a whole
+ * line. Reached with a buffer a read merely FILLED, that yields every gid
+ * before the cut with `groups_known` set, and a number at the cut that may
+ * be half a number -- 250 read as 25, a wrong entry rather than a missing
+ * one -- which is a definite FZN_PEER_NOT_MEMBER for a real member.
+ *
+ * IT IS NOT FIXABLE HERE. `len` does not say whether it means "the whole
+ * file" or "as much as fitted", and only the caller knows which; refusing
+ * every unterminated line would break the caller that legitimately holds a
+ * short unterminated text, which is the case directly above. So peer.h
+ * makes whole lines a PRECONDITION and `fzn_peer_from_fd` satisfies it by
+ * trimming to the last newline whenever its read filled the buffer.
+ *
+ * WRITTEN AFTER MISTAKING IT FOR A BUG. The hazard is real and the fix
+ * belongs one layer up; with nothing beside it saying so, the next reader
+ * makes the same trip -- and the plausible wrong turn is to "fix" the
+ * parser, which breaks the case above and rewrites peer_fuzz's model to
+ * agree with the code it is meant to check independently. */
+static void test_an_unterminated_line_is_the_callers_problem(void)
+{
+	fzn_peer_t p;
+
+	CHECK(parse("Name:\tcat\nGroups:\t20 24 25", &p) == 1,
+	      "an unterminated Groups: line was refused, which would break a caller "
+	      "holding a short text that legitimately ends without a newline");
+	CHECK(p.groups_known == 1 && p.group_count == 3,
+	      "and it is read as the three entries it appears to hold");
+
+	/* The same bytes as a caller must actually present them: trimmed to
+	 * the last newline, the cut line is gone and the answer is honest. */
+	CHECK(parse("Name:\tcat\n", &p) == 0,
+	      "text trimmed to its last newline still reported a group list");
+	CHECK(p.groups_known == 0,
+	      "a trimmed-away Groups: line left a KNOWN list behind, so trimming does "
+	      "not give the caller the honest answer it is for");
+}
+
 /* The positive control: nearly every case asserts a refusal or an unknown,
  * and a parser that always failed would satisfy them. */
 static void test_the_suite_can_tell_pass_from_fail(void)
@@ -347,6 +387,7 @@ int main(void)
 	test_the_careless_reading_is_loudly_wrong();
 	test_is_member_denies_on_unknown();
 	test_bad_arguments();
+	test_an_unterminated_line_is_the_callers_problem();
 	test_an_impossible_group_count_denies();
 	test_the_suite_can_tell_pass_from_fail();
 

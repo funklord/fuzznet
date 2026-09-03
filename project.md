@@ -11244,6 +11244,83 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 55. A real defect, and a fix in the wrong layer, 2026-09-03
+
+`fzn_peer_groups_parse` scans a `Groups:` line to the next newline **or to
+`len`**, so a line running to the end of the buffer is taken for a whole
+line. `fzn_peer_from_fd` reads `/proc/<pid>/status` into 8192 bytes with one
+`fread` and hands over what it got.
+
+**A short read is not a failed read**, so `ferror` sees nothing and a longer
+file comes back full and clean. The `Groups:` line is early in that file and
+is also the LONGEST line in it -- a few hundred supplementary groups runs it
+into the kilobytes -- so the many-groups case is exactly the one where the
+cut lands inside it. Every gid before the cut then parses, `groups_known`
+comes back 1, and the number AT the cut may be half a number: **250 read as
+25**, a wrong entry rather than a missing one, indistinguishable from a real
+25.
+
+The result is a definite `FZN_PEER_NOT_MEMBER` for a real member, which is
+what `peer.h`'s tri-state exists to prevent -- and the parser guards the
+OTHER way a list gets truncated, `FZN_PEER_MAX_GROUPS` overflow, with exactly
+that reason written beside it.
+
+### The first fix was wrong, and the test that said so was right
+
+The obvious repair is in the parser: a line whose end cannot be seen cannot
+be understood, so refuse. Written, and it failed two things.
+
+`test_bad_arguments` asserts that eight bytes reading `Groups: ` parse as a
+KNOWN empty list. And `peer_fuzz`'s model -- **an independent
+reimplementation of the parsing rules** -- encodes the same rule and
+disagreed on case 11065.
+
+Both were right. `fzn_peer_groups_parse` receives `(text, len)` and **`len`
+does not say whether it means "the whole file" or "as much as fitted"**. Only
+the caller knows which. A caller holding a short unterminated text has a
+complete last line; a caller holding a filled buffer does not; the bytes are
+identical. Refusing in the parser makes a pure function guess at something
+outside its own input, and breaks the first caller to serve the second.
+
+**Which is this library's own rule, stated everywhere else.** `chain.h` keeps
+a store's fields away from the side that must not reach into them. Sec 51's
+bounds separate what THIS host holds from what a peer sent. Sec 53's whole
+census is about guards placed where the information is. The decision belongs
+to the layer that can see the input, and here that is `fzn_peer_from_fd`.
+
+### What it nearly cost, which is worse than the wrong fix
+
+The next step after "the model disagrees" is to edit the model. It is one
+line in `peer_fuzz.c`, it would have gone green, and **the model and the code
+would then have been written by the same hand within the same hour** --
+`evidence.md`'s two documents that are one witness. The fuzz harness would
+have kept running 20000 cases a build and stopped being evidence of anything.
+
+A disagreeing independent model is the witness working. The temptation is to
+silence it, and it is strongest exactly when you are confident, because then
+the disagreement looks like a defect in the model.
+
+### The repair, and the sentence that was missing
+
+`fzn_peer_from_fd` trims to the last newline whenever its read filled the
+buffer -- rather than discarding the read, so a large status file whose
+`Groups:` line arrived whole is still answered. Nothing surviving means
+`got == 0` and "could not tell", which is what this function already answers
+for a file it cannot open.
+
+`peer.h` now states whole lines as a **precondition**, says it cannot be
+checked there and why, and names who satisfies it. `peer_test.c` pins the
+unterminated case as contract rather than defect, and says what the plausible
+wrong turn is, because the hazard is real and a reader finding it with
+nothing beside it concludes it was missed.
+
+**That is the second time in one day that an absent precondition was read as
+an oversight** -- `record/sync.h`'s append-only requirement was the first,
+found by a consumer who derived it from the semantics rather than reading it.
+Both were true all along and neither was written down. A precondition that
+lives only in the author's head is indistinguishable, from outside, from one
+nobody thought of.
+
 ## 54. A control that passed for the wrong reason, 2026-09-03
 
 The two feature probes in the Makefile ran `$(CC)` bare -- no CPPFLAGS, no
