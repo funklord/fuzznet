@@ -14,18 +14,15 @@ placed the first seven, and §10 has the order of work.
 What remains there belongs to other projects: netcfgd's agent, which may never
 be written, and fuzzypickles' migration.
 
-**The module list lives in `project.md` §11 and nowhere else.** `make style`
-holds every path in that table against the tree, so a module renamed or
-removed fails a gate; a second copy here would be an inventory nothing checks.
-This file carried one until 2026-09-04 -- seven rows written on 2026-08-18,
-still seven while the library grew to twenty modules, and edited twice in
-between without either being re-counted.
+**The module list is in `project.md` §11**, where `make style` holds every
+path in that table against the tree. It is not repeated here: a second copy
+would be an inventory nothing checks, and this file carried exactly that until
+2026-09-04. §63 records what that cost.
 
-`make test` builds and runs every test binary in the tree and prints each
-one's count; `make style` prints how many sources, headers, fuzz harnesses and
-test binaries it held against the Makefile. **Neither total is repeated here**,
-for the reason above: this file said "25 binaries -- suites and eight fuzz
-harnesses" from 2026-08-18 until 2026-09-04, when it was 74 and 14.
+`make test` builds and runs every test binary and prints each one's count;
+`make style` prints how many sources, headers, fuzz harnesses and test
+binaries it held against the Makefile. Neither total is repeated here either,
+for the same reason.
 
 `make test SANITIZE=1` runs the lot under ASan and UBSan. `make schema
 SITU_DIR=../situ` checks the committed schema artifacts against a situ commit,
