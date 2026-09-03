@@ -5726,18 +5726,58 @@ alternative failure.
 
 ## 11. Where this is, for whoever picks it up
 
-**Fourteen modules are built and tested**, measured 2026-08-27 rather than
-remembered: `chain/` (verification, delegation, revocation), `chunk/`
-(split and reassembly), `constant_time/`, `frame/` (freshness and the
-replay window), `link/`, `local/` (peer identity), `log/`, `record/`
-(records, journal, sync), `sched/`, `session/` (aead, commitment,
-random), `state/`, `trust/`, `version/` and `wire/` (seal, relay,
-bytes). `sim/` holds the integration harness and `guided/` the
-coverage-guided drivers.
+**The modules that are built and tested**, one row each, naming a header
+the module really has. The table is the form rather than the prose it
+replaced, because `make style` runs `style_gate.py docs` over this file
+and holds every backticked PATH in a table row against the tree -- so a
+module renamed or removed fails the gate rather than waiting for
+somebody to notice.
+
+| header | what the module holds |
+|---|---|
+| `blob/blob.h` | content-addressed blobs, the streaming tree, proofs |
+| `chain/authz.h` | verification, delegation, revocation, manifests, authz |
+| `chunk/reassembly.h` | split and reassembly |
+| `constant_time/constant_time.h` | the comparison and the wipe |
+| `frame/freshness.h` | freshness and the replay window |
+| `link/link.h` | what each link is actually doing |
+| `local/peer.h` | peer identity, groups, vocabulary |
+| `log/log.h` | the append-only log |
+| `persist/persist.h` | packing state so a restarted host can open what it holds |
+| `prekey/prekey.h` | the prekey record and the act of pinning it |
+| `ratchet/ratchet.h` | per-message forward secrecy above the session |
+| `record/journal.h` | records, journal, sync |
+| `sched/sched.h` | which link a message should take |
+| `session/aead.h` | aead, commitment, random, agreement, session roots |
+| `spool/plan.h` | what has not been sent yet |
+| `state/state.h` | permissions, rules and config as one thing |
+| `tree/tree.h` | nesting that replicates |
+| `trust/trust.h` | where a pinned root comes from |
+| `version/version.h` | what this library says it is |
+| `wire/bytes.h` | seal, relay, bytes |
+
+`sim/` holds the integration harness, `guided/` the coverage-guided
+drivers, and `tool/` the gates.
+
+**A HEADER RATHER THAN THE DIRECTORY, and the first version of this table
+wrote `blob/` and was checked by nothing.** `doc_paths` skips a token
+ending in `/` -- a directory is not a file to open -- so twenty rows went
+past the gate and its path count did not move: 64 before the table and 64
+after. **The claim in the paragraph above was false as first written**,
+and what caught it was reading the count the gate prints rather than
+believing the design. It reads 84 now, and that difference is the whole
+evidence that the table is inspected.
+
+**THE GATE CHECKS EXISTENCE AND NOT COMPLETENESS**, which is the honest
+half of what a table buys: a header renamed out from under this list
+fails, and a module ADDED to the tree does not. The command that would
+notice is
+`git ls-files '*/*.h' | grep -v '/test/\|/generated/' | cut -d/ -f1 | sort -u`,
+and `make style` prints the header and source totals beside it.
 
 Alongside them: this document, `wire/frame.situ`, a `code-style.md`
 copied from the global source, the shared `style_gate.py` and
-`commit-msg`, and a `VERSION`. `make style` passes over 107 files.
+`commit-msg`, and a `VERSION`.
 
 **THIS PARAGRAPH SAID "`chain/`, `frame/freshness.c`,
 `chunk/reassembly.c` and `chunk/split.c` are built and tested; nothing
@@ -5748,8 +5788,18 @@ in the document to leave lagging -- somebody picking this up would have
 concluded that `record/`, `state/`, `trust/`, `log/`, `link/`, `sched/`,
 `session/`, `local/` and `wire/` did not exist. The counts below are
 taken from `make test` and are the kind of number that goes stale by
-being true when written; that is an argument for measuring them when
-they are cited, not for leaving them out.
+being true when written.
+
+**The argument at the end of this paragraph used to be "measure them when
+they are cited, not leave them out", and 2026-09-04 settled it the other
+way for these two.** Both were cited only here, nobody re-measured them
+on the way past, and both drifted -- so what "measure when cited" meant
+in practice was "nobody measures them". They are gone, and what replaced
+them is the command that prints its own total plus a table something
+checks. The rule survives for a figure that is doing work in an
+argument, which is how the rest of this document carries its numbers;
+what it does not survive is a summary line in the section a reader lands
+on.
 
 `chain/` is the capability model and `frame/freshness.c` is sec 4.3's
 policy half; those two were first because neither needs generated code,
@@ -5757,12 +5807,19 @@ which is why they were buildable while sec 10 steps 2 and 4 were stuck.
 
 `make` builds the objects and nothing else -- the default target does
 not build tests, per `build-and-commit.md`. `make test` builds and runs
-**43 binaries**: 30 report check counts and the other 13 -- nine
-model-based fuzz harnesses and four coverage-guided drivers -- report
-cases instead. Zero failures in either group. **The total is
-deliberately not written here**; `make test` prints it and any figure in
-prose is one commit from being wrong, as the paragraph below this one
-records at length.
+every test binary in the tree: most report a check count, the
+model-based fuzz harnesses report cases and the invariants they held,
+and the coverage-guided drivers report cases over their corpora. Zero
+failures in any group.
+
+**NO COUNT IS WRITTEN HERE, and the two that used to be are why.** This
+paragraph said "43 binaries: 30 report check counts and the other 13",
+and the paragraph above it said `make style` passes over 107 files. Both
+were measured and both drifted -- 74 binaries and 166 files on
+2026-09-04. `make test` and `make style` each print their own totals,
+and `make style` additionally prints the header, source, fuzz-harness and
+test-binary counts it holds against the Makefile, which is a number
+something checks rather than a number somebody wrote down.
 
 **THE FIRST VERSION OF THIS PARAGRAPH SAID 33 BINARIES AND 2637
 CHECKS, AND BOTH WERE WRONG**, which is worth keeping because of when
