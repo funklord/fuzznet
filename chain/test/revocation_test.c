@@ -795,6 +795,85 @@ static void test_a_withdrawal_reaches_the_chain_walk(void)
 	      "restored host stays locked out of every chain it appears in");
 }
 
+/* THE WITHDRAWAL ARRIVES FIRST, WHICH ON A MESH IS ORDINARY.
+ *
+ * Whenever the withdrawing host has a shorter path to a peer than the
+ * revoking host did, the withdrawal overtakes the revocation it undoes. This
+ * store used to drop it: the revocation then landed, the host revoked, and
+ * it stayed revoked until somebody re-sent the withdrawal. Reported by
+ * fuzzypickles, whose own store keeps the unmatched record for this reason.
+ *
+ * Stored as a tombstone, the sequence needs no ordering at all. The
+ * tombstone names one revocation by hash; that revocation arrives, its own
+ * hash matches, and it is refused as the stale copy it is. THE HOST NEVER
+ * BECOMES REVOKED -- which is stronger than un-revoking it afterwards,
+ * because there is no window in which it was.
+ *
+ * AND IT IS NOT A BLANK CHEQUE, which is the half worth testing rather than
+ * asserting: a genuinely new revocation of the same pair is a different
+ * record with a different hash, and it applies. */
+static void test_a_withdrawal_that_overtakes_its_revocation(void)
+{
+	struct fixture f;
+	uint8_t rev[FZN_REVOCATION_LEN], wd[FZN_REVOCATION_LEN];
+	uint8_t later[FZN_REVOCATION_LEN];
+	uint8_t id[FZN_REVOCATION_ID_LEN];
+	uint8_t grantee[FZN_PUBKEY_LEN];
+	fzn_revocation_record_t r;
+	fzn_cap_id_t cap;
+
+	fixture_init(&f);
+	key(grantee, 5);
+	capability_id(&cap, 0xc0);
+
+	/* Minted in order and DELIVERED in the other, which is the whole
+	 * case: the withdrawal is well formed and names a real record. */
+	f.stub.identity = f.root[0];
+	CHECK(fzn_revocation_issue(f.root, &cap, grantee, 1000, &f.sign, rev) ==
+	              FZN_CHAIN_OK, "the revocation was not minted");
+	CHECK(stub_hash(NULL, id, sizeof(id), rev, FZN_REVOCATION_LEN), "hash");
+	f.stub.identity = f.root[0];
+	CHECK(fzn_revocation_issue_withdrawal(f.root, &cap, grantee, 2000, id, &f.sign,
+	                                      wd) == FZN_CHAIN_OK,
+	      "the withdrawal was not minted");
+
+	/* The withdrawal, first. */
+	CHECK(fzn_revocation_open(wd, FZN_REVOCATION_LEN, &r) == FZN_CHAIN_OK, "open");
+	stub_reset(&f.stub);
+	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(r), f.root, &f.sign,
+	                           &HASH_OPS, NULL) == FZN_CHAIN_OK,
+	      "a withdrawal arriving before its revocation was dropped");
+	CHECK(fzn_revocation_covers(&f.store, f.root, &cap, grantee) == 0,
+	      "a tombstone reads as revoked");
+
+	/* And now the revocation it undoes. It must not take effect -- not
+	 * "take effect and then be undone", which would leave a window. */
+	CHECK(fzn_revocation_open(rev, FZN_REVOCATION_LEN, &r) == FZN_CHAIN_OK, "open");
+	stub_reset(&f.stub);
+	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(r), f.root, &f.sign,
+	                           &HASH_OPS, NULL) == FZN_CHAIN_OK,
+	      "the revocation the tombstone names was reported as an error rather than "
+	      "recognised");
+	CHECK(fzn_revocation_covers(&f.store, f.root, &cap, grantee) == 0,
+	      "the revocation took effect despite the withdrawal that had already "
+	      "arrived, so the host is revoked and must be un-revoked again");
+	CHECK(f.store.used == 1, "it appended a second entry for one triple");
+
+	/* NOT A BLANK CHEQUE. A different revocation of the same pair, chained
+	 * to the one the tombstone names, applies normally. */
+	f.stub.identity = f.root[0];
+	CHECK(fzn_revocation_reissue(f.root, &cap, grantee, 3000, id, &f.sign, later) ==
+	              FZN_CHAIN_OK, "the chained reissue was not minted");
+	CHECK(fzn_revocation_open(later, FZN_REVOCATION_LEN, &r) == FZN_CHAIN_OK, "open");
+	stub_reset(&f.stub);
+	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(r), f.root, &f.sign,
+	                           &HASH_OPS, NULL) == FZN_CHAIN_OK,
+	      "a new revocation was refused against a tombstone, which would make the "
+	      "tombstone a permanent grant");
+	CHECK(fzn_revocation_covers(&f.store, f.root, &cap, grantee) == 1,
+	      "and it did not take effect");
+}
+
 /* A WITHDRAWAL MUST NAME SOMETHING THIS STORE HOLDS, and arriving early is
  * not the same as being wrong.
  *
@@ -818,16 +897,20 @@ static void test_a_withdrawal_naming_what_we_lack(void)
 	for (i = 0; i < sizeof(other); i++)
 		other[i] = (uint8_t)(0x5au + i);
 
-	/* No entry at all for this triple. */
+	/* No entry at all for this triple: STORED, as a tombstone. */
 	f.stub.identity = f.root[0];
 	CHECK(fzn_revocation_issue_withdrawal(f.root, &cap, stranger, 2000, other, &f.sign,
 	                                      wd) == FZN_CHAIN_OK, "mint");
 	CHECK(fzn_revocation_open(wd, FZN_REVOCATION_LEN, &r) == FZN_CHAIN_OK, "open");
 	stub_reset(&f.stub);
 	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(r), f.root, &f.sign,
-	                           &HASH_OPS, NULL) == FZN_CHAIN_ERR_UNKNOWN_TARGET,
-	      "a withdrawal for a triple this store never held was applied");
-	CHECK(f.store.used == 0, "it appended an entry");
+	                           &HASH_OPS, NULL) == FZN_CHAIN_OK,
+	      "a withdrawal that overtook the revocation it undoes was dropped, which "
+	      "forces an ordering a mesh does not provide");
+	CHECK(f.store.used == 1 && fzn_revocation_known(&f.store, f.root, &cap, stranger),
+	      "the tombstone was not stored");
+	CHECK(fzn_revocation_covers(&f.store, f.root, &cap, stranger) == 0,
+	      "a tombstone reads as revoked");
 
 	/* An entry, but naming a different record than the one held. Accepting
 	 * this would let a withdrawal of an OLD revocation undo a newer one
@@ -2476,6 +2559,7 @@ int main(void)
 	test_a_withdrawal_restores_and_the_entry_remains();
 	test_a_reissue_after_a_withdrawal();
 	test_a_withdrawal_reaches_the_chain_walk();
+	test_a_withdrawal_that_overtakes_its_revocation();
 	test_a_withdrawal_naming_what_we_lack();
 	test_admits_a_signed_revocation();
 	test_a_carrier_cannot_invent_one();

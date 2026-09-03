@@ -730,6 +730,14 @@ SABOTAGES = [
 		"\t\tif (fzn_revocation_covers(store, issuer, capability, grantee))\n\t\t\tcontinue;\n",
 		"asking the authorization question here loops against every peer behind",
 	),
+	(
+		"rev-withdrawal-tombstone",
+		"chain/revocation.c",
+		"\t\t\tstore->entries[store->used].withdrawn = 1;\n\t\t\tstore->used++;\n"
+		"\t\t\treturn FZN_CHAIN_OK;\n",
+		"\t\t\treturn FZN_CHAIN_ERR_UNKNOWN_TARGET;\n",
+		"a withdrawal that overtakes its revocation is kept, not dropped",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

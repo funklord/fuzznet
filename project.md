@@ -11356,6 +11356,48 @@ exactly this** -- "there is no second predicate to drift from this one" --
 and the answer is that both go through one `find_entry` and differ only in
 what they make of the result. One definition of "same triple", two readings.
 
+### The unmatched withdrawal is stored, which was wrong for half a day
+
+Admission refused a withdrawal for a triple the store had never held --
+FZN_CHAIN_ERR_UNKNOWN_TARGET, nothing stored -- on the reasoning that it
+named something we could not match. fuzzypickles reported the mechanism and
+it is the right correction: **the refusal forced an ordering, and the
+ordering it forced is not an edge case.** A withdrawal overtakes the
+revocation it undoes whenever the withdrawing host has a shorter path to a
+peer than the revoking host did, which on a mesh is ordinary. Dropped, the
+revocation then lands, the host revokes, and it stays revoked until somebody
+re-sends the withdrawal.
+
+Stored as a tombstone the sequence needs no ordering at all: the tombstone
+names one revocation by hash, that revocation arrives, its own hash matches,
+and it is refused as the stale copy it is. **The host never becomes
+revoked**, which is stronger than un-revoking it afterwards because there is
+no window in which it was.
+
+**It costs no new state.** A withdrawn entry's `id` is already "the hash of
+the most recent revocation for this triple"; a tombstone is that with the
+revocation not yet seen. It is not a special kind of entry, which is the
+sign the field was the right one.
+
+**And the asymmetry is deliberate on both sides**, which fuzzypickles asked
+me to keep apart in the header because it reads as one rule:
+
+    minting a withdrawal     the target may NOT be zero -- one naming
+                             nothing could never be matched later, so it
+                             would pre-authorise the next revocation
+                             anybody issues
+    installing one           requires nothing -- it names ONE record by
+                             hash and can only ever refuse that one
+
+**Where this stops short of theirs, knowingly.** A withdrawal naming
+something OTHER than what a held entry carries is still refused. They hold
+one record per pair and a withdrawal overwrites it; this store tracks the
+chain in `id`, so a mismatch means a withdrawal of a revocation that has
+already been superseded, and applying it would restore the pair on the
+authority of a record answering a different question. The remaining cost is
+that a withdrawal overtaking a REISSUE is dropped -- narrower than what was
+dropped before, and the case where being wrong fails open.
+
 ### And it converges nobody, which is the half that is not built
 
 The record works, the store works, admission works -- **on the host that

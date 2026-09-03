@@ -176,7 +176,21 @@ fzn_chain_err_t fzn_revocation_issue(const uint8_t issuer[FZN_PUBKEY_LEN],
  * `target` for a withdrawal is the hash of the FZN_REVOCATION_LEN bytes of
  * the record being undone, and must be non-zero. Hashing the whole record
  * rather than its signed range is deliberate: what a peer holds and relays
- * is the whole record, so its identity is the thing that travelled. */
+ * is the whole record, so its identity is the thing that travelled.
+ *
+ * MINTING A WITHDRAWAL IS STRICT AND INSTALLING ONE IS NOT, and the two
+ * rules must stay apart. Here the target may not be zero: a withdrawal
+ * naming nothing could never be matched against anything later, so it would
+ * pre-authorise the next revocation anybody issues for that pair -- a blank
+ * cheque. At `fzn_revocation_admit` the opposite holds: a withdrawal for a
+ * triple the store has never held is STORED, because it names ONE record by
+ * hash and can only ever refuse that one. Tolerating any arrival order is
+ * the whole point of it, and on a mesh a withdrawal overtaking its
+ * revocation is ordinary rather than exceptional.
+ *
+ * Written as two rules because they look like one and somebody will
+ * otherwise simplify them into "a withdrawal must name something real",
+ * which is true of minting and wrong of installing. */
 fzn_chain_err_t fzn_revocation_reissue(const uint8_t issuer[FZN_PUBKEY_LEN],
                                        const fzn_cap_id_t *capability,
                                        const uint8_t grantee[FZN_PUBKEY_LEN],

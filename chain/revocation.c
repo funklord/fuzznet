@@ -684,19 +684,64 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 	at = find_entry(store, fzn_revocation_issuer(record),
 	                fzn_revocation_capability(record), fzn_revocation_grantee(record));
 
-	/* A WITHDRAWAL NEVER APPENDS. It answers a revocation this store is
-	 * holding, or it answers nothing -- and a withdrawal for a triple with
-	 * no entry is the ordinary out-of-order case rather than a bad record,
-	 * which is why it has its own error and not CHAIN_INVALID. A consumer
-	 * meeting it should fetch what it is missing.
+	/* A WITHDRAWAL FOR A TRIPLE THIS STORE HAS NEVER HELD IS STORED AS A
+	 * TOMBSTONE, and this refused it until 2026-09-03.
 	 *
-	 * IT MUST NAME WHAT WE HOLD. Accepting one that named something else
-	 * would let a withdrawal of an OLD revocation undo a newer one that
-	 * had already superseded it -- the pair restored by a record whose
-	 * issuer was answering a different question. */
+	 * THE ORDERING IT FORCED IS NOT AN EDGE CASE. Refusing meant the
+	 * withdrawal had to arrive after the revocation it undoes; if it
+	 * arrived first it was dropped, the revocation then landed, and the
+	 * host stayed revoked until somebody re-sent the withdrawal. On a mesh
+	 * the withdrawal arriving first is simply what happens whenever the
+	 * withdrawing host has a shorter path to a peer than the revoking host
+	 * did. Reported by fuzzypickles, whose store keeps the unmatched
+	 * record for exactly this reason.
+	 *
+	 * Stored, the sequence needs no ordering at all: the tombstone names
+	 * one revocation by hash, that revocation arrives, its own hash
+	 * matches, and it is refused below as the stale copy it is. The host
+	 * never becomes revoked and never has to be un-revoked.
+	 *
+	 * IT IS NOT A BLANK CHEQUE, AND THE ASYMMETRY IS DELIBERATE ON BOTH
+	 * SIDES. A tombstone names ONE record; only that exact revocation is
+	 * refused, and a genuinely new revocation of the same pair is a
+	 * different record with a different hash and applies normally.
+	 * MINTING a withdrawal is the side that must be strict --
+	 * `fzn_revocation_issue_withdrawal` refuses an all-zero target,
+	 * because a withdrawal naming nothing could never be matched against
+	 * anything later and WOULD pre-authorise the next revocation anybody
+	 * issues. Two rules on one field, kept apart on purpose: somebody will
+	 * otherwise simplify them into one.
+	 *
+	 * A MISMATCH AGAINST A HELD ENTRY IS STILL REFUSED, which is where
+	 * this stops short of fuzzypickles' rule and does so knowingly. They
+	 * hold one record per pair and a withdrawal overwrites it; this store
+	 * tracks the chain in `id`, so a withdrawal naming something other
+	 * than what is held is a withdrawal of a revocation that has already
+	 * been superseded, and applying it would restore the pair on the
+	 * authority of a record answering a different question. The cost is
+	 * that a withdrawal overtaking a REISSUE is still dropped -- narrower
+	 * than what was refused before, and the case where being wrong is
+	 * fail-open. */
 	if (fzn_revocation_is_withdrawal(record)) {
-		if (at == store->used)
-			return FZN_CHAIN_ERR_UNKNOWN_TARGET;
+		if (at == store->used) {
+			if (store->used >= store->capacity)
+				return FZN_CHAIN_ERR_STORE_FULL;
+			store->entries[store->used].capability =
+			        *fzn_revocation_capability(record);
+			memcpy(store->entries[store->used].grantee,
+			       fzn_revocation_grantee(record), FZN_PUBKEY_LEN);
+			memcpy(store->entries[store->used].issuer,
+			       fzn_revocation_issuer(record), FZN_PUBKEY_LEN);
+			/* `id` is what the withdrawal NAMES, which is the same
+			 * invariant a withdrawn entry always carries: the hash
+			 * of the most recent revocation for this triple. The
+			 * tombstone is not a special kind of entry. */
+			memcpy(store->entries[store->used].id,
+			       fzn_revocation_supersedes(record), FZN_REVOCATION_ID_LEN);
+			store->entries[store->used].withdrawn = 1;
+			store->used++;
+			return FZN_CHAIN_OK;
+		}
 		if (!fzn_ct_memeq(store->entries[at].id, fzn_revocation_supersedes(record),
 		                  FZN_REVOCATION_ID_LEN))
 			return FZN_CHAIN_ERR_UNKNOWN_TARGET;
