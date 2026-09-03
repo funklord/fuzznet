@@ -31,6 +31,11 @@
 #include "../../chunk/reassembly.h"
 #include "../../chunk/split.h"
 
+/* For FZN_RECORD_MIN_LEN and _MAX_LEN: the collision the object tag exists
+ * to separate is against a RECORD, so the claim is checked against record.h
+ * rather than against a number copied out of it. */
+#include "../../record/record.h"
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -56,10 +61,11 @@ _Static_assert(FZN_MANIFEST_LEN(FZN_MANIFEST_MAX_PAIRS + 1u) > FZN_REASSEMBLED_M
                 "FZN_MANIFEST_MAX_PAIRS is below the ceiling, so it is not the ceiling");
 
 /* And the single-frame figure, which is the number a consumer feels. */
-_Static_assert(FZN_MANIFEST_LEN(14) <= FZN_SPLIT_MAX_PAYLOAD,
-                "fourteen pairs no longer fit one frame");
-_Static_assert(FZN_MANIFEST_LEN(15) > FZN_SPLIT_MAX_PAYLOAD,
-                "fifteen pairs fit one frame, so the halving the pair form cost is wrong");
+_Static_assert(FZN_MANIFEST_LEN(9) <= FZN_SPLIT_MAX_PAYLOAD,
+                "nine entries no longer fit one frame");
+_Static_assert(FZN_MANIFEST_LEN(10) > FZN_SPLIT_MAX_PAYLOAD,
+                "ten entries fit one frame, so the entry is not the size the "
+                "header says it is");
 
 static int failures;
 static int checks;
@@ -298,6 +304,15 @@ static size_t build_raw(uint8_t *out, uint8_t identity, const uint8_t issuer[FZN
 	for (size_t i = 0; i < count; i++) {
 		memcpy(at, pairs[i].capability.b, FZN_CAP_ID_LEN);
 		memcpy(at + FZN_CAP_ID_LEN, pairs[i].grantee, FZN_PUBKEY_LEN);
+		/* THE ID AND THE STATE ARE WRITTEN TOO, and this helper wrote
+		 * neither when an entry was 64 bytes. Left as whatever `out`
+		 * held, the state byte would usually be refused by `open` --
+		 * so every case built here would have been passing for the
+		 * wrong reason, testing the state check rather than the
+		 * canonicality it was written for. */
+		memset(at + FZN_MANIFEST_OFF_ENTRY_ID, 0, FZN_REVOCATION_ID_LEN);
+		at[FZN_MANIFEST_OFF_ENTRY_ID] = (uint8_t)(i + 1u);
+		at[FZN_MANIFEST_OFF_ENTRY_STATE] = (uint8_t)FZN_MANIFEST_REVOKED;
 		at += FZN_MANIFEST_PAIR_LEN;
 	}
 	mac(out + FZN_MANIFEST_BODY_LEN(count), identity, out, FZN_MANIFEST_BODY_LEN(count));
@@ -338,6 +353,44 @@ static void stub_reset(stub_t *s)
 	s->keys_seen = 0;
 	s->last_msg_len = 0;
 	memset(s->key_seen, 0, sizeof(s->key_seen));
+}
+
+/* THE SUITE STILL BUILDS PAIRS AND THE ENCODER NOW TAKES ENTRIES, so this
+ * adapts between them at the call rather than every fixture growing two
+ * fields it does not care about. Most cases here are about ordering,
+ * canonicality and lengths -- properties of the KEY -- and rewriting them
+ * to carry an id and a state would bury what each is testing.
+ *
+ * The id is derived from the index so that two entries are never
+ * accidentally identical, and the state is REVOKED, which is what a case
+ * that says nothing about state should mean. Cases that are about the state
+ * set it themselves.
+ *
+ * A FILE-SCOPE BUFFER because the result is used immediately as an argument
+ * and nothing here is concurrent; the bound is asserted rather than assumed,
+ * since a silent truncation would hand the encoder fewer entries than the
+ * count says and the failure would land inside the library. */
+/* Sized to the ceiling plus one, because a case that checks the ceiling is
+ * enforced has to be able to ASK for one more than it. */
+static fzn_manifest_entry_t ENTRY_BUF[FZN_MANIFEST_MAX_PAIRS + 1u];
+
+static const fzn_manifest_entry_t *as_entries(const fzn_manifest_pair_t *src, size_t n)
+{
+	size_t i;
+
+	if (n > (sizeof(ENTRY_BUF) / sizeof(ENTRY_BUF[0]))) {
+		fprintf(stderr, "  FAIL: as_entries asked for %zu, buffer holds %zu\n",
+		        n, (size_t)(sizeof(ENTRY_BUF) / sizeof(ENTRY_BUF[0])));
+		failures++;
+		return NULL;
+	}
+	for (i = 0; i < n; i++) {
+		ENTRY_BUF[i].pair = src[i];
+		memset(ENTRY_BUF[i].id, 0, sizeof(ENTRY_BUF[i].id));
+		ENTRY_BUF[i].id[0] = (uint8_t)(i + 1u);
+		ENTRY_BUF[i].state = (uint8_t)FZN_MANIFEST_REVOKED;
+	}
+	return ENTRY_BUF;
 }
 
 static void pair_of(fzn_manifest_pair_t *p, uint8_t cap_seed, uint8_t grantee_seed)
@@ -388,23 +441,31 @@ static void test_layout_and_round_trip(void)
 	const uint8_t *at;
 	size_t signed_len;
 
-	CHECK(FZN_MANIFEST_PAIR_LEN == 64u, "a pair is %zu bytes, the table says 64",
+	CHECK(FZN_MANIFEST_KEY_LEN == 64u, "a key is %zu bytes, the table says 64",
+	      FZN_MANIFEST_KEY_LEN);
+	CHECK(FZN_MANIFEST_PAIR_LEN == 97u, "an entry is %zu bytes, the table says 97",
 	      FZN_MANIFEST_PAIR_LEN);
+	/* THE KEY IS A PREFIX OF THE ENTRY, which is what one comparison
+	 * orders both the wire form and the caller's struct by. */
+	CHECK(FZN_MANIFEST_OFF_ENTRY_ID == FZN_MANIFEST_KEY_LEN &&
+	              FZN_MANIFEST_OFF_ENTRY_STATE ==
+	                      FZN_MANIFEST_KEY_LEN + FZN_REVOCATION_ID_LEN,
+	      "the entry's id and state are not where the table puts them");
 	CHECK(FZN_MANIFEST_HEADER_LEN == 36u, "the header is %u bytes, the table says 36",
 	      (unsigned)FZN_MANIFEST_HEADER_LEN);
 	CHECK(FZN_MANIFEST_MIN_LEN == 100u, "an empty manifest is %zu bytes, wanted 100",
 	      FZN_MANIFEST_MIN_LEN);
-	CHECK(FZN_MANIFEST_LEN(14) == 996u, "fourteen pairs is %zu bytes, wanted 996",
-	      FZN_MANIFEST_LEN(14));
-	CHECK(FZN_MANIFEST_LEN(15) == 1060u, "fifteen pairs is %zu bytes, wanted 1060",
-	      FZN_MANIFEST_LEN(15));
+	CHECK(FZN_MANIFEST_LEN(9) == 973u, "nine entries is %zu bytes, wanted 973",
+	      FZN_MANIFEST_LEN(9));
+	CHECK(FZN_MANIFEST_LEN(10) == 1070u, "ten entries is %zu bytes, wanted 1070",
+	      FZN_MANIFEST_LEN(10));
 
 	fixture_init(&f);
 	key(issuer, 0);
 	pair_of(&pairs[0], 0x10, 5);
 	pair_of(&pairs[1], 0x20, 6);
 
-	CHECK(fzn_manifest_encode(bytes, sizeof(bytes), issuer, pairs, 2, &len) ==
+	CHECK(fzn_manifest_encode(bytes, sizeof(bytes), issuer, as_entries(pairs, 2), 2, &len) ==
 	              FZN_MANIFEST_OK,
 	      "encoding a two-pair manifest failed");
 	CHECK(len == FZN_MANIFEST_LEN(2), "encoded %zu bytes, wanted %zu", len,
@@ -456,8 +517,7 @@ static void test_layout_and_round_trip(void)
 			memcpy(read_back[i].grantee, fzn_manifest_grantee(rec, i),
 			       FZN_PUBKEY_LEN);
 		}
-		CHECK(fzn_manifest_encode(again, sizeof(again), fzn_manifest_issuer(rec),
-		                          read_back, fzn_manifest_count(rec),
+		CHECK(fzn_manifest_encode(again, sizeof(again), fzn_manifest_issuer(rec), as_entries(read_back, fzn_manifest_count(rec)), fzn_manifest_count(rec),
 		                          &again_len) == FZN_MANIFEST_OK,
 		      "re-encoding from the accessors failed");
 		CHECK(again_len == len && memcmp(again, bytes, FZN_MANIFEST_BODY_LEN(2)) == 0,
@@ -489,7 +549,7 @@ static void test_the_object_tag_is_in_the_transcript(void)
 	pair_of(&pairs[0], 0x10, 5);
 	f.stub.identity = 0;
 
-	CHECK(fzn_manifest_encode(bytes, sizeof(bytes), issuer, pairs, 1, &len) ==
+	CHECK(fzn_manifest_encode(bytes, sizeof(bytes), issuer, as_entries(pairs, 1), 1, &len) ==
 	              FZN_MANIFEST_OK,
 	      "the control could not be encoded");
 	mac(as_manifest, 0, bytes, FZN_MANIFEST_BODY_LEN(1));
@@ -501,11 +561,24 @@ static void test_the_object_tag_is_in_the_transcript(void)
 	      "one key signing the same body under two object tags produced the same "
 	      "signature, so the tag is outside the transcript and separates nothing");
 
-	/* And a manifest of one pair is exactly the length of a record with an
-	 * eight-byte body, which is why the tag has to be there. */
-	CHECK(FZN_MANIFEST_LEN(1) == 164u,
-	      "a one-pair manifest is %zu bytes; the collision this tag exists for was "
-	      "measured at 164",
+	/* AND THE COLLISION IS STILL THERE, which is why the tag has to be.
+	 *
+	 * It used to be exact and arithmetical: a one-pair manifest was 164
+	 * bytes and so was a record with an eight-byte body. The entry grew to
+	 * 97, so a one-entry manifest is 197 -- a different number and the
+	 * same hazard, because 197 is inside a record's range too. The
+	 * property was never "these two constants are equal"; it is that one
+	 * key signs both objects through one seam and their lengths overlap,
+	 * so nothing but the tag separates them.
+	 *
+	 * Asserted as the range test it always was, rather than re-pinning a
+	 * number that moves whenever an entry does. */
+	CHECK(FZN_MANIFEST_LEN(1) == 197u,
+	      "a one-entry manifest is %zu bytes, wanted 197", FZN_MANIFEST_LEN(1));
+	CHECK(FZN_MANIFEST_LEN(1) >= FZN_RECORD_MIN_LEN &&
+	              FZN_MANIFEST_LEN(1) <= FZN_RECORD_MAX_LEN,
+	      "a one-entry manifest at %zu bytes no longer collides with any record "
+	      "length, so this case has stopped demonstrating what the tag is for",
 	      FZN_MANIFEST_LEN(1));
 }
 
@@ -522,7 +595,7 @@ static void test_open_refuses_what_is_not_our_shape(void)
 	key(issuer, 0);
 	pair_of(&pairs[0], 0x10, 5);
 	pair_of(&pairs[1], 0x20, 6);
-	CHECK(fzn_manifest_encode(bytes, sizeof(bytes), issuer, pairs, 2, &len) ==
+	CHECK(fzn_manifest_encode(bytes, sizeof(bytes), issuer, as_entries(pairs, 2), 2, &len) ==
 	              FZN_MANIFEST_OK,
 	      "the fixture could not encode a manifest");
 
@@ -757,13 +830,13 @@ static void test_encode_refuses_what_open_would(void)
 	pair_of(&pairs[0], 0x20, 5);
 	pair_of(&pairs[1], 0x10, 6); /* descending */
 
-	CHECK(fzn_manifest_encode(bytes, sizeof(bytes), issuer, pairs, 2, &len) ==
+	CHECK(fzn_manifest_encode(bytes, sizeof(bytes), issuer, as_entries(pairs, 2), 2, &len) ==
 	              FZN_MANIFEST_ERR_SHAPE,
 	      "the encoder produced a manifest its own parser refuses, which is a second "
 	      "encoding waiting to be found by somebody else's decoder");
 
 	pairs[1] = pairs[0];
-	CHECK(fzn_manifest_encode(bytes, sizeof(bytes), issuer, pairs, 2, &len) ==
+	CHECK(fzn_manifest_encode(bytes, sizeof(bytes), issuer, as_entries(pairs, 2), 2, &len) ==
 	              FZN_MANIFEST_ERR_SHAPE,
 	      "the encoder produced a manifest naming one pair twice");
 
@@ -771,27 +844,33 @@ static void test_encode_refuses_what_open_would(void)
 	 * about the order rather than about the call. */
 	pair_of(&pairs[0], 0x10, 5);
 	pair_of(&pairs[1], 0x20, 6);
-	CHECK(fzn_manifest_encode(bytes, sizeof(bytes), issuer, pairs, 2, &len) ==
+	CHECK(fzn_manifest_encode(bytes, sizeof(bytes), issuer, as_entries(pairs, 2), 2, &len) ==
 	              FZN_MANIFEST_OK,
 	      "an ordered pair set was refused, so the control fails");
 
-	CHECK(fzn_manifest_encode(bytes, FZN_MANIFEST_LEN(2) - 1u, issuer, pairs, 2, &len) ==
+	CHECK(fzn_manifest_encode(bytes, FZN_MANIFEST_LEN(2) - 1u, issuer, as_entries(pairs, 2), 2, &len) ==
 	              FZN_MANIFEST_ERR_MALFORMED,
 	      "encoding into a buffer one byte short was accepted");
-	CHECK(fzn_manifest_encode(bytes, sizeof(bytes), issuer, pairs,
+	/* THE ARRAY IS TWO ENTRIES AND THE COUNT IS PAST THE CEILING, which is
+	 * deliberate and safe: `fzn_manifest_encode` refuses the count before
+	 * it reads a single entry. Handing `as_entries` the oversized count
+	 * instead made it read 2702 entries out of a two-entry fixture, and
+	 * this case segfaulted -- the adapter was the thing at fault, not the
+	 * encoder, and a case that crashes proves nothing about the ceiling. */
+	CHECK(fzn_manifest_encode(bytes, sizeof(bytes), issuer, as_entries(pairs, 2),
 	                          (size_t)FZN_MANIFEST_MAX_PAIRS + 1u,
 	                          &len) == FZN_MANIFEST_ERR_SHAPE,
 	      "encoding past the pair ceiling was accepted");
-	CHECK(fzn_manifest_encode(NULL, sizeof(bytes), issuer, pairs, 2, &len) ==
+	CHECK(fzn_manifest_encode(NULL, sizeof(bytes), issuer, as_entries(pairs, 2), 2, &len) ==
 	              FZN_MANIFEST_ERR_MALFORMED,
 	      "encoding into a null buffer");
-	CHECK(fzn_manifest_encode(bytes, sizeof(bytes), NULL, pairs, 2, &len) ==
+	CHECK(fzn_manifest_encode(bytes, sizeof(bytes), NULL, as_entries(pairs, 2), 2, &len) ==
 	              FZN_MANIFEST_ERR_MALFORMED,
 	      "encoding with a null issuer");
 	CHECK(fzn_manifest_encode(bytes, sizeof(bytes), issuer, NULL, 2, &len) ==
 	              FZN_MANIFEST_ERR_MALFORMED,
 	      "encoding a nonzero count from a null pair array");
-	CHECK(fzn_manifest_encode(bytes, sizeof(bytes), issuer, pairs, 2, NULL) ==
+	CHECK(fzn_manifest_encode(bytes, sizeof(bytes), issuer, as_entries(pairs, 2), 2, NULL) ==
 	              FZN_MANIFEST_ERR_MALFORMED,
 	      "encoding with nowhere to report the length");
 }
@@ -833,60 +912,211 @@ static int revoke_then_withdraw(struct fixture *f, const uint8_t issuer[FZN_PUBK
 	                            &f->sign, &HASH_OPS, NULL) == FZN_CHAIN_OK;
 }
 
-/* A MANIFEST STATES WHAT IS REVOKED, so a withdrawn pair is not in it.
+/* THE STATE BYTE HAS EXACTLY TWO VALUES, and a third is refused rather than
+ * read as one of them.
  *
- * The entry stays in the store -- that is how a stale copy of the withdrawn
- * revocation is recognised -- but publishing it would tell every receiver to
- * revoke a pair this issuer has restored, under this issuer's own signature.
- * A receiver acting on that manifest would undo the withdrawal for the whole
- * network, from the issuer that performed it.
+ * The same rule this parser applies to trailing bytes and for the same
+ * reason: a decoder that ignores what it does not understand is a second
+ * encoding waiting to be found by somebody else's. It also earns the
+ * accessor its shape -- `fzn_manifest_is_withdrawn` tests one value and
+ * trusts the complement, which is only sound because everything else was
+ * refused here. */
+static void test_a_state_byte_has_two_values(void)
+{
+	struct fixture f;
+	static uint8_t bytes[FIXTURE_BYTES];
+	fzn_manifest_record_t rec;
+	fzn_manifest_pair_t pairs[1];
+	uint8_t issuer[FZN_PUBKEY_LEN];
+	size_t len = 0, at;
+
+	fixture_init(&f);
+	key(issuer, 0);
+	pair_of(&pairs[0], 0x10, 5);
+	CHECK(fzn_manifest_encode(bytes, sizeof(bytes), issuer, as_entries(pairs, 1), 1,
+	                          &len) == FZN_MANIFEST_OK,
+	      "the control manifest could not be encoded");
+	at = FZN_MANIFEST_OFF_PAIRS + FZN_MANIFEST_OFF_ENTRY_STATE;
+
+	bytes[at] = (uint8_t)FZN_MANIFEST_REVOKED;
+	CHECK(fzn_manifest_open(bytes, len, &rec) == FZN_MANIFEST_OK &&
+	              !fzn_manifest_is_withdrawn(rec, 0),
+	      "a revoked entry did not open, so the refusals below prove nothing");
+	bytes[at] = (uint8_t)FZN_MANIFEST_WITHDRAWN;
+	CHECK(fzn_manifest_open(bytes, len, &rec) == FZN_MANIFEST_OK &&
+	              fzn_manifest_is_withdrawn(rec, 0),
+	      "a withdrawn entry did not open");
+
+	/* Every other value, not one sample: a check that tried only 2 would
+	 * pass against a parser that refused 2 and admitted 200. */
+	{
+		unsigned v;
+
+		for (v = 2u; v < 256u; v++) {
+			bytes[at] = (uint8_t)v;
+			if (fzn_manifest_open(bytes, len, &rec) != FZN_MANIFEST_ERR_SHAPE) {
+				CHECK(0, "a state byte of %u was accepted", v);
+				break;
+			}
+		}
+	}
+
+	/* AND THE ENCODER REFUSES WHAT THE PARSER WOULD, which is this
+	 * object's standing rule. */
+	{
+		fzn_manifest_entry_t bad;
+
+		bad.pair = pairs[0];
+		memset(bad.id, 0, sizeof(bad.id));
+		bad.state = 7u;
+		CHECK(fzn_manifest_encode(bytes, sizeof(bytes), issuer, &bad, 1, &len) ==
+		              FZN_MANIFEST_ERR_SHAPE,
+		      "the encoder emitted a state byte its own parser refuses");
+	}
+}
+
+/* ORDERING AND DEDUPLICATION ARE ON THE KEY, NOT THE ENTRY.
  *
- * THE CONTROL IS THE PAIR THAT STAYS. Without it "one pair" would be
- * satisfied by an issue that had gone wrong in any other way. */
-static void test_a_manifest_omits_a_withdrawn_pair(void)
+ * One issuer has exactly one opinion about one pair. Two entries naming the
+ * same pair and differing only in what they say about it are two
+ * contradictory opinions, and a comparison over the whole entry would sort
+ * them apart and admit both -- leaving a receiver to pick. The near-miss is
+ * what decides it: the two entries below are identical for 64 bytes and
+ * differ in the 65th onward. */
+static void test_two_opinions_about_one_pair_are_refused(void)
+{
+	struct fixture f;
+	static uint8_t bytes[FIXTURE_BYTES];
+	fzn_manifest_record_t rec;
+	fzn_manifest_entry_t two[2];
+	uint8_t issuer[FZN_PUBKEY_LEN];
+	size_t len = 0;
+
+	fixture_init(&f);
+	key(issuer, 0);
+	pair_of(&two[0].pair, 0x10, 5);
+	memset(two[0].id, 0x11, sizeof(two[0].id));
+	two[0].state = (uint8_t)FZN_MANIFEST_REVOKED;
+	two[1] = two[0];
+	memset(two[1].id, 0x22, sizeof(two[1].id));
+	two[1].state = (uint8_t)FZN_MANIFEST_WITHDRAWN;
+
+	CHECK(fzn_manifest_encode(bytes, sizeof(bytes), issuer, two, 2, &len) ==
+	              FZN_MANIFEST_ERR_SHAPE,
+	      "one pair with two different states was encoded, so an issuer can say a "
+	      "pair is both revoked and restored in one signed statement");
+
+	/* THE CONTROL: the same two entries with different pairs encode, so
+	 * the refusal above is the duplicate key and not the differing
+	 * state. */
+	pair_of(&two[1].pair, 0x20, 5);
+	CHECK(fzn_manifest_encode(bytes, sizeof(bytes), issuer, two, 2, &len) ==
+	              FZN_MANIFEST_OK && fzn_manifest_open(bytes, len, &rec) ==
+	              FZN_MANIFEST_OK,
+	      "two entries differing in pair AND state were refused, so the refusal "
+	      "above is about the state rather than the duplicate");
+
+	/* AND THE SAME QUESTION ASKED OF THE PARSER, which is a DIFFERENT
+	 * comparison and was the one under test all along.
+	 *
+	 * The encoder refuses the duplicate through `pair_struct_cmp` over the
+	 * caller's struct; `open` refuses it through `pair_cmp` over the wire.
+	 * Measured: widening `pair_cmp` to the whole entry left everything
+	 * above green, because the encoder had already refused and the parser
+	 * was never asked. So the bytes are laid out by hand -- the only way
+	 * to present `open` with two entries sharing a key. */
+	{
+		fzn_manifest_pair_t same[2];
+		uint8_t *second;
+
+		pair_of(&same[0], 0x10, 5);
+		same[1] = same[0];
+		len = build_raw(bytes, 0, issuer, same, 2);
+		second = bytes + FZN_MANIFEST_OFF_PAIRS + FZN_MANIFEST_PAIR_LEN;
+		second[FZN_MANIFEST_OFF_ENTRY_ID] = 0xee;
+		second[FZN_MANIFEST_OFF_ENTRY_STATE] = (uint8_t)FZN_MANIFEST_WITHDRAWN;
+		CHECK(fzn_manifest_open(bytes, len, &rec) == FZN_MANIFEST_ERR_SHAPE,
+		      "a manifest naming one pair twice, revoked and withdrawn, was "
+		      "opened -- so an issuer can say both in one signed statement and "
+		      "a receiver has to pick");
+	}
+}
+
+/* A MANIFEST NAMES A WITHDRAWN PAIR AND SAYS SO, which reverses what this
+ * case asserted earlier today.
+ *
+ * While an entry carried no state, publishing a withdrawn pair would have
+ * told every receiver to revoke a pair the issuer had restored -- so `issue`
+ * skipped it, and this case demanded that. The entry carries its state now,
+ * and skipping is what leaves every other host revoked for ever: sec 57
+ * records why absence cannot carry a withdrawal, since a manifest has
+ * nothing monotonic in it and an old one replayed would un-revoke whatever
+ * the issuer added since.
+ *
+ * THE CONTROL IS THE PAIR THAT IS STILL REVOKED, in the same manifest. Both
+ * are named; they differ in one byte and in the id beside it, and a reader
+ * that ignored the state would act on them identically. */
+static void test_a_manifest_names_a_withdrawn_pair_as_withdrawn(void)
 {
 	struct fixture f;
 	static uint8_t bytes[FIXTURE_BYTES];
 	fzn_manifest_record_t rec;
 	fzn_cap_id_t cap_a, cap_b;
 	uint8_t g5[FZN_PUBKEY_LEN];
-	size_t len = 0;
+	size_t len = 0, i, live = 0, gone = 0;
 
 	fixture_init(&f);
 	capability_id(&cap_a, 0x10);
 	capability_id(&cap_b, 0x20);
 	key(g5, 5);
 	revoke(&f, f.root, &cap_a, g5);
-	revoke(&f, f.root, &cap_b, g5);
-
-	f.stub.identity = f.root[0];
-	CHECK(fzn_manifest_issue(f.root, &f.store, &f.sign, bytes, sizeof(bytes), &len) ==
-	              FZN_MANIFEST_OK && len == FZN_MANIFEST_LEN(2),
-	      "two revocations did not make a two-pair manifest, so the omission below "
-	      "proves nothing");
-
-	/* Withdraw one of the two. */
-	fixture_init(&f);
-	revoke(&f, f.root, &cap_a, g5);
 	CHECK(revoke_then_withdraw(&f, f.root, &cap_b, g5),
 	      "the fixture could not revoke and withdraw");
 	CHECK(f.store.used == 2, "the store holds %zu entries, wanted 2", f.store.used);
 
 	f.stub.identity = f.root[0];
-	len = 0;
 	CHECK(fzn_manifest_issue(f.root, &f.store, &f.sign, bytes, sizeof(bytes), &len) ==
 	              FZN_MANIFEST_OK,
 	      "issuing over a store holding a withdrawal was refused");
-	CHECK(len == FZN_MANIFEST_LEN(1),
-	      "the manifest is %zu bytes, wanted one pair at %zu -- a withdrawn pair was "
-	      "published as revoked under its issuer's own signature", len,
-	      FZN_MANIFEST_LEN(1));
-	if (fzn_manifest_open(bytes, len, &rec) == FZN_MANIFEST_OK) {
-		CHECK(fzn_ct_memeq(fzn_manifest_capability(rec, 0)->b, cap_a.b,
-		                   FZN_CAP_ID_LEN),
-		      "the pair that survived is not the one that is still revoked");
-	} else {
+	CHECK(len == FZN_MANIFEST_LEN(2),
+	      "the manifest is %zu bytes, wanted both pairs at %zu -- a withdrawn pair "
+	      "that is not named cannot travel, so every other host stays revoked",
+	      len, FZN_MANIFEST_LEN(2));
+
+	if (fzn_manifest_open(bytes, len, &rec) != FZN_MANIFEST_OK) {
 		CHECK(0, "the manifest will not open");
+		return;
+	}
+	for (i = 0; i < fzn_manifest_count(rec); i++) {
+		if (fzn_manifest_is_withdrawn(rec, i))
+			gone++;
+		else
+			live++;
+	}
+	CHECK(live == 1 && gone == 1,
+	      "the manifest names %zu revoked and %zu withdrawn, wanted one of each",
+	      live, gone);
+
+	/* THE STATE TRAVELS WITH THE RIGHT PAIR, not merely somewhere in the
+	 * object. Entries are sorted by key, and 0x10 sorts before 0x20. */
+	CHECK(fzn_ct_memeq(fzn_manifest_capability(rec, 0)->b, cap_a.b, FZN_CAP_ID_LEN) &&
+	              !fzn_manifest_is_withdrawn(rec, 0),
+	      "the still-revoked pair is not first and revoked");
+	CHECK(fzn_ct_memeq(fzn_manifest_capability(rec, 1)->b, cap_b.b, FZN_CAP_ID_LEN) &&
+	              fzn_manifest_is_withdrawn(rec, 1),
+	      "the withdrawn pair is not second and withdrawn");
+
+	/* AND THE ID IS THE ONE THE STORE HOLDS, which is what a receiver
+	 * matches its own revocation against. Read from the store rather than
+	 * recomputed, because recomputing it here would be this suite agreeing
+	 * with itself. */
+	for (i = 0; i < f.store.used; i++) {
+		if (!fzn_ct_memeq(f.store.entries[i].capability.b, cap_b.b, FZN_CAP_ID_LEN))
+			continue;
+		CHECK(memcmp(fzn_manifest_id(rec, 1), f.store.entries[i].id,
+		             FZN_REVOCATION_ID_LEN) == 0,
+		      "the withdrawn entry names an id the store does not hold, so a "
+		      "receiver cannot match its own revocation against it");
 	}
 }
 
@@ -2905,7 +3135,9 @@ int main(void)
 	test_the_pair_ceiling_is_a_ceiling();
 	test_the_ordering_reads_the_whole_pair();
 	test_encode_refuses_what_open_would();
-	test_a_manifest_omits_a_withdrawn_pair();
+	test_a_state_byte_has_two_values();
+	test_two_opinions_about_one_pair_are_refused();
+	test_a_manifest_names_a_withdrawn_pair_as_withdrawn();
 	test_a_withdrawn_pair_is_not_a_deficit();
 	test_issue_derives_from_the_issuers_own_store();
 	test_issue_refuses_a_store_it_cannot_read();

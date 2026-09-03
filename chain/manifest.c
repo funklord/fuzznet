@@ -25,7 +25,13 @@
  * near-miss pair that decides it, per project.md sec 11. */
 static int pair_cmp(const uint8_t *a, const uint8_t *b)
 {
-	return memcmp(a, b, FZN_MANIFEST_PAIR_LEN);
+	/* THE KEY, NOT THE ENTRY, and the distinction arrived with the state
+	 * field. Comparing the whole entry would order and deduplicate on the
+	 * id and the state as well, so one issuer could publish two entries
+	 * for one pair differing only in what it says about it -- two
+	 * contradictory opinions that the canonicality check would accept as
+	 * two pairs. */
+	return memcmp(a, b, FZN_MANIFEST_KEY_LEN);
 }
 
 /* The same order over the caller-facing struct, which is NOT the same as
@@ -143,7 +149,16 @@ _Static_assert(FZN_MANIFEST_OFF_COUNT == 34u, "manifest layout: count moved");
 _Static_assert(FZN_MANIFEST_OFF_PAIRS == 36u, "manifest layout: the pairs moved");
 _Static_assert(FZN_MANIFEST_HEADER_LEN == 36u,
                "manifest layout: the header is not 36 bytes");
-_Static_assert(FZN_MANIFEST_PAIR_LEN == 64u, "manifest layout: a pair is not 64 bytes");
+_Static_assert(FZN_MANIFEST_KEY_LEN == 64u, "manifest layout: a key is not 64 bytes");
+_Static_assert(FZN_MANIFEST_PAIR_LEN == 97u, "manifest layout: an entry is not 97 bytes");
+_Static_assert(FZN_MANIFEST_OFF_ENTRY_ID == 64u, "manifest layout: the id moved");
+_Static_assert(FZN_MANIFEST_OFF_ENTRY_STATE == 96u, "manifest layout: the state moved");
+/* THE KEY IS A PREFIX OF THE ENTRY, which is what lets one comparison order
+ * both a caller's struct and the wire form without either being told about
+ * the other. If the state ever moved in front of the pair this would fail
+ * here rather than in a sort nobody watches. */
+_Static_assert(FZN_MANIFEST_KEY_LEN < FZN_MANIFEST_PAIR_LEN,
+               "manifest layout: the sort key is not inside the entry");
 
 
 fzn_manifest_err_t fzn_manifest_open(const uint8_t *bytes, size_t len,
@@ -186,12 +201,30 @@ fzn_manifest_err_t fzn_manifest_open(const uint8_t *bytes, size_t len,
 	/* STRICTLY ASCENDING, which is this object's canonicality check and
 	 * carries three properties at once -- manifest.h states them. A
 	 * non-positive comparison covers both halves: equal is a duplicate, and
-	 * negative is out of order. */
+	 * negative is out of order.
+	 *
+	 * ON THE KEY AND NOT THE ENTRY, so a duplicate is a pair named twice
+	 * whatever the issuer said about it either time. */
 	for (size_t i = 1; i < count; i++) {
 		const uint8_t *prev = bytes + FZN_MANIFEST_OFF_PAIRS +
 		                      FZN_MANIFEST_PAIR_LEN * (i - 1u);
 
 		if (pair_cmp(prev, prev + FZN_MANIFEST_PAIR_LEN) >= 0)
+			return FZN_MANIFEST_ERR_SHAPE;
+	}
+
+	/* AND EVERY STATE BYTE IS ONE OF THE TWO. A third value is refused
+	 * rather than read as either: the same rule this function applies to
+	 * trailing bytes, and for the same reason -- a decoder that ignores
+	 * what it does not understand is a second encoding waiting to be
+	 * found by somebody else's. It also means a reader may test one value
+	 * and trust the complement, which is what the accessor does. */
+	for (size_t i = 0; i < count; i++) {
+		uint8_t state = bytes[FZN_MANIFEST_OFF_PAIRS + FZN_MANIFEST_PAIR_LEN * i +
+		                      FZN_MANIFEST_OFF_ENTRY_STATE];
+
+		if (state != (uint8_t)FZN_MANIFEST_REVOKED &&
+		    state != (uint8_t)FZN_MANIFEST_WITHDRAWN)
 			return FZN_MANIFEST_ERR_SHAPE;
 	}
 
@@ -202,12 +235,12 @@ fzn_manifest_err_t fzn_manifest_open(const uint8_t *bytes, size_t len,
 
 fzn_manifest_err_t fzn_manifest_encode(uint8_t *out, size_t out_cap,
                                        const uint8_t issuer[FZN_PUBKEY_LEN],
-                                       const fzn_manifest_pair_t *pairs, size_t count,
+                                       const fzn_manifest_entry_t *entries, size_t count,
                                        size_t *out_len)
 {
 	uint8_t *at;
 
-	if (!out || !issuer || !out_len || (count > 0 && !pairs))
+	if (!out || !issuer || !out_len || (count > 0 && !entries))
 		return FZN_MANIFEST_ERR_MALFORMED;
 
 	if (count > FZN_MANIFEST_MAX_PAIRS)
@@ -215,12 +248,21 @@ fzn_manifest_err_t fzn_manifest_encode(uint8_t *out, size_t out_cap,
 	if (out_cap < FZN_MANIFEST_LEN(count))
 		return FZN_MANIFEST_ERR_MALFORMED;
 
+	/* A STATE THIS FILE DOES NOT DEFINE IS REFUSED HERE TOO, on the same
+	 * argument as the ordering below: an encoder able to emit bytes its
+	 * own parser rejects is a second encoding waiting to be found. */
+	for (size_t i = 0; i < count; i++) {
+		if (entries[i].state != (uint8_t)FZN_MANIFEST_REVOKED &&
+		    entries[i].state != (uint8_t)FZN_MANIFEST_WITHDRAWN)
+			return FZN_MANIFEST_ERR_SHAPE;
+	}
+
 	/* THE ENCODER REFUSES WHAT THE PARSER WOULD. An encoder that can emit
 	 * bytes its own `open` rejects is a second encoding waiting to be
 	 * found by somebody else's decoder -- and here it would also be a
 	 * manifest that no receiver can admit, produced without complaint. */
 	for (size_t i = 1; i < count; i++) {
-		if (pair_struct_cmp(&pairs[i - 1u], &pairs[i]) >= 0)
+		if (pair_struct_cmp(&entries[i - 1u].pair, &entries[i].pair) >= 0)
 			return FZN_MANIFEST_ERR_SHAPE;
 	}
 
@@ -231,8 +273,11 @@ fzn_manifest_err_t fzn_manifest_encode(uint8_t *out, size_t out_cap,
 
 	at = out + FZN_MANIFEST_OFF_PAIRS;
 	for (size_t i = 0; i < count; i++) {
-		memcpy(at, pairs[i].capability.b, FZN_CAP_ID_LEN);
-		memcpy(at + FZN_CAP_ID_LEN, pairs[i].grantee, FZN_PUBKEY_LEN);
+		memcpy(at, entries[i].pair.capability.b, FZN_CAP_ID_LEN);
+		memcpy(at + FZN_CAP_ID_LEN, entries[i].pair.grantee, FZN_PUBKEY_LEN);
+		memcpy(at + FZN_MANIFEST_OFF_ENTRY_ID, entries[i].id,
+		       FZN_REVOCATION_ID_LEN);
+		at[FZN_MANIFEST_OFF_ENTRY_STATE] = entries[i].state;
 		at += FZN_MANIFEST_PAIR_LEN;
 	}
 	memset(out + FZN_MANIFEST_BODY_LEN(count), 0, FZN_SIG_LEN);
@@ -285,14 +330,22 @@ fzn_manifest_err_t fzn_manifest_issue(const uint8_t issuer[FZN_PUBKEY_LEN],
 
 		if (!fzn_ct_memeq(e->issuer, issuer, FZN_PUBKEY_LEN))
 			continue;
-		/* A MANIFEST STATES WHAT IS REVOKED, so a withdrawn entry is
-		 * not in it. The entry stays in the store -- that is how a
-		 * stale copy of the withdrawn revocation is recognised -- but
-		 * publishing it would tell every receiver to revoke a pair
-		 * this issuer has restored, under this issuer's own
-		 * signature. */
-		if (e->withdrawn)
-			continue;
+		/* A WITHDRAWN ENTRY IS IN THE MANIFEST, AND THAT REVERSES WHAT
+		 * THIS LINE DID EARLIER TODAY.
+		 *
+		 * While an entry carried no state, publishing a withdrawn pair
+		 * would have told every receiver to revoke a pair this issuer
+		 * had restored, under this issuer's own signature -- so it was
+		 * skipped. Now an entry SAYS which state it is in, and skipping
+		 * it is what leaves every other host revoked for ever: the
+		 * withdrawal has no other way to travel. sec 57 records why
+		 * absence cannot carry it.
+		 *
+		 * The consequence is that this manifest never shrinks. A
+		 * withdrawn pair stays in it, because a withdrawal that is
+		 * forgotten cannot be propagated and there is no point at which
+		 * forgetting is safe -- the argument `revocation.h` makes for
+		 * never evicting an entry, arriving on the wire. */
 
 		if (count >= FZN_MANIFEST_MAX_PAIRS)
 			return FZN_MANIFEST_ERR_SHAPE;
@@ -301,6 +354,13 @@ fzn_manifest_err_t fzn_manifest_issue(const uint8_t issuer[FZN_PUBKEY_LEN],
 
 		memcpy(candidate, e->capability.b, FZN_CAP_ID_LEN);
 		memcpy(candidate + FZN_CAP_ID_LEN, e->grantee, FZN_PUBKEY_LEN);
+		/* The state travels with the pair rather than being derived at
+		 * the far end, which is the whole of what sec 57 settled. */
+		memcpy(candidate + FZN_MANIFEST_OFF_ENTRY_ID, e->id,
+		       FZN_REVOCATION_ID_LEN);
+		candidate[FZN_MANIFEST_OFF_ENTRY_STATE] =
+		        e->withdrawn ? (uint8_t)FZN_MANIFEST_WITHDRAWN
+		                     : (uint8_t)FZN_MANIFEST_REVOKED;
 
 		for (at = 0; at < count; at++) {
 			int cmp = pair_cmp(pairs + FZN_MANIFEST_PAIR_LEN * at, candidate);

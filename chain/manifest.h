@@ -94,7 +94,38 @@
  * byte string, so two replicated holders of one key -- which sec 13b's first
  * answer says is the normal case -- produce identical bytes from the same
  * view, and neither has to be told what the other did. */
-#define FZN_MANIFEST_PAIR_LEN ((size_t)FZN_CAP_ID_LEN + (size_t)FZN_PUBKEY_LEN)
+/* THE SORT KEY, AND IT IS NO LONGER THE WHOLE ENTRY. An entry is ordered and
+ * deduplicated on (capability, grantee) alone; the state it carries is
+ * payload, not part of its identity, because one issuer has exactly one
+ * opinion about one pair and two entries differing only in state would be
+ * two contradictory opinions rather than two pairs. */
+#define FZN_MANIFEST_KEY_LEN ((size_t)FZN_CAP_ID_LEN + (size_t)FZN_PUBKEY_LEN)
+
+/* One entry: the key, the identity of the most recent revocation of that
+ * pair, and which of the two states it is in.
+ *
+ *      0   32  capability
+ *     32   32  grantee
+ *     64   32  id     -- the hash of the most recent revocation
+ *     96    1  state  -- FZN_MANIFEST_REVOKED or FZN_MANIFEST_WITHDRAWN
+ *
+ * IT IS `fzn_revocation_t` PUT ON THE WIRE, which is the point rather than a
+ * coincidence: a manifest is the store's statement about itself, so an entry
+ * that carried less than the store holds could not convey what the store
+ * knows. project.md sec 57 has why the cheaper shapes fail -- in particular
+ * why absence from a complete signed set cannot mean "withdrawn". */
+#define FZN_MANIFEST_PAIR_LEN \
+	(FZN_MANIFEST_KEY_LEN + (size_t)FZN_REVOCATION_ID_LEN + 1u)
+
+#define FZN_MANIFEST_OFF_ENTRY_ID FZN_MANIFEST_KEY_LEN
+#define FZN_MANIFEST_OFF_ENTRY_STATE (FZN_MANIFEST_KEY_LEN + (size_t)FZN_REVOCATION_ID_LEN)
+
+/* The state byte, and there are exactly two values. Any other is refused
+ * rather than treated as one of them: "ignore what you do not understand" is
+ * how one encoding becomes several, and this file already refuses trailing
+ * bytes on the same argument. */
+#define FZN_MANIFEST_REVOKED 0u
+#define FZN_MANIFEST_WITHDRAWN 1u
 #define FZN_MANIFEST_HEADER_LEN 36u
 
 #define FZN_MANIFEST_OFF_VERSION 0u
@@ -134,14 +165,27 @@
  * ceiling. So the tether is `make test`, not `make`; if either `chunk/`
  * number moves, that assertion is what refuses the half-done change.
  *
- * A SINGLE FRAME HOLDS FOURTEEN, which is the number a consumer actually
- * feels. 100 + 64 * 14 = 996 and fits FZN_SPLIT_MAX_PAYLOAD; fifteen is 1060
- * and goes through `chunk/`. Since a manifest is a full-set statement re-sent
- * whole on every change -- sec 13d's "O(history) republication is forced, not
- * chosen", both escapes having died on the key being replicated -- an estate
- * past fourteen revocations is a chunked send per new revocation per
- * follower. That is the design's price and it is known, not discovered. */
-#define FZN_MANIFEST_MAX_PAIRS 4094u
+ * A SINGLE FRAME HOLDS NINE, which is the number a consumer actually feels.
+ * 100 + 97 * 9 = 973 and fits FZN_SPLIT_MAX_PAYLOAD; ten is 1070 and goes
+ * through `chunk/`. Since a manifest is a full-set statement re-sent whole on
+ * every change -- sec 13d's "O(history) republication is forced, not chosen",
+ * both escapes having died on the key being replicated -- an estate past nine
+ * revocations is a chunked send per new revocation per follower. That is the
+ * design's price and it is known, not discovered.
+ *
+ * IT WAS FOURTEEN AND 4094 UNTIL THE ENTRY GREW, and both numbers moved for
+ * one reason: an entry carries its state now, 64 bytes to 97, so the same
+ * budgets hold fewer. sec 57 took that cost deliberately -- the alternative
+ * was a manifest that cannot convey a withdrawal at all, since absence from
+ * a set with nothing monotonic in it is a rollback hole rather than a
+ * signal.
+ *
+ * AND THE SET NOW GROWS MONOTONICALLY. A withdrawn pair stays named for
+ * ever, because a withdrawal that is forgotten cannot be propagated. So the
+ * figure that matters to an estate is not its live revocations but every
+ * pair it has ever revoked, and nine of those in a frame is the honest
+ * number to plan against. */
+#define FZN_MANIFEST_MAX_PAIRS 2701u
 #define FZN_MANIFEST_MAX_LEN FZN_MANIFEST_LEN(FZN_MANIFEST_MAX_PAIRS)
 
 /* ITS OWN ERROR TYPE, WHICH IS THE ONE PLACE THIS FILE DOES NOT MIRROR
@@ -210,6 +254,23 @@ typedef struct fzn_manifest_pair {
 	fzn_cap_id_t capability;
 	uint8_t grantee[FZN_PUBKEY_LEN];
 } fzn_manifest_pair_t;
+
+/* A pair together with what the issuer currently says about it.
+ *
+ * THE PAIR STAYS ITS OWN TYPE because it is the key and is what a deficit
+ * names: "I lack something about this pair" is answered by fetching, and the
+ * fetch is by pair. Folding the two into one struct would make every caller
+ * that only has a key invent a state to go with it. */
+typedef struct fzn_manifest_entry {
+	fzn_manifest_pair_t pair;
+	/* The hash of the most recent REVOCATION of this pair: of the live one
+	 * while the state is REVOKED, and of the one that was undone while it
+	 * is WITHDRAWN. The same field `fzn_revocation_t` carries, and the
+	 * same meaning -- see chain.h. */
+	uint8_t id[FZN_REVOCATION_ID_LEN];
+	/* FZN_MANIFEST_REVOKED or FZN_MANIFEST_WITHDRAWN. */
+	uint8_t state;
+} fzn_manifest_entry_t;
 
 /* A manifest as it travels.
  *
@@ -291,6 +352,24 @@ static inline const uint8_t *fzn_manifest_grantee(fzn_manifest_record_t rec, siz
 	       FZN_CAP_ID_LEN;
 }
 
+/* The identity of the most recent revocation of pair `i`, and which state
+ * the issuer says the pair is in.
+ *
+ * A READER MUST CONSULT THE STATE, exactly as a reader of the store must:
+ * presence in a manifest no longer means revoked. An entry naming a pair
+ * says only that the issuer has an opinion about it. */
+static inline const uint8_t *fzn_manifest_id(fzn_manifest_record_t rec, size_t i)
+{
+	return rec.base + FZN_MANIFEST_OFF_PAIRS + FZN_MANIFEST_PAIR_LEN * i +
+	       FZN_MANIFEST_OFF_ENTRY_ID;
+}
+
+static inline int fzn_manifest_is_withdrawn(fzn_manifest_record_t rec, size_t i)
+{
+	return rec.base[FZN_MANIFEST_OFF_PAIRS + FZN_MANIFEST_PAIR_LEN * i +
+	                FZN_MANIFEST_OFF_ENTRY_STATE] == (uint8_t)FZN_MANIFEST_WITHDRAWN;
+}
+
 static inline const uint8_t *fzn_manifest_signature(fzn_manifest_record_t rec)
 {
 	return rec.base + FZN_MANIFEST_BODY_LEN(fzn_manifest_count(rec));
@@ -323,7 +402,7 @@ static inline void fzn_manifest_signed_bytes(fzn_manifest_record_t rec, const ui
  * partial bytes. */
 fzn_manifest_err_t fzn_manifest_encode(uint8_t *out, size_t out_cap,
                                        const uint8_t issuer[FZN_PUBKEY_LEN],
-                                       const fzn_manifest_pair_t *pairs, size_t count,
+                                       const fzn_manifest_entry_t *entries, size_t count,
                                        size_t *out_len);
 
 /* Encode and sign this issuer's manifest, DERIVED FROM ITS OWN STORE.

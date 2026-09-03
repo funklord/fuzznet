@@ -331,6 +331,13 @@ static const char *fuzz_one(const uint8_t *data, size_t len, struct coverage *co
 	 * case could never reach a cleared flag or a rollback. */
 	for (unsigned round = 0; round < ROUNDS; round++) {
 		fzn_manifest_pair_t pairs[MAX_PAIRS];
+		/* The encoder takes entries now. The generator below is about
+		 * ordering and duplicates, which are properties of the KEY, so
+		 * it goes on producing pairs and they are adapted here -- with
+		 * the id derived from the index so no two entries collide, and
+		 * the state alternating so both values reach `open`'s
+		 * canonicality check. */
+		fzn_manifest_entry_t entries[MAX_PAIRS];
 		uint8_t buf[FZN_MANIFEST_LEN(MAX_PAIRS)];
 		fzn_manifest_record_t rec;
 		const uint8_t *msg;
@@ -408,8 +415,15 @@ static const char *fuzz_one(const uint8_t *data, size_t len, struct coverage *co
 		}
 
 		identity = keys[ki][0];
-		if (fzn_manifest_encode(buf, sizeof(buf), keys[ki], pairs, npairs, &out_len) !=
-		    FZN_MANIFEST_OK)
+		for (size_t e = 0; e < npairs; e++) {
+			entries[e].pair = pairs[e];
+			memset(entries[e].id, 0, sizeof(entries[e].id));
+			entries[e].id[0] = (uint8_t)(e + 1u);
+			entries[e].state = (e & 1u) ? (uint8_t)FZN_MANIFEST_WITHDRAWN
+			                            : (uint8_t)FZN_MANIFEST_REVOKED;
+		}
+		if (fzn_manifest_encode(buf, sizeof(buf), keys[ki], entries, npairs,
+		                        &out_len) != FZN_MANIFEST_OK)
 			return "the fixture could not encode a manifest";
 		if (fzn_manifest_open(buf, out_len, &rec) != FZN_MANIFEST_OK)
 			return "the fixture encoded a manifest that will not open";

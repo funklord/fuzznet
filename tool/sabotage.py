@@ -716,12 +716,42 @@ SABOTAGES = [
 		"",
 		"a withdrawal of an old revocation must not undo the one that superseded it",
 	),
+	# `manifest-omits-withdrawn` STOOD HERE AND THE GUARD IT NAMED IS GONE,
+	# deliberately: sec 57 reversed it. While an entry carried no state,
+	# publishing a withdrawn pair told every receiver to revoke a pair the
+	# issuer had restored; now an entry SAYS which state it is in, and
+	# omitting it is what leaves every other host revoked for ever. Three
+	# entries take its place, over the three things that make the state
+	# safe to carry.
+	#
+	# `--verify` is what caught the removal, in `make style`, within a
+	# minute of the guard going. That is the read-only half of this file
+	# earning its place: a stale entry cannot sit in the table pretending
+	# to test something.
 	(
-		"manifest-omits-withdrawn",
+		"manifest-entry-carries-state",
 		"chain/manifest.c",
-		"\t\tif (e->withdrawn)\n\t\t\tcontinue;\n",
+		"\t\tcandidate[FZN_MANIFEST_OFF_ENTRY_STATE] =\n"
+		"\t\t        e->withdrawn ? (uint8_t)FZN_MANIFEST_WITHDRAWN\n"
+		"\t\t                     : (uint8_t)FZN_MANIFEST_REVOKED;\n",
+		"\t\tcandidate[FZN_MANIFEST_OFF_ENTRY_STATE] = (uint8_t)FZN_MANIFEST_REVOKED;\n",
+		"a withdrawn pair published as revoked undoes the withdrawal everywhere",
+	),
+	(
+		"manifest-state-byte-validated",
+		"chain/manifest.c",
+		"\t\tif (state != (uint8_t)FZN_MANIFEST_REVOKED &&\n"
+		"\t\t    state != (uint8_t)FZN_MANIFEST_WITHDRAWN)\n"
+		"\t\t\treturn FZN_MANIFEST_ERR_SHAPE;\n",
 		"",
-		"publishing a withdrawn pair would re-revoke it under its issuer's signature",
+		"a third state value is refused, which is what the accessor's complement rests on",
+	),
+	(
+		"manifest-orders-on-the-key",
+		"chain/manifest.c",
+		"\treturn memcmp(a, b, FZN_MANIFEST_KEY_LEN);\n",
+		"\treturn memcmp(a, b, FZN_MANIFEST_PAIR_LEN);\n",
+		"one issuer has one opinion per pair; comparing the entry admits two",
 	),
 	(
 		"manifest-deficit-is-replication",
