@@ -9,27 +9,28 @@ messages; it does not know what they mean. Each consuming project keeps its own
 command vocabulary and its own semantics.
 
 **Status: every module in the design is built.** `project.md` is the design and
-the source of truth; §8 says which modules exist and §10 has the order of work.
+the source of truth; §11 lists the modules, §8 is the scope decision that
+placed the first seven, and §10 has the order of work.
 What remains there belongs to other projects: netcfgd's agent, which may never
 be written, and fuzzypickles' migration.
 
-Built and tested:
+**The module list lives in `project.md` §11 and nowhere else.** `make style`
+holds every path in that table against the tree, so a module renamed or
+removed fails a gate; a second copy here would be an inventory nothing checks.
+This file carried one until 2026-09-04 -- seven rows written on 2026-08-18,
+still seven while the library grew to twenty modules, and edited twice in
+between without either being re-counted.
 
-| | |
-|---|---|
-| `chain/` | capability chains: verification, minting, delegation, revocation |
-| `frame/` | command expiry and the replay window it bounds |
-| `chunk/` | splitting, reassembly, and the memory bound |
-| `session/` | the key schedule, the AEAD seam, and where a nonce comes from |
-| `wire/` | the `situ` schema, its committed contract, and opening and sealing a frame |
-| `local/` | peer credentials including supplementary groups, and a vocabulary bound |
-| `constant_time/` | constant-time comparison |
+`make test` builds and runs every test binary in the tree and prints each
+one's count; `make style` prints how many sources, headers, fuzz harnesses and
+test binaries it held against the Makefile. **Neither total is repeated here**,
+for the reason above: this file said "25 binaries -- suites and eight fuzz
+harnesses" from 2026-08-18 until 2026-09-04, when it was 74 and 14.
 
-`make test` runs 25 binaries -- suites and eight fuzz harnesses. `make test
-SANITIZE=1` runs the lot under ASan and UBSan. `make schema SITU_DIR=../situ`
-checks the committed schema artifacts against a situ commit, and `make
-codegencheck` checks that two security-critical functions still compile to the
-shape they must.
+`make test SANITIZE=1` runs the lot under ASan and UBSan. `make schema
+SITU_DIR=../situ` checks the committed schema artifacts against a situ commit,
+and `make codegencheck` checks that two security-critical functions still
+compile to the shape they must.
 
 The crypto is a seam rather than a dependency: signing, hashing, AEAD and
 entropy are each a vtable a consumer fills, and the library itself calls no

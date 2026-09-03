@@ -3903,8 +3903,23 @@ present one.
 
 ## 8. Shape of the tree
 
-Modules, so a consumer links what it needs and no more. Nothing below is built
-until §10's order says so.
+**THIS TABLE IS THE SCOPE DECISION, NOT THE INVENTORY, and saying so is a
+2026-09-04 correction.** It places the seven modules the scope argument
+covered -- what each is for, and which half of the work is situ's -- and that
+is what the rows below are still good for. It is not the current module list:
+thirteen more have been built since, and **§11 has the list, in a table
+`make style` holds against the tree.**
+
+The distinction is not pedantry. This section's own note below records it
+being rewritten on 2026-08-14 "because five of its seven rows were stale", so
+it has drifted once already as an inventory -- and its rows end in `/`, which
+`style_gate.py`'s `doc_paths` skips, so nothing was ever checking them. A
+table that reads as an inventory and is gated by nothing is the shape sec 11
+and the README were both carrying on the same day.
+
+Nothing below was built until §10's order said so; every row is built now,
+which is why the state column has stopped discriminating and the sentence
+above it does the work instead.
 
 | module | what it is | state |
 |---|---|---|
@@ -11334,6 +11349,63 @@ alone is also green, since the openers do write every field. Dropping the
 init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
+
+## 63. One module list in three places, two of them ungated, 2026-09-04
+
+Fixing sec 11's stale counts turned up the same inventory twice more, and all
+three were wrong in the same direction:
+
+    project.md sec 11   14 rows   ungated    fixed, and now gated
+    project.md sec 8     7 rows   ungated    reframed: it is the scope
+                                             decision, not the inventory
+    README.md            7 rows   ungated    replaced by a pointer to sec 11
+
+The tree has **twenty** modules. Sec 8's table dates from a rewrite whose own
+note says it was redone "because five of its seven rows were stale" -- so it
+had drifted once as an inventory before drifting again. The README's was
+written 2026-08-18 and edited twice on 2026-09-01 without either its table or
+its "25 binaries -- suites and eight fuzz harnesses" being re-counted; on
+2026-09-04 that is 74 and 14.
+
+### Why the gate saw none of them
+
+`style_gate.py`'s `doc_paths` skips a token ending in `/`, because a directory
+is not a file to open. **Every row in all three tables named a directory**, so
+a gate that has been running over this document on every build was inspecting
+none of them.
+
+**And the number that would have said so is three days old, not "all along"**
+-- the first version of this sentence claimed the latter and was checked
+rather than published. The gate began printing its path count beside its
+verdict in `86a8b8e` on 2026-09-01, which is the change `style_gate.py`'s own
+docstring credits to fuzzypickles noticing their tables held no paths on the
+first run after it landed. Sec 8's directory table has been there since
+`8c9e3e1` on 2026-08-14. So for eighteen days there was nothing to read, and
+for three days there was a number nobody here read.
+
+That is the same blind spot sec 11's own fix walked into an hour earlier: the
+first version of its replacement table wrote `blob/` and the path count did
+not move. **A table of directories reads exactly like a table of files and is
+checked by neither the gate nor the eye.**
+
+### What was done, and what was deliberately not
+
+One inventory, in sec 11, naming a header per module so the gate reads it. The
+other two point at it rather than repeating it -- which is the rule this tree
+already applies to counts, arriving at prose: *the remedy for a fact you quote
+often is to stop quoting it.*
+
+**Sec 8 keeps its table**, because it is not a duplicate once it is read
+correctly: its rows carry what each module is FOR and which half of the work
+is situ's, which is the scope argument this document was written to make. What
+it needed was a sentence saying it is that and not an inventory. **Deleting it
+would have thrown away the argument to fix the label.**
+
+**And the README does not get a gate**, because the shared `style_gate.py`
+takes a single `doc_file` and pointing it at a second document is a change to
+a tool sixteen other projects carry. Signalled rather than made, per
+`harmonization.md`; the pointer costs nothing and the duplicate is gone
+either way.
 
 ## 62. Nine claims that a test could not exist, 2026-09-04
 
