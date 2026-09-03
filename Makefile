@@ -2017,7 +2017,31 @@ sabotage:
 #
 # `test` already depends on `codegencheck`, so the constant-time and wipe
 # tripwires are inside this without being named.
-check: style test installcheck
+#
+# `ctcheck` IS NAMED, AND JOINED THIS ON 2026-09-03. It was left out on the
+# ground that valgrind is not on every machine -- which is an argument about
+# `test`, the inner loop, and not about this target, which already tolerates
+# a loud skip: `ctcheck` prints SKIPPED and exits 0 without valgrind or its
+# headers, exactly as `analyze` does without cppcheck.
+#
+# What moved the decision is that it is a GATE and not a measurement. It
+# refuses with exit 1 on a finding and carries its own positive control --
+# it re-runs the same binary with `--leaky` and fails if valgrind does NOT
+# report that one, so a clean first run is evidence rather than silence.
+# That is the property `fuzz`, `coverage` and `analyze` lack and the reason
+# they stay out.
+#
+# AND IT IS NOW THE ONLY PORTABLE WITNESS FOR THE PROPERTY. The codegen
+# tripwire infers from instruction shape, and at clang -Os that shape does
+# not distinguish `fzn_ct_memeq` from an early-exit version of it -- so
+# since the control landed, the tripwire honestly SKIPS there. Without this
+# line, `make check` on a clang box would verify the constant-time property
+# not at all. valgrind observes the branch on secret data rather than
+# inferring it, which is why it does not care which compiler emitted what.
+# project.md sec 53 has the eight-cell matrix.
+#
+# It costs 1.8s here.
+check: style test installcheck ctcheck
 
 style:
 	python3 tool/style_gate.py check
