@@ -118,10 +118,8 @@ int fzn_peer_from_fd(int fd, fzn_peer_t *peer)
 	 * answered. If nothing survives, `got` is 0 and the parser says
 	 * "could not tell", which is the honest answer and the one this
 	 * function already gives for a file it could not open. */
-	else if (got == sizeof(status)) {
-		while (got > 0 && status[got - 1] != '\n')
-			got--;
-	}
+	else if (got == sizeof(status))
+		got = fzn_peer_whole_lines(status, got);
 	fclose(f);
 
 	(void)fzn_peer_groups_parse(status, got, peer);

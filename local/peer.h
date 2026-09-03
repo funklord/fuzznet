@@ -104,7 +104,8 @@ typedef enum fzn_peer_verdict {
  * It is stated rather than checked because it CANNOT be checked here: `len`
  * does not say whether it means "the whole file" or "as much as fitted",
  * and only the caller knows which. A caller reading into a fixed buffer
- * trims to the last newline first; `fzn_peer_from_fd` does. A caller
+ * trims to the last newline first, with `fzn_peer_whole_lines` below;
+ * `fzn_peer_from_fd` does. A caller
  * holding the whole of a short text passes it as it is, and an unterminated
  * last line is then genuinely the last line -- which is why this is a
  * precondition and not a bug to fix by refusing.
@@ -113,6 +114,25 @@ typedef enum fzn_peer_verdict {
  * finds the truncation hazard and no statement beside it concludes the
  * hazard was missed, which is the more expensive mistake of the two. */
 int fzn_peer_groups_parse(const char *text, size_t len, fzn_peer_t *peer);
+
+/* How much of `text` is whole lines: the length up to and including the last
+ * newline, or 0 if there is none.
+ *
+ * The precondition above, made satisfiable. A caller that read into a fixed
+ * buffer cannot pass what it got straight to the parser, and telling it to
+ * "trim to the last newline" while leaving it to write the loop is the shape
+ * that gets written differently in three consumers and wrongly in one.
+ *
+ * Call it ONLY when the read may have been cut -- when it filled the buffer.
+ * Applied to a whole file that happens to lack a final newline it discards a
+ * real last line, which is why this is a separate call rather than something
+ * the parser does for itself: whether the text is complete is the caller's
+ * knowledge and this is the caller's tool for acting on it.
+ *
+ * 0 for a NULL `text`, and 0 when no newline is present -- which is "none of
+ * this is known to be whole", and the parser answers "could not tell" for
+ * it. */
+size_t fzn_peer_whole_lines(const char *text, size_t len);
 
 /* What do we know about this peer's membership of `gid`? Checks the
  * supplementary list AND the primary gid, because a group can legitimately

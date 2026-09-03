@@ -11314,6 +11314,31 @@ unterminated case as contract rather than defect, and says what the plausible
 wrong turn is, because the hazard is real and a reader finding it with
 nothing beside it concludes it was missed.
 
+### And the fix shipped without a test, for an hour
+
+The repair above went in with nothing exercising it. Reaching it needs a
+`/proc/<pid>/status` past 8192 bytes; this process's own is about a tenth of
+that and no test can grow it. So the commit that fixed a wrong definite
+answer on an authorisation path was verified by compiling -- **which is the
+family this file has spent three days on, with the discriminating step
+replaced by the running step and committed by the person writing about it.**
+
+The repair for that is `fzn_peer_whole_lines`, and making it public is not a
+concession to testability. peer.h states whole lines as a precondition only a
+caller can satisfy; a precondition every consumer implements by hand gets
+implemented three ways and one of them wrongly, so the library that states it
+should supply the four lines that meet it. The trim is now exercised
+directly, including the case that matters -- the same `Groups:` line cut one
+byte short, parsed twice, once as a KNOWN list ending in a gid this process
+is not in and once, after the trim, as "could not tell" -- with a control
+proving a whole line still survives the trim.
+
+**What remains unheld is stated rather than implied.** Sabotaged, the trim's
+logic is CAUGHT and the CALL to it in `fzn_peer_from_fd` SURVIVES, because
+nothing drives that path. Both are in the table, the second as an expected
+survivor naming the reason. A single entry covering "the fix" would have read
+as though the whole of it were held.
+
 **That is the second time in one day that an absent precondition was read as
 an oversight** -- `record/sync.h`'s append-only requirement was the first,
 found by a consumer who derived it from the semantics rather than reading it.

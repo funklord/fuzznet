@@ -585,6 +585,26 @@ SABOTAGES = [
 		"",
 		"a window whose fields disagree is refused rather than scanned and appended to",
 	),
+	# BATCH SEVEN, 2026-09-03: the trim, and the honest half of it. sec 55
+	# fixed a truncated /proc read and shipped with no test, because the
+	# path needs a status file past 8192 bytes and this process's own is
+	# not. Extracting the logic made the LOGIC testable; the WIRING still
+	# is not, and both entries below say which is which rather than one
+	# entry implying the whole fix is held.
+	(
+		"peer-whole-lines",
+		"local/peer.c",
+		"\twhile (len > 0 && text[len - 1] != '\\n')\n\t\tlen--;\n",
+		"",
+		"the trim that makes peer.h's whole-lines precondition satisfiable",
+	),
+	(
+		"peer-linux-trim-call",
+		"local/peer_linux.c",
+		"\telse if (got == sizeof(status))\n\t\tgot = fzn_peer_whole_lines(status, got);\n",
+		"",
+		"KNOWN SURVIVOR: no test can make this process's own /proc read fill 8192 bytes",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so
@@ -613,6 +633,14 @@ EXPECTED_SURVIVORS = {
 	# tree's gates, which is a different risk and not one to trade away
 	# without the holder.
 	"relay-hop-header-min",
+	# THE WIRING OF A FIX WHOSE LOGIC IS HELD. `fzn_peer_whole_lines` is
+	# caught by peer_test; the call to it is reached only when a
+	# /proc/<pid>/status read fills 8192 bytes, which no test can arrange
+	# -- this process's own status file is about a tenth of that and
+	# nothing here can grow it. Listed rather than omitted so the gap is a
+	# recorded one: sec 55's fix is verified in its logic and unverified in
+	# its placement, and those should not look the same from the table.
+	"peer-linux-trim-call",
 }
 
 

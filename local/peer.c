@@ -18,6 +18,15 @@ static int is_line_start(const char *text, size_t i)
 	return i == 0 || text[i - 1] == '\n';
 }
 
+size_t fzn_peer_whole_lines(const char *text, size_t len)
+{
+	if (!text)
+		return 0;
+	while (len > 0 && text[len - 1] != '\n')
+		len--;
+	return len;
+}
+
 int fzn_peer_groups_parse(const char *text, size_t len, fzn_peer_t *peer)
 {
 	const size_t keylen = sizeof(GROUPS_KEY) - 1;

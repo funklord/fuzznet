@@ -291,6 +291,82 @@ static void test_bad_arguments(void)
  * makes the same trip -- and the plausible wrong turn is to "fix" the
  * parser, which breaks the case above and rewrites peer_fuzz's model to
  * agree with the code it is meant to check independently. */
+/* THE TRIM, TESTED HERE BECAUSE THE PLACE IT IS USED CANNOT BE.
+ *
+ * `fzn_peer_from_fd` calls this when its `fread` filled the 8192-byte
+ * buffer, which is the case where the read may have stopped mid-line. No
+ * test can drive that: it needs a /proc/<pid>/status longer than 8192
+ * bytes, and this process's own is not. So the wiring is exercised by
+ * nothing and the LOGIC is exercised here -- stated rather than glossed,
+ * because a fix whose only verification is that it compiles is the thing
+ * this suite exists to catch elsewhere.
+ *
+ * It is a public function for the same reason it is a separate one: peer.h
+ * makes whole lines a precondition that only a caller can satisfy, and a
+ * precondition every consumer has to implement by hand gets implemented
+ * three ways and one of them wrongly. */
+static void test_whole_lines_stops_at_the_last_newline(void)
+{
+	CHECK(fzn_peer_whole_lines(NULL, 10) == 0, "a null text reported a length");
+	CHECK(fzn_peer_whole_lines("", 0) == 0, "an empty text reported a length");
+
+	/* Nothing is known to be whole, so nothing is. */
+	CHECK(fzn_peer_whole_lines("Groups:\t1 2 3", 13) == 0,
+	      "a text with no newline at all reported %zu whole bytes",
+	      fzn_peer_whole_lines("Groups:\t1 2 3", 13));
+
+	/* Already whole: nothing is given up. A trim that shortened a
+	 * complete read would silently drop the last line of every file. */
+	CHECK(fzn_peer_whole_lines("a\nb\n", 4) == 4, "a terminated text was shortened");
+	CHECK(fzn_peer_whole_lines("\n", 1) == 1, "a lone newline was dropped");
+
+	/* The case it exists for: a partial last line goes and the rest
+	 * stays. */
+	CHECK(fzn_peer_whole_lines("a\nb\nGroups:\t20 2", 15) == 4,
+	      "a partial last line left %zu bytes rather than 4",
+	      fzn_peer_whole_lines("a\nb\nGroups:\t20 2", 15));
+}
+
+/* AND THE TWO TOGETHER, which is what the fix actually is: neither function
+ * alone prevents the wrong definite answer. */
+static void test_a_trimmed_read_answers_could_not_tell(void)
+{
+	static const char cut[] = "Name:\tcat\nGroups:\t20 24 250";
+	static const char whole[] = "Name:\tcat\nGroups:\t20 24 250\nPid:\t1\n";
+	fzn_peer_t p;
+	size_t n;
+	/* One byte short of the literal, which is where a read that filled its
+	 * buffer would have stopped: the trailing `0` of 250 is on the far
+	 * side of the cut. */
+	const size_t cut_len = sizeof(cut) - 2u;
+
+	/* Untrimmed, that is a KNOWN list whose last entry is 25 -- a gid this
+	 * process is not in, indistinguishable from a real 25. */
+	memset(&p, 0, sizeof(p));
+	CHECK(fzn_peer_groups_parse(cut, cut_len, &p) == 1 && p.groups_known == 1 &&
+	              p.group_count == 3 && p.groups[2] == 25u,
+	      "the untrimmed cut read did not produce the wrong definite answer, so "
+	      "the trim below has nothing to prevent");
+
+	n = fzn_peer_whole_lines(cut, cut_len);
+	memset(&p, 0, sizeof(p));
+	CHECK(fzn_peer_groups_parse(cut, n, &p) == 0,
+	      "a trimmed cut read still reported a group list");
+	CHECK(p.groups_known == 0,
+	      "a trimmed cut read left a KNOWN list, so the wrong definite answer "
+	      "survives the trim");
+
+	/* THE CONTROL. The same Groups: line arriving whole, trimmed by the
+	 * same call, still answers -- otherwise the rule would be "refuse
+	 * large reads" rather than "refuse cut ones". */
+	n = fzn_peer_whole_lines(whole, sizeof(whole) - 1u);
+	memset(&p, 0, sizeof(p));
+	CHECK(fzn_peer_groups_parse(whole, n, &p) == 1 && p.groups_known == 1 &&
+	              p.group_count == 3 && p.groups[2] == 250u,
+	      "a whole Groups: line did not survive the trim, so trimming costs the "
+	      "answer it is meant to protect");
+}
+
 static void test_an_unterminated_line_is_the_callers_problem(void)
 {
 	fzn_peer_t p;
@@ -387,6 +463,8 @@ int main(void)
 	test_the_careless_reading_is_loudly_wrong();
 	test_is_member_denies_on_unknown();
 	test_bad_arguments();
+	test_whole_lines_stops_at_the_last_newline();
+	test_a_trimmed_read_answers_could_not_tell();
 	test_an_unterminated_line_is_the_callers_problem();
 	test_an_impossible_group_count_denies();
 	test_the_suite_can_tell_pass_from_fail();
