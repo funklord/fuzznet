@@ -605,6 +605,53 @@ SABOTAGES = [
 		"",
 		"KNOWN SURVIVOR: no test can make this process's own /proc read fill 8192 bytes",
 	),
+	# BATCH EIGHT, 2026-09-03: the last sources with no entry, which closes
+	# the census sec 53 opened. Four of the five were caught first time and
+	# are here so the table's coverage is a fact rather than an impression.
+	# The fifth was not, and it was the one whose header is written around
+	# it -- see the note on authz-unspelled-denies.
+	(
+		"sched-usable-veto",
+		"sched/sched.c",
+		"\tif (!link->usable)\n\t\treturn 0;\n",
+		"",
+		"a link the host has marked down is not a candidate, whatever its metrics",
+	),
+	(
+		"authz-unspelled-denies",
+		"chain/authz.c",
+		"\tif (!policy.spelled)\n\t\treturn FZN_AUTHZ_DENIED;\n",
+		"",
+		"an unspelled policy denies -- the line authz.h opens with, unheld until 2026-09-03",
+	),
+	(
+		"authz-origin-gate",
+		"chain/authz.c",
+		"\tif (!fzn_authz_origin_permitted(policy, origin))\n\t\treturn FZN_AUTHZ_DENIED;\n",
+		"",
+		"which origins may reach a kind at all, before any question of capability",
+	),
+	(
+		"vocab-exact-length",
+		"local/vocabulary.c",
+		"\t\tif (rules[i].verb_len != verb_len)\n\t\t\tcontinue;\n",
+		"",
+		"a rule matches a whole verb, not a prefix of one",
+	),
+	(
+		"random-linux-null-out",
+		"session/random_linux.c",
+		"\tif (!out)\n\t\treturn 0;\n",
+		"",
+		"the system source refuses a null buffer (caught by the crash, inherently)",
+	),
+	(
+		"random-failure-clears-nonce",
+		"session/random.c",
+		"\t\tmemset(out, 0, FZN_AEAD_NONCE_LEN);\n",
+		"\t\t/* sabotage */\n",
+		"a failed source leaves zeroes, not most of a nonce",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so
@@ -684,6 +731,38 @@ def dirty_files(paths):
 	return [line[3:] for line in out.stdout.splitlines() if line.strip()]
 
 
+# Library sources with nothing to sabotage, named with the reason. A source
+# is either covered by an entry or listed here; one that is neither fails the
+# gate, which is what stops the census from decaying the next time a module
+# is added.
+#
+# The bar for this list is "no branch, no bound, no clear, no comparison" --
+# not "well tested" and not "small". A module whose guards are all held
+# elsewhere still gets an entry, because the table is where that fact is
+# recorded.
+NO_GUARDS = {
+	"version/version.c": "three accessors returning macros; nothing to remove",
+}
+
+
+def source_list():
+	"""The library's own source list, from `make manifest`.
+
+	That target is pure `echo` with no prerequisites, so this builds
+	nothing and cannot recurse. `make_env` strips the parent's MAKEFLAGS
+	for the reason it always does.
+	"""
+	try:
+		out = subprocess.run(["make", "-s", "manifest"], cwd=ROOT, env=make_env(),
+		                     capture_output=True, text=True, check=False)
+	except OSError:
+		return None
+	if out.returncode != 0:
+		return None
+	return [l.split(None, 1)[1] for l in out.stdout.splitlines()
+	        if l.startswith("source ")]
+
+
 # EVERY ENTRY STILL NAMES EXACTLY ONE SITE.
 #
 # An entry whose `old` text has stopped matching is not a milder version of a
@@ -701,6 +780,7 @@ def dirty_files(paths):
 # stays, ready to suppress a real survivor that happens to reuse the name.
 def verify():
 	bad = 0
+	files = {rel for _, rel, _, _, _ in SABOTAGES}
 	for sid, rel, old, new, _ in SABOTAGES:
 		path = os.path.join(ROOT, rel)
 		if not os.path.exists(path):
@@ -724,12 +804,43 @@ def verify():
 			print("sabotage: %s is exempted as an expected survivor and is "
 			      "not in the table" % sid)
 			bad += 1
+	# AND EVERY LIBRARY SOURCE IS EITHER COVERED OR EXCLUDED ON PURPOSE.
+	#
+	# The table grew by shape for its first four batches and a census found
+	# seven unheld guards in the fifteen sources it had never touched
+	# (project.md sec 53). Nothing stopped that gap reopening: a module
+	# added tomorrow joins the build, the suite and the style gate, and
+	# this table would not notice. Now it does.
+	#
+	# A FAILURE TO READ THE SOURCE LIST IS A FAILURE, not a skip. A
+	# coverage check that quietly checks nothing reports success exactly as
+	# loudly as a real pass, which is the shape this tree keeps meeting.
+	srcs = source_list()
+	if srcs is None:
+		print("sabotage: `make manifest` could not be read, so coverage was "
+		      "NOT checked -- this is a failure rather than a skip, because a "
+		      "coverage check over an empty list passes")
+		bad += 1
+	else:
+		for src in srcs:
+			if src not in files and src not in NO_GUARDS:
+				print("sabotage: %s has no entry and is not listed as "
+				      "guard-free" % src)
+				bad += 1
+		for src in sorted(NO_GUARDS):
+			if src not in srcs:
+				print("sabotage: %s is listed as guard-free and is not a "
+				      "library source" % src)
+				bad += 1
+
 	if bad:
-		print("sabotage: %d stale entr(ies). A stale entry reports a guard "
-		      "as defended without testing it." % bad)
+		print("sabotage: %d problem(s). A stale entry reports a guard as "
+		      "defended without testing it; an uncovered source reports a "
+		      "module as swept when nothing swept it." % bad)
 		return 2
-	print("sabotage: %d entries, each naming exactly one site (nothing was "
-	      "built or changed)" % len(SABOTAGES))
+	print("sabotage: %d entries over %d of %d library sources, each naming "
+	      "exactly one site (nothing was built or changed)"
+	      % (len(SABOTAGES), len(srcs) - len(NO_GUARDS), len(srcs)))
 	return 0
 
 

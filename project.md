@@ -11568,6 +11568,44 @@ guards against a change in a schema compiler that lives in another
 repository and is not covered by any gate here, which is a different risk
 and not one to trade away without the holder.
 
+### The census is enforced now, not remembered
+
+Batches five to eight closed it: **sixty-four entries over thirty-three of
+the thirty-four library sources**, with `version/version.c` the only
+exclusion -- three accessors returning macros, no branch, no bound, no
+clear, nothing to remove.
+
+Nothing stopped that reopening. A module added tomorrow joins the build, the
+suite, the style gate and `.gitignore`, and this table would not have
+noticed -- which is how it came to cover nineteen sources in the first place.
+`--verify` now reads `make manifest` and requires every library source to
+have an entry or to be named in a `NO_GUARDS` list with its reason. It runs
+in `make style`, builds nothing, and the `manifest` target is pure `echo`
+with no prerequisites, so it cannot recurse.
+
+**A failure to read the source list is a failure and not a skip**, stated in
+the code because the alternative is the exact shape this file keeps meeting:
+a coverage check over an empty list passes as loudly as a real one. Shown to
+discriminate in three directions -- a source losing its only entry, an
+exclusion naming a file that is no longer a source, and the list being
+unreadable -- each reported by name, each exiting 2.
+
+**The last one found was the one its header is written around.**
+`chain/authz.c`'s `if (!policy.spelled) return FZN_AUTHZ_DENIED;` is the line
+authz.h opens with, and deleting it left the whole suite green. Both
+assertions aimed at it use a `memset` policy, which the ORIGIN gate already
+denies -- a zeroed `origins` reaches nothing. The header says so approvingly,
+"a forgotten policy now denies on two independent counts rather than one",
+and **that redundancy is what hid the fact that only one of the two counts
+was under test.**
+
+The state `spelled` decides alone is the half-filled policy: `origins` set,
+`spelled` forgotten. It is also the likelier mistake, because `origins` is
+the field the arity change made a consumer think about. Without the check it
+reaches the origin gate, passes, finds `guarded` clear, and answers
+GRANTED_UNGUARDED -- the failure the header opens with, arriving through the
+half-filled struct rather than the empty one.
+
 ### And the pattern rule from sec 52 paid for itself three times
 
 Three of the five readings hit a snippet matching two sites while constructing

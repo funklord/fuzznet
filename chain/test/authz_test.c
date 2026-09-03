@@ -156,6 +156,48 @@ static void test_a_zeroed_policy_denies(void)
 	CHECK(fzn_authz_decide(zeroed, FZN_ORIGIN_REMOTE, NULL, 0, f.root, 1000, &OPS, &f.store)
 	              == FZN_AUTHZ_DENIED,
 	      "a zeroed policy with no chain did not deny");
+
+	/* A HALF-FILLED POLICY, WHICH IS THE ONLY STATE `spelled` DECIDES
+	 * ALONE.
+	 *
+	 * The two assertions above are satisfied by the ORIGIN gate: a zeroed
+	 * `origins` reaches nothing, so a memset policy denies on that count
+	 * whether `spelled` is consulted or not. authz.h says so approvingly
+	 * -- "a forgotten policy now denies on two independent counts rather
+	 * than one" -- and that redundancy is exactly what hid the fact that
+	 * only one of the two counts was under test. Measured 2026-09-03:
+	 * deleting the `spelled` check left the whole suite green.
+	 *
+	 * A consumer filling `origins` and forgetting `spelled` is not the
+	 * memset case, and it is the likelier mistake of the two: `origins`
+	 * is the field a reader thinks about, because it is the one the
+	 * arity change made them pass. With the check gone this reaches the
+	 * origin gate, passes it, finds `guarded` clear and answers
+	 * GRANTED_UNGUARDED -- which is the whole failure the header opens
+	 * with, arriving through the half-filled struct rather than the
+	 * empty one. */
+	{
+		fzn_authz_policy_t half;
+
+		memset(&half, 0, sizeof(half));
+		half.origins = FZN_ORIGIN_ANY;
+
+		CHECK(fzn_authz_decide(half, FZN_ORIGIN_REMOTE, &f.hop, 1, f.root, 1000,
+		                       &OPS, &f.store) == FZN_AUTHZ_DENIED,
+		      "a policy whose origins were filled and whose `spelled` was not "
+		      "did not deny -- so forgetting the one field that says a policy "
+		      "was written at all reads as not-required");
+
+		/* THE CONTROL, and without it the refusal above is satisfied by
+		 * an origin mask that admits nothing. The same struct with
+		 * `spelled` set is the unguarded policy it was meant to be, and
+		 * answers so. */
+		half.spelled = 1;
+		CHECK(fzn_authz_decide(half, FZN_ORIGIN_REMOTE, &f.hop, 1, f.root, 1000,
+		                       &OPS, &f.store) == FZN_AUTHZ_GRANTED_UNGUARDED,
+		      "the same policy with `spelled` set did not grant, so the refusal "
+		      "above is the origin mask rather than the spelled check");
+	}
 }
 
 static void test_denied_is_zero(void)
