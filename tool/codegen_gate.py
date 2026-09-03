@@ -372,11 +372,20 @@ CHECKS = {
 
 
 def main():
-	if len(sys.argv) not in (3, 4) or sys.argv[1] not in CHECKS:
-		fail(f"usage: codegen_gate.py {{{'|'.join(CHECKS)}}} <object> [<control>]")
+	# THE CONTROL IS REQUIRED, NOT OPTIONAL, and that is the difference
+	# between a mechanism and a convention. It was optional for about an
+	# hour, which meant dropping it from the Makefile invocation would have
+	# left this tool checking the real object and reporting a pass -- the
+	# control silently absent, and nothing anywhere the wiser. A safeguard
+	# that can be removed without a failure is one that will be.
+	#
+	# Both modes have one, so there is no caller left that needs the
+	# permissive form.
+	if len(sys.argv) != 4 or sys.argv[1] not in CHECKS:
+		fail(f"usage: codegen_gate.py {{{'|'.join(CHECKS)}}} <object> <control>")
 	function, checker = CHECKS[sys.argv[1]]
 	obj = sys.argv[2]
-	control = sys.argv[3] if len(sys.argv) == 4 else None
+	control = sys.argv[3]
 
 	# A CONTROL THAT MUST BE REJECTED, AND A SKIP WHEN IT IS NOT.
 	#
@@ -399,19 +408,18 @@ def main():
 	# tripwire is not a fault in the source and must not fail the build. It
 	# is loud instead, because a silent one would be the thing it exists to
 	# prevent.
-	if control is not None:
-		_, control_problems = checker(
-			body(disassemble(control), control, function), control)
-		if not control_problems:
-			print(f"codegen-gate: SKIPPED -- the control object {control} was "
-			      f"ACCEPTED, so this toolchain's codegen makes {function}'s "
-			      "shape indistinguishable from a known-bad one and a pass "
-			      "here would say nothing. Run `make ctcheck`, which observes "
-			      "the branch rather than inferring it from shape.")
-			return
-		print(f"codegen-gate: control rejected, as it must be "
-		      f"({len(control_problems)} problem(s)), so this toolchain can "
-		      "tell the two apart")
+	_, control_problems = checker(
+		body(disassemble(control), control, function), control)
+	if not control_problems:
+		print(f"codegen-gate: SKIPPED -- the control object {control} was "
+		      f"ACCEPTED, so this toolchain's codegen makes {function}'s "
+		      "shape indistinguishable from a known-bad one and a pass "
+		      "here would say nothing. Run `make ctcheck`, which observes "
+		      "the branch rather than inferring it from shape.")
+		return
+	print(f"codegen-gate: control rejected, as it must be "
+	      f"({len(control_problems)} problem(s)), so this toolchain can "
+	      "tell the two apart")
 
 	insns = body(disassemble(obj), obj, function)
 	counts, problems = checker(insns, obj)

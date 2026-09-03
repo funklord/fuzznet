@@ -11743,6 +11743,15 @@ to what the optimiser happened to emit does not.
 Visible in one build: under clang -Os the ct check skips and the wipe check
 discriminates, in the same run, on the same object files.
 
+**And the control argument is required rather than optional**, which it was
+not for the first hour. Optional, dropping it from the Makefile invocation
+would have left the tool checking the real object and reporting a pass with
+the control silently absent -- a safeguard removable without a failure,
+which is a convention rather than a mechanism. Both modes have one, so
+nothing needed the permissive form. Checked at the edges too: a missing
+argument and an unreadable control object both exit 1, so a typo in the path
+cannot quietly disable the check it was meant to arm.
+
 ### And the pattern rule from sec 52 paid for itself three times
 
 Three of the five readings hit a snippet matching two sites while constructing
