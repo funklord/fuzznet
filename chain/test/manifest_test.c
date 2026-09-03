@@ -1136,7 +1136,6 @@ static void test_a_withdrawn_pair_is_not_a_deficit(void)
 	struct fixture f;
 	static uint8_t bytes[FIXTURE_BYTES];
 	fzn_manifest_record_t rec;
-	fzn_manifest_pair_t pairs[1];
 	fzn_cap_id_t cap;
 	uint8_t g5[FZN_PUBKEY_LEN];
 	size_t len = 0;
@@ -2404,6 +2403,196 @@ static void test_a_revocation_settles_what_it_covers(void)
 	      "settling every pair reported the deficit as under-reported");
 }
 
+/* ---- the branches where this host is ahead ---------------------------- */
+
+/* A HOST THAT HAS RECORDED A PAIR AS MISSING AND THEN HEARD THE WITHDRAWAL
+ * FIRST, which is the arrangement all three legs below need and which nothing
+ * in this tree built.
+ *
+ * The manifest is admitted against an EMPTY store, so the pair is recorded as
+ * missing rather than skipped: `fzn_manifest_admit` treats a held record with
+ * the same id as being ahead, and a host that already holds the withdrawal
+ * would therefore record no deficit at all. The withdrawal lands second, as a
+ * tombstone, which `revocation.h` calls ordinary rather than exceptional on a
+ * mesh.
+ *
+ * Returns nonzero on success, so a caller stops rather than asserting against
+ * a fixture that never built -- and the last check is part of the setup and
+ * not decoration: a tombstone that drained the deficit by itself would leave
+ * every leg below asserting about an empty table. */
+static int host_ahead_of_its_deficit(struct fixture *host, fzn_manifest_record_t man,
+                                     const uint8_t issuer[FZN_PUBKEY_LEN],
+                                     const fzn_cap_id_t *capability,
+                                     const uint8_t grantee[FZN_PUBKEY_LEN],
+                                     const uint8_t target[FZN_REVOCATION_ID_LEN])
+{
+	uint8_t wd[FZN_REVOCATION_LEN];
+	fzn_revocation_record_t rec;
+
+	fixture_init(host);
+	host->stub.identity = 0;
+	if (fzn_manifest_follow(&host->manifest, issuer) != FZN_MANIFEST_OK)
+		return 0;
+	if (fzn_manifest_admit(&host->manifest, &host->store, man, &host->sign) !=
+	    FZN_MANIFEST_OK)
+		return 0;
+	if (fzn_manifest_pending(&host->manifest, issuer) != 1)
+		return 0;
+
+	host->stub.identity = issuer[0];
+	if (fzn_revocation_issue_withdrawal(issuer, capability, grantee, 2000, target,
+	                                    &host->sign, wd) != FZN_CHAIN_OK)
+		return 0;
+	stub_reset(&host->stub);
+	if (fzn_revocation_open(wd, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
+		return 0;
+	if (fzn_revocation_admit(&host->store, fzn_revocation_offer_root(rec), issuer,
+	                         &host->sign, &HASH_OPS, NULL) != FZN_CHAIN_OK)
+		return 0;
+	return fzn_manifest_pending(&host->manifest, issuer) == 1;
+}
+
+/* THE DEFICIT DRAINS ON THE PATHS WHERE THIS HOST IS AHEAD, and none of the
+ * three was held until this test.
+ *
+ * `fzn_revocation_admit` calls `fzn_manifest_satisfy` from five places.
+ * `test_a_revocation_settles_what_it_covers` above reaches two of them -- an
+ * entry already held and a fresh append -- plus the merge that wraps them.
+ * The other three fire only when the store holds a WITHDRAWN entry for the
+ * pair beside a live deficit, which no fixture built. Measured rather than
+ * inferred: replacing `manifest` with NULL at each of the five calls in turn
+ * and running the whole suite left it GREEN for these three. project.md sec
+ * 60.
+ *
+ * WHY THIS IS WORSE THAN A DEFICIT THAT MERELY LINGERS. `manifest.c` states
+ * the rule the drains implement -- "asking when I am in fact ahead fetches a
+ * record that is refused as stale or unchained, and without the drain this
+ * entry would be re-recorded on every comparison and re-fetched for ever".
+ * Since the stage-2 gate landed that is not a wasted round trip:
+ * `fzn_manifest_pending` never returns to zero, so this host refuses every
+ * chain that issuer grants in, permanently and with no way out. It is sec
+ * 13d's brick, reached by a route nobody costed -- and reached by a host
+ * doing everything right.
+ *
+ * AND `test_a_withdrawn_pair_is_not_a_deficit` IS NOT IN CONFLICT WITH THIS.
+ * It runs the ordinary order -- revoke, withdraw, then meet a peer that is
+ * behind -- where the ids match, this host reads as ahead, and no deficit is
+ * recorded at all. That is why these branches look unreachable and why
+ * nothing built a fixture for them: they need the withdrawal to have arrived
+ * FIRST, before there was anything to compare it against.
+ *
+ * EACH LEG REBUILDS THE FIXTURE, because each one drains the deficit it was
+ * given and re-admitting the manifest cannot restore it: by then this host
+ * holds the record the manifest names, so the comparison correctly finds
+ * nothing missing. */
+static void test_the_withdrawal_paths_drain_the_deficit(void)
+{
+	struct fixture peer, host;
+	static uint8_t bytes[FIXTURE_BYTES];
+	uint8_t rev[FZN_REVOCATION_LEN], other[FZN_REVOCATION_LEN];
+	uint8_t id[FZN_REVOCATION_ID_LEN];
+	uint8_t grantee[FZN_PUBKEY_LEN];
+	fzn_revocation_record_t rec, orec;
+	fzn_manifest_record_t man;
+	fzn_cap_id_t cap;
+	size_t len = 0;
+
+	capability_id(&cap, 0x10);
+	key(grantee, 5);
+
+	/* The peer holds one revocation of the pair and states it. Minted here
+	 * rather than through `revoke` because both sides need the BYTES: the
+	 * peer to store them, this host to name their hash in a withdrawal and
+	 * to be handed them back in leg 1. */
+	fixture_init(&peer);
+	peer.stub.identity = peer.root[0];
+	CHECK(fzn_revocation_issue(peer.root, &cap, grantee, 1000, &peer.sign, rev) ==
+	              FZN_CHAIN_OK,
+	      "the peer could not issue the revocation this test is about");
+	stub_reset(&peer.stub);
+	CHECK(fzn_revocation_open(rev, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK,
+	      "the peer's revocation will not open");
+	CHECK(stub_hash(NULL, id, sizeof(id), rev, FZN_REVOCATION_LEN),
+	      "the fixture could not hash the record");
+	CHECK(fzn_revocation_admit(&peer.store, fzn_revocation_offer_root(rec), peer.root,
+	                           &peer.sign, &HASH_OPS, NULL) == FZN_CHAIN_OK,
+	      "the peer's own store refused its revocation");
+	peer.stub.identity = 0;
+	CHECK(fzn_manifest_issue(peer.root, &peer.store, &peer.sign, bytes, sizeof(bytes),
+	                         &len) == FZN_MANIFEST_OK,
+	      "the peer could not state what it holds revoked");
+	CHECK(fzn_manifest_open(bytes, len, &man) == FZN_MANIFEST_OK,
+	      "the peer's manifest will not open");
+	CHECK(fzn_manifest_count(man) == 1 && !fzn_manifest_is_withdrawn(man, 0),
+	      "the peer's manifest does not name the pair as revoked, so it is not the "
+	      "behind-peer this test needs");
+
+	/* LEG 1: THE STALE COPY. The peer relays the very record this host
+	 * withdrew, and will keep doing so, as will every peer that has not
+	 * heard the withdrawal. It is ignored rather than refused -- nothing
+	 * is wrong, a peer is behind -- and the deficit must drain anyway. */
+	CHECK(host_ahead_of_its_deficit(&host, man, peer.root, &cap, grantee, id),
+	      "the fixture for the stale-copy leg did not build, so the check below "
+	      "is about nothing");
+	CHECK(fzn_revocation_admit(&host.store, fzn_revocation_offer_root(rec), peer.root,
+	                           &host.sign, &HASH_OPS, &host.manifest) == FZN_CHAIN_OK,
+	      "a stale copy of a withdrawn revocation was refused rather than ignored");
+	CHECK(fzn_revocation_covers(&host.store, peer.root, &cap, grantee) == 0,
+	      "the stale copy re-revoked the pair, so this leg took some other branch "
+	      "than the one it names");
+	CHECK(fzn_manifest_pending(&host.manifest, peer.root) == 0,
+	      "a stale copy left the deficit standing, so this host asks the same peer "
+	      "for the same record for ever -- and with the stage-2 gate it refuses "
+	      "that issuer's chains for as long as it does");
+
+	/* LEG 2: AN UN-CHAINED RE-REVOCATION. A peer that never heard the
+	 * withdrawal issues a fresh revocation of the pair, so it names
+	 * nothing and is refused by the chaining rule. Refused, and the
+	 * deficit still drains: this host is ahead of the record it just
+	 * turned down, and asking again would ask the same question for
+	 * ever. */
+	CHECK(host_ahead_of_its_deficit(&host, man, peer.root, &cap, grantee, id),
+	      "the fixture for the un-chained leg did not build");
+	peer.stub.identity = peer.root[0];
+	CHECK(fzn_revocation_issue(peer.root, &cap, grantee, 3000, &peer.sign, other) ==
+	              FZN_CHAIN_OK,
+	      "the peer could not issue a second revocation of the pair");
+	stub_reset(&peer.stub);
+	CHECK(fzn_revocation_open(other, FZN_REVOCATION_LEN, &orec) == FZN_CHAIN_OK,
+	      "the second revocation will not open");
+	CHECK(fzn_revocation_admit(&host.store, fzn_revocation_offer_root(orec), peer.root,
+	                           &host.sign, &HASH_OPS,
+	                           &host.manifest) == FZN_CHAIN_ERR_UNKNOWN_TARGET,
+	      "an un-chained revocation over a withdrawal was admitted, so this leg is "
+	      "not exercising the refusal it is named for");
+	CHECK(fzn_manifest_pending(&host.manifest, peer.root) == 0,
+	      "a refused un-chained record left the deficit standing, so the refusal "
+	      "and the re-fetch chase each other for ever");
+
+	/* LEG 3: A CHAINED REISSUE, which is the one that changes the store.
+	 * The issuer revokes the pair again and names the record it is
+	 * superseding, so the withdrawal is lifted -- and the deficit is
+	 * settled by the ordinary meaning of settled, since this host now
+	 * holds what the manifest named. */
+	CHECK(host_ahead_of_its_deficit(&host, man, peer.root, &cap, grantee, id),
+	      "the fixture for the chained leg did not build");
+	peer.stub.identity = peer.root[0];
+	CHECK(fzn_revocation_reissue(peer.root, &cap, grantee, 3000, id, &peer.sign,
+	                             other) == FZN_CHAIN_OK,
+	      "the peer could not chain a reissue to the record it supersedes");
+	stub_reset(&peer.stub);
+	CHECK(fzn_revocation_open(other, FZN_REVOCATION_LEN, &orec) == FZN_CHAIN_OK,
+	      "the chained reissue will not open");
+	CHECK(fzn_revocation_admit(&host.store, fzn_revocation_offer_root(orec), peer.root,
+	                           &host.sign, &HASH_OPS, &host.manifest) == FZN_CHAIN_OK,
+	      "a reissue chained to the record the withdrawal named was refused");
+	CHECK(fzn_revocation_covers(&host.store, peer.root, &cap, grantee) == 1,
+	      "the pair is not revoked after a chained reissue, so this leg took some "
+	      "other branch than the one it names");
+	CHECK(fzn_manifest_pending(&host.manifest, peer.root) == 0,
+	      "a chained reissue that lifted the withdrawal left the deficit standing");
+}
+
 /* ---- arguments and the state's own integrity -------------------------- */
 
 static void test_every_guard_refuses_its_own_argument(void)
@@ -3221,6 +3410,7 @@ int main(void)
 	test_a_truncated_manifest_is_refused();
 	test_stage_two_gates_on_this_chains_grantors();
 	test_a_revocation_settles_what_it_covers();
+	test_the_withdrawal_paths_drain_the_deficit();
 	test_every_guard_refuses_its_own_argument();
 	test_a_state_whose_fields_disagree_is_refused();
 	test_the_suite_can_tell_pass_from_fail();

@@ -11254,6 +11254,102 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 60. The forwarding lens, and the three drains nobody could reach, 2026-09-04
+
+Sec 59's finding gave a shape: **a parameter threaded through a call is not a
+parameter that arrives**, and the compiler checks every caller and never the
+body. Sec 43 says a sweep is worth running when it is aimed by the last real
+defect rather than chosen from a list, so this one was.
+
+### The population, and why it is small
+
+Every place a function hands one of its own parameters straight to another
+function: **66 sites** in the library, tests and tools excluded. Most are
+REQUIRED arguments -- a hash, a signer, an output buffer -- where dropping one
+makes the callee refuse and the suite goes red loudly. Those are not the
+class. The class is the argument for which **NULL is legal and meaningful**,
+because there the drop is silent and changes behaviour rather than causing a
+refusal. Eight sites, and each was probed by replacing the argument with NULL
+and running the whole suite:
+
+    verify -> covers_chain          revocations   CAUGHT   chain_test.c:725
+    delegate -> verify              revocations   CAUGHT   chain_test.c:1750
+    admit -> satisfy, stale copy    manifest      SURVIVED
+    admit -> satisfy, unchained     manifest      SURVIVED
+    admit -> satisfy, reissue       manifest      SURVIVED
+    admit -> satisfy, already held  manifest      CAUGHT   manifest_test.c:2385
+    admit -> satisfy, stored        manifest      CAUGHT   manifest_test.c:1873
+    merge -> admit                  manifest      CAUGHT   manifest_test.c:2399
+
+**Three survivors, and they are the same three branches**: every path in
+`fzn_revocation_admit` that drains a deficit while the store holds a WITHDRAWN
+entry for the pair.
+
+### What the survivors cost, which is more than a lingering deficit
+
+`chain/manifest.c` states the rule they implement, in the comment above the
+comparison that records a deficit: *"asking when I am in fact ahead fetches a
+record that is refused as stale or unchained, and without the drain this entry
+would be re-recorded on every comparison and re-fetched for ever"*. Two files
+argue for these calls and nothing held them.
+
+**Since sec 58 that is not a wasted round trip.** `fzn_manifest_pending` never
+returns to zero, so the stage-2 gate refuses every chain that issuer grants
+in, permanently, on a host that has done nothing wrong -- sec 13d's brick,
+reached by a route nobody costed. The gate made three unheld guards
+load-bearing without anybody noticing that it had.
+
+### Why no fixture reached them, which is the interesting half
+
+`test_a_withdrawn_pair_is_not_a_deficit` runs the ORDINARY order: revoke,
+withdraw, then meet a peer that is behind. There the ids match, this host
+reads as ahead, and **no deficit is recorded at all** -- which is correct, and
+is why these branches look unreachable from every fixture in the tree.
+
+They need the withdrawal to have arrived FIRST, before there was anything to
+compare it against: the manifest admitted against an empty store records the
+pair as missing, the withdrawal lands as a tombstone, and only then does a
+revocation of that pair turn up. `revocation.h` calls that ordering ordinary
+rather than exceptional on a mesh, and it is the one arrangement no test
+built.
+
+**So the guards were not merely unheld, they were unreachable by construction
+from the fixtures that existed** -- and the test that explains why is the one
+sitting next to them. A reader checking whether the drains were covered would
+have found a test about withdrawals and deficits, correctly green, answering a
+different question.
+
+### Held now, and each by the leg written for it
+
+`test_the_withdrawal_paths_drain_the_deficit` builds that arrangement three
+times, once per branch, because each leg drains the deficit it was given and
+re-admitting the manifest cannot restore it -- by then this host holds what
+the manifest names, so the comparison correctly finds nothing missing.
+
+    rev-drain-stale-copy        manifest_test.c:2543
+    rev-drain-unchained         manifest_test.c:2568
+    rev-drain-chained-reissue   manifest_test.c:2592
+
+All three are `tool/sabotage.py` entries and all three were watched failing.
+Each leg also asserts which branch it took -- the pair is still withdrawn
+after the stale copy, the un-chained record is refused by name, the pair is
+revoked again after the chained reissue -- so a leg cannot pass by reaching
+some other drain.
+
+### What the lens is worth, stated so it is not re-run blind
+
+Eight probes, three findings, one afternoon. That is a better yield than sec
+43's blanket guard sweep, and the reason is not that the lens is cleverer: it
+is that **the population was cut by a property that predicts silence.** A
+required argument fails loudly and needs no test to notice; an optional one
+fails quietly and needs one. Sec 43's sweep could not make that cut because a
+guard is a guard.
+
+**The lens is now spent for this tree.** Five of the eight sites are in
+`chain/`, the survivors were all one function's, and re-running it will report
+the same 66 with the same verdicts until somebody adds an optional parameter.
+What would refresh it is exactly what refreshed sec 43: the next real defect.
+
 ## 59. The gate held where the defect lives, and a guard nothing held, 2026-09-04
 
 Sec 58 built the stage-2 gate and held it in `chain/test/manifest_test.c`,

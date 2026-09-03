@@ -769,6 +769,41 @@ SABOTAGES = [
 		"a host that knows it is behind must not answer as though it were current",
 	),
 	(
+		"rev-drain-stale-copy",
+		"chain/revocation.c",
+		"\t\t\t\tfzn_manifest_satisfy(manifest,\n"
+		"\t\t\t\t                     fzn_revocation_issuer(record),\n"
+		"\t\t\t\t                     fzn_revocation_capability(record),\n"
+		"\t\t\t\t                     fzn_revocation_grantee(record));\n"
+		"\t\t\t\treturn FZN_CHAIN_OK;\n",
+		"\t\t\t\treturn FZN_CHAIN_OK;\n",
+		"a stale copy of a withdrawn revocation must settle the deficit that "
+		"asked for it, or the fetch repeats for ever and the gate never opens",
+	),
+	(
+		"rev-drain-unchained",
+		"chain/revocation.c",
+		"\t\t\t\tfzn_manifest_satisfy(manifest,\n"
+		"\t\t\t\t                     fzn_revocation_issuer(record),\n"
+		"\t\t\t\t                     fzn_revocation_capability(record),\n"
+		"\t\t\t\t                     fzn_revocation_grantee(record));\n"
+		"\t\t\t\treturn FZN_CHAIN_ERR_UNKNOWN_TARGET;\n",
+		"\t\t\t\treturn FZN_CHAIN_ERR_UNKNOWN_TARGET;\n",
+		"a record refused for not chaining to a held withdrawal is one this host "
+		"is ahead of, so the deficit must drain even though nothing was stored",
+	),
+	(
+		"rev-drain-chained-reissue",
+		"chain/revocation.c",
+		"\t\t\tmemcpy(entry->id, id, FZN_REVOCATION_ID_LEN);\n"
+		"\t\t\tfzn_manifest_satisfy(manifest, fzn_revocation_issuer(record),\n"
+		"\t\t\t                     fzn_revocation_capability(record),\n"
+		"\t\t\t                     fzn_revocation_grantee(record));\n",
+		"\t\t\tmemcpy(entry->id, id, FZN_REVOCATION_ID_LEN);\n",
+		"a reissue that lifts a withdrawal stores what the deficit named, so the "
+		"deficit must drain with it",
+	),
+	(
 		"chain-gate-unscoped",
 		"chain/chain.c",
 		"\t\tfor (size_t i = 0; i < hop_count; i++) {\n"
