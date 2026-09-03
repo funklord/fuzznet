@@ -11264,13 +11264,16 @@ defect rather than chosen from a list, so this one was.
 ### The population, and why it is small
 
 Every place a function hands one of its own parameters straight to another
-function: **66 sites** in the library, tests and tools excluded. Most are
-REQUIRED arguments -- a hash, a signer, an output buffer -- where dropping one
-makes the callee refuse and the suite goes red loudly. Those are not the
-class. The class is the argument for which **NULL is legal and meaningful**,
-because there the drop is silent and changes behaviour rather than causing a
-refusal. Eight sites, and each was probed by replacing the argument with NULL
-and running the whole suite:
+function: **66 sites** in the library, tests and tools excluded, enumerated by
+script. Most are REQUIRED arguments -- a hash, a signer, an output buffer --
+where dropping one makes the callee refuse and the suite goes red loudly.
+Those are not the class. The class is the argument for which **NULL is legal
+and meaningful**, because there the drop is silent and changes behaviour
+rather than causing a refusal.
+
+**Cutting 66 down to that class is a READING, not a script**, and the first
+pass got it wrong -- see below. Eleven sites, each probed by replacing the
+argument with NULL and running the whole suite:
 
     verify -> covers_chain          revocations   CAUGHT   chain_test.c:725
     delegate -> verify              revocations   CAUGHT   chain_test.c:1750
@@ -11280,10 +11283,35 @@ and running the whole suite:
     admit -> satisfy, already held  manifest      CAUGHT   manifest_test.c:2385
     admit -> satisfy, stored        manifest      CAUGHT   manifest_test.c:1873
     merge -> admit                  manifest      CAUGHT   manifest_test.c:2399
+    admit -> lookup                 store         CAUGHT   manifest_test.c:1177
+    plan_offer -> known             store         CAUGHT   manifest_test.c:3173
+    vocabulary_admit -> verdict     peer          CAUGHT   vocabulary_test
 
 **Three survivors, and they are the same three branches**: every path in
 `fzn_revocation_admit` that drains a deficit while the store holds a WITHDRAWN
 entry for the pair.
+
+### The last three rows were missed by the first selection, and that is the lesson
+
+The sweep first reported EIGHT sites and stopped. The three rows above were
+added afterwards, by re-deriving the cut rather than re-running the probe --
+and all three are optional by the same test as the other eight.
+`fzn_manifest_admit`'s store is documented NULL-able and `tool/consumer_check.c`
+passes NULL to it; `fzn_manifest_plan_offer`'s is the same store one function
+over; `fzn_vocabulary_admit`'s peer is a pointer a caller can legally omit.
+
+**Nothing in the result changed** -- all three are caught, and the three
+survivors are still one function's -- which is exactly why it is worth writing
+down. A miss that changes no conclusion leaves no symptom, and the next
+person quoting "eight optional sites" would be quoting a number whose
+DETECTOR was one session's afternoon reading of eleven headers.
+`evidence.md` names this: a count inherits its detector, and the detector
+inherits whatever the first instance made salient. Here the first instance was
+sec 59's `manifest` argument, so `manifest` arguments were what got looked
+for, and two `store` arguments and a `peer` sat in the same list unread.
+
+**The remedy that worked was re-deriving the cut, not re-running the probe.**
+Re-running would have re-probed the same eight and agreed with itself.
 
 ### What the survivors cost, which is more than a lingering deficit
 
@@ -11338,17 +11366,22 @@ some other drain.
 
 ### What the lens is worth, stated so it is not re-run blind
 
-Eight probes, three findings, one afternoon. That is a better yield than sec
+Eleven probes, three findings, one afternoon. That is a better yield than sec
 43's blanket guard sweep, and the reason is not that the lens is cleverer: it
 is that **the population was cut by a property that predicts silence.** A
 required argument fails loudly and needs no test to notice; an optional one
 fails quietly and needs one. Sec 43's sweep could not make that cut because a
 guard is a guard.
 
-**The lens is now spent for this tree.** Five of the eight sites are in
+**The lens is now spent for this tree.** Eight of the eleven sites are in
 `chain/`, the survivors were all one function's, and re-running it will report
 the same 66 with the same verdicts until somebody adds an optional parameter.
 What would refresh it is exactly what refreshed sec 43: the next real defect.
+
+**What is NOT spent is the enumeration**, which is a script and re-runs in a
+second. A site added later is a site nobody has probed, and the cut from 66 to
+eleven is the part that has to be done by hand again -- which the miss above
+says is the part to distrust.
 
 ## 59. The gate held where the defect lives, and a guard nothing held, 2026-09-04
 
