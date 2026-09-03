@@ -11244,6 +11244,75 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 54. A control that passed for the wrong reason, 2026-09-03
+
+The two feature probes in the Makefile ran `$(CC)` bare -- no CPPFLAGS, no
+CFLAGS -- while every real rule passes both, and neither had a control.
+Reported from outside this tree, in a sweep for **diagnostics naming a cause
+the code never tested**, which is sec 52 and sec 53's family arriving in the
+build system instead of the library.
+
+The consequences are two, and only the first is obvious. A toolchain needing
+a flag the user keeps in CFLAGS **builds the library and fails the probe**, so
+the notice blames the platform's POSIX for a flag mismatch. And a `CC` that
+cannot link against libc at all fails it too, for a third cause reported as
+the second -- while the comment beside the notice was arguing that "off" and
+"you have no POSIX" are different problems with different fixes.
+
+Following the notice made it worse: `FZN_PERSIST_FILE=1` turned the skip into
+a hard error naming the same wrong cause. **The advice tracks the cause now**,
+because insisting is the right next step for a platform that genuinely lacks
+the API and useless for a toolchain that could not be asked.
+
+### The fix needed two things the report did not have
+
+**`-MMD` breaks the probe the moment CPPFLAGS is passed through.** Against
+`-o /dev/null` it tries to open `/dev/null.d` and fails with "Permission
+denied". All three probes went to `no` on a machine whose library builds
+fine. `$(filter-out -MMD -MP -MD,$(CPPFLAGS))` is the fix: a probe wants the
+build's SEARCH and LANGUAGE flags, where a `-I`, a `-D` or a `--target`
+lives, and not its dependency bookkeeping. Taken as reported, the
+recommendation would have switched optional backends off silently in any tree
+that copied it.
+
+**And the first control did not control.** It was
+`int main(void){return 0;}`, which links under `-nostdlib` -- no libc, no
+POSIX, nothing -- **because it references nothing**. So it passed, and the
+notice went on blaming POSIX for a toolchain with no C library: the exact
+case being fixed, unfixed, behind a green control. It calls `strtol` now,
+which is ISO C rather than POSIX and therefore separates "cannot link against
+libc" from "libc is here and lacks the file API" -- the two the notices must
+not confuse.
+
+**The generalisation, and it is the part worth keeping:** the test of a
+control is not whether it passes on a good machine but **which failure it
+distinguishes from which**. One that passes everywhere is a constant. This
+tree has spent three days on checks that answer without discriminating, and
+the first control written to close one had the same defect, one level out and
+about four minutes old.
+
+### Which inverted a claim about this tree
+
+The same report noted that `test -d .git` is the "is this a repository" test
+in sixteen of the seventeen Makefiles here and that fuzznet is the only tree
+without it. Checked rather than adopted: **fuzznet does not have the bug that
+test has.** `tool/style_gate.py` asks git -- `rev-parse --is-inside-work-tree`
+-- and consults `.git` only as a fallback, deciding whether an unreadable
+`.git` should stop the run rather than fall through to a filesystem walk.
+That fallback is `(root / ".git").exists()`, which is **true for a regular
+file**, and `.git` is a regular file in a worktree and in a submodule
+checkout. `test -d` is false in both.
+
+So the majority form is the broken one and copying it here would have been a
+regression. The central record was amended after the other session verified
+it against a live submodule rather than taking my word for it, which is the
+right way round for a claim that had already been wrong once.
+
+**Worth recording about this tree rather than about the finding:** four
+sweeps of it for this class returned one finding, and it was in a `$(shell)`
+call rather than in the library. The gates are not the weak part; the thing
+that measures the gates was.
+
 ## 53. The sources the sabotage table had never touched, 2026-09-03
 
 Sec 52 fixed an entry that had stopped matching. The obvious next question is
