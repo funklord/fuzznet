@@ -70,6 +70,37 @@ static int checks;
 #define FZN_CHECK_PRINTF
 #endif
 
+
+/* A HASH FOR RECORD IDENTITY. `fzn_revocation_admit` needs one to compute
+ * what a withdrawal targets and what a reissue supersedes; this is the same
+ * FNV expansion `mac` above uses, over the whole record. Deterministic and
+ * dependent on every input byte, which is all identity comparison asks of
+ * it -- a collision here would make two different records one record, so the
+ * property under test is that different bytes give different answers rather
+ * than anything cryptographic. */
+static int stub_hash(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in,
+                     size_t in_len)
+{
+	uint64_t h = 0xcbf29ce484222325ull;
+	size_t i;
+
+	(void)ctx;
+	if (!out || !in || out_len == 0)
+		return 0;
+	for (i = 0; i < in_len; i++) {
+		h ^= (uint64_t)in[i];
+		h *= 0x100000001b3ull;
+	}
+	for (i = 0; i < out_len; i++) {
+		h ^= (uint64_t)i + 1u;
+		h *= 0x100000001b3ull;
+		out[i] = (uint8_t)(h >> 56);
+	}
+	return 1;
+}
+
+static const fzn_hash_ops_t HASH_OPS = { stub_hash, NULL };
+
 static void check_at(int ok, int line, const char *fmt, ...) FZN_CHECK_PRINTF;
 
 static void check_at(int ok, int line, const char *fmt, ...)
@@ -336,7 +367,7 @@ static void revoke(struct fixture *f, const uint8_t issuer[FZN_PUBKEY_LEN],
 		failures++;
 		return;
 	}
-	if (fzn_revocation_admit(&f->store, fzn_revocation_offer_root(rec), issuer, &f->sign,
+	if (fzn_revocation_admit(&f->store, fzn_revocation_offer_root(rec), issuer, &f->sign, &HASH_OPS,
 	                         NULL) != FZN_CHAIN_OK) {
 		fprintf(stderr, "  FAIL: the fixture's revocation was refused\n");
 		failures++;
@@ -449,8 +480,8 @@ static void test_the_object_tag_is_in_the_transcript(void)
 	struct fixture f;
 	static uint8_t bytes[FIXTURE_BYTES];
 	uint8_t as_manifest[FZN_SIG_LEN], as_revocation[FZN_SIG_LEN];
-	fzn_manifest_pair_t pairs[1];
 	uint8_t issuer[FZN_PUBKEY_LEN];
+	fzn_manifest_pair_t pairs[1];
 	size_t len = 0;
 
 	fixture_init(&f);
@@ -767,6 +798,160 @@ static void test_encode_refuses_what_open_would(void)
 
 /* ---- issuing, which is the half an honest implementation cannot lie in -- */
 
+/* Revoke, then withdraw, leaving the entry in the store saying the opposite.
+ * Returns 0 if any step failed, so a caller can stop rather than assert
+ * against a fixture that did not build. */
+static int revoke_then_withdraw(struct fixture *f, const uint8_t issuer[FZN_PUBKEY_LEN],
+                                const fzn_cap_id_t *capability,
+                                const uint8_t grantee[FZN_PUBKEY_LEN])
+{
+	uint8_t bytes[FZN_REVOCATION_LEN], wd[FZN_REVOCATION_LEN];
+	uint8_t id[FZN_REVOCATION_ID_LEN];
+	fzn_revocation_record_t rec;
+
+	f->stub.identity = issuer[0];
+	if (fzn_revocation_issue(issuer, capability, grantee, 1000, &f->sign, bytes) !=
+	    FZN_CHAIN_OK)
+		return 0;
+	if (fzn_revocation_open(bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
+		return 0;
+	if (!stub_hash(NULL, id, sizeof(id), bytes, FZN_REVOCATION_LEN))
+		return 0;
+	stub_reset(&f->stub);
+	if (fzn_revocation_admit(&f->store, fzn_revocation_offer_root(rec), issuer, &f->sign,
+	                         &HASH_OPS, NULL) != FZN_CHAIN_OK)
+		return 0;
+
+	f->stub.identity = issuer[0];
+	if (fzn_revocation_issue_withdrawal(issuer, capability, grantee, 2000, id, &f->sign,
+	                                    wd) != FZN_CHAIN_OK)
+		return 0;
+	if (fzn_revocation_open(wd, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
+		return 0;
+	stub_reset(&f->stub);
+	return fzn_revocation_admit(&f->store, fzn_revocation_offer_root(rec), issuer,
+	                            &f->sign, &HASH_OPS, NULL) == FZN_CHAIN_OK;
+}
+
+/* A MANIFEST STATES WHAT IS REVOKED, so a withdrawn pair is not in it.
+ *
+ * The entry stays in the store -- that is how a stale copy of the withdrawn
+ * revocation is recognised -- but publishing it would tell every receiver to
+ * revoke a pair this issuer has restored, under this issuer's own signature.
+ * A receiver acting on that manifest would undo the withdrawal for the whole
+ * network, from the issuer that performed it.
+ *
+ * THE CONTROL IS THE PAIR THAT STAYS. Without it "one pair" would be
+ * satisfied by an issue that had gone wrong in any other way. */
+static void test_a_manifest_omits_a_withdrawn_pair(void)
+{
+	struct fixture f;
+	static uint8_t bytes[FIXTURE_BYTES];
+	fzn_manifest_record_t rec;
+	fzn_cap_id_t cap_a, cap_b;
+	uint8_t g5[FZN_PUBKEY_LEN];
+	size_t len = 0;
+
+	fixture_init(&f);
+	capability_id(&cap_a, 0x10);
+	capability_id(&cap_b, 0x20);
+	key(g5, 5);
+	revoke(&f, f.root, &cap_a, g5);
+	revoke(&f, f.root, &cap_b, g5);
+
+	f.stub.identity = f.root[0];
+	CHECK(fzn_manifest_issue(f.root, &f.store, &f.sign, bytes, sizeof(bytes), &len) ==
+	              FZN_MANIFEST_OK && len == FZN_MANIFEST_LEN(2),
+	      "two revocations did not make a two-pair manifest, so the omission below "
+	      "proves nothing");
+
+	/* Withdraw one of the two. */
+	fixture_init(&f);
+	revoke(&f, f.root, &cap_a, g5);
+	CHECK(revoke_then_withdraw(&f, f.root, &cap_b, g5),
+	      "the fixture could not revoke and withdraw");
+	CHECK(f.store.used == 2, "the store holds %zu entries, wanted 2", f.store.used);
+
+	f.stub.identity = f.root[0];
+	len = 0;
+	CHECK(fzn_manifest_issue(f.root, &f.store, &f.sign, bytes, sizeof(bytes), &len) ==
+	              FZN_MANIFEST_OK,
+	      "issuing over a store holding a withdrawal was refused");
+	CHECK(len == FZN_MANIFEST_LEN(1),
+	      "the manifest is %zu bytes, wanted one pair at %zu -- a withdrawn pair was "
+	      "published as revoked under its issuer's own signature", len,
+	      FZN_MANIFEST_LEN(1));
+	if (fzn_manifest_open(bytes, len, &rec) == FZN_MANIFEST_OK) {
+		CHECK(fzn_ct_memeq(fzn_manifest_capability(rec, 0)->b, cap_a.b,
+		                   FZN_CAP_ID_LEN),
+		      "the pair that survived is not the one that is still revoked");
+	} else {
+		CHECK(0, "the manifest will not open");
+	}
+}
+
+/* THE DEFICIT ASKS A REPLICATION QUESTION, NOT AN AUTHORIZATION ONE.
+ *
+ * A peer that has not heard a withdrawal keeps naming the pair in its
+ * manifest. If the completeness predicate were `fzn_revocation_covers`, that
+ * pair would read as missing: the consumer would fetch the revocation,
+ * admission would recognise the stale copy and store nothing, and the next
+ * comparison would report it missing again -- for ever, against every peer
+ * behind. `fzn_revocation_known` answers that the history is already here.
+ *
+ * Measured: with the predicate switched back, the rest of this suite stayed
+ * green and only this case fails. */
+static void test_a_withdrawn_pair_is_not_a_deficit(void)
+{
+	struct fixture f;
+	static uint8_t bytes[FIXTURE_BYTES];
+	fzn_manifest_record_t rec;
+	fzn_manifest_pair_t pairs[1];
+	fzn_cap_id_t cap;
+	uint8_t g5[FZN_PUBKEY_LEN];
+	size_t len = 0;
+
+	fixture_init(&f);
+	capability_id(&cap, 0x10);
+	key(g5, 5);
+
+	CHECK(revoke_then_withdraw(&f, f.root, &cap, g5),
+	      "the fixture could not revoke and withdraw");
+	CHECK(fzn_revocation_covers(&f.store, f.root, &cap, g5) == 0,
+	      "the pair is still revoked, so this case is not testing a withdrawal");
+
+	/* THE PEER STILL HOLDS THE REVOCATION, so its manifest names the pair.
+	 * Built from a second store rather than by hand, so the bytes are one
+	 * this library really produces. */
+	{
+		struct fixture peer;
+
+		fixture_init(&peer);
+		revoke(&peer, peer.root, &cap, g5);
+		peer.stub.identity = peer.root[0];
+		CHECK(fzn_manifest_issue(peer.root, &peer.store, &peer.sign, bytes,
+		                         sizeof(bytes), &len) == FZN_MANIFEST_OK &&
+		              len == FZN_MANIFEST_LEN(1),
+		      "the peer could not issue a manifest naming the pair");
+	}
+	CHECK(fzn_manifest_open(bytes, len, &rec) == FZN_MANIFEST_OK, "open");
+
+	CHECK(fzn_manifest_follow(&f.manifest, f.root) == FZN_MANIFEST_OK, "follow");
+	stub_reset(&f.stub);
+	CHECK(fzn_manifest_admit(&f.manifest, &f.store, rec, &f.sign) == FZN_MANIFEST_OK,
+	      "the peer's manifest was refused");
+	{
+		fzn_manifest_pair_t out[4];
+		size_t dropped = 0;
+		size_t n = fzn_manifest_deficit(&f.manifest, f.root, out, 4, &dropped);
+
+		CHECK(n == 0,
+		      "a pair this host has withdrawn was reported as missing (%zu "
+		      "entries), so every comparison with a peer that is behind asks "
+		      "for it again", n);
+	}
+}
+
 static void test_issue_derives_from_the_issuers_own_store(void)
 {
 	struct fixture f;
@@ -995,7 +1180,7 @@ static void test_issue_stops_at_its_own_pair_ceiling(void)
 		            FZN_CHAIN_OK ||
 		    fzn_revocation_open(bytes, FZN_REVOCATION_LEN, &r) != FZN_CHAIN_OK ||
 		    fzn_revocation_admit(&crowd_store, fzn_revocation_offer_root(r), f.root,
-		                         &f.sign, NULL) != FZN_CHAIN_OK) {
+		                         &f.sign, &HASH_OPS, NULL) != FZN_CHAIN_OK) {
 			CHECK(0, "the fixture could not admit entry %zu of %u", i,
 			      (unsigned)FZN_MANIFEST_MAX_PAIRS + 1u);
 			return;
@@ -1452,7 +1637,7 @@ static void test_the_deficit_reads_the_whole_field(void)
 		              FZN_CHAIN_OK,
 		      "issue");
 		CHECK(fzn_revocation_open(rev, FZN_REVOCATION_LEN, &r) == FZN_CHAIN_OK, "open");
-		CHECK(fzn_revocation_admit(&joiner.store, fzn_revocation_offer_root(r), f.root, &joiner.sign,
+		CHECK(fzn_revocation_admit(&joiner.store, fzn_revocation_offer_root(r), f.root, &joiner.sign, &HASH_OPS,
 		                           &joiner.manifest) == FZN_CHAIN_OK,
 		      "admit");
 		CHECK(fzn_manifest_pending(&joiner.manifest, f.root) == 3,
@@ -1567,7 +1752,7 @@ static void test_the_overflow_flag_is_sticky(void)
 			      "issue");
 			CHECK(fzn_revocation_open(rev, FZN_REVOCATION_LEN, &r) == FZN_CHAIN_OK,
 			      "open");
-			CHECK(fzn_revocation_admit(&side.store, fzn_revocation_offer_root(r), f.root, &side.sign,
+			CHECK(fzn_revocation_admit(&side.store, fzn_revocation_offer_root(r), f.root, &side.sign, &HASH_OPS,
 			                           &small) == FZN_CHAIN_OK,
 			      "admit");
 		}
@@ -1892,7 +2077,7 @@ static void test_a_revocation_settles_what_it_covers(void)
 	/* NULL PRESERVES TODAY'S BEHAVIOUR EXACTLY, which is what makes the
 	 * parameter optional rather than a break. */
 	CHECK(fzn_revocation_admit(&joiner.store, fzn_revocation_offer_root(batch[0]), f.root,
-	                           &joiner.sign, NULL) ==
+	                           &joiner.sign, &HASH_OPS, NULL) ==
 	              FZN_CHAIN_OK,
 	      "admit with no manifest state");
 	CHECK(fzn_manifest_pending(&joiner.manifest, f.root) == 2,
@@ -1903,7 +2088,7 @@ static void test_a_revocation_settles_what_it_covers(void)
 	 * revocation before wiring up its manifest reports a gap it has
 	 * filled, for ever. */
 	CHECK(fzn_revocation_admit(&joiner.store, fzn_revocation_offer_root(batch[0]), f.root,
-	                           &joiner.sign,
+	                           &joiner.sign, &HASH_OPS,
 	                           &joiner.manifest) == FZN_CHAIN_OK,
 	      "re-admitting a revocation already held was an error");
 	CHECK(fzn_manifest_pending(&joiner.manifest, f.root) == 1,
@@ -1917,7 +2102,7 @@ static void test_a_revocation_settles_what_it_covers(void)
 	 * is what carriage looks like when it works. */
 	offers[0] = fzn_revocation_offer_root(batch[0]);
 	offers[1] = fzn_revocation_offer_root(batch[1]);
-	n = fzn_revocation_merge(&joiner.store, offers, 2, f.root, &joiner.sign, &err,
+	n = fzn_revocation_merge(&joiner.store, offers, 2, f.root, &joiner.sign, &HASH_OPS, &err,
 	                         &joiner.manifest);
 	CHECK(n == 2 && err == FZN_CHAIN_OK, "merge admitted %zu, err %d", n, (int)err);
 	CHECK(fzn_manifest_pending(&joiner.manifest, f.root) == 0,
@@ -2418,7 +2603,7 @@ static void test_the_recovery_loop_drains_what_a_partial_peer_can_supply(void)
 					              == FZN_CHAIN_OK, "open");
 					CHECK(fzn_revocation_admit(&joiner.store,
 					                           fzn_revocation_offer_root(r),
-					                           f.root, &joiner.sign,
+					                           f.root, &joiner.sign, &HASH_OPS,
 					                           &joiner.manifest)
 					              == FZN_CHAIN_OK, "admit");
 				}
@@ -2666,7 +2851,7 @@ static void test_two_partial_peers_between_them_complete_the_set(void)
 				              == FZN_CHAIN_OK, "open rev");
 				CHECK(fzn_revocation_admit(&joiner.store,
 				                           fzn_revocation_offer_root(r),
-				                           issuer.root, &joiner.sign,
+				                           issuer.root, &joiner.sign, &HASH_OPS,
 				                           &joiner.manifest) == FZN_CHAIN_OK,
 				      "admit rev");
 			}
@@ -2720,6 +2905,8 @@ int main(void)
 	test_the_pair_ceiling_is_a_ceiling();
 	test_the_ordering_reads_the_whole_pair();
 	test_encode_refuses_what_open_would();
+	test_a_manifest_omits_a_withdrawn_pair();
+	test_a_withdrawn_pair_is_not_a_deficit();
 	test_issue_derives_from_the_issuers_own_store();
 	test_issue_refuses_a_store_it_cannot_read();
 	test_issue_stops_at_its_own_pair_ceiling();

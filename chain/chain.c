@@ -486,6 +486,8 @@ const char *fzn_chain_err_str(fzn_chain_err_t err)
 		return "revocation store is full";
 	case FZN_CHAIN_ERR_SHAPE:
 		return "not the shape the layout describes";
+	case FZN_CHAIN_ERR_UNKNOWN_TARGET:
+		return "withdrawal names a revocation this store does not hold";
 	}
 
 	return "unknown";

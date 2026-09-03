@@ -96,6 +96,31 @@ static void mac(uint8_t out[FZN_SIG_LEN], uint8_t identity, const uint8_t *msg, 
 	}
 }
 
+/* Record identity for admission -- the same FNV expansion as the signer's,
+ * over the whole record. */
+static int stub_hash(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in,
+                     size_t in_len)
+{
+	uint64_t h = 0xcbf29ce484222325ull;
+	size_t i;
+
+	(void)ctx;
+	if (!out || !in || out_len == 0)
+		return 0;
+	for (i = 0; i < in_len; i++) {
+		h ^= (uint64_t)in[i];
+		h *= 0x100000001b3ull;
+	}
+	for (i = 0; i < out_len; i++) {
+		h ^= (uint64_t)i + 1u;
+		h *= 0x100000001b3ull;
+		out[i] = (uint8_t)(h >> 56);
+	}
+	return 1;
+}
+
+static const fzn_hash_ops_t HASH_OPS = { stub_hash, NULL };
+
 static int stub_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const uint8_t *msg,
                        size_t msg_len, const uint8_t sig[FZN_SIG_LEN])
 {
@@ -291,7 +316,7 @@ static const char *fuzz_one(const uint8_t *data, size_t len, struct coverage *co
 		if (fzn_revocation_open(rbytes, FZN_REVOCATION_LEN, &rrec) != FZN_CHAIN_OK)
 			return "the fixture issued a revocation that will not open";
 		if (fzn_revocation_admit(&store, fzn_revocation_offer_root(rrec), keys[ki], &sign,
-		                         NULL) != FZN_CHAIN_OK)
+		                         &HASH_OPS, NULL) != FZN_CHAIN_OK)
 			continue;
 		if (!store_holds(&held, keys[ki], &caps[ci], grantees[gi]) && held.used < 8u) {
 			memcpy(held.issuer[held.used], keys[ki], FZN_PUBKEY_LEN);

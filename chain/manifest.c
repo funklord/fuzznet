@@ -285,6 +285,14 @@ fzn_manifest_err_t fzn_manifest_issue(const uint8_t issuer[FZN_PUBKEY_LEN],
 
 		if (!fzn_ct_memeq(e->issuer, issuer, FZN_PUBKEY_LEN))
 			continue;
+		/* A MANIFEST STATES WHAT IS REVOKED, so a withdrawn entry is
+		 * not in it. The entry stays in the store -- that is how a
+		 * stale copy of the withdrawn revocation is recognised -- but
+		 * publishing it would tell every receiver to revoke a pair
+		 * this issuer has restored, under this issuer's own
+		 * signature. */
+		if (e->withdrawn)
+			continue;
 
 		if (count >= FZN_MANIFEST_MAX_PAIRS)
 			return FZN_MANIFEST_ERR_SHAPE;
@@ -435,11 +443,21 @@ fzn_manifest_err_t fzn_manifest_admit(fzn_manifest_state_t *state,
 		const uint8_t *grantee = fzn_manifest_grantee(record, i);
 		fzn_manifest_deficit_t *slot;
 
-		/* THE COMPLETENESS PREDICATE IS `fzn_revocation_covers` ITSELF,
-		 * which is sec 13d's reason for naming the pair rather than
-		 * hashing the triple. There is no second predicate to drift
-		 * from this one. */
-		if (fzn_revocation_covers(store, issuer, capability, grantee))
+		/* THE COMPLETENESS PREDICATE IS `fzn_revocation_known`, which
+		 * is sec 13d's reason for naming the pair rather than hashing
+		 * the triple: the question is answered against the store
+		 * directly and there is no second matching rule to drift from
+		 * this one -- `known` and `covers` share `find_entry`.
+		 *
+		 * IT IS `known` AND NOT `covers` BECAUSE THIS IS A
+		 * REPLICATION QUESTION. A withdrawn pair is one whose history
+		 * this host already has, so it is not missing; asking `covers`
+		 * would call it missing, the consumer would fetch the
+		 * revocation, admission would recognise the stale copy and
+		 * store nothing, and the next comparison would report it
+		 * missing again -- for ever, against every peer that had not
+		 * heard the withdrawal. */
+		if (fzn_revocation_known(store, issuer, capability, grantee))
 			continue;
 		if (deficit_holds(state, issuer, capability, grantee))
 			continue;
@@ -579,8 +597,12 @@ fzn_manifest_err_t fzn_manifest_plan_offer(const fzn_revocation_store_t *store,
 	}
 
 	for (i = 0; i < n; i++) {
-		int have = fzn_revocation_covers(store, wants[i].issuer,
-		                                 &wants[i].capability, wants[i].grantee);
+		/* `known` for the same reason as the deficit above, from the
+		 * other side: a peer's want list is answered with what this
+		 * host has the history for. Saying "not held" for a pair we
+		 * withdrew would keep us on that peer's want list for ever. */
+		int have = fzn_revocation_known(store, wants[i].issuer,
+		                                &wants[i].capability, wants[i].grantee);
 
 		holds[i] = have ? 1u : 0u;
 		if (have)

@@ -669,6 +669,67 @@ SABOTAGES = [
 		"\tfor (size_t i = 0; i < len; i++)\n\t\tif (pa[i] != pb[i])\n\t\t\treturn 0;\n",
 		"result-preserving, timing-destroying; caught by codegencheck alone",
 	),
+	# BATCH NINE, 2026-09-03: the withdrawal path. Seven guards, and three
+	# of them SURVIVED when first written -- the chain walk's action check,
+	# the manifest's omission of a withdrawn pair, and the deficit's
+	# replication predicate. Each had a test written for it afterwards.
+	# Adding a mechanism and not holding it is the shape this table exists
+	# for, and it arrived in the same day's work that spent itself finding
+	# it elsewhere. project.md sec 56.
+	(
+		"rev-covers-reads-action",
+		"chain/revocation.c",
+		"\t\treturn at < store->used && !store->entries[at].withdrawn;\n",
+		"\t\treturn at < store->used;\n",
+		"presence is not the answer once a withdrawal can replace in place",
+	),
+	(
+		"rev-walk-reads-action",
+		"chain/revocation.c",
+		"\t\tif (entry->withdrawn)\n\t\t\tcontinue;\n",
+		"",
+		"the chain walk is a second reader and must read the action too",
+	),
+	(
+		"rev-stale-copy-ignored",
+		"chain/revocation.c",
+		"\t\t\tif (fzn_ct_memeq(id, entry->id, FZN_REVOCATION_ID_LEN))\n"
+		"\t\t\t\treturn FZN_CHAIN_OK;\n",
+		"",
+		"a re-relayed copy of a withdrawn revocation must not re-revoke",
+	),
+	(
+		"rev-reissue-must-chain",
+		"chain/revocation.c",
+		"\t\t\tif (!fzn_ct_memeq(fzn_revocation_supersedes(record), entry->id,\n"
+		"\t\t\t                  FZN_REVOCATION_ID_LEN))\n"
+		"\t\t\t\treturn FZN_CHAIN_ERR_UNKNOWN_TARGET;\n",
+		"",
+		"where the chaining rule is a mechanism rather than a sentence",
+	),
+	(
+		"rev-withdrawal-names-what-we-hold",
+		"chain/revocation.c",
+		"\t\tif (!fzn_ct_memeq(store->entries[at].id, fzn_revocation_supersedes(record),\n"
+		"\t\t                  FZN_REVOCATION_ID_LEN))\n"
+		"\t\t\treturn FZN_CHAIN_ERR_UNKNOWN_TARGET;\n",
+		"",
+		"a withdrawal of an old revocation must not undo the one that superseded it",
+	),
+	(
+		"manifest-omits-withdrawn",
+		"chain/manifest.c",
+		"\t\tif (e->withdrawn)\n\t\t\tcontinue;\n",
+		"",
+		"publishing a withdrawn pair would re-revoke it under its issuer's signature",
+	),
+	(
+		"manifest-deficit-is-replication",
+		"chain/manifest.c",
+		"\t\tif (fzn_revocation_known(store, issuer, capability, grantee))\n\t\t\tcontinue;\n",
+		"\t\tif (fzn_revocation_covers(store, issuer, capability, grantee))\n\t\t\tcontinue;\n",
+		"asking the authorization question here loops against every peer behind",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

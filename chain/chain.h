@@ -94,6 +94,14 @@
 #include "../wire/bytes.h"
 
 #define FZN_PUBKEY_LEN 32
+/* The hash that names a signed record: what a withdrawal targets and what a
+ * re-revocation supersedes. Spelled here rather than borrowed from blob/ so
+ * that chain/ does not depend on it -- the same independence
+ * chain/manifest.h keeps from chunk/ -- and here rather than in
+ * revocation.h because `fzn_revocation_t` below is the struct that carries
+ * one and this file is where that struct lives. */
+#define FZN_REVOCATION_ID_LEN 32u
+
 #define FZN_CAP_ID_LEN 32
 
 /*
@@ -224,6 +232,19 @@ typedef enum fzn_chain_err {
 	 * Canonicality is not a question the parallel-fields design could ask
 	 * at all, because there were no bytes to ask it of. */
 	FZN_CHAIN_ERR_SHAPE = -8,
+	/* A record whose `supersedes` this store cannot place: a withdrawal
+	 * naming a revocation it does not hold, or a revocation arriving over
+	 * a withdrawal without naming the one that was withdrawn.
+	 *
+	 * ITS OWN CODE BECAUSE IT IS NOT A CALLER'S MISTAKE AND NOT A FORGERY.
+	 * The record is well formed, correctly signed and issued by somebody
+	 * entitled; it simply arrived before the record it answers, or after
+	 * that record was already superseded. A host that hears a withdrawal
+	 * before the revocation it undoes must be able to tell that from a bad
+	 * record, because the right response is to ask for what it is missing
+	 * rather than to raise an alarm. Folding it into CHAIN_INVALID would
+	 * make ordinary propagation look like an attack. */
+	FZN_CHAIN_ERR_UNKNOWN_TARGET = -9,
 } fzn_chain_err_t;
 
 /* THE HOP LAYOUT. Big-endian, fixed width, no padding, fixed fields first,
@@ -535,6 +556,37 @@ typedef struct fzn_revocation {
 	/* Who withdrew it -- read from the record's own signed bytes on
 	 * admission, never from what a caller supplied alongside them. */
 	uint8_t issuer[FZN_PUBKEY_LEN];
+
+	/* THE HASH OF THE MOST RECENT REVOCATION FOR THIS TRIPLE, and it is
+	 * one field with one meaning rather than two that must agree.
+	 *
+	 * While the entry holds a revocation it is that record's hash. Once a
+	 * withdrawal replaces it, it is still the hash of the revocation that
+	 * was undone -- which is what the withdrawal named. So the same 32
+	 * bytes answer all three questions this design asks: what a withdrawal
+	 * must target, what a re-revocation must supersede, and which
+	 * arriving record is the stale copy of something already withdrawn.
+	 *
+	 * The alternative was a `target` beside an `id`, only ever one of them
+	 * live. Two fields whose relationship is an invariant is the shape
+	 * this tree keeps paying for. */
+	uint8_t id[FZN_REVOCATION_ID_LEN];
+
+	/* WHETHER THE HELD RECORD IS A WITHDRAWAL, and the entry stays in the
+	 * store either way.
+	 *
+	 * A withdrawal REPLACES the revocation at this key rather than
+	 * removing it, so PRESENCE IS NOT THE ANSWER to "is this revoked" --
+	 * every reader must ask this field. Removing the entry instead would
+	 * make a re-relayed copy of the withdrawn revocation indistinguishable
+	 * from a new one, and it would be re-admitted on every propagation
+	 * round from every peer that had not yet heard the withdrawal: not a
+	 * one-time resurrection but a loop. Keeping it is what makes the
+	 * refusal possible at all.
+	 *
+	 * fuzzypickles ran into exactly this and their store holds the CLEAR
+	 * under the same key for the same reason. */
+	int withdrawn;
 } fzn_revocation_t;
 
 /* The store, DECLARED here and DEFINED in revocation.h.

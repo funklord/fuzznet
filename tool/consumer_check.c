@@ -213,6 +213,10 @@ static int consumer_hash(void *ctx, uint8_t *out, size_t out_len, const uint8_t 
 	return 1;
 }
 
+/* Record identity for `fzn_revocation_admit`, over the same seam every other
+ * hash in this consumer uses. */
+static const fzn_hash_ops_t CONSUMER_HASH = { consumer_hash, NULL };
+
 static void consumer_seal(void *ctx, const uint8_t key[FZN_AEAD_KEY_LEN],
                           const uint8_t nonce[FZN_AEAD_NONCE_LEN], const uint8_t *aad,
                           size_t aad_len, uint8_t *text, size_t text_len,
@@ -686,7 +690,7 @@ int main(void)
 		                          fzn_revocation_capability(rec),
 		                          fzn_revocation_grantee(rec)) != 0)
 			FAIL(102);
-		if (fzn_revocation_admit(&store, fzn_revocation_offer_root(rec), root, &sign,
+		if (fzn_revocation_admit(&store, fzn_revocation_offer_root(rec), root, &sign, &CONSUMER_HASH,
 		                         NULL) != FZN_CHAIN_OK)
 			FAIL(103);
 		if (store.used != 1)
@@ -763,12 +767,12 @@ int main(void)
 		/* With no chain it is a stranger's record, refused exactly as
 		 * it always was -- which is what makes the offer below the
 		 * thing that changed. */
-		if (fzn_revocation_admit(&estate, fzn_revocation_offer_root(rec), root, &sign,
+		if (fzn_revocation_admit(&estate, fzn_revocation_offer_root(rec), root, &sign, &CONSUMER_HASH,
 		                         NULL) != FZN_CHAIN_ERR_WRONG_ROOT)
 			FAIL(138);
 
 		offer = fzn_revocation_offer_chain(rec, pair, 1);
-		if (fzn_revocation_merge(&estate, &offer, 1, root, &sign, &merged, NULL) != 1 ||
+		if (fzn_revocation_merge(&estate, &offer, 1, root, &sign, &CONSUMER_HASH, &merged, NULL) != 1 ||
 		    merged != FZN_CHAIN_OK)
 			FAIL(139);
 		if (estate.used != 1)
@@ -881,7 +885,7 @@ int main(void)
 			FAIL(122);
 		if (fzn_revocation_open(rev_bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
 			FAIL(123);
-		if (fzn_revocation_admit(&fresh, fzn_revocation_offer_root(rec), root, &sign,
+		if (fzn_revocation_admit(&fresh, fzn_revocation_offer_root(rec), root, &sign, &CONSUMER_HASH,
 		                         &manifest) != FZN_CHAIN_OK)
 			FAIL(124);
 		if (fzn_manifest_pending(&manifest, root) != 0)

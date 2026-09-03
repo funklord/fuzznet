@@ -11244,6 +11244,134 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 56. Withdrawal: undoing a revocation without a clock, 2026-09-03
+
+Revocation was permanent by construction. `issued_at` carries a NEVER BECOME
+AN ORDERING KEY argument -- nothing bounds a clock, so `UINT64_MAX` can never
+be beaten -- and sec 13's eviction note records that removing an entry
+un-revokes by accident with no safe policy. So a revoked host was locked out
+of that capability for good, and a consumer had no path back.
+
+fuzzypickles hit it as an outage and built the answer; this is that design in
+this library, settled with them over four exchanges. **The parts that are
+theirs: naming by hash, the storage rule, and the trap below. The parts that
+are mine: what the field names, and where the rule is enforced.**
+
+### The trap, which is why this is a field and not a flag
+
+Revoke a pair, withdraw it, revoke it again -- and the third record is
+**byte-identical to the first**. Same capability, grantee and issuer, the
+same `issued_at` at one-second resolution, and a deterministic signer. So it
+hashes to the record the withdrawal named, and every reader that refuses "the
+revocation this withdrawal undid" refuses it. The pair becomes revocable
+once, withdrawable once, and never revocable again.
+
+They found it with a test, from running it. **Confirmed here before
+building**: `fzn_revocation_encode` had no nonce and no chaining field, so
+nothing in the record varied between two revocations of one triple. The case
+in revocation_test.c asserts BOTH halves -- that the collision is real
+without chaining, and that naming the earlier record removes it -- because a
+test of only the second would pass against a field nothing needed.
+
+### `supersedes`, and why it is an identity rather than an order
+
+32 bytes inside the signed range. On a revocation, the previous revocation of
+the same triple, zero for a first. On a withdrawal, the revocation being
+undone, never zero.
+
+Theirs names "whatever the store currently holds for that pair", which is one
+meaning across both actions. Mine names **the previous revocation**, and they
+endorsed the change: under theirs the value depends on what the minting host
+holds, so host-local state leaks into a record's identity; under this one it
+is a property of the pair's history. Both give the only thing the collision
+needs, which is that the field differs across successive revocations.
+
+A per-triple counter was considered and rejected. It would be `issued_at`'s
+argument under another name -- a counter nobody can bound is the same hazard
+as a clock nobody can bound. **A hash is compared for equality and never for
+magnitude**, and that is the whole of why it is safe here.
+
+### The storage rule, which is theirs and is the sharp one
+
+**A withdrawal REPLACES the revocation at the same key rather than removing
+it, and every reader decides from the record's action.** Presence is no
+longer the answer.
+
+Removing the entry instead looks obviously right and is a loop. A re-relayed
+copy of the withdrawn revocation would be indistinguishable from a new one,
+so it would be re-admitted -- on every propagation round, from every peer
+that had not yet heard the withdrawal. Not a single resurrection but a
+standing one. Keeping the entry is what makes the refusal possible at all.
+
+**And the stale copy is recognised by the ARRIVING record's own hash**,
+compared against what the store holds -- never by reading what the arriving
+record says about itself. That rule is theirs and it is what makes their (a)
+and my (b) interchangeable: a record does not have to be honest about its own
+place in a sequence for this to work.
+
+### One entry field, three questions
+
+    while the entry holds a revocation   the hash of that record
+    once a withdrawal replaces it        the hash of the one it undid
+
+Which is "the most recent revocation for this triple" in both cases, and it
+answers all three questions the design asks: what a withdrawal must target,
+what a re-revocation must supersede, and which arriving record is the stale
+copy. The alternative was a `target` beside an `id`, only ever one live --
+two fields whose relationship is an invariant, which is the shape this file
+keeps recording a cost for.
+
+### Where the rule is enforced, which is the part worth copying
+
+**Admission, not the header.** `fzn_revocation_issue` mints a zero
+`supersedes`; a consumer re-revoking with it produces exactly the un-chained
+record the design forbids. `fzn_revocation_admit` refuses that against a
+store holding a withdrawal for the triple, with its own error code. The rule
+is a refusal a consumer meets rather than a sentence it must have read.
+
+`FZN_CHAIN_ERR_UNKNOWN_TARGET` is its own code because a withdrawal that
+overtakes the revocation it undoes is **ordinary propagation**, not a
+forgery: well formed, correctly signed, issued by somebody entitled, and
+simply early. Folding it into CHAIN_INVALID would make convergence look like
+an attack, and the right response is to fetch what is missing.
+
+**Who may withdraw is the same authority as revoking**, which is theirs and
+they argued it from an outage: original-revoker-only recreates the failure
+withdrawal exists to fix, one level up, the moment that host is lost or
+retired.
+
+### The predicate that had to split, and the loop it prevents
+
+`fzn_revocation_covers` answers an AUTHORIZATION question and must say no for
+a withdrawn entry. The deficit asks a REPLICATION question -- do I still need
+to fetch this pair -- and must say yes, because the history is already here.
+
+Asking the first where the second belongs loops: the deficit reports the pair
+missing, the consumer fetches the revocation, admission recognises the stale
+copy and stores nothing, and the next comparison reports it missing again --
+against every peer that has not heard the withdrawal, for ever.
+
+So `fzn_revocation_known` exists. **manifest.c's comment warned against
+exactly this** -- "there is no second predicate to drift from this one" --
+and the answer is that both go through one `find_entry` and differ only in
+what they make of the result. One definition of "same triple", two readings.
+
+### Three of the seven new guards were unheld when written
+
+Measured with `--probe` after the fact, which is the only reason it is known:
+the chain walk's action check, the manifest's omission of a withdrawn pair,
+and the deficit's predicate all SURVIVED. Each has a case now, and one of
+them needed a case built specifically to REACH it -- an un-chained reissue at
+the original instant is byte-identical to the first record and is refused as
+a stale copy by a different line, so the chaining guard was only reachable
+with a later `issued_at`.
+
+That is this file's own subject arriving in the work that was written about
+it. A mechanism added and not held is the thing being catalogued, and adding
+seven and holding four is the ordinary outcome rather than a lapse -- which
+is the argument for probing every guard as it is written rather than
+believing the tests that came with it.
+
 ## 55. A real defect, and a fix in the wrong layer, 2026-09-03
 
 `fzn_peer_groups_parse` scans a `Groups:` line to the next newline **or to

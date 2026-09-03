@@ -246,6 +246,23 @@ fzn_chain_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_rev
 	return FZN_CHAIN_OK;
 }
 
+/* Where this triple's entry is, or `used` for a triple this store has never
+ * held. ONE ENTRY PER TRIPLE is the invariant that makes this a lookup
+ * rather than a scan with a policy: a withdrawal replaces in place and a
+ * re-revocation replaces in place, so nothing ever appends a second row for
+ * a key that already has one. */
+static size_t find_entry(const fzn_revocation_store_t *store, const uint8_t *issuer,
+                         const fzn_cap_id_t *capability, const uint8_t *grantee)
+{
+	size_t i;
+
+	for (i = 0; i < store->used; i++) {
+		if (same(&store->entries[i], issuer, capability, grantee))
+			break;
+	}
+	return i;
+}
+
 int fzn_revocation_covers(const fzn_revocation_store_t *store,
                            const uint8_t issuer[FZN_PUBKEY_LEN],
                            const fzn_cap_id_t *capability,
@@ -323,11 +340,60 @@ int fzn_revocation_covers(const fzn_revocation_store_t *store,
 	if (!store->entries || !issuer || !capability || !grantee)
 		return 0;
 
-	for (size_t i = 0; i < store->used; i++) {
-		if (same(&store->entries[i], issuer, capability, grantee))
-			return 1;
+	/* PRESENCE IS NOT THE ANSWER; THE ENTRY'S ACTION IS.
+	 *
+	 * A withdrawal replaces the revocation at its key rather than removing
+	 * it -- chain.h says why at length -- so an entry may be sitting here
+	 * meaning the OPPOSITE of what it used to mean. A reader that stopped
+	 * at `same()` would answer "revoked" for every pair that was ever
+	 * revoked and has since been restored, which is the outage the whole
+	 * withdrawal design exists to end.
+	 *
+	 * There is one entry per triple, so this returns on the first match
+	 * either way; the answer it returns is the entry's action. */
+	{
+		size_t at = find_entry(store, issuer, capability, grantee);
+
+		return at < store->used && !store->entries[at].withdrawn;
 	}
-	return 0;
+}
+
+/* IS THIS TRIPLE IN THE STORE AT ALL, whatever it now says.
+ *
+ * A SECOND PREDICATE, WHICH THE COMMENT IN chain/manifest.c WARNED AGAINST,
+ * so it shares this one's matching rule rather than restating it: both go
+ * through `find_entry` and differ only in what they make of the answer.
+ * There is one definition of "same triple" and there always was.
+ *
+ * The two questions genuinely differ once a withdrawal can replace a
+ * revocation in place. `fzn_revocation_covers` answers an AUTHORIZATION
+ * question -- may this grantee act -- and must say no for a withdrawn
+ * entry. This answers a REPLICATION question -- do I still need to fetch
+ * this pair from a peer -- and must say yes, because the history is here
+ * and fetching it again achieves nothing.
+ *
+ * Reading one as the other loops. A deficit computed with `covers` would
+ * report every withdrawn pair as missing, the consumer would fetch the
+ * revocation, admission would recognise the stale copy and store nothing,
+ * and the deficit would report it missing again on the next comparison,
+ * for ever, against every peer that had not heard the withdrawal. */
+int fzn_revocation_known(const fzn_revocation_store_t *store,
+                          const uint8_t issuer[FZN_PUBKEY_LEN],
+                          const fzn_cap_id_t *capability,
+                          const uint8_t grantee[FZN_PUBKEY_LEN])
+{
+	if (!store)
+		return 0;
+	/* A store that cannot be scanned may hold this triple, and the safe
+	 * answer to "do I need to fetch it" is the one that does NOT generate
+	 * traffic against a store nobody can read -- the opposite polarity to
+	 * `fzn_revocation_covers`, and for the same kind of reason. */
+	if (corrupt(store))
+		return 1;
+	if (!store->entries || !issuer || !capability || !grantee)
+		return 0;
+
+	return find_entry(store, issuer, capability, grantee) < store->used;
 }
 
 void fzn_revocation_covers_chain(const fzn_revocation_store_t *store,
@@ -385,6 +451,16 @@ void fzn_revocation_covers_chain(const fzn_revocation_store_t *store,
 	for (size_t e = 0; e < store->used; e++) {
 		const fzn_revocation_t *entry = &store->entries[e];
 		size_t first = hop_count;
+
+		/* A WITHDRAWN ENTRY REVOKES NOTHING, the same rule
+		 * `fzn_revocation_covers` applies one question over. Both
+		 * functions read this store to answer an authorization
+		 * question and both must read the action rather than the
+		 * presence; a walk that skipped this would keep a restored
+		 * host locked out of every chain it appears in while the
+		 * single-triple query said it was fine. */
+		if (entry->withdrawn)
+			continue;
 
 		/* THE SMALLEST j, NOT ANY j, and the difference is the whole
 		 * of the entitlement rule. An issuer that grants at hop `j` is
@@ -506,13 +582,18 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
                                 fzn_revocation_offer_t offer,
                                 const uint8_t root[FZN_PUBKEY_LEN],
                                 const fzn_sign_ops_t *sign,
+                                const fzn_hash_ops_t *hash,
                                 fzn_manifest_state_t *manifest)
 {
 	fzn_revocation_record_t record = offer.record;
 	const uint8_t *msg;
+	uint8_t id[FZN_REVOCATION_ID_LEN];
 	size_t msg_len;
+	size_t at;
 
 	if (!store || !store->entries || !root || !sign || !sign->verify)
+		return FZN_CHAIN_ERR_MALFORMED;
+	if (!hash || !hash->hash)
 		return FZN_CHAIN_ERR_MALFORMED;
 	/* A view that was never opened. MALFORMED rather than SHAPE for the
 	 * reason chain.h gives: no bytes were wrong, the caller skipped
@@ -592,9 +673,85 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 	 * see that record before, which is the order dependence the other two
 	 * invariants exist to prevent, arrived at from the third side. Every
 	 * non-root admission carries its chain, every time. */
-	if (fzn_revocation_covers(store, fzn_revocation_issuer(record),
-	                          fzn_revocation_capability(record),
-	                          fzn_revocation_grantee(record))) {
+	/* THE RECORD'S IDENTITY, COMPUTED FROM THE BYTES THAT WERE SIGNED
+	 * ABOVE and not from anything a caller supplied beside them -- the
+	 * rule this module was rewritten around, applied to the one field
+	 * that is new. Computed after the signature so a forged record never
+	 * reaches the hash seam. */
+	if (!hash->hash(hash->ctx, id, sizeof(id), record.base, FZN_REVOCATION_LEN))
+		return FZN_CHAIN_ERR_MALFORMED;
+
+	at = find_entry(store, fzn_revocation_issuer(record),
+	                fzn_revocation_capability(record), fzn_revocation_grantee(record));
+
+	/* A WITHDRAWAL NEVER APPENDS. It answers a revocation this store is
+	 * holding, or it answers nothing -- and a withdrawal for a triple with
+	 * no entry is the ordinary out-of-order case rather than a bad record,
+	 * which is why it has its own error and not CHAIN_INVALID. A consumer
+	 * meeting it should fetch what it is missing.
+	 *
+	 * IT MUST NAME WHAT WE HOLD. Accepting one that named something else
+	 * would let a withdrawal of an OLD revocation undo a newer one that
+	 * had already superseded it -- the pair restored by a record whose
+	 * issuer was answering a different question. */
+	if (fzn_revocation_is_withdrawal(record)) {
+		if (at == store->used)
+			return FZN_CHAIN_ERR_UNKNOWN_TARGET;
+		if (!fzn_ct_memeq(store->entries[at].id, fzn_revocation_supersedes(record),
+		                  FZN_REVOCATION_ID_LEN))
+			return FZN_CHAIN_ERR_UNKNOWN_TARGET;
+		/* Idempotent: a second copy of the same withdrawal is what
+		 * "carried on contact" looks like when it works, exactly as
+		 * for a second copy of a revocation. `id` is unchanged --
+		 * it still names the revocation that was undone, which is
+		 * what a later reissue must supersede. */
+		store->entries[at].withdrawn = 1;
+		return FZN_CHAIN_OK;
+	}
+
+	if (at < store->used) {
+		fzn_revocation_t *entry = &store->entries[at];
+
+		if (entry->withdrawn) {
+			/* THE STALE COPY, AND IT IS RECOGNISED BY THE ARRIVING
+			 * RECORD'S OWN IDENTITY rather than by anything it
+			 * says about itself.
+			 *
+			 * A peer that has not heard the withdrawal relays the
+			 * revocation again, and it will keep doing so; every
+			 * peer that has not heard it does the same. Comparing
+			 * the arriving record's hash against what we hold
+			 * refuses it without needing the record to be honest
+			 * about its own place in the sequence -- which is why
+			 * this must NOT read `supersedes` here. That rule is
+			 * fuzzypickles', from running it.
+			 *
+			 * Ignored rather than refused: nothing is wrong, a
+			 * peer is behind. Reporting an error would make an
+			 * alarm out of the network converging. */
+			if (fzn_ct_memeq(id, entry->id, FZN_REVOCATION_ID_LEN))
+				return FZN_CHAIN_OK;
+
+			/* A GENUINELY NEW REVOCATION OVER A WITHDRAWAL MUST
+			 * CHAIN TO IT. This is where the rule lives: minting
+			 * with `fzn_revocation_issue` writes a zero
+			 * `supersedes`, which cannot equal what we hold, so
+			 * the un-chained re-revocation is refused here rather
+			 * than warned about in a header. */
+			if (!fzn_ct_memeq(fzn_revocation_supersedes(record), entry->id,
+			                  FZN_REVOCATION_ID_LEN))
+				return FZN_CHAIN_ERR_UNKNOWN_TARGET;
+
+			entry->withdrawn = 0;
+			memcpy(entry->id, id, FZN_REVOCATION_ID_LEN);
+			fzn_manifest_satisfy(manifest, fzn_revocation_issuer(record),
+			                     fzn_revocation_capability(record),
+			                     fzn_revocation_grantee(record));
+			return FZN_CHAIN_OK;
+		}
+	}
+
+	if (at < store->used) {
 		/* SETTLED HERE TOO, AND NOT ONLY WHERE SOMETHING IS STORED.
 		 * A deficit entry can coexist with a stored revocation
 		 * whenever the manifest was admitted against a different view
@@ -641,6 +798,14 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 	       FZN_PUBKEY_LEN);
 	memcpy(store->entries[store->used].issuer, fzn_revocation_issuer(record),
 	       FZN_PUBKEY_LEN);
+	/* The identity of the record just admitted, which is what a later
+	 * withdrawal must target and what a later reissue must supersede.
+	 * `withdrawn` is set explicitly rather than left to the caller's
+	 * array: a store is caller-owned memory and an entry appended into a
+	 * slot that happened to hold a nonzero byte here would be a revocation
+	 * that answers "not revoked" from the moment it is stored. */
+	memcpy(store->entries[store->used].id, id, FZN_REVOCATION_ID_LEN);
+	store->entries[store->used].withdrawn = 0;
 	store->used++;
 
 	/* What a manifest said this host was missing, it now holds. NULL is
@@ -656,6 +821,7 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 size_t fzn_revocation_merge(fzn_revocation_store_t *store,
                              const fzn_revocation_offer_t *offers, size_t count,
                              const uint8_t root[FZN_PUBKEY_LEN], const fzn_sign_ops_t *sign,
+                             const fzn_hash_ops_t *hash,
                              fzn_chain_err_t *err, fzn_manifest_state_t *manifest)
 {
 	size_t admitted = 0;
@@ -669,7 +835,7 @@ size_t fzn_revocation_merge(fzn_revocation_store_t *store,
 
 	for (size_t i = 0; i < count; i++) {
 		fzn_chain_err_t one =
-		        fzn_revocation_admit(store, offers[i], root, sign, manifest);
+		        fzn_revocation_admit(store, offers[i], root, sign, hash, manifest);
 
 		if (one == FZN_CHAIN_OK) {
 			admitted++;

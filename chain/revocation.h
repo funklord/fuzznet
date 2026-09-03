@@ -50,6 +50,10 @@
 
 #include "chain.h"
 
+/* For `fzn_hash_ops_t`: admission must compute a record's identity, and
+ * `blob/blob.h` already reaches for the same seam from outside session/. */
+#include "../session/commitment.h"
+
 /* THE REVOCATION LAYOUT. Big-endian, fixed width, no padding, fixed fields
  * first -- the same rules as the hop, for the same reason.
  *
@@ -66,11 +70,6 @@
  * signature made over a hop being presented as a revocation, and vice versa;
  * wire/bytes.h records what it cost fuzzypickles to learn that two record
  * types of the same length can have ONE SIGNATURE THAT VERIFIES AS BOTH. */
-/* The hash that names another record. 32 bytes, and spelled here rather than
- * borrowed from blob/ so that chain/ does not depend on it -- the same
- * independence chain/manifest.h keeps from chunk/. */
-#define FZN_REVOCATION_ID_LEN 32u
-
 #define FZN_REVOCATION_BODY_LEN 138u
 #define FZN_REVOCATION_LEN (FZN_REVOCATION_BODY_LEN + (size_t)FZN_SIG_LEN)
 
@@ -471,10 +470,30 @@ static inline fzn_revocation_offer_t fzn_revocation_offer_chain(fzn_revocation_r
  * storing path drained, a host that received the revocation before the
  * manifest would keep reporting it as missing for ever, having held it all
  * along. The two orders must converge, because a set is what this is. */
+/* `hash` computes a record's IDENTITY -- FZN_REVOCATION_ID_LEN bytes over
+ * the whole FZN_REVOCATION_LEN record -- and admission cannot work without
+ * it, which is why it is an argument rather than something a caller may
+ * leave out. Three questions need it and all three are equality tests on 32
+ * bytes: what a withdrawal targets, what a re-revocation supersedes, and
+ * which arriving record is the stale copy of one already withdrawn.
+ *
+ * THE WHOLE RECORD RATHER THAN ITS SIGNED RANGE. What a peer holds and
+ * relays is the whole record, so the identity that travels is the whole
+ * record's -- and a peer cannot make two records with one identity by
+ * varying only the signature, because the signature is deterministic over
+ * bytes the rest of the identity already covers.
+ *
+ * ADMISSION IS WHERE THE CHAINING RULE IS ENFORCED and not in the minting
+ * calls, which is the point of the split in `fzn_revocation_reissue`: a
+ * caller that re-revokes with `fzn_revocation_issue` mints a zero
+ * `supersedes`, and against a store holding a withdrawal for that triple
+ * this refuses it with FZN_CHAIN_ERR_UNKNOWN_TARGET. The rule is a refusal
+ * a consumer meets rather than a sentence it has to have read. */
 fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
                                 fzn_revocation_offer_t offer,
                                 const uint8_t root[FZN_PUBKEY_LEN],
                                 const fzn_sign_ops_t *sign,
+                                const fzn_hash_ops_t *hash,
                                 fzn_manifest_state_t *manifest);
 
 /* Absorb a batch, which is what "on contact" looks like. Returns the number
@@ -499,6 +518,7 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 size_t fzn_revocation_merge(fzn_revocation_store_t *store,
                              const fzn_revocation_offer_t *offers, size_t count,
                              const uint8_t root[FZN_PUBKEY_LEN], const fzn_sign_ops_t *sign,
+                             const fzn_hash_ops_t *hash,
                              fzn_chain_err_t *err, fzn_manifest_state_t *manifest);
 
 /* Whether `issuer` has withdrawn this capability from this key.
@@ -549,6 +569,15 @@ size_t fzn_revocation_merge(fzn_revocation_store_t *store,
  * first and the one that has to say what it does not cover.** Found by
  * sweeping every public function here whose name is a prefix of another's,
  * after the same shape turned up twice in one day elsewhere. */
+/* Whether this store holds ANY record for this triple, revocation or
+ * withdrawal. The replication question, as against
+ * `fzn_revocation_covers`'s authorization one -- see revocation.c for why
+ * they must not be confused and what confusing them costs. */
+int fzn_revocation_known(const fzn_revocation_store_t *store,
+                          const uint8_t issuer[FZN_PUBKEY_LEN],
+                          const fzn_cap_id_t *capability,
+                          const uint8_t grantee[FZN_PUBKEY_LEN]);
+
 int fzn_revocation_covers(const fzn_revocation_store_t *store,
                            const uint8_t issuer[FZN_PUBKEY_LEN],
                            const fzn_cap_id_t *capability,

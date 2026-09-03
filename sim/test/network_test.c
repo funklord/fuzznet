@@ -990,7 +990,7 @@ static unsigned sim_revoke_all(struct sim_net *net, fzn_revocation_record_t rec)
 		if (memcmp(anchor, net->root, FZN_PUBKEY_LEN) != 0)
 			mismatched++;
 		if (fzn_revocation_admit(&net->hosts[i].revocations, fzn_revocation_offer_root(rec), anchor,
-		                         &net->sign, NULL) != FZN_CHAIN_OK)
+		                         &net->sign, &net->hash, NULL) != FZN_CHAIN_OK)
 			refused++;
 	}
 
@@ -1243,7 +1243,7 @@ static void scenario_revocation_split(void)
 	/* ONE HOST HEARS IT. The other is the host that joined this morning,
 	 * or was offline, or sits behind somebody who declines to relay. */
 	check(fzn_revocation_admit(&told->revocations, fzn_revocation_offer_root(rec), net.root, &net.sign,
-	                           NULL) == FZN_CHAIN_OK,
+	                           &net.hash, NULL) == FZN_CHAIN_OK,
 	      "the signed revocation was refused by the host that was told");
 	check(untold->revocations.used == 0, "the host that was not told holds a revocation");
 
