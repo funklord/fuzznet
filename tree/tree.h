@@ -258,7 +258,23 @@ int fzn_tree_cmp(const fzn_tree_node_t *a, const fzn_tree_node_t *b);
 
 /* Every node claiming `parent`, in sibling order, into a caller-owned array
  * of pointers. A node claimed by two parents is reported under both, which
- * is the unresolved-conflict case working as described above. */
+ * is the unresolved-conflict case working as described above.
+ *
+ * A CONSUMER'S OWN STORE MUST BE KEYED BY (subject, issuer). Keying it by
+ * subject alone makes the second claim overwrite the first, which resolves
+ * the conflict this module refuses to resolve -- silently, and by arrival
+ * order, which is the one rule nobody would choose. `nodes` must be able to
+ * hold both claims or the two-parent case above cannot arise for it to
+ * report.
+ *
+ * SPELLED AS AN INSTRUCTION HERE BECAUSE THE ARGUMENT ABOVE DID NOT CARRY.
+ * The refusal is stated at length as a design position, and the first
+ * consumer read it, agreed with it, and then shipped a store keyed by
+ * subject -- having taken the section to be about whether to pick a winner
+ * rather than about how their own storage must be shaped. That is a
+ * reasonable reading of prose in a rationale, and it is why the mechanical
+ * consequence now sits next to the function instead. Reported by that
+ * consumer after they had found and fixed it themselves. */
 fzn_tree_err_t fzn_tree_children(const fzn_tree_node_t *nodes, size_t count,
                                  const uint8_t parent[FZN_TREE_ID_LEN],
                                  const fzn_tree_node_t **out, size_t out_cap,

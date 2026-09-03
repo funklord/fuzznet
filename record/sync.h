@@ -25,6 +25,24 @@
  * matching one -- which is what lets a host follow an issuer's configuration
  * and not its telemetry, or its coarse track and not its precise one.
  *
+ * THE LOG THIS REPLICATES MUST BE APPEND-ONLY. A precondition rather than a
+ * preference, and the one thing this header did not state.
+ *
+ * A position is a watermark and a plan is the ranges below it that are
+ * missing, so both need a contiguous prefix to mean anything. A store that
+ * COMPACTS has none: supersession replacing a record in place leaves `seq`
+ * with holes that are not gaps, and no watermark whose meaning survives the
+ * compaction. `fzn_sync_plan_fetch` cannot serve such a store -- it will ask
+ * for ranges that were deliberately removed, and keep asking.
+ *
+ * A COMPACTED STORE WANTS PER-ITEM REPLICATION INSTEAD: a signed push, an
+ * acknowledgement naming (subject, seq), and a ledger deciding who is
+ * behind. That works precisely because it never needs a prefix. Named here
+ * with the exclusion because the first consumer to hold such a store derived
+ * the exclusion from the semantics rather than reading it -- which is the
+ * slow way to arrive at it, and could as easily have ended in an
+ * implementation that looked correct until the first gap.
+ *
  * A NEW ISSUER IS NOT FOLLOWED AUTOMATICALLY. If a peer advertises an issuer
  * this host has never seen, that is reported as a COUNT and never as a
  * request. Fetching from a stranger because a peer mentioned them is how one

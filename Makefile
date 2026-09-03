@@ -368,25 +368,83 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
 # our backend. Only the backend is a subsystem.
 FZN_PERSIST_FILE ?= auto
 
+# THE PROBES ARE BUILT THE WAY THE LIBRARY IS, AND THERE IS A CONTROL
+# BESIDE THEM. Both halves were missing and both were reported from outside
+# this tree on 2026-09-03.
+#
+# They ran `$(CC)` bare -- no CPPFLAGS, no CFLAGS -- while every real rule
+# below passes both. A toolchain needing a flag the user keeps in CFLAGS
+# therefore BUILDS THE LIBRARY and FAILS THE PROBE, and the notice blames
+# the platform's POSIX for a flag mismatch. Demonstrated, not supposed.
+#
+# FZN_PROBE_CC IS THE POSITIVE CONTROL, and it is the rule the rest of this
+# tree runs on: an answer of "no" from a check with no control has not
+# discriminated anything. A CC that cannot link a trivial program fails both
+# probes below for a reason that has nothing to do with POSIX -- so when the
+# control fails, the notices say THAT rather than naming a cause nothing
+# tested. The comment beside those notices already argued that "off" and
+# "you have no POSIX" are different problems with different fixes; a
+# toolchain the probe was configured differently from is a third, and it was
+# being reported as the second.
+#
+# DEPENDENCY FLAGS ARE FILTERED OUT AND NOTHING ELSE IS. `-MMD` against
+# `-o /dev/null` tries to open `/dev/null.d` and the probe fails with
+# "Permission denied" -- measured here the moment CPPFLAGS was first passed
+# through, and caught by the control above rather than by noticing two
+# backends had quietly switched off. A probe wants the build's SEARCH and
+# LANGUAGE flags, which is where a `-I`, a `-D` or a `--target` lives; it
+# does not want its dependency bookkeeping.
+FZN_PROBE_CPPFLAGS := $(filter-out -MMD -MP -MD,$(CPPFLAGS))
+
+# IT CALLS THE C LIBRARY, and that is the whole of what makes it a control.
+# `int main(void){return 0;}` was the first version and it is useless here:
+# it links under `-nostdlib` -- no libc, no POSIX, nothing -- because it
+# references nothing, so the control passed and the notice went on blaming
+# POSIX for a toolchain with no C library at all. `strtol` is ISO C rather
+# than POSIX, so this separates "cannot link against libc" from "libc is
+# here and lacks the POSIX file API", which are the two the notices must
+# not confuse.
+FZN_PROBE_CC := $(shell printf '%s\n' '#include <stdlib.h>' \
+                 'int main(void){return (int)strtol("0", 0, 10);}' \
+                 | $(CC) $(FZN_PROBE_CPPFLAGS) $(CFLAGS) -x c - -o /dev/null 2>/dev/null \
+                 && echo yes || echo no)
+ifeq ($(FZN_PROBE_CC),yes)
+FZN_BLAME_POSIX := no POSIX file API was detected.
+FZN_BLAME_PWRITE := no positional read/write was detected.
+FZN_BLAME_FIX := Set FZN_PERSIST_FILE=1 to insist.
+FZN_BLAME_FIX_SP := Set FZN_SPOOL_FILE=1 to insist.
+else
+# THE ADVICE CHANGES WITH THE CAUSE, and that is the other half of the
+# report: insisting is the right next step when a platform genuinely lacks
+# the API and is useless when the toolchain could not be asked. The old
+# notice offered it either way, so following it turned a skip into a hard
+# error naming the same wrong cause.
+FZN_BLAME_POSIX := $(CC) could not link against the C library with this build's \
+own CPPFLAGS and CFLAGS, so the feature probe says nothing about POSIX.
+FZN_BLAME_PWRITE := $(FZN_BLAME_POSIX)
+FZN_BLAME_FIX := Fix the toolchain or the flags it is given -- insisting will not help.
+FZN_BLAME_FIX_SP := $(FZN_BLAME_FIX)
+endif
+
 # The probe: does this toolchain have the POSIX the backend uses? Compiled
 # rather than guessed from a platform name, because a name is a claim about
 # a toolchain and this is a question about one.
 FZN_PROBE_POSIX := $(shell printf '%s\n' '#define _POSIX_C_SOURCE 200809L' \
                     '#include <fcntl.h>' '#include <unistd.h>' \
                     'int main(void){int f=open("/dev/null",O_RDONLY);fsync(f);return close(f);}' \
-                    | $(CC) -x c - -o /dev/null 2>/dev/null && echo yes || echo no)
+                    | $(CC) $(FZN_PROBE_CPPFLAGS) $(CFLAGS) -x c - -o /dev/null 2>/dev/null && echo yes || echo no)
 
 ifeq ($(FZN_PERSIST_FILE),auto)
 ifeq ($(FZN_PROBE_POSIX),yes)
 PERSIST_FILE_ON := 1
 else
-PERSIST_FILE_SKIP := no POSIX file API was detected. Set FZN_PERSIST_FILE=1 to insist.
+PERSIST_FILE_SKIP := $(FZN_BLAME_POSIX) $(FZN_BLAME_FIX)
 endif
 else ifeq ($(FZN_PERSIST_FILE),1)
 ifeq ($(FZN_PROBE_POSIX),yes)
 PERSIST_FILE_ON := 1
 else
-$(error FZN_PERSIST_FILE=1 was asked for and no POSIX file API was detected. \
+$(error FZN_PERSIST_FILE=1 was asked for and $(FZN_BLAME_POSIX) \
         Set FZN_PERSIST_FILE=0 to build without it, or auto to let the probe decide)
 endif
 else ifeq ($(FZN_PERSIST_FILE),0)
@@ -431,19 +489,19 @@ FZN_PROBE_PWRITE := $(shell printf '%s\n' '#define _POSIX_C_SOURCE 200809L' \
                      '#include <fcntl.h>' '#include <unistd.h>' \
                      'int main(void){char b=0;int f=open("/dev/null",O_RDWR);' \
                      'if(pwrite(f,&b,1,0)<0){}if(pread(f,&b,1,0)<0){}fsync(f);return close(f);}' \
-                     | $(CC) -x c - -o /dev/null 2>/dev/null && echo yes || echo no)
+                     | $(CC) $(FZN_PROBE_CPPFLAGS) $(CFLAGS) -x c - -o /dev/null 2>/dev/null && echo yes || echo no)
 
 ifeq ($(FZN_SPOOL_FILE),auto)
 ifeq ($(FZN_PROBE_PWRITE),yes)
 SPOOL_FILE_ON := 1
 else
-SPOOL_FILE_SKIP := no positional read/write was detected. Set FZN_SPOOL_FILE=1 to insist.
+SPOOL_FILE_SKIP := $(FZN_BLAME_PWRITE) $(FZN_BLAME_FIX_SP)
 endif
 else ifeq ($(FZN_SPOOL_FILE),1)
 ifeq ($(FZN_PROBE_PWRITE),yes)
 SPOOL_FILE_ON := 1
 else
-$(error FZN_SPOOL_FILE=1 was asked for and no positional read/write was detected. \
+$(error FZN_SPOOL_FILE=1 was asked for and $(FZN_BLAME_PWRITE) \
         Set FZN_SPOOL_FILE=0 to build without it, or auto to let the probe decide)
 endif
 else ifeq ($(FZN_SPOOL_FILE),0)
