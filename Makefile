@@ -1726,7 +1726,37 @@ codegencheck: $(BUILD_DIR)/constant_time/constant_time.o \
 	    -x c - -c -o $(BUILD_DIR)/tool/ct_control.o
 	python3 tool/codegen_gate.py ct $(BUILD_DIR)/constant_time/constant_time.o \
 	                               $(BUILD_DIR)/tool/ct_control.o
-	python3 tool/codegen_gate.py wipe $(BUILD_DIR)/session/commitment.o
+	@# AND A CONTROL FOR THE WIPE CHECK, WHICH IS NOT BLIND ANYWHERE AND
+	@# GETS ONE ANYWAY.
+	@#
+	@# Measured 2026-09-03 over the same eight cells that found the ct
+	@# hole -- gcc and clang at -O1, -O2, -Os and -O3. All eight reject a
+	@# derive_root missing one `fzn_wipe` call and accept the real one.
+	@#
+	@# THE ASYMMETRY IS THE INTERESTING PART AND IT IS STRUCTURAL. The ct
+	@# check INFERS a property from instruction shape, and shape is a
+	@# function of the toolchain -- which is how clang -Os came to accept
+	@# a mutant. This one COUNTS CALLS TO A NAMED SYMBOL, and a call to an
+	@# external function is not something an optimiser is free to reshape
+	@# away: `fzn_wipe` lives in another translation unit, so without LTO
+	@# there is nothing to inline. That is the general form worth
+	@# remembering when a gate is written -- ask what the check is a
+	@# function of, not just whether it passes.
+	@#
+	@# It is here because "measured robust in a session" and "re-measured
+	@# every build" are different things, and this file has spent a day on
+	@# the difference. It costs one compile.
+	@n=`grep -c 'fzn_wipe(derived, sizeof(derived));' session/commitment.c`; \
+	if [ "$$n" -ne 1 ]; then \
+		echo "codegencheck: the wipe control deletes $$n lines of" >&2; \
+		echo "codegencheck: commitment.c, wanted exactly 1." >&2; \
+		exit 1; \
+	fi
+	@grep -v 'fzn_wipe(derived, sizeof(derived));' session/commitment.c \
+	  | $(CC) $(FZN_PROBE_CPPFLAGS) $(CFLAGS) -Isession \
+	    -x c - -c -o $(BUILD_DIR)/tool/wipe_control.o
+	python3 tool/codegen_gate.py wipe $(BUILD_DIR)/session/commitment.o \
+	                                 $(BUILD_DIR)/tool/wipe_control.o
 
 # COVERAGE-GUIDED FUZZING, which is a different instrument from `fuzz`.
 #

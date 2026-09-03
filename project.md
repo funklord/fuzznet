@@ -11717,6 +11717,32 @@ gate catching a generated file is the gate working; the answer was to stop
 generating the file rather than to add an exclusion, so the substitution now
 pipes straight into the compiler and only the object lands.
 
+### Why the wipe check was never blind, which is the transferable half
+
+The same eight cells were run against `check_wipe`, deleting one
+`fzn_wipe` call from `fzn_commitment_derive_root`. **All eight reject it.**
+It has a control now anyway -- "measured robust in a session" and
+"re-measured every build" are different things, and it costs one compile --
+but the null result is worth more than the control.
+
+**The two checks fail differently because they ask differently.** The ct
+check INFERS a property from instruction shape, and shape is a function of
+the toolchain: which is exactly how clang at -Os came to accept a mutant.
+The wipe check COUNTS CALLS TO A NAMED SYMBOL, and a call to an external
+function is not something an optimiser is free to reshape away -- `fzn_wipe`
+lives in another translation unit, so without LTO there is nothing to
+inline.
+
+Both are tripwires over compiled output and only one is toolchain-shaped.
+So the question to ask of a gate is not whether it passes but **what its
+verdict is a function of**, and "the compiler" is an answer that makes a
+green result a statement about the machine rather than about the source. A
+check anchored to something the language guarantees survives; one anchored
+to what the optimiser happened to emit does not.
+
+Visible in one build: under clang -Os the ct check skips and the wipe check
+discriminates, in the same run, on the same object files.
+
 ### And the pattern rule from sec 52 paid for itself three times
 
 Three of the five readings hit a snippet matching two sites while constructing
