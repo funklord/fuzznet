@@ -652,6 +652,23 @@ SABOTAGES = [
 		"\t\t/* sabotage */\n",
 		"a failed source leaves zeroes, not most of a nonce",
 	),
+	# THE CANONICAL TIMING MUTATION, and the only entry in this table that
+	# no assertion catches. Replacing the accumulator with an early exit
+	# preserves every RESULT and destroys the property the module exists
+	# for, so `secret_flow_test` passes with 10 of 10 -- measured. What
+	# fails is `codegencheck`, inside `make test`, on the object code.
+	#
+	# It is here to hold that gate to account rather than the function: a
+	# SURVIVED on some future machine would mean codegen_gate.py had
+	# skipped, which it does silently for a non-x86-64, sanitized or -O0
+	# object.
+	(
+		"ct-memeq-accumulator",
+		"constant_time/constant_time.c",
+		"\tfor (size_t i = 0; i < len; i++)\n\t\tdiff |= (uint8_t)(pa[i] ^ pb[i]);\n",
+		"\tfor (size_t i = 0; i < len; i++)\n\t\tif (pa[i] != pb[i])\n\t\t\treturn 0;\n",
+		"result-preserving, timing-destroying; caught by codegencheck alone",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

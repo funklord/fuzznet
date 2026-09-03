@@ -11606,6 +11606,37 @@ reaches the origin gate, passes, finds `guarded` clear, and answers
 GRANTED_UNGUARDED -- the failure the header opens with, arriving through the
 half-filled struct rather than the empty one.
 
+### The one entry no assertion catches, and how thin its margin is
+
+`fzn_ct_memeq`'s accumulate-then-compare loop is the module's whole reason
+for existing, and the mutation that matters preserves every RESULT while
+destroying the timing property: replace the accumulator with an early exit
+on first mismatch. Measured 2026-09-03 -- `secret_flow_test` passes 10 of
+10, and `codegencheck` fails inside `make test`. **The catch is entirely in
+the object code and no assertion sees it.**
+
+Pinned as `ct-memeq-accumulator`, and the entry is there to hold the GATE to
+account rather than the function. `tool/codegen_gate.py` exits 0 and reports
+SKIPPED for a non-x86-64, sanitized or `-O0` object, so a SURVIVED here on
+some future machine means the gate skipped rather than that the function
+changed.
+
+**Its margin is thinner than expected, and this is the measurement worth
+keeping.** The gate fails on four independent conditions and the reading
+that proposed this entry predicted three of them would fire. One did:
+
+    fzn_ct_memeq, early-exit mutant, gcc -Os:
+      4 conditional branch, 1 conditional set, 2 return, 1 accumulator store
+      codegen-gate: expected exactly 1 return, found 2
+
+The conditional set and the accumulator store both SURVIVED the canonical
+mutation -- gcc kept them. So the return count carried the catch alone, and
+a compiler that produced a single-return early exit, via a flag and a break,
+would leave three of four conditions satisfied. That is not a defect today
+and it is not a reason to add conditions on speculation; it is the number to
+have written down before somebody reads "four independent checks" and
+concludes the margin is four deep.
+
 ### And the pattern rule from sec 52 paid for itself three times
 
 Three of the five readings hit a snippet matching two sites while constructing
