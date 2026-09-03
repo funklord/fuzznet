@@ -977,6 +977,17 @@ int main(void)
 		fzn_revocation_record_t rec;
 		uint8_t rev_bytes[FZN_REVOCATION_LEN];
 		uint8_t grantee[FZN_PUBKEY_LEN];
+		/* A SECOND GRANTEE, for the gate legs below. The deficit is
+		 * about `grantee`, so a chain to that key would be refused as
+		 * REVOKED once the fetch lands and the gate leg would prove
+		 * nothing. The gate is scoped to a chain's GRANTORS, so a hop
+		 * `root` granted to anybody is refused while this host is behind
+		 * `root` -- and once the deficit drains, one granted to somebody
+		 * the revocation does not name verifies again. */
+		uint8_t other[FZN_PUBKEY_LEN];
+		uint8_t other_bytes[FZN_HOP_LEN];
+		fzn_chain_hop_t other_hop;
+		fzn_chain_t proven;
 		size_t man_len = 0, dropped = 1;
 
 		memset(grantee, 0x09, sizeof(grantee));
@@ -1009,6 +1020,43 @@ int main(void)
 			FAIL(119);
 		if (!fzn_ct_memeq(want[0].grantee, grantee, FZN_PUBKEY_LEN))
 			FAIL(120);
+
+		/* THE GATE, WHICH EVERY OTHER CALL IN THIS FILE PASSES NULL FOR.
+		 * `fzn_chain_verify` and `fzn_authz_decide` grew a manifest
+		 * argument when stage 2 landed, and a consumer reading this file
+		 * for the worked example found it spelled NULL at every call and
+		 * no demonstration that passing a state does anything. That is
+		 * the state the revocation block above exists to refuse --
+		 * declared, compiled against, never exercised -- one feature
+		 * later. */
+		memset(other, 0x0b, sizeof(other));
+		if (fzn_chain_mint(root, other, &cap, 100, FZN_NO_EXPIRY, 0, &sign,
+		                   other_bytes) != FZN_CHAIN_OK)
+			FAIL(300);
+		if (fzn_hop_open(other_bytes, FZN_HOP_LEN, &other_hop) != FZN_CHAIN_OK)
+			FAIL(300);
+
+		/* NO STATE IS NO GATE, and that must stay true or every consumer
+		 * that has not adopted the manifest has silently had its
+		 * behaviour changed by a feature it did not ask for. */
+		if (fzn_chain_verify(&other_hop, 1, root, &cap, 2000, &sign, &store, NULL,
+		                     &proven) != FZN_CHAIN_OK)
+			FAIL(301);
+		/* AND WITH THE STATE IT REFUSES what it cannot judge -- as
+		 * INCOMPLETE rather than REVOKED, because what is wrong is this
+		 * host's evidence and not the chain. */
+		if (fzn_chain_verify(&other_hop, 1, root, &cap, 2000, &sign, &store,
+		                     &manifest, &proven) != FZN_CHAIN_ERR_INCOMPLETE)
+			FAIL(301);
+		/* THE DECISION LAYER MUST HAND IT ON. A consumer calls
+		 * `fzn_authz_decide` rather than the verifier, so a gate only the
+		 * verifier honours is a gate no consumer has. Nothing held that
+		 * forwarding until `sim/test/network_test.c` did; project.md sec
+		 * 59 has the measurement. */
+		if (fzn_authz_decide(fzn_authz_requires(&cap, FZN_ORIGIN_ANY),
+		                     FZN_ORIGIN_REMOTE, &other_hop, 1, root, 2000, &sign,
+		                     &store, &manifest) != FZN_AUTHZ_DENIED)
+			FAIL(302);
 
 		/* THE RESUMABLE FORM, AND `from = 0` MUST BE THE PLAIN ONE.
 		 * `fzn_manifest_deficit` is defined as this call's zero case, so
@@ -1049,6 +1097,18 @@ int main(void)
 			FAIL(124);
 		if (fzn_manifest_pending(&manifest, root) != 0)
 			FAIL(125);
+
+		/* AND IT RECOVERS, which is what makes the gate a gate rather
+		 * than a brick: the deficit drained, so this host judges that
+		 * issuer's chains again. Both calls, because the consumer-facing
+		 * one is the one that had no holder. */
+		if (fzn_chain_verify(&other_hop, 1, root, &cap, 2000, &sign, &store,
+		                     &manifest, &proven) != FZN_CHAIN_OK)
+			FAIL(303);
+		if (fzn_authz_decide(fzn_authz_requires(&cap, FZN_ORIGIN_ANY),
+		                     FZN_ORIGIN_REMOTE, &other_hop, 1, root, 2000, &sign,
+		                     &store, &manifest) != FZN_AUTHZ_GRANTED_BY_CHAIN)
+			FAIL(304);
 
 		/* THE SERVE SIDE, and it must come after the admit above:
 		 * `fresh` is the store that now holds the one revocation, so a

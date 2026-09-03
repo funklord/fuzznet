@@ -11425,6 +11425,39 @@ delivered frame that the decision layer agrees with the verifier it wraps, and
 with a gated host on the network the two disagree the moment the forwarding is
 dropped. `tool/sabotage.py` carries it as `authz-drops-manifest`.
 
+### And a consumer following this tree's own example never met the gate
+
+`tool/consumer_check.c` exercises the manifest end to end -- follow, issue,
+open, admit, the deficit, the resumable form, the drain, the serve side -- and
+passed **NULL for the manifest at every one of its `fzn_chain_verify` and
+`fzn_authz_decide` calls.** So the file that exists to answer "can a consumer
+USE this" showed a consumer the argument spelled NULL everywhere and no
+demonstration that a state does anything.
+
+That is the state sec 56 describes the withdrawal API being in before that
+section closed it -- declared, compiled against, never called -- arriving one
+feature later in the same file. **The gate is the harder case of the two**,
+because a consumer that never calls a function notices nothing, while a
+consumer that passes NULL to an argument it has not understood believes it has
+the protection.
+
+Three legs beside the deficit the block already computes: no state is no gate,
+a state with a deficit refuses as INCOMPLETE, and once the deficit drains the
+same chain verifies again. Each leg is run twice, through `fzn_chain_verify`
+and through `fzn_authz_decide`, and the pairing is the point rather than
+thoroughness -- a consumer calls the decision layer, so a gate only the
+verifier honours is a gate no consumer has.
+
+Both discriminate, measured against `make installcheck` on a copy restored
+afterwards:
+
+    the gate removed              consumer_check: failed check 301
+    authz drops the manifest      consumer_check: failed check 302
+
+So the forwarding now has two independent holders -- the network harness and
+the consumer gate -- and the second is the one a consumer would have found
+first.
+
 **The lens that found it is the one this document keeps arriving at from the
 other end.** Sec 55's is that a precondition true and unwritten looks exactly
 like one nobody thought of; this is its sibling for arguments -- **a parameter
