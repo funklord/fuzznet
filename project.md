@@ -11531,6 +11531,65 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 94. seal.c wants nothing, and the report that hid it, 2026-09-05
+
+A sweep over `wire/seal.c`'s 21 uncovered lines, which ended with no test
+written. Recorded because the next reader will otherwise measure it again:
+the file reports 84.72% of 144 branches and **every one of the missing
+outcomes is either deliberate or not this file's code at all.**
+
+    196, 199, 212       the boundary where `fzn_seal_open` stops assuming
+    599, 602, 608       `validate` and `tag_covered` agree; the same pair
+                        again in `fzn_seal_close`
+    448, 450, 452       the same for `fzn_seal_build`'s three views
+    501                 the tag-dirty check, which verifies the setters
+                        above it were the coverage-aware ones
+    227-229, 486-496    NO CONDITIONAL IN seal.c AT ALL -- every branch on
+                        these lines belongs to an inlined generated
+                        accessor and is attributed to the call site
+    57                  its own condition is covered 52/48; the unreached
+                        branch is inside an inlined `situ_view_at`
+
+**The file had already said so, and said it to whoever came next**: "So:
+uncovered on purpose, provably unreachable today, and cheap. If a future
+reader is hunting the last few branches in this file, these are three of
+them and they are not worth the fixture it would take to force them."
+Reading that first would have saved the exercise, which is the cheapest
+lesson available here -- the comment was addressed to exactly the person
+who ignored it.
+
+### A per-line coverage report hides which branch is missing
+
+The part worth carrying. A case WAS written -- frames below
+`SITU_FZN_FRAME_SIZE_MIN`, on the hypothesis that the sub-minimum path was
+unreached -- and it passed, and it was nearly reported as a coverage win.
+
+It closed nothing. Branch counts before and after are identical, **122 of
+144 either way**, and only the execution count moved, 90270 to 90286.
+`seal_fuzz` already drives that check 52/48 with thousands of lengths.
+
+What made it invisible is that **line 57 carries four branch records** and
+the report names the line. Two are the length check, already covered; the
+unreached one is inside a function inlined into it. "Line 57 uncovered" was
+true before and after, and meant something different from what it looked
+like. Every per-line figure in sections 91 through 93 has the same property,
+and the ones acted on there were checked by re-measuring afterwards --
+which is what caught this one too.
+
+**The test was dropped rather than kept.** It made a named assertion where
+there was incidental fuzz traffic, which is a real if small argument, and it
+does not outweigh carrying a case whose comment has to open by saying it
+buys no coverage. A redundant test is not free: it reads as load-bearing to
+whoever meets it next.
+
+**What would change the answer**: `seal.c` is measured through inlining, so
+a build that did not inline the generated accessors would attribute those
+branches to `frame.h` where they belong and this file would report higher
+without a line of it changing. The percentage is a property of the
+toolchain here as much as of the source -- `evidence.md`'s "a gate's verdict
+can be a property of the toolchain" arriving in a coverage report rather
+than in a gate.
+
 ## 93. The two file backends, and three cases that ran nothing, 2026-09-04
 
 `persist_file.c` and `spool_file.c` were the library's two lowest-covered
