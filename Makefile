@@ -883,7 +883,7 @@ $(MONO_PROV): $(BUILD_DIR)/sim/test/provision_test.o \
               $(BUILD_DIR)/spool/plan.o \
               $(BUILD_DIR)/link/link.o $(BUILD_DIR)/sched/sched.o \
               $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/wire/relay.o \
-              $(BUILD_DIR)/version/version.o \
+              $(BUILD_DIR)/version/version.o $(BUILD_DIR)/persist/persist.o \
               $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@

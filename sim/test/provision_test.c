@@ -84,6 +84,7 @@
 #include "../../wire/relay.h"
 #include "../../link/link.h"
 #include "../../sched/sched.h"
+#include "../../persist/persist.h"
 #include "../../prekey/prekey.h"
 #include "../../session/agree.h"
 #include "../../session/agree_monocypher.h"
@@ -1390,6 +1391,209 @@ int main(void)
 			      "the snapshot did not start at the first registered link, so which "
 			      "links a short one hides is not the ones the header describes");
 		}
+	}
+
+	/* ---- A RESTART, AND THE CONVERSATION SURVIVING IT ----------------- */
+
+	/* What a provisioned device must not lose when it is switched off: the
+	 * anchor it scanned, the peer it pinned, its own agreement secret, and
+	 * where its ratchet had got to. `persist/` packs exactly those four.
+	 *
+	 * THE HEADLINE IS THE LAST ONE. A chain restored from bytes must derive
+	 * the same next message key the live sender does, or the reboot ends
+	 * the conversation as surely as the forged datagram two legs up -- and
+	 * for the same reason, since a ratchet moves one way. Nothing in this
+	 * tree has sealed a frame under a key derived from a RESTORED chain. */
+	{
+		uint8_t blob[FZN_PERSIST_MAX];
+		size_t blob_len = 0;
+		fzn_trust_t restored_anchor;
+		fzn_prekey_peer_t restored_peer;
+		fzn_agree_secret_t restored_sk;
+		uint8_t dev_send[FZN_CHAIN_KEY_LEN], dev_recv[FZN_CHAIN_KEY_LEN];
+		uint8_t spo_send[FZN_CHAIN_KEY_LEN], spo_recv[FZN_CHAIN_KEY_LEN];
+
+		/* ---- the anchor, and a case nothing had reached ----------- */
+
+		/* `fzn_persist_trust_pack` and `_open` are called nowhere else
+		 * in this tree: `scenario_restart` lets the anchor ride inside
+		 * the peer blob. This file has the only genuinely PINNED anchor
+		 * there is, which makes it the place both arms can be taken. */
+		check(fzn_persist_trust_pack(&anchor, blob, sizeof(blob), &blob_len) ==
+		              FZN_PERSIST_OK,
+		      "the device could not persist the anchor it scanned");
+		check(fzn_persist_trust_open(blob, blob_len, &restored_anchor) ==
+		              FZN_PERSIST_OK,
+		      "the persisted anchor will not open");
+		check(fzn_trust_source_of(&restored_anchor) == FZN_TRUST_PINNED,
+		      "an anchor that was scanned came back saying it had merely been adopted, "
+		      "which is the provenance laundering persist.c refuses by way of a file");
+		check(fzn_trust_adopted_at(&restored_anchor) == 0u,
+		      "and it came back with a moment of first contact it never had");
+		check(fzn_trust_root(&restored_anchor)
+		              && memcmp(fzn_trust_root(&restored_anchor), root_pub,
+		                        FZN_PUBKEY_LEN) == 0,
+		      "the restored anchor points at a different root");
+
+		/* A STORED PINNED ANCHOR WHOSE ROOT IS UNUSABLE IS REFUSED, and
+		 * until now that refusal was never executed: every fixture in
+		 * the tree packs an ADOPTED trust, so a zeroed body only ever
+		 * reached the other arm. An all-zero root is a permanent
+		 * successful anchor to a key nobody holds, and `trust.c` records
+		 * it as a defect it once had -- so a file that arrives that way
+		 * must not restore. */
+		{
+			uint8_t corrupt[FZN_PERSIST_MAX];
+			size_t at;
+			int found = 0;
+
+			memcpy(corrupt, blob, blob_len);
+			for (at = 0; at + FZN_PUBKEY_LEN <= blob_len; at++) {
+				if (memcmp(corrupt + at, root_pub, FZN_PUBKEY_LEN) != 0)
+					continue;
+				memset(corrupt + at, 0, FZN_PUBKEY_LEN);
+				found = 1;
+				break;
+			}
+			check(found,
+			      "the packed anchor does not contain the root it was packed from, so "
+			      "the corruption below lands somewhere else and proves nothing");
+			check(fzn_persist_trust_open(corrupt, blob_len, &restored_anchor) ==
+			              FZN_PERSIST_ERR_SHAPE,
+			      "a stored anchor whose root is all zeroes restored, so a host coming "
+			      "back from a truncated or tampered file is permanently anchored to a "
+			      "key nobody holds");
+		}
+
+		/* ---- the peer it pinned, and its own secret --------------- */
+
+		check(fzn_persist_peer_pack(&device_view_of_sponsor, blob, sizeof(blob),
+		                            &blob_len) == FZN_PERSIST_OK,
+		      "the device could not persist the peer it pinned");
+		fzn_prekey_peer_init(&restored_peer);
+		check(fzn_persist_peer_open(blob, blob_len, &restored_peer) == FZN_PERSIST_OK,
+		      "the persisted peer will not open");
+		check(memcmp(restored_peer.prekey, device_view_of_sponsor.prekey,
+		             FZN_AGREE_PUBLIC_LEN) == 0,
+		      "the sponsor's prekey did not survive the restart");
+		check(fzn_trust_source_of(&restored_peer.trust) == FZN_TRUST_PINNED,
+		      "the peer came back adopted rather than scanned");
+
+		memset(&restored_sk, 0, sizeof(restored_sk));
+		check(fzn_persist_secret_pack(&device_sk, blob, sizeof(blob), &blob_len) ==
+		              FZN_PERSIST_OK,
+		      "the device could not persist its agreement secret");
+		check(fzn_persist_secret_open(blob, blob_len, &agree_ops, &restored_sk) ==
+		              FZN_PERSIST_OK,
+		      "the persisted agreement secret will not open");
+
+		/* AND THE RESTORED SECRET STILL AGREES. Comparing the public key
+		 * would only say the bytes came back; deriving the session again
+		 * says the secret did. */
+		{
+			uint8_t key_again[FZN_AEAD_KEY_LEN], ck_again[FZN_COMMITMENT_KEY_LEN];
+
+			check(fzn_session_establish(&restored_sk, &agree_ops, &hash_ops,
+			                            device_pub, root_pub, restored_peer.prekey,
+			                            key_again, ck_again) == FZN_SESSION_OK,
+			      "a restored secret could not establish the session again");
+			check(memcmp(key_again, key_device, FZN_AEAD_KEY_LEN) == 0,
+			      "a restarted device derived a different session key, so the peer it "
+			      "was provisioned to talk to can no longer hear it");
+			check(memcmp(ck_again, ck_device, FZN_COMMITMENT_KEY_LEN) == 0,
+			      "and a different commitment key");
+		}
+
+		/* ---- the ratchet across the restart ----------------------- */
+
+		check(fzn_session_chains(&hash_ops, key_device, device_pub, root_pub, dev_send,
+		                         dev_recv) == FZN_SESSION_OK, "chains");
+		check(fzn_session_chains(&hash_ops, key_sponsor, root_pub, device_pub, spo_send,
+		                         spo_recv) == FZN_SESSION_OK, "chains");
+
+		{
+			fzn_ratchet_chain_t sender, receiver, moved, restored_chain;
+			uint8_t mk_send[FZN_MESSAGE_KEY_LEN], mk_recv[FZN_MESSAGE_KEY_LEN];
+			static const uint8_t AFTER[] = "sent after the sponsor rebooted";
+			uint8_t frame[FZN_SEAL_OVERHEAD + sizeof(AFTER)];
+			size_t frame_len = 0;
+			fzn_send_t what;
+			fzn_opened_t got;
+
+			fzn_ratchet_init(&sender, dev_send, 0u);
+			fzn_ratchet_init(&receiver, spo_recv, 0u);
+
+			/* One message before the restart, so the chains are
+			 * somewhere other than where they started -- a restart
+			 * tested at position zero would restore a chain that
+			 * `fzn_ratchet_init` could have produced. */
+			check(fzn_ratchet_advance(&hash_ops, &sender, 0u, mk_send, &moved, NULL, 0,
+			                          NULL, NULL) == FZN_RATCHET_OK, "sender");
+			sender = moved;
+			check(fzn_ratchet_advance(&hash_ops, &receiver, 0u, mk_recv, &moved, NULL,
+			                          0, NULL, NULL) == FZN_RATCHET_OK, "receiver");
+			receiver = moved;
+			check(memcmp(mk_send, mk_recv, FZN_MESSAGE_KEY_LEN) == 0,
+			      "the two sides disagreed before the restart, so nothing after it "
+			      "would mean anything");
+
+			/* THE RESTART. The live chain is packed, scrubbed, and
+			 * restored from bytes. */
+			check(fzn_persist_chain_pack(&receiver, blob, sizeof(blob), &blob_len) ==
+			              FZN_PERSIST_OK,
+			      "the sponsor could not persist its receive chain");
+			memset(&receiver, 0, sizeof(receiver));
+			memset(&restored_chain, 0, sizeof(restored_chain));
+			check(fzn_persist_chain_open(blob, blob_len, &restored_chain) ==
+			              FZN_PERSIST_OK,
+			      "the persisted chain will not open");
+
+			/* AND THE CONVERSATION CONTINUES. The sender never
+			 * restarted and does not know the receiver did; the
+			 * frame it sends next must open under a key derived from
+			 * bytes that came off a disk. */
+			check(fzn_ratchet_advance(&hash_ops, &sender, 1u, mk_send, &moved, NULL, 0,
+			                          NULL, NULL) == FZN_RATCHET_OK,
+			      "the sender could not advance past the restart");
+			sender = moved;
+
+			memset(&what, 0, sizeof(what));
+			what.sender = device_pub;
+			what.capability = cap.b;
+			what.payload = AFTER;
+			what.payload_len = sizeof(AFTER);
+			what.expires_at = 2000u;
+			what.msg = 300u;
+			what.index = 0u;
+			what.chunks = 1u;
+			what.kind = 1u;
+			check(fzn_seal_build(frame, sizeof(frame), &frame_len, &what, mk_send,
+			                     ck_device, &hash_ops, &rng_ops,
+			                     &aead_ops) == FZN_SEAL_OK,
+			      "the post-restart frame would not seal");
+
+			check(fzn_ratchet_advance(&hash_ops, &restored_chain, 1u, mk_recv, &moved,
+			                          NULL, 0, NULL, NULL) == FZN_RATCHET_OK,
+			      "the restored chain could not advance, so the restart lost the "
+			      "position");
+			check(memcmp(mk_send, mk_recv, FZN_MESSAGE_KEY_LEN) == 0,
+			      "a chain restored from bytes derives a different message key from "
+			      "the sender that never restarted");
+			check(fzn_seal_open(frame, frame_len, mk_recv, ck_sponsor, &hash_ops,
+			                    &aead_ops, &got) == FZN_SEAL_OK,
+			      "a frame sent after the restart did not open under the restored "
+			      "chain, so switching a provisioned device off ends the conversation");
+			check(got.payload_len == sizeof(AFTER)
+			              && memcmp(got.payload, AFTER, sizeof(AFTER)) == 0,
+			      "it opened and the payload is not the one that was sent");
+
+			fzn_wipe(mk_send, sizeof(mk_send));
+			fzn_wipe(mk_recv, sizeof(mk_recv));
+			fzn_ratchet_wipe(&sender);
+			fzn_ratchet_wipe(&restored_chain);
+		}
+
+		fzn_agree_secret_wipe(&restored_sk);
 	}
 
 	fzn_agree_secret_wipe(&device_sk);
