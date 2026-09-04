@@ -242,6 +242,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              record/test/sync_fuzz.c \
              provision/test/provision_test.c \
              disclose/test/disclose_test.c \
+             disclose/test/disclose_fuzz.c \
              persist/test/persist_test.c \
              persist/test/persist_kat_test.c \
              spool/test/spool_test.c \
@@ -353,7 +354,8 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/blob/test/blob_fuzz \
              $(BUILD_DIR)/prekey/test/prekey_fuzz \
              $(BUILD_DIR)/provision/test/provision_fuzz \
-             $(BUILD_DIR)/record/test/sync_fuzz
+             $(BUILD_DIR)/record/test/sync_fuzz \
+             $(BUILD_DIR)/disclose/test/disclose_fuzz
 
 # ---------------------------------------------------------------------------
 # SUBSYSTEMS: detected, overridable, and loud about which.
@@ -1230,6 +1232,13 @@ $(BUILD_DIR)/record/test/sync_fuzz: $(BUILD_DIR)/record/test/sync_fuzz.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+$(BUILD_DIR)/disclose/test/disclose_fuzz: $(BUILD_DIR)/disclose/test/disclose_fuzz.o \
+                                           $(BUILD_DIR)/disclose/disclose.o \
+                                           $(BUILD_DIR)/blob/blob.o \
+                                           $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # disclose/ links blob because the convention is a leaf preimage and the tree
 # over those leaves is blob's -- sec 72 measured that the tree and the proofs
 # carry over to small fields and that blob's SEALING does not, which is why
@@ -1771,7 +1780,8 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/blob/test/blob_fuzz \
              $(BUILD_DIR)/prekey/test/prekey_fuzz \
              $(BUILD_DIR)/provision/test/provision_fuzz \
-             $(BUILD_DIR)/record/test/sync_fuzz
+             $(BUILD_DIR)/record/test/sync_fuzz \
+             $(BUILD_DIR)/disclose/test/disclose_fuzz
 
 fuzz: $(FUZZ_BINS)
 	@for f in $(FUZZ_BINS); do echo "== $$f $(CASES)"; $$f $(CASES) || exit 1; done

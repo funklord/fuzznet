@@ -11493,6 +11493,61 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 89. The harness the new module owed, 2026-09-04
+
+Sec 77 argued that every decoder of stranger bytes in this library has a fuzz
+harness, and listed them. Sec 87 added `disclose/` hours later, which made
+that sentence false and the module its only exception.
+
+`fzn_disclose_verify` is a decoder in the strict sense: **every argument
+arrives from the sender** -- the committed field, the index it claims, the
+number of fields the statement has, the sibling hashes, and the root. A
+recipient verifies nothing about any of them beforehand, because there is
+nothing to verify. A disclosure is a claim.
+
+### The properties are about binding
+
+A sanitizer catches an overrun, and `make check` now runs this suite under one
+(sec 86). None of these would be caught by either:
+
+    a disclosure is bound to its PLACE       what verifies at i must verify
+                                             nowhere else
+    a disclosure is bound to its STATEMENT   a different field count is a
+                                             different root
+    a refusal hands back nothing             not the last field that verified
+    what comes back is a VIEW                the caller's buffer past the
+                                             salt, not a copy
+
+The place check offers **every** wrong index rather than sampling one, which
+`MAX_FIELDS` of eight makes affordable and which matters because a
+recipient told the street is the bearing has been told something specific
+rather than something random.
+
+    20000 cases   20000 verified      20000 refused
+                   4892 bent fields    4983 bent salts
+                   4396 bent proofs    5729 bent roots
+                  17501 wrong indexes 18047 wrong counts
+                   1833 empty fields
+
+### And a sabotage in another module was caught by it
+
+Three, each substitution asserted before the run:
+
+    the leaf ignores the salt                    FAILED on case 1
+    verify hands the field back before proving   FAILED on case 1
+    blob's root stops binding the field count    FAILED on case 15
+
+**The third is in `blob/blob.c`, not in `disclose/`.** Removing `leaf_count`
+from `finalise_root` makes every statement fold the same number into its root,
+so a disclosure verifies under a count it does not have -- and the harness for
+a module two directories away is what says so.
+
+That is worth more than a third caught sabotage. It shows the statement
+binding is not `disclose/`'s property at all: it is blob's finaliser,
+contributed by fuzzypickles for content addressing, load-bearing here for a
+reason nobody had in mind when it was written. **A harness that only exercised
+its own module could not have noticed it going.**
+
 ## 88. The three guard operands, and what removing them actually does, 2026-09-04
 
 Instructed by the copyright holder. Sec 75 listed three branches in
