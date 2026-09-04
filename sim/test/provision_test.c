@@ -76,6 +76,7 @@
 #include "../../chunk/reassembly.h"
 #include "../../record/record.h"
 #include "../../record/journal.h"
+#include "../../record/sync.h"
 #include "../../state/state.h"
 #include "../../log/log.h"
 #include "../../blob/blob.h"
@@ -1594,6 +1595,120 @@ int main(void)
 		}
 
 		fzn_agree_secret_wipe(&restored_sk);
+	}
+
+	/* ---- WHAT EACH SIDE HOLDS, AND WHAT IT WILL GIVE ------------------ */
+
+	/* `record/sync.h` moves positions rather than bytes: a digest of what I
+	 * hold, and from it either what I WANT from you or what I can GIVE
+	 * you. `fzn_sync_plan_offer` -- the giving half -- is called nowhere in
+	 * this tree.
+	 *
+	 * DELIVERY IS THE RECORD LEG'S PATH and is not repeated here. What this
+	 * leg is about is the comparison that decides which records to send,
+	 * and the one input to it that is dangerous. */
+	{
+		enum { POSITIONS = 4u, REQUESTS = 4u };
+		static const uint32_t STREAM = FZN_STREAM_RESERVED + 2u;
+
+		fzn_journal_t mine, theirs_j;
+		fzn_journal_entry_t mine_e[2], theirs_e[2];
+		fzn_sync_position_t theirs[POSITIONS], ours[POSITIONS];
+		fzn_sync_request_t want[REQUESTS], give[REQUESTS];
+		fzn_sync_plan_t plan;
+		size_t their_count, our_count, dropped = 1u;
+		uint64_t seq;
+
+		check(fzn_journal_init(&mine, mine_e, 2u) == FZN_JOURNAL_OK, "journal");
+		check(fzn_journal_init(&theirs_j, theirs_e, 2u) == FZN_JOURNAL_OK, "journal");
+
+		/* The device is three records ahead of the sponsor on its own
+		 * stream. Both follow it -- an issuer is never adopted
+		 * implicitly, which is what `fzn_journal_anchor` is for. */
+		check(fzn_journal_anchor(&mine, device_pub, STREAM, 0u) == FZN_JOURNAL_OK,
+		      "the device could not follow its own stream");
+		check(fzn_journal_anchor(&theirs_j, device_pub, STREAM, 0u) == FZN_JOURNAL_OK,
+		      "the sponsor could not follow the device's stream");
+		for (seq = 1u; seq <= 3u; seq++)
+			check(fzn_journal_admit(&mine, device_pub, STREAM, seq) ==
+			              FZN_JOURNAL_OK,
+			      "the device could not advance its own position");
+		check(fzn_journal_admit(&theirs_j, device_pub, STREAM, 1u) == FZN_JOURNAL_OK,
+		      "the sponsor could not take the one record it has");
+
+		their_count = fzn_sync_digest(&theirs_j, theirs, POSITIONS, &dropped);
+		check(their_count == 1u && dropped == 0u,
+		      "the sponsor's digest is not the one position it holds");
+		check(theirs[0].received == 1u,
+		      "the sponsor's digest does not report the position it is actually at");
+
+		our_count = fzn_sync_digest(&mine, ours, POSITIONS, &dropped);
+		check(our_count == 1u && dropped == 0u, "the device's digest is short");
+
+		/* THE TWO HALVES MUST AGREE ON THE SAME GAP. What the sponsor
+		 * asks for and what the device would offer are the same two
+		 * records seen from either end, and that is the property worth
+		 * asserting rather than either plan alone. */
+		memset(&plan, 0, sizeof(plan));
+		check(fzn_sync_plan_fetch(&theirs_j, ours, our_count, 8u, want, REQUESTS,
+		                          &plan) == FZN_SYNC_OK,
+		      "the sponsor could not plan what it is missing");
+		check(plan.truncated == 0u && plan.positions_ignored == 0u,
+		      "the fetch plan did not fit or ignored part of the digest");
+		check(want[0].from == 2u && want[0].count == 2u,
+		      "the sponsor asked for something other than the two records it lacks");
+
+		memset(&plan, 0, sizeof(plan));
+		check(fzn_sync_plan_offer(&mine, theirs, their_count, 8u, give, REQUESTS,
+		                          &plan) == FZN_SYNC_OK,
+		      "the device could not plan what it can give");
+		check(give[0].from == want[0].from && give[0].count == want[0].count,
+		      "what the device offers is not what the sponsor asked for, so the two "
+		      "halves of one comparison disagree about the same gap");
+		check(memcmp(give[0].issuer, device_pub, FZN_PUBKEY_LEN) == 0
+		              && give[0].stream == STREAM,
+		      "the offer names a different stream than the one that is behind");
+
+		/* THE AMPLIFIER, REFUSED. This is the assertion the leg exists
+		 * for. An absent position used to mean "received = 0" and so
+		 * "send me your whole history", which made the cheapest message
+		 * there is the most expensive one to answer: `sync.h` records a
+		 * zero-length digest producing 64 ranges over 32,768 records --
+		 * near 22 MB -- from an input with nothing in it. A stream the
+		 * peer did not mention is COUNTED, never offered. */
+		memset(&plan, 0, sizeof(plan));
+		check(fzn_sync_plan_offer(&mine, theirs, 0u, 8u, give, REQUESTS, &plan) ==
+		              FZN_SYNC_OK,
+		      "an empty digest was an error rather than an answer");
+		check(plan.request_count == 0u,
+		      "a peer that said nothing was offered records anyway, which is the "
+		      "amplifier: the cheapest message there is buying somebody else's "
+		      "bandwidth");
+		check(plan.unknown_issuers > 0u,
+		      "and the stream it did not mention was not even counted, so a consumer "
+		      "cannot tell an empty digest from an up-to-date peer");
+
+		/* AN UNBOUNDED REQUEST IS REFUSED AT THE DOOR, because "send me
+		 * everything from 1" is a request a stranger can make of every
+		 * host at once. */
+		memset(&plan, 0, sizeof(plan));
+		check(fzn_sync_plan_offer(&mine, theirs, their_count, 0u, give, REQUESTS,
+		                          &plan) != FZN_SYNC_OK,
+		      "an offer with no bound per request was planned");
+		memset(&plan, 0, sizeof(plan));
+		check(fzn_sync_plan_fetch(&theirs_j, ours, our_count, 0u, want, REQUESTS,
+		                          &plan) != FZN_SYNC_OK,
+		      "a fetch with no bound per request was planned");
+
+		/* AND THE BOUND IS HONOURED RATHER THAN ANNOUNCED: asking for
+		 * one record at a time gives one, and the next comparison asks
+		 * for the next window. */
+		memset(&plan, 0, sizeof(plan));
+		check(fzn_sync_plan_offer(&mine, theirs, their_count, 1u, give, REQUESTS,
+		                          &plan) == FZN_SYNC_OK,
+		      "a bounded offer would not plan");
+		check(give[0].count == 1u,
+		      "an offer bounded at one record per request offered more than one");
 	}
 
 	fzn_agree_secret_wipe(&device_sk);
