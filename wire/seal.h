@@ -115,6 +115,26 @@ typedef enum fzn_seal_err {
 	 * answers no. Same split as FZN_SEAL_ERR_NO_NONCE against a null
 	 * `rng`. */
 	FZN_SEAL_ERR_HASH = -7,
+	/* The AEAD seam refused while sealing. Distinct from FZN_SEAL_ERR_TAG,
+	 * which is a tag that did not verify while OPENING -- a statement about
+	 * a peer's frame -- where this is a statement about this host's own
+	 * backend, exactly as ERR_HASH is against ERR_COMMITMENT above.
+	 *
+	 * Added 2026-09-04 with the seam's return value. It cannot occur with
+	 * the Monocypher binding, whose `crypto_aead_lock` cannot fail; it is
+	 * for a consumer whose own AEAD can -- a token that is absent, a key
+	 * handle that has expired, an engine returning an error.
+	 *
+	 * `fzn_seal_build` WIPES THE WHOLE FRAME before returning this, because
+	 * it copied the plaintext in and therefore owns it. `fzn_seal_close`
+	 * does not, because the plaintext there is the caller's own and was
+	 * already in the caller's buffer before this library was called.
+	 * session/aead.h has the reasoning and project.md sec 85 the incident.
+	 *
+	 * A NULL `aead` or `aead->seal` is FZN_SEAL_ERR_MALFORMED instead, on
+	 * the same split as ERR_HASH against a null `hash`: this is a seam that
+	 * is present and answers no. */
+	FZN_SEAL_ERR_AEAD = -8,
 } fzn_seal_err_t;
 
 /* What opening a frame yields: pointers into the caller's own buffer, which

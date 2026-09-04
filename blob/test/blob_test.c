@@ -149,14 +149,15 @@ static void tag_over(const uint8_t *key, const uint8_t *nonce, const uint8_t *aa
 	}
 }
 
-static void stub_seal(void *ctx, const uint8_t key[FZN_AEAD_KEY_LEN],
-                      const uint8_t nonce[FZN_AEAD_NONCE_LEN], const uint8_t *aad,
-                      size_t aad_len, uint8_t *text, size_t text_len,
-                      uint8_t tag[FZN_AEAD_TAG_LEN])
+static int stub_seal(void *ctx, const uint8_t key[FZN_AEAD_KEY_LEN],
+                     const uint8_t nonce[FZN_AEAD_NONCE_LEN], const uint8_t *aad,
+                     size_t aad_len, uint8_t *text, size_t text_len,
+                     uint8_t tag[FZN_AEAD_TAG_LEN])
 {
 	(void)ctx;
 	stream(key, nonce, text, text_len);
 	tag_over(key, nonce, aad, aad_len, text, text_len, tag);
+	return 1;
 }
 
 static int stub_open(void *ctx, const uint8_t key[FZN_AEAD_KEY_LEN],
@@ -842,6 +843,82 @@ static void test_the_tree_refuses_when_it_is_full(void)
  * failing at the root is the answer that says the descent ran; a SHAPE or a
  * MALFORMED would mean it was refused before ever walking.
  */
+/* An AEAD that refuses and writes nothing -- a token that is absent, a key
+ * handle that has expired. Impossible to express before 2026-09-04, when
+ * `fzn_aead_ops.seal` returned void. project.md sec 85. */
+static int refusing_seal(void *ctx, const uint8_t key[FZN_AEAD_KEY_LEN],
+                         const uint8_t nonce[FZN_AEAD_NONCE_LEN], const uint8_t *aad,
+                         size_t aad_len, uint8_t *text, size_t text_len,
+                         uint8_t tag[FZN_AEAD_TAG_LEN])
+{
+	(void)ctx;
+	(void)key;
+	(void)nonce;
+	(void)aad;
+	(void)aad_len;
+	(void)text;
+	(void)text_len;
+	(void)tag;
+	return 0;
+}
+
+/*
+ * A REFUSED SEAL MUST NOT LEAVE THE LEAF IN THE CALLER'S BUFFER.
+ *
+ * `fzn_blob_leaf_seal` copies the plaintext into `out` and encrypts it in
+ * place, so until the seam could report a refusal a backend that failed left
+ * the leaf's contents sitting there with `*out_len` set and FZN_BLOB_OK
+ * returned. **A sealed leaf is what a seeder hands to strangers by design**,
+ * which makes this the worse of the library's two seal call sites -- a frame
+ * at least goes to one peer who refuses it on the tag.
+ *
+ * The wipe is this function's to do because the copy was: `out` held nothing
+ * of the caller's before the call. `wire/seal.c`'s `fzn_seal_close`
+ * deliberately does not wipe on the same refusal, because there the plaintext
+ * is the caller's own and was already in the caller's buffer.
+ */
+static void test_a_refused_seal_leaves_no_leaf_behind(void)
+{
+	fzn_aead_ops_t refusing = { refusing_seal, stub_open, NULL };
+	uint8_t content_key[FZN_BLOB_KEY_LEN];
+	uint8_t plain[FZN_BLOB_LEAF_SIZE];
+	uint8_t out[FZN_BLOB_SEALED_MAX];
+	size_t out_len = 0xa5a5u;
+	size_t i;
+	int found;
+
+	memset(content_key, 0x4d, sizeof(content_key));
+	for (i = 0; i < sizeof(plain); i++)
+		plain[i] = (uint8_t)(0xC0u + (i % 7u));
+	memset(out, 0xee, sizeof(out));
+
+	CHECK(fzn_blob_leaf_seal(&HASH, &refusing, content_key, 0, plain, sizeof(plain), out,
+	                         sizeof(out), &out_len) == FZN_BLOB_ERR_HASH,
+	      "a refusing aead was not reported by fzn_blob_leaf_seal");
+
+	found = 0;
+	for (i = 0; i + sizeof(plain) <= sizeof(out); i++) {
+		if (memcmp(out + i, plain, sizeof(plain)) == 0)
+			found = 1;
+	}
+	CHECK(!found,
+	      "a refused seal left the leaf's plaintext in the caller's buffer -- and a "
+	      "sealed leaf is what a seeder hands to strangers");
+
+	/* THE CONTROL. Both checks above are refusals, and a fixture that had
+	 * stopped sealing would satisfy them: an untouched buffer contains no
+	 * plaintext either. With a working AEAD the same call must succeed AND
+	 * the plaintext must be gone from `out`, because it was encrypted. */
+	memset(out, 0xee, sizeof(out));
+	out_len = 0;
+	CHECK(fzn_blob_leaf_seal(&HASH, &AEAD, content_key, 0, plain, sizeof(plain), out,
+	                         sizeof(out), &out_len) == FZN_BLOB_OK,
+	      "the same call with a working aead did not seal, so the refusals above "
+	      "pass for the wrong reason");
+	CHECK(out_len == sizeof(plain) + FZN_BLOB_LEAF_OVERHEAD,
+	      "a sealed leaf is the wrong length");
+}
+
 static void test_the_deepest_legal_proof_is_walked(void)
 {
 	uint8_t leaf[FZN_BLOB_HASH_LEN], root[FZN_BLOB_HASH_LEN];
@@ -958,6 +1035,7 @@ int main(void)
 	test_a_strangers_lengths_are_refused_as_shape();
 	test_a_refusing_hash_carries_its_refusal_out();
 	test_the_tree_refuses_when_it_is_full();
+	test_a_refused_seal_leaves_no_leaf_behind();
 	test_the_deepest_legal_proof_is_walked();
 	test_every_guard_refuses_its_own_argument();
 	test_the_suite_can_tell_pass_from_fail();

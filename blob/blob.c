@@ -165,8 +165,26 @@ fzn_blob_err_t fzn_blob_leaf_seal(const fzn_hash_ops_t *hash, const fzn_aead_ops
 	 * Without that a peer could swap one leaf's commitment for another's
 	 * and the AEAD would not notice, leaving the commitment check
 	 * comparing two things the sender never bound together. */
-	aead->seal(aead->ctx, key, nonce, out, FZN_COMMITMENT_LEN, out + FZN_COMMITMENT_LEN,
-	           plain_len, out + FZN_COMMITMENT_LEN + plain_len);
+	/* THE RESULT IS READ, AND A REFUSAL WIPES `out`. This function COPIED
+	 * the plaintext into `out` two lines above and encrypts it in place, so
+	 * a seal that refused and could not say so left the leaf's contents
+	 * sitting in the caller's buffer with `*out_len` set and FZN_BLOB_OK
+	 * returned -- and a sealed leaf is what a seeder hands to STRANGERS by
+	 * design, which makes this the worse of the two call sites.
+	 * project.md sec 85.
+	 *
+	 * The wipe is this function's to do because the copy was: `out` held
+	 * nothing of the caller's before it was called. `wire/seal.c`'s
+	 * `fzn_seal_close` deliberately does NOT wipe on the same refusal,
+	 * because there the plaintext is the caller's own and was already
+	 * there. session/aead.h has the split. */
+	if (!aead->seal(aead->ctx, key, nonce, out, FZN_COMMITMENT_LEN,
+	                out + FZN_COMMITMENT_LEN, plain_len,
+	                out + FZN_COMMITMENT_LEN + plain_len)) {
+		fzn_wipe(out, plain_len + FZN_BLOB_LEAF_OVERHEAD);
+		fzn_wipe(key, sizeof(key));
+		return FZN_BLOB_ERR_HASH;
+	}
 
 	*out_len = plain_len + FZN_BLOB_LEAF_OVERHEAD;
 

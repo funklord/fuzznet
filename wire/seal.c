@@ -607,8 +607,31 @@ fzn_seal_err_t fzn_seal_close(uint8_t *frame, size_t frame_len,
 
 		if (covered_len < head_len)
 			return FZN_SEAL_ERR_SHAPE;
-		aead->seal(aead->ctx, key, situ_fzn_head_nonce_ptr(hv), frame + covered_at,
-		           head_len, frame + covered_at + head_len, covered_len - head_len, tag);
+		/* THE RESULT IS READ, WHICH IT COULD NOT BE UNTIL 2026-09-04.
+		 * `text` is read and written, so the plaintext is already
+		 * sitting where the ciphertext goes; a seal that refused and
+		 * could not say so left it there under a finalised tag and an
+		 * FZN_SEAL_OK. project.md sec 85.
+		 *
+		 * RETURNING BEFORE `tag_finalize` LEAVES THE FRAME UNFINISHED,
+		 * and that is all it does. A first version of this comment said
+		 * the generated code's dirty bit gave a second, independent
+		 * refusal -- a caller ignoring this return being unable to
+		 * transmit anyway. IT DOES NOT: `msg` is a local of this
+		 * function and never crosses the API, so the bit is discarded
+		 * with the frame view and the caller holds only bytes.
+		 *
+		 * Written before it was checked, and caught by the test added
+		 * for this path asserting the protection and not finding it.
+		 * The return value is the only thing between a refused seal and
+		 * a caller transmitting its own plaintext, which is what
+		 * `session/aead.h` says and what this paragraph briefly and
+		 * wrongly softened. project.md sec 85. */
+		if (!aead->seal(aead->ctx, key, situ_fzn_head_nonce_ptr(hv),
+		                frame + covered_at, head_len,
+		                frame + covered_at + head_len, covered_len - head_len,
+		                tag))
+			return FZN_SEAL_ERR_AEAD;
 	}
 
 	/* The layout tracks whether the tag is stale; say it is not. A message
@@ -649,6 +672,8 @@ const char *fzn_seal_err_str(fzn_seal_err_t err)
 		return "caller buffer too small";
 	case FZN_SEAL_ERR_HASH:
 		return "hash seam refused";
+	case FZN_SEAL_ERR_AEAD:
+		return "the aead refused while sealing";
 	}
 
 	return "unknown";

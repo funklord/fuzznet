@@ -11487,6 +11487,101 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 85. The seal seam returns a value, 2026-09-04
+
+Instructed by the copyright holder. Sec 75 found `fzn_aead_ops.seal`
+returning `void`, so a consumer's AEAD backend that failed had no way to say
+so; sec 75 stated the precondition and left the signature alone, because an
+API break across three consumers' vtables is not an implementation detail.
+The decision came back: change it.
+
+### What the change is
+
+    void (*seal)(...)   ->   int (*seal)(...)      nonzero on success
+
+Eight implementations, two call sites, one new error code, and the reason it
+mattered restated where somebody adding a backend will be standing.
+
+### The two call sites differ, and ownership is why
+
+Both copy the plaintext into a buffer and encrypt IN PLACE, so a refusal
+leaves the plaintext where the ciphertext was going. **Refusing is therefore
+not enough on its own -- the question is who owns the buffer.**
+
+`fzn_seal_build` COPIED the capability and payload in, so it owns them, and it
+already wiped the whole frame whenever `fzn_seal_close` failed. The new
+refusal plugs into machinery that was there.
+
+`fzn_seal_close` seals a buffer the CALLER already wrote. It refuses without
+wiping: the plaintext is the caller's own, in the caller's buffer, and
+destroying it would be this library disposing of something it never put there.
+**A caller of `fzn_seal_close` that ignores the return transmits its own
+plaintext, and nothing can fix that for them.**
+
+`fzn_blob_leaf_seal` is `build`'s shape -- it copies in, so it wipes -- and it
+is the worse of the two sites, because a sealed leaf is what a seeder hands to
+STRANGERS by design where a frame goes to one peer who refuses it on the tag.
+
+`FZN_BLOB_ERR_HASH` needed no addition: its documentation already read *"A
+hash or AEAD vtable refused, or was absent"*. The code was waiting for a seam
+that could report it.
+
+### A claim I wrote into the source before checking it
+
+The first version of the comment at `wire/seal.c`'s call site said returning
+before `situ_fzn_frame_tag_finalize` gave a **second, independent refusal** --
+the generated code marking a dirty-tagged message untransmittable, so a caller
+ignoring the return still could not put the frame on the wire. "Two
+independent refusals for one fault."
+
+**It is not true.** The `situ_msg_t` is a local of `fzn_seal_close` and never
+crosses the API; it is discarded when the function returns, and the caller
+holds bytes and a status. The return value is the only thing there is.
+
+It was caught by the test written for that path asserting the protection and
+failing to find it -- and the honest response was to correct the comment and
+assert what IS true, rather than to soften the test until it passed. What the
+test asserts now is that a refused `fzn_seal_close` **touches nothing**: a
+refusal that had half-written the buffer would be worse than one that did not
+run, because the caller's plaintext would be neither intact nor sealed and
+nothing would say which bytes were which.
+
+`session/aead.h` had it right all along -- *"the one case this seam cannot fix
+for anybody"* -- and the seal.c comment briefly and wrongly softened it. Third
+time today that a sentence went into a file ahead of the check, and the first
+time the check was already being written.
+
+### What the mechanical half was proved by
+
+Seven stub implementations converted by script, each with its own assertion:
+that the file contained exactly one `static void <name>(`, that the body had
+no early return to relocate, that the continuation lines were space-aligned
+and lost exactly one space as `void` became `int`, and that the function
+afterwards ended in `return 1;`. The compiler is the backstop -- an
+`int (*)(...)` field cannot take a `void (*)(...)` function, and gcc makes
+that an error rather than a warning, which is what makes a missed vtable
+in a consumer's tree a failed build rather than something in the clear.
+
+### And a latent bug in the test that had never mattered
+
+`seal_test.c`'s shape-refusal block captured `what.index` and restored
+`what.chunks` to a literal `1`, leaving `index == chunks == 1`, which is
+`index >= chunks` and refuses every later build. Inert for as long as nothing
+followed that block. The new cases are the first thing to follow it, and they
+failed until it was fixed.
+
+**A fixture that leaves shared state invalid is a landmine for whoever adds
+the next case**, and it is invisible until they do -- the same shape as a
+guard that cannot fire, one layer up.
+
+### Watched failing
+
+    blob refuses but does not wipe      the leaf's plaintext found in `out`
+    seal.c ignores the refusal again    payload in the clear, close silent
+
+Both are sabotage entries now, so the two guards are held by something that
+runs rather than by this section.
+
 ## 84. The lens three findings pointed at, swept, 2026-09-04
 
 Three of the night's findings were one shape, arrived at from three
@@ -12380,7 +12475,12 @@ indistinguishable from success, and the difference is whether the plaintext
 goes on the wire. `evidence.md`: an unstated precondition and an absent one
 look identical from outside, and the second reader pays either way.
 
-**Not done: the signature.** `void (*seal)` to `int (*seal)` is a change to
+**~~Not done: the signature.~~ DONE 2026-09-04 on the holder's instruction --
+sec 85 has the change, the two call sites' different treatment of the
+plaintext, and a claim it caught me writing into the source before checking
+it.** What follows was the case for it.
+
+`void (*seal)` to `int (*seal)` is a change to
 this library's public API. It breaks every consumer's vtable -- three of them,
 each needing `return 1;` -- and fuzznet is at 0.1.0 with consumers building
 against it. The option, its cost and whose it is: change the seam so a failure

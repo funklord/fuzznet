@@ -123,13 +123,14 @@ static void stub_tag(const uint8_t *key, const uint8_t *nonce, const uint8_t *aa
 		tag[i] = (uint8_t)(mix(acc + (uint32_t)i) >> 13);
 }
 
-static void sim_seal(void *ctx, const uint8_t *key, const uint8_t *nonce, const uint8_t *aad,
-                     size_t aad_len, uint8_t *text, size_t text_len, uint8_t *tag)
+static int sim_seal(void *ctx, const uint8_t *key, const uint8_t *nonce, const uint8_t *aad,
+                    size_t aad_len, uint8_t *text, size_t text_len, uint8_t *tag)
 {
 	(void)ctx;
 	for (size_t i = 0; i < text_len; i++)
 		text[i] = (uint8_t)(text[i] ^ key[i % FZN_AEAD_KEY_LEN]);
 	stub_tag(key, nonce, aad, aad_len, text, text_len, tag);
+	return 1;
 }
 
 static int sim_open(void *ctx, const uint8_t *key, const uint8_t *nonce, const uint8_t *aad,

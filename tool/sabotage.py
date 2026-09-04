@@ -856,6 +856,27 @@ SABOTAGES = [
 		"a stream the peer did not mention must be counted and never offered: offering from zero makes the cheapest message the amplifier",
 	),
 	(
+		"seal-aead-refusal-read",
+		"wire/seal.c",
+		"\t\tif (!aead->seal(aead->ctx, key, situ_fzn_head_nonce_ptr(hv),\n"
+		"\t\t                frame + covered_at, head_len,\n"
+		"\t\t                frame + covered_at + head_len, covered_len - head_len,\n"
+		"\t\t                tag))\n"
+		"\t\t\treturn FZN_SEAL_ERR_AEAD;\n",
+		"\t\t(void)aead->seal(aead->ctx, key, situ_fzn_head_nonce_ptr(hv),\n"
+		"\t\t                 frame + covered_at, head_len,\n"
+		"\t\t                 frame + covered_at + head_len, covered_len - head_len,\n"
+		"\t\t                 tag);\n",
+		"the seal is in place, so a backend that refuses and is not heard leaves the payload and the capability on the wire in the clear under a finalised tag",
+	),
+	(
+		"blob-seal-refusal-wipes",
+		"blob/blob.c",
+		"\t\tfzn_wipe(out, plain_len + FZN_BLOB_LEAF_OVERHEAD);\n",
+		"",
+		"a refused leaf seal must not leave the plaintext in the caller's buffer, because a sealed leaf is what a seeder hands to strangers",
+	),
+	(
 		"provision-envelope-verified",
 		"provision/provision.c",
 		"\tif (!verifier->verify(verifier->ctx, card.root, card.base, FZN_PROVISION_BODY_LEN,\n"

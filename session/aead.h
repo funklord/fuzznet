@@ -55,56 +55,40 @@
  * this library unauthenticated plaintext, which is the single thing the gate
  * above it exists to prevent.
  *
- * `seal` RETURNS NOTHING, AND AN IMPLEMENTATION THAT CAN FAIL MUST NOT USE
- * THIS SEAM AS IT STANDS. Stated here because it was not stated anywhere:
- * every other seam in this library says which way round its result is, and
- * this is the one with no result to describe -- which reads as an omission
- * and is not the same as a decision.
+ * `seal` RETURNS NONZERO ON SUCCESS AND 0 ON FAILURE, the same way round as
+ * every other seam here. It returned `void` until 2026-09-04, and the change
+ * is the copyright holder's decision recorded in project.md sec 85.
  *
- * The consequence is measured rather than argued, and it is not a denial of
- * service. `text` is read AND written, so this seam is IN PLACE BY SIGNATURE:
- * for an in-place AEAD the plaintext must already sit in the buffer that will
- * hold the ciphertext, so both callers `memcpy` it there first --
- * `wire/seal.c` for a frame's capability and payload, `blob/blob.c` for a
- * leaf. A `seal` that does nothing therefore leaves the plaintext exactly
- * where the ciphertext was going to be. Neither caller can tell.
- * `fzn_seal_build` finalises the tag and returns FZN_SEAL_OK, and
- * `fzn_blob_leaf_seal` returns FZN_BLOB_OK with `*out_len` set.
+ * WHY IT COULD NOT STAY VOID. Both callers copy the plaintext into the
+ * caller's buffer and encrypt IN PLACE -- `text` is read and written, so this
+ * seam is in place by signature -- which means a `seal` that did nothing left
+ * the plaintext exactly where the ciphertext was going, and neither caller
+ * could tell. `fzn_seal_build` finalised the tag and returned FZN_SEAL_OK;
+ * `fzn_blob_leaf_seal` set `*out_len` and returned FZN_BLOB_OK. Probed with a
+ * `seal` whose body was `(void)` casts and nothing else, the frame went out
+ * with its payload and its capability in the clear.
  *
- * THE IN-PLACE HALF IS WHAT MAKES IT PLAINTEXT rather than garbage, and the
- * two have to be named together. A caller sealing between SEPARATE buffers
- * would leave its output unwritten on a failed seal -- still a bug, and a far
- * smaller one. fuzzypickles measured exactly that in their own tree and
- * reported it here; their escape is not available to these call sites while
- * the signature has one `text` pointer.
+ * It was not a live defect: Monocypher's `crypto_aead_lock` returns void and
+ * cannot fail, and it is what all three consumers use. The seam exists so
+ * that they need not, and a token that is absent, a key handle that has
+ * expired or a hardware engine returning an error are all things a
+ * consumer's own backend does and the old signature could not express.
  *
- * Probed 2026-09-04 with a `seal` that does nothing at all:
- *
- *     fzn_seal_build returned      : 0 (ok)
- *     bytes the caller will send   : 168
- *     PAYLOAD in the clear         : YES
- *     CAPABILITY in the clear      : YES
- *
- * The blob case is the worse of the two, because a sealed leaf is the thing
- * a seeder hands to strangers by design.
- *
- * NOTHING IS EXPOSED TODAY, and that is why this is a warning rather than a
- * defect report: Monocypher's `crypto_aead_lock` returns void and cannot
- * fail, and it is what all three consumers use. The seam exists so that they
- * need not -- and a token that is absent, a key handle that has expired or a
- * hardware engine returning an error are all things a consumer's own backend
- * does and this signature cannot express.
- *
- * So, until the signature says otherwise: an implementation whose sealing can
- * fail must ABORT rather than return, because returning is indistinguishable
- * from success and the difference is whether the plaintext goes on the wire.
- * Whether the seam should instead return an int is a question about this
- * library's public API and belongs to whoever owns it. project.md sec 75.
- */
+ * WHAT A CALLER GETS ON A REFUSAL, and the two differ because ownership
+ * differs. `fzn_seal_build` COPIED the plaintext in, so it owns the cleanup
+ * and wipes the whole frame before returning FZN_SEAL_ERR_AEAD.
+ * `fzn_seal_close` seals a buffer the CALLER already wrote, so it refuses
+ * without wiping -- the plaintext there is the caller's own, in the caller's
+ * buffer, and destroying it would be this library disposing of something it
+ * never put there. A caller of `fzn_seal_close` that ignores the return
+ * transmits its own plaintext, which is the one case this seam cannot fix
+ * for anybody. `fzn_blob_leaf_seal` is `build`'s shape: it copies in, so it
+ * wipes.
+  */
 typedef struct fzn_aead_ops {
-	void (*seal)(void *ctx, const uint8_t key[FZN_AEAD_KEY_LEN],
-	             const uint8_t nonce[FZN_AEAD_NONCE_LEN], const uint8_t *aad, size_t aad_len,
-	             uint8_t *text, size_t text_len, uint8_t tag[FZN_AEAD_TAG_LEN]);
+	int (*seal)(void *ctx, const uint8_t key[FZN_AEAD_KEY_LEN],
+	            const uint8_t nonce[FZN_AEAD_NONCE_LEN], const uint8_t *aad, size_t aad_len,
+	            uint8_t *text, size_t text_len, uint8_t tag[FZN_AEAD_TAG_LEN]);
 	int (*open)(void *ctx, const uint8_t key[FZN_AEAD_KEY_LEN],
 	            const uint8_t nonce[FZN_AEAD_NONCE_LEN], const uint8_t *aad, size_t aad_len,
 	            uint8_t *text, size_t text_len, const uint8_t tag[FZN_AEAD_TAG_LEN]);

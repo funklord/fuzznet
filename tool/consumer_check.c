@@ -219,10 +219,10 @@ static int consumer_hash(void *ctx, uint8_t *out, size_t out_len, const uint8_t 
  * hash in this consumer uses. */
 static const fzn_hash_ops_t CONSUMER_HASH = { consumer_hash, NULL };
 
-static void consumer_seal(void *ctx, const uint8_t key[FZN_AEAD_KEY_LEN],
-                          const uint8_t nonce[FZN_AEAD_NONCE_LEN], const uint8_t *aad,
-                          size_t aad_len, uint8_t *text, size_t text_len,
-                          uint8_t tag[FZN_AEAD_TAG_LEN])
+static int consumer_seal(void *ctx, const uint8_t key[FZN_AEAD_KEY_LEN],
+                         const uint8_t nonce[FZN_AEAD_NONCE_LEN], const uint8_t *aad,
+                         size_t aad_len, uint8_t *text, size_t text_len,
+                         uint8_t tag[FZN_AEAD_TAG_LEN])
 {
 	size_t i;
 
@@ -233,6 +233,7 @@ static void consumer_seal(void *ctx, const uint8_t key[FZN_AEAD_KEY_LEN],
 		text[i] = (uint8_t)(text[i] ^ key[i % FZN_AEAD_KEY_LEN] ^ nonce[i % FZN_AEAD_NONCE_LEN]);
 	for (i = 0; i < FZN_AEAD_TAG_LEN; i++)
 		tag[i] = (uint8_t)(key[i] ^ nonce[i] ^ (uint8_t)text_len);
+	return 1;
 }
 
 static int consumer_open(void *ctx, const uint8_t key[FZN_AEAD_KEY_LEN],

@@ -15,13 +15,21 @@
 
 #include "monocypher.h"
 
-static void mono_seal(void *ctx, const uint8_t key[FZN_AEAD_KEY_LEN],
-                      const uint8_t nonce[FZN_AEAD_NONCE_LEN], const uint8_t *aad,
-                      size_t aad_len, uint8_t *text, size_t text_len,
-                      uint8_t tag[FZN_AEAD_TAG_LEN])
+/* ALWAYS 1, AND THAT IS NOT LAZINESS. `crypto_aead_lock` returns void: it
+ * cannot fail, having no allocation, no state and no key handle to lose. So
+ * this binding has nothing to report and says so unconditionally.
+ *
+ * The seam takes an int anyway because it exists for backends that are not
+ * this one -- a token, an HSM, an engine with a key that can expire -- and
+ * project.md sec 85 has what the void signature cost before it was changed. */
+static int mono_seal(void *ctx, const uint8_t key[FZN_AEAD_KEY_LEN],
+                     const uint8_t nonce[FZN_AEAD_NONCE_LEN], const uint8_t *aad,
+                     size_t aad_len, uint8_t *text, size_t text_len,
+                     uint8_t tag[FZN_AEAD_TAG_LEN])
 {
 	(void)ctx;
 	crypto_aead_lock(text, tag, key, nonce, aad, aad_len, text, text_len);
+	return 1;
 }
 
 static int mono_open(void *ctx, const uint8_t key[FZN_AEAD_KEY_LEN],

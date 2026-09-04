@@ -120,14 +120,15 @@ static void tag_over(const uint8_t *key, const uint8_t *nonce, const uint8_t *aa
 	}
 }
 
-static void stub_seal(void *ctx, const uint8_t key[FZN_AEAD_KEY_LEN],
-                      const uint8_t nonce[FZN_AEAD_NONCE_LEN], const uint8_t *aad,
-                      size_t aad_len, uint8_t *text, size_t text_len,
-                      uint8_t tag[FZN_AEAD_TAG_LEN])
+static int stub_seal(void *ctx, const uint8_t key[FZN_AEAD_KEY_LEN],
+                     const uint8_t nonce[FZN_AEAD_NONCE_LEN], const uint8_t *aad,
+                     size_t aad_len, uint8_t *text, size_t text_len,
+                     uint8_t tag[FZN_AEAD_TAG_LEN])
 {
 	(void)ctx;
 	stream(key, nonce, text, text_len);
 	tag_over(key, nonce, aad, aad_len, text, text_len, tag);
+	return 1;
 }
 
 static int stub_open(void *ctx, const uint8_t key[FZN_AEAD_KEY_LEN],

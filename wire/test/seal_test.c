@@ -100,13 +100,38 @@ static void stub_tag(const uint8_t *key, const uint8_t *nonce, const uint8_t *aa
 	memcpy(out, acc, FZN_AEAD_TAG_LEN);
 }
 
-static void stub_seal(void *ctx, const uint8_t *key, const uint8_t *nonce, const uint8_t *aad,
-                      size_t aad_len, uint8_t *text, size_t text_len, uint8_t *tag)
+static int stub_seal(void *ctx, const uint8_t *key, const uint8_t *nonce, const uint8_t *aad,
+                     size_t aad_len, uint8_t *text, size_t text_len, uint8_t *tag)
 {
 	(void)ctx;
 	for (size_t i = 0; i < text_len; i++)
 		text[i] = (uint8_t)(text[i] ^ key[i % FZN_AEAD_KEY_LEN]);
 	stub_tag(key, nonce, aad, aad_len, text, text_len, tag);
+	return 1;
+}
+
+/* AN AEAD THAT REFUSES. Impossible to express before 2026-09-04, when
+ * `fzn_aead_ops.seal` returned void: a backend that failed had no way to say
+ * so, and the plaintext it did not encrypt stayed where the ciphertext was
+ * going. project.md sec 85.
+ *
+ * It writes NOTHING, which is the honest model: a token that is absent or a
+ * key handle that has expired does not half-encrypt. The buffer is therefore
+ * left holding exactly the plaintext the caller's own copy put there, which is
+ * what the assertions below are about. */
+static int refusing_seal(void *ctx, const uint8_t *key, const uint8_t *nonce,
+                         const uint8_t *aad, size_t aad_len, uint8_t *text,
+                         size_t text_len, uint8_t *tag)
+{
+	(void)ctx;
+	(void)key;
+	(void)nonce;
+	(void)aad;
+	(void)aad_len;
+	(void)text;
+	(void)text_len;
+	(void)tag;
+	return 0;
 }
 
 static int stub_open(void *ctx, const uint8_t *key, const uint8_t *nonce, const uint8_t *aad,
@@ -1019,6 +1044,7 @@ int main(void)
 		 * nothing is refused before the interior is written. */
 		{
 			uint16_t good_index = what.index;
+			uint16_t good_chunks = what.chunks;
 
 			memset(built, 0xee, sizeof(built));
 			what.index = 5;
@@ -1032,8 +1058,92 @@ int main(void)
 			check(find_bytes(built, sizeof(built), PLAIN, PAYLOAD_LEN) == 0,
 			      "a refused build left the payload in the caller's buffer "
 			      "as plaintext");
+			/* BOTH RESTORED, not the index and a literal. This
+			 * restored `chunks` to 1 while putting `index` back to 1,
+			 * which is `index >= chunks` and refuses every later
+			 * build. Inert until 2026-09-04, because nothing followed
+			 * this block; the cases added below found it by being
+			 * the first thing to. */
 			what.index = good_index;
-			what.chunks = 1;
+			what.chunks = good_chunks;
+		}
+
+		/*
+		 * AND THE SAME PROPERTY WHEN THE AEAD ITSELF REFUSES, which is
+		 * the path the seam could not express until its return value
+		 * existed. project.md sec 85.
+		 *
+		 * `fzn_seal_build` COPIED the capability and the payload into
+		 * the caller's buffer before sealing, so it owns them: a
+		 * refusal must wipe, exactly as the shape refusals above do.
+		 * The difference is where the refusal comes from -- there a
+		 * field this library checked, here a backend answering no --
+		 * and the caller must not be able to tell the two apart by
+		 * what is left in its buffer.
+		 */
+		{
+			fzn_aead_ops_t refusing = { refusing_seal, stub_open, NULL };
+
+			memset(built, 0xee, sizeof(built));
+			check(fzn_seal_build(built, sizeof(built), &built_len, &what, key,
+			                     commitment_key, &hash, &rng, &refusing)
+			              == FZN_SEAL_ERR_AEAD,
+			      "a refusing aead was not reported as FZN_SEAL_ERR_AEAD");
+			check(find_bytes(built, sizeof(built), CAP, sizeof(CAP)) == 0,
+			      "a refused seal left the capability in the caller's buffer "
+			      "as plaintext -- which is the whole reason the seam now "
+			      "returns a value");
+			check(find_bytes(built, sizeof(built), PLAIN, PAYLOAD_LEN) == 0,
+			      "a refused seal left the payload in the caller's buffer "
+			      "as plaintext");
+
+			/* THE CONTROL. Every check above is a refusal, and a
+			 * fixture that had stopped building frames would satisfy
+			 * all of them -- an empty buffer contains no plaintext
+			 * either. */
+			memset(built, 0xee, sizeof(built));
+			check(fzn_seal_build(built, sizeof(built), &built_len, &what, key,
+			                     commitment_key, &hash, &rng, &aead)
+			              == FZN_SEAL_OK,
+			      "the same call with a working aead did not build, so the "
+			      "refusals above pass for the wrong reason");
+		}
+
+		/*
+		 * `fzn_seal_close` REFUSES WITHOUT WIPING, and that is the
+		 * contract rather than an omission. It seals a buffer the
+		 * CALLER already wrote, so the plaintext in it is the caller's
+		 * own and was there before this library was called; wiping
+		 * would be disposing of something it never put there.
+		 *
+		 * AND THE RETURN VALUE IS THE ONLY PROTECTION, which this
+		 * asserts by finding that nothing else refuses. The first
+		 * version of this case looked for the generated code's dirty
+		 * bit to give a second, independent refusal; it cannot, because
+		 * the `situ_msg_t` is a local of `fzn_seal_close` and is
+		 * discarded when it returns. The caller holds bytes and a
+		 * status, and only the status says anything.
+		 */
+		{
+			fzn_aead_ops_t refusing = { refusing_seal, stub_open, NULL };
+			uint8_t hand[FRAME_LEN];
+			uint8_t before[FRAME_LEN];
+
+			check(fzn_seal_build(hand, sizeof(hand), &built_len, &what, key,
+			                     commitment_key, &hash, &rng, &aead)
+			              == FZN_SEAL_OK,
+			      "the close fixture did not build");
+			memcpy(before, hand, built_len);
+			check(fzn_seal_close(hand, built_len, key, &refusing)
+			              == FZN_SEAL_ERR_AEAD,
+			      "a refusing aead was not reported by fzn_seal_close");
+			/* AND IT TOUCHED NOTHING. A refusal that had half-written
+			 * the buffer would be worse than one that did not run at
+			 * all: the caller's own plaintext would be neither intact
+			 * nor sealed, and nothing would say which bytes were
+			 * which. */
+			check(memcmp(before, hand, built_len) == 0,
+			      "a refused fzn_seal_close modified the caller's buffer");
 		}
 
 		/* AND THE FRAME TOO SHORT TO BE ONE, which is the other branch
