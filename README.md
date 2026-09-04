@@ -24,10 +24,21 @@ would be an inventory nothing checks, and this file carried exactly that until
 binaries it held against the Makefile. Neither total is repeated here either,
 for the same reason.
 
-`make test SANITIZE=1` runs the lot under ASan and UBSan. `make schema
-SITU_DIR=../situ` checks the committed schema artifacts against a situ commit,
-and `make codegencheck` checks that two security-critical functions still
-compile to the shape they must.
+**`make check` runs the suite twice: once plain and once under AddressSanitizer
+and UBSan.** The second pass is `make sancheck`, which builds into a separate
+directory because sanitized and plain objects are not interchangeable. It runs
+`runtests` rather than `test` on purpose -- `make codegencheck` reads the
+emitted shape of two security-critical functions and declines a sanitized
+build, so putting it under one would report a pass over a check that inspected
+nothing. `make test SANITIZE=1` still runs that pass on its own.
+
+It earns the time it costs. §86 has the measurement: one real defect in one
+run, a view into a stack buffer whose scope had ended, in a test that had
+passed everything else a dozen times because the bytes were still there.
+
+`make schema SITU_DIR=../situ` checks the committed schema artifacts against a
+situ commit, and `make codegencheck` checks that two security-critical
+functions still compile to the shape they must.
 
 The crypto is a seam rather than a dependency: signing, hashing, AEAD and
 entropy are each a vtable a consumer fills, and the library itself calls no
