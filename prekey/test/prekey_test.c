@@ -606,6 +606,59 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 	checks -= 1;
 }
 
+/*
+ * EVERY OPERAND OF EVERY GUARD, not the first one of each.
+ *
+ * The guards are conjunctions and the suite failed the first operand, so
+ * `make coverage` reported the rest as never taken both ways while the guard
+ * looked tested. sec 88 measured what an unreached operand is worth: the
+ * operand after the first is what stands between a partially initialised
+ * caller and a null dereference, and a vtable with a null member is what a
+ * consumer has who filled it in two steps.
+ */
+static void test_the_operands_the_first_one_hides(void)
+{
+	fzn_sign_ops_t no_sign = { stub_verify, NULL, NULL };
+	fzn_sign_ops_t no_verify = { NULL, stub_sign, NULL };
+	uint8_t host[FZN_PUBKEY_LEN], prekey[FZN_PREKEY_LEN];
+	uint8_t out[FZN_PREKEY_LEN_TOTAL];
+	fzn_prekey_record_t rec;
+
+	memset(host, 0x61, sizeof(host));
+	memset(prekey, 0x62, sizeof(prekey));
+	memset(out, 0, sizeof(out));
+
+	/* THE SIGNER SEAM'S SECOND OPERAND. A struct present with a null
+	 * member is what a caller has who filled the vtable in two steps. */
+	CHECK(fzn_prekey_issue(host, prekey, 1u, NULL, out) == FZN_PREKEY_ERR_SIGNER,
+	      "issue accepted a null signer");
+	CHECK(fzn_prekey_issue(host, prekey, 1u, &no_sign, out) == FZN_PREKEY_ERR_SIGNER,
+	      "issue accepted a signer struct whose sign member is null");
+
+	REQUIRE(fzn_prekey_issue(host, prekey, 1u, &OPS, out) == FZN_PREKEY_OK, "issue refused");
+	REQUIRE(fzn_prekey_open(out, sizeof(out), &rec) == FZN_PREKEY_OK, "open refused");
+
+	CHECK(fzn_prekey_verify(rec, NULL) == FZN_PREKEY_ERR_SIGNER,
+	      "verify accepted a null verifier");
+	CHECK(fzn_prekey_verify(rec, &no_verify) == FZN_PREKEY_ERR_SIGNER,
+	      "verify accepted a verifier struct whose verify member is null");
+
+	/* A record whose views are null reaches the same guard by its later
+	 * operands: `bytes` present and `host` not is what a partially filled
+	 * record looks like. */
+	{
+		fzn_prekey_record_t hollow = rec;
+
+		hollow.host = NULL;
+		CHECK(fzn_prekey_verify(hollow, &OPS) == FZN_PREKEY_ERR_MALFORMED,
+		      "verify accepted a record whose host view is null");
+		hollow = rec;
+		hollow.bytes = NULL;
+		CHECK(fzn_prekey_verify(hollow, &OPS) == FZN_PREKEY_ERR_MALFORMED,
+		      "verify accepted a record whose bytes view is null");
+	}
+}
+
 int main(void)
 {
 	test_the_layout_is_what_the_header_says();
@@ -622,6 +675,8 @@ int main(void)
 	test_pinning_verifies_before_it_compares();
 	test_every_guard_refuses_its_own_argument();
 	test_the_suite_can_tell_pass_from_fail();
+
+	test_the_operands_the_first_one_hides();
 
 	printf("prekey_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

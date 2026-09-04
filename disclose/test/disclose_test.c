@@ -453,6 +453,46 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 	checks -= 1;
 }
 
+/*
+ * EVERY OPERAND OF EVERY GUARD, not the first one of each.
+ *
+ * The guards are conjunctions and the suite failed the first operand, so
+ * `make coverage` reported the rest as never taken both ways while the guard
+ * looked tested. sec 88 measured what an unreached operand is worth: the
+ * operand after the first is what stands between a partially initialised
+ * caller and a null dereference, and a vtable with a null member is what a
+ * consumer has who filled it in two steps.
+ */
+static void test_the_operands_the_first_one_hides(void)
+{
+	fzn_random_ops_t no_fill = { NULL, NULL };
+	fzn_hash_ops_t no_hash = { NULL, NULL };
+	uint8_t field[8], committed[FZN_DISCLOSE_SALT_LEN + 8];
+	uint8_t leaf[FZN_BLOB_HASH_LEN];
+	size_t committed_len = 0;
+
+	memset(field, 0x71, sizeof(field));
+	memset(committed, 0x72, sizeof(committed));
+
+	/* THE RNG SEAM'S SECOND OPERAND. A commit with no salt source must
+	 * refuse rather than fall back to a predictable salt, which is the
+	 * whole reason the convention exists (sec 72). */
+	CHECK(fzn_disclose_commit(NULL, field, sizeof(field), committed, sizeof(committed),
+	                          &committed_len)
+	      == FZN_DISCLOSE_ERR_NO_SALT, "commit accepted a null rng");
+	CHECK(fzn_disclose_commit(&no_fill, field, sizeof(field), committed, sizeof(committed),
+	                          &committed_len)
+	      == FZN_DISCLOSE_ERR_NO_SALT, "commit accepted an rng struct whose fill member is null");
+
+	/* And the hash seam's, on both functions that take one. */
+	CHECK(fzn_disclose_leaf(NULL, committed, sizeof(committed), leaf) == FZN_DISCLOSE_ERR_HASH,
+	      "leaf accepted a null hash");
+	CHECK(fzn_disclose_leaf(&no_hash, committed, sizeof(committed), leaf)
+	      == FZN_DISCLOSE_ERR_HASH, "leaf accepted a hash struct whose member is null");
+	CHECK(fzn_disclose_leaf(&HASH, committed, sizeof(committed), NULL)
+	      == FZN_DISCLOSE_ERR_MALFORMED, "leaf accepted a null out");
+}
+
 int main(void)
 {
 	test_one_root_serves_every_field();
@@ -463,6 +503,8 @@ int main(void)
 	test_every_guard_refuses_its_own_argument();
 	test_err_str_names_every_arm();
 	test_the_suite_can_tell_pass_from_fail();
+
+	test_the_operands_the_first_one_hides();
 
 	printf("disclose_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

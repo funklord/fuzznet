@@ -935,6 +935,64 @@ static void test_a_refused_agreement_stops_establishment(void)
 	      "the control did not write a key at all");
 }
 
+/*
+ * EVERY OPERAND OF EVERY GUARD, not the first one of each.
+ *
+ * The guards are conjunctions and the suite failed the first operand, so
+ * `make coverage` reported the rest as never taken both ways while the guard
+ * looked tested. sec 88 measured what an unreached operand is worth: the
+ * operand after the first is what stands between a partially initialised
+ * caller and a null dereference, and a vtable with a null member is what a
+ * consumer has who filled it in two steps.
+ */
+static void test_the_operands_the_first_one_hides(void)
+{
+	uint8_t id_a[FZN_SESSION_IDENTITY_LEN], id_b[FZN_SESSION_IDENTITY_LEN];
+	uint8_t pk_a[FZN_AGREE_PUBLIC_LEN], pk_b[FZN_AGREE_PUBLIC_LEN];
+	uint8_t shared[FZN_AGREE_SHARED_LEN];
+	uint8_t transcript[FZN_SESSION_TRANSCRIPT_LEN];
+	uint8_t key[FZN_AEAD_KEY_LEN];
+	uint8_t send_chain[FZN_CHAIN_KEY_LEN], recv_chain[FZN_CHAIN_KEY_LEN];
+	fzn_hash_ops_t hollow = { NULL, NULL };
+
+	memset(id_a, 0x51, sizeof(id_a));
+	memset(id_b, 0x52, sizeof(id_b));
+	memset(pk_a, 0x53, sizeof(pk_a));
+	memset(pk_b, 0x54, sizeof(pk_b));
+	memset(shared, 0x55, sizeof(shared));
+	memset(key, 0x56, sizeof(key));
+
+	/* transcript: six operands, and the suite only ever failed the first. */
+	CHECK(fzn_session_transcript(NULL, pk_a, id_b, pk_b, shared, transcript)
+	      == FZN_SESSION_ERR_MALFORMED, "transcript accepted a null self identity");
+	CHECK(fzn_session_transcript(id_a, NULL, id_b, pk_b, shared, transcript)
+	      == FZN_SESSION_ERR_MALFORMED, "transcript accepted a null self prekey");
+	CHECK(fzn_session_transcript(id_a, pk_a, NULL, pk_b, shared, transcript)
+	      == FZN_SESSION_ERR_MALFORMED, "transcript accepted a null peer identity");
+	CHECK(fzn_session_transcript(id_a, pk_a, id_b, NULL, shared, transcript)
+	      == FZN_SESSION_ERR_MALFORMED, "transcript accepted a null peer prekey");
+	CHECK(fzn_session_transcript(id_a, pk_a, id_b, pk_b, NULL, transcript)
+	      == FZN_SESSION_ERR_MALFORMED, "transcript accepted a null shared secret");
+	CHECK(fzn_session_transcript(id_a, pk_a, id_b, pk_b, shared, NULL)
+	      == FZN_SESSION_ERR_MALFORMED, "transcript accepted a null out");
+
+	/* chains: five operands, then the hash seam, which has two of its own. */
+	CHECK(fzn_session_chains(&HASH, NULL, id_a, id_b, send_chain, recv_chain)
+	      == FZN_SESSION_ERR_MALFORMED, "chains accepted a null key");
+	CHECK(fzn_session_chains(&HASH, key, NULL, id_b, send_chain, recv_chain)
+	      == FZN_SESSION_ERR_MALFORMED, "chains accepted a null self identity");
+	CHECK(fzn_session_chains(&HASH, key, id_a, NULL, send_chain, recv_chain)
+	      == FZN_SESSION_ERR_MALFORMED, "chains accepted a null peer identity");
+	CHECK(fzn_session_chains(&HASH, key, id_a, id_b, NULL, recv_chain)
+	      == FZN_SESSION_ERR_MALFORMED, "chains accepted a null send chain out");
+	CHECK(fzn_session_chains(&HASH, key, id_a, id_b, send_chain, NULL)
+	      == FZN_SESSION_ERR_MALFORMED, "chains accepted a null recv chain out");
+	CHECK(fzn_session_chains(NULL, key, id_a, id_b, send_chain, recv_chain)
+	      == FZN_SESSION_ERR_HASH, "chains accepted a null hash");
+	CHECK(fzn_session_chains(&hollow, key, id_a, id_b, send_chain, recv_chain)
+	      == FZN_SESSION_ERR_HASH, "chains accepted a hash struct whose member is null");
+}
+
 int main(void)
 {
 	test_both_sides_build_the_same_transcript();
@@ -951,6 +1009,8 @@ int main(void)
 	test_the_second_agreement_can_refuse_too();
 	test_every_guard_refuses_its_own_argument();
 	test_the_suite_can_tell_pass_from_fail();
+
+	test_the_operands_the_first_one_hides();
 
 	printf("session_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
