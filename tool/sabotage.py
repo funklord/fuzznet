@@ -784,6 +784,84 @@ SABOTAGES = [
 		"",
 		"a push onto a full stack would write past the end of the array",
 	),
+	# ---- the provisioning legs, sim/test/provision_test.c ----------------
+	#
+	# Every one of these was run by hand while the leg it belongs to was
+	# written, and every one was caught. They are here because a mutation
+	# run once and restored is not a guard anybody re-runs: project.md sec
+	# 68 records that two of those legs existed only because an ad-hoc
+	# sabotage found the first version green, which is precisely the
+	# argument for keeping them.
+	(
+		"chain-root-is-the-pin",
+		"chain/chain.c",
+		"\tif (!fzn_ct_memeq(fzn_hop_grantor(hops[0]), root, FZN_PUBKEY_LEN))\n",
+		"\tif (0)\n",
+		"a grant minted under a root this host never scanned must be refused, or anybody with a printer can provision a device",
+	),
+	(
+		"trust-zero-root-refused",
+		"trust/trust.c",
+		"\t\tif (any == 0)\n\t\t\treturn FZN_TRUST_ERR_MALFORMED;\n",
+		"",
+		"an all-zero root anchors permanently to a key nobody holds, which is what a truncated or half-parsed payload carries",
+	),
+	(
+		"trust-pin-is-not-adopt",
+		"trust/trust.c",
+		"\ttrust->source = source;\n",
+		"\ttrust->source = FZN_TRUST_ADOPTED;\n",
+		"an anchor configured out of band must not report itself adopted, or the user is told it was authenticated by nothing",
+	),
+	(
+		"ratchet-advance-in-place",
+		"ratchet/ratchet.c",
+		"\tif (to == from)\n\t\treturn FZN_RATCHET_ERR_IN_PLACE;\n",
+		"",
+		"the unsafe caller must have no spelling: committing before verifying lets one forged datagram end a sender's delivery for ever",
+	),
+	(
+		"relay-budget-exhausted",
+		"wire/relay.c",
+		"\tif (budget == 0)\n\t\treturn FZN_RELAY_ERR_EXHAUSTED;\n",
+		"",
+		"a frame with no budget left must not be forwarded, or a loop does not die -- which is the one thing the byte is for",
+	),
+	(
+		"seal-hops-within-bound",
+		"wire/seal.c",
+		"\tif (what->hops > FZN_RELAY_MAX_HOPS)\n\t\treturn FZN_SEAL_ERR_MALFORMED;\n",
+		"",
+		"the hop count must stay inside 0..8, which is half of fuzzypickles' frame-format discriminator at offset 1",
+	),
+	(
+		"spool-place-verifies",
+		"spool/spool.c",
+		"\tif (fzn_blob_proof_verify(hash, leaf_hash, index, spool->leaves, proof, proof_len,\n\t                          spool->root) != FZN_BLOB_OK)\n\t\treturn FZN_SPOOL_ERR_UNVERIFIED;\n",
+		"",
+		"a store that writes whatever it is handed is a store an attacker fills",
+	),
+	(
+		"persist-pinned-anchor-refused",
+		"persist/persist.c",
+		"\t\tif (fzn_trust_pin(out, bytes + OFF_BODY) != FZN_TRUST_OK)\n\t\t\treturn FZN_PERSIST_ERR_SHAPE;\n",
+		"\t\t(void)fzn_trust_pin(out, bytes + OFF_BODY);\n",
+		"a stored anchor whose root is unusable must not restore, or a host back from a tampered file is anchored to a key nobody holds",
+	),
+	(
+		"sync-offer-unmentioned",
+		"record/sync.c",
+		"\t\t\tplan->unknown_issuers++;\n\t\t\tcontinue;\n\t\t}\n\n\t\tadd_range(journal->entries[i].issuer, journal->entries[i].stream, t->received,\n",
+		"\t\t\tplan->unknown_issuers++;\n\t\t\tadd_range(journal->entries[i].issuer,\n\t\t\t          journal->entries[i].stream, 0u,\n\t\t\t          journal->entries[i].received, max_per_request, out,\n\t\t\t          out_cap, plan);\n\t\t\tcontinue;\n\t\t}\n\n\t\tadd_range(journal->entries[i].issuer, journal->entries[i].stream, t->received,\n",
+		"a stream the peer did not mention must be counted and never offered: offering from zero makes the cheapest message the amplifier",
+	),
+	(
+		"tree-cmp-breaks-ties",
+		"tree/tree.c",
+		"\treturn memcmp(a->id, b->id, (size_t)FZN_TREE_ID_LEN);\n",
+		"\treturn 0;\n",
+		"two nodes at one order must sort the same way on every host, or a replicated outline has no order at all",
+	),
 	(
 		"rev-drain-stale-copy",
 		"chain/revocation.c",
