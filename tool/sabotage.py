@@ -1005,6 +1005,21 @@ SABOTAGES = [
 		"\t\t\treturn FZN_CHAIN_ERR_UNKNOWN_TARGET;\n",
 		"a withdrawal that overtakes its revocation is kept, not dropped",
 	),
+	# BATCH TEN, 2026-09-04: the guard-operand sweep's one source change.
+	# `fzn_tree_order_between` carried `*out == lo && hi - lo <= 1u`, whose
+	# second operand was dead -- `lo > hi` is refused above, so the midpoint
+	# equals `lo` exactly when the gap is 0 or 1, and no input separates the
+	# two. The operand is gone; this holds what is left to account, because
+	# a guard that has just been simplified is exactly the one to prove is
+	# still load-bearing.
+	(
+		"tree-order-exhaustion",
+		"tree/tree.c",
+		"\tif (*out == lo)\n\t\treturn FZN_TREE_ORDER_EXHAUSTED;\n",
+		"\t/* sabotage */\n",
+		"neighbours with no gap must report exhaustion rather than a midpoint "
+		"that is one of them",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

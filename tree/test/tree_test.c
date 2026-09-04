@@ -449,6 +449,54 @@ static void test_every_error_renders(void)
 	       "a value that is not an enumerator renders as unknown");
 }
 
+/* THE EXHAUSTION TEST IS ONE CONDITION, and this pins that it is.
+ *
+ * `fzn_tree_order_between` used to read `*out == lo && hi - lo <= 1u`, and
+ * the second operand was dead: `lo > hi` is refused above it, so
+ * `(hi - lo) / 2u` is zero exactly when `hi - lo` is 0 or 1, and no input
+ * separates the two operands. `make coverage` had reported it as a branch
+ * never taken both ways for as long as it existed.
+ *
+ * Removing an operand is only safe while the equivalence holds, so what is
+ * asserted here is the RELATIONSHIP rather than either side: exhaustion is
+ * reported exactly when the gap is 0 or 1, for every base including the top
+ * of the range, where a (lo + hi) / 2 implementation would wrap. A wrong
+ * simplification in either direction fails this -- keeping only the
+ * arithmetic, keeping only a stricter `hi - lo == 0`, or reintroducing an
+ * operand that disagrees with the midpoint.
+ */
+static void test_exhaustion_is_the_midpoint_comparison_alone(void)
+{
+	static const uint64_t bases[] = { 0u, 1u, 2u, 1000u, (uint64_t)1 << 63,
+		                          UINT64_MAX - 8u };
+	size_t b;
+	uint64_t gap;
+
+	for (b = 0; b < sizeof(bases) / sizeof(bases[0]); b++) {
+		for (gap = 0u; gap <= 5u; gap++) {
+			uint64_t lo = bases[b];
+			uint64_t hi = lo + gap;
+			uint64_t out = 0u;
+			fzn_tree_err_t err = fzn_tree_order_between(lo, hi, &out);
+
+			if (gap <= 1u) {
+				expect(err == FZN_TREE_ORDER_EXHAUSTED,
+				       "a gap of 0 or 1 must report exhaustion");
+				/* The promise project.md rests on: exhausted is
+				 * not an `ERR_`, so a key was still written, and
+				 * it is the low neighbour's own. */
+				expect(out == lo,
+				       "exhaustion must still write the low neighbour's key");
+			} else {
+				expect(err == FZN_TREE_OK, "a gap above 1 must have a midpoint");
+				expect(out > lo && out < hi,
+				       "and the midpoint must be strictly between the two, "
+				       "not wrapped past either end");
+			}
+		}
+	}
+}
+
 int main(void)
 {
 	printf("tree_test: body %u + content, content at most %zu bytes\n",
@@ -466,6 +514,8 @@ int main(void)
 	test_the_root_is_all_zero_and_is_not_a_node();
 	test_a_missing_argument_is_refused();
 	test_every_error_renders();
+	test_exhaustion_is_the_midpoint_comparison_alone();
+
 	printf("tree_test: %d checks, %d failure(s)\n", checks, failures);
 
 	return failures == 0 ? 0 : 1;

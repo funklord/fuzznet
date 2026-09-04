@@ -11639,10 +11639,36 @@ The comment above it already says so -- "the midpoint equals `lo`
 precisely when hi - lo is 0 or 1, so this is the whole exhaustion test"
 -- and then the code tests it twice anyway. The coverage report is
 correct that the branch is never taken both ways, and no input will ever
-take it. **This is the one case in the sweep where the right change is
-to the source and not to the suite**, and it is left for the holder
-rather than taken in passing, because deleting half a condition in a
-binary search is not a test change.
+take it. **This is the one case in the sweep where the right change was
+to the source and not to the suite.**
+
+**Removed on the copyright holder's instruction, 2026-09-04**, with
+three things done rather than one, because deleting half a condition in
+a binary search is not a test change:
+
+  - **The equivalence was checked away from the code that assumes it.**
+    Two million random `lo <= hi` pairs plus every gap from 0 to 8 at ten
+    bases including `UINT64_MAX`: zero disagreements between `mid == lo`
+    and `hi - lo <= 1`. Arithmetic in a comment is a claim like any
+    other, and this one is load-bearing for a deletion.
+  - **The test asserts the RELATIONSHIP, not either operand.**
+    Exhaustion is reported exactly when the gap is 0 or 1, swept across
+    six bases including the top of the range where a `(lo + hi) / 2`
+    implementation wraps -- and where exhaustion is reported, `*out` is
+    still the low neighbour's key, which is the promise sec 4.2 rests on
+    and the reason the code is not spelled `ERR_`.
+  - **It was seen to fail before it was believed.** Two wrong
+    simplifications were compiled and run: keeping only a stricter
+    `hi - lo == 0u` gives 7 failures, and an operand that disagrees with
+    the midpoint gives 13. Each sabotage was confirmed to have landed by
+    grep before its result was read, and the source was restored and
+    diffed byte-for-byte afterwards.
+
+`tool/sabotage.py` gained `tree-order-exhaustion` in the same change.
+**A guard that has just been simplified is exactly the one worth proving
+is still load-bearing** -- otherwise the argument that an operand was
+redundant is indistinguishable, a year later, from an argument that the
+whole condition was.
 
 **And two platform backends are left alone deliberately.**
 `local/peer_linux.c` has six and `session/random_linux.c` three, and

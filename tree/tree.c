@@ -120,8 +120,18 @@ fzn_tree_err_t fzn_tree_order_between(uint64_t lo, uint64_t hi, uint64_t *out)
 
 	/* Strictly between, or there was no room. The midpoint equals `lo`
 	 * precisely when hi - lo is 0 or 1, so this is the whole exhaustion
-	 * test and it needs no separate arithmetic. */
-	if (*out == lo && hi - lo <= 1u)
+	 * test and it needs no separate arithmetic.
+	 *
+	 * It USED TO CARRY THAT ARITHMETIC ANYWAY, as `&& hi - lo <= 1u`,
+	 * which the sentence above already said was unnecessary. The two
+	 * operands are one condition: `lo > hi` is refused above, so
+	 * `(hi - lo) / 2u` is zero exactly when `hi - lo` is 0 or 1, and the
+	 * second operand could never be false where the first was true. It
+	 * was not defence in depth -- a redundant operand cannot fail
+	 * independently, because there is no input that separates the two --
+	 * it was dead, and `make coverage` reported it as a branch never
+	 * taken both ways for as long as it existed. */
+	if (*out == lo)
 		return FZN_TREE_ORDER_EXHAUSTED;
 	return FZN_TREE_OK;
 }
