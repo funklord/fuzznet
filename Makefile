@@ -236,6 +236,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              chain/test/manifest_test.c chain/test/authz_test.c \
              blob/test/blob_test.c ratchet/test/ratchet_test.c \
              prekey/test/prekey_test.c prekey/test/prekey_fuzz.c \
+             provision/test/provision_fuzz.c \
              provision/test/provision_test.c \
              persist/test/persist_test.c \
              persist/test/persist_kat_test.c \
@@ -345,7 +346,8 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/tree/test/tree_fuzz \
              $(BUILD_DIR)/wire/test/seal_fuzz \
              $(BUILD_DIR)/blob/test/blob_fuzz \
-             $(BUILD_DIR)/prekey/test/prekey_fuzz
+             $(BUILD_DIR)/prekey/test/prekey_fuzz \
+             $(BUILD_DIR)/provision/test/provision_fuzz
 
 # ---------------------------------------------------------------------------
 # SUBSYSTEMS: detected, overridable, and loud about which.
@@ -1211,6 +1213,22 @@ $(BUILD_DIR)/session/test/agree_test: $(BUILD_DIR)/session/test/agree_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# provision/ links chain and prekey because the harness MINTS its fixtures
+# rather than carrying literals -- revocation_fuzz was once found with every
+# record pointing at one shared literal, so the field a case set had nothing
+# to do with the bytes the module read.
+$(BUILD_DIR)/provision/test/provision_fuzz: \
+                                       $(BUILD_DIR)/provision/test/provision_fuzz.o \
+                                       $(BUILD_DIR)/provision/provision.o \
+                                       $(BUILD_DIR)/chain/chain.o \
+                                       $(BUILD_DIR)/chain/revocation.o \
+                                       $(BUILD_DIR)/chain/manifest.o \
+                                       $(BUILD_DIR)/prekey/prekey.o \
+                                       $(BUILD_DIR)/trust/trust.o \
+                                       $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/prekey/test/prekey_fuzz: $(BUILD_DIR)/prekey/test/prekey_fuzz.o \
                                        $(BUILD_DIR)/prekey/prekey.o \
                                        $(BUILD_DIR)/trust/trust.o \
@@ -1721,7 +1739,8 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/tree/test/tree_fuzz \
              $(BUILD_DIR)/wire/test/seal_fuzz \
              $(BUILD_DIR)/blob/test/blob_fuzz \
-             $(BUILD_DIR)/prekey/test/prekey_fuzz
+             $(BUILD_DIR)/prekey/test/prekey_fuzz \
+             $(BUILD_DIR)/provision/test/provision_fuzz
 
 fuzz: $(FUZZ_BINS)
 	@for f in $(FUZZ_BINS); do echo "== $$f $(CASES)"; $$f $(CASES) || exit 1; done

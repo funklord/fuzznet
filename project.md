@@ -11469,6 +11469,76 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 77. The newest parser had no harness, and it eats what a camera produces, 2026-09-04
+
+`provision/` was the only wire object in this tree without a fuzz harness, and
+it is the one whose input arrives most directly from outside: a string
+somebody's camera read off a poster, then the bytes that come out of it. Every
+other decoder of stranger bytes here has one -- chain, revocation, record,
+reassembly, freshness, peer, vocabulary, blob, prekey, tree, seal.
+
+### The property it exists for is canonicality, not memory safety
+
+A sanitizer catches an overrun. **Nothing catches two strings decoding to one
+card**, and that is the failure this decoder can have: 677 characters carry
+one bit more than 423 bytes, so the padding bit is refused rather than
+ignored, and that refusal is one line. It is exactly the kind of line a later
+edit removes as redundant.
+
+So the assertion is a round trip in both directions, checked on every accepted
+string:
+
+    from_text(s) accepted  =>  text(that card) is byte-identical to s
+
+If that ever fails, "the code I scanned" has stopped naming one thing, and a
+signature over the bytes cannot repair it.
+
+### The generator mutates real cards
+
+A uniformly random 423-byte buffer is refused at the version byte and reaches
+nothing; a uniformly random string is refused at the prefix. Both are
+generated -- a decoder must survive them -- but the cases with teeth are a
+genuine card with one bit bent, and a genuine string with one character
+lowercased, raised, deleted or replaced.
+
+Floors are on STATES rather than call counts, for `prekey_fuzz`'s reason: a
+run that never lowercased a character has not tested that a scanned card is
+uppercase, however many strings it decoded.
+
+    20000 cases   8491 text ok        11509 text refused
+                 17491 bytes ok        2509 bytes refused
+                  8431 verified        6241 bad signature
+                  2819 expired         2134 lowercased
+                  2500 padding bit     2500 truncated
+
+### Sabotaged before it was believed, and it is sharp
+
+Each substitution was asserted before running, after sec 76's reminder that a
+sabotage which did not apply looks exactly like a check that cannot fail.
+
+    the padding bit no longer checked        FAILED on case 2
+    lowercase folded rather than refused     FAILED on case 1
+    a refused open leaves a stale view       FAILED on case 7
+
+The third is not about the text at all. `fzn_provision_open` memsets the
+caller's view before it validates, so a caller who ignores the status reads
+zeroes rather than last card's pointers -- the hazard `wire/seal.c` already
+records for its own refusals, checked here because the harness had the state
+to check it with.
+
+### What it does not cover
+
+The signer is a stub keyed on the public key's first byte, so "verified under
+the root the card names" has content -- but a stub is not Ed25519, and this
+harness says nothing about the real primitive. `sim/test/provision_test.c`
+under Monocypher is what covers that, and the two are deliberately different
+witnesses.
+
+Nothing here fuzzes `fzn_provision_pack`. It takes three fixed-length buffers
+from the caller and cannot be handed a malformed one without the caller
+already being wrong, which is `FZN_PROVISION_ERR_MALFORMED`'s job and the unit
+suite's.
+
 ## 76. A status reported and dropped, and a detector that lied about where, 2026-09-04
 
 Sec 75 found a failure that CANNOT be reported. This is the same class one

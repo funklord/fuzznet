@@ -35,6 +35,7 @@
 /ratchet/test/ratchet_test
 /prekey/test/prekey_test
 /provision/test/provision_test
+/provision/test/provision_fuzz
 /prekey/test/prekey_fuzz
 /persist/test/persist_test
 /persist/test/persist_kat_test
