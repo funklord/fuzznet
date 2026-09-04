@@ -2657,6 +2657,165 @@ static void test_a_repeated_grantor_is_entitled_from_its_first_hop(void)
 	      "every hop from the first rather than selecting on the grantee");
 }
 
+/*
+ * EVERY OPERAND OF EVERY GUARD, not the first one of each.
+ *
+ * sec 88 measured what an unreached operand is worth: the operand after the
+ * first is what stands between a partially initialised caller and a null
+ * dereference.
+ *
+ * The interesting half of this file is not the null tests. `corrupt()` is
+ * one definition with three readers, and each answers it with the value that
+ * is conservative FOR ITS OWN QUESTION rather than with a shared default:
+ *
+ *   covers  -> 1   the capability is revoked. Failing open here means a
+ *                  withdrawn capability keeps working, so an unreadable
+ *                  store must deny rather than permit.
+ *   known   -> 1   the triple is already known, so an unreadable store
+ *                  generates no fetch traffic.
+ *   lookup  -> 0   refuses outright, because its two out-parameters would
+ *                  have to be invented and a caller comparing against
+ *                  invented state is worse off than one told nothing.
+ *
+ * Two of those agree by value and NOT by reasoning, which is why the empty
+ * store below is checked as well: without it, `covers` and `known` returning
+ * 1 could be one behaviour rather than two, and a change collapsing them
+ * would pass.
+ */
+static void test_the_operands_the_first_one_hides(void)
+{
+	struct fixture f;
+	fzn_revocation_store_t store;
+	fzn_revocation_t entries[2];
+	fzn_cap_id_t cap;
+	uint8_t grantee[FZN_PUBKEY_LEN], out[FZN_REVOCATION_LEN];
+	uint8_t id[FZN_REVOCATION_ID_LEN], sup[FZN_REVOCATION_ID_LEN];
+	int withdrawn = 0;
+	fzn_sign_ops_t no_sign;
+
+	fixture_init(&f);
+	memset(&cap, 0x91, sizeof(cap));
+	memset(grantee, 0x92, sizeof(grantee));
+	memset(entries, 0, sizeof(entries));
+	memset(sup, 0x93, sizeof(sup));
+	no_sign = f.sign;
+	no_sign.sign = NULL;
+
+	/* ---- encode: four operands, then the object tag, which is not one. */
+	CHECK(fzn_revocation_encode(NULL, (uint8_t)FZN_OBJECT_REVOCATION, f.root, &cap, grantee,
+	                            1u, NULL) == FZN_CHAIN_ERR_MALFORMED,
+	      "encode accepted a null out");
+	CHECK(fzn_revocation_encode(out, (uint8_t)FZN_OBJECT_REVOCATION, NULL, &cap, grantee,
+	                            1u, NULL) == FZN_CHAIN_ERR_MALFORMED,
+	      "encode accepted a null issuer");
+	CHECK(fzn_revocation_encode(out, (uint8_t)FZN_OBJECT_REVOCATION, f.root, NULL, grantee,
+	                            1u, NULL) == FZN_CHAIN_ERR_MALFORMED,
+	      "encode accepted a null capability");
+	CHECK(fzn_revocation_encode(out, (uint8_t)FZN_OBJECT_REVOCATION, f.root, &cap, NULL,
+	                            1u, NULL) == FZN_CHAIN_ERR_MALFORMED,
+	      "encode accepted a null grantee");
+
+	/* BOTH HALVES OF THE OBJECT TEST. A tag that is neither revocation nor
+	 * withdrawal is refused, and the second operand is what refuses a tag
+	 * that is only the first one's opposite. */
+	CHECK(fzn_revocation_encode(out, (uint8_t)FZN_OBJECT_HOP, f.root, &cap, grantee, 1u, NULL)
+	      == FZN_CHAIN_ERR_MALFORMED, "encode accepted a hop tag");
+	CHECK(fzn_revocation_encode(out, 0xFFu, f.root, &cap, grantee, 1u, NULL)
+	      == FZN_CHAIN_ERR_MALFORMED, "encode accepted an unassigned tag");
+
+	/* ---- issue and its two siblings: the signer seam's second operand. */
+	CHECK(fzn_revocation_issue(NULL, &cap, grantee, 1u, &f.sign, out)
+	      == FZN_CHAIN_ERR_MALFORMED, "issue accepted a null issuer");
+	CHECK(fzn_revocation_issue(f.root, NULL, grantee, 1u, &f.sign, out)
+	      == FZN_CHAIN_ERR_MALFORMED, "issue accepted a null capability");
+	CHECK(fzn_revocation_issue(f.root, &cap, NULL, 1u, &f.sign, out)
+	      == FZN_CHAIN_ERR_MALFORMED, "issue accepted a null grantee");
+	CHECK(fzn_revocation_issue(f.root, &cap, grantee, 1u, NULL, out)
+	      == FZN_CHAIN_ERR_MALFORMED, "issue accepted a null signer");
+	CHECK(fzn_revocation_issue(f.root, &cap, grantee, 1u, &no_sign, out)
+	      == FZN_CHAIN_ERR_MALFORMED, "issue accepted a signer whose sign member is null");
+	CHECK(fzn_revocation_issue(f.root, &cap, grantee, 1u, &f.sign, NULL)
+	      == FZN_CHAIN_ERR_MALFORMED, "issue accepted a null out");
+	CHECK(fzn_revocation_reissue(f.root, &cap, grantee, 1u, sup, &no_sign, out)
+	      == FZN_CHAIN_ERR_MALFORMED, "reissue accepted a signer whose sign member is null");
+	CHECK(fzn_revocation_issue_withdrawal(f.root, &cap, grantee, 1u, sup, &no_sign, out)
+	      == FZN_CHAIN_ERR_MALFORMED,
+	      "issue_withdrawal accepted a signer whose sign member is null");
+
+	/* ---- the three readers of `corrupt()`, and their opposite answers.
+	 *
+	 * `used` past `capacity` cannot be reached through `store_init`, which
+	 * refuses it. It is what a caller holds who restored a store from a
+	 * file and got the count without the array. */
+	fzn_revocation_store_init(&store, entries, 2u);
+	store.used = 3u;
+
+	CHECK(fzn_revocation_covers(&store, f.root, &cap, grantee) == 1,
+	      "covers permitted from a store it could not scan -- failing open here means a "
+	      "withdrawn capability keeps working");
+	CHECK(fzn_revocation_known(&store, f.root, &cap, grantee) == 1,
+	      "known reported unknown from a store it could not scan -- the unreadable case "
+	      "must not generate fetch traffic");
+	CHECK(fzn_revocation_lookup(&store, f.root, &cap, grantee, id, &withdrawn) == 0,
+	      "lookup answered from a store it could not scan, so its outputs were invented");
+
+	/* The other half of `corrupt()`: a count with no array at all. */
+	fzn_revocation_store_init(&store, entries, 2u);
+	store.entries = NULL;
+	store.used = 1u;
+	CHECK(fzn_revocation_covers(&store, f.root, &cap, grantee) == 1,
+	      "covers permitted from a store whose entries are null");
+	CHECK(fzn_revocation_known(&store, f.root, &cap, grantee) == 1,
+	      "known reported unknown from a store whose entries are null");
+
+	/* A SOUND BUT EMPTY STORE IS NOT CORRUPT, and must answer the other
+	 * way round -- otherwise the cases above pass for the wrong reason. */
+	fzn_revocation_store_init(&store, entries, 2u);
+	CHECK(fzn_revocation_covers(&store, f.root, &cap, grantee) == 0,
+	      "covers reported a revocation an empty SOUND store does not hold -- which is "
+	      "what separates the corrupt answer above from a constant 1");
+	CHECK(fzn_revocation_known(&store, f.root, &cap, grantee) == 0,
+	      "known reported a triple an empty store has never seen");
+	CHECK(fzn_revocation_lookup(&store, f.root, &cap, grantee, id, &withdrawn) == 0,
+	      "lookup found a triple an empty store has never seen");
+
+	/* ---- lookup's own out-parameters, and known's null store. */
+	CHECK(fzn_revocation_lookup(NULL, f.root, &cap, grantee, id, &withdrawn) == 0,
+	      "lookup accepted a null store");
+	CHECK(fzn_revocation_lookup(&store, f.root, &cap, grantee, NULL, &withdrawn) == 0,
+	      "lookup accepted a null id out");
+	CHECK(fzn_revocation_lookup(&store, f.root, &cap, grantee, id, NULL) == 0,
+	      "lookup accepted a null withdrawn out");
+	CHECK(fzn_revocation_lookup(&store, NULL, &cap, grantee, id, &withdrawn) == 0,
+	      "lookup accepted a null issuer");
+	CHECK(fzn_revocation_lookup(&store, f.root, NULL, grantee, id, &withdrawn) == 0,
+	      "lookup accepted a null capability");
+	CHECK(fzn_revocation_lookup(&store, f.root, &cap, NULL, id, &withdrawn) == 0,
+	      "lookup accepted a null grantee");
+	CHECK(fzn_revocation_known(NULL, f.root, &cap, grantee) == 0,
+	      "known answered from a null store");
+	CHECK(fzn_revocation_known(&store, NULL, &cap, grantee) == 0,
+	      "known accepted a null issuer");
+	CHECK(fzn_revocation_known(&store, f.root, NULL, grantee) == 0,
+	      "known accepted a null capability");
+	CHECK(fzn_revocation_known(&store, f.root, &cap, NULL) == 0,
+	      "known accepted a null grantee");
+
+	/* ---- covers_chain writes, so its guards are about not writing. */
+	{
+		uint8_t revoked[FZN_CHAIN_MAX_HOPS];
+
+		memset(revoked, 0xAA, sizeof(revoked));
+		fzn_revocation_covers_chain(&store, NULL, 1u, &cap, revoked);
+		CHECK(revoked[0] == 0u,
+		      "covers_chain left the caller's stack bytes in place after refusing -- a "
+		      "caller reading a position it did not ask about must read 0");
+
+		fzn_revocation_covers_chain(&store, NULL, 1u, &cap, NULL);
+		CHECK(1, "covers_chain survived a null out array");
+	}
+}
+
 int main(void)
 {
 	test_layout_and_round_trip();
@@ -2704,6 +2863,8 @@ int main(void)
 	test_the_hop_ceiling_gates_a_walk_that_would_answer();
 	test_a_repeated_grantor_is_entitled_from_its_first_hop();
 	test_the_suite_can_tell_pass_from_fail();
+
+	test_the_operands_the_first_one_hides();
 
 	printf("revocation_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

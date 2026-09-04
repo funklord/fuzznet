@@ -1019,6 +1019,188 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 	checks -= 1;
 }
 
+/*
+ * EVERY OPERAND OF EVERY GUARD, not the first one of each.
+ *
+ * blob/ carries the most of these in the library -- 25 lines whose later
+ * operands the suite never reached -- because almost every entry point here
+ * takes two seams and four buffers. sec 88 measured what an unreached
+ * operand is worth: the operand after the first is what stands between a
+ * partially initialised caller and a null dereference.
+ *
+ * Three of the cases below are not null tests at all. A refusing hash has to
+ * SURFACE from leaf_seal, leaf_open, tree_root and proof_build rather than
+ * being swallowed; an out buffer too small for the plaintext is this side's
+ * arithmetic being wrong rather than a stranger's bytes, so it is MALFORMED
+ * and not SHAPE; and proof_build rechecks its capacity at every level of the
+ * descent, so a buffer that runs out part way through is refused rather than
+ * written past.
+ */
+static void test_the_operands_the_first_one_hides(void)
+{
+	fzn_hash_ops_t no_hash = { NULL, NULL };
+	fzn_aead_ops_t no_seal = { NULL, stub_open, NULL };
+	fzn_aead_ops_t no_open = { stub_seal, NULL, NULL };
+	uint8_t ck[FZN_BLOB_KEY_LEN], key[FZN_AEAD_KEY_LEN], commit[FZN_COMMITMENT_LEN];
+	uint8_t plain[FZN_BLOB_LEAF_SIZE], sealed[FZN_BLOB_SEALED_MAX];
+	uint8_t h[FZN_BLOB_HASH_LEN], l[FZN_BLOB_HASH_LEN], r[FZN_BLOB_HASH_LEN];
+	uint8_t leaves[4u * FZN_BLOB_HASH_LEN], sibs[4u * FZN_BLOB_HASH_LEN];
+	size_t out_len = 0;
+	unsigned n_sibs = 0;
+	fzn_blob_tree_t tree;
+
+	memset(ck, 0x81, sizeof(ck));
+	memset(plain, 0x82, sizeof(plain));
+	memset(sealed, 0x83, sizeof(sealed));
+	memset(leaves, 0x84, sizeof(leaves));
+	memset(sibs, 0x85, sizeof(sibs));
+	memset(l, 0x86, sizeof(l));
+	memset(r, 0x87, sizeof(r));
+
+	/* ---- derive_leaf: five operands, and the hash seam is two of them. */
+	CHECK(fzn_blob_derive_leaf(NULL, ck, 0u, key, commit) == FZN_BLOB_ERR_MALFORMED,
+	      "derive_leaf accepted a null hash");
+	CHECK(fzn_blob_derive_leaf(&no_hash, ck, 0u, key, commit) == FZN_BLOB_ERR_MALFORMED,
+	      "derive_leaf accepted a hash struct whose member is null");
+	CHECK(fzn_blob_derive_leaf(&HASH, NULL, 0u, key, commit) == FZN_BLOB_ERR_MALFORMED,
+	      "derive_leaf accepted a null content key");
+	CHECK(fzn_blob_derive_leaf(&HASH, ck, 0u, NULL, commit) == FZN_BLOB_ERR_MALFORMED,
+	      "derive_leaf accepted a null key out");
+	CHECK(fzn_blob_derive_leaf(&HASH, ck, 0u, key, NULL) == FZN_BLOB_ERR_MALFORMED,
+	      "derive_leaf accepted a null commitment out");
+
+	/* ---- leaf_seal: seven operands, the aead seam among them. */
+	CHECK(fzn_blob_leaf_seal(NULL, &AEAD, ck, 0u, plain, sizeof(plain), sealed,
+	                         sizeof(sealed), &out_len) == FZN_BLOB_ERR_MALFORMED,
+	      "leaf_seal accepted a null hash");
+	CHECK(fzn_blob_leaf_seal(&HASH, NULL, ck, 0u, plain, sizeof(plain), sealed,
+	                         sizeof(sealed), &out_len) == FZN_BLOB_ERR_MALFORMED,
+	      "leaf_seal accepted a null aead");
+	CHECK(fzn_blob_leaf_seal(&HASH, &no_seal, ck, 0u, plain, sizeof(plain), sealed,
+	                         sizeof(sealed), &out_len) == FZN_BLOB_ERR_MALFORMED,
+	      "leaf_seal accepted an aead struct whose seal member is null");
+	CHECK(fzn_blob_leaf_seal(&HASH, &AEAD, NULL, 0u, plain, sizeof(plain), sealed,
+	                         sizeof(sealed), &out_len) == FZN_BLOB_ERR_MALFORMED,
+	      "leaf_seal accepted a null content key");
+	CHECK(fzn_blob_leaf_seal(&HASH, &AEAD, ck, 0u, NULL, sizeof(plain), sealed,
+	                         sizeof(sealed), &out_len) == FZN_BLOB_ERR_MALFORMED,
+	      "leaf_seal accepted a null plaintext");
+	CHECK(fzn_blob_leaf_seal(&HASH, &AEAD, ck, 0u, plain, sizeof(plain), NULL,
+	                         sizeof(sealed), &out_len) == FZN_BLOB_ERR_MALFORMED,
+	      "leaf_seal accepted a null out");
+	CHECK(fzn_blob_leaf_seal(&HASH, &AEAD, ck, 0u, plain, sizeof(plain), sealed,
+	                         sizeof(sealed), NULL) == FZN_BLOB_ERR_MALFORMED,
+	      "leaf_seal accepted a null out length");
+
+	/* THE DERIVE REFUSAL PROPAGATES. A hash that refuses must surface as
+	 * the seal's error rather than being swallowed into a sealed leaf
+	 * whose key nobody derived. */
+	CHECK(fzn_blob_leaf_seal(&REFUSER, &AEAD, ck, 0u, plain, sizeof(plain), sealed,
+	                         sizeof(sealed), &out_len) == FZN_BLOB_ERR_HASH,
+	      "leaf_seal swallowed a refusing hash");
+
+	/* ---- leaf_open: the same shape, plus its own capacity operand. */
+	CHECK(fzn_blob_leaf_open(NULL, &AEAD, ck, 0u, sealed, FZN_BLOB_LEAF_OVERHEAD + 8u,
+	                         plain, sizeof(plain), &out_len) == FZN_BLOB_ERR_MALFORMED,
+	      "leaf_open accepted a null hash");
+	CHECK(fzn_blob_leaf_open(&HASH, NULL, ck, 0u, sealed, FZN_BLOB_LEAF_OVERHEAD + 8u,
+	                         plain, sizeof(plain), &out_len) == FZN_BLOB_ERR_MALFORMED,
+	      "leaf_open accepted a null aead");
+	CHECK(fzn_blob_leaf_open(&HASH, &no_open, ck, 0u, sealed, FZN_BLOB_LEAF_OVERHEAD + 8u,
+	                         plain, sizeof(plain), &out_len) == FZN_BLOB_ERR_MALFORMED,
+	      "leaf_open accepted an aead struct whose open member is null");
+	CHECK(fzn_blob_leaf_open(&HASH, &AEAD, NULL, 0u, sealed, FZN_BLOB_LEAF_OVERHEAD + 8u,
+	                         plain, sizeof(plain), &out_len) == FZN_BLOB_ERR_MALFORMED,
+	      "leaf_open accepted a null content key");
+	CHECK(fzn_blob_leaf_open(&HASH, &AEAD, ck, 0u, NULL, FZN_BLOB_LEAF_OVERHEAD + 8u,
+	                         plain, sizeof(plain), &out_len) == FZN_BLOB_ERR_MALFORMED,
+	      "leaf_open accepted a null sealed leaf");
+	CHECK(fzn_blob_leaf_open(&HASH, &AEAD, ck, 0u, sealed, FZN_BLOB_LEAF_OVERHEAD + 8u,
+	                         NULL, sizeof(plain), &out_len) == FZN_BLOB_ERR_MALFORMED,
+	      "leaf_open accepted a null out");
+	CHECK(fzn_blob_leaf_open(&HASH, &AEAD, ck, 0u, sealed, FZN_BLOB_LEAF_OVERHEAD + 8u,
+	                         plain, sizeof(plain), NULL) == FZN_BLOB_ERR_MALFORMED,
+	      "leaf_open accepted a null out length");
+
+	/* A BUFFER TOO SMALL IS MALFORMED, NOT SHAPE: the length came from the
+	 * caller's own sealed leaf, so it is this side's arithmetic that is
+	 * wrong, not a stranger's bytes. */
+	CHECK(fzn_blob_leaf_open(&HASH, &AEAD, ck, 0u, sealed, FZN_BLOB_LEAF_OVERHEAD + 8u,
+	                         plain, 4u, &out_len) == FZN_BLOB_ERR_MALFORMED,
+	      "leaf_open accepted an out buffer smaller than the plaintext");
+	CHECK(fzn_blob_leaf_open(&REFUSER, &AEAD, ck, 0u, sealed, FZN_BLOB_LEAF_OVERHEAD + 8u,
+	                         plain, sizeof(plain), &out_len) == FZN_BLOB_ERR_HASH,
+	      "leaf_open swallowed a refusing hash");
+
+	/* ---- leaf_hash and node_hash. */
+	CHECK(fzn_blob_leaf_hash(NULL, sealed, 8u, h) == FZN_BLOB_ERR_MALFORMED,
+	      "leaf_hash accepted a null hash");
+	CHECK(fzn_blob_leaf_hash(&no_hash, sealed, 8u, h) == FZN_BLOB_ERR_MALFORMED,
+	      "leaf_hash accepted a hash struct whose member is null");
+	CHECK(fzn_blob_leaf_hash(&HASH, NULL, 8u, h) == FZN_BLOB_ERR_MALFORMED,
+	      "leaf_hash accepted a null sealed leaf");
+	CHECK(fzn_blob_leaf_hash(&HASH, sealed, 8u, NULL) == FZN_BLOB_ERR_MALFORMED,
+	      "leaf_hash accepted a null out");
+
+	CHECK(fzn_blob_node_hash(NULL, l, r, h) == FZN_BLOB_ERR_MALFORMED,
+	      "node_hash accepted a null hash");
+	CHECK(fzn_blob_node_hash(&no_hash, l, r, h) == FZN_BLOB_ERR_MALFORMED,
+	      "node_hash accepted a hash struct whose member is null");
+	CHECK(fzn_blob_node_hash(&HASH, NULL, r, h) == FZN_BLOB_ERR_MALFORMED,
+	      "node_hash accepted a null left child");
+	CHECK(fzn_blob_node_hash(&HASH, l, NULL, h) == FZN_BLOB_ERR_MALFORMED,
+	      "node_hash accepted a null right child");
+	CHECK(fzn_blob_node_hash(&HASH, l, r, NULL) == FZN_BLOB_ERR_MALFORMED,
+	      "node_hash accepted a null out");
+
+	/* ---- tree_init tolerates a null rather than crashing on one. */
+	fzn_blob_tree_init(NULL);
+	CHECK(1, "tree_init survived a null tree");
+
+	/* ---- tree_root: four operands, then the refusal from below. */
+	fzn_blob_tree_init(&tree);
+	CHECK(fzn_blob_tree_push(&HASH, &tree, l) == FZN_BLOB_OK, "push refused");
+	CHECK(fzn_blob_tree_root(NULL, &tree, h) == FZN_BLOB_ERR_MALFORMED,
+	      "tree_root accepted a null hash");
+	CHECK(fzn_blob_tree_root(&no_hash, &tree, h) == FZN_BLOB_ERR_MALFORMED,
+	      "tree_root accepted a hash struct whose member is null");
+	CHECK(fzn_blob_tree_root(&HASH, NULL, h) == FZN_BLOB_ERR_MALFORMED,
+	      "tree_root accepted a null tree");
+	CHECK(fzn_blob_tree_root(&HASH, &tree, NULL) == FZN_BLOB_ERR_MALFORMED,
+	      "tree_root accepted a null root out");
+	CHECK(fzn_blob_tree_root(&REFUSER, &tree, h) == FZN_BLOB_ERR_HASH,
+	      "tree_root swallowed a refusing hash");
+
+	/* ---- proof_build: four operands, plus a capacity that runs out
+	 * PART WAY THROUGH the descent rather than at the door. */
+	CHECK(fzn_blob_proof_build(NULL, leaves, 4u, 0u, sibs, sizeof(sibs), &n_sibs)
+	      == FZN_BLOB_ERR_MALFORMED, "proof_build accepted a null hash");
+	CHECK(fzn_blob_proof_build(&HASH, NULL, 4u, 0u, sibs, sizeof(sibs), &n_sibs)
+	      == FZN_BLOB_ERR_MALFORMED, "proof_build accepted null leaf hashes");
+	CHECK(fzn_blob_proof_build(&HASH, leaves, 4u, 0u, NULL, sizeof(sibs), &n_sibs)
+	      == FZN_BLOB_ERR_MALFORMED, "proof_build accepted a null out");
+	CHECK(fzn_blob_proof_build(&HASH, leaves, 4u, 0u, sibs, sizeof(sibs), NULL)
+	      == FZN_BLOB_ERR_MALFORMED, "proof_build accepted a null out count");
+	CHECK(fzn_blob_proof_build(&HASH, leaves, 4u, 0u, sibs, FZN_BLOB_HASH_LEN, &n_sibs)
+	      == FZN_BLOB_ERR_MALFORMED,
+	      "proof_build accepted an out buffer with room for fewer siblings than the "
+	      "descent needs -- the capacity is rechecked every level, not once");
+	CHECK(fzn_blob_proof_build(&REFUSER, leaves, 4u, 0u, sibs, sizeof(sibs), &n_sibs)
+	      == FZN_BLOB_ERR_HASH, "proof_build swallowed a refusing hash");
+
+	/* ---- proof_verify: three operands, and the one that is not a null
+	 * test -- siblings may be null only when the count says there are
+	 * none, which is the single-leaf tree. */
+	CHECK(fzn_blob_proof_verify(NULL, l, 0u, 4u, sibs, 2u, r) == FZN_BLOB_ERR_MALFORMED,
+	      "proof_verify accepted a null hash");
+	CHECK(fzn_blob_proof_verify(&HASH, NULL, 0u, 4u, sibs, 2u, r) == FZN_BLOB_ERR_MALFORMED,
+	      "proof_verify accepted a null leaf hash");
+	CHECK(fzn_blob_proof_verify(&HASH, l, 0u, 4u, sibs, 2u, NULL) == FZN_BLOB_ERR_MALFORMED,
+	      "proof_verify accepted a null root");
+	CHECK(fzn_blob_proof_verify(&HASH, l, 0u, 4u, NULL, 2u, r) == FZN_BLOB_ERR_MALFORMED,
+	      "proof_verify accepted null siblings with a nonzero count");
+}
+
 int main(void)
 {
 	test_the_streaming_tree_agrees_with_the_definition();
@@ -1039,6 +1221,8 @@ int main(void)
 	test_the_deepest_legal_proof_is_walked();
 	test_every_guard_refuses_its_own_argument();
 	test_the_suite_can_tell_pass_from_fail();
+
+	test_the_operands_the_first_one_hides();
 
 	printf("blob_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
