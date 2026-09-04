@@ -150,8 +150,29 @@ fzn_journal_err_t fzn_journal_anchor(fzn_journal_t *journal,
 		return FZN_JOURNAL_ERR_DUPLICATE;
 
 	e->received = seq;
-	if (e->applied > e->received)
-		e->applied = e->received;
+
+	/* NOTHING CLAMPS `applied` HERE, AND THE REFUSAL ABOVE IS WHY. An
+	 * anchor never moves backwards, so `received` only increases; `applied`
+	 * is raised only by `fzn_journal_confirm`, which refuses anything above
+	 * `received`. At this line the state is therefore
+	 * `applied <= old_received < seq == received`, strictly -- so
+	 * `applied <= received` holds by construction and there is no state for
+	 * a clamp to repair.
+	 *
+	 * THERE WAS ONE UNTIL 2026-09-04, unreachable since the backwards
+	 * refusal above was written, and found by coverage as the only
+	 * never-executed line in this file. `record_guided` is the independent
+	 * witness: it mirrors a successful anchor WITHOUT clamping its model's
+	 * `applied`, and asserts `pending == received - applied`, so it would
+	 * have diverged the first time the clamp fired. project.md sec 66.
+	 *
+	 * The invariant is STATED rather than defended, because a repair firing
+	 * at one instant would not have helped anyone. A caller that pokes
+	 * `applied` past `received` in its own entry array has already broken
+	 * `fzn_journal_pending`, which underflows to something enormous, and
+	 * that is not repaired by an anchor it may never make. Whoever lets an
+	 * anchor move backwards has to come here anyway; this paragraph is what
+	 * they need, and the two lines were not. */
 
 	return FZN_JOURNAL_OK;
 }

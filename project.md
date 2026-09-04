@@ -2156,9 +2156,17 @@ whether the API reads correctly, and both did badly.
 
 ### Confirmed consistent
 
-`OK` is 0 and `ERR_MALFORMED` is -1 in all eighteen enums; every module has an
-`_err_str` renderer and all are in the sweep; every fixed-width identifier
-goes through a named constant rather than a literal.
+~~`OK` is 0 and `ERR_MALFORMED` is -1 in all eighteen enums; every module has
+an `_err_str` renderer and all are in the sweep~~; every fixed-width
+identifier goes through a named constant rather than a literal.
+
+**BOTH STRUCK CLAUSES WERE TRUE ON 2026-08-26 AND ARE FALSE NOW**, and the
+consistency they assert is what made the gap invisible. The library has 26
+renderers over 26 enums; **nine of them count UP** -- `blob`, `authz`,
+`prekey`, `ratchet`, `agree`, `session`, `spool`, `persist`, `tree`, every
+one landing after this was written -- so `ERR_MALFORMED` is 1 there, not -1.
+And until 2026-09-04 the sweep walked 17 of the 26. Sec 67 has the
+measurement and what it cost. The remaining clause holds.
 
 ### Decided: a real capability in every datagram (2026-08-26)
 
@@ -4730,8 +4738,9 @@ handled in switch"*, naming it.
 
 `wire/test/err_str_test.c` takes the three things the compiler cannot see --
 that no two codes render the same text, that nothing renders NULL, and that a
-value off the end renders "unknown" and nothing else does. 253 checks over
-16 renderers.
+value off the end renders "unknown" and nothing else does. **461 checks over
+26 renderers**, re-measured 2026-09-04; it was 253 over 16 when this
+paragraph was written and 303 over 17 the day before the re-measurement.
 Sabotage: rendering `FZN_SEAL_ERR_COMMITMENT` as `"tag did not verify"`
 compiles cleanly and is caught by name.
 
@@ -4740,9 +4749,17 @@ would be an eighth place to keep in step, drifting exactly like the consumer
 switch this change exists to spare people. Each renderer is walked from zero
 in its own direction until the fallback answers, and that count is pinned --
 so adding a code *with* a case moves the count and fails, which makes the
-addition deliberate. The direction is per subject because the error enums run
-0, -1, -2 while `fzn_peer_verdict_t` runs 0, 1, 2; assuming one direction
-would have tested three verdicts as one.
+addition deliberate.
+
+**THE DIRECTION USED TO BE A COLUMN IN THAT TABLE, AND IT IS WHY NINE
+RENDERERS WERE MISSING.** This paragraph said the direction is per subject
+"because the error enums run 0, -1, -2 while `fzn_peer_verdict_t` runs
+0, 1, 2" -- true of the sixteen error enums then in the table, and false of
+the library within two days. The column made the assumption per row, so a
+table of one family looked complete; nothing compared the roster against what
+the library actually defines. It is derived now, by probing both sides of
+zero and refusing an enum that answers in both, and a Makefile gate holds the
+roster. Sec 67.
 
 `FZN_PEER_UNKNOWN` renders **"membership unknown"** rather than "unknown", so
 that the fallback stays unambiguous. A log line reading "unknown" must mean
@@ -11354,6 +11371,130 @@ alone is also green, since the openers do write every field. Dropping the
 init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
+
+## 67. The sweep that walked one family of enums, 2026-09-04
+
+`wire/test/err_str_test.c` exists so that an error code's TEXT is read by
+something. It walked **17 renderers; the library defines 26.** Nine were
+outside it, and with them **33 arms that had never rendered** -- a third of
+every never-executed line in the library.
+
+### The signature is clean, which is what makes it worth recording
+
+    in the sweep      16 error enums, every one counting DOWN from OK = 0
+                      plus fzn_peer_verdict_t, which counts up
+    outside it        blob, authz, prekey, ratchet, agree, session,
+                      spool, persist, tree -- every one counting UP
+
+**The sweep covered the `0, -1, -2` family entirely and the `0, 1, 2` family
+not at all**, and the reason is a hand-written `step` column. The walk itself
+is derived and always was -- it renders `0, step*1, step*2 ...` until the
+fallback answers, which is why the ARM lists never rotted. The ROSTER was a
+literal table, so a table of one family looked complete, and a row added with
+the wrong sign would have been walked away from its own enum and reported as
+rendering one code.
+
+**It is not the usual "written before those modules existed" excuse.** The
+test was last edited 2026-09-03, after all nine modules had landed, and none
+was added.
+
+### What was actually lost, which is the wording and not the refusal
+
+**No enumerator is dead in both directions.** Every one of the 33 is genuinely
+produced on a live path and genuinely reaches consumers -- the refusals are
+covered. What had never happened is anyone reading the sentence that comes
+back. `FZN_RATCHET_ERR_IN_PLACE` is raised, and `tool/consumer_check.c`
+asserts on it -- as an integer. Its text, *"advanced a live chain in place:
+derive, verify, then commit"*, a sentence that tries to teach the caller the
+fix, had never been produced by any run.
+
+**And `fzn_spool_err_str` is worse than untested: nothing calls it.** Two hits
+in the whole tree, the definition and the declaration. A consumer holding a
+`FZN_SPOOL_ERR_*` has no path in this tree that turns it into a sentence.
+Recorded rather than fixed; the sweep calls it now, which is coverage and not
+use.
+
+### Fixed in three parts, and the third is the one that lasts
+
+**The nine rows**, with a predicted count stated before the run: 461 checks
+over 26 renderers, from `2 + n(n-1)/2` per enum. It printed exactly that,
+which is what shows the roster is complete rather than merely bigger.
+
+**The direction is derived**, by probing both sides of zero: exactly one of -1
+and 1 must render something other than the fallback, and an enum answering in
+BOTH is mixed-sign and refused rather than half-covered. The hand-written
+column is gone.
+
+**A `make style` gate holds the roster against the library**, and it creates
+no second list. The left side is `nm --defined-only` over `CORE_SRCS`'s
+objects filtered to `fzn_*_err_str` and `fzn_*_verdict_str`; the right side is
+the `SUBJECTS[]` name literals grepped out of the test itself. A renderer in
+one and not the other is named. It carries the control this tree insists on --
+an empty left side is a refusal, not a pass -- and it was watched failing:
+removing the `fzn_spool_err_str` row gives *"style: error renderers the sweep
+does not walk: fzn_spool_err_str"*, exit 2.
+
+That is the `-Wswitch` argument one level up. The compiler names an enumerator
+with no case; this names a renderer with no row.
+
+### What it still does not do, said plainly
+
+The sweep checks distinctness, non-NULL, and that the fallback is reached. **It
+never compares a rendered string to an expected one.** Coverage moves from 104
+dead lines to about 37 and the prose remains something no assertion has read:
+swap two codes' texts and every check still passes, because both are still
+unique and neither is "unknown". Pinning the wording means a per-arm expected
+text, which is the hand-maintained list this test was built to avoid. **That
+tension is not resolved here**, and it is the honest residue: this closes the
+`-Wswitch`-shaped half and leaves `evidence.md`'s half open.
+
+## 66. A clamp for a state the line above it forbids, 2026-09-04
+
+`record/journal.c`'s `fzn_journal_anchor` ended with
+
+    e->received = seq;
+    if (e->applied > e->received)
+            e->applied = e->received;
+
+and the assignment was the only never-executed line in the file. **It is
+unreachable, not merely unheld**, which is the difference from sec 65.
+
+### The proof is four lines up
+
+An anchor refuses to move backwards -- `if (seq <= e->received) return
+FZN_JOURNAL_ERR_DUPLICATE;` -- so `received` only ever increases. `applied` is
+raised only by `fzn_journal_confirm`, which refuses anything above `received`
+with `FZN_JOURNAL_ERR_NOT_RECEIVED`. By exhaustion over the three writers,
+`applied <= received` holds at every point; at the clamp the state is
+`applied <= old_received < seq == received`, strictly. The condition is false
+by construction.
+
+**`record_guided` is the independent witness.** Its model mirrors a successful
+anchor as `m.received = seq` and does NOT clamp its own `applied`, then
+asserts `pending == received - applied`. Had the clamp ever fired, model and
+code would have diverged. It has now run 200,000 cases without doing so.
+
+### Deleted, on this project's own precedent
+
+Sec 11 records the same call over `admit_first`'s unreachable bound check:
+*"dead code that cannot be tested is not depth, and leaving a wrapping
+multiplication in the file for a reader to puzzle over is worse than not
+having it."* The clamp is the same shape -- a repair for a state the function
+above it refuses to create.
+
+**What replaced it is the argument, not nothing.** The invariant is stated
+where the clamp was, because whoever later lets an anchor move backwards has
+to come here anyway, and a repair firing at one instant would not have saved
+them: a caller that pokes `applied` past `received` in its own entry array has
+already broken `fzn_journal_pending`, which underflows to something enormous,
+and no anchor it may never make repairs that.
+
+**The prediction was wrong and that is worth keeping.** This line was picked
+out before it was investigated as the likeliest sibling of sec 65's defect --
+same shape, only dead line in a file at 98.73%. It is the opposite: sec 65's
+line was reachable and unobserved, this one unreachable and therefore
+unobservable. **A shape match is a reason to look, not a finding**, and the
+two outcomes look identical from the coverage report that produced both.
 
 ## 65. The one line in `revocation.c` that had never run, 2026-09-04
 

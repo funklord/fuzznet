@@ -1445,6 +1445,15 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/session/commitment.o \
                                       $(BUILD_DIR)/session/random.o \
                                       $(BUILD_DIR)/wire/seal.o \
+                                      $(BUILD_DIR)/blob/blob.o \
+                                      $(BUILD_DIR)/chain/authz.o \
+                                      $(BUILD_DIR)/prekey/prekey.o \
+                                      $(BUILD_DIR)/ratchet/ratchet.o \
+                                      $(BUILD_DIR)/session/agree.o \
+                                      $(BUILD_DIR)/session/session.o \
+                                      $(BUILD_DIR)/spool/spool.o \
+                                      $(BUILD_DIR)/persist/persist.o \
+                                      $(BUILD_DIR)/tree/tree.o \
                                       $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -2277,6 +2286,29 @@ style:
 		exit 1; \
 	fi; \
 	echo "style: $$n test sources, all reached by 'make test'"
+	@# EVERY ERROR RENDERER IS WALKED BY THE SWEEP, derived from the sources
+	@# rather than from a list somebody keeps.
+	@#
+	@# WHAT IT COSTS TO GET WRONG, measured 2026-09-04: the library defined
+	@# 26 `_err_str`/`_verdict_str` renderers and `wire/test/err_str_test.c`
+	@# named 17. The nine missing were every enum that counts UP from OK,
+	@# because the table had a hand-written direction column and the sixteen
+	@# error enums in it all count DOWN -- so 33 arms had never rendered,
+	@# including `fzn_spool_err_str`, which nothing in this tree calls at
+	@# all. project.md sec 67.
+	@#
+	@# THE ROSTER IS THE TEST'S OWN `SUBJECTS[]` NAMES, so this creates no
+	@# second list: the left side is what the compiler emitted, the right is
+	@# what the sweep says it walks, and a renderer in one and not the other
+	@# is named. Same shape as the TEST_SRCS check above and as
+	@# `installcheck`'s symbol probe.
+	@have=`nm --defined-only $(CORE_SRCS:%.c=$(BUILD_DIR)/%.o) 2>/dev/null \
+	       | awk '$$2 == "T" { print $$3 }' \
+	       | grep -E '^fzn_[a-z_]+_(err|verdict)_str$$' | sort -u`; 	walked=`grep -oE '"fzn_[a-z_]+_(err|verdict)_str"' wire/test/err_str_test.c \
+	        | tr -d '"' | sort -u`; 	n=`echo "$$have" | grep -c .`; 	w=`echo "$$walked" | grep -c .`; 	if [ "$$n" -eq 0 ]; then 		echo "style: the renderer probe matched no symbols, so it proves"; 		echo "style: nothing -- build the objects before running this."; 		exit 1; 	fi; 	missing=; \
+	for r in $$have; do \
+		case " `echo $$walked` " in *" $$r "*) ;; *) missing="$$missing $$r" ;; esac; \
+	done; 	if [ -n "$$missing" ]; then 		echo "style: error renderers the sweep does not walk:" $$missing; 		echo "style: add a row to SUBJECTS[] in wire/test/err_str_test.c,"; 		echo "style: or its arms render text no test has ever read."; 		exit 1; 	fi; 	echo "style: $$n error renderers, all walked by err_str_test ($$w rows)"
 	@# AND version/version.h MUST STILL SPELL WHAT VERSION SAYS, an eighth
 	@# hand-maintained agreement. The header is a copy on purpose --
 	@# version.h says why, and it is the reason constants_test.c gives about

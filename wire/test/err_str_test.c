@@ -56,6 +56,15 @@
 #include "../../session/commitment.h"
 #include "../relay.h"
 #include "../seal.h"
+#include "../../blob/blob.h"
+#include "../../chain/authz.h"
+#include "../../prekey/prekey.h"
+#include "../../ratchet/ratchet.h"
+#include "../../session/agree.h"
+#include "../../session/session.h"
+#include "../../spool/spool.h"
+#include "../../persist/persist.h"
+#include "../../tree/tree.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -95,47 +104,92 @@ static const char *r_log(int v) { return fzn_log_err_str((fzn_log_err_t)v); }
 static const char *r_relay(int v) { return fzn_relay_err_str((fzn_relay_err_t)v); }
 static const char *r_sched(int v) { return fzn_sched_err_str((fzn_sched_err_t)v); }
 static const char *r_link(int v) { return fzn_link_err_str((fzn_link_err_t)v); }
+static const char *r_blob(int v) { return fzn_blob_err_str((fzn_blob_err_t)v); }
+static const char *r_authz(int v) { return fzn_authz_verdict_str((fzn_authz_verdict_t)v); }
+static const char *r_prekey(int v) { return fzn_prekey_err_str((fzn_prekey_err_t)v); }
+static const char *r_ratchet(int v) { return fzn_ratchet_err_str((fzn_ratchet_err_t)v); }
+static const char *r_agree(int v) { return fzn_agree_err_str((fzn_agree_err_t)v); }
+static const char *r_session(int v) { return fzn_session_err_str((fzn_session_err_t)v); }
+static const char *r_spool(int v) { return fzn_spool_err_str((fzn_spool_err_t)v); }
+static const char *r_persist(int v) { return fzn_persist_err_str((fzn_persist_err_t)v); }
+static const char *r_tree(int v) { return fzn_tree_err_str((fzn_tree_err_t)v); }
 
 struct subject {
 	const char *name;
 	const char *(*render)(int);
-	int step;
 	int codes;
 };
 
 /* The pinned counts. Each is the number of enumerators in that type, and
- * moving one without moving the other is the failure this table catches. */
+ * moving one without moving the other is the failure this table catches.
+ *
+ * THE DIRECTION IS NO LONGER A COLUMN, and that column is why nine renderers
+ * sat outside this sweep for a week. Sixteen of the seventeen rows here were
+ * error enums counting DOWN from `OK = 0`, and the nine that were missing all
+ * count UP -- so the table had quietly become a table of one family, and a
+ * tenth row added without noticing would have been walked in the wrong
+ * direction and reported as rendering one code. `check_subject` probes for it
+ * now and refuses an enum that answers in both directions. project.md sec 67. */
 static const struct subject SUBJECTS[] = {
-	{ "fzn_chain_err_str", r_chain, -1, 11 },
-	{ "fzn_manifest_err_str", r_manifest, -1, 7 },
-	{ "fzn_commitment_err_str", r_commitment, -1, 4 },
-	{ "fzn_fresh_err_str", r_fresh, -1, 7 },
-	{ "fzn_reasm_err_str", r_reasm, -1, 9 },
-	{ "fzn_split_err_str", r_split, -1, 4 },
-	{ "fzn_seal_err_str", r_seal, -1, 8 },
-	{ "fzn_peer_verdict_str", r_peer, 1, 3 },
-	{ "fzn_record_err_str", r_record, -1, 6 },
-	{ "fzn_journal_err_str", r_journal, -1, 7 },
-	{ "fzn_sync_err_str", r_sync, -1, 2 },
-	{ "fzn_state_err_str", r_state, -1, 7 },
-	{ "fzn_trust_err_str", r_trust, -1, 4 },
-	{ "fzn_log_err_str", r_log, -1, 5 },
-	{ "fzn_relay_err_str", r_relay, -1, 4 },
-	{ "fzn_sched_err_str", r_sched, -1, 3 },
-	{ "fzn_link_err_str", r_link, -1, 5 },
+	{ "fzn_chain_err_str", r_chain, 11 },
+	{ "fzn_manifest_err_str", r_manifest, 7 },
+	{ "fzn_commitment_err_str", r_commitment, 4 },
+	{ "fzn_fresh_err_str", r_fresh, 7 },
+	{ "fzn_reasm_err_str", r_reasm, 9 },
+	{ "fzn_split_err_str", r_split, 4 },
+	{ "fzn_seal_err_str", r_seal, 8 },
+	{ "fzn_peer_verdict_str", r_peer, 3 },
+	{ "fzn_record_err_str", r_record, 6 },
+	{ "fzn_journal_err_str", r_journal, 7 },
+	{ "fzn_sync_err_str", r_sync, 2 },
+	{ "fzn_state_err_str", r_state, 7 },
+	{ "fzn_trust_err_str", r_trust, 4 },
+	{ "fzn_log_err_str", r_log, 5 },
+	{ "fzn_relay_err_str", r_relay, 4 },
+	{ "fzn_sched_err_str", r_sched, 3 },
+	{ "fzn_link_err_str", r_link, 5 },
+	{ "fzn_blob_err_str", r_blob, 8 },
+	{ "fzn_authz_verdict_str", r_authz, 3 },
+	{ "fzn_prekey_err_str", r_prekey, 7 },
+	{ "fzn_ratchet_err_str", r_ratchet, 6 },
+	{ "fzn_agree_err_str", r_agree, 5 },
+	{ "fzn_session_err_str", r_session, 5 },
+	{ "fzn_spool_err_str", r_spool, 6 },
+	{ "fzn_persist_err_str", r_persist, 5 },
+	{ "fzn_tree_err_str", r_tree, 8 },
 };
 
 static void check_subject(const struct subject *s)
 {
 	const char *seen[FZN_SCAN_CAP];
 	int n = 0;
+	int step;
+
+	/* WHICH WAY THIS ENUM COUNTS, ASKED RATHER THAN DECLARED. Exactly one
+	 * of -1 and 1 must render something other than the fallback: an enum
+	 * answering in NEITHER direction has only `OK` or does not fall back,
+	 * and one answering in BOTH is mixed-sign, which this walk cannot
+	 * enumerate and would silently half-cover. */
+	{
+		int neg = strcmp(s->render(-1), FZN_FALLBACK) != 0;
+		int pos = strcmp(s->render(1), FZN_FALLBACK) != 0;
+
+		if (neg == pos) {
+			expect(0, s->name,
+			       neg ? "renders codes in both directions, which this "
+			             "walk cannot enumerate"
+			           : "renders nothing either side of zero");
+			return;
+		}
+		step = neg ? -1 : 1;
+	}
 
 	/* Walk until the fallback answers, which is where this type's codes
 	 * stop. Capped so that a renderer which never falls back -- one that
 	 * grew a `default:` returning something else -- fails here rather than
 	 * looping. */
 	while (n < FZN_SCAN_CAP) {
-		const char *text = s->render(s->step * n);
+		const char *text = s->render(step * n);
 
 		if (!text) {
 			expect(0, s->name, "rendered NULL, which the header forbids");
@@ -156,7 +210,7 @@ static void check_subject(const struct subject *s)
 			       "two codes render the same text");
 
 	/* And well past the end, where nothing is an enumerator. */
-	expect(strcmp(s->render(s->step * (FZN_SCAN_CAP + 1)), FZN_FALLBACK) == 0, s->name,
+	expect(strcmp(s->render(step * (FZN_SCAN_CAP + 1)), FZN_FALLBACK) == 0, s->name,
 	       "a value far outside the enum did not render the fallback");
 }
 
