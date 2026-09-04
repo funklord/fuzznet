@@ -327,6 +327,13 @@ static int length_discipline(struct coverage *cov)
 	return 0;
 }
 
+static unsigned long floor_of(unsigned long cases, unsigned long per)
+{
+	unsigned long f = cases / per;
+
+	return f == 0u ? 1u : f;
+}
+
 int main(int argc, char **argv)
 {
 	unsigned long cases = FUZZ_DEFAULT_CASES;
@@ -412,10 +419,37 @@ int main(int argc, char **argv)
 	       cases, cov.refused, cov.accepted, cov.near_miss,
 	       cov.length_sweeps, cov.open_agreed);
 
-	if (cov.refused == 0u || cov.accepted == 0u || cov.near_miss == 0u ||
-	    cov.length_sweeps == 0u || cov.open_agreed == 0u) {
-		printf("seal_fuzz: a coverage floor was not reached, so this run "
-		       "proves less than it appears to. FAILED.\n");
+	/* FLOORS PROPORTIONAL TO `cases`, WHICH IS WHAT THE REFUSAL ABOVE
+	 * ALREADY PROMISED. They were `== 0u` until 2026-09-04 -- at least one
+	 * hit, at any case count -- while `FUZZ_MIN_CASES` refused a short run
+	 * on the grounds that "the coverage floors below are cleared by single
+	 * lucky hits". The guard was protecting floors this file did not have,
+	 * and every other harness here (`prekey_fuzz`, `blob_fuzz`,
+	 * `provision_fuzz`, `sync_fuzz`) scales them.
+	 *
+	 * What that cost was nothing yet and everything later: with a floor of
+	 * one, a generator change that dropped `accepted` from 65203 to 3
+	 * would leave this passing, and `accepted` is the path where a frame
+	 * is actually parsed rather than refused.
+	 *
+	 * An eighth is chosen against the measured shares -- refused 67%,
+	 * accepted 33%, near misses 50%, peek/open agreements 67% over 200000
+	 * cases -- so the tightest of them has better than a two-fold margin.
+	 * A floor is a tripwire for a generator that has stopped reaching a
+	 * state, not a target to tune against.
+	 *
+	 * `length_sweeps` KEEPS ITS FLOOR OF ONE, and that is not an oversight:
+	 * `length_discipline` is called once from `main` before the case loop,
+	 * so one is the whole population. A proportional floor there would
+	 * refuse every run. */
+	if (cov.refused < floor_of(cases, 8u) || cov.accepted < floor_of(cases, 8u) ||
+	    cov.near_miss < floor_of(cases, 8u) || cov.open_agreed < floor_of(cases, 8u) ||
+	    cov.length_sweeps == 0u) {
+		printf("seal_fuzz: REACHED TOO LITTLE -- %lu refused, %lu accepted, "
+		       "%lu near misses, %lu peek/open comparisons, %lu length sweeps "
+		       "in %lu cases. This run proves less than it appears to.\n",
+		       cov.refused, cov.accepted, cov.near_miss, cov.open_agreed,
+		       cov.length_sweeps, cases);
 		return 1;
 	}
 	return failures == 0 ? 0 : 1;

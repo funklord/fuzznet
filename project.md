@@ -11487,6 +11487,95 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 82. A guard protecting floors that were not there, 2026-09-04
+
+Found while reading a long fuzz run rather than by looking for it. Every
+harness at 200000 cases -- ten times the default -- and one line stood out:
+
+    seal_fuzz: 200000 cases; 134797 refused, 65203 accepted, 100000 near
+    misses, 1 length sweeps, 134797 peek/open comparisons
+
+**One length sweep in 200000 cases**, where every neighbour is in the tens of
+thousands. It looked like a path that had stopped being reached.
+
+### It was not, and reading settled it in one step
+
+`length_discipline` is called ONCE from `main`, before the case loop: it
+builds one frame and offers `fzn_seal_peek` every length from 0 to
+`built_len + 8`, requiring exactly one to be accepted. One is the whole
+population, and its floor of `!= 0` is the right floor for it.
+
+The suspicion cost one file read and was worth having -- but the finding is
+what the read turned up next.
+
+### The floors were "at least one", and the guard above them said otherwise
+
+    if (cases < FUZZ_MIN_CASES) {
+            "the coverage floors below are cleared by single lucky hits,
+             so this run will not report success"
+    ...
+    if (cov.refused == 0u || cov.accepted == 0u || cov.near_miss == 0u ||
+        cov.length_sweeps == 0u || cov.open_agreed == 0u)
+
+**`FUZZ_MIN_CASES` was refusing short runs to protect floors this file did not
+have.** Every floor was `== 0u` -- cleared by a single hit at any case count,
+which is exactly the condition the refusal is worded against. Every other
+harness here scales them: `prekey_fuzz`, `blob_fuzz`, and the two written
+today.
+
+Same shape as sec 79's wipe label, and the third time tonight: **a stated
+property the code does not have, in a file careful enough to state it.** The
+sentence is right, was written for the right reason, and nothing checked that
+the code below matched it.
+
+### What it cost, and when
+
+Nothing yet, and that is the point of fixing it. With a floor of one, a
+generator change dropping `accepted` from 65203 to 3 leaves this passing --
+and `accepted` is the path where a frame is actually PARSED rather than
+refused. A fuzz harness whose accept path has quietly stopped being reached
+is a harness that only proves the refusal path still refuses.
+
+### The floor chosen, and why it is not a target
+
+An eighth of `cases`, against the measured shares over 200000:
+
+    refused              134797   67%
+    accepted              65203   33%
+    near misses          100000   50%
+    peek/open agreements 134797   67%
+
+so the tightest has better than a two-fold margin. **A floor is a tripwire for
+a generator that has stopped reaching a state, not a number to tune against**
+-- set it where a real regression trips it and ordinary variance does not.
+
+`length_sweeps` keeps its floor of one, with the reason written beside it, so
+that the next person does not "fix" the inconsistency by making every floor
+proportional and refusing every run.
+
+### Watched failing, and I nearly graded it on the wrong output
+
+    seal_fuzz 1000  (the minimum)   674 / 326 / 500 / 674   floor 125   exit 0
+    seal_fuzz 20000 (the default) 13476 / 6524 /10000 /13476 floor 2500  exit 0
+    the floor raised to cases/1     REACHED TOO LITTLE                   exit 1
+
+**The first attempt at that third line read `cut`'s exit status through a
+pipe**, printed `exit 0`, and I was about to record "the floor fires" on the
+strength of the message having appeared. The message printing is necessary and
+is not the thing: the REFUSAL is. Re-run reading the binary's own status, it
+is 1.
+
+That is this document's own rule about pipelines, met while writing up a
+finding about a guard that did not guard. Twice in one file.
+
+### And the run itself found nothing
+
+Sixteen harnesses, 200000 cases each, no invariant broken and no model
+disagreement. That is a recorded negative rather than a silence: the
+harnesses that carry models -- prekey, revocation, manifest, peer, sync --
+agreed with the library throughout, and the ones that carry invariants held
+them.
+
 ## 81. A decision table with a row nobody had reached, 2026-09-04
 
 Sections 79 and 80 took one module each. This took the whole library at once,
