@@ -11388,6 +11388,19 @@ stays**, because the file asserts `QR_LEN == 349u`: a number with a gate
 behind it is a number somebody re-derives, and the wire constants it is built
 from cannot move without a wire change.
 
+**AND THE REST OF TONIGHT'S SECTIONS WERE CHECKED RATHER THAN ASSUMED.** Every
+number sitting next to a tree noun in secs 59 to 68 -- checks, entries,
+renderers, sources, arms, rows, branches, sites -- thirteen of them, read
+against one question: is this a claim about the tree NOW, or a record of a
+measurement taken then. **Twelve are records** and carry their date through
+the section heading: 83 entries caught on 2026-09-04, 138 branches before the
+withdrawal work, 33 arms that had never rendered. Two are present-tense and
+survive for a reason each states -- sec 67's renderer count is held by a
+`make style` gate that fails when a renderer is added and not walked, and sec
+60's 66 sites is flagged in its own section as a snapshot, with the script
+that re-derives it. **The one bad instance was the one above, and it was
+mine.**
+
 ### Scoped before it was written, because fuzznet has no QR anything
 
 Sec 2 keeps transport and encoding out; contact cards are fuzzypickles' object
