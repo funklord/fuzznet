@@ -11607,17 +11607,51 @@ the sentence because the safe direction is the one nobody investigates, and
 this would have been read as "the sanitized fuzz run fails" by anybody who
 stopped at the notification.
 
-### What is NOT being done about the gate
+### It is in `make check` now, and the hole was closed rather than accepted
 
-`make test SANITIZE=1` is documented in the README and left out of `make
-check` deliberately: it roughly triples the test time, and `make codegencheck`
-skips sanitizer objects outright because their codegen is a different shape,
-so a sanitized `check` would be a check with a hole in it reported as a pass.
+Instructed by the holder the same day. The obstacle recorded here was real:
+`make codegencheck` SKIPS a sanitizer build outright -- it reads the emitted
+shape of two security-critical functions and instrumentation deliberately
+changes that shape -- so a sanitized `test` would run the codegen gate, have
+it decline, and **report a pass over a check that inspected nothing.**
 
-Whether it should run anyway -- always, or on a schedule, or before a push --
-is a question about this project's gate policy and therefore the holder's. It
-is recorded here rather than decided, with the cost measured: one real defect
-found in one run, in code that had passed every other gate.
+    check: style test installcheck ctcheck sancheck
+
+    sancheck: $(MAKE) runtests BUILD_DIR=$(BUILD_DIR)-san SANITIZE=1
+
+**`runtests` and not `test` is the whole care in the target.** `test` is
+`codegencheck runtests`; running only `runtests` under the sanitizer leaves
+`codegencheck` where it means something, on the plain build. The gate that
+would have been made vacuous by strengthening the suite stays honest, which
+was the objection and is now answered rather than traded away.
+
+A separate `BUILD_DIR`, derived from the caller's so that
+`make check BUILD_DIR=out` sanitizes into `out-san`, because the header at the
+top of the Makefile says the objects are not interchangeable and mixing them
+produces a link nobody can explain. `/san/` was already ignored -- it arrived
+with `SANITIZE=1` in August -- and `/*-san/` covers the derived spellings.
+The tree is KEPT between runs, unlike `coverage`'s, because a gate that
+rebuilt the whole suite under a sanitizer every time would cost what nobody
+would pay; `clean` removes it, by directory and after checking the path is
+non-empty and relative.
+
+### And it was watched catching the thing it was added for
+
+Not a contrived fixture: **the defect from this same section**, put back into
+`sim/test/provision_test.c` and run through both gates on one tree.
+
+    make test   (unsanitized)   EXIT 0     passes it, as it did all night
+    make sancheck               EXIT 2     stack-use-after-scope,
+                                           record/record.h:284
+
+A negative control and a positive one in a single run. The first line is what
+makes the second worth anything: it establishes that the existing gate cannot
+see this, rather than leaving that assumed from the morning's run.
+
+`evidence.md` -- *a check is untested until it has been seen to fail* -- and
+the reason it applies with force here is that adding a gate is the easiest
+kind of change to leave unverified. A gate that runs and passes looks
+identical to a gate that runs and cannot fail.
 
 ## 85. The seal seam returns a value, 2026-09-04
 

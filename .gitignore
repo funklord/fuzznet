@@ -92,6 +92,7 @@
 /build/
 /san/
 /*-coverage/
+/*-san/
 *.gcov
 *.gcda
 *.gcno

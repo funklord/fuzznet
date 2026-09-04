@@ -930,7 +930,7 @@ endif
 # failures rather than as a build error.
 DEPS = $(OBJS:.o=.d) $(TEST_OBJS:.o=.d)
 
-.PHONY: check runtests all test fuzz guided guided-one installcheck coverage schema style codegencheck ctcheck analyze sabotage hooks clean install
+.PHONY: check runtests all test fuzz guided guided-one installcheck coverage sancheck schema style codegencheck ctcheck analyze sabotage hooks clean install
 
 # The default build does NOT build tests -- build-and-commit.md, and the
 # discipline it buys is paid for by the dependency rules above being right.
@@ -2157,7 +2157,39 @@ sabotage:
 # project.md sec 53 has the eight-cell matrix.
 #
 # It costs 1.8s here.
-check: style test installcheck ctcheck
+check: style test installcheck ctcheck sancheck
+
+# THE SUITE AGAIN UNDER AddressSanitizer AND UBSan, on the holder's
+# instruction 2026-09-04. What it costs is roughly the test time again; what
+# it buys was measured the same day, before it was asked for: one real defect
+# in one run -- a view into a stack buffer whose scope had ended, in a test
+# that had passed `make check` a dozen times, `make fuzz` at 200000 cases per
+# harness and three coverage runs, because the bytes were still there.
+# project.md sec 86.
+#
+# `runtests` AND NOT `test`, WHICH IS THE WHOLE CARE IN THIS TARGET.
+# `test` is `codegencheck runtests`, and `codegencheck` SKIPS a sanitizer
+# build outright -- it reads the emitted shape of two security-critical
+# functions, and instrumentation deliberately changes that shape. So a
+# sanitized `test` would run the codegen gate, have it decline, and report a
+# pass over a check that inspected nothing. Running `runtests` leaves
+# `codegencheck` where it means something: on the plain build above.
+#
+# A SEPARATE BUILD_DIR because the header at the top of this file says so and
+# says why: the objects are not interchangeable and mixing them produces a
+# link nobody can explain. Derived from the caller's rather than hard-coded,
+# so `make check BUILD_DIR=out` sanitizes into `out-san`; `.gitignore` covers
+# both spellings.
+#
+# THE TREE IS KEPT, not removed. `coverage` deletes its own because it is a
+# one-off measurement; this runs on every check, and rebuilding the whole
+# suite under a sanitizer each time would make the gate cost what nobody
+# would pay. `clean` removes it.
+sancheck:
+	@test -n "$(BUILD_DIR)" || { echo "BUILD_DIR is empty; refusing"; exit 1; }
+	@case "$(BUILD_DIR)" in /*) echo "BUILD_DIR must be relative; refusing"; exit 1 ;; esac
+	@echo "sancheck: the suite under AddressSanitizer and UBSan"
+	@$(MAKE) --no-print-directory runtests BUILD_DIR=$(BUILD_DIR)-san SANITIZE=1
 
 style:
 	python3 tool/style_gate.py check
@@ -2920,6 +2952,19 @@ MONO_CLEAN := $(MONO_SRCS:%.c=$(BUILD_DIR)/%.o) $(MONO_SRCS:%.c=$(BUILD_DIR)/%.d
               $(BUILD_DIR)/monocypher.o $(BUILD_DIR)/monocypher.d
 
 clean:
+	@# THE SANITIZER TREE, which `sancheck` keeps between runs so that an
+	@# incremental build is possible and the gate costs the test time rather
+	@# than a full rebuild. Removed here by directory rather than by named
+	@# file, which `build-and-commit.md` permits for exactly this shape -- a
+	@# tree the build created and owns -- and only after checking the path
+	@# is non-empty and relative, because an unset variable in an `rm -rf`
+	@# is how a clean target eats something it should not.
+	@test -n "$(BUILD_DIR)" || { echo "BUILD_DIR is empty; refusing"; exit 1; }
+	@case "$(BUILD_DIR)" in /*) echo "BUILD_DIR must be relative; refusing"; exit 1 ;; esac
+	@if [ -d "$(BUILD_DIR)-san" ]; then \
+		echo "removing $(BUILD_DIR)-san"; \
+		rm -rf "$(BUILD_DIR)-san"; \
+	fi
 	@for f in $(OBJS) $(TEST_OBJS) $(DEPS) $(TEST_BINS) $(MONO_CLEAN); do \
 		if [ -e "$$f" ]; then echo "removing $$f"; rm -f "$$f"; fi; \
 	done
