@@ -856,6 +856,28 @@ SABOTAGES = [
 		"a stream the peer did not mention must be counted and never offered: offering from zero makes the cheapest message the amplifier",
 	),
 	(
+		"disclose-leaf-covers-the-salt",
+		"disclose/disclose.c",
+		"\tif (fzn_blob_leaf_hash(hash, committed, committed_len, out) != FZN_BLOB_OK)\n",
+		"\tif (fzn_blob_leaf_hash(hash, committed + FZN_DISCLOSE_SALT_LEN,\n"
+		"\t                       committed_len - FZN_DISCLOSE_SALT_LEN, out) != FZN_BLOB_OK)\n",
+		"a leaf that hashes the field without its salt is searchable from the root, so the construction reveals exactly what it withholds and still verifies",
+	),
+	(
+		"disclose-verify-before-handing-back",
+		"disclose/disclose.c",
+		"\tif (fzn_blob_proof_verify(hash, leaf, index, field_count, siblings, sibling_count,\n"
+		"\t                          root) != FZN_BLOB_OK)\n"
+		"\t\treturn FZN_DISCLOSE_ERR_PROOF;\n\n"
+		"\treturn fzn_disclose_field(committed, committed_len, field_out, field_len_out);\n",
+		"\t(void)fzn_disclose_field(committed, committed_len, field_out, field_len_out);\n"
+		"\tif (fzn_blob_proof_verify(hash, leaf, index, field_count, siblings, sibling_count,\n"
+		"\t                          root) != FZN_BLOB_OK)\n"
+		"\t\treturn FZN_DISCLOSE_ERR_PROOF;\n\n"
+		"\treturn FZN_DISCLOSE_OK;\n",
+		"a caller that reads the field without reading the status must not be handed one the proof never covered",
+	),
+	(
 		"seal-aead-refusal-read",
 		"wire/seal.c",
 		"\t\tif (!aead->seal(aead->ctx, key, situ_fzn_head_nonce_ptr(hv),\n"

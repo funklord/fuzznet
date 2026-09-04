@@ -53,6 +53,7 @@
 #include <fuzznet/ratchet/ratchet.h>
 #include <fuzznet/prekey/prekey.h>
 #include <fuzznet/provision/provision.h>
+#include <fuzznet/disclose/disclose.h>
 #include <fuzznet/session/agree.h>
 #include <fuzznet/session/session.h>
 #include <fuzznet/persist/persist.h>
@@ -101,6 +102,7 @@
 #include "ratchet/ratchet.h"
 #include "prekey/prekey.h"
 #include "provision/provision.h"
+#include "disclose/disclose.h"
 #include "session/agree.h"
 #include "session/session.h"
 #include "persist/persist.h"
@@ -218,6 +220,24 @@ static int consumer_hash(void *ctx, uint8_t *out, size_t out_len, const uint8_t 
 /* Record identity for `fzn_revocation_admit`, over the same seam every other
  * hash in this consumer uses. */
 static const fzn_hash_ops_t CONSUMER_HASH = { consumer_hash, NULL };
+
+/* A counting source. A consumer would use `fzn_random_system_init`; this file
+ * is checking that the HEADERS compose from outside the tree, so it supplies
+ * its own rather than depending on a platform backend being present. It is
+ * not entropy and does not pretend to be -- what it exercises is that a
+ * consumer can fill the seam at all. */
+static unsigned consumer_counter;
+
+static int consumer_fill(void *ctx, uint8_t *out, size_t len)
+{
+	size_t i;
+
+	(void)ctx;
+	for (i = 0; i < len; i++)
+		out[i] = (uint8_t)(consumer_counter * 97u + i * 13u + 5u);
+	consumer_counter++;
+	return 1;
+}
 
 static int consumer_seal(void *ctx, const uint8_t key[FZN_AEAD_KEY_LEN],
                          const uint8_t nonce[FZN_AEAD_NONCE_LEN], const uint8_t *aad,
@@ -1691,6 +1711,66 @@ int main(void)
 		 * user. */
 		if (fzn_trust_source_of(&peer.trust) != FZN_TRUST_ADOPTED)
 			FAIL(162);
+	}
+
+	/* Selective disclosure: commit two fields, take the root over them, and
+	 * verify one against it without the other. A consumer doing this
+	 * touches every call in the module, so every call is exercised rather
+	 * than merely declared. */
+	{
+		uint8_t committed[2][FZN_DISCLOSE_MAX_LEN];
+		uint8_t leaves[2][FZN_BLOB_HASH_LEN];
+		uint8_t droot[FZN_BLOB_HASH_LEN];
+		uint8_t dproof[FZN_BLOB_MAX_DEPTH * FZN_BLOB_HASH_LEN];
+		static const uint8_t SHOWN[] = "region: north";
+		static const uint8_t WITHHELD[] = "exact street";
+		fzn_blob_tree_t dtree;
+		fzn_hash_ops_t dhash = { consumer_hash, NULL };
+		fzn_random_ops_t drng = { consumer_fill, NULL };
+		const uint8_t *back = NULL;
+		size_t dlens[2] = { 0, 0 };
+		size_t back_len = 0;
+		unsigned dcount = 0;
+
+		if (fzn_disclose_commit(&drng, SHOWN, sizeof(SHOWN) - 1u, committed[0],
+		                        sizeof(committed[0]), &dlens[0]) != FZN_DISCLOSE_OK)
+			FAIL(318);
+		if (fzn_disclose_commit(&drng, WITHHELD, sizeof(WITHHELD) - 1u, committed[1],
+		                        sizeof(committed[1]), &dlens[1]) != FZN_DISCLOSE_OK)
+			FAIL(319);
+		if (memcmp(committed[0], committed[1], FZN_DISCLOSE_SALT_LEN) == 0)
+			FAIL(320);
+
+		fzn_blob_tree_init(&dtree);
+		if (fzn_disclose_leaf(&dhash, committed[0], dlens[0], leaves[0])
+		    != FZN_DISCLOSE_OK)
+			FAIL(321);
+		if (fzn_disclose_leaf(&dhash, committed[1], dlens[1], leaves[1])
+		    != FZN_DISCLOSE_OK)
+			FAIL(322);
+		if (fzn_blob_tree_push(&dhash, &dtree, leaves[0]) != FZN_BLOB_OK)
+			FAIL(323);
+		if (fzn_blob_tree_push(&dhash, &dtree, leaves[1]) != FZN_BLOB_OK)
+			FAIL(324);
+		if (fzn_blob_tree_root(&dhash, &dtree, droot) != FZN_BLOB_OK)
+			FAIL(325);
+		if (fzn_blob_proof_build(&dhash, &leaves[0][0], 2u, 0u, dproof, sizeof(dproof),
+		                         &dcount) != FZN_BLOB_OK)
+			FAIL(326);
+		if (fzn_disclose_verify(&dhash, committed[0], dlens[0], 0u, 2u, dproof, dcount,
+		                        droot, &back, &back_len) != FZN_DISCLOSE_OK)
+			FAIL(327);
+		if (back_len != sizeof(SHOWN) - 1u || memcmp(back, SHOWN, back_len) != 0)
+			FAIL(328);
+		/* The withheld field is not in this disclosure, and claiming
+		 * the disclosed one sits where it does not is refused. */
+		if (fzn_disclose_verify(&dhash, committed[0], dlens[0], 1u, 2u, dproof, dcount,
+		                        droot, &back, &back_len) != FZN_DISCLOSE_ERR_PROOF)
+			FAIL(329);
+		if (back != NULL || back_len != 0)
+			FAIL(330);
+		if (fzn_disclose_err_str(FZN_DISCLOSE_ERR_PROOF) == NULL)
+			FAIL(331);
 	}
 
 	/* The provisioning card: packed, opened, verified, and taken through

@@ -161,6 +161,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              frame/freshness.c \
              blob/blob.c ratchet/ratchet.c prekey/prekey.c \
              provision/provision.c \
+             disclose/disclose.c \
              persist/persist.c \
              spool/spool.c \
              spool/plan.c \
@@ -192,6 +193,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              frame/freshness.h \
              blob/blob.h ratchet/ratchet.h prekey/prekey.h \
              provision/provision.h \
+             disclose/disclose.h \
              persist/persist.h \
              spool/spool.h \
              spool/plan.h \
@@ -239,6 +241,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              provision/test/provision_fuzz.c \
              record/test/sync_fuzz.c \
              provision/test/provision_test.c \
+             disclose/test/disclose_test.c \
              persist/test/persist_test.c \
              persist/test/persist_kat_test.c \
              spool/test/spool_test.c \
@@ -294,6 +297,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/ratchet/test/ratchet_test \
              $(BUILD_DIR)/prekey/test/prekey_test \
              $(BUILD_DIR)/provision/test/provision_test \
+             $(BUILD_DIR)/disclose/test/disclose_test \
              $(BUILD_DIR)/persist/test/persist_test \
              $(BUILD_DIR)/persist/test/persist_kat_test \
              $(BUILD_DIR)/spool/test/spool_test \
@@ -1226,6 +1230,17 @@ $(BUILD_DIR)/record/test/sync_fuzz: $(BUILD_DIR)/record/test/sync_fuzz.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# disclose/ links blob because the convention is a leaf preimage and the tree
+# over those leaves is blob's -- sec 72 measured that the tree and the proofs
+# carry over to small fields and that blob's SEALING does not, which is why
+# this module exists at all rather than being a note in blob.h.
+$(BUILD_DIR)/disclose/test/disclose_test: $(BUILD_DIR)/disclose/test/disclose_test.o \
+                                           $(BUILD_DIR)/disclose/disclose.o \
+                                           $(BUILD_DIR)/blob/blob.o \
+                                           $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # provision/ links chain and prekey because the harness MINTS its fixtures
 # rather than carrying literals -- revocation_fuzz was once found with every
 # record pointing at one shared literal, so the field a case set had nothing
@@ -1529,6 +1544,8 @@ $(BUILD_DIR)/wire/test/tamper_test.o: wire/test/tamper_test.c
 
 $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/provision/provision.o \
+                                      $(BUILD_DIR)/disclose/disclose.o \
+                                      $(BUILD_DIR)/blob/blob.o \
                                       $(BUILD_DIR)/record/record.o \
                                       $(BUILD_DIR)/record/journal.o \
                                       $(BUILD_DIR)/record/sync.o \
@@ -2454,6 +2471,22 @@ style:
 	@# what the sweep says it walks, and a renderer in one and not the other
 	@# is named. Same shape as the TEST_SRCS check above and as
 	@# `installcheck`'s symbol probe.
+	@# EVERY OBJECT MUST BE THERE, WHICH THIS DID NOT CHECK. `nm` was run
+	@# with `2>/dev/null`, so a source whose object had not been built was
+	@# skipped in silence and its renderers were invisible -- and the guard
+	@# below only catches the case where NONE exist. Measured 2026-09-04:
+	@# adding `disclose/` and running `make style` before anything compiled
+	@# it reported "27 error renderers, all walked", a true statement about
+	@# the objects that happened to be present. `evidence.md`'s nastier
+	@# variant: a check that inspected the wrong thing rather than nothing.
+	@for o in $(CORE_SRCS:%.c=$(BUILD_DIR)/%.o); do \
+		if [ ! -e "$$o" ]; then \
+			echo "style: $$o is missing, so the renderer sweep below would"; \
+			echo "style: skip it silently and report a pass over less than"; \
+			echo "style: the library. Build the objects first."; \
+			exit 1; \
+		fi; \
+	done
 	@have=`nm --defined-only $(CORE_SRCS:%.c=$(BUILD_DIR)/%.o) 2>/dev/null \
 	       | awk '$$2 == "T" { print $$3 }' \
 	       | grep -E '^fzn_[a-z_]+_(err|verdict)_str$$' | sort -u`; 	walked=`grep -oE '"fzn_[a-z_]+_(err|verdict)_str"' wire/test/err_str_test.c \

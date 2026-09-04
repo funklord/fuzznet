@@ -5802,6 +5802,7 @@ somebody to notice.
 | `blob/blob.h` | content-addressed blobs, the streaming tree, proofs |
 | `chain/authz.h` | verification, delegation, revocation, manifests, authz |
 | `chunk/reassembly.h` | split and reassembly |
+| `disclose/disclose.h` | one signature over many fields, some shown |
 | `constant_time/constant_time.h` | the comparison and the wipe |
 | `frame/freshness.h` | freshness and the replay window |
 | `link/link.h` | what each link is actually doing |
@@ -11486,6 +11487,95 @@ alone is also green, since the openers do write every field. Dropping the
 init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
+
+## 87. The salt convention, built, 2026-09-04
+
+Instructed by the copyright holder. Sec 72 built selective disclosure in a
+test out of calls this library already had, and found that one generic piece
+was missing: the salt. `disclose/` is that piece and nothing else -- it adds
+no signed object, no wire format, and no new primitive.
+
+### What it is
+
+    a committed field   =   salt(16) || field
+
+    fzn_disclose_commit   draw a salt, lay it down with the field
+    fzn_disclose_leaf     the leaf hash, to push into blob's tree
+    fzn_disclose_field    the field inside a committed one, as a view
+    fzn_disclose_verify   proof + root -> the field, in that order
+
+The tree, the root and the proofs are `blob/`'s. What the module owns is the
+preimage, and it owns it as a FUNCTION rather than as a note in a header so
+that a consumer cannot half-follow it.
+
+### Why the convention could not be left to consumers
+
+**A construction without the salt still commits, still proves, still verifies
+and still round-trips.** It fails at the one thing it is for, silently. Sec 72
+measured the failure: a withheld one-byte field is recovered from the root in
+256 hashes, by a search a real recipient can run, because they hold the root
+and their own proof and therefore hold the sibling standing where the withheld
+field is.
+
+Four consumers writing that separately is four chances at a wrong answer that
+passes every test they would think to write. That is what sec 15 says this
+library exists to prevent, and it is the strongest instance of it the tree
+has: usually the duplication costs effort, here it costs the property.
+
+### The suite asserts what the salt DEFEATS
+
+Not that it is present -- a test for presence would pass against a constant.
+A one-byte field has 256 values and the suite tries all of them: **with the
+salt known the search finds the field**, which is what makes the failure to
+find it with a wrong salt attributable to the salt rather than to a loop that
+could not have matched anything.
+
+Watched failing, each substitution asserted before the run:
+
+    the leaf hashes the field without its salt   3 checks red, including
+                                                 the search recovering it
+    the salt is a constant rather than drawn     6 checks red
+    verify hands the field back before proving   the refusal leaves a field
+
+The first is the convention removed, and the case it fires on is the one the
+module exists for.
+
+### Two decisions worth being able to overrule
+
+**`fzn_disclose_leaf` wraps `fzn_blob_leaf_hash` rather than reimplementing
+it**, so a disclosure leaf and a blob leaf hash identically, prefix and all.
+That is safe because a proof is only ever checked against a ROOT, and a root
+belongs to one tree that one party built -- presenting a blob leaf as a
+disclosed field requires the committer to have built a tree mixing both, which
+is the committer attacking themselves. Separating the domains means copying
+blob's leaf hash to change one byte, and `code-style.md` is explicit that a
+parallel copy is the worse hazard.
+
+**The field COUNT is not hidden.** `leaf_count` is bound into the root, which
+is what stops a sender pretending a statement has fewer fields than it has --
+hiding their EXISTENCE rather than their contents, which is the worse power.
+So every recipient learns how many fields exist and nothing about the withheld
+ones. A sender who needs the count hidden needs a different construction, and
+the header says so rather than leaving it to be discovered.
+
+### And the gate that reported a pass over less than the library
+
+Adding a module surfaced a hole in a gate written the same morning. The
+renderer sweep runs
+
+    nm --defined-only $(CORE_SRCS:%.c=$(BUILD_DIR)/%.o) 2>/dev/null
+
+so **a source whose object had not been compiled was skipped in silence.**
+Running `make style` after adding `disclose/` and before anything built it
+reported *"27 error renderers, all walked"* -- true of the objects that
+happened to exist, and not of the library.
+
+Its existing guard catches the case where NO objects are found and says so
+loudly. It could not catch some being absent, which is `evidence.md`'s nastier
+variant: not a check that inspected nothing, but one that inspected the wrong
+population. **A gate written against a vacuous pass had a vacuous pass in it.**
+
+It refuses on a missing object now, watched refusing by deleting one.
 
 ## 86. A view that outlived its buffer, and the gate that is not in `make check`, 2026-09-04
 
