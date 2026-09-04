@@ -638,6 +638,7 @@ MONO_TSRC  := chain/test/sign_monocypher_test.c \
               session/test/aead_monocypher_test.c \
               session/test/agree_monocypher_test.c \
               sim/test/real_crypto_test.c \
+              sim/test/provision_test.c \
               wire/test/golden_frame_test.c \
               session/test/session_kat_test.c \
               ratchet/test/ratchet_kat_test.c \
@@ -686,6 +687,7 @@ MONO_RKAT  := $(BUILD_DIR)/ratchet/test/ratchet_kat_test
 MONO_BKAT  := $(BUILD_DIR)/blob/test/blob_kat_test
 MONO_HKAT  := $(BUILD_DIR)/chain/test/hop_kat_test
 MONO_REAL  := $(BUILD_DIR)/sim/test/real_crypto_test
+MONO_PROV  := $(BUILD_DIR)/sim/test/provision_test
 OBJS       += $(MONO_OBJS)
 TEST_OBJS  += $(MONO_TOBJ)
 TEST_BINS  += $(MONO_BIN) $(MONO_HASH) $(MONO_AEAD) $(MONO_AGREE) $(MONO_GOLD) \
@@ -852,6 +854,36 @@ $(MONO_REAL): $(BUILD_DIR)/sim/test/real_crypto_test.o \
               $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/chain/chain.o \
               $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
               $(BUILD_DIR)/wire/seal.o \
+              $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# PROVISIONING FROM NOTHING, then traffic across the subsystems. Links more
+# than its sibling because the point is the joins: blob and spool for the
+# content-key hand-off, record/journal/state/log for what travels as records,
+# link and sched for the send-path decision, relay for the hop budget.
+$(MONO_PROV): $(BUILD_DIR)/sim/test/provision_test.o \
+              $(BUILD_DIR)/chain/sign_monocypher.o \
+              $(BUILD_DIR)/session/hash_monocypher.o \
+              $(BUILD_DIR)/session/aead_monocypher.o \
+              $(BUILD_DIR)/session/agree_monocypher.o $(BUILD_DIR)/monocypher.o \
+              $(BUILD_DIR)/session/session.o $(BUILD_DIR)/session/agree.o \
+              $(BUILD_DIR)/session/commitment.o $(BUILD_DIR)/session/random.o \
+              $(BUILD_DIR)/session/random_linux.o \
+              $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/ratchet/ratchet.o \
+              $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/chain/chain.o \
+              $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
+              $(BUILD_DIR)/chain/authz.o \
+              $(BUILD_DIR)/chunk/split.o $(BUILD_DIR)/chunk/reassembly.o \
+              $(BUILD_DIR)/frame/freshness.o \
+              $(BUILD_DIR)/record/record.o $(BUILD_DIR)/record/journal.o \
+              $(BUILD_DIR)/record/sync.o $(BUILD_DIR)/state/state.o \
+              $(BUILD_DIR)/log/log.o $(BUILD_DIR)/tree/tree.o \
+              $(BUILD_DIR)/blob/blob.o $(BUILD_DIR)/spool/spool.o \
+              $(BUILD_DIR)/spool/plan.o \
+              $(BUILD_DIR)/link/link.o $(BUILD_DIR)/sched/sched.o \
+              $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/wire/relay.o \
+              $(BUILD_DIR)/version/version.o \
               $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -1573,11 +1605,12 @@ test: codegencheck runtests
 # (see plan_requests there), so that particular defect fails fast either way;
 # the ordering is what stops the NEXT one hiding behind it.
 #
-# $(MONO_REAL) is sim/test/real_crypto_test and joins it here rather than in
-# the Monocypher block above, so that "every per-module suite runs before
-# every composed one" holds however this tree is configured. It expands to
-# nothing when the bindings are not built.
-TEST_BINS += $(BUILD_DIR)/sim/test/network_test $(MONO_REAL)
+# $(MONO_REAL) is sim/test/real_crypto_test and $(MONO_PROV) is
+# sim/test/provision_test; both join here rather than in the Monocypher block
+# above, so that "every per-module suite runs before every composed one" holds
+# however this tree is configured. They expand to nothing when the bindings are
+# not built.
+TEST_BINS += $(BUILD_DIR)/sim/test/network_test $(MONO_REAL) $(MONO_PROV)
 
 runtests: $(TEST_BINS)
 	@for t in $(TEST_BINS); do echo "running $$t"; $$t || exit 1; done
