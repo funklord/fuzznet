@@ -11469,6 +11469,90 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 78. A harness for the planner, and the defect it did not catch on the first try, 2026-09-04
+
+`record/sync.c` had no fuzz harness, and it is the worst place in this library
+not to have one: `fzn_sync_plan_offer` and `fzn_sync_plan_fetch` take **a
+peer's digest**, which is the most attacker-shaped input here. The peer chooses
+how many positions, what is in them, whether they repeat, and in what order.
+Nothing about the argument is verified because there is nothing to verify -- a
+digest is a claim, not a signed object.
+
+It is also the surface with the worst history, which is what earned it a
+harness rather than more unit cases. Both defects are recorded in `sync.c` at
+the lines that carry them: the **amplifier**, where an absent position was read
+as a position of zero so a digest containing nothing asked for everything --
+64 ranges over 32,768 records, from a message with no content; and the
+**ordering**, where `theirs_for` kept the last matching position rather than
+the largest, so a peer chose the answer by putting one of them last.
+
+### The first version caught one of the two, and passed the other
+
+Three sabotages, restoring the real defects against copies of `sync.c`:
+
+    theirs_for keeps the LAST hit      FAILED on case 9
+    a refused call leaves the plan     FAILED on case 0
+    an absent position read as zero    SURVIVED 20000 cases
+
+**The amplifier survived, and it had to.** The harness checked order
+independence, duplicate independence, and bounds -- and the amplifier violates
+none of them. Offering from zero for an unmentioned stream does not raise
+`request_count` above `journal.used`: there are at most that many streams to
+offer. **The harm is the VOLUME of each range, not the number of them**, and no
+bound can see it. The counters even moved in a reassuring direction: 15075
+plans instead of 10330, which reads as more coverage.
+
+That is `evidence.md`'s *a suite assembled to confirm correct behaviour will
+mostly not notice incorrect behaviour, because nothing selected its cases for
+that* -- arriving in a harness written specifically to catch this defect.
+
+### What fixed it was a model, not a tighter bound
+
+The rule is modelled in the words `sync.c` uses at the line it lives on: an
+absent position is not a position of zero. For an OFFER, a stream the peer did
+not mention produces no range **and is counted**; for a FETCH,
+`unknown_issuers` counts the peer's positions this host does not follow --
+the mirror rule and a different quantity, so the model has to know which
+direction it is in.
+
+Both halves are asserted, because the count alone would pass a planner that
+counted correctly and offered anyway:
+
+    plan->unknown_issuers == the model's own count
+    no request names an (issuer, stream) absent from `theirs`
+
+With that, the amplifier fails on **case 1**.
+
+### Two coverage holes the harness reported about itself
+
+The first run printed `0 truncated` and `0 ignored` -- two paths its own header
+claimed to check, never reached, and **not floored**, so it reported success.
+
+    OUT_CAP was 8 over a journal of 8, so `request_count <= journal.used`
+    made truncation unreachable by construction.  OUT_CAP is 4 now.
+
+    positions_ignored needs more than FZN_SYNC_MAX_POSITIONS, which is 1024
+    and not reachable from a stack array sized for the ordinary case. One
+    case in sixteen now sends a static array of 1025 or more, and the excess
+    is checked to account exactly.
+
+Both are floored now, so the harness cannot report success without reaching
+them. **A counter nobody floors is a path nobody exercises**, and printing it
+is not the same as requiring it -- the first run proves that, because the
+number was on screen and read as fine.
+
+Raising the truncation rate needed the generator changed rather than the floor
+lowered: uniform 0..8 entries reached truncation 102 times in 20000, below any
+honest floor. Half the cases now fill the journal, and it lands at 290 against
+a floor of 200.
+
+### The model is a second implementation, deliberately
+
+`mentioned()` and `followed()` walk the arrays themselves rather than calling
+anything in `sync.c`. A model that asked the module what it did would agree
+with it always, including when both are wrong, which is
+`evidence.md`'s two-documents-one-witness with the documents written in C.
+
 ## 77. The newest parser had no harness, and it eats what a camera produces, 2026-09-04
 
 `provision/` was the only wire object in this tree without a fuzz harness, and

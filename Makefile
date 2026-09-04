@@ -237,6 +237,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              blob/test/blob_test.c ratchet/test/ratchet_test.c \
              prekey/test/prekey_test.c prekey/test/prekey_fuzz.c \
              provision/test/provision_fuzz.c \
+             record/test/sync_fuzz.c \
              provision/test/provision_test.c \
              persist/test/persist_test.c \
              persist/test/persist_kat_test.c \
@@ -347,7 +348,8 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/seal_fuzz \
              $(BUILD_DIR)/blob/test/blob_fuzz \
              $(BUILD_DIR)/prekey/test/prekey_fuzz \
-             $(BUILD_DIR)/provision/test/provision_fuzz
+             $(BUILD_DIR)/provision/test/provision_fuzz \
+             $(BUILD_DIR)/record/test/sync_fuzz
 
 # ---------------------------------------------------------------------------
 # SUBSYSTEMS: detected, overridable, and loud about which.
@@ -1213,6 +1215,17 @@ $(BUILD_DIR)/session/test/agree_test: $(BUILD_DIR)/session/test/agree_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# sync_fuzz links journal.o because the harness builds its journal through
+# fzn_journal_anchor and fzn_journal_admit rather than poking entries: a
+# fixture assembled by hand can hold a state the module would never produce,
+# and then the planner is being asked about a world that cannot happen.
+$(BUILD_DIR)/record/test/sync_fuzz: $(BUILD_DIR)/record/test/sync_fuzz.o \
+                                     $(BUILD_DIR)/record/sync.o \
+                                     $(BUILD_DIR)/record/journal.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # provision/ links chain and prekey because the harness MINTS its fixtures
 # rather than carrying literals -- revocation_fuzz was once found with every
 # record pointing at one shared literal, so the field a case set had nothing
@@ -1740,7 +1753,8 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/wire/test/seal_fuzz \
              $(BUILD_DIR)/blob/test/blob_fuzz \
              $(BUILD_DIR)/prekey/test/prekey_fuzz \
-             $(BUILD_DIR)/provision/test/provision_fuzz
+             $(BUILD_DIR)/provision/test/provision_fuzz \
+             $(BUILD_DIR)/record/test/sync_fuzz
 
 fuzz: $(FUZZ_BINS)
 	@for f in $(FUZZ_BINS); do echo "== $$f $(CASES)"; $$f $(CASES) || exit 1; done
