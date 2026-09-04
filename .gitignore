@@ -103,6 +103,7 @@ __pycache__/
 /wire/test/golden_frame_test
 /sim/test/real_crypto_test
 /sim/test/provision_test
+/sim/test/disclosure_test
 /frame/test/receive_fuzz
 /session/test/random_test
 /local/test/vocabulary_test

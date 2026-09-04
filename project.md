@@ -2404,14 +2404,35 @@ payload.
 same statement reach different recipients at different fidelities -- exact
 location to one peer, city-level to another?
 
-**Three shapes were possible and two are unavailable here.** Redacting a
-signed record in transit breaks the signature unless the body has a selective
-disclosure structure, which means this library would have to understand body
-structure -- and bodies are opaque by design. Layering encrypted detail inside
-one record means defining a body format, which is an encoding sec 2 keeps out.
-That leaves the third: **fidelity is a separate stream, and entitlement is an
-ordinary capability** answered by `chain/`. An issuer signs a coarse record and
-a precise one; a recipient follows what it may.
+**Three shapes were possible.** Redacting a signed record in transit breaks
+the signature unless the body has a selective disclosure structure. Layering
+encrypted detail inside one record means giving the body an agreed shape. The
+third is **fidelity as a separate stream, with entitlement an ordinary
+capability** answered by `chain/` -- an issuer signs a coarse record and a
+precise one, and a recipient follows what it may. **The third is what is
+built, and it works.**
+
+**The first two were eliminated, and the elimination was wrong.** It read
+that a disclosure structure "means this library would have to understand body
+structure", and that a layered body "is an encoding sec 2 keeps out". The
+second is the misreading sec 71 corrects -- sec 2 scopes its exclusion to the
+local hop -- and the first is answered by construction: a commitment over
+opaque leaves needs no understanding of the leaves.
+
+**Re-examined 2026-09-04, with evidence rather than argument.**
+`sim/test/disclosure_test.c` builds the first shape out of calls that already
+existed, and sec 72 has what it found. The short version: one record, one
+signature, two recipients seeing different fields, verified against the same
+bytes -- and one generic piece genuinely missing, which is a per-leaf salt
+without which a withheld field can be searched for from the root.
+
+**This does not overturn the choice, and nothing here argues that it
+should.** Separate streams are built, tested and in use; the alternative is a
+demonstration in a test. What is corrected is the RECORD: a shape was struck
+off for a reason that is not true, and an option eliminated on bad grounds
+stays eliminated for ever, because nobody re-opens a question that reads as
+settled. Which of the two is better is a live question again, and it is the
+holder's.
 
 **That shape needed one thing this library did not have, and the gap was
 measured rather than assumed.** With a sequence per ISSUER, a recipient not
@@ -2478,12 +2499,19 @@ track is a bounded per-issuer stream whose oldest entries age out and answer
 19-byte fix as the body.
 
 **What stayed out had to.** A fix is packed little-endian latitude, longitude,
-time, quantised accuracy and bearing, and a flags byte. That is an
-**encoding**, and sec 2 keeps encodings out for the same reason `log/` took
-`append_log`'s sequencing and left its `"<seq> <escaped text>"` line format
-behind. The test packs and unpacks the fix itself, as a consumer would, and
-everything between is fuzznet's -- which is the seam, demonstrated rather than
-described.
+time, quantised accuracy and bearing, and a flags byte. **That is one
+consumer's application semantics** -- what the fields MEAN is a location app's
+question, and nothing generic to a crypto protocol is decided by it. It is the
+same line `log/` drew when it took `append_log`'s sequencing and left its
+`"<seq> <escaped text>"` line format behind. The test packs and unpacks the fix
+itself, as a consumer would, and everything between is fuzznet's -- which is
+the seam, demonstrated rather than described.
+
+(This paragraph used to justify the exclusion as *"that is an encoding, and
+sec 2 keeps encodings out"*. The conclusion was right and the reason was not:
+sec 2's exclusion is the local hop's, and this library is full of chosen
+encodings. The test that decides it is sec 2's own -- is this anybody's
+APPLICATION -- and a latitude is. Sec 71.)
 
 **The third kind of stream is the point.** Permissions, logs and now telemetry
 all ride the same (issuer, seq) machinery. Two kinds would be a coincidence;
@@ -2491,6 +2519,8 @@ three is the claim sec 5 rests on when it says all three consumers use this
 library in almost the same way.
 
 **One genuinely general thing is left unsolved, and it is not location's.**
+(Re-opened 2026-09-04: sec 72 builds one of the two shapes sec 5j struck off,
+and finds it needs one convention this library does not have.)
 fuzzypickles reserves a COARSE flag for **per-peer precision degradation** --
 city-level to one peer, exact to another -- and records it as an open design
 question with nothing degrading anything yet. Generalised, that is *the same
@@ -5730,7 +5760,9 @@ cheap to change now and will not stay cheap.
    needs, so the module was written against something real rather than an
    imagined consumer: credentials, and the vocabulary bound (§4.8). The framing
    and the listener were written here too and then moved to raidcfgd, because
-   they choose a transport and an encoding and §2 says this library does not.
+   they choose **the local hop's** transport and encoding, which §2 leaves to
+   each consumer. Written here without that qualifier until 2026-09-04; §71
+   has what the unqualified reading cost.
 
 **What is deliberately absent: a hand-written retransmission state machine.**
 Building one while the same one is being generated is the exact duplication
@@ -11436,6 +11468,153 @@ alone is also green, since the openers do write every field. Dropping the
 init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
+
+## 72. Selective disclosure, and an option struck off for a reason that was not true, 2026-09-04
+
+Sec 71 corrected one misreading of sec 2. This is what happened when the rest
+of the document was checked for the same reading, and it is the reason that
+check was worth doing rather than filing the correction and moving on.
+
+### The sweep, and what it found
+
+**Five places cite sec 2 as authority for keeping something out**, and the
+first count of them said four with two of the section numbers wrong. It was
+re-derived by walking the file and attributing each hit to the heading above
+it, which is how the fifth turned up -- and the fifth is the one that gets it
+RIGHT, so the first pass had lost the only positive example.
+
+    sec 5   fuzzypickles' log line format    accurate, and it uses sec 2's
+            `<seq> <escaped text>`           REAL argument: it is the
+                                             encoding netcfgd would reject,
+                                             greppable JSON being its
+                                             stated product property
+    sec 5b  "sec 2 keeps transport out"      accurate as written
+    sec 5i  the GPS fix format               right conclusion, wrong
+                                             reason: a latitude is a
+                                             consumer's application
+    sec 10  "they choose a transport and     the README's sentence,
+             an encoding and sec 2 says      mirrored here
+             this library does not"
+    sec 5j  "an encoding sec 2 keeps out"    WRONG: eliminated a general
+                                             cryptographic construction
+
+**Sec 5 is the shape the other four should have had.** It does not say
+"encodings are out". It says this particular encoding is one of two consumers'
+and the other would reject it -- which is sec 2's argument rather than a
+summary of it, and it is the only site that could not have gone wrong.
+
+**The test that separates them is sec 2's own** -- *is this anybody's
+APPLICATION* -- and applying it takes seconds per site. What made three of the
+five wrong was never the conclusion; two of those three reach the right
+answer. It was that "encodings are out" was doing the work, and a false
+premise that happens to imply true conclusions goes on implying false ones.
+
+**Chain delivery was checked and left alone**, which is worth saying because
+it looks like the same shape and is not. Its argument does not rest on sec 2
+at all: it is that a chain request has no derivation to get wrong and no peer
+input to distrust, that a type nobody has asked for is a guessed wire format,
+and it was measured against fuzzypickles, who inline `signer_chain` in
+twenty-nine record types and fetch nothing. Reopening it because a neighbour
+was wrong would be `evidence.md`'s *frame that has just been right*, and the
+frame had just been right once.
+
+### What sec 5j eliminated
+
+The question was fuzzypickles' reserved COARSE flag: how does the same
+statement reach different recipients at different fidelities. Three shapes,
+two struck off, the third built.
+
+The two struck off were a **redactable signed body** and a **layered
+encrypted body**, on the grounds that the first "means this library would have
+to understand body structure" and the second "is an encoding sec 2 keeps out".
+
+Both fail. Selective disclosure over a commitment needs no understanding of
+what is committed -- that is the entire point of a hash. And the same section,
+eleven lines further down, calls the general problem *"one genuinely general
+thing left unsolved"* which *"would apply to any record this library
+carries"*. **A section that names a problem as general, and strikes off the
+construction that solves it as a consumer's encoding, is disagreeing with
+itself in two paragraphs.** Nobody noticed because both sentences read as
+careful.
+
+### So it was built, in a test, out of what was already here
+
+`sim/test/disclosure_test.c`. Four calls, none of them new:
+
+    each field  ->  fzn_blob_leaf_hash          a leaf
+    the leaves  ->  fzn_blob_tree_push/_root    one 32-byte root
+    the root    ->  fzn_record_sign             the body, signed once
+    a subset    ->  fzn_blob_proof_verify       checked against that root
+
+**One record, one signature, two recipients, different views**, and the file
+asserts the two are served byte-identical records -- because a construction
+needing a signature per recipient has collapsed back into the third shape.
+
+Two properties arrive free and are asserted rather than assumed. The
+verification is **keyless**, so a recipient can check a field without being
+able to mint one. And `leaf_count` is bound into the root, so a recipient
+cannot be told the statement has fewer fields than it has -- **hiding the
+EXISTENCE of fields rather than their contents is a different and worse power,
+and blob's finaliser already refuses it.** That binding was fuzzypickles'
+contribution, adopted here for content addressing, and it turns out to be
+exactly what this construction needs for a reason nobody had in mind.
+
+### The one piece that is genuinely missing, and it is one line
+
+**A leaf is a hash of a field, so a small field is a preimage anybody can
+search.** The file demonstrates it rather than warning about it: a withheld
+one-byte field is recovered from the root in **256 hashes**, by the search a
+real recipient could run -- they hold the root and their own proof, so they
+hold the sibling that stands where the withheld field is.
+
+With sixteen bytes of salt in front of the field, the same search finds
+nothing.
+
+**And the control is attributable, which took a third search.** A loop
+enumerating one-byte candidates against a seventeen-byte leaf fails whether
+the salt is worth anything or not, so "it did not find it" is consistent with
+the salt working AND with the search being broken. The file therefore runs the
+enumeration once more with the true salt prefixed, and requires it to SUCCEED.
+Only then is the refusal attributable to not knowing the salt.
+
+    unsalted, attacker enumerates the domain     recovered, 256 hashes
+    salted, attacker enumerates the domain       not recovered
+    salted, attacker knows the salt              recovered, 256 hashes
+
+So the missing generic piece is the convention `salt || field`, and its
+absence is the kind of thing four consumers would each have to get right
+separately -- with a wrong answer that looks exactly like a right one, since
+a construction that reveals what it withholds still verifies.
+
+### And one thing that does not transfer, measured
+
+`fzn_blob_leaf_seal` requires `FZN_BLOB_LEAF_SIZE` -- 1024 bytes -- for every
+leaf but the last. **Blob's tree and proofs carry over to small fields; blob's
+sealing does not.** A disclosure construction wanting per-field ENCRYPTION
+rather than per-field withholding would need its own sealing, and the test
+does not build one. What it demonstrates is withholding: the bytes are never
+sent, so there is nothing to open.
+
+That is a real limit on the shape and it is recorded here rather than
+discovered by whoever tries it.
+
+### What this decides, which is less than it might look
+
+**Nothing about which shape is better.** Separate streams are built, tested,
+in use, and cost no new construction; this is a demonstration in a test with a
+missing convention. Sec 5j's answer may well still be right.
+
+What it decides is that **the question is open again**, and that is the whole
+value. `working-practice.md`: a wrongly-deferred question is caught by
+nothing and looks exactly like diligence -- and a wrongly-ELIMINATED option is
+worse, because a deferral at least reads as unfinished. An elimination reads
+as done.
+
+The option, its cost, and whose it is: a per-leaf salt convention and a
+disclosure envelope over opaque leaves; roughly the size of `provision/`, with
+one new convention and no new signed object; and it is the holder's, being a
+question about what this library is for rather than about how something is
+written.
 
 ## 71. The card comes in, and the section I read from memory, 2026-09-04
 

@@ -643,6 +643,7 @@ MONO_TSRC  := chain/test/sign_monocypher_test.c \
               session/test/agree_monocypher_test.c \
               sim/test/real_crypto_test.c \
               sim/test/provision_test.c \
+              sim/test/disclosure_test.c \
               wire/test/golden_frame_test.c \
               session/test/session_kat_test.c \
               ratchet/test/ratchet_kat_test.c \
@@ -692,6 +693,7 @@ MONO_BKAT  := $(BUILD_DIR)/blob/test/blob_kat_test
 MONO_HKAT  := $(BUILD_DIR)/chain/test/hop_kat_test
 MONO_REAL  := $(BUILD_DIR)/sim/test/real_crypto_test
 MONO_PROV  := $(BUILD_DIR)/sim/test/provision_test
+MONO_DISC  := $(BUILD_DIR)/sim/test/disclosure_test
 OBJS       += $(MONO_OBJS)
 TEST_OBJS  += $(MONO_TOBJ)
 TEST_BINS  += $(MONO_BIN) $(MONO_HASH) $(MONO_AEAD) $(MONO_AGREE) $(MONO_GOLD) \
@@ -889,6 +891,22 @@ $(MONO_PROV): $(BUILD_DIR)/sim/test/provision_test.o \
               $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/wire/relay.o \
               $(BUILD_DIR)/version/version.o $(BUILD_DIR)/persist/persist.o \
               $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# The disclosure demonstration links far less than the provisioning one,
+# and deliberately: it is a claim about four calls, so linking the whole
+# library would let something else account for the result. chain.o comes in
+# only because record/ reaches it for FZN_PUBKEY_LEN's neighbours, and it
+# drags revocation and manifest with it as everywhere else.
+$(MONO_DISC): $(BUILD_DIR)/sim/test/disclosure_test.o \
+              $(BUILD_DIR)/blob/blob.o $(BUILD_DIR)/record/record.o \
+              $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/chain/revocation.o \
+              $(BUILD_DIR)/chain/manifest.o \
+              $(BUILD_DIR)/session/hash_monocypher.o \
+              $(BUILD_DIR)/chain/sign_monocypher.o \
+              $(BUILD_DIR)/version/version.o \
+              $(BUILD_DIR)/constant_time/constant_time.o $(BUILD_DIR)/monocypher.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -1632,7 +1650,8 @@ test: codegencheck runtests
 # above, so that "every per-module suite runs before every composed one" holds
 # however this tree is configured. They expand to nothing when the bindings are
 # not built.
-TEST_BINS += $(BUILD_DIR)/sim/test/network_test $(MONO_REAL) $(MONO_PROV)
+TEST_BINS += $(BUILD_DIR)/sim/test/network_test $(MONO_REAL) $(MONO_PROV) \
+             $(MONO_DISC)
 
 runtests: $(TEST_BINS)
 	@for t in $(TEST_BINS); do echo "running $$t"; $$t || exit 1; done
