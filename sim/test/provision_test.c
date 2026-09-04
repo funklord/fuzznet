@@ -80,6 +80,7 @@
 #include "../../log/log.h"
 #include "../../blob/blob.h"
 #include "../../spool/spool.h"
+#include "../../ratchet/ratchet.h"
 #include "../../prekey/prekey.h"
 #include "../../session/agree.h"
 #include "../../session/agree_monocypher.h"
@@ -842,6 +843,241 @@ int main(void)
 			      "and it called itself complete on a leaf it refused");
 		}
 
+	}
+
+	/* ---- THE RATCHET, AND THE ORDER ITS HEADER IS BUILT ON ------------ */
+
+	/* ADVANCE, OPEN, AND ONLY THEN COMMIT. `ratchet/ratchet.h` spends four
+	 * paragraphs on this and nothing in this tree exercises it: the two
+	 * scenarios that derive message keys compare them in memory and throw
+	 * them away, so the ordering has never carried a frame.
+	 *
+	 * WHAT THE ORDER PREVENTS, in that header's words: a receiver that
+	 * fast-forwards before it verifies has still advanced on a frame that
+	 * FAILS to open, and a ratchet moves one way -- so every later genuine
+	 * message from that sender is behind the position, refused as an
+	 * ordinary duplicate, with its keys gone. "One forged datagram from
+	 * anyone who has seen a real one therefore ENDS that sender's delivery
+	 * to that receiver, permanently, with no key material." Traced by
+	 * fuzzypickles in their own live path at a311c7f.
+	 *
+	 * SO BOTH RECEIVERS ARE RUN, which is what makes this a demonstration
+	 * rather than an assertion. `careful` commits only when the frame
+	 * opens; `hasty` commits whatever happens, which is the caller the
+	 * header says cannot be spelled through the API and can still be
+	 * written by hand. They are fed the same three datagrams. Without the
+	 * discipline the difference is not a smaller number, it is a dead
+	 * conversation. */
+	{
+		static const uint8_t MSG0[] = "first, under a message key";
+		static const uint8_t MSG1[] = "second, after somebody forged one";
+
+		uint8_t dev_send[FZN_CHAIN_KEY_LEN], dev_recv[FZN_CHAIN_KEY_LEN];
+		uint8_t spo_send[FZN_CHAIN_KEY_LEN], spo_recv[FZN_CHAIN_KEY_LEN];
+		fzn_ratchet_chain_t sender, careful, hasty, next;
+		uint8_t mk[FZN_MESSAGE_KEY_LEN], mk_careful[FZN_MESSAGE_KEY_LEN];
+		uint8_t mk_hasty[FZN_MESSAGE_KEY_LEN];
+		uint8_t frame0[FZN_SEAL_OVERHEAD + sizeof(MSG0)];
+		uint8_t frame1[FZN_SEAL_OVERHEAD + sizeof(MSG1)];
+		uint8_t forged[FZN_SEAL_OVERHEAD + sizeof(MSG1)];
+		size_t len0 = 0, len1 = 0, forged_len = 0;
+		fzn_send_t what;
+		fzn_opened_t got;
+		unsigned careful_delivered = 0, hasty_delivered = 0;
+
+		/* THE CHAINS ARE DIRECTED, which is the property that keeps a
+		 * message replayed at its own sender from opening under the key
+		 * it is waiting to receive under. */
+		check(fzn_session_chains(&hash_ops, key_device, device_pub, root_pub, dev_send,
+		                         dev_recv) == FZN_SESSION_OK,
+		      "the device could not derive its ratchet chains");
+		check(fzn_session_chains(&hash_ops, key_sponsor, root_pub, device_pub, spo_send,
+		                         spo_recv) == FZN_SESSION_OK,
+		      "the sponsor could not derive its ratchet chains");
+		check(memcmp(dev_send, spo_recv, FZN_CHAIN_KEY_LEN) == 0,
+		      "the device's send chain is not the sponsor's receive chain, so nothing "
+		      "it sends can be opened");
+		check(memcmp(dev_send, dev_recv, FZN_CHAIN_KEY_LEN) != 0,
+		      "the two directions share a chain, so a message replayed at its sender "
+		      "opens under the key it is waiting to receive under");
+
+		fzn_ratchet_init(&sender, dev_send, 0u);
+		fzn_ratchet_init(&careful, spo_recv, 0u);
+		fzn_ratchet_init(&hasty, spo_recv, 0u);
+
+		/* THE UNSAFE SPELLING IS REFUSED, which is what makes the rule
+		 * a mechanism rather than a sentence in a header. */
+		check(fzn_ratchet_advance(&hash_ops, &careful, 0u, mk, &careful, NULL, 0, NULL,
+		                          NULL) == FZN_RATCHET_ERR_IN_PLACE,
+		      "advancing a chain in place was allowed, so the one caller the header "
+		      "says cannot be written can be written");
+
+		/* ---- message 0, genuine ---------------------------------- */
+		check(fzn_ratchet_advance(&hash_ops, &sender, 0u, mk, &next, NULL, 0, NULL,
+		                          NULL) == FZN_RATCHET_OK,
+		      "the sender could not derive its first message key");
+		sender = next;
+
+		memset(&what, 0, sizeof(what));
+		what.sender = device_pub;
+		what.capability = cap.b;
+		what.payload = MSG0;
+		what.payload_len = sizeof(MSG0);
+		what.expires_at = 2000u;
+		what.msg = 100u;
+		what.index = 0u;
+		what.chunks = 1u;
+		what.kind = 1u;
+		check(fzn_seal_build(frame0, sizeof(frame0), &len0, &what, mk, ck_device,
+		                     &hash_ops, &rng_ops, &aead_ops) == FZN_SEAL_OK,
+		      "a frame would not seal under a ratchet message key");
+
+		/* Both receivers take it, and both are entitled to advance --
+		 * this one opens. */
+		{
+			uint8_t copy[sizeof(frame0)];
+
+			check(fzn_ratchet_advance(&hash_ops, &careful, 0u, mk_careful, &next,
+			                          NULL, 0, NULL, NULL) == FZN_RATCHET_OK,
+			      "the careful receiver could not advance to the first message");
+			memcpy(copy, frame0, len0);
+			if (fzn_seal_open(copy, len0, mk_careful, ck_sponsor, &hash_ops,
+			                  &aead_ops, &got) == FZN_SEAL_OK) {
+				careful = next;   /* committed only now */
+				careful_delivered++;
+			}
+			check(careful_delivered == 1u,
+			      "the first genuine message did not open under the receiver's own "
+			      "derived message key");
+
+			check(fzn_ratchet_advance(&hash_ops, &hasty, 0u, mk_hasty, &next, NULL, 0,
+			                          NULL, NULL) == FZN_RATCHET_OK,
+			      "the hasty receiver could not advance to the first message");
+			hasty = next;             /* committed before verifying */
+			memcpy(copy, frame0, len0);
+			if (fzn_seal_open(copy, len0, mk_hasty, ck_sponsor, &hash_ops, &aead_ops,
+			                  &got) == FZN_SEAL_OK)
+				hasty_delivered++;
+			check(hasty_delivered == 1u,
+			      "the hasty receiver did not take the first message either, so the "
+			      "divergence below would not be about the commit");
+		}
+
+		/* ---- a forgery claiming the next sequence ----------------- */
+
+		/* Sealed under a key nobody shares, which is what anyone who has
+		 * seen a real datagram can produce: the shape is right and the
+		 * tag is not. */
+		{
+			uint8_t stranger[FZN_AEAD_KEY_LEN];
+
+			memset(stranger, 0x6du, sizeof(stranger));
+			memset(&what, 0, sizeof(what));
+			what.sender = device_pub;
+			what.capability = cap.b;
+			what.payload = MSG1;
+			what.payload_len = sizeof(MSG1);
+			what.expires_at = 2000u;
+			what.msg = 101u;
+			what.index = 0u;
+			what.chunks = 1u;
+			what.kind = 1u;
+			check(fzn_seal_build(forged, sizeof(forged), &forged_len, &what, stranger,
+			                     ck_device, &hash_ops, &rng_ops,
+			                     &aead_ops) == FZN_SEAL_OK,
+			      "the forgery would not seal");
+		}
+
+		{
+			uint8_t copy[sizeof(forged)];
+
+			/* CAREFUL: derives, fails to open, does not commit. */
+			check(fzn_ratchet_advance(&hash_ops, &careful, 1u, mk_careful, &next, NULL,
+			                          0, NULL, NULL) == FZN_RATCHET_OK,
+			      "the careful receiver could not advance for the forgery");
+			memcpy(copy, forged, forged_len);
+			check(fzn_seal_open(copy, forged_len, mk_careful, ck_sponsor, &hash_ops,
+			                    &aead_ops, &got) != FZN_SEAL_OK,
+			      "a frame sealed under a key nobody shares opened, so the forgery is "
+			      "not one");
+			/* no commit */
+
+			/* HASTY: derives and commits, then fails to open. */
+			check(fzn_ratchet_advance(&hash_ops, &hasty, 1u, mk_hasty, &next, NULL, 0,
+			                          NULL, NULL) == FZN_RATCHET_OK,
+			      "the hasty receiver could not advance for the forgery");
+			hasty = next;
+			memcpy(copy, forged, forged_len);
+			check(fzn_seal_open(copy, forged_len, mk_hasty, ck_sponsor, &hash_ops,
+			                    &aead_ops, &got) != FZN_SEAL_OK,
+			      "the forgery opened for the hasty receiver");
+		}
+
+		/* ---- message 1, genuine, after the forgery ---------------- */
+		check(fzn_ratchet_advance(&hash_ops, &sender, 1u, mk, &next, NULL, 0, NULL,
+		                          NULL) == FZN_RATCHET_OK,
+		      "the sender could not derive its second message key");
+		sender = next;
+
+		memset(&what, 0, sizeof(what));
+		what.sender = device_pub;
+		what.capability = cap.b;
+		what.payload = MSG1;
+		what.payload_len = sizeof(MSG1);
+		what.expires_at = 2000u;
+		what.msg = 102u;
+		what.index = 0u;
+		what.chunks = 1u;
+		what.kind = 1u;
+		check(fzn_seal_build(frame1, sizeof(frame1), &len1, &what, mk, ck_device,
+		                     &hash_ops, &rng_ops, &aead_ops) == FZN_SEAL_OK,
+		      "the second genuine frame would not seal");
+
+		{
+			uint8_t copy[sizeof(frame1)];
+			fzn_ratchet_err_t hasty_err;
+
+			/* THE CAREFUL RECEIVER IS EXACTLY WHERE IT WAS, so the
+			 * genuine message opens and the forgery cost it nothing
+			 * but the derivations. */
+			check(fzn_ratchet_advance(&hash_ops, &careful, 1u, mk_careful, &next, NULL,
+			                          0, NULL, NULL) == FZN_RATCHET_OK,
+			      "the careful receiver could not advance to the second message, so "
+			      "the forgery moved it after all");
+			memcpy(copy, frame1, len1);
+			if (fzn_seal_open(copy, len1, mk_careful, ck_sponsor, &hash_ops, &aead_ops,
+			                  &got) == FZN_SEAL_OK) {
+				careful = next;
+				careful_delivered++;
+			}
+			check(careful_delivered == 2u,
+			      "a genuine message after a forgery did not open, which is the "
+			      "defect the advance-open-commit order exists to prevent");
+			check(got.payload_len == sizeof(MSG1)
+			              && memcmp(got.payload, MSG1, sizeof(MSG1)) == 0,
+			      "it opened and the payload is not the one that was sent");
+
+			/* AND THE HASTY ONE IS DEAD. The chain is past sequence
+			 * 1, so the genuine message is BEHIND it -- refused, with
+			 * the key material it needed already overwritten. This is
+			 * the permanent, silent failure the header describes, and
+			 * it reports itself as an ordinary duplicate. */
+			hasty_err = fzn_ratchet_advance(&hash_ops, &hasty, 1u, mk_hasty, &next,
+			                                NULL, 0, NULL, NULL);
+			check(hasty_err == FZN_RATCHET_ERR_BEHIND,
+			      "the hasty receiver could still advance to the message it had "
+			      "already burned, so this case is not the defect it names");
+			check(hasty_delivered == 1u,
+			      "the hasty receiver delivered the second message, so committing "
+			      "before verifying costs nothing and this whole leg is theatre");
+		}
+
+		fzn_wipe(mk, sizeof(mk));
+		fzn_wipe(mk_careful, sizeof(mk_careful));
+		fzn_wipe(mk_hasty, sizeof(mk_hasty));
+		fzn_ratchet_wipe(&sender);
+		fzn_ratchet_wipe(&careful);
+		fzn_ratchet_wipe(&hasty);
 	}
 
 	fzn_agree_secret_wipe(&device_sk);
