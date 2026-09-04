@@ -11531,6 +11531,94 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 93. The two file backends, and three cases that ran nothing, 2026-09-04
+
+`persist_file.c` and `spool_file.c` were the library's two lowest-covered
+sources, and the reason is the same in both: nearly every remaining branch
+is a filesystem refusing something, and the suites ran against a filesystem
+that works.
+
+    persist_file.c   67.31% -> 92.31% of 52 branches
+    spool_file.c     73.26% -> 96.51% of 86
+
+**Every refusal below is produced by the real kernel.** That matters here
+more than usual, because sec 92 had just recorded the opposite conclusion
+about two other files -- and the distinction is not "real versus fake" as a
+matter of taste. A stub for `open` would assert that this code handles a case
+the FILESYSTEM is what decides, so the test would be about the stub. These
+five put the kernel in the state instead:
+
+    /dev/full            every write returns ENOSPC, and reads still work
+    a pipe as the fd     fsync refuses a descriptor it cannot sync
+    RLIMIT_FSIZE = 0     creation succeeds, the flush fails with EFBIG
+    a directory at 0500  open(O_CREAT) inside it fails
+    a directory at the   rename fails AFTER the bytes are safely written,
+    target name          which is the only route to the late unwind
+
+None needs privilege, and the last is the only way to reach the code that
+runs after a save has otherwise succeeded.
+
+**The `/dev/full` case asserts that the READ still works on the same
+descriptor**, which is what makes it evidence about the write path rather
+than about a broken fd. Without that line, "the write failed" could mean
+anything about the descriptor and the case would prove nothing in
+particular -- the control-that-can-fail rule from `evidence.md`, applied to
+a device instead of a probe.
+
+**The RLIMIT cases prove the restore by writing, not by reading a return
+code.** A limit left at zero fails every subsequent write in the process --
+including gcov's own `.gcda` at exit -- so a case that forgot to restore it
+would corrupt the measurement that justified writing it. The assertion after
+each is a real save that must succeed.
+
+### Three cases ran nothing and passed
+
+The find worth keeping. Round two added a case for the rename-over-a-
+directory path, and `make coverage` reported that line still uncovered
+afterwards. The block reads
+
+    if (mkdir(f.bits, 0700) == 0) { ... }
+
+and a checkpoint earlier in the same function had already written a FILE at
+that name, so `mkdir` failed, the block was skipped, and the case reported
+success. **The check count still rose**, because other cases in the same
+block did run -- so the suite's own output could not distinguish it, and the
+green line looked identical either way.
+
+This is the third distinct vacuous skip in this session's test-writing, and
+the shape is always the same: **a case guarded by a setup `if` reports
+success when the setup fails.** The idiom is used throughout these suites
+and is correct where the setup cannot realistically fail; what was different
+here is that the setup depended on state an earlier case in the same
+function had changed. An `unlink` before the `mkdir` is now load-bearing and
+says so.
+
+**Nothing but the coverage report could have caught it.** That is the
+argument for measuring after writing a test rather than trusting that it
+passed -- and it is the same argument sec 91 makes for measuring rather than
+asserting a scope number, arriving from the other direction.
+
+### What is left, and why each
+
+Seven lines across the two files, and all seven are unreachable rather than
+untested:
+
+    both files    fdopen() failing            needs an allocation failure
+    both files    fclose() != 0               the flush it would report has
+                                              already failed and been seen
+    persist       cap < NAME_MAX_LEN          `name_for` is static and every
+    persist       !name_for(...)              caller passes sizeof(name),
+                                              which IS NAME_MAX_LEN
+    spool         the header fwrite failing   41 bytes always buffers, so
+                                              the failure lands in the
+                                              flush and never in the write
+
+The persist pair is an internal invariant rather than a guard: the only
+caller passes a buffer whose size is the constant being compared against, so
+the comparison cannot be false. It is left alone rather than deleted --
+unlike sec 91's `tree.c` operand, this one would become live the moment a
+second caller passed a smaller buffer, which is what it is there to catch.
+
 ## 92. The two platform backends, measured instead of asserted, 2026-09-04
 
 Section 91 left `local/peer_linux.c` (6) and `session/random_linux.c` (3)

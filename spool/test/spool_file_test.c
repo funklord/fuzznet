@@ -22,9 +22,13 @@
 
 #include "../spool_file.h"
 
+#include <fcntl.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -521,6 +525,316 @@ static void test_the_arguments_are_checked(void)
 	}
 }
 
+
+/* THE PATHS A WORKING FILESYSTEM DOES NOT TAKE.
+ *
+ * The header of spool_file.c lists what mutation testing holds and what it
+ * does not, and puts the short-write loop in the second list: "inducing a
+ * short pwrite needs a signal delivered mid-syscall". That is true of a
+ * SHORT write and not of a FAILED one, which is what the loop's `put <= 0`
+ * actually tests -- and `/dev/full` produces a failed one on demand, from
+ * the kernel, with no privilege and no stub.
+ *
+ * Three techniques, each a real refusal rather than a fake:
+ *
+ *   /dev/full        every write returns ENOSPC; reads return zeros
+ *   a pipe as fd     fsync refuses a descriptor that cannot be synced
+ *   RLIMIT_FSIZE 0   creation succeeds and the flush fails with EFBIG,
+ *                    which is a full disk arriving part way through
+ *
+ * THE LIMIT IS RESTORED IMMEDIATELY and the restore is proved by writing
+ * rather than by reading a return code. Left set it would fail every later
+ * write in this process, gcov's own .gcda at exit included -- so a case that
+ * forgot it would corrupt the measurement that justified writing it.
+ */
+static void test_the_filesystem_refusing(void)
+{
+	fzn_spool_file_t f;
+	const fzn_spool_ops_t *ops;
+	uint8_t buf[16], present[8];
+	fzn_spool_t sp;
+	char deep[FZN_SPOOL_FILE_PATH_MAX + 32];
+	size_t i;
+
+	memset(buf, 0x77, sizeof(buf));
+	memset(present, 0, sizeof(present));
+
+	/* ---- a path whose sidecar name would not fit. Refused at open, so a
+	 * caller learns at start-up rather than at its first checkpoint. */
+	for (i = 0; i < sizeof(deep) - 1u; i++)
+		deep[i] = 'p';
+	deep[sizeof(deep) - 1u] = '\0';
+	CHECK(fzn_spool_file_open(&f, deep) == NULL,
+	      "open accepted a path whose sidecar name cannot fit");
+	CHECK(fzn_spool_file_open(&f, NULL) == NULL, "open accepted a null path");
+	CHECK(fzn_spool_file_open(NULL, "x") == NULL, "open accepted a null file");
+
+	/* ---- a data file that cannot be created. */
+	CHECK(fzn_spool_file_open(&f, "/proc/fzn-cannot-exist/spool") == NULL,
+	      "open reported success for a path it cannot create");
+
+	/* ---- EVERY WRITE REFUSED, which is what the loop's `put <= 0` is
+	 * for. A backend that treated a failed pwrite as done would report a
+	 * leaf present that never reached the disk, and the bitmap would then
+	 * be stale-MORE -- the direction spool_file.h says loses leaves for
+	 * good. */
+	ops = fzn_spool_file_open(&f, "/dev/full");
+	if (ops) {
+		CHECK(!ops->write_at(ops->ctx, 0u, buf, sizeof(buf)),
+		      "a write that the device refused with ENOSPC was reported as done");
+		/* The read side of the same device answers, so this is not a
+		 * descriptor that fails everything -- the refusal above is the
+		 * write path specifically. */
+		CHECK(ops->read_at(ops->ctx, 0u, buf, sizeof(buf)),
+		      "a read from /dev/full failed, so the write case above proves nothing "
+		      "about the write path in particular");
+		fzn_spool_file_close(&f);
+	}
+
+	/* ---- fsync refusing. `checkpoint` syncs the data before it writes
+	 * the bitmap, and spool_file.h calls that order the guarantee: if the
+	 * sync cannot be done the bitmap must not be written at all. */
+	{
+		int pfd[2];
+
+		if (pipe(pfd) == 0) {
+			fzn_spool_file_t hollow;
+
+			memset(&hollow, 0, sizeof(hollow));
+			hollow.fd = pfd[1];
+			snprintf(hollow.bits, sizeof(hollow.bits), "%s.bits", path);
+			memset(&sp, 0, sizeof(sp));
+			memcpy(sp.root, root, sizeof(sp.root));
+			sp.leaves = 8u;
+			sp.present = present;
+			sp.present_len = sizeof(present);
+			CHECK(fzn_spool_file_checkpoint(&hollow, &sp) == FZN_SPOOL_ERR_BACKEND,
+			      "checkpoint wrote a bitmap after the data sync had failed");
+			CHECK(access(hollow.bits, F_OK) != 0,
+			      "a checkpoint that could not sync still left a sidecar");
+			(void)close(pfd[0]);
+			(void)close(pfd[1]);
+		}
+	}
+
+	/* ---- resume's operands, past the first. */
+	ops = fzn_spool_file_open(&f, path);
+	if (!ops)
+		return;
+	CHECK(fzn_spool_file_resume(NULL, root, 8u, present, sizeof(present))
+	      == FZN_SPOOL_ERR_MALFORMED, "resume accepted a null file");
+	CHECK(fzn_spool_file_resume(&f, NULL, 8u, present, sizeof(present))
+	      == FZN_SPOOL_ERR_MALFORMED, "resume accepted a null root");
+	CHECK(fzn_spool_file_resume(&f, root, 8u, NULL, sizeof(present))
+	      == FZN_SPOOL_ERR_MALFORMED, "resume accepted a null bitmap");
+	CHECK(fzn_spool_file_resume(&f, root, 0u, present, sizeof(present))
+	      == FZN_SPOOL_ERR_MALFORMED, "resume accepted a blob with no leaves");
+	CHECK(fzn_spool_file_resume(&f, root, (uint64_t)FZN_SPOOL_MAX_LEAVES + 1u, present,
+	                            sizeof(present)) == FZN_SPOOL_ERR_TOO_LARGE,
+	      "resume accepted a leaf count past the maximum");
+	/* 128 leaves need 16 bytes and `present` is 8. A first draft said 64,
+	 * which needs exactly 8 -- the buffer was big enough and the case
+	 * passed for the wrong reason until the assertion failed. */
+	CHECK(fzn_spool_file_resume(&f, root, 128u, present, sizeof(present))
+	      == FZN_SPOOL_ERR_MALFORMED,
+	      "resume accepted a bitmap too small for the leaf count it was given");
+
+	/* ---- a sidecar too short to hold even a header. ABSENT rather than
+	 * an error: a caller cannot repair it and the answer is to start
+	 * over, which is the same answer as having none. */
+	{
+		FILE *w = fopen(f.bits, "wb");
+
+		if (w) {
+			(void)fwrite("xx", 1u, 2u, w);
+			(void)fclose(w);
+			CHECK(fzn_spool_file_resume(&f, root, 8u, present, sizeof(present))
+			      == FZN_SPOOL_ERR_ABSENT,
+			      "a sidecar too short for its header was not treated as absent");
+			(void)unlink(f.bits);
+		}
+	}
+
+	/* ---- checkpoint's operands. */
+	memset(&sp, 0, sizeof(sp));
+	memcpy(sp.root, root, sizeof(sp.root));
+	sp.leaves = 8u;
+	sp.present = present;
+	sp.present_len = sizeof(present);
+	CHECK(fzn_spool_file_checkpoint(&f, NULL) == FZN_SPOOL_ERR_MALFORMED,
+	      "checkpoint accepted a null spool");
+	{
+		fzn_spool_t bad = sp;
+
+		bad.present = NULL;
+		CHECK(fzn_spool_file_checkpoint(&f, &bad) == FZN_SPOOL_ERR_MALFORMED,
+		      "checkpoint accepted a spool whose bitmap is null");
+		bad = sp;
+		bad.leaves = 0u;
+		CHECK(fzn_spool_file_checkpoint(&f, &bad) == FZN_SPOOL_ERR_MALFORMED,
+		      "checkpoint accepted a spool with no leaves");
+		bad = sp;
+		bad.leaves = 4096u;
+		CHECK(fzn_spool_file_checkpoint(&f, &bad) == FZN_SPOOL_ERR_MALFORMED,
+		      "checkpoint accepted a bitmap too small for the leaf count");
+	}
+
+	/* ---- a write the kernel refuses part way through the sidecar. */
+	{
+		struct rlimit old, zero;
+
+		if (getrlimit(RLIMIT_FSIZE, &old) == 0) {
+			void (*prev)(int) = signal(SIGXFSZ, SIG_IGN);
+
+			zero.rlim_cur = 0;
+			zero.rlim_max = old.rlim_max;
+			if (setrlimit(RLIMIT_FSIZE, &zero) == 0) {
+				CHECK(fzn_spool_file_checkpoint(&f, &sp)
+				      == FZN_SPOOL_ERR_BACKEND,
+				      "checkpoint reported success for a write the kernel "
+				      "refused");
+				CHECK(setrlimit(RLIMIT_FSIZE, &old) == 0,
+				      "the file-size limit could not be restored, so every "
+				      "later write in this process is unreliable");
+			}
+			(void)signal(SIGXFSZ, prev);
+			/* Proved by writing rather than by the return code: a
+			 * limit still at zero fails here. */
+			CHECK(fzn_spool_file_checkpoint(&f, &sp) == FZN_SPOOL_OK,
+			      "a checkpoint after the limit was restored still failed");
+		}
+	}
+
+
+	CHECK(fzn_spool_file_checkpoint(NULL, &sp) == FZN_SPOOL_ERR_MALFORMED,
+	      "checkpoint accepted a null file");
+
+	/* ---- A DIRECTORY THAT CANNOT BE WRITTEN INTO, so the temporary
+	 * cannot be created at all. The data file stays open and readable --
+	 * only the sidecar's creation is refused, which is the case a
+	 * read-only mount produces. */
+	{
+		char sub[FZN_SPOOL_FILE_PATH_MAX];
+		char inner[FZN_SPOOL_FILE_PATH_MAX];
+		fzn_spool_file_t ro;
+		const fzn_spool_ops_t *roops;
+
+		snprintf(sub, sizeof(sub), "spool-ro-%ld", (long)getpid());
+		if (mkdir(sub, 0700) == 0) {
+			snprintf(inner, sizeof(inner), "%s/s.spool", sub);
+			roops = fzn_spool_file_open(&ro, inner);
+			if (roops && chmod(sub, 0500) == 0) {
+				CHECK(fzn_spool_file_checkpoint(&ro, &sp)
+				      == FZN_SPOOL_ERR_BACKEND,
+				      "checkpoint reported success into a directory it "
+				      "cannot create the temporary in");
+				(void)chmod(sub, 0700);
+			}
+			if (roops)
+				fzn_spool_file_close(&ro);
+			(void)unlink(inner);
+			{
+				char b[FZN_SPOOL_FILE_PATH_MAX + 8];
+
+				snprintf(b, sizeof(b), "%s.bits", inner);
+				(void)unlink(b);
+			}
+			(void)rmdir(sub);
+		}
+	}
+
+	/* ---- A CLOSED DESCRIPTOR. `close` sets fd to -1, and every op has
+	 * to refuse from then on rather than acting on whatever that
+	 * descriptor number now belongs to. */
+	{
+		fzn_spool_file_t shut = f;
+
+		shut.fd = -1;
+		CHECK(fzn_spool_file_checkpoint(&shut, &sp) == FZN_SPOOL_ERR_MALFORMED,
+		      "checkpoint acted through a closed descriptor");
+	}
+
+	/* ---- A SIDECAR NAME AT THE EDGE OF THE BUFFER. `checkpoint` appends
+	 * ".tmp" to a path that already fit, so the four characters are a
+	 * window of their own -- and a checkpoint that truncated here would
+	 * rename the wrong file over the sidecar. */
+	{
+		fzn_spool_file_t edge = f;
+		size_t n;
+
+		for (n = 0; n < sizeof(edge.bits) - 3u; n++)
+			edge.bits[n] = 'b';
+		edge.bits[sizeof(edge.bits) - 3u] = '\0';
+		CHECK(fzn_spool_file_checkpoint(&edge, &sp) == FZN_SPOOL_ERR_MALFORMED,
+		      "checkpoint accepted a sidecar name whose temporary cannot fit");
+	}
+
+	/* ---- A DIRECTORY WHERE THE SIDECAR GOES, so everything succeeds and
+	 * the rename at the end does not. This is the only case that reaches
+	 * the unwind AFTER the bytes are safely written, and the temporary
+	 * must not survive it.
+	 *
+	 * THE UNLINK IS LOAD-BEARING. A checkpoint above has already written
+	 * a sidecar at this name, so `mkdir` fails, the block is skipped, and
+	 * the case passes having run nothing -- which is how it was first
+	 * written and what the coverage report caught. */
+	(void)unlink(f.bits);
+	if (mkdir(f.bits, 0700) == 0) {
+		char tmp[FZN_SPOOL_FILE_PATH_MAX + 8];
+
+		CHECK(fzn_spool_file_checkpoint(&f, &sp) == FZN_SPOOL_ERR_BACKEND,
+		      "checkpoint reported success when the rename could not replace a "
+		      "directory");
+		snprintf(tmp, sizeof(tmp), "%s.tmp", f.bits);
+		CHECK(access(tmp, F_OK) != 0,
+		      "a failed rename left its temporary behind for the next run to inherit");
+		(void)rmdir(f.bits);
+	}
+
+	/* ---- A BITMAP TOO BIG TO BUFFER, so the refusal lands in the second
+	 * `fwrite` rather than in the flush. The header is 41 bytes and
+	 * buffers; a bitmap for a large blob does not. */
+	{
+		struct rlimit old, zero;
+		size_t big_leaves = 262144u;
+		size_t big_len = FZN_SPOOL_BITMAP_LEN(big_leaves);
+		uint8_t *big = calloc(1u, big_len);
+
+		if (big && getrlimit(RLIMIT_FSIZE, &old) == 0) {
+			fzn_spool_t bigsp = sp;
+			void (*prev)(int) = signal(SIGXFSZ, SIG_IGN);
+
+			bigsp.leaves = (uint64_t)big_leaves;
+			bigsp.present = big;
+			bigsp.present_len = big_len;
+			zero.rlim_cur = 0;
+			zero.rlim_max = old.rlim_max;
+			if (setrlimit(RLIMIT_FSIZE, &zero) == 0) {
+				CHECK(fzn_spool_file_checkpoint(&f, &bigsp)
+				      == FZN_SPOOL_ERR_BACKEND,
+				      "checkpoint reported success for a bitmap write the "
+				      "kernel refused");
+				CHECK(setrlimit(RLIMIT_FSIZE, &old) == 0,
+				      "the file-size limit could not be restored");
+			}
+			(void)signal(SIGXFSZ, prev);
+			CHECK(fzn_spool_file_checkpoint(&f, &sp) == FZN_SPOOL_OK,
+			      "a checkpoint after the limit was restored still failed");
+		}
+		free(big);
+	}
+
+	fzn_spool_file_close(&f);
+	{
+		char tmp[FZN_SPOOL_FILE_PATH_MAX + 8];
+
+		snprintf(tmp, sizeof(tmp), "%s.tmp", f.bits);
+		(void)unlink(tmp);
+		(void)unlink(f.bits);
+	}
+	(void)unlink(path);
+}
+
 int main(void)
 {
 	int left;
@@ -555,6 +869,7 @@ int main(void)
 	test_an_unusable_sidecar_leaves_a_fresh_transfer();
 	(void)unlink(path);
 	test_the_arguments_are_checked();
+	test_the_filesystem_refusing();
 
 	/* CLEANED UP BY NAME, AND THE LEFTOVER IS AN ASSERTION rather than a
 	 * hope -- `running-code.md` records a suite printing "all passed"
