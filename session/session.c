@@ -165,8 +165,28 @@ fzn_session_err_t fzn_session_establish(const fzn_agree_secret_t *self_prekey,
 		return FZN_SESSION_ERR_AGREE;
 
 	aerr = fzn_agree_shared(self_prekey, agree, peer_prekey, shared);
-	if (aerr != FZN_AGREE_OK)
-		return FZN_SESSION_ERR_AGREE;
+	if (aerr != FZN_AGREE_OK) {
+		/* `goto out` RATHER THAN A PLAIN RETURN, which is what the two
+		 * v2 derivations below already do at the identical step. This
+		 * one returned directly until 2026-09-04, and it was SAFE for a
+		 * reason that lives in another file: `fzn_agree_shared` wipes
+		 * `shared_out` itself on the degenerate path, and on its other
+		 * refusals never writes it at all.
+		 *
+		 * That is a load-bearing property of `session/agree.c` relied
+		 * on here and stated nowhere here -- the shape fuzzypickles
+		 * named the same day as luck rather than design, where the
+		 * obvious tidying removes the thing that was holding it up. A
+		 * new failure mode in `fzn_agree_shared` that wrote before
+		 * refusing would make this a leak with nothing to notice.
+		 *
+		 * The label costs one jump and makes the dependency
+		 * unnecessary. It also makes the sentence below TRUE, which it
+		 * was not: this path skipped the wipe that paragraph says
+		 * happens on every path. */
+		err = FZN_SESSION_ERR_AGREE;
+		goto out;
+	}
 
 	err = fzn_session_transcript(self_identity, self_pk, peer_identity, peer_prekey, shared,
 	                             transcript);
@@ -180,7 +200,17 @@ fzn_session_err_t fzn_session_establish(const fzn_agree_secret_t *self_prekey,
 	}
 
 out:
-	/* BOTH ARE WIPED ON EVERY PATH. The shared secret and the transcript
+	/* BOTH ARE WIPED ON EVERY PATH THAT COULD HAVE WRITTEN EITHER, which
+	 * is now every path past the agreement. The two returns above this
+	 * label are the argument check and a prekey with no public half;
+	 * neither has touched `shared` or `transcript`, so there is nothing
+	 * for a wipe to do and the v2 derivations below return the same way at
+	 * the same points.
+	 *
+	 * The unqualified version of this sentence was here first and was
+	 * false: the agreement's own failure returned directly past it.
+	 *
+	 * The shared secret and the transcript
 	 * are the two things an attacker most wants and a caller has least
 	 * reason to keep: the transcript contains the shared secret, so
 	 * forgetting one and not the other forgets neither.

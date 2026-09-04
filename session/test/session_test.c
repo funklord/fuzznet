@@ -583,6 +583,168 @@ static void test_the_ephemeral_exchange_agrees_and_differs(void)
  * neither case can fail: against a zeroed buffer, or a binding that refuses
  * without computing, a deleted wipe is indistinguishable from a working
  * one. */
+/* An agreement that succeeds `n` times and then refuses, so that the SECOND
+ * agreement in each v2 derivation can be made to fail on its own. A stub that
+ * always refuses cannot reach it: the first call fails and the second is
+ * never made. */
+static unsigned agree_calls;
+static unsigned agree_fail_on;
+
+static int counting_agree(void *ctx, uint8_t out[FZN_AGREE_SHARED_LEN],
+                          const uint8_t secret[FZN_AGREE_SECRET_LEN],
+                          const uint8_t peer_public[FZN_AGREE_PUBLIC_LEN])
+{
+	agree_calls++;
+	if (agree_calls == agree_fail_on)
+		return 0;
+	return stub_agree(ctx, out, secret, peer_public);
+}
+
+static const fzn_agree_ops_t COUNTING = { stub_public_of, counting_agree, NULL };
+
+/*
+ * A REFUSED AGREEMENT IS REPORTED AS ONE, INCLUDING THE SECOND OF TWO.
+ *
+ * Added 2026-09-04 from a coverage measurement rather than a hunch.
+ * `session.c` had 21 branches never taken both ways, and among them were
+ * exactly the second `fzn_agree_shared` in each v2 derivation -- lines 322 and
+ * 371. The FIRST agreement's failure was already covered by the 2026-09-02
+ * work `session.h` records; a stub that always refuses fails that one and
+ * never reaches the other.
+ *
+ * The distinction is not bookkeeping. In the initiator the second agreement
+ * is the EPHEMERAL one, which is the whole of what a later compromise of the
+ * prekey cannot reproduce. A derivation that continued past its refusal would
+ * produce a session with no forward secrecy in it and no way for either side
+ * to tell -- the key would simply be one an attacker holding the prekey can
+ * recompute.
+ *
+ * So the assertion is the observable half: a refusal at the second agreement
+ * must surface as FZN_SESSION_ERR_AGREE, not as OK with a key the caller will
+ * use. `session.h` already states, and the 2026-09-02 measurement already
+ * showed, that neither output buffer is written on any refusal; this covers
+ * the path that measurement could not reach.
+ */
+static void test_the_second_agreement_can_refuse_too(void)
+{
+	uint8_t id_a[FZN_SESSION_IDENTITY_LEN], id_b[FZN_SESSION_IDENTITY_LEN];
+	uint8_t sec_a[FZN_AGREE_SECRET_LEN], sec_e[FZN_AGREE_SECRET_LEN];
+	uint8_t peer_prekey[FZN_AGREE_PUBLIC_LEN], peer_eph[FZN_AGREE_PUBLIC_LEN];
+	uint8_t key[FZN_AEAD_KEY_LEN], ckey[FZN_COMMITMENT_KEY_LEN];
+	fzn_agree_secret_t sk_a, sk_e;
+
+	fill(id_a, sizeof(id_a), 0x71);
+	fill(id_b, sizeof(id_b), 0x72);
+	fill(sec_a, sizeof(sec_a), 0x73);
+	fill(sec_e, sizeof(sec_e), 0x74);
+	fill(peer_prekey, sizeof(peer_prekey), 0x75);
+	fill(peer_eph, sizeof(peer_eph), 0x76);
+
+	REQUIRE(fzn_agree_secret_install(&sk_a, &COUNTING, sec_a) == FZN_AGREE_OK,
+	        "the prekey secret did not install");
+	REQUIRE(fzn_agree_secret_install(&sk_e, &COUNTING, sec_e) == FZN_AGREE_OK,
+	        "the ephemeral secret did not install");
+
+	/* THE CONTROL FIRST. With nothing failing, both derivations must
+	 * SUCCEED -- otherwise the refusals below would be indistinguishable
+	 * from a fixture that never worked. */
+	agree_calls = 0;
+	agree_fail_on = 0;
+	CHECK(fzn_session_establish_initiator(&sk_a, &sk_e, &COUNTING, &HASH, id_a, id_b,
+	                                      peer_prekey, key, ckey) == FZN_SESSION_OK,
+	      "the initiator did not succeed with nothing failing");
+	CHECK(agree_calls == 2u, "the initiator made %u agreements, wanted 2", agree_calls);
+
+	agree_calls = 0;
+	CHECK(fzn_session_establish_responder(&sk_a, &COUNTING, &HASH, id_a, id_b, peer_prekey,
+	                                      peer_eph, key, ckey) == FZN_SESSION_OK,
+	      "the responder did not succeed with nothing failing");
+	CHECK(agree_calls == 2u, "the responder made %u agreements, wanted 2", agree_calls);
+
+	/* NOW THE SECOND ONE REFUSES, in each direction. */
+	agree_calls = 0;
+	agree_fail_on = 2;
+	memset(key, 0x33, sizeof(key));
+	memset(ckey, 0x33, sizeof(ckey));
+	CHECK(fzn_session_establish_initiator(&sk_a, &sk_e, &COUNTING, &HASH, id_a, id_b,
+	                                      peer_prekey, key, ckey) == FZN_SESSION_ERR_AGREE,
+	      "the initiator continued past a refused EPHEMERAL agreement");
+
+	agree_calls = 0;
+	agree_fail_on = 2;
+	memset(key, 0x33, sizeof(key));
+	memset(ckey, 0x33, sizeof(ckey));
+	CHECK(fzn_session_establish_responder(&sk_a, &COUNTING, &HASH, id_a, id_b, peer_prekey,
+	                                      peer_eph, key, ckey) == FZN_SESSION_ERR_AGREE,
+	      "the responder continued past a refused second agreement");
+
+	/* AND THE V1 PATH, whose refusal now leaves through the wipe label
+	 * rather than returning past it. Observable only as the code; the wipe
+	 * itself is a local and `session.c` says so. */
+	agree_calls = 0;
+	agree_fail_on = 1;
+	memset(key, 0x33, sizeof(key));
+	memset(ckey, 0x33, sizeof(ckey));
+	CHECK(fzn_session_establish(&sk_a, &COUNTING, &HASH, id_a, id_b, peer_prekey, key,
+	                            ckey) == FZN_SESSION_ERR_AGREE,
+	      "v1 continued past a refused agreement");
+
+	/*
+	 * AND THE HASH SEAM REFUSING MID-ESTABLISHMENT, which was the other
+	 * family in that coverage list -- lines 196 and 312, the
+	 * `fzn_commitment_derive_root` failures in v1 and in the shared v2
+	 * finisher. `REFUSING` existed and was pointed only at
+	 * `fzn_session_chains`, so a hash that refuses while a session is
+	 * being established had never happened.
+	 *
+	 * It is the same class as the agreement above and as project.md
+	 * sec 75: a consumer's own backend failing. The seam CAN report it --
+	 * `fzn_hash_ops.hash` returns an int, unlike `fzn_aead_ops.seal` --
+	 * and what this asserts is that the report is not dropped on the way
+	 * out. FZN_SESSION_ERR_HASH, distinct from ERR_AGREE, because a
+	 * consumer told the wrong one looks in the wrong place.
+	 */
+	agree_fail_on = 0;
+	refusing_calls = 0;
+	refusing_fail_on = 1;
+	memset(key, 0x33, sizeof(key));
+	memset(ckey, 0x33, sizeof(ckey));
+	CHECK(fzn_session_establish(&sk_a, &COUNTING, &REFUSING, id_a, id_b, peer_prekey, key,
+	                            ckey) == FZN_SESSION_ERR_HASH,
+	      "v1 continued past a refusing hash");
+
+	refusing_calls = 0;
+	refusing_fail_on = 1;
+	memset(key, 0x33, sizeof(key));
+	memset(ckey, 0x33, sizeof(ckey));
+	CHECK(fzn_session_establish_initiator(&sk_a, &sk_e, &COUNTING, &REFUSING, id_a, id_b,
+	                                      peer_prekey, key, ckey) == FZN_SESSION_ERR_HASH,
+	      "the v2 initiator continued past a refusing hash");
+
+	refusing_calls = 0;
+	refusing_fail_on = 1;
+	memset(key, 0x33, sizeof(key));
+	memset(ckey, 0x33, sizeof(ckey));
+	CHECK(fzn_session_establish_responder(&sk_a, &COUNTING, &REFUSING, id_a, id_b,
+	                                      peer_prekey, peer_eph, key, ckey)
+	              == FZN_SESSION_ERR_HASH,
+	      "the v2 responder continued past a refusing hash");
+
+	/* AND THE CONTROL AGAIN, because every case above asserts a REFUSAL and
+	 * a stub that had stopped working would satisfy all of them. */
+	refusing_calls = 0;
+	refusing_fail_on = 0;
+	CHECK(fzn_session_establish(&sk_a, &COUNTING, &REFUSING, id_a, id_b, peer_prekey, key,
+	                            ckey) == FZN_SESSION_OK,
+	      "the refusing hash refuses even when told not to, so the cases above pass "
+	      "for the wrong reason");
+
+	agree_fail_on = 0;
+	refusing_fail_on = 0;
+	fzn_agree_secret_wipe(&sk_a);
+	fzn_agree_secret_wipe(&sk_e);
+}
+
 static void test_a_refused_derivation_leaves_no_key_with_the_caller(void)
 {
 	uint8_t root[FZN_AEAD_KEY_LEN];
@@ -786,6 +948,7 @@ int main(void)
 	test_the_seeds_drive_a_ratchet();
 	test_the_ephemeral_exchange_agrees_and_differs();
 	test_a_refused_derivation_leaves_no_key_with_the_caller();
+	test_the_second_agreement_can_refuse_too();
 	test_every_guard_refuses_its_own_argument();
 	test_the_suite_can_tell_pass_from_fail();
 

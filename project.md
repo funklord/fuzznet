@@ -6336,7 +6336,13 @@ every one of them upward.** The rows below are that run.
     at 100% of branches      14 files
     below 100%               26 files
     no branches at all        1 file   (version/version.c)
-    total branches         2638, of which ~249 (9%) never go both ways
+    total branches         2638, of which ~245 (9%) never go both ways
+
+**RE-DERIVED ONCE MORE THE SAME DAY, after sec 79.** `session/session.c`
+moved from 95.29%/75.00% to **99.42% of 172 lines and 79.76% of 84
+branches**, and the never-both-ways total from ~249 to ~245. One row moved and
+no other, which was checked across the whole table rather than at the row
+being looked at.
 
 **The movement is one test's, and it was checked rather than assumed**,
 because a jump like `prekey/prekey.c` from 81.25% to 90.62% is exactly what
@@ -6409,10 +6415,10 @@ supply a number for it.
 | `persist/persist_file.c` | 90.48% of 84 | **67.31% of 52** |
 | `spool/spool_file.c` | 90.43% of 94 | **73.26% of 86** |
 | `session/agree_monocypher.c` | 100.00% of 17 | **75.00% of 4** |
-| `session/session.c` | 95.29% of 170 | **75.00% of 84** |
 | `blob/blob.c` | 99.07% of 216 | **76.40% of 161** |
 | `spool/spool.c` | 100.00% of 73 | **77.22% of 79** |
 | `persist/persist.c` | 100.00% of 122 | **79.17% of 72** |
+| `session/session.c` | 99.42% of 172 | **79.76% of 84** |
 | `wire/seal.c` | 97.97% of 148 | **83.69% of 141** |
 | `spool/plan.c` | 100.00% of 58 | **87.88% of 66** |
 | `prekey/prekey.c` | 100.00% of 69 | **90.62% of 64** |
@@ -11468,6 +11474,110 @@ alone is also green, since the openers do write every field. Dropping the
 init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
+
+## 79. A wipe label two paths walked past, and the comment that said otherwise, 2026-09-04
+
+Chosen by measurement rather than by hunch: `session/session.c` had the
+poorest branch coverage of the security-critical modules -- 75.00% of 84 --
+and it is the protocol's core. Asking WHICH branches turned out to be worth
+more than the number.
+
+### Fifteen lines, and they were nearly all one family
+
+    guard second-operands in compound null checks     8 lines
+    seam-failure paths (agree refuses, hash refuses)  4 lines
+    a transcript refusal only a null can cause        1 line
+    a prekey with no public half                      1 line
+    an err_str switch arm                             1 line
+
+**The seam-failure family is project.md sec 75's, one layer up.** Those are
+the paths a consumer's own crypto takes when it fails, and not one of them had
+ever executed -- because the suite's stubs succeed and the sim tests use
+Monocypher, which cannot fail.
+
+### The finding is not a missing test, it is a comment that was false
+
+`fzn_session_establish` ends at a label whose comment reads **"BOTH ARE WIPED
+ON EVERY PATH."** Two paths above it returned without reaching the label, and
+one of them was the agreement's own failure:
+
+    aerr = fzn_agree_shared(self_prekey, agree, peer_prekey, shared);
+    if (aerr != FZN_AGREE_OK)
+            return FZN_SESSION_ERR_AGREE;      /* past the wipe */
+
+**The two v2 derivations do `goto out` at the identical step.** So the same
+operation was written two ways in one file, and the version that skipped the
+wipe was the one whose comment claimed the wipe was universal.
+
+### It was safe, and safe for a reason that lives in another file
+
+`fzn_agree_shared` wipes `shared_out` itself before returning
+FZN_AGREE_ERR_DEGENERATE, and on its other refusals -- MALFORMED, OPS,
+ABSENT -- never writes it at all. So no secret this call computed was left
+behind.
+
+**That is a load-bearing property of `session/agree.c`, relied on in
+`session/session.c`, and stated in neither place at the point of reliance.**
+Exactly the shape fuzzypickles reported the same day about their own separate
+buffers: *"luck rather than design. Nothing says the buffers must stay
+separate, and the obvious optimisation would hand us your hazard with no
+diagnostic anywhere."* A new failure mode in `fzn_agree_shared` that wrote
+before refusing would make this a leak, with nothing anywhere to notice.
+
+**And the fix is not purely cosmetic.** On the paths where `shared_out` is
+never written, `shared` is an uninitialised local -- so returning leaves that
+stack slot holding whatever it held before. Wiping zeroes it. The `goto out`
+therefore removes a cross-module dependency AND clears a slot that was
+otherwise left as found.
+
+### What changed
+
+v1 now matches v2: `err = FZN_SESSION_ERR_AGREE; goto out;`. The label's
+comment says what it means -- wiped on every path that could have written
+either -- and notes that the unqualified version was false. Behaviour through
+the API is identical, which is the point: this closes a gap between what the
+file says and what it does.
+
+### And the tests the measurement asked for
+
+Two families, each with a control, because every assertion in them is a
+REFUSAL and a stub that had stopped working would satisfy all of them.
+
+**The second agreement in each v2 derivation.** The first one's failure was
+already covered by the 2026-09-02 work `session.h` records; a stub that always
+refuses fails that one and never reaches the other. A counting stub that
+refuses on call two reaches it -- and in the initiator **that second agreement
+is the EPHEMERAL one**, which is the whole of what a later compromise of the
+prekey cannot reproduce. A derivation continuing past its refusal would
+produce a session with no forward secrecy in it and no way for either side to
+tell.
+
+**The hash seam refusing mid-establishment.** `REFUSING` existed and was
+pointed only at `fzn_session_chains`. A hash that refuses while a session is
+being derived had never happened. It must surface as ERR_HASH and not ERR_AGREE,
+because a consumer told the wrong one looks in the wrong place.
+
+### The population caveat, which was worth running rather than assuming
+
+The standalone run said 70.24% before and 75.00% after -- and **75.00% is
+exactly what the full-suite table already said**, which is the shape of a
+wrong claim. `session_test` alone was reaching 70.24% while the whole suite
+reached 75.00%, so other binaries were covering branches this one was not, and
+"70.24 to 75.00" would have been an improvement to the project's number
+measured over the wrong population. That error is in this document four times
+already.
+
+So `make coverage` was re-run rather than inferred from, and the answer is
+that the gain is real and is not the standalone delta:
+
+    branches never taken both ways   15 lines -> 11
+    session_test alone               70.24% -> 75.00% of 84
+    THE WHOLE SUITE                  75.00% -> 79.76% of 84
+    lines, whole suite               95.29% -> 99.42% of 172
+
+**One row moved and no other.** The comparison was made against every row of
+the table rather than the one being looked at, because a change that moves a
+neighbour is exactly what a targeted re-measurement does not see.
 
 ## 78. A harness for the planner, and the defect it did not catch on the first try, 2026-09-04
 
