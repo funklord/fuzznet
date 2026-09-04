@@ -11520,6 +11520,57 @@ is worse than the frame case, because a sealed leaf is what a seeder hands to
 strangers by design, where a frame at least goes to one peer who will refuse
 it on the tag.
 
+### The mechanism is IN-PLACE ENCRYPTION, not the void return
+
+Corrected by fuzzypickles the same day, and the correction is worth more than
+the finding it sharpens. Their measurement of their own tree: `crypto_aead_lock`
+reads from `plaintext` and writes to `out_buf + NONCE_LEN`, **separate
+buffers**, so a no-op seal there would leave `out_buf` unwritten -- *"garbage
+sent rather than the message sent in clear. Still a bug, and a much less bad
+one."* They also report `fzn_blob_leaf_seal` unused in their tree and all 13
+`fzp_prekey_channel_seal` call sites reading the return.
+
+So a void return alone is not what puts plaintext on the wire. **A void return
+over an IN-PLACE seal is.** The two have to be named together or the next
+reader closes the wrong one.
+
+And their own conclusion about themselves is the part to carry: *"That is luck
+rather than design. Nothing says the buffers must stay separate, and the
+obvious optimisation -- seal in place, drop a copy -- would hand us your
+hazard with no diagnostic anywhere."* They have written it down beside the
+function, because a load-bearing property nobody recorded is one somebody
+removes while tidying.
+
+### Which makes it structural here rather than a call-site choice
+
+The seam takes ONE text pointer:
+
+    void (*seal)(void *ctx, const uint8_t key[FZN_AEAD_KEY_LEN],
+                 const uint8_t nonce[FZN_AEAD_NONCE_LEN], const uint8_t *aad,
+                 size_t aad_len, uint8_t *text, size_t text_len,
+                 uint8_t tag[FZN_AEAD_TAG_LEN]);
+
+**`text` is read and written, so the seam is in-place BY SIGNATURE.** Neither
+caller chose it and neither can decline it: for an in-place AEAD the plaintext
+must already be sitting in the buffer that will hold the ciphertext, which is
+why both of them `memcpy` it there first. fuzzypickles' escape is not
+available to fuzznet's own call sites while the seam looks like this.
+
+**So there are two ways to close it, not one, and the holder should see
+both.** Give `seal` an int to return, or give it separate `in` and `out`
+pointers. The first is one line in each of three consumers' vtables and a
+check at two call sites here; the second changes every call site and both
+buffers' sizing, and only downgrades plaintext to garbage rather than
+reporting anything. **The cheap one is also the strictly better one**, which
+is not the usual shape of that trade and is worth saying plainly.
+
+**And a stale vtable would not slip through, which was fuzzypickles' specific
+worry.** Measured rather than assumed: initialising an `int (*)(...)` field
+with a `void (*)(...)` function is `-Wincompatible-pointer-types`, an ERROR by
+default in gcc and not a warning, exit 1 with no flags at all. A consumer who
+missed the change would fail to build rather than ship something in the
+clear.
+
 ### The tree already knew this hazard, through the other door
 
 `wire/test/seal_test.c` asserts that a REFUSED build leaves no capability in

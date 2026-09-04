@@ -62,12 +62,21 @@
  * and is not the same as a decision.
  *
  * The consequence is measured rather than argued, and it is not a denial of
- * service. Both callers copy the plaintext into the caller's buffer and
- * encrypt IN PLACE -- `wire/seal.c` for a frame's capability and payload,
- * `blob/blob.c` for a leaf -- so a `seal` that does nothing leaves the
- * plaintext exactly where the ciphertext was going to be. Neither caller can
- * tell. `fzn_seal_build` then finalises the tag and returns FZN_SEAL_OK, and
+ * service. `text` is read AND written, so this seam is IN PLACE BY SIGNATURE:
+ * for an in-place AEAD the plaintext must already sit in the buffer that will
+ * hold the ciphertext, so both callers `memcpy` it there first --
+ * `wire/seal.c` for a frame's capability and payload, `blob/blob.c` for a
+ * leaf. A `seal` that does nothing therefore leaves the plaintext exactly
+ * where the ciphertext was going to be. Neither caller can tell.
+ * `fzn_seal_build` finalises the tag and returns FZN_SEAL_OK, and
  * `fzn_blob_leaf_seal` returns FZN_BLOB_OK with `*out_len` set.
+ *
+ * THE IN-PLACE HALF IS WHAT MAKES IT PLAINTEXT rather than garbage, and the
+ * two have to be named together. A caller sealing between SEPARATE buffers
+ * would leave its output unwritten on a failed seal -- still a bug, and a far
+ * smaller one. fuzzypickles measured exactly that in their own tree and
+ * reported it here; their escape is not available to these call sites while
+ * the signature has one `text` pointer.
  *
  * Probed 2026-09-04 with a `seal` that does nothing at all:
  *
