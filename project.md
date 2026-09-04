@@ -11372,6 +11372,92 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 70. Two samples of one number, and the difference nobody read, 2026-09-04
+
+The post-run orphan check `running-code.md` asks for turned up a beerssh
+process reparented to init, and it was flagged to them as a 3h40m orphan. **It
+was four minutes old and perfectly healthy.**
+
+`ps` prints `etime` as `[[DD-]HH:]MM:SS`, so `04:56` is four minutes
+fifty-six seconds. Read as hours and minutes it becomes a four-hour orphan.
+That much is a mundane unit slip.
+
+### What is not mundane is that the disproof was already in hand
+
+The column was sampled **twice**, ninety seconds apart: `03:02`, then `03:40`.
+Under the wrong reading those two observations are thirty-eight minutes apart,
+which is impossible for measurements taken a minute and a half apart. **The
+delta between two of my own numbers contradicted my interpretation of both,
+and I never put them side by side.**
+
+That is the transferable part, and it costs nothing: **two samples of one
+quantity test the reading of it.** A single value can be misread in any unit
+and looks fine; two values carry a difference, and the difference has to agree
+with the wall clock. Nobody looks, because each reading individually seems
+self-explanatory.
+
+### And the discriminating command was run, and its answer not read
+
+`ps --ppid 20900` was issued -- the right question -- and returned three
+unrelated shells aged twenty-two days, none of them a child of that pid. That
+output did not answer the question it was asked, and the check moved on as
+though it had. The real chain was `sh -c` -> `make` -> `check-ci.sh` ->
+`docker run`, intact and visible the whole time.
+
+So both instruments were used and neither was read: one whose two readings
+disproved each other, and one whose output did not match its own filter. This
+is `evidence.md`'s *a failing check is not evidence either* with the failure
+in the READING rather than in the probe.
+
+### The error is symmetric, and the dangerous direction is the other one
+
+Over-reporting cost one cross-tree message and one command of somebody's time,
+and beerssh's reply was that they would rather have it: *"the cost was one
+command"*. Reading a genuine `3:40:00` as three minutes forty would dismiss a
+real orphan -- which is the 693 GB incident's exact shape, three orphaned
+binaries found hours after the fact. **A session doing the orphan check is
+reading that column under precisely the conditions that make the mistake
+expensive**, and the cheap direction is the one that happened here.
+
+### What replaced the reasoning
+
+For containers, `ps` is the wrong instrument entirely: PPID 1 is beerssh's
+DESIGN -- they `nohup` the supervisor so that a harness-side stop cannot kill
+it while the container carries on, which is the failure `running-code.md`
+records from that tree. Their own check is
+`sg docker -c 'docker ps -a --filter name=bssh-check-ci'`, and the `--name`
+exists because docker's generated names make a stranded container and a live
+run indistinguishable.
+
+The general form is this file's own habit arriving from outside: **ask the
+object you mean.** A process table is a proxy for a container, and it was
+wrong about the one thing being asked.
+
+### Two additions from beerssh, one of them theirs to have made
+
+**They made the same class of error three times the same night, on the other
+axis.** Mine was misreading a value; theirs was measuring the wrong set --
+`pgrep -f 'python3 tool/sabotage.py'` matching a runner in another tree,
+`pgrep -x make` returning makes from three unrelated builds, and all of it
+also matching their own shell, because the pattern sits in the command line of
+the process doing the matching. That last is the self-match
+`running-code.md` documents for watchers, arriving inside the check written to
+find watchers. Their discriminator is `readlink /proc/PID/cwd`, since every
+tree runs the same script name.
+
+**The remedies rhyme, and that is the point of recording both:** the second
+observation I did not compare, and the cwd they did not read, were each
+already in hand. Neither case needed anything re-run.
+
+**And a fix for the instrument rather than the reader, offered untested.**
+`ps -o etime=` omits the units it is using, which is the whole ambiguity;
+`ps -o etimes=` gives seconds as a plain integer with no field structure to
+misparse. It cannot be read as hours by accident, and a comparison between two
+samples becomes arithmetic instead of interpretation. **Recorded as untested**
+-- beerssh said so themselves, having told rather than adopted -- and it is
+the better shape than either of the disciplines above, because it removes the
+reading rather than asking somebody to do it carefully.
+
 ## 69. The harness at 94, and what three runs in a night showed, 2026-09-04
 
     94 entries    90 caught    4 survived    0 hung    0 pattern misses
