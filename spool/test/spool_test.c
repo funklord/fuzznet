@@ -529,6 +529,231 @@ static void test_a_leaf_reads_back(void)
 	CHECK(memcmp(out, sealed[0], sealed_len[0]) == 0, "the leaf did not survive the store");
 }
 
+/* A backend that refuses. `mem_*` above always succeed, so the paths this
+ * module takes when a disk answers no had never run -- and a spool exists
+ * precisely to survive a partial write across a restart. */
+static unsigned refuse_writes_from;
+static unsigned write_calls;
+
+static int failing_write(void *ctx, uint64_t off, const uint8_t *bytes, size_t len)
+{
+	write_calls++;
+	if (refuse_writes_from != 0u && write_calls >= refuse_writes_from)
+		return 0;
+	return mem_write(ctx, off, bytes, len);
+}
+
+static int failing_read(void *ctx, uint64_t off, uint8_t *out, size_t len)
+{
+	(void)ctx;
+	(void)off;
+	(void)out;
+	(void)len;
+	return 0;
+}
+
+/*
+ * EVERY OPERAND OF EVERY GUARD, and every path a refusing backend takes.
+ *
+ * The guards here are conjunctions, and a suite that fails the first operand
+ * never evaluates the rest -- so `make coverage` reported six of them as
+ * never taken both ways while the guard above each looked tested. project.md
+ * sec 88 measured what the unreached operands are worth: in `provision/`,
+ * removing one is a SIGSEGV rather than a wrong return code.
+ *
+ * The backend paths are the other half and are this module's own subject. A
+ * spool is the thing that survives a disk saying no: `fzn_spool_place` writes
+ * the leaf, then pads, then may sync, and a refusal at any of those must not
+ * leave the bitmap claiming a leaf the store does not hold. Without a failing
+ * backend none of that had ever happened.
+ */
+static void test_every_guard_and_every_refusal(void)
+{
+	fzn_spool_t spool;
+	fzn_spool_ops_t no_read = { NULL, mem_write, mem_sync, NULL };
+	fzn_spool_ops_t no_write = { mem_read, NULL, mem_sync, NULL };
+	fzn_spool_ops_t refusing_w = { mem_read, failing_write, mem_sync, NULL };
+	fzn_spool_ops_t refusing_r = { failing_read, mem_write, mem_sync, NULL };
+	uint8_t map[FZN_SPOOL_BITMAP_LEN(TEST_LEAVES)];
+	uint8_t out[FZN_BLOB_SEALED_MAX];
+	uint64_t at = 0;
+	size_t len = 0;
+
+	REQUIRE(build_blob(), "the blob fixture does not build");
+	memset(map, 0, sizeof(map));
+
+	/* ---- the operands the first one hides -------------------------- */
+	CHECK(fzn_spool_open(NULL, root, TEST_LEAVES, map, sizeof(map), &OPS)
+	              == FZN_SPOOL_ERR_MALFORMED, "open accepted a null spool");
+	CHECK(fzn_spool_open(&spool, NULL, TEST_LEAVES, map, sizeof(map), &OPS)
+	              == FZN_SPOOL_ERR_MALFORMED, "open accepted a null root");
+	CHECK(fzn_spool_open(&spool, root, TEST_LEAVES, NULL, sizeof(map), &OPS)
+	              == FZN_SPOOL_ERR_MALFORMED, "open accepted a null bitmap");
+	CHECK(fzn_spool_open(&spool, root, TEST_LEAVES, map, sizeof(map), NULL)
+	              == FZN_SPOOL_ERR_MALFORMED, "open accepted a null ops");
+	CHECK(fzn_spool_open(&spool, root, TEST_LEAVES, map, sizeof(map), &no_read)
+	              == FZN_SPOOL_ERR_MALFORMED,
+	      "open accepted an ops table with no read_at -- which is what a consumer "
+	      "that filled the vtable in two steps has");
+	CHECK(fzn_spool_open(&spool, root, TEST_LEAVES, map, sizeof(map), &no_write)
+	              == FZN_SPOOL_ERR_MALFORMED, "open accepted an ops table with no write_at");
+
+	reset(&spool, map, sizeof(map));
+	CHECK(fzn_spool_place(NULL, &HASH, 0u, sealed[0], sealed_len[0], proof[0],
+	                      proof_len[0]) == FZN_SPOOL_ERR_MALFORMED,
+	      "place accepted a null spool");
+	CHECK(fzn_spool_place(&spool, &HASH, 0u, NULL, sealed_len[0], proof[0], proof_len[0])
+	              == FZN_SPOOL_ERR_MALFORMED, "place accepted null bytes");
+
+	CHECK(fzn_spool_read(NULL, 0u, out, sizeof(out), &len) == FZN_SPOOL_ERR_MALFORMED,
+	      "read accepted a null spool");
+	CHECK(fzn_spool_read(&spool, 0u, NULL, sizeof(out), &len) == FZN_SPOOL_ERR_MALFORMED,
+	      "read accepted a null out");
+	CHECK(fzn_spool_read(&spool, 0u, out, sizeof(out), NULL) == FZN_SPOOL_ERR_MALFORMED,
+	      "read accepted a null length");
+
+	CHECK(fzn_spool_has(NULL, 0u) == 0, "has accepted a null spool");
+	CHECK(fzn_spool_complete(NULL) == 0, "complete accepted a null spool");
+	CHECK(fzn_spool_next_missing(NULL, 0u, &at) == FZN_SPOOL_ERR_MALFORMED,
+	      "next_missing accepted a null spool");
+	CHECK(fzn_spool_next_missing(&spool, 0u, NULL) == FZN_SPOOL_ERR_MALFORMED,
+	      "next_missing accepted a null out");
+
+	/* ---- a backend that says no ------------------------------------ */
+	{
+		fzn_spool_t refusing;
+
+		memset(map, 0, sizeof(map));
+		REQUIRE(fzn_spool_open(&refusing, root, TEST_LEAVES, map, sizeof(map),
+		                       &refusing_w) == FZN_SPOOL_OK,
+		        "the refusing-write spool would not open");
+
+		/* THE FIRST WRITE REFUSES. The leaf never lands, so the bitmap
+		 * must not claim it -- a store that recorded a leaf its disk
+		 * declined would report itself complete and serve nothing. */
+		write_calls = 0;
+		refuse_writes_from = 1u;
+		CHECK(fzn_spool_place(&refusing, &HASH, 0u, sealed[0], sealed_len[0], proof[0],
+		                      proof_len[0]) == FZN_SPOOL_ERR_BACKEND,
+		      "a refused write was not reported");
+		CHECK(!fzn_spool_has(&refusing, 0u),
+		      "a leaf whose write was refused is recorded as held, so this store "
+		      "would report itself complete and serve nothing");
+
+		/* AND THE PAD WRITE, which is the second call and a separate
+		 * branch: the leaf itself landed and the zero-fill after it did
+		 * not. The same rule applies -- a partially written slot is not
+		 * a held leaf. */
+		write_calls = 0;
+		refuse_writes_from = 2u;
+		CHECK(fzn_spool_place(&refusing, &HASH, 1u, sealed[1], sealed_len[1], proof[1],
+		                      proof_len[1]) == FZN_SPOOL_ERR_BACKEND,
+		      "a refused pad write was not reported");
+		CHECK(!fzn_spool_has(&refusing, 1u),
+		      "a leaf whose padding was refused is recorded as held");
+		refuse_writes_from = 0u;
+	}
+
+	{
+		fzn_spool_t reading;
+
+		memset(map, 0, sizeof(map));
+		REQUIRE(fzn_spool_open(&reading, root, TEST_LEAVES, map, sizeof(map),
+		                       &OPS) == FZN_SPOOL_OK,
+		        "the read fixture would not open");
+		REQUIRE(fzn_spool_place(&reading, &HASH, 0u, sealed[0], sealed_len[0],
+		                        proof[0], proof_len[0]) == FZN_SPOOL_OK,
+		        "the read fixture would not place");
+		/* The leaf is held, and the disk refuses to hand it back. A
+		 * relay serving it on must be told rather than sent whatever
+		 * was in the buffer. */
+		reading.ops = &refusing_r;
+		CHECK(fzn_spool_read(&reading, 0u, out, sizeof(out), &len)
+		              == FZN_SPOOL_ERR_BACKEND,
+		      "a refused read was reported as a leaf");
+	}
+
+	/*
+	 * A SPOOL WHOSE OPS HAVE GONE, which `fzn_spool_open` cannot produce --
+	 * it refuses a null table -- so this is a caller who kept a spool
+	 * across a teardown that freed the backend, or zeroed the struct. The
+	 * type is public and nothing prevents either.
+	 *
+	 * Without the operand, `spool->ops->write_at` is a null dereference on
+	 * a struct the caller still believes is usable.
+	 */
+	{
+		fzn_spool_t stale;
+
+		memset(map, 0, sizeof(map));
+		REQUIRE(fzn_spool_open(&stale, root, TEST_LEAVES, map, sizeof(map), &OPS)
+		                == FZN_SPOOL_OK,
+		        "the stale fixture would not open");
+		stale.ops = NULL;
+		CHECK(fzn_spool_place(&stale, &HASH, 0u, sealed[0], sealed_len[0], proof[0],
+		                      proof_len[0]) == FZN_SPOOL_ERR_MALFORMED,
+		      "place followed a null ops table");
+		CHECK(fzn_spool_read(&stale, 0u, out, sizeof(out), &len)
+		              == FZN_SPOOL_ERR_MALFORMED, "read followed a null ops table");
+	}
+
+	/* A REFUSING HASH, which is the seam rather than the disk. A leaf
+	 * whose hash cannot be computed cannot be checked against the root, so
+	 * it must not be stored on the strength of having arrived. */
+	{
+		fzn_spool_t hashless;
+		fzn_hash_ops_t no_hash = { NULL, NULL };
+
+		memset(map, 0, sizeof(map));
+		REQUIRE(fzn_spool_open(&hashless, root, TEST_LEAVES, map, sizeof(map), &OPS)
+		                == FZN_SPOOL_OK,
+		        "the hashless fixture would not open");
+		CHECK(fzn_spool_place(&hashless, &no_hash, 0u, sealed[0], sealed_len[0],
+		                      proof[0], proof_len[0]) != FZN_SPOOL_OK,
+		      "a leaf was stored without its hash being computable");
+		CHECK(!fzn_spool_has(&hashless, 0u),
+		      "a leaf that could not be hashed is recorded as held");
+	}
+
+	/* A BACKEND WITH NO `sync`, completing the blob. The sync is optional
+	 * -- `spool.h` says a caller that does not want one need not supply it
+	 * -- so completion must not depend on it being there. */
+	{
+		fzn_spool_ops_t no_sync = { mem_read, mem_write, NULL, NULL };
+		fzn_spool_t quiet;
+		unsigned i;
+
+		memset(&disk, 0, sizeof(disk));
+		memset(map, 0, sizeof(map));
+		REQUIRE(fzn_spool_open(&quiet, root, TEST_LEAVES, map, sizeof(map), &no_sync)
+		                == FZN_SPOOL_OK,
+		        "a backend with no sync was refused at open");
+		for (i = 0; i < TEST_LEAVES; i++)
+			CHECK(fzn_spool_place(&quiet, &HASH, i, sealed[i], sealed_len[i],
+			                      proof[i], proof_len[i]) == FZN_SPOOL_OK,
+			      "leaf %u would not place without a sync", i);
+		CHECK(fzn_spool_complete(&quiet),
+		      "a blob completed with no sync in the table did not report complete");
+	}
+
+	/* A SPOOL OF NO LEAVES IS NOT COMPLETE. `fzn_spool_open` will not make
+	 * one, so this is again a hand-assembled struct -- and the operand
+	 * matters because `have == leaves` is TRUE for 0 == 0. Without the
+	 * `leaves > 0` test an empty spool reports itself finished, which is
+	 * the answer that ends a transfer that never started. */
+	{
+		fzn_spool_t empty;
+
+		memset(&empty, 0, sizeof(empty));
+		CHECK(!fzn_spool_complete(&empty),
+		      "a spool of no leaves reported itself complete, so a transfer that "
+		      "never started looks finished");
+	}
+
+	CHECK(strcmp(fzn_spool_err_str((fzn_spool_err_t)77), "unknown") == 0,
+	      "a value that is not an enumerator does not render as unknown");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -551,6 +776,7 @@ int main(void)
 	test_an_index_past_the_blob_is_refused();
 	test_a_short_read_stays_inside_the_callers_buffer();
 	test_a_leaf_reads_back();
+	test_every_guard_and_every_refusal();
 	test_the_suite_can_tell_pass_from_fail();
 
 	printf("spool_test: %d checks, %d failure(s)\n", checks, failures);

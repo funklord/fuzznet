@@ -2498,6 +2498,114 @@ static void test_a_revocation_settles_what_it_covers(void)
  * comparison with every peer, which is the re-fetch loop the drain exists to
  * stop, on the pairs most likely to be compared: the settled ones.
  */
+/*
+ * EVERY OPERAND OF EVERY GUARD, and the corrupted states they exist for.
+ *
+ * These are conjunctions and the suite fails the first operand of each, so
+ * `make coverage` reported twelve of them as never taken both ways while the
+ * guards looked tested. project.md sec 88 measured what an unreached operand
+ * is worth: in `provision/`, removing one is a SIGSEGV.
+ *
+ * Two kinds are covered here and they are not the same case.
+ *
+ * A STATE WITH A NULL ARRAY BUT NOTHING IN IT is SOUND -- `state_sound`
+ * checks `used > 0 && !array`, so zero used with a null pointer passes -- and
+ * is exactly what a caller has after `memset` and before `fzn_manifest_init`.
+ * The later operands are what refuse it, and without them the first insert
+ * writes through a null pointer.
+ *
+ * A STATE WITH A NULL ARRAY AND A NON-ZERO COUNT is CORRUPT, and
+ * `state_sound` is what refuses that. It cannot arise from this API at all;
+ * it arises from a struct restored from a file, shared across a fork, or
+ * scribbled on. `manifest.h` judges soundness here rather than inheriting it,
+ * for the reason it gives about `fzn_revocation_covers` answering 1 for a
+ * store it cannot scan -- a wrong "we hold this" empties the deficit and
+ * stops the host asking for anything again.
+ */
+static void test_the_operands_the_first_one_hides(void)
+{
+	struct fixture f;
+	fzn_manifest_state_t blank;
+	fzn_manifest_state_t corrupt;
+	fzn_revocation_store_t bad_store;
+	fzn_revocation_t entries[2];
+	fzn_manifest_pair_t pairs[2];
+	fzn_manifest_pair_t out[2];
+	uint8_t bytes[FZN_MANIFEST_MAX_LEN];
+	fzn_cap_id_t cap;
+	uint8_t grantee[FZN_PUBKEY_LEN];
+	size_t len = 0, dropped = 0;
+
+	fixture_init(&f);
+	memset(&cap, 0x91, sizeof(cap));
+	memset(grantee, 0x92, sizeof(grantee));
+	memset(pairs, 0, sizeof(pairs));
+	memcpy(pairs[0].grantee, grantee, FZN_PUBKEY_LEN);
+	pairs[0].capability = cap;
+
+	/* ---- sound, and holding nothing ------------------------------- */
+	memset(&blank, 0, sizeof(blank));
+	CHECK(fzn_manifest_follow(&blank, f.root) == FZN_MANIFEST_ERR_MALFORMED,
+	      "follow accepted a state with no issuer array");
+	CHECK(fzn_manifest_deficit(&blank, f.root, out, 2, &dropped) == 0,
+	      "deficit read a state with no deficit array");
+	CHECK(fzn_manifest_deficit_from(&blank, f.root, 0u, out, 2, &dropped, NULL) == 0,
+	      "deficit_from read a state with no deficit array");
+	CHECK(fzn_manifest_satisfy(&blank, f.root, &cap, grantee) == 0,
+	      "satisfy removed a pair from a state with no deficit array");
+
+	/* ---- corrupt: a count with nothing behind it ------------------- */
+	memset(&corrupt, 0, sizeof(corrupt));
+	corrupt.issuer_used = 1u;
+	corrupt.issuer_capacity = 1u;
+	CHECK(fzn_manifest_follow(&corrupt, f.root) == FZN_MANIFEST_ERR_MALFORMED,
+	      "follow accepted a state claiming an issuer it has no array for");
+	memset(&corrupt, 0, sizeof(corrupt));
+	corrupt.deficit_used = 1u;
+	corrupt.deficit_capacity = 1u;
+	CHECK(fzn_manifest_deficit(&corrupt, f.root, out, 2, &dropped) == 0,
+	      "deficit read a state claiming pairs it has no array for");
+
+	/* A STORE CLAIMING ENTRIES IT HAS NO ARRAY FOR. `store_sound` returns
+	 * 1 for a NULL store -- no store means no revocations known, which is
+	 * an answer -- and 0 for one that lies about itself, which is not. */
+	memset(&bad_store, 0, sizeof(bad_store));
+	bad_store.used = 1u;
+	bad_store.capacity = 1u;
+	memset(entries, 0, sizeof(entries));
+	stub_reset(&f.stub);
+	CHECK(fzn_manifest_issue(f.root, &bad_store, &f.sign, bytes, sizeof(bytes), &len)
+	              == FZN_MANIFEST_ERR_MALFORMED,
+	      "a manifest was issued from a store claiming entries it has no array for");
+
+	/* ---- the null operands the first one hides ---------------------- */
+	stub_reset(&f.stub);
+	CHECK(fzn_manifest_issue(NULL, &f.store, &f.sign, bytes, sizeof(bytes), &len)
+	              == FZN_MANIFEST_ERR_MALFORMED, "issue accepted a null issuer");
+	CHECK(fzn_manifest_issue(f.root, &f.store, NULL, bytes, sizeof(bytes), &len)
+	              == FZN_MANIFEST_ERR_MALFORMED, "issue accepted a null signer");
+	{
+		fzn_sign_ops_t half = { f.sign.verify, NULL, NULL };
+
+		CHECK(fzn_manifest_issue(f.root, &f.store, &half, bytes, sizeof(bytes), &len)
+		              == FZN_MANIFEST_ERR_MALFORMED,
+		      "issue accepted a signer struct whose sign is null");
+	}
+	CHECK(fzn_manifest_issue(f.root, &f.store, &f.sign, NULL, sizeof(bytes), &len)
+	              == FZN_MANIFEST_ERR_MALFORMED, "issue accepted a null out");
+	CHECK(fzn_manifest_issue(f.root, &f.store, &f.sign, bytes, sizeof(bytes), NULL)
+	              == FZN_MANIFEST_ERR_MALFORMED, "issue accepted a null length");
+
+	CHECK(fzn_manifest_follow(&f.manifest, NULL) == FZN_MANIFEST_ERR_MALFORMED,
+	      "follow accepted a null issuer");
+	CHECK(fzn_manifest_satisfy(&f.manifest, NULL, &cap, grantee) == 0,
+	      "satisfy removed a pair for a null issuer");
+	CHECK(fzn_manifest_deficit_from(&f.manifest, NULL, 0u, out, 2, &dropped, NULL) == 0,
+	      "deficit_from accepted a null issuer");
+	CHECK(fzn_manifest_deficit(&f.manifest, f.root, NULL, 2, &dropped) == 0,
+	      "deficit accepted a null out with a non-zero capacity");
+}
+
 static void test_both_sides_withdrew_the_same_revocation(void)
 {
 	struct fixture f;
@@ -3619,6 +3727,7 @@ int main(void)
 	test_a_state_whose_fields_disagree_is_refused();
 	test_two_hosts_revoked_the_same_pair_and_disagree();
 	test_both_sides_withdrew_the_same_revocation();
+	test_the_operands_the_first_one_hides();
 	test_the_suite_can_tell_pass_from_fail();
 
 	printf("manifest_test: %d checks, %d failure(s)\n", checks, failures);

@@ -306,6 +306,44 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 	checks -= 1;
 }
 
+/*
+ * EVERY OPERAND OF EVERY GUARD, not the first one of each.
+ *
+ * These guards are conjunctions and the suite fails the first operand, so
+ * `make coverage` reported the rest as never taken both ways while the guard
+ * looked tested. project.md sec 88 measured what an unreached operand is
+ * worth: in `provision/`, removing one is a SIGSEGV rather than a wrong
+ * return code, because the second operand is what stands between a
+ * partially initialised caller and a null dereference. A vtable with a null
+ * member is what a consumer has who filled it in two steps.
+ */
+static void test_the_operands_the_first_one_hides(void)
+{
+	fzn_agree_ops_t no_public = { NULL, stub_agree, NULL };
+	fzn_agree_ops_t no_agree = { stub_public_of, NULL, NULL };
+	fzn_agree_secret_t sk;
+	uint8_t raw[FZN_AGREE_SECRET_LEN], peer[FZN_AGREE_PUBLIC_LEN];
+	uint8_t shared[FZN_AGREE_SHARED_LEN];
+
+	memset(raw, 0x21, sizeof(raw));
+	memset(peer, 0x22, sizeof(peer));
+
+	CHECK(fzn_agree_secret_install(&sk, &no_public, raw) == FZN_AGREE_ERR_OPS,
+	      "install accepted an ops table whose public_of is null -- which is what a "
+	      "consumer that filled the vtable in two steps has");
+	REQUIRE(fzn_agree_secret_install(&sk, &OPS, raw) == FZN_AGREE_OK, "install refused");
+	CHECK(fzn_agree_shared(&sk, &no_agree, peer, shared) == FZN_AGREE_ERR_OPS,
+	      "shared accepted an ops table whose agree is null");
+
+	/* A WIPED SECRET HAS NO GENERATION. `generation` reads `sk->live` after
+	 * the null test, and a rotation leaves the struct present and not live --
+	 * so a caller asking which generation they hold must be told zero rather
+	 * than the number the wiped struct still carries. */
+	fzn_agree_secret_wipe(&sk);
+	CHECK(fzn_agree_secret_generation(&sk) == 0u,
+	      "a wiped secret still reports a generation");
+}
+
 int main(void)
 {
 	test_an_empty_secret_offers_nothing();
@@ -316,6 +354,7 @@ int main(void)
 	test_a_refusing_public_leaves_the_old_secret_alone();
 	test_every_guard_refuses_its_own_argument();
 	test_the_suite_can_tell_pass_from_fail();
+	test_the_operands_the_first_one_hides();
 
 	printf("agree_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

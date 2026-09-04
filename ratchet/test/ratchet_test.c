@@ -644,6 +644,35 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 	checks -= 1;
 }
 
+/*
+ * EVERY OPERAND OF EVERY GUARD, not the first one of each.
+ *
+ * These guards are conjunctions and the suite fails the first operand, so
+ * `make coverage` reported the rest as never taken both ways while the guard
+ * looked tested. project.md sec 88 measured what an unreached operand is
+ * worth: in `provision/`, removing one is a SIGSEGV rather than a wrong
+ * return code, because the second operand is what stands between a
+ * partially initialised caller and a null dereference. A vtable with a null
+ * member is what a consumer has who filled it in two steps.
+ */
+static void test_the_operands_the_first_one_hides(void)
+{
+	fzn_hash_ops_t hollow = { NULL, NULL };
+	uint8_t ck[FZN_CHAIN_KEY_LEN], mk[FZN_MESSAGE_KEY_LEN], nk[FZN_CHAIN_KEY_LEN];
+
+	memset(ck, 0x11, sizeof(ck));
+	CHECK(fzn_ratchet_derive(NULL, ck, mk, nk) == FZN_RATCHET_ERR_MALFORMED,
+	      "derive accepted a null hash");
+	CHECK(fzn_ratchet_derive(&hollow, ck, mk, nk) == FZN_RATCHET_ERR_MALFORMED,
+	      "derive accepted a hash struct whose member is null");
+	CHECK(fzn_ratchet_derive(&HASH, NULL, mk, nk) == FZN_RATCHET_ERR_MALFORMED,
+	      "derive accepted a null chain key");
+	CHECK(fzn_ratchet_derive(&HASH, ck, NULL, nk) == FZN_RATCHET_ERR_MALFORMED,
+	      "derive accepted a null message key out");
+	CHECK(fzn_ratchet_derive(&HASH, ck, mk, NULL) == FZN_RATCHET_ERR_MALFORMED,
+	      "derive accepted a null next chain key out");
+}
+
 int main(void)
 {
 	test_init_does_not_depend_on_what_the_memory_held();
@@ -662,6 +691,7 @@ int main(void)
 	test_every_guard_refuses_its_own_argument();
 	test_a_wipe_forgets_the_key();
 	test_the_suite_can_tell_pass_from_fail();
+	test_the_operands_the_first_one_hides();
 
 	printf("ratchet_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

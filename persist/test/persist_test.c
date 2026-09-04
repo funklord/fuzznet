@@ -494,6 +494,200 @@ static void test_every_guard_refuses_its_own_argument(void)
 	      "a buffer too small was written into");
 	CHECK(fzn_persist_trust_open(NULL, 8u, &t) == FZN_PERSIST_ERR_MALFORMED, "null bytes");
 
+	/*
+	 * EVERY OPERAND OF EVERY GUARD, not the first one of each.
+	 *
+	 * These are conjunctions -- `if (!trust || !out || !len)` -- and a
+	 * suite that fails the first operand never evaluates the rest, so
+	 * `make coverage` reported them as never taken both ways while the
+	 * guard above them looked tested. project.md sec 88 measured what the
+	 * unreached ones are worth in `provision/`: removing any of the three
+	 * there is a SIGSEGV, because the second operand is what stands
+	 * between a partially initialised caller and a null dereference.
+	 *
+	 * The same holds here in the ordinary way -- a null `len` is written
+	 * through, a null `out` is written into -- so these assert that a
+	 * caller who filled a struct in two steps and got interrupted is
+	 * REFUSED rather than crashing the process that persists their keys.
+	 */
+	CHECK(fzn_persist_trust_pack(&t, blob, sizeof(blob), NULL) == FZN_PERSIST_ERR_MALFORMED,
+	      "trust_pack accepted a null length");
+	CHECK(fzn_persist_trust_open(blob, 8u, NULL) == FZN_PERSIST_ERR_MALFORMED,
+	      "trust_open accepted a null out");
+
+	{
+		fzn_agree_secret_t sk;
+		fzn_prekey_peer_t peer;
+		fzn_ratchet_chain_t chain;
+		uint8_t secret[FZN_AGREE_SECRET_LEN];
+
+		fill(secret, sizeof(secret), 0x5c);
+		REQUIRE(fzn_agree_secret_install(&sk, &AGREE, secret) == FZN_AGREE_OK,
+		        "the guard fixture's secret would not install");
+		fzn_prekey_peer_init(&peer);
+		memset(&chain, 0, sizeof(chain));
+
+		CHECK(fzn_persist_secret_pack(NULL, blob, sizeof(blob), &len)
+		              == FZN_PERSIST_ERR_MALFORMED, "secret_pack accepted a null secret");
+		CHECK(fzn_persist_secret_pack(&sk, NULL, sizeof(blob), &len)
+		              == FZN_PERSIST_ERR_MALFORMED, "secret_pack accepted a null out");
+		CHECK(fzn_persist_secret_pack(&sk, blob, sizeof(blob), NULL)
+		              == FZN_PERSIST_ERR_MALFORMED, "secret_pack accepted a null length");
+		CHECK(fzn_persist_secret_open(NULL, 8u, &AGREE, &sk)
+		              == FZN_PERSIST_ERR_MALFORMED, "secret_open accepted null bytes");
+		CHECK(fzn_persist_secret_open(blob, 8u, &AGREE, NULL)
+		              == FZN_PERSIST_ERR_MALFORMED, "secret_open accepted a null out");
+
+		/* A SECRET WITH NO PUBLIC HALF, which is a wiped one -- the
+		 * state after a rotation. Packing it would store an anchor
+		 * nothing can agree with, and restoring that is
+		 * indistinguishable from restoring a working key until the
+		 * first session fails. */
+		{
+			fzn_agree_secret_t wiped = sk;
+
+			fzn_agree_secret_wipe(&wiped);
+			CHECK(fzn_agree_secret_public(&wiped) == NULL,
+			      "a wiped secret still offers a public key, so the case below "
+			      "is not the case it says");
+			CHECK(fzn_persist_secret_pack(&wiped, blob, sizeof(blob), &len)
+			              == FZN_PERSIST_ERR_MALFORMED,
+			      "a secret with no public half was packed, and restoring it "
+			      "gives a key nothing can agree with");
+		}
+
+		CHECK(fzn_persist_peer_pack(NULL, blob, sizeof(blob), &len)
+		              == FZN_PERSIST_ERR_MALFORMED, "peer_pack accepted a null peer");
+		CHECK(fzn_persist_peer_pack(&peer, NULL, sizeof(blob), &len)
+		              == FZN_PERSIST_ERR_MALFORMED, "peer_pack accepted a null out");
+		CHECK(fzn_persist_peer_pack(&peer, blob, sizeof(blob), NULL)
+		              == FZN_PERSIST_ERR_MALFORMED, "peer_pack accepted a null length");
+		CHECK(fzn_persist_peer_open(NULL, 8u, &peer) == FZN_PERSIST_ERR_MALFORMED,
+		      "peer_open accepted null bytes");
+		CHECK(fzn_persist_peer_open(blob, 8u, NULL) == FZN_PERSIST_ERR_MALFORMED,
+		      "peer_open accepted a null out");
+
+		CHECK(fzn_persist_chain_pack(NULL, blob, sizeof(blob), &len)
+		              == FZN_PERSIST_ERR_MALFORMED, "chain_pack accepted a null chain");
+		CHECK(fzn_persist_chain_pack(&chain, NULL, sizeof(blob), &len)
+		              == FZN_PERSIST_ERR_MALFORMED, "chain_pack accepted a null out");
+		CHECK(fzn_persist_chain_pack(&chain, blob, sizeof(blob), NULL)
+		              == FZN_PERSIST_ERR_MALFORMED, "chain_pack accepted a null length");
+		CHECK(fzn_persist_chain_open(NULL, 8u, &chain) == FZN_PERSIST_ERR_MALFORMED,
+		      "chain_open accepted null bytes");
+		CHECK(fzn_persist_chain_open(blob, 8u, NULL) == FZN_PERSIST_ERR_MALFORMED,
+		      "chain_open accepted a null out");
+
+		/* AND A BUFFER TOO SMALL AT EACH PACK, which is the other
+		 * branch coverage named: `head_write` refusing propagates out
+		 * rather than being swallowed, so a caller with a short buffer
+		 * is told rather than handed a truncated blob. */
+		CHECK(fzn_persist_secret_pack(&sk, blob, 4u, &len) == FZN_PERSIST_ERR_MALFORMED,
+		      "secret_pack wrote into a buffer too small");
+		CHECK(fzn_persist_peer_pack(&peer, blob, 4u, &len) == FZN_PERSIST_ERR_MALFORMED,
+		      "peer_pack wrote into a buffer too small");
+		CHECK(fzn_persist_chain_pack(&chain, blob, 4u, &len) == FZN_PERSIST_ERR_MALFORMED,
+		      "chain_pack wrote into a buffer too small");
+	}
+
+	/*
+	 * A STORED ANCHOR OF ZEROES, which is the last pair of branches
+	 * coverage named here and is a real corruption rather than a
+	 * contrivance: a truncated write, a wiped region, a filesystem that
+	 * returned a hole. The bytes come back the right length and the right
+	 * shape, and the anchor in them is nothing.
+	 *
+	 * `trust.h` refuses an all-zero root because "an absent key must not
+	 * read as a key of zeroes", and this is the path by which a FILE can
+	 * present one. Restoring it would give a peer an anchor that
+	 * authenticates nothing while looking anchored, which is worse than
+	 * refusing to start.
+	 *
+	 * The root is found in the blob by its own bytes rather than at a
+	 * named offset, so this does not depend on a layout the header keeps
+	 * to itself.
+	 */
+	{
+		uint8_t stored[FZN_PERSIST_MAX];
+		fzn_prekey_peer_t peer, back;
+		uint8_t prekey[FZN_PREKEY_LEN];
+		size_t plen = 0;
+		size_t i;
+		int zeroed = 0;
+
+		/* A pinned trust, zeroed where its root sits. */
+		REQUIRE(fzn_persist_trust_pack(&t, stored, sizeof(stored), &plen)
+		                == FZN_PERSIST_OK,
+		        "the corruption fixture would not pack");
+		for (i = 0; i + FZN_PUBKEY_LEN <= plen; i++) {
+			if (memcmp(stored + i, root, FZN_PUBKEY_LEN) == 0) {
+				memset(stored + i, 0, FZN_PUBKEY_LEN);
+				zeroed = 1;
+				break;
+			}
+		}
+		REQUIRE(zeroed, "the root was not found in the blob, so nothing was corrupted");
+		CHECK(fzn_persist_trust_open(stored, plen, &t) == FZN_PERSIST_ERR_SHAPE,
+		      "a stored anchor of zeroes was restored as an anchor");
+
+		/* And the same corruption inside a PEER, where the refusal has
+		 * to travel out through the nested open rather than being
+		 * swallowed by it. */
+		fill(prekey, sizeof(prekey), 0x52);
+		fzn_prekey_peer_init(&peer);
+		REQUIRE(fzn_trust_adopt(&peer.trust, root, 7u) == FZN_TRUST_OK,
+		        "the peer fixture would not adopt");
+		memcpy(peer.prekey, prekey, FZN_PREKEY_LEN);
+		peer.created_at = 99u;
+		REQUIRE(fzn_persist_peer_pack(&peer, stored, sizeof(stored), &plen)
+		                == FZN_PERSIST_OK,
+		        "the peer corruption fixture would not pack");
+		zeroed = 0;
+		for (i = 0; i + FZN_PUBKEY_LEN <= plen; i++) {
+			if (memcmp(stored + i, root, FZN_PUBKEY_LEN) == 0) {
+				memset(stored + i, 0, FZN_PUBKEY_LEN);
+				zeroed = 1;
+				break;
+			}
+		}
+		REQUIRE(zeroed, "the peer's root was not found, so nothing was corrupted");
+		CHECK(fzn_persist_peer_open(stored, plen, &back) == FZN_PERSIST_ERR_SHAPE,
+		      "a peer whose stored anchor is zeroes was restored, and the nested "
+		      "refusal was swallowed on the way out");
+
+		/* AND THE PINNED PATH, which is a different line and a
+		 * different rule. `fzn_persist_trust_open` restores provenance
+		 * as it was stored -- pinned comes back pinned -- so the two
+		 * sources take separate branches, and the case above exercised
+		 * only the adopted one. A corrupted PINNED anchor is the worse
+		 * of the two to restore: pinned means "authenticated by
+		 * whatever put it there", so a caller shown zeroes under that
+		 * label is being told the strongest thing this library says
+		 * about a key. */
+		{
+			fzn_trust_t pinned;
+
+			fzn_trust_init(&pinned);
+			REQUIRE(fzn_trust_pin(&pinned, root) == FZN_TRUST_OK,
+			        "the pinned fixture would not pin");
+			REQUIRE(fzn_persist_trust_pack(&pinned, stored, sizeof(stored), &plen)
+			                == FZN_PERSIST_OK,
+			        "the pinned fixture would not pack");
+			zeroed = 0;
+			for (i = 0; i + FZN_PUBKEY_LEN <= plen; i++) {
+				if (memcmp(stored + i, root, FZN_PUBKEY_LEN) == 0) {
+					memset(stored + i, 0, FZN_PUBKEY_LEN);
+					zeroed = 1;
+					break;
+				}
+			}
+			REQUIRE(zeroed, "the pinned root was not found, so nothing was corrupted");
+			CHECK(fzn_persist_trust_open(stored, plen, &pinned)
+			              == FZN_PERSIST_ERR_SHAPE,
+			      "a stored PINNED anchor of zeroes was restored as a pin");
+		}
+	}
+
 	CHECK(strcmp(fzn_persist_err_str(FZN_PERSIST_OK), "ok") == 0, "ok does not render");
 	/* EVERY NAMED CODE, not two of six. These four are produced constantly
 	 * as return values and never once fed back to the renderer, so the
