@@ -842,6 +842,17 @@ SABOTAGES = [
 		"gate is absent from the call a consumer actually makes",
 	),
 	(
+		"rev-reissue-advances-id",
+		"chain/revocation.c",
+		"\t\tif (!fzn_ct_memeq(id, entry->id, FZN_REVOCATION_ID_LEN) &&\n"
+		"\t\t    fzn_ct_memeq(fzn_revocation_supersedes(record), entry->id,\n"
+		"\t\t                 FZN_REVOCATION_ID_LEN))\n"
+		"\t\t\tmemcpy(entry->id, id, FZN_REVOCATION_ID_LEN);\n",
+		"",
+		"a store that does not advance to the current revocation applies a "
+		"withdrawal of the superseded one, which un-revokes a revoked pair",
+	),
+	(
 		"rev-withdrawal-tombstone",
 		"chain/revocation.c",
 		"\t\t\tstore->entries[store->used].withdrawn = 1;\n\t\t\tstore->used++;\n"

@@ -468,6 +468,113 @@ static void test_a_reissue_is_a_different_record(void)
 
 /* A WITHDRAWAL IS THE SAME SHAPE AND THE OPPOSITE STATEMENT, so the tag is
  * the only thing between them and it is inside the signed range. */
+/* A REISSUE OVER A LIVE REVOCATION ADVANCES THE STORED ID, and until this
+ * case the line that does it had never run.
+ *
+ * Found by coverage 2026-09-04: `revocation.c`'s `memcpy(entry->id, id, ...)`
+ * in the not-withdrawn branch was the only NEVER-EXECUTED line in the file,
+ * and its own comment states what its absence costs -- "the pair would then
+ * be revocable, reissuable, and unwithdrawable". project.md sec 65.
+ *
+ * WHY NOTHING REACHED IT. The branch needs a store already holding the pair
+ * as LIVE, and a record that is neither the same one nor unchained: a reissue
+ * naming the held id. The withdrawal cases build a WITHDRAWN entry, the
+ * duplicate cases re-admit the SAME record, and the chaining cases exercise
+ * the REFUSAL. This is the one arrangement that changes the store while
+ * leaving the authorization answer alone -- which is exactly why it looks
+ * like nothing worth storing, and is what the comment there says.
+ *
+ * THE CONTROL IS THE SUPERSEDED ID BEING REFUSED. Asserting only that a
+ * withdrawal of the current record is admitted would pass against a store
+ * that admits any withdrawal at all; the pair of assertions is what shows the
+ * id MOVED rather than that the store is lax. */
+static void test_a_reissue_over_a_live_revocation_advances_the_id(void)
+{
+	struct fixture f;
+	uint8_t first[FZN_REVOCATION_LEN], again[FZN_REVOCATION_LEN];
+	uint8_t wd[FZN_REVOCATION_LEN];
+	uint8_t issuer[FZN_PUBKEY_LEN], grantee[FZN_PUBKEY_LEN];
+	uint8_t id_first[FZN_REVOCATION_ID_LEN], id_again[FZN_REVOCATION_ID_LEN];
+	fzn_revocation_record_t rec;
+	fzn_cap_id_t cap;
+
+	fixture_init(&f);
+	key(issuer, 0);
+	key(grantee, 5);
+	capability_id(&cap, 0xc0);
+
+	f.stub.identity = issuer[0];
+	CHECK(fzn_revocation_issue(issuer, &cap, grantee, 1000, &f.sign, first) ==
+	              FZN_CHAIN_OK,
+	      "the first revocation was refused");
+	stub_reset(&f.stub);
+	CHECK(stub_hash(NULL, id_first, sizeof(id_first), first, FZN_REVOCATION_LEN),
+	      "the fixture could not hash the first revocation");
+	CHECK(fzn_revocation_open(first, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK,
+	      "the first revocation will not open");
+	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(rec), issuer, &f.sign,
+	                           &HASH_OPS, NULL) == FZN_CHAIN_OK,
+	      "the first revocation was not admitted");
+
+	/* THE REISSUE, CHAINED TO WHAT IS HELD. The pair was revoked and stays
+	 * revoked, so nothing about authorisation changes across this. */
+	f.stub.identity = issuer[0];
+	CHECK(fzn_revocation_reissue(issuer, &cap, grantee, 2000, id_first, &f.sign, again) ==
+	              FZN_CHAIN_OK,
+	      "the chained reissue could not be minted");
+	stub_reset(&f.stub);
+	CHECK(stub_hash(NULL, id_again, sizeof(id_again), again, FZN_REVOCATION_LEN),
+	      "the fixture could not hash the reissue");
+	CHECK(memcmp(id_first, id_again, sizeof(id_first)) != 0,
+	      "the reissue hashes to the same id as the record it supersedes, so this "
+	      "case could not tell an advanced id from a stale one");
+	CHECK(fzn_revocation_open(again, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK,
+	      "the reissue will not open");
+	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(rec), issuer, &f.sign,
+	                           &HASH_OPS, NULL) == FZN_CHAIN_OK,
+	      "a reissue chained to the revocation this store holds was refused");
+	CHECK(f.store.used == 1,
+	      "the reissue appended a second entry rather than advancing the one held");
+	CHECK(fzn_revocation_covers(&f.store, issuer, &cap, grantee) == 1,
+	      "the pair stopped being revoked across a reissue, which is not what a "
+	      "reissue does");
+
+	/* THE CONTROL. A withdrawal naming the SUPERSEDED record must be
+	 * refused, or the admission below says nothing about which record the
+	 * store thinks is current. */
+	f.stub.identity = issuer[0];
+	CHECK(fzn_revocation_issue_withdrawal(issuer, &cap, grantee, 3000, id_first, &f.sign,
+	                                      wd) == FZN_CHAIN_OK,
+	      "the withdrawal of the superseded record could not be minted");
+	stub_reset(&f.stub);
+	CHECK(fzn_revocation_open(wd, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK,
+	      "that withdrawal will not open");
+	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(rec), issuer, &f.sign,
+	                           &HASH_OPS, NULL) == FZN_CHAIN_ERR_UNKNOWN_TARGET,
+	      "a withdrawal naming the SUPERSEDED revocation was applied, so the store "
+	      "is not tracking which record is current");
+	CHECK(fzn_revocation_covers(&f.store, issuer, &cap, grantee) == 1,
+	      "and it un-revoked the pair on the strength of it");
+
+	/* AND THE CURRENT ONE IS ADMITTED, which is the whole of what the
+	 * advance buys. Without it this is refused as a mismatch too, and the
+	 * pair is revocable, reissuable and unwithdrawable for ever -- nothing
+	 * expires here. */
+	f.stub.identity = issuer[0];
+	CHECK(fzn_revocation_issue_withdrawal(issuer, &cap, grantee, 4000, id_again, &f.sign,
+	                                      wd) == FZN_CHAIN_OK,
+	      "the withdrawal of the current record could not be minted");
+	stub_reset(&f.stub);
+	CHECK(fzn_revocation_open(wd, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK,
+	      "that withdrawal will not open");
+	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(rec), issuer, &f.sign,
+	                           &HASH_OPS, NULL) == FZN_CHAIN_OK,
+	      "the issuer's withdrawal of its own CURRENT revocation was refused, so a "
+	      "reissued pair can never be withdrawn");
+	CHECK(fzn_revocation_covers(&f.store, issuer, &cap, grantee) == 0,
+	      "the pair is still revoked after the record covering it was withdrawn");
+}
+
 static void test_a_withdrawal_is_its_own_object(void)
 {
 	struct fixture f;
@@ -2555,6 +2662,7 @@ int main(void)
 	test_layout_and_round_trip();
 	test_a_reissue_is_a_different_record();
 	test_a_withdrawal_is_its_own_object();
+	test_a_reissue_over_a_live_revocation_advances_the_id();
 	test_open_refuses_what_is_not_our_shape();
 	test_a_withdrawal_restores_and_the_entry_remains();
 	test_a_reissue_after_a_withdrawal();

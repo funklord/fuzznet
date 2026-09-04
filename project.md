@@ -6260,10 +6260,16 @@ that stood here was taken 2026-08-18 over **15 files** and closed with
 was true of the library it measured. `make coverage` reports **42 sources**
 today, and the standard did not follow the growth:
 
-    at 100% of branches      10 files
-    below 100%               28 files
+    at 100% of branches      12 files
+    below 100%               27 files
     no branches at all        1 file   (version/version.c)
-    total branches         2318, of which ~300 (13%) never go both ways
+    total branches         2555, of which ~280 (11%) never go both ways
+
+**RE-DERIVED 2026-09-04, and the rows below are that measurement.** The
+2026-09-01 figures it replaced are not lost -- sec 65 carries the diff, which
+is the part worth keeping: fifteen files improved, two slipped, eleven did not
+move. A file that slips while GROWING is the signal, and one of the two led to
+the defect that section is about.
 
 **Twenty of the twenty-eight shortfalls are in modules that did not exist
 when the table was written** -- `blob/`, `spool/`, `persist/`, `prekey/`,
@@ -6283,34 +6289,33 @@ supply a number for it.
 
 | file | lines | branches both ways |
 |---|---|---|
-| `spool/spool.c` | 82.19% of 73 | **63.29% of 79** |
-| `persist/persist.c` | 90.98% of 122 | **66.67% of 72** |
+| `local/peer_linux.c` | 96.00% of 25 | **66.67% of 18** |
 | `session/random_linux.c` | 86.67% of 15 | **66.67% of 12** |
-| `session/session.c` | 88.24% of 170 | **66.67% of 84** |
 | `persist/persist_file.c` | 90.48% of 84 | **67.31% of 52** |
-| `local/peer_linux.c` | 95.83% of 24 | **68.75% of 16** |
-| `blob/blob.c` | 92.59% of 216 | **70.81% of 161** |
+| `spool/spool.c` | 82.19% of 73 | **68.35% of 79** |
+| `session/session.c` | 90.59% of 170 | **70.24% of 84** |
+| `blob/blob.c` | 93.52% of 216 | **72.67% of 161** |
 | `spool/spool_file.c` | 90.43% of 94 | **73.26% of 86** |
 | `session/agree_monocypher.c` | 100.00% of 17 | **75.00% of 4** |
-| `wire/seal.c` | 97.58% of 124 | **78.20% of 133** |
+| `persist/persist.c` | 99.18% of 122 | **77.78% of 72** |
 | `prekey/prekey.c` | 82.61% of 69 | **81.25% of 64** |
 | `session/agree.c` | 81.40% of 43 | **81.58% of 38** |
-| `spool/plan.c` | 100.00% of 58 | **83.33% of 66** |
-| `ratchet/ratchet.c` | 86.25% of 80 | **86.79% of 53** |
-| `constant_time/constant_time.c` | 92.86% of 14 | **87.50% of 8** |
+| `wire/seal.c` | 97.97% of 148 | **83.69% of 141** |
 | `chain/authz.c` | 77.78% of 18 | **87.50% of 16** |
-| `wire/relay.c` | 100.00% of 35 | **90.48% of 21** |
-| `chain/manifest.c` | 97.85% of 233 | **91.83% of 208** |
-| `chain/revocation.c` | 100.00% of 122 | **94.20% of 138** |
+| `spool/plan.c` | 100.00% of 58 | **87.88% of 66** |
+| `ratchet/ratchet.c` | 87.50% of 80 | **88.68% of 53** |
+| `chain/revocation.c` | 99.03% of 207 | **89.72% of 214** |
+| `chain/manifest.c` | 99.30% of 285 | **93.95% of 248** |
 | `record/sync.c` | 100.00% of 90 | **94.52% of 73** |
 | `state/state.c` | 100.00% of 91 | **94.87% of 78** |
-| `record/journal.c` | 98.73% of 79 | **95.59% of 68** |
-| `chunk/reassembly.c` | 100.00% of 158 | **96.00% of 150** |
+| `wire/relay.c` | 100.00% of 35 | **95.24% of 21** |
 | `record/record.c` | 100.00% of 58 | **96.23% of 53** |
-| `chunk/split.c` | 100.00% of 34 | **97.14% of 35** |
-| `log/log.c` | 100.00% of 103 | **97.22% of 108** |
+| `chunk/reassembly.c` | 100.00% of 158 | **96.67% of 150** |
+| `tree/tree.c` | 100.00% of 117 | **96.91% of 97** |
 | `link/link.c` | 100.00% of 95 | **98.21% of 56** |
-| `chain/chain.c` | 100.00% of 132 | **98.48% of 132** |
+| `record/journal.c` | 98.73% of 79 | **98.53% of 68** |
+| `chain/chain.c` | 100.00% of 139 | **98.57% of 140** |
+| `log/log.c` | 100.00% of 103 | **99.07% of 108** |
 
 **RE-TAKEN 2026-09-01 AFTER SEVEN NEW TEST FILES, AND IT DID NOT MOVE.**
 Five byte-level vectors, a sim scenario and a set of layout assertions were
@@ -11349,6 +11354,92 @@ alone is also green, since the openers do write every field. Dropping the
 init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
+
+## 65. The one line in `revocation.c` that had never run, 2026-09-04
+
+`make coverage` re-measured after the sanitized suite came back clean. Sec
+11's table was three days old; the diff against it is there. One file had
+slipped: **`chain/revocation.c`, from 94.20% of 138 branches to 89.72% of
+214** -- the withdrawal work of secs 56 and 57 added 76 branches and the
+tests did not follow all of them.
+
+Turning that percentage into a list found **one never-executed LINE** in the
+file, and it is not a defensive guard:
+
+    if (!fzn_ct_memeq(id, entry->id, FZN_REVOCATION_ID_LEN) &&
+        fzn_ct_memeq(fzn_revocation_supersedes(record), entry->id,
+                     FZN_REVOCATION_ID_LEN))
+            memcpy(entry->id, id, FZN_REVOCATION_ID_LEN);
+
+A reissue chained to the revocation this store already holds advances the
+stored id to the new record. Every other uncovered branch in the file is a
+null-argument check.
+
+### Why nothing reached it, which the code's own comment predicts
+
+The branch needs a store holding the pair as LIVE and a record that is
+neither the same one nor unchained. The withdrawal cases build a WITHDRAWN
+entry, the duplicate cases re-admit the SAME record, and the chaining cases
+exercise the REFUSAL. **This is the one arrangement that changes the store
+while leaving the authorisation answer alone** -- the pair was revoked and
+stays revoked -- which is exactly why the comment there opens by saying it
+"looks like nothing worth storing".
+
+### What it costs is worse than the comment says, measured
+
+The comment states the consequence as *"the pair would then be revocable,
+reissuable, and unwithdrawable"*. Removing the line and running the new case
+gives three failures, and the first two are a different and worse defect:
+
+    a withdrawal naming the SUPERSEDED revocation was applied
+    and it un-revoked the pair on the strength of it
+    the issuer's withdrawal of its own CURRENT revocation was refused
+
+**Only the third is the documented cost.** The first two are a FAIL-OPEN: with
+the stored id left at the superseded record, a genuine signed withdrawal of
+THAT record still matches, so replaying it un-revokes a pair the issuer has
+since re-revoked. A revoked host is authorised again on the strength of a
+record that withdrew something else.
+
+That is the hazard sec 57 refuses at the manifest level -- *"replaying an old
+signed manifest would un-revoke everything the issuer added since"*, and the
+replay needs no key because the signature is genuine -- arriving one layer
+down, at a single record, and defended by this line. **The line is not
+bookkeeping about which id is current; it is what makes `supersedes` a
+ratchet.**
+
+### Held now
+
+`test_a_reissue_over_a_live_revocation_advances_the_id`, with the superseded
+withdrawal as its control: asserting only that the current withdrawal is
+admitted would pass against a store that admits any withdrawal at all, and
+the pair of assertions is what shows the id MOVED rather than that the store
+is lax. `tool/sabotage.py` carries it as `rev-reissue-advances-id`, watched
+failing.
+
+### The coverage diff, which is why this was looked for at all
+
+Sec 11's table, re-derived 2026-09-04 against 2026-09-01: **fifteen files
+improved, two slipped, eleven unchanged**, over the 28 rows that table held. The improvements are the last
+three days' work, this session's included -- `persist.c` +11.11,
+`constant_time.c` +12.50 to 100%, `wire/seal.c` +5.49, `manifest.c` +2.12,
+`blob.c` +1.86. The two that slipped both GREW: `revocation.c` above, and
+`local/peer_linux.c` by two branches for sec 55's whole-lines fix, whose
+placement `sabotage.py` already records as unreachable.
+
+**A file that slips while growing is the signal; a file that slips while
+static would be a deleted test.** Neither is visible from a single
+measurement, which is the argument for re-deriving the table rather than
+quoting it -- and the table now carries the date it was taken.
+
+**AND THE FIRST DIFF WAS WRONG, in a way worth keeping.** Sec 11 holds TWO
+coverage tables -- the current one and the superseded 2026-08-18 one it
+records going stale -- and a parser taking the LAST row per file compared
+`peer_linux.c` and `random_linux.c` against the older, smaller tree. It
+reported `random_linux.c` as having slipped when it has not moved at all.
+Caught by counting the rows parsed, 28 against the ~15 the table shows, which
+is `evidence.md`'s *check the membership, not the count* pointed at my own
+instrument.
 
 ## 64. The harness run in full, 2026-09-04
 
