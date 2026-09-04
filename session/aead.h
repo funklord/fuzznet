@@ -54,6 +54,43 @@
  * an implementation that decrypted first and checked afterwards would hand
  * this library unauthenticated plaintext, which is the single thing the gate
  * above it exists to prevent.
+ *
+ * `seal` RETURNS NOTHING, AND AN IMPLEMENTATION THAT CAN FAIL MUST NOT USE
+ * THIS SEAM AS IT STANDS. Stated here because it was not stated anywhere:
+ * every other seam in this library says which way round its result is, and
+ * this is the one with no result to describe -- which reads as an omission
+ * and is not the same as a decision.
+ *
+ * The consequence is measured rather than argued, and it is not a denial of
+ * service. Both callers copy the plaintext into the caller's buffer and
+ * encrypt IN PLACE -- `wire/seal.c` for a frame's capability and payload,
+ * `blob/blob.c` for a leaf -- so a `seal` that does nothing leaves the
+ * plaintext exactly where the ciphertext was going to be. Neither caller can
+ * tell. `fzn_seal_build` then finalises the tag and returns FZN_SEAL_OK, and
+ * `fzn_blob_leaf_seal` returns FZN_BLOB_OK with `*out_len` set.
+ *
+ * Probed 2026-09-04 with a `seal` that does nothing at all:
+ *
+ *     fzn_seal_build returned      : 0 (ok)
+ *     bytes the caller will send   : 168
+ *     PAYLOAD in the clear         : YES
+ *     CAPABILITY in the clear      : YES
+ *
+ * The blob case is the worse of the two, because a sealed leaf is the thing
+ * a seeder hands to strangers by design.
+ *
+ * NOTHING IS EXPOSED TODAY, and that is why this is a warning rather than a
+ * defect report: Monocypher's `crypto_aead_lock` returns void and cannot
+ * fail, and it is what all three consumers use. The seam exists so that they
+ * need not -- and a token that is absent, a key handle that has expired or a
+ * hardware engine returning an error are all things a consumer's own backend
+ * does and this signature cannot express.
+ *
+ * So, until the signature says otherwise: an implementation whose sealing can
+ * fail must ABORT rather than return, because returning is indistinguishable
+ * from success and the difference is whether the plaintext goes on the wire.
+ * Whether the seam should instead return an int is a question about this
+ * library's public API and belongs to whoever owns it. project.md sec 75.
  */
 typedef struct fzn_aead_ops {
 	void (*seal)(void *ctx, const uint8_t key[FZN_AEAD_KEY_LEN],

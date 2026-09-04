@@ -11469,6 +11469,106 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 75. The one seam that cannot report a failure, 2026-09-04
+
+`fzn_aead_ops.seal` returns `void`. Every other seam in this library returns
+an int and says which way round it is -- and `session/commitment.h` records
+that the hash seam was fixed precisely because it did not. This one has no
+result to describe, which reads as an omission and had never been examined.
+
+### The lens, and where it came from
+
+Not from a sweep. From my own near-miss: `provision.c` was written with both
+signer calls inverted, because `chain.h`'s seam returns **nonzero for
+success**, which is not C's usual convention for an int. Caught by reading
+before compiling, and the question it left is the lens -- **a consumer fills
+five of these vtables; do they all agree?**
+
+    fzn_sign_ops.sign / .verify     int, nonzero success
+    fzn_hash_ops.hash               int, and the header says so explicitly
+    fzn_agree_ops.*                 int, "Non-zero on success"
+    fzn_random_ops.fill             int, and `out` is unusable on 0
+    fzn_aead_ops.open               int, and must not write `text` on 0
+    fzn_aead_ops.seal               void
+
+They agree. The odd one out is not a disagreement about convention but the
+absence of one.
+
+### What a failing seal actually does, measured
+
+`session/aead.h` constrains `open` in four careful lines -- verify before
+writing, never hand back unauthenticated plaintext -- and says **nothing at
+all** about `seal` failing.
+
+Both callers copy the plaintext into the caller's buffer and encrypt IN
+PLACE. `wire/seal.c:610` for a frame's capability and payload;
+`blob/blob.c:168` for a leaf. So a `seal` that does nothing leaves the
+plaintext exactly where the ciphertext was going to be, and neither caller
+can tell: `fzn_seal_build` finalises the tag and returns OK,
+`fzn_blob_leaf_seal` sets `*out_len` and returns OK.
+
+Probed with a `seal` whose body is `(void)` casts and nothing else:
+
+    fzn_seal_build returned      : 0 (ok)
+    bytes the caller will send   : 168
+    PAYLOAD in the clear         : YES
+    CAPABILITY in the clear      : YES
+
+**It is not a denial of service, it is a confidentiality failure on the
+sending side**, and the sender has no way to learn it happened. The blob case
+is worse than the frame case, because a sealed leaf is what a seeder hands to
+strangers by design, where a frame at least goes to one peer who will refuse
+it on the tag.
+
+### The tree already knew this hazard, through the other door
+
+`wire/test/seal_test.c` asserts that a REFUSED build leaves no capability in
+the caller's buffer, and its comment is exact about why: *"Sealing happens in
+place, so the capability and payload are copied into the caller's buffer in
+the clear before the seal runs ... A caller reusing the buffer, or ignoring
+the return, holds or transmits it."*
+
+That is this hazard, recognised, tested, and closed -- **for the path that
+returns an error.** The path that returns OK was not considered, because
+until you ask whether `seal` can fail there is no such path.
+
+### Nothing is exposed today, and the distinction is the point
+
+Monocypher's `crypto_aead_lock` returns void and cannot fail, and it is what
+all three consumers use. **The seam exists so that they need not.** A token
+that is absent, a key handle that has expired, a hardware engine returning an
+error -- all things a consumer's own backend does and this signature cannot
+express.
+
+Same shape as `wire/frame.situ`'s version byte, which says of itself: *"It is
+SAFE TODAY AND LATENT, and the distinction is the whole reason this comment is
+here."* Written at the declaration, because that is what the person adding a
+backend will be looking at.
+
+### What was done, and what was not
+
+**Done: the precondition is stated**, in `session/aead.h` beside the
+declaration. Until the signature says otherwise, an implementation whose
+sealing can fail must ABORT rather than return -- returning is
+indistinguishable from success, and the difference is whether the plaintext
+goes on the wire. `evidence.md`: an unstated precondition and an absent one
+look identical from outside, and the second reader pays either way.
+
+**Not done: the signature.** `void (*seal)` to `int (*seal)` is a change to
+this library's public API. It breaks every consumer's vtable -- three of them,
+each needing `return 1;` -- and fuzznet is at 0.1.0 with consumers building
+against it. The option, its cost and whose it is: change the seam so a failure
+can be reported; roughly a one-line edit in each of three trees plus a check at
+two call sites here; and it is the holder's, being an API break rather than an
+implementation detail.
+
+**A mitigation inside the current signature was looked for and there is
+none.** Nothing can distinguish a `void` function that worked from one that
+did not: comparing the buffer before and after is unsound, since a correct
+AEAD may in principle produce any bytes, and checking the tag is non-zero is a
+heuristic that a failing backend could satisfy by leaving old bytes behind.
+The seam has to report, or nobody can know.
+
 ## 74. A value clash is not a type error, so a gate has to be, 2026-09-04
 
 Sec 73 answered fuzzypickles' clash for the object tags, with a chain and a
