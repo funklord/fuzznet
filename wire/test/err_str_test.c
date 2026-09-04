@@ -59,6 +59,7 @@
 #include "../../blob/blob.h"
 #include "../../chain/authz.h"
 #include "../../prekey/prekey.h"
+#include "../../provision/provision.h"
 #include "../../ratchet/ratchet.h"
 #include "../../session/agree.h"
 #include "../../session/session.h"
@@ -113,6 +114,7 @@ static const char *r_session(int v) { return fzn_session_err_str((fzn_session_er
 static const char *r_spool(int v) { return fzn_spool_err_str((fzn_spool_err_t)v); }
 static const char *r_persist(int v) { return fzn_persist_err_str((fzn_persist_err_t)v); }
 static const char *r_tree(int v) { return fzn_tree_err_str((fzn_tree_err_t)v); }
+static const char *r_provision(int v) { return fzn_provision_err_str((fzn_provision_err_t)v); }
 
 struct subject {
 	const char *name;
@@ -157,6 +159,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_spool_err_str", r_spool, 6 },
 	{ "fzn_persist_err_str", r_persist, 5 },
 	{ "fzn_tree_err_str", r_tree, 8 },
+	{ "fzn_provision_err_str", r_provision, 6 },
 };
 
 static void check_subject(const struct subject *s)

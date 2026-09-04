@@ -160,6 +160,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              chain/chain.c chain/revocation.c chain/manifest.c chain/authz.c \
              frame/freshness.c \
              blob/blob.c ratchet/ratchet.c prekey/prekey.c \
+             provision/provision.c \
              persist/persist.c \
              spool/spool.c \
              spool/plan.c \
@@ -190,6 +191,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              chain/chain.h chain/revocation.h chain/manifest.h chain/authz.h \
              frame/freshness.h \
              blob/blob.h ratchet/ratchet.h prekey/prekey.h \
+             provision/provision.h \
              persist/persist.h \
              spool/spool.h \
              spool/plan.h \
@@ -234,6 +236,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              chain/test/manifest_test.c chain/test/authz_test.c \
              blob/test/blob_test.c ratchet/test/ratchet_test.c \
              prekey/test/prekey_test.c prekey/test/prekey_fuzz.c \
+             provision/test/provision_test.c \
              persist/test/persist_test.c \
              persist/test/persist_kat_test.c \
              spool/test/spool_test.c \
@@ -288,6 +291,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/blob/test/blob_test \
              $(BUILD_DIR)/ratchet/test/ratchet_test \
              $(BUILD_DIR)/prekey/test/prekey_test \
+             $(BUILD_DIR)/provision/test/provision_test \
              $(BUILD_DIR)/persist/test/persist_test \
              $(BUILD_DIR)/persist/test/persist_kat_test \
              $(BUILD_DIR)/spool/test/spool_test \
@@ -1265,6 +1269,23 @@ $(BUILD_DIR)/prekey/test/prekey_test: $(BUILD_DIR)/prekey/test/prekey_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# provision/ links chain/ and prekey/ rather than stubbing them, because the
+# card's offsets are worth checking against parsers that refuse a wrong length
+# rather than against the header's own arithmetic. chain.c drags revocation and
+# manifest in with it -- fzn_chain_verify calls both -- which is the tree's
+# shape rather than this suite's need.
+$(BUILD_DIR)/provision/test/provision_test: \
+                                       $(BUILD_DIR)/provision/test/provision_test.o \
+                                       $(BUILD_DIR)/provision/provision.o \
+                                       $(BUILD_DIR)/chain/chain.o \
+                                       $(BUILD_DIR)/chain/revocation.o \
+                                       $(BUILD_DIR)/chain/manifest.o \
+                                       $(BUILD_DIR)/prekey/prekey.o \
+                                       $(BUILD_DIR)/trust/trust.o \
+                                       $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # ratchet/ links only constant_time as well, for the same reason: it is a KDF
 # step and a bounded loop over it, with the hash arriving through a vtable.
 $(BUILD_DIR)/ratchet/test/ratchet_test: $(BUILD_DIR)/ratchet/test/ratchet_test.o \
@@ -1458,6 +1479,7 @@ $(BUILD_DIR)/wire/test/tamper_test.o: wire/test/tamper_test.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
 
 $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
+                                      $(BUILD_DIR)/provision/provision.o \
                                       $(BUILD_DIR)/record/record.o \
                                       $(BUILD_DIR)/record/journal.o \
                                       $(BUILD_DIR)/record/sync.o \

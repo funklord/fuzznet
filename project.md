@@ -5777,6 +5777,7 @@ somebody to notice.
 | `log/log.h` | the append-only log |
 | `persist/persist.h` | packing state so a restarted host can open what it holds |
 | `prekey/prekey.h` | the prekey record and the act of pinning it |
+| `provision/provision.h` | the card a device is handed out of band |
 | `ratchet/ratchet.h` | per-message forward secrecy above the session |
 | `record/journal.h` | records, journal, sync |
 | `sched/sched.h` | which link a message should take |
@@ -6297,6 +6298,71 @@ were at 100% and have since grown: `chain/chain.c` had 84 branches and has
 for the code that existed, and nothing carried it forward** -- which is what
 a percentage in a document cannot tell you and a re-measurement can.
 
+**RE-DERIVED AGAIN 2026-09-04, AFTER `provision/`, AND TEN ROWS MOVED --
+every one of them upward.** The rows below are that run.
+
+    at 100% of branches      14 files
+    below 100%               26 files
+    no branches at all        1 file   (version/version.c)
+    total branches         2638, of which ~249 (9%) never go both ways
+
+**The movement is one test's, and it was checked rather than assumed**,
+because a jump like `prekey/prekey.c` from 81.25% to 90.62% is exactly what
+accumulated `.gcda` from an uncleaned build looks like. Three things separate
+those. The target `rm -rf`s its coverage tree before building, so the run is
+clean by construction. The ten modules that moved are all in
+`sim/test/provision_test.c`'s link list and **nothing moved that is not** --
+that test walks every payload-carrying subsystem, which is the point of it.
+And the dates settle it outright: the previous measurement was taken at
+02:06 and that test entered the Makefile at 03:03, in `669bb5f`. The old
+number was correct for a tree the test was not yet in.
+
+    spool/spool.c        68.35 -> 77.22      prekey/prekey.c    81.25 -> 90.62
+    session/session.c    70.24 -> 75.00      session/agree.c    81.58 -> 92.11
+    blob/blob.c          72.67 -> 76.40      ratchet/ratchet.c  88.68 -> 98.11
+    persist/persist.c    77.78 -> 79.17      chain/revocation.c 89.72 -> 90.65
+    chain/authz.c        87.50 -> 100.00     record/journal.c   98.53 -> 100.00
+
+**`chain/authz.c` and `record/journal.c` leave the table**, which is what the
+table is for: it lists what is below 100% and they no longer are. `journal.c`
+also LOST branches -- 68 to 66 -- because sec 66 deleted an unreachable
+clamp, so a file can reach 100% by having a line removed as well as by having
+one covered, and only reading the diff tells you which happened.
+
+`provision/provision.c` enters it at **91.76% of 85**, with every line
+executed and every branch executed -- seven are simply never taken both ways.
+**The first draft of this paragraph guessed at which seven and was wrong**,
+which is sec 71's own subject arriving one paragraph later, so they were
+listed with `gcov -b` instead:
+
+    provision.c:33   if (!sign || !sign->sign)          second operand
+    provision.c:85   if (!card.base || !card.root)      second operand
+    provision.c:87   if (!verifier || !verifier->verify) second operand
+    provision.c:142  if (bits > 0)                       cannot be false
+    provision.c:196  if (n >= FZN_PROVISION_LEN_TOTAL)   cannot be true
+    provision.c:204  if (bits > 0 && ...)                cannot be false
+    provision.c:207  if (n != FZN_PROVISION_LEN_TOTAL)   cannot be true
+
+Three are the second operand of a guard whose first operand the suite fails
+instead -- a signer struct that exists but holds a null function pointer, a
+card view with a base and no root. Those are reachable and untested, and
+saying so is cheaper than pretending otherwise.
+
+**The other four cannot fire at all, and they stay.** A card is a fixed 423
+bytes, so 3384 bits always leaves four over and `bits` is never zero; 677
+characters always decode to exactly 423 bytes, so neither the loop's bounds
+check nor the count assertion after it can trip.
+
+That is the same shape sec 66 DELETED, and the opposite decision, which is
+worth stating rather than leaving as an inconsistency. **Sec 66 removed an
+unreachable REPAIR; these are unreachable REFUSALS.** A repair that cannot
+fire hides the bug that would make it fire -- it silently corrects state and
+the caller learns nothing. A refusal that cannot fire costs one comparison,
+fails loudly, and guards a write into a fixed buffer whose bound is derived
+from a constant somebody will one day change. The two are not the same code
+wearing different names, and the direction the failure falls is what
+separates them.
+
 **And the empty column is not a zero.** `version/version.c` reports its line
 figure and nothing beside it, because three functions returning constants
 have no branches to take. A first pass at this read the blank as 0.00% and
@@ -6306,22 +6372,21 @@ supply a number for it.
 
 | file | lines | branches both ways |
 |---|---|---|
-| `local/peer_linux.c` | 96.00% of 25 | **66.67% of 18** |
 | `session/random_linux.c` | 86.67% of 15 | **66.67% of 12** |
+| `local/peer_linux.c` | 96.00% of 25 | **66.67% of 18** |
 | `persist/persist_file.c` | 90.48% of 84 | **67.31% of 52** |
-| `spool/spool.c` | 82.19% of 73 | **68.35% of 79** |
-| `session/session.c` | 90.59% of 170 | **70.24% of 84** |
-| `blob/blob.c` | 93.52% of 216 | **72.67% of 161** |
 | `spool/spool_file.c` | 90.43% of 94 | **73.26% of 86** |
 | `session/agree_monocypher.c` | 100.00% of 17 | **75.00% of 4** |
-| `persist/persist.c` | 99.18% of 122 | **77.78% of 72** |
-| `prekey/prekey.c` | 82.61% of 69 | **81.25% of 64** |
-| `session/agree.c` | 81.40% of 43 | **81.58% of 38** |
+| `session/session.c` | 95.29% of 170 | **75.00% of 84** |
+| `blob/blob.c` | 99.07% of 216 | **76.40% of 161** |
+| `spool/spool.c` | 100.00% of 73 | **77.22% of 79** |
+| `persist/persist.c` | 100.00% of 122 | **79.17% of 72** |
 | `wire/seal.c` | 97.97% of 148 | **83.69% of 141** |
-| `chain/authz.c` | 77.78% of 18 | **87.50% of 16** |
 | `spool/plan.c` | 100.00% of 58 | **87.88% of 66** |
-| `ratchet/ratchet.c` | 87.50% of 80 | **88.68% of 53** |
-| `chain/revocation.c` | 99.03% of 207 | **89.72% of 214** |
+| `prekey/prekey.c` | 100.00% of 69 | **90.62% of 64** |
+| `chain/revocation.c` | 100.00% of 207 | **90.65% of 214** |
+| `provision/provision.c` | 100.00% of 91 | **91.76% of 85** |
+| `session/agree.c` | 100.00% of 43 | **92.11% of 38** |
 | `chain/manifest.c` | 99.30% of 285 | **93.95% of 248** |
 | `record/sync.c` | 100.00% of 90 | **94.52% of 73** |
 | `state/state.c` | 100.00% of 91 | **94.87% of 78** |
@@ -6329,8 +6394,8 @@ supply a number for it.
 | `record/record.c` | 100.00% of 58 | **96.23% of 53** |
 | `chunk/reassembly.c` | 100.00% of 158 | **96.67% of 150** |
 | `tree/tree.c` | 100.00% of 117 | **96.91% of 97** |
+| `ratchet/ratchet.c` | 100.00% of 80 | **98.11% of 53** |
 | `link/link.c` | 100.00% of 95 | **98.21% of 56** |
-| `record/journal.c` | 98.73% of 79 | **98.53% of 68** |
 | `chain/chain.c` | 100.00% of 139 | **98.57% of 140** |
 | `log/log.c` | 100.00% of 103 | **99.07% of 108** |
 
@@ -11372,6 +11437,216 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 71. The card comes in, and the section I read from memory, 2026-09-04
+
+`provision/` exists: a signed provisioning card, object tag 134, and the text
+form a QR code carries. It exists because the holder overruled a scope
+argument of mine, and that argument was a misreading of this document.
+
+### What I claimed sec 2 said, and what it says
+
+I wrote it in three places -- `sim/test/provision_test.c`'s header, sec 68
+above, and a message to fuzzypickles -- plus the conversation that led to
+each: **"sec 2 keeps transport and encoding out"**, used to put the
+provisioning payload above the library, in a test, as a consumer's business.
+
+Sec 2 does not say that. It scopes its exclusion to **the local hop**: the
+`AF_UNIX` socket between a consumer's own CLI and its own daemon, where
+fuzzypickles uses `SOCK_SEQPACKET` with a binary wire and netcfgd uses
+newline-delimited JSON because being greppable is its product. Both
+disagreements are load-bearing, so imposing either would cost a maintainer a
+stated property of their program. And the test it states is not the one I
+used:
+
+> Neither chooses a transport or an encoding, so neither is anybody's
+> application -- which is the test this section now has for what may live in
+> `local/` at all.
+
+**The test is "is this anybody's APPLICATION".** I turned it into "is this an
+encoding", and a rule about one socket into a blanket ban.
+
+A provisioning card fails every part of that misreading. It is not the local
+hop -- it crosses the trust boundary, which is the half sec 2 says *is*
+shared, and is the reason this library exists. It is nobody's application:
+every consumer that provisions a device out of band needs the same bytes.
+Four consumers hand-rolling one framing is the duplication sec 15 names as
+the whole point of the tree.
+
+The holder's correction, which is the governing sentence and is shorter than
+any of the above: **"Fuzznet is a crypto protocol implementation library.
+Which means EVERYTHING generic to do with that goes in, no ifs no buts."**
+
+### The failure is not the reading, it is that nothing checked it
+
+I did not misread sec 2 while looking at it. I cited it from memory of what it
+was *for*, and the citation then propagated into a test header, a section of
+this document, and messages to two sibling projects **before anybody opened
+the file**. When I finally read lines 44-120 the error took one minute to see.
+
+`evidence.md` has this as *a claim about another tree is a measurement you did
+not take*, and it holds a step closer to home: a claim about your own
+document, cited rather than read, is a measurement you did not take either. A
+section number carries the authority of a citation while costing none of the
+work of one, which is exactly what makes it worth checking.
+
+### And the over-generalisation was already written down, in the README
+
+The more useful half of this, found while correcting the rest. The README's
+summary of sec 2 ended:
+
+> ...moved to raidcfgd the same day, because they chose a transport and an
+> encoding **and this library does not**. What stays is what chooses neither.
+
+That last clause is unqualified and **false on its face**. `wire/bytes.h` is
+nothing but chosen encodings; every signed object in this tree is a fixed byte
+layout somebody chose, including the two the moved modules were sitting next
+to. Only the LOCAL HOP's encoding is a consumer's, and the sentence had
+dropped the words that said so.
+
+So the misreading was not only mine and not only in my head: it was in the
+file a reader meets first, stated as one of three headline facts about the
+project, where it would mislead the next person exactly as it misled me. It is
+corrected there now.
+
+**Two things follow, and the second is the one worth keeping.** A summary of a
+section is a claim that can go wrong independently of the section -- sec 2
+itself is careful and has been correct throughout, and the damage came from
+the one-line version. And **a compression is where a scope qualifier goes to
+die**: "the local hop's encoding is each consumer's" shortens to "encodings
+are each consumer's" with no visible loss, and the shortened form is a
+different and much larger claim. That is the same failure as citing from
+memory, performed in advance and written down for the next reader.
+
+**It also shows which errors get caught here and which do not.** Every wrong
+number in this document was caught by re-measuring, usually within the hour --
+the eleven forwarding sites, the sixteen-improved that was fifteen, the
+section attribution table. This one survived every
+repetition, because there was no number in it to re-derive. A justification is not
+re-derived by anything downstream; it is quoted.
+
+### What the card is, and why the envelope is not decoration
+
+    offset  size  field
+         0     1  version
+         1     1  object      = FZN_OBJECT_PROVISION (134)
+         2    32  root
+        34   179  hop
+       213   138  prekey record
+       351     8  expires_at
+       359    64  signature
+                  423 bytes, 677 characters of base32
+
+The three inner objects were already signed, and sec 68 correctly found that
+the concatenation needs no framing. What sec 68 did not ask is **what binds
+them together**, and the answer was nothing.
+
+That is a real attack and not a tidiness argument. A hop is public -- it is a
+grant, verifiable by anyone. A prekey record is published by definition. A
+root is an identity. So a stranger holding no key of the sponsor's can
+assemble a card out of **entirely genuine parts**: the real root, the real hop
+naming the real device, and their own self-signed prekey record. A device with
+no envelope to check pins the real root, verifies the real grant, and then
+establishes its session with the stranger -- every check it makes passes,
+because nothing it has connects the prekey to the root.
+
+The envelope refuses it, and both ways out are closed:
+
+- sign the recombined card as themselves, keeping the real root -- the
+  envelope does not verify under the root the card names;
+- swap the root to their own so the envelope verifies -- the hop no longer
+  verifies under the root that was pinned.
+
+`provision_test.c` walks both, and the second is asserted as an OK before the
+refusal, so the case cannot pass by the attacker's card failing to build.
+
+**A tag of its own, for the reason WITHDRAWAL has one.** A card's body opens
+with a hop's leading fields, so without a distinct tag one signature could be
+read as either object.
+
+**The expiry is checked after the signature**, and there is a test whose only
+job is that ordering: `expires_at` is inside the signed body, so a reader that
+consulted it first would be acting on a number the forger chose. Bend the
+expiry and the answer must be SIGNATURE; if it is ever EXPIRED, the two have
+swapped.
+
+### The text form, and the two arithmetic errors in it
+
+Base32 rather than base64 because QR alphanumeric mode covers `0-9 A-Z` and a
+few symbols including `:`, so an uppercase unpadded card encodes in that mode
+instead of falling back to byte mode at about 45% more bits per character.
+The test asserts every character of a real card is inside that alphabet, which
+is the claim rather than a restatement of the encoder.
+
+Two things were wrong first and neither looked wrong:
+
+- **The length.** `((423 + 4) / 5) * 8 = 680` is base32's length **with**
+  padding. Unpadded is `(423 * 8 + 4) / 5 = 677`. The decoder would have read
+  three characters past every card and refused all of them. Caught only
+  because the test needed the spare-bit count and I had to derive it.
+- **The spare bits.** Both the header and the code said "four zeroes" and
+  "sixteen strings decode to one card". 3384 bits is 676 groups of five with
+  **four** over, so the last character carries those four and **one** zero:
+  two strings, not sixteen. The remedy was right and the arithmetic behind it
+  was wrong, which is `evidence.md`'s *a number wearing a percentage* in
+  miniature -- a specific figure suppresses the re-check.
+
+The padding bit is refused rather than ignored, because two strings for one
+card means "the code I scanned" stops naming one thing, and a signature over
+the bytes cannot repair that.
+
+### What the gates caught, unprompted
+
+Adding one module tripped four of this tree's own gates before any test ran,
+which is worth recording because each was built for a different reason:
+
+    sabotage --verify   provision/provision.c has no entry
+    style               test binary missing from .gitignore
+    style               error renderers the sweep does not walk:
+                        fzn_provision_err_str
+    installcheck        installed but not included by the consumer
+
+The renderer gate is the one worth noting: it was written earlier the SAME
+day, in sec 67, after nine renderers were found sitting outside the sweep
+with 33 dead arms between them. It caught the tenth within hours, from a
+module that did not exist when it was built.
+
+And the seam convention caught nothing, because there was nothing to catch by
+the time it ran: `chain.h`'s signer returns **nonzero for success**, which is
+not C's usual convention for an int, and both calls in `provision.c` were
+written the other way round. Read before compiling. Every signature in the
+file would have been inverted.
+
+### The sabotages, watched failing
+
+Three entries added, and each was run before it was written down:
+
+    provision-envelope-verified    357 bent body bytes accepted;
+                                   the forged expiry acted on before the
+                                   signature
+    provision-tag-is-not-a-hop     all four foreign tags accepted as a card's
+    provision-text-is-canonical    two strings decoded to one card
+
+The tag sabotage is also a small lesson in reading output: the first run
+reported two of the four, because I had piped it through `tail -3`. All four
+fire. That is this document's own rule about reducing a check's output before
+knowing it passed, met inside the harness that exists to check checks.
+
+### What is still not decided
+
+The **image** is not here and is not proposed: no encoder, no decoder, no
+bitmap, no camera. `fzn_provision_text` produces the string a code would carry
+and stops. Turning a string into a photograph is a barcode library's job, and
+fuzzypickles already vendors quirc for the other direction.
+
+And sec 5's open question is narrowed rather than closed. It asked whether
+absorbing host management means growing a bootstrap this library was designed
+to refuse, or leaving joining above the library. **The card is the second
+branch made cheap, not the first branch taken**: there is still no
+nullable-root variant, no adopt-the-first-key path, and no change to
+`fzn_chain_verify`. A card is a way to *carry* an anchor somebody already
+decided to trust. Deciding to trust it is still the scan, and still the
+user's.
+
 ## 70. Two samples of one number, and the difference nobody read, 2026-09-04
 
 The post-run orphan check `running-code.md` asks for turned up a beerssh
@@ -11548,23 +11823,54 @@ survive for a reason each states -- sec 67's renderer count is held by a
 that re-derives it. **The one bad instance was the one above, and it was
 mine.**
 
-### Scoped before it was written, because fuzznet has no QR anything
+### Scoped wrongly before it was written, and corrected in sec 71
 
-Sec 2 keeps transport and encoding out; contact cards are fuzzypickles' object
-tags 1..12, recorded in `wire/bytes.h` as a registry; theirs is the tree that
-vendors quirc. So this models the PAYLOAD a code would carry and the
-provisioning it enables, and not an image codec. The holder confirmed that
-reading before any code was written.
+**This subsection said the opposite of the truth for a day, and the wrong
+version is not preserved here because it was quoted as a reason.** It read:
+*"Sec 2 keeps transport and encoding out ... So this models the PAYLOAD a code
+would carry and the provisioning it enables, and not an image codec."*
 
-### The finding: a provisioning payload is assembly, not design
+Sec 2 scopes its exclusion to **the local hop**, and its test is *"is this
+anybody's application"*. A provisioning payload is neither: it crosses the
+trust boundary, which sec 2 says is the shared half, and every consumer needs
+the same bytes. The holder overruled it -- *"fuzznet is a crypto protocol
+implementation library, which means everything generic to do with that goes
+in"* -- and `provision/` is the result. Sec 71 has the misreading, what the
+section actually says, and why the citation survived four repetitions.
+
+What survives from the original is the narrow half: the **image** is still not
+here, and that part was never sec 2's to decide. Contact cards are
+fuzzypickles' object tags 1..12, recorded in `wire/bytes.h` as a registry, and
+theirs is the tree that vendors quirc.
+
+**The holder did approve the scoping as presented** -- *"that scoping is
+right, go ahead"* -- which is worth recording rather than quietly dropping.
+What was presented was "the payload a code carries, not an image codec", and
+that half was right and still is. The wrong half rode along inside the same
+sentence, which put the payload OUTSIDE the library on sec 2's authority. An
+approval of a proposal is not an audit of every clause in it, and the clause
+that was wrong is the one nobody was being asked about.
+
+### The finding: a payload is assembly, an envelope is design
 
 **349 bytes** -- `root(32) || hop(179) || prekey_record(138)` -- and nothing
-had to be invented. Every field is a fixed-length self-delimiting object this
-library already defines, so the concatenation needs no framing, no length
-prefixes and no new signed object. A reader slices at fixed offsets and hands
-each slice to the call that owns it; `fzn_hop_open` and `fzn_prekey_open` both
-refuse a wrong length outright, so a mis-slice fails at a parser rather than
-becoming a subtly wrong grant.
+had to be invented to carry them. Every field is a fixed-length
+self-delimiting object this library already defines, so the concatenation
+needs no framing and no length prefixes. A reader slices at fixed offsets and
+hands each slice to the call that owns it; `fzn_hop_open` and
+`fzn_prekey_open` both refuse a wrong length outright, so a mis-slice fails at
+a parser rather than becoming a subtly wrong grant.
+
+**~~and no new signed object~~ -- that clause was wrong, and sec 71 has the
+attack it missed.** The three objects are each signed, and nothing said they
+belonged together; since all three are public, a stranger can assemble a card
+from genuine parts and substitute their own prekey record, and every check the
+device makes still passes. The library's card is 423 bytes rather than 349
+because 64 of them are an envelope signature and 8 an expiry, and that
+signature is the whole of what the object adds.
+
+So the finding stands with its second half corrected: **assembly is enough to
+carry the parts, and is not enough to bind them.**
 
 **The exchange is two-way, and that is arithmetic rather than preference.** A
 hop names its grantee, so a sponsor cannot mint until it knows the device's

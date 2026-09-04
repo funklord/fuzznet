@@ -52,6 +52,7 @@
 #include <fuzznet/blob/blob.h>
 #include <fuzznet/ratchet/ratchet.h>
 #include <fuzznet/prekey/prekey.h>
+#include <fuzznet/provision/provision.h>
 #include <fuzznet/session/agree.h>
 #include <fuzznet/session/session.h>
 #include <fuzznet/persist/persist.h>
@@ -99,6 +100,7 @@
 #include "blob/blob.h"
 #include "ratchet/ratchet.h"
 #include "prekey/prekey.h"
+#include "provision/provision.h"
 #include "session/agree.h"
 #include "session/session.h"
 #include "persist/persist.h"
@@ -1688,6 +1690,61 @@ int main(void)
 		 * user. */
 		if (fzn_trust_source_of(&peer.trust) != FZN_TRUST_ADOPTED)
 			FAIL(162);
+	}
+
+	/* The provisioning card: packed, opened, verified, and taken through
+	 * the text form a code carries and back. A consumer that provisions a
+	 * device touches all five calls, so all five are exercised rather than
+	 * merely declared. */
+	{
+		uint8_t card_root[FZN_PUBKEY_LEN], grantee[FZN_PUBKEY_LEN];
+		uint8_t pk[FZN_PREKEY_LEN];
+		uint8_t card_hop[FZN_HOP_LEN];
+		uint8_t rec[FZN_PREKEY_LEN_TOTAL];
+		uint8_t card[FZN_PROVISION_LEN_TOTAL];
+		uint8_t back[FZN_PROVISION_LEN_TOTAL];
+		char text[FZN_PROVISION_TEXT_LEN];
+		fzn_provision_card_t opened;
+		fzn_cap_id_t card_cap;
+		size_t card_len = 0;
+		size_t back_len = 0;
+
+		memset(card_root, 0x4a, sizeof(card_root));
+		memset(grantee, 0x4b, sizeof(grantee));
+		memset(pk, 0x4c, sizeof(pk));
+		memset(&card_cap, 0x4d, sizeof(card_cap));
+
+		if (fzn_chain_mint(card_root, grantee, &card_cap, 100u, 0u, 1, &sign, card_hop)
+		    != FZN_CHAIN_OK)
+			FAIL(305);
+		if (fzn_prekey_issue(card_root, pk, 100u, &sign, rec) != FZN_PREKEY_OK)
+			FAIL(306);
+		if (fzn_provision_pack(card_root, card_hop, rec, 900u, &sign, card, sizeof(card),
+		                       &card_len) != FZN_PROVISION_OK)
+			FAIL(307);
+		if (card_len != FZN_PROVISION_LEN_TOTAL)
+			FAIL(308);
+		if (fzn_provision_open(card, card_len, &opened) != FZN_PROVISION_OK)
+			FAIL(309);
+		if (opened.expires_at != 900u)
+			FAIL(310);
+		if (fzn_provision_verify(opened, &sign, 800u) != FZN_PROVISION_OK)
+			FAIL(311);
+		if (fzn_provision_verify(opened, &sign, 901u) != FZN_PROVISION_ERR_EXPIRED)
+			FAIL(312);
+		/* A truncated card is refused for its shape, which is the code a
+		 * consumer distinguishes from a bad signature. */
+		if (fzn_provision_open(card, card_len - 1u, &opened) != FZN_PROVISION_ERR_SHAPE)
+			FAIL(313);
+		if (fzn_provision_text(card, card_len, text, sizeof(text)) != FZN_PROVISION_OK)
+			FAIL(314);
+		if (fzn_provision_from_text(text, back, sizeof(back), &back_len)
+		    != FZN_PROVISION_OK)
+			FAIL(315);
+		if (back_len != card_len || memcmp(back, card, card_len) != 0)
+			FAIL(316);
+		if (fzn_provision_err_str(FZN_PROVISION_ERR_EXPIRED) == NULL)
+			FAIL(317);
 	}
 
 	/* The ratchet, walked rather than compiled: one step, a fast-forward

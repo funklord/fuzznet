@@ -215,6 +215,17 @@ typedef enum fzn_signed_object {
 	 * signer and opposite meanings. A tag inside the signed range means a
 	 * signature over one can never be read as the other. */
 	FZN_OBJECT_WITHDRAWAL = 133u,
+
+	/* A provisioning card: an anchor, a grant and a prekey record put
+	 * together by one signature. See `provision/provision.h`.
+	 *
+	 * The tag earns its place the same way WITHDRAWAL's does. The card's
+	 * body is a concatenation of three objects that are each signed
+	 * already, so without a tag of its own the envelope signature covers
+	 * bytes whose leading fields are a HOP's -- and a signature is only as
+	 * unambiguous as the transcript it commits to. With the tag, a card can
+	 * never be read as any of the three things inside it. */
+	FZN_OBJECT_PROVISION = 134u,
 } fzn_signed_object_t;
 
 /* THE ALLOCATION DISCIPLINE, CHECKED BY THE COMPILER RATHER THAN BY A TEST,
@@ -231,7 +242,8 @@ _Static_assert(FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_HOP)
                && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_RECORD)
                && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_MANIFEST)
                && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_PREKEY)
-               && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_WITHDRAWAL),
+               && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_WITHDRAWAL)
+               && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_PROVISION),
                "a signed-object tag has been allocated into the consumer half");
 _Static_assert(FZN_OBJECT_HOP != FZN_OBJECT_REVOCATION
                && FZN_OBJECT_HOP != FZN_OBJECT_RECORD
@@ -247,9 +259,15 @@ _Static_assert(FZN_OBJECT_HOP != FZN_OBJECT_REVOCATION
                && FZN_OBJECT_WITHDRAWAL != FZN_OBJECT_REVOCATION
                && FZN_OBJECT_WITHDRAWAL != FZN_OBJECT_RECORD
                && FZN_OBJECT_WITHDRAWAL != FZN_OBJECT_MANIFEST
-               && FZN_OBJECT_WITHDRAWAL != FZN_OBJECT_PREKEY,
+               && FZN_OBJECT_WITHDRAWAL != FZN_OBJECT_PREKEY
+               && FZN_OBJECT_PROVISION != FZN_OBJECT_HOP
+               && FZN_OBJECT_PROVISION != FZN_OBJECT_REVOCATION
+               && FZN_OBJECT_PROVISION != FZN_OBJECT_RECORD
+               && FZN_OBJECT_PROVISION != FZN_OBJECT_MANIFEST
+               && FZN_OBJECT_PROVISION != FZN_OBJECT_PREKEY
+               && FZN_OBJECT_PROVISION != FZN_OBJECT_WITHDRAWAL,
                "two signed-object tags share a value, which shares their signatures");
-_Static_assert(FZN_OBJECT_PREKEY <= 255u,
+_Static_assert(FZN_OBJECT_PROVISION <= 255u,
                "a signed-object tag must fit the one byte the transcript gives it");
 
 #endif /* FZN_BYTES_H */

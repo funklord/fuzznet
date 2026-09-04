@@ -856,6 +856,30 @@ SABOTAGES = [
 		"a stream the peer did not mention must be counted and never offered: offering from zero makes the cheapest message the amplifier",
 	),
 	(
+		"provision-envelope-verified",
+		"provision/provision.c",
+		"\tif (!verifier->verify(verifier->ctx, card.root, card.base, FZN_PROVISION_BODY_LEN,\n"
+		"\t                      card.base + FZN_PROVISION_OFF_SIGNATURE))\n"
+		"\t\treturn FZN_PROVISION_ERR_SIGNATURE;\n",
+		"\t(void)verifier;\n",
+		"the three objects in a card are each public, so without the envelope anybody assembles a genuine hop with their own prekey record and the device sessions with them",
+	),
+	(
+		"provision-tag-is-not-a-hop",
+		"provision/provision.c",
+		"\tif (bytes[FZN_PROVISION_OFF_OBJECT] != (uint8_t)FZN_OBJECT_PROVISION)\n"
+		"\t\treturn FZN_PROVISION_ERR_SHAPE;\n",
+		"",
+		"a card's body opens with a hop's leading fields, so without the tag one signature could be read as either object",
+	),
+	(
+		"provision-text-is-canonical",
+		"provision/provision.c",
+		"\tif (bits > 0 && (acc & ((1u << bits) - 1u)) != 0u)\n\t\treturn FZN_PROVISION_ERR_SHAPE;\n",
+		"\t(void)bits;\n",
+		"677 characters carry one bit more than the card, so an unchecked padding bit gives two strings for one card and \"the code I scanned\" stops naming one thing",
+	),
+	(
 		"tree-cmp-breaks-ties",
 		"tree/tree.c",
 		"\treturn memcmp(a->id, b->id, (size_t)FZN_TREE_ID_LEN);\n",

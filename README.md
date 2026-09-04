@@ -69,9 +69,16 @@ shared protocol library usually looks like:
   they disagree about its encoding, and both disagreements are load-bearing.
   §2 argues that rather than asserting it. A socket module and a line framer
   were written here on 2026-08-18 and moved to raidcfgd the same day, because
-  they chose a transport and an encoding and this library does not. What stays
-  is what chooses neither: who the peer is, and whether they may ask for a
-  given verb.
+  they chose the transport and encoding **of that hop**, which is the one
+  place two consumers must be free to differ. What stays is what does not
+  bind them: who the peer is, and whether they may ask for a given verb.
+
+  This bullet used to end "and this library does not", unqualified, and that
+  sentence is false on its face -- `wire/bytes.h` is nothing but chosen
+  encodings, and every signed object in the tree is a fixed byte layout
+  somebody chose. Everything generic to a crypto protocol belongs here; what
+  does not is a hop between one consumer's own processes. §71 has what the
+  unqualified reading cost.
 - **The privileged daemon never links this.** Whatever speaks UDP is a
   separate unprivileged process, so a defect here is not a root defect. §3.
 - **Grants do not expire; commands do.** The two consumers' rules look like

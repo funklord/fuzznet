@@ -59,16 +59,26 @@
  * provide -- `trust/`, which records provenance precisely so a consumer can
  * show it -- and assembles the joining above it, in the test. So it is
  * evidence about one branch of that decision rather than a vote on it: the
- * "joining stays above the library" branch costs 349 bytes of concatenation,
- * no new signed object, and the two-way exchange below. What the other branch
- * would cost is not measured here.
+ * "joining stays above the library" branch costs 349 bytes of concatenation
+ * and the two-way exchange below. What the other branch would cost is not
+ * measured here.
  *
- * THE PAYLOAD IS THIS FILE'S, NOT THE LIBRARY'S. Slicing at fixed offsets is
- * a consumer's encoding and sec 2 keeps encodings out of fuzznet; what the
- * library provides is that every field is a fixed-length self-delimiting
- * object, so the concatenation needs no framing, no length prefixes and no
- * new signed object. That is the finding worth carrying out of this file: a
- * provisioning payload is assembly, not design.
+ * THE PAYLOAD BELOW IS THIS FILE'S, AND THE LIBRARY'S IS NOT IT. This header
+ * used to say the payload was a consumer's business "because sec 2 keeps
+ * encodings out of fuzznet", and that citation was wrong: sec 2 scopes its
+ * exclusion to the LOCAL HOP, and its test is "is this anybody's
+ * application". A provisioning payload is neither. `provision/provision.h`
+ * is where the library's card lives now -- 423 bytes, because the 349 here
+ * carry no signature binding the three objects together, and all three are
+ * public enough for a stranger to assemble a card out of genuine parts.
+ * project.md sec 71 has the misreading and the attack.
+ *
+ * THIS FILE IS DELIBERATELY NOT REWRITTEN ONTO IT, and that is the point of
+ * leaving it here. It reaches every payload-carrying subsystem through the
+ * bare concatenation, so it stays an independent witness: a defect introduced
+ * in `provision/` cannot make this suite agree with it, because this suite
+ * does not call it. `provision/test/provision_test.c` is the card's own
+ * suite, and the two are checking different things on purpose.
  */
 
 #include "../../chain/chain.h"
