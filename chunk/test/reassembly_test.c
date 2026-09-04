@@ -1385,6 +1385,45 @@ static void test_the_operands_the_first_one_hides(void)
 	      "plan_want accepted a null count");
 }
 
+/*
+ * EVERY OPERAND OF EVERY GUARD, not the first one of each. sec 88 measured
+ * what an unreached operand is worth: the operand after the first is what
+ * stands between a partially initialised caller and a null dereference.
+ */
+static void test_the_hold_deadline_saturates(void)
+{
+	struct fixture f;
+	fzn_partial_t *slot = NULL;
+	uint8_t sender[FZN_SENDER_LEN], payload[8];
+
+	fixture_init(&f, 2u);
+	memset(sender, 0xD1, sizeof(sender));
+	memset(payload, 0xD2, sizeof(payload));
+
+	/* THE HOLD DEADLINE SATURATES RATHER THAN WRAPPING. A clock near the
+	 * top of its range plus a hold would wrap to a deadline in the past,
+	 * and a slot that expires the moment it is taken is the failure this
+	 * arithmetic exists to prevent -- `frame/freshness.c` does the same
+	 * for the same reason. The guard is only reachable at all when `now`
+	 * is within `max_hold` of UINT64_MAX, which no ordinary case is. */
+	CHECK(fzn_reasm_accept(&f.table, sender, 1u, 0u, 2u, payload, sizeof(payload), 0u,
+	                       UINT64_MAX - 1u, &slot) == FZN_REASM_OK,
+	      "accept refused a chunk at the top of the clock's range");
+	CHECK(slot == NULL, "accept completed a two-chunk message from one chunk");
+
+	/* THE SECOND CHUNK COMPLETES IT, at the same clock. If the deadline had
+	 * wrapped, the slot would have expired between the two calls and this
+	 * would report the message as never started rather than as finished --
+	 * which is the symptom the saturation prevents, and it is a lost
+	 * message rather than an error anybody would see. */
+	CHECK(fzn_reasm_accept(&f.table, sender, 1u, 1u, 2u, payload, sizeof(payload), 0u,
+	                       UINT64_MAX - 1u, &slot) == FZN_REASM_OK,
+	      "accept refused the completing chunk at the top of the clock's range");
+	CHECK(slot != NULL,
+	      "the message did not complete at the top of the clock's range, so its hold "
+	      "deadline had wrapped into the past");
+}
+
 int main(void)
 {
 	test_reassembles_in_order();
@@ -1418,6 +1457,8 @@ int main(void)
 	test_the_suite_can_tell_pass_from_fail();
 
 	test_the_operands_the_first_one_hides();
+
+	test_the_hold_deadline_saturates();
 
 	printf("reassembly_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

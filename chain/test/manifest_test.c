@@ -3689,6 +3689,82 @@ static void test_two_partial_peers_between_them_complete_the_set(void)
 	}
 }
 
+/*
+ * EVERY OPERAND OF EVERY GUARD, not the first one of each. sec 88 measured
+ * what an unreached operand is worth: the operand after the first is what
+ * stands between a partially initialised caller and a null dereference.
+ */
+static void test_the_soundness_operands(void)
+{
+	struct fixture f;
+	fzn_manifest_state_t st;
+	fzn_manifest_offer_t plan;
+	fzn_manifest_deficit_t wants[2];
+	uint8_t holds[2];
+	uint8_t issuer[FZN_PUBKEY_LEN];
+
+	fixture_init(&f);
+	memset(issuer, 0xC1, sizeof(issuer));
+	memset(wants, 0, sizeof(wants));
+
+	/* `state_sound` is one predicate with several readers, and each of its
+	 * four ways of being unsound has to reach every one of them. A count
+	 * past its capacity, and a count with no array at all, are both what a
+	 * restored struct looks like when the array did not survive with it. */
+	st = f.manifest;
+	st.issuer_used = st.issuer_capacity + 1u;
+	CHECK(fzn_manifest_pending(&st, issuer) == 0u,
+	      "pending answered from a state whose issuer count is past its capacity");
+	CHECK(fzn_manifest_overflowed(&st, issuer) == 1,
+	      "overflowed reported readable from a state whose issuer count is past its "
+	      "capacity -- this host cannot say what it is missing");
+
+	st = f.manifest;
+	st.deficit_used = st.deficit_capacity + 1u;
+	CHECK(fzn_manifest_pending(&st, issuer) == 0u,
+	      "pending answered from a state whose deficit count is past its capacity");
+
+	st = f.manifest;
+	st.issuer_used = 1u;
+	st.issuers = NULL;
+	CHECK(fzn_manifest_overflowed(&st, issuer) == 1,
+	      "overflowed reported readable from a state whose issuers are null");
+
+	st = f.manifest;
+	st.deficit_used = 1u;
+	st.deficit = NULL;
+	CHECK(fzn_manifest_pending(&st, issuer) == 0u,
+	      "pending answered from a state whose deficit array is null");
+
+	/* A SOUND STATE MUST ANSWER THE OTHER WAY, or the cases above pass for
+	 * the wrong reason and a constant would satisfy them. */
+	CHECK(fzn_manifest_pending(&f.manifest, issuer) == 0u,
+	      "pending found deficit rows an empty sound state does not hold");
+	CHECK(fzn_manifest_overflowed(&f.manifest, issuer) == 1,
+	      "overflowed answered for an issuer a sound state has never followed");
+
+	CHECK(fzn_manifest_pending(NULL, issuer) == 0u, "pending accepted a null state");
+	CHECK(fzn_manifest_pending(&f.manifest, NULL) == 0u, "pending accepted a null issuer");
+	CHECK(fzn_manifest_overflowed(NULL, issuer) == 1, "overflowed accepted a null state");
+	CHECK(fzn_manifest_overflowed(&f.manifest, NULL) == 1,
+	      "overflowed accepted a null issuer");
+
+	/* plan_offer: `wants` may be null only when the count says there are
+	 * none, and a zero capacity is refused rather than read as unlimited. */
+	CHECK(fzn_manifest_plan_offer(&f.store, wants, 1u, NULL, 2u, &plan)
+	      == FZN_MANIFEST_ERR_MALFORMED, "plan_offer accepted a null holds array");
+	CHECK(fzn_manifest_plan_offer(&f.store, wants, 1u, holds, 0u, &plan)
+	      == FZN_MANIFEST_ERR_MALFORMED, "plan_offer accepted a zero capacity");
+	CHECK(fzn_manifest_plan_offer(&f.store, NULL, 1u, holds, 2u, &plan)
+	      == FZN_MANIFEST_ERR_MALFORMED,
+	      "plan_offer accepted a null wants array with a nonzero count");
+	CHECK(fzn_manifest_plan_offer(&f.store, wants, 1u, holds, 2u, NULL)
+	      == FZN_MANIFEST_ERR_MALFORMED, "plan_offer accepted a null plan");
+	CHECK(fzn_manifest_plan_offer(&f.store, NULL, 0u, holds, 2u, &plan) == FZN_MANIFEST_OK,
+	      "plan_offer refused a null wants array with a zero count, which is the one "
+	      "case where null is the honest value");
+}
+
 int main(void)
 {
 	test_layout_and_round_trip();
@@ -3729,6 +3805,8 @@ int main(void)
 	test_both_sides_withdrew_the_same_revocation();
 	test_the_operands_the_first_one_hides();
 	test_the_suite_can_tell_pass_from_fail();
+
+	test_the_soundness_operands();
 
 	printf("manifest_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

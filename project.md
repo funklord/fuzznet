@@ -11567,6 +11567,56 @@ inside dead space. **An anchor is unique at the moment of the edit, not
 by nature, and a sweep that writes the same anchor into many files is a
 sweep that destroys its own uniqueness as it runs.**
 
+### Where it ended up
+
+Measured on the full run rather than per suite, which is the population
+the earlier numbers got wrong:
+
+    blob.c         77.91% -> 95.09% of 163 branches
+    revocation.c   90.65% -> 95.79% of 214
+    session.c      79.76% -> 97.62% of 84
+    manifest.c     90.73% -> 97.98% of 248
+    reassembly.c   96.67% -> 99.33% of 150
+    persist.c      77.78% -> 100.00% of 72
+    spool.c        68.35% -> 100.00% of 79
+    record.c, sync.c, link.c, ratchet.c, agree.c    100.00%
+
+**Three of the cases found something a null argument could not.** They
+are the reason the sweep was worth more than its coverage number:
+
+  - **`fzn_agree_secret_generation` reads `sk->live` after the null
+    test.** A rotation leaves the struct present and not live, so a
+    caller asking which generation they hold must be told zero rather
+    than the number the wiped struct still carries.
+  - **`fzn_sync_digest` clears `dropped` BEFORE its guard**, because
+    sync.h forbids the function being silent -- so a refused digest has
+    to leave a zero behind rather than the caller's stale value.
+  - **`hold_until` saturates rather than wrapping**, and the test that
+    proves it has to send BOTH chunks of a message at `UINT64_MAX - 1`.
+    A wrapped deadline expires the slot between the two calls, and the
+    symptom is a message that never completes -- a lost message, not an
+    error anybody sees. The first version of that test asked only
+    whether the first chunk was accepted, which a wrapped deadline
+    passes.
+
+**And one assertion was written with a security polarity backwards.**
+`fzn_revocation_covers` answers **1** for a store it cannot scan, which
+the comment above the guard explains: failing open there means a
+withdrawn capability keeps working. The test asserted 0, taken from the
+wrong half of that comment, and failed. Had it been "fixed" by editing
+the source, a fail-closed authorisation check would have become a
+fail-open one in the function `fzn_chain_verify` rests on. **The
+disagreement was the witness working**, and the cheap wrong move -- one
+line in the source -- was right there.
+
+**Two predicates in this library have several readers that answer them
+with DIFFERENT values on purpose**, and nothing asserted the difference
+until now. `corrupt()` in revocation: covers 1, known 1, lookup 0.
+`state_sound()` in manifest: pending 0, overflowed 1. In both cases two
+readers agree by VALUE and not by REASONING, so each test also checks a
+sound-but-empty structure where they must diverge -- without it, a
+change collapsing two readers into one would pass.
+
 ### What is deliberately NOT closed, and why
 
 Six of the 116 are unreachable by construction and stay that way. They
@@ -11593,6 +11643,22 @@ take it. **This is the one case in the sweep where the right change is
 to the source and not to the suite**, and it is left for the holder
 rather than taken in passing, because deleting half a condition in a
 binary search is not a test change.
+
+**And two platform backends are left alone deliberately.**
+`local/peer_linux.c` has six and `session/random_linux.c` three, and
+every one is a guard against the KERNEL misbehaving -- a `getsockopt`
+that succeeds without answering, a `read` that returns zero from
+`/dev/urandom`. Reaching them needs the libc call replaced, and **a test
+that fakes `getsockopt` proves the fake**: it would assert that this
+file handles a case the real kernel is what decides. `blob/`'s two
+`FZN_BLOB_MAX_DEPTH` backstops are the same shape from the other end --
+the source itself calls one "a backstop against a future change rather
+than a live possibility", and forcing it would mean building a tree
+deeper than the type can address.
+
+The honest summary is that the sweep closed what a caller can reach and
+stopped where the remaining operands are held by something that is not
+a caller.
 
 ## 90. Three cost judgements in one day, all wrong the same way, 2026-09-04
 

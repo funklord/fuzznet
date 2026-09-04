@@ -502,6 +502,45 @@ static void test_is_open_bounds_the_body(void)
 	       "is_open accepted a body one byte past FZN_RECORD_BODY_MAX");
 }
 
+/*
+ * EVERY OPERAND OF EVERY GUARD, not the first one of each. sec 88 measured
+ * what an unreached operand is worth: the operand after the first is what
+ * stands between a partially initialised caller and a null dereference.
+ */
+static void test_the_sign_operands(void)
+{
+	struct stub stub;
+	fzn_sign_ops_t sign = { stub_verify, stub_sign, &stub };
+	fzn_sign_ops_t no_sign = { stub_verify, NULL, &stub };
+	uint8_t issuer[FZN_PUBKEY_LEN], subject[FZN_SUBJECT_LEN];
+	uint8_t body[4], buf[FZN_RECORD_MAX_LEN];
+	size_t out_len = 0;
+
+	memset(&stub, 0, sizeof(stub));
+	memset(issuer, 0xA1, sizeof(issuer));
+	memset(subject, 0xA2, sizeof(subject));
+	memset(body, 0xA3, sizeof(body));
+
+	expect_err(fzn_record_sign(NULL, subject, 0u, 1u, 1u, 1u, body, sizeof(body), &sign, buf,
+	                      sizeof(buf), &out_len), FZN_RECORD_ERR_MALFORMED,
+	           "sign accepted a null issuer");
+	expect_err(fzn_record_sign(issuer, NULL, 0u, 1u, 1u, 1u, body, sizeof(body), &sign, buf,
+	                      sizeof(buf), &out_len), FZN_RECORD_ERR_MALFORMED,
+	           "sign accepted a null subject");
+	expect_err(fzn_record_sign(issuer, subject, 0u, 1u, 1u, 1u, body, sizeof(body), NULL, buf,
+	                      sizeof(buf), &out_len), FZN_RECORD_ERR_MALFORMED,
+	           "sign accepted a null signer");
+	expect_err(fzn_record_sign(issuer, subject, 0u, 1u, 1u, 1u, body, sizeof(body), &no_sign, buf,
+	                      sizeof(buf), &out_len), FZN_RECORD_ERR_MALFORMED,
+	           "sign accepted a signer struct whose sign member is null");
+	expect_err(fzn_record_sign(issuer, subject, 0u, 1u, 1u, 1u, body, sizeof(body), &sign, NULL,
+	                      sizeof(buf), &out_len), FZN_RECORD_ERR_MALFORMED,
+	           "sign accepted a null out");
+	expect_err(fzn_record_sign(issuer, subject, 0u, 1u, 1u, 1u, body, sizeof(body), &sign, buf,
+	                      sizeof(buf), NULL), FZN_RECORD_ERR_MALFORMED,
+	           "sign accepted a null out length");
+}
+
 int main(void)
 {
 	struct stub stub;
@@ -920,6 +959,8 @@ int main(void)
 	test_is_open_agrees_with_open();
 	test_is_open_bounds_its_own_reads();
 	test_is_open_bounds_the_body();
+	test_the_sign_operands();
+
 	printf("record_test: %d checks, %d failure(s)\n", checks, failures);
 
 	return failures == 0 ? 0 : 1;

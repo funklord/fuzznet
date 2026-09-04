@@ -993,6 +993,88 @@ static void test_the_operands_the_first_one_hides(void)
 	      == FZN_SESSION_ERR_HASH, "chains accepted a hash struct whose member is null");
 }
 
+/*
+ * EVERY OPERAND OF EVERY GUARD, not the first one of each. sec 88 measured
+ * what an unreached operand is worth: the operand after the first is what
+ * stands between a partially initialised caller and a null dereference.
+ */
+static void test_the_establish_operands(void)
+{
+	uint8_t id_a[FZN_SESSION_IDENTITY_LEN], id_b[FZN_SESSION_IDENTITY_LEN];
+	uint8_t pk_b[FZN_AGREE_PUBLIC_LEN], eph_b[FZN_AGREE_PUBLIC_LEN];
+	uint8_t key[FZN_AEAD_KEY_LEN], ckey[FZN_COMMITMENT_KEY_LEN];
+	fzn_agree_secret_t sk, eph;
+	uint8_t raw[FZN_AGREE_SECRET_LEN];
+
+	memset(id_a, 0xB1, sizeof(id_a));
+	memset(id_b, 0xB2, sizeof(id_b));
+	memset(pk_b, 0xB3, sizeof(pk_b));
+	memset(eph_b, 0xB4, sizeof(eph_b));
+	memset(raw, 0xB5, sizeof(raw));
+	REQUIRE(fzn_agree_secret_install(&sk, &AGREE, raw) == FZN_AGREE_OK, "install refused");
+	REQUIRE(fzn_agree_secret_install(&eph, &AGREE, raw) == FZN_AGREE_OK, "install refused");
+
+	/* establish: six operands after the seams. */
+	CHECK(fzn_session_establish(NULL, &AGREE, &HASH, id_a, id_b, pk_b, key, ckey)
+	      == FZN_SESSION_ERR_MALFORMED, "establish accepted a null self prekey");
+	CHECK(fzn_session_establish(&sk, &AGREE, &HASH, NULL, id_b, pk_b, key, ckey)
+	      == FZN_SESSION_ERR_MALFORMED, "establish accepted a null self identity");
+	CHECK(fzn_session_establish(&sk, &AGREE, &HASH, id_a, NULL, pk_b, key, ckey)
+	      == FZN_SESSION_ERR_MALFORMED, "establish accepted a null peer identity");
+	CHECK(fzn_session_establish(&sk, &AGREE, &HASH, id_a, id_b, NULL, key, ckey)
+	      == FZN_SESSION_ERR_MALFORMED, "establish accepted a null peer prekey");
+	CHECK(fzn_session_establish(&sk, &AGREE, &HASH, id_a, id_b, pk_b, NULL, ckey)
+	      == FZN_SESSION_ERR_MALFORMED, "establish accepted a null key out");
+	CHECK(fzn_session_establish(&sk, &AGREE, &HASH, id_a, id_b, pk_b, key, NULL)
+	      == FZN_SESSION_ERR_MALFORMED, "establish accepted a null commitment key out");
+
+	/* initiator: the same, with the ephemeral operand between them. */
+	CHECK(fzn_session_establish_initiator(NULL, &eph, &AGREE, &HASH, id_a, id_b, pk_b, key,
+	                                      ckey) == FZN_SESSION_ERR_MALFORMED,
+	      "initiator accepted a null self prekey");
+	CHECK(fzn_session_establish_initiator(&sk, NULL, &AGREE, &HASH, id_a, id_b, pk_b, key,
+	                                      ckey) == FZN_SESSION_ERR_MALFORMED,
+	      "initiator accepted a null ephemeral");
+	CHECK(fzn_session_establish_initiator(&sk, &eph, &AGREE, &HASH, NULL, id_b, pk_b, key,
+	                                      ckey) == FZN_SESSION_ERR_MALFORMED,
+	      "initiator accepted a null self identity");
+	CHECK(fzn_session_establish_initiator(&sk, &eph, &AGREE, &HASH, id_a, NULL, pk_b, key,
+	                                      ckey) == FZN_SESSION_ERR_MALFORMED,
+	      "initiator accepted a null peer identity");
+	CHECK(fzn_session_establish_initiator(&sk, &eph, &AGREE, &HASH, id_a, id_b, NULL, key,
+	                                      ckey) == FZN_SESSION_ERR_MALFORMED,
+	      "initiator accepted a null peer prekey");
+	CHECK(fzn_session_establish_initiator(&sk, &eph, &AGREE, &HASH, id_a, id_b, pk_b, NULL,
+	                                      ckey) == FZN_SESSION_ERR_MALFORMED,
+	      "initiator accepted a null key out");
+	CHECK(fzn_session_establish_initiator(&sk, &eph, &AGREE, &HASH, id_a, id_b, pk_b, key,
+	                                      NULL) == FZN_SESSION_ERR_MALFORMED,
+	      "initiator accepted a null commitment key out");
+
+	/* responder: peer_ephemeral is the operand the initiator does not have. */
+	CHECK(fzn_session_establish_responder(NULL, &AGREE, &HASH, id_a, id_b, pk_b, eph_b, key,
+	                                      ckey) == FZN_SESSION_ERR_MALFORMED,
+	      "responder accepted a null self prekey");
+	CHECK(fzn_session_establish_responder(&sk, &AGREE, &HASH, NULL, id_b, pk_b, eph_b, key,
+	                                      ckey) == FZN_SESSION_ERR_MALFORMED,
+	      "responder accepted a null self identity");
+	CHECK(fzn_session_establish_responder(&sk, &AGREE, &HASH, id_a, NULL, pk_b, eph_b, key,
+	                                      ckey) == FZN_SESSION_ERR_MALFORMED,
+	      "responder accepted a null peer identity");
+	CHECK(fzn_session_establish_responder(&sk, &AGREE, &HASH, id_a, id_b, NULL, eph_b, key,
+	                                      ckey) == FZN_SESSION_ERR_MALFORMED,
+	      "responder accepted a null peer prekey");
+	CHECK(fzn_session_establish_responder(&sk, &AGREE, &HASH, id_a, id_b, pk_b, NULL, key,
+	                                      ckey) == FZN_SESSION_ERR_MALFORMED,
+	      "responder accepted a null peer ephemeral");
+	CHECK(fzn_session_establish_responder(&sk, &AGREE, &HASH, id_a, id_b, pk_b, eph_b, NULL,
+	                                      ckey) == FZN_SESSION_ERR_MALFORMED,
+	      "responder accepted a null key out");
+	CHECK(fzn_session_establish_responder(&sk, &AGREE, &HASH, id_a, id_b, pk_b, eph_b, key,
+	                                      NULL) == FZN_SESSION_ERR_MALFORMED,
+	      "responder accepted a null commitment key out");
+}
+
 int main(void)
 {
 	test_both_sides_build_the_same_transcript();
@@ -1011,6 +1093,8 @@ int main(void)
 	test_the_suite_can_tell_pass_from_fail();
 
 	test_the_operands_the_first_one_hides();
+
+	test_the_establish_operands();
 
 	printf("session_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
