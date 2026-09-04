@@ -11487,6 +11487,96 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 86. A view that outlived its buffer, and the gate that is not in `make check`, 2026-09-04
+
+Run at the end of the night as a check on the night's work rather than as new
+work: `make test SANITIZE=1` over a tree whose `wire/seal.c`, `blob/blob.c`,
+`session/session.c` and eight vtable implementations had all changed.
+
+It found a defect. Not in any of those -- in `sim/test/provision_test.c`, from
+earlier the same day.
+
+    ERROR: AddressSanitizer: stack-use-after-scope
+      #0 fzn_record_is_open   record/record.h:284
+      #1 fzn_tree_open        tree/tree.c:51
+      #2 main                 sim/test/provision_test.c:1806
+
+### What it was
+
+The tree leg sealed a record and opened it inside a block:
+
+    {
+            uint8_t frame[FZN_SEAL_OVERHEAD + FZN_RECORD_MAX_LEN];
+            ...
+            fzn_record_open(got.payload, got.payload_len, &node_rec);
+    }
+    fzn_tree_open(node_rec, &carried);        /* frame is gone */
+
+`fzn_record_open` and `fzn_tree_open` both hand back **views**, and
+`record.h` says in as many words that the buffer must outlive them.
+`node_rec` pointed into `frame`; `carried.content` pointed into `frame`
+through `node_rec`. The array died at the block's closing brace and both were
+read for another ten lines.
+
+### Why nothing caught it, which is the part worth keeping
+
+**The bytes are still on the stack after the brace**, because nothing has
+reused the slot yet. Every read returned the right answer, every assertion
+passed, and the suite was green -- through `make check` a dozen times tonight,
+`make fuzz` at 200000 cases, and three coverage runs.
+
+Only `stack-use-after-scope` separates *correct* from *correct by luck*, and
+the only thing that reports it is `make test SANITIZE=1`, **which is not part
+of `make check`.** Everything else built tonight went through that gate
+repeatedly; this went through it too, and was wrong the whole time.
+
+### And it is sec 84's shape one layer over
+
+Sec 84 swept for comments asserting a property the code beneath them does not
+have. This is a property the LIBRARY states about its own API, which a
+consumer of that API -- a test in this same repository -- did not hold.
+
+The contract is correct, in the right file, and was read by the person who
+then broke it: `provision/provision.h` was written earlier the same day with
+*"A VIEW RATHER THAN A COPY ... The buffer must outlive the record"*, and the
+violation is three hundred lines away in another file by the same hand.
+
+**A stated precondition does not protect the person who states it.** What
+protects them is a tool that observes the lifetime, and this tree has one that
+it does not run by default.
+
+### The fix, and the sweep that came free with it
+
+The array is declared in the enclosing scope now, where the views taken
+through it are read, with the reason written at the declaration rather than
+left for the next person to rediscover under a sanitizer.
+
+**And there is no need to grep for other instances of this class**, which was
+the obvious next move and the wrong one: ASan observes every lifetime in every
+test that runs, so a clean sanitized suite IS the sweep, and it is a better one
+than any pattern match could be. Re-run after the fix:
+
+    79 binaries, exit 0, no diagnostic of any kind
+
+**The first run reported 78, and that number was not a sweep.** ASan aborts the
+process on the fault, so `provision_test` died and `make` stopped -- the
+binaries after it in the order never ran at all. A count taken from an aborted
+run describes where it stopped, not what it covered, and reading 78 against 79
+as "nearly everything" would have been the same error as reading a red CI run
+as a failure when the job never started.
+
+### What is NOT being done about the gate
+
+`make test SANITIZE=1` is documented in the README and left out of `make
+check` deliberately: it roughly triples the test time, and `make codegencheck`
+skips sanitizer objects outright because their codegen is a different shape,
+so a sanitized `check` would be a check with a hole in it reported as a pass.
+
+Whether it should run anyway -- always, or on a schedule, or before a push --
+is a question about this project's gate policy and therefore the holder's. It
+is recorded here rather than decided, with the cost measured: one real defect
+found in one run, in code that had passed every other gate.
+
 ## 85. The seal seam returns a value, 2026-09-04
 
 Instructed by the copyright holder. Sec 75 found `fzn_aead_ops.seal`

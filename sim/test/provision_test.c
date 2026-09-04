@@ -1751,6 +1751,24 @@ int main(void)
 		fzn_tree_node_t carried;
 		static const uint8_t CONTENT[] = "a line in somebody's outline";
 
+		/* THE FRAME OUTLIVES THE VIEWS TAKEN THROUGH IT, which is why it
+		 * is declared here and not in the block that fills it.
+		 *
+		 * `fzn_record_open` and `fzn_tree_open` both hand back VIEWS --
+		 * `record.h` says so and says the buffer must outlive them --
+		 * and `carried.content` points into this array through two
+		 * layers of them. Declared inside the sealing block below, as
+		 * it was until 2026-09-04, the array died at that block's brace
+		 * while `node_rec` and `carried` were read for another ten
+		 * lines.
+		 *
+		 * IT PASSED EVERY GATE. The bytes are still on the stack after
+		 * the brace because nothing has reused the slot yet, so the
+		 * reads returned the right answer and the suite was green --
+		 * `make test SANITIZE=1` is what says otherwise, and it is not
+		 * part of `make check`. project.md sec 86. */
+		uint8_t frame[FZN_SEAL_OVERHEAD + FZN_RECORD_MAX_LEN];
+
 		memset(root_id, 0, sizeof(root_id));
 		memset(id_first, 0x21, sizeof(id_first));
 		memset(id_last, 0x22, sizeof(id_last));
@@ -1772,7 +1790,6 @@ int main(void)
 		      "the node's record would not sign");
 
 		{
-			uint8_t frame[FZN_SEAL_OVERHEAD + FZN_RECORD_MAX_LEN];
 			size_t frame_len = 0;
 			fzn_send_t what;
 			fzn_opened_t got;
