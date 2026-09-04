@@ -6767,13 +6767,40 @@ need a cooperating process and not. Both were found by a person reading the
 table, which is a gate over an empty file list wearing a report's clothes.
 Confirmed to fire by adding a source nothing tests and watching it refuse.
 
-**The remainder is deliberately not chased.** What is left is the individual
-sub-conditions of null-argument guards — `if (!a || !b || !c)` where the
-guard is tested but not every operand is the one that fired. Covering those
-tests the compiler's short-circuit rather than the library, and would add
-roughly forty assertions that cannot fail for a reason anyone cares about.
-The number stays below 100% on purpose, and this paragraph is why, so that
-nobody reads it as neglect and nobody "fixes" it.
+~~**The remainder is deliberately not chased.** ... Covering those tests the
+compiler's short-circuit rather than the library, and would add roughly forty
+assertions that cannot fail for a reason anyone cares about.~~
+
+**FALSIFIED 2026-09-04 BY SEC 88, AND THIS PARAGRAPH WAS THE WORST OF THE
+DAY'S THREE WRONG COST JUDGEMENTS BECAUSE IT INSTRUCTS.** The other two
+(sec 5j, sec 81) merely declined work; this one told every later reader not to
+do it -- *"so that nobody reads it as neglect and nobody fixes it"* -- and it
+was wrong twice over.
+
+Three of those sub-conditions were covered in `provision/provision.c`, and
+**removing any of them is a SIGSEGV**: `if (!sign || !sign->sign)` stands
+between a partially initialised vtable and a null call inside a crypto
+library. So the assertions do not test "the compiler's short-circuit" -- they
+test that a reachable state is REFUSED rather than crashing -- and they can
+fail, for the most consequential reason in the file.
+
+What survives is that covering all of them is a sweep rather than a
+paragraph. **Whether to is open and is the holder's**, and it is an open
+question now rather than a settled "no" -- which is the whole of what this
+correction changes.
+
+**The "roughly forty" is NOT re-derived here, deliberately.** A first attempt
+at this correction replaced it with 141, which is a count of compound guard
+SITES in the library sources and not of uncovered operands -- the wrong
+quantity, reached by a grep, and about to be published as a correction to a
+number. Sec 81's classifier counted 70 of that kind among uncovered branches,
+on a tree that has changed since. What the population actually is, is whatever
+`make coverage` reports on the day somebody decides; putting a figure here
+would be inventing the third one. Sec 90 is about cost claims and this is the
+same rule for the number attached to one.
+
+The number staying below 100% is still not neglect. It is no longer
+established that the remainder is worthless.
 
 ### `make test SANITIZE=1`, and why the canaries stay
 
