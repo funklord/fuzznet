@@ -81,6 +81,7 @@
 #include "../../blob/blob.h"
 #include "../../spool/spool.h"
 #include "../../ratchet/ratchet.h"
+#include "../../wire/relay.h"
 #include "../../prekey/prekey.h"
 #include "../../session/agree.h"
 #include "../../session/agree_monocypher.h"
@@ -1078,6 +1079,168 @@ int main(void)
 		fzn_ratchet_wipe(&sender);
 		fzn_ratchet_wipe(&careful);
 		fzn_ratchet_wipe(&hasty);
+	}
+
+	/* ---- A RELAY, WHICH FORWARDS WHAT IT CANNOT READ ------------------ */
+
+	/* `fzn_send_t.hops` is never set anywhere in this tree's simulation --
+	 * the harness memsets the struct, so every frame it has ever moved was
+	 * unrelayable -- and `wire/relay.h` appears in no scenario. This leg
+	 * puts a frame through a hop that has no key.
+	 *
+	 * THE BUDGET IS PLAINTEXT AND THAT IS THE DESIGN. A relay must be able
+	 * to decrement it without holding anything, so the byte sits outside
+	 * what the tag covers. The claim that then has to hold is that
+	 * decrementing it does not disturb the frame: the receiver's payload
+	 * must come back identical after a hop has spent from it.
+	 *
+	 * WHAT THE BUDGET DEFENDS, in the header's words, is "the network
+	 * against itself: loops, and one misconfigured host multiplying
+	 * traffic. That is a real property and a narrow one." A stranger
+	 * writing zero merely drops the frame, which anybody on the path could
+	 * do by discarding it. So this leg asserts the narrow property and not
+	 * a wider one. */
+	{
+		static const uint8_t CARRIED[] = "forwarded by a host that cannot read it";
+		uint8_t frame[FZN_SEAL_OVERHEAD + sizeof(CARRIED)];
+		uint8_t hopped[sizeof(frame)];
+		uint8_t stranger[FZN_AEAD_KEY_LEN];
+		size_t frame_len = 0;
+		fzn_send_t what;
+		fzn_opened_t got;
+		uint8_t budget = 0;
+		unsigned spent;
+
+		/* THE CONSTANT IS HALF A FRAME-FORMAT DISCRIMINATOR IN ANOTHER
+		 * TREE, and until now that was held by a paragraph. fuzzypickles
+		 * demultiplex one UDP port on offset 1 alone: this frame carries
+		 * `hops_left` there, which `fzn_seal_build` refuses above the
+		 * bound, so the byte is 0..8; their command byte's lowest
+		 * reaching value is 0x0E. Offset 0 cannot separate them -- both
+		 * are the byte 1.
+		 *
+		 * Their side pins it too, and their header says that pin "fails
+		 * once somebody has already changed this". This is the half that
+		 * fires first, and it is where the person raising the bound is
+		 * looking. */
+		check(FZN_RELAY_MAX_HOPS < 0x0Eu,
+		      "FZN_RELAY_MAX_HOPS has reached the value fuzzypickles' demultiplexer "
+		      "reads as a pairing command, so this frame's hop count is about to be "
+		      "mistaken for one of theirs on a live path, silently and with no "
+		      "compile error in either tree");
+
+		memset(&what, 0, sizeof(what));
+		what.sender = device_pub;
+		what.capability = cap.b;
+		what.payload = CARRIED;
+		what.payload_len = sizeof(CARRIED);
+		what.expires_at = 2000u;
+		what.msg = 200u;
+		what.index = 0u;
+		what.chunks = 1u;
+		what.kind = 1u;
+		what.hops = FZN_RELAY_MAX_HOPS;
+
+		check(fzn_seal_build(frame, sizeof(frame), &frame_len, &what, key_device,
+		                     ck_device, &hash_ops, &rng_ops, &aead_ops) == FZN_SEAL_OK,
+		      "a relayable frame would not seal");
+
+		/* A BOUND ABOVE THE CEILING IS REFUSED AT SEALING, which is what
+		 * keeps the byte inside 0..8 and therefore keeps the
+		 * disambiguation above true of every frame this library emits. */
+		{
+			uint8_t over[sizeof(frame)];
+			size_t over_len = 0;
+
+			what.hops = (uint8_t)(FZN_RELAY_MAX_HOPS + 1u);
+			check(fzn_seal_build(over, sizeof(over), &over_len, &what, key_device,
+			                     ck_device, &hash_ops, &rng_ops,
+			                     &aead_ops) != FZN_SEAL_OK,
+			      "a frame claiming more hops than this library forwards was sealed, "
+			      "so the byte at offset 1 is no longer bounded");
+			what.hops = FZN_RELAY_MAX_HOPS;
+		}
+
+		/* THE RELAY HOLDS NO KEY. It reads the budget and spends from it
+		 * on a copy, exactly as a forwarding host would. */
+		memcpy(hopped, frame, frame_len);
+		check(fzn_relay_budget(hopped, frame_len, FZN_RELAY_MAX_HOPS, &budget) ==
+		              FZN_RELAY_OK && budget == FZN_RELAY_MAX_HOPS,
+		      "a relay could not read the budget out of a frame it is asked to forward");
+
+		memset(stranger, 0x9au, sizeof(stranger));
+		{
+			uint8_t attempt[sizeof(frame)];
+
+			memcpy(attempt, hopped, frame_len);
+			check(fzn_seal_open(attempt, frame_len, stranger, ck_sponsor, &hash_ops,
+			                    &aead_ops, &got) != FZN_SEAL_OK,
+			      "the relay opened the frame it is only supposed to forward");
+		}
+
+		check(fzn_relay_spend(hopped, frame_len, FZN_RELAY_MAX_HOPS) == FZN_RELAY_OK,
+		      "a relay could not spend from the budget");
+		check(fzn_relay_budget(hopped, frame_len, FZN_RELAY_MAX_HOPS, &budget) ==
+		              FZN_RELAY_OK && budget == FZN_RELAY_MAX_HOPS - 1u,
+		      "spending a hop did not move the budget");
+
+		/* AND THE FRAME IS STILL THE FRAME. This is the claim the
+		 * plaintext byte has to earn: the receiver derives its own key,
+		 * opens what a relay has rewritten, and gets the payload that
+		 * was sent. */
+		check(fzn_seal_open(hopped, frame_len, key_sponsor, ck_sponsor, &hash_ops,
+		                    &aead_ops, &got) == FZN_SEAL_OK,
+		      "a frame that a relay decremented no longer opens, so the hop byte is "
+		      "inside what the tag covers");
+		check(got.payload_len == sizeof(CARRIED)
+		              && memcmp(got.payload, CARRIED, sizeof(CARRIED)) == 0,
+		      "the payload changed when a relay spent a hop");
+		check(memcmp(got.sender, device_pub, FZN_PUBKEY_LEN) == 0,
+		      "the relayed frame names a different sender than the one that sealed it");
+
+		/* THE BUDGET IS A LOOP BOUND, so it runs out. Spent from a fresh
+		 * copy, because the open above consumed the one in flight. */
+		memcpy(hopped, frame, frame_len);
+		for (spent = 0; spent < FZN_RELAY_MAX_HOPS; spent++)
+			check(fzn_relay_spend(hopped, frame_len, FZN_RELAY_MAX_HOPS) ==
+			              FZN_RELAY_OK,
+			      "a hop within the budget was refused");
+		check(fzn_relay_budget(hopped, frame_len, FZN_RELAY_MAX_HOPS, &budget) ==
+		              FZN_RELAY_OK && budget == 0u,
+		      "the budget did not reach zero after being spent in full");
+		check(fzn_relay_spend(hopped, frame_len, FZN_RELAY_MAX_HOPS) ==
+		              FZN_RELAY_ERR_EXHAUSTED,
+		      "a frame with no budget left was forwarded anyway, so a loop does not "
+		      "die -- which is the one thing this byte is for");
+
+		/* AND IT STILL OPENS AT ZERO. A frame that may travel no further
+		 * is not a frame that has stopped being valid: the last host on
+		 * the path is the one it was for. */
+		check(fzn_seal_open(hopped, frame_len, key_sponsor, ck_sponsor, &hash_ops,
+		                    &aead_ops, &got) == FZN_SEAL_OK
+		              && got.payload_len == sizeof(CARRIED),
+		      "a frame whose budget is spent no longer opens, so the last host on a "
+		      "path cannot read what was sent to it");
+
+		/* A FRAME NOBODY OFFERED FOR RELAYING IS NOT RELAYABLE, which is
+		 * what `hops = 0` means and what every other frame in this file
+		 * has been. */
+		{
+			uint8_t solo[sizeof(frame)];
+			size_t solo_len = 0;
+
+			what.hops = 0u;
+			check(fzn_seal_build(solo, sizeof(solo), &solo_len, &what, key_device,
+			                     ck_device, &hash_ops, &rng_ops,
+			                     &aead_ops) == FZN_SEAL_OK,
+			      "an unrelayable frame would not seal");
+			check(fzn_relay_spend(solo, solo_len, FZN_RELAY_MAX_HOPS) ==
+			              FZN_RELAY_ERR_EXHAUSTED,
+			      "a frame offered for no hops was forwarded");
+			check(fzn_seal_open(solo, solo_len, key_sponsor, ck_sponsor, &hash_ops,
+			                    &aead_ops, &got) == FZN_SEAL_OK,
+			      "and an unrelayable frame does not open for the host it was for");
+		}
 	}
 
 	fzn_agree_secret_wipe(&device_sk);
