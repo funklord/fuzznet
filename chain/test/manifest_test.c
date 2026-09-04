@@ -401,6 +401,37 @@ static void pair_of(fzn_manifest_pair_t *p, uint8_t cap_seed, uint8_t grantee_se
 
 /* Put a real, signed revocation into the store, so that the manifest derived
  * from it names something. */
+/* Revoke at a stated instant, so that two hosts can revoke the SAME pair and
+ * produce DIFFERENT records. `revoke` below fixes the instant at 1000, which
+ * is right for every case that wants one record and is exactly what makes the
+ * "different records" row of `fzn_manifest_admit`'s decision table
+ * unreachable. */
+static void revoke_at(struct fixture *f, const uint8_t issuer[FZN_PUBKEY_LEN],
+                      const fzn_cap_id_t *capability,
+                      const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t issued_at)
+{
+	uint8_t bytes[FZN_REVOCATION_LEN];
+	fzn_revocation_record_t rec;
+
+	f->stub.identity = issuer[0];
+	if (fzn_revocation_issue(issuer, capability, grantee, issued_at, &f->sign, bytes) !=
+	    FZN_CHAIN_OK) {
+		fprintf(stderr, "  FAIL: the fixture could not issue a revocation\n");
+		failures++;
+		return;
+	}
+	if (fzn_revocation_open(bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK) {
+		fprintf(stderr, "  FAIL: the fixture issued a revocation that will not open\n");
+		failures++;
+		return;
+	}
+	if (fzn_revocation_admit(&f->store, fzn_revocation_offer_root(rec), issuer, &f->sign,
+	                         &HASH_OPS, NULL) != FZN_CHAIN_OK) {
+		fprintf(stderr, "  FAIL: the fixture could not admit a revocation\n");
+		failures++;
+	}
+}
+
 static void revoke(struct fixture *f, const uint8_t issuer[FZN_PUBKEY_LEN],
                    const fzn_cap_id_t *capability,
                    const uint8_t grantee[FZN_PUBKEY_LEN])
@@ -2420,6 +2451,91 @@ static void test_a_revocation_settles_what_it_covers(void)
  * a fixture that never built -- and the last check is part of the setup and
  * not decoration: a tombstone that drained the deficit by itself would leave
  * every leg below asserting about an empty table. */
+/*
+ * TWO HOSTS REVOKED THE SAME PAIR INDEPENDENTLY, so the ids differ.
+ *
+ * Found 2026-09-04 by measurement, not by reading. `fzn_manifest_admit` has a
+ * three-row decision table written out in a comment, and one of its rows --
+ *
+ *     different records  -- neither of us can tell who is ahead from hashes
+ *                           alone, so ask; admission sorts it out
+ *
+ * -- had never been exercised: `memcmp(mine, theirs) != 0` was taken 0% of
+ * 4790 evaluations. Every existing case revokes at the fixed instant 1000, so
+ * two hosts revoking one pair always produced byte-identical records and the
+ * ids always matched.
+ *
+ * WHY THE ROW MATTERS. Two hosts revoking the same grant independently is an
+ * ordinary network event, not a corner: a stolen device gets revoked by
+ * whoever notices first, and a second holder who has not heard yet revokes it
+ * too. If this host read "different id" as "I am ahead", it would never fetch
+ * the record it lacks -- and the one it lacks might be the withdrawal, or a
+ * later revocation covering more than its own does.
+ *
+ * THE CONTROL IS THE SAME TEST WITH ONE NUMBER CHANGED. Revoking at the same
+ * instant makes the ids identical and this host IS ahead, so no deficit is
+ * recorded. Without it, a deficit of one would be consistent with the
+ * comparison never running at all.
+ */
+static void test_two_hosts_revoked_the_same_pair_and_disagree(void)
+{
+	struct fixture f;
+	struct fixture peer;
+	fzn_cap_id_t cap;
+	uint8_t grantee[FZN_PUBKEY_LEN];
+	uint8_t bytes[FZN_MANIFEST_MAX_LEN];
+	size_t len = 0;
+	fzn_manifest_record_t rec;
+	fzn_manifest_pair_t out[4];
+	size_t dropped = 0;
+
+	memset(&cap, 0x71, sizeof(cap));
+	memset(grantee, 0x72, sizeof(grantee));
+
+	/* ---- the ids DIFFER: this host cannot tell, so it must ask ----- */
+	fixture_init(&f);
+	revoke_at(&f, f.root, &cap, grantee, 1000);
+
+	fixture_init(&peer);
+	memcpy(peer.root, f.root, sizeof(peer.root));
+	revoke_at(&peer, peer.root, &cap, grantee, 2000);
+	peer.stub.identity = peer.root[0];
+	CHECK(fzn_manifest_issue(peer.root, &peer.store, &peer.sign, bytes, sizeof(bytes),
+	                         &len) == FZN_MANIFEST_OK,
+	      "the peer could not issue a manifest, so nothing below is tested");
+	CHECK(fzn_manifest_open(bytes, len, &rec) == FZN_MANIFEST_OK,
+	      "the peer's manifest did not open");
+	CHECK(fzn_manifest_follow(&f.manifest, f.root) == FZN_MANIFEST_OK, "follow");
+	stub_reset(&f.stub);
+	CHECK(fzn_manifest_admit(&f.manifest, &f.store, rec, &f.sign) == FZN_MANIFEST_OK,
+	      "the peer's manifest was refused");
+	CHECK(fzn_manifest_deficit(&f.manifest, f.root, out, 4, &dropped) == 1,
+	      "two hosts hold DIFFERENT records for one pair and this host did not ask "
+	      "-- so a revocation it does not have is one it will never fetch");
+
+	/* ---- the ids MATCH: this host is ahead and must not ask -------- */
+	fixture_init(&f);
+	revoke_at(&f, f.root, &cap, grantee, 1000);
+
+	fixture_init(&peer);
+	memcpy(peer.root, f.root, sizeof(peer.root));
+	revoke_at(&peer, peer.root, &cap, grantee, 1000);
+	peer.stub.identity = peer.root[0];
+	CHECK(fzn_manifest_issue(peer.root, &peer.store, &peer.sign, bytes, sizeof(bytes),
+	                         &len) == FZN_MANIFEST_OK,
+	      "the peer could not issue the control manifest");
+	CHECK(fzn_manifest_open(bytes, len, &rec) == FZN_MANIFEST_OK,
+	      "the control manifest did not open");
+	CHECK(fzn_manifest_follow(&f.manifest, f.root) == FZN_MANIFEST_OK, "follow");
+	stub_reset(&f.stub);
+	CHECK(fzn_manifest_admit(&f.manifest, &f.store, rec, &f.sign) == FZN_MANIFEST_OK,
+	      "the control manifest was refused");
+	dropped = 0;
+	CHECK(fzn_manifest_deficit(&f.manifest, f.root, out, 4, &dropped) == 0,
+	      "the two records are identical here, so this host is ahead and asking for "
+	      "it again is the re-fetch loop the drain exists to stop");
+}
+
 static int host_ahead_of_its_deficit(struct fixture *host, fzn_manifest_record_t man,
                                      const uint8_t issuer[FZN_PUBKEY_LEN],
                                      const fzn_cap_id_t *capability,
@@ -3413,6 +3529,7 @@ int main(void)
 	test_the_withdrawal_paths_drain_the_deficit();
 	test_every_guard_refuses_its_own_argument();
 	test_a_state_whose_fields_disagree_is_refused();
+	test_two_hosts_revoked_the_same_pair_and_disagree();
 	test_the_suite_can_tell_pass_from_fail();
 
 	printf("manifest_test: %d checks, %d failure(s)\n", checks, failures);

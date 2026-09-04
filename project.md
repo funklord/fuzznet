@@ -6336,7 +6336,19 @@ every one of them upward.** The rows below are that run.
     at 100% of branches      14 files
     below 100%               26 files
     no branches at all        1 file   (version/version.c)
-    total branches         2638, of which ~245 (9%) never go both ways
+    total branches         2638, of which ~243 (9%) never go both ways
+
+**RE-DERIVED AGAIN AFTER SEC 81, AND IT CAUGHT A ROW I HAD LEFT STALE.**
+`chain/manifest.c` moved to **94.35% of 248** on sec 81's decision-table test,
+and `blob/blob.c` to **77.02% of 161** on sec 80's -- which sec 80 did not
+update, because that commit ran `make check` and not `make coverage`. The
+table was wrong for one commit, in the direction that understates the tree.
+Never-both-ways is ~243 now.
+
+**A number in a document is only as current as the last run that produced
+it**, and a targeted re-measurement would not have caught this: the row that
+was stale belonged to the PREVIOUS piece of work, not to this one. Comparing
+every row is what found it.
 
 **RE-DERIVED ONCE MORE THE SAME DAY, after sec 79.** `session/session.c`
 moved from 95.29%/75.00% to **99.42% of 172 lines and 79.76% of 84
@@ -6415,7 +6427,7 @@ supply a number for it.
 | `persist/persist_file.c` | 90.48% of 84 | **67.31% of 52** |
 | `spool/spool_file.c` | 90.43% of 94 | **73.26% of 86** |
 | `session/agree_monocypher.c` | 100.00% of 17 | **75.00% of 4** |
-| `blob/blob.c` | 99.07% of 216 | **76.40% of 161** |
+| `blob/blob.c` | 99.07% of 216 | **77.02% of 161** |
 | `spool/spool.c` | 100.00% of 73 | **77.22% of 79** |
 | `persist/persist.c` | 100.00% of 122 | **79.17% of 72** |
 | `session/session.c` | 99.42% of 172 | **79.76% of 84** |
@@ -6425,7 +6437,7 @@ supply a number for it.
 | `chain/revocation.c` | 100.00% of 207 | **90.65% of 214** |
 | `provision/provision.c` | 100.00% of 91 | **91.76% of 85** |
 | `session/agree.c` | 100.00% of 43 | **92.11% of 38** |
-| `chain/manifest.c` | 99.30% of 285 | **93.95% of 248** |
+| `chain/manifest.c` | 99.30% of 285 | **94.35% of 248** |
 | `record/sync.c` | 100.00% of 90 | **94.52% of 73** |
 | `state/state.c` | 100.00% of 91 | **94.87% of 78** |
 | `wire/relay.c` | 100.00% of 35 | **95.24% of 21** |
@@ -11474,6 +11486,117 @@ alone is also green, since the openers do write every field. Dropping the
 init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
+
+## 81. A decision table with a row nobody had reached, 2026-09-04
+
+Sections 79 and 80 took one module each. This took the whole library at once,
+to answer a question those two had raised and neither could settle: **are
+seam-failure paths systematically untested, or were `session/` and `blob/`
+outliers?**
+
+### The measurement, and what it says
+
+Every source built with coverage, every branch never taken both ways
+classified by what its line does:
+
+    guard   70   45%   compound null checks whose later operands are unreached
+    other   45   29%   the classifier could not place them
+    seam    21   14%   a consumer's hash, AEAD, agreement or signer refusing
+    bound   19   12%   a capacity, depth or count limit
+    TOTAL  155
+
+**So the seam family is real and is not the story.** Twenty-one branches, nine
+of them in `blob/` which sec 80 already read. The dominant category is guard
+second-operands, which are reachable, untested, and worth very little
+individually.
+
+**The 29% the classifier could not place is the honest part of this table.** It
+is reported rather than folded into "other things, probably fine", and looking
+at it is what produced the finding below. `wire/seal.c` alone holds 17 of the
+45, and they turn out to be defensive handling of the GENERATED code refusing
+-- `situ_fzn_frame_view`, `situ_fzn_frame_tag_covered`, `!tag`,
+`covered_len < head_len` -- at call sites where the caller has already
+established the precondition. Unreachable by construction, kept for sec 80's
+reason.
+
+**The percentages are a heuristic's output and not a taxonomy.** A classifier
+that cannot place 29% of its input has not earned one, and the value here was
+in where it pointed rather than in what it counted.
+
+### Which is how the actual finding turned up
+
+Checking the classifier by hand against `chain/manifest.c`'s fourteen found
+two it had placed wrongly -- and they are the two halves of ONE comparison,
+one filed as a `guard` because it begins with a `!`, the other as the file's
+single `other`. Neither is a guard. Together they are the comparison at the
+centre of `fzn_manifest_admit`, which has a three-row decision table written
+out above it:
+
+    same record, both withdrawn  -- I am ahead
+    same record, they withdrew   -- they are ahead, a record I would refuse
+    different records            -- neither of us can tell who is ahead from
+                                    hashes alone, so ask
+
+    memcmp(mine, theirs) != 0     branch 1 taken 0% of 4790 evaluations
+
+**The third row had never been exercised.** Every case in the suite revokes at
+the fixed instant 1000, so two hosts revoking one pair always produced
+byte-identical records and the ids always matched. The row was unreachable
+from the fixtures, not from the protocol.
+
+### Why the row matters
+
+Two hosts revoking the same grant independently is an ordinary network event
+rather than a corner: a stolen device is revoked by whoever notices first, and
+a second holder who has not heard yet revokes it too. Their records differ --
+different instants, different ids.
+
+If this host read "different id" as "I am ahead", **it would never fetch the
+record it lacks** -- and the one it lacks might be a withdrawal, or a
+revocation covering more than its own.
+
+The library gets it right. The test passes as written, which is the ordinary
+outcome of covering a documented path: what it buys is that the row cannot
+stop being true without something going red.
+
+    memcmp(mine, theirs) != 0     0% -> 14%
+
+**The control is the same test with one number changed.** Revoking at the same
+instant makes the ids identical, this host IS ahead, and no deficit is
+recorded. Without it a deficit of one would be consistent with the comparison
+never running at all.
+
+### And the row that is still not reached
+
+`!mine_withdrawn`, the second operand at line 540, is evaluated 1480 times
+across the suite and is true every time: **the case where the peer has
+withdrawn a record and this host has withdrawn it too has never occurred.**
+That is the first row of the table.
+
+Recorded rather than forced. It needs a fixture where both sides withdraw the
+same underlying revocation, which is more machinery than the finding currently
+justifies -- and saying so is cheaper than a test that reaches the line
+without reaching the situation.
+
+### And the style gate caught the edit that found it
+
+Worth one line because it is the third time tonight. The REQUIRE-to-CHECK
+rewrite was done with a regular expression, and it produced blocks indented
+one tab short -- twelve violations, refused by `make style` before anything
+was committed. The function was then written out by hand instead.
+
+A mechanical edit to satisfy a mechanical check, done mechanically, and wrong.
+`evidence.md` asks a bulk change to carry a proof; the cheaper answer for
+twelve lines is not to make it a bulk change.
+
+### What this closes
+
+**The systematic question is answered: there is no systematic seam-testing
+debt.** The remaining 155 are mostly guard operands and unreachable defensive
+branches, and chasing them module by module would be work with the shape of
+progress and none of the substance. The two modules that did have real gaps
+have been done, and this one -- found by checking a classifier rather than by
+trusting it -- was worth more than either.
 
 ## 80. The deepest tree nobody had walked, 2026-09-04
 
