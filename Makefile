@@ -2146,6 +2146,12 @@ style:
 	@# it; wire/bytes.h answers it for the object tags with a static-assert
 	@# chain, and this answers it for the other 37. project.md sec 74.
 	python3 tool/enum_gate.py
+	@# AND NO LIBRARY SOURCE THROWS AWAY A STATUS IT WAS HANDED, which is
+	@# sec 75's finding one step out: that seam cannot report a failure, and
+	@# this is a failure reported and dropped. Zero today across 131
+	@# status-returning functions, and a property nobody checks is one that
+	@# stops being true quietly. project.md sec 76.
+	python3 tool/status_gate.py
 	@# EVERY .c IN THE TREE MUST BE IN A LIST -- the fourth instance of one
 	@# pattern and the last that was not mechanically checked. HDRS against
 	@# `install`, GEN_SRCS against `coverage`, TEST_BINS against .gitignore,
