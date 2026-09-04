@@ -11531,6 +11531,143 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 95. Chain delivery: the fourth instance of a shape, 2026-09-05
+
+Section 19 left "chain delivery has no named mechanism here" as the open
+row. This designs it, and the useful result is that **it is not a protocol
+to invent.** Applying this tree's own shape instrument -- describe the thing
+without using its name, and ask what already has that shape -- chain
+delivery is the fourth instance of a pattern the library has settled three
+times, plus one store it is missing.
+
+### What was already built, which reframes the question
+
+Read rather than remembered, because sec 19 was written before two of these
+landed:
+
+    fzn_chain_pack / fzn_chain_open   the wire form of a chain, both ways
+    fzn_chain_verify                  fails closed: a pinned root is
+                                      required and NULL is refused
+    chain/authz.h                     the policy: a zeroed policy is
+                                      invalid rather than unguarded, so
+                                      absence cannot read as not-required
+    fzn_chain_mint / _delegate        production
+
+So the format exists, the verification exists, and the decision to require a
+chain at all exists. **Nothing is missing between a chain arriving and a
+verdict.** What is missing is on either side of that: nowhere to keep hops,
+and no way to say which ones are wanted.
+
+### The shape, stated without the name
+
+*A host holds something it cannot authorise. It needs a bounded set of
+signed objects connecting a key it already trusts to the party that signed
+the thing. A peer must be able to say what it holds of that, and hand over a
+bounded subset. None of it may change what the host follows.*
+
+Three things in this library already have that shape:
+
+    record/sync.h      position digest -> plan_fetch / plan_offer
+    chain/manifest.h   deficit table   -> plan_offer, bounded, with
+                                          `truncated` kept distinct from
+                                          "not held"
+    spool/plan.h       present bitmap  -> plan_want / plan_offer
+
+Each refuses a zero cap rather than reading it as unlimited, each bounds its
+answer by a caller-supplied array, and each keeps "I could not look at all
+of it" separate from "I do not have it". That is the settled answer to "how
+does a bounded set of things get asked for and offered", and chain delivery
+does not get to invent a fourth one.
+
+### What is missing, concretely
+
+**A store, and its absence is the sharper half.** Every other holdable
+object in this library has one -- `fzn_revocation_store_t` (opaque, in
+`chain/chain.h`), `fzn_state_t`, `fzn_journal_t`, `fzn_link_table_t`,
+`fzn_reasm_t` and `fzn_spool_t`, caller-owned arrays with a lookup and, in
+most, a soundness predicate. **A chain is
+the only signed object here with nowhere to live.** The consequence is not
+an inconvenience: every consumer invents one, differently, which is the
+duplication both this library and situ exist to remove.
+
+**A want and an offer**, in the shape above. The want triple is
+
+    (root, capability, subject)
+
+which is `fzn_manifest_deficit_t`'s `(issuer, capability, grantee)` with the
+names changed -- 32-byte key, capability id, 32-byte key. The subject is the
+record's issuer, and the capability comes from the verifier's policy via
+`fzn_authz_requires`, which is the indirection sec 19 corrected itself about
+and which stays visible here for the same reason.
+
+### Why pulling is safe here, when `record/sync.h` refuses exactly that
+
+Section 19 records the constraint and reads it as a near-defeat: the
+replication layer exists in order to refuse fetching about an issuer nobody
+chose, which is precisely what chain delivery needs. **The refusal does not
+transfer, and the reason is an asymmetry worth stating rather than a
+loophole.**
+
+A record's worth is its issuer's, and you have not chosen that issuer, so
+fetching one makes a trust decision implicitly -- which is why
+`fzn_journal_anchor` is a decision rather than a consequence of receiving
+something. **A chain's worth is checked against a root you HAVE chosen.**
+`fzn_chain_verify` requires a pinned root and refuses NULL, so a forged
+chain is worthless rather than poisonous: the worst a hostile peer achieves
+is spending some of your signature verifications, bounded by the offer cap
+and by `FZN_CHAIN_MAX_HOPS`, which is 8.
+
+So chains may be fetched from anyone precisely because they are
+self-checking against something already pinned, and records may not because
+they are not. That is the whole of it, and it is why this row was stuck: the
+constraint was read as "delivery must avoid the journal's hazard" when the
+truth is that the hazard is not present.
+
+**What must still hold, and it is a test rather than a sentence.** Receiving
+hops must not make a host follow anybody. The store is not the journal,
+nothing links them, and `fzn_journal_anchor` stays the only adoption path.
+`sync.h` already records one instance of a guarded door with a second one
+open beside it, so the property wants checking rather than stating.
+
+**The observable is `fzn_journal_admit`, because the journal exposes no
+follow predicate.** A first draft of this paragraph asserted against
+`fzn_journal_follows`, which does not exist and never has -- an identifier
+completed from a prefix rather than read, which is `evidence.md`'s one
+error class that measuring again cannot catch, since every run agrees with
+a value nothing holds. What the journal actually offers is that a record
+from an unfollowed issuer is refused with `FZN_JOURNAL_ERR_UNKNOWN_ISSUER`,
+so the assertion is: admit a chain naming issuer I, then offer the journal a
+record from I and require that same refusal. That reads the door rather than
+a name for it.
+
+### The costs, named because a design that lists none has not been read
+
+- **A want is a disclosure.** Asking "do you hold the chain for issuer I"
+  says this host holds something from I. A push-only consumer leaks nothing,
+  which is a real reason a consumer might decline the pull half and is
+  the reason both halves stay optional.
+- **An offer costs verifications** on hops that may be junk. Bounded, and
+  the bound is the caller's array rather than a constant here.
+- **The store costs memory the consumer supplies**, like every other table
+  in this library. It does not allocate.
+
+### What is NOT decided here, and whose it is
+
+**Whether the library ships this at all.** `chain/authz.h` currently says
+delivery "is the consumer's either way", written 2026-09-03 and true of the
+state of the tree when it was written. This section argues the store in
+particular should not be the consumer's, because six comparable objects
+already have one here and a seventh reinvented per consumer is the exact
+cost the library exists to remove. That is an argument, not a decision, and
+it is the copyright holder's -- naming it, its cost, and whose it is, per
+`working-practice.md`, because a mechanism described thoroughly becomes the
+obvious next step by weight of description alone.
+
+**Nothing is built.** Section 19 warned against building the half that
+records a policy while the half that delivers does not exist; the policy
+half has since been built on its own and that warning is now the other way
+round. The next commit here is either a store or nothing.
+
 ## 94. seal.c wants nothing, and the report that hid it, 2026-09-05
 
 A sweep over `wire/seal.c`'s 21 uncovered lines, which ended with no test
@@ -21075,18 +21212,19 @@ So the library fails closed **at the verify boundary**: an absent chain and an
 absent anchor are both refusals, and `sim/test/network_test.c` already routes
 an unanchored host to `refused_auth` rather than verifying against nothing.
 
-**What is NOT closed is one step earlier, and it is their formulation that
-makes it precise: absence must not read as not-required.** A consumer that
-cannot distinguish "I hold no chain for this issuer" from "this `kind` needs
-no capability" has **the vacuous pass in authorization form** -- and nothing
-forces the call to `fzn_chain_verify` in the first place. A consumer that
-decides a `kind` is unguarded never reaches the boundary that fails closed.
+~~**What is NOT closed is one step earlier**: absence must not read as
+not-required.~~ **CLOSED 2026-09-03 by `chain/authz.h`** (`8009a2b`), and
+the entry is rewritten rather than appended to, because a reader finding
+both would believe the more careful-sounding one and the old one is it.
 
-**And because no delivery mechanism exists, that decision is written
-nowhere**, so it will be made implicitly by whoever writes the first consumer
--- the worst available place for it. That is this library's own "nowhere to
-put it" principle pointed at a GAP rather than at a field, which is a use of
-it neither tree had made.
+The formulation was fuzzypickles': a consumer that cannot distinguish "I
+hold no chain for this issuer" from "this `kind` needs no capability" has
+the vacuous pass in authorization form, and nothing forced the call to
+`fzn_chain_verify` at all. `fzn_authz_decide` forces it, and a zeroed
+policy is invalid rather than unguarded -- there are two spellings and both
+are a call, so absence is not a spelling.
+
+**What remains open is delivery alone, and sec 95 designs it.**
 
 Recorded, not built. The mechanism is the open row, and building the half
 that records a policy while the half that delivers a chain does not exist is
