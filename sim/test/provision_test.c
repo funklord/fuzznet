@@ -82,6 +82,8 @@
 #include "../../spool/spool.h"
 #include "../../ratchet/ratchet.h"
 #include "../../wire/relay.h"
+#include "../../link/link.h"
+#include "../../sched/sched.h"
 #include "../../prekey/prekey.h"
 #include "../../session/agree.h"
 #include "../../session/agree_monocypher.h"
@@ -1240,6 +1242,153 @@ int main(void)
 			check(fzn_seal_open(solo, solo_len, key_sponsor, ck_sponsor, &hash_ops,
 			                    &aead_ops, &got) == FZN_SEAL_OK,
 			      "and an unrelayable frame does not open for the host it was for");
+		}
+	}
+
+	/* ---- CHOOSING A LINK, WHICH NEEDS NO FRAME ----------------------- */
+
+	/* `link/` measures what each path is doing and `sched/` picks one for a
+	 * class of traffic; `fzn_link_snapshot` filling a
+	 * `fzn_sched_candidate_t[]` is the mechanical join between them.
+	 * Neither module appears anywhere in this tree's simulation.
+	 *
+	 * IT IS PLACED BEFORE A FRAME AND NOT AROUND ONE, deliberately. This is
+	 * a send-path decision that touches no bytes: nothing here seals,
+	 * opens, or needs a session. Wrapping it around a frame would suggest
+	 * the scheduler sees one, and it does not. */
+	{
+		enum { LINKS = 3u };
+		static const uint32_t FAST = 1u, STEADY = 2u, SPARE = 3u;
+
+		fzn_link_table_t table;
+		fzn_link_entry_t entries[LINKS];
+		fzn_sched_candidate_t seen[LINKS];
+		size_t count, dropped = 1u, chosen = 0u;
+		fzn_class_t interactive, bulk;
+		unsigned beat;
+
+		check(fzn_link_table_init(&table, entries, LINKS) == FZN_LINK_OK,
+		      "the link table would not initialise");
+
+		/* A PESSIMISTIC PRIOR RATHER THAN ZERO, which the header asks
+		 * for in terms: "a link asserted to be instant wins every
+		 * selection until something disproves it". */
+		check(fzn_link_register(&table, FAST, 10u, 20u, 5u, 1400u) == FZN_LINK_OK,
+		      "the fast link would not register");
+		check(fzn_link_register(&table, STEADY, 20u, 80u, 1u, 1400u) == FZN_LINK_OK,
+		      "the steady link would not register");
+		check(fzn_link_register(&table, SPARE, 90u, 300u, 50u, 576u) == FZN_LINK_OK,
+		      "the spare link would not register");
+		check(fzn_link_register(&table, FAST, 10u, 20u, 5u, 1400u) ==
+		              FZN_LINK_ERR_DUPLICATE,
+		      "the same link registered twice, so a consumer can shadow its own path");
+
+		/* TWO CLASSES OVER ONE SET OF LINKS, which is the whole point of
+		 * a scheduler: the same three candidates must not give the same
+		 * answer to a question about latency and a question about loss.
+		 * A selector that ignored the class would pass every other
+		 * assertion in this block. */
+		memset(&interactive, 0, sizeof(interactive));
+		interactive.max_latency_ms = 200u;
+		interactive.weight_latency = 10u;
+		interactive.weight_metric = 1u;
+
+		memset(&bulk, 0, sizeof(bulk));
+		bulk.min_mtu = 1200u;
+		bulk.weight_loss = 10u;
+		bulk.weight_metric = 1u;
+
+		count = fzn_link_snapshot(&table, seen, LINKS, &dropped);
+		check(count == LINKS, "the snapshot did not carry every registered link");
+		check(dropped == 0u, "the snapshot reported dropping links it had room for");
+
+		check(fzn_sched_select(seen, count, &interactive, &chosen) == FZN_SCHED_OK,
+		      "no link was chosen for interactive traffic");
+		check(seen[chosen].id == FAST,
+		      "interactive traffic was not put on the lowest-latency link");
+
+		check(fzn_sched_select(seen, count, &bulk, &chosen) == FZN_SCHED_OK,
+		      "no link was chosen for bulk traffic");
+		check(seen[chosen].id == STEADY,
+		      "bulk traffic was not put on the least lossy link that meets its MTU, so "
+		      "the class is not reaching the choice");
+
+		/* THE SPARE IS REFUSED BY AN MTU IT CANNOT MEET, and `admits` is
+		 * what lets a consumer say which constraint did it. */
+		check(!fzn_sched_admits(&seen[2], &bulk),
+		      "a 576-byte link was admitted for a class needing 1200");
+		check(fzn_sched_admits(&seen[1], &bulk),
+		      "and the link that does meet the MTU was refused, so the refusal above "
+		      "is not about the MTU");
+
+		/* ---- and now the measurement moves the choice ------------- */
+
+		/* THE JOIN, DRIVEN: losses on the fast link are what `link/`
+		 * exists to notice, and the only way they reach `sched/` is
+		 * through a fresh snapshot. Nothing else in this tree does
+		 * this. */
+		for (beat = 0; beat < 12u; beat++)
+			check(fzn_link_observe_loss(&table, FAST, 1200u + beat) == FZN_LINK_OK,
+			      "a loss on the fast link was not recorded");
+		for (beat = 0; beat < 12u; beat++)
+			check(fzn_link_observe_ack(&table, STEADY, 80u, 1200u + beat) ==
+			              FZN_LINK_OK,
+			      "an ack on the steady link was not recorded");
+
+		count = fzn_link_snapshot(&table, seen, LINKS, &dropped);
+		check(count == LINKS && dropped == 0u, "the second snapshot is short");
+		check(seen[0].loss_permille > 5u,
+		      "twelve losses did not move the fast link's estimate, so observations "
+		      "are not reaching the table");
+
+		check(fzn_sched_select(seen, count, &bulk, &chosen) == FZN_SCHED_OK
+		              && seen[chosen].id == STEADY,
+		      "bulk traffic left the least lossy link after it was proven reliable");
+
+		/* A CONSUMER KNOWS WHAT NO MEASUREMENT CAN TELL: the radio went
+		 * off. An unusable link is out of the running however good its
+		 * numbers are. */
+		check(fzn_link_set_usable(&table, STEADY, 0) == FZN_LINK_OK,
+		      "the steady link could not be marked down");
+		count = fzn_link_snapshot(&table, seen, LINKS, &dropped);
+		check(count == LINKS && dropped == 0u, "the third snapshot is short");
+		check(fzn_sched_select(seen, count, &bulk, &chosen) != FZN_SCHED_OK
+		              || seen[chosen].id != STEADY,
+		      "a link its own consumer marked down was still chosen");
+
+		/* AND WHEN NOTHING QUALIFIES THE ANSWER IS SAID RATHER THAN
+		 * GUESSED. `sched.h`: FZN_SCHED_ERR_NONE "is the answer and the
+		 * caller drops". */
+		{
+			fzn_class_t impossible;
+
+			memset(&impossible, 0, sizeof(impossible));
+			impossible.max_latency_ms = 1u;
+			impossible.weight_latency = 1u;
+			check(fzn_sched_select(seen, count, &impossible, &chosen) ==
+			              FZN_SCHED_ERR_NONE,
+			      "a class no link can satisfy was answered with a link anyway");
+		}
+
+		/* THE SHORT SNAPSHOT, which the header spends a paragraph on and
+		 * nothing exercised. This table never reorders, so the links
+		 * past a bound are the SAME links every call -- a consumer can
+		 * be told the network is down while a healthy link sits one
+		 * index past the end, for ever, and never gathers evidence on it
+		 * because nothing is ever sent there. `dropped` is required so
+		 * that the shortfall is impossible to not notice. */
+		{
+			fzn_sched_candidate_t cramped[1];
+			size_t short_dropped = 0u;
+			size_t got_count;
+
+			got_count = fzn_link_snapshot(&table, cramped, 1u, &short_dropped);
+			check(got_count == 1u, "a snapshot into one slot did not write one");
+			check(short_dropped == LINKS - 1u,
+			      "a snapshot that did not fit did not say how much it left behind");
+			check(cramped[0].id == FAST,
+			      "the snapshot did not start at the first registered link, so which "
+			      "links a short one hides is not the ones the header describes");
 		}
 	}
 
