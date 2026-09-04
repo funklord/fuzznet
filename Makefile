@@ -2139,6 +2139,13 @@ style:
 	@# byte, which is what makes it safe to put in a routine gate that
 	@# `sabotage` itself can never be part of.
 	python3 tool/sabotage.py --verify
+	@# AND NO TWO ENUMERATORS SHARE A VALUE, which nothing else here would
+	@# catch: a value clash is not a type error, so it compiles, passes every
+	@# unit gate, and surfaces as one family being routed into another's
+	@# handler. fuzzypickles paid for exactly that on 2026-09-04 and reported
+	@# it; wire/bytes.h answers it for the object tags with a static-assert
+	@# chain, and this answers it for the other 37. project.md sec 74.
+	python3 tool/enum_gate.py
 	@# EVERY .c IN THE TREE MUST BE IN A LIST -- the fourth instance of one
 	@# pattern and the last that was not mechanically checked. HDRS against
 	@# `install`, GEN_SRCS against `coverage`, TEST_BINS against .gitignore,

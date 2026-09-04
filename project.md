@@ -11469,6 +11469,95 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 74. A value clash is not a type error, so a gate has to be, 2026-09-04
+
+Sec 73 answered fuzzypickles' clash for the object tags, with a chain and a
+compiler-computed marker. That covers one enum. This covers the other 37, and
+the ones nobody has written.
+
+### The sweep, and the two things wrong with its first version
+
+Every enum in the tree, parsed, looking for two enumerators sharing a value.
+First answer: **32 enums, zero clashes.** Both halves were wrong in the way
+this document keeps recording.
+
+**The detector was uncontrolled.** A parser that matched nothing would have
+printed the same zero. Injecting a duplicate into `fzn_provision_err_t` and
+requiring it to be found took one command and is the difference between a
+measurement and a sentence.
+
+**The population was short.** A raw count of `enum` in the tree gave 41
+against the sweep's 32 -- nine enums the sweep never saw, because the pattern
+required `typedef enum ... { ... } name;` and because an enum whose values
+were not integer literals was **silently skipped**. That second one is the
+worse of the two: a method that drops what it cannot read reports a clean
+tree in exactly the words a clean tree uses.
+
+Rewritten to accept any spelling and to REPORT what it cannot evaluate:
+**38 enums, none skipped.**
+
+### And the reconciliation of 41 against 38, which nearly became a finding
+
+Three unaccounted, so they were looked at rather than assumed away -- and all
+three are bare `enum op` TYPE REFERENCES in one test's function signatures,
+matched by an opening-brace pattern that ran forward to the next `{`. There
+are 38 enum declarations in this tree and there always were.
+
+**The instrument inflated, which is the direction to expect and the one
+hardest to question.** Had the reconciliation been skipped, the report would
+have said "three enums unexamined" -- a gap that does not exist, in a
+document about gaps that do.
+
+### The one hit, and why it is not one
+
+    sim/test/provision_test.c   POSITIONS and REQUESTS both 4
+
+Two array-size constants in a test that happen to be the same size. Not a tag
+space, no dispatch, nothing routed. It is waived -- **by file, enum, value AND
+both names**, so a different clash arriving at the same place stops matching
+the waiver and fires. A file-level exclusion would have absorbed it silently,
+which is how a waiver list becomes a switched-off gate by instalments.
+
+### So it is a gate rather than a result
+
+`tool/enum_gate.py`, run by `make style`. A sweep that found nothing today is
+worth almost nothing; the same sweep run on every commit is worth what the
+next clash would have cost. It refuses two things:
+
+    two enumerators sharing a value, unless waived by name
+    an enum it could not evaluate
+
+**The second is what keeps the first honest**, and it is the direct lesson of
+the first version's nine silent skips.
+
+**Its control is inside it and runs first.** Two fixtures, one clean and one
+with a deliberate clash; if the clash is not found or the clean one is
+flagged, it prints that the control failed and reports nothing about the tree
+at all. A control that lives beside a tool is run when somebody remembers.
+
+Four sabotages, each watched failing before this was written:
+
+    a real clash in provision/provision.h        caught
+    an enum with a computed initialiser          refused as unevaluated
+    the clashing control made clean              refused to report anything
+    the waiver's names changed                   fired on the waived case
+
+### What it costs, stated rather than discovered
+
+**Enum initialisers must be integer literals**, or the gate refuses the file
+and says so. Nothing in the tree does otherwise today, and a future
+`FZN_X_MAX = FZN_X_LAST` would have to become a literal or teach the tool.
+That is a real constraint bought deliberately: the alternative is evaluating
+expressions in a parser nobody has reason to trust, and a tool that guesses
+wrong about a value is worse than one that declines to guess.
+
+**And it is not in `style_gate.py`.** That file is the shared tool spread
+verbatim into sixteen trees from `~/.claude/tool/`, and changing it is a
+cross-project pass rather than something to do while standing in one project
+-- `harmonization.md` is explicit. This is fuzznet's own gate in fuzznet's own
+`tool/`, beside `sabotage.py`. If the shape turns out to be worth sixteen
+trees, that is a signal and not a commit.
+
 ## 73. A correct assertion nobody could check, and the hole in its replacement, 2026-09-04
 
 The object tags were asserted PAIRWISE, and the block was complete. It was
