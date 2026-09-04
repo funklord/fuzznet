@@ -1028,15 +1028,25 @@ SABOTAGES = [
 # how you ask the question again.
 EXPECTED_SURVIVORS = {
 	"manifest-sig-zero-sign",
-	# PROSPECTIVE BY THE CODE'S OWN MEASUREMENT, not for want of a test.
-	# wire/seal.c's comment re-measured this on 2026-08-28: every shape
-	# refusal now returns BEFORE the capability is copied in, so the wipe's
-	# own reproduction cases no longer reach it. It is kept because the
-	# hazard returns the moment any refusal surfaces after the copy, and the
-	# comment says so in order that "the next reader who mutates it and sees
-	# nothing fail deletes it knowing what they are removing" -- which is
-	# this entry's reader exactly.
-	"seal-refused-build-wipes-frame",
+	# `seal-refused-build-wipes-frame` WAS HERE AND IS NOT ANY MORE, removed
+	# 2026-09-05 because the harness reported it CAUGHT. Kept as a comment
+	# rather than deleted, because the exemption predicted its own end and
+	# getting that right is worth more than the line it saved.
+	#
+	# It read: prospective by the code's own measurement, not for want of a
+	# test -- every SHAPE refusal returns before the capability is copied
+	# in, so the wipe's reproduction cases no longer reached it -- and it
+	# was kept because "the hazard returns the moment any refusal surfaces
+	# after the copy".
+	#
+	# That is exactly what happened. `f05d977` made the AEAD seam return a
+	# value, and an AEAD refusal happens AFTER the copy, so the wipe went
+	# live again in the same commit that gave it something to be live for.
+	# The case that catches it is that commit's own refusing-aead test.
+	#
+	# The lesson is the exemption's shape rather than this instance: it
+	# named the condition under which it would stop being true, so the day
+	# it stopped, the harness said so and nobody had to remember.
 	# REDUNDANT WITH ANOTHER PROJECT'S GENERATED CODE, which is why it is
 	# kept rather than deleted. `situ_view_at` bounds-checks before any
 	# accessor reads, so a frame too short for the hop header is refused
