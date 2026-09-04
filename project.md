@@ -11372,6 +11372,141 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 68. Provisioning a device that knows nothing, 2026-09-04
+
+The holder asked for a test that provisions a device the way scanning a QR
+code does, moves data through the subsystems encrypted, and stands as a
+regression test. `sim/test/provision_test.c`, 280 checks under all four real
+primitives, in `make test`.
+
+### Scoped before it was written, because fuzznet has no QR anything
+
+Sec 2 keeps transport and encoding out; contact cards are fuzzypickles' object
+tags 1..12, recorded in `wire/bytes.h` as a registry; theirs is the tree that
+vendors quirc. So this models the PAYLOAD a code would carry and the
+provisioning it enables, and not an image codec. The holder confirmed that
+reading before any code was written.
+
+### The finding: a provisioning payload is assembly, not design
+
+**349 bytes** -- `root(32) || hop(179) || prekey_record(138)` -- and nothing
+had to be invented. Every field is a fixed-length self-delimiting object this
+library already defines, so the concatenation needs no framing, no length
+prefixes and no new signed object. A reader slices at fixed offsets and hands
+each slice to the call that owns it; `fzn_hop_open` and `fzn_prekey_open` both
+refuse a wrong length outright, so a mis-slice fails at a parser rather than
+becoming a subtly wrong grant.
+
+**The exchange is two-way, and that is arithmetic rather than preference.** A
+hop names its grantee, so a sponsor cannot mint until it knows the device's
+identity key: a one-way code cannot provision a device the sponsor has never
+seen. The device shows its own prekey record first, which is already a signed
+"here is me" object. Nothing was invented for that leg either.
+
+**The root is shipped rather than read out of the hop**, and 32 bytes buys
+something. The hop's grantor field holds the same key, so a reader COULD
+recover it -- but taking the anchor out of the object it is about to
+authenticate is circular, which is trust on first use with extra steps. Ship
+it and the pin is auditable: the device compares what it pinned against what
+the hop claims, and the file asserts they agree.
+
+### PINNED, not ADOPTED -- and fuzzypickles' identifier is a trap
+
+`trust/trust.h` separates FZN_TRUST_PINNED, *"configured out of band ...
+authenticated by whatever put it there"*, from FZN_TRUST_ADOPTED, *"adopted on
+first contact, authenticated by nothing"*, and says a consumer that adopts
+owes its user an out-of-band check. **A scanned code IS that check.**
+
+Asked rather than assumed, and the answer was worth the message.
+fuzzypickles' own code calls this "adopt" -- `peer_pair.c` says *"Never pinned
+-- first contact with a different user always adopts"* -- and that is their
+word for "nothing to compare against", not for "authenticated by nothing".
+**Modelling this from their identifiers would have got it backwards**, and
+they said so unprompted: *"Your modelling is right and our identifier is the
+trap."*
+
+### What it does not decide, and what it reports
+
+**It takes no decision the holder holds.** Sec 5 says this library
+"deliberately has no such path" for joining, and that absorbing host
+management means either growing a bootstrap it was designed to refuse or
+leaving joining above the library -- *"a decision, not a detail, and it is the
+holder's."* This file adds no bootstrap: it exercises the anchoring `trust/`
+does provide and assembles the joining above it, in the test. So it is
+evidence about one branch, costed, rather than a vote.
+
+**One gap is reported and not filled.** fuzzypickles' card carries ONE
+signature over the whole concatenation, with the inner objects independently
+signed as well. The inner half needs nothing from us -- those are ordinary
+signed records. The outer half is the part this library does not define, and
+their phrasing of it is the right one to record: not "fuzznet cannot express
+our payload" but **"fuzznet has no notion of one signature over a
+concatenation of otherwise-independent objects"**. A new signed object is the
+holder's.
+
+**And a third trust state was asked for and already exists.** They pinned
+against a stored root in anger for the first time the same day, and needed the
+pin to fail closed on a peer they hold no root for -- a peer added from a bare
+prekey blob carries an all-zero root. This module has it twice over:
+`fzn_trust_root` answers NULL rather than a zero key, and an all-zero root is
+refused at the door, which `trust.c` records as a defect it once had. Both are
+asserted here.
+
+### The joins it closes
+
+Each of these existed and was tested; none of the joins was.
+
+    session key -> sealed frame          nothing sealed under a derived key
+                                         and also verified a chain
+    seal -> blob leaf -> spool           blob/ and spool/ are not even
+                                         INCLUDED by network_test.c
+    ratchet advance -> open -> commit    four paragraphs of header, no frame
+    relay budget                         fzn_send_t.hops was never set, so
+                                         every simulated frame was unrelayable
+    link snapshot -> sched select        neither module in any scenario
+    persist -> a live conversation       no frame under a restored chain
+    sync plan_offer                      the giving half, never called
+    tree order and cmp                   the ordering calls, never called
+
+### Two controls exist only because sabotage found the first version green
+
+Twice, the same shape. The forged-code leg: disabling `fzn_chain_verify`'s
+check that hop 0's grantor is the pinned root left the file green, because the
+audit compares the payload against itself and **a forger controls both
+halves**. The spool leg: deleting `fzn_spool_place`'s proof check left every
+assertion green, because the test only ever placed leaves that were correct.
+
+**A test that only ever supplies genuine inputs cannot tell a verifier from a
+pass-through.** Both are now negatives -- a grant minted under a root the
+device never scanned, and a real sealed leaf offered at the wrong index -- and
+each asserts the input is otherwise valid first, so what refuses it is the
+property under test rather than its shape.
+
+**And the suite caught a fixture error of mine**: the spool control shared the
+memory backend's buffer and sat before the read-back, wiping the spool it was
+meant to be independent of. Two assertions failed with the plaintext no longer
+recoverable. Moved after, rather than given its own buffer, because the
+read-back is what proves the first spool worked and should run against bytes
+nothing else has touched.
+
+### A dangling reference, made and closed in the same day
+
+The test header cited "project.md sec 68" while writing the test, before this
+section existed. **The docs gate did not catch it**: `style_gate.py docs`
+holds headings against duplication and paths against the tree, and a citation
+of a SECTION NUMBER is neither. Worth knowing before somebody trusts that gate
+for more than it does -- it is the same shape as sec 63's tables of
+directories, a claim that looks checked and is not.
+
+**And it was the only one, measured rather than assumed.** Every `sec N` and
+`§N` citation in every tracked `.c`, `.h`, `.md` and `.py` was resolved
+against the 93 section numbers this file defines, skipping the ones
+attributed to another tree by the naming convention at the top of this
+document -- `fuzzypickles' §8`, `netcfgd's brief §8`. **Zero cited-but-
+undefined**, once this section existed. The method is recorded because an
+empty result is only a measurement if somebody can re-take it, and this one
+takes a second.
+
 ## 67. The sweep that walked one family of enums, 2026-09-04
 
 `wire/test/err_str_test.c` exists so that an error code's TEXT is read by
