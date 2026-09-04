@@ -11376,8 +11376,17 @@ the difference between a fact and a fact with its method.
 
 The holder asked for a test that provisions a device the way scanning a QR
 code does, moves data through the subsystems encrypted, and stands as a
-regression test. `sim/test/provision_test.c`, 280 checks under all four real
-primitives, in `make test`.
+regression test. `sim/test/provision_test.c`, under all four real primitives,
+registered in `make test`.
+
+**NO CHECK COUNT HERE, AND THIS SENTENCE CARRIED ONE FOR AN HOUR.** It read
+"280 checks", which is a present-tense countable claim about the tree in the
+first line a reader lands on -- the exact shape sec 11 lost two of tonight and
+removed rather than corrected. `make test` prints the figure and any number in
+prose is one assertion from being wrong. **The 349 below is different and
+stays**, because the file asserts `QR_LEN == 349u`: a number with a gate
+behind it is a number somebody re-derives, and the wire constants it is built
+from cannot move without a wire change.
 
 ### Scoped before it was written, because fuzznet has no QR anything
 
