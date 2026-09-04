@@ -11372,6 +11372,67 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 69. The harness at 94, and what three runs in a night showed, 2026-09-04
+
+    94 entries    90 caught    4 survived    0 hung    0 pattern misses
+
+**The four survivors are the four in `EXPECTED_SURVIVORS`, unchanged across
+all three runs tonight.** Sec 64 names them and their reasons; nothing here
+supersedes it. What this run adds is the growth:
+
+    83 entries    79 caught    4 survived     the state sec 64 recorded
+    84            80           4              after rev-reissue-advances-id
+    94            90           4              after the provisioning legs
+
+Ten added, ten more caught, the exception set untouched. **That is the shape a
+growing harness should have** -- the denominator moves and the exceptions do
+not -- and it is worth stating because the alternative reads identically in a
+tally: a survivor set that grows alongside the entries is a table quietly
+acquiring waivers.
+
+### The new entries pin rather than cover, and the table should say so
+
+Nine of the ten were caught by suites that predate this week -- `chain_test`,
+`persist_test`, `prekey_test`, `ratchet_test`, `spool_test`, and the relay,
+seal and sync suites. `runtests` stops at the first failing binary and the
+per-module suites run before the composed ones, so those guards were already
+held and the entries pin them.
+
+**One is first-held by the new file**: `persist-pinned-anchor-refused`, which
+is the `persist.c` line sec 65's coverage sweep found had never executed.
+Every other fixture in the tree packs an ADOPTED trust, so a bad body only
+ever reached the other arm; `sim/test/provision_test.c` has the only genuinely
+pinned anchor there is.
+
+So the ten do not make the provisioning legs look better than they are. What
+those legs added is one line nothing could reach, and a second holder for the
+rest.
+
+### Predictions stated before the run, which is what made them worth making
+
+Three, written down before it started: the same four survivors and only those
+four; the new entries reporting per-module catchers rather than
+`provision_test`; and no pattern misses. All three held.
+
+**The value is not that they held.** It is that a prediction made afterwards
+cannot fail, and this file has spent a week recording the cost of comfortable
+explanations that arrive after the evidence. A tally read against nothing is a
+number; a tally read against three stated expectations is a test of whether
+the harness is understood.
+
+### The cost is the machine, not the table, and sec 64 said otherwise
+
+Sec 64 priced it at "about twenty-five minutes for 83 entries on a machine at
+load 80 to 110". Measured here: **94 entries in 16 minutes 22 seconds**, with
+load falling from 103 to 8 across the run. Thirteen per cent more entries in
+thirty-five per cent less time.
+
+So the entry count is not what sizes this. A caught mutation fails fast --
+`runtests` exits at the first binary that catches it -- and what varies is how
+long each of those binaries takes under whatever else the machine is doing.
+**A sweep deferred for load is deferred for the right reason**, and one run at
+a bad moment is not evidence about what it costs at a good one.
+
 ## 68. Provisioning a device that knows nothing, 2026-09-04
 
 The holder asked for a test that provisions a device the way scanning a QR
