@@ -11565,6 +11565,48 @@ run describes where it stopped, not what it covered, and reading 78 against 79
 as "nearly everything" would have been the same error as reading a red CI run
 as a failure when the job never started.
 
+### And two harnesses are WRITTEN for a sanitizer that nothing runs
+
+`make fuzz SANITIZE=1` was run afterwards -- the cross product, randomised
+inputs into decoders with a tool watching memory, which neither
+`make fuzz` nor `make test SANITIZE=1` is on its own.
+
+    16 harnesses started, 16 completed, 20000 cases each
+    zero sanitizer diagnostics, make exit 0
+
+A recorded negative over the whole attack surface, and the count is of
+harnesses that REPORTED rather than started, after the 78-against-79 above.
+
+**The finding is what the harnesses say about themselves.**
+`blob/test/blob_fuzz.c` lays its offered proof *"FLUSH AGAINST THE END OF THE
+BUFFER, so that a verifier reading one sibling too many runs off the array and
+a sanitizer says so"*. `wire/test/seal_fuzz.c`'s first property notes that its
+pointer checks are *"also what catches a read past the end"* under a
+sanitizer, with the arithmetic as the fallback when there is not one.
+
+**So that placement is elaborate setup for a check that cannot fire in any
+target this project runs by default.** Two authors wrote for a configuration
+nothing invokes.
+
+`evidence.md` has *a gate that needs the thing it checks for is weakest where
+it matters*. This is that inverted and it is worse: the harness is STRONGEST
+exactly where it is least often run, so the value is real, built deliberately,
+and collected only when somebody remembers a command.
+
+### And the run reported itself failed, having succeeded
+
+The task notification for that run said **failed, exit 1**. `make` exited 0 and
+all sixteen harnesses passed. The compound command ended in `grep -c` for
+sanitizer diagnostics, which prints `0` and **exits 1 when it finds nothing** --
+so the shell's status was the grep's, and the absence of any fault was reported
+as a fault.
+
+The same class as everything else recorded today, and for once it fell the safe
+way: a clean run looking broken rather than a broken one looking clean. Worth
+the sentence because the safe direction is the one nobody investigates, and
+this would have been read as "the sanitized fuzz run fails" by anybody who
+stopped at the notification.
+
 ### What is NOT being done about the gate
 
 `make test SANITIZE=1` is documented in the README and left out of `make
