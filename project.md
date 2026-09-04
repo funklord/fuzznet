@@ -6455,6 +6455,17 @@ supply a number for it.
 | `chain/chain.c` | 100.00% of 139 | **98.57% of 140** |
 | `log/log.c` | 100.00% of 103 | **99.07% of 108** |
 
+**SUPERSEDED FOR TWELVE ROWS BY THE GUARD-OPERAND SWEEP, 2026-09-04.**
+The table below is a dated measurement and is left as one, because the
+paragraph after it turns on the totals being identical. But it is the most
+current-looking thing in a section a reader treats as status, so: sec 91 and
+sec 92 moved `blob.c` to 95.09%, `spool.c` and `persist.c` and `record.c` and
+`sync.c` and `link.c` and `ratchet.c` and `agree.c` to 100%, `session.c` to
+97.62%, `manifest.c` to 97.98%, `revocation.c` to 95.79%, `reassembly.c` to
+99.33%, and `peer_linux.c` to 72.22%; `tree.c` is 97.89% of **95** branches
+rather than 97 because a dead operand was removed. **`make coverage` recomputes
+the whole table**, which is the only version of it that cannot go stale.
+
 **RE-TAKEN 2026-09-01 AFTER SEVEN NEW TEST FILES, AND IT DID NOT MOVE.**
 Five byte-level vectors, a sim scenario and a set of layout assertions were
 added between the measurement above and this line. The table is unchanged --
@@ -11519,6 +11530,90 @@ alone is also green, since the openers do write every field. Dropping the
 init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
+
+## 92. The two platform backends, measured instead of asserted, 2026-09-04
+
+Section 91 left `local/peer_linux.c` (6) and `session/random_linux.c` (3)
+open, on the grounds that reaching them "means replacing the libc call --
+at which point the test proves the fake". **That was asserted, not
+measured, and it was wrong in both directions.** One of peer_linux's six
+is reachable with ordinary kernel behaviour and is now closed. The other
+eight are unreachable for reasons that have nothing to do with faking,
+and knowing WHICH reason is the whole value of having looked.
+
+The claim was also the fourth cost judgement this workspace has recorded
+being wrong the same way -- see sec 90 -- and it has the same shape as
+the other three: a plausible reason not to do the work, produced without
+running the one command that would settle it.
+
+### The one that was reachable
+
+**A peer that has exited.** `SO_PEERCRED` is captured at connect time and
+does not change when the peer dies, so an accepted socket goes on naming
+a pid that has been reaped; `/proc/<pid>/status` then cannot be opened
+and `fzn_peer_from_fd` takes the `if (!f)` branch. peer.h's promise is
+that this is NOT an error -- the credentials are known and the groups are
+not, which is the tri-state this module exists for -- so the case asserts
+`== 0` with `groups_known` clear, not a refusal.
+
+**`peer_linux_test.c`'s own header said this was unnecessary** and was
+right about every other case: an `AF_UNIX` socketpair has both ends in
+this process, so no fork is needed. It is wrong about exactly this one,
+because a socketpair's peer is us and `/proc/self` always opens. The
+case needs a real `connect()` from a child that then exits -- measured
+before it was written, because the socketpair route reports the PARENT's
+pid and fopen succeeds, which would have made a green test that never
+reached the guard.
+
+### The eight that are not, and why each
+
+    peer_linux  len != sizeof(cred)     the kernel always writes 12
+    peer_linux  snprintf(...) < 0       cannot fail into a 64-byte buffer
+    peer_linux  ferror(f)               needs /proc to fail mid-read
+    peer_linux  cred.uid == (uid_t)-1   never true while pid != 0, and
+                                        pid == 0 short-circuits first
+    peer_linux  got == sizeof(status)   needs a status file over 8192
+                                        bytes; this machine's is 1558,
+                                        and growing it means adding
+                                        supplementary groups, which
+                                        needs privilege
+    random_linux  n == 0                the loop is `while (got < len)`,
+                                        so a zero return needs getrandom
+                                        to answer 0 to a NONZERO request,
+                                        which it does not do
+    random_linux  n < 0                 see below
+    random_linux  errno == EINTR        getrandom does not block for a
+                                        small request from an initialised
+                                        pool, so nothing interrupts it
+
+**The `n < 0` one is worth the paragraph, because the obvious route
+exists and does not work.** `getrandom` into an unwritable page should
+return `EFAULT`, and the raw syscall does:
+
+    SYS_getrandom(PROT_NONE page, 16)   ->  -1, errno 14 (Bad address)
+
+But `linux_fill` calls glibc's wrapper, and on this machine that resolves
+through the vDSO, which runs in userspace and **faults instead of
+returning**. Measured at five sizes -- 8, 256, 257, 4096 and 8192 bytes,
+each in a forked child so the crash could be observed rather than ending
+the run -- and every one died on SIGSEGV. So the guard cannot be reached
+through the function that contains it, and the reason is not "you would
+have to fake libc" but "the fast path faults before the syscall is
+made". Those are different facts and only one of them is true.
+
+**None of this is a defect and none of it wants fixing.** A guard against
+`getrandom` failing is correct to have; what has been established is that
+no test on this machine can produce the failure, which is sec 91's
+distinction between a claim of absence and a claim of impossibility --
+and this is the second kind, with the experiment named so the next reader
+can re-run it rather than take it on trust. `evidence.md` asks for the
+method beside the fact, and the method here is `probe3.c`'s shape: fork,
+call, report the signal.
+
+**What would change the answer**: a build that calls `syscall(SYS_getrandom, ...)`
+rather than the wrapper would make `n < 0` reachable, and that is a
+decision about the source rather than about the suite -- so it is not
+taken here.
 
 ## 91. The guard-operand sweep, and four ways the count was wrong, 2026-09-04
 

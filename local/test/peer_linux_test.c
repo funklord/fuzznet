@@ -22,10 +22,14 @@
 #include "../peer.h"
 
 #include <grp.h>
+#include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/un.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 static int failures;
@@ -173,6 +177,86 @@ int main(void)
 			      "a non-socket fd produced a peer");
 			close(devnull);
 		}
+	}
+
+	/* THE PEER THAT NO LONGER EXISTS, which is the one path in this file
+	 * that needs a second process after all.
+	 *
+	 * `SO_PEERCRED` is captured at connect time and does not change when
+	 * the peer dies, so an accepted socket keeps naming a pid that has
+	 * been reaped. `/proc/<pid>/status` then cannot be opened, and
+	 * peer.h's promise is that this is NOT an error: the credentials are
+	 * known and the groups are not, which is a state a caller acts on.
+	 * Any other answer -- refusing, or reporting groups it never read --
+	 * would collapse the tri-state this module exists for.
+	 *
+	 * A socketpair cannot reach it. Both ends live in this process, so
+	 * the pid is our own and /proc always opens; the header above is
+	 * right about that for every other case and wrong for this one.
+	 *
+	 * IT TERMINATES because the child does nothing but connect and
+	 * _exit, `waitpid` is not WNOHANG so it returns once that has
+	 * happened, and `alarm` bounds the whole block if a connect ever
+	 * blocks. The socket path is unlinked on every exit from the block,
+	 * including the ones that skip the checks. */
+	{
+		char path[108];
+		struct sockaddr_un addr;
+		int srv, conn;
+		pid_t kid;
+		int st;
+
+		(void)snprintf(path, sizeof(path), "/tmp/fzn-peer-linux-%ld.sock",
+		               (long)getpid());
+		(void)unlink(path);
+
+		memset(&addr, 0, sizeof(addr));
+		addr.sun_family = AF_UNIX;
+		(void)snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", path);
+
+		srv = socket(AF_UNIX, SOCK_STREAM, 0);
+		if (srv >= 0 && bind(srv, (struct sockaddr *)&addr, sizeof(addr)) == 0
+		    && listen(srv, 1) == 0) {
+			alarm(30);
+			kid = fork();
+			if (kid == 0) {
+				int c = socket(AF_UNIX, SOCK_STREAM, 0);
+
+				if (c >= 0)
+					(void)connect(c, (struct sockaddr *)&addr,
+					              sizeof(addr));
+				_exit(0);
+			}
+			if (kid > 0) {
+				conn = accept(srv, NULL, NULL);
+				(void)waitpid(kid, &st, 0);
+				if (conn >= 0) {
+					struct fzn_peer dead;
+
+					memset(&dead, 0xBB, sizeof(dead));
+					check(fzn_peer_from_fd(conn, &dead) == 0,
+					      "a peer that has exited was reported as an "
+					      "error rather than as known-without-groups");
+					check(dead.pid == (int64_t)kid,
+					      "the socket stopped naming the pid it was "
+					      "connected by once that pid was reaped");
+					check(dead.uid == (uint32_t)getuid(),
+					      "the dead peer's uid was not the one that "
+					      "connected");
+					check(dead.groups_known == 0,
+					      "groups were reported for a process whose "
+					      "/proc entry could not be opened");
+					check(dead.group_count == 0,
+					      "a group was recorded from a /proc entry "
+					      "that was never read");
+					close(conn);
+				}
+			}
+			alarm(0);
+		}
+		if (srv >= 0)
+			close(srv);
+		(void)unlink(path);
 	}
 
 	close(sv[0]);
