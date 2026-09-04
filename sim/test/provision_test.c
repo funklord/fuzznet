@@ -46,6 +46,23 @@
  * 138 bytes, self-signed, already a "here is me" object -- and the sponsor
  * answers with the payload below. Nothing had to be invented for either leg.
  *
+ * AND IT DOES NOT TAKE A DECISION THE HOLDER HOLDS. project.md sec 5, under
+ * "Answered 2026-08-26: user signs for hosts", is
+ * explicit that this library "deliberately has no such path" for joining --
+ * `chain.h` says so, sec 4.2 says so, the root is pinned with no
+ * nullable-root variant -- and that absorbing host management means either
+ * growing a bootstrap it was designed to refuse, or leaving joining above the
+ * library and taking in only the steady state. "That is a decision, not a
+ * detail, and it is the holder's."
+ *
+ * This file adds no bootstrap. It exercises the anchoring the library DOES
+ * provide -- `trust/`, which records provenance precisely so a consumer can
+ * show it -- and assembles the joining above it, in the test. So it is
+ * evidence about one branch of that decision rather than a vote on it: the
+ * "joining stays above the library" branch costs 349 bytes of concatenation,
+ * no new signed object, and the two-way exchange below. What the other branch
+ * would cost is not measured here.
+ *
  * THE PAYLOAD IS THIS FILE'S, NOT THE LIBRARY'S. Slicing at fixed offsets is
  * a consumer's encoding and sec 2 keeps encodings out of fuzznet; what the
  * library provides is that every field is a fixed-length self-delimiting
@@ -57,6 +74,12 @@
 #include "../../chain/chain.h"
 #include "../../chunk/split.h"
 #include "../../chunk/reassembly.h"
+#include "../../record/record.h"
+#include "../../record/journal.h"
+#include "../../state/state.h"
+#include "../../log/log.h"
+#include "../../blob/blob.h"
+#include "../../spool/spool.h"
 #include "../../prekey/prekey.h"
 #include "../../session/agree.h"
 #include "../../session/agree_monocypher.h"
@@ -94,6 +117,42 @@ static void seed_bytes(uint8_t out[32], uint8_t v)
 {
 	memset(out, v, 32);
 }
+
+/* ---- a spool that keeps its bytes in memory --------------------------- */
+
+/* `spool/spool_file.c` is the real backend; this is the same seam over a
+ * buffer, so the transfer below is about the store's POLICY -- verify, place,
+ * track -- rather than about a filesystem. Modelled on
+ * `spool/test/spool_test.c`, which does the same thing for the same reason. */
+#define PROV_SPOOL_BYTES 8192u
+
+static uint8_t spool_disk[PROV_SPOOL_BYTES];
+
+static int mem_read(void *ctx, uint64_t offset, uint8_t *out, size_t len)
+{
+	(void)ctx;
+	if (offset > PROV_SPOOL_BYTES || len > PROV_SPOOL_BYTES - offset)
+		return 0;
+	memcpy(out, spool_disk + offset, len);
+	return 1;
+}
+
+static int mem_write(void *ctx, uint64_t offset, const uint8_t *bytes, size_t len)
+{
+	(void)ctx;
+	if (offset > PROV_SPOOL_BYTES || len > PROV_SPOOL_BYTES - offset)
+		return 0;
+	memcpy(spool_disk + offset, bytes, len);
+	return 1;
+}
+
+static int mem_sync(void *ctx)
+{
+	(void)ctx;
+	return 1;
+}
+
+static const fzn_spool_ops_t SPOOL_OPS = { mem_read, mem_write, mem_sync, NULL };
 
 /* ---- the payload a code would carry ----------------------------------- */
 
@@ -445,6 +504,344 @@ int main(void)
 		      "the grant stopped verifying once traffic started");
 		check(fzn_ct_memeq(proven.grantee, got.sender, FZN_PUBKEY_LEN),
 		      "the chain authorises a key other than the one that sealed this frame");
+	}
+
+	/* ---- a RECORD, chunked, sealed, and put to work ------------------ */
+
+	/* THE NESTING IS THE POINT AND IT IS THE ONE NOTHING ELSE ASSEMBLES:
+	 * a signed record travels inside chunks inside frames sealed under the
+	 * session the scan produced, and only after the tag and the signature
+	 * both check does it reach a journal, a state table and a log.
+	 *
+	 * SPLIT AT 256 RATHER THAN THE 1024 CEILING, deliberately. A record
+	 * with a full body is about 600 bytes and would be one chunk, which
+	 * would leave `fzn_split_at` and the reassembly path asserting nothing.
+	 * `max_payload` is the caller's, so the fixture asks for a size that
+	 * makes the message really travel in pieces. */
+	{
+		enum { PIECE = 256u, SLOTS = 4u, SLOT_CAP = 2048u };
+		static const uint32_t STREAM = FZN_STREAM_RESERVED + 1u;
+		static const uint32_t KIND = 9u;
+
+		uint8_t subject[FZN_SUBJECT_LEN];
+		uint8_t body[FZN_RECORD_BODY_MAX];
+		uint8_t wire[FZN_RECORD_MAX_LEN];
+		size_t wire_len = 0;
+		fzn_split_t plan;
+
+		fzn_partial_t slots[SLOTS];
+		uint8_t slot_bufs[SLOTS][SLOT_CAP];
+		fzn_reasm_t table;
+		fzn_partial_t *done = NULL;
+
+		fzn_journal_t journal;
+		fzn_journal_entry_t jentries[2];
+		fzn_state_t state;
+		fzn_state_entry_t sentries[2];
+		fzn_log_t log;
+		fzn_log_entry_t lentries[2];
+		fzn_record_t arrived;
+		const fzn_state_entry_t *settled = NULL;
+		const fzn_log_entry_t *held = NULL;
+
+		uint16_t piece_index;
+		unsigned delivered_chunks = 0;
+
+		memset(subject, 0x11, sizeof(subject));
+		for (i = 0; i < sizeof(body); i++)
+			body[i] = (uint8_t)((i * 7u) + 1u);
+
+		check(fzn_record_sign(device_pub, subject, STREAM, KIND, 1u, 1000u, body,
+		                      sizeof(body), &device_sign, wire, sizeof(wire),
+		                      &wire_len) == FZN_RECORD_OK,
+		      "the device could not sign the record it wants to send");
+		check(wire_len > PIECE,
+		      "the record fits in one piece, so the chunking below asserts nothing");
+
+		check(fzn_split_plan(wire_len, PIECE, &plan) == FZN_SPLIT_OK,
+		      "the record would not plan into pieces");
+		check(plan.chunks > 1u, "the plan is a single chunk after all");
+
+		for (i = 0; i < SLOTS; i++)
+			fzn_reasm_slot_init(&slots[i], slot_bufs[i], SLOT_CAP);
+		check(fzn_reasm_init(&table, slots, SLOTS, 2u, 100000u) == FZN_REASM_OK,
+		      "the sponsor's reassembly table would not initialise");
+
+		/* EACH PIECE IS ITS OWN SEALED FRAME, opened under the sponsor's
+		 * own derived key, and the reassembly is fed from what the tag
+		 * authenticated rather than from the sender's buffer. */
+		for (piece_index = 0; piece_index < plan.chunks; piece_index++) {
+			uint8_t frame[FZN_SEAL_OVERHEAD + PIECE];
+			size_t frame_len = 0, offset = 0, piece = 0;
+			fzn_send_t what;
+			fzn_opened_t got;
+
+			check(fzn_split_at(&plan, piece_index, &offset, &piece) == FZN_SPLIT_OK,
+			      "a piece of the record could not be located");
+
+			memset(&what, 0, sizeof(what));
+			what.sender = device_pub;
+			what.capability = cap.b;
+			what.payload = wire + offset;
+			what.payload_len = piece;
+			what.expires_at = 2000u;
+			what.msg = 42u;
+			what.index = piece_index;
+			what.chunks = plan.chunks;
+			what.kind = 1u;
+
+			check(fzn_seal_build(frame, sizeof(frame), &frame_len, &what, key_device,
+			                     ck_device, &hash_ops, &rng_ops,
+			                     &aead_ops) == FZN_SEAL_OK,
+			      "a piece of the record would not seal");
+			check(fzn_seal_open(frame, frame_len, key_sponsor, ck_sponsor, &hash_ops,
+			                    &aead_ops, &got) == FZN_SEAL_OK,
+			      "a piece of the record would not open under the sponsor's key");
+			check(fzn_reasm_accept(&table, got.sender, got.msg, got.index, got.chunks,
+			                       got.payload, got.payload_len, got.expires_at,
+			                       1100u, &done) == FZN_REASM_OK,
+			      "a piece the sponsor authenticated was refused by reassembly");
+			delivered_chunks++;
+		}
+
+		check(delivered_chunks == plan.chunks, "not every piece was carried");
+		check(done != NULL,
+		      "every piece arrived and the message never completed");
+		check(done && done->bytes == wire_len,
+		      "the reassembled record is a different length from the one sent");
+		check(done && memcmp(done->buf, wire, wire_len) == 0,
+		      "the record did not survive being split, sealed, opened and rejoined");
+
+		/* VERIFY BEFORE ADMIT, which is the ordering `record/journal.h`
+		 * insists on: a journal position advanced for a record whose
+		 * signature was never checked is a replay window opened by the
+		 * bookkeeping. */
+		check(fzn_record_open(done->buf, done->bytes, &arrived) == FZN_RECORD_OK,
+		      "the reassembled bytes will not open as a record");
+		check(fzn_record_verify(arrived, &verify_ops) == FZN_RECORD_OK,
+		      "the record that survived the wire does not verify");
+		check(memcmp(fzn_record_issuer(arrived), device_pub, FZN_PUBKEY_LEN) == 0,
+		      "the record names an issuer other than the provisioned device");
+
+		check(fzn_journal_init(&journal, jentries, 2u) == FZN_JOURNAL_OK, "journal");
+		check(fzn_journal_anchor(&journal, fzn_record_issuer(arrived),
+		                         fzn_record_stream(arrived), 0u) == FZN_JOURNAL_OK,
+		      "the sponsor could not follow the device's stream");
+		check(fzn_journal_admit(&journal, fzn_record_issuer(arrived),
+		                        fzn_record_stream(arrived),
+		                        fzn_record_seq(arrived)) == FZN_JOURNAL_OK,
+		      "the first record of a followed stream was refused");
+		check(fzn_journal_admit(&journal, fzn_record_issuer(arrived),
+		                        fzn_record_stream(arrived),
+		                        fzn_record_seq(arrived)) == FZN_JOURNAL_ERR_DUPLICATE,
+		      "the same record was admitted twice, so a replay advances the position");
+
+		check(fzn_state_init(&state, sentries, 2u) == FZN_STATE_OK, "state");
+		check(fzn_state_apply(&state, &arrived) == FZN_STATE_OK,
+		      "the verified record would not apply to the state table");
+		settled = fzn_state_get(&state, subject, KIND);
+		check(settled != NULL, "the setting the record carried is not readable back");
+
+		check(fzn_log_init(&log, lentries, 2u) == FZN_LOG_OK, "log");
+		check(fzn_log_append(&log, &arrived) == FZN_LOG_OK,
+		      "the verified record would not append to the log");
+		check(fzn_log_get(&log, &journal, fzn_record_issuer(arrived),
+		                  fzn_record_stream(arrived), fzn_record_seq(arrived),
+		                  &held) == FZN_LOG_OK && held != NULL,
+		      "the record the log just took cannot be fetched back");
+
+		/* AND THE TWO ABSENCES ARE DIFFERENT, which is what the journal
+		 * argument to `fzn_log_get` is for: a sequence the log evicted
+		 * is GONE and must not be asked for again, while one above what
+		 * this host has received is merely ABSENT. */
+		check(fzn_log_get(&log, &journal, fzn_record_issuer(arrived),
+		                  fzn_record_stream(arrived), fzn_record_seq(arrived) + 5u,
+		                  &held) == FZN_LOG_ERR_ABSENT,
+		      "a sequence this host has never received reads as evicted rather than "
+		      "as not yet arrived");
+
+		fzn_reasm_release(done);
+	}
+
+	/* ---- A BLOB, AND THE JOIN NOTHING IN THIS TREE MAKES -------------- */
+
+	/* SESSION KEY -> SEALED FRAME -> BLOB LEAF -> SPOOL. Each of those
+	 * three hops is tested somewhere; none of the joins is. `blob/` and
+	 * `spool/` are not so much as INCLUDED by `sim/test/network_test.c`,
+	 * and the only file that seals under a real session key sends one
+	 * frame and stops.
+	 *
+	 * The content key is what has to cross, and it crosses the way a
+	 * consumer would send it: inside a frame sealed under the session the
+	 * scan established. Everything after that is keyless -- which is the
+	 * property the last leg asserts.
+	 */
+	{
+		enum { LEAVES = 2u, TAIL = 400u };
+
+		uint8_t content_key[FZN_BLOB_KEY_LEN];
+		uint8_t plain[LEAVES][FZN_BLOB_LEAF_SIZE];
+		uint8_t sealed[LEAVES][FZN_BLOB_SEALED_MAX];
+		size_t sealed_len[LEAVES];
+		size_t plain_len[LEAVES];
+		uint8_t leaf_hash[LEAVES][FZN_BLOB_HASH_LEN];
+		uint8_t proof[LEAVES][FZN_BLOB_MAX_DEPTH * FZN_BLOB_HASH_LEN];
+		unsigned proof_len[LEAVES];
+		uint8_t blob_root[FZN_BLOB_HASH_LEN];
+		fzn_blob_tree_t tree;
+
+		uint8_t carried_key[FZN_BLOB_KEY_LEN];
+		fzn_spool_t spool;
+		uint8_t present[FZN_SPOOL_BITMAP_LEN(LEAVES)];
+		uint8_t back[FZN_BLOB_SEALED_MAX];
+		size_t back_len = 0;
+		uint8_t recovered[FZN_BLOB_LEAF_SIZE];
+		size_t recovered_len = 0;
+		unsigned n;
+
+		for (n = 0; n < LEAVES; n++) {
+			/* Every leaf is FZN_BLOB_LEAF_SIZE except the last,
+			 * which may be short and never empty. */
+			plain_len[n] = (n + 1u == LEAVES) ? TAIL : FZN_BLOB_LEAF_SIZE;
+			for (i = 0; i < plain_len[n]; i++)
+				plain[n][i] = (uint8_t)((n * 31u) + (i * 13u) + 5u);
+		}
+		memset(content_key, 0x2bu, sizeof(content_key));
+
+		/* THE SEEDER: seal, hash, fold. */
+		fzn_blob_tree_init(&tree);
+		for (n = 0; n < LEAVES; n++) {
+			check(fzn_blob_leaf_seal(&hash_ops, &aead_ops, content_key, n, plain[n],
+			                         plain_len[n], sealed[n], sizeof(sealed[n]),
+			                         &sealed_len[n]) == FZN_BLOB_OK,
+			      "a blob leaf would not seal");
+			check(fzn_blob_leaf_hash(&hash_ops, sealed[n], sealed_len[n],
+			                         leaf_hash[n]) == FZN_BLOB_OK,
+			      "a sealed leaf would not hash");
+			check(fzn_blob_tree_push(&hash_ops, &tree, leaf_hash[n]) == FZN_BLOB_OK,
+			      "a leaf hash would not fold into the tree");
+		}
+		check(fzn_blob_tree_root(&hash_ops, &tree, blob_root) == FZN_BLOB_OK,
+		      "the blob has no root");
+		for (n = 0; n < LEAVES; n++)
+			check(fzn_blob_proof_build(&hash_ops, leaf_hash[0], LEAVES, n, proof[n],
+			                           sizeof(proof[n]), &proof_len[n]) == FZN_BLOB_OK,
+			      "a leaf proof would not build");
+
+		/* THE HAND-OFF, and it is the join. The content key is 32 bytes
+		 * of secret and it travels sealed under the session the scan
+		 * produced -- not beside it, not in the payload the code
+		 * carried, which is reusable and public. */
+		{
+			uint8_t frame[FZN_SEAL_OVERHEAD + FZN_BLOB_KEY_LEN];
+			size_t frame_len = 0;
+			fzn_send_t what;
+			fzn_opened_t got;
+
+			memset(&what, 0, sizeof(what));
+			what.sender = device_pub;
+			what.capability = cap.b;
+			what.payload = content_key;
+			what.payload_len = sizeof(content_key);
+			what.expires_at = 2000u;
+			what.msg = 77u;
+			what.index = 0u;
+			what.chunks = 1u;
+			what.kind = 2u;
+
+			check(fzn_seal_build(frame, sizeof(frame), &frame_len, &what, key_device,
+			                     ck_device, &hash_ops, &rng_ops,
+			                     &aead_ops) == FZN_SEAL_OK,
+			      "the content key would not seal");
+			check(fzn_seal_open(frame, frame_len, key_sponsor, ck_sponsor, &hash_ops,
+			                    &aead_ops, &got) == FZN_SEAL_OK,
+			      "the sponsor could not open the frame carrying the content key");
+			check(got.payload_len == FZN_BLOB_KEY_LEN,
+			      "the content key arrived the wrong length");
+			memcpy(carried_key, got.payload, FZN_BLOB_KEY_LEN);
+		}
+
+		/* THE RECEIVER: a spool over the root, leaves placed in the
+		 * wrong order, each verified against the root before it is
+		 * written. */
+		memset(present, 0, sizeof(present));
+		memset(spool_disk, 0, sizeof(spool_disk));
+		check(fzn_spool_open(&spool, blob_root, LEAVES, present, sizeof(present),
+		                     &SPOOL_OPS) == FZN_SPOOL_OK,
+		      "the sponsor could not open a spool over the blob's root");
+		check(!fzn_spool_complete(&spool), "an empty spool reports itself complete");
+
+		for (n = LEAVES; n-- > 0;) {
+			check(fzn_spool_place(&spool, &hash_ops, n, sealed[n], sealed_len[n],
+			                      proof[n], proof_len[n]) == FZN_SPOOL_OK,
+			      "a leaf that proves against the root was refused by the spool");
+			check(fzn_spool_has(&spool, n), "and the spool does not hold it");
+		}
+		check(fzn_spool_complete(&spool),
+		      "every leaf was placed and the spool is not complete");
+
+		/* AND ONLY NOW DOES THE KEY MATTER. Placing was keyless -- the
+		 * proof is what admitted each leaf -- so a relay can carry and
+		 * verify bytes it cannot read. Reading the plaintext back needs
+		 * the key that crossed inside the sealed frame. */
+		check(fzn_spool_read(&spool, 0u, back, sizeof(back), &back_len) ==
+		              FZN_SPOOL_OK,
+		      "a placed leaf cannot be read back out of the spool");
+		check(back_len == sealed_len[0],
+		      "the leaf came back a different length from the one placed");
+		check(fzn_blob_leaf_open(&hash_ops, &aead_ops, carried_key, 0u, back, back_len,
+		                         recovered, sizeof(recovered),
+		                         &recovered_len) == FZN_BLOB_OK,
+		      "the leaf would not open under the content key that crossed the wire");
+		check(recovered_len == plain_len[0]
+		              && memcmp(recovered, plain[0], plain_len[0]) == 0,
+		      "the blob's bytes did not survive seal, frame, spool and open");
+
+		/* THE RELAY'S POSITION, asserted rather than described: the same
+		 * leaf under a key nobody sent is refused, so the bytes a relay
+		 * holds are bytes it cannot read. */
+		{
+			uint8_t stranger_key[FZN_BLOB_KEY_LEN];
+
+			memset(stranger_key, 0x2cu, sizeof(stranger_key));
+			check(memcmp(stranger_key, carried_key, FZN_BLOB_KEY_LEN) != 0,
+			      "the stranger's key is the real one, so the refusal below is empty");
+			check(fzn_blob_leaf_open(&hash_ops, &aead_ops, stranger_key, 0u, back,
+			                         back_len, recovered, sizeof(recovered),
+			                         &recovered_len) != FZN_BLOB_OK,
+			      "a leaf opened under a content key nobody sent, so a relay can read "
+			      "what it is only supposed to carry");
+		}
+		/* A LEAF THAT DOES NOT PROVE IS REFUSED, and without this leg
+		 * the spool's whole argument is untested: measured, deleting
+		 * `fzn_spool_place`'s proof check leaves every assertion above
+		 * green, because they only ever place leaves that are correct.
+		 * A store that writes whatever it is handed is a store an
+		 * attacker fills.
+		 *
+		 * The bytes are leaf 0's, offered as leaf 1. They are a real
+		 * sealed leaf of this very blob, so what refuses them is the
+		 * proof against the root rather than anything about their
+		 * shape. */
+		{
+			fzn_spool_t fresh;
+			uint8_t fresh_present[FZN_SPOOL_BITMAP_LEN(LEAVES)];
+
+			memset(fresh_present, 0, sizeof(fresh_present));
+			memset(spool_disk, 0, sizeof(spool_disk));
+			check(fzn_spool_open(&fresh, blob_root, LEAVES, fresh_present,
+			                     sizeof(fresh_present), &SPOOL_OPS) == FZN_SPOOL_OK,
+			      "the control spool would not open");
+			check(fzn_spool_place(&fresh, &hash_ops, 1u, sealed[0], sealed_len[0],
+			                      proof[1], proof_len[1]) != FZN_SPOOL_OK,
+			      "a leaf that does not prove against the root was placed, so the "
+			      "spool writes whatever it is handed");
+			check(!fzn_spool_has(&fresh, 1u),
+			      "and the spool recorded holding it anyway");
+			check(!fzn_spool_complete(&fresh),
+			      "and it called itself complete on a leaf it refused");
+		}
+
 	}
 
 	fzn_agree_secret_wipe(&device_sk);
