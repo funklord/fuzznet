@@ -67,6 +67,90 @@ static int plan_names(const fzn_sync_request_t *out, const fzn_sync_plan_t *plan
 	return 0;
 }
 
+/*
+ * EVERY OPERAND OF EVERY GUARD, not the first one of each.
+ *
+ * These guards are conjunctions and the suite failed the first operand, so
+ * `make coverage` reported the rest as never taken both ways while the guard
+ * looked tested. sec 88 measured what an unreached operand is worth: the
+ * operand after the first is what stands between a partially initialised
+ * caller and a null dereference.
+ *
+ * A journal with `entries` NULL, or with `used` past `capacity`, cannot be
+ * built through `fzn_journal_init` -- which refuses both. It is built by
+ * hand here, because that is what a caller holds who restored a struct from
+ * a file and got the count without the array.
+ */
+static void test_the_operands_the_first_one_hides(void)
+{
+	fzn_journal_t j;
+	fzn_journal_entry_t entries[4];
+	fzn_sync_position_t positions[4];
+	fzn_sync_request_t requests[4];
+	fzn_sync_plan_t plan;
+	size_t dropped = 99u;
+
+	memset(entries, 0, sizeof(entries));
+	memset(positions, 0, sizeof(positions));
+
+	/* digest: the first operand, then each one after it. */
+	expect(fzn_sync_digest(NULL, positions, 4u, &dropped) == 0u,
+	       "digest accepted a null journal");
+
+	j.entries = NULL;
+	j.capacity = 4u;
+	j.used = 0u;
+	expect(fzn_sync_digest(&j, positions, 4u, &dropped) == 0u,
+	       "digest accepted a journal whose entries are null");
+
+	j.entries = entries;
+	expect(fzn_sync_digest(&j, NULL, 4u, &dropped) == 0u,
+	       "digest accepted a null out array");
+
+	/* `used` past `capacity` is the operand that is not a null test, and
+	 * it is the one a truncated restore actually produces: the count
+	 * survives the round trip and the array does not. */
+	j.used = 5u;
+	expect(fzn_sync_digest(&j, positions, 4u, &dropped) == 0u,
+	       "digest accepted a journal counting more entries than it has room for");
+	j.used = 0u;
+
+	/* AND `dropped` IS STILL CLEARED. It is written before the guard on
+	 * purpose -- sync.h requires it -- so a refused digest must leave a
+	 * zero behind rather than the caller's own stale value. */
+	dropped = 99u;
+	expect(fzn_sync_digest(NULL, positions, 4u, &dropped) == 0u, "digest accepted a null journal");
+	expect(dropped == 0u, "a refused digest left the caller's stale dropped count in place");
+
+	/* `args_ok` is shared by fetch and offer, and it REFUSES rather than
+	 * returning a count -- so the expected answer here is the error, not a
+	 * zero. Both entry points are walked, because a helper is only as
+	 * wired as its least-used caller. */
+	expect(fzn_sync_plan_offer(NULL, positions, 1u, 8u, requests, 4u, &plan)
+	       == FZN_SYNC_ERR_MALFORMED, "plan_offer accepted a null journal");
+	expect(fzn_sync_plan_fetch(NULL, positions, 1u, 8u, requests, 4u, &plan)
+	       == FZN_SYNC_ERR_MALFORMED, "plan_fetch accepted a null journal");
+
+	j.entries = NULL;
+	expect(fzn_sync_plan_offer(&j, positions, 1u, 8u, requests, 4u, &plan)
+	       == FZN_SYNC_ERR_MALFORMED, "plan_offer accepted a journal whose entries are null");
+	expect(fzn_sync_plan_fetch(&j, positions, 1u, 8u, requests, 4u, &plan)
+	       == FZN_SYNC_ERR_MALFORMED, "plan_fetch accepted a journal whose entries are null");
+
+	j.entries = entries;
+	expect(fzn_sync_plan_offer(&j, positions, 1u, 8u, NULL, 4u, &plan)
+	       == FZN_SYNC_ERR_MALFORMED, "plan_offer accepted a null out array");
+	expect(fzn_sync_plan_offer(&j, positions, 1u, 8u, requests, 4u, NULL)
+	       == FZN_SYNC_ERR_MALFORMED, "plan_offer accepted a null plan");
+
+	/* The operand that is not a null test: positions may be NULL only if
+	 * the count says there are none. */
+	expect(fzn_sync_plan_offer(&j, NULL, 1u, 8u, requests, 4u, &plan)
+	       == FZN_SYNC_ERR_MALFORMED, "plan_offer accepted a null array with a nonzero count");
+	expect(fzn_sync_plan_offer(&j, positions, 1u, 0u, requests, 4u, &plan)
+	       == FZN_SYNC_ERR_MALFORMED, "plan_offer accepted a zero budget");
+}
+
 int main(void)
 {
 	fzn_journal_t mine;
@@ -607,6 +691,8 @@ int main(void)
 	       "nowhere to put the offer plan");
 	expect(fzn_sync_plan_fetch(&mine, NULL, 0, 100, out, 4, &plan) == FZN_SYNC_OK,
 	       "a peer that reported nothing is not malformed");
+
+	test_the_operands_the_first_one_hides();
 
 	printf("sync_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

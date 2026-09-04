@@ -1319,6 +1319,72 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 	CHECK(done != NULL, "a single-chunk message did not complete immediately");
 }
 
+/*
+ * EVERY OPERAND OF EVERY GUARD, not the first one of each.
+ *
+ * These guards are conjunctions and the suite failed the first operand, so
+ * `make coverage` reported the rest as never taken both ways while the guard
+ * looked tested. sec 88 measured what an unreached operand is worth: the
+ * operand after the first is what stands between a partially initialised
+ * caller and a null dereference.
+ */
+static void test_the_operands_the_first_one_hides(void)
+{
+	fzn_reasm_t table;
+	fzn_partial_t slots[2];
+	fzn_reasm_range_t out[4];
+	size_t count = 0;
+	uint8_t sender[FZN_SENDER_LEN];
+	uint8_t bufs[2][64];
+
+	memset(slots, 0, sizeof(slots));
+	memset(bufs, 0, sizeof(bufs));
+	memset(sender, 0x44, sizeof(sender));
+
+	/* A SLOT WITH NO BUFFER IS REFUSED, and it is refused per slot rather
+	 * than for the array -- so the loop has to be walked, not just entered.
+	 * Slot 0 is given a buffer and slot 1 is not, which fails on the second
+	 * iteration and would pass if the check only ever read slots[0]. */
+	CHECK(fzn_reasm_slot_init(&slots[0], bufs[0], sizeof(bufs[0])) == FZN_REASM_OK,
+	      "slot_init refused a sound slot");
+	CHECK(fzn_reasm_init(&table, slots, 2u, 2u, 60u) == FZN_REASM_ERR_MALFORMED,
+	      "init accepted an array whose SECOND slot has no buffer");
+	CHECK(fzn_reasm_slot_init(&slots[1], bufs[1], sizeof(bufs[1])) == FZN_REASM_OK,
+	      "slot_init refused a sound slot");
+
+	/* init: every operand, and the three that are not null tests. Zero is
+	 * refused rather than meaning unlimited, so a caller who forgot a
+	 * field is told, not silently given no bound. */
+	CHECK(fzn_reasm_init(NULL, slots, 2u, 2u, 60u) == FZN_REASM_ERR_MALFORMED,
+	      "init accepted a null table");
+	CHECK(fzn_reasm_init(&table, NULL, 2u, 2u, 60u) == FZN_REASM_ERR_MALFORMED,
+	      "init accepted null slots");
+	CHECK(fzn_reasm_init(&table, slots, 0u, 2u, 60u) == FZN_REASM_ERR_MALFORMED,
+	      "init accepted zero capacity");
+	CHECK(fzn_reasm_init(&table, slots, 2u, 0u, 60u) == FZN_REASM_ERR_MALFORMED,
+	      "init accepted a zero per-sender maximum, which would mean unlimited");
+	CHECK(fzn_reasm_init(&table, slots, 2u, 2u, 0u) == FZN_REASM_ERR_MALFORMED,
+	      "init accepted a zero hold, which would expire every slot on arrival");
+
+	CHECK(fzn_reasm_init(&table, slots, 2u, 2u, 60u) == FZN_REASM_OK, "init refused a sound table");
+
+	CHECK(fzn_reasm_plan_want(NULL, sender, 1u, 4u, out, 4u, &count) == FZN_REASM_ERR_MALFORMED,
+	      "plan_want accepted a null table");
+	{
+		fzn_reasm_t hollow = table;
+
+		hollow.slots = NULL;
+		CHECK(fzn_reasm_plan_want(&hollow, sender, 1u, 4u, out, 4u, &count)
+		      == FZN_REASM_ERR_MALFORMED, "plan_want accepted a table whose slots are null");
+	}
+	CHECK(fzn_reasm_plan_want(&table, NULL, 1u, 4u, out, 4u, &count) == FZN_REASM_ERR_MALFORMED,
+	      "plan_want accepted a null sender");
+	CHECK(fzn_reasm_plan_want(&table, sender, 1u, 4u, NULL, 4u, &count) == FZN_REASM_ERR_MALFORMED,
+	      "plan_want accepted a null out array");
+	CHECK(fzn_reasm_plan_want(&table, sender, 1u, 4u, out, 4u, NULL) == FZN_REASM_ERR_MALFORMED,
+	      "plan_want accepted a null count");
+}
+
 int main(void)
 {
 	test_reassembles_in_order();
@@ -1350,6 +1416,8 @@ int main(void)
 	test_the_offset_guard_refuses_a_slot_that_cannot_hold_the_chunk();
 	test_every_guard_refuses_its_own_argument();
 	test_the_suite_can_tell_pass_from_fail();
+
+	test_the_operands_the_first_one_hides();
 
 	printf("reassembly_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

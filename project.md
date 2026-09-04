@@ -11520,6 +11520,80 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 91. The guard-operand sweep, and four ways the count was wrong, 2026-09-04
+
+Section 88 closed three guard operands and measured what one is worth.
+This is the sweep that followed it across the library, and the useful
+part is not the coverage -- it is that the SCOPE NUMBER was wrong four
+separate times, each time in the direction that made the job look
+bigger, and none of them was caught by reading it back.
+
+**First count: "153 uncovered lines across 24 files."** Produced by a
+parser that read `gcov -t` output and never split on the `Source:`
+marker. gcov emits a section per file it has line data for -- the `.c`
+AND every header whose inline functions were compiled into it -- so
+`record/record.h`'s eight inline guards were attributed to `state.c`,
+`tree.c`, `log.c` and `record.c` alike, once per translation unit that
+includes it. The tell was in the output and was read straight past:
+`record.c` is 195 lines long and the report named line 388.
+
+**Second count: 167, same parser, same fault.** Re-running the
+enumeration is what `evidence.md` warns is not a second measurement --
+the same instrument reproduces its own blind spot exactly. What found it
+was checking one line against the file, which cost one `sed`.
+
+**The honest figure is 116 lines in 20 files**, with the header inlines
+counted once each rather than per includer: `wire/generated/frame.h` 19,
+`record/record.h` 8, `wire/generated/situ.h` 6, `wire/bytes.h` 1.
+
+**Third: the per-file percentages in commit `7314739` are a narrower
+population than they read as.** They were measured by running that
+module's own suite, and the whole-run figure is higher, because other
+suites exercise the same code -- `spool.c` is 100% of its branches in a
+full run and the message says 92.41%. Both numbers are real. The
+message does not say which question it answered, which is the whole of
+the defect.
+
+**Fourth, and the one that would have been expensive: the sweep's own
+edit nearly deleted 212 lines of committed work.** The script inserted
+each new test by slicing from a comment header to `int main`, and the
+comment header it searched for was one an EARLIER commit in this same
+sweep had already written into that file. `index()` returned the first
+occurrence, the slice ran from there to `main`, and two existing test
+functions were carried out of `spool_test.c` and into `plan_test.c`.
+The compiler caught it immediately -- two undeclared functions -- but it
+would not have caught the reverse case, a slice that landed entirely
+inside dead space. **An anchor is unique at the moment of the edit, not
+by nature, and a sweep that writes the same anchor into many files is a
+sweep that destroys its own uniqueness as it runs.**
+
+### What is deliberately NOT closed, and why
+
+Six of the 116 are unreachable by construction and stay that way. They
+are defence in depth, which is a thing this library does on purpose, so
+a test forcing them would be asserting that a lie can be told:
+
+    state.c:156, log.c:112   seq 0 past `fzn_record_open`, which refuses it
+    chain.c:375, chain.c:384 re-opening bytes this function just encoded
+    relay.c:65               `hop_view` after `fzn_relay_budget` ran it
+    tree.c:58                a null body behind a passing `body_len`
+
+**And one is not defence in depth -- it is dead.** `tree.c:124` reads
+
+    *out = lo + (hi - lo) / 2u;
+    if (*out == lo && hi - lo <= 1u)
+
+The second operand cannot be false when the first is true: `*out == lo`
+holds exactly when `(hi - lo) / 2 == 0`, which is exactly `hi - lo <= 1`.
+The comment above it already says so -- "the midpoint equals `lo`
+precisely when hi - lo is 0 or 1, so this is the whole exhaustion test"
+-- and then the code tests it twice anyway. The coverage report is
+correct that the branch is never taken both ways, and no input will ever
+take it. **This is the one case in the sweep where the right change is
+to the source and not to the suite**, and it is left for the holder
+rather than taken in passing, because deleting half a condition in a
+binary search is not a test change.
+
 ## 90. Three cost judgements in one day, all wrong the same way, 2026-09-04
 
 Two findings today came from the same place, and finding the second by

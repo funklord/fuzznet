@@ -38,6 +38,40 @@ static void expect_err(fzn_link_err_t got, fzn_link_err_t want, const char *what
 	}
 }
 
+/*
+ * EVERY OPERAND OF EVERY GUARD, not the first one of each.
+ *
+ * `usable()` is a conjunction and the suite only ever failed its first
+ * operand, so `make coverage` reported the rest as never taken both ways
+ * while the guard looked tested. sec 88 measured what an unreached operand
+ * is worth: the operand after the first is what stands between a partially
+ * initialised caller and a null dereference.
+ *
+ * A struct with `entries` NULL, or with `used` past `capacity`, cannot be
+ * built through `_init` -- which refuses both. It is built here by hand,
+ * because that is the state a caller has who memcpy'd a struct out of a
+ * file, or who zeroed one and filled it in halfway.
+ */
+static void test_the_operands_the_first_one_hides(void)
+{
+	fzn_link_table_t t;
+	fzn_link_entry_t entries[3];
+
+	memset(entries, 0, sizeof(entries));
+
+	expect(fzn_link_get(NULL, 1u) == NULL, "get accepted a null table");
+
+	t.entries = NULL;
+	t.capacity = 3u;
+	t.used = 0u;
+	expect(fzn_link_get(&t, 1u) == NULL, "get accepted a table whose entries are null");
+
+	t.entries = entries;
+	t.used = 4u;
+	expect(fzn_link_get(&t, 1u) == NULL,
+	       "get accepted a table counting more entries than it has room for");
+}
+
 int main(void)
 {
 	fzn_link_table_t table;
@@ -315,6 +349,8 @@ int main(void)
 		       "init left the caller's bytes in the entry array, so what a fresh "
 		       "table holds depends on what its memory held");
 	}
+
+	test_the_operands_the_first_one_hides();
 
 	printf("link_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

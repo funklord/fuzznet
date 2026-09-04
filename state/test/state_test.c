@@ -758,6 +758,56 @@ static void property_the_contention_alarm_is_per_host(void)
 	expect(conflicts[4] == 2 && crosses[4] == 0, "bob seated first: two conflicts");
 }
 
+/*
+ * EVERY OPERAND OF EVERY GUARD, not the first one of each.
+ *
+ * `usable()` is a conjunction and the suite only ever failed its first
+ * operand, so `make coverage` reported the rest as never taken both ways
+ * while the guard looked tested. sec 88 measured what an unreached operand
+ * is worth: the operand after the first is what stands between a partially
+ * initialised caller and a null dereference.
+ *
+ * A struct with `entries` NULL, or with `used` past `capacity`, cannot be
+ * built through `_init` -- which refuses both. It is built here by hand,
+ * because that is the state a caller has who memcpy'd a struct out of a
+ * file, or who zeroed one and filled it in halfway.
+ */
+static void test_the_operands_the_first_one_hides(void)
+{
+	fzn_state_t st;
+	fzn_state_entry_t entries[4];
+	uint8_t subject[FZN_SUBJECT_LEN];
+
+	memset(entries, 0, sizeof(entries));
+	memset(subject, 0x33, sizeof(subject));
+
+	/* The first operand, which the suite already reached. */
+	expect(fzn_state_get(NULL, subject, 1u) == NULL, "get accepted a null state");
+
+	/* The second: a struct present and pointing at nothing. */
+	st.entries = NULL;
+	st.capacity = 4u;
+	st.used = 0u;
+	st.forgotten = 0u;
+	expect(fzn_state_get(&st, subject, 1u) == NULL,
+	      "get accepted a state whose entries are null");
+	expect(fzn_state_count(&st) == 0u, "count accepted a state whose entries are null");
+
+	/* The third: used past capacity, which is what a truncated restore
+	 * leaves behind -- the count survives and the array does not. */
+	st.entries = entries;
+	st.capacity = 4u;
+	st.used = 5u;
+	expect(fzn_state_get(&st, subject, 1u) == NULL,
+	      "get accepted a state counting more entries than it has room for");
+	expect(fzn_state_count(&st) == 0u,
+	      "count accepted a state counting more entries than it has room for");
+
+	/* And the operand that is not about the state at all. */
+	st.used = 0u;
+	expect(fzn_state_get(&st, NULL, 1u) == NULL, "get accepted a null subject");
+}
+
 int main(void)
 {
 	fzn_state_t st;
@@ -1272,6 +1322,8 @@ int main(void)
 		       "init left the caller's bytes in the entry array, so what a fresh "
 		       "table holds depends on what its memory held");
 	}
+
+	test_the_operands_the_first_one_hides();
 
 	printf("state_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

@@ -508,6 +508,62 @@ static void test_an_offer_is_bounded(void)
 	}
 }
 
+/*
+ * EVERY OPERAND OF EVERY GUARD, not the first one of each.
+ *
+ * These guards are conjunctions and the suite failed the first operand, so
+ * `make coverage` reported the rest as never taken both ways while the guard
+ * looked tested. sec 88 measured what an unreached operand is worth: the
+ * operand after the first is what stands between a partially initialised
+ * caller and a null dereference.
+ */
+static void test_the_operands_the_first_one_hides(void)
+{
+	fzn_spool_t sp;
+	fzn_spool_range_t out[4], want[2];
+	size_t count = 0;
+	uint8_t map[2];
+
+	memset(map, 0, sizeof(map));
+	memset(want, 0, sizeof(want));
+
+	CHECK(fzn_spool_plan_want(NULL, 0u, 4u, out, 4u, &count) == FZN_SPOOL_ERR_MALFORMED,
+	      "plan_want accepted a null spool");
+
+	/* A spool whose bitmap pointer is null is what a caller holds who
+	 * restored the struct and not the array beside it. */
+	memset(&sp, 0, sizeof(sp));
+	sp.leaves = 8u;
+	sp.present = NULL;
+	sp.present_len = sizeof(map);
+	CHECK(fzn_spool_plan_want(&sp, 0u, 4u, out, 4u, &count) == FZN_SPOOL_ERR_MALFORMED,
+	      "plan_want accepted a spool whose present map is null");
+	CHECK(fzn_spool_plan_offer(&sp, want, 1u, 4u, out, 4u, &count) == FZN_SPOOL_ERR_MALFORMED,
+	      "plan_offer accepted a spool whose present map is null");
+
+	sp.present = map;
+	CHECK(fzn_spool_plan_want(&sp, 0u, 4u, NULL, 4u, &count) == FZN_SPOOL_ERR_MALFORMED,
+	      "plan_want accepted a null out array");
+	CHECK(fzn_spool_plan_want(&sp, 0u, 4u, out, 4u, NULL) == FZN_SPOOL_ERR_MALFORMED,
+	      "plan_want accepted a null count");
+	CHECK(fzn_spool_plan_offer(&sp, want, 1u, 4u, NULL, 4u, &count) == FZN_SPOOL_ERR_MALFORMED,
+	      "plan_offer accepted a null out array");
+	CHECK(fzn_spool_plan_offer(&sp, want, 1u, 4u, out, 4u, NULL) == FZN_SPOOL_ERR_MALFORMED,
+	      "plan_offer accepted a null count");
+
+	/* THE OPERAND THAT IS NOT A NULL TEST. A spool with no leaves has no
+	 * range to ask for, and a start past the end is a caller that has lost
+	 * its place -- answering from zero would look like it worked. */
+	sp.leaves = 0u;
+	CHECK(fzn_spool_plan_want(&sp, 0u, 4u, out, 4u, &count) == FZN_SPOOL_ERR_MALFORMED,
+	      "plan_want accepted a spool with no leaves");
+	sp.leaves = 8u;
+	CHECK(fzn_spool_plan_want(&sp, 8u, 4u, out, 4u, &count) == FZN_SPOOL_ERR_MALFORMED,
+	      "plan_want accepted a start at the end of the blob");
+	CHECK(fzn_spool_plan_want(&sp, 99u, 4u, out, 4u, &count) == FZN_SPOOL_ERR_MALFORMED,
+	      "plan_want accepted a start past the end of the blob");
+}
+
 int main(void)
 {
 	test_a_want_names_the_gaps();
@@ -520,6 +576,8 @@ int main(void)
 	test_a_want_that_names_nothing_gets_nothing();
 	test_an_offer_sends_only_what_it_holds();
 	test_an_offer_is_bounded();
+
+	test_the_operands_the_first_one_hides();
 
 	printf("plan_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
