@@ -11350,6 +11350,45 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 64. The harness run in full, 2026-09-04
+
+    83 entries    79 caught    4 survived    0 hung    0 pattern misses
+
+**All four survivors are the four in `EXPECTED_SURVIVORS`**, each carrying its
+reason in `tool/sabotage.py`: the manifest's zeroed signature field (sec 36),
+`seal.c`'s refused-build wipe, which that file's own 2026-08-28 re-measurement
+made prospective, `relay-hop-header-min`, redundant with a bounds check in
+situ's generated code and kept because that code lives in another repository,
+and `peer-linux-trim-call`, whose logic is held and whose placement no test can
+reach. No unexpected survivor, which is the result the harness exists to
+produce.
+
+**The date is the point of writing this down.** The previous full run was at 76
+entries on 2026-09-03; seven were added on 2026-09-04 and each was verified
+alone with `--only` as it was written, which says nothing about the other 76
+after three test files had changed under them. A per-entry check is not a
+sweep, and the sweep is what licenses "every guard is held to account by
+something" -- the line the harness prints and this document quotes.
+
+**All seven new entries were caught in the full run**, each at a named check:
+the stage-2 gate and its scoping at `manifest_test.c:2269` and `:2311`, the
+three withdrawal drains at `:2543`, `:2568` and `:2592`, the two blob capacity
+bounds at `blob_test.c:792` and `:808`, and the decision layer's forwarding
+through the network harness.
+
+**What a green sweep does NOT say**, since the run is quoted more often than it
+is read: `runtests` stops at the first binary that fails, so the harness
+reports which suite caught a mutation first and not which was written for it.
+It licenses "held by something", which is its claim; a per-guard attribution
+needs the `--only` run that each entry got when it was written.
+
+**Cost, so the next session can size it:** about twenty-five minutes for 83
+entries on a machine at load 80 to 110 from other sessions, because a caught
+mutation fails fast -- `runtests` exits at the first binary that catches it --
+and only a survivor pays for the whole suite. It is far cheaper than the
+83 x `make test` the arithmetic suggests, and cheap enough to run after any
+pass that adds entries.
+
 ## 63. One module list in three places, two of them ungated, 2026-09-04
 
 Fixing sec 11's stale counts turned up the same inventory twice more, and all
