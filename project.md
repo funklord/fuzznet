@@ -11487,6 +11487,76 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 84. The lens three findings pointed at, swept, 2026-09-04
+
+Three of the night's findings were one shape, arrived at from three
+directions:
+
+    session/session.c   "BOTH ARE WIPED ON EVERY PATH"    two paths returned past it
+    session/aead.h      constrained `open` in four lines  said nothing about `seal`
+    wire/seal_fuzz.c    "cleared by a single lucky hit"   every floor was == 0u
+
+**A comment or a guard message asserting a property, with nothing checking
+that the code below it agrees.** Each was found by accident, so the lens was
+pointed deliberately.
+
+### The detector, and what it costs
+
+    grep -rniE 'on every path|every path|all paths|in every case|on every call|
+                never .* without|always .* before|every one of them|
+                without exception' --include=*.c --include=*.h
+
+Twenty-five hits across the tree; five make a checkable universal claim about
+control flow in library code. The rest are test prose and design commentary.
+
+**It is a grep, and the check is a person.** There is nothing mechanical here
+and there should not be: whether a sentence matches the code beneath it is not
+a property a tool can decide, which is exactly why this class survives gates
+that catch everything else.
+
+### The result
+
+    session/session.c:186    WRONG, and fixed in sec 79 before this ran
+    ratchet/ratchet.c:169    correct -- every failure path goes through `out`
+    wire/seal.c:176          correct, and already argued in place
+    frame/freshness.c:190    correct, and a record of this class biting before
+    local/peer_linux.c:80    correct
+
+One in five, and the one is the one this document already carries. **The
+detector finds it**: `session.c:186` is in the hit list, so a sweep run
+yesterday would have caught what took a coverage measurement to notice.
+
+### Two of the four are records of the same class having bitten already
+
+`frame/freshness.c` reclaims expired entries before anything that can return
+early, *"so 'reclaimed on every call' is true rather than nearly true"* -- and
+says why: it used to sit below two returns, so traffic made entirely of grants
+or entirely of stale commands left dead entries holding slots indefinitely.
+**Found by that module's own fuzzer, against the invariant that every live
+entry is unexpired.**
+
+`wire/seal.c` carries three guards it establishes as unreachable, records that
+`make coverage` reports them as never taken, explains that they are the
+boundary between this file's reasoning and the generated code's, and tells a
+future reader hunting the last branches not to spend a fixture on them. That
+is the analysis sec 80 did for `blob/`'s depth bound, written before it.
+
+**So the class is not hypothetical and the tree is mostly clean of it** --
+which is the useful shape of this result: a lens worth having, a detector
+worth keeping, and no backlog behind it.
+
+### Why it will not become a gate
+
+A gate would have to decide whether prose matches code. What it could check --
+that a comment saying "every path" sits in a function whose returns all reach
+one label -- is a pattern match on a shape this tree deliberately varies, and
+would fire on `ratchet.c` and `seal.c`, which are correct.
+
+The honest arrangement is what `evidence.md` recommends for a one-off sweep
+against a standing gate: **this is read once, entirely, by the person who ran
+it.** Recorded here so the next person can re-run it rather than re-derive it,
+with the phrasing list as the thing worth keeping.
+
 ## 83. The sweep sec 82 asked for, and two sabotages that did not bite, 2026-09-04
 
 Sec 82 found `seal_fuzz` refusing short runs to protect coverage floors it did
@@ -12096,7 +12166,7 @@ step out -- a failure that is reported and thrown away -- and the answer is
 zero, which took two attempts to establish and one of them was actively
 misleading.
 
-### The result
+### One in five, and it is the one already carried here
 
     status-returning functions           131
     library sources discarding one         0
