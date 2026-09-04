@@ -459,6 +459,13 @@ static int fuzz_one(const uint8_t *data, size_t len, uint32_t *state,
 	return 0;
 }
 
+static unsigned long floor_of(unsigned long cases, unsigned long per)
+{
+	unsigned long f = cases / per;
+
+	return f == 0u ? 1u : f;
+}
+
 int main(int argc, char **argv)
 {
 	unsigned long cases = FUZZ_DEFAULT_CASES;
@@ -510,11 +517,31 @@ int main(int argc, char **argv)
 	       cases, cov.opened, cov.refused, cov.cycles, cov.orphans,
 	       cov.truncated, cov.exhausted, cov.two_parents);
 
-	if (cov.opened == 0u || cov.refused == 0u || cov.cycles == 0u ||
-	    cov.orphans == 0u || cov.truncated == 0u || cov.exhausted == 0u ||
-	    cov.two_parents == 0u) {
-		printf("tree_fuzz: a coverage floor was not reached, so this run "
-		       "proves less than it appears to. FAILED.\n");
+	/* FLOORS PROPORTIONAL TO `cases`, WHICH IS WHAT THE REFUSAL ABOVE
+	 * ALREADY PROMISED. They were `== 0u` until 2026-09-04 -- at least one
+	 * hit, at any case count -- while `FUZZ_MIN_CASES` refused a short run
+	 * saying "every coverage floor below that is cleared by a single lucky
+	 * hit". Every one of them was.
+	 *
+	 * Found by sweeping the other fifteen harnesses after `wire/seal_fuzz.c`
+	 * turned out to have the same gap, in the same words. project.md sec 83.
+	 *
+	 * An eighth, against the measured shares over 200000 cases -- opened
+	 * 148%, refused 52%, unreachable 94%, orphans 163%, truncations 29%,
+	 * exhausted 31%, contested 232% (several exceed 100% because a case can
+	 * produce more than one) -- so the tightest, truncations, keeps better
+	 * than a two-fold margin. A floor is a tripwire for a generator that has
+	 * stopped reaching a state, not a number to tune against. */
+	if (cov.opened < floor_of(cases, 8u) || cov.refused < floor_of(cases, 8u) ||
+	    cov.cycles < floor_of(cases, 8u) || cov.orphans < floor_of(cases, 8u) ||
+	    cov.truncated < floor_of(cases, 8u) || cov.exhausted < floor_of(cases, 8u) ||
+	    cov.two_parents < floor_of(cases, 8u)) {
+		printf("tree_fuzz: REACHED TOO LITTLE -- %lu opened, %lu refused, "
+		       "%lu unreachable, %lu orphans, %lu truncations, %lu exhausted, "
+		       "%lu contested in %lu cases. This run proves less than it "
+		       "appears to.\n",
+		       cov.opened, cov.refused, cov.cycles, cov.orphans, cov.truncated,
+		       cov.exhausted, cov.two_parents, cases);
 		return 1;
 	}
 	return 0;

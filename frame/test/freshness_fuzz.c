@@ -35,6 +35,18 @@
 #include <string.h>
 
 #define FUZZ_DEFAULT_CASES 20000u
+
+/* THE SAME MINIMUM THE OTHER HARNESSES REFUSE BELOW, missing here until
+ * 2026-09-04. The floors are proportional to `cases` and `floor_of` returns 1
+ * when the division underflows, so a short run had floors of one.
+ *
+ * MEASURED RATHER THAN ASSERTED, because the same claim was checked against
+ * `manifest_fuzz` and was WRONG there: with the guard disabled, this harness
+ * reports SUCCESS at three cases -- 15 admitted, 7 replays, 2 stale -- while
+ * manifest_fuzz at three cases still fails, one of its counters reaching
+ * zero. So this one really could pass a sweep proving nothing and that one
+ * could not. project.md sec 83. */
+#define FUZZ_MIN_CASES 1000u
 #define WINDOW 8
 /* The horizon, chosen against the generator below rather than picked. Expiries
  * run to `now + 765`, so 400 puts roughly half of them outside it: a horizon
@@ -221,6 +233,14 @@ int main(int argc, char **argv)
 		cases = strtoul(argv[1], NULL, 10);
 		if (cases == 0)
 			cases = FUZZ_DEFAULT_CASES;
+	}
+
+	if (cases < FUZZ_MIN_CASES) {
+		printf("freshness_fuzz: %lu cases is below FUZZ_MIN_CASES (%u); every "
+		       "coverage floor below that is cleared by a single lucky hit, so "
+		       "this run will not report success. Re-run with %u or more.\n",
+		       cases, (unsigned)FUZZ_MIN_CASES, (unsigned)FUZZ_MIN_CASES);
+		return 1;
 	}
 
 	for (unsigned long c = 0; c < cases; c++) {

@@ -56,6 +56,15 @@
 
 #define FUZZ_DEFAULT_CASES 20000u
 
+/* THE SAME MINIMUM THE OTHER HARNESSES REFUSE BELOW, missing here until
+ * 2026-09-04, and added for consistency rather than for a demonstrated false
+ * pass. Measured with the guard disabled: three cases still FAIL here,
+ * because `covered` reaches zero and its proportional floor bottoms out at
+ * one. `freshness_fuzz` in the same state reports success, which is why both
+ * were given the guard and why only that one is described as having had a
+ * hole. project.md sec 83. */
+#define FUZZ_MIN_CASES 1000u
+
 /* Small on purpose. The deficit table has to FILL for the overflow rules to
  * be reachable at all, and a table a case cannot fill is a set of rules this
  * harness would report on without having entered. */
@@ -608,6 +617,14 @@ int main(int argc, char **argv)
 			return 1;
 		}
 		cases = n;
+	}
+
+	if (cases < FUZZ_MIN_CASES) {
+		printf("manifest_fuzz: %lu cases is below FUZZ_MIN_CASES (%u); every "
+		       "coverage floor below that is cleared by a single lucky hit, so "
+		       "this run will not report success. Re-run with %u or more.\n",
+		       cases, (unsigned)FUZZ_MIN_CASES, (unsigned)FUZZ_MIN_CASES);
+		return 1;
 	}
 
 	for (unsigned long c = 0; c < cases; c++) {

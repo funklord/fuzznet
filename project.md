@@ -11487,6 +11487,79 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 83. The sweep sec 82 asked for, and two sabotages that did not bite, 2026-09-04
+
+Sec 82 found `seal_fuzz` refusing short runs to protect coverage floors it did
+not have. The obvious question was whether its fifteen neighbours were the
+same, and three of them were.
+
+### The sweep
+
+    harness            proportional floors   == 0u floors   MIN_CASES guard
+    tree_fuzz                            0              7               yes
+    seal_fuzz (sec 82)                   2              1               yes
+    manifest_fuzz                        4              0                no
+    freshness_fuzz                       3              0                no
+    the other twelve                   2-8              0               yes
+
+**`tree_fuzz` is sec 82's defect in sec 82's words.** Its guard says *"every
+coverage floor below that is cleared by a single lucky hit"*, and all seven of
+its floors were `== 0u` -- cleared by a single hit at any case count. Two
+files, one sentence, one gap. Scaled to an eighth against the measured shares
+over 200000 cases, where the tightest (truncations, 29%) keeps better than a
+two-fold margin.
+
+### The sabotage that applied and did not bite
+
+Raising `cov.opened`'s floor to `floor_of(cases, 1u)` -- the whole case count --
+and the harness still **passed**. The substitution was asserted, so it had
+landed; it simply did not create the condition. `opened` is 29560 in 20000
+cases, because one case can open more than one tree, so a floor of 20000 was
+still comfortably met.
+
+`evidence.md` says to confirm a sabotage landed, because one that did not
+apply and a check that cannot fail are indistinguishable. **This is a step
+past that: it applied and was still not a sabotage.** Asserting the
+substitution is necessary and is not sufficient -- what has to be confirmed is
+that the edit makes the thing FAIL.
+
+Repeated against `truncated` (5805 in 20000), the floor fires: exit 1,
+`REACHED TOO LITTLE`.
+
+### And the second one, which was in the write-up rather than the code
+
+`manifest_fuzz` and `freshness_fuzz` had no minimum-cases guard, and the
+comment first written into both said a short run "could report success on a
+sweep that proves nothing".
+
+**Measured with the guard disabled, that is true of one and false of the
+other.**
+
+    freshness_fuzz 3   EXIT 0   15 admitted, 7 replays, 2 stale
+    manifest_fuzz  3   EXIT 1   REACHED TOO LITTLE, covered 0
+
+`manifest_fuzz`'s proportional floors bottom out at one, and one of its
+counters reaches zero at three cases, so it refuses on its own. **The guard is
+a real fix there and a consistency fix here**, and the comments now say which
+is which.
+
+The claim was written into two source files before it was checked, and
+checking it took two commands. It is the same error as sec 71's -- a sentence
+that reads as measured because it sits next to measurements -- and the reason
+it was caught this time is that the write-up named a specific number a command
+could contradict.
+
+### What the sweep leaves
+
+Sixteen harnesses: all now have a minimum-cases guard, and all now have floors
+proportional to `cases` except the run-level flags that cannot be
+(`seal_fuzz`'s `length_sweeps`, which is one sweep per run by construction).
+
+**Nothing here found a defect in the library.** It found three harnesses that
+would have gone on reporting success after a generator stopped reaching a
+state -- which is the failure a fuzz harness is least able to notice about
+itself, because its output looks the same either way.
+
 ## 82. A guard protecting floors that were not there, 2026-09-04
 
 Found while reading a long fuzz run rather than by looking for it. Every
