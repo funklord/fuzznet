@@ -814,6 +814,74 @@ static void test_the_tree_refuses_when_it_is_full(void)
 	      "the only error code no test named also has no string");
 }
 
+/*
+ * THE DEEPEST TREE THIS LIBRARY WILL ACCEPT, walked to the bottom.
+ *
+ * Added 2026-09-04 from a coverage measurement. `blob.c` had 27 lines whose
+ * branches never went both ways, and three of them were the depth bounds --
+ * the guards that stop a crafted proof making a verifier iterate without end,
+ * on the KEYLESS verifier, which `blob.h` says is the one strangers use.
+ *
+ * WHY THEY ARE UNREACHABLE, WHICH IS THE POINT RATHER THAN AN EXCUSE.
+ * `FZN_BLOB_MAX_LEAVES` is DEFINED as `1 << FZN_BLOB_MAX_DEPTH`, so a tree at
+ * the maximum leaf count has exactly `FZN_BLOB_MAX_DEPTH` levels and the
+ * descent writes `path[0 .. 39]` -- the last slot, and not one past it. The
+ * guard cannot fire, by construction and not by luck, because
+ * `fzn_blob_proof_verify` refuses `leaf_count > FZN_BLOB_MAX_LEAVES` before
+ * the loop begins.
+ *
+ * SO WHAT THIS TESTS IS THE TIGHTNESS, not the guard. The two constants agree
+ * exactly, `path[]` is exactly full at the maximum, and nothing tries the
+ * boundary anywhere else: `blob_fuzz` generates at most 40 LEAVES, which is a
+ * tree six levels deep, so the descent it exercises is nowhere near forty.
+ * Under `make test SANITIZE=1` this is a real bound check on a
+ * stranger-facing function, and it is the only case that puts one there.
+ *
+ * The proof cannot be a genuine one -- building it needs 2^40 leaf hashes --
+ * so the assertion is about WHICH refusal comes back. Reaching the climb and
+ * failing at the root is the answer that says the descent ran; a SHAPE or a
+ * MALFORMED would mean it was refused before ever walking.
+ */
+static void test_the_deepest_legal_proof_is_walked(void)
+{
+	uint8_t leaf[FZN_BLOB_HASH_LEN], root[FZN_BLOB_HASH_LEN];
+	uint8_t siblings[FZN_BLOB_MAX_DEPTH * FZN_BLOB_HASH_LEN];
+
+	memset(leaf, 0xa1, sizeof(leaf));
+	memset(root, 0xb2, sizeof(root));
+	memset(siblings, 0xc3, sizeof(siblings));
+
+	/* THE MAXIMUM LEAF COUNT NEEDS EXACTLY MAX_DEPTH SIBLINGS. That is the
+	 * two constants agreeing, stated as a behaviour: `sibling_count !=
+	 * depth` is a refusal, so this passing means the descent counted
+	 * exactly FZN_BLOB_MAX_DEPTH levels. */
+	CHECK(fzn_blob_proof_verify(&HASH, leaf, 0, FZN_BLOB_MAX_LEAVES, siblings,
+	                            FZN_BLOB_MAX_DEPTH, root) == FZN_BLOB_ERR_PROOF,
+	      "the deepest legal tree was refused before its climb");
+
+	/* One fewer and one more must both be refused, which pins the depth to
+	 * exactly forty rather than merely at-most-forty. */
+	CHECK(fzn_blob_proof_verify(&HASH, leaf, 0, FZN_BLOB_MAX_LEAVES, siblings,
+	                            FZN_BLOB_MAX_DEPTH - 1u, root) == FZN_BLOB_ERR_PROOF,
+	      "a proof one sibling short of the deepest tree was not refused");
+	CHECK(fzn_blob_proof_verify(&HASH, leaf, 0, FZN_BLOB_MAX_LEAVES / 2u, siblings,
+	                            FZN_BLOB_MAX_DEPTH, root) == FZN_BLOB_ERR_PROOF,
+	      "a proof one level too long for its tree was not refused");
+
+	/* And one leaf past the maximum is refused before anything is walked
+	 * at all, which is what makes the depth guard unreachable. */
+	CHECK(fzn_blob_proof_verify(&HASH, leaf, 0, FZN_BLOB_MAX_LEAVES + 1u, siblings,
+	                            FZN_BLOB_MAX_DEPTH, root) == FZN_BLOB_ERR_MALFORMED,
+	      "a tree larger than the maximum was not refused outright");
+
+	/* THE CONTROL: a small tree with a correct sibling count still reaches
+	 * its climb, so the refusals above are about the sizes rather than
+	 * about this fixture never working. */
+	CHECK(fzn_blob_proof_verify(&HASH, leaf, 0, 2u, siblings, 1u, root)
+	              == FZN_BLOB_ERR_PROOF,
+	      "an ordinary two-leaf proof did not reach its climb");
+}
+
 static void test_every_guard_refuses_its_own_argument(void)
 {
 	uint8_t key[FZN_BLOB_KEY_LEN];
@@ -890,6 +958,7 @@ int main(void)
 	test_a_strangers_lengths_are_refused_as_shape();
 	test_a_refusing_hash_carries_its_refusal_out();
 	test_the_tree_refuses_when_it_is_full();
+	test_the_deepest_legal_proof_is_walked();
 	test_every_guard_refuses_its_own_argument();
 	test_the_suite_can_tell_pass_from_fail();
 

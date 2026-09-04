@@ -11475,6 +11475,77 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 80. The deepest tree nobody had walked, 2026-09-04
+
+The same measurement as sec 79, pointed at the next module: `blob/blob.c` at
+76.40% of 161 branches was the largest remaining gap, and its sealed leaves
+are what a seeder hands to strangers.
+
+### Twenty-seven lines, and the same family as session's
+
+    guard second-operands in compound null checks    10 lines
+    hash-seam failures propagated out of a helper     9 lines
+    bounds and capacities never reached               7 lines
+    an err_str switch arm                             1 line
+
+Nine seam failures again, which is sec 75's family for the third time: the
+paths a consumer's own hash takes when it refuses, none of them ever executed
+because the stubs succeed.
+
+### The three that were worth chasing
+
+`fzn_blob_proof_verify` carries a depth bound, and `blob.h` says what it is
+for: *"the bound is what stops a crafted proof making a verifier iterate
+without end"*, on the **keyless** verifier -- *"`fzn_blob_proof_verify` checks
+a leaf against the root WITH NO KEY AT ALL"*, which is the one strangers use.
+
+It had never fired, and the interesting question was whether it COULD.
+
+**It cannot, and the reason is worth more than the answer.**
+`FZN_BLOB_MAX_LEAVES` is *defined* as `1 << FZN_BLOB_MAX_DEPTH`, and
+`leaf_count` past that is refused before the loop starts. So the deepest tree
+this function will look at has exactly `FZN_BLOB_MAX_DEPTH` levels and fills
+`path[0 .. 39]` -- **the last slot and not one past it.** The two constants
+cannot drift apart, because one is written in terms of the other.
+
+That makes it the same category as `provision/`'s two unreachable refusals in
+sec 76: unreachable, and kept. **A repair that cannot fire hides the bug that
+would make it fire; a refusal that cannot fire costs one comparison and guards
+an array write whose bound lives in a `#define` two hundred lines away in
+another file.** Deleting it would move the safety of `path[depth]` out of the
+loop that does the writing.
+
+### So the test is about the tightness, not the guard
+
+    leaf_count = MAX_LEAVES, MAX_DEPTH siblings     reaches the climb
+    one sibling short                               refused
+    one level too long for its tree                 refused
+    one leaf past the maximum                       refused outright
+    an ordinary two-leaf proof                      reaches the climb (control)
+
+`sibling_count != depth` is a refusal, so the first case passing is the
+statement that the descent counted **exactly** forty levels -- the two
+constants agreeing, expressed as a behaviour rather than as a tautological
+`_Static_assert` over a macro defined in terms of the other.
+
+**Nothing anywhere else goes near it.** `blob_fuzz` generates at most forty
+LEAVES, which is a tree six levels deep, so its descents are nowhere near
+forty. Under `make test SANITIZE=1` this is a real bound check on a
+stranger-facing function and it is the only case that puts one there.
+
+The proof cannot be genuine -- building one needs 2^40 leaf hashes -- so what
+is asserted is WHICH refusal comes back. Reaching the climb and failing at the
+root says the descent ran; a SHAPE or a MALFORMED would mean it was refused
+before walking at all.
+
+### And one thing that looked like a defect and is not
+
+A proof one sibling short of its tree returns `FZN_BLOB_ERR_PROOF` rather than
+a shape error, which read as a misclassification until the code was read:
+`sibling_count != depth` returns PROOF deliberately, and *"the inclusion proof
+does not reach the root"* is exactly what a short proof is. The probe was
+written expecting SHAPE and the expectation was wrong, not the library.
+
 ## 79. A wipe label two paths walked past, and the comment that said otherwise, 2026-09-04
 
 Chosen by measurement rather than by hunch: `session/session.c` had the

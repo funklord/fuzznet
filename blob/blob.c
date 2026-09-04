@@ -546,6 +546,27 @@ fzn_blob_err_t fzn_blob_proof_verify(const fzn_hash_ops_t *hash,
 	while (n > 1u) {
 		uint64_t k = split_at(n);
 
+		/* UNREACHABLE BY CONSTRUCTION, AND IT STAYS. `FZN_BLOB_MAX_LEAVES`
+		 * is DEFINED as `1 << FZN_BLOB_MAX_DEPTH`, and `leaf_count`
+		 * above it is refused past that -- so the deepest tree this
+		 * function will look at has exactly FZN_BLOB_MAX_DEPTH levels
+		 * and fills `path[0 .. MAX_DEPTH-1]`, the last slot and not one
+		 * past it. The two constants cannot drift apart, because one is
+		 * written in terms of the other.
+		 *
+		 * Kept because it guards an array write whose bound comes from
+		 * a constant somebody may change, and because the direction it
+		 * fails is a refusal rather than a repair -- project.md sec 76
+		 * has why that distinction decides whether unreachable code
+		 * goes or stays. Deleting it would move the safety of
+		 * `path[depth]` out of this loop and into a `#define` two
+		 * hundred lines away in another file.
+		 *
+		 * `blob/test/blob_test.c` walks the maximum rather than
+		 * asserting this in prose, which is what shows the bound is
+		 * exactly tight and not merely sufficient. Nothing else
+		 * anywhere goes near it: the fuzzer's trees are at most forty
+		 * LEAVES, six levels. */
 		if (depth >= FZN_BLOB_MAX_DEPTH)
 			return FZN_BLOB_ERR_SHAPE;
 		if (index - lo < k) {
