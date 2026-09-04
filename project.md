@@ -11469,6 +11469,101 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 73. A correct assertion nobody could check, and the hole in its replacement, 2026-09-04
+
+The object tags were asserted PAIRWISE, and the block was complete. It was
+replaced anyway, and the replacement had a hole that the original also had and
+that neither of them would have shown.
+
+### The block was right, and only a script could say so
+
+Seven tags need 21 clauses. Six of them were added by hand on 2026-09-04 when
+`FZN_OBJECT_PROVISION` was allocated, and the natural check -- read them --
+does not work: nobody can hold 21 unordered inequalities and see which one is
+absent. So it was checked by parsing the header, enumerating `C(7,2)`, and
+differencing.
+
+    pairs needed 21, pairs asserted 21, missing none
+
+**That result is not the finding. The method is.** A correct assertion that
+can only be verified by writing a program to verify it is one that will be
+wrong later and look exactly the same, and the growth is the reason: the
+clauses go up as the square while the thing they protect goes up linearly. The
+eighth tag needs seven more, and **a partial addition compiles, passes, and
+looks finished.**
+
+### Reported by fuzzypickles, who paid for it in the other direction
+
+Their account, in their words rather than my reading of it: they gave a notes
+frame `sub_type` a number an asset-key ack already had, in a set declared
+across two hundred lines "so it is nowhere visible at once". Every asset-key
+ack routed into the notes handler and was refused; the sharer's owed-key
+ledger never retired and would have re-sent for ever. Their unit gates all
+passed, because **a value clash is not a type error**, and one end-to-end
+scenario out of 74 caught it -- the one that happens to exercise both
+families. Their fix is a `_Static_assert` chain over all eleven sub_types,
+strictly increasing, "so it states the rule as well as checking it".
+
+That last clause is what a pairwise block cannot do. Tags here ARE allocated
+in ascending order, and only the chain says so; distinctness is the weaker
+property that happens to follow. An out-of-order allocation is now refused
+rather than accepted, which is deliberate: having to come to this file and
+argue for reusing a retired number is the price of an assertion a reader
+checks by running one finger down two lists.
+
+### Then it was sabotaged, and the chain has the same hole pairwise had
+
+    duplicate value, PROVISION = 133                      caught
+    out of order, PREKEY = 134 and PROVISION = 132        caught
+    an eighth tag appended, chain not extended            NOT caught
+
+**A chain says nothing about a tag it does not name.** An enumerator appended
+past its end compiles in silence -- which is fuzzypickles' own failure, a
+value added to a set nobody can see whole, surviving the fix written for it.
+Pairwise had the identical hole and nobody had asked, because the question
+only arises once you try to make the check fail.
+
+`evidence.md` is blunt about this and it earned its bluntness here: a check is
+untested until it has been seen to fail, and running a probe against a
+known-good case says nothing about whether the gate would have spoken if the
+answer had been different. Two of three sabotages went red immediately, which
+is exactly the amount of reassurance needed to stop before the third.
+
+### What closes it is a number the compiler writes
+
+`FZN_OBJECT_NEXT_FREE`, last in the enum with no explicit value, and one
+assertion pinning it to `FZN_OBJECT_PROVISION + 1`. Any enumerator added
+anywhere moves it, that assertion fails, and whoever added the tag is standing
+three lines from the chain they have to extend. All three sabotages now fail.
+
+**And the positive control matters as much**, because a check that refuses
+everything is not a check: an eighth tag added correctly -- value 135, chain
+extended, marker re-pinned -- compiles clean, and that was run rather than
+assumed.
+
+It also removes a second thing to remember. The one-byte bound used to name
+the newest tag, so allocating a tag meant renaming it; it names the marker
+now, and `FZN_OBJECT_NEXT_FREE <= 256u` says every real tag fits a byte
+without caring which is last.
+
+**It is free HERE and might not be elsewhere**, which is worth stating rather
+than recommending blind. This enum's type is declared and used nowhere -- the
+tags travel as the single byte a transcript gives them -- so there is no
+exhaustive `switch` to grow a `-Wswitch` arm. In a tree where such an enum IS
+switched on, the marker costs an arm per switch and that trade belongs to
+whoever owns it.
+
+### The generalisation, which is not about enums
+
+Three checks in this tree now have the same shape and it is worth naming
+once: **an assertion whose completeness cannot be seen is an assertion that
+will rot, and the remedy is to make the artifact witness itself rather than to
+be more careful.** The marker is the compiler counting for us; `sabotage.py
+--verify` refusing a library source with no entry is the same move; so is the
+renderer gate comparing `nm --defined-only` against the table. In every case
+the thing that would have been checked by a diligent person is instead checked
+by something that cannot forget.
+
 ## 72. Selective disclosure, and an option struck off for a reason that was not true, 2026-09-04
 
 Sec 71 corrected one misreading of sec 2. This is what happened when the rest

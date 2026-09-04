@@ -226,6 +226,24 @@ typedef enum fzn_signed_object {
 	 * unambiguous as the transcript it commits to. With the tag, a card can
 	 * never be read as any of the three things inside it. */
 	FZN_OBJECT_PROVISION = 134u,
+
+	/* NOT A TAG. The next number available, computed by the compiler rather
+	 * than written down, which is what makes the assertions below able to
+	 * notice a tag added without touching them.
+	 *
+	 * It is the answer to the third sabotage: a chain catches a duplicate
+	 * and catches an out-of-order value, and CANNOT catch an eighth
+	 * enumerator appended while the chain still ends at the seventh --
+	 * measured, and it compiled silently. With this marker the addition
+	 * moves it, the assertion that pins it fails, and whoever added the tag
+	 * is standing three lines from the chain they have to extend.
+	 *
+	 * Nothing sends it and nothing switches on it: this enum's type is
+	 * declared here and used nowhere, the tags travelling as the single
+	 * byte a transcript gives them, so a marker costs no `-Wswitch` arm. If
+	 * that ever stops being true, the marker is what has to give, not the
+	 * checking. */
+	FZN_OBJECT_NEXT_FREE
 } fzn_signed_object_t;
 
 /* THE ALLOCATION DISCIPLINE, CHECKED BY THE COMPILER RATHER THAN BY A TEST,
@@ -234,9 +252,40 @@ typedef enum fzn_signed_object {
  * like to somebody adding the fifth object without reading the table above --
  * fails to build here rather than colliding on the day the trees merge.
  *
- * Distinctness is asserted PAIRWISE and not by counting, because the count is
- * the thing that goes stale: a fifth enumerator added with a duplicate value
- * would leave any "four distinct values" assertion true and wrong. */
+ * Distinctness is asserted as a STRICTLY INCREASING CHAIN, in the enum's own
+ * order, and not by counting: a count goes stale the moment somebody adds an
+ * enumerator, and would stay true while being wrong.
+ *
+ * IT WAS PAIRWISE UNTIL 2026-09-04, WHICH WAS CORRECT AND UNCHECKABLE. Seven
+ * tags need 21 clauses and eight need 28, so the block grows as the square
+ * while the thing it protects grows linearly -- and nobody adding the eighth
+ * tag can tell by looking whether the seven new clauses they wrote are the
+ * seven that were missing. That is not hypothetical carelessness: this file's
+ * 21 clauses were confirmed complete by a script rather than by reading,
+ * after the PROVISION tag's six were added by hand. They were right. The
+ * point is that reading could not have said so.
+ *
+ * A partial pairwise addition compiles, passes, and looks finished, which is
+ * the failure mode that matters: the assertion that is wrong is the one
+ * nobody can see is wrong.
+ *
+ * Reported by fuzzypickles 2026-09-04, who paid for it in the other
+ * direction. They gave a notes frame `sub_type` a number an asset-key ack
+ * already had, in a set declared across two hundred lines so that no two
+ * members are visible at once. Every asset-key ack routed into the notes
+ * handler and was refused; the sharer's owed-key ledger never retired and
+ * would have re-sent for ever. Their unit gates all passed -- **a value clash
+ * is not a type error** -- and one end-to-end scenario out of 74 caught it,
+ * the one that happens to exercise both families. Their fix is the chain
+ * below, over all eleven of their sub_types.
+ *
+ * THE CHAIN STATES THE RULE AS WELL AS CHECKING IT, which is the half a
+ * pairwise block cannot do: tags here are allocated in ascending order, and
+ * the chain says so. That is stronger than distinctness and deliberately so.
+ * An out-of-order allocation -- reusing a retired number, say -- is refused
+ * rather than accepted, and having to come here and argue for it is the
+ * price of an assertion a reader can check against the enum above by running
+ * one finger down each. */
 _Static_assert(FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_HOP)
                && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_REVOCATION)
                && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_RECORD)
@@ -245,29 +294,27 @@ _Static_assert(FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_HOP)
                && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_WITHDRAWAL)
                && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_PROVISION),
                "a signed-object tag has been allocated into the consumer half");
-_Static_assert(FZN_OBJECT_HOP != FZN_OBJECT_REVOCATION
-               && FZN_OBJECT_HOP != FZN_OBJECT_RECORD
-               && FZN_OBJECT_HOP != FZN_OBJECT_MANIFEST
-               && FZN_OBJECT_REVOCATION != FZN_OBJECT_RECORD
-               && FZN_OBJECT_REVOCATION != FZN_OBJECT_MANIFEST
-               && FZN_OBJECT_RECORD != FZN_OBJECT_MANIFEST
-               && FZN_OBJECT_PREKEY != FZN_OBJECT_HOP
-               && FZN_OBJECT_PREKEY != FZN_OBJECT_REVOCATION
-               && FZN_OBJECT_PREKEY != FZN_OBJECT_RECORD
-               && FZN_OBJECT_PREKEY != FZN_OBJECT_MANIFEST
-               && FZN_OBJECT_WITHDRAWAL != FZN_OBJECT_HOP
-               && FZN_OBJECT_WITHDRAWAL != FZN_OBJECT_REVOCATION
-               && FZN_OBJECT_WITHDRAWAL != FZN_OBJECT_RECORD
-               && FZN_OBJECT_WITHDRAWAL != FZN_OBJECT_MANIFEST
-               && FZN_OBJECT_WITHDRAWAL != FZN_OBJECT_PREKEY
-               && FZN_OBJECT_PROVISION != FZN_OBJECT_HOP
-               && FZN_OBJECT_PROVISION != FZN_OBJECT_REVOCATION
-               && FZN_OBJECT_PROVISION != FZN_OBJECT_RECORD
-               && FZN_OBJECT_PROVISION != FZN_OBJECT_MANIFEST
-               && FZN_OBJECT_PROVISION != FZN_OBJECT_PREKEY
-               && FZN_OBJECT_PROVISION != FZN_OBJECT_WITHDRAWAL,
-               "two signed-object tags share a value, which shares their signatures");
-_Static_assert(FZN_OBJECT_PROVISION <= 255u,
+_Static_assert(FZN_OBJECT_HOP < FZN_OBJECT_REVOCATION
+               && FZN_OBJECT_REVOCATION < FZN_OBJECT_RECORD
+               && FZN_OBJECT_RECORD < FZN_OBJECT_MANIFEST
+               && FZN_OBJECT_MANIFEST < FZN_OBJECT_PREKEY
+               && FZN_OBJECT_PREKEY < FZN_OBJECT_WITHDRAWAL
+               && FZN_OBJECT_WITHDRAWAL < FZN_OBJECT_PROVISION,
+               "signed-object tags must be strictly increasing in the order "
+               "they are declared: equal means two objects share a signature, "
+               "and out of order means somebody reused a number");
+/* Every real tag fits the one byte the transcript gives it. Stated through
+ * the marker rather than through the newest tag, so that adding one does not
+ * also mean remembering to rename this. */
+_Static_assert(FZN_OBJECT_NEXT_FREE <= 256u,
                "a signed-object tag must fit the one byte the transcript gives it");
+
+/* AND NOTHING WAS ADDED WITHOUT COMING THROUGH HERE. The chain above proves
+ * the tags it names are distinct and ordered; it says nothing about a tag it
+ * does not name. This is what makes the chain's coverage total rather than
+ * merely correct -- an enumerator appended anywhere moves the marker, and the
+ * only way to satisfy this line again is to extend the chain to reach it. */
+_Static_assert(FZN_OBJECT_NEXT_FREE == FZN_OBJECT_PROVISION + 1u,
+               "a signed-object tag was added without extending the chain above it");
 
 #endif /* FZN_BYTES_H */
