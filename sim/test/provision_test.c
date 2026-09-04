@@ -77,6 +77,7 @@
 #include "../../record/record.h"
 #include "../../record/journal.h"
 #include "../../record/sync.h"
+#include "../../tree/tree.h"
 #include "../../state/state.h"
 #include "../../log/log.h"
 #include "../../blob/blob.h"
@@ -1709,6 +1710,202 @@ int main(void)
 		      "a bounded offer would not plan");
 		check(give[0].count == 1u,
 		      "an offer bounded at one record per request offered more than one");
+	}
+
+	/* ---- NESTING THAT REPLICATES ------------------------------------- */
+
+	/* A tree node IS a record -- its id is the record's subject -- so it
+	 * rides the frame path already built, and one is carried through it
+	 * here rather than assembled in place. What is not carried is the
+	 * ordering, and that is where the interesting claims are:
+	 * `fzn_tree_order_between` and `fzn_tree_cmp` are called nowhere in
+	 * this tree.
+	 *
+	 * WHY AN ORDER IS A KEY AND NOT AN INDEX. Two hosts inserting between
+	 * the same pair of siblings pick the SAME midpoint and collide, and
+	 * `tree.h` is explicit that this "is not a defect to design out": the
+	 * total order is (order, id), both hosts hold both, so the result is
+	 * deterministic everywhere and the worst outcome is two notes in an
+	 * order nobody chose rather than two hosts disagreeing about which
+	 * came first. That is the property a replicated outline needs, and it
+	 * is what this leg asserts. */
+	{
+		enum { NODES = 3u };
+		uint8_t root_id[FZN_TREE_ID_LEN];
+		uint8_t id_first[FZN_TREE_ID_LEN], id_last[FZN_TREE_ID_LEN];
+		uint8_t id_a[FZN_TREE_ID_LEN], id_b[FZN_TREE_ID_LEN];
+		uint8_t body[FZN_TREE_BODY_HEADER_LEN + 32u];
+		uint8_t node_wire[FZN_RECORD_MAX_LEN];
+		size_t body_len = 0, node_len = 0;
+		fzn_record_t node_rec;
+		fzn_tree_node_t carried;
+		static const uint8_t CONTENT[] = "a line in somebody's outline";
+
+		memset(root_id, 0, sizeof(root_id));
+		memset(id_first, 0x21, sizeof(id_first));
+		memset(id_last, 0x22, sizeof(id_last));
+		memset(id_a, 0x31, sizeof(id_a));
+		memset(id_b, 0x32, sizeof(id_b));
+
+		check(fzn_tree_is_root(root_id),
+		      "the all-zero id is not the root, so nothing below has a top");
+		check(!fzn_tree_is_root(id_first), "a real node reports itself the root");
+
+		/* ---- one node, carried the way every other record is ------ */
+
+		check(fzn_tree_body(root_id, 100u, 1u, CONTENT, sizeof(CONTENT), body,
+		                    sizeof(body), &body_len) == FZN_TREE_OK,
+		      "a node body would not encode");
+		check(fzn_record_sign(device_pub, id_first, FZN_STREAM_RESERVED + 3u, 7u, 1u,
+		                      1000u, body, body_len, &device_sign, node_wire,
+		                      sizeof(node_wire), &node_len) == FZN_RECORD_OK,
+		      "the node's record would not sign");
+
+		{
+			uint8_t frame[FZN_SEAL_OVERHEAD + FZN_RECORD_MAX_LEN];
+			size_t frame_len = 0;
+			fzn_send_t what;
+			fzn_opened_t got;
+
+			memset(&what, 0, sizeof(what));
+			what.sender = device_pub;
+			what.capability = cap.b;
+			what.payload = node_wire;
+			what.payload_len = node_len;
+			what.expires_at = 2000u;
+			what.msg = 400u;
+			what.index = 0u;
+			what.chunks = 1u;
+			what.kind = 1u;
+			check(fzn_seal_build(frame, sizeof(frame), &frame_len, &what, key_device,
+			                     ck_device, &hash_ops, &rng_ops,
+			                     &aead_ops) == FZN_SEAL_OK,
+			      "the node's record would not seal");
+			check(fzn_seal_open(frame, frame_len, key_sponsor, ck_sponsor, &hash_ops,
+			                    &aead_ops, &got) == FZN_SEAL_OK,
+			      "the node's record would not open");
+			check(fzn_record_open(got.payload, got.payload_len, &node_rec) ==
+			              FZN_RECORD_OK,
+			      "what arrived is not a record");
+			check(fzn_record_verify(node_rec, &verify_ops) == FZN_RECORD_OK,
+			      "the node's record does not verify after the wire");
+		}
+
+		/* THE ID IS THE SUBJECT, which is what lets a node be addressed
+		 * without a second name for it. */
+		check(fzn_tree_open(node_rec, &carried) == FZN_TREE_OK,
+		      "a verified record will not open as a node");
+		check(memcmp(carried.id, id_first, FZN_TREE_ID_LEN) == 0,
+		      "the node's id is not the record's subject");
+		check(fzn_tree_is_root(carried.parent) && carried.order == 100u,
+		      "the node did not arrive under the root at the order it was given");
+		check(carried.content_len == sizeof(CONTENT)
+		              && memcmp(carried.content, CONTENT, sizeof(CONTENT)) == 0,
+		      "the node's content did not survive the wire");
+
+		/* ---- two hosts insert between the same pair --------------- */
+
+		{
+			uint64_t mid_a = 0, mid_b = 0;
+			fzn_tree_node_t a, b;
+			int forward, backward;
+
+			check(fzn_tree_order_between(100u, 200u, &mid_a) == FZN_TREE_OK,
+			      "no key exists between two neighbours a hundred apart");
+			check(fzn_tree_order_between(100u, 200u, &mid_b) == FZN_TREE_OK,
+			      "the same question asked twice was answered differently");
+			check(mid_a > 100u && mid_a < 200u,
+			      "the key is not strictly between its neighbours");
+			check(mid_a == mid_b,
+			      "two hosts asking the same question picked different midpoints, so "
+			      "the order is a coin toss per host rather than a key");
+
+			/* AND THE COLLISION RESOLVES THE SAME WAY EVERYWHERE.
+			 * Both hosts hold both ids, so (order, id) is total and
+			 * the two nodes sort identically on each of them. */
+			memset(&a, 0, sizeof(a));
+			memset(&b, 0, sizeof(b));
+			a.id = id_a;
+			a.parent = root_id;
+			a.order = mid_a;
+			b.id = id_b;
+			b.parent = root_id;
+			b.order = mid_b;
+
+			forward = fzn_tree_cmp(&a, &b);
+			backward = fzn_tree_cmp(&b, &a);
+			check(forward != 0,
+			      "two nodes at the same order compared equal, so a host has no way "
+			      "to put them in an order at all");
+			check((forward < 0) == (backward > 0),
+			      "the comparison is not antisymmetric, so two hosts sorting the same "
+			      "pair can disagree");
+			check(fzn_tree_cmp(&a, &a) == 0, "a node does not compare equal to itself");
+		}
+
+		/* ---- and the midpoints do run out, which is not an error --- */
+
+		{
+			uint64_t out = 0;
+
+			check(fzn_tree_order_between(5u, 6u, &out) == FZN_TREE_ORDER_EXHAUSTED,
+			      "a key was invented between two adjacent orders");
+			check(out == 5u,
+			      "exhaustion did not hand back the low neighbour's own key, so a "
+			      "caller cannot tell what it got");
+			check(fzn_tree_order_between(200u, 100u, &out) == FZN_TREE_ERR_RANGE,
+			      "a range whose low end is above its high end was answered");
+			check(fzn_tree_order_between(0u, UINT64_MAX, &out) == FZN_TREE_OK
+			              && out > 0u && out < UINT64_MAX,
+			      "inserting into an empty sibling list found no key");
+		}
+
+		/* ---- a host holding a subset sees only what it can reach --- */
+
+		/* THIS IS WHAT REPLICATION LOOKS LIKE FROM UNDERNEATH. A lossy
+		 * network delivers children before parents, so a host routinely
+		 * holds a node whose parent has not arrived. It must not appear
+		 * in the outline, and it must not be an error either -- it is a
+		 * node that is not reachable YET. */
+		{
+			fzn_tree_node_t nodes[NODES];
+			uint8_t missing_parent[FZN_TREE_ID_LEN];
+			uint8_t mark[NODES];
+			fzn_tree_walk_t walk;
+			const fzn_tree_node_t *kids[NODES];
+
+			memset(missing_parent, 0x7f, sizeof(missing_parent));
+			memset(nodes, 0, sizeof(nodes));
+			nodes[0].id = id_first;
+			nodes[0].parent = root_id;
+			nodes[0].order = 100u;
+			nodes[1].id = id_a;
+			nodes[1].parent = id_first;   /* a child of one we hold */
+			nodes[1].order = 10u;
+			nodes[2].id = id_b;
+			nodes[2].parent = missing_parent; /* an orphan, for now */
+			nodes[2].order = 20u;
+
+			memset(mark, 0, sizeof(mark));
+			memset(&walk, 0, sizeof(walk));
+			check(fzn_tree_reachable(nodes, NODES, mark, sizeof(mark), &walk) ==
+			              FZN_TREE_OK,
+			      "a forest with an orphan in it was refused rather than walked");
+			check(mark[0] && mark[1],
+			      "a node under the root, or its child, was not reachable");
+			check(!mark[2],
+			      "a node whose parent has not arrived was reachable, so an outline "
+			      "shows entries hanging from nothing");
+			check(walk.truncated == 0,
+			      "the reachability walk ran out of room and said it had an answer");
+
+			memset(&walk, 0, sizeof(walk));
+			check(fzn_tree_children(nodes, NODES, id_first, kids, NODES, &walk) ==
+			              FZN_TREE_OK,
+			      "the children of a held node could not be listed");
+			check(walk.emitted == 1u && kids[0]->id == id_a,
+			      "the child list is not the one child that node has");
+		}
 	}
 
 	fzn_agree_secret_wipe(&device_sk);
