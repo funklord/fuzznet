@@ -11551,6 +11551,52 @@ for anybody"* -- and the seal.c comment briefly and wrongly softened it. Third
 time today that a sentence went into a file ahead of the check, and the first
 time the check was already being written.
 
+### The half that reaches consumers was not the half I broke
+
+Reported by fuzzypickles the same day, correcting a claim of mine, and the
+correction is worth more than the change it corrects.
+
+I told them their build would fail loudly if they missed the `return 1;`,
+citing a measurement: an `int (*)(...)` field cannot take a `void (*)(...)`
+function, and gcc makes that an error rather than a warning. **The measurement
+was right and the claim was not**, because it was about THEIR tree and I had
+not looked. Their command, and it is one line:
+
+    grep -rn '\.seal[[:space:]]*=' --include=*.c --include=*.h . | grep -v '^\./fuzznet/'
+
+Nothing. **fuzzypickles supplies no seal implementation at all.** Their three
+`fzn_aead_ops_t` sites declare the struct and hand it straight to
+`fzn_aead_monocypher_init`; they never name the function pointer type, so the
+signature cannot reach their compiler. Re-run here to confirm rather than
+taken on trust: the only `.seal =` in that repository is inside the vendored
+submodule, and it is this tree's own `sim/test/network_test.c`.
+
+`evidence.md`'s *a claim about another tree is a measurement you did not
+take*, made in a message that was otherwise careful about whose fact was
+whose. The prediction was checkable in one grep.
+
+**So the compiler backstop protects this tree's eight implementations and
+nothing downstream, because there is nothing downstream to protect.**
+
+### And the part that DOES reach them is the part that is silent
+
+`FZN_SEAL_ERR_AEAD` is a new enumerator in a public enum. That is
+source-compatible: every consumer still builds. fuzzypickles' switch over
+fuzznet's codes ends `default: return FZP_ERR_MALFORMED`, so **a refusal by
+that host's own backend now arrives as a malformed frame** -- their words: *"a
+local fault wearing a wire fault's clothes, which sends the next person to
+read bytes off the network when the problem is on their own machine."*
+
+They are fixing it on their side, in the same commit as the pin bump so the
+new value and the code handling it arrive together.
+
+**The shape is worth more than the instance.** I changed a signature, which is
+LOUD and reaches nobody, and added an enumerator, which is SILENT and reaches
+everybody. The half of an API change that a consumer notices is not the half
+that costs them, and the review attention went to the half that could not
+hurt. A `default:` arm is what turns adding a value into changing behaviour,
+and nothing on either side of the boundary reports it.
+
 ### What the mechanical half was proved by
 
 Seven stub implementations converted by script, each with its own assertion:
