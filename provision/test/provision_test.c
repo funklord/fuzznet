@@ -557,6 +557,60 @@ static void test_every_guard_refuses_its_own_argument(void)
 		      "verify accepted a card that was never opened");
 	}
 
+	/*
+	 * THE SECOND OPERANDS, which the cases above never reach.
+	 *
+	 * Each guard here is a conjunction, and a suite that fails the FIRST
+	 * operand never evaluates the second: `fzn_provision_pack(..., NULL,
+	 * ...)` returns before `sign->sign` is looked at. So three branches sat
+	 * reachable and untested, and `make coverage` named them --
+	 * project.md sec 75 listed them and sec 76 recorded the decision to
+	 * report rather than close them.
+	 *
+	 * They are closed now because the states are real rather than
+	 * contrived. **A vtable with a null member is what a partially
+	 * initialised consumer has**: a struct zeroed at declaration and
+	 * filled in later, with one line not yet written or a branch that
+	 * skipped it. That is not a caller passing NULL by mistake -- it is a
+	 * caller who believes they have a signer.
+	 *
+	 * The distinction matters for what is returned. A null `sign` and a
+	 * null `sign->sign` are both ERR_SIGNER rather than ERR_MALFORMED,
+	 * because in both the seam is the thing that is absent, and
+	 * `chain.h`'s convention is that a caller told MALFORMED goes looking
+	 * at their arguments while one told SIGNER goes looking at their
+	 * crypto.
+	 */
+	{
+		fzn_sign_ops_t half_signer = { stub_verify, NULL, NULL };
+		fzn_sign_ops_t half_verifier = { NULL, stub_sign, NULL };
+		fzn_provision_card_t opened;
+		fzn_provision_card_t partial;
+		size_t len = 0;
+
+		CHECK(fzn_provision_pack(f.root, f.hop, f.prekey, 0, &half_signer, out,
+		                         sizeof(out), &len) == FZN_PROVISION_ERR_SIGNER,
+		      "pack accepted a signer struct whose sign is null -- which is what a "
+		      "consumer that filled the vtable in two steps and got interrupted has");
+		CHECK(len == 0u, "a refused pack reported a length");
+
+		REQUIRE(fzn_provision_open(f.card, f.card_len, &opened) == FZN_PROVISION_OK,
+		        "the card did not open");
+		CHECK(fzn_provision_verify(opened, &half_verifier, 0) == FZN_PROVISION_ERR_SIGNER,
+		      "verify accepted a verifier struct whose verify is null");
+
+		/* A CARD WITH A BASE AND NO ROOT, which `fzn_provision_open`
+		 * cannot produce -- it sets both or neither. This is a caller
+		 * assembling the view by hand, and the guard exists precisely
+		 * because the struct is public and nothing stops them. Without
+		 * it the signature check would read a null pointer as a key. */
+		partial = opened;
+		partial.root = NULL;
+		CHECK(fzn_provision_verify(partial, &OPS, 0) == FZN_PROVISION_ERR_MALFORMED,
+		      "verify accepted a card view with a base and no root, and would have "
+		      "read a null pointer as the key it checks against");
+	}
+
 	CHECK(fzn_provision_text(NULL, f.card_len, text, sizeof(text))
 	      == FZN_PROVISION_ERR_MALFORMED, "text accepted null bytes");
 	CHECK(fzn_provision_text(f.card, f.card_len, NULL, sizeof(text))

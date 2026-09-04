@@ -6394,10 +6394,15 @@ listed with `gcov -b` instead:
     provision.c:204  if (bits > 0 && ...)                cannot be false
     provision.c:207  if (n != FZN_PROVISION_LEN_TOTAL)   cannot be true
 
-Three are the second operand of a guard whose first operand the suite fails
-instead -- a signer struct that exists but holds a null function pointer, a
-card view with a base and no root. Those are reachable and untested, and
-saying so is cheaper than pretending otherwise.
+~~~~
+
+**CLOSED 2026-09-04 ON THE HOLDER'S INSTRUCTION, AND THE SENTENCE ABOVE
+UNDERWEIGHTED THEM.** Removing any of the three does not produce a wrong
+return code -- it produces a SIGSEGV, because each stands between a
+partially initialised vtable and a null call inside a crypto library. Sec 88
+has the measurement. Reporting rather than closing was defensible; weighing
+them as tidiness was not, and three minutes of sabotage would have said so at
+any point.
 
 **The other four cannot fire at all, and they stay.** A card is a fixed 423
 bytes, so 3384 bits always leaves four over and `bits` is never zero; 677
@@ -11487,6 +11492,80 @@ alone is also green, since the openers do write every field. Dropping the
 init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
+
+## 88. The three guard operands, and what removing them actually does, 2026-09-04
+
+Instructed by the copyright holder. Sec 75 listed three branches in
+`provision/provision.c` that `make coverage` reported as never taken both
+ways, and sec 76 recorded the decision to report them rather than close them:
+*"Those are reachable and untested, and saying so is cheaper than pretending
+otherwise."*
+
+Closing them changed my estimate of what they are worth.
+
+### Why they were unreached
+
+Each is the second operand of a conjunction, and the suite failed the first:
+
+    if (!sign || !sign->sign)              pack, on a null signer
+    if (!card.base || !card.root)          verify, on a card never opened
+    if (!verifier || !verifier->verify)    verify, on a null verifier
+
+`fzn_provision_pack(..., NULL, ...)` returns before `sign->sign` is ever
+looked at. So the guards were doing work no case had asked them to do.
+
+### The states are real, which is the part I had underweighted
+
+**A vtable with a null member is what a partially initialised consumer has** --
+a struct zeroed at declaration and filled in later, with one line not yet
+written or a branch that skipped it. That is not a caller passing NULL by
+mistake; it is a caller who believes they have a signer.
+
+A card view with a base and no root is the same shape one level up:
+`fzn_provision_open` sets both or neither, so this is a caller assembling the
+struct by hand -- which the type being public permits and nothing prevents.
+
+### And removing them does not produce a wrong answer
+
+    the signer's member no longer checked      exit 139
+    the card's root no longer checked          exit 139
+    the verifier's member no longer checked    exit 139
+
+**139 is SIGSEGV.** Each guard stands between a half-filled vtable and a null
+call or a null read inside a crypto library -- not between a caller and a
+misleading return code, which is what "an untested guard operand" sounds like
+and is what I had taken them for.
+
+So sec 76's judgement was defensible on the evidence it had and wrong on the
+value: the sentence weighed them as tidiness. What settled it was removing
+them and looking, which cost three minutes and was available the whole time.
+
+### The coverage, and where it stops
+
+    branches never taken both ways   7 lines -> 4
+    provision.c                      91.76% -> 95.29% of 85
+
+The four that remain are the ones sec 76 established as unreachable BY
+CONSTRUCTION -- a card is a fixed 423 bytes, so `bits` is never zero and `n`
+is always exactly the total -- and kept, because a refusal that cannot fire
+guards an array write whose bound lives in a `#define` elsewhere. **That is
+the floor this file's structure allows**, and it is worth saying so: a later
+reader chasing the last four will be chasing something that cannot be reached
+without changing the format.
+
+### No sabotage entries, and the reason rather than the omission
+
+The three were sabotaged by hand and the results are above. They are NOT added
+to `tool/sabotage.py`, because their detection is a crash rather than an
+assertion: the suite dies at that point and every later case goes unrun, which
+`prekey_test.c` already records as the thing `REQUIRE` exists to avoid -- *"a
+crash IS a failure, but it stops the run, names nothing, and buries the one
+line that said what was actually wrong."*
+
+A harness entry whose caught-signal is a segfault reports the right verdict
+for the wrong reason and makes every other entry's output harder to read. The
+guards are held by the three cases added to `provision_test.c`; the harness is
+for guards a passing suite would not notice losing.
 
 ## 87. The salt convention, built, 2026-09-04
 
