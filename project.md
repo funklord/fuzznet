@@ -11493,6 +11493,86 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 90. Three cost judgements in one day, all wrong the same way, 2026-09-04
+
+Two findings today came from the same place, and finding the second by
+accident was enough to look for a third deliberately. There was one, it was
+mine, it was hours old, and the tool it said did not exist was forty lines
+above where it said so.
+
+### The three
+
+    sec 5j    selective disclosure struck off as   built in a test; the
+              "an encoding sec 2 keeps out"        elimination was wrong
+                                                   (sec 72)
+
+    sec 76    three guard operands as "reachable   removing any of them is
+              and untested, and saying so is       SIGSEGV, not a wrong
+              cheaper than pretending otherwise"   return code (sec 88)
+
+    sec 81    a fixture as "more machinery than    `revoke_then_withdraw`
+              the finding currently justifies"     already existed in that
+                                                   file (this section)
+
+**None of the three was carelessly written.** Each records a reason, and each
+reason is the kind that reads as diligence -- a scope rule, a cost, a
+proportion. `working-practice.md` says exactly this about the class: *a
+wrongly-deferred question is caught by nothing and looks exactly like
+diligence.*
+
+### What they have in common is not the topic
+
+All three are **a judgement about COST made without the measurement that
+would have settled it**, and in all three the measurement was available and
+cheap:
+
+    open project.md and read sec 2               one minute
+    delete the guard and run the suite           three minutes
+    grep the test file for a withdrawal helper   ten seconds
+
+And all three erred in the same direction: **the work was priced too high and
+its value too low.** That is not a coincidence of mood. A cost estimate is
+made by the person who would have to pay it, at the moment they are deciding
+whether to, and the estimate that ends the deliberation is the one that
+finishes the deliberation.
+
+### The one this section is about
+
+Sec 81 declined a fixture for `!mine_withdrawn` -- the first row of
+`fzn_manifest_admit`'s decision table, the case where the peer has withdrawn a
+record and this host has withdrawn it too. It is now two calls to a helper the
+same file already had:
+
+    revoke_then_withdraw(&f,    f.root, &cap, grantee);
+    revoke_then_withdraw(&peer, peer.root, &cap, grantee);
+
+    !mine_withdrawn   never taken both ways  ->  50% / 50%
+    manifest.c        89.52%  ->  90.73% of 248 branches
+
+The row matters for the reason the table gives. Both hosts hold the same
+revocation and both have withdrawn it, so nothing is behind and nothing should
+be asked for. **Getting it wrong re-records the pair on every comparison with
+every peer** -- the re-fetch loop the drain exists to stop, on the pairs most
+likely to be compared, which are the settled ones. Sabotaged by having the
+comparison stop consulting `mine_withdrawn`: the new case goes red.
+
+The control is the same test with only the PEER withdrawing, which must record
+a deficit. Without it the zero is consistent with a comparison that records
+nothing at all.
+
+### The rule this leaves
+
+**A cost estimate in a project document is a claim, and it is the one kind
+nothing downstream re-derives.** A wrong number gets caught because something
+uses it. A wrong scope claim gets caught when somebody acts on it. A wrong
+estimate of what work would cost ends the conversation, and the conversation
+is the only thing that would have checked it.
+
+So: **when declining work on cost, spend one minute establishing the cost.**
+Not as a rule about diligence -- as the observation that all three of today's
+were settled in under three minutes each, by a command, after the judgement
+had already been written down and published.
+
 ## 89. The harness the new module owed, 2026-09-04
 
 Sec 77 argued that every decoder of stranger bytes in this library has a fuzz
@@ -12336,10 +12416,14 @@ across the suite and is true every time: **the case where the peer has
 withdrawn a record and this host has withdrawn it too has never occurred.**
 That is the first row of the table.
 
-Recorded rather than forced. It needs a fixture where both sides withdraw the
+~~Recorded rather than forced. It needs a fixture where both sides withdraw the
 same underlying revocation, which is more machinery than the finding currently
-justifies -- and saying so is cheaper than a test that reaches the line
-without reaching the situation.
+justifies.~~
+
+**COVERED, AND THAT ESTIMATE WAS MADE WITHOUT LOOKING.**
+`revoke_then_withdraw` was already in `manifest_test.c`, forty lines above the
+sentence declining to write it; the fixture is two calls. Sec 90 has it, and
+has the two other cost judgements from the same day that went the same way.
 
 ### And the style gate caught the edit that found it
 

@@ -2477,6 +2477,94 @@ static void test_a_revocation_settles_what_it_covers(void)
  * recorded. Without it, a deficit of one would be consistent with the
  * comparison never running at all.
  */
+/*
+ * BOTH SIDES WITHDREW, which is the first row of `fzn_manifest_admit`'s
+ * decision table and the one branch of it nothing reached.
+ *
+ * Sec 81 measured `!mine_withdrawn` as evaluated 1480 times across the suite
+ * and true every time, then declined the test: *"it needs a fixture where
+ * both sides withdraw the same underlying revocation, which is more machinery
+ * than the finding currently justifies."*
+ *
+ * **`revoke_then_withdraw` was already in this file, forty lines up.** The
+ * estimate was made without looking, and it was the third cost judgement of
+ * that day to come out wrong in the same direction -- see sec 90. The fixture
+ * is two calls.
+ *
+ * WHAT THE ROW SAYS. Both hosts hold the same revocation and both have
+ * withdrawn it, so their records agree completely and neither is behind. This
+ * host is AHEAD in the table's sense -- there is nothing to fetch -- and must
+ * record no deficit. Getting it wrong would re-record the pair on every
+ * comparison with every peer, which is the re-fetch loop the drain exists to
+ * stop, on the pairs most likely to be compared: the settled ones.
+ */
+static void test_both_sides_withdrew_the_same_revocation(void)
+{
+	struct fixture f;
+	struct fixture peer;
+	fzn_cap_id_t cap;
+	uint8_t grantee[FZN_PUBKEY_LEN];
+	uint8_t bytes[FZN_MANIFEST_MAX_LEN];
+	size_t len = 0;
+	fzn_manifest_record_t rec;
+	fzn_manifest_pair_t out[4];
+	size_t dropped = 0;
+
+	memset(&cap, 0x81, sizeof(cap));
+	memset(grantee, 0x82, sizeof(grantee));
+
+	/* ---- both withdrew: nothing to fetch, so nothing to record ----- */
+	fixture_init(&f);
+	CHECK(revoke_then_withdraw(&f, f.root, &cap, grantee),
+	      "this host could not revoke and withdraw");
+
+	fixture_init(&peer);
+	memcpy(peer.root, f.root, sizeof(peer.root));
+	CHECK(revoke_then_withdraw(&peer, peer.root, &cap, grantee),
+	      "the peer could not revoke and withdraw");
+	peer.stub.identity = peer.root[0];
+	CHECK(fzn_manifest_issue(peer.root, &peer.store, &peer.sign, bytes, sizeof(bytes),
+	                         &len) == FZN_MANIFEST_OK,
+	      "the peer could not issue a manifest naming the withdrawn pair");
+	CHECK(fzn_manifest_open(bytes, len, &rec) == FZN_MANIFEST_OK,
+	      "the peer's manifest did not open");
+	CHECK(fzn_manifest_follow(&f.manifest, f.root) == FZN_MANIFEST_OK, "follow");
+	stub_reset(&f.stub);
+	CHECK(fzn_manifest_admit(&f.manifest, &f.store, rec, &f.sign) == FZN_MANIFEST_OK,
+	      "the peer's manifest was refused");
+	CHECK(fzn_manifest_deficit(&f.manifest, f.root, out, 4, &dropped) == 0,
+	      "both sides have withdrawn the same revocation and this host still asked "
+	      "for it -- which is the re-fetch loop the drain exists to stop, on the "
+	      "pairs most likely to be compared");
+
+	/* ---- the control: only the PEER withdrew ----------------------- *
+	 *
+	 * Then they hold something this host does not, `mine_withdrawn` is
+	 * false, and the deficit must be recorded. Without this the zero above
+	 * is consistent with a comparison that records nothing at all. */
+	fixture_init(&f);
+	revoke(&f, f.root, &cap, grantee);
+
+	fixture_init(&peer);
+	memcpy(peer.root, f.root, sizeof(peer.root));
+	CHECK(revoke_then_withdraw(&peer, peer.root, &cap, grantee),
+	      "the peer could not revoke and withdraw for the control");
+	peer.stub.identity = peer.root[0];
+	CHECK(fzn_manifest_issue(peer.root, &peer.store, &peer.sign, bytes, sizeof(bytes),
+	                         &len) == FZN_MANIFEST_OK,
+	      "the peer could not issue the control manifest");
+	CHECK(fzn_manifest_open(bytes, len, &rec) == FZN_MANIFEST_OK,
+	      "the control manifest did not open");
+	CHECK(fzn_manifest_follow(&f.manifest, f.root) == FZN_MANIFEST_OK, "follow");
+	stub_reset(&f.stub);
+	CHECK(fzn_manifest_admit(&f.manifest, &f.store, rec, &f.sign) == FZN_MANIFEST_OK,
+	      "the control manifest was refused");
+	dropped = 0;
+	CHECK(fzn_manifest_deficit(&f.manifest, f.root, out, 4, &dropped) == 1,
+	      "the peer holds a withdrawal this host does not and it was not asked for, "
+	      "so the zero above says nothing about mine_withdrawn");
+}
+
 static void test_two_hosts_revoked_the_same_pair_and_disagree(void)
 {
 	struct fixture f;
@@ -3530,6 +3618,7 @@ int main(void)
 	test_every_guard_refuses_its_own_argument();
 	test_a_state_whose_fields_disagree_is_refused();
 	test_two_hosts_revoked_the_same_pair_and_disagree();
+	test_both_sides_withdrew_the_same_revocation();
 	test_the_suite_can_tell_pass_from_fail();
 
 	printf("manifest_test: %d checks, %d failure(s)\n", checks, failures);
