@@ -1543,6 +1543,94 @@ int main(void)
 				FAIL(354);
 		}
 
+		/* TIER NAMESPACES, which this library does not have and does
+		 * not need. Sec 110 carries the argument; this is the
+		 * demonstration, because a design claim nothing runs is a
+		 * claim rather than a fact.
+		 *
+		 * A tier is a per-blob policy value. `state/` resolves "a
+		 * value some issuer set, for some subject, of some kind" and
+		 * interprets none of them -- and FZN_SUBJECT_LEN is 32, which
+		 * is exactly FZN_BLOB_HASH_LEN. So a blob's tier IS a record
+		 * about that blob, addressed by the thing that already names
+		 * it, and the consumer picks the `kind` that means "tier". */
+		{
+			fzn_state_t tiers;
+			fzn_state_entry_t tier_slots[4];
+			fzn_record_t tr;
+			fzn_sign_ops_t tops;
+			uint8_t owner[FZN_PUBKEY_LEN], stranger[FZN_PUBKEY_LEN];
+			uint8_t blob[FZN_SUBJECT_LEN];
+			/* THREE BUFFERS, NOT ONE, and the first draft used one
+			 * and failed here. A state entry holds `body` as a
+			 * POINTER into the record's bytes -- `state.h` says
+			 * that buffer "must outlive every view of it and
+			 * everything those views are stored in" -- so signing
+			 * the next record into the same array rewrites the
+			 * value the store is still handing out. The stranger's
+			 * refused record corrupted the live one it could not
+			 * replace, which is a consumer mistake worth making
+			 * here rather than in somebody's daemon. */
+			static uint8_t twire[FZN_RECORD_MAX_LEN];
+			static uint8_t twire2[FZN_RECORD_MAX_LEN];
+			static uint8_t twire3[FZN_RECORD_MAX_LEN];
+			static const uint8_t cold[] = "cold";
+			static const uint8_t hot[] = "hot";
+			const fzn_state_entry_t *cell;
+			size_t twrote = 0;
+			/* The consumer's number for "this record says a tier".
+			 * Nothing in the library knows it. */
+			const uint32_t KIND_TIER = 0x54494552u;
+
+			memset(&tops, 0, sizeof(tops));
+			tops.sign = always_sign;
+			memset(owner, 0x11, sizeof(owner));
+			memset(stranger, 0x99, sizeof(stranger));
+			memset(blob, 0xb1, sizeof(blob));
+
+			if (fzn_state_init(&tiers, tier_slots, 4) != FZN_STATE_OK)
+				FAIL(355);
+
+			if (fzn_record_sign(owner, blob, 0, KIND_TIER, 1, 1, cold, sizeof(cold),
+			                    &tops, twire, sizeof(twire), &twrote) != FZN_RECORD_OK
+			    || fzn_record_open(twire, twrote, &tr) != FZN_RECORD_OK)
+				FAIL(356);
+			if (fzn_state_apply(&tiers, &tr) != FZN_STATE_OK)
+				FAIL(356);
+
+			cell = fzn_state_get(&tiers, blob, KIND_TIER);
+			if (!cell || cell->body_len != sizeof(cold) ||
+			    memcmp(cell->body, cold, sizeof(cold)) != 0)
+				FAIL(357);
+
+			/* Retiering is an ordinary later record. */
+			if (fzn_record_sign(owner, blob, 0, KIND_TIER, 2, 2, hot, sizeof(hot),
+			                    &tops, twire2, sizeof(twire2), &twrote) != FZN_RECORD_OK
+			    || fzn_record_open(twire2, twrote, &tr) != FZN_RECORD_OK)
+				FAIL(358);
+			if (fzn_state_apply(&tiers, &tr) != FZN_STATE_OK)
+				FAIL(358);
+			cell = fzn_state_get(&tiers, blob, KIND_TIER);
+			if (!cell || memcmp(cell->body, hot, sizeof(hot)) != 0)
+				FAIL(359);
+
+			/* AND THE PROPERTY A DIRECTORY NAME DOES NOT HAVE: a
+			 * stranger cannot retier somebody else's blob. A tier
+			 * expressed as a record is authenticated and
+			 * issuer-scoped; a tier expressed as a storage
+			 * namespace is whoever can write the directory. */
+			if (fzn_record_sign(stranger, blob, 0, KIND_TIER, 99, 3, cold,
+			                    sizeof(cold), &tops, twire3, sizeof(twire3), &twrote)
+			            != FZN_RECORD_OK
+			    || fzn_record_open(twire3, twrote, &tr) != FZN_RECORD_OK)
+				FAIL(360);
+			if (fzn_state_apply(&tiers, &tr) != FZN_STATE_ERR_CONFLICT)
+				FAIL(360);
+			cell = fzn_state_get(&tiers, blob, KIND_TIER);
+			if (!cell || memcmp(cell->body, hot, sizeof(hot)) != 0)
+				FAIL(361);
+		}
+
 #ifdef FZN_SPOOL_FILE_ON
 		/* And the default backend refuses a path it cannot open rather
 		 * than handing back ops that fail later. A consumer checking

@@ -22677,6 +22677,101 @@ the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
 
+## 110. Tier namespaces: already here, under a different name, 2026-09-05
+
+Last of sec 102's six. **Decided: fuzznet gets no tier field, no tier
+namespace and no tier module** -- and the reason is not that tiers are
+somebody else's policy, though sec 102 says they are. It is that every job a
+tier could do here is already answered, three of them by refusals this tree
+has recorded and the fourth by a module that has served it all along.
+
+### A tier is a comparison, and nothing here compares blobs
+
+Measured rather than assumed: every `fzn_spool_t` in this library is a single
+spool passed by pointer. There is no registry, no set, no array, nothing that
+holds two blobs at once. **A tier ranks things a host holds against each
+other, and this library holds one thing at a time.**
+
+### The three jobs, each already declined, in the tree's own words
+
+- **Authorisation** -- "should this blob be served to this peer". Declined by
+  `record/record.h`: *"Whether an issuer may say this is a capability
+  question ... Keeping it out is what lets one project authorise by chain,
+  another by local uid, and a third by both."* A filestore asking "is this
+  tier public" would import a taxonomy by the back door, which is the same
+  paragraph's reason for refusing `kind`.
+- **Scheduling** -- "scrub tier 1 more often". Declined by `spool/plan.h`:
+  *"A deadline needs a clock, this library calls none."* `spool/scrub.h`
+  inherits it and hands the obligation to the consumer.
+- **Eviction** -- "drop tier 2 when the disk fills". Declined by
+  `chain/chain_store.h`, which spends a dead entry before refusing a live one
+  and then **refuses anyway**: *"Eviction is for the useless. Dropping a live
+  grant to make room for another would make which"* chain a host holds depend
+  on arrival order. Choosing between two live things is the policy this
+  library does not have.
+
+Three refusals, none written with tiers in mind, and between them they cover
+everything a tier was for.
+
+### The fourth job was answered before it was asked
+
+`state/state.h` opens: *"A permission, a rule and a configuration setting are
+the same object at this layer: a value some issuer set, for some subject, of
+some kind ... this file resolves records into current values and interprets
+none of them."*
+
+**A tier is a configuration setting.** And the fit is exact rather than
+approximate: `FZN_SUBJECT_LEN` is 32 and `FZN_BLOB_HASH_LEN` is 32, so **a
+blob root IS a subject**. A blob's tier is a record about that blob,
+addressed by the thing that already names it, with a `kind` the consumer
+picks and this library never reads.
+
+**Demonstrated rather than asserted**, in `tool/consumer_check.c`: an owner
+sets a tier, retiers with a later record, and a stranger's attempt is refused
+as `FZN_STATE_ERR_CONFLICT` with the live value intact. A design claim
+nothing runs is a claim.
+
+### And it is strictly better than a storage namespace
+
+fuzzypickles' tier split lives in their storage namespaces, which is where
+sec 102 met it. A tier expressed as a record instead is **authenticated**,
+**issuer-scoped**, **totally ordered by the same rules as every other
+setting**, and **it replicates**. A directory name is none of those: it is
+whoever can write the directory, it says nothing about who decided, and it
+stops at the machine.
+
+That is not a criticism of a filestore that owns its own disk. It is why the
+answer here could not have been a port even if the policy were shareable.
+
+### The alternative rejected, and why it is not a small thing
+
+A `tier` field on `fzn_spool_t`, opaque, never read by the library -- the
+same shape as the opaque peer in `spool/transfer.h` and the opaque cookie in
+`spool/message.h`, both of which were right.
+
+Refused, and the distinction is worth keeping because those two look like
+precedents for it. **A cookie and a peer id are carried on the WIRE**, where
+the library must move a value it cannot interpret because nothing else can
+move it. A tier is not on the wire and never leaves the host, so the library
+would be storing it purely as a convenience -- and **a field the library
+never reads is a field that will eventually be read.** The convenience is one
+array in a consumer, which is where `state/` puts it anyway, with
+authentication attached.
+
+### One consumer hazard, found by writing the demonstration
+
+The first draft signed three records into one buffer and failed on the last
+assertion. A `fzn_state_entry_t` holds `body` as a POINTER into the record's
+bytes, and `state.h` says that buffer *"must outlive every view of it and
+everything those views are stored in"* -- so **the stranger's REFUSED record
+corrupted the live value it was not allowed to replace.** A refusal that
+still changes the answer is the worst shape available, and it was mine rather
+than the library's. The demonstration uses three buffers and says why.
+
+**Sec 102's six are closed**: the have-set on the wire and the vocabulary
+(sec 105), the transfer state machine (sec 108), the scrub (sec 109), the
+return-routability cookie (sec 105), and tier namespaces here.
+
 ## 109. The scrub, and the check it turned out it cannot perform, 2026-09-05
 
 `spool/scrub.{h,c}` plus `fzn_spool_forget`, 117 checks, five sabotage
