@@ -1029,6 +1029,36 @@ SABOTAGES = [
 		"re-requests -- a transfer that reports complete over a corrupt blob",
 	),
 	(
+		"blob-geometry-exact-multiple",
+		"blob/blob.c",
+		"\tif (tail != 0u)\n\t\tleaves++;\n\telse\n\t\ttail = FZN_BLOB_LEAF_SIZE;\n",
+		"\tleaves++;\n\tif (tail == 0u)\n\t\ttail = FZN_BLOB_LEAF_SIZE;\n",
+		"a content length that is an exact multiple of the leaf size claiming one "
+		"leaf too many -- the off-by-one every hand-written version of this makes "
+		"once, and the reason the arithmetic is in the library rather than in each "
+		"consumer",
+	),
+	(
+		"blob-extent-refuses-not-clamps",
+		"blob/blob.c",
+		"\tif (offset >= content_len || len > content_len - offset)\n"
+		"\t\treturn FZN_BLOB_ERR_MALFORMED;\n",
+		"\tif (offset >= content_len)\n\t\treturn FZN_BLOB_ERR_MALFORMED;\n"
+		"\tif (len > content_len - offset)\n\t\tlen = content_len - offset;\n",
+		"a range running past the content CLAMPED rather than refused, which turns a "
+		"caller's arithmetic bug into a short read it never hears about",
+	),
+	(
+		"msg-have-range-bounded",
+		"spool/message.c",
+		"\t\tif (first > leaf_count || count > leaf_count - first)\n"
+		"\t\t\treturn FZN_MSG_ERR_MALFORMED;\n\t\tout_ranges[at].first = first;\n",
+		"\t\tout_ranges[at].first = first;\n",
+		"a have-set naming leaves outside the blob, handed to a caller that will plan "
+		"fetches from it -- caught by the unit case and independently by message_fuzz "
+		"at case 2, which is two witnesses rather than one",
+	),
+	(
 		"scrub-notices-rot",
 		"spool/scrub.c",
 		"\t\t\tif (memcmp(root, scrub->roots + cell * FZN_BLOB_HASH_LEN,\n"
