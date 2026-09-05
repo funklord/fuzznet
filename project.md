@@ -22815,6 +22815,20 @@ branch rather than whether the assertion is right:
   draft did exactly this and would have passed identically with the pending
   step gone.
 
+### What the paid/unpaid marking turned out to be for
+
+The convention was adopted so this tree would not have to test four claims to
+find the load-bearing one. What it actually did was **quarantine a false claim
+that arrived forty minutes later**: sec 107 was written from the message where
+the assignment ordering was marked UNPAID, so when a manufactured receipt for
+that same property arrived, there was nowhere for it to land.
+
+Neither tree designed it for that. Recorded because the argument for a
+practice is usually made once, at adoption, and this is a second and better
+one that only showed up in use -- and because the alternative reading, that
+this tree has a mechanism which caught the error, is false. **The marking did
+the work and nothing here would have.**
+
 ### The lens their commitment finding handed over, run here
 
 They reported that sabotaging their commitment comparison to always MATCH
@@ -22870,8 +22884,16 @@ Two of the five are shapes this tree cannot inherit and must decide:
   unit.** A per-leaf request retries per leaf at 62% overhead; a span request
   retries per span at 0.68%. That is sec 106's curve reappearing as a RETRY
   granularity trade rather than a bandwidth one, and it is sec 104's
-  per-request delivery mode rather than a new axis. The window question is
-  not settled by this, but it is no longer two units in search of a rule.
+  per-request delivery mode rather than a new axis.
+
+  **Settled, on fuzzypickles' reading of that number back: there is no unit
+  to choose.** Their tree has one answer baked in because verification is
+  per-batch and nothing else is available. This tree has both because `place`
+  and `place_span` both exist -- *"a capability rather than an unmade
+  decision"* -- so the transfer exposes the choice and the caller pays for
+  it. Same conclusion the buffer ownership reached by a different road, and
+  the second time in two days that a question here dissolved into an
+  interface rather than resolving into a value.
 
 ## 106. The 64 was inherited, the curve cannot choose it, and something else can, 2026-09-05
 
