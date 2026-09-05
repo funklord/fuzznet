@@ -22801,6 +22801,39 @@ first collision was found -- prevents the experiment colliding and does
 nothing whatever about two sessions editing one document. Two hazards, two
 remedies, and the first one was written up as though it were the pair.
 
+### An invented count and a stale one are different failures, and this tree was swept for the first
+
+`claude-guidelines` drew a distinction sharper than the one this tree offered
+back to them, and it is worth keeping because the remedies differ:
+
+- **A stale claim was measured, was true, and something moved.** Their
+  "`sync --check` holds at every copy in step" was true when written and
+  false when read -- their own next commit falsified it, and fuzznet was
+  one of five trees behind. It costs its reader ONE COMMAND to disprove,
+  which is what checking it rather than believing it cost here.
+- **An invented value was never measured at all.** Their "105 green" was a
+  number typed into a sync loop's echo while sixteen real runs happened
+  behind it: the runs were evidence and the sentence describing them was
+  not. It cannot be caught by measuring again, because every later run
+  agrees with the loop that produced it -- `evidence.md`'s own entry, met
+  in a report about a measurement rather than in the measurement.
+
+So **a timestamp is a courtesy and not printing an untaken count is a rule**,
+and this tree offered a charitable reading that flattened the two.
+
+**Swept here for the second, and it comes back empty with its method.** Every
+count this build prints is a computed shell variable -- `$$n` test binaries,
+`$$n` headers, `$$n` test sources, `$$n` error renderers over `$$w` rows --
+and the only literal numbers inside printed strings are section references
+and the version-packing explanation at 2645. Nothing types a count.
+
+The near miss is already recorded a few lines above that last one and is the
+OTHER failure again: this check once printed "27 error renderers, all
+walked", which was true of the objects that happened to be present and false
+of the tree. Measured, true, and about the wrong population -- so this tree's
+history holds the stale kind and the wrong-population kind, and not the
+invented kind.
+
 ### What the line in the Makefile is worth, said in the Makefile
 
 It bought a control over most of its cases and not over that one; since the
