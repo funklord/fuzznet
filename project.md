@@ -22742,6 +22742,97 @@ would have caught that by re-reading sec 106, because the sentence is true of
 the transfer either way -- which is the same shape as their own near-miss,
 where both sentences were true and only one was about the system.
 
+### A receipt that was invented, retracted before it landed
+
+fuzzypickles followed the five properties with a message saying the
+assignment-ordering property was now paid for: sabotage the record-as-pending
+and *"nothing goes red in a single-peer test and everything goes red the
+moment two peers are asked"*. They then ran that experiment and retracted it
+-- with the no-op in place their suite reports **all passed, zero failures**,
+because there is no two-peer test. The property is exactly as unpaid as their
+first message marked it.
+
+**It never reached this tree**, because the section above was written and
+committed from the first message, which was the correct one. That is luck
+rather than process and is worth saying so.
+
+Their own account of the mechanism is the part to keep: they had genuinely
+sabotaged three functions that day and got real red from two, so *"the memory
+of having sabotaged supplied the shape of a result for a sabotage I never
+ran"*. The frame had just been right twice and the answer arrived faster than
+the evidence -- and a manufactured receipt is the strongest form the error
+takes, because it reads as a marker of diligence rather than as a guess.
+
+### The rule that came out of paying for it, and it is aimed at code not yet written
+
+fuzzypickles wrote the two-peer test and it fails on exactly two assertions
+with the record-as-pending removed -- the ranges are equal, and they overlap.
+Nothing else in their suite moves.
+
+**Why it was invisible is the part that transfers.** That suite ALREADY had
+two tests asserting the property by name, and both were correct. Both call
+the free planner and pass it a `pending` set **the test itself maintains**.
+So the test did, correctly and on the planner's behalf, the bookkeeping that
+production has to do -- and the planner was fine all along. What was untested
+was the one caller responsible for recording it.
+
+Their rule, and it is better than "test the caller too" because it names a
+tell rather than an aspiration:
+
+> A test that supplies the state the code under test should have recorded
+> cannot see a caller that never records it.
+
+The tell is a test that MAINTAINS a piece of state and passes it in. That
+state is the thing production must produce, and handing it over is how the
+test excuses the code from producing it. Nothing about reading those two
+tests reveals it: they are about the right subject, they are correct, and
+their names are accurate.
+
+**Run against this tree, no hit, and the method matters more than the
+verdict.** The candidate shape is an aggregate a caller maintains that the
+library then trusts. `spool->have` is the only one: it is read by
+`fzn_spool_complete` as `have == leaves`, and **`fzn_spool_open` recomputes
+it from the bits rather than trusting a caller** -- already deliberate,
+already documented in `spool.h`, and written for a different reason (a bitmap
+truncated mid-write must not claim a blob is complete). Neither planner reads
+it; both read the bitmap. The hand-built spools in `plan_test.c` and
+`consumer_check.c` set `leaves` and `present` directly, and are corruption
+fixtures rather than this shape -- they build a bad state on purpose to watch
+a guard refuse it, which is the opposite pattern.
+
+**Where it does apply here is the piece that does not exist yet**, which is
+the cheapest moment to be told. When `spool/` grows a pending set, the test
+for it must not maintain that set on the transfer's behalf; the transfer has
+to record it and the test has to watch it happen. Their two fixture details
+travel with the warning, and both are about whether the fixture reaches the
+branch rather than whether the assertion is right:
+
+- **Both peers must hold everything.** Different have-sets make the planner
+  answer differently for reasons that have nothing to do with pending, and
+  the test passes with the record removed.
+- **The window must be opened first.** Starting at one, a second ask is
+  refused for a window reason and never reaches the question. Their first
+  draft did exactly this and would have passed identically with the pending
+  step gone.
+
+### The lens their commitment finding handed over, run here
+
+They reported that sabotaging their commitment comparison to always MATCH
+broke nothing while always REFUSE broke 57 assertions: the stranger filter was
+called on every valid frame and had **never once been shown a frame it should
+reject**. Accept arm covered, refuse arm not, and the suite reading as
+thorough throughout.
+
+Run against this tree's equivalent -- `fzn_commitment_check` in
+`fzn_seal_open`, neutered to accept every commitment, full `make check`:
+
+    seal_test: 147 checks, 6 failure(s)
+
+**Caught.** A negative result, recorded with its method because an absence
+with no method is indistinguishable from an absence of looking. It is a
+sabotage entry now, `seal-commitment-refuses-a-stranger`, so the six failures
+are a property of the suite rather than of the afternoon somebody checked.
+
 ### What this changes about the piece that is not built
 
 Two of the five are shapes this tree cannot inherit and must decide:
@@ -22751,11 +22842,36 @@ Two of the five are shapes this tree cannot inherit and must decide:
   bitmap every call -- which is correct for a single peer and cannot express
   "asked, not yet arrived" at all. That is the first thing a second peer
   breaks, and it is a data-structure decision rather than a protocol one.
-- **A window that counts batches assumes a batch is the retry unit**, and
-  `chunk/` fragments a span, so a fuzznet transfer has TWO plausible loss
-  units already. Their fourth point is the warning; whether fuzznet's answer
-  is theirs is exactly the open question, and `sched/` may already own half
-  of it.
+- **The retry unit cannot be finer than the VERIFICATION unit**, which is
+  the corrected form of their third point and answers the question this
+  entry first framed as "batch or chunk". That framing was wrong and so was
+  the sentence behind it: this tree wrote that their batch is the unit of
+  four things *because nothing sits between it and the wire*, and
+  fuzzypickles corrected it by reading their own signature --
+  `on_data` takes one sealed leaf per datagram, so a leaf sits between their
+  batch and the wire exactly as a chunk does here. **The difference was
+  invented, and it was invented in this tree's voice about theirs.**
+
+  Their rule instead: a leaf there is a unit of framing and arrival and NOT
+  of retry, because verification is per-batch and a failed batch does not say
+  which leaf was wrong -- re-asking one leaf is asking for a byte you cannot
+  check. So the question is *can a chunk be verified on its own*, and it is
+  answerable by reading rather than designing.
+
+  **Read here, the answer is no, and fuzznet's real answer is a third thing.**
+  `chunk/split.h` is pure arithmetic that authenticates nothing, and a chunk
+  is a fragment of a sealed frame -- authentic from the peer, and unverifiable
+  against a blob root, because nothing checks a fragment. So chunking is
+  framing only, which is their situation with a different word.
+
+  What differs is that `spool/` has BOTH `fzn_spool_place` (one leaf, one
+  proof) and `fzn_spool_place_span` (a span, one proof), so **the
+  verification unit is a per-request choice and therefore so is the retry
+  unit.** A per-leaf request retries per leaf at 62% overhead; a span request
+  retries per span at 0.68%. That is sec 106's curve reappearing as a RETRY
+  granularity trade rather than a bandwidth one, and it is sec 104's
+  per-request delivery mode rather than a new axis. The window question is
+  not settled by this, but it is no longer two units in search of a rule.
 
 ## 106. The 64 was inherited, the curve cannot choose it, and something else can, 2026-09-05
 

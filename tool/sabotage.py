@@ -1029,6 +1029,17 @@ SABOTAGES = [
 		"re-requests -- a transfer that reports complete over a corrupt blob",
 	),
 	(
+		"seal-commitment-refuses-a-stranger",
+		"wire/seal.c",
+		"\tif (fzn_commitment_check(derived, situ_fzn_head_commitment_ptr(hv)) "
+		"!= FZN_COMMITMENT_OK)\n\t\treturn FZN_SEAL_ERR_COMMITMENT;\n",
+		"\tif (0 && fzn_commitment_check(derived, situ_fzn_head_commitment_ptr(hv)) "
+		"!= FZN_COMMITMENT_OK)\n\t\treturn FZN_SEAL_ERR_COMMITMENT;\n",
+		"the stranger filter's REFUSE arm, which fuzzypickles found covered on its "
+		"accept arm and never once shown a frame it should reject -- an entry here "
+		"because a filter called on every valid frame reads as thoroughly tested",
+	),
+	(
 		"msg-have-refused-not-truncated",
 		"spool/message.c",
 		"\tif (range_count > cap)\n\t\treturn FZN_MSG_ERR_TOO_LARGE;\n",
