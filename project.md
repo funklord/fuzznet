@@ -22674,6 +22674,113 @@ the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
 
+## 102. What this tree already has of the filestore, measured before asking, 2026-09-05
+
+Before requesting anything from fuzzypickles, what is here. Their split said
+18 of 61 entry points are format this tree already has and 43 are store,
+propagation and streaming it has none of. **That second number is too high,
+because it was measured against `blob/` alone and this tree also has
+`spool/`.**
+
+    blob/blob.h    9 entry points   the format: leaf and node hashing,
+                                    sealing, opening, tree push and root,
+                                    proof build and verify
+    spool/spool.h  6               the STORE: open, place, read, has,
+                                    complete, next_missing -- a have-set
+                                    over leaves with verified placement
+    spool/plan.h   2               plan_want, plan_offer
+
+So the have-set exists, and so does one half of the wire conversation.
+Mapping their names onto it:
+
+    have_init/add/contains/missing/is_complete   fzn_spool_open, _place,
+                                                 _has, _next_missing,
+                                                 _complete
+    transfer_next_want                           fzn_spool_plan_want
+    chunk sealing and ingest                     fzn_blob_leaf_seal /
+                                                 _leaf_open + fzn_spool_place
+
+**What is genuinely absent is propagation and streaming, not the store:**
+
+- **The have-set on the wire.** `spool/` holds a bitmap and deliberately does
+  not say how one travels -- `have_encode`/`have_decode` have no counterpart.
+- **The wire vocabulary**: `want`, `have`, `have_query`, `data` and their
+  parsers. This is the part their message flags as most likely to carry their
+  peer model, and the part that must be neutral.
+- **A transfer state machine**: `on_data`, `on_proof`, `commit`, `abandon`.
+  `spool/` places a verified leaf; nothing here sequences a transfer or says
+  what each step promises on failure.
+- **`scrub`**, and there is no equivalent anywhere.
+- **Read-at-offset streaming**, source and sink. `fzn_spool_read` reads one
+  leaf by index; a stream wants a byte offset and a deadline.
+- **The return-routability cookie.**
+- **Tier namespaces**, which are policy and may not travel as theirs.
+
+### The question this measurement raises, and it is the first design decision
+
+`spool/` addresses by LEAF RANGE over a bitmap. fuzzypickles addresses by
+TREE NODE, and declined `spool/` for that reason -- recorded before this
+decision existed, so it is evidence rather than a position taken about it.
+
+Both cannot be the addressing. Either `spool/` becomes node-addressed, or the
+filestore is built beside it and one of the two is retired, or leaf-range
+addressing is right and their reason for declining needs re-examining against
+what the second consumer needs. **Nothing here decides that**, and it is the
+thing to settle before an API rather than after -- the same shape as their
+copy-stream versus pure-stream point, which is the other decision that must
+precede the interface.
+
+**Measured rather than asked**: this is what a request to them should be
+narrowed by, so the four items sec 101 lists are asked for against a tree
+whose contents are known rather than assumed.
+
+### The second consumer has already written its requirement down, and it is not what either tree assumed
+
+The holder's prompt -- "netcfgd hasn't started their migration yet, maybe
+that is the missing link" -- was the correction. Both this tree and
+fuzzypickles were treating netcfgd as a NAME that satisfied the two-consumer
+test, and neither had read what it needs. Measured read-only in their tree,
+2026-09-05:
+
+**Their streaming use is Bluetooth AUDIO DEVICE HANDOVER**, asked for
+2026-08-30 and recorded in their `project.md` and decision `0148`: "Bluetooth
+audio with multiple in and out, ALSA only and no PulseAudio ... Later, audio
+device handover over fuzznet's streaming."
+
+**So fuzzypickles' open question is answered, and by the consumer rather than
+by inference.** They asked whether netcfgd wants *pure stream* -- lossy,
+deadline-driven -- rather than their own *copy-stream*, and guessed it would
+be about latency. It is: live audio moving between devices mid-playback. The
+propagation layer has to express both, which was their point and is now a
+requirement rather than a possibility.
+
+**AND THEY HAVE A HARD CONSTRAINT NEITHER TREE KNEW.** From
+`doc/remote-access-feasibility.md`, listed as non-negotiable: "**Never build
+or reintroduce a TCP-style ordered-byte-stream abstraction. Message
+boundaries are preserved end to end.**"
+
+That forecloses the obvious streaming API. A read-at-offset source and sink
+-- which is what fuzzypickles has and what this document listed as absent
+three paragraphs ago -- IS a byte-stream abstraction at the interface, even
+if datagrams carry it. Designing streaming from the filestore's shape alone
+would have produced exactly the thing their document refuses, and it would
+have been found at adoption rather than at design.
+
+**Their decision 0148 also states who owns a gap**: handover "is the one part
+that is not netcfgd's protocol to design -- a gap found there is reported to
+fuzznet rather than worked around here". So this tree is the one expected to
+answer it.
+
+**What is NOT recorded on their side: file sharing.** Searched their tracked
+markdown for it and found nothing -- no filestore, no blob transfer, no file
+distribution. The holder says netcfgd will share files; their documents say
+audio handover and are silent on files. That is the same shape sec 10 step 5
+already records for netcfgd's `agent/`: an instruction ahead of the
+consumer's own document, which is not a contradiction and is worth knowing
+before their absence is read as a requirement. **Their audio requirement is
+written down and dated; the file one is the holder's word and has not reached
+their tree.**
+
 ## 101. The filestore is coming here, and a second consumer changes its shape, 2026-09-05
 
 **Relayed from fuzzypickles, on the copyright holder's instruction, and
@@ -22682,12 +22789,42 @@ other. The first says the distributed filestore, its propagation and media
 streaming belong in this library. The second names the second consumer:
 **netcfgd will share files across machines and will stream audio.**
 
-Nothing is built and nothing is designed. The scope change is put to the
-holder directly rather than acted on from a relay: "the filestore belongs in
-fuzznet" changes what sec 2 says this library IS, and sec 2 is what every
-other refusal here is argued from. A session that widened a library's scope
-on a message would be the wrong thing to have been. Their constraints are
-written down now because they are perishable in a way the decision is not.
+**SETTLED BY THE COPYRIGHT HOLDER, 2026-09-05, directly**: the filestore,
+streaming and the rest belong here, and "already have multiple consumers".
+Their words on the principle, which is wider than this row: fuzznet "is not
+just a protocol, it is the general tasks it is used for too".
+
+### And the reason I gave for asking was wrong, for the second time in two days
+
+Putting it to the holder was right. **The reason I gave was not.** I wrote
+that the filestore "changes what sec 2 says this library IS, and sec 2 is
+what every other refusal here is argued from".
+
+Sec 2 does not say it. It scopes its exclusion to **the local hop** -- the
+socket between a consumer's CLI and its own daemon, where fuzzypickles,
+netcfgd and raidcfgd disagree about encoding for load-bearing reasons. It
+says nothing about what general work belongs in this library.
+
+**Sec 71 records me making this exact misreading yesterday**, in three
+places, to argue a provisioning payload belonged above the library; the
+holder overruled it then with "EVERYTHING generic to do with that goes in,
+no ifs no buts". I reached for the same sentence again today, one day later,
+in a document that already contains the correction with my name on it.
+
+The lesson sec 71 drew was to read the section rather than recall it. That
+was the right lesson and it did not take, because **a summary of a document
+is a memory like any other, and the summary is what gets reused.** Reading
+sec 2 again took forty seconds and is what should have happened both times.
+
+**The right reason to have asked survives the wrong one, and it is narrower**:
+a relay is not authority. The relaying session said so itself before being
+asked -- accuracy is not the same as authority, and it could not say whether
+the holder meant fuzznet should own this or should own it NOW. That is a
+question about mandate and timing, not about scope, and it was worth one
+message.
+
+Their constraints below are written down because they are perishable in a way
+the decision is not.
 
 ### What the split is, in their measurement
 
