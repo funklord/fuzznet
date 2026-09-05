@@ -253,6 +253,14 @@ static void test_a_ledger_that_cannot_be_scanned_withholds_nothing(void)
 		CHECK(fzn_ledger_confirmed(&hollow, a, s, 1u) == 0u,
 		      "an empty ledger with no array answered, which corrupt() does not catch "
 		      "because it holds nothing");
+		/* AND THE WRITE PATH REFUSES IT TOO. `corrupt()` reports this
+		 * one sound -- its second clause is `used > 0 && !entries` --
+		 * so the `!entries` operand beside it is the only thing
+		 * standing between a caller and a write through a null array.
+		 * Covered for `confirmed` above and not for `confirm` until
+		 * now, which `make coverage` is what said. */
+		CHECK(fzn_ledger_confirm(&hollow, a, s, 1u, 9u) == FZN_LEDGER_ERR_MALFORMED,
+		      "an empty ledger with no array was written into");
 	}
 	CHECK(fzn_ledger_behind(NULL, a, s, 1u, 5u) != 0, "a null ledger reported a peer current");
 	CHECK(fzn_ledger_count(NULL) == 0u, "a null ledger reported a count");

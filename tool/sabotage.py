@@ -1050,6 +1050,16 @@ SABOTAGES = [
 		"strength of rows nobody can read",
 	),
 	(
+		"ledger-confirm-null-entries",
+		"record/ledger.c",
+		"\tif (corrupt(ledger) || !ledger->entries)\n"
+		"\t\treturn FZN_LEDGER_ERR_MALFORMED;\n",
+		"\tif (corrupt(ledger))\n\t\treturn FZN_LEDGER_ERR_MALFORMED;\n",
+		"corrupt() reports `used == 0 && !entries` sound, so the operand beside "
+		"it is all that stops a write through a null array "
+		"(caught by the crash, which is a weaker catch than a message)",
+	),
+	(
 		"ledger-version-zero",
 		"record/ledger.c",
 		"\tif (version == 0u)\n\t\treturn FZN_LEDGER_ERR_MALFORMED;\n",

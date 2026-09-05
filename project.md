@@ -11553,6 +11553,86 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 99. A test that ran two thirds of itself, 2026-09-05
+
+`record/ledger.c` was written, tested, sabotaged and nearly committed with a
+suite that silently skipped 25 of its 73 assertions. The defect is worth a
+section because **nothing in the output distinguished it from a suite that
+ran everything** -- not the exit code, not the failure count, and not the
+check count, which was identical either way.
+
+### What happened
+
+The file's `REQUIRE` macro evaluated its condition twice:
+
+    #define REQUIRE(cond, ...)          \
+        do {                            \
+            CHECK(cond, __VA_ARGS__);   \
+            if (!(cond))                \
+                return;                 \
+        } while (0)
+
+and it was handed a call with a side effect:
+
+    REQUIRE(fzn_ledger_confirm(&l, a, s, 1u, 5u) == FZN_LEDGER_OK, "confirm");
+
+The first evaluation inserted the row and returned OK, so the `CHECK` passed.
+The second re-confirmed version 5 -- which the monotonic rule this very
+module implements correctly calls `FZN_LEDGER_ERR_STALE` -- so the condition
+was false and the case **returned there**. Every assertion after it, in that
+function, never ran.
+
+**The module was right and the test was wrong, and the module's own
+correctness is what broke the test.** A ledger that accepted a repeat would
+have hidden this.
+
+### Why it survived a sabotage pass
+
+Seven properties were mutated and five were caught. Two reported as not
+caught, and the conclusion available at that moment -- that those two
+properties are not held by the suite -- was wrong and was about to be
+written down.
+
+They were never reached. The sabotaged code sat past the early return.
+
+**The instrument that failed is one this document has recommended.**
+`evidence.md` says to confirm a sabotage landed, because a mutation that did
+not apply and a check that cannot fail are indistinguishable from the output;
+the confirmation used here was a `grep` for the mutated text. **That proves
+the SOURCE changed. It says nothing about whether the assertion ran.** A
+third state exists between "did not apply" and "cannot fail": applied, in
+code the test does not reach.
+
+What settled it was a `fprintf` at the function's entry and another at the
+assertion. The first printed and the second did not, which is a fact no
+amount of reading the file would have produced -- and reading the file is
+what was tried first, three times.
+
+### The count was the tell and it pointed the wrong way
+
+48 checks clean, 48 sabotaged. That equality was read as "the same
+assertions ran, so the sabotage is not caught". It actually meant "the same
+assertions ran, and neither run reached the sabotaged code".
+
+**A check count is a measurement of one run, and comparing two of them
+answers a different question from the one it appears to.** Two runs agreeing
+on a total is not evidence that a particular assertion executed in either.
+The population is what matters and the total does not name it.
+
+### And the correct macro was already in the tree, nine times
+
+Measured after the fix: nine suites spell `REQUIRE` with a single evaluation
+into a local, and exactly one did not -- the file written that day. The
+harness for it was taken from `chain/test/authz_test.c`, which has the safe
+form. **It was retyped from memory rather than copied**, which is the same
+failure as completing an identifier from a prefix: the tree held the right
+answer and was not read.
+
+That is four instances in one day of the same root -- a value or a shape
+reproduced from expectation instead of from the file -- and the other three
+were caught by a compiler, a header and a reviewer. This one was caught by
+nothing until a probe was put inside the running program.
+
 ## 98. The delivery ledger, measured rather than assumed, 2026-09-05
 
 Asked to make this library ready for what fuzzypickles requires, a survey of
