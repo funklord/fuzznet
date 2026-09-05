@@ -22435,3 +22435,70 @@ merges should read it that way.
 that the next decision is made with the target in view rather than
 locally, which is the instruction.
 
+
+## 97. situ has moved, and `make schema` is red today, 2026-09-05
+
+Relayed from `claude-guidelines` on the copyright holder's instruction:
+situ has improved substantially and the trees using it should take the
+improvement. What follows is the measurement rather than the instruction,
+because "situ is better now" is not something anybody can act on.
+
+**Measured against situ at `0b1a25e`**, extracted read-only with `git
+archive` -- this repository's own `schema` target's method, and for its
+stated reason, that a working tree is whatever a session over there left
+it as. situ's tree was in fact dirty while this was taken, and the pin is
+why that did not matter. 536 commits since 2026-08-01.
+
+**`make schema SITU_DIR=../situ` exits 1.** It stops at its first check,
+so the rest were run by hand rather than left unmeasured:
+
+    wire/frame.situ.wire     STALE   signature format v0 -> v1
+    wire/frame.situ.map      same    byte for byte
+    wire/generated/frame.c   STALE   54 lines
+    wire/generated/frame.h   STALE   39 lines
+    frame_relate.c, .h       same
+    frame_tamper.h           same
+    wire/generated/situ.h    STALE   7 lines, against situ's runtime
+    wire/generated/situ.c    STALE   1 line
+
+**None of it is a wire change.** `situc wire --check` calls it "changed
+compatibly", the capability map is byte-identical, and the contract file
+differs by its version line and a paragraph saying that a construct whose
+contract is a list -- a variant's arms, a tlv grammar, an indexed region's
+offset table, the bytes a tag covers -- now states it one entry per line,
+so a diff names the entry that moved.
+
+**What regenerating buys, which is the part worth reading.**
+
+- **A failed check has a name.** `situ_fzn_head_check(view, &which)`
+  writes the id of the member that refused, the ids being macros --
+  `SITU_FZN_HEAD_LENGTH_CHECK`, `SITU_FZN_HOP_VERSION_CHECK`. No strings
+  in the generated code: the id is the contract and the name is a macro.
+- **`SITU_ERR_CHECKSUM`, separate from `SITU_ERR_TAG`.** situ's runtime
+  states the reason in this library's own terms: a tag refusing is a
+  hostile or corrupt message, a checksum mismatch is corruption or
+  truncation, and a receiver that logs the two alike reports a disk error
+  as an attack. That is the distinction the consumer-side entry about a
+  `default:` arm is about from the other end, and it is now a value this
+  library can hand over rather than a convention each consumer keeps.
+- **Value bounds as constants**, `SITU_FZN_HOP_VERSION_VALUE_MIN` and
+  `_MAX`, so a caller states the range without repeating the number.
+
+**And the features bearing on this schema's shape rather than its
+output**, named because a signal that says "read the changelog" is not a
+signal. Imports are resolved rather than parsed and ignored (`8030185`),
+which is the code-reuse route this file has none of today; `std/` carries
+`image.situ`, `kernels.situ` and `codecs.situ`; a byte run is a value and
+an enum may be `u8[k]`, spelled `u8 magic[4] [must_eq = "KSTR"]` in
+situ's own keystore example, with `preamble` for fixed bytes that generate
+no accessor; `compute` honours `self_as` so a checksum computes itself
+(`4cb5405`); and `situc` has grown `gen-derived` (Rust and Python from one
+description), `gen-fuzz`, `gen-dissector`, `advise` -- ranked, costed
+schema suggestions -- and `diff`, which reports capability changes between
+two revisions and is the tool for asking what any of this would cost.
+
+**What is NOT measured.** Whether the suite passes after a regeneration;
+nothing was regenerated here. Whether adopting a language feature moves
+the wire, which `situc diff` answers and nobody has run. What the table
+above establishes is that regenerating as things stand is byte-neutral on
+the wire, and nothing more than that.
