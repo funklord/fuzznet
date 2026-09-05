@@ -135,9 +135,24 @@ const char *fzn_msg_err_str(fzn_msg_err_t err);
  * stack frame a stranger chooses. */
 #define FZN_MSG_MAX_SPAN 64u
 
-/* Proof siblings a DATA may carry. A span proof over 2^22 leaves needs at
- * most one sibling per level. */
-#define FZN_MSG_MAX_PROOF 64u
+/* Proof siblings a DATA may carry.
+ *
+ * DERIVED, NOT CHOSEN, and it was chosen for about an hour first. This read
+ * `64u` with a comment observing that a span over 2^22 leaves needs at most
+ * one sibling per level -- a true sentence with a round number sitting on top
+ * of it, above both the depth it cited and the 40 `blob/` actually permits.
+ *
+ * A canonical span's proof is the path from its subtree node to the root, so
+ * the count IS the depth and `blob/` already names the maximum; every proof
+ * buffer in the tree is sized by it. Measured to confirm rather than assumed:
+ * a 4096-leaf tree at one leaf per request costs 12 siblings a proof, which
+ * is its depth exactly (project.md sec 106 has the sweep).
+ *
+ * Found by the lens sec 106 came out of -- a constant justified by a quantity
+ * that only pushes one way is unjustified, and reads as justified because a
+ * real measurement is attached. Here the measurement was real, said "at
+ * most", and stopped one step short of a bound this tree already had. */
+#define FZN_MSG_MAX_PROOF FZN_BLOB_MAX_DEPTH
 
 /* THE LAYOUTS. Big-endian, fixed width, no padding, fixed fields first --
  * the same rules as the hop and the revocation, for the same reason.

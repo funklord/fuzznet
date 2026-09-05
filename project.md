@@ -22755,6 +22755,70 @@ inherited constant with a borrowed reason has become a constant with a reason
 of its own, which is the whole of what sec 102 meant by *the property is worth
 keeping and its encoding is not*.
 
+### It transferred, and the way it nearly did not is the better half
+
+fuzzypickles confirmed the bound independently: 64 x (their leaf size plus
+their chunk overhead) = 64 x 1056 = **67,584 bytes**, identical to this tree's
+to the byte. Two trees, separately, same number -- which is corroboration only
+because the arithmetic was re-derived from their own constants rather than
+copied from the message.
+
+**They nearly sent the opposite answer.** Asked whether their ingest verifies
+per batch or per leaf, they read `fzp_blob_ingest_chunk`, whose header says
+verification happens before storage so a host never writes bytes it has not
+checked -- and had the reply half-composed: per leaf, constraint not theirs.
+Then they grepped for USES of the constant rather than mentions, and found a
+batch buffer that copies arriving leaves in and verifies the span as a unit.
+`ingest_chunk` is a different entry point, the keyless path a caching relay
+takes. **Both sentences are true and one of them is not about the system.**
+
+That is a shape worth holding: *a contract correctly describing one entry
+point is not a description of the system's behaviour*, and reading it as one
+is undetectable from inside the file, because the file is right. What caught
+it was mechanical rather than clever -- uses, not mentions -- and they report
+it as the mirror of a finding they had recorded that same morning.
+
+### The lens this produced, and what it found here
+
+Their generalisation of the curve is the reusable part: **any constant
+justified by a monotone quantity is unjustified, and it will FEEL justified,
+because a real measurement is attached to it.** A one-sided force argues for
+one end of the range and cannot pick a value in the middle.
+
+Pointed at this tree's 26 ceilings, four checked in full and one hit, which is
+recorded as a method rather than a score:
+
+- **`FZN_SYNC_MAX_POSITIONS` (1024) survives.** Two-sided: CPU cost pushes
+  down, and a real correctness force pushes up -- a peer legitimately follows
+  more streams than this host does, so too small a cap makes an honest peer
+  with a big journal pay a liar's cost.
+- **`FZN_SPOOL_MAX_WANT` (256) survives**, and says so itself: bounded above
+  by one datagram's worth of request, below by the handful of gaps a real
+  transfer has, and its comment already admits it is a policy rather than a
+  derivation.
+- **`FZN_REASM_MAX_CHUNKS` (256) survives.** Generous for a status message,
+  small enough that a router affords several.
+- **`FZN_RATCHET_MAX_ADVANCE` (100000) is one-sided and answers it a second
+  way**: the cost only rises, so the number is a backstop rather than a
+  policy, and the header says the real refusal belongs to a caller under load.
+  A delegated decision does not need a precisely chosen bound. Worth knowing
+  that this is the answer being given, since it is not the same answer as the
+  three above.
+- **`FZN_MSG_MAX_PROOF` was the hit, and it was written an hour earlier.** It
+  read `64u`, with a comment observing that a span over 2^22 leaves needs at
+  most one sibling per level. The sentence is true; the number is a round one
+  sitting on top of it, above both the depth it cites and the 40 `blob/`
+  permits. A canonical span's proof is the path from its subtree node to the
+  root, so the count IS the depth, and `blob/` already names the maximum --
+  every proof buffer in the tree is sized by it. It is `FZN_BLOB_MAX_DEPTH`
+  now.
+
+**The slack was harmless and that is not the point.** `place_span` refuses a
+proof that does not verify, so nothing could be smuggled through the extra 24
+slots. What the lens caught is a bound INVENTED where a derived one was
+already in scope, one file away -- and the measurement attached to it was real,
+said "at most", and stopped one step short.
+
 ### The generalisation, which is theirs and is sharper than mine
 
 Sec 105 recorded that a reason can fail to travel with its property.
