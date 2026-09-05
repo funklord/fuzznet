@@ -22677,6 +22677,81 @@ the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
 
+## 113. The sweep did not reach the modules written after it, 2026-09-06
+
+`make coverage` on the four modules built for the filestore, none of which
+had ever been measured:
+
+    spool/message.c    100.00% of 197 lines   69.84% of 189 branches
+    spool/scrub.c       97.67% of 129         72.07% of 111
+    spool/transfer.c   100.00% of 108         84.62% of 104
+
+**100% of lines beside 69.84% of branches is the shape that target exists to
+report**, and its own comment says why: full line coverage is compatible with
+every decision in the library having only ever gone one way.
+
+### A wrong hypothesis, and the number that refused it
+
+The first explanation was ready before any measurement. fuzzypickles' question
+-- what value is every fixture in this suite on the same side of -- had found
+two real gaps the day before, and `message_test`'s fixtures are an order of
+magnitude below every ceiling they enforce: leaves of 48 to 97 bytes against
+`FZN_BLOB_SEALED_MAX` of 1056, spans of four against a ceiling of 64, and an
+8 KiB buffer that cannot hold a maximal DATA at all. **The largest message
+that suite had ever built was about 351 bytes against a permitted 67,895** --
+half a percent.
+
+That was true, and it was not the cause. A maximal-message case was written
+and coverage moved **69.84% to 70.37%: one branch.**
+
+**Reading which branches, rather than hypothesising a second time, gave the
+answer in one command.** Forty-two lines carried a conjunction whose later
+operands no test had ever failed -- `if (!out_transfer || !out_cookie ||
+!out_root || !out_first || !out_count)` is one operand tested and four
+asserted by hope. **This tree ran exactly that sweep across the library
+earlier in the same session, and these modules were written after it.** The
+sweep did not fail; it finished before its subjects existed.
+
+### What closing them found, beyond the number
+
+    spool/message.c    69.84% -> 83.07%
+    spool/transfer.c   84.62% -> 95.19%
+    spool/scrub.c      72.07% -> 79.28%   (lines 97.67% -> 99.22%)
+
+Three of the cases are behaviour nobody had exercised rather than arguments
+nobody had nulled:
+
+- **A disk that refuses is not a blob that rotted.** `cell_digest` returns
+  BACKEND when a leaf the bitmap claims cannot be read, and `scrub.h` says
+  that is deliberately distinct from CORRUPT. Both returns were never
+  executed. A scrub treating an unreadable leaf as a bad one would hand a
+  healthy cell back to the want-list every time a disk hiccuped. The
+  behaviour is correct and is now asserted, with the leaf count checked
+  after the failure.
+- **The window stops at the caller's array.** `transfer.h` says the slot
+  array is the memory bound AND the congestion ceiling; nothing had ever run
+  the window up to it.
+- **The optional outputs.** `fzn_scrub_seal` and `fzn_scrub_step` take
+  counters a caller may omit, and every caller in the suite passed one. A
+  NULL nothing ever passes is a branch asserted by hope like any other.
+
+**And `message_test` had no positive control**, while all three of its
+siblings did -- so a suite that had never been seen to fail was reporting the
+same sentence whether it checked anything or not. That is the style gate's
+own argument, one layer down, in this tree's own tests.
+
+### The method, which is the part worth keeping
+
+Two hypotheses, one wrong and one right, and the difference was not
+cleverness. **The wrong one was the most recent lesson applied to the next
+thing that looked like it** -- *a frame that has just been right is the
+hardest one to drop*, and it had been right twice the day before. The right
+one came from reading the instrument's own output instead of predicting it.
+
+The maximal-message case is kept. It was a real gap, it holds the cap
+arithmetic at equality rather than with three orders of magnitude of slack,
+and its worth is not measured by the branch counter it failed to move.
+
 ## 112. The gate's own control, wired in, and the hole it turned out to have, 2026-09-05
 
 `tool/test_style_gate.py` arrived in `83cf7ff` from another session, copied

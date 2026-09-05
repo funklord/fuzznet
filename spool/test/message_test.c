@@ -301,6 +301,174 @@ static void test_a_parsed_data_places_without_being_touched(void)
 	      (unsigned long long)spool.have, SPAN_COUNT);
 }
 
+/* A MESSAGE AT THE SIZE THE PROTOCOL ACTUALLY ALLOWS.
+ *
+ * Every other case in this file is an order of magnitude below every ceiling
+ * it claims to enforce: leaves of 48 to 97 bytes against FZN_BLOB_SEALED_MAX
+ * of 1056, spans of four against FZN_MSG_MAX_SPAN of 64, and an 8 KiB buffer
+ * that cannot hold a maximal DATA at all. The largest message this suite had
+ * ever built was about 351 bytes against a permitted 67,895 -- half a
+ * percent.
+ *
+ * That is fuzzypickles' question of 2026-09-05 asked of this file: what value
+ * is every fixture in this suite on the same side of? Theirs was a transfer
+ * window no end-to-end blob had ever crossed. This one is every ceiling at
+ * once, and `make coverage` agreed before this case existed -- message.c sat
+ * at 69.84% of branches taken both ways, the worst of the six modules
+ * measured, while reporting 100% of lines.
+ *
+ * What only a full-size message reaches: the cap arithmetic near equality
+ * rather than with three orders of magnitude of slack, the 64-entry output
+ * arrays actually filled, and the length table at its real width. */
+#define BIG_LEAVES 128u
+#define BIG_SPAN 64u
+
+static uint8_t big_sealed[BIG_SPAN][FZN_BLOB_SEALED_MAX];
+static uint8_t big_hash[BIG_LEAVES][FZN_BLOB_HASH_LEN];
+static uint8_t big_root[FZN_BLOB_HASH_LEN];
+static uint8_t big_proof[FZN_BLOB_MAX_DEPTH * FZN_BLOB_HASH_LEN];
+static unsigned big_proof_len;
+/* 23 + proof + 64 lengths + 64 full slots, and the proof is one sibling
+ * because a 64-span of a 128-leaf tree is one half of it. */
+static uint8_t big_buf[23u + FZN_BLOB_HASH_LEN + BIG_SPAN * 4u
+                       + BIG_SPAN * FZN_BLOB_SEALED_MAX];
+
+static uint8_t big_disk[BIG_LEAVES * FZN_BLOB_SEALED_MAX];
+
+static int big_read(void *c, uint64_t o, uint8_t *b, size_t n)
+{
+	(void)c;
+	if (o + n > sizeof(big_disk))
+		return 0;
+	memcpy(b, big_disk + o, n);
+	return 1;
+}
+
+static int big_write(void *c, uint64_t o, const uint8_t *b, size_t n)
+{
+	(void)c;
+	if (o + n > sizeof(big_disk))
+		return 0;
+	memcpy(big_disk + o, b, n);
+	return 1;
+}
+
+static int build_big_blob(void)
+{
+	fzn_blob_tree_t tree;
+	unsigned i;
+
+	fzn_blob_tree_init(&tree);
+	for (i = 0; i < BIG_LEAVES; i++) {
+		if (i < BIG_SPAN) {
+			size_t j;
+
+			/* FULL slots, which is the case the small fixture
+			 * never produces. */
+			for (j = 0; j < FZN_BLOB_SEALED_MAX; j++)
+				big_sealed[i][j] = (uint8_t)((i * 31u) + j);
+			if (fzn_blob_leaf_hash(&HASH, big_sealed[i], FZN_BLOB_SEALED_MAX,
+			                       big_hash[i]) != FZN_BLOB_OK)
+				return 0;
+		} else {
+			/* Only the hash is needed past the span: these leaves
+			 * exist to give the span a sibling to prove against. */
+			size_t j;
+			uint8_t filler[64];
+
+			for (j = 0; j < sizeof(filler); j++)
+				filler[j] = (uint8_t)(i + j);
+			if (fzn_blob_leaf_hash(&HASH, filler, sizeof(filler), big_hash[i])
+			    != FZN_BLOB_OK)
+				return 0;
+		}
+		if (fzn_blob_tree_push(&HASH, &tree, big_hash[i]) != FZN_BLOB_OK)
+			return 0;
+	}
+	if (fzn_blob_tree_root(&HASH, &tree, big_root) != FZN_BLOB_OK)
+		return 0;
+	return fzn_blob_span_proof_build(&HASH, big_hash[0], BIG_LEAVES, 0u, BIG_SPAN, big_proof,
+	                                 sizeof(big_proof), &big_proof_len) == FZN_BLOB_OK;
+}
+
+static void test_a_data_at_the_size_the_protocol_allows(void)
+{
+	const uint8_t *span[BIG_SPAN], *out_span[BIG_SPAN], *back_proof = NULL;
+	size_t span_len[BIG_SPAN], out_span_len[BIG_SPAN], len = 0, expect, at;
+	uint32_t transfer = 0;
+	uint64_t first = 0, count = 0;
+	unsigned proof_count = 0;
+
+	CHECK(build_big_blob(), "the full-size fixture did not build");
+	CHECK(big_proof_len == 1u, "a 64-span of 128 leaves needs %u siblings, not 1",
+	      big_proof_len);
+
+	for (at = 0; at < BIG_SPAN; at++) {
+		span[at] = big_sealed[at];
+		span_len[at] = FZN_BLOB_SEALED_MAX;
+	}
+
+	expect = 23u + (size_t)big_proof_len * FZN_BLOB_HASH_LEN + BIG_SPAN * 4u
+	         + BIG_SPAN * FZN_BLOB_SEALED_MAX;
+	CHECK(fzn_msg_data_encode(0xfeedu, 0u, BIG_SPAN, big_proof, big_proof_len, span,
+	                          span_len, big_buf, sizeof(big_buf), &len) == FZN_MSG_OK,
+	      "a maximal data did not encode");
+	CHECK(len == expect, "a maximal data is %zu bytes, arithmetic says %zu", len, expect);
+	CHECK(len == sizeof(big_buf), "the fixture buffer is not exactly one message");
+
+	/* THE CAP AT EQUALITY, which three orders of magnitude of slack cannot
+	 * reach: one byte short must refuse, and exactly enough must not. */
+	CHECK(fzn_msg_data_encode(0xfeedu, 0u, BIG_SPAN, big_proof, big_proof_len, span,
+	                          span_len, big_buf, len - 1u, &len) == FZN_MSG_ERR_TOO_LARGE,
+	      "a maximal data encoded into a buffer one byte short");
+	CHECK(fzn_msg_data_encode(0xfeedu, 0u, BIG_SPAN, big_proof, big_proof_len, span,
+	                          span_len, big_buf, expect, &len) == FZN_MSG_OK,
+	      "a maximal data was refused a buffer of exactly its size");
+
+	CHECK(fzn_msg_data_parse(big_buf, len, &transfer, &first, &count, &back_proof,
+	                         &proof_count, out_span, out_span_len, BIG_SPAN) == FZN_MSG_OK,
+	      "a maximal data did not parse");
+	CHECK(count == BIG_SPAN, "%llu leaves came back, not %u", (unsigned long long)count,
+	      BIG_SPAN);
+	CHECK(proof_count == big_proof_len, "%u siblings came back, not %u", proof_count,
+	      big_proof_len);
+	for (at = 0; at < BIG_SPAN; at++) {
+		CHECK(out_span_len[at] == (size_t)FZN_BLOB_SEALED_MAX,
+		      "leaf %zu came back %zu bytes", at, out_span_len[at]);
+		CHECK(memcmp(out_span[at], big_sealed[at], FZN_BLOB_SEALED_MAX) == 0,
+		      "leaf %zu changed", at);
+	}
+
+	/* And the store takes it, which is the interop claim at full scale
+	 * rather than at four leaves.
+	 *
+	 * ITS OWN BACKEND, because the shared one is sized for eight leaves
+	 * and would refuse. The first draft of this hedged -- "placed OR the
+	 * backend refused" -- which passes whichever happens and is the
+	 * vacuous shape this file exists to avoid. */
+	{
+		static uint8_t big_map[FZN_SPOOL_BITMAP_LEN(BIG_LEAVES)];
+		fzn_spool_t big_spool;
+		fzn_spool_ops_t big_ops;
+
+		memset(big_map, 0, sizeof(big_map));
+		memset(big_disk, 0, sizeof(big_disk));
+		big_ops.read_at = big_read;
+		big_ops.write_at = big_write;
+		big_ops.sync = NULL;
+		big_ops.ctx = NULL;
+		CHECK(fzn_spool_open(&big_spool, big_root, BIG_LEAVES, big_map, sizeof(big_map),
+		                     &big_ops) == FZN_SPOOL_OK,
+		      "the full-size spool did not open");
+		CHECK(fzn_spool_place_span(&big_spool, &HASH, first, count, out_span,
+		                           out_span_len, back_proof, proof_count)
+		              == FZN_SPOOL_OK,
+		      "the store refused a maximal span the parser produced");
+		CHECK(big_spool.have == BIG_SPAN, "%llu leaves landed, not %u",
+		      (unsigned long long)big_spool.have, BIG_SPAN);
+	}
+}
+
 /* ---- the refusals ------------------------------------------------------ */
 
 /* The type byte earning its place. A seal proves the peer wrote the bytes
@@ -567,6 +735,166 @@ static void test_a_proofless_span_round_trips(void)
 	      "the leaves did not survive a proofless data");
 }
 
+/* EVERY OPERAND OF EVERY GUARD, which is the sweep this tree ran across the
+ * library earlier in the session and which this module was written after.
+ *
+ * `make coverage` reports lines and branches taken BOTH WAYS separately for
+ * exactly this: message.c stood at 100% of lines and 69.84% of branches, and
+ * reading the gcov showed forty-two lines carrying a conjunction whose later
+ * operands no test had ever failed. A five-operand null check only ever
+ * called with its first argument null is one operand tested and four
+ * asserted by hope.
+ *
+ * The hypothesis that got here first was wrong and is worth recording. Every
+ * fixture in this file is an order of magnitude below every ceiling it
+ * enforces, so a maximal message looked like the obvious cause -- and it was
+ * a real gap that moved branch coverage by ONE branch. The number is what
+ * said so, and reading which branches rather than guessing again is what
+ * found this. */
+static void test_every_operand_of_every_guard(void)
+{
+	uint8_t root_out[FZN_BLOB_HASH_LEN], cookie_out[FZN_MSG_COOKIE_LEN];
+	fzn_spool_range_t r[2] = { { 0, 2 }, { 4, 4 } }, back[2];
+	uint64_t leaf_count = 0, a = 0, b = 0;
+	uint32_t transfer = 0;
+	unsigned pc = 0;
+	const uint8_t *pp = NULL, *sp[2];
+	size_t spl[2], len = 0, n = 0;
+	const uint8_t *one[1];
+	size_t one_len[1];
+	fzn_msg_type_t ty;
+
+	one[0] = sealed[0];
+	one_len[0] = sealed_len[0];
+
+	CHECK(fzn_msg_have_query_encode(NULL, buf, sizeof(buf), &len) == FZN_MSG_ERR_MALFORMED,
+	      "have_query_encode took a null root");
+	CHECK(fzn_msg_have_query_encode(root, NULL, sizeof(buf), &len) == FZN_MSG_ERR_MALFORMED,
+	      "have_query_encode took a null out");
+	CHECK(fzn_msg_have_query_encode(root, buf, sizeof(buf), NULL) == FZN_MSG_ERR_MALFORMED,
+	      "have_query_encode took a null out_len");
+	CHECK(fzn_msg_have_query_parse(buf, FZN_MSG_HAVE_QUERY_LEN, NULL)
+	              == FZN_MSG_ERR_MALFORMED, "have_query_parse took a null out_root");
+
+	CHECK(fzn_msg_peek(NULL, 8u, &ty) == FZN_MSG_ERR_MALFORMED, "peek took null bytes");
+	CHECK(fzn_msg_peek(buf, 8u, NULL) == FZN_MSG_ERR_MALFORMED, "peek took a null out_type");
+	CHECK(fzn_msg_peek(buf, 0u, &ty) == FZN_MSG_ERR_MALFORMED,
+	      "peek read a zero-length message");
+
+	CHECK(fzn_msg_have_encode(NULL, 8u, COOKIE, r, 2u, buf, sizeof(buf), &len)
+	              == FZN_MSG_ERR_MALFORMED, "have_encode took a null root");
+	CHECK(fzn_msg_have_encode(root, 8u, NULL, r, 2u, buf, sizeof(buf), &len)
+	              == FZN_MSG_ERR_MALFORMED, "have_encode took a null cookie");
+	CHECK(fzn_msg_have_encode(root, 8u, COOKIE, NULL, 2u, buf, sizeof(buf), &len)
+	              == FZN_MSG_ERR_MALFORMED, "have_encode took a null ranges");
+	CHECK(fzn_msg_have_encode(root, 8u, COOKIE, r, 2u, NULL, sizeof(buf), &len)
+	              == FZN_MSG_ERR_MALFORMED, "have_encode took a null out");
+	CHECK(fzn_msg_have_encode(root, 8u, COOKIE, r, 2u, buf, sizeof(buf), NULL)
+	              == FZN_MSG_ERR_MALFORMED, "have_encode took a null out_len");
+	CHECK(fzn_msg_have_encode(root, (uint64_t)FZN_SPOOL_MAX_LEAVES + 1u, COOKIE, r, 2u, buf,
+	                          sizeof(buf), &len) == FZN_MSG_ERR_MALFORMED,
+	      "have_encode took a leaf count past the ceiling");
+	{
+		fzn_spool_range_t over[1] = { { 6u, 4u } };
+
+		CHECK(fzn_msg_have_encode(root, 8u, COOKIE, over, 1u, buf, sizeof(buf), &len)
+		              == FZN_MSG_ERR_MALFORMED,
+		      "have_encode took a range whose count runs past the blob");
+	}
+
+	CHECK(fzn_msg_have_encode(root, 8u, COOKIE, r, 2u, buf, sizeof(buf), &len) == FZN_MSG_OK,
+	      "the have fixture did not encode");
+	CHECK(fzn_msg_have_parse(buf, len, NULL, &leaf_count, cookie_out, back, 2u, &n)
+	              == FZN_MSG_ERR_MALFORMED, "have_parse took a null out_root");
+	CHECK(fzn_msg_have_parse(buf, len, root_out, NULL, cookie_out, back, 2u, &n)
+	              == FZN_MSG_ERR_MALFORMED, "have_parse took a null out_leaf_count");
+	CHECK(fzn_msg_have_parse(buf, len, root_out, &leaf_count, NULL, back, 2u, &n)
+	              == FZN_MSG_ERR_MALFORMED, "have_parse took a null out_cookie");
+	CHECK(fzn_msg_have_parse(buf, len, root_out, &leaf_count, cookie_out, NULL, 2u, &n)
+	              == FZN_MSG_ERR_MALFORMED, "have_parse took a null out_ranges");
+	CHECK(fzn_msg_have_parse(buf, len, root_out, &leaf_count, cookie_out, back, 2u, NULL)
+	              == FZN_MSG_ERR_MALFORMED, "have_parse took a null out_count");
+
+	CHECK(fzn_msg_want_encode(1u, NULL, root, 0u, 2u, buf, sizeof(buf), &len)
+	              == FZN_MSG_ERR_MALFORMED, "want_encode took a null cookie");
+	CHECK(fzn_msg_want_encode(1u, COOKIE, NULL, 0u, 2u, buf, sizeof(buf), &len)
+	              == FZN_MSG_ERR_MALFORMED, "want_encode took a null root");
+	CHECK(fzn_msg_want_encode(1u, COOKIE, root, 0u, 2u, NULL, sizeof(buf), &len)
+	              == FZN_MSG_ERR_MALFORMED, "want_encode took a null out");
+	CHECK(fzn_msg_want_encode(1u, COOKIE, root, 0u, 2u, buf, sizeof(buf), NULL)
+	              == FZN_MSG_ERR_MALFORMED, "want_encode took a null out_len");
+	CHECK(fzn_msg_want_encode(1u, COOKIE, root, (uint64_t)FZN_SPOOL_MAX_LEAVES, 2u, buf,
+	                          sizeof(buf), &len) == FZN_MSG_ERR_MALFORMED,
+	      "want_encode took a span running past the leaf ceiling");
+
+	CHECK(fzn_msg_want_encode(1u, COOKIE, root, 0u, 2u, buf, sizeof(buf), &len) == FZN_MSG_OK,
+	      "the want fixture did not encode");
+	CHECK(fzn_msg_want_parse(buf, len, NULL, cookie_out, root_out, &a, &b)
+	              == FZN_MSG_ERR_MALFORMED, "want_parse took a null out_transfer");
+	CHECK(fzn_msg_want_parse(buf, len, &transfer, NULL, root_out, &a, &b)
+	              == FZN_MSG_ERR_MALFORMED, "want_parse took a null out_cookie");
+	CHECK(fzn_msg_want_parse(buf, len, &transfer, cookie_out, NULL, &a, &b)
+	              == FZN_MSG_ERR_MALFORMED, "want_parse took a null out_root");
+	CHECK(fzn_msg_want_parse(buf, len, &transfer, cookie_out, root_out, NULL, &b)
+	              == FZN_MSG_ERR_MALFORMED, "want_parse took a null out_first");
+	CHECK(fzn_msg_want_parse(buf, len, &transfer, cookie_out, root_out, &a, NULL)
+	              == FZN_MSG_ERR_MALFORMED, "want_parse took a null out_count");
+
+	CHECK(fzn_msg_data_encode(1u, 0u, 1u, NULL, 0u, NULL, one_len, buf, sizeof(buf), &len)
+	              == FZN_MSG_ERR_MALFORMED, "data_encode took a null sealed");
+	CHECK(fzn_msg_data_encode(1u, 0u, 1u, NULL, 0u, one, NULL, buf, sizeof(buf), &len)
+	              == FZN_MSG_ERR_MALFORMED, "data_encode took a null sealed_len");
+	CHECK(fzn_msg_data_encode(1u, 0u, 1u, NULL, 0u, one, one_len, NULL, sizeof(buf), &len)
+	              == FZN_MSG_ERR_MALFORMED, "data_encode took a null out");
+	CHECK(fzn_msg_data_encode(1u, 0u, 1u, NULL, 0u, one, one_len, buf, sizeof(buf), NULL)
+	              == FZN_MSG_ERR_MALFORMED, "data_encode took a null out_len");
+	CHECK(fzn_msg_data_encode(1u, 0u, 1u, NULL, 3u, one, one_len, buf, sizeof(buf), &len)
+	              == FZN_MSG_ERR_MALFORMED, "data_encode took a proof count with no proof");
+	CHECK(fzn_msg_data_encode(1u, 0u, (uint64_t)FZN_MSG_MAX_SPAN + 1u, NULL, 0u, one,
+	                          one_len, buf, sizeof(buf), &len) == FZN_MSG_ERR_TOO_LARGE,
+	      "data_encode took a span past the ceiling");
+	CHECK(fzn_msg_data_encode(1u, 0u, 1u, big_proof, (unsigned)FZN_MSG_MAX_PROOF + 1u, one,
+	                          one_len, buf, sizeof(buf), &len) == FZN_MSG_ERR_TOO_LARGE,
+	      "data_encode took a proof past the ceiling");
+	CHECK(fzn_msg_data_encode(1u, (uint64_t)FZN_SPOOL_MAX_LEAVES, 1u, NULL, 0u, one, one_len,
+	                          buf, sizeof(buf), &len) == FZN_MSG_ERR_MALFORMED,
+	      "data_encode took a span running past the leaf ceiling");
+
+	CHECK(fzn_msg_data_encode(1u, 0u, 1u, NULL, 0u, one, one_len, buf, sizeof(buf), &len)
+	              == FZN_MSG_OK, "the data fixture did not encode");
+	CHECK(fzn_msg_data_parse(buf, len, NULL, &a, &b, &pp, &pc, sp, spl, 2u)
+	              == FZN_MSG_ERR_MALFORMED, "data_parse took a null out_transfer");
+	CHECK(fzn_msg_data_parse(buf, len, &transfer, NULL, &b, &pp, &pc, sp, spl, 2u)
+	              == FZN_MSG_ERR_MALFORMED, "data_parse took a null out_first");
+	CHECK(fzn_msg_data_parse(buf, len, &transfer, &a, NULL, &pp, &pc, sp, spl, 2u)
+	              == FZN_MSG_ERR_MALFORMED, "data_parse took a null out_count");
+	CHECK(fzn_msg_data_parse(buf, len, &transfer, &a, &b, NULL, &pc, sp, spl, 2u)
+	              == FZN_MSG_ERR_MALFORMED, "data_parse took a null out_proof");
+	CHECK(fzn_msg_data_parse(buf, len, &transfer, &a, &b, &pp, NULL, sp, spl, 2u)
+	              == FZN_MSG_ERR_MALFORMED, "data_parse took a null out_proof_count");
+	CHECK(fzn_msg_data_parse(buf, len, &transfer, &a, &b, &pp, &pc, NULL, spl, 2u)
+	              == FZN_MSG_ERR_MALFORMED, "data_parse took a null out_sealed");
+	CHECK(fzn_msg_data_parse(buf, len, &transfer, &a, &b, &pp, &pc, sp, NULL, 2u)
+	              == FZN_MSG_ERR_MALFORMED, "data_parse took a null out_sealed_len");
+}
+
+/* The positive control, which this file did not have while three sibling
+ * suites did. A suite that has never been seen to fail reports the same
+ * sentence whether it is checking anything or not -- the same argument the
+ * style gate's own suite exists for, one layer down. */
+static void test_the_suite_can_tell_pass_from_fail(void)
+{
+	int before = failures;
+
+	CHECK(0, "deliberate");
+	if (failures == before + 1) {
+		failures = before;
+		return;
+	}
+	fprintf(stderr, "  the positive control did not register\n");
+	failures = before + 1;
+}
+
 int main(void)
 {
 	if (!build_blob()) {
@@ -578,6 +906,7 @@ int main(void)
 	test_a_want_survives_a_round_trip();
 	test_a_plan_encodes_and_decodes_unmodified();
 	test_a_parsed_data_places_without_being_touched();
+	test_a_data_at_the_size_the_protocol_allows();
 	test_a_parser_refuses_another_type();
 	test_peek_refuses_a_version_and_a_type_it_does_not_know();
 	test_a_message_naming_nothing_is_refused();
@@ -588,6 +917,8 @@ int main(void)
 	test_a_range_outside_the_blob_is_refused();
 	test_a_short_buffer_is_reported_and_not_written();
 	test_a_proofless_span_round_trips();
+	test_every_operand_of_every_guard();
+	test_the_suite_can_tell_pass_from_fail();
 
 	printf("message_test: %d checks, %d failures\n", checks, failures);
 	return failures != 0;

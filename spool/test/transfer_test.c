@@ -532,6 +532,80 @@ static void test_every_guard_refuses_its_own_argument(void)
 	CHECK(fzn_transfer_err_str(FZN_TRANSFER_NONE) != NULL, "err_str returned null");
 }
 
+/* THE WINDOW STOPS AT THE SLOT ARRAY, which is the caller's memory bound
+ * doubling as the congestion ceiling -- transfer.h says the array is both,
+ * and nothing had ever run the window up to it. `make coverage` had that
+ * comparison one-way. */
+static void test_the_window_stops_at_the_caller_s_array(void)
+{
+	fzn_spool_range_t got;
+	int i;
+
+	CHECK(fresh(2u), "the fixture did not open");
+	/* Enough clean batches to open past two if anything would let it. */
+	for (i = 0; i < 8; i++) {
+		if (fzn_transfer_next_want(&transfer, 1u, 0u, 1u, 100u, &got) != FZN_TRANSFER_OK)
+			break;
+		if (!place(got.first, got.count))
+			break;
+		if (fzn_transfer_delivered(&transfer, 1u, got.first, got.count)
+		    != FZN_TRANSFER_OK)
+			break;
+	}
+	CHECK(fzn_transfer_window(&transfer) == 2u,
+	      "the window reached %u over a two-slot array -- it would record an assignment "
+	      "with nowhere to put it", fzn_transfer_window(&transfer));
+}
+
+/* Every operand of every guard, the same sweep the library had and this
+ * module was written after. */
+static void test_every_operand_of_every_guard(void)
+{
+	fzn_spool_range_t got;
+
+	CHECK(fresh(SLOTS), "the fixture did not open");
+
+	CHECK(fzn_transfer_next_want(NULL, 1u, 0u, 1u, 100u, &got) == FZN_TRANSFER_ERR_MALFORMED,
+	      "next_want took a null transfer");
+	{
+		fzn_transfer_t hollow = transfer;
+
+		hollow.spool = NULL;
+		CHECK(fzn_transfer_next_want(&hollow, 1u, 0u, 1u, 100u, &got)
+		              == FZN_TRANSFER_ERR_MALFORMED,
+		      "next_want took a transfer with no spool");
+		hollow = transfer;
+		hollow.slots = NULL;
+		CHECK(fzn_transfer_next_want(&hollow, 1u, 0u, 1u, 100u, &got)
+		              == FZN_TRANSFER_ERR_MALFORMED,
+		      "next_want took a transfer with no slots");
+
+		hollow = transfer;
+		hollow.spool = NULL;
+		CHECK(fzn_transfer_delivered(&hollow, 1u, 0u, 1u) == FZN_TRANSFER_ERR_MALFORMED,
+		      "delivered took a transfer with no spool");
+		hollow = transfer;
+		hollow.slots = NULL;
+		CHECK(fzn_transfer_delivered(&hollow, 1u, 0u, 1u) == FZN_TRANSFER_ERR_MALFORMED,
+		      "delivered took a transfer with no slots");
+		CHECK(fzn_transfer_failed(&hollow, 1u, 0u, 1u) == FZN_TRANSFER_ERR_MALFORMED,
+		      "failed took a transfer with no slots");
+		CHECK(fzn_transfer_expire(&hollow, 1u) == 0u,
+		      "expire walked a transfer with no slots");
+	}
+	CHECK(fzn_transfer_delivered(NULL, 1u, 0u, 1u) == FZN_TRANSFER_ERR_MALFORMED,
+	      "delivered took a null transfer");
+	CHECK(fzn_transfer_failed(NULL, 1u, 0u, 1u) == FZN_TRANSFER_ERR_MALFORMED,
+	      "failed took a null transfer");
+
+	/* find_slot's last operand: right peer, right first, wrong count. */
+	CHECK(fzn_transfer_next_want(&transfer, 1u, 0u, 2u, 100u, &got) == FZN_TRANSFER_OK,
+	      "the ask was refused");
+	CHECK(fzn_transfer_failed(&transfer, 1u, got.first, got.count + 1u)
+	              == FZN_TRANSFER_ERR_UNKNOWN,
+	      "a range matching in peer and offset but not length was accepted");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -562,6 +636,8 @@ int main(void)
 	test_delivery_is_verified_against_the_store();
 	test_an_answer_naming_no_assignment_is_refused();
 	test_a_complete_blob_asks_for_nothing();
+	test_the_window_stops_at_the_caller_s_array();
+	test_every_operand_of_every_guard();
 	test_every_guard_refuses_its_own_argument();
 	test_the_suite_can_tell_pass_from_fail();
 

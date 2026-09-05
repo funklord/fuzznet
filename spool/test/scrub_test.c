@@ -119,9 +119,15 @@ static int build_blob(void)
 
 static uint8_t disk[LEAVES * FZN_BLOB_SEALED_MAX];
 
+/* Set to refuse reads from this leaf onward, so a scrub can be stopped
+ * part-way rather than at its first byte. */
+static uint64_t refuse_from = (uint64_t)-1;
+
 static int disk_read(void *c, uint64_t o, uint8_t *b, size_t n)
 {
 	(void)c;
+	if (refuse_from != (uint64_t)-1 && o >= refuse_from * FZN_BLOB_SEALED_MAX)
+		return 0;
 	if (o + n > sizeof(disk))
 		return 0;
 	memcpy(b, disk + o, n);
@@ -162,6 +168,7 @@ static int fresh(uint64_t fill_from, uint64_t fill_count)
 {
 	memset(map, 0, sizeof(map));
 	memset(disk, 0, sizeof(disk));
+	refuse_from = (uint64_t)-1;
 	if (fzn_spool_open(&spool, root, LEAVES, map, sizeof(map), &OPS) != FZN_SPOOL_OK)
 		return 0;
 	if (fill_count > 0u && !place_range(fill_from, fill_count))
@@ -429,6 +436,61 @@ static void test_a_partial_blob_seals_only_whole_cells(void)
 
 /* ---- guards ------------------------------------------------------------- */
 
+/* A DISK THAT REFUSES IS NOT A BLOB THAT ROTTED, and the difference decides
+ * whether leaves are thrown away.
+ *
+ * `cell_digest` answers FZN_SCRUB_ERR_BACKEND when a leaf the bitmap claims
+ * cannot be read, and the header says that is distinct from CORRUPT because
+ * the store failed to ANSWER rather than answering wrongly. Nothing tested
+ * it: `make coverage` showed both of those returns never executed and the
+ * error propagation above them one-way. A scrub that treated an unreadable
+ * leaf as a bad one would return a healthy cell to the want-list every time
+ * a disk hiccuped, and re-fetch it from a peer for no reason. */
+static void test_a_backend_that_refuses_is_not_corruption(void)
+{
+	uint64_t checked = 99u, dropped = 99u, sealed_now = 99u;
+	fzn_scrub_err_t err;
+
+	CHECK(fresh(0u, LEAVES), "the fixture did not fill");
+	CHECK(seal_all(NULL) == CELLS_EXPECTED, "the fixture did not seal");
+
+	/* Reads fail from the second cell onward, so the first cell is checked
+	 * cleanly and the failure happens part-way rather than at once. */
+	refuse_from = FZN_SCRUB_CELL;
+	err = fzn_scrub_step(&scrub, &HASH, 4u, &checked, &dropped);
+	CHECK(err == FZN_SCRUB_ERR_BACKEND, "a refusing backend gave %s, not backend",
+	      fzn_scrub_err_str(err));
+	CHECK(dropped == 0u, "%llu cells dropped over a read failure -- a disk that cannot "
+	      "answer is not a blob that rotted", (unsigned long long)dropped);
+	CHECK(spool.have == LEAVES, "%llu leaves survived a read failure, not %u",
+	      (unsigned long long)spool.have, LEAVES);
+
+	/* And sealing reports it the same way rather than recording a
+	 * reference over bytes it could not read. */
+	refuse_from = (uint64_t)-1;
+	CHECK(fresh(0u, LEAVES), "the fixture did not refill");
+	refuse_from = 0u;
+	err = fzn_scrub_seal(&scrub, &HASH, 4u, &sealed_now);
+	CHECK(err == FZN_SCRUB_ERR_BACKEND, "sealing over a refusing backend gave %s",
+	      fzn_scrub_err_str(err));
+	CHECK(sealed_now == 0u, "%llu cells sealed from bytes that could not be read",
+	      (unsigned long long)sealed_now);
+	refuse_from = (uint64_t)-1;
+}
+
+/* The optional outputs, which every caller in this file passes. A `NULL`
+ * that nothing ever passes is a branch asserted by hope. */
+static void test_the_optional_outputs_may_be_omitted(void)
+{
+	CHECK(fresh(0u, LEAVES), "the fixture did not fill");
+	CHECK(fzn_scrub_seal(&scrub, &HASH, 1u, NULL) == FZN_SCRUB_OK,
+	      "seal refused a null out_sealed");
+	CHECK(fzn_scrub_step(&scrub, &HASH, 1u, NULL, NULL) == FZN_SCRUB_OK,
+	      "step refused null counters");
+	CHECK(fzn_scrub_step(&scrub, &HASH, 1u, NULL, NULL) == FZN_SCRUB_OK,
+	      "step refused null counters on the second cell");
+}
+
 static void test_every_guard_refuses_its_own_argument(void)
 {
 	uint64_t out = 0u;
@@ -494,6 +556,8 @@ int main(void)
 	test_a_rotted_byte_in_the_short_tail_cell_drops_only_it();
 	test_a_dropped_cell_returns_to_the_want_list();
 	test_a_partial_blob_seals_only_whole_cells();
+	test_a_backend_that_refuses_is_not_corruption();
+	test_the_optional_outputs_may_be_omitted();
 	test_every_guard_refuses_its_own_argument();
 	test_the_suite_can_tell_pass_from_fail();
 
