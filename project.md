@@ -22743,6 +22743,39 @@ stops at the machine.
 That is not a criticism of a filestore that owns its own disk. It is why the
 answer here could not have been a port even if the policy were shareable.
 
+### The observation this made about their tree, checked by them, and it does not bite
+
+The paragraph above says a directory name cannot carry agreement between two
+hosts about a blob's tier. **fuzzypickles checked it rather than accepting it,
+and the answer is that their tier does replicate -- by a route this tree could
+not have guessed.**
+
+Their public/private split is enforced by distinct C types over the same 32
+bytes and by separate storage namespaces, with no promote-to-public call at
+all: making a blob public means storing it again, *"in the API, not by
+convention"*, because a private asset whose id reaches a public index is
+public for ever. So it is a property of the store and of the type rather than
+a field, which is what sec 102 recorded and what this section assumed.
+
+**But the tier IS the key policy.** A public blob's key is derived from its
+plaintext, so anyone holding a candidate file derives it; the private tier
+uses a random key for exactly that reason. What replicates in their estate is
+the catalogue record, and the catalogue record carries the key -- so the thing
+two of their hosts must agree about is the key, the key is in an
+authenticated issuer-scoped record, and **the namespace is a local
+consequence of a decision that already travels.**
+
+That is this section's conclusion reached from the other side. Both trees
+carry a tier as a record about a subject; theirs carries a KEY where this one
+carries a label, which is stronger, because a key needs no interpreting.
+
+**Where the observation would bite is a tier decision not expressible as a
+key choice**, and they report having none. Recorded because the residue is
+the useful part of a cross-tree claim that turned out to be half wrong: the
+mechanism was right and the conclusion about their tree was not, and the
+difference was one they could check in their own file and this tree could
+not check at all.
+
 ### The alternative rejected, and why it is not a small thing
 
 A `tier` field on `fzn_spool_t`, opaque, never read by the library -- the
@@ -22854,6 +22887,43 @@ compare `fzn_blob_tree_root` with the spool's root. Four existing functions
 and a loop. It is not a store operation because **the store is precisely the
 layer that does not know the lengths** -- which is a cleaner statement of the
 seam than the version that tried to put it here.
+
+### The other tree draws the seam elsewhere, and pays 0.19% for it
+
+fuzzypickles were asked how their store knows leaf lengths, since their scrub
+verifies against retained tree nodes and that needs the length each leaf was
+hashed over. Measured in their `daemon/storage_fs.c` and reported: **every
+chunk is written into a fixed-stride slot behind a two-byte big-endian length
+prefix**, read back and bounds-checked on the way out, so their leaf hash
+reproduces exactly and their scrub really does compare against the tree
+rather than appearing to.
+
+**The honest comparison, since it is the same decision priced two ways:** two
+bytes per 1056-byte slot is about **0.19%**, against this tree's 0.049% of
+cell roots. Theirs costs more and buys the thing this one gives up -- a value
+comparable against the pinned root. Neither is the better answer: their slot
+has to record where the sealed bytes end because their layout does not say,
+and this one does not because **the stride IS that answer**, which
+`fzn_spool_read`'s comment stated before either tree looked.
+
+**A length prefix here is therefore an option with a price rather than a
+missing feature**, and it is recorded so it is not re-proposed as one. It
+would cost 0.19% of every stored blob and change `spool_file`'s on-disk
+layout, and what it would buy is a whole-tree check INSIDE the store rather
+than in the caller -- which sec 109 already shows the caller can do with four
+existing functions, because the caller is the layer that knows the lengths.
+That makes it a convenience at the price of a format change, and moving the
+length into the store contradicts `fzn_spool_read`'s standing decision that
+it belongs to the blob's own framing. Not taken; it is a design change for
+the copyright holder rather than a scrub feature.
+
+**And their reading of the finding is better than this section's first
+version.** They point out that the failing test was not a bug report: *"you
+went looking for a definitive check, built it, and the test failed on an
+intact blob -- which is the cleanest possible demonstration that the check
+could not exist. That is a stronger result than a passing test would have
+been, and it is only available because you wrote the trivially-green case."*
+The case that looked like a formality is the one that carried the result.
 
 ### Repair is the want-list, again
 
