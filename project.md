@@ -11726,9 +11726,19 @@ refused calls included.
 
 **And the store can be filled with VALID chains by one delegable holder**,
 since anything descending from the pinned root verifies and each distinct
-grantee is a distinct key. There is no eviction, so `FZN_CHAIN_ERR_STORE_FULL`
-is permanent once reached. Defensible, and a property of the design that
-nothing stated until a reviewer asked what an attacker actually gets.
+grantee is a distinct key. ~~There is no eviction, so
+`FZN_CHAIN_ERR_STORE_FULL` is permanent once reached.~~ **FIXED 2026-09-05 on
+the holder's instruction** (`1807a9a`): `admit` spends an expired entry
+before refusing a live chain, so a store full of corpses recovers.
+
+**It is still permanent while every entry is LIVE**, and that half is
+deliberate rather than a shortfall. Evicting a live grant to make room for
+another would make which chain a host holds depend on the order they arrived
+in -- a worse answer than telling a caller its store is too small. So the
+flooding above is bounded by capacity rather than defeated: a delegable
+holder can still fill the store with live grants and a consumer must still
+size for the distinct triples it expects. What the fix removes is the
+permanence, not the pressure.
 
 So chains may be fetched from anyone precisely because they are
 self-checking against something already pinned, and records may not because
