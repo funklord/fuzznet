@@ -79,6 +79,10 @@ static struct {
 	uint8_t bytes[TEST_LEAVES * FZN_BLOB_SEALED_MAX];
 	unsigned writes;
 	unsigned reads;
+	/* Counted because nothing counted it: `place_span` completing a blob
+	 * must flush, and with `mem_sync` returning 1 and recording nothing
+	 * that could never have been asserted. */
+	unsigned syncs;
 	int refuse_writes;
 } disk;
 
@@ -107,6 +111,7 @@ static int mem_write(void *ctx, uint64_t off, const uint8_t *bytes, size_t len)
 static int mem_sync(void *ctx)
 {
 	(void)ctx;
+	disk.syncs++;
 	return 1;
 }
 
@@ -823,6 +828,128 @@ static void test_a_span_is_placed_under_one_proof(void)
 /* A SPAN THAT IS NOT A NODE HAS NO PROOF, and is refused rather than
  * verified leaf by leaf -- a quiet fallback would hide that the peer is
  * describing a different set. */
+/* The three things `place_span` does that no test had reached, and the two
+ * `forget` does. project.md sec 114; `make coverage` had all five one-way.
+ *
+ * The skip is the interesting one: a duplicate is ORDINARY on a lossy
+ * transport, and `spool.h` says a leaf already present is accepted and not
+ * rewritten. That is the sentence, and nothing had ever placed a span
+ * overlapping leaves the store already held. */
+static void test_a_span_over_leaves_already_held_rewrites_none_of_them(void)
+{
+	fzn_spool_t spool;
+	uint8_t map[FZN_SPOOL_BITMAP_LEN(TEST_LEAVES)];
+	const uint8_t *parts[4];
+	size_t parts_len[4];
+	uint8_t span_proof[FZN_BLOB_MAX_DEPTH * FZN_BLOB_HASH_LEN];
+	unsigned span_proof_len = 0, i;
+	unsigned writes_before;
+
+	reset(&spool, map, sizeof(map));
+	for (i = 0; i < 4u; i++) {
+		parts[i] = sealed[i];
+		parts_len[i] = sealed_len[i];
+	}
+	REQUIRE(fzn_blob_span_proof_build(&HASH, leaf_hash[0], TEST_LEAVES, 0u, 4u, span_proof,
+	                                  sizeof(span_proof), &span_proof_len) == FZN_BLOB_OK,
+	        "building the span proof");
+
+	/* Two of the four arrive first, by the single-leaf path. */
+	CHECK(fzn_spool_place(&spool, &HASH, 1u, sealed[1], sealed_len[1], proof[1],
+	                      proof_len[1]) == FZN_SPOOL_OK, "leaf 1 did not place");
+	CHECK(fzn_spool_place(&spool, &HASH, 2u, sealed[2], sealed_len[2], proof[2],
+	                      proof_len[2]) == FZN_SPOOL_OK, "leaf 2 did not place");
+	writes_before = disk.writes;
+
+	CHECK(fzn_spool_place_span(&spool, &HASH, 0u, 4u, parts, parts_len, span_proof,
+	                           span_proof_len) == FZN_SPOOL_OK,
+	      "a span overlapping leaves already held was refused");
+	CHECK(spool.have == 4u, "%llu leaves held, not 4", (unsigned long long)spool.have);
+	/* The two it already had cost no write, which is the property. */
+	CHECK(disk.writes > writes_before,
+	      "the span wrote nothing at all, so the comparison below is vacuous");
+	CHECK(disk.writes < writes_before + expected_writes(4u),
+	      "the span rewrote leaves the store already held: %u writes for two new leaves",
+	      disk.writes - writes_before);
+}
+
+/* Completing a blob through the span path must sync, which only the
+ * single-leaf path had ever done. */
+static void test_a_span_that_completes_the_blob_syncs(void)
+{
+	fzn_spool_t spool;
+	uint8_t map[FZN_SPOOL_BITMAP_LEN(TEST_LEAVES)];
+	const uint8_t *parts[2];
+	size_t parts_len[2];
+	uint8_t span_proof[FZN_BLOB_MAX_DEPTH * FZN_BLOB_HASH_LEN];
+	unsigned span_proof_len = 0, i;
+	unsigned syncs_before;
+
+	reset(&spool, map, sizeof(map));
+	for (i = 0; i < 4u; i++) {
+		CHECK(fzn_spool_place(&spool, &HASH, i, sealed[i], sealed_len[i], proof[i],
+		                      proof_len[i]) == FZN_SPOOL_OK,
+		      "leaf %u did not place", i);
+	}
+	syncs_before = disk.syncs;
+	CHECK(!fzn_spool_complete(&spool), "the blob was complete before the span");
+
+	parts[0] = sealed[4];
+	parts_len[0] = sealed_len[4];
+	parts[1] = sealed[5];
+	parts_len[1] = sealed_len[5];
+	REQUIRE(fzn_blob_span_proof_build(&HASH, leaf_hash[0], TEST_LEAVES, 4u, 2u, span_proof,
+	                                  sizeof(span_proof), &span_proof_len) == FZN_BLOB_OK,
+	        "building the tail span proof");
+	CHECK(fzn_spool_place_span(&spool, &HASH, 4u, 2u, parts, parts_len, span_proof,
+	                           span_proof_len) == FZN_SPOOL_OK,
+	      "the completing span was refused");
+	CHECK(fzn_spool_complete(&spool), "the blob is not complete after its last span");
+	CHECK(disk.syncs == syncs_before + 1u,
+	      "%u syncs after completion, not one -- a blob completed through the span path "
+	      "was never flushed", disk.syncs - syncs_before);
+}
+
+static void test_forget_gives_leaves_back_and_keeps_have_honest(void)
+{
+	fzn_spool_t spool;
+	uint8_t map[FZN_SPOOL_BITMAP_LEN(TEST_LEAVES)];
+	unsigned i;
+
+	reset(&spool, map, sizeof(map));
+	for (i = 0; i < TEST_LEAVES; i++)
+		CHECK(fzn_spool_place(&spool, &HASH, i, sealed[i], sealed_len[i], proof[i],
+		                      proof_len[i]) == FZN_SPOOL_OK,
+		      "leaf %u did not place", i);
+	CHECK(fzn_spool_complete(&spool), "the fixture is not complete");
+
+	CHECK(fzn_spool_forget(&spool, 2u, 2u) == 2u, "forget did not drop two leaves");
+	CHECK(spool.have == TEST_LEAVES - 2u, "%llu leaves left, not %u",
+	      (unsigned long long)spool.have, TEST_LEAVES - 2u);
+	CHECK(!fzn_spool_complete(&spool),
+	      "a blob with two leaves forgotten still reports complete -- the one lie this "
+	      "struct must never tell");
+
+	/* ALREADY ABSENT COUNTS AS NOTHING, which is what keeps `have` right
+	 * when a caller forgets the same range twice. */
+	CHECK(fzn_spool_forget(&spool, 2u, 2u) == 0u, "forgetting absent leaves counted them");
+	CHECK(spool.have == TEST_LEAVES - 2u, "a second forget moved have to %llu",
+	      (unsigned long long)spool.have);
+
+	/* Its guards, each operand. */
+	CHECK(fzn_spool_forget(NULL, 0u, 1u) == 0u, "forget took a null spool");
+	{
+		fzn_spool_t hollow = spool;
+
+		hollow.present = NULL;
+		CHECK(fzn_spool_forget(&hollow, 0u, 1u) == 0u, "forget took a null bitmap");
+	}
+	CHECK(fzn_spool_forget(&spool, TEST_LEAVES, 1u) == 0u,
+	      "forget took an index past the blob");
+	CHECK(fzn_spool_forget(&spool, TEST_LEAVES - 1u, 2u) == 0u,
+	      "forget took a count running past the blob");
+}
+
 static void test_a_non_canonical_span_is_refused(void)
 {
 	fzn_spool_t spool;
@@ -989,6 +1116,9 @@ int main(void)
 	test_the_suite_can_tell_pass_from_fail();
 
 	test_a_span_is_placed_under_one_proof();
+	test_a_span_over_leaves_already_held_rewrites_none_of_them();
+	test_a_span_that_completes_the_blob_syncs();
+	test_forget_gives_leaves_back_and_keeps_have_honest();
 	test_a_non_canonical_span_is_refused();
 	test_a_bad_leaf_mid_span_writes_nothing();
 	test_a_span_over_a_refusing_backend_sets_no_bit();

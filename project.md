@@ -22677,6 +22677,76 @@ the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
 
+## 114. The same sweep, one layer down, and the same wrong guess twice, 2026-09-06
+
+`blob/blob.c` and `spool/spool.c` had the same shape sec 113 found: full line
+coverage beside two thirds of branches, and the gap in the functions added
+for the filestore rather than in the old ones.
+
+    blob/blob.c    100.00% of 331 lines   84.21% -> 93.68% of 285 branches
+    spool/spool.c   97.37% of 114         83.70% -> 89.63% of 135
+                    (lines now 100%)
+
+### The wrong guess, made a second time and for the same reason
+
+Sec 113 records a hypothesis that cost a test and moved one branch. The
+hypothesis HERE was different and wrong the same way: nine of `blob.c`'s
+one-way lines were `if (err != FZN_BLOB_OK) return err;`, every one of them
+propagating a hash failure that **no stub in this tree can produce**. That
+looked like the answer and it is a real gap -- a consumer whose hash is a
+hardware engine that can be busy meets those paths on its first bad day.
+
+Written, and it moved **84.21% to 84.91%**. Then the operand guards moved it
+to **93.68%**.
+
+So the same wrong guess twice in two sections, and the shape is worth naming
+rather than the instance: **the interesting failure path is the one that
+comes to mind, and the boring conjunction is where the branches are.** Nine
+propagation sites against fourteen guard lines, and the guards carry two to
+five operands each. The arithmetic was available before either test was
+written and neither time did anybody do it.
+
+### What the failing seam bought, which is not a percentage
+
+It is kept, and the version that survives is not the one first written. The
+first draft guessed thresholds -- assert refusal for budgets 0 to 7 -- and
+six of its thirteen failures were the function working correctly, because a
+4-leaf span in a 16-leaf tree needs two combines and budgets 2 through 7 are
+enough. **A guessed threshold turns a passing case into a failing assertion
+that reads like a bug in the code.**
+
+What replaced it measures each call's cost with an unlimited seam and then
+asserts the RELATIONSHIP: one hash short must refuse, exactly enough must
+not. That cannot be wrong about the number because it never names one, and
+it holds the direction that matters -- a verifier which cannot compute must
+REFUSE rather than accept.
+
+### Three behaviours in spool.c that no test had reached
+
+`make coverage` had all three one-way, and the first is a documented
+promise nothing checked:
+
+- **A span overlapping leaves already held rewrites none of them.**
+  `spool.h` says a duplicate is ordinary on a lossy transport and an
+  already-present leaf is accepted and not rewritten. Nothing had ever
+  placed a span across leaves the store had.
+- **A span that completes a blob syncs.** Only the single-leaf path had ever
+  flushed. And the fixture could not have caught it either way, because
+  `mem_sync` returned 1 and counted nothing -- **the assertion was
+  unavailable, not merely unwritten.**
+- **`fzn_spool_forget` counts what it actually cleared.** Forgetting an
+  absent range must move nothing, which is what keeps `have` honest when a
+  caller forgets twice; and a blob with leaves forgotten must stop reporting
+  complete, which is the one lie that struct must never tell.
+
+### What stays uncovered, and why it is not a gap
+
+`blob.c`'s remaining one-way branches are the `FZN_BLOB_MAX_DEPTH` ceilings
+-- `count >= 40`, `depth >= 40`, and the two `cap` checks beside them. Each
+needs a tree of 2^40 leaves to fire. `test_the_deepest_legal_proof_is_walked`
+already establishes that and says so; they are unreachable rather than
+untested, which is a different sentence and the honest one.
+
 ## 113. The sweep did not reach the modules written after it, 2026-09-06
 
 `make coverage` on the four modules built for the filestore, none of which

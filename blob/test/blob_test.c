@@ -176,6 +176,32 @@ static int stub_open(void *ctx, const uint8_t key[FZN_AEAD_KEY_LEN],
 }
 
 static const fzn_hash_ops_t HASH = { stub_hash, NULL };
+
+/* A HASH SEAM THAT FAILS, which nothing here had.
+ *
+ * Every `if (err != FZN_BLOB_OK) return err;` in this module exists to
+ * propagate a hash failure, and `make coverage` showed nine of them taken
+ * one way only -- because the stub above cannot fail, so the code that
+ * handles a failing hash had never run at all. A seam is a seam because it
+ * can be somebody else's; a consumer whose SHA-256 is a hardware engine that
+ * can be busy gets these paths on the first bad day.
+ *
+ * The countdown is the point: failing the Nth call rather than the first
+ * reaches propagation sites part-way through a walk, which failing
+ * immediately cannot. */
+static int hash_budget;
+
+static int budgeted_hash(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in,
+                         size_t in_len)
+{
+	(void)ctx;
+	if (hash_budget <= 0)
+		return 0;
+	hash_budget--;
+	return stub_hash(NULL, out, out_len, in, in_len);
+}
+
+static const fzn_hash_ops_t FLAKY = { budgeted_hash, NULL };
 static const fzn_hash_ops_t REFUSER = { refusing_hash, NULL };
 static const fzn_aead_ops_t AEAD = { stub_seal, stub_open, NULL };
 
@@ -1537,6 +1563,209 @@ static void test_a_range_outside_the_content_is_refused(void)
 	      "extent answered for content past the ceiling");
 }
 
+/* Every path that propagates a hash failure, found by MEASURING what each
+ * call costs rather than guessing a threshold. project.md sec 114.
+ *
+ * The first draft guessed: it asserted refusal for budgets 0 to 7 on a call
+ * that needs two hashes, and six of those "failures to refuse" were the
+ * function working correctly. Guessing a threshold turns a passing case into
+ * a failing assertion and reads like a bug in the code.
+ *
+ * So each case measures the cost with an unlimited seam, then asserts the
+ * RELATIONSHIP: one hash short must refuse, exactly enough must not. That
+ * cannot be wrong about the number because it never names one. */
+static int cost_of(int (*run)(const fzn_hash_ops_t *))
+{
+	hash_budget = 1 << 20;
+	if (!run(&FLAKY))
+		return -1;
+	return (1 << 20) - hash_budget;
+}
+
+static uint8_t fh_leaves[64 * FZN_BLOB_HASH_LEN];
+static uint8_t fh_sib[FZN_BLOB_MAX_DEPTH * FZN_BLOB_HASH_LEN];
+static uint8_t fh_out[FZN_BLOB_HASH_LEN];
+static uint8_t fh_root[FZN_BLOB_HASH_LEN];
+static uint8_t fh_span[FZN_BLOB_HASH_LEN];
+static unsigned fh_count;
+
+static int run_leaf_hash(const fzn_hash_ops_t *h)
+{
+	return fzn_blob_leaf_hash(h, fh_leaves, 32u, fh_out) == FZN_BLOB_OK;
+}
+
+static int run_tree(const fzn_hash_ops_t *h)
+{
+	fzn_blob_tree_t t;
+	unsigned i;
+
+	fzn_blob_tree_init(&t);
+	for (i = 0; i < 8u; i++) {
+		if (fzn_blob_tree_push(h, &t, fh_leaves + i * FZN_BLOB_HASH_LEN) != FZN_BLOB_OK)
+			return 0;
+	}
+	return fzn_blob_tree_root(h, &t, fh_out) == FZN_BLOB_OK;
+}
+
+static int run_proof_build(const fzn_hash_ops_t *h)
+{
+	return fzn_blob_proof_build(h, fh_leaves, 16u, 3u, fh_sib, sizeof(fh_sib), &fh_count)
+	       == FZN_BLOB_OK;
+}
+
+static int run_span_build(const fzn_hash_ops_t *h)
+{
+	return fzn_blob_span_proof_build(h, fh_leaves, 16u, 4u, 4u, fh_sib, sizeof(fh_sib),
+	                                 &fh_count) == FZN_BLOB_OK;
+}
+
+static int run_span_root(const fzn_hash_ops_t *h)
+{
+	return fzn_blob_span_root(h, fh_leaves, 8u, fh_out) == FZN_BLOB_OK;
+}
+
+static int run_span_verify(const fzn_hash_ops_t *h)
+{
+	return fzn_blob_span_proof_verify(h, fh_span, 4u, 4u, 16u, fh_sib, fh_count, fh_root)
+	       == FZN_BLOB_OK;
+}
+
+static void one_hash_short(const char *what, int (*run)(const fzn_hash_ops_t *))
+{
+	int cost = cost_of(run);
+
+	CHECK(cost > 0, "%s costs %d hashes, so nothing below it can be tested", what, cost);
+	if (cost <= 0)
+		return;
+	hash_budget = cost - 1;
+	CHECK(!run(&FLAKY), "%s succeeded one hash short of the %d it needs -- a failing "
+	      "seam was swallowed", what, cost);
+	hash_budget = cost;
+	CHECK(run(&FLAKY), "%s failed with exactly the %d hashes it needs, so the case "
+	      "above proves nothing", what, cost);
+}
+
+static void test_a_failing_hash_is_propagated_not_swallowed(void)
+{
+	make_leaves(fh_leaves, 64u);
+
+	one_hash_short("a leaf hash", run_leaf_hash);
+	one_hash_short("eight pushes and a root", run_tree);
+	one_hash_short("a single-leaf proof over 16 leaves", run_proof_build);
+	one_hash_short("a span proof over 16 leaves", run_span_build);
+	one_hash_short("a span root over 8 leaves", run_span_root);
+
+	/* Verification needs its inputs built first, and the direction that
+	 * matters is that a verifier which cannot compute must REFUSE. */
+	hash_budget = 1 << 20;
+	CHECK(fzn_blob_span_proof_build(&FLAKY, fh_leaves, 16u, 4u, 4u, fh_sib, sizeof(fh_sib),
+	                                &fh_count) == FZN_BLOB_OK,
+	      "the fixture proof did not build");
+	CHECK(fzn_blob_span_root(&FLAKY, fh_leaves + 4u * FZN_BLOB_HASH_LEN, 4u, fh_span)
+	              == FZN_BLOB_OK, "the fixture span root did not compute");
+	reference_root(fh_leaves, 16u, fh_root);
+	one_hash_short("a span proof verification", run_span_verify);
+}
+
+/* Every operand of every guard in the span functions, which were written a
+ * day after this tree swept the rest of the library for exactly this.
+ * project.md sec 113 has the shape; sec 114 has the measurement. */
+static void test_every_operand_of_the_span_guards(void)
+{
+	static uint8_t sl[16 * FZN_BLOB_HASH_LEN];
+	uint8_t sib[FZN_BLOB_MAX_DEPTH * FZN_BLOB_HASH_LEN];
+	uint8_t out[FZN_BLOB_HASH_LEN];
+	uint8_t root[FZN_BLOB_HASH_LEN];
+	fzn_hash_ops_t noop = { NULL, NULL };
+	const uint64_t HUGE = FZN_BLOB_MAX_LEAVES + 1u;
+	unsigned n = 0;
+
+	make_leaves(sl, 16u);
+	reference_root(sl, 16u, root);
+
+	/* is_canonical: five numeric operands, and it answers a plain no. */
+	CHECK(!fzn_blob_span_is_canonical(0u, 0u, 1u), "an empty tree had a canonical span");
+	CHECK(!fzn_blob_span_is_canonical(HUGE, 0u, 1u),
+	      "a tree past the ceiling had a canonical span");
+	CHECK(!fzn_blob_span_is_canonical(16u, 0u, 0u), "a span of nothing was canonical");
+	CHECK(!fzn_blob_span_is_canonical(16u, 0u, 17u), "a span wider than the tree was canonical");
+	CHECK(!fzn_blob_span_is_canonical(16u, 14u, 4u),
+	      "a span running past the end was canonical");
+
+	/* span_proof_build: four pointers plus the hash's own function. */
+	CHECK(fzn_blob_span_proof_build(NULL, sl, 16u, 0u, 4u, sib, sizeof(sib), &n)
+	              != FZN_BLOB_OK, "span_proof_build took null hash ops");
+	CHECK(fzn_blob_span_proof_build(&noop, sl, 16u, 0u, 4u, sib, sizeof(sib), &n)
+	              != FZN_BLOB_OK, "span_proof_build took ops with no hash function");
+	CHECK(fzn_blob_span_proof_build(&HASH, NULL, 16u, 0u, 4u, sib, sizeof(sib), &n)
+	              != FZN_BLOB_OK, "span_proof_build took null leaf hashes");
+	CHECK(fzn_blob_span_proof_build(&HASH, sl, 16u, 0u, 4u, NULL, sizeof(sib), &n)
+	              != FZN_BLOB_OK, "span_proof_build took a null out");
+	CHECK(fzn_blob_span_proof_build(&HASH, sl, 16u, 0u, 4u, sib, sizeof(sib), NULL)
+	              != FZN_BLOB_OK, "span_proof_build took a null out_count");
+	CHECK(fzn_blob_span_proof_build(&HASH, sl, 0u, 0u, 4u, sib, sizeof(sib), &n)
+	              != FZN_BLOB_OK, "span_proof_build took an empty tree");
+	CHECK(fzn_blob_span_proof_build(&HASH, sl, HUGE, 0u, 4u, sib, sizeof(sib), &n)
+	              != FZN_BLOB_OK, "span_proof_build took a tree past the ceiling");
+	CHECK(fzn_blob_span_proof_build(&HASH, sl, 16u, 0u, 0u, sib, sizeof(sib), &n)
+	              != FZN_BLOB_OK, "span_proof_build took a span of nothing");
+	CHECK(fzn_blob_span_proof_build(&HASH, sl, 16u, 0u, 17u, sib, sizeof(sib), &n)
+	              != FZN_BLOB_OK, "span_proof_build took a span wider than the tree");
+	CHECK(fzn_blob_span_proof_build(&HASH, sl, 16u, 14u, 4u, sib, sizeof(sib), &n)
+	              != FZN_BLOB_OK, "span_proof_build took a span running past the end");
+
+	/* span_proof_verify: its own pointers and the sibling bounds. */
+	REQUIRE_BLOB(fzn_blob_span_proof_build(&HASH, sl, 16u, 4u, 4u, sib, sizeof(sib), &n),
+	             "the fixture span proof");
+	REQUIRE_BLOB(fzn_blob_span_root(&HASH, sl + 4u * FZN_BLOB_HASH_LEN, 4u, out),
+	             "the fixture span root");
+	CHECK(fzn_blob_span_proof_verify(NULL, out, 4u, 4u, 16u, sib, n, root) != FZN_BLOB_OK,
+	      "span_proof_verify took null hash ops");
+	CHECK(fzn_blob_span_proof_verify(&noop, out, 4u, 4u, 16u, sib, n, root) != FZN_BLOB_OK,
+	      "span_proof_verify took ops with no hash function");
+	CHECK(fzn_blob_span_proof_verify(&HASH, NULL, 4u, 4u, 16u, sib, n, root) != FZN_BLOB_OK,
+	      "span_proof_verify took a null span root");
+	CHECK(fzn_blob_span_proof_verify(&HASH, out, 4u, 4u, 16u, sib, n, NULL) != FZN_BLOB_OK,
+	      "span_proof_verify took a null root");
+	CHECK(fzn_blob_span_proof_verify(&HASH, out, 4u, 4u, 0u, sib, n, root) != FZN_BLOB_OK,
+	      "span_proof_verify took an empty tree");
+	CHECK(fzn_blob_span_proof_verify(&HASH, out, 4u, 4u, HUGE, sib, n, root) != FZN_BLOB_OK,
+	      "span_proof_verify took a tree past the ceiling");
+	CHECK(fzn_blob_span_proof_verify(&HASH, out, 4u, 0u, 16u, sib, n, root) != FZN_BLOB_OK,
+	      "span_proof_verify took a span of nothing");
+	CHECK(fzn_blob_span_proof_verify(&HASH, out, 4u, 17u, 16u, sib, n, root) != FZN_BLOB_OK,
+	      "span_proof_verify took a span wider than the tree");
+	CHECK(fzn_blob_span_proof_verify(&HASH, out, 14u, 4u, 16u, sib, n, root) != FZN_BLOB_OK,
+	      "span_proof_verify took a span running past the end");
+	CHECK(fzn_blob_span_proof_verify(&HASH, out, 4u, 4u, 16u, sib,
+	                                 (unsigned)FZN_BLOB_MAX_DEPTH + 1u, root)
+	              != FZN_BLOB_OK, "span_proof_verify took a proof past the depth ceiling");
+	CHECK(fzn_blob_span_proof_verify(&HASH, out, 4u, 4u, 16u, NULL, n, root) != FZN_BLOB_OK,
+	      "span_proof_verify took a sibling count with no siblings");
+
+	/* span_largest_at: an answer of zero rather than an error. */
+	CHECK(fzn_blob_span_largest_at(0u, 0u, 4u) == 0u, "an empty tree offered a span");
+	CHECK(fzn_blob_span_largest_at(HUGE, 0u, 4u) == 0u,
+	      "a tree past the ceiling offered a span");
+	CHECK(fzn_blob_span_largest_at(16u, 16u, 4u) == 0u,
+	      "an offset at the end offered a span");
+	CHECK(fzn_blob_span_largest_at(16u, 0u, 0u) == 0u, "a zero bound offered a span");
+
+	/* span_root: four pointers and both count operands. */
+	CHECK(fzn_blob_span_root(NULL, sl, 4u, out) != FZN_BLOB_OK,
+	      "span_root took null hash ops");
+	CHECK(fzn_blob_span_root(&noop, sl, 4u, out) != FZN_BLOB_OK,
+	      "span_root took ops with no hash function");
+	CHECK(fzn_blob_span_root(&HASH, NULL, 4u, out) != FZN_BLOB_OK,
+	      "span_root took null leaf hashes");
+	CHECK(fzn_blob_span_root(&HASH, sl, 4u, NULL) != FZN_BLOB_OK,
+	      "span_root took a null out");
+	CHECK(fzn_blob_span_root(&HASH, sl, 0u, out) != FZN_BLOB_OK,
+	      "span_root took a count of nothing");
+	CHECK(fzn_blob_span_root(&HASH, sl, HUGE, out) != FZN_BLOB_OK,
+	      "span_root took a count past the leaf ceiling");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -1757,6 +1986,8 @@ int main(void)
 	test_the_largest_span_at_every_position_is_canonical();
 	test_batching_always_pays_and_never_stops_paying();
 	test_where_a_byte_lives();
+	test_a_failing_hash_is_propagated_not_swallowed();
+	test_every_operand_of_the_span_guards();
 	test_a_range_outside_the_content_is_refused();
 
 	printf("blob_test: %d checks, %d failure(s)\n", checks, failures);
