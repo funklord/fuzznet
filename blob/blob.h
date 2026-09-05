@@ -312,6 +312,19 @@ fzn_blob_err_t fzn_blob_proof_build(const fzn_hash_ops_t *hash, const uint8_t *l
  * either send several or send one that proves something else. */
 int fzn_blob_span_is_canonical(uint64_t leaf_count, uint64_t first, uint64_t count);
 
+/* The largest canonical span starting at `first` and no longer than
+ * `max_count`, or 0 if there is none.
+ *
+ * The canonical spans that START at a given leaf form a chain -- they are the
+ * nodes on the path from the root down to that leaf whose left edge is that
+ * leaf -- so "largest that fits" is a walk rather than a search, and a
+ * planner covering a run of missing leaves can take them greedily.
+ *
+ * This is what turns a run into requests: a propagation layer holds a bitmap
+ * of what it lacks, and a bitmap's runs are arbitrary while a provable
+ * request is not. */
+uint64_t fzn_blob_span_largest_at(uint64_t leaf_count, uint64_t first, uint64_t max_count);
+
 /* The siblings from the span's own root up to the blob's root.
  *
  * `out` receives `*out_count` hashes of FZN_BLOB_HASH_LEN. A span equal to

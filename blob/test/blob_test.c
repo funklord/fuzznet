@@ -568,6 +568,70 @@ static void test_a_span_proof_of_the_wrong_length_is_refused(void)
 	      != FZN_BLOB_OK, "a span verified against a blob of a different size");
 }
 
+
+/* THE GREEDY COVER TERMINATES AND EVERY PIECE IS PROVABLE.
+ *
+ * `fzn_blob_span_largest_at` is what turns a bitmap's arbitrary run into
+ * requests a single proof can cover, so two things have to hold for every
+ * position of every tree: what it returns is canonical, and it is never zero
+ * for a leaf that exists -- because a planner that got zero would either stall
+ * or fall back to per-leaf requests, which is the 62% it exists to avoid.
+ *
+ * A single leaf is always a canonical span, so the floor is 1 and the walk
+ * cannot fail to make progress. That is the termination argument and it is
+ * checked rather than asserted. */
+static void test_the_largest_span_at_every_position_is_canonical(void)
+{
+	uint64_t n, first, cap, got;
+	unsigned took_more_than_one = 0u;
+
+	for (n = 1u; n <= 33u; n++) {
+		for (first = 0u; first < n; first++) {
+			for (cap = 1u; cap <= 8u; cap++) {
+				got = fzn_blob_span_largest_at(n, first, cap);
+				CHECK(got >= 1u,
+				      "no span at leaf %llu of %llu under cap %llu, so a "
+				      "planner would stall",
+				      (unsigned long long)first, (unsigned long long)n,
+				      (unsigned long long)cap);
+				CHECK(got <= cap, "span %llu exceeds the cap %llu",
+				      (unsigned long long)got, (unsigned long long)cap);
+				CHECK(fzn_blob_span_is_canonical(n, first, got),
+				      "the largest span at %llu of %llu under %llu is not "
+				      "canonical",
+				      (unsigned long long)first, (unsigned long long)n,
+				      (unsigned long long)cap);
+				if (got > 1u)
+					took_more_than_one++;
+			}
+		}
+	}
+
+	/* THE POPULATION AGAIN. A function that always returned 1 would pass
+	 * every check above and buy nothing -- the whole point is that it
+	 * takes big bites where it can. */
+	CHECK(took_more_than_one > 200u,
+	      "only %u positions took a span longer than one leaf, so the cover is "
+	      "per-leaf in all but name", took_more_than_one);
+
+	/* AND A GREEDY WALK COVERS A WHOLE BLOB EXACTLY. */
+	{
+		uint64_t at = 0u, pieces = 0u;
+
+		while (at < 33u) {
+			got = fzn_blob_span_largest_at(33u, at, 64u);
+			REQUIRE_BLOB(got >= 1u ? FZN_BLOB_OK : FZN_BLOB_ERR_SHAPE,
+			             "the greedy walk stalled");
+			at += got;
+			pieces++;
+			CHECK(pieces <= 33u, "the walk is not terminating");
+		}
+		CHECK(at == 33u, "the greedy cover overshot: %llu", (unsigned long long)at);
+		CHECK(pieces < 33u, "the cover took %llu pieces for 33 leaves, so it is "
+		      "per-leaf", (unsigned long long)pieces);
+	}
+}
+
 static void test_a_straddling_span_is_refused(void)
 {
 	static uint8_t leaves[MAX_TEST_LEAVES * FZN_BLOB_HASH_LEN];
@@ -1431,6 +1495,7 @@ int main(void)
 	test_every_canonical_span_reaches_the_root();
 	test_a_straddling_span_is_refused();
 	test_a_span_proof_of_the_wrong_length_is_refused();
+	test_the_largest_span_at_every_position_is_canonical();
 
 	printf("blob_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

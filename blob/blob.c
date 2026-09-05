@@ -844,3 +844,41 @@ fzn_blob_err_t fzn_blob_span_proof_verify(const fzn_hash_ops_t *hash,
 
 	return fzn_ct_memeq(acc, root, FZN_BLOB_HASH_LEN) ? FZN_BLOB_OK : FZN_BLOB_ERR_PROOF;
 }
+
+uint64_t fzn_blob_span_largest_at(uint64_t leaf_count, uint64_t first, uint64_t max_count)
+{
+	uint64_t lo = 0u;
+	uint64_t n = leaf_count;
+	uint64_t best = 0u;
+
+	if (leaf_count == 0u || leaf_count > FZN_BLOB_MAX_LEAVES || first >= leaf_count)
+		return 0u;
+	if (max_count == 0u)
+		return 0u;
+
+	/* Descend to `first`, remembering every node whose left edge is
+	 * `first` and which is small enough. The last such node seen is the
+	 * largest that fits, because the descent shrinks monotonically -- so
+	 * this takes the FIRST that fits and keeps descending only to find
+	 * smaller ones, which is why `best` is overwritten rather than
+	 * compared. */
+	for (;;) {
+		uint64_t k;
+
+		if (lo == first && n <= max_count) {
+			best = n;
+			break;
+		}
+		if (n <= 1u)
+			break;
+		k = split_at(n);
+		if (first < lo + k) {
+			n = k;
+		} else {
+			lo += k;
+			n -= k;
+		}
+	}
+
+	return best;
+}

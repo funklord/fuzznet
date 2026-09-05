@@ -13,12 +13,43 @@ static int bit_get(const uint8_t *map, uint64_t index)
 /* Appends a run, splitting it so no range exceeds `limit`. Returns 0 when the
  * caller's array is full, which is a stop rather than an error -- a partial
  * plan is a legitimate answer and the caller can ask again. */
-static int emit(fzn_spool_range_t *out, size_t cap, size_t *count, uint64_t first,
-                uint64_t run, uint64_t limit)
+/* Cut a run of missing leaves into CANONICAL SPANS, largest first.
+ *
+ * A bitmap's runs are arbitrary and a provable request is not: a span that is
+ * not a node of the tree has no single proof, so a peer answering one would
+ * have to send several or send one that proves a different set. project.md
+ * sec 103 has the arithmetic -- 62% proof overhead against 0.68% at a gibibyte
+ * -- and `fzn_blob_span_largest_at` is the walk that makes the cut.
+ *
+ * Greedy is exact here rather than approximate: the canonical spans starting
+ * at a leaf form a chain, so taking the largest that fits leaves a remainder
+ * that is itself coverable, and a single leaf is always canonical so the walk
+ * cannot stall. Both are asserted in `blob/test/blob_test.c` over every
+ * position of every tree to 33 leaves.
+ *
+ * `limit` still bounds a request, and now bounds it from above rather than
+ * dividing it: a run of 8 under a limit of 5 becomes 4 + 4 rather than 5 + 3,
+ * because 4 is a node of the tree and 5 is not. */
+static int emit(const fzn_spool_t *spool, fzn_spool_range_t *out, size_t cap, size_t *count,
+                uint64_t first, uint64_t run, uint64_t limit)
 {
 	while (run > 0u) {
-		uint64_t take = run < limit ? run : limit;
+		uint64_t bound = run < limit ? run : limit;
+		uint64_t take = fzn_blob_span_largest_at(spool->leaves, first, bound);
 
+		/* UNREACHABLE BY CONSTRUCTION AND IT STAYS. `first` is inside
+		 * the blob because the run came from the bitmap, and `bound`
+		 * is at least one because `run` and `limit` both are -- and a
+		 * single leaf is always a canonical span, so the walk always
+		 * finds something. Mutating it away changes no test, which is
+		 * how it is known to be unreachable rather than untested.
+		 *
+		 * It stays as the boundary between this file's arithmetic and
+		 * `blob/`'s, the same reason `fzn_chain_store_admit` keeps its
+		 * pack refusal: the day the two disagree this emits nothing
+		 * rather than a range no peer can answer. */
+		if (take == 0u)
+			return 0;
 		if (*count >= cap)
 			return 0;
 		out[*count].first = first;
@@ -67,7 +98,7 @@ fzn_spool_err_t fzn_spool_plan_want(const fzn_spool_t *spool, uint64_t from,
 			 * this store already holds. Closing the run at index
 			 * zero is what keeps a range meaning what it says. */
 			if (run > 0u && i == 0u) {
-				if (!emit(out, cap, count, run_first, run, max_per_range))
+				if (!emit(spool, out, cap, count, run_first, run, max_per_range))
 					return FZN_SPOOL_OK;
 				run = 0;
 			}
@@ -76,7 +107,7 @@ fzn_spool_err_t fzn_spool_plan_want(const fzn_spool_t *spool, uint64_t from,
 			run++;
 			continue;
 		}
-		if (run > 0u && !emit(out, cap, count, run_first, run, max_per_range))
+		if (run > 0u && !emit(spool, out, cap, count, run_first, run, max_per_range))
 			return FZN_SPOOL_OK;
 		run = 0;
 	}
@@ -85,7 +116,7 @@ fzn_spool_err_t fzn_spool_plan_want(const fzn_spool_t *spool, uint64_t from,
 	 * a store missing the leaves before `from` never does -- which is the
 	 * ordinary case at the start of a transfer, not an edge one. */
 	if (run > 0u)
-		(void)emit(out, cap, count, run_first, run, max_per_range);
+		(void)emit(spool, out, cap, count, run_first, run, max_per_range);
 
 	return FZN_SPOOL_OK;
 }
@@ -148,11 +179,11 @@ fzn_spool_err_t fzn_spool_plan_offer(const fzn_spool_t *spool, const fzn_spool_r
 				budget--;
 				continue;
 			}
-			if (run > 0u && !emit(out, cap, count, run_first, run, max_leaves))
+			if (run > 0u && !emit(spool, out, cap, count, run_first, run, max_leaves))
 				return FZN_SPOOL_OK;
 			run = 0;
 		}
-		if (run > 0u && !emit(out, cap, count, run_first, run, max_leaves))
+		if (run > 0u && !emit(spool, out, cap, count, run_first, run, max_leaves))
 			return FZN_SPOOL_OK;
 	}
 

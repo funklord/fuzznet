@@ -1005,6 +1005,14 @@ SABOTAGES = [
 		"\t\t\treturn FZN_CHAIN_ERR_UNKNOWN_TARGET;\n",
 		"a withdrawal that overtakes its revocation is kept, not dropped",
 	),
+	(
+		"spool-plan-cuts-canonical",
+		"spool/plan.c",
+		"\t\tuint64_t take = fzn_blob_span_largest_at(spool->leaves, first, bound);\n",
+		"\t\tuint64_t take = bound;\n",
+		"a planned range must be a node of the tree, or a peer answering it has "
+		"no single proof and the request costs 62% overhead instead of 0.68%",
+	),
 	# BATCH THIRTEEN, 2026-09-05: blob/'s span proofs, added with them.
 	#
 	# A FOURTH MUTATION WAS TRIED AND IS NOT HERE, because it was a no-op

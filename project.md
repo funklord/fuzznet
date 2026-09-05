@@ -22767,11 +22767,30 @@ discipline, which says when a thing stops being worth having -- with
 `chunk/reassembly.h`'s `min(expires_at, now + max_hold)` as the rule already
 argued for.
 
-**Not designed here.** Whether that is a parameter on the existing planner, a
-policy struct, or a second planner is an API decision that wants the subtree
-addressing from sec 103 settled into `spool/` first -- since the same call is
-the one that has to change for addressing anyway, and changing it twice is
-the thing to avoid.
+~~**Not designed here.**~~ **DONE, AND THE DEADLINE HALF WAS ALREADY REFUSED
+WITH A REASON THAT HOLDS.** `fzn_spool_plan_want` carries a section headed
+"THERE IS NO DEADLINE ARGUMENT, and the omission is deliberate rather than
+unfinished", written before any of this. Its case: **urgency is positional**
+-- the urgent set IS the first few spans from the playhead, which a small
+`cap` already returns.
+
+Checked against netcfgd's live-audio handover rather than accepted: it holds.
+A consumer advances `from`, leaves that fall behind the playhead are only
+re-asked on the wrap, so "drop if late" is the consumer moving the playhead
+rather than the library holding a deadline. That is the holder's
+one-subsystem-with-parameters shape exactly, and the parameters are `from`,
+`cap` and `max_per_range`.
+
+**One of that section's own reasons does not survive, and the other does.**
+It says "a deadline needs a clock, this library calls none". Measured: no
+source reads a clock, and SIX headers take `now` as a parameter -- so a
+deadline would be passed in exactly as `now` is elsewhere, and reason one
+rules nothing out. Reason two, positional urgency, is the one carrying it.
+
+**The addressing half is built.** `emit` cuts a run into canonical spans via
+`fzn_blob_span_largest_at`, so `max_per_range` now bounds a span from ABOVE
+rather than dividing the run: a limit of 6 yields nodes of 4 and 2 and never
+a 6, because 6 is not a node of any tree.
 
 ### What this closes and what it does not
 

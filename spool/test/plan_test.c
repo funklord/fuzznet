@@ -78,6 +78,58 @@ static int with(const char *pattern)
 	return 1;
 }
 
+/* THE TWO PROPERTIES THAT DEFINE A PLAN, now that ranges are canonical.
+ *
+ * The golden shapes these cases used to carry were written when a range was
+ * an arbitrary run, and a run is not provable: sec 103 settled that a request
+ * must be a node of the tree or no single proof covers it. Rewriting the
+ * literals to whatever the new code emits would be testing the planner
+ * against itself, so what is asserted instead is what correctness actually
+ * means -- every range provable, and the union exactly the missing set.
+ *
+ * These are stronger than the literals were. A planner that emitted the right
+ * SHAPES over the wrong leaves passed the old checks and fails these. */
+static int all_canonical(const fzn_spool_range_t *r, size_t n)
+{
+	size_t i;
+
+	for (i = 0; i < n; i++) {
+		if (!fzn_blob_span_is_canonical(spool.leaves, r[i].first, r[i].count))
+			return 0;
+	}
+	return 1;
+}
+
+/* The ranges cover only missing leaves, never overlap, and are in the order
+ * the walk emits them. Returns the number of leaves covered. */
+static uint64_t covered_and_sound(const fzn_spool_range_t *r, size_t n, int *sound)
+{
+	static uint8_t seen[64];
+	uint64_t total = 0u;
+	size_t i;
+	uint64_t j;
+
+	*sound = 1;
+	memset(seen, 0, sizeof(seen));
+	for (i = 0; i < n; i++) {
+		if (r[i].count == 0u || r[i].first + r[i].count > spool.leaves) {
+			*sound = 0;
+			return 0u;
+		}
+		for (j = r[i].first; j < r[i].first + r[i].count; j++) {
+			/* Never a leaf the store already holds. */
+			if (spool.present[j >> 3] & (uint8_t)(1u << (j & 7u)))
+				*sound = 0;
+			/* Never twice. */
+			if (seen[j])
+				*sound = 0;
+			seen[j] = 1u;
+			total++;
+		}
+	}
+	return total;
+}
+
 static int same(const fzn_spool_range_t *got, size_t n, const uint64_t *want, size_t want_n)
 {
 	size_t i;
@@ -98,10 +150,16 @@ static void test_a_want_names_the_gaps(void)
 	CHECK(with("####....####...#####"), "the fixture would not build");
 	CHECK(fzn_spool_plan_want(&spool, 0u, 100u, got, 8u, &n) == FZN_SPOOL_OK, "want refused");
 	{
-		static const uint64_t WANT[] = { 4, 4, 12, 3 };
+		int sound = 0;
 
-		CHECK(same(got, n, WANT, 2u),
-		      "the gaps were not coalesced into two runs: got %u ranges", (unsigned)n);
+		/* Two gaps, [4,8) and [12,15), cut into canonical pieces. The
+		 * count is no longer 2 because [12,15) is not a node of a
+		 * 20-leaf tree; what must hold is that the pieces are provable
+		 * and cover exactly those seven leaves. */
+		CHECK(all_canonical(got, n), "a planned range is not a node of the tree");
+		CHECK(covered_and_sound(got, n, &sound) == 7u && sound,
+		      "the plan does not cover exactly the seven missing leaves");
+		CHECK(got[0].first == 4u, "the walk did not start at the first gap");
 	}
 
 	/* A STORE THAT HAS EVERYTHING ASKS FOR NOTHING, and that is OK rather
@@ -119,10 +177,13 @@ static void test_a_want_names_the_gaps(void)
 	CHECK(with("####................"), "the fixture would not build");
 	CHECK(fzn_spool_plan_want(&spool, 0u, 100u, got, 8u, &n) == FZN_SPOOL_OK, "want refused");
 	{
-		static const uint64_t WANT[] = { 4, 16 };
+		int sound = 0;
 
-		CHECK(same(got, n, WANT, 1u), "the trailing gap was dropped: %u ranges",
+		CHECK(all_canonical(got, n), "a planned range is not a node of the tree");
+		CHECK(covered_and_sound(got, n, &sound) == 16u && sound,
+		      "the trailing gap was dropped: %u ranges covering the wrong leaves",
 		      (unsigned)n);
+		CHECK(got[0].first == 4u, "the trailing gap did not start at 4");
 	}
 }
 
@@ -158,8 +219,11 @@ static void test_the_walk_stops_when_the_array_fills(void)
 	CHECK(fzn_spool_plan_want(&spool, 0u, 64u, got, 1u, &n) == FZN_SPOOL_OK,
 	      "want refused with room for one range");
 	CHECK(n == 1u, "a one-slot array did not stop at one range: %u", (unsigned)n);
-	CHECK(got[0].first == 0u && got[0].count == 3u,
-	      "the first gap was not 0..3");
+	/* [0,3) is not a node of a 20-leaf tree, so the first piece is [0,2).
+	 * What the cap test needs is that ONE range was written and it starts
+	 * where the gap does. */
+	CHECK(got[0].first == 0u && fzn_blob_span_is_canonical(spool.leaves, 0u, got[0].count),
+	      "the first range is not a provable span starting at the gap");
 	/* NOTHING PAST THE CAP WAS WRITTEN. The array is zeroed above, so a
 	 * planner that wrote and then decremented would show here. */
 	CHECK(got[1].first == 0u && got[1].count == 0u,
@@ -169,15 +233,31 @@ static void test_the_walk_stops_when_the_array_fills(void)
 	CHECK(fzn_spool_plan_want(&spool, 0u, 64u, got, 2u, &n) == FZN_SPOOL_OK,
 	      "want refused with room for two ranges");
 	CHECK(n == 2u, "a two-slot array did not stop at two ranges: %u", (unsigned)n);
-	CHECK(got[1].first == 4u && got[1].count == 3u,
-	      "the second gap was not 4..7");
+	/* With room for two, the second piece is the rest of the FIRST gap --
+	 * [0,3) needs two pieces -- rather than the second gap. That is the
+	 * decomposition showing through, and it is why the cap is counted in
+	 * ranges rather than in gaps. */
+	CHECK(all_canonical(got, n), "a planned range is not a node of the tree");
+	CHECK(got[1].first > got[0].first, "the second range does not follow the first");
 
 	/* THE CONTROL: with room for all of them the same store yields three,
 	 * so the two stops above are the cap working rather than the fixture
 	 * having fewer gaps than I think. */
 	CHECK(fzn_spool_plan_want(&spool, 0u, 64u, got, 8u, &n) == FZN_SPOOL_OK,
 	      "want refused with room for everything");
-	CHECK(n == 4u, "the fixture does not hold four gaps: %u", (unsigned)n);
+	{
+		int sound = 0;
+
+		/* Four gaps, cut into canonical pieces: eight ranges over the
+		 * same fourteen missing leaves. The number of RANGES is a
+		 * property of the tree's shape; the number of LEAVES is a
+		 * property of the fixture, and it is the one worth asserting. */
+		CHECK(all_canonical(got, n), "a planned range is not a node of the tree");
+		CHECK(covered_and_sound(got, n, &sound) == 17u && sound,
+		      "the plan does not cover exactly the seventeen missing leaves");
+		CHECK(n == 8u, "four gaps cut into canonical pieces should be eight ranges, "
+		      "saw %u", (unsigned)n);
+	}
 }
 
 /* THE SAME STOP IN THE OTHER PLANNER, which walks a peer's ranges rather
@@ -246,18 +326,32 @@ static void test_a_long_run_is_split_and_a_small_array_stops(void)
 	CHECK(with("...................."), "the fixture would not build");
 	CHECK(fzn_spool_plan_want(&spool, 0u, 6u, got, 8u, &n) == FZN_SPOOL_OK, "want refused");
 	{
-		static const uint64_t WANT[] = { 0, 6, 6, 6, 12, 6, 18, 2 };
+		int sound = 0;
+		size_t i;
 
-		CHECK(same(got, n, WANT, 4u), "a 20-leaf gap did not split into 6,6,6,2: %u",
-		      (unsigned)n);
+		/* `max_per_range` now bounds a span from above rather than
+		 * dividing the run: a limit of 6 yields nodes of 4 and 2, never
+		 * a 6, because 6 is not a node of any tree. That is the whole
+		 * change -- the limit is a ceiling on a provable piece rather
+		 * than a stride. */
+		CHECK(all_canonical(got, n), "a planned range is not a node of the tree");
+		for (i = 0; i < n; i++)
+			CHECK(got[i].count <= 6u, "range %u exceeds the limit: %llu",
+			      (unsigned)i, (unsigned long long)got[i].count);
+		CHECK(covered_and_sound(got, n, &sound) == 20u && sound,
+		      "the plan does not cover the whole 20-leaf blob");
+		CHECK(got[0].first == 0u, "the walk did not start at zero");
 	}
 
 	/* A SMALL ARRAY STOPS RATHER THAN OVERFLOWING, and keeps the lowest
 	 * gaps -- a transfer that fills from the bottom keeps its own bitmap
 	 * compressible. */
 	CHECK(fzn_spool_plan_want(&spool, 0u, 6u, got, 2u, &n) == FZN_SPOOL_OK, "want refused");
-	CHECK(n == 2u && got[0].first == 0u && got[1].first == 6u,
-	      "a short array did not stop at the lowest two gaps");
+	CHECK(n == 2u && got[0].first == 0u,
+	      "a short array did not stop at the two lowest ranges");
+	CHECK(got[1].first == got[0].first + got[0].count,
+	      "the second range does not continue where the first ended");
+	CHECK(all_canonical(got, n), "a planned range is not a node of the tree");
 
 	/* ZERO IS REFUSED RATHER THAN MEANING UNLIMITED. */
 	CHECK(fzn_spool_plan_want(&spool, 0u, 0u, got, 8u, &n) == FZN_SPOOL_ERR_MALFORMED,
@@ -284,11 +378,14 @@ static void test_the_walk_starts_where_the_caller_says(void)
 	 * round, which is the whole defect. */
 	CHECK(fzn_spool_plan_want(&spool, 10u, 100u, got, 8u, &n) == FZN_SPOOL_OK, "want refused");
 	{
-		static const uint64_t WANT[] = { 12, 3, 4, 4 };
+		int sound = 0;
 
-		CHECK(same(got, n, WANT, 2u),
+		CHECK(all_canonical(got, n), "a planned range is not a node of the tree");
+		CHECK(n > 0u && got[0].first == 12u,
 		      "the walk did not start at the playhead: %u ranges, first at %llu",
 		      (unsigned)n, n ? (unsigned long long)got[0].first : 0ull);
+		CHECK(covered_and_sound(got, n, &sound) == 7u && sound,
+		      "the plan does not cover exactly the seven missing leaves");
 	}
 
 	/* AND IT WRAPS, which is the "watch and record" half: everything is
@@ -297,10 +394,18 @@ static void test_the_walk_starts_where_the_caller_says(void)
 	 * and the part behind it is not. */
 	CHECK(fzn_spool_plan_want(&spool, 13u, 100u, got, 8u, &n) == FZN_SPOOL_OK, "want refused");
 	{
-		static const uint64_t WANT[] = { 13, 2, 4, 4, 12, 1 };
+		int sound = 0;
 
-		CHECK(same(got, n, WANT, 3u), "a gap straddling the start was not split: %u",
-		      (unsigned)n);
+		/* Starting inside a gap still splits it: the part ahead of the
+		 * playhead comes first and leaf 12, behind it, comes last. */
+		CHECK(all_canonical(got, n), "a planned range is not a node of the tree");
+		CHECK(n > 0u && got[0].first == 13u,
+		      "a gap straddling the start was not split: first at %llu",
+		      n ? (unsigned long long)got[0].first : 0ull);
+		CHECK(got[n - 1u].first == 12u && got[n - 1u].count == 1u,
+		      "the leaf behind the playhead did not come last");
+		CHECK(covered_and_sound(got, n, &sound) == 7u && sound,
+		      "the plan does not cover exactly the seven missing leaves");
 	}
 
 	/* THROUGHPUT: a different `from` per peer de-correlates them. Same
@@ -322,10 +427,12 @@ static void test_the_walk_starts_where_the_caller_says(void)
 	 * there is no deadline argument: urgency is positional. */
 	CHECK(fzn_spool_plan_want(&spool, 10u, 100u, got, 1u, &n) == FZN_SPOOL_OK, "refused");
 	{
-		static const uint64_t WANT[] = { 10, 10 };
-
-		CHECK(same(got, n, WANT, 1u), "the urgent set was not the leaves at the "
-		                              "playhead: %u ranges", (unsigned)n);
+		CHECK(n == 1u, "a one-slot array did not stop at one range: %u", (unsigned)n);
+		CHECK(got[0].first == 10u,
+		      "the urgent set was not the leaves at the playhead: first at %llu",
+		      (unsigned long long)got[0].first);
+		CHECK(fzn_blob_span_is_canonical(spool.leaves, got[0].first, got[0].count),
+		      "the urgent range is not a node of the tree");
 	}
 
 	/* A START PAST THE BLOB IS REFUSED, NOT WRAPPED. A playhead outside
