@@ -11552,6 +11552,96 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 98. The delivery ledger, measured rather than assumed, 2026-09-05
+
+Asked to make this library ready for what fuzzypickles requires, a survey of
+their tree returned a ranked list of gaps. Most are boundaries this library
+drew on purpose -- group chat is absent by design per `ratchet/ratchet.h`,
+command vocabulary is the consumer's under sec 2, replication for a
+compacted store is excluded by `record/sync.h` in writing, NAT traversal is
+declared never. **One row was marked unsure and it is the only one that
+turned out to be a real gap.**
+
+### What fuzznet has, and the axis it does not
+
+Asked as a shape rather than a name -- *per peer, what have they confirmed
+of mine* -- nothing here has it. Measured by reading the structs:
+
+    record/journal.h   per (issuer, stream): what I RECEIVED and applied
+    state/state.h      per (subject, kind): the current value
+    link/, sched/      per link: latency, loss, mtu -- transport, not records
+    record/sync.h      `fzn_sync_position_t` is what a peer ADVERTISES, and
+                       it is computed for one exchange and consumed there
+
+The missing axis is the PEER. `journal` is indexed by who WROTE a record;
+the ledger is indexed by who has ACKNOWLEDGED one. And a peer's positions
+exist here only in flight -- `fzn_sync_digest` produces them and
+`fzn_sync_plan_offer` consumes them, and nothing holds one over time.
+
+**Nothing in this document records a decision to leave that out**, which is
+what separates it from the other rows. It is an unstated gap rather than a
+boundary.
+
+### What theirs actually is, in their words
+
+Quoted rather than paraphrased, from `core/src/delivery_internal.h` in their
+tree, read 2026-09-05:
+
+> A delivery ledger: for each (recipient, subject), the highest version that
+> recipient has confirmed holding.
+>
+> Extracted from the manifest and config-sync paths once both had been built
+> and shipped, rather than designed up front ... the two independent
+> implementations agreed on more than expected, which is what makes this
+> worth sharing rather than a coincidence being enshrined.
+
+They also name what does NOT travel with it -- the frame and its crypto, the
+recipient set, and what a SUBJECT is, because "the manifest is a single
+document, so its subject is empty ... Config has many settings, so its
+subject is a setting".
+
+**That provenance is the strongest evidence for sharing anything this
+workspace has produced.** `harmonization.md` asks for one piece of shared
+infrastructure motivated by real use across several consumers rather than
+several bespoke ones designed on speculation. This is that, from the other
+side: two implementations built independently, shipped, then found to agree.
+It now serves four scopes in their tree -- manifest, config, group, and a
+realm-absorption one.
+
+### And it would not be a copy, which is why it is not taken here
+
+My measurement, in my voice: their API is
+`fzp_delivery_ack_get`/`_set`/`_behind`, each taking a
+`fzp_storage_ops_t *` and addressing rows by a string key of the form
+`ack_<scope>_<kind>_<recipient>.<subject>`. **Every table in this library is
+a caller-owned array of fixed-width structs with no strings and no storage
+seam** -- `persist/` is a separate concern reached deliberately, not a
+parameter every call carries.
+
+So an adoption is a redesign into this library's idiom rather than a lift:
+the key becomes fields rather than a formatted string, the storage seam
+comes out, the scope becomes something a caller supplies. That is exactly
+what `harmonization.md` means by an extraction being its own deliberate
+piece of work with the whole picture in view, and by not extracting a shared
+library in passing.
+
+### The decision, and whose
+
+**Not taken here.** The option is a fifth table in this library keyed on
+(peer, subject) holding one integer, in the shape `fzn_state_t` and
+`fzn_journal_t` already use. Its cost is another module in a library whose
+scope sec 2 keeps narrow, and the argument against is that "who has
+confirmed what" may be distribution rather than protocol -- the same line
+that keeps transport out.
+
+The argument for is the provenance above, and it is unusually good: this
+would be the first thing adopted here because two consumers built it
+separately and agreed, rather than because one asked.
+
+**It is the copyright holder's**, and it is recorded with its cost and its
+evidence rather than built, because the thing being proposed is somebody
+else's working code and the proposal is worth more than my version of it.
+
 ## 96. Wire framing for a chain: the library does not send, 2026-09-05
 
 Section 19's row, narrowed once the store and the offer shipped, said what
