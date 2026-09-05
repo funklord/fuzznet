@@ -22677,6 +22677,81 @@ the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
 
+## 112. The gate's own control, wired in, and the hole it turned out to have, 2026-09-05
+
+`tool/test_style_gate.py` arrived in `83cf7ff` from another session, copied
+from `~/.claude/tool/`, with no caller. It runs first in `make style` now, at
+about 8 seconds.
+
+**Its test count is deliberately not recorded here.** It was 101 when this
+was wired and 103 by the time the confirming run finished, because another
+session synced two more controls in from the source meanwhile. A number
+describing a file somebody else keeps in sync is stale by construction, and
+this document corrected a different rotting count an hour earlier -- see sec
+110, where "six" outlived the seven items it counted.
+
+**The ORDER is the point rather than the inclusion.** `style_gate.py` is a
+detector whose failure mode is silence: over a conforming tree it prints the
+same sentence whether every rule is live or every rule has been deleted. So
+its pass is evidence only once something has shown it can fail. Running the
+suite AFTER the gate would let a gate that can no longer speak print "35 files
+conform" first, and that is the sentence somebody quotes; running it first
+means `make` stops before the sentence exists.
+
+**Read before it was run**, per `running-code.md`: stdlib only, one bounded
+subprocess per case with `timeout=120`, every fixture inside a
+`TemporaryDirectory` context manager, termination being the fixed method list.
+Run under `timeout 600`, and afterwards: no orphaned processes, and **zero
+directories created in `/tmp` in the three minutes around the run** -- counted
+rather than assumed, because the 32 already there belong to other sessions and
+a leak would have hidden among them.
+
+### And then the wiring was sabotaged, which is where it got interesting
+
+A gate wired in is a gate whose wiring is untested. Neutering
+`python_ascii_problems` so it returns no problems, then running `make style`:
+
+    make style                  rc=0
+    the gate's verdict          printed
+    the suite (101 tests then)  Ran 101 tests ... OK
+
+**The sabotage survived.** Checked that it was not an inert mutation, which
+this tree has been caught by twice this week: `ascii_only = true` in
+`.style-gate.toml`, so the path is live. Measured directly against a fixture
+of the shape the rule exists for -- a valid Python file whose em dash sits in
+a COMMENT:
+
+    healthy gate    a.py:1:21: non-ASCII '-' outside a string literal
+    neutered gate   style-gate: 2 file(s) pass: whitespace and indentation
+
+So the gate really was silenced and the suite really did not notice. That
+reading is a record of a measurement taken on 2026-09-05 and does not rot;
+what rots is a present-tense count, which is why the paragraph above declines
+to keep one. **The
+reason is that the suite's own Python fixture is a syntax error**: line 319
+is `{"a.py": "X = (\u2014,\n"}`, `ast.parse` calls it *invalid character
+U+2014*, and `code-style.md` prescribes the whole-file byte check for a file
+that will not lex. The case exercises the fallback and never reaches the
+tokenizer path it appears to test.
+
+**Signalled to `claude-guidelines`, not patched here.** That copy opens
+"Copied from ~/.claude/tool/test_style_gate.py -- the source", so editing it
+is drift, and editing the source is a change to a file spread into every
+tree -- `harmonization.md`'s *who makes a harmonizing change*. The signal
+carries the reproduction and one thing this tree did not check: whether the C
+scanner, a separate implementation of the same rule, has fixtures that lex.
+
+### What the line in the Makefile is worth, said in the Makefile
+
+It buys a control over 100 of its cases and not over that one. The comment
+beside it says so, because the alternative is a reader in six months quoting
+"the gate has a test suite" as though that settled the question -- which is
+this tree's own *a name that claims exhaustiveness is not a check that
+achieved it*, met in a tool rather than in a test name.
+
+**A control with a known hole, documented, is worth more than no control and
+less than its docstring implies.** Saying which is the whole of it.
+
 ## 111. Read-at-offset: the arithmetic, not the reader, 2026-09-05
 
 Sec 102's list carried "read-at-offset streaming, source and sink", and sec

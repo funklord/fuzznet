@@ -2291,6 +2291,42 @@ sancheck:
 	@$(MAKE) --no-print-directory runtests BUILD_DIR=$(BUILD_DIR)-san SANITIZE=1
 
 style:
+	@# THE GATE'S OWN CONTROL, AND IT RUNS BEFORE THE GATE'S VERDICT.
+	@# `style_gate.py` is a detector whose failure mode is SILENCE: run
+	@# over a conforming tree it prints the same sentence whether every
+	@# rule is live or every rule has been deleted, so a pass is evidence
+	@# only once something has shown it can fail. That suite arrived here
+	@# in 83cf7ff and had no caller; a control nobody runs is a control
+	@# that has stopped controlling.
+	@#
+	@# The ORDER is the point rather than the inclusion. Running it after
+	@# the gate would let a gate that can no longer speak report "35 files
+	@# conform" first, which is the sentence somebody quotes. Running it
+	@# first means make stops before that sentence exists.
+	@#
+	@# About 8 seconds, stdlib only. THE TEST COUNT IS DELIBERATELY NOT
+	@# WRITTEN HERE: this file is copied from ~/.claude/tool and another
+	@# session synced two more controls into it within the hour, taking it
+	@# from 101 to 103 while this comment was being drafted. A count in a
+	@# comment beside a file somebody else keeps in sync is stale by
+	@# construction. Measured 2026-09-05: it
+	@# spawns one bounded subprocess per case with `timeout=120`, builds
+	@# every fixture inside a `TemporaryDirectory` context manager, and
+	@# left zero directories behind in /tmp -- counted, not assumed.
+	@#
+	@# AND IT HAS AT LEAST ONE HOLE, measured while wiring it here rather
+	@# than assumed away. Neutering `python_ascii_problems` so it reports
+	@# nothing silences the gate on a valid Python file whose em dash sits
+	@# in a comment -- and all 101 tests still pass, because the suite's
+	@# Python fixture is itself a syntax error and therefore takes the
+	@# whole-file fallback instead of the tokenizer. Signalled to
+	@# claude-guidelines, which owns the source; not patched here, because
+	@# this copy names that source and editing it would be drift.
+	@#
+	@# So this line buys a control over 100 of its cases and not over that
+	@# one. That is worth more than nothing and less than the docstring
+	@# implies, and saying which is the point of writing it down.
+	python3 tool/test_style_gate.py
 	python3 tool/style_gate.py check
 	@# THE SABOTAGE TABLE IS A LIST KEPT BY HAND, and it is the one list
 	@# here whose staleness is invisible. `make sabotage` says so when it
