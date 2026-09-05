@@ -74,6 +74,33 @@ _Static_assert(FZN_CAP_ID_LEN == SITU_FZN_FRAME_SEALED_CAPABILITY_COUNT,
 _Static_assert(SITU_FZN_FRAME_SIZE_MAX - SITU_FZN_FRAME_SIZE_MIN == FZN_SPLIT_MAX_PAYLOAD,
                 "chunk/split.h's payload ceiling and wire/frame.situ's [max] have diverged");
 
+/* A CHAIN DOES NOT FIT ONE FRAME PAST FIVE HOPS, and the boundary is
+ * arithmetic rather than a choice anybody made.
+ *
+ * A packed chain is FZN_CHAIN_HEADER_LEN plus FZN_HOP_LEN per hop -- 181
+ * bytes at one hop, 897 at five, 1076 at six, 1434 at the eight this library
+ * allows. A frame's payload ceiling is FZN_SPLIT_MAX_PAYLOAD. So a chain of
+ * one to five hops crosses in a single datagram and a chain of six or more
+ * MUST be chunked, and nothing in the tree said so until now.
+ *
+ * It is pinned here because it is a trap with a precise edge. A consumer
+ * that treats a chain as one datagram is correct for every chain it is
+ * likely to test with and silently wrong at the sixth hop, which is a depth
+ * reached by delegation rather than by anybody choosing it.
+ *
+ * `record/record.h` already reasons about the same function from the other
+ * side -- a chain carried inside a record, where the overage "is the first
+ * value of a function of the delegation depth of whoever is speaking". This
+ * asserts the frame-sized boundary of that same function, so that raising
+ * either bound fails the build rather than moving the edge in silence. */
+_Static_assert(FZN_CHAIN_HEADER_LEN + (5u * FZN_HOP_LEN) <= FZN_SPLIT_MAX_PAYLOAD,
+                "a five-hop chain no longer fits one frame's payload");
+_Static_assert(FZN_CHAIN_HEADER_LEN + (6u * FZN_HOP_LEN) > FZN_SPLIT_MAX_PAYLOAD,
+                "a six-hop chain now fits one frame, so the chunking boundary moved");
+_Static_assert(FZN_CHAIN_MAX_LEN > FZN_SPLIT_MAX_PAYLOAD,
+                "a maximum chain now fits one frame, so chain delivery no longer needs "
+                "chunk/ and the reasoning in project.md sec 96 is stale");
+
 /* THE STREAM NAMESPACE HAS A BOUNDARY AND EVERY TEST STAYS BELOW IT.
  *
  * `FZN_STREAM_RESERVED` divides fuzznet's half from a consumer's. Nothing in

@@ -11532,6 +11532,103 @@ init AND forgetting a field is caught. The first draft of the comment claimed
 the check caught a forgotten field outright; it does not, and saying so is
 the difference between a fact and a fact with its method.
 
+## 96. Wire framing for a chain: the library does not send, 2026-09-05
+
+Section 19's row, narrowed once the store and the offer shipped, said what
+was left: nothing says how the hops TRAVEL. This answers it, and the answer
+is that there is nothing here to build -- which took reading two settlements
+rather than designing anything.
+
+### A new `fzn_kind` is not available, and that is deliberate
+
+The first instinct is a fifth kind meaning "this frame carries a chain".
+`wire/frame.situ` closes that door explicitly, and the closure is the
+copyright holder's, settled 2026-08-26: **everything passes through
+fuzznet's decision process**, a consumer does not take a value from the
+remainder "on its own authority, however plainly free it looks", and the
+four values "stay the whole set until a case is made and analysed". The
+failure it prevents is unrecoverable -- two networks assigning 0x04
+differently each refuse the other's traffic as malformed and neither is
+wrong.
+
+That applies to work done INSIDE fuzznet as much as to a consumer asking.
+Assigning a kind is the reserved decision, not a step in implementing
+something else.
+
+### And the same file says where a chain belongs instead
+
+Two lines further on: **"What does NOT need a new kind is a consumer's
+command vocabulary. That goes in the sealed payload, where this library
+never looks."**
+
+A chain crossing a link is payload. `fzn_chain_pack` already produces the
+container and `fzn_chain_open` already refuses a malformed one, trailing
+bytes included -- so the wire form existed before the question was asked.
+What a receiver does with it once reassembled is `fzn_chain_store_admit`,
+which verifies before storing.
+
+### The library plans and the consumer sends, everywhere
+
+Checked rather than assumed, because it is the load-bearing half. Nothing
+in this library transmits anything:
+
+    record/sync.h        plans requests; the consumer sends them
+    chain/manifest.h     plans an offer; the consumer serves it
+    spool/plan.h         plans ranges; the consumer fetches them
+    chain/chain_store.h  says which wants are held; the consumer answers
+
+`fzn_manifest_plan_offer`'s own comment states the shape for revocations --
+`holds[i]` says "look this one up and send it", not "here it is" -- and
+`chain_store.h` inherited that wording deliberately. Chain delivery framing
+is the consumer's by the same rule that keeps transport and encoding out
+under sec 2, and adding a sender here would be the first exception in the
+library rather than the completion of a pattern.
+
+### What was missing was a fact, and it is now pinned
+
+Not a mechanism: an arithmetic boundary nobody had written down.
+
+    hops   packed   fits one frame payload of 1024
+       1      181   yes
+       5      897   yes
+       6     1076   NO -- must be chunked
+       8     1434   NO
+
+A packed chain is `FZN_CHAIN_HEADER_LEN + n * FZN_HOP_LEN`; a frame's
+payload ceiling is `FZN_SPLIT_MAX_PAYLOAD`. **So a chain of one to five hops
+crosses in a single datagram and a chain of six or more must go through
+`chunk/split.c`.**
+
+It is a trap with a precise edge, which is why it is three
+`_Static_assert`s in `wire/test/constants_test.c` rather than a sentence
+here. A consumer that treats a chain as one datagram is correct for every
+chain it is likely to test with and silently wrong at the sixth hop -- a
+depth reached by delegation rather than by anybody choosing it. Five hops
+fit, six do not, and a maximum chain exceeds a payload. Each was negated and
+each fails the build, so they are checks rather than decoration.
+
+`record/record.h` already reasons about the same function from the other
+side, where a consumer arrived fifteen bytes over with a chain inside a
+record and the overage was "the first value of a function of the delegation
+depth of whoever is speaking". This is that function meeting the frame
+instead of the record, and the two now fail the build together if either
+bound moves.
+
+### So the row closes, and what closed it was reading
+
+Section 19 asked for a delivery mechanism, sec 95 designed the parts, and
+this one found the last part already decided in two places -- the kind set
+by the holder, and the plan/send split by every planner in the tree. **The
+work was to find the decision, not to make one.** Same instrument as sec 95,
+and the third time this week it has answered a row that read as open:
+describe the thing without its name, then ask what already has that shape.
+
+**What a consumer does, stated once so nobody re-derives it**: pack the
+chain, send it as payload in a `unit` frame at five hops or fewer and
+through `chunk/split.c` otherwise, reassemble at the far end,
+`fzn_chain_open` it, and `fzn_chain_store_admit` it. Every one of those
+exists today.
+
 ## 95. Chain delivery: the fourth instance of a shape, 2026-09-05
 
 Section 19 left "chain delivery has no named mechanism here" as the open
@@ -21227,9 +21324,13 @@ this section has already been wrong once today**:
 - ~~**Chain delivery has no named mechanism here.**~~ **NARROWED 2026-09-05,
   and what is left is the wire framing alone.** `chain/chain_store.{h,c}`
   holds verified chains and `fzn_chain_plan_offer` says which of a peer's
-  wants this host can serve; sec 95 has both. What still has no named
-  mechanism is how the hops TRAVEL -- nothing in the tree says what carries
-  a chain between hosts, only what to do with one once it is here.
+  wants this host can serve; sec 95 has both. ~~What still has no named
+  mechanism is how the hops TRAVEL.~~ **CLOSED the same day by sec 96**: a
+  chain is payload, the kind set is closed by the holder's own settlement,
+  and no planner in this library sends anything. What was missing was not a
+  mechanism but the arithmetic -- a chain of six hops or more does not fit
+  one frame -- which is now three `_Static_assert`s in
+  `wire/test/constants_test.c`.
 
   Left as it stood, this row sent the next reader to design a mechanism two
   thirds of which had shipped. It is the deferral-that-outlived-its-gap
