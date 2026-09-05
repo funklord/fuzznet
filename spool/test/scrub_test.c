@@ -161,21 +161,35 @@ static int fresh(uint64_t fill_from, uint64_t fill_count)
 	                      sizeof(seals)) == FZN_SCRUB_OK;
 }
 
-/* Seals every cell it can, looping until the pass wraps. */
-static uint64_t seal_all(void)
+/* Seals every cell it can, looping until the pass wraps.
+ *
+ * REPORTS THE ERROR AS WELL AS THE COUNT, because the first version did not
+ * and a sabotage survived on that: removing the whole-cell guard makes
+ * sealing read absent leaves and fail with BACKEND, and a helper that
+ * returned only the count answered 1 either way. A count without its status
+ * is half a result, and the half that was dropped was the one that had
+ * changed. */
+static uint64_t seal_all(fzn_scrub_err_t *out_err)
 {
 	uint64_t total = 0u, got = 0u;
 	int guard;
 
+	if (out_err)
+		*out_err = FZN_SCRUB_OK;
 	for (guard = 0; guard < 64; guard++) {
 		fzn_scrub_err_t err = fzn_scrub_seal(&scrub, &HASH, 1u, &got);
 
 		total += got;
 		if (err == FZN_SCRUB_DONE)
 			return total;
-		if (err != FZN_SCRUB_OK)
+		if (err != FZN_SCRUB_OK) {
+			if (out_err)
+				*out_err = err;
 			return total;
+		}
 	}
+	if (out_err)
+		*out_err = FZN_SCRUB_ERR_MALFORMED;
 	return total;
 }
 
@@ -242,9 +256,10 @@ static void test_the_cell_bound_holds_at_every_size(void)
 static void test_a_whole_blob_seals_and_verifies(void)
 {
 	uint64_t sealed_now, checked = 0u, dropped = 0u;
+	fzn_scrub_err_t seal_err = FZN_SCRUB_OK;
 
 	CHECK(fresh(0u, LEAVES), "the fixture did not fill");
-	sealed_now = seal_all();
+	sealed_now = seal_all(&seal_err);
 	CHECK(sealed_now == CELLS_EXPECTED, "%llu cells sealed, not %u",
 	      (unsigned long long)sealed_now, CELLS_EXPECTED);
 	CHECK(step_all(&checked, &dropped) == FZN_SCRUB_DONE, "the pass did not finish");
@@ -255,7 +270,9 @@ static void test_a_whole_blob_seals_and_verifies(void)
 	CHECK(spool.have == LEAVES, "an intact blob lost leaves: %llu of %u",
 	      (unsigned long long)spool.have, LEAVES);
 	/* Sealing again seals nothing: a cell already sealed is left alone. */
-	CHECK(seal_all() == 0u, "a second sealing pass re-sealed cells");
+	CHECK(seal_all(&seal_err) == 0u, "a second sealing pass re-sealed cells");
+	CHECK(seal_err == FZN_SCRUB_OK, "the second sealing pass errored: %s",
+	      fzn_scrub_err_str(seal_err));
 }
 
 /* ---- the one that matters ---------------------------------------------- */
@@ -269,7 +286,7 @@ static void test_a_rotted_byte_drops_its_cell_and_only_its_cell(void)
 	uint64_t i;
 
 	CHECK(fresh(0u, LEAVES), "the fixture did not fill");
-	CHECK(seal_all() == CELLS_EXPECTED, "the fixture did not seal");
+	CHECK(seal_all(NULL) == CELLS_EXPECTED, "the fixture did not seal");
 	CHECK(step_all(&checked, &dropped) == FZN_SCRUB_DONE && dropped == 0u,
 	      "the fixture was not clean before corruption");
 
@@ -310,7 +327,7 @@ static void test_a_dropped_cell_returns_to_the_want_list(void)
 	uint64_t checked = 0u, dropped = 0u;
 
 	CHECK(fresh(0u, LEAVES), "the fixture did not fill");
-	CHECK(seal_all() == CELLS_EXPECTED, "the fixture did not seal");
+	CHECK(seal_all(NULL) == CELLS_EXPECTED, "the fixture did not seal");
 	CHECK(fzn_spool_plan_want(&spool, 0u, FZN_SCRUB_CELL, want, 8u, &count) == FZN_SPOOL_OK,
 	      "the planner failed on a complete blob");
 	CHECK(count == 0u, "a complete blob wanted %zu ranges", count);
@@ -325,9 +342,18 @@ static void test_a_dropped_cell_returns_to_the_want_list(void)
 	CHECK(want[0].first == FZN_SCRUB_CELL && want[0].count == FZN_SCRUB_CELL,
 	      "the want is %llu+%llu, not %u+%u", (unsigned long long)want[0].first,
 	      (unsigned long long)want[0].count, FZN_SCRUB_CELL, FZN_SCRUB_CELL);
-	/* And the seal went with the leaves, so the cell is resealed from
-	 * bytes a peer proved rather than from the rotted ones. */
-	CHECK(seal_all() == 0u, "a cell with missing leaves was resealed");
+	/* AND THE REPAIR MUST SETTLE, which is what the seal being cleared is
+	 * actually for. Asserting that a holed cell does not reseal was the
+	 * first version of this and it was vacuous: a cell that kept its stale
+	 * seal also reseals nothing, so both answers were zero. The difference
+	 * only shows after the leaves come back. */
+	CHECK(place_range(FZN_SCRUB_CELL, FZN_SCRUB_CELL), "the repair did not place");
+	CHECK(seal_all(NULL) == 1u, "the repaired cell did not reseal");
+	CHECK(step_all(&checked, &dropped) == FZN_SCRUB_DONE, "the pass did not finish");
+	CHECK(dropped == 0u,
+	      "the repaired cell was dropped again -- a stale seal is a repair loop");
+	CHECK(spool.have == LEAVES, "%llu leaves after repair, not %u",
+	      (unsigned long long)spool.have, LEAVES);
 }
 
 /* ---- partial blobs ------------------------------------------------------ */
@@ -335,17 +361,26 @@ static void test_a_dropped_cell_returns_to_the_want_list(void)
 static void test_a_partial_blob_seals_only_whole_cells(void)
 {
 	uint64_t checked = 0u, dropped = 0u;
+	fzn_scrub_err_t seal_err = FZN_SCRUB_OK;
 
 	/* Cell 0 whole, cell 1 half, cell 2 absent. */
 	CHECK(fresh(0u, FZN_SCRUB_CELL + 30u), "the fixture did not fill");
-	CHECK(seal_all() == 1u, "a partial blob sealed something other than its one whole cell");
+	CHECK(seal_all(&seal_err) == 1u,
+	      "a partial blob sealed something other than its one whole cell");
+	/* The status, not just the count. Sealing a cell with holes reads a
+	 * leaf that is not there, and the error is the only thing that
+	 * distinguishes it from having correctly sealed one cell. */
+	CHECK(seal_err == FZN_SCRUB_OK, "sealing a partial blob errored: %s",
+	      fzn_scrub_err_str(seal_err));
 	CHECK(step_all(&checked, &dropped) == FZN_SCRUB_DONE, "the pass did not finish");
 	CHECK(checked == 1u, "%llu cells checked, not 1", (unsigned long long)checked);
 	CHECK(dropped == 0u, "an intact partial blob lost a cell");
 
 	/* Completing the second cell makes it sealable, with no special case. */
 	CHECK(place_range(FZN_SCRUB_CELL + 30u, FZN_SCRUB_CELL - 30u), "filling cell 1 failed");
-	CHECK(seal_all() == 1u, "the newly complete cell did not seal");
+	CHECK(seal_all(&seal_err) == 1u, "the newly complete cell did not seal");
+	CHECK(seal_err == FZN_SCRUB_OK, "sealing the completed cell errored: %s",
+	      fzn_scrub_err_str(seal_err));
 }
 
 /* ---- guards ------------------------------------------------------------- */
