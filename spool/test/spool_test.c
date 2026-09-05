@@ -764,6 +764,215 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 	checks -= 1;
 }
 
+
+/* A WHOLE SPAN UNDER ONE PROOF, which is the placement half of sec 103.
+ *
+ * The planning half already emits canonical spans; without this the saving
+ * is handed straight back, because a receiver would verify each leaf of the
+ * span it just asked for as though it had asked for them separately.
+ *
+ * TEST_LEAVES is 6, so the tree is 4 + 2 and [0,4) is a node while [0,3) and
+ * [1,5) are not. Those are the cases: one that proves, and two that a peer
+ * could plausibly offer and this must refuse. */
+static void test_a_span_is_placed_under_one_proof(void)
+{
+	fzn_spool_t spool;
+	uint8_t map[FZN_SPOOL_BITMAP_LEN(TEST_LEAVES)];
+	const uint8_t *parts[4];
+	size_t parts_len[4];
+	uint8_t span_proof[FZN_BLOB_MAX_DEPTH * FZN_BLOB_HASH_LEN];
+	unsigned span_proof_len = 0;
+	unsigned i;
+
+	reset(&spool, map, sizeof(map));
+	for (i = 0; i < 4u; i++) {
+		parts[i] = sealed[i];
+		parts_len[i] = sealed_len[i];
+	}
+
+	REQUIRE(fzn_blob_span_proof_build(&HASH, leaf_hash[0], TEST_LEAVES, 0u, 4u, span_proof,
+	                                  sizeof(span_proof), &span_proof_len) == FZN_BLOB_OK,
+	        "building the span proof");
+	/* ONE PROOF FOR FOUR LEAVES, and it is shorter than any one of the
+	 * per-leaf proofs it replaces. That is the whole argument, checked
+	 * rather than asserted. */
+	CHECK(span_proof_len < proof_len[0],
+	      "a 4-leaf span proof (%u) is not shorter than one leaf's proof (%u)",
+	      span_proof_len, proof_len[0]);
+
+	CHECK(fzn_spool_place_span(&spool, &HASH, 0u, 4u, parts, parts_len, span_proof,
+	                           span_proof_len) == FZN_SPOOL_OK,
+	      "a canonical span with a sound proof was refused");
+	for (i = 0; i < 4u; i++)
+		CHECK(fzn_spool_has(&spool, i), "leaf %u was not placed by the span", i);
+	CHECK(!fzn_spool_has(&spool, 4u), "the span placed a leaf outside itself");
+
+	/* AND THE BYTES ARE THE ONES THAT WERE PROVED. A placement that set
+	 * the bits without writing would pass every check above. */
+	{
+		uint8_t back[FZN_BLOB_SEALED_MAX];
+		size_t back_len = 0;
+
+		CHECK(fzn_spool_read(&spool, 2u, back, sizeof(back), &back_len) == FZN_SPOOL_OK,
+		      "reading back a leaf the span placed");
+		CHECK(memcmp(back, sealed[2], sealed_len[2]) == 0,
+		      "the bytes read back are not the ones the span carried");
+	}
+}
+
+/* A SPAN THAT IS NOT A NODE HAS NO PROOF, and is refused rather than
+ * verified leaf by leaf -- a quiet fallback would hide that the peer is
+ * describing a different set. */
+static void test_a_non_canonical_span_is_refused(void)
+{
+	fzn_spool_t spool;
+	uint8_t map[FZN_SPOOL_BITMAP_LEN(TEST_LEAVES)];
+	const uint8_t *parts[4];
+	size_t parts_len[4];
+	uint8_t span_proof[FZN_BLOB_MAX_DEPTH * FZN_BLOB_HASH_LEN];
+	unsigned span_proof_len = 0;
+	unsigned i;
+
+	reset(&spool, map, sizeof(map));
+	REQUIRE(fzn_blob_span_proof_build(&HASH, leaf_hash[0], TEST_LEAVES, 0u, 4u, span_proof,
+	                                  sizeof(span_proof), &span_proof_len) == FZN_BLOB_OK,
+	        "building the span proof");
+
+	/* [0,3): three leaves of a 4+2 tree, not a node. */
+	for (i = 0; i < 3u; i++) {
+		parts[i] = sealed[i];
+		parts_len[i] = sealed_len[i];
+	}
+	CHECK(fzn_spool_place_span(&spool, &HASH, 0u, 3u, parts, parts_len, span_proof,
+	                           span_proof_len) == FZN_SPOOL_ERR_UNVERIFIED,
+	      "a non-canonical span was placed");
+	for (i = 0; i < TEST_LEAVES; i++)
+		CHECK(!fzn_spool_has(&spool, i),
+		      "a refused span left leaf %u behind, so it wrote before verifying", i);
+
+	/* [1,5): straddles the split at 4. */
+	for (i = 0; i < 4u; i++) {
+		parts[i] = sealed[1u + i];
+		parts_len[i] = sealed_len[1u + i];
+	}
+	CHECK(fzn_spool_place_span(&spool, &HASH, 1u, 4u, parts, parts_len, span_proof,
+	                           span_proof_len) == FZN_SPOOL_ERR_UNVERIFIED,
+	      "a straddling span was placed");
+
+	/* AND A CANONICAL SPAN WITH THE WRONG BYTES IS REFUSED TOO, so the
+	 * refusals above are about the proof rather than about the shape
+	 * alone. */
+	for (i = 0; i < 4u; i++) {
+		parts[i] = sealed[(i + 1u) % 4u];
+		parts_len[i] = sealed_len[(i + 1u) % 4u];
+	}
+	CHECK(fzn_spool_place_span(&spool, &HASH, 0u, 4u, parts, parts_len, span_proof,
+	                           span_proof_len) == FZN_SPOOL_ERR_UNVERIFIED,
+	      "a canonical span carrying the wrong leaves was placed");
+	for (i = 0; i < TEST_LEAVES; i++)
+		CHECK(!fzn_spool_has(&spool, i),
+		      "a span that failed to verify still wrote leaf %u", i);
+}
+
+/* NOTHING IS WRITTEN UNTIL EVERY LEAF HAS BEEN VERIFIED, which is stronger
+ * than the single-leaf path's promise and is what proving a span as a whole
+ * costs. A bad leaf in the middle must leave the store untouched, not
+ * half-filled with the leaves before it. */
+static void test_a_bad_leaf_mid_span_writes_nothing(void)
+{
+	fzn_spool_t spool;
+	uint8_t map[FZN_SPOOL_BITMAP_LEN(TEST_LEAVES)];
+	const uint8_t *parts[4];
+	size_t parts_len[4];
+	uint8_t span_proof[FZN_BLOB_MAX_DEPTH * FZN_BLOB_HASH_LEN];
+	unsigned span_proof_len = 0;
+	unsigned i;
+	unsigned writes_before;
+
+	reset(&spool, map, sizeof(map));
+	REQUIRE(fzn_blob_span_proof_build(&HASH, leaf_hash[0], TEST_LEAVES, 0u, 4u, span_proof,
+	                                  sizeof(span_proof), &span_proof_len) == FZN_BLOB_OK,
+	        "building the span proof");
+
+	for (i = 0; i < 4u; i++) {
+		parts[i] = sealed[i];
+		parts_len[i] = sealed_len[i];
+	}
+	/* Leaf 2 is replaced by leaf 5's bytes: the span is canonical, the
+	 * proof is real, and one member is wrong. */
+	parts[2] = sealed[5];
+	parts_len[2] = sealed_len[5];
+
+	writes_before = disk.writes;
+	CHECK(fzn_spool_place_span(&spool, &HASH, 0u, 4u, parts, parts_len, span_proof,
+	                           span_proof_len) == FZN_SPOOL_ERR_UNVERIFIED,
+	      "a span with a wrong leaf verified");
+	CHECK(disk.writes == writes_before,
+	      "a span that failed to verify wrote to the backend: %u writes",
+	      disk.writes - writes_before);
+	for (i = 0; i < TEST_LEAVES; i++)
+		CHECK(!fzn_spool_has(&spool, i), "leaf %u was placed by a refused span", i);
+
+	/* THE CONTROL. Without it the check above passes for a placement that
+	 * never writes at all, which is the vacuous pass in its usual costume:
+	 * an assertion that something did not happen, over an apparatus that
+	 * could not have observed it happening. */
+	parts[2] = sealed[2];
+	parts_len[2] = sealed_len[2];
+	writes_before = disk.writes;
+	CHECK(fzn_spool_place_span(&spool, &HASH, 0u, 4u, parts, parts_len, span_proof,
+	                           span_proof_len) == FZN_SPOOL_OK,
+	      "the same span with its real leaves was refused");
+	CHECK(disk.writes > writes_before,
+	      "a successful span wrote nothing, so the no-write check above proves nothing");
+}
+
+/* THE BIT IS SET AFTER THE WRITE, NEVER BEFORE, and a span has to keep that
+ * promise per leaf rather than per request. A bit over a failed write is a
+ * hole the store will never fill again: `next_missing` skips it and nothing
+ * re-requests it, so the transfer reports complete and the blob is corrupt.
+ *
+ * Nothing reached this on the span path -- the single-leaf path has a
+ * refusing backend and the span path had none. */
+static void test_a_span_over_a_refusing_backend_sets_no_bit(void)
+{
+	fzn_spool_t spool;
+	uint8_t map[FZN_SPOOL_BITMAP_LEN(TEST_LEAVES)];
+	const uint8_t *parts[4];
+	size_t parts_len[4];
+	uint8_t span_proof[FZN_BLOB_MAX_DEPTH * FZN_BLOB_HASH_LEN];
+	unsigned span_proof_len = 0;
+	unsigned i;
+
+	reset(&spool, map, sizeof(map));
+	REQUIRE(fzn_blob_span_proof_build(&HASH, leaf_hash[0], TEST_LEAVES, 0u, 4u, span_proof,
+	                                  sizeof(span_proof), &span_proof_len) == FZN_BLOB_OK,
+	        "building the span proof");
+	for (i = 0; i < 4u; i++) {
+		parts[i] = sealed[i];
+		parts_len[i] = sealed_len[i];
+	}
+
+	disk.refuse_writes = 1;
+	CHECK(fzn_spool_place_span(&spool, &HASH, 0u, 4u, parts, parts_len, span_proof,
+	                           span_proof_len) == FZN_SPOOL_ERR_BACKEND,
+	      "a span over a refusing backend reported success");
+	disk.refuse_writes = 0;
+
+	for (i = 0; i < TEST_LEAVES; i++)
+		CHECK(!fzn_spool_has(&spool, i),
+		      "leaf %u is claimed after its write was refused, which is a hole "
+		      "next_missing will skip for ever", i);
+	CHECK(fzn_spool_complete(&spool) == 0, "a store that wrote nothing reports complete");
+
+	/* The control: the same span over a working backend does place. */
+	CHECK(fzn_spool_place_span(&spool, &HASH, 0u, 4u, parts, parts_len, span_proof,
+	                           span_proof_len) == FZN_SPOOL_OK,
+	      "the span is refused even with a working backend, so the case above proves "
+	      "nothing about the refusal");
+	CHECK(fzn_spool_has(&spool, 0u), "the control placement set no bit");
+}
+
 int main(void)
 {
 	test_leaves_arrive_in_any_order();
@@ -778,6 +987,11 @@ int main(void)
 	test_a_leaf_reads_back();
 	test_every_guard_and_every_refusal();
 	test_the_suite_can_tell_pass_from_fail();
+
+	test_a_span_is_placed_under_one_proof();
+	test_a_non_canonical_span_is_refused();
+	test_a_bad_leaf_mid_span_writes_nothing();
+	test_a_span_over_a_refusing_backend_sets_no_bit();
 
 	printf("spool_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

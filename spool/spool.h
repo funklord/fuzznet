@@ -150,6 +150,43 @@ fzn_spool_err_t fzn_spool_place(fzn_spool_t *spool, const fzn_hash_ops_t *hash, 
                                 const uint8_t *sealed, size_t sealed_len,
                                 const uint8_t *proof, unsigned proof_len);
 
+/*
+ * Place a whole canonical span under ONE proof.
+ *
+ * WHY IT EXISTS, in one number: verifying 64 leaves as 64 separate proofs
+ * costs 62% overhead at a gibibyte-sized blob, against 0.68% for one span
+ * proof -- project.md sec 103 has the table. `fzn_spool_plan_want` already
+ * emits canonical spans, so this is the placement side of the same decision;
+ * without it the planning saving is given straight back.
+ *
+ * `sealed` and `sealed_len` are arrays of `count`, one per leaf, because a
+ * receiver holds `count` datagrams rather than one buffer -- and because the
+ * blob's last leaf may be short, so a single stride would be a lie about
+ * where each leaf ends.
+ *
+ * NOTHING IS WRITTEN UNTIL EVERY LEAF HAS BEEN VERIFIED, which is stronger
+ * than `fzn_spool_place`'s promise and is what a span costs: a span is
+ * proved as a whole, so a partial write of a span that then fails to verify
+ * would leave leaves this store cannot account for. Both are the same rule
+ * -- verified before a byte is written -- applied at the granularity of the
+ * thing being proved.
+ *
+ * A NON-CANONICAL SPAN IS REFUSED rather than verified leaf by leaf. It has
+ * no single proof, so a peer offering one is describing a different set, and
+ * quietly falling back would hide that.
+ *
+ * Duplicates inside the span are accepted and not rewritten, as
+ * `fzn_spool_place` accepts a duplicate leaf: a span overlapping what this
+ * store already holds is ordinary when several peers are answering.
+ *
+ * FZN_SPOOL_ERR_UNVERIFIED if the span does not prove against the root, and
+ * the store is unchanged when it does not.
+ */
+fzn_spool_err_t fzn_spool_place_span(fzn_spool_t *spool, const fzn_hash_ops_t *hash,
+                                     uint64_t first, uint64_t count,
+                                     const uint8_t *const *sealed, const size_t *sealed_len,
+                                     const uint8_t *proof, unsigned proof_len);
+
 /* Reads a leaf back, sealed, for a relay serving it on. FZN_SPOOL_ERR_ABSENT
  * if this store does not hold it yet. */
 fzn_spool_err_t fzn_spool_read(const fzn_spool_t *spool, uint64_t index, uint8_t *out,

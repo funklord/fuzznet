@@ -22873,6 +22873,17 @@ Which of those three, and when, is worth its own pass with the whole picture
 -- and `spool/` has a consumer-facing API and a file backend, so retiring or
 changing it is not a detail to settle inside a filestore commit.
 
+**TAKEN SINCE, AND IT WAS THE FIRST OF THE THREE**: `spool/` keeps its range
+type and gains the constraint. `fzn_spool_plan_want` cuts runs into canonical
+spans and `fzn_spool_place_span` verifies one under a single proof, so both
+sides of a request now cost 0.68% rather than 62%. `fzn_spool_place` stays
+for the single-leaf case, which `blob/blob.h` argues is the common one on a
+lossy transport -- a receiver verifying one arriving datagram -- so the pair
+mirrors `blob/`'s own decision to keep both granularities.
+
+Nothing was retired and no duplicate exists, which is why option two was not
+needed: the span is the general case and a leaf is the span of count one.
+
 ### What is still open, and it is the other half of sec 102
 
 Subtree addressing settles how a request names what it wants. It does not

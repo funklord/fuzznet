@@ -75,6 +75,108 @@ fzn_spool_err_t fzn_spool_open(fzn_spool_t *spool, const uint8_t root[FZN_BLOB_H
 	return FZN_SPOOL_OK;
 }
 
+/* The most leaves one span may carry, and so the most leaf hashes this file
+ * will hold on the stack at once.
+ *
+ * Bounded because the count comes from a peer: without a cap, a span naming
+ * a million leaves is a million-hash stack frame chosen by a stranger. 64 is
+ * fuzzypickles' verification batch and the number their propagation already
+ * uses -- one request, one proof -- so this is their constant rather than a
+ * fresh one, and the two libraries agreeing about it is worth more than
+ * picking a rounder number. Their own note says the 64 is reasoning rather
+ * than a measurement, so it is a bound to revisit with evidence and not a
+ * result. */
+#define SPAN_MAX_LEAVES 64u
+
+fzn_spool_err_t fzn_spool_place_span(fzn_spool_t *spool, const fzn_hash_ops_t *hash,
+                                     uint64_t first, uint64_t count,
+                                     const uint8_t *const *sealed, const size_t *sealed_len,
+                                     const uint8_t *proof, unsigned proof_len)
+{
+	uint8_t leaf_hashes[SPAN_MAX_LEAVES * FZN_BLOB_HASH_LEN];
+	uint8_t span_root[FZN_BLOB_HASH_LEN];
+	uint64_t i;
+
+	if (!spool || !spool->ops || !sealed || !sealed_len || !hash)
+		return FZN_SPOOL_ERR_MALFORMED;
+	if (count == 0u || count > SPAN_MAX_LEAVES)
+		return FZN_SPOOL_ERR_MALFORMED;
+	if (first >= spool->leaves || count > spool->leaves - first)
+		return FZN_SPOOL_ERR_TOO_LARGE;
+
+	/* REFUSED RATHER THAN VERIFIED LEAF BY LEAF. A span that is not a node
+	 * of the tree has no single proof, so a peer offering one is
+	 * describing a different set, and a quiet fallback would hide that.
+	 *
+	 * REDUNDANT WITH THE PROOF CHECK BELOW, MEASURED: removing this line
+	 * changes no test, because `fzn_blob_span_proof_verify` walks the same
+	 * bisection and refuses a span it cannot reach. It stays for a reason
+	 * that is not belt-and-braces -- it refuses BEFORE hashing up to 64
+	 * leaves, so a peer naming nonsense cannot buy that work. The order is
+	 * the point, not the check. */
+	if (!fzn_blob_span_is_canonical(spool->leaves, first, count))
+		return FZN_SPOOL_ERR_UNVERIFIED;
+
+	/* EVERY LEAF HASHED BEFORE ANY IS WRITTEN. `fzn_spool_place` verifies
+	 * one leaf and writes it; a span is proved as a whole, so a partial
+	 * write of a span that then failed to verify would leave leaves this
+	 * store cannot account for. Same rule, applied at the granularity of
+	 * the thing being proved. */
+	for (i = 0; i < count; i++) {
+		if (!sealed[i] || sealed_len[i] == 0u || sealed_len[i] > FZN_BLOB_SEALED_MAX)
+			return FZN_SPOOL_ERR_UNVERIFIED;
+		/* Unreachable with the guards above -- `fzn_blob_leaf_hash`
+		 * refuses a null hash or a length outside its bounds, and both
+		 * are already rejected. Mutating the check away changes no
+		 * test, which is how it is known redundant rather than
+		 * untested. It stays as the boundary with `blob/`. */
+		if (fzn_blob_leaf_hash(hash, sealed[i], sealed_len[i],
+		                       leaf_hashes + (i * FZN_BLOB_HASH_LEN)) != FZN_BLOB_OK)
+			return FZN_SPOOL_ERR_UNVERIFIED;
+	}
+
+	if (fzn_blob_span_root(hash, leaf_hashes, count, span_root) != FZN_BLOB_OK)
+		return FZN_SPOOL_ERR_UNVERIFIED;
+	if (fzn_blob_span_proof_verify(hash, span_root, first, count, spool->leaves, proof,
+	                               proof_len, spool->root) != FZN_BLOB_OK)
+		return FZN_SPOOL_ERR_UNVERIFIED;
+
+	for (i = 0; i < count; i++) {
+		uint64_t index = first + i;
+
+		/* A duplicate inside the span is skipped, not rewritten --
+		 * ordinary when several peers are answering, and rewriting
+		 * turns each one into disk traffic. */
+		if (bit_get(spool->present, index))
+			continue;
+
+		if (!spool->ops->write_at(spool->ops->ctx, offset_of(index), sealed[i],
+		                          sealed_len[i]))
+			return FZN_SPOOL_ERR_BACKEND;
+		/* The slot's tail, for the reason `fzn_spool_place` gives at
+		 * length: a short leaf that is the highest one placed leaves
+		 * the file ending part-way through its own slot. */
+		if (sealed_len[i] < FZN_BLOB_SEALED_MAX) {
+			static const uint8_t ZEROS[FZN_BLOB_SEALED_MAX] = { 0 };
+
+			if (!spool->ops->write_at(spool->ops->ctx,
+			                          offset_of(index) + sealed_len[i], ZEROS,
+			                          FZN_BLOB_SEALED_MAX - sealed_len[i]))
+				return FZN_SPOOL_ERR_BACKEND;
+		}
+
+		/* After the write, never before: a bit set over a failed write
+		 * is a hole nothing re-requests. */
+		bit_set(spool->present, index);
+		spool->have++;
+	}
+
+	if (spool->have == spool->leaves && spool->ops->sync)
+		(void)spool->ops->sync(spool->ops->ctx);
+
+	return FZN_SPOOL_OK;
+}
+
 fzn_spool_err_t fzn_spool_place(fzn_spool_t *spool, const fzn_hash_ops_t *hash, uint64_t index,
                                 const uint8_t *sealed, size_t sealed_len,
                                 const uint8_t *proof, unsigned proof_len)

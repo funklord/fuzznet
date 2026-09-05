@@ -1006,6 +1006,29 @@ SABOTAGES = [
 		"a withdrawal that overtakes its revocation is kept, not dropped",
 	),
 	(
+		"spool-span-proof-checked",
+		"spool/spool.c",
+		"\tif (fzn_blob_span_proof_verify(hash, span_root, first, count, spool->leaves, "
+		"proof,\n\t                               proof_len, spool->root) != FZN_BLOB_OK)"
+		"\n\t\treturn FZN_SPOOL_ERR_UNVERIFIED;\n",
+		"\t(void)proof; (void)proof_len;\n",
+		"a span is placed only when it proves against the root, or a stranger "
+		"fills the store with bytes that assemble into nothing",
+	),
+	(
+		"spool-span-bit-after-write",
+		"spool/spool.c",
+		"\t\tif (!spool->ops->write_at(spool->ops->ctx, offset_of(index), sealed[i],\n"
+		"\t\t                          sealed_len[i]))\n"
+		"\t\t\treturn FZN_SPOOL_ERR_BACKEND;\n",
+		"\t\tbit_set(spool->present, index);\n"
+		"\t\tif (!spool->ops->write_at(spool->ops->ctx, offset_of(index), sealed[i],\n"
+		"\t\t                          sealed_len[i]))\n"
+		"\t\t\treturn FZN_SPOOL_ERR_BACKEND;\n",
+		"a bit set over a failed write is a hole next_missing skips and nothing "
+		"re-requests -- a transfer that reports complete over a corrupt blob",
+	),
+	(
 		"spool-plan-cuts-canonical",
 		"spool/plan.c",
 		"\t\tuint64_t take = fzn_blob_span_largest_at(spool->leaves, first, bound);\n",

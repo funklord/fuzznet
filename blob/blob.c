@@ -882,3 +882,19 @@ uint64_t fzn_blob_span_largest_at(uint64_t leaf_count, uint64_t first, uint64_t 
 
 	return best;
 }
+
+fzn_blob_err_t fzn_blob_span_root(const fzn_hash_ops_t *hash, const uint8_t *leaf_hashes,
+                                   uint64_t count, uint8_t out[FZN_BLOB_HASH_LEN])
+{
+	if (!hash || !hash->hash || !leaf_hashes || !out)
+		return FZN_BLOB_ERR_MALFORMED;
+	if (count == 0u || count > FZN_BLOB_MAX_LEAVES)
+		return FZN_BLOB_ERR_MALFORMED;
+
+	/* `subtree_root` is the one definition of the tree's shape in this
+	 * file, built on `fzn_blob_tree_push` for the reason its own comment
+	 * gives: a second recursion would agree today and be free to drift,
+	 * and the whole apparatus of proofs is worthless the moment the prover
+	 * and the builder disagree about what the tree is. */
+	return subtree_root(hash, leaf_hashes, 0u, count, out);
+}

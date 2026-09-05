@@ -312,6 +312,20 @@ fzn_blob_err_t fzn_blob_proof_build(const fzn_hash_ops_t *hash, const uint8_t *l
  * either send several or send one that proves something else. */
 int fzn_blob_span_is_canonical(uint64_t leaf_count, uint64_t first, uint64_t count);
 
+/* The root of a span, computed from the leaf hashes it covers.
+ *
+ * THE BARE APEX, with no root label and no leaf-count binding: a span is an
+ * interior node of somebody's tree, not a blob of its own. Those two belong
+ * to `fzn_blob_tree_root`, and confusing the two is how a span proof ends up
+ * comparing an apex against a finalised root -- which is exactly the bug the
+ * first version of `fzn_blob_span_proof_verify` had.
+ *
+ * A RECEIVER COMPUTES THIS FROM LEAVES IT HOLDS, which is the property the
+ * leaf size was bought for kept at span granularity: nothing lets a caller
+ * verify bytes it does not have. */
+fzn_blob_err_t fzn_blob_span_root(const fzn_hash_ops_t *hash, const uint8_t *leaf_hashes,
+                                   uint64_t count, uint8_t out[FZN_BLOB_HASH_LEN]);
+
 /* The largest canonical span starting at `first` and no longer than
  * `max_count`, or 0 if there is none.
  *
