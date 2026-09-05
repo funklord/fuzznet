@@ -60,6 +60,7 @@
 #include <fuzznet/persist/persist.h>
 #include <fuzznet/spool/spool.h>
 #include <fuzznet/spool/plan.h>
+#include <fuzznet/spool/message.h>
 /* The default backend's header ships whenever the subsystem is built, so the
  * installcheck gate requires this file to include it -- a header named in
  * HDRS and included by nothing passes that gate as loudly as one a consumer
@@ -111,6 +112,7 @@
 #include "persist/persist.h"
 #include "spool/spool.h"
 #include "spool/plan.h"
+#include "spool/message.h"
 #ifdef FZN_PERSIST_FILE_ON
 #include "persist/persist_file.h"
 #endif
@@ -1413,6 +1415,51 @@ int main(void)
 			if (fzn_spool_plan_want(&sp, 0u, 0u, ranges, 2u, &plan_n)
 			    != FZN_SPOOL_ERR_MALFORMED)
 				FAIL(248);
+		}
+
+		/* The wire vocabulary. A consumer needs the plan above to
+		 * encode without modification, so that is what is walked --
+		 * not that the symbols link. The refusals chosen are the two
+		 * a consumer would otherwise have to re-derive: an empty
+		 * message buys nothing, and a have-set larger than the
+		 * caller's array is refused rather than truncated. */
+		{
+			fzn_spool_range_t ranges[2] = { { 0u, 1u }, { 1u, 1u } };
+			fzn_spool_range_t back[2];
+			uint8_t msg[FZN_MSG_HAVE_LEN(2)];
+			uint8_t cookie[FZN_MSG_COOKIE_LEN];
+			uint8_t back_root[FZN_BLOB_HASH_LEN];
+			uint8_t back_cookie[FZN_MSG_COOKIE_LEN];
+			uint64_t leaves = 0u;
+			fzn_msg_type_t type;
+			size_t len = 0u, n = 99u;
+
+			memset(cookie, 0x5a, sizeof(cookie));
+			if (fzn_msg_have_encode(fake_root, 2u, cookie, ranges, 2u, msg, sizeof(msg),
+			                        &len) != FZN_MSG_OK)
+				FAIL(332);
+			if (len != FZN_MSG_HAVE_LEN(2))
+				FAIL(333);
+			if (fzn_msg_peek(msg, len, &type) != FZN_MSG_OK || type != FZN_MSG_HAVE)
+				FAIL(334);
+			if (fzn_msg_have_parse(msg, len, back_root, &leaves, back_cookie, back, 2u,
+			                       &n) != FZN_MSG_OK)
+				FAIL(335);
+			if (n != 2u || back[1].first != 1u || back[1].count != 1u)
+				FAIL(336);
+			/* Refused, not truncated. */
+			n = 99u;
+			if (fzn_msg_have_parse(msg, len, back_root, &leaves, back_cookie, back, 1u,
+			                       &n) != FZN_MSG_ERR_TOO_LARGE)
+				FAIL(337);
+			if (n != 99u)
+				FAIL(338);
+			/* A message naming nothing. */
+			if (fzn_msg_want_encode(1u, cookie, fake_root, 0u, 0u, msg, sizeof(msg),
+			                        &len) != FZN_MSG_ERR_EMPTY)
+				FAIL(339);
+			if (fzn_msg_err_str(FZN_MSG_ERR_EMPTY) == NULL)
+				FAIL(340);
 		}
 
 #ifdef FZN_SPOOL_FILE_ON

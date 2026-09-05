@@ -1029,6 +1029,31 @@ SABOTAGES = [
 		"re-requests -- a transfer that reports complete over a corrupt blob",
 	),
 	(
+		"msg-have-refused-not-truncated",
+		"spool/message.c",
+		"\tif (range_count > cap)\n\t\treturn FZN_MSG_ERR_TOO_LARGE;\n",
+		"\tif (range_count > cap)\n\t\trange_count = cap;\n",
+		"a have-set truncated rather than refused reports a peer as holding less "
+		"than it does, and the transfer re-fetches leaves that were there all along",
+	),
+	(
+		"msg-type-separates-the-parsers",
+		"spool/message.c",
+		"\tif (bytes[FZN_MSG_OFF_TYPE] != (uint8_t)want)\n\t\treturn FZN_MSG_ERR_MALFORMED;\n",
+		"\t(void)want;\n",
+		"a seal proves who wrote the bytes and not which question they answer, so "
+		"without the type byte a have and a want of compatible length are one "
+		"message with two readings",
+	),
+	(
+		"msg-data-length-exact",
+		"spool/message.c",
+		"\tif (len != need + body)\n\t\treturn FZN_MSG_ERR_MALFORMED;\n",
+		"\tif (len < need + body)\n\t\treturn FZN_MSG_ERR_MALFORMED;\n",
+		"bytes past the last leaf are a second encoding of one message, which is "
+		"how a receiver that de-duplicates by bytes sees two spans where a peer sent one",
+	),
+	(
 		"spool-plan-cuts-canonical",
 		"spool/plan.c",
 		"\t\tuint64_t take = fzn_blob_span_largest_at(spool->leaves, first, bound);\n",

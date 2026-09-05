@@ -166,6 +166,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              persist/persist.c \
              spool/spool.c \
              spool/plan.c \
+             spool/message.c \
              chunk/reassembly.c \
              chunk/split.c \
              tree/tree.c \
@@ -197,7 +198,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              provision/provision.h \
              disclose/disclose.h \
              persist/persist.h \
-             spool/spool.h \
+             spool/spool.h spool/message.h \
              spool/plan.h \
              chunk/reassembly.h \
              chunk/split.h \
@@ -250,6 +251,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              persist/test/persist_kat_test.c \
              spool/test/spool_test.c \
              spool/test/plan_test.c \
+             spool/test/message_test.c \
              session/test/agree_test.c \
              session/test/session_test.c \
              blob/test/blob_fuzz.c \
@@ -307,6 +309,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/persist/test/persist_kat_test \
              $(BUILD_DIR)/spool/test/spool_test \
              $(BUILD_DIR)/spool/test/plan_test \
+             $(BUILD_DIR)/spool/test/message_test \
              $(BUILD_DIR)/session/test/agree_test \
              $(BUILD_DIR)/session/test/session_test \
              $(BUILD_DIR)/frame/test/freshness_test \
@@ -901,7 +904,7 @@ $(MONO_PROV): $(BUILD_DIR)/sim/test/provision_test.o \
               $(BUILD_DIR)/record/sync.o $(BUILD_DIR)/state/state.o \
               $(BUILD_DIR)/log/log.o $(BUILD_DIR)/tree/tree.o \
               $(BUILD_DIR)/blob/blob.o $(BUILD_DIR)/spool/spool.o \
-              $(BUILD_DIR)/spool/plan.o \
+              $(BUILD_DIR)/spool/plan.o $(BUILD_DIR)/spool/message.o \
               $(BUILD_DIR)/link/link.o $(BUILD_DIR)/sched/sched.o \
               $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/wire/relay.o \
               $(BUILD_DIR)/version/version.o $(BUILD_DIR)/persist/persist.o \
@@ -1308,6 +1311,15 @@ $(BUILD_DIR)/spool/test/plan_test: $(BUILD_DIR)/spool/test/plan_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+$(BUILD_DIR)/spool/test/message_test: $(BUILD_DIR)/spool/test/message_test.o \
+                                      $(BUILD_DIR)/spool/message.o \
+                                      $(BUILD_DIR)/spool/plan.o \
+                                      $(BUILD_DIR)/spool/spool.o \
+                                      $(BUILD_DIR)/blob/blob.o \
+                                      $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/spool/test/spool_file_test: $(BUILD_DIR)/spool/test/spool_file_test.o \
                                           $(BUILD_DIR)/spool/spool_file.o \
                                           $(BUILD_DIR)/spool/spool.o \
@@ -1582,6 +1594,8 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/provision/provision.o \
                                       $(BUILD_DIR)/disclose/disclose.o \
                                       $(BUILD_DIR)/blob/blob.o \
+                                      $(BUILD_DIR)/spool/message.o \
+                                      $(BUILD_DIR)/spool/spool.o \
                                       $(BUILD_DIR)/record/record.o \
                                       $(BUILD_DIR)/record/journal.o \
                                       $(BUILD_DIR)/record/ledger.o \

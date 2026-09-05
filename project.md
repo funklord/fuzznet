@@ -5837,6 +5837,7 @@ somebody to notice.
 | `record/journal.h` | records, journal, sync |
 | `sched/sched.h` | which link a message should take |
 | `session/aead.h` | aead, commitment, random, agreement, session roots |
+| `spool/message.h` | the four things two hosts say about a blob |
 | `spool/plan.h` | what has not been sent yet |
 | `state/state.h` | permissions, rules and config as one thing |
 | `tree/tree.h` | nesting that replicates |
@@ -22673,6 +22674,134 @@ nothing was regenerated here. Whether adopting a language feature moves
 the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
+
+## 105. The wire vocabulary, and the bitmap that must not travel, 2026-09-05
+
+Sec 102 listed six filestore pieces and named this one as the likeliest to
+carry a consumer's peer model across. `spool/message.{h,c}` is the four
+messages -- HAVE_QUERY, HAVE, WANT, DATA -- with fuzzypickles' estate taken
+out of them. 93 checks, and the module table in sec 11 has the row.
+
+**It is payload, not a fifth frame kind.** Sec 96 closed the kind set and
+this does not reopen it: these encode into the sealed payload of a `chunk` or
+a `unit`, which is exactly where sec 96 put the same vocabulary when it was
+somebody else's. What changed is who owns it, not where it rides.
+
+### The one decision a reader would get backwards
+
+**The have-set on the wire is RANGES, not the bitmap.** `spool/` stores a
+bitmap, so sending the bitmap is the obvious move, and it is wrong twice
+over. A 4 GiB blob is 2^22 leaves and a 512 KiB bitmap, so answering "what do
+you have" means fragmenting half a megabyte -- which is the amplifier sec 25
+spent three rules closing, rebuilt in the reply instead of the request.
+
+The same fact as ranges is `fzn_spool_range_t`, which BOTH planners already
+speak, and `fzn_spool_plan_offer` already produces exactly this message's
+body. So the encoder computes nothing, and the compression is guaranteed
+rather than hoped for: sec 102 records that assignment is sequential and
+lowest-first precisely so a partial blob stays contiguous, and a contiguous
+prefix is ONE range, 16 bytes, whatever the blob's size.
+
+The bitmap is the right shape for a store answering "is leaf 91,000 present"
+and the wrong shape for a peer answering "how far have you got". Those read
+as one question and are not.
+
+### The cookie is sixteen opaque bytes and this library never reads them
+
+That is the neutrality the row existed for. fuzzypickles bind their cookie to
+a source address string; sec 102 lists their peer model first among the three
+things that must not travel, and netcfgd's peers are not addressed that way.
+**A host cannot bind a cookie to a peer without knowing what a peer IS**, and
+that is the question this library declines -- so it carries the field and the
+host decides what goes in it.
+
+`wire/` states the same split from the other side: the field is schema, the
+policy is ours. Here the field is ours and the policy is the host's. The
+distinction is not a dodge; it is the only version of this that both
+consumers can use.
+
+**Anti-reflection, and explicitly not a rate limit**, carried over from sec
+102 because naming what it is not is what stops it being improved into a rate
+limiter with the property quietly removed. A 70-byte WANT answered with a
+64 KiB span is a ~900x amplifier and a spoofer never sees the HAVE that
+carried the cookie. Sec 25's planners bound WHAT to answer; this bounds WHOM,
+and neither substitutes.
+
+**Sec 25 said this belonged to "whoever owns the transport", which is now
+this tree.** The deferral that had already been decided elsewhere has been
+decided here, and the pointer that went nowhere can be struck.
+
+### A reason that arrived with a property and did not survive the arithmetic
+
+Sec 102 recorded fuzzypickles' `transfer_id` as a property worth keeping
+whose encoding was not, and quoted their reason: it "keeps the server
+stateless and avoids a 32-byte root per DATA frame". Checked here, the second
+half does not arise. A fuzznet DATA carries a WHOLE SPAN and `chunk/`
+fragments it, so the 28 bytes saved are once per 64 KiB message rather than
+once per frame -- **0.04%, which buys nothing.**
+
+The id is kept anyway, for a reason nobody had written down: a requester with
+several spans of one blob in flight to one peer matches an answer to its
+question without reparsing, and can recognise an answer to a request it has
+already retired. The stateless half is real and is kept -- the responder
+echoes what it was given and remembers nothing.
+
+This is not a correction of their tree. Their DATA may well be per-frame,
+where 32 bytes on a ~1200-byte frame is 2.7% and the reason holds exactly as
+stated. **What did not travel is the arithmetic, because the arithmetic is a
+property of the fragmentation, and the fragmentation is ours.** A property
+adopted with its reason attached is a reason worth re-deriving in the tree
+that adopts it.
+
+### The two claims a test had to hold rather than a header assert
+
+Everything above is prose. Two sentences in `message.h` are claims about
+INTEROPERATION, which nothing else in the tree checks and which go wrong the
+moment somebody edits either side:
+
+- **A plan encodes unmodified.** The test's fixture is `plan_offer`'s actual
+  output, not ranges typed into the test -- typed ranges pass with the
+  planner removed, which is the whole of *a correct function is not a working
+  feature*.
+- **A parsed DATA hands straight to a store.** The test parses a DATA and
+  passes `out_sealed` and `out_sealed_len` to `fzn_spool_place_span` without
+  touching them, and asserts the leaf pointers land INSIDE the message
+  buffer -- because "without copying" is the claim, and a test that only
+  compared bytes would pass against a parser that copied.
+
+### A guard kept for a machine this one is not
+
+`fzn_msg_data_parse` bounds each leaf length against what is LEFT of the
+message. On x86-64 that is redundant: `count` is at most 64 and each length
+at most 2^32-1, so the sum reaches 2^38 and cannot wrap a 64-bit `size_t`,
+and the exact-length comparison below would catch anything it missed. **On a
+32-bit target -- which this library is meant to run on -- 64 lengths of
+2^32-1 wrap to a small total that compares equal to a short message**, and
+this line is then the only thing between a peer's arithmetic and a read past
+the buffer.
+
+So a sabotage of it is caught here by the comparison below rather than by the
+line itself, and the comment says so. Same shape as the canonicality check in
+`place_span` yesterday: **redundant is not the same as unnecessary, and the
+honest record is which machine it is redundant on.**
+
+That also forced a better test. Two mutually-redundant checks mean a sabotage
+of either reports the other's work, so the case that separates them -- a
+trailing byte past the last leaf, where every individual length still fits --
+had to be written before either sabotage entry meant anything.
+
+### An asymmetry this opens, recorded rather than resolved
+
+`record/sync.h` says of its own positions that "how it is encoded is the
+consumer's". **That was right when the consumer owned the transport**, and
+sec 101 moved the transport here -- so sync's reason has expired without sync
+noticing. The same conversation about records still has no bytes while this
+one now does.
+
+Not fixed here, because deciding whether records get a wire vocabulary is
+worth its own pass rather than a side effect of this one. Recorded because a
+reason that has quietly stopped being true is invisible from inside the file
+that gives it, and the file still reads as deliberate.
 
 ## 104. Streaming: no byte-stream interface, because both kinds already exist here, 2026-09-05
 
