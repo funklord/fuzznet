@@ -22741,10 +22741,40 @@ tree -- `harmonization.md`'s *who makes a harmonizing change*. The signal
 carries the reproduction and one thing this tree did not check: whether the C
 scanner, a separate implementation of the same rule, has fixtures that lex.
 
+### Fixed at the source, and the signal was wrong twice about why
+
+The holder said to fix it at the source, so the test is in
+`~/.claude/tool/test_style_gate.py` and taken back here with
+`sync.py fuzznet` -- named, because an empty project list means all sixteen
+and that tool's own comment records `sync.py --help` once writing into
+thirteen trees from somebody asking how to use it.
+
+**Both of this section's explanations were wrong**, and the corrections are
+worth more than the test. The unlexable Python fixture is DELIBERATE and its
+own docstring says so -- "a file the tokeniser refuses is checked as bytes" --
+so it was testing the fallback on purpose and correctly. And the C side was
+ALREADY covered: `test_ascii_finding_does_not_shadow_indent_findings` uses a
+valid C file with an em dash in a comment. So the finding was an ASYMMETRY,
+C's tokeniser path tested and Python's not, rather than a mistaken fixture --
+and the open question this tree sent along with the signal, whether the C
+scanner had the same gap, is answered no.
+
+The gap was real either way, measured both directions at the source: with the
+new test removed and `python_ascii_problems` neutered the suite reports OK,
+and with it present that test fails.
+
+**This is the third time this week a finding of this tree's about somebody
+else's file characterised it wrongly while getting the mechanism right.** The
+mechanism -- a silenced checker the suite does not notice -- was right, and
+both sentences about WHY were wrong, and both were about a file this tree does
+not own. `claude-guidelines` already carries the signal about that pattern,
+filed the same day, which is now three instances rather than two.
+
 ### What the line in the Makefile is worth, said in the Makefile
 
-It buys a control over 100 of its cases and not over that one. The comment
-beside it says so, because the alternative is a reader in six months quoting
+It bought a control over most of its cases and not over that one; since the
+fix above it buys that one too. The comment beside it still says what it does
+not cover, because the next hole will not announce itself either, because the alternative is a reader in six months quoting
 "the gate has a test suite" as though that settled the question -- which is
 this tree's own *a name that claims exhaustiveness is not a check that
 achieved it*, met in a tool rather than in a test name.

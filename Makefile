@@ -2314,18 +2314,17 @@ style:
 	@# every fixture inside a `TemporaryDirectory` context manager, and
 	@# left zero directories behind in /tmp -- counted, not assumed.
 	@#
-	@# AND IT HAS AT LEAST ONE HOLE, measured while wiring it here rather
-	@# than assumed away. Neutering `python_ascii_problems` so it reports
-	@# nothing silences the gate on a valid Python file whose em dash sits
-	@# in a comment -- and all 101 tests still pass, because the suite's
-	@# Python fixture is itself a syntax error and therefore takes the
-	@# whole-file fallback instead of the tokenizer. Signalled to
-	@# claude-guidelines, which owns the source; not patched here, because
-	@# this copy names that source and editing it would be drift.
+	@# IT HAD A HOLE, found by sabotaging it rather than by trusting it.
+	@# Neutering `python_ascii_problems` so it reports nothing silenced the
+	@# gate on a valid Python file whose em dash sits in a comment, and the
+	@# whole suite still passed: C's tokeniser path had a fixture and
+	@# Python's did not. Fixed at the source on the holder's instruction and
+	@# taken back with `sync.py fuzznet`; project.md sec 112 has it.
 	@#
-	@# So this line buys a control over 100 of its cases and not over that
-	@# one. That is worth more than nothing and less than the docstring
-	@# implies, and saying which is the point of writing it down.
+	@# THE COMMENT STAYS BECAUSE THE NEXT HOLE WILL NOT ANNOUNCE ITSELF
+	@# EITHER. A suite that has been sabotaged once is a suite with one
+	@# known hole closed, not a suite without holes, and "the gate has a
+	@# test suite" is the sentence somebody will quote instead.
 	python3 tool/test_style_gate.py
 	python3 tool/style_gate.py check
 	@# THE SABOTAGE TABLE IS A LIST KEPT BY HAND, and it is the one list
