@@ -5754,8 +5754,28 @@ cheap to change now and will not stay cheap.
    waits on raidcfgd's vocabulary bound, not on this; fuzzypickles' step 6
    is its own deliberate work. Neither should be read as waiting for an
    agent that may not be written.
-6. **fuzzypickles migrates**, as separate deliberate work, at rung 2 with
-   `--owned` (0031).
+6. ~~**fuzzypickles migrates**, as separate deliberate work, at rung 2 with
+   `--owned` (0031).~~ **THAT PLAN DOES NOT WORK AND THIS DOCUMENT SAYS SO
+   2,300 LINES EARLIER**, with no pointer from here until now.
+
+   sec 7c records it: `fzn_frame` has no owned form at any rung, because
+   `payload[head.length]` makes its size data-decided and an owned struct
+   would need a pointer or a worst-case array, "neither is this generator's
+   to choose". Whether the answer is a worst-case array, a different
+   migration, or fuzzypickles not adopting at rung 2 is undecided there and
+   is not decided here.
+
+   **And fuzzypickles is already consuming, at rung 1.** Measured 2026-09-05:
+   `rung`, `--owned`, `--layer` and `situc` appear nowhere in their tracked
+   files outside the vendored submodule, and their entire situ surface is
+   six calls in one file, `core/src/peer_seal.c`, against this tree's
+   checked-in generated output. So the question step 6 raises is not when
+   they migrate but **whether this step ever described what they are doing**.
+
+   Left as it stood, this row planned work against a mechanism the same
+   document had already found broken -- the deferral-that-outlived-its-gap
+   shape again, and the third instance this week. Found by review of another
+   tree rather than by anybody reading this one.
 7. ~~**`local/`**~~ **done** (2026-08-18). raidcfgd exists and stated what it
    needs, so the module was written against something real rather than an
    imagined consumer: credentials, and the vocabulary bound (§4.8). The framing
