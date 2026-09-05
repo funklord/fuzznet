@@ -22674,6 +22674,97 @@ the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
 
+## 104. Streaming: no byte-stream interface, because both kinds already exist here, 2026-09-05
+
+Sec 102 left this as the decision that must precede the interface: netcfgd's
+constraint is that message boundaries are preserved and no TCP-style ordered
+byte-stream abstraction is built, and fuzzypickles has a read-at-offset
+source and sink which is exactly that abstraction at the interface. **Decided:
+fuzznet grows no read-at-offset streaming API. The unit of a stream is an
+independently verifiable message, and the two stream kinds are already two
+modules.**
+
+### The shape instrument, fifth time this week
+
+Asked without the names -- *deliver a sequence of independently verifiable
+units, preserving boundaries, where one kind must complete and the other must
+meet a deadline and may drop* -- this tree already answers both:
+
+    copy-stream    spool/         a bitmap over leaves, verified placement,
+    (reliable,                    survives restart through spool_file. No
+     complete,                    deadline anywhere in its API, and that is
+     no deadline)                 correct: a partial download waits.
+
+    pure-stream    chunk/         per-message `expires_at`, a `max_hold`
+    (deadline-                    bound, `fzn_reasm_expire(now)` that drops
+     driven,                      partials, and `fzn_reasm_plan_want` for
+     may drop)                    what is missing. Boundary-preserving by
+                                  construction: it reassembles MESSAGES.
+
+`chunk/reassembly.h` has already had this argument with itself and won it,
+in a way worth quoting because it is the pure-stream semantics stated
+precisely: `expires_at == 0` used to mean never, "a slot's deadline is
+`min(expires_at, now + max_hold)`, and a zero expiry means `now + max_hold`
+rather than never". That is a live consumer's deadline discipline, written
+for reassembly and not for streaming, and it is the same thing.
+
+**So fuzzypickles' copy-stream versus pure-stream distinction maps onto two
+modules this library already ships**, and neither of them has or wants a byte
+offset.
+
+### Why a read-at-offset API is refused rather than merely unnecessary
+
+It would satisfy netcfgd's letter and break its rule. A source and sink over
+byte offsets is an ordered-byte-stream abstraction at the interface whatever
+carries it underneath, and the constraint is about the abstraction: "message
+boundaries are preserved END TO END". An API that hands a consumer a byte
+range has already lost the boundary, and a datagram transport beneath it does
+not give it back.
+
+It also loses the property `blob/blob.h` bought the leaf size for: "a receiver
+cannot verify a leaf until it holds all of it, so THE LEAF SIZE IS EXACTLY
+HOW MUCH UNVERIFIED DATA AN ATTACKER CAN MAKE A HOST BUFFER". A byte-offset
+read is a request whose answer is not independently verifiable at its own
+boundary. **The verifiable unit and the interface unit have to be the same
+thing, or the bound stops being a bound.**
+
+`fzn_spool_read(spool, index, ...)` is already the right shape: a leaf by
+index, sealed, verifiable. A consumer that wants a byte range computes which
+leaves cover it. That arithmetic is the consumer's and is four lines; the
+boundary is the library's and is not recoverable once given away.
+
+### What is actually missing, and it is small
+
+Not a streaming layer. `spool/` has **no notion of a deadline anywhere** --
+measured, zero occurrences of `now`, `expires_at` or a deadline in
+`spool/spool.h`. That is right for a download and wrong for a handover: a
+leaf wanted for audio that is due at time T is worth nothing at T+1, and
+`fzn_spool_plan_want` will keep asking for it forever.
+
+So the gap between what is here and what netcfgd's audio handover needs is a
+**deadline on a want**, not a stream. The pieces to join are
+`fzn_spool_plan_want`, which says what is missing, and freshness's expiry
+discipline, which says when a thing stops being worth having -- with
+`chunk/reassembly.h`'s `min(expires_at, now + max_hold)` as the rule already
+argued for.
+
+**Not designed here.** Whether that is a parameter on the existing planner, a
+policy struct, or a second planner is an API decision that wants the subtree
+addressing from sec 103 settled into `spool/` first -- since the same call is
+the one that has to change for addressing anyway, and changing it twice is
+the thing to avoid.
+
+### What this closes and what it does not
+
+Closes: the streaming interface question sec 102 raised. There will be no
+read-at-offset source and sink, netcfgd's constraint is satisfied by
+construction rather than by care, and fuzzypickles' two stream kinds map onto
+`spool/` and `chunk/` as they stand.
+
+Does not close: how a deadline reaches a want, and the `spool/` migration
+sec 103 named three ways out of. Both are API work and both want doing in one
+pass rather than two.
+
 ## 103. Addressing: subtrees, and this tree said so first, 2026-09-05
 
 Sec 102 left the first design decision open: `spool/` addresses by LEAF RANGE
