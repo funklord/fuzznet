@@ -22770,6 +22770,37 @@ both sentences about WHY were wrong, and both were about a file this tree does
 not own. `claude-guidelines` already carries the signal about that pattern,
 filed the same day, which is now three instances rather than two.
 
+### The instrument this tree used all day cannot see a same-file collision
+
+Fixing the suite at the source meant working in `claude-guidelines` while a
+session was live in it, and it collided twice within the evening, in opposite
+directions. Their commit `44b2eef`, subject "the column branch", swallowed
+this tree's uncommitted test and mentions ASCII nowhere; hours later this
+tree's `7a619f7` swallowed an uncommitted `project.md` entry of theirs -- the
+entry that names the instrument, taken by the commit that took it. Both of us
+had quoted the staging rule the same day.
+
+**`git diff --cached --name-only` is what `CLAUDE.md` asks for before
+committing, and it cannot catch this.** It printed `project.md`, which was
+true and told nothing: staging by name protects a PATH, and two sessions
+editing one FILE is a case a path list has no way to express. `--stat` shows
+it in one line and costs nothing more:
+
+    git diff --cached --name-only    project.md
+    git diff --cached --stat         1 file changed, 63 insertions(+)
+
+Sixty-three, where about fourteen were mine. **A count several times what you
+wrote is the signal, and it needs no diff reading.** Recorded here rather
+than only in the guidelines tree because every commit this tree made today
+used the weaker form; whether the rule itself changes is that tree's entry to
+decide, and it is theirs.
+
+**And this closes a conclusion drawn a few hours earlier that was half an
+answer.** Doing the sabotage in a scratch copy -- the fix recorded when the
+first collision was found -- prevents the experiment colliding and does
+nothing whatever about two sessions editing one document. Two hazards, two
+remedies, and the first one was written up as though it were the pair.
+
 ### What the line in the Makefile is worth, said in the Makefile
 
 It bought a control over most of its cases and not over that one; since the
