@@ -22674,6 +22674,85 @@ the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
 
+## 103. Addressing: subtrees, and this tree said so first, 2026-09-05
+
+Sec 102 left the first design decision open: `spool/` addresses by LEAF RANGE
+over a bitmap, fuzzypickles addresses by TREE NODE and declined `spool/` for
+that reason, and both cannot be the addressing. **Decided: subtrees, named by
+one index and one depth.**
+
+### The answer was already in this tree, in the module that owns the format
+
+`blob/blob.h`, written long before the filestore decision existed, arguing
+why a 1024-byte leaf and its ~3% per-leaf overhead is a deliberate purchase:
+
+> **Bisection -- naming a subtree by one index and one depth rather than
+> enumerating leaves -- is what keeps that affordable, and is why the cost is
+> a deliberate purchase rather than something to shave later.**
+
+So this library had already chosen subtree naming, in the header that owns
+the Merkle tree, as the thing that makes its leaf size viable. `spool/`'s
+leaf-range addressing is the divergence from fuzznet's own stated design, and
+fuzzypickles' node addressing is agreement with it -- reached independently,
+which is the corroboration `evidence.md` asks for and rarely gets.
+
+**Found by the shape instrument for the fourth time this week**: describe the
+thing without its name and ask what already has it. "Naming a set of leaves a
+proof can cover in one" is bisection, and it was three paragraphs into the
+header of the module the question is about.
+
+### And the number is not close
+
+A leaf proof is `log2(n)` siblings of 32 bytes. A batch is 64 leaves, which
+is 64 KiB of payload. Verifying that batch as 64 individual leaves against
+verifying it as one aligned subtree, whose root the receiver computes from
+the leaves it just got:
+
+    blob        leaves   per-leaf proofs   subtree proof   ratio
+     1 MiB        1024         20480 B          128 B      160x
+    16 MiB       16384         28672 B          256 B      112x
+     1 GiB     1048576         40960 B          448 B       91x
+    16 GiB    16777216         49152 B          576 B       85x
+     1 TiB  1073741824         61440 B          768 B       80x
+
+At 1 GiB that is **62% proof overhead against 0.68%**. Not a tuning
+difference: per-leaf proofs make the proof larger than half the data, and
+fuzzypickles' 64-leaf batch exists precisely because "one proof covers one
+request", which per-leaf addressing cannot deliver at any batch size.
+
+### What that means for `spool/`, stated rather than done
+
+`fzn_spool_range` is `{ first, count }` -- arbitrary, with no alignment
+constraint -- and `fzn_spool_place` takes a proof per leaf. So `spool/` is
+the 62% column, and it is not a small change: the range type, the placement
+call and the planning calls all assume per-leaf verification.
+
+**Three ways out, and this section takes none of them:**
+
+- **Constrain `spool/`'s ranges to aligned subtrees** and give
+  `fzn_spool_place` a subtree form. Keeps one module and one bitmap; changes
+  a published API that `spool_file` and `plan` are built on.
+- **Build the filestore beside it** on `blob/` directly and retire `spool/`
+  once the new path carries what it carried. Costs a duplicate while both
+  exist, which is the state this workspace already spends effort leaving.
+- **Keep both**, leaf-range for the local resumable-download case and
+  subtrees for propagation. Two addressings in one library is the thing that
+  produced this question.
+
+**The decision this section makes is the addressing, not the migration.**
+Which of those three, and when, is worth its own pass with the whole picture
+-- and `spool/` has a consumer-facing API and a file backend, so retiring or
+changing it is not a detail to settle inside a filestore commit.
+
+### What is still open, and it is the other half of sec 102
+
+Subtree addressing settles how a request names what it wants. It does not
+settle netcfgd's constraint -- message boundaries preserved, no ordered
+byte-stream abstraction -- because that is about the STREAMING interface
+rather than the addressing beneath it. A subtree-addressed propagation layer
+can still be given a read-at-offset API and would then be the thing their
+document refuses. That decision stays open and must precede the interface.
+
 ## 102. What this tree already has of the filestore, measured before asking, 2026-09-05
 
 Before requesting anything from fuzzypickles, what is here. Their split said
