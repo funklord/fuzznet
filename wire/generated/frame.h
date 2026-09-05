@@ -56,6 +56,9 @@ static inline situ_err_t situ_fzn_hop_view(const situ_msg_t *msg, uint32_t offse
 	return situ_view_at(msg, offset, SITU_FZN_HOP_SIZE_FIXED, out);
 }
 
+#define SITU_FZN_HOP_VERSION_VALUE_MIN 1u
+#define SITU_FZN_HOP_VERSION_VALUE_MAX 1u
+
 /** fzn_hop.version : u8  at AbsoluteStatic(0x00)
  * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
  */
@@ -111,6 +114,17 @@ static inline situ_err_t situ_fzn_hop_required(const uint8_t *data, uint32_t hav
  * SITU_CHECKED, and available explicitly in any build.
  */
 situ_err_t situ_fzn_hop_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t situ_fzn_hop_check(situ_view_t view, uint32_t *which);
+#define SITU_FZN_HOP_VERSION_CHECK 0u
+#define SITU_FZN_HOP_RESERVED0_CHECK 1u
 
 /* ---- struct fzn_head ---- */
 
@@ -250,6 +264,18 @@ static inline situ_err_t situ_fzn_head_required(const uint8_t *data, uint32_t ha
  */
 situ_err_t situ_fzn_head_validate(situ_view_t view);
 
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t situ_fzn_head_check(situ_view_t view, uint32_t *which);
+#define SITU_FZN_HEAD_KIND_CHECK 0u
+#define SITU_FZN_HEAD_INDEX_CHECK 1u
+#define SITU_FZN_HEAD_LENGTH_CHECK 2u
+
 /* ---- struct fzn_frame ---- */
 
 #define SITU_FZN_FRAME_SIZE_MIN   144u
@@ -289,6 +315,9 @@ static inline situ_err_t situ_fzn_frame_hop_view(situ_view_t view, situ_view_t *
 {
 	return situ_view_sub(view, 0u, SITU_FZN_HOP_SIZE_FIXED, out);
 }
+
+#define SITU_FZN_FRAME_HOP_VERSION_VALUE_MIN 1u
+#define SITU_FZN_FRAME_HOP_VERSION_VALUE_MAX 1u
 
 /* fzn_frame.authenticated : authenticated  at AbsoluteStatic(0x05)
  * size=Fixed(91) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
@@ -473,6 +502,16 @@ static inline void situ_fzn_frame_head_length_set(situ_msg_t *msg, situ_view_t v
  * SITU_CHECKED, and available explicitly in any build.
  */
 situ_err_t situ_fzn_frame_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t situ_fzn_frame_check(situ_view_t view, uint32_t *which);
+#define SITU_FZN_FRAME_TAG_CHECK 0u
 
 #ifdef __cplusplus
 }

@@ -1,4 +1,4 @@
-/* Vendored from situ's runtime/c/ at 8257f7f, unmodified below this
+/* Vendored from situ's runtime/c/ at db070cf, unmodified below this
  * comment. `make schema SITU_DIR=...` re-copies both files and refuses on
  * drift, so this cannot quietly diverge.
  *
@@ -92,6 +92,7 @@ const char *situ_err_str(situ_err_t err)
 	case SITU_ERR_STAGE:		return "stage gate not passed";
 	case SITU_ERR_STALE:		return "stale view";
 	case SITU_ERR_TRUNCATED:	return "incomplete: more bytes needed";
+	case SITU_ERR_CHECKSUM:		return "checksum mismatch";
 	}
 	return "unknown error";
 }

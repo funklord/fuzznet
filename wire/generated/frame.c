@@ -8,10 +8,20 @@
 
 #include "frame.h"
 
-situ_err_t situ_fzn_hop_validate(situ_view_t view)
+situ_err_t situ_fzn_hop_check(situ_view_t view, uint32_t *which)
 {
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
 	/* fzn_hop.version [must_eq = 1] */
 	if (situ_fzn_hop_version_get(view) != 1) {
+		*which = SITU_FZN_HOP_VERSION_CHECK;
 		return SITU_ERR_CONSTRAINT;
 	}
 	/* reserved u8[3] [must_be_zero] */
@@ -22,6 +32,7 @@ situ_err_t situ_fzn_hop_validate(situ_view_t view)
 
 		for (i = 0; i < n; i++) {
 			if ((view.base)[at + i] != 0u) {
+				*which = SITU_FZN_HOP_RESERVED0_CHECK;
 				return SITU_ERR_CONSTRAINT;
 			}
 		}
@@ -29,25 +40,56 @@ situ_err_t situ_fzn_hop_validate(situ_view_t view)
 	return SITU_OK;
 }
 
-situ_err_t situ_fzn_head_validate(situ_view_t view)
+situ_err_t situ_fzn_hop_validate(situ_view_t view)
 {
+	return situ_fzn_hop_check(view, NULL);
+}
+
+situ_err_t situ_fzn_head_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
 	/* fzn_head.kind: `fzn_kind` rejects unknown values (section 8.7) */
 	if (!situ_fzn_kind_is_known(situ_fzn_head_kind_get(view))) {
+		*which = SITU_FZN_HEAD_KIND_CHECK;
 		return SITU_ERR_CONSTRAINT;
 	}
 	/* fzn_head.index [max = chunks - 1] */
 	if ((int64_t)situ_fzn_head_index_get(view) > (((int64_t)situ_fzn_head_chunks_get(view) - 1))) {
+		*which = SITU_FZN_HEAD_INDEX_CHECK;
 		return SITU_ERR_CONSTRAINT;
 	}
 	/* fzn_head.length [max = 1024] */
 	if (situ_fzn_head_length_get(view) > 1024) {
+		*which = SITU_FZN_HEAD_LENGTH_CHECK;
 		return SITU_ERR_CONSTRAINT;
 	}
 	return SITU_OK;
 }
 
-situ_err_t situ_fzn_frame_validate(situ_view_t view)
+situ_err_t situ_fzn_head_validate(situ_view_t view)
 {
+	return situ_fzn_head_check(view, NULL);
+}
+
+situ_err_t situ_fzn_frame_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
 	/* fzn_frame.hop : fzn_hop -- its own constraints */
 	{
 		situ_view_t nested;
@@ -78,8 +120,14 @@ situ_err_t situ_fzn_frame_validate(situ_view_t view)
 	 * chose, so the frame is not known to contain it. The accessor
 	 * answers safely; this is where the message is called malformed. */
 	if (!situ_in_bounds(view, situ_fzn_frame_tag_offset(view), 16u)) {
+		*which = SITU_FZN_FRAME_TAG_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
 	return SITU_OK;
+}
+
+situ_err_t situ_fzn_frame_validate(situ_view_t view)
+{
+	return situ_fzn_frame_check(view, NULL);
 }
 

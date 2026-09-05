@@ -1,4 +1,4 @@
-/* Vendored from situ's runtime/c/ at 8257f7f, unmodified below this
+/* Vendored from situ's runtime/c/ at db070cf, unmodified below this
  * comment. `make schema SITU_DIR=...` re-copies both files and refuses on
  * drift, so this cannot quietly diverge.
  *
@@ -59,7 +59,12 @@ typedef enum situ_err {
 	 * on every partial read, which is why it is not SITU_ERR_BOUNDS -- that
 	 * one means a read went outside the buffer, which is a bug or an attack.
 	 * Conflating them makes a receiver treat normal progress as hostile. */
-	SITU_ERR_TRUNCATED  = 7
+	SITU_ERR_TRUNCATED  = 7,
+	/* A checksum does not match the bytes it covers (0053). Distinct from
+	 * SITU_ERR_TAG, which means a cryptographic gate refused: a CRC
+	 * mismatch says the message is corrupt or truncated, and a receiver
+	 * that logs the two the same way reports a disk error as an attack. */
+	SITU_ERR_CHECKSUM   = 8
 } situ_err_t;
 
 /* A message: the caller's buffer plus the generation counter that detects
