@@ -22680,7 +22680,11 @@ the wire, and nothing more than that.
 ## 111. Read-at-offset: the arithmetic, not the reader, 2026-09-05
 
 Sec 102's list carried "read-at-offset streaming, source and sink", and sec
-104 refused it. **That refusal stands and this section does not reverse it.**
+104 refused it. **That refusal stands, this section does not reverse it, and
+the copyright holder confirmed it the same day** -- the item was raised again
+from sec 102's list, the refusal was put to them rather than worked around,
+and the answer was *"don't build the reader, sec 104 was right"*. Sec 104
+carries the ratification; this is the arithmetic that is not a reader.
 What is built is `fzn_blob_geometry` and `fzn_blob_extent_of` in `blob/` --
 pure arithmetic answering WHICH LEAVES cover a range of content, returning
 leaf indices and never bytes.
@@ -22894,9 +22898,20 @@ corrupted the live value it was not allowed to replace.** A refusal that
 still changes the answer is the worst shape available, and it was mine rather
 than the library's. The demonstration uses three buffers and says why.
 
-**Sec 102's six are closed**: the have-set on the wire and the vocabulary
-(sec 105), the transfer state machine (sec 108), the scrub (sec 109), the
-return-routability cookie (sec 105), and tier namespaces here.
+**Sec 102 listed SEVEN, not six, and this document said six for a day.**
+Counted rather than recalled: the have-set on the wire, the wire vocabulary,
+a transfer state machine, `scrub`, read-at-offset streaming, the
+return-routability cookie, and tier namespaces. The miscount came from sec
+104 having closed read-at-offset before anybody began counting the rest, so
+the running total started at six and nothing ever re-derived it -- a
+countable present-tense claim about this tree's own shape, which
+`evidence.md` names as the kind that rots, wrong in the direction that made
+the work look smaller.
+
+All seven are closed: the have-set, the vocabulary and the cookie (sec 105),
+read-at-offset (sec 104, refused and ratified; sec 111 for the arithmetic
+that is not it), the transfer state machine (sec 108), the scrub (sec 109),
+and tier namespaces here.
 
 ## 109. The scrub, and the check it turned out it cannot perform, 2026-09-05
 
@@ -23741,6 +23756,14 @@ source and sink which is exactly that abstraction at the interface. **Decided:
 fuzznet grows no read-at-offset streaming API. The unit of a stream is an
 independently verifiable message, and the two stream kinds are already two
 modules.**
+
+**CONFIRMED BY THE COPYRIGHT HOLDER 2026-09-05** -- *"don't build the reader,
+sec 104 was right"* -- when the item was raised again from sec 102's list and
+this section's refusal was put to them rather than quietly reversed. That
+matters because everything below was one session's reasoning until then, and
+a design decision nobody has ratified is one the next reader relitigates. It
+is settled: the reader is not to be built, and an instruction to build it
+would have to say so in as many words.
 
 ### The shape instrument, fifth time this week
 
