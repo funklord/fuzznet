@@ -22673,3 +22673,55 @@ nothing was regenerated here. Whether adopting a language feature moves
 the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
+
+## 100. netcfgd's adoption has a condition and a language, 2026-09-05
+
+**Settled by the copyright holder 2026-09-05, relayed through
+`claude-guidelines`.** netcfgd **will use fuzznet**, once fuzznet is
+**mature on a single host**; and that transition **may want to happen at
+the same time as netcfgd moves from Rust to C**, rather than as separate
+work. netcfgd is not going to use situ, which is the other half of the
+same instruction and is recorded in that tree.
+
+**Most of this tree already knew netcfgd was coming.** Sec 2's table names
+it, records its local hop as newline-delimited JSON over an `AF_UNIX`
+stream, and gives its reason -- not being a black box is the product. Two
+things in the statement above are new here.
+
+**First, the condition, and it does not read cleanly against this
+project's own seam.** Sec 2 draws fuzznet as the thing that goes "across a
+trust boundary" and the local control socket as the one that "reaches this
+machine only". A maturity bar phrased as *on a single host* can be read
+two ways against that:
+
+- **fuzznet proven end to end in one deployment** -- both ends on one
+  machine as a development or test configuration -- before a second
+  project depends on it. A bar on maturity, disturbing no scope.
+- **netcfgd using fuzznet for something that stays on one machine**, which
+  would sit on the local-hop side of the seam sec 2 says fuzznet must not
+  define.
+
+**The first is much the more plausible** -- the netcfgd document that
+reaches for fuzznet is a *remote*-access feasibility study, and its local
+hop is settled, deliberate and argued for in its own
+`docs/socket-protocol.md`. But plausible is not settled, and this note
+deliberately does not settle it: which hop the condition gates is the
+holder's to say or netcfgd's, not a relaying session's. **Nobody should
+read it as a request to take the local hop** -- sec 2 says that must not be
+shared and gives both consumers' load-bearing reasons, and nothing in the
+instruction above touches that.
+
+**Second, the language, and this file has never had to think about it.**
+`project.md` did not contain the word Rust anywhere before this section --
+checked, not recalled. netcfgd is Rust today, and its decision 0116 keeps
+it that way for a reason about the core rather than the client: `ncfg` "is
+the core with a command-line front, not a client of it", linking the
+compiler, the planner and the observer. So the one named consumer that
+would have needed bindings to a C library may arrive as C instead. Whether
+that changes anything here is this project's call; what is worth knowing
+is that the assumption was never written down, so it could not have been
+noticed to be at risk.
+
+**Not measured.** What "mature" means is the holder's bar and was not
+stated, so nothing here is a list of things to finish. No timing is
+implied by the ordering either.
