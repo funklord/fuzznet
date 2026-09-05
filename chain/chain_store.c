@@ -45,6 +45,36 @@ static size_t find_entry(const fzn_chain_store_t *store, const uint8_t *root,
 	return store->used;
 }
 
+/* A slot whose chain is dead at `now`, or `used` when every one is live.
+ *
+ * ONLY CONSULTED UNDER PRESSURE, which is what keeps expiry a lookup
+ * judgement rather than a deletion. A chain that has expired is still held,
+ * still counted, and still refused by `lookup` -- until the store has no
+ * room for a live one, at which point a dead entry is the obvious thing to
+ * spend and refusing while holding nothing but corpses is not.
+ *
+ * The first dead slot wins rather than the longest-dead. Both are correct
+ * and the choice is only ever between things already useless; scanning for
+ * the oldest would be a second pass to pick between them, and the array
+ * order is deterministic, so a test can say which one goes.
+ *
+ * AN UNEXPIRING CHAIN IS NEVER DEAD, which is the same comparison `lookup`
+ * makes and for the same reason: FZN_NO_EXPIRY is 0, so arithmetic on it
+ * rather than a test against it would make every unexpiring chain the
+ * first thing evicted. */
+static size_t find_expired(const fzn_chain_store_t *store, uint64_t now)
+{
+	size_t at;
+
+	for (at = 0; at < store->used; at++) {
+		const fzn_chain_t *c = &store->entries[at].chain;
+
+		if (c->expires_at != FZN_NO_EXPIRY && c->expires_at <= now)
+			return at;
+	}
+	return store->used;
+}
+
 fzn_chain_err_t fzn_chain_store_init(fzn_chain_store_t *store, fzn_chain_entry_t *entries,
                                      size_t capacity)
 {
@@ -115,9 +145,25 @@ fzn_chain_err_t fzn_chain_store_admit(fzn_chain_store_t *store, const fzn_chain_
 
 	at = find_entry(store, verified.root, &verified.capability, verified.grantee);
 	if (at == store->used) {
-		if (store->used >= store->capacity)
-			return FZN_CHAIN_ERR_STORE_FULL;
-		store->used++;
+		if (store->used >= store->capacity) {
+			/* A DEAD ENTRY IS SPENT BEFORE A LIVE CHAIN IS REFUSED.
+			 * Without this a store whose entries have all expired
+			 * answers STORE_FULL for ever, because expiry withholds
+			 * at lookup and frees nothing -- and `chain/revocation.c`
+			 * refuses rather than evicting too, but a revocation
+			 * never expires, so no slot there is ever reclaimable
+			 * and the precedent does not carry.
+			 *
+			 * Still a refusal when every entry is live: eviction is
+			 * for the useless, and dropping a live grant to make
+			 * room for another would make which chain a host holds
+			 * depend on arrival order. */
+			at = find_expired(store, now);
+			if (at == store->used)
+				return FZN_CHAIN_ERR_STORE_FULL;
+		} else {
+			store->used++;
+		}
 	}
 
 	store->entries[at].chain = verified;

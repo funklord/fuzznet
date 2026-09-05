@@ -1029,6 +1029,25 @@ SABOTAGES = [
 		"convention, and an entry here is a 1434-byte buffer lookup points into",
 	),
 	(
+		"chain-store-evicts-only-the-dead",
+		"chain/chain_store.c",
+		"\t\tif (c->expires_at != FZN_NO_EXPIRY && c->expires_at <= now)\n"
+		"\t\t\treturn at;\n",
+		"\t\t(void)now;\n\t\treturn at;\n",
+		"eviction spends a dead entry and never a live one, or which chain a "
+		"host holds depends on the order they arrived in",
+	),
+	(
+		"chain-store-evicts-at-all",
+		"chain/chain_store.c",
+		"\t\t\tat = find_expired(store, now);\n"
+		"\t\t\tif (at == store->used)\n"
+		"\t\t\t\treturn FZN_CHAIN_ERR_STORE_FULL;\n",
+		"\t\t\treturn FZN_CHAIN_ERR_STORE_FULL;\n",
+		"a store holding nothing but expired chains must take a live one rather "
+		"than refusing for ever",
+	),
+	(
 		"chain-store-lookup-len-bound",
 		"chain/chain_store.c",
 		"\tif (e->len > FZN_CHAIN_MAX_LEN)\n\t\treturn 0;\n",

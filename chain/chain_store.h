@@ -149,12 +149,22 @@ fzn_chain_err_t fzn_chain_store_init(fzn_chain_store_t *store, fzn_chain_entry_t
  * that cares must compare expiries before admitting rather than expect this
  * to.
  *
- * NOR IS ANYTHING RECLAIMED. Expiry withholds at lookup and does not free a
- * slot, so a store whose entries have all expired still answers
- * FZN_CHAIN_ERR_STORE_FULL and does so permanently. `chain/revocation.c`
- * refuses rather than evicting too, but revocations never expire, so no slot
- * there is ever reclaimable and the precedent does not carry. Size capacity
- * for the distinct triples ever seen, not those live at once.
+ * A DEAD ENTRY IS SPENT BEFORE A LIVE CHAIN IS REFUSED. Expiry withholds at
+ * lookup and frees nothing, so without this a store whose entries had all
+ * expired would answer FZN_CHAIN_ERR_STORE_FULL for ever while holding
+ * nothing but corpses. `chain/revocation.c` refuses rather than evicting
+ * too, and the precedent does not carry: a revocation never expires, so no
+ * slot there is ever reclaimable.
+ *
+ * IT IS STILL A REFUSAL WHEN EVERY ENTRY IS LIVE. Eviction is for the
+ * useless. Dropping a live grant to make room for another would make which
+ * chain a host holds depend on the order they arrived in, which is a worse
+ * answer than telling the caller its store is too small.
+ *
+ * The first dead slot in array order is the one spent -- both choices are
+ * between things already useless, and a deterministic one can be tested.
+ * Expiry alone still deletes nothing: an expired entry that nothing is
+ * competing for stays, is counted, and is withheld by `lookup`.
  *
  * Returns whatever `fzn_chain_verify` returned when it refused, so a caller
  * learns WHY rather than only that it failed, and FZN_CHAIN_ERR_STORE_FULL

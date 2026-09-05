@@ -860,6 +860,103 @@ static void test_a_length_past_the_buffer_is_not_handed_out(void)
 	      "a length one past the buffer was handed to a caller");
 }
 
+
+/* A DEAD ENTRY IS SPENT BEFORE A LIVE CHAIN IS REFUSED, and only then.
+ *
+ * Expiry withholds at lookup and frees nothing, so a full store whose
+ * entries have all expired used to answer STORE_FULL permanently while
+ * holding nothing but corpses. The second half is what keeps this from
+ * being a worse bug than the one it fixes: when every entry is LIVE the
+ * refusal stands, because evicting a live grant would make which chain a
+ * host holds depend on arrival order. */
+static void test_a_dead_entry_is_spent_before_a_live_chain_is_refused(void)
+{
+	struct fixture f;
+	uint8_t g2[FZN_PUBKEY_LEN], g3[FZN_PUBKEY_LEN];
+	uint8_t two[FZN_HOP_LEN], three[FZN_HOP_LEN];
+	fzn_chain_hop_t h2, h3;
+	const uint8_t *bytes = NULL;
+	size_t len = 0;
+
+	REQUIRE(build(&f), "the fixture does not build");
+	key(g2, 0x51);
+	key(g3, 0x52);
+	signing_as = 0x11;
+	REQUIRE(fzn_chain_mint(f.root, g2, &f.cap, 100, 5000, 1, &OPS, two) == FZN_CHAIN_OK, "m2");
+	REQUIRE(fzn_hop_open(two, FZN_HOP_LEN, &h2) == FZN_CHAIN_OK, "h2");
+	REQUIRE(fzn_chain_mint(f.root, g3, &f.cap, 100, 9000, 1, &OPS, three) == FZN_CHAIN_OK, "m3");
+	REQUIRE(fzn_hop_open(three, FZN_HOP_LEN, &h3) == FZN_CHAIN_OK, "h3");
+
+	/* Fill it: both entries expire at 5000. */
+	REQUIRE(fzn_chain_store_admit(&f.store, &f.hop, 1, f.root, &f.cap, 200, &OPS, NULL, NULL)
+	                == FZN_CHAIN_OK, "first admit");
+	REQUIRE(fzn_chain_store_admit(&f.store, &h2, 1, f.root, &f.cap, 200, &OPS, NULL, NULL)
+	                == FZN_CHAIN_OK, "second admit");
+
+	/* WHILE BOTH ARE LIVE THE REFUSAL STANDS. Checked first, because a
+	 * case that only shows eviction cannot tell it from evicting
+	 * anything at all. */
+	CHECK(fzn_chain_store_admit(&f.store, &h3, 1, f.root, &f.cap, 300, &OPS, NULL, NULL)
+	              == FZN_CHAIN_ERR_STORE_FULL,
+	      "a live grant was evicted to make room, so which chain a host holds depends "
+	      "on the order they arrived in");
+	CHECK(fzn_chain_store_lookup(&f.store, f.root, &f.cap, f.grantee, 300, &bytes, &len),
+	      "the first chain was evicted while live");
+	CHECK(fzn_chain_store_lookup(&f.store, f.root, &f.cap, g2, 300, &bytes, &len),
+	      "the second chain was evicted while live");
+
+	/* Past their expiry the store holds two corpses -- still counted, and
+	 * still withheld, because expiry alone deletes nothing. */
+	CHECK(fzn_chain_store_count(&f.store) == 2u, "expiry deleted an entry on its own");
+	CHECK(!fzn_chain_store_lookup(&f.store, f.root, &f.cap, f.grantee, 6000, &bytes, &len),
+	      "an expired chain was handed back");
+
+	/* AND NOW A LIVE CHAIN FITS. */
+	CHECK(fzn_chain_store_admit(&f.store, &h3, 1, f.root, &f.cap, 6000, &OPS, NULL, NULL)
+	              == FZN_CHAIN_OK,
+	      "a live chain was refused by a store holding nothing but expired ones");
+	CHECK(fzn_chain_store_count(&f.store) == 2u, "eviction grew the store");
+	CHECK(fzn_chain_store_lookup(&f.store, f.root, &f.cap, g3, 6000, &bytes, &len),
+	      "the chain that was admitted by eviction is not held");
+	/* The FIRST dead slot went, which is the documented choice, so the
+	 * second corpse is still there and the first is gone. */
+	CHECK(!fzn_chain_store_lookup(&f.store, f.root, &f.cap, f.grantee, 6000, &bytes, &len),
+	      "the evicted entry is somehow still held");
+
+	/* AN UNEXPIRING CHAIN IS NEVER THE VICTIM. FZN_NO_EXPIRY is 0, so
+	 * arithmetic on it rather than a test against it would make an
+	 * unexpiring chain the first thing evicted every time. */
+	{
+		fzn_chain_store_t s;
+		fzn_chain_entry_t slots[1];
+		uint8_t forever[FZN_HOP_LEN], other[FZN_HOP_LEN];
+		fzn_chain_hop_t hf, ho;
+
+		REQUIRE(fzn_chain_store_init(&s, slots, 1) == FZN_CHAIN_OK, "init");
+		signing_as = 0x11;
+		REQUIRE(fzn_chain_mint(f.root, f.grantee, &f.cap, 100, FZN_NO_EXPIRY, 1, &OPS,
+		                       forever) == FZN_CHAIN_OK, "mint forever");
+		REQUIRE(fzn_hop_open(forever, FZN_HOP_LEN, &hf) == FZN_CHAIN_OK, "hf");
+		/* THE INCOMING CHAIN MUST ITSELF BE LIVE AT THIS CLOCK. A first
+		 * draft offered a chain expiring at 9000, which `fzn_chain_verify`
+		 * refuses as expired long before eviction is consulted -- so the
+		 * case would have reported the wrong refusal and proved nothing
+		 * about the sentinel. */
+		REQUIRE(fzn_chain_mint(f.root, g3, &f.cap, 100, FZN_NO_EXPIRY, 1, &OPS, other)
+		                == FZN_CHAIN_OK, "mint the other");
+		REQUIRE(fzn_hop_open(other, FZN_HOP_LEN, &ho) == FZN_CHAIN_OK, "ho");
+		REQUIRE(fzn_chain_store_admit(&s, &hf, 1, f.root, &f.cap, 200, &OPS, NULL, NULL)
+		                == FZN_CHAIN_OK, "admit forever");
+		CHECK(fzn_chain_store_admit(&s, &ho, 1, f.root, &f.cap, UINT64_MAX - 1u, &OPS,
+		                            NULL, NULL) == FZN_CHAIN_ERR_STORE_FULL,
+		      "an unexpiring chain was evicted, so the sentinel is being compared "
+		      "rather than tested for");
+		CHECK(fzn_chain_store_lookup(&s, f.root, &f.cap, f.grantee, UINT64_MAX - 1u,
+		                             &bytes, &len),
+		      "the unexpiring chain is gone");
+	}
+}
+
 int main(void)
 {
 	test_init_refuses_what_cannot_hold_anything();
@@ -880,6 +977,7 @@ int main(void)
 	test_admit_passes_the_revocation_state_through();
 	test_init_does_not_leave_the_callers_bytes();
 	test_a_length_past_the_buffer_is_not_handed_out();
+	test_a_dead_entry_is_spent_before_a_live_chain_is_refused();
 
 	printf("chain_store_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
