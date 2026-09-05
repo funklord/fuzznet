@@ -384,6 +384,16 @@ static void test_a_store_that_cannot_be_scanned_holds_nothing(void)
 	CHECK(fzn_chain_store_count(&s) == 0u, "a store with no array reported a count");
 	CHECK(!fzn_chain_store_lookup(&s, r, &c, g, 100, &bytes, &len),
 	      "a store with no array answered a lookup");
+
+	/* AND THE ONE `corrupt()` DOES NOT CATCH. Its second clause is
+	 * `used > 0 && !entries`, so a store holding nothing and pointing at
+	 * nothing is sound by that test and still cannot be scanned. The
+	 * guard after it is what refuses, and nothing had reached it. */
+	s.used = 0u;
+	s.entries = NULL;
+	CHECK(!fzn_chain_store_lookup(&s, r, &c, g, 100, &bytes, &len),
+	      "an empty store with no array answered a lookup, which corrupt() does not "
+	      "catch because it holds nothing");
 	CHECK(fzn_chain_store_count(NULL) == 0u, "a null store reported a count");
 }
 
@@ -633,6 +643,60 @@ static void test_the_offer_refuses_rather_than_promising(void)
 	              == FZN_CHAIN_ERR_MALFORMED, "offer accepted a null plan");
 }
 
+
+/* A CHAIN THAT NEVER EXPIRES IS NEVER WITHHELD, which the expiry guard's
+ * first operand exists for and which nothing reached: every chain the
+ * fixture mints carries a real expiry, so the FZN_NO_EXPIRY side of that
+ * comparison had never been taken either way.
+ *
+ * It matters because the alternative implementation is arithmetic on the
+ * sentinel rather than a comparison against it -- and FZN_NO_EXPIRY is the
+ * largest value the field holds, so `expires_at <= now` alone would withhold
+ * an unexpiring chain at exactly one clock value and nowhere else. The case
+ * asks at that value. */
+static void test_a_chain_with_no_expiry_is_always_held(void)
+{
+	struct fixture f;
+	uint8_t forever[FZN_HOP_LEN];
+	fzn_chain_hop_t hop;
+	const uint8_t *bytes = NULL;
+	size_t len = 0;
+
+	REQUIRE(build(&f), "the fixture does not build");
+	signing_as = 0x11;
+	REQUIRE(fzn_chain_mint(f.root, f.grantee, &f.cap, 100, FZN_NO_EXPIRY, 1, &OPS, forever)
+	                == FZN_CHAIN_OK,
+	        "minting an unexpiring chain failed");
+	REQUIRE(fzn_hop_open(forever, FZN_HOP_LEN, &hop) == FZN_CHAIN_OK, "the hop is bad");
+	REQUIRE(fzn_chain_store_admit(&f.store, &hop, 1, f.root, &f.cap, 200, &OPS, NULL, NULL)
+	                == FZN_CHAIN_OK,
+	        "admit refused an unexpiring chain");
+
+	CHECK(fzn_chain_store_lookup(&f.store, f.root, &f.cap, f.grantee, 200, &bytes, &len),
+	      "an unexpiring chain was withheld at an ordinary clock");
+	CHECK(fzn_chain_store_lookup(&f.store, f.root, &f.cap, f.grantee, UINT64_MAX - 1u,
+	                             &bytes, &len),
+	      "an unexpiring chain was withheld near the top of the clock");
+	/* The one value arithmetic on the sentinel would get wrong. */
+	CHECK(fzn_chain_store_lookup(&f.store, f.root, &f.cap, f.grantee, FZN_NO_EXPIRY,
+	                             &bytes, &len),
+	      "an unexpiring chain was withheld at exactly FZN_NO_EXPIRY, which is what "
+	      "comparing the sentinel rather than testing for it prevents");
+	{
+		fzn_chain_want_t want;
+		uint8_t holds[1];
+		fzn_chain_offer_t plan;
+
+		memset(&want, 0, sizeof(want));
+		memcpy(want.root, f.root, FZN_PUBKEY_LEN);
+		want.capability = f.cap;
+		memcpy(want.subject, f.grantee, FZN_PUBKEY_LEN);
+		CHECK(fzn_chain_plan_offer(&f.store, &want, 1, holds, 1, FZN_NO_EXPIRY, &plan)
+		              == FZN_CHAIN_OK && holds[0] == 1u,
+		      "an unexpiring chain was not offered at FZN_NO_EXPIRY");
+	}
+}
+
 int main(void)
 {
 	test_init_refuses_what_cannot_hold_anything();
@@ -648,6 +712,7 @@ int main(void)
 	test_every_guard_refuses_its_own_argument();
 	test_the_offer_keeps_the_three_rules();
 	test_the_offer_refuses_rather_than_promising();
+	test_a_chain_with_no_expiry_is_always_held();
 
 	printf("chain_store_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

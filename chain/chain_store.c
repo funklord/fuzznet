@@ -87,7 +87,18 @@ fzn_chain_err_t fzn_chain_store_admit(fzn_chain_store_t *store, const fzn_chain_
 	/* PACKED BEFORE ANYTHING IS WRITTEN INTO THE STORE, so a container
 	 * this host cannot re-encode never displaces one that is already
 	 * held. The refusal is somebody else's bytes failing to fit a form we
-	 * define, which is a shape error and not a verification one. */
+	 * define, which is a shape error and not a verification one.
+	 *
+	 * THE REFUSAL BELOW IS UNCOVERED ON PURPOSE and provably unreachable
+	 * today: `fzn_chain_verify` has already refused a hop count past
+	 * FZN_CHAIN_MAX_HOPS, and `packed` is FZN_CHAIN_MAX_LEN, which is the
+	 * header plus that many hops -- so the pack cannot fail for want of
+	 * room. It stays because it is the boundary between this file's
+	 * arithmetic and `chain/chain.c`'s, and the day the two disagree this
+	 * returns an error rather than writing a truncated container into the
+	 * store. `wire/seal.c` keeps three of these for the same reason and
+	 * says so in the same words, so a reader hunting the last branch in
+	 * this file finds the argument rather than a gap. */
 	err = fzn_chain_pack(hops, hop_count, packed, sizeof(packed), &packed_len);
 	if (err != FZN_CHAIN_OK)
 		return err;
