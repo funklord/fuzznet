@@ -173,7 +173,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              session/random.c session/random_linux.c session/agree.c \
              session/session.c \
              version/version.c \
-             record/record.c record/journal.c record/sync.c \
+             record/record.c record/journal.c record/sync.c record/ledger.c \
              state/state.c trust/trust.c log/log.c sched/sched.c link/link.c
 # RECURSIVE, NOT SNAPSHOT, and that is a fix rather than a style choice.
 # This was `:=`, evaluated here -- ABOVE the conditional blocks that append
@@ -206,7 +206,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              session/random.h session/random_system.h session/agree.h \
              session/session.h \
              version/version.h \
-             record/record.h record/journal.h record/sync.h \
+             record/record.h record/journal.h record/sync.h record/ledger.h \
              state/state.h trust/trust.h log/log.h sched/sched.h link/link.h
 
 # THE LIBRARY WITHOUT ITS OPTIONAL BINDINGS, frozen here because the
@@ -277,7 +277,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              record/test/journal_test.c \
              record/test/record_test.c \
              tree/test/tree_test.c \
-             record/test/sync_test.c \
+             record/test/sync_test.c record/test/ledger_test.c \
              state/test/state_test.c \
              trust/test/trust_test.c \
              log/test/log_test.c \
@@ -344,6 +344,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/tree/test/tree_test \
              $(BUILD_DIR)/tree/test/tree_kat_test \
              $(BUILD_DIR)/record/test/sync_test \
+             $(BUILD_DIR)/record/test/ledger_test \
              $(BUILD_DIR)/state/test/state_test \
              $(BUILD_DIR)/trust/test/trust_test \
              $(BUILD_DIR)/log/test/log_test \
@@ -1047,6 +1048,14 @@ $(BUILD_DIR)/record/test/sync_test: $(BUILD_DIR)/record/test/sync_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# Links constant_time only: the ledger compares a peer and a subject in
+# constant time and calls nothing else in this library.
+$(BUILD_DIR)/record/test/ledger_test: $(BUILD_DIR)/record/test/ledger_test.o \
+                                    $(BUILD_DIR)/record/ledger.o \
+                                    $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/record/test/record_test: $(BUILD_DIR)/record/test/record_test.o \
                                       $(BUILD_DIR)/record/record.o \
                                       $(BUILD_DIR)/constant_time/constant_time.o
@@ -1575,6 +1584,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/blob/blob.o \
                                       $(BUILD_DIR)/record/record.o \
                                       $(BUILD_DIR)/record/journal.o \
+                                      $(BUILD_DIR)/record/ledger.o \
                                       $(BUILD_DIR)/record/sync.o \
                                       $(BUILD_DIR)/state/state.o \
                                       $(BUILD_DIR)/trust/trust.o \

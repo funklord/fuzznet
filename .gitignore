@@ -75,6 +75,7 @@
 /record/test/record_test
 /record/test/record_kat_test
 /record/test/sync_test
+/record/test/ledger_test
 /record/test/sync_fuzz
 /state/test/state_test
 /tree/test/tree_test

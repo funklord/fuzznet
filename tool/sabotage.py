@@ -1005,6 +1005,74 @@ SABOTAGES = [
 		"\t\t\treturn FZN_CHAIN_ERR_UNKNOWN_TARGET;\n",
 		"a withdrawal that overtakes its revocation is kept, not dropped",
 	),
+	# BATCH TWELVE, 2026-09-05: record/ledger.c, added with the module.
+	#
+	# ALL SEVEN WERE RUN, AND THE FIRST RUN WAS A LIE. Two reported as not
+	# caught, and the cause was in the test rather than the code: that
+	# file's REQUIRE evaluated its condition twice, so
+	# `REQUIRE(fzn_ledger_confirm(...) == OK)` re-confirmed the same
+	# version on the second evaluation, the monotonic rule correctly called
+	# it STALE, and the case returned there with 25 assertions never
+	# running. The check count was identical either way. Nine other suites
+	# already spelled REQUIRE safely; that one was typed from memory.
+	(
+		"ledger-monotonic",
+		"record/ledger.c",
+		"\t\tif (version <= ledger->entries[at].version)\n"
+		"\t\t\treturn FZN_LEDGER_ERR_STALE;\n",
+		"\t\t(void)0;\n",
+		"a late acknowledgement is reordering rather than retraction, so a "
+		"confirmation must never move backwards",
+	),
+	(
+		"ledger-stale-reported",
+		"record/ledger.c",
+		"\t\t\treturn FZN_LEDGER_ERR_STALE;\n",
+		"\t\t\treturn FZN_LEDGER_OK;\n",
+		"a confirmation that went backwards is reported, not absorbed -- out "
+		"of order acks are a fact about the network a caller may want",
+	),
+	(
+		"ledger-unknown-is-behind",
+		"record/ledger.c",
+		"\treturn fzn_ledger_confirmed(ledger, peer, subject, kind) < current;\n",
+		"\treturn ledger && fzn_ledger_confirmed(ledger, peer, subject, kind) < current;\n",
+		"a peer never heard from is behind, because under-claiming costs a "
+		"retransmission and over-claiming skips a delivery",
+	),
+	(
+		"ledger-corrupt-answers-zero",
+		"record/ledger.c",
+		"\tif (corrupt(ledger) || !ledger->entries)\n\t\treturn 0u;\n\n"
+		"\tat = find_row(ledger, peer, subject, kind);\n",
+		"\tat = find_row(ledger, peer, subject, kind);\n",
+		"a ledger that cannot be scanned must not report a peer current on the "
+		"strength of rows nobody can read",
+	),
+	(
+		"ledger-version-zero",
+		"record/ledger.c",
+		"\tif (version == 0u)\n\t\treturn FZN_LEDGER_ERR_MALFORMED;\n",
+		"\t(void)0;\n",
+		"zero is what an absent row answers, so storing it would make "
+		"'confirmed nothing' and 'never heard of' one state",
+	),
+	(
+		"ledger-init-zeroes-entries",
+		"record/ledger.c",
+		"\tmemset(entries, 0, capacity * sizeof(*entries));\n",
+		"\t(void)0;\n",
+		"sec 39's convention: a fresh table must not hold what the caller's "
+		"memory held",
+	),
+	(
+		"ledger-full-refuses",
+		"record/ledger.c",
+		"\tif (ledger->used >= ledger->capacity)\n\t\treturn FZN_LEDGER_ERR_FULL;\n",
+		"\tif (0)\n\t\treturn FZN_LEDGER_ERR_FULL;\n",
+		"nothing here expires, so a full ledger refuses rather than "
+		"overwriting somebody's confirmation",
+	),
 	# BATCH ELEVEN, 2026-09-05: chain/chain_store.c, added with the module so
 	# it is never a source with no entries, and extended the same day after
 	# an independent review found four more properties nothing held.

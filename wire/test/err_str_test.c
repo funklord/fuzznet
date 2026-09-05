@@ -46,6 +46,7 @@
 #include "../../frame/freshness.h"
 #include "../../local/peer.h"
 #include "../../record/journal.h"
+#include "../../record/ledger.h"
 #include "../../record/sync.h"
 #include "../../state/state.h"
 #include "../../log/log.h"
@@ -99,6 +100,7 @@ static const char *r_seal(int v) { return fzn_seal_err_str((fzn_seal_err_t)v); }
 static const char *r_peer(int v) { return fzn_peer_verdict_str((fzn_peer_verdict_t)v); }
 static const char *r_record(int v) { return fzn_record_err_str((fzn_record_err_t)v); }
 static const char *r_journal(int v) { return fzn_journal_err_str((fzn_journal_err_t)v); }
+static const char *r_ledger(int v) { return fzn_ledger_err_str((fzn_ledger_err_t)v); }
 static const char *r_sync(int v) { return fzn_sync_err_str((fzn_sync_err_t)v); }
 static const char *r_state(int v) { return fzn_state_err_str((fzn_state_err_t)v); }
 static const char *r_trust(int v) { return fzn_trust_err_str((fzn_trust_err_t)v); }
@@ -145,6 +147,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_peer_verdict_str", r_peer, 3 },
 	{ "fzn_record_err_str", r_record, 6 },
 	{ "fzn_journal_err_str", r_journal, 7 },
+	{ "fzn_ledger_err_str", r_ledger, 4 },
 	{ "fzn_sync_err_str", r_sync, 2 },
 	{ "fzn_state_err_str", r_state, 7 },
 	{ "fzn_trust_err_str", r_trust, 4 },

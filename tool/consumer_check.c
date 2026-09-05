@@ -83,6 +83,7 @@
 #include <fuzznet/session/commitment.h>
 #include <fuzznet/session/random.h>
 #include <fuzznet/record/journal.h>
+#include <fuzznet/record/ledger.h>
 #include <fuzznet/log/log.h>
 #include <fuzznet/record/record.h>
 #include <fuzznet/tree/tree.h>
@@ -127,6 +128,7 @@
 #include "session/commitment.h"
 #include "session/random.h"
 #include "record/journal.h"
+#include "record/ledger.h"
 #include "log/log.h"
 #include "record/record.h"
 #include "tree/tree.h"
@@ -1606,6 +1608,42 @@ int main(void)
 			    != FZN_CHAIN_ERR_MALFORMED)
 				FAIL(272);
 		}
+	}
+
+	/* The delivery ledger: what each peer has confirmed holding.
+	 *
+	 * Walked rather than compiled, because an installed header nothing
+	 * calls is one this check would pass whatever it declared. The two
+	 * properties exercised are the ones that are not bookkeeping: a
+	 * confirmation never moves backwards, and everything unknown is
+	 * behind. */
+	{
+		fzn_ledger_t ledger;
+		fzn_ledger_entry_t rows[2];
+		uint8_t who[FZN_PUBKEY_LEN], what[FZN_SUBJECT_LEN];
+
+		memset(who, 0x8a, sizeof(who));
+		memset(what, 0x8b, sizeof(what));
+
+		if (fzn_ledger_init(&ledger, rows, 2) != FZN_LEDGER_OK)
+			FAIL(273);
+		if (fzn_ledger_behind(&ledger, who, what, 1u, 1u) == 0)
+			FAIL(274);
+		if (fzn_ledger_confirm(&ledger, who, what, 1u, 5u) != FZN_LEDGER_OK)
+			FAIL(275);
+		if (fzn_ledger_confirmed(&ledger, who, what, 1u) != 5u)
+			FAIL(276);
+		if (fzn_ledger_behind(&ledger, who, what, 1u, 5u) != 0)
+			FAIL(277);
+		/* A late acknowledgement is reordering, not retraction. */
+		if (fzn_ledger_confirm(&ledger, who, what, 1u, 3u) != FZN_LEDGER_ERR_STALE)
+			FAIL(278);
+		if (fzn_ledger_confirmed(&ledger, who, what, 1u) != 5u)
+			FAIL(279);
+		if (fzn_ledger_count(&ledger) != 1u)
+			FAIL(280);
+		if (fzn_ledger_err_str(FZN_LEDGER_ERR_STALE) == NULL)
+			FAIL(281);
 	}
 
 	/* Key agreement: the seam a consumer fills to get deletable material

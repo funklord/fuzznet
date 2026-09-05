@@ -5822,6 +5822,7 @@ somebody to notice.
 | `blob/blob.h` | content-addressed blobs, the streaming tree, proofs |
 | `chain/authz.h` | verification, delegation, revocation, manifests, authz |
 | `chain/chain_store.h` | where a verified chain lives until it is needed |
+| `record/ledger.h` | what each peer has confirmed holding, per subject |
 | `chunk/reassembly.h` | split and reassembly |
 | `disclose/disclose.h` | one signature over many fields, some shown |
 | `constant_time/constant_time.h` | the comparison and the wipe |
