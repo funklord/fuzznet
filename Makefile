@@ -269,6 +269,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              session/test/random_test.c local/test/vocabulary_test.c \
              local/test/vocabulary_fuzz.c local/test/admit_test.c \
              local/test/peer_fuzz.c local/test/peer_linux_test.c \
+             spool/test/message_fuzz.c \
              chunk/test/reassembly_fuzz.c chain/test/chain_fuzz.c \
              frame/test/freshness_fuzz.c chain/test/revocation_fuzz.c \
              chain/test/manifest_fuzz.c \
@@ -335,6 +336,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/local/test/peer_linux_test \
              $(BUILD_DIR)/chunk/test/reassembly_test \
              $(BUILD_DIR)/chunk/test/split_test \
+             $(BUILD_DIR)/spool/test/message_fuzz \
              $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/chain/test/chain_fuzz \
              $(BUILD_DIR)/frame/test/freshness_fuzz \
@@ -1468,6 +1470,11 @@ $(BUILD_DIR)/chunk/test/reassembly_fuzz: $(BUILD_DIR)/chunk/test/reassembly_fuzz
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+$(BUILD_DIR)/spool/test/message_fuzz: $(BUILD_DIR)/spool/test/message_fuzz.o \
+                                      $(BUILD_DIR)/spool/message.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/chain/test/chain_fuzz: $(BUILD_DIR)/chain/test/chain_fuzz.o \
                                      $(BUILD_DIR)/chain/chain.o \
                                      $(BUILD_DIR)/chain/revocation.o \
@@ -1838,6 +1845,7 @@ runtests: $(TEST_BINS)
 CASES ?= 200000
 
 FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
+             $(BUILD_DIR)/spool/test/message_fuzz \
              $(BUILD_DIR)/chain/test/chain_fuzz \
              $(BUILD_DIR)/frame/test/freshness_fuzz \
              $(BUILD_DIR)/frame/test/receive_fuzz \

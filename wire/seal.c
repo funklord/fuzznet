@@ -596,6 +596,17 @@ fzn_seal_err_t fzn_seal_close(uint8_t *frame, size_t frame_len,
 	if (!views(frame, frame_len, &msg, &fv, &hv))
 		return FZN_SEAL_ERR_SHAPE;
 
+	/* THE SAME THREE GUARDS AS `fzn_seal_open`, UNREACHABLE FOR THE SAME
+	 * REASON, and the argument is deliberately not restated -- a
+	 * duplicated argument is two things to keep true. `views` above ends
+	 * in `situ_fzn_frame_validate`, so every path reaching here has the
+	 * precondition that function's comment sets out.
+	 *
+	 * Written down because `make coverage` reports these three one-way,
+	 * and a percentage cannot tell an unreachable guard from an untested
+	 * one. They were documented in `open` and not here, so a reader of
+	 * this function saw three guards no test exercises and nothing saying
+	 * why: the explanation existed and had not reached the second copy. */
 	if (situ_fzn_frame_tag_covered(fv, &covered_at, &covered_len) != SITU_OK)
 		return FZN_SEAL_ERR_SHAPE;
 	tag = situ_fzn_frame_tag_ptr(fv);

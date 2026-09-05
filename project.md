@@ -22677,6 +22677,79 @@ the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
 
+## 116. The one decoder in this library that nobody fuzzed, 2026-09-06
+
+With the six modules swept, the remaining branch coverage was read across
+the whole library rather than guessed at. Two things came out of it, and the
+second is the larger.
+
+### The smaller: an argument that did not reach its second copy
+
+`wire/seal.c` sits at 85.21% of 142 branches, and almost all of the gap is
+already accounted for in its own comments -- three guards in `fzn_seal_open`
+that "cannot fire for a frame that reached here", and two blocks in
+`fzn_seal_build` kept as the place "this file stops assuming the generated
+code agrees with the arithmetic above".
+
+**`fzn_seal_close` carries the identical three guards and had no comment.**
+Both functions reach them through `views()`, whose last act is
+`situ_fzn_frame_validate`, so the argument transfers exactly -- checked
+rather than assumed. A reader of `close` saw three guards no test exercises
+and nothing saying why, while the explanation sat forty lines up in another
+function. It now points at that argument rather than restating it, because a
+duplicated argument is two things to keep true.
+
+### The larger: twenty-nine parse-side branches, and what they were telling us
+
+`spool/message.c` remained the lowest of the six at 83.07%, and reading the
+twenty-nine one-way branches showed almost all of them on the PARSE side --
+the half a PEER chooses and a caller cannot. Sec 113's operand sweep had
+closed the encoder's guards, which are reached by passing bad arguments; the
+decoder's are reached by receiving bad bytes, and nothing here receives bad
+bytes on purpose.
+
+Counted rather than assumed: **seventeen fuzz harnesses across eleven
+modules, and `spool/` had none.** Every other thing in this library that
+parses a stranger's bytes is fuzzed -- chain, record, wire, blob, chunk,
+disclose, provision, prekey, local, tree, frame. The newest decoder in the
+tree, the one whose whole job is untrusted input, was the exception.
+
+`spool/test/message_fuzz.c` is that harness. Its invariants are the four the
+headers claim:
+
+- **Round trip.** Anything the decoder ACCEPTS, re-encoded from what it
+  handed back, must reproduce the input byte for byte. That is the strongest
+  property this format has and exactly what its exact-length refusals exist
+  to protect -- two spellings of one message is how a receiver that
+  de-duplicates by bytes sees two questions where a peer asked one.
+- **Every value inside its bound**, ranges within the leaf count and spans
+  within `FZN_MSG_MAX_SPAN`.
+- **Every leaf pointer inside the message.** `fzn_msg_data_parse` hands back
+  pointers rather than copies, so a wrong offset is a read past the buffer
+  and the caller cannot tell.
+- **Nothing written outside the caller's arrays**, which sit in canaries
+  because ASan brackets objects and one static arena is one object.
+
+    message_fuzz: 20000 cases, 10687 accepted (3427 have_query, 1641 have,
+    2742 want, 2877 data), 9313 refused, every accepted message round-tripped
+
+**Seen to fail before it was believed.** Accepting a trailing byte --
+`len != need + body` weakened to `<` -- fails at case 125; dropping the
+range bound inside a HAVE fails at case 2. Both print a reproducible seed.
+
+**And it refuses a run too short to mean anything**, which is the other
+harnesses' rule inherited rather than re-argued: a hundred cases clears every
+coverage floor by luck, so the harness declines rather than reporting a
+number.
+
+### What the gate caught, which is the pleasing part
+
+The harness was added to `FUZZ_BINS` and not to `TEST_SRCS`, and `make
+style` refused: *"C sources in the tree and in no list: spool/test/
+message_fuzz.c -- nothing reading SRCS, coverage, installcheck, can see
+them."* A file that exists and is in no list is exactly the vacuous pass
+this tree keeps finding, and the gate for it was already there.
+
 ## 115. scrub.c, and what a scrub must not conclude, 2026-09-06
 
 Last of the six modules sec 113 measured.
