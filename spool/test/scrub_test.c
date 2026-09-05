@@ -69,6 +69,24 @@ static int stub_hash(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in,
 
 static const fzn_hash_ops_t HASH = { stub_hash, NULL };
 
+/* A hash seam that runs out, so the two BACKEND returns inside `cell_digest`
+ * can be reached. `make coverage` had one of them never executed and the
+ * other one-way: the code that handles a failing hash during a scrub had
+ * never run. */
+static int hash_budget;
+
+static int budgeted_hash(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in,
+                         size_t in_len)
+{
+	(void)ctx;
+	if (hash_budget <= 0)
+		return 0;
+	hash_budget--;
+	return stub_hash(NULL, out, out_len, in, in_len);
+}
+
+static const fzn_hash_ops_t FLAKY = { budgeted_hash, NULL };
+
 /* Three whole cells and a SHORT one, so a corrupted cell has neighbours to
  * leave alone AND the tail path is exercised.
  *
@@ -491,6 +509,115 @@ static void test_the_optional_outputs_may_be_omitted(void)
 	      "step refused null counters on the second cell");
 }
 
+/* A HASH THAT FAILS MID-SCRUB IS NOT CORRUPTION EITHER, which is the same
+ * distinction as a refusing backend and reaches the other two BACKEND
+ * returns. A scrub that could not compute a digest must not conclude the
+ * bytes were wrong. */
+static void test_a_failing_hash_mid_scrub_drops_nothing(void)
+{
+	uint64_t checked = 99u, dropped = 99u;
+	fzn_scrub_err_t err;
+	int cost;
+
+	CHECK(fresh(0u, LEAVES), "the fixture did not fill");
+	CHECK(seal_all(NULL) == CELLS_EXPECTED, "the fixture did not seal");
+
+	/* Measure what one cell's digest costs, then run out inside it --
+	 * a threshold guessed rather than measured is how sec 114's first
+	 * draft turned working code into thirteen failures. */
+	hash_budget = 1 << 20;
+	err = fzn_scrub_step(&scrub, &HASH, 1u, &checked, &dropped);
+	CHECK(err == FZN_SCRUB_OK || err == FZN_SCRUB_DONE, "the measuring step failed");
+	CHECK(fresh(0u, LEAVES), "the fixture did not refill");
+	CHECK(seal_all(NULL) == CELLS_EXPECTED, "the fixture did not reseal");
+
+	hash_budget = 1 << 20;
+	(void)fzn_scrub_step(&scrub, &FLAKY, 1u, &checked, &dropped);
+	cost = (1 << 20) - hash_budget;
+	CHECK(cost > 1, "a cell digest costs %d hashes, so nothing can run out inside it",
+	      cost);
+
+	CHECK(fresh(0u, LEAVES), "the fixture did not refill again");
+	CHECK(seal_all(NULL) == CELLS_EXPECTED, "the fixture did not reseal again");
+	hash_budget = cost - 1;
+	checked = 99u;
+	dropped = 99u;
+	err = fzn_scrub_step(&scrub, &FLAKY, 4u, &checked, &dropped);
+	CHECK(err == FZN_SCRUB_ERR_BACKEND, "a hash that ran out gave %s, not backend",
+	      fzn_scrub_err_str(err));
+	CHECK(dropped == 0u, "%llu cells dropped because a hash could not be computed",
+	      (unsigned long long)dropped);
+	CHECK(spool.have == LEAVES, "%llu leaves survived a failing hash, not %u",
+	      (unsigned long long)spool.have, LEAVES);
+
+	/* AND FAILING INSIDE THE LEAF LOOP, not at the fold that follows it.
+	 * `cost - 1` runs out on the last hash a cell needs, which is the span
+	 * root; a budget of one runs out on the second LEAF, which is a
+	 * different call site and was still one-way after the case above. */
+	CHECK(fresh(0u, LEAVES), "the fixture did not refill for the leaf loop");
+	CHECK(seal_all(NULL) == CELLS_EXPECTED, "the fixture did not reseal for the leaf loop");
+	hash_budget = 1;
+	checked = 99u;
+	dropped = 99u;
+	err = fzn_scrub_step(&scrub, &FLAKY, 4u, &checked, &dropped);
+	CHECK(err == FZN_SCRUB_ERR_BACKEND, "a hash failing on the second leaf gave %s",
+	      fzn_scrub_err_str(err));
+	CHECK(dropped == 0u, "%llu cells dropped over a leaf hash that could not be computed",
+	      (unsigned long long)dropped);
+	CHECK(spool.have == LEAVES, "leaves were lost to a failing leaf hash");
+
+	/* And sealing the same way. */
+	CHECK(fresh(0u, LEAVES), "the fixture did not refill for sealing");
+	hash_budget = cost - 1;
+	err = fzn_scrub_seal(&scrub, &FLAKY, 4u, NULL);
+	CHECK(err == FZN_SCRUB_ERR_BACKEND, "sealing under a failing hash gave %s",
+	      fzn_scrub_err_str(err));
+	hash_budget = 1 << 20;
+}
+
+/* A CELL THAT IS SEALED AND HAS SINCE LOST LEAVES IS MID-REPAIR, and stepping
+ * must skip it rather than compare a digest against bytes that are not there.
+ * `fzn_spool_forget` is public, so a consumer reaches this state without any
+ * help from the scrub. */
+static void test_a_sealed_cell_that_lost_leaves_is_skipped(void)
+{
+	uint64_t checked = 99u, dropped = 99u;
+
+	CHECK(fresh(0u, LEAVES), "the fixture did not fill");
+	CHECK(seal_all(NULL) == CELLS_EXPECTED, "the fixture did not seal");
+
+	/* One leaf of cell 1 goes, by the caller rather than by a scrub. */
+	CHECK(fzn_spool_forget(&spool, FZN_SCRUB_CELL, 1u) == 1u, "the leaf was not forgotten");
+
+	CHECK(step_all(&checked, &dropped) == FZN_SCRUB_DONE, "the pass did not finish");
+	CHECK(dropped == 0u, "%llu cells dropped over a hole the scrub did not make",
+	      (unsigned long long)dropped);
+	CHECK(checked == CELLS_EXPECTED - 1u, "%llu cells checked, not %u -- the holed cell "
+	      "was compared against a digest of bytes it no longer has",
+	      (unsigned long long)checked, CELLS_EXPECTED - 1u);
+	CHECK(spool.have == LEAVES - 1u, "%llu leaves left, not %u",
+	      (unsigned long long)spool.have, LEAVES - 1u);
+}
+
+/* The optional counters on the DONE return, which the earlier case reached
+ * only on the OK return. */
+static void test_the_optional_outputs_are_omitted_on_the_last_cell(void)
+{
+	int guard;
+
+	CHECK(fresh(0u, LEAVES), "the fixture did not fill");
+	for (guard = 0; guard < 64; guard++) {
+		if (fzn_scrub_seal(&scrub, &HASH, 1u, NULL) == FZN_SCRUB_DONE)
+			break;
+	}
+	CHECK(guard < 64, "sealing never wrapped with a null out_sealed");
+	for (guard = 0; guard < 64; guard++) {
+		if (fzn_scrub_step(&scrub, &HASH, 1u, NULL, NULL) == FZN_SCRUB_DONE)
+			break;
+	}
+	CHECK(guard < 64, "stepping never wrapped with null counters");
+}
+
 static void test_every_guard_refuses_its_own_argument(void)
 {
 	uint64_t out = 0u;
@@ -527,6 +654,47 @@ static void test_every_guard_refuses_its_own_argument(void)
 	      "seal took a null scrub");
 	CHECK(fzn_scrub_step(&scrub, NULL, 1u, &out, NULL) == FZN_SCRUB_ERR_MALFORMED,
 	      "step took null hash ops");
+	/* THE MIDDLE OPERANDS, which a null first argument never reaches. A
+	 * five-operand conjunction called only with its first null is one
+	 * operand tested and four asserted by hope -- sec 113. */
+	CHECK(fresh(0u, LEAVES), "the fixture did not reopen for the operand walk");
+	{
+		fzn_scrub_t hollow;
+		fzn_spool_t bad_spool;
+
+		hollow = scrub;
+		hollow.spool = NULL;
+		CHECK(fzn_scrub_seal(&hollow, &HASH, 1u, &out) == FZN_SCRUB_ERR_MALFORMED,
+		      "seal took a scrub with no spool");
+		CHECK(fzn_scrub_step(&hollow, &HASH, 1u, &out, NULL) == FZN_SCRUB_ERR_MALFORMED,
+		      "step took a scrub with no spool");
+
+		hollow = scrub;
+		hollow.roots = NULL;
+		CHECK(fzn_scrub_seal(&hollow, &HASH, 1u, &out) == FZN_SCRUB_ERR_MALFORMED,
+		      "seal took a scrub with no roots");
+		CHECK(fzn_scrub_step(&hollow, &HASH, 1u, &out, NULL) == FZN_SCRUB_ERR_MALFORMED,
+		      "step took a scrub with no roots");
+
+		hollow = scrub;
+		hollow.sealed = NULL;
+		CHECK(fzn_scrub_seal(&hollow, &HASH, 1u, &out) == FZN_SCRUB_ERR_MALFORMED,
+		      "seal took a scrub with no seal bitmap");
+		CHECK(fzn_scrub_step(&hollow, &HASH, 1u, &out, NULL) == FZN_SCRUB_ERR_MALFORMED,
+		      "step took a scrub with no seal bitmap");
+
+		CHECK(fzn_scrub_seal(&scrub, NULL, 1u, &out) == FZN_SCRUB_ERR_MALFORMED,
+		      "seal took null hash ops");
+		CHECK(fzn_scrub_step(NULL, &HASH, 1u, &out, NULL) == FZN_SCRUB_ERR_MALFORMED,
+		      "step took a null scrub");
+
+		/* open's second operand: leaves set, bitmap absent. */
+		bad_spool = spool;
+		bad_spool.present = NULL;
+		CHECK(fzn_scrub_open(&scrub, &bad_spool, roots, FZN_SCRUB_MAX_CELLS(LEAVES),
+		                     seals, sizeof(seals)) == FZN_SCRUB_ERR_MALFORMED,
+		      "open took a spool with leaves and no bitmap");
+	}
 	CHECK(fzn_scrub_err_str(FZN_SCRUB_ERR_BACKEND) != NULL, "err_str returned null");
 }
 
@@ -558,6 +726,9 @@ int main(void)
 	test_a_partial_blob_seals_only_whole_cells();
 	test_a_backend_that_refuses_is_not_corruption();
 	test_the_optional_outputs_may_be_omitted();
+	test_a_failing_hash_mid_scrub_drops_nothing();
+	test_a_sealed_cell_that_lost_leaves_is_skipped();
+	test_the_optional_outputs_are_omitted_on_the_last_cell();
 	test_every_guard_refuses_its_own_argument();
 	test_the_suite_can_tell_pass_from_fail();
 

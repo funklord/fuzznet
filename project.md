@@ -22677,6 +22677,69 @@ the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
 
+## 115. scrub.c, and what a scrub must not conclude, 2026-09-06
+
+Last of the six modules sec 113 measured.
+
+    spool/scrub.c   99.22% -> 100.00% of 129 lines   79.28% -> 92.79% of 111
+
+The operand guards were most of it again -- `seal` and `step` each carry a
+five-operand null check that only its first operand had ever failed -- but
+three of the cases are behaviour, and all three answer the same question:
+**what may a scrub conclude when it cannot read or cannot compute?**
+
+- **A hash that fails mid-scrub is not corruption**, the same distinction the
+  refusing backend already had. `cell_digest` has two failure returns, one
+  never executed and the other one-way, so the code handling a hash that
+  cannot answer had never run. Both are asserted now, with the leaf count
+  checked after: nothing is dropped.
+- **Failing inside the leaf loop is a different site from failing at the
+  fold.** A budget of `cost - 1` runs out on the last hash a cell needs,
+  which is the span root; the leaf-hash call was still one-way afterwards.
+  A budget of one runs out on the second leaf. **Two returns that look
+  identical in the source are two branches to the instrument**, and only
+  reading it says so.
+- **A cell that is sealed and has since lost leaves is mid-repair and is
+  skipped.** `fzn_spool_forget` is public, so a consumer reaches that state
+  with no help from the scrub, and comparing a digest against bytes that are
+  no longer there would drop a cell nobody had damaged.
+
+**The cost was measured rather than guessed**, which is sec 114's lesson
+applied on the first attempt rather than the second: the case runs one cell
+with an unlimited seam to learn what a digest costs, then runs out one hash
+short of it.
+
+### The nine that remain, named rather than counted
+
+    54, 180, 228   `if (len == 0u)`     cell_len returns 0 only past the end,
+                                        and every caller has already checked
+                                        `first < leaves`
+    129            `count > CELL`       cell_digest is only ever called with
+                                        cell_len's answer, which is <= 64
+    69, 154        second operands      of conjunctions whose first operand
+                                        decides every case a caller can build
+    196, 254       the wrap             `cell == 0 && first == 0` after an
+                                        advance that sets both together
+
+These are defensive or structural rather than untested, in the same sense as
+`blob.c`'s `FZN_BLOB_MAX_DEPTH` ceilings needing a tree of 2^40 leaves. The
+distinction matters because **a percentage cannot tell an untested branch
+from an unreachable one**, and this section is the only place that says which
+these are.
+
+### Where the six modules ended
+
+    blob/blob.c      100.00% lines   84.21% -> 93.68% branches
+    spool/spool.c     97.37 -> 100    83.70% -> 89.63%
+    spool/message.c  100.00          69.84% -> 83.07%
+    spool/transfer.c 100.00          84.62% -> 95.19%
+    spool/scrub.c     99.22 -> 100    79.28% -> 92.79%
+    spool/plan.c     100.00          97.06%  (untouched; it predates the sweep)
+
+`plan.c` is the control for the whole exercise and nobody arranged it. It was
+written before the library-wide operand sweep and was swept with everything
+else, and it is the one module here that needed nothing.
+
 ## 114. The same sweep, one layer down, and the same wrong guess twice, 2026-09-06
 
 `blob/blob.c` and `spool/spool.c` had the same shape sec 113 found: full line
