@@ -1005,6 +1005,43 @@ SABOTAGES = [
 		"\t\t\treturn FZN_CHAIN_ERR_UNKNOWN_TARGET;\n",
 		"a withdrawal that overtakes its revocation is kept, not dropped",
 	),
+	# BATCH THIRTEEN, 2026-09-05: blob/'s span proofs, added with them.
+	#
+	# A FOURTH MUTATION WAS TRIED AND IS NOT HERE, because it was a no-op
+	# rather than an uncaught defect: making the straddle branch descend
+	# left instead of refusing changes nothing, since the walk still
+	# cannot reach a straddling span and refuses one level later. It read
+	# as "not caught" and was "not a mutation". Landing in the source is
+	# not the same as changing the behaviour, which is one step past what
+	# evidence.md's confirm-the-sabotage rule asks for.
+	(
+		"blob-span-exit-needs-count",
+		"blob/blob.c",
+		"\twhile (!(lo == first && n == count)) {\n",
+		"\twhile (!(lo == first)) {\n",
+		"a span is a node of the tree, so the walk stops when the subtree IS "
+		"the span -- matching only its start would prove a different set",
+	),
+	(
+		"blob-span-binds-leaf-count",
+		"blob/blob.c",
+		"\terr = finalise_root(hash, acc, leaf_count, acc);\n"
+		"\tif (err != FZN_BLOB_OK)\n\t\treturn err;\n\n"
+		"\treturn fzn_ct_memeq(acc, root, FZN_BLOB_HASH_LEN) ? FZN_BLOB_OK "
+		": FZN_BLOB_ERR_PROOF;\n}\n",
+		"\treturn fzn_ct_memeq(acc, root, FZN_BLOB_HASH_LEN) ? FZN_BLOB_OK "
+		": FZN_BLOB_ERR_PROOF;\n}\n",
+		"a span proof binds the leaf count like a leaf proof does, or a span "
+		"from a differently-sized blob verifies",
+	),
+	(
+		"blob-span-proof-length",
+		"blob/blob.c",
+		"\tif (sibling_count != depth)\n\t\treturn FZN_BLOB_ERR_SHAPE;\n",
+		"\t(void)0;\n",
+		"the depth is a function of the claim, so a proof of another length "
+		"describes another tree and must be refused rather than truncated",
+	),
 	# BATCH TWELVE, 2026-09-05: record/ledger.c, added with the module.
 	#
 	# ALL SEVEN WERE RUN, AND THE FIRST RUN WAS A LIE. Two reported as not

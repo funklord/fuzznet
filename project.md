@@ -22708,9 +22708,28 @@ precisely: `expires_at == 0` used to mean never, "a slot's deadline is
 rather than never". That is a live consumer's deadline discipline, written
 for reassembly and not for streaming, and it is the same thing.
 
-**So fuzzypickles' copy-stream versus pure-stream distinction maps onto two
-modules this library already ships**, and neither of them has or wants a byte
-offset.
+~~**So fuzzypickles' copy-stream versus pure-stream distinction maps onto two
+modules this library already ships.**~~ **WRONG, AND CORRECTED BY THE HOLDER
+THE SAME DAY**: one transport subsystem handles all transfers including
+streaming, and only the PARAMETERS change with configuration.
+
+The table above is still a true description of two modules and a false
+description of the distinction. `chunk/` and `spool/` are different LAYERS --
+datagrams into messages, and messages into a blob -- not two stream kinds.
+Copy-stream and pure-stream are a **delivery mode chosen per request** on top
+of both.
+
+fuzzypickles' own text says so and I read past it: their serving layer is
+"still split by media type (unlike the transport layer underneath)", and the
+modes are "a choice of delivery mode per request". The parenthesis is the
+whole answer -- the transport beneath is deliberately NOT split -- and I
+quoted the sentence's neighbours while missing it.
+
+**What survives is the refusal**, which did not depend on the mapping: no
+read-at-offset API, because the verifiable unit and the interface unit must
+be the same. What does not survive is the idea that two modules already
+express the two modes. One subsystem expresses both, and the mode is a
+parameter.
 
 ### Why a read-at-offset API is refused rather than merely unnecessary
 

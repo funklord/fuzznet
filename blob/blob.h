@@ -275,6 +275,75 @@ fzn_blob_err_t fzn_blob_tree_root(const fzn_hash_ops_t *hash, const fzn_blob_tre
 fzn_blob_err_t fzn_blob_proof_build(const fzn_hash_ops_t *hash, const uint8_t *leaf_hashes,
                                      uint64_t leaf_count, uint64_t index, uint8_t *out,
                                      size_t out_cap, unsigned *out_count);
+/*
+ * ---- spans: a proof that covers a whole request ------------------------
+ *
+ * A SPAN IS A CANONICAL SUBTREE, named the way the header above already
+ * argues for: "naming a subtree by one index and one depth rather than
+ * enumerating leaves -- is what keeps that affordable". These are the two
+ * calls that make it affordable in fact rather than in principle.
+ *
+ * WHY, IN ONE NUMBER. A per-leaf proof is `log2(n)` siblings. Verifying a
+ * 64-leaf request as 64 separate leaves against verifying it as one span, at
+ * a blob of 2^20 leaves: 40960 bytes of proof against 448, which is 62%
+ * overhead against 0.68%. project.md sec 103 has the table. A propagation
+ * layer whose request and whose proof are not the same shape pays that
+ * every batch, for ever.
+ *
+ * CANONICAL MEANS REACHABLE BY THE BISECTION, not "any aligned range". The
+ * tree over `n` leaves splits at `split_at(n)` -- the largest power of two
+ * strictly below `n`, RFC 6962's rule -- so for a non-power-of-two blob the
+ * right-hand subtrees are not power-of-two sized and an "aligned" range is
+ * the wrong test. A span is canonical exactly when the descent from the root
+ * reaches it, and `fzn_blob_span_is_canonical` is the only thing entitled to
+ * say so.
+ *
+ * A SINGLE LEAF IS THE SPAN OF COUNT 1, so these generalise the pair above
+ * rather than replacing it. The per-leaf calls stay: they are what a
+ * consumer verifying one arriving datagram wants, and that is the common
+ * case on a lossy transport.
+ */
+
+/* Whether `[first, first + count)` is a node of the bisection over
+ * `leaf_count` leaves. Non-zero when it is.
+ *
+ * A SERVER MUST CHECK THIS BEFORE ANSWERING, because a request naming a
+ * non-canonical range has no single proof and a server that tried would
+ * either send several or send one that proves something else. */
+int fzn_blob_span_is_canonical(uint64_t leaf_count, uint64_t first, uint64_t count);
+
+/* The siblings from the span's own root up to the blob's root.
+ *
+ * `out` receives `*out_count` hashes of FZN_BLOB_HASH_LEN. A span equal to
+ * the whole blob has a proof of zero siblings, which is correct and is not
+ * an error: its root IS the blob's root.
+ *
+ * Refuses a non-canonical span with FZN_BLOB_ERR_SHAPE rather than building
+ * something, because the caller asked for a thing that does not exist in
+ * this tree. */
+fzn_blob_err_t fzn_blob_span_proof_build(const fzn_hash_ops_t *hash, const uint8_t *leaf_hashes,
+                                          uint64_t leaf_count, uint64_t first, uint64_t count,
+                                          uint8_t *out, size_t out_cap, unsigned *out_count);
+
+/* Verify a span against the blob's root.
+ *
+ * `span_root` is the root OF THE SPAN, which a receiver computes from the
+ * leaves it just received -- so the leaves are what is being verified and
+ * the caller has already had to hold them. That is the property the leaf
+ * size was bought for, kept at span granularity: nothing here lets a caller
+ * verify bytes it does not have.
+ *
+ * THE DESCENT IS COMPUTED FROM `leaf_count`, `first` AND `count`, never read
+ * from the proof, for the reason `fzn_blob_proof_verify` gives: the shape of
+ * a tree over n leaves depends on n, so a verifier taking the path from the
+ * prover's framing would accept a span from a differently-shaped tree
+ * carrying the same siblings. */
+fzn_blob_err_t fzn_blob_span_proof_verify(const fzn_hash_ops_t *hash,
+                                           const uint8_t span_root[FZN_BLOB_HASH_LEN],
+                                           uint64_t first, uint64_t count, uint64_t leaf_count,
+                                           const uint8_t *siblings, unsigned sibling_count,
+                                           const uint8_t root[FZN_BLOB_HASH_LEN]);
+
 fzn_blob_err_t fzn_blob_proof_verify(const fzn_hash_ops_t *hash,
                                       const uint8_t leaf_hash[FZN_BLOB_HASH_LEN], uint64_t index,
                                       uint64_t leaf_count, const uint8_t *siblings,

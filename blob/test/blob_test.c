@@ -215,6 +215,33 @@ static void reference_apex(const uint8_t *leaves, uint64_t n, uint8_t out[FZN_BL
  * is `static` and because a reference that called it would agree with it by
  * construction. The label is spelled again for the same reason -- if the two
  * copies ever disagree the tests fail, which is the point of having two. */
+#define REQUIRE_BLOB(call, what)                             \
+	do {                                                 \
+		fzn_blob_err_t require_err = (call);         \
+		CHECK(require_err == FZN_BLOB_OK, "%s: %d",  \
+		      (what), (int)require_err);             \
+		if (require_err != FZN_BLOB_OK)              \
+			return;                              \
+	} while (0)
+
+/* The bare apex over `n` leaves: what an interior node of the tree holds,
+ * with none of the root's label or leaf-count binding. `reference_root`
+ * finalises; a span is not a blob and must not be finalised. */
+static void apex_of(const uint8_t *leaves, uint64_t n, uint8_t out[FZN_BLOB_HASH_LEN])
+{
+	fzn_blob_tree_t tree;
+	uint64_t i;
+
+	fzn_blob_tree_init(&tree);
+	for (i = 0; i < n; i++)
+		(void)fzn_blob_tree_push(&HASH, &tree,
+		                         leaves + ((size_t)i * FZN_BLOB_HASH_LEN));
+	/* Fold the stack the way the builder does, right to left. */
+	memcpy(out, tree.stack[tree.depth - 1u], FZN_BLOB_HASH_LEN);
+	for (i = (uint64_t)tree.depth - 1u; i > 0u; i--)
+		(void)fzn_blob_node_hash(&HASH, tree.stack[i - 1u], out, out);
+}
+
 static void reference_root(const uint8_t *leaves, uint64_t n, uint8_t out[FZN_BLOB_HASH_LEN])
 {
 	uint8_t apex[FZN_BLOB_HASH_LEN];
@@ -388,6 +415,184 @@ static void test_distinct_leaf_counts_give_distinct_roots(void)
 	CHECK(memcmp(roots[3], dup_root, FZN_BLOB_HASH_LEN) != 0,
 	      "a three-leaf tree and a four-leaf tree repeating its last leaf share a "
 	      "root -- CVE-2012-2459");
+}
+
+
+/* EVERY CANONICAL SPAN OF EVERY TREE UP TO 33, verified against the same
+ * root the per-leaf proofs verify against.
+ *
+ * The property is the one the whole addressing decision rests on: a span
+ * proof and a leaf proof must agree about the tree. If they can disagree,
+ * a propagation layer verifying batches accepts what a receiver verifying
+ * leaves rejects, or the reverse, and the two halves of this library would
+ * be describing different trees.
+ *
+ * Exhaustive rather than sampled because canonicity is where the subtlety
+ * is: the tree splits at the largest power of two strictly below n, so for
+ * a non-power-of-two blob the right-hand subtrees are NOT power-of-two
+ * sized, and "aligned range" is the wrong test. The cases that matter are
+ * the ones an aligned-range test would get wrong, and they only appear at
+ * particular n.
+ */
+static void test_every_canonical_span_reaches_the_root(void)
+{
+	static uint8_t leaves[MAX_TEST_LEAVES * FZN_BLOB_HASH_LEN];
+	uint8_t siblings[FZN_BLOB_MAX_DEPTH * FZN_BLOB_HASH_LEN];
+	uint8_t root[FZN_BLOB_HASH_LEN];
+	uint8_t span_root[FZN_BLOB_HASH_LEN];
+	unsigned count;
+	uint64_t n, first, len;
+	unsigned canonical_seen = 0u;
+	unsigned whole_blob_seen = 0u;
+	unsigned single_leaf_seen = 0u;
+
+	make_leaves(leaves, MAX_TEST_LEAVES);
+
+	for (n = 1u; n <= 33u; n++) {
+		reference_root(leaves, n, root);
+		for (first = 0u; first < n; first++) {
+			for (len = 1u; first + len <= n; len++) {
+				int canon = fzn_blob_span_is_canonical(n, first, len);
+				fzn_blob_err_t built = fzn_blob_span_proof_build(
+				        &HASH, leaves, n, first, len, siblings,
+				        sizeof(siblings), &count);
+
+				/* THE PREDICATE AND THE BUILDER ARE ONE
+				 * DEFINITION. If they could disagree, a server
+				 * would accept a request it cannot prove. */
+				CHECK((built == FZN_BLOB_OK) == (canon != 0),
+				      "is_canonical and proof_build disagree about "
+				      "[%llu,%llu) of %llu",
+				      (unsigned long long)first,
+				      (unsigned long long)(first + len),
+				      (unsigned long long)n);
+				if (!canon)
+					continue;
+				canonical_seen++;
+				if (len == n)
+					whole_blob_seen++;
+				if (len == 1u)
+					single_leaf_seen++;
+
+				/* The receiver computes the span's root from
+				 * the leaves it holds -- it never takes it
+				 * from the prover. */
+				/* THE SPAN'S ROOT IS THE BARE APEX over its own
+				 * leaves -- an interior node, with no root
+				 * label and no leaf-count binding, because
+				 * those belong to the whole blob. `apex_of`
+				 * is the test's own so that this case does
+				 * not depend on which of the two a public
+				 * call happens to return. */
+				apex_of(leaves + ((size_t)first * FZN_BLOB_HASH_LEN), len,
+				        span_root);
+				CHECK(fzn_blob_span_proof_verify(&HASH, span_root, first, len, n,
+				                                 siblings, count, root)
+				      == FZN_BLOB_OK,
+				      "canonical span [%llu,%llu) of %llu does not verify",
+				      (unsigned long long)first,
+				      (unsigned long long)(first + len),
+				      (unsigned long long)n);
+			}
+		}
+	}
+
+	/* THE POPULATION IS ASSERTED, not just the cases. A predicate that
+	 * answered "no" to everything would satisfy every check above by
+	 * making the loop body unreachable. */
+	CHECK(canonical_seen > 100u, "only %u canonical spans found, so the sweep is empty",
+	      canonical_seen);
+	CHECK(whole_blob_seen == 33u, "the whole blob is not canonical at every size");
+	CHECK(single_leaf_seen == 561u,
+	      "every single leaf must be a canonical span: expected 561, saw %u",
+	      single_leaf_seen);
+}
+
+/* A SPAN THAT STRADDLES THE SPLIT HAS NO PROOF, and the refusal is the point:
+ * "leaves 1 and 2 of a four-leaf tree" is a perfectly sensible request and is
+ * not a node of the tree, so no single proof covers it. A server that built
+ * one anyway would be proving a different set. */
+
+/* A PROOF OF THE WRONG LENGTH IS REFUSED, and nothing above reached this
+ * because every case passes back the count the builder returned.
+ *
+ * The depth is a function of the claim -- leaf_count, first and count -- so a
+ * prover sending more or fewer siblings is describing a different tree. A
+ * verifier that used as many as it was given would climb a different number
+ * of levels and could be steered by the framing, which is the thing the
+ * "descent computed from the claim, never read from the proof" rule exists to
+ * prevent. */
+static void test_a_span_proof_of_the_wrong_length_is_refused(void)
+{
+	static uint8_t leaves[MAX_TEST_LEAVES * FZN_BLOB_HASH_LEN];
+	uint8_t siblings[FZN_BLOB_MAX_DEPTH * FZN_BLOB_HASH_LEN];
+	uint8_t root[FZN_BLOB_HASH_LEN], span_root[FZN_BLOB_HASH_LEN];
+	unsigned count;
+
+	make_leaves(leaves, MAX_TEST_LEAVES);
+	reference_root(leaves, 16u, root);
+	apex_of(leaves, 4u, span_root);
+
+	REQUIRE_BLOB(fzn_blob_span_proof_build(&HASH, leaves, 16u, 0u, 4u, siblings,
+	                                       sizeof(siblings), &count),
+	             "building the span proof");
+	CHECK(count == 2u, "a 4-leaf span of a 16-leaf blob should be 2 siblings, saw %u",
+	      count);
+	CHECK(fzn_blob_span_proof_verify(&HASH, span_root, 0u, 4u, 16u, siblings, count, root)
+	      == FZN_BLOB_OK, "the honest proof does not verify");
+
+	CHECK(fzn_blob_span_proof_verify(&HASH, span_root, 0u, 4u, 16u, siblings, count - 1u,
+	                                 root) == FZN_BLOB_ERR_SHAPE,
+	      "a proof one sibling short was accepted");
+	CHECK(fzn_blob_span_proof_verify(&HASH, span_root, 0u, 4u, 16u, siblings, count + 1u,
+	                                 root) == FZN_BLOB_ERR_SHAPE,
+	      "a proof one sibling long was accepted");
+	CHECK(fzn_blob_span_proof_verify(&HASH, span_root, 0u, 4u, 16u, siblings, 0u, root)
+	      == FZN_BLOB_ERR_SHAPE, "an empty proof was accepted for a span that needs two");
+
+	/* AND THE WHOLE BLOB IS THE ZERO-SIBLING CASE, which must still be
+	 * accepted -- so the check above is about the length matching the
+	 * claim rather than about zero being suspicious. */
+	apex_of(leaves, 16u, span_root);
+	CHECK(fzn_blob_span_proof_verify(&HASH, span_root, 0u, 16u, 16u, siblings, 0u, root)
+	      == FZN_BLOB_OK, "the whole blob as a span needs no siblings and was refused");
+
+	/* A DIFFERENT LEAF COUNT IS A DIFFERENT TREE. Same span, same proof,
+	 * a count the prover chose: refused, because the descent is recomputed
+	 * from the claim. */
+	REQUIRE_BLOB(fzn_blob_span_proof_build(&HASH, leaves, 16u, 0u, 4u, siblings,
+	                                       sizeof(siblings), &count),
+	             "rebuilding the span proof");
+	apex_of(leaves, 4u, span_root);
+	CHECK(fzn_blob_span_proof_verify(&HASH, span_root, 0u, 4u, 17u, siblings, count, root)
+	      != FZN_BLOB_OK, "a span verified against a blob of a different size");
+}
+
+static void test_a_straddling_span_is_refused(void)
+{
+	static uint8_t leaves[MAX_TEST_LEAVES * FZN_BLOB_HASH_LEN];
+	uint8_t siblings[FZN_BLOB_MAX_DEPTH * FZN_BLOB_HASH_LEN];
+	unsigned count;
+
+	make_leaves(leaves, MAX_TEST_LEAVES);
+
+	CHECK(!fzn_blob_span_is_canonical(4u, 1u, 2u),
+	      "[1,3) of 4 straddles the split and was called canonical");
+	CHECK(fzn_blob_span_proof_build(&HASH, leaves, 4u, 1u, 2u, siblings, sizeof(siblings),
+	                                &count) == FZN_BLOB_ERR_SHAPE,
+	      "a straddling span was given a proof");
+	/* And the halves either side of it are canonical, so the refusal is
+	 * about the straddle rather than about the size. */
+	CHECK(fzn_blob_span_is_canonical(4u, 0u, 2u), "[0,2) of 4 should be canonical");
+	CHECK(fzn_blob_span_is_canonical(4u, 2u, 2u), "[2,4) of 4 should be canonical");
+
+	/* AN UNBALANCED TREE IS WHERE "ALIGNED" WOULD BE WRONG. Five leaves
+	 * split 4 + 1, so [4,5) is canonical and [2,4) -- aligned, and a node
+	 * of a BALANCED tree of that size -- is too, while [1,3) is not. */
+	CHECK(fzn_blob_span_is_canonical(5u, 4u, 1u), "[4,5) of 5 should be canonical");
+	CHECK(fzn_blob_span_is_canonical(5u, 0u, 4u), "[0,4) of 5 should be canonical");
+	CHECK(!fzn_blob_span_is_canonical(5u, 3u, 2u),
+	      "[3,5) of 5 straddles 5's split at 4 and was called canonical");
 }
 
 static void test_a_proof_reaches_the_root(void)
@@ -1223,6 +1428,9 @@ int main(void)
 	test_the_suite_can_tell_pass_from_fail();
 
 	test_the_operands_the_first_one_hides();
+	test_every_canonical_span_reaches_the_root();
+	test_a_straddling_span_is_refused();
+	test_a_span_proof_of_the_wrong_length_is_refused();
 
 	printf("blob_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

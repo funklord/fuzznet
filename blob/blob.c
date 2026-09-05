@@ -674,3 +674,173 @@ const char *fzn_blob_err_str(fzn_blob_err_t err)
 
 	return "unknown";
 }
+
+/*
+ * ---- spans ---------------------------------------------------------------
+ *
+ * The descent is the one in `fzn_blob_proof_build`, stopped when the current
+ * subtree IS the span rather than when it is one leaf. Written as its own
+ * walk rather than by generalising that function, because the two differ in
+ * their stopping condition and in nothing else, and a shared walk with a
+ * mode flag would be the harder thing to read. If a third caller ever wants
+ * the same descent, that is the moment to unify all three.
+ */
+
+/* Walk down to `[first, first + count)`, appending the sibling at each step.
+ *
+ * `siblings` may be NULL, in which case nothing is written and the walk only
+ * answers whether the span is reachable -- which is what makes
+ * `fzn_blob_span_is_canonical` and the two proof calls one definition of
+ * canonical rather than three.
+ */
+static fzn_blob_err_t span_walk(const fzn_hash_ops_t *hash, const uint8_t *leaf_hashes,
+                                uint64_t leaf_count, uint64_t first, uint64_t count,
+                                uint8_t *siblings, size_t cap, unsigned *out_count,
+                                uint64_t *path)
+{
+	uint64_t lo = 0u;
+	uint64_t n = leaf_count;
+	unsigned depth = 0u;
+
+	if (count == 0u || first > leaf_count - count)
+		return FZN_BLOB_ERR_MALFORMED;
+
+	while (!(lo == first && n == count)) {
+		uint64_t k;
+
+		if (n <= 1u)
+			return FZN_BLOB_ERR_SHAPE;
+		if (depth >= FZN_BLOB_MAX_DEPTH)
+			return FZN_BLOB_ERR_SHAPE;
+		k = split_at(n);
+
+		/* THE SPAN MUST LIE WHOLLY IN ONE CHILD. A range straddling
+		 * the split is not a node of this tree, and this is the test
+		 * that says so -- refusing here rather than descending into
+		 * one side and losing the other half silently. */
+		if (first + count <= lo + k) {
+			if (siblings) {
+				fzn_blob_err_t err;
+
+				if (cap < ((size_t)depth + 1u) * FZN_BLOB_HASH_LEN)
+					return FZN_BLOB_ERR_MALFORMED;
+				err = subtree_root(hash, leaf_hashes, lo + k, n - k,
+				                   siblings + ((size_t)depth * FZN_BLOB_HASH_LEN));
+				if (err != FZN_BLOB_OK)
+					return err;
+			}
+			if (path)
+				path[depth] = 0u;
+			n = k;
+		} else if (first >= lo + k) {
+			if (siblings) {
+				fzn_blob_err_t err;
+
+				if (cap < ((size_t)depth + 1u) * FZN_BLOB_HASH_LEN)
+					return FZN_BLOB_ERR_MALFORMED;
+				err = subtree_root(hash, leaf_hashes, lo, k,
+				                   siblings + ((size_t)depth * FZN_BLOB_HASH_LEN));
+				if (err != FZN_BLOB_OK)
+					return err;
+			}
+			if (path)
+				path[depth] = 1u;
+			lo += k;
+			n -= k;
+		} else {
+			return FZN_BLOB_ERR_SHAPE;
+		}
+		depth++;
+	}
+
+	if (out_count)
+		*out_count = depth;
+	return FZN_BLOB_OK;
+}
+
+int fzn_blob_span_is_canonical(uint64_t leaf_count, uint64_t first, uint64_t count)
+{
+	if (leaf_count == 0u || leaf_count > FZN_BLOB_MAX_LEAVES)
+		return 0;
+	if (count == 0u || count > leaf_count || first > leaf_count - count)
+		return 0;
+	/* No hash and no leaves: the walk touches neither when `siblings` is
+	 * NULL, so this asks the shape question alone. */
+	return span_walk(NULL, NULL, leaf_count, first, count, NULL, 0u, NULL, NULL)
+	       == FZN_BLOB_OK;
+}
+
+fzn_blob_err_t fzn_blob_span_proof_build(const fzn_hash_ops_t *hash, const uint8_t *leaf_hashes,
+                                          uint64_t leaf_count, uint64_t first, uint64_t count,
+                                          uint8_t *out, size_t out_cap, unsigned *out_count)
+{
+	if (!hash || !hash->hash || !leaf_hashes || !out || !out_count)
+		return FZN_BLOB_ERR_MALFORMED;
+	if (leaf_count == 0u || leaf_count > FZN_BLOB_MAX_LEAVES)
+		return FZN_BLOB_ERR_MALFORMED;
+	if (count == 0u || count > leaf_count || first > leaf_count - count)
+		return FZN_BLOB_ERR_MALFORMED;
+
+	*out_count = 0u;
+	return span_walk(hash, leaf_hashes, leaf_count, first, count, out, out_cap, out_count,
+	                 NULL);
+}
+
+fzn_blob_err_t fzn_blob_span_proof_verify(const fzn_hash_ops_t *hash,
+                                           const uint8_t span_root[FZN_BLOB_HASH_LEN],
+                                           uint64_t first, uint64_t count, uint64_t leaf_count,
+                                           const uint8_t *siblings, unsigned sibling_count,
+                                           const uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	uint8_t acc[FZN_BLOB_HASH_LEN];
+	uint64_t path[FZN_BLOB_MAX_DEPTH];
+	unsigned depth = 0u;
+	unsigned i;
+	fzn_blob_err_t err;
+
+	if (!hash || !hash->hash || !span_root || !root)
+		return FZN_BLOB_ERR_MALFORMED;
+	if (leaf_count == 0u || leaf_count > FZN_BLOB_MAX_LEAVES)
+		return FZN_BLOB_ERR_MALFORMED;
+	if (count == 0u || count > leaf_count || first > leaf_count - count)
+		return FZN_BLOB_ERR_MALFORMED;
+	if (sibling_count > FZN_BLOB_MAX_DEPTH)
+		return FZN_BLOB_ERR_SHAPE;
+	if (sibling_count > 0u && !siblings)
+		return FZN_BLOB_ERR_MALFORMED;
+
+	/* The path is recomputed from the claim, never taken from the proof. */
+	err = span_walk(NULL, NULL, leaf_count, first, count, NULL, 0u, &depth, path);
+	if (err != FZN_BLOB_OK)
+		return err;
+	/* A PROOF OF THE WRONG LENGTH IS REFUSED RATHER THAN TRUNCATED. The
+	 * depth is a function of the claim, so a prover sending more or fewer
+	 * siblings is describing a different tree. */
+	if (sibling_count != depth)
+		return FZN_BLOB_ERR_SHAPE;
+
+	memcpy(acc, span_root, FZN_BLOB_HASH_LEN);
+	for (i = depth; i > 0u; i--) {
+		const uint8_t *sib = siblings + ((size_t)(i - 1u) * FZN_BLOB_HASH_LEN);
+
+		if (path[i - 1u] == 0u)
+			err = fzn_blob_node_hash(hash, acc, sib, acc);
+		else
+			err = fzn_blob_node_hash(hash, sib, acc, acc);
+		if (err != FZN_BLOB_OK)
+			return err;
+	}
+
+	/* THE CLIMB ENDS AT AN APEX AND THE ROOT BINDS THE LEAF COUNT, exactly
+	 * as `fzn_blob_proof_verify` does and for its reason: a verifier handed
+	 * an attacker's count must recompute a different root and refuse. The
+	 * first version of this function compared the apex directly and every
+	 * canonical span failed, which is the good direction for that mistake
+	 * to fail in -- a span proof that skipped the binding would have
+	 * verified spans from a differently-sized blob. */
+	err = finalise_root(hash, acc, leaf_count, acc);
+	if (err != FZN_BLOB_OK)
+		return err;
+
+	return fzn_ct_memeq(acc, root, FZN_BLOB_HASH_LEN) ? FZN_BLOB_OK : FZN_BLOB_ERR_PROOF;
+}
