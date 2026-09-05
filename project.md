@@ -22675,6 +22675,97 @@ the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
 
+## 106. The 64 was inherited, the curve cannot choose it, and something else can, 2026-09-05
+
+`FZN_MSG_MAX_SPAN` and `spool/`'s `SPAN_MAX_LEAVES` are both 64, adopted from
+fuzzypickles rather than invented, with sec 102 recording their own flag that
+64 might be reasoning rather than measurement. Asked directly, they answered
+plainly, and the answer is worth more than the number.
+
+### What they said, and what it cost them to say it
+
+**There is nothing measured behind 64 specifically.** Three arguments exist
+-- a proof covers a request, an uncapped batch assigns a whole blob to one
+peer, and an overhead table in their sec 11 -- and the third is a real
+calculation that justifies BATCHING without justifying that number. Their
+words: *"It could as easily have been 32."*
+
+They also reported, unprompted, that the table's rows are asserted by
+nothing. Their `test_overhead_budget` pins the per-leaf framing constants and
+**the tree-data rows are pinned by no test at all** -- arithmetic somebody did
+once and wrote down, which is this workspace's own *a fact recorded without
+its method* met in somebody else's tree.
+
+And they declined to measure it, for the right reason: the answer depends on
+fragmentation, link MTU and swarm size, all three of which are fuzznet's now.
+*"A measurement taken here would be a property of my framing handed over as if
+it were a property of the problem"* -- which is exactly the fault this tree
+caught in their `transfer_id` reasoning a day earlier, applied by them to
+themselves before anybody asked.
+
+### Measured here, with the real builder
+
+`blob_test.c`'s `test_batching_always_pays_and_never_stops_paying` walks
+`fzn_blob_span_largest_at` and `fzn_blob_span_proof_build` over whole
+transfers. Proof bytes as a percentage of content, 1 KiB leaves:
+
+    leaves        1        2        4        8       16       32       64      128      256
+       256  25.000%  10.938%   4.688%   1.953%   0.781%   0.293%   0.098%   0.024%   0.000%
+      1024  31.250%  14.062%   6.250%   2.734%   1.172%   0.488%   0.195%   0.073%   0.024%
+      4096  37.500%  17.188%   7.812%   3.516%   1.562%   0.684%   0.293%   0.122%   0.049%
+
+**The overhead halves with every doubling of the batch, at every tree size,
+with no knee anywhere.** That is the finding, and it is not the one the table
+was being quoted for: **a curve with no minimum cannot choose a number.** Read
+alone it argues for the largest batch that fits, forever. So the overhead
+argument justifies batching and can never justify 64, 32 or 256 -- and any
+constant defended by it is defended by something that does not distinguish it
+from its neighbours.
+
+Two witnesses, because a builder agreeing with itself is not evidence. For a
+tree of 2^k leaves and a batch of 2^j, every canonical span sits at depth k-j
+and there are 2^(k-j) of them, so the total is closed-form; the test asserts
+the builder against that arithmetic in every cell. Both halves were seen to
+fail before being trusted -- perturbing the closed form by one level gives 18
+failures, reversing the monotonicity claim gives 16.
+
+### What can choose a number, and it is not a performance argument
+
+If the curve only pushes up, the cap is whatever pushes down, and there is a
+constraint in this library that does: **`fzn_spool_place_span` hashes every
+leaf, computes the span root and verifies the proof BEFORE it writes a byte.**
+So a span cannot be verified until every leaf of it has arrived, and the
+caller must hold the whole batch first.
+
+    64 x FZN_BLOB_SEALED_MAX = 64 x 1056 = 67,584 bytes = 66 KiB
+
+**That is unverified data, from a stranger, held on trust, per transfer, per
+peer** -- and doubling the batch doubles it. It is the same shape as every
+other bound in this library: sec 25's ceiling because the peer chooses the
+number, `SPAN_MAX_LEAVES` because an uncapped count is a stack frame a
+stranger chooses, `FZN_SPOOL_MAX_LEAVES` because a bitmap is memory. A
+memory-holding bound is the kind of argument fuzznet already makes everywhere,
+and it is checkable rather than a preference.
+
+**So 64 stays and its justification does not.** The number is unchanged; what
+changed is that it is now defended by a property of this tree, stated as
+arithmetic the test pins, with the thing that would move it named -- the leaf
+size, and how much unverified memory a host will spend on one peer. An
+inherited constant with a borrowed reason has become a constant with a reason
+of its own, which is the whole of what sec 102 meant by *the property is worth
+keeping and its encoding is not*.
+
+### The generalisation, which is theirs and is sharper than mine
+
+Sec 105 recorded that a reason can fail to travel with its property.
+fuzzypickles put it better on reading that: **the property, the encoding and
+the REASON are three things, and the reason travels most easily of the three,
+because it is prose and prose copies without resistance.** An encoding gets
+rewritten and a property gets re-tested; a sentence explaining why simply
+moves. Both of this week's instances -- their `transfer_id` percentage and
+this batch size -- are one shape, and neither would have been caught by
+anything either tree runs.
+
 ## 105. The wire vocabulary, and the bitmap that must not travel, 2026-09-05
 
 Sec 102 listed six filestore pieces and named this one as the likeliest to

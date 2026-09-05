@@ -1278,6 +1278,113 @@ static void test_every_guard_refuses_its_own_argument(void)
 }
 
 /* The suite must be able to fail, or a green run says only that it ran. */
+/* WHAT A BATCH SIZE COSTS, measured with the real builder rather than
+ * computed by hand.
+ *
+ * fuzzypickles chose 64 leaves per request and fuzznet adopted it. Asked
+ * 2026-09-05 whether anything measured that number, they answered plainly:
+ * no. Three arguments exist -- a proof covers a request, an uncapped batch
+ * assigns a whole blob to one peer, and an overhead table -- and the third
+ * is a real calculation that justifies BATCHING without justifying 64. They
+ * also reported that the table's tree-data rows are asserted by nothing.
+ *
+ * SO THIS PINS THE CURVE, and the curve says something the table did not:
+ * overhead HALVES with every doubling of the batch, at every tree size, with
+ * NO KNEE ANYWHERE. A curve with no minimum cannot choose a number -- read
+ * alone it argues for the largest batch that fits, forever. Whatever picks
+ * 64 is therefore a constraint pushing the other way, and project.md sec 106
+ * names the one that can: a span is verified only once every leaf of it has
+ * arrived, so the batch is a bound on unverified bytes held for a stranger.
+ *
+ * Two witnesses, because one builder agreeing with itself is not evidence.
+ * For a tree of 2^k leaves and a batch of 2^j, every canonical span sits at
+ * depth k-j and there are 2^(k-j) of them, so the total is closed-form. The
+ * builder must agree with that arithmetic in every cell; a geometry change
+ * breaks one of the two and not the other. */
+static void test_batching_always_pays_and_never_stops_paying(void)
+{
+	static const uint64_t SIZES[] = { 256u, 1024u };
+	static const uint64_t BATCH[] = { 1u, 2u, 4u, 8u, 16u, 32u, 64u, 128u, 256u };
+	static uint8_t leaf_hashes[1024u * FZN_BLOB_HASH_LEN];
+	size_t si, bi;
+
+	make_leaves(leaf_hashes, 1024u);
+
+	for (si = 0; si < sizeof(SIZES) / sizeof(*SIZES); si++) {
+		uint64_t n = SIZES[si];
+		uint64_t previous = 0;
+		unsigned k = 0;
+
+		while ((1u << k) < n)
+			k++;
+
+		for (bi = 0; bi < sizeof(BATCH) / sizeof(*BATCH); bi++) {
+			uint64_t b = BATCH[bi];
+			uint64_t first = 0, total = 0, spans = 0;
+			unsigned j = 0, depth;
+
+			if (b > n)
+				continue;
+			while ((1u << j) < b)
+				j++;
+			depth = k - j;
+
+			while (first < n) {
+				uint8_t proof[FZN_BLOB_MAX_DEPTH * FZN_BLOB_HASH_LEN];
+				unsigned sibs = 0;
+				uint64_t take = fzn_blob_span_largest_at(n, first, b);
+
+				if (take == 0u) {
+					CHECK(0, "no canonical span at %llu of %llu",
+					      (unsigned long long)first, (unsigned long long)n);
+					break;
+				}
+				if (fzn_blob_span_proof_build(&HASH, leaf_hashes, n, first, take,
+				                              proof, sizeof(proof), &sibs)
+				    != FZN_BLOB_OK) {
+					CHECK(0, "no proof for %llu+%llu of %llu",
+					      (unsigned long long)first, (unsigned long long)take,
+					      (unsigned long long)n);
+					break;
+				}
+				total += (uint64_t)sibs * FZN_BLOB_HASH_LEN;
+				spans++;
+				first += take;
+			}
+
+			/* The second witness. Both sides are powers of two here, so
+			 * every span is a whole batch at one depth. */
+			CHECK(spans == n / b, "%llu leaves at batch %llu took %llu spans, not %llu",
+			      (unsigned long long)n, (unsigned long long)b,
+			      (unsigned long long)spans, (unsigned long long)(n / b));
+			CHECK(total == (n / b) * (uint64_t)depth * FZN_BLOB_HASH_LEN,
+			      "%llu leaves at batch %llu cost %llu proof bytes, arithmetic says %llu",
+			      (unsigned long long)n, (unsigned long long)b,
+			      (unsigned long long)total,
+			      (unsigned long long)((n / b) * (uint64_t)depth * FZN_BLOB_HASH_LEN));
+
+			/* THE FINDING: strictly down, every doubling, to the end of
+			 * the range. A knee would show up here as an equality. */
+			if (bi > 0)
+				CHECK(total < previous,
+				      "batch %llu cost %llu proof bytes, batch %llu cost %llu -- "
+				      "the curve has a knee and something must choose the number",
+				      (unsigned long long)b, (unsigned long long)total,
+				      (unsigned long long)BATCH[bi - 1],
+				      (unsigned long long)previous);
+			previous = total;
+		}
+	}
+
+	/* And the constraint that DOES pick a number, stated as arithmetic so it
+	 * cannot drift from the constants: a span is unverifiable until every
+	 * leaf of it has arrived, so 64 leaves is 66 KiB of a stranger's bytes
+	 * held on trust. Doubling the batch doubles that. */
+	CHECK((size_t)64u * FZN_BLOB_SEALED_MAX == 67584u,
+	      "a 64-leaf span is %zu unverified bytes, not 67584 -- sec 106's bound moved",
+	      (size_t)64u * FZN_BLOB_SEALED_MAX);
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -1496,6 +1603,7 @@ int main(void)
 	test_a_straddling_span_is_refused();
 	test_a_span_proof_of_the_wrong_length_is_refused();
 	test_the_largest_span_at_every_position_is_canonical();
+	test_batching_always_pays_and_never_stops_paying();
 
 	printf("blob_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
