@@ -22674,6 +22674,126 @@ the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
 
+## 101. The filestore is coming here, and a second consumer changes its shape, 2026-09-05
+
+**Relayed from fuzzypickles, on the copyright holder's instruction, and
+RECORDED RATHER THAN STARTED.** Two messages arrived within an hour of each
+other. The first says the distributed filestore, its propagation and media
+streaming belong in this library. The second names the second consumer:
+**netcfgd will share files across machines and will stream audio.**
+
+Nothing is built and nothing is designed. The scope change is put to the
+holder directly rather than acted on from a relay: "the filestore belongs in
+fuzznet" changes what sec 2 says this library IS, and sec 2 is what every
+other refusal here is argued from. A session that widened a library's scope
+on a message would be the wrong thing to have been. Their constraints are
+written down now because they are perishable in a way the decision is not.
+
+### What the split is, in their measurement
+
+Theirs, against `43aed04`, the commit they pin -- quoted as their fact:
+
+> You already have the FORMAT ... 960 lines across `blob/blob.{c,h}`. We hold
+> 2863 lines across `core/src/blob.{c,internal.h}`, and of 61 entry points
+> the division is clean: **18 are format and tree**, where you already have an
+> equivalent ... **43 are store, propagation and streaming, and you have none
+> of them.**
+
+The 43 they name: have-sets, the wire vocabulary (`encode_want`/`have`/
+`have_query`/`data` and parsers), transfer state, chunk sealing and ingest,
+`scrub`, the read-at-offset streaming source and sink, the return-routability
+cookie, and two tier namespaces.
+
+**So it is not "move the blob code".** This tree owns the format; they grew a
+store and a swarm on top of it, and the instruction is that the second half
+belongs with the first.
+
+### Four constraints, each of which forecloses a design I would have reached for
+
+Recorded because every one is a decision already paid for somewhere else, and
+three of them I would have got wrong by default:
+
+- **The have-set is authoritative and the file contents are not.** A partial
+  blob is a sparse file; a hole reads back as zeros and a legitimate zero
+  chunk reads the same. Inferring what a host holds by reading the file is
+  wrong in both directions, so the have-set is stored beside the chunks. That
+  kills "derive the bitmap on open", which is the obvious first design.
+- **Assignment is sequential, lowest leaves first**, so a partially fetched
+  blob stays contiguous -- which is what makes resume and playback cheap.
+  **Rarest-first schedules better under contention and was deliberately not
+  attempted.** A rejected alternative that is not written down gets
+  re-proposed every year.
+- **One request is one verification batch, 64 leaves**, for two reasons and
+  the second is the one a fresh reader misses: a proof covers a request, AND
+  without the cap a peer holding the whole blob is assigned the whole blob,
+  at which point the swarm is not one.
+- **The WANT cookie is anti-reflection and explicitly NOT a rate limit.** A
+  ~45-byte request answered with a 64 KiB batch is a ~1500x amplifier, and a
+  spoofer never sees the HAVE that carried the cookie. Naming what it is not
+  is what stops it being "improved" into a rate limiter with the property
+  quietly removed.
+
+### And the second consumer is what makes this design work rather than a move
+
+Their second message is the more consequential and it arrived first in a
+conversation this tree was not in. Three things must not travel:
+
+- **Their peer model.** The cookie binds to a source address string and the
+  tier split lives in their storage namespaces. netcfgd's machines are not
+  their siblings and its trust boundary is not their estate.
+- **Their capability taxonomy.** `record/record.h` already refuses to hold
+  `kind` for exactly this reason -- "`kind` meant 'revoke' would have chosen
+  one project's permission taxonomy" -- so a filestore asking "does this host
+  hold CAP_STORE" would import a taxonomy through the back door. Theirs does
+  not, and only because access is decided by the CONTENT KEY rather than at
+  the serve path.
+- **One kind of streaming.** Their sequential assignment exists for resume and
+  playback; netcfgd streaming audio wants the same property for LATENCY,
+  which is the stronger requirement -- a library player can stall and a live
+  consumer would rather have a deadline. Their sec 6 already separates
+  *copy-stream* (reliable, complete, no deadline) from *pure stream* (lossy,
+  deadline-driven). If netcfgd wants the second, propagation has to express
+  both, and that is a decision better made before the API than after.
+
+**This is the extraction test passing by name rather than by argument**, which
+is worth recording because this workspace once failed it the other way:
+`claude-guidelines` `4688a51` refused an extraction for want of two real
+consumers, correctly about what existed and wrong about what was coming. Here
+the second consumer is stated rather than predicted.
+
+### What is NOT decided
+
+Whether this is taken at all, and if so in what order against everything else
+sec 10 lists. Nothing about the API. Whether `spool/` -- which already plans
+ranges over a bitmap and which fuzzypickles declined because it addresses by
+leaf range rather than tree node -- is the foundation or a thing to retire.
+
+**Their position, stated and worth keeping**: they are not migrating and will
+not start one from the consumer side, because a cross-project move is not the
+consumer's to make. They have offered headers, contracts and the reasoning
+behind constants on request rather than having this tree read them out of a
+working copy.
+
+**And they disclaimed their own authority before being asked, which is the
+part to keep.** Their words: they relayed a sentence accurately, and
+"accuracy is not the same as authority" -- they cannot say whether the holder
+meant fuzznet should own this or should own it NOW, "and the difference is
+your whole roadmap". That is `evidence.md`'s rule about voice applied by the
+relayer rather than by the reader, which is the direction it almost never
+gets applied from.
+
+Two things they flagged in advance, so the eventual request is cheaper and so
+neither is mistaken for settled:
+
+- **Why 64 may be reasoning rather than measurement.** They hold "one request
+  is one verification batch" and the swarm argument, and do not know that
+  anyone measured 64 against alternatives. They will separate the two when
+  asked rather than present the pair as one.
+- **Their `WANT` carries a `transfer_id` the requester chooses and the server
+  echoes**, which keeps the server stateless and avoids a 32-byte root per
+  DATA frame. **The property is worth keeping and its encoding is not** --
+  which is the distinction this whole row turns on.
+
 ## 100. netcfgd's adoption has a condition and a language, 2026-09-05
 
 **Settled by the copyright holder 2026-09-05, relayed through
