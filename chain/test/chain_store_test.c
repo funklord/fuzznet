@@ -508,6 +508,131 @@ static void test_every_guard_refuses_its_own_argument(void)
 	      "lookup accepted a null out length");
 }
 
+
+/* THE THREE RULES THE SHAPE CARRIES, which `record/sync.h` argues and this
+ * module inherits rather than re-deciding: a request naming nothing gets
+ * nothing, a ceiling because the peer picks the count, and a zero cap
+ * refused rather than read as unlimited. */
+static void test_the_offer_keeps_the_three_rules(void)
+{
+	struct fixture f;
+	fzn_chain_want_t wants[3];
+	uint8_t holds[3];
+	fzn_chain_offer_t plan;
+
+	REQUIRE(build(&f), "the fixture does not build");
+	REQUIRE(fzn_chain_store_admit(&f.store, &f.hop, 1, f.root, &f.cap, 200, &OPS, NULL, NULL)
+	                == FZN_CHAIN_OK,
+	        "admit refused a sound chain");
+
+	memset(wants, 0, sizeof(wants));
+	memcpy(wants[0].root, f.root, FZN_PUBKEY_LEN);
+	wants[0].capability = f.cap;
+	memcpy(wants[0].subject, f.grantee, FZN_PUBKEY_LEN);
+	/* Two the host does not hold. */
+	key(wants[1].root, 0x81);
+	cap_id(&wants[1].capability, 0x82);
+	key(wants[1].subject, 0x83);
+	key(wants[2].root, 0x91);
+	cap_id(&wants[2].capability, 0x92);
+	key(wants[2].subject, 0x93);
+
+	/* A verdict per want, parallel to the list rather than filtered. */
+	memset(holds, 0xff, sizeof(holds));
+	CHECK(fzn_chain_plan_offer(&f.store, wants, 3, holds, 3, 300, &plan) == FZN_CHAIN_OK,
+	      "a sound offer was refused");
+	CHECK(plan.examined == 3u, "not every want was examined");
+	CHECK(plan.held == 1u, "the wrong number of wants was reported held");
+	CHECK(plan.truncated == 0, "an unclipped request was reported truncated");
+	CHECK(holds[0] == 1u, "the want this host holds was not marked");
+	CHECK(holds[1] == 0u && holds[2] == 0u, "a want this host lacks was marked held");
+
+	/* A REQUEST NAMING NOTHING GETS NOTHING, and is not an error and not
+	 * read as "send everything". */
+	CHECK(fzn_chain_plan_offer(&f.store, NULL, 0, holds, 3, 300, &plan) == FZN_CHAIN_OK,
+	      "a request naming nothing was refused");
+	CHECK(plan.examined == 0u && plan.held == 0u && plan.truncated == 0,
+	      "a request naming nothing answered something");
+
+	/* A CEILING, because the peer picks the count. The unexamined tail is
+	 * not reported as not-held, which is a different answer a peer would
+	 * act on. */
+	memset(holds, 0xff, sizeof(holds));
+	CHECK(fzn_chain_plan_offer(&f.store, wants, 3, holds, 1, 300, &plan) == FZN_CHAIN_OK,
+	      "a clipped request was refused rather than clipped");
+	CHECK(plan.examined == 1u, "the ceiling did not clip the request");
+	CHECK(plan.truncated == 1, "a clipped request did not say so");
+	CHECK(holds[1] == 0xffu && holds[2] == 0xffu,
+	      "the unexamined tail was written, so a peer cannot tell 'not held' from "
+	      "'not looked at'");
+
+	/* ZERO IS REFUSED rather than meaning unlimited. */
+	CHECK(fzn_chain_plan_offer(&f.store, wants, 3, holds, 0, 300, &plan)
+	              == FZN_CHAIN_ERR_MALFORMED,
+	      "a zero capacity was read as unlimited");
+	CHECK(plan.examined == 0u && plan.held == 0u,
+	      "a refused offer left counts behind");
+}
+
+/* Expiry counts as not held, and an unsound store is refused rather than
+ * answered -- the two judgements that separate this from a plain array
+ * scan. */
+static void test_the_offer_refuses_rather_than_promising(void)
+{
+	struct fixture f;
+	fzn_chain_want_t want;
+	uint8_t holds[1];
+	fzn_chain_offer_t plan;
+
+	REQUIRE(build(&f), "the fixture does not build");
+	REQUIRE(fzn_chain_store_admit(&f.store, &f.hop, 1, f.root, &f.cap, 200, &OPS, NULL, NULL)
+	                == FZN_CHAIN_OK,
+	        "admit refused a sound chain");
+
+	memset(&want, 0, sizeof(want));
+	memcpy(want.root, f.root, FZN_PUBKEY_LEN);
+	want.capability = f.cap;
+	memcpy(want.subject, f.grantee, FZN_PUBKEY_LEN);
+
+	REQUIRE(fzn_chain_plan_offer(&f.store, &want, 1, holds, 1, 300, &plan) == FZN_CHAIN_OK,
+	        "the offer failed before the expiry case");
+	REQUIRE(holds[0] == 1u, "the chain is not held before its expiry");
+
+	/* PAST ITS EXPIRY IT IS NOT OFFERED. Offering it would be offering
+	 * bytes the peer will refuse, which this host already knows. */
+	CHECK(fzn_chain_plan_offer(&f.store, &want, 1, holds, 1, 9000, &plan) == FZN_CHAIN_OK,
+	      "the offer was refused rather than answering 'not held'");
+	CHECK(holds[0] == 0u && plan.held == 0u,
+	      "an expired chain was offered to a peer");
+
+	/* AN UNSOUND STORE IS REFUSED, not answered. Promising to serve from a
+	 * store nobody can scan is worse than saying nothing. */
+	{
+		fzn_chain_store_t hollow = f.store;
+
+		hollow.used = hollow.capacity + 1u;
+		CHECK(fzn_chain_plan_offer(&hollow, &want, 1, holds, 1, 300, &plan)
+		              == FZN_CHAIN_ERR_MALFORMED,
+		      "a store that cannot be scanned promised to serve a triple");
+		hollow = f.store;
+		hollow.entries = NULL;
+		hollow.used = 1u;
+		CHECK(fzn_chain_plan_offer(&hollow, &want, 1, holds, 1, 300, &plan)
+		              == FZN_CHAIN_ERR_MALFORMED,
+		      "a store with no array promised to serve a triple");
+	}
+
+	CHECK(fzn_chain_plan_offer(NULL, &want, 1, holds, 1, 300, &plan)
+	              == FZN_CHAIN_ERR_MALFORMED, "offer accepted a null store");
+	CHECK(fzn_chain_plan_offer(&f.store, NULL, 1, holds, 1, 300, &plan)
+	              == FZN_CHAIN_ERR_MALFORMED,
+	      "offer accepted a null list with a nonzero count");
+	CHECK(fzn_chain_plan_offer(&f.store, &want, 1, NULL, 1, 300, &plan)
+	              == FZN_CHAIN_ERR_MALFORMED, "offer accepted a null holds array");
+	CHECK(fzn_chain_plan_offer(&f.store, &want, 1, holds, 1, 300, NULL)
+	              == FZN_CHAIN_ERR_MALFORMED, "offer accepted a null plan");
+}
+
 int main(void)
 {
 	test_init_refuses_what_cannot_hold_anything();
@@ -521,6 +646,8 @@ int main(void)
 	test_a_revoked_chain_is_still_held_and_no_longer_verifies();
 	test_admitting_a_chain_follows_nobody();
 	test_every_guard_refuses_its_own_argument();
+	test_the_offer_keeps_the_three_rules();
+	test_the_offer_refuses_rather_than_promising();
 
 	printf("chain_store_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

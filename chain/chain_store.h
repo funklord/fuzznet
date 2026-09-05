@@ -145,4 +145,83 @@ int fzn_chain_store_lookup(const fzn_chain_store_t *store, const uint8_t root[FZ
  * count from a corrupt table is invented rather than measured. */
 size_t fzn_chain_store_count(const fzn_chain_store_t *store);
 
+/*
+ * ---- asking and answering -----------------------------------------------
+ *
+ * project.md sec 95 called chain delivery the fourth instance of a shape
+ * this library has settled three times -- `record/sync.h`, `chain/manifest.h`
+ * and `spool/plan.h` -- and the three rules they share are kept here because
+ * a serve path is where a stranger chooses the number:
+ *
+ *   - A request naming nothing gets nothing. A `want_count` of zero is fine
+ *     and answers zero, rather than reading as "send everything".
+ *   - A ceiling, because the peer picks `want_count`. More wants than
+ *     `holds_cap` are clipped to what fits, and `truncated` says so.
+ *   - Zero is refused rather than meaning unlimited. A `holds_cap` of zero
+ *     is MALFORMED, not an invitation.
+ *
+ * THERE IS NO `fzn_chain_plan_want`, AND THAT IS A FINDING RATHER THAN AN
+ * OMISSION. `record/sync.h` has both because its two are different
+ * computations over the peer's positions: ranges the peer has and this host
+ * lacks, against ranges this host has and the peer lacks. Here both
+ * directions are ONE predicate -- "do I hold a live chain for this triple" --
+ * applied to a list the caller already has. A fetch path calls this against
+ * its own needs and reads the zeroes; a serve path calls it against the
+ * peer's request and reads the ones. A second entry point would be the same
+ * loop with the answer inverted, which is a second thing to keep right for
+ * no question it answers.
+ */
+
+/* One triple a host is asking about: the chain from `root` that authorises
+ * `subject` for `capability`. The same shape as `fzn_manifest_deficit_t` with
+ * the names its own question needs. */
+typedef struct fzn_chain_want {
+	uint8_t root[FZN_PUBKEY_LEN];
+	fzn_cap_id_t capability;
+	uint8_t subject[FZN_PUBKEY_LEN];
+} fzn_chain_want_t;
+
+typedef struct fzn_chain_offer {
+	/* Wants this host holds a live chain for, and can therefore serve. */
+	size_t held;
+	/* Wants actually looked at. Less than `want_count` when the ceiling
+	 * clipped the request. */
+	size_t examined;
+	/* Set when the peer named more than `holds_cap` could answer. The
+	 * unexamined tail is NOT reported as "not held", because that is a
+	 * different answer and a peer would act on it. */
+	int truncated;
+} fzn_chain_offer_t;
+
+/*
+ * Which of these does this host hold?
+ *
+ * `holds` receives one byte per want EXAMINED: 1 where a live chain is held,
+ * 0 where it is not. Parallel to `wants` rather than a filtered copy, which
+ * is `fzn_manifest_plan_offer`'s idiom and for its reason -- a caller that
+ * wanted the triples already has them.
+ *
+ * `holds[i]` MEANS "LOOK THIS ONE UP AND SEND IT", not "here it is", even
+ * though unlike the revocation store this one kept the bytes. Returning them
+ * would mean returning many variable-length blobs, which needs an arena --
+ * and sec 95 rejected an arena for this module on the grounds that it adds a
+ * second capacity and an invariant between two fields. `fzn_chain_store_lookup`
+ * is the second call, and it is one line.
+ *
+ * EXPIRY COUNTS AS NOT HELD, which is why `now` is required. Offering a chain
+ * that has expired is offering bytes the peer will refuse, and the host
+ * already knows it.
+ *
+ * AN UNSOUND STORE IS REFUSED RATHER THAN ANSWERED. `chain/manifest.h` makes
+ * the argument in its own words: a store that cannot be scanned must not
+ * promise to serve every triple a peer named. This module's `lookup` answers
+ * "nothing held" for the same store, and that is the same polarity seen from
+ * the other side -- there the caller learns nothing is available, here the
+ * caller would otherwise publish a promise.
+ */
+fzn_chain_err_t fzn_chain_plan_offer(const fzn_chain_store_t *store,
+                                     const fzn_chain_want_t *wants, size_t want_count,
+                                     uint8_t *holds, size_t holds_cap, uint64_t now,
+                                     fzn_chain_offer_t *plan);
+
 #endif /* FZN_CHAIN_STORE_H */

@@ -151,3 +151,51 @@ size_t fzn_chain_store_count(const fzn_chain_store_t *store)
 		return 0;
 	return store->used;
 }
+
+fzn_chain_err_t fzn_chain_plan_offer(const fzn_chain_store_t *store,
+                                     const fzn_chain_want_t *wants, size_t want_count,
+                                     uint8_t *holds, size_t holds_cap, uint64_t now,
+                                     fzn_chain_offer_t *plan)
+{
+	size_t i;
+
+	/* Nowhere to put an answer. Checked first because everything below
+	 * writes, which is `fzn_revocation_covers_chain`'s order. */
+	if (!plan)
+		return FZN_CHAIN_ERR_MALFORMED;
+	plan->held = 0;
+	plan->examined = 0;
+	plan->truncated = 0;
+
+	/* Zero is refused rather than read as unlimited -- `record/sync.h`'s
+	 * rule, inherited rather than re-decided. */
+	if (!holds || holds_cap == 0u)
+		return FZN_CHAIN_ERR_MALFORMED;
+	/* A null list is honest only when it names nothing. */
+	if (want_count > 0u && !wants)
+		return FZN_CHAIN_ERR_MALFORMED;
+	if (!store || corrupt(store))
+		return FZN_CHAIN_ERR_MALFORMED;
+
+	plan->examined = want_count < holds_cap ? want_count : holds_cap;
+	plan->truncated = want_count > holds_cap;
+
+	for (i = 0; i < plan->examined; i++) {
+		const uint8_t *bytes = NULL;
+		size_t len = 0;
+
+		/* Asked through `lookup` rather than by reaching into the
+		 * array, so the expiry rule and the constant-time compare are
+		 * one implementation. A second scan here would be a second
+		 * thing to keep in step with it. */
+		if (fzn_chain_store_lookup(store, wants[i].root, &wants[i].capability,
+		                           wants[i].subject, now, &bytes, &len)) {
+			holds[i] = 1u;
+			plan->held++;
+		} else {
+			holds[i] = 0u;
+		}
+	}
+
+	return FZN_CHAIN_OK;
+}

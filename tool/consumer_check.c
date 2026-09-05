@@ -1532,40 +1532,80 @@ int main(void)
 	{
 		fzn_chain_store_t held;
 		fzn_chain_entry_t slots[1];
-		uint8_t hop_bytes[FZN_HOP_LEN];
-		fzn_chain_hop_t hop;
+		uint8_t chain_hop_bytes[FZN_HOP_LEN];
+		fzn_chain_hop_t chain_hop;
 		uint8_t grantee[FZN_PUBKEY_LEN];
-		fzn_cap_id_t cap;
+		fzn_cap_id_t chain_cap;
 		const uint8_t *found = NULL;
 		size_t found_len = 0;
 
 		memset(grantee, 0x6d, sizeof(grantee));
-		memset(cap.b, 0x6e, sizeof(cap.b));
+		memset(chain_cap.b, 0x6e, sizeof(chain_cap.b));
 
 		if (fzn_chain_store_init(&held, slots, 1) != FZN_CHAIN_OK)
 			FAIL(256);
 		if (fzn_chain_store_count(&held) != 0u)
 			FAIL(257);
-		if (fzn_chain_mint(root, grantee, &cap, 100, 5000, 1, &sign, hop_bytes)
+		if (fzn_chain_mint(root, grantee, &chain_cap, 100, 5000, 1, &sign, chain_hop_bytes)
 		    != FZN_CHAIN_OK)
 			FAIL(258);
-		if (fzn_hop_open(hop_bytes, FZN_HOP_LEN, &hop) != FZN_CHAIN_OK)
+		if (fzn_hop_open(chain_hop_bytes, FZN_HOP_LEN, &chain_hop) != FZN_CHAIN_OK)
 			FAIL(259);
-		if (fzn_chain_store_admit(&held, &hop, 1, root, &cap, 200, &sign, NULL, NULL)
+		if (fzn_chain_store_admit(&held, &chain_hop, 1, root, &chain_cap, 200, &sign, NULL, NULL)
 		    != FZN_CHAIN_OK)
 			FAIL(260);
 		if (fzn_chain_store_count(&held) != 1u)
 			FAIL(261);
-		if (!fzn_chain_store_lookup(&held, root, &cap, grantee, 200, &found, &found_len))
+		if (!fzn_chain_store_lookup(&held, root, &chain_cap, grantee, 200, &found, &found_len))
 			FAIL(262);
 		if (found == NULL || found_len == 0u)
 			FAIL(263);
 		/* Past its expiry it is withheld, and the out-parameters are
 		 * cleared rather than left pointing at the last answer. */
-		if (fzn_chain_store_lookup(&held, root, &cap, grantee, 9000, &found, &found_len))
+		if (fzn_chain_store_lookup(&held, root, &chain_cap, grantee, 9000, &found, &found_len))
 			FAIL(264);
 		if (found != NULL || found_len != 0u)
 			FAIL(265);
+
+		/* And the serve side: a verdict per want, clipped by the
+		 * caller's array, with a zero capacity refused rather than
+		 * read as unlimited. */
+		{
+			fzn_chain_want_t want[2];
+			uint8_t holds[2];
+			fzn_chain_offer_t offer;
+
+			memset(want, 0, sizeof(want));
+			memcpy(want[0].root, root, FZN_PUBKEY_LEN);
+			want[0].capability = chain_cap;
+			memcpy(want[0].subject, grantee, FZN_PUBKEY_LEN);
+			memset(want[1].root, 0x7a, FZN_PUBKEY_LEN);
+			memset(want[1].capability.b, 0x7b, FZN_CAP_ID_LEN);
+			memset(want[1].subject, 0x7c, FZN_PUBKEY_LEN);
+
+			memset(holds, 0xff, sizeof(holds));
+			if (fzn_chain_plan_offer(&held, want, 2, holds, 2, 200, &offer)
+			    != FZN_CHAIN_OK)
+				FAIL(266);
+			if (offer.examined != 2u || offer.held != 1u || offer.truncated != 0)
+				FAIL(267);
+			if (holds[0] != 1u || holds[1] != 0u)
+				FAIL(268);
+
+			memset(holds, 0xff, sizeof(holds));
+			if (fzn_chain_plan_offer(&held, want, 2, holds, 1, 200, &offer)
+			    != FZN_CHAIN_OK)
+				FAIL(269);
+			if (offer.examined != 1u || offer.truncated != 1)
+				FAIL(270);
+			/* The unexamined tail is left alone, so a peer can tell
+			 * "not held" from "not looked at". */
+			if (holds[1] != 0xffu)
+				FAIL(271);
+			if (fzn_chain_plan_offer(&held, want, 2, holds, 0, 200, &offer)
+			    != FZN_CHAIN_ERR_MALFORMED)
+				FAIL(272);
+		}
 	}
 
 	/* Key agreement: the seam a consumer fills to get deletable material

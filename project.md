@@ -11668,7 +11668,30 @@ obvious next step by weight of description alone.
 and `.c`, on the holder's instruction 2026-09-05, with both properties above
 asserted rather than stated: a revoked chain is still held and no longer
 verifies, and admitting one leaves `fzn_journal_admit`'s refusal exactly
-where it was. The want and offer half is not built and is not started.
+where it was. **The offer half is built too** -- `fzn_chain_plan_offer`, 2026-09-05 --
+and it is ONE call where the shape has two, which is a finding rather than
+a shortcut. `record/sync.h` has `plan_fetch` and `plan_offer` because they
+are different computations over the peer's positions: ranges the peer has
+and this host lacks, against ranges this host has and the peer lacks. Here
+both directions are one predicate -- "do I hold a live chain for this
+triple" -- applied to a list the caller already has. A fetch path calls it
+against its own needs and reads the zeroes; a serve path calls it against
+the peer's request and reads the ones. A `_want` would be the same loop
+with the answer inverted, which is a second thing to keep right for no
+question it answers, so the header says so in order that nobody later
+completes the pair out of symmetry.
+
+The three rules the shape carries are kept and each is now a sabotage
+entry: a request naming nothing gets nothing, a ceiling because the peer
+picks the count, and a zero cap refused rather than read as unlimited.
+
+**A sabotage that did not apply nearly read as a test that does not
+catch.** Mutating `if (!store || corrupt(store))` in the offer matched
+`fzn_chain_store_count` as well, so the substitution was refused and the
+run printed a green suite -- which without a grep confirming the edit had
+landed would have been read as "nothing tests this", the exact inverse.
+`sabotage.py --verify` enforces the property the ad-hoc loop lacked: it
+reports 109 entries over 36 of 37 sources, EACH NAMING EXACTLY ONE SITE.
 
 **What building it found is about this tree's gates rather than about
 chains.** Three separate mechanisms refused a half-added module, and none

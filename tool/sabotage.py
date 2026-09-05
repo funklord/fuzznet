@@ -1032,6 +1032,40 @@ SABOTAGES = [
 		"junk by anyone who can send bytes",
 	),
 	(
+		"chain-store-offer-ceiling",
+		"chain/chain_store.c",
+		"\tplan->examined = want_count < holds_cap ? want_count : holds_cap;\n",
+		"\tplan->examined = want_count;\n",
+		"a peer picks want_count, so the answer is clipped to what fits rather "
+		"than written past the caller's array",
+	),
+	(
+		"chain-store-offer-truncated",
+		"chain/chain_store.c",
+		"\tplan->truncated = want_count > holds_cap;\n",
+		"\tplan->truncated = 0;\n",
+		"a clipped request must say so, or the unexamined tail reads as "
+		"not-held and a peer acts on it",
+	),
+	(
+		"chain-store-offer-zero-cap",
+		"chain/chain_store.c",
+		"\tif (!holds || holds_cap == 0u)\n",
+		"\tif (!holds)\n",
+		"a zero capacity is refused rather than read as unlimited, which is "
+		"record/sync.h's rule inherited",
+	),
+	(
+		"chain-store-offer-unsound",
+		"chain/chain_store.c",
+		"\tif (want_count > 0u && !wants)\n\t\treturn FZN_CHAIN_ERR_MALFORMED;\n"
+		"\tif (!store || corrupt(store))\n",
+		"\tif (want_count > 0u && !wants)\n\t\treturn FZN_CHAIN_ERR_MALFORMED;\n"
+		"\tif (!store)\n",
+		"a store that cannot be scanned must not promise to serve every triple "
+		"a peer named",
+	),
+	(
 		"chain-store-replaces",
 		"chain/chain_store.c",
 		"\tat = find_entry(store, verified.root, &verified.capability, verified.grantee);\n",
