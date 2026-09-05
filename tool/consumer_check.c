@@ -61,6 +61,7 @@
 #include <fuzznet/spool/spool.h>
 #include <fuzznet/spool/plan.h>
 #include <fuzznet/spool/message.h>
+#include <fuzznet/spool/transfer.h>
 /* The default backend's header ships whenever the subsystem is built, so the
  * installcheck gate requires this file to include it -- a header named in
  * HDRS and included by nothing passes that gate as loudly as one a consumer
@@ -113,6 +114,7 @@
 #include "spool/spool.h"
 #include "spool/plan.h"
 #include "spool/message.h"
+#include "spool/transfer.h"
 #ifdef FZN_PERSIST_FILE_ON
 #include "persist/persist_file.h"
 #endif
@@ -1460,6 +1462,52 @@ int main(void)
 				FAIL(339);
 			if (fzn_msg_err_str(FZN_MSG_ERR_EMPTY) == NULL)
 				FAIL(340);
+		}
+
+		/* The transfer, walked for the one thing a consumer must not
+		 * get wrong: NONE and FULL are both ordinary and they mean
+		 * opposite things. NONE says stop asking; FULL says wait for
+		 * a reply and ask again. A consumer treating either as an
+		 * error stalls, and one treating them as the same spins. */
+		{
+			fzn_transfer_t tr;
+			fzn_transfer_assign_t tslots[2];
+			fzn_spool_range_t want;
+
+			memset(&sp, 0, sizeof(sp));
+			sp.present = map;
+			sp.leaves = 2u;
+			sp.present_len = sizeof(map);
+			sp.ops = &nops;
+
+			/* Nothing held: the window is one, so the first ask
+			 * is answered and the second is FULL rather than
+			 * NONE. */
+			map[0] = 0x00u;
+			if (fzn_transfer_open(&tr, &sp, tslots, 2u) != FZN_TRANSFER_OK)
+				FAIL(341);
+			if (fzn_transfer_window(&tr) != 1u)
+				FAIL(342);
+			if (fzn_transfer_next_want(&tr, 1u, 0u, 1u, 10u, &want) != FZN_TRANSFER_OK)
+				FAIL(343);
+			if (fzn_transfer_next_want(&tr, 2u, 0u, 1u, 10u, &want) != FZN_TRANSFER_FULL)
+				FAIL(344);
+
+			/* A stalled peer's range comes back, and the window
+			 * halves without reaching zero. */
+			if (fzn_transfer_expire(&tr, 10u) != 1u)
+				FAIL(345);
+			if (fzn_transfer_window(&tr) != 1u)
+				FAIL(346);
+
+			/* Everything held: NONE, and it is not an error. */
+			map[0] = 0x03u;
+			if (fzn_transfer_open(&tr, &sp, tslots, 2u) != FZN_TRANSFER_OK)
+				FAIL(347);
+			if (fzn_transfer_next_want(&tr, 1u, 0u, 1u, 10u, &want) != FZN_TRANSFER_NONE)
+				FAIL(348);
+			if (fzn_transfer_err_str(FZN_TRANSFER_FULL) == NULL)
+				FAIL(349);
 		}
 
 #ifdef FZN_SPOOL_FILE_ON

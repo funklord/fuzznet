@@ -45,6 +45,7 @@
 /persist/test/persist_file_test
 /spool/test/plan_test
 /spool/test/message_test
+/spool/test/transfer_test
 /spool/test/spool_file_test
 /spool/test/spool_test
 /session/test/agree_test

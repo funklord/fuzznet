@@ -1029,6 +1029,51 @@ SABOTAGES = [
 		"re-requests -- a transfer that reports complete over a corrupt blob",
 	),
 	(
+		"transfer-records-before-asking",
+		"spool/transfer.c",
+		"\t\tif (slot->live && overlaps(first, count, slot->first, slot->count))\n"
+		"\t\t\treturn 1;\n",
+		"\t\tif (0 && slot->live && overlaps(first, count, slot->first, slot->count))\n"
+		"\t\t\treturn 1;\n",
+		"two peers handed the same range, which every test with ONE peer passes -- "
+		"fuzzypickles measured exactly this gap in their own suite",
+	),
+	(
+		"transfer-delivery-verified",
+		"spool/transfer.c",
+		"\t\tif (!fzn_spool_has(transfer->spool, first + i))\n"
+		"\t\t\treturn FZN_TRANSFER_ERR_UNKNOWN;\n",
+		"\t\tif (0 && !fzn_spool_has(transfer->spool, first + i))\n"
+		"\t\t\treturn FZN_TRANSFER_ERR_UNKNOWN;\n",
+		"congestion control opening on work that never happened, because a claim of "
+		"delivery was taken from a caller rather than asked of the store",
+	),
+	(
+		"transfer-window-floor",
+		"spool/transfer.c",
+		"\tif (transfer->window == 0u)\n\t\ttransfer->window = 1u;\n",
+		"\tif (0 && transfer->window == 0u)\n\t\ttransfer->window = 1u;\n",
+		"a window at zero can ask for nothing and can therefore never learn the path "
+		"recovered -- link/ demotes rather than deletes for the same reason",
+	),
+	(
+		"transfer-not-slow-start",
+		"spool/transfer.c",
+		"\tif (transfer->successes < transfer->window)\n\t\treturn;\n",
+		"\tif (transfer->successes < 1u)\n\t\treturn;\n",
+		"one increase per SUCCESS rather than per window of successes doubles the "
+		"window every window, which is slow start and is deliberately not done",
+	),
+	(
+		"transfer-one-halving-per-event",
+		"spool/transfer.c",
+		"\t\tslot->live = 0u;\n\t\ttransfer->in_flight--;\n\t\tdropped++;\n",
+		"\t\tslot->live = 0u;\n\t\ttransfer->in_flight--;\n\t\tdropped++;\n"
+		"\t\ton_loss(transfer);\n",
+		"one stalled peer holding four batches charged as four losses puts the window "
+		"on its floor for a single event, which is what AIMD exists to avoid",
+	),
+	(
 		"seal-commitment-refuses-a-stranger",
 		"wire/seal.c",
 		"\tif (fzn_commitment_check(derived, situ_fzn_head_commitment_ptr(hv)) "

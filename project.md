@@ -5838,6 +5838,7 @@ somebody to notice.
 | `sched/sched.h` | which link a message should take |
 | `session/aead.h` | aead, commitment, random, agreement, session roots |
 | `spool/message.h` | the four things two hosts say about a blob |
+| `spool/transfer.h` | who was asked for what, and how fast to ask |
 | `spool/plan.h` | what has not been sent yet |
 | `state/state.h` | permissions, rules and config as one thing |
 | `tree/tree.h` | nesting that replicates |
@@ -22674,6 +22675,124 @@ nothing was regenerated here. Whether adopting a language feature moves
 the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
+
+## 108. The transfer state machine, and the optimisation that made it untestable, 2026-09-05
+
+`spool/transfer.{h,c}`, 82 checks. Sec 107 gathered what fuzzypickles'
+transfer holds before this was designed; this is what got built, and the
+interesting part is a design change the TEST forced rather than anything in
+the requirements.
+
+`spool/plan.h` names this file's job in the negative -- rarest-first "needs
+what the OTHER peers hold, which is not in this store and is the multi-peer
+assignment problem this file does not solve." This solves the half of that
+which needs no knowledge of other peers: not which range is most valuable,
+but that two peers are not sent the same one and that a peer going quiet does
+not take a range with it.
+
+### Two sets, and the second one costs no code at all
+
+Sec 107's first property is that `pending` and `held` must be separate,
+because an abandoned batch has to forget the ASK without forgetting the
+HOLDINGS. **Here `held` already exists -- it is the spool's bitmap -- so only
+`pending` is new, and the return to the want-list needs no code whatsoever.**
+Dropping an assignment IS forgetting the ask, the holdings were never touched
+because a failed batch never reached the bitmap, and `fzn_spool_plan_want`
+re-emits the range on its next call by construction.
+
+**Pending is an assignment table rather than a second bitmap**, for two
+reasons and the second decides it. A bitmap would spend 512 KiB at the blob
+ceiling recording something bounded by requests in flight rather than by blob
+size. And a bitmap cannot say WHO was asked, which is the whole of the
+abandon path.
+
+**A peer is an opaque `uint32_t` this library never interprets** -- sec 102's
+first thing that must not travel, and the same answer `spool/message.h` gives
+about the cookie. Nothing compares two peers except for equality.
+
+### The optimisation that would have made the property untestable
+
+`fzn_transfer_next_want` had an internal cursor advancing past each
+assignment, so a peer refused a range would not re-scan the same assigned
+prefix. Obvious, cheap, and **it produces disjoint ranges on its own** -- so
+the two-peer test passed with the pending record removed, the cursor
+accounting for the disjointness by itself.
+
+That is *a consumer that is right by coincidence* met while writing the test
+rather than months later: a property with two mechanisms where only one is
+load-bearing is a property no test can hold, and every additional passing
+case would have increased confidence in the wrong one.
+
+**The cursor is gone and `from` is the caller's argument.** That is also the
+better API on its own merits, which is the part worth noticing -- `plan.h`
+already treats `from` as a playhead belonging to whoever is streaming, and
+this module had no business choosing it. The fix for the testability problem
+and the correct ownership were the same edit.
+
+### The two-peer test, and what it measures
+
+fuzzypickles' finding was that their suite had two correctly-named tests for
+the assignment property, both correct, both passing a `pending` set the TESTS
+maintained, and no test anywhere with two peers -- so sabotaging the record
+left the suite green. Measured here, with the exclusion neutered and
+everything else intact:
+
+    FAIL transfer_test.c:206: both peers were handed 2+2 -- the assignment was not recorded
+    FAIL transfer_test.c:209: the ranges overlap: 2+2 and 2+2
+    transfer_test: 82 checks, 2 failures
+
+**Two failures, both in that one test, and nothing else in the suite moves**
+-- which is the same shape their two-peer test produced, and confirms their
+point from the other direction: every other case here passes against a
+transfer that records nothing.
+
+**THE FIXTURE ASSERTS ITS OWN PRECONDITION**, which is the guard against the
+near-miss they reported. The window starts at one, so a second ask is refused
+for a WINDOW reason and never reaches the assignment question; their first
+draft did exactly that and would have passed identically with the pending
+step gone. Controlled here by removing the window-opening step AND the
+exclusion together:
+
+    FAIL transfer_test.c:197: the window is 1, so this test cannot ask twice
+    FAIL transfer_test.c:203: the second peer got nothing
+
+It fails loudly, and the first line names the cause. A test that can only
+pass for the right reason is worth more than one that happens to today.
+
+### Delivery is asked of the store, not taken from the caller
+
+`fzn_transfer_delivered` checks every leaf of the range with
+`fzn_spool_has` before freeing the slot, because otherwise congestion control
+opens on work that did not happen. Same reasoning as `fzn_spool_open`
+recomputing `have` from the bits rather than trusting a caller.
+
+Its refuse arm is tested, including the case that separates a real check from
+one that samples: **a PARTIALLY placed range is still not a delivery.** That
+was written deliberately after yesterday's finding that an accept arm covered
+and a refuse arm uncovered reads as thorough throughout.
+
+### AIMD, and the two places a plain counter goes wrong
+
+One increase per WINDOW of successes rather than per success -- the latter
+doubles the window every window, which is slow start and is deliberately not
+done. The test has to run past window one, because at one the two are
+indistinguishable. And the window halves without reaching zero, because a
+transfer that cannot ask for anything can never learn the path recovered;
+`link/` demotes rather than deletes for the same reason.
+
+**One halving per loss EVENT, not per assignment.** A stalled peer holding
+four batches is one failure; charging four puts the window on its floor for a
+single event, which is what AIMD exists to avoid. Five sabotage entries cover
+these and the two above.
+
+### What is not here
+
+No peer scoring, no rarest-first, no bans. `fzn_transfer_failed` takes a range
+rather than a peer and nothing penalises the peer that failed, because
+deciding that needs a peer model this library does not have -- one bad peer
+costs one batch, and which peer to ask next is the caller's.
+
+Of sec 102's six filestore pieces, `scrub` and the tier namespaces remain.
 
 ## 107. The transfer state machine: what fuzzypickles measured, before anything is built, 2026-09-05
 
