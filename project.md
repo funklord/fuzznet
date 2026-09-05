@@ -22675,6 +22675,88 @@ the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
 
+## 107. The transfer state machine: what fuzzypickles measured, before anything is built, 2026-09-05
+
+**Nothing here is built.** Sec 102 left three filestore pieces unassigned --
+the transfer state machine, `scrub`, and tier namespaces -- and this records
+what the one existing implementation holds, asked for before designing rather
+than after, so the design is not a rediscovery.
+
+**Relayed, not measured here.** Every claim below is fuzzypickles reporting
+their own tree, and they marked each for whether a test holds it. That
+marking is theirs and is the reason it is worth quoting rather than
+paraphrasing.
+
+### Five properties, and the pair of sets is the one to read twice
+
+- **TWO SETS, NOT ONE.** `pending` is what is held OR already asked for;
+  `held` is what is actually held. Separate because of a failure case: an
+  abandoned batch must return to the want-list, which means forgetting the
+  ASK without forgetting the HOLDINGS. *"A single set cannot express that --
+  clearing it loses data, keeping it re-asks nothing."* **Asserted in their
+  tree.**
+- **ASSIGNMENT IS SERIALISED THROUGH `pending`, before the next peer is
+  asked.** That ordering is the whole mechanism preventing two peers being
+  handed one range -- *"not an optimisation and not locking"*, but that the
+  requester is the only party with global knowledge and must not consult a
+  stale copy of its own intent. **Reasoning with a mechanism attached; they
+  say plainly they cannot point at a test that would catch its reversal.**
+- **A BATCH IS THE UNIT OF FOUR THINGS AT ONCE**: request, verification,
+  retry and congestion, which is why their window counts batches rather than
+  bytes. *"If your span is the unit of request but not of verification, or of
+  verification but not of retry, you will need a second unit somewhere and
+  the two will disagree under loss."*
+- **THE FAILURE CONTRACT.** `commit` returns NO_MANIFEST when nothing is
+  ready -- a normal "not yet" and the signal to stop looping, not an error --
+  and MANIFEST_INVALID when a ready batch fails verification, after which
+  nothing of it is stored, **that batch alone is dropped**, and its range
+  returns to the want-list. One bad peer costs one batch, not the transfer.
+  And commit is called in a LOOP, because several batches can become ready
+  between polls. **Asserted in their tree.**
+- **AIMD IN BATCHES WITH A FLOOR OF ONE.** Additive increase is one per
+  WINDOW of successes rather than one per success, the latter being slow
+  start, which they deliberately do not do. Decrease halves and never reaches
+  zero: *"a transfer that cannot ask for anything can never learn the path
+  recovered"* -- the same reasoning as demoting rather than deleting in a link
+  table. **Asserted**, including the refusal at window one.
+
+### The one place they say their shape is wrong for this tree, and it half lands
+
+Their batch buffer is a fixed array of slots each holding a whole span, so
+the 66 KiB is spent whether or not a transfer is active. They proposed that a
+library serving consumers with different appetites should make the in-flight
+count and the per-batch buffer **the caller's**, citing sec 106's own finding
+that the bound is a memory-holding decision rather than a protocol constant.
+
+**The argument is right and this tree already answers it, which is only
+knowable by reading rather than agreeing.** `fzn_spool_place_span` takes
+`const uint8_t *const *sealed` and copies no leaf, and
+`fzn_msg_data_parse` refuses a span larger than the array it was handed -- so
+the operative bound is the caller's `cap` and `FZN_MSG_MAX_SPAN` is a ceiling
+above it. What the library fixes is 2 KiB of stack scratch.
+
+Sec 106 is corrected accordingly: it said a caller must hold the whole batch
+and left the impression the library did. **The memory-holding argument was
+right about what decides the number and wrong about who pays it.** Nobody
+would have caught that by re-reading sec 106, because the sentence is true of
+the transfer either way -- which is the same shape as their own near-miss,
+where both sentences were true and only one was about the system.
+
+### What this changes about the piece that is not built
+
+Two of the five are shapes this tree cannot inherit and must decide:
+
+- **The two sets are `spool/`'s bitmap plus something.** `present` is `held`.
+  There is no `pending`, and `fzn_spool_plan_want` recomputes wants from the
+  bitmap every call -- which is correct for a single peer and cannot express
+  "asked, not yet arrived" at all. That is the first thing a second peer
+  breaks, and it is a data-structure decision rather than a protocol one.
+- **A window that counts batches assumes a batch is the retry unit**, and
+  `chunk/` fragments a span, so a fuzznet transfer has TWO plausible loss
+  units already. Their fourth point is the warning; whether fuzznet's answer
+  is theirs is exactly the open question, and `sched/` may already own half
+  of it.
+
 ## 106. The 64 was inherited, the curve cannot choose it, and something else can, 2026-09-05
 
 `FZN_MSG_MAX_SPAN` and `spool/`'s `SPAN_MAX_LEAVES` are both 64, adopted from
@@ -22740,7 +22822,27 @@ caller must hold the whole batch first.
     64 x FZN_BLOB_SEALED_MAX = 64 x 1056 = 67,584 bytes = 66 KiB
 
 **That is unverified data, from a stranger, held on trust, per transfer, per
-peer** -- and doubling the batch doubles it. It is the same shape as every
+peer** -- and doubling the batch doubles it.
+
+**WHOSE MEMORY THAT IS, corrected 2026-09-05 after fuzzypickles argued the
+bound should be the caller's.** Their tree buffers whole spans in a fixed
+array of slots, so their 66 KiB is spent whether or not a transfer is running,
+and they proposed that a library shared by consumers with different appetites
+should hand the number over. The argument is right and it does not reach this
+tree, for a reason worth stating rather than assuming: `fzn_spool_place_span`
+takes `const uint8_t *const *sealed` and **never copies a leaf**. The 66 KiB
+is the caller's already, and the caller already governs it -- `fzn_msg_data_parse`
+refuses a span larger than the array it was handed, so the operative bound is
+`cap` and `FZN_MSG_MAX_SPAN` sits above it as a ceiling.
+
+So the paragraph above was loose in a way the correction sharpens. The
+library's own cost is 2 KiB of stack scratch for the leaf hashes, and THAT is
+what `SPAN_MAX_LEAVES` bounds -- an uncapped count being a stack frame a
+stranger chooses. The 66 KiB is a real cost and a real reason to cap, and it
+is a statement about what a caller must arrange, not about what this library
+holds. **The memory-holding argument was right about what decides the number
+and wrong about who pays it**, which nobody would have caught by reading
+sec 106, because the sentence is true of the transfer either way. It is the same shape as every
 other bound in this library: sec 25's ceiling because the peer chooses the
 number, `SPAN_MAX_LEAVES` because an uncapped count is a stack frame a
 stranger chooses, `FZN_SPOOL_MAX_LEAVES` because a bitmap is memory. A

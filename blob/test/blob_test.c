@@ -1379,7 +1379,13 @@ static void test_batching_always_pays_and_never_stops_paying(void)
 	/* And the constraint that DOES pick a number, stated as arithmetic so it
 	 * cannot drift from the constants: a span is unverifiable until every
 	 * leaf of it has arrived, so 64 leaves is 66 KiB of a stranger's bytes
-	 * held on trust. Doubling the batch doubles that. */
+	 * held on trust. Doubling the batch doubles that.
+	 *
+	 * THE CALLER'S BYTES, NOT THIS LIBRARY'S. `fzn_spool_place_span` takes
+	 * pointers and copies no leaf; the library's own cost is 2 KiB of stack
+	 * for the hashes. This pins what a caller must arrange, which is the
+	 * thing the batch size actually decides -- see sec 106, where the
+	 * distinction was got wrong first. */
 	CHECK((size_t)64u * FZN_BLOB_SEALED_MAX == 67584u,
 	      "a 64-leaf span is %zu unverified bytes, not 67584 -- sec 106's bound moved",
 	      (size_t)64u * FZN_BLOB_SEALED_MAX);
