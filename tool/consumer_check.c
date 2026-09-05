@@ -62,6 +62,7 @@
 #include <fuzznet/spool/plan.h>
 #include <fuzznet/spool/message.h>
 #include <fuzznet/spool/transfer.h>
+#include <fuzznet/spool/scrub.h>
 /* The default backend's header ships whenever the subsystem is built, so the
  * installcheck gate requires this file to include it -- a header named in
  * HDRS and included by nothing passes that gate as loudly as one a consumer
@@ -115,6 +116,7 @@
 #include "spool/plan.h"
 #include "spool/message.h"
 #include "spool/transfer.h"
+#include "spool/scrub.h"
 #ifdef FZN_PERSIST_FILE_ON
 #include "persist/persist_file.h"
 #endif
@@ -1508,6 +1510,37 @@ int main(void)
 				FAIL(348);
 			if (fzn_transfer_err_str(FZN_TRANSFER_FULL) == NULL)
 				FAIL(349);
+		}
+
+		/* The scrub, walked for the thing a consumer must size before
+		 * it can call anything: the grid. An array sized by guess is
+		 * refused rather than written past. */
+		{
+			fzn_scrub_t sc;
+			uint8_t cell_roots[FZN_SCRUB_MAX_CELLS(2) * FZN_BLOB_HASH_LEN];
+			uint8_t cell_seals[FZN_SCRUB_SEALED_LEN(FZN_SCRUB_MAX_CELLS(2))];
+
+			memset(&sp, 0, sizeof(sp));
+			sp.present = map;
+			sp.leaves = 2u;
+			sp.present_len = sizeof(map);
+			sp.ops = &nops;
+			map[0] = 0x03u;
+			sp.have = 2u;
+
+			if (fzn_scrub_cells(2u) != 1u)
+				FAIL(350);
+			if (fzn_scrub_cells(0u) != 0u)
+				FAIL(351);
+			if (fzn_scrub_open(&sc, &sp, cell_roots, FZN_SCRUB_MAX_CELLS(2),
+			                   cell_seals, sizeof(cell_seals)) != FZN_SCRUB_OK)
+				FAIL(352);
+			/* Too small for the grid: refused, not written past. */
+			if (fzn_scrub_open(&sc, &sp, cell_roots, 0u, cell_seals,
+			                   sizeof(cell_seals)) != FZN_SCRUB_ERR_MALFORMED)
+				FAIL(353);
+			if (fzn_scrub_err_str(FZN_SCRUB_DONE) == NULL)
+				FAIL(354);
 		}
 
 #ifdef FZN_SPOOL_FILE_ON

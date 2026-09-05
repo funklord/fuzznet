@@ -60,6 +60,7 @@
 #include "../../blob/blob.h"
 #include "../../spool/message.h"
 #include "../../spool/transfer.h"
+#include "../../spool/scrub.h"
 #include "../../chain/authz.h"
 #include "../../prekey/prekey.h"
 #include "../../provision/provision.h"
@@ -119,6 +120,7 @@ static const char *r_session(int v) { return fzn_session_err_str((fzn_session_er
 static const char *r_spool(int v) { return fzn_spool_err_str((fzn_spool_err_t)v); }
 static const char *r_msg(int v) { return fzn_msg_err_str((fzn_msg_err_t)v); }
 static const char *r_transfer(int v) { return fzn_transfer_err_str((fzn_transfer_err_t)v); }
+static const char *r_scrub(int v) { return fzn_scrub_err_str((fzn_scrub_err_t)v); }
 static const char *r_persist(int v) { return fzn_persist_err_str((fzn_persist_err_t)v); }
 static const char *r_tree(int v) { return fzn_tree_err_str((fzn_tree_err_t)v); }
 static const char *r_provision(int v) { return fzn_provision_err_str((fzn_provision_err_t)v); }
@@ -168,6 +170,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_spool_err_str", r_spool, 6 },
 	{ "fzn_msg_err_str", r_msg, 4 },
 	{ "fzn_transfer_err_str", r_transfer, 5 },
+	{ "fzn_scrub_err_str", r_scrub, 4 },
 	{ "fzn_persist_err_str", r_persist, 5 },
 	{ "fzn_tree_err_str", r_tree, 8 },
 	{ "fzn_provision_err_str", r_provision, 6 },

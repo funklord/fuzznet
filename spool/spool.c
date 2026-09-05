@@ -25,6 +25,11 @@ static int bit_get(const uint8_t *map, uint64_t index)
 	return (map[index >> 3] >> (index & 7u)) & 1u;
 }
 
+static void bit_clear(uint8_t *map, uint64_t index)
+{
+	map[index / 8u] &= (uint8_t)~(1u << (index % 8u));
+}
+
 static void bit_set(uint8_t *map, uint64_t index)
 {
 	map[index >> 3] = (uint8_t)(map[index >> 3] | (1u << (index & 7u)));
@@ -296,6 +301,27 @@ fzn_spool_err_t fzn_spool_read(const fzn_spool_t *spool, uint64_t index, uint8_t
 
 	*len = want;
 	return FZN_SPOOL_OK;
+}
+
+uint64_t fzn_spool_forget(fzn_spool_t *spool, uint64_t first, uint64_t count)
+{
+	uint64_t i, dropped = 0u;
+
+	if (!spool || !spool->present)
+		return 0u;
+	/* Written so neither side can wrap: `first` must be inside the blob and
+	 * `count` is what remains after it. */
+	if (first >= spool->leaves || count > spool->leaves - first)
+		return 0u;
+
+	for (i = 0; i < count; i++) {
+		if (!bit_get(spool->present, first + i))
+			continue;
+		bit_clear(spool->present, first + i);
+		spool->have--;
+		dropped++;
+	}
+	return dropped;
 }
 
 int fzn_spool_has(const fzn_spool_t *spool, uint64_t index)

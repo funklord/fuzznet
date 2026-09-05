@@ -5839,6 +5839,7 @@ somebody to notice.
 | `session/aead.h` | aead, commitment, random, agreement, session roots |
 | `spool/message.h` | the four things two hosts say about a blob |
 | `spool/transfer.h` | who was asked for what, and how fast to ask |
+| `spool/scrub.h` | re-checking bytes verified long ago |
 | `spool/plan.h` | what has not been sent yet |
 | `state/state.h` | permissions, rules and config as one thing |
 | `tree/tree.h` | nesting that replicates |
@@ -22675,6 +22676,132 @@ nothing was regenerated here. Whether adopting a language feature moves
 the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
+
+## 109. The scrub, and the check it turned out it cannot perform, 2026-09-05
+
+`spool/scrub.{h,c}` plus `fzn_spool_forget`, 117 checks, five sabotage
+entries. Sec 102 listed `scrub` with the note that there is no equivalent
+anywhere here, and no requirements, so fuzzypickles were asked before
+designing -- the same order that paid for sec 107, and it changed the design
+twice.
+
+### What the bitmap actually claims, which is less than it looks
+
+A set bit says a leaf was verified AT THE MOMENT IT WAS PLACED.
+`fzn_spool_place` checks a leaf against a proof the sender supplied and then
+keeps nothing -- no leaf hash, no proof, no copy. Between that write and the
+next read the bytes are protected by the filesystem and by nothing this
+library knows about, and the bitmap goes on saying "present" through a
+truncated file, a short write reported as success, or a restored backup.
+
+Sec 102 records why the bitmap cannot be re-derived from the file: a hole
+reads back as zeros and a legitimate zero leaf reads the same. This is the
+other half -- content, checked against a reference the store keeps.
+
+### The price, re-derived here rather than adopted
+
+fuzzypickles retain their upper tree and report about 6.4% for the full tree
+and about 0.1% for the upper one. Both re-derive in this tree's constants --
+a 1024-byte leaf, a 32-byte hash, 64 leaves to a cell:
+
+    retained, per byte of content        cost      what it buys
+    nothing                              0         complete blobs only,
+                                                   all-or-nothing verdict
+    one hash per CELL (this file)        0.049%    partial blobs, a verdict
+                                                   per 64 leaves
+    the whole upper tree                 0.098%    the same, without
+                                                   recomputing internals
+    every internal node and leaf hash    6.250%    O(depth) per single leaf
+
+**2 MiB of reference for a 4 GiB blob.** The first row is what this file was
+going to be, and 0.049% buying partial-blob scrubbing and a 64-leaf repair
+instead of a whole-blob one is not a trade so much as a price nobody would
+refuse. The cheapest row is this tree's rather than theirs because the upper
+internal nodes are recomputed from the cell roots on demand instead of stored.
+
+**A cell is the finest unit local data can prove**, and fuzzypickles state
+the same boundary from their side: they localise to a batch and no further,
+because "the batch boundary is where local knowledge runs out." Going finer
+needs a reference per leaf, which is the 6.250% row; going finer without one
+is a conversation with a peer and belongs to `spool/message.h`.
+
+### The finding: this library cannot recompute a leaf hash
+
+The design had a second pass -- recompute the whole tree from stored bytes,
+compare with the pinned root, the definitive check needing no reference at
+all. It was written, it compiled, and **its test failed on an intact blob.**
+
+`fzn_spool_read` returns the STRIDE, not the leaf's own length, and its
+comment has said why for as long as it has existed: *"a store does not know
+it -- the sealed length lives in the blob's own framing and the last leaf is
+short ... Resolving the length is still the caller's."* So nothing in
+`spool/` can reproduce a leaf hash, and nothing in `spool/` can produce a
+value comparable with `spool->root`.
+
+**That comment was there to be read and was not read.** What found it was the
+test failing on the case that should have been trivially green -- and the
+same run failed a control asserting the corruption had reached the bytes the
+store reads, which was the same fact arriving twice from different
+directions. A design reading of `spool.h` would have caught it; only building
+it did.
+
+So the reference is a digest over the fixed-width SLOTS. It needs no lengths,
+and it answers the only question this file asks -- have these bytes changed
+since they were believed -- because sealing and stepping fold the same bytes
+the same way. **What is lost is the ability to check the reference against
+the root**, which makes prompt sealing a contract rather than a preference: a
+cell sealed hours after placement records rot as truth.
+
+**And the whole-tree check is still available, to the caller**, who has the
+one thing missing. Resolve each leaf's length from the manifest,
+`fzn_spool_read`, `fzn_blob_leaf_hash` that many bytes, `fzn_blob_tree_push`,
+compare `fzn_blob_tree_root` with the spool's root. Four existing functions
+and a loop. It is not a store operation because **the store is precisely the
+layer that does not know the lengths** -- which is a cleaner statement of the
+seam than the version that tried to put it here.
+
+### Repair is the want-list, again
+
+A cell that no longer matches has its leaves returned with the new
+`fzn_spool_forget` and its seal cleared. Nothing else happens: the next
+`fzn_spool_plan_want` asks for the range and a peer re-supplies it verified.
+The same property `spool/transfer.h` relies on -- clearing the bits IS the
+return -- now paying out a second time.
+
+`fzn_spool_forget` is the store's function rather than a caller's because
+`have` and the bitmap must agree and only `spool.c` knows they must. A caller
+clearing bits itself would leave `fzn_spool_complete` answering yes over a
+blob with holes, which is the one lie that struct must never tell; there is a
+sabotage entry for exactly that.
+
+### The two cases the tests exist for
+
+**Rot, with a control that it landed.** Every clean assertion here would pass
+against a scrub that always answers "fine", so the corruption case carries a
+control reading the victim leaf back through `fzn_spool_read` and asserting
+it differs -- a test that flips a byte the store never looks at reports a
+working scrub and a broken one identically.
+
+**Blast radius.** A scrub that drops the whole blob on one bad byte passes
+every assertion of the form "did it notice", so the neighbours of the
+corrupted cell are asserted intact and the leaf count is asserted to have
+fallen by exactly one cell. That is a sabotage entry too.
+
+### A scrub nothing calls is not detection
+
+fuzzypickles paid for this: their store had the verb for a long while, it
+found rot reliably when somebody ran it, and nothing ran it. Their daemon now
+runs one bounded slice every 30 seconds. This file cannot schedule itself --
+no clock, by the same rule as everywhere else here -- so the obligation
+passes to the consumer, and it is written in the header because that is where
+somebody will look.
+
+They also report the prerequisite that blocked them, which this tree does not
+have: their store could not ENUMERATE what it held, so a sweep had nothing to
+iterate. `spool/` is one blob with a leaf count, so the grid is arithmetic.
+
+Of sec 102's six filestore pieces, tier namespaces remain -- and they are
+recorded there as policy that may not travel as theirs.
 
 ## 108. The transfer state machine, and the optimisation that made it untestable, 2026-09-05
 

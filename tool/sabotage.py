@@ -1029,6 +1029,48 @@ SABOTAGES = [
 		"re-requests -- a transfer that reports complete over a corrupt blob",
 	),
 	(
+		"scrub-notices-rot",
+		"spool/scrub.c",
+		"\t\t\tif (memcmp(root, scrub->roots + cell * FZN_BLOB_HASH_LEN,\n"
+		"\t\t\t           FZN_BLOB_HASH_LEN) != 0) {\n",
+		"\t\t\tif (0 && memcmp(root, scrub->roots + cell * FZN_BLOB_HASH_LEN,\n"
+		"\t\t\t           FZN_BLOB_HASH_LEN) != 0) {\n",
+		"a scrub that reads every byte and compares nothing, which is what every "
+		"clean-blob assertion in the suite would still pass against",
+	),
+	(
+		"scrub-drops-only-its-own-cell",
+		"spool/scrub.c",
+		"\t\t\t\t(void)fzn_spool_forget(scrub->spool, first, len);\n",
+		"\t\t\t\t(void)fzn_spool_forget(scrub->spool, 0u, scrub->spool->leaves);\n",
+		"one rotted byte costing the whole blob instead of one cell -- a blast "
+		"radius no test that only asks 'did it notice' can see",
+	),
+	(
+		"scrub-unseals-what-it-drops",
+		"spool/scrub.c",
+		"\t\t\t\tbit_clear(scrub->sealed, cell);\n\t\t\t\tdropped++;\n",
+		"\t\t\t\tdropped++;\n",
+		"a dropped cell keeping its stale reference is one that can never be "
+		"resealed, so the repair fetches good bytes and the scrub drops them again",
+	),
+	(
+		"scrub-seals-only-whole-cells",
+		"spool/scrub.c",
+		"\t\tif (!bit_get(scrub->sealed, cell) && cell_is_whole(scrub->spool, first, len)) {\n",
+		"\t\tif (!bit_get(scrub->sealed, cell)) {\n",
+		"sealing a cell whose leaves have not all arrived, which records a reference "
+		"over holes and fails a partial transfer that was never wrong",
+	),
+	(
+		"spool-forget-corrects-have",
+		"spool/spool.c",
+		"\t\tbit_clear(spool->present, first + i);\n\t\tspool->have--;\n",
+		"\t\tbit_clear(spool->present, first + i);\n",
+		"a bitmap and a count that disagree, so fzn_spool_complete answers yes over "
+		"a blob with holes -- the one lie that struct must never tell",
+	),
+	(
 		"transfer-records-before-asking",
 		"spool/transfer.c",
 		"\t\tif (slot->live && overlaps(first, count, slot->first, slot->count))\n"

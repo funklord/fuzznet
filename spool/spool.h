@@ -192,6 +192,24 @@ fzn_spool_err_t fzn_spool_place_span(fzn_spool_t *spool, const fzn_hash_ops_t *h
 fzn_spool_err_t fzn_spool_read(const fzn_spool_t *spool, uint64_t index, uint8_t *out,
                                size_t cap, size_t *len);
 
+/*
+ * Gives a range of leaves back: clears their bits and corrects `have`.
+ *
+ * THE STORE'S JOB RATHER THAN A CALLER'S, because `have` and the bitmap must
+ * agree and only this file knows they must. A caller clearing bits itself
+ * would leave `fzn_spool_complete` answering yes over a blob with holes,
+ * which is the one lie this struct must never tell.
+ *
+ * There is no other way to un-place something, and that is deliberate: the
+ * only caller is `spool/scrub.h`, dropping leaves whose bytes no longer
+ * match what the tree commits to. Leaves already absent are counted as
+ * dropped by nobody -- the return is how many bits were actually cleared.
+ *
+ * Nothing is written to the backend. The bytes stay where they are and stop
+ * being believed, which is what returns the range to `fzn_spool_plan_want`.
+ */
+uint64_t fzn_spool_forget(fzn_spool_t *spool, uint64_t first, uint64_t count);
+
 int fzn_spool_has(const fzn_spool_t *spool, uint64_t index);
 int fzn_spool_complete(const fzn_spool_t *spool);
 
