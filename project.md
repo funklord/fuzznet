@@ -22787,6 +22787,36 @@ every assertion of the form "did it notice", so the neighbours of the
 corrupted cell are asserted intact and the leaf count is asserted to have
 fallen by exactly one cell. That is a sabotage entry too.
 
+### Two of five sabotages survived, and both were the test hiding it
+
+Neither guard was redundant. In both cases the helper the test used
+discarded the thing that had changed.
+
+**`seal_all()` returned a count and threw away the status.** Removing the
+whole-cell guard makes sealing read a leaf that is not there and fail with
+BACKEND -- and the helper answered `1` either way, because it stopped on the
+error and returned what it had. *A count and an exit code are halves of one
+result*, met in a five-line test helper written an hour earlier, and the half
+that was dropped was the only half that moved.
+
+**And the want-list case ended on an assertion that could not discriminate.**
+It checked that a cell with missing leaves does not reseal -- true whether or
+not the seal was cleared, since a cell keeping its stale seal also reseals
+nothing. Both answers were zero.
+
+The difference only exists after the leaves come back, which is the actual
+failure mode: a stale seal drops the repaired bytes again, and the repair
+never settles. The case now repairs, reseals and re-steps, and the assertion
+names the loop. **The first version tested the state at the moment of the
+drop; the fault is in the state after recovery**, which is one step further
+than the sabotage's own description had suggested looking.
+
+Both are the same shape as sec 108's cursor and are worth pairing with it:
+there a second mechanism made the property untestable, here a helper made the
+symptom unobservable. **A guard survives sabotage for two reasons -- it is
+redundant, or the test cannot see it -- and the report says nothing about
+which.**
+
 ### A scrub nothing calls is not detection
 
 fuzzypickles paid for this: their store had the verb for a long while, it
