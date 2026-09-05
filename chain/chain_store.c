@@ -51,6 +51,16 @@ fzn_chain_err_t fzn_chain_store_init(fzn_chain_store_t *store, fzn_chain_entry_t
 	if (!store || !entries || capacity == 0)
 		return FZN_CHAIN_ERR_MALFORMED;
 
+	/* THE CALLER'S ARRAY IS ZEROED, which project.md sec 39 settled for
+	 * this family -- `fzn_state_init`, `fzn_link_table_init`,
+	 * `fzn_log_init` and `fzn_journal_init` all do it and each is held by
+	 * a sabotage entry. It matters more here than in any of them: those
+	 * hold fixed fields or a borrowed pointer, and an entry here carries
+	 * a COPIED 1434-byte buffer, so an untouched slot is that much of
+	 * whatever the caller's memory held -- and that array is exactly what
+	 * `lookup` hands pointers into. */
+	memset(entries, 0, capacity * sizeof(*entries));
+
 	store->entries = entries;
 	store->capacity = capacity;
 	store->used = 0;
@@ -145,7 +155,23 @@ int fzn_chain_store_lookup(const fzn_chain_store_t *store, const uint8_t root[FZ
 		return 0;
 
 	e = &store->entries[at];
-	/* EXPIRY IS THE ONE JUDGEMENT THIS FILE MAKES, and it refuses. A hop
+	/* A LENGTH THIS FILE DID NOT WRITE. `corrupt()` reaches store-level
+	 * shape -- `used`, `capacity`, `entries` -- and nothing it checks
+	 * says an entry's `len` is within its own buffer. Unreachable through
+	 * this API, because `admit` only ever writes a `packed_len` that
+	 * `fzn_chain_pack` bounded; reachable in exactly the state `corrupt()`
+	 * exists for, which is a struct restored from a file.
+	 *
+	 * It is bounded here rather than left to the caller because the
+	 * header says this view may go "straight to `fzn_chain_open` or to a
+	 * peer": `fzn_chain_open` refuses a length that does not match its
+	 * container, and a `write(fd, bytes, len)` does not. The pack refusal
+	 * above keeps the same boundary on the way in, and this is it on the
+	 * way out. */
+	if (e->len > FZN_CHAIN_MAX_LEN)
+		return 0;
+	/* EXPIRY IS THE JUDGEMENT THIS FILE MAKES ABOUT A CHAIN'S CONTENTS,
+	 * and it refuses. A hop
 	 * with no expiry does not constrain the minimum, which is why
 	 * FZN_NO_EXPIRY is compared rather than arithmetic being done on it. */
 	if (e->chain.expires_at != FZN_NO_EXPIRY && e->chain.expires_at <= now)

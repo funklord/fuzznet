@@ -649,11 +649,17 @@ static void test_the_offer_refuses_rather_than_promising(void)
  * fixture mints carries a real expiry, so the FZN_NO_EXPIRY side of that
  * comparison had never been taken either way.
  *
- * It matters because the alternative implementation is arithmetic on the
- * sentinel rather than a comparison against it -- and FZN_NO_EXPIRY is the
- * largest value the field holds, so `expires_at <= now` alone would withhold
- * an unexpiring chain at exactly one clock value and nowhere else. The case
- * asks at that value. */
+ * WHY IT MATTERS, CORRECTED. This first said FZN_NO_EXPIRY was the largest
+ * value the field holds, so dropping the guard's first operand would withhold
+ * an unexpiring chain "at exactly one clock value and nowhere else". It is
+ * `0u` (chain.h), so the truth is the other way round and worse: `expires_at
+ * <= now` alone is true for EVERY `now`, and an unexpiring chain would be
+ * withheld always. The operand is load-bearing rather than marginal.
+ *
+ * So the ordinary-clock case below is the one holding the guard, and the
+ * large-clock cases are breadth rather than the point. They stay because a
+ * sentinel of zero is a thing a future change could move, and a case that
+ * asks at several clocks survives that; the comment is what was wrong. */
 static void test_a_chain_with_no_expiry_is_always_held(void)
 {
 	struct fixture f;
@@ -677,11 +683,11 @@ static void test_a_chain_with_no_expiry_is_always_held(void)
 	CHECK(fzn_chain_store_lookup(&f.store, f.root, &f.cap, f.grantee, UINT64_MAX - 1u,
 	                             &bytes, &len),
 	      "an unexpiring chain was withheld near the top of the clock");
-	/* The one value arithmetic on the sentinel would get wrong. */
+	/* And at the sentinel's own value, which is zero and therefore also
+	 * the smallest clock any caller can pass. */
 	CHECK(fzn_chain_store_lookup(&f.store, f.root, &f.cap, f.grantee, FZN_NO_EXPIRY,
 	                             &bytes, &len),
-	      "an unexpiring chain was withheld at exactly FZN_NO_EXPIRY, which is what "
-	      "comparing the sentinel rather than testing for it prevents");
+	      "an unexpiring chain was withheld at a clock equal to the sentinel");
 	{
 		fzn_chain_want_t want;
 		uint8_t holds[1];
@@ -695,6 +701,163 @@ static void test_a_chain_with_no_expiry_is_always_held(void)
 		              == FZN_CHAIN_OK && holds[0] == 1u,
 		      "an unexpiring chain was not offered at FZN_NO_EXPIRY");
 	}
+}
+
+
+/* MULTI-HOP, WHERE `len` CHANGES ON REPLACEMENT AND NOTHING COULD SEE IT.
+ *
+ * Every other case in this file admits one hop, so `packed_len` is 181 both
+ * sides of a replacement and the assignment of `len` is unobservable -- the
+ * suite would pass byte-for-byte if `bytes[]` were declared `[181]`, and it
+ * would pass if `admit` updated the verdict and never the bytes.
+ *
+ * The blind failure has an AUTHORISATION shape and it is the growing
+ * direction. Replace `root -> leaf` (181 bytes) with `root -> mid -> leaf`
+ * (360) while leaving `len` at 181, and `lookup` returns the first 181 bytes
+ * of a two-hop container -- which re-opens cleanly as a ONE-hop chain
+ * authorising `mid` rather than `leaf`, under `leaf`'s own key. It verifies.
+ * Nothing in this file would have gone red.
+ */
+static void test_replacement_carries_the_bytes_and_the_length(void)
+{
+	struct fixture f;
+	uint8_t mid[FZN_PUBKEY_LEN];
+	uint8_t second[FZN_HOP_LEN];
+	uint8_t to_mid[FZN_HOP_LEN];
+	fzn_chain_hop_t pair[FZN_CHAIN_MAX_HOPS];
+	const uint8_t *bytes = NULL;
+	size_t len = 0;
+	fzn_chain_hop_t back[FZN_CHAIN_MAX_HOPS];
+	size_t back_count = 0;
+
+	REQUIRE(build(&f), "the fixture does not build");
+	key(mid, 0x44);
+
+	/* root -> mid, delegable, then mid -> grantee on top of it. */
+	signing_as = 0x11;
+	REQUIRE(fzn_chain_mint(f.root, mid, &f.cap, 100, 5000, 1, &OPS, to_mid) == FZN_CHAIN_OK,
+	        "minting root -> mid failed");
+	REQUIRE(fzn_hop_open(to_mid, FZN_HOP_LEN, &pair[0]) == FZN_CHAIN_OK, "hop 0 is bad");
+	signing_as = 0x44;
+	/* `delegate` mints the NEW HOP only -- assembling it onto the chain is
+	 * the caller's, which chain.h says and this case first assumed
+	 * otherwise. */
+	REQUIRE(fzn_chain_delegate(pair, 1, f.root, &f.cap, 200, f.grantee, 4000, 0,
+	                           &OPS, NULL, second) == FZN_CHAIN_OK,
+	        "delegating mid -> grantee failed");
+	REQUIRE(fzn_hop_open(second, FZN_HOP_LEN, &pair[1]) == FZN_CHAIN_OK, "hop 1 is bad");
+
+	/* One hop first, then the two-hop chain for the SAME triple. */
+	REQUIRE(fzn_chain_store_admit(&f.store, &f.hop, 1, f.root, &f.cap, 300, &OPS, NULL, NULL)
+	                == FZN_CHAIN_OK, "the one-hop admit failed");
+	REQUIRE(fzn_chain_store_lookup(&f.store, f.root, &f.cap, f.grantee, 300, &bytes, &len),
+	        "the one-hop chain was not held");
+	REQUIRE(len == FZN_CHAIN_HEADER_LEN + FZN_HOP_LEN, "the one-hop length is wrong");
+
+	REQUIRE(fzn_chain_store_admit(&f.store, pair, 2, f.root, &f.cap, 300, &OPS, NULL, NULL)
+	                == FZN_CHAIN_OK, "the two-hop admit failed");
+	CHECK(fzn_chain_store_count(&f.store) == 1u,
+	      "the two-hop chain took a second slot rather than replacing");
+	CHECK(fzn_chain_store_lookup(&f.store, f.root, &f.cap, f.grantee, 300, &bytes, &len),
+	      "the replacement is not held");
+	CHECK(len == FZN_CHAIN_HEADER_LEN + (2u * FZN_HOP_LEN),
+	      "the length still describes the chain that was replaced, so the view is a "
+	      "prefix of the new container");
+
+	/* AND THE BYTES ARE THE NEW ONES. Asserted by re-opening rather than by
+	 * comparing lengths, because the hazard is a container that opens as a
+	 * SHORTER VALID CHAIN authorising somebody else. */
+	CHECK(fzn_chain_open(bytes, len, back, &back_count) == FZN_CHAIN_OK,
+	      "the stored replacement does not re-open");
+	CHECK(back_count == 2u, "the re-opened chain is not the two-hop one");
+	CHECK(memcmp(back[1].base, pair[1].base, FZN_HOP_LEN) == 0,
+	      "the second hop is not the one admitted, so the bytes were not replaced");
+}
+
+/* THE ARGUMENTS `admit` PASSES THROUGH, which nothing held.
+ *
+ * Every admit in this file and in tool/consumer_check.c passed NULL for the
+ * manifest, and the one that passed a revocation store did so while the store
+ * was empty. So `fzn_chain_verify(..., NULL, NULL, ...)` in place of the real
+ * arguments left the whole suite green, and the header's "nothing is
+ * defaulted" rested on nobody. */
+static void test_admit_passes_the_revocation_state_through(void)
+{
+	struct fixture f;
+	uint8_t rev[FZN_REVOCATION_LEN];
+	fzn_revocation_record_t record;
+
+	REQUIRE(build(&f), "the fixture does not build");
+
+	signing_as = 0x11;
+	REQUIRE(fzn_revocation_issue(f.root, &f.cap, f.grantee, 300, &OPS, rev) == FZN_CHAIN_OK,
+	        "issuing the revocation failed");
+	REQUIRE(fzn_revocation_open(rev, sizeof(rev), &record) == FZN_CHAIN_OK,
+	        "the revocation does not open");
+	REQUIRE(fzn_revocation_admit(&f.revs, fzn_revocation_offer_root(record), f.root, &OPS,
+	                             &HASH, NULL) == FZN_CHAIN_OK,
+	        "the revocation was not admitted");
+
+	/* A REVOKED CHAIN IS NOT ADMITTED AT ALL, and the code says which
+	 * refusal it was rather than only that there was one. */
+	CHECK(fzn_chain_store_admit(&f.store, &f.hop, 1, f.root, &f.cap, 400, &OPS, &f.revs,
+	                            NULL) == FZN_CHAIN_ERR_REVOKED,
+	      "a revoked chain was admitted, so the revocation store is not reaching verify");
+	CHECK(fzn_chain_store_count(&f.store) == 0u, "a refused admit consumed an entry");
+
+	/* Without the store it is admitted, which is what makes the case above
+	 * evidence about the pass-through rather than about the chain. */
+	CHECK(fzn_chain_store_admit(&f.store, &f.hop, 1, f.root, &f.cap, 400, &OPS, NULL, NULL)
+	              == FZN_CHAIN_OK,
+	      "the chain is refused even with no revocation store, so the case above proves "
+	      "nothing about the argument being passed through");
+}
+
+/* `_init` ZEROES THE CALLER'S ARRAY, which project.md sec 39 settled for this
+ * family and which this module did not do. Same shape as the four
+ * determinism cases sec 39 names, poison and all. */
+static void test_init_does_not_leave_the_callers_bytes(void)
+{
+	fzn_chain_store_t from_dirty, from_clean;
+	static fzn_chain_entry_t dirty[2], clean[2];
+
+	memset(dirty, 0xab, sizeof(dirty));
+	memset(clean, 0, sizeof(clean));
+	CHECK(fzn_chain_store_init(&from_dirty, dirty, 2) == FZN_CHAIN_OK,
+	      "init refused a dirty array");
+	CHECK(fzn_chain_store_init(&from_clean, clean, 2) == FZN_CHAIN_OK,
+	      "init refused a clean array");
+	CHECK(memcmp(dirty, clean, sizeof(dirty)) == 0,
+	      "init left the caller's bytes in the entry array, so what a fresh store holds "
+	      "depends on what its memory held -- and an entry here is a 1434-byte buffer "
+	      "that lookup hands pointers into");
+}
+
+/* A LENGTH THIS FILE DID NOT WRITE. `corrupt()` reaches store-level shape and
+ * says nothing about an entry, so a store restored from a file can be sound
+ * by that test and carry a length past its own buffer. The header says the
+ * view may go to a peer, and a write() does not check. */
+static void test_a_length_past_the_buffer_is_not_handed_out(void)
+{
+	struct fixture f;
+	const uint8_t *bytes = NULL;
+	size_t len = 0;
+
+	REQUIRE(build(&f), "the fixture does not build");
+	REQUIRE(fzn_chain_store_admit(&f.store, &f.hop, 1, f.root, &f.cap, 200, &OPS, NULL, NULL)
+	                == FZN_CHAIN_OK, "admit refused a sound chain");
+
+	f.storage[0].len = (size_t)-1;
+	CHECK(fzn_chain_store_count(&f.store) == 1u,
+	      "the store is corrupt by the store-level test, which is not what this case is "
+	      "about");
+	CHECK(!fzn_chain_store_lookup(&f.store, f.root, &f.cap, f.grantee, 200, &bytes, &len),
+	      "a length past the entry's own buffer was handed to a caller");
+	CHECK(bytes == NULL && len == 0u, "a refused lookup left the caller a length");
+
+	f.storage[0].len = FZN_CHAIN_MAX_LEN + 1u;
+	CHECK(!fzn_chain_store_lookup(&f.store, f.root, &f.cap, f.grantee, 200, &bytes, &len),
+	      "a length one past the buffer was handed to a caller");
 }
 
 int main(void)
@@ -713,6 +876,10 @@ int main(void)
 	test_the_offer_keeps_the_three_rules();
 	test_the_offer_refuses_rather_than_promising();
 	test_a_chain_with_no_expiry_is_always_held();
+	test_replacement_carries_the_bytes_and_the_length();
+	test_admit_passes_the_revocation_state_through();
+	test_init_does_not_leave_the_callers_bytes();
+	test_a_length_past_the_buffer_is_not_handed_out();
 
 	printf("chain_store_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

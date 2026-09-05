@@ -11614,9 +11614,24 @@ fetching one makes a trust decision implicitly -- which is why
 `fzn_journal_anchor` is a decision rather than a consequence of receiving
 something. **A chain's worth is checked against a root you HAVE chosen.**
 `fzn_chain_verify` requires a pinned root and refuses NULL, so a forged
-chain is worthless rather than poisonous: the worst a hostile peer achieves
-is spending some of your signature verifications, bounded by the offer cap
-and by `FZN_CHAIN_MAX_HOPS`, which is 8.
+chain is worthless rather than poisonous.
+
+**What it costs was understated here twice and is corrected rather than
+rewritten away.** This said the worst a hostile peer achieves is "spending
+some of your signature verifications, bounded by the offer cap and by
+`FZN_CHAIN_MAX_HOPS`". The offer cap bounds `fzn_chain_plan_offer` and
+**not** `fzn_chain_store_admit`, which has no cap of its own; and before
+verification reaches its cheap field checks it calls
+`fzn_revocation_covers_chain`, an O(revocations x hops) scan of a store
+whose entries never expire and are never evicted -- which is not a signature
+verification. `admit` also puts `FZN_CHAIN_MAX_LEN` on the stack per call,
+refused calls included.
+
+**And the store can be filled with VALID chains by one delegable holder**,
+since anything descending from the pinned root verifies and each distinct
+grantee is a distinct key. There is no eviction, so `FZN_CHAIN_ERR_STORE_FULL`
+is permanent once reached. Defensible, and a property of the design that
+nothing stated until a reviewer asked what an attacker actually gets.
 
 So chains may be fetched from anyone precisely because they are
 self-checking against something already pinned, and records may not because
@@ -21209,11 +21224,22 @@ as the paragraph above and found in the same pass.
 **WHAT IS NOT SETTLED, and it is stated as open rather than resolved because
 this section has already been wrong once today**:
 
-- **Chain delivery has no named mechanism here.** A receiver that must verify
-  a record's authorisation needs the hops, and nothing in this library says
-  how they arrive. fuzzypickles solved that by inlining, which is what makes
-  their record grow ~181 bytes per hop to a 1794-byte ceiling; this tree has
-  declined to inline and has not said what it does instead.
+- ~~**Chain delivery has no named mechanism here.**~~ **NARROWED 2026-09-05,
+  and what is left is the wire framing alone.** `chain/chain_store.{h,c}`
+  holds verified chains and `fzn_chain_plan_offer` says which of a peer's
+  wants this host can serve; sec 95 has both. What still has no named
+  mechanism is how the hops TRAVEL -- nothing in the tree says what carries
+  a chain between hosts, only what to do with one once it is here.
+
+  Left as it stood, this row sent the next reader to design a mechanism two
+  thirds of which had shipped. It is the deferral-that-outlived-its-gap
+  shape, and the pointer is the copy nobody re-reads: sec 95 closed the row
+  and this sentence went on advertising it as open. Found by review rather
+  than by anybody working here noticing.
+
+  For contrast, unchanged: fuzzypickles solved delivery by inlining, which
+  is what makes their record grow ~181 bytes per hop to a 1794-byte ceiling;
+  this tree declined to inline.
 
   **Their inlining now has a measured reason to stop**, supplied from here on
   2026-09-01 and confirmed there: the reason for it was recorded ONCE, for the

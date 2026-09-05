@@ -1389,7 +1389,6 @@ $(BUILD_DIR)/chain/test/authz_test: $(BUILD_DIR)/chain/test/authz_test.o \
 $(BUILD_DIR)/chain/test/chain_store_test: $(BUILD_DIR)/chain/test/chain_store_test.o \
                                      $(BUILD_DIR)/chain/chain_store.o \
                                      $(BUILD_DIR)/record/journal.o \
-                                     $(BUILD_DIR)/chain/authz.o \
                                      $(BUILD_DIR)/chain/chain.o \
                                      $(BUILD_DIR)/chain/revocation.o \
                                      $(BUILD_DIR)/chain/manifest.o \

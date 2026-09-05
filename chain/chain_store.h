@@ -38,10 +38,18 @@
  * later by somebody who has not read this paragraph -- `sync.h` already
  * records one instance of a guarded door with a second one open beside it.
  *
- * NOTHING HERE ALLOCATES. The caller supplies the entries, as everywhere
- * else in this library. An entry is large -- FZN_CHAIN_MAX_LEN is 1434
- * bytes, being eight hops of 179 plus a two-byte header -- and that is the
- * price of handing the bytes back rather than distilling them. A revocation
+ * NOTHING HERE ALLOCATES ON THE HEAP. The caller supplies the entries, as
+ * everywhere else in this library. An entry is large: the byte buffer is
+ * FZN_CHAIN_MAX_LEN, 1434, being eight hops of 179 plus a two-byte header --
+ * but `sizeof(fzn_chain_entry_t)` is 1560 on this machine, the buffer plus
+ * the verdict and the length and padding. SIZE AN ARRAY FROM THE SIZEOF AND
+ * NOT FROM 1434, which is 9% short; the first version of this paragraph
+ * quoted 1434 as "the price" and would have under-budgeted anybody who
+ * believed it.
+ *
+ * `fzn_chain_store_admit` also puts FZN_CHAIN_MAX_LEN on the STACK for the
+ * duration of every call, refused ones included, which is worth knowing on
+ * a target where the receive path's stack is budgeted. A revocation
  * entry keeps facts because "is this pair revoked" is answerable from facts;
  * a chain has to be re-presented to a verifier and offered to a peer, so the
  * bytes are the thing.
@@ -52,17 +60,38 @@
  * `fzn_revocation_t`'s own comment says this tree keeps paying for.
  */
 
-#include "authz.h"
+/* `chain.h` carries every type this header names, `fzn_manifest_state_t`
+ * included by forward declaration. `revocation.h` is here for the test and
+ * consumers reaching the revocation API through this one; `authz.h` was here
+ * and was used by nothing, which is how the link rule acquired an object it
+ * did not need. */
 #include "chain.h"
 #include "revocation.h"
 
 /* One verified chain, and the bytes it was verified from.
  *
- * `chain` carries what verification concluded -- root, grantee, capability,
- * hop count and the soonest real expiry -- and every one of those is read
- * from the hops rather than from anything a caller passed alongside them.
- * That is `fzn_revocation_t`'s discipline: the facts come from the bytes a
- * signature covered. */
+ * `chain` carries what verification concluded: root, grantee, capability,
+ * hop count and the soonest real expiry.
+ *
+ * TWO OF THOSE FIVE ARE THE CALLER'S ARGUMENTS, and saying otherwise was
+ * this comment's first version. `fzn_chain_verify` copies `root` and
+ * `capability` from what it was passed; only `grantee` and `expires_at` are
+ * read out of the hops. They are nonetheless trustworthy, and the reason is
+ * a guard in another file rather than provenance here: verification refuses
+ * unless hop 0's grantor equals `root` and every hop carries `capability`.
+ *
+ * It matters because `find_entry` keys on `root` and `capability`. The key
+ * is the admitting caller's argument, checked for equality against signed
+ * bytes elsewhere -- which is sound and is NOT the same claim as
+ * `fzn_revocation_t`'s, where the facts are read from the record. A reader
+ * who needs the stronger property should look at `chain.c`, not here.
+ *
+ * AND THE VERDICT OUTLIVES ITS CHECK. `chain.h` says `fzn_chain_t` is
+ * "produced only by code that has just checked"; this is the first thing in
+ * the tree that stores one. The field is what verification concluded THEN,
+ * and it is not a present verdict -- a revocation arriving afterwards makes
+ * it wrong without touching it. Nothing here reads it as an answer, and a
+ * consumer must not either. */
 typedef struct fzn_chain_entry {
 	fzn_chain_t chain;
 	uint8_t bytes[FZN_CHAIN_MAX_LEN];
@@ -106,6 +135,27 @@ fzn_chain_err_t fzn_chain_store_init(fzn_chain_store_t *store, fzn_chain_entry_t
  * one", which is a question no caller asked. The newer one wins because a
  * re-delegation is how a grant is extended after the first expires.
  *
+ * REPLACEMENT IS UNCONDITIONAL AND THAT CUTS BOTH WAYS. A shorter-lived
+ * chain evicts a longer-lived one, and the argument above only covers the
+ * extending direction. The reach is wider than a caller's own mistake:
+ * entries key on (root, capability, grantee), so `root -> X -> grantee` and
+ * a direct `root -> grantee` share a slot, and any holder of a delegable
+ * grant can mint a short-lived chain that evicts one the root signed
+ * directly for a year.
+ *
+ * It is availability rather than a hole -- the store is not authorisation,
+ * the peer re-verifies, and nothing is granted that was not granted before.
+ * It is stated because it was neither stated nor tested, and a consumer
+ * that cares must compare expiries before admitting rather than expect this
+ * to.
+ *
+ * NOR IS ANYTHING RECLAIMED. Expiry withholds at lookup and does not free a
+ * slot, so a store whose entries have all expired still answers
+ * FZN_CHAIN_ERR_STORE_FULL and does so permanently. `chain/revocation.c`
+ * refuses rather than evicting too, but revocations never expire, so no slot
+ * there is ever reclaimable and the precedent does not carry. Size capacity
+ * for the distinct triples ever seen, not those live at once.
+ *
  * Returns whatever `fzn_chain_verify` returned when it refused, so a caller
  * learns WHY rather than only that it failed, and FZN_CHAIN_ERR_STORE_FULL
  * when the chain holds and there is no room.
@@ -127,9 +177,15 @@ fzn_chain_err_t fzn_chain_store_admit(fzn_chain_store_t *store, const fzn_chain_
  * AN EXPIRED CHAIN IS NOT RETURNED. `now` is required for that and is not
  * optional: a store that handed back an expired chain would be inviting the
  * caller to spend a verification learning what the store already knew, and a
- * caller that forgot to check would be authorising on a dead grant. This is
- * the one judgement the store makes, and it makes it in the refusing
- * direction.
+ * caller that forgot to check would be authorising on a dead grant.
+ *
+ * IT IS THE ONLY JUDGEMENT ABOUT A CHAIN'S CONTENTS, which is the accurate
+ * form of what this said first -- "the one judgement the store makes" was
+ * contradicted by this file's own comments three paragraphs apart. The
+ * others are about the store's integrity or about a key collision: a corrupt
+ * store holds nothing here and is REFUSED in `fzn_chain_plan_offer`, a second
+ * chain for one triple replaces rather than being refused, and a full store
+ * refuses rather than evicting.
  *
  * Returns non-zero when a live chain was found. FINDING ONE IS NOT
  * AUTHORISATION -- see the header comment. The caller still verifies, and
@@ -170,6 +226,21 @@ size_t fzn_chain_store_count(const fzn_chain_store_t *store);
  * peer's request and reads the ones. A second entry point would be the same
  * loop with the answer inverted, which is a second thing to keep right for
  * no question it answers.
+ *
+ * A FETCH CALLER MUST BOUND ITS READ BY `plan->examined`, AND THE TWO SIDES
+ * HAVE OPPOSITE SAFE DEFAULTS. On truncation the tail of `holds` is
+ * deliberately not written, so that a peer cannot read "not looked at" as
+ * "not held" -- which is right for serving. For a fetch caller `holds[i] ==
+ * 0` means "I need this", so an unwritten tail is whatever that array
+ * already held, and a nonzero byte there reads as "already have it, do not
+ * fetch". Silence is the safe default for one direction and zero for the
+ * other, and one array cannot carry both: `examined` is what separates them.
+ *
+ * The same asymmetry is why an unsound store is REFUSED here while `lookup`
+ * answers "nothing held" for it. Refusing is conservative for serving, where
+ * the alternative is publishing a promise. A fetch caller getting
+ * MALFORMED should read it as "I cannot tell what I hold", which is a reason
+ * to ask rather than a reason not to.
  */
 
 /* One triple a host is asking about: the chain from `root` that authorises

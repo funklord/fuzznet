@@ -1006,11 +1006,36 @@ SABOTAGES = [
 		"a withdrawal that overtakes its revocation is kept, not dropped",
 	),
 	# BATCH ELEVEN, 2026-09-05: chain/chain_store.c, added with the module so
-	# it is never a source with no entries. All three were run against the
-	# suite before being written down -- the expiry and the replacement fail
-	# two assertions each, and the verify-first one takes the binary down
-	# with a SIGSEGV rather than a message, which still fails the run but is
-	# a weaker catch than the others and is recorded as such.
+	# it is never a source with no entries, and extended the same day after
+	# an independent review found four more properties nothing held.
+	#
+	# EVERY ONE OF THE NINE WAS RUN AGAINST THE SUITE BEFORE BEING WRITTEN
+	# DOWN. The first version of this comment said "all three" and three
+	# entries followed it; four `chain-store-offer-*` entries were added in
+	# a later commit and the sentence was not, so a reader could not tell
+	# whether those had been run or written from the code. They had been
+	# run. Two reviewers reported the discrepancy independently, which is
+	# the argument for the sentence naming a COUNT rather than a list.
+	#
+	# `chain-store-verify-first` takes the binary down with a SIGSEGV rather
+	# than a message. It still fails the run, and it is a weaker catch than
+	# the others, and it is recorded as such rather than counted level.
+	(
+		"chain-store-init-zeroes-entries",
+		"chain/chain_store.c",
+		"\tmemset(entries, 0, capacity * sizeof(*entries));\n",
+		"\t(void)0;\n",
+		"a fresh store must not hold what the caller's memory held -- sec 39's "
+		"convention, and an entry here is a 1434-byte buffer lookup points into",
+	),
+	(
+		"chain-store-lookup-len-bound",
+		"chain/chain_store.c",
+		"\tif (e->len > FZN_CHAIN_MAX_LEN)\n\t\treturn 0;\n",
+		"\t(void)0;\n",
+		"a length past the entry's own buffer must not reach a caller who may "
+		"write() it to a peer; corrupt() reaches store shape and not this",
+	),
 	(
 		"chain-store-expiry",
 		"chain/chain_store.c",
