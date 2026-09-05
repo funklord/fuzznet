@@ -22677,6 +22677,72 @@ the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
 
+## 117. Twenty scenarios and not one moved a blob, 2026-09-06
+
+The filestore is seven modules, every one with unit tests and one with a
+fuzzer, and **nothing proved they compose.** `sim/test/network_test.c` had
+twenty scenarios covering provisioning, records, relays, revocation,
+sessions, disclosure and an estate restore, and not one of them moved
+content. The word `blob` appeared in that file only as a PERSIST blob -- a
+packed struct -- which is a different thing wearing the same name, and is
+why a grep for it looked reassuring.
+
+`scenario_filestore` runs the whole conversation over a network that loses a
+quarter of its datagrams and reorders a third: host 1 plans what it lacks,
+asks, host 0 answers from its own store with one proof per span, host 1
+verifies and places, and the transfer's bookkeeping decides what to ask next.
+Then the scrub is pointed at the result, a byte is corrupted underneath it,
+and the repair goes round the same loop.
+
+    filestore: 28 rounds, 42 asked, 31 answered, 24 placed, 18 given up,
+    18 dropped by the network; scrub checked 2 cells and condemned 1
+
+**It is the only place `fzn_msg_data_parse`'s output arrays reach
+`fzn_spool_place_span` across a network**, which is the claim `message.h`
+makes and which a unit test can only stage.
+
+### The fixture was wrong the first time, and it passed
+
+At 16 leaves it ran green: 4 rounds, 4 placed, one drop, "scrub checked 1
+cells and condemned 1". Every assertion held and the scenario was worth
+much less than it looked.
+
+**A 16-leaf blob is ONE scrub cell**, because `FZN_SCRUB_CELL` is 64. So
+"one rotted byte condemns one cell" and "one rotted byte condemns the whole
+blob" are the same sentence at that size -- the blast-radius property the
+scrub exists for could not be expressed by the fixture, and the assertion
+that looked like it was checking it was checking nothing of the sort. One
+dropped datagram in four rounds is the same story for the retry path.
+
+96 leaves is 64 + 32: two cells and a short tail. The numbers above are from
+that fixture, and the neighbouring cell is now asserted intact.
+
+This is fuzzypickles' question a third time -- what value is every fixture on
+the same side of -- and the first time it has been asked of a fixture at the
+moment of writing it rather than months later. **It still had to be asked
+out loud.** Green was not what caught it; reading the summary line and
+noticing "1 cells" was.
+
+### Seen to fail
+
+Two sabotages, both in modules the scenario only reaches through the network:
+
+- **`fzn_transfer_expire` dropping nothing**: the transfer never completes,
+  nothing is given up, and placed leaves cannot be read back. The abandon
+  path is load-bearing on a lossy link and this is the only thing that runs
+  it end to end.
+- **The scrub comparing nothing**: all three scrub assertions fail, including
+  the blast-radius one that the 16-leaf fixture could not have expressed.
+
+### The floors, which are the point
+
+A scenario that completes over a network that happened to drop nothing has
+tested a reliable link. So it asserts that the network dropped something,
+that something was given up, and that more was asked than answered -- and it
+reads every leaf back and compares it against the sender's bytes, because
+`fzn_spool_complete` answering yes is a claim about a bitmap rather than
+about content.
+
 ## 116. The one decoder in this library that nobody fuzzed, 2026-09-06
 
 With the six modules swept, the remaining branch coverage was read across

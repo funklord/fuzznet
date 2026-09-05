@@ -44,6 +44,9 @@
 #include "../../persist/persist.h"
 #include "../../ratchet/ratchet.h"
 #include "../../chain/authz.h"
+#include "../../spool/message.h"
+#include "../../spool/transfer.h"
+#include "../../spool/scrub.h"
 #include "../../session/random.h"
 #include "../../version/version.h"
 #include "../../wire/seal.h"
@@ -3592,6 +3595,276 @@ static void scenario_session(void)
 
 #define EST_ROUNDS 10u
 
+/* ------------------------------------------------------------ scenario 21
+
+   THE FILESTORE, END TO END, WHICH TWENTY SCENARIOS DID NOT TOUCH.
+
+   Seven modules were built for this -- blob's content path, spool, plan,
+   message, transfer, scrub -- and every one of them has unit tests and one
+   of them has a fuzzer. Nothing proved they COMPOSE. project.md sec 117;
+   the `blob` this file mentioned before today was a persist blob, a packed
+   struct, which is a different thing wearing the same word.
+
+   What runs here is the whole conversation over a network that loses and
+   reorders: host 1 plans what it lacks, asks host 0 for it, host 0 answers
+   from its own store with one proof per span, host 1 verifies and places,
+   and the transfer's bookkeeping decides what to ask for next. Then the
+   scrub is pointed at the result, a byte is corrupted underneath it, and
+   the repair goes round the same loop.
+
+   THE FLOORS MATTER MORE THAN THE HAPPY PATH. A scenario that completes a
+   transfer over a network that happened to drop nothing has tested a
+   reliable link; one whose scrub finds nothing has tested a scrub that
+   cannot speak. Both are asserted, and both are the reason this scenario
+   exists rather than a round trip in a unit test.  */
+
+/* MORE THAN ONE SCRUB CELL, deliberately. At 16 leaves the whole blob was a
+   single cell, so "one rotted byte condemns one cell" was indistinguishable
+   from "one rotted byte condemns the blob" -- the blast-radius property the
+   scrub exists for could not be expressed by the fixture at all. 96 leaves
+   is 64 + 32, which is two cells and a short tail one.  */
+#define FS_LEAVES     96u
+#define FS_LEAF       200u
+#define FS_SLOTS      4u
+#define FS_PER_RANGE  4u
+
+static uint8_t fs_sealed[FS_LEAVES][FS_LEAF];
+static uint8_t fs_leaf_hash[FS_LEAVES][FZN_BLOB_HASH_LEN];
+static uint8_t fs_disk[FS_LEAVES * FZN_BLOB_SEALED_MAX];
+
+static int fs_read(void *c, uint64_t o, uint8_t *b, size_t n)
+{
+	(void)c;
+	if (o + n > sizeof(fs_disk))
+		return 0;
+	memcpy(b, fs_disk + o, n);
+	return 1;
+}
+
+static int fs_write(void *c, uint64_t o, const uint8_t *b, size_t n)
+{
+	(void)c;
+	if (o + n > sizeof(fs_disk))
+		return 0;
+	memcpy(fs_disk + o, b, n);
+	return 1;
+}
+
+static void scenario_filestore(void)
+{
+	static struct sim_net net;
+	static const fzn_spool_ops_t ops = { fs_read, fs_write, NULL, NULL };
+	static uint8_t map[FZN_SPOOL_BITMAP_LEN(FS_LEAVES)];
+	static uint8_t cell_roots[FZN_SCRUB_MAX_CELLS(FS_LEAVES) * FZN_BLOB_HASH_LEN];
+	static uint8_t cell_seals[FZN_SCRUB_SEALED_LEN(FZN_SCRUB_MAX_CELLS(FS_LEAVES))];
+	static uint8_t wire[SIM_MSG_MAX];
+	fzn_hash_ops_t hash_ops = { sim_hash, NULL };
+	fzn_blob_tree_t tree;
+	fzn_spool_t spool;
+	fzn_transfer_t transfer;
+	fzn_transfer_assign_t slots[FS_SLOTS];
+	fzn_scrub_t scrub;
+	uint8_t root[FZN_BLOB_HASH_LEN];
+	unsigned asked = 0, answered = 0, placed = 0, expired = 0, rounds = 0;
+	unsigned i, dropped_cells = 0;
+	uint64_t checked = 0, dropped = 0;
+
+	/* Host 0's content, and the root that names it. Both hosts know the
+	 * root out of band -- that is what content addressing means. */
+	fzn_blob_tree_init(&tree);
+	for (i = 0; i < FS_LEAVES; i++) {
+		size_t j;
+
+		for (j = 0; j < FS_LEAF; j++)
+			fs_sealed[i][j] = (uint8_t)((i * 61u) + j + 7u);
+		check(fzn_blob_leaf_hash(&hash_ops, fs_sealed[i], FS_LEAF, fs_leaf_hash[i])
+		              == FZN_BLOB_OK,
+		      "the fixture leaf did not hash");
+		check(fzn_blob_tree_push(&hash_ops, &tree, fs_leaf_hash[i]) == FZN_BLOB_OK,
+		      "the fixture tree did not accept a leaf");
+	}
+	check(fzn_blob_tree_root(&hash_ops, &tree, root) == FZN_BLOB_OK,
+	      "the fixture tree has no root");
+
+	sim_init(&net, 2u, 0xf1e5u);
+	net.loss_pct = 25;
+	net.reorder_pct = 30;
+
+	memset(map, 0, sizeof(map));
+	memset(fs_disk, 0, sizeof(fs_disk));
+	check(fzn_spool_open(&spool, root, FS_LEAVES, map, sizeof(map), &ops) == FZN_SPOOL_OK,
+	      "the receiving spool did not open");
+	check(fzn_transfer_open(&transfer, &spool, slots, FS_SLOTS) == FZN_TRANSFER_OK,
+	      "the transfer did not open");
+
+	/* The conversation. Bounded by `rounds` rather than by completion, so
+	 * a receiver that never finishes fails the floor below instead of
+	 * looping for ever. */
+	for (rounds = 0; rounds < 400u && !fzn_spool_complete(&spool); rounds++) {
+		fzn_spool_range_t want;
+		struct sim_host *server = &net.hosts[0];
+		struct sim_host *client = &net.hosts[1];
+		size_t len = 0, e;
+		uint8_t cookie[FZN_MSG_COOKIE_LEN];
+
+		memset(cookie, (uint8_t)rounds, sizeof(cookie));
+
+		/* Ask, while the window has room and a range is free. */
+		while (fzn_transfer_next_want(&transfer, 0u, 0u, FS_PER_RANGE, net.now + 4u,
+		                              &want) == FZN_TRANSFER_OK) {
+			if (fzn_msg_want_encode((uint32_t)asked, cookie, root, want.first,
+			                        want.count, wire, sizeof(wire), &len)
+			    != FZN_MSG_OK)
+				break;
+			(void)sim_send(&net, 1u, 0u, wire, len, net.now + 50u);
+			asked++;
+		}
+		sim_run(&net, 4);
+
+		/* Host 0 answers every want it received, out of its own bytes. */
+		for (e = 0; e < server->inbox_len; e++) {
+			uint8_t r[FZN_BLOB_HASH_LEN], c[FZN_MSG_COOKIE_LEN];
+			uint8_t proof[FZN_BLOB_MAX_DEPTH * FZN_BLOB_HASH_LEN];
+			const uint8_t *parts[FS_PER_RANGE];
+			size_t parts_len[FS_PER_RANGE];
+			uint64_t first = 0, count = 0;
+			uint32_t transfer_id = 0;
+			unsigned proof_len = 0, k;
+			fzn_msg_type_t type;
+
+			if (fzn_msg_peek(server->inbox[e].bytes, server->inbox[e].len, &type)
+			            != FZN_MSG_OK
+			    || type != FZN_MSG_WANT)
+				continue;
+			if (fzn_msg_want_parse(server->inbox[e].bytes, server->inbox[e].len,
+			                       &transfer_id, c, r, &first, &count) != FZN_MSG_OK)
+				continue;
+			check(memcmp(r, root, sizeof(root)) == 0,
+			      "a want arrived naming a blob nobody asked for");
+			if (count > FS_PER_RANGE)
+				continue;
+			for (k = 0; k < count; k++) {
+				parts[k] = fs_sealed[first + k];
+				parts_len[k] = FS_LEAF;
+			}
+			if (fzn_blob_span_proof_build(&hash_ops, fs_leaf_hash[0], FS_LEAVES,
+			                              first, count, proof, sizeof(proof),
+			                              &proof_len) != FZN_BLOB_OK)
+				continue;
+			if (fzn_msg_data_encode(transfer_id, first, count, proof, proof_len,
+			                        parts, parts_len, wire, sizeof(wire), &len)
+			    != FZN_MSG_OK)
+				continue;
+			(void)sim_send(&net, 0u, 1u, wire, len, net.now + 50u);
+			answered++;
+		}
+		server->inbox_len = 0;
+		sim_run(&net, 4);
+
+		/* Host 1 verifies and places whatever arrived. */
+		for (e = 0; e < client->inbox_len; e++) {
+			const uint8_t *sealed[FZN_MSG_MAX_SPAN], *proof = NULL;
+			size_t sealed_len[FZN_MSG_MAX_SPAN];
+			uint64_t first = 0, count = 0;
+			uint32_t transfer_id = 0;
+			unsigned proof_len = 0;
+			fzn_msg_type_t type;
+
+			if (fzn_msg_peek(client->inbox[e].bytes, client->inbox[e].len, &type)
+			            != FZN_MSG_OK
+			    || type != FZN_MSG_DATA)
+				continue;
+			if (fzn_msg_data_parse(client->inbox[e].bytes, client->inbox[e].len,
+			                       &transfer_id, &first, &count, &proof, &proof_len,
+			                       sealed, sealed_len, FZN_MSG_MAX_SPAN)
+			    != FZN_MSG_OK)
+				continue;
+			/* The parser's arrays go straight to the store, which is
+			 * the claim message.h makes and this is the only place
+			 * it happens across a network. */
+			if (fzn_spool_place_span(&spool, &hash_ops, first, count, sealed,
+			                         sealed_len, proof, proof_len) != FZN_SPOOL_OK)
+				continue;
+			(void)fzn_transfer_delivered(&transfer, 0u, first, count);
+			placed++;
+		}
+		client->inbox_len = 0;
+
+		/* Whatever did not come back is given up, which is what returns
+		 * the range to the want-list. */
+		expired += (unsigned)fzn_transfer_expire(&transfer, net.now);
+	}
+
+	if (!fzn_spool_complete(&spool))
+		printf("  filestore: %llu of %u leaves after %u rounds\n",
+		       (unsigned long long)spool.have, FS_LEAVES, rounds);
+	check(fzn_spool_complete(&spool), "the transfer never completed");
+	/* THE FLOOR. A transfer that completed over a network that dropped
+	 * nothing has tested a reliable link, and the retry path -- expire,
+	 * the range returning, another peer asked -- would never have run. */
+	check(net.dropped > 0, "a lossy network dropped nothing, so no retry was tested");
+	check(expired > 0, "nothing was ever given up, so the abandon path did not run");
+	check(asked > answered, "every want was answered, which a lossy network should not do");
+
+	/* Every byte must be the sender's, not merely present. */
+	for (i = 0; i < FS_LEAVES; i++) {
+		uint8_t back[FZN_BLOB_SEALED_MAX];
+		size_t got = 0;
+
+		check(fzn_spool_read(&spool, i, back, sizeof(back), &got) == FZN_SPOOL_OK,
+		      "a placed leaf could not be read back");
+		check(memcmp(back, fs_sealed[i], FS_LEAF) == 0,
+		      "a leaf arrived complete and wrong");
+	}
+
+	/* And now the scrub, over what the network delivered. */
+	check(fzn_scrub_open(&scrub, &spool, cell_roots, FZN_SCRUB_MAX_CELLS(FS_LEAVES),
+	                     cell_seals, sizeof(cell_seals)) == FZN_SCRUB_OK,
+	      "the scrub did not open");
+	for (i = 0; i < 64u; i++) {
+		if (fzn_scrub_seal(&scrub, &hash_ops, 1u, NULL) == FZN_SCRUB_DONE)
+			break;
+	}
+	for (i = 0; i < 64u; i++) {
+		uint64_t c = 0, d = 0;
+
+		if (fzn_scrub_step(&scrub, &hash_ops, 1u, &c, &d) == FZN_SCRUB_DONE) {
+			checked += c;
+			dropped += d;
+			break;
+		}
+		checked += c;
+		dropped += d;
+	}
+	check(checked > 0, "the scrub checked nothing, so the case below proves nothing");
+	check(dropped == 0, "the scrub condemned a cell of a blob that had just verified");
+
+	/* Rot, under the store's feet, and the repair around the same loop. */
+	fs_disk[3u * FZN_BLOB_SEALED_MAX + 5u] ^= 0x20u;
+	for (i = 0; i < 64u; i++) {
+		uint64_t c = 0, d = 0;
+		fzn_scrub_err_t err = fzn_scrub_step(&scrub, &hash_ops, 1u, &c, &d);
+
+		dropped_cells += (unsigned)d;
+		if (err == FZN_SCRUB_DONE)
+			break;
+	}
+	check(dropped_cells == 1u, "one rotted byte did not condemn exactly one cell");
+	check(!fzn_spool_complete(&spool), "a blob with a condemned cell still reports complete");
+	/* BLAST RADIUS, which needs more than one cell to mean anything: the
+	   rot was in the first cell and the second must be untouched. */
+	check(!fzn_spool_has(&spool, 3u), "the rotted leaf survived its cell being condemned");
+	check(fzn_spool_has(&spool, FZN_SCRUB_CELL),
+	      "the cell after the rotted one was condemned too");
+	check(spool.have == FS_LEAVES - FZN_SCRUB_CELL,
+	      "a condemned cell cost something other than its own leaves");
+
+	printf("  filestore: %u rounds, %u asked, %u answered, %u placed, %u given up, "
+	       "%u dropped by the network; scrub checked %llu cells and condemned %u\n",
+	       rounds, asked, answered, placed, expired, net.dropped,
+	       (unsigned long long)checked, dropped_cells);
+}
+
 static void scenario_estate(void)
 {
 	static struct sim_net net;
@@ -4343,6 +4616,7 @@ int main(void)
 	scenario_session();
 	scenario_restart();
 	scenario_absence();
+	scenario_filestore();
 	scenario_estate();
 	scenario_tree();
 
