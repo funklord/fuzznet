@@ -5801,6 +5801,7 @@ somebody to notice.
 |---|---|
 | `blob/blob.h` | content-addressed blobs, the streaming tree, proofs |
 | `chain/authz.h` | verification, delegation, revocation, manifests, authz |
+| `chain/chain_store.h` | where a verified chain lives until it is needed |
 | `chunk/reassembly.h` | split and reassembly |
 | `disclose/disclose.h` | one signature over many fields, some shown |
 | `constant_time/constant_time.h` | the comparison and the wipe |
@@ -11663,10 +11664,37 @@ it is the copyright holder's -- naming it, its cost, and whose it is, per
 `working-practice.md`, because a mechanism described thoroughly becomes the
 obvious next step by weight of description alone.
 
-**Nothing is built.** Section 19 warned against building the half that
-records a policy while the half that delivers does not exist; the policy
-half has since been built on its own and that warning is now the other way
-round. The next commit here is either a store or nothing.
+~~**Nothing is built.**~~ **THE STORE IS BUILT** -- `chain/chain_store.h`
+and `.c`, on the holder's instruction 2026-09-05, with both properties above
+asserted rather than stated: a revoked chain is still held and no longer
+verifies, and admitting one leaves `fzn_journal_admit`'s refusal exactly
+where it was. The want and offer half is not built and is not started.
+
+**What building it found is about this tree's gates rather than about
+chains.** Three separate mechanisms refused a half-added module, and none
+of the three was noticed by the person adding it:
+
+  - `style` found the header in the tree and absent from `HDRS`, so
+    `make install` would have shipped a library missing the new module's
+    public header.
+  - `style` found the test binary missing from `.gitignore`, which is
+    named per binary deliberately rather than globbed.
+  - `installcheck` found the header installed and never included by the
+    consumer check -- **"the check would pass whatever those headers
+    did"**, which is the vacuous pass wired into a gate rather than
+    written in a document. The consumer walks the store now instead of
+    compiling against it, because a compile-only reference satisfies the
+    include requirement and proves nothing.
+
+The third is the one worth copying elsewhere. It does not ask whether the
+header exists; it asks whether the check that validates installed headers
+actually looks at this one.
+
+**And the module table above is the direction the gate does not check.**
+`style_gate.py docs` holds every backticked path in a table row against the
+tree, so a row naming a module that has gone fails -- and a module that
+arrives and is never given a row does not. That is why the row above was
+added by hand here rather than caught.
 
 ## 94. seal.c wants nothing, and the report that hid it, 2026-09-05
 
