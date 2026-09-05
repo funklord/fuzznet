@@ -115,6 +115,62 @@ typedef enum fzn_blob_err {
 	FZN_BLOB_ERR_FULL,
 } fzn_blob_err_t;
 
+/*
+ * WHERE A BYTE LIVES -- pure arithmetic, and deliberately not a reader.
+ *
+ * project.md sec 104 refused a read-at-offset source and sink, for two
+ * reasons that both hold: netcfgd's constraint is that message boundaries are
+ * preserved END TO END, and an API handing back a byte range has lost the
+ * boundary whatever carries it underneath; and it would give up the property
+ * the leaf size was chosen for -- "a receiver cannot verify a leaf until it
+ * holds all of it, so THE LEAF SIZE IS EXACTLY HOW MUCH UNVERIFIED DATA AN
+ * ATTACKER CAN MAKE A HOST BUFFER". **The verifiable unit and the interface
+ * unit have to be the same thing, or the bound stops being a bound.**
+ *
+ * These two return LEAF INDICES, never bytes, so that stays true: a caller
+ * still reads whole leaves through `fzn_spool_read`, verifies them, opens
+ * them, and does its own copying. What is removed is only the arithmetic.
+ *
+ * Sec 104 called that arithmetic "the consumer's, and four lines", which was
+ * right about the common case and wrong about the edges -- **the last leaf is
+ * short and the store does not know how short**, which is the same fact sec
+ * 109 met from the other side when a scrub could not recompute a leaf hash.
+ * So the length is a parameter here, exactly as `fzn_split_plan` takes
+ * `total`, and an exact multiple of the leaf size is the off-by-one every
+ * hand-written version gets to make once.
+ *
+ * `chunk/split.h` is the same object one layer down and says it best: "PURE
+ * ARITHMETIC. Nothing here holds a buffer, copies a payload, or knows what a
+ * datagram looks like."
+ */
+
+/* The blob's shape, from the length of its content. `out_last_len` is the
+ * PLAINTEXT length of the final leaf, which is what `fzn_blob_leaf_open`
+ * needs and what nothing else in this library can tell a caller. */
+fzn_blob_err_t fzn_blob_geometry(uint64_t content_len, uint64_t *out_leaves,
+                                 size_t *out_last_len);
+
+/* Which leaves cover a range of content, and where inside the first one it
+ * starts. */
+typedef struct fzn_blob_extent {
+	uint64_t first;
+	uint64_t count;
+	/* Plaintext bytes to discard from the front of leaf `first`. Exposed
+	 * because it is the number a caller would otherwise get wrong, which
+	 * is why `fzn_split_t` exposes `buffer_needed` for the same reason. */
+	size_t skip;
+} fzn_blob_extent_t;
+
+/*
+ * A range naming nothing is refused rather than answered with an empty
+ * extent, and a range past the end is refused rather than CLAMPED. Clamping
+ * would turn a caller's arithmetic bug into a short read it never hears
+ * about -- sec 25's rule met as its quieter cousin: the wrong request must
+ * not silently become a right one.
+ */
+fzn_blob_err_t fzn_blob_extent_of(uint64_t content_len, uint64_t offset, uint64_t len,
+                                  fzn_blob_extent_t *out);
+
 const char *fzn_blob_err_str(fzn_blob_err_t err);
 
 /*

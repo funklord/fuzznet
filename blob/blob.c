@@ -101,6 +101,64 @@ static void nonce_for_index(uint64_t index, uint8_t out[FZN_AEAD_NONCE_LEN])
 	fzn_put_be64(out + FZN_AEAD_NONCE_LEN - 8u, index);
 }
 
+/* The largest content this library can address: FZN_BLOB_MAX_LEAVES full
+ * leaves. Checked before any arithmetic so nothing below can wrap. */
+#define BLOB_MAX_CONTENT (FZN_BLOB_MAX_LEAVES * (uint64_t)FZN_BLOB_LEAF_SIZE)
+
+fzn_blob_err_t fzn_blob_geometry(uint64_t content_len, uint64_t *out_leaves,
+                                 size_t *out_last_len)
+{
+	uint64_t leaves;
+	uint64_t tail;
+
+	if (!out_leaves || !out_last_len)
+		return FZN_BLOB_ERR_MALFORMED;
+	/* A blob of no bytes has no leaves and no root, and every caller of
+	 * this would then divide by a count of zero somewhere later. */
+	if (content_len == 0u)
+		return FZN_BLOB_ERR_MALFORMED;
+	if (content_len > BLOB_MAX_CONTENT)
+		return FZN_BLOB_ERR_SHAPE;
+
+	leaves = content_len / FZN_BLOB_LEAF_SIZE;
+	tail = content_len % FZN_BLOB_LEAF_SIZE;
+	if (tail != 0u)
+		leaves++;
+	else
+		tail = FZN_BLOB_LEAF_SIZE;
+
+	*out_leaves = leaves;
+	*out_last_len = (size_t)tail;
+	return FZN_BLOB_OK;
+}
+
+fzn_blob_err_t fzn_blob_extent_of(uint64_t content_len, uint64_t offset, uint64_t len,
+                                  fzn_blob_extent_t *out)
+{
+	uint64_t last_byte, last_leaf;
+
+	if (!out)
+		return FZN_BLOB_ERR_MALFORMED;
+	if (content_len == 0u)
+		return FZN_BLOB_ERR_MALFORMED;
+	if (content_len > BLOB_MAX_CONTENT)
+		return FZN_BLOB_ERR_SHAPE;
+	if (len == 0u)
+		return FZN_BLOB_ERR_MALFORMED;
+	/* Written so neither side can wrap: the offset must be inside the
+	 * content and the length is what remains after it. */
+	if (offset >= content_len || len > content_len - offset)
+		return FZN_BLOB_ERR_MALFORMED;
+
+	last_byte = offset + len - 1u;
+	last_leaf = last_byte / FZN_BLOB_LEAF_SIZE;
+
+	out->first = offset / FZN_BLOB_LEAF_SIZE;
+	out->count = last_leaf - out->first + 1u;
+	out->skip = (size_t)(offset % FZN_BLOB_LEAF_SIZE);
+	return FZN_BLOB_OK;
+}
+
 fzn_blob_err_t fzn_blob_derive_leaf(const fzn_hash_ops_t *hash,
                                      const uint8_t content_key[FZN_BLOB_KEY_LEN],
                                      uint64_t index, uint8_t aead_key_out[FZN_AEAD_KEY_LEN],

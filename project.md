@@ -22677,6 +22677,99 @@ the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
 
+## 111. Read-at-offset: the arithmetic, not the reader, 2026-09-05
+
+Sec 102's list carried "read-at-offset streaming, source and sink", and sec
+104 refused it. **That refusal stands and this section does not reverse it.**
+What is built is `fzn_blob_geometry` and `fzn_blob_extent_of` in `blob/` --
+pure arithmetic answering WHICH LEAVES cover a range of content, returning
+leaf indices and never bytes.
+
+### Why the reader is still refused
+
+Both of sec 104's reasons survive re-reading:
+
+- **netcfgd's constraint is about the abstraction.** Message boundaries are
+  preserved END TO END, and an API that hands back a byte range has lost the
+  boundary whatever carries it underneath.
+- **It would spend the property the leaf size was bought for.** `blob.h`: *"a
+  receiver cannot verify a leaf until it holds all of it, so THE LEAF SIZE IS
+  EXACTLY HOW MUCH UNVERIFIED DATA AN ATTACKER CAN MAKE A HOST BUFFER."* A
+  byte-offset read is a request whose answer is not independently verifiable
+  at its own boundary. **The verifiable unit and the interface unit have to be
+  the same thing, or the bound stops being a bound.**
+
+Sec 104 also settled the deadline half, and that stands too: urgency here is
+positional, the urgent set IS the first spans from the playhead, and "drop if
+late" is the consumer advancing `from` rather than the library holding a
+clock -- checked against netcfgd's live-audio handover rather than assumed.
+
+### What changed, and it is small and admitted
+
+Sec 104 said the byte-range arithmetic is *"the consumer's, and four lines"*.
+Right about the common case, wrong about the edges: **the last leaf is short
+and the store does not know how short**, which is sec 109's finding arriving
+from the other direction. So the content length is a parameter here exactly as
+`fzn_split_plan` takes `total`, and an exact multiple of the leaf size is the
+off-by-one every hand-written version gets to make once.
+
+Handing back leaf indices gives nothing away. A caller still reads whole
+leaves, verifies them, opens them and copies for itself; only the division is
+removed. `chunk/split.h` is the same object one layer down -- *"PURE
+ARITHMETIC. Nothing here holds a buffer, copies a payload, or knows what a
+datagram looks like"* -- and this is that, for leaves.
+
+**Refused rather than clamped**, both ends: a range naming nothing and a range
+running past the content are errors, not a short answer. Clamping turns a
+caller's arithmetic bug into a short read it never hears about.
+
+Checked exhaustively against a reference that WALKS BYTES rather than
+dividing, over content lengths chosen to straddle 1024 rather than to be
+reasonable -- a reference that divided would share the function's blind spot
+and agree with it for the same wrong reason. 1.85M checks in `blob_test`.
+
+### The lens that came with it, and the two things it found here
+
+fuzzypickles reported a shipped bug the same day, and the mechanism is this
+tree's own two-set rule one layer up: their daemon tracked four outstanding
+batches with ONE BOOLEAN, cleared when any one committed, so its stall handler
+never fired and three ranges stayed pending for ever. The driver was correct
+throughout; **the fault was a second tally kept beside the authoritative one
+and allowed to drift.** Large fetches stalled at 87-93% and reported "nothing
+left to ask" while the peer held every missing byte.
+
+**Why nothing caught it is the part that transfers.** Every end-to-end blob in
+their tree was 200 KB or less; their opening burst is about 320 leaves; so
+every scenario completed inside the burst and no stall could occur. The sizes
+were each chosen sensibly, one at a time, by people testing other things --
+and the whole population happened to sit on one side of a threshold nobody had
+named.
+
+Their question, which this tree did not have: **what value is every fixture in
+this suite on the same side of?** Not "is each fixture sensible" -- they all
+were -- but whether the population sits on one side of a boundary in the code.
+Asked here, twice, and both answers were yes:
+
+- **`scrub_test` used 200 leaves' worth of blob at 192**, which is exactly
+  three cells of 64. **Every cell was full and the short-tail decomposition
+  had never run** in seal, step or repair -- while
+  `test_the_cell_bound_holds_at_every_size` swept 1..4096 and reported the
+  grid healthy, because it counts cells and does not scrub them. The fixture
+  is 200 now (64+64+64+8), a case corrupts a leaf in the short cell and
+  asserts it loses eight leaves rather than sixty-four, and the population
+  itself is asserted so the next person to change that number is told.
+- **`transfer_test` had no case where every remaining range was assigned.**
+  With 16 leaves and a window of at most 4, a free candidate always existed,
+  so `FZN_TRANSFER_NONE` while work was outstanding -- their exact bug --
+  could not occur. There is a case now: a window wider than the free ranges
+  left, `NONE` returned with the blob incomplete, and `expire` as the only way
+  out. It asserts `!fzn_spool_complete` so that the case cannot go vacuous if
+  the fixture ever fills.
+
+**Neither was findable by reading the tests**, which is what makes the
+question worth keeping: each fixture was independently reasonable and the
+defect was a property of the set.
+
 ## 110. Tier namespaces: already here, under a different name, 2026-09-05
 
 Last of sec 102's six. **Decided: fuzznet gets no tier field, no tier

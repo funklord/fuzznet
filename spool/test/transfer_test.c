@@ -236,6 +236,70 @@ static void test_an_abandoned_range_returns_to_the_want_list(void)
 	      (unsigned long long)first.first, (unsigned long long)first.count);
 }
 
+/* NONE DOES NOT MEAN COMPLETE, and a caller that reads it as "done" stalls
+ * with the blob unfinished and a peer holding every missing byte.
+ *
+ * fuzzypickles shipped exactly this and reported it 2026-09-05: their driver
+ * was correct throughout and answered "nothing left to ask this peer for"
+ * because everything missing was marked as already asked. What made it
+ * invisible was that no fixture in their tree had ever put more in flight
+ * than the opening burst -- the whole suite sat on one side of a threshold
+ * nobody had named.
+ *
+ * The arrangement here is the smallest one where the question exists: a
+ * window wider than the free ranges left, so every candidate is pending and
+ * `next_want` correctly refuses. `expire` is the only thing that gets the
+ * range back, which is what makes the distinction between NONE and FULL
+ * load-bearing rather than cosmetic. */
+static void test_none_is_not_completion_and_expiry_is_the_way_out(void)
+{
+	fzn_spool_range_t got, again;
+	uint64_t i;
+
+	CHECK(fresh(2u), "the fixture did not open");
+
+	/* One clean batch of eight, which opens the window to two. */
+	CHECK(fzn_transfer_next_want(&transfer, 1u, 0u, 8u, 100u, &got) == FZN_TRANSFER_OK,
+	      "the first ask was refused");
+	CHECK(got.count == 8u, "the first range is %llu leaves, not 8",
+	      (unsigned long long)got.count);
+	for (i = 0; i < got.count; i++)
+		CHECK(fzn_spool_place(&spool, &HASH, got.first + i, sealed[got.first + i],
+		                      sealed_len[got.first + i], proof[got.first + i],
+		                      proof_len[got.first + i]) == FZN_SPOOL_OK,
+		      "placing leaf %llu failed", (unsigned long long)(got.first + i));
+	CHECK(fzn_transfer_delivered(&transfer, 1u, got.first, got.count) == FZN_TRANSFER_OK,
+	      "the delivery was refused");
+	CHECK(fzn_transfer_window(&transfer) == 2u, "the window is %u, not 2",
+	      fzn_transfer_window(&transfer));
+
+	/* The remaining half, asked for and outstanding. */
+	CHECK(fzn_transfer_next_want(&transfer, 1u, 0u, 8u, 50u, &got) == FZN_TRANSFER_OK,
+	      "the second ask was refused");
+	CHECK(fzn_transfer_in_flight(&transfer) == 1u, "%zu in flight, not 1",
+	      fzn_transfer_in_flight(&transfer));
+
+	/* THE TRAP. The window has room, so this is not FULL; every range that
+	 * remains is assigned, so it is NONE -- and the blob is not done. */
+	CHECK(fzn_transfer_next_want(&transfer, 2u, 0u, 8u, 50u, &again) == FZN_TRANSFER_NONE,
+	      "a range already assigned was handed to a second peer");
+	CHECK(!fzn_spool_complete(&spool),
+	      "the fixture is complete, so NONE here would be honest and this case is vacuous");
+	CHECK(fzn_transfer_in_flight(&transfer) == 1u, "the refused ask changed what is in flight");
+
+	/* And the way out is the deadline, not another ask. */
+	CHECK(fzn_transfer_expire(&transfer, 49u) == 0u, "an early expiry dropped something");
+	CHECK(fzn_transfer_next_want(&transfer, 2u, 0u, 8u, 100u, &again) == FZN_TRANSFER_NONE,
+	      "the range came back before its deadline");
+	CHECK(fzn_transfer_expire(&transfer, 50u) == 1u, "the stalled range was not dropped");
+	CHECK(fzn_transfer_next_want(&transfer, 2u, 0u, 8u, 100u, &again) == FZN_TRANSFER_OK,
+	      "the abandoned range was not offered to the second peer");
+	CHECK(again.first == got.first && again.count == got.count,
+	      "a different range came back: %llu+%llu, not %llu+%llu",
+	      (unsigned long long)again.first, (unsigned long long)again.count,
+	      (unsigned long long)got.first, (unsigned long long)got.count);
+}
+
 /* ---- the window -------------------------------------------------------- */
 
 static void test_the_window_starts_at_one_and_refuses_a_second_ask(void)
@@ -490,6 +554,7 @@ int main(void)
 
 	test_two_peers_on_one_transfer_get_disjoint_work();
 	test_an_abandoned_range_returns_to_the_want_list();
+	test_none_is_not_completion_and_expiry_is_the_way_out();
 	test_the_window_starts_at_one_and_refuses_a_second_ask();
 	test_the_window_opens_once_per_window_of_successes();
 	test_the_window_halves_and_never_reaches_zero();

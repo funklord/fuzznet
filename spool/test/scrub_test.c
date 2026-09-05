@@ -69,9 +69,18 @@ static int stub_hash(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in,
 
 static const fzn_hash_ops_t HASH = { stub_hash, NULL };
 
-/* Three whole cells, so a corrupted one has neighbours to leave alone. */
-#define LEAVES 192u
-#define CELLS_EXPECTED 3u
+/* Three whole cells and a SHORT one, so a corrupted cell has neighbours to
+ * leave alone AND the tail path is exercised.
+ *
+ * 192 first, which is exactly three cells of 64 -- every cell full, and the
+ * short-tail decomposition never run. Found by fuzzypickles' question
+ * 2026-09-05: what value is every fixture in this suite on the same side of?
+ * Theirs was a transfer window no test file ever crossed; this one was a leaf
+ * count that was always a multiple of the cell size. 200 gives 64+64+64+8. */
+#define LEAVES 200u
+#define CELLS_EXPECTED 4u
+#define TAIL_FIRST 192u
+#define TAIL_LEN 8u
 
 static uint8_t sealed[LEAVES][FZN_BLOB_SEALED_MAX];
 static size_t sealed_len[LEAVES];
@@ -249,6 +258,17 @@ static void test_the_cell_bound_holds_at_every_size(void)
 	      (unsigned long long)LEAVES, (unsigned long long)fzn_scrub_cells(LEAVES),
 	      CELLS_EXPECTED);
 	CHECK(fzn_scrub_cells(0u) == 0u, "an empty blob has cells");
+
+	/* THE POPULATION THIS SUITE RUNS OVER, asserted rather than assumed.
+	 * Every other case in this file uses LEAVES, so if that number were a
+	 * multiple of the cell size again every cell would be full and the
+	 * tail path would go untested while everything stayed green. */
+	CHECK(fzn_blob_span_largest_at(LEAVES, 0u, FZN_SCRUB_CELL) == FZN_SCRUB_CELL,
+	      "the fixture has no full cell");
+	CHECK(fzn_blob_span_largest_at(LEAVES, TAIL_FIRST, FZN_SCRUB_CELL) == TAIL_LEN,
+	      "the fixture's tail cell is %llu leaves, not %u -- it is no longer short",
+	      (unsigned long long)fzn_blob_span_largest_at(LEAVES, TAIL_FIRST, FZN_SCRUB_CELL),
+	      TAIL_LEN);
 }
 
 /* ---- the clean pass, which proves nothing on its own -------------------- */
@@ -317,6 +337,30 @@ static void test_a_rotted_byte_drops_its_cell_and_only_its_cell(void)
 		      (unsigned long long)(FZN_SCRUB_CELL + i));
 	CHECK(fzn_spool_has(&spool, FZN_SCRUB_CELL - 1u), "the cell before was dropped too");
 	CHECK(fzn_spool_has(&spool, 2u * FZN_SCRUB_CELL), "the cell after was dropped too");
+}
+
+/* THE SHORT CELL, which is the member the widened fixture added. A wider
+ * population that nothing exercises is a wider population, not more
+ * coverage. */
+static void test_a_rotted_byte_in_the_short_tail_cell_drops_only_it(void)
+{
+	uint64_t checked = 0u, dropped = 0u;
+	const uint64_t victim = TAIL_FIRST + 3u;
+
+	CHECK(fresh(0u, LEAVES), "the fixture did not fill");
+	CHECK(seal_all(NULL) == CELLS_EXPECTED, "the fixture did not seal");
+	CHECK(step_all(&checked, &dropped) == FZN_SCRUB_DONE && dropped == 0u,
+	      "the fixture was not clean before corruption");
+
+	disk[victim * FZN_BLOB_SEALED_MAX + 2u] ^= 0x80u;
+	CHECK(step_all(&checked, &dropped) == FZN_SCRUB_DONE, "the pass did not finish");
+	CHECK(dropped == 1u, "%llu cells dropped, not 1", (unsigned long long)dropped);
+	/* Eight leaves, not sixty-four: a short cell must lose its own size. */
+	CHECK(spool.have == LEAVES - TAIL_LEN, "%llu leaves left, not %u",
+	      (unsigned long long)spool.have, LEAVES - TAIL_LEN);
+	CHECK(fzn_spool_has(&spool, TAIL_FIRST - 1u), "the full cell before the tail went too");
+	CHECK(!fzn_spool_has(&spool, TAIL_FIRST), "the tail cell's first leaf survived");
+	CHECK(!fzn_spool_has(&spool, LEAVES - 1u), "the blob's last leaf survived");
 }
 
 /* Repair is the want-list, and nothing else. */
@@ -447,6 +491,7 @@ int main(void)
 	test_the_cell_bound_holds_at_every_size();
 	test_a_whole_blob_seals_and_verifies();
 	test_a_rotted_byte_drops_its_cell_and_only_its_cell();
+	test_a_rotted_byte_in_the_short_tail_cell_drops_only_it();
 	test_a_dropped_cell_returns_to_the_want_list();
 	test_a_partial_blob_seals_only_whole_cells();
 	test_every_guard_refuses_its_own_argument();

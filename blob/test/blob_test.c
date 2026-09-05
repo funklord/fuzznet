@@ -1391,6 +1391,152 @@ static void test_batching_always_pays_and_never_stops_paying(void)
 	      (size_t)64u * FZN_BLOB_SEALED_MAX);
 }
 
+/* WHERE A BYTE LIVES, checked against a reference that shares no arithmetic.
+ *
+ * The formula here is three divisions and it is the kind that is wrong at
+ * exactly one input -- an exact multiple of the leaf size -- so the fixture
+ * has to sit on BOTH sides of that boundary and on it. fuzzypickles reported
+ * 2026-09-05 what happens when a whole suite sits on one side of a threshold
+ * nobody knew about: every end-to-end blob in their tree was under 200 KB,
+ * their transfer's opening burst was about 320 leaves, and a stall bug that
+ * needed a fetch larger than the burst had shipped because no fixture
+ * anywhere had ever crossed it.
+ *
+ * So the sweep below is over content lengths chosen to straddle 1024 rather
+ * than to be reasonable, and the reference WALKS BYTES -- marking which leaf
+ * each one falls in -- because a reference that divided would share this
+ * function's blind spot and agree with it for the same wrong reason. */
+static void test_where_a_byte_lives(void)
+{
+	static const uint64_t SIZES[] = { 1u,    2u,    1023u, 1024u, 1025u,
+	                                  2047u, 2048u, 2049u, 3072u, 3073u };
+	size_t si;
+	unsigned crossed = 0u, within = 0u;
+
+	for (si = 0; si < sizeof(SIZES) / sizeof(*SIZES); si++) {
+		uint64_t content = SIZES[si];
+		uint64_t leaves = 0u, offset;
+		size_t last_len = 0u;
+		uint64_t expect_leaves = 0u;
+		uint64_t b;
+
+		/* Geometry, against a count of leaves reached by walking. */
+		for (b = 0; b < content; b++) {
+			uint64_t leaf = b / FZN_BLOB_LEAF_SIZE;
+
+			if (leaf + 1u > expect_leaves)
+				expect_leaves = leaf + 1u;
+		}
+		CHECK(fzn_blob_geometry(content, &leaves, &last_len) == FZN_BLOB_OK,
+		      "geometry refused %llu bytes", (unsigned long long)content);
+		CHECK(leaves == expect_leaves, "%llu bytes gave %llu leaves, walking says %llu",
+		      (unsigned long long)content, (unsigned long long)leaves,
+		      (unsigned long long)expect_leaves);
+		CHECK((uint64_t)last_len == content - (leaves - 1u) * FZN_BLOB_LEAF_SIZE,
+		      "%llu bytes gave a last leaf of %zu", (unsigned long long)content,
+		      last_len);
+		CHECK(last_len >= 1u && last_len <= FZN_BLOB_LEAF_SIZE,
+		      "a last leaf of %zu is not a leaf", last_len);
+
+		for (offset = 0; offset < content; offset++) {
+			uint64_t len, cap = content - offset;
+
+			if (cap > 40u)
+				cap = 40u;
+			for (len = 1u; len <= cap; len++) {
+				fzn_blob_extent_t ext;
+				uint64_t lo = UINT64_MAX, hi = 0u, i;
+
+				/* The reference: which leaves does a byte walk
+				 * actually touch. */
+				for (i = offset; i < offset + len; i++) {
+					uint64_t leaf = i / FZN_BLOB_LEAF_SIZE;
+
+					if (leaf < lo)
+						lo = leaf;
+					if (leaf > hi)
+						hi = leaf;
+				}
+
+				CHECK(fzn_blob_extent_of(content, offset, len, &ext) == FZN_BLOB_OK,
+				      "extent refused %llu+%llu of %llu",
+				      (unsigned long long)offset, (unsigned long long)len,
+				      (unsigned long long)content);
+				CHECK(ext.first == lo && ext.count == hi - lo + 1u,
+				      "%llu+%llu of %llu gave %llu+%llu, walking says %llu..%llu",
+				      (unsigned long long)offset, (unsigned long long)len,
+				      (unsigned long long)content, (unsigned long long)ext.first,
+				      (unsigned long long)ext.count, (unsigned long long)lo,
+				      (unsigned long long)hi);
+				CHECK(ext.skip == (size_t)(offset - lo * FZN_BLOB_LEAF_SIZE),
+				      "skip is %zu for offset %llu", ext.skip,
+				      (unsigned long long)offset);
+				if (ext.count > 1u)
+					crossed++;
+				else
+					within++;
+			}
+		}
+	}
+
+	/* THE POPULATION, asserted rather than assumed. A sweep that never
+	 * crossed a leaf boundary would pass every check above and would have
+	 * tested one side of the only interesting line in the function. */
+	CHECK(crossed > 0u && within > 0u,
+	      "%u ranges crossed a leaf boundary and %u stayed inside one -- "
+	      "a fixture on one side of the boundary tests one side of the bug",
+	      crossed, within);
+
+	/* Whole-blob reads, where the last leaf is short and the count must
+	 * still be right. */
+	{
+		fzn_blob_extent_t ext;
+
+		CHECK(fzn_blob_extent_of(2049u, 0u, 2049u, &ext) == FZN_BLOB_OK &&
+		              ext.first == 0u && ext.count == 3u && ext.skip == 0u,
+		      "a whole 2049-byte blob is not three leaves from zero");
+		CHECK(fzn_blob_extent_of(2048u, 0u, 2048u, &ext) == FZN_BLOB_OK &&
+		              ext.count == 2u,
+		      "a whole 2048-byte blob is not two leaves");
+		/* The last byte of the last leaf, which is where an
+		 * off-by-one lands. */
+		CHECK(fzn_blob_extent_of(2049u, 2048u, 1u, &ext) == FZN_BLOB_OK &&
+		              ext.first == 2u && ext.count == 1u && ext.skip == 0u,
+		      "the final byte of a 2049-byte blob is not leaf 2 offset 0");
+	}
+}
+
+/* Refused rather than clamped, and refused rather than answered empty. */
+static void test_a_range_outside_the_content_is_refused(void)
+{
+	fzn_blob_extent_t ext;
+	uint64_t leaves = 0u;
+	size_t last_len = 0u;
+
+	CHECK(fzn_blob_extent_of(1024u, 0u, 0u, &ext) == FZN_BLOB_ERR_MALFORMED,
+	      "a range naming nothing was answered");
+	CHECK(fzn_blob_extent_of(1024u, 1024u, 1u, &ext) == FZN_BLOB_ERR_MALFORMED,
+	      "an offset at the end was answered");
+	CHECK(fzn_blob_extent_of(1024u, 1023u, 2u, &ext) == FZN_BLOB_ERR_MALFORMED,
+	      "a range running one byte past the end was CLAMPED rather than refused");
+	CHECK(fzn_blob_extent_of(0u, 0u, 1u, &ext) == FZN_BLOB_ERR_MALFORMED,
+	      "a blob of no bytes was addressed");
+	CHECK(fzn_blob_extent_of(1024u, 0u, 1u, NULL) == FZN_BLOB_ERR_MALFORMED,
+	      "extent took a null out");
+	CHECK(fzn_blob_geometry(0u, &leaves, &last_len) == FZN_BLOB_ERR_MALFORMED,
+	      "geometry answered for no bytes");
+	CHECK(fzn_blob_geometry(1024u, NULL, &last_len) == FZN_BLOB_ERR_MALFORMED,
+	      "geometry took a null out");
+	/* Past what this library can address at all, which is a different
+	 * fault from a bad range and gets its own code. */
+	CHECK(fzn_blob_geometry(FZN_BLOB_MAX_LEAVES * (uint64_t)FZN_BLOB_LEAF_SIZE + 1u, &leaves,
+	                        &last_len) == FZN_BLOB_ERR_SHAPE,
+	      "geometry answered for content past the ceiling");
+	CHECK(fzn_blob_extent_of(FZN_BLOB_MAX_LEAVES * (uint64_t)FZN_BLOB_LEAF_SIZE + 1u, 0u, 1u,
+	                         &ext) == FZN_BLOB_ERR_SHAPE,
+	      "extent answered for content past the ceiling");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -1610,6 +1756,8 @@ int main(void)
 	test_a_span_proof_of_the_wrong_length_is_refused();
 	test_the_largest_span_at_every_position_is_canonical();
 	test_batching_always_pays_and_never_stops_paying();
+	test_where_a_byte_lives();
+	test_a_range_outside_the_content_is_refused();
 
 	printf("blob_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
