@@ -49,6 +49,7 @@
 #include <fuzznet/chain/chain.h>
 #include <fuzznet/chain/manifest.h>
 #include <fuzznet/chain/authz.h>
+#include <fuzznet/chain/chain_store.h>
 #include <fuzznet/blob/blob.h>
 #include <fuzznet/ratchet/ratchet.h>
 #include <fuzznet/prekey/prekey.h>
@@ -98,6 +99,7 @@
 #include "chain/chain.h"
 #include "chain/manifest.h"
 #include "chain/authz.h"
+#include "chain/chain_store.h"
 #include "blob/blob.h"
 #include "ratchet/ratchet.h"
 #include "prekey/prekey.h"
@@ -1514,6 +1516,56 @@ int main(void)
 			FAIL(223);
 		if ((int)FZN_AUTHZ_DENIED != 0)
 			FAIL(224);
+	}
+
+	/* The chain store: somewhere for a verified chain to live between
+	 * arriving and being needed.
+	 *
+	 * WALKED RATHER THAN COMPILED, because an installed header nothing
+	 * calls is a header this check would pass whatever it declared --
+	 * which is what `installcheck` refuses, and rightly.
+	 *
+	 * The property exercised is the one the module exists to make
+	 * difficult to get wrong: holding is not authorising. A chain is
+	 * admitted, found, and then looked up again past its expiry, where
+	 * the store must refuse to hand it back. */
+	{
+		fzn_chain_store_t held;
+		fzn_chain_entry_t slots[1];
+		uint8_t hop_bytes[FZN_HOP_LEN];
+		fzn_chain_hop_t hop;
+		uint8_t grantee[FZN_PUBKEY_LEN];
+		fzn_cap_id_t cap;
+		const uint8_t *found = NULL;
+		size_t found_len = 0;
+
+		memset(grantee, 0x6d, sizeof(grantee));
+		memset(cap.b, 0x6e, sizeof(cap.b));
+
+		if (fzn_chain_store_init(&held, slots, 1) != FZN_CHAIN_OK)
+			FAIL(256);
+		if (fzn_chain_store_count(&held) != 0u)
+			FAIL(257);
+		if (fzn_chain_mint(root, grantee, &cap, 100, 5000, 1, &sign, hop_bytes)
+		    != FZN_CHAIN_OK)
+			FAIL(258);
+		if (fzn_hop_open(hop_bytes, FZN_HOP_LEN, &hop) != FZN_CHAIN_OK)
+			FAIL(259);
+		if (fzn_chain_store_admit(&held, &hop, 1, root, &cap, 200, &sign, NULL, NULL)
+		    != FZN_CHAIN_OK)
+			FAIL(260);
+		if (fzn_chain_store_count(&held) != 1u)
+			FAIL(261);
+		if (!fzn_chain_store_lookup(&held, root, &cap, grantee, 200, &found, &found_len))
+			FAIL(262);
+		if (found == NULL || found_len == 0u)
+			FAIL(263);
+		/* Past its expiry it is withheld, and the out-parameters are
+		 * cleared rather than left pointing at the last answer. */
+		if (fzn_chain_store_lookup(&held, root, &cap, grantee, 9000, &found, &found_len))
+			FAIL(264);
+		if (found != NULL || found_len != 0u)
+			FAIL(265);
 	}
 
 	/* Key agreement: the seam a consumer fills to get deletable material

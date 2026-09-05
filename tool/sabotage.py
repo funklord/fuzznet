@@ -1005,6 +1005,40 @@ SABOTAGES = [
 		"\t\t\treturn FZN_CHAIN_ERR_UNKNOWN_TARGET;\n",
 		"a withdrawal that overtakes its revocation is kept, not dropped",
 	),
+	# BATCH ELEVEN, 2026-09-05: chain/chain_store.c, added with the module so
+	# it is never a source with no entries. All three were run against the
+	# suite before being written down -- the expiry and the replacement fail
+	# two assertions each, and the verify-first one takes the binary down
+	# with a SIGSEGV rather than a message, which still fails the run but is
+	# a weaker catch than the others and is recorded as such.
+	(
+		"chain-store-expiry",
+		"chain/chain_store.c",
+		"\tif (e->chain.expires_at != FZN_NO_EXPIRY && e->chain.expires_at <= now)\n"
+		"\t\treturn 0;\n",
+		"\t(void)now;\n",
+		"an expired chain must not be handed back, since a caller that forgot "
+		"to check would authorise on a dead grant",
+	),
+	(
+		"chain-store-verify-first",
+		"chain/chain_store.c",
+		"\terr = fzn_chain_verify(hops, hop_count, root, capability, now, sign, revocations,\n"
+		"\t                       manifest, &verified);\n"
+		"\tif (err != FZN_CHAIN_OK)\n"
+		"\t\treturn err;\n",
+		"\tmemset(&verified, 0, sizeof(verified));\n",
+		"a chain is verified before it is stored, or the store is fillable with "
+		"junk by anyone who can send bytes",
+	),
+	(
+		"chain-store-replaces",
+		"chain/chain_store.c",
+		"\tat = find_entry(store, verified.root, &verified.capability, verified.grantee);\n",
+		"\tat = store->used;\n",
+		"a second chain for one triple replaces the first, or lookup has to "
+		"answer which one and no caller asked that",
+	),
 	# BATCH TEN, 2026-09-04: the guard-operand sweep's one source change.
 	# `fzn_tree_order_between` carried `*out == lo && hi - lo <= 1u`, whose
 	# second operand was dead -- `lo > hi` is refused above, so the midpoint

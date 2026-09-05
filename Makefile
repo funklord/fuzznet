@@ -158,6 +158,7 @@ GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
              chain/chain.c chain/revocation.c chain/manifest.c chain/authz.c \
+             chain/chain_store.c \
              frame/freshness.c \
              blob/blob.c ratchet/ratchet.c prekey/prekey.c \
              provision/provision.c \
@@ -190,6 +191,7 @@ OBJS       = $(SRCS:%.c=$(BUILD_DIR)/%.o) $(GEN_OBJS)
 HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h local/vocabulary.h \
              chain/chain.h chain/revocation.h chain/manifest.h chain/authz.h \
+             chain/chain_store.h \
              frame/freshness.h \
              blob/blob.h ratchet/ratchet.h prekey/prekey.h \
              provision/provision.h \
@@ -236,6 +238,7 @@ CORE_HDRS := $(HDRS)
 
 TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              chain/test/manifest_test.c chain/test/authz_test.c \
+             chain/test/chain_store_test.c \
              blob/test/blob_test.c ratchet/test/ratchet_test.c \
              prekey/test/prekey_test.c prekey/test/prekey_fuzz.c \
              provision/test/provision_fuzz.c \
@@ -294,6 +297,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/chain/test/revocation_test \
              $(BUILD_DIR)/chain/test/manifest_test \
              $(BUILD_DIR)/chain/test/authz_test \
+             $(BUILD_DIR)/chain/test/chain_store_test \
              $(BUILD_DIR)/blob/test/blob_test \
              $(BUILD_DIR)/ratchet/test/ratchet_test \
              $(BUILD_DIR)/prekey/test/prekey_test \
@@ -1370,6 +1374,21 @@ $(BUILD_DIR)/ratchet/test/ratchet_test: $(BUILD_DIR)/ratchet/test/ratchet_test.o
 # authz links the chain layer it collapses to a verdict, and manifest because
 # revocation.o reaches it.
 $(BUILD_DIR)/chain/test/authz_test: $(BUILD_DIR)/chain/test/authz_test.o \
+                                     $(BUILD_DIR)/chain/authz.o \
+                                     $(BUILD_DIR)/chain/chain.o \
+                                     $(BUILD_DIR)/chain/revocation.o \
+                                     $(BUILD_DIR)/chain/manifest.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# Links record/journal.o, which no other chain test does. The test asserts
+# that admitting a chain does NOT make the journal follow anybody, and there
+# is no follow predicate to read -- so it reads the door instead, and the
+# door is in record/. An inter-module claim links both modules.
+$(BUILD_DIR)/chain/test/chain_store_test: $(BUILD_DIR)/chain/test/chain_store_test.o \
+                                     $(BUILD_DIR)/chain/chain_store.o \
+                                     $(BUILD_DIR)/record/journal.o \
                                      $(BUILD_DIR)/chain/authz.o \
                                      $(BUILD_DIR)/chain/chain.o \
                                      $(BUILD_DIR)/chain/revocation.o \

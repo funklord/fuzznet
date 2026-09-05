@@ -30,6 +30,7 @@
 /chain/test/revocation_test
 /chain/test/manifest_test
 /chain/test/authz_test
+/chain/test/chain_store_test
 /blob/test/blob_test
 /blob/test/blob_fuzz
 /ratchet/test/ratchet_test
