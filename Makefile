@@ -160,7 +160,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              chain/chain.c chain/revocation.c chain/manifest.c chain/authz.c \
              chain/chain_store.c chain/service.c claim/claim.c \
              record/store.c catalog/catalog.c catalog/copy.c catalog/sweep.c \
-             catalog/reach.c \
+             catalog/reach.c qr/qr.c \
              frame/freshness.c \
              blob/blob.c ratchet/ratchet.c prekey/prekey.c \
              provision/provision.c \
@@ -198,7 +198,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              chain/chain.h chain/revocation.h chain/manifest.h chain/authz.h \
              chain/chain_store.h chain/service.h claim/claim.h \
              record/store.h catalog/catalog.h catalog/copy.h catalog/sweep.h \
-             catalog/reach.h \
+             catalog/reach.h qr/qr.h \
              frame/freshness.h \
              blob/blob.h ratchet/ratchet.h prekey/prekey.h \
              provision/provision.h \
@@ -252,6 +252,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              catalog/test/copy_test.c \
              catalog/test/sweep_test.c \
              catalog/test/reach_test.c \
+             qr/test/qr_test.c \
              blob/test/blob_test.c ratchet/test/ratchet_test.c \
              prekey/test/prekey_test.c prekey/test/prekey_fuzz.c \
              provision/test/provision_fuzz.c \
@@ -322,6 +323,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/catalog/test/copy_test \
              $(BUILD_DIR)/catalog/test/sweep_test \
              $(BUILD_DIR)/catalog/test/reach_test \
+             $(BUILD_DIR)/qr/test/qr_test \
              $(BUILD_DIR)/blob/test/blob_test \
              $(BUILD_DIR)/ratchet/test/ratchet_test \
              $(BUILD_DIR)/prekey/test/prekey_test \
@@ -1183,7 +1185,7 @@ endif
 # failures rather than as a build error.
 DEPS = $(OBJS:.o=.d) $(TEST_OBJS:.o=.d)
 
-.PHONY: check runtests all test fuzz guided guided-one installcheck coverage sancheck schema qtty style codegencheck ctcheck analyze sabotage hooks clean install
+.PHONY: check runtests all test fuzz guided guided-one installcheck coverage sancheck schema qtty qrcheck style codegencheck ctcheck analyze sabotage hooks clean install
 
 # The default build does NOT build tests -- build-and-commit.md, and the
 # discipline it buys is paid for by the dependency rules above being right.
@@ -1763,6 +1765,11 @@ $(BUILD_DIR)/catalog/test/reach_test: $(BUILD_DIR)/catalog/test/reach_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# The QR encoder calls nothing and is called by the widget and the CLI. sec 160.
+$(BUILD_DIR)/qr/test/qr_test: $(BUILD_DIR)/qr/test/qr_test.o $(BUILD_DIR)/qr/qr.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # THE C++ RULE, AND IT IS SEPARATE FROM THE C ONE ON PURPOSE. Qt's flags reach
 # only the widgets: a C source that picked them up would gain include paths it
 # has no use for, and the library's own build would start depending on
@@ -1978,6 +1985,7 @@ $(BUILD_DIR)/wire/test/tamper_test.o: wire/test/tamper_test.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
 
 $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
+                                      $(BUILD_DIR)/qr/qr.o \
                                       $(BUILD_DIR)/provision/provision.o \
                                       $(BUILD_DIR)/disclose/disclose.o \
                                       $(BUILD_DIR)/blob/blob.o \
@@ -2732,7 +2740,13 @@ style:
 	@# worktrees under `.claude/worktrees/`, each a full checkout. Without
 	@# the prune every sweep here reports several hundred copies of the same
 	@# files as unlisted, which is a gate that has stopped saying anything.
-	@known=" $(SRCS) $(TEST_SRCS) $(GEN_SRCS) $(MONO_SRCS) $(MONO_TSRC) tool/consumer_check.c "; \
+	@# TWO SOURCES ARE BUILT ONLY BY THEIR OWN TARGET and belong in no list
+	@# a default build reads: `tool/consumer_check.c` needs an installed
+	@# tree, and `qr/test/qr_quirc_check.c` needs a quirc checkout. Naming
+	@# them here rather than widening the sweep keeps the gate exact -- a
+	@# third one has to be added deliberately and says why.
+	@known=" $(SRCS) $(TEST_SRCS) $(GEN_SRCS) $(MONO_SRCS) $(MONO_TSRC) \
+	         tool/consumer_check.c qr/test/qr_quirc_check.c "; \
 	unlisted=; n=0; \
 	for c in `find . -name '*.c' -not -path './build/*' -not -path './san/*' \
 	                 -not -path './*-coverage/*' -not -path './.claude/*' \
@@ -3232,6 +3246,47 @@ SITU_DIR ?=
 # with both installed is Qt 5's. A first attempt here built for four minutes
 # and failed on that, and a second failed again because qtty.pro is a subdirs
 # project and the stale sub-Makefile from the first was still Qt 5's.
+# DOES WHAT THIS ENCODES DECODE? sec 160.
+#
+# The only check that can answer it. `qr/test/qr_test.c` asserts shape --
+# finders, timing, sizing, refusals -- and a QR code can satisfy every one of
+# those and decode as nothing: the encoder was wrong in five separate ways
+# during its first afternoon, and that suite would have passed four of them.
+#
+# QUIRC IS THE SECOND WITNESS, and it is an independent implementation rather
+# than a second reading of this one -- `evidence.md`'s rule that a
+# known-answer test generated by the code under test is one witness however
+# many files it fills. It is vendored by fuzzypickles, which is why this takes
+# a directory rather than a version.
+#
+# EVERY VERSION AND EVERY LEVEL, at each one's largest payload, because a
+# per-version table error looks like nothing until the version that has it:
+# the alignment coordinates were wrong for exactly version 14 and right for
+# the other fourteen.
+#
+# NOT PART OF `make check`, on `make schema`'s argument: it needs a sibling
+# checkout, and a gate that breaks for another tree's reasons is one people
+# switch off.
+qrcheck:
+	@if [ -z "$(QUIRC_DIR)" ]; then \
+		echo "qrcheck: QUIRC_DIR unset, so nothing DECODED what we encode."; \
+		echo "qrcheck: run 'make qrcheck QUIRC_DIR=../fuzzypickles/quirc'."; \
+		exit 1; \
+	fi
+	@test -f "$(QUIRC_DIR)/lib/quirc.h" || { \
+		echo "qrcheck: no quirc.h under $(QUIRC_DIR)/lib"; exit 1; }
+	@set -e; \
+	scratch=$(BUILD_DIR)/.qrcheck; \
+	case "$$scratch" in "" | "/" | "/*") \
+		echo "qrcheck: refusing to work in '$$scratch'"; exit 1;; esac; \
+	trap 'rm -rf "$$scratch"' EXIT INT TERM; \
+	rm -rf "$$scratch"; mkdir -p "$$scratch"; \
+	$(CC) $(CFLAGS) -I. -I"$(QUIRC_DIR)/lib" qr/test/qr_quirc_check.c qr/qr.c \
+	      "$(QUIRC_DIR)"/lib/quirc.c "$(QUIRC_DIR)"/lib/decode.c \
+	      "$(QUIRC_DIR)"/lib/identify.c "$(QUIRC_DIR)"/lib/version_db.c \
+	      -lm -o "$$scratch/qrcheck"; \
+	"$$scratch/qrcheck"
+
 qtty:
 	@if [ -z "$(QTTY_DIR)" ]; then \
 		echo "qtty: QTTY_DIR unset, so the widgets were NOT rendered."; \

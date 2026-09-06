@@ -2251,6 +2251,27 @@ SABOTAGES = [
 		"a row that follows the catalogue until T says nothing until then, and "
 		"sec 152 refuses to store one",
 	),
+	# BATCH SIXTEEN, 2026-09-07: the QR encoder, sec 160. Only the guards a
+	# SHAPE test can hold are here -- the timing pattern that must not run
+	# over a finder, and the dark module. What makes the encoder produce a
+	# READABLE code is held by `make qrcheck` against quirc, which this
+	# harness cannot run because it needs a sibling checkout.
+	(
+		"qr-timing-spares-the-finder",
+		"qr/qr.c",
+		"\tfor (i = 8u; i + 8u < size; i++) {\n",
+		"\tfor (i = 0u; i < size; i++) {\n",
+		"the timing pattern must not run over the finders, or the code stops "
+		"being findable at all",
+	),
+	(
+		"qr-dark-module",
+		"qr/qr.c",
+		"\tset_fixed(m, size, 8u, size - 8u, 1u);\n",
+		"\t/* sabotage */\n",
+		"the dark module is always set, and a format reservation one cell too "
+		"long is what clears it",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

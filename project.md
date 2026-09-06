@@ -22870,6 +22870,121 @@ anything could have said otherwise.
 copyright holder should know the size before it happens rather than find it
 inside a commit about a widget.
 
+## 160. The QR encoder, and five defects a shape test would have passed, 2026-09-07
+
+The copyright holder: "do the qr code generator next", from sec 139's list of
+generic objects every consumer needs.
+
+**It reverses a recorded decision, and that is the holder's to do.** sec 71
+built `provision/` and stopped at the string: "no encoder, no decoder, no
+bitmap, no camera... turning a string into a photograph is a barcode library's
+job", with the holder's own *"that scoping is right, go ahead"* beside it. The
+generator is now asked for. Noted rather than argued, and this section is what
+it cost.
+
+### It produces modules, not an image
+
+A caller gets a square of bytes, one per module, and draws them however it
+draws things. A widget paints rectangles, a terminal prints half-blocks, and
+deciding what a pixel is belongs to whoever has the screen. No allocation, as
+everywhere here.
+
+**Written rather than vendored**, which `harmonization.md` normally advises
+against. Three reasons and the first is weakest: a second vendored tree brings
+somebody's terms into a project whose licensing the holder has not settled;
+every encoder worth having calls `malloc`, so it would be the one part of
+fuzznet a consumer could not use from a fixed arena; and the payload is known,
+bounded, and entirely inside QR's alphanumeric set, so most of the standard is
+not needed.
+
+### The check is the whole story
+
+**Five defects, and the shape suite would have passed four of them.** The
+tables in this file are values written from memory, which `evidence.md` calls
+an invented value: every run agrees with itself, because the encoder and any
+test I wrote against it are one witness. So the check is `make qrcheck`, which
+hands what this produces to **quirc** -- an independent decoder, vendored by
+fuzzypickles -- across every version and every level, at each one's largest
+payload.
+
+What it found, in the order it found them:
+
+    quirc found 0 codes        the timing patterns ran the full width and
+                               overwrote the finders' edges. Visible by
+                               printing one and looking at the corner.
+    ECC failure                the Reed-Solomon generator was stored
+                               constant-first and indexed leading-first, so
+                               every codeword was wrong.
+    read level Q, asked L      the format's two copies were transposed: the
+                               first runs DOWN column 8, not along row 8.
+    format ECC failure         the BCH shift used the data width where it
+                               needed the generator's degree. format(L,0)
+                               came out as 0x6AD01 -- nineteen bits for a
+                               fifteen-bit code.
+    52 of 56, all v14          versions 14 and up have FOUR alignment
+                               coordinates and the table had three.
+
+**Each was invisible to everything except a decoder.** The code had finders,
+timing, the right size and the right module count throughout; it simply was
+not a QR code.
+
+### Two of them were found by other instruments, and that is worth separating
+
+The first, by **printing the matrix and looking at it** -- `read the input
+before theorising about the mechanism`. quirc's "0 codes" says nothing about
+where, and the finder's missing edge is plain in twenty-one rows of text.
+
+The second, by **a property rather than a vector**. A Reed-Solomon codeword
+evaluated at each of its generator's roots is zero, whatever construction
+produced the generator -- so it tests the suspect part without a published
+example, which `evidence.md` would not have let me recall anyway. Seven of
+seven roots were nonzero before the fix and zero after.
+
+And the format placement was settled by **reading quirc's own reader**. Its
+`read_format` names the fifteen cells and their bit order; mirroring it is not
+a guess, and my two attempts before that were.
+
+### The dark module, which quirc does not check
+
+A sixth defect, and the only one the shape suite caught: the format
+reservation ran eight cells vertically where the second copy is seven, so it
+cleared the dark module. Every code this produced had it light, and **quirc
+decoded them all anyway** because its reader does not consult that module.
+Nothing but reading the matrix back says so -- which is the argument for
+having both halves rather than only the decoder.
+
+### A recalled capacity, corrected by the first real payload
+
+The header claimed the card fit version 11 at level L and 13 at M. Encoding it
+says version **15 at L**, and at M it does not fit at all inside this version
+range: 415 data codewords against the 471 the card needs.
+
+So `FZN_QR_VERSION_MAX = 15` is exactly the card's size with no headroom, and
+**level L is the only level the card fits**. That is a real limit, stated in
+the header beside the number that was wrong. Lifting it is more table and no
+new code, and the sweep would adjudicate the additions the same way it
+adjudicated these -- **whose call that is, is the holder's**, since it trades
+a bigger code against a card that survives being handled.
+
+### Three gates asked for their row
+
+Adding a module means telling four hand-kept lists about it, and three refused
+in turn: `qr/test/qr_quirc_check.c` is a C source in no list -- the gate that
+would have caught the Monocypher bindings; a gate declined to run at all until
+the objects were built, rather than reporting a pass over less than the
+library; and `fzn_qr_err_str` was an error renderer the sweep did not walk, so
+its arms would have rendered text no test ever read.
+
+None of them is about QR. They are worth a line because all three fired
+without anybody remembering they existed, which is what a list checked against
+another list is for.
+
+### The widget is not here
+
+This is the generator. `fzn_qr_encode` hands out modules precisely so that
+`gui/`, `cli/` and a terminal can each draw them their own way, and drawing
+them is the next piece rather than part of this one.
+
 ## 159. The log view's frame, and two controls that were wrong, 2026-09-07
 
 The copyright holder: "fix the log view frame." sec 158 had reported a

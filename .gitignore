@@ -38,6 +38,7 @@
 /catalog/test/copy_test
 /catalog/test/sweep_test
 /catalog/test/reach_test
+/qr/test/qr_test
 /record/test/store_file_test
 /cli/test/cli_test
 /gui/test/trust_view_test
