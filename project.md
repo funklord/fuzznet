@@ -22677,6 +22677,62 @@ the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
 
+## 121. The local hop, and a sabotage that landed on the wrong line, 2026-09-06
+
+Nothing in the simulation had ever called `local/peer.h` or
+`local/vocabulary.h`. `scenario_local_hop` runs them beside the chain and
+changes one, because `record/record.h` states the design the pair exists for:
+keeping authorisation out of the record layer "is what lets one project
+authorise by chain, another by local uid, and a third by both", and a project
+that is BOTH is where the two must not be confused.
+
+    local-hop: alice 1, bob 0, carol 2 (unchanged by revocation);
+               grant ok then a grant has been revoked
+
+Three clients: one in the group a rule names, one in another, one whose
+supplementary list could not be read at all. Then the host's grant is
+revoked. **One decision changes and the other does not** -- a local verdict
+is a fact about groups on this machine, a grant is a fact about a chain the
+root signed, and a consumer requiring both now refuses.
+
+**The third verdict is the one worth having.** `FZN_PEER_UNKNOWN` means "a
+rule names this verb and I could not read your groups", and a daemon that
+collapses it to a denial has thrown away the difference between *you may
+not* and *I cannot tell*. The scenario asserts all three answers DIFFER,
+which is the floor on the rules themselves: three clients answered alike
+would pass every other check while discriminating nothing.
+
+### A sabotage that landed, was confirmed to land, and changed nothing
+
+Sec 119 records the lesson that a sabotage must be confirmed to apply,
+because a run that changed nothing looks exactly like a guard nobody needed.
+That lesson was applied here and **was not enough.**
+
+`local/vocabulary.c` has three returns of `FZN_PEER_UNKNOWN`. The first
+attempt matched the first of them -- an argument guard -- printed
+`SITE FOUND`, replaced it, rebuilt, and the scenario passed with carol still
+answering UNKNOWN. Everything the previous section asks for was done and the
+result was still meaningless: the substitution landed on a line the case
+under test does not execute.
+
+The site carol reaches is
+`return unknown_seen ? FZN_PEER_UNKNOWN : FZN_PEER_NOT_MEMBER;`, and
+sabotaging THAT fires two assertions.
+
+**So confirming a substitution landed is necessary and not sufficient; the
+site has to be on the path the case takes.** The cheap check is the one that
+was skipped: the printed line said which text was replaced, and reading it
+against what the fixture actually exercises would have shown a null-argument
+guard rather than the verdict fold. A first match is not a chosen site.
+
+### And a hand-counted length, in the fixture
+
+`fzn_peer_groups_parse` takes a length and its header is explicit that whole
+lines are the caller's to guarantee. The first draft passed `30` for a
+29-byte line, handing the parser the literal's own terminator. It happened to
+work. `sizeof(...) - 1` replaces both counts, which is the same rule this
+tree applies to anchors: a number typed from counting is a number that rots.
+
 ## 120. The floor refused the scenario before I could believe it, 2026-09-06
 
 `record/ledger.c` was the second module sec 119 found uncalled by any sim

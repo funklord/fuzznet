@@ -46,6 +46,8 @@
 #include "../../chain/authz.h"
 #include "../../chain/chain_store.h"
 #include "../../record/ledger.h"
+#include "../../local/peer.h"
+#include "../../local/vocabulary.h"
 #include "../../spool/message.h"
 #include "../../spool/transfer.h"
 #include "../../spool/scrub.h"
@@ -4317,6 +4319,142 @@ static void scenario_ledger(void)
 	       (unsigned long long)highest[2]);
 }
 
+/* ------------------------------------------------------------ scenario 25
+
+   THE LOCAL HOP, AND THAT IT DECIDES NOTHING THE NETWORK DECIDES.
+
+   Nothing in this simulation had ever called `local/peer.h` or
+   `local/vocabulary.h` -- measured, sec 119's sweep. That matters because
+   `record/record.h` states the design the two are for: keeping
+   authorisation out of the record layer "is what lets one project authorise
+   by chain, another by local uid, and a third by both", and a project that
+   is BOTH is the case where the two must not be confused.
+
+   So this scenario runs them side by side and changes one. A local client's
+   verdict is a fact about groups on this machine; a host's grant is a fact
+   about a chain the root signed. Revoking the second must leave the first
+   exactly where it was -- and a consumer that requires both must then
+   refuse. project.md sec 121.
+
+   THE THIRD VERDICT IS THE ONE WORTH HAVING. `fzn_vocabulary_admit` answers
+   MEMBER, NOT_MEMBER or UNKNOWN, and the last means "a rule names this verb
+   and I could not read your groups". A daemon that collapses it to a denial
+   has thrown away the difference between "you may not" and "I cannot
+   tell".  */
+static void scenario_local_hop(void)
+{
+	static struct sim_net net;
+	static uint8_t rec_region[FZN_REVOCATION_LEN];
+	static const char ALICE_STATUS[] = "Name:\tsim\nGroups:\t27 100 500\n";
+	static const char BOB_STATUS[] = "Name:\tsim\nGroups:\t100 500\n";
+	static const uint8_t verb_reconfigure[] = "reconfigure";
+	static const uint8_t verb_shutdown[] = "shutdown";
+	fzn_peer_t alice, bob, carol;
+	fzn_verb_rule_t rules[2];
+	fzn_revocation_record_t rec;
+	struct sim_signer root_signer;
+	struct sim_host *host;
+	fzn_chain_t verified;
+	fzn_peer_verdict_t a_before, b_before, c_before;
+	fzn_peer_verdict_t a_after, b_after, c_after;
+	fzn_chain_err_t net_before, net_after;
+
+	sim_init(&net, 3, 0x10ca1u);
+	host = &net.hosts[1];
+	check(host->chain_len > 0u, "the simulation gave the host no chain");
+
+	rules[0].gid = 27u;
+	rules[0].verb = verb_reconfigure;
+	rules[0].verb_len = sizeof(verb_reconfigure) - 1u;
+	rules[1].gid = 42u;
+	rules[1].verb = verb_shutdown;
+	rules[1].verb_len = sizeof(verb_shutdown) - 1u;
+
+	/* Alice is in the group the rule names; Bob is in another; Carol's
+	   supplementary list could not be read at all. */
+	/* `sizeof - 1` rather than a counted length: the first draft wrote 30
+	   for a 29-byte line and handed the parser its own terminator, which
+	   is the hand-typed constant this tree keeps finding in other
+	   people's code. */
+	memset(&alice, 0, sizeof(alice));
+	alice.uid = 1000u;
+	check(fzn_peer_groups_parse(ALICE_STATUS, sizeof(ALICE_STATUS) - 1u, &alice),
+	      "alice's groups did not parse");
+	memset(&bob, 0, sizeof(bob));
+	bob.uid = 1001u;
+	check(fzn_peer_groups_parse(BOB_STATUS, sizeof(BOB_STATUS) - 1u, &bob),
+	      "bob's groups did not parse");
+	memset(&carol, 0, sizeof(carol));
+	carol.uid = 1002u;
+	carol.groups_known = 0;
+
+	a_before = fzn_vocabulary_admit(&alice, verb_reconfigure,
+	                                sizeof(verb_reconfigure) - 1u, rules, 2u);
+	b_before = fzn_vocabulary_admit(&bob, verb_reconfigure, sizeof(verb_reconfigure) - 1u,
+	                                rules, 2u);
+	c_before = fzn_vocabulary_admit(&carol, verb_reconfigure,
+	                                sizeof(verb_reconfigure) - 1u, rules, 2u);
+
+	check(a_before == FZN_PEER_MEMBER, "a client in the named group was not admitted");
+	check(b_before == FZN_PEER_NOT_MEMBER, "a client in no named group was admitted");
+	/* THE FLOOR ON THE RULES THEMSELVES. If all three answered alike the
+	   rule set would not be discriminating and every check here would
+	   pass while testing nothing. */
+	check(c_before == FZN_PEER_UNKNOWN,
+	      "a client whose groups could not be read was answered definitely, which "
+	      "throws away the difference between 'you may not' and 'I cannot tell'");
+	check(a_before != b_before && b_before != c_before && a_before != c_before,
+	      "the three clients were answered alike, so the rules discriminate nothing");
+
+	/* A verb no rule names is refused for everyone, including the member. */
+	check(fzn_vocabulary_admit(&alice, verb_shutdown, sizeof(verb_shutdown) - 1u, rules, 1u)
+	              == FZN_PEER_NOT_MEMBER,
+	      "a verb outside the rule set was admitted");
+
+	/* The network half, before. */
+	net_before = fzn_chain_verify(host->chain, host->chain_len, net.root, &net.capability,
+	                              net.now, &net.sign, &host->revocations, NULL, &verified);
+	check(net_before == FZN_CHAIN_OK, "the host's grant did not verify, so the change "
+	                                  "below would prove nothing");
+
+	/* Revoke the host's grant. Nothing about anybody's groups changes. */
+	check(fzn_revocation_issue(net.root, &net.capability, host->pubkey, net.now,
+	                           sim_signer(&root_signer, &net.sign, net.root), rec_region)
+	              == FZN_CHAIN_OK,
+	      "the simulation could not issue a revocation");
+	check(fzn_revocation_open(rec_region, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK,
+	      "the simulation could not open the revocation");
+	check(fzn_revocation_admit(&host->revocations, fzn_revocation_offer_root(rec), net.root,
+	                           &net.sign, &net.hash, NULL) == FZN_CHAIN_OK,
+	      "the revocation was not admitted");
+
+	a_after = fzn_vocabulary_admit(&alice, verb_reconfigure, sizeof(verb_reconfigure) - 1u,
+	                               rules, 2u);
+	b_after = fzn_vocabulary_admit(&bob, verb_reconfigure, sizeof(verb_reconfigure) - 1u,
+	                               rules, 2u);
+	c_after = fzn_vocabulary_admit(&carol, verb_reconfigure, sizeof(verb_reconfigure) - 1u,
+	                               rules, 2u);
+	net_after = fzn_chain_verify(host->chain, host->chain_len, net.root, &net.capability,
+	                             net.now, &net.sign, &host->revocations, NULL, &verified);
+
+	/* THE PROPERTY. One decision changed and the other did not. */
+	check(net_after != FZN_CHAIN_OK, "a revoked grant still verified");
+	check(a_after == a_before && b_after == b_before && c_after == c_before,
+	      "revoking a chain changed a local client's verdict -- the two authorisations "
+	      "are not the same decision and must not move together");
+
+	/* And a consumer that requires both now refuses, which is the third
+	   project record.h describes. */
+	check(!(a_after == FZN_PEER_MEMBER && net_after == FZN_CHAIN_OK),
+	      "a host requiring both local membership and a live grant would still have "
+	      "acted");
+
+	printf("  local-hop: alice %d, bob %d, carol %d (unchanged by revocation); "
+	       "grant %s then %s\n",
+	       (int)a_before, (int)b_before, (int)c_before, fzn_chain_err_str(net_before),
+	       fzn_chain_err_str(net_after));
+}
+
 static void scenario_estate(void)
 {
 	static struct sim_net net;
@@ -5072,6 +5210,7 @@ int main(void)
 	scenario_swarm();
 	scenario_held_but_revoked();
 	scenario_ledger();
+	scenario_local_hop();
 	scenario_estate();
 	scenario_tree();
 
