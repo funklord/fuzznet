@@ -33,6 +33,7 @@
 /chain/test/chain_store_test
 /chain/test/service_test
 /claim/test/claim_test
+/record/test/store_test
 /claim/test/claim_file_test
 /blob/test/blob_test
 /blob/test/blob_fuzz

@@ -70,6 +70,7 @@
 #include "../../session/session.h"
 #include "../../spool/spool.h"
 #include "../../claim/claim.h"
+#include "../../record/store.h"
 #include "../../persist/persist.h"
 #include "../../tree/tree.h"
 
@@ -120,6 +121,7 @@ static const char *r_agree(int v) { return fzn_agree_err_str((fzn_agree_err_t)v)
 static const char *r_session(int v) { return fzn_session_err_str((fzn_session_err_t)v); }
 static const char *r_spool(int v) { return fzn_spool_err_str((fzn_spool_err_t)v); }
 static const char *r_claim(int v) { return fzn_claim_err_str((fzn_claim_err_t)v); }
+static const char *r_rstore(int v) { return fzn_record_store_err_str((fzn_record_store_err_t)v); }
 static const char *r_msg(int v) { return fzn_msg_err_str((fzn_msg_err_t)v); }
 static const char *r_transfer(int v) { return fzn_transfer_err_str((fzn_transfer_err_t)v); }
 static const char *r_scrub(int v) { return fzn_scrub_err_str((fzn_scrub_err_t)v); }
@@ -171,6 +173,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_session_err_str", r_session, 5 },
 	{ "fzn_spool_err_str", r_spool, 6 },
 	{ "fzn_claim_err_str", r_claim, 5 },
+	{ "fzn_record_store_err_str", r_rstore, 6 },
 	{ "fzn_msg_err_str", r_msg, 4 },
 	{ "fzn_transfer_err_str", r_transfer, 5 },
 	{ "fzn_scrub_err_str", r_scrub, 4 },

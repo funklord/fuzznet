@@ -983,6 +983,27 @@ SABOTAGES = [
 		"a process that does not know whether it is the owner is not the owner, and sec 132's self-submit deadlock is prevented by this answer being right",
 	),
 	(
+		"store-placement-checked",
+		"record/store.c",
+		"\tif (memcmp(fzn_record_issuer(record), issuer, FZN_PUBKEY_LEN) != 0\n\t    || fzn_record_stream(record) != stream || fzn_record_seq(record) != seq)\n",
+		"\tif (0)\n",
+		"a store several processes share is safe only because a reader checks what it got, and a misplaced record may be perfectly well signed -- so no signature check further up would catch it",
+	),
+	(
+		"store-placement-issuer-half",
+		"record/store.c",
+		"\tif (memcmp(fzn_record_issuer(record), issuer, FZN_PUBKEY_LEN) != 0\n\t    || fzn_record_stream(record) != stream || fzn_record_seq(record) != seq)\n",
+		"\tif (fzn_record_stream(record) != stream || fzn_record_seq(record) != seq)\n",
+		"the issuer is a third of the address, and dropping it hands one issuer's record back as another's at the same stream and sequence",
+	),
+	(
+		"store-absent-is-not-backend",
+		"record/store.c",
+		"\t\treturn found ? FZN_RECORD_STORE_ERR_BACKEND : FZN_RECORD_STORE_ERR_ABSENT;\n",
+		"\t\treturn FZN_RECORD_STORE_ERR_ABSENT;\n",
+		"a broken store reported as an empty one makes a reader refetch the world rather than report that its store is unusable",
+	),
+	(
 		"provision-envelope-verified",
 		"provision/provision.c",
 		"\tif (!verifier->verify(verifier->ctx, card.root, card.base, FZN_PROVISION_BODY_LEN,\n"

@@ -159,6 +159,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
              chain/chain.c chain/revocation.c chain/manifest.c chain/authz.c \
              chain/chain_store.c chain/service.c claim/claim.c \
+             record/store.c \
              frame/freshness.c \
              blob/blob.c ratchet/ratchet.c prekey/prekey.c \
              provision/provision.c \
@@ -195,6 +196,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h local/vocabulary.h \
              chain/chain.h chain/revocation.h chain/manifest.h chain/authz.h \
              chain/chain_store.h chain/service.h claim/claim.h \
+             record/store.h \
              frame/freshness.h \
              blob/blob.h ratchet/ratchet.h prekey/prekey.h \
              provision/provision.h \
@@ -243,7 +245,7 @@ CORE_HDRS := $(HDRS)
 TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              chain/test/manifest_test.c chain/test/authz_test.c \
              chain/test/chain_store_test.c chain/test/service_test.c \
-             claim/test/claim_test.c \
+             claim/test/claim_test.c record/test/store_test.c \
              blob/test/blob_test.c ratchet/test/ratchet_test.c \
              prekey/test/prekey_test.c prekey/test/prekey_fuzz.c \
              provision/test/provision_fuzz.c \
@@ -309,6 +311,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/chain/test/chain_store_test \
              $(BUILD_DIR)/chain/test/service_test \
              $(BUILD_DIR)/claim/test/claim_test \
+             $(BUILD_DIR)/record/test/store_test \
              $(BUILD_DIR)/blob/test/blob_test \
              $(BUILD_DIR)/ratchet/test/ratchet_test \
              $(BUILD_DIR)/prekey/test/prekey_test \
@@ -1524,6 +1527,17 @@ $(BUILD_DIR)/claim/test/claim_test: $(BUILD_DIR)/claim/test/claim_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# record/store.o LINKS THE JOURNAL, which it does not call: the suite's last
+# case replays an owner's records through a reader's journal, and without
+# that the seam would be a correct function nothing uses. sec 134.
+$(BUILD_DIR)/record/test/store_test: $(BUILD_DIR)/record/test/store_test.o \
+                                     $(BUILD_DIR)/record/store.o \
+                                     $(BUILD_DIR)/record/record.o \
+                                     $(BUILD_DIR)/record/journal.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/claim/test/claim_file_test: $(BUILD_DIR)/claim/test/claim_file_test.o \
                                      $(BUILD_DIR)/claim/claim_file.o \
                                      $(BUILD_DIR)/claim/claim.o
@@ -1746,6 +1760,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/spool/spool.o \
                                       $(BUILD_DIR)/persist/persist.o \
                                       $(BUILD_DIR)/claim/claim.o \
+                                      $(BUILD_DIR)/record/store.o \
                                       $(BUILD_DIR)/tree/tree.o \
                                       $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)

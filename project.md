@@ -5868,6 +5868,7 @@ somebody to notice.
 | `chain/chain_store.h` | where a verified chain lives until it is needed |
 | `chain/service.h` | the service a capability must name, and the product filter |
 | `claim/claim.h` | which process owns the identity's mutable state |
+| `record/store.h` | where a record's bytes wait, and who may read them |
 | `record/ledger.h` | what each peer has confirmed holding, per subject |
 | `chunk/reassembly.h` | split and reassembly |
 | `disclose/disclose.h` | one signature over many fields, some shown |
@@ -22788,6 +22789,119 @@ intended. That is hydra's to fix at ingestion and it is recorded there; it is
 mentioned here only because it is the reason "just replicate the bytes" is not
 sufficient for this consumer -- something has to refuse what it cannot honour,
 and hydra believes that something is itself rather than the transport.
+
+## 134. The shared store seam, and the address checked in both directions, 2026-09-06
+
+Directed by the copyright holder 2026-09-06, following sec 133: **do the
+shared store seam next.** Built as `record/store.{h,c}`, 80 checks, six
+sabotages run and all six caught.
+
+### The gap it closes, which was real before sec 132 raised it
+
+The journal holds POSITIONS and deliberately holds no bytes, so until this
+module **nothing in the library said where a record waits between
+`fzn_journal_admit` and `fzn_state_apply`.** Every consumer would have
+invented one -- which is exactly the shape that put `chain/authz.h` here,
+two consumers having independently built the same missing thing.
+
+So the seam pays for itself before sec 132's arrangement is ever built: a
+single-process consumer needed it too and would have written its own.
+
+### The address is read from the record, and checked against it on the way back
+
+Two rules, and between them a caller and a store are each stopped from lying
+about where a record lives:
+
+- **`fzn_record_store_put` takes an OPENED RECORD, not bytes and an
+  address.** It reads (issuer, stream, seq) out of the record, so there is no
+  argument through which to file one under an address that is not its own.
+  `chain/revocation.c` states the same rule for the same reason: a record's
+  identity comes "from the bytes that were signed and not from anything a
+  caller supplied beside them".
+- **`fzn_record_store_get` compares what came back against what was asked
+  for**, and answers FZN_RECORD_STORE_ERR_MISPLACED rather than handing over
+  somebody else's bytes under the name requested.
+
+**The second is the one worth the words, because a misplaced record may be
+perfectly well signed.** A signature says who wrote a record; it does not say
+the store gave you the one you asked for. So no verification further up
+catches this, and three integer comparisons before any crypto catch a whole
+class -- a buggy backend, an index off by one, a writer filing under the
+wrong stream.
+
+Both halves were sabotaged separately. Dropping the issuer comparison alone
+hands one issuer's record back as another's at the same stream and sequence,
+and the suite has a case for exactly that.
+
+### It does not verify, and says so at length
+
+`get` checks shape, then placement, then stops. The signature is
+`fzn_record_verify`'s and needs a `fzn_sign_ops_t` and a decision about whose
+key -- neither of which belongs to storage.
+
+**That is not a gap, it is the property sec 132 rests on.** The store is not
+trusted, so a reader verifies what it reads, so a hostile writer can insert
+only records that fail verification, so a shared cache is not a shared trust
+domain. A caller that reads from here and applies without verifying has
+handed an attacker a shared store, and the header says so in those words.
+
+### The case that makes it a feature rather than a correct function
+
+The suite's last case is sec 132's arrangement carried out in one process:
+**two store handles over ONE backend**, an owner that puts four records in,
+and a reader with its own journal that fetched none of them -- anchoring the
+stream, reading each record out of the store, verifying it, and admitting it.
+
+Without that case every function here would be correct and nothing would be
+wired, which is `evidence.md`'s "a correct function is not a working
+feature". And the reader's journal is advanced from **the record that was
+verified** rather than from the loop counter, which is the misplacement
+hazard again one layer up: a journal advanced by what a caller meant to read
+rather than by what it actually got.
+
+### Absent and broken are different answers
+
+A reader asks for records the owner has not fetched as a matter of course, so
+"not held" is the normal outcome and gets its own value. A backend that
+collapsed it with "could not look" would make a broken store and an empty one
+identical -- and a reader meeting a broken store would refetch the world
+rather than report that its store is unusable. The backend seam reports them
+apart through `found_out`, the same shape `claim/claim.h` uses for
+contention, and there is a sabotage for the collapse.
+
+### And a gate caught the writer of this section reducing its output
+
+`make style` was run before the full gate and reported success -- because it
+was piped through `tail -1`, which discards the exit status and shows one
+line of a target that prints a dozen. It had failed: sec 133 and this
+section both used the heading "What is still to build", and the docs gate
+refuses a repeated heading.
+
+**That is `evidence.md`'s "never reduce a check's output before you know it
+passed", committed by the session writing about evidence.** The cost was
+small only because `make check` runs the same target and does not pipe it. A
+pipeline's status is the last process's, so `make style | tail -1` reports
+`tail`'s success however make fared -- and the one line it shows is chosen
+before knowing which line matters.
+
+Redirect to a file and read the file. It is the same instruction as sec 133's
+count-and-exit-code entry, arriving twice in one day by two different routes:
+read the status of the command you care about, not of whatever followed it.
+
+### What the seam deliberately leaves out
+
+A **file backend**, which is where the concurrency discipline lives: an
+append log per (issuer, stream) is the natural shape, since the journal
+refuses gaps so sequences are dense, and sec 132's single writer means
+one-writer-many-readers rather than anything harder. The seam is deliberately
+silent about that, as `spool/spool.h` is about `spool_file.c`.
+
+And the **shared verification cache** from sec 132, which is not this module's
+and has a subtlety worth recording before anybody builds it: **a verdict is
+relative to the anchor it was checked against**, so a shared cache is sound
+only where every reader shares the trust anchor. Under one identity they do.
+Across a privilege boundary they do not, and there the cache is the hole sec
+132 warns about.
 
 ## 133. The claim, built -- and what it costs a process that is alone, 2026-09-06
 
