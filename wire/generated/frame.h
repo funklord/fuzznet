@@ -91,6 +91,18 @@ static inline void situ_fzn_hop_hops_left_set(situ_view_t view, uint8_t value)
 	(view.base)[1u] = (uint8_t)value;
 }
 
+/** fzn_hop.service_hint : u16  at AbsoluteStatic(0x02)
+ * size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint16_t situ_fzn_hop_service_hint_get(situ_view_t view)
+{
+	return (uint16_t)(situ_get_be16(view.base + 2u));
+}
+static inline void situ_fzn_hop_service_hint_set(situ_view_t view, uint16_t value)
+{
+	situ_put_be16(view.base + 2u, (uint16_t)value);
+}
+
 /** fzn_hop.`<reserved0>` : u8 -- reserved, no accessor.
  * Reserved regions are validated on parse, not exposed; see the
  * validate function below.
@@ -309,7 +321,7 @@ static inline situ_err_t situ_fzn_frame_view(const situ_msg_t *msg, uint32_t off
 }
 
 /** fzn_frame.hop : fzn_hop  at AbsoluteStatic(0x00)
- * size=Fixed(5) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
+ * size=Fixed(5) align=Aligned(8) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
  */
 static inline situ_err_t situ_fzn_frame_hop_view(situ_view_t view, situ_view_t *out)
 {

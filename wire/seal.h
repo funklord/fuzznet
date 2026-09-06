@@ -556,6 +556,35 @@ typedef struct fzn_send {
 	 * does and does not follow from that. A sender states a budget; it does
 	 * not set one. */
 	uint8_t hops;
+	/* THE SUBSYSTEM THIS FRAME CLAIMS, for a relay that cannot open it.
+	 *
+	 * sec 153. `wire/relay.h` carries the whole argument and it is worth
+	 * reading before setting this, because the field costs something that
+	 * is not obvious: it LABELS THE FRAME FOR EVERY OBSERVER ON THE PATH.
+	 * Anything a relay can filter on is something a watcher can read, so a
+	 * consumer buys per-subsystem relaying with traffic analysis.
+	 *
+	 * ZERO IS NO HINT, and the same coincidence as `hops` above is at work
+	 * for the same reason: `memset` leaves the frame unlabelled, which is
+	 * the private answer rather than merely the cautious one. Labelling is
+	 * opted into.
+	 *
+	 * IT IS THE SERVICE FROM `chain/service.h`, and it is not what
+	 * authorizes anything. The service a recipient acts on is the one
+	 * inside the capability, which is sealed; this is a claim in the clear
+	 * that a sender makes to the hosts in between. A frame may say `log`
+	 * here and carry a `catalog` capability -- the recipient authorizes
+	 * `catalog`, because that is what was authenticated, and the only thing
+	 * the lie bought was some relay's budget.
+	 *
+	 * REFUSED ABOVE FZN_RELAY_SERVICE_MAX, with FZN_SEAL_ERR_MALFORMED,
+	 * before the buffer is touched -- the same treatment `hops` gets above
+	 * this bound and for a sharper reason. The hint is sixteen bits and a
+	 * service is thirty-two, so truncating would let two services collide
+	 * in a way no host downstream could detect: a policy written for one
+	 * would be applied to the other, silently, for ever. Refusing tells the
+	 * caller its service cannot be hinted, which is a fact it can act on. */
+	uint32_t service_hint;
 } fzn_send_t;
 
 /* Build one frame and seal it, which is the send path's whole order in one

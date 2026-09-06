@@ -2049,6 +2049,35 @@ SABOTAGES = [
 		"neighbours with no gap must report exhaustion rather than a midpoint "
 		"that is one of them",
 	),
+	# BATCH ELEVEN, 2026-09-06: the subsystem hint, sec 153. A relay reads a
+	# claim it cannot check, so what needs holding to account is not the
+	# reading but the three things that keep an unverifiable field safe --
+	# the ceiling actually clamps, a refusal is told apart from an
+	# exhaustion, and a service too large to fit is refused rather than
+	# quietly aliased onto another one.
+	(
+		"relay-policy-first-match",
+		"wire/relay.c",
+		"		if (policy[i].service == hinted) {\n\t\t\t*out = policy[i].allowed;\n\t\t\tbreak;\n\t\t}\n",
+		"		if (policy[i].service == hinted)\n\t\t\t*out = policy[i].allowed;\n",
+		"a shadowed duplicate must not win over the entry a caller put first",
+	),
+	(
+		"relay-policy-refused",
+		"wire/relay.c",
+		"	if (*out == 0)\n\t\treturn FZN_RELAY_ERR_REFUSED;\n",
+		"	/* sabotage */\n",
+		"a subsystem this host declines must be distinguishable from a frame "
+		"whose budget ran out on its own",
+	),
+	(
+		"relay-hint-not-truncated",
+		"wire/seal.c",
+		"	if (what->service_hint > FZN_RELAY_SERVICE_MAX)\n\t\treturn FZN_SEAL_ERR_MALFORMED;\n",
+		"	/* sabotage */\n",
+		"a service too large to hint must be refused, not truncated onto "
+		"another service no host downstream could tell it from",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

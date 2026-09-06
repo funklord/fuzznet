@@ -18,10 +18,11 @@
 codec fzn_aead trusted length_preserving seekable=linear granularity=byte authenticated invertible deterministic
 
 struct fzn_frame size=144..1168 mutate=Immutable address=Unstable repr=ValueConverted atomic=NonAtomic stage=VerifyGated auth=Covered(tag)
-  fzn_frame.hop                          offset=AbsoluteStatic(0x00) size=Fixed(5) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  fzn_frame.hop                          offset=AbsoluteStatic(0x00) size=Fixed(5) align=Aligned(8) repr=ValueConverted atomic=NonAtomic
   fzn_frame.hop.version                  offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   fzn_frame.hop.hops_left                offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  fzn_frame.hop.<reserved0>              offset=AbsoluteStatic(0x02) size=Fixed(3) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_frame.hop.service_hint             offset=AbsoluteStatic(0x02) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  fzn_frame.hop.<reserved0>              offset=AbsoluteStatic(0x04) size=Fixed(1) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic
   fzn_frame.authenticated                offset=AbsoluteStatic(0x05) size=Fixed(91) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic auth=Covered(tag)
   fzn_frame.head                         offset=AbsoluteStatic(0x05) size=Fixed(91) align=Aligned(1) repr=ValueConverted atomic=NonAtomic auth=Covered(tag)
   fzn_frame.head.kind                    offset=AbsoluteStatic(0x05) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord auth=Covered(tag)
@@ -49,7 +50,8 @@ struct fzn_head size=91 repr=ValueConverted atomic=NonAtomic
   fzn_head.chunks                        offset=AbsoluteStatic(0x57) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
   fzn_head.length                        offset=AbsoluteStatic(0x59) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
 
-struct fzn_hop size=5 atomic=NonAtomic
+struct fzn_hop size=5 repr=ValueConverted atomic=NonAtomic
   fzn_hop.version                        offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   fzn_hop.hops_left                      offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  fzn_hop.<reserved0>                    offset=AbsoluteStatic(0x02) size=Fixed(3) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_hop.service_hint                   offset=AbsoluteStatic(0x02) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  fzn_hop.<reserved0>                    offset=AbsoluteStatic(0x04) size=Fixed(1) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic

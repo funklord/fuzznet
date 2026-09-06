@@ -42,4 +42,5 @@ struct fzn_head size=91
 struct fzn_hop size=5
   @0x0000   1         u8         version  must_eq=1
   @0x0001   1         u8         hops_left
-  @0x0002   3         u8         <reserved0>  big
+  @0x0002   2         u16        service_hint  big
+  @0x0004   1         u8         <reserved0>

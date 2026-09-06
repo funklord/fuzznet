@@ -24,10 +24,10 @@ situ_err_t situ_fzn_hop_check(situ_view_t view, uint32_t *which)
 		*which = SITU_FZN_HOP_VERSION_CHECK;
 		return SITU_ERR_CONSTRAINT;
 	}
-	/* reserved u8[3] [must_be_zero] */
+	/* reserved u8[1] [must_be_zero] */
 	{
-		const uint32_t at = 2u;
-		const uint32_t n  = 3u;
+		const uint32_t at = 4u;
+		const uint32_t n  = 1u;
 		uint32_t i;
 
 		for (i = 0; i < n; i++) {

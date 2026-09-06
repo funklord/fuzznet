@@ -1472,6 +1472,82 @@ int main(void)
 			      "a build refused for its hop budget wrote into the caller's "
 			      "buffer");
 		}
+
+		/* THE SUBSYSTEM HINT, sec 153.
+		 *
+		 * A relay cannot open a frame, so the service that authorizes
+		 * anything -- the one in the sealed capability -- is exactly
+		 * what a relay cannot read. The hint is a sender's claim in the
+		 * clear, and these cases pin the three things that make it safe
+		 * to have: it lands where the schema says, the tag does not
+		 * cover it, and a service too large to fit is refused rather
+		 * than truncated. */
+		{
+			size_t wrote = 0;
+			size_t touched = 0;
+			uint16_t seen = 0;
+
+			what.hops = FZN_RELAY_MAX_HOPS;
+			what.service_hint = 0x1234u;
+			check(fzn_seal_build(hopped, sizeof(hopped), &wrote, &what, key,
+			                     commitment_key, &hash, &rng, &aead) == FZN_SEAL_OK,
+			      "a frame carrying a subsystem hint would not build");
+			check(fzn_relay_service(hopped, wrote, &seen) == FZN_RELAY_OK &&
+			              seen == 0x1234u,
+			      "the hint a sender asked for is not the hint on the wire");
+			/* The bytes, not the accessor. An accessor that moved
+			 * would agree with itself about where it moved to. */
+			check(hopped[2] == 0x12u && hopped[3] == 0x34u,
+			      "the hint is not big-endian at offset 2");
+
+			/* IT IS OUTSIDE THE TAG, which it must be: everything a
+			 * relay reads is read before the tag can be checked. So
+			 * rewriting it cannot invalidate the frame -- and that
+			 * is why nothing downstream can tell a forged hint from
+			 * an honest one. Asserted rather than described,
+			 * because it is the security claim. */
+			hopped[2] = 0xffu;
+			hopped[3] = 0xffu;
+			check(fzn_seal_open(hopped, wrote, key, commitment_key, &hash, &aead,
+			                    &after) == FZN_SEAL_OK,
+			      "rewriting the hint invalidated the frame, so a relay could "
+			      "not read what it needs before the tag is checked");
+
+			/* AND THE FORGERY BOUGHT NOTHING AT THE RECIPIENT. The
+			 * capability came back byte-identical, so the service a
+			 * receiver authorizes against is the sealed one and
+			 * never the claim in the clear. This is the assertion
+			 * relay_test.c cannot make, having no key. */
+			check(memcmp(after.capability, CAP, sizeof(CAP)) == 0,
+			      "a forged hint changed what the recipient was handed");
+
+			/* A SERVICE TOO LARGE TO HINT IS REFUSED, NOT TRUNCATED.
+			 * Truncation would let two services collide in their low
+			 * sixteen bits, so a policy written for one would be
+			 * applied to the other with nothing downstream able to
+			 * see it. Exactly the bound must build and one past it
+			 * must not. */
+			what.service_hint = FZN_RELAY_SERVICE_MAX;
+			check(fzn_seal_build(hopped, sizeof(hopped), &wrote, &what, key,
+			                     commitment_key, &hash, &rng, &aead) == FZN_SEAL_OK,
+			      "the largest hintable service was refused");
+
+			what.service_hint = FZN_RELAY_SERVICE_MAX + 1u;
+			memset(hopped, 0xee, sizeof(hopped));
+			check(fzn_seal_build(hopped, sizeof(hopped), &wrote, &what, key,
+			                     commitment_key, &hash, &rng,
+			                     &aead) == FZN_SEAL_ERR_MALFORMED,
+			      "a service too large to hint was truncated rather than "
+			      "refused");
+			for (size_t i = 0; i < sizeof(hopped); i++)
+				if (hopped[i] != 0xee)
+					touched++;
+			check(touched == 0,
+			      "a build refused for its service hint wrote into the "
+			      "caller's buffer");
+
+			what.service_hint = 0;
+		}
 	}
 
 	printf("seal_test: %d checks, %d failure(s)\n", checks, failures);

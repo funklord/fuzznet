@@ -22870,6 +22870,191 @@ anything could have said otherwise.
 copyright holder should know the size before it happens rather than find it
 inside a commit about a widget.
 
+## 153. Relay per subsystem, and the price of being filterable, 2026-09-06
+
+The copyright holder: "relay should be per subsystem." A relay could not do
+that and the reason was structural rather than missing code.
+
+### A relay has no key, so it cannot read the service
+
+sec 129 made the service mandatory in a capability, and `chain/authz.h`
+authorizes against it. The capability is inside the sealed region -- put there
+on purpose, so an observer cannot see which authority is being exercised. A
+relay forwards frames it cannot open. So **the authoritative service is
+exactly the field a relay cannot read**, and `wire/relay.h` had nothing to
+apply a policy to: `grep -c "service\|subsystem" wire/relay.h` was 0.
+
+The only cleartext a relay could read was `fzn_hop` -- `version` at 0,
+`hops_left` at 1, and three bytes of `reserved u8[3] [must_be_zero]` that
+existed for alignment.
+
+### The trade, put to the holder rather than decided here
+
+**Anything a relay can filter on is something an observer can read.** That is
+not a weakness of any particular encoding; it is what "filterable by a party
+without the key" means. The choice was between a relay that cannot have a
+per-subsystem policy and a frame that tells every watcher on the path which
+subsystem it belongs to. **The holder chose the hint**, in two of the three
+reserved bytes, zero meaning no hint.
+
+The price is recorded because it is not recoverable by being careful: traffic
+analysis over a labelled stream is a great deal easier than over an
+unlabelled one, and a consumer who does not want that leaves the field zero
+and gets the old behaviour exactly.
+
+### The bytes, and the map as the independent reading
+
+`wire/frame.situ` now says
+
+    u8  version   [must_eq = 1];
+    u8  hops_left;
+    u16 service_hint;
+    reserved u8[1];
+
+**situ called the contract BREAKING and the bytes had not moved**, which is
+the same shape as sec 47 and was checked the same way rather than believed:
+
+    BREAKING: a deployed peer misreads these bytes
+      fzn_hop[2]: <reserved0> changes width 3 -> 2; every later field shifts
+
+The capability map is the reading that decides it, because it is derived from
+the layout rather than from the declaration. `fzn_frame.authenticated` is
+still at 0x05, every `fzn_head` field is unchanged to the byte, and
+`struct fzn_hop size=5` is unchanged. **Nothing shifted**; the u16 occupies
+the two bytes the reserved run lost. What genuinely changed is `repr`, from
+`MemoryIdentical` to `ValueConverted`, which is a big-endian u16 needing a
+byte swap on a little-endian host and is the accessor's business.
+`frame_relate.c`, `frame_relate.h` and `frame_tamper.h` regenerated
+byte-identical.
+
+### Zero means unclassified, and that is why this is compatible at all
+
+Those bytes were `must_be_zero` and validated on parse, so **every frame that
+has ever been written has zeros there** and reads as unclassified under the
+new schema. `memset` leaves it there, exactly as it does for `hops`, and the
+coincidence is deliberate for the same reason: labelling is opted into.
+
+**The reverse does not hold, and it is a real one-way break.** An old parser
+refuses a frame carrying a hint, because `must_be_zero` was doing its job. No
+version bump: a second value for `fzn_hop.version` is precisely the downgrade
+hazard that byte's own comment refuses to open, and it is not worth opening
+for a field this small. Recorded rather than papered over -- there are no
+deployed peers, and this is the window in which that is free.
+
+### Three properties, and each is a test rather than a paragraph
+
+**A lie buys the relay's own policy and nothing else.** A sender may write any
+service it likes. What it gets is some relay's budget; what it does not get is
+anything at the recipient, whose authorization comes from the sealed
+capability. `wire/test/seal_test.c` asserts that directly -- it rewrites the
+hint on a built frame, reopens it, and requires the capability back
+byte-identical. That case needs a key, which is why it is there and not in
+`relay_test.c`.
+
+**A relay must not rewrite the hint, and nothing here does.** A relay that
+could relabel a frame would launder one subsystem as another, and the next
+host's policy would be answering a claim its neighbour invented rather than
+one the sender made. `fzn_relay_spend_policy` decrements the budget and leaves
+bytes 2 and 3 alone; the test asserts the bytes.
+
+**Rewriting the hint must not invalidate the frame**, and that is asserted
+rather than described, because it is the security claim: everything a relay
+reads is read before the tag can be checked, so the hint has to sit outside
+the tag, which is the same fact that makes forging it undetectable.
+
+### Refused rather than truncated, twice, for two different reasons
+
+`fzn_send.service_hint` is a `uint32_t` because a service is, and the field is
+sixteen bits. **A service above FZN_RELAY_SERVICE_MAX is refused with
+FZN_SEAL_ERR_MALFORMED, before the buffer is touched.**
+
+The argument is not `hops`'s. A clamped budget merely disappoints the caller,
+who can be told. **A truncated service is a different service that nothing
+downstream can distinguish**: two services agreeing in their low sixteen bits
+would be one service to every relay on the path, and a policy written for one
+would be applied to the other silently and for ever. No hint is honest; an
+aliased hint is a wrong answer with no detector.
+
+### REFUSED is not EXHAUSTED, and collapsing them would hide a misconfiguration
+
+A policy entry of zero and a spent budget both stop the frame, so one error
+would have done. They are different facts about different things:
+FZN_RELAY_ERR_EXHAUSTED says the frame travelled as far as it was sent to
+travel, which is every frame's ordinary end and says nothing about this host;
+FZN_RELAY_ERR_REFUSED says **this host declined a subsystem it could have
+carried**, which is a decision somebody made and may want counting, logging or
+reconsidering. Collapsed, a misconfigured policy is indistinguishable from
+normal traffic reaching the end of its budget.
+
+The policy is a caller-owned array of `{service, allowed}`, first match wins,
+with a `fallback` for a hint the table does not name. A null or empty table is
+not an error -- it means every frame takes the fallback, which is exactly
+`fzn_relay_budget`, so a host with no per-subsystem policy needs no special
+case. `allowed` is a ceiling and never a grant: a modest frame in a generous
+class still travels its own claim.
+
+### Proved by breaking them, not by having written them
+
+Three entries in `tool/sabotage.py`, all CAUGHT, each by the suite written
+for it:
+
+    relay-policy-first-match  drop the `break`, so a shadowed duplicate wins
+                              -> relay_test.c:223
+    relay-policy-refused      delete the zero-allowance refusal
+                              -> relay_test.c, REFUSED became "ok"
+    relay-hint-not-truncated  delete the bound, so a large service truncates
+                              -> seal_test.c:1537
+
+The middle one is the entry worth having. A zero allowance clamps to a zero
+budget, so deleting the refusal still stops the frame and every behavioural
+assertion about forwarding stays green -- what changes is only which fact the
+caller is told, which is exactly the kind of guard that survives a suite
+assembled to confirm correct behaviour.
+
+### The gate that caught the new error code
+
+`wire/test/err_str_test.c` pins the number of codes each renderer walks, and
+it went red on `fzn_relay_err_str` the moment REFUSED existed. Worth naming
+because it is the opposite of this file's usual finding: a gate that noticed
+an addition nobody told it about, rather than one that passed over an empty
+population.
+
+### situ HEAD refuses this schema, and that is not this change
+
+**`make schema SITU_DIR=../situ` is red, and was red before this change.**
+Found while regenerating, checked before it was believed, and it is a
+dependency finding rather than ours.
+
+situ `74f3742` ("fix: refuse a bound whose arithmetic the six descriptions
+disagree about") refuses `fzn_head`:
+
+    error: `chunks` is not in scope here
+       --> wire/frame.situ:293:23
+    293 |  u16  index    [max = chunks - 1];
+        = a size may refer to a `const`, an enum member, or a field declared
+          earlier in the same struct
+
+`index` is declared before `chunks` and its bound reads forward. Bisected
+against the COMMITTED schema so the answer could not be about this edit:
+`66de6b0` says "is current" and exits 0; its child `74f3742` refuses. The
+first instrument used to bisect this was wrong in the reassuring direction --
+it ran `situc wire --check` on a scratch copy with no `.wire` sibling, so
+every older commit failed for a missing signature and looked like the same
+refusal. The signature has to travel with the schema.
+
+**Regenerated against `66de6b0`**, the newest situ that accepts this schema,
+so the committed artifacts are internally consistent and generated the way
+every artifact beside them was. Reordering the two fields would fix the
+refusal and would also move two bytes on the wire, which is not a change to
+make while passing through.
+
+**Signalled to situ rather than fixed there**, per `harmonization.md`: we hold
+the reproduction, they hold the reasons -- and their refusal may well be
+right, since a bound that reads a later field is genuinely awkward for a
+streaming decoder. What we cannot judge from here is whether they mean to
+refuse it, or whether the bound should be legal and the diagnostic is
+over-reaching.
+
 ## 152. Retention, and the two questions it answers, 2026-09-06
 
 The copyright holder asked for "a retention bit" on the catalogue and on its

@@ -89,6 +89,63 @@
  * would be wrong is discovering it afterwards. */
 #define FZN_RELAY_MAX_HOPS 8u
 
+/* THE SUBSYSTEM HINT, and what a relay may know about a frame it cannot open.
+ *
+ * sec 153. `chain/service.h` makes the service mandatory in a capability, and
+ * the capability is inside the sealed region -- which is deliberate, so that
+ * an observer cannot see which authority is being exercised. A relay has no
+ * key, so the authoritative service is exactly the thing it cannot read, and
+ * a host asked to apply a policy per subsystem had nothing to apply one to.
+ *
+ * `fzn_hop.service_hint` is two of the three bytes that were reserved before
+ * the hop header's alignment padding, so a frame is not one byte larger for
+ * carrying it.
+ *
+ * IT IS A HINT AND THE WORD IS LOAD-BEARING. It is outside the authenticated
+ * region for the same structural reason `hops_left` is -- everything a relay
+ * reads must be readable before the tag can be checked -- so a sender may
+ * write anything it likes there and nobody downstream can tell.
+ *
+ *   - **A lie buys the relay's own policy and nothing else.** A frame
+ *     claiming a subsystem this host relays generously gets that budget. It
+ *     does NOT get anything from the recipient, whose authorization comes
+ *     from the sealed capability and never from this field: a frame claiming
+ *     `log` while carrying a `catalog` capability is authorized as `catalog`,
+ *     because that is the only service anybody authenticated. So the hint
+ *     cannot escalate; it can only misspend a relay's capacity, which is the
+ *     same thing a stranger achieves by sending more frames.
+ *   - **A relay must not rewrite it.** Nothing here writes the hint, and that
+ *     is a decision rather than an omission: a relay that could relabel a
+ *     frame would be laundering one subsystem as another, and the next host's
+ *     policy would be applied to a claim its neighbour invented rather than
+ *     to one the sender made. The sender writes it once, through
+ *     `fzn_send.service_hint`, and it travels unchanged.
+ *   - **IT PUBLISHES THE SUBSYSTEM TO EVERYBODY ON THE PATH.** This is the
+ *     real price and it is not recoverable by being careful: anything a relay
+ *     can filter on is something an observer can read. A passive watcher
+ *     learns that this datagram is log traffic, and traffic analysis over a
+ *     labelled stream is a great deal easier than over an unlabelled one.
+ *
+ * SO ZERO IS THE DEFAULT AND MEANS UNCLASSIFIED. `memset` leaves it there,
+ * every frame built before this field existed has it, and a sender who does
+ * not want to be labelled simply never sets it. A host with a per-subsystem
+ * policy decides what unclassified traffic is worth by putting
+ * FZN_RELAY_SERVICE_NONE in its own table, rather than by this file guessing.
+ */
+#define FZN_RELAY_SERVICE_NONE 0u
+
+/* The largest service that can be hinted.
+ *
+ * `chain/service.h` numbers services in a uint32 and bounds nothing, so a
+ * service can exist that does not fit here. Such a service sends NO hint --
+ * `fzn_seal_build` refuses `fzn_send.service_hint` above this rather than
+ * truncating it, because a truncated hint is not a weaker hint but a
+ * DIFFERENT one: two services agreeing in their low sixteen bits would be
+ * indistinguishable to every relay on the path, and a policy written for one
+ * would silently be applied to the other. No hint is honest; an aliased hint
+ * is a wrong answer that nothing downstream can detect. */
+#define FZN_RELAY_SERVICE_MAX 0xffffu
+
 typedef enum fzn_relay_err {
 	FZN_RELAY_OK = 0,
 	FZN_RELAY_ERR_MALFORMED = -1,
@@ -98,7 +155,34 @@ typedef enum fzn_relay_err {
 	/* The budget is spent. The frame stops here, and this is the ordinary
 	 * end of a frame's life rather than a fault. */
 	FZN_RELAY_ERR_EXHAUSTED = -3,
+	/* This host does not carry this subsystem at all.
+	 *
+	 * DELIBERATELY NOT EXHAUSTED, though a zero allowance clamps to a zero
+	 * budget and the frame stops either way. The two are different facts
+	 * about different things: EXHAUSTED says the frame has travelled as far
+	 * as it was sent to travel, which is every frame's ordinary end and
+	 * says nothing about this host; REFUSED says this host declined a
+	 * subsystem it could have carried, which is a policy decision somebody
+	 * made and may want to see counted, logged or reconsidered. Collapsing
+	 * them would make a misconfigured policy indistinguishable from normal
+	 * traffic reaching the end of its budget. */
+	FZN_RELAY_ERR_REFUSED = -4,
 } fzn_relay_err_t;
+
+/* One host's willingness to carry one subsystem.
+ *
+ * Caller-owned, like every table in this library: an array of these is the
+ * whole of a relay policy and nothing here allocates one.
+ *
+ * `allowed` is a CEILING and not a grant. It goes in where
+ * `fzn_relay_budget`'s `allowed` argument would, so the clamp is unchanged --
+ * a frame still travels the smaller of what it claims and what this host
+ * permits. Zero means this host does not relay this subsystem, and answers
+ * FZN_RELAY_ERR_REFUSED rather than pretending the frame ran out. */
+typedef struct fzn_relay_policy {
+	uint16_t service;
+	uint8_t  allowed;
+} fzn_relay_policy_t;
 
 /* What this host is willing to believe about a frame's remaining hops.
  *
@@ -116,6 +200,41 @@ fzn_relay_err_t fzn_relay_budget(const uint8_t *frame, size_t frame_len, uint8_t
  * leaves the frame untouched, so a caller that ignores the return value
  * forwards something no worse than it received. */
 fzn_relay_err_t fzn_relay_spend(uint8_t *frame, size_t frame_len, uint8_t allowed);
+
+/* The subsystem a frame CLAIMS, which is not the subsystem it carries.
+ *
+ * Reads `fzn_hop.service_hint` and nothing else -- no key, no tag check, no
+ * capability. FZN_RELAY_SERVICE_NONE means the sender did not label it. See
+ * the hint's own comment above before doing anything with the answer: it is
+ * an unauthenticated claim, and the only thing it may decide is what THIS
+ * host is willing to spend on the frame. */
+fzn_relay_err_t fzn_relay_service(const uint8_t *frame, size_t frame_len, uint16_t *out);
+
+/* `fzn_relay_budget`, with the ceiling chosen per subsystem.
+ *
+ * The frame's hint selects an entry from `policy`; FIRST MATCH WINS, so a
+ * caller orders its own table and a duplicated service is that caller's
+ * business rather than an error here. `fallback` is the ceiling for a hint
+ * naming nothing in the table, which is how a host says what it does with
+ * subsystems it has no opinion about -- pass zero and it carries only what it
+ * has named.
+ *
+ * A null or empty table is not malformed: it means every frame takes
+ * `fallback`, which is exactly `fzn_relay_budget` and is what a host with no
+ * per-subsystem policy wants. */
+fzn_relay_err_t fzn_relay_budget_policy(const uint8_t *frame, size_t frame_len,
+                                         const fzn_relay_policy_t *policy, size_t policy_len,
+                                         uint8_t fallback, uint8_t *out);
+
+/* `fzn_relay_spend`, with the ceiling chosen per subsystem.
+ *
+ * Same clamp-then-decrement as `fzn_relay_spend`, and the same promise on
+ * refusal: a frame this host will not carry leaves the buffer untouched, so a
+ * caller that ignores the return value forwards what it received rather than
+ * something corrupted. The hint is NOT rewritten -- see above. */
+fzn_relay_err_t fzn_relay_spend_policy(uint8_t *frame, size_t frame_len,
+                                        const fzn_relay_policy_t *policy, size_t policy_len,
+                                        uint8_t fallback);
 
 /* A short name for `fzn_relay_err_t`. Never NULL. */
 const char *fzn_relay_err_str(fzn_relay_err_t err);

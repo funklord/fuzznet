@@ -330,6 +330,16 @@ fzn_seal_err_t fzn_seal_build(uint8_t *frame, size_t frame_cap, size_t *frame_le
 	 * makes below, and the one the payload bound was moved up to keep. */
 	if (what->hops > FZN_RELAY_MAX_HOPS)
 		return FZN_SEAL_ERR_MALFORMED;
+	/* THE SUBSYSTEM HINT, BOUNDED BY WHAT THE FIELD CAN HOLD.
+	 *
+	 * Refused rather than truncated, and the argument is not the same as
+	 * the budget's above. A clamped budget merely disappoints the caller;
+	 * a truncated service is a DIFFERENT service that no host downstream
+	 * can tell from the real one, so the lie would be permanent and
+	 * invisible. See `fzn_send.service_hint`. Here, beside the budget, so
+	 * that a refusal leaves the buffer untouched. */
+	if (what->service_hint > FZN_RELAY_SERVICE_MAX)
+		return FZN_SEAL_ERR_MALFORMED;
 	/* THE PAYLOAD BOUND, CHECKED BEFORE THE BUFFER IS TOUCHED.
 	 *
 	 * It used to read `> UINT16_MAX`, which only made the cast to `uint16_t`
@@ -467,6 +477,13 @@ fzn_seal_err_t fzn_seal_build(uint8_t *frame, size_t frame_cap, size_t *frame_le
 	 * relay must be able to decrement this byte without a key, so a setter
 	 * that dirtied the tag would contradict the field's whole purpose. */
 	situ_fzn_hop_hops_left_set(hopv, what->hops);
+	/* THE HINT, written once and never again. Nothing in this library
+	 * rewrites it -- `wire/relay.h` says why: a relay that could relabel a
+	 * frame would launder one subsystem as another, and the next host's
+	 * policy would answer a claim its neighbour invented. The plain setter
+	 * for the same reason the budget uses one: the whole hop header sits
+	 * outside the tag. */
+	situ_fzn_hop_service_hint_set(hopv, (uint16_t)what->service_hint);
 
 	/* THROUGH THE COVERAGE-AWARE SETTERS, which take the message and mark
 	 * the tag stale. The plain `situ_fzn_head_*_set` family would write

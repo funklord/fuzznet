@@ -151,10 +151,52 @@ struct fzn_hop {
 	// datagram before anything has been authenticated at all.
 	u8  version   [must_eq = 1];
 	u8  hops_left;
-	// Three bytes so every multi-byte field below keeps its natural
+	// THE ONLY THING A RELAY IS ALLOWED TO KNOW, and it is a HINT rather
+	// than a fact. sec 153.
+	//
+	// A relay forwards without the AEAD key, so the service in the
+	// capability -- which is the authoritative one, chain/service.h, and
+	// the one a recipient authorizes against -- is inside the sealed
+	// region and unreadable to it. A relay that must apply a policy per
+	// subsystem therefore needs something in the clear or it cannot apply
+	// one at all.
+	//
+	// TWO CONSEQUENCES, AND BOTH ARE THE POINT RATHER THAN A DEFECT:
+	//
+	// It is unauthenticated, so a sender may lie. What a lie buys is the
+	// relay's own policy -- a budget, a queue, a refusal -- and NOTHING
+	// else. It cannot reach a recipient's authorization, because that is
+	// decided from the sealed capability by fzn_service_capability and
+	// never from this field. So a forged hint costs the relay capacity
+	// and cannot escalate.
+	//
+	// It publishes the subsystem to anybody on the path. That is not a
+	// leak this field introduced so much as the price of the feature: a
+	// relay is an observer, and anything a relay can filter on is
+	// something an observer can read. A sender who does not want that
+	// writes zero, and a relay with a per-subsystem policy treats zero as
+	// unclassified rather than as a member of any class.
+	//
+	// ZERO MEANS NO HINT, WHICH IS WHY THIS IS COMPATIBLE AT ALL. These
+	// two bytes were `reserved u8[3] [must_be_zero]`, so every frame ever
+	// written has zeros here and parses as unclassified under the new
+	// schema. The reverse does not hold -- an OLD parser refuses a frame
+	// carrying a hint, because must_be_zero was doing its job -- and that
+	// is a real one-way break, recorded rather than papered over: no
+	// version bump, because a second version byte value is exactly the
+	// downgrade hazard the comment above refuses to open for a field this
+	// small.
+	//
+	// FZN_SERVICE_NONE is 0 and matches. The value is the low 16 bits of
+	// the service id; a service whose id does not fit sends zero rather
+	// than a truncation, because a hint that aliases another service is
+	// worse than no hint. fzn_relay_hint() is the only thing that writes
+	// it and it enforces exactly that.
+	u16 service_hint;
+	// One byte so every multi-byte field below keeps its natural
 	// boundary. The packet example pays exactly this and says why: the
 	// alignment shows up in the capability map rather than in a comment.
-	reserved u8[3];
+	reserved u8[1];
 }
 
 // --------------------------------------------------------------------------
