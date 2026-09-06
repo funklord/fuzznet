@@ -95,6 +95,10 @@ fzn_catalog_err_t fzn_catalog_init(fzn_catalog_t *catalog, fzn_catalog_edge_t *e
 	/* No filing root until a caller names one, so every path query refuses
 	 * rather than this module inventing one. */
 	catalog->refiling = 0;
+	catalog->names = NULL;
+	catalog->name_capacity = 0;
+	catalog->name_used = 0;
+	catalog->name_resolve = NULL;
 	catalog->filing_root_set = 0;
 	memset(&catalog->filing_root, 0, sizeof(catalog->filing_root));
 	catalog->entries = NULL;
@@ -551,6 +555,11 @@ static fzn_catalog_err_t apply_content(fzn_catalog_t *catalog, const uint8_t *bo
 	return fzn_catalog_content_set(catalog, &entry);
 }
 
+/* Defined with the rest of the name code below, because a name is its own
+ * subsystem here rather than a field on a content body. */
+static fzn_catalog_err_t apply_name(fzn_catalog_t *catalog, const uint8_t *body, size_t len,
+                                    const uint8_t *issuer, uint64_t seq);
+
 fzn_catalog_err_t fzn_catalog_apply(fzn_catalog_t *catalog, fzn_record_t record)
 {
 	const uint8_t *body;
@@ -580,6 +589,9 @@ fzn_catalog_err_t fzn_catalog_apply(fzn_catalog_t *catalog, fzn_record_t record)
 	case FZN_CATALOG_OBJECT_CONTENT:
 		return apply_content(catalog, body, len, fzn_record_issuer(record),
 		                     fzn_record_seq(record));
+	case FZN_CATALOG_OBJECT_NAME:
+		return apply_name(catalog, body, len, fzn_record_issuer(record),
+		                  fzn_record_seq(record));
 	default:
 		/* Somebody else's body in a stream this catalogue follows. Not
 		 * ours, and saying so is different from calling it broken. */
@@ -985,4 +997,224 @@ fzn_catalog_err_t fzn_catalog_refile_step(const fzn_catalog_t *catalog,
 	 * consumer has to read and becomes the shape of the code: a failed move
 	 * leaves the cursor where it was. */
 	return fzn_catalog_refile_advance(job);
+}
+
+/* ---- names -------------------------------------------------------------- */
+
+static fzn_catalog_name_t *find_name(const fzn_catalog_t *catalog, const fzn_catalog_id_t *id)
+{
+	size_t i;
+
+	for (i = 0; i < catalog->name_used; i++) {
+		if (same_id(&catalog->names[i].id, id))
+			return &catalog->names[i];
+	}
+	return NULL;
+}
+
+static int name_usable(const fzn_catalog_t *catalog)
+{
+	return catalog && catalog->names && catalog->name_capacity > 0
+	       && catalog->name_used <= catalog->name_capacity && catalog->name_resolve
+	       && catalog->name_resolve->prefer;
+}
+
+/* Any byte from 0x20 up except DEL: every UTF-8 sequence passes and the C0
+ * controls do not. A newline breaks any listing that puts one name per line
+ * and an escape byte drives the terminal it is drawn on -- `log/log.h`'s
+ * argument, met where the bytes are stored rather than where they are shown. */
+static fzn_catalog_err_t usable_name(const uint8_t *text, size_t len)
+{
+	size_t i;
+
+	if (!text || len == 0 || len > FZN_CATALOG_NAME_MAX)
+		return FZN_CATALOG_ERR_PATH;
+	for (i = 0; i < len; i++) {
+		if (text[i] < 0x20u || text[i] == 0x7fu)
+			return FZN_CATALOG_ERR_PATH;
+	}
+	return FZN_CATALOG_OK;
+}
+
+int fzn_catalog_name_held_wins(void *ctx, const fzn_catalog_name_t *held,
+                               const fzn_catalog_name_t *offered)
+{
+	(void)ctx;
+	if (!held || !offered)
+		return 0;
+	if (memcmp(held->issuer, offered->issuer, FZN_PUBKEY_LEN) == 0)
+		return offered->seq > held->seq ? 1 : 0;
+	return 0;
+}
+
+fzn_catalog_err_t fzn_catalog_name_init(fzn_catalog_t *catalog, fzn_catalog_name_t *names,
+                                        size_t capacity, const fzn_catalog_name_ops_t *resolve)
+{
+	if (!catalog || !names || capacity == 0)
+		return FZN_CATALOG_ERR_MALFORMED;
+	if (!resolve || !resolve->prefer)
+		return FZN_CATALOG_ERR_MALFORMED;
+
+	memset(names, 0, capacity * sizeof(*names));
+	catalog->names = names;
+	catalog->name_capacity = capacity;
+	catalog->name_used = 0;
+	catalog->name_resolve = resolve;
+	return FZN_CATALOG_OK;
+}
+
+fzn_catalog_err_t fzn_catalog_name_set(fzn_catalog_t *catalog, const fzn_catalog_name_t *name)
+{
+	fzn_catalog_name_t *held;
+	fzn_catalog_err_t err;
+
+	if (!name_usable(catalog) || !name)
+		return FZN_CATALOG_ERR_MALFORMED;
+	if (catalog->refiling)
+		return FZN_CATALOG_ERR_BUSY;
+
+	err = usable_name(name->text, name->len);
+	if (err != FZN_CATALOG_OK)
+		return err;
+
+	held = find_name(catalog, &name->id);
+	if (held) {
+		if (!catalog->name_resolve->prefer(catalog->name_resolve->ctx, held, name))
+			return FZN_CATALOG_ERR_STALE;
+		*held = *name;
+		return FZN_CATALOG_OK;
+	}
+	if (catalog->name_used == catalog->name_capacity)
+		return FZN_CATALOG_ERR_FULL;
+
+	catalog->names[catalog->name_used] = *name;
+	catalog->name_used++;
+	return FZN_CATALOG_OK;
+}
+
+const fzn_catalog_name_t *fzn_catalog_name_of(const fzn_catalog_t *catalog,
+                                              const fzn_catalog_id_t *id)
+{
+	if (!name_usable(catalog) || !id)
+		return NULL;
+	if (catalog->refiling)
+		return NULL;
+	return find_name(catalog, id);
+}
+
+fzn_catalog_err_t fzn_catalog_name_encode(const fzn_catalog_name_t *name, uint8_t *out,
+                                          size_t cap, size_t *len_out)
+{
+	fzn_catalog_err_t err;
+	size_t need;
+
+	if (!name || !out || !len_out)
+		return FZN_CATALOG_ERR_MALFORMED;
+	err = usable_name(name->text, name->len);
+	if (err != FZN_CATALOG_OK)
+		return err;
+
+	need = FZN_CATALOG_CONTENT_HEAD_LEN + name->len;
+	if (cap < need)
+		return FZN_CATALOG_ERR_MALFORMED;
+
+	out[0] = (uint8_t)FZN_CATALOG_OBJECT_NAME;
+	memcpy(out + 1, name->id.b, FZN_CATALOG_ID_LEN);
+	out[FZN_CATALOG_CONTENT_HEAD_LEN - 1u] = (uint8_t)name->len;
+	memcpy(out + FZN_CATALOG_CONTENT_HEAD_LEN, name->text, name->len);
+	*len_out = need;
+	return FZN_CATALOG_OK;
+}
+
+static fzn_catalog_err_t apply_name(fzn_catalog_t *catalog, const uint8_t *body, size_t len,
+                                    const uint8_t *issuer, uint64_t seq)
+{
+	fzn_catalog_name_t name;
+
+	if (len < FZN_CATALOG_CONTENT_HEAD_LEN)
+		return FZN_CATALOG_ERR_SHAPE;
+
+	memset(&name, 0, sizeof(name));
+	memcpy(name.id.b, body + 1, FZN_CATALOG_ID_LEN);
+	name.len = (size_t)body[FZN_CATALOG_CONTENT_HEAD_LEN - 1u];
+	/* THE DECLARED LENGTH MUST BE THE BODY'S, exactly. A shorter body would
+	 * read past what was signed and a longer one is a second encoding of
+	 * the same name. */
+	if (len != FZN_CATALOG_CONTENT_HEAD_LEN + name.len)
+		return FZN_CATALOG_ERR_SHAPE;
+	name.text = name.len > 0 ? body + FZN_CATALOG_CONTENT_HEAD_LEN : NULL;
+	memcpy(name.issuer, issuer, FZN_PUBKEY_LEN);
+	name.seq = seq;
+
+	if (usable_name(name.text, name.len) != FZN_CATALOG_OK)
+		return FZN_CATALOG_ERR_SHAPE;
+	return fzn_catalog_name_set(catalog, &name);
+}
+
+const char *fzn_catalog_segment_style_str(fzn_catalog_segment_style_t style)
+{
+	switch (style) {
+	case FZN_CATALOG_SEGMENT_AS_WRITTEN:
+		return "as written";
+	case FZN_CATALOG_SEGMENT_UNDERSCORED:
+		return "spaces as underscores";
+	}
+	return "unknown";
+}
+
+fzn_catalog_err_t fzn_catalog_name_segment(const fzn_catalog_name_t *name,
+                                           fzn_catalog_segment_style_t style, char *out,
+                                           size_t cap)
+{
+	char built[FZN_CATALOG_NAME_MAX + 1u];
+	fzn_catalog_err_t err;
+	size_t at = 0;
+	size_t i;
+	int pending = 0;
+
+	if (!name || !out || cap == 0)
+		return FZN_CATALOG_ERR_MALFORMED;
+	err = usable_name(name->text, name->len);
+	if (err != FZN_CATALOG_OK)
+		return err;
+
+	switch (style) {
+	case FZN_CATALOG_SEGMENT_AS_WRITTEN:
+		if (name->len + 1u > cap)
+			return FZN_CATALOG_ERR_PATH;
+		memcpy(out, name->text, name->len);
+		out[name->len] = '\0';
+		return FZN_CATALOG_OK;
+	case FZN_CATALOG_SEGMENT_UNDERSCORED:
+		break;
+	default:
+		return FZN_CATALOG_ERR_MALFORMED;
+	}
+
+	for (i = 0; i < name->len; i++) {
+		if (name->text[i] == ' ') {
+			/* A RUN BECOMES ONE UNDERSCORE, and a leading run none at
+			 * all -- "The  Third   Man" must not gain a stutter, and a
+			 * name typed with a trailing space must not gain a
+			 * trailing underscore. */
+			pending = at > 0;
+			continue;
+		}
+		if (pending) {
+			built[at++] = '_';
+			pending = 0;
+		}
+		built[at++] = (char)name->text[i];
+	}
+	built[at] = '\0';
+
+	/* A NAME OF NOTHING BUT SPACES RENDERS TO NOTHING, which is not a
+	 * segment -- `fzn_catalog_path_of` would refuse it, and refusing here
+	 * says which name caused it. */
+	if (at == 0)
+		return FZN_CATALOG_ERR_PATH;
+	if (at + 1u > cap)
+		return FZN_CATALOG_ERR_PATH;
+	memcpy(out, built, at + 1u);
+	return FZN_CATALOG_OK;
 }

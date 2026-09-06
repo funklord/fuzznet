@@ -1836,6 +1836,257 @@ static void test_the_seam_caller_bugs_are_refused(void)
 	CHECK(st.moves == 0, "a refused step moved something");
 }
 
+/* ---- names -------------------------------------------------------------- */
+
+static const fzn_catalog_name_ops_t NAME_HELD_WINS = { fzn_catalog_name_held_wins, NULL };
+
+static fzn_catalog_name_t named(uint8_t seed, const char *text, const uint8_t *issuer,
+                                uint64_t seq)
+{
+	fzn_catalog_name_t n;
+
+	memset(&n, 0, sizeof(n));
+	n.id = id(seed);
+	n.text = (const uint8_t *)text;
+	n.len = strlen(text);
+	memcpy(n.issuer, issuer, FZN_PUBKEY_LEN);
+	n.seq = seq;
+	return n;
+}
+
+/* A name is stored as a person wrote it, spaces and all. sec 150. */
+static void test_a_name_is_kept_as_written(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_name_t names[4];
+	fzn_catalog_t cat;
+	fzn_catalog_name_t n;
+	const fzn_catalog_name_t *got;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_name_init(&cat, names, 4, &NAME_HELD_WINS) == FZN_CATALOG_OK,
+	        "name init refused");
+
+	CHECK(fzn_catalog_name_of(&cat, idp(0x10)) == NULL, "a node nobody named has a name");
+
+	n = named(0x10, "The Third Man", ALICE, 1);
+	CHECK(fzn_catalog_name_set(&cat, &n) == FZN_CATALOG_OK, "a name with spaces was refused");
+	got = fzn_catalog_name_of(&cat, idp(0x10));
+	REQUIRE(got != NULL, "the name did not take");
+	CHECK(got->len == 13 && memcmp(got->text, "The Third Man", 13) == 0,
+	      "the name was altered on its way in");
+
+	/* A rename from the same issuer supersedes; another issuer does not. */
+	n = named(0x10, "The Third Man (1949)", ALICE, 2);
+	CHECK(fzn_catalog_name_set(&cat, &n) == FZN_CATALOG_OK, "an issuer could not rename");
+	n = named(0x10, "Der dritte Mann", BOB, 99);
+	CHECK(fzn_catalog_name_set(&cat, &n) == FZN_CATALOG_ERR_STALE,
+	      "another issuer's name displaced what was held");
+	got = fzn_catalog_name_of(&cat, idp(0x10));
+	CHECK(got && got->len == 20, "the rename did not stick");
+}
+
+/* Non-ASCII passes and control bytes do not. */
+static void test_a_name_may_be_anything_a_person_reads(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_name_t names[8];
+	fzn_catalog_t cat;
+	fzn_catalog_name_t n;
+	uint8_t text[4];
+	size_t i, refused = 0;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_name_init(&cat, names, 8, &NAME_HELD_WINS) == FZN_CATALOG_OK,
+	        "name init");
+
+	/* UTF-8 is not refused, which a bytewise rule that allowed only ASCII
+	 * would do -- a catalogue of music cannot reject the names on it. */
+	n = named(0x10, "Bj\xc3\xb6rk", ALICE, 1);
+	CHECK(fzn_catalog_name_set(&cat, &n) == FZN_CATALOG_OK, "a UTF-8 name was refused");
+
+	/* Every control byte, so this cannot pass by picking a lucky one. */
+	memset(&n, 0, sizeof(n));
+	n.id = id(0x11);
+	n.text = text;
+	n.len = 3;
+	memcpy(n.issuer, ALICE, FZN_PUBKEY_LEN);
+	text[0] = 'a';
+	text[2] = 'b';
+	for (i = 0; i < 0x20u; i++) {
+		text[1] = (uint8_t)i;
+		if (fzn_catalog_name_set(&cat, &n) == FZN_CATALOG_ERR_PATH)
+			refused++;
+	}
+	text[1] = 0x7fu;
+	if (fzn_catalog_name_set(&cat, &n) == FZN_CATALOG_ERR_PATH)
+		refused++;
+	CHECK(refused == 0x21u, "%zu of 33 control bytes were refused", refused);
+
+	/* THE CONTROL: an ordinary byte in the same slot is accepted, so the
+	 * sweep above is the rule rather than the setter refusing everything. */
+	text[1] = ' ';
+	CHECK(fzn_catalog_name_set(&cat, &n) == FZN_CATALOG_OK,
+	      "an ordinary name was refused, so the control sweep proves nothing");
+
+	n = named(0x12, "", ALICE, 1);
+	CHECK(fzn_catalog_name_set(&cat, &n) == FZN_CATALOG_ERR_PATH, "an empty name was accepted");
+}
+
+/*
+ * THE ANSWER TO THE SPACES QUESTION. The catalogue keeps what was written and
+ * the SEGMENT is chosen per host -- sec 147's rule that a filing does not
+ * travel, applied one layer down. Both styles are here so a host picks.
+ */
+static void test_a_name_renders_either_way(void)
+{
+	fzn_catalog_name_t n;
+	char out[FZN_CATALOG_NAME_MAX + 1u];
+
+	n = named(0x10, "The Third Man", ALICE, 1);
+	REQUIRE(fzn_catalog_name_segment(&n, FZN_CATALOG_SEGMENT_AS_WRITTEN, out, sizeof(out))
+	                == FZN_CATALOG_OK, "as-written refused");
+	CHECK(strcmp(out, "The Third Man") == 0, "as written gave \"%s\"", out);
+
+	REQUIRE(fzn_catalog_name_segment(&n, FZN_CATALOG_SEGMENT_UNDERSCORED, out, sizeof(out))
+	                == FZN_CATALOG_OK, "underscored refused");
+	CHECK(strcmp(out, "The_Third_Man") == 0, "underscored gave \"%s\"", out);
+
+	/* A RUN BECOMES ONE UNDERSCORE, not one each: a name with double spaces
+	 * must not gain a stutter. */
+	n = named(0x10, "The  Third   Man", ALICE, 1);
+	REQUIRE(fzn_catalog_name_segment(&n, FZN_CATALOG_SEGMENT_UNDERSCORED, out, sizeof(out))
+	                == FZN_CATALOG_OK, "runs refused");
+	CHECK(strcmp(out, "The_Third_Man") == 0, "a run of spaces gave \"%s\"", out);
+
+	/* And an edge run gives none at all. */
+	n = named(0x10, "  Kind of Blue  ", ALICE, 1);
+	REQUIRE(fzn_catalog_name_segment(&n, FZN_CATALOG_SEGMENT_UNDERSCORED, out, sizeof(out))
+	                == FZN_CATALOG_OK, "edges refused");
+	CHECK(strcmp(out, "Kind_of_Blue") == 0, "leading or trailing spaces gave \"%s\"", out);
+
+	/* A name of nothing but spaces renders to nothing, which is not a
+	 * segment -- and saying so here names the culprit. */
+	n = named(0x10, "   ", ALICE, 1);
+	CHECK(fzn_catalog_name_segment(&n, FZN_CATALOG_SEGMENT_UNDERSCORED, out, sizeof(out))
+	              == FZN_CATALOG_ERR_PATH, "a name of only spaces produced a segment");
+
+	/* Nothing is written unless the whole segment fits. */
+	n = named(0x10, "The Third Man", ALICE, 1);
+	memset(out, 0x5a, sizeof(out));
+	CHECK(fzn_catalog_name_segment(&n, FZN_CATALOG_SEGMENT_AS_WRITTEN, out, 4)
+	              == FZN_CATALOG_ERR_PATH, "a short buffer took a truncated segment");
+	CHECK(out[0] == 0x5a, "a refused segment wrote a truncated one");
+	CHECK(fzn_catalog_name_segment(&n, FZN_CATALOG_SEGMENT_UNDERSCORED, out, 4)
+	              == FZN_CATALOG_ERR_PATH, "a short buffer took a truncated underscored one");
+	CHECK(out[0] == 0x5a, "a refused underscored segment wrote a truncated one");
+
+	CHECK(fzn_catalog_name_segment(&n, (fzn_catalog_segment_style_t)9, out, sizeof(out))
+	              == FZN_CATALOG_ERR_MALFORMED, "an unknown style rendered");
+	CHECK(fzn_catalog_name_segment(NULL, FZN_CATALOG_SEGMENT_AS_WRITTEN, out, sizeof(out))
+	              == FZN_CATALOG_ERR_MALFORMED, "a null name rendered");
+	CHECK(fzn_catalog_name_segment(&n, FZN_CATALOG_SEGMENT_AS_WRITTEN, NULL, sizeof(out))
+	              == FZN_CATALOG_ERR_MALFORMED, "a null buffer");
+	CHECK(strcmp(fzn_catalog_segment_style_str(FZN_CATALOG_SEGMENT_AS_WRITTEN),
+	             fzn_catalog_segment_style_str(FZN_CATALOG_SEGMENT_UNDERSCORED)) != 0,
+	      "the two styles read alike");
+}
+
+/* A name travels as its own assertion, attributed from the record. */
+static void test_a_name_round_trips_through_a_record(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_name_t names[4];
+	fzn_catalog_t cat;
+	uint8_t body[FZN_RECORD_BODY_MAX];
+	fzn_catalog_name_t n;
+	const fzn_catalog_name_t *got;
+	fzn_record_t rec;
+	size_t len = 0;
+	size_t i;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_name_init(&cat, names, 4, &NAME_HELD_WINS) == FZN_CATALOG_OK,
+	        "name init");
+
+	n = named(0x10, "Kind of Blue", ALICE, 0);
+	REQUIRE(fzn_catalog_name_encode(&n, body, sizeof(body), &len) == FZN_CATALOG_OK,
+	        "a name would not encode");
+	CHECK(len == FZN_CATALOG_CONTENT_HEAD_LEN + 12u, "a name body is %zu bytes", len);
+	REQUIRE(as_record(&rec, ALICE, 4u, body, len), "sign");
+	CHECK(fzn_catalog_apply(&cat, rec) == FZN_CATALOG_OK, "a name record was refused");
+
+	got = fzn_catalog_name_of(&cat, idp(0x10));
+	REQUIRE(got != NULL, "the name did not arrive");
+	CHECK(got->len == 12 && memcmp(got->text, "Kind of Blue", 12) == 0,
+	      "the name did not survive the wire");
+	CHECK(memcmp(got->issuer, ALICE, FZN_PUBKEY_LEN) == 0,
+	      "a name was attributed to somebody other than the record's signer");
+	CHECK(got->seq == 4u, "a name did not take the record's sequence");
+	CHECK(got->text >= rec.base && got->text < rec.base + rec.len,
+	      "the name is not a view into the record, so it was copied");
+
+	/* THE DECLARED LENGTH MUST BE THE BODY'S. A shorter body reads past
+	 * what was signed and a longer one is a second encoding. */
+	REQUIRE(as_record(&rec, ALICE, 5u, body, len - 1u), "sign a short name");
+	CHECK(fzn_catalog_apply(&cat, rec) == FZN_CATALOG_ERR_SHAPE, "a short name was accepted");
+	REQUIRE(as_record(&rec, ALICE, 6u, body, len + 1u), "sign a long name");
+	CHECK(fzn_catalog_apply(&cat, rec) == FZN_CATALOG_ERR_SHAPE, "a long name was accepted");
+
+	/* A control byte off the wire is refused as SHAPE rather than stored. */
+	for (i = 0; i < len - FZN_CATALOG_CONTENT_HEAD_LEN; i++) {
+		body[FZN_CATALOG_CONTENT_HEAD_LEN + i] = '\n';
+		break;
+	}
+	REQUIRE(as_record(&rec, ALICE, 7u, body, len), "sign a name with a newline");
+	CHECK(fzn_catalog_apply(&cat, rec) == FZN_CATALOG_ERR_SHAPE,
+	      "a name carrying a newline was accepted off the wire");
+}
+
+static void test_the_name_caller_bugs_are_refused(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_name_t names[1];
+	fzn_catalog_t cat;
+	fzn_catalog_name_t n;
+	uint8_t body[8];
+	size_t len = 0;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	n = named(0x10, "a", ALICE, 1);
+
+	/* A catalogue with no name table refuses rather than doing nothing. */
+	CHECK(fzn_catalog_name_set(&cat, &n) == FZN_CATALOG_ERR_MALFORMED,
+	      "a catalogue with no name table accepted a name");
+	CHECK(fzn_catalog_name_of(&cat, idp(0x10)) == NULL,
+	      "a catalogue with no name table answered a lookup");
+
+	CHECK(fzn_catalog_name_init(NULL, names, 1, &NAME_HELD_WINS) == FZN_CATALOG_ERR_MALFORMED,
+	      "a null catalogue");
+	CHECK(fzn_catalog_name_init(&cat, NULL, 1, &NAME_HELD_WINS) == FZN_CATALOG_ERR_MALFORMED,
+	      "null rows");
+	CHECK(fzn_catalog_name_init(&cat, names, 0, &NAME_HELD_WINS) == FZN_CATALOG_ERR_MALFORMED,
+	      "a table that can hold nothing");
+	CHECK(fzn_catalog_name_init(&cat, names, 1, NULL) == FZN_CATALOG_ERR_MALFORMED,
+	      "no resolver");
+
+	REQUIRE(fzn_catalog_name_init(&cat, names, 1, &NAME_HELD_WINS) == FZN_CATALOG_OK,
+	        "name init");
+	CHECK(fzn_catalog_name_set(&cat, NULL) == FZN_CATALOG_ERR_MALFORMED, "a null name");
+	REQUIRE(fzn_catalog_name_set(&cat, &n) == FZN_CATALOG_OK, "the first name");
+	n = named(0x11, "b", ALICE, 1);
+	CHECK(fzn_catalog_name_set(&cat, &n) == FZN_CATALOG_ERR_FULL,
+	      "a full name table accepted another");
+
+	n = named(0x10, "a", ALICE, 1);
+	CHECK(fzn_catalog_name_encode(NULL, body, sizeof(body), &len) == FZN_CATALOG_ERR_MALFORMED,
+	      "a null name encoded");
+	CHECK(fzn_catalog_name_encode(&n, NULL, sizeof(body), &len) == FZN_CATALOG_ERR_MALFORMED,
+	      "a null buffer");
+	CHECK(fzn_catalog_name_encode(&n, body, sizeof(body), &len) == FZN_CATALOG_ERR_MALFORMED,
+	      "a buffer too small for the head encoded");
+}
+
 static void test_the_errors_render(void)
 {
 	CHECK(fzn_catalog_err_str(FZN_CATALOG_OK)[0] != '\0', "OK renders empty");
@@ -1910,6 +2161,11 @@ int main(void)
 	test_a_step_advances_only_when_the_file_moved();
 	test_an_unnameable_node_does_not_advance();
 	test_the_seam_caller_bugs_are_refused();
+	test_a_name_is_kept_as_written();
+	test_a_name_may_be_anything_a_person_reads();
+	test_a_name_renders_either_way();
+	test_a_name_round_trips_through_a_record();
+	test_the_name_caller_bugs_are_refused();
 	test_the_errors_render();
 	test_the_suite_can_tell_pass_from_fail();
 

@@ -22870,6 +22870,64 @@ anything could have said otherwise.
 copyright holder should know the size before it happens rather than find it
 inside a commit about a widget.
 
+## 150. Names, and the answer to spaces or underscores, 2026-09-06
+
+Directed by the copyright holder 2026-09-06, with a question attached:
+"music may have spaces, or should we require underscores instead? That is
+very opinionated now that all the system tools deal with spaces in files very
+well. Though I prefer underscores."
+
+### sec 147 already answers it, and the holder gets what they prefer
+
+**A filing is where a host keeps its bytes and does not travel.** Underscores
+are a FILING preference, not a property of the catalogue -- so:
+
+    the catalogue    keeps the name as a person wrote it
+    the host         chooses the segment: as written, or underscored
+
+Storing underscores would make one host's preference an assertion every other
+host had to accept, and would **lose the spaces somebody typed with no way to
+get them back**. Rendering them is lossless and reversible, so the holder has
+underscores on their machines without imposing them on anyone sharing the
+catalogue.
+
+**The rule is shared and the choice is a host's**, which is sec 2's argument
+and why `fzn_catalog_name_segment` lives here rather than in four consumers.
+
+Three behaviours the underscored style has, each because the obvious
+implementation gets it wrong: a RUN of spaces becomes one underscore, so
+"The  Third   Man" does not gain a stutter; leading and trailing runs vanish
+rather than becoming edge underscores; and a name of nothing but spaces is
+refused rather than rendered to an empty segment, which `fzn_catalog_path_of`
+would refuse anyway without saying which name caused it.
+
+### A name is its own assertion
+
+Not a field on a content body. A directory holds no content and still needs a
+name; a rename should not resend a value that has not changed; and the two
+have separate sequences because they are separate statements. So: its own
+table, its own resolver -- two names have no presence asymmetry to exploit,
+exactly as sec 145 argued for content -- and its own wire tag.
+
+### What a name may hold, and what is deliberately not checked
+
+Any byte from 0x20 up except DEL. **That permits every UTF-8 sequence** -- a
+catalogue of music cannot reject the names on it -- and refuses the C0
+controls for `log/log.h`'s reason rather than for tidiness: a newline breaks
+any listing that puts one name per line, and an escape byte drives the
+terminal the listing is drawn on.
+
+**UTF-8 VALIDITY IS NOT CHECKED.** Validating it is a real piece of work, a
+name is displayed by a toolkit that must survive bad bytes anyway, and
+refusing a sequence some decoder would accept would make a catalogue reject
+names a peer can see. Recorded as a limit rather than assumed away, which is
+`evidence.md`'s rule about pinning what a check does not cover.
+
+**And one sabotage exists to prove the permissiveness is deliberate**:
+tightening `== 0x7f` to `>= 0x7f` refuses all UTF-8, and a case says so. A
+rule that is loose on purpose needs a test that fails when somebody tightens
+it, or the next reader will.
+
 ## 149. The filesystem seam, and what a name may not be, 2026-09-06
 
 Directed by the copyright holder 2026-09-06: the seam sec 148 left out. Built

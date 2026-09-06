@@ -196,6 +196,11 @@ typedef struct fzn_catalog {
 	 * would otherwise pick. */
 	fzn_catalog_id_t filing_root;
 	int filing_root_set;
+	/* The name table, or nulls when a consumer keeps names elsewhere. */
+	struct fzn_catalog_name *names;
+	size_t name_capacity;
+	size_t name_used;
+	const struct fzn_catalog_name_ops *name_resolve;
 	/* Whether a refile holds this catalogue. See the refile section: while
 	 * it is set, every call but progress and the refile's own answers
 	 * FZN_CATALOG_ERR_BUSY. */
@@ -422,6 +427,10 @@ const fzn_catalog_entry_t *fzn_catalog_content_of(const fzn_catalog_t *catalog,
 
 #define FZN_CATALOG_OBJECT_EDGE 1u
 #define FZN_CATALOG_OBJECT_CONTENT 2u
+/* A name. Its own assertion rather than a field on a content body, for the
+ * reason sec 150 gives: a directory has no content and still needs a name,
+ * and a rename should not have to resend a value. */
+#define FZN_CATALOG_OBJECT_NAME 3u
 
 #define FZN_CATALOG_EDGE_BODY_LEN 66u
 #define FZN_CATALOG_CONTENT_HEAD_LEN 34u
@@ -783,5 +792,109 @@ fzn_catalog_err_t fzn_catalog_path_of(const fzn_catalog_id_t *ids, size_t count,
 fzn_catalog_err_t fzn_catalog_refile_step(const fzn_catalog_t *catalog,
                                           fzn_catalog_refile_t *job,
                                           const fzn_catalog_fs_ops_t *ops);
+
+
+/*
+ * NAMES: what a person reads, and what a filing turns into a directory.
+ *
+ * project.md sec 150. sec 149 left this open: a filing is a directory tree
+ * and the catalogue carried ids and content but nothing anybody would call a
+ * folder, so every consumer would have derived one and three consumers would
+ * have derived three.
+ *
+ * A NAME IS ITS OWN ASSERTION, not a field on a content body. A directory
+ * holds no content and still needs a name; a rename should not have to
+ * resend a value that has not changed; and the two have separate sequences
+ * because they are separate statements. It carries its own table and its own
+ * resolver for the reason content does -- two names have no presence
+ * asymmetry to exploit, so the edge resolver's rule does not apply.
+ *
+ * WHAT A NAME MAY HOLD, and what it deliberately does not check. Any byte
+ * from 0x20 up except DEL, which permits every UTF-8 sequence and refuses the
+ * C0 controls. Those are refused for `log/log.h`'s reason rather than for
+ * tidiness: a newline in a name breaks any listing that puts one per line,
+ * and an escape byte drives the terminal the listing is drawn on.
+ *
+ * UTF-8 VALIDITY IS NOT CHECKED, and that is a limit rather than an
+ * oversight. Validating it is a real piece of work, a name is displayed by a
+ * toolkit that must survive bad bytes anyway, and refusing a sequence some
+ * decoder would accept would make a catalogue reject names a peer can see.
+ * Recorded so the gap is known rather than assumed away.
+ */
+
+#define FZN_CATALOG_NAME_MAX 255u
+
+typedef struct fzn_catalog_name {
+	fzn_catalog_id_t id;
+	/* A view, not a copy, as everything here is: for a name off the wire it
+	 * points into the record, which must outlive the row. */
+	const uint8_t *text;
+	size_t len;
+	uint8_t issuer[FZN_PUBKEY_LEN];
+	uint64_t seq;
+} fzn_catalog_name_t;
+
+typedef struct fzn_catalog_name_ops {
+	int (*prefer)(void *ctx, const fzn_catalog_name_t *held,
+	              const fzn_catalog_name_t *offered);
+	void *ctx;
+} fzn_catalog_name_ops_t;
+
+/* An issuer's later statement supersedes its own; between issuers, what is
+ * held stands. The same rule and the same reasoning as content's. */
+int fzn_catalog_name_held_wins(void *ctx, const fzn_catalog_name_t *held,
+                               const fzn_catalog_name_t *offered);
+
+fzn_catalog_err_t fzn_catalog_name_init(fzn_catalog_t *catalog, fzn_catalog_name_t *names,
+                                        size_t capacity, const fzn_catalog_name_ops_t *resolve);
+
+/* Name a node. FZN_CATALOG_ERR_PATH for a name past the bound, an empty one,
+ * or one carrying a control byte. */
+fzn_catalog_err_t fzn_catalog_name_set(fzn_catalog_t *catalog, const fzn_catalog_name_t *name);
+
+/* What a node is called, or NULL when nobody has said. */
+const fzn_catalog_name_t *fzn_catalog_name_of(const fzn_catalog_t *catalog,
+                                              const fzn_catalog_id_t *id);
+
+/* Lay out a name assertion as a record body. */
+fzn_catalog_err_t fzn_catalog_name_encode(const fzn_catalog_name_t *name, uint8_t *out,
+                                          size_t cap, size_t *len_out);
+
+/*
+ * HOW A NAME BECOMES A PATH SEGMENT, and the answer to a question the
+ * copyright holder raised: spaces or underscores.
+ *
+ * **The catalogue stores the name as a person wrote it, and the SEGMENT is
+ * chosen per host.** That is not a compromise, it is sec 147's rule applied
+ * one layer down: a filing is where a host keeps its bytes and does not
+ * travel, so how a host spells a directory is the same kind of decision.
+ * Underscores are a filing preference. Storing them would make one host's
+ * preference an assertion every other host had to accept, and would lose the
+ * spaces a person typed with no way to get them back.
+ *
+ * So the RULE is shared -- which is sec 2's argument, and why this lives here
+ * rather than in four consumers -- and the CHOICE is a host's.
+ */
+typedef enum fzn_catalog_segment_style {
+	/* The name unchanged. It must still pass `fzn_catalog_path_of`'s
+	 * checks, so a name with a separator in it is refused there rather
+	 * than rewritten here. */
+	FZN_CATALOG_SEGMENT_AS_WRITTEN = 0,
+	/* Runs of space become one underscore. A run rather than each space,
+	 * so "The  Third   Man" does not become a segment with a stutter in
+	 * it, and leading and trailing runs are dropped entirely. */
+	FZN_CATALOG_SEGMENT_UNDERSCORED = 1,
+} fzn_catalog_segment_style_t;
+
+const char *fzn_catalog_segment_style_str(fzn_catalog_segment_style_t style);
+
+/* Render a name as a path segment in the given style, NUL-terminated.
+ *
+ * A consumer's `name` callback in `fzn_catalog_fs_ops` is where this belongs:
+ * look the name up, render it, hand it back. Nothing here writes unless the
+ * whole segment fits. */
+fzn_catalog_err_t fzn_catalog_name_segment(const fzn_catalog_name_t *name,
+                                           fzn_catalog_segment_style_t style, char *out,
+                                           size_t cap);
 
 #endif
