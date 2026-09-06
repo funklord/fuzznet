@@ -22913,6 +22913,113 @@ because a face that stopped looks exactly like a lossy link, which
 `fzn_journal_admit` reports as a gap and `fzn_journal_next` says what to ask
 for.
 
+### Deadlock: structurally impossible, and the invariant that makes it so
+
+**One lock, and nothing else blocking while it is held.** A wait-for cycle
+needs at least two resources; with exactly one lock in the system and no
+process ever blocking on a second while holding it, no cycle can form.
+Deadlock freedom here is structural rather than argued -- which is worth
+more than any amount of careful ordering, because ordering rules decay and
+this one fails loudly the moment somebody adds a second lock.
+
+**What preserves the invariant, and what would destroy it:**
+
+- **The shared store needs no lock, because everything shared is
+  immutable.** Records append-only; blob content named by its own digest;
+  verification verdicts likewise, one file per digest written create-then-
+  rename. **The moment somebody adds a mutable shared index, a second lock
+  appears and this guarantee is gone.** That is the rule to defend: shared
+  implies immutable.
+- **Sessions and sequence allocation are under ONE lock, not two.** Stated
+  above for simplicity; the real reason is this -- two locks reintroduce the
+  AB-BA cycle they were separated to avoid.
+
+**The scenarios, enumerated, since "no cycle can form" is only true while
+the invariant holds:**
+
+    1. face lock vs a store lock, AB-BA     prevented: the store has no lock
+    2. the face submitting to itself        the plausible real bug, below
+    3. the face calling a client and waiting prevented: requests flow one way
+    4. separate session and sequence locks   prevented: one lock covers both
+    5. a lock whose release is not honoured  NFS, below
+
+**(2) is the one that will actually be written.** A shared "submit a record"
+path opens a socket to the face -- and if the caller IS the face it blocks
+on itself for ever. The rule: the submit path asks whether it holds the lock
+and takes the local path if it does. It looks absurd described and is
+entirely natural to write, because the point of a shared path is that the
+caller does not think about which process it is in.
+
+**(3) is a design rule rather than a mechanism**: requests flow client to
+face and never back. A synchronous callback from the face into a client
+closes a cycle that no lock ordering can open.
+
+### The real downside is not deadlock, and it corrects a claim made above
+
+sec 130 and the paragraphs above say a kernel-released lock "cannot be wrong
+about whether a process is alive". That is true and **aliveness is not
+liveness.**
+
+**A HUNG face holds the lock for ever.** Wedged in a spin, blocked on a
+socket with no timeout, stopped by SIGSTOP -- the kernel will never release,
+because nothing has died. Issuance stalls for every process on the host.
+Reads keep working, which makes it quieter than it should be.
+
+**And it cannot be fixed by stealing the lock**, because that is exactly the
+false failover that puts two processes on one ratchet chain.
+
+**The escalation that IS safe: a watchdog kills, and the kernel releases.**
+This is safe for precisely the reason a timeout-based steal is not --
+**killing converts the inference into a fact.** After SIGKILL the process is
+genuinely gone, so there is no false failover left to have. A heartbeat is
+unsafe as a lock-stealing mechanism and perfectly safe as a kill trigger,
+and the difference is whether the thing making the guess can enforce it.
+
+With the design rule that follows: **never hold the lock across an unbounded
+wait.** Every network operation the face performs is timeout-bounded, so a
+hang needs a bug rather than a slow peer.
+
+### Efficiency, measured rather than asserted
+
+Per-process bookkeeping, measured on this machine rather than added up from
+the header -- which would have given 52 and missed the padding:
+
+    fzn_journal_entry_t    56 bytes   per followed (issuer, stream)
+    fzn_ledger_entry_t     80 bytes   per peer per subject
+    FZN_RECORD_HEADER_LEN  92 bytes
+    FZN_RECORD_BODY_MAX   512 bytes
+
+**Everything expensive is O(1) in the number of processes:** one network
+subscription per stream per host, one copy of every record and blob, one
+signature verification per record. What scales with N is 56 bytes per
+followed stream per process, and each process's own memory.
+
+Reads cost no IPC at all. Writes cost one hop for a non-face process, on a
+path that is rare against reads.
+
+### Downsides, plainly
+
+1. **A hung face stalls issuance** for every process, and needs a watchdog
+   to become a killed face. Reads are unaffected, which makes it quiet.
+2. **The identity directory must be on a local filesystem.** flock over NFS
+   has not historically guaranteed release on death, and without that
+   guarantee a dead holder stalls everyone permanently -- the failure this
+   whole design leans on the kernel to prevent.
+3. **Non-face writes cost a hop**, so a process that mostly issues rather
+   than reads is on the wrong side of the trade.
+4. **Shared fate on the store.** Mitigated rather than solved by records
+   being self-verifying: corruption is detected rather than silently
+   accepted, but it is detected by everybody at once.
+5. **It depends on one uid being one trust domain**, which is what makes the
+   shared verification cache sound. **So this is not sec 131's design with a
+   parameter changed -- it is a different design**, and carrying the verdict
+   cache across a privilege boundary would be a straightforward hole.
+6. **Attribution gets harder.** Which process did what is no longer obvious
+   from the outside, and the logs are split across N processes doing one
+   job.
+7. **None of it exists yet**: the store seam, the lock, and the submit path
+   are all new code.
+
 ### What it costs to build
 
 Nothing in the protocol, which is the point.
