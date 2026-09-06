@@ -22788,6 +22788,107 @@ mentioned here only because it is the reason "just replicate the bytes" is not
 sufficient for this consumer -- something has to refuse what it cannot honour,
 and hydra believes that something is itself rather than the transport.
 
+## 131. Two daemons, one user, different purposes -- and sec 130 was wrong, 2026-09-06
+
+Raised by the copyright holder 2026-09-06, as a scenario netcfgd does not
+demonstrate and wider adoption will: **the other daemon runs as the same
+user (or both as root) and has a different purpose.** Neither is a client of
+the other. Both are supervised, long-lived, and legitimate.
+
+sec 130 said "one node per host". **That is wrong, and this is the case that
+shows it.** It is one node per IDENTITY, and the difference only becomes
+visible when two daemons share one.
+
+Three things this breaks, in increasing severity. The third is a correctness
+bug rather than a policy question, and it is the reason this section exists
+rather than a paragraph appended to sec 130.
+
+### 1. FZN_ORIGIN_SAME_USER cannot tell them apart, and nothing could
+
+`chain/authz.h` is explicit that this origin's authentication is the
+socket's path and mode -- "the local socket's access IS the authentication.
+The kernel enforced it". That authenticates **reachability by a uid**, not
+**which program**. Two daemons of one user pass it identically, and
+`SO_PEERCRED` does not help: uid and gid are the same by hypothesis, and a
+pid names no program.
+
+**Nothing fuzznet could add would fix it.** Under the `~/.fuzznet/`
+experiment the second daemon to start finds an identity already there and
+uses it, so the two hold the same signing key by construction -- and either
+could read the other's key file anyway, since both must be able to read it.
+
+### 2. So the product filter is not a local privilege boundary
+
+Within one uid the filter prevents **accidents, not attacks**. Anything that
+can read the identity can mint records for any product, because the
+capability is bound to the identity and both daemons are it.
+
+It IS a real boundary across hop 2 and hop 3, where the peer genuinely
+cannot read your key. **That distinction has to be written down or somebody
+will read the filter as a guarantee it cannot provide** -- which is the
+false-security-claim shape, and worse than having no filter.
+
+**The experiment does not LOSE a boundary here, and that is the fair
+reading.** Two processes of one uid could already read each other's files;
+there was never an OS boundary for fuzznet to give away. What the shared
+identity does is make explicit something that was already true.
+
+**And the product-in-the-stream gives exactly the distinguishability that is
+honest.** A record says which product it belongs to, signed and unforgeable
+by a remote peer. It does not claim which local process wrote it -- and it
+must not, because that claim could not be true.
+
+### 3. Two writers, one issuer: a silent sequence collision
+
+A position is (issuer, stream, sequence). **Same identity means same
+issuer.** If two daemons write to one stream they both produce sequence N,
+and `record/journal.h` is explicit about what a recipient does with the
+second: "`fzn_journal_admit` refuses that value as a duplicate."
+
+Not an error anybody sees. The second daemon's record is **dropped, and its
+content is lost.**
+
+**The derivation built in sec 129 already saves the product-scoped case.**
+netcfgd writes only into product=netcfgd streams and hydra only into its
+own, so two daemons of different purposes never share a stream and never
+collide.
+
+**Product 0 is the exception, and it is exactly where they meet.** Fuzznet's
+own reserved space -- revocations, and whatever else this library assigns --
+is shared by every program on the host by definition.
+
+**It is not a bug today**, because `FZN_STREAM_RESERVED` has nothing
+assigned in it: record.h says "nothing below 256 has a meaning today". It
+becomes one the moment anything is.
+
+So the requirement is now small and precise, and much smaller than the
+"which syncer survives" question that produced sec 130: **exactly one writer
+for product 0 per identity.** Not one syncer for everything -- one writer
+for the reserved streams.
+
+### The two ways out, and which decides the experiment
+
+**Whose decision: the copyright holder's**, because it is the case the
+`~/.fuzznet/` experiment was set up to be judged by.
+
+- **(i) Two same-user daemons share a node.** One of them owns product 0's
+  streams, claimed by an advisory lock the kernel releases on death, or a
+  dedicated fuzznet daemon owns them and both are its clients. Cost: a
+  daemon named for one purpose carries another's traffic, so its resource
+  use and its logs are misattributed -- or there is a third process.
+- **(ii) Two same-user daemons get separate identities.** This ends the
+  experiment for daemons while leaving it intact for a user's clients. They
+  become distinct issuers, so the collision cannot occur at all and a remote
+  peer can tell them apart.
+
+**And the honest limit on (ii), which is the part that is easy to get
+wrong: separate identities buy NAMING, not ISOLATION.** Two same-uid
+daemons with separate keys can still read each other's key files. Local
+isolation needs separate uids, and nothing fuzznet does changes that. So
+(ii) is worth choosing for the sequence collision and for remote
+distinguishability, and not for security between local processes -- there
+is no such thing to buy at one uid.
+
 ## 130. One node per host, which is what dissolves the syncer question, 2026-09-06
 
 The copyright holder chose option (b) from sec 129 -- derive the stream from
@@ -22830,6 +22931,12 @@ forged stream is an error rather than a wildcard check. There is a case for
 it.
 
 ### The trilemma is an artifact of one node per PROGRAM
+
+**Read sec 131 with this: "one node per host" is wrong and it is one
+node per IDENTITY.** The correction does not change the answer below for
+a daemon and its clients, which is what this section is about; it changes
+it for two daemons of one user, which is a case this section did not
+consider.
 
 sec 2, in the holder's own words, has hop 1 as `local_user_client ->
 local_user_daemon`. Take that seriously and the question does not arise:
