@@ -74,6 +74,26 @@ fzn_catalog_err_t fzn_catalog_init(fzn_catalog_t *catalog, fzn_catalog_edge_t *e
 	catalog->capacity = capacity;
 	catalog->used = 0;
 	catalog->resolve = resolve;
+	/* The content table starts absent, so a catalogue used purely as
+	 * structure refuses every content call rather than appearing to accept
+	 * one and doing nothing. `fzn_catalog_content_init` is what supplies
+	 * it.
+	 *
+	 * BOTH LINES GUARD AND NEITHER IS DEAD, which took two sabotages to
+	 * establish and is worth writing down because it looks like redundancy.
+	 * `content_usable` requires a non-null table AND a non-zero capacity,
+	 * so breaking either one alone leaves the other refusing -- both
+	 * sabotages SURVIVED, and the first reading of that was that the
+	 * pointer was hygiene. It is not: it is what refuses when the capacity
+	 * is garbage, and the capacity is what refuses when the pointer is.
+	 *
+	 * So there is no sabotage entry for this pair, because no single-line
+	 * one can fail. project.md sec 145 records that rather than leaving a
+	 * later reader to rediscover it and delete a line as dead. */
+	catalog->entries = NULL;
+	catalog->entry_capacity = 0;
+	catalog->entry_used = 0;
+	catalog->content_resolve = NULL;
 	return FZN_CATALOG_OK;
 }
 
@@ -219,6 +239,131 @@ const char *fzn_catalog_err_str(fzn_catalog_err_t err)
 		return "no room for another edge";
 	case FZN_CATALOG_ERR_STALE:
 		return "the assertion already held stands";
+	}
+	return "unknown";
+}
+
+/* ---- what a node holds -------------------------------------------------- */
+
+static fzn_catalog_entry_t *find_entry(const fzn_catalog_t *catalog,
+                                       const fzn_catalog_id_t *id)
+{
+	size_t i;
+
+	for (i = 0; i < catalog->entry_used; i++) {
+		if (same_id(&catalog->entries[i].id, id))
+			return &catalog->entries[i];
+	}
+	return NULL;
+}
+
+static int content_usable(const fzn_catalog_t *catalog)
+{
+	return catalog && catalog->entries && catalog->entry_capacity > 0
+	       && catalog->entry_used <= catalog->entry_capacity && catalog->content_resolve
+	       && catalog->content_resolve->prefer;
+}
+
+int fzn_catalog_content_held_wins(void *ctx, const fzn_catalog_entry_t *held,
+                                  const fzn_catalog_entry_t *offered)
+{
+	(void)ctx;
+	if (!held || !offered)
+		return 0;
+
+	/* One issuer restating its own content is not a conflict, just a later
+	 * statement -- the same correction sec 144 records for edges, and the
+	 * reason a node's content can be edited at all. */
+	if (memcmp(held->issuer, offered->issuer, FZN_PUBKEY_LEN) == 0)
+		return offered->seq > held->seq ? 1 : 0;
+
+	/* Across issuers there is no "later" to appeal to, so what is held
+	 * stands. That is not a preference for the first writer; it is the only
+	 * answer that does not depend on which arrived first. */
+	return 0;
+}
+
+fzn_catalog_err_t fzn_catalog_content_init(fzn_catalog_t *catalog,
+                                           fzn_catalog_entry_t *entries, size_t capacity,
+                                           const fzn_catalog_content_ops_t *resolve)
+{
+	if (!catalog || !entries || capacity == 0)
+		return FZN_CATALOG_ERR_MALFORMED;
+	if (!resolve || !resolve->prefer)
+		return FZN_CATALOG_ERR_MALFORMED;
+
+	memset(entries, 0, capacity * sizeof(*entries));
+	catalog->entries = entries;
+	catalog->entry_capacity = capacity;
+	catalog->entry_used = 0;
+	catalog->content_resolve = resolve;
+	return FZN_CATALOG_OK;
+}
+
+fzn_catalog_err_t fzn_catalog_content_set(fzn_catalog_t *catalog,
+                                          const fzn_catalog_entry_t *entry)
+{
+	fzn_catalog_entry_t *held;
+
+	if (!content_usable(catalog) || !entry)
+		return FZN_CATALOG_ERR_MALFORMED;
+
+	switch (entry->kind) {
+	case FZN_CATALOG_CONTENT_NONE:
+		break;
+	case FZN_CATALOG_CONTENT_INLINE:
+		/* A LENGTH PAST WHAT A RECORD BODY CARRIES is a caller
+		 * describing something it could never send, so it is refused
+		 * here rather than at the moment somebody tries. */
+		if (entry->len > FZN_RECORD_BODY_MAX)
+			return FZN_CATALOG_ERR_MALFORMED;
+		if (entry->len > 0 && !entry->bytes)
+			return FZN_CATALOG_ERR_MALFORMED;
+		break;
+	case FZN_CATALOG_CONTENT_BLOB:
+		/* A BLOB OF ZERO LENGTH IS A NAME FOR NOTHING. An empty value
+		 * is expressible -- it is an INLINE of length zero -- so a
+		 * zero-length blob is a caller that filled in half a row. */
+		if (entry->blob_len == 0)
+			return FZN_CATALOG_ERR_MALFORMED;
+		break;
+	default:
+		return FZN_CATALOG_ERR_MALFORMED;
+	}
+
+	held = find_entry(catalog, &entry->id);
+	if (held) {
+		if (!catalog->content_resolve->prefer(catalog->content_resolve->ctx, held, entry))
+			return FZN_CATALOG_ERR_STALE;
+		*held = *entry;
+		return FZN_CATALOG_OK;
+	}
+
+	if (catalog->entry_used == catalog->entry_capacity)
+		return FZN_CATALOG_ERR_FULL;
+
+	catalog->entries[catalog->entry_used] = *entry;
+	catalog->entry_used++;
+	return FZN_CATALOG_OK;
+}
+
+const fzn_catalog_entry_t *fzn_catalog_content_of(const fzn_catalog_t *catalog,
+                                                  const fzn_catalog_id_t *id)
+{
+	if (!content_usable(catalog) || !id)
+		return NULL;
+	return find_entry(catalog, id);
+}
+
+const char *fzn_catalog_content_str(fzn_catalog_content_t kind)
+{
+	switch (kind) {
+	case FZN_CATALOG_CONTENT_NONE:
+		return "a set, holding no bytes";
+	case FZN_CATALOG_CONTENT_INLINE:
+		return "bytes carried here";
+	case FZN_CATALOG_CONTENT_BLOB:
+		return "a blob fetched separately";
 	}
 	return "unknown";
 }

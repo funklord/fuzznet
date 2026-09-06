@@ -22870,6 +22870,94 @@ anything could have said otherwise.
 copyright holder should know the size before it happens rather than find it
 inside a commit about a widget.
 
+## 145. Record or blob was the wrong question, 2026-09-06
+
+Directed by the copyright holder 2026-09-06: do the entry content next. sec
+142 had framed it as a choice -- an entry is a record OR a blob reference --
+and left it to the holder. **Building it shows the question had the wrong
+shape.**
+
+### A blob reference is content, so the record layer is needed either way
+
+A digest naming content in `spool/` has to be signed, ordered and synced like
+any other statement about a node. So it is a record. What differs between the
+two options is not the mechanism but **what the record's payload says**, and
+once that is seen there is no choice to make: it is one assertion with three
+answers.
+
+    NONE     a pure set. A directory is a node with members and no bytes,
+             and that is what most of a catalogue's structure is -- not an
+             error and not an absence.
+    INLINE   the bytes are here, bounded by FZN_RECORD_BODY_MAX. One round
+             trip, no spool: a filter list, a short configuration.
+    BLOB     a digest and a LENGTH. Unbounded, deduplicated across every
+             consumer wanting the same bytes, resumable -- at the cost of a
+             second fetch and a name that resolves to nothing until the blob
+             arrives.
+
+**The length is what makes the indirection usable**: a consumer decides
+whether to fetch before fetching.
+
+**And the threshold is not this module's policy.** A caller that could fit
+its bytes inline may still choose a blob because it wants the deduplication;
+one that cannot fit them has no choice. What is refused is an INLINE past
+what a record body carries, which is a caller describing something it could
+never send.
+
+### An id is a name, not a digest -- and sec 144's header said otherwise
+
+`catalog/catalog.h` claimed a content-addressed entry could use its own
+digest as its id. **That works only for something that never changes.**
+Editing the content would change the id, and every edge pointing at the node
+would break -- in a catalogue the holder asked to be easy to EDIT.
+
+So an id is a stable name and content is a separate versioned assertion ABOUT
+that name. The suite has the case: change a node's content, and the
+membership that pointed at it is untouched. Under a content-addressed id that
+edge would now name a node that no longer exists.
+
+### A second seam, because the question is different
+
+Content conflict does not reuse the edge resolver. **An edge conflict has an
+asymmetry to exploit -- presence against absence, where adds commute -- and
+two contents have none**: both are present and neither is a superset of the
+other. A resolver told to prefer presence would be deciding by a rule that
+does not apply.
+
+The default is the same correction sec 144 made: an issuer's later statement
+supersedes its own, so content can be edited; across issuers what is held
+stands. **That is not a preference for the first writer** -- it is the only
+answer available that does not depend on arrival order, since a sequence
+orders one issuer's statements and says nothing about another's. A consumer
+wanting highest-authority, a trusted clock, or a person asked supplies it.
+
+### Two gates and a harness caught three things
+
+- **A non-unique sabotage anchor.** The module grew a second resolver with
+  two lines identical to the first, so an existing entry matched two sites.
+  `sabotage.py --verify` refused it, which is `evidence.md`'s
+  anchor-uniqueness rule meeting a module that grew a twin.
+- **An unwalked renderer.** `fzn_catalog_content_str` escaped nothing,
+  because sec 140 had widened the sweep from `_(err|verdict)_str` to `_str`
+  for exactly this. The gate demanded a row and got one.
+- **A pair of guards that no single sabotage can break, which is not a
+  defect.** `fzn_catalog_init` nulls the content table and zeroes its
+  capacity, and `content_usable` requires both -- so breaking either alone
+  leaves the other refusing, and both sabotages SURVIVED. The first reading
+  was that the pointer was dead hygiene; the second sabotage showed it is
+  not. Each covers the other. **There is no sabotage entry for it, because
+  none could fail**, and that is recorded here so a later reader does not
+  rediscover it and delete a line as dead.
+
+### What the catalogue still lacks, which is a wire format
+
+Nothing, of the three sec 142 separated. Entry content is built, the conflict
+policy is a seam a consumer fills, and the structure was sec 144. What a
+catalogue does not yet have is a WIRE FORMAT -- these are in-memory tables,
+as `record/journal.h` and `log/log.h` are, and getting one onto the network
+is the ordinary work of encoding an assertion as a record body, which no
+decision now blocks.
+
 ## 144. The catalogue, built: membership, not hierarchy, 2026-09-06
 
 Directed by the copyright holder 2026-09-06 after sec 142 settled its shape.

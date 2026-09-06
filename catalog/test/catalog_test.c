@@ -346,6 +346,289 @@ static void test_an_unlinked_member_leaves_the_listings(void)
 	CHECK(cat.used == 1, "the tombstone was dropped");
 }
 
+/* ---- what a node holds -------------------------------------------------- */
+
+static const fzn_catalog_content_ops_t HELD_WINS = { fzn_catalog_content_held_wins, NULL };
+
+/* A content resolver that always takes the offered one, so this seam is shown
+ * to be one: if the module compared for itself, this would change nothing. */
+static int take_offered(void *ctx, const fzn_catalog_entry_t *held,
+                        const fzn_catalog_entry_t *offered)
+{
+	(void)ctx;
+	(void)held;
+	(void)offered;
+	return 1;
+}
+
+static const fzn_catalog_content_ops_t TAKE_OFFERED = { take_offered, NULL };
+
+static fzn_catalog_entry_t inline_entry(uint8_t seed, const uint8_t *bytes, size_t len,
+                                        const uint8_t *issuer, uint64_t seq)
+{
+	fzn_catalog_entry_t e;
+
+	memset(&e, 0, sizeof(e));
+	e.id = id(seed);
+	e.kind = FZN_CATALOG_CONTENT_INLINE;
+	e.bytes = bytes;
+	e.len = len;
+	memcpy(e.issuer, issuer, FZN_PUBKEY_LEN);
+	e.seq = seq;
+	return e;
+}
+
+static fzn_catalog_entry_t blob_entry(uint8_t seed, uint8_t root_seed, uint64_t blob_len,
+                                      const uint8_t *issuer, uint64_t seq)
+{
+	fzn_catalog_entry_t e;
+
+	memset(&e, 0, sizeof(e));
+	e.id = id(seed);
+	e.kind = FZN_CATALOG_CONTENT_BLOB;
+	memset(e.root, root_seed, sizeof(e.root));
+	e.blob_len = blob_len;
+	memcpy(e.issuer, issuer, FZN_PUBKEY_LEN);
+	e.seq = seq;
+	return e;
+}
+
+/* ONE MECHANISM, THREE ANSWERS. sec 145: a blob reference is content and must
+ * be signed and synced like any other, so the record layer is required either
+ * way and only the payload differs. */
+static void test_a_node_holds_bytes_or_a_blob_or_nothing(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_entry_t entries[4];
+	fzn_catalog_t cat;
+	const uint8_t body[4] = { 1, 2, 3, 4 };
+	fzn_catalog_entry_t e;
+	const fzn_catalog_entry_t *got;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_content_init(&cat, entries, 4, &HELD_WINS) == FZN_CATALOG_OK,
+	        "the content table would not init");
+
+	e = inline_entry(0x10, body, sizeof(body), ALICE, 1);
+	CHECK(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK, "inline bytes were refused");
+	got = fzn_catalog_content_of(&cat, idp(0x10));
+	REQUIRE(got != NULL, "the inline entry was not held");
+	CHECK(got->kind == FZN_CATALOG_CONTENT_INLINE, "the kind did not survive");
+	CHECK(got->len == 4 && got->bytes == body, "the bytes did not survive");
+
+	e = blob_entry(0x11, 0xbb, 1u << 20, ALICE, 1);
+	CHECK(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK, "a blob was refused");
+	got = fzn_catalog_content_of(&cat, idp(0x11));
+	REQUIRE(got != NULL, "the blob entry was not held");
+	CHECK(got->kind == FZN_CATALOG_CONTENT_BLOB, "the blob kind did not survive");
+	/* THE LENGTH IS WHY A CONSUMER CAN DECIDE BEFORE FETCHING. */
+	CHECK(got->blob_len == (1u << 20), "the blob length did not survive");
+
+	memset(&e, 0, sizeof(e));
+	e.id = id(0x12);
+	e.kind = FZN_CATALOG_CONTENT_NONE;
+	memcpy(e.issuer, ALICE, FZN_PUBKEY_LEN);
+	e.seq = 1;
+	CHECK(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK,
+	      "a node holding nothing was refused, though a directory is exactly that");
+}
+
+/* A PURE SET IS NOT AN ERROR AND NOT AN ABSENCE. Most of a catalogue's
+ * structure is nodes with members and no bytes. */
+static void test_a_directory_has_members_and_no_content(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_entry_t entries[4];
+	fzn_catalog_t cat;
+	fzn_catalog_id_t out[4];
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_content_init(&cat, entries, 4, &HELD_WINS) == FZN_CATALOG_OK,
+	        "content init refused");
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x20), idp(0x10), ALICE, 1, 1) == FZN_CATALOG_OK,
+	        "the membership was refused");
+
+	CHECK(fzn_catalog_members(&cat, idp(0x20), out, 4) == 1, "the set has no members");
+	CHECK(fzn_catalog_content_of(&cat, idp(0x20)) == NULL,
+	      "a set nobody gave content reports some");
+}
+
+/*
+ * AN ID IS A NAME, NOT A DIGEST, and this is the case that shows why. sec 145
+ * corrects the header's first claim: if a node's id were its content digest,
+ * editing the content would change the id and every edge pointing at it would
+ * break. A catalogue asked to be easy to edit cannot have that.
+ */
+static void test_content_changes_and_the_edges_survive(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_entry_t entries[4];
+	fzn_catalog_t cat;
+	fzn_catalog_id_t out[4];
+	const uint8_t first[2] = { 9, 9 };
+	const uint8_t second[3] = { 7, 7, 7 };
+	fzn_catalog_entry_t e;
+	const fzn_catalog_entry_t *got;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_content_init(&cat, entries, 4, &HELD_WINS) == FZN_CATALOG_OK,
+	        "content init refused");
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x20), idp(0x10), ALICE, 1, 1) == FZN_CATALOG_OK,
+	        "the membership was refused");
+	e = inline_entry(0x10, first, sizeof(first), ALICE, 1);
+	REQUIRE(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK, "the first content");
+
+	/* Edit it. Same node, later statement from the same issuer. */
+	e = inline_entry(0x10, second, sizeof(second), ALICE, 2);
+	CHECK(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK,
+	      "an issuer could not edit its own content");
+	got = fzn_catalog_content_of(&cat, idp(0x10));
+	REQUIRE(got != NULL, "the entry vanished");
+	CHECK(got->len == 3 && got->bytes == second, "the edit did not take");
+
+	/* THE POINT: the membership is untouched, because the name did not
+	 * move. Under a content-addressed id this edge would now point at a
+	 * node that no longer exists. */
+	CHECK(fzn_catalog_members(&cat, idp(0x20), out, 4) == 1,
+	      "editing a node's content broke the edge pointing at it");
+	CHECK(fzn_catalog_linked(&cat, idp(0x20), idp(0x10)),
+	      "the node lost its membership when its content changed");
+}
+
+/* A kind may change: a value that outgrows a record body becomes a blob, and
+ * nothing about the node's identity or its memberships moves. */
+static void test_an_entry_may_grow_from_inline_to_blob(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_entry_t entries[4];
+	fzn_catalog_t cat;
+	const uint8_t small[2] = { 1, 2 };
+	fzn_catalog_entry_t e;
+	const fzn_catalog_entry_t *got;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_content_init(&cat, entries, 4, &HELD_WINS) == FZN_CATALOG_OK,
+	        "content init refused");
+	e = inline_entry(0x10, small, sizeof(small), ALICE, 1);
+	REQUIRE(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK, "inline refused");
+
+	e = blob_entry(0x10, 0xcc, 4096, ALICE, 2);
+	CHECK(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK,
+	      "a node could not grow from inline bytes to a blob");
+	got = fzn_catalog_content_of(&cat, idp(0x10));
+	REQUIRE(got != NULL, "the entry vanished");
+	CHECK(got->kind == FZN_CATALOG_CONTENT_BLOB, "the kind did not change");
+	CHECK(got->len == 0, "the old inline length survived into a blob entry");
+}
+
+static void test_the_content_resolver_is_a_seam(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_entry_t entries[4];
+	fzn_catalog_t cat;
+	const uint8_t body[1] = { 1 };
+	fzn_catalog_entry_t e;
+
+	/* Under held-wins, a second issuer loses. */
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_content_init(&cat, entries, 4, &HELD_WINS) == FZN_CATALOG_OK,
+	        "content init refused");
+	e = inline_entry(0x10, body, 1, ALICE, 1);
+	REQUIRE(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK, "alice");
+	e = inline_entry(0x10, body, 1, BOB, 99);
+	CHECK(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_ERR_STALE,
+	      "another issuer's content displaced what was held");
+
+	/* And with a resolver that takes whatever is offered, it wins -- so the
+	 * case above is the seam rather than the module deciding. */
+	REQUIRE(fzn_catalog_content_init(&cat, entries, 4, &TAKE_OFFERED) == FZN_CATALOG_OK,
+	        "re-init refused");
+	e = inline_entry(0x10, body, 1, ALICE, 1);
+	REQUIRE(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK, "alice again");
+	e = inline_entry(0x10, body, 1, BOB, 99);
+	CHECK(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK,
+	      "a resolver that takes the offered one did not");
+}
+
+static void test_the_content_caller_bugs_are_refused(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_entry_t entries[2];
+	fzn_catalog_t cat;
+	const uint8_t body[1] = { 1 };
+	fzn_catalog_entry_t e;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+
+	/* A CATALOGUE WITH NO CONTENT TABLE REFUSES rather than appearing to
+	 * accept and doing nothing -- a consumer using this as structure only
+	 * pays for no table and gets no silence either. */
+	e = inline_entry(0x10, body, 1, ALICE, 1);
+	CHECK(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_ERR_MALFORMED,
+	      "a catalogue with no content table accepted content");
+	CHECK(fzn_catalog_content_of(&cat, idp(0x10)) == NULL,
+	      "a catalogue with no content table answered a lookup");
+
+	CHECK(fzn_catalog_content_init(NULL, entries, 2, &HELD_WINS) == FZN_CATALOG_ERR_MALFORMED,
+	      "a null catalogue");
+	CHECK(fzn_catalog_content_init(&cat, NULL, 2, &HELD_WINS) == FZN_CATALOG_ERR_MALFORMED,
+	      "null rows");
+	CHECK(fzn_catalog_content_init(&cat, entries, 0, &HELD_WINS) == FZN_CATALOG_ERR_MALFORMED,
+	      "a table that can hold nothing");
+	CHECK(fzn_catalog_content_init(&cat, entries, 2, NULL) == FZN_CATALOG_ERR_MALFORMED,
+	      "no resolver");
+
+	REQUIRE(fzn_catalog_content_init(&cat, entries, 2, &HELD_WINS) == FZN_CATALOG_OK,
+	        "content init refused");
+	CHECK(fzn_catalog_content_set(&cat, NULL) == FZN_CATALOG_ERR_MALFORMED, "a null entry");
+
+	/* An inline past what a record body carries is a caller describing
+	 * something it could never send. */
+	e = inline_entry(0x10, body, FZN_RECORD_BODY_MAX + 1u, ALICE, 1);
+	CHECK(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_ERR_MALFORMED,
+	      "an inline past a record body was accepted");
+	e = inline_entry(0x10, body, FZN_RECORD_BODY_MAX, ALICE, 1);
+	CHECK(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK,
+	      "an inline exactly at the bound was refused");
+
+	e = inline_entry(0x11, NULL, 4, ALICE, 1);
+	CHECK(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_ERR_MALFORMED,
+	      "a length with no bytes was accepted");
+	/* An empty value IS expressible, which is why a zero-length blob is a
+	 * half-filled row rather than an empty one. */
+	e = inline_entry(0x11, NULL, 0, ALICE, 1);
+	CHECK(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK,
+	      "an empty inline value was refused, though a value can be empty");
+	e = blob_entry(0x12, 0xbb, 0, ALICE, 1);
+	CHECK(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_ERR_MALFORMED,
+	      "a blob naming nothing was accepted");
+
+	memset(&e, 0, sizeof(e));
+	e.id = id(0x13);
+	e.kind = (fzn_catalog_content_t)99;
+	memcpy(e.issuer, ALICE, FZN_PUBKEY_LEN);
+	CHECK(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_ERR_MALFORMED,
+	      "a kind that is none of the three was accepted");
+
+	/* Full refuses loudly here too. */
+	e = inline_entry(0x14, body, 1, ALICE, 1);
+	CHECK(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_ERR_FULL,
+	      "a full content table accepted another entry");
+}
+
+static void test_the_kinds_render(void)
+{
+	const char *n = fzn_catalog_content_str(FZN_CATALOG_CONTENT_NONE);
+	const char *i = fzn_catalog_content_str(FZN_CATALOG_CONTENT_INLINE);
+	const char *b = fzn_catalog_content_str(FZN_CATALOG_CONTENT_BLOB);
+
+	CHECK(n && i && b && *n && *i && *b, "a kind rendered empty or null");
+	CHECK(strcmp(n, i) != 0 && strcmp(i, b) != 0 && strcmp(n, b) != 0,
+	      "two kinds read alike");
+	CHECK(fzn_catalog_content_str((fzn_catalog_content_t)99)[0] != '\0',
+	      "an unknown kind renders empty");
+}
+
 static void test_the_errors_render(void)
 {
 	CHECK(fzn_catalog_err_str(FZN_CATALOG_OK)[0] != '\0', "OK renders empty");
@@ -380,6 +663,13 @@ int main(void)
 	test_the_caller_bugs_are_refused();
 	test_a_listing_respects_its_bound();
 	test_an_unlinked_member_leaves_the_listings();
+	test_a_node_holds_bytes_or_a_blob_or_nothing();
+	test_a_directory_has_members_and_no_content();
+	test_content_changes_and_the_edges_survive();
+	test_an_entry_may_grow_from_inline_to_blob();
+	test_the_content_resolver_is_a_seam();
+	test_the_content_caller_bugs_are_refused();
+	test_the_kinds_render();
 	test_the_errors_render();
 	test_the_suite_can_tell_pass_from_fail();
 

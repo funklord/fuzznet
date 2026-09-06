@@ -127,6 +127,7 @@ static const char *r_session(int v) { return fzn_session_err_str((fzn_session_er
 static const char *r_spool(int v) { return fzn_spool_err_str((fzn_spool_err_t)v); }
 static const char *r_claim(int v) { return fzn_claim_err_str((fzn_claim_err_t)v); }
 static const char *r_catalog(int v) { return fzn_catalog_err_str((fzn_catalog_err_t)v); }
+static const char *r_ckind(int v) { return fzn_catalog_content_str((fzn_catalog_content_t)v); }
 static const char *r_rstore(int v) { return fzn_record_store_err_str((fzn_record_store_err_t)v); }
 #ifdef FZN_CLI_ON
 static const char *r_cli(int v) { return fzn_cli_err_str((fzn_cli_err_t)v); }
@@ -185,6 +186,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_claim_err_str", r_claim, 5 },
 	{ "fzn_record_store_err_str", r_rstore, 6 },
 	{ "fzn_catalog_err_str", r_catalog, 4 },
+	{ "fzn_catalog_content_str", r_ckind, 3 },
 #ifdef FZN_CLI_ON
 	{ "fzn_cli_err_str", r_cli, 4 },
 #endif

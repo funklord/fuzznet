@@ -27,11 +27,13 @@
  * directory; one that has content is being used as a file; a node may be
  * both, and nothing here needs to know which.
  *
- * WHAT A NODE'S CONTENT IS, THIS MODULE DOES NOT SAY. sec 142 leaves the
- * record-or-blob question to the copyright holder, and this file is built so
- * that it stays open: an id is thirty-two bytes, so a content-addressed entry
- * can use its own digest as its id and a record-backed one can use anything
- * else. The structure is a membership relation either way.
+ * AN ID IS A NAME AND NOT A DIGEST, and the first version of this comment
+ * said the opposite. It suggested a content-addressed entry could use its own
+ * digest as its id -- which works only for something that never changes,
+ * because editing the content would change the id and every edge pointing at
+ * it would break. A catalogue the holder asked to be easy to EDIT cannot have
+ * that. So an id is a stable name, and content is a separate versioned
+ * assertion ABOUT that name; see `fzn_catalog_entry_t`. project.md sec 145.
  *
  * IT REFUSES LOUDLY AND EVICTS NEVER. sec 142: "a catalogue entry that
  * vanishes is a feature the consumer stops offering, silently." A full table
@@ -49,7 +51,9 @@
 #ifndef FZN_CATALOG_H
 #define FZN_CATALOG_H
 
+#include "../blob/blob.h"
 #include "../chain/chain.h"
+#include "../record/record.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -157,6 +161,12 @@ typedef struct fzn_catalog {
 	size_t capacity;
 	size_t used;
 	const fzn_catalog_resolve_ops_t *resolve;
+	/* The content table, or nulls when a consumer uses this as structure
+	 * only. See `fzn_catalog_content_init`. */
+	struct fzn_catalog_entry *entries;
+	size_t entry_capacity;
+	size_t entry_used;
+	const struct fzn_catalog_content_ops *content_resolve;
 } fzn_catalog_t;
 
 /* Point a catalogue at caller-owned rows, and zero them.
@@ -215,5 +225,115 @@ size_t fzn_catalog_parents(const fzn_catalog_t *catalog, const fzn_catalog_id_t 
  */
 size_t fzn_catalog_intersect(const fzn_catalog_t *catalog, const fzn_catalog_id_t *parents,
                              size_t parent_count, fzn_catalog_id_t *out, size_t cap);
+
+
+/*
+ * WHAT A NODE HOLDS, WHICH IS ONE MECHANISM AND NOT TWO.
+ *
+ * project.md sec 142 asked whether an entry should be a record or a blob
+ * reference, and sec 145 records why that was the wrong shape of question: a
+ * blob reference IS content, and it has to be signed, ordered and synced like
+ * any other statement -- so the record layer is required either way. What
+ * differs is only what the record's payload says.
+ *
+ * So a node's content is one assertion with three possible answers:
+ *
+ *     NONE     a pure set. A directory is a node with members and no bytes,
+ *              and that is not an error or an absence -- it is what most of
+ *              a catalogue's structure is.
+ *     INLINE   the bytes are here, bounded by FZN_RECORD_BODY_MAX. One round
+ *              trip, no spool, and the ordinary case for a filter list or a
+ *              short configuration.
+ *     BLOB     a digest naming content in `spool/`. Unbounded, deduplicated
+ *              across every consumer that wants the same bytes, and
+ *              resumable -- at the cost of a second fetch, and of a name
+ *              that resolves to nothing until the blob arrives.
+ *
+ * THE THRESHOLD IS NOT A POLICY THIS MODULE SETS. A caller that can fit its
+ * bytes inline may still choose a blob, because it wants the deduplication or
+ * expects the value to be shared; and one that cannot fit them has no choice.
+ * What this refuses is an INLINE longer than a record body can carry, which
+ * is a caller describing something it could never send.
+ */
+typedef enum fzn_catalog_content {
+	FZN_CATALOG_CONTENT_NONE = 0,
+	FZN_CATALOG_CONTENT_INLINE = 1,
+	FZN_CATALOG_CONTENT_BLOB = 2,
+} fzn_catalog_content_t;
+
+const char *fzn_catalog_content_str(fzn_catalog_content_t kind);
+
+typedef struct fzn_catalog_entry {
+	fzn_catalog_id_t id;
+	fzn_catalog_content_t kind;
+	/* INLINE: the caller's bytes, not copied. A row points at what the
+	 * caller holds, as everything in this library does, so the bytes must
+	 * outlive the catalogue. */
+	const uint8_t *bytes;
+	size_t len;
+	/* BLOB: the root, and the length so a consumer can decide whether to
+	 * fetch BEFORE fetching. A name that resolves to nothing until the blob
+	 * arrives is the cost of the indirection, and a size is what lets a
+	 * caller weigh it. */
+	uint8_t root[FZN_BLOB_HASH_LEN];
+	uint64_t blob_len;
+	/* Who said so, and where in their stream, as an edge carries. */
+	uint8_t issuer[FZN_PUBKEY_LEN];
+	uint64_t seq;
+} fzn_catalog_entry_t;
+
+/*
+ * Which of two statements about one node's content stands.
+ *
+ * A SECOND SEAM RATHER THAN THE EDGE ONE, because the question is different
+ * and reusing it would answer the wrong one. An edge conflict has an
+ * asymmetry to exploit -- presence against absence, where adds commute -- and
+ * two contents have none: both are present, and neither is a superset of the
+ * other. A resolver told to "prefer presence" would be deciding by a rule
+ * that does not apply.
+ *
+ * Returns NONZERO to take `offered`.
+ */
+typedef struct fzn_catalog_content_ops {
+	int (*prefer)(void *ctx, const fzn_catalog_entry_t *held,
+	              const fzn_catalog_entry_t *offered);
+	void *ctx;
+} fzn_catalog_content_ops_t;
+
+/* An issuer's later statement supersedes its own; between issuers, what is
+ * held stands.
+ *
+ * KEEPING THE HELD ONE IS NOT A PREFERENCE FOR THE FIRST WRITER, it is the
+ * only answer available that does not depend on arrival order: a sequence
+ * orders one issuer's statements and says nothing about another's, so there
+ * is no "later" to appeal to. A consumer that needs one -- highest authority,
+ * a wall clock it trusts, a person asked -- supplies it, which is what the
+ * seam is for. */
+int fzn_catalog_content_held_wins(void *ctx, const fzn_catalog_entry_t *held,
+                                  const fzn_catalog_entry_t *offered);
+
+/* Point a catalogue's content table at caller-owned rows. Separate from
+ * `fzn_catalog_init` so that a consumer using a catalogue purely as
+ * structure -- tags over nodes whose content lives somewhere else entirely --
+ * pays nothing for a table it will not fill. A catalogue with no content
+ * table refuses every content call rather than silently doing nothing. */
+fzn_catalog_err_t fzn_catalog_content_init(fzn_catalog_t *catalog,
+                                           fzn_catalog_entry_t *entries, size_t capacity,
+                                           const fzn_catalog_content_ops_t *resolve);
+
+/* State what a node holds. `entry.id`, `kind` and the fields that kind uses
+ * are read; the rest are ignored.
+ *
+ * FZN_CATALOG_ERR_MALFORMED for an INLINE past FZN_RECORD_BODY_MAX, an INLINE
+ * with a length and no bytes, a BLOB of zero length, or a kind that is not
+ * one of the three. */
+fzn_catalog_err_t fzn_catalog_content_set(fzn_catalog_t *catalog,
+                                          const fzn_catalog_entry_t *entry);
+
+/* What a node holds, or NULL when nobody has said. A node with edges and no
+ * content row is a pure set, and that is the common case rather than an
+ * error. */
+const fzn_catalog_entry_t *fzn_catalog_content_of(const fzn_catalog_t *catalog,
+                                                  const fzn_catalog_id_t *id);
 
 #endif

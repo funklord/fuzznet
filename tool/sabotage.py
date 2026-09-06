@@ -1153,8 +1153,12 @@ SABOTAGES = [
 	(
 		"catalog-issuer-supersedes-first",
 		"catalog/catalog.c",
-		"\tif (memcmp(held->issuer, offered->issuer, FZN_PUBKEY_LEN) == 0)\n\t\treturn offered->seq > held->seq ? 1 : 0;\n",
-		"\tif (held->present != offered->present)\n\t\treturn offered->present ? 1 : 0;\n\tif (memcmp(held->issuer, offered->issuer, FZN_PUBKEY_LEN) == 0)\n\t\treturn offered->seq > held->seq ? 1 : 0;\n",
+		# Carries the comment that follows it, because the content resolver
+		# below has the identical two lines -- `--verify` refused this entry
+		# for matching two sites, which is the anchor-uniqueness rule in
+		# evidence.md meeting a module that grew a second resolver.
+		"\tif (memcmp(held->issuer, offered->issuer, FZN_PUBKEY_LEN) == 0)\n\t\treturn offered->seq > held->seq ? 1 : 0;\n\n\t/* ACROSS ISSUERS, PRESENCE WINS",
+		"\tif (held->present != offered->present)\n\t\treturn offered->present ? 1 : 0;\n\tif (memcmp(held->issuer, offered->issuer, FZN_PUBKEY_LEN) == 0)\n\t\treturn offered->seq > held->seq ? 1 : 0;\n\n\t/* ACROSS ISSUERS, PRESENCE WINS",
 		"checking presence before the issuer makes an unlink never beat a link even from the issuer that wrote it -- a store that only grows, where the holder asked for one easy to edit",
 	),
 	(
@@ -1170,6 +1174,41 @@ SABOTAGES = [
 		"\t\t\tif (!fzn_catalog_linked(catalog, &parents[j], &edge->child)) {\n",
 		"\t\t\tif (0) {\n",
 		"combining directories as search terms is set intersection, and one that did not require every term would answer the first term alone",
+	),
+	(
+		"content-inline-bounded",
+		"catalog/catalog.c",
+		"\t\tif (entry->len > FZN_RECORD_BODY_MAX)\n\t\t\treturn FZN_CATALOG_ERR_MALFORMED;\n",
+		"\t\tif (0)\n\t\t\treturn FZN_CATALOG_ERR_MALFORMED;\n",
+		"an inline value longer than a record body is a caller describing something it could never send, refused here rather than at the moment somebody tries",
+	),
+	(
+		"content-blob-names-something",
+		"catalog/catalog.c",
+		"\t\tif (entry->blob_len == 0)\n\t\t\treturn FZN_CATALOG_ERR_MALFORMED;\n",
+		"\t\tif (0)\n\t\t\treturn FZN_CATALOG_ERR_MALFORMED;\n",
+		"an empty value is expressible as an inline of length zero, so a blob naming nothing is a half-filled row rather than an empty entry",
+	),
+	(
+		"content-resolver-is-consulted",
+		"catalog/catalog.c",
+		"\t\tif (!catalog->content_resolve->prefer(catalog->content_resolve->ctx, held, entry))\n\t\t\treturn FZN_CATALOG_ERR_STALE;\n",
+		"\t\tif (0)\n\t\t\treturn FZN_CATALOG_ERR_STALE;\n",
+		"content conflict is its own seam because two contents have no presence asymmetry to exploit, and a module deciding for itself would make the seam decorative",
+	),
+	(
+		"content-issuer-supersedes-own",
+		"catalog/catalog.c",
+		"\tif (memcmp(held->issuer, offered->issuer, FZN_PUBKEY_LEN) == 0)\n\t\treturn offered->seq > held->seq ? 1 : 0;\n\n\t/* Across issuers there is no \"later\" to appeal to, so what is held\n",
+		"\tif (0)\n\t\treturn offered->seq > held->seq ? 1 : 0;\n\n\t/* Across issuers there is no \"later\" to appeal to, so what is held\n",
+		"an issuer restating its own content is a later statement rather than a conflict, and without that a node's content could never be edited -- sec 144's correction, met again",
+	),
+	(
+		"content-unknown-kind-refused",
+		"catalog/catalog.c",
+		"\tdefault:\n\t\treturn FZN_CATALOG_ERR_MALFORMED;\n\t}\n",
+		"\tdefault:\n\t\tbreak;\n\t}\n",
+		"a kind that is none of the three is a caller filling in a row it does not understand, and storing it would hand every reader a value nothing can render",
 	),
 	(
 		"provision-envelope-verified",
