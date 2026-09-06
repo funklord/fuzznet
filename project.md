@@ -22677,6 +22677,55 @@ the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
 
+## 122. One convention, implemented twice, with nothing between them, 2026-09-06
+
+The sweep in sec 119 left `disclose/disclose.c` at 0 of 4 exported functions
+called by any scenario, with a file named `sim/test/disclosure_test.c` sitting
+beside it. That looked like a naming coincidence and is not.
+
+**That file hand-rolls the convention the module implements.** It carries
+`#define SALT_LEN 16u` and builds `salt || field` itself, and it does not
+include `disclose.h` at all. `disclose/disclose.h` carries
+`FZN_DISCLOSE_SALT_LEN 16u` and the same layout. Two definitions of one
+convention, agreeing today, with nothing comparing them.
+
+**The failure that was available is the quiet one.** Had the module moved to
+a 32-byte salt, this file would have gone on demonstrating a 16-byte one,
+passing every assertion, and being cited as evidence -- it is the scenario
+project.md's sec 5j discussion points at -- for a convention the library no
+longer had.
+
+### Not fixed by making the demonstration use the module
+
+That was the obvious move and it is wrong. The file's whole argument is that
+selective disclosure needs *"no second signature and no library change"*, so
+building the commit by hand is the POINT; calling `disclose/` would answer a
+different question and throw the argument away.
+
+What it must not do is drift. So the constant is now
+`FZN_DISCLOSE_SALT_LEN` rather than a second `16u`, and a case asserts the
+two agree where they can be compared:
+
+- the hand-built leaf hash equals `fzn_disclose_leaf` over the same salt and
+  field -- **the same salt, deliberately, because what is being checked is
+  the layout and the hash rather than the entropy**;
+- `fzn_disclose_field` reads back the field the demonstration would have
+  hidden, and reads it at `committed + SALT_LEN`, which pins where the salt
+  ends as well as what the hash covers.
+
+The demonstration stays independent of the module and is now pinned against
+it, which is `evidence.md`'s *assert the relationship, not either value* --
+and its converse, since two implementations that agree because one was copied
+from the other are one witness, and these two were not compared at all.
+
+### Seen to fail, and the site checked against the path
+
+Moving `fzn_disclose_field`'s offset to `committed` fires both new
+assertions. **The site was read against the case before the run**, which is
+sec 121's correction one section later: there a sabotage landed on the first
+matching line and that line was an argument guard the fixture never reached,
+so `SITE FOUND` was printed over a result that meant nothing.
+
 ## 121. The local hop, and a sabotage that landed on the wrong line, 2026-09-06
 
 Nothing in the simulation had ever called `local/peer.h` or

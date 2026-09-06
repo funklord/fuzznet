@@ -929,6 +929,7 @@ $(MONO_PROV): $(BUILD_DIR)/sim/test/provision_test.o \
 # only because record/ reaches it for FZN_PUBKEY_LEN's neighbours, and it
 # drags revocation and manifest with it as everywhere else.
 $(MONO_DISC): $(BUILD_DIR)/sim/test/disclosure_test.o \
+                       $(BUILD_DIR)/disclose/disclose.o \
               $(BUILD_DIR)/blob/blob.o $(BUILD_DIR)/record/record.o \
               $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/chain/revocation.o \
               $(BUILD_DIR)/chain/manifest.o \

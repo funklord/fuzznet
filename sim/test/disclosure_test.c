@@ -62,6 +62,7 @@
  */
 
 #include "../../blob/blob.h"
+#include "../../disclose/disclose.h"
 #include "../../record/record.h"
 #include "../../chain/chain.h"
 #include "../../session/hash_monocypher.h"
@@ -95,7 +96,14 @@ static void seed_bytes(uint8_t out[32], uint8_t v)
 /* Four fields, which is enough for a tree with a real climb and few enough
  * that every index can be walked. */
 #define FIELDS 4u
-#define SALT_LEN 16u
+/* THE MODULE'S NUMBER, NOT A SECOND ONE. This was `16u` written out, beside
+ * `disclose/disclose.h`'s own `FZN_DISCLOSE_SALT_LEN`, with nothing
+ * comparing them -- two definitions of one convention, which is the shape
+ * `evidence.md` calls two documents written by the same hand. If the module
+ * moved to 32, this file would have gone on demonstrating a 16-byte salt,
+ * passing, and being cited as evidence for a convention the library no
+ * longer had. project.md sec 122. */
+#define SALT_LEN FZN_DISCLOSE_SALT_LEN
 #define FIELD_MAX 48u
 
 /* A field as it is hashed: salt, then the bytes. The salt is the whole of
@@ -420,6 +428,59 @@ static void test_the_salt_is_load_bearing(void)
 /* The suite must be able to tell a pass from a failure, which is this tree's
  * standing requirement and not a formality: every check above is a negative
  * or a positive that could be reported by a harness doing nothing. */
+/* THE DEMONSTRATION AND THE MODULE MUST AGREE, and until now nothing said
+ * so.
+ *
+ * This file's argument is that selective disclosure needs "no second
+ * signature and no library change", so it builds `salt || field` by hand on
+ * purpose -- using `disclose/` here would answer a different question and
+ * throw the point away. What it must not do is drift: the module implements
+ * the same convention, and two implementations with nothing between them are
+ * one convention twice, which is how a demonstration outlives the thing it
+ * demonstrates.
+ *
+ * So the hand-built leaf is compared against `fzn_disclose_leaf` over the
+ * module's own committed form. The salt is the caller's either way, so the
+ * comparison is over the SAME salt rather than over two random ones -- what
+ * is being checked is the layout and the hash, not the entropy. */
+static void test_the_module_and_the_demonstration_agree(void)
+{
+	static const char text[] = "38 degrees";
+	uint8_t committed[FZN_DISCLOSE_SALT_LEN + FIELD_MAX];
+	uint8_t by_hand[FZN_BLOB_HASH_LEN], by_module[FZN_BLOB_HASH_LEN];
+	const uint8_t *field_back = NULL;
+	size_t field_len_back = 0;
+	field_t f;
+	size_t n = strlen(text);
+
+	field_make(&f, 9u, text, 1);
+	check(f.len == SALT_LEN + n, "the hand-built field is not salt then bytes");
+
+	/* The module's committed form, assembled from the SAME salt so the
+	 * two hashes are a function of one input. */
+	memcpy(committed, f.bytes, SALT_LEN);
+	memcpy(committed + SALT_LEN, text, n);
+
+	check(fzn_blob_leaf_hash(&hash_ops, f.bytes, f.len, by_hand) == FZN_BLOB_OK,
+	      "the hand-built leaf did not hash");
+	check(fzn_disclose_leaf(&hash_ops, committed, SALT_LEN + n, by_module)
+	              == FZN_DISCLOSE_OK,
+	      "the module's leaf did not hash");
+	check(memcmp(by_hand, by_module, FZN_BLOB_HASH_LEN) == 0,
+	      "this file's salt convention and disclose/'s have diverged, so one of them "
+	      "is demonstrating something the library does not do");
+
+	/* And the module reads back the field this file would have hidden,
+	 * which pins the layout as well as the hash. */
+	check(fzn_disclose_field(committed, SALT_LEN + n, &field_back, &field_len_back)
+	              == FZN_DISCLOSE_OK,
+	      "the module could not read the field out of a committed value");
+	check(field_len_back == n && memcmp(field_back, text, n) == 0,
+	      "the module read a different field out of the same bytes");
+	check(field_back == committed + SALT_LEN,
+	      "the field does not begin where the salt ends, so the layout has moved");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -436,6 +497,7 @@ int main(void)
 
 	test_one_signature_serves_two_fidelities();
 	test_the_salt_is_load_bearing();
+	test_the_module_and_the_demonstration_agree();
 	test_the_suite_can_tell_pass_from_fail();
 
 	printf("disclosure_test: %d checks, %d failure(s); fuzznet %s\n", checks, failures,
