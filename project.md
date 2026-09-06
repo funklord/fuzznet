@@ -22791,6 +22791,132 @@ mentioned here only because it is the reason "just replicate the bytes" is not
 sufficient for this consumer -- something has to refuse what it cannot honour,
 and hydra believes that something is itself rather than the transport.
 
+## 136. A new node's estate: self-rooted, not blank and not pre-loaded, 2026-09-06
+
+Asked by the copyright holder 2026-09-06: should a node about to join an
+estate be shipped with **a generated estate that is overwritten, or an empty
+one** -- and the same for a user -- while "a host should probably always be
+generated if none exists".
+
+**The host half is right and is already the plan.** An identity answers "who
+am I", it needs nothing from anybody, and a node without one cannot do
+anything at all -- so generate it when absent, which is the `~/.fuzznet/`
+experiment sec 2 records.
+
+**The estate half is a different question in kind and must not inherit that
+answer.** An anchor does not say who this node is; it says **whose authority
+it accepts.** Generating one silently would be the node deciding to trust
+something, and at first boot there is nothing for it to trust.
+
+### The tree already says which of the two states is dangerous
+
+`trust/trust.h` has the vocabulary and it decides this:
+
+    FZN_TRUST_NONE     0   no anchor
+    FZN_TRUST_PINNED   1   configured out of band
+    FZN_TRUST_ADOPTED  2   taken on first contact
+
+    FZN_TRUST_ERR_ANCHORED  anchored already, to a DIFFERENT key -- "the one
+                            error here that a consumer should treat as
+                            hostile rather than as a condition"
+
+So **being anchored is what protects a node and being blank is what exposes
+it.** An empty anchor adopts the next root offered; `persist/persist.h` calls
+losing it "the whole TOFU protection", silently. An anchored node refuses a
+different root as hostile.
+
+**That makes the holder's instinct right in direction and the word
+"overwritten" the problem**: an anchored node does not permit an overwrite,
+by design. So a pre-generated estate that a join is expected to replace is
+asking for the one transition the module treats as an attack.
+
+### The answer is a third source, not a third state
+
+**Ship a node SELF-ROOTED: anchored to its own key, with the source saying
+so.** Then:
+
+- **There is no unconfigured state.** A node alone is a complete estate of
+  one -- it can issue, sign and serve itself, which is the standalone
+  fuzzypickles case sec 133 already needs.
+- **Joining an estate is a legal transition rather than an attack**, because
+  a self-root is MEANT to be replaced and a pinned root is not. That
+  distinction cannot be drawn today: mark a self-root PINNED and a join is
+  indistinguishable from an attack; leave it NONE and the node is capturable
+  by whoever reaches it first.
+- **And the transition is visible.** `source` moving from self to pinned or
+  adopted is a fact somebody can read afterwards, where filling a blank
+  leaves no evidence that a choice was made.
+
+Concretely that is one enumerator -- FZN_TRUST_SELF -- and a rule that
+replacing a self-root is permitted while replacing any other root stays
+FZN_TRUST_ERR_ANCHORED.
+
+**Not built: this is a change to the trust model and belongs to the copyright
+holder**, not to a session that noticed it while building something else. The
+recommendation is recorded with its reasoning so the decision can be taken
+once.
+
+**The user identity follows the host, not the estate.** It answers "who am
+I", so generate it when absent. What it must not do is arrive carrying
+somebody's trust decision.
+
+## 137. Should fuzznet ship the GUI? The observation is right, 2026-09-06
+
+Also asked 2026-09-06: whether fuzznet should hold **generic Qt GUI objects
+with qtty compatibility, and the arguments to integrate its configuration
+into a CLI** -- QR code generators, config, permissions, capabilities, log
+views -- "as every consuming software will probably require the exact same
+interface".
+
+**The observation is right, and it is sec 2's own principle one layer up.**
+That section says every project using fuzznet uses fuzznet's abstractions
+"so that network code and dependencies leave the consuming project". A
+permissions editor and a capability view are the same argument: four projects
+writing them separately produce four vocabularies for one protocol's
+concepts, which is the divergence sec 2 exists to prevent.
+
+**And qtty makes it stronger than it first looks.** Measured by reading that
+project's README rather than assuming: it renders an unmodified Qt Widgets
+application on a character-cell terminal, one QWidget codebase producing both
+the desktop GUI and the TUI. So a shared widget set written for qtty
+compatibility gives a headless router daemon a configuration TUI from the
+same source as a desktop application's dialog. That is a real payoff and it
+is not available to four separate implementations.
+
+### But not in this repository, and the reason is measured rather than tidy
+
+fuzznet is C11 with seams rather than dependencies -- no allocation anywhere,
+caller-owned buffers throughout, and a signer, hash and AEAD supplied by the
+caller. `netcfgd` runs on routers. Putting Qt inside this repository puts Qt,
+and a pre-alpha qtty, into the dependency set of every consumer including the
+headless ones, to serve the subset that draws windows.
+
+**So: a sibling library that depends on fuzznet and Qt Widgets, not a
+subdirectory of fuzznet.** The consuming projects gain exactly what the
+holder describes; the router daemon gains nothing it must carry.
+
+`harmonization.md` governs the next step rather than this document: "Do not
+extract a shared library in passing. Raise the observation, and let the
+extraction be its own deliberate piece of work with the whole picture in
+view." Four Qt consumers exist and their needs are not yet measured, so what
+they share is a question to answer by reading them.
+
+### The CLI half is different, and that one does belong here
+
+**Argument parsing and a configuration vocabulary for fuzznet's OWN settings
+is plain C with no dependency cost**, and every consumer needs the identical
+thing: where the store lives, which identity directory, which service and
+product numbers, whether to be the owner. Four projects inventing four
+spellings of `--fuzznet-store` is the same divergence in a cheaper place, and
+sec 129's product numbers and sec 133's claim both already need naming on a
+command line.
+
+That is a candidate for this repository on the same terms as everything else
+in it, and it is separable from the GUI question -- which is the useful part
+of the answer: **the two halves of the holder's question have different
+answers**, and treating them as one would either put Qt in a router's
+dependency set or leave the CLI unshared for want of a place.
+
 ## 135. The store's file backend: sparse slots, and no index by design, 2026-09-06
 
 Directed by the copyright holder 2026-09-06 after sec 134: **do the file
