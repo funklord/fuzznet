@@ -94,7 +94,7 @@ typedef struct fzn_class {
 	uint32_t weight_loss;
 } fzn_class_t;
 
-/* Choose a link for this class, or say that none qualifies.
+/* Choose a link for this wanted, or say that none qualifies.
  *
  * `chosen` receives the INDEX into `links`, not the id, so that a caller can
  * reach the whole candidate without searching for it. Ties go to the lowest
@@ -102,15 +102,15 @@ typedef struct fzn_class {
  * choice wandered between identical candidates would make a network's
  * behaviour unreproducible for no gain. */
 fzn_sched_err_t fzn_sched_select(const fzn_sched_candidate_t *links, size_t link_count,
-                                  const fzn_class_t *class, size_t *chosen);
+                                  const fzn_class_t *wanted, size_t *chosen);
 
 /* Whether one link satisfies a class's hard constraints, exposed because a
  * consumer often wants to say WHY nothing qualified. */
-int fzn_sched_admits(const fzn_sched_candidate_t *link, const fzn_class_t *class);
+int fzn_sched_admits(const fzn_sched_candidate_t *link, const fzn_class_t *wanted);
 
 /* The weighted cost of a link under a class. Lower is better. Exposed for the
  * same reason: a consumer explaining a choice wants the numbers behind it. */
-uint64_t fzn_sched_cost(const fzn_sched_candidate_t *link, const fzn_class_t *class);
+uint64_t fzn_sched_cost(const fzn_sched_candidate_t *link, const fzn_class_t *wanted);
 
 /* A short name for `fzn_sched_err_t`. Never NULL. */
 const char *fzn_sched_err_str(fzn_sched_err_t err);

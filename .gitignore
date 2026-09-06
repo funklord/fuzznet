@@ -36,6 +36,7 @@
 /record/test/store_test
 /record/test/store_file_test
 /cli/test/cli_test
+/gui/test/trust_view_test
 /claim/test/claim_file_test
 /blob/test/blob_test
 /blob/test/blob_fuzz

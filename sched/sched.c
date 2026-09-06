@@ -2,9 +2,9 @@
 
 #include "sched.h"
 
-int fzn_sched_admits(const fzn_sched_candidate_t *link, const fzn_class_t *class)
+int fzn_sched_admits(const fzn_sched_candidate_t *link, const fzn_class_t *wanted)
 {
-	if (!link || !class)
+	if (!link || !wanted)
 		return 0;
 	if (!link->usable)
 		return 0;
@@ -12,11 +12,11 @@ int fzn_sched_admits(const fzn_sched_candidate_t *link, const fzn_class_t *class
 	/* Zero means unconstrained, for each of the three. A class that cares
 	 * about nothing admits every usable link, which is the right answer for
 	 * traffic with no deadline. */
-	if (class->max_latency_ms != 0 && link->latency_ms > class->max_latency_ms)
+	if (wanted->max_latency_ms != 0 && link->latency_ms > wanted->max_latency_ms)
 		return 0;
-	if (class->max_loss_permille != 0 && link->loss_permille > class->max_loss_permille)
+	if (wanted->max_loss_permille != 0 && link->loss_permille > wanted->max_loss_permille)
 		return 0;
-	if (class->min_mtu != 0 && link->mtu < class->min_mtu)
+	if (wanted->min_mtu != 0 && link->mtu < wanted->min_mtu)
 		return 0;
 
 	return 1;
@@ -35,11 +35,11 @@ static uint64_t add_saturating(uint64_t a, uint64_t b)
 	return a > UINT64_MAX - b ? UINT64_MAX : a + b;
 }
 
-uint64_t fzn_sched_cost(const fzn_sched_candidate_t *link, const fzn_class_t *class)
+uint64_t fzn_sched_cost(const fzn_sched_candidate_t *link, const fzn_class_t *wanted)
 {
 	uint64_t cost = 0;
 
-	if (!link || !class)
+	if (!link || !wanted)
 		return UINT64_MAX;
 
 	/* WIDENING THE MULTIPLIES WAS NOT ENOUGH, and the comment that used to
@@ -57,21 +57,21 @@ uint64_t fzn_sched_cost(const fzn_sched_candidate_t *link, const fzn_class_t *cl
 	 * no particular scale").
 	 *
 	 * So the failure the comment named was the failure the code had. */
-	cost = add_saturating(cost, (uint64_t)class->weight_metric * (uint64_t)link->metric);
-	cost = add_saturating(cost, (uint64_t)class->weight_latency * (uint64_t)link->latency_ms);
-	cost = add_saturating(cost, (uint64_t)class->weight_loss * (uint64_t)link->loss_permille);
+	cost = add_saturating(cost, (uint64_t)wanted->weight_metric * (uint64_t)link->metric);
+	cost = add_saturating(cost, (uint64_t)wanted->weight_latency * (uint64_t)link->latency_ms);
+	cost = add_saturating(cost, (uint64_t)wanted->weight_loss * (uint64_t)link->loss_permille);
 
 	return cost;
 }
 
 fzn_sched_err_t fzn_sched_select(const fzn_sched_candidate_t *links, size_t link_count,
-                                  const fzn_class_t *class, size_t *chosen)
+                                  const fzn_class_t *wanted, size_t *chosen)
 {
 	size_t best = 0;
 	uint64_t best_cost = 0;
 	int found = 0;
 
-	if (!links || !class || !chosen || link_count == 0)
+	if (!links || !wanted || !chosen || link_count == 0)
 		return FZN_SCHED_ERR_MALFORMED;
 
 	for (size_t i = 0; i < link_count; i++) {
@@ -82,10 +82,10 @@ fzn_sched_err_t fzn_sched_select(const fzn_sched_candidate_t *links, size_t link
 		 * scoring it would let a large enough weight elsewhere bring it
 		 * back, which is exactly the "wrong kind of helpful" this
 		 * module refuses. */
-		if (!fzn_sched_admits(&links[i], class))
+		if (!fzn_sched_admits(&links[i], wanted))
 			continue;
 
-		cost = fzn_sched_cost(&links[i], class);
+		cost = fzn_sched_cost(&links[i], wanted);
 		/* Strictly less than, so a tie leaves the earlier candidate in
 		 * place and the same inputs always give the same answer. */
 		if (!found || cost < best_cost) {

@@ -167,7 +167,7 @@
  * boundary above keeps its meaning inside it. If either constant moves so
  * that it no longer does, this refuses to compile -- which is the only place
  * the two files can be made to disagree. project.md sec 129. */
-_Static_assert(FZN_STREAM_RESERVED <= FZN_STREAM_INDEX_MAX,
+FZN_STATIC_ASSERT(FZN_STREAM_RESERVED <= FZN_STREAM_INDEX_MAX,
                "the reserved stream range must fit inside product 0's half");
 
 /* WHERE EACH FIELD SITS. Written as a running sum of the field widths rather

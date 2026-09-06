@@ -1088,6 +1088,27 @@ SABOTAGES = [
 		"two values for one setting is an ambiguous invocation, and silently keeping either is how a configuration bug survives somebody reading the command line",
 	),
 	(
+		"fingerprint-never-truncated",
+		"trust/trust.c",
+		"\tif (cap < FZN_TRUST_FINGERPRINT_LEN)\n\t\treturn FZN_TRUST_ERR_MALFORMED;\n",
+		"\tif (cap < 8u)\n\t\treturn FZN_TRUST_ERR_MALFORMED;\n",
+		"a truncated fingerprint is indistinguishable from a whole one at a glance, and comparing a prefix is the security decision sec 140 refuses to take on a caller's behalf",
+	),
+	(
+		"fingerprint-carries-every-byte",
+		"trust/trust.c",
+		"\tfor (i = 0; i < FZN_PUBKEY_LEN; i++) {\n",
+		"\tfor (i = 0; i < FZN_PUBKEY_LEN - 1u; i++) {\n",
+		"a fingerprint that drops a byte makes two keys differing only in it compare alike, which is the whole of what a user is asked to check",
+	),
+	(
+		"trust-sources-do-not-read-alike",
+		"trust/trust.c",
+		"\tcase FZN_TRUST_ADOPTED:\n\t\treturn \"adopted on first contact\";\n",
+		"\tcase FZN_TRUST_ADOPTED:\n\t\treturn \"configured out of band\";\n",
+		"TOFU's weakness is the first contact, so an adopted anchor shown as configured tells a user it was checked when nobody checked it",
+	),
+	(
 		"provision-envelope-verified",
 		"provision/provision.c",
 		"\tif (!verifier->verify(verifier->ctx, card.root, card.base, FZN_PROVISION_BODY_LEN,\n"

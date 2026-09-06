@@ -286,7 +286,27 @@ typedef enum fzn_signed_object {
  * rather than accepted, and having to come here and argue for it is the
  * price of an assertion a reader can check against the enum above by running
  * one finger down each. */
-_Static_assert(FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_HOP)
+/*
+ * A STATIC ASSERTION THAT ALSO COMPILES AS C++.
+ *
+ * `_Static_assert` is C11's spelling and C++ has `static_assert` instead, so
+ * a public header using the first cannot be included by a C++ consumer at
+ * all. That was true of three headers here until 2026-09-06 and nothing
+ * caught it, because nothing had tried -- `tool/consumer_check.c` is C, and
+ * every consumer had been. The first Qt widget in this tree found it on its
+ * first compile. project.md sec 140.
+ *
+ * A HEADER IS PART OF THE INTERFACE AND ITS LANGUAGE IS PART OF THAT.
+ * `installcheck` now compiles every public header as C++ as well, so this
+ * cannot regress silently the way it arrived.
+ */
+#if defined(__cplusplus)
+#define FZN_STATIC_ASSERT(cond, msg) static_assert(cond, msg)
+#else
+#define FZN_STATIC_ASSERT(cond, msg) _Static_assert(cond, msg)
+#endif
+
+FZN_STATIC_ASSERT(FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_HOP)
                && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_REVOCATION)
                && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_RECORD)
                && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_MANIFEST)
@@ -294,7 +314,7 @@ _Static_assert(FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_HOP)
                && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_WITHDRAWAL)
                && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_PROVISION),
                "a signed-object tag has been allocated into the consumer half");
-_Static_assert(FZN_OBJECT_HOP < FZN_OBJECT_REVOCATION
+FZN_STATIC_ASSERT(FZN_OBJECT_HOP < FZN_OBJECT_REVOCATION
                && FZN_OBJECT_REVOCATION < FZN_OBJECT_RECORD
                && FZN_OBJECT_RECORD < FZN_OBJECT_MANIFEST
                && FZN_OBJECT_MANIFEST < FZN_OBJECT_PREKEY
@@ -306,7 +326,7 @@ _Static_assert(FZN_OBJECT_HOP < FZN_OBJECT_REVOCATION
 /* Every real tag fits the one byte the transcript gives it. Stated through
  * the marker rather than through the newest tag, so that adding one does not
  * also mean remembering to rename this. */
-_Static_assert(FZN_OBJECT_NEXT_FREE <= 256u,
+FZN_STATIC_ASSERT(FZN_OBJECT_NEXT_FREE <= 256u,
                "a signed-object tag must fit the one byte the transcript gives it");
 
 /* AND NOTHING WAS ADDED WITHOUT COMING THROUGH HERE. The chain above proves
@@ -314,7 +334,7 @@ _Static_assert(FZN_OBJECT_NEXT_FREE <= 256u,
  * does not name. This is what makes the chain's coverage total rather than
  * merely correct -- an enumerator appended anywhere moves the marker, and the
  * only way to satisfy this line again is to extend the chain to reach it. */
-_Static_assert(FZN_OBJECT_NEXT_FREE == FZN_OBJECT_PROVISION + 1u,
+FZN_STATIC_ASSERT(FZN_OBJECT_NEXT_FREE == FZN_OBJECT_PROVISION + 1u,
                "a signed-object tag was added without extending the chain above it");
 
 #endif /* FZN_BYTES_H */

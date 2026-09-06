@@ -58,6 +58,7 @@
 
 #include "../chain/chain.h"
 
+#include <stddef.h>
 #include <stdint.h>
 
 typedef enum fzn_trust_err {
@@ -164,5 +165,49 @@ uint64_t fzn_trust_adopted_at(const fzn_trust_t *trust);
 
 /* A short name for `fzn_trust_err_t`. Never NULL. */
 const char *fzn_trust_err_str(fzn_trust_err_t err);
+
+/* How this anchor arrived, in words for a person. Never NULL.
+ *
+ * THIS IS THE SENTENCE THE HEADER ABOVE SAYS A CONSUMER OWES ITS USER. TOFU's
+ * weakness is the first contact and its strength is every contact after, and
+ * those are different things to be told -- so "adopted on first contact" and
+ * "configured out of band" must not read alike, and neither may be confused
+ * with a node that has simply rooted itself. Every consumer would otherwise
+ * write these four strings, four times, in four wordings. */
+const char *fzn_trust_source_str(fzn_trust_source_t source);
+
+/* Bytes a fingerprint needs: 32 bytes as 16 groups of four hex digits,
+ * single-spaced, and a terminator. */
+#define FZN_TRUST_FINGERPRINT_LEN 80u
+
+/*
+ * Format a public key for a person to compare out of band.
+ *
+ * `trust.h` says at length that a consumer using `fzn_trust_adopt` owes its
+ * user a way to check the anchor -- "a fingerprint to compare, a confirmation
+ * step, something" -- and then left every consumer to invent the format. Four
+ * spellings of one fingerprint is four things a user cannot compare against
+ * each other, which is the whole purpose defeated.
+ *
+ * IT IS THE KEY ITSELF, NOT A HASH OF IT, and that is why this needs no hash
+ * seam. A fingerprint is a digest elsewhere because keys are large; this one
+ * is already 32 bytes of public data, so hashing would add a step, a
+ * dependency and a second thing to agree about, and subtract nothing.
+ *
+ * ALL OF IT, NEVER TRUNCATED. Showing a prefix is a security decision -- it
+ * is what makes two keys comparable that are not equal -- and a library must
+ * not take it quietly on a caller's behalf. Sixteen groups fit two terminal
+ * lines and a caller that wants fewer is choosing to, in the open.
+ *
+ * TAKES A KEY RATHER THAN AN ANCHOR, deliberately: an unanchored trust has no
+ * root, and `fzn_trust_root` already returns NULL for exactly that. A caller
+ * passes what that gave it, so the unanchored case goes through the existing
+ * fail-closed path instead of a second one invented here -- and the same
+ * function then serves a peer's key, a grantee's, or any other.
+ *
+ * `cap` must be at least FZN_TRUST_FINGERPRINT_LEN. Nothing is written unless
+ * the whole string fits. */
+fzn_trust_err_t fzn_trust_fingerprint(const uint8_t key[FZN_PUBKEY_LEN], char *out,
+                                       size_t cap);
 
 #endif /* FZN_TRUST_H */

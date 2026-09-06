@@ -636,6 +636,91 @@ else
 $(error FZN_CLI must be 1 or 0 -- got "$(FZN_CLI)")
 endif
 
+# THE GUI, AND THE FIRST C++ IN THIS TREE.
+#
+# project.md sec 137 and sec 140. The copyright holder's rule is that what a
+# build omits is a build-time question rather than a repository one -- the
+# same answer the kernel gives, and the one this Makefile already gives five
+# times for POSIX backends. So the widgets live here and a build without Qt
+# simply does not compile them; netcfgd on a router carries nothing.
+#
+# THE PROBE ASKS pkg-config RATHER THAN THE COMPILER, which is the difference
+# between this and every other probe here. The others ask "does this call
+# exist", which only a compile can answer; this asks "is there a Qt to build
+# against", which is exactly what pkg-config is for, and asking the compiler
+# would mean guessing include paths in order to test whether they were right.
+#
+# Qt 6 IS PREFERRED AND Qt 5 ACCEPTED, in that order, because a machine with
+# both should build against the newer -- and because qtty, which is the reason
+# these are Widgets rather than QML, targets Qt 6.
+FZN_PROBE_QT := $(shell pkg-config --exists Qt6Widgets 2>/dev/null && echo Qt6Widgets \
+                  || (pkg-config --exists Qt5Widgets 2>/dev/null && echo Qt5Widgets) \
+                  || echo no)
+
+FZN_BLAME_QT := no Qt Widgets development files were found by pkg-config.
+
+# A C++ COMPILER, ASKED ABOUT SEPARATELY FROM Qt. The headers must parse as
+# C++ whether or not anybody is building a widget: a consumer may be C++ and
+# have no Qt at all, and until 2026-09-06 three of them did not parse at all
+# -- caught by the first widget rather than by any gate. sec 140.
+FZN_PROBE_CXX := $(shell printf '%s\n' 'int main(){return 0;}' \
+                   | $(if $(CXX),$(CXX),c++) -x c++ - -o /dev/null 2>/dev/null \
+                   && echo yes || echo no)
+
+ifeq ($(FZN_GUI),)
+FZN_GUI := auto
+endif
+
+ifeq ($(FZN_GUI),auto)
+ifneq ($(FZN_PROBE_QT),no)
+GUI_ON := 1
+else
+GUI_SKIP := $(FZN_BLAME_QT)
+endif
+else ifeq ($(FZN_GUI),1)
+ifneq ($(FZN_PROBE_QT),no)
+GUI_ON := 1
+else
+$(error FZN_GUI=1 was asked for and $(FZN_BLAME_QT) \
+        Set FZN_GUI=0 to build without it, or auto to let the probe decide)
+endif
+else ifeq ($(FZN_GUI),0)
+GUI_SKIP := FZN_GUI=0.
+else
+$(error FZN_GUI must be auto, 1 or 0 -- got "$(FZN_GUI)")
+endif
+
+GUI_SRCS := gui/trust_view.cpp
+GUI_HDRS := gui/trust_view.h
+GUI_TSRC := gui/test/trust_view_test.cpp
+
+ifdef GUI_ON
+CXX       ?= c++
+QT_CFLAGS := $(shell pkg-config --cflags $(FZN_PROBE_QT))
+QT_LIBS   := $(shell pkg-config --libs $(FZN_PROBE_QT))
+# SPLIT THE SAME WAY CFLAGS IS, AND FOR THE REASON THE SANITIZER BUILD
+# TAUGHT. `SANITIZE=1` replaces CFLAGS and left CXXFLAGS alone, so the C
+# objects carried the instrumentation and the C++ link did not carry the
+# runtime -- an undefined `__asan_init` at link time, and the tree's only C++
+# would have been the one thing the sanitizer never saw. Assigned rather than
+# `?=` for the same reason: an inherited CXXFLAGS must not be able to drop the
+# instrumentation quietly. A command line still wins, as make intends.
+#
+# NO `-fPIC`. The C objects are built without it, so forcing it here made the
+# linker add text relocations to a PIE and say so. An executable linking Qt
+# needs neither.
+ifeq ($(SANITIZE),1)
+CXXFLAGS_BUILD := -Og -g -fsanitize=address,undefined -fno-omit-frame-pointer \
+                  -fno-sanitize-recover=all
+else
+CXXFLAGS_BUILD := -Os -g
+endif
+CXXFLAGS_WARN := -std=c++17 -Wall -Wextra -Wpedantic
+CXXFLAGS   = $(CXXFLAGS_BUILD) $(CXXFLAGS_WARN)
+GUI_OBJS   := $(GUI_SRCS:%.cpp=$(BUILD_DIR)/%.o)
+TEST_BINS  += $(BUILD_DIR)/gui/test/trust_view_test
+endif
+
 CLI_SRCS := cli/cli.c
 CLI_HDRS := cli/cli.h
 CLI_TSRC := cli/test/cli_test.c
@@ -1626,6 +1711,27 @@ $(BUILD_DIR)/cli/test/cli_test: $(BUILD_DIR)/cli/test/cli_test.o \
                                      $(BUILD_DIR)/cli/cli.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
+
+# THE C++ RULE, AND IT IS SEPARATE FROM THE C ONE ON PURPOSE. Qt's flags reach
+# only the widgets: a C source that picked them up would gain include paths it
+# has no use for, and the library's own build would start depending on
+# pkg-config having run. sec 140.
+ifdef GUI_ON
+$(BUILD_DIR)/gui/%.o: gui/%.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $(QT_CFLAGS) -MMD -MP -c $< -o $@
+
+$(BUILD_DIR)/gui/test/%.o: gui/test/%.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $(QT_CFLAGS) -MMD -MP -c $< -o $@
+
+$(BUILD_DIR)/gui/test/trust_view_test: $(BUILD_DIR)/gui/test/trust_view_test.o \
+                                     $(BUILD_DIR)/gui/trust_view.o \
+                                     $(BUILD_DIR)/trust/trust.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) -o $@
+endif
 
 $(BUILD_DIR)/claim/test/claim_file_test: $(BUILD_DIR)/claim/test/claim_file_test.o \
                                      $(BUILD_DIR)/claim/claim_file.o \
@@ -2723,7 +2829,13 @@ style:
 	@# asymmetry is deliberate: those sources genuinely are not compiled
 	@# without the submodule. Generated headers are situ's and tool/ is
 	@# not installed, so both are excluded rather than listed.
-	@known=" $(HDRS) "; missing=; n=0; \
+	@# GUI_HDRS IS UNIONED IN RATHER THAN ADDED TO HDRS, the same asymmetry
+	@# MONO_SRCS has above and for a sharper reason: HDRS is the C API, and
+	@# `tool/consumer_check.c` includes every member of it while
+	@# `installcheck`'s C++ arm parses every member without Qt's flags. A
+	@# C++-only header that needs `QWidget` fails both. It is a real public
+	@# header and it is installed below; it is not a C one. sec 140.
+	@known=" $(HDRS) $(GUI_HDRS) "; missing=; n=0; \
 	for h in `find . -name '*.h' -not -path './.git/*' -not -path './.claude/*' \
 	                 -not -path './wire/generated/*' -not -path './tool/*' \
 	                 -not -path './build/*' -not -path './san/*' \
@@ -2804,7 +2916,7 @@ style:
 	done
 	@have=`nm --defined-only $(CORE_SRCS:%.c=$(BUILD_DIR)/%.o) 2>/dev/null \
 	       | awk '$$2 == "T" { print $$3 }' \
-	       | grep -E '^fzn_[a-z_]+_(err|verdict)_str$$' | sort -u`; 	walked=`grep -oE '"fzn_[a-z_]+_(err|verdict)_str"' wire/test/err_str_test.c \
+	       | grep -E '^fzn_[a-z_]+_str$$' | sort -u`; 	walked=`grep -oE '"fzn_[a-z_]+_str"' wire/test/err_str_test.c \
 	        | tr -d '"' | sort -u`; 	n=`echo "$$have" | grep -c .`; 	w=`echo "$$walked" | grep -c .`; 	if [ "$$n" -eq 0 ]; then 		echo "style: the renderer probe matched no symbols, so it proves"; 		echo "style: nothing -- build the objects before running this."; 		exit 1; 	fi; 	missing=; \
 	for r in $$have; do \
 		case " `echo $$walked` " in *" $$r "*) ;; *) missing="$$missing $$r" ;; esac; \
@@ -2879,11 +2991,14 @@ hooks:
 # pinned submodule commit exists to prevent. DESTDIR is honoured because
 # dh_auto_install calls it, and every private project honours it.
 install: $(HDRS)
-	@for h in $(HDRS); do \
+	@# The GUI headers ship only when they were built, which is the whole
+	@# point of the option: a build without Qt installs no header that
+	@# needs it. sec 140.
+	@for h in $(HDRS) $(if $(GUI_ON),$(GUI_HDRS)); do \
 		install -d $(DESTDIR)$(PREFIX)/include/fuzznet/`dirname $$h`; \
 		install -m 0644 $$h $(DESTDIR)$(PREFIX)/include/fuzznet/$$h; \
 	done
-	@echo "installed `echo $(HDRS) | wc -w` header(s) under $(DESTDIR)$(PREFIX)/include/fuzznet"
+	@echo "installed `echo $(HDRS) $(if $(GUI_ON),$(GUI_HDRS)) | wc -w` header(s) under $(DESTDIR)$(PREFIX)/include/fuzznet"
 
 # What do the suites never execute? Measured rather than assumed.
 #
@@ -3216,6 +3331,40 @@ installcheck: $(HDRS) $(SRCS) $(OBJS) tool/consumer_check.c
 	cd $(BUILD_DIR)/installcheck && $(CC) $(CFLAGS) $$incs \
 	       -o consumer_manifest $(CURDIR)/tool/consumer_check.c $$srcs
 	@$(BUILD_DIR)/installcheck/consumer_manifest
+	@# THE HEADERS MUST PARSE AS C++, AND THE LIST IS DERIVED FROM HDRS
+	@# rather than written out, so it cannot fall behind the way a second
+	@# hand-maintained list would. Three headers used `_Static_assert`,
+	@# which C++ does not have, and no consumer had ever been C++ -- so the
+	@# defect was found by the first Qt widget instead of by a gate. This
+	@# arm is what stops that arriving again. sec 140.
+	@if [ "$(FZN_PROBE_CXX)" = yes ]; then \
+		mkdir -p $(BUILD_DIR)/installcheck; \
+		: > $(BUILD_DIR)/installcheck/cxx_headers.cpp; \
+		for h in $(HDRS); do \
+			echo "#include \"$(CURDIR)/$$h\"" \
+			        >> $(BUILD_DIR)/installcheck/cxx_headers.cpp; \
+		done; \
+		n=`grep -c include $(BUILD_DIR)/installcheck/cxx_headers.cpp`; \
+		test "$$n" -gt 0 || { \
+			echo "installcheck: the C++ arm was handed no headers, so"; \
+			echo "installcheck: passing it would prove nothing."; exit 1; }; \
+		echo "int main(void) { return 0; }" \
+		        >> $(BUILD_DIR)/installcheck/cxx_headers.cpp; \
+		$(if $(CXX),$(CXX),c++) -x c++ -std=c++17 -Wall -Wextra -I$(CURDIR) \
+		       -I$(CURDIR)/wire/generated -Imonocypher/src \
+		       $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) \
+		       $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) \
+		       $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) \
+		       $(if $(RECORD_STORE_FILE_ON),-DFZN_RECORD_STORE_FILE_ON) \
+		       $(if $(CLI_ON),-DFZN_CLI_ON) \
+		       -c $(BUILD_DIR)/installcheck/cxx_headers.cpp \
+		       -o $(BUILD_DIR)/installcheck/cxx_headers.o \
+		|| { echo "installcheck: the public headers do not parse as C++;"; \
+		     echo "installcheck: a C++ consumer cannot include them."; exit 1; }; \
+		echo "installcheck: $$n public headers parse as C++"; \
+	else \
+		echo "installcheck: no C++ compiler, so the C++ header arm was skipped"; \
+	fi
 	@rm -rf $(BUILD_DIR)/installcheck
 	@echo "installcheck: all four arrangements build and run"
 
@@ -3275,6 +3424,7 @@ manifest:
 	@$(if $(CLAIM_FILE_ON),echo "backend claim/claim_file.c FZN_CLAIM_FILE_ON";)
 	@$(if $(RECORD_STORE_FILE_ON),echo "backend record/store_file.c FZN_RECORD_STORE_FILE_ON";)
 	@$(if $(CLI_ON),echo "subsystem cli/cli.c FZN_CLI_ON";)
+	@$(if $(GUI_ON),echo "subsystem gui/ FZN_GUI_ON against $(FZN_PROBE_QT)";)
 	@$(if $(SPOOL_FILE_ON),echo "backend spool/spool_file.c FZN_SPOOL_FILE_ON";)
 
 # Named targets only, and it lists them. No rm -rf of a directory and no

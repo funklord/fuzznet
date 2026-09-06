@@ -111,6 +111,7 @@ static const char *r_journal(int v) { return fzn_journal_err_str((fzn_journal_er
 static const char *r_ledger(int v) { return fzn_ledger_err_str((fzn_ledger_err_t)v); }
 static const char *r_sync(int v) { return fzn_sync_err_str((fzn_sync_err_t)v); }
 static const char *r_state(int v) { return fzn_state_err_str((fzn_state_err_t)v); }
+static const char *r_tsource(int v) { return fzn_trust_source_str((fzn_trust_source_t)v); }
 static const char *r_trust(int v) { return fzn_trust_err_str((fzn_trust_err_t)v); }
 static const char *r_log(int v) { return fzn_log_err_str((fzn_log_err_t)v); }
 static const char *r_relay(int v) { return fzn_relay_err_str((fzn_relay_err_t)v); }
@@ -167,6 +168,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_sync_err_str", r_sync, 2 },
 	{ "fzn_state_err_str", r_state, 7 },
 	{ "fzn_trust_err_str", r_trust, 4 },
+	{ "fzn_trust_source_str", r_tsource, 4 },
 	{ "fzn_log_err_str", r_log, 5 },
 	{ "fzn_relay_err_str", r_relay, 4 },
 	{ "fzn_sched_err_str", r_sched, 3 },

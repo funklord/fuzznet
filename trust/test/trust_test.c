@@ -217,6 +217,77 @@ int main(void)
 	fzn_trust_init(NULL); /* must not crash */
 
 	/*
+	 * THE FINGERPRINT, WHICH IS THE SENTENCE THE HEADER SAYS A CONSUMER
+	 * OWES ITS USER. project.md sec 140.
+	 */
+	{
+		char fp[FZN_TRUST_FINGERPRINT_LEN];
+		char other_fp[FZN_TRUST_FINGERPRINT_LEN];
+		char small[FZN_TRUST_FINGERPRINT_LEN];
+		size_t i, spaces = 0, hex = 0;
+
+		memset(fp, 0x7f, sizeof(fp));
+		expect_err(fzn_trust_fingerprint(first, fp, sizeof(fp)), FZN_TRUST_OK,
+		           "a key formats");
+		expect(strlen(fp) == FZN_TRUST_FINGERPRINT_LEN - 1u,
+		       "the fingerprint is not the length the constant promises");
+		for (i = 0; fp[i]; i++) {
+			if (fp[i] == ' ')
+				spaces++;
+			else if ((fp[i] >= '0' && fp[i] <= '9')
+			         || (fp[i] >= 'a' && fp[i] <= 'f'))
+				hex++;
+			else
+				expect(0, "the fingerprint holds a character that is neither");
+		}
+		/* ALL 32 BYTES, NEVER TRUNCATED -- showing a prefix is what makes
+		 * two unequal keys compare alike, and is the decision the header
+		 * refuses to take on a caller's behalf. */
+		expect(hex == FZN_PUBKEY_LEN * 2u,
+		       "the fingerprint does not carry every byte of the key");
+		expect(spaces == (FZN_PUBKEY_LEN / 2u) - 1u,
+		       "the groups are not separated as the header describes");
+
+		/* TWO KEYS THAT DIFFER IN ONE BYTE MUST NOT LOOK ALIKE, which is
+		 * the entire job: `nearly` differs from `first` in its last byte
+		 * only, and a fingerprint a person compares has to show that. */
+		expect_err(fzn_trust_fingerprint(nearly, other_fp, sizeof(other_fp)),
+		           FZN_TRUST_OK, "the near key formats");
+		expect(strcmp(fp, other_fp) != 0,
+		       "two keys differing in one byte produced the same fingerprint");
+
+		/* Nothing is written unless all of it fits. */
+		memset(small, 0x5a, sizeof(small));
+		expect_err(fzn_trust_fingerprint(first, small, FZN_TRUST_FINGERPRINT_LEN - 1u),
+		           FZN_TRUST_ERR_MALFORMED, "a buffer one short is refused");
+		expect(small[0] == 0x5a, "a refused fingerprint wrote a truncated one");
+		expect_err(fzn_trust_fingerprint(NULL, fp, sizeof(fp)), FZN_TRUST_ERR_MALFORMED,
+		           "a null key");
+		expect_err(fzn_trust_fingerprint(first, NULL, sizeof(fp)), FZN_TRUST_ERR_MALFORMED,
+		           "a null buffer");
+	}
+
+	/* Every source renders, and no two alike -- "adopted on first contact"
+	 * and "configured out of band" are different things to be told, and a
+	 * consumer that showed one for the other would say the anchor had been
+	 * checked when nobody had checked it. */
+	{
+		const char *n = fzn_trust_source_str(FZN_TRUST_NONE);
+		const char *p = fzn_trust_source_str(FZN_TRUST_PINNED);
+		const char *a = fzn_trust_source_str(FZN_TRUST_ADOPTED);
+		const char *f = fzn_trust_source_str(FZN_TRUST_SELF);
+
+		expect(n && p && a && f, "a source rendered as null");
+		expect(*n && *p && *a && *f, "a source rendered as empty");
+		expect(strcmp(p, a) != 0, "pinned and adopted read alike");
+		expect(strcmp(f, p) != 0, "a self root reads as configured out of band");
+		expect(strcmp(f, a) != 0, "a self root reads as adopted");
+		expect(strcmp(n, f) != 0, "no anchor reads as a self root");
+		expect(fzn_trust_source_str((fzn_trust_source_t)99)[0] != '\0',
+		       "an unknown source renders empty");
+	}
+
+	/*
 	 * THE POSITIVE CONTROL, WHICH THIS SUITE DID NOT HAVE until
 	 * 2026-09-06. Every other suite here carries one and this one was
 	 * counting checks nobody had seen fail -- so a run reporting

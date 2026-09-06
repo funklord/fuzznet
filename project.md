@@ -5871,6 +5871,7 @@ somebody to notice.
 | `record/store.h` | where a record's bytes wait, and who may read them |
 | `record/store_file.h` | that store as one sparse file per stream |
 | `cli/cli.h` | the option vocabulary every consumer shares |
+| `gui/trust_view.h` | the anchor a user compares, drawn the same everywhere |
 | `record/ledger.h` | what each peer has confirmed holding, per subject |
 | `chunk/reassembly.h` | split and reassembly |
 | `disclose/disclose.h` | one signature over many fields, some shown |
@@ -22791,6 +22792,124 @@ intended. That is hydra's to fix at ingestion and it is recorded there; it is
 mentioned here only because it is the reason "just replicate the bytes" is not
 sufficient for this consumer -- something has to refuse what it cannot honour,
 and hydra believes that something is itself rather than the transport.
+
+## 140. FZN_GUI, the first C++ here, and two defects it found, 2026-09-06
+
+Directed by the copyright holder 2026-09-06 after the sec 137 correction: do
+the `FZN_GUI` option. Built, with the first widget and the first C++ in this
+tree.
+
+### What was built, and why this widget first
+
+`gui/trust_view.{h,cpp}`, and the C half it draws: `fzn_trust_fingerprint`
+and `fzn_trust_source_str` in `trust/`.
+
+**`trust/trust.h` had asked for this in as many words and left it undone**: a
+consumer using `fzn_trust_adopt` "owes its user a way to check the anchor out
+of band -- a fingerprint to compare, a confirmation step, something", and
+then every consumer was left to invent the format. **Four spellings of one
+fingerprint is four things a user cannot compare against each other**, which
+is the purpose defeated rather than merely duplicated.
+
+Decisions worth keeping:
+
+- **The fingerprint is the key itself, not a hash of it.** A fingerprint is a
+  digest elsewhere because keys are large; this one is already 32 bytes of
+  public data, so hashing adds a step, a seam and a second thing to agree
+  about, and subtracts nothing.
+- **All of it, never truncated.** Showing a prefix is what makes two unequal
+  keys compare alike, and that is a security decision a library must not take
+  quietly for a caller.
+- **It takes a KEY, not an anchor.** An unanchored trust has no root and
+  `fzn_trust_root` already returns NULL for exactly that, so the unanchored
+  case goes through the existing fail-closed path rather than a second one --
+  and the same function serves a peer's key or a grantee's.
+- **The widget reads and does not decide.** A confirmation step has a
+  security meaning, and putting the button in the same object as the display
+  makes it easy to ship one that confirms what it drew rather than what was
+  checked.
+- **No Q_OBJECT and therefore no moc**, for now: the widget emits nothing, so
+  the first C++ here is a plain compile and link with no generated sources.
+  The moment a widget needs a signal that stops being true, and adding moc is
+  a deliberate change rather than something slipped in beside a feature.
+
+**The test is headless**, under `QT_QPA_PLATFORM=offscreen`, so it runs under
+`make check` like everything else -- and that is also the arrangement `qtty`
+relies on, widgets that never reach a window system. A suite that needed a
+real display would be testing the one configuration the terminal backend
+never uses.
+
+### The option, and that it was exercised
+
+`FZN_GUI` is auto/1/0 like the POSIX backends, and **its probe asks
+`pkg-config` rather than the compiler** -- the others ask "does this call
+exist", which only a compile can answer, while this asks "is there a Qt to
+build against", which is what pkg-config is for. Qt 6 preferred, Qt 5
+accepted; measured here as 6.8.2 and 5.15.15 both present.
+
+**`make FZN_GUI=0 test` builds and passes 67 suites with `gui/` absent.** An
+option nobody has built without is not an option.
+
+### The two defects it found, which are the real return on this pass
+
+**Neither was in the widget. Both were in the library, and both had been
+there for as long as the headers had.**
+
+- **Three public headers did not parse as C++ at all.** `_Static_assert` is
+  C11's spelling and C++ has `static_assert`, so `wire/bytes.h`,
+  `record/record.h` and anything including them were unusable from C++.
+  Nothing had caught it because **nothing had ever tried**:
+  `tool/consumer_check.c` is C, and every consumer so far had been. There is
+  a `FZN_STATIC_ASSERT` now that spells itself correctly in both.
+- **`sched.h` used `class` as a parameter name**, which is a C++ keyword. The
+  type `fzn_class_t` is fine; the parameter is `wanted` now. Renamed in the
+  declaration and the definition together, with the prose left alone -- every
+  identifier use matched one of four forms and no sentence about "a class of
+  traffic" matches any of them.
+
+**`installcheck` now compiles every public header as C++**, and the list is
+derived from HDRS rather than written out, so it cannot fall behind the way a
+second hand-maintained list would. 54 headers.
+
+**And that gate has already been seen to fail twice, on the two real defects
+above, which is better evidence than a sabotage would have been.** It was
+written to catch a class nobody had looked for and caught two instances
+before it was first committed.
+
+### Where the GUI header goes, which is not HDRS
+
+`HDRS` is the C API: `tool/consumer_check.c` includes every member and the
+new C++ arm parses every member **without Qt's flags**. A C++-only header
+needing `QWidget` fails both. So `GUI_HDRS` is unioned into the completeness
+check rather than added to `HDRS` -- the same asymmetry `MONO_SRCS` already
+has -- and `make install` ships it only when the GUI was built, which is the
+whole point of the option.
+
+### And a third defect, found by the sanitized build
+
+`SANITIZE=1` replaces `CFLAGS` and left `CXXFLAGS` untouched, so the C
+objects carried the instrumentation and the C++ link did not carry the
+runtime -- an undefined `__asan_init` at link time. **The tree's only C++
+would have been the one thing the sanitizer never saw**, and excluding the
+test from the sweep would have made that permanent rather than visible.
+
+`CXXFLAGS` is split into a build half and a warning half now, exactly as
+`CFLAGS` is, and **assigned rather than `?=`** for the same reason: an
+inherited `CXXFLAGS` must not be able to drop the instrumentation quietly. A
+command line still wins, as make intends.
+
+The `-fPIC` that was in it is gone too. The C objects are built without it,
+so forcing it on the C++ side made the linker add text relocations to a PIE
+and say so -- an executable linking Qt needs neither.
+
+### And the renderer gate was matching a name rather than a thing
+
+`fzn_trust_source_str` would have escaped the sweep that requires every
+renderer to be walked by `err_str_test`, because the pattern was
+`_(err|verdict)_str`. **A renderer's wording rots when no test produces it,
+and that is true whatever it renders** -- so the pattern is `_str` now.
+Measured before widening: every such symbol in the library was already err or
+verdict, so nothing else was swept in.
 
 ## 139. A suite that does not name itself cannot be credited, 2026-09-06
 

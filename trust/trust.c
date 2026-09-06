@@ -141,3 +141,48 @@ const char *fzn_trust_err_str(fzn_trust_err_t err)
 
 	return "unknown";
 }
+
+const char *fzn_trust_source_str(fzn_trust_source_t source)
+{
+	switch (source) {
+	case FZN_TRUST_NONE:
+		return "no anchor";
+	case FZN_TRUST_PINNED:
+		return "configured out of band";
+	case FZN_TRUST_ADOPTED:
+		return "adopted on first contact";
+	case FZN_TRUST_SELF:
+		return "this node's own key";
+	}
+
+	return "unknown";
+}
+
+fzn_trust_err_t fzn_trust_fingerprint(const uint8_t key[FZN_PUBKEY_LEN], char *out,
+                                       size_t cap)
+{
+	static const char DIGITS[] = "0123456789abcdef";
+	size_t i;
+	size_t at = 0;
+
+	if (!key || !out)
+		return FZN_TRUST_ERR_MALFORMED;
+	/* NOTHING IS WRITTEN UNLESS ALL OF IT FITS. A truncated fingerprint is
+	 * the one output this must never produce: it is indistinguishable from
+	 * a whole one at a glance, and comparing a prefix is the security
+	 * decision the header refuses to take quietly. */
+	if (cap < FZN_TRUST_FINGERPRINT_LEN)
+		return FZN_TRUST_ERR_MALFORMED;
+
+	for (i = 0; i < FZN_PUBKEY_LEN; i++) {
+		/* A space before every group but the first: groups are two
+		 * bytes, so the separator falls on even indices past zero. */
+		if (i != 0 && (i % 2u) == 0u)
+			out[at++] = ' ';
+		out[at++] = DIGITS[key[i] >> 4];
+		out[at++] = DIGITS[key[i] & 0x0fu];
+	}
+	out[at] = '\0';
+
+	return FZN_TRUST_OK;
+}
