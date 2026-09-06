@@ -22801,6 +22801,86 @@ The product one is the case worth naming: with the product out of the
 derivation every scoped capability equals the wildcard, so the filter admits
 everything while every test about services still passes.
 
+### Two programs, one identity: the stream is what keeps them apart
+
+Asked by the copyright holder while this was being built: how do two
+programs using the same subsystems avoid transmitting, requesting and
+writing the same data?
+
+**The mechanism already exists and it is the STREAM, not the capability.**
+Each of the three verbs is answered somewhere different, and all three were
+read rather than recalled:
+
+- **Requesting.** `record/sync.h`: a position is per (issuer, stream), and
+  "a stream the peer did not mention is counted and never offered". A host
+  asks for and offers streams, not an issuer's whole output, so a program
+  following only its own streams never requests the other's records.
+- **Writing.** `state/state.c:198` returns FZN_STATE_ERR_CROSS_STREAM when a
+  record arrives for a cell another stream owns, and the stream is inside
+  the signed record -- `record/record.h` records that moving a genuine
+  record between streams wedges the cell permanently. Writing across is
+  refused rather than discouraged.
+- **Transmitting the same bytes twice.** Content addressing in `blob/`:
+  identical content is one blob with one digest, so two programs that want
+  the same file transfer it once and the spool holds one copy. This is the
+  one place where sharing is the win rather than the hazard.
+
+`record/journal.h` states the principle outright, and it was written for a
+different reason:
+
+    A POSITION IS PER (ISSUER, STREAM), NOT PER ISSUER. One sequence
+    space per issuer cannot serve recipients with different
+    entitlements: a recipient not allowed to see some records develops
+    holes it may never fill, and a journal that refuses gaps --
+    correctly -- then leaves it asking for ever for something nobody
+    will send.
+
+### And the ~/.fuzznet/ experiment reaches that hazard by a new route
+
+**The separation above is per (issuer, stream). Under the shared-identity
+experiment both programs on one host have the SAME identity, so they are the
+same issuer, and (issuer, stream) collapses to the stream alone.**
+
+Everything therefore rests on two products never sharing a stream. If they
+interleave in one:
+
+    their sequences interleave in one space
+    a peer entitled to one product sees 1, 3, 4, 7...
+    fzn_journal_admit refuses the gap, correctly
+    and it asks for ever for a record nobody will send it
+
+That is exactly the failure `journal.h` describes, arriving by a route it
+did not anticipate: it was written for holes produced by ENTITLEMENT, and
+the shared identity produces identical holes from PRODUCT separation. The
+sentence was right and its scope was narrower than the world it now
+describes -- which is the shape `working-practice.md` names, a rule written
+under one configuration answering a question it did not know it was
+answering.
+
+**So the capability and the stream have to agree, and nothing enforces that
+they do.** `fzn_service_capability` answers "may you see it"; the stream
+answers "will you be sent it, and can you stay contiguous". A product whose
+records are spread across a stream shared with another product is
+authorised correctly and syncs into a permanent wedge.
+
+Three ways to close it, and **the choice is the copyright holder's** because
+it trades wire compatibility against enforcement:
+
+    a. convention        a service assigns a stream range per product.
+                         Free, no wire change, unenforced -- and the
+                         failure is the permanent wedge above.
+    b. derive the stream  the product occupies the high bits of the
+       from the product   stream number. Enforceable in one function, no
+                         wire change, costs stream space.
+                         FZN_STREAM_RESERVED is precedent for structure
+                         in that number.
+    c. a product field   correct and explicit, and a wire change: every
+       in the record      offset after it moves, FZN_RECORD_HEADER_LEN
+                         changes, and the golden vectors move with it.
+
+Not decided here. (b) is the one that costs nothing anybody has already
+built against, which is worth saying without it being a recommendation.
+
 ### What is deliberately not decided here
 
 **Where a service's data lives.** The holder's words: "some of the things
