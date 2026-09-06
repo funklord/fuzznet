@@ -22677,6 +22677,55 @@ the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
 
+## 118. One peer is not a swarm, and the scenario written yesterday had one, 2026-09-06
+
+`scenario_filestore` moves a blob across a lossy network and asks ONE server.
+`spool/transfer.h` exists for one problem -- two peers must not be sent the
+same range -- so the entire reason that module is in the library went
+unexercised by the scenario written to exercise the filestore, on the day it
+was written.
+
+`scenario_swarm` is two hosts holding the blob and a third fetching it,
+asking both in turn:
+
+    swarm: 28 rounds, 18 leaves from host 0, 6 from host 1,
+    12 moments with two assignments live, 0 overlaps
+
+**The property is checked after every assignment rather than once at the
+end.** A pairwise walk of the live slots runs each time `next_want` answers,
+so an overlap that exists for one round and is resolved by the next is still
+counted. Checking at the end would have found nothing.
+
+### Two floors, and the second is the one that was nearly missed
+
+`overlaps == 0` is trivially true of a transfer that never had two
+assignments live -- which is what a lossy link and a narrow window can
+easily produce. So the scenario counts the moments when two WERE live and
+asserts that number is non-zero. **Without it the assertion passes for the
+wrong reason and reads exactly the same.**
+
+And `from_host[0] > 0 && from_host[1] > 0`: a swarm scenario in which one
+host happens to answer everything is a one-peer test wearing a swarm's
+clothes, and it would satisfy every other check here.
+
+### Seen to fail, and the neighbouring scenario stayed green
+
+With `is_pending`'s exclusion neutered:
+
+    FAIL: two peers were assigned overlapping ranges at once
+    swarm: 32 rounds, ... 14 moments with two assignments live, 14 overlaps
+
+`scenario_filestore` passed in the same run. That is the whole finding
+restated as a measurement: **the one-peer scenario cannot see this defect,
+and it is the scenario that existed.** fuzzypickles shipped exactly this bug
+and reported it 2026-09-05 -- their driver answered "nothing left to ask"
+while three ranges sat outstanding, and every test they had used one peer.
+
+Their unit test and this tree's ask twice from two peer NUMBERS in one
+process. This asks two HOSTS over a link that loses and reorders, which is
+the arrangement the defect actually occurs in, and it is now a second
+independent witness to a guard that had one.
+
 ## 117. Twenty scenarios and not one moved a blob, 2026-09-06
 
 The filestore is seven modules, every one with unit tests and one with a

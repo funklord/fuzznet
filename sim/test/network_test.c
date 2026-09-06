@@ -3865,6 +3865,207 @@ static void scenario_filestore(void)
 	       (unsigned long long)checked, dropped_cells);
 }
 
+/* ------------------------------------------------------------ scenario 22
+
+   TWO PEERS HOLDING THE SAME BLOB, which scenario 21 could not express.
+
+   `spool/transfer.h` exists for one problem -- that two peers must not be
+   sent the same range -- and scenario 21 asks one server, so the whole
+   reason that module is there goes unexercised across the network. Its unit
+   test asks twice from two peer numbers in one process; this asks two
+   HOSTS over a lossy link and checks the property continuously rather than
+   at one moment.
+
+   project.md sec 118. fuzzypickles shipped exactly this bug and reported it
+   2026-09-05: their driver answered "nothing left to ask" while three
+   ranges sat outstanding, and every test they had used one peer.
+
+   THE FLOOR IS THAT BOTH PEERS CONTRIBUTED. A swarm scenario in which one
+   host happens to answer everything is a one-peer test wearing a swarm's
+   clothes, and it would pass every assertion below.  */
+static void scenario_swarm(void)
+{
+	static struct sim_net net;
+	static const fzn_spool_ops_t ops = { fs_read, fs_write, NULL, NULL };
+	static uint8_t map[FZN_SPOOL_BITMAP_LEN(FS_LEAVES)];
+	static uint8_t wire[SIM_MSG_MAX];
+	fzn_hash_ops_t hash_ops = { sim_hash, NULL };
+	fzn_blob_tree_t tree;
+	fzn_spool_t spool;
+	fzn_transfer_t transfer;
+	fzn_transfer_assign_t slots[FS_SLOTS];
+	uint8_t root[FZN_BLOB_HASH_LEN];
+	unsigned from_host[2] = { 0u, 0u };
+	unsigned rounds = 0, overlaps = 0, i, both_live = 0;
+
+	fzn_blob_tree_init(&tree);
+	for (i = 0; i < FS_LEAVES; i++) {
+		size_t j;
+
+		for (j = 0; j < FS_LEAF; j++)
+			fs_sealed[i][j] = (uint8_t)((i * 61u) + j + 7u);
+		check(fzn_blob_leaf_hash(&hash_ops, fs_sealed[i], FS_LEAF, fs_leaf_hash[i])
+		              == FZN_BLOB_OK, "the swarm fixture leaf did not hash");
+		check(fzn_blob_tree_push(&hash_ops, &tree, fs_leaf_hash[i]) == FZN_BLOB_OK,
+		      "the swarm fixture tree did not accept a leaf");
+	}
+	check(fzn_blob_tree_root(&hash_ops, &tree, root) == FZN_BLOB_OK,
+	      "the swarm fixture has no root");
+
+	/* Hosts 0 and 1 hold it; host 2 wants it. */
+	sim_init(&net, 3u, 0x5a4au);
+	net.loss_pct = 20;
+	net.reorder_pct = 30;
+
+	memset(map, 0, sizeof(map));
+	memset(fs_disk, 0, sizeof(fs_disk));
+	check(fzn_spool_open(&spool, root, FS_LEAVES, map, sizeof(map), &ops) == FZN_SPOOL_OK,
+	      "the swarm spool did not open");
+	check(fzn_transfer_open(&transfer, &spool, slots, FS_SLOTS) == FZN_TRANSFER_OK,
+	      "the swarm transfer did not open");
+
+	for (rounds = 0; rounds < 400u && !fzn_spool_complete(&spool); rounds++) {
+		uint8_t cookie[FZN_MSG_COOKIE_LEN];
+		unsigned peer;
+		size_t len = 0, e;
+
+		memset(cookie, (uint8_t)rounds, sizeof(cookie));
+
+		/* Ask both peers in turn, so the window fills from two
+		 * directions and the exclusion has to hold across them. */
+		for (peer = 0; peer < 2u; peer++) {
+			fzn_spool_range_t want;
+			size_t a, b;
+			unsigned live = 0;
+
+			if (fzn_transfer_next_want(&transfer, peer, 0u, FS_PER_RANGE,
+			                           net.now + 4u, &want) != FZN_TRANSFER_OK)
+				continue;
+			if (fzn_msg_want_encode((uint32_t)rounds, cookie, root, want.first,
+			                        want.count, wire, sizeof(wire), &len)
+			    != FZN_MSG_OK)
+				continue;
+			(void)sim_send(&net, 2u, (uint8_t)peer, wire, len, net.now + 50u);
+
+			/* THE PROPERTY, CHECKED AFTER EVERY ASSIGNMENT rather
+			 * than once at the end: no two live assignments may
+			 * overlap, whichever peer they went to. */
+			for (a = 0; a < FS_SLOTS; a++) {
+				if (!slots[a].live)
+					continue;
+				live++;
+				for (b = a + 1u; b < FS_SLOTS; b++) {
+					if (!slots[b].live)
+						continue;
+					if (slots[a].first < slots[b].first + slots[b].count
+					    && slots[b].first
+					               < slots[a].first + slots[a].count)
+						overlaps++;
+				}
+			}
+			if (live >= 2u)
+				both_live++;
+		}
+		sim_run(&net, 4);
+
+		/* Both servers answer from their own copy. */
+		for (peer = 0; peer < 2u; peer++) {
+			struct sim_host *server = &net.hosts[peer];
+
+			for (e = 0; e < server->inbox_len; e++) {
+				uint8_t r[FZN_BLOB_HASH_LEN], c[FZN_MSG_COOKIE_LEN];
+				uint8_t proof[FZN_BLOB_MAX_DEPTH * FZN_BLOB_HASH_LEN];
+				const uint8_t *parts[FS_PER_RANGE];
+				size_t parts_len[FS_PER_RANGE];
+				uint64_t first = 0, count = 0;
+				uint32_t id = 0;
+				unsigned proof_len = 0, k;
+				fzn_msg_type_t type;
+
+				if (fzn_msg_peek(server->inbox[e].bytes, server->inbox[e].len,
+				                 &type) != FZN_MSG_OK
+				    || type != FZN_MSG_WANT)
+					continue;
+				if (fzn_msg_want_parse(server->inbox[e].bytes,
+				                       server->inbox[e].len, &id, c, r, &first,
+				                       &count) != FZN_MSG_OK)
+					continue;
+				if (count > FS_PER_RANGE)
+					continue;
+				for (k = 0; k < count; k++) {
+					parts[k] = fs_sealed[first + k];
+					parts_len[k] = FS_LEAF;
+				}
+				if (fzn_blob_span_proof_build(&hash_ops, fs_leaf_hash[0],
+				                              FS_LEAVES, first, count, proof,
+				                              sizeof(proof), &proof_len)
+				    != FZN_BLOB_OK)
+					continue;
+				if (fzn_msg_data_encode(id, first, count, proof, proof_len,
+				                        parts, parts_len, wire, sizeof(wire),
+				                        &len) != FZN_MSG_OK)
+					continue;
+				(void)sim_send(&net, (uint8_t)peer, 2u, wire, len,
+				               net.now + 50u);
+			}
+			server->inbox_len = 0;
+		}
+		sim_run(&net, 4);
+
+		/* The client places whatever arrived, crediting the peer it
+		 * came from -- which is what makes the assignment table's
+		 * peer field mean anything. */
+		{
+			struct sim_host *client = &net.hosts[2];
+
+			for (e = 0; e < client->inbox_len; e++) {
+				const uint8_t *sealed[FZN_MSG_MAX_SPAN], *proof = NULL;
+				size_t sealed_len[FZN_MSG_MAX_SPAN];
+				uint64_t first = 0, count = 0;
+				uint32_t id = 0;
+				unsigned proof_len = 0;
+				fzn_msg_type_t type;
+				uint8_t src = client->inbox[e].from;
+
+				if (fzn_msg_peek(client->inbox[e].bytes, client->inbox[e].len,
+				                 &type) != FZN_MSG_OK
+				    || type != FZN_MSG_DATA)
+					continue;
+				if (fzn_msg_data_parse(client->inbox[e].bytes,
+				                       client->inbox[e].len, &id, &first, &count,
+				                       &proof, &proof_len, sealed, sealed_len,
+				                       FZN_MSG_MAX_SPAN) != FZN_MSG_OK)
+					continue;
+				if (fzn_spool_place_span(&spool, &hash_ops, first, count, sealed,
+				                         sealed_len, proof, proof_len)
+				    != FZN_SPOOL_OK)
+					continue;
+				if (fzn_transfer_delivered(&transfer, src, first, count)
+				    == FZN_TRANSFER_OK && src < 2u)
+					from_host[src]++;
+			}
+			client->inbox_len = 0;
+		}
+
+		(void)fzn_transfer_expire(&transfer, net.now);
+	}
+
+	check(fzn_spool_complete(&spool), "the swarm transfer never completed");
+	check(overlaps == 0u, "two peers were assigned overlapping ranges at once");
+	/* THE FLOOR. Without this the scenario passes when one host answered
+	   everything, which is a one-peer test wearing a swarm's clothes --
+	   and `overlaps == 0` is trivially true of a transfer that only ever
+	   had one assignment live. */
+	check(both_live > 0u, "two assignments were never live at once, so the exclusion "
+	                      "had nothing to exclude");
+	check(from_host[0] > 0u && from_host[1] > 0u,
+	      "one host supplied the whole blob, so no peer was excluded from anything");
+
+	printf("  swarm: %u rounds, %u leaves from host 0, %u from host 1, %u moments with "
+	       "two assignments live, %u overlaps\n",
+	       rounds, from_host[0], from_host[1], both_live, overlaps);
+}
+
 static void scenario_estate(void)
 {
 	static struct sim_net net;
@@ -4617,6 +4818,7 @@ int main(void)
 	scenario_restart();
 	scenario_absence();
 	scenario_filestore();
+	scenario_swarm();
 	scenario_estate();
 	scenario_tree();
 
