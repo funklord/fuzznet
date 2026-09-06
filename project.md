@@ -22788,11 +22788,156 @@ mentioned here only because it is the reason "just replicate the bytes" is not
 sufficient for this consumer -- something has to refuse what it cannot honour,
 and hydra believes that something is itself rather than the transport.
 
-## 131. Two daemons, one user, different purposes -- and sec 130 was wrong, 2026-09-06
+## 132. N processes, one identity, one dataset: yes, and the kernel is why, 2026-09-06
+
+The copyright holder's case, 2026-09-06, and this section had it wrong once
+before being corrected: **the same user, several processes, synchronising
+the same data toward other hosts.** Not two privileges -- one identity, one
+dataset, several identical workers. "The potential payoff for software
+design flexibility would be huge... software that is extremely cooperative
+and efficient in handling a distributed crypto network."
+
+(The separate point that prompted it -- a second `fuzzypicklesd` running as
+root -- is sec 131's case, which is two DIFFERENT daemons at one privilege
+and explicitly includes both of them being root.)
+
+**It solves. The network cost, the storage cost and the verification cost
+each fall to once, reads need no IPC at all, and the one thing that must be
+exclusive is exclusive for a reason the kernel can enforce exactly.**
+
+### This is harder than sec 131, not easier
+
+Same uid means the same identity directory, so **one key, one issuer** --
+and these are the same software syncing the same data, so they would write
+to the same product's streams. `chain/service.h`'s derivation, which keeps
+sec 131's two daemons apart, gives nothing here: they are the same product
+by hypothesis.
+
+So sec 131's silent collision is back and aimed at the main case rather than
+at a reserved corner. A position is `(issuer, stream, sequence)`; two
+processes issuing both produce sequence N; `record/journal.h` refuses the
+second as a duplicate, and the record is dropped with its content lost.
+
+### persist.h already names what must be exclusive
+
+Its table classifies every type by what losing it costs. Read it asking
+instead "what may several processes of one identity hold at once", and the
+partition is the same one:
+
+    MUST persist            trust anchor, prekey secret, pinned peers,
+                            ratchet chains
+                            -- mutable and NOT derivable from records, so
+                               each needs a single owner
+
+    recoverable             state, journal, revocation store, reassembly,
+                            replay window
+                            -- derived from records, so any process can
+                               rebuild or share them freely
+
+**The set that must persist is the set that must be exclusively owned**, and
+that is not a coincidence: both questions ask which facts are the node's own
+rather than consequences of records anybody can check.
+
+### What forces exclusivity, and it is the ratchet before the sequence
+
+`fzn_ratchet_chain_t` is per direction per peer, and persist.h singles it
+out as "the one where persisting at the wrong moment is worse than not
+persisting at all". **Two processes advancing one chain desynchronise it**,
+which is the thing a ratchet cannot survive.
+
+So exactly one process holds the identity's remote sessions. Sequence
+allocation then rides along on the same ownership for free -- one writer per
+`(issuer, stream)` is a consequence of there already being one face rather
+than a second mechanism to build.
+
+### The lock, and why a timeout would not do
+
+**The two are interchangeable, so this is a mutex over a job rather than an
+election.** Same software, same task: it does not matter which wins, which
+is exactly what sec 131's pair of different daemons were not.
+
+An advisory lock in the identity directory is claimed by whoever starts
+first. The kernel releases it when the holder dies -- SIGKILL and crash
+included -- so another process's blocking acquisition returns and it takes
+the work over.
+
+**And here the lock is not merely convenient, it is the only acceptable
+mechanism.** A heartbeat with a timeout can produce a FALSE failover: a slow
+or paused holder is declared dead while it is still running, and two
+processes then advance one ratchet chain. That is the unrecoverable failure
+above. **A kernel-released lock cannot produce a false positive**, because
+the release is the process ending rather than an inference about it -- so
+picking up the ratchets is safe precisely because acquiring the lock proves
+the previous owner is gone.
+
+That is the sharpest reason in this section: **a ratchet cannot tolerate a
+false failover, and only a kernel-released lock gives a failure detector
+that cannot produce one.**
+
+### What is shared, and why verification is paid once
+
+    SHARED, one copy, no IPC to read
+      record bytes             immutable and self-authenticating
+      spool / blob content     content-addressed: the digest IS the name
+      verification verdicts    sound here -- see below
+
+    EXCLUSIVE, held with the lock
+      remote sessions and ratchet chains
+      sequence allocation per stream
+      prekey secret, anchor mutation
+
+**There is no multi-writer problem in the shared part, because the shared
+part is the immutable part.** Records are append-only; a blob leaf is named
+by its own digest, so two processes writing one leaf write identical bytes
+and any interleaving yields the same file.
+
+**And a shared verification cache is sound here, which it would not be
+across a privilege boundary.** One uid is one trust domain -- these
+processes can already read each other's files and each other's identity --
+so a verdict from one is worth exactly as much as a verdict from another.
+Signature verification, the expensive operation, is therefore paid once for
+the host rather than once per process.
+
+That is the efficiency answer in one line: **network once, storage once,
+verification once, reads with no IPC, and only issuance crossing to the
+face.** Writes are rare against reads, so the one hop that remains is on the
+rare path.
+
+### What a process that is not the face does
+
+It reads the shared store directly and submits records to the face to be
+sequenced and signed. It needs no session, no ratchet and no socket. If the
+face dies it acquires the lock and becomes the face, resuming from state
+that was already on disk -- and the resumption needs no recovery code,
+because a face that stopped looks exactly like a lossy link, which
+`fzn_journal_admit` reports as a gap and `fzn_journal_next` says what to ask
+for.
+
+### What it costs to build
+
+Nothing in the protocol, which is the point.
+
+- a shared store directory, and a store seam letting a journal point at
+  records the process did not fetch itself;
+- an advisory lock in the identity directory, covering sessions and
+  sequence allocation together;
+- a submit path from a non-face process to the face, which is hop 1 and
+  already in sec 2.
+
+**sec 128's shared-memory question stops being hypothetical here.** Several
+processes over one store, with reads on the hot path and no privilege
+boundary between them, is precisely the case where a mapped region earns its
+keep -- and the absence of a privilege boundary is what disposes of that
+section's TOCTOU objection, since a peer that could corrupt the ring could
+equally rewrite the store.
+
+## 131. Two daemons, one user or both root, different purposes -- and sec 130 was wrong, 2026-09-06
 
 Raised by the copyright holder 2026-09-06, as a scenario netcfgd does not
 demonstrate and wider adoption will: **the other daemon runs as the same
-user (or both as root) and has a different purpose.** Neither is a client of
+user (or both as root) and has a different purpose.** The holder
+confirmed 2026-09-06 that fuzzypickles and netcfgd may both be running as
+root, so the both-root reading is the case rather than a corner of it. Neither is a client of
 the other. Both are supervised, long-lived, and legitimate.
 
 sec 130 said "one node per host". **That is wrong, and this is the case that
