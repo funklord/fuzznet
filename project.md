@@ -22677,6 +22677,61 @@ the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
 
+## 120. The floor refused the scenario before I could believe it, 2026-09-06
+
+`record/ledger.c` was the second module sec 119 found uncalled by any sim
+scenario. `scenario_ledger` closes it: host 0 publishes twelve versions of a
+subject to two peers, each acks what reached it, and the acks come back
+through a network that reorders six times in ten.
+
+    ledger: 12 rounds, 4 acks accepted, 6 arrived stale,
+            0 moved backwards; host 1 at 12, host 2 at 12
+
+### The floor fired on the first run, which is the point of writing it first
+
+The property is that a confirmation never moves backwards, because *"a late
+ack is reordering and not retraction"*. That rule is only consulted when an
+ack arrives after a higher one -- so the scenario counts those and refuses to
+pass without them.
+
+**The first version reported `0 arrived stale` and the floor refused it.**
+Not because the ledger was wrong: because the FIXTURE could not produce the
+arrival order the rule exists for. It sent one version, drained it and acked
+it before sending the next, so **no two acks were ever in flight together and
+none could overtake another.** Every other assertion in the scenario passed.
+
+Sending all twelve before reading any ack is the fix, and it is the whole
+difference between a scenario that exercises the rule and one that reports a
+number.
+
+This is the third instance in two days of a fixture sitting on one side of a
+boundary -- after `scrub_test` at exactly three full cells and
+`scenario_filestore` at one scrub cell and one peer -- and **the first where
+the floor caught it instead of a person.** The two before were found by
+reading a summary line and noticing something odd. This one was refused by
+the suite on its first run, which is the difference between a lens somebody
+has to remember to point and a check that fires by itself.
+
+### What it adds, stated narrowly
+
+`ledger-monotonic` already exists as a sabotage entry and the unit test
+already catches it, so **this is a second witness rather than a first.** What
+it adds is the arrangement: the unit test calls `confirm(3)` then
+`confirm(2)`, which is the author choosing the order; the scenario gets its
+order from a reordering network, which is where the defect actually comes
+from. Neutering the STALE refusal fires four assertions here, the first being
+`a confirmation moved backwards`.
+
+The other three checks are the ones the header calls the safe direction:
+a peer is behind a version above the one it confirmed, a peer never heard
+from is behind everything, and both resolve to "send it again" -- an
+under-claim costs a retransmission, an over-claim silently withholds.
+
+**And the substitution was confirmed to land before the result was read**,
+which is sec 119's lesson applied one section later: the sabotage script
+printed the site it matched, so a run that changed nothing could not be read
+as a guard nobody needed.
+
 ## 119. Two modules the sim had never called, 2026-09-06
 
 Asked mechanically rather than by eye: for every library source, how many of

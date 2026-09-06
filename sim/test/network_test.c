@@ -45,6 +45,7 @@
 #include "../../ratchet/ratchet.h"
 #include "../../chain/authz.h"
 #include "../../chain/chain_store.h"
+#include "../../record/ledger.h"
 #include "../../spool/message.h"
 #include "../../spool/transfer.h"
 #include "../../spool/scrub.h"
@@ -4157,6 +4158,165 @@ static void scenario_held_but_revoked(void)
 	       found_before, found_after, fzn_chain_err_str(before), fzn_chain_err_str(after));
 }
 
+/* ------------------------------------------------------------ scenario 24
+
+   ACKNOWLEDGEMENTS THAT ARRIVE OUT OF ORDER.
+
+   `record/ledger.h` holds one property that only a network can exercise: a
+   confirmation never moves backwards, because "a late ack is reordering and
+   not retraction". A unit test can call `confirm` with a lower version and
+   watch it refuse; what it cannot do is produce the arrival order that makes
+   the refusal necessary.
+
+   The ledger was the second module the sweep in sec 119 found uncalled by
+   any scenario -- 0 of 5 exported functions. project.md sec 120.
+
+   THE FLOOR IS BUILT IN RATHER THAN ADDED AFTER, which is the third time
+   this lens has been needed in two days and the first time it was applied
+   while writing: if no ack ever arrives after a higher one, the monotonic
+   rule is never consulted and every assertion below passes over a network
+   that happened to stay in order. So the scenario counts the stale
+   confirmations and refuses to pass without them.  */
+#define LG_VERSIONS 12u
+#define LG_KIND     0x4c454447u
+
+static void scenario_ledger(void)
+{
+	static struct sim_net net;
+	static fzn_ledger_entry_t entries[8];
+	fzn_ledger_t ledger;
+	uint8_t subject[FZN_SUBJECT_LEN];
+	uint64_t highest[3] = { 0u, 0u, 0u };
+	unsigned stale = 0, accepted = 0, backwards = 0, rounds;
+	unsigned v, i;
+
+	memset(subject, 0x5c, sizeof(subject));
+	sim_init(&net, 3u, 0x1ed6u);
+	net.loss_pct = 10;
+	net.reorder_pct = 60;
+
+	check(fzn_ledger_init(&ledger, entries, 8u) == FZN_LEDGER_OK,
+	      "the ledger did not initialise");
+
+	/* Host 0 publishes versions 1..N to hosts 1 and 2, ALL OF THEM BEFORE
+	   ANY ACK IS READ. That ordering is the whole fixture: the first
+	   version of this scenario sent one version, drained it and acked it
+	   before sending the next, so no two acks were ever in flight
+	   together and none could overtake another. It reported "0 arrived
+	   stale" and the floor below refused it -- which is the floor earning
+	   its place on the day it was written rather than months later. */
+	for (v = 1u; v <= LG_VERSIONS; v++) {
+		uint8_t note[8];
+		unsigned peer;
+
+		note[0] = (uint8_t)(v >> 24);
+		note[1] = (uint8_t)(v >> 16);
+		note[2] = (uint8_t)(v >> 8);
+		note[3] = (uint8_t)v;
+		memset(note + 4, 0, 4);
+		for (peer = 1u; peer < 3u; peer++)
+			(void)sim_send(&net, 0u, (uint8_t)peer, note, sizeof(note),
+			               net.now + 400u);
+		sim_run(&net, 1);
+	}
+	sim_run(&net, 12);
+
+	/* Each receiver acks everything that reached it, in the order it
+	   reached it -- which after a 60% reordering network is not the order
+	   it was sent in. */
+	for (i = 1u; i < 3u; i++) {
+		struct sim_host *h = &net.hosts[i];
+		size_t e;
+
+		for (e = 0; e < h->inbox_len; e++) {
+			if (h->inbox[e].len != 8u)
+				continue;
+			(void)sim_send(&net, (uint8_t)i, 0u, h->inbox[e].bytes, h->inbox[e].len,
+			               net.now + 400u);
+		}
+		h->inbox_len = 0;
+	}
+	sim_run(&net, 16);
+
+	/* Host 0 records what came back, in arrival order. */
+	{
+		struct sim_host *sender = &net.hosts[0];
+		size_t e;
+
+		for (e = 0; e < sender->inbox_len; e++) {
+			uint8_t src = sender->inbox[e].from;
+			uint64_t acked, before, after;
+			fzn_ledger_err_t err;
+
+			if (sender->inbox[e].len != 8u || src >= 3u)
+				continue;
+			acked = ((uint64_t)sender->inbox[e].bytes[0] << 24)
+			        | ((uint64_t)sender->inbox[e].bytes[1] << 16)
+			        | ((uint64_t)sender->inbox[e].bytes[2] << 8)
+			        | (uint64_t)sender->inbox[e].bytes[3];
+
+			before = fzn_ledger_confirmed(&ledger, net.hosts[src].pubkey, subject,
+			                              LG_KIND);
+			err = fzn_ledger_confirm(&ledger, net.hosts[src].pubkey, subject,
+			                         LG_KIND, acked);
+			after = fzn_ledger_confirmed(&ledger, net.hosts[src].pubkey, subject,
+			                             LG_KIND);
+
+			if (err == FZN_LEDGER_ERR_STALE)
+				stale++;
+			else if (err == FZN_LEDGER_OK)
+				accepted++;
+
+			/* THE PROPERTY, CHECKED AFTER EVERY SINGLE CONFIRMATION
+			   rather than at the end. A value that dips and
+			   recovers is invisible to a final comparison. */
+			if (after < before)
+				backwards++;
+			if (after > highest[src])
+				highest[src] = after;
+		}
+		sender->inbox_len = 0;
+	}
+	rounds = LG_VERSIONS;
+
+	check(backwards == 0u, "a confirmation moved backwards: a late ack was read as a "
+	                       "retraction");
+	/* THE FLOOR. Without a single out-of-order ack the rule above was
+	   never consulted, and every check here would pass over a network
+	   that stayed in order. */
+	check(stale > 0u, "no acknowledgement ever arrived after a higher one, so the "
+	                  "monotonic rule was never exercised");
+	check(accepted > 0u, "no acknowledgement was accepted at all");
+
+	/* Everything unknown is behind, which is the safe direction: an
+	   under-claim costs a retransmission and an over-claim skips something
+	   a peer needs. */
+	for (i = 1u; i < 3u; i++) {
+		uint64_t got = fzn_ledger_confirmed(&ledger, net.hosts[i].pubkey, subject,
+		                                    LG_KIND);
+
+		check(got == highest[i], "the ledger's answer is not the highest it accepted");
+		check(!fzn_ledger_behind(&ledger, net.hosts[i].pubkey, subject, LG_KIND, got),
+		      "a peer is behind the version it has confirmed");
+		check(fzn_ledger_behind(&ledger, net.hosts[i].pubkey, subject, LG_KIND, got + 1u),
+		      "a peer is not behind a version above the one it confirmed");
+	}
+	{
+		uint8_t stranger[FZN_PUBKEY_LEN];
+
+		memset(stranger, 0xab, sizeof(stranger));
+		check(fzn_ledger_confirmed(&ledger, stranger, subject, LG_KIND) == 0u,
+		      "a peer never heard from has confirmed something");
+		check(fzn_ledger_behind(&ledger, stranger, subject, LG_KIND, 1u),
+		      "a peer never heard from is not behind, which would withhold silently");
+	}
+
+	printf("  ledger: %u rounds, %u acks accepted, %u arrived stale, %u moved backwards; "
+	       "host 1 at %llu, host 2 at %llu\n",
+	       rounds, accepted, stale, backwards, (unsigned long long)highest[1],
+	       (unsigned long long)highest[2]);
+}
+
 static void scenario_estate(void)
 {
 	static struct sim_net net;
@@ -4911,6 +5071,7 @@ int main(void)
 	scenario_filestore();
 	scenario_swarm();
 	scenario_held_but_revoked();
+	scenario_ledger();
 	scenario_estate();
 	scenario_tree();
 
