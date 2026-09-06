@@ -22870,6 +22870,83 @@ anything could have said otherwise.
 copyright holder should know the size before it happens rather than find it
 inside a commit about a widget.
 
+## 148. The refile: the lock is what makes resuming sound, 2026-09-06
+
+Directed by the copyright holder 2026-09-06: build the mover, with proper
+locks, readable progress, **the only thing that can be done with the
+catalogue during this process is to ask for progress** so a consumer shows a
+progress bar instead of a tree, and the job must survive crashes and restarts.
+
+All four are built. This library still moves no files: it computes, for each
+node, the path its file has and the path it should have, and a consumer
+performs the move -- the division `record/store.h` and `spool/spool.h` make,
+and what keeps a catalogue usable where storage is not a filesystem.
+
+### The order of operations, which the exclusivity forces
+
+    1. capture   snapshot the filing as it stands. NOT yet locked, because
+                 this is the last moment the old arrangement exists.
+    2. change    the consumer sets a new root and new marks, freely.
+    3. begin     lock. From here everything but progress answers BUSY.
+    4. at / advance   the node and both paths; the consumer moves the file.
+    5. end       unlock, and refused while work remains.
+
+**Capturing BEFORE the change is the only order that works.** After it the
+old paths are gone and there is nothing to move files from -- and since the
+lock forbids changing the filing, the capture cannot happen inside it.
+
+### The lock is not only a safety property
+
+The cursor is a COUNT, and the captured moves are sorted by node id so the
+order is the same on every machine and after every restart whatever order the
+edge table happens to be in. **Because nothing may change the catalogue while
+a refile runs, the set cannot move underneath the count.**
+
+So the exclusivity the holder asked for is what makes resuming from a number
+sound. Without it the cursor would name a different node after a restart,
+repeating one file and skipping another.
+
+### Crash survival is shaped for, not implemented
+
+A job is plain data -- ids and counts over a caller's array, no pointers into
+the catalogue -- so a consumer writes it beside its store and reads it back.
+On restart it rebuilds the catalogue from records as it always would, loads
+the job, calls `begin` again and carries on. **Beginning a job already under
+way is therefore not an error: it is what a restart does**, and refusing
+would make a crash unrecoverable by the one path that exists to recover from
+it.
+
+The suite proves it by rebuilding a catalogue with the edges asserted in a
+DIFFERENT order and resuming the copied job on it -- so the cursor is shown
+not to depend on the table.
+
+`advance` is called AFTER the file moves, so a crash between them repeats one
+move rather than skipping it. That is the direction that loses nothing: a
+consumer moving a file to where it already is has an error it can ignore.
+
+### Four things the harness found
+
+- **A sabotage that could not land reported SURVIVED.** The ad-hoc harness
+  used while building this did not check that its substitution applied, so a
+  stale anchor read as a defended guard -- `evidence.md`'s rule about
+  confirming the sabotage landed, met in the tool doing the confirming. It
+  says "SUBSTITUTION FAILED -- not a result" now.
+- **`fzn_catalog_linked`'s busy guard is not its own.** It delegates to
+  `fzn_catalog_edge_of`, which refuses first, so the guard in `linked`
+  cannot be individually broken. The entry names `edge_of`, which is the one
+  that does the work.
+- **`fzn_catalog_apply`'s guard IS its own, and only one case shows it.**
+  Every catalogue body reaches `assert`, which refuses -- so removing
+  `apply`'s guard changes nothing until the body is NOT a catalogue
+  assertion, where it would be classified as SHAPE. A catalogue mid-refile
+  telling a caller what it thinks of bytes it has refused to look at. There
+  is a case for it.
+- **The refile walks a SECOND filing, and its bound needed its own test.**
+  `was_path` climbs the captured arrangement, which the catalogue no longer
+  holds, so a cycle there is expressible even when the current filing is a
+  clean tree. Breaking that bound survived every existing case until one was
+  written for it.
+
 ## 147. The filing: one tree per host, and it does not travel, 2026-09-06
 
 Asked for by the copyright holder 2026-09-06: one structure close to the root

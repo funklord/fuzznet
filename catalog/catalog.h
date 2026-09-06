@@ -88,6 +88,11 @@ typedef enum fzn_catalog_err {
 	 * not belong to has the filing and the DAG out of step, and saying so
 	 * is more use than quietly creating the edge. */
 	FZN_CATALOG_ERR_ABSENT = -5,
+	/* A refile is under way, and the only thing a catalogue answers then is
+	 * progress. NOT A FAULT -- it is the expected reply to every other call
+	 * while files are being moved, and a consumer meeting it shows a
+	 * progress bar rather than a tree. project.md sec 148. */
+	FZN_CATALOG_ERR_BUSY = -6,
 	/* Bytes that are not a catalogue assertion, or are one written a way
 	 * this build does not produce. Distinct from MALFORMED because that is
 	 * the caller's bug and this is a PEER'S BYTES -- the same distinction
@@ -181,6 +186,10 @@ typedef struct fzn_catalog {
 	 * would otherwise pick. */
 	fzn_catalog_id_t filing_root;
 	int filing_root_set;
+	/* Whether a refile holds this catalogue. See the refile section: while
+	 * it is set, every call but progress and the refile's own answers
+	 * FZN_CATALOG_ERR_BUSY. */
+	int refiling;
 	/* The content table, or nulls when a consumer uses this as structure
 	 * only. See `fzn_catalog_content_init`. */
 	struct fzn_catalog_entry *entries;
@@ -545,5 +554,128 @@ const fzn_catalog_id_t *fzn_catalog_filed_under(const fzn_catalog_t *catalog,
  */
 size_t fzn_catalog_filed_path(const fzn_catalog_t *catalog, const fzn_catalog_id_t *node,
                               fzn_catalog_id_t *out, size_t cap);
+
+
+/*
+ * THE REFILE: moving every file into the formation a new filing describes.
+ *
+ * project.md sec 148, and the holder's requirements in their own terms: the
+ * catalogue is LOCKED for the duration, PROGRESS can be read, **the only
+ * thing that can be done with the catalogue during this process is to ask for
+ * progress** -- so a consumer shows a progress bar instead of a tree -- and
+ * the job SURVIVES CRASHES AND RESTARTS.
+ *
+ * THIS LIBRARY MOVES NO FILES. It computes, for each node, the path it had
+ * and the path it should have; a consumer performs the move and says when it
+ * is done. That is the same division `record/store.h` and `spool/spool.h`
+ * make, and it is what keeps a catalogue usable on a host whose storage is
+ * not a filesystem at all.
+ *
+ * THE ORDER OF OPERATIONS, because it is not the obvious one and the
+ * exclusivity forces it:
+ *
+ *   1. `fzn_catalog_refile_capture` -- snapshot the filing as it stands.
+ *      The catalogue is NOT yet locked, because this is the last moment the
+ *      old arrangement exists.
+ *   2. the consumer changes the filing: a new root, new marks, freely.
+ *   3. `fzn_catalog_refile_begin` -- lock. From here the catalogue answers
+ *      FZN_CATALOG_ERR_BUSY to everything but progress and the calls below.
+ *   4. `fzn_catalog_refile_at` gives the node and both paths; the consumer
+ *      moves the file and calls `fzn_catalog_refile_advance`.
+ *   5. `fzn_catalog_refile_end` unlocks, and refuses while work remains.
+ *
+ * Capturing BEFORE the change is the only order that works: after it, the old
+ * paths are gone, and there is nothing to move files from.
+ *
+ * THE CURSOR IS A COUNT, AND THE EXCLUSIVITY IS WHAT MAKES IT MEAN ANYTHING.
+ * The captured moves are sorted by node id, so the order is the same on every
+ * machine and after every restart whatever order the edge table happens to be
+ * in -- and because nothing may change the catalogue while a refile runs, the
+ * set cannot move underneath the count. **The lock is not only a safety
+ * property; it is what makes resuming from a number sound.**
+ *
+ * CRASH SURVIVAL IS THE CONSUMER'S TO ARRANGE AND THIS IS SHAPED FOR IT. A
+ * job is plain data -- ids and counts over a caller's array, no pointers into
+ * the catalogue -- so a consumer writes it beside its store and reads it back.
+ * On restart it rebuilds the catalogue from records as it always would, loads
+ * the job, calls `begin` again, and carries on from the cursor. Beginning a
+ * job that is already under way is therefore NOT an error: it is what a
+ * restart does.
+ */
+
+typedef struct fzn_catalog_move {
+	fzn_catalog_id_t node;
+	/* Where it was filed when the refile was captured. The path is walked
+	 * from these rather than from the catalogue, because the catalogue now
+	 * holds the NEW filing. */
+	fzn_catalog_id_t was_under;
+} fzn_catalog_move_t;
+
+typedef struct fzn_catalog_refile {
+	fzn_catalog_move_t *moves;
+	size_t capacity;
+	size_t used;
+	/* How many have been completed. The whole of the resumable state, and
+	 * meaningful only because nothing may change the catalogue meanwhile. */
+	size_t done;
+	fzn_catalog_id_t was_root;
+	int captured;
+} fzn_catalog_refile_t;
+
+/*
+ * Snapshot the filing as it stands, into caller-owned rows.
+ *
+ * Every node with a filing parent is captured, sorted by id. A catalogue with
+ * no filing root is refused: there is nothing to move files from.
+ *
+ * FZN_CATALOG_ERR_FULL when there are more filed nodes than rows -- loudly,
+ * because a capture that silently held some of them would move some of the
+ * files and leave the rest where a stale path says they are.
+ */
+fzn_catalog_err_t fzn_catalog_refile_capture(const fzn_catalog_t *catalog,
+                                             fzn_catalog_refile_t *job,
+                                             fzn_catalog_move_t *moves, size_t capacity);
+
+/* Take the catalogue. Idempotent, because a restart calls it again on a job
+ * it has loaded from disk. */
+fzn_catalog_err_t fzn_catalog_refile_begin(fzn_catalog_t *catalog,
+                                           fzn_catalog_refile_t *job);
+
+/*
+ * The step the cursor is on: which node, where its file is now, and where it
+ * belongs.
+ *
+ * `was` is walked from the captured filing and `now` from the catalogue's
+ * current one, so the two describe the same node before and after. Either may
+ * come back empty -- a node whose old chain no longer reaches the old root,
+ * or whose new filing does not reach the new one -- and a consumer meeting an
+ * empty path has a file it cannot place rather than a file at the root.
+ *
+ * FZN_CATALOG_ERR_ABSENT when the cursor is past the last move, which is how
+ * a caller knows the work is finished.
+ */
+fzn_catalog_err_t fzn_catalog_refile_at(const fzn_catalog_t *catalog,
+                                        const fzn_catalog_refile_t *job,
+                                        fzn_catalog_id_t *node_out,
+                                        fzn_catalog_id_t *was_out, size_t was_cap,
+                                        size_t *was_len, fzn_catalog_id_t *now_out,
+                                        size_t now_cap, size_t *now_len);
+
+/* One step done. The consumer calls this AFTER the file has moved, so a crash
+ * between the move and this call repeats one move rather than skipping it --
+ * which is the direction that loses nothing, since moving a file to where it
+ * already is costs a consumer an error it can ignore. */
+fzn_catalog_err_t fzn_catalog_refile_advance(fzn_catalog_refile_t *job);
+
+/* What to draw. Answers while a refile is under way, which is the one thing
+ * the holder asked stay possible. */
+fzn_catalog_err_t fzn_catalog_refile_progress(const fzn_catalog_refile_t *job,
+                                              size_t *done_out, size_t *total_out);
+
+/* Give the catalogue back. Refuses while work remains, so a consumer cannot
+ * end a refile it abandoned and leave half its files under paths nothing
+ * describes. */
+fzn_catalog_err_t fzn_catalog_refile_end(fzn_catalog_t *catalog,
+                                         fzn_catalog_refile_t *job);
 
 #endif

@@ -185,7 +185,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_spool_err_str", r_spool, 6 },
 	{ "fzn_claim_err_str", r_claim, 5 },
 	{ "fzn_record_store_err_str", r_rstore, 6 },
-	{ "fzn_catalog_err_str", r_catalog, 6 },
+	{ "fzn_catalog_err_str", r_catalog, 7 },
 	{ "fzn_catalog_content_str", r_ckind, 3 },
 #ifdef FZN_CLI_ON
 	{ "fzn_cli_err_str", r_cli, 4 },

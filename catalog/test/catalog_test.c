@@ -1171,6 +1171,391 @@ static void test_the_filing_caller_bugs_are_refused(void)
 	CHECK(fzn_catalog_filed_path(&cat, idp(0x10), out, 0) == 0, "a zero bound");
 }
 
+/* ---- the refile --------------------------------------------------------- */
+
+/* root 0x01 holds 0x02, which holds the file 0x03. */
+static void build_filed(fzn_catalog_t *cat, fzn_catalog_edge_t *rows, size_t cap)
+{
+	REQUIRE(fzn_catalog_init(cat, rows, cap, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_assert(cat, idp(0x01), idp(0x02), ALICE, 1, 1) == FZN_CATALOG_OK, "a");
+	REQUIRE(fzn_catalog_assert(cat, idp(0x02), idp(0x03), ALICE, 2, 1) == FZN_CATALOG_OK, "b");
+	REQUIRE(fzn_catalog_file_under(cat, idp(0x01), idp(0x02)) == FZN_CATALOG_OK, "file a");
+	REQUIRE(fzn_catalog_file_under(cat, idp(0x02), idp(0x03)) == FZN_CATALOG_OK, "file b");
+	REQUIRE(fzn_catalog_filing_root(cat, idp(0x01)) == FZN_CATALOG_OK, "root");
+}
+
+/*
+ * THE WHOLE SEQUENCE. Capture the old arrangement, change the filing, lock,
+ * and step -- and each step names the node with the path its file has and the
+ * path it should have. sec 148.
+ */
+static void test_a_refile_names_both_paths(void)
+{
+	fzn_catalog_edge_t rows[8];
+	fzn_catalog_move_t moves[8];
+	fzn_catalog_refile_t job;
+	fzn_catalog_t cat;
+	fzn_catalog_id_t node, was[8], now[8];
+	size_t was_len = 0, now_len = 0;
+
+	build_filed(&cat, rows, 8);
+
+	/* Captured BEFORE the change, because after it the old paths are gone
+	 * and there is nothing to move files from. */
+	REQUIRE(fzn_catalog_refile_capture(&cat, &job, moves, 8) == FZN_CATALOG_OK, "capture");
+	CHECK(job.used == 2, "two filed nodes were not captured, got %zu", job.used);
+
+	/* A new formation: 0x03 moves up to sit directly under the root. */
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x01), idp(0x03), ALICE, 3, 1) == FZN_CATALOG_OK,
+	        "the new membership");
+	REQUIRE(fzn_catalog_file_under(&cat, idp(0x01), idp(0x03)) == FZN_CATALOG_OK, "refile it");
+
+	REQUIRE(fzn_catalog_refile_begin(&cat, &job) == FZN_CATALOG_OK, "begin");
+
+	/* Sorted by id, so 0x02 comes first on every machine and after every
+	 * restart, whatever order the edge table is in. */
+	REQUIRE(fzn_catalog_refile_at(&cat, &job, &node, was, 8, &was_len, now, 8, &now_len)
+	                == FZN_CATALOG_OK, "the first step");
+	CHECK(memcmp(node.b, idp(0x02)->b, FZN_CATALOG_ID_LEN) == 0,
+	      "the moves are not in id order");
+	CHECK(was_len == 2 && now_len == 2, "0x02 moved, though nothing about it changed");
+	REQUIRE(fzn_catalog_refile_advance(&job) == FZN_CATALOG_OK, "advance");
+
+	REQUIRE(fzn_catalog_refile_at(&cat, &job, &node, was, 8, &was_len, now, 8, &now_len)
+	                == FZN_CATALOG_OK, "the second step");
+	CHECK(memcmp(node.b, idp(0x03)->b, FZN_CATALOG_ID_LEN) == 0, "the second node is wrong");
+	/* THE POINT: was root/0x02/0x03, now root/0x03. */
+	CHECK(was_len == 3, "the old path is %zu deep, wanted three", was_len);
+	CHECK(now_len == 2, "the new path is %zu deep, wanted two", now_len);
+	CHECK(was_len == 3 && memcmp(was[1].b, idp(0x02)->b, FZN_CATALOG_ID_LEN) == 0,
+	      "the old path does not run through the directory the file was in");
+	CHECK(now_len == 2 && memcmp(now[1].b, idp(0x03)->b, FZN_CATALOG_ID_LEN) == 0,
+	      "the new path does not end at the node");
+	REQUIRE(fzn_catalog_refile_advance(&job) == FZN_CATALOG_OK, "advance");
+
+	CHECK(fzn_catalog_refile_at(&cat, &job, &node, was, 8, &was_len, now, 8, &now_len)
+	              == FZN_CATALOG_ERR_ABSENT, "the cursor did not run out");
+	CHECK(fzn_catalog_refile_end(&cat, &job) == FZN_CATALOG_OK, "end");
+}
+
+/*
+ * THE MOVES ARE SORTED BY ID, NOT BY TABLE ORDER, and this fixture files the
+ * higher id FIRST so the two disagree. Without the sort the cursor would mean
+ * a different node on a machine whose edges arrived in another order, and a
+ * job resumed after a restart would repeat one file and skip another.
+ */
+static void test_the_moves_are_sorted_by_id(void)
+{
+	fzn_catalog_edge_t rows[8];
+	fzn_catalog_move_t moves[8];
+	fzn_catalog_refile_t job;
+	fzn_catalog_t cat;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 8, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	/* 0x33 is filed before 0x22, so the table order is the reverse of the
+	 * id order and a capture that kept table order would show it. */
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x01), idp(0x33), ALICE, 1, 1) == FZN_CATALOG_OK, "a");
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x01), idp(0x22), ALICE, 2, 1) == FZN_CATALOG_OK, "b");
+	REQUIRE(fzn_catalog_file_under(&cat, idp(0x01), idp(0x33)) == FZN_CATALOG_OK, "file high");
+	REQUIRE(fzn_catalog_file_under(&cat, idp(0x01), idp(0x22)) == FZN_CATALOG_OK, "file low");
+	REQUIRE(fzn_catalog_filing_root(&cat, idp(0x01)) == FZN_CATALOG_OK, "root");
+
+	REQUIRE(fzn_catalog_refile_capture(&cat, &job, moves, 8) == FZN_CATALOG_OK, "capture");
+	REQUIRE(job.used == 2, "two filed nodes were not captured");
+	CHECK(memcmp(moves[0].node.b, idp(0x22)->b, FZN_CATALOG_ID_LEN) == 0,
+	      "the moves follow the edge table rather than the id order");
+	CHECK(memcmp(moves[1].node.b, idp(0x33)->b, FZN_CATALOG_ID_LEN) == 0,
+	      "the second move is not the higher id");
+}
+
+/*
+ * THE ONLY THING A CATALOGUE ANSWERS MID-REFILE IS PROGRESS, which is the
+ * holder's requirement in as many words -- a consumer shows a bar rather than
+ * a tree.
+ */
+static void test_only_progress_answers_during_a_refile(void)
+{
+	fzn_catalog_edge_t rows[8];
+	fzn_catalog_move_t moves[8];
+	fzn_catalog_entry_t entries[4];
+	fzn_catalog_refile_t job;
+	fzn_catalog_t cat;
+	fzn_catalog_id_t out[8];
+	fzn_catalog_entry_t e;
+	fzn_record_t rec;
+	uint8_t body[FZN_CATALOG_EDGE_BODY_LEN];
+	const uint8_t value[1] = { 7 };
+	size_t done = 0, total = 0, len = 0;
+
+	build_filed(&cat, rows, 8);
+	REQUIRE(fzn_catalog_content_init(&cat, entries, 4, &HELD_WINS) == FZN_CATALOG_OK,
+	        "content init");
+	REQUIRE(fzn_catalog_refile_capture(&cat, &job, moves, 8) == FZN_CATALOG_OK, "capture");
+
+	/* THE CONTROL: everything works before the lock, so the refusals below
+	 * are the lock rather than a broken fixture. */
+	CHECK(fzn_catalog_linked(&cat, idp(0x01), idp(0x02)), "the fixture has no membership");
+	CHECK(fzn_catalog_members(&cat, idp(0x01), out, 8) == 1, "the fixture lists nothing");
+	CHECK(fzn_catalog_filed_path(&cat, idp(0x03), out, 8) == 3, "the fixture has no path");
+
+	REQUIRE(fzn_catalog_refile_begin(&cat, &job) == FZN_CATALOG_OK, "begin");
+
+	/* Writes. */
+	CHECK(fzn_catalog_assert(&cat, idp(0x01), idp(0x09), ALICE, 9, 1) == FZN_CATALOG_ERR_BUSY,
+	      "a membership was asserted during a refile");
+	CHECK(fzn_catalog_file_under(&cat, idp(0x01), idp(0x02)) == FZN_CATALOG_ERR_BUSY,
+	      "a node was filed during a refile");
+	CHECK(fzn_catalog_filing_root(&cat, idp(0x02)) == FZN_CATALOG_ERR_BUSY,
+	      "the filing root moved during a refile");
+	e = inline_entry(0x03, value, 1, ALICE, 1);
+	CHECK(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_ERR_BUSY,
+	      "content was set during a refile");
+
+	/* AND A PEER'S RECORD WAITS, which is the one that would otherwise
+	 * change the set the cursor is counting through. */
+	REQUIRE(fzn_catalog_edge_encode(idp(0x01), idp(0x09), 1, body, sizeof(body), &len)
+	                == FZN_CATALOG_OK, "encode");
+	REQUIRE(as_record(&rec, BOB, 1u, body, len), "sign");
+	CHECK(fzn_catalog_apply(&cat, rec) == FZN_CATALOG_ERR_BUSY,
+	      "a peer's record was applied during a refile");
+
+	/* AND A BODY THAT IS NOT OURS ANSWERS BUSY TOO, which is what makes
+	 * `apply`'s own guard load-bearing rather than a second copy of the
+	 * one in `assert`. Without it this would be classified as SHAPE -- a
+	 * catalogue mid-refile telling a caller what it thinks of bytes it has
+	 * refused to look at. */
+	body[0] = 0xfeu;
+	REQUIRE(as_record(&rec, BOB, 2u, body, len), "sign a body that is not ours");
+	CHECK(fzn_catalog_apply(&cat, rec) == FZN_CATALOG_ERR_BUSY,
+	      "a body that is not a catalogue assertion was classified during a refile");
+
+	/* Reads, all of them. */
+	CHECK(!fzn_catalog_linked(&cat, idp(0x01), idp(0x02)),
+	      "a membership was readable during a refile");
+	CHECK(fzn_catalog_edge_of(&cat, idp(0x01), idp(0x02)) == NULL, "an edge was readable");
+	CHECK(fzn_catalog_members(&cat, idp(0x01), out, 8) == 0, "members were listed");
+	CHECK(fzn_catalog_parents(&cat, idp(0x02), out, 8) == 0, "parents were listed");
+	CHECK(fzn_catalog_intersect(&cat, idp(0x01), 1, out, 8) == 0, "a search answered");
+	CHECK(fzn_catalog_content_of(&cat, idp(0x03)) == NULL, "content was readable");
+	CHECK(fzn_catalog_filed_path(&cat, idp(0x03), out, 8) == 0, "a path was readable");
+
+	/* AND PROGRESS ANSWERS, which is the whole of what a consumer can do. */
+	CHECK(fzn_catalog_refile_progress(&job, &done, &total) == FZN_CATALOG_OK,
+	      "progress was refused, so a consumer has nothing to draw");
+	CHECK(done == 0 && total == 2, "progress is %zu of %zu, wanted 0 of 2", done, total);
+
+	/* Finish, and the catalogue comes back. */
+	REQUIRE(fzn_catalog_refile_advance(&job) == FZN_CATALOG_OK, "advance one");
+	CHECK(fzn_catalog_refile_progress(&job, &done, &total) == FZN_CATALOG_OK, "progress");
+	CHECK(done == 1, "progress did not advance");
+	REQUIRE(fzn_catalog_refile_advance(&job) == FZN_CATALOG_OK, "advance two");
+	REQUIRE(fzn_catalog_refile_end(&cat, &job) == FZN_CATALOG_OK, "end");
+	CHECK(fzn_catalog_linked(&cat, idp(0x01), idp(0x02)),
+	      "the catalogue did not come back after the refile");
+}
+
+/*
+ * IT SURVIVES A CRASH. The job is plain data over a caller's array, so a
+ * consumer writes it to disk; a restart rebuilds the catalogue from records,
+ * loads the job and begins the same one.
+ */
+static void test_a_refile_resumes_after_a_restart(void)
+{
+	fzn_catalog_edge_t rows[8], rebuilt_rows[8];
+	fzn_catalog_move_t moves[8], saved_moves[8];
+	fzn_catalog_refile_t job, saved;
+	fzn_catalog_t cat, rebuilt;
+	fzn_catalog_id_t node, was[8], now[8];
+	size_t was_len = 0, now_len = 0, done = 0, total = 0;
+
+	build_filed(&cat, rows, 8);
+	REQUIRE(fzn_catalog_refile_capture(&cat, &job, moves, 8) == FZN_CATALOG_OK, "capture");
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x01), idp(0x03), ALICE, 3, 1) == FZN_CATALOG_OK,
+	        "the new membership");
+	REQUIRE(fzn_catalog_file_under(&cat, idp(0x01), idp(0x03)) == FZN_CATALOG_OK, "refile it");
+	REQUIRE(fzn_catalog_refile_begin(&cat, &job) == FZN_CATALOG_OK, "begin");
+	REQUIRE(fzn_catalog_refile_advance(&job) == FZN_CATALOG_OK, "one move done");
+
+	/* The crash: nothing is unlocked, nothing is ended. What a consumer had
+	 * written to disk is the job's bytes and the rows behind it -- copied
+	 * here, which is what persisting and reloading amounts to. */
+	memcpy(saved_moves, moves, sizeof(saved_moves));
+	saved = job;
+	saved.moves = saved_moves;
+
+	/* The restart: a fresh catalogue rebuilt from the same records, in a
+	 * DIFFERENT edge order, so this proves the cursor does not depend on
+	 * the table. */
+	REQUIRE(fzn_catalog_init(&rebuilt, rebuilt_rows, 8, &ADD_WINS) == FZN_CATALOG_OK,
+	        "rebuild init");
+	REQUIRE(fzn_catalog_assert(&rebuilt, idp(0x02), idp(0x03), ALICE, 2, 1) == FZN_CATALOG_OK,
+	        "b first this time");
+	REQUIRE(fzn_catalog_assert(&rebuilt, idp(0x01), idp(0x03), ALICE, 3, 1) == FZN_CATALOG_OK,
+	        "then the new one");
+	REQUIRE(fzn_catalog_assert(&rebuilt, idp(0x01), idp(0x02), ALICE, 1, 1) == FZN_CATALOG_OK,
+	        "then a");
+	REQUIRE(fzn_catalog_file_under(&rebuilt, idp(0x01), idp(0x02)) == FZN_CATALOG_OK, "file a");
+	REQUIRE(fzn_catalog_file_under(&rebuilt, idp(0x01), idp(0x03)) == FZN_CATALOG_OK, "file b");
+	REQUIRE(fzn_catalog_filing_root(&rebuilt, idp(0x01)) == FZN_CATALOG_OK, "root");
+
+	/* BEGINNING AN ALREADY-STARTED JOB IS WHAT A RESTART DOES, so it must
+	 * not be an error -- refusing here would make a crash unrecoverable by
+	 * the one path that exists to recover from it. */
+	CHECK(fzn_catalog_refile_begin(&rebuilt, &saved) == FZN_CATALOG_OK,
+	      "a restarted job could not begin again");
+	CHECK(fzn_catalog_refile_progress(&saved, &done, &total) == FZN_CATALOG_OK, "progress");
+	CHECK(done == 1 && total == 2, "the restart lost the cursor: %zu of %zu", done, total);
+
+	/* And it picks up at the SECOND move, not the first. */
+	REQUIRE(fzn_catalog_refile_at(&rebuilt, &saved, &node, was, 8, &was_len, now, 8, &now_len)
+	                == FZN_CATALOG_OK, "the resumed step");
+	CHECK(memcmp(node.b, idp(0x03)->b, FZN_CATALOG_ID_LEN) == 0,
+	      "the restart resumed at the wrong node");
+	CHECK(was_len == 3 && now_len == 2, "the resumed step has the wrong paths");
+
+	REQUIRE(fzn_catalog_refile_advance(&saved) == FZN_CATALOG_OK, "advance");
+	CHECK(fzn_catalog_refile_end(&rebuilt, &saved) == FZN_CATALOG_OK, "end");
+}
+
+/* A refile that is not finished cannot be ended: unlocking a catalogue whose
+ * files are half moved would tell the next reader a tree that is not on the
+ * disk. */
+static void test_an_unfinished_refile_cannot_be_ended(void)
+{
+	fzn_catalog_edge_t rows[8];
+	fzn_catalog_move_t moves[8];
+	fzn_catalog_refile_t job;
+	fzn_catalog_t cat;
+	fzn_catalog_id_t out[8];
+
+	build_filed(&cat, rows, 8);
+	REQUIRE(fzn_catalog_refile_capture(&cat, &job, moves, 8) == FZN_CATALOG_OK, "capture");
+	REQUIRE(fzn_catalog_refile_begin(&cat, &job) == FZN_CATALOG_OK, "begin");
+
+	CHECK(fzn_catalog_refile_end(&cat, &job) == FZN_CATALOG_ERR_BUSY,
+	      "a refile with work left was ended");
+	CHECK(fzn_catalog_members(&cat, idp(0x01), out, 8) == 0,
+	      "the refused end unlocked the catalogue anyway");
+
+	REQUIRE(fzn_catalog_refile_advance(&job) == FZN_CATALOG_OK, "one");
+	CHECK(fzn_catalog_refile_end(&cat, &job) == FZN_CATALOG_ERR_BUSY,
+	      "a refile one move short was ended");
+	REQUIRE(fzn_catalog_refile_advance(&job) == FZN_CATALOG_OK, "two");
+	CHECK(fzn_catalog_refile_advance(&job) == FZN_CATALOG_ERR_ABSENT,
+	      "the cursor advanced past the end");
+	CHECK(fzn_catalog_refile_end(&cat, &job) == FZN_CATALOG_OK, "a finished refile was refused");
+}
+
+static void test_the_refile_caller_bugs_are_refused(void)
+{
+	fzn_catalog_edge_t rows[8];
+	fzn_catalog_move_t moves[8];
+	fzn_catalog_move_t one[1];
+	fzn_catalog_refile_t job, fresh;
+	fzn_catalog_t cat;
+	fzn_catalog_id_t node, was[8], now[8];
+	size_t was_len = 0, now_len = 0, done = 0, total = 0;
+
+	memset(&fresh, 0, sizeof(fresh));
+	build_filed(&cat, rows, 8);
+
+	CHECK(fzn_catalog_refile_capture(NULL, &job, moves, 8) == FZN_CATALOG_ERR_MALFORMED,
+	      "a null catalogue captured");
+	CHECK(fzn_catalog_refile_capture(&cat, NULL, moves, 8) == FZN_CATALOG_ERR_MALFORMED,
+	      "a null job");
+	CHECK(fzn_catalog_refile_capture(&cat, &job, NULL, 8) == FZN_CATALOG_ERR_MALFORMED,
+	      "null rows");
+	CHECK(fzn_catalog_refile_capture(&cat, &job, moves, 0) == FZN_CATALOG_ERR_MALFORMED,
+	      "a job that can hold nothing");
+	/* FULL IS LOUD: a capture holding some of the filed nodes would move
+	 * some of the files and leave the rest under stale paths. */
+	CHECK(fzn_catalog_refile_capture(&cat, &job, one, 1) == FZN_CATALOG_ERR_FULL,
+	      "a capture too small to hold every filed node reported success");
+
+	/* A JOB THAT WAS NEVER CAPTURED IS NOT A JOB. */
+	CHECK(fzn_catalog_refile_begin(&cat, &fresh) == FZN_CATALOG_ERR_MALFORMED,
+	      "an uncaptured job began");
+	CHECK(fzn_catalog_refile_advance(&fresh) == FZN_CATALOG_ERR_MALFORMED,
+	      "an uncaptured job advanced");
+	CHECK(fzn_catalog_refile_progress(&fresh, &done, &total) == FZN_CATALOG_ERR_MALFORMED,
+	      "an uncaptured job reported progress");
+	CHECK(fzn_catalog_refile_end(&cat, &fresh) == FZN_CATALOG_ERR_MALFORMED,
+	      "an uncaptured job ended");
+
+	REQUIRE(fzn_catalog_refile_capture(&cat, &job, moves, 8) == FZN_CATALOG_OK, "capture");
+	CHECK(fzn_catalog_refile_progress(&job, NULL, &total) == FZN_CATALOG_ERR_MALFORMED,
+	      "a null done");
+	CHECK(fzn_catalog_refile_progress(&job, &done, NULL) == FZN_CATALOG_ERR_MALFORMED,
+	      "a null total");
+	CHECK(fzn_catalog_refile_at(&cat, &job, NULL, was, 8, &was_len, now, 8, &now_len)
+	              == FZN_CATALOG_ERR_MALFORMED, "a null node out");
+	CHECK(fzn_catalog_refile_at(&cat, &job, &node, was, 8, NULL, now, 8, &now_len)
+	              == FZN_CATALOG_ERR_MALFORMED, "a null was length");
+
+	/* Capturing while a refile runs is refused: the arrangement it would
+	 * snapshot is the one being moved out of. */
+	REQUIRE(fzn_catalog_refile_begin(&cat, &job) == FZN_CATALOG_OK, "begin");
+	CHECK(fzn_catalog_refile_capture(&cat, &fresh, moves, 8) == FZN_CATALOG_ERR_BUSY,
+	      "a second capture was taken during a refile");
+}
+
+/* A capture needs a filing root, or every old path is empty and every file
+ * reads as misplaced. */
+/*
+ * THE REFILE'S OWN WALK IS BOUNDED TOO, and it is a second walk rather than
+ * the same one: it climbs the CAPTURED filing, which the catalogue no longer
+ * holds. A cycle in what was captured is therefore expressible even when the
+ * catalogue's current filing is a clean tree, so the bound has to be there
+ * and has to be tested separately.
+ */
+static void test_the_captured_walk_is_bounded(void)
+{
+	fzn_catalog_edge_t rows[8];
+	fzn_catalog_move_t moves[8];
+	fzn_catalog_refile_t job;
+	fzn_catalog_t cat;
+	fzn_catalog_id_t node, was[8], now[8];
+	size_t was_len = 0, now_len = 0;
+
+	/* A capture whose stored parents form a cycle: 0x05 was under 0x06 and
+	 * 0x06 under 0x05, and the root is neither. */
+	REQUIRE(fzn_catalog_init(&cat, rows, 8, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x06), idp(0x05), ALICE, 1, 1) == FZN_CATALOG_OK, "a");
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x05), idp(0x06), ALICE, 2, 1) == FZN_CATALOG_OK, "b");
+	REQUIRE(fzn_catalog_file_under(&cat, idp(0x06), idp(0x05)) == FZN_CATALOG_OK, "file a");
+	REQUIRE(fzn_catalog_file_under(&cat, idp(0x05), idp(0x06)) == FZN_CATALOG_OK, "file b");
+	REQUIRE(fzn_catalog_filing_root(&cat, idp(0x01)) == FZN_CATALOG_OK, "root");
+	REQUIRE(fzn_catalog_refile_capture(&cat, &job, moves, 8) == FZN_CATALOG_OK, "capture");
+	REQUIRE(job.used == 2, "the cycle was not captured");
+
+	REQUIRE(fzn_catalog_refile_begin(&cat, &job) == FZN_CATALOG_OK, "begin");
+	/* IT MUST RETURN rather than run to the end of the stack buffer. An
+	 * empty old path is the honest answer: a file whose old location cannot
+	 * be named is one the consumer cannot move, and saying so beats
+	 * walking off the array. */
+	REQUIRE(fzn_catalog_refile_at(&cat, &job, &node, was, 8, &was_len, now, 8, &now_len)
+	                == FZN_CATALOG_OK, "the step");
+	CHECK(was_len == 0, "a captured filing cycle produced a path of %zu", was_len);
+
+	REQUIRE(fzn_catalog_refile_advance(&job) == FZN_CATALOG_OK, "one");
+	REQUIRE(fzn_catalog_refile_advance(&job) == FZN_CATALOG_OK, "two");
+	REQUIRE(fzn_catalog_refile_end(&cat, &job) == FZN_CATALOG_OK, "end");
+}
+
+static void test_a_capture_needs_a_root(void)
+{
+	fzn_catalog_edge_t rows[8];
+	fzn_catalog_move_t moves[8];
+	fzn_catalog_refile_t job;
+	fzn_catalog_t cat;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 8, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x01), idp(0x02), ALICE, 1, 1) == FZN_CATALOG_OK, "a");
+	REQUIRE(fzn_catalog_file_under(&cat, idp(0x01), idp(0x02)) == FZN_CATALOG_OK, "file");
+	CHECK(fzn_catalog_refile_capture(&cat, &job, moves, 8) == FZN_CATALOG_ERR_ABSENT,
+	      "a capture with no filing root reported success");
+}
+
 static void test_the_errors_render(void)
 {
 	CHECK(fzn_catalog_err_str(FZN_CATALOG_OK)[0] != '\0', "OK renders empty");
@@ -1179,6 +1564,7 @@ static void test_the_errors_render(void)
 	CHECK(fzn_catalog_err_str(FZN_CATALOG_ERR_STALE)[0] != '\0', "STALE renders empty");
 	CHECK(fzn_catalog_err_str(FZN_CATALOG_ERR_SHAPE)[0] != '\0', "SHAPE renders empty");
 	CHECK(fzn_catalog_err_str(FZN_CATALOG_ERR_ABSENT)[0] != '\0', "ABSENT renders empty");
+	CHECK(fzn_catalog_err_str(FZN_CATALOG_ERR_BUSY)[0] != '\0', "BUSY renders empty");
 	CHECK(fzn_catalog_err_str((fzn_catalog_err_t)-99)[0] != '\0',
 	      "an unknown error renders empty");
 }
@@ -1228,6 +1614,14 @@ int main(void)
 	test_a_path_runs_from_the_root_down();
 	test_a_path_that_does_not_reach_the_root_is_none();
 	test_the_filing_caller_bugs_are_refused();
+	test_a_refile_names_both_paths();
+	test_the_moves_are_sorted_by_id();
+	test_only_progress_answers_during_a_refile();
+	test_a_refile_resumes_after_a_restart();
+	test_an_unfinished_refile_cannot_be_ended();
+	test_the_refile_caller_bugs_are_refused();
+	test_the_captured_walk_is_bounded();
+	test_a_capture_needs_a_root();
 	test_the_errors_render();
 	test_the_suite_can_tell_pass_from_fail();
 

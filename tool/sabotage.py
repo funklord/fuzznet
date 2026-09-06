@@ -1312,8 +1312,11 @@ SABOTAGES = [
 	(
 		"filing-walk-is-bounded",
 		"catalog/catalog.c",
-		"\t\tif (depth == FZN_CATALOG_FILING_MAX_DEPTH)\n\t\t\treturn 0;\n",
-		"\t\tif (depth == FZN_CATALOG_FILING_MAX_DEPTH * 2u)\n\t\t\treturn 0;\n",
+		# The refile's own walk has the same bound, so this carries the line
+		# after it. `--verify` refused the bare form for matching two sites,
+		# which is the anchor-uniqueness rule meeting a second walk.
+		"\t\tif (depth == FZN_CATALOG_FILING_MAX_DEPTH)\n\t\t\treturn 0;\n\t\twalk[depth++] = *at;\n",
+		"\t\tif (depth == FZN_CATALOG_FILING_MAX_DEPTH * 2u)\n\t\t\treturn 0;\n\t\twalk[depth++] = *at;\n",
 		"one filing slot per node makes a cycle expressible, so the walk is bounded rather than promised -- and the bound is what the stack buffer is sized for",
 	),
 	(
@@ -1322,6 +1325,69 @@ SABOTAGES = [
 		"\tfor (i = 0; i < depth && i < cap; i++)\n\t\tout[i] = walk[depth - 1u - i];\n",
 		"\tfor (i = 0; i < depth && i < cap; i++)\n\t\tout[i] = walk[i];\n",
 		"a path is written root first, which is also the order a caller creates directories in, and reversing it hands every consumer a path built backwards",
+	),
+	(
+		"refile-locks-out-writes",
+		"catalog/catalog.c",
+		"\tif (catalog->refiling)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n\t/* A set cannot contain itself.",
+		"\tif (0)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n\t/* A set cannot contain itself.",
+		"the only thing a catalogue answers mid-refile is progress, and a membership arriving then changes the set the resume cursor is counting through",
+	),
+	(
+		"refile-locks-out-reads",
+		"catalog/catalog.c",
+		"\tif (catalog && catalog->refiling)\n\t\treturn NULL;\n\tif (!usable(catalog) || !parent || !child)\n",
+		"\tif (0)\n\t\treturn NULL;\n\tif (!usable(catalog) || !parent || !child)\n",
+		"a consumer draws a progress bar rather than a tree that is half moved, so even a read refuses -- and this is the guard the others delegate to",
+	),
+	(
+		"refile-locks-out-peers",
+		"catalog/catalog.c",
+		"\t * counting through. A consumer holds it and applies it after. */\n\tif (catalog->refiling)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n",
+		"\t * counting through. A consumer holds it and applies it after. */\n\tif (0)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n",
+		"refusing before the body is parsed is what makes this guard its own rather than a second copy of assert's: without it a body that is not ours is classified mid-refile",
+	),
+	(
+		"refile-moves-sorted",
+		"catalog/catalog.c",
+		"\t\tfor (j = job->used; j > 0 && id_before(&entry.node, &moves[j - 1u].node); j--)\n",
+		"\t\tfor (j = job->used; j > 0 && 0; j--)\n",
+		"the cursor is a count into the sorted order, so without the sort a job resumed on a machine whose edges arrived differently repeats one file and skips another",
+	),
+	(
+		"refile-capture-full-is-loud",
+		"catalog/catalog.c",
+		"\t\tif (job->used == capacity)\n\t\t\treturn FZN_CATALOG_ERR_FULL;\n",
+		"\t\tif (job->used == capacity)\n\t\t\tbreak;\n",
+		"a capture that quietly held some of the filed nodes moves some of the files and leaves the rest where a path nobody holds any more says they are",
+	),
+	(
+		"refile-end-refuses-unfinished",
+		"catalog/catalog.c",
+		"\tif (job->done < job->used)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n",
+		"\tif (0)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n",
+		"ending an abandoned refile unlocks a catalogue whose files are half under paths it no longer describes, and the next reader is told a tree that is not on the disk",
+	),
+	(
+		"refile-was-path-from-capture",
+		"catalog/catalog.c",
+		"\t\twalk[depth++] = job->moves[i].was_under;\n",
+		"\t\twalk[depth++] = *fzn_catalog_filed_under(catalog, &walk[depth - 1u]);\n",
+		"the old path is walked from the capture because the catalogue now holds the NEW filing, so reading it there would give the same path twice and move nothing",
+	),
+	(
+		"refile-capture-needs-a-root",
+		"catalog/catalog.c",
+		"\tif (!catalog->filing_root_set)\n\t\treturn FZN_CATALOG_ERR_ABSENT;\n",
+		"\tif (0)\n\t\treturn FZN_CATALOG_ERR_ABSENT;\n",
+		"a capture with no root produces a job whose old paths are all empty, which reads as every file being misplaced rather than as the missing root it is",
+	),
+	(
+		"refile-walk-is-bounded",
+		"catalog/catalog.c",
+		"\t\tif (depth == FZN_CATALOG_FILING_MAX_DEPTH)\n\t\t\treturn 0;\n\t\twalk[depth++] = job->moves[i].was_under;\n",
+		"\t\tif (depth == FZN_CATALOG_FILING_MAX_DEPTH * 2u)\n\t\t\treturn 0;\n\t\twalk[depth++] = job->moves[i].was_under;\n",
+		"a second walk, over the CAPTURED filing the catalogue no longer holds, so a cycle there is expressible even when the current filing is a clean tree -- and it writes past the buffer without this",
 	),
 	(
 		"provision-envelope-verified",
