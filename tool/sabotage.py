@@ -2020,7 +2020,35 @@ def main(argv):
 				detail = errors[0].strip()[-70:]
 			else:
 				verdict = "CAUGHT"
-				detail = named[-1].strip()[:70] if named else ""
+				# PREFER A FAILURE FROM THE SABOTAGED MODULE'S OWN
+				# SUITE, because which line is shown was otherwise a
+				# fact about RUN ORDER rather than about coverage.
+				#
+				# `named[-1]` is the last suite to fail, and the last
+				# suite to run is arbitrary with respect to the file
+				# that was broken. Measured 2026-09-06: breaking
+				# `trust/trust.c` reported a failure from
+				# `persist_test.c`, which reads as though trust's own
+				# suite did not hold its own guard -- and it does, and
+				# is the first to say so. The report sent a reader to
+				# the wrong file.
+				#
+				# So it now shows a line from a suite under the same
+				# top-level directory as the sabotaged source when
+				# there is one. When there is NOT, the line shown is
+				# still another module's, and that is now informative
+				# rather than misleading: it says no test in this
+				# module's own suite caught it, which is a gap worth
+				# seeing.
+				# The suite named for the sabotaged file, by this
+				# tree's convention that `<dir>/<stem>.c` is covered
+				# by `<dir>/test/<stem>_test.c`. A module with
+				# several suites falls back, which is correct: the
+				# fallback is only misleading when the module's own
+				# suite is silent, and that is the case worth seeing.
+				stem = os.path.basename(rel)[:-2] + "_test.c"
+				mine = [ln for ln in named if stem in ln]
+				detail = (mine[0] if mine else named[-1]).strip()[:70] if named else ""
 			results.append((sid, verdict, detail or why))
 			print("%-24s %-9s %s" % (sid, verdict, detail), flush=True)
 	finally:

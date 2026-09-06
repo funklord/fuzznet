@@ -88,12 +88,10 @@ static void test_an_anchor_comes_back_with_its_provenance(void)
 {
 	fzn_trust_t adopted, pinned, back;
 	uint8_t root[FZN_PUBKEY_LEN];
-	uint8_t other[FZN_PUBKEY_LEN];
 	uint8_t blob[FZN_PERSIST_MAX];
 	size_t len = 0;
 
 	fill(root, sizeof(root), 0x21);
-	fill(other, sizeof(other), 0x22);
 
 	/* ADOPTED MUST COME BACK ADOPTED. A host that took a key on faith and
 	 * restarted claiming its user had confirmed one has laundered its own
@@ -138,10 +136,15 @@ static void test_an_anchor_comes_back_with_its_provenance(void)
 	CHECK(fzn_trust_root(&back) != NULL
 	              && memcmp(fzn_trust_root(&back), root, FZN_PUBKEY_LEN) == 0,
 	      "a self-rooted anchor came back holding another key");
-	/* The restored anchor must still accept the join, which is what makes
-	 * the round trip worth anything. */
-	CHECK(fzn_trust_pin(&back, other) == FZN_TRUST_OK,
-	      "a restored self-root refused the join a live one permits");
+	/* AND NOT THE JOIN RULE, WHICH IS trust/'s AND NOT THIS MODULE'S.
+	 * A `fzn_trust_pin` over the restored anchor was asserted here until
+	 * 2026-09-06 and has been removed: it is permitted exactly when the
+	 * source is SELF, so it re-tested the line above -- and because
+	 * `make test` stops at the first failing suite and this one runs
+	 * earlier, it FIRED FIRST and hid trust_test's own coverage of the
+	 * same rule from `tool/sabotage.py`'s report. A test asserting another
+	 * module's rule does not add coverage; it moves the credit.
+	 * project.md sec 139. */
 }
 
 static void test_an_empty_anchor_is_not_stored(void)

@@ -22792,6 +22792,71 @@ mentioned here only because it is the reason "just replicate the bytes" is not
 sufficient for this consumer -- something has to refuse what it cannot honour,
 and hydra believes that something is itself rather than the transport.
 
+## 139. A suite that does not name itself cannot be credited, 2026-09-06
+
+Reported at the end of sec 138's work: `tool/sabotage.py` credited two of
+trust's guards to `persist_test`, which reads as though trust's own suite did
+not hold them. The copyright holder asked for that fixed.
+
+**The first thing measured was whether it was true, and it was not.**
+Breaking `trust/trust.c` and running `trust/test/trust_test` ALONE catches
+every one of the four guards, first, with a specific message. The coverage
+was there the whole time; what was wrong was the report. `evidence.md` says
+to suspect the check before the code, and here the check was a reading of a
+tool's output.
+
+Three separate causes, and each is a defect in its own right.
+
+### 1. The suite did not name itself
+
+`trust_test` printed `FAIL: <what>` where every other suite in this tree
+prints `FAIL <file>.c:<line>: <what>`. So nothing -- a tool or a person --
+could attribute its failures, and a harness reporting one line per sabotage
+had no way to prefer it.
+
+**A test that does not name itself cannot be credited with what it catches.**
+Fixed by routing both helpers through `__LINE__` macros, which is what the
+other suites do.
+
+### 2. The harness reported the LAST failing suite
+
+`detail = named[-1]` -- so which line was shown was a fact about **run
+order** rather than about coverage. It now prefers a line from the suite
+named for the sabotaged file, by this tree's convention that `<dir>/<stem>.c`
+is covered by `<dir>/test/<stem>_test.c`, and falls back to the last as
+before.
+
+**The fallback is now informative rather than misleading**: a report naming
+another module's suite says no test in this module's own suite caught it,
+which is a gap worth seeing.
+
+### 3. A test in the wrong module fired first and took the credit
+
+sec 138 had added, to `persist_test`, an assertion that a RESTORED self-root
+still accepts the join. That is `trust/`'s rule, not `persist/`'s -- the join
+is permitted exactly when the source is SELF, so it re-tested the line above
+it -- and because `make test` stops at the first failing suite and persist
+runs earlier, it fired first and hid trust's own coverage from the report.
+
+**A test asserting another module's rule does not add coverage; it moves the
+credit.** Removed, and the round-trip of the provenance, which IS persist's
+own property, stays.
+
+### What remains, and why it is right
+
+`trust-self-records-its-source` is still reported through `persist_test`, and
+that one is correct: recording a self-root as PINNED breaks persist's own
+round-trip guarantee as well as trust's rule, so persist holds an independent
+guard on it. **That is corroboration rather than masking**, and the
+difference is whether the assertion belongs to the module making it.
+
+### And the suite had no positive control
+
+Found while fixing the above: `trust_test` carried none, where every other
+suite here does. So "48 checks, 0 failures" was evidence that 48 things ran
+and not that any of them could have said otherwise -- a suite never seen to
+fail, which is the shape `evidence.md` opens with. It has one now.
+
 ## 138. FZN_TRUST_SELF and the CLI vocabulary, built, 2026-09-06
 
 Both directed by the copyright holder 2026-09-06, together with the

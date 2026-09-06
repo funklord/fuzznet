@@ -15,24 +15,38 @@
 static int failures;
 static int checks;
 
-static void expect(int ok, const char *what)
+/*
+ * A FAILURE NAMES ITS FILE AND LINE, as every other suite in this tree does.
+ *
+ * It did not until 2026-09-06, and the cost was not cosmetic. `tool/sabotage.py`
+ * reports one failure line per sabotage and had no way to tell this suite's
+ * output from any other's, so breaking `trust/trust.c` was reported through
+ * `persist_test.c` -- which reads as though trust's own suite did not hold its
+ * own guard. It does, and is the first to say so. A test that does not name
+ * itself cannot be credited with what it catches. project.md sec 139.
+ */
+static void expect_at(int ok, int line, const char *what)
 {
 	checks++;
 	if (!ok) {
 		failures++;
-		fprintf(stderr, "  FAIL: %s\n", what);
+		fprintf(stderr, "  FAIL trust_test.c:%d: %s\n", line, what);
 	}
 }
 
-static void expect_err(fzn_trust_err_t got, fzn_trust_err_t want, const char *what)
+static void expect_err_at(fzn_trust_err_t got, fzn_trust_err_t want, int line,
+                          const char *what)
 {
 	checks++;
 	if (got != want) {
 		failures++;
-		fprintf(stderr, "  FAIL: %s -- got \"%s\", wanted \"%s\"\n", what, fzn_trust_err_str(got),
-		       fzn_trust_err_str(want));
+		fprintf(stderr, "  FAIL trust_test.c:%d: %s -- got \"%s\", wanted \"%s\"\n", line,
+		        what, fzn_trust_err_str(got), fzn_trust_err_str(want));
 	}
 }
+
+#define expect(ok, what) expect_at((ok) ? 1 : 0, __LINE__, (what))
+#define expect_err(got, want, what) expect_err_at((got), (want), __LINE__, (what))
 
 int main(void)
 {
@@ -201,6 +215,22 @@ int main(void)
 	expect(fzn_trust_source_of(NULL) == FZN_TRUST_NONE, "a null trust has no source");
 	expect(fzn_trust_adopted_at(NULL) == 0, "a null trust has no moment");
 	fzn_trust_init(NULL); /* must not crash */
+
+	/*
+	 * THE POSITIVE CONTROL, WHICH THIS SUITE DID NOT HAVE until
+	 * 2026-09-06. Every other suite here carries one and this one was
+	 * counting checks nobody had seen fail -- so a run reporting
+	 * "48 checks, 0 failures" was evidence that 48 things ran, and not
+	 * that any of them could have said otherwise. project.md sec 139.
+	 */
+	{
+		int before = failures;
+
+		expect_at(0, __LINE__, "deliberate");
+		expect(failures == before + 1, "a failing check must be counted");
+		failures = before;
+		checks -= 1;
+	}
 
 	printf("trust_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
