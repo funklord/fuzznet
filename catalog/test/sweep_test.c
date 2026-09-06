@@ -61,6 +61,12 @@ static void check_at(int ok, int line, const char *fmt, ...)
 
 static uint8_t ALICE[FZN_PUBKEY_LEN];
 
+/* The moment a capture reads retention at. sec 157: the sweep takes it
+ * once, here, because a job that re-read the clock per step would be a
+ * different job at every step. Not zero, so a capture that ignored the
+ * argument would still be answering a question. */
+#define NOW ((uint64_t)1000)
+
 static fzn_catalog_id_t id(uint8_t seed)
 {
 	fzn_catalog_id_t out;
@@ -188,7 +194,7 @@ static void test_a_blob_a_retained_node_needs_is_not_swept(void)
 	REQUIRE(fzn_catalog_retain(&cat, idp(0x12), FZN_CATALOG_RETAIN_DROP) == FZN_CATALOG_OK,
 	        "a drop was refused");
 
-	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, &job, removals, 4, &plan) ==
+	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, NOW, &job, removals, 4, &plan) ==
 	                FZN_CATALOG_OK,
 	        "a capture was refused");
 	CHECK(plan.planned == 1, "planned %zu removals where one node still needs its blob",
@@ -224,7 +230,7 @@ static void test_the_last_copy_is_not_swept(void)
 	e = blob_entry(0x11, 0xa1, 200);
 	REQUIRE(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK, "a blob was refused");
 
-	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, &job, removals, 4, &plan) ==
+	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, NOW, &job, removals, 4, &plan) ==
 	                FZN_CATALOG_OK,
 	        "a capture was refused");
 	CHECK(plan.planned == 1 && job.removals[0].root[0] == 0xa0,
@@ -235,7 +241,7 @@ static void test_the_last_copy_is_not_swept(void)
 
 	/* A HIGHER BAR HOLDS BACK MORE, which is what makes the threshold the
 	 * caller's rather than this library's. */
-	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 4, &job, removals, 4, &plan) ==
+	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 4, NOW, &job, removals, 4, &plan) ==
 	                FZN_CATALOG_OK,
 	        "a capture was refused");
 	CHECK(plan.planned == 0 && plan.last_copy == 2,
@@ -244,7 +250,7 @@ static void test_the_last_copy_is_not_swept(void)
 	/* AND ZERO SWITCHES THE GUARD OFF ENTIRELY. A caller that says zero has
 	 * said it takes responsibility -- right for a cache, wrong for the only
 	 * copy of a photograph, and only the caller knows which it has. */
-	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 0, &job, removals, 4, &plan) ==
+	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 0, NOW, &job, removals, 4, &plan) ==
 	                FZN_CATALOG_OK,
 	        "a capture was refused");
 	CHECK(plan.planned == 2 && plan.last_copy == 0,
@@ -275,14 +281,14 @@ static void test_a_witness_seam_that_cannot_answer_refuses_the_deletion(void)
 	e = blob_entry(0x10, 0xa0, 100);
 	REQUIRE(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK, "a blob was refused");
 
-	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &empty, 1, &job, removals, 4, &plan) ==
+	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &empty, 1, NOW, &job, removals, 4, &plan) ==
 	                FZN_CATALOG_OK,
 	        "a capture with an unanswerable witness seam was refused");
 	CHECK(plan.planned == 0 && plan.last_copy == 1,
 	      "an ops struct with no callback was read as witnesses, which deletes on the "
 	      "strength of an answer nobody gave");
 
-	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, NULL, 1, &job, removals, 4, &plan) ==
+	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, NULL, 1, NOW, &job, removals, 4, &plan) ==
 	                FZN_CATALOG_OK,
 	        "a capture with no witness seam at all was refused");
 	CHECK(plan.planned == 0 && plan.last_copy == 1,
@@ -312,7 +318,7 @@ static void test_what_is_not_here_is_not_a_removal(void)
 	e = blob_entry(0x11, 0xa1, 200);
 	REQUIRE(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK, "a blob was refused");
 
-	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, &job, removals, 4, &plan) ==
+	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, NOW, &job, removals, 4, &plan) ==
 	                FZN_CATALOG_OK,
 	        "a capture was refused");
 	CHECK(plan.planned == 1 && plan.absent == 1,
@@ -356,7 +362,7 @@ static void test_a_sweep_survives_a_restart(void)
 		        "a blob was refused");
 	}
 
-	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, &job, removals, 4, &plan) ==
+	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, NOW, &job, removals, 4, &plan) ==
 	                FZN_CATALOG_OK,
 	        "a capture was refused");
 	REQUIRE(plan.planned == 3, "expected three removals, planned %zu", plan.planned);
@@ -453,7 +459,7 @@ static void test_a_sweep_and_a_refile_do_not_share_a_catalogue(void)
 	e = blob_entry(0x10, 0xa0, 100);
 	REQUIRE(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK, "a blob was refused");
 
-	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, &job, removals, 4, &plan) ==
+	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, NOW, &job, removals, 4, &plan) ==
 	                FZN_CATALOG_OK,
 	        "a capture was refused");
 	REQUIRE(fzn_catalog_refile_capture(&cat, &refile, moves, 4) == FZN_CATALOG_OK,
@@ -478,7 +484,7 @@ static void test_a_sweep_and_a_refile_do_not_share_a_catalogue(void)
 
 	/* A CAPTURE IS REFUSED WHILE ANY JOB HOLDS THE CATALOGUE, since it
 	 * would be deciding against an arrangement that is being changed. */
-	CHECK(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, &job, removals, 4, &plan) ==
+	CHECK(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, NOW, &job, removals, 4, &plan) ==
 	              FZN_CATALOG_ERR_BUSY,
 	      "a capture ran while a job held the catalogue");
 
@@ -511,7 +517,7 @@ static void test_retention_decides_the_candidates(void)
 	e = blob_entry(0x10, 0xa0, 100);
 	REQUIRE(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK, "a blob was refused");
 
-	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, &job, removals, 4, &plan) ==
+	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, NOW, &job, removals, 4, &plan) ==
 	                FZN_CATALOG_OK,
 	        "a capture was refused");
 	CHECK(plan.planned == 1,
@@ -519,7 +525,7 @@ static void test_retention_decides_the_candidates(void)
 	      "made keeping the thing a host opts into");
 
 	REQUIRE(fzn_catalog_retain_all(&cat, 1) == FZN_CATALOG_OK, "keep-all refused");
-	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, &job, removals, 4, &plan) ==
+	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, NOW, &job, removals, 4, &plan) ==
 	                FZN_CATALOG_OK,
 	        "a capture was refused");
 	CHECK(plan.planned == 0 && plan.retained == 1,
@@ -552,7 +558,7 @@ static void test_truncation_is_counted(void)
 		        "a blob was refused");
 	}
 
-	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, &job, removals, 1, &plan) ==
+	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, NOW, &job, removals, 1, &plan) ==
 	                FZN_CATALOG_OK,
 	        "a truncated capture was refused, though truncation is reported and not an "
 	        "error");
@@ -589,7 +595,7 @@ static void test_a_shared_dropped_blob_is_removed_once(void)
 		        "a blob was refused");
 	}
 
-	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, &job, removals, 4, &plan) ==
+	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, NOW, &job, removals, 4, &plan) ==
 	                FZN_CATALOG_OK,
 	        "a capture was refused");
 	CHECK(plan.planned == 1 && plan.duplicates == 2,
@@ -623,22 +629,22 @@ static void test_arguments(void)
 	e = blob_entry(0x10, 0xa0, 100);
 	REQUIRE(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK, "a blob was refused");
 
-	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, &job, removals, 4, &plan) ==
+	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, NOW, &job, removals, 4, &plan) ==
 	                FZN_CATALOG_OK,
 	        "a capture was refused");
 	REQUIRE(plan.planned == 1, "the first capture found nothing to carry into the next");
 
-	CHECK(fzn_catalog_sweep_capture(NULL, &held, &seen, 1, &job, removals, 4, &plan) ==
+	CHECK(fzn_catalog_sweep_capture(NULL, &held, &seen, 1, NOW, &job, removals, 4, &plan) ==
 	              FZN_CATALOG_ERR_MALFORMED,
 	      "a null catalogue was accepted");
 	CHECK(plan.planned == 0,
 	      "a refused capture left the previous round's count, so a caller reading the "
 	      "plan after an error reads a number about something else");
-	CHECK(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, &job, removals, 0, &plan) ==
+	CHECK(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, NOW, &job, removals, 0, &plan) ==
 	              FZN_CATALOG_ERR_MALFORMED,
 	      "a capacity of zero was accepted, though a job that can hold nothing plans "
 	      "nothing and reports success doing it");
-	CHECK(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, &job, removals, 4, NULL) ==
+	CHECK(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, NOW, &job, removals, 4, NULL) ==
 	              FZN_CATALOG_ERR_MALFORMED,
 	      "nowhere to answer");
 
@@ -658,6 +664,69 @@ static void test_arguments(void)
 	      "an uncaptured job was ended");
 }
 
+/* THE HOLDER'S REQUEST, END TO END. sec 157: "delete this in thirty days" is
+ * a retention that changes at a moment, and what makes it a DELETION is that
+ * the sweep then finds it -- so the case that matters is not that the mode
+ * flips but that the same catalogue, swept at two moments, plans differently.
+ *
+ * `now` IS READ AT CAPTURE AND NOWHERE ELSE, which is what keeps sec 155's
+ * cursor sound: a job that re-read the clock per step would be a different
+ * job at every step, and a restart would resume into a decision nobody took.
+ */
+static void test_a_schedule_becomes_a_sweep(void)
+{
+	fzn_catalog_edge_t rows[8];
+	fzn_catalog_entry_t entries[4];
+	fzn_catalog_hold_t holds[4];
+	fzn_catalog_removal_t removals[4];
+	fzn_catalog_sweep_t job;
+	fzn_catalog_sweep_plan_t plan;
+	fzn_catalog_t cat;
+	fzn_catalog_entry_t e;
+	struct store store = { 0, 0, 3, 0, 0 };
+	fzn_catalog_holdings_ops_t held = { store_holds, &store };
+	fzn_catalog_witness_ops_t seen = { store_others, &store };
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 8, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_content_init(&cat, entries, 4, &HELD_WINS) == FZN_CATALOG_OK,
+	        "the content table would not init");
+	REQUIRE(fzn_catalog_hold_init(&cat, holds, 4) == FZN_CATALOG_OK,
+	        "the retention table would not init");
+	REQUIRE(fzn_catalog_retain_all(&cat, 1) == FZN_CATALOG_OK, "keep-all refused");
+
+	e = blob_entry(0x10, 0xa0, 100);
+	REQUIRE(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK, "a blob was refused");
+	REQUIRE(fzn_catalog_retain_until(&cat, idp(0x10), FZN_CATALOG_RETAIN_KEEP, 100,
+	                                 FZN_CATALOG_RETAIN_DROP) == FZN_CATALOG_OK,
+	        "a scheduled retention was refused");
+
+	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, 99, &job, removals, 4,
+	                                  &plan) == FZN_CATALOG_OK,
+	        "a capture was refused");
+	CHECK(plan.planned == 0 && plan.retained == 1,
+	      "a node still inside its deadline was planned for removal");
+
+	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, 100, &job, removals, 4,
+	                                  &plan) == FZN_CATALOG_OK,
+	        "a capture was refused");
+	CHECK(plan.planned == 1 && plan.retained == 0,
+	      "the deadline passed and the node was not planned: %zu planned, %zu retained",
+	      plan.planned, plan.retained);
+	CHECK(job.removals[0].root[0] == 0xa0, "the wrong blob was planned");
+
+	/* AND THE SCHEDULE DOES NOT DEFEAT THE GUARDS. A node whose deadline
+	 * has passed is a candidate like any other, so a blob a retained node
+	 * still needs survives it -- which is the property that would be
+	 * easiest to lose by treating a deadline as a licence to delete. */
+	e = blob_entry(0x11, 0xa0, 100);
+	REQUIRE(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK, "a blob was refused");
+	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, 100, &job, removals, 4,
+	                                  &plan) == FZN_CATALOG_OK,
+	        "a capture was refused");
+	CHECK(plan.planned == 0 && plan.shared == 1,
+	      "a blob another node still keeps was removed because a deadline passed");
+}
+
 int main(void)
 {
 	memset(ALICE, 0xa1, sizeof(ALICE));
@@ -672,6 +741,7 @@ int main(void)
 	test_truncation_is_counted();
 	test_a_shared_dropped_blob_is_removed_once();
 	test_arguments();
+	test_a_schedule_becomes_a_sweep();
 
 	printf("sweep_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

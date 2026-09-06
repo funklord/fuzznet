@@ -201,6 +201,14 @@ typedef struct fzn_catalog_sweep {
  * which is right for a cache and wrong for the only copy of a photograph, and
  * the caller is the one who knows which it has.
  *
+ * `now` IS READ ONCE, HERE, AND NOWHERE ELSE IN THE JOB. sec 157 gave
+ * retention deadlines, so "does this host keep it" is a question with a
+ * moment in it -- and taking that moment at capture is what keeps sec 155's
+ * cursor sound. A sweep that re-read the clock per step would be a different
+ * sweep at every step, and a job resumed after a restart would resume into a
+ * decision nobody took. A consumer that wants the schedule's later answer
+ * captures again.
+ *
  * ROWS ARE SORTED BY NODE ID, so the order is the same on every machine and
  * after every restart whatever order the content table happens to be in. That
  * is what lets the cursor be a count.
@@ -211,7 +219,8 @@ typedef struct fzn_catalog_sweep {
 fzn_catalog_err_t fzn_catalog_sweep_capture(const fzn_catalog_t *catalog,
                                             const fzn_catalog_holdings_ops_t *holdings,
                                             const fzn_catalog_witness_ops_t *witness,
-                                            size_t min_others, fzn_catalog_sweep_t *job,
+                                            size_t min_others, uint64_t now,
+                                            fzn_catalog_sweep_t *job,
                                             fzn_catalog_removal_t *removals, size_t capacity,
                                             fzn_catalog_sweep_plan_t *plan);
 

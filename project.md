@@ -22870,6 +22870,146 @@ anything could have said otherwise.
 copyright holder should know the size before it happens rather than find it
 inside a commit about a widget.
 
+## 157. The deletion schedule, and where a clock belongs, 2026-09-06
+
+The copyright holder, on sec 155's remaining open half: "do the schedule for
+planned deletion next." sec 155 had read "planned deletion" as a deletion that
+is planned -- computed, safe, resumable -- and recorded the other reading: one
+scheduled for a future time, which retention had no vocabulary for. DEFAULT,
+KEEP and DROP say what, never when.
+
+### The shape is a pair, and one field would have had to guess
+
+A retention row gains `until` and `then`: `mode` applies until `until`, and
+from `until` onwards the row says `then`. Zero is no deadline and behaves
+exactly as sec 152 built it.
+
+**"Delete this in thirty days" is KEEP until T, then DROP**, which is the
+holder's request read straight off the arguments.
+
+**A single "expires" field would have had to pick what happens afterwards, and
+either choice is wrong somewhere.** Lapsing to the catalogue's default is what
+a consumer wants when the deadline is a budget; lapsing to DROP is what it
+wants when the deadline is a promise. And the two are not merely different --
+with one field the answer would depend on `fzn_catalog_retain_all`, so **a
+promise to delete would become a promise to keep the moment somebody flipped
+the catalogue's own bit**, silently and for every scheduled node at once. The
+suite asserts both halves: a row lapsing to DEFAULT follows the catalogue in
+both directions, and one with an explicit DROP does not move with it.
+
+### Where the clock came from, which was a reading rather than a decision
+
+The first instinct was to hold `now` on the catalogue and set it with a
+`fzn_catalog_now()`. Reading the tree settled it the other way in one command:
+`chain/authz.h`, `chain/chain_store.h`, `chain/chain.h`, `frame/freshness.h`,
+`prekey/prekey.h`, `link/link.h` and `provision/provision.h` **all take
+`uint64_t now` at the call site**. Seven modules is not a coincidence, it is
+the convention.
+
+Following it turned out to be better on the merits as well, which is worth
+recording because the convention was the reason and the merits were the
+discovery:
+
+- **There is no clock to forget to set.** Held state would have made a
+  consumer that never set it get "no deadline has ever passed" -- safe, silent
+  and permanent, which is the shape of a feature that quietly does nothing.
+- **It cannot drift under a job.** sec 155's cursor is sound because the
+  decision is taken at capture and never again. A catalogue holding a clock
+  that anybody could advance would have made `fzn_catalog_keeps` answer
+  differently mid-sweep, and a job resumed after a restart would resume into a
+  decision nobody took. `fzn_catalog_sweep_capture` takes `now` once.
+
+**`>=` and not `>`**: a row saying "keep until T" has stopped keeping at T,
+which is the only reading in which scheduling for a moment and asking at that
+moment agree.
+
+### The asymmetry in the signatures is sec 154's argument, made visible
+
+`fzn_catalog_copy_want` takes `now`. `fzn_catalog_copy_holdings` and
+`fzn_catalog_copy_offer` do not.
+
+That is not an oversight: what a host has DECIDED to keep is now a question
+with a moment in it, and what it HOLDS is not. A holdings announcement reads
+the seam and never the retention table, so there is no time at which its
+answer differs. **A `now` on those would be a parameter nothing could use, and
+the day somebody made it do something the fact and the intention would have
+started sharing a code path again** -- which is exactly the collapse sec 154
+was written to prevent.
+
+### A lapsed row still occupies a slot, and reclaiming it is the consumer's act
+
+A row whose `then` is DEFAULT says nothing once its deadline has passed, so it
+could be given back. It is not, and the reason is a rule rather than laziness:
+**`fzn_catalog_keeps` is a read**, made from const catalogues and from inside
+jobs, and a read that reclaimed a row would be a write.
+
+`fzn_catalog_due` lists exactly the nodes whose deadlines have passed --
+useful in its own right, since a consumer wants to know what has just become
+sweepable -- and passing each to `fzn_catalog_retain` with DEFAULT is how the
+slots come back, at a moment the consumer chooses. A case asserts that reading
+a lapsed row does not shrink the table.
+
+### An unscheduled retention clears a deadline
+
+`fzn_catalog_retain` sets `until` to zero. Without that, a consumer changing
+its mind -- "actually, just keep it" -- would leave the old schedule in place
+to fire later, and the node would vanish under a consumer that believed it had
+cancelled. It has a case and a sabotage.
+
+**And a deadline on a DEFAULT mode is refused**, because a row that follows
+the catalogue until T says nothing until then, and sec 152 declines to store
+statements that say nothing.
+
+### The mechanical half carried a proof, and the proof refused twice
+
+Threading `now` through three suites is a bulk edit, so it carries the
+invariant `evidence.md` asks for: **only the argument list changes**, which
+means each suite's check count and outcome must be identical afterwards.
+Baseline 137, 125 and 1144, all passing; after, the same three numbers, all
+passing.
+
+The proof refused to write twice, and both refusals were real:
+
+- **A count over the matched subset is not a count over the population.** The
+  first pattern required `&cat` as the first argument and asserted that every
+  match was rewritten -- which it was. The call site passing `NULL` for the
+  null-catalogue case was not in the matched set at all, so the assertion
+  passed while a site went untouched. The compiler caught it; the invariant
+  should have. Re-derived over every call site, matched or not.
+- **`[^()]*` cannot match `idp(0x10)`.** The second pattern silently rewrote
+  nothing for nested calls, and the count assertion refused the write rather
+  than producing a file that would not compile.
+
+The new cases are then added on top, so the counts move for a reason: 1144 to
+1193, and 125 to 139.
+
+### Both directions of a deadline are held
+
+Four sabotage entries, all CAUGHT, each by its own case -- and the pair at the
+top is the point, because a deadline has two ways to be wrong and only one of
+them is loud:
+
+    retain-deadline-fires                never fires -- a feature that
+                                         silently does nothing
+    retain-deadline-not-early            fires immediately -- deletes what
+                                         somebody was still keeping
+    retain-unscheduled-clears-a-deadline a cancelled schedule fires anyway
+    retain-deadline-needs-a-mode         a row that says nothing is stored
+
+**A schedule that never fires leaves a green suite and a growing disk**, which
+is why it is held by a case rather than trusted to the obvious reading of a
+comparison. `>=` against `>` is one character and the two differ only at the
+deadline itself, so the case asks at 99, at 100 and at 101.
+
+### The end-to-end case is not that the mode flips
+
+What makes a schedule a DELETION is that the sweep then finds it, so the case
+that matters is the same catalogue swept at two moments planning differently.
+And beside it, the one that would be easiest to lose: **a deadline is not a
+licence to delete.** A node whose deadline has passed is a candidate like any
+other, so sec 155's guards still stand in front of it -- a blob another
+retained node needs survives, and so does the last known copy.
+
 ## 156. Reachability, and the discriminator sec 155 said was needed, 2026-09-06
 
 The copyright holder, on reading sec 155's open half: "do the reachability
@@ -23200,13 +23340,16 @@ a caller vouch for a frontier and refuses to answer without one. The entry is
 rewritten rather than appended to, because a reader who found both would
 believe whichever sounded more careful and the open one always does.
 
-**A schedule is the other open half.** "Planned deletion" was read here as a
-deletion that is planned -- computed, safe, resumable, observable. It could
-also mean a deletion scheduled for a future time, which retention has no
-vocabulary for: DEFAULT, KEEP and DROP say what, never when. Adding *when*
-would be a fourth thing on the retention row and is the holder's call, not
-one to take while building the mechanism. The mechanism is needed under either
-reading, which is why it was built first.
+**~~A schedule is the other open half.~~ Closed by sec 157**, on the holder's
+instruction, and the entry is rewritten rather than appended to because a
+reader finding both would believe whichever sounded more careful.
+
+"Planned deletion" was read here as a deletion that is planned -- computed,
+safe, resumable, observable -- and the other reading, one scheduled for a
+future time, needed vocabulary retention did not have: DEFAULT, KEEP and DROP
+say what, never when. A retention row carries `until` and `then` now. The
+mechanism was needed under either reading, which is why it was built first and
+the schedule sits on top of it unchanged.
 
 ## 154. The cross-host copy, and a fact that is not an intention, 2026-09-06
 

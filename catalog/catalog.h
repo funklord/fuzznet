@@ -942,6 +942,18 @@ fzn_catalog_err_t fzn_catalog_name_segment(const fzn_catalog_name_t *name, char 
  * smaller than the name and content ones: there is no second writer to
  * disagree with. That is the same saving the filing gets.
  *
+ * AND IT SAYS WHEN AS WELL AS WHAT. sec 157: a row carries a deadline and
+ * what to say after it, so "delete this in thirty days" is KEEP until T, then
+ * DROP. Everything below describes the row without one, which is the case a
+ * deadline of zero gives back exactly.
+ *
+ * THE MOMENT IS A PARAMETER AND NOT STATE, at every reader --
+ * `fzn_catalog_keeps`, `fzn_catalog_retention_of`, `fzn_catalog_due`, and
+ * through them `fzn_catalog_sweep_capture` and `fzn_catalog_copy_want`. That
+ * is this tree's convention, and it is also what keeps sec 155's cursor
+ * sound: a catalogue holding a clock anybody could advance would make this
+ * answer drift mid-sweep.
+ *
  * A TRI-STATE RATHER THAN A BIT, and the holder's word was "bit" so the
  * difference is worth stating. A bit cannot say "keep everything except
  * this", which is the common case for a catalogue: a host retains a library
@@ -984,6 +996,24 @@ const char *fzn_catalog_retention_str(fzn_catalog_retention_t mode);
 typedef struct fzn_catalog_hold {
 	fzn_catalog_id_t id;
 	fzn_catalog_retention_t mode;
+	/*
+	 * WHEN THIS ROW STOPS SAYING `mode` AND STARTS SAYING `then`. sec 157.
+	 *
+	 * Absolute seconds, the same clock `fzn_head.expires_at` uses, and
+	 * ZERO MEANS NO DEADLINE for the same reason it does there: a zeroed
+	 * struct must not schedule anything. A row with no deadline is what
+	 * sec 152 built and behaves exactly as it did.
+	 *
+	 * The pair says everything the holder asked for and nothing more.
+	 * "Keep this for thirty days" is KEEP until T; what happens afterwards
+	 * is `then`, which is DEFAULT when a caller does not care and DROP
+	 * when it means delete. A single "expires" field would have had to
+	 * pick one of those, and which one is right depends on
+	 * `fzn_catalog_retain_all` -- so the answer would have changed under a
+	 * consumer that flipped the catalogue's own bit, silently.
+	 */
+	uint64_t until;
+	fzn_catalog_retention_t then;
 } fzn_catalog_hold_t;
 
 /* Point a catalogue's retention table at caller-owned rows. Separate from
@@ -1008,14 +1038,60 @@ fzn_catalog_err_t fzn_catalog_retain_all(fzn_catalog_t *catalog, int keep);
 fzn_catalog_err_t fzn_catalog_retain(fzn_catalog_t *catalog, const fzn_catalog_id_t *node,
                                      fzn_catalog_retention_t mode);
 
-/* What was said about this node, or DEFAULT when nothing was. */
-fzn_catalog_retention_t fzn_catalog_retention_of(const fzn_catalog_t *catalog,
-                                                 const fzn_catalog_id_t *node);
+/*
+ * Say what to do with one node, and when to stop saying it. sec 157.
+ *
+ * `mode` applies until `until`; from `until` onwards the row says `then`.
+ * `until` of zero is no deadline and this is exactly `fzn_catalog_retain`.
+ *
+ * "DELETE THIS IN THIRTY DAYS" IS KEEP UNTIL T, THEN DROP, and the shape is
+ * worth reading off the arguments because it is the request the holder made.
+ * `then` of DEFAULT is the weaker form -- keep until T and afterwards follow
+ * the catalogue -- which is what a consumer wants when the deadline is a
+ * budget rather than a promise.
+ *
+ * A DEADLINE WITH `then` OF DEFAULT LEAVES A ROW THAT SAYS NOTHING once it
+ * has passed, and this does not reclaim it: giving a row back is a write, and
+ * `fzn_catalog_keeps` is a read that consumers make from const catalogues and
+ * inside jobs. `fzn_catalog_due` lists exactly those nodes, and passing each
+ * to `fzn_catalog_retain` with DEFAULT is how a consumer gets the slots back
+ * -- deliberately its own act, at a moment of its choosing.
+ *
+ * FZN_CATALOG_ERR_MALFORMED for a mode or a `then` outside the three, and for
+ * a deadline on a DEFAULT mode: a row that says "follow the catalogue until
+ * T" is a row that says nothing at all, and storing it would fill the table
+ * with statements sec 152 refuses to keep.
+ */
+fzn_catalog_err_t fzn_catalog_retain_until(fzn_catalog_t *catalog,
+                                           const fzn_catalog_id_t *node,
+                                           fzn_catalog_retention_t mode, uint64_t until,
+                                           fzn_catalog_retention_t then);
 
-/* Whether this host keeps this node: the node's own word if it has one, the
- * catalogue's otherwise. The question a consumer actually asks before
- * fetching a blob or deleting a file. */
-int fzn_catalog_keeps(const fzn_catalog_t *catalog, const fzn_catalog_id_t *node);
+/* What was said about this node at `now`, or DEFAULT when nothing was.
+ *
+ * `now` IS A PARAMETER AND NOT STATE, which is this tree's convention rather
+ * than this module's taste -- `chain/authz.h`, `chain/chain_store.h`,
+ * `frame/freshness.h`, `prekey/prekey.h`, `link/link.h` and
+ * `provision/provision.h` all take the moment at the call site. A catalogue
+ * holding a clock would also make this answer drift under a sweep, and sec
+ * 155's whole cursor argument is that the decision is taken once. */
+fzn_catalog_retention_t fzn_catalog_retention_of(const fzn_catalog_t *catalog,
+                                                 const fzn_catalog_id_t *node, uint64_t now);
+
+/* Whether this host keeps this node at `now`: the node's own word if it has
+ * one, the catalogue's otherwise. The question a consumer actually asks
+ * before fetching a blob or deleting a file. */
+int fzn_catalog_keeps(const fzn_catalog_t *catalog, const fzn_catalog_id_t *node,
+                      uint64_t now);
+
+/* Nodes whose deadline has passed at `now`.
+ *
+ * What a consumer draws to say "these have come due", and what it walks to
+ * give back the rows whose `then` is DEFAULT -- see `fzn_catalog_retain_until`.
+ * Returns how many were written, never more than `out_cap`; `dropped`
+ * receives the rest and is REQUIRED, on `fzn_sync_digest`'s argument. */
+size_t fzn_catalog_due(const fzn_catalog_t *catalog, uint64_t now, fzn_catalog_id_t *out,
+                       size_t out_cap, size_t *dropped);
 
 /* How many overrides are held, so a consumer can size a table and see it
  * shrink as it gives rows back. */

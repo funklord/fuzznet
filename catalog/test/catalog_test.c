@@ -76,6 +76,12 @@ static const fzn_catalog_id_t *idp(uint8_t seed)
 }
 
 static uint8_t ALICE[FZN_PUBKEY_LEN];
+
+/* The moment retention is read at. sec 157 gave it deadlines, so every
+ * reader names one. Not zero, which would be the degenerate value
+ * everywhere and would hide a reader that ignored the argument; no case
+ * below sets a deadline, so every answer is the one sec 152 asserted. */
+#define NOW ((uint64_t)1000)
 static uint8_t BOB[FZN_PUBKEY_LEN];
 
 static const fzn_catalog_resolve_ops_t ADD_WINS = { fzn_catalog_add_wins, NULL };
@@ -2085,14 +2091,14 @@ static void test_a_catalogue_keeps_nothing_until_told(void)
 
 	/* THE DEFAULT IS NOT TO KEEP. Adopting a stranger's catalogue must not
 	 * start filling this host's disk. */
-	CHECK(!fzn_catalog_keeps(&cat, idp(0x10)), "a fresh catalogue keeps things");
-	CHECK(fzn_catalog_retention_of(&cat, idp(0x10)) == FZN_CATALOG_RETAIN_DEFAULT,
+	CHECK(!fzn_catalog_keeps(&cat, idp(0x10), NOW), "a fresh catalogue keeps things");
+	CHECK(fzn_catalog_retention_of(&cat, idp(0x10), NOW) == FZN_CATALOG_RETAIN_DEFAULT,
 	      "a node nobody spoke about has a word of its own");
 
 	REQUIRE(fzn_catalog_retain_all(&cat, 1) == FZN_CATALOG_OK, "retain all refused");
-	CHECK(fzn_catalog_keeps(&cat, idp(0x10)), "the catalogue's word was not followed");
+	CHECK(fzn_catalog_keeps(&cat, idp(0x10), NOW), "the catalogue's word was not followed");
 	REQUIRE(fzn_catalog_retain_all(&cat, 0) == FZN_CATALOG_OK, "retain none refused");
-	CHECK(!fzn_catalog_keeps(&cat, idp(0x10)), "the catalogue's word was not followed back");
+	CHECK(!fzn_catalog_keeps(&cat, idp(0x10), NOW), "the catalogue's word was not followed back");
 }
 
 /*
@@ -2112,20 +2118,20 @@ static void test_a_node_overrides_in_both_directions(void)
 	REQUIRE(fzn_catalog_retain_all(&cat, 1) == FZN_CATALOG_OK, "retain all");
 	REQUIRE(fzn_catalog_retain(&cat, idp(0x10), FZN_CATALOG_RETAIN_DROP) == FZN_CATALOG_OK,
 	        "drop one");
-	CHECK(!fzn_catalog_keeps(&cat, idp(0x10)), "a dropped node is still kept");
-	CHECK(fzn_catalog_keeps(&cat, idp(0x11)), "dropping one node dropped another");
+	CHECK(!fzn_catalog_keeps(&cat, idp(0x10), NOW), "a dropped node is still kept");
+	CHECK(fzn_catalog_keeps(&cat, idp(0x11), NOW), "dropping one node dropped another");
 
 	/* Keep nothing, want four. */
 	REQUIRE(fzn_catalog_retain_all(&cat, 0) == FZN_CATALOG_OK, "retain none");
 	REQUIRE(fzn_catalog_retain(&cat, idp(0x12), FZN_CATALOG_RETAIN_KEEP) == FZN_CATALOG_OK,
 	        "keep one");
-	CHECK(fzn_catalog_keeps(&cat, idp(0x12)), "a kept node is not kept");
-	CHECK(!fzn_catalog_keeps(&cat, idp(0x11)), "keeping one node kept another");
+	CHECK(fzn_catalog_keeps(&cat, idp(0x12), NOW), "a kept node is not kept");
+	CHECK(!fzn_catalog_keeps(&cat, idp(0x11), NOW), "keeping one node kept another");
 
 	/* AND THE DROP STILL STANDS under the opposite default, which is the
 	 * half a bit could not express: the override is a word of its own
 	 * rather than a flip of whatever the catalogue says. */
-	CHECK(!fzn_catalog_keeps(&cat, idp(0x10)), "a dropped node returned with the default");
+	CHECK(!fzn_catalog_keeps(&cat, idp(0x10), NOW), "a dropped node returned with the default");
 }
 
 /* DEFAULT gives the row back rather than storing one. */
@@ -2153,11 +2159,11 @@ static void test_default_returns_the_row(void)
 	REQUIRE(fzn_catalog_retain(&cat, idp(0x10), FZN_CATALOG_RETAIN_DEFAULT) == FZN_CATALOG_OK,
 	        "default");
 	CHECK(fzn_catalog_hold_count(&cat) == 1, "the row was not given back");
-	CHECK(fzn_catalog_retention_of(&cat, idp(0x10)) == FZN_CATALOG_RETAIN_DEFAULT,
+	CHECK(fzn_catalog_retention_of(&cat, idp(0x10), NOW) == FZN_CATALOG_RETAIN_DEFAULT,
 	      "the node still has a word of its own");
 	/* AND THE OTHER OVERRIDE SURVIVED the removal, which a swap-with-last
 	 * gets wrong if it swaps the wrong row. */
-	CHECK(fzn_catalog_retention_of(&cat, idp(0x11)) == FZN_CATALOG_RETAIN_DROP,
+	CHECK(fzn_catalog_retention_of(&cat, idp(0x11), NOW) == FZN_CATALOG_RETAIN_DROP,
 	      "giving one row back lost another");
 	CHECK(fzn_catalog_retain(&cat, idp(0x12), FZN_CATALOG_RETAIN_KEEP) == FZN_CATALOG_OK,
 	      "the freed row was not reusable");
@@ -2190,7 +2196,7 @@ static void test_retention_is_local_and_respects_the_lock(void)
 	      "an edge body grew, so retention may have found a bit on the wire");
 	REQUIRE(as_record(&rec, BOB, 1u, body, len), "sign");
 	REQUIRE(fzn_catalog_apply(&cat, rec) == FZN_CATALOG_OK, "apply");
-	CHECK(fzn_catalog_retention_of(&cat, idp(0x10)) == FZN_CATALOG_RETAIN_DEFAULT,
+	CHECK(fzn_catalog_retention_of(&cat, idp(0x10), NOW) == FZN_CATALOG_RETAIN_DEFAULT,
 	      "a peer's record set this host's retention");
 	CHECK(fzn_catalog_hold_count(&cat) == 0, "applying a record added an override");
 
@@ -2219,7 +2225,7 @@ static void test_the_retention_caller_bugs_are_refused(void)
 	      "a catalogue with no retention table took an override");
 	REQUIRE(fzn_catalog_retain_all(&cat, 1) == FZN_CATALOG_OK,
 	        "the catalogue's own bit needs a table");
-	CHECK(fzn_catalog_keeps(&cat, idp(0x10)),
+	CHECK(fzn_catalog_keeps(&cat, idp(0x10), NOW),
 	      "a catalogue with no override table cannot say what it keeps");
 	CHECK(fzn_catalog_hold_count(&cat) == 0, "a catalogue with no table counted overrides");
 
@@ -2234,9 +2240,9 @@ static void test_the_retention_caller_bugs_are_refused(void)
 	      "a null node");
 	CHECK(fzn_catalog_retain(&cat, idp(0x10), (fzn_catalog_retention_t)9)
 	              == FZN_CATALOG_ERR_MALFORMED, "a mode that is none of the three");
-	CHECK(fzn_catalog_retention_of(NULL, idp(0x10)) == FZN_CATALOG_RETAIN_DEFAULT,
+	CHECK(fzn_catalog_retention_of(NULL, idp(0x10), NOW) == FZN_CATALOG_RETAIN_DEFAULT,
 	      "a null catalogue had an opinion");
-	CHECK(!fzn_catalog_keeps(NULL, idp(0x10)), "a null catalogue keeps things");
+	CHECK(!fzn_catalog_keeps(NULL, idp(0x10), NOW), "a null catalogue keeps things");
 	CHECK(fzn_catalog_hold_count(NULL) == 0, "a null catalogue counted overrides");
 
 	CHECK(strcmp(fzn_catalog_retention_str(FZN_CATALOG_RETAIN_KEEP),
@@ -2270,6 +2276,182 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 	failures = before;
 	checks -= 1;
 }
+
+/* ---- sec 157: a retention with a deadline ------------------------------- */
+
+/* THE HOLDER'S REQUEST, READ OFF THE ARGUMENTS: "delete this in thirty days"
+ * is KEEP until T, then DROP. */
+static void test_a_deadline_turns_one_answer_into_another(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_hold_t holds[4];
+	fzn_catalog_t cat;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_hold_init(&cat, holds, 4) == FZN_CATALOG_OK,
+	        "the retention table would not init");
+	REQUIRE(fzn_catalog_retain_all(&cat, 1) == FZN_CATALOG_OK, "keep-all refused");
+
+	REQUIRE(fzn_catalog_retain_until(&cat, idp(0x10), FZN_CATALOG_RETAIN_KEEP, 100,
+	                                 FZN_CATALOG_RETAIN_DROP) == FZN_CATALOG_OK,
+	        "a scheduled retention was refused");
+
+	CHECK(fzn_catalog_keeps(&cat, idp(0x10), 99) == 1, "kept before the deadline");
+	/* AT THE DEADLINE, NOT AFTER IT: "keep until T" has stopped keeping at
+	 * T, and a caller that schedules for a moment and asks at that moment
+	 * must get the answer it asked for. */
+	CHECK(fzn_catalog_keeps(&cat, idp(0x10), 100) == 0,
+	      "still kept AT the deadline, so `until` means something later than it says");
+	CHECK(fzn_catalog_keeps(&cat, idp(0x10), 101) == 0, "kept after the deadline");
+	CHECK(fzn_catalog_retention_of(&cat, idp(0x10), 99) == FZN_CATALOG_RETAIN_KEEP,
+	      "the mode before the deadline is wrong");
+	CHECK(fzn_catalog_retention_of(&cat, idp(0x10), 100) == FZN_CATALOG_RETAIN_DROP,
+	      "the mode at the deadline is wrong");
+
+	/* THE WEAKER FORM: keep until T, then follow the catalogue. With a
+	 * catalogue that keeps everything that is still kept -- which is why
+	 * `then` exists rather than a bare expiry, since a bare one would have
+	 * to guess which of these was meant. */
+	REQUIRE(fzn_catalog_retain_until(&cat, idp(0x11), FZN_CATALOG_RETAIN_KEEP, 100,
+	                                 FZN_CATALOG_RETAIN_DEFAULT) == FZN_CATALOG_OK,
+	        "a lapsing retention was refused");
+	CHECK(fzn_catalog_keeps(&cat, idp(0x11), 101) == 1,
+	      "a row lapsing to DEFAULT did not follow a catalogue that keeps everything");
+	REQUIRE(fzn_catalog_retain_all(&cat, 0) == FZN_CATALOG_OK, "keep-none refused");
+	CHECK(fzn_catalog_keeps(&cat, idp(0x11), 101) == 0,
+	      "a row lapsing to DEFAULT did not follow a catalogue that keeps nothing");
+	/* AND THE ONE WITH AN EXPLICIT `then` DOES NOT MOVE WITH IT, which is
+	 * the whole reason the field is there: a promise to delete must not
+	 * become a promise to keep because somebody flipped the catalogue. */
+	CHECK(fzn_catalog_keeps(&cat, idp(0x10), 101) == 0,
+	      "an explicit DROP after the deadline followed the catalogue instead");
+	REQUIRE(fzn_catalog_retain_all(&cat, 1) == FZN_CATALOG_OK, "keep-all refused");
+	CHECK(fzn_catalog_keeps(&cat, idp(0x10), 101) == 0,
+	      "an explicit DROP after the deadline followed the catalogue instead");
+}
+
+/* A DEADLINE OF ZERO IS NO DEADLINE, and takes the unscheduled path entirely
+ * -- including the part where DEFAULT gives the row back. */
+static void test_no_deadline_is_the_old_behaviour(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_hold_t holds[4];
+	fzn_catalog_t cat;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_hold_init(&cat, holds, 4) == FZN_CATALOG_OK,
+	        "the retention table would not init");
+
+	REQUIRE(fzn_catalog_retain_until(&cat, idp(0x10), FZN_CATALOG_RETAIN_KEEP, 0,
+	                                 FZN_CATALOG_RETAIN_DROP) == FZN_CATALOG_OK,
+	        "an unscheduled retention was refused");
+	CHECK(fzn_catalog_hold_count(&cat) == 1, "the row was not stored");
+	CHECK(fzn_catalog_keeps(&cat, idp(0x10), 0) == 1 &&
+	              fzn_catalog_keeps(&cat, idp(0x10), 1u << 30) == 1,
+	      "a row with no deadline answered differently at two moments");
+
+	/* DEFAULT WITH NO DEADLINE STILL GIVES THE ROW BACK. sec 152's rule
+	 * reached through the new door, which is why the new door delegates
+	 * rather than reimplementing. */
+	REQUIRE(fzn_catalog_retain_until(&cat, idp(0x10), FZN_CATALOG_RETAIN_DEFAULT, 0,
+	                                 FZN_CATALOG_RETAIN_DEFAULT) == FZN_CATALOG_OK,
+	        "clearing through the scheduled door was refused");
+	CHECK(fzn_catalog_hold_count(&cat) == 0, "the row was not given back");
+
+	/* AND SETTING AN UNSCHEDULED RETENTION CLEARS A DEADLINE, so a consumer
+	 * changing its mind does not leave a schedule behind to fire later. */
+	REQUIRE(fzn_catalog_retain_until(&cat, idp(0x11), FZN_CATALOG_RETAIN_KEEP, 100,
+	                                 FZN_CATALOG_RETAIN_DROP) == FZN_CATALOG_OK,
+	        "a scheduled retention was refused");
+	REQUIRE(fzn_catalog_retain(&cat, idp(0x11), FZN_CATALOG_RETAIN_KEEP) == FZN_CATALOG_OK,
+	        "an unscheduled retention was refused");
+	CHECK(fzn_catalog_keeps(&cat, idp(0x11), 1u << 30) == 1,
+	      "a deadline survived being overwritten by an unscheduled retention, so it "
+	      "fires under a consumer that thought it had changed its mind");
+}
+
+/* A DEADLINE ON A DEFAULT MODE SAYS NOTHING BEFORE IT, which is a row sec 152
+ * refuses to store. */
+static void test_a_deadline_needs_something_to_say(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_hold_t holds[4];
+	fzn_catalog_t cat;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_hold_init(&cat, holds, 4) == FZN_CATALOG_OK,
+	        "the retention table would not init");
+
+	CHECK(fzn_catalog_retain_until(&cat, idp(0x10), FZN_CATALOG_RETAIN_DEFAULT, 100,
+	                               FZN_CATALOG_RETAIN_DROP) == FZN_CATALOG_ERR_MALFORMED,
+	      "a row that follows the catalogue until T was stored, though it says nothing "
+	      "until then");
+	CHECK(fzn_catalog_hold_count(&cat) == 0, "a refused row was stored anyway");
+	CHECK(fzn_catalog_retain_until(&cat, idp(0x10), (fzn_catalog_retention_t)9, 100,
+	                               FZN_CATALOG_RETAIN_DROP) == FZN_CATALOG_ERR_MALFORMED,
+	      "a mode outside the three was accepted");
+	CHECK(fzn_catalog_retain_until(&cat, idp(0x10), FZN_CATALOG_RETAIN_KEEP, 100,
+	                               (fzn_catalog_retention_t)9) == FZN_CATALOG_ERR_MALFORMED,
+	      "a `then` outside the three was accepted");
+	CHECK(fzn_catalog_retain_until(&cat, NULL, FZN_CATALOG_RETAIN_KEEP, 100,
+	                               FZN_CATALOG_RETAIN_DROP) == FZN_CATALOG_ERR_MALFORMED,
+	      "a null node was accepted");
+}
+
+/* WHAT HAS COME DUE, which is what a consumer draws and what it walks to give
+ * the lapsed rows back. */
+static void test_what_has_come_due(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_hold_t holds[4];
+	fzn_catalog_id_t due[4];
+	fzn_catalog_id_t one[1];
+	fzn_catalog_t cat;
+	size_t dropped = 0;
+	size_t n;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_hold_init(&cat, holds, 4) == FZN_CATALOG_OK,
+	        "the retention table would not init");
+
+	REQUIRE(fzn_catalog_retain_until(&cat, idp(0x10), FZN_CATALOG_RETAIN_KEEP, 100,
+	                                 FZN_CATALOG_RETAIN_DROP) == FZN_CATALOG_OK,
+	        "a scheduled retention was refused");
+	REQUIRE(fzn_catalog_retain_until(&cat, idp(0x11), FZN_CATALOG_RETAIN_KEEP, 200,
+	                                 FZN_CATALOG_RETAIN_DROP) == FZN_CATALOG_OK,
+	        "a scheduled retention was refused");
+	REQUIRE(fzn_catalog_retain(&cat, idp(0x12), FZN_CATALOG_RETAIN_DROP) == FZN_CATALOG_OK,
+	        "an unscheduled retention was refused");
+
+	n = fzn_catalog_due(&cat, 99, due, 4, &dropped);
+	CHECK(n == 0 && dropped == 0, "nothing is due before any deadline, found %zu", n);
+	n = fzn_catalog_due(&cat, 150, due, 4, &dropped);
+	CHECK(n == 1 && memcmp(due[0].b, idp(0x10)->b, FZN_CATALOG_ID_LEN) == 0,
+	      "one deadline has passed, found %zu", n);
+	n = fzn_catalog_due(&cat, 200, due, 4, &dropped);
+	CHECK(n == 2 && dropped == 0, "both deadlines have passed, found %zu", n);
+	CHECK(fzn_catalog_due(&cat, 1u << 30, one, 1, &dropped) == 1 && dropped == 1,
+	      "an overflowing draw did not report what it dropped");
+	CHECK(fzn_catalog_due(&cat, 200, due, 4, NULL) == 0,
+	      "a draw with nowhere to report drops wrote nodes anyway");
+
+	/* A ROW LAPSING TO DEFAULT STILL OCCUPIES A SLOT, and giving it back is
+	 * the consumer's act at a moment of its choosing -- `keeps` is a read
+	 * and must not write. */
+	REQUIRE(fzn_catalog_retain_until(&cat, idp(0x13), FZN_CATALOG_RETAIN_KEEP, 100,
+	                                 FZN_CATALOG_RETAIN_DEFAULT) == FZN_CATALOG_OK,
+	        "a lapsing retention was refused");
+	CHECK(fzn_catalog_hold_count(&cat) == 4, "expected four rows, held %zu",
+	      fzn_catalog_hold_count(&cat));
+	CHECK(fzn_catalog_keeps(&cat, idp(0x13), 1u << 30) == 0, "the row did not lapse");
+	CHECK(fzn_catalog_hold_count(&cat) == 4,
+	      "reading a lapsed row reclaimed it, so a read wrote to the catalogue");
+	REQUIRE(fzn_catalog_retain(&cat, idp(0x13), FZN_CATALOG_RETAIN_DEFAULT) ==
+	                FZN_CATALOG_OK,
+	        "giving the row back was refused");
+	CHECK(fzn_catalog_hold_count(&cat) == 3, "the row was not given back");
+}
+
 
 int main(void)
 {
@@ -2332,6 +2514,11 @@ int main(void)
 	test_the_retention_caller_bugs_are_refused();
 	test_the_errors_render();
 	test_the_suite_can_tell_pass_from_fail();
+
+	test_a_deadline_turns_one_answer_into_another();
+	test_no_deadline_is_the_old_behaviour();
+	test_a_deadline_needs_something_to_say();
+	test_what_has_come_due();
 
 	printf("catalog_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

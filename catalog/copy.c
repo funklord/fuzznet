@@ -70,8 +70,8 @@ static void emit(fzn_catalog_blob_t *out, size_t out_cap, fzn_catalog_copy_t *pl
  * intention and a fact is argued. */
 static fzn_catalog_err_t walk(const fzn_catalog_t *catalog,
                               const fzn_catalog_holdings_ops_t *holdings, int retained_only,
-                              int want_missing, fzn_catalog_blob_t *out, size_t out_cap,
-                              fzn_catalog_copy_t *plan)
+                              uint64_t now, int want_missing, fzn_catalog_blob_t *out,
+                              size_t out_cap, fzn_catalog_copy_t *plan)
 {
 	size_t i;
 
@@ -89,7 +89,7 @@ static fzn_catalog_err_t walk(const fzn_catalog_t *catalog,
 		const fzn_catalog_entry_t *entry = &catalog->entries[i];
 		int held;
 
-		if (retained_only && !fzn_catalog_keeps(catalog, &entry->id)) {
+		if (retained_only && !fzn_catalog_keeps(catalog, &entry->id, now)) {
 			plan->not_retained++;
 			continue;
 		}
@@ -129,10 +129,10 @@ static fzn_catalog_err_t walk(const fzn_catalog_t *catalog,
 
 fzn_catalog_err_t fzn_catalog_copy_want(const fzn_catalog_t *catalog,
                                         const fzn_catalog_holdings_ops_t *holdings,
-                                        fzn_catalog_blob_t *out, size_t out_cap,
+                                        uint64_t now, fzn_catalog_blob_t *out, size_t out_cap,
                                         fzn_catalog_copy_t *plan)
 {
-	return walk(catalog, holdings, 1, 1, out, out_cap, plan);
+	return walk(catalog, holdings, 1, now, 1, out, out_cap, plan);
 }
 
 fzn_catalog_err_t fzn_catalog_copy_holdings(const fzn_catalog_t *catalog,
@@ -140,7 +140,7 @@ fzn_catalog_err_t fzn_catalog_copy_holdings(const fzn_catalog_t *catalog,
                                             fzn_catalog_blob_t *out, size_t out_cap,
                                             fzn_catalog_copy_t *plan)
 {
-	return walk(catalog, holdings, 0, 0, out, out_cap, plan);
+	return walk(catalog, holdings, 0, 0, 0, out, out_cap, plan);
 }
 
 /* What this catalogue says about a root, or NULL when it says nothing.

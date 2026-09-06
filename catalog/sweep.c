@@ -12,7 +12,7 @@
  * saying DROP says nothing about the bytes until every node that reaches them
  * has said it. */
 static int a_retained_node_needs(const fzn_catalog_t *catalog,
-                                 const uint8_t root[FZN_BLOB_HASH_LEN])
+                                 const uint8_t root[FZN_BLOB_HASH_LEN], uint64_t now)
 {
 	size_t i;
 
@@ -23,7 +23,7 @@ static int a_retained_node_needs(const fzn_catalog_t *catalog,
 			continue;
 		if (memcmp(entry->root, root, FZN_BLOB_HASH_LEN) != 0)
 			continue;
-		if (fzn_catalog_keeps(catalog, &entry->id))
+		if (fzn_catalog_keeps(catalog, &entry->id, now))
 			return 1;
 	}
 
@@ -91,7 +91,8 @@ static void insert_sorted(fzn_catalog_removal_t *rows, size_t *used,
 fzn_catalog_err_t fzn_catalog_sweep_capture(const fzn_catalog_t *catalog,
                                             const fzn_catalog_holdings_ops_t *holdings,
                                             const fzn_catalog_witness_ops_t *witness,
-                                            size_t min_others, fzn_catalog_sweep_t *job,
+                                            size_t min_others, uint64_t now,
+                                            fzn_catalog_sweep_t *job,
                                             fzn_catalog_removal_t *removals, size_t capacity,
                                             fzn_catalog_sweep_plan_t *plan)
 {
@@ -126,11 +127,11 @@ fzn_catalog_err_t fzn_catalog_sweep_capture(const fzn_catalog_t *catalog,
 		 * remove that is not the record itself -- and removing that is
 		 * the journal's business rather than the catalogue's. */
 
-		if (fzn_catalog_keeps(catalog, &entry->id)) {
+		if (fzn_catalog_keeps(catalog, &entry->id, now)) {
 			plan->retained++;
 			continue;
 		}
-		if (a_retained_node_needs(catalog, entry->root)) {
+		if (a_retained_node_needs(catalog, entry->root, now)) {
 			plan->shared++;
 			continue;
 		}

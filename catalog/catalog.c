@@ -1277,6 +1277,8 @@ fzn_catalog_err_t fzn_catalog_retain(fzn_catalog_t *catalog, const fzn_catalog_i
 
 	if (held) {
 		held->mode = mode;
+		held->until = 0;
+		held->then = FZN_CATALOG_RETAIN_DEFAULT;
 		return FZN_CATALOG_OK;
 	}
 	if (catalog->hold_used == catalog->hold_capacity)
@@ -1284,22 +1286,79 @@ fzn_catalog_err_t fzn_catalog_retain(fzn_catalog_t *catalog, const fzn_catalog_i
 
 	catalog->holds[catalog->hold_used].id = *node;
 	catalog->holds[catalog->hold_used].mode = mode;
+	catalog->holds[catalog->hold_used].until = 0;
+	catalog->holds[catalog->hold_used].then = FZN_CATALOG_RETAIN_DEFAULT;
 	catalog->hold_used++;
 	return FZN_CATALOG_OK;
 }
 
+static int a_retention(fzn_catalog_retention_t mode)
+{
+	return mode == FZN_CATALOG_RETAIN_DEFAULT || mode == FZN_CATALOG_RETAIN_KEEP ||
+	       mode == FZN_CATALOG_RETAIN_DROP;
+}
+
+fzn_catalog_err_t fzn_catalog_retain_until(fzn_catalog_t *catalog,
+                                           const fzn_catalog_id_t *node,
+                                           fzn_catalog_retention_t mode, uint64_t until,
+                                           fzn_catalog_retention_t then)
+{
+	fzn_catalog_hold_t *held;
+
+	if (!hold_usable(catalog) || !node)
+		return FZN_CATALOG_ERR_MALFORMED;
+	if (catalog->busy_with)
+		return FZN_CATALOG_ERR_BUSY;
+	if (!a_retention(mode) || !a_retention(then))
+		return FZN_CATALOG_ERR_MALFORMED;
+	/* NO DEADLINE IS EXACTLY `fzn_catalog_retain`, including the part where
+	 * DEFAULT gives the row back. One path rather than two, so a caller
+	 * cannot reach the second by passing zero. */
+	if (until == 0)
+		return fzn_catalog_retain(catalog, node, mode);
+	/* A DEADLINE ON A DEFAULT MODE SAYS NOTHING BEFORE IT AND WHATEVER
+	 * `then` SAYS AFTER, which is a row that follows the catalogue until T
+	 * -- a statement sec 152 refuses to store, since a table filling with
+	 * those runs out for the overrides that mean something. */
+	if (mode == FZN_CATALOG_RETAIN_DEFAULT)
+		return FZN_CATALOG_ERR_MALFORMED;
+
+	held = find_hold(catalog, node);
+	if (!held) {
+		if (catalog->hold_used == catalog->hold_capacity)
+			return FZN_CATALOG_ERR_FULL;
+		held = &catalog->holds[catalog->hold_used];
+		held->id = *node;
+		catalog->hold_used++;
+	}
+	held->mode = mode;
+	held->until = until;
+	held->then = then;
+	return FZN_CATALOG_OK;
+}
+
 fzn_catalog_retention_t fzn_catalog_retention_of(const fzn_catalog_t *catalog,
-                                                 const fzn_catalog_id_t *node)
+                                                 const fzn_catalog_id_t *node, uint64_t now)
 {
 	const fzn_catalog_hold_t *held;
 
 	if (!hold_usable(catalog) || !node)
 		return FZN_CATALOG_RETAIN_DEFAULT;
 	held = find_hold(catalog, node);
-	return held ? held->mode : FZN_CATALOG_RETAIN_DEFAULT;
+	if (!held)
+		return FZN_CATALOG_RETAIN_DEFAULT;
+	/* AT THE DEADLINE, NOT AFTER IT: a row saying "keep until T" has
+	 * stopped keeping at T. `>=` rather than `>` so a caller that
+	 * schedules for a moment and evaluates at exactly that moment gets the
+	 * answer it asked for, which is the only reading in which the two
+	 * agree. */
+	if (held->until != 0 && now >= held->until)
+		return held->then;
+	return held->mode;
 }
 
-int fzn_catalog_keeps(const fzn_catalog_t *catalog, const fzn_catalog_id_t *node)
+int fzn_catalog_keeps(const fzn_catalog_t *catalog, const fzn_catalog_id_t *node,
+                      uint64_t now)
 {
 	fzn_catalog_retention_t mode;
 
@@ -1309,12 +1368,40 @@ int fzn_catalog_keeps(const fzn_catalog_t *catalog, const fzn_catalog_id_t *node
 	 * that keeps a library and drops four things says so, and one that
 	 * keeps nothing and wants four says so the same way. A bit could only
 	 * express one of those. */
-	mode = fzn_catalog_retention_of(catalog, node);
+	mode = fzn_catalog_retention_of(catalog, node, now);
 	if (mode == FZN_CATALOG_RETAIN_KEEP)
 		return 1;
 	if (mode == FZN_CATALOG_RETAIN_DROP)
 		return 0;
 	return catalog->retain_default ? 1 : 0;
+}
+
+size_t fzn_catalog_due(const fzn_catalog_t *catalog, uint64_t now, fzn_catalog_id_t *out,
+                       size_t out_cap, size_t *dropped)
+{
+	size_t used = 0;
+	size_t i;
+
+	if (!dropped)
+		return 0;
+	*dropped = 0;
+	if (!hold_usable(catalog) || (!out && out_cap > 0))
+		return 0;
+
+	for (i = 0; i < catalog->hold_used; i++) {
+		const fzn_catalog_hold_t *held = &catalog->holds[i];
+
+		if (held->until == 0 || now < held->until)
+			continue;
+		if (used >= out_cap) {
+			(*dropped)++;
+			continue;
+		}
+		out[used] = held->id;
+		used++;
+	}
+
+	return used;
 }
 
 size_t fzn_catalog_hold_count(const fzn_catalog_t *catalog)

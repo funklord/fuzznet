@@ -228,10 +228,19 @@ typedef struct fzn_catalog_copy {
  * `holdings` may be null, which means this host holds nothing yet -- the
  * state a host adopting a catalogue is actually in, and worth being the easy
  * case rather than requiring a stub that always says no.
+ *
+ * `now` IS HERE AND NOT ON THE OTHER TWO, and the asymmetry is sec 154's
+ * argument showing up in the signatures. sec 157 gave retention a deadline,
+ * so what a host has DECIDED to keep is a question with a moment in it. What
+ * it HOLDS is not: a holdings announcement and an offer read the seam and
+ * never the retention table, so there is no time at which their answer
+ * differs. A `now` on those would be a parameter nothing could use, and the
+ * day somebody made it do something the fact and the intention would have
+ * started sharing a code path again.
  */
 fzn_catalog_err_t fzn_catalog_copy_want(const fzn_catalog_t *catalog,
                                         const fzn_catalog_holdings_ops_t *holdings,
-                                        fzn_catalog_blob_t *out, size_t out_cap,
+                                        uint64_t now, fzn_catalog_blob_t *out, size_t out_cap,
                                         fzn_catalog_copy_t *plan);
 
 /*

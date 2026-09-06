@@ -2095,8 +2095,8 @@ SABOTAGES = [
 	(
 		"copy-holdings-ignore-retention",
 		"catalog/copy.c",
-		"\treturn walk(catalog, holdings, 0, 0, out, out_cap, plan);\n",
-		"\treturn walk(catalog, holdings, 1, 0, out, out_cap, plan);\n",
+		"\treturn walk(catalog, holdings, 0, 0, 0, out, out_cap, plan);\n",
+		"\treturn walk(catalog, holdings, 1, 0, 0, out, out_cap, plan);\n",
 		"a holdings announcement must follow the bytes on disk and not what "
 		"this host intends to keep",
 	),
@@ -2132,7 +2132,7 @@ SABOTAGES = [
 	(
 		"sweep-shared-blob",
 		"catalog/sweep.c",
-		"\t\tif (fzn_catalog_keeps(catalog, &entry->id))\n\t\t\treturn 1;\n",
+		"\t\tif (fzn_catalog_keeps(catalog, &entry->id, now))\n\t\t\treturn 1;\n",
 		"\t\t(void)0;\n",
 		"a blob a retained node still needs must survive another node "
 		"dropping it, since sharing is the reason to choose a blob at all",
@@ -2214,6 +2214,42 @@ SABOTAGES = [
 		"\t\t*out = (k % 2u) ? edge->child : edge->parent;\n",
 		"an absent edge is a tombstone and neither end of one is a node, or "
 		"every unlink leaves a node this walk proposes for ever",
+	),
+	# BATCH FIFTEEN, 2026-09-06: the deletion schedule, sec 157. A deadline
+	# that fires early deletes something somebody was still keeping, and one
+	# that never fires is a feature that silently does nothing -- so both
+	# directions are held, and so is the field that stops a promise to
+	# delete turning into a promise to keep.
+	(
+		"retain-deadline-fires",
+		"catalog/catalog.c",
+		"\tif (held->until != 0 && now >= held->until)\n\t\treturn held->then;\n",
+		"\t/* sabotage */\n",
+		"a deadline that never fires is a schedule that silently does nothing",
+	),
+	(
+		"retain-deadline-not-early",
+		"catalog/catalog.c",
+		"\tif (held->until != 0 && now >= held->until)\n",
+		"\tif (held->until != 0)\n",
+		"a deadline must not fire before its moment, or it deletes something "
+		"somebody was still keeping",
+	),
+	(
+		"retain-unscheduled-clears-a-deadline",
+		"catalog/catalog.c",
+		"\t\theld->mode = mode;\n\t\theld->until = 0;\n\t\theld->then = FZN_CATALOG_RETAIN_DEFAULT;\n\t\treturn FZN_CATALOG_OK;\n",
+		"\t\theld->mode = mode;\n\t\treturn FZN_CATALOG_OK;\n",
+		"an unscheduled retention must clear a deadline, or one fires under a "
+		"consumer that thought it had changed its mind",
+	),
+	(
+		"retain-deadline-needs-a-mode",
+		"catalog/catalog.c",
+		"\tif (mode == FZN_CATALOG_RETAIN_DEFAULT)\n\t\treturn FZN_CATALOG_ERR_MALFORMED;\n\n\theld = find_hold(catalog, node);\n",
+		"\theld = find_hold(catalog, node);\n",
+		"a row that follows the catalogue until T says nothing until then, and "
+		"sec 152 refuses to store one",
 	),
 ]
 

@@ -59,6 +59,13 @@ static void check_at(int ok, int line, const char *fmt, ...)
 
 static uint8_t ALICE[FZN_PUBKEY_LEN];
 
+/* A moment, deliberately not zero: sec 157 gave retention deadlines and
+ * every call that reads retention now names the moment it reads it at.
+ * Zero would be the degenerate value everywhere and would hide a reader
+ * that ignored the argument. No case here sets a deadline, so every
+ * answer is the one sec 154 asserted. */
+#define NOW ((uint64_t)1000)
+
 static fzn_catalog_id_t id(uint8_t seed)
 {
 	fzn_catalog_id_t out;
@@ -180,7 +187,7 @@ static void test_a_fresh_host_wants_everything_it_keeps(void)
 	e = blob_entry(0x11, 0xa1, 200);
 	REQUIRE(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK, "a blob was refused");
 
-	CHECK(fzn_catalog_copy_want(&cat, NULL, out, 4, &plan) == FZN_CATALOG_OK,
+	CHECK(fzn_catalog_copy_want(&cat, NULL, NOW, out, 4, &plan) == FZN_CATALOG_OK,
 	      "a want list against no store at all was refused");
 	CHECK(plan.written == 2, "a host holding nothing wants both blobs, got %zu",
 	      plan.written);
@@ -239,7 +246,7 @@ static void test_holdings_follow_the_bytes_and_not_the_policy(void)
 	/* AND THE WANT LIST IS THE OTHER ANSWER OVER THE SAME TWO ROWS. The
 	 * DROP is not wanted though nothing here holds an opinion about
 	 * whether it is present. */
-	REQUIRE(fzn_catalog_copy_want(&cat, &seam, out, 4, &plan) == FZN_CATALOG_OK,
+	REQUIRE(fzn_catalog_copy_want(&cat, &seam, NOW, out, 4, &plan) == FZN_CATALOG_OK,
 	        "a want list was refused");
 	CHECK(plan.written == 1 && out[0].root[0] == 0xa0,
 	      "the want list did not name the kept blob that is missing");
@@ -278,7 +285,7 @@ static void test_only_blobs_are_fetched(void)
 	e = blob_entry(0x12, 0xa0, 300);
 	REQUIRE(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK, "a blob was refused");
 
-	REQUIRE(fzn_catalog_copy_want(&cat, &seam, out, 4, &plan) == FZN_CATALOG_OK,
+	REQUIRE(fzn_catalog_copy_want(&cat, &seam, NOW, out, 4, &plan) == FZN_CATALOG_OK,
 	        "a want list was refused");
 	CHECK(plan.written == 1, "only the blob needs fetching, wanted %zu", plan.written);
 	CHECK(plan.inline_ready == 1, "the inline value was not counted as already here");
@@ -314,7 +321,7 @@ static void test_a_shared_blob_is_wanted_once(void)
 	e = blob_entry(0x12, 0xa1, 200);
 	REQUIRE(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK, "a blob was refused");
 
-	REQUIRE(fzn_catalog_copy_want(&cat, NULL, out, 4, &plan) == FZN_CATALOG_OK,
+	REQUIRE(fzn_catalog_copy_want(&cat, NULL, NOW, out, 4, &plan) == FZN_CATALOG_OK,
 	        "a want list was refused");
 	CHECK(plan.written == 2, "a shared blob was wanted twice: %zu written", plan.written);
 	CHECK(plan.duplicates == 1, "the second reference was not counted as a duplicate");
@@ -399,7 +406,7 @@ static void test_truncation_reports_the_whole_total(void)
 		        "a blob was refused");
 	}
 
-	REQUIRE(fzn_catalog_copy_want(&cat, NULL, out, 1, &plan) == FZN_CATALOG_OK,
+	REQUIRE(fzn_catalog_copy_want(&cat, NULL, NOW, out, 1, &plan) == FZN_CATALOG_OK,
 	        "a truncated want list was refused, though truncation is not an error");
 	CHECK(plan.written == 1, "more was written than the array holds");
 	CHECK(plan.truncated == 3, "the walk stopped at the array rather than reporting the "
@@ -409,7 +416,7 @@ static void test_truncation_reports_the_whole_total(void)
 
 	/* A CAPACITY OF ZERO IS THE SAME ANSWER WITH NOTHING WRITTEN, which is
 	 * how a caller sizes an array before allocating one. */
-	REQUIRE(fzn_catalog_copy_want(&cat, NULL, NULL, 0, &plan) == FZN_CATALOG_OK,
+	REQUIRE(fzn_catalog_copy_want(&cat, NULL, NOW, NULL, 0, &plan) == FZN_CATALOG_OK,
 	        "a sizing pass with no array was refused");
 	CHECK(plan.written == 0 && plan.truncated == 4,
 	      "a sizing pass did not report the whole total: %zu written, %zu truncated",
@@ -446,7 +453,7 @@ static void test_a_sizing_pass_over_shared_blobs_over_counts(void)
 		        "a blob was refused");
 	}
 
-	REQUIRE(fzn_catalog_copy_want(&cat, NULL, NULL, 0, &plan) == FZN_CATALOG_OK,
+	REQUIRE(fzn_catalog_copy_want(&cat, NULL, NOW, NULL, 0, &plan) == FZN_CATALOG_OK,
 	        "a sizing pass was refused");
 	CHECK(plan.truncated == 3 && plan.duplicates == 0,
 	      "with no room to write, references cannot be recognised as shared: %zu "
@@ -458,7 +465,7 @@ static void test_a_sizing_pass_over_shared_blobs_over_counts(void)
 	 * big enough, and the walk into it reports the exact figure. */
 	REQUIRE(plan.written + plan.truncated <= 4,
 	        "the sizing pass asked for more than this test can allocate");
-	REQUIRE(fzn_catalog_copy_want(&cat, NULL, out, plan.written + plan.truncated, &plan) ==
+	REQUIRE(fzn_catalog_copy_want(&cat, NULL, NOW, out, plan.written + plan.truncated, &plan) ==
 	                FZN_CATALOG_OK,
 	        "a want list into the sized array was refused");
 	CHECK(plan.written == 1 && plan.truncated == 0 && plan.duplicates == 2,
@@ -490,11 +497,11 @@ static void test_the_filing_does_not_change_what_is_fetched(void)
 	e = blob_entry(0x10, 0xa0, 100);
 	REQUIRE(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK, "a blob was refused");
 
-	REQUIRE(fzn_catalog_copy_want(&cat, NULL, before, 4, &plan_before) == FZN_CATALOG_OK,
+	REQUIRE(fzn_catalog_copy_want(&cat, NULL, NOW, before, 4, &plan_before) == FZN_CATALOG_OK,
 	        "a want list with no filing root was refused");
 	REQUIRE(fzn_catalog_filing_root(&cat, idp(0x01)) == FZN_CATALOG_OK,
 	        "a filing root was refused");
-	REQUIRE(fzn_catalog_copy_want(&cat, NULL, after, 4, &plan_after) == FZN_CATALOG_OK,
+	REQUIRE(fzn_catalog_copy_want(&cat, NULL, NOW, after, 4, &plan_after) == FZN_CATALOG_OK,
 	        "a want list with a filing root was refused");
 
 	CHECK(plan_before.written == plan_after.written &&
@@ -528,7 +535,7 @@ static void test_a_refile_holds_the_copy_layer_too(void)
 	 * under test is that the copy layer honours the hold, not that a
 	 * refile sets it -- catalog_test.c already covers the second. */
 	cat.busy_with = FZN_CATALOG_JOB_REFILE;
-	CHECK(fzn_catalog_copy_want(&cat, NULL, out, 4, &plan) == FZN_CATALOG_ERR_BUSY,
+	CHECK(fzn_catalog_copy_want(&cat, NULL, NOW, out, 4, &plan) == FZN_CATALOG_ERR_BUSY,
 	      "a want list was computed while a refile held the catalogue");
 	CHECK(fzn_catalog_copy_holdings(&cat, NULL, out, 4, &plan) == FZN_CATALOG_ERR_BUSY,
 	      "a holdings announcement was made while a refile held the catalogue");
@@ -543,7 +550,7 @@ static void test_a_refile_holds_the_copy_layer_too(void)
 	 * list computed mid-sweep would ask for bytes being deleted as it is
 	 * written. */
 	cat.busy_with = FZN_CATALOG_JOB_SWEEP;
-	CHECK(fzn_catalog_copy_want(&cat, NULL, out, 4, &plan) == FZN_CATALOG_ERR_BUSY,
+	CHECK(fzn_catalog_copy_want(&cat, NULL, NOW, out, 4, &plan) == FZN_CATALOG_ERR_BUSY,
 	      "a want list was computed while a sweep held the catalogue");
 	CHECK(fzn_catalog_copy_offer(&cat, NULL, wants, 1, out, 4, &plan) ==
 	              FZN_CATALOG_ERR_BUSY,
@@ -569,19 +576,19 @@ static void test_a_refused_walk_leaves_no_stale_numbers(void)
 	e = blob_entry(0x10, 0xa0, 100);
 	REQUIRE(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK, "a blob was refused");
 
-	REQUIRE(fzn_catalog_copy_want(&cat, NULL, out, 4, &plan) == FZN_CATALOG_OK,
+	REQUIRE(fzn_catalog_copy_want(&cat, NULL, NOW, out, 4, &plan) == FZN_CATALOG_OK,
 	        "a want list was refused");
 	REQUIRE(plan.written == 1, "the first walk found nothing to carry into the second");
 
-	CHECK(fzn_catalog_copy_want(NULL, NULL, out, 4, &plan) == FZN_CATALOG_ERR_MALFORMED,
+	CHECK(fzn_catalog_copy_want(NULL, NULL, NOW, out, 4, &plan) == FZN_CATALOG_ERR_MALFORMED,
 	      "a null catalogue was accepted");
 	CHECK(plan.written == 0,
 	      "a refused walk left the previous round's count, so a caller reading the plan "
 	      "after an error reads a number about something else");
 
-	CHECK(fzn_catalog_copy_want(&cat, NULL, NULL, 4, &plan) == FZN_CATALOG_ERR_MALFORMED,
+	CHECK(fzn_catalog_copy_want(&cat, NULL, NOW, NULL, 4, &plan) == FZN_CATALOG_ERR_MALFORMED,
 	      "a null array with a nonzero capacity was accepted");
-	CHECK(fzn_catalog_copy_want(&cat, NULL, out, 4, NULL) == FZN_CATALOG_ERR_MALFORMED,
+	CHECK(fzn_catalog_copy_want(&cat, NULL, NOW, out, 4, NULL) == FZN_CATALOG_ERR_MALFORMED,
 	      "nowhere to answer");
 	CHECK(fzn_catalog_copy_offer(&cat, NULL, NULL, 1, out, 4, &plan) ==
 	              FZN_CATALOG_ERR_MALFORMED,
@@ -608,7 +615,7 @@ static void test_a_seam_that_cannot_answer_is_not_a_holding(void)
 	e = blob_entry(0x10, 0xa0, 100);
 	REQUIRE(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK, "a blob was refused");
 
-	REQUIRE(fzn_catalog_copy_want(&cat, &empty, out, 4, &plan) == FZN_CATALOG_OK,
+	REQUIRE(fzn_catalog_copy_want(&cat, &empty, NOW, out, 4, &plan) == FZN_CATALOG_OK,
 	        "an ops struct with no callback was refused");
 	CHECK(plan.written == 1 && plan.already_held == 0,
 	      "a seam with no callback was read as holding the bytes, which makes a host "
@@ -639,7 +646,7 @@ static void test_a_catalogue_keeps_nothing_until_told(void)
 	e = blob_entry(0x10, 0xa0, 100);
 	REQUIRE(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK, "a blob was refused");
 
-	REQUIRE(fzn_catalog_copy_want(&cat, NULL, out, 4, &plan) == FZN_CATALOG_OK,
+	REQUIRE(fzn_catalog_copy_want(&cat, NULL, NOW, out, 4, &plan) == FZN_CATALOG_OK,
 	        "a want list was refused");
 	CHECK(plan.written == 0 && plan.not_retained == 1,
 	      "a catalogue nobody has set a retention on wanted %zu blobs", plan.written);
