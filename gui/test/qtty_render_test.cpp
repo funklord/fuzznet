@@ -30,14 +30,65 @@
 #include "../trust_view.h"
 #include "../log_view.h"
 
+extern "C" {
+#include "../../log/log.h"
+#include "../../record/journal.h"
+#include "../../record/record.h"
+}
+
 #include <qtty/grid.h>
 #include <qtty/testing.h>
 
 #include <QApplication>
 #include <QString>
+#include <QStringList>
 
 #include <cstdio>
 #include <cstring>
+
+static uint8_t ISSUER[FZN_PUBKEY_LEN];
+static uint8_t SUBJECT[FZN_SUBJECT_LEN];
+static uint8_t SLOTS[8][FZN_RECORD_MAX_LEN];
+
+/* The same stub signer log_view_test.cpp uses: this renders records, it does
+ * not verify them, and a real signature would only make the fixture slower. */
+static void tag(uint8_t out[FZN_SIG_LEN], const uint8_t *msg, size_t msg_len)
+{
+	uint64_t h = 1469598103934665603u;
+	size_t i;
+
+	for (i = 0; i < msg_len; i++) {
+		h ^= msg[i];
+		h *= 1099511628211u;
+	}
+	for (i = 0; i < FZN_SIG_LEN; i++) {
+		h ^= h << 13;
+		h ^= h >> 7;
+		h ^= h << 17;
+		out[i] = (uint8_t)(h >> 32);
+	}
+}
+
+static int stub_sign(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg, size_t msg_len)
+{
+	(void)ctx;
+	tag(sig, msg, msg_len);
+	return 1;
+}
+
+static int make(fzn_record_t *r, size_t which, uint64_t seq, const uint8_t *body,
+                size_t body_len)
+{
+	fzn_sign_ops_t ops;
+	size_t wrote = 0;
+
+	memset(&ops, 0, sizeof(ops));
+	ops.sign = stub_sign;
+	if (fzn_record_sign(ISSUER, SUBJECT, 5u, 3u, seq, 1u, body, body_len, &ops,
+	                    SLOTS[which], FZN_RECORD_MAX_LEN, &wrote) != FZN_RECORD_OK)
+		return 0;
+	return fzn_record_open(SLOTS[which], wrote, r) == FZN_RECORD_OK;
+}
 
 static int failures;
 static int checks;
@@ -177,6 +228,87 @@ int main(int argc, char **argv)
 		CHECK((minimum.width() + Qtty::GridMetrics::cw() - 1) / Qtty::GridMetrics::cw() <=
 		              40,
 		      "the trust view's minimum does not fit a 40-column terminal");
+	}
+
+	/*
+	 * THE LOG VIEW DRAWS NO BORDER, AND ITS ENTRIES ARE CONSECUTIVE.
+	 * sec 159.
+	 *
+	 * TWO ASSERTIONS AND ONLY ONE OF THEM GUARDS THE FIX, which is worth
+	 * saying because the first version of this case had it the other way
+	 * round and did not notice.
+	 *
+	 * The border one is the guard: `setFrameShape(NoFrame)` is what this
+	 * widget does about a frame qtty renders as a left edge and nothing
+	 * else, and putting the frame back turns exactly this red.
+	 *
+	 * The consecutive-rows one is NOT a guard for that -- it passes with
+	 * the frame and without it. It was written believing the frame
+	 * double-spaced the entries; it does, with a PROPORTIONAL font, and
+	 * this widget has set a monospace hint since sec 141. It is kept
+	 * because consecutive entries are a property worth holding on their
+	 * own, and labelled because a reader would otherwise take it for the
+	 * frame's guard and be wrong the way its author was.
+	 */
+	{
+		fzn_log_view view;
+		fzn_log_entry_t rows[4];
+		fzn_journal_entry_t positions[2];
+		fzn_log_t log;
+		fzn_journal_t journal;
+		fzn_record_t rec;
+		QStringList screen;
+		uint64_t seq;
+		int first = -1;
+		int seen = 0;
+		int consecutive = 1;
+
+		memset(ISSUER, 0x11, sizeof(ISSUER));
+		memset(SUBJECT, 0x51, sizeof(SUBJECT));
+		CHECK(fzn_log_init(&log, rows, 4) == FZN_LOG_OK, "the log would not init");
+		CHECK(fzn_journal_init(&journal, positions, 2) == FZN_JOURNAL_OK,
+		      "the journal would not init");
+		CHECK(fzn_journal_anchor(&journal, ISSUER, 5u, 0u) == FZN_JOURNAL_OK,
+		      "the stream could not be followed");
+		for (seq = 1u; seq <= 3u; seq++) {
+			const uint8_t body[3] = { 'a', (uint8_t)('0' + seq), 'z' };
+
+			CHECK(make(&rec, (size_t)seq, seq, body, sizeof(body)),
+			      "the fixture could not build a record");
+			CHECK(fzn_log_append(&log, &rec) == FZN_LOG_OK, "append refused");
+			CHECK(fzn_journal_admit(&journal, ISSUER, 5u, seq) == FZN_JOURNAL_OK,
+			      "the journal refused the record");
+		}
+		view.show_stream(&log, &journal, ISSUER, 5u);
+
+		screen = rendered(view, 60, 12).split(QLatin1Char('\n'));
+		for (int row = 0; row < screen.size(); row++) {
+			if (!screen[row].contains(QLatin1String("a1z")) &&
+			    !screen[row].contains(QLatin1String("a2z")) &&
+			    !screen[row].contains(QLatin1String("a3z")))
+				continue;
+			if (first < 0)
+				first = row;
+			else if (row != first + seen)
+				consecutive = 0;
+			seen++;
+		}
+		/* THE GUARD: no box-drawing anywhere in the render. A border
+		 * that draws one of its four sides is worse than none, and this
+		 * is what putting the frame back breaks. */
+		{
+			QString flat = screen.join(QLatin1Char(' '));
+
+			CHECK(!flat.contains(QChar(0x250C)) && !flat.contains(QChar(0x2514)) &&
+			              !flat.contains(QChar(0x2502)),
+			      "the log view drew a box-drawing character, so it is asking "
+			      "for a frame qtty renders as a left edge and nothing else");
+		}
+
+		CHECK(seen == 3, "not every log entry reached the screen");
+		CHECK(consecutive,
+		      "the log entries are spread over more rows than they occupy, so a "
+		      "reader sees fewer of them than the terminal has room for");
 	}
 
 	/* The suite can tell pass from fail. */

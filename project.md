@@ -22870,6 +22870,105 @@ anything could have said otherwise.
 copyright holder should know the size before it happens rather than find it
 inside a commit about a widget.
 
+## 159. The log view's frame, and two controls that were wrong, 2026-09-07
+
+The copyright holder: "fix the log view frame." sec 158 had reported a
+`QPlainTextEdit` rendering only the left edge of its frame under qtty,
+controlled it against a bare one, called it cosmetic and signalled it as
+qtty's.
+
+**The fix is one line and the interesting part is that it took three
+measurements to say why, two of which were wrong.** This section is mostly
+those.
+
+### The first control changed two variables
+
+sec 158's control was a bare `QPlainTextEdit` **with text in it**, against a
+log view whose editor was **empty**. Composition and content both differed, so
+it could not say which produced the frame. A matrix at one variable each:
+
+    bare, empty                no frame
+    bare, with text            no frame
+    in a layout, empty         ┌ │ │ └
+    in a layout, with text     ┌one │ │two │ └
+
+The attribution was right -- it is the composition. The sloppiness cost
+something else.
+
+### What the empty fixture hid, and what that turned out not to mean
+
+Put text in it and the lines **double-space**: every line gets a blank row
+after it. sec 159 was first written saying the frame therefore cost CONTENT
+rather than decoration, that a reader saw half as many entries as the terminal
+had room for, and that the fix was justified on those grounds.
+
+**That is true of the reproduction and false of this widget**, and the
+difference is the font. Measured one setting at a time against the three the
+log view sets:
+
+    default (the matrix's case)        rows 2, 4
+    monospace only                     rows 2, 3
+    readOnly only                      rows 2, 4
+    NoWrap only                        rows 2, 4
+    all three (the log view)           rows 2, 3
+
+**The monospace hint is the whole of it**, and this widget has set one since
+sec 141 so a sequence column lines up. `readOnly` and `NoWrap` make no
+difference. So the log view's entries were always consecutive, and the claim
+that they were not came from a synthetic reproduction that had defaulted its
+font -- the same error as the first control, one variable further along.
+
+**The sabotage is what said so.** Putting the frame back left the render test
+green, which is a guard failing to guard. Chasing that -- rather than
+believing the tidy story already written -- is what produced the table above.
+
+### So the fix stands on the reason that does not depend on qtty
+
+`setFrameShape(QFrame::NoFrame)`. A border that draws one of its four sides is
+worse than none, and it costs a cell of width and a row top and bottom on a
+24-row terminal to do it. But the reason that survives whatever qtty does next
+is that **a generic widget should not impose chrome**: this is the object
+every consumer embeds -- sec 141 -- and a border around it is the consumer's
+decision, reachable with a `QGroupBox` around the whole thing.
+
+### The guard had to be repointed at what actually changes
+
+The first version asserted the entries land on consecutive rows, which passes
+with the frame and without it. It is kept -- consecutive entries are worth
+holding on their own -- and **labelled in the source as not being the frame's
+guard**, because a reader would otherwise take it for one and be wrong the way
+its author was.
+
+What guards the fix is an assertion that no box-drawing character appears in
+the render at all. Putting the frame back turns exactly that red.
+
+### The ASCII gate caught the write-up
+
+`code-style.md` allows Unicode in a string literal and not in prose, and this
+section's first draft put the box-drawing characters straight into a comment
+explaining the frame. Four violations, refused.
+
+Worth a line because of which half was already right by accident: the render
+test compares against `QChar(0x250C)` rather than a literal, so it passed the
+same gate without anybody deciding it should. The comment says the shape in
+words now.
+
+### The signal was corrected twice, in the tree that will read it
+
+sec 158's report is in qtty's own `project.md`. It said "cosmetic and nothing
+is blocked", which was wrong; the correction said "it is not cosmetic", which
+was also wrong -- for their purposes it is the sharper fact that matters, and
+the sharp fact is that **the doubling is font-dependent**. A proportional font
+in a framed editor under a label double-spaces; a monospace one does not. That
+is a clue about cell-height rounding and is worth more to them than either of
+the two verdicts that preceded it.
+
+**Their session had already committed our section**, sweeping it into
+`8bfdf9d` under a message about the tray interface -- the shared-index hazard
+running the other way, a day after we declined to commit their lines under
+ours. Nothing was lost; what it costs is that `git log -S` for the arrival of
+that report lands on an unrelated commit.
+
 ## 158. qtty compatibility, and a fingerprint that lied, 2026-09-06
 
 The copyright holder asked in sec 139 for "generic Qt GUI objects with Qtty

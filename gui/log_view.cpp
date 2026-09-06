@@ -29,6 +29,31 @@ fzn_log_view::fzn_log_view(QWidget *parent)
 	entries_->setReadOnly(true);
 	entries_->setLineWrapMode(QPlainTextEdit::NoWrap);
 
+	/* NO FRAME. project.md sec 159.
+	 *
+	 * Rendered through qtty this editor's frame came out as a left edge and
+	 * nothing else: box-drawing characters down one column, no top run and
+	 * no right side. A border that draws one of its four sides is worse
+	 * than no border, and it costs a cell of width and a row top and bottom
+	 * on a 24-row terminal to do it.
+	 *
+	 * IT COST DECORATION AND NOT CONTENT, WHICH THIS COMMENT FIRST GOT
+	 * WRONG. The first version said the frame put a blank row between every
+	 * log line. That is real and it is not this widget: it needs a
+	 * PROPORTIONAL font, and the monospace hint above -- set since sec 141
+	 * so a sequence column lines up -- is what prevents it. Measured one
+	 * setting at a time; `readOnly` and `NoWrap` make no difference and the
+	 * font makes all of it. So the entries were always on consecutive rows
+	 * here, and the claim that they were not came from a synthetic
+	 * reproduction that had defaulted its font.
+	 *
+	 * SO THE REASON THAT STANDS IS THE SECOND ONE, and it does not depend
+	 * on qtty at all: a GENERIC WIDGET SHOULD NOT IMPOSE CHROME. This is
+	 * the object every consumer embeds -- sec 141 -- and a border around it
+	 * is the consumer's decision, reachable with a QGroupBox around the
+	 * whole thing. That survives whatever qtty's side does next. */
+	entries_->setFrameShape(QFrame::NoFrame);
+
 	layout->addWidget(summary_);
 	layout->addWidget(entries_);
 
