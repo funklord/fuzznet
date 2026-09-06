@@ -22677,6 +22677,72 @@ the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
 
+## 124. End to end, subsystem by subsystem: the plan, and the first one, 2026-09-06
+
+**Instructed by the copyright holder 2026-09-06:** fuzznet is to test every
+subsystem end to end -- *"start with simple tests for each one, then expand
+what they test. This catches severe flaws earlier, and leaves less valuable
+tests for later."* Broad and shallow first; depth afterwards.
+
+### The worklist, measured rather than guessed
+
+For every library source, how many of its exported functions does any sim
+scenario call? Setting aside the four platform backends the sim replaces with
+its own fakes by design -- `peer_linux`, `persist_file`, `spool_file`,
+`session/random` -- the genuine zeros are:
+
+    provision/provision.c   0/5
+    spool/plan.c            0/2   (reached only through fzn_transfer_next_want)
+
+and the thinnest are `local/peer.c` 1/4, `session/commitment.c` 1/3,
+`chain/authz.c` 1/2 and `frame/freshness.c` 2/4.
+
+### The first one, and it is the chain the holder asked about
+
+*Does it have the local-to-root method* -- user GUI to root daemon -- was
+answered piece by piece and nowhere as a whole. `scenario_gui_to_peer` is
+that chain, deliberately simple: one verb, one setting, two hosts, no loss.
+
+    gui-to-peer: refused not a member, admitted member,
+                 1 setting across the wire, both ends at 1
+
+Six steps, each a different subsystem: `local/vocabulary` decides whether the
+GUI user may ask; `record/` signs it; `state/` applies it at the daemon;
+`wire/` and `frame/` seal, send, open, check freshness and replay and verify
+the sender's chain; **`record/journal` requires the peer to already follow
+this issuer**; and `record/` + `state/` admit and apply it there.
+
+**THE REFUSED PATH IS ASSERTED FIRST**, before anything succeeds, so nothing
+it leaves behind can be mistaken for the admitted path's work -- and a
+scenario walking only the happy path would pass with the admission check
+deleted entirely.
+
+### What the end-to-end pass found on its first run
+
+The fifth step was not in the draft. `fzn_journal_admit` refused with
+*"nothing received from this issuer"*, because a host must call
+`fzn_journal_anchor` to decide it follows an issuer before anything from it
+is admitted -- which `journal.h` states and which `record/sync.h` depends on.
+
+**That is not an obstacle to route around and it is the point of the
+exercise.** It is what stops a stranger who can reach the socket from
+reconfiguring the machine, and it was invisible while every link was tested
+alone: the journal's unit tests anchor as setup, so the requirement reads as
+boilerplate rather than as a defence. Composed, it is a step with a security
+property, and the scenario now asserts the refusal -- an unanchored peer is
+sent a valid, authenticated, authorised setting and stays unconfigured.
+
+Seen to fail: making `journal_admit` accept an unknown issuer fires exactly
+that assertion.
+
+### Why this order
+
+A broad shallow pass finds a severed link; a deep test of one subsystem finds
+a subtle fault in a link that may not be connected. The holder's instruction
+puts the cheap discriminating test first, and the first one paid immediately
+-- not by finding a defect, but by finding a step nobody had written down as
+part of the chain.
+
 ## 123. The frame's layout, written out by hand in five files, 2026-09-06
 
 Sec 122's lens -- where else is one thing defined twice -- pointed at the

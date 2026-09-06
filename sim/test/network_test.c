@@ -4455,6 +4455,173 @@ static void scenario_local_hop(void)
 	       fzn_chain_err_str(net_after));
 }
 
+/* ------------------------------------------------------------ scenario 26
+
+   THE WHOLE CHAIN: A GUI ASKS, A ROOT DAEMON DECIDES, A PEER ENDS UP
+   CONFIGURED.
+
+   Every link in this was proven on its own and none of them together. The
+   sim opens exactly one sealed frame -- in its delivery path -- and applies
+   state in scenarios of its own, so "an unprivileged client's request
+   becomes a peer's configuration" was true of the pieces and asserted
+   nowhere. project.md sec 124.
+
+   The chain is six steps and each belongs to a different subsystem. The
+   fifth was not in the first draft: the end-to-end pass is what found it.
+
+     local/vocabulary   may this GUI user ask for this verb
+     record/            the daemon signs what it was asked for
+     state/             the daemon applies it to itself
+     wire/ + frame/     it is sealed, sent, opened, checked for freshness
+     record/journal     the peer must already follow this issuer
+     record/ + state/   the peer admits and applies it
+
+   THE REFUSED PATH IS THE HALF THAT MATTERS. A client outside the group
+   must produce no record, no datagram and no change anywhere -- and a
+   scenario that only walks the happy path would pass with the admission
+   check deleted entirely.
+
+   SIMPLE ON PURPOSE. One verb, one setting, two hosts, no loss. This is the
+   first end-to-end pass over the chain rather than a thorough one: a broad
+   shallow test finds a severed link, and the interesting cases are worth
+   more once there is something to hang them on.  */
+static void scenario_gui_to_peer(void)
+{
+	static struct sim_net net;
+	static const uint8_t verb_set[] = "set";
+	static const char ADMIN_STATUS[] = "Name:\tgui\nGroups:\t27 100\n";
+	static const char USER_STATUS[] = "Name:\tgui\nGroups:\t100\n";
+	static uint8_t rec_wire[FZN_RECORD_MAX_LEN];
+	static const uint8_t value[] = "mtu=9000";
+	fzn_peer_t admin, ordinary;
+	fzn_verb_rule_t rules[1];
+	struct sim_host *daemon, *peer;
+	struct sim_signer signer;
+	fzn_record_t rec;
+	uint8_t subject[FZN_SUBJECT_LEN];
+	const fzn_state_entry_t *cell;
+	size_t wrote = 0, e;
+	unsigned delivered = 0;
+
+	sim_init(&net, 2u, 0x6a1bu);
+	daemon = &net.hosts[0];
+	peer = &net.hosts[1];
+	memset(subject, 0x77, sizeof(subject));
+
+	rules[0].gid = 27u;
+	rules[0].verb = verb_set;
+	rules[0].verb_len = sizeof(verb_set) - 1u;
+
+	memset(&admin, 0, sizeof(admin));
+	admin.uid = 1000u;
+	check(fzn_peer_groups_parse(ADMIN_STATUS, sizeof(ADMIN_STATUS) - 1u, &admin),
+	      "the admin client's groups did not parse");
+	memset(&ordinary, 0, sizeof(ordinary));
+	ordinary.uid = 1001u;
+	check(fzn_peer_groups_parse(USER_STATUS, sizeof(USER_STATUS) - 1u, &ordinary),
+	      "the ordinary client's groups did not parse");
+
+	/* ---- 1. THE REFUSED PATH, FIRST, so nothing it leaves behind can be
+	   mistaken for the admitted one's work. */
+	check(fzn_vocabulary_admit(&ordinary, verb_set, sizeof(verb_set) - 1u, rules, 1u)
+	              != FZN_PEER_MEMBER,
+	      "a client outside the group was admitted to the verb");
+	check(fzn_state_count(&daemon->state) == 0u,
+	      "the daemon holds state before anything was asked of it");
+	check(fzn_state_count(&peer->state) == 0u, "the peer holds state before anything");
+	check(net.queue_len == 0u, "a datagram was sent before any client was admitted");
+
+	/* ---- 2. THE ADMITTED PATH. The daemon signs what it was asked for and
+	   applies it to itself. */
+	check(fzn_vocabulary_admit(&admin, verb_set, sizeof(verb_set) - 1u, rules, 1u)
+	              == FZN_PEER_MEMBER,
+	      "a client in the named group was not admitted");
+	check(fzn_record_sign(daemon->pubkey, subject, 0u, 1u, 1u, net.now, value,
+	                      sizeof(value), sim_signer(&signer, &net.sign, daemon->pubkey),
+	                      rec_wire, sizeof(rec_wire), &wrote) == FZN_RECORD_OK,
+	      "the daemon could not sign the setting it was asked for");
+	check(fzn_record_open(rec_wire, wrote, &rec) == FZN_RECORD_OK,
+	      "the daemon could not open the record it signed");
+	check(fzn_state_apply(&daemon->state, &rec) == FZN_STATE_OK,
+	      "the daemon could not apply its own setting");
+
+	/* ---- 3. ACROSS THE WIRE, TO A PEER THAT DOES NOT FOLLOW THIS
+	   ISSUER YET.
+
+	   `fzn_journal_anchor` is a step this scenario did not have on its
+	   first run, and the end-to-end pass is what found it: `admit` refused
+	   with "nothing received from this issuer", because a host must DECIDE
+	   to follow an issuer before anything from it is admitted. That is not
+	   an obstacle to route around -- it is what stops a stranger who can
+	   reach the socket from reconfiguring the machine, and it belongs in
+	   the chain. */
+	check(sim_send(&net, daemon->id, peer->id, rec_wire, wrote, net.now + 100u),
+	      "the daemon's setting was refused by the transport");
+	sim_run(&net, 8);
+	for (e = 0; e < peer->inbox_len; e++) {
+		fzn_record_t got;
+
+		if (fzn_record_open(peer->inbox[e].bytes, peer->inbox[e].len, &got)
+		    != FZN_RECORD_OK)
+			continue;
+		check(fzn_journal_admit(&peer->journal, fzn_record_issuer(got),
+		                        fzn_record_stream(got), fzn_record_seq(got))
+		              != FZN_JOURNAL_OK,
+		      "a peer admitted a record from an issuer it had never chosen to follow");
+	}
+	peer->inbox_len = 0;
+	check(fzn_state_count(&peer->state) == 0u,
+	      "a peer that follows nobody was configured anyway");
+
+	/* ---- 4. THE PEER DECIDES TO FOLLOW THE DAEMON, and the same setting
+	   is sent again -- a retransmission, which is a new frame and so a new
+	   nonce, not a replay. */
+	check(fzn_journal_anchor(&peer->journal, daemon->pubkey, 0u, 0u) == FZN_JOURNAL_OK,
+	      "the peer could not choose to follow the daemon");
+	check(sim_send(&net, daemon->id, peer->id, rec_wire, wrote, net.now + 100u),
+	      "the retransmission was refused by the transport");
+	sim_run(&net, 8);
+
+	for (e = 0; e < peer->inbox_len; e++) {
+		fzn_record_t got;
+
+		if (fzn_record_open(peer->inbox[e].bytes, peer->inbox[e].len, &got)
+		    != FZN_RECORD_OK)
+			continue;
+		if (fzn_journal_admit(&peer->journal, fzn_record_issuer(got),
+		                      fzn_record_stream(got), fzn_record_seq(got))
+		    != FZN_JOURNAL_OK)
+			continue;
+		if (fzn_state_apply(&peer->state, &got) != FZN_STATE_OK)
+			continue;
+		delivered++;
+	}
+	peer->inbox_len = 0;
+
+	check(delivered == 1u, "the setting did not survive the round trip intact");
+
+	/* ---- 5. BOTH ENDS RESOLVE THE SAME THING, which is the only claim
+	   the whole chain was built to make. */
+	cell = fzn_state_get(&daemon->state, subject, 1u);
+	check(cell != NULL && cell->body_len == sizeof(value)
+	              && memcmp(cell->body, value, sizeof(value)) == 0,
+	      "the daemon does not hold the setting it applied");
+	cell = fzn_state_get(&peer->state, subject, 1u);
+	check(cell != NULL && cell->body_len == sizeof(value)
+	              && memcmp(cell->body, value, sizeof(value)) == 0,
+	      "the peer does not hold the setting the daemon sent");
+	check(fzn_state_count(&daemon->state) == fzn_state_count(&peer->state),
+	      "the two ends hold different numbers of settings");
+
+	printf("  gui-to-peer: refused %s, admitted %s, %u setting across the wire, "
+	       "both ends at %zu\n",
+	       fzn_peer_verdict_str(fzn_vocabulary_admit(&ordinary, verb_set,
+	                                                 sizeof(verb_set) - 1u, rules, 1u)),
+	       fzn_peer_verdict_str(fzn_vocabulary_admit(&admin, verb_set,
+	                                                 sizeof(verb_set) - 1u, rules, 1u)),
+	       delivered, fzn_state_count(&peer->state));
+}
+
 static void scenario_estate(void)
 {
 	static struct sim_net net;
@@ -5211,6 +5378,7 @@ int main(void)
 	scenario_held_but_revoked();
 	scenario_ledger();
 	scenario_local_hop();
+	scenario_gui_to_peer();
 	scenario_estate();
 	scenario_tree();
 
