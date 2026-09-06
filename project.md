@@ -22870,6 +22870,72 @@ anything could have said otherwise.
 copyright holder should know the size before it happens rather than find it
 inside a commit about a widget.
 
+## 152. Retention, and the two questions it answers, 2026-09-06
+
+The copyright holder asked for "a retention bit" on the catalogue and on its
+contents, "so we can choose who stores what", alongside two questions: how a
+host signifies which files it stores, and whether the permissions system is
+done.
+
+### Which host stores which files: nothing said, and this is what says it
+
+Measured rather than recalled. Three things were close and none was it:
+
+    record/ledger.h    how far peer P has got on subject S -- a POSITION
+    spool/message.h    a have-set for one blob IN FLIGHT
+    spool/spool.h      what THIS host has of ONE blob
+
+None is a durable map of holdings. **The retention table is that map**, and
+publishing it is what turns a local policy into a fact a peer can use --
+which makes the holder's first question and their cross-host copy the same
+feature rather than two.
+
+### Is the permissions system done? For sec 2's three hops, yes
+
+Mint, delegate, verify, revoke with withdrawal and reissue, admit, manifest,
+`fzn_authz_decide` with origin, and sec 129's mandatory service with its
+product filter. Two gaps, and they are different in kind:
+
+- **Per-subsystem relay does not exist.** `wire/relay.h` is a hop BUDGET and
+  mentions neither service nor subsystem. A real hole, and sec 153's.
+- **Retention was never a gap in the capability system at all.** A capability
+  says what a holder MAY do; retention says what a host SHOULD KEEP. Those
+  are different kinds of statement and **a capability cannot express a
+  duty** -- putting storage obligations into a grant would have been a
+  category error, which is why this went in as its own axis.
+
+### Local, like the filing, and for the same reason
+
+sec 147 settled that where a host keeps its bytes does not travel; WHETHER it
+keeps them is the same kind of decision. A retention that synced would make
+one host's disk budget an assertion every other host had to accept, and a
+small peer that cannot hold a film library would be told it must.
+
+So it needs no resolver and no wire form, which is why this table is far
+smaller than the name and content ones: **there is no second writer to
+disagree with.** The suite asserts the edge body did not grow, so a later
+change cannot quietly find a bit for it.
+
+### A tri-state, where the holder said "bit"
+
+A bit cannot say **"keep everything except this"**, which is the common case:
+retain a library, drop four things. Three states -- follow the catalogue,
+keep, drop -- express both directions, and DEFAULT is the zero value so a
+node nobody has spoken about follows the catalogue rather than being silently
+dropped.
+
+There is a case for the half a bit cannot do: a DROP must stand when the
+catalogue's default flips underneath it, because **an override is a word of
+its own rather than a flip of whatever the catalogue says.**
+
+**And a catalogue keeps nothing until told.** Defaulting to keep would make
+adopting a stranger's catalogue start filling this host's disk -- a default
+nobody chose, discovered when the disk is full.
+
+**DEFAULT gives its row back** rather than storing one, since a table filling
+with rows that say "whatever the catalogue says" is a table that runs out for
+the overrides that mean something.
+
 ## 151. The underscore style, removed -- and two stale numbers, 2026-09-06
 
 The copyright holder, on reading sec 150: "I'm not sure we should disallow

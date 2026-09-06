@@ -1475,6 +1475,48 @@ SABOTAGES = [
 		"nothing is written unless the whole segment fits, or a short buffer takes a name cut in half and a file is written under it",
 	),
 	(
+		"retain-default-is-not-keeping",
+		"catalog/catalog.c",
+		"\tcatalog->retain_default = 0;\n",
+		"\tcatalog->retain_default = 1;\n",
+		"a catalogue keeps nothing until a caller says so, or adopting a stranger's catalogue starts filling this host's disk with it",
+	),
+	(
+		"retain-node-beats-catalogue",
+		"catalog/catalog.c",
+		"\tif (mode == FZN_CATALOG_RETAIN_KEEP)\n\t\treturn 1;\n\tif (mode == FZN_CATALOG_RETAIN_DROP)\n\t\treturn 0;\n",
+		"\tif (0)\n\t\treturn 1;\n\tif (0)\n\t\treturn 0;\n",
+		"a node's own word beats the catalogue's in both directions, which is what a tri-state buys over the bit the holder asked for -- keep a library and drop four things, or the reverse",
+	),
+	(
+		"retain-drop-is-a-word-of-its-own",
+		"catalog/catalog.c",
+		"\tif (mode == FZN_CATALOG_RETAIN_DROP)\n\t\treturn 0;\n",
+		"\tif (0)\n\t\treturn 0;\n",
+		"an override is a word of its own rather than a flip of the catalogue's, so a drop must stand when the default changes underneath it",
+	),
+	(
+		"retain-default-gives-the-row-back",
+		"catalog/catalog.c",
+		"\t\t*held = catalog->holds[catalog->hold_used - 1u];\n\t\tcatalog->hold_used--;\n",
+		"\t\theld->mode = FZN_CATALOG_RETAIN_DEFAULT;\n",
+		"a table filling with rows that say whatever the catalogue says is a table that runs out for the overrides that mean something",
+	),
+	(
+		"retain-refuses-unknown-mode",
+		"catalog/catalog.c",
+		"\tif (mode != FZN_CATALOG_RETAIN_DEFAULT && mode != FZN_CATALOG_RETAIN_KEEP\n\t    && mode != FZN_CATALOG_RETAIN_DROP)\n\t\treturn FZN_CATALOG_ERR_MALFORMED;\n",
+		"\tif (0)\n\t\treturn FZN_CATALOG_ERR_MALFORMED;\n",
+		"a stored mode that is none of the three answers neither keep nor drop, so a consumer asking whether to fetch a blob gets the catalogue's default for a node it was told about",
+	),
+	(
+		"retain-respects-the-refile-lock",
+		"catalog/catalog.c",
+		"\tif (catalog->refiling)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n\tif (mode != FZN_CATALOG_RETAIN_DEFAULT",
+		"\tif (0)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n\tif (mode != FZN_CATALOG_RETAIN_DEFAULT",
+		"sec 148: the only thing a catalogue answers mid-refile is progress, and retention is a write like any other",
+	),
+	(
 		"provision-envelope-verified",
 		"provision/provision.c",
 		"\tif (!verifier->verify(verifier->ctx, card.root, card.base, FZN_PROVISION_BODY_LEN,\n"

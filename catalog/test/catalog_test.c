@@ -2070,6 +2070,182 @@ static void test_the_name_caller_bugs_are_refused(void)
 	      "a buffer too small for the head encoded");
 }
 
+/* ---- retention ---------------------------------------------------------- */
+
+/* A catalogue keeps nothing until a caller says so, and a node with no word
+ * of its own follows it. sec 152. */
+static void test_a_catalogue_keeps_nothing_until_told(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_hold_t holds[4];
+	fzn_catalog_t cat;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_hold_init(&cat, holds, 4) == FZN_CATALOG_OK, "hold init refused");
+
+	/* THE DEFAULT IS NOT TO KEEP. Adopting a stranger's catalogue must not
+	 * start filling this host's disk. */
+	CHECK(!fzn_catalog_keeps(&cat, idp(0x10)), "a fresh catalogue keeps things");
+	CHECK(fzn_catalog_retention_of(&cat, idp(0x10)) == FZN_CATALOG_RETAIN_DEFAULT,
+	      "a node nobody spoke about has a word of its own");
+
+	REQUIRE(fzn_catalog_retain_all(&cat, 1) == FZN_CATALOG_OK, "retain all refused");
+	CHECK(fzn_catalog_keeps(&cat, idp(0x10)), "the catalogue's word was not followed");
+	REQUIRE(fzn_catalog_retain_all(&cat, 0) == FZN_CATALOG_OK, "retain none refused");
+	CHECK(!fzn_catalog_keeps(&cat, idp(0x10)), "the catalogue's word was not followed back");
+}
+
+/*
+ * A TRI-STATE, NOT A BIT, and this is the case that shows why: a bit can
+ * express one of these two and not both.
+ */
+static void test_a_node_overrides_in_both_directions(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_hold_t holds[4];
+	fzn_catalog_t cat;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_hold_init(&cat, holds, 4) == FZN_CATALOG_OK, "hold init");
+
+	/* Keep the library, drop four things. */
+	REQUIRE(fzn_catalog_retain_all(&cat, 1) == FZN_CATALOG_OK, "retain all");
+	REQUIRE(fzn_catalog_retain(&cat, idp(0x10), FZN_CATALOG_RETAIN_DROP) == FZN_CATALOG_OK,
+	        "drop one");
+	CHECK(!fzn_catalog_keeps(&cat, idp(0x10)), "a dropped node is still kept");
+	CHECK(fzn_catalog_keeps(&cat, idp(0x11)), "dropping one node dropped another");
+
+	/* Keep nothing, want four. */
+	REQUIRE(fzn_catalog_retain_all(&cat, 0) == FZN_CATALOG_OK, "retain none");
+	REQUIRE(fzn_catalog_retain(&cat, idp(0x12), FZN_CATALOG_RETAIN_KEEP) == FZN_CATALOG_OK,
+	        "keep one");
+	CHECK(fzn_catalog_keeps(&cat, idp(0x12)), "a kept node is not kept");
+	CHECK(!fzn_catalog_keeps(&cat, idp(0x11)), "keeping one node kept another");
+
+	/* AND THE DROP STILL STANDS under the opposite default, which is the
+	 * half a bit could not express: the override is a word of its own
+	 * rather than a flip of whatever the catalogue says. */
+	CHECK(!fzn_catalog_keeps(&cat, idp(0x10)), "a dropped node returned with the default");
+}
+
+/* DEFAULT gives the row back rather than storing one. */
+static void test_default_returns_the_row(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_hold_t holds[2];
+	fzn_catalog_t cat;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_hold_init(&cat, holds, 2) == FZN_CATALOG_OK, "hold init");
+	CHECK(fzn_catalog_hold_count(&cat) == 0, "a fresh table holds overrides");
+
+	REQUIRE(fzn_catalog_retain(&cat, idp(0x10), FZN_CATALOG_RETAIN_KEEP) == FZN_CATALOG_OK,
+	        "keep");
+	REQUIRE(fzn_catalog_retain(&cat, idp(0x11), FZN_CATALOG_RETAIN_DROP) == FZN_CATALOG_OK,
+	        "drop");
+	CHECK(fzn_catalog_hold_count(&cat) == 2, "two overrides were not held");
+	CHECK(fzn_catalog_retain(&cat, idp(0x12), FZN_CATALOG_RETAIN_KEEP) == FZN_CATALOG_ERR_FULL,
+	      "a full table took a third override");
+
+	/* Giving one back makes room, which is the point: a table filling with
+	 * rows that say "whatever the catalogue says" runs out for the
+	 * overrides that mean something. */
+	REQUIRE(fzn_catalog_retain(&cat, idp(0x10), FZN_CATALOG_RETAIN_DEFAULT) == FZN_CATALOG_OK,
+	        "default");
+	CHECK(fzn_catalog_hold_count(&cat) == 1, "the row was not given back");
+	CHECK(fzn_catalog_retention_of(&cat, idp(0x10)) == FZN_CATALOG_RETAIN_DEFAULT,
+	      "the node still has a word of its own");
+	/* AND THE OTHER OVERRIDE SURVIVED the removal, which a swap-with-last
+	 * gets wrong if it swaps the wrong row. */
+	CHECK(fzn_catalog_retention_of(&cat, idp(0x11)) == FZN_CATALOG_RETAIN_DROP,
+	      "giving one row back lost another");
+	CHECK(fzn_catalog_retain(&cat, idp(0x12), FZN_CATALOG_RETAIN_KEEP) == FZN_CATALOG_OK,
+	      "the freed row was not reusable");
+
+	/* Setting DEFAULT on a node that never had a word is not an error. */
+	REQUIRE(fzn_catalog_retain(&cat, idp(0x99), FZN_CATALOG_RETAIN_DEFAULT) == FZN_CATALOG_OK,
+	        "default on a node nobody spoke about was refused");
+}
+
+/* Retention is local, so it neither travels nor answers during a refile. */
+static void test_retention_is_local_and_respects_the_lock(void)
+{
+	fzn_catalog_edge_t rows[8];
+	fzn_catalog_hold_t holds[4];
+	fzn_catalog_move_t moves[8];
+	fzn_catalog_refile_t job;
+	fzn_catalog_t cat;
+	uint8_t body[FZN_CATALOG_EDGE_BODY_LEN];
+	fzn_record_t rec;
+	size_t len = 0;
+
+	build_filed(&cat, rows, 8);
+	REQUIRE(fzn_catalog_hold_init(&cat, holds, 4) == FZN_CATALOG_OK, "hold init");
+
+	/* A PEER'S RECORD SETS NO RETENTION. There is no wire form for it, and
+	 * the suite says so rather than trusting that nobody adds one. */
+	REQUIRE(fzn_catalog_edge_encode(idp(0x01), idp(0x10), 1, body, sizeof(body), &len)
+	                == FZN_CATALOG_OK, "encode");
+	CHECK(len == FZN_CATALOG_EDGE_BODY_LEN,
+	      "an edge body grew, so retention may have found a bit on the wire");
+	REQUIRE(as_record(&rec, BOB, 1u, body, len), "sign");
+	REQUIRE(fzn_catalog_apply(&cat, rec) == FZN_CATALOG_OK, "apply");
+	CHECK(fzn_catalog_retention_of(&cat, idp(0x10)) == FZN_CATALOG_RETAIN_DEFAULT,
+	      "a peer's record set this host's retention");
+	CHECK(fzn_catalog_hold_count(&cat) == 0, "applying a record added an override");
+
+	/* And the refile lock covers it, as it covers every other write. */
+	REQUIRE(fzn_catalog_refile_capture(&cat, &job, moves, 8) == FZN_CATALOG_OK, "capture");
+	REQUIRE(fzn_catalog_refile_begin(&cat, &job) == FZN_CATALOG_OK, "begin");
+	CHECK(fzn_catalog_retain(&cat, idp(0x10), FZN_CATALOG_RETAIN_KEEP) == FZN_CATALOG_ERR_BUSY,
+	      "retention was set during a refile");
+	CHECK(fzn_catalog_retain_all(&cat, 1) == FZN_CATALOG_ERR_BUSY,
+	      "the catalogue's retention was set during a refile");
+}
+
+static void test_the_retention_caller_bugs_are_refused(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_hold_t holds[2];
+	fzn_catalog_t cat;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+
+	/* A catalogue with no table refuses an override rather than doing
+	 * nothing -- but the catalogue's own bit still works, since it needs no
+	 * table, and `keeps` still answers from it. */
+	CHECK(fzn_catalog_retain(&cat, idp(0x10), FZN_CATALOG_RETAIN_KEEP)
+	              == FZN_CATALOG_ERR_MALFORMED,
+	      "a catalogue with no retention table took an override");
+	REQUIRE(fzn_catalog_retain_all(&cat, 1) == FZN_CATALOG_OK,
+	        "the catalogue's own bit needs a table");
+	CHECK(fzn_catalog_keeps(&cat, idp(0x10)),
+	      "a catalogue with no override table cannot say what it keeps");
+	CHECK(fzn_catalog_hold_count(&cat) == 0, "a catalogue with no table counted overrides");
+
+	CHECK(fzn_catalog_hold_init(NULL, holds, 2) == FZN_CATALOG_ERR_MALFORMED, "a null catalogue");
+	CHECK(fzn_catalog_hold_init(&cat, NULL, 2) == FZN_CATALOG_ERR_MALFORMED, "null rows");
+	CHECK(fzn_catalog_hold_init(&cat, holds, 0) == FZN_CATALOG_ERR_MALFORMED,
+	      "a table that can hold nothing");
+	CHECK(fzn_catalog_retain_all(NULL, 1) == FZN_CATALOG_ERR_MALFORMED, "a null catalogue");
+
+	REQUIRE(fzn_catalog_hold_init(&cat, holds, 2) == FZN_CATALOG_OK, "hold init");
+	CHECK(fzn_catalog_retain(&cat, NULL, FZN_CATALOG_RETAIN_KEEP) == FZN_CATALOG_ERR_MALFORMED,
+	      "a null node");
+	CHECK(fzn_catalog_retain(&cat, idp(0x10), (fzn_catalog_retention_t)9)
+	              == FZN_CATALOG_ERR_MALFORMED, "a mode that is none of the three");
+	CHECK(fzn_catalog_retention_of(NULL, idp(0x10)) == FZN_CATALOG_RETAIN_DEFAULT,
+	      "a null catalogue had an opinion");
+	CHECK(!fzn_catalog_keeps(NULL, idp(0x10)), "a null catalogue keeps things");
+	CHECK(fzn_catalog_hold_count(NULL) == 0, "a null catalogue counted overrides");
+
+	CHECK(strcmp(fzn_catalog_retention_str(FZN_CATALOG_RETAIN_KEEP),
+	             fzn_catalog_retention_str(FZN_CATALOG_RETAIN_DROP)) != 0,
+	      "keep and drop read alike");
+	CHECK(fzn_catalog_retention_str((fzn_catalog_retention_t)9)[0] != '\0',
+	      "an unknown mode renders empty");
+}
+
 static void test_the_errors_render(void)
 {
 	CHECK(fzn_catalog_err_str(FZN_CATALOG_OK)[0] != '\0', "OK renders empty");
@@ -2149,6 +2325,11 @@ int main(void)
 	test_a_name_renders_as_written();
 	test_a_name_round_trips_through_a_record();
 	test_the_name_caller_bugs_are_refused();
+	test_a_catalogue_keeps_nothing_until_told();
+	test_a_node_overrides_in_both_directions();
+	test_default_returns_the_row();
+	test_retention_is_local_and_respects_the_lock();
+	test_the_retention_caller_bugs_are_refused();
 	test_the_errors_render();
 	test_the_suite_can_tell_pass_from_fail();
 

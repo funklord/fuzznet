@@ -95,6 +95,13 @@ fzn_catalog_err_t fzn_catalog_init(fzn_catalog_t *catalog, fzn_catalog_edge_t *e
 	/* No filing root until a caller names one, so every path query refuses
 	 * rather than this module inventing one. */
 	catalog->refiling = 0;
+	catalog->holds = NULL;
+	catalog->hold_capacity = 0;
+	catalog->hold_used = 0;
+	/* A catalogue keeps nothing until a caller says so: a default of
+	 * keeping would make adopting a stranger's catalogue fill this host's
+	 * disk. */
+	catalog->retain_default = 0;
 	catalog->names = NULL;
 	catalog->name_capacity = 0;
 	catalog->name_used = 0;
@@ -1170,4 +1177,134 @@ fzn_catalog_err_t fzn_catalog_name_segment(const fzn_catalog_name_t *name, char 
 	memcpy(out, name->text, name->len);
 	out[name->len] = '\0';
 	return FZN_CATALOG_OK;
+}
+
+/* ---- retention ---------------------------------------------------------- */
+
+static fzn_catalog_hold_t *find_hold(const fzn_catalog_t *catalog,
+                                     const fzn_catalog_id_t *node)
+{
+	size_t i;
+
+	for (i = 0; i < catalog->hold_used; i++) {
+		if (same_id(&catalog->holds[i].id, node))
+			return &catalog->holds[i];
+	}
+	return NULL;
+}
+
+static int hold_usable(const fzn_catalog_t *catalog)
+{
+	return catalog && catalog->holds && catalog->hold_capacity > 0
+	       && catalog->hold_used <= catalog->hold_capacity;
+}
+
+const char *fzn_catalog_retention_str(fzn_catalog_retention_t mode)
+{
+	switch (mode) {
+	case FZN_CATALOG_RETAIN_DEFAULT:
+		return "as the catalogue says";
+	case FZN_CATALOG_RETAIN_KEEP:
+		return "kept here";
+	case FZN_CATALOG_RETAIN_DROP:
+		return "not kept here";
+	}
+	return "unknown";
+}
+
+fzn_catalog_err_t fzn_catalog_hold_init(fzn_catalog_t *catalog, fzn_catalog_hold_t *holds,
+                                        size_t capacity)
+{
+	if (!catalog || !holds || capacity == 0)
+		return FZN_CATALOG_ERR_MALFORMED;
+
+	memset(holds, 0, capacity * sizeof(*holds));
+	catalog->holds = holds;
+	catalog->hold_capacity = capacity;
+	catalog->hold_used = 0;
+	return FZN_CATALOG_OK;
+}
+
+fzn_catalog_err_t fzn_catalog_retain_all(fzn_catalog_t *catalog, int keep)
+{
+	if (!usable(catalog))
+		return FZN_CATALOG_ERR_MALFORMED;
+	if (catalog->refiling)
+		return FZN_CATALOG_ERR_BUSY;
+
+	catalog->retain_default = keep ? 1 : 0;
+	return FZN_CATALOG_OK;
+}
+
+fzn_catalog_err_t fzn_catalog_retain(fzn_catalog_t *catalog, const fzn_catalog_id_t *node,
+                                     fzn_catalog_retention_t mode)
+{
+	fzn_catalog_hold_t *held;
+
+	if (!hold_usable(catalog) || !node)
+		return FZN_CATALOG_ERR_MALFORMED;
+	if (catalog->refiling)
+		return FZN_CATALOG_ERR_BUSY;
+	if (mode != FZN_CATALOG_RETAIN_DEFAULT && mode != FZN_CATALOG_RETAIN_KEEP
+	    && mode != FZN_CATALOG_RETAIN_DROP)
+		return FZN_CATALOG_ERR_MALFORMED;
+
+	held = find_hold(catalog, node);
+
+	if (mode == FZN_CATALOG_RETAIN_DEFAULT) {
+		/* DEFAULT GIVES THE ROW BACK rather than storing one. A table
+		 * filling with nodes that say "whatever the catalogue says" is
+		 * a table that runs out for the overrides that mean something. */
+		if (!held)
+			return FZN_CATALOG_OK;
+		*held = catalog->holds[catalog->hold_used - 1u];
+		catalog->hold_used--;
+		return FZN_CATALOG_OK;
+	}
+
+	if (held) {
+		held->mode = mode;
+		return FZN_CATALOG_OK;
+	}
+	if (catalog->hold_used == catalog->hold_capacity)
+		return FZN_CATALOG_ERR_FULL;
+
+	catalog->holds[catalog->hold_used].id = *node;
+	catalog->holds[catalog->hold_used].mode = mode;
+	catalog->hold_used++;
+	return FZN_CATALOG_OK;
+}
+
+fzn_catalog_retention_t fzn_catalog_retention_of(const fzn_catalog_t *catalog,
+                                                 const fzn_catalog_id_t *node)
+{
+	const fzn_catalog_hold_t *held;
+
+	if (!hold_usable(catalog) || !node)
+		return FZN_CATALOG_RETAIN_DEFAULT;
+	held = find_hold(catalog, node);
+	return held ? held->mode : FZN_CATALOG_RETAIN_DEFAULT;
+}
+
+int fzn_catalog_keeps(const fzn_catalog_t *catalog, const fzn_catalog_id_t *node)
+{
+	fzn_catalog_retention_t mode;
+
+	if (!catalog)
+		return 0;
+	/* A NODE'S OWN WORD BEATS THE CATALOGUE'S, in both directions: a host
+	 * that keeps a library and drops four things says so, and one that
+	 * keeps nothing and wants four says so the same way. A bit could only
+	 * express one of those. */
+	mode = fzn_catalog_retention_of(catalog, node);
+	if (mode == FZN_CATALOG_RETAIN_KEEP)
+		return 1;
+	if (mode == FZN_CATALOG_RETAIN_DROP)
+		return 0;
+	return catalog->retain_default ? 1 : 0;
+}
+
+size_t fzn_catalog_hold_count(const fzn_catalog_t *catalog)
+{
+	return hold_usable(catalog) ? catalog->hold_used : 0;
 }

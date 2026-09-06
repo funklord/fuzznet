@@ -196,6 +196,12 @@ typedef struct fzn_catalog {
 	 * would otherwise pick. */
 	fzn_catalog_id_t filing_root;
 	int filing_root_set;
+	/* What this host keeps. See the retention section: local, so no
+	 * resolver and no wire form. */
+	struct fzn_catalog_hold *holds;
+	size_t hold_capacity;
+	size_t hold_used;
+	int retain_default;
 	/* The name table, or nulls when a consumer keeps names elsewhere. */
 	struct fzn_catalog_name *names;
 	size_t name_capacity;
@@ -887,5 +893,89 @@ fzn_catalog_err_t fzn_catalog_name_encode(const fzn_catalog_name_t *name, uint8_
  * whole segment fits. */
 fzn_catalog_err_t fzn_catalog_name_segment(const fzn_catalog_name_t *name, char *out,
                                            size_t cap);
+
+
+/*
+ * RETENTION: what this host keeps, and therefore what it can be said to hold.
+ *
+ * project.md sec 152. The copyright holder asked for "a retention bit" on the
+ * catalogue and on its contents, "so we can choose who stores what".
+ *
+ * IT IS LOCAL, LIKE THE FILING, AND FOR THE SAME REASON. sec 147 settled that
+ * where a host keeps its bytes does not travel; WHETHER it keeps them is the
+ * same kind of decision. A retention that synced would make one host's disk
+ * budget an assertion every other host had to accept -- and a small peer that
+ * cannot hold a film library would be told it must.
+ *
+ * SO IT NEEDS NO RESOLVER AND NO WIRE FORM, which is why this table is much
+ * smaller than the name and content ones: there is no second writer to
+ * disagree with. That is the same saving the filing gets.
+ *
+ * A TRI-STATE RATHER THAN A BIT, and the holder's word was "bit" so the
+ * difference is worth stating. A bit cannot say "keep everything except
+ * this", which is the common case for a catalogue: a host retains a library
+ * and drops the four things it does not want. Three states -- follow the
+ * catalogue, keep, drop -- express both directions, and DEFAULT is the zero
+ * value so a node nobody has spoken about follows the catalogue rather than
+ * being silently dropped.
+ *
+ * WHAT IT ANSWERS BEYOND ITS OWN QUESTION. The holder also asked how a host
+ * signifies which files it stores. Nothing did: `record/ledger.h` tracks how
+ * far a peer has got per subject, `spool/message.h` carries a have-set for
+ * one blob in flight, and `spool/spool.h` knows what this host has of one
+ * blob -- none of them a durable map of holdings. **This is that map**, and
+ * publishing it is what turns a local policy into a fact a peer can use.
+ * Publication is sec 152's next step rather than part of this one.
+ */
+
+typedef enum fzn_catalog_retention {
+	/* Follow the catalogue. The zero value, so a node nobody has spoken
+	 * about is kept exactly when the catalogue is. */
+	FZN_CATALOG_RETAIN_DEFAULT = 0,
+	FZN_CATALOG_RETAIN_KEEP = 1,
+	FZN_CATALOG_RETAIN_DROP = 2,
+} fzn_catalog_retention_t;
+
+const char *fzn_catalog_retention_str(fzn_catalog_retention_t mode);
+
+typedef struct fzn_catalog_hold {
+	fzn_catalog_id_t id;
+	fzn_catalog_retention_t mode;
+} fzn_catalog_hold_t;
+
+/* Point a catalogue's retention table at caller-owned rows. Separate from
+ * `fzn_catalog_init` so a consumer that keeps everything, or nothing, pays
+ * for no table. */
+fzn_catalog_err_t fzn_catalog_hold_init(fzn_catalog_t *catalog, fzn_catalog_hold_t *holds,
+                                        size_t capacity);
+
+/* The catalogue's own bit: what a node with no word of its own follows.
+ *
+ * A CATALOGUE KEEPS NOTHING UNTIL THIS IS SET, deliberately. The alternative
+ * -- default to keeping -- would make a host that adopted a stranger's
+ * catalogue start filling its disk with it, and a default nobody chose is
+ * exactly the kind that is discovered when the disk is full. */
+fzn_catalog_err_t fzn_catalog_retain_all(fzn_catalog_t *catalog, int keep);
+
+/* Say what to do with one node, overriding the catalogue.
+ *
+ * FZN_CATALOG_RETAIN_DEFAULT removes the override rather than storing one, so
+ * a consumer changing its mind gives a row back instead of filling the table
+ * with nodes that say "whatever the catalogue says". */
+fzn_catalog_err_t fzn_catalog_retain(fzn_catalog_t *catalog, const fzn_catalog_id_t *node,
+                                     fzn_catalog_retention_t mode);
+
+/* What was said about this node, or DEFAULT when nothing was. */
+fzn_catalog_retention_t fzn_catalog_retention_of(const fzn_catalog_t *catalog,
+                                                 const fzn_catalog_id_t *node);
+
+/* Whether this host keeps this node: the node's own word if it has one, the
+ * catalogue's otherwise. The question a consumer actually asks before
+ * fetching a blob or deleting a file. */
+int fzn_catalog_keeps(const fzn_catalog_t *catalog, const fzn_catalog_id_t *node);
+
+/* How many overrides are held, so a consumer can size a table and see it
+ * shrink as it gives rows back. */
+size_t fzn_catalog_hold_count(const fzn_catalog_t *catalog);
 
 #endif
