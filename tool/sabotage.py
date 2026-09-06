@@ -2169,6 +2169,52 @@ SABOTAGES = [
 		"a job is ended by the job that started it, or refile_end hands away "
 		"a catalogue a sweep is holding",
 	),
+	# BATCH FOURTEEN, 2026-09-06: reachability, sec 156. The module proposes
+	# deletions, so every guard here is a way of proposing to delete
+	# something live -- and the two that matter most are the frontier check,
+	# which is the whole discriminator between "nobody links this" and "I
+	# have not caught up", and the scratch refusal, whose absence turns
+	# reachable nodes into candidates.
+	(
+		"reach-frontier-required",
+		"catalog/reach.c",
+		"\t\tif (i >= frontier_count) {\n\t\t\tmemcpy(plan->unvouched, issuer, FZN_PUBKEY_LEN);\n\t\t\tplan->unvouched_set = 1;\n\t\t\treturn FZN_CATALOG_ERR_INCOMPLETE;\n\t\t}\n",
+		"\t\t/* sabotage */\n",
+		"a caller that has not accounted for an issuer this catalogue depends "
+		"on must be refused, or the answer is drawn from a partial view",
+	),
+	(
+		"reach-frontier-behind",
+		"catalog/reach.c",
+		"\t\t\tif (frontier[i].received < seq)\n\t\t\t\ti = frontier_count;\n",
+		"\t\t\t(void)0;\n",
+		"a frontier behind this catalogue's own applied sequence is "
+		"incoherent and must not be taken as evidence",
+	),
+	(
+		"reach-scratch-refuses",
+		"catalog/reach.c",
+		"\t\t\tif (!add_unique(scratch, &seen, scratch_cap, &edge->child))\n\t\t\t\treturn FZN_CATALOG_ERR_FULL;\n",
+		"\t\t\t(void)add_unique(scratch, &seen, scratch_cap, &edge->child);\n",
+		"a walk that ran out of scratch must refuse, since counting it leaves "
+		"reachable nodes looking like garbage",
+	),
+	(
+		"reach-root-must-be-known",
+		"catalog/reach.c",
+		"\t\tif (!known(catalog, &roots[i]))\n\t\t\treturn FZN_CATALOG_ERR_ABSENT;\n",
+		"\t\t(void)0;\n",
+		"a root the catalogue does not know must be refused, or a typo "
+		"proposes the whole catalogue for deletion",
+	),
+	(
+		"reach-tombstone-is-not-a-node",
+		"catalog/reach.c",
+		"\t\tif (!edge->present)\n\t\t\treturn 0;\n\t\t*out = (k % 2u) ? edge->child : edge->parent;\n",
+		"\t\t*out = (k % 2u) ? edge->child : edge->parent;\n",
+		"an absent edge is a tombstone and neither end of one is a node, or "
+		"every unlink leaves a node this walk proposes for ever",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

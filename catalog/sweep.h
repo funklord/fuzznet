@@ -57,12 +57,19 @@
  * kept a copy, and irreversible exactly where it is not** -- which is what
  * the witness seam below exists to let a consumer refuse.
  *
- * WHAT IS NOT HERE. Reachability is not consulted: a node no longer linked
- * from anywhere is not swept unless retention says to drop it. Collecting
- * unreachable nodes is a different question with a different hazard -- an
- * edge that has not arrived yet makes a live node look orphaned -- and
- * guessing at it from here would delete on the strength of a record this host
- * has not received. sec 155 records it as open.
+ * REACHABILITY IS NOT CONSULTED HERE AND IS NOT MISSING. A node no longer
+ * linked from anywhere is not swept unless retention says to drop it, and
+ * that separation is the design rather than a gap: `catalog/reach.h` answers
+ * which nodes nothing links, and answering it needs evidence this module has
+ * no business collecting -- a frontier saying how far this host has read from
+ * every issuer it follows, without which an edge that has not arrived yet
+ * makes a live node look orphaned. sec 156.
+ *
+ * So the composition is three steps and this is the last of them:
+ * `fzn_catalog_unreachable` proposes, `fzn_catalog_retain` records the
+ * consumer's decision, and the sweep removes bytes with the two guards below
+ * intact. Being wrong about reachability therefore costs a re-fetch wherever
+ * somebody else kept a copy, rather than being a new way to lose data.
  */
 
 #ifndef FZN_CATALOG_SWEEP_H

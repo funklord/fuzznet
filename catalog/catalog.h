@@ -110,6 +110,17 @@ typedef enum fzn_catalog_err {
 	 * separator or a traversal, or a whole path past the bound. See
 	 * `fzn_catalog_fs_ops`, where the reasons are the point. */
 	FZN_CATALOG_ERR_PATH = -8,
+	/* THE CALLER HAS NOT ACCOUNTED FOR AN ISSUER THIS CATALOGUE DEPENDS
+	 * ON, so the question it asked cannot be answered from what it has
+	 * shown. sec 156, and `catalog/reach.h` argues it at length.
+	 *
+	 * Its own code rather than MALFORMED, because it is not a bad argument
+	 * -- the frontier may be perfectly well formed and simply short by one
+	 * issuer, which is the failure that actually happens. A caller meeting
+	 * this has a real next step (catch up with the issuer the plan names,
+	 * or add it to the frontier), and one it would not find behind a
+	 * generic refusal. */
+	FZN_CATALOG_ERR_INCOMPLETE = -9,
 	/* Bytes that are not a catalogue assertion, or are one written a way
 	 * this build does not produce. Distinct from MALFORMED because that is
 	 * the caller's bug and this is a PEER'S BYTES -- the same distinction

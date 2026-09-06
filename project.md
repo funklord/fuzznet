@@ -22870,6 +22870,162 @@ anything could have said otherwise.
 copyright holder should know the size before it happens rather than find it
 inside a commit about a widget.
 
+## 156. Reachability, and the discriminator sec 155 said was needed, 2026-09-06
+
+The copyright holder, on reading sec 155's open half: "do the reachability
+sweep next."
+
+### The hazard, restated, because the module is shaped entirely by it
+
+sec 155 built planned deletion on retention and deliberately refused
+reachability, naming why: **an edge that has not arrived yet makes a live node
+look orphaned**, and in a system whose shape is "ask again next round", not
+having a record yet is the ordinary state rather than the exceptional one. A
+host that swept on reachability would delete on the strength of a record it
+has not received.
+
+It also said what closing it would need -- "something that distinguishes
+'nobody links this' from 'I have not caught up'" -- and there is one.
+
+### Reachability is relative to the issuers this host follows
+
+That is the whole answer, and everything else is bookkeeping around it.
+
+An issuer this host does not follow **cannot link anything here**, because its
+records are never applied: `fzn_journal_anchor` makes following an issuer a
+decision, and `record/sync.h` refuses to fetch from a stranger a peer merely
+mentioned. So the set of issuers whose edges can ever shape this catalogue is
+exactly the set this host follows -- and a node no followed issuer links is
+unreachable **as a matter of fact rather than of guesswork**, provided this
+host has read everything those issuers have said.
+
+The residual is that last clause, and it is where the module puts all its
+weight.
+
+### So the caller vouches for a frontier, and this refuses to answer without one
+
+`fzn_catalog_unreachable` takes, per issuer, how far this host has read --
+which is the shape `fzn_sync_digest` already produces -- and refuses with
+FZN_CATALOG_ERR_INCOMPLETE, **naming the issuer in the plan**, when the
+catalogue depends on somebody the frontier does not account for.
+
+**That converts "did you remember to check?" into a refusal.** A caller can
+still pass a frontier it has not earned, and no library can stop that. What it
+cannot do is FORGET an issuer, and forgetting is the failure that actually
+happens.
+
+`fzn_catalog_sources` is the other half: who this catalogue depends on, with
+the highest sequence applied from each and a row count. That is a fact only
+the catalogue holds, and it is the input to "am I caught up".
+
+**Two directions are checkable here and the third is not**, which is worth
+stating rather than quietly checking two:
+
+- every issuer in the catalogue must appear in the frontier -- structural,
+  and a caller cannot forget one;
+- a frontier BEHIND this catalogue's own applied sequence is incoherent, since
+  the caller has applied a record it says it has not read;
+- a frontier AHEAD is ordinary and is not judged, because an issuer's stream
+  may carry records that are not catalogue assertions. Only the consumer knows
+  whether the gap is those or a backlog it has not applied.
+
+**And the frontier should carry every issuer this host FOLLOWS, not only those
+that have contributed.** An issuer that has said nothing about this catalogue
+yet is invisible to `fzn_catalog_sources` and is exactly the one whose
+unarrived edge would make a live node look orphaned. Following it and being
+caught up with it is what rules that out; the header says so where a caller
+builds the argument.
+
+### What it still cannot rule out, said plainly
+
+**A followed issuer may link the node tomorrow.** Nothing observable today
+excludes that and no amount of catching up can.
+
+**Which is why it proposes and never deletes.** The module answers a question.
+Acting on the answer means marking a node DROP, and then sec 155's sweep
+removes bytes with its two guards intact -- a blob a retained node still needs
+is kept, and the last known copy is kept. So being wrong about reachability
+costs a re-fetch wherever somebody else kept a copy, which is the same cost as
+being wrong about retention rather than a new way to lose data.
+
+    fzn_catalog_unreachable   propose, with the frontier as evidence
+    fzn_catalog_retain        the consumer decides, node by node
+    fzn_catalog_sweep_*       remove bytes, guards unchanged
+
+The three-step composition is the design, and it is why `reach.o` links
+neither `sweep.o` nor `copy.o`.
+
+### The two refusals that stop a typo condemning a catalogue
+
+**A root the catalogue does not know is refused**, and zero roots likewise.
+Either would otherwise report the entire catalogue as garbage, and this is the
+one module whose answer gets acted on by deleting.
+
+`roots` are the caller's and are not derived. Which top-level sets matter is a
+policy this module cannot see -- the filing root is the obvious one, a
+consumer may have several, and none of them need be the filing root. Deriving
+them as "every node with no parent" would make the answer **vacuous**, since
+then nothing is ever unreachable.
+
+### Scratch refuses where output truncates, and the asymmetry is the argument
+
+A `scratch` too small for the reachable set is FZN_CATALOG_ERR_FULL and never
+a counter. A short `out` is counted.
+
+They are opposite because their failures are opposite: **a short scratch
+leaves reachable nodes unvisited, so they come back as UNREACHABLE -- a
+proposal to delete live data.** A short `out` only proposes less, and the next
+walk finds the rest. `fzn_catalog_nodes` exists so a caller can size the
+scratch and never meet the refusal, and the suite asserts that contract
+directly rather than trusting it.
+
+### One definition of "a node", read three ways
+
+Sizing, walking and membership all need to agree about what counts as a node,
+and three loops deciding for themselves would be three things to keep in step
+-- with the failure being that a caller sizes an array by one rule and the
+walk overflows it under another. There is one enumeration of candidate slots
+and everything reads it.
+
+**A tombstone is not a node.** sec 144 keeps an absent edge so a stale link
+cannot resurrect the membership; if it also made its child a node, **unlinking
+something would turn it into permanent garbage this walk kept proposing** --
+which would make the ordinary act of removing a member produce a deletion
+candidate for ever. A case asserts the unlinked child disappears from both the
+node count and the proposal.
+
+**But the tombstone's AUTHOR is still a dependency**, which is why rows are
+enumerated separately from nodes. Somebody asserted the unlink and this host
+applied it, so a frontier that does not account for them is still short.
+Counting rows through the node enumeration would have silently dropped every
+tombstone's author from the frontier check -- the guard weakening itself
+through a shared loop.
+
+### Five guards, and every one of them proposes a deletion
+
+Five sabotage entries, all CAUGHT, each by the case written for it. What makes
+them one family is that every one guards a way of PROPOSING TO DELETE
+SOMETHING LIVE, which is the only kind of defect this module can have:
+
+    reach-frontier-required        answered from a partial view
+    reach-frontier-behind          an incoherent frontier taken as evidence
+    reach-scratch-refuses          a short walk turned live nodes into garbage
+    reach-root-must-be-known       a typo condemned the catalogue
+    reach-tombstone-is-not-a-node  every unlink left permanent garbage
+
+The last is the one that would have been hardest to notice in use. It does not
+fail loudly; it makes each unlink leave a node the walk proposes for ever, so
+a consumer following the proposals deletes content whose only crime was being
+removed from a set.
+
+### A count of the wrong thing wearing the right name
+
+`fzn_catalog_sources` reported `dropped` per ROW rather than per issuer, so an
+issuer with four rows that did not fit reported four drops. Caught by the
+case, and worth a line because the name was right and only the arithmetic was
+wrong: `fzn_sync_digest`'s `dropped` means issuers, this one said it meant
+issuers, and a reader comparing the two would have had no reason to look.
+
 ## 155. Planned deletion, and three ways to lose data tidying up, 2026-09-06
 
 The last of the copyright holder's three: "the cross host-copy of a catalog
@@ -23032,17 +23188,17 @@ no test produces* names, found by reading rather than by a gate.
 
 ### What is not here, and why guessing would delete something
 
-**Reachability is not consulted.** A node no longer linked from anywhere is
-not swept unless retention says to drop it.
+**~~Reachability is not consulted.~~ Closed by sec 156**, which is where the
+argument now lives. It was left open here because collecting unreachable nodes
+has a hazard planned deletion does not -- **an edge that has not arrived yet
+makes a live node look orphaned** -- and closing it needed something that
+distinguishes "nobody links this" from "I have not caught up".
 
-That is a real gap and it is left open deliberately: collecting unreachable
-nodes has a hazard this does not, because **an edge that has not arrived yet
-makes a live node look orphaned.** A host that swept on reachability would
-delete on the strength of a record it has not received -- and in a system
-whose whole shape is "ask again next round", not having a record yet is the
-ordinary state rather than the exceptional one. Closing it needs something
-that distinguishes "nobody links this" from "I have not caught up", and that
-is a design question rather than a walk.
+There is such a thing: reachability is relative to the issuers this host
+FOLLOWS, since no other issuer's records are ever applied here. sec 156 makes
+a caller vouch for a frontier and refuses to answer without one. The entry is
+rewritten rather than appended to, because a reader who found both would
+believe whichever sounded more careful and the open one always does.
 
 **A schedule is the other open half.** "Planned deletion" was read here as a
 deletion that is planned -- computed, safe, resumable, observable. It could

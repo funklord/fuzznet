@@ -290,6 +290,8 @@ const char *fzn_catalog_err_str(fzn_catalog_err_t err)
 		return "the filesystem seam refused";
 	case FZN_CATALOG_ERR_PATH:
 		return "not a usable path";
+	case FZN_CATALOG_ERR_INCOMPLETE:
+		return "an issuer this catalogue depends on is unaccounted for";
 	}
 	return "unknown";
 }

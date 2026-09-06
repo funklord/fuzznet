@@ -160,6 +160,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              chain/chain.c chain/revocation.c chain/manifest.c chain/authz.c \
              chain/chain_store.c chain/service.c claim/claim.c \
              record/store.c catalog/catalog.c catalog/copy.c catalog/sweep.c \
+             catalog/reach.c \
              frame/freshness.c \
              blob/blob.c ratchet/ratchet.c prekey/prekey.c \
              provision/provision.c \
@@ -197,6 +198,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              chain/chain.h chain/revocation.h chain/manifest.h chain/authz.h \
              chain/chain_store.h chain/service.h claim/claim.h \
              record/store.h catalog/catalog.h catalog/copy.h catalog/sweep.h \
+             catalog/reach.h \
              frame/freshness.h \
              blob/blob.h ratchet/ratchet.h prekey/prekey.h \
              provision/provision.h \
@@ -249,6 +251,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              catalog/test/catalog_test.c \
              catalog/test/copy_test.c \
              catalog/test/sweep_test.c \
+             catalog/test/reach_test.c \
              blob/test/blob_test.c ratchet/test/ratchet_test.c \
              prekey/test/prekey_test.c prekey/test/prekey_fuzz.c \
              provision/test/provision_fuzz.c \
@@ -318,6 +321,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/catalog/test/catalog_test \
              $(BUILD_DIR)/catalog/test/copy_test \
              $(BUILD_DIR)/catalog/test/sweep_test \
+             $(BUILD_DIR)/catalog/test/reach_test \
              $(BUILD_DIR)/blob/test/blob_test \
              $(BUILD_DIR)/ratchet/test/ratchet_test \
              $(BUILD_DIR)/prekey/test/prekey_test \
@@ -1743,6 +1747,16 @@ $(BUILD_DIR)/catalog/test/copy_test: $(BUILD_DIR)/catalog/test/copy_test.o \
 $(BUILD_DIR)/catalog/test/sweep_test: $(BUILD_DIR)/catalog/test/sweep_test.o \
                                      $(BUILD_DIR)/catalog/sweep.o \
                                      $(BUILD_DIR)/catalog/copy.o \
+                                     $(BUILD_DIR)/catalog/catalog.o \
+                                     $(BUILD_DIR)/record/record.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# Reachability. sec 156. Proposes what nothing links; it deletes nothing, so
+# it links neither sweep.o nor copy.o -- the composition is the consumer's.
+$(BUILD_DIR)/catalog/test/reach_test: $(BUILD_DIR)/catalog/test/reach_test.o \
+                                     $(BUILD_DIR)/catalog/reach.o \
                                      $(BUILD_DIR)/catalog/catalog.o \
                                      $(BUILD_DIR)/record/record.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
