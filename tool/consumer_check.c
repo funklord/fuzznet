@@ -81,6 +81,9 @@
 #ifdef FZN_CLAIM_FILE_ON
 #include <fuzznet/claim/claim_file.h>
 #endif
+#ifdef FZN_RECORD_STORE_FILE_ON
+#include <fuzznet/record/store_file.h>
+#endif
 #include <fuzznet/chain/revocation.h>
 #include <fuzznet/chunk/reassembly.h>
 #include <fuzznet/chunk/split.h>
@@ -134,6 +137,9 @@
 #endif
 #ifdef FZN_CLAIM_FILE_ON
 #include "claim/claim_file.h"
+#endif
+#ifdef FZN_RECORD_STORE_FILE_ON
+#include "record/store_file.h"
 #endif
 #include "chain/revocation.h"
 #include "chunk/reassembly.h"

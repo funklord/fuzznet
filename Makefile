@@ -585,6 +585,49 @@ else
 $(error FZN_CLAIM_FILE must be auto, 1 or 0 -- got "$(FZN_CLAIM_FILE)")
 endif
 
+# THE RECORD STORE'S FILE BACKEND REUSES FZN_PROBE_PWRITE rather than adding
+# a probe of its own, and that is consistent with the rule the spool states
+# rather than an exception to it. A probe belongs to the thing it gates
+# because it must ask about the calls that thing MAKES -- spool declined to
+# reuse persist's because the two ask different questions. This backend calls
+# `open`, `pread`, `pwrite` and `close`, which is exactly what FZN_PROBE_PWRITE
+# asks, so reusing it asks the right question. The probe is named for the
+# capability rather than for the subsystem, which is what makes that true.
+ifeq ($(FZN_RECORD_STORE_FILE),)
+FZN_RECORD_STORE_FILE := auto
+endif
+
+ifeq ($(FZN_RECORD_STORE_FILE),auto)
+ifeq ($(FZN_PROBE_PWRITE),yes)
+RECORD_STORE_FILE_ON := 1
+else
+RECORD_STORE_FILE_SKIP := $(FZN_BLAME_PWRITE)
+endif
+else ifeq ($(FZN_RECORD_STORE_FILE),1)
+ifeq ($(FZN_PROBE_PWRITE),yes)
+RECORD_STORE_FILE_ON := 1
+else
+$(error FZN_RECORD_STORE_FILE=1 was asked for and $(FZN_BLAME_PWRITE) \
+        Set FZN_RECORD_STORE_FILE=0 to build without it, or auto to let the probe decide)
+endif
+else ifeq ($(FZN_RECORD_STORE_FILE),0)
+RECORD_STORE_FILE_SKIP := FZN_RECORD_STORE_FILE=0.
+else
+$(error FZN_RECORD_STORE_FILE must be auto, 1 or 0 -- got "$(FZN_RECORD_STORE_FILE)")
+endif
+
+RECORD_STORE_FILE_SRCS := record/store_file.c
+RECORD_STORE_FILE_HDRS := record/store_file.h
+RECORD_STORE_FILE_TSRC := record/test/store_file_test.c
+
+ifdef RECORD_STORE_FILE_ON
+CPPFLAGS  += -DFZN_RECORD_STORE_FILE_ON
+SRCS      += $(RECORD_STORE_FILE_SRCS)
+HDRS      += $(RECORD_STORE_FILE_HDRS)
+TEST_SRCS += $(RECORD_STORE_FILE_TSRC)
+TEST_BINS += $(BUILD_DIR)/record/test/store_file_test
+endif
+
 CLAIM_FILE_SRCS := claim/claim_file.c
 CLAIM_FILE_HDRS := claim/claim_file.h
 CLAIM_FILE_TSRC := claim/test/claim_file_test.c
@@ -1534,6 +1577,14 @@ $(BUILD_DIR)/record/test/store_test: $(BUILD_DIR)/record/test/store_test.o \
                                      $(BUILD_DIR)/record/store.o \
                                      $(BUILD_DIR)/record/record.o \
                                      $(BUILD_DIR)/record/journal.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD_DIR)/record/test/store_file_test: $(BUILD_DIR)/record/test/store_file_test.o \
+                                     $(BUILD_DIR)/record/store_file.o \
+                                     $(BUILD_DIR)/record/store.o \
+                                     $(BUILD_DIR)/record/record.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -3085,14 +3136,14 @@ installcheck: $(HDRS) $(SRCS) $(OBJS) tool/consumer_check.c
 		exit 1; \
 	fi
 	@echo "installcheck: against the installed headers"
-	@$(CC) $(CFLAGS) $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) -DFZN_CONSUMER_INSTALLED \
+	@$(CC) $(CFLAGS) $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) $(if $(RECORD_STORE_FILE_ON),-DFZN_RECORD_STORE_FILE_ON) -DFZN_CONSUMER_INSTALLED \
 	       -I$(BUILD_DIR)/installcheck/usr/include \
 	       -o $(BUILD_DIR)/installcheck/consumer_installed \
 	       -Iwire/generated $(MONO_CONSUMER) tool/consumer_check.c $(SRCS) $(GEN_SRCS)
 	@$(BUILD_DIR)/installcheck/consumer_installed
 	@echo "installcheck: against the source tree, from another directory"
 	@cd $(BUILD_DIR)/installcheck && $(CC) $(CFLAGS) \
-	       $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) -I$(CURDIR) \
+	       $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) $(if $(RECORD_STORE_FILE_ON),-DFZN_RECORD_STORE_FILE_ON) -I$(CURDIR) \
 	       -I$(CURDIR)/wire/generated \
 	       -o consumer_source $(CURDIR)/tool/consumer_check.c \
 	       $(patsubst %,$(CURDIR)/%,$(SRCS)) \
@@ -3183,6 +3234,7 @@ manifest:
 	@for c in $(MONO_SRCS); do echo "binding $$c"; done
 	@$(if $(PERSIST_FILE_ON),echo "backend persist/persist_file.c FZN_PERSIST_FILE_ON";)
 	@$(if $(CLAIM_FILE_ON),echo "backend claim/claim_file.c FZN_CLAIM_FILE_ON";)
+	@$(if $(RECORD_STORE_FILE_ON),echo "backend record/store_file.c FZN_RECORD_STORE_FILE_ON";)
 	@$(if $(SPOOL_FILE_ON),echo "backend spool/spool_file.c FZN_SPOOL_FILE_ON";)
 
 # Named targets only, and it lists them. No rm -rf of a directory and no

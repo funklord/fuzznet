@@ -5869,6 +5869,7 @@ somebody to notice.
 | `chain/service.h` | the service a capability must name, and the product filter |
 | `claim/claim.h` | which process owns the identity's mutable state |
 | `record/store.h` | where a record's bytes wait, and who may read them |
+| `record/store_file.h` | that store as one sparse file per stream |
 | `record/ledger.h` | what each peer has confirmed holding, per subject |
 | `chunk/reassembly.h` | split and reassembly |
 | `disclose/disclose.h` | one signature over many fields, some shown |
@@ -22789,6 +22790,105 @@ intended. That is hydra's to fix at ingestion and it is recorded there; it is
 mentioned here only because it is the reason "just replicate the bytes" is not
 sufficient for this consumer -- something has to refuse what it cannot honour,
 and hydra believes that something is itself rather than the transport.
+
+## 135. The store's file backend: sparse slots, and no index by design, 2026-09-06
+
+Directed by the copyright holder 2026-09-06 after sec 134: **do the file
+backend next.** Built as `record/store_file.{h,c}`, behind the same
+`FZN_PROBE_PWRITE` the spool uses. 89 checks; six sabotages, and three of
+them found real holes in the suite before it was done.
+
+### One sparse file per (issuer, stream), fixed slots, no index
+
+A record for sequence N lives at `(N - 1) * 670`:
+
+    [0 .. 2)   the record's length, big-endian; ZERO MEANS EMPTY
+    [2 .. )    the record's bytes
+
+**The absence of an index is the design, not a simplification.** sec 132
+establishes that this arrangement cannot deadlock because there is exactly
+one lock -- the claim -- and nothing else blocks while it is held, which
+holds only while everything shared is immutable. A compact variable-length
+log needs an offset index; an index is mutable shared state; mutable shared
+state needs a second lock; and a second lock is the AB-BA cycle sec 132 rules
+out. **The compact layout would cost the property the whole design rests
+on**, so the slot wastes space instead.
+
+What it wastes, measured: a slot is 670 bytes and a record is between 156 and
+668, so a minimal record occupies about four times its length and a full one
+wastes two bytes. And that is paid only on slots actually written, because
+the file is sparse -- which the suite measures with `stat` rather than
+asserting, comparing `st_blocks` against `st_size` for a record at sequence
+20000.
+
+**A hole reads as absent, for free.** An unwritten slot in a sparse file
+reads as zeros, so its length is zero and the seam answers ABSENT with
+nothing anywhere recording what is missing. The empty state and the
+never-written state are the same bytes, which is why there is no
+initialisation step.
+
+### The length is written last, and the seam is why that is enough
+
+`put` writes the record's bytes and then the length prefix, so a process that
+dies between them leaves a slot whose length is still zero -- an absent
+record with rubbish behind it that the next writer overwrites. The other
+order would leave a length promising bytes that were never stored.
+
+**A torn two-byte length is not ruled out and does not have to be.** A wrong
+length makes the seam fail to open the bytes and answer SHAPE, and a length
+that happened to frame another record answers MISPLACED. Both are refusals,
+so the checks in sec 134's seam are what let this backend stay simple rather
+than needing a checksum of its own. That is the composition worth naming: the
+guard above pays for the simplicity below.
+
+### Three sabotages found holes in the suite, which is the point of running them
+
+The first pass caught two of five and **survived three**, every one of them a
+property the header claimed and no test reached:
+
+- **The write order.** The suite reproduced the post-crash state by writing
+  bytes with no prefix, and never checked that `put` PRODUCES that state. The
+  case now caps `RLIMIT_FSIZE` at exactly the slot's data offset, so the
+  two-byte length write fits and the record write does not: in the right
+  order nothing is recorded, and reversed the slot afterwards claims a record
+  it does not hold. SIGXFSZ is ignored for the duration, since its default
+  action would end the process rather than let `pwrite` return.
+- **The sequence bound.** `(seq - 1) * 670` is unsigned arithmetic and 670 is
+  even, so **2^63 + 1 multiplies to exactly 2^64 and lands on offset zero** --
+  slot one. Without the bound a request for that sequence is answered from
+  slot one, and the seam catches it as MISPLACED. Caught is not the same as
+  not produced: the bound stops this backend manufacturing the error the seam
+  exists to detect. The case asserts the wrap arithmetic itself, so that a
+  future change to the slot size cannot leave it testing nothing.
+- **And the writing side of the same bound survived even after that**, which
+  is the worse half: a wrapping GET reads the wrong record, a wrapping PUT
+  DESTROYS the right one. Record one must survive a put addressed past the
+  end, and now there is a case saying so.
+
+**The path-truncation guard was the third, and it was answered by moving the
+check rather than by writing a test.** It sat in the path builder, where
+reaching it needed a real 434-character directory tree; it is now a bound at
+`open`, which a test reaches in three lines -- one directory that is the
+longest usable, one a single character longer. A caller also learns its
+directory is unusable immediately rather than on first use.
+
+### What the suite deliberately does not cover
+
+The `snprintf` truncation check in the path builder is now **unreachable by
+construction** and is kept anyway: it is what would catch a future change to
+either constant that stopped the open-time bound being sufficient. Covering
+it would mean removing the bound that makes it unreachable.
+
+Recorded here rather than left to be found, because `evidence.md` asks that a
+gate's limits be pinned in the same breath as the gate -- one whose limits
+are unwritten gets quoted for guarantees it never made.
+
+### What is left of sec 132
+
+The **shared verification cache**, unchanged from sec 134's note: a verdict is
+relative to the anchor it was checked against, so the cache is sound only
+where every reader shares the anchor. And the **submit path** from a non-owner
+to the owner, which is hop 1 and waits on that vocabulary.
 
 ## 134. The shared store seam, and the address checked in both directions, 2026-09-06
 

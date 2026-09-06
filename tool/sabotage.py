@@ -1004,6 +1004,41 @@ SABOTAGES = [
 		"a broken store reported as an empty one makes a reader refetch the world rather than report that its store is unusable",
 	),
 	(
+		"store-file-crash-order",
+		"record/store_file.c",
+		"\tif (pwrite(fd, bytes, len, at + 2) != (ssize_t)len)\n\t\treturn 0;\n\tfzn_put_be16(prefix, (uint16_t)len);\n\tif (pwrite(fd, prefix, sizeof(prefix), at) != (ssize_t)sizeof(prefix))\n\t\treturn 0;\n",
+		"\tfzn_put_be16(prefix, (uint16_t)len);\n\tif (pwrite(fd, prefix, sizeof(prefix), at) != (ssize_t)sizeof(prefix))\n\t\treturn 0;\n\tif (pwrite(fd, bytes, len, at + 2) != (ssize_t)len)\n\t\treturn 0;\n",
+		"the length is written after the record so a process that dies between them leaves the slot absent; the other order leaves a length promising bytes that were never stored",
+	),
+	(
+		"store-file-seq-bound-get",
+		"record/store_file.c",
+		"\tif (seq == 0u || seq > MAX_SEQ)\n\t\treturn 0;\n\n\tfd = stream_fd(file, issuer, stream);\n\tif (fd < 0) {\n",
+		"\tif (seq == 0u)\n\t\treturn 0;\n\n\tfd = stream_fd(file, issuer, stream);\n\tif (fd < 0) {\n",
+		"a slot offset is (seq-1)*670 in unsigned arithmetic and 670 is even, so a sequence of 2^63+1 wraps to offset zero and would be answered from slot one",
+	),
+	(
+		"store-file-seq-bound-put",
+		"record/store_file.c",
+		"\tif (seq == 0u || seq > MAX_SEQ)\n\t\treturn 0;\n\n\tfd = stream_fd(file, issuer, stream);\n\tif (fd < 0)\n\t\treturn 0;\n",
+		"\tif (seq == 0u)\n\t\treturn 0;\n\n\tfd = stream_fd(file, issuer, stream);\n\tif (fd < 0)\n\t\treturn 0;\n",
+		"the writing side of the same wrap is the worse half: a wrapping get reads the wrong record and a wrapping put destroys the right one",
+	),
+	(
+		"store-file-cache-identity",
+		"record/store_file.c",
+		"\tif (file->cached && file->stream == stream\n\t    && memcmp(file->issuer, issuer, FZN_PUBKEY_LEN) == 0)\n\t\treturn file->fd;\n",
+		"\tif (file->cached)\n\t\treturn file->fd;\n",
+		"one stream's descriptor is cached so a replay does not reopen per record, and a cache that does not check whose file it holds answers one issuer's request from another's",
+	),
+	(
+		"store-file-dir-bound",
+		"record/store_file.c",
+		"\tif (len + FZN_RECORD_STORE_FILE_NAME_LEN > sizeof(file->dir))\n\t\treturn NULL;\n",
+		"\tif (0)\n\t\treturn NULL;\n",
+		"a truncated path is not a shorter path: a directory long enough to cut the issuer off puts several issuers' records in one file, each overwriting the last",
+	),
+	(
 		"provision-envelope-verified",
 		"provision/provision.c",
 		"\tif (!verifier->verify(verifier->ctx, card.root, card.base, FZN_PROVISION_BODY_LEN,\n"
