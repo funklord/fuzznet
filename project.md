@@ -22946,6 +22946,13 @@ consumer moving a file to where it already is has an error it can ignore.
   holds, so a cycle there is expressible even when the current filing is a
   clean tree. Breaking that bound survived every existing case until one was
   written for it.
+- **And an entry that did not COMPILE was refused rather than counted.** The
+  first spelling of the was-path sabotage reached for a catalogue inside a
+  function that has none, and the harness reported NOT-BUILT: "a build that
+  fails exits non-zero exactly as a failing test does, so this would
+  otherwise have been reported as CAUGHT." That distinction is sec 45's, paid
+  for once and earning its keep here -- the entry is mutated at the CALL now,
+  where a catalogue is in scope, and it catches.
 
 ## 147. The filing: one tree per host, and it does not travel, 2026-09-06
 

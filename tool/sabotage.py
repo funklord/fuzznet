@@ -1371,8 +1371,12 @@ SABOTAGES = [
 	(
 		"refile-was-path-from-capture",
 		"catalog/catalog.c",
-		"\t\twalk[depth++] = job->moves[i].was_under;\n",
-		"\t\twalk[depth++] = *fzn_catalog_filed_under(catalog, &walk[depth - 1u]);\n",
+		# Mutated at the CALL rather than inside `was_path`, which has no
+		# catalogue to reach for. The first spelling did not compile, and
+		# the harness reported NOT-BUILT rather than CAUGHT -- which is the
+		# distinction sec 45 paid for and this entry then needed.
+		"\t*was_len = was_path(job, node, was_out, was_cap);\n",
+		"\t*was_len = filed_path_locked(catalog, node, was_out, was_cap);\n",
 		"the old path is walked from the capture because the catalogue now holds the NEW filing, so reading it there would give the same path twice and move nothing",
 	),
 	(
