@@ -80,6 +80,49 @@ static uint8_t BOB[FZN_PUBKEY_LEN];
 
 static const fzn_catalog_resolve_ops_t ADD_WINS = { fzn_catalog_add_wins, NULL };
 
+/* ---- a signer, so the wire cases run against real records --------------- */
+
+static void tag(uint8_t out[FZN_SIG_LEN], const uint8_t *msg, size_t msg_len)
+{
+	uint64_t h = 1469598103934665603u;
+	size_t i;
+
+	for (i = 0; i < msg_len; i++) {
+		h ^= msg[i];
+		h *= 1099511628211u;
+	}
+	for (i = 0; i < FZN_SIG_LEN; i++) {
+		h ^= (uint64_t)i;
+		h *= 1099511628211u;
+		out[i] = (uint8_t)(h >> 32);
+	}
+}
+
+static int stub_sign(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg, size_t msg_len)
+{
+	(void)ctx;
+	tag(sig, msg, msg_len);
+	return 1;
+}
+
+static uint8_t RECORD_SLOT[FZN_RECORD_MAX_LEN];
+static uint8_t SUBJECT[FZN_SUBJECT_LEN];
+
+/* Wrap a body in a record signed by `issuer` at `seq`. */
+static int as_record(fzn_record_t *out, const uint8_t *issuer, uint64_t seq,
+                     const uint8_t *body, size_t body_len)
+{
+	fzn_sign_ops_t ops;
+	size_t wrote = 0;
+
+	memset(&ops, 0, sizeof(ops));
+	ops.sign = stub_sign;
+	if (fzn_record_sign(issuer, SUBJECT, 5u, 1u, seq, 1u, body, body_len, &ops,
+	                    RECORD_SLOT, sizeof(RECORD_SLOT), &wrote) != FZN_RECORD_OK)
+		return 0;
+	return fzn_record_open(RECORD_SLOT, wrote, out) == FZN_RECORD_OK;
+}
+
 /* A resolver that always keeps what it holds, so the seam can be shown to be
  * one: if the module ignored `resolve` and compared for itself, this would
  * make no difference and every case below would still pass. */
@@ -582,14 +625,22 @@ static void test_the_content_caller_bugs_are_refused(void)
 	        "content init refused");
 	CHECK(fzn_catalog_content_set(&cat, NULL) == FZN_CATALOG_ERR_MALFORMED, "a null entry");
 
-	/* An inline past what a record body carries is a caller describing
-	 * something it could never send. */
-	e = inline_entry(0x10, body, FZN_RECORD_BODY_MAX + 1u, ALICE, 1);
+	/* THE BOUND IS THE WIRE'S, NOT THE RECORD BODY'S, and this case said
+	 * FZN_RECORD_BODY_MAX until sec 146 built the encoder. An inline body
+	 * is the value plus a 34-byte head, so a value of exactly
+	 * FZN_RECORD_BODY_MAX cannot be carried by any record -- the table was
+	 * accepting something the wire refuses. */
+	CHECK(FZN_CATALOG_INLINE_MAX < FZN_RECORD_BODY_MAX,
+	      "the inline bound is not below a record body, so the head costs nothing");
+	e = inline_entry(0x10, body, FZN_CATALOG_INLINE_MAX + 1u, ALICE, 1);
 	CHECK(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_ERR_MALFORMED,
-	      "an inline past a record body was accepted");
+	      "an inline past what the wire can carry was accepted");
 	e = inline_entry(0x10, body, FZN_RECORD_BODY_MAX, ALICE, 1);
+	CHECK(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_ERR_MALFORMED,
+	      "a value the size of a whole record body was accepted, and it cannot be sent");
+	e = inline_entry(0x10, body, FZN_CATALOG_INLINE_MAX, ALICE, 1);
 	CHECK(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK,
-	      "an inline exactly at the bound was refused");
+	      "an inline exactly at the wire bound was refused");
 
 	e = inline_entry(0x11, NULL, 4, ALICE, 1);
 	CHECK(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_ERR_MALFORMED,
@@ -629,6 +680,275 @@ static void test_the_kinds_render(void)
 	      "an unknown kind renders empty");
 }
 
+/* ---- the wire form ------------------------------------------------------ */
+
+/* An edge survives the round trip, and the issuer and sequence come from the
+ * RECORD rather than from anything in the body. sec 146. */
+static void test_an_edge_round_trips_through_a_record(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_t cat;
+	uint8_t body[FZN_CATALOG_EDGE_BODY_LEN];
+	fzn_record_t rec;
+	const fzn_catalog_edge_t *held;
+	size_t len = 0;
+
+	REQUIRE(fzn_catalog_edge_encode(idp(0x20), idp(0x10), 1, body, sizeof(body), &len)
+	                == FZN_CATALOG_OK,
+	        "an edge would not encode");
+	CHECK(len == FZN_CATALOG_EDGE_BODY_LEN, "an edge body is not the length promised");
+	REQUIRE(as_record(&rec, ALICE, 7u, body, len), "the fixture could not sign");
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	CHECK(fzn_catalog_apply(&cat, rec) == FZN_CATALOG_OK, "a good edge record was refused");
+	CHECK(fzn_catalog_linked(&cat, idp(0x20), idp(0x10)), "the edge did not take");
+
+	/* THE ATTRIBUTION IS THE RECORD'S. There is no field in the body for
+	 * an issuer or a sequence, so an assertion cannot be credited to
+	 * somebody who did not make it. */
+	held = fzn_catalog_edge_of(&cat, idp(0x20), idp(0x10));
+	REQUIRE(held != NULL, "the edge was not held");
+	CHECK(memcmp(held->issuer, ALICE, FZN_PUBKEY_LEN) == 0,
+	      "the edge was attributed to somebody other than the record's signer");
+	CHECK(held->seq == 7u, "the edge did not take the record's sequence");
+}
+
+/* An unlink travels too, which is what makes a removal syncable at all. */
+static void test_an_unlink_travels(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_t cat;
+	uint8_t body[FZN_CATALOG_EDGE_BODY_LEN];
+	fzn_record_t rec;
+	size_t len = 0;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x20), idp(0x10), ALICE, 1, 1) == FZN_CATALOG_OK,
+	        "the link was refused");
+	REQUIRE(fzn_catalog_edge_encode(idp(0x20), idp(0x10), 0, body, sizeof(body), &len)
+	                == FZN_CATALOG_OK,
+	        "an unlink would not encode");
+	REQUIRE(as_record(&rec, ALICE, 2u, body, len), "the fixture could not sign");
+	CHECK(fzn_catalog_apply(&cat, rec) == FZN_CATALOG_OK, "an unlink record was refused");
+	CHECK(!fzn_catalog_linked(&cat, idp(0x20), idp(0x10)), "the unlink did not take");
+}
+
+static void test_every_content_kind_round_trips(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_entry_t entries[4];
+	fzn_catalog_t cat;
+	uint8_t body[FZN_RECORD_BODY_MAX];
+	const uint8_t value[5] = { 5, 4, 3, 2, 1 };
+	fzn_catalog_entry_t e;
+	const fzn_catalog_entry_t *got;
+	fzn_record_t rec;
+	size_t len = 0;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_content_init(&cat, entries, 4, &HELD_WINS) == FZN_CATALOG_OK,
+	        "content init refused");
+
+	/* NONE. */
+	memset(&e, 0, sizeof(e));
+	e.id = id(0x30);
+	e.kind = FZN_CATALOG_CONTENT_NONE;
+	REQUIRE(fzn_catalog_content_encode(&e, body, sizeof(body), &len) == FZN_CATALOG_OK,
+	        "a set would not encode");
+	CHECK(len == FZN_CATALOG_CONTENT_HEAD_LEN, "a set body is not the head alone");
+	REQUIRE(as_record(&rec, ALICE, 1u, body, len), "sign a set");
+	CHECK(fzn_catalog_apply(&cat, rec) == FZN_CATALOG_OK, "a set record was refused");
+	got = fzn_catalog_content_of(&cat, idp(0x30));
+	CHECK(got && got->kind == FZN_CATALOG_CONTENT_NONE, "a set did not survive");
+
+	/* INLINE, and the bytes must be a view into the record. */
+	e = inline_entry(0x31, value, sizeof(value), ALICE, 0);
+	REQUIRE(fzn_catalog_content_encode(&e, body, sizeof(body), &len) == FZN_CATALOG_OK,
+	        "inline would not encode");
+	CHECK(len == FZN_CATALOG_CONTENT_HEAD_LEN + sizeof(value),
+	      "an inline body is not the head plus the value");
+	REQUIRE(as_record(&rec, ALICE, 2u, body, len), "sign inline");
+	CHECK(fzn_catalog_apply(&cat, rec) == FZN_CATALOG_OK, "an inline record was refused");
+	got = fzn_catalog_content_of(&cat, idp(0x31));
+	REQUIRE(got != NULL, "inline did not survive");
+	CHECK(got->kind == FZN_CATALOG_CONTENT_INLINE && got->len == sizeof(value),
+	      "the inline length did not survive");
+	CHECK(memcmp(got->bytes, value, sizeof(value)) == 0, "the inline bytes did not survive");
+	CHECK(got->bytes >= rec.base && got->bytes < rec.base + rec.len,
+	      "the inline bytes are not a view into the record, so they were copied");
+
+	/* BLOB, and the length is what a consumer decides on. */
+	e = blob_entry(0x32, 0xdd, 123456789u, ALICE, 0);
+	REQUIRE(fzn_catalog_content_encode(&e, body, sizeof(body), &len) == FZN_CATALOG_OK,
+	        "a blob would not encode");
+	CHECK(len == FZN_CATALOG_BLOB_BODY_LEN, "a blob body is not the length promised");
+	REQUIRE(as_record(&rec, ALICE, 3u, body, len), "sign a blob");
+	CHECK(fzn_catalog_apply(&cat, rec) == FZN_CATALOG_OK, "a blob record was refused");
+	got = fzn_catalog_content_of(&cat, idp(0x32));
+	REQUIRE(got != NULL, "the blob did not survive");
+	CHECK(got->blob_len == 123456789u, "the blob length did not survive");
+	CHECK(got->root[0] == 0xdd, "the blob root did not survive");
+
+	/* AND CONTENT IS ATTRIBUTED FROM THE RECORD, as an edge is. There is no
+	 * field in the body for an issuer, so a content assertion cannot be
+	 * credited to somebody who did not sign it -- and a decoder reading one
+	 * out of the body would be trusting bytes over the signature. */
+	CHECK(memcmp(got->issuer, ALICE, FZN_PUBKEY_LEN) == 0,
+	      "content was attributed to somebody other than the record's signer");
+	CHECK(got->seq == 3u, "content did not take the record's sequence");
+}
+
+/*
+ * ONE ENCODING OF EACH ASSERTION, ENFORCED. Read loosely, 255 encodings of
+ * one statement exist and two implementations that both work produce
+ * assertions the other rejects -- chain.h's argument for `delegable`.
+ */
+static void test_a_non_canonical_body_is_refused(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_entry_t entries[4];
+	fzn_catalog_t cat;
+	uint8_t body[FZN_RECORD_BODY_MAX];
+	fzn_record_t rec;
+	size_t len = 0;
+	size_t i;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_content_init(&cat, entries, 4, &HELD_WINS) == FZN_CATALOG_OK,
+	        "content init refused");
+	REQUIRE(fzn_catalog_edge_encode(idp(0x20), idp(0x10), 1, body, sizeof(body), &len)
+	                == FZN_CATALOG_OK, "encode");
+
+	/* THE CONTROL: as encoded, it applies. */
+	REQUIRE(as_record(&rec, ALICE, 1u, body, len), "sign");
+	REQUIRE(fzn_catalog_apply(&cat, rec) == FZN_CATALOG_OK,
+	        "the unmodified body was refused, so every refusal below says nothing");
+
+	/* `present` outside {0,1}, every value of it. */
+	for (i = 2; i < 256u; i++) {
+		body[FZN_CATALOG_EDGE_BODY_LEN - 1u] = (uint8_t)i;
+		REQUIRE(as_record(&rec, ALICE, 2u, body, len), "sign a bent present");
+		if (fzn_catalog_apply(&cat, rec) != FZN_CATALOG_ERR_SHAPE) {
+			CHECK(0, "a present byte of %zu was accepted", i);
+			break;
+		}
+	}
+	CHECK(i == 256u, "the present sweep stopped early");
+	body[FZN_CATALOG_EDGE_BODY_LEN - 1u] = 1u;
+
+	/* A length that is not an edge's. */
+	REQUIRE(as_record(&rec, ALICE, 3u, body, len - 1u), "sign a short edge");
+	CHECK(fzn_catalog_apply(&cat, rec) == FZN_CATALOG_ERR_SHAPE, "a short edge was accepted");
+	REQUIRE(as_record(&rec, ALICE, 4u, body, len + 1u), "sign a long edge");
+	CHECK(fzn_catalog_apply(&cat, rec) == FZN_CATALOG_ERR_SHAPE, "a long edge was accepted");
+
+	/* A tag that is neither, every value of it. */
+	for (i = 0; i < 256u; i++) {
+		if (i == FZN_CATALOG_OBJECT_EDGE || i == FZN_CATALOG_OBJECT_CONTENT)
+			continue;
+		body[0] = (uint8_t)i;
+		REQUIRE(as_record(&rec, ALICE, 5u, body, len), "sign a bent tag");
+		if (fzn_catalog_apply(&cat, rec) != FZN_CATALOG_ERR_SHAPE) {
+			CHECK(0, "a tag of %zu was accepted", i);
+			break;
+		}
+	}
+	CHECK(i == 256u, "the tag sweep stopped early");
+
+	/* A content kind that is none of the three. */
+	body[0] = (uint8_t)FZN_CATALOG_OBJECT_CONTENT;
+	body[FZN_CATALOG_CONTENT_HEAD_LEN - 1u] = 99u;
+	REQUIRE(as_record(&rec, ALICE, 6u, body, FZN_CATALOG_CONTENT_HEAD_LEN),
+	        "sign a bent kind");
+	CHECK(fzn_catalog_apply(&cat, rec) == FZN_CATALOG_ERR_SHAPE,
+	      "a content kind that is none of the three was accepted");
+
+	/* A blob length of zero on the wire, which the table refuses too. */
+	body[FZN_CATALOG_CONTENT_HEAD_LEN - 1u] = (uint8_t)FZN_CATALOG_CONTENT_BLOB;
+	memset(body + FZN_CATALOG_CONTENT_HEAD_LEN, 0, FZN_CATALOG_BLOB_BODY_LEN
+	                                                       - FZN_CATALOG_CONTENT_HEAD_LEN);
+	REQUIRE(as_record(&rec, ALICE, 7u, body, FZN_CATALOG_BLOB_BODY_LEN), "sign a null blob");
+	CHECK(fzn_catalog_apply(&cat, rec) == FZN_CATALOG_ERR_SHAPE,
+	      "a blob naming nothing was accepted off the wire");
+	/* And a blob body of the wrong length, BOTH WAYS. A check written as
+	 * "at least this long" refuses the short one and accepts a long one
+	 * carrying trailing bytes nobody signed a meaning for. */
+	REQUIRE(as_record(&rec, ALICE, 8u, body, FZN_CATALOG_BLOB_BODY_LEN - 1u),
+	        "sign a short blob");
+	CHECK(fzn_catalog_apply(&cat, rec) == FZN_CATALOG_ERR_SHAPE, "a short blob was accepted");
+	body[FZN_CATALOG_BLOB_BODY_LEN - 1u] = 1u; /* a nonzero length, so only the size is wrong */
+	REQUIRE(as_record(&rec, ALICE, 9u, body, FZN_CATALOG_BLOB_BODY_LEN + 1u),
+	        "sign a long blob");
+	CHECK(fzn_catalog_apply(&cat, rec) == FZN_CATALOG_ERR_SHAPE, "a long blob was accepted");
+
+	/* A NONE body with anything after it is not a longer NONE. */
+	body[FZN_CATALOG_CONTENT_HEAD_LEN - 1u] = (uint8_t)FZN_CATALOG_CONTENT_NONE;
+	REQUIRE(as_record(&rec, ALICE, 10u, body, FZN_CATALOG_CONTENT_HEAD_LEN + 1u),
+	        "sign a long set");
+	CHECK(fzn_catalog_apply(&cat, rec) == FZN_CATALOG_ERR_SHAPE, "a long set was accepted");
+}
+
+/* THE ENCODER PRODUCES THE CANONICAL BYTE, whatever truthy value it is
+ * handed. A caller passing 2 for "present" is passing C's idea of true, and
+ * an encoder that wrote it through would put a body on the wire that its own
+ * decoder refuses. */
+static void test_the_encoder_normalises_present(void)
+{
+	uint8_t body[FZN_CATALOG_EDGE_BODY_LEN];
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_t cat;
+	fzn_record_t rec;
+	size_t len = 0;
+
+	REQUIRE(fzn_catalog_edge_encode(idp(0x20), idp(0x10), 2, body, sizeof(body), &len)
+	                == FZN_CATALOG_OK, "encode with a truthy present");
+	CHECK(body[FZN_CATALOG_EDGE_BODY_LEN - 1u] == 1u,
+	      "the encoder wrote a truthy value through rather than the canonical one");
+
+	/* And the proof that matters: its own decoder accepts it. */
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(as_record(&rec, ALICE, 1u, body, len), "sign");
+	CHECK(fzn_catalog_apply(&cat, rec) == FZN_CATALOG_OK,
+	      "the encoder produced a body its own decoder refuses");
+
+	REQUIRE(fzn_catalog_edge_encode(idp(0x20), idp(0x10), 0, body, sizeof(body), &len)
+	                == FZN_CATALOG_OK, "encode absent");
+	CHECK(body[FZN_CATALOG_EDGE_BODY_LEN - 1u] == 0u, "absent did not encode as zero");
+}
+
+static void test_the_wire_caller_bugs_are_refused(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_t cat;
+	uint8_t body[FZN_CATALOG_EDGE_BODY_LEN];
+	fzn_record_t never_opened;
+	fzn_catalog_entry_t e;
+	size_t len = 0;
+
+	memset(&never_opened, 0, sizeof(never_opened));
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+
+	CHECK(fzn_catalog_edge_encode(NULL, idp(0x10), 1, body, sizeof(body), &len)
+	              == FZN_CATALOG_ERR_MALFORMED, "a null parent encoded");
+	CHECK(fzn_catalog_edge_encode(idp(0x20), NULL, 1, body, sizeof(body), &len)
+	              == FZN_CATALOG_ERR_MALFORMED, "a null child encoded");
+	CHECK(fzn_catalog_edge_encode(idp(0x20), idp(0x10), 1, NULL, sizeof(body), &len)
+	              == FZN_CATALOG_ERR_MALFORMED, "a null buffer encoded");
+	CHECK(fzn_catalog_edge_encode(idp(0x20), idp(0x10), 1, body,
+	                              FZN_CATALOG_EDGE_BODY_LEN - 1u, &len)
+	              == FZN_CATALOG_ERR_MALFORMED, "a buffer one short encoded");
+	CHECK(fzn_catalog_content_encode(NULL, body, sizeof(body), &len)
+	              == FZN_CATALOG_ERR_MALFORMED, "a null entry encoded");
+	e = inline_entry(0x10, NULL, 0, ALICE, 1);
+	CHECK(fzn_catalog_content_encode(&e, body, 1u, &len) == FZN_CATALOG_ERR_MALFORMED,
+	      "a buffer too small for the head encoded");
+
+	CHECK(fzn_catalog_apply(NULL, never_opened) == FZN_CATALOG_ERR_MALFORMED,
+	      "a null catalogue applied");
+	CHECK(fzn_catalog_apply(&cat, never_opened) == FZN_CATALOG_ERR_MALFORMED,
+	      "a record that was never opened applied");
+}
+
 static void test_the_errors_render(void)
 {
 	CHECK(fzn_catalog_err_str(FZN_CATALOG_OK)[0] != '\0', "OK renders empty");
@@ -653,6 +973,7 @@ int main(void)
 {
 	memset(ALICE, 0xa1, sizeof(ALICE));
 	memset(BOB, 0xb0, sizeof(BOB));
+	memset(SUBJECT, 0x51, sizeof(SUBJECT));
 
 	test_a_node_belongs_to_several_sets();
 	test_sets_combine_as_search_terms();
@@ -670,6 +991,12 @@ int main(void)
 	test_the_content_resolver_is_a_seam();
 	test_the_content_caller_bugs_are_refused();
 	test_the_kinds_render();
+	test_an_edge_round_trips_through_a_record();
+	test_an_unlink_travels();
+	test_every_content_kind_round_trips();
+	test_a_non_canonical_body_is_refused();
+	test_the_encoder_normalises_present();
+	test_the_wire_caller_bugs_are_refused();
 	test_the_errors_render();
 	test_the_suite_can_tell_pass_from_fail();
 

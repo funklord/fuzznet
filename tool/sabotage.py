@@ -1178,15 +1178,21 @@ SABOTAGES = [
 	(
 		"content-inline-bounded",
 		"catalog/catalog.c",
-		"\t\tif (entry->len > FZN_RECORD_BODY_MAX)\n\t\t\treturn FZN_CATALOG_ERR_MALFORMED;\n",
-		"\t\tif (0)\n\t\t\treturn FZN_CATALOG_ERR_MALFORMED;\n",
+		# The table's copy, told from the encoder's by the comment above it.
+		# This entry matched nothing after sec 146 tightened the bound from
+		# FZN_RECORD_BODY_MAX to the wire's -- `--verify` reported it stale,
+		# which is what that mode is for.
+		"\t\tif (entry->len > FZN_CATALOG_INLINE_MAX)\n\t\t\treturn FZN_CATALOG_ERR_MALFORMED;\n\t\tif (entry->len > 0 && !entry->bytes)\n\t\t\treturn FZN_CATALOG_ERR_MALFORMED;\n\t\tbreak;\n\tcase FZN_CATALOG_CONTENT_BLOB:\n\t\t/* A BLOB OF ZERO LENGTH",
+		"\t\tif (0)\n\t\t\treturn FZN_CATALOG_ERR_MALFORMED;\n\t\tif (entry->len > 0 && !entry->bytes)\n\t\t\treturn FZN_CATALOG_ERR_MALFORMED;\n\t\tbreak;\n\tcase FZN_CATALOG_CONTENT_BLOB:\n\t\t/* A BLOB OF ZERO LENGTH",
 		"an inline value longer than a record body is a caller describing something it could never send, refused here rather than at the moment somebody tries",
 	),
 	(
 		"content-blob-names-something",
 		"catalog/catalog.c",
-		"\t\tif (entry->blob_len == 0)\n\t\t\treturn FZN_CATALOG_ERR_MALFORMED;\n",
-		"\t\tif (0)\n\t\t\treturn FZN_CATALOG_ERR_MALFORMED;\n",
+		# The encoder grew the same check, so this carries the comment that
+		# only the table's copy has.
+		"zero-length blob is a caller that filled in half a row. */\n\t\tif (entry->blob_len == 0)\n",
+		"zero-length blob is a caller that filled in half a row. */\n\t\tif (0)\n",
 		"an empty value is expressible as an inline of length zero, so a blob naming nothing is a half-filled row rather than an empty entry",
 	),
 	(
@@ -1206,9 +1212,67 @@ SABOTAGES = [
 	(
 		"content-unknown-kind-refused",
 		"catalog/catalog.c",
-		"\tdefault:\n\t\treturn FZN_CATALOG_ERR_MALFORMED;\n\t}\n",
-		"\tdefault:\n\t\tbreak;\n\t}\n",
+		# The encoder's switch ends the same way, so this carries the line
+		# after it, which only the table's copy has.
+		"\tdefault:\n\t\treturn FZN_CATALOG_ERR_MALFORMED;\n\t}\n\n\theld = find_entry",
+		"\tdefault:\n\t\tbreak;\n\t}\n\n\theld = find_entry",
 		"a kind that is none of the three is a caller filling in a row it does not understand, and storing it would hand every reader a value nothing can render",
+	),
+	(
+		"wire-present-canonical",
+		"catalog/catalog.c",
+		"\tif (present > 1u)\n\t\treturn FZN_CATALOG_ERR_SHAPE;\n",
+		"\tif (0)\n\t\treturn FZN_CATALOG_ERR_SHAPE;\n",
+		"read loosely there are 255 encodings of one statement, the signature over each differs, and two implementations that both work produce assertions the other rejects",
+	),
+	(
+		"wire-edge-exact-length",
+		"catalog/catalog.c",
+		"\tif (len != FZN_CATALOG_EDGE_BODY_LEN)\n\t\treturn FZN_CATALOG_ERR_SHAPE;\n",
+		"\tif (len < FZN_CATALOG_EDGE_BODY_LEN)\n\t\treturn FZN_CATALOG_ERR_SHAPE;\n",
+		"an at-least check accepts a body carrying trailing bytes nobody signed a meaning for, which is a second encoding of the same edge",
+	),
+	(
+		"wire-blob-exact-length",
+		"catalog/catalog.c",
+		"\t\tif (len != FZN_CATALOG_BLOB_BODY_LEN)\n\t\t\treturn FZN_CATALOG_ERR_SHAPE;\n",
+		"\t\tif (len < FZN_CATALOG_BLOB_BODY_LEN)\n\t\t\treturn FZN_CATALOG_ERR_SHAPE;\n",
+		"the same at-least hazard on the blob arm, which the suite missed until the harness reported this SURVIVED",
+	),
+	(
+		"wire-none-exact-length",
+		"catalog/catalog.c",
+		"\t\tif (len != FZN_CATALOG_CONTENT_HEAD_LEN)\n\t\t\treturn FZN_CATALOG_ERR_SHAPE;\n",
+		"\t\tif (len < FZN_CATALOG_CONTENT_HEAD_LEN)\n\t\t\treturn FZN_CATALOG_ERR_SHAPE;\n",
+		"a set with bytes after it is not a longer set, and accepting one gives a second encoding of a node that holds nothing",
+	),
+	(
+		"wire-attribution-from-record",
+		"catalog/catalog.c",
+		"\tmemcpy(entry.issuer, issuer, FZN_PUBKEY_LEN);\n\tentry.seq = seq;\n",
+		"\tmemcpy(entry.issuer, body + 1, FZN_PUBKEY_LEN);\n\tentry.seq = seq;\n",
+		"there is no field in the body for an issuer, so an assertion cannot be credited to somebody who did not sign it -- reading one from the body trusts bytes over the signature",
+	),
+	(
+		"wire-seq-from-record",
+		"catalog/catalog.c",
+		"\tentry.seq = seq;\n",
+		"\tentry.seq = 1u;\n",
+		"the sequence orders an issuer's statements, so a decoder inventing one makes every later edit lose to the first",
+	),
+	(
+		"wire-encode-present-canonical",
+		"catalog/catalog.c",
+		"\tout[FZN_CATALOG_EDGE_BODY_LEN - 1u] = present ? 1u : 0u;\n",
+		"\tout[FZN_CATALOG_EDGE_BODY_LEN - 1u] = (uint8_t)present;\n",
+		"a caller passing 2 for present is passing C's idea of true, and an encoder writing it through puts a body on the wire that its own decoder refuses",
+	),
+	(
+		"wire-unknown-tag-refused",
+		"catalog/catalog.c",
+		"\tdefault:\n\t\t/* Somebody else's body in a stream this catalogue follows. Not\n\t\t * ours, and saying so is different from calling it broken. */\n\t\treturn FZN_CATALOG_ERR_SHAPE;\n\t}\n",
+		"\tdefault:\n\t\treturn apply_edge(catalog, body, len, fzn_record_issuer(record),\n\t\t                  fzn_record_seq(record));\n\t}\n",
+		"a record kind is the consumer's taxonomy, so a catalogue stream may carry bodies that are not ours -- reading one as an edge would apply a statement nobody made about a catalogue",
 	),
 	(
 		"provision-envelope-verified",

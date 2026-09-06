@@ -22870,6 +22870,74 @@ anything could have said otherwise.
 copyright holder should know the size before it happens rather than find it
 inside a commit about a widget.
 
+## 146. The catalogue on the wire, and the bound that was wrong, 2026-09-06
+
+Directed by the copyright holder 2026-09-06 after sec 145. Built: the two
+assertions as record bodies, an encoder for each, and `fzn_catalog_apply`,
+which takes a RECORD.
+
+### The body does not repeat the issuer or the sequence
+
+**That is why `fzn_catalog_apply` takes a record rather than bytes.** A
+record already carries who signed it and where in their stream it sits; a
+body repeating either would let the two disagree, and a reader would then
+have to choose which to believe about a record that verified.
+
+`record/store.h` refuses the same thing for an address and
+`chain/revocation.c` for a record's identity: **the fact comes out of what
+was signed rather than from something beside it.** There is no field for an
+issuer, so an assertion cannot be credited to somebody who did not make it.
+
+### The body says what it is, because a record's kind is not this library's
+
+`record/record.h` says a record's `kind` is "the consumer's own taxonomy", so
+this library cannot assign one. A leading tag byte means a consumer may put
+both assertions in one kind or split them across two, and a reader needs no
+out-of-band agreement either way. An unknown tag is answered SHAPE -- **not
+ours is a different statement from broken**, and a catalogue stream may
+legitimately carry bodies that belong to somebody else.
+
+    edge      66 bytes fixed: tag, parent, child, present in {0,1}
+    content   34-byte head: tag, id, kind
+              NONE 34; INLINE 34 + value; BLOB 74 with a root and a length
+
+### The in-memory bound was wrong, and only the encoder could show it
+
+sec 145 bounded an INLINE value at FZN_RECORD_BODY_MAX. **An inline body is
+the value plus a 34-byte head, so a value of exactly FZN_RECORD_BODY_MAX
+encodes to 546 and no record can carry it.** The table was accepting
+something the wire refuses, and nothing short of building the encoder would
+have found it: both halves were internally consistent and each was checked
+against itself.
+
+`FZN_CATALOG_INLINE_MAX` is the real bound, the table uses it, and the suite
+asserts the two constants differ rather than pinning either number.
+
+### Three sabotages survived, and each named a real gap
+
+- **Content attribution was only asserted for an EDGE.** Replacing the
+  content decoder's issuer with body bytes changed nothing the suite looked
+  at. It asserts both now, and the sequence with them.
+- **A blob body's length was checked short and not long.** An at-least check
+  refuses a truncated body and accepts one carrying trailing bytes nobody
+  signed a meaning for -- a second encoding of the same statement, which is
+  the thing canonicality exists to prevent. The same hole existed on the NONE
+  arm and now has a case too.
+- **The encoder was never handed a truthy value that is not 1.** A caller
+  passing 2 for `present` is passing C's idea of true, and an encoder writing
+  it through would put a body on the wire **that its own decoder refuses**.
+  The case asserts the byte and then applies it, so the round trip is the
+  proof rather than the assertion alone.
+
+### And three earlier sabotage entries went stale in the same commit
+
+The encoder grew twins of three validations the table already had, so
+`--verify` refused them: one matched nothing after the bound was tightened,
+and two matched two sites each. **That is the anchor-uniqueness rule meeting
+a module that grew a second copy of itself** -- and the mode exists because a
+stale entry reports a guard as defended without testing it. Each carries
+enough context to name one site now.
+
 ## 145. Record or blob was the wrong question, 2026-09-06
 
 Directed by the copyright holder 2026-09-06: do the entry content next. sec

@@ -1,5 +1,7 @@
 #include "catalog.h"
 
+#include "../wire/bytes.h"
+
 #include <string.h>
 
 static int same_id(const fzn_catalog_id_t *a, const fzn_catalog_id_t *b)
@@ -239,6 +241,8 @@ const char *fzn_catalog_err_str(fzn_catalog_err_t err)
 		return "no room for another edge";
 	case FZN_CATALOG_ERR_STALE:
 		return "the assertion already held stands";
+	case FZN_CATALOG_ERR_SHAPE:
+		return "not a catalogue assertion";
 	}
 	return "unknown";
 }
@@ -315,7 +319,13 @@ fzn_catalog_err_t fzn_catalog_content_set(fzn_catalog_t *catalog,
 		/* A LENGTH PAST WHAT A RECORD BODY CARRIES is a caller
 		 * describing something it could never send, so it is refused
 		 * here rather than at the moment somebody tries. */
-		if (entry->len > FZN_RECORD_BODY_MAX)
+		/* THE WIRE BOUND, NOT THE RECORD BODY'S. This said
+		 * FZN_RECORD_BODY_MAX until sec 146 built the encoder, and
+		 * admitted a value that no record could ever carry: an inline
+		 * body is the value plus a 34-byte head. A table that accepts
+		 * what the wire refuses is a table whose contents cannot be
+		 * sent, discovered at the moment somebody tries. */
+		if (entry->len > FZN_CATALOG_INLINE_MAX)
 			return FZN_CATALOG_ERR_MALFORMED;
 		if (entry->len > 0 && !entry->bytes)
 			return FZN_CATALOG_ERR_MALFORMED;
@@ -366,4 +376,168 @@ const char *fzn_catalog_content_str(fzn_catalog_content_t kind)
 		return "a blob fetched separately";
 	}
 	return "unknown";
+}
+
+/* ---- the wire form ------------------------------------------------------ */
+
+fzn_catalog_err_t fzn_catalog_edge_encode(const fzn_catalog_id_t *parent,
+                                          const fzn_catalog_id_t *child, int present,
+                                          uint8_t *out, size_t cap, size_t *len_out)
+{
+	if (!parent || !child || !out || !len_out)
+		return FZN_CATALOG_ERR_MALFORMED;
+	/* Nothing is written unless all of it fits, so a short buffer leaves
+	 * the caller's as it found it rather than holding half an assertion. */
+	if (cap < FZN_CATALOG_EDGE_BODY_LEN)
+		return FZN_CATALOG_ERR_MALFORMED;
+
+	out[0] = (uint8_t)FZN_CATALOG_OBJECT_EDGE;
+	memcpy(out + 1, parent->b, FZN_CATALOG_ID_LEN);
+	memcpy(out + 1 + FZN_CATALOG_ID_LEN, child->b, FZN_CATALOG_ID_LEN);
+	/* CANONICAL, not "any nonzero is true". See the header on why one
+	 * encoding of one statement is the whole point. */
+	out[FZN_CATALOG_EDGE_BODY_LEN - 1u] = present ? 1u : 0u;
+	*len_out = FZN_CATALOG_EDGE_BODY_LEN;
+	return FZN_CATALOG_OK;
+}
+
+fzn_catalog_err_t fzn_catalog_content_encode(const fzn_catalog_entry_t *entry, uint8_t *out,
+                                             size_t cap, size_t *len_out)
+{
+	size_t need;
+
+	if (!entry || !out || !len_out)
+		return FZN_CATALOG_ERR_MALFORMED;
+
+	switch (entry->kind) {
+	case FZN_CATALOG_CONTENT_NONE:
+		need = FZN_CATALOG_CONTENT_HEAD_LEN;
+		break;
+	case FZN_CATALOG_CONTENT_INLINE:
+		if (entry->len > FZN_CATALOG_INLINE_MAX)
+			return FZN_CATALOG_ERR_MALFORMED;
+		if (entry->len > 0 && !entry->bytes)
+			return FZN_CATALOG_ERR_MALFORMED;
+		need = FZN_CATALOG_CONTENT_HEAD_LEN + entry->len;
+		break;
+	case FZN_CATALOG_CONTENT_BLOB:
+		if (entry->blob_len == 0)
+			return FZN_CATALOG_ERR_MALFORMED;
+		need = FZN_CATALOG_BLOB_BODY_LEN;
+		break;
+	default:
+		return FZN_CATALOG_ERR_MALFORMED;
+	}
+	if (cap < need)
+		return FZN_CATALOG_ERR_MALFORMED;
+
+	out[0] = (uint8_t)FZN_CATALOG_OBJECT_CONTENT;
+	memcpy(out + 1, entry->id.b, FZN_CATALOG_ID_LEN);
+	out[FZN_CATALOG_CONTENT_HEAD_LEN - 1u] = (uint8_t)entry->kind;
+
+	if (entry->kind == FZN_CATALOG_CONTENT_INLINE && entry->len > 0)
+		memcpy(out + FZN_CATALOG_CONTENT_HEAD_LEN, entry->bytes, entry->len);
+	if (entry->kind == FZN_CATALOG_CONTENT_BLOB) {
+		memcpy(out + FZN_CATALOG_CONTENT_HEAD_LEN, entry->root, FZN_BLOB_HASH_LEN);
+		fzn_put_be64(out + FZN_CATALOG_CONTENT_HEAD_LEN + FZN_BLOB_HASH_LEN,
+		             entry->blob_len);
+	}
+
+	*len_out = need;
+	return FZN_CATALOG_OK;
+}
+
+static fzn_catalog_err_t apply_edge(fzn_catalog_t *catalog, const uint8_t *body, size_t len,
+                                    const uint8_t *issuer, uint64_t seq)
+{
+	fzn_catalog_id_t parent, child;
+	uint8_t present;
+
+	/* An edge body is one length and no other, so a shorter or longer one
+	 * is not a truncated edge -- it is not an edge. */
+	if (len != FZN_CATALOG_EDGE_BODY_LEN)
+		return FZN_CATALOG_ERR_SHAPE;
+	present = body[FZN_CATALOG_EDGE_BODY_LEN - 1u];
+	if (present > 1u)
+		return FZN_CATALOG_ERR_SHAPE;
+
+	memcpy(parent.b, body + 1, FZN_CATALOG_ID_LEN);
+	memcpy(child.b, body + 1 + FZN_CATALOG_ID_LEN, FZN_CATALOG_ID_LEN);
+	return fzn_catalog_assert(catalog, &parent, &child, issuer, seq, present);
+}
+
+static fzn_catalog_err_t apply_content(fzn_catalog_t *catalog, const uint8_t *body, size_t len,
+                                       const uint8_t *issuer, uint64_t seq)
+{
+	fzn_catalog_entry_t entry;
+
+	if (len < FZN_CATALOG_CONTENT_HEAD_LEN)
+		return FZN_CATALOG_ERR_SHAPE;
+
+	memset(&entry, 0, sizeof(entry));
+	memcpy(entry.id.b, body + 1, FZN_CATALOG_ID_LEN);
+	entry.kind = (fzn_catalog_content_t)body[FZN_CATALOG_CONTENT_HEAD_LEN - 1u];
+	/* THE ISSUER AND SEQUENCE COME FROM THE RECORD, never from the body --
+	 * there is no field for them, so an assertion cannot be attributed to
+	 * somebody who did not make it. */
+	memcpy(entry.issuer, issuer, FZN_PUBKEY_LEN);
+	entry.seq = seq;
+
+	switch (entry.kind) {
+	case FZN_CATALOG_CONTENT_NONE:
+		if (len != FZN_CATALOG_CONTENT_HEAD_LEN)
+			return FZN_CATALOG_ERR_SHAPE;
+		break;
+	case FZN_CATALOG_CONTENT_INLINE:
+		entry.len = len - FZN_CATALOG_CONTENT_HEAD_LEN;
+		/* A VIEW INTO THE RECORD, not a copy. The record's buffer must
+		 * outlive the row, which the header says and nothing here can
+		 * enforce. */
+		entry.bytes = entry.len > 0 ? body + FZN_CATALOG_CONTENT_HEAD_LEN : NULL;
+		break;
+	case FZN_CATALOG_CONTENT_BLOB:
+		if (len != FZN_CATALOG_BLOB_BODY_LEN)
+			return FZN_CATALOG_ERR_SHAPE;
+		memcpy(entry.root, body + FZN_CATALOG_CONTENT_HEAD_LEN, FZN_BLOB_HASH_LEN);
+		entry.blob_len = fzn_get_be64(body + FZN_CATALOG_CONTENT_HEAD_LEN
+		                              + FZN_BLOB_HASH_LEN);
+		if (entry.blob_len == 0)
+			return FZN_CATALOG_ERR_SHAPE;
+		break;
+	default:
+		return FZN_CATALOG_ERR_SHAPE;
+	}
+
+	return fzn_catalog_content_set(catalog, &entry);
+}
+
+fzn_catalog_err_t fzn_catalog_apply(fzn_catalog_t *catalog, fzn_record_t record)
+{
+	const uint8_t *body;
+	size_t len;
+
+	if (!catalog)
+		return FZN_CATALOG_ERR_MALFORMED;
+	/* A view that was never opened has no accessors to read, so this is
+	 * refused before any of them is called. */
+	if (!fzn_record_is_open(record))
+		return FZN_CATALOG_ERR_MALFORMED;
+
+	len = fzn_record_body_len(record);
+	body = fzn_record_body(record);
+	if (len == 0 || !body)
+		return FZN_CATALOG_ERR_SHAPE;
+
+	switch (body[0]) {
+	case FZN_CATALOG_OBJECT_EDGE:
+		return apply_edge(catalog, body, len, fzn_record_issuer(record),
+		                  fzn_record_seq(record));
+	case FZN_CATALOG_OBJECT_CONTENT:
+		return apply_content(catalog, body, len, fzn_record_issuer(record),
+		                     fzn_record_seq(record));
+	default:
+		/* Somebody else's body in a stream this catalogue follows. Not
+		 * ours, and saying so is different from calling it broken. */
+		return FZN_CATALOG_ERR_SHAPE;
+	}
 }

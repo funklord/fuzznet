@@ -84,6 +84,11 @@ typedef enum fzn_catalog_err {
 	 * resolver prefers what is here, and a caller that logged it as an
 	 * error would fill a log on a working network. */
 	FZN_CATALOG_ERR_STALE = -3,
+	/* Bytes that are not a catalogue assertion, or are one written a way
+	 * this build does not produce. Distinct from MALFORMED because that is
+	 * the caller's bug and this is a PEER'S BYTES -- the same distinction
+	 * `chain/chain.h` draws between MALFORMED and CHAIN_INVALID. */
+	FZN_CATALOG_ERR_SHAPE = -4,
 } fzn_catalog_err_t;
 
 const char *fzn_catalog_err_str(fzn_catalog_err_t err);
@@ -335,5 +340,102 @@ fzn_catalog_err_t fzn_catalog_content_set(fzn_catalog_t *catalog,
  * error. */
 const fzn_catalog_entry_t *fzn_catalog_content_of(const fzn_catalog_t *catalog,
                                                   const fzn_catalog_id_t *id);
+
+
+/*
+ * THE WIRE FORM: a catalogue assertion as a record body.
+ *
+ * project.md sec 146. Everything above is an in-memory table, as
+ * `record/journal.h` and `log/log.h` are; this is how one host tells another
+ * what it holds.
+ *
+ * THE BODY DOES NOT REPEAT THE ISSUER OR THE SEQUENCE, and that is the whole
+ * of why `fzn_catalog_apply` takes a RECORD rather than bytes. A record
+ * already carries who signed it and where in their stream it sits; a body
+ * repeating either would let the two disagree, and then a reader has to
+ * choose which to believe about a record that verified. `record/store.h`
+ * refuses the same thing for an address, and `chain/revocation.c` for a
+ * record's identity: the fact comes out of what was signed rather than from
+ * something beside it.
+ *
+ * THE BODY SAYS WHAT IT IS, because a record's `kind` is "the consumer's own
+ * taxonomy" -- `record/record.h` says so -- and this library cannot assign
+ * one. A leading tag means a consumer may put both assertions in one kind or
+ * split them across two, and a reader needs no out-of-band agreement either
+ * way.
+ *
+ *     edge, 66 bytes and fixed:
+ *         [0]        FZN_CATALOG_OBJECT_EDGE
+ *         [1..33)    parent
+ *         [33..65)   child
+ *         [65]       present, exactly 0 or 1
+ *
+ *     content, 34 bytes plus what the kind needs:
+ *         [0]        FZN_CATALOG_OBJECT_CONTENT
+ *         [1..33)    id
+ *         [33]       kind
+ *         NONE       nothing more; 34 bytes
+ *         INLINE     the bytes; 34 + len
+ *         BLOB       [34..66) root, [66..74) length; 74 bytes
+ *
+ * ONE ENCODING OF EACH ASSERTION, ENFORCED. A `present` outside {0,1}, a kind
+ * outside the three, a length that does not match the kind -- each is refused
+ * rather than absorbed. `chain/chain.h` gives the reason for `delegable` and
+ * it is the same here: read loosely, 255 encodings of one statement exist,
+ * the signature over each differs, and two implementations that both "work"
+ * produce assertions the other rejects.
+ */
+
+#define FZN_CATALOG_OBJECT_EDGE 1u
+#define FZN_CATALOG_OBJECT_CONTENT 2u
+
+#define FZN_CATALOG_EDGE_BODY_LEN 66u
+#define FZN_CATALOG_CONTENT_HEAD_LEN 34u
+#define FZN_CATALOG_BLOB_BODY_LEN 74u
+
+/*
+ * The longest INLINE value that can actually be sent.
+ *
+ * IT IS NOT FZN_RECORD_BODY_MAX, AND THE TABLE ABOVE ACCEPTED THAT UNTIL
+ * THIS EXISTED. An inline body is the value plus a 34-byte head, so a value
+ * of exactly FZN_RECORD_BODY_MAX encodes to 546 and no record can carry it --
+ * the in-memory bound admitted something the wire never could, which is a
+ * defect that only building the encoder could show. project.md sec 146.
+ */
+#define FZN_CATALOG_INLINE_MAX ((size_t)FZN_RECORD_BODY_MAX - FZN_CATALOG_CONTENT_HEAD_LEN)
+
+/* Lay out an edge assertion. `out` receives FZN_CATALOG_EDGE_BODY_LEN bytes.
+ * Nothing is written unless the whole body fits. */
+fzn_catalog_err_t fzn_catalog_edge_encode(const fzn_catalog_id_t *parent,
+                                          const fzn_catalog_id_t *child, int present,
+                                          uint8_t *out, size_t cap, size_t *len_out);
+
+/* Lay out a content assertion. `entry`'s id, kind and the fields that kind
+ * uses are read; its issuer and seq are NOT, because a record carries those.
+ * FZN_CATALOG_ERR_MALFORMED for an INLINE past FZN_CATALOG_INLINE_MAX. */
+fzn_catalog_err_t fzn_catalog_content_encode(const fzn_catalog_entry_t *entry, uint8_t *out,
+                                             size_t cap, size_t *len_out);
+
+/*
+ * Apply a verified record to the catalogue.
+ *
+ * THE ISSUER AND SEQUENCE COME FROM THE RECORD, so there is no argument
+ * through which to attribute an assertion to somebody who did not make it.
+ *
+ * IT DOES NOT VERIFY, AND A CALLER MUST -- `record/store.h` says the same at
+ * length and for the same reason. A record's signature is checked with
+ * `fzn_record_verify` against a key this module never sees; applying an
+ * unverified record means anybody who can hand you bytes can edit your
+ * catalogue.
+ *
+ * An INLINE entry's bytes are a VIEW INTO THE RECORD, not a copy, as
+ * everything in this library is: the record's buffer must outlive the
+ * catalogue row that points into it.
+ *
+ * FZN_CATALOG_ERR_SHAPE for bytes that are not a catalogue assertion;
+ * otherwise whatever the assertion itself returns, FZN_CATALOG_ERR_STALE
+ * included -- which is an answer rather than a fault.
+ */
+fzn_catalog_err_t fzn_catalog_apply(fzn_catalog_t *catalog, fzn_record_t record);
 
 #endif

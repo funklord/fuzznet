@@ -1717,7 +1717,9 @@ $(BUILD_DIR)/cli/test/cli_test: $(BUILD_DIR)/cli/test/cli_test.o \
 
 # catalog/ is a membership relation over ids and calls nothing. sec 144.
 $(BUILD_DIR)/catalog/test/catalog_test: $(BUILD_DIR)/catalog/test/catalog_test.o \
-                                     $(BUILD_DIR)/catalog/catalog.o
+                                     $(BUILD_DIR)/catalog/catalog.o \
+                                     $(BUILD_DIR)/record/record.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
