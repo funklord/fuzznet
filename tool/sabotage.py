@@ -1130,6 +1130,48 @@ SABOTAGES = [
 		"a log evicts by design, so a viewer that lists what it holds and stops presents a shorter history as a complete one -- sec 141, and the assertion that first caught this was too weak to",
 	),
 	(
+		"catalog-tombstone-is-stored",
+		"catalog/catalog.c",
+		"\tif (catalog->used == catalog->capacity)\n\t\treturn FZN_CATALOG_ERR_FULL;\n",
+		"\tif (!offered.present)\n\t\treturn FZN_CATALOG_OK;\n\tif (catalog->used == catalog->capacity)\n\t\treturn FZN_CATALOG_ERR_FULL;\n",
+		"an unlink for an edge nobody has asserted is stored anyway, or a stale link arriving afterwards creates the edge afresh and the removal undoes itself on the next sync",
+	),
+	(
+		"catalog-full-refuses-not-evicts",
+		"catalog/catalog.c",
+		"\tif (catalog->used == catalog->capacity)\n\t\treturn FZN_CATALOG_ERR_FULL;\n\n\tcatalog->edges[catalog->used] = offered;\n",
+		"\tif (catalog->used == catalog->capacity)\n\t\tcatalog->used--;\n\n\tcatalog->edges[catalog->used] = offered;\n",
+		"sec 142: a catalogue entry that vanishes is a feature the consumer stops offering silently, so a full table refuses loudly where a log evicts",
+	),
+	(
+		"catalog-resolver-is-consulted",
+		"catalog/catalog.c",
+		"\t\tif (!catalog->resolve->prefer(catalog->resolve->ctx, held, &offered))\n\t\t\treturn FZN_CATALOG_ERR_STALE;\n",
+		"\t\tif (0)\n\t\t\treturn FZN_CATALOG_ERR_STALE;\n",
+		"the conflict strategy is a seam because the holder asked for a wide variety of them, and a module that decided for itself would make the seam decorative",
+	),
+	(
+		"catalog-issuer-supersedes-first",
+		"catalog/catalog.c",
+		"\tif (memcmp(held->issuer, offered->issuer, FZN_PUBKEY_LEN) == 0)\n\t\treturn offered->seq > held->seq ? 1 : 0;\n",
+		"\tif (held->present != offered->present)\n\t\treturn offered->present ? 1 : 0;\n\tif (memcmp(held->issuer, offered->issuer, FZN_PUBKEY_LEN) == 0)\n\t\treturn offered->seq > held->seq ? 1 : 0;\n",
+		"checking presence before the issuer makes an unlink never beat a link even from the issuer that wrote it -- a store that only grows, where the holder asked for one easy to edit",
+	),
+	(
+		"catalog-listings-skip-absent",
+		"catalog/catalog.c",
+		"\t\tif (!catalog->edges[i].present)\n\t\t\tcontinue;\n\t\tif (!same_id(&catalog->edges[i].parent, parent))\n",
+		"\t\tif (0)\n\t\t\tcontinue;\n\t\tif (!same_id(&catalog->edges[i].parent, parent))\n",
+		"a tombstone is a row that stays, so a listing that did not skip absent edges would show every member anybody ever removed",
+	),
+	(
+		"catalog-intersect-requires-all",
+		"catalog/catalog.c",
+		"\t\t\tif (!fzn_catalog_linked(catalog, &parents[j], &edge->child)) {\n",
+		"\t\t\tif (0) {\n",
+		"combining directories as search terms is set intersection, and one that did not require every term would answer the first term alone",
+	),
+	(
 		"provision-envelope-verified",
 		"provision/provision.c",
 		"\tif (!verifier->verify(verifier->ctx, card.root, card.base, FZN_PROVISION_BODY_LEN,\n"

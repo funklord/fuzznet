@@ -34,6 +34,7 @@
 /chain/test/service_test
 /claim/test/claim_test
 /record/test/store_test
+/catalog/test/catalog_test
 /record/test/store_file_test
 /cli/test/cli_test
 /gui/test/trust_view_test

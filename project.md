@@ -5870,6 +5870,7 @@ somebody to notice.
 | `claim/claim.h` | which process owns the identity's mutable state |
 | `record/store.h` | where a record's bytes wait, and who may read them |
 | `record/store_file.h` | that store as one sparse file per stream |
+| `catalog/catalog.h` | named sets whose members belong to several of them |
 | `cli/cli.h` | the option vocabulary every consumer shares |
 | `gui/trust_view.h` | the anchor a user compares, drawn the same everywhere |
 | `gui/log_view.h` | a log, including what retention has eaten |
@@ -22868,6 +22869,102 @@ anything could have said otherwise.
 **Sweeping the other 59 is a deliberate pass and is not this one** -- the
 copyright holder should know the size before it happens rather than find it
 inside a commit about a widget.
+
+## 144. The catalogue, built: membership, not hierarchy, 2026-09-06
+
+Directed by the copyright holder 2026-09-06 after sec 142 settled its shape.
+Built as `catalog/catalog.{h,c}`: 81 checks, six sabotages, all caught.
+
+### What was built, and what was deliberately left open
+
+**The membership relation**, which is the core and is independent of the
+record-or-blob question sec 142 leaves to the holder. A node id is thirty-two
+bytes, so a content-addressed entry can use its own digest and a
+record-backed one can use anything else; the structure is the same either way.
+
+**One node type, not two.** A directory and a file are ROLES here rather than
+kinds, because the holder's own statement is that both can be linked from
+several parents -- so anything distinguishing them would have to allow the
+same operations on each. A node with members is being used as a directory;
+one with content as a file; it may be both.
+
+`fzn_catalog_intersect` is the operation the multi-parent structure exists
+for: several directories combined as search terms is set intersection.
+
+### The default resolver was wrong, and the suite is what said so
+
+sec 142 concluded that "the useful default for membership is union rather
+than last-writer-wins", and the first implementation took that literally:
+presence beats absence, always.
+
+**That makes a catalogue nothing can be removed from.** An unlink never beats
+the link it was retracting -- not even from the issuer that wrote it -- so
+the store only grows, where the holder had asked for a structure that is easy
+to EDIT. The test failed on the unlink, which is where the design error
+surfaced rather than in review.
+
+The rule that works puts the two checks in the other order:
+
+    same issuer      the later sequence supersedes, unlink included
+    across issuers   presence wins
+    both agreeing    keep what is held, so arrival order does not matter
+
+**One issuer restating its own edge is not a conflict at all**, just a later
+statement -- and that is what makes removal possible. A conflict is across
+issuers, and there "add wins" means what sec 142 said it did: two hosts
+adding a member agree whatever order the assertions arrive in.
+
+**What this is not is an observed-remove set.** A proper OR-Set lets a remove
+cancel exactly the adds it has SEEN, so a concurrent add survives a remove
+that never knew about it -- and that needs causal metadata on every edge.
+This is the honest first pass: total, no extra state, and a SEAM precisely so
+a consumer needing the stronger semantics supplies them rather than having
+this module guess.
+
+### A removal is a row that stays
+
+An edge deleted from the table entirely would be re-created by any stale
+assertion arriving afterwards, so a removal would undo itself on the next
+sync. The row stays and `present` carries the answer --
+`chain/revocation.c` keeps a withdrawal for a triple it has never held for
+exactly this reason.
+
+`fzn_catalog_linked` answers no to both a tombstone and a silence, because a
+caller asking "is it a member" wants one answer; `fzn_catalog_edge_of`
+separates them for the caller that needs to know.
+
+### A weak fixture, found by the same run
+
+The tombstone case was first written against a resolver that keeps whatever
+it holds -- which makes it pass **whether or not the row was stored**, the
+fixture answering instead of the code. It runs under the default resolver
+now, where the stale link loses on its own sequence and can only lose to a
+row that exists.
+
+### What it refuses, and what it does not guard
+
+**Full is loud.** sec 142: a catalogue entry that vanishes is a feature the
+consumer stops offering, silently. So a full table answers
+FZN_CATALOG_ERR_FULL rather than dropping the oldest, which is
+`record/journal.h`'s rule rather than `log/log.h`'s.
+
+**No cycle check, and that is deliberate rather than missing.** Nothing here
+recurses -- `fzn_catalog_members` is one level -- so a cycle among sets is
+harmless to every query in this file. A consumer adding recursive traversal
+inherits the problem and needs its own visited set. Said in the header rather
+than guarded against, because a check this module cannot exercise is one it
+should not claim.
+
+**Whole-catalogue permissions need nothing here**, as sec 142 recorded: a
+catalogue is a service and sec 129 already supplies the capability. No
+per-entry access control is implied and none is built.
+
+### Still open, and now separable
+
+Three decisions rather than one, which is what sec 142's correction bought:
+**entry content** (record or blob) is the holder's; **conflict policy** is a
+seam a consumer fills; and **the structure** is built. Nothing about the
+first two blocks using the third.
 
 ## 143. The naming sweep: 47 files, and what the proof refused, 2026-09-06
 

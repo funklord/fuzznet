@@ -1,0 +1,388 @@
+/* Tests for catalog/catalog.c: membership, and the two things it is for.
+ *
+ * THE CASES THIS FILE EXISTS FOR are the two properties the copyright holder
+ * named as the point of the design -- that a node may be a member of several
+ * sets at once, and that several sets can be combined as search terms -- plus
+ * the one that makes those safe to sync: a removal must stick when a stale
+ * link arrives afterwards. project.md sec 144.
+ *
+ * The resolver is a seam, so most of these drive it deliberately rather than
+ * through the default: a strategy that is only ever exercised by the one
+ * shipped with it has not been shown to be a seam at all.
+ */
+
+#include "../catalog.h"
+
+#include <stdarg.h>
+#include <stdio.h>
+#include <string.h>
+
+static int failures;
+static int checks;
+
+#if defined(__GNUC__)
+#define FZN_CHECK_PRINTF __attribute__((format(printf, 3, 4)))
+#else
+#define FZN_CHECK_PRINTF
+#endif
+
+static void check_at(int ok, int line, const char *fmt, ...) FZN_CHECK_PRINTF;
+
+static void check_at(int ok, int line, const char *fmt, ...)
+{
+	va_list ap;
+
+	checks++;
+	if (ok)
+		return;
+
+	failures++;
+	fprintf(stderr, "  FAIL catalog_test.c:%d: ", line);
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	va_end(ap);
+	fprintf(stderr, "\n");
+}
+
+#define CHECK(cond, ...) check_at((cond) ? 1 : 0, __LINE__, __VA_ARGS__)
+#define REQUIRE(cond, ...)                                   \
+	do {                                                 \
+		int require_ok = (cond) ? 1 : 0;             \
+		check_at(require_ok, __LINE__, __VA_ARGS__); \
+		if (!require_ok)                             \
+			return;                              \
+	} while (0)
+
+static fzn_catalog_id_t id(uint8_t seed)
+{
+	fzn_catalog_id_t out;
+
+	memset(out.b, seed, sizeof(out.b));
+	return out;
+}
+
+/* The same id, as a pointer, for the calls that take one. A small rotating
+ * set rather than one static, so two `idp` calls in one expression do not
+ * hand back the same buffer -- which would make an argument pair compare
+ * equal and quietly change what a case tests. */
+static const fzn_catalog_id_t *idp(uint8_t seed)
+{
+	static fzn_catalog_id_t slots[4];
+	static size_t at;
+
+	slots[at] = id(seed);
+	at = (at + 1u) % 4u;
+	return &slots[(at + 3u) % 4u];
+}
+
+static uint8_t ALICE[FZN_PUBKEY_LEN];
+static uint8_t BOB[FZN_PUBKEY_LEN];
+
+static const fzn_catalog_resolve_ops_t ADD_WINS = { fzn_catalog_add_wins, NULL };
+
+/* A resolver that always keeps what it holds, so the seam can be shown to be
+ * one: if the module ignored `resolve` and compared for itself, this would
+ * make no difference and every case below would still pass. */
+static int keep_held(void *ctx, const fzn_catalog_edge_t *held,
+                     const fzn_catalog_edge_t *offered)
+{
+	(void)ctx;
+	(void)held;
+	(void)offered;
+	return 0;
+}
+
+static const fzn_catalog_resolve_ops_t KEEP_HELD = { keep_held, NULL };
+
+/* ---- the cases --------------------------------------------------------- */
+
+static void test_a_node_belongs_to_several_sets(void)
+{
+	fzn_catalog_edge_t rows[8];
+	fzn_catalog_t cat;
+	fzn_catalog_id_t out[4];
+	fzn_catalog_id_t film = id(0x10);
+	fzn_catalog_id_t noir = id(0x20);
+	fzn_catalog_id_t nineteen_forties = id(0x21);
+	size_t n;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 8, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	CHECK(fzn_catalog_assert(&cat, &noir, &film, ALICE, 1, 1) == FZN_CATALOG_OK,
+	      "the first membership was refused");
+	CHECK(fzn_catalog_assert(&cat, &nineteen_forties, &film, ALICE, 2, 1) == FZN_CATALOG_OK,
+	      "the second membership was refused");
+
+	CHECK(fzn_catalog_linked(&cat, &noir, &film), "the node is not in the first set");
+	CHECK(fzn_catalog_linked(&cat, &nineteen_forties, &film),
+	      "the node is not in the second set");
+
+	/* THE PROPERTY THE DESIGN EXISTS FOR: a node names its sets, plural,
+	 * and nothing had to move for the second one. */
+	n = fzn_catalog_parents(&cat, &film, out, 4);
+	CHECK(n == 2, "a node in two sets reported %zu parent(s)", n);
+}
+
+static void test_sets_combine_as_search_terms(void)
+{
+	fzn_catalog_edge_t rows[16];
+	fzn_catalog_t cat;
+	fzn_catalog_id_t out[8];
+	fzn_catalog_id_t noir = id(0x20);
+	fzn_catalog_id_t forties = id(0x21);
+	fzn_catalog_id_t both = id(0x10);
+	fzn_catalog_id_t noir_only = id(0x11);
+	fzn_catalog_id_t forties_only = id(0x12);
+	fzn_catalog_id_t terms[2];
+	size_t n;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 16, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_assert(&cat, &noir, &both, ALICE, 1, 1) == FZN_CATALOG_OK, "a");
+	REQUIRE(fzn_catalog_assert(&cat, &forties, &both, ALICE, 2, 1) == FZN_CATALOG_OK, "b");
+	REQUIRE(fzn_catalog_assert(&cat, &noir, &noir_only, ALICE, 3, 1) == FZN_CATALOG_OK, "c");
+	REQUIRE(fzn_catalog_assert(&cat, &forties, &forties_only, ALICE, 4, 1) == FZN_CATALOG_OK,
+	        "d");
+
+	terms[0] = noir;
+	terms[1] = forties;
+	n = fzn_catalog_intersect(&cat, terms, 2, out, 8);
+	CHECK(n == 1, "combining two sets gave %zu result(s), wanted the one in both", n);
+	CHECK(n == 1 && memcmp(out[0].b, both.b, FZN_CATALOG_ID_LEN) == 0,
+	      "the result is not the node that is in both");
+
+	/* THE CONTROL: each term alone holds two, so the intersection above is
+	 * narrowing rather than a query that always answers one. */
+	CHECK(fzn_catalog_members(&cat, &noir, out, 8) == 2, "the first term does not hold two");
+	CHECK(fzn_catalog_members(&cat, &forties, out, 8) == 2,
+	      "the second term does not hold two");
+
+	/* One term is just its members; no terms is not everything. */
+	CHECK(fzn_catalog_intersect(&cat, terms, 1, out, 8) == 2,
+	      "one term did not answer that term's members");
+	CHECK(fzn_catalog_intersect(&cat, terms, 0, out, 8) == 0,
+	      "no terms answered something, so an unchosen query returns the world");
+}
+
+/*
+ * A REMOVAL MUST STICK. An edge deleted from the table would be created
+ * afresh by any stale link arriving afterwards, so a removal would undo
+ * itself on the next sync. The tombstone is what stops that, and this is the
+ * case that would pass if the row were dropped instead.
+ */
+static void test_a_removal_survives_a_stale_link(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_t cat;
+	fzn_catalog_id_t set = id(0x20);
+	fzn_catalog_id_t node = id(0x10);
+
+	/* UNDER THE DEFAULT RESOLVER, not one that keeps whatever it holds --
+	 * a keep-held resolver makes this case pass whether or not the
+	 * tombstone was stored, which is the fixture answering instead of the
+	 * code. Here the stale link loses on its own sequence, and it can only
+	 * lose to a row that exists. */
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_assert(&cat, &set, &node, ALICE, 5, 0) == FZN_CATALOG_OK,
+	        "an unlink for an edge never held was refused");
+	CHECK(cat.used == 1, "the unlink was not stored, so nothing can meet a stale link");
+	CHECK(!fzn_catalog_linked(&cat, &set, &node), "the unlink did not take");
+
+	/* The stale link loses, and the caller is told it lost. */
+	CHECK(fzn_catalog_assert(&cat, &set, &node, ALICE, 1, 1) == FZN_CATALOG_ERR_STALE,
+	      "a stale link was accepted over a removal");
+	CHECK(!fzn_catalog_linked(&cat, &set, &node), "the stale link resurrected the edge");
+
+	/* And a tombstone is tellable from silence, which is what the accessor
+	 * is for: linked() says no to both, edge_of() separates them. */
+	CHECK(fzn_catalog_edge_of(&cat, &set, &node) != NULL,
+	      "a removal is indistinguishable from never having been said");
+	CHECK(fzn_catalog_edge_of(&cat, &set, idp(0x99)) == NULL,
+	      "an edge nobody asserted reports itself as a tombstone");
+}
+
+/* The resolver is consulted rather than reimplemented. With a resolver that
+ * keeps what it holds, an add that would win under the default must lose. */
+static void test_the_resolver_is_a_seam(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_t cat;
+	fzn_catalog_id_t set = id(0x20);
+	fzn_catalog_id_t node = id(0x10);
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &KEEP_HELD) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_assert(&cat, &set, &node, ALICE, 1, 0) == FZN_CATALOG_OK, "unlink");
+	CHECK(fzn_catalog_assert(&cat, &set, &node, ALICE, 9, 1) == FZN_CATALOG_ERR_STALE,
+	      "a later add won under a resolver that keeps what it holds");
+	CHECK(!fzn_catalog_linked(&cat, &set, &node), "and it took effect anyway");
+
+	/* THE CONTROL: the same sequence under add-wins goes the other way, so
+	 * the case above is the resolver rather than the module refusing. */
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "re-init refused");
+	REQUIRE(fzn_catalog_assert(&cat, &set, &node, ALICE, 1, 0) == FZN_CATALOG_OK, "unlink");
+	CHECK(fzn_catalog_assert(&cat, &set, &node, ALICE, 9, 1) == FZN_CATALOG_OK,
+	      "add-wins refused an add over a removal");
+	CHECK(fzn_catalog_linked(&cat, &set, &node), "add-wins did not take effect");
+}
+
+/* Adds commute, which is what makes most of a catalogue conflict-free. */
+static void test_two_hosts_adding_agree_without_talking(void)
+{
+	fzn_catalog_edge_t rows_a[4], rows_b[4];
+	fzn_catalog_t a, b;
+	fzn_catalog_id_t set = id(0x20);
+	fzn_catalog_id_t node = id(0x10);
+
+	REQUIRE(fzn_catalog_init(&a, rows_a, 4, &ADD_WINS) == FZN_CATALOG_OK, "a init");
+	REQUIRE(fzn_catalog_init(&b, rows_b, 4, &ADD_WINS) == FZN_CATALOG_OK, "b init");
+
+	/* The same two assertions, in opposite orders. */
+	REQUIRE(fzn_catalog_assert(&a, &set, &node, ALICE, 1, 1) == FZN_CATALOG_OK, "a1");
+	(void)fzn_catalog_assert(&a, &set, &node, BOB, 1, 1);
+	REQUIRE(fzn_catalog_assert(&b, &set, &node, BOB, 1, 1) == FZN_CATALOG_OK, "b1");
+	(void)fzn_catalog_assert(&b, &set, &node, ALICE, 1, 1);
+
+	CHECK(fzn_catalog_linked(&a, &set, &node) == fzn_catalog_linked(&b, &set, &node),
+	      "two hosts given the same adds in different orders disagree");
+	CHECK(fzn_catalog_linked(&a, &set, &node), "and neither holds the member");
+}
+
+/* A full catalogue refuses loudly rather than dropping the oldest, which is
+ * the difference between this and a log. */
+static void test_a_full_catalogue_refuses_rather_than_evicts(void)
+{
+	fzn_catalog_edge_t rows[2];
+	fzn_catalog_t cat;
+	fzn_catalog_id_t set = id(0x20);
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 2, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_assert(&cat, &set, idp(0x01), ALICE, 1, 1) == FZN_CATALOG_OK, "one");
+	REQUIRE(fzn_catalog_assert(&cat, &set, idp(0x02), ALICE, 2, 1) == FZN_CATALOG_OK, "two");
+	CHECK(fzn_catalog_assert(&cat, &set, idp(0x03), ALICE, 3, 1) == FZN_CATALOG_ERR_FULL,
+	      "a full catalogue accepted a third edge");
+	/* AND THE FIRST IS STILL THERE. A catalogue that made room by dropping
+	 * would report success and lose a member silently. */
+	CHECK(fzn_catalog_linked(&cat, &set, idp(0x01)),
+	      "the oldest member was evicted to make room");
+	CHECK(cat.used == 2, "the table grew past its capacity");
+}
+
+static void test_the_caller_bugs_are_refused(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_t cat;
+	fzn_catalog_id_t out[2];
+	fzn_catalog_id_t a = id(0x20);
+	fzn_catalog_id_t b = id(0x10);
+
+	CHECK(fzn_catalog_init(NULL, rows, 4, &ADD_WINS) == FZN_CATALOG_ERR_MALFORMED,
+	      "a null catalogue was accepted");
+	CHECK(fzn_catalog_init(&cat, NULL, 4, &ADD_WINS) == FZN_CATALOG_ERR_MALFORMED,
+	      "null rows were accepted");
+	CHECK(fzn_catalog_init(&cat, rows, 0, &ADD_WINS) == FZN_CATALOG_ERR_MALFORMED,
+	      "a catalogue that can hold nothing was accepted");
+	CHECK(fzn_catalog_init(&cat, rows, 4, NULL) == FZN_CATALOG_ERR_MALFORMED,
+	      "a catalogue with no resolver was accepted");
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	/* A set cannot contain itself: listing it among its own members is
+	 * wrong in a way a caller cannot tell from a genuine member. */
+	CHECK(fzn_catalog_assert(&cat, &a, &a, ALICE, 1, 1) == FZN_CATALOG_ERR_MALFORMED,
+	      "a set was made a member of itself");
+	CHECK(fzn_catalog_assert(NULL, &a, &b, ALICE, 1, 1) == FZN_CATALOG_ERR_MALFORMED,
+	      "a null catalogue accepted an assertion");
+	CHECK(fzn_catalog_assert(&cat, NULL, &b, ALICE, 1, 1) == FZN_CATALOG_ERR_MALFORMED,
+	      "a null parent");
+	CHECK(fzn_catalog_assert(&cat, &a, NULL, ALICE, 1, 1) == FZN_CATALOG_ERR_MALFORMED,
+	      "a null child");
+	CHECK(fzn_catalog_assert(&cat, &a, &b, NULL, 1, 1) == FZN_CATALOG_ERR_MALFORMED,
+	      "a null issuer");
+	CHECK(!fzn_catalog_linked(NULL, &a, &b), "a null catalogue reported a membership");
+	CHECK(fzn_catalog_members(NULL, &a, out, 2) == 0, "a null catalogue listed members");
+	CHECK(fzn_catalog_parents(NULL, &b, out, 2) == 0, "a null catalogue listed parents");
+	CHECK(fzn_catalog_intersect(NULL, &a, 1, out, 2) == 0, "a null catalogue intersected");
+	CHECK(cat.used == 0, "a refused assertion was stored");
+}
+
+/* A listing bounded by the caller stops at the bound rather than writing
+ * past it, and says how many it wrote. */
+static void test_a_listing_respects_its_bound(void)
+{
+	fzn_catalog_edge_t rows[8];
+	fzn_catalog_t cat;
+	fzn_catalog_id_t out[2];
+	fzn_catalog_id_t set = id(0x20);
+	uint8_t i;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 8, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	for (i = 1; i <= 4; i++)
+		REQUIRE(fzn_catalog_assert(&cat, &set, idp(i), ALICE, i, 1) == FZN_CATALOG_OK,
+		        "a member was refused");
+
+	CHECK(fzn_catalog_members(&cat, &set, out, 2) == 2,
+	      "a bounded listing did not stop at its bound");
+	CHECK(fzn_catalog_members(&cat, &set, out, 0) == 0, "a zero bound wrote something");
+}
+
+/* An unlinked member disappears from listings while its row stays. */
+static void test_an_unlinked_member_leaves_the_listings(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_t cat;
+	fzn_catalog_id_t out[4];
+	fzn_catalog_id_t set = id(0x20);
+	fzn_catalog_id_t node = id(0x10);
+	fzn_catalog_id_t terms[1];
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_assert(&cat, &set, &node, ALICE, 1, 1) == FZN_CATALOG_OK, "link");
+	CHECK(fzn_catalog_members(&cat, &set, out, 4) == 1, "the member is not listed");
+
+	REQUIRE(fzn_catalog_assert(&cat, &set, &node, ALICE, 2, 0) == FZN_CATALOG_OK, "unlink");
+	CHECK(fzn_catalog_members(&cat, &set, out, 4) == 0, "an unlinked member is still listed");
+	CHECK(fzn_catalog_parents(&cat, &node, out, 4) == 0,
+	      "an unlinked member still names its set");
+	terms[0] = set;
+	CHECK(fzn_catalog_intersect(&cat, terms, 1, out, 4) == 0,
+	      "an unlinked member is still a search result");
+	CHECK(cat.used == 1, "the tombstone was dropped");
+}
+
+static void test_the_errors_render(void)
+{
+	CHECK(fzn_catalog_err_str(FZN_CATALOG_OK)[0] != '\0', "OK renders empty");
+	CHECK(fzn_catalog_err_str(FZN_CATALOG_ERR_MALFORMED)[0] != '\0', "MALFORMED renders empty");
+	CHECK(fzn_catalog_err_str(FZN_CATALOG_ERR_FULL)[0] != '\0', "FULL renders empty");
+	CHECK(fzn_catalog_err_str(FZN_CATALOG_ERR_STALE)[0] != '\0', "STALE renders empty");
+	CHECK(fzn_catalog_err_str((fzn_catalog_err_t)-99)[0] != '\0',
+	      "an unknown error renders empty");
+}
+
+static void test_the_suite_can_tell_pass_from_fail(void)
+{
+	int before = failures;
+
+	check_at(0, __LINE__, "deliberate");
+	CHECK(failures == before + 1, "a failing check did not count");
+	failures = before;
+	checks -= 1;
+}
+
+int main(void)
+{
+	memset(ALICE, 0xa1, sizeof(ALICE));
+	memset(BOB, 0xb0, sizeof(BOB));
+
+	test_a_node_belongs_to_several_sets();
+	test_sets_combine_as_search_terms();
+	test_a_removal_survives_a_stale_link();
+	test_the_resolver_is_a_seam();
+	test_two_hosts_adding_agree_without_talking();
+	test_a_full_catalogue_refuses_rather_than_evicts();
+	test_the_caller_bugs_are_refused();
+	test_a_listing_respects_its_bound();
+	test_an_unlinked_member_leaves_the_listings();
+	test_the_errors_render();
+	test_the_suite_can_tell_pass_from_fail();
+
+	printf("catalog_test: %d checks, %d failure(s)\n", checks, failures);
+	return failures == 0 ? 0 : 1;
+}
