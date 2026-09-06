@@ -2078,6 +2078,52 @@ SABOTAGES = [
 		"a service too large to hint must be refused, not truncated onto "
 		"another service no host downstream could tell it from",
 	),
+	# BATCH TWELVE, 2026-09-06: the cross-host copy, sec 154. The first is
+	# the security property -- an offer that leaves the catalogue turns a
+	# want list into a request for any blob whose hash a peer can name --
+	# and the second is the correction sec 152 needed, since a holdings
+	# announcement that reads the retention table publishes an intention as
+	# though it were a fact.
+	(
+		"copy-offer-scoped",
+		"catalog/copy.c",
+		"\t\tif (memcmp(entry->root, root, FZN_BLOB_HASH_LEN) == 0)\n\t\t\treturn entry;\n",
+		"\t\treturn entry;\n",
+		"an offer must be scoped to the catalogue, or a capability for one "
+		"catalogue is a capability for the whole blob store",
+	),
+	(
+		"copy-holdings-ignore-retention",
+		"catalog/copy.c",
+		"\treturn walk(catalog, holdings, 0, 0, out, out_cap, plan);\n",
+		"\treturn walk(catalog, holdings, 1, 0, out, out_cap, plan);\n",
+		"a holdings announcement must follow the bytes on disk and not what "
+		"this host intends to keep",
+	),
+	(
+		"copy-dedup",
+		"catalog/copy.c",
+		"\tif (already_listed(out, plan->written, root)) {\n\t\tplan->duplicates++;\n\t\treturn;\n\t}\n",
+		"\t/* sabotage */\n",
+		"a blob several nodes share must be fetched once, since sharing is "
+		"the reason a caller chooses a blob at all",
+	),
+	(
+		"copy-refile-busy",
+		"catalog/copy.c",
+		"\tif (catalog->refiling)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n\n\tfor (i = 0; i < catalog->entry_used; i++) {\n",
+		"\tfor (i = 0; i < catalog->entry_used; i++) {\n",
+		"a refiling catalogue answers progress and nothing else, sec 149, and "
+		"the copy layer is bound by that like everything else",
+	),
+	(
+		"copy-seam-absent-is-not-held",
+		"catalog/copy.c",
+		"\tif (!holdings || !holdings->holds)\n\t\treturn 0;\n",
+		"\tif (!holdings || !holdings->holds)\n\t\treturn 1;\n",
+		"a seam that cannot answer must not be read as holding the bytes, or "
+		"a host advertises what it cannot serve",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

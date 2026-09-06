@@ -22870,6 +22870,201 @@ anything could have said otherwise.
 copyright holder should know the size before it happens rather than find it
 inside a commit about a widget.
 
+## 154. The cross-host copy, and a fact that is not an intention, 2026-09-06
+
+The copyright holder, after sec 152 built retention: "Then we implement the
+cross host-copy of a catalog and its contents, and planned deletion." This is
+the copy; deletion is next.
+
+### Most of it was already built, and saying so was the first job
+
+The expensive mistake available here was writing a second replication path
+beside the one that exists. A catalogue's edges, contents and names are record
+bodies -- sec 146 -- carried in an issuer's stream, so adopting a catalogue is
+three things this library already does:
+
+    fzn_journal_anchor    follow the issuer, which is a decision and not
+                          something a peer's advertisement may make
+    fzn_sync_plan_fetch   ask for the records that are missing
+    fzn_catalog_apply     apply each verified record
+
+`catalog/copy.h` opens by stating that, because a reader arriving at a file
+called "copy" will otherwise assume it is where copying happens.
+
+**What does not travel is as settled as what does.** The filing is per-host by
+sec 147 and the retention table is per-host by sec 152; neither has a wire
+form and neither gains one here. Two hosts holding one catalogue may file it
+differently and keep different parts of it, and both are correct. The suite
+asserts the first of those directly: setting a filing root does not change one
+byte of what a host fetches.
+
+### What was actually missing: the bytes
+
+An INLINE entry arrived inside the record that asserted it, so a host that
+applied the record has the value. A BLOB entry is a root and a length, and the
+bytes are elsewhere. Three questions surround that fetch and this is all the
+module answers:
+
+    what do I still need      fzn_catalog_copy_want
+    what do I actually have   fzn_catalog_copy_holdings
+    what can I give a peer    fzn_catalog_copy_offer
+
+**It decides and does not send**, which is `record/sync.h`'s rule taken
+deliberately rather than by imitation: the comparison is identical in every
+consumer while the timers, the peer choice and the framing are not. So there
+is no encoder here, exactly as there is none there.
+
+### A holding is a fact and a retention is an intention -- sec 152 ran them together
+
+That section said the retention table "is that map", the map of which host
+stores which files. It is not, quite, and the correction is the design rather
+than a footnote to it.
+
+Retention is what a host has **decided** to keep. Holdings are which bytes it
+actually **has**. They diverge in both directions and each direction is
+ordinary:
+
+    KEEP, blob not fetched yet      retained, not held
+    DROP, bytes still on disk       held, not retained
+
+**Publishing the wrong one fails differently in each direction**, which is why
+this is worth a section. Publish the intention and a peer fetches from a host
+with nothing to give it, once per node, for as long as the intention outlives
+the gap -- and nothing in the exchange reports the mistake, because a host
+promising to keep something is not lying. Publish the holdings and a peer
+learns only what is true today, which is the thing it can act on.
+
+So `fzn_catalog_copy_holdings` asks the seam and never reads the retention
+table, and the two never share a code path. `catalog/catalog.h`'s retention
+comment carried the wrong claim and now carries the correction, because that
+is where a reader looks -- striking it only in this file would leave the
+version nobody would have corrected.
+
+**The suite's central case is that divergence**: one node marked KEEP whose
+blob has not arrived, one marked DROP whose bytes are still here, and the
+assertion that the announcement names the second and the want list names the
+first. A sabotage makes `copy_holdings` respect retention, which is precisely
+sec 152's error, and the case catches it.
+
+### An offer is scoped to the catalogue, and that is the security property
+
+`fzn_catalog_copy_offer` refuses a want naming a root no entry in this
+catalogue references -- counted in `unknown`, never served.
+
+Without it a want list is a request for **any blob whose hash a peer can
+name**, and a capability for one catalogue silently becomes a capability for
+the whole blob store. The test holds a blob that is genuinely on disk and
+genuinely not in the catalogue, and asks for it: a scoped offer counts it, an
+unscoped one hands it over. What a peer learns instead is bounded by what it
+is copying -- which parts of THIS catalogue this host has, which is exactly
+what copying it entitles it to know.
+
+**A want the catalogue knows and this host lacks is simply absent**, not an
+error and not a refusal. The peer asks again next round, which is
+`record/sync.h`'s pull shape and survives loss without acknowledgements.
+
+**And the length answered is this catalogue's, not the peer's.** A peer whose
+number disagrees under the same root is describing a different object, which
+is either a defect on their side or a claim nobody should take at face value;
+neither is a reason to answer with their number.
+
+### The counters had to be made to add up, and the first version did not
+
+`copy.h` states two sums. The classification partitions what was examined --
+`not_retained + inline_ready + no_content + already_held + missing +
+unknown` -- and the emission accounts for the class each call selected:
+`written + truncated + duplicates`.
+
+**The first draft's header claimed a partition the code did not have.** A
+holdings walk classified only what it emitted, so a blob that was neither held
+nor wanted fell through uncounted, and the sentence "every entry examined
+lands in exactly one counter" was false in the ordinary case. Writing the
+assertion is what found it: the claim had been in the header for as long as it
+took to write the test that checked it.
+
+The fix was to classify before emitting, in both walks identically, so the
+counters describe the same population whichever call is running. **What is
+examined differs and the sum does not** -- a want or holdings walk examines
+this catalogue's entries, an offer examines the peer's wants, and one
+arithmetic covers both. That is what makes it worth asserting rather than two
+sums that each hold in one place.
+
+### Two smaller decisions, recorded so they are not re-taken
+
+**A duplicate is deduplicated, quadratically, on purpose.** Several nodes
+sharing one blob is the reason a caller chooses a blob over an inline value,
+so the duplicate is the expected case. The scan is over what has been written,
+so it is bounded by the caller's own `out_cap` rather than by how large a
+catalogue can grow, and the trade is a 32-byte comparison against a second
+fetch of the whole blob.
+
+**A seam that cannot answer says no.** A null `holdings` -- the state a host
+adopting a catalogue is actually in -- and a half-filled ops struct both mean
+"nothing here". That direction costs a redundant fetch; the other makes a host
+advertise bytes it cannot serve and drops the node out of every want list it
+will ever compute.
+
+**And a sizing pass is an upper bound rather than a count**, pinned by a test
+rather than left for a reader to assume. Deduplication compares against what
+has been WRITTEN, so with no room to write, two references to one blob cannot
+be recognised as shared and count as two truncations. `written + truncated`
+therefore sizes an array that is certainly big enough and may be bigger than
+needed, and a second walk into it reports the exact figure.
+
+It is worth a case because *a bound quoted as a value is how a number stops
+being checkable*, and this one is loosest exactly where it looks most
+authoritative -- many shared blobs, no room for any of them. Making it exact
+needs a scratch buffer this library does not allocate, so the looseness stays
+and the test is what stops somebody removing it without meeting that cost.
+
+### A refiling catalogue answers progress and nothing else
+
+sec 149's rule reaches the copy layer, and all three entry points return
+FZN_CATALOG_ERR_BUSY while a refile holds the catalogue. A want list computed
+mid-refile would be honest about the bytes and useless about where they go.
+
+### Proved by breaking them
+
+Five entries in `tool/sabotage.py`, all CAUGHT, each by the case written for
+it:
+
+    copy-offer-scoped               the stranger's blob was served
+    copy-holdings-ignore-retention  "one blob is here, announced 0"
+    copy-dedup                      "a shared blob was wanted twice"
+    copy-refile-busy                a want list ran during a refile
+    copy-seam-absent-is-not-held    a null seam read as holding everything
+
+**The second is the section's own argument as a mutation.** It makes
+`copy_holdings` pass `retained_only`, which is exactly what sec 152's sentence
+described, and the divergence case catches it in one line -- the host had the
+DROPped bytes and announced nothing, because it was announcing its intentions.
+
+### Three gates refused the new module before any test did
+
+Worth recording together, because each is the opposite of this project's usual
+finding -- a gate that noticed an ADDITION nobody had told it about, rather
+than one that passed over an empty population.
+
+    sabotage --verify   catalog/copy.c has no entry and is not listed as
+                        guard-free
+    style               test binaries missing from .gitignore:
+                        catalog/test/copy_test
+    installcheck        installed but not included by the consumer:
+                        catalog/copy.h -- the check would pass whatever
+                        those headers did
+
+**The third is the one that would have cost something.** `installcheck`
+compiles a consumer against the installed tree, and a header in `HDRS` that no
+consumer includes is a header the check silently does not check: it would have
+reported four arrangements building while `copy.h` was never compiled from
+outside the source layout. That is the vacuous pass aimed at a gate rather
+than at a result, and the gate catches it in itself.
+
+**And the run that found it reported "0 failures" over 71 suites of 141.**
+Both halves were true and neither was the result: the tally was over the
+suites that ran, and `installcheck` had stopped the run before the rest. The
+exit status is what said so.
+
 ## 153. Relay per subsystem, and the price of being filterable, 2026-09-06
 
 The copyright holder: "relay should be per subsystem." A relay could not do

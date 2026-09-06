@@ -919,13 +919,25 @@ fzn_catalog_err_t fzn_catalog_name_segment(const fzn_catalog_name_t *name, char 
  * value so a node nobody has spoken about follows the catalogue rather than
  * being silently dropped.
  *
- * WHAT IT ANSWERS BEYOND ITS OWN QUESTION. The holder also asked how a host
- * signifies which files it stores. Nothing did: `record/ledger.h` tracks how
- * far a peer has got per subject, `spool/message.h` carries a have-set for
- * one blob in flight, and `spool/spool.h` knows what this host has of one
- * blob -- none of them a durable map of holdings. **This is that map**, and
- * publishing it is what turns a local policy into a fact a peer can use.
- * Publication is sec 152's next step rather than part of this one.
+ * WHAT IT ANSWERS BEYOND ITS OWN QUESTION, AND WHAT IT DOES NOT. The holder
+ * also asked how a host signifies which files it stores. Nothing did:
+ * `record/ledger.h` tracks how far a peer has got per subject,
+ * `spool/message.h` carries a have-set for one blob in flight, and
+ * `spool/spool.h` knows what this host has of one blob -- none of them a
+ * durable map of holdings.
+ *
+ * THIS TABLE IS NOT THAT MAP, THOUGH THIS COMMENT SAID IT WAS. sec 154
+ * corrects it. Retention is what this host has DECIDED to keep; a holdings
+ * map is which bytes it actually HAS, and the two diverge in both directions
+ * as a matter of course -- a KEEP whose blob has not been fetched is retained
+ * and not held, a DROP whose bytes are still on disk is held and not
+ * retained. Publishing this table would therefore advertise an intention as
+ * though it were a fact, and a peer would fetch from a host with nothing to
+ * give it once per node for as long as the gap lasted.
+ *
+ * `catalog/copy.h` is the map, and it asks a seam what is on disk rather than
+ * reading these rows. What stays true from the original claim is the reason
+ * this table is local: see the paragraph above.
  */
 
 typedef enum fzn_catalog_retention {
