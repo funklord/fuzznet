@@ -28,6 +28,12 @@ fzn_chain_err_t fzn_service_capability(uint32_t service, uint32_t product,
 	 * second way in. */
 	if (service == FZN_SERVICE_NONE || product == FZN_PRODUCT_NONE)
 		return FZN_CHAIN_ERR_MALFORMED;
+	/* A product past the space a stream can carry would authorise
+	 * records no stream could hold, so it is refused here rather than
+	 * at the stream derivation -- a capability that cannot correspond
+	 * to any record is not a narrower capability, it is a bug. */
+	if (product > FZN_PRODUCT_MAX && product != FZN_PRODUCT_ANY)
+		return FZN_CHAIN_ERR_MALFORMED;
 	if (name_len > FZN_SERVICE_NAME_MAX)
 		return FZN_CHAIN_ERR_MALFORMED;
 	/* A length with no bytes behind it is a caller bug rather than an
@@ -78,4 +84,32 @@ fzn_chain_err_t fzn_service_capability_pair(uint32_t service, uint32_t product,
 	if (err != FZN_CHAIN_OK)
 		return err;
 	return fzn_service_capability(service, FZN_PRODUCT_ANY, name, name_len, hash, any_out);
+}
+
+fzn_chain_err_t fzn_service_stream(uint32_t product, uint32_t index, uint32_t *out)
+{
+	if (!out)
+		return FZN_CHAIN_ERR_MALFORMED;
+	/* NEITHER SENTINEL HAS A STREAM. Nobody's records and everybody's
+	 * records are both answers to a question about entitlement, and a
+	 * stream is a place bytes actually go.
+	 *
+	 * ONE RANGE TEST RATHER THAN TWO, and the redundant version was here
+	 * until the sabotage harness reported it as a check that could not
+	 * fail: FZN_PRODUCT_ANY is FZN_PRODUCT_MAX + 1, so an explicit test
+	 * for it is dead behind the bound. Both halves of this one are
+	 * reachable -- zero fails the first, the wildcard and everything above
+	 * it fails the second. */
+	if (product == FZN_PRODUCT_NONE || product > FZN_PRODUCT_MAX)
+		return FZN_CHAIN_ERR_MALFORMED;
+	if (index > FZN_STREAM_INDEX_MAX)
+		return FZN_CHAIN_ERR_MALFORMED;
+
+	*out = (product << FZN_STREAM_PRODUCT_SHIFT) | index;
+	return FZN_CHAIN_OK;
+}
+
+uint32_t fzn_service_stream_product(uint32_t stream)
+{
+	return stream >> FZN_STREAM_PRODUCT_SHIFT;
 }

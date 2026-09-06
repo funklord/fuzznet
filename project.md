@@ -22788,6 +22788,100 @@ mentioned here only because it is the reason "just replicate the bytes" is not
 sufficient for this consumer -- something has to refuse what it cannot honour,
 and hydra believes that something is itself rather than the transport.
 
+## 130. One node per host, which is what dissolves the syncer question, 2026-09-06
+
+The copyright holder chose option (b) from sec 129 -- derive the stream from
+the product -- and then put the harder question: even once two syncers can
+be told apart, which one stays? "If the one that syncs gets killed, suddenly
+the other stops receiving data." And then, sharpening it: "either the dbs
+are duplicated or the two daemons have to negotiate, communicate or the data
+model has to handle locks and multiple writers (and superfluous traffic
+multiplies)."
+
+**All three of those are bad, and all three follow from one assumption that
+sec 2 has already dropped:** that each program is its own node.
+
+### The derivation, which is built
+
+`chain/service.h` now carries it. A stream's high sixteen bits are the
+product and its low sixteen are the issuer's own index:
+
+    bits 31..16   the product
+    bits 15..0    the issuer's index within that product
+
+Product 0 is FZN_PRODUCT_NONE and is nobody's, so the whole of stream
+0..65535 is fuzznet's own space -- which contains FZN_STREAM_RESERVED
+unchanged and at its existing value, asserted statically in
+`record/record.h` rather than claimed in a comment. FZN_PRODUCT_ANY moved
+from `0xffffffff` to `0xffff` so that a product fits the high half, and
+FZN_PRODUCT_MAX is one below it.
+
+**What it buys is more than tidiness: the product becomes part of the SIGNED
+record, for free and with no wire change.** A record's stream is inside its
+signature, so `fzn_service_stream_product` recovers the product from the
+stream the record was sent in rather than from a field a sender could set.
+There is no product field to forge because there is no product field, which
+is this module's own shape reached a second time.
+
+**A stream nobody could derive fails closed.** The top sixteenth of the
+space reads back as FZN_PRODUCT_ANY, which no honest issuer can produce, and
+`fzn_service_capability_pair` refuses the wildcard as a subject -- so a
+forged stream is an error rather than a wildcard check. There is a case for
+it.
+
+### The trilemma is an artifact of one node per PROGRAM
+
+sec 2, in the holder's own words, has hop 1 as `local_user_client ->
+local_user_daemon`. Take that seriously and the question does not arise:
+
+    one journal, one spool per host      no duplicated dbs
+    exactly one syncer by construction   nothing to negotiate, nothing to elect
+    the daemon is the only writer        no locks or multiple writers in the data model
+    one subscription per stream per host traffic does not multiply with local consumers
+
+The last line is the direct answer to "superfluous traffic multiplies". A
+stream is subscribed once however many local programs want it, and the
+fan-out to those programs is hop 1 -- a local hop, not network traffic.
+
+**And failover stops being fuzznet's problem.** A supervised daemon that
+dies is restarted by the thing that supervises it, and `persist/` means the
+restart resumes rather than re-syncs. That is a solved problem outside this
+library, where an election between two peers that can both die is not.
+
+### The two pieces only make sense together, which is the evidence
+
+**The product filter built in sec 129 presupposes the shared node.** If each
+program had its own store, a filter would be pointless -- a program would
+only ever hold its own data, and there would be nothing to filter. The
+filter exists precisely because ONE store holds several products and
+something has to decide who sees what.
+
+So the shared identity in `~/.fuzznet/` is not merely a shared key. It is a
+shared NODE, and the programs are its clients. That is the reading that
+makes the holder's experiment coherent rather than merely economical, and it
+is what the experiment should be judged as.
+
+### What it costs, said plainly
+
+- **The local hop becomes load-bearing on any host running two consumers**,
+  which raises sec 128's shared-memory question for bulk transfer rather
+  than leaving it hypothetical.
+- **A program run with no daemon must be the node for itself**, so both
+  paths exist. This is the one place a claim is needed rather than a
+  construction, and it wants the cheapest possible one: an advisory lock in
+  `~/.fuzznet/` that the kernel releases when its holder dies is a claim
+  with no heartbeat, no timeout and no split brain, because on one machine
+  the kernel cannot be wrong about whether a process is alive. It is a
+  startup claim, not an election.
+- **A single point of failure**, mitigated by supervision and by state that
+  survives a restart, and not by anything in the protocol.
+
+**And a handover needs no special code either way**, which is worth knowing
+before anybody writes some: a syncer that dies looks exactly like a lossy
+link, `fzn_journal_admit` reports the gap, and `fzn_journal_next` says what
+to ask for. The recovery path is the one the protocol already uses for
+ordinary loss.
+
 ## 129. The service namespace is mandatory, and the product filter, 2026-09-06
 
 Directed by the copyright holder 2026-09-06: **make the service namespace

@@ -15,6 +15,7 @@
  */
 
 #include "../service.h"
+#include "../../record/record.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -242,6 +243,110 @@ static void test_the_pair_reports_a_late_failure(void)
 	              == FZN_CHAIN_ERR_MALFORMED, "the pair accepted a null output");
 }
 
+/* A stream carries its product, so a receiver reads the product out of a
+ * signed field rather than trusting one a sender set. */
+static void test_a_stream_round_trips_its_product(void)
+{
+	uint32_t stream = 0;
+
+	REQUIRE(fzn_service_stream(NETCFGD, 3u, &stream) == FZN_CHAIN_OK,
+	        "a well-formed stream was refused");
+	CHECK(fzn_service_stream_product(stream) == NETCFGD,
+	      "a stream did not carry back the product it was derived for");
+	CHECK((stream & FZN_STREAM_INDEX_MAX) == 3u,
+	      "the issuer's own index did not survive the derivation");
+}
+
+/* Two products cannot land in one stream, which is the whole point: sharing
+ * one is authorised correctly and syncs into a permanent wedge. */
+static void test_two_products_never_share_a_stream(void)
+{
+	uint32_t a = 0, b = 0;
+
+	REQUIRE(fzn_service_stream(NETCFGD, 5u, &a) == FZN_CHAIN_OK, "derive a");
+	REQUIRE(fzn_service_stream(FUZZYPICKLES, 5u, &b) == FZN_CHAIN_OK, "derive b");
+	CHECK(a != b, "two products at the same index share a stream");
+	CHECK(fzn_service_stream_product(a) != fzn_service_stream_product(b),
+	      "two streams answer the same product");
+}
+
+/* An issuer keeps the freedom record.h gives it, inside its product's half. */
+static void test_an_issuer_still_assigns_its_own_index(void)
+{
+	uint32_t low = 0, high = 0;
+
+	REQUIRE(fzn_service_stream(NETCFGD, 0u, &low) == FZN_CHAIN_OK, "index 0");
+	REQUIRE(fzn_service_stream(NETCFGD, FZN_STREAM_INDEX_MAX, &high) == FZN_CHAIN_OK,
+	        "the top index was refused");
+	CHECK(low != high, "two indices in one product share a stream");
+	CHECK(fzn_service_stream_product(low) == fzn_service_stream_product(high),
+	      "two indices of one product answer different products");
+}
+
+/* Fuzznet's own space is product 0, and the reserved range sits inside it. */
+static void test_fuzznets_own_space_is_product_none(void)
+{
+	CHECK(fzn_service_stream_product(0u) == FZN_PRODUCT_NONE,
+	      "stream 0 belongs to a product");
+	CHECK(fzn_service_stream_product(FZN_STREAM_RESERVED - 1u) == FZN_PRODUCT_NONE,
+	      "the top of the reserved range belongs to a product");
+	CHECK(fzn_service_stream_product(FZN_STREAM_INDEX_MAX) == FZN_PRODUCT_NONE,
+	      "the top of fuzznet's half belongs to a product");
+	CHECK(fzn_service_stream_product(FZN_STREAM_INDEX_MAX + 1u) != FZN_PRODUCT_NONE,
+	      "the first product stream is still fuzznet's");
+}
+
+static void test_the_sentinels_have_no_stream(void)
+{
+	uint32_t stream = 0xdeadbeefu;
+
+	CHECK(fzn_service_stream(FZN_PRODUCT_NONE, 0u, &stream) == FZN_CHAIN_ERR_MALFORMED,
+	      "nobody's records were given a stream");
+	CHECK(fzn_service_stream(FZN_PRODUCT_ANY, 0u, &stream) == FZN_CHAIN_ERR_MALFORMED,
+	      "everybody's records were given a stream");
+	CHECK(fzn_service_stream(NETCFGD, FZN_STREAM_INDEX_MAX + 1u, &stream)
+	              == FZN_CHAIN_ERR_MALFORMED, "an index past the bound was accepted");
+	CHECK(fzn_service_stream(NETCFGD, 0u, NULL) == FZN_CHAIN_ERR_MALFORMED,
+	      "a null output was accepted");
+	CHECK(stream == 0xdeadbeefu, "a refused derivation wrote to the caller's buffer");
+}
+
+/* A capability cannot be minted for a product no stream could carry, because
+ * one that corresponds to no record is a bug rather than a narrow grant. */
+static void test_a_product_past_the_stream_space_has_no_capability(void)
+{
+	fzn_cap_id_t out;
+
+	/* FZN_PRODUCT_MAX + 1 is the wildcard itself, which IS allowed here --
+	 * a see-everything capability is the point. The refusal starts above
+	 * it, where a value is neither a real product nor a sentinel. */
+	CHECK(fzn_service_capability(LOGS, (uint32_t)FZN_PRODUCT_ANY + 1u, NULL, 0,
+	                             &HASH, &out) == FZN_CHAIN_ERR_MALFORMED,
+	      "a product past the stream space was given a capability");
+	CHECK(fzn_service_capability(LOGS, 0x10000u, NULL, 0, &HASH, &out)
+	              == FZN_CHAIN_ERR_MALFORMED,
+	      "a product outside the high half was given a capability");
+	CHECK(fzn_service_capability(LOGS, FZN_PRODUCT_MAX, NULL, 0, &HASH, &out)
+	              == FZN_CHAIN_OK, "the largest real product was refused");
+}
+
+/* A PEER CAN SEND A STREAM NOBODY COULD DERIVE. The top sixteenth of the
+ * space reads back as FZN_PRODUCT_ANY, which no honest issuer can produce --
+ * and the pair refuses it as a subject, so the forgery fails closed rather
+ * than being checked as a wildcard. */
+static void test_an_underivable_stream_fails_closed(void)
+{
+	fzn_cap_id_t scoped, any;
+	uint32_t forged = 0xffff0001u;
+	uint32_t product = fzn_service_stream_product(forged);
+
+	CHECK(product == FZN_PRODUCT_ANY,
+	      "the underivable range does not read back as the wildcard");
+	CHECK(fzn_service_capability_pair(LOGS, product, NULL, 0, &HASH, &scoped, &any)
+	              == FZN_CHAIN_ERR_MALFORMED,
+	      "a stream nobody could derive was checked as a real product");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -265,6 +370,13 @@ int main(void)
 	test_the_caller_bugs_are_refused();
 	test_a_refusing_hash_is_reported_and_writes_nothing();
 	test_the_pair_reports_a_late_failure();
+	test_a_stream_round_trips_its_product();
+	test_two_products_never_share_a_stream();
+	test_an_issuer_still_assigns_its_own_index();
+	test_fuzznets_own_space_is_product_none();
+	test_the_sentinels_have_no_stream();
+	test_a_product_past_the_stream_space_has_no_capability();
+	test_an_underivable_stream_fails_closed();
 	test_the_suite_can_tell_pass_from_fail();
 
 	printf("service_test: %d checks, %d failure(s)\n", checks, failures);

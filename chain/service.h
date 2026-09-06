@@ -48,8 +48,14 @@
 #define FZN_PRODUCT_NONE 0u
 
 /* Every product, for a holder entitled to see across projects. Deliberately
- * not zero -- see the header comment. */
-#define FZN_PRODUCT_ANY 0xffffffffu
+ * not zero -- see the header comment. It sits at the top of the product
+ * space rather than at the top of a uint32 because a product must fit in a
+ * stream's high half; see the stream derivation below. */
+#define FZN_PRODUCT_ANY 0xffffu
+
+/* The largest product anybody may be assigned. One below the wildcard, which
+ * is why the wildcard can never name a real project's records. */
+#define FZN_PRODUCT_MAX 0xfffeu
 
 /* The longest consumer-supplied name. Bounded so the derivation's input
  * buffer is a fixed size and the function allocates nothing, which is this
@@ -112,5 +118,65 @@ fzn_chain_err_t fzn_service_capability_pair(uint32_t service, uint32_t product,
                                             const fzn_hash_ops_t *hash,
                                             fzn_cap_id_t *scoped_out,
                                             fzn_cap_id_t *any_out);
+
+
+/*
+ * A STREAM CARRIES ITS PRODUCT, SO THE TWO CANNOT DISAGREE.
+ *
+ * project.md sec 129 records the gap this closes. A capability answers "may
+ * you see it"; a stream answers "will you be sent it, and can you stay
+ * contiguous", and until these were tied together nothing stopped a product
+ * from being spread across a stream shared with another product -- which is
+ * authorised correctly and syncs into a permanent wedge, because
+ * `fzn_journal_admit` refuses a gap and the missing sequences belong to
+ * somebody the recipient may not see.
+ *
+ * THE LAYOUT, and it costs nothing on the wire:
+ *
+ *     bits 31..16   the product
+ *     bits 15..0    the issuer's own index within that product
+ *
+ * Product 0 is FZN_PRODUCT_NONE and is nobody's, so the whole of stream
+ * 0..65535 is fuzznet's own space -- which contains `FZN_STREAM_RESERVED`
+ * unchanged and at its existing value. `record/record.h` asserts that
+ * statically rather than leaving it as a claim in a comment.
+ *
+ * WHAT THIS BUYS, and it is more than tidiness: the product becomes part of
+ * the SIGNED record for free. A record's stream is inside its signature --
+ * `record/record.h` records that moving one between streams wedges a cell at
+ * FZN_STATE_ERR_CROSS_STREAM permanently -- so a receiver recovers the
+ * product from the stream it was sent rather than from a field a sender
+ * could set. There is no product field to forge because there is no product
+ * field, which is this module's own shape reached a second time.
+ */
+
+#define FZN_STREAM_PRODUCT_SHIFT 16
+#define FZN_STREAM_INDEX_MAX 0xffffu
+
+/* Derive the stream an issuer writes this product's records into.
+ *
+ * `product` must be a real one: FZN_PRODUCT_NONE is nobody's and
+ * FZN_PRODUCT_ANY names no project's records, so neither has a stream and
+ * both are refused. `index` is the issuer's own, below FZN_STREAM_INDEX_MAX,
+ * and is what `record/record.h` means by an issuer assigning its own stream
+ * numbers -- that freedom is preserved, inside the product's half.
+ *
+ * Returns FZN_CHAIN_ERR_MALFORMED for a null output, an unusable product or
+ * an index past the bound. */
+fzn_chain_err_t fzn_service_stream(uint32_t product, uint32_t index, uint32_t *out);
+
+/* Recover the product a stream belongs to.
+ *
+ * Total, and it has no error to report: every uint32 is some product's or
+ * fuzznet's. A stream inside fuzznet's own space answers FZN_PRODUCT_NONE,
+ * which a caller tests for rather than passing on to a capability check --
+ * `fzn_service_capability_pair` refuses it, so forgetting the test is a
+ * returned error rather than a wrong grant.
+ *
+ * THIS IS THE HALF THAT MAKES THE TIE ENFORCEABLE. A receiver holding a
+ * record derives the capability it requires from the stream the record
+ * carries, so the product it checks and the product it stores under are one
+ * value read from one signed field. */
+uint32_t fzn_service_stream_product(uint32_t stream);
 
 #endif

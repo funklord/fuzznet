@@ -112,6 +112,7 @@
 #define FZN_RECORD_H
 
 #include "../chain/chain.h"
+#include "../chain/service.h"
 #include "../wire/bytes.h"
 
 #include <stddef.h>
@@ -159,6 +160,15 @@
  * networks refuse each other's traffic, and assignment goes through fuzznet.
  * Here it cannot, because a stream is scoped to its issuer. */
 #define FZN_STREAM_RESERVED 256u
+
+/* THE RESERVED RANGE LIVES INSIDE PRODUCT 0, AND THAT IS ASSERTED RATHER
+ * THAN CLAIMED. `chain/service.h` puts the product in a stream's high half,
+ * so the whole of 0..FZN_STREAM_INDEX_MAX is fuzznet's own space and the
+ * boundary above keeps its meaning inside it. If either constant moves so
+ * that it no longer does, this refuses to compile -- which is the only place
+ * the two files can be made to disagree. project.md sec 129. */
+_Static_assert(FZN_STREAM_RESERVED <= FZN_STREAM_INDEX_MAX,
+               "the reserved stream range must fit inside product 0's half");
 
 /* WHERE EACH FIELD SITS. Written as a running sum of the field widths rather
  * than as literals, so that changing a width cannot leave an offset behind:

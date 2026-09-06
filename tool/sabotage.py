@@ -927,6 +927,41 @@ SABOTAGES = [
 		"a check whose subject is every-product asks whether a holder may see all of them, and answering it rather than refusing is how a scoped grant reads as a wildcard",
 	),
 	(
+		"stream-carries-product",
+		"chain/service.c",
+		"\t*out = (product << FZN_STREAM_PRODUCT_SHIFT) | index;\n",
+		"\t*out = index;\n",
+		"a stream must carry its product or two products share one, which is authorised correctly and syncs into the permanent journal wedge sec 129 describes",
+	),
+	(
+		"stream-product-recovered",
+		"chain/service.c",
+		"\treturn stream >> FZN_STREAM_PRODUCT_SHIFT;\n",
+		"\treturn FZN_PRODUCT_NONE;\n",
+		"recovering the product from the stream is what ties the capability check to a signed field, so a receiver that cannot read it back is trusting something a sender chose",
+	),
+	(
+		"stream-refuses-none",
+		"chain/service.c",
+		"\tif (product == FZN_PRODUCT_NONE || product > FZN_PRODUCT_MAX)\n",
+		"\tif (product > FZN_PRODUCT_MAX)\n",
+		"nobody's records have no stream, and an unspelled product reaching the derivation would put them in fuzznet's own space",
+	),
+	(
+		"stream-refuses-wildcard",
+		"chain/service.c",
+		"\tif (product == FZN_PRODUCT_NONE || product > FZN_PRODUCT_MAX)\n",
+		"\tif (product == FZN_PRODUCT_NONE)\n",
+		"everybody's records are not a place bytes go, so the wildcard must not derive a stream that a real product could later be assigned",
+	),
+	(
+		"cap-product-bounded",
+		"chain/service.c",
+		"\tif (product > FZN_PRODUCT_MAX && product != FZN_PRODUCT_ANY)\n\t\treturn FZN_CHAIN_ERR_MALFORMED;\n",
+		"\tif (0)\n\t\treturn FZN_CHAIN_ERR_MALFORMED;\n",
+		"a capability for a product no stream can carry corresponds to no record anybody can send, which is a bug rather than a narrower grant",
+	),
+	(
 		"provision-envelope-verified",
 		"provision/provision.c",
 		"\tif (!verifier->verify(verifier->ctx, card.root, card.base, FZN_PROVISION_BODY_LEN,\n"
