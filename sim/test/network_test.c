@@ -1827,6 +1827,145 @@ static void scenario_stale(void)
    the session key -- and must still be refused, because holding a key is not
    holding a capability.  */
 
+/* A quiet receiver hands its window back, and the expiry rule answers on its
+   own -- both exported for callers and neither called by any scenario before
+   now. project.md sec 127.
+
+   `freshness.h` on why `fzn_replay_expire` is exported at all: "a receiver
+   that has gone quiet should be able to hand memory back without waiting for
+   a frame to arrive -- the alternative is a window that stays full precisely
+   when nothing is happening." That is a liveness property and it is
+   invisible to every scenario that keeps sending.  */
+static void scenario_quiet_receiver(void)
+{
+	static struct sim_net net;
+	static fzn_replay_entry_t slots[8];
+	fzn_replay_window_t window;
+	uint8_t nonce[FZN_NONCE_LEN];
+	unsigned i, admitted = 0;
+	size_t freed;
+
+	sim_init(&net, 2, 0x9a1eu);
+	check(fzn_replay_init(&window, slots, 8u, 1000u) == FZN_FRESH_OK,
+	      "the replay window did not initialise");
+
+	/* Fill it. Each nonce expires at 100, and every one is admitted --
+	   which is the floor: a window that refused them would make the
+	   reclaim below meaningless. */
+	for (i = 0; i < 8u; i++) {
+		memset(nonce, 0, sizeof(nonce));
+		nonce[0] = (uint8_t)(i + 1u);
+		if (fzn_replay_admit(&window, nonce, 100u, FZN_EXPIRY_REQUIRED, 10u)
+		    == FZN_FRESH_OK)
+			admitted++;
+	}
+	check(admitted == 8u, "the window did not accept eight distinct nonces");
+
+	/* Full: a ninth is refused for want of room rather than as a replay. */
+	memset(nonce, 0, sizeof(nonce));
+	nonce[0] = 0x99u;
+	check(fzn_replay_admit(&window, nonce, 100u, FZN_EXPIRY_REQUIRED, 10u) != FZN_FRESH_OK,
+	      "a full window accepted a ninth nonce");
+
+	/* NOTHING ARRIVES, TIME PASSES, AND THE RECEIVER RECLAIMS ANYWAY. */
+	freed = fzn_replay_expire(&window, 101u);
+	check(freed == 8u, "a quiet receiver could not hand back a window of dead entries");
+	check(fzn_replay_admit(&window, nonce, 200u, FZN_EXPIRY_REQUIRED, 150u) == FZN_FRESH_OK,
+	      "the reclaimed window still had no room, so expire freed nothing usable");
+
+	/* And the expiry rule on its own, which `admit` calls and no scenario
+	   had asked directly. The two refusals are different faults and say
+	   so: a frame that has expired is the sender's problem, a horizon far
+	   in the future is a number nobody should have written. */
+	check(fzn_freshness_check(50u, FZN_EXPIRY_REQUIRED, 10u, 1000u) == FZN_FRESH_OK,
+	      "a frame expiring in the future was not fresh");
+	check(fzn_freshness_check(50u, FZN_EXPIRY_REQUIRED, 60u, 1000u) != FZN_FRESH_OK,
+	      "a frame that expired ten ticks ago was accepted");
+	check(fzn_freshness_check(0u, FZN_EXPIRY_REQUIRED, 10u, 1000u) != FZN_FRESH_OK,
+	      "a frame with no expiry was accepted where one is required");
+	check(fzn_freshness_check(100000u, FZN_EXPIRY_REQUIRED, 10u, 1000u) != FZN_FRESH_OK,
+	      "an expiry far beyond the horizon was accepted");
+
+	/* ---- THE STRANGER FILTER, ASKED DIRECTLY. `fzn_seal_open` calls
+	   these on every frame, so they run constantly and no scenario had
+	   ever put the question to them: a commitment tells somebody who
+	   ALREADY holds the key that this frame is from the peer they think,
+	   and tells anybody else nothing. Two keys over one nonce is the
+	   whole of it. */
+	{
+		uint8_t key_a[FZN_COMMITMENT_KEY_LEN], key_b[FZN_COMMITMENT_KEY_LEN];
+		uint8_t c_a[FZN_COMMITMENT_LEN], c_b[FZN_COMMITMENT_LEN], again[FZN_COMMITMENT_LEN];
+		uint8_t n[FZN_COMMITMENT_NONCE_LEN];
+		fzn_hash_ops_t hash_ops = { sim_hash, NULL };
+
+		memset(key_a, 0xa1, sizeof(key_a));
+		memset(key_b, 0xb2, sizeof(key_b));
+		memset(n, 0x5e, sizeof(n));
+
+		check(fzn_commitment_for_nonce(&hash_ops, key_a, n, c_a) == FZN_COMMITMENT_OK,
+		      "a commitment could not be derived");
+		check(fzn_commitment_for_nonce(&hash_ops, key_b, n, c_b) == FZN_COMMITMENT_OK,
+		      "a second commitment could not be derived");
+		check(fzn_commitment_for_nonce(&hash_ops, key_a, n, again) == FZN_COMMITMENT_OK,
+		      "the same commitment could not be derived twice");
+
+		check(fzn_commitment_check(c_a, again) == FZN_COMMITMENT_OK,
+		      "one key over one nonce did not agree with itself, so the filter cannot "
+		      "recognise the peer it is for");
+		check(fzn_commitment_check(c_a, c_b) != FZN_COMMITMENT_OK,
+		      "two different keys produced the same commitment over one nonce -- the "
+		      "filter would admit a stranger");
+	}
+
+	/* ---- AND THE POLICY QUERY THAT IS AN EXPLANATION, NEVER A
+	   SUBSTITUTE. `authz.h` says deciding with this and then calling
+	   `fzn_authz_decide` without an origin "is not possible, because the
+	   origin is one of its arguments" -- so the property worth asserting
+	   is that the two AGREE on which origins may reach a kind at all, not
+	   that either is usable alone. */
+	{
+		fzn_cap_id_t cap;
+		fzn_authz_policy_t guarded;
+		fzn_authz_policy_t open_local;
+		fzn_authz_policy_t forgotten;
+
+		memset(&cap, 0x3c, sizeof(cap));
+		guarded = fzn_authz_requires(&cap, FZN_ORIGIN_BIT(FZN_ORIGIN_REMOTE));
+		open_local = fzn_authz_unguarded(FZN_ORIGIN_BIT(FZN_ORIGIN_LOCAL));
+		memset(&forgotten, 0, sizeof(forgotten));
+
+		check(fzn_authz_origin_permitted(guarded, FZN_ORIGIN_REMOTE),
+		      "a policy naming remote did not permit a remote origin");
+		check(!fzn_authz_origin_permitted(guarded, FZN_ORIGIN_LOCAL),
+		      "a policy naming only remote permitted a local origin");
+		check(fzn_authz_origin_permitted(open_local, FZN_ORIGIN_LOCAL),
+		      "an unguarded local policy did not permit a local origin");
+
+		/* THE AGREEMENT, which is the only claim either can make about
+		   the other: where the explanation says no, the decision must
+		   deny, whatever else it might have gone on to check. */
+		check(fzn_authz_decide(guarded, FZN_ORIGIN_LOCAL, NULL, 0u, NULL, net.now,
+		                       &net.sign, NULL, NULL) == FZN_AUTHZ_DENIED,
+		      "an origin the explanation refuses was not denied by the decision");
+		check(fzn_authz_decide(open_local, FZN_ORIGIN_LOCAL, NULL, 0u, NULL, net.now,
+		                       &net.sign, NULL, NULL) != FZN_AUTHZ_DENIED,
+		      "an origin the explanation permits was denied anyway");
+
+		/* A ZEROED POLICY REACHES NOTHING, which `authz.h` says is what
+		   a forgotten one must mean -- and it denies on two counts
+		   rather than one. */
+		check(!fzn_authz_origin_permitted(forgotten, FZN_ORIGIN_LOCAL),
+		      "a zeroed policy permitted an origin");
+		check(fzn_authz_decide(forgotten, FZN_ORIGIN_LOCAL, NULL, 0u, NULL, net.now,
+		                       &net.sign, NULL, NULL) == FZN_AUTHZ_DENIED,
+		      "a forgotten policy granted something");
+	}
+
+	printf("  quiet-receiver: 8 admitted, ninth refused, %zu reclaimed with nothing "
+	       "arriving, then room again\n",
+	       freed);
+}
+
 static void scenario_unauthorised(void)
 {
 	static struct sim_net net;
@@ -4408,6 +4547,71 @@ static void scenario_local_hop(void)
 	check(a_before != b_before && b_before != c_before && a_before != c_before,
 	      "the three clients were answered alike, so the rules discriminate nothing");
 
+	/* ---- THE TRUNCATION HAZARD, WHICH IS WHY THE PARSER HAS A TOOL FOR
+	   IT. `peer.h`: a caller handing over a buffer its read merely FILLED
+	   "gets every gid before the cut, `groups_known` set, and possibly a
+	   half-read number at the end -- 250 as 25 -- which is a definite
+	   FZN_PEER_NOT_MEMBER for a real member."
+
+	   Demonstrated rather than argued: the same bytes are parsed twice,
+	   once as a caller who did not trim and once as one who did. */
+	{
+		static const char FULL[] = "Name:\tsim\nGroups:\t27 100 250\n";
+		/* As much as an 8-byte-short read would have fitted: the line
+		   is cut in the middle of `250`. */
+		const size_t cut = sizeof(FULL) - 1u - 2u;
+		fzn_peer_t untrimmed, trimmed;
+		fzn_verb_rule_t big[1];
+		static const uint8_t verb_wipe[] = "wipe";
+		size_t whole;
+
+		big[0].gid = 250u;
+		big[0].verb = verb_wipe;
+		big[0].verb_len = sizeof(verb_wipe) - 1u;
+
+		memset(&untrimmed, 0, sizeof(untrimmed));
+		check(fzn_peer_groups_parse(FULL, cut, &untrimmed),
+		      "the truncated status did not parse at all, so the hazard is not shown");
+		/* THE HAZARD. A member of 250 reads as a member of 25, and the
+		   verdict is DEFINITE either way -- which is what makes it
+		   dangerous rather than merely wrong. */
+		check(!fzn_peer_is_member(&untrimmed, 250u),
+		      "the truncated read found group 250, so the cut did not land mid-number");
+		check(fzn_peer_is_member(&untrimmed, 25u),
+		      "the truncated read did not invent group 25, so this is not the hazard "
+		      "peer.h describes");
+		check(fzn_vocabulary_admit(&untrimmed, verb_wipe, sizeof(verb_wipe) - 1u, big,
+		                           1u) == FZN_PEER_NOT_MEMBER,
+		      "a half-read gid was not a definite refusal, which is the shape that "
+		      "locks a real member out silently");
+
+		/* THE TOOL. `whole_lines` says how much of the buffer is known
+		   to be complete, and the parser then answers "could not tell"
+		   rather than answering wrongly. */
+		whole = fzn_peer_whole_lines(FULL, cut);
+		check(whole > 0u && whole < cut,
+		      "whole_lines did not trim a buffer cut mid-line");
+		check(FULL[whole - 1u] == '\n', "whole_lines did not stop after a newline");
+		memset(&trimmed, 0, sizeof(trimmed));
+		(void)fzn_peer_groups_parse(FULL, whole, &trimmed);
+		check(!trimmed.groups_known,
+		      "a trimmed buffer with no complete Groups: line still claimed to know "
+		      "the peer's groups");
+		check(fzn_vocabulary_admit(&trimmed, verb_wipe, sizeof(verb_wipe) - 1u, big, 1u)
+		              == FZN_PEER_UNKNOWN,
+		      "a caller who trimmed got a definite answer, which is exactly what the "
+		      "tri-state exists to prevent");
+		check(fzn_peer_group_verdict(&trimmed, 250u) == FZN_PEER_UNKNOWN,
+		      "group_verdict answered definitely over groups it could not read");
+
+		/* And on the whole text, which is what a complete read gives. */
+		memset(&trimmed, 0, sizeof(trimmed));
+		check(fzn_peer_groups_parse(FULL, sizeof(FULL) - 1u, &trimmed),
+		      "the complete status did not parse");
+		check(fzn_peer_is_member(&trimmed, 250u),
+		      "a complete read did not find the group the truncated one lost");
+	}
+
 	/* A verb no rule names is refused for everyone, including the member. */
 	check(fzn_vocabulary_admit(&alice, verb_shutdown, sizeof(verb_shutdown) - 1u, rules, 1u)
 	              == FZN_PEER_NOT_MEMBER,
@@ -5641,6 +5845,7 @@ int main(void)
 	scenario_withdrawal();
 	scenario_incomplete();
 	scenario_stale();
+	scenario_quiet_receiver();
 	scenario_unauthorised();
 	scenario_delegation();
 	scenario_lossy();

@@ -22677,6 +22677,69 @@ the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
 
+## 127. The thin four, and a hazard demonstrated rather than argued, 2026-09-06
+
+The "then expand" half of sec 124's instruction. Four modules the sim called
+but barely -- `local/peer.c` 1/4, `session/commitment.c` 1/3,
+`chain/authz.c` 1/2, `frame/freshness.c` 2/4 -- and each unused symbol was
+put where it actually composes rather than into a scenario invented for it.
+
+    local/peer.c          4/4      session/commitment.c  3/3
+    chain/authz.c         2/2      frame/freshness.c     4/4
+
+Together with sec 124-126 that is every library module the sim can reach,
+excluding the four platform backends it replaces with its own fakes.
+
+### The truncation hazard, shown before the tool that prevents it
+
+`fzn_peer_whole_lines` was the one worth the most, and `peer.h` states the
+failure it exists for: a caller handing over a buffer its read merely FILLED
+"gets every gid before the cut, `groups_known` set, and possibly a half-read
+number at the end -- **250 as 25** -- which is a definite
+FZN_PEER_NOT_MEMBER for a real member."
+
+`scenario_local_hop` now parses one status text twice, cut mid-number, once
+as a caller who did not trim and once as one who did:
+
+- **untrimmed**: group 250 is absent, group **25 is present**, and the
+  verdict is `NOT_MEMBER` -- *definite*, which is what makes it dangerous
+  rather than merely wrong. A real administrator is locked out and nothing
+  says why.
+- **trimmed**: `groups_known` is false and the verdict is `UNKNOWN` -- the
+  tri-state doing the only job it has.
+
+Demonstrating the hazard before the tool is the point. A scenario that only
+called `whole_lines` and checked the answer would prove the function works
+and say nothing about what happens without it.
+
+### What the others assert, stated narrowly
+
+- **`fzn_replay_expire`** -- `freshness.h`: *"a receiver that has gone quiet
+  should be able to hand memory back without waiting for a frame to
+  arrive."* That is invisible to every scenario that keeps sending, so
+  `scenario_quiet_receiver` fills a window, refuses a ninth nonce, advances
+  the clock with nothing arriving, and finds room again. The floor is that
+  all eight were admitted first: a window that refused them would make the
+  reclaim meaningless.
+- **`fzn_commitment_for_nonce` / `_check`** -- called on every frame inside
+  `fzn_seal_open` and never asked directly. Two keys over one nonce: the
+  same key agrees with itself, two keys do not. That is the stranger filter
+  in two lines.
+- **`fzn_authz_origin_permitted`** -- `authz.h` calls it *"an explanation,
+  never a substitute"*, so the property is AGREEMENT rather than usability:
+  where the explanation refuses an origin the decision must deny. And a
+  zeroed policy reaches nothing, which the header says a forgotten one must
+  mean.
+
+### The pattern across all seven scenarios of this pass
+
+Every one of them found its value in the same place: not in the happy path,
+which was already covered by unit tests, but in **what the subsystem
+refuses**, and in whether the fixture could tell a refusal from an absence.
+Three of the seven needed a floor added before their central assertion meant
+anything, and one -- sec 120's -- was refused by its own floor on the first
+run.
+
 ## 126. What a hostile ask buys, which is the last zero, 2026-09-06
 
 `spool/plan.c` was the third and last genuine zero on sec 124's worklist:
