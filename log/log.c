@@ -276,3 +276,45 @@ const char *fzn_log_err_str(fzn_log_err_t err)
 
 	return "unknown";
 }
+
+fzn_log_err_t fzn_log_body_text(const uint8_t *body, size_t body_len, char *out, size_t cap)
+{
+	static const char DIGITS[] = "0123456789abcdef";
+	size_t i;
+	size_t at = 0;
+	size_t needed = 1u;
+
+	if (!out)
+		return FZN_LOG_ERR_MALFORMED;
+	if (body_len > 0 && !body)
+		return FZN_LOG_ERR_MALFORMED;
+	if (body_len > FZN_RECORD_BODY_MAX)
+		return FZN_LOG_ERR_MALFORMED;
+
+	/* MEASURED BEFORE ANYTHING IS WRITTEN, so a buffer that cannot hold the
+	 * whole rendering leaves the caller's as it found it rather than
+	 * holding a line that stops mid-escape. */
+	for (i = 0; i < body_len; i++)
+		needed += (body[i] >= 0x20u && body[i] <= 0x7eu) ? 1u : 4u;
+	if (cap < needed)
+		return FZN_LOG_ERR_MALFORMED;
+
+	for (i = 0; i < body_len; i++) {
+		/* PRINTABLE ASCII PASSES AND EVERYTHING ELSE ESCAPES. The
+		 * boundaries are the point: a newline would let a body forge a
+		 * neighbouring entry in a one-line-per-record view, and an
+		 * escape byte would let it drive the terminal a view is drawn
+		 * on. Neither is a character somebody meant to read. */
+		if (body[i] >= 0x20u && body[i] <= 0x7eu) {
+			out[at++] = (char)body[i];
+			continue;
+		}
+		out[at++] = '\\';
+		out[at++] = 'x';
+		out[at++] = DIGITS[body[i] >> 4];
+		out[at++] = DIGITS[body[i] & 0x0fu];
+	}
+	out[at] = '\0';
+
+	return FZN_LOG_OK;
+}

@@ -690,9 +690,9 @@ else
 $(error FZN_GUI must be auto, 1 or 0 -- got "$(FZN_GUI)")
 endif
 
-GUI_SRCS := gui/trust_view.cpp
-GUI_HDRS := gui/trust_view.h
-GUI_TSRC := gui/test/trust_view_test.cpp
+GUI_SRCS := gui/trust_view.cpp gui/log_view.cpp
+GUI_HDRS := gui/trust_view.h gui/log_view.h
+GUI_TSRC := gui/test/trust_view_test.cpp gui/test/log_view_test.cpp
 
 ifdef GUI_ON
 CXX       ?= c++
@@ -718,7 +718,8 @@ endif
 CXXFLAGS_WARN := -std=c++17 -Wall -Wextra -Wpedantic
 CXXFLAGS   = $(CXXFLAGS_BUILD) $(CXXFLAGS_WARN)
 GUI_OBJS   := $(GUI_SRCS:%.cpp=$(BUILD_DIR)/%.o)
-TEST_BINS  += $(BUILD_DIR)/gui/test/trust_view_test
+TEST_BINS  += $(BUILD_DIR)/gui/test/trust_view_test \
+              $(BUILD_DIR)/gui/test/log_view_test
 endif
 
 CLI_SRCS := cli/cli.c
@@ -1728,6 +1729,15 @@ $(BUILD_DIR)/gui/test/%.o: gui/test/%.cpp
 $(BUILD_DIR)/gui/test/trust_view_test: $(BUILD_DIR)/gui/test/trust_view_test.o \
                                      $(BUILD_DIR)/gui/trust_view.o \
                                      $(BUILD_DIR)/trust/trust.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) -o $@
+
+$(BUILD_DIR)/gui/test/log_view_test: $(BUILD_DIR)/gui/test/log_view_test.o \
+                                     $(BUILD_DIR)/gui/log_view.o \
+                                     $(BUILD_DIR)/log/log.o \
+                                     $(BUILD_DIR)/record/record.o \
+                                     $(BUILD_DIR)/record/journal.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) -o $@

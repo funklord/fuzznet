@@ -27,24 +27,30 @@
 static int failures;
 static int checks;
 
-static void expect(int ok, const char *what)
+/* A failure names its file and line, for the reason project.md sec 139 gives:
+ * a suite that does not name itself cannot be credited with what it catches,
+ * and `tool/sabotage.py` reports one line per sabotage. */
+static void expect_at(int ok, int line, const char *what)
 {
 	checks++;
 	if (!ok) {
 		failures++;
-		fprintf(stderr, "  FAIL: %s\n", what);
+		fprintf(stderr, "  FAIL log_test.c:%d: %s\n", line, what);
 	}
 }
 
-static void expect_err(fzn_log_err_t got, fzn_log_err_t want, const char *what)
+static void expect_err_at(fzn_log_err_t got, fzn_log_err_t want, int line, const char *what)
 {
 	checks++;
 	if (got != want) {
 		failures++;
-		fprintf(stderr, "  FAIL: %s -- got \"%s\", wanted \"%s\"\n", what, fzn_log_err_str(got),
-		       fzn_log_err_str(want));
+		fprintf(stderr, "  FAIL log_test.c:%d: %s -- got \"%s\", wanted \"%s\"\n", line,
+		        what, fzn_log_err_str(got), fzn_log_err_str(want));
 	}
 }
+
+#define expect(ok, what) expect_at((ok) ? 1 : 0, __LINE__, (what))
+#define expect_err(got, want, what) expect_err_at((got), (want), __LINE__, (what))
 
 static uint8_t BODIES[16][4];
 
@@ -689,6 +695,94 @@ int main(void)
 		expect(memcmp(dirty_entries, clean_entries, sizeof(dirty_entries)) == 0,
 		       "init left the caller's bytes in the entry array, so what a fresh "
 		       "table holds depends on what its memory held");
+	}
+
+	/*
+	 * THE SAFE RENDERING OF A BODY, which a viewer needs before it can
+	 * show one at all -- a body is opaque bytes. project.md sec 141.
+	 */
+	{
+		uint8_t body[8];
+		char text[FZN_LOG_TEXT_MAX];
+		char small[FZN_LOG_TEXT_MAX];
+		size_t i;
+
+		/* Printable ASCII passes through unchanged. */
+		memcpy(body, "hello", 5);
+		expect_err(fzn_log_body_text(body, 5, text, sizeof(text)), FZN_LOG_OK,
+		           "printable text renders");
+		expect(strcmp(text, "hello") == 0, "printable text was altered");
+
+		/* AND A NEWLINE DOES NOT. A viewer showing one entry per line,
+		 * handed a body with a newline and a plausible sequence number,
+		 * would display a second entry no issuer ever signed. */
+		memcpy(body, "a\n7 b", 5);
+		expect_err(fzn_log_body_text(body, 5, text, sizeof(text)), FZN_LOG_OK,
+		           "a body with a newline renders");
+		expect(strchr(text, '\n') == NULL,
+		       "a newline survived, so a body can forge a neighbouring entry");
+		expect(strcmp(text, "a\\x0a7 b") == 0, "the newline did not escape as expected");
+
+		/* An escape byte must not reach a terminal either. */
+		body[0] = 0x1b;
+		expect_err(fzn_log_body_text(body, 1, text, sizeof(text)), FZN_LOG_OK,
+		           "an escape byte renders");
+		expect(strcmp(text, "\\x1b") == 0, "an escape byte was not escaped");
+
+		/* Every byte outside printable ASCII, so this cannot pass by
+		 * picking a lucky one. */
+		for (i = 0; i < 256u; i++) {
+			uint8_t b = (uint8_t)i;
+
+			if (fzn_log_body_text(&b, 1, text, sizeof(text)) != FZN_LOG_OK) {
+				expect(0, "a single byte would not render");
+				break;
+			}
+			if (b >= 0x20u && b <= 0x7eu) {
+				if (strlen(text) != 1u || (uint8_t)text[0] != b) {
+					expect(0, "a printable byte was escaped");
+					break;
+				}
+			} else if (strlen(text) != 4u || text[0] != '\\' || text[1] != 'x') {
+				expect(0, "a byte outside printable ASCII was not escaped");
+				break;
+			}
+		}
+		expect(i == 256u, "the byte sweep stopped early");
+
+		/* An empty body is a thing an issuer can sign. */
+		expect_err(fzn_log_body_text(body, 0, text, sizeof(text)), FZN_LOG_OK,
+		           "an empty body renders");
+		expect(text[0] == '\0', "an empty body did not render as an empty string");
+
+		/* Refuses rather than truncates, and writes nothing when it
+		 * refuses -- a line cut short says something other than what
+		 * was signed. */
+		memset(small, 0x5a, sizeof(small));
+		body[0] = 0x00;
+		expect_err(fzn_log_body_text(body, 1, small, 4), FZN_LOG_ERR_MALFORMED,
+		           "a buffer one short of an escape is refused");
+		expect(small[0] == 0x5a, "a refused rendering wrote a truncated line");
+		expect_err(fzn_log_body_text(body, 1, small, 5), FZN_LOG_OK,
+		           "a buffer exactly big enough was refused");
+
+		expect_err(fzn_log_body_text(NULL, 1, text, sizeof(text)),
+		           FZN_LOG_ERR_MALFORMED, "a length with no bytes");
+		expect_err(fzn_log_body_text(body, 1, NULL, 8), FZN_LOG_ERR_MALFORMED,
+		           "a null buffer");
+		expect_err(fzn_log_body_text(body, FZN_RECORD_BODY_MAX + 1u, text, sizeof(text)),
+		           FZN_LOG_ERR_MALFORMED, "a body past the bound");
+	}
+
+	/* The suite can tell pass from fail -- sec 139 found this missing in
+	 * trust_test and the same sweep found it missing here. */
+	{
+		int before = failures;
+
+		expect_at(0, __LINE__, "deliberate");
+		expect(failures == before + 1, "a failing check must be counted");
+		failures = before;
+		checks -= 1;
 	}
 
 	printf("log_test: %d checks, %d failure(s)\n", checks, failures);

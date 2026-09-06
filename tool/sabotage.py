@@ -1109,6 +1109,27 @@ SABOTAGES = [
 		"TOFU's weakness is the first contact, so an adopted anchor shown as configured tells a user it was checked when nobody checked it",
 	),
 	(
+		"body-escapes-non-printable",
+		"log/log.c",
+		"\t\tif (body[i] >= 0x20u && body[i] <= 0x7eu) {\n",
+		"\t\tif (body[i] != 0x00u) {\n",
+		"a body carrying a newline and a plausible sequence would otherwise draw a second entry in a viewer that no issuer ever signed, and an escape byte would drive the terminal it is drawn on",
+	),
+	(
+		"body-measured-before-written",
+		"log/log.c",
+		"\tif (cap < needed)\n\t\treturn FZN_LOG_ERR_MALFORMED;\n",
+		"\tif (cap < 1u)\n\t\treturn FZN_LOG_ERR_MALFORMED;\n",
+		"the rendering is measured before anything is written so a short buffer leaves the caller's as it found it rather than holding a line that stops mid-escape",
+	),
+	(
+		"view-names-what-was-evicted",
+		"gui/log_view.cpp",
+		"\tif (first > 1u) {\n",
+		"\tif (0) {\n",
+		"a log evicts by design, so a viewer that lists what it holds and stops presents a shorter history as a complete one -- sec 141, and the assertion that first caught this was too weak to",
+	),
+	(
 		"provision-envelope-verified",
 		"provision/provision.c",
 		"\tif (!verifier->verify(verifier->ctx, card.root, card.base, FZN_PROVISION_BODY_LEN,\n"

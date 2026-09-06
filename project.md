@@ -5872,6 +5872,7 @@ somebody to notice.
 | `record/store_file.h` | that store as one sparse file per stream |
 | `cli/cli.h` | the option vocabulary every consumer shares |
 | `gui/trust_view.h` | the anchor a user compares, drawn the same everywhere |
+| `gui/log_view.h` | a log, including what retention has eaten |
 | `record/ledger.h` | what each peer has confirmed holding, per subject |
 | `chunk/reassembly.h` | split and reassembly |
 | `disclose/disclose.h` | one signature over many fields, some shown |
@@ -22792,6 +22793,145 @@ intended. That is hydra's to fix at ingestion and it is recorded there; it is
 mentioned here only because it is the reason "just replicate the bytes" is not
 sufficient for this consumer -- something has to refuse what it cannot honour,
 and hydra believes that something is itself rather than the transport.
+
+## 141. The log view, and the two things a log viewer omits, 2026-09-06
+
+Directed by the copyright holder 2026-09-06: the log view widget next. Built
+as `gui/log_view.{h,cpp}` with `fzn_log_body_text` in `log/`, the same split
+sec 140 used -- the formatting in C where a CLI can reach it, the widget
+wrapping it.
+
+### A viewer that lists what it holds has thrown away what the module knows
+
+`log/log.h` evicts by design -- "losing its oldest entries is its normal
+condition rather than a failure" -- counts what it dropped, and distinguishes
+an entry retention ate from one that has yet to arrive.
+
+**A viewer that lists its entries and stops presents a shorter history as a
+complete one**, and a reader draws conclusions from records that are not
+there. So the summary line names what was lost, and the widget **takes a
+journal** to know it -- exactly as `fzn_log_get` does, and for the reason
+that header gives: the position "is a parameter rather than a second call the
+caller is trusted to remember". A viewer that could be built without one is
+one somebody builds without one.
+
+### A body is opaque bytes, and rendering one is a decision
+
+`fzn_log_body_text` escapes everything outside printable ASCII, and **the
+newline is the case that matters rather than the tidy one**: a viewer showing
+one entry per line, handed a body containing a newline and a plausible
+sequence number, would display a SECOND entry that no issuer ever signed.
+Escaping is what stops a body forging a neighbour. The same argument covers
+an escape byte, which is the other thing a log body must never be able to
+deliver to the terminal a view is drawn on.
+
+It refuses rather than truncates, measuring the whole rendering before
+writing any of it, so a short buffer leaves the caller's as it found it
+rather than holding a line that stops mid-escape.
+
+### Two weak assertions, both found by the sabotage harness
+
+- **The eviction case.** The test asserted only that the evicted summary
+  DIFFERS from the complete one -- which it does because the range moved, so
+  deleting the branch that names the eviction left it passing. It asserts the
+  word now, and the complete-log wording changed from "none evicted" to
+  "complete" so that the word appears only when something was. **A reader
+  scanning for loss should not have to read a negation, and a test asserting
+  on the word should not be satisfied by the line that says the opposite.**
+- **The injection case.** The first assertion was that the forged text did
+  not survive, and that is the wrong property: escaping neutralises the line
+  break, it does not delete content, and a viewer that DROPPED bytes it
+  distrusted would show something other than what was signed. What must hold
+  is that no LINE begins with the forged sequence, and that the body's own
+  bytes are still there, escaped. Both are asserted now.
+
+### And the sweep that came out of sec 139
+
+sec 139 fixed `trust_test` for printing `FAIL:` with no file name. Writing
+this section's tests found `log_test` doing the same, so the tree was swept:
+
+    61 of the suites print a FAIL line that names no file
+    30 carry no in-suite positive control
+
+**The first number is unambiguous and costs attribution**, which sec 139
+measured: `tool/sabotage.py` reports one line per sabotage and cannot prefer
+a suite that does not say who it is.
+
+**The second is weaker than it looks and must not be overstated.** The
+tree-wide control for library code is `tool/sabotage.py` itself -- 171
+entries over 43 of 44 library sources -- so those thirty suites are not
+unproven. What an in-suite control proves is narrower: that the suite's own
+counter works, so a run reporting "N checks, 0 failures" is evidence that
+anything could have said otherwise.
+
+`log_test` and `trust_test` are fixed because this work touched them.
+**Sweeping the other 59 is a deliberate pass and is not this one** -- the
+copyright holder should know the size before it happens rather than find it
+inside a commit about a widget.
+
+## 142. Is there a catalog subsystem? No, and here is what it would be, 2026-09-06
+
+Asked alongside sec 141: is there a catalog subsystem -- "a tree file/text
+store which has slots for different (named, unique by hierarchy/name) files
+pre-agreed or updated from an authority or extended/edited over time"? A list
+of all movies or music; hydra's per-site filters; netcfgd's config. And
+should it share routines with config, "or maybe not because config is
+important for core functionality"?
+
+**Measured: there is none, and nothing in the tree is catalog-shaped.** The
+nearest four each answer a different question:
+
+    state/       the current value of a setting, replayed from records
+    record/      an ordered stream of signed statements
+    spool/ blob/ content addressed by digest -- the NAME IS the content
+    log/         a bounded, evicting stream
+
+**What is missing is a NAMESPACE**: a hierarchy of names, each naming a thing
+that can be replaced over time, where the name is chosen by whoever writes it
+rather than derived from what it holds. `blob/` addresses content and cannot
+express "the current filter list for example.com"; `state/` holds one value
+per cell and has no hierarchy; `record/` orders statements without indexing
+them by name.
+
+### The question that decides its shape, and it is not sharing routines
+
+**A catalog is `state/` with a hierarchical key and a large value.** That is
+the honest one-line description, and it means the interesting question is not
+whether to reuse config's code but **whether a catalog entry is a RECORD or a
+BLOB REFERENCE.**
+
+- **As records**, an entry is signed, ordered and replayable, and a catalog
+  is `state/` with a path-shaped key. It inherits everything: authority,
+  revocation, sync. It is bounded by FZN_RECORD_BODY_MAX at 512 bytes, which
+  a filter list may exceed and a movie list certainly does.
+- **As blob references**, an entry is a signed record naming a digest, and
+  the bytes travel through `spool/`. Unbounded, deduplicated across
+  consumers, and resumable -- but a two-step fetch, and an entry whose blob
+  has not arrived is a name with nothing behind it, which is a state
+  `state/` has never had to express.
+
+**The second is almost certainly right and the first is what a first pass
+would build**, which is worth saying now rather than after somebody has built
+it.
+
+### On sharing routines with config
+
+**The holder's instinct is right, and the reason is stronger than
+importance.** `state/` refuses a full table, and `log/` evicts, and
+`record/journal.h` refuses a gap -- each because losing that particular thing
+is a different kind of failure. A catalog is a fourth: **it should evict
+nothing and refuse nothing, because a catalog entry that vanishes is a
+feature the consumer stops offering, silently.**
+
+So a catalog shares the RECORD layer with config, as everything here does,
+and should not share `state/`'s table -- not because config is important but
+because the two want opposite behaviour when full. `state/` refusing is right
+for a setting; a catalog refusing to hold the ten thousandth film is a
+different bug entirely.
+
+**Not built, and not designed further than this.** It is a subsystem, the
+holder has named three consumers with visibly different needs, and the
+record-or-blob question above is theirs to settle first.
 
 ## 140. FZN_GUI, the first C++ here, and two defects it found, 2026-09-06
 

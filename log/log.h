@@ -250,6 +250,42 @@ size_t fzn_log_read_since(const fzn_log_t *log, const uint8_t issuer[FZN_PUBKEY_
  * to know before somebody asks why the history has holes. */
 uint64_t fzn_log_dropped(const fzn_log_t *log);
 
+/* Bytes the safe rendering of a body can need: every byte of a full body
+ * escaped to four characters, and a terminator. */
+#define FZN_LOG_TEXT_MAX ((size_t)FZN_RECORD_BODY_MAX * 4u + 1u)
+
+/*
+ * Render a body as text a person can read, escaping everything else.
+ *
+ * A BODY IS OPAQUE BYTES, which this header says at the top and which is what
+ * makes rendering one a decision rather than a cast. A consumer knows its own
+ * encoding -- netcfgd's is greppable JSON, fuzzypickles' is an escaped line
+ * format -- and this is the fallback for everything that does not, so that a
+ * log view is possible before a consumer has told anybody what its bodies
+ * mean.
+ *
+ * NEWLINES ARE ESCAPED, AND THAT IS THE POINT RATHER THAN TIDINESS. A viewer
+ * showing one entry per line, handed a body containing a newline and a
+ * plausible sequence number, would display a SECOND entry that no issuer ever
+ * signed. Escaping is what stops a body forging a neighbour. Every byte
+ * outside printable ASCII goes to `\xNN`, so the same argument covers a
+ * terminal escape sequence, which is the other thing a log body must never be
+ * able to deliver -- see `harmonization.md` on the vendored terminal resets
+ * beerssh needed for exactly this.
+ *
+ * IT REFUSES RATHER THAN TRUNCATES, and a caller sizing to FZN_LOG_TEXT_MAX
+ * always fits, so there is no truncation path to get wrong. A log line cut
+ * short is less dangerous than a cut fingerprint and it is still a line that
+ * says something other than what was signed.
+ *
+ * An empty body is not an error: `*out` becomes an empty string, because a
+ * record with nothing in it is a thing an issuer can sign.
+ *
+ * FZN_LOG_ERR_MALFORMED for a null argument, a length with no bytes behind
+ * it, a body past FZN_RECORD_BODY_MAX, or a buffer that cannot hold the
+ * result. */
+fzn_log_err_t fzn_log_body_text(const uint8_t *body, size_t body_len, char *out, size_t cap);
+
 /* A short name for `fzn_log_err_t`. Never NULL. */
 const char *fzn_log_err_str(fzn_log_err_t err);
 
