@@ -22677,6 +22677,63 @@ the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
 
+## 119. Two modules the sim had never called, 2026-09-06
+
+Asked mechanically rather than by eye: for every library source, how many of
+its exported symbols does any sim scenario call? The first attempt was a bad
+proxy and worth recording -- it matched `fzn_<module>_`, which is false for
+`message.c` (`fzn_msg_*`) and `reassembly.c` (`fzn_reasm_*`), so it reported
+zeros that were artifacts of a naming convention this tree does not have.
+Extracting the actual exported symbols per file gives the real answer.
+
+Setting aside the platform backends, which a sim replaces with its own fakes
+by design, **two modules built this session are called by no scenario at
+all**: `chain/chain_store.c` (0 of 5 exported functions) and
+`record/ledger.c` (0 of 5).
+
+`scenario_held_but_revoked` closes the first, and the chain store's own
+header says why it needs a scenario rather than a unit test: *"FINDING ONE IS
+NOT AUTHORISATION -- the caller still verifies."* That is a claim about two
+modules together. The store is deliberately not revocation-aware, so a
+revoked grant stays in it and `lookup` goes on returning it; what refuses is
+`fzn_chain_verify` against the host's own revocation store.
+
+    held-but-revoked: found before 1, found after 1,
+                      verify before ok, after a grant has been revoked
+
+**Both halves are asserted, because either alone is a different design.** A
+store that dropped the chain would be revocation-aware and could not tell a
+caller why a grant stopped working; a verify that accepted it is fail-open.
+
+**The before-case is the control and is not decoration.** Without asserting
+that the grant verifies BEFORE the revocation, the refusal afterwards could
+be failing for any reason at all and would read identically.
+
+### What the sabotage showed, including what it did not
+
+Neutering the revocation consult in `fzn_chain_verify` -- every hop reported
+live -- fires this scenario's assertion, and the printed line flips to
+`after ok`, which is the fail-open made visible rather than inferred.
+
+It also fires five other scenarios. **So this is not the only witness to the
+consult**, and saying otherwise would overstate it. What is new is the
+composition: no scenario had ever put a chain in a store, revoked it, and
+asked both questions. The store half -- that `lookup` still returns it and
+the count is unchanged -- is asserted nowhere else, because nothing else
+called the store.
+
+### And the sabotage that did not apply
+
+The first attempt matched an `if (... fzn_revocation_covers ...)` that does
+not exist -- the call is a statement filling a `revoked[]` array. It printed
+`NOT FOUND`, and the run that followed was the unmodified code passing, which
+looks exactly like a sabotage that was caught by nothing. **It was caught
+because the script said so, not because the output differed.** That is the
+reason `evidence.md` asks for an assertion that the substitution landed, met
+here by printing the match.
+
+`record/ledger.c` remains uncomposed and is the obvious next one.
+
 ## 118. One peer is not a swarm, and the scenario written yesterday had one, 2026-09-06
 
 `scenario_filestore` moves a blob across a lossy network and asks ONE server.

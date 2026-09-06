@@ -44,6 +44,7 @@
 #include "../../persist/persist.h"
 #include "../../ratchet/ratchet.h"
 #include "../../chain/authz.h"
+#include "../../chain/chain_store.h"
 #include "../../spool/message.h"
 #include "../../spool/transfer.h"
 #include "../../spool/scrub.h"
@@ -4066,6 +4067,96 @@ static void scenario_swarm(void)
 	       rounds, from_host[0], from_host[1], both_live, overlaps);
 }
 
+/* ------------------------------------------------------------ scenario 23
+
+   A CHAIN THAT IS STILL HELD AND NO LONGER AUTHORISES.
+
+   `chain/chain_store.h` states the property this scenario exists for:
+   "FINDING ONE IS NOT AUTHORISATION -- the caller still verifies". The store
+   is deliberately not revocation-aware, so a revoked grant stays in it and
+   `lookup` goes on returning it; what refuses is `fzn_chain_verify` against
+   the host's own revocation store.
+
+   That is a composition property and nothing composed it. The store was
+   built with unit tests and, until now, no sim scenario called a single one
+   of its five exported functions -- measured, not assumed. project.md sec
+   119.
+
+   THE FAILURE MODE IF IT IS WRONG IS FAIL-OPEN, which is why this is worth
+   a scenario rather than a comment: a caller that treats `lookup` as the
+   answer authorises on a dead grant, and every assertion about the store
+   alone would still pass.  */
+static void scenario_held_but_revoked(void)
+{
+	static struct sim_net net;
+	static fzn_chain_entry_t entries[4];
+	static uint8_t rec_region[FZN_REVOCATION_LEN];
+	fzn_chain_store_t store;
+	fzn_revocation_record_t rec;
+	struct sim_signer root_signer;
+	struct sim_host *subject;
+	fzn_chain_t verified;
+	const uint8_t *held = NULL;
+	size_t held_len = 0;
+	int found_before, found_after;
+	fzn_chain_err_t before, after;
+
+	sim_init(&net, 4, 0xc4a1u);
+	subject = &net.hosts[2];
+	check(subject->chain_len > 0u, "the simulation gave host 2 no chain to store");
+
+	check(fzn_chain_store_init(&store, entries, 4u) == FZN_CHAIN_OK,
+	      "the chain store did not initialise");
+	check(fzn_chain_store_admit(&store, subject->chain, subject->chain_len, net.root,
+	                            &net.capability, net.now, &net.sign, NULL, NULL)
+	              == FZN_CHAIN_OK,
+	      "a chain the simulation issued was not admitted");
+	check(fzn_chain_store_count(&store) == 1u, "the admitted chain was not counted");
+
+	/* BEFORE: found, and verification agrees. Without this the refusal
+	   below could be failing for any reason at all and would read the
+	   same -- a control has to be able to fail the way the thing it
+	   controls for fails. */
+	found_before = fzn_chain_store_lookup(&store, net.root, &net.capability,
+	                                      subject->pubkey, net.now, &held, &held_len);
+	check(found_before, "the store did not find a chain it had just admitted");
+	before = fzn_chain_verify(subject->chain, subject->chain_len, net.root,
+	                          &net.capability, net.now, &net.sign, &subject->revocations,
+	                          NULL, &verified);
+	check(before == FZN_CHAIN_OK, "a live grant did not verify, so the refusal below "
+	                              "would prove nothing");
+
+	/* The root revokes it, and this host is told. */
+	check(fzn_revocation_issue(net.root, &net.capability, subject->pubkey, net.now,
+	                           sim_signer(&root_signer, &net.sign, net.root), rec_region)
+	              == FZN_CHAIN_OK,
+	      "the simulation could not issue a revocation");
+	check(fzn_revocation_open(rec_region, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK,
+	      "the simulation could not open the revocation it issued");
+	check(fzn_revocation_admit(&subject->revocations, fzn_revocation_offer_root(rec),
+	                           net.root, &net.sign, &net.hash, NULL) == FZN_CHAIN_OK,
+	      "the revocation was not admitted to the host's store");
+
+	/* AFTER: still held, and no longer authorising. Both halves, because
+	   either alone is a different design. */
+	found_after = fzn_chain_store_lookup(&store, net.root, &net.capability,
+	                                     subject->pubkey, net.now, &held, &held_len);
+	check(found_after, "the chain store dropped a revoked chain -- it is deliberately "
+	                   "not revocation-aware, and a store that forgets cannot tell a "
+	                   "caller why a grant stopped working");
+	check(fzn_chain_store_count(&store) == 1u, "the revocation changed what the store holds");
+
+	after = fzn_chain_verify(subject->chain, subject->chain_len, net.root, &net.capability,
+	                         net.now, &net.sign, &subject->revocations, NULL, &verified);
+	check(after != FZN_CHAIN_OK,
+	      "a revoked chain verified -- the store found it and nothing refused it, which "
+	      "is the fail-open this scenario exists for");
+
+	printf("  held-but-revoked: found before %d, found after %d, verify before %s, "
+	       "after %s\n",
+	       found_before, found_after, fzn_chain_err_str(before), fzn_chain_err_str(after));
+}
+
 static void scenario_estate(void)
 {
 	static struct sim_net net;
@@ -4819,6 +4910,7 @@ int main(void)
 	scenario_absence();
 	scenario_filestore();
 	scenario_swarm();
+	scenario_held_but_revoked();
 	scenario_estate();
 	scenario_tree();
 
