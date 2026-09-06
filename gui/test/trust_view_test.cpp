@@ -24,6 +24,7 @@ extern "C" {
 #include "../trust_view.h"
 
 #include <QApplication>
+#include <QStringList>
 #include <QString>
 
 #include <stdio.h>
@@ -86,7 +87,12 @@ int main(int argc, char **argv)
 	view.show_anchor(&trust);
 	CHECK(fzn_trust_fingerprint(key, expected, sizeof(expected)) == FZN_TRUST_OK,
 	      "the fixture could not format");
-	CHECK(view.fingerprint_text() == QString::fromLatin1(expected),
+	/* THE SAME CHARACTERS, ALLOWING THE DISPLAY'S OWN LINE BREAKS. sec 158
+	 * puts the breaks in the text so the format cannot move with the
+	 * window; what must not move is the KEY's spelling, so the newlines
+	 * come out and the rest must match to the character. */
+	CHECK(view.fingerprint_text().replace(QLatin1Char('\n'), QLatin1Char(' ')) ==
+	              QString::fromLatin1(expected),
 	      "the widget shows something other than the library's fingerprint");
 	adopted_text = view.source_text();
 
@@ -118,6 +124,57 @@ int main(int argc, char **argv)
 	view.show_anchor(nullptr);
 	CHECK(view.source_text() == QString::fromUtf8(fzn_trust_source_str(FZN_TRUST_NONE)),
 	      "a null anchor left the previous one on screen");
+
+	/*
+	 * THE FORMAT MUST NOT MOVE WITH THE WINDOW. sec 158.
+	 *
+	 * This is the guard for a defect that a screenless test could not see
+	 * and did not: rendered through qtty at 76 to 80 columns the label
+	 * clipped rather than wrapped, so the widget held 79 characters and
+	 * showed 78 -- and every assertion above passed, because they read the
+	 * text and a user reads the screen.
+	 *
+	 * WHAT MAKES IT IMPOSSIBLE RATHER THAN UNLIKELY is that the breaks are
+	 * in the text: no line is wider than a small terminal, so no width
+	 * decision is left to a layout. That is a property of `wrapped` alone
+	 * and needs no screen, no terminal and no qtty to check -- which is
+	 * why it is asserted here rather than only in the render target.
+	 */
+	{
+		char formatted[FZN_TRUST_FINGERPRINT_LEN];
+		QStringList lines;
+		QString flat;
+		int widest = 0;
+
+		CHECK(fzn_trust_fingerprint(key, formatted, sizeof(formatted)) == FZN_TRUST_OK,
+		      "the fixture could not format");
+		lines = fzn_trust_view::wrapped(QString::fromLatin1(formatted))
+		                .split(QLatin1Char('\n'));
+		for (const QString &line : lines)
+			if (line.size() > widest)
+				widest = line.size();
+
+		/* 39 CHARACTERS, WHICH RENDERS WHOLE FROM 41 COLUMNS UP. The
+		 * floor is 41 rather than 40 because the layout's margin costs
+		 * two cells, which was measured rather than reasoned -- see
+		 * `wrapped`, whose comment first claimed 40 from the string
+		 * length alone. This asserts the string, since that is what
+		 * this function decides; the floor it produces is recorded
+		 * beside the measurement. */
+		CHECK(widest <= 39,
+		      "a fingerprint line is wider than 39 characters, so a small "
+		      "terminal must wrap it and the format moves with the window again");
+		CHECK(lines.size() >= 2,
+		      "the fingerprint was not broken at all, so a wide window and a narrow "
+		      "one show it differently");
+
+		/* AND NOT ONE HEX DIGIT MAY BE LOST TO THE BREAKING. The whole
+		 * point is a fingerprint a user can compare, so the characters
+		 * have to survive being arranged. */
+		flat = lines.join(QLatin1Char(' '));
+		CHECK(flat == QString::fromLatin1(formatted),
+		      "breaking the fingerprint into lines changed it");
+	}
 
 	/* The suite can tell pass from fail. */
 	{

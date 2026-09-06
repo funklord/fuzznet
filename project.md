@@ -22870,6 +22870,139 @@ anything could have said otherwise.
 copyright holder should know the size before it happens rather than find it
 inside a commit about a widget.
 
+## 158. qtty compatibility, and a fingerprint that lied, 2026-09-06
+
+The copyright holder asked in sec 139 for "generic Qt GUI objects with Qtty
+compatibility"; sec 140 and sec 141 built the objects and named qtty as the
+reason they are Qt Widgets. The compatibility half was never checked. "Do the
+qtty compatibility for the gui objects next."
+
+### What compatibility turned out to mean, which was not an integration layer
+
+Measured by reading that tree rather than guessing. qtty renders **an
+unmodified Qt Widgets application** on a character-cell terminal -- "vanilla
+Qt code is the API". So there is nothing to integrate: compatibility is a set
+of CONSTRAINTS a widget must satisfy, and a way to check them.
+
+Their `doc/design.md` sec 7 states the enforceable one: shared view code must
+never hardcode margins, spacing or fixed pixel sizes, and they ban
+`setContentsMargins`, `setSpacing`, `setFixedSize` and `setFixedWidth` in
+their own CI. Both fuzznet widgets were already clean of all four.
+
+And their `include/qtty/testing.h` offers the instrument that mattered:
+`Qtty::test::snapshot_of(QWidget &, cols, rows)` renders any widget to a text
+snapshot, headless.
+
+### The defect it found, which reading could not
+
+**Rendered through qtty at 76 to 80 columns, the trust view silently lost
+fingerprint characters.** 80 is the canonical terminal width.
+
+    the fingerprint is 79 characters
+     76 cols:  60 of the fingerprint's 64 hex digits rendered
+     79 cols:  62 of 64
+     80 cols:  63 of 64
+     81 cols:  64 of 64
+
+Not a band anybody would guess at: at 40 columns the label wrapped and showed
+all 64, and at 81 it fitted on one line. In between it neither fitted nor
+wrapped -- it CLIPPED.
+
+**And every existing assertion passed while it happened.** The widget held all
+79 characters; `fingerprint_text()` returned them; the suite compared that
+against the library's fingerprint and agreed. What differed was the screen.
+That is *a correct function is not a working feature*, in the one widget where
+it costs something: this view exists so a user can compare an anchor's
+fingerprint out of band, and a fingerprint that is truncated but looks whole
+is the single failure it was built to prevent.
+
+### The fix is that the format stops depending on the width
+
+The widget's own header already argued the principle -- "a user cannot compare
+a fingerprint against a differently-formatted copy of itself" -- and the
+rendering broke it: one line at 81 columns, two at 40, a truncation between.
+**The same fingerprint looked different at every width.**
+
+So the line breaks moved into the text: eight groups a line, two lines, no
+wrapping decision left to a layout. It renders identically at every width, on
+a desktop and on a terminal.
+
+**The floor is 41 columns, measured, and this section first said 40.** The
+arithmetic -- 39 characters fit 40 cells -- was right about the string and
+wrong about the widget, because the layout's own margin costs two cells. The
+same probe swept 28 to 48 and found 40 still losing digits. The number is a
+measurement now and the method is recorded beside it, because the first
+version of it was a calculation that looked like one.
+
+Below 41 columns a line is still clipped. Nothing renders 39 characters in 30
+columns; a consumer targeting narrower wants fewer groups a line and more
+lines, which is a trade against vertical space rather than a defect here.
+qtty's own fixtures render at 46 to 52.
+
+### Two guards, and only one of them needs qtty
+
+**The property, in plain Qt:** no line may exceed 39 characters, the
+fingerprint must be broken at all, and rejoining the lines must reproduce the
+library's fingerprint exactly. That is a fact about `wrapped` and needs no
+screen, no terminal and no qtty -- so it runs in `make check` on any machine.
+It is what makes the defect impossible rather than unlikely.
+
+**The gate, in the Makefile:** the four calls qtty bans are banned in `gui/`,
+with a `qtty-allow:` escape that requires a reason -- their rule, enforced on
+our side, because they cannot enforce it on our tree and the cost lands
+somewhere neither of us is looking. The call compiles, the desktop looks
+right, and the terminal is where it goes wrong.
+
+**Neither would have found this one.** The property test guards the fix; the
+gate guards the four calls; what caught the defect was rendering. That is the
+argument for the third thing.
+
+### The render target, and what a failing one left behind
+
+`make qtty QTTY_DIR=../qtty` extracts qtty's HEAD read-only with `git
+archive`, builds it, renders both widgets from 41 to 96 columns and asserts
+every fingerprint line reaches the screen whole. 62 checks against qtty
+`7f3c041`.
+
+**Proved by putting the defect back.** Reverting `wrapped` to the single line
+it replaced turns the target red at 41 columns -- and the sweep-completeness
+check fires with it, which is the half worth having: a loop that stopped at
+the first width would otherwise report one silent pass.
+
+**QMAKE6, MEASURED TWICE.** qtty HEAD does not build under Qt 5 --
+`QPalette::Accent` is 6.6 and later -- and the bare `qmake` on this Debian is
+Qt 5's. A first attempt failed on that; a second, with `qmake6`, failed again
+on the same error, because `qtty.pro` is a subdirs project and the stale
+sub-Makefile from the first attempt was still Qt 5's. The second failure looks
+exactly like the first and is not.
+
+**AND A FAILING RUN LEFT 9.6 MB OF QTTY IN THIS REPOSITORY.** `BUILD_DIR`
+defaults to `.`, so the scratch is `./.qtty`; the sabotage run above failed
+before its cleanup line and left qtty's whole source tree in fuzznet's root,
+where `make style` walked it and reported **1070 convention violations in 321
+files**. A recipe that cleans up only on the success path does not clean up,
+since failure is when there is something to clean up. It is one shell with a
+`trap ... EXIT INT TERM` now, and `.qtty/` is in `.gitignore` as a backstop
+rather than as the fix -- an ignore rule stops a leftover being committed and
+does nothing about a gate that reads the working tree. Both paths are checked:
+a run with a bad QTTY_DIR leaves nothing, and so does a passing one.
+
+### One correction, and one observation that is not ours
+
+**The first probe was wrong and blamed the widget.** It called `snapshot_of`
+without qtty's protocol -- `WA_DontShowOnScreen`, a resize in CELL units via
+`GridMetrics::cells`, `show()`, then an event pump -- and got a truncated
+label at 40 columns. That was the instrument, not the widget. Reading how
+qtty's own suite calls it is what fixed it, and the real defect only appeared
+afterwards.
+
+**A framed QPlainTextEdit renders only its left edge**, at 60 columns, inside
+the log view. Controlled: a bare `QPlainTextEdit` with no fuzznet code renders
+with no frame at all, so the difference is in the composition rather than in
+the widget. It is cosmetic, the content renders, and the mechanism is qtty's
+to explain -- recorded as an observation and signalled, not diagnosed. sec 149
+of `evidence.md`'s rule: report the observation, not the mechanism.
+
 ## 157. The deletion schedule, and where a clock belongs, 2026-09-06
 
 The copyright holder, on sec 155's remaining open half: "do the schedule for

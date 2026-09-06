@@ -148,3 +148,4 @@ __pycache__/
 # Each is a full checkout, so leaving them untracked and unswept matters: the
 # style gate's tree walks prune this path for the same reason.
 /.claude/worktrees/
+/.qtty/

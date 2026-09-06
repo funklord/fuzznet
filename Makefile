@@ -1183,7 +1183,7 @@ endif
 # failures rather than as a build error.
 DEPS = $(OBJS:.o=.d) $(TEST_OBJS:.o=.d)
 
-.PHONY: check runtests all test fuzz guided guided-one installcheck coverage sancheck schema style codegencheck ctcheck analyze sabotage hooks clean install
+.PHONY: check runtests all test fuzz guided guided-one installcheck coverage sancheck schema qtty style codegencheck ctcheck analyze sabotage hooks clean install
 
 # The default build does NOT build tests -- build-and-commit.md, and the
 # discipline it buys is paid for by the dependency rules above being right.
@@ -2812,6 +2812,44 @@ style:
 		echo "style: test binaries missing from .gitignore:$$missing"; exit 1; \
 	fi; \
 	echo "style: $$n test binaries all named in .gitignore"
+	@# THE CALLS QTTY BANS, BANNED HERE. project.md sec 158.
+	@#
+	@# `qtty` renders an unmodified Qt Widgets application on a character
+	@# cell grid, and its design.md sec 7 names the four calls that make a
+	@# layout unportable to one: `setContentsMargins`, `setSpacing`,
+	@# `setFixedSize` and `setFixedWidth`. They hardcode pixels, and a cell
+	@# is not a pixel.
+	@#
+	@# THAT PROJECT ENFORCES IT ON ITS OWN SHARED VIEW CODE AND CANNOT
+	@# ENFORCE IT ON OURS. `gui/` exists so that every consumer shows an
+	@# anchor the same way -- sec 140 -- and a widget here that a terminal
+	@# cannot lay out is one a headless daemon cannot use, which is half
+	@# the reason the widgets are Qt Widgets rather than QML.
+	@#
+	@# A GATE RATHER THAN A CONVENTION because the cost lands somewhere
+	@# else: the call compiles, the desktop looks right, and the terminal
+	@# is where it goes wrong -- so nothing on the machine writing it
+	@# complains. sec 158 found a defect of exactly that shape by rendering
+	@# rather than by reading, and this is the half that needs no qtty
+	@# installed to run.
+	@banned=; n=0; \
+	for f in $(wildcard gui/*.cpp gui/*.h); do \
+		n=$$((n + 1)); \
+		if grep -nE 'set(ContentsMargins|Spacing|FixedSize|FixedWidth|FixedHeight)\(' \
+		        "$$f" | grep -v 'qtty-allow:' | grep -q .; then \
+			banned="$$banned $$f"; \
+		fi; \
+	done; \
+	if [ "$$n" -eq 0 ]; then \
+		echo "style: no gui sources to check for qtty portability"; \
+	elif [ -n "$$banned" ]; then \
+		echo "style: pixel geometry a character cell cannot honour, in:$$banned"; \
+		echo "style: qtty design.md sec 7 bans these; sec 158 says why we do too."; \
+		echo "style: a deliberate one carries a 'qtty-allow:' comment and a reason."; \
+		exit 1; \
+	else \
+		echo "style: $$n gui source(s) free of pixel geometry qtty cannot honour"; \
+	fi
 	@# AND EVERY HEADER MUST BE IN HDRS, which is the sixth pairing and the
 	@# one still open. installcheck already refuses when an HDRS entry is
 	@# not exercised by the consumer check; nothing looked the other way,
@@ -3169,6 +3207,78 @@ coverage:
 # silently -- a target that no-ops when its tool is absent is a gate over an
 # empty file list.
 SITU_DIR ?=
+
+# THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.
+#
+# NOT PART OF `make check`, on the same argument `make schema` uses: it needs
+# a sibling checkout, and qtty is pre-alpha with the API movement its README
+# promises. A gate that breaks for another tree's reasons is one people switch
+# off, and the two guards that need nothing installed -- the format property
+# in trust_view_test and the banned-call sweep in `make style` -- run in
+# `check` where they belong.
+#
+# WHAT IT BUYS THAT THEY CANNOT. They assert what a widget HOLDS and what it
+# does not CALL. This renders, and rendering is what found a trust view
+# showing 63 hex digits of a 64-digit fingerprint at 80 columns while every
+# text assertion passed.
+#
+# CHECKED AGAINST A COMMIT, NOT A WORKING TREE, which is `make schema`'s rule
+# and its reason: comparing against $(QTTY_DIR) as it sits on disk makes the
+# answer depend on whether anybody is mid-edit over there, and a session
+# usually is. `git archive` touches nothing in their tree.
+#
+# QMAKE6 AND NOT QMAKE. Measured: qtty HEAD does not build under Qt 5 --
+# `QPalette::Accent` is Qt 6.6 and later -- and the bare `qmake` on a Debian
+# with both installed is Qt 5's. A first attempt here built for four minutes
+# and failed on that, and a second failed again because qtty.pro is a subdirs
+# project and the stale sub-Makefile from the first was still Qt 5's.
+qtty:
+	@if [ -z "$(QTTY_DIR)" ]; then \
+		echo "qtty: QTTY_DIR unset, so the widgets were NOT rendered."; \
+		echo "qtty: run 'make qtty QTTY_DIR=../qtty' to render them."; \
+		exit 1; \
+	fi
+	@command -v qmake6 >/dev/null 2>&1 || { \
+		echo "qtty: no qmake6, and qtty HEAD does not build under Qt 5"; exit 1; }
+	@test -n "$(GUI_ON)" || { \
+		echo "qtty: the widgets are not built -- this needs FZN_GUI"; exit 1; }
+	@# ONE SHELL WITH A TRAP, BECAUSE A FAILURE HERE LEAVES A SOURCE TREE IN
+	@# THE REPOSITORY. Measured the hard way: BUILD_DIR defaults to `.`, so
+	@# the scratch is `./.qtty` -- and the first failing run of this target
+	@# left 9.6 MB of qtty's sources in fuzznet's root, where `make style`
+	@# duly walked them and reported 1070 convention violations in 321
+	@# files. A recipe that cleans up only on the success path does not
+	@# clean up, since failure is when there is something to clean up.
+	@#
+	@# `.qtty/` is in .gitignore as well, which is the backstop rather than
+	@# the fix: it stops a leftover being committed and does nothing about
+	@# the gate that reads the working tree.
+	@set -e; \
+	scratch=$(BUILD_DIR)/.qtty; \
+	case "$$scratch" in "" | "/" | "/*") \
+		echo "qtty: refusing to work in '$$scratch'"; exit 1;; esac; \
+	trap 'rm -rf "$$scratch"' EXIT INT TERM; \
+	rm -rf "$$scratch"; mkdir -p "$$scratch"; \
+	if git -C "$(QTTY_DIR)" rev-parse --git-dir >/dev/null 2>&1; then \
+		git -C "$(QTTY_DIR)" archive HEAD | tar -x -C "$$scratch"; \
+		echo "qtty: against qtty `git -C $(QTTY_DIR) rev-parse --short HEAD`"; \
+	else \
+		echo "qtty: $(QTTY_DIR) is not a git checkout, so nothing can be pinned"; \
+		exit 1; \
+	fi; \
+	( cd "$$scratch" && qmake6 qtty.pro >/dev/null 2>&1 && \
+	  $(MAKE) -j4 >qtty-build.log 2>&1 ) || { \
+		echo "qtty: their library would not build; the log goes with the scratch"; \
+		exit 1; }; \
+	test -f "$$scratch/lib/libqtty.a" || { \
+		echo "qtty: the build reported success and produced no libqtty.a"; exit 1; }; \
+	$(CXX) $(CXXFLAGS_BUILD) $(CXXFLAGS_WARN) $(QT_CFLAGS) -I"$$scratch/include" \
+	       gui/test/qtty_render_test.cpp gui/trust_view.cpp gui/log_view.cpp \
+	       $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/log/log.o \
+	       $(BUILD_DIR)/record/journal.o $(BUILD_DIR)/record/record.o \
+	       $(BUILD_DIR)/constant_time/constant_time.o \
+	       "$$scratch/lib/libqtty.a" $(QT_LIBS) -o "$$scratch/render_test"; \
+	"$$scratch/render_test"
 
 schema:
 	@if [ -z "$(SITU_DIR)" ]; then \

@@ -61,6 +61,16 @@ public:
 	QString fingerprint_text() const;
 	QString source_text() const;
 
+	/*
+	 * The library's fingerprint, broken into display lines. sec 158.
+	 *
+	 * Public and static so a test can assert the FORMAT without a widget,
+	 * a screen or a terminal -- the property that matters is that no line
+	 * is wider than a small terminal, and that is a fact about this
+	 * function rather than about any rendering of it.
+	 */
+	static QString wrapped(const QString &fingerprint);
+
 private:
 	QLabel *fingerprint_;
 	QLabel *source_;
