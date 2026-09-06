@@ -6,7 +6,9 @@
  * holds and what a peer says it holds, it answers: **which ranges are
  * missing, and which way round.**
  *
- * WHY THAT IS THE WHOLE OF IT. sec 2 keeps transport out of this library and
+ * WHY THAT IS THE WHOLE OF IT. sec 2 kept transport out of this library when
+ * this was written and the holder reversed that on 2026-09-06; what this file
+ * relies on is unchanged either way, and
  * sec 5 keeps the permission graph's shape out. What is left when both are
  * removed is a comparison of two sets of positions -- and that comparison is
  * identical in all three consumers, which is exactly the test sec 5 sets for

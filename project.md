@@ -43,19 +43,63 @@ reassembly.
 
 ## 2. The scope decision, which is the whole design
 
-The request that produced this named two needs:
+**~~The request that produced this named two needs, and only the second is
+shared.~~ SUPERSEDED BY THE COPYRIGHT HOLDER, 2026-09-06. ALL THREE HOPS ARE
+FUZZNET'S, AND SO ARE THE SOCKETS.** The original text is kept below because
+a dozen files cite this section and a reader arriving at a struck-through
+paragraph is better served than one arriving at a deleted one.
 
-1. local, pre-authenticated, group-gated access to a daemon running locally
-   or as root;
-2. authenticated remote access over an efficient UDP protocol.
+### What is actually in scope, in the holder's words
 
-**Only the second is shared, and that is a finding rather than a
-simplification.** It comes from netcfgd's `docs/shared-protocol-brief.md`,
-written for this library before a line of it existed, and it is worth stating
-in full because the obvious shape of a shared protocol library is the shape at
-least one consumer cannot adopt.
+    1. local_user_client  -> local_user_daemon   authenticated by user
+    2. local_user_client  -> local_root_daemon   authenticated by group
+    3. local_client       -> remote_daemon       encrypted and authenticated
+    4. every daemon may also connect to other daemons
 
-### The local hop is not shared, and must not be
+**"Server and client is a matter of perspective in fuzznet and not to be
+taken literally"** -- the holder's phrasing, and the reason this document now
+says NODE where it used to say either. All nodes speak the same language and
+"sometimes use different words": one protocol, minor role differences in how
+it is used, nothing in the API naming a client or a server.
+
+**Every project using fuzznet uses fuzznet's high-level abstractions rather
+than extending the protocol with its own concepts**, so that network code and
+dependencies leave the consuming project. netcfgd may keep its JSON on top of
+fuzznet at first; normalising it into generic binary primitives -- extending
+fuzznet with generic features where needed -- is the intended direction, not
+a permanent accommodation.
+
+**fuzznet owns everything required to set up a network and test it, sockets
+included.** Android and embedded socket support belongs here too. That
+reverses "sec 2 keeps transport out of this library", which `sched/sched.h`
+and `record/sync.h` both cite and which must be corrected where it appears.
+
+### Why the original was wrong, and it was already known here
+
+**This section was superseded four days before anybody noticed.**
+`chain/authz.h`, committed as `9c1bfa1` on 2026-08-31, records the holder's
+statement that this library "serves three fundamentally different network and
+auth types rather than one" and lists exactly the three above, with exactly
+those authentications -- and adds *"All three existed and NOTHING RELATED
+THEM."* The origin vocabulary was built on that statement:
+`FZN_ORIGIN_SAME_USER`, `FZN_ORIGIN_LOCAL` and `FZN_ORIGIN_REMOTE` are hops
+1, 2 and 3.
+
+So the code had the correction and the document did not, and sec 100 then
+reasoned from this section on 2026-09-05 and told readers not to take the
+local hop -- **five days after the statement that says otherwise.** A claim
+that outlived its subject, in the one document every other file cites, which
+is the failure this tree has a name for and had not thought to point at its
+own foundation.
+
+**The netcfgd table below is not why the original was wrong.** netcfgd is a
+consumer and an advisor, not this project's authority, and its brief is
+evidence about one consumer rather than a scope decision. Reading a
+consumer's constraint as the library's boundary is the specific error, and it
+is worth separating from the table itself, which remains an accurate record
+of what two consumers had built.
+
+### ~~The local hop is not shared, and must not be~~ (superseded; see above)
 
 | | fuzzypickles | netcfgd | raidcfgd |
 |---|---|---|---|
@@ -25359,10 +25403,15 @@ reaches for fuzznet is a *remote*-access feasibility study, and its local
 hop is settled, deliberate and argued for in its own
 `docs/socket-protocol.md`. But plausible is not settled, and this note
 deliberately does not settle it: which hop the condition gates is the
-holder's to say or netcfgd's, not a relaying session's. **Nobody should
+holder's to say or netcfgd's, not a relaying session's. ~~**Nobody should
 read it as a request to take the local hop** -- sec 2 says that must not be
-shared and gives both consumers' load-bearing reasons, and nothing in the
-instruction above touches that.
+shared and gives both consumers' load-bearing reasons.~~ **WRONG, AND WRONG
+WHEN WRITTEN.** The holder had stated on 2026-08-31 that all three hops are
+this library's, and `chain/authz.h` was built on that statement five days
+before this paragraph cited sec 2 as live. Sec 2 carries the correction now;
+this is left struck through because it is the instance that shows how a
+superseded foundation propagates -- not by anybody disputing it, but by a
+later section citing it in good faith.
 
 **Second, the language, and this file has never had to think about it.**
 `project.md` did not contain the word Rust anywhere before this section --

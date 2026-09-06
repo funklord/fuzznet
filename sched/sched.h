@@ -7,7 +7,9 @@
  * wifi, Bluetooth or a tunnel. A consumer describes its candidates as numbers
  * it measured and gets back one of them, or nothing.
  *
- * sec 2 keeps transport out of this library and that still holds: choosing
+ * sec 2 kept transport out of this library when this was written, and the
+ * holder reversed that on 2026-09-06 -- fuzznet owns sockets now. What
+ * still holds is the narrower thing this file needs: choosing
  * among links a consumer supplied is not choosing a transport, any more than
  * comparing two capability identifiers is deciding what a capability means.
  *
