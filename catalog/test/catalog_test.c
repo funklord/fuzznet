@@ -949,12 +949,236 @@ static void test_the_wire_caller_bugs_are_refused(void)
 	      "a record that was never opened applied");
 }
 
+/* ---- the filing --------------------------------------------------------- */
+
+/* EXACTLY ONCE, AND IT IS STRUCTURAL. A node may be a member of several sets
+ * -- that is the whole design -- and filed in exactly one of them. sec 147. */
+static void test_a_node_is_filed_in_exactly_one_of_its_sets(void)
+{
+	fzn_catalog_edge_t rows[8];
+	fzn_catalog_t cat;
+	const fzn_catalog_id_t *at;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 8, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x20), idp(0x10), ALICE, 1, 1) == FZN_CATALOG_OK,
+	        "first membership");
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x21), idp(0x10), ALICE, 2, 1) == FZN_CATALOG_OK,
+	        "second membership");
+
+	CHECK(fzn_catalog_filed_under(&cat, idp(0x10)) == NULL,
+	      "a node nobody filed reports a filing");
+
+	CHECK(fzn_catalog_file_under(&cat, idp(0x20), idp(0x10)) == FZN_CATALOG_OK,
+	      "filing under a set the node belongs to was refused");
+	at = fzn_catalog_filed_under(&cat, idp(0x10));
+	REQUIRE(at != NULL, "the filing did not take");
+	CHECK(memcmp(at->b, idp(0x20)->b, FZN_CATALOG_ID_LEN) == 0, "filed under the wrong set");
+
+	/* Filing it elsewhere MOVES it rather than adding a second place. */
+	CHECK(fzn_catalog_file_under(&cat, idp(0x21), idp(0x10)) == FZN_CATALOG_OK,
+	      "refiling was refused");
+	at = fzn_catalog_filed_under(&cat, idp(0x10));
+	REQUIRE(at != NULL, "the refiling lost the node");
+	CHECK(memcmp(at->b, idp(0x21)->b, FZN_CATALOG_ID_LEN) == 0, "the refiling did not move it");
+
+	/* AND THE MEMBERSHIPS ARE BOTH STILL THERE. A filing says where bytes
+	 * live; it does not narrow what the catalogue says. */
+	CHECK(fzn_catalog_linked(&cat, idp(0x20), idp(0x10)),
+	      "refiling removed the membership it moved away from");
+	CHECK(fzn_catalog_linked(&cat, idp(0x21), idp(0x10)), "the new membership went missing");
+}
+
+/* A filing is a subset of the DAG, so there must be an edge to mark. */
+static void test_a_filing_needs_a_membership(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_t cat;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	CHECK(fzn_catalog_file_under(&cat, idp(0x20), idp(0x10)) == FZN_CATALOG_ERR_ABSENT,
+	      "a node was filed under a set it does not belong to");
+	CHECK(cat.used == 0, "the refused filing created the membership");
+
+	/* Nor under one that has been unlinked. */
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x20), idp(0x10), ALICE, 1, 1) == FZN_CATALOG_OK,
+	        "link");
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x20), idp(0x10), ALICE, 2, 0) == FZN_CATALOG_OK,
+	        "unlink");
+	CHECK(fzn_catalog_file_under(&cat, idp(0x20), idp(0x10)) == FZN_CATALOG_ERR_ABSENT,
+	      "a node was filed under a tombstone");
+}
+
+/* Unlinking a filed edge clears the filing: a node filed under a directory it
+ * has left is a path to a place the catalogue no longer says it belongs. */
+static void test_unlinking_clears_the_filing(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_t cat;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x20), idp(0x10), ALICE, 1, 1) == FZN_CATALOG_OK,
+	        "link");
+	REQUIRE(fzn_catalog_file_under(&cat, idp(0x20), idp(0x10)) == FZN_CATALOG_OK, "file");
+	REQUIRE(fzn_catalog_filed_under(&cat, idp(0x10)) != NULL, "the filing did not take");
+
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x20), idp(0x10), ALICE, 2, 0) == FZN_CATALOG_OK,
+	        "unlink");
+	CHECK(fzn_catalog_filed_under(&cat, idp(0x10)) == NULL,
+	      "an unlinked node is still filed under the set it left");
+
+	/* AND IT MUST NOT COME BACK. The accessor already hides a mark on an
+	 * absent edge, so the case above passes whether the mark was cleared or
+	 * merely hidden -- the difference shows on a RE-LINK. Leaving the mark
+	 * would let a peer's re-assertion resurrect a placement this host had
+	 * lost, which is the wire deciding where a host keeps its bytes. */
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x20), idp(0x10), ALICE, 3, 1) == FZN_CATALOG_OK,
+	        "a re-link");
+	CHECK(fzn_catalog_filed_under(&cat, idp(0x10)) == NULL,
+	      "a re-link resurrected a filing the unlink had cleared");
+
+	/* AND AN ORDINARY RE-LINK DOES NOT WIPE A FILING. Only a removal
+	 * clears it; a peer re-asserting a membership must not move where this
+	 * host keeps its bytes. */
+	REQUIRE(fzn_catalog_file_under(&cat, idp(0x20), idp(0x10)) == FZN_CATALOG_OK, "refile");
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x20), idp(0x10), ALICE, 4, 1) == FZN_CATALOG_OK,
+	        "a second link from the same issuer");
+	CHECK(fzn_catalog_filed_under(&cat, idp(0x10)) != NULL,
+	      "an ordinary re-assertion wiped this host's filing");
+}
+
+/* THE FILING DOES NOT TRAVEL, which is what makes it per host. */
+static void test_a_filing_does_not_come_off_the_wire(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_t cat;
+	uint8_t body[FZN_CATALOG_EDGE_BODY_LEN];
+	fzn_record_t rec;
+	size_t len = 0;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_edge_encode(idp(0x20), idp(0x10), 1, body, sizeof(body), &len)
+	                == FZN_CATALOG_OK, "encode");
+	CHECK(len == FZN_CATALOG_EDGE_BODY_LEN,
+	      "an edge body grew, so the filing may have found a bit on the wire");
+	REQUIRE(as_record(&rec, ALICE, 1u, body, len), "sign");
+	REQUIRE(fzn_catalog_apply(&cat, rec) == FZN_CATALOG_OK, "apply");
+
+	CHECK(fzn_catalog_filed_under(&cat, idp(0x10)) == NULL,
+	      "applying a record from a peer filed the node, so a filing travelled");
+	CHECK(fzn_catalog_filing_root_of(&cat) == NULL,
+	      "applying a record set a filing root, which is this host's choice");
+}
+
+/* The path is root first, and a catalogue with no root refuses to answer. */
+static void test_a_path_runs_from_the_root_down(void)
+{
+	fzn_catalog_edge_t rows[8];
+	fzn_catalog_t cat;
+	fzn_catalog_id_t out[8];
+	size_t n;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 8, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	/* root 0x01 -> 0x02 -> 0x03 */
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x01), idp(0x02), ALICE, 1, 1) == FZN_CATALOG_OK, "a");
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x02), idp(0x03), ALICE, 2, 1) == FZN_CATALOG_OK, "b");
+	REQUIRE(fzn_catalog_file_under(&cat, idp(0x01), idp(0x02)) == FZN_CATALOG_OK, "file a");
+	REQUIRE(fzn_catalog_file_under(&cat, idp(0x02), idp(0x03)) == FZN_CATALOG_OK, "file b");
+
+	/* NO ROOT, NO PATH -- the holder's requirement is that the tag must
+	 * exist, and a library cannot supply one for a caller.
+	 *
+	 * THE FIXTURE IS ROOTED AT THE ALL-ZERO ID ON PURPOSE. An unset root
+	 * reads as zeros, so a chain that stops anywhere else would refuse for
+	 * want of a filing parent rather than for want of a root, and the case
+	 * would pass with the guard deleted. Filing 0x01 under 0x00 makes the
+	 * chain reach exactly what an unset root would compare equal to. */
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x00), idp(0x01), ALICE, 9, 1) == FZN_CATALOG_OK,
+	        "the zero-rooted membership");
+	REQUIRE(fzn_catalog_file_under(&cat, idp(0x00), idp(0x01)) == FZN_CATALOG_OK,
+	        "file under the zero id");
+	CHECK(fzn_catalog_filed_path(&cat, idp(0x03), out, 8) == 0,
+	      "a catalogue with no filing root answered a path");
+	/* THE CONTROL: naming that same id as the root makes the path appear,
+	 * so the refusal above is the missing root and not a broken chain. */
+	REQUIRE(fzn_catalog_filing_root(&cat, idp(0x00)) == FZN_CATALOG_OK, "root the zero id");
+	CHECK(fzn_catalog_filed_path(&cat, idp(0x03), out, 8) == 4,
+	      "the chain does not reach the zero id, so the case above proves nothing");
+
+	REQUIRE(fzn_catalog_filing_root(&cat, idp(0x01)) == FZN_CATALOG_OK, "set the root");
+	n = fzn_catalog_filed_path(&cat, idp(0x03), out, 8);
+	CHECK(n == 3, "the path is %zu deep, wanted three", n);
+	CHECK(n == 3 && memcmp(out[0].b, idp(0x01)->b, FZN_CATALOG_ID_LEN) == 0,
+	      "the path does not begin at the root");
+	CHECK(n == 3 && memcmp(out[2].b, idp(0x03)->b, FZN_CATALOG_ID_LEN) == 0,
+	      "the path does not end at the node");
+
+	/* The root itself is a path of one. */
+	CHECK(fzn_catalog_filed_path(&cat, idp(0x01), out, 8) == 1,
+	      "the root is not a path of one");
+
+	/* A node nobody filed has no path, which is an ordinary state. */
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x01), idp(0x09), ALICE, 3, 1) == FZN_CATALOG_OK, "c");
+	CHECK(fzn_catalog_filed_path(&cat, idp(0x09), out, 8) == 0,
+	      "a node nobody filed reported a path");
+}
+
+/* A chain that does not reach the root is not a path, and a cycle is bounded
+ * rather than trusted. */
+static void test_a_path_that_does_not_reach_the_root_is_none(void)
+{
+	fzn_catalog_edge_t rows[8];
+	fzn_catalog_t cat;
+	fzn_catalog_id_t out[8];
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 8, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	/* 0x05 -> 0x06, filed, but the root is 0x01 and nothing joins them. */
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x05), idp(0x06), ALICE, 1, 1) == FZN_CATALOG_OK, "a");
+	REQUIRE(fzn_catalog_file_under(&cat, idp(0x05), idp(0x06)) == FZN_CATALOG_OK, "file");
+	REQUIRE(fzn_catalog_filing_root(&cat, idp(0x01)) == FZN_CATALOG_OK, "root");
+	CHECK(fzn_catalog_filed_path(&cat, idp(0x06), out, 8) == 0,
+	      "a filing that never reaches the root answered a path");
+
+	/* A CYCLE: file A under B and B under A. One slot per node makes this
+	 * expressible, so the walk is bounded rather than promised. */
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x06), idp(0x05), ALICE, 2, 1) == FZN_CATALOG_OK, "b");
+	REQUIRE(fzn_catalog_file_under(&cat, idp(0x06), idp(0x05)) == FZN_CATALOG_OK, "file back");
+	CHECK(fzn_catalog_filed_path(&cat, idp(0x06), out, 8) == 0,
+	      "a filing cycle answered a path rather than stopping at the bound");
+}
+
+static void test_the_filing_caller_bugs_are_refused(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_t cat;
+	fzn_catalog_id_t out[4];
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	CHECK(fzn_catalog_filing_root(NULL, idp(0x01)) == FZN_CATALOG_ERR_MALFORMED,
+	      "a null catalogue took a root");
+	CHECK(fzn_catalog_filing_root(&cat, NULL) == FZN_CATALOG_ERR_MALFORMED, "a null root");
+	CHECK(fzn_catalog_filing_root_of(NULL) == NULL, "a null catalogue named a root");
+	CHECK(fzn_catalog_file_under(NULL, idp(0x20), idp(0x10)) == FZN_CATALOG_ERR_MALFORMED,
+	      "a null catalogue filed something");
+	CHECK(fzn_catalog_file_under(&cat, NULL, idp(0x10)) == FZN_CATALOG_ERR_MALFORMED,
+	      "a null parent");
+	CHECK(fzn_catalog_file_under(&cat, idp(0x20), NULL) == FZN_CATALOG_ERR_MALFORMED,
+	      "a null child");
+	CHECK(fzn_catalog_filed_under(NULL, idp(0x10)) == NULL,
+	      "a null catalogue named a filing");
+	CHECK(fzn_catalog_filed_path(NULL, idp(0x10), out, 4) == 0,
+	      "a null catalogue answered a path");
+	CHECK(fzn_catalog_filed_path(&cat, idp(0x10), NULL, 4) == 0, "a null buffer");
+	CHECK(fzn_catalog_filed_path(&cat, idp(0x10), out, 0) == 0, "a zero bound");
+}
+
 static void test_the_errors_render(void)
 {
 	CHECK(fzn_catalog_err_str(FZN_CATALOG_OK)[0] != '\0', "OK renders empty");
 	CHECK(fzn_catalog_err_str(FZN_CATALOG_ERR_MALFORMED)[0] != '\0', "MALFORMED renders empty");
 	CHECK(fzn_catalog_err_str(FZN_CATALOG_ERR_FULL)[0] != '\0', "FULL renders empty");
 	CHECK(fzn_catalog_err_str(FZN_CATALOG_ERR_STALE)[0] != '\0', "STALE renders empty");
+	CHECK(fzn_catalog_err_str(FZN_CATALOG_ERR_SHAPE)[0] != '\0', "SHAPE renders empty");
+	CHECK(fzn_catalog_err_str(FZN_CATALOG_ERR_ABSENT)[0] != '\0', "ABSENT renders empty");
 	CHECK(fzn_catalog_err_str((fzn_catalog_err_t)-99)[0] != '\0',
 	      "an unknown error renders empty");
 }
@@ -997,6 +1221,13 @@ int main(void)
 	test_a_non_canonical_body_is_refused();
 	test_the_encoder_normalises_present();
 	test_the_wire_caller_bugs_are_refused();
+	test_a_node_is_filed_in_exactly_one_of_its_sets();
+	test_a_filing_needs_a_membership();
+	test_unlinking_clears_the_filing();
+	test_a_filing_does_not_come_off_the_wire();
+	test_a_path_runs_from_the_root_down();
+	test_a_path_that_does_not_reach_the_root_is_none();
+	test_the_filing_caller_bugs_are_refused();
 	test_the_errors_render();
 	test_the_suite_can_tell_pass_from_fail();
 

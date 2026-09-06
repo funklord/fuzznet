@@ -22870,6 +22870,96 @@ anything could have said otherwise.
 copyright holder should know the size before it happens rather than find it
 inside a commit about a widget.
 
+## 147. The filing: one tree per host, and it does not travel, 2026-09-06
+
+Asked for by the copyright holder 2026-09-06: one structure close to the root
+is designated, **below it each file exists exactly once**, and that tree is
+the directory structure the host uses to store the files on disk. It varies
+per host, the tag must exist, and eventually a function moves the files into
+a new formation when it changes.
+
+### The name
+
+The holder offered "main" or "fsroot" and asked for better. **`filing`.**
+
+`layout` is this tree's word for a WIRE layout and appears two hundred times
+that way, so reusing it would be two concepts sharing one word, which
+`code-style.md` forbids. A filing is how a host files its catalogue; the noun
+survives being said out loud about a directory tree; and **the verb is what
+the mover does -- refile** -- which is what settled it. `fzn_catalog_refile`
+names the holder's "move all the files into a new formation" without
+explaining itself.
+
+### It is a mark on an edge, not a second structure
+
+A node's filing parent is one of the parents it already has, so **a filing is
+a subset of the membership DAG rather than a tree beside it**. That is what
+stops the two disagreeing: a node cannot be filed under a directory it is not
+a member of, because there would be no edge to mark. Filing under a tombstone
+is FZN_CATALOG_ERR_ABSENT rather than a silently created membership -- the
+disk layout must not be the thing that decides what the catalogue says.
+
+### "Exactly once" is structural, not checked
+
+At most one edge per child carries the mark, and `fzn_catalog_file_under`
+clears every other as it sets one. **The invariant cannot be violated rather
+than being validated afterwards** -- a walk looking for a second path would be
+a check somebody has to remember to run, and the holder's requirement is a
+property rather than a report.
+
+Refiling therefore MOVES a node and leaves both memberships intact: a filing
+says where bytes live, and does not narrow what the catalogue says.
+
+### And it does not travel, which is what makes it per host
+
+The wire form has no bit for it and `fzn_catalog_apply` never sets one. Two
+hosts sharing a catalogue agree about membership and choose their own filing.
+**A filing that synced would make one host's disk layout an assertion the
+other had to accept.**
+
+The suite asserts the edge body did not grow, so a later change cannot find a
+bit for it without the case going red.
+
+### An unlink clears it, and a re-link must not bring it back
+
+A node filed under a directory it has left is a path to a place the catalogue
+no longer says it belongs, so an unlink clears the mark. **An ordinary
+re-assertion does not** -- a peer restating a membership must not move where
+this host keeps its bytes.
+
+**That pair took two sabotages to pin, and the first one survived.** The
+accessor already hides a mark on an absent edge, so "is it filed after the
+unlink" passes whether the mark was cleared or merely hidden. The difference
+shows on a RE-LINK: leaving the mark lets a peer's later assertion resurrect a
+placement this host had lost, which is the wire deciding where a host keeps
+its bytes. The case re-links now.
+
+### The root must be named, and the walk is bounded
+
+A catalogue has no filing root until one is set, and every path query then
+refuses. A library cannot make a caller supply one; what it can do is refuse
+to answer rather than invent a root.
+
+**That guard also survived its first sabotage**, and the reason is worth
+keeping: an unset root reads as zeros, so a chain stopping anywhere else
+refuses for want of a filing parent rather than for want of a root. The
+fixture is rooted at the all-zero id on purpose, so the chain reaches exactly
+what an unset root compares equal to -- with a control that naming that id
+makes the path appear.
+
+One filing slot per node makes a cycle expressible -- file A under B and B
+under A -- so the walk is bounded rather than promised, and the bound is what
+the stack buffer is sized for. Refusing a cycle when it is made would need a
+walk per assertion; a bound costs nothing and cannot be forgotten.
+
+### What is not built
+
+**`fzn_catalog_refile`**, the mover. The holder said eventually, and it needs
+one thing this pass deliberately did not invent: a seam for the filesystem.
+This library does no I/O, so the mover computes a PLAN -- for each node, the
+path it has and the path it would have -- and a consumer performs the moves.
+Both paths are computable now, which is what this pass was for.
+
 ## 146. The catalogue on the wire, and the bound that was wrong, 2026-09-06
 
 Directed by the copyright holder 2026-09-06 after sec 145. Built: the two

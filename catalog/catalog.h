@@ -84,6 +84,10 @@ typedef enum fzn_catalog_err {
 	 * resolver prefers what is here, and a caller that logged it as an
 	 * error would fill a log on a working network. */
 	FZN_CATALOG_ERR_STALE = -3,
+	/* No such membership. A caller filing a node under a directory it does
+	 * not belong to has the filing and the DAG out of step, and saying so
+	 * is more use than quietly creating the edge. */
+	FZN_CATALOG_ERR_ABSENT = -5,
 	/* Bytes that are not a catalogue assertion, or are one written a way
 	 * this build does not produce. Distinct from MALFORMED because that is
 	 * the caller's bug and this is a PEER'S BYTES -- the same distinction
@@ -111,6 +115,11 @@ typedef struct fzn_catalog_edge {
 	uint8_t issuer[FZN_PUBKEY_LEN];
 	uint64_t seq;
 	int present;
+	/* THIS HOST'S FILING, AND IT DOES NOT TRAVEL. See the filing section
+	 * below: at most one edge per child carries it, and no wire form has a
+	 * bit for it, because where a host keeps its bytes is that host's
+	 * business and not an assertion about the catalogue. */
+	int filed;
 } fzn_catalog_edge_t;
 
 /*
@@ -166,6 +175,12 @@ typedef struct fzn_catalog {
 	size_t capacity;
 	size_t used;
 	const fzn_catalog_resolve_ops_t *resolve;
+	/* This host's filing root, and whether one has been set. Held rather
+	 * than derived because there is nothing to derive it from: which node
+	 * is the root is a choice, and a catalogue with several plausible ones
+	 * would otherwise pick. */
+	fzn_catalog_id_t filing_root;
+	int filing_root_set;
 	/* The content table, or nulls when a consumer uses this as structure
 	 * only. See `fzn_catalog_content_init`. */
 	struct fzn_catalog_entry *entries;
@@ -437,5 +452,98 @@ fzn_catalog_err_t fzn_catalog_content_encode(const fzn_catalog_entry_t *entry, u
  * included -- which is an answer rather than a fault.
  */
 fzn_catalog_err_t fzn_catalog_apply(fzn_catalog_t *catalog, fzn_record_t record);
+
+
+/*
+ * THE FILING: the one tree, per host, that says where bytes actually live.
+ *
+ * project.md sec 147. Asked for by the copyright holder: one structure close
+ * to the root is designated, **below it each file must exist exactly once**,
+ * and that tree is the directory structure the host uses to store the files
+ * on disk. It varies per host, and every host that stores the catalogue must
+ * have one.
+ *
+ * WHY THE NAME. `layout` is this tree's word for a WIRE layout and is used
+ * two hundred times that way; reusing it here would be two concepts sharing
+ * one word, which `code-style.md` forbids. A filing is how a host files its
+ * catalogue, the verb is what the mover does -- **refile** -- and the noun
+ * survives being said out loud about a directory tree.
+ *
+ * IT IS A MARK ON AN EDGE, NOT A SECOND STRUCTURE. A node's filing parent is
+ * one of the parents it already has, so a filing is a SUBSET of the
+ * membership DAG rather than a tree beside it. That is what stops the two
+ * disagreeing: a node cannot be filed under a directory it is not a member
+ * of, because there would be no edge to mark.
+ *
+ * "EXACTLY ONCE" IS STRUCTURAL AND NOT CHECKED. At most one edge per child
+ * carries the mark, and `fzn_catalog_file_under` clears any other as it sets
+ * one -- so the invariant cannot be violated rather than being validated
+ * afterwards. A check that walks the tree looking for a second path would be
+ * a check somebody has to remember to run.
+ *
+ * AND IT DOES NOT TRAVEL. The wire form in the section above has no bit for
+ * it and `fzn_catalog_apply` never sets one, which is what makes the setting
+ * per host: two hosts sharing a catalogue agree about membership and choose
+ * their own filing. A filing that synced would make one host's disk layout an
+ * assertion the other had to accept.
+ *
+ * UNLINKING A FILED EDGE CLEARS THE FILING, because a node filed under a
+ * directory it has left is a path to a place the catalogue no longer says it
+ * belongs. The alternative -- keeping the mark on an absent edge -- leaves a
+ * host computing a path from a membership nobody asserts.
+ */
+
+/* How deep a filing may go. A filing parent is one slot per node, so a cycle
+ * is expressible -- file A under B and B under A -- and a walk needs a bound
+ * rather than a promise. Refusing a cycle at the moment it is made would need
+ * a walk per assertion; bounding the walk costs nothing and cannot be
+ * forgotten. */
+#define FZN_CATALOG_FILING_MAX_DEPTH 64u
+
+/* Designate the node whose subtree is this host's filing.
+ *
+ * A CATALOGUE HAS NONE UNTIL THIS IS CALLED, and every path query then
+ * refuses. The holder's requirement is that the tag must exist; a library
+ * cannot make a caller supply one, so what it can do is refuse to answer
+ * without it rather than inventing a root. */
+fzn_catalog_err_t fzn_catalog_filing_root(fzn_catalog_t *catalog,
+                                          const fzn_catalog_id_t *root);
+
+/* The designated root, or NULL when none has been set. */
+const fzn_catalog_id_t *fzn_catalog_filing_root_of(const fzn_catalog_t *catalog);
+
+/*
+ * File `child` under `parent`, replacing wherever it was filed before.
+ *
+ * The edge must already be a present membership, which is what keeps a
+ * filing a subset of the DAG. FZN_CATALOG_ERR_ABSENT when it is not -- a
+ * caller filing under a directory the node does not belong to has the two
+ * out of step, and saying so is more use than quietly creating the edge.
+ */
+fzn_catalog_err_t fzn_catalog_file_under(fzn_catalog_t *catalog,
+                                         const fzn_catalog_id_t *parent,
+                                         const fzn_catalog_id_t *child);
+
+/* Where a node is filed, or NULL when nowhere. A node with parents but no
+ * filing is one this host has not placed on disk yet, which is an ordinary
+ * state and not an error. */
+const fzn_catalog_id_t *fzn_catalog_filed_under(const fzn_catalog_t *catalog,
+                                                const fzn_catalog_id_t *child);
+
+/*
+ * The path from the filing root down to `node`, root first.
+ *
+ * Writes up to `cap` ids and returns how many. The node itself is the last,
+ * so a node that IS the root gives a path of one.
+ *
+ * Zero means there is no path, and the reasons are worth telling apart in a
+ * caller rather than here: no filing root has been set, the node is not filed
+ * at all, the chain of filing parents does not reach the root, or it is
+ * longer than FZN_CATALOG_FILING_MAX_DEPTH. All four are "this host cannot
+ * say where that lives", which is one answer for a caller about to write a
+ * file.
+ */
+size_t fzn_catalog_filed_path(const fzn_catalog_t *catalog, const fzn_catalog_id_t *node,
+                              fzn_catalog_id_t *out, size_t cap);
 
 #endif

@@ -92,6 +92,10 @@ fzn_catalog_err_t fzn_catalog_init(fzn_catalog_t *catalog, fzn_catalog_edge_t *e
 	 * So there is no sabotage entry for this pair, because no single-line
 	 * one can fail. project.md sec 145 records that rather than leaving a
 	 * later reader to rediscover it and delete a line as dead. */
+	/* No filing root until a caller names one, so every path query refuses
+	 * rather than this module inventing one. */
+	catalog->filing_root_set = 0;
+	memset(&catalog->filing_root, 0, sizeof(catalog->filing_root));
 	catalog->entries = NULL;
 	catalog->entry_capacity = 0;
 	catalog->entry_used = 0;
@@ -127,6 +131,14 @@ fzn_catalog_err_t fzn_catalog_assert(fzn_catalog_t *catalog, const fzn_catalog_i
 	if (held) {
 		if (!catalog->resolve->prefer(catalog->resolve->ctx, held, &offered))
 			return FZN_CATALOG_ERR_STALE;
+		/* THE FILING MARK SURVIVES A RE-ASSERTION AND NOT A REMOVAL. It
+		 * is this host's and is not in `offered`, which came off the
+		 * wire or from a caller that has no business setting it -- so
+		 * carry it across rather than letting an ordinary link wipe
+		 * where the host keeps its bytes. An unlink is the one case
+		 * that clears it: a node filed under a directory it has left is
+		 * a path to a place the catalogue no longer says it belongs. */
+		offered.filed = offered.present ? held->filed : 0;
 		*held = offered;
 		return FZN_CATALOG_OK;
 	}
@@ -243,6 +255,8 @@ const char *fzn_catalog_err_str(fzn_catalog_err_t err)
 		return "the assertion already held stands";
 	case FZN_CATALOG_ERR_SHAPE:
 		return "not a catalogue assertion";
+	case FZN_CATALOG_ERR_ABSENT:
+		return "no such membership";
 	}
 	return "unknown";
 }
@@ -540,4 +554,104 @@ fzn_catalog_err_t fzn_catalog_apply(fzn_catalog_t *catalog, fzn_record_t record)
 		 * ours, and saying so is different from calling it broken. */
 		return FZN_CATALOG_ERR_SHAPE;
 	}
+}
+
+/* ---- the filing --------------------------------------------------------- */
+
+fzn_catalog_err_t fzn_catalog_filing_root(fzn_catalog_t *catalog,
+                                          const fzn_catalog_id_t *root)
+{
+	if (!usable(catalog) || !root)
+		return FZN_CATALOG_ERR_MALFORMED;
+
+	catalog->filing_root = *root;
+	catalog->filing_root_set = 1;
+	return FZN_CATALOG_OK;
+}
+
+const fzn_catalog_id_t *fzn_catalog_filing_root_of(const fzn_catalog_t *catalog)
+{
+	if (!usable(catalog) || !catalog->filing_root_set)
+		return NULL;
+	return &catalog->filing_root;
+}
+
+fzn_catalog_err_t fzn_catalog_file_under(fzn_catalog_t *catalog,
+                                         const fzn_catalog_id_t *parent,
+                                         const fzn_catalog_id_t *child)
+{
+	fzn_catalog_edge_t *edge;
+	size_t i;
+
+	if (!usable(catalog) || !parent || !child)
+		return FZN_CATALOG_ERR_MALFORMED;
+
+	edge = find(catalog, parent, child);
+	/* A FILING IS A SUBSET OF THE MEMBERSHIP, so there must be an edge to
+	 * mark. Refused rather than created: a caller filing under a directory
+	 * the node does not belong to has the two out of step, and creating the
+	 * membership silently would make the disk layout the thing that decides
+	 * what the catalogue says. */
+	if (!edge || !edge->present)
+		return FZN_CATALOG_ERR_ABSENT;
+
+	/* EXACTLY ONCE, STRUCTURALLY. Every other filing of this child is
+	 * cleared as this one is set, so the invariant cannot be violated
+	 * rather than being checked afterwards by something somebody has to
+	 * remember to run. */
+	for (i = 0; i < catalog->used; i++) {
+		if (same_id(&catalog->edges[i].child, child))
+			catalog->edges[i].filed = 0;
+	}
+	edge->filed = 1;
+	return FZN_CATALOG_OK;
+}
+
+const fzn_catalog_id_t *fzn_catalog_filed_under(const fzn_catalog_t *catalog,
+                                                const fzn_catalog_id_t *child)
+{
+	size_t i;
+
+	if (!usable(catalog) || !child)
+		return NULL;
+
+	for (i = 0; i < catalog->used; i++) {
+		if (catalog->edges[i].filed && catalog->edges[i].present
+		    && same_id(&catalog->edges[i].child, child))
+			return &catalog->edges[i].parent;
+	}
+	return NULL;
+}
+
+size_t fzn_catalog_filed_path(const fzn_catalog_t *catalog, const fzn_catalog_id_t *node,
+                              fzn_catalog_id_t *out, size_t cap)
+{
+	fzn_catalog_id_t walk[FZN_CATALOG_FILING_MAX_DEPTH];
+	const fzn_catalog_id_t *at;
+	size_t depth = 0;
+	size_t i;
+
+	if (!usable(catalog) || !node || !out || cap == 0)
+		return 0;
+	if (!catalog->filing_root_set)
+		return 0;
+
+	/* Up from the node, collecting; the walk is BOUNDED rather than
+	 * trusted, because one filing slot per node makes a cycle expressible
+	 * and a bound cannot be forgotten the way a cycle check can. */
+	walk[depth++] = *node;
+	while (!same_id(&walk[depth - 1u], &catalog->filing_root)) {
+		at = fzn_catalog_filed_under(catalog, &walk[depth - 1u]);
+		if (!at)
+			return 0;
+		if (depth == FZN_CATALOG_FILING_MAX_DEPTH)
+			return 0;
+		walk[depth++] = *at;
+	}
+
+	/* Root first, which is the order a path is written and the order a
+	 * caller creates directories in. */
+	for (i = 0; i < depth && i < cap; i++)
+		out[i] = walk[depth - 1u - i];
+	return i;
 }
