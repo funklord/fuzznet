@@ -49,6 +49,7 @@
 #include "../../local/peer.h"
 #include "../../local/vocabulary.h"
 #include "../../provision/provision.h"
+#include "../../spool/plan.h"
 #include "../../spool/message.h"
 #include "../../spool/transfer.h"
 #include "../../spool/scrub.h"
@@ -4765,6 +4766,144 @@ static void scenario_provision_card(void)
 	       card_len, strlen(text));
 }
 
+/* ------------------------------------------------------------ scenario 28
+
+   WHAT TWO HOSTS ASK EACH OTHER FOR, AND WHAT A HOSTILE ASK BUYS.
+
+   `spool/plan.c` was the last zero on sec 124's worklist: two exported
+   functions, reached by scenarios only through `fzn_transfer_next_want` and
+   never called directly. project.md sec 25 records why they exist, and it is
+   not scheduling -- it is that a cheap message must not buy an expensive
+   answer, which `record/sync.c` had already learned the hard way:
+
+     "An absent position used to mean 'send me your whole history', so the
+      cheapest message in the protocol was the amplifier in it. A zero-length
+      digest bought 64 ranges over 32,768 records, at least 5 MB, from an
+      input with nothing in it."
+
+   The planners inherited all three of sync's rules rather than re-arguing
+   them, and this is the first time any of them is exercised between two
+   hosts rather than in a unit test.
+
+   NO CONTENT AND NO BACKEND, deliberately. `plan.h` says these are "policy
+   over the bitmap: no allocation, no I/O, no wire format", so the scenario
+   hands `fzn_spool_open` a bitmap that already has bits in it -- which is
+   the documented resume path, and `open` recomputes `have` from the bits
+   rather than trusting a caller. A fixture that placed real leaves would
+   exercise `blob/` and prove nothing more about these two.  */
+#define PL_LEAVES 32u
+
+static int pl_nop_read(void *c, uint64_t o, uint8_t *b, size_t n)
+{
+	(void)c; (void)o; (void)b; (void)n;
+	return 1;
+}
+
+static int pl_nop_write(void *c, uint64_t o, const uint8_t *b, size_t n)
+{
+	(void)c; (void)o; (void)b; (void)n;
+	return 1;
+}
+
+static void scenario_planners(void)
+{
+	static const fzn_spool_ops_t nops = { pl_nop_read, pl_nop_write, NULL, NULL };
+	static uint8_t mine[FZN_SPOOL_BITMAP_LEN(PL_LEAVES)];
+	static uint8_t theirs[FZN_SPOOL_BITMAP_LEN(PL_LEAVES)];
+	static uint8_t root[FZN_BLOB_HASH_LEN];
+	fzn_spool_t asker, answerer;
+	fzn_spool_range_t want[8], offer[8], hostile[2];
+	size_t want_count = 0, offer_count = 99u, honest_offer = 0, i;
+	uint64_t total = 0;
+
+	memset(root, 0x2b, sizeof(root));
+
+	/* The asker holds the first half, the answerer the second. Neither can
+	   complete alone and each has exactly what the other lacks. */
+	memset(mine, 0, sizeof(mine));
+	memset(theirs, 0, sizeof(theirs));
+	for (i = 0; i < 16u; i++)
+		mine[i / 8u] |= (uint8_t)(1u << (i % 8u));
+	for (i = 16u; i < PL_LEAVES; i++)
+		theirs[i / 8u] |= (uint8_t)(1u << (i % 8u));
+
+	check(fzn_spool_open(&asker, root, PL_LEAVES, mine, sizeof(mine), &nops)
+	              == FZN_SPOOL_OK,
+	      "the asking spool did not open over a resumed bitmap");
+	check(fzn_spool_open(&answerer, root, PL_LEAVES, theirs, sizeof(theirs), &nops)
+	              == FZN_SPOOL_OK,
+	      "the answering spool did not open");
+	check(asker.have == 16u && answerer.have == 16u,
+	      "open did not recompute `have` from the bits it was handed");
+
+	/* ---- 1. THE HONEST EXCHANGE. */
+	check(fzn_spool_plan_want(&asker, 0u, 8u, want, 8u, &want_count) == FZN_SPOOL_OK,
+	      "the asker could not plan what it lacks");
+	check(want_count > 0u, "a half-empty spool wanted nothing");
+	check(fzn_spool_plan_offer(&answerer, want, want_count, 64u, offer, 8u, &offer_count)
+	              == FZN_SPOOL_OK,
+	      "the answerer could not plan an offer");
+	check(offer_count > 0u,
+	      "the answerer offered nothing although it holds exactly what was asked for -- "
+	      "every refusal below would be indistinguishable from this");
+	/* KEPT SEPARATELY, because the summary line below printed
+	   `offer_count` and the last case to touch it is a REFUSAL, which
+	   leaves the sentinel 99 in place. That is a number in a report that
+	   was never measured -- the failure this tree spent an afternoon
+	   naming in somebody else's output -- and it was found by reading the
+	   line rather than the exit code. */
+	honest_offer = offer_count;
+
+	/* Everything offered must be something the answerer actually holds. */
+	for (i = 0; i < offer_count; i++) {
+		uint64_t k;
+
+		for (k = 0; k < offer[i].count; k++)
+			check(fzn_spool_has(&answerer, offer[i].first + k),
+			      "the answerer offered a leaf it does not hold");
+		total += offer[i].count;
+	}
+	check(total == 16u, "the offer does not cover exactly the half the asker lacks");
+
+	/* ---- 2. A REQUEST NAMING NOTHING GETS NOTHING. Sync's measured
+	   defect, inherited as a rule rather than as a warning. */
+	offer_count = 99u;
+	check(fzn_spool_plan_offer(&answerer, NULL, 0u, 64u, offer, 8u, &offer_count)
+	              == FZN_SPOOL_OK,
+	      "an empty want was an error rather than an answer");
+	check(offer_count == 0u,
+	      "an empty want bought ranges -- the cheapest message is the amplifier");
+
+	/* ---- 3. A CEILING, BECAUSE THE PEER CHOOSES THE NUMBER, and a range
+	   past the blob's end is CLIPPED rather than refused so that naming a
+	   trillion leaves costs a comparison. */
+	hostile[0].first = 0u;
+	hostile[0].count = 1000000000000ull;
+	offer_count = 99u;
+	check(fzn_spool_plan_offer(&answerer, hostile, 1u, 4u, offer, 8u, &offer_count)
+	              == FZN_SPOOL_OK,
+	      "a want naming a trillion leaves was an error rather than a clipped answer");
+	total = 0;
+	for (i = 0; i < offer_count; i++)
+		total += offer[i].count;
+	check(total <= 4u,
+	      "a trillion-leaf want bought more than the ceiling the answerer set");
+	check(total > 0u, "the ceiling refused everything, so it is not a ceiling");
+
+	/* ---- 4. ZERO IS REFUSED RATHER THAN MEANING UNLIMITED, which is the
+	   difference between a bound and a bug. */
+	offer_count = 99u;
+	check(fzn_spool_plan_offer(&answerer, want, want_count, 0u, offer, 8u, &offer_count)
+	              != FZN_SPOOL_OK,
+	      "a ceiling of zero was read as no ceiling");
+	check(fzn_spool_plan_want(&asker, 0u, 0u, want, 8u, &want_count) != FZN_SPOOL_OK,
+	      "a granularity of zero was read as no bound");
+
+	printf("  planners: %zu ranges wanted, %zu offered covering 16 leaves; empty want "
+	       "bought 0, trillion-leaf want bought at most 4\n",
+	       want_count, honest_offer);
+}
+
 static void scenario_estate(void)
 {
 	static struct sim_net net;
@@ -5523,6 +5662,7 @@ int main(void)
 	scenario_local_hop();
 	scenario_gui_to_peer();
 	scenario_provision_card();
+	scenario_planners();
 	scenario_estate();
 	scenario_tree();
 

@@ -22677,6 +22677,73 @@ the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
 
+## 126. What a hostile ask buys, which is the last zero, 2026-09-06
+
+`spool/plan.c` was the third and last genuine zero on sec 124's worklist:
+two exported functions, reached by scenarios only through
+`fzn_transfer_next_want` and never called directly.
+
+    planners: 2 ranges wanted, 2 offered covering 16 leaves;
+              empty want bought 0, trillion-leaf want bought at most 4
+
+Sec 25 records why they exist, and it is not scheduling -- a cheap message
+must not buy an expensive answer, which `record/sync.c` learned the hard way:
+*"a zero-length digest bought 64 ranges over 32,768 records, at least 5 MB,
+from an input with nothing in it."* The planners inherited all three of
+sync's rules rather than re-arguing them, and this is the first time any of
+them runs between two hosts.
+
+**No content and no backend, deliberately.** `plan.h` says these are "policy
+over the bitmap: no allocation, no I/O, no wire format", so the fixture hands
+`fzn_spool_open` a bitmap that already has bits in it -- the documented
+resume path, with `open` recomputing `have` rather than trusting a caller. A
+fixture that placed real leaves would exercise `blob/` and prove nothing more
+about these two.
+
+**The floor is that the honest exchange offers something.** Every refusal
+below it -- empty want, clipped want, refused ceiling -- is indistinguishable
+from a planner that answers nothing at all, so the scenario asserts a
+non-empty offer covering exactly the sixteen leaves the asker lacks before it
+asserts any refusal.
+
+### The property with no line to sabotage
+
+The empty want was the case worth attacking and there is nothing to remove:
+`plan_offer` iterates the want array, so zero wants is zero iterations, and
+the rule holds **by construction rather than by a guard.** That is the
+stronger design, and `plan.c` had already written it down --
+
+    "AND A WANT THAT NAMES NOTHING FALLS STRAIGHT OUT WITH NOTHING. There
+     is no special case for it below and there does not need to be -- the
+     loop runs zero times -- but it is the whole of `record/sync`'s
+     measured defect, so it is named here rather than left to be inferred
+     from the loop bound by whoever edits this next."
+
+-- so the library anticipated the finding and said so at the site. What the
+scenario adds is the assertion; what it cannot add is a sabotage, and saying
+which is the honest half.
+
+The ceiling IS a guard, and neutering the budget fires the trillion-leaf
+assertion exactly.
+
+### A sentinel printed as a measurement, in my own summary line
+
+The first run printed `2 ranges wanted, 99 offered`. Ninety-nine is the
+sentinel the scenario writes before each call, and the LAST case to touch
+`offer_count` is a refusal, which correctly leaves it untouched -- so the
+summary line reported a number no call had produced.
+
+**That is the failure this tree spent an afternoon naming in somebody else's
+output**, arriving in its own two sections later: a real run beside an
+invented label, indistinguishable from a measurement, and caught by reading
+the line rather than the exit code. The honest count is kept in its own
+variable now, with the reason beside it.
+
+**All three of sec 124's zeros are closed.** What remains are the thin ones
+-- `local/peer.c` 1/4, `session/commitment.c` 1/3, `chain/authz.c` 1/2,
+`frame/freshness.c` 2/4 -- which is the "then expand" half of the
+instruction.
+
 ## 125. The provisioning card, which had a story and no scenario, 2026-09-06
 
 Second of sec 124's simple passes, and the largest zero on its worklist:
