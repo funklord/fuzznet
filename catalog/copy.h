@@ -217,10 +217,13 @@ typedef struct fzn_catalog_copy {
  * by sec 147 and does not decide whether to fetch them; a catalogue with no
  * filing root at all produces exactly the same want list.
  *
- * FZN_CATALOG_ERR_BUSY while a refile holds the catalogue, which is sec 149's
- * rule that progress is the only question a refiling catalogue answers. A
- * want list computed mid-refile would be honest about the bytes and useless
- * about where they go.
+ * FZN_CATALOG_ERR_BUSY while ANY job holds the catalogue, which is sec 149's
+ * rule that progress is the only question a held catalogue answers. A want
+ * list computed mid-refile would be honest about the bytes and useless about
+ * where they go, and one computed mid-sweep would ask for bytes that are
+ * being deleted as it is written. sec 155 made the lock a kind rather than a
+ * refile flag; this reads it as the one bit it cares about, which is whether
+ * anybody holds it.
  *
  * `holdings` may be null, which means this host holds nothing yet -- the
  * state a host adopting a catalogue is actually in, and worth being the easy

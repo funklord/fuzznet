@@ -36,6 +36,7 @@
 /record/test/store_test
 /catalog/test/catalog_test
 /catalog/test/copy_test
+/catalog/test/sweep_test
 /record/test/store_file_test
 /cli/test/cli_test
 /gui/test/trust_view_test

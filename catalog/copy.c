@@ -82,7 +82,7 @@ static fzn_catalog_err_t walk(const fzn_catalog_t *catalog,
 		return FZN_CATALOG_ERR_MALFORMED;
 	/* sec 149: while a refile holds the catalogue, progress is the only
 	 * question it answers. */
-	if (catalog->refiling)
+	if (catalog->busy_with)
 		return FZN_CATALOG_ERR_BUSY;
 
 	for (i = 0; i < catalog->entry_used; i++) {
@@ -179,7 +179,7 @@ fzn_catalog_err_t fzn_catalog_copy_offer(const fzn_catalog_t *catalog,
 	memset(plan, 0, sizeof(*plan));
 	if (!catalog || (!out && out_cap > 0) || (!wants && want_count > 0))
 		return FZN_CATALOG_ERR_MALFORMED;
-	if (catalog->refiling)
+	if (catalog->busy_with)
 		return FZN_CATALOG_ERR_BUSY;
 
 	for (i = 0; i < want_count; i++) {

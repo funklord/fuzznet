@@ -88,10 +88,17 @@ typedef enum fzn_catalog_err {
 	 * not belong to has the filing and the DAG out of step, and saying so
 	 * is more use than quietly creating the edge. */
 	FZN_CATALOG_ERR_ABSENT = -5,
-	/* A refile is under way, and the only thing a catalogue answers then is
+	/* A JOB IS UNDER WAY, and the only thing a catalogue answers then is
 	 * progress. NOT A FAULT -- it is the expected reply to every other call
-	 * while files are being moved, and a consumer meeting it shows a
-	 * progress bar rather than a tree. project.md sec 148. */
+	 * while a refile is moving files (sec 148) or a sweep is removing them
+	 * (sec 155), and a consumer meeting it shows a progress bar rather than
+	 * a tree.
+	 *
+	 * ALSO WHAT A JOB SAYS TO ANOTHER JOB. Beginning a refile while a sweep
+	 * holds the catalogue answers this, and so does ending one job's hold
+	 * from the other's `end`. Same error because it is the same fact --
+	 * somebody else is working -- and the caller's next move is the same
+	 * either way, which is to wait. */
 	FZN_CATALOG_ERR_BUSY = -6,
 	/* The filesystem seam refused: a name the consumer would not give, or a
 	 * move it could not make. Kept apart from MALFORMED because the caller
@@ -207,10 +214,18 @@ typedef struct fzn_catalog {
 	size_t name_capacity;
 	size_t name_used;
 	const struct fzn_catalog_name_ops *name_resolve;
-	/* Whether a refile holds this catalogue. See the refile section: while
-	 * it is set, every call but progress and the refile's own answers
-	 * FZN_CATALOG_ERR_BUSY. */
-	int refiling;
+	/* WHICH JOB HOLDS THIS CATALOGUE, or FZN_CATALOG_JOB_NONE. While it is
+	 * set, every call but progress and that job's own answers
+	 * FZN_CATALOG_ERR_BUSY.
+	 *
+	 * IT WAS A REFILE FLAG AND BECAME A KIND, sec 155, when the sweep
+	 * needed the same exclusion. One field rather than two because two
+	 * flags can disagree, and because every existing check reads "a job
+	 * holds this" and needed no edit: the field was only ever tested for
+	 * truthiness or set to 0 and 1, at all twenty-five of its sites. What
+	 * the kind buys is that a job can only be ended by the job that
+	 * started it -- a sweep cannot be unlocked by `refile_end`. */
+	int busy_with;
 	/* The content table, or nulls when a consumer uses this as structure
 	 * only. See `fzn_catalog_content_init`. */
 	struct fzn_catalog_entry *entries;
@@ -627,6 +642,11 @@ size_t fzn_catalog_filed_path(const fzn_catalog_t *catalog, const fzn_catalog_id
  * job that is already under way is therefore NOT an error: it is what a
  * restart does.
  */
+
+/* What may hold a catalogue. `busy_with` carries one of these. */
+#define FZN_CATALOG_JOB_NONE 0
+#define FZN_CATALOG_JOB_REFILE 1
+#define FZN_CATALOG_JOB_SWEEP 2
 
 typedef struct fzn_catalog_move {
 	fzn_catalog_id_t node;

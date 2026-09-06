@@ -55,6 +55,7 @@
 #include <fuzznet/record/store.h>
 #include <fuzznet/catalog/catalog.h>
 #include <fuzznet/catalog/copy.h>
+#include <fuzznet/catalog/sweep.h>
 #include <fuzznet/blob/blob.h>
 #include <fuzznet/ratchet/ratchet.h>
 #include <fuzznet/prekey/prekey.h>
@@ -123,6 +124,7 @@
 #include "record/store.h"
 #include "catalog/catalog.h"
 #include "catalog/copy.h"
+#include "catalog/sweep.h"
 #include "blob/blob.h"
 #include "ratchet/ratchet.h"
 #include "prekey/prekey.h"

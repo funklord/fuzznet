@@ -159,7 +159,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
              chain/chain.c chain/revocation.c chain/manifest.c chain/authz.c \
              chain/chain_store.c chain/service.c claim/claim.c \
-             record/store.c catalog/catalog.c catalog/copy.c \
+             record/store.c catalog/catalog.c catalog/copy.c catalog/sweep.c \
              frame/freshness.c \
              blob/blob.c ratchet/ratchet.c prekey/prekey.c \
              provision/provision.c \
@@ -196,7 +196,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h local/vocabulary.h \
              chain/chain.h chain/revocation.h chain/manifest.h chain/authz.h \
              chain/chain_store.h chain/service.h claim/claim.h \
-             record/store.h catalog/catalog.h catalog/copy.h \
+             record/store.h catalog/catalog.h catalog/copy.h catalog/sweep.h \
              frame/freshness.h \
              blob/blob.h ratchet/ratchet.h prekey/prekey.h \
              provision/provision.h \
@@ -248,6 +248,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              claim/test/claim_test.c record/test/store_test.c \
              catalog/test/catalog_test.c \
              catalog/test/copy_test.c \
+             catalog/test/sweep_test.c \
              blob/test/blob_test.c ratchet/test/ratchet_test.c \
              prekey/test/prekey_test.c prekey/test/prekey_fuzz.c \
              provision/test/provision_fuzz.c \
@@ -316,6 +317,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/record/test/store_test \
              $(BUILD_DIR)/catalog/test/catalog_test \
              $(BUILD_DIR)/catalog/test/copy_test \
+             $(BUILD_DIR)/catalog/test/sweep_test \
              $(BUILD_DIR)/blob/test/blob_test \
              $(BUILD_DIR)/ratchet/test/ratchet_test \
              $(BUILD_DIR)/prekey/test/prekey_test \
@@ -1729,6 +1731,17 @@ $(BUILD_DIR)/catalog/test/catalog_test: $(BUILD_DIR)/catalog/test/catalog_test.o
 # seam for "do you have these bytes" rather than a blob store. sec 154. It
 # links catalog.o because the retention table it consults lives there.
 $(BUILD_DIR)/catalog/test/copy_test: $(BUILD_DIR)/catalog/test/copy_test.o \
+                                     $(BUILD_DIR)/catalog/copy.o \
+                                     $(BUILD_DIR)/catalog/catalog.o \
+                                     $(BUILD_DIR)/record/record.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# Planned deletion. sec 155. Links copy.o for the holdings seam it shares --
+# the deletion side of the same question about which host has which bytes.
+$(BUILD_DIR)/catalog/test/sweep_test: $(BUILD_DIR)/catalog/test/sweep_test.o \
+                                     $(BUILD_DIR)/catalog/sweep.o \
                                      $(BUILD_DIR)/catalog/copy.o \
                                      $(BUILD_DIR)/catalog/catalog.o \
                                      $(BUILD_DIR)/record/record.o \

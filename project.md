@@ -22870,6 +22870,188 @@ anything could have said otherwise.
 copyright holder should know the size before it happens rather than find it
 inside a commit about a widget.
 
+## 155. Planned deletion, and three ways to lose data tidying up, 2026-09-06
+
+The last of the copyright holder's three: "the cross host-copy of a catalog
+and its contents, and planned deletion." sec 154 brought bytes in; this takes
+them out.
+
+### Why it is planned rather than `unlink`
+
+sec 152 gave every host its own retention, so a node marked DROP is one whose
+bytes this host would like back. Acting on that as the mark is set gets three
+things wrong, and each is a way to lose data rather than a tidiness argument:
+
+- **A blob may be shared.** Several nodes over one blob is the reason a caller
+  chooses a blob over an inline value at all. Removing the bytes because one
+  node said DROP takes them from every node that still wants them, and the
+  catalogue goes on claiming they are there.
+- **This host may be the last that has them.** Retention is per-host by
+  design, which means "everybody dropped it" is a state the design permits and
+  nothing else prevents. A deletion that cannot ask how many other hosts hold
+  the bytes cannot tell tidying up from losing the only copy.
+- **Deleting is not resumable unless it was planned.** A consumer interrupted
+  part way through cannot reconstruct what it had decided: the marks it was
+  acting on are still there and the bytes it removed are not, and those two
+  facts do not distinguish done from half done.
+
+**So a sweep is the refile's shape, deliberately** -- capture, begin, at,
+advance, end, with progress throughout. Not imitation: the properties that
+made sec 148's refile sound are the ones a deletion needs, and a consumer that
+has learned one has learned both.
+
+### The decision is taken at capture and never again
+
+The lock is what makes the cursor mean anything. Nothing may change the
+catalogue or the retention table while a sweep runs, so the list cannot move
+underneath a count -- a sweep that re-asked its seams per step would be a
+different sweep at every step, and a restart could not resume it. That is
+sec 148's argument, and it is the same argument.
+
+The rows are sorted by node id, so the order is the same on every machine and
+after every restart whatever order the content table happens to be in. **The
+suite inserts its entries in descending order** so an unsorted job would come
+back in arrival order and fail, rather than passing by coincidence on a table
+that happened to be sorted already.
+
+### It removes bytes and never assertions
+
+The same category the retention table is in. Unlinking a node from the
+catalogue is an assertion that travels -- sec 144 -- and every host sees it.
+Removing the bytes is this host's own arrangement, exactly as the filing and
+the retention are, and it says nothing to anybody.
+
+A node whose bytes this host swept is still in the catalogue, still named,
+still fetchable from a peer that kept it. **So a sweep is reversible wherever
+anybody else kept a copy, and irreversible exactly where it is not** -- which
+is precisely what the witness seam exists to let a consumer refuse.
+
+### `min_others` is the caller's, and this library will not choose it
+
+How many copies are enough is a question about somebody's network, their
+peers' reliability and what the bytes are worth. A default here would be a
+number nobody chose applied to data nobody can get back.
+
+Zero means the caller takes responsibility and the witness seam is not
+consulted at all -- **right for a cache and wrong for the only copy of a
+photograph, and the caller is the one who knows which it has.** The suite
+asserts all three positions: zero sweeps everything, one holds back a blob
+with no witnesses, four holds back a blob with three.
+
+**An unanswerable seam says zero, which here refuses the deletion.** sec 154
+takes the same rule in the other direction, and it is one rule rather than
+two: *an unanswerable seam yields the conservative answer*, which for a fetch
+is "ask again" and for a deletion is "keep the bytes". A witness seam with no
+callback and no seam at all are both tested, because a half-filled ops struct
+is what a consumer actually produces.
+
+### One flag became a job kind, with a proof rather than a hope
+
+A sweep and a refile must not run together, and every mutator in `catalog.c`
+already refused while `refiling` was set. Two flags would be two things that
+can disagree, so the field became a kind -- NONE, REFILE, SWEEP -- and was
+renamed `busy_with`, since a field called `refiling` holding SWEEP is exactly
+the drift this tree does not keep.
+
+**The change is safe because of what the field was, and that was measured
+rather than assumed.** All twenty-five sites were a truthiness test or an
+assignment of 0 or 1:
+
+    grep for every use, then filter out the truthiness tests and the
+    0/1 assignments -- nothing was left
+
+So every existing `if (catalog->busy_with)` still reads "a job holds this" and
+needed no edit. What the kind buys is the half a bare flag cannot do: **a job
+can only be ended by the job that started it**. With one flag, `refile_end`
+would unlock a catalogue a sweep was holding, silently, mid-sweep. There is a
+case for it and a sabotage that removes the check.
+
+**The rename reached the sabotage anchors, and `--verify` is what said so.**
+Five entries quoted `catalog->refiling` in their anchor text, and a stale
+anchor reports a guard as defended without testing it. The verify pass named
+all five by id before anything was built.
+
+### Proved by breaking them, and one survived
+
+Five entries, and the fifth is the one worth the section.
+
+    sweep-shared-blob               planned 2 where one node still needs it
+    sweep-last-copy                 the blob with no witnesses was planned
+    sweep-witness-absent-is-zero    a null seam read as witnesses
+    sweep-sorted-cursor             the removals came back unsorted
+    sweep-not-ended-by-another-job  SURVIVED
+
+**The test named the hazard exactly and reached it by the wrong path.** It
+asserted `refile_end` answers BUSY while a sweep holds the catalogue -- which
+it did, and not for the reason under test: the refile job it had captured
+still had work outstanding, so `refile_end` refused at its "work remains"
+check and never reached the job-kind guard at all. Deleting that guard left
+the suite green.
+
+The fix is one line of setup: do not file the node, so the refile job captures
+zero moves, `done == used` from the start, and the kind guard is the only
+thing that can refuse. A `REQUIRE(refile.done == refile.used)` sits above the
+assertion now, so the case fails loudly if it ever stops being able to reach
+what it tests rather than passing for the old reason again.
+
+This is *a test can name the hazard exactly and cover only the safe path*,
+and nothing but breaking the code says which. Four of five were caught by the
+case written for them; the one that was not looked exactly like the others.
+
+### The harness described a directory and matched a stem
+
+Found by the same run, and it had made the survivor harder to read. The
+reporting picks which failure line to show, and its comment says it prefers
+"a suite under the same top-level directory as the sabotaged source". The code
+matched the STEM -- `<dir>/<stem>_test.c` -- so a guard in `catalog/catalog.c`
+caught by `catalog/test/sweep_test.c` missed that rung entirely and fell back
+to the LAST failure anywhere, three lines past the assertion written for it.
+
+Three rungs now: the file's own suite, then any suite under the same
+`<dir>/test/`, then the FIRST failure anywhere rather than the last -- a run's
+first refusal is nearer the cause than its last, and both are arbitrary with
+respect to the broken file. It reports line 475 instead of 481.
+
+**The comment had been right all along and only the code disagreed**, which is
+the reverse of the usual staleness: a paragraph describing what the author
+meant, sitting above an implementation that did something narrower, with
+nothing to make them meet until a case fell in the gap.
+
+### A renderer that named one of two jobs
+
+`fzn_catalog_err_str` rendered FZN_CATALOG_ERR_BUSY as "a refile is under
+way", which stopped being true the moment a sweep could hold the catalogue.
+It is "a job holds this catalogue" now.
+
+Worth a line because of where it would have surfaced: an error string is what
+a consumer prints when something it did not expect happened, so a wrong one
+sends whoever reads the log looking for a refile that is not running. Nothing
+tests the WORDING of these -- `err_str_test` counts the codes each renderer
+walks and would have passed either way -- so this is the class *a diagnostic
+no test produces* names, found by reading rather than by a gate.
+
+### What is not here, and why guessing would delete something
+
+**Reachability is not consulted.** A node no longer linked from anywhere is
+not swept unless retention says to drop it.
+
+That is a real gap and it is left open deliberately: collecting unreachable
+nodes has a hazard this does not, because **an edge that has not arrived yet
+makes a live node look orphaned.** A host that swept on reachability would
+delete on the strength of a record it has not received -- and in a system
+whose whole shape is "ask again next round", not having a record yet is the
+ordinary state rather than the exceptional one. Closing it needs something
+that distinguishes "nobody links this" from "I have not caught up", and that
+is a design question rather than a walk.
+
+**A schedule is the other open half.** "Planned deletion" was read here as a
+deletion that is planned -- computed, safe, resumable, observable. It could
+also mean a deletion scheduled for a future time, which retention has no
+vocabulary for: DEFAULT, KEEP and DROP say what, never when. Adding *when*
+would be a fourth thing on the retention row and is the holder's call, not
+one to take while building the mechanism. The mechanism is needed under either
+reading, which is why it was built first.
+
 ## 154. The cross-host copy, and a fact that is not an intention, 2026-09-06
 
 The copyright holder, after sec 152 built retention: "Then we implement the

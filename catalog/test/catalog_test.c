@@ -976,15 +976,15 @@ static void test_a_node_is_filed_in_exactly_one_of_its_sets(void)
 
 	/* Filing it elsewhere MOVES it rather than adding a second place. */
 	CHECK(fzn_catalog_file_under(&cat, idp(0x21), idp(0x10)) == FZN_CATALOG_OK,
-	      "refiling was refused");
+	      "busy_with was refused");
 	at = fzn_catalog_filed_under(&cat, idp(0x10));
-	REQUIRE(at != NULL, "the refiling lost the node");
-	CHECK(memcmp(at->b, idp(0x21)->b, FZN_CATALOG_ID_LEN) == 0, "the refiling did not move it");
+	REQUIRE(at != NULL, "the busy_with lost the node");
+	CHECK(memcmp(at->b, idp(0x21)->b, FZN_CATALOG_ID_LEN) == 0, "the busy_with did not move it");
 
 	/* AND THE MEMBERSHIPS ARE BOTH STILL THERE. A filing says where bytes
 	 * live; it does not narrow what the catalogue says. */
 	CHECK(fzn_catalog_linked(&cat, idp(0x20), idp(0x10)),
-	      "refiling removed the membership it moved away from");
+	      "busy_with removed the membership it moved away from");
 	CHECK(fzn_catalog_linked(&cat, idp(0x21), idp(0x10)), "the new membership went missing");
 }
 

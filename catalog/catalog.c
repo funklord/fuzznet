@@ -94,7 +94,7 @@ fzn_catalog_err_t fzn_catalog_init(fzn_catalog_t *catalog, fzn_catalog_edge_t *e
 	 * later reader to rediscover it and delete a line as dead. */
 	/* No filing root until a caller names one, so every path query refuses
 	 * rather than this module inventing one. */
-	catalog->refiling = 0;
+	catalog->busy_with = FZN_CATALOG_JOB_NONE;
 	catalog->holds = NULL;
 	catalog->hold_capacity = 0;
 	catalog->hold_used = 0;
@@ -125,7 +125,7 @@ fzn_catalog_err_t fzn_catalog_assert(fzn_catalog_t *catalog, const fzn_catalog_i
 
 	if (!usable(catalog) || !parent || !child || !issuer)
 		return FZN_CATALOG_ERR_MALFORMED;
-	if (catalog->refiling)
+	if (catalog->busy_with)
 		return FZN_CATALOG_ERR_BUSY;
 	/* A set cannot contain itself. Refused rather than stored, because the
 	 * one query that would then be wrong -- `fzn_catalog_members` listing a
@@ -174,7 +174,7 @@ const fzn_catalog_edge_t *fzn_catalog_edge_of(const fzn_catalog_t *catalog,
                                               const fzn_catalog_id_t *parent,
                                               const fzn_catalog_id_t *child)
 {
-	if (catalog && catalog->refiling)
+	if (catalog && catalog->busy_with)
 		return NULL;
 	if (!usable(catalog) || !parent || !child)
 		return NULL;
@@ -187,7 +187,7 @@ int fzn_catalog_linked(const fzn_catalog_t *catalog, const fzn_catalog_id_t *par
 	/* Even a read: the holder's requirement is that the only thing a
 	 * catalogue answers mid-refile is progress, so a consumer draws a bar
 	 * rather than a tree that is half moved. */
-	if (catalog && catalog->refiling)
+	if (catalog && catalog->busy_with)
 		return 0;
 	const fzn_catalog_edge_t *edge = fzn_catalog_edge_of(catalog, parent, child);
 
@@ -200,7 +200,7 @@ size_t fzn_catalog_members(const fzn_catalog_t *catalog, const fzn_catalog_id_t 
 	size_t i;
 	size_t at = 0;
 
-	if (catalog && catalog->refiling)
+	if (catalog && catalog->busy_with)
 		return 0;
 	if (!usable(catalog) || !parent || !out)
 		return 0;
@@ -221,7 +221,7 @@ size_t fzn_catalog_parents(const fzn_catalog_t *catalog, const fzn_catalog_id_t 
 	size_t i;
 	size_t at = 0;
 
-	if (catalog && catalog->refiling)
+	if (catalog && catalog->busy_with)
 		return 0;
 	if (!usable(catalog) || !child || !out)
 		return 0;
@@ -242,7 +242,7 @@ size_t fzn_catalog_intersect(const fzn_catalog_t *catalog, const fzn_catalog_id_
 	size_t i, j;
 	size_t at = 0;
 
-	if (catalog && catalog->refiling)
+	if (catalog && catalog->busy_with)
 		return 0;
 	if (!usable(catalog) || !parents || !out || parent_count == 0)
 		return 0;
@@ -285,7 +285,7 @@ const char *fzn_catalog_err_str(fzn_catalog_err_t err)
 	case FZN_CATALOG_ERR_ABSENT:
 		return "no such membership";
 	case FZN_CATALOG_ERR_BUSY:
-		return "a refile is under way";
+		return "a job holds this catalogue";
 	case FZN_CATALOG_ERR_BACKEND:
 		return "the filesystem seam refused";
 	case FZN_CATALOG_ERR_PATH:
@@ -358,7 +358,7 @@ fzn_catalog_err_t fzn_catalog_content_set(fzn_catalog_t *catalog,
 
 	if (!content_usable(catalog) || !entry)
 		return FZN_CATALOG_ERR_MALFORMED;
-	if (catalog->refiling)
+	if (catalog->busy_with)
 		return FZN_CATALOG_ERR_BUSY;
 
 	switch (entry->kind) {
@@ -409,7 +409,7 @@ fzn_catalog_err_t fzn_catalog_content_set(fzn_catalog_t *catalog,
 const fzn_catalog_entry_t *fzn_catalog_content_of(const fzn_catalog_t *catalog,
                                                   const fzn_catalog_id_t *id)
 {
-	if (catalog && catalog->refiling)
+	if (catalog && catalog->busy_with)
 		return NULL;
 	if (!content_usable(catalog) || !id)
 		return NULL;
@@ -577,7 +577,7 @@ fzn_catalog_err_t fzn_catalog_apply(fzn_catalog_t *catalog, fzn_record_t record)
 	/* A PEER'S RECORD WAITS. The catalogue is being rearranged on disk and
 	 * a membership arriving mid-refile would change the set the cursor is
 	 * counting through. A consumer holds it and applies it after. */
-	if (catalog->refiling)
+	if (catalog->busy_with)
 		return FZN_CATALOG_ERR_BUSY;
 	/* A view that was never opened has no accessors to read, so this is
 	 * refused before any of them is called. */
@@ -613,7 +613,7 @@ fzn_catalog_err_t fzn_catalog_filing_root(fzn_catalog_t *catalog,
 {
 	if (!usable(catalog) || !root)
 		return FZN_CATALOG_ERR_MALFORMED;
-	if (catalog->refiling)
+	if (catalog->busy_with)
 		return FZN_CATALOG_ERR_BUSY;
 
 	catalog->filing_root = *root;
@@ -637,7 +637,7 @@ fzn_catalog_err_t fzn_catalog_file_under(fzn_catalog_t *catalog,
 
 	if (!usable(catalog) || !parent || !child)
 		return FZN_CATALOG_ERR_MALFORMED;
-	if (catalog->refiling)
+	if (catalog->busy_with)
 		return FZN_CATALOG_ERR_BUSY;
 
 	edge = find(catalog, parent, child);
@@ -716,7 +716,7 @@ static size_t filed_path_locked(const fzn_catalog_t *catalog, const fzn_catalog_
 size_t fzn_catalog_filed_path(const fzn_catalog_t *catalog, const fzn_catalog_id_t *node,
                               fzn_catalog_id_t *out, size_t cap)
 {
-	if (catalog && catalog->refiling)
+	if (catalog && catalog->busy_with)
 		return 0;
 	return filed_path_locked(catalog, node, out, cap);
 }
@@ -740,7 +740,7 @@ fzn_catalog_err_t fzn_catalog_refile_capture(const fzn_catalog_t *catalog,
 
 	if (!usable(catalog) || !job || !moves || capacity == 0)
 		return FZN_CATALOG_ERR_MALFORMED;
-	if (catalog->refiling)
+	if (catalog->busy_with)
 		return FZN_CATALOG_ERR_BUSY;
 	/* Nothing to move files FROM. A capture without a root would produce a
 	 * job whose old paths are all empty, which reads as "every file is
@@ -783,11 +783,16 @@ fzn_catalog_err_t fzn_catalog_refile_begin(fzn_catalog_t *catalog, fzn_catalog_r
 	if (!usable(catalog) || !job || !job->captured)
 		return FZN_CATALOG_ERR_MALFORMED;
 
+	/* ANOTHER JOB'S LOCK IS NOT THIS ONE'S TO TAKE. sec 155. */
+	if (catalog->busy_with != FZN_CATALOG_JOB_NONE &&
+	    catalog->busy_with != FZN_CATALOG_JOB_REFILE)
+		return FZN_CATALOG_ERR_BUSY;
+
 	/* IDEMPOTENT, BECAUSE A RESTART CALLS IT AGAIN. A consumer that
 	 * crashed mid-refile reloads the job from disk and begins the same one;
 	 * refusing here would make a crash unrecoverable by the very path that
 	 * exists to recover from it. */
-	catalog->refiling = 1;
+	catalog->busy_with = FZN_CATALOG_JOB_REFILE;
 	return FZN_CATALOG_OK;
 }
 
@@ -878,8 +883,14 @@ fzn_catalog_err_t fzn_catalog_refile_end(fzn_catalog_t *catalog, fzn_catalog_ref
 	 * and the next reader would be told a tree that is not on the disk. */
 	if (job->done < job->used)
 		return FZN_CATALOG_ERR_BUSY;
+	/* AND A JOB IS ENDED BY THE JOB THAT STARTED IT. sec 155: with one
+	 * field carrying the kind, `refile_end` on a swept catalogue would
+	 * otherwise unlock somebody else's work. */
+	if (catalog->busy_with != FZN_CATALOG_JOB_NONE &&
+	    catalog->busy_with != FZN_CATALOG_JOB_REFILE)
+		return FZN_CATALOG_ERR_BUSY;
 
-	catalog->refiling = 0;
+	catalog->busy_with = FZN_CATALOG_JOB_NONE;
 	return FZN_CATALOG_OK;
 }
 
@@ -1077,7 +1088,7 @@ fzn_catalog_err_t fzn_catalog_name_set(fzn_catalog_t *catalog, const fzn_catalog
 
 	if (!name_usable(catalog) || !name)
 		return FZN_CATALOG_ERR_MALFORMED;
-	if (catalog->refiling)
+	if (catalog->busy_with)
 		return FZN_CATALOG_ERR_BUSY;
 
 	err = usable_name(name->text, name->len);
@@ -1104,7 +1115,7 @@ const fzn_catalog_name_t *fzn_catalog_name_of(const fzn_catalog_t *catalog,
 {
 	if (!name_usable(catalog) || !id)
 		return NULL;
-	if (catalog->refiling)
+	if (catalog->busy_with)
 		return NULL;
 	return find_name(catalog, id);
 }
@@ -1229,7 +1240,7 @@ fzn_catalog_err_t fzn_catalog_retain_all(fzn_catalog_t *catalog, int keep)
 {
 	if (!usable(catalog))
 		return FZN_CATALOG_ERR_MALFORMED;
-	if (catalog->refiling)
+	if (catalog->busy_with)
 		return FZN_CATALOG_ERR_BUSY;
 
 	catalog->retain_default = keep ? 1 : 0;
@@ -1243,7 +1254,7 @@ fzn_catalog_err_t fzn_catalog_retain(fzn_catalog_t *catalog, const fzn_catalog_i
 
 	if (!hold_usable(catalog) || !node)
 		return FZN_CATALOG_ERR_MALFORMED;
-	if (catalog->refiling)
+	if (catalog->busy_with)
 		return FZN_CATALOG_ERR_BUSY;
 	if (mode != FZN_CATALOG_RETAIN_DEFAULT && mode != FZN_CATALOG_RETAIN_KEEP
 	    && mode != FZN_CATALOG_RETAIN_DROP)

@@ -527,7 +527,7 @@ static void test_a_refile_holds_the_copy_layer_too(void)
 	/* Reach through the flag rather than driving a whole refile: what is
 	 * under test is that the copy layer honours the hold, not that a
 	 * refile sets it -- catalog_test.c already covers the second. */
-	cat.refiling = 1;
+	cat.busy_with = FZN_CATALOG_JOB_REFILE;
 	CHECK(fzn_catalog_copy_want(&cat, NULL, out, 4, &plan) == FZN_CATALOG_ERR_BUSY,
 	      "a want list was computed while a refile held the catalogue");
 	CHECK(fzn_catalog_copy_holdings(&cat, NULL, out, 4, &plan) == FZN_CATALOG_ERR_BUSY,
@@ -536,7 +536,19 @@ static void test_a_refile_holds_the_copy_layer_too(void)
 	CHECK(fzn_catalog_copy_offer(&cat, NULL, wants, 1, out, 4, &plan) ==
 	              FZN_CATALOG_ERR_BUSY,
 	      "an offer was served while a refile held the catalogue");
-	cat.refiling = 0;
+	cat.busy_with = FZN_CATALOG_JOB_NONE;
+
+	/* AND A SWEEP HOLDS IT JUST AS A REFILE DOES. sec 155 made the field a
+	 * kind; the copy layer reads only whether anybody holds it, and a want
+	 * list computed mid-sweep would ask for bytes being deleted as it is
+	 * written. */
+	cat.busy_with = FZN_CATALOG_JOB_SWEEP;
+	CHECK(fzn_catalog_copy_want(&cat, NULL, out, 4, &plan) == FZN_CATALOG_ERR_BUSY,
+	      "a want list was computed while a sweep held the catalogue");
+	CHECK(fzn_catalog_copy_offer(&cat, NULL, wants, 1, out, 4, &plan) ==
+	              FZN_CATALOG_ERR_BUSY,
+	      "an offer was served while a sweep held the catalogue");
+	cat.busy_with = FZN_CATALOG_JOB_NONE;
 }
 
 /* A PLAN IS ZEROED BEFORE THE ARGUMENTS ARE CHECKED, so a caller that reads

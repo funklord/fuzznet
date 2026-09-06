@@ -1329,21 +1329,21 @@ SABOTAGES = [
 	(
 		"refile-locks-out-writes",
 		"catalog/catalog.c",
-		"\tif (catalog->refiling)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n\t/* A set cannot contain itself.",
+		"\tif (catalog->busy_with)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n\t/* A set cannot contain itself.",
 		"\tif (0)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n\t/* A set cannot contain itself.",
 		"the only thing a catalogue answers mid-refile is progress, and a membership arriving then changes the set the resume cursor is counting through",
 	),
 	(
 		"refile-locks-out-reads",
 		"catalog/catalog.c",
-		"\tif (catalog && catalog->refiling)\n\t\treturn NULL;\n\tif (!usable(catalog) || !parent || !child)\n",
+		"\tif (catalog && catalog->busy_with)\n\t\treturn NULL;\n\tif (!usable(catalog) || !parent || !child)\n",
 		"\tif (0)\n\t\treturn NULL;\n\tif (!usable(catalog) || !parent || !child)\n",
 		"a consumer draws a progress bar rather than a tree that is half moved, so even a read refuses -- and this is the guard the others delegate to",
 	),
 	(
 		"refile-locks-out-peers",
 		"catalog/catalog.c",
-		"\t * counting through. A consumer holds it and applies it after. */\n\tif (catalog->refiling)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n",
+		"\t * counting through. A consumer holds it and applies it after. */\n\tif (catalog->busy_with)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n",
 		"\t * counting through. A consumer holds it and applies it after. */\n\tif (0)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n",
 		"refusing before the body is parsed is what makes this guard its own rather than a second copy of assert's: without it a body that is not ours is classified mid-refile",
 	),
@@ -1512,7 +1512,7 @@ SABOTAGES = [
 	(
 		"retain-respects-the-refile-lock",
 		"catalog/catalog.c",
-		"\tif (catalog->refiling)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n\tif (mode != FZN_CATALOG_RETAIN_DEFAULT",
+		"\tif (catalog->busy_with)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n\tif (mode != FZN_CATALOG_RETAIN_DEFAULT",
 		"\tif (0)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n\tif (mode != FZN_CATALOG_RETAIN_DEFAULT",
 		"sec 148: the only thing a catalogue answers mid-refile is progress, and retention is a write like any other",
 	),
@@ -2111,7 +2111,7 @@ SABOTAGES = [
 	(
 		"copy-refile-busy",
 		"catalog/copy.c",
-		"\tif (catalog->refiling)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n\n\tfor (i = 0; i < catalog->entry_used; i++) {\n",
+		"\tif (catalog->busy_with)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n\n\tfor (i = 0; i < catalog->entry_used; i++) {\n",
 		"\tfor (i = 0; i < catalog->entry_used; i++) {\n",
 		"a refiling catalogue answers progress and nothing else, sec 149, and "
 		"the copy layer is bound by that like everything else",
@@ -2123,6 +2123,51 @@ SABOTAGES = [
 		"\tif (!holdings || !holdings->holds)\n\t\treturn 1;\n",
 		"a seam that cannot answer must not be read as holding the bytes, or "
 		"a host advertises what it cannot serve",
+	),
+	# BATCH THIRTEEN, 2026-09-06: planned deletion, sec 155. Every entry
+	# here guards a way of losing data rather than a way of being untidy,
+	# which is why the module exists at all: deleting one file at a time as
+	# a mark is set gets each of these wrong, and none of them announces
+	# itself afterwards.
+	(
+		"sweep-shared-blob",
+		"catalog/sweep.c",
+		"\t\tif (fzn_catalog_keeps(catalog, &entry->id))\n\t\t\treturn 1;\n",
+		"\t\t(void)0;\n",
+		"a blob a retained node still needs must survive another node "
+		"dropping it, since sharing is the reason to choose a blob at all",
+	),
+	(
+		"sweep-last-copy",
+		"catalog/sweep.c",
+		"\t\tif (min_others > 0 &&\n\t\t    others_holding(witness, entry->root, entry->blob_len) < min_others) {\n\t\t\tplan->last_copy++;\n\t\t\tcontinue;\n\t\t}\n",
+		"\t\t/* sabotage */\n",
+		"the last known copy must not be deleted, because retention is "
+		"per-host and everybody dropping it is a state the design permits",
+	),
+	(
+		"sweep-witness-absent-is-zero",
+		"catalog/sweep.c",
+		"\tif (!witness || !witness->others)\n\t\treturn 0;\n",
+		"\tif (!witness || !witness->others)\n\t\treturn (size_t)-1;\n",
+		"a witness seam that cannot answer must refuse the deletion rather "
+		"than licensing it on an answer nobody gave",
+	),
+	(
+		"sweep-sorted-cursor",
+		"catalog/sweep.c",
+		"\twhile (at > 0 && memcmp(rows[at - 1].node.b, row->node.b, FZN_CATALOG_ID_LEN) > 0) {",
+		"\twhile (0) {",
+		"the removals must be sorted by node id, or a cursor into them "
+		"resumes somewhere else on another machine",
+	),
+	(
+		"sweep-not-ended-by-another-job",
+		"catalog/catalog.c",
+		"\tif (catalog->busy_with != FZN_CATALOG_JOB_NONE &&\n\t    catalog->busy_with != FZN_CATALOG_JOB_REFILE)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n\n\tcatalog->busy_with = FZN_CATALOG_JOB_NONE;\n",
+		"\tcatalog->busy_with = FZN_CATALOG_JOB_NONE;\n",
+		"a job is ended by the job that started it, or refile_end hands away "
+		"a catalogue a sweep is holding",
 	),
 ]
 
@@ -2537,22 +2582,44 @@ def main(argv):
 				# is the first to say so. The report sent a reader to
 				# the wrong file.
 				#
-				# So it now shows a line from a suite under the same
+				# So it shows a line from a suite under the same
 				# top-level directory as the sabotaged source when
 				# there is one. When there is NOT, the line shown is
-				# still another module's, and that is now informative
+				# still another module's, and that is informative
 				# rather than misleading: it says no test in this
 				# module's own suite caught it, which is a gap worth
 				# seeing.
-				# The suite named for the sabotaged file, by this
-				# tree's convention that `<dir>/<stem>.c` is covered
-				# by `<dir>/test/<stem>_test.c`. A module with
-				# several suites falls back, which is correct: the
-				# fallback is only misleading when the module's own
-				# suite is silent, and that is the case worth seeing.
+				#
+				# THREE RUNGS, BECAUSE THE PARAGRAPH ABOVE DESCRIBED
+				# A DIRECTORY AND THE CODE MATCHED A STEM. That gap
+				# cost a real report on 2026-09-06: breaking a guard
+				# in `catalog/catalog.c` is caught by
+				# `catalog/test/sweep_test.c`, whose stem is not
+				# `catalog_test.c`, so the same-stem rung missed and
+				# the fallback showed the LAST failure anywhere --
+				# three lines below the assertion written for the
+				# guard. The comment had said "same directory" all
+				# along; only the code disagreed.
+				#
+				#   1. the suite named for the file, by this tree's
+				#      convention that `<dir>/<stem>.c` is covered by
+				#      `<dir>/test/<stem>_test.c`
+				#   2. any suite under the same `<dir>/test/`, which
+				#      is what the paragraph above always meant
+				#   3. the FIRST failure anywhere, not the last: a
+				#      run's first refusal is nearer the cause than
+				#      its last, and both are arbitrary with respect
+				#      to the broken file
 				stem = os.path.basename(rel)[:-2] + "_test.c"
 				mine = [ln for ln in named if stem in ln]
-				detail = (mine[0] if mine else named[-1]).strip()[:70] if named else ""
+				if not mine:
+					here = os.path.join(os.path.dirname(rel), "test")
+					siblings = [f for f in os.listdir(here)
+					            if f.endswith("_test.c")] \
+						if os.path.isdir(here) else []
+					mine = [ln for ln in named
+					        if any(sib in ln for sib in siblings)]
+				detail = (mine[0] if mine else named[0]).strip()[:70] if named else ""
 			results.append((sid, verdict, detail or why))
 			print("%-24s %-9s %s" % (sid, verdict, detail), flush=True)
 	finally:
