@@ -22722,6 +22722,72 @@ the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
 
+## 130. hydra will want `state/`, and it arrives at a different scale, 2026-09-06
+
+**Written from hydra, and everything below is that tree's shape rather than a
+claim about this one.** Relayed here rather than acted on, per
+`harmonization.md`: hydra found the need and this library owns the mechanism.
+
+The copyright holder stopped a subscription feature in hydra part-way through,
+with the reasoning that decides where it lives:
+
+> this kind of subscription and anything we may decide to do with it (that
+> works) will probably be generic enough that it should be in fuzznet and
+> likely useful for other purposes and projects ... which incidentally might
+> be a great way to propagate tabs and certain other config to other hosts too
+
+So hydra is a prospective consumer of `state/` and `record/`, in three phases
+it named: one person's own hosts first, then trusted people, then a global
+scheme. Nothing is asked for yet -- what follows is the shape, so that when it
+is asked for it is not designed from a summary.
+
+### What hydra would carry
+
+Four kinds, all of them already the `(issuer, subject, kind, body)` object
+sec 5c describes:
+
+    ad-filter rules     "||ads.example^", tens of thousands, third-party
+    consent rules       a regex per site, hundreds, third-party
+    site policy         per-site permission answers, tens, the person's own
+    the tab tree        one document, the person's own, changes constantly
+
+The first two are somebody else's and are the ones the phases are about. The
+last two are the person's own across their own machines, and are the case the
+holder called "incidentally" -- which is the easy one, since there is no trust
+question when every writer is the same person.
+
+### Three things hydra's use would ask of `state/`, none of them settled here
+
+- **Scale.** A filter subscription is 25,000 records that arrive together and
+  are then read on **every network request** -- hydra measured its own indexed
+  matcher at 3.4us per request over that many rules, and anything in front of
+  it has to be of that order. `state/` resolving "what is true now" per record
+  is the right question at permission volumes; whether it is at this one is
+  fuzznet's to answer, and hydra has no view.
+- **Withdrawal by issuer.** hydra's ingestion already records where every
+  imported rule came from and can drop all of one origin's rules at once,
+  because that is the only lever it has against a publisher who turns out to
+  be wrong. Whether "forget everything from issuer X" is a `state/` operation
+  or a consumer's own bookkeeping is a real question and hydra does not know
+  the answer.
+- **Two issuers agreeing is not a conflict.** sec 5c says a statement from a
+  different issuer about something already set is a conflict. For filters it
+  usually is not: two publishers both blocking `ads.example` is agreement, and
+  a person subscribing to both wants the union rather than an error. That
+  suggests hydra's records would be keyed per issuer rather than sharing a
+  subject -- worth saying out loud, because if that is a misuse of the model
+  this is the moment to hear so.
+
+### And one thing hydra found that is not fuzznet's problem but bears on the transport
+
+hydra's filter engine implements no exception rules (`@@||x^`) and reads no
+rule options (`$script,third-party`). A list carrying them, replicated
+faithfully, would make that browser block **more** than the list's author
+intended. That is hydra's to fix at ingestion and it is recorded there; it is
+mentioned here only because it is the reason "just replicate the bytes" is not
+sufficient for this consumer -- something has to refuse what it cannot honour,
+and hydra believes that something is itself rather than the transport.
+
 ## 129. The service namespace is mandatory, and the product filter, 2026-09-06
 
 Directed by the copyright holder 2026-09-06: **make the service namespace
