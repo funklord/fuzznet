@@ -51,6 +51,7 @@
 #include <fuzznet/chain/authz.h>
 #include <fuzznet/chain/chain_store.h>
 #include <fuzznet/chain/service.h>
+#include <fuzznet/claim/claim.h>
 #include <fuzznet/blob/blob.h>
 #include <fuzznet/ratchet/ratchet.h>
 #include <fuzznet/prekey/prekey.h>
@@ -75,6 +76,9 @@
 #endif
 #ifdef FZN_SPOOL_FILE_ON
 #include <fuzznet/spool/spool_file.h>
+#endif
+#ifdef FZN_CLAIM_FILE_ON
+#include <fuzznet/claim/claim_file.h>
 #endif
 #include <fuzznet/chain/revocation.h>
 #include <fuzznet/chunk/reassembly.h>
@@ -106,6 +110,7 @@
 #include "chain/authz.h"
 #include "chain/chain_store.h"
 #include "chain/service.h"
+#include "claim/claim.h"
 #include "blob/blob.h"
 #include "ratchet/ratchet.h"
 #include "prekey/prekey.h"
@@ -124,6 +129,9 @@
 #endif
 #ifdef FZN_SPOOL_FILE_ON
 #include "spool/spool_file.h"
+#endif
+#ifdef FZN_CLAIM_FILE_ON
+#include "claim/claim_file.h"
 #endif
 #include "chain/revocation.h"
 #include "chunk/reassembly.h"

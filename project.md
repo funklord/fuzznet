@@ -5867,6 +5867,7 @@ somebody to notice.
 | `chain/authz.h` | verification, delegation, revocation, manifests, authz |
 | `chain/chain_store.h` | where a verified chain lives until it is needed |
 | `chain/service.h` | the service a capability must name, and the product filter |
+| `claim/claim.h` | which process owns the identity's mutable state |
 | `record/ledger.h` | what each peer has confirmed holding, per subject |
 | `chunk/reassembly.h` | split and reassembly |
 | `disclose/disclose.h` | one signature over many fields, some shown |
@@ -22787,6 +22788,127 @@ intended. That is hydra's to fix at ingestion and it is recorded there; it is
 mentioned here only because it is the reason "just replicate the bytes" is not
 sufficient for this consumer -- something has to refuse what it cannot honour,
 and hydra believes that something is itself rather than the transport.
+
+## 133. The claim, built -- and what it costs a process that is alone, 2026-09-06
+
+The copyright holder added an advantage to sec 132 and then a condition:
+**fuzzypickles' GUI would not need its daemon functionality removed -- it
+could work with or without a background daemon** -- and asked whether the
+design can be built so that **the penalty is low when no other process of
+that user is running.** "Build it if the plan is sound in your opinion."
+
+**Built: `claim/claim.h`, `claim/claim.c`, and the POSIX backend
+`claim/claim_file.{h,c}`.** 71 checks over two suites, three sabotages in
+the harness, and the death property proved rather than assumed.
+
+### The solo cost, measured
+
+    open + take + release + close     3709 ns    once, at startup
+    fzn_claim_held (per call)             2.1 ns  a struct field, no syscall
+
+**A process that is alone pays about 3.7 microseconds, once.** After that it
+is the owner and does everything locally: it is the only writer to the
+store, exactly as it would be with a private one, so its steady state is not
+merely close to a solo design -- it is the same code path. There is no
+polling, no lease renewal and no second process to talk to.
+
+**And the check that prevents sec 132's predicted deadlock is 2.1 ns**,
+because `fzn_claim_held` reads a field this process already owns rather than
+asking the kernel. A submit path can ask it on every record without
+thinking about the cost.
+
+That is the answer to the holder's condition: **the penalty for being alone
+is one syscall pair at startup**, and the design pays nothing per operation
+for the possibility that a second process might exist.
+
+### Which is exactly the GUI advantage
+
+fuzzypickles' GUI keeps its daemon functionality and decides at runtime.
+`fzn_claim_take` at startup: **OK means be the daemon**, and
+FZN_CLAIM_ERR_HELD means a daemon is already running, so read the shared
+store and submit through it. Both paths are the same program.
+
+FZN_CLAIM_ERR_HELD is deliberately **an answer rather than a fault**, and it
+is documented as one: it is the expected result for every process but one,
+and a caller logging it as an error would fill a log on a working host.
+
+### There is no blocking form, deliberately
+
+A process that cannot take the claim has work to do -- it reads the store
+and submits through the owner -- so blocking until the owner dies would stop
+it doing the job it exists for. `fzn_claim_take` is non-blocking and there
+is no `fzn_claim_wait`. Waiting is something a caller arranges around its
+own event loop, not a call that parks a thread.
+
+### The death property is proved, not assumed
+
+`claim/test/claim_file_test.c` forks a child, has it take the claim, and
+kills it with SIGKILL -- a signal it cannot catch, so nothing runs on the
+way out: no handler, no atexit, no release. Then the parent takes the claim.
+
+**With a control**, because the last assertion would otherwise pass against
+a claim nobody ever took: while the child lives, the parent's take must be
+refused. Both halves were sabotaged and both were caught -- removing the
+child's take makes the control fail, and not killing the child makes the
+death assertion fail.
+
+The suite also asserts that **one process cannot take the claim twice
+through two descriptions**, which is the evidence for the header's claim
+that an `flock` belongs to the open file description rather than the
+process. That is not a detail: it is why `fcntl` record locks were refused,
+since those are dropped when the process closes ANY descriptor for the file,
+and dropping the claim is dropping the exclusivity a ratchet depends on.
+
+### Two hazards written into the header because nothing can check them
+
+- **`fork` shares the open file description**, so a forked child holds the
+  same claim and the kernel releases it only when both have closed. A daemon
+  that forks and lets the parent exit hands its claim to a child that may
+  not know it has one. The descriptor is `O_CLOEXEC`, which covers
+  fork-then-exec; a bare fork is not covered and the caller must close it in
+  the child. There is no way to make that automatic.
+- **Not over NFS.** `flock` there has historically been emulated or ignored,
+  and an emulation that fails to release on death removes the one property
+  this is chosen for -- leaving a dead holder's claim standing for ever,
+  which is worse than having no claim at all.
+
+### What is deliberately absent
+
+**There is no way to steal a claim from a live holder**, and that is the
+whole design rather than an omission. Stealing is the false failover that
+puts two processes on one ratchet chain. A hung holder is dealt with by a
+watchdog that KILLS -- which converts the guess into a fact, after which the
+kernel releases and there is nothing left to be wrong about.
+
+### Two gates earned their keep on the way in, and one reading nearly went wrong
+
+**`installcheck` caught a header that was installed and not consumed.**
+`claim/claim_file.h` went into HDRS and not into `tool/consumer_check.c`,
+and the gate said so in the terms it was built with: "installed but not
+included by the consumer ... the check would pass whatever those headers
+did." That is the vacuous-pass rule holding a new module to account on its
+first build rather than months later.
+
+**And the run that found it is a worked instance of evidence.md's count and
+exit code being halves of one result.** The log said 129 suites and not one
+nonzero failure count -- and `make check` exited **2**. Either half quoted
+alone is a wrong answer: the tally reads as a clean run, and the status
+reads as a broken test. Neither was true. What failed was a gate that runs
+after the suites and reports no count at all, so nothing in the tallies
+could have shown it.
+
+The habit that caught it was reading the exit status FIRST and the counts
+second. Had the counts been read first there was a complete, plausible,
+wrong story available -- everything passes -- and no reason to look further.
+
+### What is still to build
+
+The claim is the load-bearing piece and it is not the whole of sec 132. Not
+built, and not started: the shared store seam that lets a journal point at
+records this process did not fetch, the shared verification cache, and the
+submit path from a non-owner to the owner. Those depend on decisions that
+are not settled -- where the store lives, and hop 1's vocabulary -- and the
+holder's own rule applies: not everything has to be right in the first pass.
 
 ## 132. N processes, one identity, one dataset: yes, and the kernel is why, 2026-09-06
 

@@ -962,6 +962,27 @@ SABOTAGES = [
 		"a capability for a product no stream can carry corresponds to no record anybody can send, which is a bug rather than a narrower grant",
 	),
 	(
+		"claim-broken-backend-is-not-contention",
+		"claim/claim.c",
+		"\treturn held ? FZN_CLAIM_ERR_HELD : FZN_CLAIM_ERR_BACKEND;\n",
+		"\treturn FZN_CLAIM_ERR_HELD;\n",
+		"a store that cannot arbitrate ownership at all must not look like a busy one, or a caller waits for ever for an owner that does not exist",
+	),
+	(
+		"claim-failed-release-gives-up",
+		"claim/claim.c",
+		"\tclaim->held = 0;\n\tif (!claim->ops->release(claim->ops->ctx))\n",
+		"\tif (!claim->ops->release(claim->ops->ctx))\n",
+		"a process that believes it still owns state the kernel may have handed on is the one way this design desynchronises a ratchet, so a failed release must still give up ownership",
+	),
+	(
+		"claim-held-is-total",
+		"claim/claim.c",
+		"\tif (!claim || !claim->ops)\n\t\treturn 0;\n\treturn claim->held;\n",
+		"\treturn claim->held;\n",
+		"a process that does not know whether it is the owner is not the owner, and sec 132's self-submit deadlock is prevented by this answer being right",
+	),
+	(
 		"provision-envelope-verified",
 		"provision/provision.c",
 		"\tif (!verifier->verify(verifier->ctx, card.root, card.base, FZN_PROVISION_BODY_LEN,\n"

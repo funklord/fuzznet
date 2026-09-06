@@ -158,7 +158,7 @@ GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
              chain/chain.c chain/revocation.c chain/manifest.c chain/authz.c \
-             chain/chain_store.c chain/service.c \
+             chain/chain_store.c chain/service.c claim/claim.c \
              frame/freshness.c \
              blob/blob.c ratchet/ratchet.c prekey/prekey.c \
              provision/provision.c \
@@ -194,7 +194,7 @@ OBJS       = $(SRCS:%.c=$(BUILD_DIR)/%.o) $(GEN_OBJS)
 HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h local/vocabulary.h \
              chain/chain.h chain/revocation.h chain/manifest.h chain/authz.h \
-             chain/chain_store.h chain/service.h \
+             chain/chain_store.h chain/service.h claim/claim.h \
              frame/freshness.h \
              blob/blob.h ratchet/ratchet.h prekey/prekey.h \
              provision/provision.h \
@@ -243,6 +243,7 @@ CORE_HDRS := $(HDRS)
 TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              chain/test/manifest_test.c chain/test/authz_test.c \
              chain/test/chain_store_test.c chain/test/service_test.c \
+             claim/test/claim_test.c \
              blob/test/blob_test.c ratchet/test/ratchet_test.c \
              prekey/test/prekey_test.c prekey/test/prekey_fuzz.c \
              provision/test/provision_fuzz.c \
@@ -307,6 +308,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/chain/test/authz_test \
              $(BUILD_DIR)/chain/test/chain_store_test \
              $(BUILD_DIR)/chain/test/service_test \
+             $(BUILD_DIR)/claim/test/claim_test \
              $(BUILD_DIR)/blob/test/blob_test \
              $(BUILD_DIR)/ratchet/test/ratchet_test \
              $(BUILD_DIR)/prekey/test/prekey_test \
@@ -540,6 +542,56 @@ else ifeq ($(FZN_SPOOL_FILE),0)
 SPOOL_FILE_SKIP := FZN_SPOOL_FILE=0.
 else
 $(error FZN_SPOOL_FILE must be auto, 1 or 0 -- got "$(FZN_SPOOL_FILE)")
+endif
+
+# The claim backend's own probe, asking about `flock` rather than reusing
+# either of the two above. project.md sec 132 explains why this and not
+# `fcntl` record locks: a record lock is dropped when the process closes ANY
+# descriptor for the file, which would silently give up the exclusivity a
+# ratchet chain depends on. A probe belongs to the thing it gates, so this
+# one asks for the call the backend actually makes.
+FZN_PROBE_FLOCK := $(shell printf '%s\n' '#define _POSIX_C_SOURCE 200809L' \
+                    '#include <fcntl.h>' '#include <sys/file.h>' '#include <unistd.h>' \
+                    'int main(void){int f=open("/dev/null",O_RDWR);' \
+                    'if(flock(f,LOCK_EX|LOCK_NB)<0){}if(flock(f,LOCK_UN)<0){}return close(f);}' \
+                    | $(CC) $(FZN_PROBE_CPPFLAGS) $(CFLAGS) -x c - -o /dev/null 2>/dev/null && echo yes || echo no)
+
+FZN_BLAME_FLOCK := this toolchain has no usable flock.
+FZN_BLAME_FIX_CL := Set FZN_CLAIM_FILE=0 to build without it.
+
+ifeq ($(FZN_CLAIM_FILE),)
+FZN_CLAIM_FILE := auto
+endif
+
+ifeq ($(FZN_CLAIM_FILE),auto)
+ifeq ($(FZN_PROBE_FLOCK),yes)
+CLAIM_FILE_ON := 1
+else
+CLAIM_FILE_SKIP := $(FZN_BLAME_FLOCK) $(FZN_BLAME_FIX_CL)
+endif
+else ifeq ($(FZN_CLAIM_FILE),1)
+ifeq ($(FZN_PROBE_FLOCK),yes)
+CLAIM_FILE_ON := 1
+else
+$(error FZN_CLAIM_FILE=1 was asked for and $(FZN_BLAME_FLOCK) \
+        Set FZN_CLAIM_FILE=0 to build without it, or auto to let the probe decide)
+endif
+else ifeq ($(FZN_CLAIM_FILE),0)
+CLAIM_FILE_SKIP := FZN_CLAIM_FILE=0.
+else
+$(error FZN_CLAIM_FILE must be auto, 1 or 0 -- got "$(FZN_CLAIM_FILE)")
+endif
+
+CLAIM_FILE_SRCS := claim/claim_file.c
+CLAIM_FILE_HDRS := claim/claim_file.h
+CLAIM_FILE_TSRC := claim/test/claim_file_test.c
+
+ifdef CLAIM_FILE_ON
+CPPFLAGS  += -DFZN_CLAIM_FILE_ON
+SRCS      += $(CLAIM_FILE_SRCS)
+HDRS      += $(CLAIM_FILE_HDRS)
+TEST_SRCS += $(CLAIM_FILE_TSRC)
+TEST_BINS += $(BUILD_DIR)/claim/test/claim_file_test
 endif
 
 # Outside the conditional, for the reason PERSIST_FILE_SRCS is.
@@ -1466,6 +1518,18 @@ $(BUILD_DIR)/chain/test/service_test: $(BUILD_DIR)/chain/test/service_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# claim/ arbitrates ownership and calls nothing else. sec 132.
+$(BUILD_DIR)/claim/test/claim_test: $(BUILD_DIR)/claim/test/claim_test.o \
+                                     $(BUILD_DIR)/claim/claim.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD_DIR)/claim/test/claim_file_test: $(BUILD_DIR)/claim/test/claim_file_test.o \
+                                     $(BUILD_DIR)/claim/claim_file.o \
+                                     $(BUILD_DIR)/claim/claim.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # blob/ links only constant_time -- it calls no other module, which is the
 # shape sec 16 wanted: the tree and the sealing are arithmetic over bytes the
 # caller supplies, and the crypto arrives through the two vtables.
@@ -1681,6 +1745,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/session/session.o \
                                       $(BUILD_DIR)/spool/spool.o \
                                       $(BUILD_DIR)/persist/persist.o \
+                                      $(BUILD_DIR)/claim/claim.o \
                                       $(BUILD_DIR)/tree/tree.o \
                                       $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
@@ -3005,14 +3070,14 @@ installcheck: $(HDRS) $(SRCS) $(OBJS) tool/consumer_check.c
 		exit 1; \
 	fi
 	@echo "installcheck: against the installed headers"
-	@$(CC) $(CFLAGS) $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) -DFZN_CONSUMER_INSTALLED \
+	@$(CC) $(CFLAGS) $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) -DFZN_CONSUMER_INSTALLED \
 	       -I$(BUILD_DIR)/installcheck/usr/include \
 	       -o $(BUILD_DIR)/installcheck/consumer_installed \
 	       -Iwire/generated $(MONO_CONSUMER) tool/consumer_check.c $(SRCS) $(GEN_SRCS)
 	@$(BUILD_DIR)/installcheck/consumer_installed
 	@echo "installcheck: against the source tree, from another directory"
 	@cd $(BUILD_DIR)/installcheck && $(CC) $(CFLAGS) \
-	       $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) -I$(CURDIR) \
+	       $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) -I$(CURDIR) \
 	       -I$(CURDIR)/wire/generated \
 	       -o consumer_source $(CURDIR)/tool/consumer_check.c \
 	       $(patsubst %,$(CURDIR)/%,$(SRCS)) \
@@ -3102,6 +3167,7 @@ manifest:
 	@# so each is named with what it costs and taken deliberately.
 	@for c in $(MONO_SRCS); do echo "binding $$c"; done
 	@$(if $(PERSIST_FILE_ON),echo "backend persist/persist_file.c FZN_PERSIST_FILE_ON";)
+	@$(if $(CLAIM_FILE_ON),echo "backend claim/claim_file.c FZN_CLAIM_FILE_ON";)
 	@$(if $(SPOOL_FILE_ON),echo "backend spool/spool_file.c FZN_SPOOL_FILE_ON";)
 
 # Named targets only, and it lists them. No rm -rf of a directory and no

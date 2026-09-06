@@ -32,6 +32,8 @@
 /chain/test/authz_test
 /chain/test/chain_store_test
 /chain/test/service_test
+/claim/test/claim_test
+/claim/test/claim_file_test
 /blob/test/blob_test
 /blob/test/blob_fuzz
 /ratchet/test/ratchet_test
