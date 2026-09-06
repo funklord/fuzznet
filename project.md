@@ -5866,6 +5866,7 @@ somebody to notice.
 | `blob/blob.h` | content-addressed blobs, the streaming tree, proofs |
 | `chain/authz.h` | verification, delegation, revocation, manifests, authz |
 | `chain/chain_store.h` | where a verified chain lives until it is needed |
+| `chain/service.h` | the service a capability must name, and the product filter |
 | `record/ledger.h` | what each peer has confirmed holding, per subject |
 | `chunk/reassembly.h` | split and reassembly |
 | `disclose/disclose.h` | one signature over many fields, some shown |
@@ -22720,6 +22721,106 @@ nothing was regenerated here. Whether adopting a language feature moves
 the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
+
+## 129. The service namespace is mandatory, and the product filter, 2026-09-06
+
+Directed by the copyright holder 2026-09-06: **make the service namespace
+mandatory in the capability**, and add a project/product identifier so that
+two consumers of one subsystem can be told apart -- "many of the subsystems
+are used in unique ways by different projects and will not want to see the
+content of other projects in the same subsystem, and some do want to see
+everything."
+
+Built as `chain/service.h` and `chain/service.c`.
+
+### Derived, not stored, which is what makes it mandatory
+
+A capability id is thirty-two opaque bytes and stays thirty-two opaque
+bytes. `fzn_service_capability(service, product, name, name_len, hash, out)`
+is now the way to obtain one, and it refuses FZN_SERVICE_NONE. So a
+capability naming no service does not exist to be presented -- there is no
+second way in, and nothing on the wire moved to achieve it. `chain/authz.h`
+reached the same shape for origin and says it best: it cannot be forged
+because there is no field.
+
+**A verifier never reads the service back out and does not need to.** A
+daemon for a service knows which service it is: it derives the capability it
+requires and compares. That is strictly stronger than a readable field,
+which could be read and then not checked.
+
+`service` and `product` are integers, following `record/ledger.h` -- "here
+it is an integer for the reason every key in this library is". The
+consumer's own meaning goes in `name`, free bytes, which is where a verb
+belongs and is what preserves the expressiveness callers had when they chose
+all thirty-two bytes themselves.
+
+### Why the wildcard is not zero
+
+FZN_PRODUCT_ANY is `0xffffffff`, and the tempting encoding -- nought means
+all -- was refused deliberately. A caller that forgets the field, or hands
+us a zeroed struct, would otherwise be asking for the widest scope there is.
+Zero is FZN_PRODUCT_NONE and is refused, so an uninitialised product is a
+returned error rather than a silent grant over every project's records.
+
+That is FZN_ORIGIN_NONE's rule applied to a second namespace: a zeroed
+structure must not mean anything a caller would have had to ask for.
+
+### The filter is a pair, and the pair is why the function exists
+
+An access check on a record belonging to product P asks whether the holder
+has `derive(service, P, name)` **or** `derive(service, ANY, name)`.
+`fzn_service_capability_pair` returns both, and it exists rather than
+leaving a caller to call the single derivation twice because **a caller that
+checks only the scoped one silently stops honouring every cross-project
+grant it ever issued**. That failure is quiet and CLOSED -- nobody is let in
+who should not be -- so no test written against a scoped holder can see it,
+which is exactly the shape this tree keeps paying for.
+
+The pair refuses FZN_PRODUCT_ANY as its subject. A record belongs to a
+project, not to all of them; a check that passes the wildcard as the subject
+is asking whether a holder may see every product's records, which is not the
+question an access check has.
+
+### What the tests are, and that they were seen to fail
+
+Twelve cases, 28 checks. The assertions are RELATIONSHIPS between
+derivations -- change one input, the capability changes -- rather than any
+particular thirty-two bytes, which would pin the stub hash instead of the
+property.
+
+A plausible wrong implementation drops one of the three inputs on the floor,
+so each has a case that separates it, and all four were run as sabotages
+before being written into `tool/sabotage.py`:
+
+    drop the service      two services collide            CAUGHT
+    drop the product      scoped equals see-everything    CAUGHT
+    drop the name         read and write collide          CAUGHT
+    accept ANY as subject a scoped grant reads as a wildcard  CAUGHT
+
+The product one is the case worth naming: with the product out of the
+derivation every scoped capability equals the wildcard, so the filter admits
+everything while every test about services still passes.
+
+### What is deliberately not decided here
+
+**Where a service's data lives.** The holder's words: "some of the things
+like filestore etc. are configured to store their data in an arbitrary
+location when the service is set up in the fuzznet api, but very core data
+is stored in fuzznet config dirs. The choice of where to store data cannot
+be predicted or easily reasoned about beforehand, and we probably will need
+to make many later corrections."
+
+So no path policy is written into this module. A service id is a number and
+says nothing about storage, which keeps the two questions separable when the
+corrections come.
+
+**Who assigns service and product numbers.** `record/record.h` already
+settled the shape of this question for streams -- issuer-scoped needs no
+central assignment, cross-host parsing does -- and a service number is the
+second kind: two daemons must agree before either can check a capability.
+Nothing is assigned yet, deliberately, for the reason FZN_STREAM_RESERVED
+records: naming one before anything uses it is inventing a mechanism ahead
+of its need.
 
 ## 128. Shared memory between local nodes: a possible feature, and what would decide it, 2026-09-06
 

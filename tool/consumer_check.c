@@ -50,6 +50,7 @@
 #include <fuzznet/chain/manifest.h>
 #include <fuzznet/chain/authz.h>
 #include <fuzznet/chain/chain_store.h>
+#include <fuzznet/chain/service.h>
 #include <fuzznet/blob/blob.h>
 #include <fuzznet/ratchet/ratchet.h>
 #include <fuzznet/prekey/prekey.h>
@@ -104,6 +105,7 @@
 #include "chain/manifest.h"
 #include "chain/authz.h"
 #include "chain/chain_store.h"
+#include "chain/service.h"
 #include "blob/blob.h"
 #include "ratchet/ratchet.h"
 #include "prekey/prekey.h"

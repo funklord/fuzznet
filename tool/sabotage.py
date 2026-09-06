@@ -899,6 +899,34 @@ SABOTAGES = [
 		"a refused leaf seal must not leave the plaintext in the caller's buffer, because a sealed leaf is what a seeder hands to strangers",
 	),
 	(
+		"service-namespace-mandatory",
+		"chain/service.c",
+		"\tfzn_put_be32(input + at, service);\n",
+		"\tfzn_put_be32(input + at, 0u);\n",
+		"the service must be inside the derivation or a capability minted for one subsystem authorises every other, which is the whole of what sec 129 made mandatory",
+	),
+	(
+		"service-product-filters",
+		"chain/service.c",
+		"\tfzn_put_be32(input + at, product);\n",
+		"\tfzn_put_be32(input + at, 0u);\n",
+		"drop the product and every product-scoped capability equals the see-everything one, so the optional filter silently admits every project's records",
+	),
+	(
+		"service-name-separates",
+		"chain/service.c",
+		"\tat += name_len;\n",
+		"\tat += 0u;\n",
+		"the consumer's own name is where a verb lives, so dropping it collapses read and write into one capability",
+	),
+	(
+		"service-wildcard-not-a-subject",
+		"chain/service.c",
+		"\tif (product == FZN_PRODUCT_ANY)\n\t\treturn FZN_CHAIN_ERR_MALFORMED;\n",
+		"\tif (0)\n\t\treturn FZN_CHAIN_ERR_MALFORMED;\n",
+		"a check whose subject is every-product asks whether a holder may see all of them, and answering it rather than refusing is how a scoped grant reads as a wildcard",
+	),
+	(
 		"provision-envelope-verified",
 		"provision/provision.c",
 		"\tif (!verifier->verify(verifier->ctx, card.root, card.base, FZN_PROVISION_BODY_LEN,\n"
