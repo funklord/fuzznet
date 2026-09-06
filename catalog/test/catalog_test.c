@@ -1556,6 +1556,286 @@ static void test_a_capture_needs_a_root(void)
 	      "a capture with no filing root reported success");
 }
 
+/* ---- the filesystem seam ------------------------------------------------ */
+
+/* A consumer's naming and moving, recorded so the suite can read them back. */
+struct fs_stub {
+	char names[8][64];   /* what each id seeds to; index is the seed byte */
+	int name_fails;
+	int name_empty;
+	int move_fails;
+	int moves;
+	char last_was[FZN_CATALOG_PATH_MAX];
+	char last_now[FZN_CATALOG_PATH_MAX];
+	char forge[64];      /* a name to hand back for id 0x03, if set */
+};
+
+static int fs_name(void *ctx, const fzn_catalog_id_t *node, char *out, size_t cap)
+{
+	struct fs_stub *st = (struct fs_stub *)ctx;
+	unsigned seed = node->b[0];
+
+	if (st->name_fails)
+		return 0;
+	/* A CONSUMER THAT SUCCEEDS AND NAMES NOTHING is not the same as one
+	 * that refuses: it reports a name, and the name is unusable. */
+	if (st->name_empty) {
+		if (cap > 0)
+			out[0] = '\0';
+		return 1;
+	}
+	if (seed == 0x03u && st->forge[0]) {
+		snprintf(out, cap, "%s", st->forge);
+		return 1;
+	}
+	snprintf(out, cap, "n%02x", seed);
+	return 1;
+}
+
+static int fs_move(void *ctx, const char *was, const char *now)
+{
+	struct fs_stub *st = (struct fs_stub *)ctx;
+
+	if (st->move_fails)
+		return 0;
+	st->moves++;
+	snprintf(st->last_was, sizeof(st->last_was), "%s", was);
+	snprintf(st->last_now, sizeof(st->last_now), "%s", now);
+	return 1;
+}
+
+static void fs_init(struct fs_stub *st, fzn_catalog_fs_ops_t *ops)
+{
+	memset(st, 0, sizeof(*st));
+	ops->name = fs_name;
+	ops->move = fs_move;
+	ops->ctx = st;
+}
+
+/* The library joins; the consumer names. */
+static void test_a_path_is_the_segments_joined(void)
+{
+	struct fs_stub st;
+	fzn_catalog_fs_ops_t ops;
+	fzn_catalog_id_t ids[3];
+	char out[FZN_CATALOG_PATH_MAX];
+
+	fs_init(&st, &ops);
+	ids[0] = id(0x01);
+	ids[1] = id(0x02);
+	ids[2] = id(0x03);
+
+	REQUIRE(fzn_catalog_path_of(ids, 3, &ops, out, sizeof(out)) == FZN_CATALOG_OK,
+	        "a path would not build");
+	CHECK(strcmp(out, "n01/n02/n03") == 0, "the path is \"%s\"", out);
+	REQUIRE(fzn_catalog_path_of(ids, 1, &ops, out, sizeof(out)) == FZN_CATALOG_OK,
+	        "a one-segment path would not build");
+	CHECK(strcmp(out, "n01") == 0, "a single segment gained a separator: \"%s\"", out);
+
+	/* No ids is no path, rather than a name for the working directory. */
+	CHECK(fzn_catalog_path_of(ids, 0, &ops, out, sizeof(out)) == FZN_CATALOG_ERR_PATH,
+	      "an empty run produced a path");
+}
+
+/*
+ * A SEGMENT MAY NOT FORGE A LEVEL OF THE TREE. A consumer naming a node from
+ * data hands back whatever it was told, and a name with a separator in it
+ * puts the file where nobody filed it -- the same shape as a log body with a
+ * newline drawing an entry nobody signed. sec 149.
+ */
+static void test_a_name_cannot_forge_a_level(void)
+{
+	struct fs_stub st;
+	fzn_catalog_fs_ops_t ops;
+	fzn_catalog_id_t ids[2];
+	char out[FZN_CATALOG_PATH_MAX];
+
+	fs_init(&st, &ops);
+	ids[0] = id(0x01);
+	ids[1] = id(0x03);
+
+	/* THE CONTROL: an ordinary name builds. */
+	REQUIRE(fzn_catalog_path_of(ids, 2, &ops, out, sizeof(out)) == FZN_CATALOG_OK,
+	        "the control path would not build");
+
+	snprintf(st.forge, sizeof(st.forge), "%s", "a/b");
+	CHECK(fzn_catalog_path_of(ids, 2, &ops, out, sizeof(out)) == FZN_CATALOG_ERR_PATH,
+	      "a name carrying a separator was accepted");
+	snprintf(st.forge, sizeof(st.forge), "%s", "..");
+	CHECK(fzn_catalog_path_of(ids, 2, &ops, out, sizeof(out)) == FZN_CATALOG_ERR_PATH,
+	      "a name that walks out of the filing root was accepted");
+	snprintf(st.forge, sizeof(st.forge), "%s", ".");
+	CHECK(fzn_catalog_path_of(ids, 2, &ops, out, sizeof(out)) == FZN_CATALOG_ERR_PATH,
+	      "a name of \".\" was accepted");
+	snprintf(st.forge, sizeof(st.forge), "%s", "");
+	st.forge[0] = ' ';
+	st.forge[1] = '\0';
+	CHECK(fzn_catalog_path_of(ids, 2, &ops, out, sizeof(out)) == FZN_CATALOG_OK,
+	      "an ordinary odd name was refused, so the guards are too wide");
+
+	/* AN EMPTY NAME IS NOT A NAME, and a consumer that returns success
+	 * while naming nothing would otherwise give a path with an empty
+	 * segment -- "a//b", which names a different place on some systems and
+	 * nothing at all on others. */
+	st.forge[0] = '\0';
+	st.name_empty = 1;
+	CHECK(fzn_catalog_path_of(ids, 2, &ops, out, sizeof(out)) == FZN_CATALOG_ERR_PATH,
+	      "a consumer that named nothing was taken at its word");
+	st.name_empty = 0;
+
+	/* A name the consumer will not give is the backend refusing, which is a
+	 * different answer from a name it gave that cannot be used. */
+	st.name_fails = 1;
+	CHECK(fzn_catalog_path_of(ids, 2, &ops, out, sizeof(out)) == FZN_CATALOG_ERR_BACKEND,
+	      "a consumer that would not name a node was reported as a bad path");
+}
+
+static void test_a_path_is_bounded(void)
+{
+	struct fs_stub st;
+	fzn_catalog_fs_ops_t ops;
+	fzn_catalog_id_t ids[3];
+	char out[FZN_CATALOG_PATH_MAX];
+	char small[8];
+
+	fs_init(&st, &ops);
+	ids[0] = id(0x01);
+	ids[1] = id(0x02);
+	ids[2] = id(0x03);
+
+	memset(small, 0x5a, sizeof(small));
+	CHECK(fzn_catalog_path_of(ids, 3, &ops, small, sizeof(small)) == FZN_CATALOG_ERR_PATH,
+	      "a path was built into a buffer too small for it");
+	CHECK(small[0] == 0x5a, "a refused path wrote a truncated one");
+
+	/* A segment longer than the bound is refused rather than cut. */
+	memset(st.forge, 'x', sizeof(st.forge) - 1u);
+	st.forge[sizeof(st.forge) - 1u] = '\0';
+	CHECK(fzn_catalog_path_of(ids, 3, &ops, out, sizeof(out)) == FZN_CATALOG_OK,
+	      "a long but legal segment was refused");
+	CHECK(fzn_catalog_path_of(NULL, 3, &ops, out, sizeof(out)) == FZN_CATALOG_ERR_MALFORMED,
+	      "a null run");
+	CHECK(fzn_catalog_path_of(ids, 3, NULL, out, sizeof(out)) == FZN_CATALOG_ERR_MALFORMED,
+	      "null ops");
+	CHECK(fzn_catalog_path_of(ids, 3, &ops, NULL, sizeof(out)) == FZN_CATALOG_ERR_MALFORMED,
+	      "a null buffer");
+	CHECK(fzn_catalog_path_of(ids, 3, &ops, out, 0) == FZN_CATALOG_ERR_MALFORMED,
+	      "a zero bound");
+}
+
+/*
+ * THE STEP ADVANCES ONLY ON A SUCCESSFUL MOVE, which is what this seam is
+ * for: sec 148's crash ordering stops being a sentence a consumer has to read
+ * and becomes the shape of the code.
+ */
+static void test_a_step_advances_only_when_the_file_moved(void)
+{
+	fzn_catalog_edge_t rows[8];
+	fzn_catalog_move_t moves[8];
+	fzn_catalog_refile_t job;
+	fzn_catalog_t cat;
+	struct fs_stub st;
+	fzn_catalog_fs_ops_t ops;
+	size_t done = 0, total = 0;
+
+	fs_init(&st, &ops);
+	build_filed(&cat, rows, 8);
+	REQUIRE(fzn_catalog_refile_capture(&cat, &job, moves, 8) == FZN_CATALOG_OK, "capture");
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x01), idp(0x03), ALICE, 3, 1) == FZN_CATALOG_OK,
+	        "the new membership");
+	REQUIRE(fzn_catalog_file_under(&cat, idp(0x01), idp(0x03)) == FZN_CATALOG_OK, "refile it");
+	REQUIRE(fzn_catalog_refile_begin(&cat, &job) == FZN_CATALOG_OK, "begin");
+
+	/* A MOVE THAT FAILS LEAVES THE CURSOR WHERE IT WAS, so a retry repeats
+	 * the step rather than skipping a file. */
+	st.move_fails = 1;
+	CHECK(fzn_catalog_refile_step(&cat, &job, &ops) == FZN_CATALOG_ERR_BACKEND,
+	      "a failing move reported success");
+	REQUIRE(fzn_catalog_refile_progress(&job, &done, &total) == FZN_CATALOG_OK, "progress");
+	CHECK(done == 0, "a failed move advanced the cursor, so a file would be skipped");
+	CHECK(st.moves == 0, "the stub counted a move it refused");
+
+	/* And with it working, the step names both paths and advances. */
+	st.move_fails = 0;
+	CHECK(fzn_catalog_refile_step(&cat, &job, &ops) == FZN_CATALOG_OK, "the first step");
+	REQUIRE(fzn_catalog_refile_progress(&job, &done, &total) == FZN_CATALOG_OK, "progress");
+	CHECK(done == 1, "a successful move did not advance the cursor");
+	CHECK(st.moves == 1, "the move was not made");
+
+	/* The second step is the one that actually moves: root/n02/n03 becomes
+	 * root/n03. */
+	CHECK(fzn_catalog_refile_step(&cat, &job, &ops) == FZN_CATALOG_OK, "the second step");
+	CHECK(strcmp(st.last_was, "n01/n02/n03") == 0, "the old path is \"%s\"", st.last_was);
+	CHECK(strcmp(st.last_now, "n01/n03") == 0, "the new path is \"%s\"", st.last_now);
+
+	/* Past the end is how a loop stops. */
+	CHECK(fzn_catalog_refile_step(&cat, &job, &ops) == FZN_CATALOG_ERR_ABSENT,
+	      "the step did not report the work finished");
+	CHECK(fzn_catalog_refile_end(&cat, &job) == FZN_CATALOG_OK, "end");
+}
+
+/* A file this host cannot place must be reported, not counted as done. */
+static void test_an_unnameable_node_does_not_advance(void)
+{
+	fzn_catalog_edge_t rows[8];
+	fzn_catalog_move_t moves[8];
+	fzn_catalog_refile_t job;
+	fzn_catalog_t cat;
+	struct fs_stub st;
+	fzn_catalog_fs_ops_t ops;
+	size_t done = 0, total = 0;
+
+	fs_init(&st, &ops);
+	build_filed(&cat, rows, 8);
+	REQUIRE(fzn_catalog_refile_capture(&cat, &job, moves, 8) == FZN_CATALOG_OK, "capture");
+	REQUIRE(fzn_catalog_refile_begin(&cat, &job) == FZN_CATALOG_OK, "begin");
+
+	st.name_fails = 1;
+	CHECK(fzn_catalog_refile_step(&cat, &job, &ops) == FZN_CATALOG_ERR_BACKEND,
+	      "an unnameable node was stepped over");
+	REQUIRE(fzn_catalog_refile_progress(&job, &done, &total) == FZN_CATALOG_OK, "progress");
+	CHECK(done == 0, "an unnameable node advanced the cursor");
+	CHECK(st.moves == 0, "a move was attempted for a node nobody could name");
+
+	/* A forged name is a PATH error rather than a backend one, and equally
+	 * does not advance. */
+	st.name_fails = 0;
+	snprintf(st.forge, sizeof(st.forge), "%s", "../escape");
+	/* 0x02 comes first and is nameable, so step once to reach 0x03. */
+	REQUIRE(fzn_catalog_refile_step(&cat, &job, &ops) == FZN_CATALOG_OK, "the first step");
+	CHECK(fzn_catalog_refile_step(&cat, &job, &ops) == FZN_CATALOG_ERR_PATH,
+	      "a forged name was used as a path");
+	REQUIRE(fzn_catalog_refile_progress(&job, &done, &total) == FZN_CATALOG_OK, "progress");
+	CHECK(done == 1, "a refused path advanced the cursor");
+}
+
+static void test_the_seam_caller_bugs_are_refused(void)
+{
+	fzn_catalog_edge_t rows[8];
+	fzn_catalog_move_t moves[8];
+	fzn_catalog_refile_t job;
+	fzn_catalog_t cat;
+	struct fs_stub st;
+	fzn_catalog_fs_ops_t ops, half;
+
+	fs_init(&st, &ops);
+	build_filed(&cat, rows, 8);
+	REQUIRE(fzn_catalog_refile_capture(&cat, &job, moves, 8) == FZN_CATALOG_OK, "capture");
+	REQUIRE(fzn_catalog_refile_begin(&cat, &job) == FZN_CATALOG_OK, "begin");
+
+	CHECK(fzn_catalog_refile_step(&cat, &job, NULL) == FZN_CATALOG_ERR_MALFORMED,
+	      "null ops stepped");
+	half = ops;
+	half.name = NULL;
+	CHECK(fzn_catalog_refile_step(&cat, &job, &half) == FZN_CATALOG_ERR_MALFORMED,
+	      "ops with no name stepped");
+	half = ops;
+	half.move = NULL;
+	CHECK(fzn_catalog_refile_step(&cat, &job, &half) == FZN_CATALOG_ERR_MALFORMED,
+	      "ops with no move stepped");
+	CHECK(st.moves == 0, "a refused step moved something");
+}
+
 static void test_the_errors_render(void)
 {
 	CHECK(fzn_catalog_err_str(FZN_CATALOG_OK)[0] != '\0', "OK renders empty");
@@ -1565,6 +1845,8 @@ static void test_the_errors_render(void)
 	CHECK(fzn_catalog_err_str(FZN_CATALOG_ERR_SHAPE)[0] != '\0', "SHAPE renders empty");
 	CHECK(fzn_catalog_err_str(FZN_CATALOG_ERR_ABSENT)[0] != '\0', "ABSENT renders empty");
 	CHECK(fzn_catalog_err_str(FZN_CATALOG_ERR_BUSY)[0] != '\0', "BUSY renders empty");
+	CHECK(fzn_catalog_err_str(FZN_CATALOG_ERR_BACKEND)[0] != '\0', "BACKEND renders empty");
+	CHECK(fzn_catalog_err_str(FZN_CATALOG_ERR_PATH)[0] != '\0', "PATH renders empty");
 	CHECK(fzn_catalog_err_str((fzn_catalog_err_t)-99)[0] != '\0',
 	      "an unknown error renders empty");
 }
@@ -1622,6 +1904,12 @@ int main(void)
 	test_the_refile_caller_bugs_are_refused();
 	test_the_captured_walk_is_bounded();
 	test_a_capture_needs_a_root();
+	test_a_path_is_the_segments_joined();
+	test_a_name_cannot_forge_a_level();
+	test_a_path_is_bounded();
+	test_a_step_advances_only_when_the_file_moved();
+	test_an_unnameable_node_does_not_advance();
+	test_the_seam_caller_bugs_are_refused();
 	test_the_errors_render();
 	test_the_suite_can_tell_pass_from_fail();
 

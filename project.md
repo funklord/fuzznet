@@ -22870,6 +22870,81 @@ anything could have said otherwise.
 copyright holder should know the size before it happens rather than find it
 inside a commit about a widget.
 
+## 149. The filesystem seam, and what a name may not be, 2026-09-06
+
+Directed by the copyright holder 2026-09-06: the seam sec 148 left out. Built
+as `fzn_catalog_fs_ops_t`, `fzn_catalog_path_of` and
+`fzn_catalog_refile_step`.
+
+### The division, and what it buys beyond tidiness
+
+    the library    the ORDER, the cursor, and joining segments into a path
+    the consumer   NAMING an id, and moving a file
+
+Both halves of the consumer's job are things this library cannot know: a node
+id is thirty-two opaque bytes, and storage here is not always a filesystem.
+
+**`fzn_catalog_refile_step` advances only if the move succeeded.** sec 148
+chose to advance after the file has moved so that a crash repeats a step
+rather than skipping one -- and here that stops being a sentence a consumer
+has to read and **becomes the shape of the code**. A failed move leaves the
+cursor where it was, so a retry repeats the step.
+
+### What a name may not be
+
+**A segment may not carry a separator**, and that is the point rather than
+tidiness. A consumer naming a node from data -- a film's title, a label a
+peer chose -- hands back whatever it was told, and a name with a slash in it
+forges a level of the tree that nobody asserted. `log/log.h` refuses a
+newline in a body for exactly this reason: a viewer showing one entry per
+line would draw an entry nobody signed, and **a path built from an unchecked
+segment puts a file where nobody filed it.**
+
+**Nor a traversal.** "." and ".." are refused, because a name that walks UP
+is a file written outside the filing root entirely -- the same defect pointed
+at the rest of the disk rather than at the tree.
+
+**Nor nothing at all.** A consumer that returns success while naming nothing
+would give a path with an empty segment -- "a//b", which names a different
+place on some systems and nothing on others. That one survived its first
+sabotage because the stub had no way to express it; it does now.
+
+**Refused rather than sanitised**, throughout. Quietly rewriting a name would
+put a file somewhere neither the consumer nor the catalogue describes, and
+saying no is the answer a caller can act on.
+
+### A defect the suite caught in something the header promised
+
+`fzn_catalog_path_of` claimed a refusal leaves the caller's buffer as it found
+it, and it did not: the bound was checked per segment, so a path refused at
+its third had already written the first two. It assembles into a scratch
+buffer and copies out only on success now -- which is what
+`fzn_trust_fingerprint` and `fzn_log_body_text` already do, and what the
+comment had been describing rather than doing.
+
+**A comment is a check a reader runs**, and this one disagreed with the code
+beneath it. The test believed the comment.
+
+### And one guard that no sabotage can break
+
+The final `memcpy` is unconditional, and safe because every segment's bound
+test already includes `cap`. Clamping it would be unreachable code -- the
+harness confirmed no mutation of it can fail -- so there is no entry for it.
+Recorded here for the same reason sec 145 records its pair: so a later reader
+does not add one and find it survives, or delete the line as dead.
+
+### What a catalogue still has no answer for
+
+**Names.** The seam asks a consumer to name a node and this module has no
+opinion, which is right for a first pass and leaves a real question open: a
+filing is a directory tree, and a catalogue carries ids and content but
+nothing a person would call a folder. A consumer can derive one from an
+entry's bytes, keep a side table, or hex the id -- and three consumers will
+do it three ways, which is the divergence sec 2 exists to prevent.
+
+Whether a name belongs in the catalogue is the copyright holder's, and it is
+the next question rather than an omission from this one.
+
 ## 148. The refile: the lock is what makes resuming sound, 2026-09-06
 
 Directed by the copyright holder 2026-09-06: build the mover, with proper

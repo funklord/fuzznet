@@ -1394,6 +1394,48 @@ SABOTAGES = [
 		"a second walk, over the CAPTURED filing the catalogue no longer holds, so a cycle there is expressible even when the current filing is a clean tree -- and it writes past the buffer without this",
 	),
 	(
+		"segment-no-separator",
+		"catalog/catalog.c",
+		"\t\tif (seg[i] == '/')\n\t\t\treturn FZN_CATALOG_ERR_PATH;\n",
+		"\t\tif (0)\n\t\t\treturn FZN_CATALOG_ERR_PATH;\n",
+		"a consumer names a node from data it was given, so a name carrying a separator forges a level of the tree nobody asserted -- log/log.h refuses a newline in a body for the same reason",
+	),
+	(
+		"segment-no-traversal",
+		"catalog/catalog.c",
+		"\tif (strcmp(seg, \".\") == 0 || strcmp(seg, \"..\") == 0)\n\t\treturn FZN_CATALOG_ERR_PATH;\n",
+		"\tif (0)\n\t\treturn FZN_CATALOG_ERR_PATH;\n",
+		"a name that walks up writes the file outside the filing root entirely, which is the same defect pointed at the rest of the disk rather than at the tree",
+	),
+	(
+		"segment-not-empty",
+		"catalog/catalog.c",
+		"\tif (!seg || !*seg)\n\t\treturn FZN_CATALOG_ERR_PATH;\n",
+		"\tif (!seg)\n\t\treturn FZN_CATALOG_ERR_PATH;\n",
+		"a consumer that succeeds and names nothing gives a path with an empty segment, which names a different place on some systems and nothing at all on others",
+	),
+	(
+		"path-refuses-empty-run",
+		"catalog/catalog.c",
+		"\tif (count == 0)\n\t\treturn FZN_CATALOG_ERR_PATH;\n",
+		"\tif (0)\n\t\treturn FZN_CATALOG_ERR_PATH;\n",
+		"an empty run is no path rather than an empty one, and returning \"\" hands a consumer a name for its working directory",
+	),
+	(
+		"name-refusal-is-backend",
+		"catalog/catalog.c",
+		"\t\tif (!ops->name(ops->ctx, &ids[i], segment, sizeof(segment)))\n\t\t\treturn FZN_CATALOG_ERR_BACKEND;\n",
+		"\t\tif (!ops->name(ops->ctx, &ids[i], segment, sizeof(segment)))\n\t\t\treturn FZN_CATALOG_ERR_PATH;\n",
+		"a consumer that will not name a node yet is a step to retry, and a name it gave that cannot be used is one to report -- collapsing them makes a transient look permanent",
+	),
+	(
+		"step-advances-only-on-success",
+		"catalog/catalog.c",
+		"\tif (!ops->move(ops->ctx, was, now))\n\t\treturn FZN_CATALOG_ERR_BACKEND;\n",
+		"\t(void)ops->move(ops->ctx, was, now);\n",
+		"sec 148 chose to advance after the file has moved so a crash repeats a step rather than skipping one, and this function is where that stops being a sentence and becomes the shape of the code",
+	),
+	(
 		"provision-envelope-verified",
 		"provision/provision.c",
 		"\tif (!verifier->verify(verifier->ctx, card.root, card.base, FZN_PROVISION_BODY_LEN,\n"

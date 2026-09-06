@@ -275,6 +275,10 @@ const char *fzn_catalog_err_str(fzn_catalog_err_t err)
 		return "no such membership";
 	case FZN_CATALOG_ERR_BUSY:
 		return "a refile is under way";
+	case FZN_CATALOG_ERR_BACKEND:
+		return "the filesystem seam refused";
+	case FZN_CATALOG_ERR_PATH:
+		return "not a usable path";
 	}
 	return "unknown";
 }
@@ -858,4 +862,127 @@ fzn_catalog_err_t fzn_catalog_refile_end(fzn_catalog_t *catalog, fzn_catalog_ref
 
 	catalog->refiling = 0;
 	return FZN_CATALOG_OK;
+}
+
+/* ---- the filesystem seam ------------------------------------------------ */
+
+/* A segment a path may be built from.
+ *
+ * REFUSED, NOT SANITISED. A consumer naming a node from data hands back
+ * whatever it was told, and quietly rewriting a name would put a file
+ * somewhere neither the consumer nor the catalogue describes. Saying no is
+ * the answer a caller can act on. */
+static fzn_catalog_err_t usable_segment(const char *seg)
+{
+	size_t i;
+
+	if (!seg || !*seg)
+		return FZN_CATALOG_ERR_PATH;
+	/* A SEPARATOR WOULD FORGE A LEVEL OF THE TREE that nobody asserted --
+	 * `log/log.h` refuses a newline in a body for the same reason, where an
+	 * unescaped one draws an entry nobody signed. */
+	for (i = 0; seg[i]; i++) {
+		if (seg[i] == '/')
+			return FZN_CATALOG_ERR_PATH;
+		if (i >= FZN_CATALOG_SEGMENT_MAX)
+			return FZN_CATALOG_ERR_PATH;
+	}
+	/* A TRAVERSAL WALKS OUT OF THE FILING ROOT ENTIRELY, which is the same
+	 * defect pointed at the rest of the disk rather than at the tree. */
+	if (strcmp(seg, ".") == 0 || strcmp(seg, "..") == 0)
+		return FZN_CATALOG_ERR_PATH;
+	return FZN_CATALOG_OK;
+}
+
+fzn_catalog_err_t fzn_catalog_path_of(const fzn_catalog_id_t *ids, size_t count,
+                                      const fzn_catalog_fs_ops_t *ops, char *out, size_t cap)
+{
+	char segment[FZN_CATALOG_SEGMENT_MAX + 1u];
+	/* ASSEMBLED HERE AND COPIED OUT ONLY ON SUCCESS. Written straight into
+	 * the caller's buffer, a path refused at its third segment would leave
+	 * the first two there -- and the header promises that a refusal leaves
+	 * the buffer as it found it. The suite caught the difference, which is
+	 * the version of this that says a comment is a check a reader runs. */
+	char built[FZN_CATALOG_PATH_MAX];
+	fzn_catalog_err_t err;
+	size_t at = 0;
+	size_t i, len;
+
+	if (!ids || !ops || !ops->name || !out || cap == 0)
+		return FZN_CATALOG_ERR_MALFORMED;
+	/* An empty run is not an empty path, it is no path -- and returning ""
+	 * would hand a consumer a name for the working directory. */
+	if (count == 0)
+		return FZN_CATALOG_ERR_PATH;
+
+	for (i = 0; i < count; i++) {
+		memset(segment, 0, sizeof(segment));
+		if (!ops->name(ops->ctx, &ids[i], segment, sizeof(segment)))
+			return FZN_CATALOG_ERR_BACKEND;
+		/* A backend that filled the buffer without terminating it would
+		 * otherwise be read past its end. */
+		segment[FZN_CATALOG_SEGMENT_MAX] = '\0';
+
+		err = usable_segment(segment);
+		if (err != FZN_CATALOG_OK)
+			return err;
+
+		len = strlen(segment);
+		/* The separator, the segment and the terminator, checked before
+		 * any of it is written so a refusal leaves the caller's buffer
+		 * as it found it rather than holding half a path. */
+		if (at + (i > 0 ? 1u : 0u) + len + 1u > cap
+		    || at + (i > 0 ? 1u : 0u) + len + 1u > sizeof(built))
+			return FZN_CATALOG_ERR_PATH;
+		if (i > 0)
+			built[at++] = '/';
+		memcpy(built + at, segment, len);
+		at += len;
+	}
+	built[at] = '\0';
+	/* UNCONDITIONAL, AND SAFE BY THE CHECK ABOVE: every segment's bound
+	 * test includes `cap`, so `at + 1` cannot exceed it here. Clamping this
+	 * would be unreachable code -- the sabotage harness confirmed no
+	 * mutation of it can fail -- and there is no entry for it, which sec
+	 * 149 records so a later reader does not add one and find it survives. */
+	memcpy(out, built, at + 1u);
+	return FZN_CATALOG_OK;
+}
+
+fzn_catalog_err_t fzn_catalog_refile_step(const fzn_catalog_t *catalog,
+                                          fzn_catalog_refile_t *job,
+                                          const fzn_catalog_fs_ops_t *ops)
+{
+	fzn_catalog_id_t node;
+	fzn_catalog_id_t was_ids[FZN_CATALOG_FILING_MAX_DEPTH];
+	fzn_catalog_id_t now_ids[FZN_CATALOG_FILING_MAX_DEPTH];
+	char was[FZN_CATALOG_PATH_MAX];
+	char now[FZN_CATALOG_PATH_MAX];
+	size_t was_len = 0, now_len = 0;
+	fzn_catalog_err_t err;
+
+	if (!ops || !ops->name || !ops->move)
+		return FZN_CATALOG_ERR_MALFORMED;
+
+	err = fzn_catalog_refile_at(catalog, job, &node, was_ids, FZN_CATALOG_FILING_MAX_DEPTH,
+	                            &was_len, now_ids, FZN_CATALOG_FILING_MAX_DEPTH, &now_len);
+	if (err != FZN_CATALOG_OK)
+		return err;
+
+	err = fzn_catalog_path_of(was_ids, was_len, ops, was, sizeof(was));
+	if (err != FZN_CATALOG_OK)
+		return err;
+	err = fzn_catalog_path_of(now_ids, now_len, ops, now, sizeof(now));
+	if (err != FZN_CATALOG_OK)
+		return err;
+
+	if (!ops->move(ops->ctx, was, now))
+		return FZN_CATALOG_ERR_BACKEND;
+
+	/* THE ORDER IS THE WHOLE POINT OF THIS FUNCTION. sec 148 chose to
+	 * advance after the file has moved so that a crash repeats a step
+	 * rather than skipping one, and here that stops being a sentence a
+	 * consumer has to read and becomes the shape of the code: a failed move
+	 * leaves the cursor where it was. */
+	return fzn_catalog_refile_advance(job);
 }

@@ -93,6 +93,16 @@ typedef enum fzn_catalog_err {
 	 * while files are being moved, and a consumer meeting it shows a
 	 * progress bar rather than a tree. project.md sec 148. */
 	FZN_CATALOG_ERR_BUSY = -6,
+	/* The filesystem seam refused: a name the consumer would not give, or a
+	 * move it could not make. Kept apart from MALFORMED because the caller
+	 * did nothing wrong -- a disk filled, a file was gone, a name could not
+	 * be resolved -- and a refile meeting it should retry rather than
+	 * conclude its job is broken. project.md sec 149. */
+	FZN_CATALOG_ERR_BACKEND = -7,
+	/* A path this module built and will not use: a segment carrying a
+	 * separator or a traversal, or a whole path past the bound. See
+	 * `fzn_catalog_fs_ops`, where the reasons are the point. */
+	FZN_CATALOG_ERR_PATH = -8,
 	/* Bytes that are not a catalogue assertion, or are one written a way
 	 * this build does not produce. Distinct from MALFORMED because that is
 	 * the caller's bug and this is a PEER'S BYTES -- the same distinction
@@ -677,5 +687,101 @@ fzn_catalog_err_t fzn_catalog_refile_progress(const fzn_catalog_refile_t *job,
  * describes. */
 fzn_catalog_err_t fzn_catalog_refile_end(fzn_catalog_t *catalog,
                                          fzn_catalog_refile_t *job);
+
+
+/*
+ * THE FILESYSTEM SEAM: what a consumer supplies so a refile can run itself.
+ *
+ * project.md sec 149. sec 148 left the moving to a caller and gave it two
+ * paths of ids per step. This is the seam that closes the loop, and the
+ * division is deliberate:
+ *
+ *     the library    the ORDER, the cursor, and assembling a path from
+ *                    segments -- which is where the off-by-one errors live
+ *     the consumer   NAMING an id, and moving a file. Both are things this
+ *                    library cannot know: a node id is thirty-two opaque
+ *                    bytes, and storage here is not always a filesystem.
+ *
+ * WHAT IT BUYS BEYOND TIDINESS. `fzn_catalog_refile_step` calls `move` and
+ * advances the cursor ONLY IF IT SUCCEEDED -- so sec 148's crash-safety
+ * ordering ("advance after the file has moved, never before") stops being a
+ * sentence a consumer has to read and becomes the shape of the code. A move
+ * that fails leaves the cursor where it was, so a retry repeats the step.
+ *
+ * A SEGMENT MAY NOT CARRY A SEPARATOR, AND THAT IS THE POINT RATHER THAN
+ * TIDINESS. A consumer naming a node from data -- a film's title, a peer's
+ * chosen label -- hands back whatever it was told, and a name containing a
+ * slash would forge a level of the tree that nobody asserted. `log/log.h`
+ * refuses a newline in a body for exactly this reason: a viewer showing one
+ * entry per line would otherwise draw an entry nobody signed, and a path
+ * built from an unchecked segment puts a file where nobody filed it.
+ *
+ * NOR A TRAVERSAL. "." and ".." are refused, since a name that walks UP is a
+ * file written outside the filing root entirely -- which is the same defect
+ * pointed at the rest of the disk rather than at the tree.
+ */
+
+/* The longest path this module will assemble, and the longest segment it will
+ * accept. Both bounded because it assembles into a fixed buffer and a caller
+ * that wants more is choosing a layout no filesystem here will hold. */
+#define FZN_CATALOG_SEGMENT_MAX 255u
+#define FZN_CATALOG_PATH_MAX 1024u
+
+typedef struct fzn_catalog_fs_ops {
+	/*
+	 * A path segment for this node, into `out`, NUL-terminated.
+	 *
+	 * NONZERO on success. A consumer that cannot name a node -- one whose
+	 * content has not arrived, say -- returns zero, and the refile reports
+	 * FZN_CATALOG_ERR_BACKEND without advancing, so the step can be tried
+	 * again when it can.
+	 */
+	int (*name)(void *ctx, const fzn_catalog_id_t *node, char *out, size_t cap);
+	/*
+	 * Move whatever is at `was` to `now`, creating what it needs to.
+	 *
+	 * NONZERO on success. Both are paths this module assembled from the
+	 * consumer's own segments, so a consumer that recognises neither has
+	 * been handed something it named.
+	 *
+	 * IT MUST TOLERATE A REPEAT. A crash between the move and the cursor
+	 * advancing repeats one step, which sec 148 chose deliberately as the
+	 * direction that loses nothing -- so a move whose source is already at
+	 * its destination is a success here, not a failure.
+	 */
+	int (*move)(void *ctx, const char *was, const char *now);
+	void *ctx;
+} fzn_catalog_fs_ops_t;
+
+/*
+ * Assemble the path for a run of ids, naming each through `ops`.
+ *
+ * Segments are joined with '/' and the result is NUL-terminated. Exposed
+ * rather than kept private because a consumer wants the same string for
+ * things that are not moves -- showing a user where a file is, or checking
+ * what is on disk before starting.
+ *
+ * FZN_CATALOG_ERR_PATH for a segment that is empty, carries a '/', is "." or
+ * "..", or for a whole path past FZN_CATALOG_PATH_MAX.
+ * FZN_CATALOG_ERR_BACKEND when the consumer will not name a node.
+ */
+fzn_catalog_err_t fzn_catalog_path_of(const fzn_catalog_id_t *ids, size_t count,
+                                      const fzn_catalog_fs_ops_t *ops, char *out, size_t cap);
+
+/*
+ * Do one step of a refile: name both paths, move the file, advance.
+ *
+ * The cursor advances ONLY on a successful move, so a failure leaves the job
+ * exactly where it was and a retry repeats the step rather than skipping it.
+ *
+ * FZN_CATALOG_ERR_ABSENT when the work is finished, which is how a loop
+ * knows to stop. A step whose old or new path cannot be built is
+ * FZN_CATALOG_ERR_PATH and does not advance either -- a file this host cannot
+ * place is one a consumer must be told about rather than one silently
+ * counted as done.
+ */
+fzn_catalog_err_t fzn_catalog_refile_step(const fzn_catalog_t *catalog,
+                                          fzn_catalog_refile_t *job,
+                                          const fzn_catalog_fs_ops_t *ops);
 
 #endif
