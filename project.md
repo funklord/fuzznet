@@ -22721,6 +22721,108 @@ the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
 
+## 128. Shared memory between local nodes: a possible feature, and what would decide it, 2026-09-06
+
+Raised by the copyright holder 2026-09-06: would a shared memory interface
+between local nodes perform better, and if so it should be written up as a
+possible feature gated on a real requirement rather than built now.
+
+**Nothing here is measured, and it cannot be yet**: there is no local hop, so
+there is no throughput to compare against. What follows is an argument and
+the measurement that would settle it, recorded so that adopting shm later is
+a decision rather than a rewrite -- the same reason `spool_file.h` records
+why it does not use mmap.
+
+### The tree already argued this under a different name, and one argument inverts
+
+`spool/spool_file.h` weighed mmap against positional reads for the store and
+kept the reads. Three of its reasons, against a local IPC ring:
+
+- **"A leaf is 1056 bytes. One `pwrite` per leaf against a network that
+  delivered it is a syscall dwarfed by the packet that carried it."**
+  **This one INVERTS.** On a local hop there is no packet, so the syscall is
+  the cost rather than a rounding error on it. That inversion is the entire
+  case for shm here, and it is worth noticing that the argument against mmap
+  in one place is the argument FOR shm in another.
+- **"mmap's failure mode is worse. A mapping over a file another process
+  truncates raises SIGBUS at the faulting instruction, which is a crash
+  rather than a return value -- and this store is deliberately pointed at
+  bytes from strangers, so its failure paths want to be returnable."**
+  **This transfers in full and is worse for a ring**, because the other end
+  is a live peer rather than a filesystem: a client that shrinks or unmaps
+  the segment kills the daemon at its next load. `memfd_create` with
+  `F_SEAL_SHRINK` is the answer and would be mandatory rather than optional.
+- **"A 4 GiB mapping on a 32-bit target is not addressable at all, and
+  netcfgd runs on routers."** Transfers to a large ring, not to a small one.
+
+And the case `spool_file.h` says mmap DOES win -- "when the same pages are
+read repeatedly, a seeder serving one popular blob" -- is the opposite of a
+ring, which is written once and read once.
+
+### Where it would pay, which is one place
+
+**Bulk filestore transfer between two local nodes**, and nothing else. A
+config set, a command, a revocation are small and rare; the syscall is not
+their cost. A 64 KiB span moved between a client and a daemon on one machine
+is the only traffic where removing a copy is worth a trust boundary.
+
+Rough shape of the difference, from the mechanisms rather than from
+measurement here: a socket round trip is a copy in, a copy out and a syscall
+pair; a ring is neither, at the price of the hazards above. For small
+messages that is a large ratio on a small number, and for bulk it is roughly
+one copy.
+
+### What already works with no feature at all
+
+**Every buffer this library writes into is the caller's.** `fzn_seal_build`
+takes `frame`, `cap` and writes there; `fzn_msg_data_encode` takes `out`;
+`fzn_spool_place_span` takes pointers and copies no leaf. So **a caller can
+already hand fuzznet a pointer into a shared mapping** and the library will
+build a frame in it without knowing.
+
+That makes the feature smaller than it sounds. What would need building is
+not a frame path -- it is the ring discipline, the sealing of the segment,
+and the trust handling. The protocol side is already compatible, which is a
+property of the no-allocation rule that nobody designed for this.
+
+### The part that bears on a decision still open
+
+**Shared memory and "no encryption on the local hops" are in tension, and the
+tension is real rather than theoretical.**
+
+The argument for unsealed local frames is that `SO_PEERCRED` authenticates
+the peer at the kernel and AF_UNIX traffic is kernel memory, so an AEAD
+excludes no attacker the kernel does not. **That argument is a property of
+the SOCKET.** In a shared ring there is no kernel between the parties: a peer
+can mutate a field between the bounds check and the parse, and every read is
+a time-of-check-to-time-of-use against a live adversary.
+
+A sealed frame in shared memory is tamper-evident -- copy out, verify the
+tag, and a mid-read mutation fails the AEAD. An unsealed one has nothing.
+
+So the local-sealing decision should be recorded as **contingent on the
+transport being a socket** rather than as unconditional, or a later shm
+feature silently removes the only integrity mechanism the hop had. If shm
+ever arrives, sealing locally may earn its keep after all -- not against an
+eavesdropper, but against a peer editing the buffer under the reader.
+
+### What would decide it
+
+Not an opinion. A measurement, once there is a local hop to measure:
+
+- **the ratio, both halves.** Local socket throughput and latency for a
+  64 KiB span, against the same over a ring, on the smallest target that
+  matters -- a router rather than this machine.
+- **whether the copy is the cost at all.** If the daemon must copy out of
+  the ring to parse safely, which the TOCTOU hazard suggests, the ring saves
+  one copy rather than two and the ratio halves before anything else is
+  considered.
+- **what a seal costs against what it buys**, since the tension above may
+  mean the honest comparison is sealed-shm against unsealed-socket rather
+  than shm against socket.
+
+Until those exist this is a design note and not a plan.
+
 ## 127. The thin four, and a hazard demonstrated rather than argued, 2026-09-06
 
 The "then expand" half of sec 124's instruction. Four modules the sim called
