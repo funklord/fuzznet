@@ -62,14 +62,16 @@
 static int failures;
 static int checks;
 
-static void expect(int ok, const char *what)
+static void expect_at(int ok, int line, const char *what)
 {
 	checks++;
 	if (!ok) {
 		failures++;
-		fprintf(stderr, "  FAIL: %s\n", what);
+		fprintf(stderr, "  FAIL secret_flow_test.c:%d: %s\n", line, what);
 	}
 }
+
+#define expect(ok, what) expect_at((ok) ? 1 : 0, __LINE__, (what))
 
 /* The comparison under test, with both inputs secret and the ANSWER made
  * public again.

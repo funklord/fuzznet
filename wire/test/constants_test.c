@@ -344,14 +344,16 @@ _Static_assert((uint64_t)FZN_REASM_MAX_CHUNKS * FZN_SPLIT_MAX_PAYLOAD == 262144u
 static int failures;
 static int checks;
 
-static void check(int ok, const char *what)
+static void check_at(int ok, int line, const char *what)
 {
 	checks++;
 	if (!ok) {
 		failures++;
-		fprintf(stderr, "  FAIL: %s\n", what);
+		fprintf(stderr, "  FAIL constants_test.c:%d: %s\n", line, what);
 	}
 }
+
+#define check(ok, what) check_at((ok) ? 1 : 0, __LINE__, (what))
 
 int main(void)
 {

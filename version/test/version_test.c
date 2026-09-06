@@ -40,14 +40,16 @@ _Static_assert(FZN_VERSION_AT_LEAST(0, 0, 0), "FZN_VERSION_AT_LEAST is false for
 static int failures;
 static int checks;
 
-static void expect(int ok, const char *what)
+static void expect_at(int ok, int line, const char *what)
 {
 	checks++;
 	if (!ok) {
 		failures++;
-		fprintf(stderr, "  FAIL: %s\n", what);
+		fprintf(stderr, "  FAIL version_test.c:%d: %s\n", line, what);
 	}
 }
+
+#define expect(ok, what) expect_at((ok) ? 1 : 0, __LINE__, (what))
 
 int main(void)
 {

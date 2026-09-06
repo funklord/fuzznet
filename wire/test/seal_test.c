@@ -47,14 +47,16 @@
 static int failures;
 static int checks;
 
-static void check(int ok, const char *what)
+static void check_at(int ok, int line, const char *what)
 {
 	checks++;
 	if (!ok) {
 		failures++;
-		fprintf(stderr, "  FAIL: %s\n", what);
+		fprintf(stderr, "  FAIL seal_test.c:%d: %s\n", line, what);
 	}
 }
+
+#define check(ok, what) check_at((ok) ? 1 : 0, __LINE__, (what))
 
 /* A transform with the shape of an AEAD and none of the strength: the text is
  * XORed with a byte derived from the key, and the tag is a checksum over the

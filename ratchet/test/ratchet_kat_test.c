@@ -37,14 +37,16 @@
 static int failures;
 static int checks;
 
-static void check(int ok, const char *what)
+static void check_at(int ok, int line, const char *what)
 {
 	checks++;
 	if (!ok) {
 		failures++;
-		fprintf(stderr, "  FAIL: %s\n", what);
+		fprintf(stderr, "  FAIL ratchet_kat_test.c:%d: %s\n", line, what);
 	}
 }
+
+#define check(ok, what) check_at((ok) ? 1 : 0, __LINE__, (what))
 
 /*
  * From ratchet.h and ratchet.c's derivation:

@@ -16,14 +16,16 @@
 static int failures;
 static int checks;
 
-static void check(int ok, const char *what)
+static void check_at(int ok, int line, const char *what)
 {
 	checks++;
 	if (!ok) {
 		failures++;
-		fprintf(stderr, "  FAIL: %s\n", what);
+		fprintf(stderr, "  FAIL random_test.c:%d: %s\n", line, what);
 	}
 }
+
+#define check(ok, what) check_at((ok) ? 1 : 0, __LINE__, (what))
 
 /* A source that writes some bytes and then fails, which is the shape of a
  * short read and the reason `fill` is all-or-nothing. */

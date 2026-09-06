@@ -52,14 +52,16 @@
 static int failures;
 static int checks;
 
-static void check(int ok, const char *what)
+static void check_at(int ok, int line, const char *what)
 {
 	checks++;
 	if (!ok) {
 		failures++;
-		fprintf(stderr, "  FAIL: %s\n", what);
+		fprintf(stderr, "  FAIL golden_frame_test.c:%d: %s\n", line, what);
 	}
 }
+
+#define check(ok, what) check_at((ok) ? 1 : 0, __LINE__, (what))
 
 #define PAYLOAD_LEN 24
 #define FRAME_LEN   (FZN_SEAL_OVERHEAD + PAYLOAD_LEN)

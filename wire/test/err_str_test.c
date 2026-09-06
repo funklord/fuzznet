@@ -91,7 +91,7 @@ static void expect(int ok, const char *subject, const char *what)
 	checks++;
 	if (!ok) {
 		failures++;
-		fprintf(stderr, "  FAIL: %s: %s\n", subject, what);
+		fprintf(stderr, "  FAIL err_str_test.c: %s: %s\n", subject, what);
 	}
 }
 

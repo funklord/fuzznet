@@ -18,14 +18,16 @@
 static int failures;
 static int checks;
 
-static void expect(int ok, const char *what)
+static void expect_at(int ok, int line, const char *what)
 {
 	checks++;
 	if (!ok) {
 		failures++;
-		fprintf(stderr, "  FAIL: %s\n", what);
+		fprintf(stderr, "  FAIL agree_monocypher_test.c:%d: %s\n", line, what);
 	}
 }
+
+#define expect(ok, what) expect_at((ok) ? 1 : 0, __LINE__, (what))
 
 /* The small-order points of Curve25519, as published. */
 static const uint8_t LOW_ORDER[5][FZN_AGREE_PUBLIC_LEN] = {

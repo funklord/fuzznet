@@ -45,14 +45,16 @@
 static int failures;
 static int checks;
 
-static void expect(int ok, const char *what)
+static void expect_at(int ok, int line, const char *what)
 {
 	checks++;
 	if (!ok) {
 		failures++;
-		fprintf(stderr, "  FAIL: %s\n", what);
+		fprintf(stderr, "  FAIL fix_stream_test.c:%d: %s\n", line, what);
 	}
 }
+
+#define expect(ok, what) expect_at((ok) ? 1 : 0, __LINE__, (what))
 
 /* The consumer's own layout, and the consumer's own arithmetic. Nineteen
  * bytes: two signed degrees at 1e7, a UTC second, accuracy and bearing codes,

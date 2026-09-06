@@ -27,14 +27,16 @@
 static int failures;
 static int checks;
 
-static void expect(int ok, const char *what)
+static void expect_at(int ok, int line, const char *what)
 {
 	checks++;
 	if (!ok) {
 		failures++;
-		fprintf(stderr, "  FAIL: %s\n", what);
+		fprintf(stderr, "  FAIL persist_file_test.c:%d: %s\n", line, what);
 	}
 }
+
+#define expect(ok, what) expect_at((ok) ? 1 : 0, __LINE__, (what))
 
 /* A directory this test makes and removes. Named for the process so two
  * runs cannot collide, and removed by NAME rather than by pattern -- an
@@ -296,7 +298,7 @@ int main(void)
 
 	snprintf(dir, sizeof(dir), "persist-test-%ld", (long)getpid());
 	if (mkdir(dir, 0700) != 0) {
-		fprintf(stderr, "  FAIL: could not make the scratch directory\n");
+		fprintf(stderr, "  FAIL persist_file_test.c: could not make the scratch directory\n");
 		return 1;
 	}
 

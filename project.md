@@ -22869,6 +22869,86 @@ anything could have said otherwise.
 copyright holder should know the size before it happens rather than find it
 inside a commit about a widget.
 
+## 143. The naming sweep: 47 files, and what the proof refused, 2026-09-06
+
+Directed by the copyright holder 2026-09-06 after sec 141 measured the gap:
+sweep every suite so its failure lines name it.
+
+### The count was wrong, and the detector is why
+
+sec 141 reported 61 suites. **47 files were actually changed**, and the
+difference is the detector rather than the tree: it required the form
+`FAIL <file>.c:<line>:` and therefore flagged suites that name themselves
+another way. `blob/test/blob_fuzz.c` prints
+`"blob_fuzz: FAILED on case %lu"` -- attribution served, in a form the
+pattern did not accept.
+
+A second false positive survived to the end: the last thing the corrected
+detector reported was `"FAIL"` inside a COMMENT in
+`chain/test/sign_monocypher_test.c`. The gate below therefore reads only
+lines that PRINT, which is the difference between reporting on output and
+reporting on prose.
+
+**Both are `evidence.md`'s pattern-too-narrow and pattern-too-loose in one
+sweep**, and both were found by running the detector again rather than by
+reading it.
+
+**And 57 stood here until the commit was being staged**, which is the same
+rule a third time: it was inferred from the first detector's 61 rather than
+counted from what changed, and the staged file list is what disagreed with
+it. A scope number nothing downstream re-derives is the one that survives
+wrong.
+
+### The proof, and it failed first
+
+A bulk edit carries a proof. This one is **output-only**, so the invariant is
+that **every suite's reported check and failure counts are unchanged** --
+captured from `make test` before, diffed after. 67 suites, identical.
+
+**It failed on the first run, which is the proof working rather than a
+setback.** The tool wrote `int ok` over every signature it matched, and
+`tree/test/tree_test.c` calls its parameter `cond`, so the body referred to a
+name the signature no longer declared. It did not compile, so no counts
+existed to diff at all -- and a tool that had guessed right would have been
+trusted for the wrong reason. The parameter name is captured now.
+
+### Two passes, because one shape did not cover it
+
+**The arithmetic, because a bare count is what rots**: the first pass
+converted 30, the second touched 27, and 47 files changed -- so 10 received
+both, a helper rewritten and a stray literal prefixed.
+
+- **30 suites** route their assertions through a single
+  `static void check(int ok, const char *what)` or `expect(...)`. Those got
+  the treatment `trust_test` and `log_test` had: the helper gains a `line`
+  parameter and a macro supplies `__LINE__`, so a failure carries a file AND
+  a line.
+- **27 files** carried something the first tool refused -- a second
+  `expect_err`-shaped helper, or a scatter of one-off fixture messages. Those
+  got a simpler edit: the literal is prefixed with the file's name. 71
+  literals.
+
+**The second pass carries its own proof**, and a stricter one: every string
+literal is stripped from the before and after texts and the remainders must
+be byte-identical, so no code outside a literal can have moved. Nothing was
+refused.
+
+**What the tools refused is the part worth reading**, since `evidence.md`
+says a proof does not cover it. The first tool refused 30 files and named a
+reason for each; every one was then handled by the second pass or was
+already naming itself. Nothing was left half-converted, because a refusal
+leaves a file exactly as it was.
+
+### The gate, which is the durable half
+
+A sweep fixes today. `make style` now requires every test source's printed
+failure lines to name its suite, and **it was shown to fail**: un-naming one
+literal in `journal_test.c` turns the gate red and naming it again turns it
+green. 95 test sources.
+
+Without it the next suite added starts the count again, which is how sec 139
+came to find one at all.
+
 ## 142. Is there a catalog subsystem? No, and here is what it would be, 2026-09-06
 
 Asked alongside sec 141: is there a catalog subsystem -- "a tree file/text
@@ -22932,6 +23012,52 @@ different bug entirely.
 **Not built, and not designed further than this.** It is a subsystem, the
 holder has named three consumers with visibly different needs, and the
 record-or-blob question above is theirs to settle first.
+
+### Three further properties, 2026-09-06, and the third changes the shape
+
+The copyright holder added: a catalogue needs **a wide variety of
+configurable conflict resolution strategies**; permissions are needed **only
+at whole-catalogue level** so far; and **most importantly, both directories
+and files can be linked from several parents**, the structure must be easy to
+edit, and **several directories can be combined as search terms** for that
+reason.
+
+**The third one means this is not a tree, and the word above was doing
+damage.** A node with many parents is a DAG, and combining directories as
+search terms is set intersection. Put those together and the honest reading
+is that **a "directory" is a NAMED SET and the hierarchy is a view over
+membership**, not a storage structure:
+
+    an entry belongs to N sets
+    a path is one way to name a set, not where the entry lives
+    combining directories is intersecting their memberships
+    editing is adding and removing memberships, never moving anything
+
+That is why it is easy to edit, and it retires the "hierarchical key" framing
+above: a hierarchical key has ONE parent by construction, so it cannot
+express any of this. **The key is an entry identity and the structure is a
+separate membership relation.**
+
+**And it makes the conflict question easier rather than harder, which is the
+opposite of what a first look suggests.** Membership is a set, and sets
+merge: two hosts adding an entry to a directory commute, so most of what
+would be a conflict in a last-writer-wins store is not a conflict at all.
+What remains hard is add-versus-remove, which is the case a set design has to
+name explicitly rather than the whole problem.
+
+So the strategies the holder wants are a **seam**, in the shape this library
+already uses for hashes and signers -- the consumer supplies the policy --
+and the useful default for membership is union rather than last-writer-wins.
+
+**Whole-catalogue permissions cost nothing extra**, because sec 129 already
+supplies them: a catalogue is a service, and a capability is
+`fzn_service_capability(service, product, name)`. No per-entry access control
+is implied and none should be built before it is asked for.
+
+**Still not built.** What has changed is that the record-or-blob question is
+now clearly about ENTRY CONTENT, while the structure is a membership relation
+whose conflict behaviour is a seam -- three decisions rather than one, and
+they are separable.
 
 ## 140. FZN_GUI, the first C++ here, and two defects it found, 2026-09-06
 

@@ -179,7 +179,7 @@ static int stub_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const ui
 	uint8_t want[FZN_SIG_LEN];
 
 	if (!msg || msg_len == 0) {
-		fprintf(stderr, "  FAIL: verifier called with an empty signed region\n");
+		fprintf(stderr, "  FAIL manifest_test.c: verifier called with an empty signed region\n");
 		failures++;
 		return 0;
 	}
@@ -200,7 +200,7 @@ static int stub_sign(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg, si
 	stub_t *s = (stub_t *)ctx;
 
 	if (!msg || msg_len == 0) {
-		fprintf(stderr, "  FAIL: signer called with an empty region\n");
+		fprintf(stderr, "  FAIL manifest_test.c: signer called with an empty region\n");
 		failures++;
 		return 0;
 	}
@@ -379,7 +379,7 @@ static const fzn_manifest_entry_t *as_entries(const fzn_manifest_pair_t *src, si
 	size_t i;
 
 	if (n > (sizeof(ENTRY_BUF) / sizeof(ENTRY_BUF[0]))) {
-		fprintf(stderr, "  FAIL: as_entries asked for %zu, buffer holds %zu\n",
+		fprintf(stderr, "  FAIL manifest_test.c: as_entries asked for %zu, buffer holds %zu\n",
 		        n, (size_t)(sizeof(ENTRY_BUF) / sizeof(ENTRY_BUF[0])));
 		failures++;
 		return NULL;
@@ -416,18 +416,18 @@ static void revoke_at(struct fixture *f, const uint8_t issuer[FZN_PUBKEY_LEN],
 	f->stub.identity = issuer[0];
 	if (fzn_revocation_issue(issuer, capability, grantee, issued_at, &f->sign, bytes) !=
 	    FZN_CHAIN_OK) {
-		fprintf(stderr, "  FAIL: the fixture could not issue a revocation\n");
+		fprintf(stderr, "  FAIL manifest_test.c: the fixture could not issue a revocation\n");
 		failures++;
 		return;
 	}
 	if (fzn_revocation_open(bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK) {
-		fprintf(stderr, "  FAIL: the fixture issued a revocation that will not open\n");
+		fprintf(stderr, "  FAIL manifest_test.c: the fixture issued a revocation that will not open\n");
 		failures++;
 		return;
 	}
 	if (fzn_revocation_admit(&f->store, fzn_revocation_offer_root(rec), issuer, &f->sign,
 	                         &HASH_OPS, NULL) != FZN_CHAIN_OK) {
-		fprintf(stderr, "  FAIL: the fixture could not admit a revocation\n");
+		fprintf(stderr, "  FAIL manifest_test.c: the fixture could not admit a revocation\n");
 		failures++;
 	}
 }
@@ -442,18 +442,18 @@ static void revoke(struct fixture *f, const uint8_t issuer[FZN_PUBKEY_LEN],
 	f->stub.identity = issuer[0];
 	if (fzn_revocation_issue(issuer, capability, grantee, 1000, &f->sign, bytes) !=
 	    FZN_CHAIN_OK) {
-		fprintf(stderr, "  FAIL: the fixture could not issue a revocation\n");
+		fprintf(stderr, "  FAIL manifest_test.c: the fixture could not issue a revocation\n");
 		failures++;
 		return;
 	}
 	if (fzn_revocation_open(bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK) {
-		fprintf(stderr, "  FAIL: the fixture issued a revocation that will not open\n");
+		fprintf(stderr, "  FAIL manifest_test.c: the fixture issued a revocation that will not open\n");
 		failures++;
 		return;
 	}
 	if (fzn_revocation_admit(&f->store, fzn_revocation_offer_root(rec), issuer, &f->sign, &HASH_OPS,
 	                         NULL) != FZN_CHAIN_OK) {
-		fprintf(stderr, "  FAIL: the fixture's revocation was refused\n");
+		fprintf(stderr, "  FAIL manifest_test.c: the fixture's revocation was refused\n");
 		failures++;
 	}
 	stub_reset(&f->stub);

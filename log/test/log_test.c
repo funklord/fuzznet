@@ -106,7 +106,7 @@ static void make_on(fzn_record_t *r, uint8_t issuer_seed, uint32_t stream, uint6
 	memset(subject, 0, sizeof(subject));
 	if (!fixture_record(r, issuer, subject, stream, 3, seq, BODIES[seq % 16u],
 	                    sizeof(BODIES[0]))) {
-		fprintf(stderr, "  FAIL: the fixture could not build a record\n");
+		fprintf(stderr, "  FAIL log_test.c: the fixture could not build a record\n");
 		failures++;
 		memset(r, 0, sizeof(*r));
 	}

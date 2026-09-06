@@ -35,14 +35,16 @@
 static int failures;
 static int checks;
 
-static void check(int ok, const char *what)
+static void check_at(int ok, int line, const char *what)
 {
 	checks++;
 	if (!ok) {
 		failures++;
-		fprintf(stderr, "  FAIL: %s\n", what);
+		fprintf(stderr, "  FAIL peer_linux_test.c:%d: %s\n", line, what);
 	}
 }
+
+#define check(ok, what) check_at((ok) ? 1 : 0, __LINE__, (what))
 
 static int holds(const fzn_peer_t *p, uint32_t gid)
 {
@@ -61,7 +63,7 @@ int main(void)
 	int n;
 
 	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) {
-		fprintf(stderr, "  FAIL: socketpair\n");
+		fprintf(stderr, "  FAIL peer_linux_test.c: socketpair\n");
 		return 1;
 	}
 
@@ -107,7 +109,7 @@ int main(void)
 		 * direction is the property with teeth. */
 		for (int i = 0; i < n; i++) {
 			if (!holds(&p, (uint32_t)mine[i])) {
-				fprintf(stderr, "  FAIL: getgroups reports %u and the parser did not\n",
+				fprintf(stderr, "  FAIL peer_linux_test.c: getgroups reports %u and the parser did not\n",
 				       (unsigned)mine[i]);
 				agreed = 0;
 				failures++;

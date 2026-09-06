@@ -170,7 +170,7 @@ int main(int argc, char **argv)
 			size_t n;
 
 			if (!f) {
-				fprintf(stderr, "  FAIL: cannot open %s\n", argv[i]);
+				fprintf(stderr, "  FAIL reassembly_guided.c: cannot open %s\n", argv[i]);
 				failures++;
 				continue;
 			}
@@ -178,7 +178,7 @@ int main(int argc, char **argv)
 			fclose(f);
 			cases++;
 			if (drive(buf, n)) {
-				fprintf(stderr, "  FAIL: %s broke an invariant\n", argv[i]);
+				fprintf(stderr, "  FAIL reassembly_guided.c: %s broke an invariant\n", argv[i]);
 				failures++;
 			}
 		}
@@ -191,7 +191,7 @@ int main(int argc, char **argv)
 		for (size_t i = 0; i < sizeof(sizes) / sizeof(sizes[0]); i++) {
 			cases++;
 			if (drive(builtin[i], sizes[i])) {
-				fprintf(stderr, "  FAIL: built-in case %zu broke an invariant\n", i);
+				fprintf(stderr, "  FAIL reassembly_guided.c: built-in case %zu broke an invariant\n", i);
 				failures++;
 			}
 		}

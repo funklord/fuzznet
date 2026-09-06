@@ -34,14 +34,16 @@
 static int failures;
 static int checks;
 
-static void check(int ok, const char *what)
+static void check_at(int ok, int line, const char *what)
 {
 	checks++;
 	if (!ok) {
 		failures++;
-		fprintf(stderr, "  FAIL: %s\n", what);
+		fprintf(stderr, "  FAIL admit_test.c:%d: %s\n", line, what);
 	}
 }
+
+#define check(ok, what) check_at((ok) ? 1 : 0, __LINE__, (what))
 
 static const uint8_t STATUS[] = "status";
 static const uint8_t DESTROY[] = "destroy";
@@ -55,7 +57,7 @@ int main(void)
 	uint32_t held_gid;
 
 	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) {
-		fprintf(stderr, "  FAIL: socketpair\n");
+		fprintf(stderr, "  FAIL admit_test.c: socketpair\n");
 		return 1;
 	}
 

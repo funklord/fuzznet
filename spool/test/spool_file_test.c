@@ -842,7 +842,7 @@ int main(void)
 	snprintf(path, sizeof(path), "spool-test-%ld.spool", (long)getpid());
 
 	if (!build_blob()) {
-		fprintf(stderr, "  FAIL: the blob fixture does not build\n");
+		fprintf(stderr, "  FAIL spool_file_test.c: the blob fixture does not build\n");
 		return 1;
 	}
 

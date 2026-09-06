@@ -35,21 +35,23 @@
 static int failures;
 static int checks;
 
-static void expect(int cond, const char *what)
+static void expect_at(int cond, int line, const char *what)
 {
 	checks++;
 	if (!cond) {
 		failures++;
-		fprintf(stderr, "  FAIL: %s\n", what);
+		fprintf(stderr, "  FAIL tree_test.c:%d: %s\n", line, what);
 	}
 }
+
+#define expect(ok, what) expect_at((ok) ? 1 : 0, __LINE__, (what))
 
 static void expect_err(fzn_tree_err_t got, fzn_tree_err_t want, const char *what)
 {
 	checks++;
 	if (got != want) {
 		failures++;
-		fprintf(stderr, "  FAIL: %s -- got \"%s\", wanted \"%s\"\n",
+		fprintf(stderr, "  FAIL tree_test.c: %s -- got \"%s\", wanted \"%s\"\n",
 		        what, fzn_tree_err_str(got), fzn_tree_err_str(want));
 	}
 }

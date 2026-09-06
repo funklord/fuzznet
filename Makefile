@@ -2924,6 +2924,36 @@ style:
 			exit 1; \
 		fi; \
 	done
+	@# EVERY SUITE NAMES ITSELF IN ITS FAILURE LINES, because a suite that
+	@# does not cannot be credited with what it catches: `tool/sabotage.py`
+	@# reports one failure line per sabotage and cannot prefer a suite that
+	@# does not say who it is. project.md sec 139 found one, sec 141 found a
+	@# second, and sec 143 swept the rest -- this is what stops the next one
+	@# arriving.
+	@#
+	@# ONLY LINES THAT PRINT are examined. A first version read every string
+	@# literal and flagged a COMMENT in sign_monocypher_test.c that quotes
+	@# the word, which is the detector reporting on prose rather than on
+	@# output.
+	@n=0; bad=; \
+	for f in `git ls-files '*/test/*.c' '*/test/*.cpp'`; do \
+		stem=`basename $$f | sed 's/\.[cp]*$$//'`; \
+		n=$$((n + 1)); \
+		if grep -E '(printf|fputs)' $$f | grep -oE '"[^"]*FAIL[^"]*"' \
+		   | grep -qv "$$stem"; then \
+			bad="$$bad $$f"; \
+		fi; \
+	done; \
+	if [ "$$n" -eq 0 ]; then \
+		echo "style: no test sources found, which cannot be right"; exit 1; \
+	fi; \
+	if [ -n "$$bad" ]; then \
+		echo "style: suites whose failure lines name no file:$$bad"; \
+		echo "style: a failure nobody can attribute is one the sabotage"; \
+		echo "style: harness credits to whichever suite ran last."; \
+		exit 1; \
+	fi; \
+	echo "style: $$n test sources, every failure line names its suite"
 	@have=`nm --defined-only $(CORE_SRCS:%.c=$(BUILD_DIR)/%.o) 2>/dev/null \
 	       | awk '$$2 == "T" { print $$3 }' \
 	       | grep -E '^fzn_[a-z_]+_str$$' | sort -u`; 	walked=`grep -oE '"fzn_[a-z_]+_str"' wire/test/err_str_test.c \
