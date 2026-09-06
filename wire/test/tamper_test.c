@@ -280,7 +280,7 @@ int main(void)
 	uint8_t frame[FRAME_LEN], sealed[FRAME_LEN];
 	struct verifier v;
 	situ_msg_t msg;
-	situ_view_t view;
+	situ_view_t view, head;
 	uint32_t at = 0, span = 0, failed_at = 0;
 	situ_err_t verdict;
 
@@ -305,6 +305,40 @@ int main(void)
 	      "situ would not say which bytes the tag covers");
 	check(at == COVERED_AT && span == COVERED_LEN,
 	      "the covered span situ reports is not the one this file describes");
+
+	/* 1b. AND EVERY OFFSET THIS FILE WRITES OUT, against where the
+	 * generated accessors actually point.
+	 *
+	 * The block above makes exactly this argument for the covered span --
+	 * two derivations of one number -- and stopped there. The twelve
+	 * `OFF_*` constants above are a hand-written copy of `frame.situ`'s
+	 * layout, and five files in this tree carry copies of them, and until
+	 * now the only thing pinned was the SIZE of the head. A schema change
+	 * that keeps the head at 91 bytes and MOVES A FIELD INSIDE IT passes
+	 * every static assert in this file, leaves five files poking the wrong
+	 * bytes, and -- worst -- leaves the flip-the-nonce cases below still
+	 * passing, because flipping any authenticated byte produces a refusal.
+	 * A test that passes for a different reason than the one it names.
+	 * project.md sec 123.
+	 *
+	 * FOUR OF THE TWELVE ARE PINNED HERE, and both limits are the
+	 * generator's rather than choices. situ emits a `_ptr` accessor for a
+	 * byte array and none for a scalar, so `version`, `kind`, `expires`,
+	 * `msg`, `index`, `chunks` and `length` cannot be located this way at
+	 * all. And `capability` and `payload` take a `situ_fzn_frame_sealed_t`
+	 * gate rather than a view -- they are reachable only through an opened
+	 * seal, which is a later state than this check runs in. Said rather
+	 * than left to be inferred from what is missing. */
+	check(situ_fzn_frame_head_view(view, &head) == SITU_OK,
+	      "situ would not take a head view of a frame it validated");
+	check((size_t)(situ_fzn_head_sender_ptr(head) - frame) == OFF_SENDER,
+	      "the sender is not where this file says it is");
+	check((size_t)(situ_fzn_head_nonce_ptr(head) - frame) == OFF_NONCE,
+	      "the nonce is not where this file says it is");
+	check((size_t)(situ_fzn_head_commitment_ptr(head) - frame) == OFF_COMMIT,
+	      "the commitment is not where this file says it is");
+	check((size_t)(situ_fzn_frame_tag_ptr(view) - frame) == OFF_TAG,
+	      "the tag is not where this file says it is");
 
 	/* 2. THE HARNESS ITSELF: every covered byte, and every tag byte, must
 	 * change `fzn_seal_open`'s answer. */

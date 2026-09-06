@@ -22677,6 +22677,67 @@ the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
 
+## 123. The frame's layout, written out by hand in five files, 2026-09-06
+
+Sec 122's lens -- where else is one thing defined twice -- pointed at the
+numeric `#define`s in test files. The largest group is not a coincidence:
+`OFF_VERSION 0x00`, `OFF_KIND 0x05`, `OFF_SENDER 0x06`, `OFF_NONCE 0x2e`,
+`OFF_COMMIT 0x46` and six more are **`frame.situ`'s layout written out by
+hand**, and five files carry copies:
+
+    wire/test/tamper_test.c        wire/test/seal_test.c
+    wire/test/generated_test.c     chunk/test/agreement_test.c
+    session/test/aead_monocypher_test.c
+
+**What was pinned was the SIZE and not the positions.** `tamper_test.c`
+carries `_Static_assert(SITU_FZN_HEAD_SIZE_FIXED == 91)` and three more like
+it, so a head that changes length is caught at compile time in every tree
+that builds. A schema change that keeps the head at 91 bytes and MOVES A
+FIELD INSIDE IT passes all of them.
+
+### Why that is worse than a stale constant
+
+The five files would poke the wrong bytes, and the tests would go on passing.
+`tamper_test` flips the byte at `OFF_NONCE` and expects `fzn_seal_open` to
+refuse -- and after a field move it would flip some other authenticated byte
+and **still get a refusal**, because every covered byte produces one. The
+case would be green, its name would still say "nonce", and the thing it
+asserts would have quietly become "some byte in the head is authenticated".
+
+That is this tree's own recurring failure -- a test passing for a different
+reason than the one it names -- with the schema as the moving part.
+
+### The pin, and both limits on it
+
+`tamper_test.c` already argues exactly this for the covered span: *"Two
+derivations of one number, and a disagreement between them means the harness
+below is flipping a set of bytes nobody in this file described."* The block
+now extends it to the field offsets, comparing each constant against where
+the generated accessor actually points.
+
+**Four of the twelve, and both limits are the generator's rather than
+choices.** situ emits a `_ptr` accessor for a byte array and none for a
+scalar, so `version`, `kind`, `expires`, `msg`, `index`, `chunks` and
+`length` cannot be located this way at all; and `capability` and `payload`
+take a sealed gate rather than a view, so they are reachable only through an
+opened seal, which is a later state than this check runs in.
+
+Recorded because a reader who counts four checks against twelve constants
+should find the reason beside them rather than infer an oversight.
+
+### Seen to fail, in the direction available
+
+Moving `OFF_NONCE` to `0x30` fires the pin first, ahead of the cascade it
+causes. **That is the constant moving while the schema stays -- the reverse
+of the risk**, since a schema move needs the schema edited and regenerated.
+The assertion is symmetric, so it catches either; what has been demonstrated
+is one direction, and saying which is the difference between a test seen to
+fail and a test seen to fail at the thing it guards.
+
+**The other four files remain unpinned copies.** One tripwire is enough to
+make a field move loud, and the four are listed above so whoever hears it has
+the set to fix rather than a grep to invent.
+
 ## 122. One convention, implemented twice, with nothing between them, 2026-09-06
 
 The sweep in sec 119 left `disclose/disclose.c` at 0 of 4 exported functions
