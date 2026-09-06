@@ -1130,6 +1130,7 @@ $(BUILD_DIR)/record/test/journal_test: $(BUILD_DIR)/record/test/journal_test.o \
 # links nearly everything and the list is the point: a module absent here is a
 # module the integration test cannot exercise.
 $(BUILD_DIR)/sim/test/network_test: $(BUILD_DIR)/sim/test/network_test.o \
+                                    $(BUILD_DIR)/provision/provision.o \
                                     $(BUILD_DIR)/local/peer.o \
                                     $(BUILD_DIR)/local/vocabulary.o \
                                     $(BUILD_DIR)/record/ledger.o \

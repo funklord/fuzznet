@@ -22677,6 +22677,63 @@ the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
 
+## 125. The provisioning card, which had a story and no scenario, 2026-09-06
+
+Second of sec 124's simple passes, and the largest zero on its worklist:
+`provision/provision.c`, five exported functions and no scenario calling any
+of them -- beside a file named `sim/test/provision_test.c` that tells the
+provisioning story from `agree` and `aead` directly and never touches the
+card. **The story was covered and the object that carries it was not.**
+
+    provision-card: 423 bytes, 682 as text, round-tripped, verified,
+                    and refused with a substituted prekey
+
+Five steps: the sponsor packs a card; it goes out of band as the STRING a
+code would carry and comes back; a device holding nothing opens and verifies
+it; the anchor it was SHIPPED is the one the hop verifies against; and then
+the assertion the envelope exists for.
+
+### The envelope's whole job, quoted because it is the assertion
+
+`provision.h`: *"Without the envelope a stranger takes a genuine hop --
+public, and minted for a device the sponsor really did grant -- and pairs it
+with their OWN prekey record, which is self-signed and therefore perfectly
+valid."*
+
+So the scenario substitutes a third host's genuine, self-signed prekey into
+a genuine card. **Every part is valid and the card is not**, and only the
+outer signature can say so. Neutering that check fires exactly that
+assertion and nothing else.
+
+Two floors around it, because the substitution is easy to make vacuous: the
+forged bytes are asserted to DIFFER from the original, and the forged card
+is asserted to still OPEN -- otherwise the refusal could be the parser's
+rather than the envelope's, and would read the same.
+
+### What the first run found, and what caught it
+
+**The card is signed by the ROOT, not by the sponsor that hands it over.**
+The first draft signed with the sponsor's key and `fzn_provision_verify`
+refused a genuine card. `provision.h` says why in one line -- the envelope
+"is signed by the root, which is the one key the scan authenticates" -- so a
+card is a root's statement carried by a sponsor rather than a sponsor's own
+claim, and a device pins what the root said.
+
+**The before-case is what caught it.** The scenario asserts a genuine card
+verifies before it asserts a forged one does not, and that assertion failed
+while the forged-card assertion passed -- because a verify that refuses
+everything refuses the forgery too. Without the control the scenario would
+have gone green over a card nobody could have used.
+
+### And a non-unique anchor, in the edit rather than the code
+
+Adding a local to the scenario, the edit matched `fzn_agree_secret_t sk[2];`
+in two other scenarios as well and declared a duplicate in each. The compiler
+refused it, so nothing shipped -- but the script had no count assertion,
+which `evidence.md` requires of exactly this and which every other edit in
+this session carried. **The one edit written without the guard is the one
+that needed it.**
+
 ## 124. End to end, subsystem by subsystem: the plan, and the first one, 2026-09-06
 
 **Instructed by the copyright holder 2026-09-06:** fuzznet is to test every

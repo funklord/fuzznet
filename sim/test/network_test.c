@@ -48,6 +48,7 @@
 #include "../../record/ledger.h"
 #include "../../local/peer.h"
 #include "../../local/vocabulary.h"
+#include "../../provision/provision.h"
 #include "../../spool/message.h"
 #include "../../spool/transfer.h"
 #include "../../spool/scrub.h"
@@ -4622,6 +4623,148 @@ static void scenario_gui_to_peer(void)
 	       delivered, fzn_state_count(&peer->state));
 }
 
+/* ------------------------------------------------------------ scenario 27
+
+   A DEVICE HOLDING NOTHING, PROVISIONED FROM A CARD.
+
+   `provision/provision.c` was the largest zero in sec 124's worklist -- five
+   exported functions and no scenario calling any of them -- beside a file
+   named `sim/test/provision_test.c` that tells the provisioning story from
+   `agree` and `aead` directly and never touches the card format. The story
+   was covered; the OBJECT that carries it was not.
+
+   `provision.h` states what the card is for and what the envelope around it
+   is for, and the second is the assertion worth making:
+
+     "Without the envelope a stranger takes a genuine hop -- public, and
+      minted for a device the sponsor really did grant -- and pairs it with
+      their OWN prekey record, which is self-signed and therefore perfectly
+      valid."
+
+   So the scenario packs a real card, sends it out of band as the STRING a
+   code would carry, opens it on a device that holds nothing, and then swaps
+   the prekey for another host's genuine one and checks the envelope refuses.
+
+   SIMPLE ON PURPOSE, per the holder's instruction: one card, one device, one
+   substitution. project.md sec 125.  */
+static void scenario_provision_card(void)
+{
+	static struct sim_net net;
+	static uint8_t card_bytes[FZN_PROVISION_LEN_TOTAL];
+	static uint8_t forged[FZN_PROVISION_LEN_TOTAL];
+	static char text[FZN_PROVISION_TEXT_LEN];
+	static uint8_t back[FZN_PROVISION_LEN_TOTAL];
+	static uint8_t prekey_bytes[2][FZN_PREKEY_LEN_TOTAL];
+	fzn_agree_secret_t sk[2];
+	uint8_t card_secret[2][FZN_AGREE_SECRET_LEN];
+	fzn_agree_ops_t agree_ops = { sim_agree_public, sim_agree_shared, NULL };
+	fzn_provision_card_t card;
+	struct sim_signer who;
+	struct sim_host *sponsor;
+	size_t card_len = 0, back_len = 0;
+	unsigned h;
+
+	sim_init(&net, 3u, 0x9ca7du);
+	sponsor = &net.hosts[0];
+	check(sponsor->chain_len > 0u, "the sponsor has no hop to put on a card");
+
+	/* Two published prekeys: the sponsor's, which belongs on the card, and
+	   a third host's, which is genuine and belongs to somebody else. */
+	for (h = 0; h < 2u; h++) {
+		struct sim_host *who_h = &net.hosts[h == 0u ? 0u : 2u];
+
+		size_t i;
+
+		memset(&sk[h], 0, sizeof(sk[h]));
+		for (i = 0; i < FZN_AGREE_SECRET_LEN; i++)
+			card_secret[h][i] = (uint8_t)((h * 53u) + (i * 11u) + 5u);
+		check(fzn_agree_secret_install(&sk[h], &agree_ops, card_secret[h]) == FZN_AGREE_OK,
+		      "a simulated agreement secret would not install");
+		check(fzn_prekey_issue(who_h->pubkey, fzn_agree_secret_public(&sk[h]), 900u + h,
+		                       sim_signer(&who, &net.sign, who_h->pubkey),
+		                       prekey_bytes[h]) == FZN_PREKEY_OK,
+		      "a simulated host could not publish a prekey for the card");
+	}
+
+	/* ---- 1. THE SPONSOR PACKS A CARD. */
+	/* SIGNED BY THE ROOT, NOT BY THE SPONSOR that hands it over, and the
+	   first draft got this wrong and was caught by the before-case below.
+	   `provision.h` is explicit -- the envelope "is signed by the root,
+	   which is the one key the scan authenticates" -- so a card is a ROOT
+	   statement carried by a sponsor, not a sponsor's own claim. */
+	check(fzn_provision_pack(net.root, sponsor->hop_bytes[0], prekey_bytes[0], 0u,
+	                         sim_signer(&who, &net.sign, net.root), card_bytes,
+	                         sizeof(card_bytes), &card_len) == FZN_PROVISION_OK,
+	      "the sponsor could not pack a provisioning card");
+	check(card_len == sizeof(card_bytes), "a packed card is not the length the header says");
+
+	/* ---- 2. OUT OF BAND, AS THE STRING A CODE CARRIES. There is no camera
+	   here; what is checked is that the bytes survive the round trip a
+	   scan makes, because a card that cannot be printed and read back is
+	   not a card. */
+	check(fzn_provision_text(card_bytes, card_len, text, sizeof(text)) == FZN_PROVISION_OK,
+	      "the card could not be rendered as text");
+	check(memcmp(text, FZN_PROVISION_TEXT_PREFIX, FZN_PROVISION_TEXT_PREFIX_LEN) == 0,
+	      "the rendered card does not carry its own prefix");
+	check(fzn_provision_from_text(text, back, sizeof(back), &back_len) == FZN_PROVISION_OK,
+	      "the rendered card could not be read back");
+	check(back_len == card_len && memcmp(back, card_bytes, card_len) == 0,
+	      "a card did not survive being written down and read back");
+
+	/* ---- 3. THE DEVICE, HOLDING NOTHING, OPENS AND VERIFIES IT. */
+	check(fzn_provision_open(back, back_len, &card) == FZN_PROVISION_OK,
+	      "the device could not open the card it was handed");
+	check(fzn_provision_verify(card, &net.sign, net.now) == FZN_PROVISION_OK,
+	      "a genuine card did not verify, so the refusal below would prove nothing");
+
+	/* ---- 4. WHAT THE CARD BUYS: the device pins the root it was SHIPPED
+	   and the hop then verifies against it. The header says why the anchor
+	   travels rather than being read out of the hop -- taking it from the
+	   object it is about to authenticate is trust on first use with extra
+	   steps. */
+	check(memcmp(card.root, net.root, FZN_PUBKEY_LEN) == 0,
+	      "the card's anchor is not the sponsor's root");
+	{
+		fzn_chain_hop_t hops[1];
+		fzn_chain_t proven;
+
+		check(fzn_hop_open(card.hop, FZN_HOP_LEN, &hops[0]) == FZN_CHAIN_OK,
+		      "the hop on the card would not open");
+		check(fzn_chain_verify(hops, 1u, card.root, &net.capability, net.now, &net.sign,
+		                       NULL, NULL, &proven) == FZN_CHAIN_OK,
+		      "the hop on the card does not verify against the anchor on the card, so "
+		      "a device that pinned it could not act");
+	}
+
+	/* ---- 5. THE ENVELOPE'S WHOLE JOB. A genuine hop paired with somebody
+	   else's genuine, self-signed prekey. Each part is valid; the card is
+	   not, and only the outer signature can say so. */
+	memcpy(forged, card_bytes, card_len);
+	{
+		size_t at = (size_t)(card.prekey - card.base);
+
+		check(at + FZN_PREKEY_LEN_TOTAL <= card_len,
+		      "the prekey does not lie inside the card, so this substitution is not "
+		      "the one the header describes");
+		memcpy(forged + at, prekey_bytes[1], FZN_PREKEY_LEN_TOTAL);
+		check(memcmp(forged, card_bytes, card_len) != 0,
+		      "the substitution changed nothing, so the refusal below is vacuous");
+	}
+	check(fzn_provision_open(forged, card_len, &card) == FZN_PROVISION_OK,
+	      "a card with a substituted prekey would not even open, so the envelope is not "
+	      "what refused it");
+	check(fzn_provision_verify(card, &net.sign, net.now) != FZN_PROVISION_OK,
+	      "a genuine hop paired with a stranger's genuine prekey verified -- the "
+	      "envelope is not binding the parts");
+
+	for (h = 0; h < 2u; h++)
+		fzn_agree_secret_wipe(&sk[h]);
+
+	printf("  provision-card: %zu bytes, %zu as text, round-tripped, verified, "
+	       "and refused with a substituted prekey\n",
+	       card_len, strlen(text));
+}
+
 static void scenario_estate(void)
 {
 	static struct sim_net net;
@@ -5379,6 +5522,7 @@ int main(void)
 	scenario_ledger();
 	scenario_local_hop();
 	scenario_gui_to_peer();
+	scenario_provision_card();
 	scenario_estate();
 	scenario_tree();
 
