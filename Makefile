@@ -616,6 +616,38 @@ else
 $(error FZN_RECORD_STORE_FILE must be auto, 1 or 0 -- got "$(FZN_RECORD_STORE_FILE)")
 endif
 
+# THE CLI VOCABULARY, WHICH HAS NO PROBE AND DOES NOT WANT ONE. Every other
+# option here gates a POSIX call and asks the compiler whether it exists;
+# `cli/` is plain C11 with no platform surface, so there is nothing to ask and
+# an `auto` setting would be a probe that always says yes. It is on or off,
+# and it exists as an option at all because a consumer with no command line --
+# a library, a plugin, a GUI launched by a desktop file -- should not carry a
+# parser for one. project.md sec 137, and the copyright holder's rule that
+# what a build omits is a build-time question rather than a repository one.
+ifeq ($(FZN_CLI),)
+FZN_CLI := 1
+endif
+
+ifeq ($(FZN_CLI),1)
+CLI_ON := 1
+else ifeq ($(FZN_CLI),0)
+CLI_SKIP := FZN_CLI=0.
+else
+$(error FZN_CLI must be 1 or 0 -- got "$(FZN_CLI)")
+endif
+
+CLI_SRCS := cli/cli.c
+CLI_HDRS := cli/cli.h
+CLI_TSRC := cli/test/cli_test.c
+
+ifdef CLI_ON
+CPPFLAGS  += -DFZN_CLI_ON
+SRCS      += $(CLI_SRCS)
+HDRS      += $(CLI_HDRS)
+TEST_SRCS += $(CLI_TSRC)
+TEST_BINS += $(BUILD_DIR)/cli/test/cli_test
+endif
+
 RECORD_STORE_FILE_SRCS := record/store_file.c
 RECORD_STORE_FILE_HDRS := record/store_file.h
 RECORD_STORE_FILE_TSRC := record/test/store_file_test.c
@@ -1589,6 +1621,12 @@ $(BUILD_DIR)/record/test/store_file_test: $(BUILD_DIR)/record/test/store_file_te
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# cli/ reads argument strings and calls nothing. sec 137.
+$(BUILD_DIR)/cli/test/cli_test: $(BUILD_DIR)/cli/test/cli_test.o \
+                                     $(BUILD_DIR)/cli/cli.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/claim/test/claim_file_test: $(BUILD_DIR)/claim/test/claim_file_test.o \
                                      $(BUILD_DIR)/claim/claim_file.o \
                                      $(BUILD_DIR)/claim/claim.o
@@ -1812,6 +1850,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/persist/persist.o \
                                       $(BUILD_DIR)/claim/claim.o \
                                       $(BUILD_DIR)/record/store.o \
+                                      $(if $(CLI_ON),$(BUILD_DIR)/cli/cli.o) \
                                       $(BUILD_DIR)/tree/tree.o \
                                       $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
@@ -3136,14 +3175,14 @@ installcheck: $(HDRS) $(SRCS) $(OBJS) tool/consumer_check.c
 		exit 1; \
 	fi
 	@echo "installcheck: against the installed headers"
-	@$(CC) $(CFLAGS) $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) $(if $(RECORD_STORE_FILE_ON),-DFZN_RECORD_STORE_FILE_ON) -DFZN_CONSUMER_INSTALLED \
+	@$(CC) $(CFLAGS) $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) $(if $(RECORD_STORE_FILE_ON),-DFZN_RECORD_STORE_FILE_ON) $(if $(CLI_ON),-DFZN_CLI_ON) -DFZN_CONSUMER_INSTALLED \
 	       -I$(BUILD_DIR)/installcheck/usr/include \
 	       -o $(BUILD_DIR)/installcheck/consumer_installed \
 	       -Iwire/generated $(MONO_CONSUMER) tool/consumer_check.c $(SRCS) $(GEN_SRCS)
 	@$(BUILD_DIR)/installcheck/consumer_installed
 	@echo "installcheck: against the source tree, from another directory"
 	@cd $(BUILD_DIR)/installcheck && $(CC) $(CFLAGS) \
-	       $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) $(if $(RECORD_STORE_FILE_ON),-DFZN_RECORD_STORE_FILE_ON) -I$(CURDIR) \
+	       $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) $(if $(RECORD_STORE_FILE_ON),-DFZN_RECORD_STORE_FILE_ON) $(if $(CLI_ON),-DFZN_CLI_ON) -I$(CURDIR) \
 	       -I$(CURDIR)/wire/generated \
 	       -o consumer_source $(CURDIR)/tool/consumer_check.c \
 	       $(patsubst %,$(CURDIR)/%,$(SRCS)) \
@@ -3235,6 +3274,7 @@ manifest:
 	@$(if $(PERSIST_FILE_ON),echo "backend persist/persist_file.c FZN_PERSIST_FILE_ON";)
 	@$(if $(CLAIM_FILE_ON),echo "backend claim/claim_file.c FZN_CLAIM_FILE_ON";)
 	@$(if $(RECORD_STORE_FILE_ON),echo "backend record/store_file.c FZN_RECORD_STORE_FILE_ON";)
+	@$(if $(CLI_ON),echo "subsystem cli/cli.c FZN_CLI_ON";)
 	@$(if $(SPOOL_FILE_ON),echo "backend spool/spool_file.c FZN_SPOOL_FILE_ON";)
 
 # Named targets only, and it lists them. No rm -rf of a directory and no

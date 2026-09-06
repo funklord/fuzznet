@@ -130,6 +130,69 @@ int main(void)
 		       "the configured root stands");
 	}
 
+	/*
+	 * THE SELF-ROOT, AND THE ASYMMETRY THAT MAKES IT WORTH HAVING.
+	 * project.md sec 136. A node alone anchors to its own key, so the
+	 * window in which whoever answers first becomes the root never opens
+	 * -- and an operator may still join it to a real estate.
+	 */
+	{
+		fzn_trust_t s;
+
+		fzn_trust_init(&s);
+		expect_err(fzn_trust_self(&s, first), FZN_TRUST_OK, "a node may root itself");
+		expect(fzn_trust_source_of(&s) == FZN_TRUST_SELF, "recorded as self");
+		expect(fzn_trust_adopted_at(&s) == 0, "a self root has no adoption moment");
+		expect(fzn_trust_root(&s) && memcmp(fzn_trust_root(&s), first, FZN_PUBKEY_LEN) == 0,
+		       "a self root offers its own key");
+
+		/* THE CASE THE WHOLE THING EXISTS FOR: adopting over a self
+		 * root is refused, so a self-rooted node cannot be taken by
+		 * trust on first use the way an unanchored one can. */
+		expect_err(fzn_trust_adopt(&s, second, 1), FZN_TRUST_ERR_ANCHORED,
+		           "adopting over a self root");
+		expect(fzn_trust_source_of(&s) == FZN_TRUST_SELF, "and the self root stands");
+
+		/* Nor may a second self root displace the first. */
+		expect_err(fzn_trust_self(&s, second), FZN_TRUST_ERR_ANCHORED,
+		           "re-rooting to another key");
+
+		/* THE JOIN, which is the one permitted replacement. */
+		expect_err(fzn_trust_pin(&s, second), FZN_TRUST_OK, "an operator may join it");
+		expect(fzn_trust_source_of(&s) == FZN_TRUST_PINNED, "and it becomes pinned");
+		expect(fzn_trust_root(&s) && memcmp(fzn_trust_root(&s), second, FZN_PUBKEY_LEN) == 0,
+		       "the joined root is the one pinned");
+
+		/* AND THE JOIN IS NOT REVERSIBLE, which is what stops the
+		 * permission being a way back out: once pinned, everything is
+		 * refused again. Without this the self-root would be a
+		 * permanent hole rather than a starting state. */
+		expect_err(fzn_trust_self(&s, first), FZN_TRUST_ERR_ANCHORED,
+		           "rooting to self after a join");
+		expect_err(fzn_trust_pin(&s, first), FZN_TRUST_ERR_ANCHORED,
+		           "pinning over a pinned root");
+		expect_err(fzn_trust_adopt(&s, first, 1), FZN_TRUST_ERR_ANCHORED,
+		           "adopting over a pinned root");
+
+		/* An echo is still an echo. */
+		expect_err(fzn_trust_pin(&s, second), FZN_TRUST_ERR_UNCHANGED,
+		           "pinning the root it already has");
+	}
+
+	/* A self root is refused the same zero key everything else is. */
+	{
+		fzn_trust_t z;
+		uint8_t zeroes[FZN_PUBKEY_LEN];
+
+		memset(zeroes, 0, sizeof(zeroes));
+		fzn_trust_init(&z);
+		expect_err(fzn_trust_self(&z, zeroes), FZN_TRUST_ERR_MALFORMED,
+		           "rooting to a key of zeroes");
+		expect_err(fzn_trust_self(NULL, first), FZN_TRUST_ERR_MALFORMED,
+		           "rooting into nothing");
+		expect_err(fzn_trust_self(&z, NULL), FZN_TRUST_ERR_MALFORMED, "a null own key");
+	}
+
 	/* Arguments. */
 	expect_err(fzn_trust_adopt(NULL, first, 1), FZN_TRUST_ERR_MALFORMED, "a null trust");
 	expect_err(fzn_trust_adopt(&t, NULL, 1), FZN_TRUST_ERR_MALFORMED, "a null root");

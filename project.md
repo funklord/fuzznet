@@ -5870,6 +5870,7 @@ somebody to notice.
 | `claim/claim.h` | which process owns the identity's mutable state |
 | `record/store.h` | where a record's bytes wait, and who may read them |
 | `record/store_file.h` | that store as one sparse file per stream |
+| `cli/cli.h` | the option vocabulary every consumer shares |
 | `record/ledger.h` | what each peer has confirmed holding, per subject |
 | `chunk/reassembly.h` | split and reassembly |
 | `disclose/disclose.h` | one signature over many fields, some shown |
@@ -22791,6 +22792,105 @@ mentioned here only because it is the reason "just replicate the bytes" is not
 sufficient for this consumer -- something has to refuse what it cannot honour,
 and hydra believes that something is itself rather than the transport.
 
+## 138. FZN_TRUST_SELF and the CLI vocabulary, built, 2026-09-06
+
+Both directed by the copyright holder 2026-09-06, together with the
+correction to sec 137 recorded there.
+
+### The self-root, and the rule sec 136 had not sharpened enough
+
+sec 136 recommended shipping a node self-rooted and said joining should be "a
+legal transition". **Implementing it showed that was under-specified in the
+direction that mattered**: if a self-root can be replaced by anything, a
+self-rooted node is exactly as capturable as a blank one, and the feature
+buys only bookkeeping.
+
+The rule that makes it a protection is an ASYMMETRY:
+
+    self -> pinned                     permitted; the join
+    self -> adopted                    REFUSED
+    self -> self                       refused
+    pinned or adopted -> anything      refused, as before
+
+**A pin is authenticated by whoever typed it; an adopt by nothing at all.**
+So permitting the first and refusing the second means a self-rooted node
+cannot be taken by trust on first use, while an operator can still join it to
+an estate. An unanchored node has that window from the moment it boots; a
+self-rooted one never opens it.
+
+Both halves were sabotaged separately -- removing the `PINNED` condition lets
+an adopt through, and removing the whole clause closes the join -- and both
+were caught. So was recording a self-root as `PINNED`, which would make it
+indistinguishable from an estate an operator had already joined.
+
+**And the join is not reversible**, which the suite also checks: once pinned,
+self, pin and adopt are all refused again. Without that the permission would
+be a permanent hole rather than a starting state.
+
+`persist/` needed the branch too, under its existing no-laundering rule: a
+self-root restored as `PINNED` would look like a node already joined, and
+since a pin is the one thing permitted to replace a self-root, laundering
+would close the join path across a restart and open nothing in its place.
+
+**The provenance sweep in `persist_test` caught the new enumerator by
+itself**, which is that test working: it walks every byte that is not one of
+the sources and asserts refusal, deriving its skip list from the enumerators
+rather than from written-out numbers.
+
+### The CLI vocabulary
+
+`cli/cli.{h,c}`, 72 checks, six sabotages, behind `FZN_CLI`.
+
+Five options -- `--fuzznet-dir`, `--fuzznet-store`, `--fuzznet-service`,
+`--fuzznet-product`, `--fuzznet-owner` -- and the design decisions worth
+recording:
+
+- **The consumer owns argv.** This claims what it recognises and says so
+  through `claimed`; everything else is untouched. No reordering, no
+  `getopt`, no allocation. An unrecognised argument is not an error.
+- **`--option=value` is the only form**, and that is what makes the
+  one-argument-at-a-time shape possible: a separate-argument form would need
+  to see the next argument, and then a caller could not drive this one step
+  at a time.
+- **Bounds come from the modules that own them.** A product is checked
+  against `chain/service.h`'s constants, and the suite compares against those
+  constants rather than against numbers of its own -- a second set would
+  drift, and would drift quietly, since a value this accepted and that module
+  refused fails much later and somewhere else. The wildcard is refused
+  outright: it is a capability's scope, and a node claiming to BE every
+  product is not a thing.
+- **Unset is the value that fails closed.** `FZN_SERVICE_NONE` and
+  `FZN_PRODUCT_NONE` are what the owning module refuses, so a field nobody
+  set reaches an error rather than a wrong grant. Paths are NULL rather than
+  defaulted, because sec 129 records that data locations are expected to need
+  correction and a default written here would be one more place to correct.
+- **A repeat is refused rather than resolved.** Two values for one setting is
+  an ambiguous invocation, and silently keeping the first or the last is how
+  a configuration bug survives somebody reading the command line and seeing
+  what they meant. `--fuzznet-owner` is the one exception and the header says
+  why: `AUTO` is both the default and a value somebody may type, so "was it
+  set" cannot be read off the field.
+- **`fzn_cli_usage` is the prize**, more than the parsing. Identical help
+  text across every consumer is the half a consumer cannot get by writing its
+  own parser however carefully.
+
+Numbers are parsed here rather than with `strtoul`, which needs `errno` to
+report overflow, accepts leading whitespace and a sign, and takes its digits
+from the locale -- so what it accepts would be a property of the environment.
+
+### The build-time option, and that it was exercised
+
+`FZN_CLI` has **no probe and does not want one**. Every other option here
+gates a POSIX call and asks the compiler whether it exists; `cli/` is plain
+C11 with no platform surface, so `auto` would be a probe that always says
+yes. It is on or off, and it is an option at all because a consumer with no
+command line -- a library, a plugin, a GUI launched from a desktop file --
+should not carry a parser for one.
+
+**Measured rather than assumed: `make FZN_CLI=0 test` builds and passes 66
+suites with `cli/` absent from the tree**, and `cli_test` correctly does not
+run. An option nobody has built without is not an option.
+
 ## 136. A new node's estate: self-rooted, not blank and not pre-loaded, 2026-09-06
 
 Asked by the copyright holder 2026-09-06: should a node about to join an
@@ -22883,7 +22983,34 @@ compatibility gives a headless router daemon a configuration TUI from the
 same source as a desktop application's dialog. That is a real payoff and it
 is not available to four separate implementations.
 
-### But not in this repository, and the reason is measured rather than tidy
+### CORRECTED 2026-09-06: the conclusion below was wrong, and the tree
+### already held the answer
+
+**The copyright holder overruled the recommendation that follows, and was
+right.** "I think we should be able to control what gets omitted from the
+build with build time options, so we can keep things that belong together in
+one repo. Imagine if Linux spread every disparate option into a repo?"
+
+**The error was treating "in this repository" as equivalent to "in every
+consumer's dependency set", and this tree disproves that five times over.**
+`FZN_PERSIST_FILE`, `FZN_SPOOL_FILE`, `FZN_CLAIM_FILE`,
+`FZN_RECORD_STORE_FILE` and now `FZN_CLI` each name a subsystem a build may
+omit, with a probe deciding when nobody says. A router that does not want Qt
+builds without it, exactly as one without `pwrite` builds without the spool
+backend -- and the kernel's answer to the same question is Kconfig rather
+than a repository per driver.
+
+**What survives of the paragraph below is the DEPENDENCY argument and not the
+PLACEMENT one.** The cost of Qt in a headless build is real; it is a reason
+for a build-time option, which this repository already has a pattern for, and
+not a reason for another repository. The sibling-library recommendation is
+withdrawn.
+
+The original reasoning is kept below rather than deleted, because a reader
+arriving at the corrected conclusion is better served knowing which argument
+was mistaken than finding it gone.
+
+### ~~But not in this repository~~ -- the dependency argument, which stands
 
 fuzznet is C11 with seams rather than dependencies -- no allocation anywhere,
 caller-owned buffers throughout, and a signer, hash and AEAD supplied by the
@@ -22891,9 +23018,11 @@ caller. `netcfgd` runs on routers. Putting Qt inside this repository puts Qt,
 and a pre-alpha qtty, into the dependency set of every consumer including the
 headless ones, to serve the subset that draws windows.
 
-**So: a sibling library that depends on fuzznet and Qt Widgets, not a
-subdirectory of fuzznet.** The consuming projects gain exactly what the
-holder describes; the router daemon gains nothing it must carry.
+~~**So: a sibling library that depends on fuzznet and Qt Widgets, not a
+subdirectory of fuzznet.**~~ **Withdrawn, see the correction above.** The
+conclusion that follows from the dependency cost is a build-time option --
+`FZN_GUI`, defaulting off where Qt is absent -- so the consuming projects
+gain what the holder describes and the router daemon still carries nothing.
 
 `harmonization.md` governs the next step rather than this document: "Do not
 extract a shared library in passing. Raise the observation, and let the

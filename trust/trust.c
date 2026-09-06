@@ -75,7 +75,14 @@ static fzn_trust_err_t anchor(fzn_trust_t *trust, const uint8_t root[FZN_PUBKEY_
 		 * guess matched is the one thing this must not do. */
 		if (fzn_ct_memeq(trust->root, root, FZN_PUBKEY_LEN))
 			return FZN_TRUST_ERR_UNCHANGED;
-		return FZN_TRUST_ERR_ANCHORED;
+		/* THE ONE PERMITTED REPLACEMENT, and the asymmetry is the point.
+		 * A self-root is a node trusting itself for want of anybody
+		 * else, so an operator pinning a real root is a join. An ADOPT
+		 * over it is refused like any other, which is what stops a
+		 * self-rooted node being taken by whoever answers first --
+		 * see `trust.h`, which sets out the whole table. */
+		if (!(trust->source == FZN_TRUST_SELF && source == FZN_TRUST_PINNED))
+			return FZN_TRUST_ERR_ANCHORED;
 	}
 
 	memcpy(trust->root, root, FZN_PUBKEY_LEN);
@@ -94,6 +101,11 @@ fzn_trust_err_t fzn_trust_adopt(fzn_trust_t *trust, const uint8_t root[FZN_PUBKE
                                  uint64_t now)
 {
 	return anchor(trust, root, FZN_TRUST_ADOPTED, now);
+}
+
+fzn_trust_err_t fzn_trust_self(fzn_trust_t *trust, const uint8_t own[FZN_PUBKEY_LEN])
+{
+	return anchor(trust, own, FZN_TRUST_SELF, 0);
 }
 
 const uint8_t *fzn_trust_root(const fzn_trust_t *trust)

@@ -88,10 +88,12 @@ static void test_an_anchor_comes_back_with_its_provenance(void)
 {
 	fzn_trust_t adopted, pinned, back;
 	uint8_t root[FZN_PUBKEY_LEN];
+	uint8_t other[FZN_PUBKEY_LEN];
 	uint8_t blob[FZN_PERSIST_MAX];
 	size_t len = 0;
 
 	fill(root, sizeof(root), 0x21);
+	fill(other, sizeof(other), 0x22);
 
 	/* ADOPTED MUST COME BACK ADOPTED. A host that took a key on faith and
 	 * restarted claiming its user had confirmed one has laundered its own
@@ -119,6 +121,27 @@ static void test_an_anchor_comes_back_with_its_provenance(void)
 	REQUIRE(fzn_persist_trust_open(blob, len, &back) == FZN_PERSIST_OK, "opening refused");
 	CHECK(fzn_trust_source_of(&back) == FZN_TRUST_PINNED,
 	      "a confirmed anchor came back as merely adopted");
+
+	/* AND A SELF-ROOT COMES BACK SELF-ROOTED, which is the same rule and
+	 * the case where laundering costs the most: restored as PINNED it
+	 * would look like a node an operator had already joined to an estate,
+	 * and a pin is the one thing permitted to replace a self-root -- so
+	 * the join path would close across a restart and nothing would open
+	 * in its place. project.md sec 136. */
+	fzn_trust_init(&pinned);
+	REQUIRE(fzn_trust_self(&pinned, root) == FZN_TRUST_OK, "self refused");
+	REQUIRE(fzn_persist_trust_pack(&pinned, blob, sizeof(blob), &len) == FZN_PERSIST_OK,
+	        "packing a self-rooted anchor refused");
+	REQUIRE(fzn_persist_trust_open(blob, len, &back) == FZN_PERSIST_OK, "opening refused");
+	CHECK(fzn_trust_source_of(&back) == FZN_TRUST_SELF,
+	      "a self-rooted anchor came back as something else");
+	CHECK(fzn_trust_root(&back) != NULL
+	              && memcmp(fzn_trust_root(&back), root, FZN_PUBKEY_LEN) == 0,
+	      "a self-rooted anchor came back holding another key");
+	/* The restored anchor must still accept the join, which is what makes
+	 * the round trip worth anything. */
+	CHECK(fzn_trust_pin(&back, other) == FZN_TRUST_OK,
+	      "a restored self-root refused the join a live one permits");
 }
 
 static void test_an_empty_anchor_is_not_stored(void)
@@ -389,14 +412,20 @@ static void test_a_blob_with_the_right_shape_and_wrong_bytes_is_refused(void)
 	CHECK(fzn_persist_trust_open(broken, len, &back) != FZN_PERSIST_OK,
 	      "an anchor of all-zero bytes was restored as a key");
 
-	/* A PROVENANCE THAT IS NEITHER. Every byte value that is not one of
-	 * the two real sources, so this cannot pass by picking a lucky one --
+	/* A PROVENANCE THAT IS NONE OF THEM. Every byte value that is not one
+	 * of the real sources, so this cannot pass by picking a lucky one --
 	 * and it must be refused rather than defaulted, because defaulting is
-	 * how a pinned anchor becomes an adopted one across a restart. */
+	 * how a pinned anchor becomes an adopted one across a restart.
+	 *
+	 * The skip list is the ENUMERATORS rather than a written-out set of
+	 * numbers, so a source added later is excluded here by being added
+	 * there. FZN_TRUST_SELF arrived after this loop was written and was
+	 * caught by it, which is the loop working. */
 	for (i = 0; i < 256u; i++) {
 		size_t at;
 
-		if (i == (size_t)FZN_TRUST_PINNED || i == (size_t)FZN_TRUST_ADOPTED)
+		if (i == (size_t)FZN_TRUST_PINNED || i == (size_t)FZN_TRUST_ADOPTED
+		    || i == (size_t)FZN_TRUST_SELF)
 			continue;
 		memcpy(broken, blob, len);
 		/* The source byte is whichever position holds the real one; find

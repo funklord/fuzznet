@@ -84,6 +84,9 @@
 #ifdef FZN_RECORD_STORE_FILE_ON
 #include <fuzznet/record/store_file.h>
 #endif
+#ifdef FZN_CLI_ON
+#include <fuzznet/cli/cli.h>
+#endif
 #include <fuzznet/chain/revocation.h>
 #include <fuzznet/chunk/reassembly.h>
 #include <fuzznet/chunk/split.h>
@@ -140,6 +143,9 @@
 #endif
 #ifdef FZN_RECORD_STORE_FILE_ON
 #include "record/store_file.h"
+#endif
+#ifdef FZN_CLI_ON
+#include "cli/cli.h"
 #endif
 #include "chain/revocation.h"
 #include "chunk/reassembly.h"

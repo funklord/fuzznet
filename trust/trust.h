@@ -81,6 +81,21 @@ typedef enum fzn_trust_source {
 	FZN_TRUST_PINNED = 1,
 	/* Adopted on first contact. Authenticated by nothing; see above. */
 	FZN_TRUST_ADOPTED = 2,
+	/*
+	 * The node is its own root. project.md sec 136.
+	 *
+	 * A NODE ALONE IS A COMPLETE ESTATE OF ONE -- it can issue, sign and
+	 * serve itself -- so this is a working state rather than a placeholder
+	 * waiting to be filled. The alternative considered and rejected was
+	 * shipping a node with no anchor at all, and the difference is not
+	 * tidiness: an unanchored node adopts the next root offered, so
+	 * whoever reaches it first owns it.
+	 *
+	 * THIS IS THE ONE SOURCE A JOIN MAY REPLACE, AND ONLY BY A PIN. See
+	 * `fzn_trust_self` for the rule and for why adopting over it is
+	 * refused.
+	 */
+	FZN_TRUST_SELF = 3,
 } fzn_trust_source_t;
 
 typedef struct fzn_trust {
@@ -103,6 +118,37 @@ fzn_trust_err_t fzn_trust_pin(fzn_trust_t *trust, const uint8_t root[FZN_PUBKEY_
 fzn_trust_err_t fzn_trust_adopt(fzn_trust_t *trust, const uint8_t root[FZN_PUBKEY_LEN],
                                  uint64_t now);
 
+/*
+ * Anchor to this node's OWN key, so that a node with nobody to trust yet
+ * trusts itself rather than nothing. project.md sec 136.
+ *
+ * WHAT IT BUYS, AND IT IS NOT BOOKKEEPING: a self-rooted node CANNOT BE
+ * TAKEN BY TRUST ON FIRST USE. `fzn_trust_adopt` over any existing anchor is
+ * refused, this one included, so the window in which whoever answers first
+ * becomes the root never opens. An unanchored node has that window from the
+ * moment it boots.
+ *
+ * AND A PIN MAY STILL REPLACE IT, WHICH IS THE JOIN. That asymmetry is the
+ * whole design:
+ *
+ *     self -> pinned     permitted; an operator said so, out of band
+ *     self -> adopted    REFUSED; nothing authenticated that
+ *     self -> self       refused, like any other re-anchoring
+ *     pinned or adopted -> anything else    refused, as before
+ *
+ * A pin is authenticated by whoever typed it and an adopt by nothing at all,
+ * so allowing the first and refusing the second is what makes a self-root a
+ * protection rather than a formality. A caller that genuinely must start
+ * over wants a new `fzn_trust_t`, as it always did.
+ *
+ * `own` is this node's own public key. Nothing here checks that it IS the
+ * caller's -- this module never sees a private key and could not -- so a
+ * caller passing somebody else's key has pinned it under a name that says
+ * otherwise. That is why the accessor exists: `fzn_trust_source_of` is what
+ * a consumer shows a user, and it is only as true as the caller made it.
+ */
+fzn_trust_err_t fzn_trust_self(fzn_trust_t *trust, const uint8_t own[FZN_PUBKEY_LEN]);
+
 /* The root to verify against, or NULL when there is none.
  *
  * NULL rather than a zero key, because `fzn_chain_verify` refuses NULL and
@@ -113,7 +159,7 @@ const uint8_t *fzn_trust_root(const fzn_trust_t *trust);
 /* How this anchor arrived. `FZN_TRUST_NONE` when there is none. */
 fzn_trust_source_t fzn_trust_source_of(const fzn_trust_t *trust);
 
-/* When it was adopted, or 0 if it was pinned or absent. */
+/* When it was adopted, or 0 if it was pinned, self-rooted or absent. */
 uint64_t fzn_trust_adopted_at(const fzn_trust_t *trust);
 
 /* A short name for `fzn_trust_err_t`. Never NULL. */

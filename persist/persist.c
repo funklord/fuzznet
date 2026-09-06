@@ -133,6 +133,15 @@ fzn_persist_err_t fzn_persist_trust_open(const uint8_t *bytes, size_t len, fzn_t
 	} else if (source == FZN_TRUST_ADOPTED) {
 		if (fzn_trust_adopt(out, bytes + OFF_BODY, adopted_at) != FZN_TRUST_OK)
 			return FZN_PERSIST_ERR_SHAPE;
+	} else if (source == FZN_TRUST_SELF) {
+		/* A self-root comes back self-rooted, by the same
+		 * no-laundering rule as the two above: a node restored as
+		 * PINNED would look like one an operator had joined to an
+		 * estate, and a pin is the one thing permitted to replace a
+		 * self-root -- so laundering it here would close the join path
+		 * and open nothing in its place. project.md sec 136. */
+		if (fzn_trust_self(out, bytes + OFF_BODY) != FZN_TRUST_OK)
+			return FZN_PERSIST_ERR_SHAPE;
 	} else {
 		/* NONE, or a byte that is not a source at all. Refused rather
 		 * than defaulted: an anchor whose provenance was corrupted is
