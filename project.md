@@ -22870,6 +22870,65 @@ anything could have said otherwise.
 copyright holder should know the size before it happens rather than find it
 inside a commit about a widget.
 
+## 151. The underscore style, removed -- and two stale numbers, 2026-09-06
+
+The copyright holder, on reading sec 150: "I'm not sure we should disallow
+spaces or convert them to underscores at all, this kind of behaviour is not
+being done by software anymore. Who decided this and why?"
+
+### Who decided, and the premise that was not true
+
+**This session did**, from the holder's own sentence one turn earlier: "or
+should we require underscores instead? ... Though I prefer underscores." That
+was read as a question with a stated preference, so both styles were built
+rather than one chosen.
+
+**But nothing ever disallowed spaces**, and the record should say so plainly
+rather than let the sentence stand: `usable_name` refuses only the C0
+controls and DEL, sec 149's `usable_segment` refuses only a separator, a
+traversal and an empty segment, and `AS_WRITTEN` was the zero value, so a
+zeroed struct preserved them. Conversion happened only where a consumer
+explicitly asked, and nothing in the library asked.
+
+### Removed, on the holder's decision
+
+The style is gone. A name renders as a person wrote it, full stop.
+
+**What keeping it cost was not the code.** It was an opinion the library had
+no reason to hold, a second path inviting a consumer to pick it, and paths
+that would then no longer match what people typed. Any consumer still wanting
+the transform has three lines over a name it already holds.
+
+Two sabotages went with it, and one was renamed rather than dropped: the
+bound on a segment survives, because a short buffer taking half a name still
+writes a file under a name nobody chose.
+
+### And two numbers this session got wrong the same way
+
+**"59 suites still print FAIL with no file name" was stale when it was
+said.** sec 143 swept them -- 47 files -- and the gate has enforced it since,
+reporting "96 test sources, every failure line names its suite" on every run.
+The 59 came from subtracting the two hand-fixed files from sec 141's
+over-reported 61, and was never re-derived after the sweep that invalidated
+it.
+
+**It is the fourth scope number this session, and the worst of them**,
+because it was repeated AFTER the work that made it false, in a message
+recommending the holder size the job. The earlier three were wrong when
+written; this one was made wrong and then said again.
+
+**And a fifth, caught in the same minute.** An ad-hoc detector run to check
+the claim flagged `chain/test/manifest_fuzz.c` -- where the only `FAIL` is
+inside a COMMENT, which the real gate correctly ignores because it reads only
+lines that print. sec 143 records that exact false positive and the fix for
+it; the ad-hoc rewrite reintroduced it.
+
+**The lesson is narrower than "re-measure", which was already written down
+three times.** It is: **when a gate exists for a question, ask the gate.**
+The gate had the right answer the whole time, in its own output, on every
+run. What produced two wrong claims was reaching for a fresh grep instead of
+reading the line the build already prints.
+
 ## 150. Names, and the answer to spaces or underscores, 2026-09-06
 
 Directed by the copyright holder 2026-09-06, with a question attached:

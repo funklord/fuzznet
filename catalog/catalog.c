@@ -1151,26 +1151,10 @@ static fzn_catalog_err_t apply_name(fzn_catalog_t *catalog, const uint8_t *body,
 	return fzn_catalog_name_set(catalog, &name);
 }
 
-const char *fzn_catalog_segment_style_str(fzn_catalog_segment_style_t style)
-{
-	switch (style) {
-	case FZN_CATALOG_SEGMENT_AS_WRITTEN:
-		return "as written";
-	case FZN_CATALOG_SEGMENT_UNDERSCORED:
-		return "spaces as underscores";
-	}
-	return "unknown";
-}
-
-fzn_catalog_err_t fzn_catalog_name_segment(const fzn_catalog_name_t *name,
-                                           fzn_catalog_segment_style_t style, char *out,
+fzn_catalog_err_t fzn_catalog_name_segment(const fzn_catalog_name_t *name, char *out,
                                            size_t cap)
 {
-	char built[FZN_CATALOG_NAME_MAX + 1u];
 	fzn_catalog_err_t err;
-	size_t at = 0;
-	size_t i;
-	int pending = 0;
 
 	if (!name || !out || cap == 0)
 		return FZN_CATALOG_ERR_MALFORMED;
@@ -1178,43 +1162,12 @@ fzn_catalog_err_t fzn_catalog_name_segment(const fzn_catalog_name_t *name,
 	if (err != FZN_CATALOG_OK)
 		return err;
 
-	switch (style) {
-	case FZN_CATALOG_SEGMENT_AS_WRITTEN:
-		if (name->len + 1u > cap)
-			return FZN_CATALOG_ERR_PATH;
-		memcpy(out, name->text, name->len);
-		out[name->len] = '\0';
-		return FZN_CATALOG_OK;
-	case FZN_CATALOG_SEGMENT_UNDERSCORED:
-		break;
-	default:
-		return FZN_CATALOG_ERR_MALFORMED;
-	}
-
-	for (i = 0; i < name->len; i++) {
-		if (name->text[i] == ' ') {
-			/* A RUN BECOMES ONE UNDERSCORE, and a leading run none at
-			 * all -- "The  Third   Man" must not gain a stutter, and a
-			 * name typed with a trailing space must not gain a
-			 * trailing underscore. */
-			pending = at > 0;
-			continue;
-		}
-		if (pending) {
-			built[at++] = '_';
-			pending = 0;
-		}
-		built[at++] = (char)name->text[i];
-	}
-	built[at] = '\0';
-
-	/* A NAME OF NOTHING BUT SPACES RENDERS TO NOTHING, which is not a
-	 * segment -- `fzn_catalog_path_of` would refuse it, and refusing here
-	 * says which name caused it. */
-	if (at == 0)
+	/* THE NAME, UNCHANGED. What a person wrote is what goes on the disk;
+	 * `fzn_catalog_path_of` refuses only what would break a path, and a
+	 * space is not one of those. sec 151. */
+	if (name->len + 1u > cap)
 		return FZN_CATALOG_ERR_PATH;
-	if (at + 1u > cap)
-		return FZN_CATALOG_ERR_PATH;
-	memcpy(out, built, at + 1u);
+	memcpy(out, name->text, name->len);
+	out[name->len] = '\0';
 	return FZN_CATALOG_OK;
 }

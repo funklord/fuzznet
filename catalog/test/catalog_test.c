@@ -1934,62 +1934,45 @@ static void test_a_name_may_be_anything_a_person_reads(void)
 }
 
 /*
- * THE ANSWER TO THE SPACES QUESTION. The catalogue keeps what was written and
- * the SEGMENT is chosen per host -- sec 147's rule that a filing does not
- * travel, applied one layer down. Both styles are here so a host picks.
+ * A NAME RENDERS AS WRITTEN, SPACES AND ALL. sec 151: this library has no
+ * opinion about spaces, and `fzn_catalog_path_of` refuses only what would
+ * break a path -- a separator, a traversal, an empty segment.
+ *
+ * It briefly had an underscore style, offered because the copyright holder
+ * raised it and then withdrawn when they asked who had decided. The case that
+ * remains is the one that matters: a name with spaces reaches the disk with
+ * its spaces.
  */
-static void test_a_name_renders_either_way(void)
+static void test_a_name_renders_as_written(void)
 {
 	fzn_catalog_name_t n;
 	char out[FZN_CATALOG_NAME_MAX + 1u];
 
 	n = named(0x10, "The Third Man", ALICE, 1);
-	REQUIRE(fzn_catalog_name_segment(&n, FZN_CATALOG_SEGMENT_AS_WRITTEN, out, sizeof(out))
-	                == FZN_CATALOG_OK, "as-written refused");
-	CHECK(strcmp(out, "The Third Man") == 0, "as written gave \"%s\"", out);
+	REQUIRE(fzn_catalog_name_segment(&n, out, sizeof(out)) == FZN_CATALOG_OK,
+	        "a name with spaces would not render");
+	CHECK(strcmp(out, "The Third Man") == 0, "the segment is \"%s\"", out);
 
-	REQUIRE(fzn_catalog_name_segment(&n, FZN_CATALOG_SEGMENT_UNDERSCORED, out, sizeof(out))
-	                == FZN_CATALOG_OK, "underscored refused");
-	CHECK(strcmp(out, "The_Third_Man") == 0, "underscored gave \"%s\"", out);
-
-	/* A RUN BECOMES ONE UNDERSCORE, not one each: a name with double spaces
-	 * must not gain a stutter. */
-	n = named(0x10, "The  Third   Man", ALICE, 1);
-	REQUIRE(fzn_catalog_name_segment(&n, FZN_CATALOG_SEGMENT_UNDERSCORED, out, sizeof(out))
-	                == FZN_CATALOG_OK, "runs refused");
-	CHECK(strcmp(out, "The_Third_Man") == 0, "a run of spaces gave \"%s\"", out);
-
-	/* And an edge run gives none at all. */
-	n = named(0x10, "  Kind of Blue  ", ALICE, 1);
-	REQUIRE(fzn_catalog_name_segment(&n, FZN_CATALOG_SEGMENT_UNDERSCORED, out, sizeof(out))
-	                == FZN_CATALOG_OK, "edges refused");
-	CHECK(strcmp(out, "Kind_of_Blue") == 0, "leading or trailing spaces gave \"%s\"", out);
-
-	/* A name of nothing but spaces renders to nothing, which is not a
-	 * segment -- and saying so here names the culprit. */
-	n = named(0x10, "   ", ALICE, 1);
-	CHECK(fzn_catalog_name_segment(&n, FZN_CATALOG_SEGMENT_UNDERSCORED, out, sizeof(out))
-	              == FZN_CATALOG_ERR_PATH, "a name of only spaces produced a segment");
+	/* Runs, edges and punctuation all survive untouched: nothing here is
+	 * normalising anything. */
+	n = named(0x10, "  Kind  of   Blue  ", ALICE, 1);
+	REQUIRE(fzn_catalog_name_segment(&n, out, sizeof(out)) == FZN_CATALOG_OK,
+	        "an oddly spaced name would not render");
+	CHECK(strcmp(out, "  Kind  of   Blue  ") == 0,
+	      "a name was normalised on its way to a segment: \"%s\"", out);
 
 	/* Nothing is written unless the whole segment fits. */
-	n = named(0x10, "The Third Man", ALICE, 1);
 	memset(out, 0x5a, sizeof(out));
-	CHECK(fzn_catalog_name_segment(&n, FZN_CATALOG_SEGMENT_AS_WRITTEN, out, 4)
-	              == FZN_CATALOG_ERR_PATH, "a short buffer took a truncated segment");
+	n = named(0x10, "The Third Man", ALICE, 1);
+	CHECK(fzn_catalog_name_segment(&n, out, 4) == FZN_CATALOG_ERR_PATH,
+	      "a short buffer took a truncated segment");
 	CHECK(out[0] == 0x5a, "a refused segment wrote a truncated one");
-	CHECK(fzn_catalog_name_segment(&n, FZN_CATALOG_SEGMENT_UNDERSCORED, out, 4)
-	              == FZN_CATALOG_ERR_PATH, "a short buffer took a truncated underscored one");
-	CHECK(out[0] == 0x5a, "a refused underscored segment wrote a truncated one");
 
-	CHECK(fzn_catalog_name_segment(&n, (fzn_catalog_segment_style_t)9, out, sizeof(out))
-	              == FZN_CATALOG_ERR_MALFORMED, "an unknown style rendered");
-	CHECK(fzn_catalog_name_segment(NULL, FZN_CATALOG_SEGMENT_AS_WRITTEN, out, sizeof(out))
-	              == FZN_CATALOG_ERR_MALFORMED, "a null name rendered");
-	CHECK(fzn_catalog_name_segment(&n, FZN_CATALOG_SEGMENT_AS_WRITTEN, NULL, sizeof(out))
-	              == FZN_CATALOG_ERR_MALFORMED, "a null buffer");
-	CHECK(strcmp(fzn_catalog_segment_style_str(FZN_CATALOG_SEGMENT_AS_WRITTEN),
-	             fzn_catalog_segment_style_str(FZN_CATALOG_SEGMENT_UNDERSCORED)) != 0,
-	      "the two styles read alike");
+	CHECK(fzn_catalog_name_segment(NULL, out, sizeof(out)) == FZN_CATALOG_ERR_MALFORMED,
+	      "a null name rendered");
+	CHECK(fzn_catalog_name_segment(&n, NULL, sizeof(out)) == FZN_CATALOG_ERR_MALFORMED,
+	      "a null buffer");
+	CHECK(fzn_catalog_name_segment(&n, out, 0) == FZN_CATALOG_ERR_MALFORMED, "a zero bound");
 }
 
 /* A name travels as its own assertion, attributed from the record. */
@@ -2163,7 +2146,7 @@ int main(void)
 	test_the_seam_caller_bugs_are_refused();
 	test_a_name_is_kept_as_written();
 	test_a_name_may_be_anything_a_person_reads();
-	test_a_name_renders_either_way();
+	test_a_name_renders_as_written();
 	test_a_name_round_trips_through_a_record();
 	test_the_name_caller_bugs_are_refused();
 	test_the_errors_render();

@@ -861,40 +861,31 @@ fzn_catalog_err_t fzn_catalog_name_encode(const fzn_catalog_name_t *name, uint8_
                                           size_t cap, size_t *len_out);
 
 /*
- * HOW A NAME BECOMES A PATH SEGMENT, and the answer to a question the
- * copyright holder raised: spaces or underscores.
+ * A NAME AS A PATH SEGMENT: the name, unchanged.
  *
- * **The catalogue stores the name as a person wrote it, and the SEGMENT is
- * chosen per host.** That is not a compromise, it is sec 147's rule applied
- * one layer down: a filing is where a host keeps its bytes and does not
- * travel, so how a host spells a directory is the same kind of decision.
- * Underscores are a filing preference. Storing them would make one host's
- * preference an assertion every other host had to accept, and would lose the
- * spaces a person typed with no way to get them back.
+ * **THIS LIBRARY HAS NO OPINION ABOUT SPACES.** A name renders as a person
+ * wrote it, and `fzn_catalog_path_of` refuses only what would break a path --
+ * a separator, a traversal, an empty segment. A space is none of those.
  *
- * So the RULE is shared -- which is sec 2's argument, and why this lives here
- * rather than in four consumers -- and the CHOICE is a host's.
+ * IT BRIEFLY HAD ONE AND THAT WAS WRONG, which is recorded because the
+ * reasoning is worth not repeating. sec 150 shipped a second style that
+ * turned runs of space into underscores, offered because the copyright
+ * holder raised it and said they preferred it. They then asked who had
+ * decided, and answered it themselves: "this kind of behaviour is not being
+ * done by software anymore." It is gone. project.md sec 151.
+ *
+ * The transform is a consumer's business if any consumer still wants it --
+ * three lines over a name it already holds -- and keeping it here made the
+ * library carry an opinion it had no reason to have, invited a consumer to
+ * pick it, and produced paths that no longer matched what people typed.
  */
-typedef enum fzn_catalog_segment_style {
-	/* The name unchanged. It must still pass `fzn_catalog_path_of`'s
-	 * checks, so a name with a separator in it is refused there rather
-	 * than rewritten here. */
-	FZN_CATALOG_SEGMENT_AS_WRITTEN = 0,
-	/* Runs of space become one underscore. A run rather than each space,
-	 * so "The  Third   Man" does not become a segment with a stutter in
-	 * it, and leading and trailing runs are dropped entirely. */
-	FZN_CATALOG_SEGMENT_UNDERSCORED = 1,
-} fzn_catalog_segment_style_t;
 
-const char *fzn_catalog_segment_style_str(fzn_catalog_segment_style_t style);
-
-/* Render a name as a path segment in the given style, NUL-terminated.
+/* Render a name as a path segment, NUL-terminated.
  *
  * A consumer's `name` callback in `fzn_catalog_fs_ops` is where this belongs:
- * look the name up, render it, hand it back. Nothing here writes unless the
+ * look the name up, render it, hand it back. Nothing is written unless the
  * whole segment fits. */
-fzn_catalog_err_t fzn_catalog_name_segment(const fzn_catalog_name_t *name,
-                                           fzn_catalog_segment_style_t style, char *out,
+fzn_catalog_err_t fzn_catalog_name_segment(const fzn_catalog_name_t *name, char *out,
                                            size_t cap);
 
 #endif

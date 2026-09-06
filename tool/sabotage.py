@@ -1464,32 +1464,15 @@ SABOTAGES = [
 		"a name body has no field for an issuer, so reading one from the bytes credits a rename to somebody who did not sign it",
 	),
 	(
-		"segment-run-is-one-underscore",
+		"segment-is-bounded",
 		"catalog/catalog.c",
-		"\t\t\tpending = at > 0;\n\t\t\tcontinue;\n",
-		"\t\t\tbuilt[at++] = '_';\n\t\t\tcontinue;\n",
-		"a run of spaces becomes one underscore and an edge run none, or a name with double spaces gains a stutter and one typed with a trailing space gains a trailing underscore",
-	),
-	(
-		"segment-as-written-succeeds",
-		"catalog/catalog.c",
-		"\t\tmemcpy(out, name->text, name->len);\n\t\tout[name->len] = '\\0';\n\t\treturn FZN_CATALOG_OK;\n",
-		"\t\tmemcpy(out, name->text, name->len);\n\t\tout[name->len] = '\\0';\n\t\treturn FZN_CATALOG_ERR_PATH;\n",
-		"spaces in a filename are a host's choice and as-written is half of it, so a style that always refuses leaves only the opinionated one",
-	),
-	(
-		"segment-as-written-bounded",
-		"catalog/catalog.c",
-		"\t\tif (name->len + 1u > cap)\n\t\t\treturn FZN_CATALOG_ERR_PATH;\n",
-		"\t\tif (0)\n\t\t\treturn FZN_CATALOG_ERR_PATH;\n",
-		"nothing is written unless the whole segment fits, or a short buffer takes a name cut in half and a file is written under it",
-	),
-	(
-		"segment-all-spaces-is-no-segment",
-		"catalog/catalog.c",
-		"\tif (at == 0)\n\t\treturn FZN_CATALOG_ERR_PATH;\n",
+		# One tab shallower since sec 151 removed the style switch this
+		# lived inside. `--verify` reported it matching nothing, which is
+		# what that mode is for -- a stale entry reports a guard as
+		# defended without testing it.
+		"\tif (name->len + 1u > cap)\n\t\treturn FZN_CATALOG_ERR_PATH;\n",
 		"\tif (0)\n\t\treturn FZN_CATALOG_ERR_PATH;\n",
-		"a name of nothing but spaces renders to nothing, which path_of would refuse anyway -- refusing here says which name caused it",
+		"nothing is written unless the whole segment fits, or a short buffer takes a name cut in half and a file is written under it",
 	),
 	(
 		"provision-envelope-verified",
