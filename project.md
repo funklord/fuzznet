@@ -30855,3 +30855,61 @@ what the flag never did and what the instruction was for. The flag stays, on
 sec 140's argument alone -- no widget here has a `Q_OBJECT`, declares a slot
 or emits anything, and it turns that convention into something the compiler
 keeps.
+
+## 181. The planned-deletion view, whose design the library had already written
+
+`gui/sweep_view.{h,cpp}` shows what is about to be taken off this host, how
+far it has got, and -- when nothing is going -- why nothing is going.
+
+The whole design is a sentence already in `catalog/sweep.h`:
+
+> THEY ARE KEPT APART RATHER THAN SUMMED because a consumer that swept nothing
+> needs to say WHY ... Collapsed into one number, a sweep held back by the
+> last-copy guard would be indistinguishable from a catalogue with nothing to
+> sweep -- and those want opposite responses.
+
+The library went to trouble to keep seven counters apart, and a screen showing
+"0 planned" undoes that in one line. **This is the first widget whose central
+guard was specified by the module it displays rather than found while building
+it**, and the suite's main case is that sentence turned into an assertion.
+
+### Four reasons, four actions
+
+    retained   this host's own policy working -- change the policy for space
+    shared     a guard refusing: a retained node needs the same bytes
+    last_copy  a guard refusing: too few other hosts hold it -- the answer is
+               MORE REPLICAS, not more sweeping
+    absent     nothing to do
+
+A person looking at a full disk needs to know which they are in, and three of
+those four are not "try again".
+
+`truncated` is said loudly whatever else is true, on sweep.h's own argument:
+the rows ran out, so "a sweep that silently held some of them would leave a
+consumer believing it had reclaimed what it had not". It is the one counter
+that means every other number on the screen is short.
+
+### Drawing must not delete
+
+sec 179's read-only rule arriving at a more dangerous module.
+`fzn_catalog_sweep_advance` is called **after** the bytes are gone -- the
+header is explicit, because a crash between the two must repeat a removal
+rather than skip one. So a widget that advanced a cursor while drawing would
+record a removal that never happened, and the record is the only thing that
+says the bytes are gone. The suite renders a part-done job three times and
+requires the cursor not to have moved.
+
+Progress comes from `fzn_catalog_sweep_progress` rather than from `done` and
+`used`, because that function's own comment says it is "what to draw" and that
+it answers while a sweep holds the catalogue. Using the accessor the library
+provides for a view is cheaper than being right by accident.
+
+### What made this one quick
+
+Every widget before it needed the distinction that must not collapse to be
+found: unspelled against denying, expired against revoked, not-started against
+stalled. Here it was written down, with the reason, in the header of the thing
+being displayed. **A module that records why its counters are separate hands
+its view the specification**, and that is worth more than any amount of
+guessing from the outside -- which is the same lesson the fuzzypickles
+exchange produced, arriving from inside one tree.

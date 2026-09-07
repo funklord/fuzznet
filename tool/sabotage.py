@@ -2525,6 +2525,41 @@ SABOTAGES = [
 		"a passed deadline is reclaimable rather than failed -- the range goes "
 		"back to the want-list and the bytes are not lost",
 	),
+	(
+		"sweep-view-held-back-is-not-empty",
+		"gui/sweep_view.cpp",
+		"\t\tif (plan->retained > 0u || plan->shared > 0u || plan->last_copy > 0u) {\n",
+		"\t\tif (0) {\n",
+		"a sweep stopped by a guard and a catalogue with nothing in it both plan "
+		"zero, and sweep.h keeps its counters apart precisely so they can be told "
+		"apart -- they want opposite responses",
+	),
+	(
+		"sweep-view-does-not-advance",
+		"gui/sweep_view.cpp",
+		"\tif (job && fzn_catalog_sweep_progress(job, &done, &total) == FZN_CATALOG_OK)\n",
+		"\tif (job && (void)fzn_catalog_sweep_advance((fzn_catalog_sweep_t *)job),\n"
+		"\t    fzn_catalog_sweep_progress(job, &done, &total) == FZN_CATALOG_OK)\n",
+		"drawing a sweep must not advance its cursor: _advance is called AFTER "
+		"bytes are gone, so a view that called it records a removal that never "
+		"happened",
+	),
+	(
+		"sweep-view-truncation-is-loud",
+		"gui/sweep_view.cpp",
+		"\ttruncated_ = plan->truncated > 0u;\n",
+		"\ttruncated_ = false;\n",
+		"a plan that ran out of rows makes every other count on the screen short, "
+		"so a consumer told nothing believes it reclaimed what it did not",
+	),
+	(
+		"sweep-view-names-each-reason",
+		"gui/sweep_view.cpp",
+		"\tif (plan->last_copy > 0u)\n",
+		"\tif (0)\n",
+		"each reason calls for a different action, so they are named rather than "
+		"summed -- last_copy means more replicas, not more sweeping",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so
