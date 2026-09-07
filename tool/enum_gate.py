@@ -120,11 +120,34 @@ def control():
 	return None
 
 
+
+def vendored():
+	"""The submodule paths, read from .gitmodules rather than listed here.
+
+	It was the literal string "monocypher/", which is a list that has to be
+	edited every time a tree is vendored -- and nothing says so. Adding quirc
+	and qtty in sec 169 made this gate walk them and fail on somebody else's
+	headers. .gitmodules is where the answer already lives, so reading it is
+	one source instead of two that must be kept in step.
+	"""
+	out = []
+	try:
+		with open(".gitmodules") as f:
+			for line in f:
+				line = line.strip()
+				if line.startswith("path"):
+					out.append(line.split("=", 1)[1].strip() + "/")
+	except OSError:
+		pass
+	return tuple(out)
+
+
 def sources():
 	out = []
+	skip = vendored()
 	for pattern in ("**/*.h", "**/*.c"):
 		for path in glob.glob(pattern, recursive=True):
-			if path.startswith("monocypher/") or "generated" in path:
+			if path.startswith(skip) or "generated" in path:
 				continue
 			out.append(path)
 	return sorted(set(out))

@@ -21,4 +21,4 @@ ascii_only = true
 # legitimate addition.
 floor = 0.43
 
-exclude = ["attic", "third_party", "vendor", "build", "target", "monocypher", "frame.situ.wire", "frame.situ.map", "generated"]
+exclude = ["attic", "third_party", "vendor", "build", "target", "monocypher", "quirc", "qtty", "frame.situ.wire", "frame.situ.map", "generated"]

@@ -29854,3 +29854,75 @@ newline, because a trailing one is a blank row of the reader's screen, so
 three entries make two newlines. Lines and newlines differ by whether the
 last line is terminated, and the old form made the assertion depend on a
 property of the text area rather than on what was rendered.
+
+## 169. Vendoring quirc and qtty, 2026-09-07
+
+Both were reached as live sibling checkouts through `QUIRC_DIR=` and
+`QTTY_DIR=`. Both are submodules now, on the copyright holder's instruction,
+and `harmonization.md`'s soft rule: prefer a vendored copy to a live sibling,
+because a sibling is whatever its session left it as while a vendored copy is
+a version you chose.
+
+    quirc   https://github.com/dlbeer/quirc.git      927d680  (v1.2-7)
+    qtty    https://github.com/funklord/qtty.git     1c0d649
+
+### quirc: the edge was running backwards
+
+`make qrcheck QUIRC_DIR=../fuzzypickles/quirc` had **this library depending
+on its own consumer.** fuzzypickles vendors fuzznet; measured in their
+`.gitmodules` rather than recalled. So the only independent witness the QR
+encoder has -- the thing sec 162 exists for, since an encoder's tables are
+worth nothing against a decoder we wrote ourselves -- lived at a path that
+existed only if you happened to have cloned a different project next door.
+
+It is vendored from **upstream**, not from fuzzypickles. The pin is the
+commit fuzzypickles already carries, so a QR fault reported from there
+reproduces here against the same decoder.
+
+### qtty: pinned for a narrower reason than the rule
+
+Nothing this library ships links qtty. It is a test instrument, used by an
+opt-in target, so the dependency rule does not obviously reach it.
+
+What reaches it is `evidence.md`: **a fact recorded without its method has a
+shelf life**, and the method here includes which qtty. sec 158 and sec 159
+record measurements taken THROUGH it -- the fingerprint's column floor, and
+the frame that came out as a left edge and nothing else. `make qtty` pinned
+to whatever the sibling's HEAD was on the day, so those findings were
+measured against a moving target and could not be re-taken. The submodule
+fixes that and nothing else.
+
+**It is for this tree's widgets. It is not a shared dependency**, and a
+consumer of fuzznet should not reach through fuzznet's build into fuzznet's
+submodule to get it. Said plainly here because fuzzypickles asked.
+
+### The single-list defect, three times in one afternoon
+
+Vendoring two trees broke three gates, all the same way and all
+independently: `tool/enum_gate.py` and `tool/status_gate.py` each carried the
+literal string `monocypher/`, and the Makefile's `VENDOR_PRUNE` was
+`-not -path './$(MONO_VENDORED)/*'`. Between them they reported fourteen of
+quirc's C files as unlisted and three of qtty's enums as unparseable.
+
+Each was a list that had to be edited whenever a submodule was added, with
+nothing announcing that it existed. **`.gitmodules` already holds the
+answer**, so all three read it now. That is the same move as sec 168's --
+one place a fact can be written -- arriving from a different direction, and
+the reason all three had it is that each was written when there was exactly
+one submodule and one was indistinguishable from all.
+
+### Two smaller things
+
+**Vendored code is compiled quietly, and that is not reducing a check's
+output.** quirc built with this tree's flags emitted 43 warnings about code
+fuzznet does not own and will not change, burying the single line `make
+qrcheck` exists to print. Its four translation units compile with `-w`; ours
+keep every flag, and seven warnings remain, all of them ours.
+
+**Two of those seven are real and predate this.** `qr/qr.c` has been emitting
+`-Wvla` on `interleaved` and `stream` since sec 160 -- genuine variable
+length arrays in a library whose whole discipline is that it allocates
+nothing and bounds everything. They are stack allocations the compiler cannot
+size. Nothing gates on warnings, which is why two years of `make check`
+output could carry them unread. Not fixed here; it is not this change's
+business and it wants its own.

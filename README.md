@@ -55,6 +55,15 @@ latter gains the three binding sources whenever the bindings are built, and
 those do need Monocypher. `MONOCYPHER_DIR=<path>` still points the bindings
 at another checkout, and `MONOCYPHER_DIR=` builds without them.
 
+Two more are vendored the same way, and neither is a dependency of anything
+this library ships. `quirc/` is an independent QR decoder, and it is what
+`make qrcheck` uses to decode what `qr/` encodes -- the encoder's tables are
+only trustworthy against a decoder nobody here wrote. `qtty/` renders
+unmodified Qt Widgets on a character-cell grid, and `make qtty` uses it to
+check that the widgets in `gui/` survive a terminal. Both are pinned so that
+a measurement recorded against one can be taken again: `QUIRC_DIR=<path>` and
+`QTTY_DIR=<path>` point either at a working checkout instead.
+
 **A consuming build asks for the list rather than copying it.**
 `make manifest` prints one `key value` per line -- `source`, `generated`,
 `include`, and separately `binding` and `backend` for the two things a

@@ -888,7 +888,17 @@ endif
 # all 56 as "in no list", and the header walk behind it would have named 46
 # more. A gate reporting 102 files nobody can act on is a gate that has
 # stopped saying anything, which is why the prune is not a nicety.
-VENDOR_PRUNE := -not -path './$(MONO_VENDORED)/*'
+# EVERY VENDORED TREE, READ FROM .gitmodules RATHER THAN LISTED HERE.
+#
+# It was `-not -path './$(MONO_VENDORED)/*'` -- one tree, named literally --
+# and vendoring quirc and qtty in sec 169 made three source-enumeration gates
+# report fourteen of somebody else's C files as unlisted. A list that has to
+# be edited every time a submodule is added, with nothing announcing that it
+# exists, is the shape this tree keeps removing; .gitmodules already holds
+# the answer, so it is read instead. tool/enum_gate.py and tool/status_gate.py
+# were the same defect and take the same fix.
+VENDOR_DIRS  := $(shell sed -n 's/^[ \t]*path *= *//p' .gitmodules 2>/dev/null)
+VENDOR_PRUNE := $(foreach d,$(VENDOR_DIRS),-not -path './$(d)/*')
 
 # Named OUTSIDE the conditional, because these files exist in the tree whether
 # or not this build compiles them, and `make style` compares the source lists
@@ -3358,37 +3368,85 @@ SITU_DIR ?=
 # NOT PART OF `make check`, on `make schema`'s argument: it needs a sibling
 # checkout, and a gate that breaks for another tree's reasons is one people
 # switch off.
+#
+# QUIRC IS VENDORED, AND THE DEFAULT IS THE VENDORED COPY. sec 169. It used to
+# be reached at ../fuzzypickles/quirc, which had this library depending on its
+# own CONSUMER: fuzzypickles vendors fuzznet, so the only independent witness
+# the QR encoder has lived at a path that existed if you happened to have
+# cloned a different project next door.
+#
+# The three cases are kept apart the way MONOCYPHER_DIR keeps them: empty is
+# off, a missing vendored copy is an unfinished clone and names the command,
+# and an OVERRIDE that points at nothing is an error rather than a skip --
+# somebody asked for this by naming a path.
+# QUIRC IS COMPILED SEPARATELY AND QUIETLY, which is not the same act as
+# reducing a check's output. Built with this tree's flags it emitted 43
+# warnings about code fuzznet does not own and will not change, and they
+# buried the one line the target exists to print. Our own sources keep every
+# flag; only the vendored translation units are compiled with -w.
+QUIRC_VENDORED := quirc
+QUIRC_DIR      ?= $(QUIRC_VENDORED)
+
 qrcheck:
 	@if [ -z "$(QUIRC_DIR)" ]; then \
-		echo "qrcheck: QUIRC_DIR unset, so nothing DECODED what we encode."; \
-		echo "qrcheck: run 'make qrcheck QUIRC_DIR=../fuzzypickles/quirc'."; \
+		echo "qrcheck: QUIRC_DIR is empty, so nothing DECODED what we encode."; \
 		exit 1; \
 	fi
 	@test -f "$(QUIRC_DIR)/lib/quirc.h" || { \
-		echo "qrcheck: no quirc.h under $(QUIRC_DIR)/lib"; exit 1; }
+		if [ "$(QUIRC_DIR)" = "$(QUIRC_VENDORED)" ]; then \
+			echo "qrcheck: the vendored $(QUIRC_VENDORED)/ is empty."; \
+			echo "qrcheck: run 'git submodule update --init $(QUIRC_VENDORED)'."; \
+		else \
+			echo "qrcheck: no quirc.h under $(QUIRC_DIR)/lib"; \
+		fi; exit 1; }
 	@set -e; \
 	scratch=$(BUILD_DIR)/.qrcheck; \
 	case "$$scratch" in "" | "/" | "/*") \
 		echo "qrcheck: refusing to work in '$$scratch'"; exit 1;; esac; \
 	trap 'rm -rf "$$scratch"' EXIT INT TERM; \
 	rm -rf "$$scratch"; mkdir -p "$$scratch"; \
+	for u in quirc decode identify version_db; do \
+		$(CC) $(CFLAGS_BUILD) -w -I"$(QUIRC_DIR)/lib" -c \
+		      "$(QUIRC_DIR)/lib/$$u.c" -o "$$scratch/$$u.o"; \
+	done; \
 	$(CC) $(CFLAGS) -I. -I"$(QUIRC_DIR)/lib" qr/test/qr_quirc_check.c qr/qr.c \
-	      cli/qr_print.c \
-	      "$(QUIRC_DIR)"/lib/quirc.c "$(QUIRC_DIR)"/lib/decode.c \
-	      "$(QUIRC_DIR)"/lib/identify.c "$(QUIRC_DIR)"/lib/version_db.c \
+	      cli/qr_print.c "$$scratch"/quirc.o "$$scratch"/decode.o \
+	      "$$scratch"/identify.o "$$scratch"/version_db.o \
 	      -lm -o "$$scratch/qrcheck"; \
 	"$$scratch/qrcheck"
 
+#
+# QTTY IS VENDORED TOO, and for a reason narrower than the dependency rule:
+# nothing this library ships links it. sec 169. It is a test INSTRUMENT, and
+# sec 158 and sec 159 recorded measurements taken THROUGH it -- so a live
+# sibling meant those findings were measured against whatever that tree's HEAD
+# happened to be, which is a method that cannot be re-run. The submodule pins
+# it. A developer working on qtty itself points QTTY_DIR at their checkout.
+QTTY_VENDORED := qtty
+QTTY_DIR      ?= $(QTTY_VENDORED)
+
 qtty:
 	@if [ -z "$(QTTY_DIR)" ]; then \
-		echo "qtty: QTTY_DIR unset, so the widgets were NOT rendered."; \
-		echo "qtty: run 'make qtty QTTY_DIR=../qtty' to render them."; \
+		echo "qtty: QTTY_DIR is empty, so the widgets were NOT rendered."; \
 		exit 1; \
 	fi
+	@test -f "$(QTTY_DIR)/qtty.pro" || { \
+		if [ "$(QTTY_DIR)" = "$(QTTY_VENDORED)" ]; then \
+			echo "qtty: the vendored $(QTTY_VENDORED)/ is empty."; \
+			echo "qtty: run 'git submodule update --init $(QTTY_VENDORED)'."; \
+		else \
+			echo "qtty: no qtty.pro under $(QTTY_DIR)"; \
+		fi; exit 1; }
 	@command -v qmake6 >/dev/null 2>&1 || { \
 		echo "qtty: no qmake6, and qtty HEAD does not build under Qt 5"; exit 1; }
 	@test -n "$(GUI_ON)" || { \
 		echo "qtty: the widgets are not built -- this needs FZN_GUI"; exit 1; }
+	@# THE LOG VIEW RENDERS THROUGH cli/log_print SINCE sec 168, so this
+	@# needs FZN_CLI as well -- and it links the OBJECT rather than
+	@# compiling the .c here, because $(CXX) would mangle its symbols and
+	@# they would not match the C-built log/log.o. Measured by the linker.
+	@test -n "$(CLI_ON)" || { \
+		echo "qtty: the log view needs FZN_CLI -- add CLI_ON=1"; exit 1; }
 	@# ONE SHELL WITH A TRAP, BECAUSE A FAILURE HERE LEAVES A SOURCE TREE IN
 	@# THE REPOSITORY. Measured the hard way: BUILD_DIR defaults to `.`, so
 	@# the scratch is `./.qtty` -- and the first failing run of this target
@@ -3438,7 +3496,7 @@ qtty:
 	fi; \
 	$(CXX) $(CXXFLAGS_BUILD) $(CXXFLAGS_WARN) $(QT_CFLAGS) $$qflags -I"$$scratch/include" \
 	       gui/test/qtty_render_test.cpp gui/trust_view.cpp gui/log_view.cpp \
-	       gui/qr_view.cpp cli/log_print.c $(BUILD_DIR)/qr/qr.o \
+	       gui/qr_view.cpp $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \
 	       $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/log/log.o \
 	       $(BUILD_DIR)/record/journal.o $(BUILD_DIR)/record/record.o \
 	       $(BUILD_DIR)/constant_time/constant_time.o \

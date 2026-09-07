@@ -1,3 +1,9 @@
 [submodule "monocypher"]
 	path = monocypher
 	url = https://github.com/LoupVaillant/Monocypher.git
+[submodule "quirc"]
+	path = quirc
+	url = https://github.com/dlbeer/quirc.git
+[submodule "qtty"]
+	path = qtty
+	url = https://github.com/funklord/qtty.git

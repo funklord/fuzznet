@@ -47,7 +47,25 @@ import re
 import sys
 import glob
 
-SKIP_DIRS = ("monocypher/",)
+def vendored():
+	"""The submodule paths, read from .gitmodules rather than listed here.
+
+	See tool/enum_gate.py for why: a literal list is a second place to edit
+	every time a tree is vendored, and nothing announces that it exists.
+	"""
+	out = []
+	try:
+		with open(".gitmodules") as f:
+			for line in f:
+				line = line.strip()
+				if line.startswith("path"):
+					out.append(line.split("=", 1)[1].strip() + "/")
+	except OSError:
+		pass
+	return tuple(out)
+
+
+SKIP_DIRS = vendored()
 
 
 def blank_comments(text):
