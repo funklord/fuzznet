@@ -48,7 +48,7 @@ static void check_at(int ok, int line, const char *fmt, ...)
 
 struct fixture {
 	fzn_reasm_t table;
-	fzn_partial_t slots[SLOTS];
+	fzn_partial_t partials[SLOTS];
 	uint8_t storage[SLOTS][SLOT_BYTES];
 	uint8_t alice[FZN_SENDER_LEN];
 	uint8_t bob[FZN_SENDER_LEN];
@@ -58,8 +58,8 @@ static void fixture_init(struct fixture *f, size_t per_sender_max)
 {
 	memset(f, 0, sizeof(*f));
 	for (size_t i = 0; i < SLOTS; i++)
-		fzn_reasm_slot_init(&f->slots[i], f->storage[i], SLOT_BYTES);
-	fzn_reasm_init(&f->table, f->slots, SLOTS, per_sender_max, REASM_MAX_HOLD);
+		fzn_reasm_slot_init(&f->partials[i], f->storage[i], SLOT_BYTES);
+	fzn_reasm_init(&f->table, f->partials, SLOTS, per_sender_max, REASM_MAX_HOLD);
 	memset(f->alice, 0xa1, FZN_SENDER_LEN);
 	memset(f->bob, 0xb2, FZN_SENDER_LEN);
 }
@@ -157,7 +157,7 @@ static void test_the_bound_is_enforced_on_the_first_chunk(void)
 	CHECK(fzn_reasm_accept(&f.table, f.alice, 1, 0, 9, piece, 8, 0, 100, &done) ==
 	              FZN_REASM_ERR_TOO_LARGE,
 	      "a message larger than the slot was admitted");
-	CHECK(f.slots[0].live == 0, "a refused message took a slot anyway");
+	CHECK(f.partials[0].live == 0, "a refused message took a slot anyway");
 
 	/* And a claim beyond the compile-time ceiling never reaches sizing.
 	 *
@@ -193,7 +193,7 @@ static void test_the_bound_is_enforced_on_the_first_chunk(void)
  * corrupts is the one it was allowed to touch.
  *
  * So the size of the slot is the whole point of this fixture. On the 64-byte
- * slots above, division refuses every large count before the ceiling is
+ * partials above, division refuses every large count before the ceiling is
  * consulted; here it refuses none of them, and the ceiling is the only thing
  * left. The control is FZN_REASM_MAX_CHUNKS exactly, which must be ADMITTED --
  * without it "large counts are refused" is satisfied by a slot too small to
@@ -343,8 +343,8 @@ static void test_two_senders_do_not_splice(void)
 	              FZN_REASM_OK,
 	      "bob's chunk was refused");
 	CHECK(done == NULL, "two senders' chunks completed one message");
-	CHECK(f.slots[0].live && f.slots[1].live, "the two senders shared a slot");
-	CHECK(f.slots[0].arrived == 1 && f.slots[1].arrived == 1,
+	CHECK(f.partials[0].live && f.partials[1].live, "the two senders shared a slot");
+	CHECK(f.partials[0].arrived == 1 && f.partials[1].arrived == 1,
 	      "one sender's chunk was counted against the other's message");
 }
 
@@ -409,10 +409,10 @@ static void test_two_near_senders_do_not_splice(void)
 	      "the second twin's chunk was refused -- it landed in the first twin's "
 	      "slot, so find() is not reading the whole sender");
 	CHECK(done == NULL, "two senders' chunks completed one message");
-	CHECK(f.slots[0].live && f.slots[1].live,
+	CHECK(f.partials[0].live && f.partials[1].live,
 	      "two senders differing only in their last key byte shared a slot -- "
 	      "find() is not reading the whole sender");
-	CHECK(f.slots[0].arrived == 1 && f.slots[1].arrived == 1,
+	CHECK(f.partials[0].arrived == 1 && f.partials[1].arrived == 1,
 	      "one twin's chunk was counted against the other's message");
 }
 
@@ -449,7 +449,7 @@ static void test_a_near_sender_does_not_spend_the_quota(void)
 	              FZN_REASM_OK,
 	      "one sender's slot was charged to another differing only in its last "
 	      "key byte -- held_by() is not reading the whole sender");
-	CHECK(f.slots[0].live && f.slots[1].live, "the two twins did not take a slot each");
+	CHECK(f.partials[0].live && f.partials[1].live, "the two twins did not take a slot each");
 
 	/* The control, which is what makes the check above mean something: a
 	 * quota that never refuses anything would satisfy it too. The first
@@ -475,7 +475,7 @@ static void test_retransmission_versus_rewrite(void)
 	CHECK(fzn_reasm_accept(&f.table, f.alice, 1, 0, 2, piece, 8, 0, 100, &done) ==
 	              FZN_REASM_OK,
 	      "a byte-identical retransmission was refused");
-	CHECK(f.slots[0].arrived == 1, "a retransmission was counted twice");
+	CHECK(f.partials[0].arrived == 1, "a retransmission was counted twice");
 
 	/* Differing repeat: rewriting part of a message after the rest was
 	 * accepted. */
@@ -555,8 +555,8 @@ static void test_full_table_and_expiry(void)
 		      "a full table admitted a fourth message");
 
 		/* Expiry is what makes the bound survive: past 50 the three
-		 * half-finished messages are dead and their slots come back. */
-		CHECK(fzn_reasm_expire(&f.table, 60) == 3, "expired slots were not reclaimed");
+		 * half-finished messages are dead and their partials come back. */
+		CHECK(fzn_reasm_expire(&f.table, 60) == 3, "expired partials were not reclaimed");
 		CHECK(fzn_reasm_accept(&f.table, dave, 1, 0, 2, piece, 8, 100, 60, &done) ==
 		              FZN_REASM_OK,
 		      "a reclaimed slot was not reusable");
@@ -567,7 +567,7 @@ static void test_full_table_and_expiry(void)
 	CHECK(fzn_reasm_accept(&f.table, f.alice, 1, 0, 2, piece, 8, 50, 60, &done) ==
 	              FZN_REASM_ERR_EXPIRED,
 	      "an expired chunk was admitted");
-	CHECK(f.slots[0].live == 0, "an expired chunk took a slot");
+	CHECK(f.partials[0].live == 0, "an expired chunk took a slot");
 }
 
 /* Offers chunk `index` of a `chunks`-piece message, so the cases below read
@@ -736,7 +736,7 @@ static void test_last_chunk_first_is_refused(void)
 	CHECK(fzn_reasm_accept(&f.table, f.alice, 1, 2, 3, piece, 3, 0, 100, &done) ==
 	              FZN_REASM_ERR_MISMATCH,
 	      "a last-chunk-first arrival set the stride");
-	CHECK(f.slots[0].live == 0, "it took a slot anyway");
+	CHECK(f.partials[0].live == 0, "it took a slot anyway");
 }
 
 static void test_release_clears_the_arrived_set(void)
@@ -750,10 +750,10 @@ static void test_release_clears_the_arrived_set(void)
 	fixture_init(&f, 2);
 	fill(piece, 8, 0xa0, 0);
 	fzn_reasm_accept(&f.table, f.alice, 1, 0, 2, piece, 8, 0, 100, &done);
-	fzn_reasm_release(&f.slots[0]);
-	CHECK(f.slots[0].live == 0, "release left the slot live");
-	CHECK(f.slots[0].arrived == 0, "release left the arrival count");
-	CHECK(f.slots[0].buf != NULL, "release dropped the buffer it must keep");
+	fzn_reasm_release(&f.partials[0]);
+	CHECK(f.partials[0].live == 0, "release left the slot live");
+	CHECK(f.partials[0].arrived == 0, "release left the arrival count");
+	CHECK(f.partials[0].buf != NULL, "release dropped the buffer it must keep");
 
 	fzn_reasm_accept(&f.table, f.alice, 2, 1, 2, piece, 8, 0, 100, &done);
 	CHECK(done == NULL, "a stale arrived-set completed the next message early");
@@ -801,7 +801,7 @@ static void test_release_clears_the_arrived_set(void)
 /* THE OFFSET GUARD FIRES, so it is not dead code.
  *
  * Through the public API with a consistent table it cannot: `admit_first`
- * bounds the stride by `buf_capacity / chunks`. But the table and its slots
+ * bounds the stride by `buf_capacity / chunks`. But the table and its partials
  * are caller-owned and this module already treats a hand-built one as inside
  * its threat model. Shrink a slot's capacity below what it already holds and
  * the guard is the thing standing between that and a memcpy.
@@ -828,7 +828,7 @@ static void test_the_offset_guard_is_reachable(void)
 	      "a good chunk was refused, so the refusal below proves nothing");
 
 	/* Now a capacity smaller than what the slot already holds. */
-	f.slots[0].buf_capacity = 4u;
+	f.partials[0].buf_capacity = 4u;
 	CHECK(fzn_reasm_accept(&f.table, f.alice, 1, 2, 4, piece, sizeof(piece), 0, 100,
 	                       &done) == FZN_REASM_ERR_TOO_LARGE,
 	      "a slot whose capacity shrank below its own contents accepted a write");
@@ -864,7 +864,7 @@ static void test_a_completed_slot_is_handed_only_once(void)
 	CHECK(fzn_reasm_accept(&f.table, f.bob, 2, 0, 2, piece, sizeof(piece), 0, 200,
 	                       &theirs) == FZN_REASM_OK,
 	      "the released slot was not reusable");
-	CHECK(memcmp(f.slots[0].sender, f.bob, FZN_SENDER_LEN) == 0 || SLOTS > 1,
+	CHECK(memcmp(f.partials[0].sender, f.bob, FZN_SENDER_LEN) == 0 || SLOTS > 1,
 	      "the slot did not go to the next sender");
 }
 
@@ -887,7 +887,7 @@ static void test_a_zero_expiry_is_bounded_by_max_hold(void)
 		      "a chunk claiming no expiry was refused");
 	}
 
-	/* Inside the hold, the slots are still theirs -- the bound must not be
+	/* Inside the hold, the partials are still theirs -- the bound must not be
 	 * so eager that a legitimate message cannot finish. */
 	CHECK(fzn_reasm_expire(&f.table, 100 + (REASM_MAX_HOLD / 2u)) == 0,
 	      "a partial was reclaimed while still inside its hold");
@@ -975,7 +975,7 @@ static void test_stale_traffic_still_reclaims_slots(void)
 		      "a partial was refused while filling the table");
 	}
 	for (i = 0; i < SLOTS; i++)
-		live += f.slots[i].live ? 1u : 0u;
+		live += f.partials[i].live ? 1u : 0u;
 	CHECK(live == SLOTS, "the table did not fill, so this proves nothing");
 
 	/* Now nothing but stale chunks, long after those expiries. */
@@ -990,7 +990,7 @@ static void test_stale_traffic_still_reclaims_slots(void)
 
 	live = 0;
 	for (i = 0; i < SLOTS; i++)
-		live += f.slots[i].live ? 1u : 0u;
+		live += f.partials[i].live ? 1u : 0u;
 	CHECK(live == 0, "stale traffic left expired partials holding every slot");
 
 	/* THE CONTROL. A stale chunk must still not TAKE a slot -- the sweep
@@ -999,7 +999,7 @@ static void test_stale_traffic_still_reclaims_slots(void)
 	CHECK(fzn_reasm_expire(&f.table, 100000) == 0,
 	      "a sweep after the accepts found something left to drop");
 	for (i = 0; i < SLOTS; i++)
-		CHECK(!f.slots[i].live, "a stale chunk took a slot after all");
+		CHECK(!f.partials[i].live, "a stale chunk took a slot after all");
 }
 
 static void test_a_completed_slot_is_not_taken_from_under_the_caller(void)
@@ -1066,16 +1066,16 @@ static void test_a_reused_slot_starts_empty(void)
 	 * was found. A partial is a value, so a test can simply build the
 	 * state rather than manoeuvre into it. */
 	fixture_init(&f, 2);
-	memset(f.slots[0].seen, 0xff, sizeof(f.slots[0].seen));
-	f.slots[0].arrived = 5;
-	f.slots[0].live = 0;
+	memset(f.partials[0].seen, 0xff, sizeof(f.partials[0].seen));
+	f.partials[0].arrived = 5;
+	f.partials[0].live = 0;
 
 	fill(piece, 8, 0xc0, 0);
 	CHECK(fzn_reasm_accept(&f.table, f.alice, 1, 0, 2, piece, 8, 0, 100, &done) ==
 	              FZN_REASM_OK,
 	      "a first chunk into a dirty slot was refused");
 	CHECK(done == NULL, "a stale arrived-set completed a message on its first chunk");
-	CHECK(f.slots[0].arrived == 1, "arrived %u, wanted 1", f.slots[0].arrived);
+	CHECK(f.partials[0].arrived == 1, "arrived %u, wanted 1", f.partials[0].arrived);
 }
 
 static void test_bad_arguments(void)
@@ -1086,11 +1086,11 @@ static void test_bad_arguments(void)
 	fzn_reasm_t t;
 
 	fixture_init(&f, 2);
-	CHECK(fzn_reasm_init(&t, f.slots, SLOTS, 0, REASM_MAX_HOLD) == FZN_REASM_ERR_MALFORMED,
+	CHECK(fzn_reasm_init(&t, f.partials, SLOTS, 0, REASM_MAX_HOLD) == FZN_REASM_ERR_MALFORMED,
 	      "per_sender_max of 0 was accepted, and would mean unlimited");
-	CHECK(fzn_reasm_init(&t, f.slots, 0, 1, REASM_MAX_HOLD) == FZN_REASM_ERR_MALFORMED,
+	CHECK(fzn_reasm_init(&t, f.partials, 0, 1, REASM_MAX_HOLD) == FZN_REASM_ERR_MALFORMED,
 	      "a zero-capacity table was accepted");
-	CHECK(fzn_reasm_slot_init(&f.slots[0], NULL, 8) == FZN_REASM_ERR_MALFORMED,
+	CHECK(fzn_reasm_slot_init(&f.partials[0], NULL, 8) == FZN_REASM_ERR_MALFORMED,
 	      "a slot with no buffer was accepted");
 	CHECK(fzn_reasm_accept(&f.table, f.alice, 1, 0, 2, NULL, 8, 0, 100, &done) ==
 	              FZN_REASM_ERR_MALFORMED,
@@ -1223,7 +1223,7 @@ static void test_the_offset_guard_refuses_a_slot_that_cannot_hold_the_chunk(void
  * sender sent. */
 static void test_every_guard_refuses_its_own_argument(void)
 {
-	fzn_partial_t slot, slots[2];
+	fzn_partial_t slot, partials[2];
 	uint8_t storage[256], storage2[2][256];
 	fzn_reasm_t table;
 	fzn_partial_t *done = NULL;
@@ -1242,21 +1242,21 @@ static void test_every_guard_refuses_its_own_argument(void)
 
 	fzn_reasm_slot_init(&slot, storage, sizeof(storage));
 	CHECK(fzn_reasm_init(NULL, &slot, 1, 1, REASM_MAX_HOLD) == FZN_REASM_ERR_MALFORMED, "a null table");
-	CHECK(fzn_reasm_init(&table, NULL, 1, 1, REASM_MAX_HOLD) == FZN_REASM_ERR_MALFORMED, "null slots");
+	CHECK(fzn_reasm_init(&table, NULL, 1, 1, REASM_MAX_HOLD) == FZN_REASM_ERR_MALFORMED, "null partials");
 	CHECK(fzn_reasm_init(&table, &slot, 0, 1, REASM_MAX_HOLD) == FZN_REASM_ERR_MALFORMED, "zero capacity");
 	CHECK(fzn_reasm_init(&table, &slot, 1, 0, REASM_MAX_HOLD) == FZN_REASM_ERR_MALFORMED, "a zero quota");
 
-	/* A table whose slots were never given buffers. Each half of that
+	/* A table whose partials were never given buffers. Each half of that
 	 * check separately, since a slot with a pointer and no capacity is a
 	 * different mistake from one with neither. */
 	for (size_t i = 0; i < 2; i++)
-		fzn_reasm_slot_init(&slots[i], storage2[i], sizeof(storage2[i]));
-	slots[1].buf = NULL;
-	CHECK(fzn_reasm_init(&table, slots, 2, 1, REASM_MAX_HOLD) == FZN_REASM_ERR_MALFORMED,
+		fzn_reasm_slot_init(&partials[i], storage2[i], sizeof(storage2[i]));
+	partials[1].buf = NULL;
+	CHECK(fzn_reasm_init(&table, partials, 2, 1, REASM_MAX_HOLD) == FZN_REASM_ERR_MALFORMED,
 	      "a table holding a slot with no buffer");
-	fzn_reasm_slot_init(&slots[1], storage2[1], sizeof(storage2[1]));
-	slots[1].buf_capacity = 0;
-	CHECK(fzn_reasm_init(&table, slots, 2, 1, REASM_MAX_HOLD) == FZN_REASM_ERR_MALFORMED,
+	fzn_reasm_slot_init(&partials[1], storage2[1], sizeof(storage2[1]));
+	partials[1].buf_capacity = 0;
+	CHECK(fzn_reasm_init(&table, partials, 2, 1, REASM_MAX_HOLD) == FZN_REASM_ERR_MALFORMED,
 	      "a table holding a slot of zero capacity");
 
 	/* release and expire */
@@ -1267,13 +1267,13 @@ static void test_every_guard_refuses_its_own_argument(void)
 		fzn_reasm_t no_slots;
 
 		for (size_t i = 0; i < 2; i++)
-			fzn_reasm_slot_init(&slots[i], storage2[i], sizeof(storage2[i]));
-		fzn_reasm_init(&no_slots, slots, 2, 1, REASM_MAX_HOLD);
-		no_slots.slots = NULL;
-		CHECK(fzn_reasm_expire(&no_slots, 100) == 0, "a table with no slots was expired");
+			fzn_reasm_slot_init(&partials[i], storage2[i], sizeof(storage2[i]));
+		fzn_reasm_init(&no_slots, partials, 2, 1, REASM_MAX_HOLD);
+		no_slots.partials = NULL;
+		CHECK(fzn_reasm_expire(&no_slots, 100) == 0, "a table with no partials was expired");
 		CHECK(fzn_reasm_accept(&no_slots, sender, 7, 0, 1, payload, 8, 0, 100, &done) ==
 		              FZN_REASM_ERR_MALFORMED,
-		      "a table with no slots accepted a chunk");
+		      "a table with no partials accepted a chunk");
 	}
 
 	/* accept */
@@ -1331,51 +1331,51 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 static void test_the_operands_the_first_one_hides(void)
 {
 	fzn_reasm_t table;
-	fzn_partial_t slots[2];
+	fzn_partial_t partials[2];
 	fzn_reasm_range_t out[4];
 	size_t count = 0;
 	uint8_t sender[FZN_SENDER_LEN];
 	uint8_t bufs[2][64];
 
-	memset(slots, 0, sizeof(slots));
+	memset(partials, 0, sizeof(partials));
 	memset(bufs, 0, sizeof(bufs));
 	memset(sender, 0x44, sizeof(sender));
 
 	/* A SLOT WITH NO BUFFER IS REFUSED, and it is refused per slot rather
 	 * than for the array -- so the loop has to be walked, not just entered.
 	 * Slot 0 is given a buffer and slot 1 is not, which fails on the second
-	 * iteration and would pass if the check only ever read slots[0]. */
-	CHECK(fzn_reasm_slot_init(&slots[0], bufs[0], sizeof(bufs[0])) == FZN_REASM_OK,
+	 * iteration and would pass if the check only ever read partials[0]. */
+	CHECK(fzn_reasm_slot_init(&partials[0], bufs[0], sizeof(bufs[0])) == FZN_REASM_OK,
 	      "slot_init refused a sound slot");
-	CHECK(fzn_reasm_init(&table, slots, 2u, 2u, 60u) == FZN_REASM_ERR_MALFORMED,
+	CHECK(fzn_reasm_init(&table, partials, 2u, 2u, 60u) == FZN_REASM_ERR_MALFORMED,
 	      "init accepted an array whose SECOND slot has no buffer");
-	CHECK(fzn_reasm_slot_init(&slots[1], bufs[1], sizeof(bufs[1])) == FZN_REASM_OK,
+	CHECK(fzn_reasm_slot_init(&partials[1], bufs[1], sizeof(bufs[1])) == FZN_REASM_OK,
 	      "slot_init refused a sound slot");
 
 	/* init: every operand, and the three that are not null tests. Zero is
 	 * refused rather than meaning unlimited, so a caller who forgot a
 	 * field is told, not silently given no bound. */
-	CHECK(fzn_reasm_init(NULL, slots, 2u, 2u, 60u) == FZN_REASM_ERR_MALFORMED,
+	CHECK(fzn_reasm_init(NULL, partials, 2u, 2u, 60u) == FZN_REASM_ERR_MALFORMED,
 	      "init accepted a null table");
 	CHECK(fzn_reasm_init(&table, NULL, 2u, 2u, 60u) == FZN_REASM_ERR_MALFORMED,
-	      "init accepted null slots");
-	CHECK(fzn_reasm_init(&table, slots, 0u, 2u, 60u) == FZN_REASM_ERR_MALFORMED,
+	      "init accepted null partials");
+	CHECK(fzn_reasm_init(&table, partials, 0u, 2u, 60u) == FZN_REASM_ERR_MALFORMED,
 	      "init accepted zero capacity");
-	CHECK(fzn_reasm_init(&table, slots, 2u, 0u, 60u) == FZN_REASM_ERR_MALFORMED,
+	CHECK(fzn_reasm_init(&table, partials, 2u, 0u, 60u) == FZN_REASM_ERR_MALFORMED,
 	      "init accepted a zero per-sender maximum, which would mean unlimited");
-	CHECK(fzn_reasm_init(&table, slots, 2u, 2u, 0u) == FZN_REASM_ERR_MALFORMED,
+	CHECK(fzn_reasm_init(&table, partials, 2u, 2u, 0u) == FZN_REASM_ERR_MALFORMED,
 	      "init accepted a zero hold, which would expire every slot on arrival");
 
-	CHECK(fzn_reasm_init(&table, slots, 2u, 2u, 60u) == FZN_REASM_OK, "init refused a sound table");
+	CHECK(fzn_reasm_init(&table, partials, 2u, 2u, 60u) == FZN_REASM_OK, "init refused a sound table");
 
 	CHECK(fzn_reasm_plan_want(NULL, sender, 1u, 4u, out, 4u, &count) == FZN_REASM_ERR_MALFORMED,
 	      "plan_want accepted a null table");
 	{
 		fzn_reasm_t hollow = table;
 
-		hollow.slots = NULL;
+		hollow.partials = NULL;
 		CHECK(fzn_reasm_plan_want(&hollow, sender, 1u, 4u, out, 4u, &count)
-		      == FZN_REASM_ERR_MALFORMED, "plan_want accepted a table whose slots are null");
+		      == FZN_REASM_ERR_MALFORMED, "plan_want accepted a table whose partials are null");
 	}
 	CHECK(fzn_reasm_plan_want(&table, NULL, 1u, 4u, out, 4u, &count) == FZN_REASM_ERR_MALFORMED,
 	      "plan_want accepted a null sender");

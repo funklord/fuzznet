@@ -146,7 +146,7 @@ static int schema_says_same(uint8_t s1, uint32_t m1, uint16_t c1, uint8_t s2, ui
 static int code_says_same(uint8_t s1, uint32_t m1, uint16_t c1, uint8_t s2, uint32_t m2,
                           uint16_t c2)
 {
-	fzn_partial_t slots[2];
+	fzn_partial_t partials[2];
 	uint8_t storage[2][256];
 	fzn_reasm_t table;
 	fzn_partial_t *done = NULL;
@@ -159,8 +159,8 @@ static int code_says_same(uint8_t s1, uint32_t m1, uint16_t c1, uint8_t s2, uint
 	memset(sender2, s2, sizeof(sender2));
 
 	for (size_t i = 0; i < 2; i++)
-		fzn_reasm_slot_init(&slots[i], storage[i], sizeof(storage[i]));
-	fzn_reasm_init(&table, slots, 2, 2, REASM_MAX_HOLD);
+		fzn_reasm_slot_init(&partials[i], storage[i], sizeof(storage[i]));
+	fzn_reasm_init(&table, partials, 2, 2, REASM_MAX_HOLD);
 
 	if (fzn_reasm_accept(&table, sender1, m1, 0, c1, payload, sizeof(payload), 0, 100,
 	                     &done) != FZN_REASM_OK)
@@ -168,7 +168,7 @@ static int code_says_same(uint8_t s1, uint32_t m1, uint16_t c1, uint8_t s2, uint
 
 	live_before = 0;
 	for (size_t i = 0; i < 2; i++)
-		live_before += slots[i].live ? 1u : 0u;
+		live_before += partials[i].live ? 1u : 0u;
 
 	if (fzn_reasm_accept(&table, sender2, m2, 1, c2, payload, sizeof(payload), 0, 100,
 	                     &done) != FZN_REASM_OK)
@@ -176,7 +176,7 @@ static int code_says_same(uint8_t s1, uint32_t m1, uint16_t c1, uint8_t s2, uint
 
 	live_after = 0;
 	for (size_t i = 0; i < 2; i++)
-		live_after += slots[i].live ? 1u : 0u;
+		live_after += partials[i].live ? 1u : 0u;
 
 	/* Accepted into a NEW slot means a different message; accepted with
 	 * the slot count unchanged means it joined the first. */

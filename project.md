@@ -30797,3 +30797,61 @@ Its store ops refuse every call. The view causes no read and no write, so the
 vtable exists to satisfy the constructor -- and refusing is the honest stub:
 if this widget ever grows a path that touches a leaf, it fails loudly rather
 than appearing to work.
+
+## 180. Renaming `slots`, and a proof that held while the change was wrong
+
+The holder's instruction, after sec 179 recorded the collision. Qt defines
+`slots` as a bare macro, so a public field of that name cannot be read by any
+Qt consumer.
+
+**There were two such fields, not one**: `fzn_transfer_t::slots` and
+`fzn_reasm_t::slots`, each with a matching parameter on its init function.
+Renaming the one sec 179 happened to name would have left the identical defect
+beside it, which is the fix-the-copy-in-front-of-you error
+`working-practice.md` warns about. Both moved: `assigns` for the transfer,
+whose element type is `fzn_transfer_assign_t`, and `partials` for reassembly,
+whose element type is `fzn_partial_t` -- `code-style.md`'s one-word-per-concept
+rule choosing the names rather than taste.
+
+`FZN_TRANSFER_MAX_SLOTS` went to `FZN_TRANSFER_MAX_ASSIGNS` with it. An
+uppercase macro does not collide, so that half is vocabulary rather than
+necessity.
+
+### The proof passed and the change was still wrong
+
+The rename carried the proof `evidence.md` asks for: every changed line must
+reduce to the original by substituting the identifier back. 172 lines, and all
+172 satisfied it.
+
+**And `sim/test/network_test.c` had THREE unrelated arrays called `slots`** --
+`fzn_partial_t` for reassembly, `fzn_replay_entry_t` for the replay window,
+and `fzn_transfer_assign_t` for a transfer. One regex renamed all three to
+`assigns`. The result compiled, and the proof held, because an
+identifier-for-identifier swap is exactly what it was.
+
+    fzn_partial_t assigns[SIM_SLOTS];        <- a reassembly array
+    static fzn_replay_entry_t assigns[8];    <- a replay window
+    fzn_transfer_assign_t assigns[FS_SLOTS]; <- the only correct one
+
+So the invariant was true and was the wrong invariant. It asserted the change
+was mechanical; it could not assert the change was RIGHT, because the thing
+that made it wrong -- three meanings sharing one spelling in one file -- is
+invisible to a check that only compares spellings. **A proof covers the
+property you named, and naming the property is the part that is not
+mechanical.**
+
+Nothing caught it but reading the diff. The suite passes either way, because
+a test's local variable name is not a behaviour.
+
+### The check that proves the fix, as against the workaround
+
+sec 179 added `-DQT_NO_KEYWORDS`, which made the widget build and did nothing
+for anybody else. The rename is checked the other way round:
+
+    g++ -fsyntax-only ... gui/transfer_view.cpp     # keywords ON
+
+That compiles now. A consumer using Qt normally can read the field, which is
+what the flag never did and what the instruction was for. The flag stays, on
+sec 140's argument alone -- no widget here has a `Q_OBJECT`, declares a slot
+or emits anything, and it turns that convention into something the compiler
+keeps.

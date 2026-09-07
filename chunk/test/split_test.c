@@ -148,7 +148,7 @@ static int round_trip(size_t total, size_t max_payload, int reverse)
 {
 	fzn_split_t p;
 	fzn_reasm_t table;
-	fzn_partial_t slots[1];
+	fzn_partial_t partials[1];
 	fzn_partial_t *done = NULL;
 	static uint8_t payload[2048];
 	static uint8_t storage[4096];
@@ -166,9 +166,9 @@ static int round_trip(size_t total, size_t max_payload, int reverse)
 	if (p.buffer_needed > sizeof(storage))
 		return 0;
 
-	if (fzn_reasm_slot_init(&slots[0], storage, sizeof(storage)) != FZN_REASM_OK)
+	if (fzn_reasm_slot_init(&partials[0], storage, sizeof(storage)) != FZN_REASM_OK)
 		return 0;
-	if (fzn_reasm_init(&table, slots, 1, 1, REASM_MAX_HOLD) != FZN_REASM_OK)
+	if (fzn_reasm_init(&table, partials, 1, 1, REASM_MAX_HOLD) != FZN_REASM_OK)
 		return 0;
 
 	for (uint16_t k = 0; k < p.chunks; k++) {

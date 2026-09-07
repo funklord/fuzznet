@@ -49,7 +49,7 @@ static size_t offset_of(const fzn_partial_t *slot, uint16_t index)
 static fzn_partial_t *find(fzn_reasm_t *table, const uint8_t *sender, uint32_t msg)
 {
 	for (size_t i = 0; i < table->capacity; i++) {
-		fzn_partial_t *slot = &table->slots[i];
+		fzn_partial_t *slot = &table->partials[i];
 
 		if (slot->live && slot->msg == msg &&
 		    memcmp(slot->sender, sender, FZN_SENDER_LEN) == 0)
@@ -63,7 +63,7 @@ static size_t held_by(const fzn_reasm_t *table, const uint8_t *sender)
 	size_t n = 0;
 
 	for (size_t i = 0; i < table->capacity; i++) {
-		const fzn_partial_t *slot = &table->slots[i];
+		const fzn_partial_t *slot = &table->partials[i];
 
 		if (slot->live && memcmp(slot->sender, sender, FZN_SENDER_LEN) == 0)
 			n++;
@@ -83,18 +83,18 @@ fzn_reasm_err_t fzn_reasm_slot_init(fzn_partial_t *slot, uint8_t *buf, size_t ca
 	return FZN_REASM_OK;
 }
 
-fzn_reasm_err_t fzn_reasm_init(fzn_reasm_t *table, fzn_partial_t *slots, size_t capacity,
+fzn_reasm_err_t fzn_reasm_init(fzn_reasm_t *table, fzn_partial_t *partials, size_t capacity,
                                 size_t per_sender_max, uint64_t max_hold)
 {
-	if (!table || !slots || capacity == 0 || per_sender_max == 0 || max_hold == 0)
+	if (!table || !partials || capacity == 0 || per_sender_max == 0 || max_hold == 0)
 		return FZN_REASM_ERR_MALFORMED;
 
 	for (size_t i = 0; i < capacity; i++) {
-		if (!slots[i].buf || slots[i].buf_capacity == 0)
+		if (!partials[i].buf || partials[i].buf_capacity == 0)
 			return FZN_REASM_ERR_MALFORMED;
 	}
 
-	table->slots = slots;
+	table->partials = partials;
 	table->capacity = capacity;
 	table->per_sender_max = per_sender_max;
 	table->max_hold = max_hold;
@@ -135,7 +135,7 @@ fzn_reasm_err_t fzn_reasm_plan_want(const fzn_reasm_t *table,
 	uint32_t run_first = 0, run = 0;
 	size_t at = 0;
 
-	if (!table || !table->slots || !sender || !out || !count)
+	if (!table || !table->partials || !sender || !out || !count)
 		return FZN_REASM_ERR_MALFORMED;
 	/* ZERO IS REFUSED RATHER THAN MEANING UNLIMITED, which is
 	 * `record/sync.h`'s rule inherited rather than re-decided. */
@@ -146,7 +146,7 @@ fzn_reasm_err_t fzn_reasm_plan_want(const fzn_reasm_t *table,
 	 * search is repeated rather than casting the constness away -- eight
 	 * lines against a cast that would let a later edit write through it. */
 	for (i = 0; i < table->capacity; i++) {
-		const fzn_partial_t *candidate = &table->slots[i];
+		const fzn_partial_t *candidate = &table->partials[i];
 
 		if (candidate->live && candidate->msg == msg
 		    && memcmp(candidate->sender, sender, FZN_SENDER_LEN) == 0) {
@@ -202,11 +202,11 @@ size_t fzn_reasm_expire(fzn_reasm_t *table, uint64_t now)
 {
 	size_t dropped = 0;
 
-	if (!table || !table->slots)
+	if (!table || !table->partials)
 		return 0;
 
 	for (size_t i = 0; i < table->capacity; i++) {
-		fzn_partial_t *slot = &table->slots[i];
+		fzn_partial_t *slot = &table->partials[i];
 
 		/* `!slot->handed`, or expiry takes a slot the caller is still
 		 * reading. See `handed` in reassembly.h: the promise is that the
@@ -256,8 +256,8 @@ static fzn_reasm_err_t admit_first(fzn_reasm_t *table, const uint8_t *sender, ui
 		return FZN_REASM_ERR_QUOTA;
 
 	for (size_t i = 0; i < table->capacity; i++) {
-		if (!table->slots[i].live) {
-			slot = &table->slots[i];
+		if (!table->partials[i].live) {
+			slot = &table->partials[i];
 			break;
 		}
 	}
@@ -327,7 +327,7 @@ fzn_reasm_err_t fzn_reasm_accept(fzn_reasm_t *table, const uint8_t sender[FZN_SE
 	size_t offset;
 	uint64_t deadline;
 
-	if (!table || !table->slots || !sender || !payload || !out)
+	if (!table || !table->partials || !sender || !payload || !out)
 		return FZN_REASM_ERR_MALFORMED;
 
 	*out = NULL;
@@ -339,7 +339,7 @@ fzn_reasm_err_t fzn_reasm_accept(fzn_reasm_t *table, const uint8_t sender[FZN_SE
 	 * stale chunk skipped it -- so a receiver whose traffic was made
 	 * entirely of stale chunks never handed a slot back. Measured: four
 	 * partials taken at an expiry of 200, then a thousand stale chunks at
-	 * now = 100000, and all four slots were still live holding messages
+	 * now = 100000, and all four partials were still live holding messages
 	 * that had expired 99800 ticks earlier. An explicit
 	 * `fzn_reasm_expire` then dropped all four, which is the proof they
 	 * were reclaimable the whole time and nothing was reclaiming them.
@@ -347,7 +347,7 @@ fzn_reasm_err_t fzn_reasm_accept(fzn_reasm_t *table, const uint8_t sender[FZN_SE
 	 * `frame/freshness.c` records the identical defect and its fix in the
 	 * identical words -- "It used to sit below the two returns beneath
 	 * this ... so traffic made entirely of grants, or entirely of stale
-	 * commands, left dead entries holding slots indefinitely." The two
+	 * commands, left dead entries holding partials indefinitely." The two
 	 * modules are the same shape and only one of them had been corrected.
 	 *
 	 * Freshness still comes before a slot is TAKEN, which is what the old
@@ -408,7 +408,7 @@ fzn_reasm_err_t fzn_reasm_accept(fzn_reasm_t *table, const uint8_t sender[FZN_SE
 	 * + payload_len <= buf_capacity` by construction. An exhaustive sweep
 	 * over the API fires it zero times.
 	 *
-	 * But `fzn_reasm_t` and its slots are CALLER-OWNED, and this module
+	 * But `fzn_reasm_t` and its partials are CALLER-OWNED, and this module
 	 * already treats a hand-built table as inside its threat model --
 	 * `usable()` exists for that and `log_test.c` exercises the same shape.
 	 * Measured: take a slot normally, then set `buf_capacity` to something

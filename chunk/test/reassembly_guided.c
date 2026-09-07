@@ -77,7 +77,7 @@ static uint32_t take32(struct cursor *c)
 static int drive(const uint8_t *data, size_t size)
 {
 	fzn_reasm_t table;
-	fzn_partial_t slots[SLOTS];
+	fzn_partial_t partials[SLOTS];
 	static uint8_t bufs[SLOTS][BUFCAP];
 	uint8_t sender[FZN_SENDER_LEN];
 	uint8_t payload[512];
@@ -87,9 +87,9 @@ static int drive(const uint8_t *data, size_t size)
 	/* BUFFERS FIRST. See the header comment: the other order makes every
 	 * run a no-op that reports as a pass. */
 	for (size_t i = 0; i < SLOTS; i++)
-		if (fzn_reasm_slot_init(&slots[i], bufs[i], BUFCAP) != FZN_REASM_OK)
+		if (fzn_reasm_slot_init(&partials[i], bufs[i], BUFCAP) != FZN_REASM_OK)
 			return 1;
-	if (fzn_reasm_init(&table, slots, SLOTS, 2, REASM_MAX_HOLD) != FZN_REASM_OK)
+	if (fzn_reasm_init(&table, partials, SLOTS, 2, REASM_MAX_HOLD) != FZN_REASM_OK)
 		return 1;
 
 	while (c.i < c.n) {

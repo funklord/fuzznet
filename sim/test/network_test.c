@@ -364,7 +364,7 @@ struct sim_host {
 	fzn_replay_entry_t entries[SIM_WINDOW];
 
 	fzn_reasm_t reasm;
-	fzn_partial_t slots[SIM_SLOTS];
+	fzn_partial_t partials[SIM_SLOTS];
 	uint8_t bufs[SIM_SLOTS][SIM_SLOT_CAP];
 
 	struct sim_inbox_entry inbox[SIM_INBOX];
@@ -719,8 +719,8 @@ static void sim_init(struct sim_net *net, size_t hosts, uint32_t seed)
 		fzn_state_init(&h->state, h->sentries, 8);
 
 		for (size_t s = 0; s < SIM_SLOTS; s++)
-			fzn_reasm_slot_init(&h->slots[s], h->bufs[s], SIM_SLOT_CAP);
-		fzn_reasm_init(&h->reasm, h->slots, SIM_SLOTS, 3, REASM_MAX_HOLD);
+			fzn_reasm_slot_init(&h->partials[s], h->bufs[s], SIM_SLOT_CAP);
+		fzn_reasm_init(&h->reasm, h->partials, SIM_SLOTS, 3, REASM_MAX_HOLD);
 		fzn_replay_init(&h->window, h->entries, SIM_WINDOW, SIM_MAX_AHEAD);
 	}
 }
@@ -3809,7 +3809,7 @@ static void scenario_filestore(void)
 	fzn_blob_tree_t tree;
 	fzn_spool_t spool;
 	fzn_transfer_t transfer;
-	fzn_transfer_assign_t slots[FS_SLOTS];
+	fzn_transfer_assign_t assigns[FS_SLOTS];
 	fzn_scrub_t scrub;
 	uint8_t root[FZN_BLOB_HASH_LEN];
 	unsigned asked = 0, answered = 0, placed = 0, expired = 0, rounds = 0;
@@ -3841,7 +3841,7 @@ static void scenario_filestore(void)
 	memset(fs_disk, 0, sizeof(fs_disk));
 	check(fzn_spool_open(&spool, root, FS_LEAVES, map, sizeof(map), &ops) == FZN_SPOOL_OK,
 	      "the receiving spool did not open");
-	check(fzn_transfer_open(&transfer, &spool, slots, FS_SLOTS) == FZN_TRANSFER_OK,
+	check(fzn_transfer_open(&transfer, &spool, assigns, FS_SLOTS) == FZN_TRANSFER_OK,
 	      "the transfer did not open");
 
 	/* The conversation. Bounded by `rounds` rather than by completion, so
@@ -4040,7 +4040,7 @@ static void scenario_swarm(void)
 	fzn_blob_tree_t tree;
 	fzn_spool_t spool;
 	fzn_transfer_t transfer;
-	fzn_transfer_assign_t slots[FS_SLOTS];
+	fzn_transfer_assign_t assigns[FS_SLOTS];
 	uint8_t root[FZN_BLOB_HASH_LEN];
 	unsigned from_host[2] = { 0u, 0u };
 	unsigned rounds = 0, overlaps = 0, i, both_live = 0;
@@ -4068,7 +4068,7 @@ static void scenario_swarm(void)
 	memset(fs_disk, 0, sizeof(fs_disk));
 	check(fzn_spool_open(&spool, root, FS_LEAVES, map, sizeof(map), &ops) == FZN_SPOOL_OK,
 	      "the swarm spool did not open");
-	check(fzn_transfer_open(&transfer, &spool, slots, FS_SLOTS) == FZN_TRANSFER_OK,
+	check(fzn_transfer_open(&transfer, &spool, assigns, FS_SLOTS) == FZN_TRANSFER_OK,
 	      "the swarm transfer did not open");
 
 	for (rounds = 0; rounds < 400u && !fzn_spool_complete(&spool); rounds++) {
@@ -4098,15 +4098,15 @@ static void scenario_swarm(void)
 			 * than once at the end: no two live assignments may
 			 * overlap, whichever peer they went to. */
 			for (a = 0; a < FS_SLOTS; a++) {
-				if (!slots[a].live)
+				if (!assigns[a].live)
 					continue;
 				live++;
 				for (b = a + 1u; b < FS_SLOTS; b++) {
-					if (!slots[b].live)
+					if (!assigns[b].live)
 						continue;
-					if (slots[a].first < slots[b].first + slots[b].count
-					    && slots[b].first
-					               < slots[a].first + slots[a].count)
+					if (assigns[a].first < assigns[b].first + assigns[b].count
+					    && assigns[b].first
+					               < assigns[a].first + assigns[a].count)
 						overlaps++;
 				}
 			}

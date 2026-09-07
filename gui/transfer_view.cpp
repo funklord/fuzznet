@@ -65,10 +65,10 @@ void fzn_transfer_view::show_transfer(const fzn_spool_t *spool, const fzn_transf
 		/* READ, NEVER RECLAIMED. `fzn_transfer_expire` would take these
 		 * ranges back and return how many it took; calling it here
 		 * would make looking at the screen change the transfer. The
-		 * slots are caller-owned memory and reading them is free. */
+		 * assigns are caller-owned memory and reading them is free. */
 		in_flight = fzn_transfer_in_flight(transfer);
 		for (i = 0; i < transfer->cap; i++)
-			if (transfer->slots[i].live && transfer->slots[i].deadline <= now)
+			if (transfer->assigns[i].live && transfer->assigns[i].deadline <= now)
 				overdue++;
 	}
 

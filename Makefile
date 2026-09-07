@@ -750,24 +750,19 @@ CXXFLAGS_BUILD := -Og -g -fsanitize=address,undefined -fno-omit-frame-pointer \
 else
 CXXFLAGS_BUILD := -Os -g
 endif
-# QT_NO_KEYWORDS, AND IT IS sec 140's RULE ENFORCED BY THE BUILD RATHER THAN
-# BY EVERY AUTHOR REMEMBERING IT. sec 179.
+# QT_NO_KEYWORDS, AND IT STANDS ON sec 140 ALONE NOW. sec 179 added it while a
+# public field was still called `slots`, which collides with Qt's macro of that
+# name; sec 180 renamed the field, so this is no longer holding anything up.
 #
-# Qt defines `slots`, `signals` and `emit` as bare macros, and
-# `fzn_transfer_t` has a FIELD called `slots` -- so `transfer->slots[i]` does
-# not compile in any translation unit that has seen a Qt header. It is not a
-# widget bug; it is a collision between this library's public struct and a
-# macro every Qt consumer has.
+# It stays because sec 140 already forbids what those keywords are for: none of
+# these widgets has a Q_OBJECT, declares a slot, or emits anything, and the
+# gate below proves it. The flag turns that convention into something the
+# compiler keeps, so a widget that later wants a signal gets a clear error
+# rather than a silent moc dependency.
 #
-# Turning the keywords off is free here because sec 140 already forbids what
-# they are for: none of these widgets has a Q_OBJECT, declares a slot, or
-# emits anything, and the gate below proves it. So the flag makes a rule that
-# was a convention into one the compiler keeps -- and a widget that later
-# wants a signal gets a clear error rather than a silent moc dependency.
-#
-# It does NOT fix the collision for a consumer that uses Qt keywords normally.
-# That is a public field name and renaming it is the holder's; sec 179 records
-# it rather than deciding it.
+# THE COLLISION IS FIXED FOR CONSUMERS, WHICH IS THE PART THIS FLAG NEVER DID.
+# `gui/transfer_view.cpp` now compiles with the Qt keywords ON, which is the
+# check that proves it -- see sec 180.
 CXXFLAGS_WARN := -std=c++17 -Wall -Wextra -Wpedantic -DQT_NO_KEYWORDS
 CXXFLAGS   = $(CXXFLAGS_BUILD) $(CXXFLAGS_WARN)
 GUI_OBJS   := $(GUI_SRCS:%.cpp=$(BUILD_DIR)/%.o)

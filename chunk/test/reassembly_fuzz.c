@@ -126,7 +126,7 @@ static const char *invariants(const struct arena *a, const fzn_reasm_t *table)
 		return "a write landed outside a slot buffer";
 
 	for (size_t i = 0; i < table->capacity; i++) {
-		const fzn_partial_t *slot = &table->slots[i];
+		const fzn_partial_t *slot = &table->partials[i];
 
 		if (!slot->live)
 			continue;
@@ -145,22 +145,22 @@ static const char *invariants(const struct arena *a, const fzn_reasm_t *table)
 	}
 
 	if (live > table->capacity)
-		return "more slots are live than the table has";
+		return "more partials are live than the table has";
 
 	/* The quota, recomputed rather than trusted. */
 	for (size_t i = 0; i < table->capacity; i++) {
-		const fzn_partial_t *slot = &table->slots[i];
+		const fzn_partial_t *slot = &table->partials[i];
 		size_t n = 0;
 
 		if (!slot->live)
 			continue;
 		for (size_t k = 0; k < table->capacity; k++) {
-			if (table->slots[k].live &&
-			    memcmp(table->slots[k].sender, slot->sender, FZN_SENDER_LEN) == 0)
+			if (table->partials[k].live &&
+			    memcmp(table->partials[k].sender, slot->sender, FZN_SENDER_LEN) == 0)
 				n++;
 		}
 		if (n > table->per_sender_max)
-			return "a sender holds more slots than its quota";
+			return "a sender holds more partials than its quota";
 	}
 
 	return NULL;
@@ -192,7 +192,7 @@ struct coverage {
 static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 {
 	struct arena arena;
-	fzn_partial_t slots[SLOTS];
+	fzn_partial_t partials[SLOTS];
 	fzn_reasm_t table;
 	fzn_partial_t *done = NULL;
 	static uint8_t payload[512];
@@ -200,11 +200,11 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 
 	arena_init(&arena);
 	for (size_t i = 0; i < SLOTS; i++) {
-		if (fzn_reasm_slot_init(&slots[i], slot_buf(&arena, i), SLOT_BYTES) !=
+		if (fzn_reasm_slot_init(&partials[i], slot_buf(&arena, i), SLOT_BYTES) !=
 		    FZN_REASM_OK)
 			return 0;
 	}
-	if (fzn_reasm_init(&table, slots, SLOTS, 2, REASM_MAX_HOLD) != FZN_REASM_OK)
+	if (fzn_reasm_init(&table, partials, SLOTS, 2, REASM_MAX_HOLD) != FZN_REASM_OK)
 		return 0;
 
 	while (pos + 8 <= len) {

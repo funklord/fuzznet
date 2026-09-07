@@ -17,7 +17,7 @@
  * exists further on. That is a spurious wait rather than a lost range -- the
  * next call with the original granularity finds it -- and it is why this is
  * documented as a window rather than a search. */
-#define CANDIDATES (FZN_TRANSFER_MAX_SLOTS + 1u)
+#define CANDIDATES (FZN_TRANSFER_MAX_ASSIGNS + 1u)
 
 const char *fzn_transfer_err_str(fzn_transfer_err_t err)
 {
@@ -50,7 +50,7 @@ static int is_pending(const fzn_transfer_t *transfer, uint64_t first, uint64_t c
 	size_t at;
 
 	for (at = 0; at < transfer->cap; at++) {
-		const fzn_transfer_assign_t *slot = &transfer->slots[at];
+		const fzn_transfer_assign_t *slot = &transfer->assigns[at];
 
 		if (slot->live && overlaps(first, count, slot->first, slot->count))
 			return 1;
@@ -68,7 +68,7 @@ static size_t find_slot(const fzn_transfer_t *transfer, uint32_t peer, uint64_t 
 	size_t at;
 
 	for (at = 0; at < transfer->cap; at++) {
-		const fzn_transfer_assign_t *slot = &transfer->slots[at];
+		const fzn_transfer_assign_t *slot = &transfer->assigns[at];
 
 		if (slot->live && slot->peer == peer && slot->first == first &&
 		    slot->count == count)
@@ -96,11 +96,11 @@ static void on_loss(fzn_transfer_t *transfer)
 }
 
 fzn_transfer_err_t fzn_transfer_open(fzn_transfer_t *transfer, fzn_spool_t *spool,
-                                     fzn_transfer_assign_t *slots, size_t cap)
+                                     fzn_transfer_assign_t *assigns, size_t cap)
 {
-	if (!transfer || !spool || !slots)
+	if (!transfer || !spool || !assigns)
 		return FZN_TRANSFER_ERR_MALFORMED;
-	if (cap == 0u || cap > FZN_TRANSFER_MAX_SLOTS)
+	if (cap == 0u || cap > FZN_TRANSFER_MAX_ASSIGNS)
 		return FZN_TRANSFER_ERR_MALFORMED;
 	/* A spool that was never opened has no leaves and nothing to plan
 	 * over, and would otherwise present as a permanently complete
@@ -108,9 +108,9 @@ fzn_transfer_err_t fzn_transfer_open(fzn_transfer_t *transfer, fzn_spool_t *spoo
 	if (spool->leaves == 0u || !spool->present)
 		return FZN_TRANSFER_ERR_MALFORMED;
 
-	memset(slots, 0, cap * sizeof(*slots));
+	memset(assigns, 0, cap * sizeof(*assigns));
 	transfer->spool = spool;
-	transfer->slots = slots;
+	transfer->assigns = assigns;
 	transfer->cap = cap;
 	transfer->in_flight = 0u;
 	transfer->window = 1u;
@@ -125,7 +125,7 @@ fzn_transfer_err_t fzn_transfer_next_want(fzn_transfer_t *transfer, uint32_t pee
 	fzn_spool_range_t candidates[CANDIDATES];
 	size_t found = 0u, at, free_slot;
 
-	if (!transfer || !transfer->spool || !transfer->slots || !out)
+	if (!transfer || !transfer->spool || !transfer->assigns || !out)
 		return FZN_TRANSFER_ERR_MALFORMED;
 	if (max_per_range == 0u)
 		return FZN_TRANSFER_ERR_MALFORMED;
@@ -148,10 +148,10 @@ fzn_transfer_err_t fzn_transfer_next_want(fzn_transfer_t *transfer, uint32_t pee
 		return FZN_TRANSFER_NONE;
 
 	for (free_slot = 0; free_slot < transfer->cap; free_slot++) {
-		if (!transfer->slots[free_slot].live)
+		if (!transfer->assigns[free_slot].live)
 			break;
 	}
-	/* Unreachable while `in_flight` and the live slots agree, which they
+	/* Unreachable while `in_flight` and the live assigns agree, which they
 	 * do because both change together below. Refused rather than
 	 * asserted, because the alternative is writing past the array. */
 	if (free_slot == transfer->cap)
@@ -160,11 +160,11 @@ fzn_transfer_err_t fzn_transfer_next_want(fzn_transfer_t *transfer, uint32_t pee
 	/* THE RECORD GOES IN BEFORE THE RANGE GOES OUT. Everything above may
 	 * be reordered freely; this may not be moved after the return, and
 	 * transfer.h says why. */
-	transfer->slots[free_slot].first = candidates[at].first;
-	transfer->slots[free_slot].count = candidates[at].count;
-	transfer->slots[free_slot].deadline = deadline;
-	transfer->slots[free_slot].peer = peer;
-	transfer->slots[free_slot].live = 1u;
+	transfer->assigns[free_slot].first = candidates[at].first;
+	transfer->assigns[free_slot].count = candidates[at].count;
+	transfer->assigns[free_slot].deadline = deadline;
+	transfer->assigns[free_slot].peer = peer;
+	transfer->assigns[free_slot].live = 1u;
 	transfer->in_flight++;
 
 	out->first = candidates[at].first;
@@ -178,7 +178,7 @@ fzn_transfer_err_t fzn_transfer_delivered(fzn_transfer_t *transfer, uint32_t pee
 	size_t slot;
 	uint64_t i;
 
-	if (!transfer || !transfer->spool || !transfer->slots)
+	if (!transfer || !transfer->spool || !transfer->assigns)
 		return FZN_TRANSFER_ERR_MALFORMED;
 
 	slot = find_slot(transfer, peer, first, count);
@@ -193,7 +193,7 @@ fzn_transfer_err_t fzn_transfer_delivered(fzn_transfer_t *transfer, uint32_t pee
 			return FZN_TRANSFER_ERR_UNKNOWN;
 	}
 
-	transfer->slots[slot].live = 0u;
+	transfer->assigns[slot].live = 0u;
 	transfer->in_flight--;
 	on_success(transfer);
 	return FZN_TRANSFER_OK;
@@ -204,14 +204,14 @@ fzn_transfer_err_t fzn_transfer_failed(fzn_transfer_t *transfer, uint32_t peer, 
 {
 	size_t slot;
 
-	if (!transfer || !transfer->slots)
+	if (!transfer || !transfer->assigns)
 		return FZN_TRANSFER_ERR_MALFORMED;
 
 	slot = find_slot(transfer, peer, first, count);
 	if (slot == transfer->cap)
 		return FZN_TRANSFER_ERR_UNKNOWN;
 
-	transfer->slots[slot].live = 0u;
+	transfer->assigns[slot].live = 0u;
 	transfer->in_flight--;
 	on_loss(transfer);
 	return FZN_TRANSFER_OK;
@@ -221,11 +221,11 @@ size_t fzn_transfer_expire(fzn_transfer_t *transfer, uint64_t now)
 {
 	size_t at, dropped = 0u;
 
-	if (!transfer || !transfer->slots)
+	if (!transfer || !transfer->assigns)
 		return 0u;
 
 	for (at = 0; at < transfer->cap; at++) {
-		fzn_transfer_assign_t *slot = &transfer->slots[at];
+		fzn_transfer_assign_t *slot = &transfer->assigns[at];
 
 		if (!slot->live || slot->deadline > now)
 			continue;
@@ -233,7 +233,7 @@ size_t fzn_transfer_expire(fzn_transfer_t *transfer, uint64_t now)
 		transfer->in_flight--;
 		dropped++;
 	}
-	/* One halving for the event, however many slots it took with it. */
+	/* One halving for the event, however many assigns it took with it. */
 	if (dropped > 0u)
 		on_loss(transfer);
 	return dropped;

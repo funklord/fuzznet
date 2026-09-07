@@ -164,7 +164,7 @@ struct receiver {
 	fzn_replay_window_t window;
 	fzn_revocation_t revs[REVS];
 	fzn_revocation_store_t store;
-	fzn_partial_t slots[SLOTS];
+	fzn_partial_t partials[SLOTS];
 	uint8_t storage[SLOTS][SLOT_BYTES];
 	fzn_reasm_t table;
 };
@@ -176,10 +176,10 @@ static int receiver_init(struct receiver *r)
 	if (fzn_revocation_store_init(&r->store, r->revs, REVS) != FZN_CHAIN_OK)
 		return 0;
 	for (size_t i = 0; i < SLOTS; i++) {
-		if (fzn_reasm_slot_init(&r->slots[i], r->storage[i], SLOT_BYTES) != FZN_REASM_OK)
+		if (fzn_reasm_slot_init(&r->partials[i], r->storage[i], SLOT_BYTES) != FZN_REASM_OK)
 			return 0;
 	}
-	return fzn_reasm_init(&r->table, r->slots, SLOTS, SLOTS, REASM_MAX_HOLD) == FZN_REASM_OK;
+	return fzn_reasm_init(&r->table, r->partials, SLOTS, SLOTS, REASM_MAX_HOLD) == FZN_REASM_OK;
 }
 
 /* One datagram, in sec 4.7's order. Returns non-zero on a broken invariant. */
@@ -268,7 +268,7 @@ static int receive_one(struct receiver *r, uint64_t now, const uint8_t *data, si
 
 	live_before = 0;
 	for (size_t i = 0; i < SLOTS; i++)
-		live_before += r->slots[i].live ? 1u : 0u;
+		live_before += r->partials[i].live ? 1u : 0u;
 	calls_before = signer.calls;
 
 	/* STEPS 2 and 3: freshness, then replay, in one call. */
@@ -287,7 +287,7 @@ static int receive_one(struct receiver *r, uint64_t now, const uint8_t *data, si
 		}
 		live_after = 0;
 		for (size_t i = 0; i < SLOTS; i++)
-			live_after += r->slots[i].live ? 1u : 0u;
+			live_after += r->partials[i].live ? 1u : 0u;
 		if (live_after != live_before) {
 			printf("  ORDER: a slot was taken by a frame refused for freshness\n");
 			return 1;
@@ -327,7 +327,7 @@ static int receive_one(struct receiver *r, uint64_t now, const uint8_t *data, si
 		cov->unauthorised++;
 		live_after = 0;
 		for (size_t i = 0; i < SLOTS; i++)
-			live_after += r->slots[i].live ? 1u : 0u;
+			live_after += r->partials[i].live ? 1u : 0u;
 		if (live_after != live_before) {
 			printf("  ORDER: a slot was taken by an unauthorised frame\n");
 			return 1;

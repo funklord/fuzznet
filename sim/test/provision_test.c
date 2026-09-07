@@ -546,7 +546,7 @@ int main(void)
 		size_t wire_len = 0;
 		fzn_split_t plan;
 
-		fzn_partial_t slots[SLOTS];
+		fzn_partial_t partials[SLOTS];
 		uint8_t slot_bufs[SLOTS][SLOT_CAP];
 		fzn_reasm_t table;
 		fzn_partial_t *done = NULL;
@@ -580,8 +580,8 @@ int main(void)
 		check(plan.chunks > 1u, "the plan is a single chunk after all");
 
 		for (i = 0; i < SLOTS; i++)
-			fzn_reasm_slot_init(&slots[i], slot_bufs[i], SLOT_CAP);
-		check(fzn_reasm_init(&table, slots, SLOTS, 2u, 100000u) == FZN_REASM_OK,
+			fzn_reasm_slot_init(&partials[i], slot_bufs[i], SLOT_CAP);
+		check(fzn_reasm_init(&table, partials, SLOTS, 2u, 100000u) == FZN_REASM_OK,
 		      "the sponsor's reassembly table would not initialise");
 
 		/* EACH PIECE IS ITS OWN SEALED FRAME, opened under the sponsor's

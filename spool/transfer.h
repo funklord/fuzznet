@@ -92,14 +92,14 @@ typedef enum fzn_transfer_err {
 
 const char *fzn_transfer_err_str(fzn_transfer_err_t err);
 
-/* The most slots a caller may hand over, and therefore the widest window.
+/* The most assigns a caller may hand over, and therefore the widest window.
  *
  * A ceiling on a caller's number rather than on a peer's, which is the
  * weaker case -- but the search below scans a fixed candidate array sized
  * from this, so an unbounded `cap` would be an unbounded stack frame here.
- * 64 slots at a 64-leaf span is 4096 leaves in flight, which is generous for
+ * 64 assigns at a 64-leaf span is 4096 leaves in flight, which is generous for
  * anything these projects move. */
-#define FZN_TRANSFER_MAX_SLOTS 64u
+#define FZN_TRANSFER_MAX_ASSIGNS 64u
 
 /* One outstanding request. The caller sizes the array of these, which is
  * what bounds both the memory and the window -- the same split `spool/`
@@ -115,7 +115,7 @@ typedef struct fzn_transfer_assign {
 
 typedef struct fzn_transfer {
 	fzn_spool_t *spool;
-	fzn_transfer_assign_t *slots;
+	fzn_transfer_assign_t *assigns;
 	size_t cap;
 	size_t in_flight;
 	/* Batches, not bytes, and never zero. */
@@ -131,11 +131,11 @@ typedef struct fzn_transfer {
  * Opens a transfer over a caller's slot array.
  *
  * The window starts at one and `cap` is its ceiling: a transfer cannot have
- * more in flight than it has slots to record, so the caller's array is the
+ * more in flight than it has assigns to record, so the caller's array is the
  * congestion bound as well as the memory bound.
  */
 fzn_transfer_err_t fzn_transfer_open(fzn_transfer_t *transfer, fzn_spool_t *spool,
-                                     fzn_transfer_assign_t *slots, size_t cap);
+                                     fzn_transfer_assign_t *assigns, size_t cap);
 
 /*
  * The next range to ask `peer` for, recorded as pending before it returns.

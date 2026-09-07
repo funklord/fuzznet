@@ -143,7 +143,7 @@ static const fzn_spool_ops_t OPS = { disk_read, disk_write, NULL, NULL };
 
 static fzn_spool_t spool;
 static uint8_t map[FZN_SPOOL_BITMAP_LEN(LEAVES)];
-static fzn_transfer_assign_t slots[SLOTS];
+static fzn_transfer_assign_t assigns[SLOTS];
 static fzn_transfer_t transfer;
 
 /* A fresh, empty transfer over a fresh, empty spool. */
@@ -153,7 +153,7 @@ static int fresh(size_t cap)
 	memset(disk, 0, sizeof(disk));
 	if (fzn_spool_open(&spool, root, LEAVES, map, sizeof(map), &OPS) != FZN_SPOOL_OK)
 		return 0;
-	return fzn_transfer_open(&transfer, &spool, slots, cap) == FZN_TRANSFER_OK;
+	return fzn_transfer_open(&transfer, &spool, assigns, cap) == FZN_TRANSFER_OK;
 }
 
 /* Places a range for real, so the store genuinely holds it. */
@@ -503,20 +503,20 @@ static void test_every_guard_refuses_its_own_argument(void)
 	fzn_spool_range_t got;
 	fzn_spool_t empty;
 
-	CHECK(fzn_transfer_open(NULL, &spool, slots, SLOTS) == FZN_TRANSFER_ERR_MALFORMED,
+	CHECK(fzn_transfer_open(NULL, &spool, assigns, SLOTS) == FZN_TRANSFER_ERR_MALFORMED,
 	      "open took a null transfer");
-	CHECK(fzn_transfer_open(&transfer, NULL, slots, SLOTS) == FZN_TRANSFER_ERR_MALFORMED,
+	CHECK(fzn_transfer_open(&transfer, NULL, assigns, SLOTS) == FZN_TRANSFER_ERR_MALFORMED,
 	      "open took a null spool");
 	CHECK(fzn_transfer_open(&transfer, &spool, NULL, SLOTS) == FZN_TRANSFER_ERR_MALFORMED,
 	      "open took a null slot array");
-	CHECK(fzn_transfer_open(&transfer, &spool, slots, 0u) == FZN_TRANSFER_ERR_MALFORMED,
+	CHECK(fzn_transfer_open(&transfer, &spool, assigns, 0u) == FZN_TRANSFER_ERR_MALFORMED,
 	      "open took a zero capacity");
-	CHECK(fzn_transfer_open(&transfer, &spool, slots, (size_t)FZN_TRANSFER_MAX_SLOTS + 1u)
+	CHECK(fzn_transfer_open(&transfer, &spool, assigns, (size_t)FZN_TRANSFER_MAX_ASSIGNS + 1u)
 	              == FZN_TRANSFER_ERR_MALFORMED,
 	      "open took a capacity past the ceiling");
 
 	memset(&empty, 0, sizeof(empty));
-	CHECK(fzn_transfer_open(&transfer, &empty, slots, SLOTS) == FZN_TRANSFER_ERR_MALFORMED,
+	CHECK(fzn_transfer_open(&transfer, &empty, assigns, SLOTS) == FZN_TRANSFER_ERR_MALFORMED,
 	      "open took a spool that was never opened");
 
 	CHECK(fresh(SLOTS), "the fixture did not open");
@@ -575,23 +575,23 @@ static void test_every_operand_of_every_guard(void)
 		              == FZN_TRANSFER_ERR_MALFORMED,
 		      "next_want took a transfer with no spool");
 		hollow = transfer;
-		hollow.slots = NULL;
+		hollow.assigns = NULL;
 		CHECK(fzn_transfer_next_want(&hollow, 1u, 0u, 1u, 100u, &got)
 		              == FZN_TRANSFER_ERR_MALFORMED,
-		      "next_want took a transfer with no slots");
+		      "next_want took a transfer with no assigns");
 
 		hollow = transfer;
 		hollow.spool = NULL;
 		CHECK(fzn_transfer_delivered(&hollow, 1u, 0u, 1u) == FZN_TRANSFER_ERR_MALFORMED,
 		      "delivered took a transfer with no spool");
 		hollow = transfer;
-		hollow.slots = NULL;
+		hollow.assigns = NULL;
 		CHECK(fzn_transfer_delivered(&hollow, 1u, 0u, 1u) == FZN_TRANSFER_ERR_MALFORMED,
-		      "delivered took a transfer with no slots");
+		      "delivered took a transfer with no assigns");
 		CHECK(fzn_transfer_failed(&hollow, 1u, 0u, 1u) == FZN_TRANSFER_ERR_MALFORMED,
-		      "failed took a transfer with no slots");
+		      "failed took a transfer with no assigns");
 		CHECK(fzn_transfer_expire(&hollow, 1u) == 0u,
-		      "expire walked a transfer with no slots");
+		      "expire walked a transfer with no assigns");
 	}
 	CHECK(fzn_transfer_delivered(NULL, 1u, 0u, 1u) == FZN_TRANSFER_ERR_MALFORMED,
 	      "delivered took a null transfer");

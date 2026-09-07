@@ -52,7 +52,7 @@ typedef enum fzn_reasm_err {
 	FZN_REASM_ERR_MALFORMED = -1,
 	/* No slot is free. See fzn_reasm_accept -- refusing is deliberate.
 	 *
-	 * IT NO LONGER MEANS "live, unexpired", which this said until slots
+	 * IT NO LONGER MEANS "live, unexpired", which this said until partials
 	 * grew two other reasons to be held. A slot may be HANDED -- completed
 	 * and waiting on the caller to release it, which the sweep must not
 	 * take -- and a slot's deadline is now bounded by `max_hold` rather
@@ -61,7 +61,7 @@ typedef enum fzn_reasm_err {
 	 * conclude that time alone fixes a full table. Releasing what it holds
 	 * is the other half. */
 	FZN_REASM_ERR_FULL = -2,
-	/* This sender already holds its quota of slots. */
+	/* This sender already holds its quota of partials. */
 	FZN_REASM_ERR_QUOTA = -3,
 	/* A later chunk disagrees with the first about `chunks` or `sender`,
 	 * or its index is out of range, or its payload would overrun what the
@@ -123,9 +123,9 @@ typedef struct fzn_partial {
 
 /* A bounded set of half-finished messages. */
 typedef struct fzn_reasm {
-	fzn_partial_t *slots;
+	fzn_partial_t *partials;
 	size_t capacity;
-	/* How many slots one sender may hold at once.
+	/* How many partials one sender may hold at once.
 	 *
 	 * WITHOUT THIS THE OTHER BOUNDS DO NOT HELP. A table that refuses when
 	 * full is a table one sender can fill, and then nobody else is served
@@ -162,11 +162,11 @@ typedef struct fzn_reasm {
 	uint64_t max_hold;
 } fzn_reasm_t;
 
-/* Point a table at caller-owned slots. Each slot must already have its
+/* Point a table at caller-owned partials. Each slot must already have its
  * buffer set (fzn_reasm_slot_init). `per_sender_max` of 0 is refused rather
  * than meaning unlimited: an unlimited default is the one a caller gets by
  * forgetting the field. */
-fzn_reasm_err_t fzn_reasm_init(fzn_reasm_t *table, fzn_partial_t *slots, size_t capacity,
+fzn_reasm_err_t fzn_reasm_init(fzn_reasm_t *table, fzn_partial_t *partials, size_t capacity,
                                 size_t per_sender_max, uint64_t max_hold);
 
 /* Give one slot its buffer. Separate from the above because the buffers are
@@ -174,7 +174,7 @@ fzn_reasm_err_t fzn_reasm_init(fzn_reasm_t *table, fzn_partial_t *slots, size_t 
  * fzn_reasm_init would mean this module deciding the carve. */
 fzn_reasm_err_t fzn_reasm_slot_init(fzn_partial_t *slot, uint8_t *buf, size_t capacity);
 
-/* Reclaim slots whose expiry has passed, and report how many. Same argument
+/* Reclaim partials whose expiry has passed, and report how many. Same argument
  * as frame/freshness.h: expiry is what makes the memory bound survive a
  * quiet period, and a receiver that has gone silent should be able to hand
  * memory back without waiting for a datagram to arrive. */
