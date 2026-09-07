@@ -21795,10 +21795,17 @@ copied into a function where the safe value is the other one.
 **The holder's ordering, 2026-08-28**: every feature fuzzypickles needs
 should exist here BEFORE they move, so the transition is a switch
 rather than a co-development. Migration planning, including a namespace
-scheme, comes after parity. **fuzzypickles development is frozen**,
-which is what makes the ordering work -- a frozen consumer is a
-STATIONARY TARGET, so a gap list computed today stays true while it is
-closed. A moving one could not be caught up with.
+scheme, comes after parity.
+
+**~~fuzzypickles development is frozen~~ THE FREEZE IS OFF, on the
+holder's instruction of 2026-09-07, and this paragraph's premise went
+with it.** It read: a frozen consumer is a STATIONARY TARGET, so a gap
+list computed today stays true while it is closed, and a moving one
+could not be caught up with. That was the load-bearing half of the
+ordering above. It is struck rather than appended to, because a reader
+meeting both would believe the more careful-sounding one, and the
+careful-sounding one is the dead one. sec 175 re-decides the ordering
+without it.
 
 ### What this library has no concept of, measured
 
@@ -30344,3 +30351,109 @@ replacement must be BETTER rather than equivalent, and that bar cannot be
 cleared by a tree that does not know what it already has -- which this tree
 demonstrably did not, having built 1004 lines of QR beside a working
 implementation it never opened.
+
+## 175. Re-deciding the order with the consumer moving, 2026-09-07
+
+The holder took the freeze off and asked the two trees to re-decide the
+ordering between them. sec 15d's premise is struck where it lived.
+
+### The inventory was never a to-do list for this tree
+
+fuzzypickles' sec 17 lists the generic files still in **their** `core/src`,
+and under side-by-side that is exactly right -- a duplicate stays until the
+replacement is working, better and integrated. **Both sessions read it as a
+list of what fuzznet lacks.** It is not, and the cost was two proposals to
+port work that was already done:
+
+    group_ratchet.c   ratchet/ratchet.h    "the generic half of
+                                            fuzzypickles' group_ratchet.c",
+                                            seam drawn inside their tree at
+                                            their offer, persistence turned
+                                            inside out
+    blob.c            blob/blob.h          "ADOPTED FROM fuzzypickles'
+                                            core/src/blob_internal.h at
+                                            2073cbe"
+
+Twenty-eight headers here mention fuzzypickles and at least ten record a
+relationship to a specific file of theirs. So the first act of the new
+ordering is not to pick a file: **it is to reconcile the twenty-two names
+against what this tree already has, one line each, both sides answering for
+their own tree.** Neither of us can do it alone -- I would be inferring from
+their filenames, which sec 15d already warned is the claim-about-another-tree
+error, and they would be inferring from mine.
+
+### The criterion changes, and it inverts
+
+Under the freeze, order was free: a stationary target could be taken in any
+sequence and a gap list stayed true. Without it, **rate of change decides**,
+and for the opposite reason to the obvious one.
+
+The obvious reading is that a fast-moving file is a moving target and should
+be left until it settles. That is backwards under side-by-side. A generic
+file still accreting in fuzzypickles is one where **every line is written
+once there and moved once later**, and taking it early does not retire their
+copy -- it redirects where the NEXT hundred lines get written. The extraction
+is not the point; the redirection is.
+
+So: fast-movers first, static files can wait indefinitely, and the measure
+is lines added since the inventory named them rather than total size.
+
+### What replaces a whole-tree freeze
+
+A per-file one, at the moment of adoption. Their copy stays -- that is the
+policy -- but **new generic work for that file lands in fuzznet instead of
+being written twice.** Velocity is preserved everywhere except the one file
+being taken, and this tree gets a stationary target one file at a time
+rather than needing the whole consumer to stop.
+
+That is a proposal to them and not a decision. What makes it worth stating
+is that it is the smallest thing that recovers what the freeze was buying,
+and the freeze was buying stationarity rather than stillness.
+
+### A gap list stops being a plan
+
+fuzzypickles' point, and the sharpest consequence either of us drew: under
+the freeze, a gap list computed today stayed true until it was closed, which
+is exactly what made "every feature exists there before they move"
+achievable. **Under co-development any such list is a measurement with a
+shelf life**, and quoting one later quotes a tree that has moved.
+
+So the gap work in sec 18 is not wasted and its STATUS changes: a snapshot to
+be re-taken, not a backlog to burn down. That is `evidence.md`'s shelf-life
+rule arriving at a planning document rather than at a claim -- and the tell
+is the same one, a present-tense countable statement about somebody else's
+tree.
+
+### A defect here lost one of its two reasons for standing
+
+fuzzypickles' `group_ratchet_internal.h` records, unfixed, that `advance_to`
+writes the new chain position before its caller has opened the AEAD -- so one
+forged datagram moves a stored ratchet past every genuine record that sender
+will send, irreversibly, silently, and reported as a duplicate. `ratchet.h`
+here describes the same fault from the other side and refuses the spelling
+that causes it.
+
+They held it for two reasons: development was frozen, and it changes how a
+live path persists state. **The first is gone.** The second stands alone and
+is the holder's, being a live path.
+
+What has changed is the fix's status. `fzn_ratchet_derive` writes into a
+chain that MUST NOT be the source and refuses the same-chain call outright,
+and it is running here with a suite behind it -- so the shape is proven
+rather than proposed, and if the holder takes it the shape to adopt is this
+tree's. **That is the first time anything has flowed that direction on a
+DEFECT rather than on a document**, which is the whole argument for parity
+existing before a migration rather than after it.
+
+### recv_seen is the interesting one again, for a third reason
+
+It has no counterpart here, it is the only file in the generic set with
+mutable static data, and sec 174 established what it actually does: dedupe
+two kinds of traffic with one ring. Groups carry `chat_id ||
+sender_root_pubkey || seq` and map onto `record/journal.h` with no wire
+change. Direct messages carry only a per-message KDF commitment and cannot.
+
+**The open question is the holder's and is a wire change**: direct messages
+have no sequence, and giving them one touches the path that carries the
+actual conversations. Nothing should be built either way until that is
+answered.
