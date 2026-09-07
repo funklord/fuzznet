@@ -22870,6 +22870,80 @@ anything could have said otherwise.
 copyright holder should know the size before it happens rather than find it
 inside a commit about a widget.
 
+## 161. The QR widget, and a cell that is not square, 2026-09-07
+
+The copyright holder: "do the qr widget next." sec 160 built the encoder and
+stopped at modules; this draws them, and `cli/` printing them as half-blocks
+would be a third consumer of the same array.
+
+### The whole qtty question is that a cell is not square
+
+This machine's is 8 by 16. **A module painted one cell each way arrives at a
+scanner stretched two to one**, and a stretched code is one a decoder may
+refuse -- so the obvious implementation for a terminal is the wrong one.
+
+The widget paints squares in PIXELS and lets the backend map them. At two
+cells per module horizontally and one vertically the result is square on
+screen, which is what the render through qtty shows:
+
+    ........aaaaaaaaaaaaaa..aa......aa..aaaaaaaaaaaaaa
+    ........aa..........aa..aaaa..aa....aa..........aa
+    ........aa..aaaaaa..aa..aaaaaaaaaa..aa..aaaaaa..aa
+
+Seven dark modules of the finder as fourteen identical cells, the ring's five
+light modules as ten, and eight cells of quiet zone before any of it. The
+assertion in `make qtty` reads exactly that.
+
+**And the module size is a whole number of pixels**, computed as
+`min(width, height) / across`. A fractional module leaves the code's edges on
+half-pixels -- blur to a camera, and to a cell grid a rounding that can put one
+module on a different boundary from its neighbour, which is how a row stops
+being a row.
+
+### The quiet zone is drawn rather than left to the layout
+
+Four modules of background on every side is what a scanner uses to find the
+code at all. A widget that left it to the margin would produce something that
+reads only when the surrounding dialog happened to be pale and wide enough --
+and on a dark theme, never. It is part of the code, not part of the
+arrangement, so `paintEvent` fills it white before drawing a module.
+
+### A refusal must not look like an empty square
+
+`fzn_qr_encode` refuses a payload past every version, and a widget that showed
+nothing would make that indistinguishable from a widget nobody has asked for
+anything. Both are blank. So a refusal shows the reason, **in
+`fzn_qr_err_str`'s own words** -- a widget inventing its own wording would give
+a consumer a second vocabulary for one fact, and a user comparing a dialog
+against a log would be comparing two spellings.
+
+Asking for nothing clears it, rather than leaving the last refusal on screen
+for a reader to attribute to the new payload.
+
+### The glyph layer is empty, and that read as nothing rendering
+
+The first probe through qtty printed a blank snapshot and looked like a widget
+that had not drawn. It had: a QR code is filled rectangles and carries no
+glyphs at all, so the whole code was in the colour layer -- and the probe had
+cut everything after `--- attrs` off, which is this document's own rule about
+reducing a check's output before knowing what it says, met for the third time
+this session.
+
+### What is still only a shape assertion
+
+`make qtty` asserts the modules land on cell boundaries two wide and one tall.
+It does not DECODE the rendered code, and sec 160 is the standing reminder
+that a QR code can satisfy every shape assertion and decode as nothing.
+
+Doing it is available and was not done: the colour layer is a module map, so
+reconstructing a bitmap from the snapshot and handing it to quirc would close
+the loop end to end -- widget, terminal, decoder. It needs both sibling
+checkouts at once and a parse of qtty's snapshot format, which is a text
+format this tree would then depend on. **Recorded as the next thing rather
+than left implied**, since the difference between "the modules are square" and
+"a scanner reads it off a terminal" is exactly the difference sec 160 paid
+five defects to learn.
+
 ## 160. The QR encoder, and five defects a shape test would have passed, 2026-09-07
 
 The copyright holder: "do the qr code generator next", from sec 139's list of

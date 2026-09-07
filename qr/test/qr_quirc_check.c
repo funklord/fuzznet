@@ -74,7 +74,11 @@ int main(void)
 			if (n == 0 || fzn_qr_version_for(text, n, (fzn_qr_level_t)level) != v)
 				continue;
 			if (roundtrip(text, (fzn_qr_level_t)level, why, sizeof(why))) pass++;
-			else { fail++; printf("  FAIL v%-2u %s (%zu chars): %s\n", v, NAMES[level], n, why); }
+			else {
+				fail++;
+				printf("  FAIL qr_quirc_check.c: v%u %s (%zu chars): %s\n",
+				       v, NAMES[level], n, why);
+			}
 		}
 	}
 	printf("qrcheck: %d of %d version/level pairs round-tripped through quirc\n",

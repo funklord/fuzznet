@@ -29,6 +29,7 @@
 
 #include "../trust_view.h"
 #include "../log_view.h"
+#include "../qr_view.h"
 
 extern "C" {
 #include "../../log/log.h"
@@ -309,6 +310,76 @@ int main(int argc, char **argv)
 		CHECK(consecutive,
 		      "the log entries are spread over more rows than they occupy, so a "
 		      "reader sees fewer of them than the terminal has room for");
+	}
+
+	/*
+	 * A QR CODE ON A CHARACTER CELL GRID. sec 161.
+	 *
+	 * THE CELL IS NOT SQUARE -- 8 by 16 here -- so a module painted one
+	 * cell each way arrives at a scanner stretched two to one, and a
+	 * stretched code is one a decoder may refuse. `fzn_qr_view` paints
+	 * squares in PIXELS, so at two cells per module horizontally and one
+	 * vertically the result is square on screen. This is the assertion
+	 * that the arithmetic came out.
+	 *
+	 * READ FROM THE COLOUR LAYER, because the code is drawn as filled
+	 * rectangles and carries no glyphs at all: the glyph half of the
+	 * snapshot is blank, which is how the first probe here concluded
+	 * nothing had rendered.
+	 */
+	{
+		fzn_qr_view view;
+		int across;
+		int cols;
+		int rows;
+		QString snap;
+		QStringList colours;
+		int at;
+
+		view.show_text(QStringLiteral("HELLO WORLD"), FZN_QR_LEVEL_L);
+		CHECK(view.modules_across() == 21, "the fixture is not a version-1 code");
+		across = view.modules_across() + 2 * (int)FZN_QR_QUIET;
+		cols = across * 2;
+		rows = across;
+
+		view.setAttribute(Qt::WA_DontShowOnScreen);
+		view.resize(Qtty::GridMetrics::cells(cols, rows));
+		view.show();
+		QCoreApplication::processEvents();
+		snap = Qtty::test::snapshot_of(view, cols, rows);
+
+		CHECK(snap.contains(QStringLiteral("--- colours ---")),
+		      "the snapshot carries no colour layer, so nothing can be read back");
+		colours = snap.section(QStringLiteral("--- colours ---"), 1)
+		                  .section(QStringLiteral("--- legend"), 0, 0)
+		                  .split(QLatin1Char('\n'));
+
+		/* The top-left finder's first row is seven dark modules, which
+		 * at two cells a module is fourteen identical cells -- and the
+		 * four quiet modules before it are eight. */
+		at = -1;
+		for (int i = 0; i < colours.size(); i++) {
+			const QString &row = colours[i];
+
+			if (row.contains(QStringLiteral("aaaaaaaaaaaaaa"))) {
+				at = i;
+				break;
+			}
+		}
+		CHECK(at >= 0,
+		      "no row of fourteen identical cells, so a module is not two cells "
+		      "wide and the code is not square on screen");
+		if (at >= 0) {
+			CHECK(colours[at].indexOf(QLatin1Char('a')) == 2 * (int)FZN_QR_QUIET,
+			      "the finder does not begin after four quiet modules, so the "
+			      "quiet zone is the wrong width");
+			/* And the row below it is the finder's second row: dark,
+			 * five light, dark -- two cells each. */
+			CHECK(at + 1 < colours.size() &&
+			              colours[at + 1].contains(QStringLiteral("aa..........aa")),
+			      "the finder's second row is not a ring, so the modules are not "
+			      "landing on cell boundaries");
+		}
 	}
 
 	/* The suite can tell pass from fail. */
