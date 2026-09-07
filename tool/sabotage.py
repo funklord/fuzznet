@@ -2692,6 +2692,30 @@ SABOTAGES = [
 		"a stream that has run out answers UINT64_MAX, which drawn as a number "
 		"reads as a request for record eighteen quintillion",
 	),
+	(
+		"sync-print-unmeasured-is-the-default",
+		"cli/sync_print.c",
+		"\tif (state_out)\n\t\t*state_out = FZN_SYNC_UNMEASURED;\n",
+		"\tif (state_out)\n\t\t*state_out = FZN_SYNC_UP_TO_DATE;\n",
+		"a caller that ignores the state must see the conservative answer, or a "
+		"refused render leaves a health check reading green",
+	),
+	(
+		"sync-print-asks-whether-it-can-say",
+		"cli/sync_print.c",
+		"\tif (!fzn_manifest_overflowed(state, issuer)) {\n",
+		"\tif (1) {\n",
+		"up to date and cannot say both have a deficit of zero, and a health "
+		"check told the number would call an unmeasurable host green",
+	),
+	(
+		"sync-print-state-is-required",
+		"cli/sync_print.c",
+		"\tif (!issuer || !out || !len_out || !state_out)\n",
+		"\tif (!issuer || !out || !len_out)\n",
+		"an optional out-parameter is one every caller ignores, and this is the "
+		"one a health check must not",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

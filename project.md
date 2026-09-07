@@ -31345,3 +31345,50 @@ commit into. The report states the reproduction and says the cause is unknown
 from here, because I have not read their cell walk and the difference I can
 see -- caller-made label against `addRow`-made label -- is an observation
 rather than a mechanism.
+
+## 191. A sync line for a daemon, on two channels
+
+`cli/sync_print.{h,c}` answers "are we synced with this peer" for a host with
+no display. `gui/sync_view` is the same two facts for a screen.
+
+**And the CLI is currently the better of the two for a terminal**, which sec
+190 is why: a `QFormLayout` row label does not reach the qtty grid, so the
+widget shows its answer unlabelled while a printer composes its own words and
+loses nothing.
+
+### The state goes out of band, and that is the design
+
+A health check must not read the sentence to find out what happened. sec 168
+settled that a consumer parsing another component's output becomes "a parser
+of a format, which is a new thing to get wrong rather than one thing fewer" --
+and a status line is exactly the format somebody would parse.
+
+So `state_out` carries the answer for a program and the line carries it for a
+person, and neither reads the other's. It is REQUIRED rather than optional, on
+`fzn_manifest_deficit`'s own argument for its `dropped`: "an optional
+out-parameter is one every caller ignores", and this is the one a health check
+must not.
+
+### `FZN_SYNC_UNMEASURED` is zero, deliberately
+
+A caller that never reads `state_out`, or reads it after a refusal, sees the
+conservative answer rather than the reassuring one. The refusal path sets it
+before it can fail, which is `fzn_chain_store_lookup`'s reason for clearing
+its out-parameters first.
+
+The suite poisons the variable with `FZN_SYNC_UP_TO_DATE` before every call
+that should report otherwise, so a passing case proves the call WROTE the
+answer rather than that the stack happened to hold it.
+
+### The same guard as the widget, and it matters more here
+
+"Up to date" and "cannot say" both have a deficit of zero. On a screen that is
+a person misreading a number. In a monitoring script it is a host that cannot
+measure its own deficit reporting green -- **the fail-open `chain/manifest.h`
+was written to remove, arriving in somebody's alerting**. A caller switching
+on the enum cannot make that mistake by accident; one grepping the line for a
+number can, which is the whole reason the enum exists.
+
+The suite checks both channels separately: the words differ for a person, and
+the enum differs for a program. Either alone would pass a version that got the
+other wrong.

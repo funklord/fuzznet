@@ -789,10 +789,10 @@ TEST_BINS += $(BUILD_DIR)/gui/test/config_view_test \
 endif
 endif
 
-CLI_SRCS := cli/cli.c cli/qr_print.c cli/log_print.c
-CLI_HDRS := cli/cli.h cli/qr_print.h cli/log_print.h
+CLI_SRCS := cli/cli.c cli/qr_print.c cli/log_print.c cli/sync_print.c
+CLI_HDRS := cli/cli.h cli/qr_print.h cli/log_print.h cli/sync_print.h
 CLI_TSRC := cli/test/cli_test.c cli/test/qr_print_test.c \
-            cli/test/log_print_test.c
+            cli/test/log_print_test.c cli/test/sync_print_test.c
 
 ifdef CLI_ON
 CPPFLAGS  += -DFZN_CLI_ON
@@ -801,7 +801,8 @@ HDRS      += $(CLI_HDRS)
 TEST_SRCS += $(CLI_TSRC)
 TEST_BINS += $(BUILD_DIR)/cli/test/cli_test \
                $(BUILD_DIR)/cli/test/qr_print_test \
-               $(BUILD_DIR)/cli/test/log_print_test
+               $(BUILD_DIR)/cli/test/log_print_test \
+               $(BUILD_DIR)/cli/test/sync_print_test
 endif
 
 RECORD_STORE_FILE_SRCS := record/store_file.c
@@ -1798,6 +1799,16 @@ $(BUILD_DIR)/cli/test/cli_test: $(BUILD_DIR)/cli/test/cli_test.o \
 $(BUILD_DIR)/cli/test/qr_print_test: $(BUILD_DIR)/cli/test/qr_print_test.o \
                                      $(BUILD_DIR)/cli/qr_print.o \
                                      $(BUILD_DIR)/qr/qr.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# One peer's sync position, on two channels. sec 191.
+$(BUILD_DIR)/cli/test/sync_print_test: $(BUILD_DIR)/cli/test/sync_print_test.o \
+                                     $(BUILD_DIR)/cli/sync_print.o \
+                                     $(BUILD_DIR)/chain/manifest.o \
+                                     $(BUILD_DIR)/chain/revocation.o \
+                                     $(BUILD_DIR)/chain/chain.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
