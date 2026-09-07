@@ -30266,3 +30266,81 @@ non-zero in one run**, both true and the pair meaningless. It is one shell
 now, and the three cases are the ones `MONOCYPHER_DIR` keeps apart: an empty
 variable is off, a missing vendored copy is an unfinished clone and skips
 naming the command, an override pointing at nothing is an error.
+
+## 174. recv_seen, and the two paths it sits between, 2026-09-07
+
+Working with fuzzypickles directly rather than through the holder, on their
+instruction that the relay was losing information. It was: this entry is
+three corrections in a row, each one dissolving the answer before it, and
+none of them would have survived a round trip.
+
+### Eviction: the same word, two consequences
+
+fuzzypickles asked for this to be written down here, and it is theirs as much
+as ours. **fuzznet refuses when a window is full and fuzzypickles evicts, and
+both are right, because the structures differ.**
+
+`record/journal.h` refuses: "dropping an issuer to make room forgets what was
+seen from it, and the next record from that issuer is then accepted at any
+sequence -- which readmits everything it ever sent." `frame/freshness.h`
+cites the same reasoning, and records that refusing caused a real outage that
+"never ended".
+
+Their `recv_seen.c` evicts, and argues it well: dropping the oldest
+commitment costs at most one duplicated inbox line for a message old enough
+that 256 others have arrived since, and a sender only retransmits while
+unacknowledged.
+
+**Evicting a per-issuer SEQUENCE high-water mark readmits everything that
+issuer ever sent, which is a security property. Evicting one unordered
+COMMITMENT costs a duplicated inbox line, which is a UX one.** A port that
+landed `recv_seen.c` beside `journal.h` would have put two headers arguing
+opposite positions in one tree with neither mentioning the other.
+
+### Three answers, each one wrong until the next measurement
+
+**First: "fuzznet already covers this."** freshness.h bounds its replay
+window by command expiry rather than by a ring, so a restart is safe for free
+-- if a retransmission carries the original expiry.
+
+**Second, measured by them: neither branch.** A retransmission carries the
+original CIPHERTEXT, not a re-seal, so the commitment inside is unchanged --
+stronger than the hypothesis needed. Their timestamp is authenticated, inside
+the MAC, which is the property expiry-bounding requires and it already holds.
+**And nothing checks it.** There is no age comparison anywhere in their
+receive path: the timestamp is a display and ordering field. So the
+ingredients are present and unused, and adopting expiry-bounding there is a
+behaviour change rather than a swap -- a message delayed past the window
+becomes undeliverable rather than late, and a host that was off for a week
+loses traffic that today merely arrives slowly.
+
+**Third, and this is where it rests: they priced the wrong half.**
+freshness.h distinguishes itself from their case in its own words -- "sec
+4.4a raises the stakes above a chat program's ... a replayed command is not a
+duplicated message; it is a router being reconfigured a second time by
+somebody who recorded the first." It is the COMMAND path, where late means
+unwanted and refusing is the right outcome.
+
+Chat is record traffic, and this tree has a second path for that:
+`record/journal.h` deduplicates by per-issuer sequence with no expiry at all,
+and `persist/persist.h` holds the journal among the recoverable state, so the
+high-water mark survives a restart. That is recv_seen's requirement met by a
+different structure -- durable, unexpiring, and one number per stream rather
+than N commitments.
+
+**Open, and theirs to answer: do their messages carry a per-sender sequence?**
+journal.h rests on a sender numbering its own stream from 1 upwards. If they
+have one, recv_seen is a fourth spelling of journal.h. If the 16-byte
+commitment is a message's only identity, the record path needs a wire change
+first -- a real cost, but a different and more honest one than the delivery
+trade.
+
+### What the exchange is worth on its own
+
+Nothing has been ported. Three sessions of measurement have so far produced
+**no code**, and the alternative was porting a 133-line file in an afternoon
+and discovering none of this. The consolidation's stated bar is that a
+replacement must be BETTER rather than equivalent, and that bar cannot be
+cleared by a tree that does not know what it already has -- which this tree
+demonstrably did not, having built 1004 lines of QR beside a working
+implementation it never opened.
