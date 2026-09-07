@@ -31136,3 +31136,56 @@ argument is already written and the suite can quote it. **A module that
 records why its states are separate hands its view a specification**, and that
 is the strongest case yet for the habit this tree already has of writing the
 reason next to the rule.
+
+## 186. The journal view, and a fourth private soundness rule
+
+`gui/journal_view.{h,cpp}` shows what this host has received from one peer's
+stream, what it has applied, and whether it is tracking that peer at all.
+
+### One number, two hosts
+
+`fzn_journal_next` "Returns 1 for an issuer never seen" -- and 1 is also the
+honest answer for a stream this host FOLLOWS which has said nothing yet. Both
+want sequence 1. **Only one of them is listening.**
+
+"Why am I getting nothing from Bob" has two opposite answers -- Bob has sent
+nothing, or this host never followed Bob -- and the number answers neither.
+The suite asserts the library really does return 1 in both cases before
+checking the widget separates them, so the case cannot pass against a library
+that had never collapsed the two.
+
+### A full table refuses peers it has never met, and no row shows it
+
+journal.h refuses rather than evicts, and says why: "dropping an issuer to
+make room forgets what was seen from it, and the next record from that issuer
+is then accepted at any sequence -- which readmits everything it ever sent. **A
+visible refusal a consumer can alarm on is the smaller harm.**"
+
+Visible only if somebody shows it. Every row on a full journal looks healthy,
+and the peer being turned away has no row at all -- so the table's own state
+is on this screen beside the stream's, and the suite proves the warning is not
+decorative by anchoring a third issuer and requiring `FZN_JOURNAL_ERR_FULL`.
+
+An exhausted stream is its own state too: `next` answers UINT64_MAX, which
+drawn as a number reads as a request for record eighteen quintillion and means
+there will never be another.
+
+### The fourth copy, reported rather than taken
+
+Telling untracked from fresh means finding the row, which means walking, which
+means bounding the walk. `record/journal.c` keeps that rule private as
+`usable()` -- after `chain_store.c`, `revocation.c` and `state.c`.
+
+    chain/chain_store.c   corrupt()   -> public in sec 183, on instruction
+    chain/revocation.c    corrupt()   -> public in sec 183, on instruction
+    state/state.c         usable()    -> public in sec 184, as a judgement
+    record/journal.c      usable()    -> open-coded here, and REPORTED
+
+**This one is not taken.** One unilateral extension was a judgement; a second
+would be a habit. And four private copies of one rule, each subtly different
+-- journal's takes an issuer as well -- is a question about the library's
+shape rather than four defects to fix one at a time.
+
+The widget is worse for it: it carries a condition it should be asking for,
+and if the rule ever changes this copy will not. That is the argument, stated
+by leaving it visible rather than by fixing it quietly.

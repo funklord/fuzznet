@@ -706,18 +706,18 @@ GUI_SRCS := gui/trust_view.cpp gui/qr_view.cpp \
             gui/authz_view.cpp gui/capability_view.cpp gui/provision_view.cpp \
             gui/transfer_view.cpp gui/sweep_view.cpp \
             gui/revocation_view.cpp gui/state_view.cpp \
-            gui/sync_view.cpp
+            gui/sync_view.cpp gui/journal_view.cpp
 GUI_HDRS := gui/trust_view.h gui/qr_view.h \
             gui/authz_view.h gui/capability_view.h gui/provision_view.h \
             gui/transfer_view.h gui/sweep_view.h \
             gui/revocation_view.h gui/state_view.h \
-            gui/sync_view.h
+            gui/sync_view.h gui/journal_view.h
 GUI_TSRC := gui/test/trust_view_test.cpp \
             gui/test/qr_view_test.cpp gui/test/authz_view_test.cpp \
             gui/test/capability_view_test.cpp gui/test/provision_view_test.cpp \
             gui/test/transfer_view_test.cpp gui/test/sweep_view_test.cpp \
             gui/test/revocation_view_test.cpp gui/test/state_view_test.cpp \
-            gui/test/sync_view_test.cpp
+            gui/test/sync_view_test.cpp gui/test/journal_view_test.cpp
 
 # THE CONFIGURATION FORM NEEDS BOTH OPTIONS, and that is the design rather
 # than an accident of the build. sec 164: it does not validate, the CLI parser
@@ -780,6 +780,7 @@ TEST_BINS  += $(BUILD_DIR)/gui/test/trust_view_test \
               $(BUILD_DIR)/gui/test/revocation_view_test \
               $(BUILD_DIR)/gui/test/state_view_test \
               $(BUILD_DIR)/gui/test/sync_view_test \
+              $(BUILD_DIR)/gui/test/journal_view_test \
               $(BUILD_DIR)/gui/test/authz_view_test \
               $(BUILD_DIR)/gui/test/capability_view_test
 ifdef CLI_ON
@@ -1919,6 +1920,16 @@ $(BUILD_DIR)/gui/test/provision_view_test: \
                                      $(BUILD_DIR)/chain/revocation.o \
                                      $(BUILD_DIR)/chain/manifest.o \
                                      $(BUILD_DIR)/trust/trust.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) -o $@
+
+# It walks a journal for the row and shows the table's own state. sec 186.
+$(BUILD_DIR)/gui/test/journal_view_test: \
+                                     $(BUILD_DIR)/gui/test/journal_view_test.o \
+                                     $(BUILD_DIR)/gui/journal_view.o \
+                                     $(BUILD_DIR)/record/journal.o \
+                                     $(BUILD_DIR)/record/record.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) -o $@

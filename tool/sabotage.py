@@ -2668,6 +2668,30 @@ SABOTAGES = [
 		"the outstanding count is the library's answer for THIS issuer, not the "
 		"size of a table that holds every issuer's",
 	),
+	(
+		"journal-view-untracked-is-not-fresh",
+		"gui/journal_view.cpp",
+		"\tif (!row) {\n",
+		"\tif (0) {\n",
+		"fzn_journal_next answers 1 for an issuer never seen AND for a followed "
+		"stream that has said nothing, and only one of them is listening",
+	),
+	(
+		"journal-view-says-the-table-is-full",
+		"gui/journal_view.cpp",
+		"\tfull_ = journal->used >= journal->capacity;\n",
+		"\tfull_ = false;\n",
+		"a full journal refuses every peer it has not met and no single row "
+		"reveals it, so the refusal is visible only if the table's state is shown",
+	),
+	(
+		"journal-view-exhausted-is-not-a-huge-want",
+		"gui/journal_view.cpp",
+		"\tif (next == UINT64_MAX) {\n",
+		"\tif (0) {\n",
+		"a stream that has run out answers UINT64_MAX, which drawn as a number "
+		"reads as a request for record eighteen quintillion",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so
