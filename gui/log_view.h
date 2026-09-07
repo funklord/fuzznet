@@ -21,6 +21,21 @@
  * SECOND entry that no issuer ever signed, and one carrying an escape byte
  * would drive the terminal the view is drawn on.
  *
+ * IT NEEDS FZN_CLI, AND THAT IS THE DESIGN RATHER THAN A BUILD ACCIDENT.
+ * project.md sec 168. The summary wording -- which sequences are held, how
+ * many were evicted, how much of the window is showing -- used to be written
+ * here AND in `cli/log_print.c`, matched by hand, with nothing checking they
+ * still agreed. `gui/config_view.h` already carries the same shape for the
+ * same reason: it does not validate, the CLI parser does, so a GUI build
+ * without FZN_CLI simply does not get the form rather than getting one that
+ * cannot check anything. This does not compose a log's screen, `cli/log_
+ * print` does, so a GUI build without FZN_CLI does not get this view.
+ *
+ * THE WINDOW ADAPTS TO THE BUFFER, which is what `cli/log_print`'s
+ * refuse-and-say-what-was-needed contract buys: it asks for 256 rows and
+ * halves until they fit a fixed budget. Nothing is hidden by that, because
+ * the summary declares the window it settled on.
+ *
  * QT WIDGETS AND NO Q_OBJECT, for the reasons `gui/trust_view.h` gives at
  * length: qtty renders unmodified Widgets on a character-cell terminal, and
  * a view that emits nothing needs no meta-object.

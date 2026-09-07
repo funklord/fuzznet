@@ -22,6 +22,10 @@ extern "C" {
 
 #include "../log_view.h"
 
+extern "C" {
+#include "../../cli/log_print.h"
+}
+
 #include <QApplication>
 #include <QString>
 
@@ -42,6 +46,16 @@ static void check_at(int ok, int line, const char *what)
 }
 
 #define CHECK(cond, what) check_at((cond) ? 1 : 0, __LINE__, (what))
+
+/* LINES, NOT NEWLINES. The two differ by whether the last line is
+ * terminated, and since sec 168 this widget's text is not -- a trailing
+ * newline in a QPlainTextEdit is a blank row of the reader's screen. Counting
+ * newlines made the assertion depend on that, which is a property of the
+ * text area rather than of what was rendered. */
+static int lines_of(const QString &text)
+{
+	return text.isEmpty() ? 0 : (int)text.split(QLatin1Char('\n')).size();
+}
 
 /* ---- a signer, so the fixtures are real records ------------------------ */
 
@@ -134,7 +148,7 @@ int main(int argc, char **argv)
 	}
 	view.show_stream(&log, &journal, ISSUER, 5u);
 	full_summary = view.summary_text();
-	CHECK(view.entries_text().count(QLatin1Char('\n')) == 3,
+	CHECK(lines_of(view.entries_text()) == 3,
 	      "three entries did not produce three lines");
 	CHECK(view.entries_text().contains(QStringLiteral("a1z")), "the first entry is missing");
 	CHECK(view.entries_text().contains(QStringLiteral("a3z")), "the last entry is missing");
@@ -198,7 +212,7 @@ int main(int argc, char **argv)
 		      "the journal refused the nasty record");
 
 		view.show_stream(&solo, &solo_journal, ISSUER, 5u);
-		CHECK(view.entries_text().count(QLatin1Char('\n')) == 1,
+		CHECK(lines_of(view.entries_text()) == 1,
 		      "a body with a newline drew a second entry that nobody signed");
 		CHECK(view.entries_text().contains(QStringLiteral("\\x0a")),
 		      "the newline was not escaped");
@@ -213,6 +227,96 @@ int main(int argc, char **argv)
 		      "a line begins with the forged sequence, so the body drew an entry");
 		CHECK(view.entries_text().contains(QStringLiteral("99 fake")),
 		      "the body's own bytes were dropped rather than escaped");
+	}
+
+	/* THE CASE sec 168 EXISTS FOR. The widget must not have its own
+	 * wording -- it must be showing `cli/log_print`'s. Asserting the
+	 * strings it displays EQUAL what the library renders is a
+	 * relationship rather than a table: it stays true when the wording
+	 * changes, and it goes red the moment somebody composes a summary
+	 * here again. Asserting the words themselves would be a second copy
+	 * of them, which is the thing being removed. */
+	{
+		static char want[FZN_LOG_PRINT_MAX(8)];
+		size_t len = 0;
+		QString rendered;
+
+		view.show_stream(&log, &journal, ISSUER, 5u);
+
+		CHECK(fzn_log_summary(&log, &journal, ISSUER, 5u, 256u, want, sizeof(want),
+		                      &len) == FZN_LOG_OK,
+		      "the library would not render the summary");
+		rendered = QString::fromLatin1(want);
+		while (rendered.endsWith(QLatin1Char('\n')))
+			rendered.chop(1);
+		CHECK(view.summary_text() == rendered,
+		      "the widget's summary is not the library's, so there are two "
+		      "wordings for one screen again");
+
+		CHECK(fzn_log_entries(&log, &journal, ISSUER, 5u, 256u, want, sizeof(want),
+		                      &len) == FZN_LOG_OK,
+		      "the library would not render the entries");
+		rendered = QString::fromLatin1(want);
+		while (rendered.endsWith(QLatin1Char('\n')))
+			rendered.chop(1);
+		CHECK(view.entries_text() == rendered,
+		      "the widget's entries are not the library's");
+	}
+
+	/* THE WINDOW ADAPTS TO THE BUFFER, and says the number it settled on.
+	 * A widget budget of 64 KiB cannot hold 40 entries whose bodies escape
+	 * to four characters a byte, so the render halves its window until it
+	 * fits -- and the whole safety of doing that rests on the summary
+	 * declaring what is on the screen. Without this case the halving loop
+	 * never runs: every other log here holds four entries. */
+	{
+		static uint8_t big_slots[40][FZN_RECORD_MAX_LEN];
+		static fzn_log_entry_t big_rows[40];
+		static fzn_journal_entry_t big_positions[2];
+		static uint8_t body[FZN_RECORD_BODY_MAX];
+		fzn_log_t big;
+		fzn_journal_t big_journal;
+		size_t i;
+		int built = 1;
+
+		/* High bytes, so every one escapes to four characters and the
+		 * worst case is the real case. */
+		memset(body, 0xfe, sizeof(body));
+
+		CHECK(fzn_log_init(&big, big_rows, 40) == FZN_LOG_OK, "the big log would not init");
+		CHECK(fzn_journal_init(&big_journal, big_positions, 2) == FZN_JOURNAL_OK,
+		      "the big journal would not init");
+		CHECK(fzn_journal_anchor(&big_journal, ISSUER, 5u, 0u) == FZN_JOURNAL_OK,
+		      "the big stream could not be followed");
+
+		for (i = 1u; i <= 40u; i++) {
+			fzn_sign_ops_t ops;
+			fzn_record_t r;
+			size_t wrote = 0;
+
+			memset(&ops, 0, sizeof(ops));
+			ops.sign = stub_sign;
+			if (fzn_record_sign(ISSUER, SUBJECT, 5u, 3u, (uint64_t)i, 1u, body,
+			                    sizeof(body), &ops, big_slots[i - 1u],
+			                    FZN_RECORD_MAX_LEN, &wrote) != FZN_RECORD_OK ||
+			    fzn_record_open(big_slots[i - 1u], wrote, &r) != FZN_RECORD_OK ||
+			    fzn_log_append(&big, &r) != FZN_LOG_OK ||
+			    fzn_journal_admit(&big_journal, ISSUER, 5u, (uint64_t)i) !=
+			            FZN_JOURNAL_OK)
+				built = 0;
+		}
+		CHECK(built, "the fixture could not fill a log past the widget's budget");
+
+		view.show_stream(&big, &big_journal, ISSUER, 5u);
+		CHECK(view.summary_text().contains(QStringLiteral("showing")),
+		      "a window the budget shortened was not declared, so a reader is "
+		      "shown a tail presented as the whole log");
+		CHECK(lines_of(view.entries_text()) > 0,
+		      "the shortened window showed nothing at all");
+		CHECK(lines_of(view.entries_text()) < 40,
+		      "the budget did not shorten the window, so this case proves nothing");
+		CHECK(view.entries_text().contains(QStringLiteral("40  ")),
+		      "the shortened window is not the newest entries");
 	}
 
 	/* The suite can tell pass from fail. */

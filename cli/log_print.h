@@ -104,4 +104,31 @@ fzn_log_err_t fzn_log_print(const fzn_log_t *log, const fzn_journal_t *journal,
                             const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
                             size_t rows, char *out, size_t cap, size_t *len_out);
 
+/*
+ * The two halves of that rendering, separately.
+ *
+ * THEY EXIST FOR `gui/log_view`, which puts the summary in a label and the
+ * entries in a text area and therefore cannot use one buffer. project.md sec
+ * 168: the widget used to compose both itself, in wording that matched this
+ * file's by hand and with nothing checking that it still did. Handing it the
+ * halves is what removed the second copy; splitting the first line off
+ * `fzn_log_print`'s output would have been the widget parsing a format
+ * instead, which is a second thing to get wrong rather than none.
+ *
+ * `fzn_log_print` is exactly these two in order, so the composed form cannot
+ * drift from the halves -- it is built out of them.
+ *
+ * Same arguments, same errors, same refusal. Each is terminated by a newline
+ * where it produces anything, and `fzn_log_entries` produces an empty string
+ * when the window is empty, which is a stream with nothing shown rather than
+ * an error.
+ */
+fzn_log_err_t fzn_log_summary(const fzn_log_t *log, const fzn_journal_t *journal,
+                              const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
+                              size_t rows, char *out, size_t cap, size_t *len_out);
+
+fzn_log_err_t fzn_log_entries(const fzn_log_t *log, const fzn_journal_t *journal,
+                              const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
+                              size_t rows, char *out, size_t cap, size_t *len_out);
+
 #endif /* FZN_CLI_LOG_PRINT_H */

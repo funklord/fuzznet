@@ -1,5 +1,9 @@
 #include "log_view.h"
 
+extern "C" {
+#include "../cli/log_print.h"
+}
+
 #include <QFont>
 #include <QLabel>
 #include <QPlainTextEdit>
@@ -8,7 +12,25 @@
 /* Enough to ask for a screenful and know whether more was held. A viewer is
  * not a synchroniser: it shows the tail and says so, rather than pulling a
  * whole log into a widget because it could. */
-static const size_t FZN_LOG_VIEW_ROWS = 256u;
+#define FZN_LOG_VIEW_ROWS 256u
+
+/*
+ * WHAT THIS WIDGET WILL SPEND ON ONE RENDER, and why it is a budget rather
+ * than a worst case.
+ *
+ * FZN_LOG_PRINT_MAX(256) is 530561 bytes, because every one of 512 body bytes
+ * can escape to four characters. That is the honest bound and it is nothing
+ * like the real one; sizing a widget's buffer to it would spend half a
+ * megabyte to display a screenful of short lines.
+ *
+ * So the window ADAPTS instead. `cli/log_print` refuses a buffer it cannot
+ * fill and says how much it wanted, which is exactly what makes this
+ * possible: ask for 256 rows, and on refusal halve and ask again. The
+ * summary declares the window it settled on, so a reader is told they are
+ * seeing fewer -- nothing is hidden by the shrinking, which is the whole
+ * reason the declaration exists.
+ */
+#define FZN_LOG_VIEW_BUDGET 65536u
 
 fzn_log_view::fzn_log_view(QWidget *parent)
         : QWidget(parent), summary_(new QLabel(this)), entries_(new QPlainTextEdit(this))
@@ -60,76 +82,76 @@ fzn_log_view::fzn_log_view(QWidget *parent)
 	show_stream(nullptr, nullptr, nullptr, 0);
 }
 
+/* One line off the end. `cli/log_print` terminates both halves with a
+ * newline because a stream needs one; a label and a text area do not, and a
+ * trailing blank row in a QPlainTextEdit is a row of the reader's screen. */
+static QString trimmed(const char *text)
+{
+	QString s = QString::fromLatin1(text);
+
+	while (s.endsWith(QLatin1Char('\n')))
+		s.chop(1);
+	return s;
+}
+
 void fzn_log_view::show_stream(const fzn_log_t *log, const fzn_journal_t *journal,
                                const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream)
 {
-	const fzn_log_entry_t *rows[FZN_LOG_VIEW_ROWS];
-	char text[FZN_LOG_TEXT_MAX];
-	QString body;
-	uint64_t first = 0;
-	uint64_t last = 0;
-	uint64_t next;
-	size_t got;
-	size_t i;
+	static char text[FZN_LOG_VIEW_BUDGET];
+	size_t rows = FZN_LOG_VIEW_ROWS;
+	size_t len = 0;
 
+	/* NOT A SECOND RENDERER. project.md sec 168. This widget used to
+	 * compose both strings itself, in wording that matched
+	 * `cli/log_print.c`'s by hand -- two implementations of one screen,
+	 * with nothing checking they still agreed and no reason either author
+	 * would look. The words are that file's now, and this asks for them.
+	 *
+	 * IT ASKS FOR THE HALVES RATHER THAN SPLITTING THE WHOLE. Taking
+	 * `fzn_log_print` and cutting at the first newline would make this
+	 * widget a parser of a format, which is a new thing to get wrong
+	 * rather than one thing fewer. */
 	if (!log || !journal || !issuer) {
+		/* A VIEW WITH NO LOG SAYS SO, rather than showing an empty list
+		 * that looks like a stream with nothing in it. Those are
+		 * different facts, and a reader deciding whether a host is
+		 * quiet or unconfigured needs to tell them apart. */
 		summary_->setText(QStringLiteral("no log"));
 		entries_->setPlainText(QString());
 		return;
 	}
 
-	fzn_log_range(log, issuer, stream, &first, &last);
-	next = fzn_journal_next(journal, issuer, stream);
-	got = fzn_log_read_since(log, issuer, stream, 0, rows, FZN_LOG_VIEW_ROWS);
+	/* AS MANY ROWS AS FIT, HALVING UNTIL THEY DO. Terminates because the
+	 * window strictly decreases and zero rows renders no entry lines at
+	 * all, which fits in any buffer that holds the summary. */
+	while (rows > 0u &&
+	       fzn_log_entries(log, journal, issuer, stream, rows, text, sizeof(text),
+	                       &len) != FZN_LOG_OK)
+		rows /= 2u;
 
-	for (i = 0; i < got; i++) {
-		if (fzn_log_body_text(rows[i]->body, rows[i]->body_len, text, sizeof(text))
-		    != FZN_LOG_OK) {
-			/* A BODY THAT WILL NOT RENDER IS SAID SO, not skipped.
-			 * A row missing from a list is indistinguishable from a
-			 * record that was never appended. */
-			body += QStringLiteral("%1  (unrenderable body)\n")
-			                .arg((qulonglong)rows[i]->seq);
-			continue;
-		}
-		body += QStringLiteral("%1  %2\n")
-		                .arg((qulonglong)rows[i]->seq)
-		                .arg(QString::fromLatin1(text));
-	}
-	entries_->setPlainText(body);
-
-	/*
-	 * THE SUMMARY IS WHERE THE MISSING ENTRIES ARE NAMED, and it is the
-	 * reason this widget takes a journal.
-	 *
-	 * `next` is the sequence this host wants, so everything below it was
-	 * received. Anything received and not held has been evicted -- GONE in
-	 * `fzn_log_get`'s vocabulary -- and a viewer that showed only what it
-	 * holds would present a shorter history as a complete one.
-	 */
-	if (got == 0) {
-		summary_->setText(next > 1u
-		                          ? QStringLiteral("nothing held; %1 received and evicted")
-		                                    .arg((qulonglong)(next - 1u))
-		                          : QStringLiteral("nothing held"));
+	/* THE SUMMARY IS ASKED FOR THE WINDOW THAT WAS SETTLED ON, not the one
+	 * that was wanted, or it would declare a number of rows that are not
+	 * on the screen. */
+	if (fzn_log_summary(log, journal, issuer, stream, rows, text, sizeof(text), &len) !=
+	    FZN_LOG_OK) {
+		summary_->setText(QStringLiteral("no log"));
+		entries_->setPlainText(QString());
 		return;
 	}
+	summary_->setText(trimmed(text));
 
-	if (first > 1u) {
-		summary_->setText(QStringLiteral("%1 to %2; %3 earlier evicted")
-		                          .arg((qulonglong)first)
-		                          .arg((qulonglong)last)
-		                          .arg((qulonglong)(first - 1u)));
+	if (fzn_log_entries(log, journal, issuer, stream, rows, text, sizeof(text), &len) !=
+	    FZN_LOG_OK) {
+		/* THE SUMMARY STAYS. It was rendered and it is the half that
+		 * says what has been lost; blanking it because the entries
+		 * would not fit would throw away the more important of the
+		 * two. Reached only if a zero-row render refuses, which the
+		 * loop above has already ruled out for every buffer that held
+		 * the summary. */
+		entries_->setPlainText(QStringLiteral("(entries could not be rendered)"));
 		return;
 	}
-
-	/* "complete" rather than "none evicted", so the word EVICTED appears
-	 * only when something was. A reader scanning for loss should not have
-	 * to read a negation, and a test asserting on the word should not be
-	 * satisfied by the line that says the opposite. */
-	summary_->setText(QStringLiteral("%1 to %2; complete")
-	                          .arg((qulonglong)first)
-	                          .arg((qulonglong)last));
+	entries_->setPlainText(trimmed(text));
 }
 
 QString fzn_log_view::summary_text() const

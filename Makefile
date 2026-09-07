@@ -702,11 +702,11 @@ else
 $(error FZN_GUI must be auto, 1 or 0 -- got "$(FZN_GUI)")
 endif
 
-GUI_SRCS := gui/trust_view.cpp gui/log_view.cpp gui/qr_view.cpp \
+GUI_SRCS := gui/trust_view.cpp gui/qr_view.cpp \
             gui/authz_view.cpp gui/capability_view.cpp
-GUI_HDRS := gui/trust_view.h gui/log_view.h gui/qr_view.h \
+GUI_HDRS := gui/trust_view.h gui/qr_view.h \
             gui/authz_view.h gui/capability_view.h
-GUI_TSRC := gui/test/trust_view_test.cpp gui/test/log_view_test.cpp \
+GUI_TSRC := gui/test/trust_view_test.cpp \
             gui/test/qr_view_test.cpp gui/test/authz_view_test.cpp \
             gui/test/capability_view_test.cpp
 
@@ -716,10 +716,14 @@ GUI_TSRC := gui/test/trust_view_test.cpp gui/test/log_view_test.cpp \
 # door to. Listed here rather than guarded inside the file, so a consumer that
 # asks for one and not the other simply does not get the form instead of
 # getting one that compiles and cannot check anything.
+#
+# THE LOG VIEW IS THE SAME SHAPE, settled by the copyright holder 2026-09-07.
+# sec 168: it does not compose a log's screen, `cli/log_print` does -- so the
+# summary wording has one implementation instead of two matched by hand.
 ifdef CLI_ON
-GUI_SRCS  += gui/config_view.cpp
-GUI_HDRS  += gui/config_view.h
-GUI_TSRC  += gui/test/config_view_test.cpp
+GUI_SRCS  += gui/config_view.cpp gui/log_view.cpp
+GUI_HDRS  += gui/config_view.h gui/log_view.h
+GUI_TSRC  += gui/test/config_view_test.cpp gui/test/log_view_test.cpp
 endif
 
 ifdef GUI_ON
@@ -747,12 +751,12 @@ CXXFLAGS_WARN := -std=c++17 -Wall -Wextra -Wpedantic
 CXXFLAGS   = $(CXXFLAGS_BUILD) $(CXXFLAGS_WARN)
 GUI_OBJS   := $(GUI_SRCS:%.cpp=$(BUILD_DIR)/%.o)
 TEST_BINS  += $(BUILD_DIR)/gui/test/trust_view_test \
-              $(BUILD_DIR)/gui/test/log_view_test \
               $(BUILD_DIR)/gui/test/qr_view_test \
               $(BUILD_DIR)/gui/test/authz_view_test \
               $(BUILD_DIR)/gui/test/capability_view_test
 ifdef CLI_ON
-TEST_BINS += $(BUILD_DIR)/gui/test/config_view_test
+TEST_BINS += $(BUILD_DIR)/gui/test/config_view_test \
+             $(BUILD_DIR)/gui/test/log_view_test
 endif
 endif
 
@@ -1833,8 +1837,10 @@ $(BUILD_DIR)/gui/test/trust_view_test: $(BUILD_DIR)/gui/test/trust_view_test.o \
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) -o $@
 
+# The view renders through cli/log_print now, so it links it. sec 168.
 $(BUILD_DIR)/gui/test/log_view_test: $(BUILD_DIR)/gui/test/log_view_test.o \
                                      $(BUILD_DIR)/gui/log_view.o \
+                                     $(BUILD_DIR)/cli/log_print.o \
                                      $(BUILD_DIR)/log/log.o \
                                      $(BUILD_DIR)/record/record.o \
                                      $(BUILD_DIR)/record/journal.o \
@@ -3432,7 +3438,7 @@ qtty:
 	fi; \
 	$(CXX) $(CXXFLAGS_BUILD) $(CXXFLAGS_WARN) $(QT_CFLAGS) $$qflags -I"$$scratch/include" \
 	       gui/test/qtty_render_test.cpp gui/trust_view.cpp gui/log_view.cpp \
-	       gui/qr_view.cpp $(BUILD_DIR)/qr/qr.o \
+	       gui/qr_view.cpp cli/log_print.c $(BUILD_DIR)/qr/qr.o \
 	       $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/log/log.o \
 	       $(BUILD_DIR)/record/journal.o $(BUILD_DIR)/record/record.o \
 	       $(BUILD_DIR)/constant_time/constant_time.o \

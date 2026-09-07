@@ -112,12 +112,23 @@ static void summary(struct sink *s, uint64_t first, uint64_t last, uint64_t next
 	put_str(s, "\n");
 }
 
-static void render(struct sink *s, uint64_t first, uint64_t last, uint64_t next,
-                   const fzn_log_entry_t **window, size_t got, int more_held)
+/* Which halves a render is producing. `fzn_log_print` asks for both, and asks
+ * for them in one pass, so the composed form IS the two halves rather than a
+ * third rendering that has to agree with them. */
+#define PART_SUMMARY 1u
+#define PART_ENTRIES 2u
+
+static void render(struct sink *s, unsigned parts, uint64_t first, uint64_t last,
+                   uint64_t next, const fzn_log_entry_t **window, size_t got,
+                   int more_held)
 {
 	size_t i;
 
-	summary(s, first, last, next, got, more_held);
+	if (parts & PART_SUMMARY)
+		summary(s, first, last, next, got, more_held);
+
+	if (!(parts & PART_ENTRIES))
+		return;
 
 	for (i = 0; i < got; i++) {
 		char text[FZN_LOG_TEXT_MAX];
@@ -142,9 +153,9 @@ static void render(struct sink *s, uint64_t first, uint64_t last, uint64_t next,
 	}
 }
 
-fzn_log_err_t fzn_log_print(const fzn_log_t *log, const fzn_journal_t *journal,
-                            const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
-                            size_t rows, char *out, size_t cap, size_t *len_out)
+static fzn_log_err_t emit(unsigned parts, const fzn_log_t *log, const fzn_journal_t *journal,
+                          const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
+                          size_t rows, char *out, size_t cap, size_t *len_out)
 {
 	/* The caller's window, bounded by what it asked for. FZN_LOG_PRINT_MAX
 	 * is sized from the same number, so a caller that used it fits. */
@@ -190,7 +201,7 @@ fzn_log_err_t fzn_log_print(const fzn_log_t *log, const fzn_journal_t *journal,
 
 	measure.out = NULL;
 	measure.used = 0;
-	render(&measure, first, last, next, window, got, more_held);
+	render(&measure, parts, first, last, next, window, got, more_held);
 
 	if (measure.used + 1u > cap) {
 		*len_out = measure.used + 1u;
@@ -199,9 +210,31 @@ fzn_log_err_t fzn_log_print(const fzn_log_t *log, const fzn_journal_t *journal,
 
 	write.out = out;
 	write.used = 0;
-	render(&write, first, last, next, window, got, more_held);
+	render(&write, parts, first, last, next, window, got, more_held);
 	out[write.used] = '\0';
 	*len_out = write.used;
 
 	return FZN_LOG_OK;
+}
+
+fzn_log_err_t fzn_log_print(const fzn_log_t *log, const fzn_journal_t *journal,
+                            const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
+                            size_t rows, char *out, size_t cap, size_t *len_out)
+{
+	return emit(PART_SUMMARY | PART_ENTRIES, log, journal, issuer, stream, rows, out, cap,
+	            len_out);
+}
+
+fzn_log_err_t fzn_log_summary(const fzn_log_t *log, const fzn_journal_t *journal,
+                              const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
+                              size_t rows, char *out, size_t cap, size_t *len_out)
+{
+	return emit(PART_SUMMARY, log, journal, issuer, stream, rows, out, cap, len_out);
+}
+
+fzn_log_err_t fzn_log_entries(const fzn_log_t *log, const fzn_journal_t *journal,
+                              const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
+                              size_t rows, char *out, size_t cap, size_t *len_out)
+{
+	return emit(PART_ENTRIES, log, journal, issuer, stream, rows, out, cap, len_out);
 }

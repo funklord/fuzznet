@@ -1123,11 +1123,11 @@ SABOTAGES = [
 		"the rendering is measured before anything is written so a short buffer leaves the caller's as it found it rather than holding a line that stops mid-escape",
 	),
 	(
-		"view-names-what-was-evicted",
-		"gui/log_view.cpp",
+		"log-print-names-what-was-evicted",
+		"cli/log_print.c",
 		"\tif (first > 1u) {\n",
 		"\tif (0) {\n",
-		"a log evicts by design, so a viewer that lists what it holds and stops presents a shorter history as a complete one -- sec 141, and the assertion that first caught this was too weak to",
+		"a log evicts by design, so a viewer that lists what it holds and stops presents a shorter history as a complete one -- sec 141; it moved here from gui/log_view.cpp with the wording in sec 168, and now guards both screens at once",
 	),
 	(
 		"catalog-tombstone-is-stored",
@@ -2431,6 +2431,24 @@ SABOTAGES = [
 		"\t\t*len_out = 0u;\n",
 		"a refusal must say how much room it wanted, or a caller has no way to "
 		"size and retry",
+	),
+	(
+		"log-view-shows-the-librarys-words",
+		"gui/log_view.cpp",
+		"\tsummary_->setText(trimmed(text));\n",
+		"\tsummary_->setText(QStringLiteral(\"%1 rows\").arg((qulonglong)rows));\n",
+		"the widget must SHOW cli/log_print's summary rather than have its own, "
+		"or one screen has two wordings again with nothing comparing them",
+	),
+	(
+		"log-view-declares-the-window-it-settled-on",
+		"gui/log_view.cpp",
+		"\tif (fzn_log_summary(log, journal, issuer, stream, rows, text, sizeof(text),"
+		" &len) !=\n",
+		"\tif (fzn_log_summary(log, journal, issuer, stream, FZN_LOG_VIEW_ROWS, text,"
+		" sizeof(text), &len) !=\n",
+		"a summary must describe the window that fit rather than the one that was "
+		"wanted, or a shortened view declares rows that are not on the screen",
 	),
 ]
 

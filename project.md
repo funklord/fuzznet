@@ -29779,3 +29779,78 @@ found a defect. **The reported line tells you which assertion fired first,
 not which assertions can fire**, and the two questions are answered by
 different commands. One sabotage, one report line, and five live assertions
 behind it.
+
+## 168. One wording for a log's screen, 2026-09-07
+
+sec 167 recorded a duplication and named two ways out. The copyright holder
+chose the first: **`gui/log_view` depends on FZN_CLI now**, and the summary
+wording lives once, in `cli/log_print.c`.
+
+The widget had composed both strings itself -- which sequences are held, how
+many were evicted, one line per entry -- in wording that matched the CLI's by
+hand. Two implementations of one screen, with nothing comparing them and no
+reason either author would look at the other file.
+
+### The halves, not the whole
+
+`cli/log_print` grew `fzn_log_summary` and `fzn_log_entries` beside
+`fzn_log_print`, which is now exactly those two in order. The widget needs
+them apart because the summary goes in a label and the entries in a text
+area, and one buffer cannot serve two widgets.
+
+**Splitting `fzn_log_print`'s output at the first newline was the obvious
+alternative and is worse.** It would make the widget a parser of a format --
+a new thing to get wrong rather than one thing fewer -- and it would break
+silently the day a summary needs two lines. The composed form being built
+FROM the halves is what makes the three impossible to disagree.
+
+### The assertion that keeps it true
+
+The suite asserts the widget's `summary_text()` equals what `fzn_log_summary`
+renders, and the same for the entries. That is a relationship rather than a
+table: it survives the wording changing, and it goes red the moment somebody
+composes a summary in the widget again. Asserting the words themselves would
+have been a third copy of them.
+
+This is what sec 167 could not offer. The duplication was recorded there as a
+gap precisely because nothing could check it; the fix is not that the words
+now match but that **there is only one place they can be written.**
+
+### A budget, because the honest bound is absurd
+
+`FZN_LOG_PRINT_MAX(256)` is **530561 bytes** -- every one of 512 body bytes
+can escape to four characters. That is the true worst case and nothing like
+the real one, and sizing a widget's buffer to it would spend half a megabyte
+to show a screenful of short lines.
+
+So the window adapts: a fixed 64 KiB, ask for 256 rows, halve on refusal
+until they fit. It terminates because the window strictly decreases and zero
+rows renders no entry lines at all.
+
+**This is what sec 167's refuse-and-say-what-was-needed contract bought**,
+and it was not designed for it. A renderer that truncated silently could not
+support an adaptive window at all, because the caller would never learn it
+had been shortened. What makes the shrinking safe is that the summary
+declares the window it settled on -- so the summary is asked for the window
+that FIT, not the one that was wanted, and a sabotage entry guards exactly
+that.
+
+Without a case for it the loop never runs: every other log in that suite
+holds four entries. The fixture is forty entries of 0xfe bodies, which escape
+four characters a byte, and it asserts the window was shortened as well as
+declared -- `lines_of(...) < 40`, or the case proves nothing.
+
+### Two smaller things the move turned up
+
+**A guard moved rather than died.** `view-names-what-was-evicted` sabotaged
+`if (first > 1u)` in the widget. That line is in `cli/log_print.c` now, so
+the entry is `log-print-names-what-was-evicted` and it guards both screens at
+once -- the widget's test fails too, because the widget shows those words.
+The harness found it by refusing to verify a stale entry.
+
+**Counting newlines was counting the wrong thing.** Two assertions read
+`entries_text().count('\n') == 3`. The widget's text no longer ends in a
+newline, because a trailing one is a blank row of the reader's screen, so
+three entries make two newlines. Lines and newlines differ by whether the
+last line is terminated, and the old form made the assertion depend on a
+property of the text area rather than on what was rendered.
