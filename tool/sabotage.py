@@ -2538,7 +2538,7 @@ SABOTAGES = [
 		"sweep-view-does-not-advance",
 		"gui/sweep_view.cpp",
 		"\tif (job && fzn_catalog_sweep_progress(job, &done, &total) == FZN_CATALOG_OK)\n",
-		"\tif (job && (void)fzn_catalog_sweep_advance((fzn_catalog_sweep_t *)job),\n"
+		"\tif (job && (fzn_catalog_sweep_advance((fzn_catalog_sweep_t *)job), 1) &&\n"
 		"\t    fzn_catalog_sweep_progress(job, &done, &total) == FZN_CATALOG_OK)\n",
 		"drawing a sweep must not advance its cursor: _advance is called AFTER "
 		"bytes are gone, so a view that called it records a removal that never "
