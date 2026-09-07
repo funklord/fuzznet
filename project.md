@@ -22921,6 +22921,39 @@ cannot be compared, and a capability id is the same thirty-two bytes with the
 same problem -- so there is one spelling of an identifier across this GUI
 rather than one per widget.
 
+### Both sabotages survived, and only one of them was my fault
+
+The section above was written, committed and pushed before the sabotages ran.
+Neither was caught. They failed differently and the difference is the point.
+
+**The unspelled guard was a bad case, and it is the sec 159 mistake again.**
+It compared a zeroed policy against `fzn_authz_requires(&cap, 0)` -- a policy
+with a CAPABILITY -- so the two read differently whatever the widget did about
+`spelled`, and deleting the unspelled branch left the case green. What a
+zeroed policy is mistaken FOR is an unguarded policy nothing reaches, which is
+what it degenerates to, and that is the comparison now. It catches the
+sabotage.
+
+**The other cannot be caught by behaviour at all, and that is a fact about the
+expressions rather than a gap.** `fzn_authz_origin_permitted` is
+`origin != FZN_ORIGIN_NONE && (origins & FZN_ORIGIN_BIT(origin))`, and the
+widget asks only about the three real origins -- so the call and the
+open-coded bitmask agree on every input it can produce. **A test comparing the
+screen against the library is comparing a copy of the rule against the rule.**
+
+The guard is real and it is STRUCTURAL: there must be one implementation of
+reachability, because the day the library's answer grows a condition -- as it
+already has one, for NONE -- a copy stops agreeing and nothing says so. So it
+is listed in EXPECTED_SURVIVORS with that argument, which is the honest
+treatment: the entry keeps the reasoning where a reader meets it, and the
+harness stops claiming to hold something it cannot.
+
+**Writing up a guard before breaking it is what produced both.** The prose was
+confident about two properties, one of which had no test and one of which had
+a test that could not fail. sec 159 learned the same thing eight sections ago
+and it did not transfer -- which is worth recording precisely because the
+lesson was already written down.
+
 ### What it does not show, and why that is not an omission
 
 A verdict. `fzn_authz_decide` needs a chain, a root, a signer, a revocation

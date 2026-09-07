@@ -2332,6 +2332,26 @@ SABOTAGES = [
 # how you ask the question again.
 EXPECTED_SURVIVORS = {
 	"manifest-sig-zero-sign",
+	# `authz-view-asks-the-library` CANNOT BE CAUGHT BY BEHAVIOUR, and that
+	# is a fact about the two expressions rather than a gap in the suite.
+	# sec 165.
+	#
+	# `fzn_authz_origin_permitted` is `origin != FZN_ORIGIN_NONE &&
+	# (origins & FZN_ORIGIN_BIT(origin))`, and the widget asks only about
+	# the three real origins -- so the call and the open-coded bitmask agree
+	# on every input the widget can produce. A test comparing the screen
+	# against the library compares a copy of the rule against the rule.
+	#
+	# THE GUARD IS STILL REAL AND IS STRUCTURAL: there must be ONE
+	# implementation of reachability, because the day the library's answer
+	# grows a condition -- as it already has one for FZN_ORIGIN_NONE -- a
+	# copy stops agreeing and nothing says so. It is kept as an entry so
+	# that a reader meets the argument, and listed here so the harness is
+	# not lying about holding it.
+	#
+	# It would become catchable if the widget ever showed a row for
+	# FZN_ORIGIN_NONE, which it deliberately does not.
+	"authz-view-asks-the-library",
 	# `seal-refused-build-wipes-frame` WAS HERE AND IS NOT ANY MORE, removed
 	# 2026-09-05 because the harness reported it CAUGHT. Kept as a comment
 	# rather than deleted, because the exemption predicted its own end and

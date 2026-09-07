@@ -111,12 +111,28 @@ int main(int argc, char **argv)
 		CHECK(!view.is_spelled(), "a zeroed policy claims to have been spelled");
 		{
 			const QString unspelled = view.requirement_text();
+			/* THE POLICY A ZEROED ONE DEGENERATES TO, which is the
+			 * comparison that matters and was not the first one
+			 * written.
+			 *
+			 * The first version compared the zeroed policy against
+			 * `fzn_authz_requires(&cap, 0)` -- a policy with a
+			 * CAPABILITY, so the two read differently whatever the
+			 * widget did about `spelled`, and deleting the
+			 * unspelled branch left the case green. A zeroed policy
+			 * has `guarded == 0` and `origins == 0`, so what it
+			 * would be mistaken for is an unguarded policy nothing
+			 * reaches -- and that is what this compares. */
+			fzn_authz_policy_t degenerate = fzn_authz_unguarded(0u);
+
+			view.show_policy(&degenerate);
+			CHECK(view.is_spelled(), "a spelled policy claims otherwise");
+			CHECK(view.requirement_text() != unspelled,
+			      "a policy nobody wrote reads exactly like an unguarded one "
+			      "nothing reaches, so a forgotten policy cannot be found");
 
 			view.show_policy(&deliberate);
 			CHECK(view.is_spelled(), "a spelled policy claims otherwise");
-			CHECK(view.requirement_text() != unspelled,
-			      "a policy nobody wrote and one written to refuse everything "
-			      "read the same, so a forgotten policy cannot be found");
 		}
 		/* Both reach nothing, which is the part that would have made
 		 * them look alike. */
