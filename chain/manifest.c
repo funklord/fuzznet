@@ -78,15 +78,13 @@ static int state_sound(const fzn_manifest_state_t *state)
  * means every pair looks satisfied and the deficit comes out empty. So the
  * store's integrity is judged here rather than inherited, which is the
  * distinction `fzn_revocation_admit` had to learn the same way. */
+/* THIS WAS THE THIRD COPY AND IT IS THE ONE THAT SET THE CONTRACT. sec 183:
+ * its NULL answer -- no store means no revocations known, which is an answer
+ * -- is what `fzn_revocation_store_sound` now says publicly, because it was
+ * the only one of the three that had thought about NULL at all. */
 static int store_sound(const fzn_revocation_store_t *store)
 {
-	if (!store)
-		return 1; /* no store means no revocations known, which is an answer */
-	if (store->used > store->capacity)
-		return 0;
-	if (store->used > 0 && !store->entries)
-		return 0;
-	return 1;
+	return fzn_revocation_store_sound(store);
 }
 
 /* Where this issuer's entry is, or `issuer_used` for one that is not

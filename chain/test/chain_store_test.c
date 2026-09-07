@@ -869,6 +869,57 @@ static void test_a_length_past_the_buffer_is_not_handed_out(void)
  * being a worse bug than the one it fixes: when every entry is LIVE the
  * refusal stands, because evicting a live grant would make which chain a
  * host holds depend on arrival order. */
+/*
+ * THE SOUNDNESS PREDICATE, AND THAT IT AGREES WITH THE GUARDS IT REPLACED.
+ *
+ * sec 183 made the rule public because every predicate here fails CLOSED on a
+ * store it cannot read, so none of them could be used to identify one. The
+ * risk in exposing it is that the public answer and the internal refusal
+ * drift, so this asserts the RELATIONSHIP rather than either alone: a store
+ * this calls unsound is a store `lookup` refuses.
+ */
+static void test_soundness_is_public_and_agrees_with_the_guards(void)
+{
+	fzn_chain_entry_t entries[2];
+	fzn_chain_store_t store;
+	const uint8_t *bytes = NULL;
+	size_t len = 0;
+	uint8_t root[FZN_PUBKEY_LEN];
+	uint8_t subject[FZN_PUBKEY_LEN];
+	fzn_cap_id_t cap;
+
+	memset(root, 0x11, sizeof(root));
+	memset(subject, 0x22, sizeof(subject));
+	memset(&cap, 0x33, sizeof(cap));
+
+	/* A NULL STORE IS SOUND. It holds nothing, which is an answer --
+	 * `chain/manifest.c` has said so since before this was public, and
+	 * that is where the contract came from. */
+	CHECK(fzn_chain_store_sound(NULL), "a null store was called unreadable");
+
+	REQUIRE(fzn_chain_store_init(&store, entries, 2) == FZN_CHAIN_OK, "init");
+	CHECK(fzn_chain_store_sound(&store), "a fresh store was called unreadable");
+
+	/* COUNTING MORE THAN IT HOLDS. */
+	store.used = store.capacity + 1u;
+	CHECK(!fzn_chain_store_sound(&store), "a store counting past its array was sound");
+	CHECK(fzn_chain_store_lookup(&store, root, &cap, subject, 0u, &bytes, &len) == 0,
+	      "lookup answered from a store the predicate calls unreadable");
+
+	/* A COUNT WITH NO ARRAY. */
+	REQUIRE(fzn_chain_store_init(&store, entries, 2) == FZN_CHAIN_OK, "re-init");
+	store.used = 1u;
+	store.entries = NULL;
+	CHECK(!fzn_chain_store_sound(&store), "a store with a count and no array was sound");
+	CHECK(fzn_chain_store_lookup(&store, root, &cap, subject, 0u, &bytes, &len) == 0,
+	      "lookup answered from a store with no array");
+
+	/* AND ZERO ENTRIES WITH NO ARRAY IS SOUND, which is the boundary the
+	 * condition turns on: nothing to walk is not the same as unreadable. */
+	store.used = 0u;
+	CHECK(fzn_chain_store_sound(&store), "an empty store with no array was called unreadable");
+}
+
 static void test_a_dead_entry_is_spent_before_a_live_chain_is_refused(void)
 {
 	struct fixture f;
@@ -978,6 +1029,7 @@ int main(void)
 	test_init_does_not_leave_the_callers_bytes();
 	test_a_length_past_the_buffer_is_not_handed_out();
 	test_a_dead_entry_is_spent_before_a_live_chain_is_refused();
+	test_soundness_is_public_and_agrees_with_the_guards();
 
 	printf("chain_store_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

@@ -2682,6 +2682,50 @@ static void test_a_repeated_grantor_is_entitled_from_its_first_hop(void)
  * 1 could be one behaviour rather than two, and a change collapsing them
  * would pass.
  */
+/*
+ * THE SOUNDNESS PREDICATE, AND THAT IT AGREES WITH THE GUARDS IT REPLACED.
+ * sec 183. `covers` answers 1 for an unreadable store and `known` answers 1
+ * as well -- both failing closed, which is right and which is why neither
+ * could identify one. This asserts the relationship: a store the predicate
+ * calls unsound is a store `covers` refuses to permit.
+ */
+static void test_soundness_is_public_and_agrees_with_the_guards(void)
+{
+	fzn_revocation_t entries[2];
+	fzn_revocation_store_t store;
+	uint8_t issuer[FZN_PUBKEY_LEN];
+	uint8_t grantee[FZN_PUBKEY_LEN];
+	fzn_cap_id_t cap;
+
+	memset(issuer, 0x41, sizeof(issuer));
+	memset(grantee, 0x42, sizeof(grantee));
+	memset(&cap, 0x43, sizeof(cap));
+	memset(entries, 0, sizeof(entries));
+
+	CHECK(fzn_revocation_store_sound(NULL), "a null store was called unreadable");
+
+	CHECK(fzn_revocation_store_init(&store, entries, 2) == FZN_CHAIN_OK, "init");
+	CHECK(fzn_revocation_store_sound(&store), "a fresh store was called unreadable");
+	CHECK(!fzn_revocation_covers(&store, issuer, &cap, grantee),
+	      "an empty store covered a triple");
+
+	store.used = store.capacity + 1u;
+	CHECK(!fzn_revocation_store_sound(&store), "a store counting past its array was sound");
+	CHECK(fzn_revocation_covers(&store, issuer, &cap, grantee),
+	      "covers did not fail closed on a store the predicate calls unreadable");
+
+	CHECK(fzn_revocation_store_init(&store, entries, 2) == FZN_CHAIN_OK, "re-init");
+	store.used = 1u;
+	store.entries = NULL;
+	CHECK(!fzn_revocation_store_sound(&store), "a store with a count and no array was sound");
+	CHECK(fzn_revocation_covers(&store, issuer, &cap, grantee),
+	      "covers did not fail closed on a store with no array");
+
+	store.used = 0u;
+	CHECK(fzn_revocation_store_sound(&store),
+	      "an empty store with no array was called unreadable");
+}
+
 static void test_the_operands_the_first_one_hides(void)
 {
 	struct fixture f;
@@ -2865,6 +2909,7 @@ int main(void)
 	test_the_suite_can_tell_pass_from_fail();
 
 	test_the_operands_the_first_one_hides();
+	test_soundness_is_public_and_agrees_with_the_guards();
 
 	printf("revocation_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

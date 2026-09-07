@@ -86,9 +86,23 @@ static int same(const fzn_revocation_t *entry, const uint8_t *issuer,
  * simplification deletes the wrong half. `fzn_revocation_admit` deliberately
  * keeps its OWN check with its own answer -- see the comment there, and note
  * that it is a different question with a different safe reply. */
+int fzn_revocation_store_sound(const fzn_revocation_store_t *store)
+{
+	if (!store)
+		return 1;
+	if (store->used > store->capacity)
+		return 0;
+	if (store->used > 0 && !store->entries)
+		return 0;
+	return 1;
+}
+
+/* The internal spelling, kept because every call site reads better as a
+ * refusal. It is the public predicate negated and nothing else -- sec 183
+ * moved the rule out so consumers could ask it too. */
 static int corrupt(const fzn_revocation_store_t *store)
 {
-	return store->used > store->capacity || (store->used > 0 && !store->entries);
+	return !fzn_revocation_store_sound(store);
 }
 
 fzn_chain_err_t fzn_revocation_open(const uint8_t *bytes, size_t len,

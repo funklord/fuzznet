@@ -19,19 +19,18 @@
  * revoked -- which `revocation.c` calls "the outage the whole withdrawal
  * design exists to end". The two are counted apart here and never summed.
  *
- * THE WALK IS BOUNDED BY `capacity`, NOT BY `used`, and that needs saying
- * because it looks like belt and braces and is not. A corrupt store is one
- * where `used` exceeds the array -- that is the definition the library's own
- * predicates use -- so walking `used` entries is exactly the read that goes
- * off the end. `fzn_revocation_covers` answers 1 for such a store and
- * `fzn_revocation_known` answers 1 as well, both failing closed, but NEITHER
- * IS A SOUNDNESS PREDICATE a consumer can ask: there is no public way to
- * separate "this store is corrupt" from "this triple is revoked".
+ * THE STORE IS ASKED WHETHER IT CAN BE READ, and the walk stops if it cannot.
+ * A corrupt store is one where `used` exceeds the array, so walking `used`
+ * entries is exactly the read that goes off the end.
  *
- * sec 166 found the same gap on `fzn_chain_store_t` and recorded it. This
- * widget does what a consumer must do meanwhile -- bound its own walk and SAY
- * the store is unreadable rather than draw a number from it. Adding the
- * predicate is a library change and the holder's.
+ * `fzn_revocation_covers` and `fzn_revocation_known` both answer 1 for such a
+ * store -- failing closed, which is right -- and neither can therefore be
+ * used to IDENTIFY one. sec 182 open-coded the test here for want of anything
+ * to ask; sec 183 added `fzn_revocation_store_sound` on the holder's
+ * instruction, and this asks it now.
+ *
+ * The pointer is checked first, because a NULL store is SOUND: it holds
+ * nothing, which is an answer, and `sound` is not a null check.
  *
  * NO Q_OBJECT AND THEREFORE NO moc, on sec 140's rule. It displays.
  */

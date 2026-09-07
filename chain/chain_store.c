@@ -18,9 +18,23 @@
  * no fetches a chain it may already have, which costs a round trip and
  * nothing else. `chain/manifest.h` makes the same distinction between its
  * own readers and says so out loud. */
+int fzn_chain_store_sound(const fzn_chain_store_t *store)
+{
+	if (!store)
+		return 1;
+	if (store->used > store->capacity)
+		return 0;
+	if (store->used > 0 && !store->entries)
+		return 0;
+	return 1;
+}
+
+/* The internal spelling, kept because every call site reads better as a
+ * refusal. It is the public predicate negated and nothing else -- sec 183
+ * moved the rule out so consumers could ask it too. */
 static int corrupt(const fzn_chain_store_t *store)
 {
-	return store->used > store->capacity || (store->used > 0 && !store->entries);
+	return !fzn_chain_store_sound(store);
 }
 
 /* The index of the entry for this triple, or `used` when there is none.

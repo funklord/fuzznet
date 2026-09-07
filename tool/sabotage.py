@@ -2571,10 +2571,11 @@ SABOTAGES = [
 	(
 		"revocation-view-refuses-an-unreadable-store",
 		"gui/revocation_view.cpp",
-		"\tif (store->used > store->capacity || (store->used > 0u && !store->entries)) {\n",
+		"\tif (!fzn_revocation_store_sound(store)) {\n",
 		"\tif (0) {\n",
 		"a store counting more entries than it holds is the read that goes off "
-		"the array, and the library has no predicate a consumer can ask instead",
+		"the array; sec 183 gave consumers a predicate to ask and this is the "
+		"widget asking it",
 	),
 	(
 		"revocation-view-says-when-something-was-restored",
@@ -2583,6 +2584,32 @@ SABOTAGES = [
 		"\tif (0) {\n",
 		"a capability that was cut off and is not any more is what somebody is "
 		"looking for, and it is invisible in a total",
+	),
+	(
+		"chain-store-sound-is-the-guards-rule",
+		"chain/chain_store.c",
+		"\tif (store->used > store->capacity)\n\t\treturn 0;\n",
+		"\tif (0)\n\t\treturn 0;\n",
+		"the public predicate must be the same rule the internal guards use, or "
+		"a consumer bounding a walk by it reads off the end of the array",
+	),
+	(
+		"chain-store-sound-answers-for-null",
+		"chain/chain_store.c",
+		"int fzn_chain_store_sound(const fzn_chain_store_t *store)\n{\n\tif (!store)\n\t\treturn 1;\n",
+		"int fzn_chain_store_sound(const fzn_chain_store_t *store)\n{\n\tif (!store)\n\t\treturn 0;\n",
+		"a null store holds nothing, which is an answer -- calling it unreadable "
+		"collapses an absent store into a corrupt one, which is chain/manifest.c's "
+		"long-standing contract",
+	),
+	(
+		"revocation-store-sound-is-the-guards-rule",
+		"chain/revocation.c",
+		"\tif (store->used > store->capacity)\n\t\treturn 0;\n",
+		"\tif (0)\n\t\treturn 0;\n",
+		"the public predicate must be the same rule covers and known fail closed "
+		"on, or the answer a consumer bounds its walk by disagrees with the "
+		"answer the library acts on",
 	),
 ]
 

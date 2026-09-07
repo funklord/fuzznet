@@ -657,6 +657,31 @@ int fzn_revocation_known(const fzn_revocation_store_t *store,
                           const fzn_cap_id_t *capability,
                           const uint8_t grantee[FZN_PUBKEY_LEN]);
 
+/* Whether this store can be scanned at all. Non-zero when it can.
+ *
+ * ASKED BY CONSUMERS, WHO HAD NO WAY TO ASK. project.md sec 183. Every
+ * predicate here fails CLOSED on a store it cannot read -- which is right,
+ * and which means none of them can be used to identify one: a caller cannot
+ * tell "this store is corrupt" from the answer it would have got anyway.
+ * `gui/revocation_view` had to open-code the test
+ * to bound their own walks, which is a third and fourth copy of a rule this
+ * library already held twice.
+ *
+ * WHAT IT MEANS: `used` does not exceed the array, and there is an array when
+ * `used` says there are entries. That is the same condition the internal
+ * guards have always used, and they call this now.
+ *
+ * A NULL STORE IS SOUND, and that is `chain/manifest.c`'s long-standing
+ * answer rather than a new choice -- "no store means no revocations known,
+ * which is an answer". A caller that wants to tell an ABSENT store from an
+ * UNREADABLE one checks the pointer, which it already holds; collapsing those
+ * two is the fail-open reading and this predicate does not invite it.
+ *
+ * IT IS NOT A NULL CHECK. Walking a store this returns non-zero for is safe
+ * only if the pointer is not NULL, so the order is: pointer, then this, then
+ * the walk. */
+int fzn_revocation_store_sound(const fzn_revocation_store_t *store);
+
 int fzn_revocation_covers(const fzn_revocation_store_t *store,
                            const uint8_t issuer[FZN_PUBKEY_LEN],
                            const fzn_cap_id_t *capability,

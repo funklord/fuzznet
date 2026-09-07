@@ -30966,3 +30966,59 @@ Three entries, one in force and two withdrawn, proves the counts partition.
 It does not prove the widget is reading the field -- a widget that always
 reported one in force would pass it. So there is a second store of nothing but
 withdrawals, requiring zero in force, and the pair is the assertion.
+
+## 183. A soundness predicate, and a rule that had three homes, 2026-09-07
+
+On the holder's instruction, after sec 182 recorded the gap for the second
+time. `fzn_chain_store_sound` and `fzn_revocation_store_sound` are public now.
+
+### Why no existing call could answer it
+
+Every predicate on both stores fails CLOSED on a store it cannot read, which
+is right: `fzn_revocation_covers` answers "revoked", `fzn_revocation_known`
+answers "fetch it", `fzn_chain_store_lookup` answers "nothing held",
+`fzn_chain_store_count` answers zero.
+
+**That is exactly what makes none of them usable to identify one.** Each
+returns the answer it would have returned anyway, so a consumer cannot
+separate "this store is corrupt" from "this triple is revoked" or "this
+store is empty". A widget that wants to bound its own walk has nothing to
+ask, which is why `gui/revocation_view` open-coded the test in sec 182 and
+`gui/capability_view` had to pass its store straight through in sec 166.
+
+### There were three implementations, and only one had thought about NULL
+
+    chain/chain_store.c   corrupt()      would dereference NULL
+    chain/revocation.c    corrupt()      would dereference NULL
+    chain/manifest.c      store_sound()  returns 1, "no store means no
+                                         revocations known, which is an answer"
+
+The two `corrupt()` are safe only because every caller checks the pointer
+first. `manifest.c`'s is the one that had faced the question, so **its answer
+became the contract**: a NULL store is SOUND. It holds nothing, and holding
+nothing is a fact rather than a fault.
+
+All three call the public predicate now. That is sec 170's move again --
+`fzn_chain_expired_at` took a comparison that lived in two places -- and this
+time it was three, with the third differing on the case the other two had
+never met.
+
+### The predicate is not a null check, and the order is the contract
+
+Walking a store this returns non-zero for is safe only if the pointer is not
+NULL. So: **pointer, then soundness, then the walk.** The header says it, and
+the widget does it in that order for the reason the header gives -- collapsing
+"absent" into "unreadable" is the fail-open reading, and it is the same
+collapse every one of these widgets has been built to refuse.
+
+### What the tests assert is the relationship, not the answer
+
+Exposing a rule that was internal risks the public answer and the internal
+refusal drifting apart. So neither suite checks the predicate alone: a store
+`sound` calls unreadable must be one `lookup` refuses and one `covers` fails
+closed on. That is a relationship, it survives the condition changing, and it
+is what would go red if somebody 'fixed' one and not the other.
+
+The boundary case is worth naming: **zero entries with no array is SOUND.**
+Nothing to walk is not the same as unreadable, and that is the line the
+condition turns on.

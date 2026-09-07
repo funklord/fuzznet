@@ -35,13 +35,13 @@ void fzn_revocation_view::show_store(const fzn_revocation_store_t *store)
 		return;
 	}
 
-	if (store->used > store->capacity || (store->used > 0u && !store->entries)) {
-		/* NOT A COUNT TO DRAW. This is the library's own definition of a
-		 * corrupt store, and walking `used` here is precisely the read
-		 * that runs off the array. Neither `covers` nor `known` can be
-		 * asked to distinguish it -- both answer 1 either way, failing
-		 * closed -- so the check is here until the library grows a
-		 * predicate. sec 182. */
+	if (!fzn_revocation_store_sound(store)) {
+		/* NOT A COUNT TO DRAW, AND THE LIBRARY'S ANSWER RATHER THAN
+		 * THIS WIDGET'S. sec 182 open-coded the test here because no
+		 * public predicate existed; sec 183 added one on the holder's
+		 * instruction, so this asks. The pointer is checked FIRST
+		 * because a null store is SOUND -- it holds nothing, which is
+		 * an answer -- and sound is not a null check. */
 		state_ = UNREADABLE;
 		state_label_->setText(QStringLiteral("the store cannot be read -- it "
 		                                     "counts more entries than it holds"));
