@@ -22870,6 +22870,80 @@ anything could have said otherwise.
 copyright holder should know the size before it happens rather than find it
 inside a commit about a widget.
 
+## 162. The loop closed, and the premise measured, 2026-09-07
+
+The copyright holder: "do the decode through qtty next." sec 161 asserted that
+the widget's modules land square on a cell grid and said plainly that this was
+shape rather than readability, with the end-to-end check named as the next
+thing. This is it.
+
+### Widget, terminal, decoder
+
+`make qtty QTTY_DIR=.. QUIRC_DIR=..` renders the QR widget onto a character
+grid, rebuilds the pixels a terminal would actually show, and hands them to
+quirc:
+
+    screen: 464x464 px from 58x29 cells of 8x16
+    quirc found 1 code(s)
+    decode: Success
+    payload off the terminal: "HELLO WORLD"  MATCHES
+
+**Read through qtty's API rather than its snapshot text.** `render_once` into
+a `CellBuffer` and `at(x, y)` per cell is a contract; parsing the snapshot's
+colour section would have made this tree depend on a text format that exists
+for people to read.
+
+**No assumption about module size.** Every CELL becomes its own rectangle of
+the reconstructed screen, so nothing in the check encodes how many cells a
+module is meant to be. If the widget got that wrong the picture is wrong and
+the decode fails, which is the whole point of not sampling module centres.
+
+### The premise turned out to be measurable, and it had been a claim
+
+sec 161 said "a module painted one cell each way arrives at a scanner
+stretched two to one, and a stretched code is one a decoder MAY refuse". That
+was reasoning. Rendering the same widget at one cell per module and asking
+quirc turns it into a fact:
+
+    one cell a module    232x464 px    quirc found 0 codes
+    two cells a module   464x464 px    decodes, payload matches
+
+So the stretched code is not merely riskier -- an independent decoder does not
+find it at all. **The design decision was necessary rather than prudent**, and
+that is worth the difference: a prudent choice invites somebody to simplify it
+later.
+
+### That control is what makes the pass mean anything
+
+Both are asserted, and the second is the positive control `evidence.md` asks
+for: *a check is untested until it has been seen to fail*, and a decode that
+succeeds tells you nothing until you know the same instrument refuses
+something. Here the thing it refuses is precisely the mistake the widget was
+written to avoid, which is the strongest form the control can take -- it fails
+the way the real defect would fail.
+
+### Conditional, so the shape half still runs alone
+
+`make qtty QTTY_DIR=..` checks shape and says so:
+
+    qtty: QUIRC_DIR unset -- the render is checked for SHAPE only.
+    qtty: add QUIRC_DIR=../fuzzypickles/quirc to decode it too.
+
+Adding the second directory compiles quirc into the same binary and turns the
+decode on. Two sibling checkouts is a lot to ask of a routine gate, and this
+one is opt-in twice over -- but a target that silently did less when a
+directory was missing would be `evidence.md`'s vacuous pass with a
+configuration switch, so it says which of the two it did.
+
+**84 checks against qtty `1c465d8`**, up from 82 -- the decode and its
+control.
+
+**quirc is C and had to be compiled as C.** It uses `new` as a variable name,
+which a C++ compiler refuses, so the Makefile builds those four objects with
+`$(CC)` and the header is wrapped in `extern "C"`. Worth a line because the
+error it produces -- `expected unqualified-id before 'new'` -- reads like a
+defect in quirc rather than a language mismatch.
+
 ## 161. The QR widget, and a cell that is not square, 2026-09-07
 
 The copyright holder: "do the qr widget next." sec 160 built the encoder and

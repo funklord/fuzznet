@@ -38,6 +38,15 @@ extern "C" {
 }
 
 #include <qtty/grid.h>
+#ifdef FZN_HAVE_QUIRC
+#include <qtty/application.h>
+#include <qtty/cell.h>
+#include <qtty/color.h>
+#include <QColor>
+extern "C" {
+#include <quirc.h>
+}
+#endif
 #include <qtty/testing.h>
 
 #include <QApplication>
@@ -104,6 +113,83 @@ static void check_at(int ok, int line, const char *what)
 }
 
 #define CHECK(cond, what) check_at((cond) ? 1 : 0, __LINE__, (what))
+
+#ifdef FZN_HAVE_QUIRC
+/* A cell's background as a grey level, which is what carries a QR module: the
+ * code is filled rectangles and has no glyphs at all. */
+static int cell_grey(const Qtty::Cell &c)
+{
+	if (c.bg.kind() == Qtty::Color::Rgb) {
+		QColor q = QColor::fromRgba(c.bg.value());
+		return qGray(q.red(), q.green(), q.blue());
+	}
+	if (c.bg.kind() == Qtty::Color::Indexed)
+		return c.bg.index() == 0 ? 0 : 255;
+	/* The terminal's own colour, which for a code drawn on a painted quiet
+	 * zone is the light one. */
+	return 255;
+}
+
+/* Render `view` at `cols` by `rows` cells, rebuild the pixels a terminal
+ * would show, and ask quirc what it reads. Returns 1 when the payload comes
+ * back whole, 0 for anything else -- no code found, no decode, or a payload
+ * that differs. */
+static int decodes_off_a_terminal(fzn_qr_view &view, int cols, int rows, const char *want)
+{
+	const int cw = Qtty::GridMetrics::cw();
+	const int ch = Qtty::GridMetrics::ch();
+	struct quirc *q;
+	struct quirc_code code;
+	struct quirc_data data;
+	uint8_t *image;
+	int w = cols * cw;
+	int h = rows * ch;
+	int ok = 0;
+	int cx;
+	int cy;
+
+	view.setAttribute(Qt::WA_DontShowOnScreen);
+	view.resize(Qtty::GridMetrics::cells(cols, rows));
+	view.show();
+	QCoreApplication::processEvents();
+
+	Qtty::CellBuffer buf(cols, rows);
+	Qtty::render_once(view, buf);
+
+	q = quirc_new();
+	if (!q || quirc_resize(q, w, h) < 0) {
+		if (q)
+			quirc_destroy(q);
+		return 0;
+	}
+	image = quirc_begin(q, &w, &h);
+	for (cy = 0; cy < rows; cy++) {
+		for (cx = 0; cx < cols; cx++) {
+			int grey = cell_grey(buf.at(cx, cy));
+			int py;
+
+			for (py = 0; py < ch; py++) {
+				int px;
+
+				for (px = 0; px < cw; px++)
+					image[(cy * ch + py) * w + cx * cw + px] =
+					        (uint8_t)grey;
+			}
+		}
+	}
+	quirc_end(q);
+
+	if (quirc_count(q) == 1) {
+		quirc_extract(q, 0, &code);
+		if (quirc_decode(&code, &data) == QUIRC_SUCCESS &&
+		    data.payload_len == (int)strlen(want) &&
+		    memcmp(data.payload, want, strlen(want)) == 0)
+			ok = 1;
+	}
+	quirc_destroy(q);
+	return ok;
+}
+#endif
 
 /* Render one widget and hand back what the cells hold, glyphs only. */
 static QString rendered(QWidget &w, int cols, int rows)
@@ -381,6 +467,48 @@ int main(int argc, char **argv)
 			      "landing on cell boundaries");
 		}
 	}
+
+#ifdef FZN_HAVE_QUIRC
+	/*
+	 * THE LOOP CLOSED: widget, terminal, independent decoder. sec 162.
+	 *
+	 * Everything above asserts SHAPE, and sec 160 is the standing reminder
+	 * that a QR code can satisfy every shape assertion and decode as
+	 * nothing. This renders the widget onto a character grid, rebuilds the
+	 * pixels a terminal would actually show, and hands them to quirc.
+	 *
+	 * NO ASSUMPTION ABOUT MODULE SIZE. Each CELL becomes its own rectangle
+	 * of the reconstructed screen, so nothing here encodes how many cells a
+	 * module is meant to be -- if the widget got that wrong, the picture is
+	 * wrong and the decode fails, which is the point.
+	 *
+	 * AND THE STRETCHED CASE IS THE CONTROL. At one cell per module the
+	 * code is twice as tall as it is wide, and quirc finds no code at all.
+	 * That is what makes the square-module design a measurement rather than
+	 * a reasonable-sounding claim, and it is why the pass above means
+	 * something.
+	 */
+	{
+		fzn_qr_view view;
+		const char *want = "HELLO WORLD";
+		int across;
+		int wide;
+		int narrow;
+
+		view.show_text(QString::fromLatin1(want), FZN_QR_LEVEL_L);
+		across = view.modules_across() + 2 * (int)FZN_QR_QUIET;
+
+		wide = decodes_off_a_terminal(view, across * 2, across, want);
+		narrow = decodes_off_a_terminal(view, across, across, want);
+
+		CHECK(wide == 1,
+		      "a QR code rendered two cells to a module did not decode off the "
+		      "terminal, so the widget draws something a scanner cannot read");
+		CHECK(narrow == 0,
+		      "a QR code rendered ONE cell to a module decoded anyway, so the "
+		      "control cannot fail and the square-module design is untested");
+	}
+#endif
 
 	/* The suite can tell pass from fail. */
 	{

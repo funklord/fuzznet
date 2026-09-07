@@ -3336,13 +3336,30 @@ qtty:
 		exit 1; }; \
 	test -f "$$scratch/lib/libqtty.a" || { \
 		echo "qtty: the build reported success and produced no libqtty.a"; exit 1; }; \
-	$(CXX) $(CXXFLAGS_BUILD) $(CXXFLAGS_WARN) $(QT_CFLAGS) -I"$$scratch/include" \
+	qflags=; qobjs=; \
+	if [ -n "$(QUIRC_DIR)" ]; then \
+		test -f "$(QUIRC_DIR)/lib/quirc.h" || { \
+			echo "qtty: no quirc.h under $(QUIRC_DIR)/lib"; exit 1; }; \
+		mkdir -p "$$scratch/quirc"; \
+		for f in quirc decode identify version_db; do \
+			$(CC) $(CFLAGS) -I"$(QUIRC_DIR)/lib" -c \
+			      "$(QUIRC_DIR)/lib/$$f.c" -o "$$scratch/quirc/$$f.o"; \
+		done; \
+		qflags="-DFZN_HAVE_QUIRC -I$(QUIRC_DIR)/lib"; \
+		qobjs="$$scratch/quirc/quirc.o $$scratch/quirc/decode.o \
+		       $$scratch/quirc/identify.o $$scratch/quirc/version_db.o -lm"; \
+		echo "qtty: with quirc, so the render is DECODED as well as shaped"; \
+	else \
+		echo "qtty: QUIRC_DIR unset -- the render is checked for SHAPE only."; \
+		echo "qtty: add QUIRC_DIR=../fuzzypickles/quirc to decode it too."; \
+	fi; \
+	$(CXX) $(CXXFLAGS_BUILD) $(CXXFLAGS_WARN) $(QT_CFLAGS) $$qflags -I"$$scratch/include" \
 	       gui/test/qtty_render_test.cpp gui/trust_view.cpp gui/log_view.cpp \
 	       gui/qr_view.cpp $(BUILD_DIR)/qr/qr.o \
 	       $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/log/log.o \
 	       $(BUILD_DIR)/record/journal.o $(BUILD_DIR)/record/record.o \
 	       $(BUILD_DIR)/constant_time/constant_time.o \
-	       "$$scratch/lib/libqtty.a" $(QT_LIBS) -o "$$scratch/render_test"; \
+	       "$$scratch/lib/libqtty.a" $$qobjs $(QT_LIBS) -o "$$scratch/render_test"; \
 	"$$scratch/render_test"
 
 schema:
