@@ -29926,3 +29926,94 @@ nothing and bounds everything. They are stack allocations the compiler cannot
 size. Nothing gates on warnings, which is why two years of `make check`
 output could carry them unread. Not fixed here; it is not this change's
 business and it wants its own.
+
+## 170. The variable length arrays in qr.c, 2026-09-07
+
+sec 169 noticed them and left them, being another change's business. They are
+these two, in `fzn_qr_encode`:
+
+    uint8_t stream[TOTAL_CODEWORDS[FZN_QR_VERSION_MAX]];
+    uint8_t interleaved[TOTAL_CODEWORDS[FZN_QR_VERSION_MAX]];
+
+`TOTAL_CODEWORDS` is a `static const uint16_t[]`, and **a `const` array is not
+a constant expression in C.** So both are VLAs: stack allocations whose size
+the compiler cannot check, in a library whose whole discipline is that it
+allocates nothing and bounds everything. They have been there since sec 160
+and `-Wvla` has printed on every build since.
+
+### Why a warning survived four months of green gates
+
+**Nothing in this tree gates on warnings.** `make check` runs 161 suites, a
+style gate, a sabotage harness, an enum gate, a status gate and an
+installcheck, and not one of them reads a compiler diagnostic. So the two
+lines printed on every build, inside output nobody greps for the word
+"warning", and a suite that passes says nothing about them.
+
+That is `evidence.md`'s vacuous pass from an angle it does not list: not a
+check that inspected nothing, but a **fact with no check pointed at it at
+all.** The gates were all working.
+
+### The fix, and why the constant is not trusted
+
+`QR_CODEWORDS_MAX` is 655, which is version 15's entry and the largest in the
+table. That is **a typed constant which has to equal a table entry**, and
+`evidence.md` is explicit that such a value has no remedy in re-measurement:
+every later reading of it agrees with itself, because the loop is closed.
+
+So it is checked at the point of use rather than trusted:
+
+    if (TOTAL_CODEWORDS[version] > QR_CODEWORDS_MAX)
+            return FZN_QR_ERR_MALFORMED;
+
+One comparison. Extending the table past version 15 without moving the
+constant now refuses instead of overflowing two stack buffers -- which is
+precisely the failure the VLA was concealing, by silently growing the frame
+to fit whatever the table said.
+
+The value itself was derived from the table by a script rather than read off
+the line, which also confirmed two things worth knowing: the table has
+exactly `FZN_QR_VERSION_MAX + 1` entries, and its last entry is its largest.
+Neither was obvious and the bound depends on both.
+
+### The suite had never made the largest code
+
+The guard cannot fire while the table is right, so its only test is the
+sabotage -- and the sabotage only bites if something encodes a version-15
+code. **Nothing did.** Every successful case in `qr_test.c` was a small
+version; the largest payload it used was one it expected to be REFUSED. So
+the buffers this bound sizes had never been filled by the suite at all, and a
+bound too small for them would have gone unnoticed exactly as the VLA did.
+
+There is a case now, and it searches for the payload length that reaches
+version 15 rather than writing one down -- a written length is another
+constant that must agree with the capacity tables, with nothing to check that
+it still does.
+
+### What is left, and a measurement that was nearly wrong
+
+After the fix the library builds with **zero warnings at `-Os`** -- 64
+objects, GUI and CLI on. This section said exactly that and stopped, and it
+would have been a true sentence answering the wrong question.
+
+`make check` also builds a **sanitized** tree at `-Og`, and there `qr/qr.c`
+still emits two: `-Wsign-conversion` in `place_data` and `draw_format`, on
+expressions the `-Os` build folds away before the check runs. **The warning
+set is a property of the optimisation level, not only of the source** --
+`evidence.md`'s "a gate's verdict can be a property of the toolchain" arriving
+in a place it does not list. A clean `-Os` build is not evidence about the
+tree; it is evidence about one arrangement of it, and this file has now made
+that mistake in the same section that was written to describe an unread
+diagnostic.
+
+So eleven remain, not nine, and none are the VLAs:
+
+    tool/consumer_check.c        4   a shadowed local named `store`
+    qr/test/qr_quirc_check.c     5   sign conversion, via `make qrcheck` only
+    qr/qr.c                      2   sign conversion, at -Og and not at -Os
+
+Eleven is small enough that a warnings gate is now possible, which it was not
+while the VLAs were in the list. **Whether to add one is not this change's
+call** -- it would make every future warning a build failure, which is a
+convention change rather than a fix, and `working-practice.md` says those are
+not adjusted in passing. It would also have to say which arrangement it
+gates, because the two `qr.c` lines above show that answer differs.

@@ -10,6 +10,24 @@
 static const uint16_t TOTAL_CODEWORDS[] = { 0,  26,  44,  70,  100, 134, 172, 196,
                                             242, 292, 346, 404, 466, 532, 581, 655 };
 
+/*
+ * The largest entry above, which is version 15's.
+ *
+ * IT IS A MACRO BECAUSE A `const` ARRAY IS NOT A CONSTANT EXPRESSION IN C.
+ * `uint8_t stream[TOTAL_CODEWORDS[FZN_QR_VERSION_MAX]]` therefore declared a
+ * VARIABLE LENGTH ARRAY -- a stack allocation whose size the compiler cannot
+ * check, in a library whose whole discipline is that it allocates nothing and
+ * bounds everything. `-Wvla` had been saying so on every build since sec 160
+ * and nothing gates on warnings, so it went unread. project.md sec 170.
+ *
+ * A TYPED CONSTANT THAT MUST EQUAL A TABLE ENTRY IS AN INVENTED VALUE, and
+ * every later measurement of it agrees with itself. So it is not trusted:
+ * `fzn_qr_encode` compares the table against it before using the buffers it
+ * sizes. That costs one comparison, and it turns what a grown table would
+ * otherwise cause -- two buffers overflowing on the stack -- into a refusal.
+ */
+#define QR_CODEWORDS_MAX 655u
+
 /* Per (version, level): error-correction codewords in every block, the number
  * of blocks in group 1, and the number in group 2. Group 2's blocks each hold
  * one data codeword more than group 1's, which is how the standard divides a
@@ -589,8 +607,8 @@ static unsigned penalty(const uint8_t *m, unsigned size)
 fzn_qr_err_t fzn_qr_encode(const char *text, size_t text_len, fzn_qr_level_t level,
                            uint8_t *out, size_t out_cap, size_t *size_out)
 {
-	uint8_t stream[TOTAL_CODEWORDS[FZN_QR_VERSION_MAX]];
-	uint8_t interleaved[TOTAL_CODEWORDS[FZN_QR_VERSION_MAX]];
+	uint8_t stream[QR_CODEWORDS_MAX];
+	uint8_t interleaved[QR_CODEWORDS_MAX];
 	uint8_t ecbuf[FZN_QR_VERSION_MAX * 4u][31];
 	uint8_t work[FZN_QR_MODULES_MAX];
 	uint8_t best[FZN_QR_MODULES_MAX];
@@ -617,6 +635,14 @@ fzn_qr_err_t fzn_qr_encode(const char *text, size_t text_len, fzn_qr_level_t lev
 	version = fzn_qr_version_for(text, text_len, level);
 	if (version == 0)
 		return FZN_QR_ERR_TOO_LONG;
+	/* THE TABLE MUST FIT THE BUFFERS, checked rather than assumed. See
+	 * QR_CODEWORDS_MAX: extending TOTAL_CODEWORDS past version 15 without
+	 * moving the constant refuses here instead of overflowing `stream` and
+	 * `interleaved`, which is the failure a VLA was hiding by growing the
+	 * frame to suit. */
+	if (TOTAL_CODEWORDS[version] > QR_CODEWORDS_MAX)
+		return FZN_QR_ERR_MALFORMED;
+
 	size = 17u + 4u * version;
 	*size_out = size;
 	if (out_cap < (size_t)size * size)

@@ -138,6 +138,37 @@ int main(void)
 		      "lowercase did not cost a version, so the mode is not being chosen");
 	}
 
+	/* THE LARGEST CODE THIS LIBRARY CLAIMS TO MAKE, ACTUALLY MADE.
+	 *
+	 * QR_CODEWORDS_MAX in qr.c is sized for version 15's 655 codewords, and
+	 * until sec 170 nothing here encoded one: every successful case was a
+	 * small version, so the buffers that bound holds were never filled and
+	 * a bound too small for them would have gone unnoticed. The length is
+	 * searched for rather than written down, because a written one is a
+	 * constant that must agree with the capacity tables and nothing would
+	 * check that it still did. */
+	{
+		static char big[3000];
+		size_t at = 0;
+		size_t sized = 0;
+		int found = 0;
+
+		memset(big, 'A', sizeof(big));
+		for (at = 1u; at < sizeof(big); at++)
+			if (fzn_qr_version_for(big, at, FZN_QR_LEVEL_L) ==
+			    FZN_QR_VERSION_MAX) {
+				found = 1;
+				break;
+			}
+		CHECK(found, "no payload length reaches the largest version, so the top "
+		             "of the range is untested");
+		CHECK(fzn_qr_encode(big, at, FZN_QR_LEVEL_L, modules, sizeof(modules),
+		                    &sized) == FZN_QR_OK,
+		      "the largest version this library encodes would not encode");
+		CHECK(sized == FZN_QR_SIZE_MAX,
+		      "the largest version did not produce the largest size");
+	}
+
 	/* REFUSALS. A payload nothing holds, and a buffer too small, are
 	 * different answers and a caller acts on them differently. */
 	{

@@ -2450,6 +2450,15 @@ SABOTAGES = [
 		"a summary must describe the window that fit rather than the one that was "
 		"wanted, or a shortened view declares rows that are not on the screen",
 	),
+	(
+		"qr-codewords-bound-is-checked-not-trusted",
+		"qr/qr.c",
+		"#define QR_CODEWORDS_MAX 655u\n",
+		"#define QR_CODEWORDS_MAX 654u\n",
+		"the constant sizing the codeword buffers must be compared against the "
+		"table rather than trusted to match it, since nothing else can catch a "
+		"typed value that has to equal a table entry",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so
