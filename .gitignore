@@ -46,6 +46,7 @@
 /gui/test/log_view_test
 /gui/test/qr_view_test
 /gui/test/authz_view_test
+/gui/test/capability_view_test
 /gui/test/config_view_test
 /claim/test/claim_file_test
 /blob/test/blob_test

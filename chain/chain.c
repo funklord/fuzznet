@@ -504,6 +504,15 @@ fzn_chain_err_t fzn_chain_delegate(const fzn_chain_hop_t *hops, size_t hop_count
  * The fallback then lives after the switch, where it catches a value that is
  * not an enumerator at all -- which no amount of compiler help can rule out,
  * since the argument may have come from a cast or from the wire. */
+int fzn_chain_expired_at(const fzn_chain_t *chain, uint64_t now)
+{
+	if (!chain)
+		return 0;
+	/* COMPARED, NOT COMPUTED ON -- FZN_NO_EXPIRY is 0. The header says
+	 * what dropping the first half costs. */
+	return chain->expires_at != FZN_NO_EXPIRY && chain->expires_at <= now;
+}
+
 const char *fzn_chain_err_str(fzn_chain_err_t err)
 {
 	switch (err) {

@@ -58,10 +58,10 @@ static size_t find_entry(const fzn_chain_store_t *store, const uint8_t *root,
  * the oldest would be a second pass to pick between them, and the array
  * order is deterministic, so a test can say which one goes.
  *
- * AN UNEXPIRING CHAIN IS NEVER DEAD, which is the same comparison `lookup`
- * makes and for the same reason: FZN_NO_EXPIRY is 0, so arithmetic on it
- * rather than a test against it would make every unexpiring chain the
- * first thing evicted. */
+ * AN UNEXPIRING CHAIN IS NEVER DEAD. That is `fzn_chain_expired_at`'s
+ * rule, and it lives there rather than here BECAUSE this site and `lookup`
+ * both used to spell it out -- two copies of a comparison whose naive form
+ * evicts every unexpiring chain first. */
 static size_t find_expired(const fzn_chain_store_t *store, uint64_t now)
 {
 	size_t at;
@@ -69,7 +69,7 @@ static size_t find_expired(const fzn_chain_store_t *store, uint64_t now)
 	for (at = 0; at < store->used; at++) {
 		const fzn_chain_t *c = &store->entries[at].chain;
 
-		if (c->expires_at != FZN_NO_EXPIRY && c->expires_at <= now)
+		if (fzn_chain_expired_at(c, now))
 			return at;
 	}
 	return store->used;
@@ -217,10 +217,9 @@ int fzn_chain_store_lookup(const fzn_chain_store_t *store, const uint8_t root[FZ
 	if (e->len > FZN_CHAIN_MAX_LEN)
 		return 0;
 	/* EXPIRY IS THE JUDGEMENT THIS FILE MAKES ABOUT A CHAIN'S CONTENTS,
-	 * and it refuses. A hop
-	 * with no expiry does not constrain the minimum, which is why
-	 * FZN_NO_EXPIRY is compared rather than arithmetic being done on it. */
-	if (e->chain.expires_at != FZN_NO_EXPIRY && e->chain.expires_at <= now)
+	 * and it refuses. The comparison itself is `fzn_chain_expired_at`'s,
+	 * which is where the sentinel rule is stated once. */
+	if (fzn_chain_expired_at(&e->chain, now))
 		return 0;
 
 	*out_bytes = e->bytes;

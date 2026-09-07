@@ -531,6 +531,32 @@ typedef struct fzn_chain {
 	uint64_t expires_at;
 } fzn_chain_t;
 
+/* Whether this chain's expiry has passed at `now`. Non-zero when it has.
+ *
+ * ONE HOME FOR A COMPARISON THAT WAS WRITTEN TWICE. `chain_store.c` made it
+ * in `find_expired` and again in `lookup`, each carrying its own paragraph
+ * about the sentinel, and the eviction site said in as many words that it
+ * was "the same comparison `lookup` makes". A rule stated twice is a rule
+ * that can drift into disagreeing with itself, and `gui/capability_view.h`
+ * was about to be the third writer of it.
+ *
+ * THE SENTINEL IS COMPARED, NEVER COMPUTED ON. FZN_NO_EXPIRY is 0, so the
+ * obvious `expires_at <= now` is not a weaker form of this test but an
+ * INVERTED one: it reports every chain that never expires as the most
+ * expired thing a host holds. A rule whose naive spelling gives the
+ * opposite answer on one whole class of input is worth a function rather
+ * than a comment asking each caller to remember.
+ *
+ * IT ANSWERS ABOUT EXPIRY AND NOTHING ELSE. Revocation is a separate
+ * question with a separate store, and a chain this returns 0 for may still
+ * be revoked, unverified, or not required in the first place -- see
+ * `fzn_chain_store_lookup` on why finding a chain is not authorisation.
+ *
+ * A NULL chain has NOT expired, because a caller holding no chain has
+ * nothing that could have run out. Whether it holds one is a different
+ * question, and one it already knows the answer to. */
+int fzn_chain_expired_at(const fzn_chain_t *chain, uint64_t now);
+
 /* One thing a host knows to be revoked: a capability withdrawn from a key.
  *
  * This is the VERIFIED form -- what a host has already decided to believe,

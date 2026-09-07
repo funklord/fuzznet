@@ -1948,7 +1948,7 @@ SABOTAGES = [
 	(
 		"chain-store-evicts-only-the-dead",
 		"chain/chain_store.c",
-		"\t\tif (c->expires_at != FZN_NO_EXPIRY && c->expires_at <= now)\n"
+		"\t\tif (fzn_chain_expired_at(c, now))\n"
 		"\t\t\treturn at;\n",
 		"\t\t(void)now;\n\t\treturn at;\n",
 		"eviction spends a dead entry and never a live one, or which chain a "
@@ -1975,7 +1975,7 @@ SABOTAGES = [
 	(
 		"chain-store-expiry",
 		"chain/chain_store.c",
-		"\tif (e->chain.expires_at != FZN_NO_EXPIRY && e->chain.expires_at <= now)\n"
+		"\tif (fzn_chain_expired_at(&e->chain, now))\n"
 		"\t\treturn 0;\n",
 		"\t(void)now;\n",
 		"an expired chain must not be handed back, since a caller that forgot "
@@ -2323,6 +2323,46 @@ SABOTAGES = [
 		"\tif (0) {\n",
 		"a policy nobody spelled must not read like one written to refuse "
 		"everything, or a configuration fault cannot be found",
+	),
+	(
+		"chain-expired-at-compares-the-sentinel",
+		"chain/chain.c",
+		"\treturn chain->expires_at != FZN_NO_EXPIRY && chain->expires_at <= now;\n",
+		"\treturn chain->expires_at <= now;\n",
+		"FZN_NO_EXPIRY is 0, so dropping the comparison against it does not "
+		"weaken the test but inverts it for every chain that never expires",
+	),
+	(
+		"capability-view-revoked-asks-covers",
+		"gui/capability_view.cpp",
+		"\tif (fzn_revocation_covers(revocations, chain->root, &chain->capability,\n",
+		"\tif (fzn_revocation_known(revocations, chain->root, &chain->capability,\n",
+		"revoked is the authorization question and `known` is the replication "
+		"one; asking the wrong one reports a restored capability as revoked",
+	),
+	(
+		"capability-view-expiry-asks-the-library",
+		"gui/capability_view.cpp",
+		"\tif (fzn_chain_expired_at(chain, now)) {\n",
+		"\tif (chain->expires_at <= now) {\n",
+		"the widget must ASK whether a chain has expired rather than comparing, "
+		"or the sentinel rule has a second home that can disagree",
+	),
+	(
+		"capability-view-expired-and-revoked-differ",
+		"gui/capability_view.cpp",
+		"\t\tstate_label_->setText(QStringLiteral(\"expired\"));\n",
+		"\t\tstate_label_->setText(QStringLiteral(\"revoked by the issuer\"));\n",
+		"a schedule running out and somebody's decision about this key must "
+		"not read alike, or a reader cannot tell which happened",
+	),
+	(
+		"capability-view-revocation-wins-over-expiry",
+		"gui/capability_view.cpp",
+		"\tif (fzn_chain_expired_at(chain, now)) {\n\t\tstate_ = EXPIRED;",
+		"\tif (fzn_chain_expired_at(chain, now) || 1) {\n\t\tstate_ = EXPIRED;",
+		"a chain that expired and was also revoked must show the revocation, "
+		"which is the half somebody may need to act on",
 	),
 ]
 

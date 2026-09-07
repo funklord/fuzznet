@@ -29545,3 +29545,83 @@ noticed to be at risk.
 **Not measured.** What "mature" means is the holder's bar and was not
 stated, so nothing here is a list of things to finish. No timing is
 implied by the ordering either.
+
+## 166. The capabilities view, and a rule that was written twice, 2026-09-07
+
+`gui/capability_view.{h,cpp}` shows one capability a host holds and what
+state it is in. It is the last of the objects sec 139 named -- QR codes,
+config, permissions, capabilities, log views -- and it follows sec 165's
+rule: it renders the library's answers and computes none.
+
+Two of those answers were the whole of the work.
+
+### The rule that had two homes
+
+A chain is expired when `expires_at != FZN_NO_EXPIRY && expires_at <= now`,
+and **`FZN_NO_EXPIRY` is 0**. So the obvious shortening of that test is not
+a weaker version of it. It is an inverted one for a whole class of input:
+`expires_at <= now` reports every chain that never expires as the most
+expired thing a host holds.
+
+`chain_store.c` made the comparison twice -- in `find_expired` and in
+`lookup` -- each site carrying its own paragraph about the sentinel, and the
+eviction one saying in as many words that it was "the same comparison
+`lookup` makes". Two copies of a rule, each with a comment explaining a trap
+that the other copy also had to avoid.
+
+The widget would have been the third writer. So the rule moved into
+`fzn_chain_expired_at` in `chain/chain.h`, both existing sites now call it,
+and their comments point at it instead of restating it. **The GUI is what
+made the duplication visible**, which is the second time in this series that
+building a consumer has been what found a thing about the library; sec 158's
+fingerprint wrapping was the first.
+
+It is deliberately named for expiry and nothing else. Revocation is a
+separate store and a separate question, and a chain this answers 0 for may
+still be revoked, unverified, or not have needed a chain at all.
+
+### `covers`, never `known`
+
+`revocation.h` keeps three predicates apart and says they must not be
+confused. `fzn_revocation_covers` answers authorization; `fzn_revocation_
+known` answers "must I still fetch this". They are one word apart at a call
+site and they differ on **exactly one state**: an entry whose revocation has
+since been WITHDRAWN, where `known` is 1 and `covers` is 0.
+
+A widget asking the replication question would show a restored capability as
+revoked -- which `revocation.c` calls "the outage the whole withdrawal
+design exists to end". On any store that has never seen a withdrawal the two
+agree perfectly, so nothing short of a withdrawal in the fixture can tell
+them apart. The test builds one.
+
+The store is passed straight through to the library rather than being
+checked here, so a store that cannot be scanned reaches `covers` and gets
+`covers`'s fail-closed answer. A widget that inspected the store itself and
+passed NULL on finding it corrupt would fail OPEN, which is the polarity
+that matters.
+
+### Words that must not collapse
+
+Three distinctions, all the same shape as sec 165's unspelled-versus-denying:
+
+- **Expired and revoked** both mean unusable, and a screen saying "unusable"
+  for both would be accurate and useless. One is a schedule running out; the
+  other is somebody's decision about this key.
+- **Revocation wins when both are true**, because expiry is passive and
+  reversible by reissue while a revocation is the half somebody may need to
+  act on, and it stays true after the dates stop mattering.
+- **Holding nothing is its own state**, not a flavour of dead. A consumer
+  handed no chain and one handed a dead chain have different things wrong.
+
+And the live state is spelled **"usable", not "allowed"**. `fzn_chain_store_
+lookup` shouts at its own callers that finding a chain is not authorisation;
+the request is still verified and `fzn_authz_decide` is still asked whether a
+chain was required. `gui/authz_view` answers that half.
+
+### What is not shown, and why
+
+**An expiry is printed as a number, not a date.** Nothing in this library
+states an epoch: `now` arrives from the caller in every module that takes
+one, and no code here reads a clock. A widget rendering these as calendar
+dates would be choosing an epoch and a timezone on the library's behalf, and
+would be wrong for any consumer that chose differently.
