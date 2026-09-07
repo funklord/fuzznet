@@ -30017,3 +30017,102 @@ call** -- it would make every future warning a build failure, which is a
 convention change rather than a fix, and `working-practice.md` says those are
 not adjusted in passing. It would also have to say which arrangement it
 gates, because the two `qr.c` lines above show that answer differs.
+
+## 171. The pairing screen, and a design claim nothing was checking, 2026-09-07
+
+sec 160 encodes QR modules, sec 161 paints them in a widget, sec 163 prints
+them to a terminal -- and **nothing in the tree produced anything to put in
+one.** `gui/provision_view.{h,cpp}` closes that: a provisioning card as the
+code to photograph, beside who it says you are pairing with.
+
+`provision/provision.h` is the payload those three were built for, and says
+so: its card is uppercase base32 "because QR alphanumeric mode covers 0-9,
+A-Z and a handful of symbols including `:`".
+
+### The claim, measured
+
+That sentence reads like an optimisation and is not. A card's text is **682
+characters**, and:
+
+    uppercase, level L    version 15        fits
+    uppercase, M / Q / H  no version        does not fit at all
+    lowercased, level L   no version        does not fit at all
+
+Level L is the only level a card fits at, and the uppercase decision is what
+makes it fit at all -- 682 bytes is past version 15's 523 data codewords, so
+byte mode cannot hold a card at any level. **Both facts were load-bearing and
+neither was checked**; the suite pins them now, so a later card layout that
+grows past what a code can carry fails in a test rather than in somebody's
+camera.
+
+### The fingerprint waits for the verdict
+
+This is the security decision the widget exists to get right.
+
+A card names a root, a hop and a prekey, and the envelope signature is the
+only thing saying those three came from one hand -- provision.h: "The parts
+may each be genuine and not belong together." So an attacker can put a
+**genuine root** beside their **own prekey** and sign the envelope
+themselves. The root field then reads correctly.
+
+A user pairing by comparing a fingerprint out of band compares exactly that
+field, finds it right, and accepts. **Showing the fingerprint before the
+signature has been checked hands the user the attacker's own evidence.** So
+no fingerprint is offered for any card that has not verified -- refused,
+expired, or simply never checked.
+
+The code itself is still drawn, because a card is public by construction and
+the offering side has nothing to check its own card against. It is the
+fingerprint that waits, not the code.
+
+The suite asserts this as `root_text() != fingerprint_of(genuine.root)` for
+every unverified case, rather than by matching a refusal message. **A
+security property tested by recognising a string is one a reworded string
+switches off**, which is also why the widget has no `shows_fingerprint()`
+predicate: it would have had to recognise its own wording.
+
+### Four states short of usable, and they are four
+
+    NOTHING     no card
+    REFUSED     not a card, or the signature does not verify
+    UNCHECKED   shape is fine, nobody was asked to check it
+    UNDATED     verified, but no clock -- the expiry was never looked at
+    EXPIRED     verified, and past its date
+    USABLE      verified, and in date
+
+UNCHECKED and UNDATED are the pair worth defending. `fzn_provision_verify`
+takes `now` and treats zero as "skip the expiry check", which provision.h
+justifies -- a device being provisioned may not have talked to anything yet.
+A widget that passed zero and then said "usable" would be **reporting a check
+it did not make**, and the expiry is what stops an old card being replayed at
+a device. EXPIRED is separate on provision.h's own argument: a card that was
+valid and is not any more is an ordinary thing to say to a user, where a
+malformed one is a fault somewhere.
+
+### The bug hunt that was my own instrument
+
+Establishing the fit above, `fzn_qr_version_for` said a 682-character card
+fits version 15 at level L and `fzn_qr_encode` refused the same input --
+two functions of one module disagreeing, with a 91-character band between
+them, and a card sitting inside it. That looked like a serious defect and it
+was not one.
+
+**The object I linked was not built from the committed source.** The sec 170
+sabotage run had built `qr/qr.o` from its own mutation -- `QR_CODEWORDS_MAX`
+at 654 rather than 655, which makes the new guard fire for version 15 -- and
+the harness restores the SOURCE and leaves the object. I then linked that
+object directly with `gcc` instead of going through make. Rebuilt, the two
+functions agree exactly at 758 and there is no band.
+
+`build-and-commit.md` says this in as many words: never conclude that a test
+passes or fails from a binary the build step did not rebuild. The rule was in
+front of me and the failure still took four measurements to find, because the
+disagreement was plausible, specific, and pointed at code I had edited an
+hour earlier.
+
+**The suspicion that saved it was the right one and was aimed wrongly.**
+Suspecting my own recent change was correct practice -- and the change was
+innocent; what was guilty was the artifact. `make` itself was never fooled:
+the restored source is newer than the object, so a build rebuilds it. Only a
+direct link sees the stale one, and a direct link is exactly what a
+throwaway probe reaches for.

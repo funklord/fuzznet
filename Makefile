@@ -703,12 +703,12 @@ $(error FZN_GUI must be auto, 1 or 0 -- got "$(FZN_GUI)")
 endif
 
 GUI_SRCS := gui/trust_view.cpp gui/qr_view.cpp \
-            gui/authz_view.cpp gui/capability_view.cpp
+            gui/authz_view.cpp gui/capability_view.cpp gui/provision_view.cpp
 GUI_HDRS := gui/trust_view.h gui/qr_view.h \
-            gui/authz_view.h gui/capability_view.h
+            gui/authz_view.h gui/capability_view.h gui/provision_view.h
 GUI_TSRC := gui/test/trust_view_test.cpp \
             gui/test/qr_view_test.cpp gui/test/authz_view_test.cpp \
-            gui/test/capability_view_test.cpp
+            gui/test/capability_view_test.cpp gui/test/provision_view_test.cpp
 
 # THE CONFIGURATION FORM NEEDS BOTH OPTIONS, and that is the design rather
 # than an accident of the build. sec 164: it does not validate, the CLI parser
@@ -752,6 +752,7 @@ CXXFLAGS   = $(CXXFLAGS_BUILD) $(CXXFLAGS_WARN)
 GUI_OBJS   := $(GUI_SRCS:%.cpp=$(BUILD_DIR)/%.o)
 TEST_BINS  += $(BUILD_DIR)/gui/test/trust_view_test \
               $(BUILD_DIR)/gui/test/qr_view_test \
+              $(BUILD_DIR)/gui/test/provision_view_test \
               $(BUILD_DIR)/gui/test/authz_view_test \
               $(BUILD_DIR)/gui/test/capability_view_test
 ifdef CLI_ON
@@ -1870,6 +1871,23 @@ $(BUILD_DIR)/gui/test/qr_view_test: $(BUILD_DIR)/gui/test/qr_view_test.o \
 $(BUILD_DIR)/gui/test/authz_view_test: $(BUILD_DIR)/gui/test/authz_view_test.o \
                                      $(BUILD_DIR)/gui/authz_view.o \
                                      $(BUILD_DIR)/chain/authz.o \
+                                     $(BUILD_DIR)/chain/chain.o \
+                                     $(BUILD_DIR)/chain/revocation.o \
+                                     $(BUILD_DIR)/chain/manifest.o \
+                                     $(BUILD_DIR)/trust/trust.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) -o $@
+
+# The pairing screen is a code plus a fingerprint, so it links the encoder,
+# the QR widget and the provisioning card's parsers. sec 171.
+$(BUILD_DIR)/gui/test/provision_view_test: \
+                                     $(BUILD_DIR)/gui/test/provision_view_test.o \
+                                     $(BUILD_DIR)/gui/provision_view.o \
+                                     $(BUILD_DIR)/gui/qr_view.o \
+                                     $(BUILD_DIR)/provision/provision.o \
+                                     $(BUILD_DIR)/prekey/prekey.o \
+                                     $(BUILD_DIR)/qr/qr.o \
                                      $(BUILD_DIR)/chain/chain.o \
                                      $(BUILD_DIR)/chain/revocation.o \
                                      $(BUILD_DIR)/chain/manifest.o \

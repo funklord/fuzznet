@@ -2459,6 +2459,38 @@ SABOTAGES = [
 		"table rather than trusted to match it, since nothing else can catch a "
 		"typed value that has to equal a table entry",
 	),
+	(
+		"provision-view-withholds-the-fingerprint",
+		"gui/provision_view.cpp",
+		"\tif (state_ != USABLE && state_ != UNDATED) {\n",
+		"\tif (0) {\n",
+		"a card that did not verify must offer no fingerprint, because the root "
+		"is the field a recombined card gets RIGHT and the one a user compares",
+	),
+	(
+		"provision-view-unchecked-is-its-own-state",
+		"gui/provision_view.cpp",
+		"\tif (!verifier) {\n",
+		"\tif (0) {\n",
+		"a card nobody was asked to check is not the same as one that failed a "
+		"check, and a user needs to know which happened",
+	),
+	(
+		"provision-view-undated-is-not-usable",
+		"gui/provision_view.cpp",
+		"\t\tstate_ = now ? USABLE : UNDATED;\n",
+		"\t\tstate_ = USABLE;\n",
+		"a card verified with no clock has not had its expiry looked at, so "
+		"calling it in date reports a check that was never made",
+	),
+	(
+		"provision-view-code-level-is-forced",
+		"gui/provision_view.cpp",
+		"\treturn FZN_QR_LEVEL_L;\n",
+		"\treturn FZN_QR_LEVEL_M;\n",
+		"a card fits a QR code at level L and at no other, so the level is a "
+		"measured constraint rather than a preference",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so
