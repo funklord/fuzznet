@@ -31549,3 +31549,22 @@ its medium affords, and may not restate what the printer already said.
 Four guards moved from the widget to the printer, one relationship guard added
 in their place, and the harness refused to verify until the stale four were
 gone -- the fourth time this session.
+
+### And one of the five mutations was aimed wrongly
+
+`sweep-print-held-back-is-not-empty` SURVIVED. The condition it guards is
+three lines and the mutation replaced only the first:
+
+    said = (plan->retained > 0u || plan->shared > 0u ||     <- replaced by (0 ||
+            plan->last_copy > 0u)                           <- left intact
+
+which leaves `(0 || last_copy > 0)` -- still true for the very case the test
+uses. The guard was written for the last-copy case and mutated everything
+except it.
+
+Same class as sec 166's, and worth counting rather than re-explaining: this is
+the third mutation this session that reported CAUGHT-or-SURVIVED for a reason
+other than the one it was written for. **A mutation is code, it is not
+reviewed, and it is the one piece of code in the tree whose only test is that
+it fails.** The check that finds them is reading which line caught which --
+free, and it has now paid three times.

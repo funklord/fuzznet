@@ -2677,8 +2677,9 @@ SABOTAGES = [
 	(
 		"sweep-print-held-back-is-not-empty",
 		"cli/sweep_print.c",
-		"\t\t\tsaid = (plan->retained > 0u || plan->shared > 0u ||\n",
-		"\t\t\tsaid = (0 ||\n",
+		"\t\t\tsaid = (plan->retained > 0u || plan->shared > 0u ||\n"
+		"\t\t\t        plan->last_copy > 0u)\n",
+		"\t\t\tsaid = (0)\n",
 		"sweep.h keeps its counters apart because a sweep held back by a guard "
 		"and a catalogue with nothing in it want opposite responses, and in an "
 		"alerting rule only one of them needs anybody to act",
