@@ -2748,7 +2748,7 @@ sabotage:
 # project.md sec 53 has the eight-cell matrix.
 #
 # It costs 1.8s here.
-check: style test installcheck ctcheck sancheck
+check: style test installcheck ctcheck sancheck qrcheck
 
 # THE SUITE AGAIN UNDER AddressSanitizer AND UBSan, on the holder's
 # instruction 2026-09-04. What it costs is roughly the test time again; what
@@ -3383,7 +3383,30 @@ SITU_DIR ?=
 # the alignment coordinates were wrong for exactly version 14 and right for
 # the other fourteen.
 #
-# NOT PART OF `make check`, on `make schema`'s argument: it needs a sibling
+# PART OF `make check` SINCE sec 173, AND IT WAS NOT BEFORE.
+#
+# The reason it was excluded was written here and said "it needs a sibling
+# checkout, and a gate that breaks for another tree's reasons is one people
+# switch off". That reason EXPIRED when sec 169 vendored quirc, in the same
+# session, and nobody noticed -- an exclusion outliving its own justification,
+# which is the shape evidence.md calls a claim that outlived its subject.
+#
+# What it buys is the thing neither tree had. fuzzypickles proved its encoder
+# against zbar and libqrencode once, recorded it, and then had to make the
+# STANDING check use their own recogniser, because "a committed test cannot
+# depend on a package that happens to be installed" -- so their gate is their
+# encoder against their decoder, which they say plainly is not proof the
+# symbol is readable by the rest of the world. Vendoring quirc removes exactly
+# that constraint: an independent decoder that needs nothing installed can run
+# every time.
+#
+# It SKIPS rather than fails when the vendored copy is missing, because that
+# is an unfinished clone rather than a broken tree -- the three cases
+# MONOCYPHER_DIR keeps apart, and the skip names the command. An override
+# pointing at nothing is still an error: somebody asked for this by naming a
+# path.
+#
+# The old comment, kept because it is still true of what it described: it needs a sibling
 # checkout, and a gate that breaks for another tree's reasons is one people
 # switch off.
 #
@@ -3405,19 +3428,28 @@ SITU_DIR ?=
 QUIRC_VENDORED := quirc
 QUIRC_DIR      ?= $(QUIRC_VENDORED)
 
+# ONE SHELL, BECAUSE A SKIP MUST STOP THE TARGET. Written first as separate
+# recipe lines with an `exit 0` in the skip, which does not skip anything:
+# make gives each line its own shell, so the skip printed its notice and the
+# next line then failed for the reason the skip had just excused. It reported
+# SKIPPED and non-zero in one run -- both halves true and the pair meaningless,
+# which is evidence.md's count-and-exit-code again.
 qrcheck:
-	@if [ -z "$(QUIRC_DIR)" ]; then \
+	@set -e; \
+	if [ -z "$(QUIRC_DIR)" ]; then \
 		echo "qrcheck: QUIRC_DIR is empty, so nothing DECODED what we encode."; \
 		exit 1; \
-	fi
-	@test -f "$(QUIRC_DIR)/lib/quirc.h" || { \
+	fi; \
+	if [ ! -f "$(QUIRC_DIR)/lib/quirc.h" ]; then \
 		if [ "$(QUIRC_DIR)" = "$(QUIRC_VENDORED)" ]; then \
-			echo "qrcheck: the vendored $(QUIRC_VENDORED)/ is empty."; \
+			echo "qrcheck: SKIPPED -- the vendored $(QUIRC_VENDORED)/ is empty."; \
 			echo "qrcheck: run 'git submodule update --init $(QUIRC_VENDORED)'."; \
-		else \
-			echo "qrcheck: no quirc.h under $(QUIRC_DIR)/lib"; \
-		fi; exit 1; }
-	@set -e; \
+			echo "qrcheck: nothing independent decoded what this tree encodes."; \
+			exit 0; \
+		fi; \
+		echo "qrcheck: no quirc.h under $(QUIRC_DIR)/lib"; \
+		exit 1; \
+	fi; \
 	scratch=$(BUILD_DIR)/.qrcheck; \
 	case "$$scratch" in "" | "/" | "/*") \
 		echo "qrcheck: refusing to work in '$$scratch'"; exit 1;; esac; \

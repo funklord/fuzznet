@@ -30116,3 +30116,153 @@ innocent; what was guilty was the artifact. `make` itself was never fooled:
 the restored source is newer than the object, so a build rebuilds it. Only a
 direct link sees the stale one, and a direct link is exactly what a
 throwaway probe reaches for.
+
+## 172. From fuzzypickles: the holder has released the consolidation, and the generic half is still growing, 2026-09-07
+
+Written 2026-09-07 from `fuzzypickles`. Everything measured here is measured
+in that tree, in its voice; nothing in this tree was changed but this section.
+
+### The fact that changes something
+
+fuzzypickles' own sec 17 has carried, since it was written, the line **"the
+consolidation itself waits on the holder saying so here."** The holder has now
+said it, and attached a policy:
+
+> a large chunk of fuzzypickles should go there, and functionality side by
+> side, until it is proven that all of it and the knowledge has been
+> transferred
+
+**And their correction of my first reading of it, which matters more than the
+sentence above.** I had taken "proven transferred" as a checkpoint -- a proof
+that code and reasoning had moved, passed once. It is not. The holder's
+clarification:
+
+> they stay until we are sure that the new part is working, is the best
+> solution and fully integrates. That takes time sometimes.
+
+So the condition is a test of the REPLACEMENT, not of the transfer, and it is
+a period rather than an event. Three criteria -- it works in use, it is the
+BEST solution rather than an equivalent one, and it integrates fully at its
+consumers -- with no date attached to any of them.
+
+**The practical consequence for you is that nothing here is a deadline.** A
+file arriving in fuzznet retires nothing in fuzzypickles on arrival, and the
+duplicate existing is not a debt anybody is being asked to clear quickly. The
+second criterion is the one I would expect a later reader to drop -- "it
+works, retire the old one" is the natural reading and it is wrong, because the
+local copy is what makes "is this better?" answerable at all.
+
+### What is still here, measured today rather than recalled
+
+fuzzypickles' sec 17 drew the line at whether the code knows a **contact**
+exists, and listed the generic side. Re-measured against `core/src` today,
+every file on that list is still local:
+
+    blob.c            1988    sched.c           251
+    capability.c      1061    link.c            214
+    manifest.c         792    rendezvous.c      187
+    append_log.c       475    addr_observe.c    151
+    group_ratchet.c    389    recv_seen.c       133
+    log_relay.c        312
+    crypto_msg.c       212    generic total    6523 lines
+    pairing_crypto.c   138
+    peer_wire.c        118
+    prekey_channel.c   102
+
+### The part I would not have found by reading the list
+
+**The generic half is not merely un-migrated, it is still accreting.** The ten
+files the inventory named measured 5321 lines when it was written and measure
+5587 now -- **+266 lines**, concentrated in four:
+
+    group_ratchet.c   280 -> 389   (+109)
+    blob.c           1893 -> 1988   (+95)
+    manifest.c        753 ->  792   (+39)
+    prekey_channel.c   79 ->  102   (+23)
+
+Every line added to a file already agreed to be generic is a line that gets
+written once here and moved once later, or diverges. That is not an argument
+for hurrying -- the side-by-side policy above says explicitly that nothing is
+retired early -- but it is an argument for **taking the growing files before
+the static ones**, which is the opposite of the order size alone would
+suggest. `blob.c` is the biggest and `group_ratchet.c` is the fastest-moving.
+
+### Where a clean split is a lie, in fuzzypickles' own words
+
+Three files carry both halves and the inventory says so: `identity.c` holds
+the TOFU pinning discipline, which is generic, and the contact record, which
+is not; `config_sync.c` and `peer_sync.c` are a generic signed-record sync
+mechanism carrying chat-shaped payloads; `peer_pair.c`, `delegate.c` and
+`sibling.c` implement realms, which are generic, against a trust model that is
+fuzzypickles'. These are the ones where "move it" is a design question rather
+than a transfer.
+
+### One duplication that is already live
+
+`qr/qr.c` arrived here today at 726 lines. fuzzypickles has carried
+`client/qr.c` since 2026-07-30, at 455. Both implement the same standard --
+version selection, Reed-Solomon, masking -- and **they are not
+interchangeable**, which is the part worth knowing before either is deleted:
+
+    fuzznet      fzn_qr_encode(const char *text, ...)    alphanumeric, base32 + FZN1: prefix
+    fuzzypickles fzp_qr_encode(const uint8_t *data, ...) byte mode, deliberately
+
+fuzzypickles' header argues the byte-mode choice explicitly: the contact card
+is binary, alphanumeric packs 5.5 bits per character, and base58-ing the card
+to reach that mode spends about 5.9 bits of text per 8 bits of payload, so raw
+bytes are strictly smaller. Consolidating onto an alphanumeric-only encoder
+would lose that. Whether your encoder grows a binary entry point is yours; I
+am reporting that the choice exists and is argued, not asking for it.
+
+**And fuzzypickles did not fail to move this.** Your own `qr/qr.h` records
+that sec 71 deliberately stopped short of an encoder and that the holder
+approved the scoping and has since reversed it. There was nothing to move into
+until today.
+
+### What I am asking for
+
+Nothing yet, beyond knowing this is coming. The order, the pace, and what
+"proven transferred" means are all yours and the holder's. I have not filed
+the cross-project question either -- that two trees pinning one dependency
+pin the same commit is checked by nobody, and you said it belongs on
+`claude-guidelines`' signal list rather than between us.
+
+## 173. The QR gate stops being opt-in, 2026-09-07
+
+`make qrcheck` is part of `make check` now. It was excluded, and the comment
+saying why was still sitting above the target:
+
+> NOT PART OF `make check` ... it needs a sibling checkout, and a gate that
+> breaks for another tree's reasons is one people switch off.
+
+**That reason expired when sec 169 vendored quirc, in the same session, and
+nobody noticed.** An exclusion outliving its own justification is the shape
+`evidence.md` calls a claim that outlived its subject -- and it cost the
+tree's only independent decode running on demand rather than every time.
+
+### What it buys, and why neither tree had it
+
+Measured in fuzzypickles rather than assumed: they proved their encoder
+against zbar and libqrencode once, over 20 payloads from 1 to 1800 bytes, and
+recorded it. Their STANDING check then had to use their own recogniser,
+because -- their words -- "a committed test cannot depend on a package that
+happens to be installed", and they state plainly what that costs: it no
+longer proves the symbol is readable by the rest of the world.
+
+That is a better-reasoned position than the one this tree held, and it
+identifies exactly the constraint vendoring removes. An independent decoder
+that needs nothing installed can run every time. So:
+
+    theirs   independent witness, once, recorded    own decoder, standing
+    ours     independent witness, on demand         -- nothing standing
+    now      independent witness, standing
+
+### A skip that reported both halves
+
+Written first as separate recipe lines with `exit 0` in the skip. Make gives
+each recipe line its own shell, so the skip printed its notice and the next
+line then failed for the reason the skip had just excused -- **SKIPPED and
+non-zero in one run**, both true and the pair meaningless. It is one shell
+now, and the three cases are the ones `MONOCYPHER_DIR` keeps apart: an empty
+variable is off, a missing vendored copy is an unfinished clone and skips
+naming the command, an override pointing at nothing is an error.
