@@ -40,6 +40,11 @@
  * bytes would be lost from the record while still on disk. Nothing here is
  * anything but a read.
  *
+ * IT ASKS `cli/sweep_print` AND SHOWS WHAT IT SAYS, and needs FZN_CLI for it.
+ * sec 194, under sec 193's rule -- the printer and this widget changed in one
+ * commit, because that is the only moment anybody is looking at both and
+ * every earlier printer re-created a duplication by arriving alone.
+ *
  * NO Q_OBJECT AND THEREFORE NO moc, on sec 140's rule. It displays.
  */
 
@@ -48,6 +53,7 @@
 
 extern "C" {
 #include "../catalog/sweep.h"
+#include "../cli/sweep_print.h"
 }
 
 #include <QString>
@@ -83,19 +89,26 @@ public:
 
 	/* What is on the screen. */
 	state shown_state() const;
+
+	/* The line `fzn_sweep_print` produced, carrying the state and, when
+	 * nothing is going, every reason it is being held back. */
 	QString state_text() const;
-	QString reasons_text() const;
+
+	/* What the bar reads. The bar is the widget's own: a screen has one
+	 * and a line does not, and it is drawn from the library's numbers
+	 * rather than from the printer's sentence. */
 	QString progress_text() const;
 
-	/* Whether the plan ran out of rows, which means every other number
-	 * here is short. */
+	/* Whether the plan ran out of rows, which means every count in that
+	 * line understates. The printer's answer, kept as its own accessor
+	 * because it is orthogonal to the state -- a plan can be ready and
+	 * short at once. */
 	bool truncated() const;
 
 private:
 	state state_;
 	bool truncated_;
 	QLabel *state_label_;
-	QLabel *reasons_;
 	QProgressBar *progress_;
 };
 

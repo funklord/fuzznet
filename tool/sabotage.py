@@ -2526,41 +2526,6 @@ SABOTAGES = [
 		"back to the want-list and the bytes are not lost",
 	),
 	(
-		"sweep-view-held-back-is-not-empty",
-		"gui/sweep_view.cpp",
-		"\t\tif (plan->retained > 0u || plan->shared > 0u || plan->last_copy > 0u) {\n",
-		"\t\tif (0) {\n",
-		"a sweep stopped by a guard and a catalogue with nothing in it both plan "
-		"zero, and sweep.h keeps its counters apart precisely so they can be told "
-		"apart -- they want opposite responses",
-	),
-	(
-		"sweep-view-does-not-advance",
-		"gui/sweep_view.cpp",
-		"\tif (job && fzn_catalog_sweep_progress(job, &done, &total) == FZN_CATALOG_OK)\n",
-		"\tif (job && (fzn_catalog_sweep_advance((fzn_catalog_sweep_t *)job), 1) &&\n"
-		"\t    fzn_catalog_sweep_progress(job, &done, &total) == FZN_CATALOG_OK)\n",
-		"drawing a sweep must not advance its cursor: _advance is called AFTER "
-		"bytes are gone, so a view that called it records a removal that never "
-		"happened",
-	),
-	(
-		"sweep-view-truncation-is-loud",
-		"gui/sweep_view.cpp",
-		"\ttruncated_ = plan->truncated > 0u;\n",
-		"\ttruncated_ = false;\n",
-		"a plan that ran out of rows makes every other count on the screen short, "
-		"so a consumer told nothing believes it reclaimed what it did not",
-	),
-	(
-		"sweep-view-names-each-reason",
-		"gui/sweep_view.cpp",
-		"\tif (plan->last_copy > 0u)\n",
-		"\tif (0)\n",
-		"each reason calls for a different action, so they are named rather than "
-		"summed -- last_copy means more replicas, not more sweeping",
-	),
-	(
 		"revocation-view-withdrawn-is-not-in-force",
 		"gui/revocation_view.cpp",
 		"\t\tif (store->entries[i].withdrawn)\n",
@@ -2708,6 +2673,49 @@ SABOTAGES = [
 		"\t\tstate_label_->setText(QStringLiteral(\"ok\"));\n",
 		"the widget must SHOW cli/journal_print's line, including the table "
 		"condition a caller did not ask about, rather than composing its own",
+	),
+	(
+		"sweep-print-held-back-is-not-empty",
+		"cli/sweep_print.c",
+		"\t\t\tsaid = (plan->retained > 0u || plan->shared > 0u ||\n",
+		"\t\t\tsaid = (0 ||\n",
+		"sweep.h keeps its counters apart because a sweep held back by a guard "
+		"and a catalogue with nothing in it want opposite responses, and in an "
+		"alerting rule only one of them needs anybody to act",
+	),
+	(
+		"sweep-print-does-not-advance",
+		"cli/sweep_print.c",
+		"\t\tif (job && fzn_catalog_sweep_progress(job, &done, &total) == FZN_CATALOG_OK)\n",
+		"\t\tif (job && (fzn_catalog_sweep_advance((fzn_catalog_sweep_t *)job), 1) &&\n"
+		"\t\t    fzn_catalog_sweep_progress(job, &done, &total) == FZN_CATALOG_OK)\n",
+		"reporting a sweep must not advance its cursor: _advance is called AFTER "
+		"the bytes are gone, so a reporter that called it records a removal that "
+		"never happened",
+	),
+	(
+		"sweep-print-names-each-reason",
+		"cli/sweep_print.c",
+		"\tif (plan->last_copy > 0u) {\n",
+		"\tif (0) {\n",
+		"each reason calls for a different action, so they are named rather than "
+		"summed -- last_copy means more replicas, not more sweeping",
+	),
+	(
+		"sweep-print-truncation-is-independent",
+		"cli/sweep_print.c",
+		"\t\ttruncated = plan->truncated > 0u;\n",
+		"\t\ttruncated = 0;\n",
+		"a plan can be ready AND short at once, and short means every count "
+		"beside it understates",
+	),
+	(
+		"sweep-view-shows-the-printers-words",
+		"gui/sweep_view.cpp",
+		"\t\tstate_label_->setText(text);\n",
+		"\t\tstate_label_->setText(QStringLiteral(\"idle\"));\n",
+		"the widget must SHOW cli/sweep_print's line rather than have a wording "
+		"of its own -- sec 193's rule, applied in the same commit this time",
 	),
 ]
 

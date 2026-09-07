@@ -93,7 +93,7 @@ int main(int argc, char **argv)
 		CHECK(view.state_text() != empty_text,
 		      "held-back and empty are shown in the same words, so a full disk "
 		      "that cannot be reclaimed reads as a disk with nothing on it");
-		CHECK(view.reasons_text().contains(QStringLiteral("last known copy")),
+		CHECK(view.state_text().contains(QStringLiteral("last known copy")),
 		      "the reason the sweep was held back is not on the screen");
 	}
 
@@ -108,12 +108,12 @@ int main(int argc, char **argv)
 		plan.absent = 4u;
 		view.show_sweep(&plan, nullptr);
 
-		CHECK(view.reasons_text().contains(QStringLiteral("1")) &&
-		              view.reasons_text().contains(QStringLiteral("2")) &&
-		              view.reasons_text().contains(QStringLiteral("3")) &&
-		              view.reasons_text().contains(QStringLiteral("4")),
+		CHECK(view.state_text().contains(QStringLiteral("1")) &&
+		              view.state_text().contains(QStringLiteral("2")) &&
+		              view.state_text().contains(QStringLiteral("3")) &&
+		              view.state_text().contains(QStringLiteral("4")),
 		      "the four reasons were summed rather than named");
-		CHECK(view.reasons_text().contains(QStringLiteral("policy")),
+		CHECK(view.state_text().contains(QStringLiteral("policy")),
 		      "retention is not distinguished from a guard refusing");
 	}
 
@@ -177,6 +177,28 @@ int main(int argc, char **argv)
 		      "still on disk");
 		CHECK(job.used == 4u && job.captured == 1,
 		      "drawing a sweep changed the job");
+	}
+
+	/* THE ASSERTION THAT KEEPS ONE IMPLEMENTATION. sec 193/194. */
+	{
+		char want[FZN_SWEEP_PRINT_MAX];
+		fzn_sweep_state_t said = FZN_SWEEP_NOTHING_CAPTURED;
+		size_t len = 0;
+		int trunc = 0;
+		QString expected;
+
+		memset(&plan, 0, sizeof(plan));
+		plan.last_copy = 2u;
+		view.show_sweep(&plan, nullptr);
+		CHECK(fzn_sweep_print(&plan, nullptr, want, sizeof(want), &len, &said,
+		                      &trunc) == FZN_CATALOG_OK,
+		      "the printer would not render what the widget was given");
+		expected = QString::fromLatin1(want);
+		while (expected.endsWith(QLatin1Char('\n')))
+			expected.chop(1);
+		CHECK(view.state_text() == expected,
+		      "the widget's words are not the printer's, so one screen has two "
+		      "wordings again");
 	}
 
 	/* The suite can tell pass from fail. */

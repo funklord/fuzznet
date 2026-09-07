@@ -31503,3 +31503,49 @@ now one. On qtty that costs nothing at all, because sec 190 measured that a
 `QFormLayout` row label never reaches the grid -- the rows were carrying
 labels nobody could see. On a desktop it is a real simplification and one
 fewer place for the two halves to disagree.
+
+## 194. A sweep line, with the rule applied from the start
+
+`cli/sweep_print.{h,c}` reports what is about to be taken off this host, how
+far it has got, and why nothing is going when nothing is.
+
+**sec 193's rule was applied rather than discovered this time**: the printer
+and `gui/sweep_view` changed in one commit, so the duplication never existed.
+That is the first of these five printers not to have created one first and
+removed it afterwards.
+
+### Why this one matters most on a headless host
+
+A host reclaiming disk unattended is exactly where somebody has written a
+monitoring rule, and `catalog/sweep.h`'s central requirement becomes an
+alerting question: "a sweep held back by the last-copy guard would be
+indistinguishable from a catalogue with nothing to sweep -- and those want
+opposite responses."
+
+On a screen that is a person misreading a zero. **In a rule it is a host whose
+disk cannot be reclaimed reporting the same as one with nothing to reclaim**,
+and only the first needs anybody to do anything -- specifically, to add
+replicas rather than to sweep harder, which the line says in as many words.
+
+### Truncation is its own out-parameter, and that is not tidiness
+
+A plan can be READY and SHORT at the same time, so folding truncation into the
+state would make the two mutually exclusive and lose one. It is a separate
+required parameter for the same reason the table's condition is in sec 192:
+orthogonal facts do not share a channel.
+
+### What the widget kept
+
+`sweep_view` shows the printer's line and takes its state from the enum, but
+keeps its own progress BAR -- drawn from `fzn_catalog_sweep_progress`'s
+numbers rather than from the printer's sentence. **A bar is a thing a screen
+has and a line does not**, so that is not a second implementation of anything:
+the sentence and the bar say the same thing in the two ways their media allow,
+and only the sentence is duplicated-if-copied.
+
+That is the line worth drawing for the rest of these: a widget may add what
+its medium affords, and may not restate what the printer already said.
+
+Four guards moved from the widget to the printer, one relationship guard added
+in their place, and the harness refused to verify until the stale four were
+gone -- the fourth time this session.

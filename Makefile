@@ -704,16 +704,16 @@ endif
 
 GUI_SRCS := gui/trust_view.cpp gui/qr_view.cpp \
             gui/authz_view.cpp gui/capability_view.cpp gui/provision_view.cpp \
-            gui/transfer_view.cpp gui/sweep_view.cpp \
+            gui/transfer_view.cpp \
             gui/revocation_view.cpp gui/state_view.cpp
 GUI_HDRS := gui/trust_view.h gui/qr_view.h \
             gui/authz_view.h gui/capability_view.h gui/provision_view.h \
-            gui/transfer_view.h gui/sweep_view.h \
+            gui/transfer_view.h \
             gui/revocation_view.h gui/state_view.h
 GUI_TSRC := gui/test/trust_view_test.cpp \
             gui/test/qr_view_test.cpp gui/test/authz_view_test.cpp \
             gui/test/capability_view_test.cpp gui/test/provision_view_test.cpp \
-            gui/test/transfer_view_test.cpp gui/test/sweep_view_test.cpp \
+            gui/test/transfer_view_test.cpp \
             gui/test/revocation_view_test.cpp gui/test/state_view_test.cpp
 
 # THE CONFIGURATION FORM NEEDS BOTH OPTIONS, and that is the design rather
@@ -728,11 +728,12 @@ GUI_TSRC := gui/test/trust_view_test.cpp \
 # summary wording has one implementation instead of two matched by hand.
 ifdef CLI_ON
 GUI_SRCS  += gui/config_view.cpp gui/log_view.cpp gui/sync_view.cpp \
-             gui/journal_view.cpp
+             gui/journal_view.cpp gui/sweep_view.cpp
 GUI_HDRS  += gui/config_view.h gui/log_view.h gui/sync_view.h \
-             gui/journal_view.h
+             gui/journal_view.h gui/sweep_view.h
 GUI_TSRC  += gui/test/config_view_test.cpp gui/test/log_view_test.cpp \
-             gui/test/sync_view_test.cpp gui/test/journal_view_test.cpp
+             gui/test/sync_view_test.cpp gui/test/journal_view_test.cpp \
+             gui/test/sweep_view_test.cpp
 endif
 
 ifdef GUI_ON
@@ -776,7 +777,6 @@ TEST_BINS  += $(BUILD_DIR)/gui/test/trust_view_test \
               $(BUILD_DIR)/gui/test/qr_view_test \
               $(BUILD_DIR)/gui/test/provision_view_test \
               $(BUILD_DIR)/gui/test/transfer_view_test \
-              $(BUILD_DIR)/gui/test/sweep_view_test \
               $(BUILD_DIR)/gui/test/revocation_view_test \
               $(BUILD_DIR)/gui/test/state_view_test \
               $(BUILD_DIR)/gui/test/authz_view_test \
@@ -785,17 +785,18 @@ ifdef CLI_ON
 TEST_BINS += $(BUILD_DIR)/gui/test/config_view_test \
              $(BUILD_DIR)/gui/test/log_view_test \
              $(BUILD_DIR)/gui/test/sync_view_test \
-             $(BUILD_DIR)/gui/test/journal_view_test
+             $(BUILD_DIR)/gui/test/journal_view_test \
+             $(BUILD_DIR)/gui/test/sweep_view_test
 endif
 endif
 
 CLI_SRCS := cli/cli.c cli/qr_print.c cli/log_print.c cli/sync_print.c \
-            cli/journal_print.c
+            cli/journal_print.c cli/sweep_print.c
 CLI_HDRS := cli/cli.h cli/qr_print.h cli/log_print.h cli/sync_print.h \
-            cli/journal_print.h
+            cli/journal_print.h cli/sweep_print.h
 CLI_TSRC := cli/test/cli_test.c cli/test/qr_print_test.c \
             cli/test/log_print_test.c cli/test/sync_print_test.c \
-            cli/test/journal_print_test.c
+            cli/test/journal_print_test.c cli/test/sweep_print_test.c
 
 ifdef CLI_ON
 CPPFLAGS  += -DFZN_CLI_ON
@@ -806,7 +807,8 @@ TEST_BINS += $(BUILD_DIR)/cli/test/cli_test \
                $(BUILD_DIR)/cli/test/qr_print_test \
                $(BUILD_DIR)/cli/test/log_print_test \
                $(BUILD_DIR)/cli/test/sync_print_test \
-               $(BUILD_DIR)/cli/test/journal_print_test
+               $(BUILD_DIR)/cli/test/journal_print_test \
+               $(BUILD_DIR)/cli/test/sweep_print_test
 endif
 
 RECORD_STORE_FILE_SRCS := record/store_file.c
@@ -1806,6 +1808,15 @@ $(BUILD_DIR)/cli/test/qr_print_test: $(BUILD_DIR)/cli/test/qr_print_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# A planned deletion, and why one is not happening. sec 194.
+$(BUILD_DIR)/cli/test/sweep_print_test: $(BUILD_DIR)/cli/test/sweep_print_test.o \
+                                     $(BUILD_DIR)/cli/sweep_print.o \
+                                     $(BUILD_DIR)/catalog/sweep.o \
+                                     $(BUILD_DIR)/catalog/catalog.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # One stream's position and the table's own condition. sec 192.
 $(BUILD_DIR)/cli/test/journal_print_test: \
                                      $(BUILD_DIR)/cli/test/journal_print_test.o \
@@ -1998,6 +2009,7 @@ $(BUILD_DIR)/gui/test/revocation_view_test: \
 $(BUILD_DIR)/gui/test/sweep_view_test: \
                                      $(BUILD_DIR)/gui/test/sweep_view_test.o \
                                      $(BUILD_DIR)/gui/sweep_view.o \
+                                     $(BUILD_DIR)/cli/sweep_print.o \
                                      $(BUILD_DIR)/catalog/sweep.o \
                                      $(BUILD_DIR)/catalog/catalog.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
@@ -3673,6 +3685,7 @@ qtty:
 	       $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \
 	       $(BUILD_DIR)/cli/cli.o $(BUILD_DIR)/state/state.o \
 	       $(BUILD_DIR)/cli/sync_print.o $(BUILD_DIR)/cli/journal_print.o \
+	       $(BUILD_DIR)/cli/sweep_print.o \
 	       $(BUILD_DIR)/spool/spool.o $(BUILD_DIR)/spool/plan.o \
 	       $(BUILD_DIR)/spool/transfer.o $(BUILD_DIR)/blob/blob.o \
 	       $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/log/log.o \
