@@ -703,12 +703,15 @@ $(error FZN_GUI must be auto, 1 or 0 -- got "$(FZN_GUI)")
 endif
 
 GUI_SRCS := gui/trust_view.cpp gui/qr_view.cpp \
-            gui/authz_view.cpp gui/capability_view.cpp gui/provision_view.cpp
+            gui/authz_view.cpp gui/capability_view.cpp gui/provision_view.cpp \
+            gui/transfer_view.cpp
 GUI_HDRS := gui/trust_view.h gui/qr_view.h \
-            gui/authz_view.h gui/capability_view.h gui/provision_view.h
+            gui/authz_view.h gui/capability_view.h gui/provision_view.h \
+            gui/transfer_view.h
 GUI_TSRC := gui/test/trust_view_test.cpp \
             gui/test/qr_view_test.cpp gui/test/authz_view_test.cpp \
-            gui/test/capability_view_test.cpp gui/test/provision_view_test.cpp
+            gui/test/capability_view_test.cpp gui/test/provision_view_test.cpp \
+            gui/test/transfer_view_test.cpp
 
 # THE CONFIGURATION FORM NEEDS BOTH OPTIONS, and that is the design rather
 # than an accident of the build. sec 164: it does not validate, the CLI parser
@@ -747,12 +750,31 @@ CXXFLAGS_BUILD := -Og -g -fsanitize=address,undefined -fno-omit-frame-pointer \
 else
 CXXFLAGS_BUILD := -Os -g
 endif
-CXXFLAGS_WARN := -std=c++17 -Wall -Wextra -Wpedantic
+# QT_NO_KEYWORDS, AND IT IS sec 140's RULE ENFORCED BY THE BUILD RATHER THAN
+# BY EVERY AUTHOR REMEMBERING IT. sec 179.
+#
+# Qt defines `slots`, `signals` and `emit` as bare macros, and
+# `fzn_transfer_t` has a FIELD called `slots` -- so `transfer->slots[i]` does
+# not compile in any translation unit that has seen a Qt header. It is not a
+# widget bug; it is a collision between this library's public struct and a
+# macro every Qt consumer has.
+#
+# Turning the keywords off is free here because sec 140 already forbids what
+# they are for: none of these widgets has a Q_OBJECT, declares a slot, or
+# emits anything, and the gate below proves it. So the flag makes a rule that
+# was a convention into one the compiler keeps -- and a widget that later
+# wants a signal gets a clear error rather than a silent moc dependency.
+#
+# It does NOT fix the collision for a consumer that uses Qt keywords normally.
+# That is a public field name and renaming it is the holder's; sec 179 records
+# it rather than deciding it.
+CXXFLAGS_WARN := -std=c++17 -Wall -Wextra -Wpedantic -DQT_NO_KEYWORDS
 CXXFLAGS   = $(CXXFLAGS_BUILD) $(CXXFLAGS_WARN)
 GUI_OBJS   := $(GUI_SRCS:%.cpp=$(BUILD_DIR)/%.o)
 TEST_BINS  += $(BUILD_DIR)/gui/test/trust_view_test \
               $(BUILD_DIR)/gui/test/qr_view_test \
               $(BUILD_DIR)/gui/test/provision_view_test \
+              $(BUILD_DIR)/gui/test/transfer_view_test \
               $(BUILD_DIR)/gui/test/authz_view_test \
               $(BUILD_DIR)/gui/test/capability_view_test
 ifdef CLI_ON
@@ -1892,6 +1914,18 @@ $(BUILD_DIR)/gui/test/provision_view_test: \
                                      $(BUILD_DIR)/chain/revocation.o \
                                      $(BUILD_DIR)/chain/manifest.o \
                                      $(BUILD_DIR)/trust/trust.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) -o $@
+
+# It reads a spool and a scheduler and mutates neither. sec 179.
+$(BUILD_DIR)/gui/test/transfer_view_test: \
+                                     $(BUILD_DIR)/gui/test/transfer_view_test.o \
+                                     $(BUILD_DIR)/gui/transfer_view.o \
+                                     $(BUILD_DIR)/spool/spool.o \
+                                     $(BUILD_DIR)/spool/plan.o \
+                                     $(BUILD_DIR)/spool/transfer.o \
+                                     $(BUILD_DIR)/blob/blob.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) -o $@

@@ -30722,3 +30722,78 @@ and wrong for a session, and **a merge that took the shape without the
 question would get one of the two silently wrong.**
 
 Both halves of that sentence were found by the tree it went against.
+
+## 179. The transfer view, and a field name Qt will not let a consumer read
+
+`gui/transfer_view.{h,cpp}` shows one blob being assembled: how much is held,
+what is outstanding, and whether anything is still happening. Beyond sec 139's
+named list, which is complete -- this is the state every consuming software
+has to put in front of a person and had no object for.
+
+### Looking at a transfer must not change it
+
+`fzn_transfer_expire` reclaims assignments whose deadline has passed and
+returns how many it took. **It mutates.** A view that refreshed itself by
+calling it would take a peer's outstanding ranges back as a side effect of
+somebody having a window open, and the transfer would behave differently
+depending on who was watching.
+
+So everything here is read-only, and the suite proves it the way that cannot
+pass vacuously: render an overdue transfer twice, require the outstanding
+count to be unchanged, **and then require the library to still be able to
+reclaim it.** Without that last assertion the case passes for a view that
+reclaimed nothing because there was nothing to reclaim.
+
+### Three conditions that all read `in_flight == 0`
+
+    IDLE      nothing held, nothing asked for -- it has not started
+    STALLED   incomplete, nothing outstanding -- peers quiet or all reclaimed
+    COMPLETE  the library says so
+
+A screen showing the count alone puts "not started", "stuck" and "finished"
+in one word, and those are exactly the three a person looking at a stopped
+transfer needs to separate. Same shape as sec 165's unspelled-versus-denying
+and sec 166's expired-versus-revoked, which is now the third time this
+distinction has been the whole of a widget's design.
+
+**A passed deadline is not a failure.** The range returns to the want-list;
+the bytes are not lost. The screen says reclaimable, because reporting a
+routine consequence of a lossy transport as an error is how a person learns
+to ignore the field.
+
+### `fzn_transfer_t::slots` cannot be read by a Qt consumer
+
+Qt defines `slots`, `signals` and `emit` as bare macros. `fzn_transfer_t` has
+a FIELD called `slots`, so `transfer->slots[i]` does not compile in any
+translation unit that has seen a Qt header:
+
+    error: expected unqualified-id before '[' token
+
+**This is not a widget bug and the widget is not the victim.** It is a
+collision between this library's public struct and a macro every Qt consumer
+has, and it blocks any consumer reading that field -- which is the field
+holding what each peer was asked for.
+
+The build now passes `-DQT_NO_KEYWORDS`, and that is worth having on its own
+terms rather than as a workaround: **sec 140 already forbids what those
+keywords are for.** No widget here has a `Q_OBJECT`, declares a slot or emits
+anything, and the gate proves it. So the flag turns a convention into
+something the compiler keeps, and a widget that later wants a signal gets a
+clear error instead of a silent moc dependency.
+
+**It does not fix the collision for a consumer that uses Qt keywords
+normally**, which is most of them. That wants the field renamed, which is a
+public API change and the holder's. Recorded rather than done.
+
+### The fixture lets the library count
+
+`fzn_spool_open` "recompute[s] `have` from the bits rather than trusting a
+caller", so the test sets bits and opens the spool rather than assigning
+`have` directly. The position the widget reports is then the LIBRARY's count
+of what the fixture laid down, which is what makes comparing `held()` against
+it worth anything.
+
+Its store ops refuse every call. The view causes no read and no write, so the
+vtable exists to satisfy the constructor -- and refusing is the honest stub:
+if this widget ever grows a path that touches a leaf, it fails loudly rather
+than appearing to work.

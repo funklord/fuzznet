@@ -49,6 +49,7 @@
 /gui/test/authz_view_test
 /gui/test/capability_view_test
 /gui/test/provision_view_test
+/gui/test/transfer_view_test
 /gui/test/config_view_test
 /claim/test/claim_file_test
 /blob/test/blob_test

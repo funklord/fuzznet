@@ -2491,6 +2491,40 @@ SABOTAGES = [
 		"a card fits a QR code at level L and at no other, so the level is a "
 		"measured constraint rather than a preference",
 	),
+	(
+		"transfer-view-does-not-reclaim",
+		"gui/transfer_view.cpp",
+		"\t\tin_flight = fzn_transfer_in_flight(transfer);\n",
+		"\t\tin_flight = fzn_transfer_in_flight(transfer);\n"
+		"\t\t(void)fzn_transfer_expire((fzn_transfer_t *)transfer, now);\n",
+		"looking at a transfer must not change it; fzn_transfer_expire reclaims "
+		"a peer's outstanding ranges and a view that called it would make the "
+		"transfer depend on whether a window was open",
+	),
+	(
+		"transfer-view-idle-is-not-stalled",
+		"gui/transfer_view.cpp",
+		"\t} else if (held_ == 0u) {\n",
+		"\t} else if (0) {\n",
+		"a transfer that never started and one that stopped short both read "
+		"in_flight == 0, and they are different things to tell a person",
+	),
+	(
+		"transfer-view-complete-is-detected",
+		"gui/transfer_view.cpp",
+		"\tcomplete = fzn_spool_complete(spool);\n",
+		"\tcomplete = 0;\n",
+		"a finished transfer must not read as a stalled one, which is what it "
+		"becomes when completion is not detected at all",
+	),
+	(
+		"transfer-view-overdue-is-reclaimable",
+		"gui/transfer_view.cpp",
+		"\t\t                                     \"reclaimable\")\n",
+		"\t\t                                     \"failed\")\n",
+		"a passed deadline is reclaimable rather than failed -- the range goes "
+		"back to the want-list and the bytes are not lost",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so
