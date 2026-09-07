@@ -22870,6 +22870,78 @@ anything could have said otherwise.
 copyright holder should know the size before it happens rather than find it
 inside a commit about a widget.
 
+## 163. The QR on a terminal, and a filled block that means light, 2026-09-07
+
+The copyright holder: "do the cli qr next." sec 160 encodes modules, sec 161
+paints them in a widget; this is the third consumer of the same array and the
+reason `fzn_qr_encode` hands out modules rather than an image.
+
+### Half blocks, because a cell is not square and sec 162 measured what that costs
+
+A cell here is 8 by 16, so one module per cell is stretched two to one -- and
+sec 162 measured an independent decoder finding **no code at all** in that.
+A HALF block is 8 by 8, which is square. Two module rows to a text row
+therefore gets the geometry right and halves the height:
+
+    half blocks    29 columns x 15 rows      version 1 with its quiet zone
+    full blocks    58 columns x 29 rows
+
+Which is what makes a small code fit an ordinary terminal at all.
+
+### The filled block is the LIGHT module
+
+A terminal draws glyphs in the foreground colour on the background, and the
+ordinary arrangement is light on dark -- so a filled glyph is **light**.
+Printing it for a dark module hands a scanner the photographic negative of the
+code.
+
+**Measured rather than reasoned, because sec 162 had just shown the value of
+doing that.** The inverted spelling, drawn as a dark terminal would draw it,
+gives quirc nothing:
+
+    half blocks                  OK  29 cols x 15 rows
+    full blocks                  OK  58 cols x 29 rows
+    ascii (may not scan)         OK  58 cols x 29 rows
+    inverted, on a dark screen   quirc found 0 code(s)
+
+That last line is the control, and it is the same shape as sec 162's: the
+thing the instrument refuses is precisely the mistake the code was written to
+avoid.
+
+The quiet zone comes out as a solid border of blocks, which is what a QR code
+on a terminal has always looked like and is the quickest way to see the
+convention has not been flipped.
+
+**A light terminal wants the other one and cannot be detected from here**, so
+it is a flag rather than a guess. `harmonization.md` settles at length how a
+GUI detects a dark desktop, and not one rung of it reaches a pipe.
+
+### The ASCII spelling passes the check and that proves less than it looks
+
+`#` does not fill its cell. The check models it as one filled edge to edge,
+which no real font does -- so the pass says the module LAYOUT is right and
+says **nothing** about the contrast a scanner would actually see.
+
+The header promises exactly that much: the style exists so that a terminal
+with no Unicode gets something printable, not because it is expected to scan.
+Recorded because *a stand-in reproduces the half of a tool you have seen*, and
+here the stand-in is more generous than the thing it stands in for.
+
+### It writes into a buffer and prints nothing
+
+No allocation and no stdio, as everywhere here -- so the same bytes serve a
+terminal, a log line, a file and a socket. A short buffer is refused and still
+reports what was needed, and passing no buffer at all is how a caller sizes
+one.
+
+### The block characters are legal where they are
+
+`code-style.md` keeps source and comments ASCII and names user-facing output
+as an exception; the gate enforces ASCII outside string literals and allows
+Unicode inside them. These are the bytes a terminal draws, they live in string
+literals, and there is no ASCII spelling of half a cell. The gate passed
+without an exemption being asked for.
+
 ## 162. The loop closed, and the premise measured, 2026-09-07
 
 The copyright holder: "do the decode through qtty next." sec 161 asserted that

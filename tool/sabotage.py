@@ -2272,6 +2272,26 @@ SABOTAGES = [
 		"the dark module is always set, and a format reservation one cell too "
 		"long is what clears it",
 	),
+	# BATCH SEVENTEEN, 2026-09-07: the terminal spelling, sec 163. The
+	# filled block is the LIGHT module, because a glyph is drawn light on a
+	# dark background and the inverse is the photographic negative of the
+	# code -- which sec 163 measured a decoder refusing outright.
+	(
+		"qr-print-filled-is-light",
+		"cli/qr_print.c",
+		"\treturn invert ? dark : !dark;\n",
+		"\treturn invert ? !dark : dark;\n",
+		"the filled block is the light module, or a terminal draws the "
+		"negative of the code and no scanner reads it",
+	),
+	(
+		"qr-print-odd-row-is-light",
+		"cli/qr_print.c",
+		"\tif (mx < 0 || my < 0 || mx >= (int)size || my >= (int)size)\n\t\tdark = 0;\n",
+		"\tif (mx < 0 || my < 0 || mx >= (int)size || my >= (int)size)\n\t\tdark = 1;\n",
+		"everything outside the code is quiet zone and must be light, which is "
+		"also what fills the half row an odd height leaves over",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

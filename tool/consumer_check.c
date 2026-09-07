@@ -58,6 +58,9 @@
 #include <fuzznet/catalog/sweep.h>
 #include <fuzznet/catalog/reach.h>
 #include <fuzznet/qr/qr.h>
+#if defined(FZN_CLI_ON)
+#include <fuzznet/cli/qr_print.h>
+#endif
 #include <fuzznet/blob/blob.h>
 #include <fuzznet/ratchet/ratchet.h>
 #include <fuzznet/prekey/prekey.h>
@@ -129,6 +132,9 @@
 #include "catalog/sweep.h"
 #include "catalog/reach.h"
 #include "qr/qr.h"
+#if defined(FZN_CLI_ON)
+#include "cli/qr_print.h"
+#endif
 #include "blob/blob.h"
 #include "ratchet/ratchet.h"
 #include "prekey/prekey.h"

@@ -736,16 +736,17 @@ TEST_BINS  += $(BUILD_DIR)/gui/test/trust_view_test \
               $(BUILD_DIR)/gui/test/qr_view_test
 endif
 
-CLI_SRCS := cli/cli.c
-CLI_HDRS := cli/cli.h
-CLI_TSRC := cli/test/cli_test.c
+CLI_SRCS := cli/cli.c cli/qr_print.c
+CLI_HDRS := cli/cli.h cli/qr_print.h
+CLI_TSRC := cli/test/cli_test.c cli/test/qr_print_test.c
 
 ifdef CLI_ON
 CPPFLAGS  += -DFZN_CLI_ON
 SRCS      += $(CLI_SRCS)
 HDRS      += $(CLI_HDRS)
 TEST_SRCS += $(CLI_TSRC)
-TEST_BINS += $(BUILD_DIR)/cli/test/cli_test
+TEST_BINS += $(BUILD_DIR)/cli/test/cli_test \
+               $(BUILD_DIR)/cli/test/qr_print_test
 endif
 
 RECORD_STORE_FILE_SRCS := record/store_file.c
@@ -1724,6 +1725,14 @@ $(BUILD_DIR)/record/test/store_file_test: $(BUILD_DIR)/record/test/store_file_te
 # cli/ reads argument strings and calls nothing. sec 137.
 $(BUILD_DIR)/cli/test/cli_test: $(BUILD_DIR)/cli/test/cli_test.o \
                                      $(BUILD_DIR)/cli/cli.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# The printer turns qr/'s modules into terminal characters and calls nothing
+# else. sec 163.
+$(BUILD_DIR)/cli/test/qr_print_test: $(BUILD_DIR)/cli/test/qr_print_test.o \
+                                     $(BUILD_DIR)/cli/qr_print.o \
+                                     $(BUILD_DIR)/qr/qr.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -3291,6 +3300,7 @@ qrcheck:
 	trap 'rm -rf "$$scratch"' EXIT INT TERM; \
 	rm -rf "$$scratch"; mkdir -p "$$scratch"; \
 	$(CC) $(CFLAGS) -I. -I"$(QUIRC_DIR)/lib" qr/test/qr_quirc_check.c qr/qr.c \
+	      cli/qr_print.c \
 	      "$(QUIRC_DIR)"/lib/quirc.c "$(QUIRC_DIR)"/lib/decode.c \
 	      "$(QUIRC_DIR)"/lib/identify.c "$(QUIRC_DIR)"/lib/version_db.c \
 	      -lm -o "$$scratch/qrcheck"; \
