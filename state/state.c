@@ -35,9 +35,16 @@ static fzn_state_entry_t *find(const fzn_state_t *state,
 	return hit;
 }
 
-static int usable(const fzn_state_t *state)
+int fzn_state_sound(const fzn_state_t *state)
 {
 	return state && state->entries && state->used <= state->capacity;
+}
+
+/* The internal spelling, unchanged in meaning. sec 184 moved the rule out so
+ * a consumer walking `entries` can ask it too. */
+static int usable(const fzn_state_t *state)
+{
+	return fzn_state_sound(state);
 }
 
 /* A slot for a subject that has no cell yet, or NULL if there is none.

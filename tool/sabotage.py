@@ -2611,6 +2611,38 @@ SABOTAGES = [
 		"on, or the answer a consumer bounds its walk by disagrees with the "
 		"answer the library acts on",
 	),
+	(
+		"state-view-cleared-is-not-never-set",
+		"gui/state_view.cpp",
+		"\tif (!found) {\n",
+		"\tif (1) {\n",
+		"fzn_state_get answers NULL for a tombstone and for a subject nobody set, "
+		"deliberately, and a person needs the difference the accessor hides",
+	),
+	(
+		"state-view-names-who-cleared-it",
+		"gui/state_view.cpp",
+		"\t\tif (fzn_trust_fingerprint(found->issuer, print, sizeof(print)) == FZN_TRUST_OK)\n",
+		"\t\tif (0)\n",
+		"a tombstone still names its clearer, which is the whole reason this "
+		"widget walks rather than taking the accessor's answer",
+	),
+	(
+		"state-view-refuses-an-unreadable-state",
+		"gui/state_view.cpp",
+		"\tif (!fzn_state_sound(st)) {\n",
+		"\tif (0) {\n",
+		"a state counting more cells than it holds is the read that goes off the "
+		"array, and reporting it as unconfigured is the fail-open answer",
+	),
+	(
+		"state-sound-is-the-guards-rule",
+		"state/state.c",
+		"\treturn state && state->entries && state->used <= state->capacity;\n",
+		"\treturn state != NULL;\n",
+		"the public predicate must be the rule the mutating paths already use, or "
+		"a consumer bounding a walk by it disagrees with what the library accepts",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

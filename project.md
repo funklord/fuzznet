@@ -31022,3 +31022,58 @@ is what would go red if somebody 'fixed' one and not the other.
 The boundary case is worth naming: **zero entries with no array is SOUND.**
 Nothing to walk is not the same as unreadable, and that is the line the
 condition turns on.
+
+## 184. The state view, which looks past an accessor on purpose
+
+`gui/state_view.{h,cpp}` shows what this host currently believes about one
+subject -- and, when it believes nothing, whether that is because nobody ever
+said or because somebody took it back.
+
+### The one widget here that does not just render the library's answer
+
+`fzn_state_get` returns NULL for a tombstone and for a subject nothing ever
+set, and state.h says why: "a caller asking what a subject says must not have
+to know that this file remembers who unset it."
+
+**That is right for the caller it was written for and wrong for a person.**
+Code taking a decision cannot act differently on the two, and inviting it to
+would be inviting a bug. But "nobody configured this" and "somebody revoked
+it, and here is who" are the two things somebody staring at a host that will
+not do what they expect most needs told apart -- and the tombstone is sitting
+in the table with the issuer still on it.
+
+So sec 165's rule is followed for the VALUE and knowingly stepped past for the
+ABSENCE. The library is not wrong and neither is this; **they have different
+callers**, and that is the whole of the argument. It is written at length in
+the header because "the widget reads a field the accessor hides" is otherwise
+indistinguishable from a widget whose author had not read the header.
+
+The suite's central case makes the library prove the setup: it asserts
+`fzn_state_get` really does answer NULL for the cleared cell before checking
+that the widget separates them. Without that, the case would pass for a
+library that had never collapsed the two.
+
+### The third soundness gap, closed on the same instruction
+
+Walking is what the tombstone answer costs, so this needed the predicate sec
+183 added to the other two stores -- and `state/state.c` had the same private
+rule, `usable()`, as a third copy.
+
+The holder's instruction named two stores because two had been reported. This
+is the same gap in a third module, found while building the consumer, and it
+is applied on the same decision rather than left for a fourth widget to
+open-code. **Flagged as a judgement rather than an instruction**, and
+reversible.
+
+**It answers a narrower question than its two siblings, and that is real.**
+`fzn_chain_store_sound` and `fzn_revocation_store_sound` ask "may I WALK
+this", so an empty store with no array is sound to them. `fzn_state_sound` is
+the condition the mutating paths here already use, so it must also be true for
+a WRITE -- and a write needs somewhere to put a cell. An array is required
+even at zero entries.
+
+They are **not** silently reconciled. Changing which states `fzn_state_apply`
+accepts is a behaviour change wearing a predicate's clothes, and whether the
+three should agree is the holder's. Three modules, three subtly different
+spellings of one rule, and each difference turns out to have a reason -- which
+is the argument for making them public rather than for making them identical.

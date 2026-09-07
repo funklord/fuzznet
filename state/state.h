@@ -387,6 +387,29 @@ fzn_state_err_t fzn_state_clear(fzn_state_t *state, const fzn_record_t *record);
  * already correct. */
 fzn_state_err_t fzn_state_resolve_clear(fzn_state_t *state, const fzn_record_t *record);
 
+/* Whether this state can be walked or written. Non-zero when it can.
+ *
+ * THE THIRD INSTANCE OF sec 183's GAP, found while building
+ * `gui/state_view`. The holder's instruction named the chain and revocation
+ * stores, which were the two that had been reported; this is the same private
+ * rule in a third module, and a consumer that walks `entries` -- which is the
+ * only way to tell a tombstone from a subject nobody ever set -- needs to ask
+ * it for the same reason. Applied on the same decision rather than left for a
+ * fourth widget to open-code. project.md sec 184.
+ *
+ * IT ANSWERS A NARROWER QUESTION THAN ITS TWO SIBLINGS, and the difference is
+ * real rather than an oversight. `fzn_chain_store_sound` and
+ * `fzn_revocation_store_sound` answer "may I WALK this", so an empty store
+ * with no array is sound to them -- nothing to walk. This is the condition
+ * the mutating paths here already use, so it also has to be true for a WRITE,
+ * and a write needs somewhere to put a cell: an array is required even when
+ * `used` is zero, and a NULL state is not sound.
+ *
+ * Whether the three should be harmonised is the holder's. They are not
+ * silently reconciled here, because changing which states `fzn_state_apply`
+ * accepts is a behaviour change wearing a predicate's clothes. */
+int fzn_state_sound(const fzn_state_t *state);
+
 /* The current value, or NULL. NULL for a tombstone as well as for a subject
  * nothing has ever set: a caller asking what a subject says must not have to
  * know that this file remembers who unset it. */
