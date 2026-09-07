@@ -29754,3 +29754,28 @@ included by `tool/consumer_check.c` -- the consumer that proves the installed
 headers actually compile from outside the tree. An installed header nothing
 includes is a header whose install is untested, which is the same shape as a
 test source that builds and never runs.
+
+### Reading which line caught which, again
+
+sec 166 ended with the rule that a green sabotage run is a result about the
+tests while *which line caught which* is a result about the mutations. Applied
+here it raised a question and, this time, answered it the other way.
+
+`log-print-escapes-the-body` was reported at `log_print_test.c:186` -- "a
+body with a newline in it drew an entry no issuer signed". That is the
+injection case, which the widget's suite also has. The terminal-escape case
+is the one that only exists on this side and is the reason this file was
+written, and it had not been seen to fail.
+
+Running the mutation by hand rather than through the harness: **five checks
+fail, at lines 186, 188, 189, 213 and 214.** The last two are "an escape byte
+from a body reached the terminal" and "the escape byte was not escaped". Both
+assertions are live and either would catch the defect alone; the harness
+reports the first because sec 152 made it report the first.
+
+So the guard was aimed correctly and nothing needed changing -- which is
+worth recording precisely because sec 166's identical-looking observation
+found a defect. **The reported line tells you which assertion fired first,
+not which assertions can fire**, and the two questions are answered by
+different commands. One sabotage, one report line, and five live assertions
+behind it.
