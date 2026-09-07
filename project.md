@@ -31077,3 +31077,62 @@ accepts is a behaviour change wearing a predicate's clothes, and whether the
 three should agree is the holder's. Three modules, three subtly different
 spellings of one rule, and each difference turns out to have a reason -- which
 is the argument for making them public rather than for making them identical.
+
+## 185. The sync view, and a fail-open the library spent a module removing
+
+`gui/sync_view.{h,cpp}` answers the question a person actually asks of a peer:
+am I up to date with it. And, before that, whether this host is in a position
+to say.
+
+### Two states, one number
+
+**"Up to date" and "cannot say" both report a deficit of zero.**
+`chain/manifest.h` built `fzn_manifest_overflowed` to separate them and states
+the stakes plainly: it answers 1 for a dropped pair "and ALSO for a NULL
+state, a state whose own fields disagree, and an issuer that is not followed
+-- all of which are the same fact in different clothes: this host cannot say
+what it is missing from that key."
+
+And why it answers the opposite way round from `fzn_revocation_covers`'s NULL:
+"an absent state means the deficit is entirely unmeasured, and **reporting an
+unmeasured deficit as sound is the fail-open this module exists to remove**."
+
+A screen drawing the number without asking would put that fail-open back at
+the last possible moment, after a whole module had been written to remove it.
+So the suite's central case asserts both report zero missing AND that they do
+not read alike: the number is the same and the screen must not be.
+
+### The sticky flag is the sharp end
+
+An issuer whose report once overflowed stays overflowed, and the widget
+reports UNMEASURED for it **even when a deficit is present and listable**. A
+host that knows it lost pairs cannot say what it is missing, however many it
+can name -- and a count shown beside that knowledge is worse than no count,
+because it looks like the answer.
+
+### Two smaller things the header argued for
+
+**A short report is said.** `fzn_manifest_deficit`'s `dropped` is required
+rather than optional, because "a deficit report that quietly does not fit is a
+range nobody asks for again". A view showing the pairs it got and not the ones
+that would not fit is the same silence one layer up.
+
+**A fresh joiner is complete by vacuity, and that is the truth rather than a
+caveat.** manifest.h: "no manifest is an empty union is a zero deficit ... A
+number's absence is distinguishable from zero; a set's is not." A followed
+peer that has said nothing is up to date, and the widget says so without
+hedging.
+
+### The pattern, now eleven widgets in
+
+Every one of these has turned on a distinction that must not collapse, and
+they divide cleanly into two kinds. Most had to be FOUND -- unspelled against
+denying, expired against revoked, not-started against stalled, cleared against
+never-set. Three were SPECIFIED by the module being displayed: sweep's seven
+counters, state's deliberate NULL, and this one.
+
+The specified ones are quicker to build and better guarded, because the
+argument is already written and the suite can quote it. **A module that
+records why its states are separate hands its view a specification**, and that
+is the strongest case yet for the habit this tree already has of writing the
+reason next to the rule.

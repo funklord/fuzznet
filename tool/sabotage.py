@@ -2643,6 +2643,31 @@ SABOTAGES = [
 		"the public predicate must be the rule the mutating paths already use, or "
 		"a consumer bounding a walk by it disagrees with what the library accepts",
 	),
+	(
+		"sync-view-unmeasured-is-not-in-sync",
+		"gui/sync_view.cpp",
+		"\tif (fzn_manifest_overflowed(st, issuer)) {\n",
+		"\tif (0) {\n",
+		"an unmeasured deficit and an empty one both report zero, and reporting "
+		"an unmeasured deficit as sound is the fail-open manifest.h exists to "
+		"remove -- reintroduced at the screen",
+	),
+	(
+		"sync-view-short-report-is-said",
+		"gui/sync_view.cpp",
+		"\tif (dropped_ > 0u) {\n",
+		"\tif (0) {\n",
+		"a deficit report that quietly does not fit is a range nobody asks for "
+		"again, so the count beside it must say it is short",
+	),
+	(
+		"sync-view-asks-the-library-for-the-count",
+		"gui/sync_view.cpp",
+		"\tmissing_ = fzn_manifest_deficit(st, issuer, pairs, FZN_SYNC_VIEW_PAIRS, &dropped);\n",
+		"\tmissing_ = st ? st->deficit_used : 0u;\n",
+		"the outstanding count is the library's answer for THIS issuer, not the "
+		"size of a table that holds every issuer's",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so
