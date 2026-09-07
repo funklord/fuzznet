@@ -22736,7 +22736,7 @@ the wire, which `situc diff` answers and nobody has run. What the table
 above establishes is that regenerating as things stand is byte-neutral on
 the wire, and nothing more than that.
 
-## 130. hydra will want `state/`, and it arrives at a different scale, 2026-09-06
+## 188. hydra will want `state/`, and it arrives at a different scale, 2026-09-06
 
 **Written from hydra, and everything below is that tree's shape rather than a
 claim about this one.** Relayed here rather than acted on, per
@@ -31249,3 +31249,48 @@ under FZN_CLI. Those are fixture costs rather than reasons, and saying so is
 the difference between a gap and an unstated one -- **this entry would
 otherwise read as "all the widgets are checked", which is exactly the claim
 sec 140 was making before any of them had been drawn.**
+
+## 189. Two sections numbered 130, 2026-09-07
+
+Reported by `claude-guidelines`, who found it after hitting the same collision
+three times in one afternoon writing into fmake -- 173, 180 and 186 all taken
+between their read and their write -- and went looking for whether it had
+already happened silently. It had, here and in two other trees.
+
+**The mechanism is the obvious one and it is not carelessness.** A session
+picks the next number by reading the file; between the read and the write,
+another session takes it. Both of these were written on 2026-09-06.
+
+### The repeated-heading check structurally cannot see it
+
+This tree's docs gate has always refused a repeated heading. Two sections
+carrying 130 with DIFFERENT TITLES are different headings, so it passed them
+both, every run, for a day. The new check is on the NUMBER among siblings, and
+it is keyed by level and parent because this tree is why: there are bare
+`### 1.` sections restarting under several `##` parents, which are correct,
+and a rule keyed on the number alone would have made the trees that number
+most into the noisiest.
+
+### Which one moved was a measurement, not a coin toss
+
+Their advice, and it was right: which 130 should move depends on what cites
+it. Five references in this file, and **all five mean the same one** -- sec
+131's own title is "and sec 130 was wrong", and its body quotes `sec 130 said
+"one node per host"`. Nothing outside this tree cites either.
+
+So the cited one keeps 130 and the uncited one -- "hydra will want `state/`"
+-- becomes 188. No citation moved, because the one with citations did not.
+
+**Renumbering by position would have got it backwards.** The file is not in
+numeric order: the uncited 130 sits between 97 and 141, and the cited one sits
+inside a descending run of 131, 130, 129. Whichever looks more out of place is
+not the question; whichever is pointed at is.
+
+### The gate is taken, and it has been seen to fail
+
+`tool/style_gate.py` synced after the renumber rather than before, on
+`harmonization.md`'s corollary that a tool change is not spread into a tree it
+will turn red -- twelve trees took it immediately and three of us were held
+back with our own lists. Then, because a check nobody has watched fail is not
+yet a check: 187 was renumbered to 186 by hand, the gate named both lines and
+refused, and the file was restored.
