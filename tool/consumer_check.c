@@ -60,6 +60,7 @@
 #include <fuzznet/qr/qr.h>
 #if defined(FZN_CLI_ON)
 #include <fuzznet/cli/qr_print.h>
+#include <fuzznet/cli/log_print.h>
 #endif
 #include <fuzznet/blob/blob.h>
 #include <fuzznet/ratchet/ratchet.h>
@@ -134,6 +135,7 @@
 #include "qr/qr.h"
 #if defined(FZN_CLI_ON)
 #include "cli/qr_print.h"
+#include "cli/log_print.h"
 #endif
 #include "blob/blob.h"
 #include "ratchet/ratchet.h"

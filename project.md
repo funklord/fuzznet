@@ -29655,3 +29655,102 @@ about.
 CAUGHT lines is a result about the tests; which line caught which is a
 result about the mutations, and only the second says whether the guard is
 aimed at anything.
+
+## 167. The log view for a terminal, 2026-09-07
+
+`cli/log_print.{h,c}` renders a log as text. sec 141 put a log in a widget;
+this is the same two facts -- what is held and what is gone -- for a consumer
+that has a pipe instead of a screen. `cli/qr_print.h` is the precedent and
+this follows its shape: it writes into a caller's buffer, allocates nothing,
+and prints nothing itself.
+
+### Escaping stops being tidiness
+
+`log/log.h` already argues that a viewer must render bodies through
+`fzn_log_body_text`, and gives two reasons: a body carrying a newline and a
+plausible sequence number draws a SECOND entry that no issuer ever signed,
+and a body carrying an escape byte reaches the terminal the view is drawn on.
+
+**On this side the second reason is the sharper one, and it changes kind.** A
+widget handed an escape byte displays something wrong. A terminal handed one
+OBEYS it: it can clear the screen, move the cursor back over the summary line
+that says entries were evicted, recolour, or redefine what the next keystroke
+sends. So a body is not merely displayed badly, it acts -- and the escaping is
+the only thing between a signed body and the reader's terminal.
+
+There is deliberately no branch in the renderer that writes `entry->body`.
+The suite feeds a body of `\x1b[2J\x1b[H` and asserts no `0x1b` byte survives
+into the output, which is a case that has no counterpart in the widget's
+tests.
+
+### What the journal is for, tested at last
+
+The widget takes a journal and so does this, on `fzn_log_get`'s argument that
+the position "is a parameter rather than a second call the caller is trusted
+to remember". Writing the tests showed **the journal was load-bearing in
+exactly one case, and neither view had been testing it.**
+
+Eviction *inside* a stream is visible from the log's own range: `first > 1`
+means the sequences below it are gone, and no journal is needed to say so.
+Every case in the first draft of this suite would have passed with the
+journal ignored entirely. The journal earns its place only when a stream is
+evicted **entirely** -- the range is then all zeroes, the log knows nothing,
+and only the journal can distinguish "five records were received and are now
+gone" from "this host never followed that issuer". Those read identically
+otherwise, and they call for opposite actions.
+
+The fixture is a second issuer filling the log and pushing the first out,
+which is how a real host loses a quiet stream to a noisy one. There is a
+paired case for an issuer nobody follows, because a summary that invented a
+loss there would pass the first case alone.
+
+### A window is said, and it is the tail
+
+`rows` is the caller's screen rather than the log's contents, so a log with
+more in it than the window says `showing N newest`. **That word was nearly a
+lie.** `fzn_log_read_since(log, ..., 0, window, rows)` fills from the OLDEST
+entry after `since`, so asking it for a window from zero returns the oldest
+rows -- and the summary would then have called them the newest. `since`
+starts a window back from the last sequence held.
+
+`rows = 0` asks for the summary alone, which is the question a health check
+has: how much have I lost, without the content. That case is also why
+emptiness is decided from the log's range and not from how many entries came
+back -- deciding it from the count would report a full log as holding
+nothing whenever nobody asked for rows.
+
+An oversized `rows` is refused rather than clamped, because a silent clamp is
+the unmarked shortening this module refuses everywhere else.
+
+### Rendering twice to promise nothing is written
+
+A body's length is not knowable without rendering it, so measuring means
+rendering. The alternative -- writing while it fits and giving up part-way --
+leaves a caller holding half a loss report. So the renderer runs twice
+against one `struct sink` that may have no destination, and the two passes
+agree by construction rather than by two pieces of arithmetic being kept in
+step. A viewer is not a hot path and this is the cheap side of that trade.
+
+### A duplication with nothing checking it
+
+The summary wording is written twice: in `gui/log_view.cpp` and in
+`cli/log_print.c`. They match deliberately, so a consumer offering both does
+not appear to disagree with itself -- and **nothing checks that they still
+match.** Recorded rather than papered over. The two cannot easily share code:
+`log_view` builds without `FZN_CLI`, and it wants the summary and the entries
+as separate strings for separate widgets, while a stream wants one buffer.
+
+The honest options are to make the widget depend on `FZN_CLI` the way
+`gui/config_view` already does, or to leave the duplication and accept that
+the words can drift. It is the holder's call which, and neither is urgent
+while both files are one screen long.
+
+### Three gates found what the tests did not
+
+The suite was green before `make check` was run, and three separate gates
+each named something real: the test binary was missing from `.gitignore`, and
+`installcheck` refused because `cli/log_print.h` is installed but was not
+included by `tool/consumer_check.c` -- the consumer that proves the installed
+headers actually compile from outside the tree. An installed header nothing
+includes is a header whose install is untested, which is the same shape as a
+test source that builds and never runs.

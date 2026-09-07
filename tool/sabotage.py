@@ -2367,6 +2367,71 @@ SABOTAGES = [
 		"a chain that expired and was also revoked must show the revocation, "
 		"which is the half somebody may need to act on",
 	),
+	(
+		"log-print-escapes-the-body",
+		"cli/log_print.c",
+		"\t\t} else {\n\t\t\tput_str(s, text);\n\t\t}\n",
+		"\t\t} else {\n\t\t\tput(s, (const char *)window[i]->body,"
+		" window[i]->body_len);\n\t\t}\n",
+		"a body must reach a terminal escaped, or a newline in it draws an "
+		"entry nobody signed and an escape byte drives the terminal",
+	),
+	(
+		"log-print-unrenderable-is-said",
+		"cli/log_print.c",
+		"\t\t\tput_str(s, \"(unrenderable body)\");\n",
+		"\t\t\t;\n",
+		"a body that will not render costs a note and not a line, since a row "
+		"missing from a list reads as a record that was never appended",
+	),
+	(
+		"log-print-window-is-the-tail",
+		"cli/log_print.c",
+		"\t\tuint64_t since = last > (uint64_t)rows ? last - (uint64_t)rows : 0u;\n",
+		"\t\tuint64_t since = 0u;\n",
+		"a window must show the newest entries, or the summary calls the oldest "
+		"ones the newest",
+	),
+	(
+		"log-print-window-is-declared",
+		"cli/log_print.c",
+		"\tif (more_held && got > 0) {\n",
+		"\tif (0) {\n",
+		"a window shorter than the log must say so, or a tail is presented as "
+		"the whole of what is held",
+	),
+	(
+		"log-print-empty-is-the-logs-range",
+		"cli/log_print.c",
+		"\tif (last == 0u) {\n",
+		"\tif (got == 0u) {\n",
+		"whether a log holds nothing is the log's range and not what the caller "
+		"asked for, or a summary-only call reports a full log as empty",
+	),
+	(
+		"log-print-names-what-only-the-journal-knows",
+		"cli/log_print.c",
+		"\t\tif (next > 1u) {\n",
+		"\t\tif (0) {\n",
+		"an entirely evicted stream must report what was received, or it reads "
+		"exactly like a stream this host never followed",
+	),
+	(
+		"log-print-refuses-a-buffer-too-small",
+		"cli/log_print.c",
+		"\t\t*len_out = measure.used + 1u;\n\t\treturn FZN_LOG_ERR_MALFORMED;\n",
+		"\t\t*len_out = measure.used + 1u;\n\t\treturn FZN_LOG_OK;\n",
+		"a buffer that cannot hold the result is refused rather than reported "
+		"as a success over bytes nobody wrote",
+	),
+	(
+		"log-print-says-the-size-it-needed",
+		"cli/log_print.c",
+		"\t\t*len_out = measure.used + 1u;\n",
+		"\t\t*len_out = 0u;\n",
+		"a refusal must say how much room it wanted, or a caller has no way to "
+		"size and retry",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so
