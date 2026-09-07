@@ -30457,3 +30457,130 @@ change. Direct messages carry only a per-message KDF commitment and cannot.
 have no sequence, and giving them one touches the path that carries the
 actual conversations. Nothing should be built either way until that is
 answered.
+
+## 176. The reconciliation, both halves, 2026-09-07
+
+sec 175 said the first act was reconciling fuzzypickles' inventory against
+what this tree already has, each side answering for its own tree. Done. Their
+lines describe what each file DOES; mine describe what is here. Where they
+meet, the file comes off the list.
+
+**The headline is that the list was wrong in both directions**: it named
+things already here, and it missed things already here.
+
+### Already here, and the state matters more than the fact
+
+"Already here" is not one status. Under the holder's criteria -- works in
+use, is the best solution, integrates fully -- an absorbed module that its
+originating consumer has never called clears none of them.
+
+They measured it. **Of the twenty-two generic files, exactly ONE includes
+anything from this library.**
+
+    sched/      included by sched.c                the only one of the 22
+    ratchet/    included by peer_seal_internal.h -- NOT by group_ratchet.c
+    blob/       not included; their blob.c is 1988 lines and takes nothing
+    link/       not included; their link.c untouched since 2026-07-28
+    log/        not included
+
+**AND THE PATTERN IS STRUCTURAL RATHER THAN A LAPSE.** Fifteen headers from
+here are in use over there -- chain, record, session, wire/seal, tree,
+constant_time and the rest -- and the files using them are `core.c`,
+`peer_seal.c`, `sched.c`, and the whole of notes and library. Those are the
+NEW subsystems, written after this library was in their build. **The old
+generic files were not converted; they were bypassed.**
+
+So adoption is real and substantial and it is happening at the MARGIN. A
+module here gets new callers; it does not get the old file's callers. Which
+means the holder's second criterion -- better rather than equivalent -- **has
+never been tested on any of the five**, because no replacement has yet been
+asked to serve the original's callers. There is no comparison to win yet, and
+that is true of all five rather than of `link/` alone.
+
+`ratchet/` shows what that costs. It is included by their peer sealing and
+not by `group_ratchet.c` -- and `group_ratchet.c` is where the `advance_to`
+defect lived, in a path this library's replacement was not serving. Extracted
+is not substituted, and the gap between the two had a security consequence
+sitting in it.
+
+**Two reasons for "not proven", and the record should say which.** `link/` is
+KNOWN unswappable -- diverged past a swap, demonstrable. `blob/` and `log/`
+may be perfectly swappable and nobody has tried. Policy treats both as
+unproven; they are not the same thing, and calling all three "already here"
+loses the distinction that decides what to do about them.
+
+**`link/` is the one that is known rather than untested.** They still ship
+`core/src/link.c` and include no header from here; mine "runs in this
+project's unit tests and nowhere else". Theirs is addresses, transports and
+byte budgets, mine is ids and metrics feeding `fzn_sched_candidate_t`, and
+**neither is a superset**. So the holder's second criterion cannot be
+applied: "better than what it replaces" presumes the two are comparable, and
+these are no longer two spellings of one thing. That is a decision to be
+taken rather than a measurement either tree can make.
+
+### Three false friends, all three mine
+
+Every one was a row where I matched a fuzznet module to a filename. Their
+lines killed all three.
+
+    manifest.c   THEIR routing record -- where this user's hosts are, signed
+                 and propagated. `chain/manifest.h` is what a peer HOLDS and
+                 LACKS. Same word, unrelated jobs.
+    delegate.c   outbound sending through the host a contact knows. Routing,
+                 not authorisation; I had matched it to revocation.
+    sibling.c    local registry of the same user's other hosts. I matched it
+                 to `wire/bytes.h` on a word. They quoted my own prediction
+                 that this was the failure mode back at me, correctly.
+
+### Two files already here that the inventory never listed
+
+**`delivery.c`, the twenty-third.** `record/ledger.h` names it as the source;
+they had missed it because sec 17's inventory was drawn by asking which files
+know a contact exists, and `delivery.c` had been extracted late. **A list
+written once and quoted later misses exactly this**, which is sec 175's
+co-development lesson arriving on its own schedule and against its own
+authors.
+
+**`signed_tag.h`, and it is further along than anything else.** Not a file to
+port: `wire/bytes.h` already carries a SHARED REGISTRY. Tags 1..12 are
+allocated to their `core/src/signed_tag.h` with their twelve names quoted
+from their header, 13..31 are held for their growth during the transition,
+128+ is this library's, and their rule that a retired tag is never reused is
+adopted whole. Two trees reading one registry, with the reason stated: during
+a transition both encodings exist and they must not be able to verify as each
+other.
+
+### Where the destination may already be past the source
+
+`crypto_msg.c` is, in their header's own words, a documented **stepping stone
+ahead of real sessions** -- per-message 2-DH with a key-committing AEAD. This
+tree has `session/session.h`, `session/agree.h`, `session/commitment.h` and
+`ratchet/ratchet.h`, which is the thing a stepping stone steps toward.
+
+If that holds, `crypto_msg.c` is not a port and never was: it is the case
+where the replacement is better rather than equivalent, which is the only
+case the holder's policy actually asks for. Stated as a candidate, not a
+finding -- I have read their one line and my four headers, and nobody has
+compared the constructions.
+
+`pairing_crypto.c` is its deliberate opposite: DH-only confidentiality with
+NO sender authentication, because at pairing time there is no pinned key yet.
+That pairs with `provision/provision.h` here, and the absence of
+authentication is the design rather than a gap in it.
+
+### Still genuinely absent
+
+    recv_seen.c      the direct-message half needs a wire sequence; holder's
+    addr_observe.c   reflexive address discovery
+    rendezvous.c     NAT hole-punch coordination
+    log_relay.c      a remote READ of another host's log retention
+
+The log subsystem is three files -- `append_log.c`, `log_show.c`,
+`log_relay.c` -- and this tree has the first, minus its line format, which
+their own measurement had already classified as specific rather than general.
+`log/log.h`'s range and read-since look like `log_show.c`'s job and that is
+untested; `log_relay.c` is a cross-host query and has nothing here.
+
+`addr_observe` and `rendezvous` are two of three volunteer relay services.
+`wire/relay.h` here is relay POLICY -- which subsystem may spend what -- and
+is adjacent to them rather than the same thing.
