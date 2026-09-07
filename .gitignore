@@ -44,6 +44,7 @@
 /cli/test/qr_print_test
 /cli/test/log_print_test
 /cli/test/sync_print_test
+/cli/test/journal_print_test
 /gui/test/trust_view_test
 /gui/test/log_view_test
 /gui/test/qr_view_test

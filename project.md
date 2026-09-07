@@ -31392,3 +31392,54 @@ number can, which is the whole reason the enum exists.
 The suite checks both channels separately: the words differ for a person, and
 the enum differs for a program. Either alone would pass a version that got the
 other wrong.
+
+## 192. A journal line, and the state the caller did not ask for
+
+`cli/journal_print.{h,c}` reports one stream's position and the condition of
+the table it lives in. `gui/journal_view` is the same facts for a screen.
+
+### The second state is the point
+
+sec 186 established it: a full journal refuses every issuer it has not met,
+**the peer being turned away has no row at all**, and every row that does
+exist still looks healthy. So the condition is invisible to anybody who asked
+the obvious question -- which stream am I on -- and this reports it whether or
+not they thought to ask.
+
+That makes the table's out-parameter the interesting one. Making it optional
+would be making it absent, because the caller who needs it is by definition
+the caller who did not ask: they are looking at Bob's stream and the problem
+is Dave, who has no row. So both states are required, on
+`fzn_manifest_deficit`'s argument for its own `dropped` -- an optional
+out-parameter is one every caller ignores.
+
+The suite proves the warning is not decorative by anchoring a third issuer and
+requiring `FZN_JOURNAL_ERR_FULL`. Without that it would pass for a printer
+that says FULL whenever it feels like it.
+
+### Zero is the answer that asks for attention
+
+`FZN_JOURNAL_STREAM_UNTRACKED` and `FZN_JOURNAL_TABLE_FULL` are the zero
+values of their enums, and both are set before anything can fail. A caller
+that ignores an out-parameter, or reads one after a refusal, gets the state
+that wants looking at rather than the one that grants absolution. sec 191 made
+the same choice; this is the second instance, so it is now a habit of these
+printers rather than a decision taken twice.
+
+The suite checks it by poisoning both variables with reassuring values before
+a call that must refuse, and requiring them gone.
+
+### Where the CLI has overtaken the GUI
+
+Three printers now against eleven widgets, and for a terminal the printers are
+the better half -- sec 190: a `QFormLayout` row label does not reach the qtty
+grid, so a widget shows its answers unlabelled while a printer composes its
+own words.
+
+There is a second advantage that has nothing to do with that bug, and it is
+the one worth keeping. **A widget has one channel and a printer has two.** The
+screen carries the sentence and the enum carries the verdict, so a monitoring
+script never parses prose -- and every one of these views turned on a
+distinction that a number alone destroys. The GUI has no equivalent: a caller
+wanting `fzn_sync_view`'s verdict reads `shown_state()`, which is the same
+idea, but the widget must still have drawn something first.

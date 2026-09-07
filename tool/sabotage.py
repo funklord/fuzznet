@@ -2716,6 +2716,30 @@ SABOTAGES = [
 		"an optional out-parameter is one every caller ignores, and this is the "
 		"one a health check must not",
 	),
+	(
+		"journal-print-reports-the-table",
+		"cli/journal_print.c",
+		"\t\ttable = used >= capacity ? FZN_JOURNAL_TABLE_FULL : FZN_JOURNAL_TABLE_ROOM;\n",
+		"\t\ttable = FZN_JOURNAL_TABLE_ROOM;\n",
+		"a caller asks about one stream and no row it could ask about says the "
+		"table is full, so the condition is invisible unless reported unasked",
+	),
+	(
+		"journal-print-untracked-is-not-fresh",
+		"cli/journal_print.c",
+		"\t\tif (!row) {\n",
+		"\t\tif (0) {\n",
+		"fzn_journal_next answers 1 for a peer never seen AND for a followed "
+		"stream that has said nothing, and only one of them is listening",
+	),
+	(
+		"journal-print-states-are-required",
+		"cli/journal_print.c",
+		"\tif (!journal || !issuer || !out || !len_out || !stream_out || !table_out)\n",
+		"\tif (!journal || !issuer || !out || !len_out || !stream_out)\n",
+		"the table's state is the one a caller did not think to ask for, so making "
+		"it optional is making it absent",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

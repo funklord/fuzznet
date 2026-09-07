@@ -789,10 +789,13 @@ TEST_BINS += $(BUILD_DIR)/gui/test/config_view_test \
 endif
 endif
 
-CLI_SRCS := cli/cli.c cli/qr_print.c cli/log_print.c cli/sync_print.c
-CLI_HDRS := cli/cli.h cli/qr_print.h cli/log_print.h cli/sync_print.h
+CLI_SRCS := cli/cli.c cli/qr_print.c cli/log_print.c cli/sync_print.c \
+            cli/journal_print.c
+CLI_HDRS := cli/cli.h cli/qr_print.h cli/log_print.h cli/sync_print.h \
+            cli/journal_print.h
 CLI_TSRC := cli/test/cli_test.c cli/test/qr_print_test.c \
-            cli/test/log_print_test.c cli/test/sync_print_test.c
+            cli/test/log_print_test.c cli/test/sync_print_test.c \
+            cli/test/journal_print_test.c
 
 ifdef CLI_ON
 CPPFLAGS  += -DFZN_CLI_ON
@@ -802,7 +805,8 @@ TEST_SRCS += $(CLI_TSRC)
 TEST_BINS += $(BUILD_DIR)/cli/test/cli_test \
                $(BUILD_DIR)/cli/test/qr_print_test \
                $(BUILD_DIR)/cli/test/log_print_test \
-               $(BUILD_DIR)/cli/test/sync_print_test
+               $(BUILD_DIR)/cli/test/sync_print_test \
+               $(BUILD_DIR)/cli/test/journal_print_test
 endif
 
 RECORD_STORE_FILE_SRCS := record/store_file.c
@@ -1799,6 +1803,16 @@ $(BUILD_DIR)/cli/test/cli_test: $(BUILD_DIR)/cli/test/cli_test.o \
 $(BUILD_DIR)/cli/test/qr_print_test: $(BUILD_DIR)/cli/test/qr_print_test.o \
                                      $(BUILD_DIR)/cli/qr_print.o \
                                      $(BUILD_DIR)/qr/qr.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# One stream's position and the table's own condition. sec 192.
+$(BUILD_DIR)/cli/test/journal_print_test: \
+                                     $(BUILD_DIR)/cli/test/journal_print_test.o \
+                                     $(BUILD_DIR)/cli/journal_print.o \
+                                     $(BUILD_DIR)/record/journal.o \
+                                     $(BUILD_DIR)/record/record.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
