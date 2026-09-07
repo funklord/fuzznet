@@ -36,6 +36,10 @@
 #include "../revocation_view.h"
 #include "../journal_view.h"
 #include "../sync_view.h"
+#include "../transfer_view.h"
+#include "../state_view.h"
+#include "../provision_view.h"
+#include "../config_view.h"
 
 extern "C" {
 #include "../../log/log.h"
@@ -265,6 +269,27 @@ static int narrowest(QWidget &w, const char *must_show)
 	return 0;
 }
 
+/* A store that is never read from or written to. `fzn_spool_open` requires
+ * the vtable rather than accepting NULL, and this renders rather than
+ * transfers -- refusing is the honest stub. */
+static int no_read(void *ctx, uint64_t offset, uint8_t *out, size_t len)
+{
+	(void)ctx; (void)offset; (void)out; (void)len;
+	return 0;
+}
+
+static int no_write(void *ctx, uint64_t offset, const uint8_t *bytes, size_t len)
+{
+	(void)ctx; (void)offset; (void)bytes; (void)len;
+	return 0;
+}
+
+static int no_sync_op(void *ctx)
+{
+	(void)ctx;
+	return 0;
+}
+
 static void test_every_widget_survives_a_terminal(void)
 {
 	fzn_authz_view authz;
@@ -273,6 +298,9 @@ static void test_every_widget_survives_a_terminal(void)
 	fzn_revocation_view revocation;
 	fzn_journal_view journal_v;
 	fzn_sync_view sync;
+	fzn_transfer_view transfer;
+	fzn_state_view state_v;
+	fzn_config_view config;
 
 	fzn_authz_policy_t policy;
 	fzn_chain_t chain;
@@ -321,6 +349,58 @@ static void test_every_widget_survives_a_terminal(void)
 	if (fzn_manifest_init(&m, m_issuers, 2u, m_deficits, 4u) == FZN_MANIFEST_OK)
 		sync.show_peer(&m, peer);
 
+	/* THE FOUR sec 187 LEFT UNDRAWN, and each was a fixture cost rather
+	 * than a reason -- which is only worth saying if the cost is then
+	 * paid. sec 190. */
+	{
+		static uint8_t present[FZN_SPOOL_BITMAP_LEN(16u)];
+		static fzn_transfer_assign_t assigns[2];
+		static fzn_spool_ops_t spool_ops;
+		static uint8_t spool_root[FZN_BLOB_HASH_LEN];
+		fzn_spool_t spool;
+		fzn_transfer_t xfer;
+
+		memset(present, 0, sizeof(present));
+		memset(spool_root, 0xd1, sizeof(spool_root));
+		present[0] |= 1u; /* one leaf held, so the state is STALLED */
+		spool_ops.read_at = no_read;
+		spool_ops.write_at = no_write;
+		spool_ops.sync = no_sync_op;
+		spool_ops.ctx = NULL;
+
+		if (fzn_spool_open(&spool, spool_root, 16u, present, sizeof(present),
+		                   &spool_ops) == FZN_SPOOL_OK &&
+		    fzn_transfer_open(&xfer, &spool, assigns, 2u) == FZN_TRANSFER_OK)
+			transfer.show_transfer(&spool, &xfer, 100u);
+	}
+
+	{
+		static fzn_state_entry_t cells[2];
+		fzn_state_t st;
+		fzn_record_t rec;
+
+		/* Set a cell and clear it, so the widget is in the state it
+		 * exists for -- CLEARED, which fzn_state_get cannot report. */
+		if (fzn_state_init(&st, cells, 2u) == FZN_STATE_OK &&
+		    make(&rec, 6u, 1u, (const uint8_t *)"on", 2u) &&
+		    fzn_state_apply(&st, &rec) == FZN_STATE_OK &&
+		    make(&rec, 7u, 2u, NULL, 0) &&
+		    fzn_state_clear(&st, &rec) == FZN_STATE_OK)
+			state_v.show_cell(&st, SUBJECT, 3u);
+	}
+
+	{
+		fzn_cli_t cli;
+
+		/* A SPELLED config. The unspelled one was tried first and
+		 * renders NOTHING -- which is how the row-label finding below
+		 * was found, since an empty form is all label and no value. */
+		fzn_cli_init(&cli);
+		cli.dir = "/var/lib/fuzznet";
+		cli.service = 7u;
+		config.show_config(&cli);
+	}
+
 	{
 		const struct terminal_case cases[] = {
 			{ "authz_view", &authz, "unguarded" },
@@ -329,6 +409,13 @@ static void test_every_widget_survives_a_terminal(void)
 			{ "revocation_view", &revocation, "work again" },
 			{ "journal_view", &journal_v, "nothing received" },
 			{ "sync_view", &sync, "cannot say" },
+			{ "transfer_view", &transfer, "stalled" },
+			{ "state_view", &state_v, "took it back" },
+			/* A LABEL RATHER THAN A VALUE, because an unspelled config has
+			 * no values -- that is its point. This asks whether the
+			 * form's structure survives a terminal, which is the
+			 * question for a widget made of rows. */
+			{ "config_view", &config, "/var/lib/fuzznet" },
 		};
 
 		for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
@@ -343,6 +430,30 @@ static void test_every_widget_survives_a_terminal(void)
 			         "a widget shows nothing at any width up to 120 columns");
 			printf("  %-18s needs %d columns to say \"%s\"\n", cases[i].name,
 			       floor_cols, cases[i].must_show);
+		}
+
+		/* DO QFormLayout's OWN ROW LABELS REACH THE GRID? Every widget
+		 * here is built of `addRow(text, widget)`, and every assertion
+		 * above matches a VALUE. config_view has no values in its
+		 * unspelled state, so it is the one that asks this question --
+		 * and it renders nothing. */
+		{
+			const QString snap = rendered(authz, 80, 24);
+
+			/* PINNED AS MEASURED, NOT AS WANTED. Every widget here
+			 * is built of `addRow(text, widget)`, and qtty renders
+			 * the VALUE and not the row label -- so on a terminal
+			 * these objects show their answers with nothing saying
+			 * what each answer is about. Reported to qtty; the
+			 * assertion is written the way the world IS so that it
+			 * goes red when they fix it, which is the notice this
+			 * tree wants rather than a silent improvement. */
+			check_at(snap.contains(QStringLiteral("unguarded")), __LINE__,
+			         "a form's value does not reach the grid");
+			check_at(!snap.contains(QStringLiteral("Requires")), __LINE__,
+			         "a form's ROW LABEL now reaches the grid -- qtty has "
+			         "changed, and every widget here can stop working around "
+			         "it: see project.md sec 190");
 		}
 	}
 }

@@ -31294,3 +31294,54 @@ will turn red -- twelve trees took it immediately and three of us were held
 back with our own lists. Then, because a check nobody has watched fail is not
 yet a check: 187 was renumbered to 186 by hand, the gate named both lines and
 refused, and the file was restored.
+
+## 190. Paying the fixture costs, and what the tenth widget showed
+
+sec 187 drew six widgets and named four it had not, calling them "fixture
+costs rather than reasons". That is only worth saying if the cost is then
+paid, so it was: all ten now render.
+
+    authz_view         23 columns    "unguarded"
+    capability_view    20            "expired"
+    sweep_view         26            "held it back"
+    revocation_view    20            "work again"
+    journal_view       39            "nothing received"
+    sync_view          20            "cannot say"
+    transfer_view      20            "stalled"
+    state_view         22            "took it back"
+    config_view        32            "/var/lib/fuzznet"
+
+### The tenth rendered nothing, and that is the finding
+
+`config_view` in its unspelled state showed **nothing at any width up to 120
+columns.** Not a widget defect: an unspelled config has no values, by design,
+so it is all label -- and **a `QFormLayout` row label does not reach the qtty
+grid.** Measured on `authz_view`, where a value and a label sit in one row:
+
+    snapshot contains "unguarded"  (the value, a QLabel I made)   -> yes
+    snapshot contains "Requires"   (the row label, made by Qt)    -> NO
+
+**Nine widgets passed and the finding was in all of them.** Every assertion
+sec 187 wrote happened to match a VALUE, so nine looked fine while showing
+their answers with nothing saying what each answer is about. The only widget
+where the absence is visible is the one with no values to hide behind, and it
+was the one I nearly dropped as too expensive to fixture.
+
+That is the sharpest instance yet of this session's recurring shape: **the
+case that is awkward to set up is the case that discriminates.** Six easy
+widgets rendered, all green, and the property they shared was invisible until
+the tenth had nothing else to show.
+
+### Pinned as it is, not as it should be
+
+The render test now asserts that the value IS on the grid and the row label is
+NOT. Written that way round deliberately: when qtty fixes it, this goes RED
+and says so, which is the notice this tree wants rather than a silent
+improvement it never notices. Nothing here is worked around.
+
+Reported into qtty's own `project.md` under their sec 12, "From fuzznet",
+left uncommitted -- their tree has work in flight and it is not mine to
+commit into. The report states the reproduction and says the cause is unknown
+from here, because I have not read their cell walk and the difference I can
+see -- caller-made label against `addRow`-made label -- is an observation
+rather than a mechanism.

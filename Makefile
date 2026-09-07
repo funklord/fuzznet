@@ -3641,8 +3641,12 @@ qtty:
 	       gui/test/qtty_render_test.cpp gui/trust_view.cpp gui/log_view.cpp \
 	       gui/qr_view.cpp gui/authz_view.cpp gui/capability_view.cpp \
 	       gui/sweep_view.cpp gui/revocation_view.cpp gui/journal_view.cpp \
-	       gui/sync_view.cpp \
+	       gui/sync_view.cpp gui/transfer_view.cpp gui/state_view.cpp \
+	       gui/config_view.cpp \
 	       $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \
+	       $(BUILD_DIR)/cli/cli.o $(BUILD_DIR)/state/state.o \
+	       $(BUILD_DIR)/spool/spool.o $(BUILD_DIR)/spool/plan.o \
+	       $(BUILD_DIR)/spool/transfer.o $(BUILD_DIR)/blob/blob.o \
 	       $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/log/log.o \
 	       $(BUILD_DIR)/record/journal.o $(BUILD_DIR)/record/record.o \
 	       $(BUILD_DIR)/chain/authz.o $(BUILD_DIR)/chain/chain.o \
