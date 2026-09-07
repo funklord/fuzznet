@@ -125,6 +125,37 @@ int main(int argc, char **argv)
 	CHECK(view.shown_state() == fzn_journal_view::TRACKING,
 	      "a full table changed what the stream's own row says");
 
+	/* AN EXHAUSTED STREAM IS NOT A VERY LARGE WANT.
+	 *
+	 * There is no way to reach UINT64_MAX by admitting: `admit` advances
+	 * by one and refuses a jump. The row is caller-owned memory, so the
+	 * position is set directly -- which is the only way this branch is
+	 * reachable at all, and it was written with a guard and no case until
+	 * the sabotage harness said so. */
+	{
+		size_t i;
+		int placed = 0;
+
+		for (i = 0; i < journal.used; i++)
+			if (ROWS[i].stream == 5u &&
+			    memcmp(ROWS[i].issuer, bob, FZN_PUBKEY_LEN) == 0) {
+				ROWS[i].received = UINT64_MAX;
+				ROWS[i].applied = UINT64_MAX;
+				placed = 1;
+			}
+		CHECK(placed, "the fixture could not find the row to exhaust");
+		CHECK(fzn_journal_next(&journal, bob, 5u) == UINT64_MAX,
+		      "the library does not report this stream as exhausted, so the case "
+		      "proves nothing");
+
+		view.show_stream(&journal, bob, 5u);
+		CHECK(view.shown_state() == fzn_journal_view::EXHAUSTED,
+		      "a stream that has run out was not shown as exhausted");
+		CHECK(!view.state_text().contains(QStringLiteral("18446744073709551615")),
+		      "an exhausted stream was drawn as a want for record eighteen "
+		      "quintillion");
+	}
+
 	/* A JOURNAL THAT CANNOT BE WALKED IS NOT A ROW TO DRAW. */
 	journal.used = journal.capacity + 1u;
 	view.show_stream(&journal, bob, 5u);

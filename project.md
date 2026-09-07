@@ -31170,6 +31170,15 @@ An exhausted stream is its own state too: `next` answers UINT64_MAX, which
 drawn as a number reads as a request for record eighteen quintillion and means
 there will never be another.
 
+**That branch was written with a guard and no case, and the harness said so.**
+`journal-view-exhausted-is-not-a-huge-want` SURVIVED on its first run, because
+nothing in the suite reached UINT64_MAX -- `admit` advances by one and refuses
+a jump, so the position can only be placed directly in the caller's row. The
+branch, its guard and its header paragraph all existed and none of them was
+tested. Written up because it is the cheapest possible instance of the thing
+this harness exists for: **a guard over an unreached branch reads exactly like
+a guard over a defended one**, and only sabotaging it tells them apart.
+
 ### The fourth copy, reported rather than taken
 
 Telling untracked from fresh means finding the row, which means walking, which
