@@ -30645,3 +30645,80 @@ against the session that keeps quoting it.
 It also decides one row of the `crypto_msg` comparison before we started
 running it -- in this library's favour, by evidence neither of us went looking
 for, and reported by the tree it went against.
+
+## 178. Four reasons, and which of them this tree can hold, 2026-09-07
+
+The `crypto_msg` comparison is closed before it was run. fuzzypickles
+verified rather than read: `fzp_msg_encrypt` and `fzp_msg_decrypt` have **zero
+production callers** -- every caller is their own test -- and `messaging.c`
+calls their peer sealing, which includes `session/commitment.h` from here. So
+there was no comparison for that tree to offer on any axis, and they said so
+having offered one: "I offered you a comparison I could not have run."
+
+What the file is instead is an **executable record of four reasons** their
+sec 17 says must survive "as reason, not as code". Mapped against this tree,
+one line each:
+
+    1  the all-zero nonce is safe ONLY because the derived key is used once
+       ever -- a property of the EPHEMERAL, not of the AEAD
+                                        NOTHING HERE. At risk.
+
+    2  the prekey is not on the wire and neither is a signature, because
+       trust in it is pinned at peer-add
+                                        OPPOSITE CHOICE HERE, recorded.
+                                        `prekey/prekey.h` is a signed,
+                                        published record, and its header
+                                        already engages their model: this
+                                        library asked which row blocked, and
+                                        their answer was that in their tree
+                                        the contact record is MADE FROM the
+                                        prekey record at add time.
+
+    3  the transcript is ordered BY ROLE, because a directed message must key
+       differently in each direction
+                                        FULLY HERE, both kinds, and the rule
+                                        that selects between them.
+
+    4  two acknowledgement tags from one AEAD key under separate domain
+       labels, so holding one says nothing about the other
+                                        HERE, in `chain/service.h` and
+                                        `session/commitment.h`.
+
+### Reason 3 was already answered, by a rule they caused
+
+`session/session.h` carries it: "THE QUALIFIER MATTERS AND THE FIRST DRAFT
+LEFT IT OUT, which fuzzypickles caught by contrasting their two transcripts."
+Canonically when the relationship is symmetric and has no roles at derivation
+time; BY ROLE when the roles are real, asymmetric and covered by what is
+signed. Their `prekey_channel.c` is named as the first kind, their
+`crypto_msg.c` as the second.
+
+And the question they said a merged design would still have to answer -- can
+one design carry both -- **is answered by this file already carrying both**:
+`fzn_session_transcript` sorts, `fzn_session_chains` orders by role, in one
+header, "which is why the distinction is stated here rather than left as a
+preference."
+
+### Reason 1 is the one that can actually be lost
+
+An all-zero nonce is safe there only while the derived key is used exactly
+once ever, and that safety lives in the EPHEMERAL rather than in the AEAD. So
+**no test of an AEAD would notice it breaking** -- their observation, and the
+reason it is the dangerous one to drop.
+
+This tree has no instance of it. Every frame here carries a nonce, so there
+is nothing to hang the reason on: it cannot be adopted as code and it cannot
+be demonstrated by anything running. If their file is ever retired, this is
+the entry that has nowhere to go, and recording it here is the whole of what
+"survive as reason" can mean for it.
+
+### The symmetry worth keeping
+
+They corrected me that a property inherited from a neighbour is still yours
+once you change what you feed it -- the derivation shape was theirs, the
+long-lived transcript mine, the leak mine. Their role-ordering row is the same
+statement from the other side: role-ordering is right for a directed message
+and wrong for a session, and **a merge that took the shape without the
+question would get one of the two silently wrong.**
+
+Both halves of that sentence were found by the tree it went against.
