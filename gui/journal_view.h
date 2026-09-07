@@ -32,8 +32,15 @@
  * is being turned away -- so the table's own state is on this screen beside
  * the stream's.
  *
- * IT WALKS, AND IT BOUNDS ITS OWN WALK, WHICH IS A LIBRARY GAP AND THE FOURTH
- * OF ITS KIND. Telling untracked from fresh means finding the row, and
+ * IT ASKS `cli/journal_print` AND SHOWS WHAT IT SAYS, and needs FZN_CLI for
+ * it. sec 193: this widget and that printer each classified the stream and
+ * the table themselves, which is two implementations of one screen -- the
+ * duplication sec 168 removed for the log, re-created because a CLI
+ * counterpart written for an existing widget always does unless the widget is
+ * revisited.
+ *
+ * THE WALK AND ITS BOUND LIVE IN THE PRINTER NOW, WHICH IS A LIBRARY GAP AND
+ * THE FOURTH OF ITS KIND. Telling untracked from fresh means finding the row, and
  * `record/journal.c` keeps its scannability rule private as `usable()` --
  * after `chain_store`, `revocation` and `state`. sec 183 made two of those
  * public on the holder's instruction and sec 184 took a third as a judgement.
@@ -49,6 +56,7 @@
 #define FZN_GUI_JOURNAL_VIEW_H
 
 extern "C" {
+#include "../cli/journal_print.h"
 #include "../record/journal.h"
 }
 
@@ -71,21 +79,22 @@ public:
 	                 uint32_t stream);
 
 	state shown_state() const;
-	QString state_text() const;
-	QString pending_text() const;
 
-	/* Whether the table has no room for another peer. Independent of the
-	 * stream shown: a full journal refuses issuers it has never met, and
-	 * every row on it still looks healthy. */
+	/* The line `fzn_journal_print` produced, carrying both the stream's
+	 * position and the table's condition. */
+	QString state_text() const;
+
+	/* Whether the table has no room for another peer -- the printer's
+	 * answer. Independent of the stream shown: a full journal refuses
+	 * issuers it has never met and every row on it still looks healthy,
+	 * which is why it is a separate accessor rather than something a
+	 * caller is expected to read out of the line. */
 	bool full() const;
-	QString capacity_text() const;
 
 private:
 	state state_;
 	bool full_;
 	QLabel *state_label_;
-	QLabel *pending_;
-	QLabel *capacity_;
 };
 
 #endif /* FZN_GUI_JOURNAL_VIEW_H */

@@ -95,12 +95,12 @@ int main(int argc, char **argv)
 	      "the received position is not on the screen");
 
 	/* APPLYING BEHIND IS ITS OWN LINE, and settling clears it. */
-	CHECK(view.pending_text() != QStringLiteral("settled"),
+	CHECK(view.state_text().contains(QStringLiteral("not yet applied")),
 	      "records received and not applied were reported as settled");
 	CHECK(fzn_journal_confirm(&journal, bob, 5u, 2u) == FZN_JOURNAL_OK, "confirm refused");
 	view.show_stream(&journal, bob, 5u);
-	CHECK(view.pending_text() == QStringLiteral("settled"),
-	      "a fully applied stream was not reported as settled");
+	CHECK(!view.state_text().contains(QStringLiteral("not yet applied")),
+	      "a fully applied stream still reported records outstanding");
 
 	/* THE FULL TABLE. Two slots, both taken, and every row still healthy.
 	 * The refusal is real: a third issuer cannot be anchored. */
@@ -112,7 +112,7 @@ int main(int argc, char **argv)
 	CHECK(view.full(),
 	      "a journal with no room left was not reported as full, and no single "
 	      "row reveals it");
-	CHECK(view.capacity_text().contains(QStringLiteral("FULL")),
+	CHECK(view.state_text().contains(QStringLiteral("FULL")),
 	      "the table's own state is not on the screen");
 	{
 		uint8_t dave[FZN_PUBKEY_LEN];
@@ -164,6 +164,27 @@ int main(int argc, char **argv)
 	CHECK(view.state_text() != untracked,
 	      "an unreadable journal reads as a peer nobody follows, which is the "
 	      "fail-open answer");
+
+	/* THE ASSERTION THAT KEEPS ONE IMPLEMENTATION. sec 193. */
+	{
+		char want[FZN_JOURNAL_PRINT_MAX];
+		fzn_journal_stream_state_t s2 = FZN_JOURNAL_STREAM_UNTRACKED;
+		fzn_journal_table_state_t t2 = FZN_JOURNAL_TABLE_FULL;
+		size_t len = 0;
+		QString expected;
+
+		journal.used = 2u; /* undo the unreadable case above */
+		view.show_stream(&journal, bob, 5u);
+		CHECK(fzn_journal_print(&journal, bob, 5u, want, sizeof(want), &len, &s2,
+		                        &t2) == FZN_JOURNAL_OK,
+		      "the printer would not render what the widget was given");
+		expected = QString::fromLatin1(want);
+		while (expected.endsWith(QLatin1Char('\n')))
+			expected.chop(1);
+		CHECK(view.state_text() == expected,
+		      "the widget's words are not the printer's, so one screen has two "
+		      "wordings again");
+	}
 
 	/* The suite can tell pass from fail. */
 	{

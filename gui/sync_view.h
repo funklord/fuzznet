@@ -38,6 +38,14 @@
  * the pairs it received and not the ones that would not fit would be the same
  * silence one layer up.
  *
+ * IT ASKS `cli/sync_print` AND SHOWS WHAT IT SAYS, and needs FZN_CLI for it.
+ * sec 193. This widget and that printer were written days apart and each
+ * decided the state from `fzn_manifest_overflowed` and `fzn_manifest_deficit`
+ * itself -- two implementations of one decision, which is exactly what sec 168
+ * removed between `gui/log_view` and `cli/log_print` and exactly what writing
+ * a CLI counterpart for an existing widget re-creates unless the widget is
+ * revisited.
+ *
  * NO Q_OBJECT AND THEREFORE NO moc, on sec 140's rule. It displays.
  */
 
@@ -46,6 +54,7 @@
 
 extern "C" {
 #include "../chain/manifest.h"
+#include "../cli/sync_print.h"
 }
 
 #include <QString>
@@ -71,21 +80,16 @@ public:
 	void show_peer(const fzn_manifest_state_t *st, const uint8_t issuer[FZN_PUBKEY_LEN]);
 
 	state shown_state() const;
-	QString state_text() const;
-	QString detail_text() const;
 
-	/* How many pairs this host is missing, and how many would not fit in
-	 * the report. Both zero when the deficit is unmeasured -- ask
-	 * `shown_state` before believing either. */
-	size_t missing() const;
-	size_t dropped() const;
+	/* The line `fzn_sync_print` produced, which is the whole of what is on
+	 * the screen. There is deliberately no second accessor for the counts:
+	 * a consumer wanting numbers asks `fzn_manifest_deficit`, which is the
+	 * library rather than a widget's reading of it. */
+	QString state_text() const;
 
 private:
 	state state_;
-	size_t missing_;
-	size_t dropped_;
 	QLabel *state_label_;
-	QLabel *detail_;
 };
 
 #endif /* FZN_GUI_SYNC_VIEW_H */

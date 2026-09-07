@@ -31443,3 +31443,63 @@ script never parses prose -- and every one of these views turned on a
 distinction that a number alone destroys. The GUI has no equivalent: a caller
 wanting `fzn_sync_view`'s verdict reads `shown_state()`, which is the same
 idea, but the widget must still have drawn something first.
+
+## 193. The duplication I re-created twice knowing better, 2026-09-07
+
+sec 168 removed a duplication between `gui/log_view` and `cli/log_print`: the
+same summary wording in two files, matched by hand, with nothing checking they
+still agreed. The fix was that the widget asks the printer.
+
+**Then sec 191 and sec 192 made the same mistake twice.** `cli/sync_print` and
+`cli/journal_print` were each written for a widget that already existed, and
+each decided the state from the library itself:
+
+    gui/sync_view      fzn_manifest_overflowed, fzn_manifest_deficit, its words
+    cli/sync_print     fzn_manifest_overflowed, fzn_manifest_deficit, its words
+
+    gui/journal_view   walk, classify next, compute full, its words
+    cli/journal_print  walk, classify next, compute full, its words
+
+Two implementations of one screen, twice, written days after the section that
+removed exactly that.
+
+### Why it kept happening, which is the part worth keeping
+
+**A CLI counterpart written for an existing widget always re-creates the
+duplication unless the widget is revisited.** At the moment of writing the
+printer, the natural act is to write the logic; the widget is somewhere else
+and passes its own tests either way. Nothing fails. sec 168 was retrofitted to
+`log_view` precisely because the printer came second there too -- and the
+lesson recorded was about the outcome rather than about the ORDER that
+produces it.
+
+So the rule, stated as a trigger rather than a principle: **when a printer is
+added for a fact a widget already shows, the widget changes in the same
+commit.** That is the only moment at which anybody is looking at both.
+
+### The fix, and what the widgets gave up
+
+Both widgets call their printer, show its line, and take their state from its
+enum. `sync_view` loses `detail_text`, `missing` and `dropped`; `journal_view`
+loses `pending_text` and `capacity_text`. A consumer wanting numbers asks the
+library -- `fzn_manifest_deficit` and `fzn_journal_pending` -- which is where
+they live rather than a widget's reading of them.
+
+Both move under FZN_CLI, as `log_view` and `config_view` already are.
+
+Each suite gains the assertion that keeps it: `state_text()` must EQUAL what
+the printer produces. A relationship, so it survives the words changing and
+goes red the moment somebody composes a sentence in a widget again.
+
+Six sabotage entries retired -- they guarded logic that no longer exists in
+the widget -- and two added in their place. The harness refused to verify
+until they were, which is the third time this session its stale-entry check
+has been the thing that noticed a structural change.
+
+### What the widgets lost on a terminal, and what they did not
+
+`sync_view` was three rows and is now one; `journal_view` was three and is
+now one. On qtty that costs nothing at all, because sec 190 measured that a
+`QFormLayout` row label never reaches the grid -- the rows were carrying
+labels nobody could see. On a desktop it is a real simplification and one
+fewer place for the two halves to disagree.

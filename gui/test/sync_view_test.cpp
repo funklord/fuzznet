@@ -90,7 +90,6 @@ int main(int argc, char **argv)
 	CHECK(view.shown_state() == fzn_sync_view::UNMEASURED,
 	      "an unfollowed peer was not reported as unable to say");
 	unmeasured = view.state_text();
-	CHECK(view.missing() == 0u, "an unmeasured deficit reported a count");
 
 	/* A FOLLOWED PEER WITH NOTHING OUTSTANDING IS UP TO DATE -- vacuously,
 	 * which manifest.h says is the truth rather than a caveat: no manifest
@@ -100,7 +99,6 @@ int main(int argc, char **argv)
 	CHECK(view.shown_state() == fzn_sync_view::IN_SYNC,
 	      "a followed peer with nothing outstanding was not up to date");
 	in_sync = view.state_text();
-	CHECK(view.missing() == 0u, "an up-to-date peer reported a count");
 
 	/* THE CASE THIS FILE EXISTS FOR. Both report zero. The screen must
 	 * not. */
@@ -114,8 +112,8 @@ int main(int argc, char **argv)
 	view.show_peer(&st, peer);
 	CHECK(view.shown_state() == fzn_sync_view::BEHIND,
 	      "a peer with outstanding pairs was not shown as behind");
-	CHECK(view.missing() == 3u, "the count is not the library's");
-	CHECK(view.dropped() == 0u, "a report that fitted claimed it did not");
+	CHECK(view.state_text().contains(QStringLiteral("3 outstanding")),
+	      "the count is not on the screen");
 
 	/* A REPORT THAT DID NOT FIT SAYS SO, on manifest.h's argument that one
 	 * which quietly does not fit is "a range nobody asks for again". */
@@ -123,10 +121,7 @@ int main(int argc, char **argv)
 	view.show_peer(&st, peer);
 	CHECK(view.shown_state() == fzn_sync_view::BEHIND,
 	      "a large deficit was not shown as behind");
-	CHECK(view.dropped() > 0u,
-	      "a deficit larger than the report did not report a remainder, so this "
-	      "case proves nothing");
-	CHECK(view.detail_text().contains(QStringLiteral("short")),
+	CHECK(view.state_text().contains(QStringLiteral("short")),
 	      "a short report did not say the count is short");
 
 	/* AND AN OVERFLOWED ISSUER IS UNMEASURED EVEN WITH A DEFICIT PRESENT.
@@ -143,8 +138,29 @@ int main(int argc, char **argv)
 		CHECK(view.shown_state() == fzn_sync_view::UNMEASURED,
 		      "a peer whose report overflowed was shown as merely behind, so a "
 		      "host that knows it lost pairs reports a number anyway");
-		CHECK(view.missing() == 0u,
-		      "an unmeasured deficit carried a count from the last render");
+	}
+
+	/* THE ASSERTION THAT KEEPS ONE IMPLEMENTATION. sec 193, and sec 168's
+	 * shape: the widget must SHOW `fzn_sync_print`'s line rather than have
+	 * a wording of its own. A relationship, so it survives the words
+	 * changing and goes red the moment somebody composes a sentence here
+	 * again. */
+	{
+		char want[FZN_SYNC_PRINT_MAX];
+		fzn_sync_state_t said = FZN_SYNC_UNMEASURED;
+		size_t len = 0;
+		QString expected;
+
+		view.show_peer(&st, peer);
+		CHECK(fzn_sync_print(&st, peer, want, sizeof(want), &len, &said) ==
+		              FZN_MANIFEST_OK,
+		      "the printer would not render what the widget was given");
+		expected = QString::fromLatin1(want);
+		while (expected.endsWith(QLatin1Char('\n')))
+			expected.chop(1);
+		CHECK(view.state_text() == expected,
+		      "the widget's words are not the printer's, so one screen has two "
+		      "wordings again");
 	}
 
 	/* The suite can tell pass from fail. */

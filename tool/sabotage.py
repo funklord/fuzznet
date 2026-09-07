@@ -2644,55 +2644,6 @@ SABOTAGES = [
 		"a consumer bounding a walk by it disagrees with what the library accepts",
 	),
 	(
-		"sync-view-unmeasured-is-not-in-sync",
-		"gui/sync_view.cpp",
-		"\tif (fzn_manifest_overflowed(st, issuer)) {\n",
-		"\tif (0) {\n",
-		"an unmeasured deficit and an empty one both report zero, and reporting "
-		"an unmeasured deficit as sound is the fail-open manifest.h exists to "
-		"remove -- reintroduced at the screen",
-	),
-	(
-		"sync-view-short-report-is-said",
-		"gui/sync_view.cpp",
-		"\tif (dropped_ > 0u) {\n",
-		"\tif (0) {\n",
-		"a deficit report that quietly does not fit is a range nobody asks for "
-		"again, so the count beside it must say it is short",
-	),
-	(
-		"sync-view-asks-the-library-for-the-count",
-		"gui/sync_view.cpp",
-		"\tmissing_ = fzn_manifest_deficit(st, issuer, pairs, FZN_SYNC_VIEW_PAIRS, &dropped);\n",
-		"\tmissing_ = st ? st->deficit_used : 0u;\n",
-		"the outstanding count is the library's answer for THIS issuer, not the "
-		"size of a table that holds every issuer's",
-	),
-	(
-		"journal-view-untracked-is-not-fresh",
-		"gui/journal_view.cpp",
-		"\tif (!row) {\n",
-		"\tif (0) {\n",
-		"fzn_journal_next answers 1 for an issuer never seen AND for a followed "
-		"stream that has said nothing, and only one of them is listening",
-	),
-	(
-		"journal-view-says-the-table-is-full",
-		"gui/journal_view.cpp",
-		"\tfull_ = journal->used >= journal->capacity;\n",
-		"\tfull_ = false;\n",
-		"a full journal refuses every peer it has not met and no single row "
-		"reveals it, so the refusal is visible only if the table's state is shown",
-	),
-	(
-		"journal-view-exhausted-is-not-a-huge-want",
-		"gui/journal_view.cpp",
-		"\tif (next == UINT64_MAX) {\n",
-		"\tif (0) {\n",
-		"a stream that has run out answers UINT64_MAX, which drawn as a number "
-		"reads as a request for record eighteen quintillion",
-	),
-	(
 		"sync-print-unmeasured-is-the-default",
 		"cli/sync_print.c",
 		"\tif (state_out)\n\t\t*state_out = FZN_SYNC_UNMEASURED;\n",
@@ -2739,6 +2690,24 @@ SABOTAGES = [
 		"\tif (!journal || !issuer || !out || !len_out || !stream_out)\n",
 		"the table's state is the one a caller did not think to ask for, so making "
 		"it optional is making it absent",
+	),
+	(
+		"sync-view-shows-the-printers-words",
+		"gui/sync_view.cpp",
+		"\t\tstate_label_->setText(text);\n",
+		"\t\tstate_label_->setText(QStringLiteral(\"synced\"));\n",
+		"the widget must SHOW cli/sync_print's line rather than have a wording of "
+		"its own, or one screen has two implementations again -- sec 168's "
+		"duplication, re-created by writing a CLI counterpart for an existing "
+		"widget and removed in sec 193",
+	),
+	(
+		"journal-view-shows-the-printers-words",
+		"gui/journal_view.cpp",
+		"\t\tstate_label_->setText(text);\n",
+		"\t\tstate_label_->setText(QStringLiteral(\"ok\"));\n",
+		"the widget must SHOW cli/journal_print's line, including the table "
+		"condition a caller did not ask about, rather than composing its own",
 	),
 ]
 
