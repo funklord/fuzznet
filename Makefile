@@ -702,10 +702,12 @@ else
 $(error FZN_GUI must be auto, 1 or 0 -- got "$(FZN_GUI)")
 endif
 
-GUI_SRCS := gui/trust_view.cpp gui/log_view.cpp gui/qr_view.cpp
-GUI_HDRS := gui/trust_view.h gui/log_view.h gui/qr_view.h
+GUI_SRCS := gui/trust_view.cpp gui/log_view.cpp gui/qr_view.cpp \
+            gui/authz_view.cpp
+GUI_HDRS := gui/trust_view.h gui/log_view.h gui/qr_view.h \
+            gui/authz_view.h
 GUI_TSRC := gui/test/trust_view_test.cpp gui/test/log_view_test.cpp \
-            gui/test/qr_view_test.cpp
+            gui/test/qr_view_test.cpp gui/test/authz_view_test.cpp
 
 # THE CONFIGURATION FORM NEEDS BOTH OPTIONS, and that is the design rather
 # than an accident of the build. sec 164: it does not validate, the CLI parser
@@ -745,7 +747,8 @@ CXXFLAGS   = $(CXXFLAGS_BUILD) $(CXXFLAGS_WARN)
 GUI_OBJS   := $(GUI_SRCS:%.cpp=$(BUILD_DIR)/%.o)
 TEST_BINS  += $(BUILD_DIR)/gui/test/trust_view_test \
               $(BUILD_DIR)/gui/test/log_view_test \
-              $(BUILD_DIR)/gui/test/qr_view_test
+              $(BUILD_DIR)/gui/test/qr_view_test \
+              $(BUILD_DIR)/gui/test/authz_view_test
 ifdef CLI_ON
 TEST_BINS += $(BUILD_DIR)/gui/test/config_view_test
 endif
@@ -1829,6 +1832,19 @@ $(BUILD_DIR)/gui/test/log_view_test: $(BUILD_DIR)/gui/test/log_view_test.o \
 $(BUILD_DIR)/gui/test/qr_view_test: $(BUILD_DIR)/gui/test/qr_view_test.o \
                                      $(BUILD_DIR)/gui/qr_view.o \
                                      $(BUILD_DIR)/qr/qr.o
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) -o $@
+
+# The permissions view asks chain/authz.h its questions rather than answering
+# them, so it links what answers. sec 165.
+$(BUILD_DIR)/gui/test/authz_view_test: $(BUILD_DIR)/gui/test/authz_view_test.o \
+                                     $(BUILD_DIR)/gui/authz_view.o \
+                                     $(BUILD_DIR)/chain/authz.o \
+                                     $(BUILD_DIR)/chain/chain.o \
+                                     $(BUILD_DIR)/chain/revocation.o \
+                                     $(BUILD_DIR)/chain/manifest.o \
+                                     $(BUILD_DIR)/trust/trust.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) -o $@
 

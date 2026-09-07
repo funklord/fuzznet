@@ -2304,6 +2304,26 @@ SABOTAGES = [
 		"a refused apply must leave nothing applied, or a caller acts on half "
 		"a configuration nobody asked for",
 	),
+	# BATCH NINETEEN, 2026-09-07: the permissions view, sec 165. Both guards
+	# are about a screen that would look right while saying something the
+	# library does not: an origin row the widget decided for itself, and an
+	# unspelled policy rendered as though somebody had written it.
+	(
+		"authz-view-asks-the-library",
+		"gui/authz_view.cpp",
+		"\t\tif (fzn_authz_origin_permitted(policy_, ORIGINS[i].origin))\n",
+		"\t\tif (policy_.origins & FZN_ORIGIN_BIT(ORIGINS[i].origin))\n",
+		"the widget must ASK which origins reach a kind rather than deciding, "
+		"or there are two implementations of the rule that gates requests",
+	),
+	(
+		"authz-view-unspelled-is-its-own-state",
+		"gui/authz_view.cpp",
+		"\tif (!policy_.spelled) {\n",
+		"\tif (0) {\n",
+		"a policy nobody spelled must not read like one written to refuse "
+		"everything, or a configuration fault cannot be found",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

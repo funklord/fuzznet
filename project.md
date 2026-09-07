@@ -22870,6 +22870,66 @@ anything could have said otherwise.
 copyright holder should know the size before it happens rather than find it
 inside a commit about a widget.
 
+## 165. The permissions view, which asks rather than decides, 2026-09-07
+
+The copyright holder: "do the permissions gui next", the fourth of sec 139's
+objects. `chain/authz.h` is the model and this is a way of looking at one of
+its policies.
+
+### It renders the library's answers and computes none
+
+The same rule sec 164 follows about validation and sec 140 about deciding, and
+it bites hardest here. Whether an origin may reach a kind is
+`fzn_authz_origin_permitted`'s answer, and a widget testing `policy.origins`
+against `FZN_ORIGIN_BIT` itself would be **a second implementation of the rule
+that actually gates requests** -- readable, obvious, three lines long, and
+free to disagree with the one enforcing anything.
+
+So every row is a call, and the suite asserts the two agree across every
+combination of the three origin bits, guarded and unguarded: 48 answers, and
+it requires both answers to occur, because a widget that showed no origin at
+all would agree about every refusal.
+
+**A relationship rather than a table**, so it survives the reachability rule
+changing -- which is the same reason sec 164's case drives both front doors
+instead of listing good and bad service numbers.
+
+### An unspelled policy reads as unspelled, not as denying
+
+`authz.h` calls `spelled` "the field the whole design rests on": it is what
+makes a zeroed policy distinguishable from a deliberate one.
+
+Both a policy nobody wrote and a policy written to refuse everything **deny**.
+A view rendering the verdict alone would show them in identical words -- and
+only one of them is a configuration fault somebody has to be able to find. The
+case asserts the two read differently, which is a property no amount of
+looking at the screen would establish, because the screens are what look
+alike.
+
+### Guarded and unguarded are different words for the same reason
+
+`fzn_authz_verdict_t` keeps GRANTED_BY_CHAIN and GRANTED_UNGUARDED apart
+because "a policy that drifts to unguarded is a thing somebody has to be able
+to find". A view saying "allowed" for both would undo that in the one place a
+person actually looks.
+
+### The capability is spelled the way an anchor is
+
+`fzn_trust_fingerprint`, the same formatter `trust_view` uses. sec 140 exists
+because a fingerprint compared against a differently-formatted copy of itself
+cannot be compared, and a capability id is the same thirty-two bytes with the
+same problem -- so there is one spelling of an identifier across this GUI
+rather than one per widget.
+
+### What it does not show, and why that is not an omission
+
+A verdict. `fzn_authz_decide` needs a chain, a root, a signer, a revocation
+store and a manifest -- and a widget that took all of those would be a
+consumer's request path with a label on it. This shows what a kind REQUIRES,
+which is the thing an operator audits and the thing that is wrong when
+something is unexpectedly denied. A consumer that has a verdict already has
+`fzn_authz_verdict_str` for it.
+
 ## 164. The configuration form, which does not validate, 2026-09-07
 
 The copyright holder: "do the config gui next", from sec 139's list of the
