@@ -51,6 +51,7 @@
 /gui/test/provision_view_test
 /gui/test/transfer_view_test
 /gui/test/sweep_view_test
+/gui/test/revocation_view_test
 /gui/test/config_view_test
 /claim/test/claim_file_test
 /blob/test/blob_test

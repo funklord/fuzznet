@@ -2560,6 +2560,30 @@ SABOTAGES = [
 		"each reason calls for a different action, so they are named rather than "
 		"summed -- last_copy means more replicas, not more sweeping",
 	),
+	(
+		"revocation-view-withdrawn-is-not-in-force",
+		"gui/revocation_view.cpp",
+		"\t\tif (store->entries[i].withdrawn)\n",
+		"\t\tif (0)\n",
+		"a withdrawal replaces a revocation at its key rather than removing it, "
+		"so counting rows reports every RESTORED capability as still cut off",
+	),
+	(
+		"revocation-view-refuses-an-unreadable-store",
+		"gui/revocation_view.cpp",
+		"\tif (store->used > store->capacity || (store->used > 0u && !store->entries)) {\n",
+		"\tif (0) {\n",
+		"a store counting more entries than it holds is the read that goes off "
+		"the array, and the library has no predicate a consumer can ask instead",
+	),
+	(
+		"revocation-view-says-when-something-was-restored",
+		"gui/revocation_view.cpp",
+		"\tif (withdrawn_ > 0u) {\n",
+		"\tif (0) {\n",
+		"a capability that was cut off and is not any more is what somebody is "
+		"looking for, and it is invisible in a total",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

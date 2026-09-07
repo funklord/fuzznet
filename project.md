@@ -30913,3 +30913,56 @@ being displayed. **A module that records why its counters are separate hands
 its view the specification**, and that is worth more than any amount of
 guessing from the outside -- which is the same lesson the fuzzypickles
 exchange produced, arriving from inside one tree.
+
+## 182. The revocation view, and a soundness predicate the library lacks
+
+`gui/revocation_view.{h,cpp}` shows what this host believes has been
+withdrawn -- and what it believes has been GIVEN BACK, which is the same table
+and not the same thing. `gui/capability_view` answers "is this one capability
+usable"; this answers "what does this host know", which is what somebody asks
+when a peer says they were cut off and nobody here can see why.
+
+### Presence is not revocation
+
+`chain.h` is explicit and the reason is not tidiness:
+
+> A withdrawal REPLACES the revocation at this key rather than removing it, so
+> PRESENCE IS NOT THE ANSWER to "is this revoked" -- every reader must ask
+> this field.
+
+The entry stays because removing it would let a re-relayed copy of the
+withdrawn revocation be re-admitted on every propagation round from every peer
+that had not yet heard the withdrawal -- "not a one-time resurrection but a
+loop".
+
+So a screen listing the store's rows as revocations reports every capability
+that was ever revoked and has since been RESTORED as still cut off, which is
+what `revocation.c` calls "the outage the whole withdrawal design exists to
+end". The two are counted apart here, there is deliberately no accessor for
+the sum, and the summary says *those capabilities work again* -- because that
+sentence is the thing somebody is actually looking for.
+
+### The walk is bounded by `capacity`, and that is a library gap
+
+A corrupt store is one whose `used` exceeds its array; that is the definition
+`fzn_revocation_covers` and `fzn_revocation_known` use internally, and both
+fail closed on it -- `covers` answers "revoked", `known` answers "fetch it".
+
+**Neither is a soundness predicate a consumer can ask.** There is no public
+way to separate "this store is corrupt" from "this triple is revoked", so a
+widget cannot delegate the question. It bounds its own walk and says the store
+is unreadable rather than drawing a number from it -- and the unreadable state
+is kept apart from "nothing revoked", because collapsing them is the
+fail-OPEN answer.
+
+sec 166 found the identical gap on `fzn_chain_store_t` and recorded it there.
+That is twice now, on two stores, and it is the same missing function both
+times. **Adding it is a library change and the holder's**; recording it is
+what a widget can do, and this is the second widget to have to.
+
+### What the suite requires that a single case would not
+
+Three entries, one in force and two withdrawn, proves the counts partition.
+It does not prove the widget is reading the field -- a widget that always
+reported one in force would pass it. So there is a second store of nothing but
+withdrawals, requiring zero in force, and the pair is the assertion.
