@@ -2359,8 +2359,11 @@ SABOTAGES = [
 	(
 		"capability-view-revocation-wins-over-expiry",
 		"gui/capability_view.cpp",
-		"\tif (fzn_chain_expired_at(chain, now)) {\n\t\tstate_ = EXPIRED;",
-		"\tif (fzn_chain_expired_at(chain, now) || 1) {\n\t\tstate_ = EXPIRED;",
+		"\tif (fzn_revocation_covers(revocations, chain->root, &chain->capability,\n"
+		"\t                          chain->grantee)) {\n",
+		"\tif (!fzn_chain_expired_at(chain, now) &&\n"
+		"\t    fzn_revocation_covers(revocations, chain->root, &chain->capability,\n"
+		"\t                          chain->grantee)) {\n",
 		"a chain that expired and was also revoked must show the revocation, "
 		"which is the half somebody may need to act on",
 	),

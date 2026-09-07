@@ -29625,3 +29625,33 @@ states an epoch: `now` arrives from the caller in every module that takes
 one, and no code here reads a clock. A widget rendering these as calendar
 dates would be choosing an epoch and a timezone on the library's behalf, and
 would be wrong for any consumer that chose differently.
+
+### The sabotage that was caught by the wrong case
+
+All five guards were CAUGHT on the first run, and one of them was caught
+for the wrong reason -- which the harness's own reporting is what showed.
+
+`capability-view-revocation-wins-over-expiry` was written as `|| 1` on the
+expiry branch, and it went red at `capability_view_test.cpp:96`: **"a chain
+that never expires was shown as expired"**. That is the sentinel case, not
+the precedence case. Forcing a branch to fire always does not model a
+reordering; it breaks every input, so the first assertion in the file falls
+over and the assertion about precedence is never reached.
+
+It is the shape `evidence.md` names -- *a control has to be able to fail the
+way the thing it controls for fails* -- and it survives a run that reports
+CAUGHT, because CAUGHT only says something noticed. What made it visible was
+the harness printing the FIRST failing line rather than the last, which was
+sec 152's fix to the reporting and is now the second defect it has found.
+
+The mutation is a reordering now: the revocation branch gains
+`!fzn_chain_expired_at(chain, now) &&`, which is exactly "expiry wins
+instead". Under it a revoked chain that has not expired still shows revoked
+and every other case is unmoved; only the both-true assertion fails, at
+`capability_view_test.cpp:149`. One case, and it is the case the guard is
+about.
+
+**A guard's mutation is worth reading even when the run is green.** Five
+CAUGHT lines is a result about the tests; which line caught which is a
+result about the mutations, and only the second says whether the guard is
+aimed at anything.
