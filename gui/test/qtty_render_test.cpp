@@ -30,6 +30,12 @@
 #include "../trust_view.h"
 #include "../log_view.h"
 #include "../qr_view.h"
+#include "../authz_view.h"
+#include "../capability_view.h"
+#include "../sweep_view.h"
+#include "../revocation_view.h"
+#include "../journal_view.h"
+#include "../sync_view.h"
 
 extern "C" {
 #include "../../log/log.h"
@@ -221,6 +227,124 @@ static int lines_on_screen(const QString &snapshot, const QString &fingerprint)
 		if (!snapshot.contains(line))
 			return 0;
 	return 1;
+}
+
+/*
+ * EVERY WIDGET ON A TERMINAL, AND HOW NARROW ONE CAN GET.
+ *
+ * project.md sec 187. Thirteen of these objects exist and three had ever been
+ * rendered on a character grid -- the rest carried sec 140's claim and a
+ * static gate saying they use no pixel geometry, which is not the same as
+ * having been drawn. sec 159 found a real defect by rendering one, so ten
+ * unrendered widgets were ten unasked questions.
+ *
+ * WHAT IS ASSERTED: the words a widget says are ON the grid at 80x24, and the
+ * narrowest width at which they still are. The second is the useful number --
+ * a consumer sizing a pane needs it, and sec 158 measured 41 columns for the
+ * fingerprint the same way.
+ *
+ * CONTAINMENT, NOT ARITHMETIC, for sec 158's reason: counting characters and
+ * subtracting a second render compares two different strings.
+ */
+struct terminal_case {
+	const char *name;
+	QWidget *widget;
+	const char *must_show;
+};
+
+/* The narrowest column count at which `must_show` is still whole on the grid,
+ * or 0 if it never is within the range swept. Rows are held at 24. */
+static int narrowest(QWidget &w, const char *must_show)
+{
+	const QString want = QString::fromLatin1(must_show);
+	int cols;
+
+	for (cols = 20; cols <= 120; cols++)
+		if (rendered(w, cols, 24).contains(want))
+			return cols;
+	return 0;
+}
+
+static void test_every_widget_survives_a_terminal(void)
+{
+	fzn_authz_view authz;
+	fzn_capability_view capability;
+	fzn_sweep_view sweep;
+	fzn_revocation_view revocation;
+	fzn_journal_view journal_v;
+	fzn_sync_view sync;
+
+	fzn_authz_policy_t policy;
+	fzn_chain_t chain;
+	fzn_catalog_sweep_plan_t plan;
+	static fzn_revocation_t rev_rows[2];
+	fzn_revocation_store_t rev_store;
+	static fzn_journal_entry_t j_rows[2];
+	fzn_journal_t j;
+	static fzn_manifest_issuer_t m_issuers[2];
+	static fzn_manifest_deficit_t m_deficits[4];
+	fzn_manifest_state_t m;
+	uint8_t peer[FZN_PUBKEY_LEN];
+	size_t i;
+
+	memset(peer, 0xa7, sizeof(peer));
+
+	/* Each widget is put into the state a person most needs to read: the
+	 * one that says something went wrong or is being held back. */
+	policy = fzn_authz_unguarded(FZN_ORIGIN_ANY);
+	authz.show_policy(&policy);
+
+	memset(&chain, 0, sizeof(chain));
+	memset(chain.root, 0xa0, sizeof(chain.root));
+	memset(chain.grantee, 0xb0, sizeof(chain.grantee));
+	memset(&chain.capability, 0xc0, sizeof(chain.capability));
+	chain.hop_count = 1;
+	chain.expires_at = 1000u;
+	capability.show_capability(&chain, NULL, 5000u);
+
+	memset(&plan, 0, sizeof(plan));
+	plan.last_copy = 3u;
+	sweep.show_sweep(&plan, NULL);
+
+	memset(rev_rows, 0, sizeof(rev_rows));
+	rev_rows[0].withdrawn = 1u;
+	if (fzn_revocation_store_init(&rev_store, rev_rows, 2u) == FZN_CHAIN_OK) {
+		rev_store.used = 1u;
+		revocation.show_store(&rev_store);
+	}
+
+	if (fzn_journal_init(&j, j_rows, 2u) == FZN_JOURNAL_OK) {
+		fzn_journal_anchor(&j, peer, 5u, 0u);
+		journal_v.show_stream(&j, peer, 5u);
+	}
+
+	if (fzn_manifest_init(&m, m_issuers, 2u, m_deficits, 4u) == FZN_MANIFEST_OK)
+		sync.show_peer(&m, peer);
+
+	{
+		const struct terminal_case cases[] = {
+			{ "authz_view", &authz, "unguarded" },
+			{ "capability_view", &capability, "expired" },
+			{ "sweep_view", &sweep, "held it back" },
+			{ "revocation_view", &revocation, "work again" },
+			{ "journal_view", &journal_v, "nothing received" },
+			{ "sync_view", &sync, "cannot say" },
+		};
+
+		for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+			const QString want = QString::fromLatin1(cases[i].must_show);
+			int floor_cols;
+
+			check_at(rendered(*cases[i].widget, 80, 24).contains(want), __LINE__,
+			         "a widget's own words are not on an 80x24 terminal");
+
+			floor_cols = narrowest(*cases[i].widget, cases[i].must_show);
+			check_at(floor_cols > 0, __LINE__,
+			         "a widget shows nothing at any width up to 120 columns");
+			printf("  %-18s needs %d columns to say \"%s\"\n", cases[i].name,
+			       floor_cols, cases[i].must_show);
+		}
+	}
 }
 
 int main(int argc, char **argv)
@@ -509,6 +633,8 @@ int main(int argc, char **argv)
 		      "control cannot fail and the square-module design is untested");
 	}
 #endif
+
+	test_every_widget_survives_a_terminal();
 
 	/* The suite can tell pass from fail. */
 	{

@@ -31198,3 +31198,54 @@ shape rather than four defects to fix one at a time.
 The widget is worse for it: it carries a condition it should be asking for,
 and if the rule ever changes this copy will not. That is the argument, stated
 by leaving it visible rather than by fixing it quietly.
+
+## 187. Ten widgets that had never been drawn, 2026-09-07
+
+Thirteen of these objects exist. **Three had ever been rendered on a
+character grid.** The other ten carried sec 140's claim -- no Q_OBJECT, it
+displays -- and passed a static gate saying they use no pixel geometry qtty
+cannot honour, and neither of those is the same as having been drawn.
+
+sec 159 found a real defect by rendering one: a `QPlainTextEdit` frame that
+came out as a left edge and nothing else. So ten unrendered widgets were ten
+unasked questions, and the instrument for asking has been vendored since
+sec 169.
+
+### What is asserted, and the number worth having
+
+Two things per widget: that the words it says are ON the grid at 80x24, and
+**the narrowest width at which they still are.** The second is the useful one
+-- a consumer sizing a pane needs it, and sec 158 measured 41 columns for the
+fingerprint the same way.
+
+Measured, six widgets, rows held at 24:
+
+    authz_view         23 columns    "unguarded"
+    capability_view    20            "expired"
+    sweep_view         26            "held it back"
+    revocation_view    20            "work again"
+    journal_view       39            "nothing received"
+    sync_view          20            "cannot say"
+
+All six fit an eighty-column terminal with room to spare, and the widest need
+is 39 -- close to trust_view's 41, which remains the floor for this family.
+**Nothing was broken**, which is a result rather than a non-result: the static
+gate and sec 140's rule have been holding, and now that is measured rather
+than asserted.
+
+Each widget is put into the state a person most needs to read -- the one
+saying something is wrong or being held back -- because that is the text most
+likely to be long, and a floor measured on the short state would be the wrong
+floor.
+
+Containment rather than arithmetic, on sec 158's reason: counting characters
+and subtracting a second render compares two different strings.
+
+### Four are still undrawn, and which four is the point
+
+`transfer_view` needs a spool with store ops, `state_view` and
+`provision_view` each need a signing fixture, and `config_view` exists only
+under FZN_CLI. Those are fixture costs rather than reasons, and saying so is
+the difference between a gap and an unstated one -- **this entry would
+otherwise read as "all the widgets are checked", which is exactly the claim
+sec 140 was making before any of them had been drawn.**

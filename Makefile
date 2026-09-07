@@ -3639,9 +3639,15 @@ qtty:
 	fi; \
 	$(CXX) $(CXXFLAGS_BUILD) $(CXXFLAGS_WARN) $(QT_CFLAGS) $$qflags -I"$$scratch/include" \
 	       gui/test/qtty_render_test.cpp gui/trust_view.cpp gui/log_view.cpp \
-	       gui/qr_view.cpp $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \
+	       gui/qr_view.cpp gui/authz_view.cpp gui/capability_view.cpp \
+	       gui/sweep_view.cpp gui/revocation_view.cpp gui/journal_view.cpp \
+	       gui/sync_view.cpp \
+	       $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \
 	       $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/log/log.o \
 	       $(BUILD_DIR)/record/journal.o $(BUILD_DIR)/record/record.o \
+	       $(BUILD_DIR)/chain/authz.o $(BUILD_DIR)/chain/chain.o \
+	       $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
+	       $(BUILD_DIR)/catalog/sweep.o $(BUILD_DIR)/catalog/catalog.o \
 	       $(BUILD_DIR)/constant_time/constant_time.o \
 	       "$$scratch/lib/libqtty.a" $$qobjs $(QT_LIBS) -o "$$scratch/render_test"; \
 	"$$scratch/render_test"
