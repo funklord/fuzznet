@@ -2292,6 +2292,18 @@ SABOTAGES = [
 		"everything outside the code is quiet zone and must be light, which is "
 		"also what fills the half row an odd height leaves over",
 	),
+	# BATCH EIGHTEEN, 2026-09-07: the configuration form, sec 164. The
+	# guard is that a refusal leaves NOTHING applied -- a caller handed half
+	# a configuration has one that was never asked for, and every field
+	# before the bad one would be in it.
+	(
+		"config-refusal-applies-nothing",
+		"gui/config_view.cpp",
+		"\t\t\tfzn_cli_init(cli);\n\t\t\treturn err;\n\t\t}\n\t}\n\n\t{\n\t\tconst QByteArray arg =",
+		"\t\t\treturn err;\n\t\t}\n\t}\n\n\t{\n\t\tconst QByteArray arg =",
+		"a refused apply must leave nothing applied, or a caller acts on half "
+		"a configuration nobody asked for",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

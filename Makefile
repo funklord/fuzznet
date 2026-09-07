@@ -707,6 +707,18 @@ GUI_HDRS := gui/trust_view.h gui/log_view.h gui/qr_view.h
 GUI_TSRC := gui/test/trust_view_test.cpp gui/test/log_view_test.cpp \
             gui/test/qr_view_test.cpp
 
+# THE CONFIGURATION FORM NEEDS BOTH OPTIONS, and that is the design rather
+# than an accident of the build. sec 164: it does not validate, the CLI parser
+# does -- so a GUI build without FZN_CLI has no validator for it to be a front
+# door to. Listed here rather than guarded inside the file, so a consumer that
+# asks for one and not the other simply does not get the form instead of
+# getting one that compiles and cannot check anything.
+ifdef CLI_ON
+GUI_SRCS  += gui/config_view.cpp
+GUI_HDRS  += gui/config_view.h
+GUI_TSRC  += gui/test/config_view_test.cpp
+endif
+
 ifdef GUI_ON
 CXX       ?= c++
 QT_CFLAGS := $(shell pkg-config --cflags $(FZN_PROBE_QT))
@@ -734,6 +746,9 @@ GUI_OBJS   := $(GUI_SRCS:%.cpp=$(BUILD_DIR)/%.o)
 TEST_BINS  += $(BUILD_DIR)/gui/test/trust_view_test \
               $(BUILD_DIR)/gui/test/log_view_test \
               $(BUILD_DIR)/gui/test/qr_view_test
+ifdef CLI_ON
+TEST_BINS += $(BUILD_DIR)/gui/test/config_view_test
+endif
 endif
 
 CLI_SRCS := cli/cli.c cli/qr_print.c
@@ -1816,6 +1831,15 @@ $(BUILD_DIR)/gui/test/qr_view_test: $(BUILD_DIR)/gui/test/qr_view_test.o \
                                      $(BUILD_DIR)/qr/qr.o
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) -o $@
+
+ifdef CLI_ON
+# The form is a front door to the CLI parser, so it links it. sec 164.
+$(BUILD_DIR)/gui/test/config_view_test: $(BUILD_DIR)/gui/test/config_view_test.o \
+                                     $(BUILD_DIR)/gui/config_view.o \
+                                     $(BUILD_DIR)/cli/cli.o
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) -o $@
+endif
 endif
 
 $(BUILD_DIR)/claim/test/claim_file_test: $(BUILD_DIR)/claim/test/claim_file_test.o \

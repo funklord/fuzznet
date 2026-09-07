@@ -22870,6 +22870,75 @@ anything could have said otherwise.
 copyright holder should know the size before it happens rather than find it
 inside a commit about a widget.
 
+## 164. The configuration form, which does not validate, 2026-09-07
+
+The copyright holder: "do the config gui next", from sec 139's list of the
+objects every consumer needs. sec 137 built `cli/cli.h` on the same
+observation -- "every consuming software will probably require the exact same
+interface" -- so this is that interface with a dialog on it rather than a
+command line, editing the same `fzn_cli_t` the parser fills.
+
+### The whole design is that it does not validate
+
+A form that checked its own fields would be a second opinion about what a
+legal service number is, and the two would drift: **the CLI refusing what the
+dialog accepted, on one machine, for one daemon**. So `apply` composes the
+very option strings a command line would carry -- `--fuzznet-service=7` --
+and hands each to `fzn_cli_arg`.
+
+What that buys is not tidiness. It is that the two front doors **cannot**
+disagree: there is one validator and the dialog is a way of typing at it. When
+`chain/service.h` changes what a product may be, both change together because
+there is only one of them.
+
+**And the error shown is the parser's**, `fzn_cli_err_str`'s words, for the
+reason sec 158 recorded about the fingerprint: a widget wording its own would
+give a user two spellings of one refusal, and somebody comparing a dialog
+against a log would be comparing the spellings rather than the fault.
+
+### The test asserts the agreement, not a list of values
+
+The central case does not check that 0 is refused and 7 accepted. It drives
+BOTH front doors with the same thirteen inputs and requires them to answer
+identically, including about WHICH refusal it is.
+
+That is a relationship rather than a pair of values -- sec 154's rule -- and
+it survives `chain/service.h` changing its mind, which a list of good and bad
+numbers would not.
+
+**And it asserts the sweep covers both answers.** Agreement is cheap if
+everything is refused: a form that rejected all thirteen would agree with the
+command line on all thirteen. So the case counts accepts and refusals and
+requires some of each, which is the same vacuity guard sec 162's control is.
+
+### Blank is not zero, and a refusal applies nothing
+
+**An unset service shows blank.** `fzn_cli_init` leaves it at
+FZN_SERVICE_NONE, which is the value `chain/service.h` refuses -- so printing
+it would put a number in front of somebody that the library exists to reject,
+and invite them to send it. A blank field is an option not given, exactly as
+leaving it off a command line is.
+
+**A refusal leaves nothing applied.** The fields are walked in order, so a bad
+service after a good directory would otherwise hand the caller half a
+configuration -- one nobody asked for and which looks like one they did. It
+has a case and a sabotage.
+
+### The owner is a list because the vocabulary is three words
+
+A free-text field would let a user type something the parser refuses for no
+benefit. The entries are the parser's own spellings, and a case asserts every
+entry the form offers is one the parser takes -- the same agreement as the
+central case, over the vocabulary rather than over values.
+
+### It needs both build options, and that is the design
+
+`gui/config_view.cpp` is listed under `ifdef CLI_ON` inside the GUI block. A
+GUI build without FZN_CLI has no validator for the form to be a front door to,
+so the form is simply absent rather than present and unable to check anything
+-- which is sec 137's build-option argument applied to a file that depends on
+two of them.
+
 ## 163. The QR on a terminal, and a filled block that means light, 2026-09-07
 
 The copyright holder: "do the cli qr next." sec 160 encodes modules, sec 161
