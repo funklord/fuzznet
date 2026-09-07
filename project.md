@@ -30584,3 +30584,64 @@ untested; `log_relay.c` is a cross-host query and has nothing here.
 `addr_observe` and `rendezvous` are two of three volunteer relay services.
 `wire/relay.h` here is relay POLICY -- which subsystem may spend what -- and
 is adjacent to them rather than the same thing.
+
+## 177. A leak I attributed to a shape that was a property of my model, 2026-09-07
+
+I put a security question to fuzzypickles: their key-committing construction
+is the one `session/commitment.h` names as theirs, and this tree had found
+that a commitment derived from the transcript alone is a stable per-pair
+identifier in the cleartext head. If they shipped it unchanged, a passive
+observer or any relay reads their social graph without decrypting anything.
+
+**The answer was no, twice over, and the first reason is the one worth
+keeping.**
+
+### The flaw was the long-lived transcript, not the commitment in the clear
+
+Their `crypto_msg.c` transcript is 240 bytes and **includes a fresh ephemeral
+public key**, generated per call and never reused -- their header requires it,
+because their nonce is all-zero and that is safe only while the derived key is
+used exactly once ever. So their commitment changes every message. Same
+derivation, same in-the-clear placement, and **nothing linkable across
+frames.**
+
+Which means this file had the finding filed under the wrong half. It read as a
+finding about a derivation shape; it is a finding about a SESSION MODEL. An
+ephemeral-static construction gets unlinkability free from the ephemeral. A
+session construction -- long-lived transcript, per-peer key -- has to buy it,
+and the two-step split is what buying it costs.
+
+**The shape was theirs and sound. The long-lived transcript is this library's,
+and so is the leak.** A property inherited from a neighbour is still yours
+once you change what you feed it, and the header says that now.
+
+### And the sentence naming them was half stale
+
+`peer_seal_internal.h` in their tree includes THIS header and derives the
+pair's AEAD and commitment keys from it. Their own record says why: "their
+head carries one at offset 0x41 that does that job and does it better". What
+remains of theirs on the text path is a message identifier that never travels.
+Their pre-split form is still live for acks and the pairing frame, where it is
+unlinkable for the reason above.
+
+### The pattern I claimed was wrong, and this is its counter-example
+
+I had told the holder that a defect and its proven fix being on opposite sides
+of the split was a PATTERN -- `advance_to`, then this -- both times with the
+fix in the tree not running the code.
+
+**Here the fix is in this tree and fuzzypickles is running it**, on the path
+that carries conversations, already landed. That is what substituted rather
+than merely extracted looks like, and it is the one place either of us can
+point at where the holder's second criterion was actually met: the replacement
+was better, they adopted it, and their header names which of the two won and
+why.
+
+Two instances and a generalisation, and the third case inverted it. **The
+frame was three hours old and had just been right twice**, which is
+`evidence.md`'s own warning about a frame that has just been right, arriving
+against the session that keeps quoting it.
+
+It also decides one row of the `crypto_msg` comparison before we started
+running it -- in this library's favour, by evidence neither of us went looking
+for, and reported by the tree it went against.

@@ -7,9 +7,19 @@
  * to two recipients and an attacker who controls one of those keys chooses
  * what the other sees.
  *
- * sec 4.5 settles the construction, and it is the one fuzzypickles ships
- * and this family has reviewed: derive the AEAD key and a commitment from
- * ONE hash over the key transcript, and carry the commitment in the frame.
+ * sec 4.5 settles the construction. The DERIVATION SHAPE is fuzzypickles' --
+ * derive the AEAD key and a commitment from ONE hash over the key
+ * transcript, and carry the commitment in the frame -- and this family has
+ * reviewed it.
+ *
+ * ~~and it is the one fuzzypickles ships~~ HALF STALE, AND THE HALF THAT
+ * MOVED IS THE INTERESTING ONE (2026-09-07, from them). Their text path no
+ * longer ships their own: `peer_seal_internal.h` includes THIS header and
+ * derives the pair's AEAD and commitment keys from it, and their own record
+ * says why -- "their head carries one at offset 0x41 that does that job and
+ * does it better". What remains of theirs on that path is a message
+ * identifier that never travels. Their pre-split form is still live for acks
+ * and the pairing frame, and is unlinkable there for the reason below.
  * wire/frame.situ has the field, in the authenticated header so a receiver
  * can check it before spending a decryption.
  *
@@ -25,6 +35,20 @@
  * unprivileged bridge that handles frames it is not trusted to author,
  * reads the two together and learns who talks to whom, and for how long,
  * without opening anything.
+ *
+ * AND THE FLAW IS THE LONG-LIVED TRANSCRIPT, NOT THE COMMITMENT BEING IN
+ * THE CLEAR. This file first recorded it the other way round, which made it
+ * a finding about a derivation shape when it is a finding about a session
+ * model. fuzzypickles corrected it: their `crypto_msg.c` transcript is 240
+ * bytes INCLUDING A FRESH EPHEMERAL PUBLIC KEY, generated per call and never
+ * reused, so their commitment changes every message and identified nothing
+ * across frames -- with the SAME derivation, in the clear, on every datagram.
+ *
+ * So an ephemeral-static construction gets unlinkability free from the
+ * ephemeral, and a SESSION construction has to buy it with the split below.
+ * The shape was theirs and sound; the long-lived transcript is this
+ * library's, and so is the leak it created. A property inherited from a
+ * neighbour is still yours once you change what you feed it.
  *
  * That also defeats the reason `capability[32]` was moved INSIDE the seal.
  * sec 13: "in the clear it announces which authority is being exercised, so
