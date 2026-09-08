@@ -3,6 +3,18 @@
 
 #include "manifest.h"
 
+/* Diagnostics through flog, vendored and possibly absent. sec 209. */
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+#define MANIFEST_LOG(st, sub, sev, ...)                                                    \
+	do {                                                                               \
+		if ((st) && (st)->log)                                                     \
+			flog_printf((st)->log, sub, sev, FLOG_MSG_NONE, __VA_ARGS__);        \
+	} while (0)
+#else
+#define MANIFEST_LOG(st, sub, sev, ...) ((void)0)
+#endif
+
 #include <string.h>
 
 /* Order two 64-byte pairs.
@@ -406,6 +418,14 @@ fzn_manifest_err_t fzn_manifest_issue(const uint8_t issuer[FZN_PUBKEY_LEN],
 	return FZN_MANIFEST_OK;
 }
 
+void fzn_manifest_set_log(fzn_manifest_state_t *state, struct flog_t *log)
+{
+	if (!state)
+		return;
+
+	state->log = log;
+}
+
 fzn_manifest_err_t fzn_manifest_init(fzn_manifest_state_t *state,
                                      fzn_manifest_issuer_t *issuers, size_t issuer_capacity,
                                      fzn_manifest_deficit_t *deficit, size_t deficit_capacity)
@@ -419,6 +439,8 @@ fzn_manifest_err_t fzn_manifest_init(fzn_manifest_state_t *state,
 	state->deficit = deficit;
 	state->deficit_capacity = deficit_capacity;
 	state->deficit_used = 0;
+	/* Quiet unless somebody asks. */
+	state->log = NULL;
 
 	return FZN_MANIFEST_OK;
 }
@@ -438,8 +460,20 @@ fzn_manifest_err_t fzn_manifest_follow(fzn_manifest_state_t *state,
 	if (find_issuer(state, issuer) < state->issuer_used)
 		return FZN_MANIFEST_OK;
 
-	if (state->issuer_used >= state->issuer_capacity)
+	if (state->issuer_used >= state->issuer_capacity) {
+		/* PERMANENT, which the return value cannot say. Nothing here
+		 * is ever evicted -- the comment on FZN_MANIFEST_ERR_FULL says
+		 * why, citing `record/journal.h`: dropping an issuer forgets
+		 * its deficit, and a forgotten deficit is a host that looks
+		 * complete. So from here on this host cannot begin following
+		 * anybody, and every revocation those issuers publish is
+		 * invisible to it. */
+		MANIFEST_LOG(state, "chain/manifest", FLOG_CRIT,
+		             "following %zu issuers and none is ever evicted, so this host "
+		             "can never follow another and will not see what they revoke",
+		             state->issuer_capacity);
 		return FZN_MANIFEST_ERR_FULL;
+	}
 
 	entry = &state->issuers[state->issuer_used];
 	memcpy(entry->issuer, issuer, FZN_PUBKEY_LEN);
@@ -549,7 +583,7 @@ fzn_manifest_err_t fzn_manifest_admit(fzn_manifest_state_t *state,
 		 * that filled it. The flag is what makes the drop visible. */
 		if (state->deficit_used >= state->deficit_capacity) {
 			entry->overflowed = 1;
-			dropped = 1;
+			dropped++;
 			continue;
 		}
 
@@ -572,9 +606,36 @@ fzn_manifest_err_t fzn_manifest_admit(fzn_manifest_state_t *state,
 		entry->pairs_seen = count;
 		if (!dropped)
 			entry->overflowed = 0;
+	} else {
+		/* A MANIFEST SMALLER THAN ONE ALREADY SEEN. The comment above
+		 * says why that is exactly the rollback case: revocations only
+		 * accumulate, so an honest issuer's count never shrinks. The
+		 * high-water mark refuses it silently, and refusing silently is
+		 * right -- but a replay aimed at clearing an overflow flag is
+		 * somebody trying to make this host look complete, which is
+		 * worth saying out loud. */
+		MANIFEST_LOG(state, "chain/manifest", FLOG_WARN,
+		             "a manifest naming %zu pairs where %zu were already seen, so it "
+		             "is a replay rather than an update and clears nothing",
+		             count, entry->pairs_seen);
 	}
 
-	return dropped ? FZN_MANIFEST_ERR_DEFICIT_FULL : FZN_MANIFEST_OK;
+	if (dropped) {
+		/* HOW MANY WENT, which neither the return value nor the
+		 * overflow flag can say. `FZN_MANIFEST_ERR_DEFICIT_FULL` is the
+		 * one refusal in this file that fails OPEN -- its own comment
+		 * says a dropped pair "makes it report a SMALLER deficit than
+		 * it has, which is to say it looks MORE complete than it is" --
+		 * and `overflowed` is one durable bit. One pair short and forty
+		 * are the same answer and are not the same host. */
+		MANIFEST_LOG(state, "chain/manifest", FLOG_WARN,
+		             "dropped %d of %zu pairs with the deficit table full at %zu, so "
+		             "this host now reports a smaller deficit than it has",
+		             dropped, count, state->deficit_capacity);
+		return FZN_MANIFEST_ERR_DEFICIT_FULL;
+	}
+
+	return FZN_MANIFEST_OK;
 }
 
 size_t fzn_manifest_satisfy(fzn_manifest_state_t *state, const uint8_t issuer[FZN_PUBKEY_LEN],

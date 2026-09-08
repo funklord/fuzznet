@@ -1101,6 +1101,37 @@ SABOTAGES = [
 		"(unsigned long long)version,\n",
 		"one reordered datagram and a peer whose view has fallen a long way behind return the SAME value, so the distance is the whole content the line adds to FZN_LEDGER_ERR_STALE -- sec 218",
 	),
+	# BATCH FOURTEEN, 2026-09-09: chain/manifest, the one refusal in this
+	# library that fails OPEN. project.md sec 223.
+	(
+		"manifest-drop-says-how-many",
+		"chain/manifest.c",
+		"\t\t             \"dropped %d of %zu pairs with the deficit table full at %zu, so \"\n",
+		"\t\t             \"dropped pairs with the deficit table full at %zu, so \"\n",
+		"the enumerator's own comment is that a dropped pair makes this host report a SMALLER deficit than it has -- one pair short and forty are the same code and the same one-bit flag, and until sec 223 the count existed nowhere at all",
+	),
+	(
+		"manifest-replay-is-not-an-update",
+		"chain/manifest.c",
+		"\t} else {\n\t\t/* A MANIFEST SMALLER THAN ONE ALREADY SEEN.",
+		"\t} else if (0) {\n\t\t/* A MANIFEST SMALLER THAN ONE ALREADY SEEN.",
+		"a manifest naming fewer pairs than one already seen is exactly the rollback case -- revocations only accumulate -- and a replay aimed at clearing an overflow flag is somebody trying to make this host look complete",
+	),
+	(
+		"manifest-full-is-permanent",
+		"chain/manifest.c",
+		"\t\tMANIFEST_LOG(state, \"chain/manifest\", FLOG_CRIT,\n",
+		"\t\tMANIFEST_LOG(state, \"chain/manifest\", FLOG_WARN,\n",
+		"nothing in the issuer table is ever evicted, so a full one means this host can never follow anybody again and will not see what they revoke -- this module cites record/journal.h, which takes CRIT for the same structure",
+	),
+	(
+		"manifest-stranger-is-silent",
+		"chain/manifest.c",
+		"\t\treturn FZN_MANIFEST_ERR_UNKNOWN_ISSUER;\n",
+		"\t{ MANIFEST_LOG(state, \"chain/manifest\", FLOG_WARN, \"unknown issuer\");\n"
+		"\t  return FZN_MANIFEST_ERR_UNKNOWN_ISSUER; }\n",
+		"declining to follow a stranger is the design working and arrives at whatever rate a stranger chooses; this header says a receiver that logged a stranger's bytes as its own defect would be looking in the wrong place -- braced, per batch thirteen",
+	),
 	# BATCH THIRTEEN, 2026-09-09: the two modules where a diagnostic IS the
 	# security surface, and the three lines deliberately NOT written. A
 	# decline nobody asserts the absence of is one somebody adds back for

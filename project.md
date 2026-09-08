@@ -33757,6 +33757,37 @@ ships. `persist/persist_file.c`'s helper needed four of these for the same
 reason. The rule that separates them from every other emit site: a site that
 names struct fields the surrounding code uses anyway needs none.
 
+### Two sabotages that were CAUGHT and tested nothing they claimed
+
+The entries defending the two silences inserted a log call before a `return`.
+Both of those returns sit inside a **braceless `if`**, so the inserted
+statement became the whole body and the return became unconditional. Both were
+reported CAUGHT.
+
+	prekey-wrong-host-is-silent  FAIL prekey_test.c:441: a re-delivery of
+	                                  the record already held was refused
+	trust-echo-is-silent         FAIL trust_test.c:264: a second, different
+	                                  root -- got "already anchored"
+
+Neither of those is the case the entry is about. They are cases about
+something else failing because an unconditional return broke the module, so
+what the run demonstrated is that breaking control flow breaks a suite --
+which nobody doubted.
+
+**CAUGHT is what hid it.** The verdict was correct and the reason was not, and
+nothing distinguishes the two except reading WHICH check failed. That is
+`evidence.md`'s instruction in as many words -- *sabotage the thing, then read
+which check failed, never that something did* -- and it is the second time in
+one day that a sabotage looked fine and was aimed at the wrong claim, after
+the ledger entry in sec 218 that reworded a string no assertion read.
+
+The two failures are worth putting side by side, because the pair is the whole
+lesson: **a sabotage can fail to test its claim by changing too little (a
+reworded string nothing asserts on) or by changing too much (a statement that
+re-binds an `if`), and both come back looking like a working guard.** Braces
+in the replacement fix this one, and both are now caught by the assertion that
+is actually about them.
+
 ### The 13 failures that were a stale object
 
 Worth recording because it read exactly like the feature not working. The new
@@ -33775,5 +33806,108 @@ default one and says nothing.
 build did not rebuild. This is a step past that: the object WAS rebuilt, under
 different flags, which is a state neither make nor the timestamp can express.
 The remedy is the one this tree already uses for sanitizers -- give the other
-arrangement its own build directory, `BUILD_DIR=noflog`, so the two never
-share a file.
+arrangement its own build directory, so the two never share a file.
+
+**And the remedy as first written here did not work, which is the part worth
+keeping.** It said `BUILD_DIR=noflog`, and one section later that was tried on
+`chain/manifest.c`:
+
+	make chain/manifest.o BUILD_DIR=noflog FLOG_DIR=
+
+That compiled `chain/manifest.o` -- the DEFAULT one -- without flog, and the
+next `make` found it newer than its source and did nothing. **`BUILD_DIR` only
+redirects targets whose NAMES contain it**, so naming the object at its
+default path opts out of the variable entirely; make then matched its own
+built-in `%.o: %.c` rule, whose command line has no `-DFZN_FLOG_ON` in it. The
+diagnostics were poisoned by the very command written to avoid poisoning them,
+and ten assertions failed reading exactly like a feature that does not work.
+
+`nm -u` is what settled it in one line, the same instrument that measured
+flog's allocations in sec 209:
+
+	before   (nothing)
+	after    U _flog_printf
+
+So the working form names the target under the other tree --
+`make noflog/chain/manifest.o FLOG_DIR=` -- or builds the whole thing there.
+The general shape is worth more than the flag: **a variable that composes a
+path cannot protect a target you name yourself**, and a `%.o` request that
+misses every explicit rule does not fail, it finds a built-in one.
+
+## 223. The one refusal that fails open, and the pass closed
+
+`chain/manifest.c` is the last module with a caller-owned context, and it holds
+the one refusal in this library that fails **open**.
+
+	chain/manifest  WARN  N of M pairs dropped, deficit table full at K
+	chain/manifest  CRIT  no room to follow another issuer, and none evicts
+	chain/manifest  WARN  a manifest smaller than one already seen
+
+### The count existed nowhere at all
+
+`FZN_MANIFEST_ERR_DEFICIT_FULL`'s own comment says what it means:
+
+> A dropped pair does not make this host report a fault; it makes it report a
+> SMALLER deficit than it has, which is to say it looks MORE complete than it
+> is.
+
+So this is not a refusal that costs a caller an operation. It is a host quietly
+understating what it is missing -- and `dropped` in `fzn_manifest_admit` was an
+**`int` used as a boolean**. One pair short of complete and forty produced the
+same return value, the same overflow flag, and no number anywhere. It counts
+now, and the line carries all three figures: how many went, out of how many the
+manifest named, against the table's capacity.
+
+**The overflow flag is not a substitute, for the reason `log/log.h` gave about
+`dropped`.** It is durable, a consumer can read it, and it is one bit: it says
+the deficit is understated and never which authority is missing from it. A
+consumer that fetches to close a deficit cannot fetch what it was never told
+about. That is the same sentence sec 217 wrote about a different count, which
+is why the two modules were the hardest ones in the pass to see.
+
+### Severities taken from the module's own citations
+
+**FULL is at CRIT because this module cites `record/journal.h` for its
+behaviour** -- "Refused rather than evicted, for the reason `record/journal.h`
+refuses a full journal: dropping an issuer forgets its deficit, and a forgotten
+deficit is a host that looks complete" -- and that module takes CRIT for the
+same structure. The severity follows the citation rather than the shape, which
+is the same method sec 218 used to reach the OPPOSITE answer for the ledger: a
+full ledger can only fail to notice a delivery, so it is ERR, while a full
+issuer table means every revocation those issuers publish is invisible for
+ever.
+
+**The replay gets a WARN and the refusal stays silent.** The high-water mark
+refuses a smaller manifest without complaint, and refusing silently is right --
+but a replay aimed at clearing an overflow flag is somebody trying to make this
+host look complete, and the header already says a carrier needs no key to
+arrange it.
+
+**And SHAPE and UNKNOWN_ISSUER are declined, on the header's own warning.** It
+says a receiver that logged malformed bytes "as its own defect would be looking
+in the wrong place": ordinary hostile input, arriving at whatever rate a
+stranger chooses. A line per rejected datagram is a log a viewer cannot use
+and, above informational, a lie about whose fault it is. Both declines are
+asserted by the test and defended by a sabotage that puts a line back.
+
+### The pass, closed
+
+Seventeen modules carry a log, which is every one with a caller-owned context:
+
+	link/snapshot  chain/store  chain/revocation  chain/manifest
+	record/journal  record/store  record/ledger  state/cell
+	catalog/edge  chunk/reasm  spool/store  frame/replay
+	claim/hold  log/stream  persist/file  trust/anchor  prekey/pin
+
+Declined, each for a reason rather than for quiet: `ratchet` and `blob`, whose
+types are values copied by assignment with nowhere to put a borrowed pointer
+(sec 216); and every module that takes its state as parameters rather than
+holding it, where a log would be signature churn on a hot path for one event.
+
+**What made the pass hard was never deciding what to say.** It was finding the
+modules -- sec 217's sweep was keyed on refusals and could not see a module
+that announces itself by succeeding -- and, twice, discovering that the return
+value a module already had was coarser than its own comments knew: the ledger's
+readers with no error channel, and this one's boolean where a count belonged.
+Both were written down years' worth of comments ago and nobody had read them as
+a gap.

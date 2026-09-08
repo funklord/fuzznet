@@ -3765,6 +3765,162 @@ static void test_the_soundness_operands(void)
 	      "case where null is the honest value");
 }
 
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+
+/* Borrowed strings, so anything kept is copied. */
+static struct {
+	int calls;
+	flog_msg_type_t type;
+	char subsystem[64];
+	char text[512];
+} diag_seen;
+
+static int diag_capture(flog_t *p, const flog_msg_t *m)
+{
+	(void)p;
+	diag_seen.calls++;
+	diag_seen.type = m->type;
+	diag_seen.subsystem[0] = '\0';
+	diag_seen.text[0] = '\0';
+	if (m->subsystem)
+		snprintf(diag_seen.subsystem, sizeof(diag_seen.subsystem), "%s", m->subsystem);
+	if (m->text)
+		snprintf(diag_seen.text, sizeof(diag_seen.text), "%s", m->text);
+	return 0;
+}
+
+/*
+ * THE ONE REFUSAL IN THIS FILE THAT FAILS OPEN, AND HOW MUCH OF IT WENT.
+ * sec 223.
+ *
+ * FZN_MANIFEST_ERR_DEFICIT_FULL says at least one pair could not be recorded.
+ * `overflowed` says the same thing durably, in one bit. Neither says HOW MANY,
+ * and until this pass `dropped` was a boolean so the number existed nowhere at
+ * all -- yet the enumerator's own comment is that a dropped pair "makes it
+ * report a SMALLER deficit than it has, which is to say it looks MORE complete
+ * than it is". One pair short and forty are the same answer and are not the
+ * same host.
+ */
+static void test_the_manifest_says_how_much_of_it_went(void)
+{
+	struct fixture f;
+	fzn_manifest_state_t small;
+	fzn_manifest_issuer_t issuers[1];
+	fzn_manifest_deficit_t deficit[2];
+	static uint8_t bytes[FIXTURE_BYTES];
+	static uint8_t older[FIXTURE_BYTES];
+	fzn_manifest_record_t rec, old_rec;
+	fzn_cap_id_t caps[4];
+	uint8_t grantee[FZN_PUBKEY_LEN], stranger[FZN_PUBKEY_LEN];
+	fzn_manifest_pair_t want[4], two[2];
+	size_t len = 0, old_len, lost = 99;
+	flog_t diag;
+	char overflow_line[512];
+	uint8_t i;
+
+	init_flog_t(&diag);
+	diag.name = NULL;
+	diag.accepted_msg_type = FLOG_ACCEPT_ALL;
+	diag.output_func = diag_capture;
+
+	key(grantee, 5);
+	key(stranger, 77);
+	for (i = 0; i < 4; i++)
+		capability_id(&caps[i], (uint8_t)(0x10u + i * 0x10u));
+
+	fixture_init(&f);
+	for (i = 0; i < 4; i++)
+		revoke(&f, f.root, &caps[i], grantee);
+	f.stub.identity = 0;
+	CHECK(fzn_manifest_issue(f.root, &f.store, &f.sign, bytes, sizeof(bytes), &len)
+	              == FZN_MANIFEST_OK, "issue");
+	CHECK(fzn_manifest_open(bytes, len, &rec) == FZN_MANIFEST_OK, "open");
+
+	/* QUIET UNTIL ASKED, planted before the init that clears it. */
+	fzn_manifest_set_log(&small, &diag);
+	CHECK(fzn_manifest_init(&small, issuers, 1, deficit, 2) == FZN_MANIFEST_OK, "init");
+	memset(&diag_seen, 0, sizeof(diag_seen));
+	CHECK(fzn_manifest_follow(&small, f.root) == FZN_MANIFEST_OK, "follow");
+	CHECK(diag_seen.calls == 0, "a state nobody gave a diagnostic sink to emitted");
+
+	fzn_manifest_set_log(&small, &diag);
+
+	/* ---- A STRANGER'S MANIFEST SAYS NOTHING. This host declining to
+	 * follow somebody is the design working, and it arrives at whatever
+	 * rate a stranger chooses. */
+	{
+		static uint8_t theirs[FIXTURE_BYTES];
+		fzn_manifest_record_t their_rec;
+		size_t their_len;
+
+		two[0].capability = caps[0];
+		memcpy(two[0].grantee, grantee, FZN_PUBKEY_LEN);
+		their_len = build_raw(theirs, 0, stranger, two, 1);
+		CHECK(fzn_manifest_open(theirs, their_len, &their_rec) == FZN_MANIFEST_OK,
+		      "the stranger's manifest will not open");
+		memset(&diag_seen, 0, sizeof(diag_seen));
+		CHECK(fzn_manifest_admit(&small, NULL, their_rec, &f.sign)
+		              == FZN_MANIFEST_ERR_UNKNOWN_ISSUER,
+		      "a manifest from an issuer this host does not follow was admitted");
+		CHECK(diag_seen.calls == 0,
+		      "declining to follow a stranger produced a line, and a receiver that "
+		      "logged a stranger's bytes as its own defect would be looking in the "
+		      "wrong place");
+	}
+
+	/* ---- TWO OF FOUR DROPPED, and the line says two. */
+	memset(&diag_seen, 0, sizeof(diag_seen));
+	CHECK(fzn_manifest_admit(&small, NULL, rec, &f.sign) == FZN_MANIFEST_ERR_DEFICIT_FULL,
+	      "a manifest whose pairs did not fit was admitted without complaint");
+	CHECK(fzn_manifest_overflowed(&small, f.root) == 1, "the flag was not set");
+	CHECK(diag_seen.calls == 1, "pairs were dropped and nothing said how many");
+	CHECK(diag_seen.type == FLOG_WARN,
+	      "a host that now reports a smaller deficit than it has was not warned");
+	CHECK(strcmp(diag_seen.subsystem, "chain/manifest") == 0,
+	      "the event did not name its subsystem");
+	CHECK(strstr(diag_seen.text, "dropped 2 of 4") != NULL,
+	      "the line does not say HOW MANY of HOW MANY went, which is the whole thing "
+	      "neither the error code nor the one-bit overflow flag can carry");
+	snprintf(overflow_line, sizeof(overflow_line), "%s", diag_seen.text);
+
+	/* ---- A REPLAYED SMALLER MANIFEST, which the high-water mark refuses
+	 * silently. Refusing silently is right; saying nothing about an attempt
+	 * to make this host look complete is not. */
+	CHECK(fzn_manifest_deficit(&small, f.root, want, 4, &lost) == 2 && lost == 0,
+	      "the two recorded pairs could not be read back");
+	two[0] = want[0];
+	two[1] = want[1];
+	sort_pairs(two, 2);
+	old_len = build_raw(older, 0, f.root, two, 2);
+	CHECK(fzn_manifest_open(older, old_len, &old_rec) == FZN_MANIFEST_OK,
+	      "the older manifest will not open");
+
+	memset(&diag_seen, 0, sizeof(diag_seen));
+	CHECK(fzn_manifest_admit(&small, NULL, old_rec, &f.sign) == FZN_MANIFEST_OK,
+	      "an older manifest naming only pairs already listed was refused");
+	CHECK(fzn_manifest_overflowed(&small, f.root) == 1,
+	      "a replayed older manifest cleared the overflow flag");
+	CHECK(diag_seen.calls == 1, "a replay aimed at the overflow flag was silent");
+	CHECK(diag_seen.type == FLOG_WARN, "a replay was not reported as a warning");
+	CHECK(strstr(diag_seen.text, "already seen") != NULL,
+	      "the line does not say the manifest is smaller than one already seen, which "
+	      "is what makes it a replay rather than an update");
+	CHECK(strcmp(diag_seen.text, overflow_line) != 0,
+	      "the replay and the overflow produced the same sentence");
+
+	/* ---- NO ROOM TO FOLLOW ANOTHER ISSUER, and nothing here evicts. */
+	memset(&diag_seen, 0, sizeof(diag_seen));
+	CHECK(fzn_manifest_follow(&small, stranger) == FZN_MANIFEST_ERR_FULL,
+	      "a full issuer table took another issuer");
+	CHECK(diag_seen.calls == 1, "a permanent refusal to follow anybody was silent");
+	CHECK(diag_seen.type == FLOG_CRIT,
+	      "a table that never evicts reported its permanent refusal below critical, "
+	      "though this module cites record/journal.h -- a forgotten deficit is a host "
+	      "that looks complete");
+}
+#endif
+
 int main(void)
 {
 	test_layout_and_round_trip();
@@ -3807,6 +3963,10 @@ int main(void)
 	test_the_suite_can_tell_pass_from_fail();
 
 	test_the_soundness_operands();
+
+#ifdef FZN_FLOG_ON
+	test_the_manifest_says_how_much_of_it_went();
+#endif
 
 	printf("manifest_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

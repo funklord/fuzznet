@@ -511,6 +511,9 @@ typedef struct fzn_manifest_deficit {
  * `fzn_revocation_admit` needs the NAME; nothing in that file may reach into
  * one, so it does not get the fields. The incomplete type is the point rather
  * than a compromise. */
+/* Declared, not included. sec 209. */
+struct flog_t;
+
 struct fzn_manifest_state {
 	fzn_manifest_issuer_t *issuers;
 	size_t issuer_capacity;
@@ -518,7 +521,52 @@ struct fzn_manifest_state {
 	fzn_manifest_deficit_t *deficit;
 	size_t deficit_capacity;
 	size_t deficit_used;
+	/* Where this state says what happened, or NULL for silence. */
+	struct flog_t *log;
 };
+
+/*
+ * Give this state somewhere to say what happened, or NULL to silence it.
+ *
+ * sec 223. THREE LINES, and the first is the only refusal in this library
+ * that FAILS OPEN:
+ *
+ *   WARN  N pairs dropped because the deficit table is full, so this host
+ *         now reports a SMALLER deficit than it has
+ *   CRIT  no room to follow another issuer, and nothing here is ever evicted
+ *   WARN  a manifest naming fewer pairs than one already seen, which is a
+ *         rollback and cannot clear an overflow
+ *
+ * FZN_MANIFEST_ERR_DEFICIT_FULL ALREADY CARRIES THE FACT AND NOT THE SIZE.
+ * The enumerator's own comment says a dropped pair "makes it report a SMALLER
+ * deficit than it has, which is to say it looks MORE complete than it is" --
+ * and `dropped` in `admit` is a BOOLEAN, so the count exists nowhere at all.
+ * One pair short of complete and forty are the same return value and the same
+ * overflow flag, and they are not the same host.
+ *
+ * THE OVERFLOW FLAG IS NOT A SUBSTITUTE, for the reason `log/log.h` gives
+ * about `dropped`: it is durable and it is one bit. It says the deficit is
+ * understated and never which authority is missing from it, so a consumer
+ * that fetches to close a deficit cannot fetch what it was never told about.
+ *
+ * FULL IS AT CRIT, following `record/journal.h` because this module's own
+ * comment cites it: "Refused rather than evicted, for the reason
+ * `record/journal.h` refuses a full journal: dropping an issuer forgets its
+ * deficit, and a forgotten deficit is a host that looks complete." The
+ * severity follows the citation rather than the shape.
+ *
+ * AND SHAPE IS DELIBERATELY NOT LOGGED HERE. This header says a receiver that
+ * logged malformed bytes "as its own defect would be looking in the wrong
+ * place" -- ordinary hostile input, arriving at whatever rate a stranger
+ * chooses. A line per rejected datagram is a log a viewer cannot use and, at
+ * any severity above informational, a lie about whose fault it is. The same
+ * goes for UNKNOWN_ISSUER, which is this host declining to follow somebody
+ * and is the design working.
+ *
+ * Subsystem `chain/manifest`. The log is borrowed and must outlive this state,
+ * and `fzn_manifest_init` clears it, so set it after init.
+ */
+void fzn_manifest_set_log(fzn_manifest_state_t *state, struct flog_t *log);
 
 /* Point a state at caller-owned storage. Both arrays are required and both
  * capacities must be nonzero, for the reason `fzn_revocation_store_init`
