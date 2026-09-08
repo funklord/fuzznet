@@ -32184,3 +32184,68 @@ is what leaves the reason as the only thing that can differ. The widget's copy
 of the check had the same flaw and the same fix. `evidence.md`'s consumer that
 is right by coincidence, in a test rather than in code, and nothing but the
 surviving mutant would have found it.
+
+## 205. The render sweep had stopped running, and nobody could have known
+
+`make qtty` renders every widget through a character grid and measures the
+narrowest terminal each one still says its own words on. It is opt-in, and it
+had been broken for some time. Three faults, none of which reported itself.
+
+**It did not link.** `cli/provision_print.o` was added to the target in
+`7908846` without `provision/provision.o` beside it, so the link failed on
+three undefined symbols. Every later change to a widget compiled fine and was
+never rendered.
+
+**Four expectations had gone stale while it could not run.** The sweep asserts
+that each widget says a chosen word on an 80x24 terminal. Sec 193's
+consolidation moved nine widgets onto printers and changed their wording:
+`unguarded` became `UNGUARDED`, `held it back` became the sweep's per-reason
+text, `stalled` became `STALLED`, `took it back` became `taken back`. Four
+widgets were therefore asserted to say things nothing in the tree says any
+more.
+
+**And it found a real defect the moment it ran.** `capability_view` showed the
+capability and `expires at 1000` on an 80-column terminal and nowhere said
+`expired`. `fzn_capability_print` put the capability first, a capability spells
+to 64 hex characters, and a terminal clips a line from the RIGHT -- so the
+answer was the part that fell off and the opaque identifier was the part kept.
+
+The fix is the general rule rather than a width tweak: **the answer goes left
+of the evidence.** What a narrow terminal then loses is 32 bytes nobody
+compares by eye, and losing those is visibly a truncation rather than silently
+a different meaning. Only `capability_print` had that shape -- it is the one
+whose identifier is 64 characters before its verdict.
+
+**Two things about the instruments, which cost more than the faults.**
+
+A grep for what those printers say used the pattern `"[a-z][^"]{4,60}"`, which
+cannot match a string beginning with a capital. It reported that
+`transfer_print` no longer says anything like `stalled`; it says `STALLED`. An
+absence manufactured by the pattern, and it read exactly like a finding --
+`evidence.md`'s first way, met head-on.
+
+And the failure message named neither the widget nor the string, so two
+failures at once said only that something among a dozen widgets was wrong. It
+names both now, and prints the rendered screen on a failure. That is what
+turned `capability_view` from a guess into a reading: the screen showed the
+hex, then `expires at 1000`, and no verdict -- which is a different diagnosis
+from every mechanism theorised before looking.
+
+**The cause was the opt-in arrangement, so that is what changed.** A new
+`qttycheck` runs the same sweep from `make check`, with the preconditions as
+SKIPS rather than errors -- and each skip says out loud that no widget was
+rendered, because a silent one is a green line claiming coverage it never had.
+`make qtty` stays strict for whoever asks for it directly. `evidence.md` states
+the class: a check that runs only elsewhere is a check you have stopped
+running. Here "elsewhere" was "when somebody remembers", which is worse than
+CI, because CI at least goes red.
+
+The floors it measures now, for all twelve widgets:
+
+	authz_view 20, capability_view 20, sweep_view 28, revocation_view 26,
+	journal_view 34, sync_view 20, transfer_view 20, state_view 22,
+	config_view 32, link_view 46, peer_view 20, provision_view 20
+
+`provision_view` is in that list for the first time: its header was included by
+the render test and no such widget was ever built, so it had been compiled into
+the sweep and never rendered by it.

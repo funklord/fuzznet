@@ -967,6 +967,16 @@ endif
 # the answer, so it is read instead. tool/enum_gate.py and tool/status_gate.py
 # were the same defect and take the same fix.
 VENDOR_DIRS  := $(shell sed -n 's/^[ \t]*path *= *//p' .gitmodules 2>/dev/null)
+# AND THE STAGING COPY THE RENDER TARGET MAKES OF ONE OF THEM. `qtty` unpacks
+# `git archive HEAD` into `$(BUILD_DIR)/.qtty` and removes it from a trap --
+# which does not run when the target is KILLED rather than signalled, and a
+# `timeout` around a slow render is exactly how that happens. The comment on
+# that target already said .gitignore is "the backstop rather than the fix" and
+# does nothing about the gate that reads the working tree; this is the fix.
+# Left behind once, it made `make style` walk 26 of somebody else's headers and
+# refuse -- a gate reporting files nobody can act on, from a run that was
+# interrupted rather than wrong. sec 205.
+VENDOR_DIRS  += .qtty
 VENDOR_PRUNE := $(foreach d,$(VENDOR_DIRS),-not -path './$(d)/*')
 
 # Named OUTSIDE the conditional, because these files exist in the tree whether
@@ -3037,7 +3047,7 @@ sabotage:
 # project.md sec 53 has the eight-cell matrix.
 #
 # It costs 1.8s here.
-check: style test installcheck ctcheck sancheck qrcheck
+check: style test installcheck ctcheck sancheck qrcheck qttycheck
 
 # THE SUITE AGAIN UNDER AddressSanitizer AND UBSan, on the holder's
 # instruction 2026-09-04. What it costs is roughly the test time again; what
@@ -3764,6 +3774,44 @@ qrcheck:
 QTTY_VENDORED := qtty
 QTTY_DIR      ?= $(QTTY_VENDORED)
 
+# THE RENDER SWEEP, AS PART OF `check` RATHER THAN ONLY ON REQUEST.
+#
+# `qtty` itself is strict: a developer who types it and cannot run it wants an
+# error, not a shrug. This is the same work with the preconditions turned into
+# SKIPS, so it rides with the widget suites -- `make GUI_ON=1 CLI_ON=1 check`
+# renders every widget, and a plain `make check` says out loud that nothing
+# did.
+#
+# It exists because the opt-in arrangement failed exactly as evidence.md says
+# a check that runs only elsewhere fails. The target did not LINK for some
+# time -- cli/provision_print.o was added to it without provision/provision.o
+# -- and while it was unbuildable the sec 193 consolidation changed the wording
+# of four widgets out from under its expectations. Nothing reported either,
+# because nobody had reason to type the target. sec 205.
+#
+# A SKIP SAYS WHAT WAS NOT CHECKED. A silent one is a green line claiming
+# coverage it never had, which is the whole failure above wearing a tidier
+# face.
+qttycheck:
+	@if [ -z "$(GUI_ON)" ] || [ -z "$(CLI_ON)" ]; then \
+		echo "qttycheck: SKIPPED -- the widgets are not built."; \
+		echo "qttycheck: no widget was rendered on a character grid."; \
+		echo "qttycheck: run 'make FZN_GUI=1 FZN_CLI=1 check' to include it."; \
+		exit 0; \
+	fi; \
+	if [ -z "$(QTTY_DIR)" ] || [ ! -f "$(QTTY_DIR)/qtty.pro" ]; then \
+		echo "qttycheck: SKIPPED -- no qtty under '$(QTTY_DIR)'."; \
+		echo "qttycheck: run 'git submodule update --init $(QTTY_VENDORED)'."; \
+		echo "qttycheck: no widget was rendered on a character grid."; \
+		exit 0; \
+	fi; \
+	if ! command -v qmake6 >/dev/null 2>&1; then \
+		echo "qttycheck: SKIPPED -- no qmake6, and qtty HEAD needs Qt 6."; \
+		echo "qttycheck: no widget was rendered on a character grid."; \
+		exit 0; \
+	fi; \
+	$(MAKE) --no-print-directory qtty
+
 qtty:
 	@if [ -z "$(QTTY_DIR)" ]; then \
 		echo "qtty: QTTY_DIR is empty, so the widgets were NOT rendered."; \
@@ -3822,7 +3870,7 @@ qtty:
 			echo "qtty: no quirc.h under $(QUIRC_DIR)/lib"; exit 1; }; \
 		mkdir -p "$$scratch/quirc"; \
 		for f in quirc decode identify version_db; do \
-			$(CC) $(CFLAGS) -I"$(QUIRC_DIR)/lib" -c \
+			$(CC) $(CFLAGS_BUILD) -w -I"$(QUIRC_DIR)/lib" -c \
 			      "$(QUIRC_DIR)/lib/$$f.c" -o "$$scratch/quirc/$$f.o"; \
 		done; \
 		qflags="-DFZN_HAVE_QUIRC -I$(QUIRC_DIR)/lib"; \
@@ -3839,6 +3887,7 @@ qtty:
 	       gui/sweep_view.cpp gui/revocation_view.cpp gui/journal_view.cpp \
 	       gui/sync_view.cpp gui/transfer_view.cpp gui/state_view.cpp \
 	       gui/config_view.cpp gui/link_view.cpp gui/peer_view.cpp \
+	       gui/provision_view.cpp \
 	       $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \
 	       $(BUILD_DIR)/cli/cli.o $(BUILD_DIR)/state/state.o \
 	       $(BUILD_DIR)/cli/sync_print.o $(BUILD_DIR)/cli/journal_print.o \
@@ -3847,6 +3896,7 @@ qtty:
 	       $(BUILD_DIR)/cli/revocation_print.o $(BUILD_DIR)/cli/authz_print.o \
 	       $(BUILD_DIR)/cli/provision_print.o $(BUILD_DIR)/cli/link_print.o \
 	       $(BUILD_DIR)/cli/peer_print.o $(BUILD_DIR)/local/peer.o \
+	       $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/prekey/prekey.o \
 	       $(BUILD_DIR)/local/vocabulary.o \
 	       $(BUILD_DIR)/link/link.o $(BUILD_DIR)/sched/sched.o \
 	       $(BUILD_DIR)/spool/spool.o $(BUILD_DIR)/spool/plan.o \

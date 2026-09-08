@@ -40,6 +40,8 @@
 #include "../state_view.h"
 #include "../provision_view.h"
 #include "../config_view.h"
+#include "../link_view.h"
+#include "../peer_view.h"
 
 extern "C" {
 #include "../../log/log.h"
@@ -301,6 +303,12 @@ static void test_every_widget_survives_a_terminal(void)
 	fzn_transfer_view transfer;
 	fzn_state_view state_v;
 	fzn_config_view config;
+	fzn_link_view link_v;
+	fzn_peer_view peer_v;
+	fzn_provision_view provision;
+	fzn_link_entry_t link_entries[4];
+	fzn_link_table_t links;
+	fzn_peer_t asker;
 
 	fzn_authz_policy_t policy;
 	fzn_chain_t chain;
@@ -390,6 +398,46 @@ static void test_every_widget_survives_a_terminal(void)
 	}
 
 	{
+		/* ONE MEASURED LINK AND ONE THAT IS STILL A CLAIM, which is the
+		 * pair sec 202 is about: the terminal has to keep them apart in
+		 * a row, and a column-aligned table is exactly the thing a
+		 * character grid can lose. */
+		if (fzn_link_table_init(&links, link_entries, 4u) == FZN_LINK_OK &&
+		    fzn_link_register(&links, 1u, 10u, 40u, 0u, 1200u) == FZN_LINK_OK &&
+		    fzn_link_register(&links, 2u, 20u, 90u, 25u, 1200u) == FZN_LINK_OK &&
+		    fzn_link_observe_ack(&links, 1u, 40u, 1000u) == FZN_LINK_OK)
+			link_v.show_links(&links);
+	}
+
+	{
+		/* A PEER WHOSE GROUPS COULD NOT BE READ, so the word the
+		 * terminal has to carry is the tri-state's third one. sec 204:
+		 * if `cannot tell` does not survive the grid, the distinction
+		 * peer.h spent a module on is gone at the last inch. */
+		static const uint8_t DESTROY[] = "destroy";
+		static const fzn_verb_rule_t rules[] = {
+			{ 99u, DESTROY, sizeof(DESTROY) - 1u },
+		};
+
+		memset(&asker, 0, sizeof(asker));
+		asker.pid = 4021;
+		asker.uid = 1000u;
+		asker.primary_gid = 1000u;
+		asker.groups_known = 0;
+		peer_v.show_peer(&asker, DESTROY, sizeof(DESTROY) - 1u, rules, 1u);
+	}
+
+	{
+		/* NO CARD, which is the one provisioning state that needs no
+		 * signer. Its signed states are its own suite's business; what
+		 * is asked here is only whether this widget's words reach a
+		 * grid at all -- and until now they were never asked, because
+		 * `provision_view.h` was included by this file and no
+		 * `fzn_provision_view` was ever built. */
+		provision.show_card(nullptr, 0u, nullptr, 0u);
+	}
+
+	{
 		fzn_cli_t cli;
 
 		/* A SPELLED config. The unspelled one was tried first and
@@ -403,31 +451,62 @@ static void test_every_widget_survives_a_terminal(void)
 
 	{
 		const struct terminal_case cases[] = {
-			{ "authz_view", &authz, "unguarded" },
+			{ "authz_view", &authz, "UNGUARDED" },
 			{ "capability_view", &capability, "expired" },
-			{ "sweep_view", &sweep, "held it back" },
+			{ "sweep_view", &sweep, "needs more replicas" },
 			{ "revocation_view", &revocation, "work again" },
 			{ "journal_view", &journal_v, "nothing received" },
 			{ "sync_view", &sync, "cannot say" },
-			{ "transfer_view", &transfer, "stalled" },
-			{ "state_view", &state_v, "took it back" },
+			{ "transfer_view", &transfer, "STALLED" },
+			{ "state_view", &state_v, "taken back" },
 			/* A LABEL RATHER THAN A VALUE, because an unspelled config has
 			 * no values -- that is its point. This asks whether the
 			 * form's structure survives a terminal, which is the
 			 * question for a widget made of rows. */
 			{ "config_view", &config, "/var/lib/fuzznet" },
+			/* THE MARKER ON A ROW, not the summary above it. sec
+			 * 202's whole claim is that the row says WHICH link is
+			 * still a stranger's word, so that is the string a
+			 * terminal has to carry. */
+			{ "link_view", &link_v, "declared" },
+			/* THE THIRD VALUE OF THE TRI-STATE. sec 204. */
+			{ "peer_view", &peer_v, "cannot tell" },
+			{ "provision_view", &provision, "no card" },
 		};
 
 		for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
 			const QString want = QString::fromLatin1(cases[i].must_show);
 			int floor_cols;
 
+			char msg[192];
+
+			/* THE MESSAGE NAMES THE WIDGET AND THE STRING. Without
+			 * it a failure here says only that one of a dozen
+			 * widgets is wrong, and the reader has to bisect the
+			 * table to find out which -- the same complaint the
+			 * style gate makes about a sabotage failure nobody can
+			 * attribute. Two of these fired at once when the sweep
+			 * was first repaired and neither said whose. */
+			snprintf(msg, sizeof(msg),
+			         "%s does not say \"%s\" on an 80x24 terminal",
+			         cases[i].name, cases[i].must_show);
+			/* THE SCREEN ITSELF ON A FAILURE. A render test that
+			 * says only "the word is not there" leaves the reader
+			 * to rebuild the terminal by hand; this is how
+			 * capability_view's clipped verdict was found rather
+			 * than guessed at. */
+			if (!rendered(*cases[i].widget, 80, 24).contains(want))
+				fprintf(stderr, "---- %s at 80x24 ----\n%s\n----\n",
+				        cases[i].name,
+				        rendered(*cases[i].widget, 80, 24).toLatin1().constData());
 			check_at(rendered(*cases[i].widget, 80, 24).contains(want), __LINE__,
-			         "a widget's own words are not on an 80x24 terminal");
+			         msg);
 
 			floor_cols = narrowest(*cases[i].widget, cases[i].must_show);
-			check_at(floor_cols > 0, __LINE__,
-			         "a widget shows nothing at any width up to 120 columns");
+			snprintf(msg, sizeof(msg),
+			         "%s shows \"%s\" at no width up to 120 columns",
+			         cases[i].name, cases[i].must_show);
+			check_at(floor_cols > 0, __LINE__, msg);
 			printf("  %-18s needs %d columns to say \"%s\"\n", cases[i].name,
 			       floor_cols, cases[i].must_show);
 		}
@@ -448,7 +527,7 @@ static void test_every_widget_survives_a_terminal(void)
 			 * assertion is written the way the world IS so that it
 			 * goes red when they fix it, which is the notice this
 			 * tree wants rather than a silent improvement. */
-			check_at(snap.contains(QStringLiteral("unguarded")), __LINE__,
+			check_at(snap.contains(QStringLiteral("UNGUARDED")), __LINE__,
 			         "a form's value does not reach the grid");
 			check_at(!snap.contains(QStringLiteral("Requires")), __LINE__,
 			         "a form's ROW LABEL now reaches the grid -- qtty has "

@@ -45,16 +45,22 @@ static void render(struct sink *s, const fzn_chain_t *chain, fzn_capability_stat
 		return;
 	}
 
-	/* THE SAME SPELLING OF THIRTY-TWO BYTES THE ANCHOR USES. A fingerprint
-	 * compared against a differently formatted copy of itself cannot be
-	 * compared at all. */
-	if (fzn_trust_fingerprint(chain->capability.b, print, sizeof(print)) == FZN_TRUST_OK)
-		put_str(s, print);
-	else
-		put_str(s, "a capability this line could not format");
-
-	put_str(s, ": ");
-
+	/*
+	 * THE VERDICT COMES BEFORE THE BYTES, and it did not until 2026-09-08.
+	 *
+	 * A capability spells to 64 hex characters and a terminal clips a line
+	 * from the RIGHT, so with the bytes first the widget showing this line
+	 * needed more than 80 columns and the word `expired` was the part that
+	 * fell off. Measured through qtty at 80x24: the screen showed the
+	 * capability and `expires at 1000`, and nowhere on it did it say the
+	 * capability had expired. A person reading that sees an identifier and
+	 * a date and no answer.
+	 *
+	 * So the answer goes left of the evidence. What is lost to a narrow
+	 * terminal is then 32 opaque bytes nobody compares by eye anyway, and
+	 * losing those is visibly a truncation rather than silently a
+	 * different meaning.
+	 */
 	switch (state) {
 	case FZN_CAPABILITY_REVOKED:
 		/* ITS OWN WORDS. Renewing this would be exactly wrong. */
@@ -69,6 +75,16 @@ static void render(struct sink *s, const fzn_chain_t *chain, fzn_capability_stat
 		put_str(s, "usable");
 		break;
 	}
+
+	put_str(s, ": ");
+
+	/* THE SAME SPELLING OF THIRTY-TWO BYTES THE ANCHOR USES. A fingerprint
+	 * compared against a differently formatted copy of itself cannot be
+	 * compared at all. */
+	if (fzn_trust_fingerprint(chain->capability.b, print, sizeof(print)) == FZN_TRUST_OK)
+		put_str(s, print);
+	else
+		put_str(s, "a capability this line could not format");
 
 	if (chain->expires_at == FZN_NO_EXPIRY) {
 		/* THE SENTINEL IS NOT AN INSTANT. It is 0, so printing it as a
