@@ -41,6 +41,9 @@
  * one of the two that somebody may need to act on, and the one that stays
  * true after the dates stop mattering.
  *
+ * IT ASKS `cli/capability_print` AND SHOWS WHAT IT SAYS, and needs FZN_CLI
+ * for it. sec 196, under sec 193's rule: printer and widget in one commit.
+ *
  * NO Q_OBJECT AND THEREFORE NO moc, on sec 140's rule. It displays.
  */
 
@@ -50,6 +53,7 @@
 extern "C" {
 #include "../chain/chain.h"
 #include "../chain/revocation.h"
+#include "../cli/capability_print.h"
 }
 
 #include <QString>
@@ -101,9 +105,7 @@ public:
 
 private:
 	state state_;
-	QLabel *capability_;
 	QLabel *grantee_;
-	QLabel *expiry_;
 	QLabel *state_label_;
 };
 

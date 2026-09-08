@@ -31623,3 +31623,52 @@ the line. `s.replace("            gui/x.cpp \\\n", "")` and not
 `s.replace("            gui/x.cpp \\", "")`. Written down because a mechanical
 edit that leaves a dangling continuation is invisible in a diff -- the removed
 line is gone and the blank one looks like spacing.
+
+## 196. A capability line, and a wait loop that watched somebody else's build
+
+`cli/capability_print.{h,c}` reports whether one capability is usable and, if
+not, which of the two reasons. Printer and widget in one commit, sec 193's
+rule, third application.
+
+### Expired and revoked call for opposite actions
+
+sec 166 separated them for a screen, where it saves a person a wrong guess.
+Here it decides what an automated response does: **an expiry wants renewing
+and a revocation is somebody's decision about this key, where renewing would
+be exactly wrong.** So they are separate enum values and separate words, and
+revocation wins when both are true.
+
+Revoked is `fzn_revocation_covers` and never `..._known` -- they differ on
+exactly one state, an entry whose revocation has been WITHDRAWN, so the
+fixture builds one and the suite asserts the two predicates really do
+disagree before checking the printer. Expiry is `fzn_chain_expired_at`'s
+answer, because FZN_NO_EXPIRY is 0 and the obvious comparison inverts.
+
+### The wait loop was reading another session's build
+
+Three suites into this section the gate reported **151 suites** where the
+previous run reported 183, which looked like thirty-two silently lost.
+Nothing was lost. The count was taken from a log still being written.
+
+The cause is a pattern match, and it is `running-code.md`'s own warning
+arriving in a shape that document does not list. The loop was:
+
+    PID=$(ps -o pid=,cmd= -u "$USER" | awk '$2=="timeout" && /make check/ ...')
+    while [ -d /proc/$PID ]; do sleep 10; done
+
+Other sessions run `timeout ... make check` in their own trees -- hydra and
+netcfgd both were -- so the match can select **somebody else's process**, and
+the loop then returns when THEIR build finishes. It is not the self-matching
+pgrep that document describes; it is the neighbour-matching variant, and it
+fails the other way round: instead of never returning, it returns too early
+and hands back a partial measurement that looks complete.
+
+Two things made it survive being wrong. `grep -c` on a partial log gives a
+plausible number rather than an error, and a smaller number after a change
+that moved files reads as a consequence of the change. **A wrong measurement
+that agrees with the story you already have is the one that gets believed.**
+
+The fix is to wait on a pid this session created rather than one it
+recognised. Recorded here rather than as a rule, because the tree does not
+own the loop -- it is in the harness's shell invocations -- but the next
+session to write one should not have to find this twice.

@@ -95,7 +95,7 @@ int main(int argc, char **argv)
 	view.show_capability(&chain, nullptr, UINT64_MAX);
 	CHECK(view.shown_state() == fzn_capability_view::USABLE,
 	      "a chain that never expires was shown as expired at a late now");
-	CHECK(view.expiry_text() == QStringLiteral("does not expire"),
+	CHECK(view.state_text().contains(QStringLiteral("does not expire")),
 	      "the no-expiry sentinel was printed as an instant");
 
 	/* The library agrees, asked directly. Two readings of one rule, and
@@ -109,7 +109,7 @@ int main(int argc, char **argv)
 	view.show_capability(&chain, nullptr, 1000u);
 	CHECK(view.shown_state() == fzn_capability_view::EXPIRED,
 	      "a chain expiring at now was not shown as expired");
-	CHECK(view.expiry_text() == QStringLiteral("1000"),
+	CHECK(view.state_text().contains(QStringLiteral("1000")),
 	      "a real expiry was not shown");
 
 	view.show_capability(&chain, nullptr, 999u);
@@ -180,7 +180,7 @@ int main(int argc, char **argv)
 	view.show_capability(nullptr, nullptr, 0u);
 	CHECK(view.shown_state() == fzn_capability_view::HOLDS_NOTHING,
 	      "a null chain left the previous capability on screen");
-	CHECK(view.capability_text() == QStringLiteral("none held"),
+	CHECK(view.state_text().contains(QStringLiteral("no capability held")),
 	      "a null chain shows a capability id");
 
 	/* The two identifiers are spelled as the anchor spells them, and are
@@ -192,10 +192,30 @@ int main(int argc, char **argv)
 
 		CHECK(fzn_trust_fingerprint(chain.capability.b, text, sizeof(text)) ==
 		              FZN_TRUST_OK &&
-		              view.capability_text() == QString::fromLatin1(text),
+		              view.state_text().contains(QString::fromLatin1(text)),
 		      "the capability is not spelled the way trust_view spells a key");
-		CHECK(view.capability_text() != view.grantee_text(),
+		CHECK(!view.state_text().contains(view.grantee_text()),
 		      "the capability and the grantee are shown as the same value");
+	}
+
+	/* THE ASSERTION THAT KEEPS ONE IMPLEMENTATION. sec 193/196. */
+	{
+		char want[FZN_CAPABILITY_PRINT_MAX];
+		fzn_capability_state_t said = FZN_CAPABILITY_NONE;
+		size_t plen = 0;
+		QString expected;
+
+		chain_of(&chain, 1000u);
+		view.show_capability(&chain, nullptr, 5000u);
+		CHECK(fzn_capability_print(&chain, nullptr, 5000u, want, sizeof(want), &plen,
+		                           &said) == FZN_CHAIN_OK,
+		      "the printer would not render what the widget was given");
+		expected = QString::fromLatin1(want);
+		while (expected.endsWith(QLatin1Char('\n')))
+			expected.chop(1);
+		CHECK(view.state_text() == expected,
+		      "the widget's words are not the printer's, so one screen has two "
+		      "wordings again");
 	}
 
 	/* The suite can tell pass from fail. */

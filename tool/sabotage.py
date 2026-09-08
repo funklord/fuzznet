@@ -2333,41 +2333,6 @@ SABOTAGES = [
 		"weaken the test but inverts it for every chain that never expires",
 	),
 	(
-		"capability-view-revoked-asks-covers",
-		"gui/capability_view.cpp",
-		"\tif (fzn_revocation_covers(revocations, chain->root, &chain->capability,\n",
-		"\tif (fzn_revocation_known(revocations, chain->root, &chain->capability,\n",
-		"revoked is the authorization question and `known` is the replication "
-		"one; asking the wrong one reports a restored capability as revoked",
-	),
-	(
-		"capability-view-expiry-asks-the-library",
-		"gui/capability_view.cpp",
-		"\tif (fzn_chain_expired_at(chain, now)) {\n",
-		"\tif (chain->expires_at <= now) {\n",
-		"the widget must ASK whether a chain has expired rather than comparing, "
-		"or the sentinel rule has a second home that can disagree",
-	),
-	(
-		"capability-view-expired-and-revoked-differ",
-		"gui/capability_view.cpp",
-		"\t\tstate_label_->setText(QStringLiteral(\"expired\"));\n",
-		"\t\tstate_label_->setText(QStringLiteral(\"revoked by the issuer\"));\n",
-		"a schedule running out and somebody's decision about this key must "
-		"not read alike, or a reader cannot tell which happened",
-	),
-	(
-		"capability-view-revocation-wins-over-expiry",
-		"gui/capability_view.cpp",
-		"\tif (fzn_revocation_covers(revocations, chain->root, &chain->capability,\n"
-		"\t                          chain->grantee)) {\n",
-		"\tif (!fzn_chain_expired_at(chain, now) &&\n"
-		"\t    fzn_revocation_covers(revocations, chain->root, &chain->capability,\n"
-		"\t                          chain->grantee)) {\n",
-		"a chain that expired and was also revoked must show the revocation, "
-		"which is the half somebody may need to act on",
-	),
-	(
 		"log-print-escapes-the-body",
 		"cli/log_print.c",
 		"\t\t} else {\n\t\t\tput_str(s, text);\n\t\t}\n",
@@ -2718,6 +2683,42 @@ SABOTAGES = [
 		"\t\tstate_label_->setText(QStringLiteral(\"busy\"));\n",
 		"the widget must SHOW cli/transfer_print's line rather than have a wording "
 		"of its own -- sec 193's rule, applied in the same commit",
+	),
+	(
+		"capability-print-revoked-asks-covers",
+		"cli/capability_print.c",
+		"\t\tif (fzn_revocation_covers(revocations, chain->root, &chain->capability,\n",
+		"\t\tif (fzn_revocation_known(revocations, chain->root, &chain->capability,\n",
+		"revoked is the authorization question and `known` is the replication "
+		"one; asking the wrong one reports a RESTORED capability as cut off",
+	),
+	(
+		"capability-print-expiry-asks-the-library",
+		"cli/capability_print.c",
+		"\t\telse if (fzn_chain_expired_at(chain, now))\n",
+		"\t\telse if (chain->expires_at <= now)\n",
+		"FZN_NO_EXPIRY is 0, so the obvious comparison reports every chain that "
+		"never expires as the most expired thing a host holds",
+	),
+	(
+		"capability-print-revocation-wins-over-expiry",
+		"cli/capability_print.c",
+		"\t\tif (fzn_revocation_covers(revocations, chain->root, &chain->capability,\n"
+		"\t\t                          chain->grantee))\n",
+		"\t\tif (!fzn_chain_expired_at(chain, now) &&\n"
+		"\t\t    fzn_revocation_covers(revocations, chain->root, &chain->capability,\n"
+		"\t\t                          chain->grantee))\n",
+		"a chain both expired and revoked must report the revocation: expiry wants "
+		"renewing and a revocation is a decision, so renewing it would be exactly "
+		"the wrong response",
+	),
+	(
+		"capability-view-shows-the-printers-words",
+		"gui/capability_view.cpp",
+		"\t\tstate_label_->setText(text);\n",
+		"\t\tstate_label_->setText(QStringLiteral(\"held\"));\n",
+		"the widget must SHOW cli/capability_print's line rather than have a "
+		"wording of its own -- sec 193's rule",
 	),
 ]
 
