@@ -391,7 +391,7 @@ static const char *fuzz_one(const uint8_t *data, size_t len, struct coverage *co
 		 * the id derived from the index so no two entries collide, and
 		 * the state alternating so both values reach `open`'s
 		 * canonicality check. */
-		fzn_manifest_entry_t entries[MAX_PAIRS];
+		fzn_manifest_entry_t manifest_entries[MAX_PAIRS];
 		uint8_t buf[FZN_MANIFEST_LEN(MAX_PAIRS)];
 		fzn_manifest_record_t rec;
 		const uint8_t *msg;
@@ -476,20 +476,20 @@ static const char *fuzz_one(const uint8_t *data, size_t len, struct coverage *co
 		 * "cannot tell, so ask" -- the three rows that say agreed,
 		 * behind and ahead would never be built. */
 		for (size_t e = 0; e < npairs; e++) {
-			size_t at = held_at(&held, keys[ki], &pairs[e].capability,
+			size_t held_index = held_at(&held, keys[ki], &pairs[e].capability,
 			                    pairs[e].grantee);
 
-			entries[e].pair = pairs[e];
-			if (at < held.used) {
-				memcpy(entries[e].id, held.id[at], FZN_REVOCATION_ID_LEN);
+			manifest_entries[e].pair = pairs[e];
+			if (held_index < held.used) {
+				memcpy(manifest_entries[e].id, held.id[held_index], FZN_REVOCATION_ID_LEN);
 			} else {
-				memset(entries[e].id, 0, sizeof(entries[e].id));
-				entries[e].id[0] = (uint8_t)(e + 1u);
+				memset(manifest_entries[e].id, 0, sizeof(manifest_entries[e].id));
+				manifest_entries[e].id[0] = (uint8_t)(e + 1u);
 			}
-			entries[e].state = (e & 1u) ? (uint8_t)FZN_MANIFEST_WITHDRAWN
+			manifest_entries[e].state = (e & 1u) ? (uint8_t)FZN_MANIFEST_WITHDRAWN
 			                            : (uint8_t)FZN_MANIFEST_REVOKED;
 		}
-		if (fzn_manifest_encode(buf, sizeof(buf), keys[ki], entries, npairs,
+		if (fzn_manifest_encode(buf, sizeof(buf), keys[ki], manifest_entries, npairs,
 		                        &out_len) != FZN_MANIFEST_OK)
 			return "the fixture could not encode a manifest";
 		if (fzn_manifest_open(buf, out_len, &rec) != FZN_MANIFEST_OK)
@@ -516,8 +516,8 @@ static const char *fuzz_one(const uint8_t *data, size_t len, struct coverage *co
 		} else {
 			for (size_t i = 0; i < npairs; i++) {
 				if (!model_behind(&held, keys[ki], &pairs[i].capability,
-				                  pairs[i].grantee, entries[i].id,
-				                  entries[i].state ==
+				                  pairs[i].grantee, manifest_entries[i].id,
+				                  manifest_entries[i].state ==
 				                          (uint8_t)FZN_MANIFEST_WITHDRAWN)) {
 					cov->covered_skip++;
 					continue;

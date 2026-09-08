@@ -629,9 +629,9 @@ static void test_the_operands_the_first_one_hides(void)
 	fzn_spool_t sp;
 	fzn_spool_range_t out[4], want[2];
 	size_t count = 0;
-	uint8_t map[2];
+	uint8_t bits[2];
 
-	memset(map, 0, sizeof(map));
+	memset(bits, 0, sizeof(bits));
 	memset(want, 0, sizeof(want));
 
 	CHECK(fzn_spool_plan_want(NULL, 0u, 4u, out, 4u, &count) == FZN_SPOOL_ERR_MALFORMED,
@@ -642,13 +642,13 @@ static void test_the_operands_the_first_one_hides(void)
 	memset(&sp, 0, sizeof(sp));
 	sp.leaves = 8u;
 	sp.present = NULL;
-	sp.present_len = sizeof(map);
+	sp.present_len = sizeof(bits);
 	CHECK(fzn_spool_plan_want(&sp, 0u, 4u, out, 4u, &count) == FZN_SPOOL_ERR_MALFORMED,
-	      "plan_want accepted a spool whose present map is null");
+	      "plan_want accepted a spool whose present bits is null");
 	CHECK(fzn_spool_plan_offer(&sp, want, 1u, 4u, out, 4u, &count) == FZN_SPOOL_ERR_MALFORMED,
-	      "plan_offer accepted a spool whose present map is null");
+	      "plan_offer accepted a spool whose present bits is null");
 
-	sp.present = map;
+	sp.present = bits;
 	CHECK(fzn_spool_plan_want(&sp, 0u, 4u, NULL, 4u, &count) == FZN_SPOOL_ERR_MALFORMED,
 	      "plan_want accepted a null out array");
 	CHECK(fzn_spool_plan_want(&sp, 0u, 4u, out, 4u, NULL) == FZN_SPOOL_ERR_MALFORMED,

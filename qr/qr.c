@@ -449,7 +449,7 @@ static void place_data(uint8_t *m, unsigned size, const uint8_t *data, unsigned 
 				if (m[at] & M_FIXED)
 					continue;
 				if (bit < data_len * 8u)
-					value = (data[bit >> 3] >> (7u - (bit & 7u))) & 1u;
+					value = ((unsigned)data[bit >> 3] >> (7u - (bit & 7u))) & 1u;
 				m[at] = (uint8_t)(value ? M_VALUE : 0u);
 				bit++;
 			}
@@ -503,7 +503,10 @@ static void draw_format(uint8_t *m, unsigned size, fzn_qr_level_t level, unsigne
 	 * because the modules are all present and the code still scans as a
 	 * code. */
 	for (i = 0; i < 15u; i++) {
-		unsigned bit = (bits >> i) & 1u;
+		/* `bits` is uint16_t and promotes to int, so the mask below
+		 * would convert a signed value. The version copy above needs
+		 * no such cast -- its `bits` is uint32_t already. */
+		unsigned bit = ((unsigned)bits >> i) & 1u;
 
 		/* The copy beside the top-left finder. */
 		if (i < 6u)

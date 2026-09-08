@@ -586,13 +586,13 @@ static void test_every_guard_refuses_its_own_argument(void)
 		fzn_sign_ops_t half_verifier = { NULL, stub_sign, NULL };
 		fzn_provision_card_t opened;
 		fzn_provision_card_t partial;
-		size_t len = 0;
+		size_t card_len = 0;
 
 		CHECK(fzn_provision_pack(f.root, f.hop, f.prekey, 0, &half_signer, out,
-		                         sizeof(out), &len) == FZN_PROVISION_ERR_SIGNER,
+		                         sizeof(out), &card_len) == FZN_PROVISION_ERR_SIGNER,
 		      "pack accepted a signer struct whose sign is null -- which is what a "
 		      "consumer that filled the vtable in two steps and got interrupted has");
-		CHECK(len == 0u, "a refused pack reported a length");
+		CHECK(card_len == 0u, "a refused pack reported a length");
 
 		REQUIRE(fzn_provision_open(f.card, f.card_len, &opened) == FZN_PROVISION_OK,
 		        "the card did not open");

@@ -30043,6 +30043,62 @@ convention change rather than a fix, and `working-practice.md` says those are
 not adjusted in passing. It would also have to say which arrangement it
 gates, because the two `qr.c` lines above show that answer differs.
 
+### The eleven were fourteen, because the count came from an incremental build
+
+Re-measured 2026-09-08 with `rm -rf` and a clean build of each arrangement,
+because acting on the paragraph above meant re-deriving its number first. It
+is a scope number, and `evidence.md` says nothing downstream re-derives one.
+
+	-Os, GUI and CLI on          0
+	sanitized -Og               14
+
+The enumeration above lists eleven and names three files. The sanitized
+arrangement holds **fourteen** across eight files, and six of them are in
+SHIPPED LIBRARY SOURCES that the list does not mention at all -- the `bit_get`
+family in `spool/plan.c`, `spool/spool.c`, `spool/scrub.c` and
+`chunk/reassembly.c`, plus `qr/qr.c`'s two.
+
+**The cause is that a warning is only emitted by a file that gets
+recompiled.** Every count taken from `make check` is a count over whatever
+that run happened to rebuild, and an incremental build is the normal way
+anybody measures. The gate log this was checked against showed ten sites; a
+clean build of the same tree shows fourteen. Neither run was wrong and only
+one of them answers "how many warnings does this tree have".
+
+So the method belongs beside the number: **`rm -rf` the build directory,
+build each arrangement separately, and sort the warning lines unique.** A
+figure taken any other way is a figure about a build, not about a tree.
+
+### All fourteen are fixed, and six of them shipped
+
+The six library ones are one idiom: a `uint8_t` or `uint16_t` promotes to
+`int`, and `& 1u` then converts that signed value to unsigned. Benign in every
+case -- the operand cannot be negative and the mask yields 0 or 1 -- so the
+fix makes the promotion explicit rather than changing any value.
+
+Of the eight in tests, six were the same shape or a shadowed local. Two were
+worth more than the warning:
+
+- **`chunk/test/reassembly_fuzz.c`** cast both arms of a conditional to
+  `uint16_t` and the conditional promoted them straight back to `int`, so the
+  assignment converted anyway. The casts were saying the right thing in a
+  place where C does not listen; casting the whole expression is what they
+  meant.
+- **`spool/test/spool_file_test.c`** built a path with `snprintf` and did not
+  read the result. `snprintf` cannot overflow, so this was never a memory
+  fault -- what it could do is TRUNCATE, at which point the case opens a
+  different file and passes having exercised a spool it did not mean. That is
+  `evidence.md`'s vacuous pass wearing a formatting warning's clothes, and it
+  is a check now rather than a cast.
+
+**The gate question the paragraph above leaves open is unchanged and is still
+the holder's.** What has changed is that the answer no longer has to be
+"eleven, in some arrangement": both arrangements are at zero, measured the way
+the method above says, so a gate would start from a clean tree rather than
+from a waiver list. `evidence.md`'s note that a gate carrying a long ignore
+list has been switched off by instalments is the reason that distinction
+matters.
+
 ## 171. The pairing screen, and a design claim nothing was checking, 2026-09-07
 
 sec 160 encodes QR modules, sec 161 paints them in a widget, sec 163 prints

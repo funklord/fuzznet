@@ -230,10 +230,12 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		memset(sender, data[pos + 1] & 0x03u, FZN_SENDER_LEN);
 		msg = data[pos + 2] & 0x03u;
 
-		chunks = (mode & 1u) ? (uint16_t)(1u + (data[pos + 4] & 0x07u))
-		                     : (uint16_t)((data[pos + 4] << 8) | data[pos + 5]);
-		index = (mode & 2u) ? (uint16_t)(data[pos + 3] % (chunks ? chunks : 1u))
-		                    : (uint16_t)((data[pos + 2] << 8) | data[pos + 3]);
+		chunks = (uint16_t)((mode & 1u) ? (1u + (data[pos + 4] & 0x07u))
+		                                : (unsigned)((data[pos + 4] << 8) |
+		                                             data[pos + 5]));
+		index = (uint16_t)((mode & 2u) ? (data[pos + 3] % (chunks ? chunks : 1u))
+		                               : (unsigned)((data[pos + 2] << 8) |
+		                                            data[pos + 3]));
 		plen = (mode & 4u) ? (size_t)(data[pos + 6] & 0x1fu)
 		                   : ((size_t)data[pos + 6] << 8 | data[pos + 7]) %
 		                             (sizeof(payload) + 1u);

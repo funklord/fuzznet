@@ -21,7 +21,7 @@ const char *fzn_scrub_err_str(fzn_scrub_err_t err)
 
 static int bit_get(const uint8_t *map, uint64_t index)
 {
-	return (map[index / 8u] >> (index % 8u)) & 1u;
+	return (int)(((unsigned)map[index / 8u] >> (index % 8u)) & 1u);
 }
 
 static void bit_set(uint8_t *map, uint64_t index)

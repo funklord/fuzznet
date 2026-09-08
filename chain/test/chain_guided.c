@@ -108,7 +108,7 @@ struct stub {
 
 static int stub_signature_is_good(uint16_t good, const uint8_t *pubkey)
 {
-	return (int)((good >> (pubkey[0] % 16u)) & 1u);
+	return (int)(((unsigned)good >> (pubkey[0] % 16u)) & 1u);
 }
 
 static int stub_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const uint8_t *msg,

@@ -721,7 +721,10 @@ static void test_the_filesystem_refusing(void)
 
 		snprintf(sub, sizeof(sub), "spool-ro-%ld", (long)getpid());
 		if (mkdir(sub, 0700) == 0) {
-			snprintf(inner, sizeof(inner), "%s/s.spool", sub);
+			if ((size_t)snprintf(inner, sizeof(inner), "%s/s.spool", sub) >=
+			    sizeof(inner))
+				CHECK(0, "the read-only spool path was truncated, so this "
+				         "case would have opened a different file");
 			roops = fzn_spool_file_open(&ro, inner);
 			if (roops && chmod(sub, 0500) == 0) {
 				CHECK(fzn_spool_file_checkpoint(&ro, &sp)

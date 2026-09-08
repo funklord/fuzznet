@@ -22,7 +22,7 @@ static uint64_t offset_of(uint64_t index)
 
 static int bit_get(const uint8_t *map, uint64_t index)
 {
-	return (map[index >> 3] >> (index & 7u)) & 1u;
+	return (int)(((unsigned)map[index >> 3] >> (index & 7u)) & 1u);
 }
 
 static void bit_clear(uint8_t *map, uint64_t index)

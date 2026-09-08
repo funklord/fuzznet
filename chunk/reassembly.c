@@ -26,7 +26,7 @@ _Static_assert(sizeof(((fzn_partial_t *)0)->seen) * 8u >= FZN_REASM_MAX_CHUNKS,
 
 static int seen_get(const fzn_partial_t *slot, uint16_t index)
 {
-	return (slot->seen[index >> 3] >> (index & 7u)) & 1u;
+	return (int)(((unsigned)slot->seen[index >> 3] >> (index & 7u)) & 1u);
 }
 
 static void seen_set(fzn_partial_t *slot, uint16_t index)

@@ -7,7 +7,7 @@
  * deliberately the caller's. */
 static int bit_get(const uint8_t *map, uint64_t index)
 {
-	return (map[index >> 3] >> (index & 7u)) & 1u;
+	return (int)(((unsigned)map[index >> 3] >> (index & 7u)) & 1u);
 }
 
 /* Appends a run, splitting it so no range exceeds `limit`. Returns 0 when the
