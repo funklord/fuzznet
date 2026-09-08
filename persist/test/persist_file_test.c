@@ -285,6 +285,143 @@ static void test_the_filesystem_refusing(const char *scratch)
 	}
 }
 
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+
+/* Borrowed strings, so anything kept is copied. */
+static struct {
+	int calls;
+	flog_msg_type_t type;
+	char subsystem[64];
+	char text[512];
+} diag_seen;
+
+static int diag_capture(flog_t *p, const flog_msg_t *m)
+{
+	(void)p;
+	diag_seen.calls++;
+	diag_seen.type = m->type;
+	diag_seen.subsystem[0] = '\0';
+	diag_seen.text[0] = '\0';
+	if (m->subsystem)
+		snprintf(diag_seen.subsystem, sizeof(diag_seen.subsystem), "%s", m->subsystem);
+	if (m->text)
+		snprintf(diag_seen.text, sizeof(diag_seen.text), "%s", m->text);
+	return 0;
+}
+
+/*
+ * WHAT THIS SEAM SAYS THAT AN `int` CANNOT. sec 220.
+ *
+ * `load` and `save` return 0 or 1, so sixteen distinct failures share one
+ * value and `errno` is discarded at the boundary. THE PAIR THAT MATTERS MOST
+ * IS NOT AN ERROR IN ONE DIRECTION: a slot with no file yet is a host's first
+ * run, and a slot holding a file too large for the caller's buffer is a file
+ * in this directory, under this naming, that this library did not write. The
+ * cases below hold the return value FIXED at 0 and require the LINES to
+ * differ, because that is the whole claim.
+ */
+static void test_the_backend_says_which_failure_it_was(const char *scratch)
+{
+	fzn_persist_file_t store;
+	const fzn_persist_ops_t *ops;
+	uint8_t out[FZN_PERSIST_MAX], bytes[8];
+	size_t len = 0;
+	char path[400], ro[320];
+	flog_t diag;
+	FILE *f;
+
+	init_flog_t(&diag);
+	diag.name = NULL;
+	diag.accepted_msg_type = FLOG_ACCEPT_ALL;
+	diag.output_func = diag_capture;
+	memset(bytes, 0x33, sizeof(bytes));
+
+	/* QUIET UNTIL ASKED, planted before the init that clears it. */
+	fzn_persist_file_set_log(&store, &diag);
+	ops = fzn_persist_file_init(&store, scratch);
+	expect(ops != NULL, "the backend refused the scratch directory");
+	if (!ops)
+		return;
+	memset(&diag_seen, 0, sizeof(diag_seen));
+	expect(!ops->load(ops->ctx, FZN_PERSIST_RECV_CHAIN, NULL, out, sizeof(out), &len),
+	       "a slot nothing has written answered a load");
+	expect(diag_seen.calls == 0, "a store nobody gave a diagnostic sink to emitted");
+
+	fzn_persist_file_set_log(&store, &diag);
+
+	/* ---- ABSENT, which is a host's first run and not a fault. */
+	memset(&diag_seen, 0, sizeof(diag_seen));
+	expect(!ops->load(ops->ctx, FZN_PERSIST_RECV_CHAIN, NULL, out, sizeof(out), &len),
+	       "a slot nothing has written answered a load");
+	expect(diag_seen.calls == 1, "an absent slot said nothing at all");
+	expect(diag_seen.type == FLOG_INFO,
+	       "a slot nothing has written yet was reported as a problem, which would alarm "
+	       "on every first run");
+	expect(strcmp(diag_seen.subsystem, "persist/file") == 0,
+	       "the event did not name its subsystem");
+	expect(strstr(diag_seen.text, "nothing stored") != NULL,
+	       "the line does not say the slot is empty rather than unreadable");
+
+	/* ---- A FILE THIS LIBRARY DID NOT WRITE, at the same slot, returning
+	 * the same 0. `name_for` writes '0' + slot % 10 and 'h' for a null
+	 * subject, so the name has to be built from the slot rather than from
+	 * a literal -- blocking the wrong name lets the load succeed and the
+	 * case then passes for having tested nothing. */
+	snprintf(path, sizeof(path), "%s/%u-h", scratch,
+	         (unsigned)FZN_PERSIST_RECV_CHAIN % 10u);
+	f = fopen(path, "wb");
+	if (f) {
+		size_t i;
+
+		for (i = 0; i < FZN_PERSIST_MAX + 16u; i++)
+			(void)fputc(0x41, f);
+		expect(fclose(f) == 0, "the oversized fixture could not be written");
+
+		memset(&diag_seen, 0, sizeof(diag_seen));
+		expect(!ops->load(ops->ctx, FZN_PERSIST_RECV_CHAIN, NULL, out, sizeof(out),
+		                  &len),
+		       "a file larger than the buffer was accepted");
+		expect(diag_seen.calls == 1, "a foreign file at one of our names said nothing");
+		expect(diag_seen.type == FLOG_WARN,
+		       "a file this library did not write was reported at the same severity as "
+		       "an empty slot, which is the pair this seam exists to separate");
+		expect(strstr(diag_seen.text, "not one this library wrote") != NULL,
+		       "the line does not say WHOSE file it is, which is the whole difference "
+		       "from the absent case above");
+		(void)unlink(path);
+	}
+
+	/* ---- A SAVE THE FILESYSTEM REFUSES, which names the step. A 0500
+	 * directory makes the create fail while everything before it succeeds,
+	 * and it needs no privilege. */
+	snprintf(ro, sizeof(ro), "%s/rodiag", scratch);
+	if (mkdir(ro, 0500) == 0) {
+		fzn_persist_file_t rostore;
+		const fzn_persist_ops_t *roops;
+
+		roops = fzn_persist_file_init(&rostore, ro);
+		if (roops) {
+			fzn_persist_file_set_log(&rostore, &diag);
+			memset(&diag_seen, 0, sizeof(diag_seen));
+			expect(!roops->save(roops->ctx, FZN_PERSIST_TRUST, NULL, bytes,
+			                    sizeof(bytes)),
+			       "save reported success into a directory it cannot create in");
+			expect(diag_seen.calls == 1, "a refused save said nothing");
+			expect(diag_seen.type == FLOG_ERR,
+			       "a trust anchor that was not persisted was reported below error");
+			/* THE VERB, not merely that something failed. The four
+			 * steps of a save fail for reasons a person acts on
+			 * differently, and the return value names none of
+			 * them. */
+			expect(strstr(diag_seen.text, "create at mode 0600") != NULL,
+			       "the line does not name WHICH step of the save failed");
+		}
+		(void)rmdir(ro);
+	}
+}
+#endif
+
 int main(void)
 {
 	fzn_persist_file_t store;
@@ -391,6 +528,9 @@ int main(void)
 	expect(fzn_persist_file_init(&store, NULL) == NULL, "a null directory was accepted");
 
 	test_the_filesystem_refusing(dir);
+#ifdef FZN_FLOG_ON
+	test_the_backend_says_which_failure_it_was(dir);
+#endif
 
 out:
 	/* CLEANED UP BY NAME, AND THE LEFTOVER COUNT IS AN ASSERTION. A

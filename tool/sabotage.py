@@ -1101,6 +1101,86 @@ SABOTAGES = [
 		"(unsigned long long)version,\n",
 		"one reordered datagram and a peer whose view has fallen a long way behind return the SAME value, so the distance is the whole content the line adds to FZN_LEDGER_ERR_STALE -- sec 218",
 	),
+	# BATCH TWELVE, 2026-09-09: THE EIGHT SOURCES THE CENSUS COULD NOT SEE.
+	#
+	# The coverage check below reads `make manifest` and required an entry
+	# for every `source ` line. The four crypto BINDINGS and the four file
+	# BACKENDS are named `binding ` and `backend `, so seven of them had
+	# never been sabotaged and nothing said so -- the census that exists to
+	# stop a module joining the tree unswept had a narrower population than
+	# the tree. `record/store_file.c` had entries anyway, which is what says
+	# the exclusion was accidental rather than deliberate. project.md sec
+	# 221.
+	(
+		"sign-verify-checks-the-signature",
+		"chain/sign_monocypher.c",
+		"\treturn crypto_eddsa_check(sig, pubkey, msg, msg_len) == 0;\n",
+		"\treturn 1;\n",
+		"the whole of this binding is the polarity inversion in its comment, and a verifier that accepts everything is the one defect in this tree that nothing above it can catch",
+	),
+	(
+		"aead-open-checks-the-tag",
+		"session/aead_monocypher.c",
+		"\treturn crypto_aead_unlock(text, tag, key, nonce, aad, aad_len, text, text_len) == 0;\n",
+		"\treturn 1;\n",
+		"an open that ignores the tag turns an authenticated channel into an obfuscated one, and the plaintext it hands back is whatever an attacker chose",
+	),
+	(
+		"hash-covers-the-whole-input",
+		"session/hash_monocypher.c",
+		"\tcrypto_blake2b(out, out_len, in, in_len);\n",
+		"\tcrypto_blake2b(out, out_len, in, 0);\n",
+		"a digest over none of its input is stable, well-formed and identical for every message, which is what a commitment must never be",
+	),
+	(
+		"agree-refuses-an-all-zero-shared-secret",
+		"session/agree_monocypher.c",
+		"\treturn any != 0;\n",
+		"\treturn 1;\n",
+		"an all-zero X25519 output is what a low-order peer public key produces, and accepting it agrees a key an attacker knows -- the check is contributory behaviour and nothing above this binding repeats it",
+	),
+	(
+		"persist-secret-mode-0600",
+		"persist/persist_file.c",
+		"\tfd = open(temp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);\n",
+		"\tfd = open(temp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);\n",
+		"the mode is set AT CREATION rather than chmod'ed afterwards precisely so a prekey secret is never briefly world-readable, and the window would be exactly as long as the write",
+	),
+	(
+		"persist-absent-is-not-a-fault",
+		"persist/persist_file.c",
+		"\t\t\tPERSIST_LOG(store, \"persist/file\", FLOG_INFO,\n",
+		"\t\t\tPERSIST_LOG(store, \"persist/file\", FLOG_WARN,\n",
+		"a slot nothing has written yet is a host's first run, and reporting it as a problem would alarm on every start-up -- while sharing its return value with every real fault, which is why the severity is the whole distinction -- sec 220",
+	),
+	(
+		"persist-foreign-file-is-named",
+		"persist/persist_file.c",
+		"\t\tPERSIST_LOG(store, \"persist/file\", FLOG_WARN,\n",
+		"\t\tPERSIST_LOG(store, \"persist/file\", FLOG_INFO,\n",
+		"a file too large for the caller's buffer, at this store's own name, is one this library did not write -- the opposite of the absent case it shares a return value with -- sec 220",
+	),
+	(
+		"persist-save-names-the-step",
+		"persist/persist_file.c",
+		"\t\tsay_failed(store, \"create at mode 0600\", temp, errno);\n",
+		"\t\tsay_failed(store, \"save\", temp, errno);\n",
+		"the four steps of an atomic save fail for reasons a person acts on differently, and the `int` names none of them, so the verb is the content -- sec 220",
+	),
+	(
+		"claim-file-contention-is-its-own-answer",
+		"claim/claim_file.c",
+		"\tif (held_out && (errno == EWOULDBLOCK || errno == EINTR))\n",
+		"\tif (0 && held_out)\n",
+		"EWOULDBLOCK is the only contention answer and everything else is a broken store rather than a busy one; a caller that read EACCES as `somebody else owns it` would wait for ever for an owner that does not exist",
+	),
+	(
+		"spool-file-sidecar-belongs-to-this-blob",
+		"spool/spool_file.c",
+		"\tif (head[0] != BITS_VERSION || memcmp(head + BITS_OFF_ROOT, root, FZN_BLOB_HASH_LEN) != 0\n",
+		"\tif (head[0] != BITS_VERSION\n",
+		"a sidecar from another blob at a reused path would be read as this blob's progress, so leaves nobody has would be reported present and never re-requested",
+	),
 	(
 		"record-store-names-what-came-back",
 		"record/store.c",
@@ -3125,8 +3205,18 @@ def source_list():
 		return None
 	if out.returncode != 0:
 		return None
-	return [l.split(None, 1)[1] for l in out.stdout.splitlines()
-	        if l.startswith("source ")]
+	# EVERY KIND OF SOURCE, NOT ONLY THE ONES SPELLED `source`. The manifest
+	# names the crypto bindings `binding ` and the file backends `backend `,
+	# each with the macro that gates it -- so a census reading only `source `
+	# excluded eight files, seven of which had never been sabotaged while
+	# this printed a coverage figure. `record/store_file.c` had entries
+	# anyway, which is what shows the exclusion was an artifact of the word
+	# rather than a decision. project.md sec 221.
+	#
+	# A `backend ` line carries a second field (the macro), so the path is
+	# the SECOND word and not the rest of the line.
+	want = ("source ", "binding ", "backend ")
+	return [l.split()[1] for l in out.stdout.splitlines() if l.startswith(want)]
 
 
 # EVERY ENTRY STILL NAMES EXACTLY ONE SITE.
@@ -3204,8 +3294,9 @@ def verify():
 		      "defended without testing it; an uncovered source reports a "
 		      "module as swept when nothing swept it." % bad)
 		return 2
-	print("sabotage: %d entries over %d of %d library sources, each naming "
-	      "exactly one site (nothing was built or changed)"
+	print("sabotage: %d entries over %d of %d library sources, bindings and "
+	      "backends, each naming exactly one site (nothing was built or "
+	      "changed)"
 	      % (len(SABOTAGES), len(srcs) - len(NO_GUARDS), len(srcs)))
 	return 0
 

@@ -33529,3 +33529,117 @@ other tree 0.
 **Closed: run 34286170335 is green, both jobs, every step.** Named rather
 than asserted, because the fix was verified locally first and a local mirror
 is still a claim about somebody else's runner.
+
+## 220. The seam where sixteen failures share one bit
+
+`persist/persist_file.c` is the POSIX backend behind `persist.h`, and it is
+the widest gap in this library between what a function knows and what it
+returns. `load` and `save` are `int`. Eleven distinct failures in the save
+path and five in the load path all leave as `0`, and `errno` -- which is where
+the operating system says whether the disk is full, the directory read-only,
+or the path on a filesystem with no `fsync` -- is discarded at the boundary.
+
+	persist/file  INFO  nothing stored for slot N yet
+	persist/file  WARN  a file at one of our names that we did not write
+	persist/file  ERR   which step of an atomic save failed, and why
+
+### The pair that matters is not an error in one direction
+
+**A slot with no file and a slot holding a file too large for the caller's
+buffer both return `0`.** The first is a host's first run. The second is a
+file in this store's directory, under this store's naming, that this library
+did not write -- and the refusal's own comment already said so: "a caller
+sizing at FZN_PERSIST_MAX should never see this unless the file is not ours".
+
+So the module had the distinction, wrote it down, and had no way to say it.
+ENOENT goes at INFO, because alarming on every first run would be wrong about
+the design; anything else on the open goes at ERR; and a foreign file goes at
+WARN, which is what separates the pair. The tests hold the RETURN VALUE FIXED
+at 0 across both cases and require the LINES to differ, since that is the
+whole claim.
+
+### One helper, because the verb is the content
+
+The eleven save failures differ by a verb and agree on everything else, so
+`say_failed` takes it: `create at mode 0600`, `write`, `flush`,
+`sync to disk`, `close`, `rename over the target`. A person reads those
+differently -- a refused create is permissions or a path, a short write is
+usually space, and a refused rename is **the one failure where the bytes were
+good**, so the target still holds the previous state and `0` cannot say that.
+
+`errno` is captured before any other call at every site, because `fclose` and
+`unlink` set it too and reading it after the cleanup reports the cleanup's
+luck. This is the second POSIX-only translation unit to read errno --
+`session/random_linux.c` is the other -- and flog's own stdio backend spells
+it `strerror(errno)`, which is what this follows.
+
+### Two limits, both stated rather than worked around
+
+**An init failure is not reported.** `fzn_persist_file_init` returns NULL for
+an absent `dir` or one too deep for a bounded path, and at that moment there
+is nowhere to put a line: the caller cannot have set a log on a struct whose
+fields are still whatever its memory held. The NULL means only those two
+things, so it costs nothing.
+
+**And the helper needs four explicit discards.** With flog absent
+`PERSIST_LOG` expands to nothing, so all four of `say_failed`'s parameters
+become unused -- a warning, in an arrangement this library ships. The other
+emit sites need no such line because they name struct fields the surrounding
+code uses anyway; this is the first helper whose whole body is a log, and it
+is worth knowing before the next one is written.
+
+## 221. A coverage census that could not see eight of its own sources
+
+Wiring the backend meant writing sabotage entries for it, which is when
+`tool/sabotage.py` turned out to be reporting coverage over a population
+narrower than the tree.
+
+The census reads `make manifest` and required an entry for every `source `
+line. The manifest names the four crypto bindings `binding ` and the four
+file backends `backend `, each with the macro that gates it. **So eight files
+were outside the check, and seven of them had never been sabotaged at all** --
+while the tool printed `342 entries over 48 of 49 library sources` and read as
+a complete sweep.
+
+	before   49 sources, 48 covered, 1 deliberately guard-free
+	after    57 sources, 56 covered, 1 deliberately guard-free
+
+**`record/store_file.c` had entries anyway, which is what says the exclusion
+was an artifact of a word rather than a decision.** One backend of four was
+swept because somebody wrote entries for it without the census asking; the
+other three and all four bindings were not, and nothing anywhere said so.
+
+### What was in the unswept seven
+
+The four bindings are fifty lines each and are the last place a defect can
+hide, because everything above them trusts what they return:
+
+	sign-verify-checks-the-signature   a verifier that accepts everything
+	aead-open-checks-the-tag           an open that ignores the tag
+	hash-covers-the-whole-input        a digest over none of its input
+	agree-refuses-an-all-zero-shared-secret   an X25519 output an attacker
+	                                          chose
+
+`chain/sign_monocypher.c` exists ONLY to invert monocypher's polarity --
+"Monocypher returns 0 for a good signature and -1 otherwise; the seam is the
+other way round" -- so the whole file is one expression, and nothing above it
+can catch that expression being wrong. It had no entry.
+
+The backends took the properties their own headers argue for: the mode set at
+creation rather than chmod'ed afterwards, so a prekey secret is never briefly
+world-readable; contention distinguished from a broken store, since a caller
+reading EACCES as "somebody else owns it" waits for ever for an owner that
+does not exist; and a spool sidecar checked against the blob it belongs to,
+so a reused path cannot report leaves nobody has as present.
+
+### The census now names them, shown by removing entries rather than by trust
+
+	with the four binding entries removed, the census would name:
+	  chain/sign_monocypher.c session/hash_monocypher.c
+	  session/aead_monocypher.c session/agree_monocypher.c
+
+Before the change it would have named none of them, which is the control this
+kind of check needs and the reason the widening is not taken on faith. The
+same shape as sec 219 in a different file: **a list whose completeness check
+has a narrower population than the thing it describes**, and in both cases the
+narrowing was a word.
