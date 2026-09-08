@@ -76,4 +76,38 @@ fzn_peer_verdict_t fzn_vocabulary_admit(const fzn_peer_t *peer, const uint8_t *v
                                          size_t verb_len, const fzn_verb_rule_t *rules,
                                          size_t rule_count);
 
+/* Does the table name this verb for ANY group? 1 or 0, and it says nothing
+ * about who is asking -- it takes no peer.
+ *
+ * IT EXISTS BECAUSE `admit` RETURNS FZN_PEER_NOT_MEMBER FOR TWO SITUATIONS
+ * THAT WANT OPPOSITE RESPONSES, and the verdict cannot tell them apart:
+ *
+ *   - no rule names this verb at all, so the policy does not cover it. A
+ *     typo, a verb the consumer forgot to add, or a client asking for
+ *     something this daemon does not do.
+ *   - rules DO name it, and this peer holds none of those groups. The policy
+ *     covers the verb and is denying this person.
+ *
+ * The first is a configuration finding and the second is an access decision.
+ * A daemon that logs both as "denied" sends an operator to the wrong half of
+ * the system, which is the same shape as peer.h's own "empty is not unknown"
+ * -- and it was found by writing sec 204's `cli/peer_print`, which had to
+ * report the reason and could not.
+ *
+ * SEPARATE RATHER THAN A FOURTH VERDICT VALUE, because it is orthogonal:
+ * `admit` can return UNKNOWN while the table does name the verb, and both
+ * facts matter to the caller at once. Folding it into the enum would force a
+ * choice between them.
+ *
+ * DO NOT USE IT TO AUTHORISE ANYTHING. It answers a question about the
+ * TABLE, and a caller that treated a named verb as an admitted one would have
+ * inverted the whole module. `fzn_vocabulary_admit` is the only function here
+ * that looks at a peer.
+ *
+ * 0 for a NULL verb or table, and 0 for a verb of zero length or longer than
+ * FZN_VERB_MAX -- the same bound `admit` applies, because a verb the policy
+ * cannot express is not one it names. */
+int fzn_vocabulary_names(const uint8_t *verb, size_t verb_len, const fzn_verb_rule_t *rules,
+                          size_t rule_count);
+
 #endif /* FZN_VOCABULARY_H */

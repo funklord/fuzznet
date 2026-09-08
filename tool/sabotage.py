@@ -634,9 +634,16 @@ SABOTAGES = [
 	(
 		"vocab-exact-length",
 		"local/vocabulary.c",
-		"\t\tif (rules[i].verb_len != verb_len)\n\t\t\tcontinue;\n",
+		"\tif (rule->verb_len != verb_len)\n\t\treturn 0;\n",
 		"",
-		"a rule matches a whole verb, not a prefix of one",
+		"a rule matches a whole verb, not a prefix of one -- and the check moved into `rule_names` when sec 204 gave `fzn_vocabulary_names` the same question to ask, so ONE deletion now breaks both functions, which is the point of their sharing it",
+	),
+	(
+		"vocab-names-honours-the-same-rules",
+		"local/vocabulary.c",
+		"\t\tif (rule_names(&rules[i], verb, verb_len))\n\t\t\treturn 1;\n",
+		"\t\tif (rules[i].verb_len == verb_len)\n\t\t\treturn 1;\n",
+		"`fzn_vocabulary_names` must count exactly the rules `fzn_vocabulary_admit` obeys, or the pair contradict each other: a table of rules the module ignores would report that the policy covers a verb and is denying you -- sec 204",
 	),
 	(
 		"random-linux-null-out",
@@ -1037,6 +1044,34 @@ SABOTAGES = [
 		"\tif (len + FZN_RECORD_STORE_FILE_NAME_LEN > sizeof(file->dir))\n\t\treturn NULL;\n",
 		"\tif (0)\n\t\treturn NULL;\n",
 		"a truncated path is not a shorter path: a directory long enough to cut the issuer off puts several issuers' records in one file, each overwriting the last",
+	),
+	(
+		"peer-print-two-denials-differ",
+		"cli/peer_print.c",
+		"\tput_str(s, named ? \"denied -- the policy reserves this verb to a group this peer \"\n\t                   \"does not hold\"\n\t                 : \"denied -- no rule names this verb, so the policy does not \"\n\t                   \"cover it\");\n",
+		"\tput_str(s, \"denied\");\n",
+		"a verb the policy does not cover and a verb it reserves to another group are a configuration finding and an access decision, and reporting both as `denied` sends an operator to the wrong half of the system -- sec 204",
+	),
+	(
+		"peer-print-escapes-a-hostile-verb",
+		"cli/peer_print.c",
+		"\t\tif (c >= 0x20u && c < 0x7fu && c != '\"' && c != '\\\\') {\n",
+		"\t\tif (1) {\n",
+		"a verb is bytes a stranger chose, so a newline in one reaches the log unescaped and lets a peer that cannot run a command forge the record saying somebody did -- sec 204",
+	),
+	(
+		"peer-view-unreadable-is-not-empty",
+		"gui/peer_view.cpp",
+		"\tif (!peer->groups_known) {\n",
+		"\tif (0) {\n",
+		"an unreadable group list and a genuinely empty one both draw as an empty widget, which is peer.h's whole subject arriving at the last inch -- sec 204",
+	),
+	(
+		"peer-view-unknown-is-not-a-denial",
+		"gui/peer_view.cpp",
+		"\treturn QStringLiteral(\"cannot tell\");\n",
+		"\treturn QStringLiteral(\"denied\");\n",
+		"the tri-state exists so `could not tell` cannot be read as `no`; rendering them as one word undoes a whole module at the point a person reads it -- sec 204",
 	),
 	(
 		"link-print-unmeasured-is-not-measured",

@@ -32084,6 +32084,36 @@ whether an unverified path may satisfy its bounds.
 one of the same metric. This is only about the constraint half, which no
 document here has ever addressed.
 
+**The consumer's answer, given 2026-09-08 when asked: not yet, and here is the
+trigger.** They measured their own tree rather than reasoning about it, and both
+reasons are properties of it:
+
+- exactly one of their classes sets a latency bound -- `FIRE_AND_FORGET`, at 400
+  ms. Every class with delivery semantics leaves it at 0 and is unconstrained.
+- their `class_of` never sets `max_loss_permille` at all, so the sharper half of
+  this finding does not reach them today.
+
+And the one bounded class is the one where being wrong is cheapest; its own
+comment, written long before the exchange, says "loss genuinely does not matter:
+it never retries, so a dropped frame costs one frame". So the exploration bonus
+is spent exactly where a wrong guess costs one presence frame.
+
+Their argument against adding the field now is the one worth recording: **a
+public field whose policy bit would read `admit` on every class that exists is a
+field whose meaning gets decided by its first real user, and that user does not
+exist yet.** They would be guessing on behalf of a class nobody has written.
+
+**So the trigger is written down rather than left to be noticed:** a bound on a
+class that RETRIES, or a loss bound at all. Past either, admitting unverified
+links stops being cheap exploration and becomes a promise the table cannot keep.
+They have rewritten their own justification comment to say the narrow thing and
+name that trigger, without changing behaviour.
+
+**And if the field arrives, the default is `admit`**, so a class opts INTO
+refusing. Their reasoning, and it agrees with the starvation argument above: the
+failure of admitting is one bad frame, and the failure of refusing is a path
+never measured and therefore never chosen, permanently.
+
 **How it was found is worth as much as the finding.** It came back through a
 report I sent them about a defect in their tree, and it is a defect in mine that
 their representation is better placed to see -- they hold the distinction and
@@ -32091,3 +32121,66 @@ have to discard it at my boundary, so the loss is visible to them and invisible
 here. A consumer with a richer model than the interface it fills is the best
 available detector for a lossy interface, and nothing on this side would have
 produced it.
+
+## 204. Two kinds of no, and a tick that cannot say either
+
+`cli/peer_print` and `gui/peer_view` report a local socket's admission
+decision: who connected, what they asked for, and the answer. Writing them
+turned up a gap in `local/` and a hazard that belongs to screens specifically.
+
+**The library gap.** `fzn_vocabulary_admit` returns `FZN_PEER_NOT_MEMBER` for
+two situations:
+
+- no rule names the verb at all, so the policy does not cover it -- a typo, a
+  verb nobody added, a client asking for something this daemon does not do;
+- rules DO name it, and this peer holds none of those groups.
+
+The first is a configuration finding and the second is an access decision about
+a person, and they want opposite responses. A daemon logging both as "denied"
+sends an operator to the wrong half of the system -- which is `peer.h`'s own
+"empty is not unknown", one layer up.
+
+The printer had to say which and could not. It could have walked the table
+itself, and that is exactly the duplication sec 200 draws the line against: a
+second implementation of "does a rule name this verb" would disagree the first
+time one forgot that a rule longer than `FZN_VERB_MAX` is one the module
+ignores. So `local/vocabulary.c` gained `fzn_vocabulary_names`, and the
+matching predicate both functions ask moved into one static `rule_names` --
+`admit` calls it too, so there is one implementation rather than two agreeing.
+A sabotage entry pins that they cannot diverge: making `names` count rules that
+`admit` ignores reddens the vocabulary suite.
+
+**The screen hazard, which is this pair's real content.** Every affordance a
+toolkit offers for membership is two-valued: a checkbox, a tick, a coloured
+dot. The answer is three-valued, and `peer.h` spent a module on why -- "the enum
+has no boolean reading", because flattening "could not tell" into "no" is safe
+only while both deny, and flattening it the other way "turns a read that failed
+into an allow". Use any of those affordances and UNKNOWN has to become one of
+the other two at the last inch, after the library has defended it all the way
+there. So the verdict is three words, and the suite asserts they are pairwise
+distinct AND that none is a prefix of another, since a narrow column truncates.
+
+The same thing again, in the place a screen makes easiest: an unreadable group
+list and a genuinely empty one both draw as an empty widget unless something is
+put there deliberately. peer.h states that pair as the reason
+`fzn_peer_groups_parse` exists at all. Both cases now say what they are in
+words, and `group_count` is not read when the list is unknown, because peer.h
+documents it as meaningless then -- a stale count is exactly what a caller is
+most likely to be holding.
+
+**A verb is bytes a stranger chose.** `vocabulary.h` is explicit that this
+library "cannot tell `status` from `destroy` and must not learn", so a verb
+reaches the printer unexamined. Written into a line as it came, a newline in one
+lets a peer forge a log entry underneath its own denial: a peer that cannot run
+a command writing the record that says somebody did. Everything outside
+printable ASCII becomes `\xNN`, and so do the quote and the backslash, or the
+escaping itself would be forgeable.
+
+**And the fixture was right for the wrong reason until a sabotage said so.**
+The check that the two denials do not read alike used two different verbs. A
+sabotage collapsing both reason clauses into a bare "denied" SURVIVED it -- the
+lines still differed, on the verb. Holding the verb fixed and varying the TABLE
+is what leaves the reason as the only thing that can differ. The widget's copy
+of the check had the same flaw and the same fix. `evidence.md`'s consumer that
+is right by coincidence, in a test rather than in code, and nothing but the
+surviving mutant would have found it.

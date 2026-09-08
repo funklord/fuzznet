@@ -4,6 +4,51 @@
 
 #include "../constant_time/constant_time.h"
 
+/* Does this rule name this verb?
+ *
+ * ONE IMPLEMENTATION, called from both public functions, because the two ask
+ * the same question of a rule and a second copy is how they would come to
+ * disagree. The bounds are part of the question rather than a precondition:
+ * a rule whose verb is absent, empty or longer than FZN_VERB_MAX is one this
+ * module cannot honour, and a function that skipped that check would report a
+ * verb as named by a rule that `fzn_vocabulary_admit` then ignores.
+ *
+ * Constant-time on the comparison for the same reason `admit` is: the two
+ * must not differ in what they leak either. */
+static int rule_names(const fzn_verb_rule_t *rule, const uint8_t *verb, size_t verb_len)
+{
+	if (!rule->verb || rule->verb_len == 0 || rule->verb_len > FZN_VERB_MAX)
+		return 0;
+	if (rule->verb_len != verb_len)
+		return 0;
+
+	return fzn_ct_memeq(rule->verb, verb, verb_len) ? 1 : 0;
+}
+
+int fzn_vocabulary_names(const uint8_t *verb, size_t verb_len, const fzn_verb_rule_t *rules,
+                          size_t rule_count)
+{
+	size_t i;
+
+	if (!verb || (!rules && rule_count > 0))
+		return 0;
+
+	/* THE SAME BOUND `admit` APPLIES, and it must be the same or the two
+	 * answers combine into a contradiction: a verb longer than any rule can
+	 * carry is not named by the table, and saying otherwise would have a
+	 * caller report "the policy knows this verb and denies you" about a verb
+	 * the policy cannot express. */
+	if (verb_len == 0 || verb_len > FZN_VERB_MAX)
+		return 0;
+
+	for (i = 0; i < rule_count; i++) {
+		if (rule_names(&rules[i], verb, verb_len))
+			return 1;
+	}
+
+	return 0;
+}
+
 fzn_peer_verdict_t fzn_vocabulary_admit(const fzn_peer_t *peer, const uint8_t *verb,
                                          size_t verb_len, const fzn_verb_rule_t *rules,
                                          size_t rule_count)
@@ -50,12 +95,10 @@ fzn_peer_verdict_t fzn_vocabulary_admit(const fzn_peer_t *peer, const uint8_t *v
 	for (size_t i = 0; i < rule_count; i++) {
 		fzn_peer_verdict_t held;
 
-		if (!rules[i].verb || rules[i].verb_len == 0 ||
-		    rules[i].verb_len > FZN_VERB_MAX)
-			continue; /* a rule this module cannot honour is not one it obeys */
-		if (rules[i].verb_len != verb_len)
-			continue;
-		if (!fzn_ct_memeq(rules[i].verb, verb, verb_len))
+		/* A rule this module cannot honour is not one it obeys, and the
+		 * bound is inside `rule_names` so that `fzn_vocabulary_names`
+		 * cannot answer differently. */
+		if (!rule_names(&rules[i], verb, verb_len))
 			continue;
 
 		matched_a_rule = 1;

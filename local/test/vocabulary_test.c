@@ -183,6 +183,70 @@ int main(void)
 	check(fzn_vocabulary_admit(&p, V(STATUS), NULL, 0) == FZN_PEER_NOT_MEMBER,
 	      "an empty table admitted a verb");
 
+	/*
+	 * `fzn_vocabulary_names`: WHICH KIND OF NOT_MEMBER IS THIS?
+	 *
+	 * `admit` gives the same verdict when the table does not cover a verb
+	 * and when it covers it and denies this peer. Those are a configuration
+	 * finding and an access decision, and they want opposite responses. sec
+	 * 203.
+	 */
+	{
+		static const uint8_t unnamed[] = "reboot";
+
+		known_peer(&p);
+
+		/* THE PAIR. Both are NOT_MEMBER and only one is about the peer. */
+		check(fzn_vocabulary_admit(&p, V(DESTROY), rules, n) == FZN_PEER_NOT_MEMBER &&
+		              fzn_vocabulary_names(V(DESTROY), rules, n) == 1,
+		      "a verb the table reserves to another group was reported as one the "
+		      "policy does not cover, which sends an operator to the config "
+		      "instead of to the group membership");
+		check(fzn_vocabulary_admit(&p, V(unnamed), rules, n) == FZN_PEER_NOT_MEMBER &&
+		              fzn_vocabulary_names(V(unnamed), rules, n) == 0,
+		      "a verb no rule names was reported as one the policy covers, which "
+		      "sends an operator to the group membership instead of to the config");
+
+		/* AND IT IS NOT AN AUTHORISATION. A named verb the peer may ask
+		 * for and a named verb it may not both answer 1. */
+		check(fzn_vocabulary_names(V(STATUS), rules, n) == 1,
+		      "a verb the peer may ask for is not named by the table");
+
+		/* THE BOUNDS MUST BE THE SAME AS `admit`'s, or the two combine
+		 * into a contradiction: the policy knowing a verb it cannot
+		 * express. */
+		check(fzn_vocabulary_names(STATUS, 0, rules, n) == 0,
+		      "an empty verb was named by the table");
+		check(fzn_vocabulary_names(STATUS, FZN_VERB_MAX + 1u, rules, n) == 0,
+		      "a verb longer than the table can carry was named by it");
+		check(fzn_vocabulary_names(NULL, 6, rules, n) == 0, "a null verb was named");
+		check(fzn_vocabulary_names(V(STATUS), NULL, 3) == 0,
+		      "a null table with a non-zero count named a verb");
+		check(fzn_vocabulary_names(V(STATUS), NULL, 0) == 0,
+		      "an empty table named a verb");
+	}
+
+	/*
+	 * A RULE `admit` IGNORES MUST NOT BE ONE `names` COUNTS. Both call one
+	 * predicate for exactly this reason -- otherwise a table of unhonourable
+	 * rules would report "the policy covers this verb and denies you" about
+	 * a policy that ignores every rule in it.
+	 */
+	{
+		const fzn_verb_rule_t bad[] = {
+			{ 6, NULL, 6 },
+			{ 6, STATUS, 0 },
+			{ 6, STATUS, FZN_VERB_MAX + 1u },
+		};
+
+		known_peer(&p);
+		check(fzn_vocabulary_admit(&p, V(STATUS), bad, 3) == FZN_PEER_NOT_MEMBER,
+		      "a malformed rule admitted a verb");
+		check(fzn_vocabulary_names(V(STATUS), bad, 3) == 0,
+		      "a rule this module cannot honour was counted as naming a verb, so "
+		      "the two functions disagree about what the table says");
+	}
+
 	printf("vocabulary_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
 }
