@@ -31856,3 +31856,77 @@ code back out of the printer's line. **Two callers asking one library is not
 duplication; two callers DECIDING would be** -- which is the line sec 193 is
 about, and it is worth having stated in the one case where re-asking is
 correct.
+
+## 201. The eleventh view, which did not consolidate
+
+`cli/trust_print` finishes the set of printers, and `gui/trust_view` is the
+one view of the eleven that stayed as it was. That is the finding, so it is
+worth writing down more carefully than the ten that did move.
+
+**The printer was needed and is real.** A CLI had no way to say what this
+host's anchor is, and the first draft of its enum got the important case
+wrong: it named `PINNED`, `ADOPTED` and `NONE`, and mapped everything else
+through a `default:`. `FZN_TRUST_SELF` fell down that hole and printed *no
+anchor -- this host trusts nothing yet*, which inverts what `trust.h` says
+the two states are. A self-anchored node "is a complete estate of one ... a
+working state rather than a placeholder"; an unanchored one "adopts the next
+root offered, so whoever reaches it first owns it". The line would have
+invited an operator to fix a correct node into the dangerous one. The enum
+names all four sources now with no `default:`, so `-Wswitch-enum` refuses a
+fifth that nobody handled, and `trust_print_test` asserts that a self anchor
+and an absent one do not print the same line.
+
+**Then sec 193 asked for the widget in the same commit, and the widget was
+changed, and the change was wrong.** It was given `fzn_trust_print`'s state
+as the decider for whether to show a fingerprint, which read as exactly the
+consolidation the other ten got. A sabotage entry was written for it -- drop
+the `said == FZN_TRUST_LINE_NONE` half of the guard -- and **it survived**.
+
+The reason is in `trust/trust.c`:
+
+	const uint8_t *fzn_trust_root(const fzn_trust_t *trust)
+	{
+		if (!trust || trust->source == FZN_TRUST_NONE)
+			return NULL;
+
+		return trust->root;
+	}
+
+`fzn_trust_root` returns NULL **exactly when** the source is `FZN_TRUST_NONE`.
+So the widget's `!root` and the printer's `said == NONE` are one library fact
+read twice, and they cannot disagree unless the library contradicts itself.
+`fzn_trust_source_str` likewise already separates all four sources, SELF
+included, in the library's own words. There was nothing for the printer to
+decide on the widget's behalf, and the dependency was symmetry with the other
+ten rather than merit.
+
+**A surviving sabotage is the only thing that could have said so.** Every
+assertion in `trust_view_test` passed with the dependency in and passed with
+it out, because the widget's behaviour never depended on it. Reading the code
+would not have found it either -- the call was there, its result was used, and
+the use looked load-bearing. This is `evidence.md`'s *a consumer that is right
+by coincidence looks exactly like a wired one*, arriving from the direction
+that flatters: the coincidence was making a **new** dependency look justified,
+not an old one look safe.
+
+**What was kept is the cross-check, and it belongs to the test.** The widget
+links no printer; `trust_view_test` links both surfaces and asserts, over all
+four constructions, that a fingerprint is on screen exactly when the printer
+reports an anchor and that the source the widget names is the one the library
+gives. That assertion fires: mutating the printer's `SELF` back to `NONE`
+reddens `trust_print_test` with three failures and `trust_view_test` with two,
+one of them the relationship. So the two independent readings are pinned to
+each other without either importing the other.
+
+**The line this adds to sec 200.** That section settled that two callers
+asking one library is not duplication. This one settles the converse cost: a
+call added for symmetry is not free, because it still has to be kept working,
+still appears in a link rule, and -- worst -- **reads to the next person as
+evidence that the question was thought about**. A dependency nobody can
+sabotage is a comment claiming a relationship the code does not have.
+
+**The consolidation therefore stands at ten of eleven**, and the eleventh is
+recorded as measured-and-declined rather than left out. The holder's
+instruction that a solution must win on technical merit rather than on effort
+cuts both ways: it refuses the cheap duplicate, and it refuses the tidy
+dependency that buys nothing.

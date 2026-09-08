@@ -1039,6 +1039,13 @@ SABOTAGES = [
 		"a truncated path is not a shorter path: a directory long enough to cut the issuer off puts several issuers' records in one file, each overwriting the last",
 	),
 	(
+		"trust-print-self-is-not-an-absence",
+		"cli/trust_print.c",
+		"\t\tcase FZN_TRUST_SELF:\n\t\t\tsaid = FZN_TRUST_LINE_SELF;\n",
+		"\t\tcase FZN_TRUST_SELF:\n\t\t\tsaid = FZN_TRUST_LINE_NONE;\n",
+		"a self-anchored node is a working state and an unanchored one adopts whoever reaches it first, so reporting the first as the second invites an operator to fix a correct node into the dangerous one -- sec 201, and it is the mistake an earlier `default:` actually made",
+	),
+	(
 		"trust-self-refuses-adopt",
 		"trust/trust.c",
 		"\t\tif (!(trust->source == FZN_TRUST_SELF && source == FZN_TRUST_PINNED))\n\t\t\treturn FZN_TRUST_ERR_ANCHORED;\n",

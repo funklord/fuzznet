@@ -41,6 +41,14 @@ void fzn_trust_view::show_anchor(const fzn_trust_t *trust)
 	char text[FZN_TRUST_FINGERPRINT_LEN];
 	const uint8_t *root = trust ? fzn_trust_root(trust) : nullptr;
 
+	/* EVERY FACT ON THIS SCREEN COMES FROM THE LIBRARY, and sec 201
+	 * measured that `cli/trust_print` has none to add: `fzn_trust_root`
+	 * returns NULL exactly when the source is FZN_TRUST_NONE, so asking
+	 * the printer whether there is an anchor is asking `trust->source` by
+	 * a longer route, and `fzn_trust_source_str` already distinguishes all
+	 * four sources including SELF. Ten of the eleven views consolidated
+	 * onto a printer; this one did not, because there was nothing to
+	 * consolidate. */
 	source_->setText(QString::fromUtf8(
 	        fzn_trust_source_str(trust ? fzn_trust_source_of(trust) : FZN_TRUST_NONE)));
 

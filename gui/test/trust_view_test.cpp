@@ -15,10 +15,19 @@
  * IT ASSERTS ON THE TEXT A USER SEES rather than on the widget's internals,
  * because the wording IS the feature here: a fingerprint format nobody can
  * compare, or a source line that says the wrong thing, is the defect.
+ *
+ * AND IT LINKS `cli/trust_print`, WHICH THE WIDGET DOES NOT. sec 201: the
+ * two surfaces read the same library independently and show it differently,
+ * so what is worth asserting is that they never disagree about whether this
+ * host has an anchor or about which of the four sources it came from. That
+ * is the test's business rather than the widget's -- making the widget call
+ * the printer was tried, and bought a dependency whose removal no sabotage
+ * could detect.
  */
 
 extern "C" {
 #include "../../trust/trust.h"
+#include "../../cli/trust_print.h"
 }
 
 #include "../trust_view.h"
@@ -174,6 +183,88 @@ int main(int argc, char **argv)
 		flat = lines.join(QLatin1Char(' '));
 		CHECK(flat == QString::fromLatin1(formatted),
 		      "breaking the fingerprint into lines changed it");
+	}
+
+	/*
+	 * THE WIDGET AND THE PRINTER MUST AGREE ON WHETHER THERE IS AN ANCHOR.
+	 * sec 201.
+	 *
+	 * This is the one pair of the eleven whose WORDING cannot be shared --
+	 * the block above says why -- so the assertion is on the relationship
+	 * rather than on either side's text. What both sides decide, and could
+	 * therefore decide differently, is which of the four sources this is
+	 * and whether a fingerprint may be shown at all.
+	 *
+	 * FZN_TRUST_SELF IS THE CASE THAT PAYS FOR IT. An earlier printer
+	 * mapped it through a `default:` onto "no anchor", and trust.h is
+	 * explicit that the two are opposites: a self-anchored node "is a
+	 * complete estate of one ... a working state rather than a
+	 * placeholder", while an unanchored one "adopts the next root offered,
+	 * so whoever reaches it first owns it". A widget agreeing with that
+	 * printer would have shown a correct node as an empty one and invited
+	 * somebody to fix it into the dangerous state.
+	 */
+	{
+		struct probe {
+			const char *what;
+			fzn_trust_line_t expect;
+		};
+		const probe probes[] = {
+			{ "unanchored", FZN_TRUST_LINE_NONE },
+			{ "adopted",    FZN_TRUST_LINE_ADOPTED },
+			{ "pinned",     FZN_TRUST_LINE_PINNED },
+			{ "self",       FZN_TRUST_LINE_SELF },
+		};
+		size_t i;
+
+		for (i = 0u; i < sizeof(probes) / sizeof(probes[0]); i++) {
+			char line[FZN_TRUST_PRINT_MAX];
+			char formatted[FZN_TRUST_FINGERPRINT_LEN];
+			fzn_trust_line_t said = FZN_TRUST_LINE_NONE;
+			size_t len = 0u;
+			bool shown;
+
+			fzn_trust_init(&trust);
+			if (probes[i].expect == FZN_TRUST_LINE_ADOPTED)
+				CHECK(fzn_trust_adopt(&trust, key, 99u) == FZN_TRUST_OK,
+				      "the fixture could not adopt");
+			else if (probes[i].expect == FZN_TRUST_LINE_PINNED)
+				CHECK(fzn_trust_pin(&trust, key) == FZN_TRUST_OK,
+				      "the fixture could not pin");
+			else if (probes[i].expect == FZN_TRUST_LINE_SELF)
+				CHECK(fzn_trust_self(&trust, key) == FZN_TRUST_OK,
+				      "the fixture could not self-anchor");
+
+			CHECK(fzn_trust_print(&trust, line, sizeof(line), &len, &said) ==
+			              FZN_TRUST_OK,
+			      "the printer refused a fixture the widget accepts");
+			CHECK(said == probes[i].expect,
+			      "the printer classified a fixture as something else");
+
+			view.show_anchor(&trust);
+
+			/* THE RELATIONSHIP: a fingerprint is on screen exactly
+			 * when the printer says there is an anchor. Neither
+			 * side's wording is compared, because neither side
+			 * borrows the other's. */
+			CHECK(fzn_trust_fingerprint(key, formatted, sizeof(formatted)) ==
+			              FZN_TRUST_OK,
+			      "the fixture could not format");
+			shown = view.fingerprint_text()
+			                .replace(QLatin1Char('\n'), QLatin1Char(' ')) ==
+			        QString::fromLatin1(formatted);
+			CHECK(shown == (said != FZN_TRUST_LINE_NONE),
+			      "the widget and the printer disagree about whether this "
+			      "host has an anchor");
+
+			/* AND THE SOURCE THE WIDGET NAMES IS THE ONE THE
+			 * PRINTER CLASSIFIED, which is what stops the two
+			 * drifting into different accounts of one anchor. */
+			CHECK(view.source_text() ==
+			              QString::fromUtf8(fzn_trust_source_str(
+			                      fzn_trust_source_of(&trust))),
+			      "the widget names a source the library does not");
+		}
 	}
 
 	/* The suite can tell pass from fail. */

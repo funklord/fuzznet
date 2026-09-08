@@ -23,6 +23,28 @@
  * true, and adding moc is a deliberate change rather than something to slip
  * in beside a feature.
  *
+ * IT IS THE ONE VIEW OF THE ELEVEN THAT DOES NOT CONSOLIDATE ONTO A
+ * PRINTER, and it does not need FZN_CLI. sec 201 asked whether it should and
+ * measured that there was nothing to move.
+ *
+ * The wording could never have been shared: sec 158 breaks the fingerprint
+ * into lines at fixed positions, because a user cannot compare a fingerprint
+ * against a differently-formatted copy of itself and a word-wrapped label
+ * reformats with the window, while a status line is one line by definition.
+ * That much was expected. What was not is that the CLASSIFICATION had
+ * nothing to give either: `fzn_trust_root` returns NULL exactly when the
+ * source is FZN_TRUST_NONE, so asking `cli/trust_print` whether this host
+ * has an anchor is asking `trust->source` by a longer route, and
+ * `fzn_trust_source_str` already separates all four sources including SELF.
+ *
+ * A DEPENDENCY THAT WAS TRIED AND SHOWN INERT. It was written, and the
+ * sabotage that should have caught its removal survived -- because the guard
+ * it added was a second reading of a fact the widget already had. sec 200's
+ * line is that two callers asking one library is not duplication; this is
+ * the case that proves the converse costs something, since a printer call
+ * nobody needs still has to be kept working. What remains of it is in the
+ * TEST, which links both surfaces and asserts they agree.
+ *
  * IT READS, AND DOES NOT DECIDE. Nothing here anchors, adopts or confirms
  * anything: it renders what it is given. A confirmation step is a decision
  * with a security meaning, and putting the button in the same object as the

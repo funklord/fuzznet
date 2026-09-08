@@ -52,6 +52,7 @@
 /cli/test/revocation_print_test
 /cli/test/authz_print_test
 /cli/test/provision_print_test
+/cli/test/trust_print_test
 /gui/test/trust_view_test
 /gui/test/log_view_test
 /gui/test/qr_view_test

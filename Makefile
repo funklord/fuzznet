@@ -719,6 +719,12 @@ GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp
 # THE LOG VIEW IS THE SAME SHAPE, settled by the copyright holder 2026-09-07.
 # sec 168: it does not compose a log's screen, `cli/log_print` does -- so the
 # summary wording has one implementation instead of two matched by hand.
+#
+# THE ANCHOR VIEW IS HERE FOR A DIFFERENT REASON, and it is the only one.
+# sec 201: it takes the printer's CLASSIFICATION and none of its wording,
+# because sec 158 breaks a fingerprint into lines at fixed positions and a
+# status line is one line by definition. What it declines to duplicate is
+# which of the four sources this anchor has, which is the half that drifts.
 ifdef CLI_ON
 GUI_SRCS  += gui/config_view.cpp gui/log_view.cpp gui/sync_view.cpp \
              gui/journal_view.cpp gui/sweep_view.cpp gui/transfer_view.cpp \
@@ -796,18 +802,21 @@ CLI_SRCS := cli/cli.c cli/qr_print.c cli/log_print.c cli/sync_print.c \
             cli/journal_print.c cli/sweep_print.c \
             cli/transfer_print.c cli/capability_print.c \
             cli/state_print.c cli/revocation_print.c \
-            cli/authz_print.c cli/provision_print.c
+            cli/authz_print.c cli/provision_print.c \
+            cli/trust_print.c
 CLI_HDRS := cli/cli.h cli/qr_print.h cli/log_print.h cli/sync_print.h \
             cli/journal_print.h cli/sweep_print.h \
             cli/transfer_print.h cli/capability_print.h \
             cli/state_print.h cli/revocation_print.h \
-            cli/authz_print.h cli/provision_print.h
+            cli/authz_print.h cli/provision_print.h \
+            cli/trust_print.h
 CLI_TSRC := cli/test/cli_test.c cli/test/qr_print_test.c \
             cli/test/log_print_test.c cli/test/sync_print_test.c \
             cli/test/journal_print_test.c cli/test/sweep_print_test.c \
             cli/test/transfer_print_test.c cli/test/capability_print_test.c \
             cli/test/state_print_test.c cli/test/revocation_print_test.c \
-            cli/test/authz_print_test.c cli/test/provision_print_test.c
+            cli/test/authz_print_test.c cli/test/provision_print_test.c \
+            cli/test/trust_print_test.c
 
 ifdef CLI_ON
 CPPFLAGS  += -DFZN_CLI_ON
@@ -825,7 +834,8 @@ TEST_BINS += $(BUILD_DIR)/cli/test/cli_test \
                $(BUILD_DIR)/cli/test/state_print_test \
                $(BUILD_DIR)/cli/test/revocation_print_test \
                $(BUILD_DIR)/cli/test/authz_print_test \
-               $(BUILD_DIR)/cli/test/provision_print_test
+               $(BUILD_DIR)/cli/test/provision_print_test \
+               $(BUILD_DIR)/cli/test/trust_print_test
 endif
 
 RECORD_STORE_FILE_SRCS := record/store_file.c
@@ -1825,6 +1835,14 @@ $(BUILD_DIR)/cli/test/qr_print_test: $(BUILD_DIR)/cli/test/qr_print_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# This host's anchor, and how it came to be trusted. sec 201.
+$(BUILD_DIR)/cli/test/trust_print_test: $(BUILD_DIR)/cli/test/trust_print_test.o \
+                                     $(BUILD_DIR)/cli/trust_print.o \
+                                     $(BUILD_DIR)/trust/trust.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # One provisioning card, and the root it may not name. sec 200.
 $(BUILD_DIR)/cli/test/provision_print_test: \
                                      $(BUILD_DIR)/cli/test/provision_print_test.o \
@@ -1993,8 +2011,10 @@ $(BUILD_DIR)/gui/test/%.o: gui/test/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(QT_CFLAGS) -MMD -MP -c $< -o $@
 
+# The anchor view classifies through cli/trust_print and words itself. sec 201.
 $(BUILD_DIR)/gui/test/trust_view_test: $(BUILD_DIR)/gui/test/trust_view_test.o \
                                      $(BUILD_DIR)/gui/trust_view.o \
+                                     $(BUILD_DIR)/cli/trust_print.o \
                                      $(BUILD_DIR)/trust/trust.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
