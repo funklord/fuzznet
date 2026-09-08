@@ -13,6 +13,33 @@
 
 #include "../catalog.h"
 
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+
+/* Borrowed strings, so anything kept is copied. */
+static struct {
+	int calls;
+	flog_msg_type_t type;
+	char subsystem[64];
+	char text[512];
+} cat_log_seen;
+
+static int cat_log_capture(flog_t *p, const flog_msg_t *m)
+{
+	(void)p;
+	cat_log_seen.calls++;
+	cat_log_seen.type = m->type;
+	cat_log_seen.subsystem[0] = '\0';
+	cat_log_seen.text[0] = '\0';
+	if (m->subsystem)
+		snprintf(cat_log_seen.subsystem, sizeof(cat_log_seen.subsystem), "%s",
+		         m->subsystem);
+	if (m->text)
+		snprintf(cat_log_seen.text, sizeof(cat_log_seen.text), "%s", m->text);
+	return 0;
+}
+#endif
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -2453,6 +2480,67 @@ static void test_what_has_come_due(void)
 }
 
 
+#ifdef FZN_FLOG_ON
+static void test_the_catalogue_says_full_is_forever(void)
+/*
+ * THE CATALOGUE SAYS THAT FULL IS FOREVER, AND WHEN A LINK LOSES.
+ * sec 213. Nothing here frees an edge slot -- `used` is set to zero by
+ * init and otherwise only compared -- so FZN_CATALOG_ERR_FULL is not
+ * one refused link, it is every link from now on.
+ *
+ * STALE is the opposite kind of event and gets INFO for it:
+ * convergence working. It is worth saying at all because a peer whose
+ * links ALWAYS lose has a clock or an ordering problem, and that is
+ * invisible one refusal at a time.
+ */
+{
+	fzn_catalog_edge_t rows[1];
+	fzn_catalog_t cat;
+	fzn_catalog_id_t set = id(0x40);
+	flog_t log;
+
+	init_flog_t(&log);
+	log.name = NULL;
+	log.accepted_msg_type = FLOG_ACCEPT_ALL;
+	log.output_func = cat_log_capture;
+
+	/* QUIET UNTIL ASKED, planted before the init that clears it. */
+	fzn_catalog_set_log(&cat, &log);
+	REQUIRE(fzn_catalog_init(&cat, rows, 1, &ADD_WINS) == FZN_CATALOG_OK, "init");
+	memset(&cat_log_seen, 0, sizeof(cat_log_seen));
+	REQUIRE(fzn_catalog_assert(&cat, &set, idp(0x01), ALICE, 2, 1) == FZN_CATALOG_OK,
+	        "one");
+	CHECK(cat_log_seen.calls == 0,
+	      "a catalogue nobody gave a log to emitted anyway");
+
+	fzn_catalog_set_log(&cat, &log);
+
+	/* A LINK THAT LOSES. */
+	memset(&cat_log_seen, 0, sizeof(cat_log_seen));
+	CHECK(fzn_catalog_assert(&cat, &set, idp(0x01), ALICE, 1, 1)
+	              == FZN_CATALOG_ERR_STALE,
+	      "an older assertion won");
+	CHECK(cat_log_seen.calls == 1, "a losing link said nothing");
+	CHECK(cat_log_seen.type == FLOG_INFO,
+	      "convergence working was reported above informational, which is how a "
+	      "log of ordinary events drowns the warnings in it");
+	CHECK(strcmp(cat_log_seen.subsystem, "catalog/edge") == 0,
+	      "the event did not name its subsystem");
+
+	/* AND FULL, WHICH IS FOREVER. */
+	memset(&cat_log_seen, 0, sizeof(cat_log_seen));
+	CHECK(fzn_catalog_assert(&cat, &set, idp(0x02), ALICE, 3, 1)
+	              == FZN_CATALOG_ERR_FULL,
+	      "a full catalogue accepted an edge");
+	CHECK(cat_log_seen.calls == 1, "a full catalogue said nothing");
+	CHECK(cat_log_seen.type == FLOG_CRIT,
+	      "a condition that does not recover on its own was below critical");
+	CHECK(strstr(cat_log_seen.text, "ever freed") != NULL,
+	      "the line reports fullness and not that no slot is ever freed, which "
+	      "is the difference between one refusal and all of them");
+}
+#endif
+
 int main(void)
 {
 	memset(ALICE, 0xa1, sizeof(ALICE));
@@ -2519,6 +2607,10 @@ int main(void)
 	test_no_deadline_is_the_old_behaviour();
 	test_a_deadline_needs_something_to_say();
 	test_what_has_come_due();
+
+#ifdef FZN_FLOG_ON
+	test_the_catalogue_says_full_is_forever();
+#endif
 
 	printf("catalog_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

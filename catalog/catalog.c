@@ -1,5 +1,17 @@
 #include "catalog.h"
 
+/* Diagnostics through flog, vendored and possibly absent. sec 209. */
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+#define CAT_LOG(c, sub, sev, ...)                                                          \
+	do {                                                                               \
+		if ((c) && (c)->log)                                                       \
+			flog_printf((c)->log, sub, sev, FLOG_MSG_NONE, __VA_ARGS__);        \
+	} while (0)
+#else
+#define CAT_LOG(c, sub, sev, ...) ((void)0)
+#endif
+
 #include "../wire/bytes.h"
 
 #include <string.h>
@@ -61,6 +73,14 @@ int fzn_catalog_add_wins(void *ctx, const fzn_catalog_edge_t *held,
 	return 0;
 }
 
+void fzn_catalog_set_log(fzn_catalog_t *catalog, struct flog_t *log)
+{
+	if (!catalog)
+		return;
+
+	catalog->log = log;
+}
+
 fzn_catalog_err_t fzn_catalog_init(fzn_catalog_t *catalog, fzn_catalog_edge_t *edges,
                                    size_t capacity, const fzn_catalog_resolve_ops_t *resolve)
 {
@@ -75,6 +95,8 @@ fzn_catalog_err_t fzn_catalog_init(fzn_catalog_t *catalog, fzn_catalog_edge_t *e
 	catalog->edges = edges;
 	catalog->capacity = capacity;
 	catalog->used = 0;
+	/* Quiet unless somebody asks. */
+	catalog->log = NULL;
 	catalog->resolve = resolve;
 	/* The content table starts absent, so a catalogue used purely as
 	 * structure refuses every content call rather than appearing to accept
@@ -143,8 +165,17 @@ fzn_catalog_err_t fzn_catalog_assert(fzn_catalog_t *catalog, const fzn_catalog_i
 
 	held = find(catalog, parent, child);
 	if (held) {
-		if (!catalog->resolve->prefer(catalog->resolve->ctx, held, &offered))
+		if (!catalog->resolve->prefer(catalog->resolve->ctx, held, &offered)) {
+			/* A LINK LOST TO WHAT IS ALREADY HELD. Ordinary, and
+			 * INFO rather than a warning for that reason -- it is
+			 * convergence working. It is worth saying at all
+			 * because a peer whose links ALWAYS lose is a peer
+			 * whose clock or ordering is wrong, and that is
+			 * invisible one refusal at a time. */
+			CAT_LOG(catalog, "catalog/edge", FLOG_INFO,
+			        "an offered link lost to the one already held");
 			return FZN_CATALOG_ERR_STALE;
+		}
 		/* THE FILING MARK SURVIVES A RE-ASSERTION AND NOT A REMOVAL. It
 		 * is this host's and is not in `offered`, which came off the
 		 * wire or from a caller that has no business setting it -- so
@@ -162,8 +193,17 @@ fzn_catalog_err_t fzn_catalog_assert(fzn_catalog_t *catalog, const fzn_catalog_i
 	 * that a stale link arriving afterwards meets it rather than creating
 	 * the edge afresh -- `chain/revocation.c` keeps a withdrawal for a
 	 * triple it has never held for exactly this reason. */
-	if (catalog->used == catalog->capacity)
+	if (catalog->used == catalog->capacity) {
+		/* NOTHING HERE EVER FREES A SLOT, so this is not one refused
+		 * link -- it is every link from now on. Measured rather than
+		 * assumed: `used` is set to zero by `init` and otherwise only
+		 * compared. */
+		CAT_LOG(catalog, "catalog/edge", FLOG_CRIT,
+		        "catalogue full at %zu edges and no slot is ever freed, so no "
+		        "further link can be held",
+		        catalog->capacity);
 		return FZN_CATALOG_ERR_FULL;
+	}
 
 	catalog->edges[catalog->used] = offered;
 	catalog->used++;

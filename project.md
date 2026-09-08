@@ -32997,3 +32997,57 @@ helper that does not exist -- `BODY_A1` where this suite has `BODY_A`, and a
 neighbouring file's vocabulary rather than a reading of it, and each cost one
 compile. Cheap here because the compiler holds the whole vocabulary; the same
 guess about a RUNTIME convention is what sec 210 was.
+
+## 213. The catalogue, and a severity that is the whole content
+
+`catalog/edge` joins sec 211 and sec 212, and it is the first module where one
+of the two events is deliberately NOT a problem.
+
+	catalog/edge  CRIT  full: no slot is ever freed, so no further link
+	catalog/edge  INFO  an offered link lost to the one already held
+
+**FULL is permanent here too, and this time it was measured rather than
+inherited.** The three stores before it say so in their own headers; the
+catalogue does not, so the claim needed checking: `catalog->used` is set to
+zero by `init` and otherwise only ever compared. Nothing decrements it. So
+`FZN_CATALOG_ERR_FULL` is not one refused link, it is every link from now on
+-- and the neighbouring `hold_used--` is a different array, which is exactly
+the kind of thing that makes a grep an unsafe answer to this question.
+
+**STALE is convergence working, and INFO is the whole point of it.** A link
+losing to the one already held is ordinary. Logging it at WARN would be how
+the warnings that matter get drowned -- so the severity is not decoration on
+this event, it IS the event's content. Its sabotage entry is a severity flip
+and nothing else, and it reddens the suite.
+
+It is worth saying at all because **a peer whose links ALWAYS lose has a clock
+or an ordering problem, and that is invisible one refusal at a time.** Nothing
+in `FZN_CATALOG_ERR_STALE` accumulates; a log does.
+
+### Three more anchors retired by one change, which is now a measured rate
+
+Adding two log calls to `catalog.c` retired `catalog-tombstone-is-stored`,
+`catalog-full-refuses-not-evicts` and `catalog-resolver-is-consulted` -- all
+three anchored on multi-line spans that a wrapped `if` broke. Re-pointed at
+the condition or the return alone, and each re-verified by mutation: 5, 2 and
+8 assertions respectively.
+
+That is **eight anchor re-points in one day**, across four modules, every one
+caused by adding a line inside a block an entry had spelled out. The rule from
+sec 211 held each time and is worth restating as a number rather than an
+instinct: an anchor's length is its exposure, and the part of a line that
+names the thing being tested is almost always shorter than the block it sits
+in.
+
+### A test asserted its own text and got it wrong
+
+The catalogue's FULL line says "no slot is ever freed"; the assertion written
+beside it looked for "never freed". Both were written in the same minute by
+the same hand, and the suite caught it immediately -- which is the one case
+where asserting on wording is cheap, because the wording and the assertion are
+in the same change and disagree at once.
+
+It is worth noting against the temptation it creates: the fix is to assert a
+substring that carries the MEANING (`ever freed`, the permanence) rather than
+to relax the assertion until it passes. A test that stops checking the words
+would still have passed, and the line could then say anything at all.

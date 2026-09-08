@@ -203,6 +203,9 @@ typedef struct fzn_catalog_resolve_ops {
 int fzn_catalog_add_wins(void *ctx, const fzn_catalog_edge_t *held,
                          const fzn_catalog_edge_t *offered);
 
+/* Declared, not included. sec 209. */
+struct flog_t;
+
 typedef struct fzn_catalog {
 	fzn_catalog_edge_t *edges;
 	size_t capacity;
@@ -243,7 +246,23 @@ typedef struct fzn_catalog {
 	size_t entry_capacity;
 	size_t entry_used;
 	const struct fzn_catalog_content_ops *content_resolve;
+	/* Where this catalogue says what happened, or NULL for silence. */
+	struct flog_t *log;
 } fzn_catalog_t;
+
+/*
+ * Give this catalogue somewhere to say what happened, or NULL to silence it.
+ *
+ * sec 213. Nothing here ever frees an edge slot -- measured, not inferred:
+ * `catalog->used` is set to zero by `init` and otherwise only compared -- so a
+ * full catalogue can never hold another edge, the same permanent shape as the
+ * journal, the state and the revocation store. FZN_CATALOG_ERR_FULL says one
+ * link was refused.
+ *
+ * Subsystem `catalog/edge`. The log is borrowed and must outlive the
+ * catalogue.
+ */
+void fzn_catalog_set_log(fzn_catalog_t *catalog, struct flog_t *log);
 
 /* Point a catalogue at caller-owned rows, and zero them.
  *
