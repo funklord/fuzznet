@@ -31807,3 +31807,52 @@ than a field that no longer exists. **A test that names a field survives the
 field being renamed and not the field being merged**, which is the same
 distinction sec 168 drew between asserting a value and asserting a
 relationship, arriving from the maintenance side.
+
+## 200. A provisioning line, and a threshold that meant the wrong thing
+
+`cli/provision_print.{h,c}` reports whether a card verifies, who it says you
+are pairing with, and the text a code would carry. Seventh application of
+sec 193's rule.
+
+### A logged fingerprint is worse than a displayed one
+
+sec 171 established the rule: no fingerprint for a card that has not
+verified, because an attacker can put a GENUINE root beside their own prekey
+and sign the envelope themselves, and the root field then reads correctly.
+
+**On this side the reason is sharper.** A fingerprint on a screen is gone when
+the window closes. A fingerprint in a LOG outlives the moment, is read later
+by somebody who was not there, and carries none of the doubt the operator had.
+So the suite asserts its ABSENCE for every state short of verified, by
+comparing against `fzn_trust_fingerprint`'s output rather than by matching a
+refusal message.
+
+### The enum order was wrong and the pairing caught it
+
+The first draft ordered the states by how bad they sound -- UNDATED then
+EXPIRED -- and wrote the fingerprint test as `state >= UNDATED`. That prints a
+root for an EXPIRED card, which `gui/provision_view` does not do.
+
+**Two implementations disagreeing, caught before either shipped, because they
+were written in one commit.** sec 193's rule has been retiring duplications
+that already existed; this is the first time it prevented one. The order is
+now "the signature verified, and the expiry did not stop it", so the threshold
+means what the test needs it to.
+
+An expired card's signature IS good and its parts DO belong together -- the
+recombination attack is a signature failure, not an expiry. Withholding the
+root there is sec 171's conservative choice, and the suite says so rather than
+letting it look like a consequence of the ordering.
+
+### And a regression the widget's own suite caught
+
+Rewriting the widget to ask the printer, I dropped the condition that a code
+is only drawn once `fzn_provision_open` has succeeded. `fzn_provision_text`
+will happily base32 any bytes of the right length, so rubbish was being drawn
+as a scannable code.
+
+The widget asks the library the shape question again rather than parsing the
+code back out of the printer's line. **Two callers asking one library is not
+duplication; two callers DECIDING would be** -- which is the line sec 193 is
+about, and it is worth having stated in the one case where re-asking is
+correct.

@@ -42,93 +42,81 @@ fzn_provision_view::fzn_provision_view(QWidget *parent)
 void fzn_provision_view::show_card(const uint8_t *bytes, size_t len,
                                    const fzn_sign_ops_t *verifier, uint64_t now)
 {
+	static char line[FZN_PROVISION_PRINT_MAX];
 	char text[FZN_PROVISION_TEXT_LEN];
-	fzn_provision_card_t card;
-	fzn_provision_err_t opened;
+	fzn_provision_line_t said = FZN_PROVISION_LINE_NOTHING;
+	size_t out_len = 0;
 
 	state_ = NOTHING;
 	code_text_.clear();
 	code_->show_text(QString(), code_level());
 
-	if (!bytes || len == 0) {
+	/* ONE DECISION AND ONE WORDING, BOTH THE PRINTER'S -- including which
+	 * states may show a fingerprint. sec 193, sec 200. */
+	if (fzn_provision_print(bytes, len, verifier, now, line, sizeof(line), &out_len,
+	                        &said) != FZN_PROVISION_OK) {
 		state_label_->setText(QStringLiteral("no card"));
 		root_->setText(QStringLiteral("--"));
 		return;
 	}
 
-	/* SHAPE FIRST, AND SEPARATELY. provision.h splits `open` from `verify`
-	 * because "a reader that cannot tell 'these bytes are not a card' from
-	 * 'this card is not signed by who it says' cannot report either
-	 * usefully", and a screen inherits that distinction rather than
-	 * flattening it. */
-	opened = fzn_provision_open(bytes, len, &card);
-	if (opened != FZN_PROVISION_OK) {
+	switch (said) {
+	case FZN_PROVISION_LINE_REFUSED:
 		state_ = REFUSED;
-		state_label_->setText(QStringLiteral("not a card: ") +
-		                      QString::fromLatin1(fzn_provision_err_str(opened)));
-		root_->setText(QStringLiteral("--"));
-		return;
+		break;
+	case FZN_PROVISION_LINE_UNCHECKED:
+		state_ = UNCHECKED;
+		break;
+	case FZN_PROVISION_LINE_EXPIRED:
+		state_ = EXPIRED;
+		break;
+	case FZN_PROVISION_LINE_UNDATED:
+		state_ = UNDATED;
+		break;
+	case FZN_PROVISION_LINE_USABLE:
+		state_ = USABLE;
+		break;
+	default:
+		state_ = NOTHING;
+		break;
 	}
 
-	/* THE CODE IS DRAWN WHATEVER THE VERDICT. A card is public by
-	 * construction -- it exists to be photographed -- and the offering
-	 * side has nothing to check its own card against. It is the
-	 * FINGERPRINT that waits for a verdict, not the code. */
+	/* THE LINE CARRIES A CODE ROW OF ITS OWN, which a screen shows as a
+	 * picture instead -- so the verdict half goes in the label and the
+	 * code half is drawn. */
+	{
+		QString whole = QString::fromLatin1(line);
+		int at = whole.indexOf(QStringLiteral("\ncode "));
+
+		if (at >= 0)
+			whole = whole.left(at);
+		while (whole.endsWith(QLatin1Char('\n')))
+			whole.chop(1);
+		state_label_->setText(whole);
+		root_->setText(whole.contains(QStringLiteral("root not shown"))
+		                       ? QStringLiteral("not shown until the card verifies")
+		                       : QStringLiteral("in the line above"));
+	}
+
+	/* A CODE ONLY WHERE THERE IS A CARD. `fzn_provision_text` will happily
+	 * base32 any bytes of the right length, so rubbish would otherwise be
+	 * drawn as a scannable code. The printer makes the same distinction --
+	 * it emits a code row only after `open` succeeds -- and this asks the
+	 * library the same shape question rather than parsing the answer back
+	 * out of the line. Two callers asking one library is not duplication;
+	 * two callers DECIDING would be. */
+	{
+		fzn_provision_card_t parsed;
+
+		if (!bytes || len == 0u ||
+		    fzn_provision_open(bytes, len, &parsed) != FZN_PROVISION_OK)
+			return;
+	}
+
 	if (fzn_provision_text(bytes, len, text, sizeof(text)) == FZN_PROVISION_OK) {
 		code_text_ = QString::fromLatin1(text);
 		code_->show_text(code_text_, code_level());
 	}
-
-	if (!verifier) {
-		/* NOBODY CHECKED. Not "probably fine": the signature is what
-		 * binds this root to this prekey, and without it the two need
-		 * not have come from the same hand. */
-		state_ = UNCHECKED;
-		state_label_->setText(QStringLiteral("not checked -- no verifier was given"));
-		root_->setText(QStringLiteral("not shown until the card verifies"));
-		return;
-	}
-
-	switch (fzn_provision_verify(card, verifier, now)) {
-	case FZN_PROVISION_OK:
-		state_ = now ? USABLE : UNDATED;
-		break;
-	case FZN_PROVISION_ERR_EXPIRED:
-		/* ITS OWN STATE, on provision.h's argument: a card that was
-		 * valid and is not any more is an ordinary thing to meet and
-		 * an unremarkable thing to say to a user, where a malformed
-		 * one is a fault somewhere. */
-		state_ = EXPIRED;
-		break;
-	default:
-		state_ = REFUSED;
-		break;
-	}
-
-	if (state_ != USABLE && state_ != UNDATED) {
-		state_label_->setText(state_ == EXPIRED
-		                              ? QStringLiteral("expired")
-		                              : QStringLiteral("the signature does not verify"));
-		root_->setText(QStringLiteral("not shown until the card verifies"));
-		return;
-	}
-
-	/* VERIFIED, SO THE FINGERPRINT IS WORTH COMPARING. The same spelling
-	 * of thirty-two bytes `trust_view` uses, for its reason: a fingerprint
-	 * compared against a differently formatted copy of itself cannot be
-	 * compared at all. */
-	{
-		char print[FZN_TRUST_FINGERPRINT_LEN];
-
-		if (fzn_trust_fingerprint(card.root, print, sizeof(print)) == FZN_TRUST_OK)
-			root_->setText(QString::fromLatin1(print));
-		else
-			root_->setText(QStringLiteral("a root this widget could not format"));
-	}
-
-	state_label_->setText(state_ == USABLE
-	                              ? QStringLiteral("verified, and in date")
-	                              : QStringLiteral("verified -- no clock, so not dated"));
 }
 
 fzn_provision_view::state fzn_provision_view::shown_state() const

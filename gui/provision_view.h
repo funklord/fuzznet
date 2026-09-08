@@ -40,6 +40,11 @@
  * no clock. A widget that passed zero and then said "usable" would be
  * reporting a check it did not make.
  *
+ * IT ASKS `cli/provision_print` AND SHOWS WHAT IT SAYS, and needs FZN_CLI for
+ * it. sec 200, under sec 193's rule. It keeps its own QR widget on sec 194's
+ * line: a code is a thing a screen has and a line does not, and the string it
+ * carries comes from the same `fzn_provision_text` the printer uses.
+ *
  * NO Q_OBJECT AND THEREFORE NO moc, on sec 140's rule. It displays.
  */
 
@@ -48,6 +53,7 @@
 
 extern "C" {
 #include "../chain/chain.h"
+#include "../cli/provision_print.h"
 #include "../provision/provision.h"
 #include "../qr/qr.h"
 }
@@ -93,7 +99,9 @@ public:
 	void show_card(const uint8_t *bytes, size_t len, const fzn_sign_ops_t *verifier,
 	               uint64_t now);
 
-	/* What is on the screen. */
+	/* `state_text` is `fzn_provision_print`'s line, carrying the verdict
+	 * and -- only when the card verified and is in date -- the root's
+	 * fingerprint. */
 	state shown_state() const;
 	QString state_text() const;
 

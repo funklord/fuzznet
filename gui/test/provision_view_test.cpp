@@ -174,7 +174,7 @@ int main(int argc, char **argv)
 	view.show_card(genuine.card, genuine.card_len, &OPS, 50u);
 	CHECK(view.shown_state() == fzn_provision_view::USABLE,
 	      "a genuine, unexpired card was not shown as usable");
-	CHECK(view.root_text() == root_print,
+	CHECK(view.state_text().contains(root_print),
 	      "a verified card does not show the library's fingerprint of its root");
 
 	/* THE CASE THIS FILE EXISTS FOR. The attacker signs the envelope, so
@@ -190,7 +190,7 @@ int main(int argc, char **argv)
 		view.show_card(recombined.card, recombined.card_len, &OPS, 50u);
 		CHECK(view.shown_state() == fzn_provision_view::REFUSED,
 		      "a card whose envelope was signed by somebody else was not refused");
-		CHECK(view.root_text() != root_print,
+		CHECK(!view.state_text().contains(root_print),
 		      "a card that did not verify offered the genuine root's fingerprint, "
 		      "which is the one field a user compares and the one an attacker "
 		      "can get right");
@@ -202,7 +202,7 @@ int main(int argc, char **argv)
 	view.show_card(genuine.card, genuine.card_len, nullptr, 50u);
 	CHECK(view.shown_state() == fzn_provision_view::UNCHECKED,
 	      "a card nobody verified was not shown as unchecked");
-	CHECK(view.root_text() != root_print,
+	CHECK(!view.state_text().contains(root_print),
 	      "a card nobody verified offered a fingerprint to compare");
 
 	/* AND THE CODE IS STILL DRAWN, because a card is public and the
@@ -234,7 +234,7 @@ int main(int argc, char **argv)
 		view.show_card(dated.card, dated.card_len, &OPS, 500u);
 		CHECK(view.shown_state() == fzn_provision_view::EXPIRED,
 		      "a card past its expiry was not shown as expired");
-		CHECK(view.root_text() != root_print,
+		CHECK(!view.state_text().contains(root_print),
 		      "an expired card still offered a fingerprint to compare");
 	}
 

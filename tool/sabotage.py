@@ -2409,30 +2409,6 @@ SABOTAGES = [
 		"typed value that has to equal a table entry",
 	),
 	(
-		"provision-view-withholds-the-fingerprint",
-		"gui/provision_view.cpp",
-		"\tif (state_ != USABLE && state_ != UNDATED) {\n",
-		"\tif (0) {\n",
-		"a card that did not verify must offer no fingerprint, because the root "
-		"is the field a recombined card gets RIGHT and the one a user compares",
-	),
-	(
-		"provision-view-unchecked-is-its-own-state",
-		"gui/provision_view.cpp",
-		"\tif (!verifier) {\n",
-		"\tif (0) {\n",
-		"a card nobody was asked to check is not the same as one that failed a "
-		"check, and a user needs to know which happened",
-	),
-	(
-		"provision-view-undated-is-not-usable",
-		"gui/provision_view.cpp",
-		"\t\tstate_ = now ? USABLE : UNDATED;\n",
-		"\t\tstate_ = USABLE;\n",
-		"a card verified with no clock has not had its expiry looked at, so "
-		"calling it in date reports a check that was never made",
-	),
-	(
 		"provision-view-code-level-is-forced",
 		"gui/provision_view.cpp",
 		"\treturn FZN_QR_LEVEL_L;\n",
@@ -2743,6 +2719,47 @@ SABOTAGES = [
 		"\t\tstate_label_->setText(QStringLiteral(\"policy\"));\n",
 		"the widget must SHOW cli/authz_print's line rather than have a wording of "
 		"its own -- sec 193's rule",
+	),
+	(
+		"provision-print-withholds-the-fingerprint",
+		"cli/provision_print.c",
+		"\tif (state >= FZN_PROVISION_LINE_UNDATED) {\n",
+		"\tif (1) {\n",
+		"a card that did not verify must put no root in a log: the recombined "
+		"card gets that field RIGHT, and a logged fingerprint is read later by "
+		"somebody who was not there",
+	),
+	(
+		"provision-print-unchecked-is-its-own-state",
+		"cli/provision_print.c",
+		"\t\t\tif (!verifier) {\n",
+		"\t\t\tif (0) {\n",
+		"a card nobody was asked to check is not the same as one that failed a "
+		"check, and only the second says anything about the card",
+	),
+	(
+		"provision-print-undated-is-not-usable",
+		"cli/provision_print.c",
+		"\t\t\t\t\tsaid = now ? FZN_PROVISION_LINE_USABLE\n",
+		"\t\t\t\t\tsaid = FZN_PROVISION_LINE_USABLE ? FZN_PROVISION_LINE_USABLE\n",
+		"a card verified with no clock has not had its expiry looked at, so "
+		"calling it in date reports a check that was never made",
+	),
+	(
+		"provision-view-shows-the-printers-words",
+		"gui/provision_view.cpp",
+		"\t\tstate_label_->setText(whole);\n",
+		"\t\tstate_label_->setText(QStringLiteral(\"card\"));\n",
+		"the widget must SHOW cli/provision_print's line rather than have a "
+		"wording of its own -- sec 193's rule",
+	),
+	(
+		"provision-view-code-needs-a-card",
+		"gui/provision_view.cpp",
+		"\t\tif (!bytes || len == 0u ||\n\t\t    fzn_provision_open(bytes, len, &parsed) != FZN_PROVISION_OK)\n",
+		"\t\tif (!bytes || len == 0u)\n",
+		"fzn_provision_text will base32 any bytes of the right length, so rubbish "
+		"would be drawn as a scannable code",
 	),
 ]
 
