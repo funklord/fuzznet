@@ -268,6 +268,9 @@ typedef struct fzn_replay_entry {
  * state generally -- a window is a VALUE, so a test can construct one
  * directly, including states normal operation cannot reach, copy it, and
  * compare two with memcmp. */
+/* Declared, not included. sec 209. */
+struct flog_t;
+
 typedef struct fzn_replay_window {
 	fzn_replay_entry_t *entries;
 	size_t capacity;
@@ -286,7 +289,32 @@ typedef struct fzn_replay_window {
 	 * invariant of the window rather than a thing to remember at each
 	 * call site. */
 	uint64_t max_ahead;
+	/* Where this window says what happened, or NULL for silence. */
+	struct flog_t *log;
 } fzn_replay_window_t;
+
+/*
+ * Give this window somewhere to say what happened, or NULL to silence it.
+ *
+ * sec 215, and this is the module where a log earns its place most plainly:
+ * a REPLAY is the security event this library exists to refuse, and
+ * `FZN_FRESH_ERR_REPLAY` reaches a caller that may do nothing with it. One
+ * replay is a retransmission; a stream of them is somebody trying, and only a
+ * log accumulates.
+ *
+ * WINDOW_FULL is the other half and its cause is not in the return value at
+ * all. This window is pruned by `fzn_replay_expire`, which the CONSUMER
+ * calls -- nothing here prunes on its own -- so a full window means either
+ * that nobody is expiring or that the capacity is below the arrival rate the
+ * horizon implies. Those want different fixes and the value says neither.
+ *
+ * Refused rather than evicted, deliberately: dropping the oldest live entry
+ * would reopen it to replay, so an attacker able to generate traffic could
+ * flush the window and then replay anything recorded.
+ *
+ * Subsystem `frame/replay`. The log is borrowed and must outlive the window.
+ */
+void fzn_replay_set_log(fzn_replay_window_t *window, struct flog_t *log);
 
 /* Point a window at caller-owned storage. `entries` must have room for
  * `capacity`. Returns FZN_FRESH_ERR_MALFORMED on a null or zero-capacity

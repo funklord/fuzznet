@@ -1074,6 +1074,20 @@ SABOTAGES = [
 		"the tri-state exists so `could not tell` cannot be read as `no`; rendering them as one word undoes a whole module at the point a person reads it -- sec 204",
 	),
 	(
+		"replay-refusal-is-said",
+		"frame/freshness.c",
+		"\"frame/replay\", FLOG_WARN,\n",
+		"\"frame/replay\", FLOG_DEBUG,\n",
+		"a replay is the security event this module exists to refuse, and FZN_FRESH_ERR_REPLAY reaches a caller that may do nothing with it -- one replay is a retransmission and a stream of them is somebody trying, which only a log accumulates -- sec 215",
+	),
+	(
+		"replay-window-full-names-what-prunes",
+		"frame/freshness.c",
+		"\"frame/replay\", FLOG_CRIT,\n",
+		"\"frame/replay\", FLOG_WARN,\n",
+		"a full window refuses every FRESH frame, and nothing here prunes on its own -- fzn_replay_expire is the consumer's to call -- so this is either nobody expiring or a capacity below the arrival rate the horizon implies -- sec 215",
+	),
+	(
 		"reasm-saturation-is-said",
 		"chunk/reassembly.c",
 		"\"chunk/reasm\", FLOG_WARN,\n",

@@ -9,6 +9,7 @@
 
 #include "../freshness.h"
 
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -661,6 +662,90 @@ static void test_a_window_with_no_horizon_is_refused(void)
 	CHECK(w.used == 0, "a refused frame occupied a slot");
 }
 
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+
+/* Borrowed strings, so anything kept is copied. */
+static struct {
+	int calls;
+	flog_msg_type_t type;
+	char subsystem[64];
+	char text[512];
+} fresh_log_seen;
+
+static int fresh_log_capture(flog_t *p, const flog_msg_t *m)
+{
+	(void)p;
+	fresh_log_seen.calls++;
+	fresh_log_seen.type = m->type;
+	fresh_log_seen.subsystem[0] = '\0';
+	fresh_log_seen.text[0] = '\0';
+	if (m->subsystem)
+		snprintf(fresh_log_seen.subsystem, sizeof(fresh_log_seen.subsystem), "%s",
+		         m->subsystem);
+	if (m->text)
+		snprintf(fresh_log_seen.text, sizeof(fresh_log_seen.text), "%s", m->text);
+	return 0;
+}
+
+/*
+ * A REPLAY IS THE EVENT THIS MODULE EXISTS FOR, AND A FULL WINDOW REFUSES
+ * FRESH FRAMES. sec 215.
+ *
+ * FZN_FRESH_ERR_REPLAY reaches a caller that may do nothing with it. One
+ * replay is a retransmission; a stream of them is somebody trying, and only a
+ * log accumulates. And WINDOW_FULL's cause is not in the value at all --
+ * nothing here prunes on its own, `fzn_replay_expire` is the consumer's to
+ * call, so it is either nobody expiring or a capacity below the arrival rate
+ * the horizon implies.
+ */
+static void test_the_window_says_replay_and_says_it_is_full(void)
+{
+	fzn_replay_window_t w;
+	fzn_replay_entry_t storage[1];
+	flog_t log;
+	uint8_t a[FZN_NONCE_LEN], b[FZN_NONCE_LEN];
+
+	nonce_of(a, 0x71);
+	nonce_of(b, 0x72);
+	init_flog_t(&log);
+	log.name = NULL;
+	log.accepted_msg_type = FLOG_ACCEPT_ALL;
+	log.output_func = fresh_log_capture;
+
+	/* QUIET UNTIL ASKED: planted before the init that clears it. */
+	fzn_replay_set_log(&w, &log);
+	fzn_replay_init(&w, storage, 1, AHEAD);
+	memset(&fresh_log_seen, 0, sizeof(fresh_log_seen));
+	CHECK(fzn_replay_admit(&w, a, 9000, FZN_EXPIRY_REQUIRED, 1000) == FZN_FRESH_OK,
+	      "first");
+	CHECK(fresh_log_seen.calls == 0, "a window nobody gave a log to emitted anyway");
+
+	fzn_replay_set_log(&w, &log);
+
+	/* A REPLAY. */
+	memset(&fresh_log_seen, 0, sizeof(fresh_log_seen));
+	CHECK(fzn_replay_admit(&w, a, 9000, FZN_EXPIRY_REQUIRED, 1000) == FZN_FRESH_ERR_REPLAY,
+	      "a replay was admitted");
+	CHECK(fresh_log_seen.calls == 1, "a replay was refused and nothing said so");
+	CHECK(fresh_log_seen.type == FLOG_WARN, "a replay was not a warning");
+	CHECK(strcmp(fresh_log_seen.subsystem, "frame/replay") == 0,
+	      "the event did not name its subsystem");
+
+	/* AND A FULL WINDOW, which refuses FRESH frames. */
+	memset(&fresh_log_seen, 0, sizeof(fresh_log_seen));
+	CHECK(fzn_replay_admit(&w, b, 9000, FZN_EXPIRY_REQUIRED, 1000) ==
+	              FZN_FRESH_ERR_WINDOW_FULL,
+	      "a full window admitted a second entry");
+	CHECK(fresh_log_seen.calls == 1, "a full window said nothing");
+	CHECK(fresh_log_seen.type == FLOG_CRIT,
+	      "refusing every fresh frame was reported below critical");
+	CHECK(strstr(fresh_log_seen.text, "fzn_replay_expire") != NULL,
+	      "the line reports fullness and does not name what prunes, which is the "
+	      "difference between an undersized window and a consumer that never expires");
+}
+#endif
+
 int main(void)
 {
 	test_command_expiry_is_mandatory();
@@ -723,6 +808,10 @@ int main(void)
 			                            100) == FZN_FRESH_ERR_HORIZON, "an ordinary horizon admitted a frame claiming forever");
 		}
 	}
+
+#ifdef FZN_FLOG_ON
+	test_the_window_says_replay_and_says_it_is_full();
+#endif
 
 	printf("freshness_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

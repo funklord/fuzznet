@@ -33113,3 +33113,44 @@ the lesson recorded was about `return` types rather than about the shape.
 nothing about the new location says why it is the right one. The suites put
 test cases in functions and call them from `main`; following that would have
 avoided both.
+
+## 215. The replay window, where a log earns its place most plainly
+
+	frame/replay  WARN  a nonce already in the window
+	frame/replay  CRIT  window full, so every FRESH frame is now refused
+
+**A replay is the event this library exists to refuse**, and
+`FZN_FRESH_ERR_REPLAY` reaches a caller that may do nothing with it. One
+replay is a retransmission. A stream of them is somebody trying, and
+**nothing in a return value accumulates** -- a caller sees each refusal
+separately and would have to be counting to see the second thing at all. This
+is the clearest case in the library for a log over a code, and it took until
+the twelfth module to reach it.
+
+**The full window is worse than it looks and its cause is not in the value.**
+It refuses FRESH frames, not replays -- so a host in this state is dropping
+legitimate traffic. And nothing here prunes on its own: `fzn_replay_expire` is
+public and is the CONSUMER'S to call. So a full window means either that
+nobody is expiring or that the capacity is below the arrival rate the horizon
+implies, and those want opposite fixes. The line names `fzn_replay_expire`
+for that reason, and the test asserts that it does.
+
+Refused rather than evicted, deliberately, and the module's own comment says
+why: dropping the oldest live entry would reopen it to replay, so an attacker
+able to generate traffic could flush the window and then replay anything
+recorded. That is what makes CRIT right -- the safe behaviour under pressure
+is the one that stops accepting.
+
+### A test function placed before the fixtures it uses, three times
+
+Written above `nonce_of`, `AHEAD` and the `<string.h>` this suite includes,
+so it failed on three implicit declarations at once. Moved to sit immediately
+before `main`, which is where the catalogue's and the spool's ended up after
+the same correction.
+
+Three modules, three placements, one shape: **a test case goes immediately
+before `main`, because that is the only point in one of these files where
+every fixture, macro and include is already in scope.** Recorded as a
+position rather than as a rule about declarations, since the first two
+corrections were filed as `return`-type problems and taught nothing that
+prevented the third.

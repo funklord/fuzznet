@@ -2,6 +2,18 @@
 
 #include "freshness.h"
 
+/* Diagnostics through flog, vendored and possibly absent. sec 209. */
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+#define FRESH_LOG(w, sub, sev, ...)                                                        \
+	do {                                                                               \
+		if ((w) && (w)->log)                                                       \
+			flog_printf((w)->log, sub, sev, FLOG_MSG_NONE, __VA_ARGS__);        \
+	} while (0)
+#else
+#define FRESH_LOG(w, sub, sev, ...) ((void)0)
+#endif
+
 #include <string.h>
 
 /* Nonces are compared with plain memcmp, deliberately, and the reason is
@@ -109,6 +121,14 @@ fzn_fresh_err_t fzn_freshness_check(uint64_t expires_at, fzn_expiry_rule_t kind,
 	return FZN_FRESH_OK;
 }
 
+void fzn_replay_set_log(fzn_replay_window_t *window, struct flog_t *log)
+{
+	if (!window)
+		return;
+
+	window->log = log;
+}
+
 fzn_fresh_err_t fzn_replay_init(fzn_replay_window_t *window, fzn_replay_entry_t *entries,
                                  size_t capacity, uint64_t max_ahead)
 {
@@ -122,6 +142,8 @@ fzn_fresh_err_t fzn_replay_init(fzn_replay_window_t *window, fzn_replay_entry_t 
 	window->entries = entries;
 	window->capacity = capacity;
 	window->used = 0;
+	/* Quiet unless somebody asks. */
+	window->log = NULL;
 	window->max_ahead = max_ahead;
 
 	return FZN_FRESH_OK;
@@ -234,8 +256,18 @@ fzn_fresh_err_t fzn_replay_admit(fzn_replay_window_t *window,
 		return FZN_FRESH_OK;
 
 	for (size_t i = 0; i < window->used; i++) {
-		if (nonce_eq(window->entries[i].nonce, nonce))
+		if (nonce_eq(window->entries[i].nonce, nonce)) {
+			/* THE SECURITY EVENT THIS MODULE EXISTS FOR, and the
+			 * return value reaches a caller that may do nothing
+			 * with it. One replay is a retransmission; a stream of
+			 * them is somebody trying, and only a log
+			 * accumulates. */
+			FRESH_LOG(window, "frame/replay", FLOG_WARN,
+			          "refusing a nonce already in the window, %zu of %zu "
+			          "entries held",
+			          window->used, window->capacity);
 			return FZN_FRESH_ERR_REPLAY;
+		}
 	}
 
 	/* Refused rather than evicted. Making room by dropping the oldest
@@ -245,8 +277,18 @@ fzn_fresh_err_t fzn_replay_admit(fzn_replay_window_t *window,
 	/* >= rather than ==, for the reason chain/revocation.c gives at the
 	 * same place: the append below writes at `entries[used]`, and an
 	 * equality test lets a corrupt `used` through. */
-	if (window->used >= window->capacity)
+	if (window->used >= window->capacity) {
+		/* FRESH FRAMES ARE BEING REFUSED, and the cause is not in the
+		 * return value. Nothing here prunes on its own --
+		 * `fzn_replay_expire` is the consumer's to call -- so this is
+		 * either nobody expiring or a capacity below the arrival rate
+		 * the horizon implies, and those want different fixes. */
+		FRESH_LOG(window, "frame/replay", FLOG_CRIT,
+		          "replay window full at %zu entries, so every fresh frame is now "
+		          "refused; nothing prunes here but fzn_replay_expire",
+		          window->capacity);
 		return FZN_FRESH_ERR_WINDOW_FULL;
+	}
 
 	memcpy(window->entries[window->used].nonce, nonce, FZN_NONCE_LEN);
 	window->entries[window->used].expires_at = expires_at;
