@@ -347,7 +347,9 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 	 * the same array. `capacity` is the array's real length rather than
 	 * `nrevs`, which is what the old (array, count) signature had no way to
 	 * be told -- see chain.h. */
-	fzn_revocation_store_t rev_store = { revs, MAX_REVS, 0 };
+	/* The trailing NULL is the log added in sec 211. A positional
+	 * initialiser names every field or the compiler says so. */
+	fzn_revocation_store_t rev_store = { revs, MAX_REVS, 0, NULL };
 	uint8_t root[FZN_PUBKEY_LEN];
 	fzn_cap_id_t cap;
 	struct stub stub = { 0, 0 };

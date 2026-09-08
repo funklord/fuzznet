@@ -3,6 +3,21 @@
 
 #include "chain_store.h"
 
+/* Diagnostics through flog, which is vendored and may be absent. sec 209:
+ * the macro rather than a runtime `if` so a build without flog has no
+ * reference to it at all. `FLOG_MSG_NONE` because extending flog's id table
+ * would be editing a vendored dependency; the subsystem and text carry it. */
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+#define STORE_LOG(store, sub, sev, ...)                                                    \
+	do {                                                                               \
+		if ((store) && (store)->log)                                               \
+			flog_printf((store)->log, sub, sev, FLOG_MSG_NONE, __VA_ARGS__);    \
+	} while (0)
+#else
+#define STORE_LOG(store, sub, sev, ...) ((void)0)
+#endif
+
 #include "../constant_time/constant_time.h"
 
 #include <string.h>
@@ -89,6 +104,14 @@ static size_t find_expired(const fzn_chain_store_t *store, uint64_t now)
 	return store->used;
 }
 
+void fzn_chain_store_set_log(fzn_chain_store_t *store, struct flog_t *log)
+{
+	if (!store)
+		return;
+
+	store->log = log;
+}
+
 fzn_chain_err_t fzn_chain_store_init(fzn_chain_store_t *store, fzn_chain_entry_t *entries,
                                      size_t capacity)
 {
@@ -108,6 +131,9 @@ fzn_chain_err_t fzn_chain_store_init(fzn_chain_store_t *store, fzn_chain_entry_t
 	store->entries = entries;
 	store->capacity = capacity;
 	store->used = 0;
+	/* Quiet unless somebody asks, so a store on a caller's stack does not
+	 * carry whatever was there. */
+	store->log = NULL;
 	return FZN_CHAIN_OK;
 }
 
@@ -173,8 +199,26 @@ fzn_chain_err_t fzn_chain_store_admit(fzn_chain_store_t *store, const fzn_chain_
 			 * room for another would make which chain a host holds
 			 * depend on arrival order. */
 			at = find_expired(store, now);
-			if (at == store->used)
+			if (at == store->used) {
+				/* FULL OF LIVE GRANTS, which is a different
+				 * situation from full of stale ones and wants a
+				 * different answer: a bigger store rather than
+				 * more time. The return value says only FULL. */
+				STORE_LOG(store, "chain/store", FLOG_WARN,
+				          "refusing a chain: all %zu entries are live at %llu, "
+				          "so nothing could be reclaimed",
+				          store->used, (unsigned long long)now);
 				return FZN_CHAIN_ERR_STORE_FULL;
+			}
+
+			/* A SILENT SUBSTITUTION OTHERWISE. The caller asked to
+			 * admit one chain and an unrelated expired grant stopped
+			 * existing; nothing in the return value says so. */
+			STORE_LOG(store, "chain/store", FLOG_NOTE,
+			          "reclaimed an entry expired at %llu to admit a chain, store "
+			          "%zu of %zu",
+			          (unsigned long long)store->entries[at].chain.expires_at,
+			          store->used, store->capacity);
 		} else {
 			store->used++;
 		}

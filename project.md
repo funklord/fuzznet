@@ -32796,3 +32796,157 @@ rule is that a scope number is the claim in a finding nobody re-derives; this
 one was re-derived because it was somebody else's guess rather than this
 project's, which is the easier case. The hard case is the same guess made
 here.
+
+## 211. The library talks, and the severity carries the difference
+
+sec 209 gave this library one place that says what happened. The copyright
+holder's answer to whether that should spread: **yes, all of it** -- and the
+reason my question was the wrong one is that flog's eight severities and its
+hierarchical subsystems ARE the noise control. A comprehensive log is not a
+noisy one when the reader filters; a sparse one is just a log that omits the
+thing you needed. sec 209 says as much three paragraphs in, and the question
+was asked anyway.
+
+### What each store now says, and why the severity is the finding
+
+`chain/store`, at **WARN**, when the store is full and every entry is LIVE.
+`FZN_CHAIN_ERR_STORE_FULL` is returned in two situations that want opposite
+responses: a store full of stale grants wants a sweep or simply time, and one
+full of live grants wants to be bigger. The return value cannot tell them
+apart. The severity is doing the separating.
+
+`chain/store`, at **NOTE**, when a chain is admitted by RECLAIMING an expired
+one. The caller asked to admit one chain; an unrelated grant stopped existing,
+and nothing in the return says so.
+
+`chain/revocation`, at **CRIT**, when that store is full. This is the one that
+earns critical, and the reason is a design decision this module made
+deliberately: **it never evicts**, because a revocation does not expire and a
+lapsed one un-revokes a device. So a full revocation store refuses every
+withdrawal from then on -- the host has stopped being able to learn about
+revocations at all. `STORE_FULL` says one admission failed. Everything else
+here recovers on its own; this does not.
+
+**That is what the eight levels buy.** Three events, three severities, one
+subsystem tree, and a reader who wants only the third can have only the third
+without anybody deciding for them which events to omit at the source.
+
+### The tests live in the modules' own suites
+
+No new binaries. `$(TEST_BINS): $(FLOG_OBJS)` makes flog a prerequisite of
+every test binary, so any suite can link it, and the assertion belongs beside
+the behaviour it describes rather than in a file somebody has to think to
+open. `chain_store_test` went 184 to 202 checks and `revocation_test` to 370.
+
+### One line replaced a variable that could not have scaled
+
+sec 209 added `LINK_OBJ = $(BUILD_DIR)/link/link.o $(FLOG_OBJS)` so the rules
+linking `link.o` would get flog. That works for exactly one logging module.
+**Two of them in one rule would put `$(FLOG_OBJS)` on the link line twice,
+which is a multiple-definition error rather than a duplicate the linker
+ignores** -- so the approach was going to fail on the second module, which is
+this one.
+
+	$(TEST_BINS): $(FLOG_OBJS)
+
+GNU make's `$^` OMITS DUPLICATES, and all 113 link recipes use `$^` rather
+than `$+`. So flog appears exactly once on every command line whether or not a
+rule also named it, and it is a PREREQUISITE rather than a recipe addition, so
+a moved pin relinks what uses it -- appending to the recipe alone would have
+been sec 210's staleness reintroduced by the fix for it.
+
+### Adding a field to a public struct is a source-compatibility change
+
+`-Wmissing-field-initializers` named three sites the moment
+`fzn_revocation_store_t` grew a `log`:
+
+	fzn_revocation_store_t rev_store = { revs, MAX_REVS, 0 };
+
+A positional initialiser names every field or the compiler says so, and these
+are OUR tests only because they are the consumers that happen to be in this
+tree. **Any consumer that builds one of this library's structs positionally
+meets the same warning**, and a consumer with `-Werror` meets a build failure.
+Nothing about the change is unsafe -- the field is added at the end and an
+omitted initialiser is zero, which is the silence this library wants -- but it
+is a thing a consumer notices, and it will happen again for every store that
+gains a log.
+
+Reported to fuzzypickles rather than left for them to find, since they declare
+this library's structs. The alternative shapes -- a designated initialiser, or
+calling the `_init` function -- are theirs to choose; the tests here take the
+trailing `NULL`, because two of the three deliberately build states `_init`
+cannot produce.
+
+### The render target needed telling separately
+
+`qttycheck` failed at link with `undefined reference to _flog_printf`, because
+`$(TEST_BINS): $(FLOG_OBJS)` reaches every rule that builds a test BINARY and
+the qtty target is a shell recipe with its own object list. One more line
+there. Worth recording because the general rule and its exception look
+identical from the commit: everything that links a logging object needs flog,
+and only most of it is covered by one prerequisite.
+
+### One macro shape, and a gate for the thing no test can catch
+
+The three macros were written in one sitting and drifted in it: `LINK_LOG`
+took the subsystem as an argument and `STORE_LOG` and `REV_LOG` baked theirs
+in. That is wrong twice -- a baked subsystem means a module can only ever have
+one, which defeats the hierarchy, and a guard looking for subsystem literals
+would have two shapes to know. Normalised at three sites rather than at
+thirteen.
+
+**Then the guard, which fuzzypickles found the need for in their own tree.** A
+subsystem string is PRINTED AND NEVER COMPARED. A misspelled one produces a
+log line that looks perfectly normal and files itself under a name nobody
+greps for -- the emit succeeded, the text is right, and only the filing is
+wrong. **No suite can fail on it.**
+
+`tool/log_gate.py` checks coverage rather than spelling: every subsystem an
+emit site uses must also appear in a test. A typo then fails because the test
+asserts the old string, and **an emit site added with no test at all fails
+too**, which is the case a spelling check cannot see. It derives its
+population from the source rather than a list, so the next emit site is
+covered by existing rather than by somebody remembering.
+
+Shown able to fail three ways before being believed:
+
+	a typo in a subsystem            rc 1, names chain/stroe
+	an emit site with no test        rc 1, names chain/untested
+	the detector stops matching      rc 2, "this checked nothing"
+
+The third is its own exit code because an empty sweep and a clean tree look
+identical in the output, and only one of them is a pass.
+
+**Their own instance is worth recording beside it.** They found 26 subsystems
+across 231 call sites spelled three ways -- hyphens doing a slash's job, and
+one underscore among twenty-odd hyphenated siblings, which is the drift that
+shows nothing was watching. Both trees log into one stream when a consumer
+hangs a `fuzznet` sublog under its root, so the two conventions agreeing is
+not cosmetic.
+
+### And an existing sabotage entry stopped matching, which is the gate working
+
+`chain-store-evicts-at-all` named three lines around the STORE_FULL return,
+and adding a log call between them retired it. `make style` refused,
+`--verify` named it, and it was re-pointed at `at = find_expired(store, now)`
+alone -- a shorter anchor that says the same thing and does not move when the
+lines beside it do.
+
+That is sec 52's rule arriving from the other direction: **a pattern is spelled
+with enough context to name one call site, and no more, because every extra
+line is a way for an unrelated edit to retire the entry.** Re-verified by
+mutation rather than by re-reading: with eviction removed the suite fails four
+assertions.
+
+**And then it happened again, to the entries written in this very section.**
+The three added for the new emit sites were anchored on `STORE_LOG(store,
+FLOG_WARN,` and its siblings -- and normalising the macro to take a subsystem
+argument retired all three within the hour. The gate named them, and they are
+re-anchored on the shortest string that names one site: `"chain/store",
+FLOG_WARN,` rather than the whole call.
+
+Three times in one day, which is enough to state the rule as a habit rather
+than a lesson: **anchor on the part of a line that is about the thing being
+tested, not on the syntax around it.** The severity and the subsystem are the
+finding; the macro name and its indentation are scaffolding, and scaffolding
+moves.

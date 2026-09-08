@@ -98,11 +98,31 @@ typedef struct fzn_chain_entry {
 	size_t len;
 } fzn_chain_entry_t;
 
+/* Declared, not included. sec 209: a consumer with no logger passes nothing
+ * and never sees flog's header, and this interface is the same shape whether
+ * or not the build has diagnostics. */
+struct flog_t;
+
 typedef struct fzn_chain_store {
 	fzn_chain_entry_t *entries;
 	size_t capacity;
 	size_t used;
+	/* Where this store says what happened, or NULL for silence. */
+	struct flog_t *log;
 } fzn_chain_store_t;
+
+/*
+ * Give this store somewhere to say what happened, or NULL to silence it.
+ *
+ * sec 211. What it knows and no return value carries: that a grant was
+ * admitted by REPLACING an expired one, which is a silent substitution the
+ * caller never asked for; and that FZN_CHAIN_ERR_STORE_FULL was returned with
+ * every entry live, which is a different situation from a store that simply
+ * has not been swept -- one wants a bigger store and the other wants time.
+ *
+ * Subsystem `chain/store`. The log is borrowed and must outlive the store.
+ */
+void fzn_chain_store_set_log(fzn_chain_store_t *store, struct flog_t *log);
 
 /* Point `store` at caller-owned entries.
  *

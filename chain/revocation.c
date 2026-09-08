@@ -2,6 +2,18 @@
 
 #include "revocation.h"
 
+/* Diagnostics through flog, vendored and possibly absent. sec 209. */
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+#define REV_LOG(store, sub, sev, ...)                                                      \
+	do {                                                                               \
+		if ((store) && (store)->log)                                               \
+			flog_printf((store)->log, sub, sev, FLOG_MSG_NONE, __VA_ARGS__);    \
+	} while (0)
+#else
+#define REV_LOG(store, sub, sev, ...) ((void)0)
+#endif
+
 /* For `fzn_manifest_satisfy` alone. revocation.h holds only the incomplete
  * type, so nothing in this file can reach into a deficit table -- it can only
  * tell the module that owns one that a pair has been settled. */
@@ -247,6 +259,14 @@ fzn_chain_err_t fzn_revocation_issue_withdrawal(const uint8_t issuer[FZN_PUBKEY_
 	            target, sign, out);
 }
 
+void fzn_revocation_store_set_log(fzn_revocation_store_t *store, struct flog_t *log)
+{
+	if (!store)
+		return;
+
+	store->log = log;
+}
+
 fzn_chain_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_revocation_t *entries,
                                      size_t capacity)
 {
@@ -256,6 +276,8 @@ fzn_chain_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_rev
 	store->entries = entries;
 	store->capacity = capacity;
 	store->used = 0;
+	/* Quiet unless somebody asks. */
+	store->log = NULL;
 
 	return FZN_CHAIN_OK;
 }
@@ -926,8 +948,20 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 	 * not depend on that guard remaining the first thing this function
 	 * does. An append writes at `entries[used]`; an equality test lets a
 	 * corrupt `used` through and the write lands outside the array. */
-	if (store->used >= store->capacity)
+	if (store->used >= store->capacity) {
+		/* WORSE HERE THAN ANYWHERE ELSE IN THE LIBRARY, and the return
+		 * value cannot say so. This store never evicts -- a revocation
+		 * does not expire, so no slot is ever reclaimable -- which
+		 * means a full store refuses every withdrawal from now on. The
+		 * caller learns that one admission failed; what has actually
+		 * happened is that this host has stopped being able to learn
+		 * about revocations at all. */
+		REV_LOG(store, "chain/revocation", FLOG_CRIT,
+		        "revocation store full at %zu entries and nothing here expires, so "
+		        "no further withdrawal can ever be admitted",
+		        store->capacity);
 		return FZN_CHAIN_ERR_STORE_FULL;
+	}
 
 	/* Copied from the record's own bytes, which are the bytes the
 	 * signature above covered. That sentence is the whole of the fix: it

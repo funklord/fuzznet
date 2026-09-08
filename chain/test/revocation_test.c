@@ -15,6 +15,10 @@
 
 #include "../revocation.h"
 
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+#endif
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -2860,6 +2864,89 @@ static void test_the_operands_the_first_one_hides(void)
 	}
 }
 
+#ifdef FZN_FLOG_ON
+/*
+ * A FULL REVOCATION STORE IS NOT ONE FAILED ADMISSION. sec 211.
+ *
+ * This store never evicts -- a revocation does not expire, so no slot is ever
+ * reclaimable, which the module chose deliberately because a lapsed
+ * revocation un-revokes a device. The consequence is that once it is full it
+ * refuses EVERY withdrawal from then on: the host has stopped being able to
+ * learn about revocations at all.
+ *
+ * `FZN_CHAIN_ERR_STORE_FULL` says one admission failed. Nothing in the API
+ * says the other thing, which is why it is FLOG_CRIT rather than a warning --
+ * it is the one condition here that does not recover on its own.
+ */
+static struct {
+	int calls;
+	flog_msg_type_t type;
+	char subsystem[64];
+	char text[512];
+} rev_log_seen;
+
+static int rev_log_capture(flog_t *p, const flog_msg_t *m)
+{
+	(void)p;
+	rev_log_seen.calls++;
+	rev_log_seen.type = m->type;
+	rev_log_seen.subsystem[0] = '\0';
+	rev_log_seen.text[0] = '\0';
+	if (m->subsystem)
+		snprintf(rev_log_seen.subsystem, sizeof(rev_log_seen.subsystem), "%s",
+		         m->subsystem);
+	if (m->text)
+		snprintf(rev_log_seen.text, sizeof(rev_log_seen.text), "%s", m->text);
+	return 0;
+}
+
+static void test_a_full_revocation_store_says_it_can_never_learn_again(void)
+{
+	struct fixture f;
+	uint8_t bytes[FZN_REVOCATION_LEN];
+	fzn_revocation_record_t r;
+	flog_t log;
+	uint8_t i;
+
+	init_flog_t(&log);
+	log.name = NULL;
+	log.accepted_msg_type = FLOG_ACCEPT_ALL;
+	log.output_func = rev_log_capture;
+
+	fixture_init(&f);
+
+	/* QUIET UNTIL SOMEBODY ASKS, and the log is planted before the init
+	 * that must clear it so the guard is what is tested. */
+	fzn_revocation_store_set_log(&f.store, &log);
+	fixture_init(&f);
+	memset(&rev_log_seen, 0, sizeof(rev_log_seen));
+
+	for (i = 0; i < 4; i++) {
+		issue(&f, bytes, &r, 0, 0xc0, (uint8_t)(30 + i));
+		CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(r), f.root,
+		                           &f.sign, &HASH_OPS, NULL) == FZN_CHAIN_OK,
+		      "filling entry %u", i);
+	}
+	CHECK(rev_log_seen.calls == 0,
+	      "a store nobody gave a log to emitted anyway, or filling one is worth "
+	      "saying -- and an event on the ordinary path is one nobody reads");
+
+	fzn_revocation_store_set_log(&f.store, &log);
+	issue(&f, bytes, &r, 0, 0xc0, 98);
+	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(r), f.root, &f.sign,
+	                           &HASH_OPS, NULL) == FZN_CHAIN_ERR_STORE_FULL,
+	      "a full store admitted another revocation");
+	CHECK(rev_log_seen.calls == 1, "a store that can never learn again said nothing");
+	CHECK(rev_log_seen.type == FLOG_CRIT,
+	      "a condition that does not recover on its own was reported below critical");
+	CHECK(strcmp(rev_log_seen.subsystem, "chain/revocation") == 0,
+	      "the event did not name the subsystem it came from");
+	CHECK(strstr(rev_log_seen.text, "nothing here expires") != NULL,
+	      "the line reports a full store and not that the fullness is permanent, "
+	      "which is the whole of why this one matters");
+}
+#endif /* FZN_FLOG_ON */
+
 int main(void)
 {
 	test_layout_and_round_trip();
@@ -2910,6 +2997,10 @@ int main(void)
 
 	test_the_operands_the_first_one_hides();
 	test_soundness_is_public_and_agrees_with_the_guards();
+
+#ifdef FZN_FLOG_ON
+	test_a_full_revocation_store_says_it_can_never_learn_again();
+#endif
 
 	printf("revocation_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

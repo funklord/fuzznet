@@ -248,7 +248,7 @@ static int drive(const uint8_t *data, size_t size, int *accepted)
 	/* The store over that array, since `fzn_chain_verify` takes one now.
 	 * `capacity` is the array's real length; only `used` follows the
 	 * corpus. */
-	fzn_revocation_store_t rev_store = { revs, MAX_REVOCATIONS, 0 };
+	fzn_revocation_store_t rev_store = { revs, MAX_REVOCATIONS, 0, NULL };
 	uint8_t root[FZN_PUBKEY_LEN];
 	fzn_cap_id_t capability;
 	struct cursor c = { data, size, 0 };

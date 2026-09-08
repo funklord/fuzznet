@@ -1074,6 +1074,27 @@ SABOTAGES = [
 		"the tri-state exists so `could not tell` cannot be read as `no`; rendering them as one word undoes a whole module at the point a person reads it -- sec 204",
 	),
 	(
+		"chain-store-full-of-live-is-not-full-of-stale",
+		"chain/chain_store.c",
+		"\"chain/store\", FLOG_WARN,\n",
+		"\"chain/store\", FLOG_NOTE,\n",
+		"a store full of LIVE grants wants a bigger store and one full of stale entries wants a sweep; the return value is FZN_CHAIN_ERR_STORE_FULL either way, so the severity is the only thing separating a condition that resolves itself from one that does not -- sec 211",
+	),
+	(
+		"chain-store-says-what-it-reclaimed",
+		"chain/chain_store.c",
+		"\"reclaimed an entry expired at",
+		"\"NOT REACHED expired at",
+		"admitting a chain can make an unrelated expired grant stop existing, and the caller asked for the first and never hears about the second -- sec 211",
+	),
+	(
+		"revocation-full-is-permanent",
+		"chain/revocation.c",
+		"\"chain/revocation\", FLOG_CRIT,\n",
+		"\"chain/revocation\", FLOG_WARN,\n",
+		"this store never evicts because a revocation does not expire, so a full one refuses every withdrawal from then on -- the host has stopped being able to learn about revocations at all, which is the one condition here that does not recover on its own -- sec 211",
+	),
+	(
 		"link-snapshot-says-what-it-dropped",
 		"link/link.c",
 		"\tif (*dropped)\n\t\tLINK_LOG(table, \"link/snapshot\", FLOG_WARN,\n",
@@ -2048,10 +2069,8 @@ SABOTAGES = [
 	(
 		"chain-store-evicts-at-all",
 		"chain/chain_store.c",
-		"\t\t\tat = find_expired(store, now);\n"
-		"\t\t\tif (at == store->used)\n"
-		"\t\t\t\treturn FZN_CHAIN_ERR_STORE_FULL;\n",
-		"\t\t\treturn FZN_CHAIN_ERR_STORE_FULL;\n",
+		"\t\t\tat = find_expired(store, now);\n",
+		"\t\t\tat = store->used;\n",
 		"a store holding nothing but expired chains must take a live one rather "
 		"than refusing for ever",
 	),

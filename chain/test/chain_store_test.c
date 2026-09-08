@@ -1008,6 +1008,114 @@ static void test_a_dead_entry_is_spent_before_a_live_chain_is_refused(void)
 	}
 }
 
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+/*
+ * THE STORE SAYS WHAT IT DID, WHICH THE RETURN VALUE CANNOT. sec 211.
+ *
+ * Two things happen in `fzn_chain_store_admit` that a caller never learns.
+ * A live chain is admitted by REPLACING an expired one -- an unrelated grant
+ * stops existing and nothing in the return says so. And FZN_CHAIN_ERR_STORE_FULL
+ * is returned both when the store is full of stale entries that a later sweep
+ * would free and when every entry is LIVE, which wants a bigger store rather
+ * than more time.
+ *
+ * IN THIS SUITE RATHER THAN ITS OWN BINARY, because `$(TEST_BINS)` gains
+ * flog's objects as a prerequisite, so every suite can already link it -- and
+ * the assertion belongs beside the behaviour it describes rather than in a
+ * file somebody has to think to open.
+ */
+static struct {
+	int calls;
+	flog_msg_type_t type;
+	char subsystem[64];
+	char text[512];
+} log_seen;
+
+static int log_capture(flog_t *p, const flog_msg_t *m)
+{
+	(void)p;
+	log_seen.calls++;
+	log_seen.type = m->type;
+	log_seen.subsystem[0] = '\0';
+	log_seen.text[0] = '\0';
+	if (m->subsystem)
+		snprintf(log_seen.subsystem, sizeof(log_seen.subsystem), "%s", m->subsystem);
+	if (m->text)
+		snprintf(log_seen.text, sizeof(log_seen.text), "%s", m->text);
+	return 0;
+}
+
+static void test_the_store_says_what_it_reclaimed_and_what_it_refused(void)
+{
+	struct fixture f;
+	uint8_t g2[FZN_PUBKEY_LEN], g3[FZN_PUBKEY_LEN];
+	uint8_t two[FZN_HOP_LEN], three[FZN_HOP_LEN];
+	fzn_chain_hop_t h2, h3;
+	flog_t log;
+
+	REQUIRE(build(&f), "the fixture does not build");
+	key(g2, 0x61);
+	key(g3, 0x62);
+	signing_as = 0x11;
+	REQUIRE(fzn_chain_mint(f.root, g2, &f.cap, 100, 5000, 1, &OPS, two) == FZN_CHAIN_OK, "m2");
+	REQUIRE(fzn_hop_open(two, FZN_HOP_LEN, &h2) == FZN_CHAIN_OK, "h2");
+	REQUIRE(fzn_chain_mint(f.root, g3, &f.cap, 100, 9000, 1, &OPS, three) == FZN_CHAIN_OK, "m3");
+	REQUIRE(fzn_hop_open(three, FZN_HOP_LEN, &h3) == FZN_CHAIN_OK, "h3");
+
+	init_flog_t(&log);
+	log.name = NULL;
+	log.accepted_msg_type = FLOG_ACCEPT_ALL;
+	log.output_func = log_capture;
+
+	/* A STORE IS QUIET UNTIL SOMEBODY ASKS. The log is planted BEFORE the
+	 * init that must clear it, so the guard is what is tested rather than
+	 * whatever was on the stack. */
+	fzn_chain_store_set_log(&f.store, &log);
+	REQUIRE(fzn_chain_store_init(&f.store, f.storage, 2u) == FZN_CHAIN_OK, "re-init");
+	memset(&log_seen, 0, sizeof(log_seen));
+	REQUIRE(fzn_chain_store_admit(&f.store, &f.hop, 1, f.root, &f.cap, 200, &OPS, NULL,
+	                              NULL) == FZN_CHAIN_OK,
+	        "first admit");
+	CHECK(log_seen.calls == 0,
+	      "a store nobody gave a log to emitted anyway, so a caller's stack decides "
+	      "whether this library talks");
+
+	fzn_chain_store_set_log(&f.store, &log);
+	REQUIRE(fzn_chain_store_admit(&f.store, &h2, 1, f.root, &f.cap, 200, &OPS, NULL,
+	                              NULL) == FZN_CHAIN_OK,
+	        "second admit");
+
+	/* FULL OF LIVE GRANTS. The caller is told FULL and not that nothing
+	 * could have been reclaimed -- which is the difference between wanting
+	 * a bigger store and wanting to wait. */
+	memset(&log_seen, 0, sizeof(log_seen));
+	CHECK(fzn_chain_store_admit(&f.store, &h3, 1, f.root, &f.cap, 300, &OPS, NULL, NULL)
+	              == FZN_CHAIN_ERR_STORE_FULL,
+	      "a live grant was evicted");
+	CHECK(log_seen.calls == 1, "a refusal for want of room said nothing");
+	CHECK(log_seen.type == FLOG_WARN, "a store that cannot grow was not a warning");
+	CHECK(strcmp(log_seen.subsystem, "chain/store") == 0,
+	      "the event did not name the subsystem it came from, so nothing can filter "
+	      "or attribute it");
+	CHECK(strstr(log_seen.text, "live") != NULL,
+	      "the line does not say the entries were live, which is the whole difference "
+	      "between wanting a bigger store and wanting a sweep");
+
+	/* AND A SILENT SUBSTITUTION. Past 5000 the stale entries are spendable,
+	 * so the admission succeeds by making an unrelated grant stop existing
+	 * and the return value says only OK. */
+	memset(&log_seen, 0, sizeof(log_seen));
+	CHECK(fzn_chain_store_admit(&f.store, &h3, 1, f.root, &f.cap, 6000, &OPS, NULL, NULL)
+	              == FZN_CHAIN_OK,
+	      "an expired entry was not reclaimed");
+	CHECK(log_seen.calls == 1, "a grant was replaced and nothing said so");
+	CHECK(log_seen.type == FLOG_NOTE, "a reclaim was not reported as a note");
+	CHECK(strstr(log_seen.text, "reclaimed") != NULL,
+	      "the line does not say an entry was reclaimed");
+}
+#endif /* FZN_FLOG_ON */
+
 int main(void)
 {
 	test_init_refuses_what_cannot_hold_anything();
@@ -1030,6 +1138,9 @@ int main(void)
 	test_a_length_past_the_buffer_is_not_handed_out();
 	test_a_dead_entry_is_spent_before_a_live_chain_is_refused();
 	test_soundness_is_public_and_agrees_with_the_guards();
+#ifdef FZN_FLOG_ON
+	test_the_store_says_what_it_reclaimed_and_what_it_refused();
+#endif
 
 	printf("chain_store_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

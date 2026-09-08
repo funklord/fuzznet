@@ -351,14 +351,37 @@ static inline void fzn_revocation_signed_bytes(fzn_revocation_record_t rec, cons
  * AddressSanitizer. chain.h carries the report. `fzn_chain_verify` takes a
  * `const fzn_revocation_store_t *` now, and the three fields travel
  * together because they only mean anything together. */
+/* Declared, not included, and repeated per header on purpose: a forward
+ * declaration is legal any number of times, and every header here is
+ * self-contained rather than relying on what its neighbours pulled in. */
+struct flog_t;
+
 struct fzn_revocation_store {
 	fzn_revocation_t *entries;
 	size_t capacity;
 	size_t used;
+	/* Where this store says what happened, or NULL for silence. sec 211. */
+	struct flog_t *log;
 };
 
 fzn_chain_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_revocation_t *entries,
                                      size_t capacity);
+
+/*
+ * Give this store somewhere to say what happened, or NULL to silence it.
+ *
+ * sec 211. What it knows and no return value carries: that it is FULL, which
+ * here is worse than anywhere else in the library because this store never
+ * evicts -- a revocation does not expire, so no slot is ever reclaimable and
+ * a full store refuses every withdrawal from then on. A caller reading
+ * FZN_CHAIN_ERR_STORE_FULL learns that one admission failed; what it needs to
+ * know is that the host has stopped being able to learn about revocations at
+ * all.
+ *
+ * Subsystem `chain/revocation`. The log is borrowed and must outlive the
+ * store.
+ */
+void fzn_revocation_store_set_log(fzn_revocation_store_t *store, struct flog_t *log);
 
 /* The manifest state, DECLARED here and DEFINED in manifest.h.
  *

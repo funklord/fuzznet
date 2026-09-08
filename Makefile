@@ -962,13 +962,9 @@ MONO_SRC := $(wildcard $(MONOCYPHER_DIR)/src/monocypher.c)
 # to link: a target with no file API links neither and still has the logger,
 # which is flog's own structure doing the gating rather than anything this
 # file has to arrange.
-# LINKING link.o MEANS LINKING ITS LOGGER, said once so the next rule cannot
-# forget it. sec 209: `fzn_link_snapshot` calls flog, so every binary that
-# links `link/link.o` needs flog's objects -- seven rules did, and the one
-# that was missed failed at LINK time in `err_str_test`, a suite with nothing
-# to do with links. Empty when flog is absent, which is the whole of the
-# no-flog build.
-LINK_OBJ = $(BUILD_DIR)/link/link.o $(FLOG_OBJS)
+# Named for the rules that link it. flog is a prerequisite of every test
+# binary at once, further down, so it is NOT named here -- see sec 211.
+LINK_OBJ = $(BUILD_DIR)/link/link.o
 
 FLOG_VENDORED := flog
 FLOG_DIR      ?= $(FLOG_VENDORED)
@@ -2672,6 +2668,26 @@ test: codegencheck runtests
 TEST_BINS += $(BUILD_DIR)/sim/test/network_test $(MONO_REAL) $(MONO_PROV) \
              $(MONO_DISC)
 
+# EVERY TEST BINARY GETS flog, ONCE, AND MAKE KNOWS ABOUT IT. sec 211.
+#
+# As more of the library logs, more objects reference flog, and naming its
+# objects per rule does not scale: two logging modules in one rule would put
+# `$(FLOG_OBJS)` on the link line TWICE, which is a multiple-definition error
+# rather than a duplicate the linker ignores. That is what a per-module
+# variable was heading for.
+#
+# A prerequisite of every test binary instead. GNU make's `$^` OMITS
+# DUPLICATES -- which is the whole reason this works and the reason it is
+# `$^` rather than `$+` in all 113 link recipes -- so flog appears exactly
+# once on each command line whether or not a rule also named it.
+#
+# And it is a PREREQUISITE rather than an addition to the recipe, so a moved
+# flog pin relinks the tests that use it. Appending to the recipe alone would
+# have been the staleness sec 210 is about, introduced by the fix for it.
+#
+# Expands to nothing when flog is absent, which is the whole of that build.
+$(TEST_BINS): $(FLOG_OBJS)
+
 runtests: $(TEST_BINS)
 	@for t in $(TEST_BINS); do echo "running $$t"; $$t || exit 1; done
 	@# SAY WHEN THE MONOCYPHER BINDINGS WERE NOT BUILT, rather than leaving
@@ -3644,6 +3660,13 @@ style:
 	@# two unrelated subjects, in a file that cites sections by name. The
 	@# vendoring one is renamed; 13c's keeps the name its two citations use.
 	python3 tool/style_gate.py docs
+	@# EVERY SUBSYSTEM THIS LIBRARY LOGS UNDER IS ASSERTED BY A TEST.
+	@# sec 211: a subsystem string is printed and never compared, so a
+	@# misspelled one files a normal-looking line where nobody greps and no
+	@# suite can fail on it. Refuses an empty sweep with its own exit code,
+	@# because finding no emit sites means the detector stopped matching
+	@# rather than that the tree is clean.
+	python3 tool/log_gate.py
 
 # Installs the commit-msg hook from tool/hooks/ into .git/hooks/. In the tree
 # rather than only in .git so that it is reviewable, survives a clone, and can
@@ -4030,6 +4053,7 @@ qtty:
 	       $(BUILD_DIR)/record/journal.o $(BUILD_DIR)/record/record.o \
 	       $(BUILD_DIR)/chain/authz.o $(BUILD_DIR)/chain/chain.o \
 	       $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
+	       $(FLOG_OBJS) \
 	       $(BUILD_DIR)/catalog/sweep.o $(BUILD_DIR)/catalog/catalog.o \
 	       $(BUILD_DIR)/constant_time/constant_time.o \
 	       "$$scratch/lib/libqtty.a" $$qobjs $(QT_LIBS) -o "$$scratch/render_test"; \
