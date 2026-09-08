@@ -95,9 +95,32 @@ typedef struct fzn_record_store_ops {
 	void *ctx;
 } fzn_record_store_ops_t;
 
+/* Declared, not included. sec 209. */
+struct flog_t;
+
 typedef struct fzn_record_store {
 	const fzn_record_store_ops_t *ops;
+	/* Where this store says what happened, or NULL for silence. */
+	struct flog_t *log;
 } fzn_record_store_t;
+
+/*
+ * Give this store somewhere to say what happened, or NULL to silence it.
+ *
+ * sec 216. MISPLACED is the one worth having: a record whose issuer, stream
+ * or sequence disagrees with the key it was fetched under. This module's own
+ * comment says why it matters -- such a record "may be perfectly well signed,
+ * which is why a signature check further up would not have caught this" -- so
+ * it is a storage-integrity fault rather than a protocol one, and the only
+ * layer that can see it is this one.
+ *
+ * BACKEND is the consumer's own storage refusing, as `spool/store` reports
+ * for the same reason: not fuzznet's fault, and nothing in the protocol
+ * resolves it.
+ *
+ * Subsystem `record/store`. The log is borrowed and must outlive the store.
+ */
+void fzn_record_store_set_log(fzn_record_store_t *store, struct flog_t *log);
 
 /* Point a store at a backend. */
 fzn_record_store_err_t fzn_record_store_init(fzn_record_store_t *store,

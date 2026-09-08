@@ -239,6 +239,80 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 	checks -= 1;
 }
 
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+
+#include <string.h>
+
+/* Borrowed strings, so anything kept is copied. */
+static struct {
+	int calls;
+	flog_msg_type_t type;
+	char subsystem[64];
+	char text[512];
+} claim_log_seen;
+
+static int claim_log_capture(flog_t *p, const flog_msg_t *m)
+{
+	(void)p;
+	claim_log_seen.calls++;
+	claim_log_seen.type = m->type;
+	claim_log_seen.subsystem[0] = '\0';
+	claim_log_seen.text[0] = '\0';
+	if (m->subsystem)
+		snprintf(claim_log_seen.subsystem, sizeof(claim_log_seen.subsystem), "%s",
+		         m->subsystem);
+	if (m->text)
+		snprintf(claim_log_seen.text, sizeof(claim_log_seen.text), "%s", m->text);
+	return 0;
+}
+
+/*
+ * A RELEASE THE BACKEND REFUSED, WITH `held` ALREADY CLEARED. sec 216.
+ *
+ * This object now believes the claim is gone and the world may disagree.
+ * Nothing later in this process retries it, and FZN_CLAIM_ERR_BACKEND reaches
+ * a caller unwinding a failure path that is unlikely to look -- which is
+ * exactly the shape a log exists for.
+ */
+static void test_the_claim_says_a_release_was_refused(void)
+{
+	struct stub s;
+	fzn_claim_ops_t ops;
+	fzn_claim_t c;
+	flog_t log;
+
+	init_flog_t(&log);
+	log.name = NULL;
+	log.accepted_msg_type = FLOG_ACCEPT_ALL;
+	log.output_func = claim_log_capture;
+
+	stub_init(&s, &ops);
+
+	/* QUIET UNTIL ASKED: planted before the init that clears it. */
+	CHECK(fzn_claim_init(&c, &ops) == FZN_CLAIM_OK, "init refused");
+	fzn_claim_set_log(&c, &log);
+	CHECK(fzn_claim_init(&c, &ops) == FZN_CLAIM_OK, "re-init refused");
+	memset(&claim_log_seen, 0, sizeof(claim_log_seen));
+	CHECK(fzn_claim_take(&c) == FZN_CLAIM_OK, "take refused");
+	CHECK(fzn_claim_release(&c) == FZN_CLAIM_OK, "release refused");
+	CHECK(claim_log_seen.calls == 0, "a claim nobody gave a log to emitted anyway");
+
+	fzn_claim_set_log(&c, &log);
+	CHECK(fzn_claim_take(&c) == FZN_CLAIM_OK, "take refused");
+	s.release_result = 0;
+	memset(&claim_log_seen, 0, sizeof(claim_log_seen));
+	CHECK(fzn_claim_release(&c) == FZN_CLAIM_ERR_BACKEND, "a refused release passed");
+	CHECK(claim_log_seen.calls == 1, "a refused release said nothing");
+	CHECK(claim_log_seen.type == FLOG_ERR, "a claim possibly still held was not an error");
+	CHECK(strcmp(claim_log_seen.subsystem, "claim/hold") == 0,
+	      "the event did not name its subsystem");
+	CHECK(strstr(claim_log_seen.text, "still be held") != NULL,
+	      "the line reports a refused call and not that the claim may still be held "
+	      "elsewhere, which is the part nothing else will notice");
+}
+#endif
+
 int main(void)
 {
 	test_a_fresh_claim_is_not_held();
@@ -251,6 +325,10 @@ int main(void)
 	test_held_is_total();
 	test_the_errors_render();
 	test_the_suite_can_tell_pass_from_fail();
+
+#ifdef FZN_FLOG_ON
+	test_the_claim_says_a_release_was_refused();
+#endif
 
 	printf("claim_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

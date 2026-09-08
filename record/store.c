@@ -1,6 +1,26 @@
 #include "store.h"
 
+/* Diagnostics through flog, vendored and possibly absent. sec 209. */
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+#define RSTORE_LOG(st, sub, sev, ...)                                                      \
+	do {                                                                               \
+		if ((st) && (st)->log)                                                     \
+			flog_printf((st)->log, sub, sev, FLOG_MSG_NONE, __VA_ARGS__);       \
+	} while (0)
+#else
+#define RSTORE_LOG(st, sub, sev, ...) ((void)0)
+#endif
+
 #include <string.h>
+
+void fzn_record_store_set_log(fzn_record_store_t *store, struct flog_t *log)
+{
+	if (!store)
+		return;
+
+	store->log = log;
+}
 
 fzn_record_store_err_t fzn_record_store_init(fzn_record_store_t *store,
                                              const fzn_record_store_ops_t *ops)
@@ -9,6 +29,8 @@ fzn_record_store_err_t fzn_record_store_init(fzn_record_store_t *store,
 		return FZN_RECORD_STORE_ERR_MALFORMED;
 
 	store->ops = ops;
+	/* Quiet unless somebody asks. */
+	store->log = NULL;
 	return FZN_RECORD_STORE_OK;
 }
 
@@ -61,8 +83,20 @@ fzn_record_store_err_t fzn_record_store_get(fzn_record_store_t *store,
 	 * may be perfectly well signed, which is why a signature check further
 	 * up would not have caught this. */
 	if (memcmp(fzn_record_issuer(record), issuer, FZN_PUBKEY_LEN) != 0
-	    || fzn_record_stream(record) != stream || fzn_record_seq(record) != seq)
+	    || fzn_record_stream(record) != stream || fzn_record_seq(record) != seq) {
+		/* A STORAGE-INTEGRITY FAULT, NOT A PROTOCOL ONE. The record may
+		 * be perfectly well signed -- which is why a signature check
+		 * further up would not have caught it -- and this is the only
+		 * layer that can see that what came back is not what was asked
+		 * for. */
+		RSTORE_LOG(store, "record/store", FLOG_ERR,
+		           "backend returned a record that is not the one asked for: "
+		           "wanted stream %lu seq %llu, got stream %lu seq %llu",
+		           (unsigned long)stream, (unsigned long long)seq,
+		           (unsigned long)fzn_record_stream(record),
+		           (unsigned long long)fzn_record_seq(record));
 		return FZN_RECORD_STORE_ERR_MISPLACED;
+	}
 
 	*record_out = record;
 	return FZN_RECORD_STORE_OK;

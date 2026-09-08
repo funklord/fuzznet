@@ -86,10 +86,28 @@ typedef struct fzn_claim_ops {
 	void *ctx;
 } fzn_claim_ops_t;
 
+/* Declared, not included. sec 209. */
+struct flog_t;
+
 typedef struct fzn_claim {
 	const fzn_claim_ops_t *ops;
 	int held;
+	/* Where this claim says what happened, or NULL for silence. */
+	struct flog_t *log;
 } fzn_claim_t;
+
+/*
+ * Give this claim somewhere to say what happened, or NULL to silence it.
+ *
+ * sec 216. A RELEASE that the backend refuses is the one worth having: `held`
+ * is already cleared when it happens, so this object believes the claim is
+ * gone and the world may disagree. Nothing later in this process will retry
+ * it, and FZN_CLAIM_ERR_BACKEND reaches a caller unwinding a failure path
+ * that is unlikely to look.
+ *
+ * Subsystem `claim/hold`. The log is borrowed and must outlive the claim.
+ */
+void fzn_claim_set_log(fzn_claim_t *claim, struct flog_t *log);
 
 /* Point a claim at a backend. Does not take it: a process decides when to
  * try, and a constructor that took one would make "am I the owner" true

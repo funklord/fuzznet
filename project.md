@@ -33154,3 +33154,109 @@ every fixture, macro and include is already in scope.** Recorded as a
 position rather than as a rule about declarations, since the first two
 corrections were filed as `return`-type problems and taught nothing that
 prevented the third.
+
+## 216. Two more, and two the shape refuses
+
+`record/store` and `claim/hold` join the diagnostics. `ratchet` and `blob`
+were examined and DECLINED, and the reason is structural rather than a
+judgement about whether they have anything to say.
+
+	record/store  ERR  the backend returned a record that is not the one asked for
+	claim/hold    ERR  a release the backend refused, with `held` already cleared
+
+**MISPLACED is the sharpest event in this batch**, and the module's own
+comment says why: a record handed back under the wrong key "may be perfectly
+well signed, which is why a signature check further up would not have caught
+this". So no layer above can see it and no layer below is looking. The return
+value names the fault; the line names the DISCREPANCY -- wanted stream and
+sequence against what arrived -- which is what says whether a backend is
+confusing sequences or confusing issuers, and those are different bugs in
+somebody else's code.
+
+**The claim one is about a window nobody watches.** `held` is cleared BEFORE
+the release is attempted, deliberately -- a process that believes it still
+owns state the kernel may have handed on is how this design desynchronises a
+ratchet. The consequence is that when the backend then refuses, this object
+believes the claim is gone and the world may disagree, nothing later in the
+process retries, and `FZN_CLAIM_ERR_BACKEND` reaches a caller unwinding a
+failure path that is unlikely to look.
+
+### Two modules where a log field would be wrong
+
+**`ratchet` has no context to hold one.** `fzn_ratchet_chain_t` is a key and a
+sequence -- a VALUE, copied by assignment, and one fuzzypickles declares. A
+log pointer in it would be copied with every chain, would bloat every message
+that carries one, and would mean a value type owning a borrowed pointer with a
+lifetime nothing checks. Logging from `ratchet` would have to pass the log as
+a parameter, which is signature churn on a hot path for one event.
+
+And the event is weaker than it looks. `FZN_RATCHET_ERR_BEHIND` is the
+frequent one, and this module already says what to do about it: "ordinary
+weather on a datagram transport, and a caller that treats it as an intrusion
+will alarm on it hourly". **The source told me the severity, and the severity
+is low enough that the parameter is not worth it.** `TOO_FAR` is the
+interesting one and is rare.
+
+**`blob` has no context either.** `fzn_blob_tree_t` is a working accumulator
+-- a stack, a depth, a leaf count -- and `FZN_BLOB_ERR_FULL` there means a
+caller asked for a tree larger than the format allows, which is a programming
+error at build time rather than a field condition. Nothing about it is
+surprising at three in the morning.
+
+**This is sec 201's rule applied to logging.** Every part of the library
+should log; not every part has a place to put a log or something worth
+saying, and adding a field to a value type to keep the pattern uniform would
+be exactly the symmetry that section refused.
+
+### Four instrument slips in one batch, all cheap and all the same shape
+
+An invented sequence number (zero, where this store's records start at one); a
+"fix" that broke a working fixture by making the requested sequence match the
+slot being answered with, which is the opposite of what the case needs; a test
+function inserted at a `printf` anchor that sits INSIDE `main`; and a suite
+that does not include `<string.h>`.
+
+Every one was a guess about a neighbouring file's vocabulary rather than a
+reading of it, and every one cost a single compile or a single run. **The
+compiler and the suite hold that whole vocabulary, which is why guessing there
+is cheap** -- and why the same habit applied to a runtime convention, where
+nothing holds it, is what sec 210 cost.
+
+Three sabotage anchors retired again, all spelled over the multi-line
+conditions the new log calls wrapped in braces. Eleven re-points today.
+
+### The gate could not run whole, and what ran is recorded rather than implied
+
+Three `make check` runs were killed by the harness for machine memory
+pressure, on a box reporting 30 GB available throughout -- so these are
+allocation spikes during sanitized compiles and instrumented test processes,
+not exhaustion. Several other sessions were building at the time.
+
+Splitting the gate into its stages is what made the result reportable at all:
+a kill then costs one stage rather than erasing the evidence that the rest
+passed.
+
+	style        RC=0  338 sabotage anchors, log-gate coverage
+	test         RC=0  100 clean suites
+	installcheck RC=0  73 public headers as C++, all four arrangements
+	ctcheck      RC=0
+	qrcheck      RC=0
+	sancheck     KILLED at 56 clean suites, no failure before it
+	qttycheck    KILLED building qtty's own Qt library
+
+**What was done instead of claiming the two missing stages.** The five suites
+this change touches were built and run individually under AddressSanitizer --
+store, claim, freshness, reassembly, spool -- all clean. That is the check
+that matters here, because this batch adds a POINTER TO A PUBLIC STRUCT, which
+is the exact class that produced sec 210's stack-buffer-overflow.
+
+And `qttycheck` is unaffected by this change rather than merely unrun: no
+widget declares `fzn_record_store_t` or `fzn_claim_t`, and none includes
+either header. Checked rather than assumed, because "probably unaffected" is
+how a skipped stage becomes a habit.
+
+**The environment fact is worth keeping separately from the result.** A
+commit that said "gate passed" would have been true of five stages and silent
+about two, and a reader six months from now cannot tell a stage that passed
+from one that never ran -- which is sec 205's whole subject, arriving from the
+machine rather than from the Makefile.

@@ -978,8 +978,8 @@ SABOTAGES = [
 	(
 		"claim-failed-release-gives-up",
 		"claim/claim.c",
-		"\tclaim->held = 0;\n\tif (!claim->ops->release(claim->ops->ctx))\n",
-		"\tif (!claim->ops->release(claim->ops->ctx))\n",
+		"\tclaim->held = 0;\n\tif (!claim->ops->release(",
+		"\tif (!claim->ops->release(",
 		"a process that believes it still owns state the kernel may have handed on is the one way this design desynchronises a ratchet, so a failed release must still give up ownership",
 	),
 	(
@@ -992,15 +992,15 @@ SABOTAGES = [
 	(
 		"store-placement-checked",
 		"record/store.c",
-		"\tif (memcmp(fzn_record_issuer(record), issuer, FZN_PUBKEY_LEN) != 0\n\t    || fzn_record_stream(record) != stream || fzn_record_seq(record) != seq)\n",
-		"\tif (0)\n",
+		"\tif (memcmp(fzn_record_issuer(record), issuer, FZN_PUBKEY_LEN) != 0\n\t    || fzn_record_stream(record) != stream || fzn_record_seq(record) != seq) {\n",
+		"\tif (0) {\n",
 		"a store several processes share is safe only because a reader checks what it got, and a misplaced record may be perfectly well signed -- so no signature check further up would catch it",
 	),
 	(
 		"store-placement-issuer-half",
 		"record/store.c",
-		"\tif (memcmp(fzn_record_issuer(record), issuer, FZN_PUBKEY_LEN) != 0\n\t    || fzn_record_stream(record) != stream || fzn_record_seq(record) != seq)\n",
-		"\tif (fzn_record_stream(record) != stream || fzn_record_seq(record) != seq)\n",
+		"\tif (memcmp(fzn_record_issuer(record), issuer, FZN_PUBKEY_LEN) != 0\n\t    || fzn_record_stream(record) != stream || fzn_record_seq(record) != seq) {\n",
+		"\tif (fzn_record_stream(record) != stream || fzn_record_seq(record) != seq) {\n",
 		"the issuer is a third of the address, and dropping it hands one issuer's record back as another's at the same stream and sequence",
 	),
 	(
@@ -1072,6 +1072,20 @@ SABOTAGES = [
 		"\treturn QStringLiteral(\"cannot tell\");\n",
 		"\treturn QStringLiteral(\"denied\");\n",
 		"the tri-state exists so `could not tell` cannot be read as `no`; rendering them as one word undoes a whole module at the point a person reads it -- sec 204",
+	),
+	(
+		"record-store-names-what-came-back",
+		"record/store.c",
+		"\"record/store\", FLOG_ERR,\n",
+		"\"record/store\", FLOG_INFO,\n",
+		"a record handed back under the wrong key may be perfectly well signed, so a signature check further up cannot catch it and this is the only layer that can see the backend is confusing sequences or issuers -- sec 216",
+	),
+	(
+		"claim-refused-release-is-said",
+		"claim/claim.c",
+		"\"claim/hold\", FLOG_ERR,\n",
+		"\"claim/hold\", FLOG_INFO,\n",
+		"`held` is already cleared when the backend refuses, so this object believes the claim is gone while the world may disagree, nothing later retries it, and the return reaches a caller unwinding a failure path that is unlikely to look -- sec 216",
 	),
 	(
 		"replay-refusal-is-said",

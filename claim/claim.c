@@ -1,5 +1,25 @@
 #include "claim.h"
 
+/* Diagnostics through flog, vendored and possibly absent. sec 209. */
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+#define CLAIM_LOG(c, sub, sev, ...)                                                        \
+	do {                                                                               \
+		if ((c) && (c)->log)                                                       \
+			flog_printf((c)->log, sub, sev, FLOG_MSG_NONE, __VA_ARGS__);        \
+	} while (0)
+#else
+#define CLAIM_LOG(c, sub, sev, ...) ((void)0)
+#endif
+
+void fzn_claim_set_log(fzn_claim_t *claim, struct flog_t *log)
+{
+	if (!claim)
+		return;
+
+	claim->log = log;
+}
+
 fzn_claim_err_t fzn_claim_init(fzn_claim_t *claim, const fzn_claim_ops_t *ops)
 {
 	if (!claim || !ops || !ops->take || !ops->release)
@@ -7,6 +27,8 @@ fzn_claim_err_t fzn_claim_init(fzn_claim_t *claim, const fzn_claim_ops_t *ops)
 
 	claim->ops = ops;
 	claim->held = 0;
+	/* Quiet unless somebody asks. */
+	claim->log = NULL;
 	return FZN_CLAIM_OK;
 }
 
@@ -47,8 +69,16 @@ fzn_claim_err_t fzn_claim_release(fzn_claim_t *claim)
 	 * the two wrong answers, refusing to act is the one that cannot
 	 * desynchronise a ratchet. */
 	claim->held = 0;
-	if (!claim->ops->release(claim->ops->ctx))
+	if (!claim->ops->release(claim->ops->ctx)) {
+		/* `held` IS ALREADY CLEARED, so this object now believes the
+		 * claim is gone and the world may disagree. Nothing later in
+		 * this process retries it, and the return reaches a caller
+		 * unwinding a failure path that is unlikely to look. */
+		CLAIM_LOG(claim, "claim/hold", FLOG_ERR,
+		          "the backend refused to release a claim this object has already "
+		          "marked released, so it may still be held elsewhere");
 		return FZN_CLAIM_ERR_BACKEND;
+	}
 	return FZN_CLAIM_OK;
 }
 

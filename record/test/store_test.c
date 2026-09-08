@@ -516,6 +516,92 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 	checks -= 1;
 }
 
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+
+/* Borrowed strings, so anything kept is copied. */
+static struct {
+	int calls;
+	flog_msg_type_t type;
+	char subsystem[64];
+	char text[512];
+} rstore_log_seen;
+
+static int rstore_log_capture(flog_t *p, const flog_msg_t *m)
+{
+	(void)p;
+	rstore_log_seen.calls++;
+	rstore_log_seen.type = m->type;
+	rstore_log_seen.subsystem[0] = '\0';
+	rstore_log_seen.text[0] = '\0';
+	if (m->subsystem)
+		snprintf(rstore_log_seen.subsystem, sizeof(rstore_log_seen.subsystem), "%s",
+		         m->subsystem);
+	if (m->text)
+		snprintf(rstore_log_seen.text, sizeof(rstore_log_seen.text), "%s", m->text);
+	return 0;
+}
+
+/*
+ * A MISPLACED RECORD IS A STORAGE FAULT, NOT A PROTOCOL ONE. sec 216.
+ *
+ * The record handed back may be perfectly well signed -- which is why a
+ * signature check further up would not have caught it -- so this layer is the
+ * only one that can see that what came back is not what was asked for. The
+ * return value names the fault and not the discrepancy, and the discrepancy is
+ * what tells somebody whether their backend is confusing sequences or
+ * issuers.
+ */
+static void test_the_store_says_what_came_back_instead(void)
+{
+	struct table t;
+	fzn_record_store_ops_t ops;
+	fzn_record_store_t store;
+	fzn_record_t ra, rb;
+	uint8_t a[FZN_RECORD_MAX_LEN], b[FZN_RECORD_MAX_LEN], out[FZN_RECORD_MAX_LEN];
+	fzn_record_t got;
+	flog_t log;
+
+	init_flog_t(&log);
+	log.name = NULL;
+	log.accepted_msg_type = FLOG_ACCEPT_ALL;
+	log.output_func = rstore_log_capture;
+
+	table_init(&t, &ops);
+	REQUIRE(fzn_record_store_init(&store, &ops) == FZN_RECORD_STORE_OK, "init refused");
+	/* Sequence starts at one here; zero is not a record this store holds. */
+	ra = make(a, sizeof(a), ISSUER, 7u, 1u, 0x31);
+	rb = make(b, sizeof(b), ISSUER, 7u, 2u, 0x32);
+	REQUIRE(fzn_record_is_open(ra) && fzn_record_is_open(rb), "fixtures");
+	REQUIRE(fzn_record_store_put(&store, ra) == FZN_RECORD_STORE_OK, "put a");
+	REQUIRE(fzn_record_store_put(&store, rb) == FZN_RECORD_STORE_OK, "put b");
+
+	/* QUIET UNTIL ASKED: planted before the init that clears it. */
+	fzn_record_store_set_log(&store, &log);
+	REQUIRE(fzn_record_store_init(&store, &ops) == FZN_RECORD_STORE_OK, "re-init");
+	memset(&rstore_log_seen, 0, sizeof(rstore_log_seen));
+	t.answer_with_slot = 1;
+	CHECK(fzn_record_store_get(&store, ISSUER, 7u, 1u, out, sizeof(out), &got)
+	              == FZN_RECORD_STORE_ERR_MISPLACED,
+	      "a misplaced record was accepted");
+	CHECK(rstore_log_seen.calls == 0, "a store nobody gave a log to emitted anyway");
+
+	fzn_record_store_set_log(&store, &log);
+	memset(&rstore_log_seen, 0, sizeof(rstore_log_seen));
+	CHECK(fzn_record_store_get(&store, ISSUER, 7u, 1u, out, sizeof(out), &got)
+	              == FZN_RECORD_STORE_ERR_MISPLACED,
+	      "a misplaced record was accepted");
+	CHECK(rstore_log_seen.calls == 1, "a misplaced record was refused and nothing said so");
+	CHECK(rstore_log_seen.type == FLOG_ERR,
+	      "a storage-integrity fault was not reported as an error");
+	CHECK(strcmp(rstore_log_seen.subsystem, "record/store") == 0,
+	      "the event did not name its subsystem");
+	CHECK(strstr(rstore_log_seen.text, "wanted stream") != NULL,
+	      "the line names the fault and not the discrepancy, which is what says "
+	      "whether a backend is confusing sequences or issuers");
+}
+#endif
+
 int main(void)
 {
 	memset(ISSUER, 0xa1, sizeof(ISSUER));
@@ -536,6 +622,10 @@ int main(void)
 	test_a_reader_replays_what_an_owner_fetched();
 	test_the_errors_render();
 	test_the_suite_can_tell_pass_from_fail();
+
+#ifdef FZN_FLOG_ON
+	test_the_store_says_what_came_back_instead();
+#endif
 
 	printf("store_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
