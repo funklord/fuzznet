@@ -31930,3 +31930,82 @@ recorded as measured-and-declined rather than left out. The holder's
 instruction that a solution must win on technical merit rather than on effort
 cuts both ways: it refuses the cheap duplicate, and it refuses the tidy
 dependency that buys nothing.
+
+## 202. Which numbers are measurements
+
+`cli/link_print` and `gui/link_view` are the twelfth pair, and the first
+written for a module that had no consumer surface at all rather than for one a
+widget already showed. So sec 193's rule arrives from the other side: the
+printer and the widget were designed together, and the question sec 201 forced
+-- does the widget need the printer, or is this symmetry -- was asked before
+either was written rather than after.
+
+**The fact they exist for is one `link.h` states about itself.** A link is
+registered with the far end's declared metric and the estimate STARTS there,
+because the alternative
+
+> "has to answer 'what latency does an unmeasured link have?' -- and the
+> honest answer, zero, makes a link nobody has ever used look infinitely fast
+> and win every selection in `sched/`"
+
+That defends **selection**, and it leaves **reporting** wide open. Nothing in
+`fzn_link_entry_t` distinguishes a number that was measured from one that was
+asserted: a link registered a second ago and a link measured a thousand times
+both render as milliseconds, and only `observations` tells them apart. An
+operator reading "40 ms" off a link nobody has ever sent a packet on is
+reading a stranger's assertion in the typeface of evidence.
+
+**The test that pays for the whole pair** is the one where the LOWEST estimate
+belongs to the unmeasured link. A table with one measured link at 200 ms and
+one asserted at 40 ms is `FZN_LINK_LINE_MEASURED` -- there IS evidence -- and
+the number a person reads is the 40. So the marker goes on the number it
+qualifies rather than in a trailing note about the table. That branch was
+untested when first written, and it is exactly the hazard the header describes
+arriving by the door the header left open.
+
+**Two distinctions the states keep apart.** No link registered is a host
+nobody has configured; every link marked unusable is a host whose interfaces
+are down. Both have no usable path and they send an operator to opposite
+halves of the system, so `FZN_LINK_LINE_NONE` and `FZN_LINK_LINE_ALL_DOWN` are
+separate and their lines differ. And evidence on a link nothing can choose is
+not evidence: switching off the only observed link drops the state to
+UNMEASURED rather than leaving MEASURED standing on a path no selection will
+return.
+
+**The unmeasured count is a second out-parameter because the state hides it.**
+A table is MEASURED as soon as ONE usable link has an observation, while three
+others sit at their priors and `sched/` will choose one of them the moment its
+declared metric wins. A caller watching only the state cannot see that. The
+count excludes unusable links deliberately -- counting them would make the
+number RISE when an operator switched a bad path off, which is the sabotage
+`link-print-unusable-links-are-not-counted` pins.
+
+**And this time the widget earns its dependency, which is the point of
+recording it beside sec 201.** The printer's line can say *N usable links are
+still on a declared metric* and it names only the lowest. It cannot say WHICH,
+because it is one line. The widget's rows can, and that is the whole of what
+it adds: a column-aligned row per link with `declared` where the samples go
+and a dash where the loss rate would be, so an operator deciding which path to
+take out of service can see it. Sabotaging that branch reddens the widget's
+suite and leaves the printer's green, which is what a real division of labour
+looks like -- where sec 201's inert call reddened nothing at all.
+
+The alignment is in the string rather than in a layout, on sec 158's argument
+for the fingerprint: a table whose columns move with the window cannot be
+compared against a second reading of itself or against a CLI.
+
+**One asymmetry in the cross-check worth knowing.** Mutating the printer's
+classification reddens the printer's suite and NOT the widget's, because the
+widget takes its state from the printer and the two still agree. That is
+correct rather than a gap: the cross-check asserts agreement, and correctness
+is the printer's own suite's job. A cross-check that could catch a wrong
+classification would have to hold a second implementation of it, which is the
+duplication all of this exists to remove.
+
+**And the claim about fuzzypickles was re-taken rather than quoted.** `link.h`
+carried their 2026-09-03 report that they ship their own `core/src/link.c` and
+include no header from here. Their tree has since grown a
+`core/test/fuzznet_link_test.c`, which reads like a counter-example and is not
+-- it proves the library COMPILES AND LINKS there, the verb rather than this
+module. `fzn_link_` still appears nowhere in their sources and no front end of
+theirs displays link health, so this pair duplicates nothing of theirs.

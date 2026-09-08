@@ -53,6 +53,7 @@
 /cli/test/authz_print_test
 /cli/test/provision_print_test
 /cli/test/trust_print_test
+/cli/test/link_print_test
 /gui/test/trust_view_test
 /gui/test/log_view_test
 /gui/test/qr_view_test
@@ -66,6 +67,7 @@
 /gui/test/sync_view_test
 /gui/test/journal_view_test
 /gui/test/config_view_test
+/gui/test/link_view_test
 /claim/test/claim_file_test
 /blob/test/blob_test
 /blob/test/blob_fuzz

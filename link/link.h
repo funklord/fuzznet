@@ -9,6 +9,14 @@
  * a consumer. Anyone weighing what the pair has been proved to do should
  * read that as proved about one half.
  *
+ * I RE-TOOK THAT MEASUREMENT ON 2026-09-08 rather than quoting it, because a
+ * claim about another tree goes stale without saying so. Their tree has since
+ * grown a `core/test/fuzznet_link_test.c`, which looks like a counter-example
+ * and is not: it proves the whole library COMPILES AND LINKS there -- the
+ * verb, not this module. Grepping their sources for `fzn_link_` still returns
+ * nothing, and no front end of theirs displays link health at all, so
+ * `cli/link_print` and `gui/link_view` (sec 202) duplicate nothing of theirs.
+ *
  * AND THE TWO HAVE DIVERGED PAST A SWAP. Their API is addresses, transports
  * and byte budgets; this one is ids and metrics over caller-owned entries
  * feeding `fzn_sched_candidate_t`:
