@@ -95,6 +95,22 @@ int main(void)
 	CHECK(s == FZN_CAPABILITY_EXPIRED, "a chain expiring at now was not expired");
 	CHECK(strstr(line, "expires at 1000") != NULL, "the expiry is not on the line");
 
+	/*
+	 * AND THE VERDICT MUST SURVIVE AN 80-COLUMN TERMINAL. sec 205 found it
+	 * off the edge: a capability spells to 64 hex characters, a terminal
+	 * clips from the RIGHT, and with the capability first the screen showed
+	 * the identifier and `expires at 1000` while never saying `expired`.
+	 * The bound is 72 rather than 80 to leave room for a label.
+	 */
+	{
+		const char *at = strstr(line, "expired");
+
+		CHECK(at != NULL, "the verdict is not on the line at all");
+		CHECK(at != NULL && (size_t)(at - line) < 72u,
+		      "the verdict begins past column 72, so an 80-column terminal shows "
+		      "the capability and not whether it may still be used");
+	}
+
 	/* THE CASE THIS FILE EXISTS FOR. A withdrawn entry: `known` is 1 and
 	 * `covers` is 0, so asking the wrong one cuts off a restored
 	 * capability. */

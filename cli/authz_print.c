@@ -50,21 +50,18 @@ static void render(struct sink *s, const fzn_authz_policy_t *policy, fzn_authz_l
 		return;
 	}
 
-	if (state == FZN_AUTHZ_LINE_UNGUARDED)
-		/* ITS OWN WORDS, because a policy that has drifted to
-		 * unguarded is what somebody is looking for when they read
-		 * this. */
-		put_str(s, "no capability -- UNGUARDED");
-	else {
-		put_str(s, "capability ");
-		if (fzn_trust_fingerprint(policy->capability.b, print, sizeof(print)) ==
-		    FZN_TRUST_OK)
-			put_str(s, print);
-		else
-			put_str(s, "this line could not format");
-	}
-
-	put_str(s, "; reachable from ");
+	/*
+	 * REACHABILITY FIRST, THEN THE CAPABILITY, and it was the other way
+	 * round until 2026-09-08. sec 207.
+	 *
+	 * A capability spells to 64 hex characters, and a terminal clips a
+	 * line from the RIGHT -- so with the capability first, `reachable
+	 * from` began at column 93 and the whole answer fell off an
+	 * 80-column terminal. What an operator saw was an identifier and
+	 * nothing about who may use it, which is the question this line
+	 * exists to answer.
+	 */
+	put_str(s, "reachable from ");
 
 	for (i = 0; i < sizeof(ORIGINS) / sizeof(ORIGINS[0]); i++) {
 		/* THE LIBRARY'S ANSWER, not a test of the bitmask. */
@@ -78,6 +75,22 @@ static void render(struct sink *s, const fzn_authz_policy_t *policy, fzn_authz_l
 
 	if (first)
 		put_str(s, "nothing");
+
+	put_str(s, "; ");
+
+	if (state == FZN_AUTHZ_LINE_UNGUARDED)
+		/* ITS OWN WORDS, because a policy that has drifted to
+		 * unguarded is what somebody is looking for when they read
+		 * this. */
+		put_str(s, "no capability -- UNGUARDED");
+	else {
+		put_str(s, "capability ");
+		if (fzn_trust_fingerprint(policy->capability.b, print, sizeof(print)) ==
+		    FZN_TRUST_OK)
+			put_str(s, print);
+		else
+			put_str(s, "this line could not format");
+	}
 
 	put_str(s, "\n");
 }

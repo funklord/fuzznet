@@ -47,17 +47,24 @@ static void render(struct sink *s, const fzn_trust_t *trust, fzn_trust_line_t st
 		return;
 	}
 
-	if (fzn_trust_fingerprint(trust->root, print, sizeof(print)) == FZN_TRUST_OK)
-		put_str(s, print);
-	else
-		put_str(s, "an anchor this line could not format");
-
-	/* HOW IT WAS TRUSTED, ON THE SAME LINE. trust.h calls an adopted
-	 * anchor "authenticated by nothing", and a fingerprint printed without
-	 * that invites comparing it as though somebody had vouched. The words
-	 * are `fzn_trust_source_str`'s, so a terminal and a dialog say the
-	 * same thing. */
-	put_str(s, " (");
+	/*
+	 * HOW IT WAS TRUSTED COMES FIRST, and the fingerprint follows. The
+	 * order was the other way round until 2026-09-08. sec 207.
+	 *
+	 * trust.h calls an adopted anchor "authenticated by nothing", and a
+	 * fingerprint printed without that invites comparing it as though
+	 * somebody had vouched -- so the two have to be on one line. Which
+	 * comes first is decided by the terminal: a fingerprint spells to 79
+	 * characters, a terminal clips from the RIGHT, and with the
+	 * fingerprint first the source began at column 82. On a standard
+	 * terminal an operator saw the key and never learned whether it was
+	 * pinned, adopted or this node's own -- which is exactly the
+	 * distinction between a root somebody checked and one taken from
+	 * whoever answered first.
+	 *
+	 * The words are `fzn_trust_source_str`'s, so a terminal and a dialog
+	 * say the same thing.
+	 */
 	put_str(s, fzn_trust_source_str(trust->source));
 
 	if (state == FZN_TRUST_LINE_ADOPTED)
@@ -73,7 +80,14 @@ static void render(struct sink *s, const fzn_trust_t *trust, fzn_trust_line_t st
 		put_u64(s, trust->adopted_at);
 	}
 
-	put_str(s, ")\n");
+	put_str(s, " -- ");
+
+	if (fzn_trust_fingerprint(trust->root, print, sizeof(print)) == FZN_TRUST_OK)
+		put_str(s, print);
+	else
+		put_str(s, "an anchor this line could not format");
+
+	put_str(s, "\n");
 }
 
 fzn_trust_err_t fzn_trust_print(const fzn_trust_t *trust, char *out, size_t cap,

@@ -177,3 +177,4 @@ __pycache__/
 # style gate's tree walks prune this path for the same reason.
 /.claude/worktrees/
 /.qtty/
+/.qtty-*/

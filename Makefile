@@ -976,8 +976,12 @@ VENDOR_DIRS  := $(shell sed -n 's/^[ \t]*path *= *//p' .gitmodules 2>/dev/null)
 # Left behind once, it made `make style` walk 26 of somebody else's headers and
 # refuse -- a gate reporting files nobody can act on, from a run that was
 # interrupted rather than wrong. sec 205.
+#
+# THE NAME CARRIES THE PID SINCE sec 208, so the prune is a PREFIX match. A
+# fixed scratch name is what let two concurrent runs delete each other's tree.
 VENDOR_DIRS  += .qtty
-VENDOR_PRUNE := $(foreach d,$(VENDOR_DIRS),-not -path './$(d)/*')
+VENDOR_PRUNE := $(foreach d,$(VENDOR_DIRS),-not -path './$(d)/*') \
+                -not -path './.qtty-*/*'
 
 # Named OUTSIDE the conditional, because these files exist in the tree whether
 # or not this build compiles them, and `make style` compares the source lists
@@ -3853,9 +3857,26 @@ qtty:
 	@# `.qtty/` is in .gitignore as well, which is the backstop rather than
 	@# the fix: it stops a leftover being committed and does nothing about
 	@# the gate that reads the working tree.
+	@# ONE SCRATCH PER RUN, NAMED BY PID. sec 208.
+	@#
+	@# It was `$(BUILD_DIR)/.qtty`, fixed -- and every run does `rm -rf` on
+	@# it at the start AND again from its exit trap. So two concurrent runs
+	@# destroy each other deterministically rather than racily: the second
+	@# one's `rm -rf` deletes the first's unpacked tree mid-build, and the
+	@# first's trap deletes the second's. The failure surfaces as
+	@# "their library would not build", which blames qtty for a collision
+	@# in this file.
+	@#
+	@# It became reachable when sec 205 put this sweep into `make check`:
+	@# these trees have more than one session, and two of them running
+	@# `make check` is the ordinary case rather than an exotic one.
+	@#
+	@# The `.qtty-` PREFIX is kept because sec 205's style-gate prune
+	@# depends on it -- a scratch left behind by a killed run is still
+	@# pruned, and a random name would have defeated that.
 	@set -e; \
-	scratch=$(BUILD_DIR)/.qtty; \
-	case "$$scratch" in "" | "/" | "/*") \
+	scratch=$(BUILD_DIR)/.qtty-$$$$; \
+	case "$$scratch" in "" | "/" | "/*" | "$(BUILD_DIR)/.qtty-") \
 		echo "qtty: refusing to work in '$$scratch'"; exit 1;; esac; \
 	trap 'rm -rf "$$scratch"' EXIT INT TERM; \
 	rm -rf "$$scratch"; mkdir -p "$$scratch"; \

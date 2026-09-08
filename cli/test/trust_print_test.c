@@ -123,6 +123,30 @@ int main(void)
 		checks -= 1;
 	}
 
+	/*
+	 * THE ANSWER MUST SURVIVE AN 80-COLUMN TERMINAL. sec 207.
+	 *
+	 * A capability and an anchor both spell to 64 hex characters, and a
+	 * terminal clips a line from the RIGHT -- so a line that puts the
+	 * identifier before the verdict loses the verdict and keeps the bytes
+	 * nobody compares by eye. Measured before the fix: the source began at column 82.
+	 * The bound is 72 rather than 80 to leave room for whatever prefixes
+	 * this in a log.
+	 */
+	{
+		const char *at;
+
+		fzn_trust_init(&trust);
+		CHECK(fzn_trust_pin(&trust, root) == FZN_TRUST_OK, "pin refused");
+		CHECK(fzn_trust_print(&trust, line, sizeof(line), &len, &s) == FZN_TRUST_OK,
+		      "a pinned anchor would not render");
+		at = strstr(line, fzn_trust_source_str(FZN_TRUST_PINNED));
+		CHECK(at != NULL, "the source is not on the line at all");
+		CHECK(at != NULL && (size_t)(at - line) < 72u,
+		      "the source begins past column 72, so an 80-column terminal shows the "
+		      "key and never says whether anybody checked it");
+	}
+
 	printf("trust_print_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
 }

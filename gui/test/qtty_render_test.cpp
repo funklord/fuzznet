@@ -306,11 +306,13 @@ static void test_every_widget_survives_a_terminal(void)
 	fzn_link_view link_v;
 	fzn_peer_view peer_v;
 	fzn_provision_view provision;
+	fzn_authz_view authz_guarded;
 	fzn_link_entry_t link_entries[4];
 	fzn_link_table_t links;
 	fzn_peer_t asker;
 
 	fzn_authz_policy_t policy;
+	fzn_authz_policy_t guarded_policy;
 	fzn_chain_t chain;
 	fzn_catalog_sweep_plan_t plan;
 	static fzn_revocation_t rev_rows[2];
@@ -329,6 +331,21 @@ static void test_every_widget_survives_a_terminal(void)
 	 * one that says something went wrong or is being held back. */
 	policy = fzn_authz_unguarded(FZN_ORIGIN_ANY);
 	authz.show_policy(&policy);
+
+	{
+		/* THE LONG VARIANT, WHICH THIS SWEEP NEVER DREW. sec 207: the
+		 * unguarded fixture above says `no capability -- UNGUARDED`
+		 * and is short, so the case where a 64-character capability
+		 * precedes the answer was never rendered here -- and that is
+		 * exactly the case whose answer fell off the edge. A fixture
+		 * that cannot reach the hazard reports on the safe path in the
+		 * hazard's name. */
+		static fzn_cap_id_t cap;
+
+		memset(&cap, 0xc5, sizeof(cap));
+		guarded_policy = fzn_authz_requires(&cap, FZN_ORIGIN_ANY);
+		authz_guarded.show_policy(&guarded_policy);
+	}
 
 	memset(&chain, 0, sizeof(chain));
 	memset(chain.root, 0xa0, sizeof(chain.root));
@@ -452,6 +469,9 @@ static void test_every_widget_survives_a_terminal(void)
 	{
 		const struct terminal_case cases[] = {
 			{ "authz_view", &authz, "UNGUARDED" },
+			/* sec 207: the answer, on the widget that carries a
+			 * 64-character capability ahead of it. */
+			{ "authz_view (guarded)", &authz_guarded, "reachable from" },
 			{ "capability_view", &capability, "expired" },
 			{ "sweep_view", &sweep, "needs more replicas" },
 			{ "revocation_view", &revocation, "work again" },

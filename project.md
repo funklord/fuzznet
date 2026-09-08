@@ -32287,8 +32287,10 @@ answer was the part that fell off and the opaque identifier was the part kept.
 The fix is the general rule rather than a width tweak: **the answer goes left
 of the evidence.** What a narrow terminal then loses is 32 bytes nobody
 compares by eye, and losing those is visibly a truncation rather than silently
-a different meaning. Only `capability_print` had that shape -- it is the one
-whose identifier is 64 characters before its verdict.
+a different meaning. **The sentence that stood here said only
+`capability_print` had that shape. It was wrong, and sec 207 has the
+measurement** -- three printers had it, and the claim was made by reading one
+file rather than by asking the other thirteen.
 
 **Two things about the instruments, which cost more than the faults.**
 
@@ -32323,6 +32325,12 @@ The floors it measures now, for all twelve widgets:
 `provision_view` is in that list for the first time: its header was included by
 the render test and no such widget was ever built, so it had been compiled into
 the sweep and never rendered by it.
+
+**And moving it into `check` had a cost this section could not see, paid the
+same day.** The scratch path named above was a fixed `$(BUILD_DIR)/.qtty` and
+is `$(BUILD_DIR)/.qtty-<pid>` in the tree now: a fixed name made two concurrent
+runs delete each other, which was harmless while the target was opt-in and
+became reachable the moment it joined `make check`. Sec 208.
 
 ## 206. The sweep run in full again, at 321 entries
 
@@ -32417,3 +32425,131 @@ switched off by instalments. Whether the baseline is worth carrying, and what
 it keys on, is the holder's -- recorded here rather than started, because a
 tool that cries wolf about attribution is worse than one that stays silent
 about it, and this section's own subject is a check nobody ran.
+
+## 207. The same clipping in two more printers, and a claim made by reading
+
+Sec 205 fixed `capability_print`, whose verdict fell off an 80-column terminal
+because 64 hex characters came first, and closed with: *Only
+`capability_print` had that shape.*
+
+That sentence was written from having read one file. Asked properly -- grep
+the printers for `fzn_trust_fingerprint`, then render each and measure where
+its answer begins -- the answer is **five printers emit a 64-character
+fingerprint and three put it before the answer.**
+
+	trust_print        source at column 82   PAST an 80-column terminal
+	authz_print        answer at column 93   PAST an 80-column terminal
+	capability_print   fixed in sec 205
+	state_print        verdict first, safe
+	provision_print    verdict first, safe
+
+**`trust_print` is the one that matters.** Its line read
+
+	a5a5 a5a5 ... a5a5 (configured out of band)
+
+so an operator on a standard terminal saw the key and never learned whether it
+was pinned, adopted or this node's own. That is the TOFU distinction --
+`trust.h` calls an adopted anchor "authenticated by nothing" -- and it was the
+half that fell off. The source comes first now and the fingerprint follows
+after a dash.
+
+**`authz_print` is worse in degree.** Its answer -- which origins may reach a
+kind at all -- began at column 93, so a guarded policy showed its capability
+and nothing about who may use it. Reachability leads now.
+
+`state_print` and `provision_print` were already verdict-first and are
+recorded as measured rather than assumed.
+
+### Why the sweep did not catch the authz one
+
+`make qttycheck` renders `authz_view` and asserts its words reach an 80x24
+terminal, and it passed throughout. Its fixture is `fzn_authz_unguarded`,
+whose line starts `no capability -- UNGUARDED` and is short. **The case with a
+64-character capability ahead of the answer was never drawn.** A second widget
+in the guarded state is in the sweep now, and reverting the printer turns it
+red -- checked rather than assumed.
+
+`evidence.md` states the class: a test can name the hazard exactly and cover
+only the safe path. The sweep's own name for that entry is the fixture, and
+the fixture was the unguarded case because that is the case somebody reached
+for when writing it.
+
+### The guard, and the shape of the error worth keeping
+
+Each of the three printers now asserts in its own suite that the answer begins
+before column 72 -- the bound is 72 rather than 80 to leave room for whatever
+prefixes a line in a log. Reverting `trust_print`'s order fails
+`trust_print_test.c:145` by name, so the guard has been seen to fire rather
+than merely added.
+
+**What produced the wrong claim is worth more than the two fixes.** Sec 205
+was written at the end of repairing a target, having found and fixed one
+instance, and the closing sentence generalised from that instance without a
+second look. `evidence.md` names it: a frame that has just been right is the
+hardest one to drop, and the tell is that the answer arrives faster than the
+evidence. It cost one grep to check -- the same grep that produced the table
+above -- and the sentence was published instead.
+
+It is also the second instrument fault in the same section's lineage. Sec 205
+records a grep whose pattern could not match a capitalised string and reported
+an absence; this is a claim of exhaustiveness made without any grep at all.
+Both were about *which printers do X*, and both were answered from the one
+printer already in hand.
+
+## 208. Putting the sweep in `check` made a latent collision reachable
+
+Sec 205 moved the qtty render sweep into `make check`, on the argument that an
+opt-in check is one that has stopped running. That argument holds. What it did
+not account for is that the target was written for a reader who types it, and
+`make check` is typed by everybody -- including two sessions at once, which
+`CLAUDE.md` says is the ordinary case in these trees rather than an exotic one.
+
+**The mechanism, read out of the recipe rather than inferred from the
+symptom.** The scratch was a fixed `$(BUILD_DIR)/.qtty`, and every invocation
+does `rm -rf "$scratch"` at the start AND again from `trap ... EXIT`. So a
+second run's startup delete removes the first's unpacked tree mid-build, and
+the first's exit trap removes the second's. **Deterministic rather than racy**,
+which is why it reproduced first time.
+
+It surfaces as
+
+	qtty: their library would not build; the log goes with the scratch
+
+-- a message blaming the vendored project for a collision in this file. Anyone
+meeting it would go and look at qtty.
+
+**Measured both ways, two concurrent runs each:**
+
+	fixed scratch    A RC=2  B RC=2   both "their library would not build"
+	per-run scratch  A RC=0  B RC=0   both 112 checks, 0 failures, nothing left
+
+The control is stronger than the prediction was. The expectation was that one
+run would lose; in fact **both** do, because each deletes the other.
+
+**The fix keeps the prefix on purpose.** The scratch is `.qtty-$$` now, and the
+`.qtty-` prefix is load-bearing rather than cosmetic: sec 205's style-gate
+prune keys on that name, so a scratch abandoned by a KILLED run -- where the
+trap never fires, which is exactly how sec 205's leftover happened -- is still
+pruned. A `mktemp` name would have looked cleaner and silently defeated the
+guard added hours earlier.
+
+### How it was found, which is the part worth keeping
+
+Not by the gate, and not by looking for it. A sabotage run that should have
+turned the sweep red came back with **no FAIL line and no test output at
+all**, and the working tree restored cleanly afterwards -- which reads exactly
+like a completed sequence. The tidy story was available and wrong: the target
+had aborted before the test ran, because that sabotage run overlapped a
+still-running background invocation of the same target.
+
+Had the run been judged by its exit path and the restored file, sec 207 would
+have recorded "the sweep was seen to fail, checked rather than assumed" on the
+strength of a run that never executed the check. That is `evidence.md`'s
+failing check that could not have succeeded, arriving inside the act of
+verifying something else -- and the thing that caught it was reading the log
+rather than the outcome.
+
+**The defect being hunted was in `authz_print`. The defect found was in the
+gate, and it was mine, introduced the same day.** A sweep that runs everywhere
+is worth more than one nobody types; it is also a thing every session now
+depends on, and it had a collision in it from the hour it was promoted.

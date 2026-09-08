@@ -187,6 +187,31 @@ int main(void)
 		checks -= 1;
 	}
 
+	/*
+	 * THE ANSWER MUST SURVIVE AN 80-COLUMN TERMINAL. sec 207.
+	 *
+	 * A capability and an anchor both spell to 64 hex characters, and a
+	 * terminal clips a line from the RIGHT -- so a line that puts the
+	 * identifier before the verdict loses the verdict and keeps the bytes
+	 * nobody compares by eye. Measured before the fix: `reachable from` began at column 93.
+	 * The bound is 72 rather than 80 to leave room for whatever prefixes
+	 * this in a log.
+	 */
+	{
+		const char *at;
+
+		memset(&cap, 0xa5, sizeof(cap));
+		policy = fzn_authz_requires(&cap, FZN_ORIGIN_ANY);
+		CHECK(fzn_authz_print(&policy, line, sizeof(line), &len, &s) ==
+		              FZN_CHAIN_OK,
+		      "a guarded policy would not render");
+		at = strstr(line, "reachable from");
+		CHECK(at != NULL, "the reachability is not on the line at all");
+		CHECK(at != NULL && (size_t)(at - line) < 72u,
+		      "the reachability begins past column 72, so an 80-column terminal "
+		      "shows the capability and not who may use it");
+	}
+
 	printf("authz_print_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
 }
