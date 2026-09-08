@@ -33519,4 +33519,13 @@ was 100 of 100 rather than any particular log.
 The lasting item is neither of the fixes. It is that **`make check` does not
 run `make clean`, on purpose, and nothing says so out loud.** A gate that is
 green while a target of the same Makefile refuses is a gate whose scope
-nobody has written down.
+nobody has written down. Signalled to `claude-guidelines` as *Eight trees have
+a `clean` that verifies its own work and not one of them runs it from
+`check`*, with the measurement -- and with the adjacent shape recorded there
+as NOT a signal, since two independent detectors over all sixteen Makefiles
+put "a source list defined inside a build conditional" at fuzznet 37 and every
+other tree 0.
+
+**Closed: run 34286170335 is green, both jobs, every step.** Named rather
+than asserted, because the fix was verified locally first and a local mirror
+is still a claim about somebody else's runner.
