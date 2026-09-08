@@ -702,17 +702,16 @@ else
 $(error FZN_GUI must be auto, 1 or 0 -- got "$(FZN_GUI)")
 endif
 
+# THE LISTS ARE WRITTEN WHOLE, NEVER PATCHED. sec 199: deleting one entry
+# from a backslash-continued list by string replacement has broken this file
+# four times -- a dangling continuation swallows the next line, and make
+# reports it against somewhere else entirely.
 GUI_SRCS := gui/trust_view.cpp gui/qr_view.cpp \
-            gui/authz_view.cpp gui/provision_view.cpp \
-            gui/revocation_view.cpp
+            gui/authz_view.cpp gui/provision_view.cpp
 GUI_HDRS := gui/trust_view.h gui/qr_view.h \
-            gui/authz_view.h gui/provision_view.h \
-            gui/revocation_view.h
-GUI_TSRC := gui/test/trust_view_test.cpp \
-            gui/test/qr_view_test.cpp gui/test/authz_view_test.cpp \
-            gui/test/provision_view_test.cpp \
-            gui/test/revocation_view_test.cpp
-
+            gui/authz_view.h gui/provision_view.h
+GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp \
+            gui/test/authz_view_test.cpp gui/test/provision_view_test.cpp
 # THE CONFIGURATION FORM NEEDS BOTH OPTIONS, and that is the design rather
 # than an accident of the build. sec 164: it does not validate, the CLI parser
 # does -- so a GUI build without FZN_CLI has no validator for it to be a front
@@ -726,14 +725,17 @@ GUI_TSRC := gui/test/trust_view_test.cpp \
 ifdef CLI_ON
 GUI_SRCS  += gui/config_view.cpp gui/log_view.cpp gui/sync_view.cpp \
              gui/journal_view.cpp gui/sweep_view.cpp gui/transfer_view.cpp \
-             gui/capability_view.cpp gui/state_view.cpp
+             gui/capability_view.cpp gui/state_view.cpp \
+             gui/revocation_view.cpp
 GUI_HDRS  += gui/config_view.h gui/log_view.h gui/sync_view.h \
              gui/journal_view.h gui/sweep_view.h gui/transfer_view.h \
-             gui/capability_view.h gui/state_view.h
+             gui/capability_view.h gui/state_view.h \
+             gui/revocation_view.h
 GUI_TSRC  += gui/test/config_view_test.cpp gui/test/log_view_test.cpp \
              gui/test/sync_view_test.cpp gui/test/journal_view_test.cpp \
              gui/test/sweep_view_test.cpp gui/test/transfer_view_test.cpp \
-             gui/test/capability_view_test.cpp gui/test/state_view_test.cpp
+             gui/test/capability_view_test.cpp gui/test/state_view_test.cpp \
+             gui/test/revocation_view_test.cpp
 endif
 
 ifdef GUI_ON
@@ -776,7 +778,6 @@ GUI_OBJS   := $(GUI_SRCS:%.cpp=$(BUILD_DIR)/%.o)
 TEST_BINS  += $(BUILD_DIR)/gui/test/trust_view_test \
               $(BUILD_DIR)/gui/test/qr_view_test \
               $(BUILD_DIR)/gui/test/provision_view_test \
-              $(BUILD_DIR)/gui/test/revocation_view_test \
               $(BUILD_DIR)/gui/test/authz_view_test
 ifdef CLI_ON
 TEST_BINS += $(BUILD_DIR)/gui/test/config_view_test \
@@ -786,23 +787,24 @@ TEST_BINS += $(BUILD_DIR)/gui/test/config_view_test \
              $(BUILD_DIR)/gui/test/sweep_view_test \
              $(BUILD_DIR)/gui/test/transfer_view_test \
              $(BUILD_DIR)/gui/test/capability_view_test \
-             $(BUILD_DIR)/gui/test/state_view_test
+             $(BUILD_DIR)/gui/test/state_view_test \
+             $(BUILD_DIR)/gui/test/revocation_view_test
 endif
 endif
 
 CLI_SRCS := cli/cli.c cli/qr_print.c cli/log_print.c cli/sync_print.c \
             cli/journal_print.c cli/sweep_print.c \
             cli/transfer_print.c cli/capability_print.c \
-            cli/state_print.c
+            cli/state_print.c cli/revocation_print.c
 CLI_HDRS := cli/cli.h cli/qr_print.h cli/log_print.h cli/sync_print.h \
             cli/journal_print.h cli/sweep_print.h \
             cli/transfer_print.h cli/capability_print.h \
-            cli/state_print.h
+            cli/state_print.h cli/revocation_print.h
 CLI_TSRC := cli/test/cli_test.c cli/test/qr_print_test.c \
             cli/test/log_print_test.c cli/test/sync_print_test.c \
             cli/test/journal_print_test.c cli/test/sweep_print_test.c \
             cli/test/transfer_print_test.c cli/test/capability_print_test.c \
-            cli/test/state_print_test.c
+            cli/test/state_print_test.c cli/test/revocation_print_test.c
 
 ifdef CLI_ON
 CPPFLAGS  += -DFZN_CLI_ON
@@ -817,7 +819,8 @@ TEST_BINS += $(BUILD_DIR)/cli/test/cli_test \
                $(BUILD_DIR)/cli/test/sweep_print_test \
                $(BUILD_DIR)/cli/test/transfer_print_test \
                $(BUILD_DIR)/cli/test/capability_print_test \
-               $(BUILD_DIR)/cli/test/state_print_test
+               $(BUILD_DIR)/cli/test/state_print_test \
+               $(BUILD_DIR)/cli/test/revocation_print_test
 endif
 
 RECORD_STORE_FILE_SRCS := record/store_file.c
@@ -1817,6 +1820,17 @@ $(BUILD_DIR)/cli/test/qr_print_test: $(BUILD_DIR)/cli/test/qr_print_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# What a revocation store holds, in force and withdrawn apart. sec 198.
+$(BUILD_DIR)/cli/test/revocation_print_test: \
+                                     $(BUILD_DIR)/cli/test/revocation_print_test.o \
+                                     $(BUILD_DIR)/cli/revocation_print.o \
+                                     $(BUILD_DIR)/chain/revocation.o \
+                                     $(BUILD_DIR)/chain/chain.o \
+                                     $(BUILD_DIR)/chain/manifest.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # One state cell, including what fzn_state_get deliberately hides. sec 197.
 $(BUILD_DIR)/cli/test/state_print_test: $(BUILD_DIR)/cli/test/state_print_test.o \
                                      $(BUILD_DIR)/cli/state_print.o \
@@ -2042,6 +2056,7 @@ $(BUILD_DIR)/gui/test/state_view_test: \
 $(BUILD_DIR)/gui/test/revocation_view_test: \
                                      $(BUILD_DIR)/gui/test/revocation_view_test.o \
                                      $(BUILD_DIR)/gui/revocation_view.o \
+                                     $(BUILD_DIR)/cli/revocation_print.o \
                                      $(BUILD_DIR)/chain/revocation.o \
                                      $(BUILD_DIR)/chain/chain.o \
                                      $(BUILD_DIR)/chain/manifest.o \
@@ -3733,6 +3748,7 @@ qtty:
 	       $(BUILD_DIR)/cli/sync_print.o $(BUILD_DIR)/cli/journal_print.o \
 	       $(BUILD_DIR)/cli/sweep_print.o $(BUILD_DIR)/cli/transfer_print.o \
 	       $(BUILD_DIR)/cli/capability_print.o $(BUILD_DIR)/cli/state_print.o \
+	       $(BUILD_DIR)/cli/revocation_print.o \
 	       $(BUILD_DIR)/spool/spool.o $(BUILD_DIR)/spool/plan.o \
 	       $(BUILD_DIR)/spool/transfer.o $(BUILD_DIR)/blob/blob.o \
 	       $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/log/log.o \

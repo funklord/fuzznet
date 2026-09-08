@@ -2457,31 +2457,6 @@ SABOTAGES = [
 		"measured constraint rather than a preference",
 	),
 	(
-		"revocation-view-withdrawn-is-not-in-force",
-		"gui/revocation_view.cpp",
-		"\t\tif (store->entries[i].withdrawn)\n",
-		"\t\tif (0)\n",
-		"a withdrawal replaces a revocation at its key rather than removing it, "
-		"so counting rows reports every RESTORED capability as still cut off",
-	),
-	(
-		"revocation-view-refuses-an-unreadable-store",
-		"gui/revocation_view.cpp",
-		"\tif (!fzn_revocation_store_sound(store)) {\n",
-		"\tif (0) {\n",
-		"a store counting more entries than it holds is the read that goes off "
-		"the array; sec 183 gave consumers a predicate to ask and this is the "
-		"widget asking it",
-	),
-	(
-		"revocation-view-says-when-something-was-restored",
-		"gui/revocation_view.cpp",
-		"\tif (withdrawn_ > 0u) {\n",
-		"\tif (0) {\n",
-		"a capability that was cut off and is not any more is what somebody is "
-		"looking for, and it is invisible in a total",
-	),
-	(
 		"chain-store-sound-is-the-guards-rule",
 		"chain/chain_store.c",
 		"\tif (store->used > store->capacity)\n\t\treturn 0;\n",
@@ -2719,6 +2694,39 @@ SABOTAGES = [
 		"\t\tstate_label_->setText(QStringLiteral(\"unset\"));\n",
 		"the widget must SHOW cli/state_print's line rather than have a wording of "
 		"its own -- sec 193's rule",
+	),
+	(
+		"revocation-print-withdrawn-is-not-in-force",
+		"cli/revocation_print.c",
+		"\t\t\t\tif (store->entries[i].withdrawn)\n",
+		"\t\t\t\tif (0)\n",
+		"a withdrawal replaces a revocation at its key rather than removing it, "
+		"so counting rows reports every RESTORED capability as still cut off",
+	),
+	(
+		"revocation-print-refuses-an-unreadable-store",
+		"cli/revocation_print.c",
+		"\tif (fzn_revocation_store_sound(store)) {\n",
+		"\tif (1) {\n",
+		"a store that cannot be walked reported as nothing-revoked is the "
+		"fail-open answer: it claims every capability is fine when this host "
+		"cannot say",
+	),
+	(
+		"revocation-print-says-when-something-was-restored",
+		"cli/revocation_print.c",
+		"\t\tif (withdrawn > 0u) {\n",
+		"\t\tif (0) {\n",
+		"a capability that was cut off and is not any more is what somebody is "
+		"looking for, and it is invisible in a total",
+	),
+	(
+		"revocation-view-shows-the-printers-words",
+		"gui/revocation_view.cpp",
+		"\t\tstate_label_->setText(text);\n",
+		"\t\tstate_label_->setText(QStringLiteral(\"clear\"));\n",
+		"the widget must SHOW cli/revocation_print's line rather than have a "
+		"wording of its own -- sec 193's rule",
 	),
 ]
 

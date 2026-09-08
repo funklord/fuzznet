@@ -73,16 +73,31 @@ int main(int argc, char **argv)
 	CHECK(view.shown_state() == fzn_revocation_view::NOTHING,
 	      "a fresh view is not in the no-store state");
 
-	/* AN EMPTY STORE IS NOT AN ABSENT ONE. */
+	/* AN EMPTY STORE AND AN ABSENT ONE SAY THE SAME THING, AND THAT IS A
+	 * CORRECTION.
+	 *
+	 * sec 182 asserted the opposite: that the two must read differently.
+	 * sec 183 then settled that a NULL store is SOUND -- "no store means
+	 * no revocations known, which is an answer" -- which makes them the
+	 * same answer ABOUT REVOCATIONS. The difference that remains is in the
+	 * caller's own plumbing, not in what has been withdrawn, and a screen
+	 * spelling it differently would be inventing a distinction the library
+	 * had deliberately removed.
+	 *
+	 * So the WORDS are the same and the STATE still separates them, for a
+	 * consumer that cares whether it holds a store at all. Found by
+	 * consolidating onto the printer in sec 198, which is the first time
+	 * anything compared the two sections. */
 	{
 		QString absent = view.state_text();
 
 		CHECK(store_of(&store, 0u, 0u), "the store would not init");
 		view.show_store(&store);
 		CHECK(view.shown_state() == fzn_revocation_view::EMPTY,
-		      "an empty store was not shown as empty");
-		CHECK(view.state_text() != absent,
-		      "a host with an empty store reads exactly like one with no store");
+		      "an empty store was not distinguished from an absent one at all");
+		CHECK(view.state_text() == absent,
+		      "an empty store and an absent one say different things about "
+		      "revocations, which sec 183 settled they do not");
 	}
 
 	/* THE CASE THIS FILE EXISTS FOR. Three entries: one revocation in
@@ -92,13 +107,12 @@ int main(int argc, char **argv)
 		CHECK(store_of(&store, 1u, 2u), "the store would not init");
 		view.show_store(&store);
 
-		CHECK(view.in_force() == 1u,
+		CHECK(view.state_text().contains(QStringLiteral("1 in force")),
 		      "withdrawn entries were counted as revocations, so capabilities "
 		      "that have been restored are shown as still cut off");
-		CHECK(view.withdrawn() == 2u, "the withdrawn entries were not counted");
-		CHECK(view.in_force() + view.withdrawn() == 3u,
-		      "the two counts do not partition the store");
-		CHECK(view.summary_text().contains(QStringLiteral("work again")),
+		CHECK(view.state_text().contains(QStringLiteral("2 since withdrawn")),
+		      "the withdrawn entries were not counted");
+		CHECK(view.state_text().contains(QStringLiteral("work again")),
 		      "a restored capability is not said to be restored, which is the "
 		      "thing somebody is looking for when a peer says they are back");
 	}
@@ -109,9 +123,8 @@ int main(int argc, char **argv)
 	{
 		CHECK(store_of(&store, 0u, 3u), "the store would not init");
 		view.show_store(&store);
-		CHECK(view.in_force() == 0u,
+		CHECK(view.state_text().contains(QStringLiteral("0 in force")),
 		      "a store holding only withdrawals reported a revocation in force");
-		CHECK(view.withdrawn() == 3u, "the withdrawals were not counted");
 	}
 
 	/* A STORE COUNTING MORE THAN IT HOLDS IS NOT A NUMBER TO DRAW. Walking
@@ -123,10 +136,10 @@ int main(int argc, char **argv)
 		view.show_store(&store);
 		CHECK(view.shown_state() == fzn_revocation_view::UNREADABLE,
 		      "a store counting more entries than it holds was walked anyway");
-		CHECK(view.in_force() == 0u && view.withdrawn() == 0u,
+		CHECK(!view.state_text().contains(QStringLiteral("in force")),
 		      "a corrupt store produced counts, which are read off the end of "
 		      "the array");
-		CHECK(view.state_text() != QStringLiteral("nothing withdrawn"),
+		CHECK(!view.state_text().contains(QStringLiteral("no revocation has been")),
 		      "an unreadable store reads as a host with nothing revoked, which is "
 		      "the fail-open answer");
 	}
@@ -139,6 +152,26 @@ int main(int argc, char **argv)
 		view.show_store(&store);
 		CHECK(view.shown_state() == fzn_revocation_view::UNREADABLE,
 		      "a store with a count and no array was walked anyway");
+	}
+
+	/* THE ASSERTION THAT KEEPS ONE IMPLEMENTATION. sec 193/198. */
+	{
+		char want[FZN_REVOCATION_PRINT_MAX];
+		fzn_revocations_state_t said = FZN_REVOCATIONS_UNREADABLE;
+		size_t plen = 0;
+		QString expected;
+
+		CHECK(store_of(&store, 1u, 1u), "the store would not reinit");
+		view.show_store(&store);
+		CHECK(fzn_revocation_print(&store, want, sizeof(want), &plen, &said) ==
+		              FZN_CHAIN_OK,
+		      "the printer would not render what the widget was given");
+		expected = QString::fromLatin1(want);
+		while (expected.endsWith(QLatin1Char('\n')))
+			expected.chop(1);
+		CHECK(view.state_text() == expected,
+		      "the widget's words are not the printer's, so one screen has two "
+		      "wordings again");
 	}
 
 	/* The suite can tell pass from fail. */

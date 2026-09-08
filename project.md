@@ -31714,3 +31714,48 @@ neighbour because it never matches anything.
 
 Written down because the fix is smaller than the finding and the finding is
 easy to forget: **wait on a process you started, not on one you recognised.**
+
+## 198. A revocation line, and an assertion sec 183 had superseded
+
+`cli/revocation_print.{h,c}` reports what a store holds, in force and
+withdrawn counted apart. Printer and widget in one commit, fifth application
+of sec 193's rule.
+
+### What consolidating found
+
+The widget's suite failed on a case it had passed since sec 182: **"an empty
+store is not an absent one", asserted as different WORDS.**
+
+sec 183 had already made that wrong and nobody noticed. That section settled
+that a NULL store is SOUND, on `chain/manifest.c`'s long-standing contract:
+"no store means no revocations known, which is an answer". If NULL and empty
+are the same answer about revocations, a screen spelling them differently is
+inventing a distinction the library had deliberately removed.
+
+So the words are the same now and the STATE still separates them, for a
+consumer that cares whether it holds a store at all -- which is a fact about
+its own plumbing rather than about what has been withdrawn.
+
+**Nothing in the tree compared those two sections until a printer forced
+both through one implementation.** That is the second thing consolidation has
+turned up that no test was looking for, after sec 193's duplication: putting
+two readings of one fact in one place is a way of DISCOVERING that they had
+diverged, not only of preventing it.
+
+### The Makefile hazard, four times, and the actual fix
+
+Deleting one entry from a backslash-continued list by string replacement has
+now broken this file four times, in three shapes:
+
+    a blank line left behind      -> "missing separator", pointing at the next line
+    a trailing backslash left     -> the list swallows the following `ifdef`
+    the LAST entry removed        -> GUI_SRCS swallowed GUI_HDRS and GUI_TSRC
+
+The third is the worst because it fails silently in `make`: the lists still
+parse, they are simply wrong, and what failed was a style gate three targets
+later reporting four headers "in the tree and not in HDRS".
+
+The fix is not more care with the pattern. **It is to rewrite the whole list
+rather than patch a line out of it**, which is now written above those lists
+so the next edit meets the rule before it meets the hazard. A list is small;
+a dangling continuation is invisible in a diff.

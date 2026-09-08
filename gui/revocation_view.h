@@ -32,6 +32,9 @@
  * The pointer is checked first, because a NULL store is SOUND: it holds
  * nothing, which is an answer, and `sound` is not a null check.
  *
+ * IT ASKS `cli/revocation_print` AND SHOWS WHAT IT SAYS, and needs FZN_CLI
+ * for it. sec 198, under sec 193's rule: printer and widget in one commit.
+ *
  * NO Q_OBJECT AND THEREFORE NO moc, on sec 140's rule. It displays.
  */
 
@@ -40,6 +43,7 @@
 
 extern "C" {
 #include "../chain/revocation.h"
+#include "../cli/revocation_print.h"
 }
 
 #include <QString>
@@ -63,22 +67,16 @@ public:
 	 * "knows of no revocations" rather than as a mistake. */
 	void show_store(const fzn_revocation_store_t *store);
 
+	/* `state_text` is `fzn_revocation_print`'s line, which carries both
+	 * counts. There is deliberately no accessor for a total, here or in
+	 * the printer: a sum of in-force and withdrawn is the number that
+	 * reports restored capabilities as cut off. */
 	state shown_state() const;
 	QString state_text() const;
-	QString summary_text() const;
-
-	/* Entries in force, and entries whose revocation has been withdrawn.
-	 * Counted apart, and a consumer wanting a total must add them itself
-	 * -- there is no accessor for the sum, deliberately. */
-	size_t in_force() const;
-	size_t withdrawn() const;
 
 private:
 	state state_;
-	size_t in_force_;
-	size_t withdrawn_;
 	QLabel *state_label_;
-	QLabel *summary_;
 };
 
 #endif /* FZN_GUI_REVOCATION_VIEW_H */
