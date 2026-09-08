@@ -29,14 +29,16 @@ static int roundtrip(const char *text, fzn_qr_level_t level, char *why, size_t w
 	q = quirc_new();
 	if (!q || quirc_resize(q, w, h) < 0) { snprintf(why, why_cap, "quirc setup"); return 0; }
 	image = quirc_begin(q, &w, &h);
-	memset(image, 0xff, (size_t)w * h);
+	memset(image, 0xff, (size_t)w * (size_t)h);
 	for (py = 0; py < size; py++)
 		for (px = 0; px < size; px++)
 			if (modules[py * size + px]) {
-				int sy, sx;
+				unsigned sy, sx;
+
 				for (sy = 0; sy < SCALE; sy++)
 					for (sx = 0; sx < SCALE; sx++)
-						image[((py + QUIET) * SCALE + sy) * w +
+						image[((py + QUIET) * SCALE + sy) *
+						              (unsigned)w +
 						      (px + QUIET) * SCALE + sx] = 0;
 			}
 	quirc_end(q);
@@ -116,7 +118,7 @@ static int decode_printed(const char *text, const char *want)
 		return 0;
 	}
 	image = quirc_begin(q, &w, &h);
-	memset(image, 0, (size_t)w * h);
+	memset(image, 0, (size_t)w * (size_t)h);
 	r = 0;
 	c = 0;
 	for (p = text; *p; ) {
