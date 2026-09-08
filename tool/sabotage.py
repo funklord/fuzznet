@@ -2508,30 +2508,6 @@ SABOTAGES = [
 		"answer the library acts on",
 	),
 	(
-		"state-view-cleared-is-not-never-set",
-		"gui/state_view.cpp",
-		"\tif (!found) {\n",
-		"\tif (1) {\n",
-		"fzn_state_get answers NULL for a tombstone and for a subject nobody set, "
-		"deliberately, and a person needs the difference the accessor hides",
-	),
-	(
-		"state-view-names-who-cleared-it",
-		"gui/state_view.cpp",
-		"\t\tif (fzn_trust_fingerprint(found->issuer, print, sizeof(print)) == FZN_TRUST_OK)\n",
-		"\t\tif (0)\n",
-		"a tombstone still names its clearer, which is the whole reason this "
-		"widget walks rather than taking the accessor's answer",
-	),
-	(
-		"state-view-refuses-an-unreadable-state",
-		"gui/state_view.cpp",
-		"\tif (!fzn_state_sound(st)) {\n",
-		"\tif (0) {\n",
-		"a state counting more cells than it holds is the read that goes off the "
-		"array, and reporting it as unconfigured is the fail-open answer",
-	),
-	(
 		"state-sound-is-the-guards-rule",
 		"state/state.c",
 		"\treturn state && state->entries && state->used <= state->capacity;\n",
@@ -2719,6 +2695,30 @@ SABOTAGES = [
 		"\t\tstate_label_->setText(QStringLiteral(\"held\"));\n",
 		"the widget must SHOW cli/capability_print's line rather than have a "
 		"wording of its own -- sec 193's rule",
+	),
+	(
+		"state-print-cleared-is-not-never-set",
+		"cli/state_print.c",
+		"\t\t\tsaid = row ? FZN_STATE_CELL_CLEARED : FZN_STATE_CELL_NEVER_SET;\n",
+		"\t\t\tsaid = FZN_STATE_CELL_NEVER_SET;\n",
+		"fzn_state_get answers NULL for a tombstone and for a subject nobody set, "
+		"deliberately, and a report must separate what a decision must not",
+	),
+	(
+		"state-print-refuses-an-unreadable-state",
+		"cli/state_print.c",
+		"\tif (fzn_state_sound(st)) {\n",
+		"\tif (1) {\n",
+		"an unreadable state reported as unset invites writing over something "
+		"nobody has looked at, which is the fail-open answer",
+	),
+	(
+		"state-view-shows-the-printers-words",
+		"gui/state_view.cpp",
+		"\t\tstate_label_->setText(text);\n",
+		"\t\tstate_label_->setText(QStringLiteral(\"unset\"));\n",
+		"the widget must SHOW cli/state_print's line rather than have a wording of "
+		"its own -- sec 193's rule",
 	),
 ]
 

@@ -104,7 +104,7 @@ int main(int argc, char **argv)
 	view.show_cell(&st, subject, 5u);
 	CHECK(view.shown_state() == fzn_state_view::NEVER_SET,
 	      "an unset subject was not shown as unset");
-	CHECK(view.issuer_text() == QStringLiteral("--"),
+	CHECK(!view.state_text().contains(QStringLiteral("set by")),
 	      "an unset subject named somebody");
 
 	/* SET, AND THE ISSUER IS THE LIBRARY'S ANSWER. */
@@ -114,14 +114,10 @@ int main(int argc, char **argv)
 
 	view.show_cell(&st, subject, 5u);
 	CHECK(view.shown_state() == fzn_state_view::SET, "a set cell was not shown as set");
-	CHECK(view.seq() == 1u, "the sequence is not the record's");
-	CHECK(view.issuer_text() != QStringLiteral("--"), "a set cell named nobody");
-	{
-		const fzn_state_entry_t *held = fzn_state_get(&st, subject, 5u);
-
-		CHECK(held != NULL && held->seq == view.seq(),
-		      "the widget's sequence is not the library's");
-	}
+	CHECK(view.state_text().contains(QStringLiteral(" at 1")),
+	      "the sequence is not the record's");
+	CHECK(fzn_state_get(&st, subject, 5u) != NULL,
+	      "the library does not hold the cell the widget just reported");
 
 	/* THE CASE THIS FILE EXISTS FOR. Clear it: `fzn_state_get` now answers
 	 * NULL, exactly as it does for a subject nobody ever set, and the two
@@ -147,7 +143,7 @@ int main(int argc, char **argv)
 		      "cleared and never-set are shown in the same words, which is the "
 		      "one thing fzn_state_get cannot tell a caller and the one thing a "
 		      "person needs");
-		CHECK(view.issuer_text() != QStringLiteral("--"),
+		CHECK(view.state_text().contains(QStringLiteral("taken back by")),
 		      "a tombstone did not name who cleared it, which is the reason for "
 		      "walking at all");
 	}
@@ -167,6 +163,26 @@ int main(int argc, char **argv)
 		CHECK(view.state_text() != QStringLiteral("nobody has set this"),
 		      "an unreadable state reads as a host with nothing configured, which "
 		      "is the fail-open answer");
+	}
+
+	/* THE ASSERTION THAT KEEPS ONE IMPLEMENTATION. sec 193/197. */
+	{
+		char want[FZN_STATE_PRINT_MAX];
+		fzn_state_cell_t said = FZN_STATE_CELL_UNREADABLE;
+		size_t plen = 0;
+		QString expected;
+
+		st.used = 2u;
+		view.show_cell(&st, subject, 5u);
+		CHECK(fzn_state_print(&st, subject, 5u, want, sizeof(want), &plen, &said) ==
+		              FZN_STATE_OK,
+		      "the printer would not render what the widget was given");
+		expected = QString::fromLatin1(want);
+		while (expected.endsWith(QLatin1Char('\n')))
+			expected.chop(1);
+		CHECK(view.state_text() == expected,
+		      "the widget's words are not the printer's, so one screen has two "
+		      "wordings again");
 	}
 
 	/* The suite can tell pass from fail. */

@@ -31672,3 +31672,45 @@ The fix is to wait on a pid this session created rather than one it
 recognised. Recorded here rather than as a rule, because the tree does not
 own the loop -- it is in the harness's shell invocations -- but the next
 session to write one should not have to find this twice.
+
+## 197. A state line, and the accessor both halves look past
+
+`cli/state_print.{h,c}` reports what this host believes about one subject
+and, when it believes nothing, which of the two nothings it is. Printer and
+widget in one commit, sec 193's rule, fourth application.
+
+### The argument moved rather than being repeated
+
+sec 184 made the case for the widget: `fzn_state_get` answers NULL for a
+tombstone and for a subject nothing ever set, because "a caller asking what a
+subject says must not have to know that this file remembers who unset it" --
+right for code taking a DECISION, wrong for a REPORT.
+
+That argument is the printer's now and the widget inherits it by asking. **The
+interesting part is that this is the one place where the two halves agreeing
+was never in doubt and consolidating still helped**: both were going to look
+past the accessor, and having one of them do it means the reasoning exists
+once, next to the code that acts on it, rather than in two headers that would
+drift into disagreeing about how far past to look.
+
+For a daemon the two nothings are the two answers to "why will this host not
+do what I asked" -- set it, or find out who unset it and why. Opposite next
+steps from an identical NULL.
+
+### `FZN_STATE_CELL_UNREADABLE` is zero and that choice has teeth here
+
+Every printer in this family makes its conservative value zero. This one is
+the case where the reason is concrete rather than principled: **"unset"
+invites writing and "unreadable" does not.** A caller that ignored the state
+after a refusal and saw NEVER_SET would be told, in effect, to go ahead and
+configure something it has not managed to read.
+
+### The gate runner now waits on its own child
+
+sec 196 recorded a wait loop that matched `timeout ... make check` in `ps` and
+could select another session's build. It is a two-line script now: the runner
+backgrounds the gate, records `$!`, and waits on that. It cannot match a
+neighbour because it never matches anything.
+
+Written down because the fix is smaller than the finding and the finding is
+easy to forget: **wait on a process you started, not on one you recognised.**

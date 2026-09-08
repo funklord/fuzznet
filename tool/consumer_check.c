@@ -66,6 +66,7 @@
 #include <fuzznet/cli/sweep_print.h>
 #include <fuzznet/cli/transfer_print.h>
 #include <fuzznet/cli/capability_print.h>
+#include <fuzznet/cli/state_print.h>
 #endif
 #include <fuzznet/blob/blob.h>
 #include <fuzznet/ratchet/ratchet.h>
@@ -146,6 +147,7 @@
 #include "cli/sweep_print.h"
 #include "cli/transfer_print.h"
 #include "cli/capability_print.h"
+#include "cli/state_print.h"
 #endif
 #include "blob/blob.h"
 #include "ratchet/ratchet.h"

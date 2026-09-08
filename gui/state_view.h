@@ -33,6 +33,10 @@
  * is what the tombstone answer costs, and a state counting more cells than it
  * holds is the read that goes off the end.
  *
+ * IT ASKS `cli/state_print` AND SHOWS WHAT IT SAYS, and needs FZN_CLI for it.
+ * sec 197, under sec 193's rule. The argument above is now the PRINTER's as
+ * well -- both look past the accessor, for the same reason and in one place.
+ *
  * NO Q_OBJECT AND THEREFORE NO moc, on sec 140's rule. It displays.
  */
 
@@ -40,6 +44,7 @@
 #define FZN_GUI_STATE_VIEW_H
 
 extern "C" {
+#include "../cli/state_print.h"
 #include "../state/state.h"
 }
 
@@ -63,22 +68,16 @@ public:
 	void show_cell(const fzn_state_t *st, const uint8_t subject[FZN_SUBJECT_LEN],
 	               uint32_t kind);
 
+	/* `state_text` is `fzn_state_print`'s line, which carries the verdict,
+	 * who set or cleared it, and at which sequence. A tombstone still
+	 * names its clearer -- that is the whole reason either of these walks
+	 * rather than taking the accessor's answer. */
 	state shown_state() const;
 	QString state_text() const;
 
-	/* Who set or cleared it, as a fingerprint, and empty when nobody has.
-	 * A tombstone still names its clearer -- that is the whole reason this
-	 * widget walks. */
-	QString issuer_text() const;
-
-	/* The sequence the winning record carried, or zero. */
-	uint64_t seq() const;
-
 private:
 	state state_;
-	uint64_t seq_;
 	QLabel *state_label_;
-	QLabel *issuer_;
 };
 
 #endif /* FZN_GUI_STATE_VIEW_H */
