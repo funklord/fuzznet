@@ -33051,3 +33051,65 @@ It is worth noting against the temptation it creates: the fix is to assert a
 substring that carries the MEANING (`ever freed`, the permanence) rather than
 to relax the assertion until it passes. A test that stops checking the words
 would still have passed, and the line could then say anything at all.
+
+## 214. Pressure that recovers, and a refusal that is not ours
+
+`chunk/reasm` and `spool/store`, and both are the exceptions to what sec 211
+to 213 established.
+
+	chunk/reasm   WARN  saturated: all slots live, this message will not complete
+	spool/store   ERR   the backend refused a VERIFIED leaf
+
+**The reassembly table is the first store here that RECLAIMS.** The journal,
+the state, the revocation store and the catalogue all refuse permanently
+because nothing in them is ever freed; a reassembly slot comes back when its
+partial expires. So `FZN_REASM_ERR_FULL` is pressure rather than a state, and
+it is a warning rather than critical for that reason -- the severity is
+carrying a real distinction between "this will clear" and "this is now how
+things are".
+
+What the return value still cannot say is that the table is saturated AT ALL.
+One refused chunk and a table full for a minute are the same value, and this
+module's own header argues that a table refusing when full is a table one
+sender can fill.
+
+**The spool's is the one refusal in this library that is not about the
+protocol.** Every other event here is fuzznet judging something. `spool/store`
+reports the CONSUMER'S OWN STORAGE saying no -- a full disk, a revoked
+permission, a device that went away -- and the leaf had already VERIFIED when
+it happened. So the spool's bookkeeping and the storage disagree from that
+moment, the bit is correctly not set, and the leaf will be asked for again for
+ever. `FZN_SPOOL_ERR_BACKEND` names the layer and nothing else: not which
+leaf, not where, not how much.
+
+That is why it is ERR rather than WARN or CRIT. It is not fuzznet's fault and
+not permanent in fuzznet's sense -- a disk can be emptied -- but nothing in
+the protocol will resolve it either.
+
+### What the gate cannot see, found by satisfying it wrongly
+
+`tool/log_gate.py` reported all twelve emit sites asserted while
+`spool_test.c` DID NOT COMPILE. It greps for the subsystem literal in test
+sources; a literal in a file the compiler rejects satisfies it exactly as well
+as one in a file that runs.
+
+That is a real limit and it is the shape this project keeps meeting: **the
+gate checks the artifact it was pointed at, and "a test mentions this string"
+is not "a test asserts this string".** It is not worth fixing by parsing C --
+`make check` builds every suite, so a non-compiling test cannot reach a commit
+-- but it is worth knowing that the gate's pass is conditional on a build the
+gate does not perform.
+
+### The same mistake twice, one module apart
+
+`REQUIRE` in these suites expands to a bare `return;`, which is fine in a void
+test function and wrong inside `main`. Written into `main` for the catalogue,
+fixed, and then written into `main` again for the spool twenty minutes later.
+
+Both were caught by the compiler in seconds, so the cost was nothing -- but
+the repeat is the interesting part: the first fix was to MOVE the block, and
+the lesson recorded was about `return` types rather than about the shape.
+**A fix that relocates code teaches less than one that changes it**, because
+nothing about the new location says why it is the right one. The suites put
+test cases in functions and call them from `main`; following that would have
+avoided both.

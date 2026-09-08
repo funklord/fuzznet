@@ -1074,6 +1074,20 @@ SABOTAGES = [
 		"the tri-state exists so `could not tell` cannot be read as `no`; rendering them as one word undoes a whole module at the point a person reads it -- sec 204",
 	),
 	(
+		"reasm-saturation-is-said",
+		"chunk/reassembly.c",
+		"\"chunk/reasm\", FLOG_WARN,\n",
+		"\"chunk/reasm\", FLOG_DEBUG,\n",
+		"one refused chunk and a table full for a minute look identical to a caller, and this module's own header argues that a table refusing when full is one a single sender can fill -- at debug the saturation is filtered out by default -- sec 214",
+	),
+	(
+		"spool-backend-refusal-is-said",
+		"spool/spool.c",
+		"\"spool/store\", FLOG_ERR,\n",
+		"\"spool/store\", FLOG_INFO,\n",
+		"the leaf VERIFIED and then did not land, so the spool's bookkeeping and the storage disagree from now on and it will be asked for again for ever -- the consumer's own storage failing is not an informational event -- sec 214",
+	),
+	(
 		"catalog-full-is-forever",
 		"catalog/catalog.c",
 		"\"catalog/edge\", FLOG_CRIT,\n",

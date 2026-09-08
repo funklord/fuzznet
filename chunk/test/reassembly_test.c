@@ -4,6 +4,33 @@
 
 #include "../reassembly.h"
 
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+
+/* Borrowed strings, so anything kept is copied. */
+static struct {
+	int calls;
+	flog_msg_type_t type;
+	char subsystem[64];
+	char text[512];
+} reasm_log_seen;
+
+static int reasm_log_capture(flog_t *p, const flog_msg_t *m)
+{
+	(void)p;
+	reasm_log_seen.calls++;
+	reasm_log_seen.type = m->type;
+	reasm_log_seen.subsystem[0] = '\0';
+	reasm_log_seen.text[0] = '\0';
+	if (m->subsystem)
+		snprintf(reasm_log_seen.subsystem, sizeof(reasm_log_seen.subsystem),
+		         "%s", m->subsystem);
+	if (m->text)
+		snprintf(reasm_log_seen.text, sizeof(reasm_log_seen.text), "%s", m->text);
+	return 0;
+}
+#endif
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -1459,6 +1486,57 @@ int main(void)
 	test_the_operands_the_first_one_hides();
 
 	test_the_hold_deadline_saturates();
+
+#ifdef FZN_FLOG_ON
+	/*
+	 * SATURATION IS PRESSURE, NOT A STATE. sec 214. Slots come back when a
+	 * partial expires, so this recovers -- which is why it is a warning and
+	 * not the CRIT the never-evicting stores get. What no return value
+	 * carries is that the table is saturated AT ALL: one refused chunk and
+	 * a table full for a minute look identical from outside, and this
+	 * module's own header argues that a table refusing when full is one a
+	 * single sender can fill.
+	 */
+	{
+		struct fixture lf;
+		flog_t log;
+		fzn_partial_t *ldone = NULL;
+		uint8_t piece[8], who[FZN_SENDER_LEN];
+		size_t i;
+
+		init_flog_t(&log);
+		log.name = NULL;
+		log.accepted_msg_type = FLOG_ACCEPT_ALL;
+		log.output_func = reasm_log_capture;
+
+		fill(piece, 8, 0x90, 0);
+		fixture_init(&lf, SLOTS);
+
+		/* QUIET UNTIL ASKED. */
+		memset(&reasm_log_seen, 0, sizeof(reasm_log_seen));
+		for (i = 0; i < SLOTS; i++) {
+			memset(who, (uint8_t)(0xe0 + i), FZN_SENDER_LEN);
+			fzn_reasm_accept(&lf.table, who, 1, 0, 2, piece, 8, 50, 10, &ldone);
+		}
+		CHECK(reasm_log_seen.calls == 0,
+		      "a table nobody gave a log to emitted anyway");
+
+		fzn_reasm_set_log(&lf.table, &log);
+		memset(&reasm_log_seen, 0, sizeof(reasm_log_seen));
+		memset(who, 0xef, FZN_SENDER_LEN);
+		CHECK(fzn_reasm_accept(&lf.table, who, 1, 0, 2, piece, 8, 50, 10, &ldone) ==
+		              FZN_REASM_ERR_FULL,
+		      "a full table admitted another message");
+		CHECK(reasm_log_seen.calls == 1, "a saturated table said nothing");
+		CHECK(reasm_log_seen.type == FLOG_WARN,
+		      "pressure that recovers on its own was not a warning");
+		CHECK(strcmp(reasm_log_seen.subsystem, "chunk/reasm") == 0,
+		      "the event did not name its subsystem");
+		CHECK(strstr(reasm_log_seen.text, "will not complete") != NULL,
+		      "the line reports a refusal and not its consequence, which is that a "
+		      "message somebody is sending never finishes");
+	}
+#endif
 
 	printf("reassembly_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

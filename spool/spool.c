@@ -2,6 +2,18 @@
 
 #include "spool.h"
 
+/* Diagnostics through flog, vendored and possibly absent. sec 209. */
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+#define SPOOL_LOG(sp, sub, sev, ...)                                                       \
+	do {                                                                               \
+		if ((sp) && (sp)->log)                                                     \
+			flog_printf((sp)->log, sub, sev, FLOG_MSG_NONE, __VA_ARGS__);       \
+	} while (0)
+#else
+#define SPOOL_LOG(sp, sub, sev, ...) ((void)0)
+#endif
+
 #include <string.h>
 
 /*
@@ -35,6 +47,14 @@ static void bit_set(uint8_t *map, uint64_t index)
 	map[index >> 3] = (uint8_t)(map[index >> 3] | (1u << (index & 7u)));
 }
 
+void fzn_spool_set_log(fzn_spool_t *spool, struct flog_t *log)
+{
+	if (!spool)
+		return;
+
+	spool->log = log;
+}
+
 fzn_spool_err_t fzn_spool_open(fzn_spool_t *spool, const uint8_t root[FZN_BLOB_HASH_LEN],
                                uint64_t leaves, uint8_t *present, size_t present_len,
                                const fzn_spool_ops_t *ops)
@@ -56,6 +76,8 @@ fzn_spool_err_t fzn_spool_open(fzn_spool_t *spool, const uint8_t root[FZN_BLOB_H
 
 	memcpy(spool->root, root, FZN_BLOB_HASH_LEN);
 	spool->leaves = leaves;
+	/* Quiet unless somebody asks. */
+	spool->log = NULL;
 	spool->present = present;
 	spool->present_len = present_len;
 	spool->ops = ops;
@@ -218,8 +240,19 @@ fzn_spool_err_t fzn_spool_place(fzn_spool_t *spool, const fzn_hash_ops_t *hash, 
 	                          spool->root) != FZN_BLOB_OK)
 		return FZN_SPOOL_ERR_UNVERIFIED;
 
-	if (!spool->ops->write_at(spool->ops->ctx, offset_of(index), sealed, sealed_len))
+	if (!spool->ops->write_at(spool->ops->ctx, offset_of(index), sealed, sealed_len)) {
+		/* THE CONSUMER'S OWN STORAGE SAID NO, which is the one refusal
+		 * here that is not about the protocol. The leaf VERIFIED --
+		 * everything above this line passed -- and then did not land,
+		 * so the spool's bookkeeping and the storage disagree from now
+		 * on and the leaf will be asked for again for ever. */
+		SPOOL_LOG(spool, "spool/store", FLOG_ERR,
+		          "backend refused a verified leaf at index %llu, offset %llu, %zu "
+		          "bytes: it will be requested again and will not be held",
+		          (unsigned long long)index, (unsigned long long)offset_of(index),
+		          sealed_len);
 		return FZN_SPOOL_ERR_BACKEND;
+	}
 
 	/*
 	 * AND THE REST OF THE SLOT IS FILLED, which is not padding for its own

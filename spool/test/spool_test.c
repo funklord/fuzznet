@@ -9,6 +9,33 @@
 
 #include "../spool.h"
 
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+
+/* Borrowed strings, so anything kept is copied. */
+static struct {
+	int calls;
+	flog_msg_type_t type;
+	char subsystem[64];
+	char text[512];
+} spool_log_seen;
+
+static int spool_log_capture(flog_t *p, const flog_msg_t *m)
+{
+	(void)p;
+	spool_log_seen.calls++;
+	spool_log_seen.type = m->type;
+	spool_log_seen.subsystem[0] = '\0';
+	spool_log_seen.text[0] = '\0';
+	if (m->subsystem)
+		snprintf(spool_log_seen.subsystem, sizeof(spool_log_seen.subsystem),
+		         "%s", m->subsystem);
+	if (m->text)
+		snprintf(spool_log_seen.text, sizeof(spool_log_seen.text), "%s", m->text);
+	return 0;
+}
+#endif
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -1100,6 +1127,60 @@ static void test_a_span_over_a_refusing_backend_sets_no_bit(void)
 	CHECK(fzn_spool_has(&spool, 0u), "the control placement set no bit");
 }
 
+#ifdef FZN_FLOG_ON
+static void test_the_spool_says_storage_refused_a_verified_leaf(void)
+/*
+ * THE CONSUMER'S OWN STORAGE SAID NO. sec 214, and it is the one
+ * refusal in this library that is not about the protocol at all -- a
+ * full disk, a revoked permission, a device that went away.
+ *
+ * The leaf VERIFIED and then did not land, so the spool's bookkeeping
+ * and the storage disagree from now on and it will be asked for again
+ * for ever. FZN_SPOOL_ERR_BACKEND names the layer and nothing else:
+ * not which leaf, not where, not how much.
+ */
+{
+	fzn_spool_t ls;
+	uint8_t lmap[FZN_SPOOL_BITMAP_LEN(TEST_LEAVES)];
+	flog_t log;
+
+	init_flog_t(&log);
+	log.name = NULL;
+	log.accepted_msg_type = FLOG_ACCEPT_ALL;
+	log.output_func = spool_log_capture;
+
+	REQUIRE(build_blob(), "the blob fixture does not build");
+	reset(&ls, lmap, sizeof(lmap));
+
+	/* QUIET UNTIL ASKED: reset() opens the spool, which clears the
+	 * log, so a planted one must not survive it. */
+	fzn_spool_set_log(&ls, &log);
+	reset(&ls, lmap, sizeof(lmap));
+	disk.refuse_writes = 1;
+	memset(&spool_log_seen, 0, sizeof(spool_log_seen));
+	CHECK(fzn_spool_place(&ls, &HASH, 1u, sealed[1], sealed_len[1], proof[1],
+	                      proof_len[1]) == FZN_SPOOL_ERR_BACKEND,
+	      "a refused write was reported as success");
+	CHECK(spool_log_seen.calls == 0,
+	      "a spool nobody gave a log to emitted anyway");
+
+	fzn_spool_set_log(&ls, &log);
+	memset(&spool_log_seen, 0, sizeof(spool_log_seen));
+	CHECK(fzn_spool_place(&ls, &HASH, 1u, sealed[1], sealed_len[1], proof[1],
+	                      proof_len[1]) == FZN_SPOOL_ERR_BACKEND,
+	      "a refused write was reported as success");
+	CHECK(spool_log_seen.calls == 1, "storage refused a leaf and nothing said so");
+	CHECK(spool_log_seen.type == FLOG_ERR,
+	      "the consumer's storage failing was not reported as an error");
+	CHECK(strcmp(spool_log_seen.subsystem, "spool/store") == 0,
+	      "the event did not name its subsystem");
+	CHECK(strstr(spool_log_seen.text, "requested again") != NULL,
+	      "the line reports a failed write and not that the leaf will be asked "
+	      "for again for ever, which is what the caller cannot work out");
+	disk.refuse_writes = 0;
+}
+#endif
+
 int main(void)
 {
 	test_leaves_arrive_in_any_order();
@@ -1122,6 +1203,10 @@ int main(void)
 	test_a_non_canonical_span_is_refused();
 	test_a_bad_leaf_mid_span_writes_nothing();
 	test_a_span_over_a_refusing_backend_sets_no_bit();
+
+#ifdef FZN_FLOG_ON
+	test_the_spool_says_storage_refused_a_verified_leaf();
+#endif
 
 	printf("spool_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

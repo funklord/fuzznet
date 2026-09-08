@@ -2,6 +2,18 @@
 
 #include "reassembly.h"
 
+/* Diagnostics through flog, vendored and possibly absent. sec 209. */
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+#define REASM_LOG(t, sub, sev, ...)                                                        \
+	do {                                                                               \
+		if ((t) && (t)->log)                                                       \
+			flog_printf((t)->log, sub, sev, FLOG_MSG_NONE, __VA_ARGS__);        \
+	} while (0)
+#else
+#define REASM_LOG(t, sub, sev, ...) ((void)0)
+#endif
+
 #include <string.h>
 
 /* `seen` is sized FZN_REASM_MAX_CHUNKS / 8, and that division truncates.
@@ -83,6 +95,14 @@ fzn_reasm_err_t fzn_reasm_slot_init(fzn_partial_t *slot, uint8_t *buf, size_t ca
 	return FZN_REASM_OK;
 }
 
+void fzn_reasm_set_log(fzn_reasm_t *table, struct flog_t *log)
+{
+	if (!table)
+		return;
+
+	table->log = log;
+}
+
 fzn_reasm_err_t fzn_reasm_init(fzn_reasm_t *table, fzn_partial_t *partials, size_t capacity,
                                 size_t per_sender_max, uint64_t max_hold)
 {
@@ -96,6 +116,8 @@ fzn_reasm_err_t fzn_reasm_init(fzn_reasm_t *table, fzn_partial_t *partials, size
 
 	table->partials = partials;
 	table->capacity = capacity;
+	/* Quiet unless somebody asks. */
+	table->log = NULL;
 	table->per_sender_max = per_sender_max;
 	table->max_hold = max_hold;
 
@@ -261,8 +283,19 @@ static fzn_reasm_err_t admit_first(fzn_reasm_t *table, const uint8_t *sender, ui
 			break;
 		}
 	}
-	if (!slot)
+	if (!slot) {
+		/* SATURATED, WHICH IS PRESSURE RATHER THAN A STATE. Slots are
+		 * reclaimed when a partial expires, so this recovers -- but one
+		 * refused chunk and a table that has been full for a minute
+		 * look identical to a caller, and this header's own argument is
+		 * that a table refusing when full is one a single sender can
+		 * fill. */
+		REASM_LOG(table, "chunk/reasm", FLOG_WARN,
+		          "reassembly table saturated: all %zu slots live, so this chunk is "
+		          "dropped and the message will not complete",
+		          table->capacity);
 		return FZN_REASM_ERR_FULL;
+	}
 
 	/* Sized up front from what this chunk claims. A chunk that is not the
 	 * last sets the stride; one that IS the last cannot, since it may be

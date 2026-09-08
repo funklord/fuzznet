@@ -122,6 +122,9 @@ typedef struct fzn_partial {
 } fzn_partial_t;
 
 /* A bounded set of half-finished messages. */
+/* Declared, not included. sec 209. */
+struct flog_t;
+
 typedef struct fzn_reasm {
 	fzn_partial_t *partials;
 	size_t capacity;
@@ -160,7 +163,24 @@ typedef struct fzn_reasm {
 	 * reason `per_sender_max` gives above: an unlimited default is the one
 	 * a caller gets by forgetting the field. */
 	uint64_t max_hold;
+	/* Where this table says what happened, or NULL for silence. */
+	struct flog_t *log;
 } fzn_reasm_t;
+
+/*
+ * Give this table somewhere to say what happened, or NULL to silence it.
+ *
+ * sec 214. Unlike the stores of sec 211 to 213 this one RECLAIMS -- a slot is
+ * freed when its partial expires -- so FZN_REASM_ERR_FULL is pressure rather
+ * than a permanent state, and it is a warning rather than critical for that
+ * reason. What the return value cannot say is that the table is saturated at
+ * all: one refused chunk and a table that has been full for a minute look
+ * identical to a caller, and this header's own argument is that a table which
+ * refuses when full is a table one sender can fill.
+ *
+ * Subsystem `chunk/reasm`. The log is borrowed and must outlive the table.
+ */
+void fzn_reasm_set_log(fzn_reasm_t *table, struct flog_t *log);
 
 /* Point a table at caller-owned partials. Each slot must already have its
  * buffer set (fzn_reasm_slot_init). `per_sender_max` of 0 is refused rather

@@ -107,6 +107,9 @@ typedef struct fzn_spool_ops {
  * not, which keeps the resumable half usable on a target with no heap and a
  * fixed buffer.
  */
+/* Declared, not included. sec 209. */
+struct flog_t;
+
 typedef struct fzn_spool {
 	uint8_t root[FZN_BLOB_HASH_LEN];
 	uint64_t leaves;
@@ -114,7 +117,23 @@ typedef struct fzn_spool {
 	uint8_t *present;
 	size_t present_len;
 	const fzn_spool_ops_t *ops;
+	/* Where this spool says what happened, or NULL for silence. */
+	struct flog_t *log;
 } fzn_spool_t;
+
+/*
+ * Give this spool somewhere to say what happened, or NULL to silence it.
+ *
+ * sec 214. `FZN_SPOOL_ERR_BACKEND` is the one refusal in this library that is
+ * not about the protocol at all: the consumer's own storage said no. A full
+ * disk, a revoked permission, a device that went away. The return value names
+ * the layer and nothing else -- not which operation, not where -- and a
+ * verified leaf that failed to land is the case where the spool's own
+ * bookkeeping and the storage disagree from then on.
+ *
+ * Subsystem `spool/store`. The log is borrowed and must outlive the spool.
+ */
+void fzn_spool_set_log(fzn_spool_t *spool, struct flog_t *log);
 
 /* Bytes of bitmap a blob of `leaves` leaves needs. */
 #define FZN_SPOOL_BITMAP_LEN(leaves) (((size_t)(leaves) + 7u) / 8u)
