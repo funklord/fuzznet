@@ -33643,3 +33643,29 @@ kind of check needs and the reason the widening is not taken on faith. The
 same shape as sec 219 in a different file: **a list whose completeness check
 has a narrower population than the thing it describes**, and in both cases the
 narrowing was a word.
+
+### And the finding is narrower than it first sounded: all ten were CAUGHT
+
+Run against the suites as they stood, **every one of the ten was caught by an
+assertion that already existed**:
+
+	sign-verify-checks-the-signature   a tampered signature verified
+	aead-open-checks-the-tag           the ciphertext did not open to the draft
+	hash-covers-the-whole-input        BLAKE2b-512("abc") does not match RFC 7693
+	agree-...-all-zero-shared-secret   a low-order peer key produced a usable key
+	persist-secret-mode-0600           a stored secret is not owner-only
+	claim-file-contention-...          a second description took a claim held
+	spool-file-sidecar-belongs-...     a sidecar for another blob was restored
+
+So **nothing was unguarded.** The bindings had KATs, the low-order point had
+its own case, the mode had an assertion, and the reused spool path had one.
+What was missing was not coverage but the census's ability to SAY so: it
+printed a figure over 49 files while the tree had 57, and the eight it could
+not see were the eight nobody would have thought to check by hand.
+
+That is worth separating carefully, because the two findings license different
+things. **A gap in a suite is work to do. A gap in a census is a claim to
+stop making** -- and the second is the one that was here. The entries are
+worth keeping anyway, on sec 52's argument that a guard nothing sabotages is a
+guard nobody has watched fail; but this pass added no protection the tree
+lacked, and saying otherwise would be the flattering version.
