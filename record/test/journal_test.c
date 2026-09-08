@@ -9,6 +9,34 @@
 
 #include "../journal.h"
 
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+
+/* The strings a flog_msg_t carries are borrowed for the length of the call,
+ * so anything kept is copied here. */
+static struct {
+	int calls;
+	flog_msg_type_t type;
+	char subsystem[64];
+	char text[512];
+} journal_log_seen;
+
+static int journal_log_capture(flog_t *p, const flog_msg_t *m)
+{
+	(void)p;
+	journal_log_seen.calls++;
+	journal_log_seen.type = m->type;
+	journal_log_seen.subsystem[0] = '\0';
+	journal_log_seen.text[0] = '\0';
+	if (m->subsystem)
+		snprintf(journal_log_seen.subsystem, sizeof(journal_log_seen.subsystem),
+		         "%s", m->subsystem);
+	if (m->text)
+		snprintf(journal_log_seen.text, sizeof(journal_log_seen.text), "%s", m->text);
+	return 0;
+}
+#endif
+
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -340,6 +368,62 @@ int main(void)
 		       "init left the caller's bytes in the entry array, so what a fresh "
 		       "table holds depends on what its memory held");
 	}
+
+#ifdef FZN_FLOG_ON
+	/*
+	 * THE JOURNAL SAYS HOW BIG THE GAP IS, AND THAT FULL IS PERMANENT.
+	 * sec 212. FZN_JOURNAL_ERR_GAP is the same value for one missed record
+	 * and for an hour of unreachability; FZN_JOURNAL_ERR_FULL means this
+	 * host can no longer track a NEW issuer at all, because forgetting one
+	 * readmits everything it ever sent.
+	 */
+	{
+		flog_t log;
+		fzn_journal_t lj;
+		fzn_journal_entry_t le[1];
+		uint8_t who[FZN_PUBKEY_LEN], other[FZN_PUBKEY_LEN];
+
+		memset(who, 0x71, sizeof(who));
+		memset(other, 0x72, sizeof(other));
+		init_flog_t(&log);
+		log.name = NULL;
+		log.accepted_msg_type = FLOG_ACCEPT_ALL;
+		log.output_func = journal_log_capture;
+
+		/* QUIET UNTIL ASKED: planted before the init that clears it, so
+		 * the guard is tested rather than the stack's contents. */
+		fzn_journal_set_log(&lj, &log);
+		expect_err(fzn_journal_init(&lj, le, 1), FZN_JOURNAL_OK, "log fixture");
+		memset(&journal_log_seen, 0, sizeof(journal_log_seen));
+		expect_err(fzn_journal_anchor(&lj, who, 0, 1), FZN_JOURNAL_OK, "anchor");
+		expect(journal_log_seen.calls == 0,
+		      "a journal nobody gave a log to emitted anyway");
+
+		fzn_journal_set_log(&lj, &log);
+
+		/* A GAP, AND ITS SIZE. */
+		memset(&journal_log_seen, 0, sizeof(journal_log_seen));
+		expect_err(fzn_journal_admit(&lj, who, 0, 9), FZN_JOURNAL_ERR_GAP,
+		           "a gap of seven");
+		expect(journal_log_seen.calls == 1, "a gap was refused and nothing said so");
+		expect(journal_log_seen.type == FLOG_WARN, "a gap was not a warning");
+		expect(strcmp(journal_log_seen.subsystem, "record/journal") == 0,
+		      "the event did not name its subsystem");
+		expect(strstr(journal_log_seen.text, "7 record") != NULL,
+		      "the line does not say HOW MANY records were missed, which is the "
+		      "whole difference between one lost datagram and an hour offline");
+
+		/* FULL, AND THAT IT DOES NOT RECOVER. */
+		memset(&journal_log_seen, 0, sizeof(journal_log_seen));
+		expect_err(fzn_journal_anchor(&lj, other, 0, 1), FZN_JOURNAL_ERR_FULL,
+		           "a full journal");
+		expect(journal_log_seen.calls == 1, "a full journal said nothing");
+		expect(journal_log_seen.type == FLOG_CRIT,
+		      "a condition that does not recover on its own was below critical");
+		expect(strstr(journal_log_seen.text, "evictable") != NULL,
+		      "the line reports fullness and not that it is permanent");
+	}
+#endif
 
 	printf("journal_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

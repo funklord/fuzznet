@@ -80,11 +80,31 @@ typedef struct fzn_journal_entry {
 	uint64_t applied;
 } fzn_journal_entry_t;
 
+/* Declared, not included. sec 209. */
+struct flog_t;
+
 typedef struct fzn_journal {
 	fzn_journal_entry_t *entries;
 	size_t capacity;
 	size_t used;
+	/* Where this journal says what happened, or NULL for silence. */
+	struct flog_t *log;
 } fzn_journal_t;
+
+/*
+ * Give this journal somewhere to say what happened, or NULL to silence it.
+ *
+ * sec 212. Two things it knows that no return value carries. A GAP says
+ * records were missed and not HOW MANY -- the distance between what arrived
+ * and what was expected is the difference between one lost datagram and a
+ * peer that has been unreachable for an hour. And FULL means this host can no
+ * longer track a new issuer at all, which this module refuses rather than
+ * evicting because "forgetting an issuer readmits everything it ever sent".
+ *
+ * Subsystem `record/journal`. The log is borrowed and must outlive the
+ * journal.
+ */
+void fzn_journal_set_log(fzn_journal_t *journal, struct flog_t *log);
 
 /* Point a journal at caller-owned entries. */
 fzn_journal_err_t fzn_journal_init(fzn_journal_t *journal, fzn_journal_entry_t *entries,

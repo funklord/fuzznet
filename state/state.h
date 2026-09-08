@@ -277,12 +277,31 @@ typedef struct fzn_state_entry {
 	int live;
 } fzn_state_entry_t;
 
+/* Declared, not included. sec 209. */
+struct flog_t;
+
 typedef struct fzn_state {
 	fzn_state_entry_t *entries;
 	size_t capacity;
 	size_t used;
 	uint64_t forgotten;
+	/* Where this state says what happened, or NULL for silence. */
+	struct flog_t *log;
 } fzn_state_t;
+
+/*
+ * Give this state somewhere to say what happened, or NULL to silence it.
+ *
+ * sec 212. Two things it knows that no return value carries. A CONFLICT is a
+ * SECOND ISSUER writing a cell a first one owns -- the return says the write
+ * was refused and not who was already there, and two issuers competing for one
+ * setting is the thing somebody needs to see. And FULL means a setting cannot
+ * be recorded at all, which this module refuses rather than evicting because
+ * "dropping a setting reverts it to a default nobody can trace".
+ *
+ * Subsystem `state/cell`. The log is borrowed and must outlive the state.
+ */
+void fzn_state_set_log(fzn_state_t *state, struct flog_t *log);
 
 /* Point a state at caller-owned entries. */
 fzn_state_err_t fzn_state_init(fzn_state_t *state, fzn_state_entry_t *entries, size_t capacity);

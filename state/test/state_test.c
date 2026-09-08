@@ -36,6 +36,33 @@
 #include "../../chain/chain.h" /* fzn_sign_ops_t */
 #include "../state.h"
 
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+
+/* Borrowed strings, so anything kept is copied. */
+static struct {
+	int calls;
+	flog_msg_type_t type;
+	char subsystem[64];
+	char text[512];
+} state_log_seen;
+
+static int state_log_capture(flog_t *p, const flog_msg_t *m)
+{
+	(void)p;
+	state_log_seen.calls++;
+	state_log_seen.type = m->type;
+	state_log_seen.subsystem[0] = '\0';
+	state_log_seen.text[0] = '\0';
+	if (m->subsystem)
+		snprintf(state_log_seen.subsystem, sizeof(state_log_seen.subsystem), "%s",
+		         m->subsystem);
+	if (m->text)
+		snprintf(state_log_seen.text, sizeof(state_log_seen.text), "%s", m->text);
+	return 0;
+}
+#endif
+
 #include <stdio.h>
 #include <string.h>
 
@@ -1326,6 +1353,62 @@ int main(void)
 	}
 
 	test_the_operands_the_first_one_hides();
+
+#ifdef FZN_FLOG_ON
+	/*
+	 * THE STATE SAYS WHO WAS ALREADY THERE, AND THAT FULL IS PERMANENT.
+	 * sec 212. FZN_STATE_ERR_CONFLICT says the write was refused; what
+	 * somebody needs to see is that a SECOND ISSUER is writing a cell a
+	 * first one owns, which is a fact about the deployment rather than
+	 * about this call. And FULL is refused rather than evicted because
+	 * dropping a setting reverts it to a default nobody can trace.
+	 */
+	{
+		fzn_state_t ls;
+		fzn_state_entry_t le[1];
+		fzn_record_t a, b2, c2;
+		flog_t log;
+
+		init_flog_t(&log);
+		log.name = NULL;
+		log.accepted_msg_type = FLOG_ACCEPT_ALL;
+		log.output_func = state_log_capture;
+
+		/* QUIET UNTIL ASKED, planted before the init that clears it. */
+		fzn_state_set_log(&ls, &log);
+		fzn_state_init(&ls, le, 1);
+		memset(&state_log_seen, 0, sizeof(state_log_seen));
+		make(&a, 0xa1, 1, 0x31, 1, 100, BODY_A, sizeof(BODY_A));
+		expect_err(fzn_state_apply(&ls, &a), FZN_STATE_OK, "first write");
+		expect(state_log_seen.calls == 0,
+		       "a state nobody gave a log to emitted anyway");
+
+		fzn_state_set_log(&ls, &log);
+
+		/* A SECOND ISSUER OVER ONE CELL. */
+		memset(&state_log_seen, 0, sizeof(state_log_seen));
+		make(&b2, 0xb1, 1, 0x31, 1, 200, BODY_A2, sizeof(BODY_A2));
+		expect_err(fzn_state_apply(&ls, &b2), FZN_STATE_ERR_CONFLICT,
+		           "a second issuer is refused");
+		expect(state_log_seen.calls == 1, "a conflict was refused and nothing said so");
+		expect(state_log_seen.type == FLOG_WARN, "a conflict was not a warning");
+		expect(strcmp(state_log_seen.subsystem, "state/cell") == 0,
+		       "the event did not name its subsystem");
+		expect(strstr(state_log_seen.text, "another issuer") != NULL,
+		       "the line does not say a second issuer is writing a cell the first "
+		       "one owns, which is the fact about the deployment");
+
+		/* FULL, AND THAT IT DOES NOT RECOVER. */
+		memset(&state_log_seen, 0, sizeof(state_log_seen));
+		make(&c2, 0xa1, 2, 0x32, 1, 300, BODY_A, sizeof(BODY_A));
+		expect_err(fzn_state_apply(&ls, &c2), FZN_STATE_ERR_FULL, "a full state");
+		expect(state_log_seen.calls == 1, "a full state said nothing");
+		expect(state_log_seen.type == FLOG_CRIT,
+		       "a condition that does not recover on its own was below critical");
+		expect(strstr(state_log_seen.text, "evictable") != NULL,
+		       "the line reports fullness and not that it is permanent");
+	}
+#endif
 
 	printf("state_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

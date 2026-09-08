@@ -2,6 +2,18 @@
 
 #include "journal.h"
 
+/* Diagnostics through flog, vendored and possibly absent. sec 209. */
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+#define JOURNAL_LOG(j, sub, sev, ...)                                                      \
+	do {                                                                               \
+		if ((j) && (j)->log)                                                       \
+			flog_printf((j)->log, sub, sev, FLOG_MSG_NONE, __VA_ARGS__);        \
+	} while (0)
+#else
+#define JOURNAL_LOG(j, sub, sev, ...) ((void)0)
+#endif
+
 #include "../constant_time/constant_time.h"
 
 #include <string.h>
@@ -24,6 +36,14 @@ static fzn_journal_entry_t *find(const fzn_journal_t *journal,
 	return hit;
 }
 
+void fzn_journal_set_log(fzn_journal_t *journal, struct flog_t *log)
+{
+	if (!journal)
+		return;
+
+	journal->log = log;
+}
+
 fzn_journal_err_t fzn_journal_init(fzn_journal_t *journal, fzn_journal_entry_t *entries,
                                     size_t capacity)
 {
@@ -34,6 +54,8 @@ fzn_journal_err_t fzn_journal_init(fzn_journal_t *journal, fzn_journal_entry_t *
 	journal->entries = entries;
 	journal->capacity = capacity;
 	journal->used = 0;
+	/* Quiet unless somebody asks. */
+	journal->log = NULL;
 
 	return FZN_JOURNAL_OK;
 }
@@ -97,8 +119,18 @@ fzn_journal_err_t fzn_journal_admit(fzn_journal_t *journal,
 
 	if (seq <= e->received)
 		return FZN_JOURNAL_ERR_DUPLICATE;
-	if (seq > e->received + 1u)
+	if (seq > e->received + 1u) {
+		/* HOW BIG THE GAP IS, which the return value does not carry.
+		 * One missed record and an hour of unreachability are the same
+		 * FZN_JOURNAL_ERR_GAP, and they want different responses. */
+		JOURNAL_LOG(journal, "record/journal", FLOG_WARN,
+		            "gap on stream %lu: expected %llu, got %llu, so %llu record(s) "
+		            "were missed",
+		            (unsigned long)stream, (unsigned long long)(e->received + 1u),
+		            (unsigned long long)seq,
+		            (unsigned long long)(seq - e->received - 1u));
 		return FZN_JOURNAL_ERR_GAP;
+	}
 
 	e->received = seq;
 	return FZN_JOURNAL_OK;
@@ -115,8 +147,17 @@ fzn_journal_err_t fzn_journal_anchor(fzn_journal_t *journal,
 
 	e = find(journal, issuer, stream);
 	if (!e) {
-		if (journal->used >= journal->capacity)
+		if (journal->used >= journal->capacity) {
+			/* THIS HOST CAN NO LONGER TRACK A NEW ISSUER. Refused
+			 * rather than evicted on purpose -- forgetting an issuer
+			 * readmits everything it ever sent -- so the refusal
+			 * stands until somebody enlarges the journal. */
+			JOURNAL_LOG(journal, "record/journal", FLOG_CRIT,
+			            "journal full at %zu issuers, so no new issuer can be "
+			            "tracked and nothing here is evictable",
+			            journal->capacity);
 			return FZN_JOURNAL_ERR_FULL;
+		}
 		e = &journal->entries[journal->used++];
 		memcpy(e->issuer, issuer, FZN_PUBKEY_LEN);
 		e->stream = stream;

@@ -32950,3 +32950,50 @@ than a lesson: **anchor on the part of a line that is about the thing being
 tested, not on the syntax around it.** The severity and the subsystem are the
 finding; the macro name and its indentation are scaffolding, and scaffolding
 moves.
+
+## 212. Two stores that refuse rather than evict, and now say so
+
+`record/journal` and `state/cell`, on the same rule as sec 211: the reader
+filters, so the source does not have to omit.
+
+Both modules share a design decision and it is the reason each has a CRIT.
+Neither evicts. `journal.h`: forgetting an issuer readmits everything it ever
+sent. `state.h`: dropping a setting reverts it to a default nobody can trace.
+So a full journal cannot track a NEW issuer and a full state cannot record a
+setting, **and neither condition recovers on its own** -- which is what
+separates them from every other refusal in this library and is exactly what
+`FZN_JOURNAL_ERR_FULL` and `FZN_STATE_ERR_FULL` cannot say.
+
+	record/journal  CRIT  full: no new issuer can be tracked, nothing evictable
+	record/journal  WARN  a gap, and HOW MANY records it is
+	state/cell      CRIT  full: this setting is not recorded, nothing evictable
+	state/cell      WARN  a second issuer writing a cell the first one owns
+
+**The gap one is the clearest case for text over a code.** One missed datagram
+and an hour of unreachability are the same `FZN_JOURNAL_ERR_GAP`. The caller
+holds `seq` and could subtract, and does not, because nothing told it to. The
+line says "7 record(s) were missed" and the difference between the two
+situations stops being an inference.
+
+**And the conflict one is not about the call at all.** `FZN_STATE_ERR_CONFLICT`
+says this write was refused. What somebody needs to see is that a SECOND
+ISSUER is writing a cell a first one owns, which is a fact about the
+deployment: two authorities competing for one setting, and only one of them
+knows it.
+
+### The gate refused before the tests were written, which is the gate working
+
+`tool/log_gate.py` named both new subsystems as unasserted the moment the emit
+sites landed. That is the case it exists for and the one a spelling check
+cannot see -- not a typo, but an emit site nobody tested. It goes 3 subsystems
+over 4 sites to 5 over 8, and `journal_test` gains 12 checks while `state_test`
+goes 230 to 241.
+
+### Two instrument slips inside one batch, both caught by the compiler
+
+A nested function declaration inside a block, and a reference to a fixture
+helper that does not exist -- `BODY_A1` where this suite has `BODY_A`, and a
+`CHECK` macro where it spells the same thing `expect`. Each was a guess at a
+neighbouring file's vocabulary rather than a reading of it, and each cost one
+compile. Cheap here because the compiler holds the whole vocabulary; the same
+guess about a RUNTIME convention is what sec 210 was.

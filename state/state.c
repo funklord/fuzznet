@@ -2,6 +2,18 @@
 
 #include "state.h"
 
+/* Diagnostics through flog, vendored and possibly absent. sec 209. */
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+#define STATE_LOG(st, sub, sev, ...)                                                       \
+	do {                                                                               \
+		if ((st) && (st)->log)                                                     \
+			flog_printf((st)->log, sub, sev, FLOG_MSG_NONE, __VA_ARGS__);       \
+	} while (0)
+#else
+#define STATE_LOG(st, sub, sev, ...) ((void)0)
+#endif
+
 #include "../constant_time/constant_time.h"
 
 #include <string.h>
@@ -75,6 +87,14 @@ static fzn_state_entry_t *slot(fzn_state_t *state)
 	return NULL;
 }
 
+void fzn_state_set_log(fzn_state_t *state, struct flog_t *log)
+{
+	if (!state)
+		return;
+
+	state->log = log;
+}
+
 fzn_state_err_t fzn_state_init(fzn_state_t *state, fzn_state_entry_t *entries, size_t capacity)
 {
 	if (!state || !entries || capacity == 0)
@@ -84,6 +104,8 @@ fzn_state_err_t fzn_state_init(fzn_state_t *state, fzn_state_entry_t *entries, s
 	state->entries = entries;
 	state->capacity = capacity;
 	state->used = 0;
+	/* Quiet unless somebody asks. */
+	state->log = NULL;
 	state->forgotten = 0;
 
 	return FZN_STATE_OK;
@@ -166,8 +188,17 @@ static fzn_state_err_t put(fzn_state_t *state, const fzn_record_t *record, int o
 	e = find(state, fzn_record_subject(*record), fzn_record_kind(*record));
 	if (!e) {
 		e = slot(state);
-		if (!e)
+		if (!e) {
+			/* A SETTING CANNOT BE RECORDED AT ALL. Refused rather
+			 * than evicted on purpose -- dropping a setting reverts
+			 * it to a default nobody can trace -- so this stands
+			 * until the state is enlarged. */
+			STATE_LOG(state, "state/cell", FLOG_CRIT,
+			          "state full at %zu cells and nothing here is evictable, so "
+			          "this setting is not recorded",
+			          state->capacity);
 			return FZN_STATE_ERR_FULL;
+		}
 
 		store(e, *record, live);
 		/* ABSENT reports what was here before, and the record is
@@ -180,8 +211,17 @@ static fzn_state_err_t put(fzn_state_t *state, const fzn_record_t *record, int o
 	}
 
 	if (!fzn_ct_memeq(e->issuer, fzn_record_issuer(*record), FZN_PUBKEY_LEN)) {
-		if (!override)
+		if (!override) {
+			/* TWO ISSUERS OVER ONE CELL. The return says the write
+			 * was refused; what somebody needs to see is that a
+			 * second issuer is writing a setting a first one owns,
+			 * which is a fact about the deployment rather than
+			 * about this call. */
+			STATE_LOG(state, "state/cell", FLOG_WARN,
+			          "refusing a write to a cell another issuer owns, kind %lu",
+			          (unsigned long)fzn_record_kind(*record));
 			return FZN_STATE_ERR_CONFLICT;
+		}
 		store(e, *record, live);
 		return FZN_STATE_OK;
 	}
