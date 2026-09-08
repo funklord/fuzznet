@@ -445,6 +445,17 @@ FZN_PERSIST_FILE ?= auto
 # does not want its dependency bookkeeping.
 FZN_PROBE_CPPFLAGS := $(filter-out -MMD -MP -MD,$(CPPFLAGS))
 
+# AND COVERAGE INSTRUMENTATION IS FILTERED OUT OF CFLAGS, for the same reason
+# and found the same way. `make coverage` builds with CFLAGS="-Og -g
+# --coverage", the probes below compile stdin against `-o /dev/null`, and gcc
+# derives the note file's name from the input -- so each probe wrote `a--.gcno`
+# INTO THE SOURCE TREE. Harmless to the verdict and not harmless at all as a
+# habit: `clean` then reported a file it had no list for, which is the target
+# working. A probe wants the build's search and language flags; instrumenting
+# a compile whose output is /dev/null instruments nothing. project.md sec 219.
+FZN_PROBE_CFLAGS := $(filter-out --coverage -fprofile-arcs -ftest-coverage \
+                                 -fprofile-abs-path,$(CFLAGS))
+
 # IT CALLS THE C LIBRARY, and that is the whole of what makes it a control.
 # `int main(void){return 0;}` was the first version and it is useless here:
 # it links under `-nostdlib` -- no libc, no POSIX, nothing -- because it
@@ -455,7 +466,7 @@ FZN_PROBE_CPPFLAGS := $(filter-out -MMD -MP -MD,$(CPPFLAGS))
 # not confuse.
 FZN_PROBE_CC := $(shell printf '%s\n' '#include <stdlib.h>' \
                  'int main(void){return (int)strtol("0", 0, 10);}' \
-                 | $(CC) $(FZN_PROBE_CPPFLAGS) $(CFLAGS) -x c - -o /dev/null 2>/dev/null \
+                 | $(CC) $(FZN_PROBE_CPPFLAGS) $(FZN_PROBE_CFLAGS) -x c - -o /dev/null 2>/dev/null \
                  && echo yes || echo no)
 ifeq ($(FZN_PROBE_CC),yes)
 FZN_BLAME_POSIX := no POSIX file API was detected.
@@ -481,7 +492,7 @@ endif
 FZN_PROBE_POSIX := $(shell printf '%s\n' '#define _POSIX_C_SOURCE 200809L' \
                     '#include <fcntl.h>' '#include <unistd.h>' \
                     'int main(void){int f=open("/dev/null",O_RDONLY);fsync(f);return close(f);}' \
-                    | $(CC) $(FZN_PROBE_CPPFLAGS) $(CFLAGS) -x c - -o /dev/null 2>/dev/null && echo yes || echo no)
+                    | $(CC) $(FZN_PROBE_CPPFLAGS) $(FZN_PROBE_CFLAGS) -x c - -o /dev/null 2>/dev/null && echo yes || echo no)
 
 ifeq ($(FZN_PERSIST_FILE),auto)
 ifeq ($(FZN_PROBE_POSIX),yes)
@@ -538,7 +549,7 @@ FZN_PROBE_PWRITE := $(shell printf '%s\n' '#define _POSIX_C_SOURCE 200809L' \
                      '#include <fcntl.h>' '#include <unistd.h>' \
                      'int main(void){char b=0;int f=open("/dev/null",O_RDWR);' \
                      'if(pwrite(f,&b,1,0)<0){}if(pread(f,&b,1,0)<0){}fsync(f);return close(f);}' \
-                     | $(CC) $(FZN_PROBE_CPPFLAGS) $(CFLAGS) -x c - -o /dev/null 2>/dev/null && echo yes || echo no)
+                     | $(CC) $(FZN_PROBE_CPPFLAGS) $(FZN_PROBE_CFLAGS) -x c - -o /dev/null 2>/dev/null && echo yes || echo no)
 
 ifeq ($(FZN_SPOOL_FILE),auto)
 ifeq ($(FZN_PROBE_PWRITE),yes)
@@ -569,7 +580,7 @@ FZN_PROBE_FLOCK := $(shell printf '%s\n' '#define _POSIX_C_SOURCE 200809L' \
                     '#include <fcntl.h>' '#include <sys/file.h>' '#include <unistd.h>' \
                     'int main(void){int f=open("/dev/null",O_RDWR);' \
                     'if(flock(f,LOCK_EX|LOCK_NB)<0){}if(flock(f,LOCK_UN)<0){}return close(f);}' \
-                    | $(CC) $(FZN_PROBE_CPPFLAGS) $(CFLAGS) -x c - -o /dev/null 2>/dev/null && echo yes || echo no)
+                    | $(CC) $(FZN_PROBE_CPPFLAGS) $(FZN_PROBE_CFLAGS) -x c - -o /dev/null 2>/dev/null && echo yes || echo no)
 
 FZN_BLAME_FLOCK := this toolchain has no usable flock.
 FZN_BLAME_FIX_CL := Set FZN_CLAIM_FILE=0 to build without it.
@@ -744,6 +755,14 @@ GUI_TSRC  += gui/test/config_view_test.cpp gui/test/log_view_test.cpp \
              gui/test/provision_view_test.cpp gui/test/link_view_test.cpp \
              gui/test/peer_view_test.cpp
 endif
+
+# NAMED OUTSIDE THE CONDITIONAL, and for the third time in this file: the
+# build that made these and the one running `clean` need not agree about
+# whether the GUI was on. GUI_SRCS and GUI_TSRC are already unconditional for
+# the style check, so the names are here to be had. project.md sec 219.
+GUI_CLEAN := $(GUI_SRCS:%.cpp=$(BUILD_DIR)/%.o) $(GUI_SRCS:%.cpp=$(BUILD_DIR)/%.d) \
+             $(GUI_TSRC:%.cpp=$(BUILD_DIR)/%.o) $(GUI_TSRC:%.cpp=$(BUILD_DIR)/%.d) \
+             $(GUI_TSRC:%.cpp=$(BUILD_DIR)/%)
 
 ifdef GUI_ON
 CXX       ?= c++
@@ -982,6 +1001,23 @@ $(error FLOG_DIR=$(FLOG_DIR) has no flog.c. Leave it unset to use the \
         diagnostics)
 endif
 
+# NAMED OUTSIDE THE CONDITIONAL, for the reason MONO_SRCS and MONO_TSRC are
+# sixty lines below: this file exists in the tree whether or not this build
+# compiles it, `make style` compares the source lists against what is actually
+# there, and `clean` has to remove what some other build made. Inside the
+# `ifdef FLOG_ON` they are empty in a build that skipped flog -- so a CI job
+# that deliberately checks out WITHOUT submodules reported a real source as
+# unlisted, which is a false finding and worse in a gate than none. The
+# precedent was already written down here and it was not followed; see
+# project.md sec 219.
+FLOG_TSRC  := link/test/link_log_test.c
+FLOG_CLEAN := $(BUILD_DIR)/flog.o $(BUILD_DIR)/flog.d \
+              $(BUILD_DIR)/flog_string.o $(BUILD_DIR)/flog_string.d \
+              $(BUILD_DIR)/flog_msg_id.o $(BUILD_DIR)/flog_msg_id.d \
+              $(FLOG_TSRC:%.c=$(BUILD_DIR)/%.o) \
+              $(FLOG_TSRC:%.c=$(BUILD_DIR)/%.d) \
+              $(FLOG_TSRC:%.c=$(BUILD_DIR)/%)
+
 ifdef FLOG_ON
 CPPFLAGS  += -DFZN_FLOG_ON -I$(FLOG_DIR)
 # VENDORED CODE IS EXEMPT FROM OUR WARNING SET, and per-target rather than by
@@ -997,8 +1033,8 @@ FLOG_OBJS := $(BUILD_DIR)/flog.o $(BUILD_DIR)/flog_string.o \
 # library compiles and behaves identically, and there is nothing to assert
 # about a logger that is not there. Kept in TEST_SRCS as well, because that is
 # the list that reads as "every test source" and a quietly incomplete one is a
-# trap for whatever asks it next.
-FLOG_TSRC := link/test/link_log_test.c
+# trap for whatever asks it next. The name itself is defined above, outside
+# this conditional, where the reason is.
 TEST_SRCS += $(FLOG_TSRC)
 TEST_BINS += $(BUILD_DIR)/link/test/link_log_test
 
@@ -3288,7 +3324,7 @@ style:
 	@# them here rather than widening the sweep keeps the gate exact -- a
 	@# third one has to be added deliberately and says why.
 	@known=" $(SRCS) $(TEST_SRCS) $(GEN_SRCS) $(MONO_SRCS) $(MONO_TSRC) \
-	         tool/consumer_check.c qr/test/qr_quirc_check.c "; \
+	         $(FLOG_TSRC) tool/consumer_check.c qr/test/qr_quirc_check.c "; \
 	unlisted=; n=0; \
 	for c in `find . -name '*.c' -not -path './build/*' -not -path './san/*' \
 	                 -not -path './*-coverage/*' -not -path './.claude/*' \
@@ -3943,7 +3979,44 @@ qttycheck:
 	fi; \
 	$(MAKE) --no-print-directory qtty
 
-qtty:
+# THE OBJECTS THIS TARGET LINKS, AS A VARIABLE, SO THEY ARE ALSO
+# PREREQUISITES. `qtty` had NONE AT ALL: it named twenty-eight objects on its
+# link line and asked make for nothing, so on a freshly cleaned tree it failed
+# in the linker naming a dozen files. It had never been seen to, because
+# `check` runs `test` first and nobody had run this target alone after a
+# `clean` -- which is the same shape as everything else in sec 219, a rule
+# that is right only because of what ran before it.
+#
+# `build-and-commit.md`'s warning about `$^` is this one pointed the other
+# way: there a header added to the prerequisites reaches the command line,
+# here a command line has no prerequisites behind it. One variable is what
+# keeps the two lists from being two lists.
+#
+# ONLY WHEN IT WILL ACTUALLY LINK. The recipe's first lines refuse without
+# FZN_GUI and FZN_CLI, and building twenty-eight objects before printing that
+# would be a slower way to say the same thing.
+QTTY_RENDER_OBJS := $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \
+                    $(BUILD_DIR)/cli/cli.o $(BUILD_DIR)/state/state.o \
+                    $(BUILD_DIR)/cli/sync_print.o $(BUILD_DIR)/cli/journal_print.o \
+                    $(BUILD_DIR)/cli/sweep_print.o $(BUILD_DIR)/cli/transfer_print.o \
+                    $(BUILD_DIR)/cli/capability_print.o $(BUILD_DIR)/cli/state_print.o \
+                    $(BUILD_DIR)/cli/revocation_print.o $(BUILD_DIR)/cli/authz_print.o \
+                    $(BUILD_DIR)/cli/provision_print.o $(BUILD_DIR)/cli/link_print.o \
+                    $(BUILD_DIR)/cli/peer_print.o $(BUILD_DIR)/local/peer.o \
+                    $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/prekey/prekey.o \
+                    $(BUILD_DIR)/local/vocabulary.o \
+                    $(LINK_OBJ) $(BUILD_DIR)/sched/sched.o \
+                    $(BUILD_DIR)/spool/spool.o $(BUILD_DIR)/spool/plan.o \
+                    $(BUILD_DIR)/spool/transfer.o $(BUILD_DIR)/blob/blob.o \
+                    $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/log/log.o \
+                    $(BUILD_DIR)/record/journal.o $(BUILD_DIR)/record/record.o \
+                    $(BUILD_DIR)/chain/authz.o $(BUILD_DIR)/chain/chain.o \
+                    $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
+                    $(FLOG_OBJS) \
+                    $(BUILD_DIR)/catalog/sweep.o $(BUILD_DIR)/catalog/catalog.o \
+                    $(BUILD_DIR)/constant_time/constant_time.o
+
+qtty: $(if $(and $(GUI_ON),$(CLI_ON)),$(QTTY_RENDER_OBJS))
 	@if [ -z "$(QTTY_DIR)" ]; then \
 		echo "qtty: QTTY_DIR is empty, so the widgets were NOT rendered."; \
 		exit 1; \
@@ -4036,26 +4109,7 @@ qtty:
 	       gui/sync_view.cpp gui/transfer_view.cpp gui/state_view.cpp \
 	       gui/config_view.cpp gui/link_view.cpp gui/peer_view.cpp \
 	       gui/provision_view.cpp \
-	       $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \
-	       $(BUILD_DIR)/cli/cli.o $(BUILD_DIR)/state/state.o \
-	       $(BUILD_DIR)/cli/sync_print.o $(BUILD_DIR)/cli/journal_print.o \
-	       $(BUILD_DIR)/cli/sweep_print.o $(BUILD_DIR)/cli/transfer_print.o \
-	       $(BUILD_DIR)/cli/capability_print.o $(BUILD_DIR)/cli/state_print.o \
-	       $(BUILD_DIR)/cli/revocation_print.o $(BUILD_DIR)/cli/authz_print.o \
-	       $(BUILD_DIR)/cli/provision_print.o $(BUILD_DIR)/cli/link_print.o \
-	       $(BUILD_DIR)/cli/peer_print.o $(BUILD_DIR)/local/peer.o \
-	       $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/prekey/prekey.o \
-	       $(BUILD_DIR)/local/vocabulary.o \
-	       $(LINK_OBJ) $(BUILD_DIR)/sched/sched.o \
-	       $(BUILD_DIR)/spool/spool.o $(BUILD_DIR)/spool/plan.o \
-	       $(BUILD_DIR)/spool/transfer.o $(BUILD_DIR)/blob/blob.o \
-	       $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/log/log.o \
-	       $(BUILD_DIR)/record/journal.o $(BUILD_DIR)/record/record.o \
-	       $(BUILD_DIR)/chain/authz.o $(BUILD_DIR)/chain/chain.o \
-	       $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
-	       $(FLOG_OBJS) \
-	       $(BUILD_DIR)/catalog/sweep.o $(BUILD_DIR)/catalog/catalog.o \
-	       $(BUILD_DIR)/constant_time/constant_time.o \
+	       $(QTTY_RENDER_OBJS) \
 	       "$$scratch/lib/libqtty.a" $$qobjs $(QT_LIBS) -o "$$scratch/render_test"; \
 	"$$scratch/render_test"
 
@@ -4446,7 +4500,13 @@ clean:
 		echo "removing $(BUILD_DIR)-san"; \
 		rm -rf "$(BUILD_DIR)-san"; \
 	fi
-	@for f in $(OBJS) $(TEST_OBJS) $(DEPS) $(TEST_BINS) $(MONO_CLEAN); do \
+	@# THE CODEGEN CONTROLS, which `ctcheck` compiles from a sed of a real
+	@# source into $(BUILD_DIR)/tool/ and which were in no list here. They
+	@# have no `.d`: both are built from stdin with $(FZN_PROBE_CPPFLAGS),
+	@# which filters -MMD out for the reason the probe rules give.
+	@for f in $(OBJS) $(TEST_OBJS) $(DEPS) $(TEST_BINS) $(MONO_CLEAN) \
+	          $(FLOG_CLEAN) $(GUI_CLEAN) $(BUILD_DIR)/tool/ct_control.o \
+	          $(BUILD_DIR)/tool/wipe_control.o; do \
 		if [ -e "$$f" ]; then echo "removing $$f"; rm -f "$$f"; fi; \
 	done
 	@# CLEAN CHECKS ITS OWN WORK, which is the only way "quietly removed

@@ -33327,3 +33327,196 @@ missed because the SWEEP was for refusals -- every other module announced
 itself by returning an error, and this one announces itself by silently
 succeeding. **A survey keyed on how a thing fails cannot see the thing that
 does not fail.**
+
+## 218. The ledger, where the readers have no error channel
+
+sec 217 ended by naming the reason `log/` was missed: the sweep was keyed on
+REFUSALS, and a module that announces itself by succeeding cannot be found
+that way. So this pass replaced the query with an enumeration -- every library
+source with an `_init` that takes caller-owned storage, checked one at a time
+against whether it is wired:
+
+	wired          twelve of sec 211-216, plus log/ in sec 217
+	declined       ratchet, blob -- value types, no context (sec 216)
+	left           chain/manifest, persist/persist_file, prekey,
+	               record/ledger, trust
+
+`record/ledger` is the strongest of the five and is done here.
+
+	record/ledger  ERR   a table that cannot be scanned, said in corrupt()
+	record/ledger  ERR   full, and no row is ever reclaimed
+	record/ledger  INFO  a confirmation that arrived behind, and by how much
+
+### The case is different from every module before it
+
+Every other line in this pass says something a return value could not carry.
+**This module has readers with NO RETURN VALUE TO CARRY ANYTHING.**
+`fzn_ledger_confirmed` returns a version and `fzn_ledger_count` returns a
+count, so an unscannable table answers ZERO -- and zero is exactly what an
+honest "never heard of this peer" answers. The two are indistinguishable to
+every caller, permanently, by construction.
+
+So this is not an unreported condition. It is an **unreportable** one, and
+until sec 209 there was no channel in the library that could express it at
+all. What follows from it is a host resending every subject to every peer for
+as long as it lasts -- the safe direction by design, which is why nothing
+else complains.
+
+Said inside the static `corrupt()` rather than at its three callers, because
+that is the one place all three reach, and two of them are the ones with
+nowhere to put it.
+
+### Two severities decided against a sibling rather than by it
+
+**FULL is at ERR where `chain/revocation.c` takes CRIT for the same
+structure.** Both tables refuse rather than evict and neither ever reclaims a
+row, so the shape argues for the same severity and the shape is wrong. The
+POLARITY decides it: a full revocation store can fail to WITHHOLD an
+authority, and a full ledger can only fail to notice a delivery. That is the
+asymmetry `fzn_ledger_behind` is already built on -- under-claiming costs a
+retransmission, over-claiming skips something a peer needs -- so the severity
+follows the module's own reasoning instead of its sibling's.
+
+**STALE is at INFO because the header had already made the argument.** The
+table "is identical either way", and a caller that wants to know its
+acknowledgements are arriving out of order can read the return value. What
+the return value cannot carry is HOW FAR back the late one was: one reordered
+datagram and a peer whose view has fallen a long way behind are the same
+`FZN_LEDGER_ERR_STALE` and are different problems.
+
+### A sabotage that survived, and why it was the wrong sabotage
+
+The first entry written for the corrupt line **SURVIVED**, and it deserves
+recording because the mistake is not the one sec 52 catches.
+
+It was not stale and it named exactly one site. It substituted one wording of
+the message for another:
+
+	"ledger cannot be scanned: %zu row(s) claimed in %zu slot(s)%s, so "
+	"ledger cannot be scanned -- %zu row(s) in %zu slot(s)%s, so "
+
+The test asserts on `resent`, which is in the NEXT string literal, so nothing
+it checks could move. **The sabotage was aimed at the line and the test is
+aimed at a claim, and those are not the same target.** An anchor check cannot
+see this: the entry applied, the tree changed, the suite was right to pass.
+
+Replaced by two that bite -- one inserting a `return 1` above the emit so the
+line is never reached, one flipping ERR to INFO -- and both were watched
+failing before they were recorded. The rule that comes out of it:
+**a sabotage has to break the SENTENCE THE TEST ASSERTS, not the code the
+sentence lives in**, and the way to know is to name the assertion it should
+fail before running it.
+
+## 219. A hundred red CI runs, found by a peer, in three defects of one shape
+
+fuzzypickles looked across the workspace after their own CI went red for an
+account-level reason, checked whether ours was the same thing, and reported
+that it is not: both jobs execute, steps run, no billing annotation. **100 of
+100 runs failed**, and the last success is off the end of a hundred-run
+window.
+
+Their sentence for why they sent it is the one worth keeping: *20 of 20 is
+the state that stops being read.* Nothing here was going to find it. `make
+check` is green and has been green all day, and neither failing step is in
+it.
+
+### Two defects, one per job, and both were already written down here
+
+**`core (no crypto binding)`: `make style` refuses a real source.** That job
+checks out deliberately WITHOUT submodules, so FLOG_ON is unset -- and sec
+209 defined `FLOG_TSRC := link/test/link_log_test.c` INSIDE `ifdef FLOG_ON`.
+The gate that checks every `.c` in the tree is in some list compares an
+unconditional filesystem walk against a conditional list, so a source that
+exists reads as unlisted, in the one arrangement nobody builds by hand.
+
+The Makefile carries the rule sixty lines below the mistake, about
+`MONO_SRCS`:
+
+> Named OUTSIDE the conditional, because these files exist in the tree
+> whether or not this build compiles them, and `make style` compares the
+> source lists against what is actually there. Inside the `ifdef MONO_ON`
+> they would be empty in a build that skipped the binding, and the check
+> would report two real sources as unlisted -- a false finding, which is
+> worse in a gate than no finding at all.
+
+**`full`: the `clean` step, and this half predates the logging work.**
+`./tool/ct_control.o` and `./tool/wipe_control.o` -- the two codegen controls
+`ctcheck` compiles from a `sed` of a real source -- were in no list `clean`
+reads, which is why the oldest run in the window already fails on the `full`
+job and passes `core`. The flog objects joined them, and because CI cleans
+the sanitizer tree first, `./san/flog.o` and its siblings were still there
+for the in-place clean to find. **A third set fell out at the same time:
+every `gui/` object, `GUI_OBJS` being defined inside `ifdef GUI_ON` exactly
+as `FLOG_OBJS` was.**
+
+	clean: build artifacts survived:
+	  ./flog.o ./san/flog.o ./tool/ct_control.o ... 31 gui/ objects
+
+Three variables named outside their conditionals -- `FLOG_TSRC`,
+`FLOG_CLEAN`, `GUI_CLEAN` -- plus the two controls named literally. The
+Makefile's own comment on `MONO_CLEAN` says where the rule came from: "found
+in a consumer's tree while moving their submodule pin", which is
+fuzzypickles. **The same tree reported the class and then reported the
+instance, four days apart, and in between it was rewritten twice by somebody
+who had read the comment.**
+
+### And a probe writing into the source tree
+
+Not a CI failure, and found only because `clean` refuses what it has no list
+for. Under `make coverage` the build sets `CFLAGS="-Og -g --coverage"`, the
+four feature probes compile stdin against `-o /dev/null`, and gcc derives the
+coverage note file's name from the input -- so each probe wrote **`a--.gcno`
+into the source tree**. Reproduced in a scratch directory both ways:
+
+	cc -Og -g --coverage -x c - -o /dev/null   ->  a--.gcno
+	cc -Og -g            -x c - -o /dev/null   ->  nothing
+
+`FZN_PROBE_CFLAGS` filters the coverage flags now, beside the filter that
+already keeps `-MMD` out of a probe for the same reason -- and that earlier
+one was paid for in exactly the same way, a flag that belonged to the build
+reaching a compile whose output is `/dev/null`.
+
+### A fourth instance, found by the clean the fixes made possible
+
+Running the gates on a freshly cleaned tree for the first time -- which is
+what the two `clean` fixes above made a thing that happens -- `qttycheck`
+failed in the linker:
+
+	/usr/bin/ld: cannot find ./trust/trust.o: No such file or directory
+	... twelve more, ending with ./constant_time/constant_time.o
+
+**The `qtty` target had NO PREREQUISITES AT ALL.** It names twenty-eight
+objects on its link line and asked make for none of them, so it worked only
+because `check` runs `test` first and nobody had ever run it alone after a
+`clean`. That is the same sentence as the three defects above with the words
+changed: a rule that is correct only because of what happened before it.
+
+`build-and-commit.md` warns about the opposite half of this -- a header added
+to a `$^` rule's prerequisites reaching the command line -- and the two are
+one problem. `QTTY_RENDER_OBJS` is now the prerequisite list AND the link
+line, so they cannot be two lists, and it is attached with
+`$(if $(and $(GUI_ON),$(CLI_ON)),...)` so a build without the widgets still
+prints its refusal rather than compiling twenty-eight objects first.
+
+### What actually kept this hidden, which is not "CI was red"
+
+Two silences composed, and neither is the other's fault.
+
+**The `clean` step exists BECAUSE nobody runs `clean`.** That is its own
+comment's argument: it was added after a consumer found the fault, on the
+grounds that a consumer's tree is "the one place `clean` gets run by somebody
+who did not write it". So the step was correctly placed and there is no local
+gate that duplicates it -- `evidence.md`'s *a check that runs only in CI is a
+check you have stopped running*, arrived at from the other direction, since
+here the check was deliberately put where the situation occurs.
+
+**And a job that fails for one reason cannot report the second.** `core` went
+red today on the style gate; `full` had been red since before that on
+`clean`. A red history reads as one fault, and this one is two faults of
+different ages -- which is the reason the useful figure in the peer's report
+was 100 of 100 rather than any particular log.
+
+The lasting item is neither of the fixes. It is that **`make check` does not
+run `make clean`, on purpose, and nothing says so out loud.** A gate that is
+green while a target of the same Makefile refuses is a gate whose scope
+nobody has written down.
