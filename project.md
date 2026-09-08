@@ -29738,19 +29738,37 @@ against one `struct sink` that may have no destination, and the two passes
 agree by construction rather than by two pieces of arithmetic being kept in
 step. A viewer is not a hot path and this is the cheap side of that trade.
 
-### A duplication with nothing checking it
+### A duplication with nothing checking it -- settled the next day
 
-The summary wording is written twice: in `gui/log_view.cpp` and in
-`cli/log_print.c`. They match deliberately, so a consumer offering both does
-not appear to disagree with itself -- and **nothing checks that they still
-match.** Recorded rather than papered over. The two cannot easily share code:
-`log_view` builds without `FZN_CLI`, and it wants the summary and the entries
-as separate strings for separate widgets, while a stream wants one buffer.
+**This subsection recorded an open question and the question was answered, so
+it is rewritten rather than left standing.** What it said: the summary wording
+was written twice, in `gui/log_view.cpp` and `cli/log_print.c`, matching by
+hand with nothing checking that they still did; the options were to make the
+widget depend on `FZN_CLI` the way `gui/config_view` already does, or to accept
+that the words can drift; and it was the holder's call which.
 
-The honest options are to make the widget depend on `FZN_CLI` the way
-`gui/config_view` already does, or to leave the duplication and accept that
-the words can drift. It is the holder's call which, and neither is urgent
-while both files are one screen long.
+The holder called it on 2026-09-07: the widget depends on `FZN_CLI` and asks
+`cli/log_print` for the words. Sec 168 is the change. The widget asks for the
+two halves rather than splitting one buffer at a newline, which would have made
+it a parser of a format -- a new thing to get wrong rather than one thing
+fewer.
+
+**It then became the rule the next nine widgets were built to**, which is why
+this entry is worth keeping in corrected form rather than deleting. Sec 193
+states it: when a printer is added for a fact a widget already shows, the
+widget changes in the same commit, because a CLI counterpart written for an
+existing widget re-creates this duplication otherwise. Ten of the eleven pairs
+consolidated on that rule; sec 201 is the one that measured and declined, and
+sec 202 is the one where the widget earns the dependency by adding what a
+single line cannot carry.
+
+**Why it is rewritten and not appended to.** An entry recording a deliberate
+non-decision decays exactly like one recording a fix and more quietly, because
+nobody re-reads the open questions while closing one. Left as it was, a reader
+would find a live-sounding "it is the holder's call which" beside a tree where
+it had been called, and would believe the document -- the careful-sounding one
+always wins. The stale half is quoted above so that `git log -S` on its own
+words still finds the case.
 
 ### Three gates found what the tests did not
 
