@@ -180,9 +180,9 @@ int main(int argc, char **argv)
 		CHECK(after_one == before,
 		      "rendering an overdue transfer reclaimed an assignment, so looking "
 		      "at the screen changed what the peer still owes");
-		CHECK(view.outstanding_text().contains(QStringLiteral("reclaimable")),
+		CHECK(view.state_text().contains(QStringLiteral("reclaimable")),
 		      "an overdue assignment was not shown as reclaimable");
-		CHECK(!view.outstanding_text().contains(QStringLiteral("fail")),
+		CHECK(!view.state_text().contains(QStringLiteral("fail")),
 		      "a passed deadline was reported as a failure, which it is not");
 
 		view.show_transfer(&spool, &transfer, 900u);
@@ -207,6 +207,28 @@ int main(int argc, char **argv)
 	      "a spool without a transfer was shown as no transfer at all");
 	CHECK(view.window_text() != QStringLiteral("--"),
 	      "a spool without a transfer says nothing about the missing scheduler");
+
+	/* THE ASSERTION THAT KEEPS ONE IMPLEMENTATION. sec 193/195. */
+	{
+		char want[FZN_TRANSFER_PRINT_MAX];
+		fzn_transfer_state_t said = FZN_TRANSFER_NOTHING;
+		size_t plen = 0;
+		QString expected;
+
+		CHECK(spool_at(&spool, 5u), "the spool would not reopen");
+		CHECK(fzn_transfer_open(&transfer, &spool, SLOTS, 4u) == FZN_TRANSFER_OK,
+		      "the transfer would not reopen");
+		view.show_transfer(&spool, &transfer, 100u);
+		CHECK(fzn_transfer_print(&spool, &transfer, 100u, want, sizeof(want), &plen,
+		                         &said) == FZN_TRANSFER_OK,
+		      "the printer would not render what the widget was given");
+		expected = QString::fromLatin1(want);
+		while (expected.endsWith(QLatin1Char('\n')))
+			expected.chop(1);
+		CHECK(view.state_text() == expected,
+		      "the widget's words are not the printer's, so one screen has two "
+		      "wordings again");
+	}
 
 	/* The suite can tell pass from fail. */
 	{

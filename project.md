@@ -31568,3 +31568,58 @@ other than the one it was written for. **A mutation is code, it is not
 reviewed, and it is the one piece of code in the tree whose only test is that
 it fails.** The check that finds them is reading which line caught which --
 free, and it has now paid three times.
+
+## 195. A transfer line, and a Makefile mistake made twice
+
+`cli/transfer_print.{h,c}` reports whether a blob is still arriving, how far
+it has got, and which of three stopped states it is in. Printer and widget in
+one commit, on sec 193's rule -- the second time it has been applied rather
+than discovered.
+
+### Three conditions, and what a count alone costs a rule
+
+sec 179 established that not started, stalled and complete all read
+`in_flight == 0`. On a screen that is a person confused. **In an alerting rule
+it is a script that pages somebody about a finished download and ignores a
+stuck one**, which is the worst possible pairing of the two errors.
+
+So all three differ on both channels, and the suite requires it: three
+distinct lines and three distinct enum values, each compared against the
+others rather than merely asserted.
+
+A passed deadline is reclaimable rather than failed, on sec 179's argument --
+the range returns to the want-list, and reporting a routine consequence of a
+lossy transport as an error is how a field stops being read.
+
+Nothing here mutates. The suite renders an overdue transfer twice and then
+requires the LIBRARY to still be able to reclaim it, which is what separates
+"the printer left it alone" from "there was nothing to reclaim".
+
+### The widget kept the bar and the window
+
+sec 194's line, applied again: a widget may add what its medium affords and
+may not restate what the printer said. The bar is filled from the library's
+numbers; the congestion window stays a widget row because it is a property of
+the SCHEDULER rather than of the transfer's progress, and a status line
+carrying it would imply otherwise.
+
+### A Makefile mistake made twice in two sections
+
+Both times, moving a widget under `FZN_CLI` meant deleting a line from a
+backslash-continued list, and both times the deletion left the newline:
+
+    gui/authz_view.cpp gui/capability_view.cpp gui/provision_view.cpp \
+                                        <- a blank line, and make stops
+                gui/revocation_view.cpp gui/state_view.cpp
+
+`make` reports it as "missing separator (did you mean TAB instead of 8
+spaces?)", which is true of the NEXT line and says nothing about the
+continuation that orphaned it. sec 193 hit it, this section hit it again, and
+the second time it took as long to find as the first because the error names
+the wrong line.
+
+**The fix is the pattern rather than the instance**: delete the newline WITH
+the line. `s.replace("            gui/x.cpp \\\n", "")` and not
+`s.replace("            gui/x.cpp \\", "")`. Written down because a mechanical
+edit that leaves a dangling continuation is invisible in a diff -- the removed
+line is gone and the blank one looks like spacing.

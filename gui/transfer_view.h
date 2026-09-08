@@ -44,6 +44,14 @@
  * flight under AIMD; rendering it beside a fraction invites reading it as
  * one, so it is labelled for what it is and given its own row.
  *
+ * IT ASKS `cli/transfer_print` AND SHOWS WHAT IT SAYS, and needs FZN_CLI for
+ * it. sec 195, under sec 193's rule: printer and widget in one commit.
+ *
+ * IT KEEPS ITS OWN BAR, on sec 194's line -- a widget may add what its medium
+ * affords and may not restate what the printer already said. A progress bar
+ * is a thing a screen has and a line does not, and it is filled from the
+ * library's numbers rather than from the printer's sentence.
+ *
  * NO Q_OBJECT AND THEREFORE NO moc, on sec 140's rule. It displays.
  */
 
@@ -51,6 +59,7 @@
 #define FZN_GUI_TRANSFER_VIEW_H
 
 extern "C" {
+#include "../cli/transfer_print.h"
 #include "../spool/spool.h"
 #include "../spool/transfer.h"
 }
@@ -102,7 +111,6 @@ private:
 	uint64_t total_;
 	QLabel *state_label_;
 	QProgressBar *progress_;
-	QLabel *outstanding_;
 	QLabel *window_;
 };
 

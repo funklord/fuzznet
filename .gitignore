@@ -46,6 +46,7 @@
 /cli/test/sync_print_test
 /cli/test/journal_print_test
 /cli/test/sweep_print_test
+/cli/test/transfer_print_test
 /gui/test/trust_view_test
 /gui/test/log_view_test
 /gui/test/qr_view_test

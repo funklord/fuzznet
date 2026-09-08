@@ -64,6 +64,7 @@
 #include <fuzznet/cli/sync_print.h>
 #include <fuzznet/cli/journal_print.h>
 #include <fuzznet/cli/sweep_print.h>
+#include <fuzznet/cli/transfer_print.h>
 #endif
 #include <fuzznet/blob/blob.h>
 #include <fuzznet/ratchet/ratchet.h>
@@ -142,6 +143,7 @@
 #include "cli/sync_print.h"
 #include "cli/journal_print.h"
 #include "cli/sweep_print.h"
+#include "cli/transfer_print.h"
 #endif
 #include "blob/blob.h"
 #include "ratchet/ratchet.h"

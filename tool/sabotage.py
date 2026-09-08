@@ -2492,40 +2492,6 @@ SABOTAGES = [
 		"measured constraint rather than a preference",
 	),
 	(
-		"transfer-view-does-not-reclaim",
-		"gui/transfer_view.cpp",
-		"\t\tin_flight = fzn_transfer_in_flight(transfer);\n",
-		"\t\tin_flight = fzn_transfer_in_flight(transfer);\n"
-		"\t\t(void)fzn_transfer_expire((fzn_transfer_t *)transfer, now);\n",
-		"looking at a transfer must not change it; fzn_transfer_expire reclaims "
-		"a peer's outstanding ranges and a view that called it would make the "
-		"transfer depend on whether a window was open",
-	),
-	(
-		"transfer-view-idle-is-not-stalled",
-		"gui/transfer_view.cpp",
-		"\t} else if (held_ == 0u) {\n",
-		"\t} else if (0) {\n",
-		"a transfer that never started and one that stopped short both read "
-		"in_flight == 0, and they are different things to tell a person",
-	),
-	(
-		"transfer-view-complete-is-detected",
-		"gui/transfer_view.cpp",
-		"\tcomplete = fzn_spool_complete(spool);\n",
-		"\tcomplete = 0;\n",
-		"a finished transfer must not read as a stalled one, which is what it "
-		"becomes when completion is not detected at all",
-	),
-	(
-		"transfer-view-overdue-is-reclaimable",
-		"gui/transfer_view.cpp",
-		"\t\t                                     \"reclaimable\")\n",
-		"\t\t                                     \"failed\")\n",
-		"a passed deadline is reclaimable rather than failed -- the range goes "
-		"back to the want-list and the bytes are not lost",
-	),
-	(
 		"revocation-view-withdrawn-is-not-in-force",
 		"gui/revocation_view.cpp",
 		"\t\tif (store->entries[i].withdrawn)\n",
@@ -2717,6 +2683,41 @@ SABOTAGES = [
 		"\t\tstate_label_->setText(QStringLiteral(\"idle\"));\n",
 		"the widget must SHOW cli/sweep_print's line rather than have a wording "
 		"of its own -- sec 193's rule, applied in the same commit this time",
+	),
+	(
+		"transfer-print-does-not-reclaim",
+		"cli/transfer_print.c",
+		"\t\t\tin_flight = fzn_transfer_in_flight(transfer);\n",
+		"\t\t\tin_flight = fzn_transfer_in_flight(transfer);\n"
+		"\t\t\t(void)fzn_transfer_expire((fzn_transfer_t *)transfer, now);\n",
+		"asking a host for status must not change it: fzn_transfer_expire "
+		"reclaims a peer's outstanding ranges, so a reporter that called it makes "
+		"the transfer depend on whether anybody ran a health check",
+	),
+	(
+		"transfer-print-idle-is-not-stalled",
+		"cli/transfer_print.c",
+		"\t\telse if (held == 0u)\n",
+		"\t\telse if (0)\n",
+		"not started, stalled and complete all read in_flight == 0, and an "
+		"alerting rule told only the count pages about a finished download and "
+		"ignores a stuck one",
+	),
+	(
+		"transfer-print-complete-is-the-librarys-answer",
+		"cli/transfer_print.c",
+		"\t\tif (fzn_spool_complete(spool))\n",
+		"\t\tif (0)\n",
+		"a finished transfer must not report as a stalled one, which is what it "
+		"becomes when completion is not detected",
+	),
+	(
+		"transfer-view-shows-the-printers-words",
+		"gui/transfer_view.cpp",
+		"\t\tstate_label_->setText(text);\n",
+		"\t\tstate_label_->setText(QStringLiteral(\"busy\"));\n",
+		"the widget must SHOW cli/transfer_print's line rather than have a wording "
+		"of its own -- sec 193's rule, applied in the same commit",
 	),
 ]
 
