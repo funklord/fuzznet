@@ -32007,5 +32007,87 @@ carried their 2026-09-03 report that they ship their own `core/src/link.c` and
 include no header from here. Their tree has since grown a
 `core/test/fuzznet_link_test.c`, which reads like a counter-example and is not
 -- it proves the library COMPILES AND LINKS there, the verb rather than this
-module. `fzn_link_` still appears nowhere in their sources and no front end of
-theirs displays link health, so this pair duplicates nothing of theirs.
+module. `fzn_link_` still appears nowhere in their sources, so this pair
+duplicates nothing of theirs.
+
+**The other half of that measurement was wrong, and it is the more useful
+half.** I also wrote that no front end of theirs displays link health. They
+corrected it within the hour: `daemon/ipc_server.c`'s `link_describe` prints
+one, and it read
+
+	rtt 0ms, 0/3 answered, cost 10
+
+for a link nothing had ever been heard from -- this section's hazard, already
+live in their tree, in the one directory I did not search. I had grepped
+`gui/src`, `tui`, `cli` and `client`, which is a scope chosen from what "front
+end" usually means rather than from where the answer could be, and four empty
+directories read exactly like an absence. `evidence.md` states it: the scope
+of a search is chosen before you know who owns the answer. A daemon that
+answers an IPC query is a front end for this purpose and I did not think of it
+as one.
+
+Worth keeping because of the direction of the error. The claim made this
+project's work look more original than it was -- they had the same display and
+the same bug -- and a claim that flatters is the one nobody re-checks. It was
+caught only because it was sent to the tree it was about, in a message that
+invited the correction by naming where I had looked.
+
+## 203. A constraint that a declaration can satisfy
+
+Reported by fuzzypickles on 2026-09-08, from the consumer end, as a fact about
+this project's struct rather than as a request. Recorded and **not acted on**:
+closing it changes two public structs, and both available answers have a real
+cost, so it is the copyright holder's.
+
+**The finding.** `fzn_sched_candidate_t` carries `latency_ms`, `loss_permille`,
+`metric` and `mtu`, and nothing that says whether any of them is evidence. Their
+link table keeps `metric` and `rtt_ms` apart, with `metric` labelled "a prior,
+not evidence" -- and to fill a candidate in they have to throw that distinction
+away, because there is no field to carry it. `link/` here loses it the same way:
+`fzn_link_snapshot` copies `latency_ms`, and `observations`, the only thing that
+separates a seeded prior from a measurement, does not travel.
+
+**Where it bites is not the cost function.** In `fzn_sched_select`'s weighting a
+prior is an estimate doing an estimate's job, and `link.h` argues for exactly
+that: something has to be tried before it can be measured, so an unmeasured link
+being cheap is the discovery bonus rather than a bug.
+
+`fzn_sched_admits` is a different thing and the argument does not reach it:
+
+	if (wanted->max_latency_ms != 0 && link->latency_ms > wanted->max_latency_ms)
+		return 0;
+
+That is a **hard constraint**. A class saying "do not give me a path slower than
+50 ms" is asking for a guarantee, and a link nobody has ever sent a packet on,
+declared by its far end at 10 ms, satisfies it. The same holds for
+`max_loss_permille`, and worse: a link with no observations has seen no loss, so
+it passes any loss bound at all. The constraint is met by an assertion and the
+caller cannot tell.
+
+**And `sched.h` asserted what the code cannot check.** Its candidate comment read
+"four numbers somebody else measured" until this was found. That is the
+document/code contradiction `working-practice.md` says to flag rather than
+resolve -- the comment has been corrected to "supplied", which is true, and the
+decision left open beside it.
+
+**Neither answer is free, which is why it is not a fix.** Excluding unverified
+links from a constrained class starves them of exactly the traffic that would
+measure them -- `link.h`'s own starvation argument, one layer up, and it has
+already been paid for once in `fzn_link_snapshot`, where links past the bound
+are never chosen, so never sent on, so never measured, permanently. Admitting
+them converts a constraint into a hope. Expressing the choice needs a field in
+`fzn_sched_candidate_t` and a policy bit in `fzn_class_t`, so a class can say
+whether an unverified path may satisfy its bounds.
+
+**What is already decided and should not be re-litigated:** the cost half.
+`link.h` settled that an unmeasured link is deliberately cheaper than a measured
+one of the same metric. This is only about the constraint half, which no
+document here has ever addressed.
+
+**How it was found is worth as much as the finding.** It came back through a
+report I sent them about a defect in their tree, and it is a defect in mine that
+their representation is better placed to see -- they hold the distinction and
+have to discard it at my boundary, so the loss is visible to them and invisible
+here. A consumer with a richer model than the interface it fills is the best
+available detector for a lossy interface, and nothing on this side would have
+produced it.

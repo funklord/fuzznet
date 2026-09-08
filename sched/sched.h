@@ -68,7 +68,35 @@ typedef enum fzn_sched_err {
  * `link/` -- the module named for them -- defined `fzn_link_entry_t`. Reading
  * either header first suggested the other was wrong. What this describes is
  * one candidate as a scheduler sees it: an id it does not interpret and four
- * numbers somebody else measured. `link/` owns the word. */
+ * numbers somebody else supplied. `link/` owns the word.
+ *
+ * "SUPPLIED" RATHER THAN "MEASURED", WHICH IS WHAT THIS SAID UNTIL
+ * 2026-09-08, and the correction is an open question rather than a wording
+ * fix. Nothing here says whether a number is evidence or the far end's
+ * declaration, and `link/` seeds a new link's estimate with the declared
+ * metric on purpose -- so an unmeasured link arrives with a latency and a
+ * loss rate that read exactly like measured ones.
+ *
+ * That is harmless in `cost`, where link.h argues for it: something must be
+ * tried before it can be measured, and a table preferring what it already
+ * knows would never discover a path that has come back. It is NOT obviously
+ * harmless in `fzn_sched_admits`, where the same fields are HARD
+ * CONSTRAINTS: a link nobody has ever used, declared at 10 ms, satisfies a
+ * realtime class's `max_latency_ms` on a stranger's word, and a class asking
+ * "do not give me a path slower than this" is silently given a guess instead
+ * of the guarantee it asked for.
+ *
+ * Both answers have a cost. Excluding unverified links from a constrained
+ * class starves them of the traffic that would measure them, which is
+ * link.h's own starvation argument one layer up. Admitting them converts a
+ * constraint into a hope. Expressing it needs a field here and a policy bit
+ * in `fzn_class_t`, which is a change to two public structs, so it is
+ * RECORDED rather than taken -- project.md sec 203.
+ *
+ * Reported by fuzzypickles 2026-09-08 as a fact about this struct, from the
+ * consumer end: their own link table distinguishes declared from measured and
+ * has to throw the distinction away to fill this in, because there is no
+ * field to carry it. */
 typedef struct fzn_sched_candidate {
 	uint32_t id;
 	uint32_t metric;

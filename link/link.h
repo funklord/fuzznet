@@ -14,8 +14,17 @@
  * grown a `core/test/fuzznet_link_test.c`, which looks like a counter-example
  * and is not: it proves the whole library COMPILES AND LINKS there -- the
  * verb, not this module. Grepping their sources for `fzn_link_` still returns
- * nothing, and no front end of theirs displays link health at all, so
- * `cli/link_print` and `gui/link_view` (sec 202) duplicate nothing of theirs.
+ * nothing, so `cli/link_print` and `gui/link_view` (sec 202) duplicate
+ * nothing of theirs.
+ *
+ * I ALSO SAID NO FRONT END OF THEIRS DISPLAYS LINK HEALTH, AND THAT WAS
+ * WRONG. They corrected it the same day: `daemon/ipc_server.c`'s
+ * `link_describe` prints one, and it read `rtt 0ms, 0/3 answered, cost 10`
+ * for a link nothing had ever been heard from -- sec 202's hazard, live in
+ * their tree, in the one place I did not look. I had searched `gui/src`,
+ * `tui`, `cli` and `client`, which is a scope chosen from what a front end
+ * usually means rather than from where the answer could be, and an empty
+ * result over the wrong four directories reads exactly like an absence.
  *
  * AND THE TWO HAVE DIVERGED PAST A SWAP. Their API is addresses, transports
  * and byte budgets; this one is ids and metrics over caller-owned entries
