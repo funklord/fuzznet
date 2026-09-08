@@ -28,6 +28,9 @@
  * a policy that has drifted to unguarded is a thing somebody has to be able
  * to find, and it cannot be found if the screen says "allowed" for both.
  *
+ * IT ASKS `cli/authz_print` AND SHOWS WHAT IT SAYS, and needs FZN_CLI for it.
+ * sec 199, under sec 193's rule: printer and widget in one commit.
+ *
  * NO Q_OBJECT AND THEREFORE NO moc, on sec 140's rule. It displays.
  */
 
@@ -36,6 +39,7 @@
 
 extern "C" {
 #include "../chain/authz.h"
+#include "../cli/authz_print.h"
 }
 
 #include <QString>
@@ -56,24 +60,22 @@ public:
 	 */
 	void show_policy(const fzn_authz_policy_t *policy);
 
-	/* Whether this policy has been spelled at all, and what the widget says
-	 * about it. A test reads these; a consumer auditing its policies wants
-	 * the first. */
+	/* Whether this policy has been spelled at all. A consumer auditing its
+	 * policies wants this; `state_text` carries the rest. */
 	bool is_spelled() const;
-	QString requirement_text() const;
 
-	/* Which origins the widget shows as reaching this kind, as the text a
-	 * user reads. Empty when none do. */
-	QString origins_text() const;
+	/* `fzn_authz_print`'s line: what the kind requires and which origins
+	 * reach it. */
+	QString state_text() const;
 
-	/* What the widget says about `origin`, which is `fzn_authz_origin_
-	 * permitted`'s answer and not this widget's opinion of it. */
+	/* What the SCREEN says about `origin` -- read out of the line, so this
+	 * answers what is displayed rather than what the library would say if
+	 * asked again, which is the whole thing the suite compares. */
 	bool shows_origin_permitted(fzn_origin_t origin) const;
 
 private:
 	fzn_authz_policy_t policy_;
-	QLabel *requirement_;
-	QLabel *origins_;
+	QLabel *state_label_;
 };
 
 #endif /* FZN_GUI_AUTHZ_VIEW_H */

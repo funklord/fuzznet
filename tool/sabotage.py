@@ -2309,22 +2309,6 @@ SABOTAGES = [
 	# library does not: an origin row the widget decided for itself, and an
 	# unspelled policy rendered as though somebody had written it.
 	(
-		"authz-view-asks-the-library",
-		"gui/authz_view.cpp",
-		"\t\tif (fzn_authz_origin_permitted(policy_, ORIGINS[i].origin))\n",
-		"\t\tif (policy_.origins & FZN_ORIGIN_BIT(ORIGINS[i].origin))\n",
-		"the widget must ASK which origins reach a kind rather than deciding, "
-		"or there are two implementations of the rule that gates requests",
-	),
-	(
-		"authz-view-unspelled-is-its-own-state",
-		"gui/authz_view.cpp",
-		"\tif (!policy_.spelled) {\n",
-		"\tif (0) {\n",
-		"a policy nobody spelled must not read like one written to refuse "
-		"everything, or a configuration fault cannot be found",
-	),
-	(
 		"chain-expired-at-compares-the-sentinel",
 		"chain/chain.c",
 		"\treturn chain->expires_at != FZN_NO_EXPIRY && chain->expires_at <= now;\n",
@@ -2728,6 +2712,38 @@ SABOTAGES = [
 		"the widget must SHOW cli/revocation_print's line rather than have a "
 		"wording of its own -- sec 193's rule",
 	),
+	(
+		"authz-print-unspelled-is-its-own-state",
+		"cli/authz_print.c",
+		"\tif (policy && policy->spelled)\n",
+		"\tif (policy)\n",
+		"a policy nobody spelled and one written to refuse everything both deny, "
+		"and only one of them is a configuration fault somebody has to find",
+	),
+	(
+		"authz-print-asks-the-library",
+		"cli/authz_print.c",
+		"\t\tif (!fzn_authz_origin_permitted(*policy, ORIGINS[i].origin))\n",
+		"\t\tif (!(policy->origins & FZN_ORIGIN_BIT(ORIGINS[i].origin)))\n",
+		"the line must ASK which origins reach a kind rather than deciding, or "
+		"there are two implementations of the rule that gates requests",
+	),
+	(
+		"authz-print-guarded-is-not-unguarded",
+		"cli/authz_print.c",
+		"\tif (state == FZN_AUTHZ_LINE_UNGUARDED)\n",
+		"\tif (0)\n",
+		"a policy that has drifted to unguarded is a thing somebody has to be "
+		"able to find, and it cannot be found if the line says the same for both",
+	),
+	(
+		"authz-view-shows-the-printers-words",
+		"gui/authz_view.cpp",
+		"\t\tstate_label_->setText(text);\n",
+		"\t\tstate_label_->setText(QStringLiteral(\"policy\"));\n",
+		"the widget must SHOW cli/authz_print's line rather than have a wording of "
+		"its own -- sec 193's rule",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so
@@ -2736,26 +2752,32 @@ SABOTAGES = [
 # how you ask the question again.
 EXPECTED_SURVIVORS = {
 	"manifest-sig-zero-sign",
-	# `authz-view-asks-the-library` CANNOT BE CAUGHT BY BEHAVIOUR, and that
-	# is a fact about the two expressions rather than a gap in the suite.
-	# sec 165.
+	"authz-print-asks-the-library",
+	# CANNOT BE CAUGHT BY BEHAVIOUR, and that is a fact about the two
+	# expressions rather than a gap in the suite. sec 165, and it MOVED
+	# with the logic in sec 199 rather than being retired.
 	#
 	# `fzn_authz_origin_permitted` is `origin != FZN_ORIGIN_NONE &&
-	# (origins & FZN_ORIGIN_BIT(origin))`, and the widget asks only about
-	# the three real origins -- so the call and the open-coded bitmask agree
-	# on every input the widget can produce. A test comparing the screen
-	# against the library compares a copy of the rule against the rule.
+	# (origins & FZN_ORIGIN_BIT(origin))`, and only the three real origins
+	# are ever asked about -- so the call and the open-coded bitmask agree
+	# on every input either the printer or the widget can produce. A test
+	# comparing the output against the library compares a copy of the rule
+	# against the rule.
+	#
+	# THAT IT SURVIVED THE MOVE IS THE POINT. sec 199 consolidated the
+	# widget onto the printer, and the mutation is no more catchable in one
+	# place than it was in the other: the uncatchability was never about
+	# WHERE the code lived, it was about the two expressions being equal
+	# over the reachable inputs. Consolidation fixes duplication and does
+	# not turn a structural guard into a behavioural one.
 	#
 	# THE GUARD IS STILL REAL AND IS STRUCTURAL: there must be ONE
 	# implementation of reachability, because the day the library's answer
 	# grows a condition -- as it already has one for FZN_ORIGIN_NONE -- a
-	# copy stops agreeing and nothing says so. It is kept as an entry so
-	# that a reader meets the argument, and listed here so the harness is
-	# not lying about holding it.
+	# copy stops agreeing and nothing says so.
 	#
-	# It would become catchable if the widget ever showed a row for
-	# FZN_ORIGIN_NONE, which it deliberately does not.
-	"authz-view-asks-the-library",
+	# It would become catchable if anything ever reported FZN_ORIGIN_NONE,
+	# which neither deliberately does.
 	# `seal-refused-build-wipes-frame` WAS HERE AND IS NOT ANY MORE, removed
 	# 2026-09-05 because the harness reported it CAUGHT. Kept as a comment
 	# rather than deleted, because the exemption predicted its own end and

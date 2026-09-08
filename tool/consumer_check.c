@@ -68,6 +68,7 @@
 #include <fuzznet/cli/capability_print.h>
 #include <fuzznet/cli/state_print.h>
 #include <fuzznet/cli/revocation_print.h>
+#include <fuzznet/cli/authz_print.h>
 #endif
 #include <fuzznet/blob/blob.h>
 #include <fuzznet/ratchet/ratchet.h>
@@ -150,6 +151,7 @@
 #include "cli/capability_print.h"
 #include "cli/state_print.h"
 #include "cli/revocation_print.h"
+#include "cli/authz_print.h"
 #endif
 #include "blob/blob.h"
 #include "ratchet/ratchet.h"

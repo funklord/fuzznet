@@ -31759,3 +31759,51 @@ The fix is not more care with the pattern. **It is to rewrite the whole list
 rather than patch a line out of it**, which is now written above those lists
 so the next edit meets the rule before it meets the hazard. A list is small;
 a dangling continuation is invisible in a diff.
+
+## 199. An authz line, and an exemption that moved rather than died
+
+`cli/authz_print.{h,c}` reports what a kind of request requires and which
+origins can reach it. Printer and widget in one commit, sixth application of
+sec 193's rule.
+
+On a host refusing requests, the question is which refusal this is. An
+unspelled policy and one written to refuse everything both DENY, and only one
+is a configuration fault somebody has to find -- `chain/authz.h` calls
+`spelled` "the field the whole design rests on" for exactly that. Guarded and
+unguarded get different words for the reason `fzn_authz_verdict_t` keeps
+GRANTED_BY_CHAIN and GRANTED_UNGUARDED apart.
+
+### The exemption moved with the code, and that is the finding
+
+sec 165 recorded `authz-view-asks-the-library` as an EXPECTED SURVIVOR:
+`fzn_authz_origin_permitted` is `origin != FZN_ORIGIN_NONE && (origins &
+BIT(origin))`, only the three real origins are ever asked about, so the call
+and an open-coded bitmask agree on every reachable input. A test comparing
+output against the library compares a copy of the rule against the rule.
+
+Consolidating raised the obvious question -- does moving the logic into the
+printer make it catchable? **No, and the reason is worth keeping.** The
+uncatchability was never about WHERE the code lived. It is about two
+expressions being equal over the reachable inputs, and that does not change
+with the file. So the entry moved to `authz-print-asks-the-library` and the
+exemption moved with it.
+
+**Consolidation fixes duplication; it does not turn a structural guard into a
+behavioural one.** Worth stating because the opposite is tempting: five of
+these moves have made things testable that were not, and it would have been
+easy to assume this one did too and quietly drop the exemption -- leaving the
+harness claiming to hold something it does not.
+
+### Three assertions broken by a blind rename
+
+Replacing `origins_text()` with `state_text()` across the widget's suite
+compiled and failed three cases, all of the same shape: they compared the
+whole accessor against an exact string -- `== "nothing"`, `contains
+"unguarded"` -- which was true of a field and is not true of a combined line.
+
+They are relationships now: no origin is shown as reaching an unspelled
+policy, asked through `shows_origin_permitted`, which reads the screen rather
+than a field that no longer exists. **A test that names a field survives the
+field being renamed and not the field being merged**, which is the same
+distinction sec 168 drew between asserting a value and asserting a
+relationship, arriving from the maintenance side.

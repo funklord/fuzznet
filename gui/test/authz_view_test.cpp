@@ -110,7 +110,7 @@ int main(int argc, char **argv)
 		view.show_policy(&zeroed);
 		CHECK(!view.is_spelled(), "a zeroed policy claims to have been spelled");
 		{
-			const QString unspelled = view.requirement_text();
+			const QString unspelled = view.state_text();
 			/* THE POLICY A ZEROED ONE DEGENERATES TO, which is the
 			 * comparison that matters and was not the first one
 			 * written.
@@ -127,7 +127,7 @@ int main(int argc, char **argv)
 
 			view.show_policy(&degenerate);
 			CHECK(view.is_spelled(), "a spelled policy claims otherwise");
-			CHECK(view.requirement_text() != unspelled,
+			CHECK(view.state_text() != unspelled,
 			      "a policy nobody wrote reads exactly like an unguarded one "
 			      "nothing reaches, so a forgotten policy cannot be found");
 
@@ -137,7 +137,9 @@ int main(int argc, char **argv)
 		/* Both reach nothing, which is the part that would have made
 		 * them look alike. */
 		view.show_policy(&zeroed);
-		CHECK(view.origins_text() == QStringLiteral("nothing"),
+		CHECK(!view.shows_origin_permitted(FZN_ORIGIN_SAME_USER) &&
+		              !view.shows_origin_permitted(FZN_ORIGIN_LOCAL) &&
+		              !view.shows_origin_permitted(FZN_ORIGIN_REMOTE),
 		      "an unspelled policy shows an origin reaching it");
 	}
 
@@ -150,12 +152,12 @@ int main(int argc, char **argv)
 		QString first;
 
 		view.show_policy(&guarded);
-		first = view.requirement_text();
+		first = view.state_text();
 		view.show_policy(&open);
-		CHECK(first != view.requirement_text(),
+		CHECK(first != view.state_text(),
 		      "a guarded policy and an unguarded one read the same, so drift to "
 		      "unguarded cannot be found by reading");
-		CHECK(view.requirement_text().contains(QLatin1String("unguarded")),
+		CHECK(view.state_text().contains(QLatin1String("UNGUARDED")),
 		      "an unguarded policy does not say so");
 	}
 
@@ -169,7 +171,7 @@ int main(int argc, char **argv)
 		view.show_policy(&policy);
 		CHECK(fzn_trust_fingerprint(cap.b, expected, sizeof(expected)) == FZN_TRUST_OK,
 		      "the fixture could not format");
-		CHECK(view.requirement_text().contains(QString::fromLatin1(expected)),
+		CHECK(view.state_text().contains(QString::fromLatin1(expected)),
 		      "the capability is not shown in the library's own spelling");
 	}
 
@@ -181,8 +183,30 @@ int main(int argc, char **argv)
 		view.show_policy(&open);
 		view.show_policy(nullptr);
 		CHECK(!view.is_spelled(), "a null policy left the previous one on screen");
-		CHECK(view.origins_text() == QStringLiteral("nothing"),
+		CHECK(!view.shows_origin_permitted(FZN_ORIGIN_SAME_USER) &&
+		              !view.shows_origin_permitted(FZN_ORIGIN_LOCAL) &&
+		              !view.shows_origin_permitted(FZN_ORIGIN_REMOTE),
 		      "a null policy shows origins reaching it");
+	}
+
+	/* THE ASSERTION THAT KEEPS ONE IMPLEMENTATION. sec 193/199. */
+	{
+		char want[FZN_AUTHZ_PRINT_MAX];
+		fzn_authz_line_t said = FZN_AUTHZ_LINE_UNSPELLED;
+		size_t plen = 0;
+		QString expected;
+		fzn_authz_policy_t guarded = fzn_authz_requires(&cap, FZN_ORIGIN_ANY);
+
+		view.show_policy(&guarded);
+		CHECK(fzn_authz_print(&guarded, want, sizeof(want), &plen, &said) ==
+		              FZN_CHAIN_OK,
+		      "the printer would not render what the widget was given");
+		expected = QString::fromLatin1(want);
+		while (expected.endsWith(QLatin1Char('\n')))
+			expected.chop(1);
+		CHECK(view.state_text() == expected,
+		      "the widget's words are not the printer's, so one screen has two "
+		      "wordings again");
 	}
 
 	/* The suite can tell pass from fail. */
