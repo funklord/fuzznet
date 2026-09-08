@@ -1105,6 +1105,15 @@ SABOTAGES = [
 	# security surface, and the three lines deliberately NOT written. A
 	# decline nobody asserts the absence of is one somebody adds back for
 	# symmetry. project.md sec 222.
+	#
+	# THE TWO SILENCE ENTRIES CARRY BRACES, AND THE FIRST VERSIONS DID NOT.
+	# Both returns sit inside a BRACELESS `if`, so inserting a statement
+	# before one makes the return unconditional -- and both were then
+	# reported CAUGHT by a case about something else entirely: a re-delivery
+	# refused, a different root reported unchanged. A sabotage that changes
+	# control flow instead of adding a line tests nothing it claims to, and
+	# the CAUGHT verdict is what hides it. Reading WHICH check failed is the
+	# whole of the fix, and `evidence.md` says so in as many words.
 	(
 		"trust-refusal-names-the-transition",
 		"trust/trust.c",
@@ -1123,7 +1132,8 @@ SABOTAGES = [
 		"trust-echo-is-silent",
 		"trust/trust.c",
 		"\t\t\treturn FZN_TRUST_ERR_UNCHANGED;\n",
-		"\t\t\tTRUST_LOG(trust, \"trust/anchor\", FLOG_WARN, \"echo\");\n\t\t\treturn FZN_TRUST_ERR_UNCHANGED;\n",
+		"\t\t{ TRUST_LOG(trust, \"trust/anchor\", FLOG_WARN, \"echo\");\n"
+		"\t\t  return FZN_TRUST_ERR_UNCHANGED; }\n",
 		"a join repeated or a bundle delivered twice is not a fault and the return value already says so; a line per branch is symmetry rather than merit -- sec 201, asserted here so the decline cannot be undone quietly",
 	),
 	(
@@ -1144,7 +1154,8 @@ SABOTAGES = [
 		"prekey-wrong-host-is-silent",
 		"prekey/prekey.c",
 		"\t\treturn FZN_PREKEY_ERR_WRONG_HOST;\n",
-		"\t\tPREKEY_LOG(peer, \"prekey/pin\", FLOG_WARN, \"wrong host\");\n\t\treturn FZN_PREKEY_ERR_WRONG_HOST;\n",
+		"\t{ PREKEY_LOG(peer, \"prekey/pin\", FLOG_WARN, \"wrong host\");\n"
+		"\t  return FZN_PREKEY_ERR_WRONG_HOST; }\n",
 		"the caller chose both the peer and the record, so it already holds everything a line could name; asserted so the decline is a decision rather than an omission -- sec 222",
 	),
 	# BATCH TWELVE, 2026-09-09: THE EIGHT SOURCES THE CENSUS COULD NOT SEE.
