@@ -55,14 +55,43 @@ latter gains the three binding sources whenever the bindings are built, and
 those do need Monocypher. `MONOCYPHER_DIR=<path>` still points the bindings
 at another checkout, and `MONOCYPHER_DIR=` builds without them.
 
-Two more are vendored the same way, and neither is a dependency of anything
-this library ships. `quirc/` is an independent QR decoder, and it is what
-`make qrcheck` uses to decode what `qr/` encodes -- the encoder's tables are
-only trustworthy against a decoder nobody here wrote. `qtty/` renders
-unmodified Qt Widgets on a character-cell grid, and `make qtty` uses it to
-check that the widgets in `gui/` survive a terminal. Both are pinned so that
-a measurement recorded against one can be taken again: `QUIRC_DIR=<path>` and
-`QTTY_DIR=<path>` point either at a working checkout instead.
+**Diagnostics are a seam too, and the library is silent by default.** A module
+with something to say has a `_set_log` function taking a `struct flog_t *`;
+hand it one and that module says what happened, hand it NULL or nothing and it
+says nothing at all. Which modules those are is `project.md`'s to state and not
+this file's -- the ones that were examined and DECLINED are as much a decision
+as the ones that talk, and both need their reasons beside them. There is no
+other channel: no `fprintf`, no callback registry, no global. `flog/` is
+vendored as a submodule for it and `FLOG_DIR=` builds without it, in which case
+every one of those setters still exists and every call site compiles to nothing
+-- the API shape does not depend on whether a build has diagnostics, so a
+consumer cannot be made to care.
+
+What a consumer gets for one pointer is the reason this is a seam rather than a
+printf: flog carries eight severities as a BITMASK, so filtering is a bitwise
+AND and a mask can ask for the ends without the middle, which a threshold
+cannot. And it prefixes each log's own name to the subsystem as a message
+passes up a sublog tree -- measured in `flog.c`, not recalled -- so this
+library emits plain `chain/store` and a consumer that names a sublog `fuzznet`
+reads `theirs/fuzznet/chain/store` without either side arranging it.
+
+Which modules talk, on which subsystems, and why each severity is what it is
+lives in `project.md` §209 and §211 to §223. It is not repeated here for the
+same reason the module list is not: a second copy is an inventory nothing
+checks. `make style` runs `tool/log_gate.py`, which holds every subsystem an
+emit site names against a test that asserts it, and refuses a wrapper macro it
+could not have scanned for.
+
+Three more are vendored as submodules. `flog/` is the one above, and it is the
+only one linked into anything this library ships. The other two are tools for
+the gates rather than dependencies: `quirc/` is an independent QR decoder, and
+it is what `make qrcheck` uses to decode what `qr/` encodes -- the encoder's
+tables are only trustworthy against a decoder nobody here wrote. `qtty/`
+renders unmodified Qt Widgets on a character-cell grid, and `make qtty` uses it
+to check that the widgets in `gui/` survive a terminal. All are pinned so that
+a measurement recorded against one can be taken again: `QUIRC_DIR=<path>`,
+`QTTY_DIR=<path>` and `FLOG_DIR=<path>` point any of them at a working checkout
+instead.
 
 **A consuming build asks for the list rather than copying it.**
 `make manifest` prints one `key value` per line -- `source`, `generated`,
