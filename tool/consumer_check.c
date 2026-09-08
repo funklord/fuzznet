@@ -920,11 +920,11 @@ int main(void)
 		uint8_t id[FZN_REVOCATION_ID_LEN];
 		uint8_t grantee[FZN_PUBKEY_LEN];
 		fzn_revocation_record_t rec;
-		fzn_revocation_store_t store;
+		fzn_revocation_store_t wd_store;
 		fzn_revocation_t storage[4];
 
 		memset(grantee, 0x31, sizeof(grantee));
-		if (fzn_revocation_store_init(&store, storage, 4) != FZN_CHAIN_OK)
+		if (fzn_revocation_store_init(&wd_store, storage, 4) != FZN_CHAIN_OK)
 			FAIL(260);
 
 		/* Revoke, and read the pair back as revoked. */
@@ -935,10 +935,10 @@ int main(void)
 			FAIL(262);
 		if (fzn_revocation_is_withdrawal(rec))
 			FAIL(263);
-		if (fzn_revocation_admit(&store, fzn_revocation_offer_root(rec), root, &sign,
+		if (fzn_revocation_admit(&wd_store, fzn_revocation_offer_root(rec), root, &sign,
 		                         &CONSUMER_HASH, NULL) != FZN_CHAIN_OK)
 			FAIL(264);
-		if (fzn_revocation_covers(&store, root, &cap, grantee) != 1)
+		if (fzn_revocation_covers(&wd_store, root, &cap, grantee) != 1)
 			FAIL(265);
 
 		/* THE RECORD'S IDENTITY IS THE CONSUMER'S TO COMPUTE, over the
@@ -957,7 +957,7 @@ int main(void)
 			FAIL(269);
 		if (memcmp(fzn_revocation_supersedes(rec), id, sizeof(id)) != 0)
 			FAIL(270);
-		if (fzn_revocation_admit(&store, fzn_revocation_offer_root(rec), root, &sign,
+		if (fzn_revocation_admit(&wd_store, fzn_revocation_offer_root(rec), root, &sign,
 		                         &CONSUMER_HASH, NULL) != FZN_CHAIN_OK)
 			FAIL(271);
 
@@ -966,11 +966,11 @@ int main(void)
 		 * authorization question and says no; `known` is the
 		 * replication question -- do I still need to fetch this -- and
 		 * says yes, because the entry is still here. */
-		if (fzn_revocation_covers(&store, root, &cap, grantee) != 0)
+		if (fzn_revocation_covers(&wd_store, root, &cap, grantee) != 0)
 			FAIL(272);
-		if (fzn_revocation_known(&store, root, &cap, grantee) != 1)
+		if (fzn_revocation_known(&wd_store, root, &cap, grantee) != 1)
 			FAIL(273);
-		if (store.used != 1)
+		if (wd_store.used != 1)
 			FAIL(274);
 
 		/* RE-REVOKING WITH `issue` IS REFUSED, and this is the step a
@@ -988,10 +988,10 @@ int main(void)
 			FAIL(275);
 		if (fzn_revocation_open(again_bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
 			FAIL(276);
-		if (fzn_revocation_admit(&store, fzn_revocation_offer_root(rec), root, &sign,
+		if (fzn_revocation_admit(&wd_store, fzn_revocation_offer_root(rec), root, &sign,
 		                         &CONSUMER_HASH, NULL) != FZN_CHAIN_ERR_UNKNOWN_TARGET)
 			FAIL(277);
-		if (fzn_revocation_covers(&store, root, &cap, grantee) != 0)
+		if (fzn_revocation_covers(&wd_store, root, &cap, grantee) != 0)
 			FAIL(278);
 
 		/* And the call that is correct for this case. */
@@ -1000,12 +1000,12 @@ int main(void)
 			FAIL(279);
 		if (fzn_revocation_open(again_bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
 			FAIL(280);
-		if (fzn_revocation_admit(&store, fzn_revocation_offer_root(rec), root, &sign,
+		if (fzn_revocation_admit(&wd_store, fzn_revocation_offer_root(rec), root, &sign,
 		                         &CONSUMER_HASH, NULL) != FZN_CHAIN_OK)
 			FAIL(281);
-		if (fzn_revocation_covers(&store, root, &cap, grantee) != 1)
+		if (fzn_revocation_covers(&wd_store, root, &cap, grantee) != 1)
 			FAIL(282);
-		if (store.used != 1)
+		if (wd_store.used != 1)
 			FAIL(283);
 	}
 
@@ -1019,11 +1019,11 @@ int main(void)
 		uint8_t id[FZN_REVOCATION_ID_LEN];
 		uint8_t grantee[FZN_PUBKEY_LEN];
 		fzn_revocation_record_t rec;
-		fzn_revocation_store_t store;
+		fzn_revocation_store_t dup_store;
 		fzn_revocation_t storage[4];
 
 		memset(grantee, 0x32, sizeof(grantee));
-		if (fzn_revocation_store_init(&store, storage, 4) != FZN_CHAIN_OK)
+		if (fzn_revocation_store_init(&dup_store, storage, 4) != FZN_CHAIN_OK)
 			FAIL(284);
 
 		/* Minted in order, delivered in the other. */
@@ -1038,7 +1038,7 @@ int main(void)
 
 		if (fzn_revocation_open(wd_bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
 			FAIL(288);
-		if (fzn_revocation_admit(&store, fzn_revocation_offer_root(rec), root, &sign,
+		if (fzn_revocation_admit(&dup_store, fzn_revocation_offer_root(rec), root, &sign,
 		                         &CONSUMER_HASH, NULL) != FZN_CHAIN_OK)
 			FAIL(289);
 
@@ -1047,12 +1047,12 @@ int main(void)
 		 * leave a window in which the host was revoked. */
 		if (fzn_revocation_open(rev_bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
 			FAIL(290);
-		if (fzn_revocation_admit(&store, fzn_revocation_offer_root(rec), root, &sign,
+		if (fzn_revocation_admit(&dup_store, fzn_revocation_offer_root(rec), root, &sign,
 		                         &CONSUMER_HASH, NULL) != FZN_CHAIN_OK)
 			FAIL(291);
-		if (fzn_revocation_covers(&store, root, &cap, grantee) != 0)
+		if (fzn_revocation_covers(&dup_store, root, &cap, grantee) != 0)
 			FAIL(292);
-		if (store.used != 1)
+		if (dup_store.used != 1)
 			FAIL(293);
 	}
 
