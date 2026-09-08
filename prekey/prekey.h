@@ -129,13 +129,55 @@ fzn_prekey_err_t fzn_prekey_verify(fzn_prekey_record_t record, const fzn_sign_op
  * provenance stay in the one type that already knows about both rather than
  * being copied into a second place that can disagree with it.
  */
+/* Declared, not included. sec 209. */
+struct flog_t;
+
 typedef struct fzn_prekey_peer {
 	fzn_trust_t trust;
 	uint8_t prekey[FZN_PREKEY_LEN];
 	uint64_t created_at;
+	/* Where this peer says what happened, or NULL for silence. */
+	struct flog_t *log;
 } fzn_prekey_peer_t;
 
 void fzn_prekey_peer_init(fzn_prekey_peer_t *peer);
+
+/*
+ * Give this peer somewhere to say what happened, or NULL to silence it.
+ *
+ * sec 222. THIS SETS THE EMBEDDED ANCHOR'S LOG TOO, because the peer owns it:
+ * `trust` is a field here rather than a thing a caller holds separately, so a
+ * consumer that wants this peer to talk should not have to know that. The two
+ * speak on different subsystems -- `prekey/pin` and `trust/anchor` -- so a
+ * first use produces one line from each layer, which is what a subsystem
+ * hierarchy is for.
+ *
+ * TWO LINES, on `prekey/pin`:
+ *
+ *   NOTE  a rotation accepted, which FZN_PREKEY_OK cannot distinguish from a
+ *         re-delivery that moved nothing -- BOTH return OK, and one replaced
+ *         key material while the other did nothing at all
+ *   WARN  a rollback refused, with HOW FAR back the replayed record was
+ *
+ * The rollback is the security event and the header above says why: a real,
+ * correctly-signed, older record replayed by anyone who saw it, and if that
+ * prekey has since leaked then accepting it is the attack. What the code
+ * cannot carry is the DISTANCE -- a record one second old and one a year old
+ * are the same FZN_PREKEY_ERR_ROLLBACK and are not the same event.
+ *
+ * TWO THINGS DELIBERATELY NOT LOGGED, and each for a reason rather than for
+ * quiet:
+ *
+ *   - FZN_PREKEY_ERR_WRONG_HOST. The caller chose both the peer and the
+ *     record, so it already holds everything a line could name. sec 201's
+ *     rule: a line per branch is symmetry, not merit.
+ *   - A FIRST USE. `trust/anchor` says an anchor was taken, with its
+ *     provenance and its fingerprint, and saying it again here would be this
+ *     library telling a reader the same fact twice under two names -- sec
+ *     194's boundary, arriving between two layers instead of between a
+ *     printer and a widget.
+ */
+void fzn_prekey_peer_set_log(fzn_prekey_peer_t *peer, struct flog_t *log);
 
 /*
  * THE ACT. Verifies a record and pins it, or refuses.

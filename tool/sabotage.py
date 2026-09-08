@@ -809,8 +809,8 @@ SABOTAGES = [
 	(
 		"trust-zero-root-refused",
 		"trust/trust.c",
-		"\t\tif (any == 0)\n\t\t\treturn FZN_TRUST_ERR_MALFORMED;\n",
-		"",
+		"\t\tif (any == 0) {\n",
+		"\t\tif (0) {\n",
 		"an all-zero root anchors permanently to a key nobody holds, which is what a truncated or half-parsed payload carries",
 	),
 	(
@@ -1101,6 +1101,52 @@ SABOTAGES = [
 		"(unsigned long long)version,\n",
 		"one reordered datagram and a peer whose view has fallen a long way behind return the SAME value, so the distance is the whole content the line adds to FZN_LEDGER_ERR_STALE -- sec 218",
 	),
+	# BATCH THIRTEEN, 2026-09-09: the two modules where a diagnostic IS the
+	# security surface, and the three lines deliberately NOT written. A
+	# decline nobody asserts the absence of is one somebody adds back for
+	# symmetry. project.md sec 222.
+	(
+		"trust-refusal-names-the-transition",
+		"trust/trust.c",
+		"\t\t\tTRUST_LOG(trust, \"trust/anchor\", FLOG_WARN,\n\t\t\t          \"refusing to re-anchor",
+		"\t\t\tTRUST_LOG(trust, \"trust/anchor\", FLOG_NOTE,\n\t\t\t          \"refusing to re-anchor",
+		"`trust.h` says an attempt to re-anchor is the one error a consumer should treat as HOSTILE rather than as a condition, so reporting it as merely notable is wrong about the event -- sec 222",
+	),
+	(
+		"trust-fingerprint-goes-last",
+		"trust/trust.c",
+		"\t\t          \"anchored: %s%s%s, fingerprint %s\", fzn_trust_source_str(source),\n",
+		"\t\t          \"fingerprint %s: anchored %s%s%s\", print, fzn_trust_source_str(source),\n",
+		"sec 207: a terminal clips from the RIGHT, so 79 characters of hex in front of the verdict lose the verdict -- and this is the line a person reads when comparing an anchor out of band",
+	),
+	(
+		"trust-echo-is-silent",
+		"trust/trust.c",
+		"\t\t\treturn FZN_TRUST_ERR_UNCHANGED;\n",
+		"\t\t\tTRUST_LOG(trust, \"trust/anchor\", FLOG_WARN, \"echo\");\n\t\t\treturn FZN_TRUST_ERR_UNCHANGED;\n",
+		"a join repeated or a bundle delivered twice is not a fault and the return value already says so; a line per branch is symmetry rather than merit -- sec 201, asserted here so the decline cannot be undone quietly",
+	),
+	(
+		"prekey-rotation-is-not-ordinary",
+		"prekey/prekey.c",
+		"\tPREKEY_LOG(peer, \"prekey/pin\", FLOG_NOTE,\n",
+		"\tPREKEY_LOG(peer, \"prekey/pin\", FLOG_INFO,\n",
+		"a rotation replaces this peer's key material and returns the SAME FZN_PREKEY_OK as a re-delivery that moved nothing, so the line is the only way to tell them apart and its severity is what says which mattered -- sec 222",
+	),
+	(
+		"prekey-rollback-says-how-far",
+		"prekey/prekey.c",
+		"\t\t           (unsigned long long)(peer->created_at - record.created_at));\n",
+		"\t\t           (unsigned long long)peer->created_at);\n",
+		"a record one second older than the one held and one a year older are the same FZN_PREKEY_ERR_ROLLBACK and are not the same event -- the second says somebody kept a copy -- sec 222",
+	),
+	(
+		"prekey-wrong-host-is-silent",
+		"prekey/prekey.c",
+		"\t\treturn FZN_PREKEY_ERR_WRONG_HOST;\n",
+		"\t\tPREKEY_LOG(peer, \"prekey/pin\", FLOG_WARN, \"wrong host\");\n\t\treturn FZN_PREKEY_ERR_WRONG_HOST;\n",
+		"the caller chose both the peer and the record, so it already holds everything a line could name; asserted so the decline is a decision rather than an omission -- sec 222",
+	),
 	# BATCH TWELVE, 2026-09-09: THE EIGHT SOURCES THE CENSUS COULD NOT SEE.
 	#
 	# The coverage check below reads `make manifest` and required an entry
@@ -1345,15 +1391,15 @@ SABOTAGES = [
 	(
 		"trust-self-refuses-adopt",
 		"trust/trust.c",
-		"\t\tif (!(trust->source == FZN_TRUST_SELF && source == FZN_TRUST_PINNED))\n\t\t\treturn FZN_TRUST_ERR_ANCHORED;\n",
-		"\t\tif (!(trust->source == FZN_TRUST_SELF))\n\t\t\treturn FZN_TRUST_ERR_ANCHORED;\n",
+		"\t\tif (!(trust->source == FZN_TRUST_SELF && source == FZN_TRUST_PINNED)) {\n",
+		"\t\tif (!(trust->source == FZN_TRUST_SELF)) {\n",
 		"a self-rooted node must not be takeable by trust on first use, which is the whole reason sec 136 ships a node self-rooted rather than blank",
 	),
 	(
 		"trust-self-permits-pin",
 		"trust/trust.c",
-		"\t\tif (!(trust->source == FZN_TRUST_SELF && source == FZN_TRUST_PINNED))\n\t\t\treturn FZN_TRUST_ERR_ANCHORED;\n",
-		"\t\treturn FZN_TRUST_ERR_ANCHORED;\n",
+		"\t\tif (!(trust->source == FZN_TRUST_SELF && source == FZN_TRUST_PINNED)) {\n",
+		"\t\tif (1) {\n",
 		"an operator pinning a real root over a self-root is the join, and refusing it would leave a self-rooted node unable to enter an estate at all",
 	),
 	(

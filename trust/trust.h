@@ -99,11 +99,59 @@ typedef enum fzn_trust_source {
 	FZN_TRUST_SELF = 3,
 } fzn_trust_source_t;
 
+/* Declared, not included. sec 209. */
+struct flog_t;
+
 typedef struct fzn_trust {
 	uint8_t root[FZN_PUBKEY_LEN];
 	uint64_t adopted_at;
 	fzn_trust_source_t source;
+	/* Where this anchor says what happened, or NULL for silence. */
+	struct flog_t *log;
 } fzn_trust_t;
+
+/*
+ * Give this anchor somewhere to say what happened, or NULL to silence it.
+ *
+ * sec 222. THIS HEADER ASKED FOR IT BEFORE THERE WAS ANYWHERE TO PUT IT:
+ * "A library cannot make first contact safe; it can refuse to hide when it
+ * happened." Three lines, on subsystem `trust/anchor`:
+ *
+ *   NOTE  an anchor taken, naming HOW it arrived and its fingerprint
+ *   WARN  a re-anchor refused, naming the transition that was attempted
+ *   WARN  an all-zero root refused
+ *
+ * THE REFUSAL IS THE ONE A CONSUMER SHOULD TREAT AS HOSTILE, and
+ * FZN_TRUST_ERR_ANCHORED cannot say WHICH refusal it was. `self -> adopted`
+ * is an attempt on the one window this design closes -- whoever answers first
+ * becoming the root -- while `pinned -> pinned` with a different key is
+ * usually a misconfiguration. Same code, different stories, and the line
+ * carries both source words from `fzn_trust_source_str` rather than inventing
+ * a second vocabulary for them.
+ *
+ * THE FINGERPRINT IS IN THE SUCCESS LINE, and it goes LAST. sec 207's rule:
+ * a terminal clips from the right, so the verdict -- how this anchor arrived
+ * -- must precede 79 characters of hex that a reader is comparing by eye.
+ * It is a public key, so there is nothing here to withhold, and this module
+ * exists precisely so a consumer can show it.
+ *
+ * FZN_TRUST_ERR_UNCHANGED IS DELIBERATELY NOT LOGGED. This header calls it
+ * "an echo -- a join repeated, a bundle delivered twice -- and not a fault",
+ * the return value says exactly that, and there is nothing the line would add
+ * that the code cannot already say. sec 201's rule: a line added so that
+ * every branch has one is symmetry rather than merit.
+ *
+ * AND A RESTORE IS SILENT, which is correct and is worth knowing.
+ * `fzn_persist_trust_open` rebuilds an anchor by calling `fzn_trust_init` and
+ * then `fzn_trust_pin` or `fzn_trust_adopt` -- so it goes through the anchoring
+ * rule on purpose, to refuse laundering a provenance. The init clears this
+ * field, so a restored anchor emits nothing: coming back from disk is not a
+ * first contact and must not read like one. THE COROLLARY IS A TRAP TO KNOW
+ * ABOUT: that same init clears a log a caller had already set, so set it
+ * AFTER any call that re-initialises the anchor, `fzn_persist_trust_open`
+ * included.
+ */
+void fzn_trust_set_log(fzn_trust_t *trust, struct flog_t *log);
 
 /* An anchor with nothing in it. */
 void fzn_trust_init(fzn_trust_t *trust);

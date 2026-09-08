@@ -2,6 +2,18 @@
 
 #include "prekey.h"
 
+/* Diagnostics through flog, vendored and possibly absent. sec 209. */
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+#define PREKEY_LOG(p, sub, sev, ...)                                                       \
+	do {                                                                               \
+		if ((p) && (p)->log)                                                       \
+			flog_printf((p)->log, sub, sev, FLOG_MSG_NONE, __VA_ARGS__);        \
+	} while (0)
+#else
+#define PREKEY_LOG(p, sub, sev, ...) ((void)0)
+#endif
+
 #include "../constant_time/constant_time.h"
 #include "../wire/bytes.h"
 
@@ -105,10 +117,23 @@ fzn_prekey_err_t fzn_prekey_verify(fzn_prekey_record_t record, const fzn_sign_op
 	return FZN_PREKEY_OK;
 }
 
+void fzn_prekey_peer_set_log(fzn_prekey_peer_t *peer, struct flog_t *log)
+{
+	if (!peer)
+		return;
+
+	peer->log = log;
+	/* AND THE ANCHOR IT OWNS. The header says why: `trust` is a field here
+	 * rather than something a caller holds, so a consumer should not have
+	 * to know it needs a second call. */
+	fzn_trust_set_log(&peer->trust, log);
+}
+
 void fzn_prekey_peer_init(fzn_prekey_peer_t *peer)
 {
 	if (!peer)
 		return;
+	/* Both clears the log, this one and the anchor's. Quiet unless asked. */
 	memset(peer, 0, sizeof(*peer));
 	fzn_trust_init(&peer->trust);
 }
@@ -177,8 +202,26 @@ fzn_prekey_err_t fzn_prekey_pin(fzn_prekey_peer_t *peer, fzn_prekey_record_t rec
 	 * host's statements against each other. project.md sec 13b settled
 	 * that a clock does not gate admission here; this is not admission,
 	 * it is a comparison between two things one key said. */
-	if (record.created_at <= peer->created_at)
+	if (record.created_at <= peer->created_at) {
+		/* HOW FAR BACK, which FZN_PREKEY_ERR_ROLLBACK cannot carry. A
+		 * record one second older than the one held and one a year
+		 * older are the same code and are not the same event: the
+		 * second says somebody kept a copy. */
+		PREKEY_LOG(peer, "prekey/pin", FLOG_WARN,
+		           "refusing a correctly signed prekey %llu older than the one "
+		           "held, which is a replay rather than a rotation",
+		           (unsigned long long)(peer->created_at - record.created_at));
 		return FZN_PREKEY_ERR_ROLLBACK;
+	}
+
+	/* A ROTATION HAPPENED, which FZN_PREKEY_OK cannot say. The re-delivery
+	 * above returns the SAME code and moves nothing, so a caller reading
+	 * the return value cannot tell whether this peer's key material was
+	 * replaced. At NOTE: normal, and significant because it is key
+	 * material. */
+	PREKEY_LOG(peer, "prekey/pin", FLOG_NOTE,
+	           "rotating this peer's prekey, %llu newer than the one held",
+	           (unsigned long long)(record.created_at - peer->created_at));
 
 	memcpy(peer->prekey, record.prekey, FZN_PREKEY_LEN);
 	peer->created_at = record.created_at;

@@ -33669,3 +33669,111 @@ stop making** -- and the second is the one that was here. The entries are
 worth keeping anyway, on sec 52's argument that a guard nothing sabotages is a
 guard nobody has watched fail; but this pass added no protection the tree
 lacked, and saying otherwise would be the flattering version.
+
+## 222. Two modules where the line IS the security surface
+
+`trust/trust.c` and `prekey/prekey.c` join the diagnostics, and they are the
+first two where the log is not a better way to report a failure -- it is the
+only place the event can be reported at all.
+
+	trust/anchor  NOTE  an anchor taken, how it arrived, its fingerprint
+	trust/anchor  WARN  a re-anchor refused, naming the transition attempted
+	trust/anchor  WARN  an all-zero root refused
+	prekey/pin    NOTE  a rotation, which FZN_PREKEY_OK cannot distinguish
+	prekey/pin    WARN  a rollback refused, and how far back it was
+
+### `trust.h` asked for the line before there was anywhere to put one
+
+> A library cannot make first contact safe; it can refuse to hide when it
+> happened.
+
+That sentence was written to justify `adopted_at` and `fzn_trust_source`, and
+it is an argument for a log line that had no channel to be one. Adoption
+returns FZN_TRUST_OK: **nothing anywhere reports that this host has just begun
+trusting a key nothing authenticated.**
+
+**And FZN_TRUST_ERR_ANCHORED is one code for two stories.** `self -> adopted`
+is an attempt on the single window this design closes -- whoever answers first
+becoming the root -- and `pinned -> pinned` with a different key is usually a
+misconfiguration. The header sets out the whole table and the code returns one
+value for every row of it. The test holds the RETURN VALUE FIXED across both
+and requires the two sentences to differ, which is the only assertion that can
+distinguish a line that carries the transition from one that merely fires.
+
+**The line borrows the module's own words.** Both source names come from
+`fzn_trust_source_str`, the same function `cli/trust_print.c` uses, so a
+reader of a log and a reader of a screen are told the same thing in the same
+vocabulary -- sec 200's rule, met from a third direction.
+
+**And the fingerprint goes last**, which is sec 207 arriving in a place it was
+not written for: a terminal clips from the right, so 79 characters of hex must
+not sit in front of the verdict. The test asserts the fingerprint's position,
+not merely its presence, and the sabotage for it puts the hex first.
+
+### The pair in `prekey` is two successes, not a success and a failure
+
+Every earlier module in this pass logs where a return value is too coarse
+about a FAILURE. This one is sharper: `fzn_prekey_pin` returns
+**FZN_PREKEY_OK** both for a re-delivery that moves nothing and for a rotation
+that replaces this peer's key material. Same code, and one of them changed a
+key.
+
+The header already called the re-delivery "ordinary and not an event", so the
+rotation gets the line and the echo does not -- at NOTE, because it is normal
+and it is key material. The rollback gets a WARN carrying the DISTANCE: a
+record one second older than the one held and one a year older are the same
+FZN_PREKEY_ERR_ROLLBACK, and the second says somebody kept a copy.
+
+### Three lines deliberately not written, and each one asserted
+
+A decline nobody asserts the absence of is a line somebody adds back for
+symmetry, so each has a test that fails if it appears and a sabotage that puts
+it back:
+
+	FZN_TRUST_ERR_UNCHANGED   the return value says exactly this; a join
+	                          repeated is not a fault
+	FZN_PREKEY_ERR_WRONG_HOST the caller chose both the peer and the record,
+	                          so it holds everything a line could name
+	a prekey FIRST USE        `trust/anchor` has already said an anchor was
+	                          taken, with provenance and fingerprint
+
+The third is sec 194's boundary -- a widget may add what its medium affords
+and may not restate what the printer said -- arriving between two LAYERS
+instead of between a printer and a widget. `fzn_prekey_peer_set_log` sets the
+embedded anchor's log too, because the peer owns it, so a first use produces
+one line from each layer on two subsystems and neither repeats the other.
+
+### Two mechanical things worth carrying forward
+
+**The macro's own test comes too late when an argument is expensive.**
+`TRUST_LOG` checks `(t)->log` inside itself, but the fingerprint is built
+before the call -- so the success path is wrapped in `if (trust->log)` and
+79 characters of hex are not formatted on every anchor for nobody.
+
+**A value computed only to be logged needs an explicit discard.** With flog
+absent the macro expands to nothing, its arguments vanish with it, and
+`replacing` is set-but-unused -- a warning, in an arrangement this library
+ships. `persist/persist_file.c`'s helper needed four of these for the same
+reason. The rule that separates them from every other emit site: a site that
+names struct fields the surrounding code uses anyway needs none.
+
+### The 13 failures that were a stale object
+
+Worth recording because it read exactly like the feature not working. The new
+test came back with thirteen failures, every one of them
+`a refused re-anchor said nothing` and its neighbours -- a perfect symptom of
+diagnostics that do not emit.
+
+Nothing was wrong. Checking that the module still compiles without flog is one
+command, `make trust/trust.o FLOG_DIR=`, and it leaves behind
+`trust/trust.o` **built without FZN_FLOG_ON**. The next `make` saw an object
+newer than its source and linked it. **Make tracks timestamps and cannot see a
+flag change**, so a deliberate check of the other arrangement poisons the
+default one and says nothing.
+
+`build-and-commit.md` warns about concluding a test's result from a binary the
+build did not rebuild. This is a step past that: the object WAS rebuilt, under
+different flags, which is a state neither make nor the timestamp can express.
+The remedy is the one this tree already uses for sanitizers -- give the other
+arrangement its own build directory, `BUILD_DIR=noflog`, so the two never
+share a file.

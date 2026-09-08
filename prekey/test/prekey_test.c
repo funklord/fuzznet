@@ -659,6 +659,134 @@ static void test_the_operands_the_first_one_hides(void)
 	}
 }
 
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+
+/* Borrowed strings, so anything kept is copied. */
+static struct {
+	int calls;
+	flog_msg_type_t type;
+	char subsystem[64];
+	char text[512];
+} diag_seen;
+
+static int diag_capture(flog_t *p, const flog_msg_t *m)
+{
+	(void)p;
+	diag_seen.calls++;
+	diag_seen.type = m->type;
+	diag_seen.subsystem[0] = '\0';
+	diag_seen.text[0] = '\0';
+	if (m->subsystem)
+		snprintf(diag_seen.subsystem, sizeof(diag_seen.subsystem), "%s", m->subsystem);
+	if (m->text)
+		snprintf(diag_seen.text, sizeof(diag_seen.text), "%s", m->text);
+	return 0;
+}
+
+/*
+ * THE TWO OUTCOMES THAT SHARE FZN_PREKEY_OK, AND THE TWO LINES DECLINED.
+ * sec 222.
+ *
+ * A re-delivery moves nothing and a rotation replaces this peer's key
+ * material, and BOTH return FZN_PREKEY_OK -- so a caller reading the return
+ * value cannot tell whether anything changed. That is the pair this module
+ * was wired for, and the cases below hold the return value fixed at OK across
+ * it and require the lines to differ.
+ *
+ * AND THE DECLINES ARE ASSERTED, not merely absent. A first use says nothing
+ * on `prekey/pin` because `trust/anchor` has already said an anchor was taken,
+ * with its provenance and fingerprint; a wrong host says nothing because the
+ * caller chose both the peer and the record. A line nobody asserted the
+ * absence of is a line somebody adds back for symmetry.
+ */
+static void test_the_peer_says_what_ok_cannot(void)
+{
+	struct fixture first, same, newer, older, other;
+	fzn_prekey_peer_t peer;
+	flog_t diag;
+	char rotation[512];
+
+	init_flog_t(&diag);
+	diag.name = NULL;
+	diag.accepted_msg_type = FLOG_ACCEPT_ALL;
+	diag.output_func = diag_capture;
+
+	REQUIRE(build(&first, 0xb1, 0xb2, 6000u), "the fixture does not build");
+
+	/* QUIET UNTIL ASKED, planted before the init that clears it -- and the
+	 * init clears the embedded anchor's too. */
+	fzn_prekey_peer_set_log(&peer, &diag);
+	fzn_prekey_peer_init(&peer);
+	memset(&diag_seen, 0, sizeof(diag_seen));
+	REQUIRE(fzn_prekey_pin(&peer, first.record, &OPS, FZN_TRUST_ADOPTED, 1u) == FZN_PREKEY_OK,
+	        "first use refused");
+	CHECK(diag_seen.calls == 0, "a peer nobody gave a diagnostic sink to emitted");
+
+	/* ---- A FIRST USE SPEAKS AS THE ANCHOR AND NOT AS THE PIN, which is
+	 * both the propagation working and the decline being kept. */
+	fzn_prekey_peer_init(&peer);
+	fzn_prekey_peer_set_log(&peer, &diag);
+	memset(&diag_seen, 0, sizeof(diag_seen));
+	REQUIRE(fzn_prekey_pin(&peer, first.record, &OPS, FZN_TRUST_ADOPTED, 1u) == FZN_PREKEY_OK,
+	        "first use refused");
+	CHECK(diag_seen.calls == 1,
+	      "a first use said %d things, wanted exactly one -- the anchor's",
+	      diag_seen.calls);
+	CHECK(strcmp(diag_seen.subsystem, "trust/anchor") == 0,
+	      "setting the peer's log did not reach the anchor it owns, or the pin said "
+	      "again what the anchor had already said");
+
+	/* ---- A RE-DELIVERY IS NOT AN EVENT, in the module's own words. */
+	REQUIRE(build(&same, 0xb1, 0xb2, 6000u), "the fixture does not build");
+	memset(&diag_seen, 0, sizeof(diag_seen));
+	CHECK(fzn_prekey_pin(&peer, same.record, &OPS, FZN_TRUST_ADOPTED, 2u) == FZN_PREKEY_OK,
+	      "a re-delivery was refused");
+	CHECK(diag_seen.calls == 0, "a re-delivery that moved nothing produced a line");
+
+	/* ---- A ROTATION: the same FZN_PREKEY_OK, and key material replaced. */
+	REQUIRE(build(&newer, 0xb1, 0xc2, 7000u), "the fixture does not build");
+	memset(&diag_seen, 0, sizeof(diag_seen));
+	CHECK(fzn_prekey_pin(&peer, newer.record, &OPS, FZN_TRUST_ADOPTED, 3u) == FZN_PREKEY_OK,
+	      "a legitimate rotation was refused");
+	CHECK(diag_seen.calls == 1, "this peer's key material was replaced in silence");
+	CHECK(diag_seen.type == FLOG_NOTE,
+	      "a rotation is normal and is key material, and was reported as neither");
+	CHECK(strcmp(diag_seen.subsystem, "prekey/pin") == 0,
+	      "the event did not name its subsystem");
+	CHECK(strstr(diag_seen.text, "1000") != NULL,
+	      "the line does not say how much newer the record was");
+	snprintf(rotation, sizeof(rotation), "%s", diag_seen.text);
+
+	/* ---- THE ROLLBACK: a real, correctly signed, older record. */
+	REQUIRE(build(&older, 0xb1, 0xd2, 6500u), "the fixture does not build");
+	memset(&diag_seen, 0, sizeof(diag_seen));
+	CHECK(fzn_prekey_pin(&peer, older.record, &OPS, FZN_TRUST_ADOPTED, 4u)
+	              == FZN_PREKEY_ERR_ROLLBACK,
+	      "a replayed older record was accepted");
+	CHECK(diag_seen.calls == 1, "a replay was refused in silence");
+	CHECK(diag_seen.type == FLOG_WARN,
+	      "a correctly signed record replayed by whoever saw it was not reported as a "
+	      "warning");
+	CHECK(strstr(diag_seen.text, "500") != NULL,
+	      "the line does not say HOW FAR back the replay was, which is the difference "
+	      "between a stale cache and somebody keeping a copy");
+	CHECK(strcmp(diag_seen.text, rotation) != 0,
+	      "the rotation and the replay produced the same sentence");
+
+	/* ---- A DIFFERENT HOST SAYS NOTHING, deliberately: the caller chose
+	 * both the peer and the record. */
+	REQUIRE(build(&other, 0xe1, 0xe2, 8000u), "the fixture does not build");
+	memset(&diag_seen, 0, sizeof(diag_seen));
+	CHECK(fzn_prekey_pin(&peer, other.record, &OPS, FZN_TRUST_ADOPTED, 5u)
+	              == FZN_PREKEY_ERR_WRONG_HOST,
+	      "a record for another host was pinned over this peer");
+	CHECK(diag_seen.calls == 0,
+	      "a wrong host produced a line, which sec 201 says is symmetry rather than "
+	      "merit here");
+}
+#endif
+
 int main(void)
 {
 	test_the_layout_is_what_the_header_says();
@@ -677,6 +805,10 @@ int main(void)
 	test_the_suite_can_tell_pass_from_fail();
 
 	test_the_operands_the_first_one_hides();
+
+#ifdef FZN_FLOG_ON
+	test_the_peer_says_what_ok_cannot();
+#endif
 
 	printf("prekey_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

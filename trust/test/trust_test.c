@@ -48,6 +48,156 @@ static void expect_err_at(fzn_trust_err_t got, fzn_trust_err_t want, int line,
 #define expect(ok, what) expect_at((ok) ? 1 : 0, __LINE__, (what))
 #define expect_err(got, want, what) expect_err_at((got), (want), __LINE__, (what))
 
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+
+/* Borrowed strings, so anything kept is copied. */
+static struct {
+	int calls;
+	flog_msg_type_t type;
+	char subsystem[64];
+	char text[512];
+} diag_seen;
+
+static int diag_capture(flog_t *p, const flog_msg_t *m)
+{
+	(void)p;
+	diag_seen.calls++;
+	diag_seen.type = m->type;
+	diag_seen.subsystem[0] = '\0';
+	diag_seen.text[0] = '\0';
+	if (m->subsystem)
+		snprintf(diag_seen.subsystem, sizeof(diag_seen.subsystem), "%s", m->subsystem);
+	if (m->text)
+		snprintf(diag_seen.text, sizeof(diag_seen.text), "%s", m->text);
+	return 0;
+}
+
+/*
+ * WHAT THIS ANCHOR SAYS, AND THE ONE THING THE HEADER ASKED FOR. sec 222.
+ *
+ * `trust.h` argued for a line before there was anywhere to put one: "A library
+ * cannot make first contact safe; it can refuse to hide when it happened."
+ *
+ * THE CASE THAT CARRIES THE MOST IS THE REFUSAL. FZN_TRUST_ERR_ANCHORED is one
+ * code for two stories -- `self -> adopted` is an attempt on the one window
+ * this design closes, and `pinned -> pinned` with a different key is usually a
+ * misconfiguration -- so the cases below hold the RETURN VALUE FIXED and
+ * require the lines to differ.
+ */
+static void test_the_anchor_says_which_refusal_it_was(void)
+{
+	fzn_trust_t t;
+	uint8_t own[FZN_PUBKEY_LEN], theirs[FZN_PUBKEY_LEN], zero[FZN_PUBKEY_LEN];
+	flog_t diag;
+	char self_refusal[512];
+
+	init_flog_t(&diag);
+	diag.name = NULL;
+	diag.accepted_msg_type = FLOG_ACCEPT_ALL;
+	diag.output_func = diag_capture;
+
+	memset(own, 0x41, sizeof(own));
+	memset(theirs, 0x42, sizeof(theirs));
+	memset(zero, 0, sizeof(zero));
+
+	/* QUIET UNTIL ASKED, planted before the init that clears it. */
+	fzn_trust_set_log(&t, &diag);
+	fzn_trust_init(&t);
+	memset(&diag_seen, 0, sizeof(diag_seen));
+	expect_err(fzn_trust_self(&t, own), FZN_TRUST_OK, "self-rooting refused");
+	expect(diag_seen.calls == 0, "an anchor nobody gave a diagnostic sink to emitted");
+
+	fzn_trust_set_log(&t, &diag);
+
+	/* ---- self -> adopted, REFUSED. The window that never opens. */
+	memset(&diag_seen, 0, sizeof(diag_seen));
+	expect_err(fzn_trust_adopt(&t, theirs, 99u), FZN_TRUST_ERR_ANCHORED,
+	           "a self-rooted node was taken by trust on first use");
+	expect(diag_seen.calls == 1, "a refused re-anchor said nothing");
+	expect(diag_seen.type == FLOG_WARN,
+	       "an attempt to re-anchor this host was not reported as a warning, though the "
+	       "header says a consumer should treat it as hostile");
+	expect(strcmp(diag_seen.subsystem, "trust/anchor") == 0,
+	       "the event did not name its subsystem");
+	expect(strstr(diag_seen.text, fzn_trust_source_str(FZN_TRUST_SELF)) != NULL
+	           && strstr(diag_seen.text, fzn_trust_source_str(FZN_TRUST_ADOPTED)) != NULL,
+	       "the line does not name the TRANSITION -- both source words, from this "
+	       "module's own vocabulary -- which is the whole thing the error code cannot "
+	       "carry");
+	snprintf(self_refusal, sizeof(self_refusal), "%s", diag_seen.text);
+
+	/* ---- pinned -> pinned with a different key, REFUSED. The SAME code,
+	 * and the line must not be the same sentence. */
+	{
+		fzn_trust_t p;
+
+		fzn_trust_init(&p);
+		expect_err(fzn_trust_pin(&p, own), FZN_TRUST_OK, "pinning refused");
+		fzn_trust_set_log(&p, &diag);
+		memset(&diag_seen, 0, sizeof(diag_seen));
+		expect_err(fzn_trust_pin(&p, theirs), FZN_TRUST_ERR_ANCHORED,
+		           "a pinned anchor was replaced");
+		expect(diag_seen.calls == 1, "a refused re-pin said nothing");
+		expect(strcmp(diag_seen.text, self_refusal) != 0,
+		       "two refusals with the same error code produced the same sentence, so "
+		       "the line adds nothing the code did not already say");
+	}
+
+	/* ---- THE JOIN: self -> pinned is permitted, and says what it replaced. */
+	memset(&diag_seen, 0, sizeof(diag_seen));
+	expect_err(fzn_trust_pin(&t, theirs), FZN_TRUST_OK,
+	           "an operator could not pin a real root over a self-root");
+	expect(diag_seen.calls == 1, "an anchor changed and nothing said so");
+	expect(diag_seen.type == FLOG_NOTE,
+	       "taking an anchor is normal and significant, and was reported as neither");
+	expect(strstr(diag_seen.text, "replacing") != NULL,
+	       "the line does not say the join REPLACED a self-root, which is the one "
+	       "permitted replacement in this design");
+	/* THE FINGERPRINT IS PRESENT AND LAST. sec 207: a terminal clips from
+	 * the right, so the verdict cannot sit behind 79 characters of hex. */
+	{
+		char print[FZN_TRUST_FINGERPRINT_LEN];
+		const char *at;
+
+		expect_err(fzn_trust_fingerprint(theirs, print, sizeof(print)), FZN_TRUST_OK,
+		           "the fixture could not build a fingerprint");
+		at = strstr(diag_seen.text, print);
+		expect(at != NULL, "the line does not carry the anchor's fingerprint");
+		if (at)
+			expect(at[strlen(print)] == '\0',
+			       "the fingerprint is not LAST, so a clipped terminal loses the "
+			       "verdict rather than the evidence");
+	}
+
+	/* ---- an all-zero root, which shares MALFORMED with a null argument. */
+	{
+		fzn_trust_t z;
+
+		fzn_trust_init(&z);
+		fzn_trust_set_log(&z, &diag);
+		memset(&diag_seen, 0, sizeof(diag_seen));
+		expect_err(fzn_trust_adopt(&z, zero, 1u), FZN_TRUST_ERR_MALFORMED,
+		           "an all-zero root was anchored");
+		expect(diag_seen.calls == 1, "an unfilled buffer offered as a root said nothing");
+		expect(diag_seen.type == FLOG_WARN,
+		       "a caller anchoring a buffer it never filled was not warned");
+		expect(strstr(diag_seen.text, "never filled") != NULL,
+		       "the line does not say WHICH malformed it was, which is the only thing "
+		       "distinguishing it from a null argument");
+	}
+
+	/* ---- AND THE ECHO IS SILENT, deliberately. sec 201: a line per branch
+	 * is symmetry rather than merit, and the return value already says
+	 * exactly this. */
+	memset(&diag_seen, 0, sizeof(diag_seen));
+	expect_err(fzn_trust_pin(&t, theirs), FZN_TRUST_ERR_UNCHANGED,
+	           "the same root offered again was not reported as unchanged");
+	expect(diag_seen.calls == 0,
+	       "an echo produced a line, which the header says it should not");
+}
+#endif
+
 int main(void)
 {
 	fzn_trust_t t;
@@ -302,6 +452,10 @@ int main(void)
 		failures = before;
 		checks -= 1;
 	}
+
+#ifdef FZN_FLOG_ON
+	test_the_anchor_says_which_refusal_it_was();
+#endif
 
 	printf("trust_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
