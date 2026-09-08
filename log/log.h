@@ -187,13 +187,39 @@ typedef struct fzn_log_entry {
 	uint32_t kind;
 } fzn_log_entry_t;
 
+/* Declared, not included. sec 209. */
+struct flog_t;
+
 typedef struct fzn_log {
 	fzn_log_entry_t *entries;
 	size_t capacity;
 	size_t used;
 	uint64_t next_stamp;
 	uint64_t dropped;
+	/* Where this log says what happened, or NULL for silence. */
+	struct flog_t *log;
 } fzn_log_t;
+
+/*
+ * Give this log somewhere to say what happened, or NULL to silence it.
+ *
+ * sec 217, and this module argues for it above without meaning to: `dropped`
+ * "is one count for the whole log, it does not say which sequences went ...
+ * It is a health number, not an answer." A line at the moment of eviction
+ * names the stream, the sequence and the kind that went, which is the answer
+ * the count cannot be.
+ *
+ * AT INFO, because this module's own text says eviction is "its normal
+ * condition rather than a failure" -- a log that refused once full "would
+ * stop recording exactly when something interesting started happening". So
+ * reporting it as a problem would be wrong about the design, and a consumer
+ * that wants it can ask for INFO.
+ *
+ * Subsystem `log/stream`. The log is borrowed and must outlive this one --
+ * and yes, a diagnostic logger inside the module named `log` is a collision
+ * of words; `log/log.h` above says why the two share nothing else.
+ */
+void fzn_log_set_log(fzn_log_t *log, struct flog_t *diag);
 
 /* Point a log at caller-owned entries. */
 fzn_log_err_t fzn_log_init(fzn_log_t *log, fzn_log_entry_t *entries, size_t capacity);

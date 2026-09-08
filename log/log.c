@@ -2,6 +2,20 @@
 
 #include "log.h"
 
+/* Diagnostics through flog, vendored and possibly absent. sec 209. The
+ * parameter is `diag` rather than `log` throughout this file, because `log` is
+ * already this module's own type and shadowing it would be a trap. */
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+#define STREAM_LOG(l, sub, sev, ...)                                                         \
+	do {                                                                               \
+		if ((l) && (l)->log)                                                       \
+			flog_printf((l)->log, sub, sev, FLOG_MSG_NONE, __VA_ARGS__);        \
+	} while (0)
+#else
+#define STREAM_LOG(l, sub, sev, ...) ((void)0)
+#endif
+
 #include "../constant_time/constant_time.h"
 
 #include <string.h>
@@ -44,6 +58,14 @@ static fzn_log_entry_t *find(const fzn_log_t *log, const uint8_t issuer[FZN_PUBK
 	return hit;
 }
 
+void fzn_log_set_log(fzn_log_t *log, struct flog_t *diag)
+{
+	if (!log)
+		return;
+
+	log->log = diag;
+}
+
 fzn_log_err_t fzn_log_init(fzn_log_t *log, fzn_log_entry_t *entries, size_t capacity)
 {
 	if (!log || !entries || capacity == 0)
@@ -55,6 +77,8 @@ fzn_log_err_t fzn_log_init(fzn_log_t *log, fzn_log_entry_t *entries, size_t capa
 	log->used = 0;
 	log->next_stamp = 1;
 	log->dropped = 0;
+	/* Quiet unless somebody asks. */
+	log->log = NULL;
 
 	return FZN_LOG_OK;
 }
@@ -90,6 +114,15 @@ static fzn_log_entry_t *slot_for_append(fzn_log_t *log)
 	}
 
 	log->dropped++;
+
+	/* WHICH RECORD WENT, which `dropped` cannot say -- this module calls
+	 * that count "a health number, not an answer". At INFO because
+	 * eviction is this log's normal condition rather than a failure. */
+	STREAM_LOG(log, "log/stream", FLOG_INFO,
+	           "evicting stream %lu seq %llu kind %lu to make room, %llu "
+	           "dropped in total",
+	           (unsigned long)oldest->stream, (unsigned long long)oldest->seq,
+	           (unsigned long)oldest->kind, (unsigned long long)log->dropped);
 
 	return oldest;
 }

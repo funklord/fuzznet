@@ -1074,6 +1074,13 @@ SABOTAGES = [
 		"the tri-state exists so `could not tell` cannot be read as `no`; rendering them as one word undoes a whole module at the point a person reads it -- sec 204",
 	),
 	(
+		"log-eviction-names-the-record",
+		"log/log.c",
+		"\"log/stream\", FLOG_INFO,\n",
+		"\"log/stream\", FLOG_WARN,\n",
+		"eviction is this log's NORMAL condition rather than a failure -- a log that refused once full would stop recording exactly when something interesting started happening -- so reporting it as a problem is wrong about the design rather than merely noisy, and the count `dropped` already exists for the health number -- sec 217",
+	),
+	(
 		"record-store-names-what-came-back",
 		"record/store.c",
 		"\"record/store\", FLOG_ERR,\n",

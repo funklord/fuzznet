@@ -33260,3 +33260,70 @@ commit that said "gate passed" would have been true of five stages and silent
 about two, and a reader six months from now cannot tell a stage that passed
 from one that never ran -- which is sec 205's whole subject, arriving from the
 machine rather than from the Makefile.
+
+## 217. The module I said was done, and a gate that missed a site
+
+sec 216 closed the logging pass with twelve modules and two declined. It was
+wrong: `log/` was neither, and it is the module whose own header argues for a
+log line most explicitly.
+
+	log/stream  INFO  evicting stream N seq M kind K, T dropped in total
+
+**`log/` is the only store here that EVICTS**, which is why it was not on the
+never-evicts list and why it fell out of the sweep of refusals -- it does not
+refuse. `log.h` says why: "losing its oldest entries is its normal condition
+rather than a failure. A log that refused to accept anything once full would
+stop recording exactly when something interesting started happening."
+
+That same paragraph makes the case for the line without meaning to. `dropped`
+is exposed and a caller can read it -- and the header calls it what it is:
+
+> `dropped` could not have rescued it either: it is one count for the whole
+> log, it does not say which sequences went ... **It is a health number, not
+> an answer.**
+
+So the line names the stream, the sequence and the kind that went. At INFO,
+because eviction is the design working; reporting it as a problem would be
+wrong about the module rather than merely noisy, which is what its sabotage
+entry pins.
+
+### The gate reported success while missing an emit site
+
+This is the finding worth more than the module.
+
+`log.c` already has a type named `fzn_log_t` and a parameter named `log`, so
+the wrapper macro was called `LOG_DIAG` rather than `STREAM_LOG` to avoid
+shadowing. `tool/log_gate.py` scans for `\b[A-Z][A-Z_]*_LOG\s*\(` -- a name
+ENDING in `_LOG` -- so `LOG_DIAG` was invisible to it.
+
+**It printed "11 subsystem(s) over 16 emit site(s), each asserted by a test"
+and was missing one** -- against 12 over 17 once the name was one it could
+see, re-derived here rather than recalled. The empty-sweep guard could not
+fire either: sixteen other sites still matched, so the detector was neither
+silent nor complete.
+sec 214 recorded that this gate cannot see whether a test compiles; this is
+worse, because it cannot see an emit site at all and says nothing about it.
+
+**The pattern encoded a naming convention and nothing checked the
+convention.** That is the whole defect, and renaming the macro would have
+dodged it rather than fixed it -- the next module with a name collision would
+meet the same trap.
+
+So the gate now finds every macro that WRAPS `flog_printf` and refuses one
+whose name it could not have scanned for, with its own exit code:
+
+	log-gate: log/log.c wraps flog_printf and is named LOG_DIAG, which
+	          this gate cannot see
+
+Shown by renaming the macro back and watching it fire. The macro is
+`STREAM_LOG` now, which is both a better name and no longer the thing keeping
+the gate honest.
+
+### And the pass was declared complete one module early
+
+Worth recording as a habit rather than an incident. sec 216 listed the modules
+with a caller-owned context and worked through them; `log/` has one and was
+missed because the SWEEP was for refusals -- every other module announced
+itself by returning an error, and this one announces itself by silently
+succeeding. **A survey keyed on how a thing fails cannot see the thing that
+does not fail.**

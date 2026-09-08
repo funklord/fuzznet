@@ -35,6 +35,17 @@ SKIP = ("qtty", "quirc", "monocypher", "flog", "gui", "cli", "sim", "tool", ".gi
 # argument, which is why the macros were made one shape.
 EMIT = re.compile(r'\b[A-Z][A-Z_]*_LOG\s*\(\s*[^,]+,\s*"([^"]+)"')
 
+# AND THE PATTERN ABOVE ENCODES A NAMING CONVENTION, WHICH IS A HOLE UNLESS
+# SOMETHING CHECKS IT. sec 217: a wrapper named `LOG_DIAG` rather than
+# `STREAM_LOG` was invisible to EMIT, so its emit site was never checked --
+# and the empty-sweep guard could not fire either, because sixteen other sites
+# still matched. **The gate reported success while missing one.**
+#
+# So every macro that wraps `flog_printf` must be named the way EMIT scans
+# for. This finds the definitions and checks their names, which is the only
+# way a mis-named one becomes loud rather than absent.
+WRAPPER = re.compile(r'#\s*define\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)[^\n]*\\?\n(?:[^\n]*\\\n)*[^\n]*flog_printf')
+
 
 def sources(test):
 	for dirpath, dirnames, filenames in os.walk(ROOT):
@@ -53,6 +64,21 @@ def main():
 		with open(path, encoding="utf-8") as f:
 			for sub in EMIT.findall(f.read()):
 				emitted.setdefault(sub, []).append(os.path.relpath(path, ROOT))
+
+	# THE WRAPPERS' NAMES, BEFORE ANY VERDICT ABOUT SUBSYSTEMS. A wrapper
+	# EMIT cannot see contributes no subsystem, and its absence is silent.
+	misnamed = 0
+	for path in sources(test=False):
+		with open(path, encoding="utf-8") as f:
+			for name in WRAPPER.findall(f.read()):
+				if not re.fullmatch(r"[A-Z][A-Z_]*_LOG", name):
+					print("log-gate: %s wraps flog_printf and is named %s, which "
+					      "this gate cannot see" % (os.path.relpath(path, ROOT), name))
+					misnamed += 1
+	if misnamed:
+		print("log-gate: a wrapper the emit pattern misses takes its subsystems")
+		print("log-gate: with it, and nothing here would have said so.")
+		return 2
 
 	if not emitted:
 		print("log-gate: no emit sites found at all, so this checked nothing.")

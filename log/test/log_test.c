@@ -117,6 +117,84 @@ static void make(fzn_record_t *r, uint8_t issuer_seed, uint64_t seq)
 	make_on(r, issuer_seed, 0, seq);
 }
 
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+
+/* Borrowed strings, so anything kept is copied. */
+static struct {
+	int calls;
+	flog_msg_type_t type;
+	char subsystem[64];
+	char text[512];
+} log_diag_seen;
+
+static int log_diag_capture(flog_t *p, const flog_msg_t *m)
+{
+	(void)p;
+	log_diag_seen.calls++;
+	log_diag_seen.type = m->type;
+	log_diag_seen.subsystem[0] = '\0';
+	log_diag_seen.text[0] = '\0';
+	if (m->subsystem)
+		snprintf(log_diag_seen.subsystem, sizeof(log_diag_seen.subsystem), "%s",
+		         m->subsystem);
+	if (m->text)
+		snprintf(log_diag_seen.text, sizeof(log_diag_seen.text), "%s", m->text);
+	return 0;
+}
+
+/*
+ * THE LOG SAYS WHICH RECORD WENT, WHICH THE COUNT CANNOT. sec 217.
+ *
+ * `log.h` argues for this without meaning to: `dropped` "is one count for the
+ * whole log, it does not say which sequences went ... It is a health number,
+ * not an answer." A line at the moment of eviction names the stream, the
+ * sequence and the kind.
+ *
+ * AT INFO, because this module says eviction is "its normal condition rather
+ * than a failure" -- a log that refused once full "would stop recording
+ * exactly when something interesting started happening". Reporting it as a
+ * problem would be wrong about the design.
+ */
+static void test_the_log_says_which_record_it_evicted(void)
+{
+	fzn_log_t l;
+	fzn_log_entry_t rows[1];
+	fzn_record_t rec;
+	flog_t diag;
+
+	init_flog_t(&diag);
+	diag.name = NULL;
+	diag.accepted_msg_type = FLOG_ACCEPT_ALL;
+	diag.output_func = log_diag_capture;
+
+	/* QUIET UNTIL ASKED: planted before the init that clears it. */
+	fzn_log_set_log(&l, &diag);
+	expect_err(fzn_log_init(&l, rows, 1), FZN_LOG_OK, "init refused");
+	memset(&log_diag_seen, 0, sizeof(log_diag_seen));
+	make(&rec, 0xa1, 1);
+	expect_err(fzn_log_append(&l, &rec), FZN_LOG_OK, "the first fills it");
+	expect(log_diag_seen.calls == 0, "a log nobody gave a diagnostic sink to emitted");
+
+	fzn_log_set_log(&l, &diag);
+
+	/* THE EVICTION. */
+	memset(&log_diag_seen, 0, sizeof(log_diag_seen));
+	make(&rec, 0xa1, 2);
+	expect_err(fzn_log_append(&l, &rec), FZN_LOG_OK, "the second evicts the first");
+	expect(fzn_log_dropped(&l) == 1, "one was dropped");
+	expect(log_diag_seen.calls == 1, "a record was evicted and nothing said which");
+	expect(log_diag_seen.type == FLOG_INFO,
+	       "a log's normal condition was reported above informational, which would be "
+	       "wrong about the design rather than merely noisy");
+	expect(strcmp(log_diag_seen.subsystem, "log/stream") == 0,
+	       "the event did not name its subsystem");
+	expect(strstr(log_diag_seen.text, "seq 1") != NULL,
+	       "the line does not name WHICH sequence went, which is the whole thing "
+	       "`dropped` cannot say");
+}
+#endif
+
 int main(void)
 {
 	fzn_log_t log;
@@ -784,6 +862,10 @@ int main(void)
 		failures = before;
 		checks -= 1;
 	}
+
+#ifdef FZN_FLOG_ON
+	test_the_log_says_which_record_it_evicted();
+#endif
 
 	printf("log_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
