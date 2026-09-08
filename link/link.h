@@ -129,10 +129,19 @@ typedef struct fzn_link_entry {
 	int usable;
 } fzn_link_entry_t;
 
+/* Declared, not included. sec 209: a consumer that has no logger passes
+ * nothing and never sees flog's header, and this library's public interface
+ * is the same shape whether or not it was built with diagnostics. */
+struct flog_t;
+
 typedef struct fzn_link_table {
 	fzn_link_entry_t *entries;
 	size_t capacity;
 	size_t used;
+	/* Where this table says what happened, or NULL for silence. Set by
+	 * `fzn_link_set_log`; `fzn_link_table_init` clears it, so a table that
+	 * was never given one is quiet rather than undefined. */
+	struct flog_t *log;
 } fzn_link_table_t;
 
 fzn_link_err_t fzn_link_table_init(fzn_link_table_t *table, fzn_link_entry_t *entries,
@@ -174,6 +183,28 @@ const fzn_link_entry_t *fzn_link_get(const fzn_link_table_t *table, uint32_t id)
  * nothing is ever sent on it. */
 size_t fzn_link_snapshot(const fzn_link_table_t *table, fzn_sched_candidate_t *out, size_t out_cap,
                          size_t *dropped);
+
+/*
+ * Give this table somewhere to say what happened, or NULL to silence it.
+ *
+ * sec 209, and the copyright holder's requirement that the first line of
+ * troubleshooting is a log. What this table knows and no return value
+ * carries: that `fzn_link_snapshot` is dropping links, which `link.h` above
+ * describes as permanent -- the same links every call, never chosen, never
+ * sent on, never measured. A consumer can be told the network is down while
+ * a healthy link sits one index past the bound, for ever, and nothing in the
+ * API it calls will ever mention it.
+ *
+ * The log is BORROWED and must outlive the table. `flog_t` is caller-owned
+ * storage in flog's default configuration, so it costs an allocation
+ * nowhere.
+ *
+ * SUBSYSTEMS HERE ARE `link` AND `link/snapshot`. flog prefixes each log's
+ * name as a message passes up a sublog tree, so a consumer that names its
+ * sublog `fuzznet` sees `theirs/fuzznet/link/snapshot` without this library
+ * knowing anything about the tree above it.
+ */
+void fzn_link_set_log(fzn_link_table_t *table, struct flog_t *log);
 
 /* A short name for `fzn_link_err_t`. Never NULL. */
 const char *fzn_link_err_str(fzn_link_err_t err);

@@ -782,6 +782,11 @@ endif
 CXXFLAGS_WARN := -std=c++17 -Wall -Wextra -Wpedantic -DQT_NO_KEYWORDS
 CXXFLAGS   = $(CXXFLAGS_BUILD) $(CXXFLAGS_WARN)
 GUI_OBJS   := $(GUI_SRCS:%.cpp=$(BUILD_DIR)/%.o)
+# NAMED SO THEIR DEPENDENCIES CAN BE READ BACK. sec 210: `TEST_OBJS`
+# substitutes `%.c`, so no C++ object has ever reached it -- and `DEPS` is
+# derived from `OBJS` and `TEST_OBJS`, so 30 `.d` files under gui/ were
+# written on every build and `-include`d by nothing.
+GUI_TOBJ   := $(GUI_TSRC:%.cpp=$(BUILD_DIR)/%.o)
 TEST_BINS  += $(BUILD_DIR)/gui/test/trust_view_test \
               $(BUILD_DIR)/gui/test/qr_view_test
 ifdef CLI_ON
@@ -931,6 +936,85 @@ MONOCYPHER_DIR ?= $(MONO_VENDORED)
 # running them is exactly the vacuous pass evidence.md warns about, wearing
 # the costume of a build that succeeded.
 MONO_SRC := $(wildcard $(MONOCYPHER_DIR)/src/monocypher.c)
+
+# FLOG, THE DIAGNOSTIC LOGGER, VENDORED AND GATED THE WAY MONOCYPHER IS.
+# sec 209. The copyright holder's requirement: the first line of
+# troubleshooting is always a log.
+#
+# It is the holder's own repository, pinned at the commit fuzzypickles is on,
+# so the two trees log through one library rather than two -- which is the
+# whole of the uniformity this was asked for. A consumer names a sublog
+# `fuzznet`, hangs it under its own root, and this library's subsystems
+# compose into its path automatically: flog prefixes each log's name as a
+# message passes up the tree, so `chain/verify` here arrives as
+# `theirs/fuzznet/chain/verify` there.
+#
+# WITH ITS DEFAULT CONFIG IT ALLOCATES NOTHING, which is what makes it usable
+# from a library whose whole shape is caller-owned tables. Verified rather
+# than read: `nm -u` over flog.o, flog_string.o and flog_msg_id.o built with
+# stock config.h names no malloc, calloc, realloc, free, strdup, asprintf or
+# vasprintf. It wants snprintf, vsnprintf, gettimeofday, localtime and
+# strerror, which is why it is gated rather than required -- the same POSIX
+# question `persist/` and `spool/` already answer.
+#
+# THE OUTPUT BACKENDS ARE NOT BUILT HERE. `flog_output_file.c` and
+# `flog_output_stdio.c` are separate translation units and are the consumer's
+# to link: a target with no file API links neither and still has the logger,
+# which is flog's own structure doing the gating rather than anything this
+# file has to arrange.
+# LINKING link.o MEANS LINKING ITS LOGGER, said once so the next rule cannot
+# forget it. sec 209: `fzn_link_snapshot` calls flog, so every binary that
+# links `link/link.o` needs flog's objects -- seven rules did, and the one
+# that was missed failed at LINK time in `err_str_test`, a suite with nothing
+# to do with links. Empty when flog is absent, which is the whole of the
+# no-flog build.
+LINK_OBJ = $(BUILD_DIR)/link/link.o $(FLOG_OBJS)
+
+FLOG_VENDORED := flog
+FLOG_DIR      ?= $(FLOG_VENDORED)
+FLOG_SRC      := $(wildcard $(FLOG_DIR)/flog.c)
+
+ifeq ($(FLOG_DIR),)
+FLOG_SKIP := FLOG_DIR is empty, so this library emits no diagnostics.
+else ifneq ($(FLOG_SRC),)
+FLOG_ON   := 1
+else ifeq ($(FLOG_DIR),$(FLOG_VENDORED))
+FLOG_SKIP := the vendored $(FLOG_VENDORED)/ is empty. Run 'git submodule update --init'.
+else
+$(error FLOG_DIR=$(FLOG_DIR) has no flog.c. Leave it unset to use the \
+        vendored $(FLOG_VENDORED)/, or set it to empty to build without \
+        diagnostics)
+endif
+
+ifdef FLOG_ON
+CPPFLAGS  += -DFZN_FLOG_ON -I$(FLOG_DIR)
+# VENDORED CODE IS EXEMPT FROM OUR WARNING SET, and per-target rather than by
+# policy, which is how quirc and qtty are already handled here.
+# THE OBJECTS LAND AT THE TOP OF $(BUILD_DIR), NOT UNDER flog/, which is
+# monocypher's arrangement here and is not a matter of taste: BUILD_DIR
+# defaults to `.`, so `$(BUILD_DIR)/flog/flog.o` writes INSIDE the submodule
+# and leaves it dirty. Measured by doing it once.
+FLOG_OBJS := $(BUILD_DIR)/flog.o $(BUILD_DIR)/flog_string.o \
+             $(BUILD_DIR)/flog_msg_id.o
+
+# GATED LIKE THE MONOCYPHER SUITES, and for the same reason: without flog the
+# library compiles and behaves identically, and there is nothing to assert
+# about a logger that is not there. Kept in TEST_SRCS as well, because that is
+# the list that reads as "every test source" and a quietly incomplete one is a
+# trap for whatever asks it next.
+FLOG_TSRC := link/test/link_log_test.c
+TEST_SRCS += $(FLOG_TSRC)
+TEST_BINS += $(BUILD_DIR)/link/test/link_log_test
+
+$(BUILD_DIR)/link/test/link_log_test: $(BUILD_DIR)/link/test/link_log_test.o \
+                                      $(LINK_OBJ) $(BUILD_DIR)/sched/sched.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(FLOG_OBJS): $(BUILD_DIR)/%.o: $(FLOG_DIR)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -w -I$(FLOG_DIR) -c $< -o $@
+endif
 
 ifeq ($(MONOCYPHER_DIR),)
 MONO_SKIP := MONOCYPHER_DIR is empty, which switches them off.
@@ -1267,7 +1351,7 @@ $(MONO_PROV): $(BUILD_DIR)/sim/test/provision_test.o \
               $(BUILD_DIR)/spool/plan.o $(BUILD_DIR)/spool/message.o \
               $(BUILD_DIR)/spool/scrub.o \
               $(BUILD_DIR)/spool/transfer.o \
-              $(BUILD_DIR)/link/link.o $(BUILD_DIR)/sched/sched.o \
+              $(LINK_OBJ) $(BUILD_DIR)/sched/sched.o \
               $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/wire/relay.o \
               $(BUILD_DIR)/version/version.o $(BUILD_DIR)/persist/persist.o \
               $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
@@ -1305,7 +1389,19 @@ endif
 # a field ends up with one layout in the library and another in the binary
 # linked against it -- which surfaces as a pile of nonsense assertion
 # failures rather than as a build error.
-DEPS = $(OBJS:.o=.d) $(TEST_OBJS:.o=.d)
+# THE GUI HALVES ARE NAMED SEPARATELY BECAUSE `%.c` CANNOT REACH THEM.
+# sec 210, and it is build-and-commit.md's first dependency rule: a test
+# object whose `.d` is never read back does not rebuild when a header it
+# includes changes, so a struct that gains a field ends up with one layout in
+# the library and another in the binary linked against it.
+#
+# That is not a hypothetical here. `fzn_link_table_t` gained a `log` pointer
+# in sec 209 and `gui/test/link_view_test.cpp` kept the old layout, so
+# `fzn_link_table_init` wrote eight bytes past the end of the caller's struct
+# -- caught by AddressSanitizer as a stack-buffer-overflow in a suite that had
+# nothing to do with the change. Both gui variables expand to nothing when the
+# GUI is off, so this costs a build without it nothing.
+DEPS = $(OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(GUI_OBJS:.o=.d) $(GUI_TOBJ:.o=.d)
 
 .PHONY: check runtests all test fuzz guided guided-one installcheck coverage sancheck schema qtty qrcheck style codegencheck ctcheck analyze sabotage hooks clean install
 
@@ -1366,7 +1462,7 @@ $(BUILD_DIR)/log/test/fix_stream_test: $(BUILD_DIR)/log/test/fix_stream_test.o \
 	$(CC) $(CFLAGS) $^ -o $@
 
 $(BUILD_DIR)/link/test/link_test: $(BUILD_DIR)/link/test/link_test.o \
-                                  $(BUILD_DIR)/link/link.o \
+                                  $(LINK_OBJ) \
                                   $(BUILD_DIR)/sched/sched.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -1867,7 +1963,7 @@ $(BUILD_DIR)/cli/test/peer_print_test: $(BUILD_DIR)/cli/test/peer_print_test.o \
 # What paths this host has, and which numbers are measurements. sec 202.
 $(BUILD_DIR)/cli/test/link_print_test: $(BUILD_DIR)/cli/test/link_print_test.o \
                                      $(BUILD_DIR)/cli/link_print.o \
-                                     $(BUILD_DIR)/link/link.o \
+                                     $(LINK_OBJ) \
                                      $(BUILD_DIR)/sched/sched.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -2104,7 +2200,7 @@ $(BUILD_DIR)/gui/test/peer_view_test: $(BUILD_DIR)/gui/test/peer_view_test.o \
 $(BUILD_DIR)/gui/test/link_view_test: $(BUILD_DIR)/gui/test/link_view_test.o \
                                      $(BUILD_DIR)/gui/link_view.o \
                                      $(BUILD_DIR)/cli/link_print.o \
-                                     $(BUILD_DIR)/link/link.o \
+                                     $(LINK_OBJ) \
                                      $(BUILD_DIR)/sched/sched.o
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) -o $@
@@ -2425,7 +2521,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/log/log.o \
                                       $(BUILD_DIR)/wire/relay.o \
                                       $(BUILD_DIR)/sched/sched.o \
-                                      $(BUILD_DIR)/link/link.o \
+                                      $(LINK_OBJ) \
                                       $(BUILD_DIR)/chain/chain.o \
                                       $(BUILD_DIR)/chain/revocation.o \
                                       $(BUILD_DIR)/chain/manifest.o \
@@ -3767,7 +3863,7 @@ qrcheck:
 	trap 'rm -rf "$$scratch"' EXIT INT TERM; \
 	rm -rf "$$scratch"; mkdir -p "$$scratch"; \
 	for u in quirc decode identify version_db; do \
-		$(CC) $(CFLAGS_BUILD) -w -I"$(QUIRC_DIR)/lib" -c \
+		$(CC) $(GEN_CFLAGS) -w -I"$(QUIRC_DIR)/lib" -c \
 		      "$(QUIRC_DIR)/lib/$$u.c" -o "$$scratch/$$u.o"; \
 	done; \
 	$(CC) $(CFLAGS) -I. -I"$(QUIRC_DIR)/lib" qr/test/qr_quirc_check.c qr/qr.c \
@@ -3899,7 +3995,7 @@ qtty:
 			echo "qtty: no quirc.h under $(QUIRC_DIR)/lib"; exit 1; }; \
 		mkdir -p "$$scratch/quirc"; \
 		for f in quirc decode identify version_db; do \
-			$(CC) $(CFLAGS_BUILD) -w -I"$(QUIRC_DIR)/lib" -c \
+			$(CC) $(GEN_CFLAGS) -w -I"$(QUIRC_DIR)/lib" -c \
 			      "$(QUIRC_DIR)/lib/$$f.c" -o "$$scratch/quirc/$$f.o"; \
 		done; \
 		qflags="-DFZN_HAVE_QUIRC -I$(QUIRC_DIR)/lib"; \
@@ -3927,7 +4023,7 @@ qtty:
 	       $(BUILD_DIR)/cli/peer_print.o $(BUILD_DIR)/local/peer.o \
 	       $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/prekey/prekey.o \
 	       $(BUILD_DIR)/local/vocabulary.o \
-	       $(BUILD_DIR)/link/link.o $(BUILD_DIR)/sched/sched.o \
+	       $(LINK_OBJ) $(BUILD_DIR)/sched/sched.o \
 	       $(BUILD_DIR)/spool/spool.o $(BUILD_DIR)/spool/plan.o \
 	       $(BUILD_DIR)/spool/transfer.o $(BUILD_DIR)/blob/blob.o \
 	       $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/log/log.o \

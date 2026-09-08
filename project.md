@@ -32553,3 +32553,246 @@ rather than the outcome.
 gate, and it was mine, introduced the same day.** A sweep that runs everywhere
 is worth more than one nobody types; it is also a thing every session now
 depends on, and it had a collision in it from the hour it was promoted.
+
+## 209. flog, vendored and used, after building the wrong thing first
+
+The copyright holder's requirement, 2026-09-08: **the first line of
+troubleshooting is always a log**, before a debugger and before anything else.
+This library could not produce one, and the account of how it came to have one
+is worth more than the change.
+
+### What was here is rich and is entirely PULL
+
+35 error enums, 115 distinct error values, 40 `_str` renderers, all walked by
+`err_str_test`. A caller learns one outcome, at one call boundary, after the
+fact. `fzn_chain_verify` walks hops and can say only
+`FZN_CHAIN_ERR_SIGNATURE` -- not which hop, not whose key, not what the four
+hops before it did. **"We return good error codes" is not an answer to "what
+happened at 3am"**, and this section exists because that answer was offered.
+
+### The wrong thing, and why it was built
+
+Asked whether to vendor flog here, this project answered no, on the ground
+that **flog's core allocates per message by contract** and `qr/qr.h` already
+records declining a dependency on exactly that ground.
+
+That was measured at flog `16eae94` and was true then. `f8c25c5 Make
+allocation optional, and off by default` landed mid-conversation, and the
+claim was repeated for hours afterwards -- to the holder, to fuzzypickles, and
+into this document -- as the load-bearing reason for a design.
+
+On the strength of it, a `diag/` seam was built: a sixteenth caller-supplied
+vtable with its own severity constants, its own field types and its own
+`fzn_diag_ops_t`, carefully mirroring flog's model. **It was a worse
+reimplementation of a dependency that was already in the family**, which is
+the correction the holder had given this session once already, repeated
+against the same tree. It is deleted rather than adapted.
+
+Re-measured properly, and by `nm` rather than by reading the config: flog
+built with stock `config.h` names no malloc, calloc, realloc, free, strdup,
+asprintf or vasprintf in any of its objects. Its own comment names the case:
+"a library whose own design is caller-owned storage and which cannot take a
+dependency that mallocs behind its back."
+
+**Two failures, and the second is the one to carry.** A stale cross-tree
+measurement is the class this document already has three entries about. Being
+told how to do something and building an adjacent thing instead is not a
+measurement error at all, and no gate catches it.
+
+### What is here now
+
+flog vendored as a submodule, pinned at the commit fuzzypickles is on, gated
+exactly as monocypher is: present and it builds, absent and the build says so.
+The output backends are deliberately not built -- `flog_output_file.c` and
+`flog_output_stdio.c` are separate translation units and are the consumer's to
+link, so a target with no file API links neither and still has the logger.
+That is flog's own structure doing the gating rather than anything here.
+
+**The hierarchy is flog's and is not reimplemented.** flog prefixes each log's
+name to the subsystem as a message passes up a sublog tree, so this library
+logs under plain `link/snapshot` and a consumer that names its sublog
+`fuzznet` gets `theirs/fuzznet/link/snapshot` for free. Nothing here composes
+a path.
+
+**The API does not change shape between builds.** `link.h` forward-declares
+`struct flog_t` rather than including flog's header, so a consumer with no
+logger passes NULL and never sees it, and the emit sites alone are
+conditional.
+
+### The first thing this library ever said out loud
+
+`fzn_link_snapshot`, at `FLOG_WARN`, when links do not fit the bound.
+
+`link.h` already documented the hazard and the API could not mention it: the
+dropped links are the SAME ones every call, because this table never reorders,
+so truncation always takes the most recently registered -- and being dropped
+is self-sustaining, since `sched/` never sees them, so nothing is sent on
+them, so they are never measured. **A consumer can be told the network is
+down while a healthy link sits one index past the bound, for ever.**
+
+A caller reading `dropped` learns a number. It already had the number. What it
+could not have is the sentence.
+
+### Three things the wiring turned up
+
+**`CFLAGS_BUILD` is used in three places and defined nowhere.** The C++ side
+has a real `CXXFLAGS_BUILD`; the C side's idiom is `GEN_CFLAGS`. So vendored
+quirc has been compiling with no `-Os` and no `-g` -- inside `qrcheck`, which
+is a gate -- and sec 205 propagated it into the qtty target while making the
+two "agree". All three now use `GEN_CFLAGS`.
+
+**A vendored object must not land inside the submodule.** `BUILD_DIR` defaults
+to `.`, so `$(BUILD_DIR)/flog/flog.o` writes into `flog/` and leaves it dirty.
+Monocypher's arrangement -- a flat object at the top of `BUILD_DIR` -- is the
+one that works, and it is why it is spelled that way.
+
+**A vendored HEADER is not exempt from our warning set.** A vendored source is
+compiled with `GEN_CFLAGS` and never sees `-Wpedantic`; a header is read by
+our compiler under our flags. `flog.h` spelled the current function
+`__FUNCTION__`, a GNU extension where C11 has `__func__`, and flog's own build
+never saw it because its default flags are `-W -Wall -Os`. Signalled rather
+than patched, and fixed upstream in `ba3007f`, which is the pin here. They
+found a second of the same class while checking it -- `_GNU_SOURCE`
+redefined, which only a C++ consumer meets.
+
+### Linking one object now means linking its logger
+
+`fzn_link_snapshot` calls flog, so every binary linking `link/link.o` needs
+flog's objects. Seven rules did. Six were found by reading, and the seventh
+was found by the gate at LINK time -- in `err_str_test`, a suite with nothing
+to do with links, which links most of the library to walk its renderers.
+
+The fix is one variable rather than seven edits: `LINK_OBJ = $(BUILD_DIR)/link/link.o
+$(FLOG_OBJS)`, so the pair is stated once and the next rule cannot forget it.
+Empty when flog is absent, which is the whole of the no-flog build.
+
+**The general shape is worth naming, because this is the first time this
+library has had it.** Until now every object here was self-contained: linking
+`chain/chain.o` needed `chain/chain.o`. An object that calls out to a vendored
+library makes the LINK line a thing that can be wrong, and the failure lands
+in whichever unrelated binary happens to link it first.
+
+### A no-op that produces silence is indistinguishable from a fix
+
+Recorded because it survived a round of checking. A `#pragma GCC diagnostic
+ignored "-Wpedantic"` was wrapped around the `flog.h` include. It compiles, it
+reads as correct, and it changes nothing: `flog_printf` is a macro, so the
+offending token is expanded at the CALL SITE and merely REPORTED against a
+line in flog.h -- the pragma suppresses at the point of expansion, which is
+outside any region wrapped around an include.
+
+It looked like it had worked because the second `make` had nothing to rebuild
+and printed nothing. Forcing the rebuild is what showed the warning unchanged.
+
+### And a sabotage that crashed rather than failed
+
+`link-init-clears-the-log` mutates away `table->log = NULL` in
+`fzn_link_table_init`. The first version of the test left the struct
+uninitialised and relied on stack luck; with the guard removed it followed a
+garbage pointer into `flog_printf` and **segfaulted**, which is a suite that
+did not pass but is not an assertion that fired, and is not deterministic
+either.
+
+The test plants a REAL log before `init` now. With the clear in place `init`
+removes it and nothing is emitted; with the clear gone the log survives and
+the emit is recorded. `link_log_test.c:107` by name, every time.
+
+**A test should create the condition it is about rather than hope for it**,
+and undefined behaviour is the shape that makes hoping look like testing.
+
+## 210. Thirty dependency files, written every build, read by nothing
+
+Found by adding a field to a struct.
+
+`fzn_link_table_t` gained a `log` pointer in sec 209. The next sanitized run
+died in `gui/test/link_view_test` -- a suite with nothing to do with logging:
+
+	ERROR: AddressSanitizer: stack-buffer-overflow
+	    #0 fzn_link_table_init link/link.c:81
+	    #1 main gui/test/link_view_test.cpp:63
+
+`fzn_link_table_init` writing eight bytes past the end of a caller's struct is
+one layout in the library and another in the binary linked against it, which
+is the symptom `build-and-commit.md` names in its first dependency rule.
+
+**The cause is one substitution.**
+
+	TEST_OBJS = $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
+
+`%.c` cannot match a `.cpp`, so **no C++ object has ever reached `TEST_OBJS`**,
+and `GUI_OBJS` was never added to `OBJS` either. `DEPS` is derived from those
+two lists, and `-include $(DEPS)` is what reads dependency files back. So the
+compiler was writing 30 `.d` files under `gui/` on every build and make was
+reading none of them: **no GUI source or test has ever rebuilt because a
+header changed.**
+
+Every one of those 30 files was correct. `link_view_test.d` names `link.h`
+four times. They were written, they were accurate, and nothing opened them.
+
+### Why it survived, and why it surfaced now
+
+Nothing about a stale object announces itself. A widget compiled against last
+week's header links, runs and passes -- the tests assert on behaviour, and the
+behaviour was unchanged, because until now no header this side includes had
+altered a STRUCT LAYOUT. Sec 202's `link_view` and sec 204's `peer_view` both
+added widgets and printers; neither changed a struct anyone else declares.
+
+A `log` pointer on a caller-owned table did, and the failure was immediate,
+loud and in the right place. **The sanitizer turned a silent staleness into a
+stack-buffer-overflow with a two-line stack**, which is the best outcome
+available: the alternative the rule predicts is "a pile of nonsense assertion
+failures" that reads as a broken change rather than a broken build.
+
+### The fix, and the proof
+
+`GUI_TOBJ` is named beside `GUI_OBJS`, and `DEPS` gains both halves. Both
+expand to nothing when the GUI is off, so a build without it pays nothing.
+
+Proved the way the defect was found rather than by reading the variable:
+`touch link/link.h`, rebuild, and count whether `link_view_test.cpp` is
+recompiled. It is. Before the fix the same command recompiled nothing, which
+is what let a struct change reach a binary that had not seen it.
+
+**The general shape, which is not about C++.** A list whose pattern encodes a
+file extension silently excludes every member with a different one, and
+excluding them from a DEPENDENCY list is invisible by construction -- the
+build still works, the tests still pass, and the only symptom is staleness
+nobody attributes. Two lists here derive from `TEST_SRCS` and one derived
+list was wrong; the tell was that `TEST_SRCS` itself carries `.cpp` entries
+while everything computed from it quietly does not.
+
+### Signalled, and the scope claim did not survive being measured
+
+Filed to `claude-guidelines` as **"A dependency list whose pattern names a
+file extension silently drops every source with a different one"**, commit
+`1ea383f`. On the copyright holder's instruction, whose reason was that other
+trees had likely copied this Makefile.
+
+**They have not, and measuring it changed what the signal says.**
+
+	%.c= substitutions in a Makefile     fuzznet 11, every other tree 0
+	trees with C++ and hand-rolled deps  beerssh, hembygd, fuzznet
+
+`beerssh` is not affected: its hand-written Makefile `-include`s exactly what
+it compiles by hand -- vendored libvterm -- and its Qt objects belong to
+qmake, which does its own dependency tracking. A first count of its `.d`
+files says 1193, which looks alarming and is OpenSSL's own build under
+`build-deps-android/`.
+
+**`hembygd` already has the spelling that cannot have this defect**, which is
+what makes it worth a signal rather than a fix here:
+
+	-include $(shell find $(BUILD_DIR) -name '*.d' 2>/dev/null)
+
+A derived list can be incomplete; a `find` cannot be, in this direction. That
+is a cross-project convention question and so is not this project's to settle
+-- fuzznet has taken the narrow fix, naming the C++ halves explicitly, and
+proposes neither form as the rule.
+
+**The reason to record the negative.** The prompt was a reasonable guess and
+it was wrong, and a signal filed on it unmeasured would have sent a pass
+looking for a defect in sixteen trees that have never had it. `evidence.md`'s
+rule is that a scope number is the claim in a finding nobody re-derives; this
+one was re-derived because it was somebody else's guess rather than this
+project's, which is the easier case. The hard case is the same guess made
+here.

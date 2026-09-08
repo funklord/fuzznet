@@ -1074,6 +1074,20 @@ SABOTAGES = [
 		"the tri-state exists so `could not tell` cannot be read as `no`; rendering them as one word undoes a whole module at the point a person reads it -- sec 204",
 	),
 	(
+		"link-snapshot-says-what-it-dropped",
+		"link/link.c",
+		"\tif (*dropped)\n\t\tLINK_LOG(table, \"link/snapshot\", FLOG_WARN,\n",
+		"\tif (0)\n\t\tLINK_LOG(table, \"link/snapshot\", FLOG_WARN,\n",
+		"a caller reading `dropped` learns a number; what no return value carries is that the dropped links are the SAME ones every call, so they are never selected, never sent on and never measured -- sec 209, and the first thing this library was ever able to say out loud",
+	),
+	(
+		"link-init-clears-the-log",
+		"link/link.c",
+		"\ttable->log = NULL;\n",
+		"\t;\n",
+		"a table declared on a caller's stack would otherwise carry whatever was there, so whether this library talks would be decided by uninitialised memory -- sec 209",
+	),
+	(
 		"link-print-unmeasured-is-not-measured",
 		"cli/link_print.c",
 		"\tif (t->unmeasured == t->usable)\n\t\treturn FZN_LINK_LINE_UNMEASURED;\n",

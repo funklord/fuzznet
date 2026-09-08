@@ -7,3 +7,6 @@
 [submodule "qtty"]
 	path = qtty
 	url = https://github.com/funklord/qtty.git
+[submodule "flog"]
+	path = flog
+	url = https://github.com/funklord/flog.git

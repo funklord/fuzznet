@@ -158,6 +158,7 @@ __pycache__/
 /frame/test/receive_fuzz
 /session/test/random_test
 /local/test/vocabulary_test
+/link/test/link_log_test
 /local/test/vocabulary_fuzz
 /local/test/admit_test
 /.situ-head/

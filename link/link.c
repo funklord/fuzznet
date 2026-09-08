@@ -2,6 +2,51 @@
 
 #include "link.h"
 
+/*
+ * DIAGNOSTICS GO THROUGH flog, WHICH IS VENDORED AND MAY BE ABSENT. sec 209.
+ *
+ * The macro rather than an `if` at each site so that a build without flog has
+ * no reference to it at all -- not a call guarded at runtime. With it absent
+ * the arguments are discarded by the preprocessor, so `FLOG_WARN` need not
+ * exist for the file to compile.
+ *
+ * `FLOG_MSG_NONE` throughout: flog's message ids are an X-macro table in its
+ * own header, and extending it from here would be editing a vendored
+ * dependency. The subsystem and the text carry the meaning instead.
+ */
+#ifdef FZN_FLOG_ON
+/*
+ * A VENDORED HEADER IS NOT EXEMPT FROM OUR WARNING SET, and that is worth
+ * knowing before the next one is included. A vendored SOURCE is compiled with
+ * GEN_CFLAGS and never sees `-Wpedantic`; a vendored HEADER is read by OUR
+ * compiler under OUR flags, so a fault in it lands in our build and the
+ * consumer cannot fix it from outside.
+ *
+ * This one did: `flog.h` spelled the current function `__FUNCTION__`, a GNU
+ * extension where C11 has `__func__`. Reported rather than patched -- a
+ * dependency's fault is signalled -- and fixed upstream in flog ba3007f,
+ * which is the pin here. flog's own build never saw it, its default flags
+ * being `-W -Wall -Os`; only a pedantic consumer does.
+ *
+ * A `#pragma GCC diagnostic ignored` around this include DOES NOT WORK, and
+ * that is recorded because it compiles, it reads as correct, and it changes
+ * nothing. `flog_printf` is a macro, so the offending token is expanded at
+ * the CALL SITE below and merely REPORTED against a line in flog.h; the
+ * pragma suppresses at the point of expansion, which is outside any region
+ * wrapped around an include. It survived one round of checking because the
+ * second `make` had nothing to rebuild and printed nothing -- **a no-op that
+ * produces silence is indistinguishable from a fix that produces silence.**
+ */
+#include "flog.h"
+#define LINK_LOG(table, sub, sev, ...)                                                     \
+	do {                                                                               \
+		if ((table) && (table)->log)                                               \
+			flog_printf((table)->log, sub, sev, FLOG_MSG_NONE, __VA_ARGS__);   \
+	} while (0)
+#else
+#define LINK_LOG(table, sub, sev, ...) ((void)0)
+#endif
+
 #include <string.h>
 
 static int usable_table(const fzn_link_table_t *table)
@@ -31,8 +76,19 @@ fzn_link_err_t fzn_link_table_init(fzn_link_table_t *table, fzn_link_entry_t *en
 	table->entries = entries;
 	table->capacity = capacity;
 	table->used = 0;
+	/* Quiet unless somebody asks. A table on a caller's stack would
+	 * otherwise carry whatever was there. */
+	table->log = NULL;
 
 	return FZN_LINK_OK;
+}
+
+void fzn_link_set_log(fzn_link_table_t *table, struct flog_t *log)
+{
+	if (!table)
+		return;
+
+	table->log = log;
 }
 
 fzn_link_err_t fzn_link_register(fzn_link_table_t *table, uint32_t id, uint32_t metric,
@@ -226,6 +282,29 @@ size_t fzn_link_snapshot(const fzn_link_table_t *table, fzn_sched_candidate_t *o
 		out[n].usable = e->usable;
 		n++;
 	}
+
+	/*
+	 * THE ONE THING THIS TABLE KNOWS THAT NO RETURN VALUE CARRIES.
+	 *
+	 * `dropped` is reported, and a caller that reads it learns a number.
+	 * What the header above says and the number does not is that these are
+	 * the SAME links every call -- this table never reorders, so truncation
+	 * always drops the most recently registered -- and that being dropped
+	 * is self-sustaining: sched never sees them, so nothing is sent on
+	 * them, so they are never measured, so their estimates stay frozen at a
+	 * declared prior for ever.
+	 *
+	 * A consumer can therefore be told the network is down while a healthy
+	 * link sits one index past the bound. That is exactly the failure a
+	 * log is the first line of troubleshooting for, and until sec 209 this
+	 * library had no way to mention it.
+	 */
+	if (*dropped)
+		LINK_LOG(table, "link/snapshot", FLOG_WARN,
+		         "%zu of %zu links did not fit and are invisible to selection; "
+		         "the same links every call, so they are never sent on and never "
+		         "measured",
+		         *dropped, table->used);
 
 	return n;
 }
