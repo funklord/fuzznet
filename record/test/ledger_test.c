@@ -331,6 +331,112 @@ static void test_every_error_has_a_name(void)
 	CHECK(fzn_ledger_err_str((fzn_ledger_err_t)-99) != NULL, "err_str returned NULL");
 }
 
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+
+/* Borrowed strings, so anything kept is copied. */
+static struct {
+	int calls;
+	flog_msg_type_t type;
+	char subsystem[64];
+	char text[512];
+} diag_seen;
+
+static int diag_capture(flog_t *p, const flog_msg_t *m)
+{
+	(void)p;
+	diag_seen.calls++;
+	diag_seen.type = m->type;
+	diag_seen.subsystem[0] = '\0';
+	diag_seen.text[0] = '\0';
+	if (m->subsystem)
+		snprintf(diag_seen.subsystem, sizeof(diag_seen.subsystem), "%s", m->subsystem);
+	if (m->text)
+		snprintf(diag_seen.text, sizeof(diag_seen.text), "%s", m->text);
+	return 0;
+}
+
+/*
+ * WHAT THIS LEDGER SAYS THAT ITS RETURN VALUES CANNOT. sec 218.
+ *
+ * The last case is the one this module was wired for. `fzn_ledger_confirmed`
+ * returns a version and `fzn_ledger_count` returns a count, so an unscannable
+ * table answers ZERO -- which is exactly what an honest "never heard of this
+ * peer" answers. No caller can tell those apart, so without a line the
+ * condition is not merely unreported, it is unreportable.
+ */
+static void test_the_ledger_says_what_no_return_value_can(void)
+{
+	fzn_ledger_t l;
+	fzn_ledger_entry_t e[2];
+	uint8_t a[FZN_PUBKEY_LEN], b[FZN_PUBKEY_LEN], c[FZN_PUBKEY_LEN], s[FZN_SUBJECT_LEN];
+	flog_t diag;
+
+	init_flog_t(&diag);
+	diag.name = NULL;
+	diag.accepted_msg_type = FLOG_ACCEPT_ALL;
+	diag.output_func = diag_capture;
+
+	key(a, 0x91);
+	key(b, 0x92);
+	key(c, 0x93);
+	subj(s, 0x94);
+
+	/* QUIET UNTIL ASKED, and planted before the init that clears it, so a
+	 * sink surviving `_init` would show up here rather than nowhere. */
+	fzn_ledger_set_log(&l, &diag);
+	REQUIRE(fzn_ledger_init(&l, e, 2) == FZN_LEDGER_OK, "init");
+	memset(&diag_seen, 0, sizeof(diag_seen));
+	REQUIRE(fzn_ledger_confirm(&l, a, s, 1u, 5u) == FZN_LEDGER_OK, "first");
+	CHECK(diag_seen.calls == 0, "a ledger nobody gave a diagnostic sink to emitted");
+
+	fzn_ledger_set_log(&l, &diag);
+
+	/* STALE, AND HOW FAR BACK. The return value is the same for one
+	 * reordered datagram and for a peer a long way behind. */
+	memset(&diag_seen, 0, sizeof(diag_seen));
+	CHECK(fzn_ledger_confirm(&l, a, s, 1u, 2u) == FZN_LEDGER_ERR_STALE, "stale");
+	CHECK(diag_seen.calls == 1, "a reordered confirmation was absorbed silently");
+	CHECK(diag_seen.type == FLOG_INFO,
+	      "reordering was reported above informational, though this header says the "
+	      "table is identical either way");
+	CHECK(strcmp(diag_seen.subsystem, "record/ledger") == 0,
+	      "the event did not name its subsystem");
+	CHECK(strstr(diag_seen.text, "3 behind") != NULL,
+	      "the line does not say HOW FAR back the late confirmation was, which is the "
+	      "one thing FZN_LEDGER_ERR_STALE cannot carry");
+
+	/* FULL, AND THAT IT IS PERMANENT. */
+	REQUIRE(fzn_ledger_confirm(&l, b, s, 1u, 1u) == FZN_LEDGER_OK, "second");
+	memset(&diag_seen, 0, sizeof(diag_seen));
+	CHECK(fzn_ledger_confirm(&l, c, s, 1u, 1u) == FZN_LEDGER_ERR_FULL, "full");
+	CHECK(diag_seen.calls == 1, "a confirmation was dropped for want of room in silence");
+	CHECK(diag_seen.type == FLOG_ERR,
+	      "a table that never reclaims a row reported its permanent refusal below error");
+
+	/* THE READER WITH NO ERROR CHANNEL. This is the case that cannot be
+	 * covered any other way: the function returns a version, zero means
+	 * "never heard of", and the two are otherwise identical. */
+	{
+		fzn_ledger_t hollow = l;
+
+		hollow.used = hollow.capacity + 1u;
+		memset(&diag_seen, 0, sizeof(diag_seen));
+		CHECK(fzn_ledger_confirmed(&hollow, a, s, 1u) == 0u, "hollow answered a version");
+		CHECK(diag_seen.calls == 1,
+		      "a reader that has no way to return an error also said nothing, so an "
+		      "unscannable ledger is indistinguishable from an empty one");
+		CHECK(diag_seen.type == FLOG_ERR,
+		      "a broken table invariant was reported below error");
+		CHECK(strcmp(diag_seen.subsystem, "record/ledger") == 0,
+		      "the event did not name its subsystem");
+		CHECK(strstr(diag_seen.text, "resent") != NULL,
+		      "the line does not say what follows -- every subject resent to every "
+		      "peer -- which is the part no caller can measure");
+	}
+}
+#endif
+
 int main(void)
 {
 	test_init_refuses_what_cannot_hold_anything();
@@ -342,6 +448,9 @@ int main(void)
 	test_a_full_ledger_refuses_rather_than_forgetting();
 	test_every_guard_refuses_its_own_argument();
 	test_every_error_has_a_name();
+#ifdef FZN_FLOG_ON
+	test_the_ledger_says_what_no_return_value_can();
+#endif
 
 	printf("ledger_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

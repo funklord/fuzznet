@@ -75,11 +75,45 @@ typedef struct fzn_ledger_entry {
 	uint64_t version;
 } fzn_ledger_entry_t;
 
+/* Declared, not included. sec 209. */
+struct flog_t;
+
 typedef struct fzn_ledger {
 	fzn_ledger_entry_t *entries;
 	size_t capacity;
 	size_t used;
+	/* Where this ledger says what happened, or NULL for silence. */
+	struct flog_t *log;
 } fzn_ledger_t;
+
+/*
+ * Give this ledger somewhere to say what happened, or NULL to silence it.
+ *
+ * sec 218. Three conditions, and the first is the reason this module was
+ * worth coming back for: THE READERS HAVE NO ERROR CHANNEL AT ALL.
+ * `fzn_ledger_confirmed` returns a version and `fzn_ledger_count` returns a
+ * count, so an unscannable table answers zero -- which is exactly what an
+ * honest "never heard of this peer" answers. The two are indistinguishable
+ * to every caller, for ever, and the consequence is a host that resends
+ * everything to everybody and cannot say why. At ERR.
+ *
+ * FULL is the second, at ERR rather than the CRIT `chain/revocation.h` takes
+ * for its own never-reclaimed table. The polarity decides it: a full
+ * revocation store can fail to withhold an authority, and a full ledger can
+ * only fail to notice a delivery, so it costs bytes rather than
+ * correctness -- the same asymmetry `fzn_ledger_behind` is built on.
+ *
+ * STALE is the third, at INFO, because this header already argues it is
+ * neither a fault nor nothing: the table "is identical either way", and a
+ * caller that wants to know its acknowledgements are arriving out of order
+ * can. What the return value cannot say is HOW FAR back the late one was,
+ * which is the difference between one reordered datagram and a peer whose
+ * view has fallen a long way behind.
+ *
+ * Subsystem `record/ledger`. The log is borrowed and must outlive this one,
+ * and `fzn_ledger_init` clears it -- so set it after init, not before.
+ */
+void fzn_ledger_set_log(fzn_ledger_t *ledger, struct flog_t *log);
 
 /* Point `ledger` at caller-owned entries, and zero them.
  *

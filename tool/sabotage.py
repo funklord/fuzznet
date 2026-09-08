@@ -1081,6 +1081,27 @@ SABOTAGES = [
 		"eviction is this log's NORMAL condition rather than a failure -- a log that refused once full would stop recording exactly when something interesting started happening -- so reporting it as a problem is wrong about the design rather than merely noisy, and the count `dropped` already exists for the health number -- sec 217",
 	),
 	(
+		"ledger-unreadable-is-said-at-all",
+		"record/ledger.c",
+		"\t\treturn 0;\n\n\t/*\n\t * SAID HERE RATHER THAN AT THE THREE CALLERS",
+		"\t\treturn 0;\n\treturn 1;\n\n\t/*\n\t * SAID HERE RATHER THAN AT THE THREE CALLERS",
+		"the readers have NO error channel -- `fzn_ledger_confirmed` returns a version and `fzn_ledger_count` a count, so an unscannable table answers zero, which is what an honest `never heard of this peer` answers; the line is the only way the condition is expressible at all -- sec 218",
+	),
+	(
+		"ledger-unreadable-is-an-error",
+		"record/ledger.c",
+		"FLOG_ERR,\n\t           \"ledger cannot be scanned",
+		"FLOG_INFO,\n\t           \"ledger cannot be scanned",
+		"a broken invariant in caller-owned memory is not informational: every read now answers as if nothing were confirmed, and nothing recovers without the caller fixing the struct -- sec 218",
+	),
+	(
+		"ledger-stale-says-how-far",
+		"record/ledger.c",
+		"(unsigned long long)(ledger->entries[at].version - version),\n",
+		"(unsigned long long)version,\n",
+		"one reordered datagram and a peer whose view has fallen a long way behind return the SAME value, so the distance is the whole content the line adds to FZN_LEDGER_ERR_STALE -- sec 218",
+	),
+	(
 		"record-store-names-what-came-back",
 		"record/store.c",
 		"\"record/store\", FLOG_ERR,\n",
@@ -2060,9 +2081,8 @@ SABOTAGES = [
 	(
 		"ledger-monotonic",
 		"record/ledger.c",
-		"\t\tif (version <= ledger->entries[at].version)\n"
-		"\t\t\treturn FZN_LEDGER_ERR_STALE;\n",
-		"\t\t(void)0;\n",
+		"\t\tif (version <= ledger->entries[at].version) {\n",
+		"\t\tif (0) {\n",
 		"a late acknowledgement is reordering rather than retraction, so a "
 		"confirmation must never move backwards",
 	),
@@ -2120,8 +2140,8 @@ SABOTAGES = [
 	(
 		"ledger-full-refuses",
 		"record/ledger.c",
-		"\tif (ledger->used >= ledger->capacity)\n\t\treturn FZN_LEDGER_ERR_FULL;\n",
-		"\tif (0)\n\t\treturn FZN_LEDGER_ERR_FULL;\n",
+		"\tif (ledger->used >= ledger->capacity) {\n",
+		"\tif (0) {\n",
 		"nothing here expires, so a full ledger refuses rather than "
 		"overwriting somebody's confirmation",
 	),
