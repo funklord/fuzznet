@@ -32267,3 +32267,97 @@ The floors it measures now, for all twelve widgets:
 `provision_view` is in that list for the first time: its header was included by
 the render test and no such widget was ever built, so it had been compiled into
 the sweep and never rendered by it.
+
+## 206. The sweep run in full again, at 321 entries
+
+Sec 52 ran every sabotage entry and found one that had silently stopped
+testing. That sweep was on 2026-09-03, over **42** entries. The table holds
+**321** today, and until now no full run had happened in between.
+
+	CAUGHT      317   including both controls
+	SURVIVED      4   all four on the declared expected list
+	PATTERN-MISS  0
+	exit          0
+
+**The result is that nothing was wrong, and the value is in knowing rather
+than assuming.** No entry had quietly stopped testing anything, both controls
+failed the way they are meant to, and the four survivors are exactly the set
+`EXPECTED_SURVIVORS` declares with reasons -- `manifest-sig-zero-sign`,
+`relay-hop-header-min`, `peer-linux-trim-call` and
+`authz-print-asks-the-library`.
+
+**What was actually at risk, stated precisely, because the obvious reading
+overstates it.** `make style` has run `--verify` on every gate since sec 52,
+so the specific failure sec 52 found -- an entry whose pattern stops matching
+-- has been caught continuously ever since. That is a real defence and it is
+not the same question. **Matching proves the substitution still applies;
+catching proves something still notices.** An entry that still names one site
+but whose mutation is now absorbed by a different guard, or whose assertion
+has been weakened, reads healthy to `--verify` for ever. Only a sweep asks.
+Between 42 entries and 321, nothing had asked.
+
+**The barrier was a cost nobody re-measured.** The `sabotage` target's comment
+said a full sweep is "builds plus one `make test` each, and nothing budgets a
+timeout" -- true about the shape, and read as a reason not to run one.
+Measured: **321 entries in 40.6 minutes**, about 7.6 seconds each, because the
+builds are incremental. An assumption had been doing a measurement's work.
+
+The comment carries the number now, and the instruction to run one after
+landing a batch of entries.
+
+**And the estimate made on the way to the measurement was wrong in the
+comfortable direction.** One entry timed at 17.5 seconds including both
+controls, from which this project priced the table at "about six seconds each,
+roughly half an hour". It is 7.6 and 40.6 -- a third more than the figure that
+had already been sent to a sibling project as a reason the sweep was cheap.
+Extrapolating from a warm single run understates, because the single run pays
+no cost for the builds the other 320 entries each trigger. The estimate is
+recorded beside the measurement rather than replaced by it, since the gap is
+the finding.
+
+**What this does not establish.** A caught mutation says some assertion
+noticed; it does not say the RIGHT one did. Sec 152's rule -- read which line
+caught which entry -- is still the check that separates a guard being defended
+from a guard being shadowed by an unrelated assertion, and a sweep of 321
+entries produces 321 such lines that nobody reads. This run was read for
+verdicts, not for attribution. That is a smaller claim than "every guard is
+held to account by something", which is what the tool prints.
+
+### The trade is coverage against attribution, not coverage against effort
+
+Reported by fuzzypickles 2026-09-08, in answer to the numbers above, and it
+corrects the reading this section would otherwise have invited -- that a table
+is the grown-up version of sabotaging by hand.
+
+They sabotage by hand, one edit at a time. That method **gets attribution for
+free**, because there is one line to read and the person who wrote the
+mutation is standing over it. Their three from that day: reverting a link
+predicate failed `link_test.c:240` and `:246` and nothing else; deleting an
+address check failed `addr_observe_test.c:179` six times, once per control
+character, with the accepted control and the high-byte case staying green; a
+safe-area sabotage failed exactly the two menu-bar assertions with the
+zero-inset control still passing. In each, WHICH assertion fired was the
+finding -- the address one would have been a different bug if the control had
+gone red.
+
+	table   coverage, and no attribution unless somebody reads 321 lines
+	hand    attribution by construction, and coverage only of what
+	        somebody thought of
+
+**Neither is the other's superset.** A table cannot have their blind spots and
+cannot, at this size, have their attribution. Hand sabotage cannot have this
+table's stopped-testing failure and cannot have its breadth.
+
+**The option that would have both, which is theirs and is not taken.** A sweep
+that printed only the entries whose CATCHING LINE HAD CHANGED since the last
+run turns 321 unread lines into a short diff -- and it is a diff over output
+the tool already produces rather than a new harness.
+
+Its cost is a design choice nobody has made: keying on `file:line` would go
+off on every unrelated edit above an assertion, since line numbers move
+constantly, so it would have to key on the assertion TEXT and then a reworded
+message reads as a moved guard. That is the sort of noise that gets a check
+switched off by instalments. Whether the baseline is worth carrying, and what
+it keys on, is the holder's -- recorded here rather than started, because a
+tool that cries wolf about attribution is worse than one that stays silent
+about it, and this section's own subject is a check nobody ran.

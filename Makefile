@@ -2993,8 +2993,16 @@ analyze:
 # full run at its timeout accordingly. a1af82d bounded the plan count that
 # harness walks and the entry has failed fast since; measured 2026-09-03 at
 # under ten seconds, two days after the fix and with the warning still here.
-# A full sweep is builds plus one `make test` each, and nothing budgets a
-# timeout. See project.md sec 52.
+# A FULL SWEEP IS AFFORDABLE, AND THIS COMMENT SAID OTHERWISE FOR LONGER
+# THAN IT WAS TRUE. It read "builds plus one `make test` each, and nothing
+# budgets a timeout", which is accurate about the SHAPE and was taken as a
+# reason not to run one -- so the table grew from the 42 entries sec 52 swept
+# to 321 with no full run in between. Measured 2026-09-08: 321 entries in
+# 40.6 minutes wall clock, about 7.6 seconds each, incremental builds doing
+# most of the work.
+#
+# Run it with `make sabotage ARGS=--timeout\ 300` after landing a batch of
+# entries, and record the verdict counts. See project.md sec 52 and sec 206.
 #
 # `make sabotage ARGS=--verify` is the read-only half: it checks that every
 # entry still names exactly one site, builds nothing, and is what `make
