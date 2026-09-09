@@ -35749,3 +35749,48 @@ rule, the content rule and the name rule are the same shape -- so the anchor
 had to carry the comment above it. `evidence.md` again: uniqueness is a
 property of the file, not of the string, and here the file had three of them
 from the start.
+
+### The content table diverges the same way, and its comment says otherwise
+
+The same shape one table over. `fzn_catalog_content_held_wins` keeps what is
+held across issuers, and both the header and the source defend it in the same
+words:
+
+> KEEPING THE HELD ONE IS NOT A PREFERENCE FOR THE FIRST WRITER, it is the
+> only answer available that does not depend on arrival order
+
+Measured, alice's and bob's assertions given to two hosts in opposite orders:
+
+	host a, alice first    root 0xaa
+	host b, bob first      root 0xbb
+
+**Whichever arrived first stands, so the outcome depends on arrival order and
+the surviving writer is the first one to arrive.** Both clauses of that
+sentence read as denials of exactly that.
+
+There is a reading under which it is right, and it is probably the intended
+one: the RULE consults no order, because across issuers there is no "later"
+to appeal to, and any rule that claimed to order them would be inventing an
+authority. That is a true and load-bearing point. But it is not what the
+sentence says, and the sentence is what a consumer reads before deciding
+whether its hosts converge.
+
+**Flagged and not rewritten.** `working-practice.md` is explicit that a
+document contradicting the code is not to be silently resolved in either
+direction, and this is a design rationale rather than a comment about
+mechanism -- the same argument appears in `catalog.h` and in `catalog.c`, and
+whoever wrote it was answering a real question about what a rule without
+causal metadata can promise. **Whose decision it is: the copyright holder's.**
+
+What is here instead is a test pinning the measured behaviour, taking no view
+on the wording, so that reconciling the two is a deliberate act by somebody
+who owns the argument rather than a discovery by somebody whose hosts stopped
+agreeing. Its control -- keeping the offered entry instead -- fires both of
+its assertions and one that predates it, which is also why it gets no
+sabotage entry.
+
+**The edge case has a paragraph saying what it is not; the content case has a
+sentence that reads as a convergence claim.** Same limit, same module, and
+only one of them was written to be un-mistakable. That is the more useful
+finding than either divergence: a non-property is only as safe as the
+sentence describing it.

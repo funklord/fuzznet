@@ -378,6 +378,7 @@ static void test_a_remove_does_not_commute_and_that_is_the_design(void)
 	      "OR-Set and catalog.h's paragraph saying it is not one must change with it");
 }
 
+
 /* A full catalogue refuses loudly rather than dropping the oldest, which is
  * the difference between this and a log. */
 static void test_a_full_catalogue_refuses_rather_than_evicts(void)
@@ -524,6 +525,61 @@ static fzn_catalog_entry_t blob_entry(uint8_t seed, uint8_t root_seed, uint64_t 
 	memcpy(e.issuer, issuer, FZN_PUBKEY_LEN);
 	e.seq = seq;
 	return e;
+}
+
+/*
+ * AND CONTENT DIVERGES THE SAME WAY, WHICH THE HEADER'S WORDING DOES NOT SAY.
+ *
+ * sec 243. `fzn_catalog_content_held_wins` keeps what is held across issuers,
+ * and `catalog.h` defends that with "KEEPING THE HELD ONE IS NOT A PREFERENCE
+ * FOR THE FIRST WRITER, it is the only answer available that does not depend
+ * on arrival order."
+ *
+ * Measured, two hosts given alice's and bob's assertions in opposite orders
+ * hold DIFFERENT content. Whichever arrived first stands. The charitable
+ * reading of that sentence is about the RULE -- it consults no order, because
+ * across issuers there is no "later" to appeal to -- and the outcome plainly
+ * does depend on arrival order, which is the reading a consumer will take.
+ *
+ * THIS TEST TAKES NO VIEW ON THE WORDING. It pins the behaviour, so that the
+ * sentence and the code can be reconciled deliberately by whoever owns the
+ * argument rather than by whoever meets the divergence.
+ */
+static void test_content_across_issuers_keeps_whichever_arrived_first(void)
+{
+	fzn_catalog_edge_t rows_a[4], rows_b[4];
+	fzn_catalog_entry_t ents_a[4], ents_b[4];
+	fzn_catalog_t a, b;
+	fzn_catalog_id_t node = id(0x50);
+	fzn_catalog_entry_t from_alice, from_bob;
+	const fzn_catalog_entry_t *held_a;
+	const fzn_catalog_entry_t *held_b;
+
+	REQUIRE(fzn_catalog_init(&a, rows_a, 4, &ADD_WINS) == FZN_CATALOG_OK, "a init");
+	REQUIRE(fzn_catalog_init(&b, rows_b, 4, &ADD_WINS) == FZN_CATALOG_OK, "b init");
+	REQUIRE(fzn_catalog_content_init(&a, ents_a, 4, &HELD_WINS) == FZN_CATALOG_OK,
+	        "a content init");
+	REQUIRE(fzn_catalog_content_init(&b, ents_b, 4, &HELD_WINS) == FZN_CATALOG_OK,
+	        "b content init");
+
+	from_alice = blob_entry(0x50, 0xaa, 100u, ALICE, 1);
+	from_bob = blob_entry(0x50, 0xbb, 100u, BOB, 1);
+
+	REQUIRE(fzn_catalog_content_set(&a, &from_alice) == FZN_CATALOG_OK, "a alice");
+	(void)fzn_catalog_content_set(&a, &from_bob);
+	REQUIRE(fzn_catalog_content_set(&b, &from_bob) == FZN_CATALOG_OK, "b bob");
+	(void)fzn_catalog_content_set(&b, &from_alice);
+
+	held_a = fzn_catalog_content_of(&a, &node);
+	held_b = fzn_catalog_content_of(&b, &node);
+	REQUIRE(held_a != NULL && held_b != NULL, "a node with content has none");
+
+	CHECK(held_a->root[0] == 0xaa, "the first assertion did not stand on a");
+	CHECK(held_b->root[0] == 0xbb, "the first assertion did not stand on b");
+	CHECK(held_a->root[0] != held_b->root[0],
+	      "two hosts converged on content across issuers -- if that is deliberate, "
+	      "catalog.h's sentence about arrival order has become true and this case "
+	      "must go with the change that made it so");
 }
 
 /* ONE MECHANISM, THREE ANSWERS. sec 145: a blob reference is content and must
@@ -2610,6 +2666,7 @@ int main(void)
 	test_the_resolver_is_a_seam();
 	test_two_hosts_adding_agree_without_talking();
 	test_a_remove_does_not_commute_and_that_is_the_design();
+	test_content_across_issuers_keeps_whichever_arrived_first();
 	test_a_full_catalogue_refuses_rather_than_evicts();
 	test_the_caller_bugs_are_refused();
 	test_a_listing_respects_its_bound();
