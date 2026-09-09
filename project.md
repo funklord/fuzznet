@@ -34563,3 +34563,29 @@ and again on a clean tree afterwards with only the widened guard in place:
 
 sec 52's rule, and it is what surfaced the duplication: the message that came
 back was not the one I had written.
+
+### And that guard has been breaking `make check` from a clone since it landed
+
+Running it on a fresh checkout to prove the refusal, rather than trusting the
+one in this tree, showed something older:
+
+	$ git clone . freshclone && cd freshclone && make check
+	style: ./constant_time/constant_time.o is missing ...
+	make: *** [style] Error 1
+
+`check: style test ...` runs style FIRST, the renderer sweep needs the
+objects, and the guard refuses -- so **the documented entry point has stopped
+before compiling anything since 2026-09-04**, the day the guard was added.
+Checked against the pre-sec-231 Makefile on the same clone: identical failure,
+same file. Widening the guard did not cause it and the fix is not to narrow
+it.
+
+`style: $(OBJS)` -- **the check builds what it inspects.** It costs nothing on
+a warm tree and nothing at all inside `check`, since `test` builds the same
+objects a moment later; what it removes is a first impression that reads as a
+broken makefile. The clone runs through style and into the suites now.
+
+**Nothing in this tree could have found that.** Every gate here runs against a
+tree somebody has already built, which is the one state where the defect is
+invisible -- and it survived five days of `make check` passing, because
+passing is what it does on the second run.

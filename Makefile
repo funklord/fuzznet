@@ -3313,7 +3313,23 @@ sancheck:
 	@echo "sancheck: the suite under AddressSanitizer and UBSan"
 	@$(MAKE) --no-print-directory runtests BUILD_DIR=$(BUILD_DIR)-san SANITIZE=1
 
-style:
+# STYLE BUILDS WHAT IT INSPECTS, since sec 231. The renderer sweep reads
+# `nm` over $(SRCS)'s objects and the guard above refuses when one is
+# missing -- correctly, since a sweep over a subset reports a pass over less
+# than the build made. But `check` runs `style` FIRST, so on a fresh clone
+# the documented entry point stopped at a message telling the reader to build
+# something `check` was about to build anyway.
+#
+# Measured on a clone of this repository: `make check` failed at
+# `constant_time/constant_time.o is missing` before compiling anything, under
+# this Makefile AND under the one before sec 231 -- so it has been that way
+# since the guard was added on 2026-09-04, and widening the guard did not
+# cause it.
+#
+# The prerequisite costs nothing on a warm tree and costs `check` nothing at
+# all, since `test` builds the same objects a moment later. What it removes is
+# a first impression that reads as a broken makefile.
+style: $(OBJS)
 	@# THE GATE'S OWN CONTROL, AND IT RUNS BEFORE THE GATE'S VERDICT.
 	@# `style_gate.py` is a detector whose failure mode is SILENCE: run
 	@# over a conforming tree it prints the same sentence whether every
