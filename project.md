@@ -35618,3 +35618,70 @@ normal-looking line where nobody greps for it* -- which does not describe a
 severity nothing asserts. It names both now. A new arm reaching an old
 explanation is not something the arm's own test would show, and only
 watching the failure print did.
+
+## 242. A detector measured on one instance of what it detects
+
+`spool/scrub` exists to notice that stored bytes are no longer the bytes
+that were verified, and until now the only thing asking whether it works was
+`scrub_test.c`, which flips one bit in one leaf of one arrangement. sec 102
+calls scrub the piece with no equivalent anywhere; it also had no harness.
+
+`spool/test/scrub_fuzz.c` asks two properties over arbitrary corruptions of
+arbitrary partial blobs.
+
+	1. DETECTION IS COMPLETE   every sealed cell whose stored bytes
+	                           differ loses its leaves
+	2. AND NOTHING ELSE MOVES  a cell whose bytes did not change keeps
+	                           them
+
+**The second is what makes the first able to fail.** A scrub that dropped
+everything satisfies property 1 perfectly, and a false positive is not a
+harmless extra check -- it discards sound bytes and asks a peer to send them
+again. So the two are one assertion of SET EQUALITY: the cells that lost
+their leaves must be exactly the sealed cells whose slot bytes changed.
+
+	scrub_fuzz: 20000 cases, 13965 with a drop, 6035 untouched, 2006
+	tail drops, 4989 partial blobs, 15011 fully sealed, 9963 multi-cell
+	drops, detection exact throughout
+
+### Two decisions that keep the model independent
+
+**It observes through `fzn_spool_has`, not the seal bitmap.** Whether a cell
+is still sealed could be read straight out of the caller-owned bits, and a
+model that did would be agreeing with the implementation about the very
+thing it checks. What a consumer sees is which leaves are back on the
+want-list, so that is what this compares.
+
+**The cell decomposition is this file's own**, derived from what `scrub.h`
+describes -- full cells of `FZN_SCRUB_CELL`, then a tail of one cell per set
+bit below it -- rather than copied from `scrub.c`. It is checked against
+`fzn_scrub_cells` every case, so two implementations meeting is one of the
+assertions rather than an assumption.
+
+### The first failure was mine
+
+	MODEL: the step reports 0 cells dropped and 2 cells lost their leaves
+	scrub_fuzz: FAILED on case 91 (seed 92)
+
+`fzn_scrub_step` sets `out_checked` and `out_dropped` to what THAT CALL did.
+The harness steps in random bites until the pass wraps and had been reading
+the last call's numbers as the pass total. The module was right and the new
+model was wrong, which is the ordinary case for a new model and the reason
+`evidence.md` says to suspect it -- and it took ninety-one cases to find,
+where the fixture in `scrub_test` steps once and could never have shown it.
+
+### Controls
+
+	detection inverted (`!= 0` to `== 0`)   cell at leaf 0 was sealed, its
+	                                        stored bytes changed, and it
+	                                        still holds leaves
+	the forget removed                      the same line
+	cell_is_whole always true               sealing refused: backend
+
+The first two land where they were aimed and have entries. **The third does
+not, and so does not get one**: sealing a holed cell reads a leaf that was
+never placed, so the spool refuses and the module's own error path answers
+before any property does. An entry aimed at a model, caught by a backend
+error, records a guard that was never exercised -- which is sec 234's
+finding about controls landing on the cheapest check, met once more and
+acted on this time by not writing the entry.

@@ -1196,6 +1196,22 @@ SABOTAGES = [
 		"\t\tif (cell < scrub->cells)\n\t\t\tn++;\n",
 		"an answer that counts cells rather than reading their seals is the running total a consumer already had, and it is right until a cell is repaired -- which is to say right until the module does the thing it exists for and wrong from then on -- sec 239",
 	),
+	# BATCH TWENTY-SIX, 2026-09-09: the detector's own two halves.
+	# project.md sec 242.
+	(
+		"scrub-detects-a-changed-cell",
+		"spool/scrub.c",
+		"\t\t\tif (memcmp(root, scrub->roots + cell * FZN_BLOB_HASH_LEN,\n\t\t\t           FZN_BLOB_HASH_LEN) != 0) {\n",
+		"\t\t\tif (memcmp(root, scrub->roots + cell * FZN_BLOB_HASH_LEN,\n\t\t\t           FZN_BLOB_HASH_LEN) == 0) {\n",
+		"the comparison IS the module: inverted, a host keeps every cell whose bytes changed and re-fetches every cell that was fine, and the only outward sign is a want-list that never empties -- scrub_fuzz asks it of arbitrary corruptions rather than of one flipped bit -- sec 242",
+	),
+	(
+		"scrub-returns-the-leaves-it-drops",
+		"spool/scrub.c",
+		"\t\t\t\t(void)fzn_spool_forget(scrub->spool, first, len);\n",
+		"\t\t\t\t(void)first;\n",
+		"clearing the seal without returning the leaves leaves the spool claiming bytes the reference no longer matches, and scrub.h calls the forget the whole of repair -- detection without it is a scrub that notices and does nothing -- sec 242",
+	),
 	(
 		"log-body-escapes-what-a-terminal-obeys",
 		"log/log.c",

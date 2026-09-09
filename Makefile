@@ -270,6 +270,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              spool/test/message_test.c \
              spool/test/transfer_test.c \
              spool/test/scrub_test.c \
+             spool/test/scrub_fuzz.c \
              session/test/agree_test.c \
              session/test/session_test.c \
              blob/test/blob_fuzz.c \
@@ -339,6 +340,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/spool/test/message_test \
              $(BUILD_DIR)/spool/test/transfer_test \
              $(BUILD_DIR)/spool/test/scrub_test \
+             $(BUILD_DIR)/spool/test/scrub_fuzz \
              $(BUILD_DIR)/session/test/agree_test \
              $(BUILD_DIR)/session/test/session_test \
              $(BUILD_DIR)/frame/test/freshness_test \
@@ -1861,6 +1863,15 @@ $(BUILD_DIR)/spool/test/scrub_test: $(BUILD_DIR)/spool/test/scrub_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+$(BUILD_DIR)/spool/test/scrub_fuzz: $(BUILD_DIR)/spool/test/scrub_fuzz.o \
+                                    $(BUILD_DIR)/spool/scrub.o \
+                                    $(BUILD_DIR)/spool/plan.o \
+                                    $(BUILD_DIR)/spool/spool.o \
+                                    $(BUILD_DIR)/blob/blob.o \
+                                    $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/spool/test/spool_file_test: $(BUILD_DIR)/spool/test/spool_file_test.o \
                                           $(BUILD_DIR)/spool/spool_file.o \
                                           $(BUILD_DIR)/spool/spool.o \
@@ -2912,7 +2923,8 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/disclose/test/disclose_fuzz \
              $(BUILD_DIR)/persist/test/persist_fuzz \
              $(BUILD_DIR)/wire/test/relay_fuzz \
-             $(BUILD_DIR)/log/test/log_fuzz
+             $(BUILD_DIR)/log/test/log_fuzz \
+             $(BUILD_DIR)/spool/test/scrub_fuzz
 
 fuzz: $(FUZZ_BINS)
 	@for f in $(FUZZ_BINS); do echo "== $$f $(CASES)"; $$f $(CASES) || exit 1; done
