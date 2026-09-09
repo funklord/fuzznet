@@ -35992,3 +35992,80 @@ a weight did would be a penalty wearing a filter's name.
 in a suite sits on one side of something; the cheap way to find it is to read
 the fixtures rather than the assertions, and both times the answer was a
 dimension the author had no reason to vary.
+
+## 247. The line a consumer needs before it drops somebody's traffic
+
+`sched.h` states the consequence and stops there:
+
+> When nothing survives, `FZN_SCHED_ERR_NONE` is the answer and the caller
+> drops. Falling back to the least-bad survivor would be the wrong kind of
+> helpful.
+
+So a consumer holding that error is about to discard traffic, and the only
+thing it has to explain that with is **one code shared by every reason.** The
+header already knows: it says `fzn_sched_admits` and `fzn_sched_cost` are
+exposed *because a consumer often wants to say WHY nothing qualified.*
+
+`cli/sched_print` is that line. Seven states, and the reasons want different
+actions:
+
+	every link down          the consumer's own links, not this class
+	all too slow             raise max_latency_ms, or accept the delay
+	all too lossy            raise max_loss_permille
+	all too small            lower min_mtu, or fragment
+	excluded differently     NO single change admits anything
+
+**The last is the one worth building the printer for.** Every other state
+points at a field; that one exists to say that pointing at any of them would
+be wrong, and it is the case where every obvious remedy sends a reader to
+change something that cannot help. It is `cli/reasm_print`'s shape -- several
+causes, several actions, a line that says which -- and sec 201's test for
+merit is met because the states are not variants of one wording.
+
+### A sixth accessor, for the same reason as the other five
+
+`fzn_sched_admits` answers with a bool, so it says that something excluded a
+link and not what. The printer needs the difference, and the two ways to get
+it were to re-derive the three comparisons in `cli/` -- a second definition of
+a hard constraint, drifting from what `fzn_sched_select` actually skips -- or
+to ask the module.
+
+`fzn_sched_excluded_by` names the first failure in the module's own check
+order, and **`fzn_sched_admits` is now a reading of it**, so there is one
+definition rather than two. That is the sixth accessor added in this session
+because a header named a distinction its API could not make, after
+`fzn_manifest_follows`, `fzn_ledger_sound`, `fzn_replay_expirable`,
+`fzn_reasm_held_by` and `fzn_scrub_progress`.
+
+### The caller passes the answer in
+
+`fzn_sched_print` takes the `err` and `chosen` that `fzn_sched_select`
+returned rather than selecting again. A printer that selected for itself would
+be a second selection that could differ -- on a table another thread had
+touched, or simply under a different class -- and **a report about a choice
+nobody made is worse than no report.**
+
+Its own guard follows from that: an `err` of OK naming a link the class
+excludes is reported as NONE rather than as a choice, because it is either a
+caller pairing an answer with the wrong table or a selection this module would
+not have made, and calling it a choice would put the printer's name behind it.
+
+### The refactor broke an existing sabotage entry, and the gate said so
+
+Moving the usable check into `fzn_sched_excluded_by` left
+`sched-usable-veto` naming `if (!link->usable) return 0;`, which no longer
+exists.
+
+	sabotage: sched-usable-veto matches nothing in sched/sched.c
+
+**Nothing about the build or the suite would have noticed.** The entry would
+have sat in a table that reads as coverage, reporting a guard as defended
+while matching nothing -- which is exactly what `verify` was written for, and
+the second time this session that a refactor of mine has invalidated an anchor
+somebody else wrote. It names the new site now, and its control fires through
+`sched_fuzz`'s independent `admits` model rather than only a unit test.
+
+**And two of the three new entries were wrong in the same breath** -- a tab
+too many on a `return`, so they matched nothing either. The gate found all
+three together, before any of it was committed, which is the whole argument
+for a check that runs without building anything.

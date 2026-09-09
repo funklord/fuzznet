@@ -849,7 +849,7 @@ CLI_SRCS := cli/cli.c cli/qr_print.c cli/log_print.c cli/sync_print.c \
             cli/authz_print.c cli/provision_print.c \
             cli/trust_print.c cli/link_print.c cli/peer_print.c \
             cli/manifest_print.c cli/ledger_print.c cli/replay_print.c \
-            cli/reasm_print.c
+            cli/reasm_print.c cli/sched_print.c
 CLI_HDRS := cli/cli.h cli/qr_print.h cli/log_print.h cli/sync_print.h \
             cli/journal_print.h cli/sweep_print.h \
             cli/transfer_print.h cli/capability_print.h \
@@ -857,7 +857,7 @@ CLI_HDRS := cli/cli.h cli/qr_print.h cli/log_print.h cli/sync_print.h \
             cli/authz_print.h cli/provision_print.h \
             cli/trust_print.h cli/link_print.h cli/peer_print.h \
             cli/manifest_print.h cli/ledger_print.h cli/replay_print.h \
-            cli/reasm_print.h
+            cli/reasm_print.h cli/sched_print.h
 CLI_TSRC := cli/test/cli_test.c cli/test/qr_print_test.c \
             cli/test/log_print_test.c cli/test/sync_print_test.c \
             cli/test/journal_print_test.c cli/test/sweep_print_test.c \
@@ -867,7 +867,8 @@ CLI_TSRC := cli/test/cli_test.c cli/test/qr_print_test.c \
             cli/test/trust_print_test.c cli/test/link_print_test.c \
             cli/test/peer_print_test.c cli/test/manifest_print_test.c \
             cli/test/ledger_print_test.c cli/test/replay_print_test.c \
-            cli/test/reasm_print_test.c
+            cli/test/reasm_print_test.c \
+            cli/test/sched_print_test.c
 
 ifdef CLI_ON
 CPPFLAGS  += -DFZN_CLI_ON
@@ -892,7 +893,8 @@ TEST_BINS += $(BUILD_DIR)/cli/test/cli_test \
                $(BUILD_DIR)/cli/test/manifest_print_test \
                $(BUILD_DIR)/cli/test/ledger_print_test \
                $(BUILD_DIR)/cli/test/replay_print_test \
-               $(BUILD_DIR)/cli/test/reasm_print_test
+               $(BUILD_DIR)/cli/test/reasm_print_test \
+               $(BUILD_DIR)/cli/test/sched_print_test
 endif
 
 RECORD_STORE_FILE_SRCS := record/store_file.c
@@ -2070,6 +2072,13 @@ $(BUILD_DIR)/cli/test/reasm_print_test: \
 	$(BUILD_DIR)/cli/reasm_print.o \
 	$(BUILD_DIR)/chunk/reassembly.o \
 	$(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD_DIR)/cli/test/sched_print_test: \
+	$(BUILD_DIR)/cli/test/sched_print_test.o \
+	$(BUILD_DIR)/cli/sched_print.o \
+	$(BUILD_DIR)/sched/sched.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 

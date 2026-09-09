@@ -2,24 +2,34 @@
 
 #include "sched.h"
 
-int fzn_sched_admits(const fzn_sched_candidate_t *link, const fzn_class_t *wanted)
+fzn_sched_exclusion_t fzn_sched_excluded_by(const fzn_sched_candidate_t *link,
+                                            const fzn_class_t *wanted)
 {
 	if (!link || !wanted)
-		return 0;
+		return FZN_SCHED_EXCLUDED_MALFORMED;
 	if (!link->usable)
-		return 0;
+		return FZN_SCHED_EXCLUDED_UNUSABLE;
 
 	/* Zero means unconstrained, for each of the three. A class that cares
 	 * about nothing admits every usable link, which is the right answer for
 	 * traffic with no deadline. */
 	if (wanted->max_latency_ms != 0 && link->latency_ms > wanted->max_latency_ms)
-		return 0;
+		return FZN_SCHED_EXCLUDED_LATENCY;
 	if (wanted->max_loss_permille != 0 && link->loss_permille > wanted->max_loss_permille)
-		return 0;
+		return FZN_SCHED_EXCLUDED_LOSS;
 	if (wanted->min_mtu != 0 && link->mtu < wanted->min_mtu)
-		return 0;
+		return FZN_SCHED_EXCLUDED_MTU;
 
-	return 1;
+	return FZN_SCHED_ADMITTED;
+}
+
+/* ONE DEFINITION OF A HARD CONSTRAINT, not two. This was the whole function
+ * and is now a reading of the one above, so a consumer asking WHICH
+ * constraint excluded a link and `fzn_sched_select` deciding whether to skip
+ * it cannot come to different answers. */
+int fzn_sched_admits(const fzn_sched_candidate_t *link, const fzn_class_t *wanted)
+{
+	return fzn_sched_excluded_by(link, wanted) == FZN_SCHED_ADMITTED;
 }
 
 /* Addition that stops at the top instead of wrapping.

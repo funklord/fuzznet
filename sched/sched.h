@@ -132,6 +132,40 @@ typedef struct fzn_class {
 fzn_sched_err_t fzn_sched_select(const fzn_sched_candidate_t *links, size_t link_count,
                                   const fzn_class_t *wanted, size_t *chosen);
 
+/*
+ * WHICH constraint excluded a link, or that it was admitted.
+ *
+ * `fzn_sched_admits` already exists because a consumer often wants to say why
+ * nothing qualified -- and it answers with a bool, which says that something
+ * excluded the link and not what. The difference is the whole of what a
+ * consumer has to tell a person: a class every link is too SLOW for wants a
+ * different answer from one every link's MTU is too small for, and when
+ * different links failed different constraints there is no single change that
+ * admits any of them.
+ *
+ * THE FIRST FAILURE IS REPORTED, in this module's own check order: unusable,
+ * then latency, then loss, then MTU. A link failing two is excluded either
+ * way, so which one is named is a presentation choice rather than a fact --
+ * and it is made here, once, rather than by each consumer re-deriving the
+ * comparisons and drifting from what `fzn_sched_select` actually skips.
+ *
+ * `fzn_sched_admits` IS THIS FUNCTION, so there is one definition of what a
+ * hard constraint is rather than two to keep in step.
+ */
+typedef enum fzn_sched_exclusion {
+	FZN_SCHED_ADMITTED = 0,
+	/* The consumer says this link is down. Nothing about the class helps. */
+	FZN_SCHED_EXCLUDED_UNUSABLE,
+	FZN_SCHED_EXCLUDED_LATENCY,
+	FZN_SCHED_EXCLUDED_LOSS,
+	FZN_SCHED_EXCLUDED_MTU,
+	/* No link, or no class. */
+	FZN_SCHED_EXCLUDED_MALFORMED
+} fzn_sched_exclusion_t;
+
+fzn_sched_exclusion_t fzn_sched_excluded_by(const fzn_sched_candidate_t *link,
+                                            const fzn_class_t *wanted);
+
 /* Whether one link satisfies a class's hard constraints, exposed because a
  * consumer often wants to say WHY nothing qualified. */
 int fzn_sched_admits(const fzn_sched_candidate_t *link, const fzn_class_t *wanted);

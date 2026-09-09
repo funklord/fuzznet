@@ -613,9 +613,9 @@ SABOTAGES = [
 	(
 		"sched-usable-veto",
 		"sched/sched.c",
-		"\tif (!link->usable)\n\t\treturn 0;\n",
+		"\tif (!link->usable)\n\t\treturn FZN_SCHED_EXCLUDED_UNUSABLE;\n",
 		"",
-		"a link the host has marked down is not a candidate, whatever its metrics",
+		"a link the host has marked down is not a candidate, whatever its metrics -- the site moved into fzn_sched_excluded_by when that accessor took over the one definition of a hard constraint, and this entry stopped matching, which the verify gate said before any of it was committed -- sec 247",
 	),
 	(
 		"authz-unspelled-denies",
@@ -1255,6 +1255,27 @@ SABOTAGES = [
 		"\t\tif (!fzn_sched_admits(&links[i], wanted))\n\t\t\tcontinue;\n",
 		"\t\tif (0 && !fzn_sched_admits(&links[i], wanted))\n\t\t\tcontinue;\n",
 		"scoring a link that fails a hard constraint rather than skipping it lets a large enough weight elsewhere bring it back, which is the wrong kind of helpful this module refuses -- a voice class would be handed a link it had ruled out -- sec 246",
+	),
+	(
+		"sched-print-has-no-fix-to-name",
+		"cli/sched_print.c",
+		"\tif (kinds > 1u)\n\t\treturn FZN_SCHED_LINE_NO_SINGLE_FIX;\n",
+		"\tif (kinds > 2u)\n\t\treturn FZN_SCHED_LINE_NO_SINGLE_FIX;\n",
+		"links excluded for DIFFERENT reasons have no single fix, and a line naming any one bound sends a reader to change the thing that cannot help -- every other state here points at a field and this one exists to say that pointing would be wrong -- sec 247",
+	),
+	(
+		"sched-print-blames-the-links-not-the-class",
+		"cli/sched_print.c",
+		"\tif (kinds == 0u)\n\t\treturn FZN_SCHED_LINE_NOTHING_UP;\n",
+		"\tif (kinds == 0u && c->down == 0u)\n\t\treturn FZN_SCHED_LINE_NOTHING_UP;\n",
+		"a table of dead links excludes every class there is, so telling somebody to raise a latency bound sends them to change the one thing that cannot help -- the state has to outrank the constraints or a down table reads as a class problem -- sec 247",
+	),
+	(
+		"sched-print-does-not-vouch-for-a-choice",
+		"cli/sched_print.c",
+		"\t\tif (err == FZN_SCHED_OK && chosen < link_count\n\t\t    && fzn_sched_admits(&links[chosen], wanted)) {\n",
+		"\t\tif (err == FZN_SCHED_OK && chosen < link_count) {\n",
+		"an OK naming a link the class excludes is either a caller pairing an answer with the wrong table or a selection this module would not have made, and describing it as a choice puts the printer's name behind it -- sec 247",
 	),
 	(
 		"log-body-escapes-what-a-terminal-obeys",
