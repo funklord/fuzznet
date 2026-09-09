@@ -34589,3 +34589,30 @@ broken makefile. The clone runs through style and into the suites now.
 tree somebody has already built, which is the one state where the defect is
 invisible -- and it survived five days of `make check` passing, because
 passing is what it does on the second run.
+
+**And CI could not have found it either, because CI never runs `make check`.**
+It runs the stages, in a fixed order with job-specific arguments -- `make test
+MONOCYPHER_DIR=` then `make style MONOCYPHER_DIR=`, and `make SANITIZE=1
+BUILD_DIR=san test` rather than `sancheck`. Every stage passes from a clean
+checkout because the FIRST of them builds. The composed target the README puts
+front and centre is run by nobody but a developer, on a tree that is already
+warm.
+
+### The obvious signal, measured and dropped
+
+That looked like a workspace-wide gap worth sending to `claude-guidelines`, so
+it was counted before it was written. Of the ten private trees with both a
+`check` target and a workflow, **eight run `make check` in CI** -- situ,
+fuzzypickles, beerssh, bbq-predictor, netcfgd, fmake, apt-emerge, openmlx4 --
+and two do not: hydra and this one.
+
+So it is not a pattern, it is fuzznet's own arrangement, and the arrangement
+has a reason: the two jobs exist to build with and without the crypto binding,
+which needs per-job arguments that `check` does not take. What follows is a
+LIMIT rather than a defect -- `make check` is a developer convenience nothing
+automated exercises -- and the honest response is to write that down rather
+than to add a second full run to CI for a failure mode that has occurred once
+in five days.
+
+Counting first is what stopped a signal going out about eight trees that
+already do the thing.
