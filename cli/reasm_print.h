@@ -61,11 +61,25 @@ typedef enum fzn_reasm_line {
 	/* Full of slots that are live, unexpired and unhanded. Time will not
 	 * fix this one and neither will releasing: the bounds are too small
 	 * for the traffic. */
-	FZN_REASM_LINE_FULL_LIVE = 5
+	FZN_REASM_LINE_FULL_LIVE = 5,
+	/* NOT full, and refusing anyway: at least one sender holds
+	 * `per_sender_max` slots, so its next chunk gets
+	 * FZN_REASM_ERR_QUOTA while the table has room.
+	 *
+	 * IT OUTRANKS HOLDING BECAUSE HOLDING IS TRUE AND MISLEADING. A
+	 * reader told "holding 4 of 16" concludes this host is fine; the
+	 * sender whose messages are being dropped is not in that sentence.
+	 * The fix is `per_sender_max`, and it is a DIFFERENT number from the
+	 * capacity, which is what makes this a state rather than a wording.
+	 *
+	 * Appended rather than inserted so the values already in a consumer's
+	 * log keep meaning what they meant. */
+	FZN_REASM_LINE_QUOTA = 6
 } fzn_reasm_line_t;
 
-/* Room for the longest of the six lines, with three counts spelled out. */
-#define FZN_REASM_PRINT_MAX 200u
+/* Room for the longest of the seven lines. The quota line is the longest and
+ * spells out four counts, where the six before it spelled at most three. */
+#define FZN_REASM_PRINT_MAX 300u
 
 /*
  * Render one table against `now`.
@@ -76,6 +90,13 @@ typedef enum fzn_reasm_line {
  * `live && !handed && expires_at <= now`, which is the condition
  * `fzn_reasm_expire` sweeps on -- drawing a different one would describe a
  * table that call would not produce.
+ *
+ * A TABLE WITH ROOM IS ASKED THE SECOND QUESTION. `per_sender_max` refuses a
+ * sender long before the capacity refuses anybody -- that is what it is for,
+ * since a table that only refuses when full is one sender can fill -- so a
+ * line reporting only fullness is silent for exactly as long as the quota is
+ * doing its job. `fzn_reasm_held_by` is what counts a sender's slots on the
+ * definition the quota uses.
  *
  * WHEN SEVERAL CAUSES APPLY, THE MOST ACTIONABLE WINS: handed before
  * unswept, unswept before live. A leak never self-corrects, a missed sweep

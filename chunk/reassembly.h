@@ -241,6 +241,31 @@ fzn_reasm_err_t fzn_reasm_accept(fzn_reasm_t *table, const uint8_t sender[FZN_SE
                                   const uint8_t *payload, size_t payload_len,
                                   uint64_t expires_at, uint64_t now, fzn_partial_t **out);
 
+/*
+ * How many slots this sender holds, on the SAME definition the quota uses.
+ *
+ * WHY IT IS NOT A WALK THE CALLER WRITES. `partials`, `live` and `sender`
+ * are all public, so counting looks like three lines -- and the three lines
+ * a reader writes are the wrong ones. `fzn_reasm_accept` refuses at
+ * `held_by(table, sender) >= per_sender_max`, and `held_by` counts every
+ * LIVE slot including the ones already HANDED to the caller. A count that
+ * excluded handed slots, which is the natural reading of "how many messages
+ * is this sender assembling", is SMALLER than the one the module enforces:
+ * it reports room where the next chunk gets FZN_REASM_ERR_QUOTA.
+ *
+ * The header already warns that this exact confusion has happened once, over
+ * FZN_REASM_ERR_FULL: "a slot may be HANDED -- completed and waiting on the
+ * caller to release it". This is the same distinction on the per-sender
+ * bound, and until now the API could not make it.
+ *
+ * IT READS AND DOES NOT DECIDE. Nothing is expired, released or admitted.
+ *
+ * Zero for a null table or a null sender, which is also the answer for a
+ * sender holding nothing -- the two are not distinguished because neither is
+ * a reason to refuse a chunk.
+ */
+size_t fzn_reasm_held_by(const fzn_reasm_t *table, const uint8_t sender[FZN_SENDER_LEN]);
+
 /* Hand a slot back. Safe on a slot that is already free. */
 void fzn_reasm_release(fzn_partial_t *slot);
 

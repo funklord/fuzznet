@@ -1138,6 +1138,29 @@ SABOTAGES = [
 		"\treturn (uint16_t)(((uint16_t)p[1] << 8) | (uint16_t)p[0]);\n",
 		"every length and every counter on this wire is big-endian and this is where six of them are read, so an accessor that agrees with its own writer and with nobody else's is a format nobody can interoperate with -- the header holding it had no entry until the census learned to read headers -- sec 234",
 	),
+	# BATCH TWENTY-FIVE, 2026-09-09: the bound that binds before the capacity
+	# does. project.md sec 235.
+	(
+		"held-by-counts-handed-slots",
+		"chunk/reassembly.c",
+		"\t\tif (slot->live && memcmp(slot->sender, sender, FZN_SENDER_LEN) == 0)\n",
+		"\t\tif (slot->live && !slot->handed\n\t\t    && memcmp(slot->sender, sender, FZN_SENDER_LEN) == 0)\n",
+		"a handed slot is live until released, so a count that skips it is SMALLER than the one the quota enforces -- which is the natural reading of the walk and the whole reason fzn_reasm_held_by exists rather than being three lines in a consumer -- sec 235",
+	),
+	(
+		"reasm-quota-is-asked",
+		"cli/reasm_print.c",
+		"\t\t\tsaid = c.capped ? FZN_REASM_LINE_QUOTA : FZN_REASM_LINE_HOLDING;\n",
+		"\t\t\tsaid = FZN_REASM_LINE_HOLDING;\n",
+		"a table with room reports HOLDING while a sender at per_sender_max has its chunks dropped, and HOLDING is true -- the sender being refused is simply not in the sentence, which is the same shape as a full replay window that does not look like an emergency -- sec 235",
+	),
+	(
+		"reasm-quota-counts-senders-once",
+		"cli/reasm_print.c",
+		"\t\tif (earlier->live\n\t\t    && memcmp(earlier->sender, table->partials[at].sender, FZN_SENDER_LEN) == 0)\n\t\t\treturn 0;\n",
+		"\t\tif (earlier->live\n\t\t    && memcmp(earlier->sender, table->partials[at].sender, FZN_SENDER_LEN) == 0)\n\t\t\treturn 1;\n",
+		"one sender holding three slots is one peer being refused and not three, so a census counting slots inflates the number of peers this bound is turning away -- the printer's fixture needed a third slot before the question could be asked at all -- sec 235",
+	),
 	(
 		"log-body-escapes-what-a-terminal-obeys",
 		"log/log.c",

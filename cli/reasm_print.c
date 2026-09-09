@@ -42,7 +42,30 @@ struct census {
 	size_t handed;
 	size_t sweepable;
 	size_t capacity;
+	/* Distinct senders holding `per_sender_max` slots. Counted at each
+	 * sender's FIRST live slot, so a sender with three slots is one
+	 * sender rather than three. */
+	size_t capped;
+	size_t quota;
 };
+
+/* Whether slot `at` is the first LIVE slot its sender holds, so that a sender
+ * is counted once however many slots it has. Live-only on both sides: a free
+ * slot keeps whatever sender it last held, and matching against one would
+ * silence a real sender by declaring it already seen. */
+static int first_slot_for(const fzn_reasm_t *table, size_t at)
+{
+	size_t i;
+
+	for (i = 0; i < at; i++) {
+		const fzn_partial_t *earlier = &table->partials[i];
+
+		if (earlier->live
+		    && memcmp(earlier->sender, table->partials[at].sender, FZN_SENDER_LEN) == 0)
+			return 0;
+	}
+	return 1;
+}
 
 static void take_census(const fzn_reasm_t *table, uint64_t now, struct census *c)
 {
@@ -52,6 +75,8 @@ static void take_census(const fzn_reasm_t *table, uint64_t now, struct census *c
 	c->handed = 0;
 	c->sweepable = 0;
 	c->capacity = table->capacity;
+	c->capped = 0;
+	c->quota = table->per_sender_max;
 
 	for (i = 0; i < table->capacity; i++) {
 		const fzn_partial_t *slot = &table->partials[i];
@@ -59,6 +84,16 @@ static void take_census(const fzn_reasm_t *table, uint64_t now, struct census *c
 		if (!slot->live)
 			continue;
 		c->live++;
+
+		/* THE QUOTA COUNT USES THE MODULE'S OWN DEFINITION, which is
+		 * why it is a call and not a comparison written here. A count
+		 * that skipped handed slots would be smaller than the one
+		 * `fzn_reasm_accept` refuses on, and this line would report
+		 * room for a sender already being told QUOTA. */
+		if (first_slot_for(table, i) && table->per_sender_max
+		    && fzn_reasm_held_by(table, slot->sender) >= table->per_sender_max)
+			c->capped++;
+
 		if (slot->handed) {
 			c->handed++;
 			continue;
@@ -117,6 +152,21 @@ static void render(struct sink *s, fzn_reasm_line_t state, const struct census *
 		put_size(s, c->capacity);
 		put_str(s, " slots are past their deadline, so nothing is calling expire\n");
 		return;
+	case FZN_REASM_LINE_QUOTA:
+		/* THE VERDICT IS THAT SOMETHING IS BEING REFUSED, and the free
+		 * slots are the evidence rather than the reassurance. Naming
+		 * both numbers is what says which bound to raise: the capacity
+		 * is not the one that is binding. */
+		put_str(s, "REFUSING -- ");
+		put_size(s, c->capped);
+		put_str(s, " senders hold their quota of ");
+		put_size(s, c->quota);
+		put_str(s, " while ");
+		put_size(s, c->capacity - c->live);
+		put_str(s, " of ");
+		put_size(s, c->capacity);
+		put_str(s, " slots stand free, so per_sender_max is the bound that binds\n");
+		return;
 	case FZN_REASM_LINE_FULL_LIVE:
 		/* NEITHER TIME NOR RELEASING HELPS. The header warns that a
 		 * consumer will read a full table as the first of those, so
@@ -150,14 +200,19 @@ fzn_reasm_err_t fzn_reasm_print(const fzn_reasm_t *table, uint64_t now, char *ou
 	c.handed = 0;
 	c.sweepable = 0;
 	c.capacity = 0;
+	c.capped = 0;
+	c.quota = 0;
 
 	if (table && table->partials && table->capacity) {
 		take_census(table, now, &c);
 
 		if (c.live == 0u)
 			said = FZN_REASM_LINE_EMPTY;
+		/* A TABLE WITH ROOM STILL HAS A SECOND WAY TO REFUSE. Asked
+		 * here rather than after the FULL arms because a full table
+		 * refuses everybody and the per-sender bound is moot in it. */
 		else if (c.live < c.capacity)
-			said = FZN_REASM_LINE_HOLDING;
+			said = c.capped ? FZN_REASM_LINE_QUOTA : FZN_REASM_LINE_HOLDING;
 		/* MOST ACTIONABLE FIRST. A leak never self-corrects, a missed
 		 * sweep is one call, and a sizing problem is a restart. */
 		else if (c.handed)

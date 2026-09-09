@@ -83,6 +83,17 @@ static size_t held_by(const fzn_reasm_t *table, const uint8_t *sender)
 	return n;
 }
 
+/* THE PUBLIC COUNT AND THE ONE THE QUOTA USES ARE ONE FUNCTION, deliberately.
+ * Two would be two definitions of "held" to keep in step, and the whole reason
+ * the accessor exists is that the natural second definition -- live and not
+ * handed -- disagrees with this one. */
+size_t fzn_reasm_held_by(const fzn_reasm_t *table, const uint8_t sender[FZN_SENDER_LEN])
+{
+	if (!table || !table->partials || !sender)
+		return 0;
+	return held_by(table, sender);
+}
+
 fzn_reasm_err_t fzn_reasm_slot_init(fzn_partial_t *slot, uint8_t *buf, size_t capacity)
 {
 	if (!slot || !buf || capacity == 0)

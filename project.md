@@ -35087,3 +35087,96 @@ thing it counts was added -- twice as a harness counter, once here. The
 line said "92 of 93 sources" while reading a population that now includes
 six headers. A figure describing a narrower population than the check
 behind it is how this gap survived in the first place.
+
+## 235. The bound that binds is not the one the line reports
+
+`cli/reasm_print` answers "how full is this table", in six states, and a
+consumer reading it is told `holding 4 of 16` on a host that is dropping a
+peer's messages.
+
+`chunk/reassembly.h` says why in its own words, about the field the printer
+never mentions:
+
+> WITHOUT THIS THE OTHER BOUNDS DO NOT HELP. A table that refuses when full
+> is a table one sender can fill, and then nobody else is served -- the
+> denial of service moves rather than going away.
+
+`per_sender_max` is doing its job exactly when the capacity is nowhere near
+binding. So the printer's whole vocabulary is about the bound that is NOT
+refusing anybody, and it is silent for as long as the other one is working.
+`fzn_reasm_accept` returns `FZN_REASM_ERR_QUOTA` with half the table free;
+the line calls that "holding, with room".
+
+That is sec 229's shape one module over -- *a full window is an emergency
+and does not look like one* -- except worse, because here the host is not
+even full. There is no number in the line that is wrong. The reader draws
+the right conclusion from every count in it and the wrong conclusion about
+the host.
+
+### The distinction the API could not make
+
+Counting a sender's slots looks like three lines a consumer writes:
+`partials`, `live` and `sender` are all public. **The three lines a reader
+writes are the wrong ones.**
+
+`fzn_reasm_accept` refuses at `held_by(table, sender) >= per_sender_max`,
+and `held_by` counts every LIVE slot -- **including the ones already HANDED
+to the caller**. A count of "messages this sender is still assembling",
+which is what the natural reading means, excludes handed slots and is
+therefore SMALLER than the one the module enforces. A consumer using it
+sees room where the next chunk gets QUOTA.
+
+The header already warns about this confusion in the other direction, on
+`FZN_REASM_ERR_FULL`: *a slot may be HANDED -- completed and waiting on the
+caller to release it*. Same distinction, other bound, and until now the API
+could not express it. `fzn_reasm_held_by` is the fourth accessor added for
+this reason, after `fzn_manifest_follows`, `fzn_ledger_sound` and
+`fzn_replay_expirable`, and the rule they share is worth stating plainly:
+**where a header names a distinction and the API cannot make it, a consumer
+will make a different one.**
+
+It is one function with the quota's own, not a second walk beside it. Two
+definitions of "held" is the drift the accessor exists to prevent.
+
+### FZN_REASM_LINE_QUOTA, and why it outranks HOLDING
+
+Appended as 6 rather than inserted, so a value already in somebody's log
+keeps meaning what it meant. Asked only where the table has ROOM -- a full
+table refuses everybody and the per-sender bound is moot in it.
+
+	REFUSING -- 2 senders hold their quota of 2 while 11 of 16 slots
+	stand free, so per_sender_max is the bound that binds
+
+Both numbers, because naming only one is how a reader ends up raising the
+capacity. sec 207's rule puts the verdict left of the evidence, and here
+the free slots ARE the evidence rather than the reassurance.
+
+### The fixture had two slots, and the question needs three
+
+Every slot in `reasm_print_test`'s fixture carries the same all-zero
+sender, and the fixture's `per_sender_max` was 1 -- so **one live slot was
+already a capped sender**, and three assertions asking for HOLDING were
+asking for a state this printer no longer produces. They were right to
+fail: a table holding one of two, refusing that sender's next chunk with a
+free slot beside it, is not "holding, with room" in any sense a reader can
+act on.
+
+The bound is a fixture parameter now, defaulting to one that cannot bind
+before the table is full, so the cases that are about FULLNESS say only
+that.
+
+**And the third slot is what makes the sender-grouping askable at all.**
+One sender holding two slots is ONE peer being refused; a census counting
+slots says two. With a two-slot table a sender holding both fills it, the
+FULL arms answer first, and no input distinguishes the two censuses -- sec
+228's lesson, that a condition with one reachable shape is a condition no
+sabotage can test, met before the sabotage rather than after it.
+
+### The widget this did not need
+
+**No widget.** A screen would add per-sender rows a line cannot carry, and
+that is sec 229's criterion for one -- but the fact that matters is an
+aggregate a line CAN carry, and the printer carries it now. A widget on top
+of this is worth building when there is a consumer holding the labels; sec
+201's rule is that adding it because the other printers have one is
+symmetry rather than merit.

@@ -484,6 +484,60 @@ static void test_a_near_sender_does_not_spend_the_quota(void)
 	CHECK(fzn_reasm_accept(&f.table, twin_a, 3, 0, 2, piece, 8, 0, 100, &done) ==
 	              FZN_REASM_ERR_QUOTA,
 	      "a sender at its quota was given a second slot");
+
+	/* AND THE COUNT A CONSUMER CAN ASK FOR IS THE ONE THIS REFUSAL USED.
+	 * Asserted as a relationship rather than as a number: whatever
+	 * `fzn_reasm_held_by` returns must be what `accept` compared against,
+	 * so a count that drifted from the quota's own would fail here even if
+	 * both were separately plausible. */
+	CHECK(fzn_reasm_held_by(&f.table, twin_a) >= f.table.per_sender_max,
+	      "a sender accept refused for quota is not reported as holding its quota");
+	CHECK(fzn_reasm_held_by(&f.table, twin_b) == 1u,
+	      "the twin differing in one key byte was not counted separately");
+	CHECK(fzn_reasm_held_by(NULL, twin_a) == 0u && fzn_reasm_held_by(&f.table, NULL) == 0u,
+	      "a missing operand was given a count");
+}
+
+/* A HANDED SLOT IS STILL HELD, which is the distinction the accessor exists
+ * for and the one a consumer writing the walk itself gets wrong.
+ *
+ * `chunk/reassembly.h` warns about the same confusion on FZN_REASM_ERR_FULL:
+ * a slot handed to the caller is live until released. So a count of "messages
+ * this sender is still assembling" -- the natural reading -- is SMALLER than
+ * the quota's, and a consumer using it sees room where the next chunk is
+ * refused.
+ *
+ * ASSERTED AGAINST ACCEPT'S OWN ANSWER, because a number checked against a
+ * literal would agree with a wrong quota as readily as a right one.
+ */
+static void test_held_by_counts_handed_slots(void)
+{
+	struct fixture f;
+	fzn_partial_t *done = NULL;
+	uint8_t piece[8];
+
+	fixture_init(&f, 1);
+	fill(piece, 8, 0x33, 0);
+
+	/* One chunk of one, so the message completes and the slot is HANDED. */
+	CHECK(fzn_reasm_accept(&f.table, f.alice, 1, 0, 1, piece, 8, 0, 100, &done)
+	              == FZN_REASM_OK,
+	      "a one-chunk message did not complete");
+	CHECK(done != NULL && done->handed, "the completed slot was not handed over");
+
+	CHECK(fzn_reasm_held_by(&f.table, f.alice) == 1u,
+	      "a handed slot was not counted as held, so a consumer reading this would "
+	      "see room where the next chunk is refused");
+	CHECK(fzn_reasm_accept(&f.table, f.alice, 2, 0, 2, piece, 8, 0, 100, &done)
+	              == FZN_REASM_ERR_QUOTA,
+	      "a sender holding a handed slot was given another, so the count above is "
+	      "not the one the quota uses");
+
+	/* AND RELEASING IT GIVES THE SLOT BACK, which is the control: without
+	 * it the assertions above pass for a count that never falls. */
+	fzn_reasm_release(&f.partials[0]);
+	CHECK(fzn_reasm_held_by(&f.table, f.alice) == 0u,
+	      "a released slot is still charged to its sender");
 }
 
 static void test_retransmission_versus_rewrite(void)
@@ -1464,6 +1518,7 @@ int main(void)
 	test_the_twin_fixture_is_what_it_claims();
 	test_two_near_senders_do_not_splice();
 	test_a_near_sender_does_not_spend_the_quota();
+	test_held_by_counts_handed_slots();
 	test_retransmission_versus_rewrite();
 	test_quota_stops_one_sender_filling_the_table();
 	test_full_table_and_expiry();
