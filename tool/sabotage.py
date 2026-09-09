@@ -1101,6 +1101,29 @@ SABOTAGES = [
 		"(unsigned long long)version,\n",
 		"one reordered datagram and a peer whose view has fallen a long way behind return the SAME value, so the distance is the whole content the line adds to FZN_LEDGER_ERR_STALE -- sec 218",
 	),
+	# BATCH SEVENTEEN, 2026-09-09: the issuer list, and the two things it
+	# adds that no single call to the printer can. project.md sec 226.
+	(
+		"manifest-view-worst-row-decides",
+		"gui/manifest_view.cpp",
+		"\tif (understated) {\n\t\tstate_ = UNDERSTATED;\n",
+		"\tif (understated > asked / 2u) {\n\t\tstate_ = UNDERSTATED;\n",
+		"a dropped pair is the one refusal here that fails OPEN, so four sound issuers and one understated is not `mostly fine` -- the understated row is the only one that can be hiding an authority this host still honours, and a majority rule would hide exactly it -- sec 226",
+	),
+	(
+		"manifest-view-counts-what-it-was-asked",
+		"gui/manifest_view.cpp",
+		"\t\t\trows_truncated_ = true;\n\t\t\tcontinue;\n",
+		"\t\t\trows_truncated_ = true;\n\t\t\tbreak;\n",
+		"the summary describes the issuers ASKED ABOUT and the rows describe what fitted; stopping the walk at the row limit makes the summary describe what fitted too, so an understated issuer past the limit disappears from both -- sec 226",
+	),
+	(
+		"manifest-view-no-state-is-not-current",
+		"gui/manifest_view.cpp",
+		"\t\tsummary_->setText(QStringLiteral(\"nothing is being tracked\"));\n\t\trows_->setText(QString());\n\t\treturn;\n\t}\n\n\tfor (i = 0u; i < count; i++) {\n",
+		"\t\tsummary_->setText(QStringLiteral(\"all issuers are up to date\"));\n\t\trows_->setText(QString());\n\t\treturn;\n\t}\n\n\tfor (i = 0u; i < count; i++) {\n",
+		"a host with no manifest state is tracking nothing, and reporting that as current is the same fail-open cli/manifest_print refuses for the same reason: a zero where there is nothing to measure reads as a measurement -- sec 226",
+	),
 	# BATCH SIXTEEN, 2026-09-09: the two widgets the census could not see.
 	#
 	# `gui/qr_view.cpp` and `gui/trust_view.cpp` are the FIRST pair, written

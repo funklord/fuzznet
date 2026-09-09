@@ -34029,3 +34029,57 @@ uses `fzn_qr_err_str`'s words so a dialog and a log spell one fault one way;
 the trust widget shows `(none)` rather than an empty field, because a blank
 where a fingerprint belongs reads as a fingerprint OF SOMETHING and somebody
 comparing it out of band would conclude the peer is wrong.
+
+## 226. The aggregate a single line cannot make
+
+`gui/manifest_view` completes sec 224's pair. Each row is
+`cli/manifest_print`'s line for one issuer, verbatim; what the widget adds is
+that there are several of them and **which is worst**.
+
+	nothing is being tracked
+	all 3 issuers are up to date
+	2 of 5 issuers have revocations outstanding
+	1 of 5 issuers report less than they are missing
+
+### The worst row decides, not the majority
+
+This is the whole of the widget's judgement and it is the one thing a consumer
+would plausibly get wrong writing the loop itself. `manifest.h` calls a dropped
+pair the one refusal in the library that fails OPEN, so **four sound issuers
+and one understated is not "mostly fine"**: the understated row is the only one
+that can be hiding an authority this host still honours. A summary counting
+good rows would be right four times out of five and wrong about the row that
+matters.
+
+Its sabotage is a majority rule -- `understated > asked / 2` -- which is
+exactly the reasonable-looking thing somebody writes when the aggregate is a
+proportion rather than a floor.
+
+### The summary describes what was asked, the rows what fitted
+
+Past `FZN_MANIFEST_VIEW_ROWS_MAX` the list stops drawing and says so, on
+`gui/link_view`'s rule that a list which silently stops is one somebody reads
+as complete. But the WALK does not stop: an understated issuer past the row
+limit still reaches the summary and still reaches `understated()`.
+
+The test puts the understated issuer at the very end of thirty-four and
+requires both, and the sabotage for it is one word -- `continue` to `break` --
+which is the natural way to write the truncation and quietly makes the summary
+describe only what fitted.
+
+### No key is drawn, and no enumerator was added to draw one
+
+A row is a label and a verdict. Thirty-two bytes of issuer spell to 64
+characters, and a truncation of one is the prefix comparison `trust/trust.h`
+refuses to invite; the label is the consumer's word for the key and is what a
+person recognises.
+
+**And the consumer supplies both, which is why no `fzn_manifest_issuers` was
+added.** The temptation was there -- a widget listing issuers wants to
+enumerate them -- and `manifest.h` already answers it: the recipient set "is
+policy, and policy is not this library's". A consumer that called
+`fzn_manifest_follow` necessarily holds the keys it passed, so an enumerator
+would be this library keeping a second copy of a list its caller owns. That is
+the opposite conclusion from sec 224, where `fzn_manifest_follows` WAS added --
+and the difference is not taste: `follows` answers a question about state the
+caller cannot see, while an enumerator would return the caller its own input.
