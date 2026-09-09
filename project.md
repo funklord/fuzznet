@@ -36069,3 +36069,57 @@ somebody else wrote. It names the new site now, and its control fires through
 too many on a `return`, so they matched nothing either. The gate found all
 three together, before any of it was committed, which is the whole argument
 for a check that runs without building anything.
+
+## 248. The rows the line refuses to draw
+
+`cli/sched_print`'s NO_SINGLE_FIX line names no bound to change, on purpose:
+naming one would send a reader to alter the thing that cannot help. What that
+leaves is a reader told there is no single fix and nothing about where the
+several are.
+
+`gui/sched_view` is where that can be said. It shows the printer's line as the
+verdict, per sec 193, and adds a row per link -- id, cost under this class, and
+either that it is carrying the traffic or which constraint excluded it. sec
+194's boundary exactly: the printer counts, and a screen has room to say which.
+
+	link 7    cost 500              too slow
+	link 8    cost 10               too lossy
+	link 9    cost 10               MTU too small
+
+**It is not `gui/link_view`.** That widget's subject is which of a link's
+numbers are MEASUREMENTS and which are the far end's word, and its header says
+that is the whole reason it exists. This one's subject is one CLASS against the
+same table. Two questions over one set of rows, and a widget answering both
+would be a screen whose columns disagree about what they are for.
+
+**The chosen link says CARRYING rather than `qualifies`**, because on a table
+where three qualify a reader should not have to compare costs by eye to find
+the one moving traffic. Its control is that sabotage: with the branch removed,
+every row reads `qualifies` and the choice has to be inferred from the summary
+and the arithmetic.
+
+### installcheck caught the header nothing included
+
+	installcheck: installed but not included by the consumer:
+	cli/sched_print.h
+	installcheck: the check would pass whatever those headers did.
+
+The gate parses every public header as C++ through `tool/consumer_check.c`,
+and a header absent from that file is a header the parse cannot fail on. **The
+check would have gone green over a public header with a C++ error in it** --
+and the gate says so in exactly those words rather than reporting a pass over
+77 of 78. That is the vacuous-pass rule built into a gate instead of left to
+whoever reads its output.
+
+Both spellings needed it: the angle-bracket include for the installed tree and
+the quoted one for the source tree, which are the two arrangements
+`installcheck` builds.
+
+### Six sections, one question
+
+sec 243 through sec 248 came out of reading fixtures rather than assertions.
+The dimension every fixture sat on one side of was, in order: one bit in one
+arrangement, a chain at sequence zero, a candidate set of two, and a payload
+inside the alphanumeric set. **None of them was a dimension the author had any
+reason to vary** -- which is why the question works, and why it is worth asking
+of a suite that looks complete.

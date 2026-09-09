@@ -1278,6 +1278,20 @@ SABOTAGES = [
 		"an OK naming a link the class excludes is either a caller pairing an answer with the wrong table or a selection this module would not have made, and describing it as a choice puts the printer's name behind it -- sec 247",
 	),
 	(
+		"sched-view-names-the-carrier",
+		"gui/sched_view.cpp",
+		"\t\tif (state_ == CARRIED && i == chosen)\n\t\t\treason = QStringLiteral(\"CARRYING\");\n\t\telse\n\t\t\treason = reason_for(links[i], *wanted);\n",
+		"\t\treason = reason_for(links[i], *wanted);\n",
+		"on a table where three links qualify, a reader has to see which one is carrying the traffic without comparing costs by eye -- rows that all say `qualifies` leave the choice to be inferred from the summary and the arithmetic -- sec 248",
+	),
+	(
+		"sched-view-shows-the-printers-line",
+		"gui/sched_view.cpp",
+		"\tsummary_->setText(QString::fromLatin1(line).trimmed());\n",
+		"\tsummary_->setText(QStringLiteral(\"a link was considered\"));\n",
+		"sec 193: the verdict is the printer's to state and a widget composing its own is a second wording to keep in step -- the two drift and the screen is the copy nobody re-reads -- sec 248",
+	),
+	(
 		"log-body-escapes-what-a-terminal-obeys",
 		"log/log.c",
 		"\t\tif (body[i] >= 0x20u && body[i] <= 0x7eu) {\n",
