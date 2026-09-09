@@ -1101,6 +1101,15 @@ SABOTAGES = [
 		"(unsigned long long)version,\n",
 		"one reordered datagram and a peer whose view has fallen a long way behind return the SAME value, so the distance is the whole content the line adds to FZN_LEDGER_ERR_STALE -- sec 218",
 	),
+	# BATCH TWENTY-TWO, 2026-09-09: one encoding per stored anchor.
+	# project.md sec 232.
+	(
+		"persist-one-encoding-per-anchor",
+		"persist/persist.c",
+		"\tif (source != (uint8_t)FZN_TRUST_ADOPTED && adopted_at != 0u)\n\t\treturn FZN_PERSIST_ERR_SHAPE;\n",
+		"\tif (0)\n\t\treturn FZN_PERSIST_ERR_SHAPE;\n",
+		"`fzn_trust_pin` and `fzn_trust_self` take no timestamp, so without this the eight bytes `pack` writes for them are read by nobody -- a stored anchor could carry anything there and still open to the same struct and re-pack to the original bytes, which is the second encoding `head_check` refuses a trailing byte for -- sec 232",
+	),
 	# BATCH TWENTY-ONE, 2026-09-09: a full reassembly table, and which of
 	# its THREE fixes it needs. project.md sec 230.
 	(

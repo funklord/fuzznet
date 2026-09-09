@@ -144,17 +144,31 @@ int main(void)
 		fzn_prekey_peer_t peer;
 		fzn_prekey_peer_t back;
 
+		/* ADOPTED, NOT PINNED, AND THE FIXTURE HAD IT WRONG. This case
+		 * built the struct by hand and set a PINNED source beside a
+		 * non-zero `adopted_at` -- a `fzn_trust_t` no API can produce,
+		 * because `anchor()` in `trust/trust.c` stores a timestamp only
+		 * for an ADOPTED source and zeroes it otherwise. So the bytes
+		 * frozen here were a capture of a state the library forbids,
+		 * and sec 232's refusal -- a non-zero timestamp on a
+		 * non-adopted source -- correctly stopped opening them.
+		 *
+		 * The timestamp has to stay NON-ZERO for the offset check
+		 * below to mean anything: a zero there could not tell a field
+		 * read from its own offset apart from one dropped entirely.
+		 * Making the source ADOPTED keeps that and makes the fixture a
+		 * value this library can write. */
 		memset(&peer, 0, sizeof(peer));
 		memcpy(peer.trust.root, ROOT, sizeof(ROOT));
 		peer.trust.adopted_at = ADOPTED_AT;
-		peer.trust.source = FZN_TRUST_PINNED;
+		peer.trust.source = FZN_TRUST_ADOPTED;
 		memcpy(peer.prekey, PREKEY, sizeof(PREKEY));
 		peer.created_at = CREATED_AT;
 
 		want[0] = V;
 		want[1] = T_PEER;
 		memcpy(want + 2, ROOT, 32);
-		want[34] = 1u; /* FZN_TRUST_PINNED */
+		want[34] = 2u; /* FZN_TRUST_ADOPTED */
 		put_be64(want + 35, ADOPTED_AT);
 		memcpy(want + 43, PREKEY, 32);
 		put_be64(want + 75, CREATED_AT);

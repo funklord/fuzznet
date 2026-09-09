@@ -261,6 +261,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              disclose/test/disclose_test.c \
              disclose/test/disclose_fuzz.c \
              persist/test/persist_test.c \
+             persist/test/persist_fuzz.c \
              persist/test/persist_kat_test.c \
              spool/test/spool_test.c \
              spool/test/plan_test.c \
@@ -390,7 +391,8 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/prekey/test/prekey_fuzz \
              $(BUILD_DIR)/provision/test/provision_fuzz \
              $(BUILD_DIR)/record/test/sync_fuzz \
-             $(BUILD_DIR)/disclose/test/disclose_fuzz
+             $(BUILD_DIR)/disclose/test/disclose_fuzz \
+             $(BUILD_DIR)/persist/test/persist_fuzz
 
 # ---------------------------------------------------------------------------
 # SUBSYSTEMS: detected, overridable, and loud about which.
@@ -2492,6 +2494,21 @@ $(BUILD_DIR)/chain/test/manifest_fuzz: $(BUILD_DIR)/chain/test/manifest_fuzz.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# The persisted formats. sec 232: one encoding per blob, and every short
+# prefix refused.
+$(BUILD_DIR)/persist/test/persist_fuzz: $(BUILD_DIR)/persist/test/persist_fuzz.o \
+                                          $(BUILD_DIR)/persist/persist.o \
+                                          $(BUILD_DIR)/trust/trust.o \
+                                          $(BUILD_DIR)/prekey/prekey.o \
+                                          $(BUILD_DIR)/ratchet/ratchet.o \
+                                          $(BUILD_DIR)/chain/chain.o \
+                                          $(BUILD_DIR)/chain/revocation.o \
+                                          $(BUILD_DIR)/chain/manifest.o \
+                                          $(BUILD_DIR)/session/agree.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/chain/test/revocation_fuzz: $(BUILD_DIR)/chain/test/revocation_fuzz.o \
                                           $(BUILD_DIR)/chain/revocation.o \
                                           $(BUILD_DIR)/chain/manifest.o \
@@ -2868,7 +2885,8 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/prekey/test/prekey_fuzz \
              $(BUILD_DIR)/provision/test/provision_fuzz \
              $(BUILD_DIR)/record/test/sync_fuzz \
-             $(BUILD_DIR)/disclose/test/disclose_fuzz
+             $(BUILD_DIR)/disclose/test/disclose_fuzz \
+             $(BUILD_DIR)/persist/test/persist_fuzz
 
 fuzz: $(FUZZ_BINS)
 	@for f in $(FUZZ_BINS); do echo "== $$f $(CASES)"; $$f $(CASES) || exit 1; done

@@ -85,6 +85,7 @@
 /provision/test/provision_fuzz
 /disclose/test/disclose_test
 /disclose/test/disclose_fuzz
+/persist/test/persist_fuzz
 /prekey/test/prekey_fuzz
 /persist/test/persist_test
 /persist/test/persist_kat_test

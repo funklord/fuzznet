@@ -126,6 +126,27 @@ fzn_persist_err_t fzn_persist_trust_open(const uint8_t *bytes, size_t len, fzn_t
 	 * merely adopted one, and one that adopted must not come back
 	 * claiming confirmation -- which is the laundering `prekey/` refuses
 	 * on rotation, arriving by way of a file. */
+	/* ONE ENCODING PER ANCHOR, WHICH THIS DID NOT HAVE. `anchor()` in
+	 * `trust/trust.c` stores `adopted_at` only for an ADOPTED source and
+	 * zeroes it otherwise, so `pack` writes eight zero bytes for a pin and
+	 * for a self-root -- and `open` passed them to nobody, because
+	 * `fzn_trust_pin` and `fzn_trust_self` take no timestamp. Eight bytes
+	 * of a stored anchor could therefore hold anything at all and the file
+	 * still opened to the same struct and re-packed to the original bytes.
+	 *
+	 * That is exactly what `head_check` refuses a trailing byte for, in its
+	 * own words: "a trailing byte is a second encoding of one blob, and
+	 * this module refuses one for the reason every decoder here does:
+	 * 'ignore what you do not understand' is how one format becomes
+	 * several". A field this format writes and does not read is the same
+	 * thing one position further in.
+	 *
+	 * Found by `persist/test/persist_fuzz.c` asking whether any single-byte
+	 * mutation can be accepted AND re-pack identically. project.md sec 232.
+	 */
+	if (source != (uint8_t)FZN_TRUST_ADOPTED && adopted_at != 0u)
+		return FZN_PERSIST_ERR_SHAPE;
+
 	fzn_trust_init(out);
 	if (source == FZN_TRUST_PINNED) {
 		if (fzn_trust_pin(out, bytes + OFF_BODY) != FZN_TRUST_OK)
