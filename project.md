@@ -34436,6 +34436,29 @@ the module's own terms, and adds nothing to the library.
 
 **A printer earns its place by knowing something, not by needing something.**
 
+### sec 218's error again, made after sec 218 was written
+
+`reasm-print-handed-is-not-sweepable` SURVIVED. The sabotage removes the
+`continue` after a handed slot is counted, so a handed slot past its deadline
+is also counted as sweepable -- a count that offers back a slot
+`fzn_reasm_expire` will never take.
+
+The case written for it used a FULL table and asserted the STATE. A
+miscounted `sweepable` leaves the state at FULL_HANDED either way, so nothing
+it checked could move. **The sabotage changes a COUNT and the assertion read a
+STATE**, which is sec 218's finding exactly -- a substitution aimed at a claim
+the test does not make -- committed here after that section was written and
+after two more instances had been recorded in sec 222 and sec 228.
+
+Worth keeping as a recurrence rather than a new class. Three ways to aim one
+wrong are a taxonomy; the same one twice in a day is a working habit that has
+not changed, and the fix is procedural: **name the assertion that should fail
+before running the sabotage**, and if it is not there, write it first.
+
+The case now uses a table with ROOM, because only the HOLDING line prints the
+sweepable count -- and carries a control beside it, the same slot unhanded,
+without which the new assertion would pass for a census that counts nothing.
+
 ### The ordering the header did not state
 
 The test's fixture called `fzn_reasm_init` and then `fzn_reasm_slot_init`, and

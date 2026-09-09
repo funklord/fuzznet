@@ -146,12 +146,27 @@ int main(void)
 
 	/* ---- A HANDED SLOT IS NOT SWEEPABLE, even past its deadline. Expiry
 	 * skips handed slots so the caller can still read the bytes, and a
-	 * count that ignored that would promise back slots no sweep returns. */
-	CHECK(table_of(&t, 2u, 1u, 2u), "the fixture does not build");
+	 * count that ignored that would promise back slots no sweep returns.
+	 *
+	 * ASSERTED ON THE COUNT, WHICH IS WHAT MOVES. The first version of this
+	 * case used a FULL table and checked the STATE -- and a miscounted
+	 * sweepable leaves the state at FULL_HANDED either way, so the sabotage
+	 * for it survived. The table needs ROOM for the number to reach a line
+	 * at all, because only HOLDING prints it. sec 230. */
+	CHECK(table_of(&t, 1u, 1u, 1u), "the fixture does not build");
 	len = line_of(&t, 100u, line, &said);
-	CHECK(said == FZN_REASM_LINE_FULL_HANDED,
-	      "an expired HANDED slot was counted as sweepable, so the line offered back a "
+	CHECK(said == FZN_REASM_LINE_HOLDING, "a table with room was not HOLDING");
+	CHECK(strstr(line, "0 ready to sweep") != NULL,
+	      "an expired HANDED slot was counted as sweepable, so the line offers back a "
 	      "slot fzn_reasm_expire will not take");
+
+	/* AND THE SAME SLOT UNHANDED IS SWEEPABLE, which is the control: without
+	 * it the assertion above passes for a census that counts nothing. */
+	CHECK(table_of(&t, 1u, 0u, 1u), "the fixture does not build");
+	len = line_of(&t, 100u, line, &said);
+	CHECK(strstr(line, "1 ready to sweep") != NULL,
+	      "an expired unhanded slot was not counted as sweepable, so the case above "
+	      "proves nothing");
 
 	/* ---- RENDERING RELEASES NOTHING. The census is taken by a printer,
 	 * and a printer that swept what it counted would change the thing it
