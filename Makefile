@@ -4196,6 +4196,14 @@ qttycheck:
 # ONLY WHEN IT WILL ACTUALLY LINK. The recipe's first lines refuse without
 # FZN_GUI and FZN_CLI, and building twenty-eight objects before printing that
 # would be a slower way to say the same thing.
+# HOW MANY COMPILES AT ONCE when building qtty's library, settable because a
+# hardcoded number is a decision taken for every machine. Four is the default
+# and is right on an idle desktop; it is also four Qt C++ compiles at once,
+# which is enough to be killed for memory on a machine somebody else is also
+# using -- measured three times on this one. `make qttycheck QTTY_JOBS=1` is
+# the way through that, and a fixed -j4 offered no way at all.
+QTTY_JOBS ?= 4
+
 QTTY_RENDER_OBJS := $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \
                     $(BUILD_DIR)/cli/manifest_print.o \
                     $(BUILD_DIR)/cli/ledger_print.o $(BUILD_DIR)/record/ledger.o \
@@ -4284,7 +4292,7 @@ qtty: $(if $(and $(GUI_ON),$(CLI_ON)),$(QTTY_RENDER_OBJS))
 		exit 1; \
 	fi; \
 	( cd "$$scratch" && qmake6 qtty.pro >/dev/null 2>&1 && \
-	  $(MAKE) -j4 >qtty-build.log 2>&1 ) || { \
+	  $(MAKE) -j$(QTTY_JOBS) >qtty-build.log 2>&1 ) || { \
 		echo "qtty: their library would not build; the log goes with the scratch"; \
 		exit 1; }; \
 	test -f "$$scratch/lib/libqtty.a" || { \

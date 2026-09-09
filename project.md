@@ -36140,6 +36140,42 @@ line provides all three. That is the exact failure answered, rather than a
 green run over everything else as well. `qttycheck` had not completed at the
 time of the commit, and saying so is the point of the distinction.
 
+### The widget is not in the render sweep, and that is left open
+
+`gui/test/qtty_render_test.cpp` includes seventeen widget headers **by hand**,
+and `gui/sched_view.h` is the only one of the eighteen absent. Nothing requires
+the list to be complete, so a widget added to the tree is silently unmeasured
+against a terminal -- the population lens once more, and the population is
+derivable from `GUI_SRCS`.
+
+**It was written and then held back.** The sweep asserts that each widget shows
+its sentence **on an 80x24 terminal**, and this printer's longest line is 79
+characters through a word-wrapping label:
+
+	DROPPING -- no single change helps: 1 too slow, 1 too lossy,
+	1 too small, 0 down
+
+Whether "no single change helps" survives that wrap intact is a measurement,
+and `qttycheck` could not be run to take it: the stage was killed for memory
+four times, three of them while another user held the machine at load 20 and
+once with it idle, always inside qtty's own library build and therefore before
+this code was reached. A syntax-only compile of the edit passes, which says the
+C++ is right and nothing about the columns.
+
+So committing it would have put an assertion nobody has watched pass into a
+gate. **The change is reverted and the gap is recorded instead**, with what to
+do: add the include and the case, choose a `must_show` short enough to survive
+an 80-column wrap, and let the sweep report the width. The knob below is what
+makes that runnable at all.
+
+### A hardcoded -j4 is a decision taken for every machine
+
+`qttycheck` built qtty with `$(MAKE) -j4`, which is four Qt C++ compiles at
+once. `QTTY_JOBS ?= 4` keeps that default and lets a loaded machine turn it
+down; the run that verified the link fix used `QTTY_JOBS=1`. `running-code.md`
+is about parallelism nobody chose, and a fixed number in a recipe is the same
+fault with the value visible.
+
 ### Six sections, one question
 
 sec 243 through sec 248 came out of reading fixtures rather than assertions.
