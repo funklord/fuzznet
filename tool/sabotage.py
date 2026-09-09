@@ -1190,6 +1190,13 @@ SABOTAGES = [
 		"out_dropped already says how many and may be NULL; the index is the only thing that says WHICH, and clustered failures are a region of a disk going while scattered ones are something else -- a line without it is the count again in words -- sec 238",
 	),
 	(
+		"scrub-progress-reads-the-bitmap",
+		"spool/scrub.c",
+		"\t\tif (bit_get(scrub->sealed, cell))\n\t\t\tn++;\n",
+		"\t\tif (cell < scrub->cells)\n\t\t\tn++;\n",
+		"an answer that counts cells rather than reading their seals is the running total a consumer already had, and it is right until a cell is repaired -- which is to say right until the module does the thing it exists for and wrong from then on -- sec 239",
+	),
+	(
 		"log-body-escapes-what-a-terminal-obeys",
 		"log/log.c",
 		"\t\tif (body[i] >= 0x20u && body[i] <= 0x7eu) {\n",

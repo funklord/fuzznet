@@ -725,6 +725,59 @@ static void test_every_guard_refuses_its_own_argument(void)
 	CHECK(fzn_scrub_err_str(FZN_SCRUB_ERR_BACKEND) != NULL, "err_str returned null");
 }
 
+/*
+ * WHAT IS VERIFIED NOW, WHICH A RUNNING TOTAL GETS WRONG. sec 239.
+ *
+ * `fzn_scrub_seal` reports what each call sealed, so a consumer adding those
+ * up has a figure that only rises -- and `fzn_scrub_step` clears the seal on
+ * every cell it repairs. The two agree until a cell fails, which is to say
+ * until the module does the thing it exists for.
+ *
+ * ASSERTED AS THE DISAGREEMENT rather than as either number. A test pinning
+ * the count would pass for an accessor that returned a stale total; this one
+ * cannot, because it requires the two to differ in the direction repair moves
+ * them.
+ */
+static void test_what_is_verified_now_is_not_a_running_total(void)
+{
+	uint64_t checked = 0u, dropped = 0u, verified = 0u, total = 0u;
+	uint64_t running;
+	const uint64_t victim = 70u; /* inside cell 1 of three, as above */
+
+	CHECK(fresh(0u, LEAVES), "the fixture did not fill");
+	running = seal_all(NULL);
+	CHECK(running == CELLS_EXPECTED, "the fixture did not seal");
+
+	CHECK(fzn_scrub_progress(&scrub, &verified, &total) == FZN_SCRUB_OK,
+	      "progress was refused on a sealed scrub");
+	CHECK(total == CELLS_EXPECTED, "%llu cells, not %u", (unsigned long long)total,
+	      CELLS_EXPECTED);
+	CHECK(verified == running,
+	      "the two agree on an intact blob, which is what makes the disagreement "
+	      "below mean something: %llu sealed, %llu counted",
+	      (unsigned long long)verified, (unsigned long long)running);
+
+	/* Rot, straight into the backend behind the store's back. */
+	disk[victim * FZN_BLOB_SEALED_MAX + 3u] ^= 0x40u;
+	CHECK(step_all(&checked, &dropped) == FZN_SCRUB_DONE && dropped == 1u,
+	      "the corruption was not found");
+
+	CHECK(fzn_scrub_progress(&scrub, &verified, &total) == FZN_SCRUB_OK,
+	      "progress was refused after a repair");
+	CHECK(verified == running - 1u,
+	      "a repaired cell is still counted as verified: %llu sealed against a "
+	      "running total of %llu",
+	      (unsigned long long)verified, (unsigned long long)running);
+	CHECK(verified < running,
+	      "the running total a consumer keeps did not overstate what is verified, "
+	      "so this accessor answers a question nothing was getting wrong");
+
+	CHECK(fzn_scrub_progress(NULL, &verified, &total) == FZN_SCRUB_ERR_MALFORMED
+	              && fzn_scrub_progress(&scrub, NULL, &total) == FZN_SCRUB_ERR_MALFORMED
+	              && fzn_scrub_progress(&scrub, &verified, NULL) == FZN_SCRUB_ERR_MALFORMED,
+	      "a missing operand was given a progress figure");
+}
+
 #ifdef FZN_FLOG_ON
 /*
  * CORRUPTION FOUND IS A FACT A CALLER MAY DISCARD. sec 238.
@@ -818,6 +871,7 @@ int main(void)
 	test_a_sealed_cell_that_lost_leaves_is_skipped();
 	test_the_optional_outputs_are_omitted_on_the_last_cell();
 	test_every_guard_refuses_its_own_argument();
+	test_what_is_verified_now_is_not_a_running_total();
 #ifdef FZN_FLOG_ON
 	test_a_rotted_cell_says_which_one();
 #endif

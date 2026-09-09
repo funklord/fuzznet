@@ -205,4 +205,33 @@ fzn_scrub_err_t fzn_scrub_seal(fzn_scrub_t *scrub, const fzn_hash_ops_t *hash, u
 fzn_scrub_err_t fzn_scrub_step(fzn_scrub_t *scrub, const fzn_hash_ops_t *hash, uint64_t limit,
                                uint64_t *out_checked, uint64_t *out_dropped);
 
+/*
+ * How much of this blob is verified RIGHT NOW: sealed cells, and cells.
+ *
+ * WHAT A CONSUMER DRAWS, and the counterpart to
+ * `fzn_catalog_sweep_progress`, which exists in that module for this reason
+ * and had no equal here.
+ *
+ * A RUNNING TOTAL OF `out_sealed` IS NOT THIS NUMBER, and the way it differs
+ * is the reason this is a call rather than arithmetic a caller does. Every
+ * `fzn_scrub_seal` reports what IT sealed, so a consumer adding those up has
+ * a figure that only ever rises -- and `fzn_scrub_step` clears the seal on
+ * every cell it repairs. The two disagree exactly when a cell has failed,
+ * which is to say exactly when the module has done the thing it exists for,
+ * and the consumer's version is the one that says a rotted blob is fully
+ * verified.
+ *
+ * Subtracting `out_dropped` as it arrives does not fix it either: a cell
+ * sealed, dropped and sealed again is counted twice in one total and once in
+ * the other, and no arithmetic over deltas recovers a set's size.
+ *
+ * IT READS AND DOES NOT DECIDE. Nothing is sealed, checked or cleared.
+ *
+ * BOTH OUT-PARAMETERS ARE REQUIRED, unlike `fzn_scrub_step`'s. A caller
+ * asking how far along it is has no use for half the fraction, and sec 238
+ * is what a count nobody has to receive costs.
+ */
+fzn_scrub_err_t fzn_scrub_progress(const fzn_scrub_t *scrub, uint64_t *sealed_out,
+                                   uint64_t *cells_out);
+
 #endif /* FZN_SCRUB_H */

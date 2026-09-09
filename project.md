@@ -35358,13 +35358,32 @@ module that says the same thing on every capture -- which is the shape
 `evidence.md` calls a control that cannot fail the way the thing it controls
 for fails.
 
-### What is still silent
+### What is still silent, and one of them correctly
 
 `spool/scrub.c` and `catalog/copy.c` remain at zero, and `blob/`, `tree/`,
 `spool/plan.c` have no log at all. Whether each of those has an event no
 return value carries is a question per module rather than a sweep to run --
 sec 201's rule, and the reason this section covers one module rather than
 six.
+
+**Asked of `catalog/copy.c`, the answer is no, and the discriminator is one
+line of its own source.** Its most consequential count is `unknown`: a peer
+asking for a root this catalogue does not reference, which its header calls
+the difference between copying a catalogue and *a capability for a catalogue
+silently becoming a capability for the blob store*. That is a security event
+and it sounds exactly like something that wants a line.
+
+It does not, because `fzn_catalog_copy_offer` REQUIRES its plan --
+`if (!plan) return FZN_CATALOG_ERR_MALFORMED` -- so `unknown` reaches every
+caller there has ever been. A log line would restate what the return already
+carries, which is sec 194's boundary applied to a log instead of a widget.
+
+**That is the whole difference between it and `spool/scrub`**, where the
+identical-looking count sits behind an out-parameter the header says may be
+NULL. The lens found three silent removal paths; two had a fact with nowhere
+to go and one had a caller that is made to receive it. **A module being
+quiet is not the finding -- a fact with no channel is** -- and the check is
+whether the API lets the caller decline to hear it.
 
 ## 238. A finding a caller may throw away
 
@@ -35415,3 +35434,52 @@ once after, over an intact blob. The second is the one that matters. Without
 it every assertion below passes for a module that emits on every cell it
 checks -- and a scrub over a large blob is thousands of cells, so a line per
 cell would bury the one line that is the point.
+
+## 239. What is verified now, which a running total gets wrong
+
+`catalog/sweep` has `fzn_catalog_sweep_progress` -- *what to draw*, in its
+own words, *the one thing the holder asked stay possible of a job that holds
+the catalogue*. `spool/scrub` is the same kind of long-running job over the
+same kind of grid and had no equal to it.
+
+A consumer could keep its own figure, and the way that figure is wrong is
+the reason this is a call:
+
+	fzn_scrub_seal  reports what THIS call sealed        only rises
+	fzn_scrub_step  clears the seal on every cell it repairs
+
+**So a running total and the truth agree until a cell fails**, which is to
+say until the module does the thing it exists for -- and from then on the
+consumer's version says a rotted blob is fully verified. Subtracting
+`out_dropped` as it arrives does not rescue it either: a cell sealed,
+dropped and sealed again is counted twice in one and once in the other, and
+no arithmetic over deltas recovers the size of a set.
+
+`fzn_scrub_progress` counts the bitmap. Not a counter on the struct -- that
+would be a second record of what the bitmap already says, parting company at
+the first `bit_clear` somebody forgets to pair with it.
+
+### Asserted as the disagreement, not as either number
+
+The test seals, checks that the two figures AGREE on an intact blob, corrupts
+one cell, and then requires them to differ by exactly one in the direction
+repair moves them. A test pinning the count would pass for an accessor
+returning a stale total; this one cannot.
+
+Its control makes the accessor count cells instead of reading their seals --
+which is precisely the consumer's running total, reimplemented inside the
+library -- and the failure says so in its own words:
+
+	FAIL scrub_test.c:767: a repaired cell is still counted as verified:
+	4 sealed against a running total of 4
+
+**Both out-parameters are required**, unlike `fzn_scrub_step`'s. sec 238 is
+what a count nobody has to receive costs, and a caller asking how far along
+it is has no use for half a fraction.
+
+**This is the fifth accessor added because a header named a distinction its
+API could not make** -- after `fzn_manifest_follows`, `fzn_ledger_sound`,
+`fzn_replay_expirable` and `fzn_reasm_held_by`. Four of the five were found
+the same way: by asking what a consumer would have to compute for itself,
+and then checking whether the obvious computation agrees with the module's.
+It usually does, right up to the case the module exists for.

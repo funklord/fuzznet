@@ -222,6 +222,28 @@ fzn_scrub_err_t fzn_scrub_seal(fzn_scrub_t *scrub, const fzn_hash_ops_t *hash, u
 	return FZN_SCRUB_OK;
 }
 
+fzn_scrub_err_t fzn_scrub_progress(const fzn_scrub_t *scrub, uint64_t *sealed_out,
+                                   uint64_t *cells_out)
+{
+	uint64_t cell, n = 0u;
+
+	if (!scrub || !scrub->sealed || !sealed_out || !cells_out)
+		return FZN_SCRUB_ERR_MALFORMED;
+
+	/* COUNTED RATHER THAN TRACKED. A counter on the struct would be a
+	 * second record of what the bitmap already says, and the two would
+	 * part company at the first `bit_clear` somebody forgot to pair with
+	 * it. The bitmap is the state; this reads it. */
+	for (cell = 0u; cell < scrub->cells; cell++) {
+		if (bit_get(scrub->sealed, cell))
+			n++;
+	}
+
+	*sealed_out = n;
+	*cells_out = scrub->cells;
+	return FZN_SCRUB_OK;
+}
+
 fzn_scrub_err_t fzn_scrub_step(fzn_scrub_t *scrub, const fzn_hash_ops_t *hash, uint64_t limit,
                                uint64_t *out_checked, uint64_t *out_dropped)
 {
