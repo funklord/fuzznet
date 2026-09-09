@@ -35,6 +35,26 @@ SKIP = ("qtty", "quirc", "monocypher", "flog", "gui", "cli", "sim", "tool", ".gi
 # argument, which is why the macros were made one shape.
 EMIT = re.compile(r'\b[A-Z][A-Z_]*_LOG\s*\(\s*[^,]+,\s*"([^"]+)"')
 
+# AND THE SEVERITY, BECAUSE THE SUBSYSTEM ALONE IS A NAME AND NOT A LINE.
+#
+# The check used to be "some test mentions this subsystem", and the summary
+# said "each asserted by a test" -- which is a claim about SITES made by a
+# check over NAMES. `chunk/reasm` has three sites under one name; one
+# assertion satisfied all three, and a site added at a severity nothing
+# asserts was invisible.
+#
+# A severity is what a test actually compares (`seen.type == FLOG_WARN`), so
+# requiring one test FILE to name the subsystem and that severity together is
+# the strongest thing available without matching message text. Concatenating
+# every test first would be vacuous: FLOG_WARN appears somewhere in the suite
+# whatever any one module asserts.
+#
+# WHAT IT STILL DOES NOT CATCH, pinned here so nobody quotes it for more:
+# two sites at the SAME subsystem and severity, one asserted and one not.
+# Catching that needs message text, and a test asserts fragments rather than
+# the whole line, so there is nothing mechanical to compare.
+PAIR = re.compile(r'\b[A-Z][A-Z_]*_LOG\s*\(\s*[^,]+,\s*"([^"]+)"\s*,\s*(FLOG_[A-Z_]+)')
+
 # AND THE PATTERN ABOVE ENCODES A NAMING CONVENTION, WHICH IS A HOLE UNLESS
 # SOMETHING CHECKS IT. sec 217: a wrapper named `LOG_DIAG` rather than
 # `STREAM_LOG` was invisible to EMIT, so its emit site was never checked --
@@ -60,10 +80,31 @@ def sources(test):
 
 def main():
 	emitted = {}
+	pairs = {}
+	unreadable = 0
 	for path in sources(test=False):
 		with open(path, encoding="utf-8") as f:
-			for sub in EMIT.findall(f.read()):
-				emitted.setdefault(sub, []).append(os.path.relpath(path, ROOT))
+			text = f.read()
+		rel = os.path.relpath(path, ROOT)
+		subs = EMIT.findall(text)
+		for sub in subs:
+			emitted.setdefault(sub, []).append(rel)
+		found = PAIR.findall(text)
+		for sub, sev in found:
+			pairs.setdefault((sub, sev), set()).add(rel)
+		# A SITE WHOSE SEVERITY THIS CANNOT READ TAKES ITS PAIR WITH IT,
+		# and would be counted as covered by the subsystem check above.
+		# Same reasoning as the wrapper-name check below: a hole in a
+		# pattern is silent unless something compares two counts.
+		if len(found) != len(subs):
+			print("log-gate: %s has %d emit site(s) and %d readable "
+			      "severities" % (rel, len(subs), len(found)))
+			unreadable += 1
+	if unreadable:
+		print("log-gate: a site whose severity is not a plain FLOG_ constant is")
+		print("log-gate: invisible to the per-severity check, and nothing else")
+		print("log-gate: would have said so.")
+		return 2
 
 	# THE WRAPPERS' NAMES, BEFORE ANY VERDICT ABOUT SUBSYSTEMS. A wrapper
 	# EMIT cannot see contributes no subsystem, and its absence is silent.
@@ -85,10 +126,13 @@ def main():
 		print("log-gate: the pattern has stopped matching, or the macros were renamed.")
 		return 2
 
-	asserted = ""
+	# PER FILE, NOT CONCATENATED. See PAIR above: a severity looked for in
+	# every test at once is found in all of them.
+	tests = []
 	for path in sources(test=True):
 		with open(path, encoding="utf-8") as f:
-			asserted += f.read()
+			tests.append(f.read())
+	asserted = "".join(tests)
 
 	bad = 0
 	for sub in sorted(emitted):
@@ -97,12 +141,27 @@ def main():
 			print("log-gate:   emitted from %s" % ", ".join(sorted(set(emitted[sub]))))
 			bad += 1
 
+	for sub, sev in sorted(pairs):
+		if not any('"%s"' % sub in t and sev in t for t in tests):
+			print("log-gate: no test names %s and %s together" % (sub, sev))
+			print("log-gate:   emitted from %s"
+			      % ", ".join(sorted(pairs[(sub, sev)])))
+			bad += 1
+
 	if bad:
-		print("log-gate: a subsystem is printed and never compared, so a typo")
-		print("log-gate: files a normal-looking line where nobody greps for it.")
+		# BOTH FAILURES ARRIVE HERE AND THEY ARE NOT THE SAME FAULT, so
+		# the trailer names both rather than explaining whichever one it
+		# was written for first.
+		print("log-gate: a subsystem printed and never compared lets a typo file a")
+		print("log-gate: normal-looking line where nobody greps for it; a severity")
+		print("log-gate: nothing asserts lets a line arrive at a level that filters")
+		print("log-gate: it out, which is the same silence by another route.")
 		return 1
 
-	print("log-gate: %d subsystem(s) over %d emit site(s), each asserted by a test"
+	# THE SUMMARY NAMES WHAT WAS CHECKED. It used to say every site was
+	# asserted, over a check that only ever looked at names.
+	print("log-gate: %d subsystem(s) over %d emit site(s); each subsystem, and "
+	      "each severity it emits at, is named by a test"
 	      % (len(emitted), sum(len(v) for v in emitted.values())))
 	return 0
 

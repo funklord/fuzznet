@@ -35540,3 +35540,64 @@ rather than after*.
 the three would answer the question by doing it, and the third looks
 cheapest precisely because it hands the hard part to somebody who does not
 have the header in front of them.
+
+## 241. A gate that checked names and claimed sites
+
+`tool/log_gate.py` ended every run with
+
+	log-gate: 17 subsystem(s) over 33 emit site(s), each asserted by a test
+
+and the check behind it was: does the quoted subsystem string appear
+anywhere in the test sources. **That is a claim about SITES made by a check
+over NAMES.** `chunk/reasm` had three sites under one name and one assertion
+satisfied all three; the two this session added to it were covered before
+they were written.
+
+Same shape as the sabotage census's own line an hour earlier -- a figure
+describing a wider population than the check behind it -- and this one had
+been quoted in five commit messages as evidence that the diagnostics work
+was held to account.
+
+### The severity is what a test actually compares
+
+A test asserts `seen.type == FLOG_WARN` beside the subsystem, so the pair is
+the strongest thing available without matching message text. The gate now
+requires **one test FILE** to name both.
+
+**Per file, because concatenating them first is vacuous** -- `FLOG_WARN`
+appears somewhere in a suite of 111 binaries whatever any one module
+asserts. Measured before adopting: 32 pairs over 38 sites, all covered
+today, so this is a floor being written under work already done rather than
+a bar nobody clears.
+
+**And a site whose severity is not a plain `FLOG_` constant would take its
+pair with it silently**, so the gate counts sites twice -- once by
+subsystem, once by subsystem-and-severity -- and refuses when the two
+disagree. That is the same paranoia the wrapper-name check already
+encodes, and sec 217's incident is why it is there: a hole in a pattern is
+silent unless something compares two counts.
+
+### What it still does not catch, pinned rather than left implied
+
+Two sites at the SAME subsystem and severity, one asserted and one not.
+Catching that needs message text, and a test asserts fragments rather than
+whole lines, so there is nothing mechanical to compare. Written into the
+gate beside the pattern, because a gate whose limits are unwritten gets
+quoted for guarantees it never made.
+
+### Both new arms were made to fail
+
+	site at a severity nothing asserts    no test names chunk/reasm and
+	                                      FLOG_CRIT together      rc 1
+	severity not a plain constant         4 emit sites and 3 readable
+	                                      severities              rc 2
+
+The exit codes are the file's existing division: 1 for a gap in coverage, 2
+for an instrument that cannot see.
+
+**And the first control found a second fault in the same run.** The failure
+printed the trailer written for the SUBSYSTEM case -- *a typo files a
+normal-looking line where nobody greps for it* -- which does not describe a
+severity nothing asserts. It names both now. A new arm reaching an old
+explanation is not something the arm's own test would show, and only
+watching the failure print did.
