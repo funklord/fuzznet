@@ -4206,6 +4206,7 @@ QTTY_RENDER_OBJS := $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \
                     $(BUILD_DIR)/cli/revocation_print.o $(BUILD_DIR)/cli/authz_print.o \
                     $(BUILD_DIR)/cli/provision_print.o $(BUILD_DIR)/cli/link_print.o \
                     $(BUILD_DIR)/cli/peer_print.o $(BUILD_DIR)/local/peer.o \
+                    $(BUILD_DIR)/cli/sched_print.o \
                     $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/prekey/prekey.o \
                     $(BUILD_DIR)/local/vocabulary.o \
                     $(LINK_OBJ) $(BUILD_DIR)/sched/sched.o \

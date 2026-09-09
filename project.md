@@ -36115,6 +36115,31 @@ Both spellings needed it: the angle-bracket include for the installed tree and
 the quoted one for the source tree, which are the two arrangements
 `installcheck` builds.
 
+### Three gates, three different omissions of one change
+
+`style` passed the widget. Then `installcheck` found the header missing from
+`tool/consumer_check.c`, and `qttycheck` found the object missing from the
+renderer sweep's link line:
+
+	undefined reference to `fzn_sched_print'
+
+A widget added to that sweep needs its PRINTER's object there too, and
+`sched/sched.o` was already present so only the printer was missing. Nothing
+in `make test` could have seen it: the widget's own test rule names its
+objects explicitly and links fine.
+
+**Each gate caught a different half of the same omission**, which is the
+argument for having three rather than a bigger one. And none of them is the
+gate a reader would predict: the C++ parse found a documentation-shaped
+problem, and the terminal renderer found a link.
+
+**Verified by symbol rather than by re-running the gate**, because the
+machine could not fit another Qt build -- `nm -u gui/sched_view.o` names three
+undefined `fzn_` symbols and `nm --defined-only` on the two objects now on the
+line provides all three. That is the exact failure answered, rather than a
+green run over everything else as well. `qttycheck` had not completed at the
+time of the commit, and saying so is the point of the distinction.
+
 ### Six sections, one question
 
 sec 243 through sec 248 came out of reading fixtures rather than assertions.
