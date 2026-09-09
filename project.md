@@ -34067,6 +34067,33 @@ requires both, and the sabotage for it is one word -- `continue` to `break` --
 which is the natural way to write the truncation and quietly makes the summary
 describe only what fitted.
 
+### The render sweep caught it, and it is the only thing that could
+
+`qttycheck` refused the first version:
+
+	undefined reference to `fzn_manifest_print'
+
+The widget was added to the qtty render target's SOURCE list and the printer's
+object was not added to its LINK line. Nothing else in the tree links every
+widget together -- `make test` builds each view's own test binary with its own
+short object list -- so no other gate can see a widget that compiles, tests
+and does not link beside its siblings.
+
+**And it was going to be linked into the sweep without being rendered by it.**
+The sweep's case table names each widget and the string a terminal must carry;
+a widget absent from that table is built and never drawn. So the fixture is an
+issuer whose count is a FLOOR rather than a sound one, and the sweep requires
+`less than they are missing` to survive an 80x24 terminal -- which is sec 207's
+hazard met head on, since that sweep exists because `capability_view`'s verdict
+was falling off the right edge behind a 64-character identifier.
+
+	manifest_view   needs 59 columns to say "less than they are missing"
+
+Fifty-nine is the widest floor in the sweep -- the others run 20 to 46 -- which
+is what a summary that names two numbers and a verdict costs. It fits an
+eighty-column terminal with room, and the number is recorded here so the next
+person widening that sentence knows what it was.
+
 ### No key is drawn, and no enumerator was added to draw one
 
 A row is a label and a verdict. Thirty-two bytes of issuer spell to 64

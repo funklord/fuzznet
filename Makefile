@@ -4025,6 +4025,7 @@ qttycheck:
 # FZN_GUI and FZN_CLI, and building twenty-eight objects before printing that
 # would be a slower way to say the same thing.
 QTTY_RENDER_OBJS := $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \
+                    $(BUILD_DIR)/cli/manifest_print.o \
                     $(BUILD_DIR)/cli/cli.o $(BUILD_DIR)/state/state.o \
                     $(BUILD_DIR)/cli/sync_print.o $(BUILD_DIR)/cli/journal_print.o \
                     $(BUILD_DIR)/cli/sweep_print.o $(BUILD_DIR)/cli/transfer_print.o \

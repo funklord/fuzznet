@@ -42,6 +42,7 @@
 #include "../config_view.h"
 #include "../link_view.h"
 #include "../peer_view.h"
+#include "../manifest_view.h"
 
 extern "C" {
 #include "../../log/log.h"
@@ -306,6 +307,8 @@ static void test_every_widget_survives_a_terminal(void)
 	fzn_link_view link_v;
 	fzn_peer_view peer_v;
 	fzn_provision_view provision;
+	fzn_manifest_view manifest_v;
+	fzn_manifest_view_row manifest_rows[1];
 	fzn_authz_view authz_guarded;
 	fzn_link_entry_t link_entries[4];
 	fzn_link_table_t links;
@@ -371,8 +374,20 @@ static void test_every_widget_survives_a_terminal(void)
 		journal_v.show_stream(&j, peer, 5u);
 	}
 
-	if (fzn_manifest_init(&m, m_issuers, 2u, m_deficits, 4u) == FZN_MANIFEST_OK)
+	if (fzn_manifest_init(&m, m_issuers, 2u, m_deficits, 4u) == FZN_MANIFEST_OK) {
 		sync.show_peer(&m, peer);
+
+		/* AND THE STATE THIS SWEEP EXISTS FOR. sec 226: the issuer
+		 * whose count is a FLOOR is the row a person must not lose off
+		 * the edge, so the fixture is an overflowed issuer rather than
+		 * a sound one. */
+		memcpy(m_issuers[0].issuer, peer, FZN_PUBKEY_LEN);
+		m_issuers[0].overflowed = 1;
+		m.issuer_used = 1u;
+		manifest_rows[0].issuer = peer;
+		manifest_rows[0].label = QStringLiteral("estate root");
+		manifest_v.show_issuers(&m, manifest_rows, 1u);
+	}
 
 	/* THE FOUR sec 187 LEFT UNDRAWN, and each was a fixture cost rather
 	 * than a reason -- which is only worth saying if the cost is then
@@ -492,6 +507,11 @@ static void test_every_widget_survives_a_terminal(void)
 			/* THE THIRD VALUE OF THE TRI-STATE. sec 204. */
 			{ "peer_view", &peer_v, "cannot tell" },
 			{ "provision_view", &provision, "no card" },
+			/* THE FLOOR, NOT THE COUNT. sec 226: a host that
+			 * reports less than it is missing is the one reading
+			 * this widget has to survive a terminal for, and the
+			 * summary is where it says so. */
+			{ "manifest_view", &manifest_v, "less than they are missing" },
 		};
 
 		for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
