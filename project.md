@@ -34259,11 +34259,16 @@ state that voids the screen -- so the string a terminal has to carry is
 `nothing here is evidence` rather than a row of green.
 
 	manifest_view   needs 59 columns to say "less than they are missing"
-	ledger_view     needs 63 columns to say "nothing here is evidence"
+	ledger_view     needs 33 columns to say "nothing here is evidence"
 
-Sixty-three is the widest floor in the sweep and it is the sentence that must
-never be lost, which is the pair worth noticing: **the lines that matter most
-are the longest**, because a verdict about why nothing on a screen can be
-trusted takes more words than a number. Both still clear eighty columns, and
-the numbers are here so the next person widening either sentence knows what it
-was.
+**Sixty-three was written here first, and this section falsified it two
+commits later.** The restructure above -- asking the table once and drawing no
+rows at all when it cannot be read -- made the widget narrower, because in that
+state the summary is the only thing on it. A countable present-tense claim
+about the tree's own shape, stale within an hour of being written, by the hand
+that wrote it.
+
+So the observation it was offered for does not survive either: fifty-nine is
+the widest floor in the sweep, and it belongs to a line that reports a
+QUANTITY. The honest version is the smaller one -- these two numbers are what
+the sweep measured today, and both clear eighty columns.
