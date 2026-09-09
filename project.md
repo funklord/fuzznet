@@ -34877,6 +34877,13 @@ and `sync_fuzz`. The richest of those is the manifest, whose entries carry a
 capability, a grantee, a revocation id and a state byte, so this adds the
 property there.
 
+**Two of those four were named wrongly, and reading the source is what said
+so.** `sync_fuzz` calls `fzn_journal_init`, `fzn_journal_admit` and
+`fzn_journal_anchor` and nothing else -- there is no encoder in it and no
+decoder either, because a digest is a claim rather than a format. It was in
+the list because a survey written from the design put it there. And
+`prekey_fuzz` is the case below.
+
 ### Why nothing else in that harness could see it
 
 `manifest_fuzz` is model-based and strong: it keeps an independent shadow of
@@ -34948,3 +34955,94 @@ That is the second time in three entries that reading the run rather than
 the design changed what could honestly be claimed for it, and both times
 the correction made the claim smaller and the reason to keep the work
 unchanged.
+
+### The third application, which was written and then thrown away
+
+`prekey_fuzz` got the same treatment: a `reencoded` counter, a floor, the
+body-only comparison, 16000 re-encodes in 2000 cases, green. Then the
+control -- `fzn_prekey_open` pointing `out->prekey` at the host field --
+and the property fired on case 0, exactly as predicted.
+
+**And so did everything else.** With the comparison compiled out, the
+harness's own shadow caught the same sabotage one check later:
+
+	INVARIANT: the stored prekey is not the model's
+
+and `prekey_test` caught it in eight assertions without the harness at
+all. So the property found nothing here that this module was not already
+covered for, and the change was reverted rather than kept.
+
+**The criterion, which is what the survey should have been asking**, and
+it took two more controls to state correctly. The first attempt said the
+property earns its place where a format carries a field the module does
+not ACT on. That is a claim about the format, and it is the wrong half:
+
+> **the property earns its place where the harness's model reaches a
+> field ONLY through the module's own accessor.**
+
+Which is a claim about the harness. `manifest_fuzz` reaches an entry's
+state that way and nothing else -- so a decoder that dropped the state
+byte produced a shadow that agreed with a store that was equally wrong,
+and only the bytes were outside that loop. `prekey_fuzz` GENERATES its
+host, prekey and `created_at`, keeps them, and compares the module's
+behaviour against its own copies: the accessor is not the only route to
+the field, so a wrong offset is caught without any byte comparison. The
+format is the same shape in both cases; what differs is where the
+harness's expected value came from.
+
+sec 201's rule, arriving at a harness instead of a screen: **a property
+added to a third harness because two others have it is symmetry, not
+merit.** What made the first two worth it was a field their models could
+not reach, and asking that question first would have saved the
+implementation -- though not the control, which is the part that
+answered it.
+
+### And the survey missed the harness that had already said all of this
+
+`record_fuzz` carries the property, and has since it was written. Its
+PROPERTY 2 is *an OPENED record re-encodes, from its accessors alone, to
+the identical bytes*, and the comment above the function makes the
+argument this section spent three commits arriving at:
+
+> The re-encode is the part `record_test.c` does once and this does over
+> every drawn combination. It is what makes "a record is a view over its
+> own bytes" a checkable statement rather than a description: if any
+> accessor read the wrong offset, the bytes it produces differ.
+
+Which is the unit-test-versus-population distinction, in the tree, in the
+richest format the library has, before sec 232 was written.
+
+So the honest account of this section is not that it found a property.
+`message_fuzz` had it, `record_fuzz` had it and had stated why, and what
+these commits did was carry it to the two formats that lacked it and
+throw away a third attempt that was not needed. **The survey named four
+harnesses and got two of the four wrong, in both directions** -- it
+included `sync_fuzz`, which has no format at all, and it never looked at
+`record_fuzz`, which is where the argument already lived. A survey that
+enumerates from memory finds what it remembered.
+
+**And `record_fuzz` is the criterion's own example.** It draws every
+field, holds them in a `struct fields`, and asserts each accessor against
+the value it signed -- so its re-encode is the belt on those braces
+rather than the only strap. Which raised a better question than the one
+this section started with: **that property has never been seen to fail.**
+`tool/sabotage.py` held 388 entries over 92 sources and not one of them
+touched `record/record.h`, the file holding every accessor of the richest
+format the library has, whose own comment says a wrong offset shows in
+the bytes.
+
+There is one now -- `fzn_record_kind` reading the `stream` offset, which
+is the exact swap `fzn_record_sign`'s comment warns a call site can make
+in silence. It is caught, and NOT where the entry was aimed:
+
+	FAIL record_test.c:586: kind did not survive the round trip
+
+A unit test, one binary before either harness. That is the third control
+in this section to land somewhere other than where it was pointed, and
+all three landed the same way: **on the cheapest check that could see
+it.** Which is the sabotage tool working as designed -- it reports the
+FIRST thing to fail, and the first thing to fail is the thing worth
+having -- but it means a control cannot, on its own, tell you a property
+is alive. Only a sabotage nothing cheaper can see does that, and for
+`record_fuzz`'s re-encode I do not have one: every field it reads back,
+it also generated.

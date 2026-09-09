@@ -1118,6 +1118,13 @@ SABOTAGES = [
 		"an accessor wired to the wrong field hands the model a record whose bytes it never sees, so re-encoding what the decoder returned is what asks whether the two agree -- revocation_test has carried that property on one fixture since 75865bc and catches this first, and what the harness adds is the population it holds over rather than the property itself -- sec 234",
 	),
 	(
+		"record-kind-is-its-own-field",
+		"record/record.h",
+		"\treturn fzn_get_be32(r.base + FZN_RECORD_OFF_KIND);\n",
+		"\treturn fzn_get_be32(r.base + FZN_RECORD_OFF_STREAM);\n",
+		"record.h warns that `stream` and `kind` are both uint32 and swap at a call site with nothing to say so, and record_fuzz's PROPERTY 2 says a wrong offset shows in the bytes -- nothing in this file had ever been sabotaged, so that property had never been seen to fail, which sec 52 says is the same as not having it -- sec 234",
+	),
+	(
 		"log-body-escapes-what-a-terminal-obeys",
 		"log/log.c",
 		"\t\tif (body[i] >= 0x20u && body[i] <= 0x7eu) {\n",
