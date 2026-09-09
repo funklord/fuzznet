@@ -34351,6 +34351,24 @@ keeping for the day the compiler stops holding it**, provided it says so --
 otherwise it reads as a check that passes, which is what a check that cannot
 fail looks like from outside.
 
+### And no widget, which is the first printer here to get none
+
+sec 226 and sec 228 earned their widgets on an AGGREGATE: several issuers,
+several peers, and a summary no single call to the printer can make. **A host
+has one replay window.** There is no list, so a widget would be a `QLabel`
+holding this file's line, which is what a consumer gets by calling the printer
+and putting the string in one.
+
+sec 201 settled the general question when `gui/trust_view` was found taking a
+dependency that could not fail: a surface added so that every printer has one
+is symmetry rather than merit. The pairing rule in sec 193 says the narrower
+thing -- that a printer written for a fact a widget ALREADY SHOWS must change
+that widget in the same commit -- and nothing shows this.
+
+Recorded rather than left as an absence, because the next sweep counting
+printers against widgets will find sixteen against seventeen and should know
+which one is deliberate.
+
 ### An anchor that stopped naming one site, with nobody touching it
 
 	sabotage: freshness-sweep-entries matches 2 sites in frame/freshness.c
