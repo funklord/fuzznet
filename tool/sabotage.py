@@ -1183,6 +1183,13 @@ SABOTAGES = [
 		"sweep.h calls truncation loud because a sweep that silently held some of them leaves a consumer believing it reclaimed what it had not -- informational is not loud, and the counter it had before this was one of seven -- sec 237",
 	),
 	(
+		"scrub-says-which-cell-rotted",
+		"spool/scrub.c",
+		"\t\t\t\t          (unsigned long long)cell, (unsigned long long)len,\n",
+		"\t\t\t\t          (unsigned long long)first, (unsigned long long)len,\n",
+		"out_dropped already says how many and may be NULL; the index is the only thing that says WHICH, and clustered failures are a region of a disk going while scattered ones are something else -- a line without it is the count again in words -- sec 238",
+	),
+	(
 		"log-body-escapes-what-a-terminal-obeys",
 		"log/log.c",
 		"\t\tif (body[i] >= 0x20u && body[i] <= 0x7eu) {\n",

@@ -15,6 +15,33 @@
 #include "../plan.h"
 #include "../scrub.h"
 
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+
+/* Borrowed strings, so anything kept is copied. */
+static struct {
+	int calls;
+	flog_msg_type_t type;
+	char subsystem[64];
+	char text[512];
+} scrub_log_seen;
+
+static int scrub_log_capture(flog_t *p, const flog_msg_t *m)
+{
+	(void)p;
+	scrub_log_seen.calls++;
+	scrub_log_seen.type = m->type;
+	scrub_log_seen.subsystem[0] = '\0';
+	scrub_log_seen.text[0] = '\0';
+	if (m->subsystem)
+		snprintf(scrub_log_seen.subsystem, sizeof(scrub_log_seen.subsystem), "%s",
+		         m->subsystem);
+	if (m->text)
+		snprintf(scrub_log_seen.text, sizeof(scrub_log_seen.text), "%s", m->text);
+	return 0;
+}
+#endif
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -698,6 +725,67 @@ static void test_every_guard_refuses_its_own_argument(void)
 	CHECK(fzn_scrub_err_str(FZN_SCRUB_ERR_BACKEND) != NULL, "err_str returned null");
 }
 
+#ifdef FZN_FLOG_ON
+/*
+ * CORRUPTION FOUND IS A FACT A CALLER MAY DISCARD. sec 238.
+ *
+ * `out_dropped` may be NULL, and a consumer scrubbing on a timer has every
+ * reason to pass NULL for both -- at which point a cell that no longer
+ * matches what was verified is repaired in silence and nothing anywhere
+ * records that this host's storage handed back bytes it was never given.
+ *
+ * THE ASSERTION IS ON THE CELL NUMBER, not on the fact that something was
+ * said. `out_dropped` already carries how many; only the line says WHICH, and
+ * that is the difference between a region of a disk failing and something
+ * scattered.
+ */
+static void test_a_rotted_cell_says_which_one(void)
+{
+	uint64_t checked = 0u, dropped = 0u;
+	const uint64_t victim = 70u; /* inside cell 1 of three, as above */
+	flog_t log;
+
+	init_flog_t(&log);
+	log.name = NULL;
+	log.accepted_msg_type = FLOG_ACCEPT_ALL;
+	log.output_func = scrub_log_capture;
+
+	CHECK(fresh(0u, LEAVES), "the fixture did not fill");
+	CHECK(seal_all(NULL) == CELLS_EXPECTED, "the fixture did not seal");
+
+	/* QUIET UNTIL ASKED, and quiet over an intact blob once it has been. */
+	memset(&scrub_log_seen, 0, sizeof(scrub_log_seen));
+	CHECK(step_all(&checked, &dropped) == FZN_SCRUB_DONE && dropped == 0u,
+	      "the fixture was not clean before corruption");
+	CHECK(scrub_log_seen.calls == 0, "a spool nobody gave a log to emitted anyway");
+
+	fzn_spool_set_log(&spool, &log);
+	memset(&scrub_log_seen, 0, sizeof(scrub_log_seen));
+	CHECK(step_all(&checked, &dropped) == FZN_SCRUB_DONE && dropped == 0u,
+	      "a second clean pass dropped something");
+	CHECK(scrub_log_seen.calls == 0,
+	      "a scrub that found nothing wrong reported something, which is how the "
+	      "one line that matters gets filtered out with the rest");
+
+	/* Rot, straight into the backend behind the store's back. */
+	disk[victim * FZN_BLOB_SEALED_MAX + 3u] ^= 0x40u;
+
+	memset(&scrub_log_seen, 0, sizeof(scrub_log_seen));
+	CHECK(step_all(&checked, &dropped) == FZN_SCRUB_DONE, "the pass did not finish");
+	CHECK(dropped == 1u, "%llu cells dropped, not 1", (unsigned long long)dropped);
+	CHECK(scrub_log_seen.calls == 1, "corruption was repaired in silence");
+	CHECK(scrub_log_seen.type == FLOG_WARN,
+	      "storage handing back bytes it was never given was not a warning");
+	CHECK(strcmp(scrub_log_seen.subsystem, "spool/scrub") == 0,
+	      "the event did not name its subsystem");
+	CHECK(strstr(scrub_log_seen.text, "cell 1 ") != NULL,
+	      "the line does not say WHICH cell failed, which is the only thing it adds "
+	      "to out_dropped and the difference between a bad region and bad luck");
+
+	fzn_spool_set_log(&spool, NULL);
+}
+#endif
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -730,6 +818,9 @@ int main(void)
 	test_a_sealed_cell_that_lost_leaves_is_skipped();
 	test_the_optional_outputs_are_omitted_on_the_last_cell();
 	test_every_guard_refuses_its_own_argument();
+#ifdef FZN_FLOG_ON
+	test_a_rotted_cell_says_which_one();
+#endif
 	test_the_suite_can_tell_pass_from_fail();
 
 	printf("scrub_test: %d checks, %d failures\n", checks, failures);

@@ -2,6 +2,23 @@
 
 #include "scrub.h"
 
+/* Diagnostics through flog, vendored and possibly absent. sec 209.
+ *
+ * THROUGH THE SPOOL'S LOG, as `catalog/sweep.c` speaks through the
+ * catalogue's: a scrub is something that happens to a spool, and the sublog
+ * name a consumer already chose for that spool is where these lines belong.
+ */
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+#define SCRUB_LOG(sp, sub, sev, ...)                                                       \
+	do {                                                                               \
+		if ((sp) && (sp)->log)                                                     \
+			flog_printf((sp)->log, sub, sev, FLOG_MSG_NONE, __VA_ARGS__);       \
+	} while (0)
+#else
+#define SCRUB_LOG(sp, sub, sev, ...) ((void)0)
+#endif
+
 #include <string.h>
 
 const char *fzn_scrub_err_str(fzn_scrub_err_t err)
@@ -244,6 +261,40 @@ fzn_scrub_err_t fzn_scrub_step(fzn_scrub_t *scrub, const fzn_hash_ops_t *hash, u
 				 * the want-list and the seal goes with them,
 				 * so the cell is resealed from bytes a peer
 				 * proved rather than from these. */
+				/*
+				 * THE ONE THING THIS MODULE EXISTS TO FIND,
+				 * AND A CALLER MAY THROW IT AWAY.
+				 *
+				 * `out_dropped` may be NULL -- the header says
+				 * so -- and a consumer scrubbing on a timer
+				 * has every reason to pass NULL for both. Then
+				 * a cell that no longer matches what was
+				 * verified is repaired in complete silence,
+				 * and the fact that this host's storage
+				 * returned bytes it had not been given leaves
+				 * no trace anywhere.
+				 *
+				 * THE CELL NUMBER IS WHY THIS IS NOT THE
+				 * COUNT AGAIN. `out_dropped` says how many;
+				 * only the index says WHICH, and clustered
+				 * failures are a region of a disk going while
+				 * scattered ones are something else entirely.
+				 * That distinction has nowhere else to be
+				 * made.
+				 *
+				 * WARN AND NOT ERR, because the module's
+				 * answer to this is repair: the leaves are
+				 * back on the want-list and a peer will
+				 * re-supply them proved. Whether anybody still
+				 * has them is `spool/transfer`'s question, not
+				 * this one's.
+				 */
+				SCRUB_LOG(scrub->spool, "spool/scrub", FLOG_WARN,
+				          "cell %llu no longer matches its reference: %llu "
+				          "leaves from %llu go back on the want-list, so "
+				          "these bytes were not the bytes that were verified",
+				          (unsigned long long)cell, (unsigned long long)len,
+				          (unsigned long long)first);
 				(void)fzn_spool_forget(scrub->spool, first, len);
 				bit_clear(scrub->sealed, cell);
 				dropped++;

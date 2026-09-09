@@ -35365,3 +35365,53 @@ for fails.
 return value carries is a question per module rather than a sweep to run --
 sec 201's rule, and the reason this section covers one module rather than
 six.
+
+## 238. A finding a caller may throw away
+
+`spool/scrub` exists to detect silent corruption: bytes that were verified
+once, re-read later, no longer what they claimed. It reports what it found
+through `out_checked` and `out_dropped`, and `scrub.h` says of both -- **both
+may be NULL.**
+
+So a consumer scrubbing on a timer, which is the way anybody would run it,
+calls `fzn_scrub_step(scrub, hash, 64, NULL, NULL)` and a cell that failed
+its reference is repaired in complete silence. This host's storage handed
+back bytes it was never given, the module noticed, and nothing anywhere
+records it.
+
+That is sec 237's shape with the volume turned up: there the fact had a
+counter nobody had to read, here it has one the caller may decline to
+receive.
+
+### The index, not the count again
+
+	WARN  cell 1 no longer matches its reference: 64 leaves from 64 go
+	      back on the want-list, so these bytes were not the bytes that
+	      were verified
+
+**`out_dropped` says how many; only this says which**, and that is the whole
+of what it adds. Clustered failures are a region of a disk going and
+scattered ones are something else entirely -- a distinction with nowhere
+else to be made, and the reason this is a line rather than a duplicate of a
+number the caller already has.
+
+The assertion is on the cell number for the same reason, and its control is
+the sabotage that logs `first` instead of `cell`: the leaf index rather than
+the cell, a line that still says something true and answers a different
+question.
+
+	scrub-says-which-cell-rotted
+	  FAIL scrub_test.c:781: the line does not say WHICH cell failed
+
+**WARN and not ERR**, because the module's answer to this is repair -- the
+leaves go back on the want-list and a peer re-supplies them proved. Whether
+anybody still has them is `spool/transfer`'s question. Reserving ERR for
+what the library cannot fix is what keeps the level meaning something.
+
+### Two clean passes, because one is not a control
+
+The block asserts silence twice: once before the spool has a log at all, and
+once after, over an intact blob. The second is the one that matters. Without
+it every assertion below passes for a module that emits on every cell it
+checks -- and a scrub over a large blob is thousands of cells, so a line per
+cell would bury the one line that is the point.
