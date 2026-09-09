@@ -34365,9 +34365,24 @@ is symmetry rather than merit. The pairing rule in sec 193 says the narrower
 thing -- that a printer written for a fact a widget ALREADY SHOWS must change
 that widget in the same commit -- and nothing shows this.
 
-Recorded rather than left as an absence, because the next sweep counting
-printers against widgets will find sixteen against seventeen and should know
-which one is deliberate.
+Recorded rather than left as an absence, because a sweep counting printers
+against widgets finds **seventeen against seventeen** and neither list is a
+subset of the other:
+
+	printer with no widget   replay   this section
+	widget with no printer   config   a FORM, not a display
+
+**"Sixteen against seventeen" is what this paragraph said first, and it was
+wrong when written.** The count was carried from memory rather than taken, and
+`ls cli/*_print.h | wc -l` answers it in one command. Both asymmetries are
+deliberate and neither is visible from a total, which is the argument for
+naming them rather than for counting at all.
+
+`gui/config_view` is the other one: it EDITS an `fzn_cli_t` through
+`fzn_cli_arg` rather than displaying a fact, so its CLI counterpart is the
+command line itself. A printer for it would be a second opinion about what a
+legal service number is -- which is the duplication that widget's header was
+written to refuse.
 
 ### An anchor that stopped naming one site, with nobody touching it
 
