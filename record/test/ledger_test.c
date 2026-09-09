@@ -322,6 +322,69 @@ static void test_every_guard_refuses_its_own_argument(void)
 	CHECK(fzn_ledger_behind(&l, a, NULL, 1u, 1u) != 0, "behind accepted a null subject");
 }
 
+/*
+ * THE QUESTION NO RETURN VALUE HERE COULD ANSWER. sec 227.
+ *
+ * `fzn_ledger_confirmed` returns a version and `fzn_ledger_count` returns a
+ * count, and both answer ZERO for a table nobody can walk as well as for an
+ * honest empty one -- so "this host has recorded no confirmations yet" and
+ * "this host's ledger is unreadable and every peer will be resent everything
+ * for ever" were the same two zeroes. `chain/manifest.h` at least has
+ * `fzn_manifest_overflowed` to say "cannot say"; nothing here did.
+ *
+ * AND IT MUST NOT EMIT, which is asserted in
+ * `test_the_ledger_says_what_no_return_value_can` below where a sink exists.
+ * `corrupt()` carries the ERR line for the readers that cannot report a
+ * fault; this one CAN report, so a consumer refreshing a screen would
+ * otherwise log the same error every frame.
+ */
+static void test_soundness_is_askable_and_silent(void)
+{
+	fzn_ledger_t l;
+	fzn_ledger_entry_t e[2];
+	uint8_t a[FZN_PUBKEY_LEN], s[FZN_SUBJECT_LEN];
+
+	key(a, 0xc1);
+	subj(s, 0xc2);
+
+	CHECK(fzn_ledger_sound(NULL) != 0,
+	      "a NULL ledger was called unreadable, though no ledger means no confirmations "
+	      "recorded, which is an answer");
+
+	REQUIRE(fzn_ledger_init(&l, e, 2) == FZN_LEDGER_OK, "init");
+	CHECK(fzn_ledger_sound(&l) != 0, "a fresh ledger was called unreadable");
+	REQUIRE(fzn_ledger_confirm(&l, a, s, 1u, 5u) == FZN_LEDGER_OK, "confirm");
+	CHECK(fzn_ledger_sound(&l) != 0, "a ledger with a row in it was called unreadable");
+
+	/* NEITHER STATE IS REACHABLE THROUGH `_init`. It is what a caller holds
+	 * who restored a struct from a file and got the count without the
+	 * array. */
+	{
+		fzn_ledger_t hollow = l;
+
+		hollow.used = hollow.capacity + 1u;
+		CHECK(fzn_ledger_sound(&hollow) == 0,
+		      "a count past capacity was called readable");
+		/* AND THE ZERO IT SHARES WITH AN HONEST EMPTY LEDGER. This is
+		 * the pair the predicate exists to separate. */
+		CHECK(fzn_ledger_count(&hollow) == 0u && fzn_ledger_confirmed(&hollow, a, s, 1u) == 0u,
+		      "the fixture does not reproduce the two zeroes, so it tests nothing");
+
+		hollow = l;
+		hollow.entries = NULL;
+		hollow.used = 1u;
+		CHECK(fzn_ledger_sound(&hollow) == 0,
+		      "a nonzero count with no array was called readable");
+
+		hollow = l;
+		hollow.entries = NULL;
+		hollow.used = 0u;
+		CHECK(fzn_ledger_sound(&hollow) != 0,
+		      "an empty ledger with no array was called unreadable, though it claims "
+		      "nothing and `corrupt` has always allowed it");
+	}
+}
+
 static void test_every_error_has_a_name(void)
 {
 	CHECK(strcmp(fzn_ledger_err_str(FZN_LEDGER_OK), "ok") == 0, "OK");
@@ -430,9 +493,25 @@ static void test_the_ledger_says_what_no_return_value_can(void)
 		      "a broken table invariant was reported below error");
 		CHECK(strcmp(diag_seen.subsystem, "record/ledger") == 0,
 		      "the event did not name its subsystem");
+
 		CHECK(strstr(diag_seen.text, "resent") != NULL,
 		      "the line does not say what follows -- every subject resent to every "
 		      "peer -- which is the part no caller can measure");
+
+		/* AND ASKING IS SILENT. sec 227 split the predicate from the
+		 * logging wrapper for this: `fzn_ledger_sound` IS an error
+		 * channel, so a line from it would contradict the argument the
+		 * lines above rest on -- and a consumer refreshing a screen
+		 * would emit the same ERR every frame.
+		 *
+		 * LAST IN THIS BLOCK, because it clears `diag_seen`: putting it
+		 * before the assertions above wiped the very line they read,
+		 * which is how it was first written and what the suite said. */
+		memset(&diag_seen, 0, sizeof(diag_seen));
+		CHECK(fzn_ledger_sound(&hollow) == 0, "the hollow ledger was called readable");
+		CHECK(diag_seen.calls == 0,
+		      "asking whether a ledger can be read logged an error, which would repeat "
+		      "for every frame a consumer drew");
 	}
 }
 #endif
@@ -448,6 +527,7 @@ int main(void)
 	test_a_full_ledger_refuses_rather_than_forgetting();
 	test_every_guard_refuses_its_own_argument();
 	test_every_error_has_a_name();
+	test_soundness_is_askable_and_silent();
 #ifdef FZN_FLOG_ON
 	test_the_ledger_says_what_no_return_value_can();
 #endif

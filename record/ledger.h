@@ -174,6 +174,32 @@ int fzn_ledger_behind(const fzn_ledger_t *ledger, const uint8_t peer[FZN_PUBKEY_
  * table is invented rather than measured. */
 size_t fzn_ledger_count(const fzn_ledger_t *ledger);
 
+/* Can this ledger be read at all?
+ *
+ * Non-zero when its own fields agree: `used` within `capacity`, and an array
+ * behind any nonzero count. The same predicate `chain/revocation.h`,
+ * `chain/chain_store.h` and `state/state.h` expose, and it is here for the
+ * reason sec 183 added the first of them -- a screen had nothing to ask.
+ *
+ * A NULL LEDGER IS SOUND, matching those three: no ledger means no
+ * confirmations recorded, which is an answer. A caller that wants to tell an
+ * ABSENT ledger from an UNREADABLE one checks the pointer, which it already
+ * holds.
+ *
+ * WHAT IT RESOLVES HERE IS SHARPER THAN IN THE SIBLINGS, because this module
+ * has no second channel at all. `fzn_ledger_confirmed` returns a version,
+ * `fzn_ledger_count` returns a count, and BOTH answer zero for a table nobody
+ * can walk as well as for an honest empty one. `chain/manifest.h` at least has
+ * `fzn_manifest_overflowed` to say "cannot say"; nothing here did, so
+ * "this host has recorded no confirmations yet" and "this host's ledger is
+ * unreadable and every peer will be resent everything for ever" were the same
+ * two zeroes. sec 227.
+ *
+ * IT IS NOT A NULL CHECK. Walking a ledger this returns non-zero for is safe
+ * only if the pointer is not NULL, so the order is: pointer, then this, then
+ * the walk. */
+int fzn_ledger_sound(const fzn_ledger_t *ledger);
+
 /* A short name for `fzn_ledger_err_t`. Never NULL. */
 const char *fzn_ledger_err_str(fzn_ledger_err_t err);
 

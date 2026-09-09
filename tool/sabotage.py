@@ -1101,6 +1101,36 @@ SABOTAGES = [
 		"(unsigned long long)version,\n",
 		"one reordered datagram and a peer whose view has fallen a long way behind return the SAME value, so the distance is the whole content the line adds to FZN_LEDGER_ERR_STALE -- sec 218",
 	),
+	# BATCH EIGHTEEN, 2026-09-09: what a peer has confirmed, and the
+	# predicate that separates two zeroes. project.md sec 227.
+	(
+		"ledger-sound-is-silent",
+		"record/ledger.c",
+		"\treturn !unscannable(ledger);\n",
+		"\treturn !corrupt(ledger);\n",
+		"`fzn_ledger_sound` IS an error channel -- it returns the answer -- so a line from it contradicts the argument the ERR inside `corrupt` rests on, and a consumer refreshing a screen would emit the same error every frame -- sec 227",
+	),
+	(
+		"ledger-print-asks-sound-first",
+		"cli/ledger_print.c",
+		"\t\tif (!fzn_ledger_sound(ledger)) {\n",
+		"\t\tif (0) {\n",
+		"every other accessor answers an unreadable ledger in the voice of a readable one: `confirmed` returns 0, which reads as `never acknowledged`, and `behind` returns non-zero, which reads as a measured comparison -- sec 227",
+	),
+	(
+		"ledger-print-unreadable-is-not-unknown",
+		"cli/ledger_print.c",
+		"\t\tput_str(s, \"cannot say -- this ledger cannot be scanned, so every peer reads \"\n\t\t           \"as behind\\n\");\n",
+		"\t\tput_str(s, \"nothing confirmed -- this peer has never acknowledged this \"\n\t\t           \"subject\\n\");\n",
+		"one peer out of date and a table nobody can walk are opposite findings: the first is somebody to resend to, the second is a screen where nothing is evidence -- sec 227",
+	),
+	(
+		"ledger-print-ahead-is-not-behind",
+		"cli/ledger_print.c",
+		"\t\t\telse if (confirmed < current)\n",
+		"\t\t\telse if (confirmed != current)\n",
+		"a peer that confirmed a version this host has not reached is not behind, and the ledger refuses to move backwards precisely so that state persists -- reporting it as behind would resend for ever -- sec 227",
+	),
 	# BATCH SEVENTEEN, 2026-09-09: the issuer list, and the two things it
 	# adds that no single call to the printer can. project.md sec 226.
 	(

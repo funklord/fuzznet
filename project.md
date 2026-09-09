@@ -34110,3 +34110,73 @@ would be this library keeping a second copy of a list its caller owns. That is
 the opposite conclusion from sec 224, where `fzn_manifest_follows` WAS added --
 and the difference is not taste: `follows` answers a question about state the
 caller cannot see, while an enumerator would return the caller its own input.
+
+## 227. Two zeroes that meant opposite things
+
+`cli/ledger_print` is `cli/manifest_print`'s mirror: that one says what THIS
+host is missing, this one says what somebody ELSE has confirmed receiving.
+Building it found the same shape one module over, and worse.
+
+	NONE  UNREADABLE  UNKNOWN  BEHIND  CURRENT
+
+`fzn_ledger_confirmed` returns a version and answers **0** for a peer that has
+never acknowledged a subject and for a table nobody can walk.
+`fzn_ledger_count` answers 0 for both. `fzn_ledger_behind` answers "behind"
+for both. Every one of those is right for the caller it was written for -- the
+header argues it, and the direction chosen costs a retransmission rather than
+a delivery -- and between them a person cannot tell:
+
+- one peer is out of date, on a ledger that works;
+- the ledger cannot be read, so EVERY peer answers that way and nothing on the
+  screen is evidence.
+
+**`chain/manifest.h` at least had `fzn_manifest_overflowed` to say "cannot
+say". This module had nothing at all**, which is why `fzn_ledger_sound` was
+added and is asked first. It is the fourth of its family, after
+`fzn_revocation_store_sound`, `fzn_chain_store_sound` and `fzn_state_sound`,
+and it answers the same way they do: a NULL ledger is SOUND, because no ledger
+means no confirmations recorded, which is an answer.
+
+### The predicate had to be split from the line that reports it
+
+`corrupt()` carries sec 218's ERR -- the one that exists because
+`fzn_ledger_confirmed` and `fzn_ledger_count` have no error channel. A
+soundness predicate IS an error channel: it returns the answer. So a
+`fzn_ledger_sound` implemented as `!corrupt(ledger)` would contradict the
+argument the line rests on, and **a consumer refreshing a screen would emit the
+same ERR every frame.**
+
+So the file has `unscannable()`, which is the question and says nothing, and
+`corrupt()`, which is `unscannable()` plus the line. One implementation, two
+behaviours around it -- sec 200's rule, met in a new place: two callers asking
+one library is not duplication, and here the two callers want different
+consequences from one answer.
+
+Its sabotage restores the one-line version, and the suite catches it: **asking
+whether a ledger can be read must not log that it cannot.**
+
+### A test that clobbered the evidence it was asserting on
+
+Worth recording because the first version passed nothing and looked like a
+module fault. The silence check was written into the middle of the block that
+asserts on the captured line:
+
+	FAIL ledger_print_test.c:507: the line does not say what follows
+
+`memset(&diag_seen, 0, ...)` before calling `fzn_ledger_sound` wiped the very
+line the following assertions read. **An assertion that resets shared capture
+state has to come last in its block**, and the test now says so where the next
+person will meet it rather than only here.
+
+### And a citation to a function that does not exist
+
+The header first argued its required out-parameter "on `fzn_ledger_deficit`'s
+argument for its own". There is no `fzn_ledger_deficit`; the function meant is
+`fzn_manifest_deficit`, which in turn credits `record/sync.h`'s
+`fzn_sync_digest`, and that is what the header cites now.
+
+Nothing would have caught it. `make style` holds every PATH in this document
+against the tree and no gate reads a function name out of a comment -- which
+is the shape `evidence.md` calls an invented identifier: well-formed, plausible
+and matching nothing that has ever existed. Caught here only because the
+sentence was checked against the tree before it was believed.

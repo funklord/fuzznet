@@ -28,9 +28,22 @@
  * cannot bound. The polarity is the opposite of `fzn_revocation_covers`'s
  * and the reason is opposite too: an unreadable revocation store must not
  * silently authorise, and an unreadable ledger must not silently withhold. */
+/* The predicate itself, and it says nothing.
+ *
+ * SPLIT FROM `corrupt` IN sec 227, when `fzn_ledger_sound` was added. That one
+ * IS an error channel -- it returns the answer -- so logging from it would
+ * contradict the argument the line below rests on, and a consumer refreshing a
+ * screen would emit the same ERR every frame. One implementation of the
+ * question, two behaviours around it: `corrupt` for the readers that cannot
+ * report, this for the caller that asked. */
+static int unscannable(const fzn_ledger_t *ledger)
+{
+	return ledger->used > ledger->capacity || (ledger->used > 0 && !ledger->entries);
+}
+
 static int corrupt(const fzn_ledger_t *ledger)
 {
-	if (ledger->used <= ledger->capacity && (ledger->used == 0 || ledger->entries))
+	if (!unscannable(ledger))
 		return 0;
 
 	/*
@@ -196,6 +209,19 @@ int fzn_ledger_behind(const fzn_ledger_t *ledger, const uint8_t peer[FZN_PUBKEY_
 	 * resolves to "send it again", which costs bytes rather than
 	 * correctness. */
 	return fzn_ledger_confirmed(ledger, peer, subject, kind) < current;
+}
+
+int fzn_ledger_sound(const fzn_ledger_t *ledger)
+{
+	/* A NULL LEDGER IS SOUND, and this is not a null check -- the header
+	 * says so and the three siblings answer the same way. `corrupt()` is
+	 * the private predicate every guard in this file already uses, and
+	 * exposing its negation rather than a second implementation is what
+	 * keeps a caller's answer and this module's the same answer. */
+	if (!ledger)
+		return 1;
+
+	return !unscannable(ledger);
 }
 
 size_t fzn_ledger_count(const fzn_ledger_t *ledger)
