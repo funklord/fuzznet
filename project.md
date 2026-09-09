@@ -35483,3 +35483,60 @@ API could not make** -- after `fzn_manifest_follows`, `fzn_ledger_sound`,
 the same way: by asking what a consumer would have to compute for itself,
 and then checking whether the obvious computation agrees with the module's.
 It usually does, right up to the case the module exists for.
+
+## 240. Six of sec 102's seven absences are built, and the seventh is a decision
+
+sec 102 measured what this library lacked against what a filestore needs and
+listed seven things. Re-measured against the tree:
+
+    the have-set on the wire        spool/message.h
+    want/have/have_query/data       spool/message.h
+    a transfer state machine        spool/transfer.h
+    scrub                           spool/scrub.h
+    the return-routability cookie   spool/message.h, transfer.h, plan.h
+    tier namespaces                 session/aead.h, wire/generated/situ.h
+    read-at-offset streaming        ABSENT
+
+**Recorded because sec 102 is cited as a measurement and reads as a
+present-tense claim about the tree.** A reader arriving at it today would
+conclude this library has no transfer state machine and no wire vocabulary
+for `want` and `have`, and would be wrong about six of the seven. The entry
+itself is history and stays as it is; this is the re-measurement, in the
+place a reader of the list will next look.
+
+### The seventh is not missing code, it is an unmade decision
+
+`fzn_spool_read` hands back a SEALED leaf by index. Getting content bytes at
+a byte offset needs three things composed: the leaf arithmetic, the sealed
+bytes, and `fzn_blob_leaf_open` -- and that last one takes a content key.
+
+**`spool/` is keyless on purpose.** Its header states it as a property:
+*a relay running this store serves bytes it cannot read*. A read-at-offset
+call living there would put a content key into the one struct whose design
+excludes it, and the keylessness is not an omission to fill -- it is what
+lets a host relay a blob it has no business reading.
+
+So the question is where the composition lives, and it has at least three
+answers with different costs:
+
+- **A new module above both**, holding the key and calling into `spool/` and
+  `blob/`. Keeps `spool/` keyless, and adds a module and a place for the two
+  to disagree about leaf arithmetic.
+- **In `blob/`**, which already owns leaf sealing and opening, taking a
+  spool as an argument. Keeps the key where the key already is, and makes
+  `blob/` depend on a store it currently knows nothing about.
+- **A keyless half in `spool/` and the opening left to the consumer** -- the
+  spool answers which leaves a byte range covers and whether it holds them
+  all, and the caller opens them. Preserves every existing property and
+  leaves the caller doing the part sec 230 warns callers get wrong.
+
+**Whose decision it is: the copyright holder's.** It settles where a content
+key may appear, which is an architecture question rather than an API one,
+and sec 102 said the same thing about a different half of it -- the
+addressing dispute with fuzzypickles is *the thing to settle before an API
+rather than after*.
+
+**Not built for that reason, rather than for want of time.** Writing any of
+the three would answer the question by doing it, and the third looks
+cheapest precisely because it hands the hard part to somebody who does not
+have the header in front of them.
