@@ -366,6 +366,27 @@ fzn_fresh_err_t fzn_replay_admit(fzn_replay_window_t *window,
  * happening. */
 size_t fzn_replay_expire(fzn_replay_window_t *window, uint64_t now);
 
+/* How many entries `fzn_replay_expire` would reclaim, without reclaiming
+ * them.
+ *
+ * sec 229, AND THIS HEADER ASKED FOR IT ABOVE WITHOUT PROVIDING IT. The
+ * argument for `fzn_replay_set_log` says a full window "means either that
+ * nobody is expiring or that the capacity is below the arrival rate the
+ * horizon implies", and that "those want different fixes and the value says
+ * neither". Neither does anything else here: `used` and `capacity` say the
+ * window is full and nothing says WHY, because the only thing that knew --
+ * `fzn_replay_expire` -- had to consume the answer to give it.
+ *
+ * So this is the same walk with no write. A full window with entries to
+ * reclaim is a consumer that has stopped calling expire; a full window with
+ * none is a capacity below what the horizon implies. Those are the two fixes,
+ * and telling them apart is what a screen or a report is for.
+ *
+ * ZERO FOR A WINDOW WHOSE FIELDS DISAGREE, matching `fzn_replay_expire`'s
+ * refusal to walk one: a count from a table that cannot be scanned is
+ * invented rather than measured, which is `fzn_state_count`'s rule. */
+size_t fzn_replay_expirable(const fzn_replay_window_t *window, uint64_t now);
+
 /* A short name for `fzn_fresh_err_t`, for a log line or a message to a user.
  *
  * NEVER NULL, including for a value that is not one of the enumerators, so

@@ -567,9 +567,9 @@ SABOTAGES = [
 	(
 		"freshness-sweep-entries",
 		"frame/freshness.c",
-		"\tif (!window || !window->entries)\n\t\treturn 0;\n",
-		"\tif (!window)\n\t\treturn 0;\n",
-		"a window claiming entries behind a null pointer (caught by the crash)",
+		"\tif (!window || !window->entries)\n\t\treturn 0;\n\n\t/* The worst of the three, because this loop WRITES",
+		"\tif (!window)\n\t\treturn 0;\n\n\t/* The worst of the three, because this loop WRITES",
+		"a window claiming entries behind a null pointer (caught by the crash). RE-POINTED sec 229: `fzn_replay_expirable` opens with the same two lines, so the anchor stopped naming one site without anybody touching this entry -- an anchor's uniqueness is a property of the file at the moment of the edit, not of the string",
 	),
 	(
 		"freshness-horizon-sat",
@@ -1100,6 +1100,36 @@ SABOTAGES = [
 		"(unsigned long long)(ledger->entries[at].version - version),\n",
 		"(unsigned long long)version,\n",
 		"one reordered datagram and a peer whose view has fallen a long way behind return the SAME value, so the distance is the whole content the line adds to FZN_LEDGER_ERR_STALE -- sec 218",
+	),
+	# BATCH TWENTY, 2026-09-09: a full replay window, and which of its two
+	# fixes it needs. project.md sec 229.
+	(
+		"replay-expirable-does-not-expire",
+		"frame/freshness.c",
+		"\t\tif (window->entries[i].expires_at <= now)\n\t\t\tdue++;\n",
+		"\t\tif (window->entries[i].expires_at <= now)\n\t\t\twindow->used--;\n",
+		"a count of what expiry would reclaim must not reclaim it: a report that changes what it describes is worse than none, and this one is taken by a printer -- sec 229",
+	),
+	(
+		"replay-expirable-draws-the-same-boundary",
+		"frame/freshness.c",
+		"\t\tif (window->entries[i].expires_at <= now)\n",
+		"\t\tif (window->entries[i].expires_at < now)\n",
+		"`> now` KEEPS in the compaction, so an entry expiring exactly at `now` is dropped -- a counter drawing a different boundary answers about a window the operation it describes would not produce -- sec 229",
+	),
+	(
+		"replay-print-names-which-fix",
+		"cli/replay_print.c",
+		"\t\telse if (due)\n\t\t\tsaid = FZN_REPLAY_LINE_FULL_UNPRUNED;\n",
+		"\t\telse if (0)\n\t\t\tsaid = FZN_REPLAY_LINE_FULL_UNPRUNED;\n",
+		"frame/freshness.h says a full window means either that nobody is expiring or that the capacity is too small, and that `those want different fixes and the value says neither` -- collapsing them here puts a reader back where the return value left them -- sec 229",
+	),
+	(
+		"replay-print-full-is-an-emergency",
+		"cli/replay_print.c",
+		"\t\tput_str(s, \"REFUSING FRESH FRAMES -- full at \");\n\t\tput_size(s, capacity);\n\t\tput_str(s, \" with \");\n",
+		"\t\tput_str(s, \"full at \");\n\t\tput_size(s, capacity);\n\t\tput_str(s, \" with \");\n",
+		"the window refuses rather than evicting -- deliberately, since evicting would let an attacker flush it and replay what they recorded -- so a full one is a host turning away FRESH traffic, which `full` alone does not say",
 	),
 	# BATCH NINETEEN, 2026-09-09: the delivery list, where one unreadable
 	# table voids a screen of green rows. project.md sec 228.

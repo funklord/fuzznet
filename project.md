@@ -34272,3 +34272,65 @@ So the observation it was offered for does not survive either: fifty-nine is
 the widest floor in the sweep, and it belongs to a line that reports a
 QUANTITY. The honest version is the smaller one -- these two numbers are what
 the sweep measured today, and both clear eighty columns.
+
+## 229. The counter that could not be taken without spending it
+
+`cli/replay_print` shows how full this host's replay window is and, when it is
+full, which of two opposite fixes it needs. `frame/freshness.h` asked for the
+line and could not have produced it.
+
+	NONE  EMPTY  HOLDING  FULL_UNPRUNED  FULL_LIVE
+
+### A full window is an emergency that does not look like one
+
+The window REFUSES rather than evicting, and its header argues why: evicting
+the oldest live entry "silently reopens replay", so an attacker able to
+generate traffic could flush the window and replay anything recorded. The
+consequence is that a full window is **a host refusing fresh frames**. It is
+not corrupt, it is not crashing, and the only thing that says so is a return
+value handed to a caller that may do nothing with it.
+
+So both FULL lines open with `REFUSING FRESH FRAMES`. Its sabotage removes
+those three words and leaves `full at 2`, which is true and does not say what
+is happening.
+
+### The distinction the header named and nothing could make
+
+> a full window means either that nobody is expiring or that the capacity is
+> below the arrival rate the horizon implies. **Those want different fixes and
+> the value says neither.**
+
+Nothing else could say either. `used` and `capacity` say the window is full;
+the only thing that knew WHY was `fzn_replay_expire`, and **it had to consume
+the answer in order to give it** -- a caller asking "how many are reclaimable"
+by calling it has reclaimed them, and a report that changes what it describes
+is worse than no report.
+
+`fzn_replay_expirable` is the same walk with no write. A full window with
+entries to reclaim is a consumer that has stopped calling expire, and the fix
+is a caller; a full window of live entries is a capacity below what the
+horizon implies, and the fix is the sizing formula. **Two states rather than
+one with two wordings**, which is the opposite call from sec 224 and for a
+stated reason: there a floor of three and a floor of zero want the same action,
+here they want different ones.
+
+The test holds `used`, `capacity` and every other accessor's answer fixed
+across the pair and requires the states and the lines to differ -- and asserts
+separately that rendering reclaimed nothing, because a printer that expired
+what it counted would be the defect this function exists to avoid.
+
+### An anchor that stopped naming one site, with nobody touching it
+
+	sabotage: freshness-sweep-entries matches 2 sites in frame/freshness.c
+
+`fzn_replay_expirable` opens with the same two lines as `fzn_replay_expire` --
+the null check and the disagreeing-fields refusal, deliberately, because
+drawing a different boundary from the operation it describes would be worse.
+So an entry written months ago, untouched, stopped naming one site.
+
+`evidence.md` states it and this is the first instance of it here:
+**uniqueness is a property of the file at the moment of the edit, not of the
+string.** Nothing but the census could have caught it -- the suite passes
+either way, and a sabotage matching two sites tests neither reliably. The entry
+is re-pointed with enough context to name the compaction, and it now carries
+why it moved.

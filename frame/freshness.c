@@ -149,6 +149,31 @@ fzn_fresh_err_t fzn_replay_init(fzn_replay_window_t *window, fzn_replay_entry_t 
 	return FZN_FRESH_OK;
 }
 
+size_t fzn_replay_expirable(const fzn_replay_window_t *window, uint64_t now)
+{
+	size_t due = 0;
+
+	if (!window || !window->entries)
+		return 0;
+	/* The same refusal `fzn_replay_expire` makes, and for a weaker version
+	 * of its reason: this loop only READS, so a `used` past `capacity`
+	 * reads outside the array without writing outside it. Reading outside
+	 * it is still reading outside it. */
+	if (window->used > window->capacity)
+		return 0;
+
+	/* `> now` KEEPS, exactly as the compaction below does. The boundary has
+	 * to be the same one or this answers about a window the other function
+	 * would not produce -- and a report that disagrees with the operation it
+	 * describes is worse than no report. */
+	for (size_t i = 0; i < window->used; i++) {
+		if (window->entries[i].expires_at <= now)
+			due++;
+	}
+
+	return due;
+}
+
 size_t fzn_replay_expire(fzn_replay_window_t *window, uint64_t now)
 {
 	size_t kept = 0;
