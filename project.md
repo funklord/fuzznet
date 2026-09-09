@@ -35172,6 +35172,41 @@ FULL arms answer first, and no input distinguishes the two censuses -- sec
 228's lesson, that a condition with one reachable shape is a condition no
 sabotage can test, met before the sabotage rather than after it.
 
+### The three controls, and the one that justifies the third slot
+
+	held-by-counts-handed-slots
+	  FAIL reassembly_test.c:528: a handed slot was not counted as
+	  held, so a consumer reading this would see room where the next
+	  chunk is refused
+
+	reasm-quota-is-asked
+	  FAIL reasm_print_test.c:140: a sender at its quota with a slot
+	  free was reported as merely holding
+
+	reasm-quota-counts-senders-once
+	  FAIL reasm_print_test.c:159: one sender holding two slots was
+	  counted twice, so the line inflates how many peers this bound
+	  is refusing
+
+Each landed where it was aimed, which is the first time in three sections
+that has happened -- and the third is the one worth keeping. It fires on
+**exactly one assertion**, the case that could not be written while the
+fixture had two slots, so it is the evidence that widening the fixture was
+load-bearing rather than tidying. A sabotage that fires on one check is
+also the sharpest kind: nothing cheaper intercepted it, so that check is
+the only thing standing between this line and a wrong count.
+
+**Run by hand rather than through `tool/sabotage.py`**, which is worth
+saying because the tool is the thing that normally provides this evidence.
+It refuses a dirty tree -- correctly, since it rewrites files in place and
+restores from memory -- so the sequence had to be commit, then control,
+then this paragraph. And two attempts to run it were killed for memory
+while another user's full sweep held 30 of this machine's 47 GB. Its trap
+worked: `sabotage: signal 15 -- files restored`, and `git status` clean
+after both. Patching one file and rebuilding one test binary is what the
+loaded machine could actually run, and it answers the same question sec 52
+asks.
+
 ### The widget this did not need
 
 **No widget.** A screen would add per-sender rows a line cannot carry, and
