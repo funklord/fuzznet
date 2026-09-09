@@ -1101,6 +1101,36 @@ SABOTAGES = [
 		"(unsigned long long)version,\n",
 		"one reordered datagram and a peer whose view has fallen a long way behind return the SAME value, so the distance is the whole content the line adds to FZN_LEDGER_ERR_STALE -- sec 218",
 	),
+	# BATCH FIFTEEN, 2026-09-09: the deficit on a screen, and the accessor
+	# it needed. project.md sec 224.
+	(
+		"manifest-follows-refuses-an-unreadable-state",
+		"chain/manifest.c",
+		"\tif (!state_sound(state) || !state->issuers || !issuer)\n\t\treturn 0;\n\n\treturn find_issuer(state, issuer) < state->issuer_used;\n",
+		"\tif (!state_sound(state) || !state->issuers || !issuer)\n\t\treturn 1;\n\n\treturn find_issuer(state, issuer) < state->issuer_used;\n",
+		"this answers the OPPOSITE conservative direction from fzn_manifest_overflowed on purpose: claiming to follow a key whose entry cannot be read hides the same gap from the other side, and both refuse to flatter the host -- sec 224",
+	),
+	(
+		"manifest-print-asks-follows-first",
+		"cli/manifest_print.c",
+		"\t\tif (!fzn_manifest_follows(state, issuer)) {\n",
+		"\t\tif (0) {\n",
+		"`pending` answers 0 for an unfollowed issuer and calls that the absence of a question, and `overflowed` answers 1 for it -- so without asking `follows` an issuer nothing is tracked from renders as one whose count is a floor, which is the opposite sentence -- sec 224",
+	),
+	(
+		"manifest-print-floor-is-not-a-count",
+		"cli/manifest_print.c",
+		"\t\tput_str(s, \"AT LEAST \");\n",
+		"\t\tput_str(s, \"\");\n",
+		"a floor printed as a count is the fail-open this file exists to make visible: the host looks MORE complete than it is, and a person reading a number has no way to know it can only go up -- sec 224",
+	),
+	(
+		"manifest-print-no-state-is-not-zero",
+		"cli/manifest_print.c",
+		"\t\tput_str(s, \"cannot say -- there is no manifest state to read\\n\");\n",
+		"\t\tput_str(s, \"0 revocations outstanding\\n\");\n",
+		"a zero where there is nothing to measure reads as a measurement of a real thing, which is exactly the direction manifest.h refuses everywhere else -- sec 224",
+	),
 	# BATCH FOURTEEN, 2026-09-09: chain/manifest, the one refusal in this
 	# library that fails OPEN. project.md sec 223.
 	(

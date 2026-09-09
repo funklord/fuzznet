@@ -709,6 +709,32 @@ size_t fzn_manifest_pending(const fzn_manifest_state_t *state,
 int fzn_manifest_overflowed(const fzn_manifest_state_t *state,
                             const uint8_t issuer[FZN_PUBKEY_LEN]);
 
+/* Does this host follow `issuer` at all?
+ *
+ * Zero for a NULL or unreadable state and for an issuer nobody named -- the
+ * conservative direction here being "not tracking it", since claiming to
+ * follow a key this host has no room for is the answer that hides a gap.
+ *
+ * ADDED FOR A DISPLAY, AND THE AMBIGUITY IT RESOLVES IS REAL RATHER THAN
+ * TIDINESS. sec 224. `fzn_manifest_pending` answers 0 for an issuer that is
+ * not followed and says in as many words that this "is not a claim of
+ * completeness -- it is the absence of a question", and
+ * `fzn_manifest_overflowed` answers 1 both for a dropped pair and for an
+ * issuer nobody named. So the pair (pending 0, overflowed 1) means EITHER
+ * of:
+ *
+ *   - this host does not follow that key, and is tracking nothing from it;
+ *   - it does follow it, its count is known to be understated, and the
+ *     pairs it did record have since been satisfied.
+ *
+ * The second is reachable: `fzn_manifest_satisfy` drains the deficit while
+ * the flag clears only when a manifest lands with nothing dropped. To a
+ * caller deciding whether to refuse, both are "cannot say" and the
+ * conflation is correct. To a person reading a screen they are opposite
+ * sentences, and `cli/manifest_print.h` needs to tell them apart. */
+int fzn_manifest_follows(const fzn_manifest_state_t *state,
+                         const uint8_t issuer[FZN_PUBKEY_LEN]);
+
 /* Copy out what this host is missing from `issuer`. Returns how many pairs
  * were written, and never more than `out_cap`.
  *

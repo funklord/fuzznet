@@ -686,6 +686,22 @@ size_t fzn_manifest_pending(const fzn_manifest_state_t *state,
 	return n;
 }
 
+int fzn_manifest_follows(const fzn_manifest_state_t *state,
+                         const uint8_t issuer[FZN_PUBKEY_LEN])
+{
+	/* THE OPPOSITE CONSERVATIVE DIRECTION FROM `fzn_manifest_overflowed`,
+	 * and deliberately. That one answers "cannot say" for an unreadable
+	 * state because reporting an unmeasured deficit as sound is the
+	 * fail-open this module exists to remove. This one answers "not
+	 * following" for the same input, because claiming to follow a key
+	 * whose entry cannot be read would hide the same gap from the other
+	 * side. Both refuse to flatter the host. */
+	if (!state_sound(state) || !state->issuers || !issuer)
+		return 0;
+
+	return find_issuer(state, issuer) < state->issuer_used;
+}
+
 int fzn_manifest_overflowed(const fzn_manifest_state_t *state,
                             const uint8_t issuer[FZN_PUBKEY_LEN])
 {

@@ -33911,3 +33911,71 @@ value a module already had was coarser than its own comments knew: the ledger's
 readers with no error channel, and this one's boolean where a count belonged.
 Both were written down years' worth of comments ago and nobody had read them as
 a gap.
+
+## 224. The deficit on a screen, and the ambiguity that put it there
+
+The pairs stopped at fourteen printers and fifteen widgets. Enumerating what
+the library can say against what a consumer can show leaves one fact that
+matters more than any of them and had no surface at all: **how much of the
+revocation picture this host is missing, and whether that number can be
+believed.**
+
+	cli/manifest_print   NONE  UNFOLLOWED  COMPLETE  PENDING  UNDERSTATED
+
+sec 223 wired the log for it. A log is for whoever is looking at a log; this is
+for the person asking whether their host is safe to trust, and `manifest.h`
+already says they cannot tell from the number alone -- a dropped pair "makes it
+report a SMALLER deficit than it has, which is to say it looks MORE complete
+than it is".
+
+### The library could not tell two opposite states apart
+
+Writing the printer found a real ambiguity rather than a missing convenience.
+
+	fzn_manifest_pending     0 for an issuer that is not followed, and says
+	                         so: "the absence of a question", not an answer
+	fzn_manifest_overflowed  1 for a dropped pair AND for an issuer nobody
+	                         named -- "the same fact in different clothes"
+
+Each is right for the caller it was written for. Together they mean the pair
+**(0, 1) has two readings**:
+
+- this host does not follow that key, and tracks nothing from it;
+- it does follow it, its count is a floor, and the pairs it did record have
+  since been satisfied.
+
+The second is reachable -- `fzn_manifest_satisfy` drains the deficit table
+while the flag clears only on an admission that drops nothing -- and the test
+asserts the fixture reproduces the (0, 1) pair before asserting anything about
+the line, so the case cannot quietly stop being the case it claims to be.
+
+**To a caller deciding whether to refuse, the conflation is correct**: both are
+"cannot say" and `overflowed`'s comment argues for exactly that. **To a person
+reading a screen they are opposite sentences.** So `fzn_manifest_follows` was
+added, and it answers the OPPOSITE conservative direction from `overflowed` on
+purpose: an unreadable state is "not following" here and "cannot say" there,
+because claiming to follow a key whose entry cannot be read hides the same gap
+from the other side. Both refuse to flatter the host.
+
+This is the fourth time a printer has found a library gap rather than a
+formatting question -- after `fzn_chain_expired_at`, the two soundness
+predicates and `fzn_vocabulary_names`. **A display asks a question no decision
+ever asks: not "may I proceed" but "what is true", and the second is
+strictly harder.**
+
+### One state, two wordings, and the zero that must not read as good news
+
+`FZN_MANIFEST_LINE_UNDERSTATED` covers a floor of three and a floor of zero.
+They read differently to a person -- "AT LEAST 3 revocations outstanding"
+against "none this host can name is outstanding, and it knows there are more it
+cannot" -- and they are the same thing to a caller, which is that the number
+cannot be trusted downwards. So the line differs and the state does not, on sec
+201's rule.
+
+The zero case is worded separately rather than falling into the counted one
+because "AT LEAST 0" is not a sentence, and the wrong repair would have been to
+let it print "up to date". Three of the five lines exist to stop a zero reading
+as good news: NONE says *cannot say*, UNFOLLOWED says *nothing is tracked*, and
+this one says *more than none*. **The whole file is one distinction spelled
+three ways, which is what it takes when the underlying accessor answers zero
+for four different reasons.**

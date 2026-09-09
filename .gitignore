@@ -55,6 +55,7 @@
 /cli/test/trust_print_test
 /cli/test/link_print_test
 /cli/test/peer_print_test
+/cli/test/manifest_print_test
 /gui/test/trust_view_test
 /gui/test/log_view_test
 /gui/test/qr_view_test
