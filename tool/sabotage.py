@@ -1101,6 +1101,27 @@ SABOTAGES = [
 		"(unsigned long long)version,\n",
 		"one reordered datagram and a peer whose view has fallen a long way behind return the SAME value, so the distance is the whole content the line adds to FZN_LEDGER_ERR_STALE -- sec 218",
 	),
+	# BATCH SIXTEEN, 2026-09-09: the two widgets the census could not see.
+	#
+	# `gui/qr_view.cpp` and `gui/trust_view.cpp` are the FIRST pair, written
+	# before this table covered widgets at all, and they were the only two of
+	# fifteen with no entry. Nothing said so: `make manifest` named the front
+	# ends as one literal and one directory, so the coverage check had no
+	# population to compare them against. Both are fixed in sec 225.
+	(
+		"qr-view-uses-the-library-s-words",
+		"gui/qr_view.cpp",
+		"\t\tmessage_ = QString::fromUtf8(fzn_qr_err_str(err));\n",
+		"\t\tmessage_ = QStringLiteral(\"no code\");\n",
+		"a widget that words its own refusal gives a consumer a second vocabulary for one fact, and a user comparing a dialog against a log would be comparing two spellings rather than the fault",
+	),
+	(
+		"trust-view-absent-is-not-empty",
+		"gui/trust_view.cpp",
+		"\t\tfingerprint_->setText(QStringLiteral(\"(none)\"));\n",
+		"\t\tfingerprint_->setText(QStringLiteral(\"\"));\n",
+		"an empty field where a fingerprint belongs reads as a fingerprint OF SOMETHING, and somebody comparing it out of band would conclude the peer is wrong when the truth is this host has no anchor at all",
+	),
 	# BATCH FIFTEEN, 2026-09-09: the deficit on a screen, and the accessor
 	# it needed. project.md sec 224.
 	(
@@ -3333,7 +3354,15 @@ def source_list():
 	#
 	# A `backend ` line carries a second field (the macro), so the path is
 	# the SECOND word and not the rest of the line.
-	want = ("source ", "binding ", "backend ")
+	# AND THE FRONT ENDS, which were the last kind the census could not see.
+	# sec 221 widened this to `binding` and `backend`; `subsystem` was still
+	# outside it, and until sec 225 those lines named one file where the tree
+	# has sixteen, so widening to them would have been widening to a wrong
+	# list. Both are fixed together for that reason.
+	#
+	# A `subsystem` line carries the gating macro as its third field, exactly
+	# as `backend` does, so the path is still the SECOND word.
+	want = ("source ", "binding ", "backend ", "subsystem ")
 	return [l.split()[1] for l in out.stdout.splitlines() if l.startswith(want)]
 
 
@@ -3412,9 +3441,9 @@ def verify():
 		      "defended without testing it; an uncovered source reports a "
 		      "module as swept when nothing swept it." % bad)
 		return 2
-	print("sabotage: %d entries over %d of %d library sources, bindings and "
-	      "backends, each naming exactly one site (nothing was built or "
-	      "changed)"
+	print("sabotage: %d entries over %d of %d library, binding, backend and "
+	      "front-end sources, each naming exactly one site (nothing was built "
+	      "or changed)"
 	      % (len(SABOTAGES), len(srcs) - len(NO_GUARDS), len(srcs)))
 	return 0
 

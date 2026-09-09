@@ -4470,8 +4470,16 @@ manifest:
 	@$(if $(PERSIST_FILE_ON),echo "backend persist/persist_file.c FZN_PERSIST_FILE_ON";)
 	@$(if $(CLAIM_FILE_ON),echo "backend claim/claim_file.c FZN_CLAIM_FILE_ON";)
 	@$(if $(RECORD_STORE_FILE_ON),echo "backend record/store_file.c FZN_RECORD_STORE_FILE_ON";)
-	@$(if $(CLI_ON),echo "subsystem cli/cli.c FZN_CLI_ON";)
-	@$(if $(GUI_ON),echo "subsystem gui/ FZN_GUI_ON against $(FZN_PROBE_QT)";)
+	@# ONE LINE PER SOURCE, as `binding` and `backend` already are. These two
+	@# were a hand-written literal naming `cli/cli.c` and a bare directory
+	@# `gui/`, and the first had drifted: CLI_SRCS holds sixteen files, so a
+	@# consumer following this output built the parser and none of the
+	@# fifteen printers. Nothing reads these lines back -- they are the only
+	@# kind in this target no gate checks -- which is how a list that says
+	@# one where the tree has sixteen went unnoticed. project.md sec 225.
+	@$(if $(CLI_ON),for c in $(CLI_SRCS); do echo "subsystem $$c FZN_CLI_ON"; done;)
+	@$(if $(GUI_ON),for c in $(GUI_SRCS); do \
+		echo "subsystem $$c FZN_GUI_ON against $(FZN_PROBE_QT)"; done;)
 	@$(if $(SPOOL_FILE_ON),echo "backend spool/spool_file.c FZN_SPOOL_FILE_ON";)
 
 # Named targets only, and it lists them. No rm -rf of a directory and no

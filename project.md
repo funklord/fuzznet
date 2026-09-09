@@ -33979,3 +33979,53 @@ as good news: NONE says *cannot say*, UNFOLLOWED says *nothing is tracked*, and
 this one says *more than none*. **The whole file is one distinction spelled
 three ways, which is what it takes when the underlying accessor answers zero
 for four different reasons.**
+
+## 225. The manifest line nothing reads back
+
+sec 221 widened the sabotage census to the bindings and the backends and left
+the front ends outside it. Closing that turned up why they were outside: **the
+list they would have been read from was wrong.**
+
+	before   subsystem cli/cli.c FZN_CLI_ON
+	         subsystem gui/ FZN_GUI_ON against Qt6Widgets
+	after    one line per source, 16 of cli and 15 of gui
+
+`CLI_SRCS` holds sixteen files. The manifest named one, as a hand-written
+literal, and had done since the CLI was one file -- so **a consumer following
+`make manifest` to build the CLI subsystem got the argument parser and none of
+the fifteen printers.** The GUI line was a bare directory where every other
+line in the target names a file.
+
+### Why it survived: it is the only output here nothing reads back
+
+`installcheck` compiles a consumer from the `source` lines and refuses if a
+core object so much as defines a primitive's name. `sabotage --verify` reads
+`source`, and now `binding` and `backend`. **Nothing anywhere consumes
+`subsystem`.** It is generated output that no gate re-derives, which is the
+condition `evidence.md` names for a number nobody re-checks -- and unlike a
+document, a generated list is read by tools that were told what to expect by
+the thing that wrote it.
+
+So the fix is two changes that only work together. The manifest names each
+source, and the census reads `subsystem` lines. Widening the census to the old
+lines would have been widening it to a wrong list, which is worse than not
+widening it: a coverage check over `cli/cli.c` alone would have reported the
+front ends swept.
+
+### What the widened census found, which is what the hand count found
+
+	population   57 -> 88     covered 87, one deliberately guard-free
+	named        gui/qr_view.cpp, gui/trust_view.cpp
+
+Those are the FIRST pair, written before this table covered widgets at all,
+and the only two of fifteen with no entry -- measured by hand before the
+census was widened, then named independently by the census afterwards. **Two
+counts by different methods agreeing is worth more here than either alone**,
+and it is the check `evidence.md` asks for before a scope number is used: not
+the same query twice, a different one that would fail differently.
+
+Both have an entry now, and neither is decoration. The QR widget's refusal
+uses `fzn_qr_err_str`'s words so a dialog and a log spell one fault one way;
+the trust widget shows `(none)` rather than an empty field, because a blank
+where a fingerprint belongs reads as a fingerprint OF SOMETHING and somebody
+comparing it out of band would conclude the peer is wrong.
