@@ -73,6 +73,7 @@
 #include <fuzznet/cli/trust_print.h>
 #include <fuzznet/cli/link_print.h>
 #include <fuzznet/cli/peer_print.h>
+#include <fuzznet/cli/manifest_print.h>
 #endif
 #include <fuzznet/blob/blob.h>
 #include <fuzznet/ratchet/ratchet.h>
@@ -160,6 +161,7 @@
 #include "cli/trust_print.h"
 #include "cli/link_print.h"
 #include "cli/peer_print.h"
+#include "cli/manifest_print.h"
 #endif
 #include "blob/blob.h"
 #include "ratchet/ratchet.h"
