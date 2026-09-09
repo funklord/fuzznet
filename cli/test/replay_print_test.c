@@ -134,7 +134,14 @@ int main(void)
 
 	/* ---- AND EXPIRING NOTHING IS NOT A SIDE EFFECT. The count above was
 	 * taken by a printer, and a printer that expired what it counted would
-	 * change the thing it was describing. */
+	 * change the thing it was describing.
+	 *
+	 * THE COMPILER ALREADY HOLDS THIS, so the assertion cannot fail while
+	 * `fzn_replay_expirable` and `fzn_replay_print` take a
+	 * `const fzn_replay_window_t *` -- a sabotage for it was written and
+	 * reported NOT-BUILT. It stays as a tripwire for the plausible future
+	 * edit that widens either signature, which is the day it starts being
+	 * able to fail. sec 229. */
 	CHECK(window_of(&w, 2u, 1u), "the fixture does not build");
 	len = line_of(&w, 100u, line, &said);
 	CHECK(w.used == 2u,

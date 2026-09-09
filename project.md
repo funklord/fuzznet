@@ -34319,6 +34319,38 @@ across the pair and requires the states and the lines to differ -- and asserts
 separately that rendering reclaimed nothing, because a printer that expired
 what it counted would be the defect this function exists to avoid.
 
+### A fourth way to aim a sabotage wrong: at something `const` already holds
+
+The entry written for "expirable does not expire" mutated `due++` into
+`window->used--`, and the harness reported **NOT-BUILT**:
+
+	error: decrement of member `used` in read-only object
+
+`fzn_replay_expirable` takes a `const fzn_replay_window_t *`. **No mutation of
+that function can reclaim anything**, because the signature forbids it -- so
+there is no sabotage to write, and the entry was removed rather than repaired.
+
+That is the fourth aiming error in one day, and unlike the other three it is
+not a mistake about the code:
+
+	sec 218  changed too LITTLE          a string no assertion read
+	sec 222  changed too MUCH            a statement into a braceless `if`
+	sec 228  changed nothing REACHABLE   a condition with one shape
+	sec 229  changed nothing LEGAL       a property the compiler enforces
+
+**The harness caught this one for free**, because sec 45 had already made
+NOT-BUILT its own verdict rather than letting a failed build read as CAUGHT --
+"a build that fails exits non-zero exactly as a failing test does". A distinct
+verdict for "the mutation did not compile" is what turned a category error
+into a one-line report.
+
+The test's assertion that rendering reclaimed nothing stays, and now says why:
+it cannot fail while both signatures are const, and it is a tripwire for the
+plausible edit that widens either. **A check the compiler holds today is worth
+keeping for the day the compiler stops holding it**, provided it says so --
+otherwise it reads as a check that passes, which is what a check that cannot
+fail looks like from outside.
+
 ### An anchor that stopped naming one site, with nobody touching it
 
 	sabotage: freshness-sweep-entries matches 2 sites in frame/freshness.c

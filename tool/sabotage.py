@@ -1103,13 +1103,13 @@ SABOTAGES = [
 	),
 	# BATCH TWENTY, 2026-09-09: a full replay window, and which of its two
 	# fixes it needs. project.md sec 229.
-	(
-		"replay-expirable-does-not-expire",
-		"frame/freshness.c",
-		"\t\tif (window->entries[i].expires_at <= now)\n\t\t\tdue++;\n",
-		"\t\tif (window->entries[i].expires_at <= now)\n\t\t\twindow->used--;\n",
-		"a count of what expiry would reclaim must not reclaim it: a report that changes what it describes is worse than none, and this one is taken by a printer -- sec 229",
-	),
+	# NO ENTRY FOR "expirable does not expire", AND THAT IS THE FINDING.
+	# The first one written here mutated `due++` into `window->used--` and
+	# the harness reported NOT-BUILT: `fzn_replay_expirable` takes a
+	# `const fzn_replay_window_t *`, so no mutation of that function can
+	# reclaim anything. The property is enforced by the SIGNATURE, and
+	# trying to sabotage a compiler-enforced guarantee is a category error
+	# rather than a badly written entry. sec 229.
 	(
 		"replay-expirable-draws-the-same-boundary",
 		"frame/freshness.c",
