@@ -1101,6 +1101,29 @@ SABOTAGES = [
 		"(unsigned long long)version,\n",
 		"one reordered datagram and a peer whose view has fallen a long way behind return the SAME value, so the distance is the whole content the line adds to FZN_LEDGER_ERR_STALE -- sec 218",
 	),
+	# BATCH NINETEEN, 2026-09-09: the delivery list, where one unreadable
+	# table voids a screen of green rows. project.md sec 228.
+	(
+		"ledger-view-unreadable-voids-the-screen",
+		"gui/ledger_view.cpp",
+		"\tif (unreadable) {\n\t\tstate_ = UNREADABLE;\n",
+		"\tif (unreadable > asked / 2u) {\n\t\tstate_ = UNREADABLE;\n",
+		"every accessor in record/ledger.h answers an unscannable table in the voice of a readable one, so rows drawn from it look like measurements and are not -- that is the whole display being void rather than a majority to be outvoted -- sec 228",
+	),
+	(
+		"ledger-view-reports-no-number-it-did-not-measure",
+		"gui/ledger_view.cpp",
+		"\t\tstate_ = UNREADABLE;\n\t\toutstanding_ = 0u;\n",
+		"\t\tstate_ = UNREADABLE;\n\t\toutstanding_ = outstanding;\n",
+		"nobody measured how many peers are behind on a table nobody can walk, so the zero here is a refusal rather than a claim that everybody is current -- and a caller alarming on the count must not be handed one that was never measured -- sec 228",
+	),
+	(
+		"ledger-view-counts-what-it-was-asked",
+		"gui/ledger_view.cpp",
+		"\t\t\trows_truncated_ = true;\n\t\t\tcontinue;\n",
+		"\t\t\trows_truncated_ = true;\n\t\t\tbreak;\n",
+		"the summary describes the peers ASKED ABOUT and the rows describe what fitted; stopping the walk at the row limit makes the summary describe what fitted too, so a peer past the limit that has not confirmed disappears from both -- sec 228",
+	),
 	# BATCH EIGHTEEN, 2026-09-09: what a peer has confirmed, and the
 	# predicate that separates two zeroes. project.md sec 227.
 	(

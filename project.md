@@ -34180,3 +34180,63 @@ against the tree and no gate reads a function name out of a comment -- which
 is the shape `evidence.md` calls an invented identifier: well-formed, plausible
 and matching nothing that has ever existed. Caught here only because the
 sentence was checked against the tree before it was believed.
+
+## 228. One unreadable table voids a screen of green rows
+
+`gui/ledger_view` completes sec 227's pair, and it is `gui/manifest_view`
+pointed the other way: that one is what this host is missing, this one is what
+everybody else has received. One subject, many peers, which is the shape the
+question has -- a consumer asking "has this gone out" holds one document and a
+list of hosts.
+
+	nothing is being tracked
+	all 4 peers have confirmed this version
+	3 of 4 peers have not confirmed this version
+	this ledger cannot be read, so nothing here is evidence
+
+### The aggregate rule is different from sec 226's, and it has to be
+
+`manifest_view` reports the worst row because one understated issuer can hide
+an authority. This one reports UNREADABLE because **an unscannable ledger makes
+every row a fiction, not a bad one.** Each accessor answers such a table in the
+voice of a readable one -- a version of zero, a count of zero, "behind" -- so a
+screen of peers all reading CURRENT can be drawn from a table nobody can walk.
+
+That is not a majority to be outvoted. It is the whole display being void, and
+the test gives the widget three peers who would all be CURRENT on a sound
+ledger and requires the summary to say the opposite.
+
+**And `outstanding()` stays zero there, which is a refusal rather than a
+claim.** Nobody measured how many peers are behind, so no number is offered;
+`shown_state` is what says whether a number means anything. Its own sabotage
+fills the count in, which is the reasonable-looking thing to write and hands a
+caller alarming on it a figure nothing measured.
+
+### Collapsed in the summary, kept apart in the rows
+
+A peer that acknowledged version three and one that has never spoken are
+counted together -- **the action is identical, send it** -- so an aggregate
+that split them would offer a distinction nobody acts on. The row still says
+which, because they are different things to look into, and the test asserts
+both halves: one summary number, two different sentences beneath it.
+
+That is sec 194's boundary used as a design rule rather than a caution: the
+widget adds what its medium affords, and what the row already says it does not
+repeat in the summary.
+
+### The render sweep, added at the same time this once
+
+sec 226 linked a widget into the qtty sweep without drawing it, and the case
+table is what decides which. This one is in the table from the start, in the
+state that voids the screen -- so the string a terminal has to carry is
+`nothing here is evidence` rather than a row of green.
+
+	manifest_view   needs 59 columns to say "less than they are missing"
+	ledger_view     needs 63 columns to say "nothing here is evidence"
+
+Sixty-three is the widest floor in the sweep and it is the sentence that must
+never be lost, which is the pair worth noticing: **the lines that matter most
+are the longest**, because a verdict about why nothing on a screen can be
+trusted takes more words than a number. Both still clear eighty columns, and
+the numbers are here so the next person widening either sentence knows what it
+was.

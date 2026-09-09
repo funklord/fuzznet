@@ -742,20 +742,21 @@ GUI_SRCS  += gui/config_view.cpp gui/log_view.cpp gui/sync_view.cpp \
              gui/capability_view.cpp gui/state_view.cpp \
              gui/revocation_view.cpp gui/authz_view.cpp \
              gui/provision_view.cpp gui/link_view.cpp gui/peer_view.cpp \
-             gui/manifest_view.cpp
+             gui/manifest_view.cpp gui/ledger_view.cpp
 GUI_HDRS  += gui/config_view.h gui/log_view.h gui/sync_view.h \
              gui/journal_view.h gui/sweep_view.h gui/transfer_view.h \
              gui/capability_view.h gui/state_view.h \
              gui/revocation_view.h gui/authz_view.h \
              gui/provision_view.h gui/link_view.h gui/peer_view.h \
-             gui/manifest_view.h
+             gui/manifest_view.h gui/ledger_view.h
 GUI_TSRC  += gui/test/config_view_test.cpp gui/test/log_view_test.cpp \
              gui/test/sync_view_test.cpp gui/test/journal_view_test.cpp \
              gui/test/sweep_view_test.cpp gui/test/transfer_view_test.cpp \
              gui/test/capability_view_test.cpp gui/test/state_view_test.cpp \
              gui/test/revocation_view_test.cpp gui/test/authz_view_test.cpp \
              gui/test/provision_view_test.cpp gui/test/link_view_test.cpp \
-             gui/test/peer_view_test.cpp gui/test/manifest_view_test.cpp
+             gui/test/peer_view_test.cpp gui/test/manifest_view_test.cpp \
+             gui/test/ledger_view_test.cpp
 endif
 
 # NAMED OUTSIDE THE CONDITIONAL, and for the third time in this file: the
@@ -824,7 +825,8 @@ TEST_BINS += $(BUILD_DIR)/gui/test/config_view_test \
              $(BUILD_DIR)/gui/test/provision_view_test \
              $(BUILD_DIR)/gui/test/link_view_test \
              $(BUILD_DIR)/gui/test/peer_view_test \
-             $(BUILD_DIR)/gui/test/manifest_view_test
+             $(BUILD_DIR)/gui/test/manifest_view_test \
+             $(BUILD_DIR)/gui/test/ledger_view_test
 endif
 endif
 
@@ -2263,6 +2265,16 @@ $(BUILD_DIR)/gui/test/manifest_view_test: \
 	$(BUILD_DIR)/chain/manifest.o \
 	$(BUILD_DIR)/chain/revocation.o \
 	$(BUILD_DIR)/chain/chain.o \
+	$(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) -o $@
+
+# Who has acknowledged this subject. sec 228.
+$(BUILD_DIR)/gui/test/ledger_view_test: \
+	$(BUILD_DIR)/gui/test/ledger_view_test.o \
+	$(BUILD_DIR)/gui/ledger_view.o \
+	$(BUILD_DIR)/cli/ledger_print.o \
+	$(BUILD_DIR)/record/ledger.o \
 	$(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) -o $@
@@ -4036,6 +4048,7 @@ qttycheck:
 # would be a slower way to say the same thing.
 QTTY_RENDER_OBJS := $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \
                     $(BUILD_DIR)/cli/manifest_print.o \
+                    $(BUILD_DIR)/cli/ledger_print.o $(BUILD_DIR)/record/ledger.o \
                     $(BUILD_DIR)/cli/cli.o $(BUILD_DIR)/state/state.o \
                     $(BUILD_DIR)/cli/sync_print.o $(BUILD_DIR)/cli/journal_print.o \
                     $(BUILD_DIR)/cli/sweep_print.o $(BUILD_DIR)/cli/transfer_print.o \
@@ -4148,7 +4161,7 @@ qtty: $(if $(and $(GUI_ON),$(CLI_ON)),$(QTTY_RENDER_OBJS))
 	       gui/sweep_view.cpp gui/revocation_view.cpp gui/journal_view.cpp \
 	       gui/sync_view.cpp gui/transfer_view.cpp gui/state_view.cpp \
 	       gui/config_view.cpp gui/link_view.cpp gui/peer_view.cpp \
-	       gui/manifest_view.cpp \
+	       gui/manifest_view.cpp gui/ledger_view.cpp \
 	       gui/provision_view.cpp \
 	       $(QTTY_RENDER_OBJS) \
 	       "$$scratch/lib/libqtty.a" $$qobjs $(QT_LIBS) -o "$$scratch/render_test"; \

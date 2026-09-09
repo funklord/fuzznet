@@ -73,6 +73,7 @@
 /gui/test/link_view_test
 /gui/test/peer_view_test
 /gui/test/manifest_view_test
+/gui/test/ledger_view_test
 /claim/test/claim_file_test
 /blob/test/blob_test
 /blob/test/blob_fuzz

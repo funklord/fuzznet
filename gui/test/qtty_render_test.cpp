@@ -43,6 +43,7 @@
 #include "../link_view.h"
 #include "../peer_view.h"
 #include "../manifest_view.h"
+#include "../ledger_view.h"
 
 extern "C" {
 #include "../../log/log.h"
@@ -309,6 +310,11 @@ static void test_every_widget_survives_a_terminal(void)
 	fzn_provision_view provision;
 	fzn_manifest_view manifest_v;
 	fzn_manifest_view_row manifest_rows[1];
+	fzn_ledger_view ledger_v;
+	fzn_ledger_view_row ledger_rows[1];
+	static fzn_ledger_entry_t ledger_entries[1];
+	fzn_ledger_t ledger;
+	uint8_t subject[FZN_SUBJECT_LEN];
 	fzn_authz_view authz_guarded;
 	fzn_link_entry_t link_entries[4];
 	fzn_link_table_t links;
@@ -387,6 +393,18 @@ static void test_every_widget_survives_a_terminal(void)
 		manifest_rows[0].issuer = peer;
 		manifest_rows[0].label = QStringLiteral("estate root");
 		manifest_v.show_issuers(&m, manifest_rows, 1u);
+	}
+
+	/* AND THE LEDGER IN THE STATE THAT VOIDS A SCREEN. sec 228: a table
+	 * nobody can walk answers every accessor in the voice of a readable
+	 * one, so the sentence saying nothing here is evidence is the one a
+	 * terminal must not clip. */
+	memset(subject, 0x5a, sizeof(subject));
+	if (fzn_ledger_init(&ledger, ledger_entries, 1u) == FZN_LEDGER_OK) {
+		ledger.used = ledger.capacity + 1u;
+		ledger_rows[0].peer = peer;
+		ledger_rows[0].label = QStringLiteral("relay");
+		ledger_v.show_peers(&ledger, subject, 1u, 5u, ledger_rows, 1u);
 	}
 
 	/* THE FOUR sec 187 LEFT UNDRAWN, and each was a fixture cost rather
@@ -512,6 +530,8 @@ static void test_every_widget_survives_a_terminal(void)
 			 * this widget has to survive a terminal for, and the
 			 * summary is where it says so. */
 			{ "manifest_view", &manifest_v, "less than they are missing" },
+			/* THE SENTENCE THAT VOIDS THE SCREEN. sec 228. */
+			{ "ledger_view", &ledger_v, "nothing here is evidence" },
 		};
 
 		for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
