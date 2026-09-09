@@ -34739,6 +34739,19 @@ Every byte this module reads is a byte anybody on the path may choose, and no
 harness in the tree reached it. `frame/test/receive_fuzz.c` does not mention
 relay; nothing did.
 
+**THE PROPERTIES WERE NOT UNGUARDED, AND THE SABOTAGE RUN SAID SO.** Both new
+entries were CAUGHT by `relay_test.c:80` and `log_test.c:800` -- assertions
+that predate this session. So what these harnesses add is not first coverage
+but INPUT coverage: the clamp was asserted on a frame somebody wrote, and is
+now asserted on ten thousand nobody did.
+
+That is worth stating plainly because the opposite reading is available and
+flattering. A harness whose sabotage is caught by an existing unit test has
+demonstrated nothing about itself -- **the harnesses' own controls are the
+evidence, and they were run separately**: the clamp removed, and the printable
+range widened, each watched failing in the harness before either was recorded
+as working.
+
 ### The narrow query is what hid it
 
 sec 232's search was `_open(const uint8_t` -- the naming convention six
