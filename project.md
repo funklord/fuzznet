@@ -35046,3 +35046,44 @@ having -- but it means a control cannot, on its own, tell you a property
 is alive. Only a sabotage nothing cheaper can see does that, and for
 `record_fuzz`'s re-encode I do not have one: every field it reads back,
 it also generated.
+
+### Some headers are code, and the census could not see them
+
+**The census read `make manifest` for its population, and that target
+named no header.** So the figure it printed -- 92 of 93 -- was true about
+the sources and silent about eleven accessor bodies in `record/record.h`,
+eight in `chain/manifest.h`, ten in `chain/revocation.h`, and two in
+`chain/authz.h` that decide whether a capability is guarded.
+
+This is sec 217's lens again, and the fourth time: **a completeness check
+whose population is narrower than its subject.** The narrowing is
+specifically that "source" was read as "the thing the compiler is invoked
+on", and a `static inline` body is compiled into every consumer's
+translation unit rather than once here -- **more exposed than a `.c`,
+not less.**
+
+`manifest` emits `header <path>` per `$(HDRS)` now, and the census keeps
+the ones whose contents hold a body. The contents decide, not the name:
+sec 217's own remedy says a population derived from a naming convention
+is an enumeration wearing a derivation's clothes, and "headers are the
+files ending in .h" would have swept in the three generated ones, which
+are `situ`'s to write and not this tree's to sabotage.
+
+It named two the hand count had also found -- `chain/authz.h` and
+`wire/bytes.h` -- and both now have entries:
+
+	authz-requires-is-guarded  FAIL authz_test.c:223: a required
+	                           capability with no chain was granted
+	get-be16-is-big-endian     FAIL manifest_test.c:514: open
+
+The first landed where it was aimed. The second did not: the assertion
+that spells big-endian out byte by byte lives in `record_test`, and what
+actually fired was a manifest failing to open two binaries earlier. Four
+for four now, on the cheapest check.
+
+**And the report line had to be widened with the population**, which is
+the third time in this session that a count went unreported after the
+thing it counts was added -- twice as a harness counter, once here. The
+line said "92 of 93 sources" while reading a population that now includes
+six headers. A figure describing a narrower population than the check
+behind it is how this gap survived in the first place.

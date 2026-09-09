@@ -1125,6 +1125,20 @@ SABOTAGES = [
 		"record.h warns that `stream` and `kind` are both uint32 and swap at a call site with nothing to say so, and record_fuzz's PROPERTY 2 says a wrong offset shows in the bytes -- nothing in this file had ever been sabotaged, so that property had never been seen to fail, which sec 52 says is the same as not having it -- sec 234",
 	),
 	(
+		"authz-requires-is-guarded",
+		"chain/authz.h",
+		"\tpolicy.guarded = 1;\n",
+		"\tpolicy.guarded = 0;\n",
+		"a policy built by fzn_authz_requires that reports itself UNGUARDED is the failure this header is written against -- its own comment calls an unguarded default the one that never fails and silently retires the check, and the whole point of the constructor is that unguarded has to be asked for by name -- sec 234",
+	),
+	(
+		"get-be16-is-big-endian",
+		"wire/bytes.h",
+		"\treturn (uint16_t)(((uint16_t)p[0] << 8) | (uint16_t)p[1]);\n",
+		"\treturn (uint16_t)(((uint16_t)p[1] << 8) | (uint16_t)p[0]);\n",
+		"every length and every counter on this wire is big-endian and this is where six of them are read, so an accessor that agrees with its own writer and with nobody else's is a format nobody can interoperate with -- the header holding it had no entry until the census learned to read headers -- sec 234",
+	),
+	(
 		"log-body-escapes-what-a-terminal-obeys",
 		"log/log.c",
 		"\t\tif (body[i] >= 0x20u && body[i] <= 0x7eu) {\n",
@@ -3534,6 +3548,46 @@ def source_list():
 	return [l.split()[1] for l in out.stdout.splitlines() if l.startswith(want)]
 
 
+def code_header_list():
+	"""The installed headers that carry executable code, from the same target.
+
+	SOME HEADERS ARE CODE, and this census could not see them. A `static
+	inline` body is compiled into every consumer's translation unit, so it
+	is more exposed than a `.c` rather than less -- and `record/record.h`
+	holds eleven of them, every accessor of the richest format here, with
+	no entry against it while a figure over "92 of 93 sources" was
+	printed. project.md sec 234.
+
+	Which headers those are is decided by READING them rather than by a
+	naming convention, for sec 217's reason: a population derived from a
+	convention is an enumeration wearing a derivation's clothes. The
+	manifest supplies the list of headers; their contents supply which of
+	them hold code.
+
+	Returns None on the same failures `source_list` does, and for the same
+	reason -- a census that cannot read its population has not passed.
+	"""
+	try:
+		out = subprocess.run(["make", "-s", "manifest"], cwd=ROOT, env=make_env(),
+		                     capture_output=True, text=True, check=False)
+	except OSError:
+		return None
+	if out.returncode != 0:
+		return None
+	found = []
+	for line in out.stdout.splitlines():
+		if not line.startswith("header "):
+			continue
+		rel = line.split()[1]
+		path = os.path.join(ROOT, rel)
+		if not os.path.exists(path):
+			return None
+		text = io.open(path, encoding="utf-8").read()
+		if "\nstatic inline" in text or text.startswith("static inline"):
+			found.append(rel)
+	return found
+
+
 # EVERY ENTRY STILL NAMES EXACTLY ONE SITE.
 #
 # An entry whose `old` text has stopped matching is not a milder version of a
@@ -3598,10 +3652,26 @@ def verify():
 				print("sabotage: %s has no entry and is not listed as "
 				      "guard-free" % src)
 				bad += 1
+	# AND THE HEADERS THAT ARE CODE, on the same terms.
+	hdrs = code_header_list()
+	if hdrs is None:
+		print("sabotage: the header list could not be read, so header "
+		      "coverage was NOT checked -- a failure rather than a skip, for "
+		      "the reason above")
+		bad += 1
+		hdrs = []
+	else:
+		for hdr in hdrs:
+			if hdr not in files and hdr not in NO_GUARDS:
+				print("sabotage: %s carries inline bodies, has no entry and "
+				      "is not listed as guard-free" % hdr)
+				bad += 1
+
+	if srcs is not None:
 		for src in sorted(NO_GUARDS):
-			if src not in srcs:
+			if src not in srcs and src not in hdrs:
 				print("sabotage: %s is listed as guard-free and is not a "
-				      "library source" % src)
+				      "library source or a header carrying code" % src)
 				bad += 1
 
 	if bad:
@@ -3609,10 +3679,16 @@ def verify():
 		      "defended without testing it; an uncovered source reports a "
 		      "module as swept when nothing swept it." % bad)
 		return 2
+	# THE REPORT NAMES THE WHOLE POPULATION, because a figure that describes
+	# a narrower one is how the headers went unnoticed: this line said "92 of
+	# 93 sources" while `record/record.h` had never been touched. A count
+	# that does not name its denominator is the same shape as a gate over an
+	# empty list.
 	print("sabotage: %d entries over %d of %d library, binding, backend and "
-	      "front-end sources, each naming exactly one site (nothing was built "
-	      "or changed)"
-	      % (len(SABOTAGES), len(srcs) - len(NO_GUARDS), len(srcs)))
+	      "front-end sources and %d of %d headers carrying inline bodies, "
+	      "each naming exactly one site (nothing was built or changed)"
+	      % (len(SABOTAGES), len(srcs) - len(NO_GUARDS), len(srcs),
+	         len([h for h in hdrs if h not in NO_GUARDS]), len(hdrs)))
 	return 0
 
 

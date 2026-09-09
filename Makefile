@@ -4590,6 +4590,20 @@ manifest:
 	  `sed -n 's/^#define FZN_VERSION_PATCH *//p' version/version.h`
 	@for c in $(CORE_SRCS); do echo "source $$c"; done
 	@for c in $(GEN_SRCS); do echo "generated $$c"; done
+	@# AND THE HEADERS, because some of them are code.
+	@#
+	@# A header carrying `static inline` bodies is compiled into every
+	@# consumer's translation unit, which makes it more exposed than a `.c`
+	@# rather than less -- and record/record.h holds eleven such bodies, every
+	@# accessor of the richest format here. The sabotage census read this
+	@# target for its population and this target named no header, so that file
+	@# had never been sabotaged while a coverage figure was printed over 92 of
+	@# 93 sources. project.md sec 234.
+	@#
+	@# Emitted whole rather than filtered to the ones with bodies: which
+	@# headers are code is a question about their contents, and the reader
+	@# already has to open them to answer it.
+	@for h in $(HDRS); do echo "header $$h"; done
 	@echo "include ."
 	@echo "include wire/generated"
 	@# WHAT IS OPTIONAL IS NAMED SEPARATELY AND CARRIES ITS OWN DEFINE.
@@ -4614,9 +4628,10 @@ manifest:
 	@# were a hand-written literal naming `cli/cli.c` and a bare directory
 	@# `gui/`, and the first had drifted: CLI_SRCS holds sixteen files, so a
 	@# consumer following this output built the parser and none of the
-	@# fifteen printers. Nothing reads these lines back -- they are the only
-	@# kind in this target no gate checks -- which is how a list that says
-	@# one where the tree has sixteen went unnoticed. project.md sec 225.
+	@# fifteen printers. Nothing read these lines back -- they were the only
+	@# kind in this target no gate checked -- which is how a list that said
+	@# one where the tree has sixteen went unnoticed. The sabotage census
+	@# reads them now. project.md sec 225.
 	@$(if $(CLI_ON),for c in $(CLI_SRCS); do echo "subsystem $$c FZN_CLI_ON"; done;)
 	@$(if $(GUI_ON),for c in $(GUI_SRCS); do \
 		echo "subsystem $$c FZN_GUI_ON against $(FZN_PROBE_QT)"; done;)
