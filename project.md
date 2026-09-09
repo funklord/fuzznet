@@ -34910,3 +34910,41 @@ manifest rather than anything in the body.
 running and the harness would still have printed a pass. It is in the summary
 and under a floor now -- 16000 re-encodes in 2000 cases -- on the same rule
 that a check nothing counts is a check that can go quiet.
+
+### The second application, and I made the same omission again
+
+`revocation_fuzz` has it now too: 23551 re-encodes in 2000 cases, every field
+`fzn_revocation_encode` takes having an accessor on the decoded record, and the
+comparison stopping at `FZN_REVOCATION_BODY_LEN` because the encoder lays a
+record out UNSIGNED.
+
+**The counter went unreported there as well, in the same sitting, minutes after
+correcting it in the manifest.** Knowing a mistake is not the same as not
+making it, and the thing that caught it both times was reading the harness's
+own summary line and noticing a number missing from it.
+
+Its control makes `fzn_revocation_supersedes` read the issuer's bytes instead
+of its own field -- a decoder wired to the wrong offset rather than one
+dropping a field -- and **the failure was read rather than counted**. Run
+against the harness alone it prints
+
+	MODEL: a revocation re-encoded from what the decoder handed back is not
+	the body it was decoded from
+
+which is this property and not the shadow model that surrounds it. sec 222's
+rule, applied to a control rather than to a sabotage: a run that goes red
+tells you something failed and nothing about which.
+
+**And run through `make test`, which is what the sabotage entry does, it is
+caught one binary earlier** -- `revocation_test.c:406`, *re-encoding what
+the accessors read did not reproduce the signed bytes*, a check that has
+been there since `75865bc` and that I had not read before claiming the
+property was new here. So what the harness adds to this module is not the
+property. It is **the population the property holds over**: one fixture
+becomes 23551 decoded shapes, and the fixture is the one arrangement whose
+fields somebody chose.
+
+That is the second time in three entries that reading the run rather than
+the design changed what could honestly be claimed for it, and both times
+the correction made the claim smaller and the reason to keep the work
+unchanged.

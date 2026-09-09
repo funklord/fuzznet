@@ -191,6 +191,7 @@ struct model {
 
 struct coverage {
 	unsigned long admitted;
+	unsigned long reencoded;
 	unsigned long duplicate;
 	unsigned long refused;
 	unsigned long full;
@@ -456,6 +457,53 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		}
 		cov->shape_ok++;
 
+		/*
+		 * WHAT THE DECODER HANDED BACK, RE-ENCODED, MUST BE THE SAME
+		 * BODY. sec 234, the property `chain/test/manifest_fuzz.c`
+		 * carries and for the same reason: the model below reaches this
+		 * record through the very accessors a dropped field would
+		 * break, so a decoder that ignored `supersedes` or the object
+		 * byte would produce a shadow agreeing with a store that was
+		 * equally wrong. Only the bytes sit outside that loop.
+		 *
+		 * AND MUTATION CANNOT ASK IT. Every field here is inside the
+		 * signed body, so changing one on the wire is refused by the
+		 * signature whatever the decoder does with it -- `evidence.md`
+		 * on a field inside a signed range.
+		 *
+		 * THE BODY ONLY. `fzn_revocation_encode` lays a record out
+		 * UNSIGNED and zeroes the signature, so comparing past
+		 * FZN_REVOCATION_BODY_LEN compares a field the encoder cannot
+		 * fill -- which is the mistake sec 234 records making in the
+		 * manifest first.
+		 */
+		{
+			uint8_t again[FZN_REVOCATION_LEN];
+
+			if (fzn_revocation_encode(again,
+			                          fzn_revocation_is_withdrawal(record)
+			                                  ? (uint8_t)FZN_OBJECT_WITHDRAWAL
+			                                  : (uint8_t)FZN_OBJECT_REVOCATION,
+			                          fzn_revocation_issuer(record),
+			                          fzn_revocation_capability(record),
+			                          fzn_revocation_grantee(record),
+			                          fzn_revocation_issued_at(record),
+			                          fzn_revocation_supersedes(record))
+			    != FZN_CHAIN_OK) {
+				printf("  MODEL: a record this module opened will not "
+				       "re-encode\n");
+				return 1;
+			}
+			if (memcmp(again, bytes, FZN_REVOCATION_BODY_LEN) != 0) {
+				printf("  MODEL: a revocation re-encoded from what the decoder "
+				       "handed back is not the body it was decoded from, so "
+				       "this format writes something the decoder does not "
+				       "read\n");
+				return 1;
+			}
+			cov->reencoded++;
+		}
+
 		/* What the rules say should happen, derived here rather than
 		 * asked of the module. */
 		if (!issuer_ok)
@@ -516,7 +564,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 #ifdef FZN_LIBFUZZER
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
-	struct coverage cov = { 0, 0, 0, 0, 0, 0, 0, 0 };
+	struct coverage cov = { 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 
 	(void)fuzz_one(data, size, &cov);
 	return 0;
@@ -555,7 +603,7 @@ static unsigned long floor_of(unsigned long cases, unsigned long per)
 int main(int argc, char **argv)
 {
 	unsigned long cases = FUZZ_DEFAULT_CASES;
-	struct coverage cov = { 0, 0, 0, 0, 0, 0, 0, 0 };
+	struct coverage cov = { 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 	uint8_t buf[128];
 
 	if (argc > 1) {
@@ -601,20 +649,24 @@ int main(int argc, char **argv)
 	if (cov.admitted < floor_of(cases, 200u) || cov.refused < floor_of(cases, 200u) ||
 	    cov.duplicate < floor_of(cases, 200u) || cov.full == 0 ||
 	    cov.shape_ok < floor_of(cases, 200u) || cov.shape_refused < floor_of(cases, 200u) ||
-	    cov.issuer_only < floor_of(cases, 200u) || cov.near_miss < floor_of(cases, 200u)) {
+	    cov.issuer_only < floor_of(cases, 200u) || cov.near_miss < floor_of(cases, 200u)
+	    /* AND THE RE-ENCODE RAN. sec 234: a property nothing counts is one
+	     * that can stop running while the harness prints a pass. */
+	    || cov.reencoded < floor_of(cases, 4u)) {
 		printf("revocation_fuzz: REACHED TOO LITTLE -- %lu admitted, %lu refused, "
 		       "%lu duplicate, %lu full, %lu shapes accepted, %lu shapes refused, "
-		       "%lu issuer-only pairs, %lu near misses in %lu cases.\n",
+		       "%lu issuer-only pairs, %lu near misses, %lu re-encoded in %lu "
+		       "cases.\n",
 		       cov.admitted, cov.refused, cov.duplicate, cov.full, cov.shape_ok,
-		       cov.shape_refused, cov.issuer_only, cov.near_miss, cases);
+		       cov.shape_refused, cov.issuer_only, cov.near_miss, cov.reencoded, cases);
 		return 1;
 	}
 
 	printf("revocation_fuzz: %lu cases, %lu admitted, %lu refused, %lu duplicate, "
 	       "%lu full, %lu shapes accepted, %lu shapes refused, %lu issuer-only pairs, "
-	       "%lu near misses, model agreed throughout\n",
+	       "%lu near misses, %lu re-encoded byte-for-byte, model agreed throughout\n",
 	       cases, cov.admitted, cov.refused, cov.duplicate, cov.full, cov.shape_ok,
-	       cov.shape_refused, cov.issuer_only, cov.near_miss);
+	       cov.shape_refused, cov.issuer_only, cov.near_miss, cov.reencoded);
 	return 0;
 }
 #endif

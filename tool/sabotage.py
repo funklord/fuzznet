@@ -1111,6 +1111,13 @@ SABOTAGES = [
 		"a field the decoder drops is invisible to a model that reaches the module through the same accessors, so the byte comparison is what sees it WITHOUT somebody having written a case for that field -- manifest_test happens to cover this one and runs first, and mutation cannot ask the question at all because the state byte is inside the signed range -- sec 234",
 	),
 	(
+		"revocation-supersedes-is-read-back",
+		"chain/revocation.h",
+		"\treturn rec.base + FZN_REV_OFF_SUPERSEDES;\n",
+		"\treturn rec.base + FZN_REV_OFF_ISSUER;\n",
+		"an accessor wired to the wrong field hands the model a record whose bytes it never sees, so re-encoding what the decoder returned is what asks whether the two agree -- revocation_test has carried that property on one fixture since 75865bc and catches this first, and what the harness adds is the population it holds over rather than the property itself -- sec 234",
+	),
+	(
 		"log-body-escapes-what-a-terminal-obeys",
 		"log/log.c",
 		"\t\tif (body[i] >= 0x20u && body[i] <= 0x7eu) {\n",
