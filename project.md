@@ -34492,3 +34492,56 @@ rule was real, the enforcement was real, and the only thing missing was the
 sentence. It says it now, and says how it was found -- by a caller doing it
 the other way and getting FZN_REASM_ERR_MALFORMED from a table whose arguments
 were all fine.
+
+## 231. The third list with a population narrower than its subject
+
+sec 221 found the sabotage census reading only `source ` lines while the tree
+had bindings and backends too. sec 225 found `make manifest` naming one CLI
+source where there are eighteen. Both were the same shape, so it is a lens
+rather than two incidents: **a completeness check whose population is narrower
+than the thing it describes.** Pointed at the remaining gates deliberately, it
+found a third.
+
+	over CORE_SRCS   39 error renderers, all walked (40 rows)
+	over SRCS        40 error renderers, all walked (40 rows)
+
+`fzn_cli_err_str` is a real renderer with real arms, and `cli/cli.c` is a
+SUBSYSTEM rather than a core source -- so it sat outside the set this gate
+walks while having a row in `err_str_test`. **Deleting that row, or adding an
+arm to that renderer with no row for it, was invisible here**, because "all
+walked" stayed true over a set the renderer was never in. The gate exists to
+stop an arm rendering text no test has ever read, and it could not see the one
+renderer a consumer meets first.
+
+### Three of the five gates could not have this, and the reason is structural
+
+The sweep was not a guess. `status_gate.py` and `enum_gate.py` derive their
+population from `.gitmodules` -- everything in the tree except vendored trees
+-- and `log_gate.py` walks the tree with a named skip list. **None of them can
+be narrower than the tree, because none of them enumerates.**
+
+The two that had the defect both read a list somebody wrote: `make manifest`'s
+output keyed on a WORD, and this one keyed on a VARIABLE. So the rule that
+comes out is not about care:
+
+> **Derive the population from the filesystem or the build, and the check
+> cannot be narrower than its subject. Enumerate it, and it is narrower the
+> moment anything is added anywhere the enumeration did not anticipate.**
+
+### And widening it widened an exposure the file had already documented
+
+The probe runs `nm ... 2>/dev/null`, and the comment above it records what
+that cost on 2026-09-04: adding `disclose/` and running `make style` before
+anything compiled reported "27 error renderers, all walked", **a true
+statement about nothing.** The guard added then only catches the case where
+NONE exist.
+
+Widening from 49 sources to 76 widens that hole in proportion, so the two
+changes go together: a named object that is not there is a refusal now, not a
+silent omission. Shown failing by moving `cli/cli.o` aside --
+
+	style: ./cli/cli.o is not built, so the renderer probe would
+	style: skip it in silence and report a true statement about a subset.
+
+-- and passing again with it back. sec 52's rule: the check was made to fail
+before it was recorded as working.

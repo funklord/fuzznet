@@ -3707,7 +3707,28 @@ style:
 		exit 1; \
 	fi; \
 	echo "style: $$n test sources, every failure line names its suite"
-	@have=`nm --defined-only $(CORE_SRCS:%.c=$(BUILD_DIR)/%.o) 2>/dev/null \
+	@# OVER $(SRCS), NOT $(CORE_SRCS). The narrower list is the library
+	@# only, so `fzn_cli_err_str` -- a real renderer with real arms -- sat
+	@# outside the population this walks while having a row in the sweep.
+	@# Deleting that row, or adding an arm with no row, was invisible here:
+	@# "all walked" stayed true because the renderer was never in the set.
+	@# Measured 2026-09-09: 39 over CORE_SRCS, 40 over SRCS, and the sweep
+	@# has 40 rows. project.md sec 231.
+	@#
+	@# AND A NAMED OBJECT THAT IS NOT THERE IS A REFUSAL NOW. The `2>/dev/null`
+	@# below is what let an unbuilt source be skipped in silence -- the 2026-09-04
+	@# note above -- and the guard after it only catches the case where NONE
+	@# exist. Widening the population widens that exposure, so the two go
+	@# together.
+	@for o in $(SRCS:%.c=$(BUILD_DIR)/%.o); do \
+		test -f "$$o" || { \
+			echo "style: $$o is not built, so the renderer probe would"; \
+			echo "style: skip it in silence and report a true statement"; \
+			echo "style: about a subset. Build before running this."; \
+			exit 1; \
+		}; \
+	done; \
+	have=`nm --defined-only $(SRCS:%.c=$(BUILD_DIR)/%.o) 2>/dev/null \
 	       | awk '$$2 == "T" { print $$3 }' \
 	       | grep -E '^fzn_[a-z_]+_str$$' | sort -u`; 	walked=`grep -oE '"fzn_[a-z_]+_str"' wire/test/err_str_test.c \
 	        | tr -d '"' | sort -u`; 	n=`echo "$$have" | grep -c .`; 	w=`echo "$$walked" | grep -c .`; 	if [ "$$n" -eq 0 ]; then 		echo "style: the renderer probe matched no symbols, so it proves"; 		echo "style: nothing -- build the objects before running this."; 		exit 1; 	fi; 	missing=; \
