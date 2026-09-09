@@ -35794,3 +35794,67 @@ sentence that reads as a convergence claim.** Same limit, same module, and
 only one of them was written to be un-mistakable. That is the more useful
 finding than either divergence: a non-property is only as safe as the
 sentence describing it.
+
+**And there are three sites, not two.** `fzn_catalog_name_held_wins` says
+only *the same rule and the same reasoning as content's*, so it inherits the
+sentence by reference. No third test -- that would be symmetry rather than
+merit, since the behaviour and the argument are content's -- but whoever
+reconciles the wording is reconciling three places, and a fix that reached
+two of them would leave the name table's comment pointing at a paragraph that
+had changed under it.
+
+## 244. One of the encoder's two modes had never been decoded
+
+`qr_test.c` opens by saying what it cannot do: *every assertion here is about
+shape ... and a QR code can satisfy all of it and decode as nothing.* The half
+that says it is a QR code at all is `make qrcheck`, which builds quirc from
+source and reads back what this tree encodes. That division is right and it is
+recorded.
+
+**What nobody had counted is the population qrcheck reads back.** One payload
+per (level, version) cell, and every one of them `AAAA...`. The print fixture
+beside them is `PROVISIONING CARD 1234567890`. Capitals, digits and a space.
+
+`qr.h` says the mode is chosen and not asked for:
+
+> Text that is entirely in QR's alphanumeric set -- digits, capitals, and
+> ` $%*+-./:` -- is packed at 5.5 bits a character; anything else goes as
+> bytes at 8.
+
+So **the encoder has two modes and an independent decoder had seen one of
+them.** Byte mode is what any lowercase or punctuation-bearing payload takes,
+and its bit packing and character-count indicator are different code.
+
+It is the fixture question fuzzypickles asked this tree on 2026-09-05 --
+*what value is every fixture in this suite on the same side of?* -- answered
+here as: every payload was inside the alphanumeric set.
+
+### It works, and now something says so
+
+44 more round trips, four levels by eleven lengths, payloads built from
+lowercase and `_~` so the mode chooser cannot take the narrow path.
+
+	qrcheck: 104 of 104 checks round-tripped through quirc
+
+**Lengths rather than one payload per version**, because byte mode's bug
+surface is the packing and the length indicator, and both move with length
+rather than with content.
+
+### The control is quirc naming the mode
+
+A sweep of payloads *intended* to be byte mode proves nothing if the encoder
+quietly packed them as alphanumeric, so `roundtrip_typed` asks quirc which
+mode it read and the sweep requires `QUIRC_DATA_TYPE_BYTE`. Pointed at
+capitals instead, it refuses:
+
+	FAIL qr_quirc_check.c: byte mode L (1 chars): decoded as data type 2,
+	wanted 4
+
+Which is the control this section needed rather than a nicety: without it the
+44 new checks could have been a second helping of the 60 old ones, and the
+output would have looked exactly the same.
+
+**An empty result, recorded with its method.** No defect was found. What
+changed is that a whole mode of a generator the holder asked for is now read
+back by somebody else's decoder on every `make check`, and the sentence in
+`qr.h` describing the two paths has a witness for both.

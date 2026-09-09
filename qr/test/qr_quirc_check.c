@@ -9,7 +9,13 @@
 #define SCALE 4
 #define QUIET 4
 
-static int roundtrip(const char *text, fzn_qr_level_t level, char *why, size_t why_cap)
+/* `want_type` is quirc's own view of which mode the code used, or 0 to not
+ * ask. It is what makes the byte-mode sweep below evidence rather than a
+ * second helping of the alphanumeric one: the payloads are chosen to be
+ * outside QR's alphanumeric set, and this is the decoder confirming that the
+ * encoder agreed. sec 244. */
+static int roundtrip_typed(const char *text, fzn_qr_level_t level, int want_type, char *why,
+                           size_t why_cap)
 {
 	static uint8_t modules[FZN_QR_MODULES_MAX];
 	struct quirc *q;
@@ -52,9 +58,18 @@ static int roundtrip(const char *text, fzn_qr_level_t level, char *why, size_t w
 	if (data.payload_len != (int)strlen(text) ||
 	    memcmp(data.payload, text, strlen(text)) != 0)
 		snprintf(why, why_cap, "payload differs (%d bytes back)", data.payload_len);
+	else if (want_type != 0 && data.data_type != want_type)
+		snprintf(why, why_cap, "decoded as data type %d, wanted %d", data.data_type,
+		         want_type);
 	else ok = 1;
 	quirc_destroy(q);
 	return ok;
+}
+
+/* The common case: any mode, as long as the bytes come back. */
+static int roundtrip(const char *text, fzn_qr_level_t level, char *why, size_t why_cap)
+{
+	return roundtrip_typed(text, level, 0, why, why_cap);
 }
 
 /* Read printed text back as a terminal would draw it: a glyph is LIGHT on a
@@ -184,6 +199,56 @@ int main(void)
 			}
 		}
 	}
+	/*
+	 * AND BYTE MODE, WHICH NOTHING HAD EVER DECODED. sec 244.
+	 *
+	 * `qr.h` says the mode is chosen and not asked for: text entirely
+	 * inside QR's alphanumeric set is packed at 5.5 bits a character and
+	 * ANYTHING ELSE GOES AS BYTES. Every payload above is `AAAA...`, and
+	 * the print fixture below is `PROVISIONING CARD 1234567890` -- both
+	 * alphanumeric. So one of the encoder's two modes had been read back
+	 * by an independent decoder and the other had not, while `qr_test.c`
+	 * says in its own header that shape assertions "can satisfy all of it
+	 * and decode as nothing".
+	 *
+	 * LENGTHS RATHER THAN ONE PAYLOAD PER VERSION, because byte mode's
+	 * bug surface is the bit packing and the character-count indicator,
+	 * and both change with length rather than with content. The sweep is
+	 * sparse on purpose: this target already builds quirc from source and
+	 * a dense sweep would make `make check` slower for no more coverage.
+	 */
+	{
+		static const size_t LENS[] = { 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144 };
+		size_t li;
+
+		for (level = 0; level < 4; level++) {
+			for (li = 0; li < sizeof(LENS) / sizeof(LENS[0]); li++) {
+				size_t n = LENS[li], k;
+
+				if (n >= sizeof(text) - 1u)
+					continue;
+				/* Lowercase and punctuation OUTSIDE the alphanumeric
+				 * set, so the mode chooser cannot pick the narrow
+				 * path: no digits, no capitals, none of ` $%*+-./:`. */
+				for (k = 0; k < n; k++)
+					text[k] = (char)("abcdefghijklmnopqrstuvwxyz_~"[k % 28]);
+				text[n] = 0;
+				if (fzn_qr_version_for(text, n, (fzn_qr_level_t)level) == 0u)
+					continue;
+				if (roundtrip_typed(text, (fzn_qr_level_t)level,
+				                    QUIRC_DATA_TYPE_BYTE, why,
+				                    sizeof(why))) {
+					pass++;
+				} else {
+					fail++;
+					printf("  FAIL qr_quirc_check.c: byte mode %s "
+					       "(%zu chars): %s\n",
+					       NAMES[level], n, why);
+				}
+			}
+		}
+	}
+
 	/*
 	 * AND THE TEXT SPELLING, sec 163. `cli/qr_print.c` writes the same
 	 * modules as terminal characters, so the same question applies: does
