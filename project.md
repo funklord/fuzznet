@@ -34854,3 +34854,51 @@ subsystem: 212 exhausted, 465 fallbacks, 446 inflated budgets clamped. **A
 coverage floor that a uniform draw cannot reach is a floor that would have
 been met by luck or not at all**, and either way it would have said nothing
 about the boundary it was written for.
+
+## 234. Asking a signed format the question mutation cannot
+
+sec 232 found a byte a format wrote and nobody read, by mutating a blob and
+requiring every accepted mutation to re-pack differently. That instrument does
+not work on a SIGNED record, and `evidence.md` says why: a field inside a
+signed range cannot be tested by mutating it on the wire, because the mutation
+breaks the signature too and the rejection comes from the signature either way.
+
+**The same question has another form, and `spool/test/message_fuzz.c` had it
+all along**, better stated than sec 232 put it:
+
+> Anything the decoder ACCEPTS, re-encoded from what it handed back, must
+> reproduce the input byte for byte. That is the strongest property this
+> format has ... two encodings of one message is how a receiver that
+> de-duplicates by bytes sees two questions where a peer asked one.
+
+Surveyed across the harnesses: four build records with an encoder and never
+compare bytes afterwards -- `manifest_fuzz`, `revocation_fuzz`, `prekey_fuzz`
+and `sync_fuzz`. The richest of those is the manifest, whose entries carry a
+capability, a grantee, a revocation id and a state byte, so this adds the
+property there.
+
+### Why nothing else in that harness could see it
+
+`manifest_fuzz` is model-based and strong: it keeps an independent shadow of
+what the deficit table should hold and compares after every admission. But
+**the model reaches the module through the same accessors a dropped field
+would break**, so a decoder that ignored the state byte would produce a shadow
+that agreed with a store that was equally wrong. Only the bytes are outside
+that loop.
+
+Shown by making `fzn_manifest_is_withdrawn` return 0 and watching the property
+fire on the first case, where the whole model stayed silent.
+
+### Two mistakes of mine, both in the comparison rather than the code
+
+**The first version compared the whole blob** and failed on every input.
+`fzn_manifest_encode` leaves the signature region zero -- signing is the
+caller's -- so `again_len` bytes includes 64 bytes the encoder cannot fill. It
+reported a format defect that was mine, and the debug print settled it in one
+line: `first diff at 133`, which is the start of the signature in a one-pair
+manifest rather than anything in the body.
+
+**And the counter was not reported**, so the property could have stopped
+running and the harness would still have printed a pass. It is in the summary
+and under a floor now -- 16000 re-encodes in 2000 cases -- on the same rule
+that a check nothing counts is a check that can go quiet.

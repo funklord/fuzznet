@@ -191,6 +191,7 @@ struct held {
 struct coverage {
 	unsigned long admitted;
 	unsigned long unknown_issuer;
+	unsigned long reencoded;
 	unsigned long bad_signature;
 	unsigned long covered_skip;
 	unsigned long duplicate_skip;
@@ -505,6 +506,63 @@ static const char *fuzz_one(const uint8_t *data, size_t len, struct coverage *co
 		if (fzn_manifest_open(buf, out_len, &rec) != FZN_MANIFEST_OK)
 			return "signing made a manifest that will not open";
 
+		/*
+		 * WHAT THE DECODER HANDED BACK, RE-ENCODED, MUST BE THE SAME
+		 * BYTES. sec 234.
+		 *
+		 * A field this format writes and the decoder DROPS is invisible
+		 * to everything else here: the model compares what was admitted
+		 * against what should have been, and a dropped `id` or a
+		 * normalised `state` reaches the model through the same
+		 * accessors the check would use. Only the bytes can say it.
+		 *
+		 * AND MUTATION CANNOT ASK THIS, which is why the question has
+		 * to be put this way round. `evidence.md`: a field inside a
+		 * signed range cannot be tested by mutating it on the wire,
+		 * because the mutation breaks the signature too and the
+		 * rejection comes from the signature either way. Re-encoding
+		 * touches no signature at all.
+		 *
+		 * `persist/test/persist_fuzz.c` found a live instance of
+		 * exactly this class the day this was written -- eight bytes a
+		 * stored anchor wrote and nobody read.
+		 */
+		{
+			static fzn_manifest_entry_t back[MAX_PAIRS];
+			static uint8_t again[FZN_MANIFEST_LEN(MAX_PAIRS)];
+			size_t again_len = 0;
+			size_t back_n = fzn_manifest_count(rec);
+			size_t i;
+
+			if (back_n > MAX_PAIRS)
+				return "a manifest opened with more pairs than the fixture built";
+			for (i = 0; i < back_n; i++) {
+				back[i].pair.capability = *fzn_manifest_capability(rec, i);
+				memcpy(back[i].pair.grantee, fzn_manifest_grantee(rec, i),
+				       FZN_PUBKEY_LEN);
+				memcpy(back[i].id, fzn_manifest_id(rec, i),
+				       FZN_REVOCATION_ID_LEN);
+				back[i].state = fzn_manifest_is_withdrawn(rec, i)
+				                        ? (uint8_t)FZN_MANIFEST_WITHDRAWN
+				                        : (uint8_t)FZN_MANIFEST_REVOKED;
+			}
+			if (fzn_manifest_encode(again, sizeof(again), fzn_manifest_issuer(rec),
+			                        back, back_n, &again_len) != FZN_MANIFEST_OK)
+				return "a manifest this module opened will not re-encode";
+			/* THE BODY, NOT THE WHOLE BLOB. `fzn_manifest_encode`
+			 * leaves the signature region zero -- signing is the
+			 * caller's -- so comparing `again_len` bytes compares a
+			 * field the encoder cannot fill and fails on every
+			 * input. The first version of this case did exactly
+			 * that and reported a format defect that was mine. */
+			if (again_len != out_len
+			    || memcmp(again, buf, FZN_MANIFEST_BODY_LEN(back_n)) != 0)
+				return "a manifest re-encoded from what the decoder handed back "
+				       "is not the bytes it was decoded from, so this format "
+				       "writes something the decoder does not read";
+			cov->reencoded++;
+		}
+
 		got = fzn_manifest_admit(&state, &store, rec, &sign);
 
 		if (ki >= FOLLOWED) {
@@ -574,7 +632,7 @@ static const char *fuzz_one(const uint8_t *data, size_t len, struct coverage *co
 #ifdef FZN_LIBFUZZER
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
-	struct coverage cov = { 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+	struct coverage cov = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 	const char *why = fuzz_one(data, size, &cov);
 
 	if (why != NULL) {
@@ -605,7 +663,7 @@ static unsigned long floor_of(unsigned long cases, unsigned long per)
 int main(int argc, char **argv)
 {
 	unsigned long cases = FUZZ_DEFAULT_CASES;
-	struct coverage cov = { 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+	struct coverage cov = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 	uint32_t state = 0x9e3779b9u;
 
 	if (argc > 1) {
@@ -655,20 +713,25 @@ int main(int argc, char **argv)
 	if (cov.admitted < floor_of(cases, 200u) || cov.unknown_issuer < floor_of(cases, 200u) ||
 	    cov.bad_signature < floor_of(cases, 200u) || cov.covered_skip < floor_of(cases, 200u) ||
 	    cov.duplicate_skip < floor_of(cases, 200u) || cov.filled < floor_of(cases, 200u) ||
-	    cov.cleared < floor_of(cases, 200u) || cov.rollback == 0ul || cov.satisfied < floor_of(cases, 200u)) {
+	    cov.cleared < floor_of(cases, 200u) || cov.rollback == 0ul || cov.satisfied < floor_of(cases, 200u)
+	    /* AND THE RE-ENCODE RAN. A property nothing counts is one that
+	     * could stop running and report success -- sec 234. */
+	    || cov.reencoded < floor_of(cases, 4u)) {
 		printf("manifest_fuzz: REACHED TOO LITTLE -- %lu admitted, %lu unknown issuer, "
 		       "%lu bad signature, %lu covered, %lu duplicate, %lu full, %lu cleared, "
-		       "%lu rollbacks, %lu satisfied in %lu cases.\n",
+		       "%lu rollbacks, %lu satisfied, %lu re-encoded in %lu cases.\n",
 		       cov.admitted, cov.unknown_issuer, cov.bad_signature, cov.covered_skip,
-		       cov.duplicate_skip, cov.filled, cov.cleared, cov.rollback, cov.satisfied, cases);
+		       cov.duplicate_skip, cov.filled, cov.cleared, cov.rollback, cov.satisfied,
+		       cov.reencoded, cases);
 		return 1;
 	}
 
 	printf("manifest_fuzz: %lu cases, %lu admitted, %lu unknown issuer, %lu bad signature, "
 	       "%lu covered, %lu duplicate, %lu full, %lu cleared, %lu rollbacks refused, "
-	       "%lu satisfied, model agreed throughout\n",
+	       "%lu satisfied, %lu re-encoded byte-for-byte, model agreed throughout\n",
 	       cases, cov.admitted, cov.unknown_issuer, cov.bad_signature, cov.covered_skip,
-	       cov.duplicate_skip, cov.filled, cov.cleared, cov.rollback, cov.satisfied);
+	       cov.duplicate_skip, cov.filled, cov.cleared, cov.rollback, cov.satisfied,
+	       cov.reencoded);
 	return 0;
 }
 #endif
