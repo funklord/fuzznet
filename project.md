@@ -35284,3 +35284,84 @@ not of the string** -- `evidence.md` says exactly that about anchors, and
 here the tree grew the ambiguity by itself, with nobody touching the entry.
 It carries the first line of the saturation message now, which is the part
 that cannot become ambiguous without the message itself changing.
+
+## 237. The deletion path was the silent one
+
+Counting emit sites per module: seventeen modules carry a log, and the three
+that take bytes off this host -- `catalog/sweep.c`, `spool/scrub.c`,
+`catalog/copy.c` -- carried none at all.
+
+`catalog/sweep.h` opens *planned deletion: taking bytes off this host,
+deliberately*, and its own argument for being planned rather than immediate
+lists two ways to lose data -- a blob several nodes share, and being the last
+host that has it. The module with the most carefully reasoned hazards in the
+tree had nothing to say while it worked.
+
+### Not an error, which is why it was silent
+
+Both moments this commit gives a voice are ones where nothing is wrong, and
+that is exactly what kept them out of the return values.
+
+**`min_others == 0` switches off the last-copy guard**, and it is the
+caller's to give: the header says so at length -- right for a cache, wrong
+for the only copy of a photograph, and a default here would be *a number
+nobody chose applied to data nobody can get back*. What no surface said is
+that **the plan it returns is indistinguishable from one that passed the
+guard**: `last_copy` is zero whether the seam refused nothing or was never
+asked.
+
+	NOTE  planning to remove 2 blobs with the last-copy guard off:
+	      min_others is 0, so no witness was asked whether anybody else
+	      holds them
+
+`FLOG_NOTE` and not a warning, because nothing has gone wrong -- something
+irreversible is about to happen with a check disabled, which is what a note
+is for. Silent when the capture planned nothing, since a plan that removes
+nothing has disabled nothing that mattered.
+
+**And truncation was already called loud by the header** -- *a sweep that
+silently held some of them would leave a consumer believing it had reclaimed
+what it had not* -- while its only voice was a counter beside six others.
+That is a claim a document made and the code did not keep.
+
+	WARN  2 removable blobs did not fit in this job's 1 rows, so running
+	      it to the end reclaims less than the catalogue offered
+
+### Through the catalogue's log, not the job's
+
+A sweep is something that happens TO a catalogue, and a consumer that has
+already said where that catalogue talks should not say it again per job. It
+also means the sublog name the consumer chose puts these lines under the
+same heading as everything else that catalogue said -- which is the whole
+argument for flog's tree, arriving at a module that had no log at all.
+
+No new field, no new setter, no change to any struct: `SWEEP_LOG` reads
+`catalog->log` exactly as `CAT_LOG` does.
+
+### The controls
+
+	sweep-says-the-guard-is-off   NOTE -> DEBUG
+	  FAIL sweep_test.c:817: a disabled guard was reported as a fault or
+	  filtered as chatter, and it is neither
+
+	sweep-truncation-is-said      WARN -> INFO
+	  FAIL sweep_test.c:841: a consumer about to believe it reclaimed
+	  what it did not was not warned
+
+Both are severity edits rather than logic edits, deliberately: the plausible
+change to a line like this is somebody quieting it, not somebody deleting
+it. Each fires on exactly one assertion.
+
+**And the case that the guard being ON is silent is the control the block
+needs**, not decoration. Without it every assertion above passes for a
+module that says the same thing on every capture -- which is the shape
+`evidence.md` calls a control that cannot fail the way the thing it controls
+for fails.
+
+### What is still silent
+
+`spool/scrub.c` and `catalog/copy.c` remain at zero, and `blob/`, `tree/`,
+`spool/plan.c` have no log at all. Whether each of those has an event no
+return value carries is a question per module rather than a sweep to run --
+sec 201's rule, and the reason this section covers one module rather than
+six.

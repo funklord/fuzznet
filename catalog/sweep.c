@@ -2,6 +2,20 @@
 
 #include "sweep.h"
 
+/* Diagnostics through flog, vendored and possibly absent. sec 209.
+ *
+ * THROUGH THE CATALOGUE'S LOG rather than one of the job's own. A sweep is a
+ * thing that happens TO a catalogue, and a consumer that has already said
+ * where that catalogue talks should not have to say it again for each job --
+ * the sublog name it chose is what puts these lines under the same heading as
+ * everything else the catalogue said. */
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+#define SWEEP_LOG(c, sub, sev, ...)                                                        	do {                                                                               		if ((c) && (c)->log)                                                       			flog_printf((c)->log, sub, sev, FLOG_MSG_NONE, __VA_ARGS__);        	} while (0)
+#else
+#define SWEEP_LOG(c, sub, sev, ...) ((void)0)
+#endif
+
 #include <string.h>
 
 /* Whether any RETAINED node needs these bytes.
@@ -166,6 +180,44 @@ fzn_catalog_err_t fzn_catalog_sweep_capture(const fzn_catalog_t *catalog,
 
 	plan->planned = job->used;
 	job->captured = 1;
+
+	/*
+	 * THE GUARD BEING OFF IS NOT AN ERROR AND MUST NOT BE SILENT.
+	 *
+	 * `min_others` of zero is a legitimate answer -- right for a cache,
+	 * this header says, and wrong for the only copy of a photograph -- and
+	 * it is the caller's to give. What it does is switch off the one check
+	 * standing between a plan and losing bytes nobody else has, and the
+	 * plan that comes back looks exactly like one that passed the guard:
+	 * `last_copy` is zero either way, because the seam was never asked.
+	 *
+	 * So this is FLOG_NOTE and not a warning. Nothing is wrong; something
+	 * irreversible is about to happen with a check disabled, which is
+	 * precisely what a note is for.
+	 *
+	 * SILENT WHEN IT PLANNED NOTHING, because a capture that would remove
+	 * nothing has not disabled anything that mattered.
+	 */
+	if (min_others == 0u && plan->planned > 0u)
+		SWEEP_LOG(catalog, "catalog/sweep", FLOG_NOTE,
+		          "planning to remove %zu blobs with the last-copy guard off: "
+		          "min_others is 0, so no witness was asked whether anybody else "
+		          "holds them",
+		          plan->planned);
+
+	/*
+	 * AND A JOB THAT DID NOT FIT SAYS SO. sweep.h calls `truncated` loud --
+	 * "a sweep that silently held some of them would leave a consumer
+	 * believing it had reclaimed what it had not" -- and until now the
+	 * only voice it had was a counter beside six others. A consumer that
+	 * runs this job to completion and frees nothing more has reclaimed
+	 * less than it asked for, and nothing else in the run says which.
+	 */
+	if (plan->truncated > 0u)
+		SWEEP_LOG(catalog, "catalog/sweep", FLOG_WARN,
+		          "%zu removable blobs did not fit in this job's %zu rows, so "
+		          "running it to the end reclaims less than the catalogue offered",
+		          plan->truncated, job->capacity);
 
 	return FZN_CATALOG_OK;
 }

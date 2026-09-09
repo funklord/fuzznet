@@ -1169,6 +1169,20 @@ SABOTAGES = [
 		"a sender that spoke once and stopped is ordinary loss and a transfer this host gave up on mid-flight is the symptom of a max_hold below the arrival time -- reported at one severity they are indistinguishable to anybody filtering, which is the only thing a log level is for -- sec 236",
 	),
 	(
+		"sweep-says-the-guard-is-off",
+		"catalog/sweep.c",
+		"\t\tSWEEP_LOG(catalog, \"catalog/sweep\", FLOG_NOTE,\n",
+		"\t\tSWEEP_LOG(catalog, \"catalog/sweep\", FLOG_DEBUG,\n",
+		"min_others of 0 switches off the only check between a plan and bytes nobody else holds, and the plan it returns looks exactly like one that passed the guard -- at debug the one record of that is filtered out by every default, on a path whose header calls its hazards real ways to lose data -- sec 237",
+	),
+	(
+		"sweep-truncation-is-said",
+		"catalog/sweep.c",
+		"\t\tSWEEP_LOG(catalog, \"catalog/sweep\", FLOG_WARN,\n",
+		"\t\tSWEEP_LOG(catalog, \"catalog/sweep\", FLOG_INFO,\n",
+		"sweep.h calls truncation loud because a sweep that silently held some of them leaves a consumer believing it reclaimed what it had not -- informational is not loud, and the counter it had before this was one of seven -- sec 237",
+	),
+	(
 		"log-body-escapes-what-a-terminal-obeys",
 		"log/log.c",
 		"\t\tif (body[i] >= 0x20u && body[i] <= 0x7eu) {\n",

@@ -215,6 +215,14 @@ typedef struct fzn_catalog_sweep {
  *
  * FZN_CATALOG_ERR_BUSY while any job holds the catalogue. A sweep captured
  * mid-refile would be deciding against a filing that is being rearranged.
+ *
+ * IT TALKS THROUGH THE CATALOGUE'S LOG, set by `fzn_catalog_set_log`, and
+ * about two things a plan cannot say for itself. A `min_others` of zero is
+ * noted, because the plan it returns is indistinguishable from one that
+ * passed the last-copy guard -- `last_copy` is zero whether the seam refused
+ * nothing or was never asked. A truncated job is warned about, because a
+ * consumer running it to the end reclaims less than the catalogue offered.
+ * Neither is an error and neither has anywhere else to be said.
  */
 fzn_catalog_err_t fzn_catalog_sweep_capture(const fzn_catalog_t *catalog,
                                             const fzn_catalog_holdings_ops_t *holdings,

@@ -19,6 +19,33 @@
 
 #include "../sweep.h"
 
+#ifdef FZN_FLOG_ON
+#include "flog.h"
+
+/* Borrowed strings, so anything kept is copied. */
+static struct {
+	int calls;
+	flog_msg_type_t type;
+	char subsystem[64];
+	char text[512];
+} sweep_log_seen;
+
+static int sweep_log_capture(flog_t *p, const flog_msg_t *m)
+{
+	(void)p;
+	sweep_log_seen.calls++;
+	sweep_log_seen.type = m->type;
+	sweep_log_seen.subsystem[0] = '\0';
+	sweep_log_seen.text[0] = '\0';
+	if (m->subsystem)
+		snprintf(sweep_log_seen.subsystem, sizeof(sweep_log_seen.subsystem), "%s",
+		         m->subsystem);
+	if (m->text)
+		snprintf(sweep_log_seen.text, sizeof(sweep_log_seen.text), "%s", m->text);
+	return 0;
+}
+#endif
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -727,6 +754,97 @@ static void test_a_schedule_becomes_a_sweep(void)
 	      "a blob another node still keeps was removed because a deadline passed");
 }
 
+#ifdef FZN_FLOG_ON
+/*
+ * WHAT A DELETION SAYS WHILE IT IS BEING PLANNED. sec 237.
+ *
+ * Two moments, and neither is an error, which is exactly why they were
+ * silent. A `min_others` of zero is the caller's to give and switches off the
+ * only guard between a plan and bytes nobody else holds -- and the plan that
+ * comes back is indistinguishable from one that passed the guard, since
+ * `last_copy` is zero whether the seam refused nothing or was never asked. A
+ * truncated job is called loud by sweep.h and had a counter for a voice.
+ *
+ * THROUGH THE CATALOGUE'S LOG, because a sweep is something that happens to a
+ * catalogue and a consumer has already said where that one talks.
+ */
+static void test_a_planned_deletion_says_what_it_is_doing(void)
+{
+	fzn_catalog_edge_t rows[8];
+	fzn_catalog_entry_t entries[4];
+	fzn_catalog_removal_t removals[4];
+	fzn_catalog_removal_t one_row[1];
+	fzn_catalog_sweep_t job;
+	fzn_catalog_sweep_plan_t plan;
+	fzn_catalog_t cat;
+	fzn_catalog_entry_t e;
+	flog_t log;
+	size_t i;
+	struct store store = { 0, 0, 3, 0, 0 };
+	fzn_catalog_holdings_ops_t held = { store_holds, &store };
+	fzn_catalog_witness_ops_t seen = { store_others, &store };
+
+	init_flog_t(&log);
+	log.name = NULL;
+	log.accepted_msg_type = FLOG_ACCEPT_ALL;
+	log.output_func = sweep_log_capture;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 8, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_content_init(&cat, entries, 4, &HELD_WINS) == FZN_CATALOG_OK,
+	        "the content table would not init");
+	for (i = 0; i < 3; i++) {
+		e = blob_entry((uint8_t)(0x10 + i), (uint8_t)(0xa0 + i), 100 + i);
+		REQUIRE(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK,
+		        "a blob was refused");
+	}
+
+	/* QUIET UNTIL ASKED. */
+	memset(&sweep_log_seen, 0, sizeof(sweep_log_seen));
+	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 0, NOW, &job, removals, 4,
+	                                  &plan) == FZN_CATALOG_OK,
+	        "a capture was refused");
+	CHECK(sweep_log_seen.calls == 0, "a catalogue nobody gave a log to emitted anyway");
+
+	fzn_catalog_set_log(&cat, &log);
+
+	/* THE GUARD SWITCHED OFF. */
+	memset(&sweep_log_seen, 0, sizeof(sweep_log_seen));
+	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 0, NOW, &job, removals, 4,
+	                                  &plan) == FZN_CATALOG_OK,
+	        "a capture was refused");
+	CHECK(plan.planned > 0 && plan.last_copy == 0, "the fixture did not plan a removal");
+	CHECK(sweep_log_seen.calls == 1, "a deletion planned with the guard off said nothing");
+	CHECK(sweep_log_seen.type == FLOG_NOTE,
+	      "a disabled guard was reported as a fault or filtered as chatter, and it is "
+	      "neither -- the caller chose it and it is irreversible");
+	CHECK(strcmp(sweep_log_seen.subsystem, "catalog/sweep") == 0,
+	      "the event did not name its subsystem");
+	CHECK(strstr(sweep_log_seen.text, "min_others") != NULL,
+	      "the line does not name the argument that switched the guard off");
+
+	/* AND ON, which is the control: without it the case above passes for a
+	 * module that says the same thing on every capture. */
+	memset(&sweep_log_seen, 0, sizeof(sweep_log_seen));
+	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, NOW, &job, removals, 4,
+	                                  &plan) == FZN_CATALOG_OK,
+	        "a capture was refused");
+	CHECK(sweep_log_seen.calls == 0,
+	      "a capture that consulted the witness seam announced a disabled guard");
+
+	/* A JOB THAT DID NOT FIT. Rows for one, three blobs to remove. */
+	memset(&sweep_log_seen, 0, sizeof(sweep_log_seen));
+	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 1, NOW, &job, one_row, 1,
+	                                  &plan) == FZN_CATALOG_OK,
+	        "a truncated capture was refused");
+	CHECK(plan.truncated == 2, "the fixture did not truncate");
+	CHECK(sweep_log_seen.calls == 1, "a truncated sweep said nothing");
+	CHECK(sweep_log_seen.type == FLOG_WARN,
+	      "a consumer about to believe it reclaimed what it did not was not warned");
+	CHECK(strstr(sweep_log_seen.text, "reclaims less") != NULL,
+	      "the line reports a count and not its consequence");
+}
+#endif
+
 int main(void)
 {
 	memset(ALICE, 0xa1, sizeof(ALICE));
@@ -742,6 +860,9 @@ int main(void)
 	test_a_shared_dropped_blob_is_removed_once();
 	test_arguments();
 	test_a_schedule_becomes_a_sweep();
+#ifdef FZN_FLOG_ON
+	test_a_planned_deletion_says_what_it_is_doing();
+#endif
 
 	printf("sweep_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
