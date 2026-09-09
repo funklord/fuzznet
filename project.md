@@ -34528,20 +34528,38 @@ comes out is not about care:
 > cannot be narrower than its subject. Enumerate it, and it is narrower the
 > moment anything is added anywhere the enumeration did not anticipate.**
 
-### And widening it widened an exposure the file had already documented
+### And the guard it needed already existed, which I got wrong first
 
-The probe runs `nm ... 2>/dev/null`, and the comment above it records what
-that cost on 2026-09-04: adding `disclose/` and running `make style` before
-anything compiled reported "27 error renderers, all walked", **a true
-statement about nothing.** The guard added then only catches the case where
-NONE exist.
+The probe runs `nm ... 2>/dev/null`, so an unbuilt object is skipped in
+silence. That was measured on 2026-09-04 -- adding `disclose/` and running
+`make style` before anything compiled reported "27 error renderers, all
+walked", **a true statement about the objects that happened to be present** --
+and a loop refusing a missing object was added then.
 
-Widening from 49 sources to 76 widens that hole in proportion, so the two
-changes go together: a named object that is not there is a refusal now, not a
-silent omission. Shown failing by moving `cli/cli.o` aside --
+**I added a second one, because I read that guard's comment as a description
+of the present.** It opens `EVERY OBJECT MUST BE THERE, WHICH THIS DID NOT
+CHECK` and narrates the defect in the past tense before fixing it, which is
+how a reader skimming for whether a check exists concludes that it does not.
+It exists. It was pointed at `CORE_SRCS`, the same narrower list this section
+is about.
 
-	style: ./cli/cli.o is not built, so the renderer probe would
-	style: skip it in silence and report a true statement about a subset.
+So the right change was one line, not a new loop: **widen the guard with the
+sweep it guards.** Two checks doing one job with different populations is
+worse than one, because the narrower fires first with its own wording and the
+next reader has to work out which is authoritative.
 
--- and passing again with it back. sec 52's rule: the check was made to fail
-before it was recorded as working.
+The finding is worth more than the fix. **A comment written as the narrative
+of its own repair reads as a statement of the defect**, and the reader most
+likely to misread it is the one checking whether the repair happened. The
+first sentence describes code that no longer exists; nothing marks where the
+past tense stops.
+
+Shown failing by moving `cli/cli.o` aside before the duplicate was removed,
+and again on a clean tree afterwards with only the widened guard in place:
+
+	style: ./constant_time/constant_time.o is missing, so the renderer sweep
+	style: below would skip it silently and report a pass over less than
+	style: what the build made. Build the objects first.
+
+sec 52's rule, and it is what surfaced the duplication: the message that came
+back was not the one I had written.

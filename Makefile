@@ -3669,11 +3669,15 @@ style:
 	@# it reported "27 error renderers, all walked", a true statement about
 	@# the objects that happened to be present. `evidence.md`'s nastier
 	@# variant: a check that inspected the wrong thing rather than nothing.
-	@for o in $(CORE_SRCS:%.c=$(BUILD_DIR)/%.o); do \
+	@# OVER $(SRCS) SINCE sec 231, because the sweep below is. It was
+	@# $(CORE_SRCS) while the sweep was, and widening one without the other
+	@# would have reopened exactly what this guard closed -- for the 27
+	@# sources that are in SRCS and not in CORE_SRCS.
+	@for o in $(SRCS:%.c=$(BUILD_DIR)/%.o); do \
 		if [ ! -e "$$o" ]; then \
 			echo "style: $$o is missing, so the renderer sweep below would"; \
 			echo "style: skip it silently and report a pass over less than"; \
-			echo "style: the library. Build the objects first."; \
+			echo "style: what the build made. Build the objects first."; \
 			exit 1; \
 		fi; \
 	done
@@ -3715,19 +3719,12 @@ style:
 	@# Measured 2026-09-09: 39 over CORE_SRCS, 40 over SRCS, and the sweep
 	@# has 40 rows. project.md sec 231.
 	@#
-	@# AND A NAMED OBJECT THAT IS NOT THERE IS A REFUSAL NOW. The `2>/dev/null`
-	@# below is what let an unbuilt source be skipped in silence -- the 2026-09-04
-	@# note above -- and the guard after it only catches the case where NONE
-	@# exist. Widening the population widens that exposure, so the two go
-	@# together.
-	@for o in $(SRCS:%.c=$(BUILD_DIR)/%.o); do \
-		test -f "$$o" || { \
-			echo "style: $$o is not built, so the renderer probe would"; \
-			echo "style: skip it in silence and report a true statement"; \
-			echo "style: about a subset. Build before running this."; \
-			exit 1; \
-		}; \
-	done; \
+	@# THE MISSING-OBJECT GUARD IS THE ONE ABOVE, WIDENED WITH THIS. A second
+	@# copy was added here first, because the comment on that guard narrates
+	@# the defect in the past tense -- "EVERY OBJECT MUST BE THERE, WHICH THIS
+	@# DID NOT CHECK" -- and reads as a description of the present to anybody
+	@# skimming for whether a check exists. It exists; it was pointed at the
+	@# narrower list.
 	have=`nm --defined-only $(SRCS:%.c=$(BUILD_DIR)/%.o) 2>/dev/null \
 	       | awk '$$2 == "T" { print $$3 }' \
 	       | grep -E '^fzn_[a-z_]+_str$$' | sort -u`; 	walked=`grep -oE '"fzn_[a-z_]+_str"' wire/test/err_str_test.c \
