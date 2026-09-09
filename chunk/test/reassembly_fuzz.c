@@ -161,6 +161,24 @@ static const char *invariants(const struct arena *a, const fzn_reasm_t *table)
 		}
 		if (n > table->per_sender_max)
 			return "a sender holds more partials than its quota";
+
+		/* AND THE COUNT THE MODULE EXPORTS IS THIS COUNT. sec 235.
+		 *
+		 * `fzn_reasm_held_by` exists because the walk a consumer
+		 * would write -- live and NOT handed, the natural reading of
+		 * "how many messages is this sender assembling" -- disagrees
+		 * with the one `fzn_reasm_accept` refuses on. The loop above
+		 * is this harness's own second implementation of the right
+		 * one, written before the accessor existed, so comparing them
+		 * is two implementations meeting rather than one asking
+		 * itself.
+		 *
+		 * ASSERTED AS THE RELATIONSHIP. Either count alone can be
+		 * plausible and wrong; they cannot both drift the same way
+		 * without somebody editing both. */
+		if (fzn_reasm_held_by(table, slot->sender) != n)
+			return "fzn_reasm_held_by disagrees with a count of the live "
+			       "slots this sender holds";
 	}
 
 	return NULL;

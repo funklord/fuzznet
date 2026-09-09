@@ -35172,6 +35172,23 @@ FULL arms answer first, and no input distinguishes the two censuses -- sec
 228's lesson, that a condition with one reachable shape is a condition no
 sabotage can test, met before the sabotage rather than after it.
 
+### And the accessor is under the harness, not only the unit test
+
+`reassembly_fuzz` already recomputed the quota per live slot -- *the quota,
+recomputed rather than trusted* -- which is a second implementation of
+exactly what `fzn_reasm_held_by` exports, written before the accessor
+existed. So the two are compared per case now, which is the relationship
+rather than either value: both can be plausible and wrong, and they cannot
+drift together without somebody editing both.
+
+The same sabotage that the unit test catches -- `held_by` skipping handed
+slots -- fails there too, with a reduction attached:
+
+	INVARIANT: fzn_reasm_held_by disagrees with a count of the live
+	slots this sender holds
+	  at offset 14: index=0 chunks=1 len=6
+	reassembly_fuzz: FAILED on case 25 (seed 26)
+
 ### The three controls, and the one that justifies the third slot
 
 	held-by-counts-handed-slots
