@@ -321,6 +321,63 @@ static void test_two_hosts_adding_agree_without_talking(void)
 	CHECK(fzn_catalog_linked(&a, &set, &node), "and neither holds the member");
 }
 
+/*
+ * AND A REMOVE DOES NOT COMMUTE, WHICH IS THE DOCUMENTED LIMIT AND NOT A BUG.
+ *
+ * sec 243. `catalog.h` says what this rule is not: "a proper OR-Set lets a
+ * remove cancel exactly the adds it has SEEN, so a concurrent add survives a
+ * remove that never knew about it -- and that needs causal metadata on every
+ * edge. This rule is the honest first pass."
+ *
+ * That is an argument in prose about a property the code does NOT have, and
+ * nothing made it executable. The commutation above holds for adds; three
+ * assertions with one remove among them diverge, and a reader who met that
+ * divergence without this case would reasonably read it as a defect and
+ * "fix" it -- which means either adding causal metadata nobody asked for, or
+ * checking presence before issuer, which `catalog.h` shows makes a
+ * catalogue nothing can be removed from.
+ *
+ * THIS TEST IS EXPECTED TO FAIL THE DAY SOMEBODY IMPLEMENTS AN OR-SET, and
+ * that is its purpose: the change should be deliberate and should have to
+ * come here and say so, rather than being discovered by a consumer whose
+ * hosts stopped agreeing.
+ *
+ * The divergence: alice links, bob links, alice unlinks with a later
+ * sequence. Whether the unlink applies depends on whether alice's own link
+ * is what the table is holding when it arrives, and that depends on the
+ * order the two links came in.
+ */
+static void test_a_remove_does_not_commute_and_that_is_the_design(void)
+{
+	fzn_catalog_edge_t rows_a[4], rows_b[4];
+	fzn_catalog_t a, b;
+	fzn_catalog_id_t set = id(0x21);
+	fzn_catalog_id_t node = id(0x11);
+
+	REQUIRE(fzn_catalog_init(&a, rows_a, 4, &ADD_WINS) == FZN_CATALOG_OK, "a init");
+	REQUIRE(fzn_catalog_init(&b, rows_b, 4, &ADD_WINS) == FZN_CATALOG_OK, "b init");
+
+	/* Alice's link arrives first here, so her later unlink supersedes her
+	 * own statement and the member goes. */
+	REQUIRE(fzn_catalog_assert(&a, &set, &node, ALICE, 1, 1) == FZN_CATALOG_OK, "a1");
+	(void)fzn_catalog_assert(&a, &set, &node, BOB, 1, 1);
+	(void)fzn_catalog_assert(&a, &set, &node, ALICE, 2, 0);
+
+	/* Bob's arrives first here, so the table holds BOB's link when
+	 * alice's unlink arrives -- a different issuer, and presence wins. */
+	REQUIRE(fzn_catalog_assert(&b, &set, &node, BOB, 1, 1) == FZN_CATALOG_OK, "b1");
+	(void)fzn_catalog_assert(&b, &set, &node, ALICE, 1, 1);
+	(void)fzn_catalog_assert(&b, &set, &node, ALICE, 2, 0);
+
+	CHECK(!fzn_catalog_linked(&a, &set, &node),
+	      "alice's unlink did not supersede her own earlier link");
+	CHECK(fzn_catalog_linked(&b, &set, &node),
+	      "alice's unlink beat bob's link, so presence does not win across issuers");
+	CHECK(fzn_catalog_linked(&a, &set, &node) != fzn_catalog_linked(&b, &set, &node),
+	      "the two hosts agreed -- if that is deliberate, this rule has become an "
+	      "OR-Set and catalog.h's paragraph saying it is not one must change with it");
+}
+
 /* A full catalogue refuses loudly rather than dropping the oldest, which is
  * the difference between this and a log. */
 static void test_a_full_catalogue_refuses_rather_than_evicts(void)
@@ -2552,6 +2609,7 @@ int main(void)
 	test_a_removal_survives_a_stale_link();
 	test_the_resolver_is_a_seam();
 	test_two_hosts_adding_agree_without_talking();
+	test_a_remove_does_not_commute_and_that_is_the_design();
 	test_a_full_catalogue_refuses_rather_than_evicts();
 	test_the_caller_bugs_are_refused();
 	test_a_listing_respects_its_bound();

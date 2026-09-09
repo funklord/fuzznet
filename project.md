@@ -35685,3 +35685,67 @@ before any property does. An entry aimed at a model, caught by a backend
 error, records a guard that was never exercised -- which is sec 234's
 finding about controls landing on the cheapest check, met once more and
 acted on this time by not writing the entry.
+
+## 243. A non-property, made executable
+
+`catalog.h` argues at length about a property its merge rule does NOT have:
+
+> a proper OR-Set lets a remove cancel exactly the adds it has SEEN, so a
+> concurrent add survives a remove that never knew about it -- and that needs
+> causal metadata on every edge. This rule is the honest first pass.
+
+The suite tested the property it DOES have -- two hosts adding a member agree
+whatever order the assertions arrive in -- with two assertions in opposite
+orders. Nothing tested the limit.
+
+Measured with three: alice links, bob links, alice unlinks with a later
+sequence.
+
+	order alice, bob, alice-unlink   linked = 0
+	order bob, alice, alice-unlink   linked = 1
+
+Whether alice's unlink applies depends on whether her own link is what the
+table holds when it arrives, and that depends on which link came first. Both
+halves of the rule are working exactly as `catalog.h` describes: a later
+statement supersedes its own issuer's, and across issuers presence wins.
+
+### Why a non-property is worth a test
+
+**A reader who meets that divergence without this case will read it as a
+defect**, and the two available "fixes" are both worse than the behaviour.
+Checking presence before issuer is the one `catalog.h` records having tried:
+it makes a catalogue nothing can be removed from. Adding causal metadata to
+every edge is an OR-Set, which is a design decision with a memory cost, and
+not one to arrive at by way of a bug report.
+
+So the test asserts the disagreement, and says in its own comment that **it
+is expected to fail the day somebody implements an OR-Set** -- at which point
+the change has to come here and say so, rather than being discovered by a
+consumer whose hosts stopped agreeing.
+
+This is the shape `working-practice.md` describes for a deliberate
+non-decision: it *decays like an entry recording a fix, and more quietly*. A
+prose paragraph about a property the code lacks is invisible to every gate; a
+test is not.
+
+### The control found the suite already had it covered
+
+Sabotaging the rule to skip the issuer check fires five assertions, and mine
+is the third of them:
+
+	FAIL catalog_test.c:266: a stale link was accepted over a removal
+	FAIL catalog_test.c:372: alice's unlink did not supersede her own
+	                         earlier link
+
+So no sabotage entry: `catalog-issuer-supersedes-first` already names that
+site, and the assertion that answers first is one that predates this. By sec
+242's own rule an entry aimed at a check something cheaper answers records a
+guard nothing exercised -- and here the honest reading is that the new test
+adds a claim about the LIMIT rather than coverage of the rule.
+
+**And the sabotage would not apply as first spelled.** The
+issuer-supersedes-first line appears three times in `catalog.c` -- the edge
+rule, the content rule and the name rule are the same shape -- so the anchor
+had to carry the comment above it. `evidence.md` again: uniqueness is a
+property of the file, not of the string, and here the file had three of them
+from the start.
