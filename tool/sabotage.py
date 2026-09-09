@@ -1162,6 +1162,13 @@ SABOTAGES = [
 		"one sender holding three slots is one peer being refused and not three, so a census counting slots inflates the number of peers this bound is turning away -- the printer's fixture needed a third slot before the question could be asked at all -- sec 235",
 	),
 	(
+		"expire-separates-loss-from-abandonment",
+		"chunk/reassembly.c",
+		"\t\t\tif (slot->arrived > 1u)\n",
+		"\t\t\tif (slot->arrived > 0u)\n",
+		"a sender that spoke once and stopped is ordinary loss and a transfer this host gave up on mid-flight is the symptom of a max_hold below the arrival time -- reported at one severity they are indistinguishable to anybody filtering, which is the only thing a log level is for -- sec 236",
+	),
+	(
 		"log-body-escapes-what-a-terminal-obeys",
 		"log/log.c",
 		"\t\tif (body[i] >= 0x20u && body[i] <= 0x7eu) {\n",
@@ -1556,8 +1563,8 @@ SABOTAGES = [
 	(
 		"reasm-saturation-is-said",
 		"chunk/reassembly.c",
-		"\"chunk/reasm\", FLOG_WARN,\n",
-		"\"chunk/reasm\", FLOG_DEBUG,\n",
+		"\"chunk/reasm\", FLOG_WARN,\n\t\t          \"reassembly table saturated:",
+		"\"chunk/reasm\", FLOG_DEBUG,\n\t\t          \"reassembly table saturated:",
 		"one refused chunk and a table full for a minute look identical to a caller, and this module's own header argues that a table refusing when full is one a single sender can fill -- at debug the saturation is filtered out by default -- sec 214",
 	),
 	(

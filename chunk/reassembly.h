@@ -201,10 +201,25 @@ fzn_reasm_err_t fzn_reasm_init(fzn_reasm_t *table, fzn_partial_t *partials, size
  * 230. */
 fzn_reasm_err_t fzn_reasm_slot_init(fzn_partial_t *slot, uint8_t *buf, size_t capacity);
 
-/* Reclaim partials whose expiry has passed, and report how many. Same argument
+/*
+ * Reclaim partials whose expiry has passed, and report how many. Same argument
  * as frame/freshness.h: expiry is what makes the memory bound survive a
  * quiet period, and a receiver that has gone silent should be able to hand
- * memory back without waiting for a datagram to arrive. */
+ * memory back without waiting for a datagram to arrive.
+ *
+ * THE COUNT SAYS HOW MANY AND NOT WHAT. A slot reclaimed from a sender that
+ * stopped after one chunk and a slot reclaimed from a message that was two
+ * chunks from done are the same integer here, and they are not the same
+ * event: the second is bytes this host accepted and then discarded.
+ *
+ * A `max_hold` shorter than a transfer takes expires EVERY message just
+ * before it completes, and that failure is invisible from every other
+ * surface -- the table stays roomy, `fzn_reasm_accept` refuses nothing,
+ * `cli/reasm_print` reports HOLDING, and the consumer receives nothing at
+ * all. So the log is where it is said: a warning when a message that was
+ * arriving is dropped, at debug when one that never progressed is. See
+ * `fzn_reasm_set_log`.
+ */
 size_t fzn_reasm_expire(fzn_reasm_t *table, uint64_t now);
 
 /* Offer one chunk.

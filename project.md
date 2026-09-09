@@ -35215,3 +35215,72 @@ aggregate a line CAN carry, and the printer carries it now. A widget on top
 of this is worth building when there is a consumer holding the labels; sec
 201's rule is that adding it because the other printers have one is
 symmetry rather than merit.
+
+## 236. A sweep that says how much it threw away
+
+`fzn_reasm_expire` returns a count. A slot reclaimed from a sender that sent
+one chunk and stopped, and a slot reclaimed from a message two chunks from
+done, are the same integer in it -- and the second is bytes this host
+accepted and then discarded.
+
+**The failure that makes this matter is invisible from every other
+surface.** A `max_hold` shorter than a transfer takes expires every message
+just before it completes. The table stays roomy, so `fzn_reasm_accept`
+refuses nothing and `cli/reasm_print` reports `holding 2 of 16`; the sweep
+returns a number that looks like healthy housekeeping; and the consumer
+receives nothing at all, with no error anywhere. It is sec 235's shape
+again -- every number correct, the conclusion wrong -- except that here
+there is no state a printer could add, because what has gone wrong is a
+RATE and a printer describes a snapshot.
+
+So the log is the surface, which is what a log is for.
+
+### The line is a description, not a diagnosis
+
+Two emit sites, split on `arrived > 1`:
+
+	FLOG_WARN   expiring a message that was arriving: 2 of 3 chunks and
+	            16 bytes are dropped, so if this repeats max_hold is
+	            shorter than a transfer takes
+	FLOG_DEBUG  expiring a message that never progressed: 1 of 3 chunks,
+	            held until 50
+
+One chunk is a sender that spoke once, which is ordinary loss and belongs
+below the default filter. Two or more means chunks were arriving over time
+and this host gave up while they were still coming.
+
+**The threshold is available rather than arbitrary, and that is why it is
+this one.** A proportion -- three quarters arrived, one chunk short -- would
+have been a number nobody could defend, and sec 228's lesson is that a
+condition whose shape cannot vary is a condition no sabotage can test.
+"More than one chunk landed" is a fact about the slot, not a judgement about
+how nearly done it was.
+
+**And the warning does not claim `max_hold` is the cause**, because a sender
+that genuinely died mid-transfer produces the identical slot. It says what
+was observed and names the field to look at. `evidence.md` keeps the rule as
+a reduction and a mechanism being separate claims: this line is the
+reduction.
+
+### The control, and the entry it broke
+
+	expire-separates-loss-from-abandonment
+	  FAIL reassembly_test.c:1655: a sender that spoke once and stopped
+	  was reported above debug, which makes ordinary loss look like a
+	  fault
+
+Fired where aimed, on the threshold rather than on the severity, because
+those are separate edits and only one of them is the one a tidy-up makes.
+
+**And adding the second FLOG_WARN to this file broke an existing entry**,
+which is the verify gate earning its keep in a way no test could:
+
+	sabotage: reasm-saturation-is-said matches 2 sites in
+	chunk/reassembly.c, wanted 1
+
+The entry named `"chunk/reasm", FLOG_WARN,` and that was unique until this
+commit. **Uniqueness is a property of the file at the moment of the edit,
+not of the string** -- `evidence.md` says exactly that about anchors, and
+here the tree grew the ambiguity by itself, with nobody touching the entry.
+It carries the first line of the saturation message now, which is the part
+that cannot become ambiguous without the message itself changing.

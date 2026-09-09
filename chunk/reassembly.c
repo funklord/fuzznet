@@ -251,6 +251,42 @@ size_t fzn_reasm_expire(fzn_reasm_t *table, uint64_t now)
 		 * for ever. The clause that used to sit here is what made a
 		 * zero-expiry chunk hold a slot permanently. */
 		if (slot->live && !slot->handed && slot->expires_at <= now) {
+			/*
+			 * WHAT A SWEEP THROWS AWAY, SAID OUT LOUD.
+			 *
+			 * Reclaiming is the whole job and it is not the whole
+			 * story: the bytes in this slot were accepted, and a
+			 * host whose `max_hold` is shorter than a message
+			 * takes to arrive expires every one of them JUST
+			 * BEFORE IT COMPLETES. Nothing about that is visible
+			 * from outside -- the table stays roomy, `accept`
+			 * refuses nothing, `fzn_reasm_print` says HOLDING, and
+			 * the consumer simply never receives anything.
+			 *
+			 * TWO OR MORE CHUNKS IS THE LINE, and it is a
+			 * description rather than a diagnosis. One chunk is a
+			 * sender that spoke once and stopped, which is
+			 * ordinary loss; two or more means chunks were
+			 * arriving over time and this host gave up while they
+			 * were still coming. That says what was observed and
+			 * names the field to look at -- it does not claim
+			 * `max_hold` is the cause, because a sender that
+			 * genuinely died mid-transfer produces the same slot.
+			 */
+			if (slot->arrived > 1u)
+				REASM_LOG(table, "chunk/reasm", FLOG_WARN,
+				          "expiring a message that was arriving: %u of %u "
+				          "chunks and %zu bytes are dropped, so if this "
+				          "repeats max_hold is shorter than a transfer "
+				          "takes",
+				          (unsigned)slot->arrived, (unsigned)slot->chunks,
+				          slot->bytes);
+			else
+				REASM_LOG(table, "chunk/reasm", FLOG_DEBUG,
+				          "expiring a message that never progressed: %u of "
+				          "%u chunks, held until %llu",
+				          (unsigned)slot->arrived, (unsigned)slot->chunks,
+				          (unsigned long long)slot->expires_at);
 			fzn_reasm_release(slot);
 			dropped++;
 		}

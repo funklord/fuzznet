@@ -1591,6 +1591,88 @@ int main(void)
 		      "the line reports a refusal and not its consequence, which is that a "
 		      "message somebody is sending never finishes");
 	}
+
+	/*
+	 * A SWEEP THAT SAYS WHAT IT THREW AWAY.
+	 *
+	 * `fzn_reasm_expire` returns a count, and a slot reclaimed from a
+	 * sender that spoke once and a slot reclaimed from a message two
+	 * chunks from done are the same integer. The second is bytes this
+	 * host accepted and discarded, and a `max_hold` below the time a
+	 * transfer takes does it to EVERY message while every other surface
+	 * reports a healthy table.
+	 *
+	 * THE PAIR IS THE TEST. One partial with one chunk and one with two,
+	 * expired by the same call, must produce different severities -- a
+	 * single case would pass for an implementation that logged one line
+	 * for everything.
+	 */
+	{
+		struct fixture lf;
+		flog_t log;
+		fzn_partial_t *ldone = NULL;
+		uint8_t piece[8], slow[FZN_SENDER_LEN], quiet[FZN_SENDER_LEN];
+
+		init_flog_t(&log);
+		log.name = NULL;
+		log.accepted_msg_type = FLOG_ACCEPT_ALL;
+		log.output_func = reasm_log_capture;
+
+		fill(piece, 8, 0x11, 0);
+		fixture_init(&lf, SLOTS);
+		fzn_reasm_set_log(&lf.table, &log);
+		memset(slow, 0x71, FZN_SENDER_LEN);
+		memset(quiet, 0x72, FZN_SENDER_LEN);
+
+		/* One sender two chunks into a three-chunk message, one that
+		 * sent a single chunk and stopped. Both expire at 50. */
+		CHECK(fzn_reasm_accept(&lf.table, slow, 1, 0, 3, piece, 8, 50, 10, &ldone)
+		              == FZN_REASM_OK,
+		      "the arriving message could not take a slot");
+		CHECK(fzn_reasm_accept(&lf.table, slow, 1, 1, 3, piece, 8, 50, 10, &ldone)
+		              == FZN_REASM_OK,
+		      "the second chunk of the arriving message was refused");
+		CHECK(fzn_reasm_accept(&lf.table, quiet, 2, 0, 3, piece, 8, 50, 10, &ldone)
+		              == FZN_REASM_OK,
+		      "the one-chunk message could not take a slot");
+
+		/* THE ONE THAT NEVER PROGRESSED, ALONE, so the severity read
+		 * back is unambiguously its own. */
+		memset(&reasm_log_seen, 0, sizeof(reasm_log_seen));
+		CHECK(fzn_reasm_expire(&lf.table, 60u) == 2u,
+		      "the sweep did not reclaim both expired partials");
+		CHECK(reasm_log_seen.calls == 2, "a sweep dropped two messages in silence");
+
+		/* WHICH SEVERITY WENT WITH WHICH is asked one slot at a time,
+		 * because the capture keeps only the last line. */
+		fixture_init(&lf, SLOTS);
+		fzn_reasm_set_log(&lf.table, &log);
+		CHECK(fzn_reasm_accept(&lf.table, quiet, 2, 0, 3, piece, 8, 50, 10, &ldone)
+		              == FZN_REASM_OK,
+		      "the one-chunk message could not take a slot");
+		memset(&reasm_log_seen, 0, sizeof(reasm_log_seen));
+		fzn_reasm_expire(&lf.table, 60u);
+		CHECK(reasm_log_seen.type == FLOG_DEBUG,
+		      "a sender that spoke once and stopped was reported above debug, which "
+		      "makes ordinary loss look like a fault");
+		CHECK(strstr(reasm_log_seen.text, "never progressed") != NULL,
+		      "the line does not say the message had not been arriving");
+
+		fixture_init(&lf, SLOTS);
+		fzn_reasm_set_log(&lf.table, &log);
+		fzn_reasm_accept(&lf.table, slow, 1, 0, 3, piece, 8, 50, 10, &ldone);
+		fzn_reasm_accept(&lf.table, slow, 1, 1, 3, piece, 8, 50, 10, &ldone);
+		memset(&reasm_log_seen, 0, sizeof(reasm_log_seen));
+		fzn_reasm_expire(&lf.table, 60u);
+		CHECK(reasm_log_seen.type == FLOG_WARN,
+		      "a transfer abandoned mid-flight was reported at the same level as a "
+		      "sender that never got going, so the two are indistinguishable to "
+		      "anybody filtering");
+		CHECK(strstr(reasm_log_seen.text, "max_hold") != NULL,
+		      "the line does not name the bound to look at");
+		CHECK(strstr(reasm_log_seen.text, "2 of 3") != NULL,
+		      "the line does not say how much of the message was thrown away");
+	}
 #endif
 
 	printf("reassembly_test: %d checks, %d failure(s)\n", checks, failures);
