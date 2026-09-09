@@ -42,7 +42,6 @@ void fzn_ledger_view::show_peers(const fzn_ledger_t *ledger,
 	QString drawn_rows;
 	size_t drawn = 0u;
 	size_t outstanding = 0u;
-	size_t unreadable = 0u;
 	size_t asked = 0u;
 	size_t i;
 
@@ -55,6 +54,28 @@ void fzn_ledger_view::show_peers(const fzn_ledger_t *ledger,
 		 * confirmed nothing about anybody, and `cli/ledger_print`
 		 * refuses the same reading for the same reason. */
 		summary_->setText(QStringLiteral("nothing is being tracked"));
+		rows_->setText(QString());
+		return;
+	}
+
+	/*
+	 * ASKED ONCE, BEFORE ANY ROW, BECAUSE IT IS A PROPERTY OF THE TABLE.
+	 *
+	 * The first version counted UNREADABLE rows and compared the count --
+	 * and that comparison could never be false in a useful way, because
+	 * unreadability belongs to the ledger rather than to a peer: every row
+	 * is unreadable or none is. Two sabotages proved it by SURVIVING, one
+	 * of them a majority rule that behaved identically on every reachable
+	 * input. sec 228.
+	 *
+	 * So the question is asked here, where it is true or false once, and
+	 * no rows are drawn at all -- a list of identical "cannot say" lines is
+	 * a screen pretending to have per-peer answers.
+	 */
+	if (!fzn_ledger_sound(ledger)) {
+		state_ = UNREADABLE;
+		summary_->setText(QStringLiteral("this ledger cannot be read, so nothing here "
+		                                 "is evidence"));
 		rows_->setText(QString());
 		return;
 	}
@@ -72,9 +93,7 @@ void fzn_ledger_view::show_peers(const fzn_ledger_t *ledger,
 			continue;
 
 		asked++;
-		if (said == FZN_LEDGER_LINE_UNREADABLE)
-			unreadable++;
-		else if (said == FZN_LEDGER_LINE_BEHIND || said == FZN_LEDGER_LINE_UNKNOWN)
+		if (said == FZN_LEDGER_LINE_BEHIND || said == FZN_LEDGER_LINE_UNKNOWN)
 			/* COLLAPSED HERE AND KEPT APART IN THE ROW. The action
 			 * is identical -- send it -- so a summary that split
 			 * them would offer a distinction nobody acts on. */
@@ -96,19 +115,7 @@ void fzn_ledger_view::show_peers(const fzn_ledger_t *ledger,
 		return;
 	}
 
-	/*
-	 * AN UNREADABLE LEDGER VOIDS THE SCREEN RATHER THAN LOSING A VOTE.
-	 * Every accessor answers an unscannable table in the voice of a
-	 * readable one, so rows drawn from it are not evidence -- and
-	 * `outstanding` stays zero, which is not a claim that everybody is
-	 * current but a refusal to report a number nobody measured.
-	 */
-	if (unreadable) {
-		state_ = UNREADABLE;
-		outstanding_ = 0u;
-		summary_->setText(QStringLiteral("this ledger cannot be read, so nothing here "
-		                                 "is evidence"));
-	} else if (outstanding) {
+	if (outstanding) {
 		state_ = BEHIND;
 		outstanding_ = outstanding;
 		summary_->setText(QString::number(static_cast<qulonglong>(outstanding)) +

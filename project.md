@@ -34208,9 +34208,36 @@ ledger and requires the summary to say the opposite.
 
 **And `outstanding()` stays zero there, which is a refusal rather than a
 claim.** Nobody measured how many peers are behind, so no number is offered;
-`shown_state` is what says whether a number means anything. Its own sabotage
-fills the count in, which is the reasonable-looking thing to write and hands a
-caller alarming on it a figure nothing measured.
+`shown_state` is what says whether a number means anything.
+
+### Two sabotages that SURVIVED, and the third way to aim one wrong
+
+The first version counted UNREADABLE rows and compared the count, and two
+entries were written against it. Both survived:
+
+	ledger-view-unreadable-voids-the-screen           SURVIVED
+	ledger-view-reports-no-number-it-did-not-measure  SURVIVED
+
+Neither was stale and both applied. **They varied a distinction the code cannot
+express.** Unreadability belongs to the TABLE, not to a peer -- every row is
+unreadable or none is -- so `unreadable` is only ever `0` or `asked`. A
+majority rule fires on exactly the same inputs as `if (unreadable)`, and the
+`outstanding` count in that branch is already zero, so assigning it changes
+nothing.
+
+sec 218 recorded a sabotage that changed too LITTLE and sec 222 two that
+changed too MUCH. This is the third way: **a substitution that changes the
+code and cannot change the behaviour, because the condition it varies has only
+one reachable shape.** All three come back looking like a working guard, and
+only the survivors announce themselves -- which is the one mercy here, since
+these two did.
+
+The fix is not a better sabotage. The code was wrong in the same way the
+sabotage was: it asked a whole-table question once per row. `fzn_ledger_sound`
+is asked once now, before any row, and no rows are drawn at all -- a list of
+identical "cannot say" lines is a screen pretending to have per-peer answers.
+The single entry that replaces the two removes that check, and the summary then
+reports delivery over a table nobody can walk.
 
 ### Collapsed in the summary, kept apart in the rows
 

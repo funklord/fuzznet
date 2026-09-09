@@ -1104,18 +1104,11 @@ SABOTAGES = [
 	# BATCH NINETEEN, 2026-09-09: the delivery list, where one unreadable
 	# table voids a screen of green rows. project.md sec 228.
 	(
-		"ledger-view-unreadable-voids-the-screen",
+		"ledger-view-asks-the-table-not-the-rows",
 		"gui/ledger_view.cpp",
-		"\tif (unreadable) {\n\t\tstate_ = UNREADABLE;\n",
-		"\tif (unreadable > asked / 2u) {\n\t\tstate_ = UNREADABLE;\n",
-		"every accessor in record/ledger.h answers an unscannable table in the voice of a readable one, so rows drawn from it look like measurements and are not -- that is the whole display being void rather than a majority to be outvoted -- sec 228",
-	),
-	(
-		"ledger-view-reports-no-number-it-did-not-measure",
-		"gui/ledger_view.cpp",
-		"\t\tstate_ = UNREADABLE;\n\t\toutstanding_ = 0u;\n",
-		"\t\tstate_ = UNREADABLE;\n\t\toutstanding_ = outstanding;\n",
-		"nobody measured how many peers are behind on a table nobody can walk, so the zero here is a refusal rather than a claim that everybody is current -- and a caller alarming on the count must not be handed one that was never measured -- sec 228",
+		"\tif (!fzn_ledger_sound(ledger)) {\n",
+		"\tif (0) {\n",
+		"unreadability belongs to the TABLE rather than to a peer, so without this every row prints `cannot say` while the summary counts none of them outstanding and reports delivery -- and the first two entries written here SURVIVED because they varied a distinction the code cannot express -- sec 228",
 	),
 	(
 		"ledger-view-counts-what-it-was-asked",
