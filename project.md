@@ -34889,6 +34889,14 @@ that loop.
 Shown by making `fzn_manifest_is_withdrawn` return 0 and watching the property
 fire on the first case, where the whole model stayed silent.
 
+**A unit test catches that particular mutation too**, and the sabotage run says
+so -- `manifest_test.c:977`, "a withdrawn entry did not open", which runs
+before the harness and fails first. So the entry's first rationale, that only
+re-encoding can say it, was too strong and is corrected. What the property
+actually buys is catching a dropped field WITHOUT somebody having written a
+case for that field: the state byte has one, and a fourth field added tomorrow
+would not.
+
 ### Two mistakes of mine, both in the comparison rather than the code
 
 **The first version compared the whole blob** and failed on every input.

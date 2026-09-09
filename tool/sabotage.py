@@ -1108,7 +1108,7 @@ SABOTAGES = [
 		"chain/manifest.h",
 		"\treturn rec.base[FZN_MANIFEST_OFF_PAIRS + FZN_MANIFEST_PAIR_LEN * i +\n\t                FZN_MANIFEST_OFF_ENTRY_STATE] == (uint8_t)FZN_MANIFEST_WITHDRAWN;\n",
 		"\t(void)i;\n\treturn 0;\n",
-		"a field the decoder drops is invisible to a model that reaches the module through the same accessors: only re-encoding what came back and comparing the BYTES can say it, and mutation cannot ask the question at all because the state byte is inside the signed range -- sec 234",
+		"a field the decoder drops is invisible to a model that reaches the module through the same accessors, so the byte comparison is what sees it WITHOUT somebody having written a case for that field -- manifest_test happens to cover this one and runs first, and mutation cannot ask the question at all because the state byte is inside the signed range -- sec 234",
 	),
 	(
 		"log-body-escapes-what-a-terminal-obeys",
