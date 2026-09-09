@@ -34739,18 +34739,26 @@ Every byte this module reads is a byte anybody on the path may choose, and no
 harness in the tree reached it. `frame/test/receive_fuzz.c` does not mention
 relay; nothing did.
 
-**THE PROPERTIES WERE NOT UNGUARDED, AND THE SABOTAGE RUN SAID SO.** Both new
-entries were CAUGHT by `relay_test.c:80` and `log_test.c:800` -- assertions
-that predate this session. So what these harnesses add is not first coverage
-but INPUT coverage: the clamp was asserted on a frame somebody wrote, and is
-now asserted on ten thousand nobody did.
+**THE PROPERTIES WERE NOT UNGUARDED**, which the sabotage run showed and this
+paragraph then got wrong twice. Both entries came back naming
+`relay_test.c:80` and `log_test.c:800` -- assertions that predate this
+session -- so what these harnesses add is not first coverage but INPUT
+coverage: the clamp was asserted on a frame somebody wrote, and is now
+asserted on ten thousand nobody did.
 
-That is worth stating plainly because the opposite reading is available and
-flattering. A harness whose sabotage is caught by an existing unit test has
-demonstrated nothing about itself -- **the harnesses' own controls are the
-evidence, and they were run separately**: the clamp removed, and the printable
-range widened, each watched failing in the harness before either was recorded
-as working.
+**But "caught by the unit test, not the harness" is also wrong, and that was
+the second version of this sentence.** `make test` RUNS the harnesses -- 42
+fuzz lines in a run, 20000 cases each -- so they are inside the sabotage loop,
+and `sabotage.py` prints ONE failure line. `relay_test` is line 179 of the run
+and `relay_fuzz` is line 207, so the unit test simply fails first. The
+harnesses catch these mutations too, which their own controls showed directly:
+the clamp removed gives `budget answered 247 with a ceiling of 237`.
+
+Three passes on one paragraph -- flattering, over-corrected, measured -- and
+the thing that settled it was reading the run rather than reasoning about it.
+**A single failure line names the first check to fail and says nothing about
+the second**, which is the same shape as a status word standing in for a
+result.
 
 ### The narrow query is what hid it
 
