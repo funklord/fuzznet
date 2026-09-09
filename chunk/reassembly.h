@@ -191,7 +191,14 @@ fzn_reasm_err_t fzn_reasm_init(fzn_reasm_t *table, fzn_partial_t *partials, size
 
 /* Give one slot its buffer. Separate from the above because the buffers are
  * usually one block the caller carves up, and threading that through
- * fzn_reasm_init would mean this module deciding the carve. */
+ * fzn_reasm_init would mean this module deciding the carve.
+ *
+ * CALL THIS FIRST, FOR EVERY SLOT. `fzn_reasm_init` walks the array and
+ * refuses a slot with no buffer, so the order is enforced rather than
+ * preferred -- and "separate from the above" read as though either way round
+ * worked. Found by a caller doing it the other way and getting
+ * FZN_REASM_ERR_MALFORMED from a table whose arguments were all fine. sec
+ * 230. */
 fzn_reasm_err_t fzn_reasm_slot_init(fzn_partial_t *slot, uint8_t *buf, size_t capacity);
 
 /* Reclaim partials whose expiry has passed, and report how many. Same argument

@@ -1101,6 +1101,29 @@ SABOTAGES = [
 		"(unsigned long long)version,\n",
 		"one reordered datagram and a peer whose view has fallen a long way behind return the SAME value, so the distance is the whole content the line adds to FZN_LEDGER_ERR_STALE -- sec 218",
 	),
+	# BATCH TWENTY-ONE, 2026-09-09: a full reassembly table, and which of
+	# its THREE fixes it needs. project.md sec 230.
+	(
+		"reasm-print-handed-is-not-sweepable",
+		"cli/reasm_print.c",
+		"\t\tif (slot->handed) {\n\t\t\tc->handed++;\n\t\t\tcontinue;\n\t\t}\n",
+		"\t\tif (slot->handed)\n\t\t\tc->handed++;\n",
+		"`fzn_reasm_expire` skips handed slots so the caller can still read the bytes it was promised, so counting an expired handed slot as sweepable offers back a slot no sweep will return -- sec 230",
+	),
+	(
+		"reasm-print-leak-outranks-a-sweep",
+		"cli/reasm_print.c",
+		"\t\telse if (c.handed)\n\t\t\tsaid = FZN_REASM_LINE_FULL_HANDED;\n",
+		"\t\telse if (0)\n\t\t\tsaid = FZN_REASM_LINE_FULL_HANDED;\n",
+		"a caller that never releases exhausts the table and never recovers, which reassembly.h chose as the honest symptom of that bug -- reporting it as a missed sweep sends somebody to call expire, which will free nothing -- sec 230",
+	),
+	(
+		"reasm-print-rules-out-what-will-not-help",
+		"cli/reasm_print.c",
+		"\t\tput_str(s, \" slots all live and unexpired, so waiting and releasing will not \"\n\t\t           \"help and the bounds are too small\\n\");\n",
+		"\t\tput_str(s, \" slots all live and unexpired\\n\");\n",
+		"reassembly.h says a consumer reading a full table concludes that time alone fixes it, so the line that means otherwise has to rule both other fixes out rather than report a number -- sec 230",
+	),
 	# BATCH TWENTY, 2026-09-09: a full replay window, and which of its two
 	# fixes it needs. project.md sec 229.
 	# NO ENTRY FOR "expirable does not expire", AND THAT IS THE FINDING.

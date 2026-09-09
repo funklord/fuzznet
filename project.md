@@ -34399,3 +34399,57 @@ string.** Nothing but the census could have caught it -- the suite passes
 either way, and a sabotage matching two sites tests neither reliably. The entry
 is re-pointed with enough context to name the compaction, and it now carries
 why it moved.
+
+## 230. Three fixes behind one FULL, and an ordering the header did not state
+
+`cli/reasm_print` says how full the reassembly table is and, when it is full,
+which of THREE actions will help. `chunk/reassembly.h` names the problem on
+the error code itself, and names it as a misreading somebody has already had:
+
+> IT NO LONGER MEANS "live, unexpired" ... A slot may be HANDED -- completed
+> and waiting on the caller to release it, which the sweep must not take ...
+> Both are live and neither is reclaimable by waiting, so a consumer reading
+> the old wording would conclude that **TIME ALONE FIXES A FULL TABLE.
+> Releasing what it holds is the other half.**
+
+	slots past their deadline       call `fzn_reasm_expire`
+	slots handed and not released   the CONSUMER is leaking them
+	slots live, held and unexpired  the bounds are too small
+
+**The middle one never self-corrects**, and the module chose exhaustion as its
+honest symptom: "A caller that never releases now exhausts the table and sees
+FULL. That is the honest failure and it is the smaller harm." A line that
+cannot tell it from a sizing problem sends somebody to enlarge a table that
+will fill again, which is the one outcome that makes the leak harder to find.
+
+So the most actionable wins: handed before unswept, unswept before live. A
+leak is a bug, a missed sweep is one call, and a size is a restart.
+
+### No accessor was needed this time, and that is worth saying
+
+sec 224, sec 227 and sec 229 each closed a library gap, and the habit that
+forms from three in a row is to look for a fourth. `fzn_partial_t` is a public
+type with `live`, `handed` and `expires_at` on it, so a consumer COULD write
+this walk. What it would get wrong is the CLASSIFICATION -- which is precisely
+what the header says a consumer gets wrong -- so the printer does it once, in
+the module's own terms, and adds nothing to the library.
+
+**A printer earns its place by knowing something, not by needing something.**
+
+### The ordering the header did not state
+
+The test's fixture called `fzn_reasm_init` and then `fzn_reasm_slot_init`, and
+every case failed with `the fixture does not build`.
+
+`fzn_reasm_init` walks the array and refuses a slot with no buffer, so slots
+must be initialised FIRST. The header said only that `slot_init` is "separate
+from the above because the buffers are usually one block the caller carves
+up" -- which reads as though either order works, and the code has always
+enforced one.
+
+**A precondition that is true and unwritten is indistinguishable from one
+nobody thought of**, which `evidence.md` states and this is an instance of: the
+rule was real, the enforcement was real, and the only thing missing was the
+sentence. It says it now, and says how it was found -- by a caller doing it
+the other way and getting FZN_REASM_ERR_MALFORMED from a table whose arguments
+were all fine.

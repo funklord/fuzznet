@@ -76,6 +76,7 @@
 #include <fuzznet/cli/manifest_print.h>
 #include <fuzznet/cli/ledger_print.h>
 #include <fuzznet/cli/replay_print.h>
+#include <fuzznet/cli/reasm_print.h>
 #endif
 #include <fuzznet/blob/blob.h>
 #include <fuzznet/ratchet/ratchet.h>
@@ -166,6 +167,7 @@
 #include "cli/manifest_print.h"
 #include "cli/ledger_print.h"
 #include "cli/replay_print.h"
+#include "cli/reasm_print.h"
 #endif
 #include "blob/blob.h"
 #include "ratchet/ratchet.h"
