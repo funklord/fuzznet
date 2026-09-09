@@ -36140,33 +36140,38 @@ line provides all three. That is the exact failure answered, rather than a
 green run over everything else as well. `qttycheck` had not completed at the
 time of the commit, and saying so is the point of the distinction.
 
-### The widget is not in the render sweep, and that is left open
+### The widget in the render sweep, and the assertion that waited to be run
 
-`gui/test/qtty_render_test.cpp` includes seventeen widget headers **by hand**,
-and `gui/sched_view.h` is the only one of the eighteen absent. Nothing requires
+`gui/test/qtty_render_test.cpp` includes its widget headers **by hand**, and
+`gui/sched_view.h` was the only one of the eighteen absent. Nothing requires
 the list to be complete, so a widget added to the tree is silently unmeasured
 against a terminal -- the population lens once more, and the population is
 derivable from `GUI_SRCS`.
 
-**It was written and then held back.** The sweep asserts that each widget shows
-its sentence **on an 80x24 terminal**, and this printer's longest line is 79
-characters through a word-wrapping label:
+**The case was written, reverted, and then landed with a measurement.** The
+sweep asserts each widget shows its sentence on an 80x24 terminal, and this
+printer's longest line is 79 characters through a word-wrapping label:
 
 	DROPPING -- no single change helps: 1 too slow, 1 too lossy,
 	1 too small, 0 down
 
-Whether "no single change helps" survives that wrap intact is a measurement,
-and `qttycheck` could not be run to take it: the stage was killed for memory
-four times, three of them while another user held the machine at load 20 and
-once with it idle, always inside qtty's own library build and therefore before
-this code was reached. A syntax-only compile of the edit passes, which says the
-C++ is right and nothing about the columns.
+Whether "no single change helps" survives that wrap is a measurement, and
+`qttycheck` was killed for memory four times before it could be taken -- three
+while another user held the machine at load 20, once with it idle, always
+inside qtty's own library build and so before this code was reached. A
+syntax-only compile passed, which says the C++ is right and nothing about the
+columns.
 
-So committing it would have put an assertion nobody has watched pass into a
-gate. **The change is reverted and the gap is recorded instead**, with what to
-do: add the include and the case, choose a `must_show` short enough to survive
-an 80-column wrap, and let the sweep report the width. The knob below is what
-makes that runnable at all.
+**So it was reverted rather than committed**, because a gate carrying an
+assertion nobody has watched pass is the thing sec 52 is about. It went in on
+the next quiet machine, with the substring shortened to "no single change" for
+exactly the wrap the earlier caution named:
+
+	sched_view         needs 34 columns to say "no single change"
+
+118 checks where there were 116. The caution was worth the round trip: 34
+columns is a fact, and the version that guessed would have been a guess in a
+gate.
 
 ### A hardcoded -j4 is a decision taken for every machine
 

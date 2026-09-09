@@ -44,6 +44,7 @@
 #include "../peer_view.h"
 #include "../manifest_view.h"
 #include "../ledger_view.h"
+#include "../sched_view.h"
 
 extern "C" {
 #include "../../log/log.h"
@@ -311,6 +312,8 @@ static void test_every_widget_survives_a_terminal(void)
 	fzn_manifest_view manifest_v;
 	fzn_manifest_view_row manifest_rows[1];
 	fzn_ledger_view ledger_v;
+	fzn_sched_view sched_v;
+	fzn_sched_candidate_t sched_links[3];
 	fzn_ledger_view_row ledger_rows[1];
 	static fzn_ledger_entry_t ledger_entries[1];
 	fzn_ledger_t ledger;
@@ -405,6 +408,26 @@ static void test_every_widget_survives_a_terminal(void)
 		ledger_rows[0].peer = peer;
 		ledger_rows[0].label = QStringLiteral("relay");
 		ledger_v.show_peers(&ledger, subject, 1u, 5u, ledger_rows, 1u);
+	}
+
+	/* THE CLASS NOTHING CAN CARRY, and for three different reasons -- the
+	 * state whose line names no bound to change. sec 248. */
+	{
+		static const fzn_class_t voice = { 50u, 20u, 1200u, 0u, 1u, 0u };
+
+		memset(sched_links, 0, sizeof(sched_links));
+		for (i = 0; i < 3u; i++) {
+			sched_links[i].id = (uint32_t)i + 1u;
+			sched_links[i].metric = 10u;
+			sched_links[i].latency_ms = 10u;
+			sched_links[i].loss_permille = 0u;
+			sched_links[i].mtu = 1500u;
+			sched_links[i].usable = 1;
+		}
+		sched_links[0].latency_ms = 500u;
+		sched_links[1].loss_permille = 900u;
+		sched_links[2].mtu = 500u;
+		sched_v.show_choice(sched_links, 3u, &voice, FZN_SCHED_ERR_NONE, 0u);
 	}
 
 	/* THE FOUR sec 187 LEFT UNDRAWN, and each was a fixture cost rather
@@ -532,6 +555,13 @@ static void test_every_widget_survives_a_terminal(void)
 			{ "manifest_view", &manifest_v, "less than they are missing" },
 			/* THE SENTENCE THAT VOIDS THE SCREEN. sec 228. */
 			{ "ledger_view", &ledger_v, "nothing here is evidence" },
+			/* THE ONE WITH NO FIX TO NAME. sec 247: every other line
+			 * this printer draws points at a bound, and this one
+			 * exists to say that pointing at any of them would be
+			 * wrong. The substring is short on purpose -- the whole
+			 * line is 79 characters and the label wraps, so a
+			 * phrase near its end could be folded. */
+			{ "sched_view", &sched_v, "no single change" },
 		};
 
 		for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
