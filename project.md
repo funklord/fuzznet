@@ -34365,18 +34365,27 @@ is symmetry rather than merit. The pairing rule in sec 193 says the narrower
 thing -- that a printer written for a fact a widget ALREADY SHOWS must change
 that widget in the same commit -- and nothing shows this.
 
-Recorded rather than left as an absence, because a sweep counting printers
-against widgets finds **seventeen against seventeen** and neither list is a
-subset of the other:
+Recorded rather than left as an absence -- and stated as a RULE rather than a
+count, which took three attempts:
 
-	printer with no widget   replay   this section
-	widget with no printer   config   a FORM, not a display
+> **A widget exists where a screen adds an aggregate the printer cannot
+> make.** A printer for a single object gets none, because the widget would be
+> a `QLabel` holding its line.
 
-**"Sixteen against seventeen" is what this paragraph said first, and it was
-wrong when written.** The count was carried from memory rather than taken, and
-`ls cli/*_print.h | wc -l` answers it in one command. Both asymmetries are
-deliberate and neither is visible from a total, which is the argument for
-naming them rather than for counting at all.
+sec 226 and sec 228 pass that test -- several issuers, several peers, a
+summary no single call can produce. This one does not, and neither does sec
+230: a host has one replay window and one reassembly table.
+
+**The count in this paragraph has now been wrong twice.** It said "sixteen
+against seventeen", carried from memory when `ls cli/*_print.h | wc -l`
+answers it; corrected to seventeen against seventeen, which the very next
+printer falsified. A total is the wrong thing to write down here: it changes
+whenever either side does and it says nothing a reader needs, since **neither
+list is a subset of the other and the interesting facts are the exceptions.**
+`gui/config_view` is the other one, and it EDITS an `fzn_cli_t` through
+`fzn_cli_arg` rather than displaying a fact -- so its CLI counterpart is the
+command line itself, and a printer for it would be the second opinion about a
+legal service number that widget's header exists to refuse.
 
 `gui/config_view` is the other one: it EDITS an `fzn_cli_t` through
 `fzn_cli_arg` rather than displaying a fact, so its CLI counterpart is the
@@ -34435,6 +34444,13 @@ what the header says a consumer gets wrong -- so the printer does it once, in
 the module's own terms, and adds nothing to the library.
 
 **A printer earns its place by knowing something, not by needing something.**
+
+### And no widget, on sec 229's rule
+
+One host, one reassembly table, so a screen has no aggregate to add and the
+widget would be a `QLabel` holding this file's line. The same call sec 229
+made and for the same reason, stated there as the rule this follows rather
+than re-argued here.
 
 ### sec 218's error again, made after sec 218 was written
 
