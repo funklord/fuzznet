@@ -262,6 +262,8 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              disclose/test/disclose_fuzz.c \
              persist/test/persist_test.c \
              persist/test/persist_fuzz.c \
+             wire/test/relay_fuzz.c \
+             log/test/log_fuzz.c \
              persist/test/persist_kat_test.c \
              spool/test/spool_test.c \
              spool/test/plan_test.c \
@@ -392,7 +394,9 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/provision/test/provision_fuzz \
              $(BUILD_DIR)/record/test/sync_fuzz \
              $(BUILD_DIR)/disclose/test/disclose_fuzz \
-             $(BUILD_DIR)/persist/test/persist_fuzz
+             $(BUILD_DIR)/persist/test/persist_fuzz \
+             $(BUILD_DIR)/wire/test/relay_fuzz \
+             $(BUILD_DIR)/log/test/log_fuzz
 
 # ---------------------------------------------------------------------------
 # SUBSYSTEMS: detected, overridable, and loud about which.
@@ -2496,6 +2500,26 @@ $(BUILD_DIR)/chain/test/manifest_fuzz: $(BUILD_DIR)/chain/test/manifest_fuzz.o \
 
 # The persisted formats. sec 232: one encoding per blob, and every short
 # prefix refused.
+# Rendering a body: it stands between an issuer's bytes and a terminal, and
+# escaping is what stops one entry forging a neighbour. sec 233.
+$(BUILD_DIR)/log/test/log_fuzz: $(BUILD_DIR)/log/test/log_fuzz.o \
+                                          $(BUILD_DIR)/log/log.o \
+                                          $(BUILD_DIR)/record/record.o \
+                                          $(BUILD_DIR)/record/journal.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# The hop budget: the one field outside the authenticated region, so every
+# byte it reads is one anybody on the path may choose. sec 233.
+$(BUILD_DIR)/wire/test/relay_fuzz: $(BUILD_DIR)/wire/test/relay_fuzz.o \
+                                          $(BUILD_DIR)/wire/relay.o \
+                                          $(BUILD_DIR)/wire/generated/frame.o \
+                                          $(BUILD_DIR)/wire/generated/situ.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/persist/test/persist_fuzz: $(BUILD_DIR)/persist/test/persist_fuzz.o \
                                           $(BUILD_DIR)/persist/persist.o \
                                           $(BUILD_DIR)/trust/trust.o \
@@ -2886,7 +2910,9 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/provision/test/provision_fuzz \
              $(BUILD_DIR)/record/test/sync_fuzz \
              $(BUILD_DIR)/disclose/test/disclose_fuzz \
-             $(BUILD_DIR)/persist/test/persist_fuzz
+             $(BUILD_DIR)/persist/test/persist_fuzz \
+             $(BUILD_DIR)/wire/test/relay_fuzz \
+             $(BUILD_DIR)/log/test/log_fuzz
 
 fuzz: $(FUZZ_BINS)
 	@for f in $(FUZZ_BINS); do echo "== $$f $(CASES)"; $$f $(CASES) || exit 1; done

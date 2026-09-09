@@ -34715,3 +34715,121 @@ matters more than covering it: it takes an `fzn_agree_ops_t` to re-derive a
 public key, `persist_test.c` has a binding to hand and exercises it, and a
 harness that quietly covered three of four would report a pass over a subset --
 which is the shape sec 221, sec 225 and sec 231 each found in a different list.
+
+## 233. The one field outside the tag, fuzzed at last
+
+sec 232 closed the last module with an `_open` and no harness. Re-deriving the
+population with a WIDER pattern -- every function taking
+`(const uint8_t *, size_t)` rather than only those named `_open` -- found two
+more, and one of them matters more than anything else on the list.
+
+	fzn_relay_budget   wire/relay.c   harness: NO
+
+**`wire/relay.h` says what this field is, and it is the worst case in the
+protocol:**
+
+> IT IS OUTSIDE THE AUTHENTICATED REGION, NECESSARILY. The tag covers `head`
+> and the sealed region; `hop` is before both ... So the budget is **mutable
+> in flight by anyone** ... A stranger can write 255 into the budget of a
+> frame it did not create. Trusting that number turns one datagram into as
+> many forwards as the network has paths, which is **an amplifier built out of
+> a helpful default.**
+
+Every byte this module reads is a byte anybody on the path may choose, and no
+harness in the tree reached it. `frame/test/receive_fuzz.c` does not mention
+relay; nothing did.
+
+### The narrow query is what hid it
+
+sec 232's search was `_open(const uint8_t` -- the naming convention six
+parsers happen to share. `fzn_relay_budget` parses bytes and is not called
+`_open`, so a population derived from the NAME missed the module whose input is
+the least trustworthy in the library.
+
+That is sec 231's rule turned on the query rather than the list: **a population
+derived from a naming convention is an enumeration wearing a derivation's
+clothes.** Running it a second way, with a pattern that would fail differently,
+is what `evidence.md` asks for before a scope number is used, and it is the
+third time today that the second query disagreed with the first.
+
+### It contradicted the header on its first run
+
+	relay_fuzz: an empty policy answered -4/0 where the plain call answered 0/0
+
+`relay.h` says an empty policy table "means every frame takes `fallback`, which
+is **exactly** `fzn_relay_budget`". With a fallback of zero it does not: the
+policy form answers `FZN_RELAY_ERR_REFUSED` where the plain form answers OK
+with a budget of zero.
+
+**The code is right and the sentence was unqualified.** `FZN_RELAY_ERR_REFUSED`
+exists for precisely this, and its own comment argues it: a zero ceiling is a
+policy decision "somebody made and may want to see counted, logged or
+reconsidered", and collapsing it into EXHAUSTED "would make a misconfigured
+policy indistinguishable from normal traffic reaching the end of its budget".
+So the harness's property was wrong, the header gained the clause it was
+missing, and the case now asserts BOTH halves -- equivalence above zero, and
+REFUSED at zero.
+
+### What it asserts, and it is the header's own sentences
+
+	the clamp                    never larger than `allowed`, for any bytes
+	clamp THEN decrement         a spend must lower what the next reader sees
+	a refusal leaves the frame   memcmp over the whole buffer, not the field
+	an empty policy is the plain call, above zero
+	a spend does not rewrite the hint
+
+**Nothing in it knows an offset.** Frames are built through the generated
+accessors and read back through the public API, so it asserts the contract
+rather than the encoding -- and `relay.h` records what raw-offset knowledge in
+a consumer cost when a caller had to write `frame[1]` by hand.
+
+Shown failing by removing the clamp:
+
+	relay_fuzz: budget answered 247 with a ceiling of 237 -- the clamp is
+	relay_fuzz: the whole of what this module does
+
+### The second one it found, which I dismissed before checking
+
+The same widened query returned `fzn_log_body_text`, and I said in passing
+that it "reads a body out of a record this host already holds, not bytes off
+the wire". **That was wrong, and saying it before reading the header is the
+error rather than the conclusion.** `log.h`:
+
+> NEWLINES ARE ESCAPED, AND THAT IS THE POINT RATHER THAN TIDINESS. A viewer
+> showing one entry per line, handed a body containing a newline and a
+> plausible sequence number, would display a **SECOND ENTRY THAT NO ISSUER
+> EVER SIGNED**. Escaping is what stops a body forging a neighbour. Every byte
+> outside printable ASCII goes to `\xNN`, so the same argument covers a
+> terminal escape sequence.
+
+A body is opaque bytes an ISSUER chose. The record is signed, which
+authenticates the author and says nothing about the content -- so this
+function stands between an attacker's bytes and a terminal, and it is the
+only thing standing there. `cli/log_print` and `gui/log_view` both render
+through it.
+
+	log_fuzz: 2000 cases, 2000 rendered (1295 escaped, 705 unchanged),
+	          157 carried a newline
+
+**The identity case is the control and the harness is worthless without it.**
+A renderer that escaped everything, or emitted nothing at all, satisfies "the
+output is printable" perfectly -- so a body already printable and free of
+backslashes must come back byte-identical, or the property is being met by
+destroying the input. Shown failing by widening the printable range to admit
+a newline:
+
+	log_fuzz: byte 13 of the rendered line is 0x18, which is not printable
+	log_fuzz: ASCII -- a body reached a terminal unescaped
+
+### And the floors were cleared by luck until the fixture was biased
+
+The first run reported 10 exhausted spends and 0 policy fallbacks against
+floors of 40 and 40. Drawing `allowed` and `hops` uniformly from 0..255
+reaches a zero about eight times in two thousand, and a table that always
+named the frame's own subsystem never took the fallback arm at all.
+
+Half the draws are now 0..3 and half the tables deliberately name a different
+subsystem: 212 exhausted, 465 fallbacks, 446 inflated budgets clamped. **A
+coverage floor that a uniform draw cannot reach is a floor that would have
+been met by luck or not at all**, and either way it would have said nothing
+about the boundary it was written for.

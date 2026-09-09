@@ -1101,6 +1101,22 @@ SABOTAGES = [
 		"(unsigned long long)version,\n",
 		"one reordered datagram and a peer whose view has fallen a long way behind return the SAME value, so the distance is the whole content the line adds to FZN_LEDGER_ERR_STALE -- sec 218",
 	),
+	# BATCH TWENTY-THREE, 2026-09-09: the clamp on the one field outside the
+	# authenticated region. project.md sec 233.
+	(
+		"log-body-escapes-what-a-terminal-obeys",
+		"log/log.c",
+		"\t\tif (body[i] >= 0x20u && body[i] <= 0x7eu) {\n",
+		"\t\tif (body[i] >= 0x0au && body[i] <= 0x7eu) {\n",
+		"a viewer showing one entry per line, handed a body with a newline and a plausible sequence number, displays a SECOND entry no issuer ever signed -- and the same argument covers a terminal escape sequence, which is what an unescaped control byte delivers -- sec 233",
+	),
+	(
+		"relay-budget-clamps",
+		"wire/relay.c",
+		"\t*out = claimed < allowed ? claimed : allowed;\n",
+		"\t*out = claimed;\n",
+		"the budget is mutable in flight by anyone and a stranger can write 255 into a frame it did not create -- trusting that number turns one datagram into as many forwards as the network has paths, which relay.h calls an amplifier built out of a helpful default -- sec 233",
+	),
 	# BATCH TWENTY-TWO, 2026-09-09: one encoding per stored anchor.
 	# project.md sec 232.
 	(

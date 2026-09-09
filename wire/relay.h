@@ -221,7 +221,16 @@ fzn_relay_err_t fzn_relay_service(const uint8_t *frame, size_t frame_len, uint16
  *
  * A null or empty table is not malformed: it means every frame takes
  * `fallback`, which is exactly `fzn_relay_budget` and is what a host with no
- * per-subsystem policy wants. */
+ * per-subsystem policy wants.
+ *
+ * ABOVE ZERO. A `fallback` of zero is a policy saying this host does not carry
+ * the subsystem, so it answers FZN_RELAY_ERR_REFUSED where `fzn_relay_budget`
+ * with an `allowed` of zero answers OK and a budget of zero. The CEILING is
+ * the same and the status deliberately is not -- see FZN_RELAY_ERR_REFUSED,
+ * which exists so that a host declining a subsystem is not counted as a frame
+ * reaching its ordinary end. Stated because "exactly" read as unqualified:
+ * `wire/test/relay_fuzz.c` asserted the equivalence flatly and failed on its
+ * first run, against code that was right. project.md sec 233. */
 fzn_relay_err_t fzn_relay_budget_policy(const uint8_t *frame, size_t frame_len,
                                          const fzn_relay_policy_t *policy, size_t policy_len,
                                          uint8_t fallback, uint8_t *out);
