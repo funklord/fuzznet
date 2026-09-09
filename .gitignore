@@ -80,6 +80,7 @@
 /blob/test/blob_test
 /blob/test/blob_fuzz
 /ratchet/test/ratchet_test
+/ratchet/test/ratchet_fuzz
 /prekey/test/prekey_test
 /provision/test/provision_test
 /provision/test/provision_fuzz

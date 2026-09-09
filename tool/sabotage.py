@@ -1212,6 +1212,29 @@ SABOTAGES = [
 		"\t\t\t\t(void)first;\n",
 		"clearing the seal without returning the leaves leaves the spool claiming bytes the reference no longer matches, and scrub.h calls the forget the whole of repair -- detection without it is a scrub that notices and does nothing -- sec 242",
 	),
+	# BATCH TWENTY-SEVEN, 2026-09-10: the ratchet's bookkeeping, and the one
+	# refusal that lands after the work starts. project.md sec 245.
+	(
+		"ratchet-jump-counts-every-step",
+		"ratchet/ratchet.c",
+		"\tfor (i = 0; i < jump; i++) {\n",
+		"\tfor (i = 0; i + 1u < jump; i++) {\n",
+		"a chain one derivation short of where it should be hands every later message a key nobody can open, and the two sides agree with themselves throughout -- only stepping one at a time as an oracle sees it -- sec 245",
+	),
+	(
+		"ratchet-dropped-is-counted",
+		"ratchet/ratchet.c",
+		"\t\t\t} else {\n\t\t\t\tlost++;\n\t\t\t}\n",
+		"\t\t\t} else {\n\t\t\t\t(void)0;\n\t\t\t}\n",
+		"a caller that asked for fewer skipped keys than there were must be told rather than left to infer it from a count that stopped short, which is the shape ratchet.h takes from fzn_manifest_deficit -- silently, the keys for those sequences are gone and nothing said so -- sec 245",
+	),
+	(
+		"ratchet-writes-the-destination-last",
+		"ratchet/ratchet.c",
+		"\twork = *from;\n",
+		"\twork = *from;\n\t*to = work;\n",
+		"a refusal part-way through must not leave a caller holding a position that is neither the old one nor a usable new one -- and this SURVIVED 2000 cases of ratchet_fuzz until that harness learned to fail a hash mid-jump, because a behind target and a jump past the bound both return before the module touches anything -- sec 245",
+	),
 	(
 		"log-body-escapes-what-a-terminal-obeys",
 		"log/log.c",

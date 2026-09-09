@@ -35858,3 +35858,76 @@ output would have looked exactly the same.
 changed is that a whole mode of a generator the holder asked for is now read
 back by somebody else's decoder on every `make check`, and the sentence in
 `qr.h` describing the two paths has a witness for both.
+
+## 245. A property whose refusals all happened too early
+
+`ratchet_test.c` asks whether a fast-forward lands where stepping lands. It
+asks it once: a chain initialised at sequence 0, jumped to 5, with room for 8
+skipped keys. **Every fixture in that file starts at zero** -- which is
+fuzzypickles' question again, and the answer here is the starting position. A
+receiver's chain is at zero exactly once and spends the rest of its life
+somewhere else.
+
+`ratchet/test/ratchet_fuzz.c` asks it from anywhere, over any distance, with
+any cap, against the same oracle: a table of every position's message key and
+chain key built by stepping `fzn_ratchet_derive` in a loop written in the
+harness.
+
+	ratchet_fuzz: 20000 cases, 19770 from a moved chain, 12829 jumps,
+	7171 adjacent, 3938 capped, 4345 exactly at the cap, 20000 behind,
+	12829 split paths, 12829 abandoned part-way, every jump landed where
+	stepping lands
+
+**The property no fixture starting at zero can ask** is that the path does not
+matter: reaching a target directly and reaching it through an intermediate
+leave identical chains. That is the one a receiver leans on, because frames
+arrive in whatever order the network chose.
+
+### The floors caught the generator, twice
+
+First run: 90 adjacent cases against a floor of 100, and 136 capped against
+250. The targets were drawn uniformly, so the adjacent case -- `target ==
+from + 1`, which is **in-order delivery, the common case on the wire** --
+happened 4.5% of the time, and a cap drawn uniformly in 1..96 was almost
+never smaller than the jump it had to cut.
+
+Both were fixed in the GENERATOR rather than in the floors. A floor lowered to
+whatever the run happened to reach is a floor that has stopped saying
+anything, which is the whole reason these harnesses carry them.
+
+### And a sabotage survived, which is what made the harness honest
+
+Property 4 was *a refusal writes nothing*, asked with a behind target and a
+jump past the bound. Moving `*to = work` to before the derivations survived
+2000 cases.
+
+**Both of those refusals return before the module touches anything.** They
+are checked at the top of `fzn_ratchet_advance`, above `work = *from`, so a
+module that wrote its destination early could not fail either of them. The
+property had one reachable shape -- sec 228's finding, in a new module.
+
+The refusal that lands mid-jump is a failing hash, and the harness now carries
+a budgeted seam that runs out after starting: `hash_budget = jump - 1`. With
+it, the same sabotage fails on case 0.
+
+	MODEL: an advance abandoned part-way wrote its destination, so a
+	caller holds a position that is neither the old one nor a usable new
+	one
+
+`ratchet_test.c` has `test_a_refused_hash_leaves_the_chain_alone`, so the
+tree was never unguarded here. What was wrong was the harness's own claim: it
+said *a refusal writes nothing* and could only produce refusals that write
+nothing by construction.
+
+### The first failure, again, was the harness's
+
+	INVARIANT: an advance from 72 to 86 with cap 0 was refused: 1
+
+`fzn_ratchet_advance` refuses when `!skipped_count != !skipped_out` -- both or
+neither -- and a cap of zero with a count pointer is neither. The module was
+right. **And the first version of that line did not print the code**, only
+that something was refused, which is sec 222's rule met from the harness side:
+a run that goes red tells you something failed and nothing about which. The
+caller-wants-none path is now asked deliberately, with all three absent, as a
+property of its own: whether the skipped keys are wanted must not change where
+the chain lands.
