@@ -35931,3 +35931,64 @@ a run that goes red tells you something failed and nothing about which. The
 caller-wants-none path is now asked deliberately, with all three absent, as a
 property of its own: whether the skipped keys are wanted must not change where
 the chain lands.
+
+## 246. Eleven selections, every one over a pair
+
+`sched_test.c` calls `fzn_sched_select` eleven times and **every candidate set
+is two links.** With two, "the cheapest that qualifies" is the comparison the
+code makes, so the test and the code agree by construction: a tie among three,
+or a minimum that is neither first nor last, is not expressible.
+
+The same question as sec 245, one module over, and the answer is the size of
+the set rather than the starting position.
+
+	sched_fuzz: 20000 cases, 12811 chose, 7189 none qualified, 3508 ties,
+	5672 from the middle, 2499 singletons, 8619 saturated costs, 8379
+	partly filtered, the choice was a cheapest qualifying link throughout
+
+### The model is an independent argmin, and the arithmetic earns two of them
+
+The harness computes each candidate's cost with its own saturating sum,
+written from what `sched.h` describes, and takes the minimum over the
+candidates that pass the hard constraints. A model that asked
+`fzn_sched_cost` what the cost should be would agree with the module always.
+
+**That arithmetic is worth two implementations because it is where this
+module's only recorded defect lived.** `sched.c` carries the measurement: with
+a weight of 4294967295 on the metric, a link declaring metric and latency both
+at 4294967295 cost **zero** -- the cheapest value representable -- and was
+chosen over a link costing 1 ms. Widening the multiplies was not enough,
+because the sum was a bare `+=`. So weights and metrics here are drawn to
+include their extremes rather than plausible values, and the wrapping sabotage
+fails on case 6 with the two costs printed side by side.
+
+### The tie floor caught the generator again
+
+22 ties in 2000 cases against a floor of 100. Independent u32 draws almost
+never produce two equal costs, so the rule that makes this scheduler
+reproducible was barely exercised -- by a harness written specifically because
+the suite could not express it.
+
+A third of candidates after the first are now **copies of an earlier one**,
+keeping their own id. That reaches 366 ties, and it is what a real table looks
+like when two links are idle and measure identically.
+
+### Five properties, three controls
+
+	the sum wraps           MODEL: link 5 costs 18446744073709551615 here
+	                        and 5175078128174287867 there
+	a tie takes the later   MODEL: index 2 was chosen where 0 is the first
+	                        qualifying link at that cost
+	the filter scores       MODEL: nothing qualified and select answered ok
+
+The third is `sched.c`'s own words made falsifiable -- *a link that fails a
+hard constraint is skipped entirely rather than scored badly: scoring it would
+let a large enough weight elsewhere bring it back.* The harness also asks it
+from the other side, by redrawing only the weights and requiring every
+`fzn_sched_admits` verdict to be unchanged: a hard constraint that moved when
+a weight did would be a penalty wearing a filter's name.
+
+**And two modules in two sections now, found by one question.** Every fixture
+in a suite sits on one side of something; the cheap way to find it is to read
+the fixtures rather than the assertions, and both times the answer was a
+dimension the author had no reason to vary.

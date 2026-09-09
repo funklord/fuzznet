@@ -140,6 +140,7 @@
 /log/test/log_test
 /wire/test/relay_test
 /sched/test/sched_test
+/sched/test/sched_fuzz
 /link/test/link_test
 /log/test/fix_stream_test
 /record/test/record_guided

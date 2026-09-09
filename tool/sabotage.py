@@ -1236,6 +1236,27 @@ SABOTAGES = [
 		"a refusal part-way through must not leave a caller holding a position that is neither the old one nor a usable new one -- and this SURVIVED 2000 cases of ratchet_fuzz until that harness learned to fail a hash mid-jump, because a behind target and a jump past the bound both return before the module touches anything -- sec 245",
 	),
 	(
+		"sched-cost-saturates",
+		"sched/sched.c",
+		"\treturn a > UINT64_MAX - b ? UINT64_MAX : a + b;\n",
+		"\treturn a + b;\n",
+		"this module's one recorded defect: a wrapped sum made a link declaring metric and latency both at 4294967295 cost ZERO under a heavy weight, so the worst link available was chosen consistently and looked deliberate -- widening the multiplies was not enough because the sum was a bare plus -- sec 246",
+	),
+	(
+		"sched-ties-go-to-the-lowest-index",
+		"sched/sched.c",
+		"\t\tif (!found || cost < best_cost) {\n",
+		"\t\tif (!found || cost <= best_cost) {\n",
+		"a scheduler whose choice wandered between identical candidates would make a network's behaviour unreproducible for no gain, which is sched.h's own reason for the rule -- and every fixture in sched_test.c selects over a PAIR, where a three-way tie cannot be expressed -- sec 246",
+	),
+	(
+		"sched-filter-is-not-a-penalty",
+		"sched/sched.c",
+		"\t\tif (!fzn_sched_admits(&links[i], wanted))\n\t\t\tcontinue;\n",
+		"\t\tif (0 && !fzn_sched_admits(&links[i], wanted))\n\t\t\tcontinue;\n",
+		"scoring a link that fails a hard constraint rather than skipping it lets a large enough weight elsewhere bring it back, which is the wrong kind of helpful this module refuses -- a voice class would be handed a link it had ruled out -- sec 246",
+	),
+	(
 		"log-body-escapes-what-a-terminal-obeys",
 		"log/log.c",
 		"\t\tif (body[i] >= 0x20u && body[i] <= 0x7eu) {\n",

@@ -306,6 +306,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              log/test/log_test.c \
              wire/test/relay_test.c \
              sched/test/sched_test.c \
+             sched/test/sched_fuzz.c \
              link/test/link_test.c \
              log/test/fix_stream_test.c \
              record/test/record_guided.c \
@@ -387,6 +388,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/log/test/log_test \
              $(BUILD_DIR)/wire/test/relay_test \
              $(BUILD_DIR)/sched/test/sched_test \
+             $(BUILD_DIR)/sched/test/sched_fuzz \
              $(BUILD_DIR)/link/test/link_test \
              $(BUILD_DIR)/log/test/fix_stream_test \
              $(BUILD_DIR)/record/test/record_guided \
@@ -1525,6 +1527,11 @@ $(BUILD_DIR)/link/test/link_test: $(BUILD_DIR)/link/test/link_test.o \
 	$(CC) $(CFLAGS) $^ -o $@
 
 $(BUILD_DIR)/sched/test/sched_test: $(BUILD_DIR)/sched/test/sched_test.o \
+                                    $(BUILD_DIR)/sched/sched.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD_DIR)/sched/test/sched_fuzz: $(BUILD_DIR)/sched/test/sched_fuzz.o \
                                     $(BUILD_DIR)/sched/sched.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -2933,7 +2940,8 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/wire/test/relay_fuzz \
              $(BUILD_DIR)/log/test/log_fuzz \
              $(BUILD_DIR)/spool/test/scrub_fuzz \
-             $(BUILD_DIR)/ratchet/test/ratchet_fuzz
+             $(BUILD_DIR)/ratchet/test/ratchet_fuzz \
+             $(BUILD_DIR)/sched/test/sched_fuzz
 
 fuzz: $(FUZZ_BINS)
 	@for f in $(FUZZ_BINS); do echo "== $$f $(CASES)"; $$f $(CASES) || exit 1; done
