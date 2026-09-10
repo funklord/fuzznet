@@ -1,0 +1,237 @@
+/* What is known about a file, where it is, and who holds it.
+ *
+ * The layer between this library's filestore, which owns bytes and their
+ * transfer, and a consumer's own use of a media library. project.md sec 101
+ * records the design and the arguments; this file is the specification and
+ * states the rules without re-arguing them. `facet/facet.h` specifies how a
+ * set of these entries is NAMED; this file specifies what the entries are.
+ *
+ * WHAT THIS DOES NOT DO. It holds no bytes: an entity is a content hash and
+ * the filestore holds what that hash names. It decides no vocabulary: `genre`
+ * and `system` and `region` belong to consumers, per `local/vocabulary.h`'s
+ * rule that this library carries mechanism and never meaning. And it makes no
+ * placement decision on its own -- every act that destroys bytes is requested
+ * by a person, per C17.
+ *
+ * STATUS: specification. What was settled with fuzzypickles' copyright holder
+ * on 2026-09-10 is marked SETTLED; what is a recommendation carrying no
+ * ruling is marked PROPOSED and may be discarded without disturbing the rest.
+ * No implementation, no wire encoding, and the module name is provisional.
+ */
+
+#ifndef FZN_CATALOGUE_H
+#define FZN_CATALOGUE_H
+
+/* =========================================================================
+ * 1. ENTITIES AND WHAT MAY BE SAID ABOUT THEM
+ * =========================================================================
+ *
+ * C1.  An ENTITY is a file, identified by the content hash the filestore knows
+ *      it by. The catalogue holds no bytes.
+ *
+ * C2.  SETTLED. What may be asserted about an entity falls in three classes,
+ *      and they differ by WHO CAN CHECK THEM:
+ *
+ *        LABEL       nobody can. A person asserted it -- a name, a media
+ *                    type -- and there is no fact of the matter to check it
+ *                    against. It is carried.
+ *        FACT        the bytes determine it -- resolution, codec, channel
+ *                    count. A host holding them computes it and is certain; a
+ *                    host that does not can only be told, and cannot check.
+ *        IDENTIFIER  a register determines it, and the bytes do not. It is
+ *                    checkable, but only by fingerprinting and consulting an
+ *                    authority this library does not own.
+ *
+ * C3.  A FACT is derived where the bytes are and is NOT carried, except where
+ *      a person needs it BEFORE deciding to spend the bandwidth -- a duration
+ *      distinguishes a four-minute track from a four-hour one, and a catalogue
+ *      that could not answer until after the download would have the question
+ *      backwards. A carried fact is a HINT: the holder's derived value
+ *      supersedes it, and the two disagreeing is shown rather than resolved,
+ *      because a holder that misdescribed a file is worth knowing about.
+ *
+ * C4.  An IDENTIFIER travels as a LABEL does -- carried, naming whoever
+ *      asserted it -- and is upgraded to verified by a host that holds both
+ *      the bytes and the register. Disagreement between an asserted identifier
+ *      and a locally derived one is shown, by the same rule as C3.
+ *
+ * C5.  PROPOSED. An assertion declares a MERGE CLASS, per attribute rather
+ *      than per catalogue: AUTHORITATIVE, where one pinned issuer wins and
+ *      others are suggestions; COLLABORATIVE, where several issuers write one
+ *      subject and a resolution rule is needed; LOCAL, which never leaves the
+ *      host -- a rating, a play count, a position in a film. The third is easy
+ *      to forget and expensive to retrofit.
+ *
+ * =========================================================================
+ * 2. DIMENSIONS AND LINKS
+ * =========================================================================
+ *
+ * C6.  A DIMENSION is a tree that an entity is linked into; `facet/facet.h`
+ *      F1-F4 specifies their shape and this file does not restate it. A
+ *      dimension is CURATED or GENERATED.
+ *
+ * C7.  SETTLED. There is a GENERATED dimension keyed by host, and it makes the
+ *      catalogue TOTAL: at least one node links every entity at all times,
+ *      including one that matches no register at all. It holds structurally,
+ *      because it is derived from what is on disk rather than curated, so it
+ *      cannot be incomplete the way a hand-made view can.
+ *
+ * C8.  "Which entities does this host hold" and "which hosts hold this entity"
+ *      are TRANSPOSES OF ONE RELATION. One is stored and the other derived;
+ *      storing both is two things to drift.
+ *
+ * C9.  An entity may be linked from many places, and several times within one
+ *      dimension. A link in a CURATED dimension is a REFERENCE. The generated
+ *      host dimension is an OBSERVATION and not a reference: it reflects what
+ *      is on disk, so while the entity exists the link exists, and severing it
+ *      is not a catalogue edit but the delete gesture of C17 spelled where it
+ *      is truthful.
+ *
+ * =========================================================================
+ * 3. HOLDERS: WHAT IS, AND WHAT WAS ASKED FOR
+ * =========================================================================
+ *
+ * C10. SETTLED. Holding is TWO fields and they MUST NOT share one:
+ *
+ *        OBSERVED   the claim a host published about itself. Its own fact,
+ *                   which its bytes settle.
+ *        DESIRED    the placement somebody else asked for. A request from a
+ *                   party that cannot make it true by saying so.
+ *
+ * C11. The two converge or they do not, and THE GAP IS PRESENTED rather than
+ *      hidden: fetching, refused, out of space, host unreachable. This is C3's
+ *      show-the-disagreement rule one layer out, and it is what keeps "add
+ *      this host" honest about being a request.
+ *
+ * C12. A consumer MUST NOT render a desired placement as an accomplished one.
+ *
+ * =========================================================================
+ * 4. SOURCES: WHERE BYTES ACTUALLY LIVE
+ * =========================================================================
+ *
+ * C13. SETTLED. Bytes live in a SOURCE, which is named and carries a policy. A
+ *      reference is (SOURCE, RELATIVE PATH) and never a bare absolute path: a
+ *      bare path does not survive a second machine, cannot express
+ *      relative-to-home, and is not a unit anything can grant or refuse.
+ *
+ * C14. The MANAGED root is a source marked writable -- one mechanism with a
+ *      policy per entry, rather than two mechanisms. Only within a writable
+ *      source may an organiser move, rename or delete.
+ *
+ * C15. A REFERENCED source is read-only to the organiser BY CONSTRUCTION. A
+ *      person may point the catalogue at a collection built over decades and
+ *      have it indexed rather than rearranged.
+ *
+ * C16. A PATH is a LABEL and a content hash is a FACT, which is C2 one layer
+ *      out. A referenced file may be edited, moved or deleted by its owner at
+ *      any moment, so a reference ASSERTS that a path holds a hash;
+ *      (size, mtime, inode) is the cheap staleness check and a rehash settles
+ *      it. Importing a source therefore costs a full hashing pass, once,
+ *      proportional to the collection.
+ *
+ * C17. SETTLED, and this is the safety core. A DELETION IS EXPLICIT AND NEVER
+ *      A CONSEQUENCE OF METADATA GOING WRONG. No metadata error of any kind
+ *      may destroy bytes: not a miscounted link, not a view rebuilt wrongly,
+ *      not a merge upstream, not a bug in this library's own bookkeeping.
+ *
+ * C18. A reference count of zero is a REPORTED STATE -- "held here, in no
+ *      view" -- and never a trigger. Showing it to a person is the only thing
+ *      it may do on its own.
+ *
+ * C19. Removing the FINAL holder of an entity is a distinct act from removing
+ *      a redundant copy. It destroys the entity estate-wide and is
+ *      unrecoverable, so it MUST NOT share a gesture with dropping a spare.
+ *
+ * C20. In a REFERENCED source, unlinking means FORGETTING the reference. The
+ *      bytes belong to whoever put them there and are never deleted by the
+ *      catalogue, whatever the link count says and whoever asked.
+ *
+ * C21. SETTLED. Reassignment and deletion MUST NOT share a permission.
+ *      Reassigning changes which node an entity is linked from -- this
+ *      library's own metadata, with nothing on disk moving. Deleting bytes
+ *      outside a writable source destroys what a person put there, at the
+ *      request of a machine that cannot see what it is destroying.
+ *
+ * C22. SETTLED. The on-disk layout of a managed source is MATERIALISED when an
+ *      entity is placed and re-derived only when asked for. A catalogue may
+ *      change hourly, and a layout that tracked it would silently rearrange a
+ *      person's disk from a rename nobody here made.
+ *
+ * =========================================================================
+ * 5. IMPORTING AN EXTERNAL CATALOGUE
+ * =========================================================================
+ *
+ * Everything in this part is PROPOSED. It is the shape recommended for taking
+ * a public register -- a music, film or game catalogue -- into an estate, and
+ * no ruling has been given on whether such a register is consulted at all.
+ *
+ * C23. PROPOSED. A register is imported as SHARDS: an ordinary blob per
+ *      key-range, with a signed INDEX mapping range to blob root. The index is
+ *      small enough to replicate to every host while the shards are fetched on
+ *      demand. A shard is whole-or-nothing, so its have-set is one node --
+ *      which is the point, since a have-set encodes LOCALITY and random point
+ *      lookup over one large blob would exceed it and then silently
+ *      under-claim.
+ *
+ * C24. PROPOSED. Three trusts separate, and only the third is hard:
+ *
+ *        CONTENT       free. A shard root is a content hash, so a mirror can
+ *                      withhold and cannot forge. A server need not be
+ *                      trusted for correctness.
+ *        AVAILABILITY  what a server supplies -- and once any host in an
+ *                      estate holds a shard, this library's transfer serves it
+ *                      to the rest. The server is a SEED, not a dependency:
+ *                      losing it keeps everything already held and merely
+ *                      stops new entries arriving.
+ *        CURRENCY      hard, and content addressing does nothing for it. A
+ *                      server may serve an old, validly signed index and no
+ *                      byte betrays it.
+ *
+ * C25. PROPOSED. Currency wants the shape TUF already settled rather than a
+ *      new one: a signed snapshot carrying a MONOTONIC VERSION and an EXPIRY,
+ *      with each host remembering the HIGHEST VERSION IT HAS SEEN -- so a
+ *      rollback is caught inside the estate even while the publisher is
+ *      unreachable, and expiry bounds how long a withheld update hides. Key
+ *      rotation belongs there, and pinning a set of publishers means deciding
+ *      what happens when one is compromised.
+ *
+ * C26. PROPOSED. Shard size is the privacy control and is one number: a fetch
+ *      reveals interest in a KEY RANGE rather than an entry. Asking a peer
+ *      before a server makes the estate the anonymity set as well as the
+ *      cache.
+ *
+ * C27. An imported identifier is subject to C4: it is an assertion by the
+ *      register, not a fact about the bytes, until a host checks it.
+ *
+ * =========================================================================
+ * 6. REFUSAL
+ * =========================================================================
+ *
+ * C28. An implementation MUST refuse rather than return a partial answer
+ *      wherever a partial answer would be WRONG rather than incomplete.
+ *      `facet/facet.h` F24-F28 states the cases for selection, and the same
+ *      rule governs here: a set that over-includes may drive a placement or a
+ *      deletion, and C17 forbids reaching that by an error.
+ *
+ * C29. An identifier whose register has RETIRED it -- two entries proving to
+ *      be one -- is followed through a forwarding record, or refused. It is
+ *      never silently treated as absent. A SPLIT cannot be followed at all and
+ *      is surfaced, per `facet/facet.h` F23.
+ *
+ * =========================================================================
+ * 7. NOT SETTLED HERE
+ * =========================================================================
+ *
+ *   - whether an external register is consulted at all, and whether this
+ *     project pins another party's signing key to do it (C23-C26);
+ *   - the shard size (C26) and the layout template of a managed source (C22);
+ *   - whether reclamation of an unreferenced entity exists, its grace period
+ *     if it does, and whether a pin exempting an entity is per-entity or
+ *     per-view (C18);
+ *   - whether a referenced entity may be promoted into a managed source in
+ *     place rather than by copying (C15);
+ *   - the merge classes of C5, which are a recommendation and carry no ruling;
+ *   - the wire encoding of any of the above, and this module's name.
+ */
+
+#endif /* FZN_CATALOGUE_H */

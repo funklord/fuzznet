@@ -29596,7 +29596,15 @@ shape.
 
 ### Selecting nodes: a facet algebra, WORK IN PROGRESS, 2026-09-10
 
-**THE SPECIFICATION IS `facet/facet.h` as of 2026-09-10**, written on the
+**THE CATALOGUE SPECIFICATION IS `catalogue/catalogue.h`**, C1-C29, written
+2026-09-10 on the same instruction. It carries what an entry IS -- entities,
+the label/fact/identifier split, dimensions and links, observed against
+desired, sources and the deletion rules -- while `facet/facet.h` carries how a
+SET of them is named. Each statement is marked SETTLED or PROPOSED, so a
+recommendation that carries no ruling can be discarded without disturbing the
+rest, and section 7 names what is open rather than guessing at it.
+
+**THE SELECTION SPECIFICATION IS `facet/facet.h` as of 2026-09-10**, written on the
 holder's instruction. It states the rules as numbered normative statements
 F1-F33 without re-arguing them; this section is the history and the reasoning,
 and where the two disagree the header is what an implementation must satisfy.
