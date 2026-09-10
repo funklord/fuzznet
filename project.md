@@ -29809,6 +29809,119 @@ what is on nas01" is no longer directly expressible. It has to begin with a
 selection, whatever that selection is. That is the trade the ruling makes, and
 what it buys is that an expression means the same thing on every host.
 
+#### Dimensions are TREES, not key-value stores, 2026-09-10
+
+**Corrected by the holder, and it simplifies more than it complicates.** The
+roots may all sit under one hidden root -- hidden to save width in a tree
+viewer -- so `+/` shows every file. And a path may be deeper than two levels:
+`/genre/house/deep`, or `/host/laptop01/home/user/file`. In their words these
+"are not key:value stores, even though some of them should be treatable as
+such."
+
+**So a term is a PATH PREFIX selecting everything beneath it, and a key-value
+facet is a tree of depth 1.** `year/1994` has no children, so prefix selection
+degenerates to exact match. One mechanism, with the flat case as the
+degenerate one -- which is what "treatable as such" resolves to.
+
+**That makes the path form canonical and `facet:value` merely how a depth-1
+term renders.** The earlier entries here had it the other way round.
+
+**The hierarchy costs no new index.** A prefix `p` is the range
+`[p, p+0xFF...)`, so prefix selection and range selection are the same
+operation on the same ordered index -- the one `[1994 TO 1997]` already
+required answers `genre/house/` for free. The standard implementation is
+Elasticsearch's `path_hierarchy` tokenizer, which indexes `/a/b/c` as `/a`,
+`/a/b` and `/a/b/c` so a prefix matches directly; Lucene's TAXONOMY FACETS
+are this model exactly, `FacetField(dim, path...)` with drill-down and
+roll-up. That is a different part of Lucene from the query syntax quoted
+above, and it is the half that covers hierarchy.
+
+Three consequences:
+
+- **Roll-up is the semantics**: selecting `genre/house` includes a file tagged
+  only `house/deep`. Worth stating, because exact-match-excluding-children is
+  a defensible alternative and the two are indistinguishable until somebody
+  has a sub-genre.
+- **Counts are distinct over the subtree, never sums of children**, since a
+  file under `house/deep` is also under `house` and under `genre`.
+- **Re-parenting is sharper than renaming.** Move deep house under
+  `electronic/house/deep` and every saved expression naming the old path
+  selects differently. The redirect table has to cover moves, not just names.
+
+**And the hidden root reopens the difference question by a back door.** If
+`+/` is a legal POSITIVE term then `+/ - host/laptop01` is "everything
+except", the exact non-portable case settled against above. The distinction
+that saves it is browsing versus saving: viewing the root is the wanted
+behaviour and stays, but an expression whose only positive term is the root
+is not portable and must either be refused at save time or pinned to a stated
+index version. **Open, and it only bites when somebody saves a root view that
+has an exclusion in it.**
+
+#### The GUI is a query editor, and that constrains the language
+
+**The holder's requirement: a plus and a minus button on each node in the
+catalogue tree, clicking adds it to the query and unclicking removes it.**
+Analysed rather than assumed, because it binds the language harder than it
+first appears.
+
+**A node has three states, and they ARE the normal form.** Unset, `+`, `-`;
+the marked-plus set is `P` and the marked-minus set is `N`. The GUI state is
+not a view of the expression, it IS the expression, which is what makes
+unclicking exact rather than a re-parse.
+
+**Every term kind must be reachable as a NODE.** This is the real constraint.
+If the tree is the primary editor then a term nobody can point at cannot be
+built, so a new term kind has to arrive with a dimension to browse it in --
+"shorter than four minutes" needs a `duration/` dimension with buckets, or a
+range widget on one. That is a useful discipline rather than a limitation: it
+keeps the term space browsable, and it is the same rule as "answerable from an
+index" seen from the user's side.
+
+**Same dimension is OR, different dimensions is AND, and the GUI has to know
+this.** Marking `genre/house` and `genre/jazz` naively as two intersecting
+terms yields nothing, since no file is both. Under the settled algebra they
+are alternation WITHIN one term. So two plus-marks under one dimension root
+combine as union and marks under different roots as intersection -- the
+faceted-browsing convention, and the point where the GUI and the union ruling
+have to agree or the tool produces empty results for the most obvious gesture.
+
+Minus needs no such rule: every minus-mark joins `N` regardless of dimension,
+because `N` is unioned and then subtracted once.
+
+**Parent-plus with child-minus is meaningful and should be allowed.**
+`genre/house - genre/house/deep` is "house but not deep house", which falls
+out of the algebra for free and is a common want. So marking a parent must not
+clear its children, and the tree needs to show four things rather than two:
+marked plus, marked minus, IMPLIED by an ancestor's plus, and excluded by a
+descendant's minus.
+
+#### Which surface form, and what each costs
+
+    A  marked nodes only     no parser; nothing to type; no term without a node
+    B  path form             mountable as a filesystem; awkward minus; escaping
+    C  text with +/- terms   typeable, shareable, small parser, order-free
+    D  structured value      best to store and sync; unreadable to a person
+
+**A is not enough** -- there is no way to type or script a query, and no way to
+express a term whose node has not been browsed to.
+
+**B is attractive because the tree is already the model** and a query is a
+path: `/genre/house/year/1994/`. It is what a FUSE mount would need, and the
+union ruling means it needs no terminator, which is the wart tagsistant carries
+(`@/`, forced by having expression-level OR in the path). Its costs are real
+though: minus has no natural spelling in a path, and any value containing a
+separator needs escaping.
+
+**C is the familiar one** -- `+genre/house +year:[1994 TO 1997] -host/nas01`
+maps directly onto `(P, N)`, is order-free by construction, and needs only a
+small parser.
+
+**The recommendation is D as canonical, with B and C as renderings.** That is
+not fence-sitting: a structured canonical form is what makes the GUI's
+unclick exact, what makes an unknown term kind REFUSABLE rather than skippable,
+and what lets a saved selection be hashed for identity. B and C then serve
+browsing and typing without either being the thing that is stored.
+
 #### Where it would live, by this library's own rule
 
 `local/vocabulary.h` already states the split and cites `chain.h` for it: what
@@ -36925,3 +37038,45 @@ front of a terminal -- and it fired on its author within the hour. The
 population being derived rather than listed is what made that automatic: both
 gates learned about the file from the build, not from somebody remembering to
 add it.
+
+## 255. The paragraph a consuming build reads
+
+`README.md` refuses to repeat inventories, and sec 63 records what it cost
+when it did. What it does carry is the FORMAT of `make manifest`, because a
+consuming build reads that paragraph to learn what the lines mean.
+
+It named five kinds. The target emits eight.
+
+	emitted   backend binding generated header include source subsystem
+	          version
+	named     source generated include binding backend
+
+**`subsystem` is how the front ends are found at all** -- sec 225 added it
+after the CLI and GUI were named by one literal line -- and a consumer
+following this paragraph would not know those lines exist. `header` is
+today's, and `version` had never been mentioned.
+
+That is `evidence.md`'s countable present-tense claim about the tree's own
+shape, in the file most likely to be read and least likely to be re-derived.
+It is the same fault as sec 241's and sec 249's summary lines, one layer out:
+a description narrower than the thing it describes.
+
+### A gate over the kinds, not the prose
+
+`make style` now asks that each key the manifest emits appear somewhere in
+`README.md` as a backticked word.
+
+	style: 8 manifest kinds, each named in README.md
+
+**Only the kinds.** The paragraph can be rewritten freely and only a kind
+going unmentioned fails -- a gate over wording is a gate somebody deletes the
+first time it argues with a rewrite. Both arms were made to fail: dropping
+`header` from the sentence, and a probe whose manifest emits nothing, which
+refuses rather than passing over an empty set.
+
+**This is the fourth population this session that turned out narrower than
+its subject** -- the sabotage census over headers, the log gate over
+severities, the render sweep over widgets, and now a README over the format
+it documents. In every case the fix was the same shape: ask the build what
+exists rather than keeping a second list, and make the check say what it
+checked.
