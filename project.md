@@ -37758,3 +37758,19 @@ origin was written as sec 250 and is sec 247, in the entry whose subject is
 that fault. Two for two: every section number written from memory here was
 wrong, and both were correct-looking. The habit that works is not care, it
 is `awk '/^## /{s=$0} /<name>/{print s}'` before typing the digits.
+
+### Where this landed, and why the log says otherwise
+
+`tool/public_reach.py`, the `sched_test.c` assertions and the sabotage
+entry above are in **`02d3b3b`**, whose subject is the catalogue's merge
+classes. They were staged by name and verified with `git diff --cached
+--name-only`, and another session in this shared clone ran `git commit`
+before this one did. The index is shared; staging by name protects the
+commit you make and not the one somebody else makes.
+
+Recorded rather than repaired: `02d3b3b` is pushed, so it is history other
+people hold. What was lost is discoverability -- `git log --grep '^sched:'`
+will not find when the reason assertion appeared, and `git log --follow
+tool/public_reach.py` reports a catalogue commit as its origin. This
+paragraph is the pointer that replaces it. `CLAUDE.md` describes exactly
+this failure and it cost the record here in the same way.

@@ -1490,7 +1490,7 @@ endif
 # GUI is off, so this costs a build without it nothing.
 DEPS = $(OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(GUI_OBJS:.o=.d) $(GUI_TOBJ:.o=.d)
 
-.PHONY: check runtests all test fuzz guided guided-one installcheck coverage sancheck schema qtty qrcheck style codegencheck ctcheck analyze sabotage hooks clean install
+.PHONY: check runtests all test fuzz guided guided-one installcheck coverage sancheck schema qtty qrcheck style codegencheck ctcheck analyze sabotage reach hooks clean install
 
 # The default build does NOT build tests -- build-and-commit.md, and the
 # discipline it buys is paid for by the dependency rules above being right.
@@ -3415,6 +3415,14 @@ analyze:
 # `make sabotage ARGS=--list` prints the entries without running anything.
 sabotage:
 	@python3 tool/sabotage.py $(ARGS)
+
+# WHICH PUBLIC FUNCTIONS NO TEST NAMES. Hand-run and deliberately NOT part
+# of `check`: it waives three names with reasons, and `evidence.md` is
+# explicit that a gate carrying a waiver list is one that gets switched off
+# by instalments. A tool with no target is a tool nobody runs, though, which
+# is why it has a name here rather than only a path. sec 262.
+reach:
+	@python3 tool/public_reach.py
 
 # EVERY GATE THIS PROJECT HAS, under the name thirteen of the seventeen
 # private projects already use. Measured by collecting `.PHONY` across every
