@@ -94,11 +94,14 @@ a measurement recorded against one can be taken again: `QUIRC_DIR=<path>`,
 instead.
 
 **A consuming build asks for the list rather than copying it.**
-`make manifest` prints one `key value` per line -- `source`, `generated`,
-`include`, and separately `binding` and `backend` for the two things a
-consumer takes deliberately rather than by following a list. A binding needs
-the consumer's own Monocypher; a backend carries the define that switches it
-on. Nothing is checked in, because a generated list that gets committed is
+`make manifest` prints one `key value` per line. `version` is the library's;
+`source` and `generated` are what to compile and `include` where to look;
+`header` is what it installs; and `binding`, `backend` and `subsystem` are
+the things a consumer takes deliberately rather than by following a list. A
+binding needs the consumer's own Monocypher; a backend and a subsystem each
+carry the define that switches them on.
+
+Nothing is checked in, because a generated list that gets committed is
 the stale copy it exists to prevent, and `make installcheck` compiles a
 consumer from nothing but that output so an omission fails here rather than
 in the consuming tree.

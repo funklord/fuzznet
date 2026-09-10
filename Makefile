@@ -3946,6 +3946,38 @@ style: $(OBJS)
 		exit 1; \
 	fi; \
 	echo "style: $$n widgets, each one used by qtty_render_test"
+	@# AND THE README NAMES EVERY KIND THE MANIFEST EMITS. sec 255.
+	@#
+	@# That paragraph is the format description a consuming build reads to
+	@# learn what `make manifest` prints, and it had gone stale: it named
+	@# five kinds where the target emits eight, missing `header`,
+	@# `subsystem` and `version`. A consumer following it would not know
+	@# two of those lines exist -- and one of them, `subsystem`, is how the
+	@# front ends are found at all.
+	@#
+	@# THE KINDS, NOT THE PROSE. This asks only that each key appear
+	@# somewhere in README.md as a backticked word, so the paragraph can be
+	@# rewritten freely and only a kind going unmentioned fails. A gate over
+	@# wording would be a gate somebody deletes.
+	@kinds=`$(MAKE) -s --no-print-directory manifest 2>/dev/null \
+	        | awk '{ print $$1 }' | grep -v '^#' | sort -u`; \
+	n=`echo "$$kinds" | grep -c .`; \
+	if [ "$$n" -eq 0 ]; then \
+		echo "style: the manifest emitted no kinds, so this checked nothing --"; \
+		echo "style: the target is broken, not the README."; \
+		exit 1; \
+	fi; \
+	missing=; \
+	for k in $$kinds; do \
+		grep -qF '`'"$$k"'`' README.md || missing="$$missing $$k"; \
+	done; \
+	if [ -n "$$missing" ]; then \
+		echo "style: manifest kinds the README does not name:" $$missing; \
+		echo "style: a consuming build reads that paragraph to learn the"; \
+		echo "style: format, and a kind it omits is one nobody knows to read."; \
+		exit 1; \
+	fi; \
+	echo "style: $$n manifest kinds, each named in README.md"
 	@# AND version/version.h MUST STILL SPELL WHAT VERSION SAYS, an eighth
 	@# hand-maintained agreement. The header is a copy on purpose --
 	@# version.h says why, and it is the reason constants_test.c gives about
