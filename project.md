@@ -29809,6 +29809,35 @@ what is on nas01" is no longer directly expressible. It has to begin with a
 selection, whatever that selection is. That is the trade the ruling makes, and
 what it buys is that an expression means the same thing on every host.
 
+#### The six ordering rules, settled 2026-09-10
+
+1. **`P` and `N` are each sorted by encoded bytes, independently**, with
+   duplicates removed within each.
+2. **Ordering uses the RAW value bytes, never the collation key.** The key is
+   LOSSY -- `7` and `07` both zero-pad to `0007` -- so two distinct terms would
+   sort equal, ties would break non-deterministically, and identity would fail
+   quietly. The collation key exists for range comparison; ordering for
+   identity is a different job and must be injective.
+3. **It applies recursively.** Alternation members are sorted and deduplicated
+   by the same rule, or `genre/[action,thriller]` and `genre/[thriller,action]`
+   encode differently while being one term.
+4. **One spelling per thing.** A single-member alternation encodes as a plain
+   term; a range with equal endpoints encodes as a point term. Without this the
+   encoding is not injective and equal expressions still differ.
+5. **Canonicalisation is SYNTACTIC, never semantic.** Identical terms are
+   deduplicated; semantically redundant ones are NOT simplified. `genre/house`
+   beside `genre/house/deep` must not collapse even though the second is
+   contained in the first, because collapsing needs the taxonomy -- and
+   identity would then depend on a taxonomy version and change under
+   re-parenting. Two expressions selecting the same files may legitimately be
+   different expressions, and this is the rule that keeps a hash a stable name
+   for a saved selection while the catalogue moves underneath it.
+6. **The identical term in both `P` and `N` is malformed and refused.** It
+   always yields empty, and the tri-state GUI cannot produce it since a node is
+   plus, minus or unset -- so it can only arrive from a typo in the text form,
+   and refusing catches one. This does not touch parent-plus with child-minus,
+   which is a different term and legitimate.
+
 #### Dimensions are TREES, not key-value stores, 2026-09-10
 
 **Corrected by the holder, and it simplifies more than it complicates.** The
@@ -29966,10 +29995,12 @@ Five consequences, concrete enough to build against:
   terms would silently evaluate to a DIFFERENT SET, which is the data-loss
   path already ruled out, so strictness here is the existing convention
   applied rather than a new one argued for.
-- **The canonical serialisation has to be DETERMINISTIC**, or identity breaks.
-  `P` and `N` are sets, so they must be sorted by a stated rule before
-  encoding; otherwise two expressions that are equal hash differently and the
-  dedup, cache key and already-held check all fail quietly.
+- **~~The canonical serialisation has to be deterministic.~~ SETTLED
+  2026-09-10: sort by BYTE-WISE COMPARISON OF EACH TERM'S CANONICAL ENCODING**,
+  `memcmp` semantics with shorter-is-less on a prefix. No locale, no Unicode
+  collation, no hash-map iteration order -- the same answer in every
+  implementation, which is the only property this needs. The six rules that
+  make it total are below.
 - **The path rendering is PARTIAL, and this is the one that surprises.**
   Minus has no natural spelling in a path, so an expression with a non-empty
   `N` has NO path form. A filesystem mount can therefore show positive-only
