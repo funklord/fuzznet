@@ -52,7 +52,12 @@ void fzn_state_view::show_cell(const fzn_state_t *st, const uint8_t subject[FZN_
 	case FZN_STATE_CELL_NEVER_SET:
 		state_ = NEVER_SET;
 		break;
-	default:
+	/* NAMED RATHER THAN DEFAULTED, so a state added to the printer's enum
+	 * stops this file compiling instead of arriving here quietly. sec 193
+	 * asks that a printer's new state change the widget in the same
+	 * commit, and `-Wall`'s `-Wswitch` is what can enforce it -- only
+	 * where there is no `default:`. sec 267. */
+	case FZN_STATE_CELL_UNREADABLE:
 		state_ = st ? UNREADABLE : NOTHING;
 		break;
 	}

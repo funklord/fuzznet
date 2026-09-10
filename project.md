@@ -38324,3 +38324,67 @@ arrive, and these five said nothing -- one site with the idiom and five
 without, which is this session's recurring shape and not a new one. All five
 say it now, naming the three conditions and why each is impossible there.
 Nine lines added to each file and nothing removed.
+
+## 267. The same eight, on the other side of the seam
+
+Sec 264 named the state each printer's `default:` was absorbing and added a
+gate so one cannot come back. **The gate read `cli/*_print.c`, and the
+widgets switch on the same enums.** Eight of them carried a `default:` over
+`switch (said)`, and they are the same eight modules -- capability, journal,
+provision, revocation, state, sweep, sync, transfer.
+
+So sec 264's own finding, repeated within hours by the session that wrote
+it: **a rule applied to the population that produced it rather than to its
+subject**, and a gate is not exempt from that just because it is mechanical.
+A gate's population is a choice somebody made, and mine was the file list I
+happened to be editing.
+
+### What is different here, and it is not nothing
+
+Every widget default mapped to the **conservative** state:
+
+	capability_view   HOLDS_NOTHING      journal_view    UNTRACKED
+	provision_view    NOTHING            revocation_view UNREADABLE
+	state_view        UNREADABLE/NOTHING sweep_view      NOTHING
+	sync_view         UNMEASURED         transfer_view   NOTHING
+
+That is the good kind of fall-through, the one `provision_print` keeps: a new
+state arriving at a widget was drawn as *nothing known* rather than as
+another state's sentence. Wrong and safe, which is the direction
+`harmonization.md` settles for a surface that cannot say -- so unlike the
+printers, **nothing here was one edit from telling somebody a comfortable
+lie.**
+
+**What it cost is the rule's enforcement rather than its answer.** Sec 193
+asks that a printer's new state change the widget in the same commit, and
+the only thing that can make that happen is the widget failing to compile.
+With a `default:` it compiles, the widget says *nothing known*, and the
+state exists on the screen's other side unmentioned.
+
+### The compiler enumerated it, not a pattern of mine
+
+Six instrument faults in one day is enough to stop writing the seventh. Each
+widget's `default:` label was deleted and the file compiled: `-Wswitch` then
+named exactly what the switch no longer handled, one enumerator per widget,
+and every one of the eight was the printer's own ZERO state mapped to the
+widget's conservative one. So naming it is behaviour-identical by
+construction rather than by my reading.
+
+	before   all eight compiled silently with a spare state added
+	after    all eight REFUSED it
+
+The gate covers 43 files now -- 24 printers and 19 widgets -- and matches on
+the switch's subject, `state`, `stream_state` or `said`, so
+`provision_print`'s correct error-to-refusal default still survives it. Put
+a `default:` back in `sync_view` and it names the file.
+
+### A first draft of the probe was invalid C++
+
+Worth recording because it wasted a cycle and the shape recurs: the first
+attempt replaced each `default:` with `case (fzn_probe_unreachable)0:`, a
+cast to a type that does not exist, so all eight failed to compile and the
+report read *compile failed* eight times. **A probe that cannot compile and a
+probe that finds nothing are one line apart in the output**, and the only
+reason it was not read as "no widget absorbs anything" is that the failure
+was loud. The version that worked removes the label and lets the compiler
+speak, which is also the version that needed no cleverness.

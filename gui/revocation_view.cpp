@@ -47,7 +47,12 @@ void fzn_revocation_view::show_store(const fzn_revocation_store_t *store)
 		 * keeps them apart because a screen can say which. */
 		state_ = store ? EMPTY : NOTHING;
 		break;
-	default:
+	/* NAMED RATHER THAN DEFAULTED, so a state added to the printer's enum
+	 * stops this file compiling instead of arriving here quietly. sec 193
+	 * asks that a printer's new state change the widget in the same
+	 * commit, and `-Wall`'s `-Wswitch` is what can enforce it -- only
+	 * where there is no `default:`. sec 267. */
+	case FZN_REVOCATIONS_UNREADABLE:
 		state_ = UNREADABLE;
 		break;
 	}

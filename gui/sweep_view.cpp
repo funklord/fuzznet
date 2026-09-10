@@ -66,7 +66,12 @@ void fzn_sweep_view::show_sweep(const fzn_catalog_sweep_plan_t *plan,
 	case FZN_SWEEP_DONE:
 		state_ = DONE;
 		break;
-	default:
+	/* NAMED RATHER THAN DEFAULTED, so a state added to the printer's enum
+	 * stops this file compiling instead of arriving here quietly. sec 193
+	 * asks that a printer's new state change the widget in the same
+	 * commit, and `-Wall`'s `-Wswitch` is what can enforce it -- only
+	 * where there is no `default:`. sec 267. */
+	case FZN_SWEEP_NOTHING_CAPTURED:
 		state_ = NOTHING;
 		break;
 	}

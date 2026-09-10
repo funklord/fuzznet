@@ -3780,29 +3780,32 @@ style: $(OBJS)
 # is the FZN_TRUST_SELF defect of sec 193, which is what produced the rule.
 #
 # The compiler catches the second step and nothing caught the first, which
-# is what this is. It reads the switch a `default:` belongs to rather than
-# the file, because `cli/provision_print.c` has one that is RIGHT: it maps
+# is what this is. IT COVERS THE WIDGETS TOO, and did not at first: the same
+# eight modules carried a `default:` on the gui side, which is sec 267 and is
+# this gate's own population being narrower than its subject. It reads the
+# switch a `default:` belongs to rather than the file, because
+# `cli/provision_print.c` has one that is RIGHT: it maps
 # an unnamed verify error to FZN_PROVISION_LINE_REFUSED, and a fall-through
 # to a refusal fails closed where a fall-through to a line does not.
 	@bad=; n=0; \
-	for f in $(wildcard cli/*_print.c); do \
+	for f in $(wildcard cli/*_print.c gui/*_view.cpp); do \
 		n=$$((n + 1)); \
 		if awk '/switch \(/ { sw = $$0 } \
 		        /^[ \t]*default:/ { \
-		                if (sw ~ /switch \((state|stream_state)\)/) \
+		                if (sw ~ /switch \((state|stream_state|said)\)/) \
 		                        print FILENAME ":" NR; \
 		        }' "$$f" | grep -q .; then \
 			bad="$$bad $$f"; \
 		fi; \
 	done; \
 	if [ "$$n" -eq 0 ]; then \
-		echo "style: no printers to check for absorbed states"; exit 1; \
+		echo "style: no printers or widgets to check for absorbed states"; exit 1; \
 	elif [ -n "$$bad" ]; then \
 		echo "style: a default in a state switch, so a new state is absorbed:$$bad"; \
-		echo "style: name the state the default renders; sec 264."; \
+		echo "style: name the state it handles; sec 264 for a printer, 267 for a widget."; \
 		exit 1; \
 	else \
-		echo "style: $$n printers name every state, so -Wswitch guards them all"; \
+		echo "style: $$n printers and widgets name every state, so -Wswitch guards them"; \
 	fi
 
 	@# ./installcheck/ IS EXCLUDED BECAUSE IT IS A COPY OF THIS LIST. It is

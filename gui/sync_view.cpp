@@ -51,7 +51,12 @@ void fzn_sync_view::show_peer(const fzn_manifest_state_t *st,
 	case FZN_SYNC_BEHIND:
 		state_ = BEHIND;
 		break;
-	default:
+	/* NAMED RATHER THAN DEFAULTED, so a state added to the printer's enum
+	 * stops this file compiling instead of arriving here quietly. sec 193
+	 * asks that a printer's new state change the widget in the same
+	 * commit, and `-Wall`'s `-Wswitch` is what can enforce it -- only
+	 * where there is no `default:`. sec 267. */
+	case FZN_SYNC_UNMEASURED:
 		state_ = UNMEASURED;
 		break;
 	}

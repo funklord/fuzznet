@@ -75,7 +75,12 @@ void fzn_capability_view::show_capability(const fzn_chain_t *chain,
 	case FZN_CAPABILITY_USABLE:
 		state_ = USABLE;
 		break;
-	default:
+	/* NAMED RATHER THAN DEFAULTED, so a state added to the printer's enum
+	 * stops this file compiling instead of arriving here quietly. sec 193
+	 * asks that a printer's new state change the widget in the same
+	 * commit, and `-Wall`'s `-Wswitch` is what can enforce it -- only
+	 * where there is no `default:`. sec 267. */
+	case FZN_CAPABILITY_NONE:
 		state_ = HOLDS_NOTHING;
 		break;
 	}

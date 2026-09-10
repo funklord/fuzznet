@@ -64,7 +64,12 @@ void fzn_transfer_view::show_transfer(const fzn_spool_t *spool, const fzn_transf
 	case FZN_TRANSFER_STALLED:
 		state_ = STALLED;
 		break;
-	default:
+	/* NAMED RATHER THAN DEFAULTED, so a state added to the printer's enum
+	 * stops this file compiling instead of arriving here quietly. sec 193
+	 * asks that a printer's new state change the widget in the same
+	 * commit, and `-Wall`'s `-Wswitch` is what can enforce it -- only
+	 * where there is no `default:`. sec 267. */
+	case FZN_TRANSFER_NOTHING:
 		state_ = NOTHING;
 		break;
 	}

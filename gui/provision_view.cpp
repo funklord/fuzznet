@@ -76,7 +76,12 @@ void fzn_provision_view::show_card(const uint8_t *bytes, size_t len,
 	case FZN_PROVISION_LINE_USABLE:
 		state_ = USABLE;
 		break;
-	default:
+	/* NAMED RATHER THAN DEFAULTED, so a state added to the printer's enum
+	 * stops this file compiling instead of arriving here quietly. sec 193
+	 * asks that a printer's new state change the widget in the same
+	 * commit, and `-Wall`'s `-Wswitch` is what can enforce it -- only
+	 * where there is no `default:`. sec 267. */
+	case FZN_PROVISION_LINE_NOTHING:
 		state_ = NOTHING;
 		break;
 	}

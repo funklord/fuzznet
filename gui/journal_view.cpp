@@ -59,7 +59,12 @@ void fzn_journal_view::show_stream(const fzn_journal_t *journal,
 	case FZN_JOURNAL_STREAM_EXHAUSTED:
 		state_ = EXHAUSTED;
 		break;
-	default:
+	/* NAMED RATHER THAN DEFAULTED, so a state added to the printer's enum
+	 * stops this file compiling instead of arriving here quietly. sec 193
+	 * asks that a printer's new state change the widget in the same
+	 * commit, and `-Wall`'s `-Wswitch` is what can enforce it -- only
+	 * where there is no `default:`. sec 267. */
+	case FZN_JOURNAL_STREAM_UNTRACKED:
 		state_ = UNTRACKED;
 		break;
 	}
