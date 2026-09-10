@@ -29723,9 +29723,43 @@ A range term needs an ORDERED index, which is a new index kind -- admissible
 under the rule that every term must be answerable from an index, and worth
 naming as the prerequisite it is.
 
-**One edge:** the `unknown` bucket sorts lexicographically among real values,
-so it can land inside a range without anybody intending it. It wants either
-exclusion from range terms or a collation key that sorts it last.
+**~~One edge: the `unknown` bucket sorts among real values.~~ SETTLED
+2026-09-10: it is NOT IN THE ORDERED VALUE INDEX AT ALL**, but a sibling node
+reachable only by naming it.
+
+That makes the guarantee structural rather than a collation trick: **no range
+term can select it, whatever the bounds, including open ones.** Sorting it
+below every value would still have let `[* TO 1997]` sweep it up, and an open
+bound is exactly where somebody meets that without noticing. Prefix terms do
+still reach it -- `year/` selects every child including `unknown` -- which is
+what keeps the dimension total.
+
+**Nothing is lost, because alternation covers the real want.** "The nineties,
+including films whose year I do not know" is `year:[1990 TO 1999],unknown`: a
+range and a point alternating within one facet, which the same-dimension-is-OR
+rule already allows. So excluding it from ranges costs nothing and makes the
+accidental case impossible.
+
+**And it avoids SQL's NULL trap, which is worth knowing rather than
+rediscovering.** In SQL both `x BETWEEN a AND b` and its negation exclude
+NULL, so the pair does not partition the table. Here they do, because this is
+set algebra over an explicit universe rather than three-valued predicate
+logic: `year/ - year:[1994 TO 1997]` is a difference from a root that INCLUDES
+the unknown bucket, so the residue contains it. The trap comes from NULL
+sitting outside the universe; here the bucket is a first-class member of it.
+
+Three details:
+
+- **Its rendering must not be able to collide with a real value.** Discogs has
+  artists named "Unknown Artist", so a reserved sigil rather than the bare
+  word -- otherwise path-to-id resolution turns ambiguous the day somebody's
+  genre is literally `unknown`.
+- **Display convention: last in a listing**, being the residue. Presentation,
+  not semantics.
+- **One bucket, deliberately.** "No value asserted", "asserted as unknown" and
+  "not applicable to this kind of file" are collapsed. A choice rather than an
+  oversight, and the language is extensible if it proves insufficient -- a new
+  term kind can split them later without disturbing anything settled.
 
 #### Three things worth reserving now
 
