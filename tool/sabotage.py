@@ -1399,6 +1399,20 @@ SABOTAGES = [
 		"a store that answers with the WRONG record has not failed to find something, it has found the wrong thing and said nothing -- described as corruption it sends somebody to inspect a file when the fault is the index -- sec 258",
 	),
 	(
+		"link-snapshot-does-not-rotate",
+		"link/link.c",
+		"\tfor (size_t i = 0; i < table->used; i++) {\n\t\tconst fzn_link_entry_t *e = &table->entries[i];\n",
+		"\tfor (size_t i = 0; i < table->used; i++) {\n\t\tconst fzn_link_entry_t *e =\n\t\t        &table->entries[(i + (size_t)table->entries[0].id) % table->used];\n",
+		"link.h says table order IS registration order, permanently, and sched's cursor relies on it -- rotating to be fair to starved links would make which link a consumer sees depend on when it asked, which is the fix this behaviour is pinned against rather than an improvement -- sec 259",
+	),
+	(
+		"link-snapshot-counts-past-the-bound",
+		"link/link.c",
+		"\t\tif (n >= out_cap) {\n\t\t\t(*dropped)++;\n\t\t\tcontinue;\n\t\t}\n",
+		"\t\tif (n >= out_cap)\n\t\t\tbreak;\n",
+		"a snapshot that stops at the bound reports nothing dropped, and link.h calls a snapshot that quietly does not fit worse than a short list -- a consumer is then told the network is down with no number saying how much it was not shown -- sec 259",
+	),
+	(
 		"log-body-escapes-what-a-terminal-obeys",
 		"log/log.c",
 		"\t\tif (body[i] >= 0x20u && body[i] <= 0x7eu) {\n",

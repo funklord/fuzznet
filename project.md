@@ -37366,3 +37366,53 @@ rather than a code that needs explaining, and `tree/` returns no error enum
 at all. So it does not want one, and the family is now genuinely closed: every
 module whose header names a human reader either has a surface or has been
 read and found not to need one.
+
+## 259. For ever, pinned
+
+`link.h` describes a permanent starvation and does not apologise for it:
+
+> this table never reorders: entries are appended and never removed, so the
+> links past the bound are the same links every call ... A consumer can be
+> told the network is down while a healthy link sits one index past the end,
+> FOR EVER, and it never gathers evidence on that link either because nothing
+> is ever sent on it.
+
+`link_test.c` checks the bound with two links and a cap of one. It does not
+check the FOR EVER -- that the same links are dropped on every call, and that
+nothing a consumer can do to a starved link brings it into view.
+
+	link_fuzz: 20000 cases, 9142 starved, 10858 fitted, 5321 observed a
+	starved link, 1538 full tables, 1577 empty, every snapshot was the
+	first N in registration order
+
+### It pins the behaviour as the design, and will fail when that changes
+
+This is sec 243's shape: a limit somebody could meet, read as a defect, and
+"fix". Both obvious fixes are worse than the behaviour -- rotation makes
+which links a consumer sees depend on when it asked, and reordering breaks
+the cursor `link/` guarantees. **The harness is expected to fail the day
+somebody adds rotation**, and that is its purpose: the change has to come
+here and say so rather than being discovered by a consumer whose selection
+started wandering.
+
+Its sharpest property is the fourth, and it comes from the header's sharpest
+sentence. A starved link "never gathers evidence ... because nothing is ever
+sent on it" -- so the case worth driving is a consumer that gathers evidence
+on one ANYWAY, by hand: an ack, a loss and a usability change, and the link
+is still invisible. 5321 cases did exactly that.
+
+### The first failure was the harness's, and it was padding
+
+	MODEL: two identical snapshots differ, so which links a consumer sees
+	depends on when it asked
+
+Two snapshots of one table, compared with `memcmp`. `fzn_sched_candidate_t`
+is 24 bytes holding 22 bytes of fields -- two of padding after
+`loss_permille` -- and the arrays were separate stack buffers, so the
+comparison was reading whatever had been there. The module was right and the
+model was wrong, which is the ordinary case for a new model and the third
+time this session.
+
+`memset` before each call fixes it and tests more than the field-by-field
+comparison would have: with the padding zeroed, `memcmp` now asserts that
+every byte of the answer is identical rather than every field.

@@ -309,6 +309,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              sched/test/sched_test.c \
              sched/test/sched_fuzz.c \
              link/test/link_test.c \
+             link/test/link_fuzz.c \
              log/test/fix_stream_test.c \
              record/test/record_guided.c \
              record/test/record_fuzz.c \
@@ -392,6 +393,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/sched/test/sched_test \
              $(BUILD_DIR)/sched/test/sched_fuzz \
              $(BUILD_DIR)/link/test/link_test \
+             $(BUILD_DIR)/link/test/link_fuzz \
              $(BUILD_DIR)/log/test/fix_stream_test \
              $(BUILD_DIR)/record/test/record_guided \
              $(BUILD_DIR)/record/test/record_fuzz \
@@ -1547,6 +1549,12 @@ $(BUILD_DIR)/log/test/fix_stream_test: $(BUILD_DIR)/log/test/fix_stream_test.o \
 $(BUILD_DIR)/link/test/link_test: $(BUILD_DIR)/link/test/link_test.o \
                                   $(LINK_OBJ) \
                                   $(BUILD_DIR)/sched/sched.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# The starvation link.h describes, pinned as the design. sec 259.
+$(BUILD_DIR)/link/test/link_fuzz: $(BUILD_DIR)/link/test/link_fuzz.o \
+                                  $(LINK_OBJ)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -3030,7 +3038,8 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/log/test/log_fuzz \
              $(BUILD_DIR)/spool/test/scrub_fuzz \
              $(BUILD_DIR)/ratchet/test/ratchet_fuzz \
-             $(BUILD_DIR)/sched/test/sched_fuzz
+             $(BUILD_DIR)/sched/test/sched_fuzz \
+             $(BUILD_DIR)/link/test/link_fuzz
 
 fuzz: $(FUZZ_BINS)
 	@for f in $(FUZZ_BINS); do echo "== $$f $(CASES)"; $$f $(CASES) || exit 1; done
