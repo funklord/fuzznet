@@ -37450,3 +37450,52 @@ time this session.
 `memset` before each call fixes it and tests more than the field-by-field
 comparison would have: with the padding zeroed, `memcmp` now asserts that
 every byte of the answer is identical rather than every field.
+
+## 260. The wrong answer that was chosen
+
+`claim/` is two operations over a seam that answers three ways for one of
+them and two for the other, so every sequence of five is 3125 walks --
+`trust`'s trade from sec 250, and `claim/test/claim_walk_test.c` takes it.
+
+	claim_walk_test: 46875 checks, 0 failure(s); every sequence of 5 steps
+	agreed (3125 ok, 6948 lost-track, 2427 held elsewhere, 3125 backend,
+	698 failed releases)
+
+**The seam is part of the state**, which is what makes this worth walking
+rather than testing by hand: `fzn_claim_take` asks the backend and then reads
+`held_out` to tell contention from breakage, so one operation has three
+outcomes chosen by an answer the test supplies, and the sequences that matter
+are where those interleave.
+
+### A refusal moves nothing -- except the one that moves something on purpose
+
+`fzn_claim_release` clears `held` BEFORE asking the backend, and leaves it
+cleared when the backend refuses. `claim.c` says why:
+
+> `held` IS ALREADY CLEARED, so this object now believes the claim is gone
+> and the world may disagree ... Of the two wrong answers, refusing to act is
+> the one that cannot desynchronise a ratchet.
+
+**Both answers are wrong and one was chosen.** A reader meeting a failed
+release that still cleared the flag would reasonably call it a bug, and the
+fix -- clear it only on success -- puts the process back in the state that
+comment rules out.
+
+So the walk ASSERTS it rather than exempting it, and the sabotage is the fix
+itself:
+
+	claim-a-failed-release-still-lets-go
+	  [take=got release=fails] failed to release and this object still
+	  believes it holds the claim, which claim.c rules out as the answer
+	  that can desynchronise a ratchet
+
+That is sec 243's shape and sec 259's: a limit or a deliberate wrong answer,
+pinned so the change has to come here and say so.
+
+### The first control was broader than the property
+
+It removed the `held = 0` line outright, so successful releases broke too and
+the walk failed at `[take=got release=ok]` -- a real failure about the wrong
+thing. The entry uses the precise edit instead, moving the clear onto the
+success path, which is what somebody would actually write. **A sabotage that
+breaks more than the property tests the suite, not the guard.**

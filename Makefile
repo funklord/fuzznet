@@ -247,7 +247,8 @@ CORE_HDRS := $(HDRS)
 TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              chain/test/manifest_test.c chain/test/authz_test.c \
              chain/test/chain_store_test.c chain/test/service_test.c \
-             claim/test/claim_test.c record/test/store_test.c \
+             claim/test/claim_test.c claim/test/claim_walk_test.c \
+             record/test/store_test.c \
              catalog/test/catalog_test.c \
              catalog/test/copy_test.c \
              catalog/test/sweep_test.c \
@@ -326,6 +327,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/chain/test/chain_store_test \
              $(BUILD_DIR)/chain/test/service_test \
              $(BUILD_DIR)/claim/test/claim_test \
+             $(BUILD_DIR)/claim/test/claim_walk_test \
              $(BUILD_DIR)/record/test/store_test \
              $(BUILD_DIR)/catalog/test/catalog_test \
              $(BUILD_DIR)/catalog/test/copy_test \
@@ -2032,6 +2034,12 @@ $(BUILD_DIR)/chain/test/service_test: $(BUILD_DIR)/chain/test/service_test.o \
 
 # claim/ arbitrates ownership and calls nothing else. sec 132.
 $(BUILD_DIR)/claim/test/claim_test: $(BUILD_DIR)/claim/test/claim_test.o \
+                                     $(BUILD_DIR)/claim/claim.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# Every sequence of operations and backend answers. sec 260.
+$(BUILD_DIR)/claim/test/claim_walk_test: $(BUILD_DIR)/claim/test/claim_walk_test.o \
                                      $(BUILD_DIR)/claim/claim.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@

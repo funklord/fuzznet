@@ -1413,6 +1413,20 @@ SABOTAGES = [
 		"a snapshot that stops at the bound reports nothing dropped, and link.h calls a snapshot that quietly does not fit worse than a short list -- a consumer is then told the network is down with no number saying how much it was not shown -- sec 259",
 	),
 	(
+		"claim-a-failed-release-still-lets-go",
+		"claim/claim.c",
+		"\tclaim->held = 0;\n\tif (!claim->ops->release(claim->ops->ctx)) {\n",
+		"\tif (!claim->ops->release(claim->ops->ctx)) {\n",
+		"clearing held only on success is the fix a reader makes on meeting this, and it puts the process back in the state claim.c rules out: believing it owns state the kernel may have handed on -- of the two wrong answers, refusing to act is the one that cannot desynchronise a ratchet -- caught at [take=got release=fails] -- sec 260",
+	),
+	(
+		"claim-taking-twice-is-a-lost-track",
+		"claim/claim.c",
+		"\tif (claim->held)\n\t\treturn FZN_CLAIM_ERR_STATE;\n",
+		"\tif (claim->held)\n\t\treturn FZN_CLAIM_OK;\n",
+		"a backend whose lock is per open-file-description reports success for a second take and leaves the caller believing two takes need two releases, which claim.c names as the reason this is refused rather than absorbed -- caught at [take=got take=got] -- sec 260",
+	),
+	(
 		"log-body-escapes-what-a-terminal-obeys",
 		"log/log.c",
 		"\t\tif (body[i] >= 0x20u && body[i] <= 0x7eu) {\n",

@@ -33,6 +33,7 @@
 /chain/test/chain_store_test
 /chain/test/service_test
 /claim/test/claim_test
+/claim/test/claim_walk_test
 /record/test/store_test
 /catalog/test/catalog_test
 /catalog/test/copy_test
