@@ -37762,21 +37762,36 @@ that fault. Two for two: every section number written from memory here was
 wrong, and both were correct-looking. The habit that works is not care, it
 is `awk '/^## /{s=$0} /<name>/{print s}'` before typing the digits.
 
-### Where this landed, and why the log says otherwise
+### Where this landed, and what it took to put it right
 
 `tool/public_reach.py`, the `sched_test.c` assertions and the sabotage
-entry above are in **`02d3b3b`**, whose subject is the catalogue's merge
+entry above went into **`02d3b3b`**, whose subject was the catalogue's merge
 classes. They were staged by name and verified with `git diff --cached
---name-only`, and another session in this shared clone ran `git commit`
-before this one did. The index is shared; staging by name protects the
-commit you make and not the one somebody else makes.
+--name-only`, and the fuzzypickles session ran `git commit` in this shared
+clone before this one did. The index is shared; **staging by name protects
+the commit you make and not the one somebody else makes.**
 
-Recorded rather than repaired: `02d3b3b` is pushed, so it is history other
-people hold. What was lost is discoverability -- `git log --grep '^sched:'`
-will not find when the reason assertion appeared, and `git log --follow
-tool/public_reach.py` reports a catalogue commit as its origin. This
-paragraph is the pointer that replaces it. `CLAUDE.md` describes exactly
-this failure and it cost the record here in the same way.
+This session's answer was to leave it: both commits were pushed, and a peer
+reporting the holder's instruction is not authority for this session to act
+on. It was split anyway, on the holder's decision, and the split is right --
+they are `313a98b`, *"tool: a public-reach sweep, split out of a commit that
+swept it up"*, 169 insertions over exactly those three files, with the four
+commits that followed cherry-picked on top.
+
+**And this paragraph is what the split broke.** It was written as the
+forward-only mitigation -- a pointer saying where the work really was -- and
+a pointer to a sha is a pointer to something a rebase can rewrite. It named
+`02d3b3b` twice, in the present tense, about a commit that is no longer an
+ancestor of anything. **The mitigation for a rewritten history needed
+rewriting when the history was rewritten**, and nothing but reading the log
+would have said so: the sentences stayed grammatical and confident.
+
+What it cost is nearly nothing, because it was caught the same day by
+noticing that four commit shas in `git log` were not the ones this session
+had pushed. What it would have cost is a reader following a sha into
+nothing. The two mentions in sec 263's table below are a different thing and
+they stay: those record a QUESTION somebody asked at the time, not a claim
+about where anything is now.
 
 ## 263. Two states nobody had ever seen
 
