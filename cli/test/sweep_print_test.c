@@ -118,6 +118,12 @@ int main(void)
 	              FZN_CATALOG_OK,
 	      "a finished job would not render");
 	CHECK(s == FZN_SWEEP_DONE, "a finished job was not done");
+	/* AND WHAT IT SAYS. The running case above reads "1 of 4" off the line
+	 * and this one read nothing: sec 264 moved this rendering out of a
+	 * `default:` and the suite would have passed if the wording had gone
+	 * with it. sec 266. */
+	CHECK(strstr(line, "removed 4") != NULL,
+	      "a finished job did not say what it removed");
 
 	/* REPORTING MUST NOT ADVANCE THE CURSOR. sec 181: `_advance` is called
 	 * after the bytes are gone. Render an overdue-looking job repeatedly

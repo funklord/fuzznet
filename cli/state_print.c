@@ -58,6 +58,15 @@ static void render(struct sink *s, fzn_state_cell_t state, const fzn_state_entry
 		break;
 	}
 
+	/* THE ELSE CANNOT ARRIVE, and it stays. `fzn_trust_fingerprint`
+		 * fails on a null key, a null destination or a capacity below
+		 * FZN_TRUST_FINGERPRINT_LEN; the destination is a local array
+		 * and the capacity its own sizeof, and the key is an array
+		 * member of a struct already refused when null. Checking the
+		 * status is what status_gate.py requires, and a check must
+		 * have an else -- so this is said rather than removed, and
+		 * said so nobody reads the sentence as a path anything runs.
+		 * sec 266. */
 	if (fzn_trust_fingerprint(row->issuer, print, sizeof(print)) == FZN_TRUST_OK)
 		put_str(s, print);
 	else

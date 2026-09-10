@@ -38172,3 +38172,113 @@ rather than open. Recorded because an empty sweep with no method recorded
 licenses nothing: what was looked for was a prohibition asserted of the
 whole tree, and what the others turn out to be is another tree's contract,
 a property of a wire format, and three entries in the sabotage table.
+
+## 266. The eight lines I moved, and the two nothing was reading
+
+Sec 264 moved eight renderings out of a `default:` into a named case. The
+suite passed, 118 suites and no failures, and every printer test ran at an
+unchanged count. **That told me nothing about two of the eight.**
+
+The question came from asking a different one. The `EXHAUSTED` state of sec
+263 was witnessed only under Qt, so: is any printer LINE asserted only by a
+widget test? The answer is none -- 0 of 187, and that hole does not exist
+for lines. What the sweep found instead is that a large share of lines are
+matched by no test's search term at all, and two of them were text I had
+moved that afternoon.
+
+	sweep_print       "removed "               nothing read it
+	provision_print   "verified, and in date"  nothing read it
+
+`sweep_print_test` reads five fragments off other lines -- *1 of 4*, *1
+retained*, *3 the last known copy* -- and for the finished job it read only
+the state. `provision_print_test` reads the root fingerprint and the text
+prefix and never a verdict at all. So if the wording had gone with the move,
+or a trailing space with it, the suite would have said 118 suites, no
+failures. Both are pinned now and both were watched failing on a one-word
+change: *removed* to *remove*, and *verified, and in date* to *verified, in
+date*.
+
+**This is `evidence.md`'s unproduced diagnostic, met from the other end.**
+That rule is about a message no test produces; here the message is produced
+on every run of two suites and nothing reads it. The loss is the same and it
+is the wording rather than the refusal: the state channel is well tested, so
+a wrong verdict word would keep every state assertion green while the line a
+person reads said something else.
+
+### The 85 is an upper bound and I am not reporting it as 85 gaps
+
+The sweep says 85 of 187 lines match no search term. **The extractor
+under-counts what the tests pin**: it reads `strstr`, `strcmp` and
+`contains`, and it missed `revocation_print` and `capability_print` (four
+assertions each) and `state_print`'s `"set by"`, which my own follow-up
+grep then missed again by including a trailing space the test does not use.
+Three artifacts in one measurement.
+
+So the number is a ceiling on a question the instrument cannot settle, and
+the same shape fuzzypickles reported for their 95 the day before: a
+population where coverage is real and the sweep cannot see it. What is
+settled is the two, because those were checked by hand against the two
+tests and then made to fail.
+
+**Pinning all 85 is not proposed.** Most are fragments -- `" over "`,
+`"; root "`, `"holding "` -- that compose a line rather than carrying a
+verdict, and a suite that asserted every one would break on any rewording
+whether or not the meaning moved. The subset worth pinning is the sentence
+that carries the verdict, and the test for it is sec 207's: **the part a
+terminal would clip last is the part a person reads first.**
+
+### What made it findable was changing it
+
+Nothing here was introduced by sec 264 -- both lines were unpinned before I
+touched them. What the change did was put me in front of the question, and
+**a passing suite after an edit is the moment to ask what the suite read**,
+not the moment to stop. The eight edits were verified by the compiler
+refusing a new state; three of the renderings were verified by tests that
+already read them; two were verified by nothing, and I had reported the
+suite green over all eight.
+
+### A sentence in five printers that no input can produce
+
+The bracket is worth stating as a bracket. The strstr-only extractor says 85
+of 187 lines are unread; using every string literal in every test as a
+search term -- which over-counts coverage, since a word in a CHECK message
+can be a substring by accident -- says 67. **So between 67 and 85, and the
+instrument cannot narrow it further.** A third of the lines, either way.
+
+Reading the residue rather than counting it turned up one family:
+
+	"a capability this line could not format"    capability_print
+	"an issuer this line could not format"       state_print
+	"an anchor this line could not format"       trust_print
+	"this line could not format"                 authz_print, provision_print
+
+**No input produces any of them.** Each is the else of
+`fzn_trust_fingerprint(key, print, sizeof(print)) == FZN_TRUST_OK`, and that
+function fails on exactly three conditions: a null key, a null destination,
+or `cap < FZN_TRUST_FINGERPRINT_LEN`. At all five sites the destination is a
+local `char print[FZN_TRUST_FINGERPRINT_LEN]` and the capacity its own
+`sizeof`, so two are impossible by construction. The key is
+`policy->capability.b`, `trust->root`, `card->root`, `chain->capability.b`
+and `row->issuer` -- **every one the address of an ARRAY member** of a
+struct the function has already refused when null. So the third is
+impossible too.
+
+**They stay, and the reason is a gate.** `status_gate.py` refuses a library
+source that discards a returned status, so the call must be checked; and a
+check must have an else. What would be wrong is calling it and ignoring the
+answer, which is the failure the gate exists for. The branch is also the
+right thing to keep if the key ever stops being an array member, where the
+alternative is a truncated fingerprint -- the one output `trust.c` says it
+must never produce, because a prefix is indistinguishable from a whole one
+at a glance.
+
+So the code is right and the silence was not: **five human-facing sentences
+that cannot be reached, in branches a gate requires and that are worth
+keeping.** What that cost was a reader meeting one and taking it as evidence
+the path is exercised.
+
+`cli/sched_print.c` already says out loud that its MALFORMED case cannot
+arrive, and these five said nothing -- one site with the idiom and five
+without, which is this session's recurring shape and not a new one. All five
+say it now, naming the three conditions and why each is impossible there.
+Nine lines added to each file and nothing removed.

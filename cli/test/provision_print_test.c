@@ -159,6 +159,11 @@ int main(void)
 	                          sizeof(line), &len, &s) == FZN_PROVISION_OK,
 	      "a genuine card would not render");
 	CHECK(s == FZN_PROVISION_LINE_USABLE, "a genuine, in-date card was not usable");
+	/* AND THE WORDING. This suite reads the root fingerprint and the state
+	 * and never a verdict, so sec 264's move of this rendering out of a
+	 * `default:` was unverified by anything here. sec 266. */
+	CHECK(strstr(line, "verified, and in date") != NULL,
+	      "a usable card does not say so in the words a person reads");
 	CHECK(strstr(line, root_print) != NULL,
 	      "a verified card does not carry the library's fingerprint of its root");
 
