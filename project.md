@@ -29658,6 +29658,52 @@ structured VALUE that a UI edits, with text as a rendering of it** -- not a
 string re-parsed on every click, which puts every interaction through a
 round-trip that is where the bugs live.
 
+#### Ranges and alternation, kept at the string level
+
+**Raised by the holder 2026-09-10**, who asked for something like
+`year/[1994-1997,1999]` and added the constraint that matters: it should work
+**"on a string level rather than requiring the field to be integers or force
+it to be converted into integers."**
+
+**Lexicographic comparison on the stored value satisfies that, and is correct
+whenever values are FIXED WIDTH.** Years always are, so `year/[1994-1997]`
+needs no typing at all -- only an ordered index.
+
+**It fails silently when they are not**, which is the part to design against.
+`"9" > "10"` byte-wise, and worse `"1080p" < "720p"` -- so a resolution facet
+would quietly drop everything HD from a range and never say so.
+
+**The fix stays entirely at the string level: derive a COLLATION KEY at index
+time by zero-padding digit runs, and keep the original string as the value.**
+
+    value      collation key
+    1994    -> 1994
+    9       -> 0009
+    10      -> 0010
+    720p    -> 0720p
+    1080p   -> 1080p
+
+That is natural-order collation. Nothing declares a type, nothing converts to
+an integer, and byte-wise comparison of the key then gives the order a person
+expects for years, track numbers, seasons and resolutions alike. Where natural
+order is WRONG -- a version string, a hash -- a per-facet flag can ask for
+bytewise instead, which is an ordering choice rather than a type system.
+
+**And the alternation does not reopen the union question.** `[1994-1997,1999]`
+lives inside ONE term: it yields a single set and the algebra sees one atomic
+term producer. Expression-level union is what fails to commute with
+difference; bracketed alternation inside a term does not, so a large class of
+union needs is met without touching order-independence and the open union
+question above stays open rather than being forced.
+
+A range term needs an ORDERED index, which is a new index kind -- admissible
+under the rule that every term must be answerable from an index, and worth
+naming as the prerequisite it is.
+
+**One edge:** the `unknown` bucket sorts lexicographically among real values,
+so it can land inside a range without anybody intending it. It wants either
+exclusion from range terms or a collation key that sorts it last.
+
 #### Three things worth reserving now
 
 - **An unknown term kind must REFUSE, never approximate.** Once expressions are
@@ -29702,10 +29748,20 @@ undo by accident:
   form where it can be bracketed, or the path form is defined as strictly
   left-to-right and stops being order-independent. **Unsettled, and it is the
   next thing this grammar has to decide.**
-- **A user interface cannot offer deselection at a root.** Browsing starts at
-  a root that contains the whole universe, so unticking there IS subtracting
-  from the world by another route. Deselect becomes available only once
-  something has been selected -- you cannot untick before you tick.
+- **A user interface cannot offer deselection as the FIRST act.** Browsing
+  starts at a root that contains the whole universe, so unticking there with
+  nothing selected IS subtracting from the world by another route. You cannot
+  untick before you tick.
+
+  **This restricts the left operand only, and says nothing about the right.**
+  Subtracting a term from a DIFFERENT root is unaffected and always was:
+  `genre/action - host/nas01` is exactly the intended shape. Raised by the
+  holder 2026-09-10 because the sentence above, as first written, could be
+  read as banning that; it never did.
+
+  Subtracting a whole root -- `- host/` -- is well defined and degenerate:
+  every root is total, so "minus everything holding any value here" empties
+  the set. Worth knowing rather than using.
 
 **And the cost, stated so it is not met as a surprise:** "everything except
 what is on nas01" is no longer directly expressible. It has to begin with a
