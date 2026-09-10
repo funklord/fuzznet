@@ -36870,3 +36870,58 @@ around a fragment of the original string -- and rewritten to be exactly the
 substitution that was run by hand, then applied through the table to confirm
 it compiles and fails. **A sabotage entry that has never been applied is a
 claim about a file, not a test of it**, and the difference is one command.
+
+## 254. The question a per-slot line cannot answer
+
+`cli/persist_print` says what happened to ONE slot, because that is what a
+caller asks one call at a time. A person starting a program wants the other
+question -- **did my identity come back** -- and that is a fact about the set:
+four slots read and the anchor missing is a different morning from four slots
+read and one peer's chain missing.
+
+`gui/persist_view` shows the printer's line per slot and adds the aggregate,
+with the worst row deciding the summary as `gui/manifest_view` and
+`gui/ledger_view` do. A person scanning five lines reads the first sentence
+and stops, so one loss among four recoveries has to be what that sentence is
+about.
+
+	trust anchor    ATTENTION -- this host's trust anchor is gone, and
+	                this host has stored it before ...
+	own prekey      read back: this host's own prekey secret
+	...
+
+	persist_view    needs 35 columns to say "did not come back"
+
+### A first run is not a partial recovery
+
+Nothing stored anywhere is the most common startup there is. A screen
+counting those slots as state that did not come back would alarm every new
+install about a loss that never happened -- so FRESH and INCOMPLETE are
+separate states rather than degrees of one, and the sabotage that merges them
+fails on the assertion written for it.
+
+### The rows stay in slot order
+
+Not sorted by badness. Two readings of one host line up, and a person learns
+where to look; sorting would move the rows under them the moment something
+went wrong. Asserted directly -- the first row is the first slot and the last
+is the last -- because it is the kind of thing a later edit improves away.
+
+### Two gates caught it before any test did
+
+Adding `gui/persist_view.cpp` failed `make style` twice in a row, each time
+for a different omission, and neither is something the suite could see:
+
+	sabotage: gui/persist_view.cpp has no entry and is not listed as
+	guard-free
+
+	style: widgets qtty_render_test does not use: persist_view
+	persist_view(unused)
+
+**The second is sec 249's gate catching a widget added four sections after it
+was written.** That is the case it exists for -- a widget joining the build,
+the suite and the style gate without joining the one check that puts it in
+front of a terminal -- and it fired on its author within the hour. The
+population being derived rather than listed is what made that automatic: both
+gates learned about the file from the build, not from somebody remembering to
+add it.

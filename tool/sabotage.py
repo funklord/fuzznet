@@ -1357,6 +1357,20 @@ SABOTAGES = [
 		"persist.h says a peer cannot reach these bytes so this is a corrupt or foreign file rather than an attack, and a person told their identity is corrupt assumes the worst thing it could mean unless the line rules it out -- and the file is left alone, which they need to know they still have -- sec 253",
 	),
 	(
+		"persist-view-does-not-alarm-a-first-run",
+		"gui/persist_view.cpp",
+		"\t\telse if (said == FZN_PERSIST_LINE_FRESH)\n\t\t\tfresh++;\n",
+		"\t\telse if (said == FZN_PERSIST_LINE_FRESH)\n\t\t\tmissing_++;\n",
+		"nothing stored anywhere is the most common startup there is, and counting it as state that did not come back would alarm every new install about a loss that never happened -- the first run and the partial recovery are not degrees of one thing -- sec 254",
+	),
+	(
+		"persist-view-summary-follows-the-worst-row",
+		"gui/persist_view.cpp",
+		"\tif (missing_ > 0u) {\n\t\tstate_ = INCOMPLETE;\n",
+		"\tif (0) {\n\t\tstate_ = INCOMPLETE;\n",
+		"a person scanning five lines reads the first sentence and stops, so one loss among four recoveries has to be what that sentence is about -- a summary counting the recoveries is true and is the half nobody needed -- sec 254",
+	),
+	(
 		"log-body-escapes-what-a-terminal-obeys",
 		"log/log.c",
 		"\t\tif (body[i] >= 0x20u && body[i] <= 0x7eu) {\n",

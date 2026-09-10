@@ -81,6 +81,7 @@
 /gui/test/manifest_view_test
 /gui/test/ledger_view_test
 /gui/test/sched_view_test
+/gui/test/persist_view_test
 /claim/test/claim_file_test
 /blob/test/blob_test
 /blob/test/blob_fuzz

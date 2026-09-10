@@ -45,6 +45,7 @@
 #include "../manifest_view.h"
 #include "../ledger_view.h"
 #include "../sched_view.h"
+#include "../persist_view.h"
 
 extern "C" {
 #include "../../log/log.h"
@@ -313,6 +314,8 @@ static void test_every_widget_survives_a_terminal(void)
 	fzn_manifest_view_row manifest_rows[1];
 	fzn_ledger_view ledger_v;
 	fzn_sched_view sched_v;
+	fzn_persist_view persist_v;
+	fzn_persist_view_row persist_rows[5];
 	fzn_sched_candidate_t sched_links[3];
 	fzn_ledger_view_row ledger_rows[1];
 	static fzn_ledger_entry_t ledger_entries[1];
@@ -428,6 +431,24 @@ static void test_every_widget_survives_a_terminal(void)
 		sched_links[1].loss_permille = 900u;
 		sched_links[2].mtu = 500u;
 		sched_v.show_choice(sched_links, 3u, &voice, FZN_SCHED_ERR_NONE, 0u);
+	}
+
+	/* FOUR SLOTS BACK AND THE ANCHOR GONE, which is the state a person most
+	 * needs to read off this one. sec 254. */
+	{
+		static const fzn_persist_slot_t slots[5] = { FZN_PERSIST_TRUST,
+			                                     FZN_PERSIST_OWN_PREKEY,
+			                                     FZN_PERSIST_PEER,
+			                                     FZN_PERSIST_SEND_CHAIN,
+			                                     FZN_PERSIST_RECV_CHAIN };
+
+		for (i = 0; i < 5u; i++) {
+			persist_rows[i].slot = slots[i];
+			persist_rows[i].err = FZN_PERSIST_OK;
+			persist_rows[i].had_stored = 1;
+		}
+		persist_rows[0].err = FZN_PERSIST_ERR_ABSENT;
+		persist_v.show_slots(persist_rows, 5u);
 	}
 
 	/* THE FOUR sec 187 LEFT UNDRAWN, and each was a fixture cost rather
@@ -562,6 +583,11 @@ static void test_every_widget_survives_a_terminal(void)
 			 * line is 79 characters and the label wraps, so a
 			 * phrase near its end could be folded. */
 			{ "sched_view", &sched_v, "no single change" },
+			/* THE LOSS AMONG THE RECOVERIES. sec 254: a person
+			 * scanning five rows reads the first sentence and
+			 * stops, so the summary has to be about the one slot
+			 * that is gone. */
+			{ "persist_view", &persist_v, "did not come back" },
 		};
 
 		for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
