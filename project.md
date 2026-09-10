@@ -38112,3 +38112,63 @@ What is left advisory is the second step, and only in the sense that
 `-Werror` is out: the warning is emitted for all 24 and somebody has to
 read it. That is a decision this tree took for its own reasons and this
 entry does not reopen it.
+
+## 265. A rule you keep by not writing something
+
+Sec 264 asked why one rule went unswept for eight files. The answer is not
+carelessness and it generalises, so it is worth stating apart from the
+instance.
+
+**Two rules of the same family, from the same pattern, measured the same
+afternoon:**
+
+	conservative state before any refusal   22 of 22 sites  held
+	no `default:` in a state switch          16 of 24 sites  8 unswept
+
+The first is kept by WRITING something -- `if (state_out) *state_out =
+FZN_SYNC_UNMEASURED;` near the top of every printer, above every early
+return. The second is kept by NOT writing something.
+
+**A rule you keep by writing something is visible at every site that keeps
+it, and its absence is visible at every site that does not.** So it can be
+asserted where it lives: each printer's own test refuses a reassuring state
+after a refused render. Demonstrated rather than assumed -- delete
+`sync_print`'s early assignment and `sync_print_test.c:161` says *a refused
+render left a reassuring state behind*.
+
+**A rule you keep by not writing something is invisible at the sites that
+break it.** Eight printers had a `default:` and there was nothing to read:
+an absence at eight sites looks exactly like an absence at none, and no
+test can assert the absence of a line. Only a sweep over the population can
+see it, and sec 8's verification -- *adding a code to `fzn_split_err_t`
+produces the warning* -- confirms the mechanism at ONE site, which is
+exactly what a not-writing rule cannot generalise from.
+
+So: **an entry stating a not-writing rule should name the sweep, not the
+site.** Sec 264's does now, and that is the only kind of entry where the
+distinction matters.
+
+### The lens run over this document, and it closes
+
+If not-writing rules are the ones that go unswept, the question is which
+others this document states. Every tree-wide prohibition in it, checked:
+
+	a host never writes bytes it has not verified   fuzzypickles' tree, and
+	                                               their contract, not ours
+	a record here never carries a chain            self-enforcing: there is
+	                                               no field, and the layout
+	                                               tests hold the length
+	verify before storing, three instances         held by sabotage --
+	                                               chain-store-verify-first,
+	                                               disclose-verify-before-
+	                                               handing-back, and the
+	                                               commit-before-verifying
+	                                               entry
+	no `default:` in a state switch                the one that was unswept,
+	                                               and sec 264 swept it
+
+**One instance, and it had already been found**, so the class is closed
+rather than open. Recorded because an empty sweep with no method recorded
+licenses nothing: what was looked for was a prohibition asserted of the
+whole tree, and what the others turn out to be is another tree's contract,
+a property of a wire format, and three entries in the sabotage table.
