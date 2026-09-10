@@ -29809,6 +29809,58 @@ what is on nas01" is no longer directly expressible. It has to begin with a
 selection, whatever that selection is. That is the trade the ruling makes, and
 what it buys is that an expression means the same thing on every host.
 
+#### Stable facet identifiers, settled 2026-09-10
+
+**The intuition: a path is a ROUTE and the id is the IDENTITY**, exactly as a
+filesystem path is to an inode. Move a file and whatever holds the inode still
+works while whatever holds the old path does not. A facet node is the same
+shape: in `genre/house/deep` the position under `house` is a RELATIONSHIP, not
+part of what the node is.
+
+**So a term holds an id, and a path is resolved to one once, at
+construction.** After that a rename changes a label and a re-parent changes a
+parent, and neither changes identity -- so saved expressions survive both, and
+after a re-parent they still select the same files. That closes the
+re-parenting hazard recorded above, which was the sharper half of the problem.
+
+**Not every dimension needs one, and the split is the one already drawn
+between observation and curation.**
+
+    host/..., generated views   none needed -- recomputed from what is on
+                                disk, so the fact IS the identity
+    year/1994                   none needed -- a fixed domain, never renamed
+    genre/house/deep            NEEDS an id -- a curated taxonomy, and
+                                reorganisable
+    artist/...                  use the AUTHORITY's -- an MBID, a TMDB id, a
+                                No-Intro entry, stable by construction
+
+A generated dimension is an observation whose nodes are derived afresh every
+time, so there is nothing in it to keep stable. Only curated taxonomies need
+allocation.
+
+**Allocation reuses the issuer namespace rather than inventing an allocator.**
+A node created by an issuer takes an id in THAT issuer's namespace, exactly as
+records are already per `(issuer, stream)` -- no coordination, no collisions,
+and no new mechanism. Where an external authority supplies an identifier, use
+theirs: it is stable by construction and arrives with that authority's own
+redirect table.
+
+**The honest limit: identifiers fix rename and re-parent, and do NOT fix
+merge.** When two nodes turn out to be one thing and the loser is retired,
+identity genuinely changes, and only a forwarding record can carry an
+expression across it -- which is why MusicBrainz publishes redirects. So the
+table is still needed, for a far smaller set of events than before.
+
+**A SPLIT is worse and is not automatable.** One node turning out to be two
+leaves the old id ambiguous, and nothing can decide which successor a saved
+expression meant. It has to surface to a person rather than be guessed, and an
+implementation that silently picks one is choosing wrongly half the time.
+
+**One consequence for sharing.** Text resolves against the READER's taxonomy,
+so sharing a saved selection shares the structured form and not the text --
+otherwise one string names different nodes on two hosts. That follows from the
+canonical-form decision rather than adding anything to it.
+
 #### The six ordering rules, settled 2026-09-10
 
 1. **`P` and `N` are each sorted by encoded bytes, independently**, with
