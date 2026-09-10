@@ -1385,6 +1385,20 @@ SABOTAGES = [
 		"a ceiling somebody wrote down and a subsystem with no entry at all are different edits, and sending an operator to find a policy row that does not exist is worse than not naming one -- sec 256",
 	),
 	(
+		"store-print-separates-empty-from-broken",
+		"cli/store_print.c",
+		"\tcase FZN_RECORD_STORE_ERR_BACKEND:\n\t\tsaid = FZN_RECORD_STORE_LINE_UNREADABLE;\n",
+		"\tcase FZN_RECORD_STORE_ERR_BACKEND:\n\t\tsaid = FZN_RECORD_STORE_LINE_NOT_HELD;\n",
+		"store.h states the harm outright: a caller that treated a broken store as an empty one would refetch the world, and not-held is most of what a busy reader asks for so the collapse hides inside ordinary traffic -- sec 258",
+	),
+	(
+		"store-print-tells-a-wrong-find-from-a-bad-one",
+		"cli/store_print.c",
+		"\tcase FZN_RECORD_STORE_ERR_MISPLACED:\n\t\tsaid = FZN_RECORD_STORE_LINE_MISPLACED;\n",
+		"\tcase FZN_RECORD_STORE_ERR_MISPLACED:\n\t\tsaid = FZN_RECORD_STORE_LINE_DAMAGED;\n",
+		"a store that answers with the WRONG record has not failed to find something, it has found the wrong thing and said nothing -- described as corruption it sends somebody to inspect a file when the fault is the index -- sec 258",
+	),
+	(
 		"log-body-escapes-what-a-terminal-obeys",
 		"log/log.c",
 		"\t\tif (body[i] >= 0x20u && body[i] <= 0x7eu) {\n",

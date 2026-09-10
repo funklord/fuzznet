@@ -82,6 +82,7 @@
 #include <fuzznet/cli/prekey_print.h>
 #include <fuzznet/cli/persist_print.h>
 #include <fuzznet/cli/relay_print.h>
+#include <fuzznet/cli/store_print.h>
 #endif
 #include <fuzznet/blob/blob.h>
 #include <fuzznet/ratchet/ratchet.h>
@@ -178,6 +179,7 @@
 #include "cli/prekey_print.h"
 #include "cli/persist_print.h"
 #include "cli/relay_print.h"
+#include "cli/store_print.h"
 #endif
 #include "blob/blob.h"
 #include "ratchet/ratchet.h"

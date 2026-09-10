@@ -37240,3 +37240,46 @@ no `head` at all on a search that decides whether to write a file. Reading
 the header's own last sentence would also have done it: it says the accessor
 was found by writing `cli/peer_print`, which is a fair hint about who calls
 it.
+
+## 258. Not held, and the store that stopped answering
+
+`record/store.h` keeps five codes apart and names what collapsing two of them
+costs, in a sentence that is an operational harm rather than a tidiness
+argument:
+
+> Kept apart from ABSENT because "not held" is normal and "the store is
+> broken" is not, and a caller that treated a broken store as an empty one
+> would REFETCH THE WORLD.
+
+And of the first: *what a reader gets for everything the owner has not
+fetched yet, which on a busy host is most of what it asks for.* **The
+collapse hides inside ordinary traffic** -- a host whose store has stopped
+answering looks exactly like a host that simply does not have much yet, and
+what it does about it is ask the network for everything it already has.
+
+`cli/store_print` is the surface. Nothing rendered these: the search for one
+was run over `cli/` and `gui/` with no `head` on it, after sec 257.
+
+### The one nobody expects
+
+`FZN_RECORD_STORE_ERR_MISPLACED` is *what came back IS a record and is not
+the one that was asked for*. That is not a failure to find; it is a **wrong
+find**, and `record/store.h` checks it before any signature for that reason.
+
+Folded into "damaged" it would describe a filing problem as a corruption one
+and send somebody to inspect a file when the fault is the index. It is the
+only line here that opens with ATTENTION, and the assertion for it is that
+the two sentences differ.
+
+### Where the lens ends
+
+sec 257 said this family was exhausted and it was not: `record/store` and
+`tree` had no surface, and I had read their grep lines without checking. That
+correction is this section.
+
+`tree/tree.h`'s hit is *"A consumer shows both at top level, so the
+distinction would be"* -- an argument about how a consumer displays a tree
+rather than a code that needs explaining, and `tree/` returns no error enum
+at all. So it does not want one, and the family is now genuinely closed: every
+module whose header names a human reader either has a surface or has been
+read and found not to need one.
