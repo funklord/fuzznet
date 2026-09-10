@@ -3689,6 +3689,19 @@ SABOTAGES = [
 		"every 16- and 32-byte caller; record_test's 64-byte signature is the "
 		"only thing in the suite that can see it",
 	),
+	# BATCH TWENTY-ONE, 2026-09-10: which reason, sec 262. A sweep of the
+	# 435 public functions for ones no test names left four, and this was
+	# the one that was a gap rather than an accessor covered through its
+	# caller.
+	(
+		"sched-a-missing-operand-blames-the-link",
+		"sched/sched.c",
+		"\t\treturn FZN_SCHED_EXCLUDED_MALFORMED;\n",
+		"\t\treturn FZN_SCHED_EXCLUDED_UNUSABLE;\n",
+		"both answers are non-ADMITTED, so fzn_sched_admits cannot tell them "
+		"apart and neither can any printer state; it SURVIVED the whole suite "
+		"until sched_test asked which reason",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

@@ -201,6 +201,18 @@ int main(void)
 	           "nowhere to answer");
 	expect(!fzn_sched_admits(NULL, &VOICE), "a null link admits nothing");
 	expect(!fzn_sched_admits(&LINKS[0], NULL), "a null class admits nothing");
+
+	/* AND WHICH REASON, which is the whole of what `fzn_sched_excluded_by`
+	 * says over `fzn_sched_admits`. The two lines above pin the boolean,
+	 * and a boolean collapses all five reasons into one answer -- so with
+	 * only those, MALFORMED could be returned as UNUSABLE and the entire
+	 * suite stays green. Measured: it does. A missing operand is not a
+	 * link the consumer called down, and a report that says so blames the
+	 * wrong party for a bug in its own caller. */
+	expect(fzn_sched_excluded_by(NULL, &VOICE) == FZN_SCHED_EXCLUDED_MALFORMED,
+	       "a null link was excluded for some reason other than being absent");
+	expect(fzn_sched_excluded_by(&LINKS[0], NULL) == FZN_SCHED_EXCLUDED_MALFORMED,
+	       "a null class was excluded for some reason other than being absent");
 	expect(fzn_sched_cost(NULL, &VOICE) == UINT64_MAX, "a null link costs the most");
 	expect(fzn_sched_cost(&LINKS[0], NULL) == UINT64_MAX, "as does a null class");
 
