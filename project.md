@@ -29671,15 +29671,46 @@ round-trip that is where the bugs live.
 - **Facet names and values want stable identifiers.** An upstream rename
   otherwise breaks every saved expression naming them, which is the same
   redirect problem a catalogue already has and wants the same redirect table.
-- **Difference is not portable, and it is the subtle one.** `- host/nas01`
-  means "everything except", and EVERYTHING is host-dependent: a host holding
-  part of a catalogue computes a different answer from one holding all of it.
-  A saved expression containing a difference can therefore mean different
-  things in different places, and it presents as "the playlist is different on
-  my laptop" only once an estate has two hosts with unequal replicas. Either
-  the universe is pinned -- the catalogue at a stated index version -- or
-  difference subtracts only from an already-selected set rather than from the
-  world.
+- **~~Difference is not portable.~~ SETTLED by fuzzypickles' holder
+  2026-09-10: difference subtracts from an ALREADY-SELECTED SET, never from
+  the world.**
+
+  The problem it closes: `- host/nas01` read as "everything except" makes
+  EVERYTHING host-dependent, so a host holding part of a catalogue computes a
+  different answer from one holding all of it, and a saved expression means
+  different things in different places. It surfaces only once an estate has
+  two hosts with unequal replicas, as "the playlist is different on my
+  laptop". Subtracting from a set the expression itself selected removes the
+  dependency entirely -- the meaning is now closed over the expression rather
+  than over the replica.
+
+#### What that ruling decides about the grammar
+
+Four things follow, and they are worth writing down because each is easy to
+undo by accident:
+
+- **There is no bare negation.** Difference is binary with a required left
+  operand, so `- host/nas01` is not an expression on its own. **An expression
+  must begin with a selection.**
+- **Intersection and difference commute, so the path form stays
+  order-independent**: `(A and B) minus C` equals `(A minus C) and B`. That is
+  what keeps a path a lattice rather than a hierarchy, and the ruling does not
+  cost it.
+- **UNION does not commute with difference** -- `(A or B) minus C` is not
+  `A or (B minus C)` -- so the moment union enters the language the path form
+  becomes ambiguous. Either union is available only in the explicit expression
+  form where it can be bracketed, or the path form is defined as strictly
+  left-to-right and stops being order-independent. **Unsettled, and it is the
+  next thing this grammar has to decide.**
+- **A user interface cannot offer deselection at a root.** Browsing starts at
+  a root that contains the whole universe, so unticking there IS subtracting
+  from the world by another route. Deselect becomes available only once
+  something has been selected -- you cannot untick before you tick.
+
+**And the cost, stated so it is not met as a surprise:** "everything except
+what is on nas01" is no longer directly expressible. It has to begin with a
+selection, whatever that selection is. That is the trade the ruling makes, and
+what it buys is that an expression means the same thing on every host.
 
 #### Where it would live, by this library's own rule
 
