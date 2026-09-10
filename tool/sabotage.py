@@ -3671,6 +3671,24 @@ SABOTAGES = [
 		"fzn_provision_text will base32 any bytes of the right length, so rubbish "
 		"would be drawn as a scannable code",
 	),
+	# BATCH TWENTY, 2026-09-10: constant_time's reach, sec 261. Added after
+	# an audit that set out to write a fuzz harness for `fzn_ct_memeq` and
+	# concluded it was not warranted -- the suite already answers. What the
+	# audit found is that the answer rests on ONE test: 30.5 million calls
+	# at ten lengths, and only record_test's tamper cases compare 64 bytes.
+	# The two entries above hold the null operand and the accumulator's
+	# SHAPE; nothing held its reach, which is the half a length-dependent
+	# shortcut would break.
+	(
+		"ct-memeq-reaches-past-a-key",
+		"constant_time/constant_time.c",
+		"\tfor (size_t i = 0; i < len; i++)\n\t\tdiff |= (uint8_t)(pa[i] ^ pb[i]);\n",
+		"\tif (len > 32u)\n\t\treturn 1;\n\n"
+		"\tfor (size_t i = 0; i < len; i++)\n\t\tdiff |= (uint8_t)(pa[i] ^ pb[i]);\n",
+		"a comparison that answers equal above the key length is invisible to "
+		"every 16- and 32-byte caller; record_test's 64-byte signature is the "
+		"only thing in the suite that can see it",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

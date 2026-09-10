@@ -37518,3 +37518,92 @@ the walk failed at `[take=got release=ok]` -- a real failure about the wrong
 thing. The entry uses the precise edit instead, moving the clear onto the
 success path, which is what somebody would actually write. **A sabotage that
 breaks more than the property tests the suite, not the guard.**
+
+## 261. The harness that was not warranted
+
+This began as a claim of mine to check. A report here said `constant_time`
+was "covered by `ctcheck`'s shape gate", and that is two mistakes in five
+words: `ctcheck` is the valgrind witness for secret FLOW, `codegencheck` is
+the shape tripwire, and neither is about the ANSWER. So `constant_time/`
+looked like the last module with no harness, and the next move looked
+obvious -- `ct_fuzz.c`, asserting `fzn_ct_memeq(a, b, len) ==
+(memcmp(a, b, len) == 0)` against an independent oracle.
+
+It was written, it built clean, it passed. **It is not in the tree**, and
+what follows is why, because the argument for writing it was one I had not
+checked.
+
+### The argument was that 136 call sites would pass vacuously
+
+`fzn_ct_memeq` is how a test in this suite says "these keys are the same",
+and the reasoning was that a version always answering 1 would leave most of
+those assertions green -- the vacuous pass, at scale. That is false, and
+it is false for a reason worth keeping: **a large share of those call sites
+assert INEQUALITY.** `record_test` tampers with a field and requires the
+signature to stop verifying; `manifest_test` requires an issuer and a
+grantee to differ. Those are not passive consumers of a comparison, they
+are discriminators, and an always-equal `fzn_ct_memeq` fails nine of them
+before it fails anything else.
+
+### What the suite actually reaches, measured rather than assumed
+
+A counting shim in `fzn_ct_memeq` -- behaviour unchanged, one counter per
+length, dumped at exit -- run over `make runtests`:
+
+	length     0     3     4     6      7     8    11      16        32   64
+	calls      3     5     5  5043  14885  4980     6  798436  29764144   24
+
+**Ten distinct lengths, 30.5 million calls.** The population is not the
+four-byte fixtures that `secret_flow_test.c` names; it runs from zero to
+64, and 32 is the key and 16 the capability id. The command is above and
+the shim is three lines, so a reader who doubts this can retake it.
+
+### Four sabotages, and the suite caught all four
+
+Each was applied by hand, the substitution confirmed by reading the file
+back, and the whole suite run:
+
+	& 0xfe on each difference      chain_test, 5 failures
+	i <= len                       chain_test, 111 failures
+	i < len && i < 4u              chain_test, 7 failures
+	if (len > 32u) return 1;       record_test, 9 failures
+
+The first was the one I expected to survive, on the theory that five hand
+cases over four-byte buffers cannot see a single-bit difference. **One of
+them can**, and it is worth naming which. `chain_test`'s buffers are
+`{1,2,3,4}`, `{1,2,3,5}` and `{9,2,3,4}`: the last-byte case differs by
+`4 ^ 5`, which is bit 0 and is exactly what the mask clears, while the
+first-byte case differs by `1 ^ 9`, which is bit 3 and survives it. So the
+guard was there and I had reasoned about the wrong axis -- the theory was
+about the buffers' LENGTH and the fault is about their VALUES. Nothing in
+the header I had drafted would have told the next reader that.
+
+### The one that was a gap, and is now an entry
+
+The fourth is the interesting row. A comparison answering equal above the
+key length is invisible to every 16- and 32-byte caller in the tree, and
+the only thing that sees it is `record_test`'s 64-byte signature -- 24
+calls out of 30.5 million, and nine tamper cases resting on them.
+
+`sabotage.py` held `fzn_ct_memeq`'s null operand and its accumulator's
+SHAPE, and held nothing about its REACH. It does now, as
+`ct-memeq-reaches-past-a-key`. That is the whole of what this audit
+produced in code, and it is worth more than the harness would have been:
+the harness would have found the same fault in a file nothing else reads,
+where the entry states which test is standing between a length-dependent
+shortcut and nine silent verifications.
+
+### Why the harness was deleted rather than committed
+
+Sec 201: a surface added so that every branch has one is symmetry, not
+merit. Every property `ct_fuzz.c` pinned is pinned somewhere already --
+zero length and the four-byte cases in `chain_test`'s `test_ct_memeq`, both
+null operands and `NULL, NULL, 0` in `secret_flow_test`'s "a comparison
+with no left operand" and its two neighbours, the timing in `ctcheck`,
+the emitted shape in `codegencheck`, and the reach in the new entry. A
+harness whose every assertion is somebody else's assertion is a second
+witness with the same author.
+
+**What would change the answer**: a caller comparing at a length above 64,
+or an implementation that stops being a flat loop. Both are visible in the
+histogram above and in the function's ten lines, and neither is true today.
