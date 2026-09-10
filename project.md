@@ -29658,6 +29658,29 @@ structured VALUE that a UI edits, with text as a rendering of it** -- not a
 string re-parsed on every click, which puts every interaction through a
 round-trip that is where the bugs live.
 
+#### The normal form, which is what order-independence buys
+
+With only intersection and difference at expression level, any sequence of
+operations reorders freely: `(A and B) minus C` equals `(A minus C) and B`, and
+`(A minus B) minus C` equals `(A minus C) minus B`, both being
+`A minus (B or C)`. So every expression canonicalises to
+
+    (intersection of all POSITIVE terms) minus (union of all NEGATIVE terms)
+
+and **an expression IS a pair of term sets `(P, N)`**, with `P` non-empty. Two
+expressions with the same pair are the same expression however they were
+written.
+
+That is worth more than tidiness. It gives free deduplication, a cache key, and
+a stable identity for a saved selection -- sort the terms and hash them -- which
+is what lets a playlist be compared, synced and recognised as already-held
+without evaluating it.
+
+**And it bounds what alternation may do: it binds to a FACET, never to
+arbitrary terms.** `genre/[action,thriller]` is one term over one facet;
+`[genre/action, year/1994]` is cross-facet union smuggled inside a bracket, and
+admitting it reintroduces precisely the commutativity failure this settles.
+
 #### Ranges and alternation, kept at the string level
 
 **Raised by the holder 2026-09-10**, who asked for something like
@@ -29736,18 +29759,36 @@ Four things follow, and they are worth writing down because each is easy to
 undo by accident:
 
 - **There is no bare negation.** Difference is binary with a required left
-  operand, so `- host/nas01` is not an expression on its own. **An expression
-  must begin with a selection.**
+  operand, so `- host/nas01` is not an expression on its own.
+
+  **Stated without ordering, which the first version of this line failed to
+  do:** an expression must contain **at least one positive term**. "Must BEGIN
+  with a selection" is order-dependent phrasing in a language whose whole point
+  is that order does not matter -- a latent contradiction, corrected once union
+  was settled. The user-interface consequence is unchanged: unticking alone
+  leaves the positive set empty, so you still cannot untick before you tick.
 - **Intersection and difference commute, so the path form stays
   order-independent**: `(A and B) minus C` equals `(A minus C) and B`. That is
   what keeps a path a lattice rather than a hierarchy, and the ruling does not
   cost it.
-- **UNION does not commute with difference** -- `(A or B) minus C` is not
-  `A or (B minus C)` -- so the moment union enters the language the path form
-  becomes ambiguous. Either union is available only in the explicit expression
-  form where it can be bracketed, or the path form is defined as strictly
-  left-to-right and stops being order-independent. **Unsettled, and it is the
-  next thing this grammar has to decide.**
+- **~~Union does not commute with difference, and it is unsettled.~~ SETTLED
+  by fuzzypickles' holder 2026-09-10: keep the path form order-independent,
+  which forces union INSIDE TERMS and none at expression level.**
+
+  The three cannot coexist -- `(A or B) minus C` is not `A or (B minus C)` --
+  so expression-level union, difference and order-independence is a choice of
+  two. Order-independence is what makes a path a lattice and a facet browser
+  navigable, so it is the one kept.
+
+  **It is also the right answer independently of the constraint**, because it
+  is what every faceted browser already does: ticking two values in ONE facet
+  is OR, ticking across facets is AND. `genre/[action,thriller] + year/1994`
+  reads exactly as a person expects, and the alternation is the same bracket
+  syntax the range terms already needed.
+
+  **The cost, stated:** "action films OR anything from 1994" is not
+  expressible. In faceted browsing it is essentially never wanted, and where
+  it is, it is two queries.
 - **A user interface cannot offer deselection as the FIRST act.** Browsing
   starts at a root that contains the whole universe, so unticking there with
   nothing selected IS subtracting from the world by another route. You cannot
@@ -36762,3 +36803,70 @@ the two lines differ, which is the confusion the state exists to prevent.
 	the missing verifier blames the peer  the line accuses the peer of
 	                                      something this host did
 	a re-delivery reads as a rotation     reported as a change
+
+## 253. One code, and the day somebody's identity disappeared
+
+`persist.h` names the distinction and hands it to a caller:
+
+> Nothing stored under that slot. An ordinary state on first run, and its own
+> code so a caller can tell it from a backend failure -- which is the
+> distinction that decides whether to mint a fresh prekey or to stop and
+> shout.
+
+There is a second distinction inside that one, and no code carries it at all.
+**`FZN_PERSIST_ERR_ABSENT` on a first run is routine; on a host that has
+stored before it is data loss** -- and the store answers identically either
+way. Nothing but the caller's own context tells them apart, and nothing else
+in the system will report it.
+
+`cli/persist_print` takes that context as `had_stored` and says so plainly in
+its header: **a caller passing it wrong turns data loss into a routine line.**
+It is the one argument here the library cannot check, and it decides whether a
+person is told anything at all.
+
+### And a corrupt file is not an attack
+
+`persist.h` rules it out in as many words -- *a peer cannot reach these bytes,
+so this is a corrupt or foreign file rather than an attack* -- and a person
+told their identity is corrupt will assume the worst thing it could mean
+unless the line says otherwise. The line also carries that the file is **left
+alone rather than repaired**, because it is still there and somebody may want
+it.
+
+That is the same shape as sec 252's SHAPE arm, one layer down: the reading a
+person will take is worse than the truth, and the surface is where the truth
+gets said.
+
+### Every slot names itself
+
+Losing a trust anchor and losing one peer's ratchet chain are not the same
+event. The test requires all five slots to produce five different sentences,
+which is the assertion that catches a printer naming the state generically.
+
+The slot words are **not** a public `fzn_persist_slot_str`. The strings here
+are written to sit inside a sentence a person reads, and a consumer wanting
+the name alone wants a different string -- adding a public renderer is a
+decision about that module's surface rather than something a printer takes on
+its way past.
+
+### What `had_stored` must not touch
+
+Asserted directly: a corrupt file reads the same whether or not the host had
+stored before. A parameter read on more paths than its contract names is a
+dependency nobody documented, and here it would mean a corrupt anchor
+described two ways for no reason.
+
+### The two controls
+
+	data loss reads as a first run    a host that has stored before,
+	                                  finding nothing, was told it was a
+	                                  first run
+	the attack is not ruled out       the line lets a person assume the
+	                                  worst thing a corrupt identity
+	                                  could mean
+
+The second entry was first written with a contrived replacement -- an `if (0)`
+around a fragment of the original string -- and rewritten to be exactly the
+substitution that was run by hand, then applied through the table to confirm
+it compiles and fails. **A sabotage entry that has never been applied is a
+claim about a file, not a test of it**, and the difference is one command.
