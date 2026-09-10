@@ -856,7 +856,7 @@ CLI_SRCS := cli/cli.c cli/qr_print.c cli/log_print.c cli/sync_print.c \
             cli/trust_print.c cli/link_print.c cli/peer_print.c \
             cli/manifest_print.c cli/ledger_print.c cli/replay_print.c \
             cli/reasm_print.c cli/sched_print.c cli/claim_print.c \
-            cli/prekey_print.c
+            cli/prekey_print.c cli/persist_print.c
 CLI_HDRS := cli/cli.h cli/qr_print.h cli/log_print.h cli/sync_print.h \
             cli/journal_print.h cli/sweep_print.h \
             cli/transfer_print.h cli/capability_print.h \
@@ -865,7 +865,7 @@ CLI_HDRS := cli/cli.h cli/qr_print.h cli/log_print.h cli/sync_print.h \
             cli/trust_print.h cli/link_print.h cli/peer_print.h \
             cli/manifest_print.h cli/ledger_print.h cli/replay_print.h \
             cli/reasm_print.h cli/sched_print.h cli/claim_print.h \
-            cli/prekey_print.h
+            cli/prekey_print.h cli/persist_print.h
 CLI_TSRC := cli/test/cli_test.c cli/test/qr_print_test.c \
             cli/test/log_print_test.c cli/test/sync_print_test.c \
             cli/test/journal_print_test.c cli/test/sweep_print_test.c \
@@ -878,7 +878,8 @@ CLI_TSRC := cli/test/cli_test.c cli/test/qr_print_test.c \
             cli/test/reasm_print_test.c \
             cli/test/sched_print_test.c \
             cli/test/claim_print_test.c \
-            cli/test/prekey_print_test.c
+            cli/test/prekey_print_test.c \
+            cli/test/persist_print_test.c
 
 ifdef CLI_ON
 CPPFLAGS  += -DFZN_CLI_ON
@@ -906,7 +907,8 @@ TEST_BINS += $(BUILD_DIR)/cli/test/cli_test \
                $(BUILD_DIR)/cli/test/reasm_print_test \
                $(BUILD_DIR)/cli/test/sched_print_test \
                $(BUILD_DIR)/cli/test/claim_print_test \
-               $(BUILD_DIR)/cli/test/prekey_print_test
+               $(BUILD_DIR)/cli/test/prekey_print_test \
+               $(BUILD_DIR)/cli/test/persist_print_test
 endif
 
 RECORD_STORE_FILE_SRCS := record/store_file.c
@@ -2114,6 +2116,12 @@ $(BUILD_DIR)/cli/test/prekey_print_test: \
 	$(BUILD_DIR)/prekey/prekey.o \
 	$(BUILD_DIR)/trust/trust.o \
 	$(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD_DIR)/cli/test/persist_print_test: \
+	$(BUILD_DIR)/cli/test/persist_print_test.o \
+	$(BUILD_DIR)/cli/persist_print.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 

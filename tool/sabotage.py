@@ -1343,6 +1343,20 @@ SABOTAGES = [
 		"a first pin, a rotation and a re-delivery all answer FZN_PREKEY_OK, and prekey.h calls the last of them ordinary and not an event -- a consumer showing a key change every time a record is redelivered teaches a person to ignore the one that is real -- sec 252",
 	),
 	(
+		"persist-print-tells-a-loss-from-a-first-run",
+		"cli/persist_print.c",
+		"\t\t\tsaid = had_stored ? FZN_PERSIST_LINE_LOST : FZN_PERSIST_LINE_FRESH;\n",
+		"\t\t\tsaid = FZN_PERSIST_LINE_FRESH;\n",
+		"the store answers identically whether this is a first run or somebody removed a host's identity, so nothing but the caller's own context tells them apart -- collapsed, the day a person's stored state disappears is reported as an ordinary startup and nobody is told anything -- sec 253",
+	),
+	(
+		"persist-print-rules-out-an-attack",
+		"cli/persist_print.c",
+		"\t\tput_str(s, \" is stored in a shape this version does not read: a corrupt or \"\n\t\t           \"foreign file rather than an attack, left alone rather than \"\n\t\t           \"repaired\\n\");\n",
+		"\t\tput_str(s, \" is stored in a shape this version does not read\\n\");\n",
+		"persist.h says a peer cannot reach these bytes so this is a corrupt or foreign file rather than an attack, and a person told their identity is corrupt assumes the worst thing it could mean unless the line rules it out -- and the file is left alone, which they need to know they still have -- sec 253",
+	),
+	(
 		"log-body-escapes-what-a-terminal-obeys",
 		"log/log.c",
 		"\t\tif (body[i] >= 0x20u && body[i] <= 0x7eu) {\n",
