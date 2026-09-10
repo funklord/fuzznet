@@ -19,7 +19,7 @@ independent count that does not parse at all.
 
 TERMINATION: two passes over a fixed file list. Nothing spawned.
 """
-import os, re, subprocess, collections
+import os, re, subprocess, sys, collections
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -112,6 +112,24 @@ assert in_test.get('fzn_ct_memeq', 0) > 50, "control: a name every test uses wen
 # NAMED BY NO TEST FOR A REASON, in sabotage.py's idiom: an expected result
 # reported as a finding every time is how a report stops being read, and
 # removing a name from here is how you ask the question again.
+# An enumerator named by no test, waived with its reason. Same rule as
+# above: removing a name is how you ask the question again.
+EXPECTED_ENUM = {
+	# Held through cli/sched_print.c, which maps each of these to a
+	# DISTINCT printer line that sched_print_test asserts. MALFORMED was
+	# the one that mapped to nothing a printer could show, and it is the
+	# one that turned out to be a gap -- sec 262.
+	"FZN_SCHED_ADMITTED",
+	"FZN_SCHED_EXCLUDED_UNUSABLE",
+	"FZN_SCHED_EXCLUDED_LATENCY",
+	"FZN_SCHED_EXCLUDED_LOSS",
+	"FZN_SCHED_EXCLUDED_MTU",
+	# A sentinel rather than a state: it names the next unused object tag
+	# so a new one does not silently reuse a retired value. There is
+	# nothing for a test to observe.
+	"FZN_OBJECT_NEXT_FREE",
+}
+
 EXPECTED = {
 	# Accessors with one internal use each, inside verification. A wrong
 	# offset does not hide -- it breaks every signature check in the
@@ -123,6 +141,37 @@ EXPECTED = {
 	# (project.md sec 184), not a missing test.
 	"fzn_state_sound",
 }
+
+# THE SAME QUESTION OVER ENUMERATORS, which is where it first paid: sec 262
+# found FZN_SCHED_EXCLUDED_MALFORMED by hand, and sweeping the enums found
+# two more. A state the code produces and no test ever names is one that
+# could be produced as any other state without the suite moving.
+#
+# The parser is enum_gate.py's, which `make style` already runs, rather than
+# a third one written here.
+sys.path.insert(0, os.path.join(ROOT, "tool"))
+import enum_gate
+
+_cwd = os.getcwd()
+os.chdir(ROOT)
+enumerator_of = {}
+for path in enum_gate.sources():
+	if "/test/" in path:
+		continue
+	for ename, values, why in enum_gate.enums_in(open(path).read()):
+		if why:
+			continue
+		for names in values.values():
+			for n in names:
+				enumerator_of.setdefault(n, (ename, path))
+os.chdir(_cwd)
+
+WORD = re.compile(r'\b[A-Z_][A-Z0-9_]*\b')
+seen_enum = collections.Counter()
+for rel in test_files:
+	for tok in WORD.findall(strip_comments(open(os.path.join(ROOT, rel)).read())):
+		if tok in enumerator_of:
+			seen_enum[tok] += 1
 
 never = sorted(n for n in declared if in_test.get(n, 0) == 0)
 unexpected = [n for n in never if n not in EXPECTED]
@@ -140,5 +189,16 @@ print(f"{len(never)} named by no test, {len(unexpected)} unexpected:")
 for n in never:
 	mark = " " if n in EXPECTED else "*"
 	print(f" {mark}{n:<44} {declared[n]:<28} lib:{in_lib.get(n,0)}")
-if unexpected or stale:
+never_enum = sorted(n for n in enumerator_of if seen_enum[n] == 0)
+odd_enum = [n for n in never_enum if n not in EXPECTED_ENUM]
+stale_enum = sorted(EXPECTED_ENUM - set(never_enum))
+for n in stale_enum:
+	print(f"  waived and no longer needed: {n}")
+print(f"{len(enumerator_of)} enumerators; {len(never_enum)} named by no test, "
+      f"{len(odd_enum)} unexpected:")
+for n in never_enum:
+	mark = " " if n in EXPECTED_ENUM else "*"
+	print(f" {mark}{n:<44} {enumerator_of[n][0]:<28} {enumerator_of[n][1]}")
+
+if unexpected or stale or odd_enum or stale_enum:
 	raise SystemExit(1)

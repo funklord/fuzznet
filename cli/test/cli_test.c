@@ -81,6 +81,13 @@ static void test_every_option_is_read(void)
 	CHECK(cli.product == 100u, "the product is wrong");
 	CHECK(offer(&cli, "--fuzznet-owner=no", &claimed) == FZN_CLI_OK, "the owner was not read");
 	CHECK(cli.owner == FZN_CLI_OWNER_NO, "the owner is wrong");
+	/* THE THIRD VALUE. `auto` and `no` were both read back here and `yes`
+	 * was not, so the one branch that asks to BECOME the owner could have
+	 * assigned any of the three and this suite would not have moved.
+	 * `gui/config_view.cpp` selects a combo-box row from it. */
+	CHECK(offer(&cli, "--fuzznet-owner=yes", &claimed) == FZN_CLI_OK,
+	      "asking to be the owner was not read");
+	CHECK(cli.owner == FZN_CLI_OWNER_YES, "asking to be the owner did not take");
 }
 
 /* The unset values are the ones the owning modules refuse, so a field nobody

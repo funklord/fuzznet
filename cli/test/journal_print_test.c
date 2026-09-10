@@ -15,6 +15,7 @@
 
 #include "../journal_print.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -114,6 +115,32 @@ int main(void)
 	      "a settled stream would not render");
 	CHECK(strstr(line, "not yet applied") == NULL,
 	      "a settled stream still reported records outstanding");
+
+	/* EXHAUSTED, which is not a corruption and not an error.
+	 *
+	 * `record/journal.c` names the route in as many words -- anchor at
+	 * UINT64_MAX, then ask what is next -- and saturating there is
+	 * deliberate, because `received + 1` wraps to zero and zero is the one
+	 * sequence this library reserves. So the printer has a state and a
+	 * line for it and `gui/journal_view.cpp` has a branch on it, and until
+	 * this case existed nothing had ever produced it: the state could have
+	 * been rendered as any other and the suite would not have moved. */
+	CHECK(fzn_journal_anchor(&journal, bob, 5u, UINT64_MAX) == FZN_JOURNAL_OK,
+	      "anchoring at the top of the range was refused");
+	CHECK(fzn_journal_next(&journal, bob, 5u) == UINT64_MAX,
+	      "the library does not saturate here, so this case is testing something "
+	      "other than an exhausted stream");
+	CHECK(fzn_journal_print(&journal, bob, 5u, line, sizeof(line), &len, &s, &t) ==
+	              FZN_JOURNAL_OK,
+	      "an exhausted stream would not render");
+	CHECK(s == FZN_JOURNAL_STREAM_EXHAUSTED,
+	      "a stream with no next sequence was reported as an ordinary position");
+	CHECK(strstr(line, "exhausted") != NULL,
+	      "the line does not say the stream is exhausted, so the widget's branch is "
+	      "the only place a person could learn it");
+	CHECK(strstr(line, "received to ") == NULL,
+	      "an exhausted stream was given a position, which is the one thing it has "
+	      "not got");
 
 	/* BOTH OUT-PARAMETERS ARE REQUIRED. */
 	CHECK(fzn_journal_print(&journal, bob, 5u, line, sizeof(line), &len, NULL, &t) ==

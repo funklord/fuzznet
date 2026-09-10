@@ -3702,6 +3702,28 @@ SABOTAGES = [
 		"apart and neither can any printer state; it SURVIVED the whole suite "
 		"until sched_test asked which reason",
 	),
+	# BATCH TWENTY-TWO, 2026-09-10: states nobody had ever seen, sec 263.
+	# Both came from sweeping the 411 enumerators for ones no test names,
+	# which is sec 262's question asked of states rather than functions.
+	(
+		"journal-print-exhausted-has-no-line",
+		"cli/journal_print.c",
+		"\tcase FZN_JOURNAL_STREAM_EXHAUSTED:\n"
+		"\t\tput_str(s, \"exhausted, no next sequence\");\n"
+		"\t\tbreak;\n",
+		"",
+		"an exhausted stream falls to the default and is drawn as a position it "
+		"has not got; gui/journal_view_test.cpp covers the widget's own enum and "
+		"only where Qt is present, so a GUI-less build saw nothing",
+	),
+	(
+		"cli-asking-to-be-owner-becomes-auto",
+		"cli/cli.c",
+		"\t\t\twant = FZN_CLI_OWNER_YES;\n",
+		"\t\t\twant = FZN_CLI_OWNER_AUTO;\n",
+		"--fuzznet-owner=yes silently becomes the default; cli_test read back "
+		"auto and no and never the third value",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

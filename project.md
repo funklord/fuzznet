@@ -37774,3 +37774,196 @@ will not find when the reason assertion appeared, and `git log --follow
 tool/public_reach.py` reports a catalogue commit as its origin. This
 paragraph is the pointer that replaces it. `CLAUDE.md` describes exactly
 this failure and it cost the record here in the same way.
+
+## 263. Two states nobody had ever seen
+
+Sec 262 found its gap by hand: `FZN_SCHED_EXCLUDED_MALFORMED` could be
+returned as another enumerator and the whole suite stayed green. That is a
+question worth asking of every state rather than the one that prompted it,
+so `tool/public_reach.py` now asks it -- **411 enumerators, and which does
+no test name?**
+
+**An enumerator is a better subject than a function.** If a state stops
+being PRODUCED, something downstream usually notices. If it is produced and
+nothing ever names it, nothing does -- and `evidence.md`'s form of this is
+the 93 diagnostics of 302 that no test emits, where what rots is not the
+refusal but the wording.
+
+Eight came back. Five are `fzn_sched_exclusion_t`'s other reasons and are
+held transitively: `cli/sched_print.c` maps each to a DISTINCT printer line
+that `sched_print_test` asserts, which is exactly why MALFORMED was the one
+that turned out to be a gap -- it is the reason that maps to nothing a
+printer can show. One is `FZN_OBJECT_NEXT_FREE`, a sentinel naming the next
+unused tag so a new object does not reuse a retired value; there is nothing
+to observe. Those six are waived by name with the reason.
+
+### The exhausted stream, seen only where Qt is
+
+`FZN_JOURNAL_STREAM_EXHAUSTED` is produced at `cli/journal_print.c:138`,
+carries a line of its own, and `gui/journal_view.cpp` branches on it.
+`journal_print_test` covered UNTRACKED, FRESH, TRACKING, UNREADABLE and
+TABLE_FULL, and not this one.
+
+It is reachable and `record/journal.c` says how, in as many words: anchor
+at `UINT64_MAX`, then ask what is next. Saturating there is deliberate --
+`received + 1` wraps to zero and zero is the one sequence this library
+reserves, so the wrap handed a caller the single value guaranteed to be
+rejected as the answer to "what should I ask for next".
+
+**It was not entirely uncovered, and the difference is the point.**
+`gui/test/journal_view_test.cpp` reaches the state and asserts the widget
+shows it. Three things separate that from a witness:
+
+	it asserts the WIDGET's enum (fzn_journal_view::EXHAUSTED), never the
+	printer's, so the state the widget consumes is not the state anything
+	checks;
+
+	it reaches the state by writing ROWS[i].received = UINT64_MAX rather
+	than through the two public calls journal.c documents;
+
+	and it does not run without Qt. Measured: `make FZN_GUI=0` puts ZERO
+	of the 19 widget tests in TEST_BINS, against 19 with the GUI on.
+
+The third is the one that decides it. fuzznet's core builds without Qt, and
+a state whose only witness needs an optional toolkit is `evidence.md`'s
+check-that-runs-only-in-CI wearing a local costume. `journal_print_test`
+now produces it through `fzn_journal_anchor`, asserts the printer's state
+AND its line, and refuses a line carrying a position an exhausted stream
+has not got.
+
+### The third value of a three-valued option
+
+`--fuzznet-owner` takes `auto`, `yes` and `no`. `cli_test` read back auto
+and no. **The branch that asks this process to BECOME the owner could have
+assigned any of the three** and nothing would have moved -- and
+`gui/config_view.cpp` selects a combo-box row from the field.
+
+Both are held now, and both were watched failing first:
+
+	journal-print-exhausted-has-no-line
+	cli-asking-to-be-owner-becomes-auto
+
+### What the sweep is, after two questions
+
+One tool, one waiver list, two populations: 439 public functions and 411
+enumerators, both derived from the build. It refuses on an unwaived name
+and on a **waived name that has since acquired a test**, because a list
+that can only grow is one nobody prunes -- and both halves of that were
+made to fail before this was written. It stays out of `check`; nine waivers
+is a waiver list, and a gate carrying one is switched off by instalments.
+
+### fuzzypickles ran it, and named a limit this tree has not hit
+
+Signalled to them the same day, and their reply corrects the claim above
+rather than confirming it. Their measurements, in their voice:
+
+> 285 enumerators declared in our headers, 190 named by a non-GUI test, 95
+> named by no test at all. UNTRIAGED, and I am not reporting it as 95 gaps
+> ... 51 of the 95 are wire subcommands, and this tree fuzzes wire-reachable
+> commands from a GENERATED table -- check-wire-fuzz reports 18 commands all
+> fuzzed. A subcommand exercised through a generated decoder table is covered
+> without any test NAMING it, so "does a test name it" is an upper bound here
+> and not a finding.
+
+**That is a blind spot in the instrument, not in their tree**, and it is one
+this sweep cannot see from inside: a generated table covers by construction,
+so the names it covers look exactly like names nobody covered. It has not
+bitten here -- the residue is six and every one is triaged -- but this tree
+has `wire/generated/` and a `generated_test.c`, so the day a table drives an
+enum, the tool will report it as a gap. **The output is an upper bound
+wherever coverage is generated rather than named**, and a waiver added then
+should say which table covers it.
+
+Their other measurement is the GUI finding pointed back:
+
+> Zero enumerators are witnessed only by a GUI test, so that hole is not open
+> -- but ... `gui` is not in SUBDIRS at all here ... the GUI suite is a
+> separate `e2e-gui` target that `make check` does not reach. You lose 19
+> widget tests at FZN_GUI=0; I lose all of mine in every ordinary run. It
+> happens that no enum depends on them.
+
+So the hazard is real in both trees and neither is exposed to it today, for
+different reasons -- which is worth more than a shared finding would have
+been, because it says the shape survives a build system that is not this one.
+
+### A third question, run and not answered
+
+fuzzypickles' triage of their own residue produced one neither of us had
+asked: **which enumerators does no test name AND no consumer branch on?**
+A state nothing distinguishes is either a sentinel, or one the code goes to
+the trouble of producing that no reader can tell from any other.
+
+Run here it returned 63 of 411, and **63 is a number about the instrument**.
+Two causes, both mine:
+
+	39 are one row -- the widget enums in `gui/*.h`, whose consumers spell
+	them `fzn_journal_view::EXHAUSTED`. Matching `case ([A-Z_]...)\s*:`
+	requires the label to start with the enumerator, and a qualified label
+	starts with a lowercase class name, so every C++ switch in the tree
+	read as no branches at all.
+
+	FZN_QR_LEVEL_M, _Q and _H came back neither produced nor branched, and
+	are used: the encoder INDEXES a capacity table by level rather than
+	switching on it, and the assertions that only _L fits are in the test
+	files the sweep excludes.
+
+The second is fuzzypickles' generated-table point arriving from the other
+side. **An enum consumed by SUBSCRIPT is invisible to a sweep looking for
+branches, exactly as a subcommand covered by a generated table is invisible
+to one looking for names** -- and in both cases what is covered looks
+identical to what is not.
+
+So this is recorded as a negative WITH its method rather than as a result,
+and it is not shipped: doing it properly needs a real C++ parse, and the
+question has produced nothing in either tree yet. What it cost was worth it
+for the second cause, which is a limit on the enumerator sweep that ships.
+
+### Five instrument faults in one afternoon, and which kind is expensive
+
+Sec 262 counted four; this section adds a fifth. The tally is worth keeping
+because the pattern in it is not the one it feels like from inside:
+
+	INVENTED a finding   trailing paren; qualified C++ labels; table
+	                     subscript -- three
+	DROPPED a finding    first-match-per-chunk; the `#` skip -- two
+
+Every one that dropped findings was caught within a minute, because a count
+that moves by 73 gets read twice. Every one that invented findings survived
+until somebody read the findings themselves. **A number that moves announces
+itself and a plausible list does not** -- and the plausible list is the one
+that sends a reader to look at code that is fine, which is how a sweep loses
+the reader it needed.
+
+### Three mechanisms, one indistinguishable symptom
+
+The generalisation is fuzzypickles', assembled from four instances across
+two trees on 2026-09-10, and it is worth more than any of them:
+
+	generated decoder table    covers without NAMING       their 51 subcommands
+	subscript-indexed enum     covers without BRANCHING    FZN_QR_LEVEL_M/Q/H
+	qualified C++ label        branches without MATCHING   39 widget enums
+
+The first two are the same fact from opposite sides: **coverage can be
+STRUCTURAL rather than nominal**, so a thing exercised by a table or by a
+subscript is covered without any test or consumer ever writing its name.
+The third is not coverage-shaped at all -- it is a sweep failing to see a
+branch that is plainly there.
+
+**They land in one output column, and that is the whole finding.** All three
+print as an enumerator nothing covers, which is also what a REAL gap prints
+as, and nothing in the output tells a reader which of the four they have.
+That is `evidence.md`'s manufactured absence with a fourth costume: not the
+pattern, the view, the stem or the sentence, but a coverage relation the
+instrument has no way to express.
+
+What follows for the two sweeps that ship: their output is a set of
+CANDIDATES and every waiver must name the mechanism -- "held through
+sched_print's distinct lines", "a sentinel", and one day "covered by the
+generated table" or "indexed rather than branched". A waiver that says only
+"expected" has recorded that somebody looked and not what they saw, and the
+next reader cannot tell it from a gap somebody grew tired of.
+
+And it decides the third sweep, the one not shipped: **a sweep whose output
+cannot separate those four needs a waiver vocabulary before it needs better
+matching** -- and there is nothing to write waivers about yet, because the
+question has produced no gap in either tree.
