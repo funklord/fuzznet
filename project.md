@@ -36189,3 +36189,82 @@ arrangement, a chain at sequence zero, a candidate set of two, and a payload
 inside the alphanumeric set. **None of them was a dimension the author had any
 reason to vary** -- which is why the question works, and why it is worth asking
 of a suite that looks complete.
+
+## 249. The gate that would have said so
+
+sec 248 added `gui/sched_view` to the render sweep by hand, having found it
+absent by hand. That closes the instance and not the class: the next widget
+joins the build, the suite and the style gate without joining the one check
+that puts it in front of a terminal, and the sweep goes on reporting a clean
+run over the subjects it happens to know about.
+
+`make style` now derives the widget list from the directory and requires each
+one to be included by `gui/test/qtty_render_test.cpp` AND referenced there.
+
+	style: 18 widgets, each one used by qtty_render_test
+
+It is the same shape as the error-renderer check beside it, which exists for
+the same reason and was itself widened in sec 231 after its population turned
+out to be narrower than its subject.
+
+### The message said more than the check did, for the third time today
+
+The first version grepped for the `#include` and reported
+
+	style: 18 widgets, all rendered by qtty_render_test
+
+**A header can be included and the widget never constructed**, so "rendered"
+was a claim about something the check did not look at -- the same fault as sec
+241's *each asserted by a test* over a check that only read names, written by
+the same hand a few hours later.
+
+It requires a reference to the TYPE as well now, which is what shows a widget
+is built rather than merely compiled against, and the message says *used*
+rather than *rendered* because that is what a type reference proves.
+
+**And it deliberately does NOT require a row in the sweep's `cases[]`
+table.** Measured before deciding: 18 headers are included and 15 have a row.
+The other three are exercised on purpose somewhere else in that file --
+`trust_view` and `log_view` in their own blocks, `qr_view` through a decoder
+rather than a string match -- so demanding a row would be demanding the wrong
+shape of test for a sixth of them. What the check does not prove is written
+beside it rather than left for somebody to quote it for.
+
+### Two versions, and the first one had this section's own fault in it
+
+The first version read `$(GUI_SRCS)` and carried a branch for the GUI being
+off. **That branch is unreachable**: `GUI_SRCS :=` seeds two widgets before the
+`FZN_GUI` decision is taken and never empties, so `FZN_GUI=0` leaves it
+holding `trust_view` and `qr_view` rather than nothing.
+
+Worse than unreachable, it would have been WRONG where it did run. On a
+machine with no Qt the check would have reported
+
+	style: 2 widgets, all rendered
+
+-- a true sentence about a narrower population, which is precisely the fault
+the gate was written to catch. sec 228 says a branch with one reachable shape
+is a branch no sabotage can test; this one had that and a misleading pass
+besides.
+
+**Asking the filesystem removes both.** `ls gui/*.cpp` is the same population
+on every machine, needs no `_view` pattern to filter it -- sec 217's rule that
+a population derived from a naming convention is an enumeration in disguise --
+and a future non-widget source there will fail this and have to be exempted
+out loud.
+
+### Both branches were made to fail
+
+	a widget nothing includes  style: widgets qtty_render_test does not
+	                           use: sched_view                       rc 2
+	included but never built   style: ... does not use:
+	                           sched_view(unused)                    rc 2
+	no widget sources at all   style: no widget sources were found, so
+	                           this checked nothing                  rc 1
+
+The second came free: the scratch directory the probe ran in could not be
+created, so the snippet ran somewhere with no `gui/` at all and refused
+exactly as written. An empty-population guard that has been seen to fire is
+the difference between a gate and a gate-shaped thing, and this one is now
+the third in this tree -- after the sabotage census and the log gate -- to
+say so in its own words rather than pass quietly over nothing.

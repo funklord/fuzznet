@@ -3843,6 +3843,60 @@ style: $(OBJS)
 	for r in $$have; do \
 		case " `echo $$walked` " in *" $$r "*) ;; *) missing="$$missing $$r" ;; esac; \
 	done; 	if [ -n "$$missing" ]; then 		echo "style: error renderers the sweep does not walk:" $$missing; 		echo "style: add a row to SUBJECTS[] in wire/test/err_str_test.c,"; 		echo "style: or its arms render text no test has ever read."; 		exit 1; 	fi; 	echo "style: $$n error renderers, all walked by err_str_test ($$w rows)"
+	@# AND EVERY WIDGET IS PUT IN FRONT OF A TERMINAL. sec 249.
+	@#
+	@# `gui/test/qtty_render_test.cpp` names its subjects by including their
+	@# headers, and that list is written by hand: a widget added to the tree
+	@# joins the build, the suite and this gate without joining the one check
+	@# that renders it. `gui/sched_view.h` was the only one of eighteen
+	@# absent, and nothing said so -- the sweep reported "116 checks, 0
+	@# failure(s)" over the seventeen it knew about.
+	@#
+	@# THE POPULATION IS THE DIRECTORY, NOT GUI_SRCS. The first version read
+	@# the make variable and had a branch for the GUI being off -- which is
+	@# unreachable, because `GUI_SRCS :=` seeds two widgets before the
+	@# FZN_GUI decision and never empties. It would also have reported "2
+	@# widgets, all rendered" on a machine with no Qt: a true sentence about
+	@# a narrower population, which is the fault this gate exists to catch.
+	@# Asking the filesystem gives the same answer on every machine.
+	@#
+	@# WHAT IT PROVES IS USE, NOT A RENDER, and the message says so. It
+	@# requires the header AND a reference to the type, which is what shows
+	@# a widget is constructed rather than merely compiled against. It does
+	@# NOT require a row in the sweep's `cases[]` table, because three
+	@# widgets are deliberately exercised elsewhere in that file --
+	@# `trust_view` and `log_view` in their own blocks, and `qr_view`
+	@# through a decoder rather than a string match -- so demanding a row
+	@# would be demanding the wrong shape of test for a quarter of them.
+	@have=`ls gui/*.cpp 2>/dev/null | sed -e 's|gui/||' -e 's|\.cpp$$||' | sort -u`; \
+	walked=`grep -oE '#include "\.\./[a-z_]+\.h"' gui/test/qtty_render_test.cpp \
+	         | sed -e 's|.*/||' -e 's|\.h"||' | sort -u`; \
+	used=`grep -oE 'fzn_[a-z_]+_view' gui/test/qtty_render_test.cpp \
+	       | sed -e 's|^fzn_||' | sort -u`; \
+	n=`echo "$$have" | grep -c .`; \
+	if [ "$$n" -eq 0 ]; then \
+		echo "style: no widget sources were found, so this checked nothing --"; \
+		echo "style: the probe is broken, not the tree."; \
+		exit 1; \
+	fi; \
+	missing=; \
+	for v in $$have; do \
+		case " `echo $$walked` " in \
+		*" $$v "*) ;; \
+		*) missing="$$missing $$v" ;; \
+		esac; \
+		case " `echo $$used` " in \
+		*" $$v "*) ;; \
+		*) missing="$$missing $$v(unused)" ;; \
+		esac; \
+	done; \
+	if [ -n "$$missing" ]; then \
+		echo "style: widgets qtty_render_test does not use:" $$missing; \
+		echo "style: include the header AND construct the widget, or it is"; \
+		echo "style: never put in front of a terminal."; \
+		exit 1; \
+	fi; \
+	echo "style: $$n widgets, each one used by qtty_render_test"
 	@# AND version/version.h MUST STILL SPELL WHAT VERSION SAYS, an eighth
 	@# hand-maintained agreement. The header is a copy on purpose --
 	@# version.h says why, and it is the reason constants_test.c gives about
