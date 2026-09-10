@@ -29594,6 +29594,110 @@ decisions are perishable in a way the code is not, and because the have-set
 finding is cheaper to know now than after a second consumer has built on the
 shape.
 
+### Selecting nodes: a facet algebra, WORK IN PROGRESS, 2026-09-10
+
+**WORK IN PROGRESS, and the holder said so explicitly: "the needs of this query
+language may very well grow over time."** Nothing here is a specification. It is
+recorded because the growth clause is itself a design constraint -- what has to
+be protected is not minimality but that growth never forces the evaluator to be
+rewritten -- and that is cheaper to decide now than after expressions are being
+saved and synced.
+
+#### The model, in the holder's words
+
+The tree has root nodes such as `genre/`, `year/`, `host/`, and **"these all can
+contain the same set of files, some multiple times."** So each root is a FACET
+DIMENSION and each is a complete view of the universe, sliced differently; a
+file appears several times within one root when it has several values for that
+facet. The example expression they gave is `genre/action + year/1994`.
+
+Two consequences follow directly, and both are cheap now and irritating later:
+
+- **A file with no value for a facet must still land somewhere in that root**,
+  or the root stops containing the same set and the totality above quietly
+  breaks. `year/unknown/`, `genre/unclassified/`. It is the same guarantee
+  fuzzypickles' by-host view gives, made explicit per dimension.
+- **Counts are not sums.** A root showing 12 + 8 + 5 has 25 entries and perhaps
+  20 distinct files. The display has to say which it is showing.
+
+#### What the example actually needs, which is not traversal
+
+`genre/action + year/1994` needs a term, an intersection, and an index from term
+to entities. Each facet value is a posting list and `+` is list intersection --
+O(smallest list), with no planner, no statistics and no cost model.
+
+**That is worth separating from graph traversal, which is a different
+operation.** A dependency closure -- MAME's `cloneof`, `romof`, `device_ref` --
+is not expressible this way and does not want to be. Selection is what every
+candidate consumer shares; traversal is what one of them needs. Only the first
+is a reason to put something in this library.
+
+#### The shape that survives growth: open terms, closed combinators
+
+    term producers   OPEN    each yields a set of entity ids
+    combinators      CLOSED  intersect, union, difference
+
+New needs almost always want a new TERM KIND rather than new algebra -- "held
+by fewer than two hosts", "added this week", "title starts with", "shorter than
+four minutes" -- and none of those touches the evaluator.
+
+**So the durable rule is not "no predicates". It is: every term must be
+answerable from an INDEX, never by scanning entities.** That draws the line
+exactly where a planner would otherwise become necessary, and it tells whoever
+adds the twentieth term kind whether it is free or whether it needs an index
+built first.
+
+#### Select and deselect
+
+Deselection is three things and all three are set operations: exclusion
+(`genre/action - year/1994`), removing a term when somebody unticks a facet,
+and an enumerated exception list, which is just a set given by extension.
+
+The second has an implication for the encoding: **an expression should be a
+structured VALUE that a UI edits, with text as a rendering of it** -- not a
+string re-parsed on every click, which puts every interaction through a
+round-trip that is where the bugs live.
+
+#### Three things worth reserving now
+
+- **An unknown term kind must REFUSE, never approximate.** Once expressions are
+  saved and synced, an older consumer will meet a term it does not understand.
+  Treating it as "matches nothing" or as "ignore" both silently yield a
+  DIFFERENT SET -- and where a selection can drive placement or deletion, a
+  silently wrong set is a data-loss path. fuzzypickles' holder settled on
+  2026-09-10 that no metadata error of any kind may destroy bytes; this is that
+  rule reaching selection. The encoding therefore has to make an unknown term
+  detectable rather than skippable.
+- **Facet names and values want stable identifiers.** An upstream rename
+  otherwise breaks every saved expression naming them, which is the same
+  redirect problem a catalogue already has and wants the same redirect table.
+- **Difference is not portable, and it is the subtle one.** `- host/nas01`
+  means "everything except", and EVERYTHING is host-dependent: a host holding
+  part of a catalogue computes a different answer from one holding all of it.
+  A saved expression containing a difference can therefore mean different
+  things in different places, and it presents as "the playlist is different on
+  my laptop" only once an estate has two hosts with unequal replicas. Either
+  the universe is pinned -- the catalogue at a stated index version -- or
+  difference subtracts only from an already-selected set rather than from the
+  world.
+
+#### Where it would live, by this library's own rule
+
+`local/vocabulary.h` already states the split and cites `chain.h` for it: what
+this library carries is **the MECHANISM and never the meaning**, the way a
+capability is 32 opaque bytes that the chain verifies without learning what it
+permits.
+
+Applied here: **the algebra and the index are mechanism and could live here; the
+facet vocabulary is meaning and stays with each consumer.** `genre`, `year` and
+`format` are a media library's; `system`, `region` and `players` are an emulator
+frontend's. Intersection does not need to know which is which, and sec 5 already
+keeps command vocabularies out of the core for the same reason.
+
+**Not started, and not agreed.** Recorded as the shape under discussion, with
+the reservations that are expensive to retrofit called out while they are still
+free.
+
 ## 100. netcfgd's adoption has a condition and a language, 2026-09-05
 
 **Settled by the copyright holder 2026-09-05, relayed through
