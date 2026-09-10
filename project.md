@@ -29916,11 +29916,42 @@ separator needs escaping.
 maps directly onto `(P, N)`, is order-free by construction, and needs only a
 small parser.
 
-**The recommendation is D as canonical, with B and C as renderings.** That is
-not fence-sitting: a structured canonical form is what makes the GUI's
-unclick exact, what makes an unknown term kind REFUSABLE rather than skippable,
-and what lets a saved selection be hashed for identity. B and C then serve
-browsing and typing without either being the thing that is stored.
+**SETTLED by fuzzypickles' holder 2026-09-10: D is canonical, with B and C as
+renderings.** A structured canonical form is what makes the GUI's unclick
+exact, an unknown term kind refusable rather than skippable, and a saved
+selection hashable for identity. B and C serve browsing and typing without
+either being the thing that is stored.
+
+#### What that decision now requires
+
+Five consequences, concrete enough to build against:
+
+- **Terms carry a KIND TAG and a reader refuses an unknown one.** This turns
+  out to agree with the house style rather than invert it: `record/record.h`
+  already refuses a buffer "for its shape or its version" rather than skipping
+  what it does not recognise. An expression encoding that skipped unknown
+  terms would silently evaluate to a DIFFERENT SET, which is the data-loss
+  path already ruled out, so strictness here is the existing convention
+  applied rather than a new one argued for.
+- **The canonical serialisation has to be DETERMINISTIC**, or identity breaks.
+  `P` and `N` are sets, so they must be sorted by a stated rule before
+  encoding; otherwise two expressions that are equal hash differently and the
+  dedup, cache key and already-held check all fail quietly.
+- **The path rendering is PARTIAL, and this is the one that surprises.**
+  Minus has no natural spelling in a path, so an expression with a non-empty
+  `N` has NO path form. A filesystem mount can therefore show positive-only
+  queries unless a segment convention is invented for exclusion. Worth knowing
+  before somebody promises a FUSE view of an arbitrary saved selection.
+- **The text rendering is total, but PARSING it is fallible**, and a failed
+  parse must refuse rather than approximate -- the same rule as an unknown
+  term kind, for the same reason.
+- **A saved expression should record the taxonomy version it was built
+  against.** Prefix terms mean re-parenting changes what an expression
+  selects, so an expression without a version cannot tell "the catalogue moved
+  under me" from "this always meant that". This is the redirect problem given
+  the one field that makes it detectable.
+
+
 
 #### Where it would live, by this library's own rule
 
