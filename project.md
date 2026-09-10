@@ -37934,6 +37934,27 @@ itself and a plausible list does not** -- and the plausible list is the one
 that sends a reader to look at code that is fine, which is how a sweep loses
 the reader it needed.
 
+**That ordering holds for a COUNTING sweep and inverts for a PREDICATE**,
+which is fuzzypickles' correction of it and is right. Both of their faults
+the same day were booleans:
+
+	does sec 262 name 02d3b3b?      no   <- wrong, and published
+	does project.md cite 7772068?   no   <- wrong, caught by re-reading
+
+A boolean has no magnitude to be surprised by. There is no 73 to notice and
+no list to read, and **a wrong "no" is indistinguishable from a right one at
+the point of output** -- so for a predicate the DROPPER is the expensive
+one, and the rule above has it backwards.
+
+What catches it is not a better instrument. Both were caught by somebody
+else asking the same question a different way, and **neither time was it the
+author**: the first by a scope-free `git show origin/master:project.md |
+grep -n 02d3b3b` run from this tree, the second by that session re-reading
+the sentence it was checking rather than re-running the check. So the guard
+for a predicate is a second asker, and a session working alone does not have
+one. Two sweeps and five faults produced the counting half; the predicate
+half needed two trees.
+
 ### Three mechanisms, one indistinguishable symptom
 
 The generalisation is fuzzypickles', assembled from four instances across
