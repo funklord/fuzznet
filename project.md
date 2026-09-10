@@ -37793,6 +37793,33 @@ nothing. The two mentions in sec 263's table below are a different thing and
 they stay: those record a QUESTION somebody asked at the time, not a claim
 about where anything is now.
 
+**A rebase under a running session is invisible until you look at a sha**,
+and this session did not look for 44 minutes. The timeline, from the commits
+themselves rather than from memory:
+
+	00:07:53   the rewrite finishes, four commits re-created
+	00:31:46   this session commits sec 265 -- onto the new history,
+	           without noticing
+	00:51:17   commits sec 266, then reads `git log` for another reason
+	           and sees four shas it did not push
+
+Nothing surfaces it in between. `git status -sb` says in sync, because it is
+-- against the rewritten origin. `git fetch` succeeds, the commit succeeds,
+the push succeeds. This session reported at the time that it had "pushed
+while the rewrite was in flight" and that this was luck; the timestamps say
+the write missed the window by 24 minutes, so it was not luck and it was not
+a near miss. **It was 44 minutes of working on a history that had changed,
+with every routine check reporting normal.** The write-hold `.git/write-notice`
+proposes is what makes the window visible at all, and it was held correctly
+here by the session doing the rewrite.
+
+**And an orphaned sha still resolves in the clone that orphaned it.**
+fuzzypickles' point, and it is the reason a citation like this one is worth
+checking from somewhere else: `git show 02d3b3b` works here, because the
+object is still in this repository, and fails for anybody who clones. So the
+author verifying their own reference sees it succeed and every reader sees it
+fail -- the false negative pointed at the one person who cannot observe it.
+
 ## 263. Two states nobody had ever seen
 
 Sec 262 found its gap by hand: `FZN_SCHED_EXCLUDED_MALFORMED` could be
