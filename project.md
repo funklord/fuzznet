@@ -29596,6 +29596,17 @@ shape.
 
 ### Selecting nodes: a facet algebra, WORK IN PROGRESS, 2026-09-10
 
+**THE SPECIFICATION IS `facet/facet.h` as of 2026-09-10**, written on the
+holder's instruction. It states the rules as numbered normative statements
+F1-F33 without re-arguing them; this section is the history and the reasoning,
+and where the two disagree the header is what an implementation must satisfy.
+It is specification only -- no implementation, no wire encoding fixed, and the
+module name is provisional. Placed in a subsystem header because that is where
+this library specifies itself: `record/record.h`, `chain/chain.h` and
+`local/vocabulary.h` are the precedent, and there is no `doc/` here to invent
+one into.
+
+
 **WORK IN PROGRESS, and the holder said so explicitly: "the needs of this query
 language may very well grow over time."** Nothing here is a specification. It is
 recorded because the growth clause is itself a design constraint -- what has to
