@@ -139,6 +139,7 @@
 /tree/test/tree_kat_test
 /tree/test/tree_fuzz
 /trust/test/trust_test
+/trust/test/trust_walk_test
 /log/test/log_test
 /wire/test/relay_test
 /sched/test/sched_test

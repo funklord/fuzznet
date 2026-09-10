@@ -1291,6 +1291,22 @@ SABOTAGES = [
 		"\tsummary_->setText(QStringLiteral(\"a link was considered\"));\n",
 		"sec 193: the verdict is the printer's to state and a widget composing its own is a second wording to keep in step -- the two drift and the screen is the copy nobody re-reads -- sec 248",
 	),
+	# BATCH TWENTY-EIGHT, 2026-09-10: the anchoring table, walked whole.
+	# project.md sec 250.
+	(
+		"trust-only-a-pin-replaces-a-self-root",
+		"trust/trust.c",
+		"\t\tif (!(trust->source == FZN_TRUST_SELF && source == FZN_TRUST_PINNED)) {\n",
+		"\t\tif (!(trust->source == FZN_TRUST_SELF)) {\n",
+		"widening the join to any source is what re-opens the window a self-root closes: a node trusting itself for want of anybody else could be taken by whoever answers first, which trust.h calls the whole point of the asymmetry -- caught at [self(1) adopt(0)] -- sec 250",
+	),
+	(
+		"trust-the-same-key-is-an-echo",
+		"trust/trust.c",
+		"\t\tif (fzn_ct_memeq(trust->root, root, FZN_PUBKEY_LEN))\n\t\t\treturn FZN_TRUST_ERR_UNCHANGED;\n",
+		"",
+		"a join repeated or a bundle delivered twice is an echo and not a fault, and a consumer telling a user its trust was attacked when the same root arrived again is the alarm nobody will read the second time -- caught at [pin(0) pin(0)] -- sec 250",
+	),
 	(
 		"log-body-escapes-what-a-terminal-obeys",
 		"log/log.c",

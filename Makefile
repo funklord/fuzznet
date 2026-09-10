@@ -303,6 +303,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              record/test/sync_test.c record/test/ledger_test.c \
              state/test/state_test.c \
              trust/test/trust_test.c \
+             trust/test/trust_walk_test.c \
              log/test/log_test.c \
              wire/test/relay_test.c \
              sched/test/sched_test.c \
@@ -385,6 +386,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/record/test/ledger_test \
              $(BUILD_DIR)/state/test/state_test \
              $(BUILD_DIR)/trust/test/trust_test \
+             $(BUILD_DIR)/trust/test/trust_walk_test \
              $(BUILD_DIR)/log/test/log_test \
              $(BUILD_DIR)/wire/test/relay_test \
              $(BUILD_DIR)/sched/test/sched_test \
@@ -1561,6 +1563,13 @@ $(BUILD_DIR)/log/test/log_test: $(BUILD_DIR)/log/test/log_test.o \
 	$(CC) $(CFLAGS) $^ -o $@
 
 $(BUILD_DIR)/trust/test/trust_test: $(BUILD_DIR)/trust/test/trust_test.o \
+                                    $(BUILD_DIR)/trust/trust.o \
+                                    $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# Every sequence of anchoring operations, not a sample of them. sec 250.
+$(BUILD_DIR)/trust/test/trust_walk_test: $(BUILD_DIR)/trust/test/trust_walk_test.o \
                                     $(BUILD_DIR)/trust/trust.o \
                                     $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)

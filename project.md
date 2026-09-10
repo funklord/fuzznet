@@ -36268,3 +36268,66 @@ exactly as written. An empty-population guard that has been seen to fire is
 the difference between a gate and a gate-shaped thing, and this one is now
 the third in this tree -- after the sabotage census and the log gate -- to
 say so in its own words rather than pass quietly over nothing.
+
+## 250. Small enough to visit whole
+
+`trust/` is four sources and three operations, and `trust.h` writes the
+transition table out in prose:
+
+	self -> pinned     permitted; an operator said so, out of band
+	self -> adopted    REFUSED; nothing authenticated that
+	self -> self       refused, like any other re-anchoring
+	pinned or adopted -> anything else    refused, as before
+
+`trust_test.c` walks that with hand-chosen sequences. **The state space is
+6561 sequences of four**, which runs in less time than drawing random ones
+would -- so `trust/test/trust_walk_test.c` visits all of them.
+
+	trust_walk_test: 97257 checks, 0 failure(s); every sequence of 4
+	operations over 3 keys agreed with the header's table (7719 ok, 11964
+	anchored, 6561 unchanged, 1158 self-to-pin)
+
+**A fuzz harness reports what it happened to reach; this reports that there is
+nothing else to reach.** Where a module is this small, that is the stronger
+claim and it is cheaper to make.
+
+The model was written from the header rather than from `trust.c`, and it
+agreed on the first run -- which is the outcome worth having and not the one
+to assume: sec 245's model was wrong on case 91, and being wrong is the
+ordinary fate of a new model.
+
+### The property that needs no model
+
+Every step asserts that a call not returning OK left the anchor
+**byte-identical**, `memcmp` over the whole struct. An anchor is what every
+other decision in this library is measured against, so a refusal that moved
+one is the worst failure the module could have.
+
+That is sec 245's property, and this is where it is asked properly: there,
+both refusals the harness could produce returned before the module touched
+anything, and the sabotage survived until a mid-flight failure was added.
+Here **every refusal is reached from every reachable state**, because the walk
+is exhaustive -- there is no arrangement left for a refusal to hide in.
+
+### No CHECK macro, because a line number is not enough
+
+Every assertion here has a SEQUENCE to report. The controls:
+
+	trust-only-a-pin-replaces-a-self-root
+	  after [self(1) adopt(0)] the model says already anchored and the
+	  module says ok
+	trust-the-same-key-is-an-echo
+	  after [pin(0) pin(0)] the model says already anchored to this root
+	  and the module says already anchored to a different root
+
+A failure naming `trust_walk_test.c:172` would leave a reader to work out
+which of 6561 walks it was. The style gate's rule is that a failure line names
+its suite; here the suite is not enough to find the case, so the line names
+the path that produced it.
+
+**The first sabotage is the one that matters.** Widening the join from *a
+self-root may be replaced by a pin* to *a self-root may be replaced* re-opens
+the window a self-root exists to close: a node trusting itself for want of
+anybody else could then be taken by whoever answers first. The header calls
+that asymmetry the whole design, and until this file nothing walked
+`self -> adopt` at all.
