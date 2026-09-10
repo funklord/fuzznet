@@ -29496,6 +29496,104 @@ neither is mistaken for settled:
   DATA frame. **The property is worth keeping and its encoding is not** --
   which is the distinction this whole row turns on.
 
+### Relayed from fuzzypickles: the catalogue above the filestore, 2026-09-10
+
+**RECORDED, NOT STARTED**, and relayed on the copyright holder's instruction.
+Their words, which are the reason this is here rather than there: most of this
+"belongs in fuzznet and its filesystem subsystem, some in the catalogue that
+sits on top, only the catalogue USAGE on top of catalogue subsystem should
+possibly be in fuzzypickles."
+
+So the layering they name is three deep, and the middle one does not exist in
+either tree yet:
+
+    fuzzypickles   usage -- the media library view, the player
+    catalogue      the structure, the links, the placement
+    fuzznet fs     bytes, holders, transfer  (sec 101 above)
+
+#### My finding, in my voice: a have-set cannot describe a catalogue
+
+**Measured by me in fuzzypickles' tree on 2026-09-10, not theirs and not
+yours.** `FZP_BLOB_HAVE_MAX` is 128 (`core/src/control.h`): a have-set is at
+most 128 ascending Merkle node numbers, and nodes merge -- their
+`storage_fs_test` adds leaves 3 and 4 and asserts the count is 1.
+
+That encoding measures LOCALITY. It is right for the access pattern a
+filestore has -- a contiguous prefix costs O(depth), a whole file costs one --
+and it is pathological for a catalogue, where random point lookup produces
+scattered singleton leaves that never merge, so 128 disjoint regions is the
+entire budget.
+
+**And the overflow policy makes the failure silent.** The comment above that
+constant says a caller must UNDER-claim, dropping the deepest nodes, because
+over-claiming strands a peer waiting for bytes that never come. A host holding
+scattered catalogue records therefore claims less than it holds and re-fetches
+what it already has, for ever, with nothing going red.
+
+**Why this is yours rather than a note about theirs**: whatever a have-set
+looks like here, the same question decides it, and it is better answered
+before a second consumer depends on the shape. If this library's have-set has
+the same locality assumption, a catalogue cannot be one blob fetched by leaf,
+and the way out does not need the constant changed.
+
+#### The way out that changes nothing else: shard, do not raise the ceiling
+
+Make the unit of holding a SHARD rather than a leaf:
+
+    shard index   key-range -> blob root      signed, replicated
+       shards     ordinary blobs              fetched on demand
+
+At the size fuzzypickles measured for an external music-and-film catalogue --
+about 9 GB, from MusicBrainz's 7 GB core, IMDb's 1.85 GB and AcoustID's
+mapping stream, all fetched 2026-09-10 -- 4 MB shards give ~2,300 of them and
+an index under 200 KB. Every host can carry the index; none carries 9 GB. A
+shard is whole-or-nothing so its have-set is one node, and the ceiling is
+never approached.
+
+**Three trusts separate, and only the third is hard.** Content is free, since
+a shard root is a content hash and a mirror can withhold but not forge.
+Availability is what an external server supplies -- and once any host in an
+estate holds a shard, this library's own transfer serves it to the rest, so
+the server is a seed rather than a dependency. Currency is the hard one: a
+rollback to an old, validly signed index is invisible to content addressing,
+and the shape to copy rather than reinvent is TUF's -- a signed snapshot with
+a monotonic version and an expiry, each host remembering the highest it has
+seen.
+
+#### What their holder settled, which constrains the subsystem
+
+Two decisions taken 2026-09-10 that a filesystem subsystem has to accommodate
+rather than relitigate:
+
+- **Observed and desired are separate fields.** A holder's claim about what it
+  has is its own fact; a placement somebody else asked for is a request from a
+  party that cannot make it true by saying so. The gap between them -- fetching,
+  refused, out of space, offline -- is what a person is shown.
+- **A deletion is explicit, never a consequence of metadata going wrong.**
+  Wider than the delivery argument that preceded it: no metadata error of any
+  kind may destroy bytes, not a miscounted link, not a view rebuilt wrongly,
+  not an upstream merge, not a bug in the bookkeeping. So a link count of zero
+  is a reported state and never a trigger.
+
+#### Two more shapes from their design, for whoever builds this
+
+- **Storage splits by who owns the PATH, not the bytes.** Managed files are
+  laid out by the catalogue and may be moved; referenced directories are
+  indexed where a person already put them and are read-only to the organiser
+  by construction. A reference is `(source, relative path)` rather than a bare
+  path, so it survives a second machine and carries a permission boundary --
+  and the managed root becomes just another source, the one marked writable.
+- **A by-host view makes the catalogue total.** Generated from what is on
+  disk rather than curated, it guarantees at least one node links every file
+  at all times, including one that matches no register at all. It is also the
+  transpose of "which hosts hold this file", so build one relation and derive
+  the other.
+
+**Nothing here is a request to start.** It is written down because the
+decisions are perishable in a way the code is not, and because the have-set
+finding is cheaper to know now than after a second consumer has built on the
+shape.
+
 ## 100. netcfgd's adoption has a condition and a language, 2026-09-05
 
 **Settled by the copyright holder 2026-09-05, relayed through
