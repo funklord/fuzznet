@@ -29848,14 +29848,47 @@ Three consequences:
   `electronic/house/deep` and every saved expression naming the old path
   selects differently. The redirect table has to cover moves, not just names.
 
-**And the hidden root reopens the difference question by a back door.** If
-`+/` is a legal POSITIVE term then `+/ - host/laptop01` is "everything
-except", the exact non-portable case settled against above. The distinction
-that saves it is browsing versus saving: viewing the root is the wanted
-behaviour and stays, but an expression whose only positive term is the root
-is not portable and must either be refused at save time or pinned to a stated
-index version. **Open, and it only bites when somebody saves a root view that
-has an exclusion in it.**
+**~~The hidden root reopens the difference question by a back door.~~ SETTLED
+2026-09-10 on the holder's instruction to settle it, and settling it corrected
+the reasoning behind the ruling above.**
+
+**The root IS a legal positive term.** `+/` browses and saves, and so does any
+dimension root. Banning only the hidden one would not have worked in any case:
+every dimension is total, so `genre/` is equally the universe and
+`genre/ - host/laptop01` is the same query by another spelling. The hole was
+always wider than the node that was named.
+
+**The earlier justification was wrong, and it is corrected here rather than
+left standing.** It said negation is unsafe because a host holding part of a
+catalogue computes a different answer from one holding all of it. That is
+true, and it is EQUALLY TRUE OF POSITIVE TERMS -- `genre/house` on a host
+missing claims also returns fewer files -- so it cannot be what distinguishes
+them.
+
+**The real asymmetry is directional.** An incomplete POSITIVE term
+under-reports: rows are missing, which is an absence a person can see. An
+incomplete NEGATIVE term OVER-reports, because subtracting an incomplete set
+removes too little, so files that should have been excluded appear and nothing
+says so. Where a selection can drive placement or deletion, over-inclusion is
+the dangerous direction, which is the holder's rule about metadata errors
+reaching selection once more.
+
+**So the guard moves to the negatives: a negative term whose dimension is not
+completely known on this host makes the expression REFUSE**, rather than
+return an over-inclusive answer. Same discipline as an unknown term kind, and
+for the same reason.
+
+**Pinning is rejected**, having been floated above as the alternative. Pinning
+"everything except my laptop" to a stated index version freezes it, so files
+added later never appear -- a technically portable and semantically wrong
+answer, and worse than refusing, because the person who saved that view wants
+it to stay current.
+
+**The difference ruling itself is unchanged**: no bare negation, `P`
+non-empty. Its other benefits are real and independent of the mistaken
+argument -- the normal form, order-independence, and a result bounded by
+something the user actually named. What changes is only the reason, and a rule
+resting on a wrong reason is one somebody later overturns for the right one.
 
 #### The GUI is a query editor, and that constrains the language
 
