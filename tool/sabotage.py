@@ -1322,6 +1322,27 @@ SABOTAGES = [
 		"a host that cannot arbitrate ownership at all is a broken store and a host whose claim is held is a working one, which claim.h keeps apart because they want different responses -- collapsed, the unusable store reads as the ordinary case and nobody is sent to look -- sec 251",
 	),
 	(
+		"prekey-print-announces-a-rollback",
+		"cli/prekey_print.c",
+		"\t\tput_str(s, \"ATTENTION -- an older prekey for this peer was replayed and \"\n",
+		"\t\tput_str(s, \"refused -- an older prekey for this peer was replayed and \"\n",
+		"prekey.h says of this code that it exists because it is the one an operator has to see: a real, correctly signed, older record replayed, and if that key has since leaked, accepting it is the whole attack -- a line that does not announce it is the surface failing at the one thing it was built for -- sec 252",
+	),
+	(
+		"prekey-print-does-not-blame-the-peer",
+		"cli/prekey_print.c",
+		"\t\tcase FZN_PREKEY_ERR_SIGNER:\n\t\tcase FZN_PREKEY_ERR_MALFORMED:\n\t\t\tsaid = FZN_PREKEY_LINE_LOCAL;\n",
+		"\t\tcase FZN_PREKEY_ERR_SIGNER:\n\t\t\tsaid = FZN_PREKEY_LINE_UNVERIFIED;\n\t\t\tbreak;\n\t\tcase FZN_PREKEY_ERR_MALFORMED:\n\t\t\tsaid = FZN_PREKEY_LINE_LOCAL;\n",
+		"a host with no verifier configured and a forged record both stop a peer being pinned, and only one of them is about the peer -- rendering the first as `could not be verified` accuses somebody of something this host did -- sec 252",
+	),
+	(
+		"prekey-print-tells-a-redelivery-from-a-rotation",
+		"cli/prekey_print.c",
+		"\t\t\telse if (prekey_moved(before, after))\n\t\t\t\tsaid = FZN_PREKEY_LINE_ROTATED;\n\t\t\telse\n\t\t\t\tsaid = FZN_PREKEY_LINE_UNCHANGED;\n",
+		"\t\t\telse\n\t\t\t\tsaid = FZN_PREKEY_LINE_ROTATED;\n",
+		"a first pin, a rotation and a re-delivery all answer FZN_PREKEY_OK, and prekey.h calls the last of them ordinary and not an event -- a consumer showing a key change every time a record is redelivered teaches a person to ignore the one that is real -- sec 252",
+	),
+	(
 		"log-body-escapes-what-a-terminal-obeys",
 		"log/log.c",
 		"\t\tif (body[i] >= 0x20u && body[i] <= 0x7eu) {\n",

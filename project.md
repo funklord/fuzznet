@@ -36406,3 +36406,70 @@ of which call `fzn_link_snapshot` and `fzn_sched_select` in one test.
 
 An empty result is a measurement only with its method attached, and these
 three say where not to look next.
+
+## 252. The code that exists for a reader, with nothing to read it
+
+`prekey.h` says it outright:
+
+> THE ROLLBACK CASE, and it has its own code because it is the one an
+> operator has to see. A stranger who replays a host's older, real,
+> correctly-signed record is offering a key the host has moved on from -- and
+> if that key has since leaked, accepting it is the whole attack. Nothing
+> about the bytes is wrong, which is why the signature cannot catch it.
+
+**A code that exists for a reader, and nothing showed it to one.** Seven codes
+reach a consumer and every distinction among them dies in the integer a person
+sees -- including that one, and including the one the header calls not an
+event at all.
+
+`cli/prekey_print` has nine states because each has a different reader.
+
+### One code, three events
+
+A first pin, a rotation and a re-delivery all answer `FZN_PREKEY_OK`, and
+`prekey.h` says of the third that it is *"ordinary and is not an event"*. A
+consumer showing a key change every time a record is redelivered teaches a
+person to ignore the one that is real -- the same failure as `claim.h`'s HELD
+and `trust.h`'s UNCHANGED, met a third time.
+
+**So the printer takes the peer BEFORE and AFTER.** Both OK cases leave the
+record stored and the difference is whether anything moved, which no return
+value carries and no single snapshot shows. A caller copies a small value with
+no allocation behind it; the alternative was collapsing a distinction the
+header spends a paragraph keeping.
+
+### The direction that gets confused
+
+`FZN_PREKEY_ERR_SIGNER` is THIS host having no verifier. A consumer rendering
+it as *this peer could not be verified* **has accused somebody of something
+the host did** -- and it is the easy mistake, because a forged record and a
+missing verifier both stop a peer being pinned.
+
+That is why `SIGNER` and `MALFORMED` share a line and `SIGNATURE` does not:
+the first two are this side's fault and the reader cannot act on them
+differently, while the third is a statement about the record.
+
+`SHAPE` gets its own line for the same reason pointed the other way. Bytes
+that are not this protocol's shape are usually a version difference, and a
+line that does not say so leaves a reader suspecting a peer over a version
+number.
+
+### A conditional assertion is one that may never run
+
+The first test drove the SIGNER case with a verifier that returns zero, and
+asserted the mapping behind an `if`. Measured: a verifier that RETURNS no
+yields `FZN_PREKEY_ERR_SIGNATURE` -- correctly, since a verifier saying no is
+the signature not verifying -- and only an ABSENT one yields `SIGNER`.
+
+So the interesting branch never executed, behind an `if` that read like
+caution. It uses a NULL verifier now and asserts unconditionally, plus that
+the two lines differ, which is the confusion the state exists to prevent.
+
+### The three controls, and the one built for the header's own sentence
+
+	a rollback does not announce itself   the case prekey.h says an
+	                                      operator has to see does not
+	                                      announce itself
+	the missing verifier blames the peer  the line accuses the peer of
+	                                      something this host did
+	a re-delivery reads as a rotation     reported as a change
