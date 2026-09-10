@@ -166,7 +166,7 @@
  * SIGNING KEY to do it, which is a trust-root decision and does not follow
  * from the ruling above.
  *
- * C23a. RECOMMENDED, and the open question. CONSULT WITHOUT PINNING: an
+ * C23a. SETTLED 2026-09-10. CONSULT WITHOUT PINNING: an
  *      importing host fetches from the register, checks whatever the register
  *      itself offers, and PUBLISHES THE SHARD INDEX AS A RECORD IN ITS OWN
  *      ISSUER STREAM. Every other host then trusts it exactly as far as it
@@ -196,6 +196,30 @@
  *      talks to the register. The rest of the estate fetches from it, so one
  *      host is exposed rather than all of them.
  *
+ * C23b. SHARDING MUST BE DETERMINISTIC, and this follows from C23a rather than
+ *      being a preference. With no pinned publisher there may be several
+ *      importers of one register, and if two of them shard a snapshot
+ *      differently they produce different roots for identical data: the estate
+ *      then stores two copies of the same catalogue, deduplication fails, and
+ *      a host holding one importer's shard cannot serve the other's. Given the
+ *      same snapshot and the same shard size, two independent importers MUST
+ *      produce the same shard roots, so that their indices differ only in
+ *      provenance and the bytes converge.
+ *
+ * C23c. AN INDEX MUST CARRY ITS PROVENANCE: which register, which snapshot of
+ *      it, and WHAT THE IMPORTER VERIFIED -- the register's own signature or
+ *      checksums, and the snapshot's stated version and date. Nobody
+ *      downstream can re-check against the register, so the importer's
+ *      diligence is the only check there is, and recording what was checked is
+ *      what lets a reader judge it. An index that says only "this is
+ *      MusicBrainz" asserts a fact with no method beside it.
+ *
+ * C23d. CORRECTION AND COMPROMISE NEED NO NEW MECHANISM. A bad index is
+ *      superseded by a later record in the same issuer stream, which the
+ *      journal already orders. A compromised importer is handled by revoking
+ *      its issuer key, which `chain/revocation.h` already does. The recovery
+ *      path for C23a's cost therefore exists before the feature does.
+ *
  * C23. A register is imported as SHARDS: an ordinary blob per
  *      key-range, with a signed INDEX mapping range to blob root. The index is
  *      small enough to replicate to every host while the shards are fetched on
@@ -204,7 +228,8 @@
  *      lookup over one large blob would exceed it and then silently
  *      under-claim.
  *
- * C24. PROPOSED. Three trusts separate, and only the third is hard:
+ * C24. Three trusts separate, and after C23a only the first two reach the
+ *      estate at all:
  *
  *        CONTENT       free. A shard root is a content hash, so a mirror can
  *                      withhold and cannot forge. A server need not be
@@ -214,19 +239,25 @@
  *                      to the rest. The server is a SEED, not a dependency:
  *                      losing it keeps everything already held and merely
  *                      stops new entries arriving.
- *        CURRENCY      hard, and content addressing does nothing for it. A
- *                      server may serve an old, validly signed index and no
- *                      byte betrays it.
+ *        CURRENCY      hard between the IMPORTER and the register, and
+ *                      solved inside the estate by C23a. A server may serve
+ *                      an old, validly signed snapshot and no byte betrays
+ *                      it -- but the importer re-signs into its own stream,
+ *                      and `record/journal.h` keeps a position per (issuer,
+ *                      stream) and refuses gaps, so a rollback published to
+ *                      the estate is a sequence going backwards and is
+ *                      already refused. What remains is the importer's own
+ *                      problem, at C25.
  *
- * C25. PROPOSED. Currency wants the shape TUF already settled rather than a
- *      new one: a signed snapshot carrying a MONOTONIC VERSION and an EXPIRY,
+ * C25. THE IMPORTER'S OWN CHECK, not an estate mechanism. When talking to a
+ *      register it wants the shape TUF already settled rather than a new one: a signed snapshot carrying a MONOTONIC VERSION and an EXPIRY,
  *      with each host remembering the HIGHEST VERSION IT HAS SEEN -- so a
  *      rollback is caught inside the estate even while the publisher is
- *      unreachable, and expiry bounds how long a withheld update hides. Key
- *      rotation belongs there, and pinning a set of publishers means deciding
- *      what happens when one is compromised.
+ *      unreachable, and expiry bounds how long a withheld update hides. This
+ *      is the importer satisfying itself before it vouches; nothing
+ *      downstream depends on it, which is the point of C23a.
  *
- * C26. PROPOSED. Shard size is the privacy control and is one number: a fetch
+ * C26. Shard size is the privacy control and is one number: a fetch
  *      reveals interest in a KEY RANGE rather than an entry. Asking a peer
  *      before a server makes the estate the anonymity set as well as the
  *      cache.
@@ -259,9 +290,6 @@
  * 7. NOT SETTLED HERE
  * =========================================================================
  *
- *   - whether this project pins another party's signing key, or takes C23a
- *     and lets the importing host vouch instead. Consulting a register is
- *     settled; this is the part that is not;
  *   - the shard size (C26) and the layout template of a managed source (C22);
  *   - whether reclamation of an unreferenced entity exists, its grace period
  *     if it does, and whether a pin exempting an entity is per-entity or

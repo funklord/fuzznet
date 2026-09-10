@@ -29594,10 +29594,27 @@ largest open item in `catalogue/catalogue.h`, and leaves the sharper half of
 the same question open -- whether this project PINS another party's signing
 key, which is a trust-root decision and does not follow from the ruling.
 
-The recommendation recorded at C23a is to consult WITHOUT pinning: an
+**SETTLED the same day: C23a, do not pin.** An
 importing host fetches, checks what the register offers, and publishes the
 shard index in its OWN issuer stream, so the estate trusts a host it already
-trusts rather than acquiring a foreign trust root. Its best property is that
+trusts rather than acquiring a foreign trust root.
+
+**The decision created two obligations that were not in the text, and one is
+load-bearing.** With no pinned publisher there may be SEVERAL importers of one
+register, so **sharding must be deterministic** (C23b) -- two importers of one
+snapshot that shard differently produce different roots for identical data, the
+estate stores the catalogue twice, deduplication fails, and a host holding one
+importer's shard cannot serve the other's. And **an index must carry its
+provenance** (C23c): which register, which snapshot, and what the importer
+verified, because nobody downstream can re-check against the register and the
+importer's diligence is the only check there is. Recording what was checked is
+what lets a reader judge it.
+
+A third thing turned out to need nothing (C23d): a bad index is superseded by a
+later record in the same stream, which the journal already orders, and a
+compromised importer is handled by revoking its issuer key, which
+`chain/revocation.h` already does. The recovery path for C23a's cost exists
+before the feature does. Its best property is that
 the currency problem then largely collapses into machinery already here --
 `record/journal.h` keeps a position per (issuer, stream) and refuses gaps, so
 a rollback is a sequence going backwards and is refused already. Its cost is
