@@ -161,11 +161,42 @@
  * 5. IMPORTING AN EXTERNAL CATALOGUE
  * =========================================================================
  *
- * Everything in this part is PROPOSED. It is the shape recommended for taking
- * a public register -- a music, film or game catalogue -- into an estate, and
- * no ruling has been given on whether such a register is consulted at all.
+ * SETTLED 2026-09-10: an external register IS consulted. What remains open is
+ * narrower and is stated at C23a -- whether this project pins another party's
+ * SIGNING KEY to do it, which is a trust-root decision and does not follow
+ * from the ruling above.
  *
- * C23. PROPOSED. A register is imported as SHARDS: an ordinary blob per
+ * C23a. RECOMMENDED, and the open question. CONSULT WITHOUT PINNING: an
+ *      importing host fetches from the register, checks whatever the register
+ *      itself offers, and PUBLISHES THE SHARD INDEX AS A RECORD IN ITS OWN
+ *      ISSUER STREAM. Every other host then trusts it exactly as far as it
+ *      already trusts that host.
+ *
+ *      Three things follow. No foreign trust root is added, so the estate's
+ *      keys stay the estate's. A bad import is ATTRIBUTABLE to a host inside
+ *      the estate rather than to an anonymous mirror. And the currency problem
+ *      of C24 largely collapses into machinery that already exists:
+ *      `record/journal.h` keeps a position per (issuer, stream) and refuses
+ *      gaps, so a rollback is a sequence going backwards and is already
+ *      refused. TUF's shape (C25) stays relevant INSIDE the importer, as its
+ *      own concern when talking to the register, rather than as an
+ *      estate-wide mechanism.
+ *
+ *      THE COST, stated rather than buried: the importing host becomes a
+ *      trusted party for catalogue content, and compromising it lets it
+ *      publish a wrong catalogue. A pinned publisher key would prevent that
+ *      particular forgery.
+ *
+ *      THE ARGUMENT FOR TAKING THE TRADE: that host already holds the files
+ *      and can delete them. A party able to destroy bytes mislabelling them is
+ *      not a new exposure, while pinning a foreign key is one, and a permanent
+ *      one.
+ *
+ *      A privacy consequence worth having either way: only the importing host
+ *      talks to the register. The rest of the estate fetches from it, so one
+ *      host is exposed rather than all of them.
+ *
+ * C23. A register is imported as SHARDS: an ordinary blob per
  *      key-range, with a signed INDEX mapping range to blob root. The index is
  *      small enough to replicate to every host while the shards are fetched on
  *      demand. A shard is whole-or-nothing, so its have-set is one node --
@@ -200,6 +231,12 @@
  *      before a server makes the estate the anonymity set as well as the
  *      cache.
  *
+ * C26a. WHICH register is a consumer's decision and not this library's, by
+ *      `local/vocabulary.h`'s rule: MusicBrainz and AcoustID for recorded
+ *      music, No-Intro or Redump for game dumps, TMDB for film. What this
+ *      library carries is the mechanism -- fetch, shard, sign, publish, serve
+ *      -- and never which authority is right about what.
+ *
  * C27. An imported identifier is subject to C4: it is an assertion by the
  *      register, not a fact about the bytes, until a host checks it.
  *
@@ -222,8 +259,9 @@
  * 7. NOT SETTLED HERE
  * =========================================================================
  *
- *   - whether an external register is consulted at all, and whether this
- *     project pins another party's signing key to do it (C23-C26);
+ *   - whether this project pins another party's signing key, or takes C23a
+ *     and lets the importing host vouch instead. Consulting a register is
+ *     settled; this is the part that is not;
  *   - the shard size (C26) and the layout template of a managed source (C22);
  *   - whether reclamation of an unreferenced entity exists, its grace period
  *     if it does, and whether a pin exempting an entity is per-entity or

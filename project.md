@@ -29589,6 +29589,22 @@ rather than relitigate:
   transpose of "which hosts hold this file", so build one relation and derive
   the other.
 
+**SETTLED 2026-09-10: an external register IS consulted.** That closes the
+largest open item in `catalogue/catalogue.h`, and leaves the sharper half of
+the same question open -- whether this project PINS another party's signing
+key, which is a trust-root decision and does not follow from the ruling.
+
+The recommendation recorded at C23a is to consult WITHOUT pinning: an
+importing host fetches, checks what the register offers, and publishes the
+shard index in its OWN issuer stream, so the estate trusts a host it already
+trusts rather than acquiring a foreign trust root. Its best property is that
+the currency problem then largely collapses into machinery already here --
+`record/journal.h` keeps a position per (issuer, stream) and refuses gaps, so
+a rollback is a sequence going backwards and is refused already. Its cost is
+that the importing host becomes a trusted party for catalogue content, and the
+argument for paying it is that the same host already holds the files and can
+delete them.
+
 **Nothing here is a request to start.** It is written down because the
 decisions are perishable in a way the code is not, and because the have-set
 finding is cheaper to know now than after a second consumer has built on the
