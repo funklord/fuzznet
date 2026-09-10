@@ -60,6 +60,7 @@
 /cli/test/replay_print_test
 /cli/test/reasm_print_test
 /cli/test/sched_print_test
+/cli/test/claim_print_test
 /gui/test/trust_view_test
 /gui/test/log_view_test
 /gui/test/qr_view_test

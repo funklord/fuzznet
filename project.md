@@ -36331,3 +36331,78 @@ the window a self-root exists to close: a node trusting itself for want of
 anybody else could then be taken by whoever answers first. The header calls
 that asymmetry the whole design, and until this file nothing walked
 `self -> adopt` at all.
+
+## 251. The answer that must not read as a fault
+
+`claim.h` says it about `FZN_CLAIM_ERR_HELD` in its own words:
+
+> AN ANSWER RATHER THAN A FAULT -- it is the expected result for every
+> process but one, and a caller that logs it as an error will fill a log on a
+> working host.
+
+A consumer showing a person *could not start: error -2* has alarmed them about
+a host that is fine, and this is the line most consumers will show most often:
+every window but the first gets it.
+
+`cli/claim_print` is the surface for that, and for the three answers beside
+it. The distinctions are all in `claim.h` and none of them survives into an
+integer a person reads:
+
+	this process owns it       nothing; go on
+	this process let go        nothing; another may take it now
+	another process owns it    nothing; this is the design
+	the backend cannot say     an operator -- the store is unusable
+	                           rather than busy
+	the caller lost track      a bug in the consumer, not the host
+
+### Two judgements, going opposite ways
+
+**MALFORMED and STATE share a line.** A null argument and a release without a
+take are both the consumer having lost track of which process it is in, the
+person reading cannot act on either, and splitting them would draw a
+distinction for the code's benefit on a surface the code does not read. sec
+201.
+
+**But OK does not.** The first draft read `fzn_claim_held` and reported an
+unheld OK as ELSEWHERE -- which is a sentence about another process nobody had
+asked about, after this one deliberately let go. A release returns OK and
+leaves the claim unheld; a take returns OK and leaves it held; the code alone
+does not say which way round the caller is. `FZN_CLAIM_LINE_RELEASED` is the
+fifth state, and it was found by reading the arm back rather than by any test.
+
+### The seam's convention, read rather than assumed
+
+The first fixture set the seam to succeed with `held_out` clear, expecting
+contention. The module said otherwise: the seam's return means *did we get
+it*, and `held_out` disambiguates only a FAILURE -- zero with held set is
+contention, zero with it clear is a backend that could not answer.
+
+The test was wrong and the module was right, which is the ordinary case and
+worth the sentence because the fixture LOOKED like the contended one. Reading
+`fzn_claim_take` settled it in a minute.
+
+### The three controls, and the one the fifth state exists for
+
+	the working case alarms       the expected result for every process
+	                              but one was reported as a problem
+	broken and busy collapse      a host that cannot arbitrate at all was
+	                              not reported as such
+	a release reads as contention a release was reported as somebody else
+	                              holding the claim
+
+The third is the one the fifth state exists for, and it fails on the
+assertion that was written before the state was.
+
+### Three lenses swept, and empty
+
+Recorded so the next reader does not re-run them. **No parser without a
+harness remains** -- `session/aead.h` is the only decode-shaped function
+outside the ones already fuzzed, and it is a crypto seam. **`state`'s
+permutation property is already exhaustive**: `state_test.c` carries a
+`next_permutation` and walks its record set whole, so sec 250's technique is
+not new to this tree and that suite pioneered it. **The link-to-sched seam is
+exercised end to end** by `link_test.c` and `sim/test/provision_test.c`, both
+of which call `fzn_link_snapshot` and `fzn_sched_select` in one test.
+
+An empty result is a measurement only with its method attached, and these
+three say where not to look next.

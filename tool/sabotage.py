@@ -1308,6 +1308,20 @@ SABOTAGES = [
 		"a join repeated or a bundle delivered twice is an echo and not a fault, and a consumer telling a user its trust was attacked when the same root arrived again is the alarm nobody will read the second time -- caught at [pin(0) pin(0)] -- sec 250",
 	),
 	(
+		"claim-print-does-not-alarm-on-the-normal-case",
+		"cli/claim_print.c",
+		"\t\tput_str(s, \"another process of this identity owns its mutable state, which \"\n",
+		"\t\tput_str(s, \"PROBLEM -- the identity is locked by another process, which \"\n",
+		"claim.h calls FZN_CLAIM_ERR_HELD an answer rather than a fault and the expected result for every process but one, so a line that alarms on it alarms a person about a host that is fine -- and it is the line most consumers will show most often -- sec 251",
+	),
+	(
+		"claim-print-separates-broken-from-busy",
+		"cli/claim_print.c",
+		"\t\tcase FZN_CLAIM_ERR_BACKEND:\n\t\t\tsaid = FZN_CLAIM_LINE_UNARBITRATED;\n",
+		"\t\tcase FZN_CLAIM_ERR_BACKEND:\n\t\t\tsaid = FZN_CLAIM_LINE_ELSEWHERE;\n",
+		"a host that cannot arbitrate ownership at all is a broken store and a host whose claim is held is a working one, which claim.h keeps apart because they want different responses -- collapsed, the unusable store reads as the ordinary case and nobody is sent to look -- sec 251",
+	),
+	(
 		"log-body-escapes-what-a-terminal-obeys",
 		"log/log.c",
 		"\t\tif (body[i] >= 0x20u && body[i] <= 0x7eu) {\n",
