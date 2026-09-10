@@ -69,10 +69,15 @@ static void render(struct sink *s, const fzn_chain_t *chain, fzn_capability_stat
 	case FZN_CAPABILITY_EXPIRED:
 		put_str(s, "expired");
 		break;
-	default:
+	case FZN_CAPABILITY_USABLE:
 		/* "usable", not "allowed" -- finding a chain is not
 		 * authorisation. */
 		put_str(s, "usable");
+		break;
+	case FZN_CAPABILITY_NONE:
+		/* Answered above, before the verdict, and it returns there.
+		 * Named here so that -Wswitch refuses a state added later
+		 * rather than drawing it as usable. */
 		break;
 	}
 

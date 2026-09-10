@@ -42,7 +42,7 @@ static void render(struct sink *s, fzn_provision_line_t state,
 	case FZN_PROVISION_LINE_UNDATED:
 		put_str(s, "verified -- no clock, so the expiry was not looked at");
 		break;
-	default:
+	case FZN_PROVISION_LINE_USABLE:
 		put_str(s, "verified, and in date");
 		break;
 	}

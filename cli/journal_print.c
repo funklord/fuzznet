@@ -56,7 +56,7 @@ static void render(struct sink *s, fzn_journal_stream_state_t stream_state,
 	case FZN_JOURNAL_STREAM_EXHAUSTED:
 		put_str(s, "exhausted, no next sequence");
 		break;
-	default:
+	case FZN_JOURNAL_STREAM_TRACKING:
 		put_str(s, "received to ");
 		put_u64(s, received);
 		if (pending > 0u) {

@@ -93,7 +93,7 @@ static void render(struct sink *s, const fzn_catalog_sweep_plan_t *plan,
 		put_str(s, " of ");
 		put_u64(s, (uint64_t)total);
 		break;
-	default:
+	case FZN_SWEEP_DONE:
 		put_str(s, "removed ");
 		put_u64(s, (uint64_t)total);
 		break;

@@ -47,7 +47,7 @@ static void render(struct sink *s, fzn_revocations_state_t state, size_t in_forc
 	case FZN_REVOCATIONS_NONE:
 		put_str(s, "no revocation has been heard of");
 		break;
-	default:
+	case FZN_REVOCATIONS_HOLDING:
 		put_u64(s, (uint64_t)in_force);
 		put_str(s, " in force");
 		if (withdrawn > 0u) {

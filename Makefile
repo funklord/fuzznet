@@ -3772,6 +3772,39 @@ style: $(OBJS)
 	fi; \
 	echo "style: no installed header declares a realm, and the pattern was checked"
 
+# A `default:` IN A PRINTER'S STATE SWITCH SILENCES THE ONE WARNING THAT
+# GUARDS IT. sec 8 says why -- `-Wall`'s `-Wswitch` names an enumerator with
+# no case only where there is no default -- and sec 264 measured what it
+# cost: eight of the 24 printers carried one, so a state added to any of
+# their enums would have joined the default's line with nothing said. That
+# is the FZN_TRUST_SELF defect of sec 193, which is what produced the rule.
+#
+# The compiler catches the second step and nothing caught the first, which
+# is what this is. It reads the switch a `default:` belongs to rather than
+# the file, because `cli/provision_print.c` has one that is RIGHT: it maps
+# an unnamed verify error to FZN_PROVISION_LINE_REFUSED, and a fall-through
+# to a refusal fails closed where a fall-through to a line does not.
+	@bad=; n=0; \
+	for f in $(wildcard cli/*_print.c); do \
+		n=$$((n + 1)); \
+		if awk '/switch \(/ { sw = $$0 } \
+		        /^[ \t]*default:/ { \
+		                if (sw ~ /switch \((state|stream_state)\)/) \
+		                        print FILENAME ":" NR; \
+		        }' "$$f" | grep -q .; then \
+			bad="$$bad $$f"; \
+		fi; \
+	done; \
+	if [ "$$n" -eq 0 ]; then \
+		echo "style: no printers to check for absorbed states"; exit 1; \
+	elif [ -n "$$bad" ]; then \
+		echo "style: a default in a state switch, so a new state is absorbed:$$bad"; \
+		echo "style: name the state the default renders; sec 264."; \
+		exit 1; \
+	else \
+		echo "style: $$n printers name every state, so -Wswitch guards them all"; \
+	fi
+
 	@# ./installcheck/ IS EXCLUDED BECAUSE IT IS A COPY OF THIS LIST. It is
 	@# installcheck's DESTDIR staging tree, and BUILD_DIR defaults to `.`,
 	@# so it lands in the root. The target removes it at both ends -- but

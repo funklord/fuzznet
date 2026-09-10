@@ -32639,8 +32639,11 @@ the two states are. A self-anchored node "is a complete estate of one ... a
 working state rather than a placeholder"; an unanchored one "adopts the next
 root offered, so whoever reaches it first owns it". The line would have
 invited an operator to fix a correct node into the dangerous one. The enum
-names all four sources now with no `default:`, so `-Wswitch-enum` refuses a
-fifth that nobody handled, and `trust_print_test` asserts that a self anchor
+names all four sources now with no `default:`, so a fifth that nobody handled
+is warned about -- by `-Wswitch`, which `-Wall` carries, and not by
+`-Wswitch-enum`, which this build does not pass; the mechanism was misnamed
+here until sec 264 measured it, and it warns rather than refusing because
+`-Werror` is out by decision. `trust_print_test` asserts that a self anchor
 and an absent one do not print the same line.
 
 **Then sec 193 asked for the widget in the same commit, and the widget was
@@ -37988,3 +37991,124 @@ And it decides the third sweep, the one not shipped: **a sweep whose output
 cannot separate those four needs a waiver vocabulary before it needs better
 matching** -- and there is nothing to write waivers about yet, because the
 question has produced no gap in either tree.
+
+## 264. The rule that was written and not swept
+
+Sec 193 records a real defect: `FZN_TRUST_SELF` fell through a `default:`
+in `cli/trust_print.c` and printed *no anchor -- this host trusts nothing
+yet*, which inverts what `trust.h` says the two states are. It would have
+invited an operator to fix a correct node into the dangerous one. The fix
+named all four sources with no `default:`, and the entry states the rule:
+
+> so `-Wswitch-enum` refuses a fifth that nobody handled
+
+**Both halves of that sentence are wrong, and the class was never swept.**
+
+### The flag is not the one in the build, and it does not refuse
+
+`-Wswitch-enum` appears nowhere in this tree -- not in `CFLAGS_WARN`, not
+in any fragment, not in any tool. What fires is **`-Wswitch`, which comes
+with `-Wall`**, and the difference is exactly the case sec 193 was about:
+`-Wswitch` warns about an unhandled enumerator **only where there is no
+`default:`**, while `-Wswitch-enum` warns either way.
+
+And it warns rather than refusing: `-Werror` is deliberately out of this
+build, for the reason recorded at Makefile:3342. So the protection is a
+diagnostic somebody has to read, which is worth having and is not what the
+word "refuses" claims.
+
+### And this tree already said it correctly, in another section
+
+Sec 8 has the mechanism right, names the right flag, and verifies it the
+same way this entry did:
+
+> Each renderer is a switch with **no `default:`**, which is what makes
+> `-Wall`'s `-Wswitch` warn about an enumerator with no case -- a `default`
+> would silence exactly the warning worth having and turn a new code into a
+> silent "unknown" in somebody's log. Verified rather than assumed: adding a
+> code to `fzn_split_err_t` produces *"enumeration value
+> 'FZN_SPLIT_ERR_INVENTED' not handled in switch"*, naming it.
+
+**So nothing here was unknown; two statements of one mechanism disagreed and
+nobody compared them.** The wrong one was attached to the rule -- the entry a
+reader reaches by looking up why trust_print has no `default:` -- and the
+right one sits in a section about the shape of the tree, which nobody
+consults to settle a question about a printer.
+
+Sec 8's own warning was true of eight printers on the day it was written. It
+says a `default` "would silence exactly the warning worth having", and in
+eight files it was silencing it.
+
+**Where a claim lives in two places, the copy that gets quoted is the one to
+check** -- and the one that gets quoted is the one attached to a rule, not
+the one in the survey.
+
+### Sixteen printers had it and eight did not
+
+The rule was applied where the bug was found. Measured across all 24 by
+adding a spare enumerator to each printer's state enum and compiling:
+
+	before   16 of 24 REFUSED a new state; 8 were SILENT
+	after    24 of 24 REFUSED it
+
+The eight were `sync`, `journal`, `sweep`, `state`, `revocation`,
+`provision`, `transfer` and `capability`. **Nothing was rendering wrongly**
+-- each default was the last real state, drawn correctly. What each one
+cost was the guarantee: a state added tomorrow joins the default's line
+with nothing said, which is precisely the `FZN_TRUST_SELF` failure that
+produced the rule.
+
+That is `evidence.md`'s own instruction met from the wrong end. The lens
+was derived from a bug, and then it was not run over the population -- so
+the entry recording the class reads as though the class were closed.
+
+### Two of the eight name a state that cannot arrive
+
+`capability_print` and `transfer_print` answer their "nothing to say" state
+above the switch and return, so the default absorbed one reachable state
+each. Naming only that state would leave `FZN_CAPABILITY_NONE` and
+`FZN_TRANSFER_NOTHING` unhandled with no default, which `-Wswitch` then
+warns about correctly.
+
+They are named in the switch as well, with a comment saying they are
+answered above -- `cli/sched_print.c`'s idiom for
+`FZN_SCHED_EXCLUDED_MALFORMED`, which says in the same shape that the
+caller cannot produce it. **A case that cannot arrive, said out loud, is
+not dead code: it is what makes the switch total**, and a total switch is
+the whole mechanism.
+
+### The one default that is right, and why it is not an exception
+
+`cli/provision_print.c:111` switches on `fzn_provision_verify`'s error and
+maps four codes it does not name to `FZN_PROVISION_LINE_REFUSED`. Under
+`-Wswitch-enum` those are the only four warnings left in the printers, and
+the default stays.
+
+	a default that renders a LINE     absorbs a new state silently
+	a default that reaches a VERDICT  sends a new error to the refusal
+
+**The direction the fall-through goes is the whole test.** A state nobody
+handled becoming another state's sentence is the sec 193 defect. An error
+nobody handled becoming a refusal is failing closed, and removing it would
+mean a new error code left `said` at whatever it already held.
+
+### The first step is the one nothing was watching
+
+24 of 24 switches are total, so `-Wswitch` speaks for every one of them --
+and it speaks rather than refusing, because `-Werror` is out by decision.
+Two steps reintroduce the hole: somebody adds a `default:` back, and then
+somebody adds a state. **The compiler catches the second and nothing caught
+the first**, which is how eight printers came to carry one while sec 8 said
+in as many words that a default silences the warning worth having.
+
+`make style` now reads the switch a `default:` belongs to and refuses one
+whose header is `switch (state)` or `switch (stream_state)`. It reads the
+SWITCH rather than the file because `provision_print` must keep the other
+kind, and a file-level rule would either lose that one or let a state
+switch back in beside it. Put a `default:` back in `journal_print` and it
+names the file; take it out and it reports 24 printers naming every state.
+
+What is left advisory is the second step, and only in the sense that
+`-Werror` is out: the warning is emitted for all 24 and somebody has to
+read it. That is a decision this tree took for its own reasons and this
+entry does not reopen it.

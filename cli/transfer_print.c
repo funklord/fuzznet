@@ -67,8 +67,13 @@ static void render(struct sink *s, fzn_transfer_state_t state, uint64_t held, ui
 		 * different thing to tell somebody than "it stopped". */
 		put_str(s, "not started");
 		break;
-	default:
+	case FZN_TRANSFER_STALLED:
 		put_str(s, "STALLED, nothing outstanding");
+		break;
+	case FZN_TRANSFER_NOTHING:
+		/* Answered above, before the leaf counts, and it returns there.
+		 * Named here so that -Wswitch refuses a state added later rather
+		 * than drawing it as one of these. */
 		break;
 	}
 

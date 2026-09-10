@@ -53,7 +53,7 @@ static void render(struct sink *s, fzn_sync_state_t state, size_t missing, size_
 	case FZN_SYNC_UP_TO_DATE:
 		put_str(s, "up to date");
 		break;
-	default:
+	case FZN_SYNC_BEHIND:
 		put_u64(s, (uint64_t)missing);
 		put_str(s, " outstanding");
 		if (dropped > 0u) {

@@ -53,7 +53,7 @@ static void render(struct sink *s, fzn_state_cell_t state, const fzn_state_entry
 		 * this and a report must. */
 		put_str(s, "cleared -- it was set and taken back by ");
 		break;
-	default:
+	case FZN_STATE_CELL_SET:
 		put_str(s, "set by ");
 		break;
 	}
