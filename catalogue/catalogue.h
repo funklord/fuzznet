@@ -14,8 +14,8 @@
  * by a person, per C17.
  *
  * STATUS: specification. What was settled with fuzzypickles' copyright holder
- * on 2026-09-10 is marked SETTLED; what is a recommendation carrying no
- * ruling is marked PROPOSED and may be discarded without disturbing the rest.
+ * on 2026-09-10 is marked SETTLED. Nothing here now carries a PROPOSED
+ * marker; what remains undecided is named in section 7 rather than sketched.
  * No implementation, no wire encoding, and the module name is provisional.
  */
 
@@ -55,12 +55,57 @@
  *      the bytes and the register. Disagreement between an asserted identifier
  *      and a locally derived one is shown, by the same rule as C3.
  *
- * C5.  PROPOSED. An assertion declares a MERGE CLASS, per attribute rather
- *      than per catalogue: AUTHORITATIVE, where one pinned issuer wins and
- *      others are suggestions; COLLABORATIVE, where several issuers write one
- *      subject and a resolution rule is needed; LOCAL, which never leaves the
- *      host -- a rating, a play count, a position in a film. The third is easy
- *      to forget and expensive to retrofit.
+ * C5.  SETTLED 2026-09-10. An attribute declares TWO THINGS, and they vary
+ *      independently. The first draft of this entry offered one list of three
+ *      -- authoritative, collaborative, local -- which conflated them: LOCAL
+ *      says who may see a value and the other two say how concurrent values
+ *      combine, and an attribute needs an answer to each.
+ *
+ *      These apply to LABELS and IDENTIFIERS. A FACT does not merge, being
+ *      computed from the bytes by whoever holds them (C3).
+ *
+ * C5a. SCOPE, being who may see it:
+ *
+ *        HOST     never leaves the host that wrote it. A cache position, a
+ *                 last-played offset on this machine.
+ *        ESTATE   shared among the estate's hosts and no further.
+ *
+ *      This is the axis that is easy to forget and expensive to retrofit,
+ *      because an attribute that should never have been shared cannot be
+ *      un-shared once it has been.
+ *
+ * C5b. MERGE, being how concurrent assertions combine. Three rules, and the
+ *      principle behind all of them is the one C3 and C11 already state: NEVER
+ *      SILENTLY PICK A WINNER.
+ *
+ *        AUTHORITATIVE  a designated issuer takes PRECEDENCE WHERE IT SPEAKS.
+ *                       Its silence is not an assertion, so where it says
+ *                       nothing the field is open and another issuer's value
+ *                       stands, marked as not the authority's. Precedence,
+ *                       never exclusivity -- a register that does not cover an
+ *                       obscure release must not make that release unlabellable.
+ *        UNION          for a set-valued attribute -- tags, genres. The value
+ *                       is the union of LIVE assertions.
+ *        DISTINCT       for a single-valued attribute several issuers write.
+ *                       Every assertion is retained, there is NO automatic
+ *                       winner, and the disagreement is presented. Where one
+ *                       value must be shown, it is chosen by a stated local
+ *                       preference order, which is a DISPLAY choice and not a
+ *                       truth claim.
+ *
+ * C5c. AN ISSUER MAY RETRACT ONLY ITS OWN ASSERTION, which is what makes UNION
+ *      need no conflict machinery. A "removal" is an issuer withdrawing what it
+ *      said, never deleting what somebody else said, so concurrent add and
+ *      remove cannot race: the set is the union of what is live, computed at
+ *      read time from per (issuer, stream) state that already exists. No CRDT,
+ *      no tombstone reconciliation, no add-wins versus remove-wins question,
+ *      because the question cannot arise.
+ *
+ * C5d. Because every assertion is RETAINED rather than resolved away, changing
+ *      which issuer is authoritative for an attribute -- from one register to
+ *      another -- re-resolves the view and loses nothing. That is a property
+ *      of C5b's refusal to discard, and it is why the refusal is worth its
+ *      storage.
  *
  * =========================================================================
  * 2. DIMENSIONS AND LINKS
@@ -296,7 +341,6 @@
  *     per-view (C18);
  *   - whether a referenced entity may be promoted into a managed source in
  *     place rather than by copying (C15);
- *   - the merge classes of C5, which are a recommendation and carry no ruling;
  *   - the wire encoding of any of the above, and this module's name.
  */
 

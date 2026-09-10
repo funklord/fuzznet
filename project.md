@@ -29610,6 +29610,23 @@ verified, because nobody downstream can re-check against the register and the
 importer's diligence is the only check there is. Recording what was checked is
 what lets a reader judge it.
 
+**And the merge classes are settled (C5), which corrected my own proposal
+while settling it.** The three I had offered -- authoritative, collaborative,
+local -- conflate TWO INDEPENDENT AXES: local says who may see a value, the
+other two say how concurrent values combine, and an attribute needs an answer
+to each. So an attribute declares a SCOPE, host or estate, and a MERGE rule:
+authoritative, meaning precedence where the authority speaks and an open field
+where it is silent; union for set-valued attributes; distinct for
+single-valued ones, where every assertion is retained and the disagreement is
+presented rather than resolved.
+
+The rule that makes union cheap is C5c: **an issuer may retract only its own
+assertion.** A removal is withdrawing what you said, never deleting what
+somebody else said, so concurrent add and remove cannot race and the set is
+the union of live assertions computed at read time from per (issuer, stream)
+state that already exists. No CRDT, no tombstones, no add-wins versus
+remove-wins, because the question cannot arise.
+
 A third thing turned out to need nothing (C23d): a bad index is superseded by a
 later record in the same stream, which the journal already orders, and a
 compromised importer is handled by revoking its issuer key, which
@@ -37640,3 +37657,104 @@ witness with the same author.
 **What would change the answer**: a caller comparing at a length above 64,
 or an implementation that stops being a flat loop. Both are visible in the
 histogram above and in the function's ten lines, and neither is true today.
+
+## 262. Which reason, and four ways to get the question wrong
+
+Sec 261's find had a shape worth reusing: a property whose only witness is
+an INCIDENTAL caller. `fzn_ct_memeq`'s reach was held by `record_test`'s
+64-byte signature -- 24 calls out of 30.5 million -- and by nothing that
+was aimed at it. The mechanical form of that question is: **which public
+functions does no test name?**
+
+The population comes from `make manifest`, so it is the set `make install`
+ships rather than a naming convention over the sources: **439 functions
+declared across 83 headers**, against 165 test sources and 208 others.
+
+### The instrument was wrong four times, in four directions
+
+Each fault changed the finding list, and only two of the four announced
+themselves.
+
+	1  the USE pattern required a trailing paren, so it could not see a
+	   function passed AS a callback. Invented three findings --
+	   fzn_catalog_add_wins and its two siblings, which four test files
+	   wire up as `{ fzn_catalog_add_wins, NULL }`.
+
+	2  the parser took the FIRST fzn_*( in each ;-chunk, so a
+	   declaration whose preceding comment names another function was
+	   dropped. Lost fzn_copyright and fzn_peer_group_verdict.
+
+	3  it skipped a ;-chunk beginning with `#`. An include guard carries
+	   no semicolon, so `#ifndef ... #define ... int fzn_ct_memeq(` is
+	   ONE chunk, and the first declaration of every header went with
+	   it. 439 became 366.
+
+	4  it rejected a name preceded by an operator, to exclude calls. `*`
+	   is a pointer as well as a multiply, so `const char
+	   *fzn_agree_err_str(` read as arithmetic. Dropped 73.
+
+**Faults 1 and 2 are the expensive kind and 3 and 4 are not**, which is the
+opposite of how they look. Three and four are huge and were caught within a
+minute, because a count that moves by 73 is a count somebody reads twice.
+One and two are small, plausible, and move the list in the direction that
+makes a tree look tidier -- and a dropped declaration is not a finding you
+argue with, it is a function nobody ever examines.
+
+What caught 3 and 4 was a second count that does not share the parser: a
+crude scan of the same stripped text for `fzn_*(`, with the residue printed
+rather than assumed. What caught 1 and 2 was reading the findings.
+
+### And the rule that replaced them does not discriminate here
+
+A declaration is a name at BRACE DEPTH 0; a call in a header lives inside a
+`static inline` body and a prototype never does. That is the right rule and
+**its agreement with the crude scan is not evidence for it**: the residue is
+zero because no header inline body in this tree calls an `fzn_` function at
+all. The two counts agree, and there is currently no case where they could
+disagree, which is `evidence.md`'s own test for a control failed honestly.
+
+### The one that was a gap
+
+Eight names survived the first list, four the second. Three of those four
+are accessors held through a caller, and are waived by name with the reason.
+The fourth was mine, from sec 247: **`fzn_sched_excluded_by`**.
+
+`sched_test.c` already pinned the boolean either side of it --
+
+	expect(!fzn_sched_admits(NULL, &VOICE), "a null link admits nothing");
+
+-- and a boolean collapses five reasons into one answer. So the one thing
+the accessor says over `fzn_sched_admits` was the one thing nothing asked.
+
+Measured rather than argued. `FZN_SCHED_EXCLUDED_MALFORMED` was replaced
+with `FZN_SCHED_EXCLUDED_UNUSABLE`, which preserves `fzn_sched_admits`
+exactly and maps to a printer state `sched_print_test` already exercises:
+
+	make test: rc=0. The whole suite green.
+
+It is caught now, at `sched_test.c:212`, and held by
+`sched-a-missing-operand-blames-the-link`. **A missing operand is not a
+link the consumer called down**, and a report that says so blames the wrong
+party for a bug in its own caller.
+
+### The sweep ships hand-run, and its waivers expire
+
+`tool/public_reach.py`, not wired into `make style`: three waived names is a
+waiver list, and a gate carrying one has been switched off by instalments.
+It refuses two ways -- an unwaived name, and a **waived name that has since
+acquired a test**, because a list that can only grow is one nobody prunes.
+Both were made to fail before this was written.
+
+### A number recalled rather than read
+
+The waiver for `fzn_state_sound` first cited sec 233 for its narrower
+contract. There is no such discussion; it is **sec 184**. The identifier
+was completed rather than read, which `evidence.md` names as the one fault
+class that measuring again cannot catch -- every re-run agrees with itself.
+It was caught by opening the file, which is the only thing that catches it.
+
+**And then this section did it again, four paragraphs up.** The accessor's
+origin was written as sec 250 and is sec 247, in the entry whose subject is
+that fault. Two for two: every section number written from memory here was
+wrong, and both were correct-looking. The habit that works is not care, it
+is `awk '/^## /{s=$0} /<name>/{print s}'` before typing the digits.
