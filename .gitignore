@@ -63,6 +63,7 @@
 /cli/test/claim_print_test
 /cli/test/prekey_print_test
 /cli/test/persist_print_test
+/cli/test/relay_print_test
 /gui/test/trust_view_test
 /gui/test/log_view_test
 /gui/test/qr_view_test

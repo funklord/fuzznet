@@ -1371,6 +1371,20 @@ SABOTAGES = [
 		"a person scanning five lines reads the first sentence and stops, so one loss among four recoveries has to be what that sentence is about -- a summary counting the recoveries is true and is the half nobody needed -- sec 254",
 	),
 	(
+		"relay-print-separates-a-decision-from-an-ending",
+		"cli/relay_print.c",
+		"\tcase FZN_RELAY_ERR_REFUSED:\n\t\tsaid = FZN_RELAY_LINE_REFUSED;\n",
+		"\tcase FZN_RELAY_ERR_REFUSED:\n\t\tsaid = FZN_RELAY_LINE_ENDED;\n",
+		"relay.h argues at length that collapsing these makes a misconfigured policy indistinguishable from normal traffic reaching the end of its budget -- an operator watching frames stop would have no way to ask whether the host is doing it -- sec 256",
+	),
+	(
+		"relay-print-says-whether-there-is-a-row",
+		"cli/relay_print.c",
+		"\t\tif (row)\n\t\t\tput_str(s, \", whose ceiling for it is zero\");\n\t\telse\n\t\t\tput_str(s, \", which has no row of its own and takes the fallback\");\n",
+		"\t\t(void)row;\n\t\tput_str(s, \", whose ceiling for it is zero\");\n",
+		"a ceiling somebody wrote down and a subsystem with no entry at all are different edits, and sending an operator to find a policy row that does not exist is worse than not naming one -- sec 256",
+	),
+	(
 		"log-body-escapes-what-a-terminal-obeys",
 		"log/log.c",
 		"\t\tif (body[i] >= 0x20u && body[i] <= 0x7eu) {\n",

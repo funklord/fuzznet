@@ -37080,3 +37080,51 @@ severities, the render sweep over widgets, and now a README over the format
 it documents. In every case the fix was the same shape: ask the build what
 exists rather than keeping a second list, and make the check say what it
 checked.
+
+## 256. Is my own policy doing this?
+
+`wire/relay.h` argues the distinction at length and says what collapsing it
+costs:
+
+> EXHAUSTED says the frame has travelled as far as it was sent to travel,
+> which is every frame's ordinary end and says nothing about this host;
+> REFUSED says this host declined a subsystem it could have carried ...
+> Collapsing them would make a misconfigured policy indistinguishable from
+> normal traffic reaching the end of its budget.
+
+Two negative integers, and an operator watching traffic stop cannot tell
+which is happening. **Is my own policy doing this** is the question a person
+asks first, and `cli/relay_print` is where it gets answered.
+
+That is the fifth module this session whose header names a distinction that
+dies in the integer a person reads, after `sched`, `claim`, `prekey` and
+`persist`. Every one of them was found the same way: read the header for the
+sentence that says *this code exists because somebody has to see it*.
+
+### The row an operator would change
+
+A refusal names the subsystem AND says whether the table has a row for it.
+A ceiling written down as zero and a subsystem with no entry at all are
+**different edits** -- the first is a line to change, the second is a line to
+add -- and sending somebody to find a row that does not exist is worse than
+not naming one.
+
+The zero is where relay.h's own subtlety lives: `fzn_relay_budget` with an
+`allowed` of zero answers OK with a budget of zero, while a policy `fallback`
+of zero answers REFUSED. Same ceiling, deliberately different status, and sec
+233 records `relay_fuzz` asserting the equivalence flatly and failing on its
+first run against code that was right.
+
+### Written outside the tree until the commit
+
+This section was held in a scratch file and appended in the same command as
+`git add`, because two earlier sections -- sec 253 and sec 255 -- were swept
+into another session's commits while they sat in `project.md` waiting for a
+suite to finish. Nothing was lost either time and both are in history under
+somebody else's message, which is a record problem rather than a code one.
+
+**The window is the whole of it.** `CLAUDE.md`'s rule is to stage by path,
+and staging by path does not help when the file is written minutes before the
+commit and another writer commits in between. Writing the prose somewhere
+else and appending it at commit time closes the window to a second, and costs
+nothing.
