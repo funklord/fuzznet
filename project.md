@@ -37128,3 +37128,51 @@ and staging by path does not help when the file is written minutes before the
 commit and another writer commits in between. Writing the prose somewhere
 else and appending it at commit time closes the window to a second, and costs
 nothing.
+
+## 257. A printer built on an absence I manufactured
+
+`local/vocabulary.h` says `fzn_vocabulary_names` exists because `admit`
+returns one verdict for two situations that want opposite responses, and that
+a daemon logging both as "denied" **sends an operator to the wrong half of
+the system**. It also records that this was found by writing `cli/peer_print`,
+which had to report the reason and could not.
+
+I checked who calls that accessor:
+
+	grep -rn "fzn_vocabulary_names" --include=*.c . \
+	  | grep -v "^./local/vocabulary.c" | head -5
+
+Five lines came back, all from the module's own source and test. I read that
+as *an accessor built for a surface that was never written*, and wrote
+`cli/vocabulary_print` -- header, source, four states, an escaped verb.
+
+**`cli/peer_print.c:168` calls it.** The hit was below the `head -5` cut.
+
+### The rule I already had, pointed at a search
+
+`evidence.md` lists four ways to manufacture an absence and names this one
+exactly -- *the view*: `grep ... | head` over a hit below the cut, where the
+command exits 0 and prints nothing. It also says, of checks, **never reduce
+the output before you know it passed**, and the same sentence is true of a
+search whose answer you are about to act on.
+
+What made it survive is the asymmetry that entry warns about: *a loose
+pattern makes you work; a short one makes you comfortable.* Five tidy lines
+from one module read exactly like a complete answer.
+
+### What the duplicate would have cost
+
+`fzn_peer_print` takes the verb and the rules and returns both
+`verdict_out` and `named_out`, and renders the same four answers. Its escape
+is also stricter than the one I wrote: it escapes `"` and `\` as well as the
+non-printables, so a verb cannot close the quoted region the line puts it in.
+Mine let a quote through.
+
+So the duplicate would have been a second surface for one question, with a
+weaker escape, drifting from the first. It is deleted rather than committed.
+
+**The cheap check I skipped costs one command.** `grep -c` before `head`, or
+no `head` at all on a search that decides whether to write a file. Reading
+the header's own last sentence would also have done it: it says the accessor
+was found by writing `cli/peer_print`, which is a fair hint about who calls
+it.
