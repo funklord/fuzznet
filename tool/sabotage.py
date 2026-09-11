@@ -3792,6 +3792,30 @@ SABOTAGES = [
 		"a cursor that does not move repeats one removal for ever and never "
 		"reaches the end, so the sweep neither finishes nor releases",
 	),
+	# BATCH TWENTY-SIX, 2026-09-11: the want walk, sec 272. Held by
+	# catalog/test/copy_fuzz.c, a METAMORPHIC harness -- it checks things
+	# the answer must not depend on rather than the answer, because a want
+	# list's oracle would be a model of retention, holdings and inline
+	# content, which is copy.c rewritten in the test.
+	(
+		"copy-a-blob-is-listed-once",
+		"catalog/copy.c",
+		"\tif (already_listed(out, plan->written, root)) {\n",
+		"\tif (0) {\n",
+		"one blob referenced by two nodes is one fetch; emitting it twice makes "
+		"a consumer ask for the same bytes again and mis-sizes every array the "
+		"plan's counters are used to allocate",
+	),
+	(
+		"copy-refuses-while-a-job-holds-the-catalogue",
+		"catalog/copy.c",
+		"\t/* sec 149: while a refile holds the catalogue, progress is the only\n"
+		"\t * question it answers. */\n\tif (catalog->busy_with)\n",
+		"\t/* sec 149: while a refile holds the catalogue, progress is the only\n"
+		"\t * question it answers. */\n\tif (0)\n",
+		"a want list computed mid-sweep asks for bytes that are being deleted as "
+		"it is written",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

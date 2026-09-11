@@ -38715,3 +38715,86 @@ The "planned nothing" count is not padding. A run where every case planned
 nothing would exercise capture, begin, end and the lock while every assertion
 about a step sat inside an empty loop -- so both sides carry a floor, and the
 end-refusal floor is the one that can only be met from inside the loop.
+
+## 272. A fourth instrument, and the assertion that was false
+
+`catalog/copy.c` has a harness, which gives every source in `catalog/` one.
+The four are four different instruments and none of them was a preference:
+
+	catalog_fuzz   properties      no oracle exists -- the answer for a
+	                               contested edge is order-dependent by
+	                               design
+	reach_fuzz     an oracle       one question, one right answer, and a
+	                               breadth-first search is a second
+	                               implementation of it
+	sweep_fuzz     a protocol      no answer to check; a random call
+	                               SEQUENCE is what finds an ordering fault
+	copy_fuzz      metamorphic     an oracle EXISTS and is not worth having:
+	                               it would be a model of retention, the
+	                               holdings seam and inline content, which
+	                               is copy.c rewritten in the test
+
+**The fourth is the interesting addition.** The other three were decided by
+what the subject makes possible; this one by what it makes AFFORDABLE. A want
+list is a function of the catalogue, so sec 270's move is available in
+principle -- and paying for it means writing the module twice and testing
+that two copies of one reading agree, which is `evidence.md`'s one witness
+wearing a lab coat. What `copy.h` offers instead is a set of things the
+answer must NOT depend on, and those cost nothing to check:
+
+	the filing has no part in it   compute the want list, then give the
+	                               catalogue a filing root and file nodes
+	                               under it, then compute again -- identical
+	written + truncated sizes      a second walk into exactly that size does
+	  an array big enough          not truncate
+	BUSY while any job holds it    a want list computed mid-sweep asks for
+	                               bytes that are being deleted
+
+### The assertion that was false, and the floor that caught the vacuous one
+
+**The first draft asserted `written + truncated >= the distinct blobs in the
+catalogue`.** It failed on case 0 and it deserved to: a want list holds blobs
+this host does NOT hold, so the content table is not its denominator. The
+right denominator needs the model this harness exists to avoid. The sizing
+claim is checked where `copy.h` actually makes it -- the second walk -- and
+that needs no denominator at all.
+
+**And the metamorphic property was vacuous for two runs before a floor said
+so.** `fzn_catalog_file_under` refuses an edge that does not exist -- "a
+filing is a subset of the membership" -- and the fixture asserted content
+without ever asserting membership, so nothing could be filed and the check
+compared two identical unfiled walks. The output was `filed 0` in 2000 cases,
+and the floor is the only reason that was visible: every assertion passed.
+
+That is twice now that a coverage floor has caught what assertions could not,
+against once that a floor was merely satisfied. **A floor is not a
+completeness gesture; it is the only instrument that can see a property
+quietly stop being exercised.**
+
+### A sabotage on a counter is invisible to anything that reads it
+
+Three sabotages, three caught, and the middle one caught DIFFERENTLY:
+
+	a blob already listed is emitted again    an assertion
+	a truncation is not counted               THE FLOOR
+	a want list computed while held           an assertion
+
+Blinding `plan->truncated` blinds every property that reads it -- including
+this harness's own sizing check, which computes `written + truncated` and
+would have walked into an array of exactly `written` and found no truncation
+reported, because none is reported anywhere. Only the distribution shows it:
+`0 truncated` where 164 were expected.
+
+**So a counter cannot be held by an assertion over itself.** What holds it is
+a floor over how often it moves, and that is a different kind of check rather
+than a weaker one.
+
+### What the harness pins and does not require
+
+`truncated` is documented as an upper bound rather than a count: two
+references to one blob arriving after the array filled are two truncations
+and not one duplicate, "there is nowhere to remember the first". So the
+harness COUNTS the cases where the bound was loose -- 44 of 2000 -- and
+requires none of them, for sec 243's reason. A suite that required looseness
+would fail the day somebody made the sizing exact, which is a change that
+should arrive at this file and argue rather than break it.
