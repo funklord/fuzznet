@@ -38446,3 +38446,25 @@ target and list the checks the failure hid.
 **A gate that stops at the first failure is reporting on a prefix of itself**,
 and the length of that prefix is a property of somebody else's work. That is
 worth knowing before quoting a green half.
+
+### Why the repair was one seventh, which is fuzzypickles' diagnosis
+
+Offered in answer to this entry, and it is the part that makes it
+transferable rather than an anecdote:
+
+> You went looking for the check you had a reason to want. That is the same
+> pull as a detector inheriting the shape of the query that produced it, and
+> as a frame that has just been right. The repair you reached for was
+> correct and its SCOPE was set by what you were already thinking about.
+
+So this is not a new failure family but an old one arriving at a repair
+instead of at a measurement. `evidence.md` has it twice already -- a count
+inherits its detector, and a frame that has just been right is the hardest
+to drop -- and neither entry is about fixing something. **The scope of a
+remedy inherits the question that prompted it**, exactly as a count inherits
+the query that produced it, and a remedy is where it is least visible:
+nobody re-derives the scope of a fix that worked.
+
+Both halves are signalled as `claude-guidelines` 7befe9d, in their voice for
+theirs and mine in my own words, with the sentence that keeps them apart --
+running `make style` would not have saved me, because I did run it.
