@@ -146,6 +146,41 @@
  *      no tombstone reconciliation, no add-wins versus remove-wins question,
  *      because the question cannot arise.
  *
+ * C5f. WHAT THE CONSUMER'S CAPABILITY MODEL ALREADY TEACHES C5e, read
+ *      2026-09-11 from `core/src/capability.h` and
+ *      `core/src/config_sync_internal.h`. Four things, and two of them are
+ *      mistakes that tree has already made and paid for.
+ *
+ *      1. AUTHORIZATION TRAVELS WITH THE CHANGE, never with the channel.
+ *      Their config-sync header is explicit: "an authenticated link does NOT
+ *      authorize what travels over it", so a change "carries its own proof,
+ *      verifiable by the target without reference to how it arrived". A
+ *      catalogue assertion at capability GRANTED must do the same. Accepting
+ *      one because the peer is authenticated is confusing authentication with
+ *      authorization, and the link being encrypted makes no difference to it.
+ *
+ *      2. DEFINE THE CAPABILITY FINE-GRAINED NOW, even if the interface stays
+ *      coarse. Theirs is "a small fixed byte enum, defined fine-grained from
+ *      the start even though the CLI stays coarse for now -- retrofitting a
+ *      typed field into an already-deployed signed capability grant is exactly
+ *      the kind of wire-format churn this project has already paid to avoid
+ *      TWICE". So C5e's GRANTED should name WHICH capability rather than
+ *      meaning "some capability": the coarse spelling is the one that cannot
+ *      be refined later without breaking signatures.
+ *
+ *      3. GRANTING IS TWO QUESTIONS AND THEY ASKED ONE. "May you pass anything
+ *      on at all" and "do you have this particular thing to pass" are
+ *      different, "and for a while only the second was asked, which left
+ *      CAP_ADMIN gating nothing and let any host promote any other host to its
+ *      own capability set". Any delegation a catalogue grows has the same two
+ *      questions and the same way of answering half of them.
+ *
+ *      4. A CHAIN IS SINGLE-TYPED BY CONSTRUCTION, the type sitting inside
+ *      each hop's signed region with linkage requiring grantor == previous
+ *      grantee, so a holder cannot mint a type it does not itself hold. C5e
+ *      verifies through `chain/authz.h` and inherits this; it does not need
+ *      its own notion of a master granter and should not acquire one.
+ *
  * C5d. Because every assertion is RETAINED rather than resolved away, changing
  *      which issuer is authoritative for an attribute -- from one register to
  *      another -- re-resolves the view and loses nothing. That is a property
