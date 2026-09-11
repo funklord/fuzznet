@@ -38798,3 +38798,73 @@ harness COUNTS the cases where the bound was loose -- 44 of 2000 -- and
 requires none of them, for sec 243's reason. A suite that required looseness
 would fail the day somebody made the sizing exact, which is a change that
 should arrive at this file and argue rather than break it.
+
+## 273. A harness that could not hold its own property
+
+`spool/transfer.c` has a harness. The property it exists for is the one
+`transfer.h` says needed holding:
+
+> a cursor advancing past each assignment was the obvious optimisation and it
+> is a SECOND mechanism producing disjoint ranges -- so the two-peer test
+> passed with the pending record removed, the cursor accounting for the
+> disjointness on its own. **A property with two mechanisms where only one is
+> load-bearing is a property no test can hold.**
+
+`from` belongs to the caller now, so the pending record is the only mechanism
+left. A harness can drive `from` adversarially -- backwards, into the middle
+of a live range, past the end -- where two hand-written peers walk forward,
+which is what the cursor was doing.
+
+### The first draft had the same fault the header describes
+
+It stubbed the store's read and write seams, because nothing in the subject
+looked like I/O. So no delivery ever succeeded. **The window opens only on a
+delivery the store can support**, so it stayed at its floor of one; with a
+window of one, at most one assignment is live; and with one live assignment,
+"no two overlap" compares each new range against nothing.
+
+	8586 assigned, none overlapped, every assertion green
+
+That is the sec 269 failure in a new place and worse, because here the
+property was not merely weak -- it was **structurally unreachable**, and the
+harness reported success over 2000 cases without ever once having two live
+assignments to compare.
+
+**What flagged it was a coverage counter reading zero**, not an assertion:
+`window_halved 0` against 6073 failures. Reading `transfer.c` then explained
+it in one line -- `transfer->window = 1u` at open, and growth only in the
+delivery path. Third time today a floor has pointed at a vacuous property and
+the first where the property could not have been reached at all.
+
+The fixture places real bytes now -- leaves, a Merkle tree, proofs, a disk
+array -- built once because it is deterministic, so deliveries succeed and
+the window opens:
+
+	131145 assigned and none overlapped, 52840 delivered, 17586 halvings,
+	9757 expiries of which 588 dropped more than one batch
+
+The last number is the one AIMD's rule is about: "one decrease per loss
+event, not per assignment", and 588 cases put more than one batch behind a
+single expiry.
+
+### And a comment of mine was stale within the hour
+
+While the store was stubbed I wrote a header paragraph saying congestion
+control was not on trial here and could not be reached from this fixture,
+and a printed line saying zero halvings was expected. Both were true when
+written. Both were false an hour later because I changed the fixture, and
+nothing about them would have looked wrong to a reader -- they were careful,
+specific, and about a version of the file that no longer existed. Corrected
+before the commit, and worth recording as the shape rather than the slip: **a
+limit is a claim about the instrument, and rebuilding the instrument dates
+it.**
+
+### What it does not catch, pinned
+
+Making `overlaps` treat TOUCHING ranges as overlapping survives every case.
+That is correct and not a gap: the change is conservative, so it never
+produces an overlap -- it only refuses assignments it could have made.
+Nothing here measures a missed opportunity and nothing could, because
+`transfer.h` says the search covers "a bounded number of candidate ranges"
+and may answer NONE with free leaves elsewhere. **A refusal that was wrong
+and a refusal that was allowed are the same observation from outside.**

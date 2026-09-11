@@ -276,6 +276,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              catalog/test/reach_fuzz.c \
              catalog/test/sweep_fuzz.c \
              catalog/test/copy_fuzz.c \
+             spool/test/transfer_fuzz.c \
              spool/test/scrub_fuzz.c \
              session/test/agree_test.c \
              session/test/session_test.c \
@@ -355,6 +356,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/catalog/test/reach_fuzz \
              $(BUILD_DIR)/catalog/test/sweep_fuzz \
              $(BUILD_DIR)/catalog/test/copy_fuzz \
+             $(BUILD_DIR)/spool/test/transfer_fuzz \
              $(BUILD_DIR)/spool/test/scrub_fuzz \
              $(BUILD_DIR)/session/test/agree_test \
              $(BUILD_DIR)/session/test/session_test \
@@ -1943,6 +1945,15 @@ $(BUILD_DIR)/spool/test/scrub_test: $(BUILD_DIR)/spool/test/scrub_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+$(BUILD_DIR)/spool/test/transfer_fuzz: $(BUILD_DIR)/spool/test/transfer_fuzz.o \
+                                       $(BUILD_DIR)/spool/transfer.o \
+                                       $(BUILD_DIR)/spool/spool.o \
+                                       $(BUILD_DIR)/spool/plan.o \
+                                       $(BUILD_DIR)/blob/blob.o \
+                                       $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/spool/test/scrub_fuzz: $(BUILD_DIR)/spool/test/scrub_fuzz.o \
                                     $(BUILD_DIR)/spool/scrub.o \
                                     $(BUILD_DIR)/spool/plan.o \
@@ -3110,6 +3121,7 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/catalog/test/reach_fuzz \
              $(BUILD_DIR)/catalog/test/sweep_fuzz \
              $(BUILD_DIR)/catalog/test/copy_fuzz \
+             $(BUILD_DIR)/spool/test/transfer_fuzz \
              $(BUILD_DIR)/spool/test/scrub_fuzz \
              $(BUILD_DIR)/ratchet/test/ratchet_fuzz \
              $(BUILD_DIR)/sched/test/sched_fuzz \

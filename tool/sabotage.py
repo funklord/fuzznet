@@ -3816,6 +3816,29 @@ SABOTAGES = [
 		"a want list computed mid-sweep asks for bytes that are being deleted as "
 		"it is written",
 	),
+	# BATCH TWENTY-SEVEN, 2026-09-11: batch assignment, sec 273. Held by
+	# spool/test/transfer_fuzz.c, whose first draft could not hold this
+	# property at all: it stubbed the store, so no delivery succeeded, so
+	# the window stayed at its floor of one, so at most ONE assignment was
+	# ever live and "no two overlap" compared each range against nothing.
+	(
+		"transfer-a-live-assignment-blocks-an-overlap",
+		"spool/transfer.c",
+		"\t\tif (slot->live && overlaps(first, count, slot->first, slot->count))\n",
+		"\t\tif (0 && overlaps(first, count, slot->first, slot->count))\n",
+		"the pending record is the ONLY mechanism producing disjoint ranges "
+		"since the internal cursor was removed -- transfer.h says a property "
+		"with two mechanisms is one no test can hold",
+	),
+	(
+		"transfer-the-window-never-reaches-zero",
+		"spool/transfer.c",
+		"\ttransfer->window /= 2u;\n\tif (transfer->window == 0u)\n"
+		"\t\ttransfer->window = 1u;\n",
+		"\ttransfer->window /= 2u;\n",
+		"a transfer whose window reaches zero can never ask for anything "
+		"again, so it can never learn the path recovered",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so
