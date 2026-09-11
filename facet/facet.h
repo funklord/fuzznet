@@ -1,3 +1,22 @@
+/*
+ * ==========================================================================
+ * A SPECIFICATION, NOT AN INTERFACE. NOTHING IMPLEMENTS ANY OF THIS.
+ * ==========================================================================
+ *
+ * There is no .c beside this file and never has been. It declares NOTHING:
+ * no type, no function, only an include guard round numbered prose. That is
+ * deliberate, and the reason is fuzzypickles' `core/src/record_store_internal.h`,
+ * a header in exactly this position which learned it the expensive way --
+ * "a header full of declarations reads as available machinery. Including it
+ * compiled fine and failed at LINK time, naming an undefined symbol -- a
+ * diagnostic that describes the mechanism and leaves the reader to work out
+ * that the feature was never written."
+ *
+ * So this one cannot be linked against by accident, and it says so at the
+ * TOP rather than in a status line somebody skims past. It is listed in
+ * SPEC_HDRS rather than HDRS, and `make install` does not ship it.
+ */
+
 /* Naming a set of catalogue nodes, in a form that means the same thing
  * everywhere.
  *

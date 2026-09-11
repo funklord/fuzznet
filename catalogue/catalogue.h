@@ -1,3 +1,22 @@
+/*
+ * ==========================================================================
+ * A SPECIFICATION, NOT AN INTERFACE. NOTHING IMPLEMENTS ANY OF THIS.
+ * ==========================================================================
+ *
+ * There is no .c beside this file and never has been. It declares NOTHING:
+ * no type, no function, only an include guard round numbered prose. That is
+ * deliberate, and the reason is fuzzypickles' `core/src/record_store_internal.h`,
+ * a header in exactly this position which learned it the expensive way --
+ * "a header full of declarations reads as available machinery. Including it
+ * compiled fine and failed at LINK time, naming an undefined symbol -- a
+ * diagnostic that describes the mechanism and leaves the reader to work out
+ * that the feature was never written."
+ *
+ * So this one cannot be linked against by accident, and it says so at the
+ * TOP rather than in a status line somebody skims past. It is listed in
+ * SPEC_HDRS rather than HDRS, and `make install` does not ship it.
+ */
+
 /* What is known about a file, where it is, and who holds it.
  *
  * The layer between this library's filestore, which owns bytes and their
@@ -267,6 +286,26 @@
  *      point rather than an afterthought. This entry said store one and derive
  *      the other, which is the right instinct one step short of the answer.
  *
+ * C8b. WHAT MAY LEAVE THE ESTATE IS A BIT, NEVER THE HOLDER LIST. C8 makes
+ *      the issuer set the holder set, and C5a allows an attribute at
+ *      ADVERTISED to be seen by peers outside the estate. Those two combine
+ *      into a leak nobody decided on: advertising availability by publishing
+ *      the claim set tells a peer WHICH OF THIS USER'S HOSTS HOLD WHAT, which
+ *      is the estate's device topology.
+ *
+ *      fuzzypickles refused exactly this once already, in
+ *      `core/src/settle_internal.h`: settled "is emitted to the sender as a
+ *      SINGLE BIT -- never a per-host map, WHICH WOULD LEAK THE RECIPIENT'S
+ *      DEVICE TOPOLOGY". The same answer applies here and for the same reason.
+ *      Inside the estate the claim set is the availability metadata and costs
+ *      nothing; crossing the boundary it becomes a disclosure, and what
+ *      crosses is at most a bit, or a count with no names attached.
+ *
+ *      This is C5a1's divergence made concrete: replication scope and
+ *      visibility scope coincide below ADVERTISED and part at it, and the
+ *      holder list is the first thing that must not follow the attribute
+ *      across.
+ *
  * C8a. AND IT IS WHY C10 CONVERGES WITHOUT COORDINATION. "Each host is
  *      authoritative about itself and nothing else, so two hosts cannot
  *      disagree about a third, and a claim needs no coordination to
@@ -412,6 +451,16 @@
  *      would get wrong by being helpful: a set recomputed against the current
  *      estate can never close while a host is away, or closes early when one
  *      leaves.
+ *
+ *      THE PINNED SET IS THE HOSTS THAT ACTUALLY HOLD, not every sibling.
+ *      Their settlement policy draws this line and the reason transfers
+ *      exactly: "a message is settled once every one of this user's own hosts
+ *      that DOES CHAT RETENTION holds it. Not every sibling -- relay and
+ *      retention are independent, host-by-host choices, so a host that only
+ *      forwards never stores and MUST NEVER BE WAITED ON." A consensus set
+ *      that includes hosts which never hold anything is a set that cannot
+ *      close, and the symptom is a purge queue that grows for ever while every
+ *      host in it behaves correctly.
  *
  *      It is the same shape as their message settlement
  *      (`core/src/settle_internal.h`), which is their own note and worth
