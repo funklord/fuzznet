@@ -38471,8 +38471,28 @@ running `make style` would not have saved me, because I did run it.
 
 ## 269. A harness whose first draft caught nothing
 
-`catalog/` was the last module in this tree with no fuzz harness. It has one
-now, and what it took to make it worth having is the entry.
+`catalog/` had no fuzz harness. It has one now, and what it took to make it
+worth having is the entry.
+
+**The commit that added it said "the last module here with no harness" and
+that was wrong.** Measured afterwards, by asking `make -n` what each harness
+links rather than reading the rules -- `link_fuzz` names `$(LINK_OBJ)` and a
+regex over the Makefile cannot see through a variable:
+
+	26 harnesses link 33 of 53 library sources; 20 are linked by none
+
+Three of the twenty are `catalog/copy.c`, `catalog/reach.c` and
+`catalog/sweep.c`, so the directory has a harness and most of its code does
+not. **And the twenty is not a gap list either**, which is the second half of
+the correction: six are thin backends over vendored code
+(`*_monocypher.c`, `*_linux.c`), `qr/qr.c` has `qrcheck` round-tripping 104
+renders through quirc, and `claim/claim.c` and `state/state.c` are reached by
+exhaustive walks rather than by anything named `_fuzz`. `*_fuzz.c` is a
+FILENAME, and randomised coverage in this tree is not confined to it.
+
+So the honest statement is neither "the last" nor "twenty gaps": it is that
+this is one source of fifty-three, the population is legible now, and what
+each of the twenty deserves is a separate question per source.
 
 **The merit question first.** `catalog_test.c` runs 1221 checks; a harness
 earns its place only by asking something those cannot. It can: `catalog.h`
