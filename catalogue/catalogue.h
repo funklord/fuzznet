@@ -136,7 +136,19 @@
  *                       winner, and the disagreement is presented. Where one
  *                       value must be shown, it is chosen by a stated local
  *                       preference order, which is a DISPLAY choice and not a
- *                       truth claim.
+ *                       truth claim -- AND THE VIEW MUST NAME WHOSE VALUE IT
+ *                       IS SHOWING.
+ *
+ *                       That last clause is fuzzypickles'
+ *                       `library_service_internal.h`, which built this rule
+ *                       before it was written here: "nothing picks a winner",
+ *                       this host's own claim is preferred "for the reason a
+ *                       person would expect -- what you named it is what you
+ *                       should see", and a `described_by` field says whose it
+ *                       is. Calling a choice a display choice is not enough on
+ *                       its own: without the attribution a reader cannot tell
+ *                       a preference from a consensus, which is the thing the
+ *                       rule exists to avoid claiming.
  *
  * C5c. AN ISSUER MAY RETRACT ONLY ITS OWN ASSERTION, which is what makes UNION
  *      need no conflict machinery. A "removal" is an issuer withdrawing what it
@@ -145,6 +157,17 @@
  *      read time from per (issuer, stream) state that already exists. No CRDT,
  *      no tombstone reconciliation, no add-wins versus remove-wins question,
  *      because the question cannot arise.
+ *
+ * C5a1. REPLICATION SCOPE IS NOT VISIBILITY SCOPE, and C5a is about the
+ *      second. fuzzypickles' `library_sync_internal.h` draws the line: their
+ *      catalogue is "global per estate", and that is "a statement about who
+ *      REPLICATES it, not about who may SEE it".
+ *
+ *      C5a's ESTATE therefore answers who may see, and an attribute at
+ *      ADVERTISED is seen beyond the hosts that replicate it. The two
+ *      questions coincide for HOST and diverge at the top of the axis, which
+ *      is where an implementation would assume they are one thing because
+ *      below that they always were.
  *
  * C5f. WHAT THE CONSUMER'S CAPABILITY MODEL ALREADY TEACHES C5e, read
  *      2026-09-11 from `core/src/capability.h` and
@@ -564,6 +587,21 @@
  *      be one -- is followed through a forwarding record, or refused. It is
  *      never silently treated as absent. A SPLIT cannot be followed at all and
  *      is surfaced, per `facet/facet.h` F23.
+ *
+ * C29a. DO NOT REUSE ANOTHER SUBSYSTEM'S FRAMES, however well the shapes
+ *      match. From `library_sync_internal.h`, which considered it and refused:
+ *      reusing the notes frames "would mean a library record arriving at the
+ *      notes handler, WHICH WOULD ADMIT IT -- fzp_notes_admit checks the
+ *      signature, the issuer and the subject, and deliberately does NOT check
+ *      `kind`" -- and then store it as a node whose body no decoder there can
+ *      read.
+ *
+ *      The trap is that the admitting check is CORRECT: it is not supposed to
+ *      check kind, because kind is not what it is defending. Two subsystems
+ *      sharing a frame family means each one's permissive-by-design admission
+ *      is the other's contamination. The routing byte is where the separation
+ *      belongs, and a catalogue that grows its own frames should not economise
+ *      here.
  *
  * =========================================================================
  * 7. NOT SETTLED HERE
