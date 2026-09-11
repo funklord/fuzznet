@@ -282,6 +282,24 @@
  *      it. Importing a source therefore costs a full hashing pass, once,
  *      proportional to the collection.
  *
+ * C16a. A PATH IS LOCAL AND MUST NOT TRAVEL. From fuzzypickles'
+ *      `core/src/file_ref.c` and their sec 11: what goes in a message is a
+ *      NAME, "for display and for a default, NEVER A PATH TO WRITE", because
+ *      it comes from whoever sent it and "a separator or a dot-dot in it would
+ *      be a path traversal in any client that took it literally".
+ *
+ *      Their handling of a bad one is the part to carry: it is REFUSED AT
+ *      PARSE RATHER THAN SANITISED, on the grounds that "a name that cannot be
+ *      shown safely is a name this format does not carry". That is
+ *      `facet/facet.h` F28's rule -- a failed parse refuses rather than
+ *      approximates -- arriving from a different subsystem, which is a reason
+ *      to trust it rather than a coincidence to note.
+ *
+ *      So C13's `(source, relative path)` is a LOCAL form. It is what a host
+ *      records about its own disk; it is not what it publishes. An advertised
+ *      attribute (C5a) carries a name and never a path, or it discloses the
+ *      layout of somebody's filesystem to every peer that can see the claim.
+ *
  * C17. SETTLED, and this is the safety core. A DELETION IS EXPLICIT AND NEVER
  *      A CONSEQUENCE OF METADATA GOING WRONG. No metadata error of any kind
  *      may destroy bytes: not a miscounted link, not a view rebuilt wrongly,
@@ -294,6 +312,31 @@
  * C19. Removing the FINAL holder of an entity is a distinct act from removing
  *      a redundant copy. It destroys the entity estate-wide and is
  *      unrecoverable, so it MUST NOT share a gesture with dropping a spare.
+ *
+ * C19a. HOW AN ESTATE-WIDE DELETION ACTUALLY HAPPENS, which C17 to C19 say
+ *      must be explicit without saying by what mechanism. From fuzzypickles'
+ *      `core/src/notes_purge_internal.h`, settled by their holder 2026-09-05,
+ *      and their statement of why the obvious answers fail is the useful half:
+ *      "A local delete is undone by the next sibling to sync. A tombstone that
+ *      lives for ever trades a note for a smaller permanent thing, which is
+ *      not a saving -- and deleting exists to save space, so an answer that
+ *      keeps something indefinitely has missed the point."
+ *
+ *      Their answer: a deletion is a QUEUED COMMAND eliminated once consensus
+ *      is attained. "No earlier, because a host that has not yet agreed still
+ *      holds a copy and will re-send it. No later, because the queue entry is
+ *      itself the thing being paid for."
+ *
+ *      **And the consensus set is PINNED WHEN THE PURGE IS QUEUED, not
+ *      recomputed as hosts come and go.** That is the detail an implementation
+ *      would get wrong by being helpful: a set recomputed against the current
+ *      estate can never close while a host is away, or closes early when one
+ *      leaves.
+ *
+ *      It is the same shape as their message settlement
+ *      (`core/src/settle_internal.h`), which is their own note and worth
+ *      keeping: one mechanism already carries this in that tree, so a
+ *      catalogue adopting it is reusing rather than inventing.
  *
  * C20. In a REFERENCED source, unlinking means FORGETTING the reference. The
  *      bytes belong to whoever put them there and are never deleted by the
