@@ -38650,3 +38650,68 @@ The cycle floor is there because a breadth-first search that revisits is a
 non-terminating one, and a walk whose visited set is also its queue -- which
 is what `reach.c` uses -- is exactly where that goes wrong. The fixture is
 not free of cycles; it is required to contain them.
+
+## 271. Three harnesses, three instruments, one module
+
+`catalog/sweep.c` has a harness now, and with sec 269 and sec 270 that makes
+three written against one module in two days. They are not three of a kind,
+and the differences were forced by the subjects rather than chosen:
+
+	catalog_fuzz   a merge rule whose answer for a contested edge is
+	               order-dependent BY DESIGN, so no function maps the
+	               assertion set to an expected answer. Properties, plus an
+	               oracle over the one shape the rule fixes.     2 of 4
+
+	reach_fuzz     a graph walk: one question, one right answer for a given
+	               set of edges. A breadth-first search written from the
+	               header is a second implementation.            3 of 3
+
+	sweep_fuzz     a six-call protocol with a lock, a cursor and a refusal.
+	               No answer to check -- what a random call SEQUENCE finds
+	               is an ordering fault.                         3 of 3
+
+**The instrument is a property of the subject, and picking the wrong one is
+how sec 269's first draft asserted two true things and caught nothing.** A
+harness for a protocol that looked for a wrong answer would find none; a
+harness for a graph that asserted only invariants would miss a walk that
+stops early. The question to ask first is not "what should I assert" but
+"what kind of thing is this".
+
+### What sweep_fuzz asserts, and it is all `sweep.h`'s own text
+
+	rows sorted by node id     "the order is the same on every machine and
+	                           after every restart ... That is what lets
+	                           the cursor be a count"
+	begin is idempotent        "a restart calls it again on a job it has
+	                           loaded from disk"
+	end refuses while work     so a consumer cannot abandon a sweep and
+	  remains                  leave the catalogue unlocked
+	BUSY while held            nothing may change the catalogue, which is
+	                           what stops the list moving under a count
+	the list does not move     step k hands back the row capture wrote at
+	                           k, or the decision was not taken once
+
+The last is the one the header's argument actually rests on -- "THE DECISION
+IS TAKEN AT CAPTURE AND NEVER AGAIN" -- and it is the one no single call can
+check.
+
+### And what it deliberately does not do
+
+**It does not model which nodes the plan chooses.** `sweep_test.c` owns that,
+and needs a model of retention, holdings and witnesses to say anything about
+the last-copy guard or a shared blob. The protocol is sound or not
+independently of what the plan contains, and a harness that mixed the two
+would fail for two unrelated reasons and be read as one.
+
+That is the same line sec 269 drew and could not hold: there the properties
+were about the merge rule AND the walk over its result, and separating them
+is what made the oracle findable.
+
+	2000 cases: 951 planned something, 1049 planned nothing, 1168 end
+	refusals while work remained, 2000 assertions refused as busy,
+	47 truncated plans
+
+The "planned nothing" count is not padding. A run where every case planned
+nothing would exercise capture, begin, end and the lock while every assertion
+about a step sat inside an empty loop -- so both sides carry a floor, and the
+end-refusal floor is the one that can only be met from inside the loop.

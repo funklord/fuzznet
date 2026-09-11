@@ -3772,6 +3772,26 @@ SABOTAGES = [
 		"unreachable, which is a proposal to delete live data -- the failure "
 		"direction reach.c's own comment calls out for the scratch array",
 	),
+	# BATCH TWENTY-FIVE, 2026-09-11: the sweep protocol, sec 271. A third
+	# kind of harness after sec 269's properties and sec 270's oracle: this
+	# subject is a six-call protocol over a path that deletes bytes, and
+	# what a random call sequence finds is an ordering fault.
+	(
+		"sweep-end-refuses-while-work-remains",
+		"catalog/sweep.c",
+		"\tif (job->done < job->used)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n",
+		"\tif (0)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n",
+		"a consumer could end a sweep it abandoned, unlocking the catalogue "
+		"while discarding its own record of what it meant to remove",
+	),
+	(
+		"sweep-the-cursor-advances",
+		"catalog/sweep.c",
+		"\tjob->done++;\n",
+		"\tjob->done += 0;\n",
+		"a cursor that does not move repeats one removal for ever and never "
+		"reaches the end, so the sweep neither finishes nor releases",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

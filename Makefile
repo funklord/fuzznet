@@ -274,6 +274,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              spool/test/scrub_test.c \
              catalog/test/catalog_fuzz.c \
              catalog/test/reach_fuzz.c \
+             catalog/test/sweep_fuzz.c \
              spool/test/scrub_fuzz.c \
              session/test/agree_test.c \
              session/test/session_test.c \
@@ -351,6 +352,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/spool/test/scrub_test \
              $(BUILD_DIR)/catalog/test/catalog_fuzz \
              $(BUILD_DIR)/catalog/test/reach_fuzz \
+             $(BUILD_DIR)/catalog/test/sweep_fuzz \
              $(BUILD_DIR)/spool/test/scrub_fuzz \
              $(BUILD_DIR)/session/test/agree_test \
              $(BUILD_DIR)/session/test/session_test \
@@ -2314,6 +2316,14 @@ $(BUILD_DIR)/cli/test/log_print_test: $(BUILD_DIR)/cli/test/log_print_test.o \
 	$(CC) $(CFLAGS) $^ -o $@
 
 # catalog/ is a membership relation over ids and calls nothing. sec 144.
+$(BUILD_DIR)/catalog/test/sweep_fuzz: $(BUILD_DIR)/catalog/test/sweep_fuzz.o \
+                                     $(BUILD_DIR)/catalog/sweep.o \
+                                     $(BUILD_DIR)/catalog/catalog.o \
+                                     $(BUILD_DIR)/record/record.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/catalog/test/reach_fuzz: $(BUILD_DIR)/catalog/test/reach_fuzz.o \
                                      $(BUILD_DIR)/catalog/reach.o \
                                      $(BUILD_DIR)/catalog/catalog.o \
@@ -3087,6 +3097,7 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/log/test/log_fuzz \
              $(BUILD_DIR)/catalog/test/catalog_fuzz \
              $(BUILD_DIR)/catalog/test/reach_fuzz \
+             $(BUILD_DIR)/catalog/test/sweep_fuzz \
              $(BUILD_DIR)/spool/test/scrub_fuzz \
              $(BUILD_DIR)/ratchet/test/ratchet_fuzz \
              $(BUILD_DIR)/sched/test/sched_fuzz \
