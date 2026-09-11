@@ -92,6 +92,38 @@
  *      because an attribute that should never have been shared cannot be
  *      un-shared once it has been.
  *
+ * C5a-OPEN. TWO DIVERGENCES FROM THE CONSUMER'S OWN MODEL, found 2026-09-11
+ *      while citing it above, and FLAGGED RATHER THAN RESOLVED because C5a is
+ *      a settled ruling and this file is not the place to amend one quietly.
+ *
+ *      1. THEIR SCOPE HAS THREE LEVELS AND C5a HAS TWO.
+ *      `fzp_setting_distribution` is `FZP_DIST_LOCAL` (never leaves this
+ *      host), `FZP_DIST_SYNCED` (replicated across the user's own hosts) and
+ *      `FZP_DIST_ADVERTISED`, which their header glosses as "observable by
+ *      peers -- a disclosure, not a preference". LOCAL is C5a's HOST and
+ *      SYNCED is C5a's ESTATE; ADVERTISED has no analogue here.
+ *
+ *      It is not hypothetical for a catalogue. An availability claim is
+ *      already observable by peers, so the third level is how this system
+ *      behaves rather than a level somebody might want -- and the gloss is the
+ *      reason it matters: a disclosure is a different kind of decision from a
+ *      preference, and a two-valued scope cannot record that an attribute
+ *      leaves the estate.
+ *
+ *      2. THEY HAVE AN AXIS THIS FILE HAS NONE OF.
+ *      `fzp_setting_capability` -- NONE, HOST_MANAGE, ADMIN -- is what
+ *      authority is needed to CHANGE a value, which is independent of who may
+ *      SEE it and of how concurrent values combine. C21 reaches the same
+ *      question ad hoc, ruling that reassignment and deletion must not share a
+ *      permission; an axis would put that ruling on the same footing as the
+ *      others rather than leaving it a special case about two verbs.
+ *
+ *      So the consumer's model is THREE axes -- subject, distribution,
+ *      capability -- and this file's is two, with a merge axis they do not
+ *      need because a setting has one writer per scope. Whether C5a gains a
+ *      third level and C5 a third axis is the holder's, and is recorded here
+ *      rather than decided.
+
  * C5b. MERGE, being how concurrent assertions combine. Three rules, and the
  *      principle behind all of them is the one C3 and C11 already state: NEVER
  *      SILENTLY PICK A WINNER.
