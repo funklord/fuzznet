@@ -64,6 +64,24 @@
  *      These apply to LABELS and IDENTIFIERS. A FACT does not merge, being
  *      computed from the bytes by whoever holds them (C3).
  *
+ *      PRIOR ART IN THE CONSUMER, found after this was settled and worth citing
+ *      rather than leaving it looking freshly derived. fuzzypickles'
+ *      `common/settings.h` already splits a setting on two independent axes --
+ *      `fzp_setting_applies` for what it is ABOUT (`FZP_APPLIES_HOST_SELF`,
+ *      `_HOST_NAMED`, `_USER`, `_PEER_NAMED`, `_GROUP_NAMED`) and
+ *      `fzp_setting_distribution` for how far it TRAVELS (`FZP_DIST_LOCAL`,
+ *      `FZP_DIST_SYNCED` and so on) -- and its own comment gives the reason:
+ *      the two are "independent of how far it travels -- collapsing the two
+ *      loses the distinction that makes 'configure one host from another'
+ *      expressible at all."
+ *
+ *      Cited by name because it is their file and their decision, not
+ *      described from memory. The mapping is partial: their DISTRIBUTION is
+ *      this file's SCOPE, their APPLIES is a subject scope that a catalogue
+ *      expresses through the entity instead, and their model has no merge axis
+ *      because a setting has one writer per scope. What transfers is the
+ *      principle and the fact that this tree's consumer paid for it first.
+
  * C5a. SCOPE, being who may see it:
  *
  *        HOST     never leaves the host that wrote it. A cache position, a
