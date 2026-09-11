@@ -38388,3 +38388,61 @@ probe that finds nothing are one line apart in the output**, and the only
 reason it was not read as "no widget absorbs anything" is that the failure
 was loud. The version that worked removes the label and lets the compiler
 speak, which is also the version that needed no cleverness.
+
+## 268. Two ways to verify with less than you think
+
+`make style` was red from `ef9fe5a` to `3ca0eff` -- 22 commits, about a day --
+on two specification headers not in `HDRS`. Both sessions working this tree
+reported passing verification throughout, and both were right about a
+narrower thing than they said.
+
+**fuzzypickles ran the TOOL and not the TARGET.** Their report, in their
+words: they ran `python3 tool/style_gate.py` after every edit and it passed
+every time, and it "is a NARROWER INSTRUMENT that does not run the header
+check at all. Every verification I reported was true and about the wrong
+population."
+
+**This session ran the target and read a TRUNCATED run.** `make style` stops
+at the first failing check, and the header check is twelfth of nineteen. So
+seven checks did not run for 22 commits:
+
+	132 test sources, all reached by `make test`
+	153 test sources, every failure line names its suite
+	40 error renderers, all walked by err_str_test
+	19 widgets, each one used by qtty_render_test
+	8 manifest kinds, each named in README.md
+	version/version.h and VERSION agree
+	project.md says nothing twice and names no missing file
+
+Four of those bear on work committed here in that window -- eight widgets
+changed, five test files edited, assertions added to four suites.
+
+**And the part that is mine rather than shared: I noticed the truncation and
+repaired one seventh of it.** The words at the time were *"the gate aborted
+at the HDRS check before reaching the project.md check -- so my section is
+unverified"*, and `style_gate.py docs` was then run directly. That is the
+population lens turned on a gate and then applied to exactly the one check I
+had a reason to want. **The question I did not ask is what ELSE was after
+it**, and it is the same question this section, sec 264 and sec 267 are all
+about. Six checks, none of which I had a reason to think about, and that is
+precisely why a gate runs them.
+
+All seven pass, so nothing was broken. What was wrong for 22 commits is the
+claim, in six commit messages and every report: "style passes except for the
+other session's two headers" describes a run that stopped before half its
+work.
+
+### The two failures need different remedies
+
+	the narrower instrument   run the TARGET, not the tool it calls
+	the truncated run         when a gate stops early, enumerate what came
+	                          AFTER the failure, not what you wanted from it
+
+Neither remedy catches the other. Running `make style` would not have helped
+me, because I did run it; running it to completion is what I could not do
+while somebody else's check failed first, and the answer there is to read the
+target and list the checks the failure hid.
+
+**A gate that stops at the first failure is reporting on a prefix of itself**,
+and the length of that prefix is a property of somebody else's work. That is
+worth knowing before quoting a green half.
