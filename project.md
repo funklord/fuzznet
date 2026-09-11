@@ -38468,3 +38468,105 @@ nobody re-derives the scope of a fix that worked.
 Both halves are signalled as `claude-guidelines` 7befe9d, in their voice for
 theirs and mine in my own words, with the sentence that keeps them apart --
 running `make style` would not have saved me, because I did run it.
+
+## 269. A harness whose first draft caught nothing
+
+`catalog/` was the last module in this tree with no fuzz harness. It has one
+now, and what it took to make it worth having is the entry.
+
+**The merit question first.** `catalog_test.c` runs 1221 checks; a harness
+earns its place only by asking something those cannot. It can: `catalog.h`
+claims the merge rule converges -- "two hosts adding a member agree whatever
+order the assertions arrive in" -- and sec 243 tested that with TWO
+assertions in opposite orders. **Two is where an order-dependence is least
+likely to show.** A harness can ask it at ten assertions across three issuers
+over a shuffled permutation, which is where a merge rule actually fails.
+
+### The first draft asserted two things and neither was worth much
+
+	1. links alone converge -- every permutation agrees on every edge
+	2. the edge SET converges whatever the mix, even where membership
+	   does not, because an assertion about an unknown edge adds it and
+	   the resolver chooses between answers rather than removing a row
+
+It passed 2000 cases. Then both guards sabotaged in `fzn_catalog_add_wins`
+**survived it**, and reading why is the whole of what this entry is for:
+
+**Property 1 is nearly vacuous.** With every assertion `present`, every
+asserted edge is linked under almost any resolver -- a broken merge rule
+still leaves it linked, because there is no assertion that would unlink it.
+The property is true, it is what the header claims, and it discriminates
+almost nothing.
+
+**Property 2 is real and the sabotages do not violate it.** Dropping the
+tombstone row removes unlink-only pairs IDENTICALLY in both orders, so the
+edge set stays order-independent while being wrong.
+
+### What made it catch anything is an oracle, and its shape was not obvious
+
+The strengthening I reached for first was **wrong**, and checking it is the
+only reason it is not in the tree: *compare the whole edge -- issuer, seq,
+present -- between the two orders.* That is false. `fzn_catalog_add_wins`
+ends with "two issuers agreeing: keep what is held, so the answer does not
+depend on arrival order" -- and that comment is carefully scoped. The ANSWER
+does not depend on order; **which issuer's row is stored does**, and
+asserting otherwise would have made the harness wrong rather than weak.
+
+What is predictable is narrower: an edge **one** issuer speaks about, with no
+two statements sharing a sequence. There the rule gives that issuer's later
+statement, so the outcome is its highest sequence -- computed from the SET
+rather than read from the table. Ties are excluded because `offered->seq >
+held->seq` keeps what is held on equality, so two statements at one sequence
+resolve by arrival: that is the rule working and simply not something an
+oracle can predict.
+
+	7543 single-issuer edges checked against the oracle in 2000 cases
+
+### Four sabotages, two caught, and the two that are not
+
+	a later statement no longer supersedes its own issuer's   CAUGHT
+	the tombstone row is not kept                             CAUGHT
+	an equal sequence now supersedes (`>` becomes `>=`)       survives
+	presence no longer wins across issuers                    survives
+
+**Both survivors are invisible by construction and that is pinned here so
+nobody quotes this harness for them.** The tie change is exactly the case the
+oracle excludes; and with links only, a tie leaves `present` at 1 either way,
+so no convergence check can see it. Cross-issuer presence only shows in sets
+containing an unlink, which is where sec 243 already licenses divergence --
+so the harness cannot distinguish that break from the documented behaviour.
+`catalog_test.c` catches both, with 5 failures on the tombstone alone.
+
+**And `catalog_test` is what the sabotage table reports for the two that ARE
+caught, because it runs first.** The entries read
+
+	catalog-a-later-statement-supersedes  CAUGHT  catalog_test.c:266
+	catalog-a-tombstone-costs-a-row       CAUGHT  catalog_test.c:262
+
+which is the table doing its job -- the question it asks is whether a guard
+is held by anything -- and is NOT evidence about the harness. That the
+harness catches both was established separately, by building it against each
+sabotaged tree on its own and reading its own MODEL line. Worth separating,
+because `evidence.md` asks for which check failed rather than that something
+did, and a run where an earlier suite intercepts is exactly the case it
+names.
+
+**The number that matters is not 2000, it is 65**: cases where membership
+differed by order while the edge set did not. That is sec 243's
+non-property occurring on its own in random data, sixty-five times, with the
+property that must hold holding throughout.
+
+### And the harness had sec 86's own defect in it
+
+The first run segfaulted on case 0. The resolve ops were passed as a compound
+literal in the call, and `fzn_catalog_init` KEEPS that pointer -- so the
+catalogue read its resolver off a frame that had returned. That is sec 86's
+fault, a view into a stack buffer whose scope had ended, written by the
+session that had spent the day reading about it. It was loud here only
+because the frame was reused immediately; sec 86's took AddressSanitizer and
+a dozen clean `make check` runs to find.
+
+fuzzypickles' formulation, from the other end of the same question:
+**a compound literal is not a lifetime.** Caller-owned state means the
+caller's state must outlive the call, and a compound literal is the thing
+that looks like it does.

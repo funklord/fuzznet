@@ -3724,6 +3724,32 @@ SABOTAGES = [
 		"--fuzznet-owner=yes silently becomes the default; cli_test read back "
 		"auto and no and never the third value",
 	),
+	# BATCH TWENTY-THREE, 2026-09-11: the catalogue's merge rule, sec 269.
+	# catalog/ was the last module with no fuzz harness and now has one.
+	# Both of these were SURVIVED by catalog_fuzz's first draft, whose
+	# properties were edge-set convergence and link-only membership --
+	# nearly vacuous, because a set of links makes every asserted edge
+	# linked under almost any resolver. The single-issuer oracle is what
+	# catches them, and sec 269 records the two that still survive it.
+	(
+		"catalog-a-later-statement-supersedes",
+		"catalog/catalog.c",
+		"\t\treturn offered->seq > held->seq ? 1 : 0;\n\n\t/* ACROSS ISSUERS, PRESENCE WINS",
+		"\t\treturn offered->seq < held->seq ? 1 : 0;\n\n\t/* ACROSS ISSUERS, PRESENCE WINS",
+		"one issuer's own sequence is what orders its statements, so reversing "
+		"it holds the EARLIEST -- caught by catalog_fuzz's oracle, which "
+		"computes the expected answer from the set rather than the table",
+	),
+	(
+		"catalog-a-tombstone-costs-a-row",
+		"catalog/catalog.c",
+		"\tcatalog->edges[catalog->used] = offered;\n",
+		"\tif (!offered.present)\n\t\treturn FZN_CATALOG_OK;\n"
+		"\tcatalog->edges[catalog->used] = offered;\n",
+		"an unlink for an edge nobody asserted must still be stored or a stale "
+		"link arriving afterwards creates the edge afresh; catalog.c's own "
+		"comment says the row is what makes a removal stick",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so
