@@ -55,11 +55,15 @@
  *      the bytes and the register. Disagreement between an asserted identifier
  *      and a locally derived one is shown, by the same rule as C3.
  *
- * C5.  SETTLED 2026-09-10. An attribute declares TWO THINGS, and they vary
- *      independently. The first draft of this entry offered one list of three
- *      -- authoritative, collaborative, local -- which conflated them: LOCAL
- *      says who may see a value and the other two say how concurrent values
- *      combine, and an attribute needs an answer to each.
+ * C5.  SETTLED 2026-09-10, EXTENDED 2026-09-11. An attribute declares THREE
+ *      things and they vary independently: SCOPE (C5a), MERGE (C5b) and
+ *      CAPABILITY (C5e).
+ *
+ *      The first draft offered one list of three -- authoritative,
+ *      collaborative, local -- which conflated the first two: LOCAL says who
+ *      may see a value and the others say how concurrent values combine. The
+ *      third axis arrived on 2026-09-11 from the consumer's own model, which
+ *      carried it before this file did.
  *
  *      These apply to LABELS and IDENTIFIERS. A FACT does not merge, being
  *      computed from the bytes by whoever holds them (C3).
@@ -84,46 +88,37 @@
 
  * C5a. SCOPE, being who may see it:
  *
- *        HOST     never leaves the host that wrote it. A cache position, a
- *                 last-played offset on this machine.
- *        ESTATE   shared among the estate's hosts and no further.
+ *        HOST        never leaves the host that wrote it. A cache position,
+ *                    a last-played offset on this machine.
+ *        ESTATE      shared among the estate's hosts and no further.
+ *        ADVERTISED  observable by PEERS outside the estate. Settled
+ *                    2026-09-11; the name and the distinction are
+ *                    fuzzypickles' `FZP_DIST_ADVERTISED`, whose gloss is why
+ *                    it is a level and not a flag -- "a disclosure, not a
+ *                    preference".
+ *
+ *      ADVERTISED is not a level somebody might want. An availability claim is
+ *      already observable by peers, so a catalogue without it cannot record
+ *      that an attribute leaves the estate: it would be describing its own
+ *      behaviour in a vocabulary with no word for it.
  *
  *      This is the axis that is easy to forget and expensive to retrofit,
  *      because an attribute that should never have been shared cannot be
- *      un-shared once it has been.
+ *      un-shared once it has been -- and twice as true of the third level,
+ *      where the audience is not even bounded by the estate.
  *
- * C5a-OPEN. TWO DIVERGENCES FROM THE CONSUMER'S OWN MODEL, found 2026-09-11
- *      while citing it above, and FLAGGED RATHER THAN RESOLVED because C5a is
- *      a settled ruling and this file is not the place to amend one quietly.
+ * C5a-CLOSED. ~~Two divergences from the consumer's own model.~~ BOTH SETTLED
+ *      2026-09-11 on the holder's instruction: the third scope level is at
+ *      C5a above and the capability axis at C5e below.
  *
- *      1. THEIR SCOPE HAS THREE LEVELS AND C5a HAS TWO.
- *      `fzp_setting_distribution` is `FZP_DIST_LOCAL` (never leaves this
- *      host), `FZP_DIST_SYNCED` (replicated across the user's own hosts) and
- *      `FZP_DIST_ADVERTISED`, which their header glosses as "observable by
- *      peers -- a disclosure, not a preference". LOCAL is C5a's HOST and
- *      SYNCED is C5a's ESTATE; ADVERTISED has no analogue here.
+ *      They were found by citing `common/settings.h` for the two-axis split
+ *      and then reading the rest of that file, which had three axes where this
+ *      had two and three scope levels where this had two. The route is worth
+ *      more than the finding: the consumer's WORKING CODE was a better source
+ *      for this library's own model than either project's documents were, and
+ *      it was opened while chasing an unrelated question about enum coverage
+ *      whose numbers were never publishable.
  *
- *      It is not hypothetical for a catalogue. An availability claim is
- *      already observable by peers, so the third level is how this system
- *      behaves rather than a level somebody might want -- and the gloss is the
- *      reason it matters: a disclosure is a different kind of decision from a
- *      preference, and a two-valued scope cannot record that an attribute
- *      leaves the estate.
- *
- *      2. THEY HAVE AN AXIS THIS FILE HAS NONE OF.
- *      `fzp_setting_capability` -- NONE, HOST_MANAGE, ADMIN -- is what
- *      authority is needed to CHANGE a value, which is independent of who may
- *      SEE it and of how concurrent values combine. C21 reaches the same
- *      question ad hoc, ruling that reassignment and deletion must not share a
- *      permission; an axis would put that ruling on the same footing as the
- *      others rather than leaving it a special case about two verbs.
- *
- *      So the consumer's model is THREE axes -- subject, distribution,
- *      capability -- and this file's is two, with a merge axis they do not
- *      need because a setting has one writer per scope. Whether C5a gains a
- *      third level and C5 a third axis is the holder's, and is recorded here
- *      rather than decided.
-
  * C5b. MERGE, being how concurrent assertions combine. Three rules, and the
  *      principle behind all of them is the one C3 and C11 already state: NEVER
  *      SILENTLY PICK A WINNER.
@@ -156,6 +151,32 @@
  *      another -- re-resolves the view and loses nothing. That is a property
  *      of C5b's refusal to discard, and it is why the refusal is worth its
  *      storage.
+ *
+ * C5e. CAPABILITY, being what authority is needed to CHANGE it. Settled
+ *      2026-09-11 on the holder's instruction, and taken from the consumer's
+ *      `fzp_setting_capability` rather than invented: independent of who may
+ *      SEE a value (C5a) and of how concurrent values combine (C5b).
+ *
+ *        NONE     any member of the estate may assert it -- a tag, a note.
+ *                 C5c still binds: you may retract only your own.
+ *        HOLDER   only a host that HOLDS THE BYTES may assert it.
+ *        GRANTED  a named capability is required, verified through
+ *                 `chain/authz.h` as any other is.
+ *
+ *      IT EXPLAINS C10 RATHER THAN SITTING BESIDE IT. An OBSERVED claim is the
+ *      holder's own fact, and the reason nobody else may publish one is
+ *      exactly capability HOLDER -- stated there as a property of that field
+ *      and really an instance of this axis. A DESIRED placement is a request,
+ *      and what authority it needs is a capability question that until now had
+ *      no axis to live on.
+ *
+ *      AND C21 STOPS BEING A SPECIAL CASE ABOUT TWO VERBS. That ruling --
+ *      reassignment and deletion must not share a permission -- is what this
+ *      axis says generally: reassignment changes this library's own metadata,
+ *      deletion destroys somebody's bytes, so they take different
+ *      capabilities. C17 is unaffected and unaffectable: no capability makes a
+ *      deletion implicit, because C17 forbids the CONSEQUENCE rather than the
+ *      authority.
  *
  * =========================================================================
  * 2. DIMENSIONS AND LINKS
