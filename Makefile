@@ -736,6 +736,28 @@ endif
 # four times -- a dangling continuation swallows the next line, and make
 # reports it against somewhere else entirely.
 GUI_SRCS := gui/trust_view.cpp gui/qr_view.cpp
+# SPECIFICATION HEADERS: real headers, deliberately NOT installed.
+#
+# The same asymmetry as GUI_HDRS below and for a third reason. These carry a
+# subsystem's rules as numbered statements and declare NOTHING -- no type, no
+# function, only an include guard round the prose. `make install` shipping them
+# would put documentation in an include path and tell a consumer an API exists
+# where none does.
+#
+# They are listed rather than pattern-matched so that adding one is a decision
+# somebody makes, and the union below is what keeps `make style` honest about
+# their existence instead of silent.
+#
+# WHEN ONE GRADUATES: the day a module gains a .c, its header stops being
+# specification-only and moves into HDRS, where installcheck will then parse it
+# as part of the C API. A header that declares anything does not belong here.
+#
+# Added 2026-09-11 by the fuzzypickles session, whose catalogue and facet specs
+# (sec 101) left `make style` red for 22 commits: that session verified with
+# `python3 tool/style_gate.py` rather than `make style`, which is a narrower
+# instrument that does not run this check at all.
+SPEC_HDRS := catalogue/catalogue.h facet/facet.h
+
 GUI_HDRS := gui/trust_view.h gui/qr_view.h
 GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp
 # THE CONFIGURATION FORM NEEDS BOTH OPTIONS, and that is the design rather
@@ -3837,7 +3859,7 @@ style: $(OBJS)
 	@# `installcheck`'s C++ arm parses every member without Qt's flags. A
 	@# C++-only header that needs `QWidget` fails both. It is a real public
 	@# header and it is installed below; it is not a C one. sec 140.
-	@known=" $(HDRS) $(GUI_HDRS) "; missing=; n=0; \
+	@known=" $(HDRS) $(GUI_HDRS) $(SPEC_HDRS) "; missing=; n=0; \
 	for h in `find . -name '*.h' -not -path './.git/*' -not -path './.claude/*' \
 	                 -not -path './wire/generated/*' -not -path './tool/*' \
 	                 -not -path './build/*' -not -path './san/*' \
