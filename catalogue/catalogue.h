@@ -203,6 +203,43 @@
  *      is not a catalogue edit but the delete gesture of C17 spelled where it
  *      is truthful.
  *
+ * C9a. SHARING A SUBTREE IS NOT SYMMETRIC, and the two directions are named
+ *      differently. Taken from fuzzypickles' `core/src/notes_share_internal.h`
+ *      and their sec 22, settled there 2026-09-03, because a catalogue
+ *      publishing part of a dimension is the same problem their notes already
+ *      solved:
+ *
+ *        OUTGOING  a (subtree, PEER NAME) pair. It names a peer because that
+ *                  is what a person shares with, and what a sender has to
+ *                  resolve to an address.
+ *        INCOMING  an (ISSUER KEY, subtree) pair. It names a key because that
+ *                  is what arrives on a record, and what a gate can check
+ *                  without a lookup that might fail.
+ *
+ *      A C5a ADVERTISED attribute has both directions and they are not one
+ *      list read twice.
+ *
+ * C9b. CONTAINMENT MUST NOT BE CHECKED, and this is the one a catalogue would
+ *      get wrong by being careful. The obvious gate -- admit an assertion only
+ *      if its node is UNDER the shared subtree -- cannot be enforced and buys
+ *      nothing.
+ *
+ *      It cannot be enforced because a child can arrive before its parent, so
+ *      a recipient frequently cannot prove containment for an assertion that
+ *      is perfectly legitimate. A gate demanding it would drop records and
+ *      call it security.
+ *
+ *      It buys nothing because the property being defended is ONLY ITS OWNER
+ *      WRITES IT, which is a statement about the ISSUER and is already checked.
+ *      What is inside a share is the sharer's business.
+ *
+ *      That reasoning is fuzzypickles' and is quoted rather than re-derived.
+ *      It transfers unchanged because this file's dimensions are trees and its
+ *      terms are PREFIXES (`facet/facet.h` F5), so "is this node under that
+ *      one" is exactly the question a prefix invites an implementer to ask at
+ *      admission time -- and the answer is that admission is an issuer
+ *      question, not a position question.
+ *
  * =========================================================================
  * 3. HOLDERS: WHAT IS, AND WHAT WAS ASKED FOR
  * =========================================================================
