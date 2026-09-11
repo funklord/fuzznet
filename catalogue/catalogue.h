@@ -227,9 +227,31 @@
  *      because it is derived from what is on disk rather than curated, so it
  *      cannot be incomplete the way a hand-made view can.
  *
- * C8.  "Which entities does this host hold" and "which hosts hold this entity"
- *      are TRANSPOSES OF ONE RELATION. One is stored and the other derived;
- *      storing both is two things to drift.
+ * C8.  ~~Store one direction and derive the other.~~ CORRECTED 2026-09-11
+ *      against fuzzypickles' `core/src/library_internal.h`, which is this
+ *      design already built and does better: **NEITHER direction is stored.**
+ *
+ *      Their entry is a signed record whose SUBJECT is the blob root and whose
+ *      ISSUER is a host that holds the file. From that pairing, in their
+ *      words: "AVAILABILITY NEEDS NO SEPARATE RECORD. The set of issuers for a
+ *      root IS the set of holders, so 'which hosts have it' is metadata of the
+ *      file in the literal sense: it is the record set, not a table kept
+ *      beside it."
+ *
+ *      So there is no relation to store and nothing to keep in step. A host
+ *      that knows of a file without holding it issues nothing and sees
+ *      everybody else's records, which is the state that makes streaming the
+ *      point rather than an afterthought. This entry said store one and derive
+ *      the other, which is the right instinct one step short of the answer.
+ *
+ * C8a. AND IT IS WHY C10 CONVERGES WITHOUT COORDINATION. "Each host is
+ *      authoritative about itself and nothing else, so two hosts cannot
+ *      disagree about a third, and a claim needs no coordination to
+ *      converge." C10 separates observed from desired and says the observed
+ *      field is the holder's own fact; this is the reason that costs nothing
+ *      to maintain -- there is no conflict to resolve because no host can
+ *      write another's claim, which is capability HOLDER (C5e) falling out of
+ *      the record shape rather than being enforced on top of it.
  *
  * C9.  An entity may be linked from many places, and several times within one
  *      dimension. A link in a CURATED dimension is a REFERENCE. The generated
@@ -501,6 +523,32 @@
  *
  * C27. An imported identifier is subject to C4: it is an assertion by the
  *      register, not a fact about the bytes, until a host checks it.
+ *
+ * C27a. STORE THE SIGNED RECORD, NOT THE PARSED ENTRY, and the reason is
+ *      forward compatibility rather than tidiness. From their
+ *      `library_store_internal.h`: "a host must RE-PUBLISH WHAT IT CANNOT
+ *      READ, and re-encoding from a parsed struct cannot do that -- a field
+ *      this build does not know is a field it cannot write back, and the
+ *      signature would not survive it anyway." So the store is a byte store
+ *      and interpretation happens on the way out.
+ *
+ *      Their index shape follows: ONE CLAIM PER (ROOT, ISSUER), which is also
+ *      the whole of C8 above.
+ *
+ * C27b. AND THIS DOES NOT CONTRADICT `facet/facet.h` F26, though it looks as
+ *      though it must. F26 says an unknown TERM KIND makes an expression
+ *      refuse; C27a says an unknown FIELD must still be stored and relayed.
+ *      They are different operations on different objects:
+ *
+ *        EVALUATING  an expression you do not fully understand yields a
+ *                    DIFFERENT SET while reporting success. Refuse.
+ *        RELAYING    a record you cannot parse costs nothing and losing it
+ *                    costs somebody else's data. Store and re-publish.
+ *
+ *      An implementation that took one rule for both would either drop records
+ *      an older build cannot read, or evaluate an expression it half
+ *      understands. Both are one-line mistakes and neither is visible from
+ *      the output.
  *
  * =========================================================================
  * 6. REFUSAL
