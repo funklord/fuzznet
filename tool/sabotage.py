@@ -3750,6 +3750,28 @@ SABOTAGES = [
 		"link arriving afterwards creates the edge afresh; catalog.c's own "
 		"comment says the row is what makes a removal stick",
 	),
+	# BATCH TWENTY-FOUR, 2026-09-11: the reachability walk, sec 270. Held
+	# by catalog/test/reach_fuzz.c, which is a DIFFERENTIAL harness rather
+	# than a property one -- a breadth-first search written from reach.h
+	# against the walk in reach.c. sec 269 records why that distinction
+	# decided what each harness could catch.
+	(
+		"reach-a-tombstone-is-not-a-path",
+		"catalog/reach.c",
+		"\t\t\tif (!edge->present || !same_id(&edge->parent, &node))\n",
+		"\t\t\tif (!same_id(&edge->parent, &node))\n",
+		"an edge asserted ABSENT is a row and not a path, so following it "
+		"reaches nodes nothing links and calls live deletions unnecessary",
+	),
+	(
+		"reach-is-transitive",
+		"catalog/reach.c",
+		"\tfor (head = 0; head < seen; head++) {\n",
+		"\tfor (head = 0; head < seen && head < root_count; head++) {\n",
+		"stopping after the roots' own children makes everything deeper look "
+		"unreachable, which is a proposal to delete live data -- the failure "
+		"direction reach.c's own comment calls out for the scratch array",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

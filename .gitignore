@@ -107,6 +107,7 @@
 /spool/test/transfer_test
 /spool/test/scrub_test
 /catalog/test/catalog_fuzz
+/catalog/test/reach_fuzz
 /spool/test/scrub_fuzz
 /spool/test/message_fuzz
 /spool/test/spool_file_test

@@ -38590,3 +38590,63 @@ fuzzypickles' formulation, from the other end of the same question:
 **a compound literal is not a lifetime.** Caller-owned state means the
 caller's state must outlive the call, and a compound literal is the thing
 that looks like it does.
+
+## 270. An oracle, where sec 269 could only have properties
+
+`catalog/reach.c` has a harness now, and it is worth putting beside sec 269's
+because the two were written a day apart against the same module and one of
+them is much stronger. The difference is not effort.
+
+**`catalog_fuzz` could only assert properties.** Its subject is a merge rule
+whose answer for a contested edge is order-dependent BY DESIGN -- sec 243 --
+so there is no function from the assertion set to the expected answer. What
+is left is convergence and invariants, and sec 269 records what that cost: a
+first draft whose two properties were both TRUE and caught neither sabotage.
+
+**`reach_fuzz` has an oracle.** "Which nodes do the roots reach" has one
+right answer for a given set of edges, so a breadth-first search over an
+adjacency matrix -- different code, different data structure, written from
+`reach.h`'s sentences -- computes it independently. That is the shape
+`evidence.md` calls a second witness, and the difference shows immediately:
+
+	the walk follows a tombstone as if it were a link   CAUGHT
+	a node is counted known through a tombstone         CAUGHT
+	the walk stops after the roots' own children        CAUGHT
+
+Three of three, each with a distinct message naming the disagreement, against
+two of four for the property harness. **A property can only find that two
+runs disagree; an oracle knows what the answer should be.**
+
+### The model was wrong twice, and both times the library was right
+
+Neither was a defect, and neither was predictable from the header.
+
+**A root the catalogue has never heard of is REFUSED**, not walked from.
+`reach.c` checks the roots before the frontier and says why: such a walk
+reaches nothing and "would otherwise propose everything", which is a proposal
+to delete the whole catalogue. The first draft treated that refusal as a
+failure. The harness now asserts it -- 682 of 2000 cases -- so the guard is
+part of the subject rather than something the fixture steers around.
+
+**A node known only through a TOMBSTONE is not a known node.** `candidate()`
+skips an edge that is not present, so a node mentioned only in an unlink is
+not counted, not walked, and not proposed. That is right -- `unreachable`
+proposes DELETIONS, and acting on a row that says "not a member" would be
+acting on the wrong half of it -- and **`reach.h` does not say so**. The
+implementation settled it, which is `evidence.md`'s unwritten precondition:
+from outside, one that is true and unstated looks exactly like one nobody
+thought of.
+
+Both are recorded in the harness at the point they bite, because the next
+person to write a model of this walk will get them wrong in the same order.
+
+### What the fixture reaches
+
+	2000 cases: 1103 with something unreachable, 215 with nothing,
+	1057 carrying a tombstone, 609 multi-root, 487 with a cycle,
+	682 refused for a root the catalogue does not know
+
+The cycle floor is there because a breadth-first search that revisits is a
+non-terminating one, and a walk whose visited set is also its queue -- which
+is what `reach.c` uses -- is exactly where that goes wrong. The fixture is
+not free of cycles; it is required to contain them.
