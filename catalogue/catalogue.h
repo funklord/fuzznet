@@ -603,14 +603,47 @@
  *      belongs, and a catalogue that grows its own frames should not economise
  *      here.
  *
+ * C30. THE STATE IS THE CALLER'S AND NOTHING HERE ALLOCATES. From
+ *      fuzzypickles' `library_play_internal.h`, whose player is "four fields
+ *      and a cursor, so there is nothing to allocate and nothing to destroy. A
+ *      player that dies mid-file leaks nothing and a resumed one starts by
+ *      seeking."
+ *
+ *      It is recorded as a constraint on any implementation of this file and
+ *      of `facet/facet.h` because a selection evaluator is exactly the thing
+ *      that reaches for an allocator by reflex -- posting lists want to be
+ *      malloc'd, and an intersection wants a scratch buffer. This library's own
+ *      logging went the same way and back: flog was made allocation-free with
+ *      the API unchanged, so the house answer to "but it needs a buffer" is
+ *      that the caller has one.
+ *
+ * C31. AND A LESSON FROM THAT SAME HEADER, about this file's open list rather
+ *      than its rules. They record underrun-is-a-stall as having been "open
+ *      until the project was found to have DECIDED IT ALREADY UNDER ANOTHER
+ *      NAME" -- their sec 6's copy-stream and pure-stream split answered it
+ *      without anybody connecting the two.
+ *
+ *      Every item in section 7 deserves that question asked of it before it is
+ *      deserves being asked of the holder. One has already yielded: the
+ *      mechanism half of reclamation is settled by C19a and was never open.
+ *
  * =========================================================================
  * 7. NOT SETTLED HERE
  * =========================================================================
  *
  *   - the shard size (C26) and the layout template of a managed source (C22);
- *   - whether reclamation of an unreferenced entity exists, its grace period
- *     if it does, and whether a pin exempting an entity is per-entity or
- *     per-view (C18);
+ *   - WHETHER reclamation of an unreferenced entity exists, and its grace
+ *     period and pin granularity if it does (C18). **Its MECHANISM is no
+ *     longer open**: a reclamation is a deletion, so C19a governs it -- a
+ *     queued command eliminated on a consensus pinned when queued. A local
+ *     reclaim would be undone by the next sibling to sync, which is the same
+ *     failure their purge header opens with. Only the policy question remains.
+ *
+ *     Checked rather than assumed, and the negative is worth recording with
+ *     it: fuzzypickles' `daemon/log_retention.h` is NOT this decision under
+ *     another name. It caps lines in a log file, which is a bound on growth
+ *     rather than a removal needing agreement, and adopting it here would
+ *     answer a question nobody asked;
  *   - whether a referenced entity may be promoted into a managed source in
  *     place rather than by copying (C15);
  *   - the wire encoding of any of the above, and this module's name.
