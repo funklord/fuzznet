@@ -1397,20 +1397,37 @@ static void test_the_moves_are_sorted_by_id(void)
 	fzn_catalog_refile_t job;
 	fzn_catalog_t cat;
 
+	/* THE TWO CHILDREN SHARE THEIR FIRST BYTE and differ only later, so the
+	 * sort is asked to break a tie rather than to order bytes that already
+	 * differ. `id()` fills every byte with its seed, so a pair drawn from
+	 * it differs in byte 0 and a sort reading one byte would still order
+	 * them; a sort that read the whole id and one that read a prefix would
+	 * then agree, and this test could not tell them apart. `hi` and `lo`
+	 * agree on byte 0 and split at byte 1, and `hi` (the larger id) is
+	 * filed first, so the edge-table order is the reverse of the id order.
+	 * A prefix sort ties them and keeps the table order; the assertions
+	 * below read the whole id and see the reversal. */
+	fzn_catalog_id_t hi, lo;
+
+	memset(hi.b, 0, sizeof(hi.b));
+	memset(lo.b, 0, sizeof(lo.b));
+	hi.b[0] = 0x40;
+	hi.b[1] = 0xff;
+	lo.b[0] = 0x40;
+	lo.b[1] = 0x11;
+
 	REQUIRE(fzn_catalog_init(&cat, rows, 8, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
-	/* 0x33 is filed before 0x22, so the table order is the reverse of the
-	 * id order and a capture that kept table order would show it. */
-	REQUIRE(fzn_catalog_assert(&cat, idp(0x01), idp(0x33), ALICE, 1, 1) == FZN_CATALOG_OK, "a");
-	REQUIRE(fzn_catalog_assert(&cat, idp(0x01), idp(0x22), ALICE, 2, 1) == FZN_CATALOG_OK, "b");
-	REQUIRE(fzn_catalog_file_under(&cat, idp(0x01), idp(0x33)) == FZN_CATALOG_OK, "file high");
-	REQUIRE(fzn_catalog_file_under(&cat, idp(0x01), idp(0x22)) == FZN_CATALOG_OK, "file low");
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x01), &hi, ALICE, 1, 1) == FZN_CATALOG_OK, "a");
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x01), &lo, ALICE, 2, 1) == FZN_CATALOG_OK, "b");
+	REQUIRE(fzn_catalog_file_under(&cat, idp(0x01), &hi) == FZN_CATALOG_OK, "file high");
+	REQUIRE(fzn_catalog_file_under(&cat, idp(0x01), &lo) == FZN_CATALOG_OK, "file low");
 	REQUIRE(fzn_catalog_filing_root(&cat, idp(0x01)) == FZN_CATALOG_OK, "root");
 
 	REQUIRE(fzn_catalog_refile_capture(&cat, &job, moves, 8) == FZN_CATALOG_OK, "capture");
 	REQUIRE(job.used == 2, "two filed nodes were not captured");
-	CHECK(memcmp(moves[0].node.b, idp(0x22)->b, FZN_CATALOG_ID_LEN) == 0,
+	CHECK(memcmp(moves[0].node.b, lo.b, FZN_CATALOG_ID_LEN) == 0,
 	      "the moves follow the edge table rather than the id order");
-	CHECK(memcmp(moves[1].node.b, idp(0x33)->b, FZN_CATALOG_ID_LEN) == 0,
+	CHECK(memcmp(moves[1].node.b, hi.b, FZN_CATALOG_ID_LEN) == 0,
 	      "the second move is not the higher id");
 }
 

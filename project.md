@@ -39272,3 +39272,56 @@ byte-reach checks and the KAT. The harness says so in its header, because
 "a field is hashed" and "a field is the only thing separating two sessions"
 are different properties and a reader quoting the harness for the first
 would be wrong.
+
+## 280. The same lens on the catalogue: a sort that reads a prefix
+
+The session finding of sec 279 -- a comparison that reads only a prefix of
+an identifier, held by nothing because every fixture's identifiers differ in
+their first byte -- is a lens, and it was pointed at the catalogue next. Two
+sites order by node id so a resume cursor can be a count into that order:
+`catalog/sweep.c`'s `insert_sorted` and `catalog/catalog.c`'s `id_before`
+in the refile capture. Both had a sabotage entry already -- `sweep-sorted-cursor`
+and `refile-moves-sorted` -- and both entries DISABLE THE SORT ENTIRELY
+(`while (0)`, `&& 0`). Arrival order that is not sorted at all is caught.
+
+A sort that RUNS but reads one byte is a different defect, and it survived
+every catalogue binary. The reason is the fixtures: `sweep_fuzz`'s `id_of`
+set `b[0] = which + 1`, and the refile test used `idp(0x22)`/`idp(0x33)`,
+whose `id()` fills every byte with the seed. In both, the identifiers differ
+in byte 0, so a one-byte sort still orders them totally and agrees with a
+whole-id sort. **An entry proving a sort exists is not an entry proving it
+reads the whole key**, and nothing here asked the second question.
+
+### What made the fixtures reach it
+
+Two properties, and the first alone is not enough. The identifiers have to
+SHARE a leading byte, so the sort meets a tie -- and the tie has to be
+resolved the WRONG way by arrival, or a prefix sort that keeps arrival order
+still comes out sorted by accident. `sweep_fuzz` learned this the slow way:
+ids sharing byte 0 with byte 1 ASCENDING with arrival still passed the
+one-byte sabotage, because a prefix sort keeps arrival order and arrival
+order was already id order. Byte 1 DESCENDING with arrival is what reverses
+them, so a prefix sort's tie-kept order is the reverse of id order and the
+whole-id check fires. The refile hand test already knew this -- "0x33 is
+filed before 0x22, so the table order is the reverse of the id order" -- and
+only needed its pair to share a byte, which `id()` could not give it, so the
+test grew a two-byte `hi`/`lo` pair.
+
+	sweep.c reads one byte      fuzz CAUGHT   (was SURVIVED before the fixture)
+	catalog.c reads one byte    test CAUGHT   (was SURVIVED before the pair)
+
+`sweep-sorted-by-whole-id` is held by `sweep_fuzz`, `refile-sorted-by-whole-id`
+by `catalog_test`; sweep_test survives the sweep prefix sabotage, so the
+harness is the holder there. Both are distinct from the coarse entries beside
+them, which they do not replace: a sort can be present and wrong, or absent,
+and those are two failures.
+
+### The lens is not spent
+
+`chain/chain_store.c`, `record/journal.c`, `trust/trust.c`, `log/log.c`,
+`state/state.c`, `chain/manifest.c` and `local/vocabulary.c` all compare
+identifiers with `fzn_ct_memeq`, which is a whole-buffer equality rather than
+an ordering, so a prefix read there is a different mutation -- a shortened
+length -- and whether each fixture reaches a collision on the untested tail
+is the next question. Recorded rather than swept, so the next pass has the
+list and not the conclusion.

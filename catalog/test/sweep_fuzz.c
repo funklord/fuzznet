@@ -89,12 +89,28 @@ static uint32_t next(uint32_t *state)
 	return *state;
 }
 
+/* NODE IDS SHARE A LEADING BYTE, deliberately, so that the sortedness
+ * check below is asked to break a tie rather than only to order bytes that
+ * already differ. sweep.c sorts by node id so the cursor can be a count;
+ * a sort that read only a prefix would tie two nodes agreeing that far and
+ * leave them in arrival order, and a fixture whose ids differ in byte 0
+ * cannot reach that -- the ordering stays total however few bytes are read.
+ * Here byte 0 is `which / 2`, so nodes come in pairs sharing it, and byte 1
+ * disambiguates -- DESCENDING with `which`, so that within a pair the node
+ * that arrives first has the higher full id. A sort that reads only byte 0
+ * ties the pair and leaves it in arrival order, which is then the reverse of
+ * full-id order; the sortedness check below reads the whole id and fires. A
+ * byte-1 that ascended with arrival would hide the fault, because arrival
+ * order would already be full-id order and a prefix sort would look sorted.
+ * `catalog_test` uses the same reversal by hand ("0x33 filed before 0x22").
+ */
 static fzn_catalog_id_t id_of(unsigned which)
 {
 	fzn_catalog_id_t out;
 
 	memset(&out, 0, sizeof(out));
-	out.b[0] = (uint8_t)(which + 1u);
+	out.b[0] = (uint8_t)((which / 2u) + 1u);
+	out.b[1] = (uint8_t)(0xffu - which);
 	return out;
 }
 

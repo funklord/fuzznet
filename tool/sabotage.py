@@ -2298,6 +2298,13 @@ SABOTAGES = [
 		"refusing before the body is parsed is what makes this guard its own rather than a second copy of assert's: without it a body that is not ours is classified mid-refile",
 	),
 	(
+		"refile-sorted-by-whole-id",
+		"catalog/catalog.c",
+		"\treturn memcmp(a->b, b->b, FZN_CATALOG_ID_LEN) < 0;\n",
+		"\treturn memcmp(a->b, b->b, 1u) < 0;\n",
+		"the refile move sort must read the whole id for the same reason as the sweep sort, and catalog_test's shared-prefix reversed pair is what holds it; refile-moves-sorted only disables the sort, which arrival order catches -- sec 280",
+	),
+	(
 		"refile-moves-sorted",
 		"catalog/catalog.c",
 		"\t\tfor (j = job->used; j > 0 && id_before(&entry.node, &moves[j - 1u].node); j--)\n",
@@ -3099,6 +3106,13 @@ SABOTAGES = [
 		"\tif (!witness || !witness->others)\n\t\treturn (size_t)-1;\n",
 		"a witness seam that cannot answer must refuse the deletion rather "
 		"than licensing it on an answer nobody gave",
+	),
+	(
+		"sweep-sorted-by-whole-id",
+		"catalog/sweep.c",
+		"memcmp(rows[at - 1].node.b, row->node.b, FZN_CATALOG_ID_LEN) > 0",
+		"memcmp(rows[at - 1].node.b, row->node.b, 1u) > 0",
+		"the removal sort must read the WHOLE node id, not a prefix: two nodes agreeing on their first byte would tie and keep arrival order, so a cursor into them resumes elsewhere on a machine whose edges arrived differently -- sweep_fuzz's ids share a prefix and reverse arrival against id, which sweep_test's byte-0-distinct ids cannot reach; distinct from sweep-sorted-cursor, which only proves a sort runs -- sec 280",
 	),
 	(
 		"sweep-sorted-cursor",
