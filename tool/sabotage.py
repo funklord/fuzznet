@@ -3854,6 +3854,31 @@ SABOTAGES = [
 		"a backend that truncates hands back bytes that are not a record, and "
 		"the placement check reads fields off a view that was never opened",
 	),
+	# BATCH TWENTY-NINE, 2026-09-12: the authorization decision, sec 277.
+	# Held by chain/test/authz_fuzz.c, a decision table written from the
+	# header that mints its own chains so it never asks the library whether
+	# one verifies. Three entries already held unspelled, the origin gate
+	# and the manifest; these two were not held.
+	(
+		"authz-no-chain-is-not-no-capability-required",
+		"chain/authz.c",
+		"\tif (!hops || hop_count == 0)\n\t\treturn FZN_AUTHZ_DENIED;\n",
+		"\tif (!hops || hop_count == 0)\n\t\treturn FZN_AUTHZ_GRANTED_UNGUARDED;\n",
+		"authz.h names this as exactly the case that must not be confusable: "
+		"holding no chain for an issuer is an ordinary state, and a guarded kind "
+		"met with no chain is a denial, not a kind that needed none",
+	),
+	(
+		"authz-reads-what-verify-answered",
+		"chain/authz.c",
+		"\t                     manifest, &proven) != FZN_CHAIN_OK)\n"
+		"\t\treturn FZN_AUTHZ_DENIED;\n",
+		"\t                     manifest, &proven) != FZN_CHAIN_OK && 0)\n"
+		"\t\treturn FZN_AUTHZ_DENIED;\n",
+		"a chain for the wrong capability, an expired one, or one that does not "
+		"verify at all would grant -- every refusal fzn_chain_verify can give "
+		"passes through this one comparison",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

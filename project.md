@@ -39045,3 +39045,72 @@ answers whether the invariant survives random order, which the table cannot
 ask, and the table answers whether each guard is held, which a harness
 cannot see. Writing an entry so the file has one is sec 201's symmetry, and
 it was declined twice.
+
+## 277. The authorization decision, against a table that never asks
+
+`chain/authz.c` has a harness. It is the highest-stakes subject harnessed so
+far -- `fzn_authz_decide` is the answer to "may this request proceed" -- and
+it has the cleanest oracle, because `authz.h` states the whole decision as
+sentences and each one is a row:
+
+	an unspelled policy                     DENIED
+	an origin the policy does not name      DENIED, before any capability
+	an unguarded policy                     GRANTED_UNGUARDED
+	a guarded policy with no chain          DENIED -- "exactly the case that
+	                                        must not be confusable with no
+	                                        capability required"
+	a null root or signer                   DENIED
+	a chain verified FOR ITS CAPABILITY     GRANTED_BY_CHAIN
+	a chain for another capability          DENIED
+	an expired chain                        DENIED
+
+**The oracle never asks the library whether a chain verifies.** The harness
+mints every chain itself, so it knows which capability it grants and when
+it expires, and the expected verdict comes from that knowledge and the policy
+alone. A model that called `fzn_chain_verify` to predict what
+`fzn_authz_decide` should say would be checking the decision layer against
+the thing it wraps -- which is most of it -- and would agree with a decide
+that passed the wrong capability through, because verify would too.
+
+### The polarity is a second assertion, not a consequence of the first
+
+`authz.h` records the argument: the verdict's contract is that zero denies
+and every other value grants, "a consumer reading it as a truth value is
+reading it correctly", and adding a non-zero denial enumerator "would turn a
+refusal into a grant at every such site". So every verdict is checked twice
+-- against the table, and against the set {0, 1, 2} with its truth value
+matching the table's. A verdict of 3 is a grant nobody named, and the table
+would call it merely wrong.
+
+	five sabotages: an unspelled policy granting, the origin unchecked,
+	no chain read as no-capability-required, any verified chain
+	granting, a denial of 3 -- all CAUGHT, each naming the row
+
+### Two entries, and which two
+
+Three entries already held this file: unspelled, the origin gate and the
+manifest. Two of the five above were not held, and they are the two the
+header singles out. `authz-no-chain-is-not-no-capability-required` is the
+case the header calls exactly the one that must not be confusable -- a
+guarded kind met with no chain is a denial, not a kind that needed none. And
+`authz-reads-what-verify-answered` covers the single comparison every
+refusal `fzn_chain_verify` can give passes through: with it inverted, a
+wrong capability, an expired chain and one that does not verify at all would
+grant.
+
+Run through the table both are CAUGHT by `authz_test.c` -- lines 223 and 354
+-- which runs before the harness. So both guards were already HELD, and what
+was missing was the entry recording it; sec 269 draws the same line. That
+the harness catches them independently was established by building it
+against each sabotaged tree on its own, and it is the harness's own MODEL
+line quoted above, not the table's.
+
+### What the floors caught before any sabotage ran
+
+Drawn uniformly, an unspelled policy and an unnamed origin together denied
+77 of 100 cases before a chain was looked at, so the rows that exercise one
+were two or three per cent -- and every verdict matched, over a fixture that
+mostly asked the two cheapest questions. Weighted, the eight rows come out
+between five and seventeen per cent each. **A decision table is only tested
+where its rows are reached**, and the cheap rows are the ones a uniform draw
+reaches first.

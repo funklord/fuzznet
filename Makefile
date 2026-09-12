@@ -293,6 +293,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              spool/test/message_fuzz.c \
              chunk/test/reassembly_fuzz.c chain/test/chain_fuzz.c \
              chain/test/chain_store_fuzz.c \
+             chain/test/authz_fuzz.c \
              frame/test/freshness_fuzz.c chain/test/revocation_fuzz.c \
              chain/test/manifest_fuzz.c \
              frame/test/receive_fuzz.c \
@@ -383,6 +384,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/chain/test/chain_fuzz \
              $(BUILD_DIR)/chain/test/chain_store_fuzz \
+             $(BUILD_DIR)/chain/test/authz_fuzz \
              $(BUILD_DIR)/frame/test/freshness_fuzz \
              $(BUILD_DIR)/frame/test/receive_fuzz \
              $(BUILD_DIR)/chain/test/revocation_fuzz \
@@ -2686,6 +2688,15 @@ $(BUILD_DIR)/spool/test/message_fuzz: $(BUILD_DIR)/spool/test/message_fuzz.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+$(BUILD_DIR)/chain/test/authz_fuzz: $(BUILD_DIR)/chain/test/authz_fuzz.o \
+                                   $(BUILD_DIR)/chain/authz.o \
+                                   $(BUILD_DIR)/chain/chain.o \
+                                   $(BUILD_DIR)/chain/revocation.o \
+                                   $(BUILD_DIR)/chain/manifest.o \
+                                   $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/chain/test/chain_store_fuzz: $(BUILD_DIR)/chain/test/chain_store_fuzz.o \
                                          $(BUILD_DIR)/chain/chain_store.o \
                                          $(BUILD_DIR)/chain/chain.o \
@@ -3128,6 +3139,7 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/spool/test/message_fuzz \
              $(BUILD_DIR)/chain/test/chain_fuzz \
              $(BUILD_DIR)/chain/test/chain_store_fuzz \
+             $(BUILD_DIR)/chain/test/authz_fuzz \
              $(BUILD_DIR)/frame/test/freshness_fuzz \
              $(BUILD_DIR)/frame/test/receive_fuzz \
              $(BUILD_DIR)/chain/test/revocation_fuzz \
