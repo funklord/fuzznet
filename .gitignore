@@ -162,6 +162,7 @@
 /record/test/record_guided
 /record/test/record_fuzz
 /record/test/store_fuzz
+/record/test/ledger_fuzz
 /guided/
 /constant_time/test/secret_flow_valgrind
 

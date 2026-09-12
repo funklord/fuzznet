@@ -38929,3 +38929,62 @@ right.** A property's fixture cost is not a detail to settle after the
 assertions are written; it decides whether the assertions will ever compare
 anything. Three harnesses in a row reported green over nothing because that
 question came second. This one asked it first and had nothing to correct.
+
+## 275. A harness that earns no entries, and why that is the right answer
+
+`record/ledger.c` has a harness. It passed on its first run with every state
+reached, three sabotages were caught, and **it adds nothing to the sabotage
+table.** Those three facts belong together.
+
+The ledger's contract is small enough to state as a function, which is what
+makes this an oracle in sec 270's sense rather than a property in sec 269's:
+per (peer, subject, kind) the confirmed version is the highest ever
+confirmed, `behind(current)` is `confirmed < current`, an unknown key answers
+zero, and a version of zero is refused because zero is what an absent row
+already says. A max over a map is a second implementation of all of it in a
+dozen lines that share nothing with `ledger.c`.
+
+	2000 cases: 11726 advanced, 5479 stale and reported, 6078 zero refused,
+	12710 new keys refused on a full table, 1856 known keys updated on one,
+	8802 unknown peers asked, and the max agreed after every step
+
+### The sabotage worth having asked for both halves
+
+	a late acknowledgement is absorbed (latest wins)   CAUGHT   error code
+	a stale one is reported AND ALSO written           CAUGHT   the table
+	an equal version counts as an advance              CAUGHT   error code
+
+The middle row is the one `ledger.h` argues about -- "reported rather than
+absorbed, because the table is the same either way" -- and it separates two
+things a return value cannot: the right error with the wrong table. Only
+re-checking every key against the max after every step sees it, which is why
+the harness does that rather than trusting the code it just got.
+
+### And all three are already held
+
+`record/ledger.c` carries ten entries in the sabotage table:
+`ledger-monotonic`, `ledger-stale-reported`, `ledger-unknown-is-behind`,
+`ledger-version-zero`, and six more. Every sabotage above falls under one of
+them. **So this harness earns no entry, and adding one would be sec 201's
+symmetry -- a row so the file has a row.**
+
+What it adds is a different question from whether each guard is held. The
+ten entries prove that removing a guard turns `ledger_test` red. The harness
+proves the max-invariant holds across thousands of random arrival ORDERS,
+which is the case the header's whole argument is about -- "an
+acknowledgement that arrives late is reordering rather than retraction" --
+and which two hand-written confirmations in one order cannot produce.
+Those are both worth having and neither is the other.
+
+### Why it went right first time, stated so it can be repeated
+
+Sec 273's question -- can the fixture reach a state where the assertion has
+anything to compare against -- was asked before a line was written, and the
+answer was that every state is reachable from a random confirm over a small
+key space against a small table. No window to open, no membership to
+establish, no seam to satisfy. The capacity is drawn small on purpose, so
+FULL is reached in 12710 of 2000 cases' steps rather than never; and the
+version is drawn from six values, so an out-of-order arrival is common
+rather than a coincidence. A fixture too roomy to fill and versions too
+sparse to collide would have passed just as green over a fraction of the
+contract.
