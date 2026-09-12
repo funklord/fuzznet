@@ -39325,3 +39325,56 @@ an ordering, so a prefix read there is a different mutation -- a shortened
 length -- and whether each fixture reaches a collision on the untested tail
 is the next question. Recorded rather than swept, so the next pass has the
 list and not the conclusion.
+
+## 281. The lens once more: a lookup key compared by a prefix
+
+Sec 280 left a list: the `fzn_ct_memeq` sites, where the prefix lens becomes
+a SHORTENED-LENGTH mutation rather than a shortened sort, and the question
+is which fixtures reach a collision on the untested tail. The two
+highest-stakes sites turned out already held. `chain/chain.c`'s capability
+compare in the verify walk is guarded by `chain_fuzz`'s `copy_near`, which
+flips the LAST byte "the pair a comparison's length decides"; `session/commitment.c`'s
+`fzn_commitment_check` is guarded by `commitment_test`, which asserts a
+difference in the last byte and in the first are both seen. Whoever wrote
+those applied this lens already, which is why sec 280 said to read the
+finds for a shape rather than assume a gap.
+
+The gap was in the CACHE. `chain/chain_store.c`'s `find_entry` matches a
+cached chain on (root, capability, grantee) with three whole-field compares,
+and a prefix read there returns a chain cached for a triple it was not
+verified for -- a wrong authorisation, from a cache. Sabotaged to one byte
+per field, it survived `chain_store_fuzz` AND `chain_store_test`, because
+both mint keys through an `expand`/`key` that puts the seed in byte 0: every
+distinct root, capability or grantee differs in the first byte, so a one-byte
+compare tells them apart and the collision is never built.
+
+### Four chains differing in one last byte
+
+`chain_store_fuzz` grew a `near_miss_keys_are_distinct` block: a base chain
+and three more, each differing from the base in exactly one field and only in
+that field's last byte, admitted into a store of four, asserting the count is
+four. A compare shortened in any one field collapses the pair that differs
+there, and the count drops to three -- caught, and the message names the
+consequence. All three fields were sabotaged independently and each was
+caught; `chain-store-root-whole`, `chain-store-capability-whole` and
+`chain-store-grantee-whole` are in the table.
+
+	root / capability / grantee compare shortened to one byte
+	    each SURVIVED before the block, each CAUGHT after
+
+The near-miss root works only because the stub verifier keys identity on byte
+0, so a root differing only in its last byte is the same host to the signer
+and the chain still verifies -- the same property that let the fuzz loop use
+one signer for every triple, turned to a use it was not built for.
+
+### The list is shorter and still open
+
+Held now: chain.c, commitment.c, chain_store.c, and revocation_fuzz (which
+already carried near-miss ids). Not yet examined against a shortened compare:
+`record/ledger.c`, `log/log.c`, `chain/manifest.c`, `record/journal.c`,
+`record/sync.c`, `trust/trust.c`, `state/state.c` and `prekey/prekey.c`.
+Each is a lookup keyed on an issuer, subject or peer, and the same question
+applies: does its fixture ever store two keys sharing a prefix. Recorded,
+not swept -- and with two of the highest-stakes sites already held, the
+remaining ones are lower-stakes lookups rather than authorisation compares,
+which is the order to spend attention in, not against.

@@ -2980,6 +2980,33 @@ SABOTAGES = [
 		"a store that cannot be scanned must not promise to serve every triple "
 		"a peer named",
 	),
+	# Three from chain_store_fuzz's near-miss block (sec 281). find_entry
+	# matches the lookup key on (root, capability, grantee) with three
+	# whole-field compares; a prefix read would return a cached chain for a
+	# triple it was not verified for. The fuzz loop's keys differ in byte 0,
+	# so only the near-miss block -- four chains differing in one last byte --
+	# reaches each.
+	(
+		"chain-store-root-whole",
+		"chain/chain_store.c",
+		"fzn_ct_memeq(e->chain.root, root, FZN_PUBKEY_LEN)",
+		"fzn_ct_memeq(e->chain.root, root, 1u)",
+		"the cached-chain lookup must compare the WHOLE root, or two roots agreeing on a prefix share a cached authorisation; held by chain_store_fuzz's near-miss block, whose fuzz-loop roots differ in byte 0",
+	),
+	(
+		"chain-store-capability-whole",
+		"chain/chain_store.c",
+		"fzn_ct_memeq(e->chain.capability.b, capability->b, FZN_CAP_ID_LEN)",
+		"fzn_ct_memeq(e->chain.capability.b, capability->b, 1u)",
+		"the cached-chain lookup must compare the WHOLE capability id, or a chain cached for one capability answers a lookup for another sharing a prefix",
+	),
+	(
+		"chain-store-grantee-whole",
+		"chain/chain_store.c",
+		"fzn_ct_memeq(e->chain.grantee, subject, FZN_PUBKEY_LEN)",
+		"fzn_ct_memeq(e->chain.grantee, subject, 1u)",
+		"the cached-chain lookup must compare the WHOLE grantee, or a chain cached for one subject answers a lookup for another sharing a prefix",
+	),
 	(
 		"chain-store-replaces",
 		"chain/chain_store.c",

@@ -176,6 +176,99 @@ static int check_all(const fzn_chain_store_t *store, const struct held *model,
 	return 1;
 }
 
+/*
+ * THE THREE KEYS' LENGTHS, pinned. `find_entry` matches a stored chain on
+ * (root, capability, grantee) with three `fzn_ct_memeq` calls, and a compare
+ * that read a PREFIX rather than the whole field would conflate two chains
+ * agreeing that far -- a cached authorisation returned for a triple it was
+ * not verified for. The fuzz loop above cannot reach it: `expand` puts the
+ * seed in byte 0, so every distinct root, capability or grantee it mints
+ * differs in the first byte and a one-byte compare still tells them apart.
+ *
+ * This admits a base chain and three more, each differing from the base in
+ * exactly ONE field and only in that field's LAST byte, and asserts the
+ * store holds four. A compare shortened in any of the three fields collapses
+ * the pair that differs there and the count drops -- the same reasoning
+ * `chain/test/chain_fuzz.c` states for the capability compare it guards with
+ * `copy_near`, applied to the store's lookup key. sec 281.
+ *
+ * The stub verifier keys identity on byte 0, so a root differing only in its
+ * last byte is the same host to the signer and the chain still verifies --
+ * which is what lets a near-miss root be admitted at all.
+ */
+static int near_miss_keys_are_distinct(void)
+{
+	fzn_chain_entry_t slots[4];
+	fzn_chain_store_t store;
+	struct stub stub;
+	fzn_sign_ops_t sign;
+	uint8_t root[FZN_PUBKEY_LEN], grantee[FZN_PUBKEY_LEN];
+	fzn_cap_id_t cap;
+	uint64_t now = 100u, expires = 200u;
+	struct variant {
+		const char *what;
+		uint8_t root[FZN_PUBKEY_LEN];
+		uint8_t grantee[FZN_PUBKEY_LEN];
+		fzn_cap_id_t cap;
+	} v[4];
+	unsigned i;
+
+	stub.identity = 0;
+	sign.sign = stub_sign;
+	sign.verify = stub_verify;
+	sign.ctx = &stub;
+	if (fzn_chain_store_init(&store, slots, 4u) != FZN_CHAIN_OK) {
+		printf("  MODEL: the near-miss store would not init\n");
+		return 1;
+	}
+	expand(root, FZN_PUBKEY_LEN, 0x00u); /* byte 0 is the signer identity (0) */
+	expand(grantee, FZN_PUBKEY_LEN, 0x50u);
+	expand(cap.b, FZN_CAP_ID_LEN, 0x60u);
+
+	/* The base, then one near miss per field. Each shares every byte the
+	 * base has except the last of the one field named. */
+	for (i = 0; i < 4u; i++) {
+		memcpy(v[i].root, root, FZN_PUBKEY_LEN);
+		memcpy(v[i].grantee, grantee, FZN_PUBKEY_LEN);
+		v[i].cap = cap;
+	}
+	v[0].what = "base";
+	v[1].what = "root last byte";
+	v[1].root[FZN_PUBKEY_LEN - 1] ^= 0xffu;
+	v[2].what = "capability last byte";
+	v[2].cap.b[FZN_CAP_ID_LEN - 1] ^= 0xffu;
+	v[3].what = "grantee last byte";
+	v[3].grantee[FZN_PUBKEY_LEN - 1] ^= 0xffu;
+
+	for (i = 0; i < 4u; i++) {
+		uint8_t bytes[FZN_HOP_LEN];
+		fzn_chain_hop_t hop;
+
+		if (fzn_chain_mint(v[i].root, v[i].grantee, &v[i].cap, now, expires, 0, &sign,
+		                   bytes) != FZN_CHAIN_OK ||
+		    fzn_hop_open(bytes, FZN_HOP_LEN, &hop) != FZN_CHAIN_OK) {
+			printf("  MODEL: could not mint the %s near-miss chain\n", v[i].what);
+			return 1;
+		}
+		if (fzn_chain_store_admit(&store, &hop, 1u, v[i].root, &v[i].cap, now, &sign,
+		                          NULL, NULL) != FZN_CHAIN_OK) {
+			printf("  MODEL: the %s near-miss chain was not admitted\n", v[i].what);
+			return 1;
+		}
+	}
+
+	/* Four triples differing only in a last byte are four cached chains. A
+	 * lookup key compared by a prefix would have collapsed them. */
+	if (fzn_chain_store_count(&store) != 4u) {
+		printf("  MODEL: four chains differing only in a last byte collapsed to "
+		       "%zu -- a lookup key is compared by a prefix, so a cached "
+		       "authorisation is returned for a triple it was not verified for\n",
+		       fzn_chain_store_count(&store));
+		return 1;
+	}
+	return 0;
+}
+
 static int fuzz_one(uint32_t seed, struct coverage *cov)
 {
 	uint32_t state = seed;
@@ -300,6 +393,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 		seed = (seed * 31u) + data[i];
 	if (seed == 0u)
 		seed = 1u;
+	(void)near_miss_keys_are_distinct();
 	(void)fuzz_one(seed, &cov);
 	return 0;
 }
@@ -326,6 +420,11 @@ int main(int argc, char **argv)
 	if (cases < FUZZ_MIN_CASES) {
 		printf("chain_store_fuzz: %lu cases is below FUZZ_MIN_CASES (%u).\n", cases,
 		       (unsigned)FUZZ_MIN_CASES);
+		return 1;
+	}
+
+	if (near_miss_keys_are_distinct()) {
+		printf("chain_store_fuzz: FAILED the near-miss key check\n");
 		return 1;
 	}
 
