@@ -39378,3 +39378,49 @@ applies: does its fixture ever store two keys sharing a prefix. Recorded,
 not swept -- and with two of the highest-stakes sites already held, the
 remaining ones are lower-stakes lookups rather than authorisation compares,
 which is the order to spend attention in, not against.
+
+## 282. The prekey verification, and a ranking sec 281 got wrong
+
+Sec 281 closed by calling the remaining `fzn_ct_memeq` sites "lower-stakes
+lookups rather than authorisation compares." That lumped `prekey/prekey.c`
+in with the bookkeeping, and it does not belong there. `fzn_prekey_pin`
+decides "is this the host I am anchored to" with a whole-key compare against
+the anchor, and "have I already got this exact prekey" with a whole-prekey
+compare. The first is a VERIFICATION boundary in the permissive direction: a
+compare that read a prefix accepts a record from a different host whose key
+agrees that far, and pins a prekey for a peer nobody signed. That is the same
+class as chain.c's capability compare, not the same class as a journal's
+issuer lookup.
+
+Sabotaged to one byte, both compares survived `prekey_fuzz`, because -- as
+with chain_store -- the harness keys host and prekey identity on the seed and
+`expand` writes the seed into byte 0, so every host and prekey it builds
+differs in the first byte. The model itself is seed-indexed, so a near-miss
+pair sharing byte 0 cannot be expressed through it; the fix is a self-contained
+block, as chain_store's was.
+
+	the host compare shortened to one byte      CAUGHT (was SURVIVED)
+	the prekey compare shortened to one byte     CAUGHT (was SURVIVED)
+
+`near_miss_keys_are_distinct` anchors a host, then offers a record whose host
+is the anchor with only its last byte changed and expects WRONG_HOST, and a
+record whose prekey is the held one with only its last byte changed at the
+SAME timestamp and expects ROLLBACK rather than the re-delivery a prefix
+compare would call it. The near-miss host verifies because the stub signer
+keys on byte 0 -- the same property chain_store's block leaned on.
+`prekey-host-whole` and `prekey-prekey-whole` are in the table.
+
+### The lens is closed for the boundaries; the bookkeeping is left
+
+Held against a shortened compare now: chain.c, commitment.c, chain_store.c,
+prekey.c, and revocation_fuzz. Those are the sites where a prefix match
+crosses a trust boundary. What remains -- `record/ledger.c`, `log/log.c`,
+`chain/manifest.c`, `record/journal.c`, `record/sync.c`, `state/state.c`, and
+`trust/trust.c`'s UNCHANGED compare -- are lookups and dedup checks whose
+wrong answer is a bookkeeping error, not an accepted forgery, and where a
+prefix collision on a real key is infeasible anyway. `trust.c`'s compare is
+conservative even when shortened: it refuses an update rather than accepting
+a wrong root. These are recorded as examined-and-declined, which is a
+different record from unexamined: the lens was carried to each and the stakes
+weighed, and the attention goes to the next lens rather than the tail of this
+one.

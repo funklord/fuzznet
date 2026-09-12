@@ -138,6 +138,83 @@ static fzn_prekey_err_t model(const struct shadow *sh, uint8_t host_seed, uint8_
 	return FZN_PREKEY_OK;
 }
 
+/*
+ * TWO KEY COMPARISONS' LENGTHS, pinned. `fzn_prekey_pin` decides "is this the
+ * host I am anchored to" with `fzn_ct_memeq(anchor, record.host, FZN_PUBKEY_LEN)`
+ * and "have I already got this exact prekey" with a whole-prekey compare. A
+ * compare that read a PREFIX rather than the whole key would accept a record
+ * from a DIFFERENT host whose key agreed that far -- the permissive direction,
+ * a prekey pinned for a peer nobody signed -- or read a different prekey at the
+ * same timestamp as a re-delivery rather than the rollback it is.
+ *
+ * The loop above cannot reach either: it keys host and prekey identity on the
+ * seed, which `expand` writes into byte 0, so every distinct host or prekey it
+ * builds differs in the first byte and a one-byte compare still separates
+ * them. This anchors a host, then offers a record whose host is the anchor
+ * with only its LAST byte changed (a valid self-signed record, because the
+ * stub signer keys on byte 0), and expects WRONG_HOST; and a record whose
+ * prekey is the held one with only its last byte changed at the same
+ * timestamp, and expects ROLLBACK. sec 282.
+ */
+static int near_miss_keys_are_distinct(void)
+{
+	fzn_prekey_peer_t peer;
+	uint8_t host[FZN_PUBKEY_LEN], prekey[FZN_PREKEY_LEN];
+	uint8_t near[FZN_PUBKEY_LEN], prekey2[FZN_PREKEY_LEN], prekey_near[FZN_PREKEY_LEN];
+	uint8_t bytes[FZN_PREKEY_LEN_TOTAL];
+	fzn_prekey_record_t record;
+
+	fzn_prekey_peer_init(&peer);
+	expand(host, sizeof(host), 0x40u);
+	expand(prekey, sizeof(prekey), 0x10u);
+	expand(prekey2, sizeof(prekey2), 0x20u);
+	signing_as = 0x40u;
+
+	/* Anchor the host with a first-use record. */
+	if (fzn_prekey_issue(host, prekey, 100u, &OPS, bytes) != FZN_PREKEY_OK ||
+	    fzn_prekey_open(bytes, sizeof(bytes), &record) != FZN_PREKEY_OK ||
+	    fzn_prekey_pin(&peer, record, &OPS, FZN_TRUST_PINNED, 1000u) != FZN_PREKEY_OK) {
+		printf("  INVARIANT: the near-miss anchor would not pin\n");
+		return 1;
+	}
+
+	/* A host differing from the anchor only in its last byte. Same byte 0,
+	 * so the stub signer verifies it; a whole-key compare refuses it as a
+	 * different host, a prefix compare would take it as a rotation. */
+	memcpy(near, host, sizeof(near));
+	near[FZN_PUBKEY_LEN - 1] ^= 0xffu;
+	if (fzn_prekey_issue(near, prekey2, 200u, &OPS, bytes) != FZN_PREKEY_OK ||
+	    fzn_prekey_open(bytes, sizeof(bytes), &record) != FZN_PREKEY_OK) {
+		printf("  INVARIANT: the near-miss host record would not issue\n");
+		return 1;
+	}
+	if (fzn_prekey_pin(&peer, record, &OPS, FZN_TRUST_PINNED, 1001u)
+	    != FZN_PREKEY_ERR_WRONG_HOST) {
+		printf("  INVARIANT: a record from a host differing only in its last byte "
+		       "was not refused as the wrong host -- the host key is compared by a "
+		       "prefix, so a prekey is pinned for a peer nobody signed\n");
+		return 1;
+	}
+
+	/* A prekey differing from the held one only in its last byte, at the
+	 * SAME timestamp: a different statement of the same age, which is a
+	 * rollback, not the re-delivery a prefix compare would call it. */
+	memcpy(prekey_near, prekey, sizeof(prekey_near));
+	prekey_near[FZN_PREKEY_LEN - 1] ^= 0xffu;
+	if (fzn_prekey_issue(host, prekey_near, 100u, &OPS, bytes) != FZN_PREKEY_OK ||
+	    fzn_prekey_open(bytes, sizeof(bytes), &record) != FZN_PREKEY_OK) {
+		printf("  INVARIANT: the near-miss prekey record would not issue\n");
+		return 1;
+	}
+	if (fzn_prekey_pin(&peer, record, &OPS, FZN_TRUST_PINNED, 1002u)
+	    != FZN_PREKEY_ERR_ROLLBACK) {
+		printf("  INVARIANT: a different prekey at the held timestamp was taken as a "
+		       "re-delivery -- the prekey is compared by a prefix\n");
+		return 1;
+	}
+	return 0;
+}
+
 static int fuzz_one(uint32_t seed, struct coverage *cov)
 {
 	uint32_t state = seed;
@@ -277,6 +354,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 		seed = (seed * 31u) + data[i];
 	if (seed == 0u)
 		seed = 1u;
+	(void)near_miss_keys_are_distinct();
 	(void)fuzz_one(seed, &cov);
 	return 0;
 }
@@ -306,6 +384,11 @@ int main(int argc, char **argv)
 		       "not report success -- every coverage floor below that is cleared by "
 		       "a single lucky hit. Re-run with %u or more.\n",
 		       cases, (unsigned)FUZZ_MIN_CASES, (unsigned)FUZZ_MIN_CASES);
+		return 1;
+	}
+
+	if (near_miss_keys_are_distinct()) {
+		printf("prekey_fuzz: FAILED the near-miss key check\n");
 		return 1;
 	}
 

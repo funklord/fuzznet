@@ -1739,6 +1739,23 @@ SABOTAGES = [
 		"\t\t           (unsigned long long)peer->created_at);\n",
 		"a record one second older than the one held and one a year older are the same FZN_PREKEY_ERR_ROLLBACK and are not the same event -- the second says somebody kept a copy -- sec 222",
 	),
+	# Two from prekey_fuzz's near-miss block (sec 282). The host and prekey
+	# compares must read the whole key; the fuzz loop keys identity on byte 0,
+	# so only the near-miss block reaches a shared prefix.
+	(
+		"prekey-host-whole",
+		"prekey/prekey.c",
+		"fzn_ct_memeq(anchor, record.host, FZN_PUBKEY_LEN)",
+		"fzn_ct_memeq(anchor, record.host, 1u)",
+		"the host match must read the WHOLE key, or a record from a host agreeing on a prefix is taken as a rotation and a prekey is pinned for a peer nobody signed; held by prekey_fuzz's near-miss block",
+	),
+	(
+		"prekey-prekey-whole",
+		"prekey/prekey.c",
+		"fzn_ct_memeq(peer->prekey, record.prekey, FZN_PREKEY_LEN)",
+		"fzn_ct_memeq(peer->prekey, record.prekey, 1u)",
+		"the re-delivery check must read the WHOLE prekey, or a different prekey sharing a prefix at the held timestamp is taken as a re-delivery rather than the rollback it is",
+	),
 	(
 		"prekey-wrong-host-is-silent",
 		"prekey/prekey.c",
