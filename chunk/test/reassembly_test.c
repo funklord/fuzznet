@@ -949,6 +949,51 @@ static void test_a_completed_slot_is_handed_only_once(void)
 	      "the slot did not go to the next sender");
 }
 
+/*
+ * A SLOT IS DEAD AT ITS DEADLINE, NOT A TICK AFTER. `fzn_reasm_expire`
+ * reclaims a slot when `expires_at <= now`, so a slot accepted with a
+ * deadline of 50 is reclaimed by a sweep at exactly 50 and held by one at
+ * 49. Every other expiry test in this file sweeps well past the deadline
+ * (60 against 50), so the `<=` could weaken to `<` -- a slot outliving its
+ * own deadline by a tick -- and nothing here or in `reassembly_fuzz`, which
+ * fixes `now` and never advances it, would notice. The convention is
+ * `frame/freshness.c`'s and `chain/chain.c`'s: dead at the deadline, and it
+ * is a boundary a fixture reaches only by sweeping AT it.
+ */
+static void test_a_slot_is_reaped_at_its_deadline(void)
+{
+	struct fixture f;
+	fzn_partial_t *done = NULL;
+	uint8_t piece[8];
+
+	fixture_init(&f, SLOTS);
+	fill(piece, 8, 0x80, 0);
+	/* A two-chunk message left half-finished, so its slot stays live. The
+	 * expiry (50) is below max_hold, so the stored deadline is exactly 50. */
+	CHECK(fzn_reasm_accept(&f.table, f.alice, 1, 0, 2, piece, 8, 50, 10, &done)
+	              == FZN_REASM_OK,
+	      "the half-finished message was not accepted");
+	CHECK(fzn_reasm_expire(&f.table, 49) == 0,
+	      "a slot was reclaimed a tick before its deadline");
+	CHECK(fzn_reasm_expire(&f.table, 50) == 1,
+	      "a slot outlived its own deadline: the sweep is < where it must be <=");
+
+	/* THE SAME BOUNDARY AT ACCEPT. A chunk whose own expiry equals the
+	 * clock is already dead and must not cost a slot; one a tick earlier is
+	 * still live. Every other accept-freshness case here passes an expiry
+	 * strictly below `now` (50 against 60), so this `<=` could weaken to
+	 * `<` unseen. */
+	fixture_init(&f, SLOTS);
+	CHECK(fzn_reasm_accept(&f.table, f.bob, 1, 0, 2, piece, 8, 50, 49, &done)
+	              == FZN_REASM_OK,
+	      "a chunk a tick before its expiry was refused");
+	fixture_init(&f, SLOTS);
+	CHECK(fzn_reasm_accept(&f.table, f.bob, 1, 0, 2, piece, 8, 50, 50, &done)
+	              == FZN_REASM_ERR_EXPIRED,
+	      "a chunk whose expiry equals the clock was admitted: accept is < where "
+	      "it must be <=");
+}
+
 static void test_a_zero_expiry_is_bounded_by_max_hold(void)
 {
 	struct fixture f;
@@ -1528,6 +1573,7 @@ int main(void)
 	test_release_clears_the_arrived_set();
 	test_the_offset_guard_is_reachable();
 	test_a_completed_slot_is_handed_only_once();
+	test_a_slot_is_reaped_at_its_deadline();
 	test_a_zero_expiry_is_bounded_by_max_hold();
 	test_stale_traffic_still_reclaims_slots();
 	test_a_completed_slot_is_not_taken_from_under_the_caller();

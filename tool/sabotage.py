@@ -1198,6 +1198,23 @@ SABOTAGES = [
 		"\t\tif (earlier->live\n\t\t    && memcmp(earlier->sender, table->partials[at].sender, FZN_SENDER_LEN) == 0)\n\t\t\treturn 1;\n",
 		"one sender holding three slots is one peer being refused and not three, so a census counting slots inflates the number of peers this bound is turning away -- the printer's fixture needed a third slot before the question could be asked at all -- sec 235",
 	),
+	# Two expiry boundaries from reassembly_test's deadline case (sec 283).
+	# A slot is dead AT its deadline, not a tick after; every other expiry
+	# case sweeps well past it, and reassembly_fuzz fixes `now`.
+	(
+		"reassembly-reap-at-the-deadline",
+		"chunk/reassembly.c",
+		"slot->live && !slot->handed && slot->expires_at <= now",
+		"slot->live && !slot->handed && slot->expires_at < now",
+		"a slot is reclaimed AT its deadline, not a tick after; weakened to < it outlives its deadline by one tick, held only by a sweep that lands exactly on it",
+	),
+	(
+		"reassembly-accept-at-the-deadline",
+		"chunk/reassembly.c",
+		"\tif (expires_at != 0 && expires_at <= now)\n\t\treturn FZN_REASM_ERR_EXPIRED;",
+		"\tif (expires_at != 0 && expires_at < now)\n\t\treturn FZN_REASM_ERR_EXPIRED;",
+		"a chunk whose expiry equals the clock is already dead and must not cost a slot; the same boundary as the reap, at accept",
+	),
 	(
 		"expire-separates-loss-from-abandonment",
 		"chunk/reassembly.c",

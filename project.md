@@ -39424,3 +39424,55 @@ a wrong root. These are recorded as examined-and-declined, which is a
 different record from unexamined: the lens was carried to each and the stakes
 weighed, and the attention goes to the next lens rather than the tail of this
 one.
+
+## 283. The next lens: the equality edge of an ordering compare
+
+The comparison-LENGTH lens of sec 279-282 had a shape underneath it: a
+fixture whose values are maximally separated cannot test whether the code
+reads the whole value. Turned from a compare to an ORDERING, the same shape
+asks whether a fixture ever produces the EQUAL case -- because `<=` and `<`
+differ only there, and a fixture whose clock never lands on a deadline
+cannot tell them apart. Expiry is where this lives, and the convention this
+tree draws is "dead AT the deadline": `expires_at <= now`.
+
+Most of it was already held, which is the sec 280 lesson again -- read the
+finds for a shape before assuming a gap. `frame/freshness.c` carries an
+explicit boundary entry (`replay-expirable-draws-the-same-boundary`, `<=`
+sabotaged to `<`). `chain/chain.c`'s verify-site expiry is held by
+`chain_fuzz` and `chain_test`; its `fzn_chain_expired_at` predicate by
+`chain_store_fuzz` and `chain_store_test`. `provision/provision.c` draws the
+OPPOSITE boundary on purpose -- a card is valid THROUGH its expiry second,
+`expires_at < now` -- and `provision_test` pins it in as many words ("refused
+ON its expiry, which is inside its life"), with `provision_fuzz` reaching the
+equal case through a fixed `now`. The chain/provision divergence is real and
+deliberate on both sides.
+
+### Where it was not held: chunk/reassembly.c
+
+Both of reassembly's expiry boundaries survived a `<=`-to-`<` sabotage. The
+reap (`slot->expires_at <= now`) and the accept-time freshness refusal
+(`expires_at <= now`) each had every test sweeping WELL PAST the deadline --
+50 against 60 -- so the edge was never touched, and `reassembly_fuzz` fixes
+`now` at 100 and never advances it, so it drives no expiry at all. A slot
+could outlive its own deadline by a tick, or a chunk already dead cost a
+slot, and nothing would notice.
+
+	reap boundary <= to <         SURVIVED test and fuzz -> CAUGHT
+	accept boundary <= to <       SURVIVED test and fuzz -> CAUGHT
+
+`test_a_slot_is_reaped_at_its_deadline` sweeps a slot with a deadline of 50
+at 49 (reclaims nothing) and at 50 (reclaims it), and accepts a chunk whose
+expiry equals the clock (refused) and one a tick before (accepted). The
+deadline is exactly 50 because the chunk's own expiry is below `max_hold` and
+so is honoured unclamped. `reassembly-reap-at-the-deadline` and
+`reassembly-accept-at-the-deadline` are in the table.
+
+### The equality edge, elsewhere
+
+Other ordering edges are unexamined against their equal case: the catalog
+retain deadline (`now >= held->until`, held by `catalog_test` but not the
+fuzzers), `spool/transfer.c`'s `deadline > now`, and the `<` in weakest-link
+and rollback comparisons. Each is the same question -- does a fixture ever
+land exactly on the boundary -- and the same order of attention applies: the
+expiry edges that decide whether a credential is live come before the ones
+that decide a buffer's reclamation tick.
