@@ -129,6 +129,7 @@
 /chunk/test/split_test
 /chunk/test/reassembly_fuzz
 /chain/test/chain_fuzz
+/chain/test/chain_store_fuzz
 /frame/test/freshness_fuzz
 /chain/test/revocation_fuzz
 /chain/test/manifest_fuzz

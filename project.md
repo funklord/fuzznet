@@ -38988,3 +38988,60 @@ version is drawn from six values, so an out-of-order arrival is common
 rather than a coincidence. A fixture too roomy to fill and versions too
 sparse to collide would have passed just as green over a fraction of the
 contract.
+
+## 276. The chain store, and a pattern in three stores
+
+`chain/chain_store.c` has a harness. It passed on its first run with every
+state reached, three sabotages were caught, and it adds nothing to the
+sabotage table -- sec 275's shape exactly, and the reasoning there is not
+repeated here.
+
+What is worth recording is the model, because `chain_store.h` states its
+semantics as sentences and each one became a floor:
+
+	a chain for a held triple REPLACES,     3832 of 13009 replacements were
+	  even a shorter-lived one              by a shorter-lived chain
+	a DEAD entry is spent before FULL       5033 dead entries spent
+	still FULL when every entry is live     12907 refusals over live stores
+	expiry alone deletes nothing            24729 lookups withheld an entry
+	                                        the count still included
+
+**Which dead slot is spent is not modelled, deliberately.** The header says
+the first in array order and that a deterministic choice "can be tested" --
+`chain_store_test` does. From outside, every dead entry is withheld and
+every one is counted, so which of them a new chain replaced is not
+observable through lookup and count. A model that tracked array order would
+be a model of the implementation, which is the one thing an oracle must not
+be.
+
+### The chains are real, and that is where the fixture cost went
+
+`fzn_chain_store_admit` verifies before it stores, so bytes that do not
+verify would test the refusal path 20000 times. Every chain here is one hop
+minted by the root with the same stub signer `chain_test.c` uses -- byte 0
+of a key is its identity, because the verifier derives it from there -- and
+admitted while live. What a chain that does not verify does is
+`chain_test`'s subject and is not asserted twice.
+
+	three sabotages: a dead entry not spent, lookup handing back an
+	expired chain, a live entry evicted to make room -- CAUGHT, each
+	naming the sentence of the header it broke
+
+### Three stores in two days, and the shape they share
+
+`record/store.c`, `record/ledger.c` and `chain/chain_store.c` are all keyed
+tables with a small contract, and all three harnesses passed first time
+after three that did not. The difference was sec 273's question asked
+before writing: **can the fixture reach every state the contract names?**
+For a keyed store the answer is nearly always yes -- a small key space, a
+small table and a clock the harness owns reach full, stale, expired and
+replaced without a window to open or a membership to establish. That is a
+property of the subject, not of care, and it is why these three were cheap
+where `transfer` and `copy` were not.
+
+Two of the three earned no sabotage entries and one earned a single one.
+That is the right outcome for a module the table already holds: the harness
+answers whether the invariant survives random order, which the table cannot
+ask, and the table answers whether each guard is held, which a harness
+cannot see. Writing an entry so the file has one is sec 201's symmetry, and
+it was declined twice.
