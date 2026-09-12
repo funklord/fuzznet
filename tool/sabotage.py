@@ -406,6 +406,26 @@ SABOTAGES = [
 		'static const char FZN_SESSION_DIR_LABEL[16] = "fuzznet-dir-v9\\0\\0";',
 		"the directed chain label is pinned against silent change",
 	),
+	# Two from the session harness (sec 279). The first is held by the
+	# harness alone: session_test sorts identities that differ in their
+	# first byte, so a canonical order that reads a prefix and breaks the
+	# tie by which side is asking never meets a tie there. The second was
+	# held by nothing until the v2 KAT vector was re-aimed so that role
+	# order and canonical order disagree.
+	(
+		"session-order-reads-the-whole-identity",
+		"session/session.c",
+		"\tif (order < 0) {\n",
+		"\tif (memcmp(self_identity, peer_identity, 16u) <= 0) {\n",
+		"a canonical order that reads only a prefix of the identity ties on identities agreeing that far and resolves the tie by which host is asking, so the two sides derive two roots for one pair and cannot talk; only the harness's shared-prefix identities reach the tie",
+	),
+	(
+		"session-v2-is-role-ordered",
+		"session/session.c",
+		"\tmemcpy(out + at, initiator_id, FZN_SESSION_IDENTITY_LEN);\n\tat += FZN_SESSION_IDENTITY_LEN;\n\tmemcpy(out + at, initiator_prekey, FZN_AGREE_PUBLIC_LEN);\n\tat += FZN_AGREE_PUBLIC_LEN;\n\tmemcpy(out + at, responder_id, FZN_SESSION_IDENTITY_LEN);\n\tat += FZN_SESSION_IDENTITY_LEN;\n\tmemcpy(out + at, responder_prekey, FZN_AGREE_PUBLIC_LEN);\n\tat += FZN_AGREE_PUBLIC_LEN;\n",
+		"\t{ int lt = memcmp(initiator_id, responder_id, FZN_SESSION_IDENTITY_LEN) < 0;\n\tmemcpy(out + at, lt ? initiator_id : responder_id, FZN_SESSION_IDENTITY_LEN);\n\tat += FZN_SESSION_IDENTITY_LEN;\n\tmemcpy(out + at, lt ? initiator_prekey : responder_prekey, FZN_AGREE_PUBLIC_LEN);\n\tat += FZN_AGREE_PUBLIC_LEN;\n\tmemcpy(out + at, lt ? responder_id : initiator_id, FZN_SESSION_IDENTITY_LEN);\n\tat += FZN_SESSION_IDENTITY_LEN;\n\tmemcpy(out + at, lt ? responder_prekey : initiator_prekey, FZN_AGREE_PUBLIC_LEN);\n\tat += FZN_AGREE_PUBLIC_LEN; }\n",
+		"the v2 transcript is role-ordered on purpose, and a v2 that sorted instead agreed with the KAT for as long as the vector's initiator happened to sort first; the vector's roles are the other way round now, and only a layout check can see this at all",
+	),
 	(
 		"transcript-v2-version-is-protocol",
 		"session/session.h",

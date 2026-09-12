@@ -255,7 +255,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              catalog/test/reach_test.c \
              qr/test/qr_test.c \
              blob/test/blob_test.c ratchet/test/ratchet_test.c \
-             ratchet/test/ratchet_fuzz.c \
+             ratchet/test/ratchet_fuzz.c session/test/session_fuzz.c \
              prekey/test/prekey_test.c prekey/test/prekey_fuzz.c \
              provision/test/provision_fuzz.c \
              record/test/sync_fuzz.c \
@@ -347,6 +347,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/blob/test/blob_test \
              $(BUILD_DIR)/ratchet/test/ratchet_test \
              $(BUILD_DIR)/ratchet/test/ratchet_fuzz \
+             $(BUILD_DIR)/session/test/session_fuzz \
              $(BUILD_DIR)/prekey/test/prekey_test \
              $(BUILD_DIR)/provision/test/provision_test \
              $(BUILD_DIR)/disclose/test/disclose_test \
@@ -2058,6 +2059,14 @@ $(BUILD_DIR)/ratchet/test/ratchet_test: $(BUILD_DIR)/ratchet/test/ratchet_test.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+$(BUILD_DIR)/session/test/session_fuzz: $(BUILD_DIR)/session/test/session_fuzz.o \
+                                       $(BUILD_DIR)/session/session.o \
+                                       $(BUILD_DIR)/session/agree.o \
+                                       $(BUILD_DIR)/session/commitment.o \
+                                       $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/ratchet/test/ratchet_fuzz: $(BUILD_DIR)/ratchet/test/ratchet_fuzz.o \
                                          $(BUILD_DIR)/ratchet/ratchet.o \
                                          $(BUILD_DIR)/constant_time/constant_time.o
@@ -3175,6 +3184,7 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/spool/test/transfer_fuzz \
              $(BUILD_DIR)/spool/test/scrub_fuzz \
              $(BUILD_DIR)/ratchet/test/ratchet_fuzz \
+             $(BUILD_DIR)/session/test/session_fuzz \
              $(BUILD_DIR)/sched/test/sched_fuzz \
              $(BUILD_DIR)/link/test/link_fuzz
 

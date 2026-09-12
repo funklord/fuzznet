@@ -39186,3 +39186,89 @@ the assertion has anything to compare against -- was answered yes here, and
 the assertion still could not fire, because the state it reached was not a
 failure. The check that separates the two is the same as ever: sabotage,
 and read what the survivor means before deciding the harness is blind.
+
+## 279. The session root, and a KAT vector that had chosen the one fixture it could not see with
+
+`session/session.c` has a harness. The property is `session.h`'s in three
+sentences: the base root is a function of the UNORDERED pair of (identity,
+prekey), the ephemeral root of the ORDERED pair plus the ephemeral, and the
+two chain keys are directed. The oracle is a bijection held as a table --
+every root filed under a descriptor built from those sentences, and checked
+both ways: two descriptors with one root is two sessions become one, one
+descriptor with two roots is a side that cannot talk to the other. Four
+hosts rotate their prekeys, pair off from either side, mint ephemerals, swap
+roles, and refuse -- with themselves, on the first agreement, on the second,
+in the hash, in either chain -- with the caller's buffers checked untouched
+or wiped as the header says.
+
+	20000 cases, 62879 base sessions (31404 with identities agreeing on
+	16+ bytes), 58920 ephemeral (14593 with roles swapped), 14949
+	rotations, 11806 sessions revisited, 91191 chain pairs, and every
+	root and chain was one-to-one with its session
+
+### The identities share prefixes, and that is the harness
+
+The canonical order is a `memcmp` over thirty-two bytes. `session_test`
+sorts identities that differ in their first byte, and the KAT's `ID_LOW`
+and `ID_HIGH` differ in theirs. So a sort that read a prefix and broke the
+tie by which host was asking -- deriving two roots for one pair, a pair
+that then cannot talk -- was met by nothing in the tree. Here the hosts in
+a case agree on a random number of leading bytes, up to thirty-one:
+
+	sort on the first byte only         fuzz CAUGHT   test survived   kat survived
+	sort on sixteen bytes               fuzz CAUGHT   test survived   kat survived
+	sort on thirty-one bytes            fuzz CAUGHT   test survived   kat survived
+
+`session-order-reads-the-whole-identity` is in the table, held by the
+harness alone. Sec 273's question was answered by construction: the state
+the assertion needs is a tie, and the fixture was built to produce ties.
+
+### The first sabotage run was wrong twice, and both were instruments
+
+The first sort sabotage resolved the tie by pointer AFTER the `order == 0`
+check had been replaced, so it also accepted a session with yourself and was
+caught -- by the harness and by `session_test` -- for that, not for the
+sort. Read as written it said the suite held the sort. It did not; a
+sabotage that breaks two guards is caught by whichever is cheaper, and the
+report names neither.
+
+And the KAT column read CAUGHT for every row, because the KAT binary had not
+linked (it needs monocypher and the two real bindings) and a missing binary
+exits non-zero. Eleven confident verdicts from a file that did not exist.
+The rerun built each binary with `||` on the compile so a build failure
+prints itself rather than a verdict, and its first row is a pristine
+control -- three survivals -- without which the other rows still could not
+be read.
+
+### A v2 that sorted was held by nothing, and the reason is the vector
+
+With the KAT actually running, the sabotage that lays the v2 transcript
+down in canonical order instead of role order survived all three
+instruments. The harness cannot see it: the ephemeral is agreed with the
+RESPONDER's prekey, so the role is bound through the ephemeral shared secret
+whichever order the identities take, and the roots stay one-to-one -- the
+same shape as sec 278, a redundancy rather than a collision. `session_test`
+checks bytes reach the transcript, not where. And the KAT's v2 vector had A
+initiating, where A is `ID_LOW`: **the one fixture in which role order and
+canonical order coincide**, so a v2 that sorted produced the documented
+bytes. The v1 case in the same file had been laid out "so the canonical sort
+is exercised in both directions"; the v2 case beside it had not asked the
+question.
+
+The vector's roles are the other way round now -- B initiates, and B sorts
+second -- and the sort sabotage fails at `session_kat_test.c:424`.
+`session-v2-is-role-ordered` is in the table, held by the KAT. The
+harness's contribution was the sabotage, not the catch; evidence.md's
+"choose a fixture so that the plausible wrong answer and the right one
+differ" is the rule, and a known-answer vector is exactly a fixture.
+
+### What the bijection cannot see, pinned in the harness
+
+A redundant field. Drop a host's prekey public from the base transcript and
+every rotation still changes the root through the shared secret; drop the
+ephemeral shared secret from v2 and the ephemeral public still separates
+sessions. Both survived the harness and both are caught by `session_test`'s
+byte-reach checks and the KAT. The harness says so in its header, because
+"a field is hashed" and "a field is the only thing separating two sessions"
+are different properties and a reader quoting the harness for the first
+would be wrong.

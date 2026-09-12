@@ -384,9 +384,19 @@ int main(void)
 	check(memcmp(b_ckey, want_ckey, sizeof(want_ckey)) == 0,
 	      "B derives the same commitment key from the mirrored arguments");
 
-	/* THE FORWARD-SECRECY PATH. A's prekey plus a fresh ephemeral against
-	 * B's prekey, role-ordered with A as the initiator. Its version byte
-	 * survived a mutation to 9 before this check existed. */
+	/* THE FORWARD-SECRECY PATH. B's prekey plus a fresh ephemeral against
+	 * A's prekey, role-ordered with B as the initiator. Its version byte
+	 * survived a mutation to 9 before this check existed.
+	 *
+	 * B INITIATES, NOT A, AND THE CHOICE IS THE CHECK. ID_HIGH sorts above
+	 * ID_LOW, so with B as the initiator the role order and the canonical
+	 * order DISAGREE -- and only then can this vector tell a v2 transcript
+	 * laid down by role from one that sorted. With A initiating, as this
+	 * case did until sec 279, the two orders coincide and a v2 that sorted
+	 * agreed with this file; session_fuzz's sabotage of exactly that
+	 * survived every test in the tree, because nothing else can see a
+	 * layout and this vector had chosen the one fixture where the layouts
+	 * are the same. */
 	{
 		static const uint8_t SECRET_E[FZN_AGREE_SECRET_LEN] = {
 			0x5a, 0x5a, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06,
@@ -404,11 +414,11 @@ int main(void)
 		      "the ephemeral installs");
 		crypto_x25519_public_key(eph_pub, SECRET_E);
 
-		expected_root_v2(SECRET_A, ID_LOW, SECRET_E, SECRET_B, ID_HIGH, want2_key,
+		expected_root_v2(SECRET_B, ID_HIGH, SECRET_E, SECRET_A, ID_LOW, want2_key,
 		                 want2_ckey);
 
-		check(fzn_session_establish_initiator(&sk_a, &eph, &agree, &hash, ID_LOW,
-		                                      ID_HIGH, pub_b, got2_key, got2_ckey)
+		check(fzn_session_establish_initiator(&sk_b, &eph, &agree, &hash, ID_HIGH,
+		                                      ID_LOW, pub_a, got2_key, got2_ckey)
 		              == FZN_SESSION_OK,
 		      "the initiator establishes");
 		check(memcmp(got2_key, want2_key, sizeof(want2_key)) == 0,
@@ -420,8 +430,8 @@ int main(void)
 		 * and a DIFFERENT pair of DH calls -- its ephemeral shared comes
 		 * from its own prekey against the peer's ephemeral. Same bytes,
 		 * or the two halves are not one protocol. */
-		check(fzn_session_establish_responder(&sk_b, &agree, &hash, ID_HIGH, ID_LOW,
-		                                      pub_a, eph_pub, r_key, r_ckey)
+		check(fzn_session_establish_responder(&sk_a, &agree, &hash, ID_LOW, ID_HIGH,
+		                                      pub_b, eph_pub, r_key, r_ckey)
 		              == FZN_SESSION_OK,
 		      "the responder establishes");
 		check(memcmp(r_key, want2_key, sizeof(want2_key)) == 0,
