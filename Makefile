@@ -319,6 +319,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              log/test/fix_stream_test.c \
              record/test/record_guided.c \
              record/test/record_fuzz.c \
+             record/test/store_fuzz.c \
              tree/test/tree_fuzz.c \
              tree/test/tree_kat_test.c \
              wire/test/seal_fuzz.c \
@@ -409,6 +410,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/log/test/fix_stream_test \
              $(BUILD_DIR)/record/test/record_guided \
              $(BUILD_DIR)/record/test/record_fuzz \
+             $(BUILD_DIR)/record/test/store_fuzz \
              $(BUILD_DIR)/tree/test/tree_fuzz \
              $(BUILD_DIR)/wire/test/seal_fuzz \
              $(BUILD_DIR)/blob/test/blob_fuzz \
@@ -1678,6 +1680,13 @@ $(BUILD_DIR)/tree/test/tree_test: $(BUILD_DIR)/tree/test/tree_test.o \
 $(BUILD_DIR)/record/test/record_kat_test: \
                                       $(BUILD_DIR)/record/test/record_kat_test.o \
                                       $(BUILD_DIR)/record/record.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD_DIR)/record/test/store_fuzz: $(BUILD_DIR)/record/test/store_fuzz.o \
+                                    $(BUILD_DIR)/record/store.o \
+                                    $(BUILD_DIR)/record/record.o \
+                                    $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -3107,6 +3116,7 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/local/test/peer_fuzz \
              $(BUILD_DIR)/local/test/vocabulary_fuzz \
              $(BUILD_DIR)/record/test/record_fuzz \
+             $(BUILD_DIR)/record/test/store_fuzz \
              $(BUILD_DIR)/tree/test/tree_fuzz \
              $(BUILD_DIR)/wire/test/seal_fuzz \
              $(BUILD_DIR)/blob/test/blob_fuzz \

@@ -38868,3 +38868,64 @@ Nothing here measures a missed opportunity and nothing could, because
 `transfer.h` says the search covers "a bounded number of candidate ranges"
 and may answer NONE with free leaves elsewhere. **A refusal that was wrong
 and a refusal that was allowed are the same observation from outside.**
+
+## 274. A backend that lies, and the fixture question asked first
+
+`record/store.c` has a harness, and it is the first of the last four whose
+first draft held its property. The difference was not care; it was asking
+sec 273's question before writing a line: **can the fixture reach a state
+where the assertion has anything to compare against?**
+
+Here the answer was yes from the first call. The store's property is the one
+`store.h` argues for at length -- a shared cache is not a shared trust domain
+because `get` compares what came back against what was asked for, "so a
+store that returns the wrong record answers MISPLACED rather than handing a
+caller somebody else's bytes under the name it asked for". What that needs
+is a backend that lies and a record of what was filed where. Both are cheap,
+neither depends on a window opening or a membership existing, and the first
+run exercised every state.
+
+### The backend is hostile by construction
+
+`store_test.c` has a table with knobs -- a nominated wrong slot, a
+truncation, a hard failure -- and turns each once, pinning which error
+results. This harness turns them at random on every read and asks one
+question across all of them: **did a lie ever become a wrong success?** A
+lying backend may cause any refusal; what it may never cause is an OK that
+carries bytes not filed under that name. The oracle is the map of puts, and
+which error a lie produced is deliberately not asserted here, because that
+is `store_test.c`'s and asserting it twice would be one reading twice.
+
+	20000 cases: 159599 lies refused, 605 lies that happened to be true,
+	29153 honest hits, 20193 puts the backend declined, 25582 overwrites,
+	and no caller ever received bytes under the wrong name
+
+The 605 are wrong-slot answers that named the slot actually holding the
+record, which the store rightly accepts. That counter has no floor: a floor
+on it would be a floor on luck.
+
+### Three sabotages, three caught, and one entry earned
+
+	the issuer is not compared              CAUGHT   wrong-slot lie
+	the sequence is not compared            CAUGHT   wrong-slot lie
+	what came back is not opened first      CAUGHT   truncation lie
+
+Each message names which lie got through, which is what makes a random
+backend worth more than a knob turned once: the harness cannot know in
+advance which lie a given break admits, so it tries all of them.
+
+`store.c` already had four entries in the sabotage table -- both placement
+halves, absent-versus-backend, and the log line -- so the first two rows
+above are held from the other side already and earn nothing. **The third
+had no entry.** Nothing in the table sabotaged the shape check that runs
+BEFORE placement, and a backend that truncates is exactly what reaches it:
+the bytes that come back are not a record, and without the check the
+placement code reads fields off a view nothing opened. One entry,
+`record-store-what-came-back-must-open`, and it is the harness's whole
+addition to the table.
+
+**The lesson is the one sec 273 ended on, from the side where it went
+right.** A property's fixture cost is not a detail to settle after the
+assertions are written; it decides whether the assertions will ever compare
+anything. Three harnesses in a row reported green over nothing because that
+question came second. This one asked it first and had nothing to correct.

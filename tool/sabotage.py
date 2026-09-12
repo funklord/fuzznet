@@ -3839,6 +3839,21 @@ SABOTAGES = [
 		"a transfer whose window reaches zero can never ask for anything "
 		"again, so it can never learn the path recovered",
 	),
+	# BATCH TWENTY-EIGHT, 2026-09-12: the store's shape check, sec 274. Four
+	# entries already held placement and absent-versus-backend; none held
+	# the check BEFORE placement, that what came back opens as a record at
+	# all. record/test/store_fuzz.c found it by having its backend truncate
+	# at random, and it is the one entry that harness earns.
+	(
+		"record-store-what-came-back-must-open",
+		"record/store.c",
+		"\tif (fzn_record_open(out, len, &record) != FZN_RECORD_OK)\n"
+		"\t\treturn FZN_RECORD_STORE_ERR_SHAPE;\n",
+		"\tif (fzn_record_open(out, len, &record) != FZN_RECORD_OK)\n"
+		"\t\trecord.base = out, record.len = len;\n",
+		"a backend that truncates hands back bytes that are not a record, and "
+		"the placement check reads fields off a view that was never opened",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so
