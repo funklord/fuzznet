@@ -73,9 +73,12 @@
  * THE ENCODING IS UNAMBIGUOUS BECAUSE THE VARIABLE FIELD IS LAST. Service
  * and product are four big-endian bytes each and the name follows, so no two
  * distinct triples produce the same input. If a field is ever added, it goes
- * BEFORE the name or it brings a length prefix with it; appending one after
- * a variable-length field is how two different capabilities come to hash the
- * same.
+ * BEFORE the name or it brings a length prefix with it; a second
+ * variable-length field after the first is how two different capabilities
+ * come to hash the same. (A FIXED field appended after the name would still
+ * decode, from the right -- `chain/test/service_fuzz.c` sabotaged that and
+ * watched it survive -- but the rule is stated wider than the hazard so that
+ * nobody has to re-derive which case they are in.)
  *
  * A domain label is prepended here rather than by the caller, which is
  * `session/commitment.h`'s settled reason: a label the caller supplies is a

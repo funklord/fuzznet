@@ -39114,3 +39114,75 @@ mostly asked the two cheapest questions. Weighted, the eight rows come out
 between five and seventeen per cent each. **A decision table is only tested
 where its rows are reached**, and the cheap rows are the ones a uniform draw
 reaches first.
+
+## 278. The capability derivation, and a sabotage that was right to survive
+
+`chain/service.c` has a harness. The subject is `fzn_service_capability`,
+which hashes a (service, product, name) triple into a capability id, and
+the property is the one `service.h` states in capitals: distinct triples,
+distinct ids. The oracle is a map from derived id back to the triple that
+produced it; every derivation is looked up, and a hit carrying a different
+triple is two grants become one -- which in a system where the verifier
+derives the capability it requires and compares is one grant standing for
+another.
+
+	20000 cases, 287736 derived (172144 with a zero byte in the name,
+	41126 empty), 17823 same-triple repeats agreed, 215819 pairs
+	derived, and no two distinct triples ever shared an id
+
+### The sabotage the harness was written to catch survived, and correctly
+
+The header names its hazard: "if a field is ever added, it goes BEFORE the
+name or it brings a length prefix with it; appending one after a
+variable-length field is how two different capabilities come to hash the
+same." The harness was designed around that sentence -- names carrying zero
+bytes and varying in length, so a name's tail could be mistaken for a fixed
+field's bytes -- and its first comment said the fixture existed to catch the
+product moved after the name.
+
+Sabotaged, that SURVIVED. And the model was right to find no collision: with
+the name the only variable-length field and the length hashed, `name ||
+be32(product)` decodes uniquely from the right, so the encoding is still
+injective. The mechanism the header gave was wider than the hazard. What
+actually collides is a SECOND variable-length field, or a hash that cannot
+see the length -- and the second is what the zero bytes reach:
+
+	the input zero-padded to a fixed size, the length not hashed
+	    CAUGHT  (3, ANY, 1-byte name) and (3, ANY, 0-byte name) derived
+	            the same capability
+	only the first four bytes of the name hashed
+	    CAUGHT  two 6-byte names under (2, ANY)
+	the service not part of the input          CAUGHT
+	an unspelled service accepted              CAUGHT
+	the product moved after the name           SURVIVED, and should
+
+So the fixture was right and the reason written above it was wrong. Both the
+harness's comment and the header's sentence now say which case collides;
+the header keeps its rule stated wider than the hazard, on purpose, so that
+nobody has to re-derive which case they are in. **A sabotage that survives
+is a claim about the code, and here the claim was true: the encoding
+tolerates the edit the header forbids.** Had the comment been believed
+instead of the run, the harness would have shipped saying it caught a
+failure it cannot cause.
+
+### Two entries earned
+
+Nine entries already held this file -- the service, the product and the name
+each in the input, the wildcard refused as a subject, the product bounded,
+and four on the stream derivation. Neither of the two new sabotages was
+held: `service_test` derives "read", "write" and "", names that differ in
+their first byte and carry no zeros, so a padded input and a name hashed in
+part are both invisible to it. Built against each sabotaged tree, the suite
+stayed green and the harness went red. `service-length-hashed` and
+`service-name-hashed-whole` are in the table, and through it both are
+CAUGHT with `service_fuzz` as the first failure -- the harness is the only
+thing holding them, which is what sec 201 asks an entry to be for.
+
+### What this one adds to the taxonomy of sec 273
+
+An oracle harness whose failure mode was the AUTHOR's model, not the
+fixture's reach. Sec 273's question -- can the fixture reach a state where
+the assertion has anything to compare against -- was answered yes here, and
+the assertion still could not fire, because the state it reached was not a
+failure. The check that separates the two is the same as ever: sabotage,
+and read what the survivor means before deciding the harness is blind.

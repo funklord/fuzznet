@@ -131,6 +131,7 @@
 /chain/test/chain_fuzz
 /chain/test/chain_store_fuzz
 /chain/test/authz_fuzz
+/chain/test/service_fuzz
 /frame/test/freshness_fuzz
 /chain/test/revocation_fuzz
 /chain/test/manifest_fuzz

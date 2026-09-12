@@ -968,6 +968,23 @@ SABOTAGES = [
 		"\tif (0)\n\t\treturn FZN_CHAIN_ERR_MALFORMED;\n",
 		"a capability for a product no stream can carry corresponds to no record anybody can send, which is a bug rather than a narrower grant",
 	),
+	# Two the fuzz harness earned (sec 278): `service_test` derives "read",
+	# "write" and "" -- names that differ in their first byte -- so neither
+	# a padded input nor a name hashed in part is visible to it.
+	(
+		"service-length-hashed",
+		"chain/service.c",
+		"\tif (!hash->hash(hash->ctx, derived, sizeof(derived), input, at))\n",
+		"\tmemset(input + at, 0, sizeof(input) - at);\n\tif (!hash->hash(hash->ctx, derived, sizeof(derived), input, sizeof(input)))\n",
+		"a derivation that pads its input and hashes the padding makes a name and the same name plus a zero byte one capability; only the fuzz harness's names carry zeros",
+	),
+	(
+		"service-name-hashed-whole",
+		"chain/service.c",
+		"\t\tmemcpy(input + at, name, name_len);\n\tat += name_len;\n",
+		"\t\tmemcpy(input + at, name, name_len > 4u ? 4u : name_len);\n\tat += name_len > 4u ? 4u : name_len;\n",
+		"a name hashed in part makes every name sharing that prefix one capability; the fixed names in `service_test` differ before the cut",
+	),
 	(
 		"claim-broken-backend-is-not-contention",
 		"claim/claim.c",
