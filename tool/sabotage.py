@@ -3330,6 +3330,24 @@ SABOTAGES = [
 	# are about a screen that would look right while saying something the
 	# library does not: an origin row the widget decided for itself, and an
 	# unspelled policy rendered as though somebody had written it.
+	# Two zero-lifetime boundaries (sec 284). A grant expiring the instant it
+	# was issued never had a valid moment; the existing test uses a gap
+	# (5000 vs 4000), so <= could weaken to < and still refuse it -- only
+	# issued == expires tells them apart. Held on both sides now.
+	(
+		"chain-verify-zero-lifetime",
+		"chain/chain.c",
+		"if (expires_at <= fzn_hop_issued_at(hop))",
+		"if (expires_at < fzn_hop_issued_at(hop))",
+		"the verifier must refuse a hop expiring the instant it was issued; weakened to < it accepts a zero-lifetime grant, held only by a fixture whose expires equals its issued and whose clock is below both",
+	),
+	(
+		"chain-mint-zero-lifetime",
+		"chain/chain.c",
+		"if (expires_at != FZN_NO_EXPIRY && expires_at <= issued_at)",
+		"if (expires_at != FZN_NO_EXPIRY && expires_at < issued_at)",
+		"the minter refuses a zero-lifetime grant at the same boundary, so the mistake is caught where it is made rather than at the far end of a network",
+	),
 	(
 		"chain-expired-at-compares-the-sentinel",
 		"chain/chain.c",

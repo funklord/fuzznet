@@ -39476,3 +39476,49 @@ and rollback comparisons. Each is the same question -- does a fixture ever
 land exactly on the boundary -- and the same order of attention applies: the
 expiry edges that decide whether a credential is live come before the ones
 that decide a buffer's reclamation tick.
+
+## 284. The equality edge again: a grant with no life at all
+
+Sec 283's lens -- does a fixture ever land exactly on an ordering boundary --
+was carried down its own list. `spool/transfer.c`'s assignment deadline
+(`deadline > now`) is held by both `transfer_fuzz` and `transfer_test`, which
+track deadlines exactly and sweep at them. The prekey rollback boundary
+(`created_at <= peer->created_at`) is held by `prekey_fuzz`'s ties. The
+weakest-link `<` has no observable edge -- two equal expiries give the same
+minimum either way.
+
+The gap was `chain/chain.c`'s "a grant that expires at or before it was
+issued is invalid," checked on both the verify side and the mint side with
+`expires_at <= issued_at`. `test_expiry_before_issue_is_malformed_not_expired`
+already covered it -- with a GAP, issued 5000 and expiring 4000. A gap is
+refused by `<` as readily as `<=`, so the ZERO-LIFETIME case, a grant
+expiring the instant it was issued, was the one the check's boundary turns
+on and the one no test built.
+
+	verify expires<=issued to <     SURVIVED test and fuzz -> CAUGHT
+	mint   expires<=issued to <     SURVIVED test and fuzz -> CAUGHT
+
+Why the fuzzer could not reach it, though it mints `expires == issued == 100`
+sometimes: the equal case is MASKED. A hop expiring at 100 is also expired
+whenever `now >= 100`, so the verdict is "refused" whether the issued-at
+check fires or the expiry check does, and flipping one to `<` changes
+nothing the model can see. The boundary is observable only when the clock is
+BELOW the shared value -- a hop with `expires == issued == 5000` verified at
+now=1000 -- which is a combination random generation rarely isolates from
+every other reason a chain is refused. The fix is a fixture that names it:
+the existing test grew an equal-dates case at a low clock, verify side, and a
+`fzn_chain_mint` with equal dates, mint side. `chain-verify-zero-lifetime`
+and `chain-mint-zero-lifetime` are in the table.
+
+### What this pass established about the lens
+
+Five expiry sites carried the boundary already (freshness, chain verify,
+chain expired_at, provision both ways, transfer, prekey rollback); two did
+not (reassembly, sec 283) and two more were half-covered -- refused with a
+gap but not at the edge (chain's zero-lifetime, both sides). The recurring
+reason a boundary goes untested is not that a fixture cannot reach the equal
+value but that reaching it changes no verdict, because a SECOND refusal
+masks the first. So the question sharpened: not "does a fixture land on the
+boundary" but "does landing on it change an answer nothing else already
+changed" -- which is the same shape as sec 277's masked-denial draw and
+sec 52's control-must-be-reached, arriving from the direction of time.

@@ -701,6 +701,27 @@ static void test_expiry_before_issue_is_malformed_not_expired(void)
 
 	CHECK(run(&f, 1000, NULL, 0) == FZN_CHAIN_ERR_CHAIN_INVALID,
 	      "a grant that expired before it was issued was treated as merely expired");
+
+	/* THE BOUNDARY: expiring exactly WHEN issued is a zero-lifetime grant,
+	 * which never had a valid moment either. The case above uses a gap
+	 * (5000 against 4000), so `expires_at <= issued_at` could weaken to `<`
+	 * and still refuse it; only issued == expires tells the two apart. The
+	 * clock is below the expiry, so this is refused for its dates and not
+	 * merely found expired. */
+	fixture_init(&f);
+	forge_dates(&f, f.bytes[0], 0, 1, 0xc0, 5000, 5000);
+	fixture_open(&f, 0);
+	stub_reset(&f.stub);
+	CHECK(run(&f, 1000, NULL, 0) == FZN_CHAIN_ERR_CHAIN_INVALID,
+	      "a grant expiring the instant it was issued was accepted: the verifier's "
+	      "check is < where it must be <=");
+
+	/* And the minter refuses to MAKE one, at the same boundary -- the check
+	 * exists on both sides so the mistake is caught where it is made. The
+	 * case that already exists uses a gap; this is the equal edge. */
+	CHECK(mint_hop(&f, f.bytes[0], 0, 1, 0xc0, 5000, 5000, 1) == FZN_CHAIN_ERR_CHAIN_INVALID,
+	      "the minter made a grant expiring the instant it was issued: its check is < "
+	      "where it must be <=");
 }
 
 static void test_revocation_kills_a_middle_hop(void)
