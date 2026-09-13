@@ -39522,3 +39522,57 @@ masks the first. So the question sharpened: not "does a fixture land on the
 boundary" but "does landing on it change an answer nothing else already
 changed" -- which is the same shape as sec 277's masked-denial draw and
 sec 52's control-must-be-reached, arriving from the direction of time.
+
+## 285. The lens in the record and state decoders, and a floor a fuzzer cannot reach
+
+Carried the masked-guard and boundary lenses into `record.c` and `state.c` at
+the copyright holder's direction. `state.c`'s `put` is well-defended: the
+STALE boundary (`seq <= e->seq`, the same-sequence replay the comment calls
+"one genuine record re-presented and the permission came back") is held by
+`state_test` at its equal edge, and the CROSS_STREAM refusal that must be
+checked before STALE is held too. Its issuer-ownership compare is the
+prefix-length class sec 281 declined, and it stays declined.
+
+`record.c`'s version, object, exact-length and sequence-zero checks are all
+held by `record_test` and `record_fuzz`; `BODY_TOO_LARGE` by `record_fuzz`'s
+explicit "one past it, not SHAPE" case.
+
+### The floor that changes no verdict
+
+`fzn_record_open` opens with `if (len < FZN_RECORD_MIN_LEN) return SHAPE`, and
+removing it survived `record_test`, `record_fuzz` and `record_kat_test` -- and
+survived them under `SANITIZE=1` too. Two things hide it. Its VERDICT is
+masked: a sub-header buffer that gets past a floorless open still fails the
+exact-length check below, so the answer is SHAPE either way, and sec 284's
+question -- does landing on the boundary change a verdict a second refusal has
+not already made -- answers no. What the floor actually prevents is the
+`body_len` read at offset 54 running off a short buffer, and that is an
+out-of-bounds READ, not a wrong answer.
+
+The read is guarded twice over, which is why it is subtle: the version and
+object byte checks at offsets 0 and 1 short-circuit a garbage buffer before
+the deep read, so the overflow needs a buffer that carries a valid version and
+object and is still shorter than the 56-byte header -- a two-byte `{version,
+object}` datagram is enough. `record_fuzz` cannot reach it from the other
+side: it sweeps truncated LENGTHS but backs each with the full record's buffer,
+so a read past `len` lands in valid bytes and a sanitizer sees nothing. No
+build mode held the floor.
+
+`test_open_bounds_its_own_reads` mirrors the existing `is_open` bounds test,
+pointed at the parser: it opens exactly-sized allocations of 1 to
+`MIN_LEN - 1` bytes carrying a valid version and object, and expects SHAPE.
+Under a plain build it is a functional assertion that passes with the floor
+present or removed; under `SANITIZE=1` -- the build this project runs -- it
+aborts on the overflow the instant the floor is gone (`record.c:49`, confirmed
+by removing it). So the guard is held by the sanitizer build, and it carries
+no sabotage entry on purpose: the sabotage tool runs a plain `make test`,
+where the removal is green, so an entry would read SURVIVED and misreport a
+guard that is in fact held. This is the same shape as the constant-time
+`codegencheck`, whose guard only a specific build can see.
+
+### What the lens established
+
+The record and state decoders are otherwise thorough. The one gap was a
+safety guard whose removal is invisible to every functional test and to the
+fuzzer built to attack that parser -- reachable only by an exactly-sized
+allocation under a sanitizer, which is now the thing that reaches it.

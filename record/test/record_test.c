@@ -417,6 +417,48 @@ static void test_is_open_agrees_with_open(void)
  * The buffer is malloc'd rather than a stack array on purpose: an exact
  * heap allocation puts a redzone immediately after the last byte, where
  * a stack array may sit inside padding the compiler chose. */
+/*
+ * THE PARSER'S FLOOR GUARDS A DEEP READ, and only a buffer sized to exactly
+ * its length shows it. `fzn_record_open` reads the body length at
+ * `FZN_RECORD_OFF_BODY_LEN` -- but only after the version and object bytes
+ * match, so a buffer that carries those two and is shorter than the header
+ * sends that read past its end. `len < FZN_RECORD_MIN_LEN` is what stops it.
+ * Without that floor the VERDICT is unchanged, because the exact-length check
+ * below still refuses -- so its removal is invisible to a functional test and
+ * is caught only by a sanitizer over an EXACTLY-sized allocation. `record_fuzz`
+ * cannot: it backs every truncated length with the full record's buffer, so
+ * the read lands in valid bytes and ASan sees nothing. This mirrors
+ * `test_is_open_bounds_its_own_reads`, pointed at the parser rather than the
+ * predicate. sec 285.
+ */
+static void test_open_bounds_its_own_reads(void)
+{
+	static const size_t SHORT_LENS[] = { 1u, 2u, 3u, 4u, 55u,
+	                                     FZN_RECORD_MIN_LEN - 1u };
+
+	for (size_t i = 0; i < sizeof(SHORT_LENS) / sizeof(SHORT_LENS[0]); i++) {
+		uint8_t *tiny = malloc(SHORT_LENS[i]);
+		fzn_record_t r;
+
+		if (!tiny) {
+			expect(0, "the fixture could not allocate a short buffer");
+			return;
+		}
+		memset(tiny, 0, SHORT_LENS[i]);
+		/* Valid version and object where they fit, so a floorless parser
+		 * reaches the body-length read rather than stopping at the byte
+		 * checks -- which is the read the floor exists to bound. */
+		if (SHORT_LENS[i] > FZN_RECORD_OFF_VERSION)
+			tiny[FZN_RECORD_OFF_VERSION] = (uint8_t)FZN_SIGNED_VERSION;
+		if (SHORT_LENS[i] > FZN_RECORD_OFF_OBJECT)
+			tiny[FZN_RECORD_OFF_OBJECT] = (uint8_t)FZN_OBJECT_RECORD;
+
+		expect_err(fzn_record_open(tiny, SHORT_LENS[i], &r), FZN_RECORD_ERR_SHAPE,
+		           "a buffer shorter than a record header was opened");
+		free(tiny);
+	}
+}
+
 static void test_is_open_bounds_its_own_reads(void)
 {
 	static const size_t SHORT_LENS[] = { 1u, 2u, 3u, 4u, 91u, FZN_RECORD_MIN_LEN - 1u };
@@ -959,6 +1001,7 @@ int main(void)
 	       (unsigned)FZN_RECORD_HEADER_LEN, (unsigned)FZN_SIG_LEN,
 	       (size_t)FZN_RECORD_MIN_LEN, (size_t)FZN_RECORD_MAX_LEN);
 	test_is_open_agrees_with_open();
+	test_open_bounds_its_own_reads();
 	test_is_open_bounds_its_own_reads();
 	test_is_open_bounds_the_body();
 	test_the_sign_operands();
