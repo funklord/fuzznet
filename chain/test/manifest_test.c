@@ -648,14 +648,23 @@ static void test_open_refuses_what_is_not_our_shape(void)
 	 * for any n, so the exact-length test refuses every short buffer on
 	 * its own -- AFTER reading two bytes at offset 34 that nobody wrote.
 	 * The floor is therefore MEMORY SAFETY rather than a verdict, and
-	 * deleting it leaves this suite green on a plain build. It was proved
-	 * by deleting it and running `make test SANITIZE=1`, where this case
-	 * reports a stack-buffer-overflow read in `fzn_manifest_open`. */
+	 * deleting it leaves this suite green on a plain build. Deleting it and
+	 * running `make test SANITIZE=1` reports a stack-buffer-overflow read
+	 * in `fzn_manifest_open`.
+	 *
+	 * THE VERSION AND OBJECT BYTES MUST BE THE REAL ONES, and this test did
+	 * not have them until the lens of project.md sec 287 reached it: the
+	 * buffer read `{ 1u, 4u }`, and 4 is not FZN_OBJECT_MANIFEST (131), so
+	 * the object check above refused it BEFORE the count read -- the deep
+	 * read the floor guards was never reached, the overflow never happened,
+	 * and the comment claiming it had been proved was describing a run that
+	 * could not have overflowed. The bytes are the schema's own now, so the
+	 * only thing left to refuse the buffer is the floor. */
 	{
-		uint8_t two[2] = { 1u, 4u };
+		uint8_t two[2] = { (uint8_t)FZN_SIGNED_VERSION, (uint8_t)FZN_OBJECT_MANIFEST };
 
 		CHECK(fzn_manifest_open(two, sizeof(two), &rec) == FZN_MANIFEST_ERR_SHAPE,
-		      "a two-byte buffer was accepted as a manifest");
+		      "a two-byte buffer carrying a valid version and object was accepted");
 	}
 
 	bytes[FZN_MANIFEST_OFF_VERSION] = 2u;

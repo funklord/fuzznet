@@ -39619,3 +39619,51 @@ journal.c's anchor edge changes the verdict exactly at the equal point, so a
 plain functional assertion at that point holds it and the sabotage tool
 catches it. The question that told them apart is sec 284's: does landing on
 the boundary change an answer -- for the floor no, for the anchor yes.
+
+## 287. The lens in the manifest and trust decoders, and a test that proved nothing
+
+Carried the lens into `chain/manifest.c` and `trust/trust.c`. `trust.c` is
+well-defended: the fingerprint's `cap < FZN_TRUST_FINGERPRINT_LEN` floor -- an
+out-of-bounds WRITE guard, worse than record.c's read -- is held by
+`trust_test`, and unlike record.c's floor it changes the VERDICT on removal
+(OK-with-overflow versus MALFORMED), so a functional test catches it without a
+sanitizer. The all-zero-root refusal, the UNCHANGED short-circuit and the
+SELF->PINNED re-anchor exception are all held too.
+
+`manifest.c`'s decoder mirrors record.c -- a `MIN_LEN` floor, version and
+object bytes, a count read, an exact-length check, then a strictly-ascending
+`pair_cmp(...) >= 0` canonicity check. The canonicity check (the equal-adjacent-pair
+edge) is held by `manifest_test`. The floor was not, and the way it failed is
+the point.
+
+### A control that could not fire, wearing a proof
+
+`manifest_test` already carried the exactly-this test -- a two-byte buffer, to
+reach the count read at offset 34 past a short allocation with the floor
+removed -- and a comment stating it had been "proved by deleting it and
+running `make test SANITIZE=1`, where this case reports a stack-buffer-overflow."
+The buffer was `{ 1u, 4u }`. `FZN_OBJECT_MANIFEST` is 131, not 4, so the object
+check three lines into `fzn_manifest_open` refused the buffer BEFORE the count
+read -- the deep read the floor guards was never reached, no overflow could
+occur, and the comment described a run that cannot happen. Measured: with the
+floor deleted and `{ 1u, 4u }`, `manifest_test` under `SANITIZE=1` reports 524
+checks and zero failures.
+
+This is `evidence.md`'s control-that-cannot-fire and its claim-that-outlived-its-subject
+in one object: a positive control aimed one byte off the path it was meant to
+exercise, carrying a written assertion that it had been seen to work. The
+version and object bytes are the schema's own constants now
+(`{ FZN_SIGNED_VERSION, FZN_OBJECT_MANIFEST }`), so the buffer passes the two
+byte checks and the floor is the only thing left to refuse it; deleting the
+floor under `SANITIZE=1` now reports the stack-buffer-overflow the comment
+always claimed. Like record.c's floor (sec 285) it carries no sabotage entry,
+because the removal is green on the plain `make test` the tool runs.
+
+### The shape worth keeping
+
+record.c's floor was unheld because no test reached its guarded read; this
+one had a test that reached for it and missed by a byte, which is worse,
+because the miss came dressed as a proof. A positive control's aim is itself
+a thing to verify -- the version and object bytes here were the difference
+between a control on the path and a control beside it, and only running the
+sabotage it claimed to have run tells them apart.
