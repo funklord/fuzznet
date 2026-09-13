@@ -39904,3 +39904,41 @@ host), so the commit is local until a push succeeds; the gates ran and passed
 locally. It is the inclusive-bound miss of sec 292 and 294 a fourth time --
 the endpoint a fixture skips because the strictly-past cases look like enough
 -- now in the verb table that gates what a local peer may ask for.
+
+## 296. The lens in the qr and provision decoders
+
+`provision.c` was carried in sec 292 (its floors held, its two inclusive
+maxima fixed). This took `qr/qr.c`, which is mostly an encoder -- text to a QR
+matrix -- with the "decoder" being quirc, used by `qr_quirc_check` for a
+round-trip. Its input validation is held: the EC level bound (`level > 3`, at
+level 3), the matrix `x >= size` OOB guard, and the alphanumeric-char refusal.
+
+### The version fit, off by an exact fill
+
+`fzn_qr_version_for` takes the smallest version whose capacity is at least the
+payload: `payload_bits(...) <= capacity`. Tightening `<=` to `<` survived
+`qr_test` and `qr_print_test`. It is a REACHABLE edge, not a no-op: a sweep of
+`version_for` across every length and level under `<` and `<=` found thirteen
+(length, level) pairs that disagree -- 47 alphanumeric characters fill version
+2 at level L to the bit, and `<` bumps them to version 3. The consequence is a
+QR larger than the caller needs, and at FZN_QR_VERSION_MAX a refusal to encode
+a message that fits.
+
+`qr_quirc_check` probes "the longest payload this version holds," which is
+exactly this boundary -- but it needs a quirc checkout, absent here, so it
+runs only under the `qrcheck` target; and it RECOMPUTES the longest length from
+`version_for` itself, so it adapts to `<` rather than catching it. Every case
+in `qr_test` sits strictly inside a version, where `<` and `<=` agree.
+`qr_test` now asserts a 47-char payload is version 2 and a 48-char one is
+version 3; `qr-version-fit-is-inclusive` is in the table.
+
+### The empirical check earned its place
+
+Whether `<=` versus `<` was even observable turned on arithmetic: in byte mode
+`payload_bits` is a header plus a multiple of 8 and the header is not a
+multiple of 8, so it never equals a capacity (also a multiple of 8) -- a
+no-edge. Only alphanumeric mode, whose bits advance 11 per two characters, can
+land exactly on a capacity. Rather than reason it out per mode, a sweep under
+both comparisons settled it: thirteen real disagreements, so the edge is
+reachable and worth holding. It is the inclusive-bound miss (sec 292, 294, 295)
+a fifth time, in the version chooser of the QR encoder.

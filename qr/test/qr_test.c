@@ -119,6 +119,26 @@ int main(void)
 		CHECK(l >= 1u && h <= FZN_QR_VERSION_MAX, "a version fell outside the range");
 	}
 
+	/* A PAYLOAD THAT EXACTLY FILLS A VERSION USES IT, not the next up.
+	 * `fzn_qr_version_for` takes the smallest version whose capacity is at
+	 * least the payload -- the fit check reads `payload_bits <= capacity`.
+	 * 47 alphanumeric characters fill version 2 at level L to the bit, and
+	 * 48 do not. Tightening `<=` to `<` would bump every exact fit to the
+	 * next version, larger than the caller needs -- and at FZN_QR_VERSION_MAX
+	 * a refusal to encode a message that fits. Every other sizing case here
+	 * sits strictly inside a version, where `<` and `<=` agree. */
+	{
+		char fills_v2[47];
+		char over_v2[48];
+
+		memset(fills_v2, 'A', sizeof(fills_v2));
+		memset(over_v2, 'A', sizeof(over_v2));
+		CHECK(fzn_qr_version_for(fills_v2, sizeof(fills_v2), FZN_QR_LEVEL_L) == 2u,
+		      "a payload that exactly fills version 2 was pushed to a larger version");
+		CHECK(fzn_qr_version_for(over_v2, sizeof(over_v2), FZN_QR_LEVEL_L) == 3u,
+		      "one character past version 2 did not move up, so the fixture is wrong");
+	}
+
 	/* ALPHANUMERIC IS DENSER THAN BYTES, which is why the card fits at all:
 	 * the same characters in a payload that forces byte mode need a bigger
 	 * code. */

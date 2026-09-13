@@ -305,6 +305,13 @@ SABOTAGES = [
 		"the sender term in the reassembly slot lookup",
 	),
 	(
+		"qr-version-fit-is-inclusive",
+		"qr/qr.c",
+		"payload_bits(text_len, version, alnum) <=",
+		"payload_bits(text_len, version, alnum) <",
+		"a payload of exactly a version's capacity fits it; < bumps every exact fit to the next version, larger than needed and, at FZN_QR_VERSION_MAX, a refusal to encode a message that fits. 47 alphanumeric chars fill version 2 to the bit -- 13 (length, level) pairs reach the edge, and the round-trip check that would hold it needs quirc, absent here. sec 296",
+	),
+	(
 		"vocabulary-verb-max-is-inclusive",
 		"local/vocabulary.c",
 		"\tif (!rule->verb || rule->verb_len == 0 || rule->verb_len > FZN_VERB_MAX)",
