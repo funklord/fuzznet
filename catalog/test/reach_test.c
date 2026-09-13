@@ -215,6 +215,20 @@ static void test_an_unaccounted_issuer_is_refused_by_name(void)
 	      "a frontier behind this catalogue's own applied sequence was accepted");
 	CHECK(plan.unvouched_set && memcmp(plan.unvouched, ALICE, FZN_PUBKEY_LEN) == 0,
 	      "the incoherent frontier did not name the issuer");
+
+	/* AND EXACTLY AT THE APPLIED SEQUENCE IS CAUGHT UP, not behind. A
+	 * caller whose frontier has received ALICE's seq 1 has read the record
+	 * this catalogue applied, so the walk must proceed. The behind case
+	 * above uses received 0 against seq 1, which `<` and `<=` both call
+	 * behind; only received == seq separates the freshness bound from one
+	 * a notch looser, and reporting a caught-up caller as INCOMPLETE would
+	 * refuse a walk that should run. */
+	front[0] = vouch(ALICE, 1);
+	CHECK(fzn_catalog_unreachable(&cat, roots, 1, front, 2, scratch, 16, out, 8, &plan) ==
+	              FZN_CATALOG_OK,
+	      "a frontier exactly at the applied sequence was refused as behind");
+	CHECK(plan.unvouched_set == 0,
+	      "a caught-up frontier was named as unvouched");
 }
 
 /* A TOMBSTONE IS NOT A NODE AND DOES NOT REACH. sec 144 keeps an absent edge

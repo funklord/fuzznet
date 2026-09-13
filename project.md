@@ -39740,3 +39740,33 @@ validation nicety rather than a guard, and left unpinned. And spool's
 `fzn_spool_forget` shares the `first >= leaves` range bound with the read
 path that is held; its own edge was not separately probed to a conclusion and
 is recorded as open rather than claimed clean.
+
+## 291. The lens in the reach and copy decoders
+
+Carried the lens into `catalog/reach.c` and `catalog/copy.c`. copy's
+truncation bound (`plan->written >= out_cap`) is held by both tests --
+`copy_fuzz` catches a `>=`-to-`>` weakening as a crash, an out-of-bounds
+write past `out`, held loudly. reach's truncation bound and its dedup are
+held; the dedup's `seq > out[i].seq` survived a `>=` flip but is a
+no-observable-edge, aggregating a per-issuer maximum where replacing the max
+with an equal value changes nothing (sec 284's pattern).
+
+### The frontier's freshness, tested behind but not at
+
+reach's walk refuses INCOMPLETE when an issuer's frontier is behind the
+sequence the catalogue has applied: `frontier[i].received < seq`. `reach_test`
+tests it with `received == 0` against an applied `seq == 1`, which `<` and
+`<=` both call behind, and its fresh cases use `received == 99`, which both
+call fresh. `reach_fuzz` sets every frontier to `highest + 1`, always fresh,
+and does not model the INCOMPLETE path at all -- by design, its comment cedes
+the frontier to `reach_test`. So the one input the freshness bound decides --
+`received == seq`, a caller caught up to exactly the applied record -- was
+reached by nothing, and tightening `<` to `<=` (which reports a caught-up
+caller as INCOMPLETE and refuses a walk that should run) survived.
+
+`reach_test` now vouches ALICE at exactly her applied seq and expects the
+walk to proceed; `reach-frontier-caught-up-is-complete` is in the table,
+distinct from `reach-frontier-behind` which removes the check rather than
+loosening it. The pattern is sec 286's journal anchor again: a boundary
+tested strictly to one side, with the equal case -- the only place `<` and
+`<=` disagree -- left for the fixture to skip.

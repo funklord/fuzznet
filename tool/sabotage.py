@@ -305,6 +305,13 @@ SABOTAGES = [
 		"the sender term in the reassembly slot lookup",
 	),
 	(
+		"reach-frontier-caught-up-is-complete",
+		"catalog/reach.c",
+		"\t\t\tif (frontier[i].received < seq)\n\t\t\t\ti = frontier_count;",
+		"\t\t\tif (frontier[i].received <= seq)\n\t\t\t\ti = frontier_count;",
+		"a frontier whose received equals the applied seq has read that record and is caught up, so the walk must proceed; <= wrongly calls it behind and refuses the walk as INCOMPLETE. The behind case tests received 0 against seq 1, which < and <= both call behind -- only received == seq holds the edge. sec 291",
+	),
+	(
 		"message-have-ceiling-is-inclusive",
 		"spool/message.c",
 		"\tif (range_count > FZN_MSG_MAX_RANGES)\n\t\treturn FZN_MSG_ERR_TOO_LARGE;\n\tif (len != FZN_MSG_HAVE_LEN(range_count))",
