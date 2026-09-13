@@ -39667,3 +39667,40 @@ because the miss came dressed as a proof. A positive control's aim is itself
 a thing to verify -- the version and object bytes here were the difference
 between a control on the path and a control beside it, and only running the
 sabotage it claimed to have run tells them apart.
+
+## 289. The lens in the sched and link decoders: two edges a fixture drew past
+
+Carried the lens into `sched/sched.c` and `link/link.c`. sched's admit filter
+excludes a link over a latency, loss, or MTU limit; each is an equality edge,
+a link exactly AT the limit is admitted. `sched_fuzz` reaches the latency and
+MTU edges and catches a `>`-to-`>=` flip on each -- but the LOSS edge survived.
+
+The cause was in the fuzzer's own draw. `draw_u32` returns clustered values
+(0, 1, UINT32_MAX, small moduli), and latency and MTU take it on BOTH the link
+side and the constraint side, so `latency == max_latency` and `mtu == min_mtu`
+coincide often. Loss did not: the link's `loss_permille` and the constraint's
+`max_loss_permille` were each a raw `next()` u16, full-range, and two of those
+coincide about once in 65536 -- so `loss == max_loss` never happened and the
+`>` was never asked whether it should be `>=`. Loss draws through `draw_u32`
+now, like the other two, and the flip is caught. No sabotage entry: the
+harness's model holds all three filter conditions by disagreeing with the
+code, so an entry would duplicate what the model already accounts for.
+
+### link's upper bound, refused only from above
+
+`fzn_link_register` refuses `loss_permille > 1000` -- values a per-mille
+cannot mean. `link_test` tests 1001, which `>` and `>=` refuse alike, so a
+`>`-to-`>=` flip survived: it would refuse a link at exactly 1000, which is
+100% loss and a real measurement. The 1000 case is registered now in its own
+one-slot table, so it costs no slot in the capacity test that follows;
+`link-loss-permille-tops-at-1000` is in the table, caught on a plain build
+because refusing a valid register changes the verdict.
+
+### The shape
+
+Both were the same miss from opposite ends: a boundary between an accepted
+value and a refused one, with every fixture landing on one side. sched drew
+past its loss edge because two full-range draws never coincide; link tested
+one past its edge because 1001 is the obvious illegal value and 1000 the easy
+one to skip. The rest -- sched's latency and MTU edges, link's capacity bound
+and duplicate id, and both modules' saturating arithmetic -- were held.

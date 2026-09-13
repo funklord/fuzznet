@@ -99,6 +99,22 @@ int main(void)
 	expect_err(fzn_link_register(&table, 9, 10, 50, 1001, 1500), FZN_LINK_ERR_MALFORMED,
 	           "a loss above one thousand per thousand");
 
+	/* AND EXACTLY 1000 IS ACCEPTED, in its own table so it costs no slot in
+	 * the one above. A link that loses every message is a real measurement
+	 * -- 1000 per-mille is 100% -- and the bound refuses only a value a
+	 * per-mille cannot mean. The 1001 case is refused by `>` and `>=`
+	 * alike; only 1000 separates `> 1000` from a bound a notch tighter, and
+	 * nothing here reached it until project.md sec 289. */
+	{
+		fzn_link_table_t at_max;
+		fzn_link_entry_t max_entries[1];
+
+		expect_err(fzn_link_table_init(&at_max, max_entries, 1), FZN_LINK_OK,
+		           "a table for the loss boundary");
+		expect_err(fzn_link_register(&at_max, 1, 10, 50, 1000, 1500), FZN_LINK_OK,
+		           "a link at exactly 1000 per-mille loss was refused");
+	}
+
 	/* EVIDENCE DISPLACES IT. The link declared 50ms and actually takes 800;
 	 * nothing static could have said so, and a table that trusted the
 	 * declaration would keep choosing it for ever. */

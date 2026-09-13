@@ -148,7 +148,11 @@ static int fuzz_one(uint32_t seed, struct coverage *cov)
 		links[i].id = (uint32_t)i + 1u;
 		links[i].metric = draw_u32(&state);
 		links[i].latency_ms = draw_u32(&state);
-		links[i].loss_permille = (uint16_t)next(&state);
+		/* draw_u32 like latency and mtu, not raw next(): loss must be able
+		 * to land EXACTLY on max_loss_permille, or the admit-at-limit edge
+		 * (`>` versus `>=`) is never exercised. Two raw u16 draws coincide
+		 * about once in 65536, so they never did. sec 289. */
+		links[i].loss_permille = (uint16_t)draw_u32(&state);
 		links[i].mtu = draw_u32(&state);
 		/* Mostly up, because a table of dead links asks nothing. */
 		links[i].usable = (next(&state) % 8u) != 0u;
@@ -170,7 +174,7 @@ static int fuzz_one(uint32_t seed, struct coverage *cov)
 	/* A constraint of zero is "no constraint", so zero has to be common or
 	 * every case is filtered down to nothing. */
 	wanted.max_latency_ms = (next(&state) % 2u) ? 0u : draw_u32(&state);
-	wanted.max_loss_permille = (next(&state) % 2u) ? 0u : (uint16_t)next(&state);
+	wanted.max_loss_permille = (next(&state) % 2u) ? 0u : (uint16_t)draw_u32(&state);
 	wanted.min_mtu = (next(&state) % 2u) ? 0u : draw_u32(&state);
 	wanted.weight_metric = draw_u32(&state);
 	wanted.weight_latency = draw_u32(&state);

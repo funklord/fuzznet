@@ -305,6 +305,13 @@ SABOTAGES = [
 		"the sender term in the reassembly slot lookup",
 	),
 	(
+		"link-loss-permille-tops-at-1000",
+		"link/link.c",
+		"\tif (loss_permille > 1000u)",
+		"\tif (loss_permille >= 1000u)",
+		"1000 per-mille is 100% loss, a real measurement that must register; the bound refuses only values a per-mille cannot mean. link_test's other case uses 1001, which > and >= both refuse -- only a link at exactly 1000 holds this edge. sec 289",
+	),
+	(
 		"link-lookup-ignores-id",
 		"link/link.c",
 		"\t\tif (table->entries[i].id == id)\n",
