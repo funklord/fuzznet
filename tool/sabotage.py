@@ -305,6 +305,13 @@ SABOTAGES = [
 		"the sender term in the reassembly slot lookup",
 	),
 	(
+		"store-file-read-fits-the-buffer",
+		"record/store_file.c",
+		"\tif (len > FZN_RECORD_MAX_LEN || len > cap)",
+		"\tif (len > FZN_RECORD_MAX_LEN || (len > cap \x26\x26 0))",
+		"the backend reads a length off the disk and preads that many bytes into the caller's buffer; without len > cap a record longer than the buffer is read into it -- an out-of-bounds write a corrupt store file controls. Every other read offers a full-size buffer, so only a deliberately small cap holds it. sec 293",
+	),
+	(
 		"disclose-field-max-is-inclusive",
 		"disclose/disclose.c",
 		"\tif (field_len > FZN_DISCLOSE_MAX_FIELD)",

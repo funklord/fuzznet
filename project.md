@@ -39805,3 +39805,38 @@ and disclose (MAX_FIELD, MAX_LEN). It is the mirror of the caught-up and
 zero-lifetime edges: wherever a bound admits its endpoint, the fixture tends
 to test one past it and skip the endpoint itself, because the illegal value is
 the obvious one to write.
+
+## 293. The lens in the persist and store FILE backends
+
+The `store.c` and `persist.c` cores were carried in sec 285 and an earlier
+pass; this took the on-disk backends, `record/store_file.c` and
+`persist/persist_file.c`, which read lengths off the disk and write into
+caller buffers -- attacker-adjacent, since a corrupt or hostile store file
+controls those lengths.
+
+### A length read off the disk, written into the caller's buffer
+
+`store_file`'s read pulls a two-byte length prefix from the file and preads
+that many bytes into `out`, guarded by `len > FZN_RECORD_MAX_LEN || len > cap`.
+The `>= cap` and MAX_LEN edges are held; DROPPING the `len > cap` clause
+survived. Every read in the suite offered a full-size `out`, so a record
+longer than the caller's buffer -- the case `len > cap` exists for -- was
+never presented, and without the clause the backend preads past the buffer:
+an out-of-bounds write whose size a disk file chooses. It is verdict-catchable
+as well as a memory fault: without the guard the read returns success rather
+than refusing. `test_a_record_larger_than_the_buffer_is_refused` stores a full
+record and reads it into a buffer one byte too small, expecting refusal;
+`store-file-read-fits-the-buffer` is in the table.
+
+### persist_file's floors were held or unreachable
+
+`persist_file`'s path-assembly overflow guard is held (its removal crashes
+the suite), and its name-buffer floor `cap < NAME_MAX_LEN` is exercised at its
+exact call value -- the `<=` weakening is caught. Dropping the floor entirely
+survived, but its only caller passes `cap == NAME_MAX_LEN` exactly, so the
+sub-floor case cannot arise: a defensive guard against a caller that does not
+exist, the same shape as state.c's seq-zero check, and left as it is.
+
+The store finding is the file-backend cousin of record.c's open floor (sec
+285): a length that decides a read or a write must be bounded before it is
+used, and the fixture that never presents an over-length input never asks.

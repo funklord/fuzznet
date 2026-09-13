@@ -223,6 +223,41 @@ static void test_both_ends_of_the_length_survive(void)
 	unlink_stream(ISSUER, 4u);
 }
 
+/*
+ * A RECORD LARGER THAN THE CALLER'S BUFFER IS REFUSED, not read into it. The
+ * backend reads a two-byte length prefix off the disk and then preads that
+ * many bytes into `out`; `len > cap` is what stops it writing past a buffer
+ * too small to hold the record. The length comes from the file, so a corrupt
+ * or hostile store controls it, and without the guard this returns success
+ * after overrunning `out` -- an out-of-bounds write. Every other read here
+ * offers a full-size buffer, so the guard's absence is invisible to them.
+ * sec 293.
+ */
+static void test_a_record_larger_than_the_buffer_is_refused(void)
+{
+	fzn_record_store_file_t backend;
+	const fzn_record_store_ops_t *ops;
+	fzn_record_store_t store;
+	uint8_t buf[FZN_RECORD_MAX_LEN];
+	uint8_t small[FZN_RECORD_MAX_LEN - 1u];
+	fzn_record_t in, got;
+
+	ops = fzn_record_store_file_open(&backend, dir);
+	REQUIRE(ops != NULL, "the backend would not open");
+	REQUIRE(fzn_record_store_init(&store, ops) == FZN_RECORD_STORE_OK, "init refused");
+
+	in = make(buf, sizeof(buf), ISSUER, 5u, 1u, FZN_RECORD_BODY_MAX);
+	REQUIRE(fzn_record_is_open(in), "the full fixture would not build");
+	REQUIRE(fzn_record_store_put(&store, in) == FZN_RECORD_STORE_OK,
+	        "put refused a full body");
+	CHECK(fzn_record_store_get(&store, ISSUER, 5u, 1u, small, sizeof(small), &got)
+	              != FZN_RECORD_STORE_OK,
+	      "a record larger than the caller's buffer was read into it anyway");
+
+	fzn_record_store_file_close(&backend);
+	unlink_stream(ISSUER, 5u);
+}
+
 /* THE HOLE. Writing sequence 9 must leave 1..8 absent, with nothing anywhere
  * recording that they are missing. */
 static void test_an_unwritten_slot_reads_as_absent(void)
@@ -647,6 +682,7 @@ int main(void)
 
 	test_a_record_survives_the_round_trip();
 	test_both_ends_of_the_length_survive();
+	test_a_record_larger_than_the_buffer_is_refused();
 	test_an_unwritten_slot_reads_as_absent();
 	test_bytes_without_a_length_are_absent();
 	test_a_corrupt_length_is_refused_not_believed();
