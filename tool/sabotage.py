@@ -305,6 +305,20 @@ SABOTAGES = [
 		"the sender term in the reassembly slot lookup",
 	),
 	(
+		"disclose-field-max-is-inclusive",
+		"disclose/disclose.c",
+		"\tif (field_len > FZN_DISCLOSE_MAX_FIELD)",
+		"\tif (field_len >= FZN_DISCLOSE_MAX_FIELD)",
+		"a field of exactly FZN_DISCLOSE_MAX_FIELD is legal and one more is not; >= refuses the maximum disclosure at commit. Every other case commits a short field, so only a maximum field holds the edge. sec 292",
+	),
+	(
+		"disclose-committed-max-is-inclusive",
+		"disclose/disclose.c",
+		"\treturn committed_len <= FZN_DISCLOSE_MAX_LEN;",
+		"\treturn committed_len < FZN_DISCLOSE_MAX_LEN;",
+		"a committed blob of exactly FZN_DISCLOSE_MAX_LEN (salt plus the maximum field) is well-shaped; < rejects it as misshapen and refuses to hash a maximum disclosure's leaf. sec 292",
+	),
+	(
 		"reach-frontier-caught-up-is-complete",
 		"catalog/reach.c",
 		"\t\t\tif (frontier[i].received < seq)\n\t\t\t\ti = frontier_count;",

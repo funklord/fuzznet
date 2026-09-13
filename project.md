@@ -39770,3 +39770,38 @@ distinct from `reach-frontier-behind` which removes the check rather than
 loosening it. The pattern is sec 286's journal anchor again: a boundary
 tested strictly to one side, with the equal case -- the only place `<` and
 `<=` disagree -- left for the fixture to skip.
+
+## 292. The lens in the trust and disclose decoders
+
+`trust.c` was carried in sec 287 -- its fingerprint cap floor, all-zero root,
+UNCHANGED and SELF->PINNED guards are held. This pass took `disclose/disclose.c`.
+
+Its floors are held: `committed_len < FZN_DISCLOSE_SALT_LEN` (a blob shorter
+than the salt) at exactly SALT_LEN by both tests, and the commit output-cap
+check. The two INCLUSIVE upper bounds were not. `fzn_disclose_commit` refuses
+`field_len > FZN_DISCLOSE_MAX_FIELD` and `committed_shape` accepts
+`committed_len <= FZN_DISCLOSE_MAX_LEN`, so a field of exactly the maximum is
+legal and the blob it produces -- salt plus MAX_FIELD, exactly MAX_LEN -- is
+too. Every case in the suite committed a short field, so tightening `>` to
+`>=` (refusing a maximum field at commit) or `<=` to `<` (refusing its blob as
+misshapen at verify) survived.
+
+### The caller list checked before the claim
+
+The survivor was confirmed against ALL THREE callers, not the obvious two:
+`disclose_test`, `disclose_fuzz`, AND `sim/test/disclosure_test.c`, which the
+first probe would have missed -- the incomplete-binary-list mistake that made
+a false gap in sec 288. All three survived, and no library wraps disclose, so
+the bounds were genuinely unheld. `test_a_maximum_field_commits_and_opens`
+commits a MAX_FIELD field and hashes the MAX_LEN blob, exercising both bounds
+at once; `disclose-field-max-is-inclusive` and `disclose-committed-max-is-inclusive`
+are in the table.
+
+### The lens, tallied
+
+The inclusive-upper-bound miss -- a maximum legal input rejected by a `>`
+tightened to `>=` -- has now recurred in link (loss 1000), message (MAX_RANGES),
+and disclose (MAX_FIELD, MAX_LEN). It is the mirror of the caught-up and
+zero-lifetime edges: wherever a bound admits its endpoint, the fixture tends
+to test one past it and skip the endpoint itself, because the illegal value is
+the obvious one to write.

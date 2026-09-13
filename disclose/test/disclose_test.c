@@ -493,8 +493,37 @@ static void test_the_operands_the_first_one_hides(void)
 	      == FZN_DISCLOSE_ERR_MALFORMED, "leaf accepted a null out");
 }
 
+/*
+ * THE LARGEST FIELD COMMITS AND ITS BLOB OPENS. Both size bounds are
+ * inclusive: `fzn_disclose_commit` refuses `field_len > FZN_DISCLOSE_MAX_FIELD`
+ * and `committed_shape` accepts `committed_len <= FZN_DISCLOSE_MAX_LEN`, so a
+ * field of exactly the maximum is legal and the committed blob it produces --
+ * salt plus MAX_FIELD, exactly MAX_LEN -- is too. Every other case here
+ * commits a short field, so `>` could tighten to `>=` and `<=` to `<`,
+ * refusing a maximum disclosure, and nothing would fail. sec 292.
+ */
+static void test_a_maximum_field_commits_and_opens(void)
+{
+	uint8_t field[FZN_DISCLOSE_MAX_FIELD];
+	uint8_t committed[FZN_DISCLOSE_MAX_LEN];
+	uint8_t leaf[FZN_BLOB_HASH_LEN];
+	size_t len = 0, i;
+
+	for (i = 0; i < sizeof(field); i++)
+		field[i] = (uint8_t)i;
+	salt_counter = 0;
+	CHECK(fzn_disclose_commit(&RNG, field, sizeof(field), committed, sizeof(committed),
+	                          &len) == FZN_DISCLOSE_OK,
+	      "a field of exactly FZN_DISCLOSE_MAX_FIELD was refused");
+	CHECK(len == FZN_DISCLOSE_MAX_LEN,
+	      "a maximum commitment is %zu bytes, not FZN_DISCLOSE_MAX_LEN", len);
+	CHECK(fzn_disclose_leaf(&HASH, committed, len, leaf) == FZN_DISCLOSE_OK,
+	      "a committed blob of exactly FZN_DISCLOSE_MAX_LEN was refused as misshapen");
+}
+
 int main(void)
 {
+	test_a_maximum_field_commits_and_opens();
 	test_one_root_serves_every_field();
 	test_the_salt_is_what_hides_the_field();
 	test_a_disclosure_is_bound_to_its_place();
