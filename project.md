@@ -39869,3 +39869,38 @@ is the inclusive-bound miss of sec 292 in the opposite direction: there a
 maximum was rejected by a tightened upper bound, here a value that MEETS a
 lower bar is withheld by a tightened one, and both are the endpoint a fixture
 skips because the strictly-past cases look like enough.
+
+## 295. The lens in the peer and vocabulary decoders
+
+Carried the lens into `local/peer.c` and `local/vocabulary.c`. `peer.c`'s
+groups parser is held: the `count == FZN_PEER_MAX_GROUPS` stop, the gid
+overflow (`value > 0xffffffffu`), and the membership scan's group-count bound
+are all caught. `vocabulary.c` was not.
+
+### A verb of exactly the bound, matched against a rule of exactly the bound
+
+`vocabulary.c` refuses a verb or a rule verb `> FZN_VERB_MAX` in three places
+-- the shared `rule_names` predicate, `fzn_vocabulary_names`, and
+`fzn_vocabulary_admit` -- and all three read `>`, so a verb of exactly the
+maximum is legal and one more is not. The suite tested the bound thoroughly on
+the wrong side: a MAX-length verb against SHORT rules (NOT_MEMBER whether the
+check reads `>` or `>=`, because nothing matches either way) and a rule of
+MAX+1 (refused by both). The one input that separates `>` from `>=` -- a
+MAX-length verb meeting a MAX-length rule, which must match -- appeared
+nowhere, and tightening any of the three to `>=` refused a verb the policy can
+express, unseen.
+
+`vocabulary_test` now builds a rule whose verb is exactly FZN_VERB_MAX bytes
+and queries it with the same, expecting both `admit` to return MEMBER and
+`names` to return 1 -- which holds the rule-side bound and both query-side
+bounds at once. `vocabulary-verb-max-is-inclusive` is in the table; the two
+query bounds are the same edge and the same test holds them, so they earn no
+separate entry (sec 201).
+
+### Note
+
+This pass ran while the network was down (`git fetch` could not resolve the
+host), so the commit is local until a push succeeds; the gates ran and passed
+locally. It is the inclusive-bound miss of sec 292 and 294 a fourth time --
+the endpoint a fixture skips because the strictly-past cases look like enough
+-- now in the verb table that gates what a local peer may ask for.

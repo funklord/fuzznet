@@ -147,6 +147,26 @@ int main(void)
 		      "an empty verb was admitted");
 	}
 
+	/* AND A VERB OF EXACTLY THE BOUND MATCHES A RULE OF EXACTLY THE BOUND.
+	 * The over-long case above pairs a MAX-length verb with short rules, so
+	 * it answers NOT_MEMBER whether the length checks read `> MAX` or the
+	 * tighter `>= MAX`; only a MAX-length verb meeting a MAX-length rule
+	 * separates them. FZN_VERB_MAX is the longest verb both the query and a
+	 * rule accept, and rejecting the endpoint would refuse a verb the
+	 * policy can name. */
+	{
+		uint8_t max_verb[FZN_VERB_MAX];
+		const fzn_verb_rule_t at_max[] = { { 6, max_verb, FZN_VERB_MAX } };
+
+		memset(max_verb, 'z', sizeof(max_verb));
+		known_peer(&p);
+		check(fzn_vocabulary_admit(&p, max_verb, FZN_VERB_MAX, at_max, 1) ==
+		              FZN_PEER_MEMBER,
+		      "a verb of exactly FZN_VERB_MAX did not match a rule of the same length");
+		check(fzn_vocabulary_names(max_verb, FZN_VERB_MAX, at_max, 1) == 1,
+		      "a verb of exactly FZN_VERB_MAX was not named by a rule of the same length");
+	}
+
 	/* A prefix must not match, and neither must a longer verb sharing one:
 	 * length is compared before the bytes, and both directions are here
 	 * because only one of them is the obvious way to get it wrong. */

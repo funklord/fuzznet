@@ -305,6 +305,13 @@ SABOTAGES = [
 		"the sender term in the reassembly slot lookup",
 	),
 	(
+		"vocabulary-verb-max-is-inclusive",
+		"local/vocabulary.c",
+		"\tif (!rule->verb || rule->verb_len == 0 || rule->verb_len > FZN_VERB_MAX)",
+		"\tif (!rule->verb || rule->verb_len == 0 || rule->verb_len >= FZN_VERB_MAX)",
+		"a verb of exactly FZN_VERB_MAX is the longest a rule and a query both accept, so it must match; >= rejects the endpoint. The suite paired a MAX verb with short rules (no match either way) and tested MAX+1 (refused either way) -- only a MAX verb meeting a MAX rule holds it. The query-side bounds in names and admit are the same edge, held by the same test. sec 295",
+	),
+	(
 		"sweep-last-copy-bar-is-inclusive",
 		"catalog/sweep.c",
 		"\t\t    others_holding(witness, entry->root, entry->blob_len) < min_others) {",
