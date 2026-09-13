@@ -274,6 +274,21 @@ static void test_the_last_copy_is_not_swept(void)
 	CHECK(plan.planned == 0 && plan.last_copy == 2,
 	      "three witnesses satisfied a bar of four: %zu planned", plan.planned);
 
+	/* AND EXACTLY AT THE BAR IS SWEPT, not held back. 0xa0 has three other
+	 * holders; a bar of three is met, so this host may drop its copy and
+	 * leave three behind. The bar of four above and the bar of one at the
+	 * top put `others` strictly below or above the threshold, which `<` and
+	 * `<=` order alike; only others == min_others separates the guard from
+	 * one a notch stricter, and withholding a blob that meets the bar
+	 * retains more than the caller asked for. */
+	REQUIRE(fzn_catalog_sweep_capture(&cat, &held, &seen, 3, NOW, &job, removals, 4, &plan) ==
+	                FZN_CATALOG_OK,
+	        "a capture was refused");
+	CHECK(plan.planned == 1 && job.removals[0].root[0] == 0xa0,
+	      "a blob held by exactly min_others other hosts was withheld rather than swept");
+	CHECK(plan.last_copy == 1,
+	      "the true last copy was not still withheld at the same bar");
+
 	/* AND ZERO SWITCHES THE GUARD OFF ENTIRELY. A caller that says zero has
 	 * said it takes responsibility -- right for a cache, wrong for the only
 	 * copy of a photograph, and only the caller knows which it has. */

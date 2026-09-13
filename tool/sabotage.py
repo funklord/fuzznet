@@ -305,6 +305,13 @@ SABOTAGES = [
 		"the sender term in the reassembly slot lookup",
 	),
 	(
+		"sweep-last-copy-bar-is-inclusive",
+		"catalog/sweep.c",
+		"\t\t    others_holding(witness, entry->root, entry->blob_len) < min_others) {",
+		"\t\t    others_holding(witness, entry->root, entry->blob_len) <= min_others) {",
+		"a blob held by exactly min_others other hosts meets the bar and may be swept, leaving min_others behind; <= withholds it, retaining more than the caller asked. sweep_test uses others strictly below or above the bar, which < and <= order alike -- only others == min_others holds the edge, and sweep_fuzz is protocol-only. sec 294",
+	),
+	(
 		"store-file-read-fits-the-buffer",
 		"record/store_file.c",
 		"\tif (len > FZN_RECORD_MAX_LEN || len > cap)",

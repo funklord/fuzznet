@@ -39840,3 +39840,32 @@ exist, the same shape as state.c's seq-zero check, and left as it is.
 The store finding is the file-backend cousin of record.c's open floor (sec
 285): a length that decides a read or a write must be bounded before it is
 used, and the fixture that never presents an over-length input never asks.
+
+## 294. The lens in the sweep and catalog decoders
+
+Carried the lens into `catalog/catalog.c` and `catalog/sweep.c`. `catalog.c`'s
+decode is held: `apply_edge`'s `present > 1` flag (a two-valued byte, so 2 is
+SHAPE), the retain deadline at `now == until`, and INLINE content, which flows
+through `content_set`'s `len > INLINE_MAX` check rather than a second copy.
+`sweep.c`'s sorted-cursor and truncation bounds are held, and its
+`min_others > 0` guard survived a `>= 0` flip but is a no-edge -- min_others is
+unsigned, so `< 0` never fires and a bar of zero behaves the same either way.
+
+### The last-copy bar, tested off its threshold
+
+`sweep.c` withholds a blob from deletion when `others_holding(...) < min_others`
+-- fewer than the caller's bar of other hosts hold it. `sweep_test` set
+`others` to 0 and 3 against bars of 1 and 4, all strictly below or above the
+threshold, which `<` and `<=` order the same way. `sweep_fuzz` reaches
+`others == min_others == 1` but is a protocol harness -- it checks the sweep's
+call sequence, not which blobs the plan chose -- so it does not oracle the
+decision. The one input the bar decides, a blob held by EXACTLY `min_others`
+others, was reached by nothing, and tightening `<` to `<=` (withholding a blob
+that meets the bar, retaining more than the caller asked) survived.
+
+`sweep_test` now captures at a bar of three against a blob three others hold
+and expects it swept; `sweep-last-copy-bar-is-inclusive` is in the table. It
+is the inclusive-bound miss of sec 292 in the opposite direction: there a
+maximum was rejected by a tightened upper bound, here a value that MEETS a
+lower bar is withheld by a tightened one, and both are the endpoint a fixture
+skips because the strictly-past cases look like enough.
