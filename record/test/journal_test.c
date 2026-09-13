@@ -126,6 +126,16 @@ int main(void)
 	expect_err(fzn_journal_anchor(&j, bob, 0, 50), FZN_JOURNAL_ERR_DUPLICATE,
 	           "an anchor moving backwards");
 	expect(fzn_journal_next(&j, bob, 0) == 102, "the refused anchor did not rewind");
+	/* AND AT EXACTLY THE POSITION HELD, not only below it. The case above
+	 * is strictly backwards, which `<` refuses as readily as `<=`; a
+	 * re-anchor at the sequence already received is the edge the DUPLICATE
+	 * boundary turns on. Reporting it OK rather than DUPLICATE would claim
+	 * a new anchor where nothing moved -- and the seq-zero re-anchor tested
+	 * elsewhere cannot stand in, since it is refused by the explicit
+	 * zero check above this comparison rather than by the comparison. */
+	expect_err(fzn_journal_anchor(&j, bob, 0, 101), FZN_JOURNAL_ERR_DUPLICATE,
+	           "a re-anchor at the exact position held");
+	expect(fzn_journal_next(&j, bob, 0) == 102, "the equal-position re-anchor moved the mark");
 
 	/* FINALISATION. Received and applied are different numbers. */
 	expect_err(fzn_journal_confirm(&j, carol, 0, 1), FZN_JOURNAL_ERR_UNKNOWN_ISSUER,

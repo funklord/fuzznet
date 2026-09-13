@@ -1918,6 +1918,13 @@ SABOTAGES = [
 		"a link losing to the one already held is convergence working, and reporting an ordinary event as a warning is how the warnings that matter get drowned -- the severity is the whole content of this one -- sec 213",
 	),
 	(
+		"journal-anchor-refuses-a-standstill",
+		"record/journal.c",
+		"\tif (seq <= e->received)\n\t\treturn FZN_JOURNAL_ERR_DUPLICATE;\n\n\te->received = seq;",
+		"\tif (seq < e->received)\n\t\treturn FZN_JOURNAL_ERR_DUPLICATE;\n\n\te->received = seq;",
+		"a re-anchor at the exact sequence already received must be DUPLICATE, not OK: reporting a new anchor where nothing moved. The backwards case is strictly less, which < refuses too, and the seq-zero re-anchor is caught by the explicit zero check rather than this comparison -- so only the equal edge holds it. sec 286",
+	),
+	(
 		"journal-gap-says-how-many",
 		"record/journal.c",
 		"\"record/journal\", FLOG_WARN,\n",

@@ -39576,3 +39576,46 @@ The record and state decoders are otherwise thorough. The one gap was a
 safety guard whose removal is invisible to every functional test and to the
 fuzzer built to attack that parser -- reachable only by an exactly-sized
 allocation under a sanitizer, which is now the thing that reaches it.
+
+## 286. The lens in the sync and journal decoders
+
+Carried the boundary and masked-guard lenses into `record/sync.c` and
+`record/journal.c` at the holder's direction. Most edges are held. In
+`journal.c` the GAP boundary (`seq > e->received + 1u`, where the accepted
+value is exactly the next sequence and the minimal gap is two past it) is held
+by `journal_test`, and so is the DUPLICATE edge in `fzn_journal_check`. In
+`sync.c` the empty-range edge (`ahead <= behind`) is held by both `sync_test`
+and `sync_fuzz`.
+
+### Two survivors that were no edges, and one that was
+
+`sync.c`'s digest clamp (`their_count <= FZN_SYNC_MAX_POSITIONS`) and its
+per-request clamp (`want > max_per_request`) both survived a `<=`/`>` flip,
+and both correctly: at `their_count == MAX` the clamp examines MAX and ignores
+none whichever comparison is used, and at `want == max_per_request` the value
+stays `max` either way. These are sec 284's no-observable-edge case -- the two
+branches meet at the boundary -- and adding a test for them would assert a
+distinction that does not exist.
+
+The real one was `fzn_journal_anchor`'s DUPLICATE edge. `seq <= e->received`
+refuses a re-anchor at or below the position held, and flipping it to `<`
+survived `journal_test`. The existing anchor cases could not catch it: the
+backwards case anchors at 50 against 100, strictly less, which `<` refuses as
+readily as `<=`; and the re-anchor-at-zero case is refused by the explicit
+`seq == 0` check that sits ABOVE this comparison, not by the comparison. A
+re-anchor at the exact sequence already received -- 101 against 101 -- is the
+only input the boundary decides, and reporting it OK rather than DUPLICATE
+claims a new anchor where the mark did not move. `journal_test` now anchors at
+101 against a held 101 and expects DUPLICATE; `journal-anchor-refuses-a-standstill`
+is in the table.
+
+### What separated it from record.c's floor
+
+Both were guards a fixture reached without exercising -- but for opposite
+reasons, and they take opposite fixes. record.c's floor (sec 285) changed no
+VERDICT, so only a sanitizer over an exactly-sized buffer could see its
+removal, and it carries no sabotage entry because a plain `make test` cannot.
+journal.c's anchor edge changes the verdict exactly at the equal point, so a
+plain functional assertion at that point holds it and the sabotage tool
+catches it. The question that told them apart is sec 284's: does landing on
+the boundary change an answer -- for the floor no, for the anchor yes.
