@@ -39704,3 +39704,39 @@ past its loss edge because two full-range draws never coincide; link tested
 one past its edge because 1001 is the obvious illegal value and 1000 the easy
 one to skip. The rest -- sched's latency and MTU edges, link's capacity bound
 and duplicate id, and both modules' saturating arithmetic -- were held.
+
+## 290. The lens in the spool and message decoders
+
+Carried the lens into `spool/spool.c` and `spool/message.c`. Most bounds are
+held: spool's span-read range check (`count > leaves - first`) by `spool_test`,
+message's exact-length checks by both tests, and the ENCODE-side count
+ceilings at their exact edge (`test_a_count_past_a_ceiling_is_refused` encodes
+at MAX and MAX+1).
+
+### A ceiling tested from the encoder, not the decoder
+
+`fzn_msg_have_parse` refuses `range_count > FZN_MSG_MAX_RANGES`, so a have
+carrying exactly the maximum is legal and one more is not. Every decode in the
+suite carried a handful of ranges: the round-trips use the planner's output (a
+contiguous half-blob, one range), and `message_fuzz` round-trips whatever it
+encodes. So the DECODER's ceiling was exercised nowhere at its edge, and
+tightening it from `>` to `>=` -- which refuses a peer's full 256-range
+have-set, an interop break rather than a memory fault -- survived `message_test`
+and `message_fuzz`. The encode side had the edge covered; the decode side, the
+one that reads a stranger's bytes, did not.
+
+`test_a_full_have_set_decodes` encodes a maximum set of identical `{0, 1}`
+ranges -- legal because the decoder requires only a nonzero count within the
+leaves, no ordering -- and decodes it, expecting OK and the full count back.
+`message-have-ceiling-is-inclusive` is in the table, caught on a plain build
+because refusing a legal have changes the verdict.
+
+### Two edges left as they are, on purpose
+
+The decoder's `range_count == 0` EMPTY refusal survived too, but a zero-range
+have is an empty answer -- benign, no read past the buffer, no work bought --
+and the exact-length check already bounds every read the loop makes; it is a
+validation nicety rather than a guard, and left unpinned. And spool's
+`fzn_spool_forget` shares the `first >= leaves` range bound with the read
+path that is held; its own edge was not separately probed to a conclusion and
+is recorded as open rather than claimed clean.

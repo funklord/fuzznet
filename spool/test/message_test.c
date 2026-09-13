@@ -186,6 +186,38 @@ static void test_a_want_survives_a_round_trip(void)
  * agree about the range type, so the fixture is a REAL plan rather than
  * ranges typed out here -- typed ranges would pass with the planner
  * removed. */
+/*
+ * THE DECODER ACCEPTS EXACTLY FZN_MSG_MAX_RANGES, and only a full set shows
+ * it. `fzn_msg_have_parse` refuses `range_count > FZN_MSG_MAX_RANGES`, so a
+ * have carrying exactly the maximum is legal and one more is not. Every other
+ * decode in this file carries a handful of ranges, so the ceiling could
+ * tighten from `>` to `>=` -- refusing a peer's full have-set, an interop
+ * break rather than a memory fault -- and nothing would fail. The ranges need
+ * no ordering, only a nonzero count within the leaves, so a maximum set of
+ * identical {0, 1} ranges is legal and cheap. sec 290.
+ */
+static void test_a_full_have_set_decodes(void)
+{
+	static fzn_spool_range_t ranges[FZN_MSG_MAX_RANGES];
+	static fzn_spool_range_t back[FZN_MSG_MAX_RANGES];
+	uint8_t back_root[FZN_BLOB_HASH_LEN], back_cookie[FZN_MSG_COOKIE_LEN];
+	uint64_t leaf_count = 0;
+	size_t len = 0, back_count = 0, i;
+
+	for (i = 0; i < FZN_MSG_MAX_RANGES; i++) {
+		ranges[i].first = 0;
+		ranges[i].count = 1;
+	}
+	CHECK(fzn_msg_have_encode(root, TEST_LEAVES, COOKIE, ranges, FZN_MSG_MAX_RANGES, buf,
+	                          sizeof(buf), &len) == FZN_MSG_OK,
+	      "a have with the maximum ranges did not encode");
+	CHECK(fzn_msg_have_parse(buf, len, back_root, &leaf_count, back_cookie, back,
+	                         FZN_MSG_MAX_RANGES, &back_count) == FZN_MSG_OK,
+	      "a have with exactly FZN_MSG_MAX_RANGES ranges was refused by the decoder");
+	CHECK(back_count == FZN_MSG_MAX_RANGES,
+	      "the maximum range count did not round-trip: %zu came back", back_count);
+}
+
 static void test_a_plan_encodes_and_decodes_unmodified(void)
 {
 	fzn_spool_t spool;
@@ -904,6 +936,7 @@ int main(void)
 
 	test_a_have_query_survives_a_round_trip();
 	test_a_want_survives_a_round_trip();
+	test_a_full_have_set_decodes();
 	test_a_plan_encodes_and_decodes_unmodified();
 	test_a_parsed_data_places_without_being_touched();
 	test_a_data_at_the_size_the_protocol_allows();

@@ -305,6 +305,13 @@ SABOTAGES = [
 		"the sender term in the reassembly slot lookup",
 	),
 	(
+		"message-have-ceiling-is-inclusive",
+		"spool/message.c",
+		"\tif (range_count > FZN_MSG_MAX_RANGES)\n\t\treturn FZN_MSG_ERR_TOO_LARGE;\n\tif (len != FZN_MSG_HAVE_LEN(range_count))",
+		"\tif (range_count >= FZN_MSG_MAX_RANGES)\n\t\treturn FZN_MSG_ERR_TOO_LARGE;\n\tif (len != FZN_MSG_HAVE_LEN(range_count))",
+		"the HAVE decoder must accept exactly FZN_MSG_MAX_RANGES: the ceiling is > MAX, so a full have-set is legal and one more is not. Every other decode carries a handful of ranges, so > could tighten to >= and refuse a peer's full set unseen. sec 290",
+	),
+	(
 		"link-loss-permille-tops-at-1000",
 		"link/link.c",
 		"\tif (loss_permille > 1000u)",
