@@ -753,6 +753,54 @@ static void test_revocation_kills_a_middle_hop(void)
 	CHECK(run(&f, 2000, &rev, 1) == FZN_CHAIN_ERR_REVOKED, "revoking the grantee had no effect");
 }
 
+/*
+ * A REVOCATION REACHES A CHAIN EXACTLY FZN_CHAIN_MAX_HOPS LONG.
+ * `fzn_revocation_covers_chain` bails at `hop_count > FZN_CHAIN_MAX_HOPS`, and
+ * the `revoked[]` array holds FZN_CHAIN_MAX_HOPS entries, so a chain of
+ * exactly that many hops is in bounds and must be covered. Tightening the
+ * bail to `>=` skips coverage for a full chain: a revoked hop in it goes
+ * unmarked and the chain verifies -- a revoked chain granted. Every other
+ * revocation test here uses the fixture's short chain, where `>` and `>=`
+ * agree, so only a chain of the maximum length holds this edge.
+ */
+static void test_revocation_reaches_a_full_chain(void)
+{
+	struct fixture f;
+	static uint8_t full_bytes[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	fzn_chain_hop_t full[FZN_CHAIN_MAX_HOPS];
+	fzn_revocation_t rev;
+	fzn_revocation_store_t store;
+	size_t i;
+
+	fixture_init(&f);
+	for (i = 0; i < FZN_CHAIN_MAX_HOPS; i++) {
+		CHECK(mint_hop(&f, full_bytes[i], (uint8_t)i, (uint8_t)(i + 1u), 0xc0, 1000,
+		               FZN_NO_EXPIRY, 1) == FZN_CHAIN_OK,
+		      "minting hop of the full chain");
+		CHECK(fzn_hop_open(full_bytes[i], FZN_HOP_LEN, &full[i]) == FZN_CHAIN_OK,
+		      "opening hop of the full chain");
+	}
+	stub_reset(&f.stub);
+
+	/* The full chain verifies on its own, so the refusal below is the
+	 * revocation rather than some other fault. */
+	CHECK(fzn_chain_verify(full, FZN_CHAIN_MAX_HOPS, f.root, &f.cap, 2000, &f.sign, NULL,
+	                       NULL, &f.out) == FZN_CHAIN_OK,
+	      "a full valid chain did not verify");
+
+	/* Revoke a hop in the middle of the full chain: hop 3's grantee. */
+	memset(&rev, 0, sizeof(rev));
+	cap_id(&rev.capability, 0xc0);
+	key(rev.grantee, 4);
+	memcpy(rev.issuer, f.root, FZN_PUBKEY_LEN);
+	store.entries = &rev;
+	store.capacity = 1;
+	store.used = 1;
+	CHECK(fzn_chain_verify(full, FZN_CHAIN_MAX_HOPS, f.root, &f.cap, 2000, &f.sign, &store,
+	                       NULL, &f.out) == FZN_CHAIN_ERR_REVOKED,
+	      "a revoked hop in a chain of exactly FZN_CHAIN_MAX_HOPS hops was not caught");
+}
+
 static void test_revocation_is_per_capability(void)
 {
 	struct fixture f;
@@ -2058,6 +2106,7 @@ int main(void)
 	test_expiry_is_the_weakest_link();
 	test_expiry_before_issue_is_malformed_not_expired();
 	test_revocation_kills_a_middle_hop();
+	test_revocation_reaches_a_full_chain();
 	test_revocation_is_per_capability();
 	test_revocation_is_per_grantee();
 	test_revocation_is_per_issuer();

@@ -39942,3 +39942,42 @@ land exactly on a capacity. Rather than reason it out per mode, a sweep under
 both comparisons settled it: thirteen real disagreements, so the edge is
 reachable and worth holding. It is the inclusive-bound miss (sec 292, 294, 295)
 a fifth time, in the version chooser of the QR encoder.
+
+## 297. The lens in the record and revocation decoders, and a revoked full chain
+
+`record.c` was carried in sec 285 and the sec 293/record-journal passes -- its
+open floor, exact-length, seq-zero, BODY_TOO_LARGE and verify are held, and
+its sign-side body and out_cap bounds are the same edges held there.
+`revocation.c`'s decoder was carried in the revocation/reassembly pass
+(version, object, WITHDRAWAL-with-zero-supersedes). This pass took its store
+and its coverage walk -- and the walk had a gap.
+
+### A revoked hop in a maximal chain went uncovered
+
+`fzn_revocation_covers_chain` marks which hops of a chain a revocation
+withdraws, and bails first on `hop_count == 0 || hop_count > FZN_CHAIN_MAX_HOPS`.
+The `revoked[]` array holds FZN_CHAIN_MAX_HOPS entries, so a chain of exactly
+that many hops is in bounds and must be covered. Tightening `>` to `>=`
+survived ALL SIX callers -- revocation_test, revocation_fuzz, chain_test,
+chain_fuzz, authz_test, authz_fuzz -- because the tests that revoke a hop use
+the fixture's short chain, and the tests that build a full FZN_CHAIN_MAX_HOPS
+chain never revoke one of its hops. The two were never combined, and with
+`>=` a full chain gets no coverage: a revoked hop in it goes unmarked and
+`fzn_chain_verify` GRANTS a revoked chain. This is a granted revocation, the
+one direction the module must never fail in.
+
+`chain_test` now builds a chain of exactly FZN_CHAIN_MAX_HOPS hops, confirms
+it verifies, then revokes a middle hop and requires FZN_CHAIN_ERR_REVOKED.
+`revocation-covers-a-full-chain` is in the table.
+
+### Why the caller sweep mattered here
+
+The probe survived revocation's own two tests, and the reflex from earlier
+would have been to stop there. But `covers_chain` is reached from
+`fzn_chain_verify`, so its real exercise is every chain-with-revocation any
+suite verifies -- and re-running the sabotage across all six callers, rather
+than the obvious two, is what showed the edge was held by none of them. It is
+the sharpest instance in this sweep of a rule the whole arc leaned on: a
+SURVIVED is a claim about the entire set of callers, and the security-relevant
+ones are exactly where the fixture that would reach the edge is most likely to
+be somebody else's.

@@ -305,6 +305,13 @@ SABOTAGES = [
 		"the sender term in the reassembly slot lookup",
 	),
 	(
+		"revocation-covers-a-full-chain",
+		"chain/revocation.c",
+		"\tif (hop_count == 0 || hop_count > (size_t)FZN_CHAIN_MAX_HOPS)\n\t\treturn;",
+		"\tif (hop_count == 0 || hop_count >= (size_t)FZN_CHAIN_MAX_HOPS)\n\t\treturn;",
+		"a chain of exactly FZN_CHAIN_MAX_HOPS is in bounds for the revoked[] array and must be covered; >= skips coverage for a full chain, so a revoked hop in it goes unmarked and chain_verify grants a revoked chain. Every other revocation test uses a shorter chain, where > and >= agree. sec 297",
+	),
+	(
 		"qr-version-fit-is-inclusive",
 		"qr/qr.c",
 		"payload_bits(text_len, version, alnum) <=",
