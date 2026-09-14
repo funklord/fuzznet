@@ -40090,3 +40090,49 @@ than only the return value. `reasm-existing-slot-index-in-range` is in the
 table. The lesson is the one the index bound teaches on both paths: an
 out-of-range test written with a value FAR past the bound never exercises the
 bound's own edge, and the edge is where an off-by-one lives.
+
+## Carrying the lens into the trust and log decoders (sec 300)
+
+trust.c and log.c are the anchor store and the retained-record log. facet, the
+third thing this pair might have named, has no decoder at all: `facet/facet.h`
+is a 266-line specification header -- rules F1 through F28 for the facet model
+-- with no functions declared and no `facet.c`, and its sibling
+`catalogue/catalogue.h` is the same. The model is a design awaiting
+implementation, so there was nothing to sabotage there.
+
+### Where it held: trust
+
+Every trust guard is pinned at its edge. The `fzn_ct_memeq` that decides
+UNCHANGED versus a hostile re-anchor reads the WHOLE key: `trust_test` anchors
+to `first`, then offers `nearly` -- identical but for its last byte -- and
+requires ANCHORED, so a prefix compare that took a near-miss for an echo is
+caught at the strongest boundary. The all-zero-root refusal is a branch-free OR
+over all 32 bytes, held by a control that is zero everywhere but the last byte
+and must be accepted. The fingerprint floor, the self-to-pinned replacement,
+and the echo are all held by named entries.
+
+### Where it did not: a log body of exactly the record maximum
+
+`fzn_log_body_text` renders a record body for a one-line-per-entry view,
+escaping what a terminal would obey. It bounds the input with `body_len >
+FZN_RECORD_BODY_MAX`, and FZN_RECORD_BODY_MAX (512) is exactly what a record
+body can reach -- so the maximum-size body is a legitimate one to display. The
+test refused a body of MAX + 1, which `>` and `>=` reject alike, and never
+rendered one of exactly MAX, the length the two comparisons disagree on.
+
+	body_len > MAX to >=   SURVIVED log_test, log_fuzz, fix_stream
+
+With `>=`, the largest body a record can carry renders as
+FZN_LOG_ERR_MALFORMED -- a maximum-size log entry becomes undisplayable, and
+nothing said so. `log_test` now renders a body of exactly FZN_RECORD_BODY_MAX,
+printable throughout so the rendering is one character per byte, and requires
+OK, a terminating NUL at MAX, and a non-NUL at MAX-1 so a short render fails
+too. `log-body-max-is-inclusive` is in the table. It is the sec 292/298 shape a
+fourth time: the "one past" is tested and the endpoint is not, and an inclusive
+maximum's off-by-one lives on the value the "one past" case skips.
+
+Everything else in log.c holds at its edge -- the GONE-versus-ABSENT line
+(`seq < next`, where a false GONE costs an anchor that cannot be taken back),
+the eviction boundary, the body escape boundaries at 0x20 and 0x7e, the output
+floor, the read-since cursor, and the issuer compare over the whole key -- each
+CAUGHT by a probe.

@@ -848,6 +848,27 @@ int main(void)
 		           FZN_LOG_ERR_MALFORMED, "a length with no bytes");
 		expect_err(fzn_log_body_text(body, 1, NULL, 8), FZN_LOG_ERR_MALFORMED,
 		           "a null buffer");
+		/* A BODY OF EXACTLY THE BOUND RENDERS. A record body reaches
+		 * FZN_RECORD_BODY_MAX, so the maximum-size body is a legitimate
+		 * one to display; the case below refuses one past it, but the
+		 * comparison turns on the endpoint, and `>=` would refuse the
+		 * largest body a record can carry. Printable throughout, so the
+		 * rendering is one character per byte and MAX + 1 holds it. */
+		{
+			static uint8_t full[FZN_RECORD_BODY_MAX];
+			static char rendered[FZN_RECORD_BODY_MAX + 1u];
+			size_t j;
+
+			for (j = 0; j < FZN_RECORD_BODY_MAX; j++)
+				full[j] = (uint8_t)(0x20u + (j % 0x5fu));
+			expect_err(fzn_log_body_text(full, FZN_RECORD_BODY_MAX, rendered,
+			                             sizeof(rendered)),
+			           FZN_LOG_OK, "a body of exactly the bound would not render");
+			expect(rendered[FZN_RECORD_BODY_MAX] == '\0',
+			       "the maximum body was not terminated");
+			expect(rendered[FZN_RECORD_BODY_MAX - 1u] != '\0',
+			       "the maximum body rendered short of its last byte");
+		}
 		expect_err(fzn_log_body_text(body, FZN_RECORD_BODY_MAX + 1u, text, sizeof(text)),
 		           FZN_LOG_ERR_MALFORMED, "a body past the bound");
 	}

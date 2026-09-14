@@ -1572,6 +1572,13 @@ SABOTAGES = [
 		"a viewer showing one entry per line, handed a body with a newline and a plausible sequence number, displays a SECOND entry no issuer ever signed -- and the same argument covers a terminal escape sequence, which is what an unescaped control byte delivers -- sec 233",
 	),
 	(
+		"log-body-max-is-inclusive",
+		"log/log.c",
+		"\tif (body_len > FZN_RECORD_BODY_MAX)",
+		"\tif (body_len >= FZN_RECORD_BODY_MAX)",
+		"a body of exactly FZN_RECORD_BODY_MAX is the largest a record can carry and must render; >= refuses the maximum-size body as malformed. Every other body_text case renders a handful of bytes, and the bound test uses MAX+1 which > and >= both refuse -- only a body of exactly MAX holds this edge. sec 300",
+	),
+	(
 		"relay-budget-clamps",
 		"wire/relay.c",
 		"\t*out = claimed < allowed ? claimed : allowed;\n",
