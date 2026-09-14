@@ -40136,3 +40136,56 @@ Everything else in log.c holds at its edge -- the GONE-versus-ABSENT line
 the eviction boundary, the body escape boundaries at 0x20 and 0x7e, the output
 floor, the read-since cursor, and the issuer compare over the whole key -- each
 CAUGHT by a probe.
+
+## Carrying the lens into the sync and manifest decoders (sec 301)
+
+sync.c plans what to fetch and offer; manifest.c is the revocation-set decoder
+and the deficit tracker. Both were carried before. This pass re-swept them and
+found the deficit path's version comparison held by no test at its whole-read.
+
+### Where it held: sync, and manifest's open decoder
+
+Every real edge in sync.c is pinned: `add_range`'s `ahead <= behind` (an equal
+position is no range), both truncation counters (`n >= out_cap`,
+`request_count >= out_cap`), and both issuer compares over the whole key. Three
+mutations survived and all three are no-edges: `to_examine`'s `their_count <=
+MAX_POSITIONS` at exactly MAX returns MAX with `positions_ignored` zero either
+way; `add_range`'s `want > max_per_request` clamps to the same value at the
+boundary; and `theirs_for`'s `received > hit->received` keeps a different
+duplicate on a tie but the tie has equal `received`, the only field read back.
+
+manifest's `open` decoder holds throughout -- the `count > MAX_PAIRS` inclusive
+maximum, the strictly-ascending `pair_cmp(...) >= 0` (a duplicate and an
+out-of-order pair both refused), the exact length, the header floor, and
+`pair_cmp` over the whole 64-byte key, pinned by `test_the_deficit_reads_the
+_whole_field`'s near-miss pairs. `admit`'s `count >= pairs_seen` high-water
+mark, its deficit-full guard, and the deficit-key reads all hold.
+
+### Where it did not: the revocation-version compare in admit
+
+`fzn_manifest_admit` asks, for each pair the manifest names, whether this host
+is behind the issuer about it. When the host already holds a revocation for the
+pair, the answer turns on `memcmp(mine, fzn_manifest_id(record, i),
+FZN_REVOCATION_ID_LEN)`: a different id is the decision table's "ask" row --
+neither side can order two revocations by hash, so a deficit is recorded and
+admission sorts it out. `test_the_deficit_reads_the_whole_field` pins the pair
+KEY in this same loop with near-miss capabilities and grantees; the id compare
+beside it was pinned nowhere. Every prefix length, 1 through 31 of 32, survived.
+
+	rev-id memcmp 1..31 of 32   SURVIVED manifest_test and manifest_fuzz
+
+A prefix read takes a different revocation for the one held, reports the ask row
+as "agreed", and drops the gap -- the same fail-open the pair-key pin closes,
+one field over, and the sibling test's own comment names it: "a comparison that
+reads a prefix reports a genuine gap as already listed and drops it." The id is
+derived rather than seeded, so the near miss cannot be built the way
+`capability_id_near` builds one; `test_the_version_compare_reads_the_whole_id`
+reads the held id back through `fzn_revocation_lookup`, flips its last byte into
+a raw manifest, admits it, and requires the deficit to hold one pair.
+`manifest-version-compare-reads-the-whole-id` is in the table.
+
+The lesson is *An interface is only as wired as its least-used method* turned
+onto a function's comparisons: a test named for reading the whole field read
+the whole of one field and a prefix of the one beside it, and the name is what
+kept anybody from looking. The lens's job here was to count the comparisons the
+"reads the whole field" test actually walked.

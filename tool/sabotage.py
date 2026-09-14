@@ -856,6 +856,13 @@ SABOTAGES = [
 		"one issuer has one opinion per pair; comparing the entry admits two",
 	),
 	(
+		"manifest-version-compare-reads-the-whole-id",
+		"chain/manifest.c",
+		"\t\t\telse if (memcmp(mine, fzn_manifest_id(record, i),\n\t\t\t                FZN_REVOCATION_ID_LEN) != 0)",
+		"\t\t\telse if (memcmp(mine, fzn_manifest_id(record, i),\n\t\t\t                1u) != 0)",
+		"for a pair this host already holds a revocation for, this decides whether the manifest names the same revocation or a different one; a prefix read takes a different id for the held one, reports admit's ask row as agreed, and drops a genuine gap. manifest-orders-on-the-key pins the pair key one field over; this pins the version compare beside it. sec 301",
+	),
+	(
 		"manifest-deficit-is-replication",
 		"chain/manifest.c",
 		"\t\t\telse\n"

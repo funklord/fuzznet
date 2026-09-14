@@ -1915,6 +1915,67 @@ static void test_the_deficit_reads_the_whole_field(void)
 	}
 }
 
+/* THE VERSION COMPARE READS THE WHOLE ID TOO, and it is the one comparison in
+ * the deficit loop that `test_the_deficit_reads_the_whole_field` left. That
+ * test pins the pair KEY; this pins the id compare beside it -- the row that
+ * decides, for a pair this host already holds a revocation for, whether the
+ * manifest names the SAME revocation or a different one. `fzn_manifest_admit`'s
+ * decision table calls a different id the "ask" row: neither side can tell who
+ * is ahead, so a deficit is recorded. A comparison reading a prefix takes a
+ * different revocation for the one held, reports the ask row as "agreed", and
+ * drops the gap -- the fail-open the pair-key pin closes, one field over.
+ *
+ * The id is derived rather than seeded, so a near miss cannot be built the way
+ * `capability_id_near` builds one; the held id is read back and its last byte
+ * flipped into a raw manifest. */
+static void test_the_version_compare_reads_the_whole_id(void)
+{
+	struct fixture f;
+	static uint8_t bytes[FIXTURE_BYTES];
+	fzn_manifest_record_t rec;
+	fzn_manifest_pair_t pair;
+	fzn_cap_id_t cap;
+	uint8_t grantee[FZN_PUBKEY_LEN];
+	uint8_t mine[FZN_REVOCATION_ID_LEN];
+	int withdrawn = 0;
+	uint8_t *id_field;
+	size_t len;
+
+	fixture_init(&f);
+	capability_id(&cap, 0x10);
+	key(grantee, 5);
+
+	/* This host holds a revocation for the pair, so the lookup in admit
+	 * succeeds and the id compare -- not the "I hold nothing" row -- is
+	 * what decides. */
+	revoke(&f, f.root, &cap, grantee);
+	CHECK(fzn_revocation_lookup(&f.store, f.root, &cap, grantee, mine, &withdrawn),
+	      "the fixture's own revocation is not in its store");
+	CHECK(fzn_manifest_follow(&f.manifest, f.root) == FZN_MANIFEST_OK, "follow");
+
+	/* A manifest naming that pair with an id agreeing on every byte but the
+	 * last: a different revocation of the same pair. build_raw writes its
+	 * own id, so the near-miss id is written over it and the body re-MACed. */
+	memcpy(pair.capability.b, cap.b, FZN_CAP_ID_LEN);
+	memcpy(pair.grantee, grantee, FZN_PUBKEY_LEN);
+	len = build_raw(bytes, f.root[0], f.root, &pair, 1);
+	id_field = bytes + FZN_MANIFEST_OFF_PAIRS + FZN_MANIFEST_OFF_ENTRY_ID;
+	memcpy(id_field, mine, FZN_REVOCATION_ID_LEN);
+	id_field[FZN_REVOCATION_ID_LEN - 1u] ^= 0x01u;
+	CHECK(memcmp(id_field, mine, FZN_REVOCATION_ID_LEN - 1u) == 0 &&
+	              id_field[FZN_REVOCATION_ID_LEN - 1u] != mine[FZN_REVOCATION_ID_LEN - 1u],
+	      "the manifest id does not agree with the held one on every byte but the last, "
+	      "so it would not decide a comparison's length");
+	mac(bytes + FZN_MANIFEST_BODY_LEN(1), f.root[0], bytes, FZN_MANIFEST_BODY_LEN(1));
+
+	CHECK(fzn_manifest_open(bytes, len, &rec) == FZN_MANIFEST_OK, "the raw manifest will not open");
+	CHECK(fzn_manifest_admit(&f.manifest, &f.store, rec, &f.sign) == FZN_MANIFEST_OK, "admit");
+	CHECK(fzn_manifest_pending(&f.manifest, f.root) == 1,
+	      "a manifest naming a revocation whose id differs from the held one only in "
+	      "the last byte was taken for the same revocation and dropped, so a prefix "
+	      "read reports a genuine gap as already satisfied");
+}
+
 /* ---- the sticky flag, which is not optional --------------------------- */
 
 /* Without it a dropped pair makes a host look MORE complete than it is -- a
@@ -3957,6 +4018,7 @@ int main(void)
 	test_a_want_list_is_answered_by_a_peer_that_holds_some();
 	test_two_partial_peers_between_them_complete_the_set();
 	test_the_deficit_reads_the_whole_field();
+	test_the_version_compare_reads_the_whole_id();
 	test_the_overflow_flag_is_sticky();
 	test_a_corrupt_store_is_refused_rather_than_believed();
 	test_a_forged_pair_is_refused();
