@@ -39981,3 +39981,60 @@ the sharpest instance in this sweep of a rule the whole arc leaned on: a
 SURVIVED is a claim about the entire set of callers, and the security-relevant
 ones are exactly where the fixture that would reach the edge is most likely to
 be somebody else's.
+
+## Carrying the lens into the catalog and copy decoders (sec 298)
+
+catalog.c and copy.c were both audited under the lens before -- catalog's
+sweep cursor and want walk (sec 280/294) and copy's want list (sec 291) --
+so this pass went after the pieces those left unprobed: the two path
+validators, `usable_segment` and `usable_name`, and copy's remaining
+want-list guards. One held nothing.
+
+### The longest legal catalogue name was refused by no test
+
+`usable_name(text, len)` bounds a name with
+`!text || len == 0 || len > FZN_CATALOG_NAME_MAX`, where NAME_MAX is 255.
+The declared length is a single body byte (`name.len = body[...]`), so it
+reaches 255 exactly, and a 255-byte name is one a person may legitimately
+have written. Tightening `>` to `>=` -- rejecting the longest legal name --
+SURVIVED the whole suite: every name the tests build is a film title, the
+longest 76 bytes, so nothing reaches the bound. The guard is shared by
+`fzn_catalog_name_encode`, `fzn_catalog_name_segment`, `fzn_catalog_name_set`
+and, off the wire, `apply_name` -- so under `>=` a maximal name is refused
+at encode and refused again on decode, and no caller held it.
+
+`catalog_test` now round-trips a name of exactly NAME_MAX bytes through a
+signed record -- encode, sign, apply, `name_of` -- and requires it accepted
+and whole, reaching the bound through the record decoder that `apply_name`
+uses off the wire. The fixture is 255 varied printable bytes, so nothing
+passes by a run of one character. `catalog-name-max-is-inclusive` is in the
+table; it is CAUGHT at the encode REQUIRE, the first place the shared guard
+speaks. This is the same inclusive-bound class as sec 292/294/295/296: a
+maximum-legal value wrongly rejected by an off-by-one on the edge.
+
+### The segment bound is defensive, not a gap
+
+`usable_segment(seg)` carries the mirror bound -- `i >= FZN_CATALOG_SEGMENT_MAX`
+inside its scan -- and `>` there also survived. But it is not the same
+finding, because its only caller is `fzn_catalog_path_of`, which builds
+`char segment[FZN_CATALOG_SEGMENT_MAX + 1u]`, memsets it, lets `ops->name`
+fill it, and forces `segment[FZN_CATALOG_SEGMENT_MAX] = '\0'` before the
+call. The segment handed in is pre-bounded to 255 by construction, so the
+length arm of the scan is unreachable from the sole caller: a defensive
+guard against an input that cannot arrive, not an untested boundary. No test,
+and no sabotage entry -- the difference from `usable_name` is entirely who
+can reach the edge, which is the distinction the whole arc turned on. copy.c's
+remaining want-list guards were re-probed and are held by the sec 291 harness;
+nothing there was left uncovered.
+
+### The reachable half and the pre-bounded half look identical in isolation
+
+Both validators carry a `> MAX` bound, both survived the same mutation, and
+read alone they are the same finding. What separates them is one question
+asked of each -- can the maximum value arrive here -- and the answers diverge
+completely: a name's length is an attacker-supplied wire byte that reaches
+255 freely, while a segment's length is clamped to 255 by its caller before
+the guard runs. A SURVIVED plus a reachable maximum is a gap; a SURVIVED
+against a value the sole caller pre-bounds away is a guard doing its job with
+no test owed. The mutation cannot tell them apart; only reading the callers
+can.

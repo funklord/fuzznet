@@ -2189,6 +2189,54 @@ static void test_a_name_round_trips_through_a_record(void)
 	      "a name carrying a newline was accepted off the wire");
 }
 
+/* A NAME OF THE MAXIMUM LENGTH IS ACCEPTED, NOT REFUSED AT THE BOUND. The
+ * declared length is a single body byte, so it reaches FZN_CATALOG_NAME_MAX
+ * (255) exactly, and a name of that length is one a person may legitimately
+ * have written. `usable_name` bounds it with `len > NAME_MAX`, which admits
+ * the maximum; the tests above never build a name longer than a film title,
+ * so nothing held the bound and `>=` -- rejecting the longest legal name --
+ * survived the whole suite. This reaches the bound through the record
+ * decoder, the same path `apply_name` takes off the wire. */
+static void test_a_maximum_length_name_round_trips(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_name_t names[4];
+	fzn_catalog_t cat;
+	uint8_t body[FZN_RECORD_BODY_MAX];
+	char longest[FZN_CATALOG_NAME_MAX + 1u];
+	fzn_catalog_name_t n;
+	const fzn_catalog_name_t *got;
+	fzn_record_t rec;
+	size_t len = 0;
+	size_t i;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_name_init(&cat, names, 4, &NAME_HELD_WINS) == FZN_CATALOG_OK,
+	        "name init");
+
+	/* Exactly FZN_CATALOG_NAME_MAX printable bytes, varied so nothing tests
+	 * true by a run of one character. */
+	for (i = 0; i < FZN_CATALOG_NAME_MAX; i++)
+		longest[i] = (char)(0x20u + (i % 0x5fu));
+	longest[FZN_CATALOG_NAME_MAX] = '\0';
+
+	n = named(0x10, longest, ALICE, 0);
+	CHECK(n.len == FZN_CATALOG_NAME_MAX, "the fixture is not the maximum length");
+	REQUIRE(fzn_catalog_name_encode(&n, body, sizeof(body), &len) == FZN_CATALOG_OK,
+	        "the longest legal name would not encode");
+	CHECK(len == FZN_CATALOG_CONTENT_HEAD_LEN + FZN_CATALOG_NAME_MAX,
+	      "a maximum name body is %zu bytes", len);
+	REQUIRE(as_record(&rec, ALICE, 4u, body, len), "sign");
+	CHECK(fzn_catalog_apply(&cat, rec) == FZN_CATALOG_OK,
+	      "a record carrying the longest legal name was refused");
+
+	got = fzn_catalog_name_of(&cat, idp(0x10));
+	REQUIRE(got != NULL, "the maximum name did not arrive");
+	CHECK(got->len == FZN_CATALOG_NAME_MAX
+	      && memcmp(got->text, longest, FZN_CATALOG_NAME_MAX) == 0,
+	      "the longest name did not survive the wire whole");
+}
+
 static void test_the_name_caller_bugs_are_refused(void)
 {
 	fzn_catalog_edge_t rows[4];
@@ -2726,6 +2774,7 @@ int main(void)
 	test_a_name_may_be_anything_a_person_reads();
 	test_a_name_renders_as_written();
 	test_a_name_round_trips_through_a_record();
+	test_a_maximum_length_name_round_trips();
 	test_the_name_caller_bugs_are_refused();
 	test_a_catalogue_keeps_nothing_until_told();
 	test_a_node_overrides_in_both_directions();

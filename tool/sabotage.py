@@ -305,6 +305,13 @@ SABOTAGES = [
 		"the sender term in the reassembly slot lookup",
 	),
 	(
+		"catalog-name-max-is-inclusive",
+		"catalog/catalog.c",
+		"\tif (!text || len == 0 || len > FZN_CATALOG_NAME_MAX)",
+		"\tif (!text || len == 0 || len >= FZN_CATALOG_NAME_MAX)",
+		"a name of exactly FZN_CATALOG_NAME_MAX (255) is legal: the declared length is a single body byte, so it reaches the maximum exactly, and >= refuses the longest legal name at encode and off the wire in apply_name. Every other name test uses a short title, so only a maximum-length name holds this edge. sec 298",
+	),
+	(
 		"revocation-covers-a-full-chain",
 		"chain/revocation.c",
 		"\tif (hop_count == 0 || hop_count > (size_t)FZN_CHAIN_MAX_HOPS)\n\t\treturn;",
