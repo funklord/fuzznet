@@ -298,6 +298,22 @@ static void test_later_chunks_must_agree(void)
 	CHECK(fzn_reasm_accept(&f.table, f.alice, 1, 9, 3, piece, 8, 0, 100, &done) ==
 	              FZN_REASM_ERR_MISMATCH,
 	      "an index past the total was accepted");
+
+	/* THE BOUNDARY INDEX, one past the last valid, which is the one the
+	 * `index >= slot->chunks` bound turns on. The case above uses index 9
+	 * against three chunks; a `>` bound rejects that as readily as `>=`, so
+	 * only `index == slot->chunks` separates them. Valid indices are
+	 * 0..chunks-1, so index == chunks is out of range and must be refused --
+	 * and the slot has slack (SLOT_BYTES is 64, this message is 24), so a `>`
+	 * bound would not merely misreport the code: offset 24 leaves room, so the
+	 * chunk is WRITTEN into the slack and counted, and a message can then
+	 * complete with a real chunk still missing. */
+	CHECK(fzn_reasm_accept(&f.table, f.alice, 1, 3, 3, piece, 8, 0, 100, &done) ==
+	              FZN_REASM_ERR_MISMATCH,
+	      "a chunk whose index equals the chunk count was accepted");
+	CHECK(f.partials[0].arrived == 1u,
+	      "an out-of-range chunk was recorded: arrived is %u, wanted 1",
+	      (unsigned)f.partials[0].arrived);
 }
 
 /* A REFUSAL CLEARS THE COMPLETION POINTER, AND A CALLER IS MEANT TO READ IT.

@@ -1293,6 +1293,13 @@ SABOTAGES = [
 		"a chunk whose expiry equals the clock is already dead and must not cost a slot; the same boundary as the reap, at accept",
 	),
 	(
+		"reasm-existing-slot-index-in-range",
+		"chunk/reassembly.c",
+		"\t\tif (index >= slot->chunks)\n\t\t\treturn FZN_REASM_ERR_MISMATCH;",
+		"\t\tif (index > slot->chunks)\n\t\t\treturn FZN_REASM_ERR_MISMATCH;",
+		"a chunk sent to an already-admitted slot whose index equals the chunk count is one past the last and must be refused; the admit-path index check is held by agreement_test but this one, on a subsequent chunk, was tested only with an index far past the total (9 against 3) which > rejects too -- at index == chunks with a slack buffer > writes the chunk into the slack and counts it, completing a message with a real chunk still missing. sec 299",
+	),
+	(
 		"expire-separates-loss-from-abandonment",
 		"chunk/reassembly.c",
 		"\t\t\tif (slot->arrived > 1u)\n",

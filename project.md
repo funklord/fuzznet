@@ -40038,3 +40038,55 @@ the guard runs. A SURVIVED plus a reachable maximum is a gap; a SURVIVED
 against a value the sole caller pre-bounds away is a guard doing its job with
 no test owed. The mutation cannot tell them apart; only reading the callers
 can.
+
+## Carrying the lens into the chunk and split decoders (sec 299)
+
+split.c and reassembly.c are the two halves of the chunking seam and both were
+carried before -- reassembly's expiry boundaries in sec 283, split's plan
+consistency and its inclusive maxima. This pass re-swept both for the
+inclusive-bound edge and found one boundary held by no test.
+
+### Where it held: split, and reassembly's admit path
+
+Every inclusive maximum in split.c is pinned: `max_payload > MAX_PAYLOAD` at
+exactly the maximum (a 1024-byte payload plans, 1025 refuses), `count >
+MAX_CHUNKS` at exactly the ceiling, the single-piece `chunk_size > total` edge,
+and the max-index bound in `split_at`. split_at's `index >= plan->chunks`
+survived narrowing to `>`, but that is a masked guard rather than a gap: the
+only value it decides is `index == chunks`, and that is caught downstream by
+`index > (total-1)/chunk_size` OR by the stride-consistency check, whose two
+conditions are mutually exclusive at that point -- `index == chunks` can escape
+neither. reassembly's admit-path `index >= chunks`, the division size bound
+`payload_len > buf_capacity / chunks`, the last-chunk size, and the
+MAX_CHUNKS ceiling are all held, the admit index bound by agreement_test at the
+exact boundary -- the sec 15/246 lesson that a SURVIVED is only trustworthy
+against the full caller set, vindicated again.
+
+### Where it did not: a chunk one past the count, sent to a live slot
+
+`fzn_reasm_accept` bounds a subsequent chunk's index twice over. The admit
+path's `index >= chunks` (first chunk) is held. The existing-slot path's
+`index >= slot->chunks` -- reached when a chunk arrives for a message already
+being reassembled -- was tested only with `index 9` against three chunks. Nine
+is far past the total, so a `>` bound rejects it as readily as `>=`, and the
+boundary the two differ on, `index == slot->chunks`, was never sent to a live
+slot.
+
+	accept existing-slot index >= to >   SURVIVED test, fuzz, guided, agreement
+
+It is not a mere miscode at the edge. Valid indices are 0..chunks-1, so `index
+== chunks` is one past the last, and the slots this suite builds have slack --
+64-byte buffers holding a 24-byte message. With `>`, `index == chunks` clears
+the index bound, and its offset (`chunks * chunk_size`, 24) leaves room in the
+buffer, so the out-of-range chunk is WRITTEN into the slack, its bit set in the
+arrived-set, and `arrived` incremented. A message can then reach `arrived ==
+chunks` with a real chunk still missing: it completes with a hole, the missing
+bytes never written and a phantom chunk's bytes counted in their place.
+
+`test_later_chunks_must_agree` now sends `index == chunks` to the admitted slot
+and requires FZN_REASM_ERR_MISMATCH, and asserts `arrived` stayed at one -- the
+relationship, not the code, so the write into the slack is what fails rather
+than only the return value. `reasm-existing-slot-index-in-range` is in the
+table. The lesson is the one the index bound teaches on both paths: an
+out-of-range test written with a value FAR past the bound never exercises the
+bound's own edge, and the edge is where an off-by-one lives.
