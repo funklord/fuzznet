@@ -534,6 +534,16 @@ static void test_an_index_past_the_blob_is_refused(void)
 	      "byte after it rather than refused");
 	CHECK(map[FZN_SPOOL_BITMAP_LEN(TEST_LEAVES)] == 0xffu,
 	      "the answer disturbed the byte after the caller's bitmap");
+
+	/* AND THE ENDPOINT, index == TEST_LEAVES exactly, which `>` admits
+	 * where `>=` refuses. bit TEST_LEAVES of byte zero is inside the
+	 * bitmap but past the six leaves, so `open` ignores it and setting it
+	 * makes `has` answer from that bit unless the ceiling is exclusive.
+	 * The has(TEST_LEAVES) check above reads a zero bit there and passes
+	 * with `>` in place -- this one, with the bit set, does not. */
+	map[TEST_LEAVES / 8u] |= (uint8_t)(1u << (TEST_LEAVES % 8u));
+	CHECK(fzn_spool_has(&spool, TEST_LEAVES) == 0,
+	      "the index exactly at the ceiling was answered from a bit past the leaves");
 }
 
 /* A SHORT READ STAYS INSIDE THE BUFFER IT WAS GIVEN.

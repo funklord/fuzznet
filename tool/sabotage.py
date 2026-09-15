@@ -655,6 +655,13 @@ SABOTAGES = [
 		"the bound keeping bit_get inside the bitmap the caller lent",
 	),
 	(
+		"spool-has-ceiling-is-exclusive",
+		"spool/spool.c",
+		"\tif (!spool || index >= spool->leaves)\n\t\treturn 0;\n",
+		"\tif (!spool || index > spool->leaves)\n\t\treturn 0;\n",
+		"leaf indices run 0..leaves-1, so has(index == leaves) must answer 0. spool-has-index catches deleting the bound via has(8), which > still refuses; only the endpoint index == leaves slips through >, and the has(TEST_LEAVES) check read a zero bit there until a bit past the leaves was set. sec 312",
+	),
+	(
 		"spool-open-ceiling-is-inclusive",
 		"spool/spool.c",
 		"\tif (leaves > (uint64_t)FZN_SPOOL_MAX_LEAVES)",

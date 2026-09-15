@@ -40683,3 +40683,51 @@ that determinism is held: widening it to `<=` is caught. `add_saturating`'s
 `a > UINT64_MAX - b` is a genuine no-edge -- at `a == UINT64_MAX - b` the sum is
 exactly UINT64_MAX, which is also the saturation value, so `>` and `>=` return
 the same. No entry for sched.c.
+
+## Carrying the lens into the spool and record decoders (sec 312)
+
+These are the two most-exercised decoders in the library -- spool.c is driven by
+spool_test and spool_file_test and again by scrub, transfer, message and plan
+and their fuzzers, and record.c by record_test, record_fuzz, record_kat_test and
+every consumer that opens a record. The sweep reflected that: almost every edge
+was already held, and the one gap was a query nobody queries out of range.
+
+### record.c holds at every edge
+
+Each guard was probed and caught. The min-length floor accepts a record of
+exactly FZN_RECORD_MIN_LEN (an empty body) and refuses one byte short; the body
+ceiling accepts a body of exactly FZN_RECORD_BODY_MAX on both the open and the
+sign side; the exact-length check refuses both a short buffer (a body reaching
+past the buffer) and a long one (trailing bytes past the signature), which is
+the canonical-encoding property the signature rests on; the sign-side output
+buffer accepts a capacity of exactly signed_len + FZN_SIG_LEN; the seq-zero
+refusal and the version and object type bytes are each held. No entry.
+
+### spool.c: the one query checked everywhere but at its own ceiling
+
+spool.c's other bounds are held -- the open ceiling and forget span (sec 305),
+the place and place_span index and span-end and per-leaf sealed-length maxima,
+the SPAN_MAX_LEAVES cap, the exact-fit bitmap in open, next_missing's walk, and
+the completion equality -- every one caught, several by the fuzzers.
+`fzn_spool_has` was the exception. Its bound `index >= spool->leaves` is what
+keeps `bit_get` inside the caller's bitmap, and `test_an_index_past_the_blob_is_refused`
+already drove has(TEST_LEAVES) and, past the bitmap entirely, has(8) with the
+byte after the map set to 0xff -- the second catches DELETING the bound.
+
+It does not catch weakening `>=` to `>`. Only the endpoint index == leaves slips
+through `>` (has(8) is refused by `>` too, since 8 > 6), and at index == leaves
+== 6 the bit read is bit 6 of byte 0 -- inside the map, and zero after reset --
+so has(6) answered 0 with or without the endpoint. The full suite, ASan runs
+included, did not notice: nothing calls has() at its ceiling, so the read past
+the leaves is never taken. The test now sets that bit -- bit TEST_LEAVES of byte
+zero, inside the bitmap but past the six leaves, which open ignores -- so
+has(TEST_LEAVES) answers from it unless the ceiling stays exclusive.
+`spool-has-ceiling-is-exclusive` is in the table, distinct from the existing
+`spool-has-index` that pins the deletion. It is the inclusive/exclusive
+endpoint-skip once more, on a bound whose wrong answer is a one-bit read past a
+buffer the caller only lent.
+
+The one no-edge left recorded: `fzn_spool_read`'s
+`want = cap < FZN_BLOB_SEALED_MAX ? cap : FZN_BLOB_SEALED_MAX` is a clip whose
+`<` and `<=` return the same value at cap == FZN_BLOB_SEALED_MAX, so it takes no
+entry.
