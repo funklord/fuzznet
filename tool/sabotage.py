@@ -696,6 +696,13 @@ SABOTAGES = [
 		"the trim that makes peer.h's whole-lines precondition satisfiable",
 	),
 	(
+		"peer-gid-max-is-inclusive",
+		"local/peer.c",
+		"\t\t\tif (value > 0xffffffffu)",
+		"\t\t\tif (value >= 0xffffffffu)",
+		"4294967295 is the largest gid a uint32 holds -- (gid_t)-1, a real value a process carries -- and the bound admits it, refusing only a run of digits too long to be a 32-bit gid. The test refuses one past it, which > and >= reject alike; only a gid of exactly the maximum holds this edge, and >= refuses it as an overflow. sec 303",
+	),
+	(
 		"peer-linux-trim-call",
 		"local/peer_linux.c",
 		"\telse if (got == sizeof(status))\n\t\tgot = fzn_peer_whole_lines(status, got);\n",

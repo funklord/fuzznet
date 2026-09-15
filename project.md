@@ -40246,3 +40246,37 @@ a key comparison is not pinned by a test that separates its keys in the first
 byte, however many such tests there are. Only a last-byte near miss reads the
 whole key, and a tree that seeds its fixtures from a byte-0 seed produces the
 first kind by default.
+
+## Carrying the lens into the peer and provision decoders (sec 303)
+
+peer.c parses the `Groups:` line of `/proc/<pid>/status` into a group
+membership; provision.c decodes a provisioning card. provision was carried
+three times before -- sec 292, sec 296, and this session's frame pass -- and
+holds at every edge re-probed: the verify expiry drawn through its own second,
+the exact length on open and on text, the base32 spare-bit, and the two decode
+counters that `strlen` makes unreachable. peer had one edge held by no test.
+
+### Where it did not: the largest gid a uint32 holds
+
+`fzn_peer_groups_parse` accumulates each gid digit by digit and refuses a run
+too long for the field with `value > 0xffffffffu`. That bound admits
+4294967295 -- (gid_t)-1, a real sentinel a process can carry -- and refuses
+only a value that would not fit a uint32. The test refused 4294967296, one past
+it, which `>` and `>=` reject alike; it never parsed a gid of exactly
+4294967295, the value the bound turns on.
+
+	value > 0xffffffffu to >=   SURVIVED peer_test and peer_fuzz
+
+With `>=`, the maximum legal gid is refused as an overflow: a process in a
+group numbered 4294967295 reads as a parse failure, and the whole membership
+goes unknown -- which denies, so a member is told UNKNOWN rather than MEMBER.
+`peer_test` now parses a Groups line carrying 4294967295 beside an ordinary
+gid, and requires a known two-group list whose second entry is the maximum
+itself. `peer-gid-max-is-inclusive` is in the table.
+
+It is the sec 292/298/300/302 shape a fifth time, now on a text decoder rather
+than a length or a key: the "one past" is tested and the endpoint is not, and
+the endpoint is where an inclusive bound's off-by-one lives. The count bound
+beside it (`count == FZN_PEER_MAX_GROUPS`) is held -- narrowed to `>` it writes
+past the array and goes red -- and the verdict's fail-open guard admits exactly
+FZN_PEER_MAX_GROUPS groups, both pinned.

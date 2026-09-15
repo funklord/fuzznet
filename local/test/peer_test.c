@@ -135,6 +135,19 @@ static void test_malformed_entries_are_unknown_not_partial(void)
 	CHECK(p.groups_known == 0, "a partly-parsed list was marked known");
 	CHECK(p.group_count == 0, "a partly-parsed list left a count behind");
 
+	/* THE LARGEST GID A UINT32 HOLDS IS STILL A GID, not an overflow.
+	 * 4294967295 is (gid_t)-1, a real value a process can carry; the bound
+	 * admits it and refuses only a run of digits too long to be a 32-bit
+	 * gid. The case below refuses the first value one past it, which `>` and
+	 * `>=` reject alike -- only the maximum itself, which `>=` would wrongly
+	 * refuse, holds the bound. */
+	CHECK(parse("Groups:\t20 4294967295\n", &p) == 1,
+	      "the largest gid a uint32 holds was refused as an overflow");
+	CHECK(p.groups_known == 1 && p.group_count == 2,
+	      "the maximum gid did not parse into a known two-group list");
+	CHECK(p.groups[1] == 4294967295u, "the maximum gid parsed to %lu, wanted 4294967295",
+	      (unsigned long)p.groups[1]);
+
 	CHECK(parse("Groups:\t20 4294967296\n", &p) == 0,
 	      "a gid past 32 bits was accepted");
 	CHECK(p.groups_known == 0, "and the list was marked known");
