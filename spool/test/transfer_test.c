@@ -619,6 +619,55 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 	failures = before + 1;
 }
 
+/* THE CAPACITY CEILING FROM THE INSIDE. `fzn_transfer_open` refuses a
+ * capacity of zero or one past FZN_TRANSFER_MAX_ASSIGNS, and the guard sweep
+ * above drives FZN_TRANSFER_MAX_ASSIGNS + 1 and requires MALFORMED -- the
+ * "one past". The ceiling itself, a window of exactly FZN_TRANSFER_MAX_ASSIGNS
+ * slots, was opened by no test: SLOTS is 8, so every other fixture sits an
+ * order of magnitude below it. That is the one value `>` admits and `>=`
+ * would refuse, and refusing it makes the widest window the protocol allows
+ * impossible to open. */
+static void test_open_takes_the_maximum_capacity(void)
+{
+	fzn_transfer_assign_t big[FZN_TRANSFER_MAX_ASSIGNS];
+	fzn_transfer_t t;
+
+	CHECK(fresh(SLOTS), "the fixture did not open");
+	CHECK(fzn_transfer_open(&t, &spool, big, FZN_TRANSFER_MAX_ASSIGNS) == FZN_TRANSFER_OK,
+	      "open refused a capacity of exactly the ceiling");
+	CHECK(fzn_transfer_window(&t) == 1u, "a transfer at the ceiling did not start at window 1");
+	CHECK(fzn_transfer_in_flight(&t) == 0u, "a fresh transfer at the ceiling was not empty");
+}
+
+/* A RANGE TOUCHING A PENDING ONE SHARES NO LEAF AND MUST STILL BE OFFERED.
+ * The assignment record uses half-open intervals, so [2,4) and [4,6) do not
+ * overlap -- but `overlaps` makes that call with two `<`, and the two-peer
+ * test above only requires its two ranges disjoint, which a wrongly-skipped
+ * touching candidate satisfies by picking a farther one. So no test held the
+ * touching edge: an overlap check that counted touching as overlapping would
+ * skip the adjacent span and hand back a farther one, or NONE when the window
+ * is tight -- fetching a hole it did not need to leave.
+ *
+ * open_the_window delivers [0,2), so the plan now starts at leaf 2; the first
+ * ask takes [2,2) and the second must be the span that begins exactly where
+ * it ends. */
+static void test_a_range_touching_a_pending_one_is_still_offered(void)
+{
+	fzn_spool_range_t a, b;
+
+	CHECK(fresh(SLOTS), "the fixture did not open");
+	CHECK(open_the_window(), "the window did not open, so the second ask is refused early");
+
+	CHECK(fzn_transfer_next_want(&transfer, 7u, 0u, 2u, 100u, &a) == FZN_TRANSFER_OK
+	      && a.first == 2u && a.count == 2u,
+	      "the first ask was not the span at leaf 2: %llu+%llu",
+	      (unsigned long long)a.first, (unsigned long long)a.count);
+	CHECK(fzn_transfer_next_want(&transfer, 9u, 0u, 2u, 100u, &b) == FZN_TRANSFER_OK
+	      && b.first == 4u && b.count == 2u,
+	      "the range touching the pending one was not offered: %llu+%llu",
+	      (unsigned long long)b.first, (unsigned long long)b.count);
+}
+
 int main(void)
 {
 	if (!build_blob()) {
@@ -637,6 +686,8 @@ int main(void)
 	test_an_answer_naming_no_assignment_is_refused();
 	test_a_complete_blob_asks_for_nothing();
 	test_the_window_stops_at_the_caller_s_array();
+	test_open_takes_the_maximum_capacity();
+	test_a_range_touching_a_pending_one_is_still_offered();
 	test_every_operand_of_every_guard();
 	test_every_guard_refuses_its_own_argument();
 	test_the_suite_can_tell_pass_from_fail();

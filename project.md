@@ -40565,3 +40565,66 @@ The `len < need` floor is a no-edge (unsigned, and a message one byte short is
 refused by the exact `len != need + body` check that follows), and the per-length
 `one > len - need - body` guard is the documented 32-bit wrap backstop, caught on
 x86-64 by the exact-length check and by message_fuzz under ASan.
+
+## Carrying the lens into the transfer and plan decoders (sec 310)
+
+plan.c is policy over a bitmap -- it walks a spool's present-set and cuts the
+missing runs into canonical spans for a WANT, or the held runs into an OFFER.
+transfer.c is the assignment and congestion layer over it: an AIMD window, a
+table of in-flight assignments, and the overlap test that keeps two peers off
+one range. Neither is a wire decoder, but both are dense with bounds, and two
+of transfer.c's held no test at their edge.
+
+### The capacity ceiling, tested one past and never at
+
+`fzn_transfer_open` refuses `cap == 0u || cap > FZN_TRANSFER_MAX_ASSIGNS`, and
+the guard sweep drives `FZN_TRANSFER_MAX_ASSIGNS + 1u` and requires MALFORMED --
+the "one past". A transfer opened with exactly FZN_TRANSFER_MAX_ASSIGNS slots,
+the widest window the protocol allows, was opened by no test: the suite's SLOTS
+is 8, an order of magnitude below the ceiling of 64, so every fixture sits far
+under it. That is the one value `>` admits and `>=` would refuse, and refusing
+it makes the maximal window impossible to open.
+`test_open_takes_the_maximum_capacity` now opens a transfer over a
+64-slot array and requires FZN_TRANSFER_OK.
+`transfer-open-capacity-is-inclusive` is in the table -- the sec
+292/298/300/302/303/304/305/309 shape once more.
+
+### Touching ranges, which the two-peer test could not hold
+
+`overlaps` uses half-open intervals, so [2,4) and [4,6) touch but share no leaf
+and do not overlap. `is_pending` calls it to decide whether a candidate span is
+already assigned, and `test_two_peers_on_one_transfer_get_disjoint_work`
+exercises it -- but that test asserts only that its two ranges are disjoint,
+which a wrongly-skipped touching candidate satisfies by handing back a farther
+one. So widening the first `<` to `<=` -- counting a candidate that begins
+exactly where a pending range ends as overlapping -- survived: the transfer
+still handed out a disjoint range, just not the adjacent one. Under a tight
+candidate window it would answer NONE and stall on a hole it did not need to
+leave. `test_a_range_touching_a_pending_one_is_still_offered` delivers [0,2) to
+open the window, takes [2,2) as the first assignment, and requires the second
+ask to be exactly [4,2) -- the span touching the pending one.
+`transfer-touching-is-not-overlap` is in the table.
+
+The mirror `<` -- `b_first < a_first + a_count` -- is the unreachable half and
+is left unpinned with the reason recorded. `is_pending` always tests a fresh
+plan candidate against the assignments already handed out, and `next_want`
+returns the first non-pending candidate in ascending order, so every pending
+range is positionally at or below the candidate under test. The candidate's
+first is therefore never below a pending range's, `b_first < a_first + a_count`
+is always strictly true in the reachable domain, and its edge cannot be
+reached through the module's own caller.
+
+### plan.c holds at its reachable edges
+
+The one live comparison in `fzn_spool_plan_want`, `from >= spool->leaves`, is
+held: `>` in its place accepts a start of exactly `leaves` and wraps it to zero,
+handing a player the wrong part of the film, and plan_test refuses it. The
+emit-array-full stop `*count >= cap` is held (a `>` overflows the caller's
+array), and both zero-bound refusals -- `max_per_range == 0u` and
+`max_leaves == 0u` -- are held. Two comparisons survived and are genuine
+no-edges rather than gaps: `fzn_spool_plan_offer`'s `first >= spool->leaves` is
+masked by the `left = spool->leaves - first` that follows, which is zero at the
+endpoint so the inner loop runs zero times whether the guard skips or not -- the
+same free zero-length handling the file documents for `plan_want`; and the
+`want_count > FZN_SPOOL_MAX_WANT` clip sets `want_count` to FZN_SPOOL_MAX_WANT,
+so `>` and `>=` land on the same value at the endpoint. Neither earns an entry.

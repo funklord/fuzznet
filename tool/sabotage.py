@@ -2965,6 +2965,20 @@ SABOTAGES = [
 		"on its floor for a single event, which is what AIMD exists to avoid",
 	),
 	(
+		"transfer-open-capacity-is-inclusive",
+		"spool/transfer.c",
+		"\tif (cap == 0u || cap > FZN_TRANSFER_MAX_ASSIGNS)\n\t\treturn FZN_TRANSFER_ERR_MALFORMED;",
+		"\tif (cap == 0u || cap >= FZN_TRANSFER_MAX_ASSIGNS)\n\t\treturn FZN_TRANSFER_ERR_MALFORMED;",
+		"a transfer opened with exactly FZN_TRANSFER_MAX_ASSIGNS slots is the widest window the protocol allows and must open. The guard sweep drives one past the ceiling; the endpoint was unbuilt (SLOTS is 8), so > could tighten to >= and make the maximal window impossible to open. sec 310",
+	),
+	(
+		"transfer-touching-is-not-overlap",
+		"spool/transfer.c",
+		"\treturn a_first < b_first + b_count && b_first < a_first + a_count;",
+		"\treturn a_first <= b_first + b_count && b_first < a_first + a_count;",
+		"half-open ranges that touch share no leaf and must not count as overlapping. is_pending compares a new candidate against the lower-positioned pending ranges, so a < widened to <= treats the span beginning exactly where a pending one ends as already asked and skips it. The two-peer test only requires its ranges disjoint, which a farther pick satisfies. The mirror < is the unreachable half, a candidate never being lower than a pending range. sec 310",
+	),
+	(
 		"seal-commitment-refuses-a-stranger",
 		"wire/seal.c",
 		"\tif (fzn_commitment_check(derived, situ_fzn_head_commitment_ptr(hv)) "
