@@ -40731,3 +40731,56 @@ The one no-edge left recorded: `fzn_spool_read`'s
 `want = cap < FZN_BLOB_SEALED_MAX ? cap : FZN_BLOB_SEALED_MAX` is a clip whose
 `<` and `<=` return the same value at cap == FZN_BLOB_SEALED_MAX, so it takes no
 entry.
+
+## Carrying the lens into the journal and sync decoders (sec 313)
+
+journal.c tracks a per-(issuer, stream) sequence position -- admit, anchor,
+confirm, and the queries next and pending -- and sync.c plans what to fetch or
+offer by comparing this host's journal against a peer's digest. Both are dense
+with comparison-length key reads and inclusive bounds, and almost all of them
+were already held. One digest guard was not.
+
+### journal.c and most of sync.c hold
+
+Every guard was probed by mutation and caught. The three full-key
+`fzn_ct_memeq` reads -- `find` in journal.c, `theirs_for` and `follows` in
+sync.c -- each read the whole FZN_PUBKEY_LEN issuer: shortening any to one byte
+is caught, so a last-byte near-miss issuer is exercised. The journal's
+sequence edges hold at their endpoints -- admit's duplicate floor and gap
+ceiling (seq == received + 1 admitted, one past is GAP), anchor's backwards
+refusal, confirm's not-received and duplicate bounds, the usable and full-at-
+capacity checks, init's zero-capacity refusal, and next's UINT64_MAX
+saturation. sync.c's `add_range` bounds (request_count == out_cap truncates,
+ahead == behind adds nothing) and `digest`'s per-slot `n == out_cap` drop are
+each caught, as are `args_ok`'s capacity and argument checks.
+
+### The digest a full journal never advertised
+
+`fzn_sync_digest` refuses a journal whose `used` is past `capacity` -- a corrupt
+count -- with `journal->used > journal->capacity`. A journal filled to exactly
+capacity is not corrupt; it is the ordinary state of a busy host, and it must
+advertise every position it holds. No test reached used == capacity: the digest
+cases follow two issuers into a four-entry journal, an order of magnitude below
+being full. That endpoint is the one value `>` admits and `>=` would refuse, and
+refusing it leaves a full host silent -- it never tells a peer any of its
+positions, so the peer never learns this host is behind and the streams on a
+full journal never sync. The full-suite probe confirmed nothing noticed.
+
+The new block in sync_test fills a four-entry journal with four issuers, asserts
+used == capacity, and requires the digest to return all four positions with
+nothing dropped. `sync-digest-capacity-is-inclusive` is in the table -- the
+inclusive-bound endpoint-skip once more, on the one capacity check of the three
+in this file (digest's, `args_ok`'s, and the journal's `usable`) that no fixture
+drove to its edge.
+
+### The no-edges left recorded
+
+Two survivors are genuine no-edges. `add_range`'s `want > max_per_request` clip
+sets `want` to max_per_request, so `>` and `>=` return the same value at the
+endpoint. `to_examine`'s `their_count <= FZN_SYNC_MAX_POSITIONS` returns
+their_count when it fits; at their_count == the ceiling the else-branch computes
+positions_ignored = 0 and returns the ceiling too, so both branches examine the
+same count and report the same zero. `theirs_for`'s keep-largest tiebreak
+(`received > hit->received`) is a third: among duplicate positions with equal
+received, `>` keeps the first and `>=` the last, but the received value returned
+is identical either way. None earns an entry.

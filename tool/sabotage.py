@@ -1037,6 +1037,13 @@ SABOTAGES = [
 		"a stream the peer did not mention must be counted and never offered: offering from zero makes the cheapest message the amplifier",
 	),
 	(
+		"sync-digest-capacity-is-inclusive",
+		"record/sync.c",
+		"!out || journal->used > journal->capacity)",
+		"!out || journal->used >= journal->capacity)",
+		"a journal filled to exactly capacity is the ordinary state of a busy host and must still digest every position it holds. used == capacity is the endpoint the digest tests never reached (they follow two issuers into a four-entry journal), so > could tighten to >= and leave a full host silent -- never advertising a position, so never learning it is behind and never syncing. sec 313",
+	),
+	(
 		"disclose-leaf-covers-the-salt",
 		"disclose/disclose.c",
 		"\tif (fzn_blob_leaf_hash(hash, committed, committed_len, out) != FZN_BLOB_OK)\n",

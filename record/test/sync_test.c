@@ -197,6 +197,38 @@ int main(void)
 		       "a digest with nowhere to report truncation must refuse");
 	}
 
+	/* A JOURNAL FULL TO CAPACITY STILL PRODUCES A DIGEST. `fzn_sync_digest`
+	 * refuses a journal whose `used` is PAST `capacity` -- a corrupt count
+	 * -- but a journal filled to exactly capacity is the ordinary state of
+	 * a busy host, and it must advertise every position it holds. No case
+	 * above reached used == capacity: the digest there follows two issuers
+	 * into a four-entry journal. The endpoint is the one value `>` admits
+	 * and `>=` would refuse, and refusing it leaves a full host silent --
+	 * it never tells a peer any of its positions, so it never learns it is
+	 * behind and never syncs. */
+	{
+		fzn_journal_t full;
+		fzn_journal_entry_t fe[4];
+		fzn_sync_position_t fd[4];
+		uint8_t k[FZN_PUBKEY_LEN];
+		size_t dropped = 99;
+
+		fzn_journal_init(&full, fe, 4);
+		identity(k, 0x11);
+		follow(&full, k, 1);
+		identity(k, 0x22);
+		follow(&full, k, 2);
+		identity(k, 0x33);
+		follow(&full, k, 3);
+		identity(k, 0x44);
+		follow(&full, k, 4);
+		expect(full.used == full.capacity,
+		       "the four-issuer fixture did not fill the journal");
+		expect(fzn_sync_digest(&full, fd, 4, &dropped) == 4,
+		       "a journal full to capacity must still digest every position");
+		expect(dropped == 0, "a full digest that fitted dropped nothing");
+	}
+
 	/* FETCH: they are ahead on A, level on B, and follow C which we do not. */
 	position(&theirs[0], a, 14);
 	position(&theirs[1], b, 5);
