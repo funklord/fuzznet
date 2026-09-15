@@ -2177,6 +2177,13 @@ SABOTAGES = [
 		"this store never evicts because a revocation does not expire, so a full one refuses every withdrawal from then on -- the host has stopped being able to learn about revocations at all, which is the one condition here that does not recover on its own -- sec 211",
 	),
 	(
+		"revocation-tombstone-full-is-inclusive",
+		"chain/revocation.c",
+		"\t\t\tif (store->used >= store->capacity)\n\t\t\t\treturn FZN_CHAIN_ERR_STORE_FULL;",
+		"\t\t\tif (store->used > store->capacity)\n\t\t\t\treturn FZN_CHAIN_ERR_STORE_FULL;",
+		"a withdrawal for a triple the store never held is appended as a tombstone, and that add has its own full check. The revocation-add path's full check is tested by admitting a fifth revocation; nothing drove a withdrawal for an unknown pair into a FULL store, so >= could weaken to > and, at used == capacity, append the tombstone at entries[capacity] -- one past the caller's array. sec 314",
+	),
+	(
 		"link-snapshot-says-what-it-dropped",
 		"link/link.c",
 		"\tif (*dropped)\n\t\tLINK_LOG(table, \"link/snapshot\", FLOG_WARN,\n",

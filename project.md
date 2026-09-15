@@ -40784,3 +40784,49 @@ same count and report the same zero. `theirs_for`'s keep-largest tiebreak
 (`received > hit->received`) is a third: among duplicate positions with equal
 received, `>` keeps the first and `>=` the last, but the received value returned
 is identical either way. None earns an entry.
+
+## Carrying the lens into the trust and revocation decoders (sec 314)
+
+trust.c anchors a root key -- pin, adopt, self -- and refuses a re-anchor to a
+different one; revocation.c is the largest decoder in the library, opening and
+admitting revocation and withdrawal records and answering the authorization
+question `covers`. Both are dense with full-key comparisons and inclusive
+bounds, and almost all of them are held. One append had a full check no test
+reached at its edge.
+
+### trust.c and most of revocation.c hold
+
+Every guard probed was caught. trust.c's UNCHANGED re-anchor compares the whole
+FZN_PUBKEY_LEN root -- a one-byte read is caught, so a last-byte near-miss root
+is exercised -- and the fingerprint floor accepts a buffer of exactly
+FZN_TRUST_FINGERPRINT_LEN. revocation.c's `same()` reads the whole issuer,
+capability and grantee (all three one-byte shortenings caught), so the
+comparison-length lens is held across find_entry, covers, lookup and known. The
+inclusive bounds hold too: `covers_chain`'s `hop_count > FZN_CHAIN_MAX_HOPS`
+admits a chain of exactly FZN_CHAIN_MAX_HOPS -- and chain_test.c drives a revoked
+hop in an eight-hop chain, which is what a first, too-narrow probe set missed and
+the full-suite probe corrected; `entitled_by_chain`'s hop ceiling, the corrupt-
+store `used > capacity` guards, and the revocation-add `used >= capacity` full
+check are each caught.
+
+### The tombstone append past the end of a full store
+
+`fzn_revocation_admit` records a withdrawal for a triple the store has never
+held as a tombstone, so a host that missed the original revocation still knows
+the pair's history. That append has its OWN full check, separate from the
+revocation-add path's. The revocation-add check is tested -- a full store admits
+a fifth revocation and is refused STORE_FULL -- but nothing admitted a
+WITHDRAWAL for an unknown pair into a full store, so the tombstone path's
+`store->used >= store->capacity` was the one full check no test reached at its
+edge. Weakening `>=` to `>` lets used == capacity slip through, and the append
+lands at entries[capacity] -- one past the caller's array, a heap write on the
+admission path. The full-suite probe, ASan runs included, confirmed nothing
+noticed.
+
+`test_a_full_store_refuses_a_withdrawal_for_a_new_pair` fills the four-entry
+store with revocations, then admits a root-signed withdrawal for a pair the
+store never held -- entitled because the root needs no standing -- and requires
+FZN_CHAIN_ERR_STORE_FULL rather than a write past the end.
+`revocation-tombstone-full-is-inclusive` is in the table -- the inclusive-bound
+endpoint-skip on the one of the store's several full checks that no fixture
+drove to capacity through the withdrawal-tombstone door.

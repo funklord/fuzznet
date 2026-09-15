@@ -2947,6 +2947,52 @@ static void test_a_full_revocation_store_says_it_can_never_learn_again(void)
 }
 #endif /* FZN_FLOG_ON */
 
+/* A FULL STORE REFUSES A WITHDRAWAL FOR A NEW PAIR, RATHER THAN WRITING PAST
+ * THE ARRAY. A withdrawal for a triple the store has never held is recorded
+ * as a tombstone -- and that append has its OWN full check, separate from the
+ * one the revocation-add path takes. The full-store test above fills the store
+ * and admits a fifth REVOCATION, driving the revocation-add full check; nothing
+ * admitted a WITHDRAWAL for an unknown pair into a full store, so the
+ * tombstone path's `used >= capacity` was the one full check no test reached at
+ * its edge. With `>` in its place, used == capacity slips through and the
+ * append lands at entries[capacity] -- one past the caller's array. */
+static void test_a_full_store_refuses_a_withdrawal_for_a_new_pair(void)
+{
+	struct fixture f;
+	uint8_t bytes[FZN_REVOCATION_LEN], wd[FZN_REVOCATION_LEN];
+	fzn_revocation_record_t r, rec;
+	uint8_t grantee[FZN_PUBKEY_LEN];
+	uint8_t id[FZN_REVOCATION_ID_LEN];
+	fzn_cap_id_t cap;
+	uint8_t i;
+
+	fixture_init(&f);
+	for (i = 0; i < 4; i++) {
+		issue(&f, bytes, &r, 0, 0xc0, (uint8_t)(10 + i));
+		CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(r), f.root,
+		                           &f.sign, &HASH_OPS, NULL) == FZN_CHAIN_OK,
+		      "filling entry %u", i);
+	}
+
+	/* A withdrawal from the root for a pair the full store has never held.
+	 * The root needs no standing, so it is entitled and reaches the
+	 * tombstone add, where the store is full. */
+	key(grantee, 99);
+	capability_id(&cap, 0xc0);
+	for (i = 0; i < sizeof(id); i++)
+		id[i] = (uint8_t)(0xe0u + i);
+	f.stub.identity = f.root[0];
+	CHECK(fzn_revocation_issue_withdrawal(f.root, &cap, grantee, 5000, id, &f.sign, wd)
+	              == FZN_CHAIN_OK,
+	      "a withdrawal for a new pair could not be minted");
+	CHECK(fzn_revocation_open(wd, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK,
+	      "that withdrawal will not open");
+	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(rec), f.root, &f.sign,
+	                           &HASH_OPS, NULL) == FZN_CHAIN_ERR_STORE_FULL,
+	      "a full store admitted a withdrawal for a pair it never held, so the "
+	      "tombstone was written past the end of the array");
+}
+
 int main(void)
 {
 	test_layout_and_round_trip();
@@ -2963,6 +3009,7 @@ int main(void)
 	test_a_carrier_cannot_invent_one();
 	test_hearing_it_twice_is_not_an_error();
 	test_a_full_store_refuses_and_does_not_evict();
+	test_a_full_store_refuses_a_withdrawal_for_a_new_pair();
 	test_merge_keeps_going_past_a_bad_record();
 	test_the_store_feeds_chain_verify_directly();
 	test_one_roots_revocation_does_not_answer_for_another();
