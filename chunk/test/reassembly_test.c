@@ -1566,6 +1566,38 @@ static void test_the_hold_deadline_saturates(void)
 	      "deadline had wrapped into the past");
 }
 
+/* PLAN_WANT READS THE WHOLE SENDER, and it repeats find's match with its
+ * own memcmp rather than sharing it -- so it needs its own near-miss.
+ * test_a_message_this_table_does_not_hold_is_absent asks the right question
+ * of alice and bob, who differ at byte 0, which a one-byte compare separates.
+ * A slot held by one twin must not answer a want for the other: otherwise a
+ * stranger sharing a victim's first byte learns which chunks of the victim's
+ * message this host still lacks, which is the leak the sender in the match
+ * exists to prevent. */
+static void test_plan_want_reads_the_whole_sender(void)
+{
+	struct fixture f;
+	fzn_partial_t *done = NULL;
+	fzn_reasm_range_t got[8];
+	size_t n = 99;
+	uint8_t twin_a[FZN_SENDER_LEN], twin_b[FZN_SENDER_LEN];
+	uint8_t piece[8];
+
+	twin_senders(twin_a, twin_b);
+	fixture_init(&f, 2);
+	fill(piece, 8, 0x50, 0);
+	CHECK(fzn_reasm_accept(&f.table, twin_a, 1, 0, 2, piece, 8, 0, 100, &done)
+	              == FZN_REASM_OK,
+	      "the twin's first chunk was refused");
+
+	CHECK(fzn_reasm_plan_want(&f.table, twin_a, 1, 100, got, 8, &n) == FZN_REASM_OK,
+	      "the twin that holds the slot could not plan its own wants");
+	CHECK(fzn_reasm_plan_want(&f.table, twin_b, 1, 100, got, 8, &n)
+	              == FZN_REASM_ERR_ABSENT,
+	      "a sender one byte off the one holding the slot was told which chunks it "
+	      "lacks, so plan_want is not reading the whole sender");
+}
+
 int main(void)
 {
 	test_reassembles_in_order();
@@ -1585,6 +1617,7 @@ int main(void)
 	test_full_table_and_expiry();
 	test_a_receiver_can_name_what_it_lacks();
 	test_a_message_this_table_does_not_hold_is_absent();
+	test_plan_want_reads_the_whole_sender();
 	test_last_chunk_first_is_refused();
 	test_release_clears_the_arrived_set();
 	test_the_offset_guard_is_reachable();

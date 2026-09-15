@@ -333,6 +333,13 @@ SABOTAGES = [
 		"the sender term in the reassembly slot lookup",
 	),
 	(
+		"reasm-plan-want-reads-the-whole-sender",
+		"chunk/reassembly.c",
+		"\t\t    && memcmp(candidate->sender, sender, FZN_SENDER_LEN) == 0) {",
+		"\t\t    && memcmp(candidate->sender, sender, 1u) == 0) {",
+		"fzn_reasm_plan_want repeats find's sender match with its own memcmp; a prefix read lets a sender one byte off the slot's owner be told which chunks it lacks, the leak the sender-in-the-match prevents. find and held_by are near-miss-tested and this third compare was not: the absent-message test uses alice and bob, who differ at byte 0. sec 316",
+	),
+	(
 		"catalog-name-max-is-inclusive",
 		"catalog/catalog.c",
 		"\tif (!text || len == 0 || len > FZN_CATALOG_NAME_MAX)",

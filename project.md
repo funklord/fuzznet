@@ -40894,3 +40894,51 @@ for the cost of a 2701-pair fixture rather than for any reason it is safe. The
 manifest's other bounds -- the min-length floor, the open pair ceiling and exact
 length, the issue and admit capacity checks, the sort comparator's whole-pair
 read, and the id compare (sec 301) -- are each held.
+
+## Carrying the lens into the reassembly and split decoders (sec 316)
+
+split.c plans a message's cut into chunks; reassembly.c reassembles them,
+keyed by (sender, msg). split.c holds at every edge, and reassembly.c holds
+at all but one sender comparison.
+
+### split.c holds
+
+Every guard was probed and caught: the max-payload and chunk-count ceilings
+admit their endpoints (a payload of exactly FZN_SPLIT_MAX_PAYLOAD, a count of
+exactly FZN_REASM_MAX_CHUNKS), the single-piece `chunk_size > total` edge, and
+`fzn_split_at`'s `index > (total - 1) / chunk_size` bound are each caught. Its
+`index >= plan->chunks` survives weakening to `>`, but that is masked: at
+index == chunks the `index > (total - 1) / chunk_size` check below it fires for
+any valid plan, so the endpoint is refused either way. No entry.
+
+### reassembly.c: the third sender compare
+
+A partial is keyed by (sender, msg), and the sender is matched by a whole-key
+memcmp in three places. `find` and `held_by` are near-miss-tested --
+test_two_near_senders_do_not_splice and test_a_near_sender_does_not_spend_the_quota
+build a pair differing only in the last byte -- and shortening either to one
+byte is caught. `fzn_reasm_plan_want` repeats the match with its OWN memcmp
+rather than sharing find's, and that third compare was held by nothing: the
+absent-message test asks its question of alice and bob, who differ at byte 0,
+which a one-byte compare separates. A prefix read there lets a sender one byte
+off the slot's owner be told which chunks of the owner's message this host
+still lacks -- the leak the sender-in-the-match exists to prevent, and the same
+splice the accept path refuses. The full-suite probe confirmed nothing noticed.
+
+test_plan_want_reads_the_whole_sender admits a chunk for one twin, then requires
+plan_want for the other twin to answer ABSENT rather than hand back the first
+twin's missing-chunk ranges, with the holding twin as the control.
+`reasm-plan-want-reads-the-whole-sender` is in the table, distinct from the
+`reasm-sender-compare-length` that pins find.
+
+### What was left
+
+The conflict check's payload memcmp reads the whole payload (a near-miss last
+byte is caught by test_retransmission_versus_rewrite), the chunk-count and
+payload maxima, the quota, the expiry edge, and the existing-slot index bound
+(sec 299) are each caught. The pre-memcpy `offset > buf_capacity` guard survives
+weakening to `>=`, and it is a no-edge: at offset == buf_capacity the second
+clause, `payload_len > buf_capacity - offset`, is `payload_len > 0`, which holds
+for every chunk that reaches it, so both spellings return TOO_LARGE. It is the
+caller-owned-corrupt-table backstop the code documents as unreachable through
+the API, and takes no entry.
