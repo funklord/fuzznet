@@ -852,6 +852,32 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 	failures = before + 1;
 }
 
+/* THE GRID SIZED EXACTLY. fzn_scrub_open refuses a roots array or seal bitmap
+ * smaller than the grid, and test_every_guard_refuses_its_own_argument drives
+ * one cell short and a zero-length bitmap -- the "one under". A caller that
+ * sizes its buffers to exactly fzn_scrub_cells(leaves) is the boundary neither
+ * reached: every fixture over-provisions with FZN_SCRUB_MAX_CELLS, seven cells
+ * clear of the need. That is the one size `<` admits and `<=` would refuse, and
+ * refusing it turns an exactly-sized buffer -- the frugal, correct one -- into
+ * a malformed call. */
+static void test_open_accepts_a_grid_sized_exactly(void)
+{
+	uint8_t roots_exact[CELLS_EXPECTED * FZN_BLOB_HASH_LEN];
+	uint8_t seals_exact[FZN_SCRUB_SEALED_LEN(CELLS_EXPECTED)];
+	fzn_scrub_t sx;
+	uint64_t sealed_out = 0u, cells_out = 0u;
+
+	CHECK(fresh(0u, LEAVES), "the fixture did not fill");
+	CHECK(fzn_scrub_cells(LEAVES) == CELLS_EXPECTED,
+	      "the fixture's grid is not the size this test assumes");
+	CHECK(fzn_scrub_open(&sx, &spool, roots_exact, CELLS_EXPECTED, seals_exact,
+	                     sizeof(seals_exact)) == FZN_SCRUB_OK,
+	      "open refused a grid sized to exactly its need");
+	CHECK(fzn_scrub_progress(&sx, &sealed_out, &cells_out) == FZN_SCRUB_OK
+	      && cells_out == CELLS_EXPECTED,
+	      "the exact grid did not record %u cells", CELLS_EXPECTED);
+}
+
 int main(void)
 {
 	if (!build_blob()) {
@@ -870,6 +896,7 @@ int main(void)
 	test_a_failing_hash_mid_scrub_drops_nothing();
 	test_a_sealed_cell_that_lost_leaves_is_skipped();
 	test_the_optional_outputs_are_omitted_on_the_last_cell();
+	test_open_accepts_a_grid_sized_exactly();
 	test_every_guard_refuses_its_own_argument();
 	test_what_is_verified_now_is_not_a_running_total();
 #ifdef FZN_FLOG_ON

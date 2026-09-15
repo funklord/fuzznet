@@ -40628,3 +40628,58 @@ endpoint so the inner loop runs zero times whether the guard skips or not -- the
 same free zero-length handling the file documents for `plan_want`; and the
 `want_count > FZN_SPOOL_MAX_WANT` clip sets `want_count` to FZN_SPOOL_MAX_WANT,
 so `>` and `>=` land on the same value at the endpoint. Neither earns an entry.
+
+## Carrying the lens into the scrub and scheduler decoders (sec 311)
+
+scrub.c re-reads stored bytes against a per-cell reference digest and returns a
+rotted cell to the want-list; sched.c chooses a link for a traffic class by
+filtering on hard constraints and minimising a weighted cost. sched.c held at
+every reachable edge; scrub.c's grid-size acceptance did not.
+
+### The grid sized exactly
+
+`fzn_scrub_open` refuses a roots array or a seal bitmap smaller than the grid --
+`cells < need || sealed_len < FZN_SCRUB_SEALED_LEN(need)` -- and
+`test_every_guard_refuses_its_own_argument` drives one cell short and a
+zero-length bitmap, the "one under" of each. A caller sizing its buffers to
+exactly fzn_scrub_cells(leaves) was the boundary neither reached: every fixture
+over-provisions with FZN_SCRUB_MAX_CELLS, which is the need plus seven. That is
+the one size `<` admits and `<=` would refuse, and refusing it turns an
+exactly-sized buffer -- the frugal, correct one -- into a malformed call.
+`test_open_accepts_a_grid_sized_exactly` opens over a roots array of
+CELLS_EXPECTED cells and a seal bitmap of FZN_SCRUB_SEALED_LEN(CELLS_EXPECTED)
+bytes and requires FZN_SCRUB_OK. `scrub-open-cells-is-inclusive` and
+`scrub-open-sealed-is-inclusive` are in the table -- the inclusive-bound shape
+pointed at a minimum rather than a maximum, but the same endpoint-skip.
+
+### What was left alone in scrub.c
+
+The `advance` wrap, `*cell >= scrub->cells || *first >= scrub->spool->leaves`,
+carries two `>=` and each is masked by the other: the cells partition the leaves
+exactly, so at completion `cell` reaches `cells` and `first` reaches `leaves` in
+the same step, and mutating either `>=` to `>` leaves the other term to trigger
+the wrap. Both survive and neither is a gap.
+
+`cell_digest`'s `count > FZN_SCRUB_CELL` is held -- a full 64-leaf cell is
+exercised, so `>=` in its place is caught, even though `count` can never exceed
+FZN_SCRUB_CELL because `cell_len` bounds it. The rot-detection `memcmp` in
+`fzn_scrub_step` reads the whole hash, and its length is left unpinned with the
+reason recorded: both operands are computed digests -- the freshly folded root
+and the sealed reference -- so a last-byte near miss is not constructible
+without a near-collision on the hash, and any real rot avalanches across the
+whole digest, which a prefix read still catches. It is the sec 308
+computed-side case, where the near miss has no caller-controlled operand to
+enter through.
+
+### sched.c holds at every edge
+
+The three hard constraints admit a link that meets the limit exactly --
+`latency_ms > max_latency_ms`, `loss_permille > max_loss_permille` and
+`mtu < min_mtu` each keep the endpoint (a link at exactly the latency ceiling,
+the loss ceiling, or the MTU floor is ADMITTED) -- and sched_fuzz drives all
+three, so `>`/`<` tightening to `>=`/`<=` is caught. `fzn_sched_select`'s
+`cost < best_cost` is strict so a tie leaves the earlier candidate in place, and
+that determinism is held: widening it to `<=` is caught. `add_saturating`'s
+`a > UINT64_MAX - b` is a genuine no-edge -- at `a == UINT64_MAX - b` the sum is
+exactly UINT64_MAX, which is also the saturation value, so `>` and `>=` return
+the same. No entry for sched.c.

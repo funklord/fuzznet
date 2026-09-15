@@ -1418,6 +1418,20 @@ SABOTAGES = [
 		"\t\tif (cell < scrub->cells)\n\t\t\tn++;\n",
 		"an answer that counts cells rather than reading their seals is the running total a consumer already had, and it is right until a cell is repaired -- which is to say right until the module does the thing it exists for and wrong from then on -- sec 239",
 	),
+	(
+		"scrub-open-cells-is-inclusive",
+		"spool/scrub.c",
+		"\tif (cells < need || sealed_len < FZN_SCRUB_SEALED_LEN(need))",
+		"\tif (cells <= need || sealed_len < FZN_SCRUB_SEALED_LEN(need))",
+		"a roots array of exactly fzn_scrub_cells(leaves) is the frugal, correct size and must open. The guard sweep drives one cell short; the exact fit was unbuilt, every fixture over-provisioning with FZN_SCRUB_MAX_CELLS, so < could tighten to <= and refuse a buffer sized to precisely its need. sec 311",
+	),
+	(
+		"scrub-open-sealed-is-inclusive",
+		"spool/scrub.c",
+		"\tif (cells < need || sealed_len < FZN_SCRUB_SEALED_LEN(need))",
+		"\tif (cells < need || sealed_len <= FZN_SCRUB_SEALED_LEN(need))",
+		"a seal bitmap of exactly FZN_SCRUB_SEALED_LEN(need) bytes holds one bit per cell and must open. The sweep drives a zero-length bitmap; the exact fit was unbuilt, so < could tighten to <= and refuse a bitmap sized to precisely its grid. sec 311",
+	),
 	# BATCH TWENTY-SIX, 2026-09-09: the detector's own two halves.
 	# project.md sec 242.
 	(
