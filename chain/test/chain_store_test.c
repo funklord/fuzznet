@@ -249,6 +249,59 @@ static void test_what_goes_in_comes_back_out(void)
 	      "the re-opened hop is not the one that was admitted");
 }
 
+/* A MAXIMAL CHAIN ROUND-TRIPS. FZN_CHAIN_MAX_HOPS hops pack to exactly
+ * FZN_CHAIN_MAX_LEN, and lookup's own length bound -- there to refuse a
+ * corrupt entry longer than its buffer -- turns on that value: `>` returns a
+ * full chain and `>=` would refuse it, sending the host to re-fetch a chain it
+ * holds. Every other case admits a one- or two-hop chain, well short of the
+ * bound, so only a chain of the maximum length holds this edge. */
+static void test_a_maximal_chain_round_trips(void)
+{
+	struct fixture f;
+	fzn_chain_hop_t hops[FZN_CHAIN_MAX_HOPS];
+	/* A buffer PER HOP: fzn_hop_open returns a view into the bytes, so one
+	 * shared buffer would leave every view pointing at the last hop. */
+	uint8_t hopbufs[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	const uint8_t *bytes = NULL;
+	size_t len = 0;
+	size_t h;
+
+	REQUIRE(build(&f), "the fixture does not build");
+
+	/* root -> 0x51 -> 0x52 -> ... -> 0x57 -> grantee, MAX_HOPS hops, every
+	 * one delegable but the last, so a lookup by (root, cap, grantee)
+	 * finds it. Each hop is minted by its grantor; NO_EXPIRY keeps the
+	 * chain live at every clock. */
+	for (h = 0; h < FZN_CHAIN_MAX_HOPS; h++) {
+		uint8_t grantor[FZN_PUBKEY_LEN], grantee[FZN_PUBKEY_LEN];
+		int delegable = (h + 1u < (size_t)FZN_CHAIN_MAX_HOPS) ? 1 : 0;
+
+		if (h == 0)
+			memcpy(grantor, f.root, FZN_PUBKEY_LEN);
+		else
+			key(grantor, (uint8_t)(0x50u + h));
+		if (h + 1u == (size_t)FZN_CHAIN_MAX_HOPS)
+			memcpy(grantee, f.grantee, FZN_PUBKEY_LEN);
+		else
+			key(grantee, (uint8_t)(0x50u + h + 1u));
+
+		signing_as = (h == 0) ? 0x11u : (uint8_t)(0x50u + h);
+		REQUIRE(fzn_chain_mint(grantor, grantee, &f.cap, 100, FZN_NO_EXPIRY, delegable,
+		                       &OPS, hopbufs[h]) == FZN_CHAIN_OK, "minting a hop failed");
+		REQUIRE(fzn_hop_open(hopbufs[h], FZN_HOP_LEN, &hops[h]) == FZN_CHAIN_OK,
+		        "a hop is bad");
+	}
+
+	REQUIRE(fzn_chain_store_admit(&f.store, hops, FZN_CHAIN_MAX_HOPS, f.root, &f.cap, 200,
+	                              &OPS, NULL, NULL) == FZN_CHAIN_OK,
+	        "a maximal chain was refused admission");
+	CHECK(fzn_chain_store_lookup(&f.store, f.root, &f.cap, f.grantee, 200, &bytes, &len),
+	      "a maximal chain in the store was not found by lookup");
+	CHECK(len == (size_t)FZN_CHAIN_MAX_LEN,
+	      "a maximal chain packed to %zu bytes, wanted FZN_CHAIN_MAX_LEN (%zu)",
+	      len, (size_t)FZN_CHAIN_MAX_LEN);
+}
+
 static void test_a_lookup_that_does_not_match_answers_nothing(void)
 {
 	struct fixture f;
@@ -1121,6 +1174,7 @@ int main(void)
 	test_init_refuses_what_cannot_hold_anything();
 	test_only_a_chain_that_verifies_is_kept();
 	test_what_goes_in_comes_back_out();
+	test_a_maximal_chain_round_trips();
 	test_a_lookup_that_does_not_match_answers_nothing();
 	test_an_expired_chain_is_not_handed_back();
 	test_a_second_chain_for_one_triple_replaces_the_first();

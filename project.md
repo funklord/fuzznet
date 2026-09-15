@@ -40280,3 +40280,50 @@ the endpoint is where an inclusive bound's off-by-one lives. The count bound
 beside it (`count == FZN_PEER_MAX_GROUPS`) is held -- narrowed to `>` it writes
 past the array and goes red -- and the verdict's fail-open guard admits exactly
 FZN_PEER_MAX_GROUPS groups, both pinned.
+
+## Carrying the lens into the sched and chain_store decoders (sec 304)
+
+sched.c filters and scores links; chain_store.c caches verified chains and
+hands them back by address. Both were carried before. sched holds at every
+edge; chain_store had one inclusive bound held by no test.
+
+### Where it held: sched
+
+The three hard constraints -- latency and loss with `>`, mtu with `<` -- are
+each admitted at exactly the boundary and excluded one past it, held by
+sched_fuzz which lands links on the edge. The `!= 0` unconstrained tests are
+no-edges against `> 0` (both unsigned), the tie-break is `sched-ties-go-to-the
+-lowest-index`, and the saturating cost is `sched-cost-saturates`. chain_store's
+whole-key lookups (root, capability, grantee) are pinned by chain_store_fuzz's
+near-miss block, its offer ceiling and truncated flag and eviction and expiry
+all held.
+
+### Where it did not: a chain of exactly the maximum length
+
+`fzn_chain_store_lookup` bounds an entry's length with `e->len >
+FZN_CHAIN_MAX_LEN` before handing the bytes to a caller who may write() them to
+a peer. The comment calls the guard defensive -- unreachable through the API,
+there for a struct restored from a file with a corrupt length -- and
+`chain-store-lookup-len-bound` pins that: a length of MAX_LEN + 1 is refused.
+But FZN_CHAIN_MAX_HOPS hops pack to EXACTLY FZN_CHAIN_MAX_LEN, so a maximal
+chain reaches the bound from below, and no test admitted one: every case here
+admits a one- or two-hop chain, well short of it.
+
+	e->len > MAX_LEN to >=   SURVIVED chain_store_test and chain_store_fuzz
+
+With `>=`, the largest chain the store can hold is refused by its own lookup: a
+host holding a full FZN_CHAIN_MAX_HOPS delegation finds nothing and re-fetches a
+chain it already has. It is the store's own stated cost of a false negative --
+"a round trip and nothing else" -- but paid on exactly the chains that took the
+most work to assemble. `chain_store_test` now mints an eight-hop chain, root
+through six intermediaries to the grantee, admits it, and requires lookup to
+return it at a length of FZN_CHAIN_MAX_LEN. `chain-store-lookup-len-is-inclusive`
+is in the table.
+
+The fixture carries the lens's own recurring trap in miniature: `fzn_hop_open`
+returns a VIEW into the hop bytes, so a single shared buffer left all eight
+views pointing at the last hop -- caught not by reading the test but by the
+chain refusing to verify under a root that had become the last hop's grantor.
+One buffer per hop is the fix, and the sixth application of the sec 292/298/300/
+302/303 shape: the "one past" (MAX_LEN + 1) is refused and the endpoint
+(MAX_LEN) was never built.

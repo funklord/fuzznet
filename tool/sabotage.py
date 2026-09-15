@@ -3101,6 +3101,13 @@ SABOTAGES = [
 		"write() it to a peer; corrupt() reaches store shape and not this",
 	),
 	(
+		"chain-store-lookup-len-is-inclusive",
+		"chain/chain_store.c",
+		"\tif (e->len > FZN_CHAIN_MAX_LEN)\n\t\treturn 0;\n",
+		"\tif (e->len >= FZN_CHAIN_MAX_LEN)\n\t\treturn 0;\n",
+		"a chain of FZN_CHAIN_MAX_HOPS hops packs to exactly FZN_CHAIN_MAX_LEN, so the bound admits a maximal chain and refuses only a length past the buffer; >= refuses the largest chain the store can hold, and the host re-fetches one it has. Every other case admits a one- or two-hop chain, well short of the bound. sec 304",
+	),
+	(
 		"chain-store-expiry",
 		"chain/chain_store.c",
 		"\tif (fzn_chain_expired_at(&e->chain, now))\n"
