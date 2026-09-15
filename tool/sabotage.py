@@ -83,6 +83,34 @@ SABOTAGES = [
 		"a refused signing must leave no openable hop",
 	),
 	(
+		"manifest-issue-reads-the-whole-issuer",
+		"chain/manifest.c",
+		"\t\tif (!fzn_ct_memeq(e->issuer, issuer, FZN_PUBKEY_LEN))\n\t\t\tcontinue;",
+		"\t\tif (!fzn_ct_memeq(e->issuer, issuer, 1u))\n\t\t\tcontinue;",
+		"issue builds a manifest by filtering the store to one issuer's revocations; a prefix compare includes an issuer one byte off, so a host advertises pairs another key signed as its own. The existing exclusion test uses an issuer that differs in the FIRST byte, which a truncated compare excludes anyway. sec 315",
+	),
+	(
+		"manifest-pending-reads-the-whole-issuer",
+		"chain/manifest.c",
+		"\tfor (size_t i = 0; i < state->deficit_used; i++) {\n\t\tif (fzn_ct_memeq(state->deficit[i].issuer, issuer, FZN_PUBKEY_LEN))\n\t\t\tn++;",
+		"\tfor (size_t i = 0; i < state->deficit_used; i++) {\n\t\tif (fzn_ct_memeq(state->deficit[i].issuer, issuer, 1u))\n\t\t\tn++;",
+		"pending counts the deficits owed to one issuer; a prefix compare counts an issuer one byte off, attributing one key's missing pairs to another. The pair inside a deficit was near-miss-tested and the issuer keying it was not. sec 315",
+	),
+	(
+		"manifest-satisfy-reads-the-whole-issuer",
+		"chain/manifest.c",
+		"\t\tif (fzn_ct_memeq(d->issuer, issuer, FZN_PUBKEY_LEN) &&\n\t\t    fzn_ct_memeq(d->capability.b, capability->b, FZN_CAP_ID_LEN) &&\n\t\t    fzn_ct_memeq(d->grantee, grantee, FZN_PUBKEY_LEN)) {",
+		"\t\tif (fzn_ct_memeq(d->issuer, issuer, 1u) &&\n\t\t    fzn_ct_memeq(d->capability.b, capability->b, FZN_CAP_ID_LEN) &&\n\t\t    fzn_ct_memeq(d->grantee, grantee, FZN_PUBKEY_LEN)) {",
+		"satisfy clears a deficit when a revocation is admitted; a prefix compare on the issuer lets a key one byte off clear a deficit that is not its, so a pair stays owed to nobody and is never fetched. sec 315",
+	),
+	(
+		"manifest-deficit-report-reads-the-whole-issuer",
+		"chain/manifest.c",
+		"\tfor (size_t i = 0; i < state->deficit_used; i++)\n\t\tif (fzn_ct_memeq(state->deficit[i].issuer, issuer, FZN_PUBKEY_LEN))\n\t\t\ttotal++;",
+		"\tfor (size_t i = 0; i < state->deficit_used; i++)\n\t\tif (fzn_ct_memeq(state->deficit[i].issuer, issuer, 1u))\n\t\t\ttotal++;",
+		"the deficit report counts an issuer's owed pairs before walking them; a prefix compare in the count reports pairs dropped for want of room they did not need, since the walk that follows still filters on the whole key. The paired walk is masked by this count and takes no entry. sec 315",
+	),
+	(
 		"manifest-sig-zero-sign",
 		"chain/manifest.c",
 		"\tfzn_put_be16(out + FZN_MANIFEST_OFF_COUNT, (uint16_t)count);\n"

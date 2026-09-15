@@ -40830,3 +40830,67 @@ FZN_CHAIN_ERR_STORE_FULL rather than a write past the end.
 `revocation-tombstone-full-is-inclusive` is in the table -- the inclusive-bound
 endpoint-skip on the one of the store's several full checks that no fixture
 drove to capacity through the withdrawal-tombstone door.
+
+## Carrying the lens into the manifest and hop decoders (sec 315)
+
+The hop decoder is `fzn_hop_open` and its layout, in chain.c; the manifest is
+the largest remaining decoder, tracking per-issuer what revocations this host is
+missing. The hop side is held at every edge. The manifest applies a near-miss
+discipline to the PAIR inside a deficit -- capability and grantee, and the sort
+comparator -- but never applied it to the ISSUER that keys a deficit, and four
+issuer comparisons read the whole key with no test to hold them there.
+
+### The hop decoder holds
+
+`fzn_hop_open` refuses a length that is not exactly FZN_HOP_LEN, a version or
+object byte that is not the hop's, and -- the canonicality edge -- a delegable
+byte above 1: `delegable > 1u` admits exactly 0 and 1, and shortening it to
+`>= 1u` (which would refuse a delegable hop) is caught, as every chain carries
+delegable hops. Its accessors read fixed offsets over the signed bytes and have
+no guard to hold.
+
+### The deficit list and the manifest builder read the whole issuer
+
+A deficit is keyed by (issuer, capability, grantee). The capability and grantee
+are held to their whole width -- test_the_ordering_reads_the_whole_pair and the
+pair-uniqueness cases -- but the issuer was never given a near-miss. A deficit's
+issuer is the key that signed the manifest naming it, so an issuer compare that
+read fewer than FZN_PUBKEY_LEN bytes would attribute one issuer's missing pairs
+to another sharing all but the last byte. Four such compares were held by
+nothing, confirmed by shortening each to one byte and by a full-suite probe:
+
+	fzn_manifest_pending        counts a near-miss issuer's deficits as this one's
+	fzn_manifest_satisfy        clears a deficit on a near-miss issuer's word
+	fzn_manifest_deficit (report) counts a near-miss issuer's pairs as dropped
+	fzn_manifest_issue          advertises a near-miss issuer's pairs as this key's
+
+`test_the_deficit_list_reads_the_whole_issuer` creates a deficit for the root by
+admitting a peer's manifest, then asks `pending`, `satisfy` and the deficit
+report about a near-miss of the root and requires each to match nothing --
+`pending` zero, `satisfy` removing none and leaving the real deficit, the report
+naming nothing and dropping nothing -- with the real issuer as the control. The
+`issue` gap is pinned by strengthening test_issue_derives_from_the_issuers_own_store:
+it already excluded a different issuer, but one differing in the FIRST byte,
+which a truncated compare excludes anyway; a revocation from a near-miss of the
+root is added, and the root's manifest must still name three pairs rather than
+four. `manifest-{issue,pending,satisfy,deficit-report}-reads-the-whole-issuer`
+are in the table; all four are caught, with the controls caught.
+
+### What was left, and why
+
+The deficit report walks its matches after counting them, and that walk's issuer
+compare is masked by the count above it: a prefix read in the count reaches the
+walk, but the walk still filters on the whole key and writes nothing, so the
+return value is right and only the dropped count is wrong -- which is what the
+count entry pins. The walk alone takes no entry.
+
+`deficit_holds`, admit's internal dedup, is the same issuer read reachable only
+by admitting a near-miss issuer's manifest while the real issuer's deficit
+stands -- a heavier fixture than the public API needs, and left for a focused
+follow-up. `fzn_manifest_encode` refuses `count > FZN_MANIFEST_MAX_PAIRS` and no
+test drives it to exactly FZN_MANIFEST_MAX_PAIRS (2701); the open side's ceiling
+is held, and the encode endpoint is a genuine inclusive-max gap left unpinned
+for the cost of a 2701-pair fixture rather than for any reason it is safe. The
+manifest's other bounds -- the min-length floor, the open pair ceiling and exact
+length, the issue and admit capacity checks, the sort comparator's whole-pair
+read, and the id compare (sec 301) -- are each held.

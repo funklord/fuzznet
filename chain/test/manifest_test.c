@@ -1247,7 +1247,17 @@ static void test_issue_derives_from_the_issuers_own_store(void)
 	/* And one from a different issuer, which must not appear: a manifest
 	 * is a statement about what THAT key has issued. */
 	revoke(&f, other, &cap_a, g5);
-	CHECK(f.store.used == 4, "the fixture stored %zu revocations, wanted 4", f.store.used);
+	/* And one from a NEAR MISS of the root, an issuer sharing all but the
+	 * last byte. `other` above differs in the first byte, so a truncated
+	 * issuer compare excludes it anyway; this pair is excluded from the
+	 * root's manifest only if the filter reads the whole issuer key. */
+	{
+		uint8_t near_root[FZN_PUBKEY_LEN];
+
+		key_near(near_root, 0);
+		revoke(&f, near_root, &cap_b, g6);
+	}
+	CHECK(f.store.used == 5, "the fixture stored %zu revocations, wanted 5", f.store.used);
 
 	f.stub.identity = 0;
 	CHECK(fzn_manifest_issue(f.root, &f.store, &f.sign, bytes, sizeof(bytes), &len) ==
@@ -3991,6 +4001,77 @@ static void test_the_manifest_says_how_much_of_it_went(void)
 }
 #endif
 
+/* THE DEFICIT LIST READS THE WHOLE ISSUER. The pair inside a deficit is
+ * compared to its whole width -- test_the_ordering_reads_the_whole_pair and
+ * the pair-uniqueness cases hold the capability and grantee -- but the
+ * ISSUER that keys a deficit was never given the same near-miss. A deficit's
+ * issuer is the key that signed the manifest naming it, so a compare that
+ * read fewer than FZN_PUBKEY_LEN bytes would attribute one issuer's missing
+ * pairs to another that shares all but the last byte: `pending` would count
+ * them and `satisfy` would clear them on the near-miss issuer's word. */
+static void test_the_deficit_list_reads_the_whole_issuer(void)
+{
+	struct fixture f;
+	static uint8_t bytes[FIXTURE_BYTES];
+	fzn_manifest_record_t rec;
+	fzn_cap_id_t cap;
+	uint8_t g5[FZN_PUBKEY_LEN], near_root[FZN_PUBKEY_LEN];
+	size_t len = 0;
+
+	fixture_init(&f);
+	capability_id(&cap, 0x10);
+	key(g5, 5);
+	key_near(near_root, 0);
+
+	CHECK(memcmp(near_root, f.root, FZN_PUBKEY_LEN - 1u) == 0
+	      && near_root[FZN_PUBKEY_LEN - 1u] != f.root[FZN_PUBKEY_LEN - 1u],
+	      "the near-miss root is not a last-byte near miss of the root");
+
+	/* A deficit for (root, cap, g5): follow the root and admit a peer's
+	 * manifest that names a pair this host does not hold. */
+	{
+		struct fixture peer;
+
+		fixture_init(&peer);
+		revoke(&peer, peer.root, &cap, g5);
+		peer.stub.identity = peer.root[0];
+		CHECK(fzn_manifest_issue(peer.root, &peer.store, &peer.sign, bytes,
+		                         sizeof(bytes), &len) == FZN_MANIFEST_OK,
+		      "the peer could not issue a manifest naming the pair");
+	}
+	CHECK(fzn_manifest_open(bytes, len, &rec) == FZN_MANIFEST_OK, "open");
+	CHECK(fzn_manifest_follow(&f.manifest, f.root) == FZN_MANIFEST_OK, "follow");
+	stub_reset(&f.stub);
+	CHECK(fzn_manifest_admit(&f.manifest, &f.store, rec, &f.sign) == FZN_MANIFEST_OK,
+	      "the peer's manifest was refused");
+	CHECK(fzn_manifest_pending(&f.manifest, f.root) == 1, "the deficit was not created");
+
+	/* THE NEAR-MISS ISSUER MATCHES NOTHING it did not sign for. */
+	CHECK(fzn_manifest_pending(&f.manifest, near_root) == 0,
+	      "a deficit was counted under an issuer one byte off the one that holds it");
+	CHECK(fzn_manifest_satisfy(&f.manifest, near_root, &cap, g5) == 0,
+	      "an issuer one byte off satisfied a deficit that was not its");
+	{
+		fzn_manifest_pair_t out[4];
+		size_t dropped = 0;
+
+		CHECK(fzn_manifest_deficit(&f.manifest, near_root, out, 4, &dropped) == 0,
+		      "the deficit report named a pair under an issuer one byte off the "
+		      "one that holds it");
+		CHECK(dropped == 0,
+		      "the deficit report counted a pair under an issuer one byte off, "
+		      "reporting it dropped for want of room it did not need");
+	}
+	CHECK(fzn_manifest_pending(&f.manifest, f.root) == 1,
+	      "the near-miss satisfy removed the real deficit");
+
+	/* The control: the real issuer clears its own deficit. */
+	CHECK(fzn_manifest_satisfy(&f.manifest, f.root, &cap, g5) == 1,
+	      "the real issuer could not satisfy its own deficit");
+	CHECK(fzn_manifest_pending(&f.manifest, f.root) == 0,
+	      "the deficit survived being satisfied by its own issuer");
+}
+
 int main(void)
 {
 	test_layout_and_round_trip();
@@ -4003,6 +4084,7 @@ int main(void)
 	test_two_opinions_about_one_pair_are_refused();
 	test_a_manifest_names_a_withdrawn_pair_as_withdrawn();
 	test_a_withdrawn_pair_is_not_a_deficit();
+	test_the_deficit_list_reads_the_whole_issuer();
 	test_issue_derives_from_the_issuers_own_store();
 	test_issue_refuses_a_store_it_cannot_read();
 	test_issue_stops_at_its_own_pair_ceiling();
