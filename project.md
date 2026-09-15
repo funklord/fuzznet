@@ -40420,3 +40420,38 @@ the count is the argument for the rule rather than the instance: eleven such
 reads across two passes, every one of them pinned or reasoned about only because
 a last-byte near miss was constructed by hand, since a byte-0 seed produces the
 first kind by default.
+
+## Carrying the lens into the vocabulary and local decoders (sec 307)
+
+The local module is two decoders: peer.c parses a `/proc` group list, carried
+in sec 303 where its gid ceiling was pinned, and vocabulary.c matches a verb
+against a rule table to admit or deny a peer. `admit_test` is the seam between
+them and defines no decoder of its own. vocabulary had one guard held by no
+test.
+
+### The verb match read all but its last byte untested
+
+`rule_names` compares a query verb against a rule's with
+`fzn_ct_memeq(rule->verb, verb, verb_len)` -- the whole verb, once the lengths
+are known equal. Narrowing it to `verb_len - 1` survived: every verb in the
+suite -- status, monitor, destroy, reboot -- differs from the others in an
+earlier byte, so a comparison reading all but the last tells them apart as
+readily as the whole.
+
+	verb memeq verb_len to verb_len - 1   SURVIVED vocabulary_test and _fuzz
+
+The consequence is authorisation by near miss. `rule_names` is what
+`fzn_vocabulary_admit` and `fzn_vocabulary_names` both ask of a rule, so a verb
+one byte off a named one -- "statuz" against a rule naming "status" -- would
+match that rule and admit a peer to a verb no rule names, or report the policy
+as knowing a verb it does not. `vocabulary_test` now offers "statuz", the same
+length as "status" and differing only in the last byte, to a peer holding the
+rule's group, and requires NOT_MEMBER and not-named; one near-miss pins both
+public functions, since the check is shared.
+`vocabulary-match-reads-the-whole-verb` is in the table.
+
+The verb-length ceiling that gates it (sec 295) is held from all three sites,
+and the exact-length `verb_len != verb_len` is held -- so the length was pinned
+both ways and the bytes it admits were not, the same split sec 306 found between
+a key's length and its content. It is the comparison-length lens on a verb
+rather than a key or an issuer: a match that reads a prefix grants a prefix.

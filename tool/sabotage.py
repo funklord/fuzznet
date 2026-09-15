@@ -333,6 +333,13 @@ SABOTAGES = [
 		"a verb of exactly FZN_VERB_MAX is the longest a rule and a query both accept, so it must match; >= rejects the endpoint. The suite paired a MAX verb with short rules (no match either way) and tested MAX+1 (refused either way) -- only a MAX verb meeting a MAX rule holds it. The query-side bounds in names and admit are the same edge, held by the same test. sec 295",
 	),
 	(
+		"vocabulary-match-reads-the-whole-verb",
+		"local/vocabulary.c",
+		"\treturn fzn_ct_memeq(rule->verb, verb, verb_len) ? 1 : 0;",
+		"\treturn fzn_ct_memeq(rule->verb, verb, verb_len - 1u) ? 1 : 0;",
+		"the verb match must read the WHOLE verb, or a query one byte off a named verb matches its rule and a peer is granted a verb no rule names -- authorisation by near miss. rule_names is shared by admit and names, so one near-miss test pins both; every other verb differs from the rest in an earlier byte. sec 307",
+	),
+	(
 		"sweep-last-copy-bar-is-inclusive",
 		"catalog/sweep.c",
 		"\t\t    others_holding(witness, entry->root, entry->blob_len) < min_others) {",

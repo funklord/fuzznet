@@ -72,6 +72,23 @@ int main(void)
 	      "a verb reserved to a group the peer does not hold was admitted -- which is "
 	      "the group boundary this module exists to keep");
 
+	/* A VERB ONE BYTE OFF A NAMED ONE IS NOT THAT VERB. The rule names
+	 * "status" and the peer holds its group; "statuz" is the same length and
+	 * differs only in the last byte. The match reads the WHOLE verb, so it
+	 * does not admit -- a comparison reading a prefix would grant a peer a
+	 * verb no rule names, an authorisation by near miss. Every verb above
+	 * differs from the others in an earlier byte, where any length separates
+	 * them. */
+	{
+		static const uint8_t near_status[] = "statuz";
+
+		check(fzn_vocabulary_admit(&p, V(near_status), rules, n) == FZN_PEER_NOT_MEMBER,
+		      "a verb one byte off a named one was admitted, so the verb match reads a "
+		      "prefix");
+		check(fzn_vocabulary_names(V(near_status), rules, n) == 0,
+		      "a verb one byte off a named one was reported as named");
+	}
+
 	/* A verb in no rule at all. */
 	{
 		static const uint8_t unknown_verb[] = "reboot";
