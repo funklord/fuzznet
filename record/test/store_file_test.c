@@ -451,6 +451,30 @@ static void test_streams_and_issuers_do_not_share_a_file(void)
 	CHECK(fzn_record_store_get(&store, OTHER_ISSUER, 12u, 1u, out, sizeof(out), &got)
 	              == FZN_RECORD_STORE_OK, "the second issuer's record went missing");
 
+	/* AND AN ISSUER DIFFERING ONLY IN ITS LAST BYTE HAS ITS OWN FILE. The
+	 * pair above separates in the first byte, so a cache comparing a prefix
+	 * of the issuer tells them apart anyway. Cache the first issuer's
+	 * descriptor, then ask for its near twin: the twin stored nothing on
+	 * this stream, so the answer is ABSENT -- unless the cache handed back
+	 * the first issuer's file, in which case its record comes out under the
+	 * twin's name and the placement check reports it MISPLACED. Either way,
+	 * not ABSENT is the fault. */
+	{
+		uint8_t near_issuer[FZN_PUBKEY_LEN];
+
+		memcpy(near_issuer, ISSUER, sizeof(near_issuer));
+		near_issuer[FZN_PUBKEY_LEN - 1u] =
+		        (uint8_t)(near_issuer[FZN_PUBKEY_LEN - 1u] ^ 0x01u);
+
+		CHECK(fzn_record_store_get(&store, ISSUER, 12u, 1u, out, sizeof(out), &got)
+		              == FZN_RECORD_STORE_OK, "re-caching the first issuer failed");
+		CHECK(fzn_record_store_get(&store, near_issuer, 12u, 1u, out, sizeof(out), &got)
+		              == FZN_RECORD_STORE_ERR_ABSENT,
+		      "an issuer differing only in its last byte read the cached descriptor of "
+		      "another, so the cache compares a prefix of the key");
+		unlink_stream(near_issuer, 12u);
+	}
+
 	fzn_record_store_file_close(&backend);
 	unlink_stream(ISSUER, 12u);
 	unlink_stream(OTHER_ISSUER, 12u);

@@ -161,6 +161,51 @@ static void test_a_confirmation_is_remembered_per_peer_and_subject(void)
 	}
 }
 
+/* THE ROW LOOKUP READS THE WHOLE PEER AND THE WHOLE SUBJECT. `find_row`
+ * compares both with `fzn_ct_memeq` over their full length; a comparison
+ * reading a prefix would map two peers -- or two subjects -- agreeing on every
+ * byte but the last onto one row, so a confirmation for one would read back as
+ * the other's and a record be withheld from a peer that never received it. The
+ * case above separates its keys in the FIRST byte, where any comparison length
+ * tells them apart; this separates them in the last, where only the whole read
+ * does. */
+static void test_the_row_lookup_reads_the_whole_key(void)
+{
+	fzn_ledger_t l;
+	fzn_ledger_entry_t rows[4];
+	uint8_t a[FZN_PUBKEY_LEN], a_near[FZN_PUBKEY_LEN];
+	uint8_t s[FZN_SUBJECT_LEN], s_near[FZN_SUBJECT_LEN];
+
+	key(a, 0x20);
+	memcpy(a_near, a, sizeof(a));
+	a_near[FZN_PUBKEY_LEN - 1u] = (uint8_t)(a_near[FZN_PUBKEY_LEN - 1u] ^ 0x01u);
+	subj(s, 0x40);
+	memcpy(s_near, s, sizeof(s));
+	s_near[FZN_SUBJECT_LEN - 1u] = (uint8_t)(s_near[FZN_SUBJECT_LEN - 1u] ^ 0x01u);
+
+	CHECK(memcmp(a, a_near, FZN_PUBKEY_LEN - 1u) == 0
+	              && a[FZN_PUBKEY_LEN - 1u] != a_near[FZN_PUBKEY_LEN - 1u],
+	      "the two peers do not agree on every byte but the last, so they do not "
+	      "decide a comparison's length");
+	CHECK(memcmp(s, s_near, FZN_SUBJECT_LEN - 1u) == 0
+	              && s[FZN_SUBJECT_LEN - 1u] != s_near[FZN_SUBJECT_LEN - 1u],
+	      "the two subjects do not agree on every byte but the last");
+
+	REQUIRE(fzn_ledger_init(&l, rows, 4) == FZN_LEDGER_OK, "init refused");
+	REQUIRE(fzn_ledger_confirm(&l, a, s, 1u, 5u) == FZN_LEDGER_OK, "the confirmation refused");
+
+	CHECK(fzn_ledger_confirmed(&l, a, s, 1u) == 5u, "the peer's own confirmation was lost");
+	CHECK(fzn_ledger_confirmed(&l, a_near, s, 1u) == 0u,
+	      "a peer differing only in its last byte read back another's confirmation, so "
+	      "the row lookup compares a prefix of the peer");
+	CHECK(fzn_ledger_behind(&l, a_near, s, 1u, 1u) == 1,
+	      "a peer that confirmed nothing was taken for one that had, so a record it "
+	      "never received will not be resent");
+	CHECK(fzn_ledger_confirmed(&l, a, s_near, 1u) == 0u,
+	      "a subject differing only in its last byte read back another's confirmation, "
+	      "so the row lookup compares a prefix of the subject");
+}
+
 static void test_a_confirmation_never_moves_backwards(void)
 {
 	fzn_ledger_t l;
@@ -521,6 +566,7 @@ int main(void)
 	test_init_refuses_what_cannot_hold_anything();
 	test_init_does_not_leave_the_callers_bytes();
 	test_a_confirmation_is_remembered_per_peer_and_subject();
+	test_the_row_lookup_reads_the_whole_key();
 	test_a_confirmation_never_moves_backwards();
 	test_everything_unknown_is_behind();
 	test_a_ledger_that_cannot_be_scanned_withholds_nothing();

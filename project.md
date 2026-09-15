@@ -40189,3 +40189,60 @@ onto a function's comparisons: a test named for reading the whole field read
 the whole of one field and a prefix of the one beside it, and the name is what
 kept anybody from looking. The lens's job here was to count the comparisons the
 "reads the whole field" test actually walked.
+
+## Carrying the lens into the ledger and store decoders (sec 302)
+
+The ledger tracks what each peer has confirmed; the store files records by
+address and reads them back. Both index by a key -- a peer, a subject, an
+issuer -- and in four places compared one by a PREFIX, held by no test.
+
+### Where it held
+
+Every ordering edge holds. The ledger's STALE comparison (a confirmation never
+moves backwards), its FULL bound, `fzn_ledger_behind`'s `confirmed < current`,
+and the unscannable floor are each CAUGHT. The store's placement check refuses
+a wrong stream and a wrong sequence; the file backend's length and sequence
+bounds hold at both ends, and its directory floor is masked-safe. record.c and
+journal.c, carried alongside, hold everywhere -- record's body maximum both
+sides, its length floor over an exactly-sized heap buffer, and journal's six
+DUPLICATE/GAP/NOT_RECEIVED ordering edges.
+
+### Where it did not: four keys compared by a prefix
+
+`fzn_ledger` looks a row up by `(peer, subject, kind)`, comparing the peer and
+the subject with `fzn_ct_memeq`. `record/store.c`'s placement check compares the
+returned record's issuer against the one asked for. `record/store_file.c`'s
+descriptor cache reuses a file only when the issuer matches. All four compares
+survived being narrowed to a single byte:
+
+	ledger find_row peer      1..31 of 32   SURVIVED test and fuzz
+	ledger find_row subject   1..31 of 32   SURVIVED
+	store placement issuer    1..31 of 32   SURVIVED test and fuzz
+	store_file cache issuer   1..31 of 32   SURVIVED
+
+The reason is uniform and is the one the manifest pass (sec 301) named: every
+existing case separates its keys in the FIRST byte, where a one-byte compare
+tells them apart as readily as a whole one. A confirmation for a peer, a record
+from an issuer, or a cached descriptor -- each is claimed by any other key
+agreeing on a prefix. The consequences differ by site and none is benign: a
+record withheld from a peer taken for its prefix-twin; a record signed by one
+issuer handed back under another's name; one issuer's records read from and
+written to another's file.
+
+Each fix separates two keys in the LAST byte, where only the whole read tells
+them apart, and asserts the two stay distinct. `ledger_test` confirms a peer and
+a subject and requires their near twins to read back as unconfirmed;
+`store_test` files a near-miss issuer's record at the right slot and requires
+MISPLACED; `store_file_test` caches one issuer's descriptor and requires its
+twin's absent file to answer ABSENT rather than the cached record.
+`ledger-lookup-reads-the-whole-peer`, `-subject`,
+`store-placement-reads-the-whole-issuer` and `store-file-cache-reads-the-whole-issuer`
+are in the table. The existing `store-placement-issuer-half` and
+`store-file-cache-identity` DELETE these checks and are caught by a
+first-byte-different key; the whole-read is the property they left unpinned.
+
+The lens is the comparison-length one of sec 279, and its lesson has sharpened:
+a key comparison is not pinned by a test that separates its keys in the first
+byte, however many such tests there are. Only a last-byte near miss reads the
+whole key, and a tree that seeds its fixtures from a byte-0 seed produces the
+first kind by default.

@@ -1125,6 +1125,13 @@ SABOTAGES = [
 		"the issuer is a third of the address, and dropping it hands one issuer's record back as another's at the same stream and sequence",
 	),
 	(
+		"store-placement-reads-the-whole-issuer",
+		"record/store.c",
+		"\tif (memcmp(fzn_record_issuer(record), issuer, FZN_PUBKEY_LEN) != 0",
+		"\tif (memcmp(fzn_record_issuer(record), issuer, 1u) != 0",
+		"the placement check must read the WHOLE issuer, not a prefix: a record from an issuer agreeing on every byte but the last, at the right stream and sequence, is otherwise handed back as this issuer's. store-placement-issuer-half deletes the term and a first-byte-different issuer catches that; only a last-byte near miss holds the whole read. sec 302",
+	),
+	(
 		"store-absent-is-not-backend",
 		"record/store.c",
 		"\t\treturn found ? FZN_RECORD_STORE_ERR_BACKEND : FZN_RECORD_STORE_ERR_ABSENT;\n",
@@ -1158,6 +1165,13 @@ SABOTAGES = [
 		"\tif (file->cached && file->stream == stream\n\t    && memcmp(file->issuer, issuer, FZN_PUBKEY_LEN) == 0)\n\t\treturn file->fd;\n",
 		"\tif (file->cached)\n\t\treturn file->fd;\n",
 		"one stream's descriptor is cached so a replay does not reopen per record, and a cache that does not check whose file it holds answers one issuer's request from another's",
+	),
+	(
+		"store-file-cache-reads-the-whole-issuer",
+		"record/store_file.c",
+		"\t    && memcmp(file->issuer, issuer, FZN_PUBKEY_LEN) == 0)",
+		"\t    && memcmp(file->issuer, issuer, 1u) == 0)",
+		"the cache must match the WHOLE issuer: a prefix compare hands back one issuer's descriptor for a near twin, so one issuer's records are read from and written to another's file. store-file-cache-identity drops the check and a first-byte-different issuer catches that; only a last-byte near miss holds the whole read. sec 302",
 	),
 	(
 		"store-file-dir-bound",
@@ -2957,6 +2971,20 @@ SABOTAGES = [
 		"\t\tif (0) {\n",
 		"a late acknowledgement is reordering rather than retraction, so a "
 		"confirmation must never move backwards",
+	),
+	(
+		"ledger-lookup-reads-the-whole-peer",
+		"record/ledger.c",
+		"\t\tif (e->kind == kind && fzn_ct_memeq(e->peer, peer, FZN_PUBKEY_LEN)",
+		"\t\tif (e->kind == kind && fzn_ct_memeq(e->peer, peer, 1u)",
+		"the row lookup must read the WHOLE peer, or two peers agreeing on a prefix land in one row and a confirmation for one reads back as the other's -- a record withheld from a peer that never received it; the other cases separate their peers in the first byte, so only a last-byte near miss holds this. sec 302",
+	),
+	(
+		"ledger-lookup-reads-the-whole-subject",
+		"record/ledger.c",
+		"\t\t    && fzn_ct_memeq(e->subject, subject, FZN_SUBJECT_LEN))",
+		"\t\t    && fzn_ct_memeq(e->subject, subject, 1u))",
+		"the row lookup must read the WHOLE subject, or two subjects agreeing on a prefix share one row and a confirmation for one is read back for the other. sec 302",
 	),
 	(
 		"ledger-stale-reported",

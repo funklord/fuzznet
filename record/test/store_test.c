@@ -316,6 +316,33 @@ static void test_a_misplaced_record_is_refused(void)
 	CHECK(fzn_record_store_get(&store, ISSUER, 7u, 1u, out, sizeof(out), &got)
 	              == FZN_RECORD_STORE_ERR_MISPLACED,
 	      "another issuer's record was handed back as this issuer's");
+
+	/* AND ONE DIFFERING ONLY IN ITS LAST BYTE, which the case above does
+	 * not reach: OTHER_ISSUER differs from the first byte, so a placement
+	 * check reading a prefix separates it anyway. A record signed by an
+	 * issuer agreeing on every byte but the last, at the right stream and
+	 * sequence, is caught as misplaced only if the whole key is read --
+	 * otherwise the caller is handed a record signed by somebody else under
+	 * the name it asked for. */
+	{
+		uint8_t near_issuer[FZN_PUBKEY_LEN];
+
+		memcpy(near_issuer, ISSUER, sizeof(near_issuer));
+		near_issuer[FZN_PUBKEY_LEN - 1u] =
+		        (uint8_t)(near_issuer[FZN_PUBKEY_LEN - 1u] ^ 0x01u);
+
+		table_init(&t, &ops);
+		REQUIRE(fzn_record_store_init(&store, &ops) == FZN_RECORD_STORE_OK,
+		        "re-init refused");
+		ra = make(a, sizeof(a), near_issuer, 7u, 1u, 0x34);
+		REQUIRE(fzn_record_is_open(ra), "the near-miss issuer's fixture would not build");
+		REQUIRE(fzn_record_store_put(&store, ra) == FZN_RECORD_STORE_OK, "put refused");
+		t.answer_with_slot = 0;
+		CHECK(fzn_record_store_get(&store, ISSUER, 7u, 1u, out, sizeof(out), &got)
+		              == FZN_RECORD_STORE_ERR_MISPLACED,
+		      "a record from an issuer differing only in its last byte was handed back "
+		      "as this issuer's, so the placement check reads a prefix of the key");
+	}
 }
 
 static void test_absent_and_broken_are_told_apart(void)
