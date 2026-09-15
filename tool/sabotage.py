@@ -620,6 +620,27 @@ SABOTAGES = [
 		"the bound keeping bit_get inside the bitmap the caller lent",
 	),
 	(
+		"spool-open-ceiling-is-inclusive",
+		"spool/spool.c",
+		"\tif (leaves > (uint64_t)FZN_SPOOL_MAX_LEAVES)",
+		"\tif (leaves >= (uint64_t)FZN_SPOOL_MAX_LEAVES)",
+		"a blob of exactly FZN_SPOOL_MAX_LEAVES is at the ceiling, not over it, and open admits it; >= refuses the largest blob this store will assemble. The test drives one past the ceiling, which > and >= reject alike, so only the ceiling itself holds this edge. sec 305",
+	),
+	(
+		"spool-span-count-is-inclusive",
+		"spool/spool.c",
+		"\tif (count == 0u || count > SPAN_MAX_LEAVES)",
+		"\tif (count == 0u || count >= SPAN_MAX_LEAVES)",
+		"SPAN_MAX_LEAVES is 64, fuzzypickles' batch; a span of exactly that count is admitted and only more is refused, so >= would reject the full-size batch. Every other span placed carries four leaves, well short of the cap, so only a span of exactly SPAN_MAX_LEAVES holds this edge. sec 305",
+	),
+	(
+		"spool-forget-reaches-the-end",
+		"spool/spool.c",
+		"\tif (first >= spool->leaves || count > spool->leaves - first)\n\t\treturn 0u;",
+		"\tif (first >= spool->leaves || count >= spool->leaves - first)\n\t\treturn 0u;",
+		"count == leaves - first is the largest valid range, forgetting to the last leaf; >= refuses it and drops nothing. place_span draws the identical bound and its end-reaching span is held, but forget's was not. sec 305",
+	),
+	(
 		"ct-null-operand",
 		"constant_time/constant_time.c",
 		"\tif (!pa || !pb)\n\t\treturn len == 0;\n",

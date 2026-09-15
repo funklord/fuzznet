@@ -40327,3 +40327,43 @@ chain refusing to verify under a root that had become the last hop's grantor.
 One buffer per hop is the fix, and the sixth application of the sec 292/298/300/
 302/303 shape: the "one past" (MAX_LEN + 1) is refused and the endpoint
 (MAX_LEN) was never built.
+
+## Carrying the lens into the claim and spool decoders (sec 305)
+
+claim.c is a lock state machine -- take, release, held -- with no decoder, no
+ordering edge and no length in it; its guards are all boolean state, held by
+claim-taking-twice-is-a-lost-track and its siblings. spool.c is the leaf store,
+and it carried three inclusive bounds tested only from one past.
+
+### Three maxima tested at MAX + 1 and never at MAX
+
+`fzn_spool_open` refuses a blob of more than FZN_SPOOL_MAX_LEAVES leaves;
+`fzn_spool_place_span` refuses a span of more than SPAN_MAX_LEAVES leaves; and
+`fzn_spool_forget` refuses a range running past the blob's end. Each guard was
+driven one past its edge and never at it:
+
+	open leaves > MAX_LEAVES to >=     SURVIVED spool_test, spool_file_test
+	span count > SPAN_MAX_LEAVES to >= SURVIVED
+	forget count > leaves - first to >= SURVIVED
+
+Each `>=` refuses a legitimate maximum. The open ceiling is the largest blob
+the store will assemble -- a blob AT it should open, and the test drove
+MAX_LEAVES + 1. SPAN_MAX_LEAVES is 64, fuzzypickles' verification batch, so a
+full 64-leaf span is the ordinary maximal request, not an overflow; every span
+placed carried four. And forget's `count == leaves - first` is a forget that
+reaches exactly the last leaf -- forgetting the whole blob is the commonest
+case of it -- while the identical bound in `place_span` had its end-reaching
+span tested and forget's did not.
+
+The tests build each maximum: a spool opened at exactly FZN_SPOOL_MAX_LEAVES
+over a static half-megabyte bitmap; a 64-leaf blob placed as one whole-tree
+span, whose proof is empty because the span root is the blob root; and a forget
+of the entire blob that must drop every leaf. `spool-open-ceiling-is-inclusive`,
+`spool-span-count-is-inclusive` and `spool-forget-reaches-the-end` are in the
+table.
+
+It is the sec 292/298/300/302/303/304 shape a seventh time, three instances at
+once in one file: a bound is pinned by driving it past the edge, and the edge
+-- the largest legal value -- is the one input the "past the edge" case never
+constructs. A guard admits its maximum and refuses only more; a test that only
+ever sends more never asks whether the maximum is admitted.

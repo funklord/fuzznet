@@ -144,6 +144,26 @@ static int mem_sync(void *ctx)
 
 static const fzn_spool_ops_t OPS = { mem_read, mem_write, mem_sync, NULL };
 
+/* A backend that accepts every write, for the one case that places more
+ * leaves than the counting disk above has slots. It stores nothing: the test
+ * asserts the span was ACCEPTED, not read back. */
+static int sink_read(void *ctx, uint64_t off, uint8_t *out, size_t len)
+{
+	(void)ctx;
+	(void)off;
+	memset(out, 0, len);
+	return 1;
+}
+static int sink_write(void *ctx, uint64_t off, const uint8_t *bytes, size_t len)
+{
+	(void)ctx;
+	(void)off;
+	(void)bytes;
+	(void)len;
+	return 1;
+}
+static const fzn_spool_ops_t SINK_OPS = { sink_read, sink_write, NULL, NULL };
+
 /* ---- a real little blob ----------------------------------------------- */
 
 static uint8_t sealed[TEST_LEAVES][FZN_BLOB_SEALED_MAX];
@@ -380,6 +400,19 @@ static void test_the_ceiling_is_refused_before_anything_is_touched(void)
 	CHECK(fzn_spool_open(&spool, root, (uint64_t)FZN_SPOOL_MAX_LEAVES + 1u, map,
 	                     sizeof(map), &OPS) == FZN_SPOOL_ERR_TOO_LARGE,
 	      "a blob past the ceiling was opened");
+	/* AND EXACTLY THE CEILING IS ACCEPTED, which the case above -- one past
+	 * it -- does not reach. A blob of FZN_SPOOL_MAX_LEAVES leaves is at the
+	 * ceiling, not over it, and `>=` in place of `>` would refuse the
+	 * largest blob this store will assemble. The bitmap is the full width
+	 * that many leaves need, static so the frame does not carry half a
+	 * megabyte. */
+	{
+		static uint8_t big[FZN_SPOOL_BITMAP_LEN(FZN_SPOOL_MAX_LEAVES)];
+
+		CHECK(fzn_spool_open(&spool, root, (uint64_t)FZN_SPOOL_MAX_LEAVES, big,
+		                     sizeof(big), &OPS) == FZN_SPOOL_OK,
+		      "a blob of exactly the ceiling was refused");
+	}
 	CHECK(fzn_spool_open(&spool, root, 0, map, sizeof(map), &OPS) == FZN_SPOOL_ERR_MALFORMED,
 	      "a blob of no leaves was opened");
 	/* A bitmap too small for the blob it is asked to track is the caller's
@@ -975,6 +1008,29 @@ static void test_forget_gives_leaves_back_and_keeps_have_honest(void)
 	      "forget took an index past the blob");
 	CHECK(fzn_spool_forget(&spool, TEST_LEAVES - 1u, 2u) == 0u,
 	      "forget took a count running past the blob");
+
+	/* A FORGET THAT REACHES EXACTLY THE END. `count == leaves - first` is
+	 * the largest valid range -- forgetting all the way to the last leaf --
+	 * and the guard admits it. The `count running past` case above is one
+	 * beyond, which `>` and `>=` reject alike; only a forget of exactly the
+	 * remaining range holds this edge, and `>=` would refuse it and drop
+	 * nothing. `place_span` draws the same bound and has its end-reaching
+	 * span tested; forget's did not. */
+	{
+		uint64_t dropped;
+
+		reset(&spool, map, sizeof(map));
+		for (i = 0; i < TEST_LEAVES; i++)
+			CHECK(fzn_spool_place(&spool, &HASH, i, sealed[i], sealed_len[i],
+			                      proof[i], proof_len[i]) == FZN_SPOOL_OK,
+			      "leaf %u did not re-place", i);
+		dropped = fzn_spool_forget(&spool, 0u, TEST_LEAVES);
+		CHECK(dropped == TEST_LEAVES,
+		      "forgetting the whole blob (count == leaves) dropped %llu, not every leaf",
+		      (unsigned long long)dropped);
+		CHECK(spool.have == 0u, "a forget of the whole blob left have at %llu",
+		      (unsigned long long)spool.have);
+	}
 }
 
 static void test_a_non_canonical_span_is_refused(void)
@@ -1181,6 +1237,55 @@ static void test_the_spool_says_storage_refused_a_verified_leaf(void)
 }
 #endif
 
+/* THE COUNT CEILING ADMITS EXACTLY SPAN_MAX_LEAVES. That cap is 64 --
+ * fuzzypickles' batch, one request and one proof -- and the bound refuses only
+ * MORE than it; the spans placed above carry four leaves, well short, so `>`
+ * could tighten to `>=` and refuse the full-size batch unseen. A blob of
+ * exactly 64 leaves placed as one span covering the whole tree holds the edge;
+ * the whole-tree span's root IS the blob root, so its proof is empty. */
+static void test_a_span_of_the_maximum_count_is_placed(void)
+{
+	enum { N = 64 };
+	static uint8_t s64[N][FZN_BLOB_SEALED_MAX];
+	static uint8_t h64[N][FZN_BLOB_HASH_LEN];
+	static size_t s64_len[N];
+	const uint8_t *parts[N];
+	size_t parts_len[N];
+	uint8_t r64[FZN_BLOB_HASH_LEN];
+	uint8_t span_proof[FZN_BLOB_MAX_DEPTH * FZN_BLOB_HASH_LEN];
+	unsigned span_proof_len = 0;
+	fzn_blob_tree_t tree;
+	fzn_spool_t spool;
+	uint8_t map[FZN_SPOOL_BITMAP_LEN(N)];
+	int i;
+
+	fzn_blob_tree_init(&tree);
+	for (i = 0; i < N; i++) {
+		size_t j;
+
+		s64_len[i] = (size_t)(32u + (unsigned)i);
+		for (j = 0; j < s64_len[i]; j++)
+			s64[i][j] = (uint8_t)(((unsigned)i * 17u) + j + 1u);
+		REQUIRE(fzn_blob_leaf_hash(&HASH, s64[i], s64_len[i], h64[i]) == FZN_BLOB_OK,
+		        "hashing leaf %d", i);
+		REQUIRE(fzn_blob_tree_push(&HASH, &tree, h64[i]) == FZN_BLOB_OK, "pushing leaf %d", i);
+		parts[i] = s64[i];
+		parts_len[i] = s64_len[i];
+	}
+	REQUIRE(fzn_blob_tree_root(&HASH, &tree, r64) == FZN_BLOB_OK, "the root");
+	REQUIRE(fzn_blob_span_proof_build(&HASH, h64[0], (uint64_t)N, 0u, (uint64_t)N, span_proof,
+	                                  sizeof(span_proof), &span_proof_len) == FZN_BLOB_OK,
+	        "the whole-tree span proof");
+
+	memset(map, 0, sizeof(map));
+	REQUIRE(fzn_spool_open(&spool, r64, (uint64_t)N, map, sizeof(map), &SINK_OPS)
+	                == FZN_SPOOL_OK, "opening a 64-leaf spool");
+	CHECK(fzn_spool_place_span(&spool, &HASH, 0u, (uint64_t)N, parts, parts_len, span_proof,
+	                           span_proof_len) == FZN_SPOOL_OK,
+	      "a span of exactly SPAN_MAX_LEAVES leaves was refused");
+	CHECK(fzn_spool_complete(&spool), "the maximal span did not complete the blob");
+}
+
 int main(void)
 {
 	test_leaves_arrive_in_any_order();
@@ -1203,6 +1308,7 @@ int main(void)
 	test_a_non_canonical_span_is_refused();
 	test_a_bad_leaf_mid_span_writes_nothing();
 	test_a_span_over_a_refusing_backend_sets_no_bit();
+	test_a_span_of_the_maximum_count_is_placed();
 
 #ifdef FZN_FLOG_ON
 	test_the_spool_says_storage_refused_a_verified_leaf();
