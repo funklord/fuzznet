@@ -501,6 +501,75 @@ static void test_a_data_at_the_size_the_protocol_allows(void)
 	}
 }
 
+/* ---- the ceilings at equality ------------------------------------------ */
+
+/* THE LEAF-COUNT CEILING FROM THE INSIDE. `fzn_msg_have_parse` refuses a blob
+ * of more than FZN_SPOOL_MAX_LEAVES leaves, and the null-argument test above
+ * already proves it refuses one PAST the ceiling. What no test reached is the
+ * ceiling itself: a HAVE for a blob of exactly FZN_SPOOL_MAX_LEAVES leaves is
+ * the largest one this host can hold, and it has to survive the round trip.
+ * The untested value is the difference between `>` and `>=` -- rejecting the
+ * maximal blob drops a peer's whole advertisement of it, and no fetch is ever
+ * scheduled for a blob that was legally the largest allowed. */
+static void test_a_have_at_the_maximum_leaf_count(void)
+{
+	fzn_spool_range_t at_max[1] = { { (uint64_t)FZN_SPOOL_MAX_LEAVES - 1u, 1u } };
+	uint8_t back_root[FZN_BLOB_HASH_LEN], back_cookie[FZN_MSG_COOKIE_LEN];
+	fzn_spool_range_t back[1];
+	uint64_t leaf_count = 0;
+	size_t len = 0, back_count = 0;
+
+	CHECK(fzn_msg_have_encode(root, FZN_SPOOL_MAX_LEAVES, COOKIE, at_max, 1u, buf,
+	                          sizeof(buf), &len) == FZN_MSG_OK,
+	      "a have at the maximum leaf count did not encode");
+	CHECK(fzn_msg_have_parse(buf, len, back_root, &leaf_count, back_cookie, back, 1u,
+	                         &back_count) == FZN_MSG_OK,
+	      "a have at the maximum leaf count did not parse");
+	CHECK(leaf_count == FZN_SPOOL_MAX_LEAVES, "%llu leaves came back, not %u",
+	      (unsigned long long)leaf_count, FZN_SPOOL_MAX_LEAVES);
+	CHECK(back_count == 1u && back[0].first == (uint64_t)FZN_SPOOL_MAX_LEAVES - 1u
+	      && back[0].count == 1u, "the range at the ceiling did not survive");
+}
+
+/* THE ADDRESS-SPACE CEILING FROM THE INSIDE. `fzn_msg_data_parse` bounds a
+ * span so first + count cannot exceed FZN_SPOOL_MAX_LEAVES, written
+ * `count > FZN_SPOOL_MAX_LEAVES - first`. A span ENDING exactly at the
+ * ceiling -- the last leaves of a maximal blob -- is legal, and it is the one
+ * value `>` admits and `>=` would refuse. No fixture reached it: every DATA in
+ * this file sits near the bottom of the address space, first at zero or four.
+ * Rejecting it drops the tail of the largest blob the protocol allows, so
+ * those leaves can never be delivered. Structural only -- the leaves need no
+ * real 2^22-leaf tree behind them, because the parser bounds the span without
+ * verifying it. */
+static void test_a_data_span_ends_at_the_ceiling(void)
+{
+	const uint8_t *span[2], *out_span[2], *back_proof = NULL;
+	size_t span_len[2], out_span_len[2], len = 0;
+	uint64_t first = 0, count = 0, top = (uint64_t)FZN_SPOOL_MAX_LEAVES - 2u;
+	uint32_t transfer = 0;
+	unsigned proof_count = 0;
+	uint8_t body[2][8];
+	size_t at, j;
+
+	for (at = 0; at < 2u; at++) {
+		for (j = 0; j < sizeof(body[at]); j++)
+			body[at][j] = (uint8_t)(at * 17u + j + 1u);
+		span[at] = body[at];
+		span_len[at] = sizeof(body[at]);
+	}
+
+	/* first + count == FZN_SPOOL_MAX_LEAVES exactly. */
+	CHECK(fzn_msg_data_encode(0x0b0c0d0eu, top, 2u, NULL, 0u, span, span_len, buf,
+	                          sizeof(buf), &len) == FZN_MSG_OK,
+	      "a data span ending at the ceiling did not encode");
+	CHECK(fzn_msg_data_parse(buf, len, &transfer, &first, &count, &back_proof, &proof_count,
+	                         out_span, out_span_len, 2u) == FZN_MSG_OK,
+	      "a data span ending at the ceiling did not parse");
+	CHECK(first == top && count == 2u,
+	      "the span at the ceiling did not survive: %llu+%llu",
+	      (unsigned long long)first, (unsigned long long)count);
+}
+
 /* ---- the refusals ------------------------------------------------------ */
 
 /* The type byte earning its place. A seal proves the peer wrote the bytes
@@ -940,6 +1009,8 @@ int main(void)
 	test_a_plan_encodes_and_decodes_unmodified();
 	test_a_parsed_data_places_without_being_touched();
 	test_a_data_at_the_size_the_protocol_allows();
+	test_a_have_at_the_maximum_leaf_count();
+	test_a_data_span_ends_at_the_ceiling();
 	test_a_parser_refuses_another_type();
 	test_peek_refuses_a_version_and_a_type_it_does_not_know();
 	test_a_message_naming_nothing_is_refused();

@@ -40504,3 +40504,64 @@ The rest of blob.c holds at its edges: the leaf-count and sibling-count maxima
 (blob_test walks the maximum tree), the span-fit bounds, the whole-blob span
 that needs no siblings, and the `sibling_count != depth` check that is a
 stack-read bound as much as a claim -- pinned by blob_fuzz under ASan.
+
+## Carrying the lens into the ratchet and message decoders (sec 309)
+
+ratchet.c was carried in the ratchet/session turn and confirmed clean again:
+its BEHIND and TOO_FAR window edges and its skipped-key fill bound are each held
+by a test. message.c is the wire framing for spool -- HAVE, WANT, DATA and the
+have-query -- and its decoders carry several inclusive maxima. Most are already
+held: `range_count > FZN_MSG_MAX_RANGES` (sec 290), `range_count > cap`, the
+per-range `count > leaf_count - first`, and -- newly, since a max-size DATA
+fixture landed in this file -- `count > FZN_MSG_MAX_SPAN`, which
+`test_a_data_at_the_size_the_protocol_allows` now drives at exactly 64. Two
+endpoints were reached by nothing.
+
+### The leaf-count ceiling, tested one past and never at
+
+`fzn_msg_have_parse` refuses `leaf_count > FZN_SPOOL_MAX_LEAVES`, and
+`fzn_msg_have_encode` refuses it symmetrically. The null-argument sweep drove
+`FZN_SPOOL_MAX_LEAVES + 1u` and required MALFORMED -- the "one past" -- but a
+HAVE for a blob of exactly FZN_SPOOL_MAX_LEAVES leaves, the largest this host
+can hold, was built by no test. That is the one value `>` admits and `>=` would
+refuse, and rejecting it drops a peer's whole advertisement of the maximal blob:
+no fetch is ever scheduled for a blob that was legally the largest allowed.
+`test_a_have_at_the_maximum_leaf_count` now round-trips a HAVE at the ceiling,
+its one range on the last leaf, and requires FZN_MSG_OK.
+`message-have-leaf-count-is-inclusive` is in the table -- the sec
+292/298/300/302/303/304/305 shape once more.
+
+### The address-space ceiling, tested nowhere near
+
+`fzn_msg_data_parse` bounds a span so `first + count` cannot exceed
+FZN_SPOOL_MAX_LEAVES, written `count > FZN_SPOOL_MAX_LEAVES - first`. A span
+ending exactly at the ceiling -- the tail of a maximal blob -- is legal and is
+the one value `>` admits. Every DATA fixture in the file sits near the bottom of
+the address space (first at zero or four), so `>=` would refuse the ceiling span
+and those leaves could never be delivered.
+`test_a_data_span_ends_at_the_ceiling` encodes and parses a two-leaf span at
+`FZN_SPOOL_MAX_LEAVES - 2`, so `first + count == FZN_SPOOL_MAX_LEAVES` exactly;
+it is structural, needing no real 2^22-leaf tree, because the parser bounds the
+span without verifying it. `message-data-span-end-is-inclusive` is in the table.
+The paired `first > FZN_SPOOL_MAX_LEAVES` term is masked: any span with
+`count >= 1` and `first == FZN_SPOOL_MAX_LEAVES` is already refused by the count
+term, so only the count edge is live.
+
+### What was left alone
+
+`fzn_msg_data_parse` also refuses `proof_count > FZN_MSG_MAX_PROOF`, and its
+endpoint -- proof_count of exactly FZN_MSG_MAX_PROOF, 40 -- is reached by no
+test. It was left unpinned deliberately, because it is masked downstream rather
+than genuinely open. FZN_MSG_MAX_PROOF is FZN_BLOB_MAX_DEPTH, the depth of a
+2^40-leaf tree, while a spool holds at most FZN_SPOOL_MAX_LEAVES = 2^22 leaves;
+`fzn_blob_span_proof_verify` refuses any proof whose `sibling_count != depth`,
+and the depth of a span in a <= 2^22-leaf blob never exceeds ~22. So a DATA
+declaring proof_count of 23..40 is accepted by the parser and then always
+refused at verification: `>` and `>=` at the parser reject the transfer in the
+same breath, one at parse and one at verify, and no legal transfer separates
+them. Pinning it would assert a boundary no valid message can occupy.
+
+The `len < need` floor is a no-edge (unsigned, and a message one byte short is
+refused by the exact `len != need + body` check that follows), and the per-length
+`one > len - need - body` guard is the documented 32-bit wrap backstop, caught on
+x86-64 by the exact-length check and by message_fuzz under ASan.
