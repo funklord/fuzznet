@@ -2816,6 +2816,34 @@ SABOTAGES = [
 		"consumer",
 	),
 	(
+		"blob-geometry-content-ceiling-is-inclusive",
+		"blob/blob.c",
+		"\tif (content_len > BLOB_MAX_CONTENT)\n\t\treturn FZN_BLOB_ERR_SHAPE;\n\n\tleaves = content_len / FZN_BLOB_LEAF_SIZE;",
+		"\tif (content_len >= BLOB_MAX_CONTENT)\n\t\treturn FZN_BLOB_ERR_SHAPE;\n\n\tleaves = content_len / FZN_BLOB_LEAF_SIZE;",
+		"content of exactly FZN_BLOB_MAX_LEAVES * FZN_BLOB_LEAF_SIZE is the largest this library addresses and geometry must answer it; >= refuses the largest legal blob. The test drove one byte past the ceiling, which > and >= reject alike. sec 308",
+	),
+	(
+		"blob-extent-content-ceiling-is-inclusive",
+		"blob/blob.c",
+		"\tif (content_len > BLOB_MAX_CONTENT)\n\t\treturn FZN_BLOB_ERR_SHAPE;\n\tif (len == 0u)",
+		"\tif (content_len >= BLOB_MAX_CONTENT)\n\t\treturn FZN_BLOB_ERR_SHAPE;\n\tif (len == 0u)",
+		"the same content ceiling in extent_of, and the same endpoint: exactly the ceiling must be addressable, >= refuses it. sec 308",
+	),
+	(
+		"blob-proof-verify-reads-the-whole-root",
+		"blob/blob.c",
+		"\treturn fzn_ct_memeq(acc, root, FZN_BLOB_HASH_LEN) ? FZN_BLOB_OK : FZN_BLOB_ERR_PROOF;\n}\n\n/* See blob.h.",
+		"\treturn fzn_ct_memeq(acc, root, 1u) ? FZN_BLOB_OK : FZN_BLOB_ERR_PROOF;\n}\n\n/* See blob.h.",
+		"the verifier's final check must compare the WHOLE root, or a proof climbing to the real root verifies against a root one byte off it -- content pinned to a near-miss id. blob_fuzz catches a low-byte truncation but never flips only the last byte of root; a valid proof against a last-byte-flipped root holds it. sec 308",
+	),
+	(
+		"blob-span-verify-reads-the-whole-root",
+		"blob/blob.c",
+		"\terr = finalise_root(hash, acc, leaf_count, acc);\n\tif (err != FZN_BLOB_OK)\n\t\treturn err;\n\n\treturn fzn_ct_memeq(acc, root, FZN_BLOB_HASH_LEN) ? FZN_BLOB_OK : FZN_BLOB_ERR_PROOF;\n}",
+		"\terr = finalise_root(hash, acc, leaf_count, acc);\n\tif (err != FZN_BLOB_OK)\n\t\treturn err;\n\n\treturn fzn_ct_memeq(acc, root, 1u) ? FZN_BLOB_OK : FZN_BLOB_ERR_PROOF;\n}",
+		"the span verifier's final check, same edge as proof_verify's one function over. sec 308",
+	),
+	(
 		"blob-extent-refuses-not-clamps",
 		"blob/blob.c",
 		"\tif (offset >= content_len || len > content_len - offset)\n"

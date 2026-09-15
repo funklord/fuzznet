@@ -567,6 +567,21 @@ static void test_a_span_proof_of_the_wrong_length_is_refused(void)
 	CHECK(fzn_blob_span_proof_verify(&HASH, span_root, 0u, 4u, 16u, siblings, count, root)
 	      == FZN_BLOB_OK, "the honest proof does not verify");
 
+	/* A ROOT ONE BYTE OFF. The span proof climbs to `root`; against a root
+	 * agreeing on every byte but the last it must fail, or the final
+	 * comparison reads a prefix -- the same edge proof_verify has, at the
+	 * span verifier. */
+	{
+		uint8_t near_root[FZN_BLOB_HASH_LEN];
+
+		memcpy(near_root, root, sizeof(near_root));
+		near_root[FZN_BLOB_HASH_LEN - 1u] =
+		        (uint8_t)(near_root[FZN_BLOB_HASH_LEN - 1u] ^ 0x01u);
+		CHECK(fzn_blob_span_proof_verify(&HASH, span_root, 0u, 4u, 16u, siblings, count,
+		                                 near_root) == FZN_BLOB_ERR_PROOF,
+		      "a span proof verified against a root one byte off the real one");
+	}
+
 	CHECK(fzn_blob_span_proof_verify(&HASH, span_root, 0u, 4u, 16u, siblings, count - 1u,
 	                                 root) == FZN_BLOB_ERR_SHAPE,
 	      "a proof one sibling short was accepted");
@@ -738,6 +753,24 @@ static void test_a_proof_that_is_wrong_is_refused(void)
 	CHECK(fzn_blob_proof_verify(&HASH, leaves, index, n, siblings, count, root)
 	              == FZN_BLOB_ERR_PROOF,
 	      "another leaf verified at index %llu", (unsigned long long)index);
+
+	/* A ROOT ONE BYTE OFF THE REAL ONE. The proof climbs to `root`;
+	 * verifying it against a root agreeing on every byte but the last must
+	 * fail, or the final comparison reads a prefix and a proof for one blob
+	 * verifies against a near-miss id. The wrong-leaf and wrong-index cases
+	 * climb to a root differing in many bytes, where any length separates
+	 * them; this differs in exactly one. */
+	{
+		uint8_t near_root[FZN_BLOB_HASH_LEN];
+
+		memcpy(near_root, root, sizeof(near_root));
+		near_root[FZN_BLOB_HASH_LEN - 1u] =
+		        (uint8_t)(near_root[FZN_BLOB_HASH_LEN - 1u] ^ 0x01u);
+		CHECK(fzn_blob_proof_verify(&HASH, leaves + (index * FZN_BLOB_HASH_LEN), index, n,
+		                            siblings, count, near_root) == FZN_BLOB_ERR_PROOF,
+		      "a proof verified against a root one byte off the real one, so the final "
+		      "comparison reads a prefix of the root");
+	}
 
 	/* THE SAME LEAF AT A DIFFERENT INDEX, which is the reordering a
 	 * content-addressed store must refuse: index decides the shape of the
@@ -1561,6 +1594,20 @@ static void test_a_range_outside_the_content_is_refused(void)
 	CHECK(fzn_blob_extent_of(FZN_BLOB_MAX_LEAVES * (uint64_t)FZN_BLOB_LEAF_SIZE + 1u, 0u, 1u,
 	                         &ext) == FZN_BLOB_ERR_SHAPE,
 	      "extent answered for content past the ceiling");
+
+	/* AND EXACTLY THE CEILING IS ANSWERED, which the two cases above -- one
+	 * byte past it -- do not reach. FZN_BLOB_MAX_LEAVES leaves' worth of
+	 * bytes is the largest content this library addresses, so `>=` in place
+	 * of `>` would refuse the largest legal blob. */
+	CHECK(fzn_blob_geometry(FZN_BLOB_MAX_LEAVES * (uint64_t)FZN_BLOB_LEAF_SIZE, &leaves,
+	                        &last_len) == FZN_BLOB_OK,
+	      "geometry refused content of exactly the ceiling");
+	CHECK(leaves == FZN_BLOB_MAX_LEAVES,
+	      "content of exactly the ceiling is not FZN_BLOB_MAX_LEAVES leaves: %llu",
+	      (unsigned long long)leaves);
+	CHECK(fzn_blob_extent_of(FZN_BLOB_MAX_LEAVES * (uint64_t)FZN_BLOB_LEAF_SIZE, 0u, 1u, &ext)
+	              == FZN_BLOB_OK,
+	      "extent refused content of exactly the ceiling");
 }
 
 /* Every path that propagates a hash failure, found by MEASURING what each

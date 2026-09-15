@@ -40455,3 +40455,52 @@ and the exact-length `verb_len != verb_len` is held -- so the length was pinned
 both ways and the bytes it admits were not, the same split sec 306 found between
 a key's length and its content. It is the comparison-length lens on a verb
 rather than a key or an issuer: a match that reads a prefix grants a prefix.
+
+## Carrying the lens into the disclose and blob decoders (sec 308)
+
+disclose.c was carried in sec 292/293 and confirmed again this session -- its
+field and committed maxima, its salt floor and its output floor all hold. blob.c
+is the Merkle store: leaf seal and open, tree, inclusion and span proofs. Four
+of its guards were held by no test.
+
+### The verifiers compared a prefix of the root
+
+`fzn_blob_proof_verify` and `fzn_blob_span_proof_verify` each climb to an apex,
+bind the leaf count in, and finish with `fzn_ct_memeq(acc, root,
+FZN_BLOB_HASH_LEN)`. Narrowing that to a byte survived, and the way it survived
+is the finding: blob_fuzz reaches the check with forged proofs whose recomputed
+root differs from the real one, so a compare of the FIRST byte is caught -- but
+never a compare that reads all but the LAST, because a random forged root never
+lands as a last-byte near miss of the real one.
+
+	proof_verify memeq 31 of 32   SURVIVED test and fuzz
+	span_verify  memeq 31 of 32   SURVIVED
+
+The `root` argument is the caller's, though, so the near miss is constructible
+where the forged `acc` is not: a valid proof climbs to root R, and verifying it
+against R with its last byte flipped must fail. Under a prefix read it does not
+-- a proof for one blob verifies against a root one byte off it, so a receiver
+holding a corrupted or truncated id accepts content that is not the id's. Both
+verifiers now check a valid proof against a last-byte-flipped root and require
+FZN_BLOB_ERR_PROOF. `blob-proof-verify-reads-the-whole-root` and
+`blob-span-verify-reads-the-whole-root` are in the table. It is the
+comparison-length lens reaching the place it matters most -- the final equality
+in a proof verifier -- and the one place the near miss had to be fed through the
+expected value rather than the computed one.
+
+### The content ceiling, tested one byte over
+
+`fzn_blob_geometry` and `fzn_blob_extent_of` refuse content past
+`FZN_BLOB_MAX_LEAVES * FZN_BLOB_LEAF_SIZE`, and the suite drove each one byte
+past it. Exactly the ceiling -- the largest blob this library addresses -- was
+never asked, so `>=` in place of `>` would refuse the largest legal blob and no
+test would notice. Both now answer content of exactly the ceiling, geometry
+returning FZN_BLOB_MAX_LEAVES leaves. `blob-geometry-content-ceiling-is-inclusive`
+and `blob-extent-content-ceiling-is-inclusive` are in the table -- the sec
+292/298/300/302/303/304/305 shape once more, the "one past" refused and the
+endpoint unbuilt.
+
+The rest of blob.c holds at its edges: the leaf-count and sibling-count maxima
+(blob_test walks the maximum tree), the span-fit bounds, the whole-blob span
+that needs no siblings, and the `sibling_count != depth` check that is a
+stack-read bound as much as a claim -- pinned by blob_fuzz under ASan.
