@@ -165,6 +165,94 @@ static void test_what_the_roots_do_not_reach(void)
 	      plan.reachable, plan.unreachable, plan.truncated, fzn_catalog_nodes(&cat));
 }
 
+/* THE WALK READS THE WHOLE ID. A reachable node and an unreachable one whose
+ * ids agree on every byte but the last are two nodes; a comparison reading a
+ * prefix takes them for one, folds the unreachable node into the reachable
+ * set, and never proposes it -- the reverse of live-data safety, since this
+ * module's answer is acted on by deleting. Every other case separates its ids
+ * in the first byte -- `id()` fills all of them with the seed -- where any
+ * comparison length tells them apart. */
+static void test_the_walk_reads_the_whole_id(void)
+{
+	fzn_catalog_edge_t rows[8];
+	fzn_catalog_entry_t entries[4];
+	fzn_catalog_id_t scratch[16];
+	fzn_catalog_id_t out[8];
+	fzn_catalog_id_t roots[1];
+	fzn_catalog_frontier_t front[1];
+	fzn_catalog_reach_t plan;
+	fzn_catalog_t cat;
+	fzn_catalog_entry_t e;
+	fzn_catalog_id_t root_id, node, near;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 8, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_content_init(&cat, entries, 4, &HELD_WINS) == FZN_CATALOG_OK,
+	        "the content table would not init");
+
+	memset(root_id.b, 0x01, sizeof(root_id.b));
+	memset(node.b, 0x10, sizeof(node.b));
+	near = node;
+	near.b[FZN_CATALOG_ID_LEN - 1u] = (uint8_t)(near.b[FZN_CATALOG_ID_LEN - 1u] ^ 0x01u);
+
+	/* root -> node reachable; `near` is content nobody links. */
+	REQUIRE(fzn_catalog_assert(&cat, &root_id, &node, ALICE, 1, 1) == FZN_CATALOG_OK,
+	        "the link was refused");
+	memset(&e, 0, sizeof(e));
+	e.id = near;
+	e.kind = FZN_CATALOG_CONTENT_BLOB;
+	memset(e.root, 0xa0, sizeof(e.root));
+	e.blob_len = 100;
+	memcpy(e.issuer, ALICE, FZN_PUBKEY_LEN);
+	e.seq = 3;
+	REQUIRE(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK, "content was refused");
+
+	roots[0] = root_id;
+	front[0] = vouch(ALICE, 99);
+
+	REQUIRE(fzn_catalog_unreachable(&cat, roots, 1, front, 1, scratch, 16, out, 8, &plan) ==
+	                FZN_CATALOG_OK, "the walk was refused");
+	CHECK(plan.unreachable == 1,
+	      "a node differing from a reachable one only in its last byte was folded into "
+	      "it: %zu unreachable, wanted 1", plan.unreachable);
+	CHECK(plan.unreachable == 1 && memcmp(out[0].b, near.b, FZN_CATALOG_ID_LEN) == 0,
+	      "the unreachable node reported is not the near-miss one, so the walk compares "
+	      "a prefix of the id");
+}
+
+/* AND THE FRONTIER READS THE WHOLE ISSUER. vouched_for accepts a catalogue as
+ * accounted-for only when the frontier names each issuer it depends on; a
+ * comparison reading a prefix takes a frontier one byte off ALICE for hers,
+ * calls the catalogue vouched, and answers a reachability question -- one acted
+ * on by deleting -- from a frontier that never accounted for ALICE at all. */
+static void test_the_frontier_reads_the_whole_issuer(void)
+{
+	fzn_catalog_edge_t rows[8];
+	fzn_catalog_id_t scratch[16];
+	fzn_catalog_id_t out[8];
+	fzn_catalog_id_t roots[1];
+	fzn_catalog_frontier_t front[1];
+	fzn_catalog_reach_t plan;
+	fzn_catalog_t cat;
+	uint8_t alice_near[FZN_PUBKEY_LEN];
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 8, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x01), idp(0x10), ALICE, 1, 1) == FZN_CATALOG_OK,
+	        "the link was refused");
+
+	memcpy(alice_near, ALICE, sizeof(alice_near));
+	alice_near[FZN_PUBKEY_LEN - 1u] =
+	        (uint8_t)(alice_near[FZN_PUBKEY_LEN - 1u] ^ 0x01u);
+
+	roots[0] = id(0x01);
+	front[0] = vouch(alice_near, 99);
+
+	REQUIRE(fzn_catalog_unreachable(&cat, roots, 1, front, 1, scratch, 16, out, 8, &plan) ==
+	                FZN_CATALOG_ERR_INCOMPLETE,
+	        "a frontier one byte off ALICE was accepted as vouching for her");
+	CHECK(plan.unvouched_set && memcmp(plan.unvouched, ALICE, FZN_PUBKEY_LEN) == 0,
+	      "the unvouched issuer named is not ALICE, so the frontier match reads a prefix");
+}
+
 /* THE DISCRIMINATOR. A caller that has not said how far it has read from an
  * issuer the catalogue depends on is refused, and told which -- because the
  * alternative is answering a question about garbage from a partial view. */
@@ -600,6 +688,8 @@ int main(void)
 	memset(BOB, 0xb0, sizeof(BOB));
 
 	test_what_the_roots_do_not_reach();
+	test_the_walk_reads_the_whole_id();
+	test_the_frontier_reads_the_whole_issuer();
 	test_an_unaccounted_issuer_is_refused_by_name();
 	test_an_unlinked_child_stops_being_a_node();
 	test_sources_names_every_issuer_once();

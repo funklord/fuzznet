@@ -328,6 +328,40 @@ static void test_a_shared_blob_is_wanted_once(void)
 	CLOSES(&plan, 3, plan.missing, "a shared blob");
 }
 
+/* TWO ROOTS DIFFERING ONLY IN THE LAST BYTE ARE TWO BLOBS. The dedup above
+ * shares a whole root; a comparison reading a prefix would fold a near miss
+ * into it and drop one blob a caller must fetch. The case above separates its
+ * roots in the first byte (0xa0 versus 0xa1), where any length tells them
+ * apart; this separates them in the last. */
+static void test_a_near_miss_root_is_not_a_duplicate(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_entry_t entries[4];
+	fzn_catalog_blob_t out[4];
+	fzn_catalog_copy_t plan;
+	fzn_catalog_t cat;
+	fzn_catalog_entry_t e;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_content_init(&cat, entries, 4, &HELD_WINS) == FZN_CATALOG_OK,
+	        "the content table would not init");
+	REQUIRE(fzn_catalog_retain_all(&cat, 1) == FZN_CATALOG_OK, "keep-all refused");
+
+	e = blob_entry(0x10, 0xa0, 100);
+	REQUIRE(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK, "a blob was refused");
+	e = blob_entry(0x11, 0xa0, 100);
+	e.root[FZN_BLOB_HASH_LEN - 1u] = (uint8_t)(e.root[FZN_BLOB_HASH_LEN - 1u] ^ 0x01u);
+	REQUIRE(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK, "the near-miss blob was refused");
+
+	REQUIRE(fzn_catalog_copy_want(&cat, NULL, NOW, out, 4, &plan) == FZN_CATALOG_OK,
+	        "a want list was refused");
+	CHECK(plan.written == 2,
+	      "two roots differing only in their last byte were wanted as one: %zu written",
+	      plan.written);
+	CHECK(plan.duplicates == 0,
+	      "a near-miss root was counted as a duplicate, so the walk compares a prefix");
+}
+
 /* THE SECURITY PROPERTY. An offer is scoped to the catalogue, or a want list
  * is a request for any blob whose hash a peer can name -- and a capability
  * for one catalogue silently becomes one for the whole blob store. */
@@ -381,6 +415,45 @@ static void test_an_offer_will_not_leave_the_catalogue(void)
 	CHECK(plan.written == 1 && out[0].len == 100,
 	      "the peer's length was answered rather than the catalogue's: %llu",
 	      (unsigned long long)out[0].len);
+}
+
+/* AN OFFER READS THE WHOLE ROOT. entry_for_root scopes a want to the
+ * catalogue; a comparison reading a prefix would match a want naming a root
+ * that agrees with a held blob on every byte but the last -- serving a blob a
+ * peer only half-named, which is the scope escape the case above closes, one
+ * byte over. */
+static void test_an_offer_reads_the_whole_root(void)
+{
+	fzn_catalog_edge_t rows[4];
+	fzn_catalog_entry_t entries[4];
+	fzn_catalog_blob_t out[4];
+	fzn_catalog_blob_t wants[1];
+	fzn_catalog_copy_t plan;
+	fzn_catalog_t cat;
+	fzn_catalog_entry_t e;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 4, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	REQUIRE(fzn_catalog_content_init(&cat, entries, 4, &HELD_WINS) == FZN_CATALOG_OK,
+	        "the content table would not init");
+
+	e = blob_entry(0x10, 0xa0, 100);
+	REQUIRE(fzn_catalog_content_set(&cat, &e) == FZN_CATALOG_OK, "a blob was refused");
+
+	/* A want whose root agrees with the held blob on every byte but the
+	 * last is NOT this catalogue's blob. NULL holdings, so a prefix match
+	 * would fall to `missing` rather than `unknown`. */
+	memset(wants, 0, sizeof(wants));
+	memset(wants[0].root, 0xa0, FZN_BLOB_HASH_LEN);
+	wants[0].root[FZN_BLOB_HASH_LEN - 1u] =
+	        (uint8_t)(wants[0].root[FZN_BLOB_HASH_LEN - 1u] ^ 0x01u);
+	wants[0].len = 100;
+
+	REQUIRE(fzn_catalog_copy_offer(&cat, NULL, wants, 1, out, 4, &plan) == FZN_CATALOG_OK,
+	        "an offer was refused");
+	CHECK(plan.unknown == 1,
+	      "a want naming a root one byte off a held blob was taken for it: %zu unknown, "
+	      "wanted 1", plan.unknown);
+	CHECK(plan.written == 0, "a blob the catalogue does not hold under that root was offered");
 }
 
 /* A TRUNCATED WALK KEEPS WALKING, so a caller sizing its array gets the total
@@ -661,7 +734,9 @@ int main(void)
 	test_holdings_follow_the_bytes_and_not_the_policy();
 	test_only_blobs_are_fetched();
 	test_a_shared_blob_is_wanted_once();
+	test_a_near_miss_root_is_not_a_duplicate();
 	test_an_offer_will_not_leave_the_catalogue();
+	test_an_offer_reads_the_whole_root();
 	test_truncation_reports_the_whole_total();
 	test_a_sizing_pass_over_shared_blobs_over_counts();
 	test_the_filing_does_not_change_what_is_fetched();

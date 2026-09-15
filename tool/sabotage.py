@@ -368,6 +368,20 @@ SABOTAGES = [
 		"a frontier whose received equals the applied seq has read that record and is caught up, so the walk must proceed; <= wrongly calls it behind and refuses the walk as INCOMPLETE. The behind case tests received 0 against seq 1, which < and <= both call behind -- only received == seq holds the edge. sec 291",
 	),
 	(
+		"reach-walk-reads-the-whole-id",
+		"catalog/reach.c",
+		"\treturn memcmp(a->b, b->b, FZN_CATALOG_ID_LEN) == 0;",
+		"\treturn memcmp(a->b, b->b, 1u) == 0;",
+		"same_id decides node membership in a walk whose answer is acted on by deleting; a prefix compare folds an unreachable node into a reachable one sharing a prefix and never proposes it, or the reverse. Every case separates ids in the first byte, so only a last-byte near miss holds the whole read. sec 306",
+	),
+	(
+		"reach-frontier-reads-the-whole-issuer",
+		"catalog/reach.c",
+		"\t\t\tif (memcmp(frontier[i].issuer, issuer, FZN_PUBKEY_LEN) != 0)",
+		"\t\t\tif (memcmp(frontier[i].issuer, issuer, 1u) != 0)",
+		"vouched_for accepts a catalogue as accounted-for only when the frontier names each issuer; a prefix compare takes a frontier one byte off an issuer for it, and the walk answers a deletion question from a frontier that never accounted for that issuer. sec 306",
+	),
+	(
 		"message-have-ceiling-is-inclusive",
 		"spool/message.c",
 		"\tif (range_count > FZN_MSG_MAX_RANGES)\n\t\treturn FZN_MSG_ERR_TOO_LARGE;\n\tif (len != FZN_MSG_HAVE_LEN(range_count))",
@@ -3290,6 +3304,20 @@ SABOTAGES = [
 		"\t/* sabotage */\n",
 		"a blob several nodes share must be fetched once, since sharing is "
 		"the reason a caller chooses a blob at all",
+	),
+	(
+		"copy-dedup-reads-the-whole-root",
+		"catalog/copy.c",
+		"\t\tif (memcmp(out[i].root, root, FZN_BLOB_HASH_LEN) == 0)",
+		"\t\tif (memcmp(out[i].root, root, 1u) == 0)",
+		"the dedup must read the WHOLE root, or two blobs whose roots agree on a prefix are folded into one and a caller fetches less than it must. copy-dedup shares a whole root and a first-byte-different one separates it; only a last-byte near miss holds the whole read. sec 306",
+	),
+	(
+		"copy-offer-reads-the-whole-root",
+		"catalog/copy.c",
+		"\t\tif (memcmp(entry->root, root, FZN_BLOB_HASH_LEN) == 0)",
+		"\t\tif (memcmp(entry->root, root, 1u) == 0)",
+		"entry_for_root scopes a want to the catalogue; a prefix compare serves a blob a peer only half-named, the scope escape copy-offer-scoped closes read one byte short. sec 306",
 	),
 	(
 		"copy-refile-busy",

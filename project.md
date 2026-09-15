@@ -40367,3 +40367,56 @@ once in one file: a bound is pinned by driving it past the edge, and the edge
 -- the largest legal value -- is the one input the "past the edge" case never
 constructs. A guard admits its maximum and refuses only more; a test that only
 ever sends more never asks whether the maximum is admitted.
+
+## Carrying the lens into the reach and copy decoders (sec 306)
+
+reach.c decides which catalogue nodes nothing links -- an answer a caller acts
+on by DELETING -- and copy.c decides which blobs to fetch and offer. Both key on
+a 32-byte value: a node id, an issuer, a blob root. Six sites compared one by
+memcmp, and none read the whole of it.
+
+### Six comparison-length reads, four failing open
+
+Every fixture in both suites separates its keys in the FIRST byte -- `id()`
+fills all 32 with the seed, `blob_entry` fills the whole root with one -- so a
+comparison reading a single byte tells them apart as readily as a whole one.
+Every read survived being narrowed to one byte:
+
+	reach same_id (node id)            1..31 of 32   SURVIVED test and fuzz
+	reach vouched_for issuer           1 of 32       SURVIVED
+	reach sources issuer (x2)          1 of 32       SURVIVED
+	copy already_listed root           1 of 32       SURVIVED test and fuzz
+	copy entry_for_root root           1 of 32       SURVIVED
+
+Four of the six fail OPEN and are pinned. `same_id` decides node membership in
+the reachability walk: a prefix match folds an unreachable node into a
+reachable one sharing a prefix and never proposes it -- live data spared, or a
+reachable one deleted. `vouched_for` accepts a frontier one byte off an issuer
+as accounting for it, so the walk answers its deletion question from a frontier
+that never named that issuer. `already_listed` folds two blobs whose roots
+share a prefix into one, dropping a fetch. `entry_for_root` serves a blob a peer
+only half-named -- the scope escape `copy-offer-scoped` closes, read one byte
+short. Each fix separates two keys in the LAST byte, where only the whole read
+distinguishes them, and asserts they stay distinct.
+`reach-walk-reads-the-whole-id`, `reach-frontier-reads-the-whole-issuer`,
+`copy-dedup-reads-the-whole-root` and `copy-offer-reads-the-whole-root` are in
+the table.
+
+### The two that fail closed
+
+`fzn_catalog_sources` compares issuers by the same prefix-vulnerable memcmp,
+twice, and both survived -- but it is a SIZING helper, and its prefix read fails
+in the safe direction: two issuers folded into one is an UNDERcount, so a caller
+provides fewer frontiers than it needs and `vouched_for` refuses the walk
+INCOMPLETE rather than running it on a partial view. That is the distinction
+that ranked the six -- the four pinned here turn a shared-prefix key into a
+wrong deletion, a served stranger's blob, or a dropped fetch; sources turns it
+into a refusal. The lens took the fail-open four; the fail-closed pair is
+recorded here as the same family with the opposite polarity.
+
+It is sec 302's finding again in a second neighbourhood -- a key compared by a
+prefix wherever a fixture happens to separate its keys in the first byte -- and
+the count is the argument for the rule rather than the instance: eleven such
+reads across two passes, every one of them pinned or reasoned about only because
+a last-byte near miss was constructed by hand, since a byte-0 seed produces the
+first kind by default.
