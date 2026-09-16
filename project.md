@@ -40942,3 +40942,55 @@ clause, `payload_len > buf_capacity - offset`, is `payload_len > 0`, which holds
 for every chunk that reaches it, so both spellings return TOO_LARGE. It is the
 caller-owned-corrupt-table backstop the code documents as unreachable through
 the API, and takes no entry.
+
+## Carrying the lens into the disclose and blob decoders (sec 317)
+
+disclose.c commits a field under a salt and verifies it against a Merkle root;
+blob.c is the content-addressed store beneath it -- leaf seal and open, the
+tree, and inclusion and span proofs. disclose.c holds at every edge (sec 308
+confirmed its field and committed maxima and its floors, and each is caught
+again here). blob.c was carried in sec 308 for the two verifier root memeqs and
+the geometry and extent ceilings; one leaf comparison was not.
+
+### leaf_open reads the whole commitment
+
+`fzn_blob_leaf_open` checks the sealed leaf's embedded commitment against the
+one derived from the content key -- BEFORE the AEAD and in constant time,
+because a plain AEAD is non-committing: a ciphertext can be crafted to open
+validly under two keys, and the commitment is what fences that. The check is
+`fzn_ct_memeq(sealed, commitment, FZN_COMMITMENT_LEN)`, and shortening it to one
+byte survived. test_the_commitment_is_checked_before_the_aead bends the
+commitment at byte 0 and requires FZN_BLOB_ERR_COMMITMENT -- but a compare
+reading a single byte catches a flipped FIRST byte and lets a flipped LAST one
+through, so a leaf whose commitment matches the derived one on every byte but
+the last opens against it, and the search for a colliding leaf shrinks from
+sixteen bytes to one. It is the sec 302 family reaching the one comparison in
+blob.c whose near miss had a caller-controlled side and no last-byte test. The
+full-suite probe confirmed nothing noticed.
+
+The test now bends the last commitment byte as well and requires
+FZN_BLOB_ERR_COMMITMENT rather than the FZN_BLOB_ERR_AUTH a prefix read would
+give (the commitment is also the AEAD's associated data, so a near miss that
+slips the check fails the tag instead). `blob-leaf-open-reads-the-whole-commitment`
+is in the table, beside the sec 308 root-memeq entries.
+
+### What was left in blob
+
+Every other blob edge is held: the leaf-seal and leaf-open length bounds (the
+plaintext and sealed maxima and the overhead floor), leaf_hash's length, the
+tree-push leaf and depth ceilings, proof_verify's leaf-count and sibling-count
+maxima and its whole-root memeq (sec 308), span_is_canonical's bounds, and
+disclose.c's field and committed maxima and floors.
+
+Two survivors are left unpinned with reasons. `fzn_blob_span_proof_verify`'s
+`sibling_count > FZN_BLOB_MAX_DEPTH` admits a proof of exactly FZN_BLOB_MAX_DEPTH
+siblings; the refusal of one more is tested, but the endpoint is not, and a
+positive fixture would need a leaf_count near 2^40 and forty siblings folded to
+a matching root -- a construction that re-implements the verifier's own climb in
+the test, which is a witness of itself rather than an independent one. The
+proof-length refusal (sibling_count != depth, a stack bound) is what actually
+guards the read, and it is held. `fzn_blob_extent_of`'s `offset >= content_len`
+survives weakening to `>`: the two differ only for an offset exactly at
+content_len with a zero-length extent, which is an empty range at the very end
+rather than a read past anything -- for any non-zero length the second clause
+refuses it either way. Neither earns an entry.

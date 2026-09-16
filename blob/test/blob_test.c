@@ -962,6 +962,21 @@ static void test_the_commitment_is_checked_before_the_aead(void)
 	      "non-committing AEAD is not being fenced");
 	sealed[0] = (uint8_t)(sealed[0] ^ 0x80u);
 
+	/* AND THE LAST COMMITMENT BYTE, which the bend above -- at byte 0 --
+	 * does not hold: a compare reading one byte catches a flipped first
+	 * byte and lets a flipped last one through, opening a leaf against a
+	 * commitment it matches on every byte but the last. The whole
+	 * FZN_COMMITMENT_LEN must be read, so a last-byte near miss must still
+	 * come back COMMITMENT rather than falling through to the AEAD as AUTH
+	 * -- and it is AUTH under a prefix read, because the commitment is the
+	 * AEAD's aad. */
+	sealed[FZN_COMMITMENT_LEN - 1u] = (uint8_t)(sealed[FZN_COMMITMENT_LEN - 1u] ^ 0x80u);
+	CHECK(fzn_blob_leaf_open(&HASH, &AEAD, key, 0u, sealed, sealed_len, back, sizeof(back),
+	                         &back_len) == FZN_BLOB_ERR_COMMITMENT,
+	      "a commitment bent only in its last byte was not caught, so the check is "
+	      "not reading the whole commitment");
+	sealed[FZN_COMMITMENT_LEN - 1u] = (uint8_t)(sealed[FZN_COMMITMENT_LEN - 1u] ^ 0x80u);
+
 	/* A BENT CIPHERTEXT IS THE AEAD's, which is the other half of the
 	 * same claim: the two errors are reachable independently, so neither
 	 * is standing in for the other. */

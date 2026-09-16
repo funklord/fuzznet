@@ -2914,6 +2914,13 @@ SABOTAGES = [
 		"the same content ceiling in extent_of, and the same endpoint: exactly the ceiling must be addressable, >= refuses it. sec 308",
 	),
 	(
+		"blob-leaf-open-reads-the-whole-commitment",
+		"blob/blob.c",
+		"\tif (!fzn_ct_memeq(sealed, commitment, FZN_COMMITMENT_LEN)) {",
+		"\tif (!fzn_ct_memeq(sealed, commitment, 1u)) {",
+		"leaf_open checks the sealed leaf's embedded commitment against the derived one BEFORE the AEAD, because a plain AEAD is non-committing -- a ciphertext can be crafted to open under two keys. A prefix read lets a commitment matching on all but the last byte through, and the search for a colliding leaf shrinks to one byte. The commitment test bends byte 0, which a one-byte read catches; a last-byte near miss holds it. sec 317",
+	),
+	(
 		"blob-proof-verify-reads-the-whole-root",
 		"blob/blob.c",
 		"\treturn fzn_ct_memeq(acc, root, FZN_BLOB_HASH_LEN) ? FZN_BLOB_OK : FZN_BLOB_ERR_PROOF;\n}\n\n/* See blob.h.",
