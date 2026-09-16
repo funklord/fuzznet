@@ -4413,6 +4413,34 @@ SABOTAGES = [
 		"-- the one input hop_view exists to accept -- and the too-short case "
 		"tested sits three bytes below the boundary, not one. sec 323",
 	),
+	(
+		"catalog-add-wins-needs-a-higher-seq",
+		"catalog/catalog.c",
+		"return offered->seq > held->seq ? 1 : 0;\n\n\t/* ACROSS ISSUERS",
+		"return offered->seq >= held->seq ? 1 : 0;\n\n\t/* ACROSS ISSUERS",
+		"the edge resolver supersedes one issuer's own statement only on a "
+		"STRICTLY greater sequence; >= lets a re-statement at a sequence "
+		"already used overwrite the held edge instead of losing as STALE. The "
+		"near-miss-issuer test drives it only at differing sequences. sec 324",
+	),
+	(
+		"catalog-content-held-wins-needs-a-higher-seq",
+		"catalog/catalog.c",
+		"return offered->seq > held->seq ? 1 : 0;\n\n\t/* Across issuers there is no",
+		"return offered->seq >= held->seq ? 1 : 0;\n\n\t/* Across issuers there is no",
+		"the content resolver supersedes one issuer's own statement only on a "
+		"STRICTLY greater sequence; >= lets content restated at a sequence "
+		"already used replace the held content. sec 324",
+	),
+	(
+		"catalog-name-held-wins-needs-a-higher-seq",
+		"catalog/catalog.c",
+		"return offered->seq > held->seq ? 1 : 0;\n\treturn 0;\n}",
+		"return offered->seq >= held->seq ? 1 : 0;\n\treturn 0;\n}",
+		"the name resolver supersedes one issuer's own statement only on a "
+		"STRICTLY greater sequence; >= lets a rename at a sequence already "
+		"used replace the held name. sec 324",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

@@ -2784,6 +2784,71 @@ static void test_the_conflict_resolvers_read_the_whole_issuer(void)
 	}
 }
 
+/*
+ * A RESTATEMENT AT THE SAME SEQUENCE DOES NOT SUPERSEDE.
+ *
+ * A sequence is how one issuer versions its own statements, so superseding
+ * requires a STRICTLY greater one: an issuer must advance its sequence to
+ * change what it said, and a re-delivery of a sequence it has already used is
+ * not an event. All three resolvers decide this with `offered->seq >
+ * held->seq`. The near-miss-issuer case above pins the whole-issuer read but
+ * always at DIFFERENT sequences -- held at 1, offered at 2 -- so `>` widened
+ * to `>=`, which lets an equal sequence win, survived in all three: nothing
+ * offered a held statement its own sequence back. The same shape state.c
+ * refuses as STALE and prekey.c as a re-delivery, at the resolver seam here.
+ *
+ * held owns each cell at seq 5; offered is the SAME issuer at seq 5 with a
+ * different statement. A `>` keeps what is held; a `>=` lets the equal
+ * sequence overwrite it.
+ */
+static void test_the_conflict_resolvers_need_a_higher_sequence(void)
+{
+	uint8_t a[FZN_PUBKEY_LEN];
+	size_t i;
+
+	for (i = 0; i < FZN_PUBKEY_LEN; i++)
+		a[i] = (uint8_t)(0x40u + i);
+
+	{
+		fzn_catalog_edge_t held, offered;
+
+		memset(&held, 0, sizeof(held));
+		memset(&offered, 0, sizeof(offered));
+		memcpy(held.issuer, a, FZN_PUBKEY_LEN);
+		memcpy(offered.issuer, a, FZN_PUBKEY_LEN);
+		held.seq = 5u;
+		offered.seq = 5u;
+		held.present = 1;
+		offered.present = 0;
+		CHECK(fzn_catalog_add_wins(NULL, &held, &offered) == 0,
+		      "an edge restated at its own sequence superseded the one held");
+	}
+	{
+		fzn_catalog_entry_t held, offered;
+
+		memset(&held, 0, sizeof(held));
+		memset(&offered, 0, sizeof(offered));
+		memcpy(held.issuer, a, FZN_PUBKEY_LEN);
+		memcpy(offered.issuer, a, FZN_PUBKEY_LEN);
+		held.seq = 5u;
+		offered.seq = 5u;
+		CHECK(fzn_catalog_content_held_wins(NULL, &held, &offered) == 0,
+		      "content restated at its own sequence superseded the one held");
+	}
+	{
+		fzn_catalog_name_t held, offered;
+
+		memset(&held, 0, sizeof(held));
+		memset(&offered, 0, sizeof(offered));
+		memcpy(held.issuer, a, FZN_PUBKEY_LEN);
+		memcpy(offered.issuer, a, FZN_PUBKEY_LEN);
+		held.seq = 5u;
+		offered.seq = 5u;
+		CHECK(fzn_catalog_name_held_wins(NULL, &held, &offered) == 0,
+		      "a name restated at its own sequence superseded the one held");
+	}
+}
+
 int main(void)
 {
 	memset(ALICE, 0xa1, sizeof(ALICE));
@@ -2795,6 +2860,7 @@ int main(void)
 	test_a_removal_survives_a_stale_link();
 	test_the_resolver_is_a_seam();
 	test_the_conflict_resolvers_read_the_whole_issuer();
+	test_the_conflict_resolvers_need_a_higher_sequence();
 	test_two_hosts_adding_agree_without_talking();
 	test_a_remove_does_not_commute_and_that_is_the_design();
 	test_content_across_issuers_keeps_whichever_arrived_first();

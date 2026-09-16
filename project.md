@@ -41252,3 +41252,49 @@ fzn_relay_service, and generated_test.c pins the version refusal directly as
 well. The UINT32_MAX cast guard -- a length that truncates on the way into
 situ_msg_init -- is held by relay_test's own model-guarded case, the one guard
 here that a whole-frame fixture could reach.
+
+## Carrying the lens into the catalog and copy decoders again (sec 324)
+
+sec 318 carried the lens here and pinned the three conflict resolvers'
+issuer read -- a near miss overwriting an edge, content or name another
+issuer owns. This pass found the sibling edge in the same three resolvers:
+the SEQUENCE comparison that decides supersession for one issuer's own
+statements.
+
+### A restatement at the same sequence must not supersede
+
+Each resolver settles "does this offer replace what is held" with, for the
+same issuer, `offered->seq > held->seq`. A sequence is how an issuer versions
+its own statements, so superseding requires a STRICTLY greater one: an issuer
+advances its sequence to change what it said, and a re-delivery of a sequence
+it has already used is not an event -- the same rule state.c enforces as STALE
+and prekey.c as a re-delivery. The sec 318 near-miss-issuer test drives each
+resolver, but only ever at DIFFERING sequences -- held at 1, offered at 2 -- so
+`>` widened to `>=`, which lets an equal sequence win, survived in all three:
+nothing offered a held statement its own sequence back. catalog_fuzz makes it
+worse by construction, generating assertions with "no two statements sharing a
+sequence" so supersession is unambiguous, so the model cannot reach the tie
+either. The full-suite probe of the edge resolver confirmed nothing noticed.
+
+Under `>=` a same-issuer offer at a sequence already used takes the resolver's
+win path, and `fzn_catalog_assert` then writes `*held = offered` and returns OK
+where it should keep what is held and return STALE -- a re-statement at a stale
+sequence silently replacing an edge, a content or a name. Honest traffic
+re-delivers, so the tie is ordinary rather than exotic.
+
+test_the_conflict_resolvers_need_a_higher_sequence calls each resolver directly
+with one issuer holding at seq 5 and offering a different statement at seq 5,
+and requires each to keep what is held. `catalog-{add-wins,content-held-wins,
+name-held-wins}-needs-a-higher-seq` are in the table; all three are caught,
+with the controls caught.
+
+### What was left in catalog and copy this pass
+
+Everything sec 318 recorded still holds, re-confirmed here: the three resolvers'
+whole-issuer read, catalog.c's id equality and ordering, the name maximum, the
+inline and content-head bounds, and copy.c's root memcmps and truncation
+counter. The `used <= capacity` soundness of all four tables (edges, content,
+holds, names) is held at the full-container endpoint -- a functional test fills
+a table and still reads it -- as the same shape is in state.c and link.c
+(carried there this session). The gap was only the sequence tie, the sibling of
+sec 318's issuer read.
