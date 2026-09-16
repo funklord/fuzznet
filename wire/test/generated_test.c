@@ -218,6 +218,42 @@ int main(void)
 	check(situ_fzn_frame_validate(fa) == SITU_OK,
 	      "index 4 was still refused once chunks became 8 -- the bound is folded");
 
+	/* length [max = 1024] -- the head's own scalar bound, and the one head
+	 * field whose refusal no test reached: version, chunks and index above
+	 * each pin theirs, and the payload bound in seal_test.c pins only the
+	 * BUILD guard, which refuses an over-long payload before this validator
+	 * ever runs. So a received frame claiming a length past the schema's
+	 * maximum was answered by nothing here.
+	 *
+	 * IT CANNOT BE PINNED THROUGH `situ_fzn_frame_validate` LIKE THE THREE
+	 * ABOVE. A length past the bound puts the tag offset past a
+	 * minimum-size buffer, so `situ_in_bounds` refuses the frame first and
+	 * this test would pass with the length check deleted -- the tag-bounds
+	 * coincidence masking exactly the guard it means to exercise.
+	 * `situ_fzn_head_check` answers over the head alone, needs no payload
+	 * present, and names which constraint spoke, so the refusal can only be
+	 * the length bound. 1024 must pass and 1025 must not. */
+	build(a, 0xa1, 7, 0, 3);
+	put_be16(a + OFF_LENGTH, 1024);
+	situ_msg_init(&ma, a, sizeof(a));
+	situ_fzn_frame_view(&ma, 0, (uint32_t)sizeof(a), &fa);
+	situ_fzn_frame_head_view(fa, &ha);
+	check(situ_fzn_head_validate(ha) == SITU_OK,
+	      "the largest length the schema allows was refused");
+
+	put_be16(a + OFF_LENGTH, 1025);
+	situ_msg_init(&ma, a, sizeof(a));
+	situ_fzn_frame_view(&ma, 0, (uint32_t)sizeof(a), &fa);
+	situ_fzn_frame_head_view(fa, &ha);
+	{
+		uint32_t which = 0xFFFFFFFFu;
+
+		check(situ_fzn_head_check(ha, &which) == SITU_ERR_CONSTRAINT &&
+		              which == SITU_FZN_HEAD_LENGTH_CHECK,
+		      "a length one past the schema's bound was validated");
+	}
+	put_be16(a + OFF_LENGTH, 0);
+
 	/* A short buffer must be refused rather than read past. */
 	{
 		situ_msg_t tiny;

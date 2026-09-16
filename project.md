@@ -41161,3 +41161,51 @@ tag bytes that keep one blob from being restored as another, and the trust
 blob's source/adopted_at consistency. It carries no key comparison: every field
 it writes is a struct member laid down in place, and every field it reads is
 handed to the module that owns the invariant.
+
+## Carrying the lens into the emit and frame decoders (sec 322)
+
+wire/seal.c is the emit side of the datagram -- it builds a frame and seals
+it -- and the frame decoder is the generated situ code it opens through
+(`situ_fzn_frame_validate`/`_check`, `_sealed_open`), the one module here that
+depends on the generated layout. seal.c is among the most worked files in the
+tree, and every numeric bound it owns is already pinned at its endpoint: the
+hop budget, the service hint and the payload length each build at exactly the
+maximum, refuse one past it, and leave the caller's buffer untouched when they
+refuse; the capacity check builds into a buffer of exactly the frame's length
+and refuses one byte short; the index-against-chunks rule is held from both
+sides -- the single-chunk build exercises index == chunks - 1, and the open
+path refuses index == chunks. A probe of the capacity edge (`<` widened to
+`<=`) confirmed seal_test catches it, because `built[FRAME_LEN]` is sized to
+the exact frame and the successful build is therefore the endpoint itself.
+
+The decoder's own validator was the gap, in the one field its siblings do not
+share.
+
+### A received length past the schema's maximum
+
+`situ_fzn_head_check` bounds three head fields -- kind against the known set,
+index against chunks - 1, and length against 1024 -- and generated_test.c pins
+the first two refusals directly, as seal_test pins version and chunks on the
+open path. The length bound had no such test. seal.c refuses an over-long
+payload on the way OUT, before the validator runs, so the BUILD guard is
+pinned and the DECODE guard -- what a host does with a frame that arrives
+claiming a length past the maximum -- was answered by nothing. The full-suite
+probe widening `> 1024` to `> 1025` survived: a frame declaring 1025 bytes of
+payload would have validated.
+
+It cannot be pinned the way version, chunks and index are, through
+`situ_fzn_frame_validate` over a minimum-size buffer. A length past the bound
+puts the tag offset past that buffer, so `situ_in_bounds` refuses the frame
+first and the test would pass with the length check deleted -- the tag-bounds
+coincidence masking exactly the guard it means to exercise. `situ_fzn_head_check`
+answers over the head alone, needs no payload present, and reports which
+constraint spoke, so the refusal can only be the length bound. The new case
+requires 1024 to validate and 1025 to fail naming SITU_FZN_HEAD_LENGTH_CHECK,
+and a probe confirmed it catches the widened bound.
+
+No sabotage-table entry accompanies it, and that is the convention rather than
+an omission: the guard lives in generated code that regeneration would rewrite,
+and its siblings -- the kind, index and chunks refusals -- carry no table entry
+either. Each is pinned by an assertion in generated_test.c that observes the
+generated validator's behaviour, which is what a later regeneration emitting a
+weaker validator would fail.
