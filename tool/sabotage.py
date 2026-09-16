@@ -753,6 +753,27 @@ SABOTAGES = [
 		"a missing operand answers not-equal rather than crashing (caught by the crash)",
 	),
 	(
+		"tree-cmp-reads-the-whole-id",
+		"tree/tree.c",
+		"\treturn memcmp(a->id, b->id, (size_t)FZN_TREE_ID_LEN);",
+		"\treturn memcmp(a->id, b->id, 1u);",
+		"fzn_tree_cmp orders siblings by id when their order ties; a prefix read calls two ids differing only in their last byte equal and leaves them in arrival order, so a tree renders its equal-order siblings in a machine-dependent order rather than a canonical one. The sibling-order test distinguishes ids by their first byte. sec 320",
+	),
+	(
+		"tree-children-reads-the-whole-parent",
+		"tree/tree.c",
+		"\tif (memcmp(nodes[i].parent, parent,\n\t\t           (size_t)FZN_TREE_ID_LEN) != 0)",
+		"\tif (memcmp(nodes[i].parent, parent, 1u) != 0)",
+		"fzn_tree_children matches a node's parent against the queried one; a prefix read returns a node whose parent is one byte off the query as a child, so a node appears under a parent that did not claim it. sec 320",
+	),
+	(
+		"tree-reachable-reads-the-whole-parent",
+		"tree/tree.c",
+		"\t\t\t\tif (memcmp(nodes[j].id, nodes[i].parent,\n\t\t\t\t           (size_t)FZN_TREE_ID_LEN) == 0) {",
+		"\t\t\t\tif (memcmp(nodes[j].id, nodes[i].parent, 1u) == 0) {",
+		"fzn_tree_reachable follows a node's parent to its id; a prefix read reaches a node whose parent is one byte off a real id, so an orphan is walked as though it were rooted. sec 320",
+	),
+	(
 		"tree-reachable-examined",
 		"tree/tree.c",
 		"\tif (mark_cap < count)\n\t\treturn FZN_TREE_ERR_CAPACITY;\n\n"

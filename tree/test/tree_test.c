@@ -499,6 +499,75 @@ static void test_exhaustion_is_the_midpoint_comparison_alone(void)
 	}
 }
 
+/* THE THREE ID COMPARISONS READ THE WHOLE ID. A node is keyed by a
+ * FZN_TREE_ID_LEN id and points at a parent by the same, and three places
+ * compare them: fzn_tree_children matches a parent, fzn_tree_reachable
+ * follows one, and fzn_tree_cmp orders siblings by id when their order ties.
+ * The structural tests distinguish nodes by their first byte -- id_fill sets
+ * every byte the same -- so none feeds a last-byte near miss. */
+static void test_children_reads_the_whole_parent(void)
+{
+	uint8_t ids[2][FZN_TREE_ID_LEN], parents[2][FZN_TREE_ID_LEN];
+	uint8_t query[FZN_TREE_ID_LEN];
+	fzn_tree_node_t nodes[2];
+	const fzn_tree_node_t *out[2];
+	fzn_tree_walk_t walk;
+
+	memset(query, 0x40, sizeof(query));
+	nodes[0] = make(ids[0], parents[0], 0x10u, 0x40u, 1u); /* parent == query */
+	nodes[1] = make(ids[1], parents[1], 0x11u, 0x40u, 2u);
+	parents[1][FZN_TREE_ID_LEN - 1u] ^= 0x01u;             /* parent one byte off */
+
+	expect_err(fzn_tree_children(nodes, 2u, query, out, 2u, &walk), FZN_TREE_OK,
+	           "children of the query parent");
+	expect(walk.emitted == 1u && out[0]->id[0] == 0x10u,
+	       "a node whose parent is one byte off the query was returned as a child, so "
+	       "fzn_tree_children is not reading the whole parent");
+}
+
+static void test_reachable_reads_the_whole_parent(void)
+{
+	uint8_t ids[2][FZN_TREE_ID_LEN], parents[2][FZN_TREE_ID_LEN];
+	uint8_t mark[2];
+	fzn_tree_node_t nodes[2];
+	fzn_tree_walk_t walk;
+
+	nodes[0] = make(ids[0], parents[0], 0x10u, 0u, 1u);    /* under the root */
+	nodes[1] = make(ids[1], parents[1], 0x11u, 0x10u, 2u); /* parent == node 0's id */
+	parents[1][FZN_TREE_ID_LEN - 1u] ^= 0x01u;             /* parent one byte off it */
+
+	expect_err(fzn_tree_reachable(nodes, 2u, mark, sizeof mark, &walk), FZN_TREE_OK,
+	           "the set is walked");
+	expect(mark[0] != 0u, "the node under the root is reachable");
+	expect(mark[1] == 0u,
+	       "a node whose parent is one byte off a real id was reached, so "
+	       "fzn_tree_reachable is not reading the whole parent");
+}
+
+static void test_cmp_reads_the_whole_id(void)
+{
+	uint8_t ids[2][FZN_TREE_ID_LEN], parents[2][FZN_TREE_ID_LEN];
+	fzn_tree_node_t nodes[2];
+	const fzn_tree_node_t *out[2];
+	fzn_tree_walk_t walk;
+
+	/* Two siblings at the SAME order whose ids differ only in the last
+	 * byte. The tie breaks to the whole id, so the lower id comes first; a
+	 * compare reading one byte calls them equal and leaves them in arrival
+	 * order, which puts the higher id first. */
+	nodes[0] = make(ids[0], parents[0], 0x20u, 0u, 100u);
+	nodes[1] = make(ids[1], parents[1], 0x20u, 0u, 100u);
+	ids[0][FZN_TREE_ID_LEN - 1u] = 0xffu;
+	ids[1][FZN_TREE_ID_LEN - 1u] = 0x01u;
+
+	expect_err(fzn_tree_children(nodes, 2u, root_id, out, 2u, &walk), FZN_TREE_OK,
+	           "children of the root");
+	expect(walk.emitted == 2u, "both siblings came back");
+	expect(out[0]->id[FZN_TREE_ID_LEN - 1u] == 0x01u,
+	       "equal-order siblings differing only in the last id byte were not sorted "
+	       "by the whole id, so fzn_tree_cmp is not reading it");
+}
+
 int main(void)
 {
 	printf("tree_test: body %u + content, content at most %zu bytes\n",
@@ -510,6 +579,9 @@ int main(void)
 	test_the_fixed_point_reaches_depth();
 	test_two_parent_claims_both_stand();
 	test_children_come_back_in_sibling_order();
+	test_children_reads_the_whole_parent();
+	test_reachable_reads_the_whole_parent();
+	test_cmp_reads_the_whole_id();
 	test_truncation_is_reported_not_implied();
 	test_order_exhaustion_is_reported_and_still_usable();
 	test_body_round_trips_through_a_record();

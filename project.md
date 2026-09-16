@@ -41080,3 +41080,47 @@ pinned.
 reach.c's `fzn_catalog_sources` also dedups its dropped-issuer count by issuer,
 reached only when the source list overflows its buffer; a prefix read there
 undercounts a diagnostic, and it is left with the same reasoning.
+
+## Carrying the lens into the tree and record decoders (sec 320)
+
+tree.c is the ordering layer over a notes forest -- open a node from a record,
+place it among siblings, and walk reachability from the root. record.c is the
+signed record beneath it, carried in sec 312 and confirmed clean again here.
+tree.c's bounds all hold; three of its id comparisons did not.
+
+### The three id comparisons read the whole id
+
+A node is keyed by a FZN_TREE_ID_LEN id and points at its parent by the same,
+and three places compare them: `fzn_tree_children` matches a node's parent
+against a queried one, `fzn_tree_reachable` follows a parent to a node's id, and
+`fzn_tree_cmp` orders two siblings by id when their `order` ties. All three are
+whole-id memcmps, and all three survived shortening to one byte. The structural
+tests distinguish nodes by their first byte -- `id_fill` sets every byte the
+same, so a node is 0x10 or 0x11 throughout -- so none feeds a last-byte near
+miss. The consequences are the tree's own integrity: a node whose parent is one
+byte off the query is returned as its child, an orphan whose parent is one byte
+off a real id is walked as though rooted, and two equal-order siblings differing
+only in their last id byte are left in arrival order rather than sorted, so a
+notes tree renders in a machine-dependent order. The full-suite probe confirmed
+nothing noticed.
+
+Three tests pin them, each building a last-byte near miss by hand (id_fill then
+a flip) since the helper cannot: test_children_reads_the_whole_parent requires a
+near-miss-parent node to be excluded, test_reachable_reads_the_whole_parent
+requires a near-miss-parent node to stay an orphan, and test_cmp_reads_the_whole_id
+requires the lower of two last-byte-apart siblings to sort first.
+`tree-{cmp,children,reachable}-reads-the-whole-id` (and -parent) are in the
+table; all three are caught, with the controls caught. It is the manifest,
+catalog and reach family (sec 315, 318, 319) reaching a fourth module: the
+near-miss discipline applied where the structure is keyed but not at the
+comparisons that read the key.
+
+### What was held
+
+tree.c's other edges hold: the body-header floor, the content maximum and the
+output-buffer floor in fzn_tree_body, order_between's range and exhaustion
+checks, reachable's mark-capacity floor, and is_root reading the whole id. The
+children truncation `emitted == out_cap` is a no-edge, since emitted is checked
+before each append and never exceeds the cap. record.c holds at every edge --
+its min-length floor, exact length in both directions, body maximum, seq-zero
+and buffer bounds -- as sec 312 found.
