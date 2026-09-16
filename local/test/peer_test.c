@@ -174,6 +174,40 @@ static void test_overflow_is_unknown_not_truncated(void)
 	CHECK(p.group_count == 0, "an overflowing list left a count behind");
 }
 
+/*
+ * EXACTLY THE MAXIMUM IS A KNOWN MEMBERSHIP, not one group too many.
+ *
+ * The overflow case above pins one side of the cap -- more than
+ * FZN_PEER_MAX_GROUPS is unknown -- and nothing pinned the other: a list of
+ * EXACTLY the maximum is a real, complete membership and must parse as known.
+ * The cap is `count == FZN_PEER_MAX_GROUPS`, and every other parse case here
+ * carries far fewer -- sixteen -- so tightening it to `- 1` would mark a peer
+ * that names exactly the maximum "unknown" and deny it, with nothing failing.
+ * link_test pins its per-mille bound the same way, testing exactly 1000
+ * accepted beside 1001 refused; this is that bound's accepted endpoint. The
+ * ids are distinct so the last one -- the one a cap a notch tight drops first
+ * -- can be checked.
+ */
+static void test_exactly_the_maximum_is_a_known_membership(void)
+{
+	fzn_peer_t p;
+	char big[8192];
+	size_t n = 0;
+	int i;
+
+	n += (size_t)snprintf(big + n, sizeof(big) - n, "Groups:\t");
+	for (i = 0; i < FZN_PEER_MAX_GROUPS; i++)
+		n += (size_t)snprintf(big + n, sizeof(big) - n, "%d ", 100 + i);
+	snprintf(big + n, sizeof(big) - n, "\n");
+
+	CHECK(parse(big, &p) == 1, "exactly the maximum number of groups was refused");
+	CHECK(p.groups_known == 1, "a full but legal membership was marked unknown");
+	CHECK(p.group_count == (size_t)FZN_PEER_MAX_GROUPS,
+	      "parsed %zu groups, wanted the maximum", p.group_count);
+	CHECK(p.groups[FZN_PEER_MAX_GROUPS - 1] == (uint32_t)(100 + FZN_PEER_MAX_GROUPS - 1),
+	      "the last group of a full membership was dropped");
+}
+
 static void test_membership_is_three_valued(void)
 {
 	fzn_peer_t p;
@@ -472,6 +506,7 @@ int main(void)
 	test_lines_that_merely_start_alike();
 	test_malformed_entries_are_unknown_not_partial();
 	test_overflow_is_unknown_not_truncated();
+	test_exactly_the_maximum_is_a_known_membership();
 	test_membership_is_three_valued();
 	test_the_careless_reading_is_loudly_wrong();
 	test_is_member_denies_on_unknown();

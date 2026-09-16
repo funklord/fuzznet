@@ -4441,6 +4441,17 @@ SABOTAGES = [
 		"STRICTLY greater sequence; >= lets a rename at a sequence already "
 		"used replace the held name. sec 324",
 	),
+	(
+		"peer-groups-cap-admits-the-maximum",
+		"local/peer.c",
+		"if (count == FZN_PEER_MAX_GROUPS)",
+		"if (count == FZN_PEER_MAX_GROUPS - 1u)",
+		"a Groups: line naming exactly FZN_PEER_MAX_GROUPS is a complete, "
+		"KNOWN membership; the cap fires on the NEXT group, so - 1 marks a "
+		"peer that names exactly the maximum unknown and denies it. The "
+		"overflow test drives MAX+5 and every other parse case carries "
+		"sixteen, so the accepted endpoint of the bound was untested. sec 325",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

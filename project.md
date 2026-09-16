@@ -41298,3 +41298,49 @@ holds, names) is held at the full-container endpoint -- a functional test fills
 a table and still reads it -- as the same shape is in state.c and link.c
 (carried there this session). The gap was only the sequence tie, the sibling of
 sec 318's issuer read.
+
+## Carrying the lens into the peer and provision decoders (sec 325)
+
+peer.c reads a process's supplementary groups out of a /proc status file and
+answers a three-valued membership; provision.c opens and verifies a signed
+provisioning card. provision.c holds at every edge -- its exact length, the
+version and object tags, the signature-before-expiry order, and the expiry
+itself, which is pinned on both sides: a card verifies at 499 and ON its
+expiry at 500, and only 501 is EXPIRED, so `< now` is separated from `<= now`
+by the case that says a card is alive at the instant it names. peer.c's
+largest-gid bound is pinned the same way -- 4294967295 parses and one past it
+does not. One bound had only its rejecting side.
+
+### Exactly the maximum number of groups is a known membership
+
+`fzn_peer_groups_parse` caps a list at FZN_PEER_MAX_GROUPS with
+`count == FZN_PEER_MAX_GROUPS`, which fires on the group AFTER the maximum, so
+a list of exactly the maximum is complete and KNOWN. test_overflow drives
+MAX+5 and requires unknown, pinning the rejecting side; every other parse case
+carries sixteen groups. Nothing parsed exactly the maximum, so the cap could
+tighten to `- 1` -- marking a peer that names exactly FZN_PEER_MAX_GROUPS
+groups "unknown", which the verdict then denies -- and nothing noticed. The
+full-suite probe confirmed it, the fuzz included: its generated lists never
+land on exactly the bound in a way that separates the endpoint. The failure is
+conservative -- an unknown membership denies rather than wrongly admits -- but
+it is a legitimate full membership refused, and it is the same bound's accepted
+endpoint that link_test pins for loss_permille (1000 accepted beside 1001
+refused).
+
+test_exactly_the_maximum_is_a_known_membership parses a Groups line of exactly
+FZN_PEER_MAX_GROUPS distinct ids and requires known, a count of the maximum,
+and the last id present -- the one a cap a notch tight drops first.
+`peer-groups-cap-admits-the-maximum` is in the table and is caught. The other
+direction, `+ 1`, writes one past the array and is caught by the overflow test
+under the sanitizer.
+
+### What was held in peer and provision
+
+peer.c's largest-gid bound (4294967295 in, one past out), its overflow-is-
+unknown rule, and its three-valued verdict -- primary, supplementary, and the
+group_count sanity that refuses a count past the maximum -- all hold; the gid
+comparisons are scalar equalities with no length to shorten. provision.c's
+exact length (both directions), version and object tags, expiry endpoint, and
+the signature-checked-before-the-expiry order all hold, and the card verifies
+under the root it names, so there is no stored anchor to compare and no
+comparison length at stake.
