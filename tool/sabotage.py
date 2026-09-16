@@ -4452,6 +4452,20 @@ SABOTAGES = [
 		"overflow test drives MAX+5 and every other parse case carries "
 		"sixteen, so the accepted endpoint of the bound was untested. sec 325",
 	),
+	(
+		"revocation-rerevoke-supersedes-reads-the-whole-id",
+		"chain/revocation.c",
+		"\t\t\tif (!fzn_ct_memeq(fzn_revocation_supersedes(record), entry->id,\n"
+		"\t\t\t                  FZN_REVOCATION_ID_LEN)) {",
+		"\t\t\tif (!fzn_ct_memeq(fzn_revocation_supersedes(record), entry->id,\n"
+		"\t\t\t                  FZN_REVOCATION_ID_LEN - 1u)) {",
+		"a genuinely new revocation over a withdrawal must chain to it -- its "
+		"supersedes must equal the held id. supersedes is caller-set and "
+		"signed, entry->id a computed hash, so a near miss is constructible; a "
+		"prefix compare re-revokes a withdrawn pair on an id it does not name. "
+		"The reissue cases drive only the exact id and a wholly different one. "
+		"sec 326",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

@@ -41344,3 +41344,49 @@ exact length (both directions), version and object tags, expiry endpoint, and
 the signature-checked-before-the-expiry order all hold, and the card verifies
 under the root it names, so there is no stored anchor to compare and no
 comparison length at stake.
+
+## Carrying the lens into the trust and revocation decoders again (sec 326)
+
+sec 314 carried the lens here and held it across `same()`'s three keys, the
+trust re-anchor, the root pin, the entitled-by-chain issuer binding, the hop
+ceilings, and the store's full checks -- pinning the tombstone-full endpoint.
+This pass, looking for the sequence-tie shape sec 324 found in the manifest,
+reached the one comparison length sec 314's enumeration did not: the supersedes
+field that binds a re-revocation to the withdrawal it undoes.
+
+### A re-revocation over a withdrawal reads the whole superseded id
+
+A pair revoked and then withdrawn keeps, in `entry->id`, the id of the
+revocation the withdrawal undid, and revocation.c requires a genuinely new
+revocation over that withdrawal to name it -- `fzn_ct_memeq(supersedes,
+entry->id, FZN_REVOCATION_ID_LEN)`, or the record is refused UNKNOWN_TARGET as
+un-chained. Unlike the two `id == entry->id` compares beside it, which fold two
+computed hashes and cannot be near-missed without a hash collision, this one has
+a CALLER-CONTROLLED operand: `supersedes` is set at mint and travels signed, so
+the held id with only its last byte changed is a value an attacker can put on
+the wire and sign. Shortening the compare to a prefix re-revokes a withdrawn
+pair on an id it does not name, so the "must chain to it" binding is satisfiable
+without chaining to it. The reissue tests drive this compare with the exact id
+and with a wholly different record's hash -- both separated by any read length --
+so the near miss was held by nothing, and the full-suite probe confirmed it.
+
+test_a_re_revocation_over_a_withdrawal_reads_the_whole_id revokes a pair,
+withdraws it, then admits a re-revocation whose supersedes is the held id with
+its last byte flipped and requires UNKNOWN_TARGET with the pair left
+un-revoked, against a control that re-revokes with the exact id.
+`revocation-rerevoke-supersedes-reads-the-whole-id` is in the table and is
+caught. The direction is fail-closed -- a near miss re-revokes rather than
+un-revokes -- but the binding it bypasses is a real one, and a prefix read is
+the sec 302 family reaching the one caller-controlled id compare in this file.
+
+### The reissue-over-live occurrence left with its reasoning
+
+The same `memcmp(supersedes, entry->id)` appears once more, in the branch that
+advances the id when a reissue chains over a still-live revocation. Its length
+is unpinned for the same reason, but its consequence is bookkeeping rather than
+authorization: the pair stays revoked whichever way the compare falls, and a
+near-miss reissue that advanced the id would only make a later withdrawal name
+the reissue's id rather than the original -- an availability edge reachable only
+by an entitled issuer sending a reissue that does not chain, which is
+self-inflicted rather than an attack. Recorded here rather than pinned, on the
+same footing as sec 313's no-edges and sec 317's documented survivors.

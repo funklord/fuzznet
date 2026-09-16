@@ -579,6 +579,91 @@ static void test_a_reissue_over_a_live_revocation_advances_the_id(void)
 	      "the pair is still revoked after the record covering it was withdrawn");
 }
 
+/* THE RE-REVOCATION-OVER-A-WITHDRAWAL CHAIN BINDING READS THE WHOLE ID.
+ *
+ * A pair that has been revoked and then withdrawn keeps, in `entry->id`, the
+ * id of the revocation the withdrawal undid -- and revocation.c requires a
+ * GENUINELY NEW revocation over that withdrawal to name it: `supersedes` must
+ * equal `entry->id`, or the record is refused UNKNOWN_TARGET as un-chained.
+ * `supersedes` is a caller-set, signed field and `entry->id` is a computed
+ * hash, so a near miss -- the held id with only its last byte changed -- is a
+ * value an attacker can put on the wire and sign. The full-key compare refuses
+ * it; a prefix compare accepts it, re-revoking the pair on an id it does not
+ * name, so "must chain to it" is satisfiable without chaining to it.
+ *
+ * The existing reissue cases drive this compare only with the exact id and
+ * with a WHOLLY different one (a distinct record's hash), which any read length
+ * separates. This is the last-byte near miss that decides its length. */
+static void test_a_re_revocation_over_a_withdrawal_reads_the_whole_id(void)
+{
+	struct fixture f;
+	uint8_t first[FZN_REVOCATION_LEN], wd[FZN_REVOCATION_LEN];
+	uint8_t again[FZN_REVOCATION_LEN];
+	uint8_t issuer[FZN_PUBKEY_LEN], grantee[FZN_PUBKEY_LEN];
+	uint8_t id_first[FZN_REVOCATION_ID_LEN], near_first[FZN_REVOCATION_ID_LEN];
+	fzn_revocation_record_t rec;
+	fzn_cap_id_t cap;
+
+	fixture_init(&f);
+	key(issuer, 0); /* the root, so every record is entitled without a chain */
+	key(grantee, 5);
+	capability_id(&cap, 0xc0);
+
+	/* Revoke, hashing the record to the id a re-revocation must later name. */
+	f.stub.identity = issuer[0];
+	CHECK(fzn_revocation_issue(issuer, &cap, grantee, 1000, &f.sign, first) == FZN_CHAIN_OK,
+	      "the revocation was refused");
+	stub_reset(&f.stub);
+	CHECK(stub_hash(NULL, id_first, sizeof(id_first), first, FZN_REVOCATION_LEN),
+	      "the fixture could not hash the revocation");
+	CHECK(fzn_revocation_open(first, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK, "open");
+	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(rec), issuer, &f.sign,
+	                           &HASH_OPS, NULL) == FZN_CHAIN_OK, "admit");
+
+	/* Withdraw it: the pair is no longer revoked, and `entry->id` still names
+	 * `first` -- the record a re-revocation must chain to. */
+	f.stub.identity = issuer[0];
+	CHECK(fzn_revocation_issue_withdrawal(issuer, &cap, grantee, 2000, id_first, &f.sign,
+	                                      wd) == FZN_CHAIN_OK, "the withdrawal was refused");
+	stub_reset(&f.stub);
+	CHECK(fzn_revocation_open(wd, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK, "open withdrawal");
+	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(rec), issuer, &f.sign,
+	                           &HASH_OPS, NULL) == FZN_CHAIN_OK, "admit withdrawal");
+	CHECK(fzn_revocation_covers(&f.store, issuer, &cap, grantee) == 0,
+	      "the pair is still revoked after its withdrawal, so nothing below is testing "
+	      "a re-revocation over a withdrawal");
+
+	/* A re-revocation whose supersedes is the held id with only its last byte
+	 * changed. A whole-id compare refuses it; a prefix compare re-revokes. */
+	memcpy(near_first, id_first, sizeof(near_first));
+	near_first[FZN_REVOCATION_ID_LEN - 1u] ^= 0xffu;
+	f.stub.identity = issuer[0];
+	CHECK(fzn_revocation_reissue(issuer, &cap, grantee, 3000, near_first, &f.sign, again) ==
+	              FZN_CHAIN_OK, "the near-miss re-revocation could not be minted");
+	stub_reset(&f.stub);
+	CHECK(fzn_revocation_open(again, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK, "open near-miss");
+	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(rec), issuer, &f.sign,
+	                           &HASH_OPS, NULL) == FZN_CHAIN_ERR_UNKNOWN_TARGET,
+	      "a re-revocation naming the withdrawal's id only in a prefix was chained to it");
+	CHECK(fzn_revocation_covers(&f.store, issuer, &cap, grantee) == 0,
+	      "the near-miss re-revocation re-revoked the pair, so the supersedes binding "
+	      "reads a prefix of the id");
+
+	/* CONTROL: the exact id re-revokes, so the near miss above was refused for
+	 * its id and not for some unrelated reason. */
+	f.stub.identity = issuer[0];
+	CHECK(fzn_revocation_reissue(issuer, &cap, grantee, 3000, id_first, &f.sign, again) ==
+	              FZN_CHAIN_OK, "the exact re-revocation could not be minted");
+	stub_reset(&f.stub);
+	CHECK(fzn_revocation_open(again, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK, "open exact");
+	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(rec), issuer, &f.sign,
+	                           &HASH_OPS, NULL) == FZN_CHAIN_OK,
+	      "a re-revocation naming the withdrawal's id exactly was refused, so the near "
+	      "miss proves nothing");
+	CHECK(fzn_revocation_covers(&f.store, issuer, &cap, grantee) == 1,
+	      "the exact re-revocation did not re-revoke the pair");
+}
+
 static void test_a_withdrawal_is_its_own_object(void)
 {
 	struct fixture f;
@@ -2999,6 +3084,7 @@ int main(void)
 	test_a_reissue_is_a_different_record();
 	test_a_withdrawal_is_its_own_object();
 	test_a_reissue_over_a_live_revocation_advances_the_id();
+	test_a_re_revocation_over_a_withdrawal_reads_the_whole_id();
 	test_open_refuses_what_is_not_our_shape();
 	test_a_withdrawal_restores_and_the_entry_remains();
 	test_a_reissue_after_a_withdrawal();
