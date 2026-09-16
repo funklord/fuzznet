@@ -2719,6 +2719,71 @@ static void test_the_catalogue_says_full_is_forever(void)
 }
 #endif
 
+/* THE THREE CONFLICT RESOLVERS READ THE WHOLE ISSUER. add_wins, the content
+ * held_wins and the name held_wins each answer whether `offered` replaces
+ * `held`: one issuer restating its own is ordered by sequence, but between
+ * DIFFERENT issuers a sequence says nothing and a cross-issuer policy decides.
+ * A near miss is a different issuer, so a compare reading one byte would read
+ * two issuers sharing a first byte as one and let the higher-sequenced offer
+ * overwrite an edge, a content or a name another issuer owns. The merge paths
+ * exercise these with issuers that differ at byte zero; none feeds them a
+ * last-byte near miss. */
+static void test_the_conflict_resolvers_read_the_whole_issuer(void)
+{
+	uint8_t a[FZN_PUBKEY_LEN], b[FZN_PUBKEY_LEN];
+	size_t i;
+
+	for (i = 0; i < FZN_PUBKEY_LEN; i++)
+		a[i] = (uint8_t)(0x40u + i);
+	memcpy(b, a, FZN_PUBKEY_LEN);
+	b[FZN_PUBKEY_LEN - 1u] = (uint8_t)(b[FZN_PUBKEY_LEN - 1u] ^ 0x01u);
+	CHECK(memcmp(a, b, FZN_PUBKEY_LEN - 1u) == 0
+	      && a[FZN_PUBKEY_LEN - 1u] != b[FZN_PUBKEY_LEN - 1u],
+	      "the near-miss issuers are not a last-byte near miss");
+
+	/* held owns each cell at seq 1; offered is a near miss at seq 2. A
+	 * whole-issuer compare sees two issuers and keeps what is held; a
+	 * one-byte compare sees one issuer and lets the higher seq win. */
+	{
+		fzn_catalog_edge_t held, offered;
+
+		memset(&held, 0, sizeof(held));
+		memset(&offered, 0, sizeof(offered));
+		memcpy(held.issuer, a, FZN_PUBKEY_LEN);
+		memcpy(offered.issuer, b, FZN_PUBKEY_LEN);
+		held.seq = 1u;
+		offered.seq = 2u;
+		held.present = 1;
+		offered.present = 1;
+		CHECK(fzn_catalog_add_wins(NULL, &held, &offered) == 0,
+		      "a near-miss issuer overwrote an edge another issuer owns");
+	}
+	{
+		fzn_catalog_entry_t held, offered;
+
+		memset(&held, 0, sizeof(held));
+		memset(&offered, 0, sizeof(offered));
+		memcpy(held.issuer, a, FZN_PUBKEY_LEN);
+		memcpy(offered.issuer, b, FZN_PUBKEY_LEN);
+		held.seq = 1u;
+		offered.seq = 2u;
+		CHECK(fzn_catalog_content_held_wins(NULL, &held, &offered) == 0,
+		      "a near-miss issuer overwrote content another issuer owns");
+	}
+	{
+		fzn_catalog_name_t held, offered;
+
+		memset(&held, 0, sizeof(held));
+		memset(&offered, 0, sizeof(offered));
+		memcpy(held.issuer, a, FZN_PUBKEY_LEN);
+		memcpy(offered.issuer, b, FZN_PUBKEY_LEN);
+		held.seq = 1u;
+		offered.seq = 2u;
+		CHECK(fzn_catalog_name_held_wins(NULL, &held, &offered) == 0,
+		      "a near-miss issuer overwrote a name another issuer owns");
+	}
+}
+
 int main(void)
 {
 	memset(ALICE, 0xa1, sizeof(ALICE));
@@ -2729,6 +2794,7 @@ int main(void)
 	test_sets_combine_as_search_terms();
 	test_a_removal_survives_a_stale_link();
 	test_the_resolver_is_a_seam();
+	test_the_conflict_resolvers_read_the_whole_issuer();
 	test_two_hosts_adding_agree_without_talking();
 	test_a_remove_does_not_commute_and_that_is_the_design();
 	test_content_across_issuers_keeps_whichever_arrived_first();

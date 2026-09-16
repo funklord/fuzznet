@@ -347,6 +347,27 @@ SABOTAGES = [
 		"a name of exactly FZN_CATALOG_NAME_MAX (255) is legal: the declared length is a single body byte, so it reaches the maximum exactly, and >= refuses the longest legal name at encode and off the wire in apply_name. Every other name test uses a short title, so only a maximum-length name holds this edge. sec 298",
 	),
 	(
+		"catalog-add-wins-reads-the-whole-issuer",
+		"catalog/catalog.c",
+		"if (memcmp(held->issuer, offered->issuer, FZN_PUBKEY_LEN) == 0)\n\t\treturn offered->seq > held->seq ? 1 : 0;\n\n\t/* ACROSS ISSUERS, PRESENCE WINS",
+		"if (memcmp(held->issuer, offered->issuer, 1u) == 0)\n\t\treturn offered->seq > held->seq ? 1 : 0;\n\n\t/* ACROSS ISSUERS, PRESENCE WINS",
+		"add_wins orders one issuer's own edge by sequence and settles a cross-issuer conflict by presence. A prefix compare reads two issuers sharing a first byte as one, so a higher-sequenced near-miss offer wins the sequence path and overwrites -- or unlinks -- an edge another issuer owns. The merge tests use issuers differing at byte 0; none feeds a last-byte near miss. sec 318",
+	),
+	(
+		"catalog-content-held-wins-reads-the-whole-issuer",
+		"catalog/catalog.c",
+		"if (memcmp(held->issuer, offered->issuer, FZN_PUBKEY_LEN) == 0)\n\t\treturn offered->seq > held->seq ? 1 : 0;\n\n\t/* Across issuers there is no",
+		"if (memcmp(held->issuer, offered->issuer, 1u) == 0)\n\t\treturn offered->seq > held->seq ? 1 : 0;\n\n\t/* Across issuers there is no",
+		"content_held_wins keeps what is held across issuers and orders one issuer's own content by sequence. A prefix compare lets a near-miss issuer's higher seq overwrite content another issuer owns, the same last-byte gap add_wins has. sec 318",
+	),
+	(
+		"catalog-name-held-wins-reads-the-whole-issuer",
+		"catalog/catalog.c",
+		"if (memcmp(held->issuer, offered->issuer, FZN_PUBKEY_LEN) == 0)\n\t\treturn offered->seq > held->seq ? 1 : 0;\n\treturn 0;\n}",
+		"if (memcmp(held->issuer, offered->issuer, 1u) == 0)\n\t\treturn offered->seq > held->seq ? 1 : 0;\n\treturn 0;\n}",
+		"name_held_wins keeps a held name across issuers and orders one issuer's own by sequence. A prefix compare lets a near-miss issuer rename a node another issuer named, by presenting a higher seq. sec 318",
+	),
+	(
 		"revocation-covers-a-full-chain",
 		"chain/revocation.c",
 		"\tif (hop_count == 0 || hop_count > (size_t)FZN_CHAIN_MAX_HOPS)\n\t\treturn;",

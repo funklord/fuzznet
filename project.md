@@ -40994,3 +40994,44 @@ survives weakening to `>`: the two differ only for an offset exactly at
 content_len with a zero-length extent, which is an empty range at the very end
 rather than a read past anything -- for any non-zero length the second clause
 refuses it either way. Neither earns an entry.
+
+## Carrying the lens into the catalog and copy decoders (sec 318)
+
+catalog.c is the CRDT over a set-membership graph -- edges, content and names,
+each merged by a conflict resolver -- and copy.c plans what blobs to fetch or
+offer from it. copy.c holds at every edge (its two root memcmps were pinned in
+sec 306 and are caught again here, as is its truncation bound), and catalog.c
+holds everywhere the merge is exercised except its three resolvers' issuer read.
+
+### The three conflict resolvers read the whole issuer
+
+`fzn_catalog_add_wins` (edges), `fzn_catalog_content_held_wins` and
+`fzn_catalog_name_held_wins` each answer whether an offered assertion replaces
+a held one. One issuer restating its own is ordered by sequence -- a later
+statement supersedes -- but a sequence orders one issuer's stream and says
+nothing about another's, so between DIFFERENT issuers a cross-issuer policy
+decides instead (presence for edges, held-stands for content and names). The
+"same issuer?" test is `memcmp(held->issuer, offered->issuer, FZN_PUBKEY_LEN)`,
+and shortening it to one byte survived in all three. A near miss is a different
+issuer, so a prefix read reads two issuers sharing a first byte as one and lets
+the higher-sequenced offer win the sequence path -- overwriting, or unlinking,
+an edge, a content or a name another issuer owns. The merge tests drive the
+resolvers with issuers that differ at byte 0, which any read length separates;
+none feeds a last-byte near miss. The full-suite probe confirmed nothing
+noticed.
+
+test_the_conflict_resolvers_read_the_whole_issuer calls each resolver directly
+with a held owner at seq 1 and a last-byte near miss of it offering at seq 2,
+and requires each to keep what is held rather than let the near miss win by
+sequence. `catalog-{add-wins,content-held-wins,name-held-wins}-reads-the-whole-issuer`
+are in the table; all three are caught, with the controls caught.
+
+### What was left in catalog
+
+Everything else holds: catalog.c's id equality and id ordering memcmps both read
+the whole id (a one-byte read is caught), the name maximum (sec 298), and the
+path and retention bounds; copy.c's dedup and offer-scope root memcmps (sec 306)
+and its truncation counter. It is the same shape as the manifest issuer family
+(sec 315) and the reassembly plan_want sender (sec 316): a near-miss discipline
+applied where the module keys its lookups but not carried into the sibling
+comparisons that decide who owns a conflict.
