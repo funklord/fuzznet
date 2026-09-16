@@ -4401,6 +4401,18 @@ SABOTAGES = [
 		"verify at all would grant -- every refusal fzn_chain_verify can give "
 		"passes through this one comparison",
 	),
+	(
+		"relay-hop-floor-is-inclusive",
+		"wire/relay.c",
+		"frame_len < SITU_FZN_HOP_SIZE_MAX",
+		"frame_len <= SITU_FZN_HOP_SIZE_MAX",
+		"hop_view's floor is the five-byte hop header a relay reads without a "
+		"key: SITU_FZN_HOP_SIZE_MAX is the smallest legal input, not a whole "
+		"frame. Every relay_test case above passes a whole "
+		"SITU_FZN_FRAME_SIZE_MIN datagram, so <= would refuse a bare hop header "
+		"-- the one input hop_view exists to accept -- and the too-short case "
+		"tested sits three bytes below the boundary, not one. sec 323",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

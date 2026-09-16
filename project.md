@@ -41209,3 +41209,46 @@ and its siblings -- the kind, index and chunks refusals -- carry no table entry
 either. Each is pinned by an assertion in generated_test.c that observes the
 generated validator's behaviour, which is what a later regeneration emitting a
 weaker validator would fail.
+
+## Carrying the lens into the relay and hop decoders (sec 323)
+
+wire/relay.c reads and spends the hop budget of a datagram this host cannot
+open, and the hop decoder is the generated validator it reads through
+(`situ_fzn_hop_check` -- version must be 1, the reserved byte must be zero).
+relay.c is thorough at every edge that mattered before: an inflated budget is
+clamped rather than believed, the clamped value is what a spend writes back, a
+spent budget is EXHAUSTED with the frame left untouched, and a per-subsystem
+policy resolves to a first match, a fallback, or FZN_RELAY_ERR_REFUSED when the
+ceiling is zero. The budget's own endpoints hold -- a last hop of 1 spends and
+leaves 0, and 0 is exhausted -- and the hop validator's two refusals are pinned
+through relay: an unknown version and a non-zero reserved byte are both SHAPE.
+One floor was not.
+
+### The minimum a relay accepts is the hop header itself
+
+hop_view refuses a frame shorter than SITU_FZN_HOP_SIZE_MAX -- five bytes --
+because that is the hop header, and a relay reads the header of a frame it
+cannot open rather than the whole frame. So five bytes is the smallest legal
+input by design, not an accident of the datagrams that happen to arrive. Every
+relay_test case hands in a whole SITU_FZN_FRAME_SIZE_MIN datagram, and the one
+too-short case passes a length of two -- three bytes below the boundary. So the
+endpoint itself, a frame that is exactly the hop header and nothing more, was
+never the length passed. `frame_len < SITU_FZN_HOP_SIZE_MAX` widened to `<=`
+would refuse it -- turning away the one input hop_view exists to accept -- and a
+full-suite probe of that widening survived. The one byte below the boundary is
+masked: situ_fzn_hop_view refuses a four-byte view on its own bounds, so only
+the `<=` direction, rejecting the exact minimum, is both reachable and
+untested. The new case builds a frame of exactly SITU_FZN_HOP_SIZE_MAX bytes,
+reads its budget back, and requires one byte fewer to be refused;
+`relay-hop-floor-is-inclusive` is in the table.
+
+### What was held in relay and hop
+
+relay.c's clamp reads the whole claimed byte and takes the min of it and the
+ceiling, with no comparison length to shorten; the equal case clips to the same
+value either way, so it has no edge to skip. The version and reserved-byte
+refusals of the hop validator are exercised through both fzn_relay_budget and
+fzn_relay_service, and generated_test.c pins the version refusal directly as
+well. The UINT32_MAX cast guard -- a length that truncates on the way into
+situ_msg_init -- is held by relay_test's own model-guarded case, the one guard
+here that a whole-frame fixture could reach.

@@ -151,6 +151,34 @@ int main(void)
 	expect_err(fzn_relay_budget(frame, 2, FZN_RELAY_MAX_HOPS, &budget), FZN_RELAY_ERR_SHAPE,
 	           "something too short to hold a hop header");
 
+	/* THE MINIMUM A RELAY ACCEPTS IS THE HOP HEADER ITSELF. hop_view says
+	 * so in as many words: a relay reads frames it cannot open, so the
+	 * floor is the five-byte hop header rather than a whole frame. Every
+	 * case above hands in a whole SITU_FZN_FRAME_SIZE_MIN datagram, so the
+	 * endpoint -- a frame that is exactly the header and nothing more --
+	 * was never the length passed, and the too-short case just above sits
+	 * three bytes below the boundary rather than one. A floor of `<=`
+	 * rather than `<` would refuse a bare hop header, turning away the one
+	 * input this function is written to accept, and nothing here noticed:
+	 * a full-suite probe of that widening survived. Exactly the header must
+	 * read, and one byte fewer must not. */
+	{
+		uint8_t bare[SITU_FZN_HOP_SIZE_MAX];
+		uint8_t shy[SITU_FZN_HOP_SIZE_MAX - 1u];
+
+		budget = 0xeeu;
+		build(bare, sizeof(bare), 1, 4);
+		expect_err(fzn_relay_budget(bare, sizeof(bare), FZN_RELAY_MAX_HOPS, &budget),
+		           FZN_RELAY_OK, "a frame that is exactly a hop header was refused");
+		expect(budget == 4, "and its budget did not read back");
+
+		budget = 0xeeu;
+		build(shy, sizeof(shy), 1, 4);
+		expect_err(fzn_relay_budget(shy, sizeof(shy), FZN_RELAY_MAX_HOPS, &budget),
+		           FZN_RELAY_ERR_SHAPE, "one byte short of a hop header was read");
+		expect(budget == 0xeeu, "and a refused read wrote no budget");
+	}
+
 	/* A LENGTH THAT DOES NOT SURVIVE THE CAST, which is the guard nothing
 	 * here reached.
 	 *
