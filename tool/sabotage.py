@@ -445,6 +445,13 @@ SABOTAGES = [
 		"vouched_for accepts a catalogue as accounted-for only when the frontier names each issuer; a prefix compare takes a frontier one byte off an issuer for it, and the walk answers a deletion question from a frontier that never accounted for that issuer. sec 306",
 	),
 	(
+		"reach-sources-reads-the-whole-issuer",
+		"catalog/reach.c",
+		"\t\t\tif (memcmp(out[i].issuer, issuer, FZN_PUBKEY_LEN) != 0)",
+		"\t\t\tif (memcmp(out[i].issuer, issuer, 1u) != 0)",
+		"fzn_catalog_sources reports the distinct issuers a catalogue depends on, deduplicating rows by issuer -- the sibling of the frontier compare above. A prefix compare merges two issuers one byte apart into one source, so a caller catching up learns of a single dependency and never accounts for the second issuer's records. sec 319",
+	),
+	(
 		"message-have-ceiling-is-inclusive",
 		"spool/message.c",
 		"\tif (range_count > FZN_MSG_MAX_RANGES)\n\t\treturn FZN_MSG_ERR_TOO_LARGE;\n\tif (len != FZN_MSG_HAVE_LEN(range_count))",

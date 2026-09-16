@@ -41035,3 +41035,48 @@ and its truncation counter. It is the same shape as the manifest issuer family
 (sec 315) and the reassembly plan_want sender (sec 316): a near-miss discipline
 applied where the module keys its lookups but not carried into the sibling
 comparisons that decide who owns a conflict.
+
+## Carrying the lens into the sweep and reach decoders (sec 319)
+
+reach.c answers what a catalogue can reach and who it depends on; sweep.c plans
+which blobs are safe to delete. reach.c's id equality (sec 306), its walk id and
+its frontier issuer (sec 306) all read the whole key, and were caught again
+here. One reach comparison and two sweep comparisons were not held.
+
+### The source list reads the whole issuer
+
+`fzn_catalog_sources` reports the distinct issuers a catalogue depends on,
+deduplicating rows by issuer with its own memcmp -- the sibling of the frontier
+compare `vouched_for` uses, pinned in sec 306, and it was never given the same
+near miss. Shortening it to one byte survived: two issuers differing only in
+their last byte merge into one source, so a caller catching up learns of a
+single dependency and never accounts for the second issuer's records -- a host
+that believes itself current while missing everything a near-miss issuer signed.
+The full-suite probe confirmed nothing noticed. test_sources_reads_the_whole_issuer
+asserts a catalogue with edges from two last-byte-apart issuers reports two
+sources, not one. `reach-sources-reads-the-whole-issuer` is in the table, beside
+the sec 306 frontier entry. It is the manifest and catalog-resolver family (sec
+315, 318) once more: the near-miss discipline applied at one issuer compare in a
+file and not at its sibling.
+
+### The sweep comparisons left unpinned, and why
+
+sweep.c matches blobs by root in two places -- `a_retained_node_needs`, which
+keeps a blob any retained node still points at, and `already_planned`, which
+dedups the removal list. Both read the whole root and both survive shortening,
+so neither is near-miss-tested; both are left unpinned with the reason recorded.
+Their failure direction is the safe one: a prefix read OVER-matches, so a
+near-miss root reads as the same blob, which makes `a_retained_node_needs`
+answer "needed" more often and `already_planned` answer "already listed" more
+often -- both of which KEEP bytes rather than delete them. A shortened compare
+cannot make the sweep delete a blob a node needs, only retain one it could
+reclaim, so the fail-open direction this lens prioritises is not reachable
+through them. And the sweep's fixture keys its holdings and witness seams on the
+first byte of the root, so two near-miss roots are one blob to the seam as well
+-- a near-miss sweep fixture would have to grow a second axis before it could
+even pose the question. Recorded as conservative-failing whole-reads rather than
+pinned.
+
+reach.c's `fzn_catalog_sources` also dedups its dropped-issuer count by issuer,
+reached only when the source list overflows its buffer; a prefix read there
+undercounts a diagnostic, and it is left with the same reasoning.

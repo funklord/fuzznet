@@ -682,6 +682,41 @@ static void test_arguments(void)
 	CHECK(fzn_catalog_nodes(NULL) == 0, "a null catalogue counted nodes");
 }
 
+/* THE SOURCE LIST READS THE WHOLE ISSUER. fzn_catalog_sources reports the
+ * distinct issuers a catalogue depends on, deduplicating rows by issuer with
+ * its own memcmp -- the sibling of the frontier compare above, and it was not
+ * given the same near miss. Two issuers differing only in their last byte are
+ * two sources, not one: a compare reading one byte merges them, so a caller
+ * catching up learns of a single dependency and never accounts for the second
+ * issuer's records. */
+static void test_sources_reads_the_whole_issuer(void)
+{
+	fzn_catalog_edge_t rows[8];
+	fzn_catalog_source_t out[8];
+	fzn_catalog_t cat;
+	uint8_t alice_near[FZN_PUBKEY_LEN];
+	size_t dropped = 99u;
+	size_t n;
+
+	REQUIRE(fzn_catalog_init(&cat, rows, 8, &ADD_WINS) == FZN_CATALOG_OK, "init refused");
+	memcpy(alice_near, ALICE, sizeof(alice_near));
+	alice_near[FZN_PUBKEY_LEN - 1u] =
+	        (uint8_t)(alice_near[FZN_PUBKEY_LEN - 1u] ^ 0x01u);
+
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x01), idp(0x10), ALICE, 1, 1) == FZN_CATALOG_OK,
+	        "the ALICE link was refused");
+	REQUIRE(fzn_catalog_assert(&cat, idp(0x01), idp(0x11), alice_near, 1, 1) ==
+	                FZN_CATALOG_OK,
+	        "the near-miss link was refused");
+
+	n = fzn_catalog_sources(&cat, out, 8, &dropped);
+	CHECK(n == 2u,
+	      "a catalogue depending on two issuers one byte apart reported %zu source(s), "
+	      "so fzn_catalog_sources is not reading the whole issuer",
+	      n);
+	CHECK(dropped == 0u, "nothing overflowed, so nothing should be dropped");
+}
+
 int main(void)
 {
 	memset(ALICE, 0xa1, sizeof(ALICE));
@@ -690,6 +725,7 @@ int main(void)
 	test_what_the_roots_do_not_reach();
 	test_the_walk_reads_the_whole_id();
 	test_the_frontier_reads_the_whole_issuer();
+	test_sources_reads_the_whole_issuer();
 	test_an_unaccounted_issuer_is_refused_by_name();
 	test_an_unlinked_child_stops_being_a_node();
 	test_sources_names_every_issuer_once();
