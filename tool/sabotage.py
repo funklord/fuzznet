@@ -235,6 +235,13 @@ SABOTAGES = [
 		"init sets used=0; whether the array zeroing is also load-bearing",
 	),
 	(
+		"log-position-usable-is-inclusive",
+		"log/log.c",
+		"\treturn journal && journal->entries && journal->used <= journal->capacity;",
+		"\treturn journal && journal->entries && journal->used < journal->capacity;",
+		"fzn_log_get judges GONE against ABSENT using the caller's journal, and position_usable refuses one whose used is PAST capacity. used == capacity is a busy host's ordinary state, not corruption, and must still be read; the corrupt case is tested but the endpoint was not, so <= could tighten to < and turn every query a full host makes into MALFORMED. sec 321",
+	),
+	(
 		"log-init-zeroes-entries",
 		"log/log.c",
 		"\tmemset(entries, 0, capacity * sizeof(*entries));\n",

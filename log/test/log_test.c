@@ -156,6 +156,37 @@ static int log_diag_capture(flog_t *p, const flog_msg_t *m)
  * exactly when something interesting started happening". Reporting it as a
  * problem would be wrong about the design.
  */
+/* A JOURNAL FULL TO CAPACITY IS STILL READ. fzn_log_get judges GONE against
+ * ABSENT using the caller's journal, and `position_usable` refuses a journal
+ * whose `used` is PAST its capacity -- a corrupt count. A journal filled to
+ * exactly capacity is not corrupt; it is a busy host's ordinary state, and it
+ * must still be judged against rather than turned into a MALFORMED refusal.
+ * The corrupt-journal case is tested; used == capacity is the endpoint no
+ * case reached, so `<=` could tighten to `<` and refuse every query a full
+ * host makes. */
+static void test_a_full_journal_is_still_read(void)
+{
+	fzn_log_t log;
+	fzn_log_entry_t entries[4];
+	fzn_journal_t journal;
+	fzn_journal_entry_t positions[2];
+	const fzn_log_entry_t *got = NULL;
+	uint8_t a[FZN_PUBKEY_LEN], b[FZN_PUBKEY_LEN];
+
+	memset(a, 0xa1, sizeof(a));
+	memset(b, 0xb2, sizeof(b));
+	expect_err(fzn_log_init(&log, entries, 4), FZN_LOG_OK, "the log did not init");
+	expect(fzn_journal_init(&journal, positions, 2) == FZN_JOURNAL_OK,
+	       "the journal did not init");
+	expect(fzn_journal_anchor(&journal, a, 0, 0) == FZN_JOURNAL_OK, "following a");
+	expect(fzn_journal_anchor(&journal, b, 0, 0) == FZN_JOURNAL_OK, "following b");
+	expect(journal.used == journal.capacity,
+	       "the two-issuer fixture did not fill the journal");
+
+	expect_err(fzn_log_get(&log, &journal, a, 0, 1, &got), FZN_LOG_ERR_ABSENT,
+	           "a journal full to capacity was refused as malformed rather than read");
+}
+
 static void test_the_log_says_which_record_it_evicted(void)
 {
 	fzn_log_t l;
@@ -886,6 +917,7 @@ int main(void)
 
 #ifdef FZN_FLOG_ON
 	test_the_log_says_which_record_it_evicted();
+	test_a_full_journal_is_still_read();
 #endif
 
 	printf("log_test: %d checks, %d failure(s)\n", checks, failures);

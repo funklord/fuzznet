@@ -41124,3 +41124,40 @@ children truncation `emitted == out_cap` is a no-edge, since emitted is checked
 before each append and never exceeds the cap. record.c holds at every edge --
 its min-length floor, exact length in both directions, body maximum, seq-zero
 and buffer bounds -- as sec 312 found.
+
+## Carrying the lens into the persist and log decoders (sec 321)
+
+persist.c serialises this host's own state -- trust anchor, secret, peer,
+ratchet chain -- into versioned, tagged, exact-length blobs, and reads them
+back. log.c is the append-only record log a peer reads a stream from, judging
+GONE against ABSENT with the caller's journal. persist.c holds at every edge;
+log.c's own copy of the journal-soundness check did not.
+
+### A full journal is still read
+
+fzn_log_get answers whether a sequence was evicted (GONE) or never arrived
+(ABSENT), and it makes that call against a journal the caller supplies.
+`position_usable` refuses a journal whose `used` is PAST its `capacity` -- a
+corrupt count -- and log_test drives that corrupt case. A journal filled to
+exactly capacity is not corrupt; it is a busy host's ordinary state, tracking
+as many issuers as it can hold, and it must still be judged against. No case
+reached used == capacity: the fixture's journal has room for eight and follows
+one. That endpoint is the one value `<=` admits and `<` would refuse, and
+refusing it turns every query a full host makes into FZN_LOG_ERR_MALFORMED --
+GONE and ABSENT both lost the moment the journal fills. The full-suite probe
+confirmed nothing noticed. test_a_full_journal_is_still_read fills a two-entry
+journal with two issuers, asserts used == capacity, and requires fzn_log_get to
+answer ABSENT rather than MALFORMED. `log-position-usable-is-inclusive` is in
+the table -- the sec 313 shape (a full journal's digest) reappearing at the log
+layer's own copy of the check.
+
+### What was held in persist and log
+
+log.c's other edges hold: the record-body maximum (sec 300), the issuer
+`fzn_ct_memeq` reading the whole key, the stream and sequence filters in
+read_since, and the body-escaping range. persist.c holds at every edge -- the
+header capacity floor, the exact blob length (both directions), the version and
+tag bytes that keep one blob from being restored as another, and the trust
+blob's source/adopted_at consistency. It carries no key comparison: every field
+it writes is a struct member laid down in place, and every field it reads is
+handed to the module that owns the invariant.
