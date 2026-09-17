@@ -159,7 +159,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
              local/line.c local/socket.c \
              net/udp.c \
-             node/node.c node/local.c node/remote.c \
+             node/node.c node/local.c node/remote.c node/serve.c \
              chain/chain.c chain/revocation.c chain/manifest.c chain/authz.c \
              chain/chain_store.c chain/service.c claim/claim.c \
              record/store.c catalog/catalog.c catalog/copy.c catalog/sweep.c \
@@ -196,10 +196,32 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
 # because they are appended with `+=` further down, which is the same
 # accident pointing the other way.
 OBJS       = $(SRCS:%.c=$(BUILD_DIR)/%.o) $(GEN_OBJS)
+
+# Program sources: a main(), so neither a library object nor a test.
+# fuzznetd is the first executable this project builds (sec 300); the
+# C-source census names PROG_SRCS so a program is accounted for too.
+PROG_SRCS := node/fuzznetd.c
+
+# The objects fuzznetd and its runtime test both link: the node, the
+# two transports, the seal and chain stack, and the nonce source the
+# seal reaches for. No Monocypher: the crypto ops are passed in, so a
+# node with no provisioned peers links none.
+NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/local.o \
+                   $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/node.o \
+                   $(BUILD_DIR)/local/socket.o $(BUILD_DIR)/local/peer.o \
+                   $(BUILD_DIR)/local/peer_linux.o $(BUILD_DIR)/local/line.o \
+                   $(BUILD_DIR)/net/udp.o $(BUILD_DIR)/version/version.o \
+                   $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/chain/authz.o \
+                   $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/chain/revocation.o \
+                   $(BUILD_DIR)/chain/manifest.o \
+                   $(BUILD_DIR)/session/commitment.o \
+                   $(BUILD_DIR)/session/random.o \
+                   $(BUILD_DIR)/session/random_linux.o \
+                   $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h local/vocabulary.h local/line.h local/socket.h \
              net/udp.h \
-             node/node.h node/local.h node/remote.h \
+             node/node.h node/local.h node/remote.h node/serve.h \
              chain/chain.h chain/revocation.h chain/manifest.h chain/authz.h \
              chain/chain_store.h chain/service.h claim/claim.h \
              record/store.h catalog/catalog.h catalog/copy.h catalog/sweep.h \
@@ -297,7 +319,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              local/test/line_test.c local/test/socket_test.c \
              net/test/udp_test.c \
              node/test/node_test.c node/test/local_test.c \
-             node/test/remote_test.c \
+             node/test/remote_test.c node/test/serve_test.c \
              local/test/peer_fuzz.c local/test/peer_linux_test.c \
              spool/test/message_fuzz.c \
              chunk/test/reassembly_fuzz.c chain/test/chain_fuzz.c \
@@ -392,6 +414,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/node/test/node_test \
              $(BUILD_DIR)/node/test/local_test \
              $(BUILD_DIR)/node/test/remote_test \
+             $(BUILD_DIR)/node/test/serve_test \
              $(BUILD_DIR)/chunk/test/agreement_test \
              $(BUILD_DIR)/local/test/peer_fuzz \
              $(BUILD_DIR)/local/test/peer_linux_test \
@@ -1552,7 +1575,7 @@ DEPS = $(OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(GUI_OBJS:.o=.d) $(GUI_TOBJ:.o=.d)
 
 # The default build does NOT build tests -- build-and-commit.md, and the
 # discipline it buys is paid for by the dependency rules above being right.
-all: $(OBJS)
+all: $(OBJS) $(BUILD_DIR)/fuzznetd
 
 $(BUILD_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
@@ -2943,6 +2966,24 @@ $(BUILD_DIR)/node/test/remote_test: $(BUILD_DIR)/node/test/remote_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# fuzznetd's runtime -- fzn_node_run_once driven over a real listener without
+# a fork. serve_test.o needs -Inode for "serve.h".
+$(BUILD_DIR)/node/test/serve_test.o: node/test/serve_test.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -Inode -c $< -o $@
+
+$(BUILD_DIR)/node/test/serve_test: $(BUILD_DIR)/node/test/serve_test.o \
+                                   $(NODE_SERVE_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# The fuzznetd daemon. Its main() is in node/, so the pattern rule resolves
+# "serve.h" without -Inode.
+$(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
+              $(FLOG_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # Four tests read situ's output and need the generated include path, so each
 # has its own compile rule rather than the pattern's. This comment said "the
 # only test" until there were three of them, and three until tamper_test
@@ -3845,7 +3886,7 @@ style: $(OBJS)
 	@# tree, and `qr/test/qr_quirc_check.c` needs a quirc checkout. Naming
 	@# them here rather than widening the sweep keeps the gate exact -- a
 	@# third one has to be added deliberately and says why.
-	@known=" $(SRCS) $(TEST_SRCS) $(GEN_SRCS) $(MONO_SRCS) $(MONO_TSRC) \
+	@known=" $(SRCS) $(PROG_SRCS) $(TEST_SRCS) $(GEN_SRCS) $(MONO_SRCS) $(MONO_TSRC) \
 	         $(FLOG_TSRC) tool/consumer_check.c qr/test/qr_quirc_check.c "; \
 	unlisted=; n=0; \
 	for c in `find . -name '*.c' -not -path './build/*' -not -path './san/*' \

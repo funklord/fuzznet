@@ -5937,6 +5937,8 @@ somebody to notice.
 | `link/link.h` | what each link is actually doing |
 | `local/peer.h` | peer identity, groups, vocabulary |
 | `net/udp.h` | the remote hop's datagram transport, one frame per datagram |
+| `node/node.h` | the node's access core: who a caller is, may they be served |
+| `node/serve.h` | the node's poll loop, and fuzznetd's runtime |
 | `log/log.h` | the append-only log |
 | `persist/persist.h` | packing state so a restarted host can open what it holds |
 | `prekey/prekey.h` | the prekey record and the act of pinning it |
@@ -41585,3 +41587,70 @@ mapping become fuzznet's generic vocabulary reaching §5 (the holder's
 instruction, relayed: "just use the vocabulary that fuzznet already offers or
 will offer"). The transport needs neither resolved; it carries frames, not
 verbs.
+
+## 300. fuzznetd: the node and its three access methods, 2026-09-17
+
+sec 298 put a shared node in scope -- a daemon a consumer who does not want to
+write its own can run -- and this is it: `node/` and the `fuzznetd` binary,
+built and run by `make`. It composes what the earlier sections built -- the
+two sockets (`local/socket.h`, `net/udp.h`), the seal and the capability chain
+-- under one loop.
+
+### Three access methods: three authentications, one authorisation
+
+The node's core (`node/node.h`) is transport-free and crypto-free, so all
+three methods are decided from a `fzn_peer_t` or an origin a caller
+constructed, and tested without a socket or a key:
+
+- **SAME_USER** -- the caller is the node's own user, by the uid the kernel put
+  on the local socket. `fzn_node_local_origin`.
+- **LOCAL** -- the caller is a member of the node's service group, by the
+  supplementary groups `local/peer.h` reads. The same function.
+- **REMOTE** -- the caller presented a capability chaining to the node's root,
+  by `fzn_authz_decide`. `node/remote.h`.
+
+The local two are authenticated by the kernel and served unguarded; the remote
+one is authenticated cryptographically -- a frame opens only under the session
+key the two agreed -- and authorised by capability. The split is netcfgd's
+decision 0128, and `fzn_authz_decide` checks the origin before the capability
+so a policy meant locally cannot reach the wire.
+
+### The layers, each tested where its evidence is
+
+    node/node.c     the access decision          node_test    no socket, no key
+    node/local.c    serve an AF_UNIX connection   local_test   a socketpair
+    node/remote.c   serve a sealed datagram       remote_test  real Monocypher
+    node/serve.c    the poll loop, find a peer    serve_test   a real listener
+    node/fuzznetd.c the daemon main               smoke: builds, binds, serves
+
+`fzn_node_run_once` is the loop body, exposed so a test drives one
+poll-and-dispatch iteration over a real listener without a fork -- the poll
+timeout bounds it. `fzn_node_run` loops it forever, which is what a daemon is:
+nothing stops it but a signal, and no test calls it.
+
+### What is provisioned, not built
+
+The remote hop consumes a `fzn_node_peer_t` a caller filled: the session key
+(from pinned prekeys -- this library has no wire handshake) and the peer's
+capability. How those are distributed -- the pairing card, where the root
+signing key lives -- is the copyright holder's decision, so `fuzznetd` binds
+the UDP socket but serves no remote peer until one is provisioned: a frame from
+an unknown sender has no session and is dropped. A consumer that has
+provisioned peers fills the state and calls `fzn_node_run` directly.
+
+### The served surface is generic, pending the vocabulary decision
+
+The node authenticates, authorises, and answers with a status line; it does not
+parse a request vocabulary. What verbs a request may carry, and whether they
+become fuzznet's generic vocabulary rather than each consumer's table, is the
+holder's §5 decision -- raidcfgd relayed the instruction, "just use the
+vocabulary that fuzznet already offers or will offer". The node is the three
+access methods and the loop; the verbs sit on top.
+
+### Still above the transport, from raidcfgd's brief
+
+Sealing a reply to a remote caller (the reverse session), the replay window (a
+nonce recorded per peer), retransmission generation, and the stream loss policy
+are named in `node/remote.h`, `net/udp.h` and sec 299 as the next work. The
+node here authenticates and authorises every caller on every hop; those are the
+request/response and reliability layers above it.

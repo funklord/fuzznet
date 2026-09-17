@@ -4613,6 +4613,16 @@ SABOTAGES = [
 		"one. Deciding as SAME_USER runs the kernel-authenticated path for a "
 		"caller the kernel never saw. remote_test grants a remote request.",
 	),
+	(
+		"node-find-peer-matches-the-sender",
+		"node/serve.c",
+		"memcmp(peers[i].sender, sender, FZN_PUBKEY_LEN) == 0",
+		"memcmp(peers[i].sender, sender, FZN_PUBKEY_LEN) != 0",
+		"the daemon routes a datagram to the session whose sender matches "
+		"the frame's. Inverting the match returns the wrong peer's session "
+		"for a sender and none for the right one. serve_test looks up a "
+		"present and an absent sender.",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so
