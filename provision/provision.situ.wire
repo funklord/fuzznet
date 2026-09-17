@@ -16,10 +16,6 @@
 # entry that moved.
 
 endian big
-endian big
-endian big
-target buffer
-target buffer
 target buffer
 
 struct fzn_chain_hop size=179
