@@ -39,7 +39,7 @@ static void check(int ok, const char *what)
 	checks++;
 	if (!ok) {
 		failures++;
-		printf("  FAIL: %s\n", what);
+		printf("  FAIL socket_test.c: %s\n", what);
 	}
 }
 
@@ -89,7 +89,7 @@ int main(void)
 	struct stat st;
 
 	if (!mkdtemp(dir)) {
-		printf("  FAIL: could not make a temporary directory\n");
+		printf("  FAIL socket_test.c: could not make a temporary directory\n");
 		return 1;
 	}
 	snprintf(path, sizeof(path), "%s/sock", dir);

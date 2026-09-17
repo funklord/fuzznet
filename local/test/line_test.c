@@ -18,7 +18,7 @@ static void check(int ok, const char *what)
 	checks++;
 	if (!ok) {
 		failures++;
-		printf("  FAIL: %s\n", what);
+		printf("  FAIL line_test.c: %s\n", what);
 	}
 }
 
