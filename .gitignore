@@ -198,6 +198,7 @@ __pycache__/
 /local/test/line_test
 /local/test/socket_test
 /net/test/udp_test
+/node/test/node_test
 /.situ-head/
 /.gen.new/
 

@@ -159,6 +159,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
              local/line.c local/socket.c \
              net/udp.c \
+             node/node.c \
              chain/chain.c chain/revocation.c chain/manifest.c chain/authz.c \
              chain/chain_store.c chain/service.c claim/claim.c \
              record/store.c catalog/catalog.c catalog/copy.c catalog/sweep.c \
@@ -198,6 +199,7 @@ OBJS       = $(SRCS:%.c=$(BUILD_DIR)/%.o) $(GEN_OBJS)
 HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h local/vocabulary.h local/line.h local/socket.h \
              net/udp.h \
+             node/node.h \
              chain/chain.h chain/revocation.h chain/manifest.h chain/authz.h \
              chain/chain_store.h chain/service.h claim/claim.h \
              record/store.h catalog/catalog.h catalog/copy.h catalog/sweep.h \
@@ -294,6 +296,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              local/test/vocabulary_fuzz.c local/test/admit_test.c \
              local/test/line_test.c local/test/socket_test.c \
              net/test/udp_test.c \
+             node/test/node_test.c \
              local/test/peer_fuzz.c local/test/peer_linux_test.c \
              spool/test/message_fuzz.c \
              chunk/test/reassembly_fuzz.c chain/test/chain_fuzz.c \
@@ -385,6 +388,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/local/test/line_test \
              $(BUILD_DIR)/local/test/socket_test \
              $(BUILD_DIR)/net/test/udp_test \
+             $(BUILD_DIR)/node/test/node_test \
              $(BUILD_DIR)/chunk/test/agreement_test \
              $(BUILD_DIR)/local/test/peer_fuzz \
              $(BUILD_DIR)/local/test/peer_linux_test \
@@ -2868,6 +2872,24 @@ $(BUILD_DIR)/net/test/udp_test.o: net/test/udp_test.c
 
 $(BUILD_DIR)/net/test/udp_test: $(BUILD_DIR)/net/test/udp_test.o \
                                 $(BUILD_DIR)/net/udp.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# The node's access core, decided without a socket or a key. Its test .o
+# needs -Inode for "node.h"; it links the authz stack because node_decide
+# calls fzn_authz_decide, and local/peer.o for the group verdict.
+$(BUILD_DIR)/node/test/node_test.o: node/test/node_test.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -Inode -c $< -o $@
+
+$(BUILD_DIR)/node/test/node_test: $(BUILD_DIR)/node/test/node_test.o \
+                                  $(BUILD_DIR)/node/node.o \
+                                  $(BUILD_DIR)/local/peer.o \
+                                  $(BUILD_DIR)/chain/authz.o \
+                                  $(BUILD_DIR)/chain/chain.o \
+                                  $(BUILD_DIR)/chain/revocation.o \
+                                  $(BUILD_DIR)/chain/manifest.o \
+                                  $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 

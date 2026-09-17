@@ -4521,6 +4521,37 @@ SABOTAGES = [
 		"address, so != 1 refuses a hostname while < 0 lets it through and "
 		"builds a zero address. udp_test requires a hostname to be refused.",
 	),
+	(
+		"node-same-user-needs-a-uid-match",
+		"node/node.c",
+		"peer->uid == config->uid",
+		"peer->uid != config->uid",
+		"the SAME_USER access method is the caller's uid matching the "
+		"node's own. Inverting it calls a stranger the node's own user and "
+		"the node's user a stranger. node_test drives a matching and a "
+		"non-matching uid.",
+	),
+	(
+		"node-local-needs-group-membership",
+		"node/node.c",
+		"== FZN_PEER_MEMBER",
+		"!= FZN_PEER_MEMBER",
+		"the LOCAL access method is membership of the service group. "
+		"Inverting the verdict admits every non-member as LOCAL and denies "
+		"every member. node_test drives a member and a non-member of the "
+		"service group.",
+	),
+	(
+		"node-serves-only-the-configured-local-origins",
+		"node/node.c",
+		"fzn_authz_unguarded(config->local_origins)",
+		"fzn_authz_unguarded(FZN_ORIGIN_ANY)",
+		"a local origin is granted only if the node serves it: "
+		"authentication by the kernel is not authorisation. Widening the "
+		"mask to ANY grants a kernel-authenticated origin the node was "
+		"configured not to serve. node_test denies a LOCAL caller of a "
+		"node that serves only SAME_USER.",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so
