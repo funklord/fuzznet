@@ -1,0 +1,31 @@
+# situ capability map v1
+# schema: manifest.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct fzn_manifest size=100..262097 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  fzn_manifest.version                   offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_manifest.object                    offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_manifest.issuer                    offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_manifest.count                     offset=AbsoluteStatic(0x22) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  fzn_manifest.pairs                     offset=AbsoluteStatic(0x24) size=Bounded(0, 261997) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  fzn_manifest.pairs[]                   offset=FrameStatic(0x00) size=Fixed(97) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  fzn_manifest.pairs[].capability        offset=FrameStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  fzn_manifest.pairs[].grantee           offset=FrameStatic(0x20) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  fzn_manifest.pairs[].id                offset=FrameStatic(0x40) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  fzn_manifest.pairs[].state             offset=FrameStatic(0x60) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_manifest.signature                 offset=Dynamic size=Fixed(64) align=Unaligned repr=MemoryIdentical atomic=NonAtomic address=Unstable
+
+struct fzn_manifest_pair size=97 atomic=NonAtomic
+  fzn_manifest_pair.capability           offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  fzn_manifest_pair.grantee              offset=AbsoluteStatic(0x20) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  fzn_manifest_pair.id                   offset=AbsoluteStatic(0x40) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  fzn_manifest_pair.state                offset=AbsoluteStatic(0x60) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord

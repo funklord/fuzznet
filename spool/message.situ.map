@@ -1,0 +1,58 @@
+# situ capability map v1
+# schema: message.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct fzn_msg_data size=23.. mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  fzn_msg_data.version                   offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_msg_data.type                      offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_msg_data.transfer                  offset=AbsoluteStatic(0x02) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_msg_data.first                     offset=AbsoluteStatic(0x06) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_msg_data.count                     offset=AbsoluteStatic(0x0E) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_msg_data.proof_count               offset=AbsoluteStatic(0x16) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_msg_data.siblings                  offset=AbsoluteStatic(0x17) size=Bounded(0, 1280) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  fzn_msg_data.siblings[]                offset=FrameStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  fzn_msg_data.siblings[].hash           offset=FrameStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  fzn_msg_data.leaf_len                  offset=Dynamic size=Bounded(0, 256) align=Unaligned repr=ValueConverted atomic=NonAtomic mutate=Shifting address=Unstable
+  fzn_msg_data.payload                   offset=Dynamic size=Unbounded align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+
+struct fzn_msg_have size=60..4156 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  fzn_msg_have.version                   offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_msg_have.type                      offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_msg_have.root                      offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_msg_have.leaf_count                offset=AbsoluteStatic(0x22) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_msg_have.cookie                    offset=AbsoluteStatic(0x2A) size=Fixed(16) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_msg_have.range_count               offset=AbsoluteStatic(0x3A) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  fzn_msg_have.ranges                    offset=AbsoluteStatic(0x3C) size=Bounded(0, 4096) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  fzn_msg_have.ranges[]                  offset=FrameStatic(0x00) size=Fixed(16) align=Aligned(8) repr=ValueConverted atomic=NonAtomic
+  fzn_msg_have.ranges[].first            offset=FrameStatic(0x00) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  fzn_msg_have.ranges[].count            offset=FrameStatic(0x08) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+
+struct fzn_msg_have_query size=34 atomic=NonAtomic
+  fzn_msg_have_query.version             offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_msg_have_query.type                offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_msg_have_query.root                offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+
+struct fzn_msg_proof_node size=32 atomic=NonAtomic
+  fzn_msg_proof_node.hash                offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+
+struct fzn_msg_range size=16 repr=ValueConverted
+  fzn_msg_range.first                    offset=AbsoluteStatic(0x00) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  fzn_msg_range.count                    offset=AbsoluteStatic(0x08) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+
+struct fzn_msg_want size=70 repr=ValueConverted atomic=NonAtomic
+  fzn_msg_want.version                   offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_msg_want.type                      offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_msg_want.transfer                  offset=AbsoluteStatic(0x02) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_msg_want.cookie                    offset=AbsoluteStatic(0x06) size=Fixed(16) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_msg_want.root                      offset=AbsoluteStatic(0x16) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_msg_want.first                     offset=AbsoluteStatic(0x36) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_msg_want.count                     offset=AbsoluteStatic(0x3E) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic

@@ -1,0 +1,24 @@
+// The tree node body as a situ schema -- converted from hand-written C
+// (tree/tree.h) the way record/record.situ was. VARIABLE LENGTH: two fixed
+// fields, a content_type, then the consumer's opaque content. Measured
+// against the committed FZN_TREE_OFF_* constants before anything is
+// generated.
+//
+// This is a NODE BODY -- the bytes that sit in an fzn_record's `body` field,
+// not a whole record. So `content` runs to the end of this body buffer:
+// tree.c computes content_len = body_len - FZN_TREE_BODY_HEADER_LEN, which is
+// exactly `[remaining]` here (frame.situ's payload avoids `remaining` only
+// because a tag follows it; a node body has nothing after content).
+//
+// FZN_TREE_ID_LEN is FZN_SUBJECT_LEN (32). order and content_type are read as
+// big-endian values (fzn_get_be64 / fzn_get_be16).
+
+target buffer;
+endian big;
+
+struct fzn_tree_node {
+	u8  parent[32];          // FZN_TREE_OFF_PARENT        0  (FZN_TREE_ID_LEN)
+	u64 order;               // FZN_TREE_OFF_ORDER         32
+	u16 content_type;        // FZN_TREE_OFF_CONTENT_TYPE  40
+	u8  content[remaining];  // FZN_TREE_OFF_CONTENT       42 = FZN_TREE_BODY_HEADER_LEN
+}

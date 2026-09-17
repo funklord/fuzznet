@@ -4546,6 +4546,14 @@ coverage:
 # empty file list.
 SITU_DIR ?=
 
+# The spec schemas: hand-written layouts also described as situ schemas and
+# adopted as checked contracts (committed .wire/.map, pinned by `schema`),
+# with the hand-written codec still producing the bytes. sec 304-305.
+SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
+              prekey/prekey.situ persist/persist.situ spool/message.situ \
+              spool/sidecar.situ record/record.situ tree/tree.situ \
+              catalog/catalog.situ
+
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.
 #
 # NOT PART OF `make check`, on the same argument `make schema` uses: it needs
@@ -4909,18 +4917,19 @@ schema:
 		rm -f $(BUILD_DIR)/.frame.map.new; exit 1; \
 	fi
 	@rm -f $(BUILD_DIR)/.frame.map.new
-	@# chain/hop.situ is the capability hop as a schema -- the first layout
-	@# converted from hand-written C. Adopted as a CHECKED CONTRACT: the
-	@# committed .wire and .map are pinned here, the hand-written codec in
-	@# chain/chain.c still produces the bytes, and generating the accessors
-	@# (and the owned form) to replace it is the next increment. sec 304.
-	@$(BUILD_DIR)/.situ-head/bin/situc wire --check chain/hop.situ
-	@$(BUILD_DIR)/.situ-head/bin/situc map chain/hop.situ > $(BUILD_DIR)/.hop.map.new
-	@if ! cmp -s $(BUILD_DIR)/.hop.map.new chain/hop.situ.map; then \
-		echo "schema: chain/hop.situ.map is stale -- the schema moved without it"; \
-		rm -f $(BUILD_DIR)/.hop.map.new; exit 1; \
-	fi
-	@rm -f $(BUILD_DIR)/.hop.map.new
+	@# The spec schemas: layouts converted to situ as a CHECKED CONTRACT (sec
+	@# 304-305). Each has a committed .wire and .map, pinned here; the
+	@# hand-written codec still produces the bytes, and generating the
+	@# accessors (and the owned form) to replace each is the next increment.
+	@for s in $(SITU_SPECS); do \
+		$(BUILD_DIR)/.situ-head/bin/situc wire --check $$s || exit 1; \
+		$(BUILD_DIR)/.situ-head/bin/situc map $$s > $(BUILD_DIR)/.spec.map.new || exit 1; \
+		if ! cmp -s $(BUILD_DIR)/.spec.map.new $$s.map; then \
+			echo "schema: $$s.map is stale -- the schema moved without it"; \
+			rm -f $(BUILD_DIR)/.spec.map.new; exit 1; \
+		fi; \
+		rm -f $(BUILD_DIR)/.spec.map.new; \
+	done
 	@# The generated C and the vendored runtime, same argument as the
 	@# contract: committed so consumers need no situc, checked so they
 	@# cannot quietly diverge from the schema that produced them.

@@ -1,0 +1,22 @@
+// The revocation record as a situ schema -- converted from hand-written C
+// (chain/revocation.h) the way chain/hop.situ was. Measured against the
+// committed FZN_REV_OFF_* constants before anything is generated.
+//
+// A revocation withdraws a capability from a grantee; a withdrawal (same
+// layout, different object byte) undoes one. The signature covers bytes 0
+// through FZN_REVOCATION_BODY_LEN-1 (the whole body); here it is opaque
+// bytes and this measures the offsets alone, as hop.situ does.
+
+target buffer;
+endian big;
+
+struct fzn_revocation {
+	u8  version;             // FZN_REV_OFF_VERSION    0
+	u8  object;              // FZN_REV_OFF_OBJECT     1
+	u8  capability[32];      // FZN_REV_OFF_CAPABILITY 2
+	u8  grantee[32];         // FZN_REV_OFF_GRANTEE    34
+	u8  issuer[32];          // FZN_REV_OFF_ISSUER     66
+	u64 issued_at;           // FZN_REV_OFF_ISSUED_AT  98
+	u8  supersedes[32];      // FZN_REV_OFF_SUPERSEDES 106  (the rev-id)
+	u8  signature[64];       // FZN_REV_OFF_SIGNATURE  138 = FZN_REVOCATION_BODY_LEN
+}

@@ -1,0 +1,144 @@
+// The spool sync-protocol vocabulary as situ schemas -- converted from the
+// hand-written C in spool/message.h / spool/message.c the way chain/hop.situ
+// and chain/manifest.situ were. Measured against the committed FZN_MSG_OFF_*
+// constants before anything is generated.
+//
+// FOUR MESSAGES, ONE STRUCT EACH, over a shared (version, type) prefix. Two
+// are fixed length (have_query, want) and two are variable (have, data). The
+// count-driven arrays use the same form chain/manifest.situ uses for its
+// pairs and wire/frame.situ uses for its payload.
+//
+// These are PAYLOAD, not a frame kind -- message.h says so: they encode into
+// the sealed payload of a `chunk` or a `unit`. Nothing here is signed; the
+// version and type bytes lead every message for domain separation, because a
+// peer sends all four under one key and a seal proves only that the peer
+// wrote the bytes, not which question they answer.
+
+target buffer;
+endian big;
+
+// The vocabulary's own version (FZN_MSG_VERSION = 1). Every message leads
+// with it and every parser refuses a mismatch, so must_eq turns a wrong
+// version into a refusal rather than a misparse.
+
+// The four things two hosts say about a blob. FZN_MSG_HAVE_QUERY = 1 .. 4.
+enum fzn_msg_type : u8 {
+	have_query = 1,   // "Do you have this blob?" -- a root and nothing else.
+	have       = 2,   // "This much of it, and here is a cookie to quote back."
+	want       = 3,   // "Send me this span; here is your cookie."
+	data       = 4,   // "That span, under one proof."
+}
+
+// --------------------------------------------------------------------------
+// have-query: a header and a root. FZN_MSG_HAVE_QUERY_LEN = 34.
+//
+//   0   1  version                FZN_MSG_OFF_VERSION      0
+//   1   1  type (= 1)             FZN_MSG_OFF_TYPE         1
+//   2  32  root                   FZN_MSG_HAVE_OFF_ROOT    2
+//  ----------------- 34
+struct fzn_msg_have_query {
+	u8            version [must_eq = 1];
+	fzn_msg_type  type    [must_eq = have_query];
+	u8            root[32];                          // FZN_BLOB_HASH_LEN
+}
+
+// --------------------------------------------------------------------------
+// have (VARIABLE): what this host holds, as ranges rather than a bitmap.
+//
+//   0   1  version                FZN_MSG_OFF_VERSION           0
+//   1   1  type (= 2)             FZN_MSG_OFF_TYPE              1
+//   2  32  root                   FZN_MSG_HAVE_OFF_ROOT         2
+//  34   8  leaf_count             FZN_MSG_HAVE_OFF_LEAF_COUNT   34
+//  42  16  cookie                 FZN_MSG_HAVE_OFF_COOKIE       42
+//  58   2  range_count            FZN_MSG_HAVE_OFF_RANGE_COUNT  58
+//  60  16  range[0..n-1]          FZN_MSG_HAVE_OFF_RANGES       60
+//  -----------------  60 + 16n
+
+// One coalesced run of leaves. FZN_MSG_RANGE_LEN = 16 -- two u64 and nothing
+// else (mirrors fzn_spool_range_t: first, count).
+struct fzn_msg_range {
+	u64  first;      // range offset 0
+	u64  count;      // range offset 8
+}
+
+struct fzn_msg_have {
+	u8            version    [must_eq = 1];
+	fzn_msg_type  type       [must_eq = have];
+	u8            root[32];                             // FZN_BLOB_HASH_LEN
+	// A blob nobody can address is refused by the C; capped at
+	// FZN_SPOOL_MAX_LEAVES (1u << 22 = 4194304).
+	u64           leaf_count [max = 4194304];
+	u8            cookie[16];                           // FZN_MSG_COOKIE_LEN
+	// FZN_MSG_MAX_RANGES = FZN_SPOOL_MAX_WANT = 256.
+	u16           range_count [max = 256];
+	fzn_msg_range ranges[range_count];                 // 60 + 16*range_count
+}
+
+// --------------------------------------------------------------------------
+// want (fixed): "send me this span". FZN_MSG_WANT_LEN = 70.
+//
+//   0   1  version                FZN_MSG_OFF_VERSION       0
+//   1   1  type (= 3)             FZN_MSG_OFF_TYPE          1
+//   2   4  transfer               FZN_MSG_WANT_OFF_TRANSFER 2
+//   6  16  cookie                 FZN_MSG_WANT_OFF_COOKIE   6
+//  22  32  root                   FZN_MSG_WANT_OFF_ROOT     22
+//  54   8  first                  FZN_MSG_WANT_OFF_FIRST    54
+//  62   8  count                  FZN_MSG_WANT_OFF_COUNT    62
+//  ----------------- 70
+struct fzn_msg_want {
+	u8            version [must_eq = 1];
+	fzn_msg_type  type    [must_eq = want];
+	u32           transfer;
+	u8            cookie[16];                    // FZN_MSG_COOKIE_LEN
+	u8            root[32];                       // FZN_BLOB_HASH_LEN
+	u64           first;
+	// FZN_MSG_MAX_SPAN = 64.
+	u64           count [max = 64];
+}
+
+// --------------------------------------------------------------------------
+// data (VARIABLE, the hardest): a span under one proof.
+//
+//   0   1  version                FZN_MSG_OFF_VERSION          0
+//   1   1  type (= 4)             FZN_MSG_OFF_TYPE             1
+//   2   4  transfer               FZN_MSG_DATA_OFF_TRANSFER    2
+//   6   8  first                  FZN_MSG_DATA_OFF_FIRST       6
+//  14   8  count                  FZN_MSG_DATA_OFF_COUNT       14
+//  22   1  proof_count            FZN_MSG_DATA_OFF_PROOF_COUNT 22
+//  23  32  sibling[0..p-1]        FZN_MSG_DATA_OFF_PROOF       23
+//   +   4  leaf_len[0..n-1]       (be32 each, `count` of them)
+//   +      the sealed leaves      (concatenated, leaf_len[i] bytes each)
+//
+// SITU CANNOT FULLY EXPRESS THIS MESSAGE. The proof hashes (sized by
+// proof_count) and the length table (sized by count) are two back-to-back
+// count-driven arrays and model cleanly. The PAYLOAD does not: its length is
+// the SUM of the leaf_len[] entries, and situ's expression language has no
+// sum -- the builtins are align_up, count, max, min, offset, size, and there
+// are no user-defined functions (situc error, section 10). So the payload is
+// modelled as one opaque trailing region: its total extent is on the wire,
+// but the schema cannot bind it to the length table nor recover the per-chunk
+// boundaries the C reconstructs in fzn_msg_data_parse. See the report.
+//
+// A length-PREFIXED chunk array (struct chunk { u32 len; u8 bytes[len]; }
+// chunks[count]) IS expressible, but it is a different wire layout --
+// interleaved len,bytes,len,bytes -- not this message's lengths-then-payloads.
+
+struct fzn_msg_proof_node {
+	u8  hash[32];                                // FZN_BLOB_HASH_LEN
+}
+
+struct fzn_msg_data {
+	u8            version     [must_eq = 1];
+	fzn_msg_type  type        [must_eq = data];
+	u32           transfer;
+	u64           first;
+	// FZN_MSG_MAX_SPAN = 64.
+	u64           count       [max = 64];
+	// FZN_MSG_MAX_PROOF = FZN_BLOB_MAX_DEPTH = 40.
+	u8            proof_count [max = 40];
+	fzn_msg_proof_node siblings[proof_count];    // 23, 32 bytes each
+	u32           leaf_len[count];               // be32 per leaf, `count` of them
+	// The concatenated sealed leaves. Opaque here: situ has no `sum` to size
+	// this from leaf_len[], so per-chunk structure is lost (see block above).
+	u8            payload[remaining];
+}

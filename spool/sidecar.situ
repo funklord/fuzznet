@@ -1,0 +1,29 @@
+// The spool sidecar ("BITS" file) as a situ schema -- converted from the
+// hand-written C in spool/spool_file.c. Measured against the committed
+// BITS_OFF_* / BITS_HEAD_LEN constants before anything is generated.
+//
+// An ON-DISK file rather than a wire buffer, so `target file`. A fixed header
+// -- version, the root it belongs to, the leaf count -- then a present-bitmap
+// that runs to the end of the file, one bit per leaf.
+//
+//   0   1  version                BITS_VERSION = 1
+//   1  32  root                   BITS_OFF_ROOT    1
+//  33   8  leaves                 BITS_OFF_LEAVES  33
+//  ----------------- 41           BITS_HEAD_LEN    41
+//  41  ..  present bitmap         FZN_SPOOL_BITMAP_LEN(leaves) = (leaves+7)/8
+
+target file;
+endian big;
+
+struct fzn_spool_sidecar {
+	u8   version [must_eq = 1];                  // BITS_VERSION
+	u8   root[32];                               // FZN_BLOB_HASH_LEN, BITS_OFF_ROOT = 1
+	// The leaf count the bitmap is sized from. Capped at FZN_SPOOL_MAX_LEAVES
+	// (1u << 22 = 4194304), which fzn_spool_file_resume enforces; the cap
+	// also bounds the trailing bitmap. BITS_OFF_LEAVES = 33.
+	u64  leaves  [max = 4194304];
+	// One bit per leaf, rounded up to whole bytes: the C sizes it with
+	// FZN_SPOOL_BITMAP_LEN(leaves) = (leaves + 7) / 8. Begins at
+	// BITS_HEAD_LEN = 41 and runs to the end of the file.
+	u8   present[(leaves + 7) / 8];
+}

@@ -1,0 +1,55 @@
+# situ capability map v1
+# schema: persist.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct fzn_persist_blob size=42..83 mutate=Shifting repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.version               offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord effect=EffectOnWrite
+  fzn_persist_blob.tag                   offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord effect=EffectOnWrite
+  fzn_persist_blob.body                  offset=AbsoluteStatic(0x02) size=Bounded(40, 81) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting effect=EffectOnWrite
+  fzn_persist_blob.body.trust            offset=AbsoluteStatic(0x02) size=Fixed(41) align=Aligned(2) repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.body.trust.root       offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.body.trust.source     offset=AbsoluteStatic(0x22) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord effect=EffectOnWrite
+  fzn_persist_blob.body.trust.adopted_at offset=AbsoluteStatic(0x23) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.body.secret           offset=AbsoluteStatic(0x02) size=Fixed(40) align=Aligned(2) repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.body.secret.secret    offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.body.secret.generation offset=AbsoluteStatic(0x22) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.body.peer             offset=AbsoluteStatic(0x02) size=Fixed(81) align=Aligned(2) repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.body.peer.trust       offset=AbsoluteStatic(0x02) size=Fixed(41) align=Aligned(2) repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.body.peer.trust.root  offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.body.peer.trust.source offset=AbsoluteStatic(0x22) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord effect=EffectOnWrite
+  fzn_persist_blob.body.peer.trust.adopted_at offset=AbsoluteStatic(0x23) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.body.peer.prekey      offset=AbsoluteStatic(0x2B) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.body.peer.created_at  offset=AbsoluteStatic(0x4B) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.body.chain            offset=AbsoluteStatic(0x02) size=Fixed(40) align=Aligned(2) repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.body.chain.key        offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.body.chain.seq        offset=AbsoluteStatic(0x22) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
+
+struct fzn_persist_chain_body size=40 repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_chain_body.key             offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_chain_body.seq             offset=AbsoluteStatic(0x20) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord effect=EffectOnWrite
+
+struct fzn_persist_peer_body size=81 repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_peer_body.trust            offset=AbsoluteStatic(0x00) size=Fixed(41) align=Aligned(8) repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_peer_body.trust.root       offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_peer_body.trust.source     offset=AbsoluteStatic(0x20) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord effect=EffectOnWrite
+  fzn_persist_peer_body.trust.adopted_at offset=AbsoluteStatic(0x21) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_peer_body.prekey           offset=AbsoluteStatic(0x29) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_peer_body.created_at       offset=AbsoluteStatic(0x49) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
+
+struct fzn_persist_secret_body size=40 repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_secret_body.secret         offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_secret_body.generation     offset=AbsoluteStatic(0x20) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord effect=EffectOnWrite
+
+struct fzn_persist_trust_body size=41 repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_trust_body.root            offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_trust_body.source          offset=AbsoluteStatic(0x20) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord effect=EffectOnWrite
+  fzn_persist_trust_body.adopted_at      offset=AbsoluteStatic(0x21) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite

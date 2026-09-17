@@ -1,0 +1,50 @@
+# situ wire signature v1
+# schema: catalog.situ
+#
+# What the bytes mean, and nothing about what they cost. Committed and
+# checked so that a change here is a change somebody reviews.
+#
+# One line per member: where it starts, how wide it is, and every
+# constraint a sender has to satisfy or a receiver may rely on.
+# Positions are byte offsets, or byte:bit off a boundary; `~` marks one
+# the data decides rather than the schema.
+#
+# A construct whose contract is a list rather than an extent -- a
+# variant's arms, a tlv region's grammar, an indexed region's offset
+# table, the bytes a tag covers -- states it on `name what: value`
+# lines below the members, one line per entry so that a diff names the
+# entry that moved.
+
+endian big
+target buffer
+
+enum fzn_catalog_content_kind : u8 unknown=error
+  none=0 inline_value=1 blob=2
+
+struct fzn_catalog_blob size=40
+  @0x0000   32        u8         root  big
+  @0x0020   8         u64        length  big
+
+struct fzn_catalog_content size=34..
+  @0x0000   1         u8         object
+  @0x0001   32        u8         id  big
+  @0x0021   1         fzn_catalog_content_kind kind
+  @0x0022   0..       variant    tail
+  tail switch: kind
+  tail case 0: empty fzn_catalog_content_none
+  tail case 1: value u8
+  tail case 2: ref fzn_catalog_blob
+
+struct fzn_catalog_content_none size=0
+
+struct fzn_catalog_edge size=66
+  @0x0000   1         u8         object
+  @0x0001   32        u8         parent  big
+  @0x0021   32        u8         child  big
+  @0x0041   1         u8         present  max=1
+
+struct fzn_catalog_name size=34..289
+  @0x0000   1         u8         object
+  @0x0001   32        u8         id  big
+  @0x0021   1         u8         len  max=255
+  @0x0022   0..255    u8         text  sized-by=len

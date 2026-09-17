@@ -41849,3 +41849,56 @@ and its contract are situc-version-stable; the generated accessors and the
 owned form are taken once situ settles. The wire-to-memory generator this would
 most benefit from is the feature filed to situ's `suggestion/fuzznet.md` the
 same day.
+
+## 305. Nine more layouts as situ schemas, 2026-09-17
+
+Continuing sec 304, nine more hand-written layouts are described as situ
+schemas and adopted as checked contracts (committed `.wire`/`.map`, pinned by
+`make schema`), the hand-written codecs unchanged. Measured with `situc map`,
+every offset matches the hand-written constants:
+
+    chain/revocation.situ  revocation and withdrawal (fixed, 202)
+    chain/manifest.situ    revocation manifest (variable, count-driven pairs)
+    prekey/prekey.situ     the prekey record (fixed, 138)
+    persist/persist.situ   the on-disk blobs (a tagged union, target file)
+    spool/message.situ     the four sync messages (have-query/have/want/data)
+    spool/sidecar.situ     the "BITS" sidecar (target file, bitmap from leaves)
+    record/record.situ     the signed record (variable, body sized by body_len)
+    tree/tree.situ         a tree node body
+    catalog/catalog.situ   edge, content (a variant) and name
+
+### What situ did well, measured not assumed
+
+The tagged union (persist) is a first-class `variant switch` with `default =
+error`; `target file` gives the on-write discipline an at-rest blob wants;
+count-driven arrays (manifest pairs, spool ranges and proof nodes) and
+arithmetic sizes (the sidecar bitmap, `present[(leaves + 7) / 8]`) all model
+cleanly; `situc advise` found nothing to improve on the fixed ones. And the
+schema caught a real defect: `chain/revocation.h`'s comment table had gone
+stale -- it omitted the `supersedes` field and misplaced the signature, which
+the `#define`s were right about and the prose was not. Corrected here.
+
+### Three situ gaps this surfaced, reported to situ
+
+- No `sum`: the spool `data` message's payload is the sum of a per-chunk length
+  table, and situ's expression language has no `sum` builtin and no user
+  functions, so the payload stays one opaque `remaining` region -- situ cannot
+  enforce that its length equals the table or recover chunk boundaries.
+- `[max]` cannot bound a `remaining` field, so a record-BODY schema (tree,
+  catalog inline content) cannot carry the cap that lives in the enclosing
+  record's `body_len`; those regions read as Unbounded -- honest, but the bound
+  is lost.
+- `inline` is a reserved word (a C++ keyword), so the catalog content enum's
+  member is `inline_value` -- a wire-byte-neutral rename, noted so nobody reads
+  it as a layout change.
+
+These are recorded in situ's `suggestion/fuzznet.md`.
+
+### What is deliberately not here yet
+
+The two NESTED layouts -- the chain (a header and N hops) and the provision
+card (which nests a hop and a prekey) -- are not converted: they need a
+decision on whether one schema may reference a struct declared in another, or
+a module keeps its layouts in one file. And the codec replacement (taking the
+generated accessors and the owned form) waits on situ's own tree settling, as
+sec 304 says.

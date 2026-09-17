@@ -1,0 +1,84 @@
+// The persist blobs as a situ schema, converted from the hand-written layout
+// in persist/persist.c. These are ON-DISK blobs a backend stores and returns,
+// so the target is `file`: per the grammar (doc/decision/0047), `target file`
+// sets effect = EffectOnWrite on every member, which is the on-write discipline
+// an at-rest record wants, where `target buffer` is for bytes already in hand.
+//
+// Every blob is `version | tag | body` (persist.c: OFF_VERSION=0, OFF_TAG=1,
+// OFF_BODY=2), a two-byte head followed by ONE OF four fixed bodies chosen by
+// the tag. It is a TAGGED UNION, modelled with situ's variant/switch: the tag
+// is the discriminant and each arm is one body struct.
+//
+// The tag byte is checked exactly by persist.c's head_check, and an unknown
+// tag is refused (FZN_PERSIST_ERR_SHAPE) rather than reinterpreted -- so the
+// enum carries `default = error`, and the variant's `default: error` refuses
+// an unknown tag rather than reading the body as something it is not.
+//
+// Big-endian: persist.c writes every multi-byte integer with fzn_put_be64.
+//
+// Body lengths, from persist.c (asserted there against FZN_PERSIST_MAX = 96):
+//   FZN_PUBKEY_LEN = 32, FZN_AGREE_SECRET_LEN = 32, FZN_PREKEY_LEN = 32,
+//   FZN_CHAIN_KEY_LEN = 32.
+//   TRUST_BODY  = 32 + 1 + 8 = 41   (root, source, adopted_at)
+//   SECRET_BODY = 32 + 8      = 40   (secret, generation)
+//   PEER_BODY   = 41 + 32 + 8 = 81   (trust, prekey, created_at)
+//   CHAIN_BODY  = 32 + 8      = 40   (key, seq)
+
+target file;
+endian big;
+
+// persist.c: BLOB_TRUST=1, BLOB_SECRET=2, BLOB_PEER=3, BLOB_CHAIN=4. A byte
+// that is not one of these is refused, matching head_check's tag mismatch.
+enum fzn_persist_tag : u8 {
+	trust  = 1,
+	secret = 2,
+	peer   = 3,
+	chain  = 4,
+	default = error,
+}
+
+// A trust anchor: its root key, how it arrived, and when it was adopted.
+// TRUST_BODY = 41.
+struct fzn_persist_trust_body {
+	u8  root[32];
+	u8  source;
+	u64 adopted_at;
+}
+
+// The host's own prekey secret and its generation. The public half is derived
+// on restore and is NOT stored (persist.c). SECRET_BODY = 40.
+struct fzn_persist_secret_body {
+	u8  secret[32];
+	u64 generation;
+}
+
+// A pinned peer: its trust anchor (packed through the trust body, its two-byte
+// head dropped, so there is ONE encoding of a trust), its prekey, and when the
+// prekey was created. PEER_BODY = 81.
+struct fzn_persist_peer_body {
+	fzn_persist_trust_body trust;
+	u8  prekey[32];
+	u64 created_at;
+}
+
+// A ratchet chain: its key and sequence number. Tagged as a chain and not as a
+// direction -- a send chain and a receive chain are the same bytes (persist.c).
+// CHAIN_BODY = 40.
+struct fzn_persist_chain_body {
+	u8  key[32];
+	u64 seq;
+}
+
+// version | tag | body. The body is the arm the tag selects.
+struct fzn_persist_blob {
+	u8               version;
+	fzn_persist_tag  tag;
+
+	variant body switch (tag) {
+		case fzn_persist_tag.trust:  fzn_persist_trust_body   trust;
+		case fzn_persist_tag.secret: fzn_persist_secret_body  secret;
+		case fzn_persist_tag.peer:   fzn_persist_peer_body    peer;
+		case fzn_persist_tag.chain:  fzn_persist_chain_body   chain;
+		default: error;
+	}
+}

@@ -1,0 +1,30 @@
+// The revocation manifest as a situ schema -- converted from hand-written C
+// (chain/manifest.h) the way chain/hop.situ was. VARIABLE LENGTH: a fixed
+// header followed by `count` pairs, then the signature. Measured against the
+// committed FZN_MANIFEST_OFF_* constants before anything is generated.
+//
+// The signature covers the whole body (bytes 0 through the last pair). Here
+// it is opaque bytes; this measures the offsets alone, as hop.situ does. The
+// count-driven array uses the same form frame.situ uses for its payload
+// (u8 payload[head.length]).
+
+target buffer;
+endian big;
+
+// One entry: (capability, grantee) key, the id of the most recent revocation
+// of that pair, and which state it is in. FZN_MANIFEST_PAIR_LEN = 97.
+struct fzn_manifest_pair {
+	u8  capability[32];      // pair offset 0
+	u8  grantee[32];         // pair offset 32  (FZN_MANIFEST_KEY_LEN = 64)
+	u8  id[32];              // pair offset 64  (FZN_MANIFEST_OFF_ENTRY_ID)
+	u8  state;               // pair offset 96  (FZN_MANIFEST_OFF_ENTRY_STATE)
+}
+
+struct fzn_manifest {
+	u8  version;                     // FZN_MANIFEST_OFF_VERSION 0
+	u8  object;                      // FZN_MANIFEST_OFF_OBJECT  1
+	u8  issuer[32];                  // FZN_MANIFEST_OFF_ISSUER  2
+	u16 count [max = 2701];  // FZN_MANIFEST_MAX_PAIRS                       // FZN_MANIFEST_OFF_COUNT   34
+	fzn_manifest_pair pairs[count];  // FZN_MANIFEST_OFF_PAIRS   36 = HEADER_LEN
+	u8  signature[64];               // at HEADER_LEN + 97*count
+}

@@ -64,9 +64,10 @@
  *         34    32  grantee
  *         66    32  issuer
  *         98     8  issued_at
- *        106    64  signature
+ *        106    32  supersedes (the id of a revocation this replaces)
+ *        138    64  signature
  *
- * The signature covers bytes 0 through 105. The object byte is what stops a
+ * The signature covers bytes 0 through 137. The object byte is what stops a
  * signature made over a hop being presented as a revocation, and vice versa;
  * wire/bytes.h records what it cost fuzzypickles to learn that two record
  * types of the same length can have ONE SIGNATURE THAT VERIFIES AS BOTH. */

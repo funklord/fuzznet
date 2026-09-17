@@ -1,0 +1,28 @@
+// The prekey record as a situ schema, converted from the hand-written layout
+// in prekey/prekey.h and prekey/prekey.c. The offsets here are measured
+// against the committed FZN_PREKEY_OFF_* constants (prekey.h) and the field-
+// by-field _Static_asserts in prekey.c before anything is generated, the same
+// way chain/hop.situ measured the FZN_HOP_OFF_* offsets.
+//
+// A host's statement of its own key-agreement key, signed under its own
+// long-term key. It is SELF-SIGNED: `host` is both the signer and the subject
+// (prekey.h). The signature covers the body -- everything before it,
+// FZN_PREKEY_BODY_LEN = 74 bytes -- and is opaque bytes here, exactly as
+// chain/hop.situ leaves the Ed25519 signature opaque in its first cut; a
+// later revision can bind it as an extern codec so the signature covers the
+// body.
+//
+// Fixed size, 138 bytes: 74-byte signed body + 64-byte signature.
+// FZN_PUBKEY_LEN = 32, FZN_PREKEY_LEN = 32, FZN_SIG_LEN = 64.
+
+target buffer;
+endian big;
+
+struct fzn_prekey_record {
+	u8  version;
+	u8  object;
+	u8  host[32];
+	u8  prekey[32];
+	u64 created_at;
+	u8  signature[64];
+}
