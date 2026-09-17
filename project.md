@@ -42002,9 +42002,9 @@ byte-identical before and after -- a `must_eq`, a `max` and an enum are value
 constraints, so no offset, size, align or repr moved. Only the `.wire`
 contracts changed, gaining the annotations, and `chain.situ.wire` changed too
 because it imports the hop and the hop's new constraints propagate through the
-import. `make schema` finds all fifteen wire and map contracts current against
-situ ad40ce6 (its generated-C step is still stale on situ's evolving emitter,
-sec 307, unchanged by this).
+import. `make schema` finds all fourteen wire and map contracts current
+against situ ad40ce6 (its generated-C step is still stale on situ's evolving
+emitter, sec 307, unchanged by this).
 
 WHAT IS STILL DEFERRED is the signature: it is opaque bytes in every one of
 these, pending the Ed25519 extern-codec binding that would make the schema
