@@ -113,7 +113,6 @@ the same job. A consumer whose build is make may of course skip it and ask
 this Makefile for `CORE_SRCS` directly; the manifest exists for the ones
 that cannot.
 
-
 Three things to know before reading further, because each contradicts what a
 shared protocol library usually looks like:
 
@@ -138,14 +137,12 @@ shared protocol library usually looks like:
 - **Grants do not expire; commands do.** The two consumers' rules look like
   they conflict and do not. §4.3.
 
-## Who wrote this
+## Copyright
 
     Copyright (C) 2026 Nabeel Sowan <nabeel@vibes.se>
 
-Attribution, not a licence. Naming the holder states who wrote the work and
-grants nothing; this project's licensing is a separate question and is not
-settled here.
+Available in code as `fzn_copyright()` in `version/version.h`.
 
-The same line is available to a program that links the library, as
-`fzn_copyright()` in `version/version.h` -- separate from
-`fzn_version_string()`, which has machine consumers and keeps its shape.
+## Licence
+
+None yet.
