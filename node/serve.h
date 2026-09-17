@@ -32,6 +32,14 @@ typedef struct fzn_node_state {
 	const fzn_sign_ops_t *sign;
 	/* The current time, for command expiry and chain validity. */
 	uint64_t (*clock)(void);
+	/* Called after a remote caller is authenticated and decided -- GRANTED
+	 * or DENIED; a DROPPED frame never authenticated, so nothing is handed
+	 * up. `req` is the opened request. The seam where a consumer's handler
+	 * (its vocabulary) acts on a served request; NULL to only authenticate
+	 * and authorise. */
+	void (*on_remote)(void *ctx, fzn_node_remote_result_t result,
+	                  const fzn_opened_t *req);
+	void *on_remote_ctx;
 } fzn_node_state_t;
 
 /* The provisioned remote peer whose identity is `sender`, or NULL. Pure. */

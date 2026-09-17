@@ -5939,6 +5939,7 @@ somebody to notice.
 | `net/udp.h` | the remote hop's datagram transport, one frame per datagram |
 | `node/node.h` | the node's access core: who a caller is, may they be served |
 | `node/serve.h` | the node's poll loop, and fuzznetd's runtime |
+| `node/provision.h` | provisioning a remote peer, and the pairing card |
 | `log/log.h` | the append-only log |
 | `persist/persist.h` | packing state so a restarted host can open what it holds |
 | `prekey/prekey.h` | the prekey record and the act of pinning it |
@@ -41632,11 +41633,12 @@ nothing stops it but a signal, and no test calls it.
 
 The remote hop consumes a `fzn_node_peer_t` a caller filled: the session key
 (from pinned prekeys -- this library has no wire handshake) and the peer's
-capability. How those are distributed -- the pairing card, where the root
-signing key lives -- is the copyright holder's decision, so `fuzznetd` binds
-the UDP socket but serves no remote peer until one is provisioned: a frame from
-an unknown sender has no session and is dropped. A consumer that has
-provisioned peers fills the state and calls `fzn_node_run` directly.
+capability. **The provisioning that fills it is now built -- sec 301** -- the
+pairing card and both legs of establishing a peer. What a deployment still
+decides is where the root signing key lives and how a running `fuzznetd` loads
+its provisioned peers: today it binds the UDP socket but serves no remote peer
+until a consumer fills the state, so a frame from an unknown sender has no
+session and is dropped.
 
 ### The served surface is generic, pending the vocabulary decision
 
@@ -41654,3 +41656,70 @@ nonce recorded per peer), retransmission generation, and the stream loss policy
 are named in `node/remote.h`, `net/udp.h` and sec 299 as the next work. The
 node here authenticates and authorises every caller on every hop; those are the
 request/response and reliability layers above it.
+
+## 301. Provisioning the remote hop end to end, 2026-09-17
+
+sec 300 left the remote hop's session and capability "provisioned, the
+holder's decision, not built". The holder directed building it, and this is
+it: `node/provision.h` and the pairing card of `provision/provision.h`
+composed into the flow that turns a device into a peer the node serves.
+`provision_test` drives the whole path under real Monocypher primitives and
+over a real UDP socket -- nothing is stubbed.
+
+### The two legs, and the card between them
+
+"Server and client is a matter of perspective" (sec 2): both parties are a
+`fzn_node_identity_t` -- an Ed25519 identity, an X25519 secret, a signed
+prekey, the crypto ops.
+
+- **`fzn_node_make_card`** mints the device its capability, this node as root,
+  and packs a card carrying the root, the node's prekey, and that capability,
+  signed. It is the QR string a device is handed out of band, and it survives
+  `fzn_provision_text` / `fzn_provision_from_text` byte-for-byte.
+- **`fzn_node_accept_card`** is the device side: open and verify the card under
+  the root it names, pin the node's prekey, and establish the session the
+  device seals with.
+- **`fzn_node_provision_peer`** is the node side for the return leg: given the
+  device's prekey (reached out of band), pin it, establish the session that
+  opens the device's frames, mint the device's capability, and fill a
+  `fzn_node_peer_t`. Afterwards `node/remote.c` serves that device.
+
+The two sessions are the same key by X25519 symmetry -- `provision_test`
+asserts `node_peer.recv_key` equals the device's send key -- so the device's
+sealed request opens under the node's provisioned session.
+
+### End to end, over a real socket
+
+`provision_test` builds two real identities, runs the card round trip and both
+provisioning legs, binds two real UDP sockets on loopback, has the device seal
+a request and send it, and turns the daemon loop once: `fzn_node_run_once`
+receives the datagram, finds the provisioned peer by its sender, authenticates
+by opening the seal, authorises the capability as `FZN_ORIGIN_REMOTE`, and
+hands the opened request to a handler that records it was granted with the
+payload intact. One path, no fake behind any seam.
+
+### A lifetime bug the composition surfaced, fixed here
+
+`fzn_chain_hop_t` is a VIEW -- a pointer into hop bytes the caller must keep
+alive (`chain.h` says so). `fzn_node_peer_t` had stored the views while the
+bytes were a caller's temporary, which passed in `remote_test` only because
+that buffer stayed in scope. Provisioning, which fills a peer and returns, made
+the dangling view visible: the frame authenticated and the capability then
+failed to verify against freed stack. The peer now owns the hop BYTES
+(`fzn_node_peer_t.hop_bytes`) and `node/remote.c` opens the views locally per
+call, so a peer copied by value stays self-contained. It is the composition
+being the evidence a per-module test could not be.
+
+### The handler seam, where the vocabulary will land
+
+`fzn_node_state` gained `on_remote`: the node calls it after a remote caller is
+authenticated and decided, with the opened request. This is where a consumer's
+handler -- its verbs, the §5 vocabulary still the holder's -- plugs in. The
+node authenticates and authorises; the handler acts.
+
+### Still not built above this
+
+Sealing a reply back to the caller and the replay window remain
+`node/remote.h`'s named next work. The reverse session already exists, since
+the session key is symmetric, so a reply is a `fzn_seal_build` away; nothing
+packs one yet.

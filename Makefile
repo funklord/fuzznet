@@ -160,6 +160,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              local/line.c local/socket.c \
              net/udp.c \
              node/node.c node/local.c node/remote.c node/serve.c \
+             node/provision.c \
              chain/chain.c chain/revocation.c chain/manifest.c chain/authz.c \
              chain/chain_store.c chain/service.c claim/claim.c \
              record/store.c catalog/catalog.c catalog/copy.c catalog/sweep.c \
@@ -222,6 +223,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h local/vocabulary.h local/line.h local/socket.h \
              net/udp.h \
              node/node.h node/local.h node/remote.h node/serve.h \
+             node/provision.h \
              chain/chain.h chain/revocation.h chain/manifest.h chain/authz.h \
              chain/chain_store.h chain/service.h claim/claim.h \
              record/store.h catalog/catalog.h catalog/copy.h catalog/sweep.h \
@@ -320,6 +322,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              net/test/udp_test.c \
              node/test/node_test.c node/test/local_test.c \
              node/test/remote_test.c node/test/serve_test.c \
+             node/test/provision_test.c \
              local/test/peer_fuzz.c local/test/peer_linux_test.c \
              spool/test/message_fuzz.c \
              chunk/test/reassembly_fuzz.c chain/test/chain_fuzz.c \
@@ -415,6 +418,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/node/test/local_test \
              $(BUILD_DIR)/node/test/remote_test \
              $(BUILD_DIR)/node/test/serve_test \
+             $(BUILD_DIR)/node/test/provision_test \
              $(BUILD_DIR)/chunk/test/agreement_test \
              $(BUILD_DIR)/local/test/peer_fuzz \
              $(BUILD_DIR)/local/test/peer_linux_test \
@@ -2981,6 +2985,35 @@ $(BUILD_DIR)/node/test/serve_test: $(BUILD_DIR)/node/test/serve_test.o \
 # "serve.h" without -Inode.
 $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
               $(FLOG_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# Provisioning the remote hop end to end under real Monocypher primitives:
+# the same crypto set remote_test links, plus provision/provision.o for the
+# card and net/udp.o for the real datagram.
+$(BUILD_DIR)/node/test/provision_test.o: node/test/provision_test.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -Inode -Iwire/generated -c $< -o $@
+
+$(BUILD_DIR)/node/test/provision_test: $(BUILD_DIR)/node/test/provision_test.o \
+              $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/serve.o \
+              $(BUILD_DIR)/node/local.o $(BUILD_DIR)/node/remote.o \
+              $(BUILD_DIR)/node/node.o $(BUILD_DIR)/local/socket.o \
+              $(BUILD_DIR)/local/peer.o $(BUILD_DIR)/local/peer_linux.o \
+              $(BUILD_DIR)/local/line.o $(BUILD_DIR)/net/udp.o \
+              $(BUILD_DIR)/version/version.o $(BUILD_DIR)/provision/provision.o \
+              $(BUILD_DIR)/chain/sign_monocypher.o \
+              $(BUILD_DIR)/session/hash_monocypher.o \
+              $(BUILD_DIR)/session/aead_monocypher.o \
+              $(BUILD_DIR)/session/agree_monocypher.o $(BUILD_DIR)/monocypher.o \
+              $(BUILD_DIR)/session/session.o $(BUILD_DIR)/session/agree.o \
+              $(BUILD_DIR)/session/commitment.o $(BUILD_DIR)/session/random.o \
+              $(BUILD_DIR)/session/random_linux.o \
+              $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/ratchet/ratchet.o \
+              $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/chain/chain.o \
+              $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
+              $(BUILD_DIR)/chain/authz.o $(BUILD_DIR)/wire/seal.o \
+              $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 

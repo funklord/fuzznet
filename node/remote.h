@@ -38,7 +38,11 @@ typedef struct fzn_node_peer {
 	uint8_t sender[FZN_PUBKEY_LEN];
 	uint8_t recv_key[FZN_AEAD_KEY_LEN];
 	uint8_t recv_ckey[FZN_COMMITMENT_KEY_LEN];
-	fzn_chain_hop_t hops[FZN_CHAIN_MAX_HOPS];
+	/* The capability chain this peer holds, as the raw hop bytes it owns.
+	 * fzn_chain_hop_t is only a view over such bytes, so the peer stores the
+	 * bytes and serve_datagram opens the views locally -- a peer copied by
+	 * value stays self-contained. */
+	uint8_t hop_bytes[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
 	size_t hop_count;
 } fzn_node_peer_t;
 

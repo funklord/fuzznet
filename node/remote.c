@@ -16,6 +16,8 @@ fzn_node_remote_result_t fzn_node_serve_datagram(const fzn_node_config_t *config
 	const uint8_t *sender;
 	fzn_opened_t scratch;
 	fzn_authz_verdict_t verdict;
+	fzn_chain_hop_t hops[FZN_CHAIN_MAX_HOPS];
+	size_t i;
 
 	if (!config || !peer || !hash || !aead || !frame)
 		return FZN_NODE_REMOTE_DROPPED;
@@ -41,9 +43,16 @@ fzn_node_remote_result_t fzn_node_serve_datagram(const fzn_node_config_t *config
 	if (opened->expires_at != 0 && opened->expires_at <= now)
 		return FZN_NODE_REMOTE_DROPPED;
 
+	/* Open the peer's owned hop bytes into views the decision reads. The
+	 * views point into peer->hop_bytes, which outlives this call. */
+	for (i = 0; i < peer->hop_count && i < FZN_CHAIN_MAX_HOPS; i++)
+		if (fzn_hop_open(peer->hop_bytes[i], FZN_HOP_LEN, &hops[i]) !=
+		    FZN_CHAIN_OK)
+			return FZN_NODE_REMOTE_DENIED;
+
 	/* Authorise: the capability chain this peer holds must grant what the
 	 * node requires, from the REMOTE origin. */
-	verdict = fzn_node_decide(config, FZN_ORIGIN_REMOTE, peer->hops,
+	verdict = fzn_node_decide(config, FZN_ORIGIN_REMOTE, hops,
 	                          peer->hop_count, now, sign, NULL, NULL);
 	return (verdict == FZN_AUTHZ_DENIED) ? FZN_NODE_REMOTE_DENIED
 	                                     : FZN_NODE_REMOTE_GRANTED;

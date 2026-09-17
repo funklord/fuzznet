@@ -149,8 +149,13 @@ int main(void)
 	memcpy(peer.sender, pubkey[1], FZN_PUBKEY_LEN);
 	memcpy(peer.recv_key, key[0], FZN_AEAD_KEY_LEN);
 	memcpy(peer.recv_ckey, ckey[0], FZN_COMMITMENT_KEY_LEN);
-	ok(fzn_hop_open(hop_bytes, FZN_HOP_LEN, &peer.hops[0]) == FZN_CHAIN_OK,
-	   "the minted hop opens");
+	{
+		fzn_chain_hop_t tmp;
+
+		ok(fzn_hop_open(hop_bytes, FZN_HOP_LEN, &tmp) == FZN_CHAIN_OK,
+		   "the minted hop opens");
+	}
+	memcpy(peer.hop_bytes[0], hop_bytes, FZN_HOP_LEN);
 	peer.hop_count = 1u;
 
 	/* A provisioned, authorised request is granted, and the payload and

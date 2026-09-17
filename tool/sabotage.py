@@ -4606,8 +4606,8 @@ SABOTAGES = [
 	(
 		"node-remote-authorises-as-remote",
 		"node/remote.c",
-		"FZN_ORIGIN_REMOTE, peer->hops,",
-		"FZN_ORIGIN_SAME_USER, peer->hops,",
+		"FZN_ORIGIN_REMOTE, hops,\n",
+		"FZN_ORIGIN_SAME_USER, hops,\n",
 		"a network caller is authorised as FZN_ORIGIN_REMOTE, so the "
 		"capability is checked against the wire origin rather than a local "
 		"one. Deciding as SAME_USER runs the kernel-authenticated path for a "
@@ -4622,6 +4622,26 @@ SABOTAGES = [
 		"the frame's. Inverting the match returns the wrong peer's session "
 		"for a sender and none for the right one. serve_test looks up a "
 		"present and an absent sender.",
+	),
+	(
+		"node-provision-verifies-the-device-prekey",
+		"node/provision.c",
+		"device_prekey, id->sign, FZN_TRUST_PINNED, now)\n\t    != FZN_PREKEY_OK",
+		"device_prekey, id->sign, FZN_TRUST_PINNED, now)\n\t    == FZN_PREKEY_OK",
+		"a device is provisioned only if its prekey verifies -- the pin "
+		"proves the device signed its own X25519 key. Flipping the test "
+		"rejects a real device and would admit a forged prekey. "
+		"provision_test provisions a genuine device end to end.",
+	),
+	(
+		"node-accept-card-verifies-the-envelope",
+		"node/provision.c",
+		"fzn_provision_verify(card, device->sign, now) != FZN_PROVISION_OK",
+		"fzn_provision_verify(card, device->sign, now) == FZN_PROVISION_OK",
+		"a device provisions itself from a card only if the card's envelope "
+		"verifies under the root it names, so a forged card is refused. "
+		"Flipping the test refuses a genuine card and would accept a forged "
+		"one. provision_test accepts a real card.",
 	),
 ]
 

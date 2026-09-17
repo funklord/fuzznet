@@ -43,6 +43,8 @@ static void serve_ready_datagram(fzn_node_state_t *state)
 	fzn_udp_addr_t from;
 	const uint8_t *sender;
 	const fzn_node_peer_t *peer;
+	fzn_opened_t opened;
+	fzn_node_remote_result_t result;
 	uint64_t now;
 
 	if (fzn_udp_recv(state->udp_fd, frame, sizeof(frame), &flen, &from)
@@ -56,9 +58,12 @@ static void serve_ready_datagram(fzn_node_state_t *state)
 	if (!peer)
 		return;
 	now = state->clock ? state->clock() : 0u;
-	(void)fzn_node_serve_datagram(&state->config, peer, state->hash,
-	                              state->aead, state->sign, now, frame,
-	                              flen, NULL);
+	result = fzn_node_serve_datagram(&state->config, peer, state->hash,
+	                                 state->aead, state->sign, now, frame,
+	                                 flen, &opened);
+	/* A dropped frame never authenticated -- nothing to hand a handler. */
+	if (result != FZN_NODE_REMOTE_DROPPED && state->on_remote)
+		state->on_remote(state->on_remote_ctx, result, &opened);
 }
 
 int fzn_node_run_once(fzn_node_state_t *state, int timeout_ms)
