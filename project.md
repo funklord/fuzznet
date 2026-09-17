@@ -41924,3 +41924,53 @@ on-disk blobs all carry situ schemas. What remains is the harder or weaker
 fits -- the record-store file framing, the blob leaf's sealed-plus-Merkle-proof
 layout, and disclosure -- left for later, and the codec replacement, on situ's
 schedule.
+
+## 307. The three harder fits judged: one converts, two are gaps, 2026-09-17
+
+sec 306 left three layouts "for later": the record-store file framing, the
+blob leaf, and disclosure. Judged case by case now, the way situ owning all
+layouts asks -- convert where it is the right tool, and where it is not, say
+why and report it.
+
+THE RECORD-STORE SLOT CONVERTS, as `record/store_file.situ`, `target file`.
+A slot is `u16 len` big-endian then the record's bytes, addressed by sequence
+at `(N - 1) * FZN_RECORD_STORE_FILE_SLOT`; the schema describes one slot's
+content, not the stride. `situc map` gives size 2..670, which matches: an
+empty slot is two bytes (`len` zero, the sparse-hole sentinel, no record
+following) and a full one is `FZN_RECORD_STORE_FILE_SLOT`. The record is
+`u8 record[len]` -- opaque bytes rather than a nested `fzn_record`, because a
+nested struct would force a 158-byte minimum and could not express the empty
+slot. Its internal structure is `record/record.situ`; here `len` carries the
+one thing the record's own `body_len` cannot, the empty/present distinction.
+
+ONE LIMIT IT SHOWS, adjacent to the `sum` gap already reported: on a present
+slot `len` must equal the record's own encoded size, and situ cannot tie a
+length prefix to a nested object's size, so the two are independent on the
+wire and a mismatch is not caught here. The seam's shape checks catch it at
+`get` time instead, as store_file.h already says.
+
+THE BLOB LEAF DOES NOT CONVERT, and this is a genuine situ gap. A sealed leaf
+is `commitment[32]` then the ciphertext then the AEAD `tag`, and its
+plaintext length is carried by the CONTAINER -- `fzn_blob_leaf_open` takes
+`sealed_len`, there is no length field in the leaf. So the ciphertext would
+have to be `u8 ciphertext[remaining]`, and situc refuses a `tag` after it:
+"`[remaining]` must be the last member of its frame". `wire/frame.situ`
+escapes exactly this by sizing its payload from `head.length`, a field it
+carries on purpose; the leaf carries none, by a design that frames it
+externally. A region sized as "the rest, less the trailing fixed members"
+is the missing form. Reported to situ.
+
+DISCLOSURE IS LIMIT 2 AGAIN, not a new one. A committed field is `salt[16]`
+then `field[remaining]`, `field` bounded at `FZN_DISCLOSE_MAX_FIELD`; the
+bound lives on a `remaining` array and situc refuses `[max]` there, the same
+refusal the tree body and catalog content already hit (sec 305). Expressible
+as a layout, but the cap cannot ride along, so it is not worth a schema that
+states less than the constant does.
+
+A NOTE ON THE GATE. `make schema SITU_DIR=../situ` now finds all fourteen
+wire and map contracts current against situ a164ade, but its generated-C step
+reports `wire/generated/frame.c` stale: situ's C emitter has advanced
+(a164ade, "a located member generates C that compiles"). That is the same
+in-flux codegen sec 304 said the codec replacement waits on, is independent
+of any layout here, and is left until situ's tree settles rather than chased
+into this commit.

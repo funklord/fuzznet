@@ -1,0 +1,36 @@
+// The record-store's on-disk slot framing, as a situ schema rather than
+// hand-written C (record/store_file.h). project.md sec 307.
+//
+// FIXED SLOTS ADDRESSED BY SEQUENCE. The store is one sparse file per
+// (issuer, stream); a record for sequence N lives at
+// (N - 1) * FZN_RECORD_STORE_FILE_SLOT. This schema describes ONE slot's
+// content, not the file's addressing -- the stride is a `store_file.c`
+// decision, not a property of the bytes.
+//
+// A SLOT IS OPTIONAL BY `len`. `[0 .. 2)` is the record's length, big-endian,
+// and ZERO MEANS EMPTY: an unwritten slot in a sparse file reads as zeros, so
+// its length is zero and no record follows. So the record region is `len`
+// bytes -- 0 for an empty slot, up to FZN_RECORD_MAX_LEN for a full one --
+// which is why size is 2..670 (an empty slot is two bytes; a full slot is
+// FZN_RECORD_STORE_FILE_SLOT) and NOT 158.. as a nested `fzn_record` would
+// force. The record's INTERNAL structure lives in record/record.situ; here it
+// is opaque bytes, because a slot may hold none, exactly as frame.situ's
+// payload is sized by a prior field rather than nested.
+//
+// `len` is redundant with the record's own self-delimiting `body_len` on a
+// PRESENT slot and situ cannot tie the two -- a length prefix that must equal
+// a nested object's encoded size is the same relation the spool `data`
+// message wanted a `sum` for. What `len` carries that the record cannot is
+// the empty/present distinction (an all-zero record is not a valid record),
+// so it is a real on-disk field and not just a frame.
+
+target file;
+endian big;
+
+struct fzn_record_store_slot {
+	// FZN_RECORD_STORE_FILE_SLOT header: the record's byte length, 0 = empty.
+	u16 len [max = 668];
+	// The record bytes, `len` of them; see record/record.situ for their
+	// structure. Zero on an empty slot.
+	u8  record[len];
+}
