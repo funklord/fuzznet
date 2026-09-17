@@ -4489,6 +4489,38 @@ SABOTAGES = [
 		"refusal catch it. Returned to fuzznet under sec 2's 2026-09-06 "
 		"supersession.",
 	),
+	(
+		"udp-send-refuses-only-past-the-max",
+		"net/udp.c",
+		"len > FZN_UDP_DATAGRAM_MAX",
+		"len >= FZN_UDP_DATAGRAM_MAX",
+		"one frame per datagram: a sealed frame is exactly "
+		"FZN_UDP_DATAGRAM_MAX (1168) at its largest, sized to fit the IPv6 "
+		"minimum-MTU UDP payload, so the full frame must send. >= refuses it "
+		"and forces the fragment the bound exists to avoid. udp_test rounds a "
+		"1168-byte frame through and refuses 1169.",
+	),
+	(
+		"udp-recv-needs-msg-trunc-to-see-truncation",
+		"net/udp.c",
+		"recvfrom(fd, buf, cap, MSG_TRUNC,",
+		"recvfrom(fd, buf, cap, 0,",
+		"MSG_TRUNC is what makes an oversize datagram report its true length "
+		"rather than the copied prefix; without it a truncated frame is "
+		"handed back as a short one, a different frame an attacker can craft. "
+		"udp_test sends a full datagram into a 16-byte buffer and requires "
+		"FZN_UDP_ERR_TRUNCATED.",
+	),
+	(
+		"udp-resolve-refuses-a-name",
+		"net/udp.c",
+		"inet_pton(AF_INET, host, &v4.sin_addr) != 1",
+		"inet_pton(AF_INET, host, &v4.sin_addr) < 0",
+		"the remote hop resolves numeric addresses only -- no DNS, no "
+		"discovery. inet_pton returns 0 for a name and 1 for a numeric "
+		"address, so != 1 refuses a hostname while < 0 lets it through and "
+		"builds a zero address. udp_test requires a hostname to be refused.",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

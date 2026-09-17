@@ -5936,6 +5936,7 @@ somebody to notice.
 | `frame/freshness.h` | freshness and the replay window |
 | `link/link.h` | what each link is actually doing |
 | `local/peer.h` | peer identity, groups, vocabulary |
+| `net/udp.h` | the remote hop's datagram transport, one frame per datagram |
 | `log/log.h` | the append-only log |
 | `persist/persist.h` | packing state so a restarted host can open what it holds |
 | `prekey/prekey.h` | the prekey record and the act of pinning it |
@@ -41476,10 +41477,9 @@ under them.
   shared-node experiment in sec 128.
 - **The UDP transport of the remote hop.** §1 says fuzznet carries messages
   "over UDP"; the crypto envelope (session, ratchet, chain, wire, chunk, frame)
-  is built and exercised end-to-end only in `sim/`. No socket carries it yet.
-  Under this directive that socket is fuzznet's to provide, and the
-  in-`sim`/consumer-supplied state is not a gap in the design -- it is the
-  bypass-until-gained this directive sanctions, to be absorbed rather than
+  was, until 2026-09-17, exercised end-to-end only in `sim/` with no socket
+  under it. That socket is now built as sec 299 (`net/udp.c`) -- the
+  bypass-until-gained this directive sanctions, now absorbed rather than
   left.
 - **Command-vocabulary support**, where it stops implementors rewriting the
   same thing. §5's "command vocabularies stay out" was overturned on
@@ -41508,3 +41508,80 @@ superseded on 2026-08-26 and the holder had never stipulated either. §5's lead
 now carries the supersession at the point of claim, `local/socket.h` states the
 fact without the ceiling, and §2 and §3 are reconciled. The failure was quoting
 a struck claim as live, which `evidence.md` names.
+
+## 299. The UDP transport: the remote hop's carrier, 2026-09-17
+
+sec 298 put the remote hop's socket in this library; this is it. `net/udp.c`
+and `net/udp.h`, `fzn_udp_*`, built and run by `make test` through
+`net/test/udp_test.c` -- 53 checks over real loopback sockets. It is the
+carrier §1 has always named ("over UDP") and that lived only in `sim/` until
+now: the crypto envelope -- seal, session, ratchet, chain, chunk, freshness --
+was built and exercised end-to-end in the harness with no socket under it. Now
+there is one.
+
+### It carries frames, and nothing else
+
+The module is deliberately thin, the same shape as `local/socket.c`: it owns
+the descriptor and the few things easy to get wrong quietly, and owns no loop,
+no thread and no poll set. A node polls the descriptor however it already polls
+anything and calls `fzn_udp_recv`; everything that makes a frame trustworthy
+sits above it and already exists. The five calls:
+
+- `fzn_udp_bind(family, addr, port, out_fd)` -- a datagram socket for a node.
+- `fzn_udp_resolve(family, host, port, out)` -- a NUMERIC address to send to.
+- `fzn_udp_send(fd, to, frame, len)` -- one frame, one datagram.
+- `fzn_udp_recv(fd, buf, cap, len, from)` -- one datagram, one frame, with the
+  sender carried back so a node can reply.
+- `fzn_udp_close(fd)`.
+
+### Four decisions, each because something above or beside it says so
+
+- **One frame per datagram, and refuse rather than fragment.** A sealed frame
+  is at most `SITU_FZN_FRAME_SIZE_MAX` (1168), the bound §10 step 2 set so a
+  frame fits the IPv6 minimum-MTU UDP payload (1232) with 64 to spare -- so a
+  frame never has to be IP-fragmented, and fragmented UDP is widely dropped.
+  `fzn_udp_send` refuses a frame past `FZN_UDP_DATAGRAM_MAX` rather than
+  handing it to IP; `udp_test` rounds a 1168-byte frame through and refuses
+  1169, pinning the boundary from both sides. `udp_test.c` static-asserts
+  `FZN_UDP_DATAGRAM_MAX == SITU_FZN_FRAME_SIZE_MAX` so the transport's copy of
+  the bound cannot drift from the generated one.
+- **A truncated receive is refused, not parsed.** `fzn_udp_recv` reads with
+  `MSG_TRUNC` so a datagram larger than the buffer reports its true length and
+  is refused as `FZN_UDP_ERR_TRUNCATED`. A frame handed back short is a
+  different frame, and one an attacker can craft; the sabotage that drops the
+  flag is caught by a full datagram sent into a 16-byte buffer.
+- **No name resolution, no discovery.** `fzn_udp_resolve` is `inet_pton`, not
+  `getaddrinfo`: the remote hop is pointed at an address a person configured.
+  A resolver would be both a network dependency and a discovery channel, and
+  raidcfgd's brief (below) asks for neither. `udp_test` requires a hostname to
+  be refused.
+- **No dual-stack magic.** A socket is one family; an `AF_INET6` socket sets
+  `IPV6_V6ONLY` so v4 and v6 do not overlap through v4-mapped addresses. A
+  node wanting both opens one of each and polls both -- the composition
+  `local/socket.c` also leaves to its caller.
+
+### What this is NOT, and it is the next work rather than a gap
+
+The transport carries frames; it does not compose the remote hop. Named so the
+absence is a plan rather than an oversight, and drawn from raidcfgd's brief of
+2026-09-17 (their `project.md`, "The remote hop: what this project needs from
+fuzznet", commit 3e5b54d):
+
+- **Retransmission generation.** Loss recovery is the chunk layer's, and
+  `chunk/reassembly.c` reassembles, but the SENDER re-sending an unacked piece
+  is still not generated (§10 recorded the same). raidcfgd item 2 needs it.
+- **Stream loss policy.** A monitor stream is one datagram per event; a lost
+  alert is an alert nobody was told. Whether that is reliable delivery or a
+  visible gap the client answers with a status is a choice above the transport
+  (raidcfgd item 3); only that a gap be visible is fixed.
+- **The bridge.** The unprivileged process that terminates fuzznet and speaks
+  the local hop onward (§3) is the consumer's, and raidcfgd will write its half
+  once there is a node to point it at.
+
+Two questions in that brief are the holder's, flagged rather than taken: where
+the root signing key lives for provisioning-card minting, since the bridge is
+unprivileged (raidcfgd item 7), and whether the verb names and their capability
+mapping become fuzznet's generic vocabulary reaching §5 (the holder's
+instruction, relayed: "just use the vocabulary that fuzznet already offers or
+will offer"). The transport needs neither resolved; it carries frames, not
+verbs.
