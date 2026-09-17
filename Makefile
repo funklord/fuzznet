@@ -4909,6 +4909,18 @@ schema:
 		rm -f $(BUILD_DIR)/.frame.map.new; exit 1; \
 	fi
 	@rm -f $(BUILD_DIR)/.frame.map.new
+	@# chain/hop.situ is the capability hop as a schema -- the first layout
+	@# converted from hand-written C. Adopted as a CHECKED CONTRACT: the
+	@# committed .wire and .map are pinned here, the hand-written codec in
+	@# chain/chain.c still produces the bytes, and generating the accessors
+	@# (and the owned form) to replace it is the next increment. sec 304.
+	@$(BUILD_DIR)/.situ-head/bin/situc wire --check chain/hop.situ
+	@$(BUILD_DIR)/.situ-head/bin/situc map chain/hop.situ > $(BUILD_DIR)/.hop.map.new
+	@if ! cmp -s $(BUILD_DIR)/.hop.map.new chain/hop.situ.map; then \
+		echo "schema: chain/hop.situ.map is stale -- the schema moved without it"; \
+		rm -f $(BUILD_DIR)/.hop.map.new; exit 1; \
+	fi
+	@rm -f $(BUILD_DIR)/.hop.map.new
 	@# The generated C and the vendored runtime, same argument as the
 	@# contract: committed so consumers need no situc, checked so they
 	@# cannot quietly diverge from the schema that produced them.

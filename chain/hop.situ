@@ -1,0 +1,29 @@
+// The capability hop as a situ schema -- the first fuzznet layout converted
+// from hand-written C (chain/chain.h) to a schema. Measured against the
+// committed FZN_HOP_OFF_* offsets before anything is generated, the way sec 6
+// measured the frame.
+//
+// This is the CAPABILITY hop (a grantor grants a grantee a capability), NOT
+// the frame's relay hop (wire/frame.situ's fzn_hop, which is hops_left /
+// service_hint). Named fzn_chain_hop so the generated SITU_FZN_* symbols do
+// not collide with the frame's.
+//
+// First cut: the byte layout only. The signer over the body is Ed25519, and a
+// later revision binds it as an extern codec (as the frame binds its AEAD) so
+// the signature covers the body; here it is opaque bytes and this measures the
+// offsets alone.
+
+target buffer;
+endian big;
+
+struct fzn_chain_hop {
+	u8  version;
+	u8  object;
+	u8  grantor[32];
+	u8  grantee[32];
+	u8  capability[32];
+	u64 issued_at;
+	u64 expires_at;
+	u8  delegable;
+	u8  signature[64];
+}

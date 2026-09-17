@@ -41803,3 +41803,49 @@ the copy is what a network attacker would resend. `provision_test` drives it
 over real UDP: the device sends its request (granted), then re-sends the same
 datagram, and the node drops it without reaching the handler. One sabotage
 entry flips the admit test; both suites catch it.
+
+## 304. The capability hop as a situ schema, 2026-09-17
+
+The situ re-evaluation the holder directed settled that situ owns every
+wire/disk/mem layout, and that fuzznet hand-writes all but the frame. This is
+the first layout converted: `chain/hop.situ` describes the capability hop, and
+`situc` measures it against the hand-written `chain/chain.h`.
+
+### Measured, and it matches exactly
+
+`situc map chain/hop.situ` places every field where `FZN_HOP_OFF_*` already
+puts it -- version 0, object 1, grantor 2, grantee 34, capability 66,
+issued_at 98, expires_at 106, delegable 114, signature 115 -- at size 179, the
+same as `FZN_HOP_LEN`. `situc advise` finds nothing to improve. So the schema
+is a faithful, reviewed description of the layout the hand-written code already
+carries.
+
+### Adopted as a checked contract first, not a rewrite
+
+The committed `chain/hop.situ.wire` and `.map` are the byte contract and the
+capability map, checked by `make schema SITU_DIR=../situ` exactly as the
+frame's are (sec 6). The hand-written codec in `chain/chain.c` still produces
+the bytes; nothing was ripped out. This is situ's adopt-without-codegen path
+(`situc verify` / `wire --check`), and it is the low-risk first step of a
+per-layout migration the holder sequences: the schema now governs the layout,
+and a change to the schema or the offsets that the other does not match fails
+the contract check.
+
+### The owned form is why this one went first
+
+`situc build --owned chain/hop.situ` generates `situ_fzn_chain_hop_t` with a
+decode that copies and byte-swaps every field, so the decoded value is
+independent of the buffer -- nothing aliases it. That is the fix for the
+lifetime bug sec 301 records: `fzn_node_peer_t` holds `hop_bytes` and opens a
+view locally per call because a view over a temporary dangled. Replacing that
+with the generated owned form is the next increment, and it closes the bug's
+whole class rather than the one instance the peer fixed.
+
+### Why the codec replacement waits
+
+situ's own tree is being actively changed (its codegen, 2026-09-17), so
+vendoring generated hop code now would pin against a moving target. The schema
+and its contract are situc-version-stable; the generated accessors and the
+owned form are taken once situ settles. The wire-to-memory generator this would
+most benefit from is the feature filed to situ's `suggestion/fuzznet.md` the
+same day.
