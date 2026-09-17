@@ -2,11 +2,15 @@
  *
  * WHAT THIS DOES NOT DO, and the omission is the design. It does not own an
  * accept loop, a thread, a poll set or a timeout. netcfgd, raidcfgd and
- * fuzzypickles each have an event loop already -- two of them Qt's -- and a
- * library that brought its own would be choosing their IO model for them,
- * which is precisely the "absorbing one consumer's application" that sec 5
- * exists to refuse. A caller polls the listening descriptor however it
- * already polls anything, and calls accept when it is readable.
+ * fuzzypickles each have an event loop already -- two of them Qt's -- so THIS
+ * module bringing its own would duplicate what all three have rather than
+ * remove work, which is why this module has none. That is a property of this
+ * module, not a ceiling on the library: sec 298 (2026-09-17) puts owning an
+ * IO model in scope where it cuts duplication -- a shared daemon linking this
+ * library is that case -- so a consumer with no loop of its own is one
+ * fuzznet may grow one for. A caller that already has a loop polls the
+ * listening descriptor however it polls anything, and calls accept when it is
+ * readable.
  *
  * TWO THINGS IT DOES OWN, because both are easy to get wrong and expensive to
  * get wrong quietly:

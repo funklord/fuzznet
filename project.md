@@ -150,14 +150,20 @@ closed.
 The paragraph above says fuzznet *does not define the local hop at all*, and
 those two modules do. They choose `SOCK_STREAM` and newline framing, which is
 netcfgd's and raidcfgd's shape and not fuzzypickles', whose local hop is
-`SOCK_SEQPACKET` carrying its own binary wire -- a disagreement this section
-called load-bearing rather than accidental, and it is the §5 failure mode the
-move was made to avoid: **absorbing one consumer's application until the others
-are carrying it**, with fuzzypickles reviewing, packaging and auditing a
-listener it can never call. **The bare supersession does not settle that, so
-whether a single fuzznet-owned `SOCK_STREAM`+line module IS the local hop, or
-one shape among several the library must offer, is an open question for the
-copyright holder** -- and the `SOCK_SEQPACKET` consumer is why it is one.
+`SOCK_SEQPACKET` carrying its own binary wire. Until 2026-09-17 this section
+read that disagreement as the §5 failure mode the move was made to avoid --
+**absorbing one consumer's application until the others are carrying it** --
+with fuzzypickles auditing a listener it can never call. **sec 298 supersedes
+that premise**: fuzznet is to contain what its consumers need in order to use
+its features, and a consumer whose shape fuzznet does not yet offer bypasses
+it with its own until fuzznet grows that shape. So the `SOCK_STREAM`+line
+module is fuzznet's local hop for the two consumers who share that shape, and
+fuzzypickles' `SOCK_SEQPACKET`+binary hop is the bypass -- legitimate now, and
+a candidate for fuzznet to absorb as a second offered shape rather than a
+listener anyone is forced to carry. **Whether fuzznet grows that second shape
+now or waits until fuzzypickles migrates is the open question for the
+copyright holder** -- no longer whether owning a local hop is allowed at
+all.
 
 **What stays regardless, and why it is a different kind of thing.**
 `local/peer.*` reads credentials off a descriptor the consumer made, on a
@@ -165,15 +171,26 @@ socket the consumer chose; `local/vocabulary.*` judges verbs the consumer
 defines and this library cannot read. Neither chooses a transport or an
 encoding, so neither is anybody's application. `local/socket.c` reads
 credentials through this library's `local/peer.h`, which is the seam working as
-intended.
+intended. **What a local-hop consumer compiles, measured by raidcfgd's first
+daemon link (2026-09-17):** `local/socket.c`, `local/peer.c` with its
+`local/peer_linux.c` backend, `local/line.c` for the framing, and
+`local/vocabulary.c` -- and `local/vocabulary.c` pulls
+`constant_time/constant_time.c` beside it, since `fzn_vocabulary_admit`
+compares verbs with `fzn_ct_memeq`. A link that omits `constant_time.c` fails
+with that symbol undefined.
 
-**Two claims elsewhere still carry the pre-supersession scope, and are the
-holder's to reconcile rather than this pass's.** sec 3 says the privileged
-daemon never links fuzznet, and the README says the same and that the local hop
-is each project's own -- both now false, since raidcfgd compiles `local/peer.c`
-into its root daemon and the socket hop is fuzznet's again. They are flagged
-here rather than rewritten, because reconciling that prose is the same decision
-as the open question above.
+**§3 and the README carried the pre-supersession scope and are reconciled as
+of 2026-09-17**, on the holder's instruction to record sec 298 and reconcile.
+Both said the privileged daemon never links fuzznet and that the local hop is
+each project's own. The first is false as a blanket: raidcfgd compiles
+`local/peer.c` -- and now `local/socket.c` -- into its root daemon for the
+group-gated local hop, so a privileged daemon does link this library. What
+survives, stated as the narrower thing it always was, is the REMOTE hop's
+privilege separation: fuzznet owning the UDP transport does not put that
+transport in the root daemon, because an unprivileged bridge can hold it and
+speak the local hop onward. Owning the code and running it privileged are
+separate questions, and only the first moved. The local-hop half of both
+claims is corrected in place.
 
 ### What about group gating, then?
 
@@ -266,19 +283,30 @@ fuzzypickles nothing it does not already have.
 
 ## 3. Who links this, and who does not
 
-**The privileged daemon never links fuzznet.** netcfgd fixes this in its
-design §11.3 and repeats it as constraint 6: whatever speaks UDP is a separate
-unprivileged process holding an ordinary local socket connection. The
+**The privileged daemon terminates no REMOTE protocol** -- narrower, and
+corrected on 2026-09-17 from the "never links fuzznet" this section carried
+until then. A privileged local daemon does link this library: raidcfgd
+compiles `local/peer.c` and `local/socket.c` into its root daemon to read a
+peer's groups for the group-gated local hop (§2, hop 2). What stays true is
+the remote half -- netcfgd fixes it in its design §11.3 and repeats it as
+constraint 6: whatever speaks UDP is a separate unprivileged process holding
+an ordinary local socket connection, so the root daemon never terminates the
+remote protocol even though fuzznet now owns the UDP transport (sec 298).
+Owning the transport code and running it privileged are separate, and only
+the remote-termination separation is the security property here. The
 consequence for this library is a permanent one and shapes its API:
 
-- fuzznet is linked by an **unprivileged bridge** that terminates the remote
-  protocol and then speaks the project's own local socket as an ordinary
-  client;
-- it never runs in the process holding `CAP_NET_ADMIN`, a RAID controller, or
-  a user's private keys beyond its own session material;
-- therefore **a fuzznet vulnerability is not a root vulnerability**, and the
-  library must never acquire an API that would tempt somebody to link it into
-  the daemon to avoid a hop.
+- the **remote-terminating** linkage is an **unprivileged bridge** that ends
+  the remote protocol and then speaks the project's own local socket as an
+  ordinary client;
+- that bridge never runs in the process holding `CAP_NET_ADMIN`, a RAID
+  controller, or a user's private keys beyond its own session material -- the
+  root daemon's own linkage is the local credential reader (`local/peer.c`),
+  which parses no remote bytes;
+- therefore **a remote-protocol vulnerability is not a root vulnerability**,
+  and the library must never acquire an API that would tempt somebody to
+  terminate the remote protocol inside the privileged daemon to avoid a
+  hop.
 
 fuzzypickles is the exception that proves it: its daemon *is* the thing that
 speaks to peers, because for a chat program the network is the product. It
@@ -1240,6 +1268,19 @@ adjusting in passing.
 ---
 
 ## 5. What the core deliberately does not carry
+
+**SUPERSEDED IN PART, and read as history rather than as a live boundary.**
+The ceiling this section draws was overturned twice: by the copyright holder
+on 2026-08-26 (the *Superseded* subsection below, absorbing much of
+fuzzypickles into this library) and generalised on 2026-09-17 (sec 298 --
+fuzznet contains everything pertaining to using the features it offers, and a
+consumer bypasses what is unsuitable until fuzznet gains it). The list below
+is kept because a dozen references cite it and a struck ceiling serves a
+reader better than a deleted one. In particular "command vocabularies stay
+out" here, and "a library must not own its consumers' IO model" in
+`local/socket.h` which cites this section, are the exact claims those two
+decisions reversed -- quoting either as current is the "claim that outlived
+its subject" this tree has a name for.
 
 Naming these matters as much as §4, because a shared library's failure mode is
 absorbing one consumer's application until the others are carrying it.
@@ -41404,3 +41445,66 @@ the reissue's id rather than the original -- an availability edge reachable only
 by an entitled issuer sending a reissue that does not chain, which is
 self-inflicted rather than an attack. Recorded here rather than pinned, on the
 same footing as sec 313's no-edges and sec 317's documented survivors.
+
+## 298. fuzznet contains everything needed to use its features, 2026-09-17
+
+**The copyright holder's directive, recorded as given:** fuzznet is to contain
+everything pertaining to using the features it offers. If what it offers is not
+suitable for a consumer, that consumer bypasses it -- until fuzznet gains the
+feature the consumer needs. The aim is to reduce duplicated code and
+problem-surface across the consumers, not to force implementors to rewrite the
+same things.
+
+This generalises two earlier decisions rather than reversing them: the
+2026-08-26 absorb decision (§5 -- take fuzzypickles' subsystems into this
+library) and the 2026-09-06 supersession (§2 -- all three hops and their
+sockets are fuzznet's, sockets included). Both were instances; this is the rule
+under them.
+
+### The features side, and what a prior ceiling had ruled out
+
+- **An IO model, an accept loop, a shared daemon.** `local/socket.h` argued it
+  owns no loop because "a library that brought its own would be choosing their
+  IO model for them, which is precisely the 'absorbing one consumer's
+  application' that §5 exists to refuse." That rationale was the superseded
+  ceiling. The fact it describes stays true -- the socket module has no loop,
+  because all three consumers already have one and a second would duplicate
+  work -- but the reason is duplication, not a boundary. Where owning a loop
+  REMOVES duplication rather than adding it, it is in scope. A shared daemon (a
+  `fuzznetd` that consumers who do not want to write their own can link and
+  run) is the case that makes this concrete, and is the natural form of the
+  shared-node experiment in sec 128.
+- **The UDP transport of the remote hop.** §1 says fuzznet carries messages
+  "over UDP"; the crypto envelope (session, ratchet, chain, wire, chunk, frame)
+  is built and exercised end-to-end only in `sim/`. No socket carries it yet.
+  Under this directive that socket is fuzznet's to provide, and the
+  in-`sim`/consumer-supplied state is not a gap in the design -- it is the
+  bypass-until-gained this directive sanctions, to be absorbed rather than
+  left.
+- **Command-vocabulary support**, where it stops implementors rewriting the
+  same thing. §5's "command vocabularies stay out" was overturned on
+  2026-08-26; `local/vocabulary.c` is already that seam.
+
+### The bounds, and what this must not be read as deciding
+
+It is a scope philosophy, not a ruling on a specific security separation or
+wire shape.
+
+- **The remote hop's privilege separation stands.** fuzznet owning the UDP
+  transport does not mean the privileged daemon terminates the remote protocol:
+  an unprivileged bridge holds the transport and speaks the local hop onward
+  (§3, reconciled the same day). Owning the code and running it privileged are
+  separate questions.
+- **`SOCK_SEQPACKET`+binary as a second local-hop shape** is still an open
+  question for the holder (§2): the directive says fuzznet may grow it, not
+  that it must now.
+
+### The record this corrects, named so the fix is not only in the edited lines
+
+The two superseded rationales -- §5's "vocabularies stay out" and
+`local/socket.h`'s "no IO model" -- were read as standing directives and a
+design answer reasoned from them, when the tree already recorded §5 as
+superseded on 2026-08-26 and the holder had never stipulated either. §5's lead
+now carries the supersession at the point of claim, `local/socket.h` states the
+fact without the ceiling, and §2 and §3 are reconciled. The failure was quoting
+a struck claim as live, which `evidence.md` names.
