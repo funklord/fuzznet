@@ -142,7 +142,3 @@ shared protocol library usually looks like:
     Copyright (C) 2026 Nabeel Sowan <nabeel@vibes.se>
 
 Available in code as `fzn_copyright()` in `version/version.h`.
-
-## Licence
-
-None yet.
