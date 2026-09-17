@@ -138,6 +138,8 @@ int main(void)
 	fzn_node_state_t state;
 	fzn_udp_addr_t node_addr;
 	uint8_t frame[512];
+	fzn_replay_entry_t replay_entries[16];
+	fzn_replay_window_t replay;
 	size_t frame_len;
 	int node_udp = -1, dev_udp = -1;
 	uint16_t port;
@@ -147,6 +149,8 @@ int main(void)
 	fzn_aead_monocypher_init(&aead_ops);
 	fzn_agree_monocypher_init(&agree_ops);
 	fzn_random_system_init(&rng_ops);
+	ok(fzn_replay_init(&replay, replay_entries, 16, 100000u) == FZN_FRESH_OK,
+	   "the replay window initialises");
 
 	/* Two identities: 0 is the node/root, 1 is the device. */
 	for (h = 0; h < 2u; h++) {
@@ -242,6 +246,7 @@ int main(void)
 	state.clock = test_now;
 	state.rng = &rng_ops;
 	memcpy(state.node_pubkey, pubkey[0], FZN_PUBKEY_LEN);
+	state.replay = &replay;
 	state.on_remote = on_remote_cb;
 
 	observed.called = 0;
@@ -277,6 +282,16 @@ int main(void)
 		ok(memcmp(reply_opened.sender, pubkey[0], FZN_PUBKEY_LEN) == 0,
 		   "the reply is from the node");
 	}
+
+	/* The same datagram resent: its nonce is already in the window, so the
+	 * node drops it and the handler is never reached. */
+	observed.called = 0;
+	ok(fzn_udp_send(dev_udp, &node_addr, frame, frame_len) == FZN_UDP_OK,
+	   "the device re-sends the same datagram");
+	ok(fzn_node_run_once(&state, 1000) == 1,
+	   "the node receives the replayed datagram");
+	ok(observed.called == 0,
+	   "the replayed request was dropped, not served");
 
 	fzn_udp_close(node_udp);
 	fzn_udp_close(dev_udp);

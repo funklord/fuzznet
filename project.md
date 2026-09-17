@@ -41754,9 +41754,52 @@ provisioned request, its handler returns a reply, the daemon seals and sends
 it, and the device receives it on its own socket and opens it with the key it
 sealed the request with. Request and reply, end to end, nothing stubbed.
 
-### The replay window is the one thing still above this
+### The replay window, which is built next
 
-The replay window (a nonce recorded per peer) remains `node/remote.h`'s named
-next work. This reply path draws a fresh random nonce per frame, as every seal
-here does, so nonce reuse is not the gap -- recording them to refuse a replayed
-request is.
+The replay window is the last thing above the transport, and it is built in
+sec 303. This reply path draws a fresh random nonce per frame, as every seal
+here does, so nonce reuse was never the gap -- recording them to refuse a
+replayed request was, and now is.
+
+## 303. The replay window, wired into the remote hop, 2026-09-17
+
+sec 302 left the replay window as the last thing above the transport. It is
+wired now: `fzn_node_serve_datagram` admits every authenticated frame's nonce
+into a `fzn_replay_window_t`, so a captured frame resent is refused.
+
+### Where it sits, and why there
+
+The receiver order is sec 4.7: the seal is the pivot (step 4), then freshness
+and replay (steps 5-6, one call), then the capability chain (step 7). So the
+admit runs AFTER `fzn_seal_open` -- a forgery dies at the tag and never touches
+the window, which is the pre-authentication DoS sec 4.7b moved this below the
+tag to prevent -- and BEFORE the chain. It replaces the hand-rolled expiry
+check the remote hop carried: `fzn_replay_admit` does freshness AND replay in
+one call, keyed on the frame's 24-byte nonce, recording it only if both pass.
+
+### One window per node, fed by every peer
+
+The nonce is 24 random bytes and globally unique, so one window serves all
+peers -- which is what the design's sizing rule (`frame/freshness.h`) and the
+sim both assume, summing the arrival rate across peers. The window lives in
+`fzn_node_state`, owned by the consumer, and the peer stays const. This
+corrects the "a nonce recorded per peer" phrasing of sec 300 and 301: the
+state is the daemon's, but the window is one, not per session.
+
+### It fails closed, and commands must expire
+
+A full window refuses rather than evicting (`frame/freshness.h` argues why:
+evicting the oldest reopens it to replay). So the window is sized for the peak
+arrival rate times the horizon, and a full window is a visible refusal to
+alarm on, not a silent reopening. And the admit is called with
+`FZN_EXPIRY_REQUIRED`, so a remote command with no expiry is refused -- a
+command that never goes stale would be replayable forever (sec 4.3).
+
+### Proven, and over real UDP
+
+`remote_test` captures a sealed frame, serves it (granted, nonce recorded), and
+serves the captured copy again (dropped, replay) -- the seal opens in place, so
+the copy is what a network attacker would resend. `provision_test` drives it
+over real UDP: the device sends its request (granted), then re-sends the same
+datagram, and the node drops it without reaching the handler. One sabotage
+entry flips the admit test; both suites catch it.

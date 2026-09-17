@@ -4594,16 +4594,6 @@ SABOTAGES = [
 		"not. remote_test grants a real frame and drops a tampered one.",
 	),
 	(
-		"node-remote-command-expires",
-		"node/remote.c",
-		"opened->expires_at <= now",
-		"opened->expires_at >= now",
-		"a remote command carries an expiry and a stale one is not served "
-		"(sec 4.3). Flipping the comparison serves the stale and drops the "
-		"fresh. remote_test serves a fresh request and drops one presented "
-		"after its expiry.",
-	),
-	(
 		"node-remote-authorises-as-remote",
 		"node/remote.c",
 		"FZN_ORIGIN_REMOTE, hops,\n",
@@ -4653,6 +4643,17 @@ SABOTAGES = [
 		"the reply claim the caller's identity, and a caller checking who "
 		"answered would see itself. remote_test and provision_test both "
 		"require the reply's sender to be the node.",
+	),
+	(
+		"node-remote-admits-through-the-replay-window",
+		"node/remote.c",
+		"FZN_EXPIRY_REQUIRED, now) != FZN_FRESH_OK",
+		"FZN_EXPIRY_REQUIRED, now) == FZN_FRESH_OK",
+		"the authenticated frame's nonce is admitted into the replay window, "
+		"and a nonce already seen -- or a stale or no-expiry command -- is "
+		"dropped. Flipping the test drops every fresh frame and admits every "
+		"replay. remote_test replays a captured frame; provision_test replays "
+		"a datagram over UDP.",
 	),
 ]
 

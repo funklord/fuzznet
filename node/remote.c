@@ -4,11 +4,14 @@
 
 #include <string.h>
 
+#include "../frame/freshness.h"
+
 fzn_node_remote_result_t fzn_node_serve_datagram(const fzn_node_config_t *config,
                                                  const fzn_node_peer_t *peer,
                                                  const fzn_hash_ops_t *hash,
                                                  const fzn_aead_ops_t *aead,
                                                  const fzn_sign_ops_t *sign,
+                                                 fzn_replay_window_t *replay,
                                                  uint64_t now, uint8_t *frame,
                                                  size_t frame_len,
                                                  fzn_opened_t *opened)
@@ -19,7 +22,7 @@ fzn_node_remote_result_t fzn_node_serve_datagram(const fzn_node_config_t *config
 	fzn_chain_hop_t hops[FZN_CHAIN_MAX_HOPS];
 	size_t i;
 
-	if (!config || !peer || !hash || !aead || !frame)
+	if (!config || !peer || !hash || !aead || !frame || !replay)
 		return FZN_NODE_REMOTE_DROPPED;
 	if (!opened)
 		opened = &scratch;
@@ -38,9 +41,13 @@ fzn_node_remote_result_t fzn_node_serve_datagram(const fzn_node_config_t *config
 	                  hash, aead, opened) != FZN_SEAL_OK)
 		return FZN_NODE_REMOTE_DROPPED;
 
-	/* A command carries an expiry and a stale one is not served: grants
-	 * do not expire, commands do (sec 4.3). Zero is no expiry. */
-	if (opened->expires_at != 0 && opened->expires_at <= now)
+	/* Freshness and replay in one call on the authenticated frame (sec 4.7
+	 * steps 5-6): a command must carry an expiry neither passed nor beyond
+	 * the window's horizon, and a nonce already seen is refused. The admit
+	 * records the nonce only if it passes, so a forgery -- which never
+	 * opened the seal above -- spends no slot. */
+	if (fzn_replay_admit(replay, opened->nonce, opened->expires_at,
+	                     FZN_EXPIRY_REQUIRED, now) != FZN_FRESH_OK)
 		return FZN_NODE_REMOTE_DROPPED;
 
 	/* Open the peer's owned hop bytes into views the decision reads. The

@@ -59,8 +59,8 @@ static void serve_ready_datagram(fzn_node_state_t *state)
 		return;
 	now = state->clock ? state->clock() : 0u;
 	result = fzn_node_serve_datagram(&state->config, peer, state->hash,
-	                                 state->aead, state->sign, now, frame,
-	                                 flen, &opened);
+	                                 state->aead, state->sign, state->replay,
+	                                 now, frame, flen, &opened);
 	/* A dropped frame never authenticated -- nothing to hand a handler. */
 	if (result != FZN_NODE_REMOTE_DROPPED && state->on_remote) {
 		uint8_t reply[FZN_NODE_REPLY_MAX];

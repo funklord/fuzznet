@@ -18,6 +18,7 @@
 
 #include "node.h"
 #include "remote.h"
+#include "../frame/freshness.h"
 
 /* The most reply payload a handler may return for the node to seal. */
 #define FZN_NODE_REPLY_MAX 512u
@@ -33,6 +34,10 @@ typedef struct fzn_node_state {
 	const fzn_hash_ops_t *hash;
 	const fzn_aead_ops_t *aead;
 	const fzn_sign_ops_t *sign;
+	/* The receiver's replay window (frame/freshness.h), owned by the
+	 * consumer and fed by every peer -- the nonce is globally unique, so
+	 * one window serves all. A remote frame is dropped if it is absent. */
+	fzn_replay_window_t *replay;
 	/* The current time, for command expiry and chain validity. */
 	uint64_t (*clock)(void);
 	/* The random source and this node's identity, needed to seal a reply.

@@ -16,10 +16,10 @@
  *
  * Replies go back the same way: fzn_node_seal_reply seals a response under the
  * peer's session, which the caller opens with the key it seals with (the
- * session key is symmetric). WHAT THIS DOES NOT YET DO, named as the next work
- * rather than a gap: the replay window (frame/freshness.h) -- this checks the
- * expiry a command carries but does not yet record a nonce, so the daemon that
- * owns per-peer state owns replay. sec 299 lists the same for the transport.
+ * session key is symmetric). The replay window is wired now: fzn_node_serve_
+ * datagram admits the authenticated frame's nonce into a fzn_replay_window_t
+ * the caller owns (frame/freshness.h), which does freshness and replay in one
+ * call and refuses a nonce already seen. sec 303.
  */
 
 #ifndef FZN_NODE_REMOTE_H
@@ -32,6 +32,7 @@
 #include "../wire/seal.h"
 #include "../chain/chain.h"
 #include "../session/commitment.h"
+#include "../frame/freshness.h"
 
 /* A provisioned remote peer: its identity, the session key that opens its
  * frames, and the capability chain it holds. Filled out of band. */
@@ -59,8 +60,10 @@ typedef enum fzn_node_remote_result {
 } fzn_node_remote_result_t;
 
 /* Authenticate and authorise one received datagram. `frame` is decrypted in
- * place by the seal, so it must be the received buffer. On GRANTED or DENIED,
- * `opened` (if non-NULL) holds the decoded request. `sign` verifies the
+ * place by the seal, so it must be the received buffer. `replay` is the
+ * receiver's window (frame/freshness.h); the frame's nonce is admitted into
+ * it, so a replayed frame is dropped and a command with no expiry is refused.
+ * On GRANTED or DENIED, `opened` (if non-NULL) holds the decoded request. `sign` verifies the
  * capability chain's signatures and may be NULL only if the peer holds no
  * chain, which then denies. */
 fzn_node_remote_result_t fzn_node_serve_datagram(const fzn_node_config_t *config,
@@ -68,6 +71,7 @@ fzn_node_remote_result_t fzn_node_serve_datagram(const fzn_node_config_t *config
                                                  const fzn_hash_ops_t *hash,
                                                  const fzn_aead_ops_t *aead,
                                                  const fzn_sign_ops_t *sign,
+                                                 fzn_replay_window_t *replay,
                                                  uint64_t now, uint8_t *frame,
                                                  size_t frame_len,
                                                  fzn_opened_t *opened);

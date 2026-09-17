@@ -92,6 +92,9 @@ int main(void)
 	fzn_node_peer_t peer;
 	fzn_opened_t opened;
 	uint8_t frame[512];
+	uint8_t frame_copy[512];
+	fzn_replay_entry_t replay_entries[16];
+	fzn_replay_window_t replay;
 	size_t frame_len;
 	unsigned h, i;
 
@@ -99,6 +102,8 @@ int main(void)
 	fzn_aead_monocypher_init(&aead_ops);
 	fzn_agree_monocypher_init(&agree_ops);
 	fzn_random_system_init(&rng_ops);
+	ok(fzn_replay_init(&replay, replay_entries, 16, 100000u) == FZN_FRESH_OK,
+	   "the replay window initialises");
 
 	for (h = 0; h < 2u; h++) {
 		memset(&signer[h], 0, sizeof(signer[h]));
@@ -165,7 +170,7 @@ int main(void)
 	ok(frame_len != 0, "the client seals a request");
 	memset(&opened, 0, sizeof(opened));
 	ok(fzn_node_serve_datagram(&config, &peer, &hash_ops, &aead_ops,
-	                           &sign_ops[0], 1000u, frame, frame_len, &opened)
+	                           &sign_ops[0], &replay, 1000u, frame, frame_len, &opened)
 	   == FZN_NODE_REMOTE_GRANTED,
 	   "a capability-bearing remote request is granted");
 	ok(opened.payload_len == sizeof(PAYLOAD) &&
@@ -206,7 +211,7 @@ int main(void)
 		                         key[1], ckey[1], &hash_ops, &rng_ops,
 		                         &aead_ops, 2000u);
 		ok(fzn_node_serve_datagram(&config, &bare, &hash_ops, &aead_ops,
-		                           &sign_ops[0], 1000u, frame, frame_len,
+		                           &sign_ops[0], &replay, 1000u, frame, frame_len,
 		                           NULL) == FZN_NODE_REMOTE_DENIED,
 		   "a remote request with no capability is denied");
 	}
@@ -216,7 +221,7 @@ int main(void)
 	                         ckey[1], &hash_ops, &rng_ops, &aead_ops, 2000u);
 	frame[frame_len - 1u] ^= 0x01u;
 	ok(fzn_node_serve_datagram(&config, &peer, &hash_ops, &aead_ops,
-	                           &sign_ops[0], 1000u, frame, frame_len, NULL)
+	                           &sign_ops[0], &replay, 1000u, frame, frame_len, NULL)
 	   == FZN_NODE_REMOTE_DROPPED,
 	   "a tampered frame is dropped");
 
@@ -229,7 +234,7 @@ int main(void)
 		                         key[1], ckey[1], &hash_ops, &rng_ops,
 		                         &aead_ops, 2000u);
 		ok(fzn_node_serve_datagram(&config, &other, &hash_ops, &aead_ops,
-		                           &sign_ops[0], 1000u, frame, frame_len,
+		                           &sign_ops[0], &replay, 1000u, frame, frame_len,
 		                           NULL) == FZN_NODE_REMOTE_DROPPED,
 		   "a frame from the wrong sender is dropped");
 	}
@@ -238,9 +243,24 @@ int main(void)
 	frame_len = seal_request(frame, sizeof(frame), pubkey[1], cap.b, key[1],
 	                         ckey[1], &hash_ops, &rng_ops, &aead_ops, 2000u);
 	ok(fzn_node_serve_datagram(&config, &peer, &hash_ops, &aead_ops,
-	                           &sign_ops[0], 3000u, frame, frame_len, NULL)
+	                           &sign_ops[0], &replay, 3000u, frame, frame_len, NULL)
 	   == FZN_NODE_REMOTE_DROPPED,
 	   "a command served after its expiry is dropped");
+
+	/* The same authenticated frame served twice: the second is a replay.
+	 * The seal opens in place, so the resend is a captured copy of the
+	 * sealed bytes -- what a network attacker would resend. */
+	frame_len = seal_request(frame, sizeof(frame), pubkey[1], cap.b, key[1],
+	                         ckey[1], &hash_ops, &rng_ops, &aead_ops, 2000u);
+	memcpy(frame_copy, frame, frame_len);
+	ok(fzn_node_serve_datagram(&config, &peer, &hash_ops, &aead_ops,
+	                           &sign_ops[0], &replay, 1000u, frame, frame_len,
+	                           NULL) == FZN_NODE_REMOTE_GRANTED,
+	   "a fresh frame is granted and its nonce recorded");
+	ok(fzn_node_serve_datagram(&config, &peer, &hash_ops, &aead_ops,
+	                           &sign_ops[0], &replay, 1000u, frame_copy,
+	                           frame_len, NULL) == FZN_NODE_REMOTE_DROPPED,
+	   "the same frame replayed is dropped");
 
 	for (h = 0; h < 2u; h++)
 		fzn_agree_secret_wipe(&sk[h]);
