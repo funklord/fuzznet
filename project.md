@@ -42050,3 +42050,80 @@ are dispatch tags rather than signed-object tags: `fzn_catalog_apply`
 switches on the body's object byte (edge 1, content 2, name 3) and refuses
 the rest, so each body schema now pins its own with `must_eq`. Same proof --
 the `.map` is byte-identical, only `catalog.situ.wire` gains the annotations.
+
+## From fmake: what `fmake` finds in this tree, 2026-09-18
+
+Measured by fmake's session in a copy of this tree's tracked files at
+`a35334a`, submodules at their pinned commits, with fmake at its section
+256. The findings are fmake's; what to do with them is this tree's. The
+README shows `make` and no fmake line, which `harmonization.md` asks for
+where fmake can build the tree -- and it nearly can.
+
+**What stops it, and the one-line answer.** Three tests share a name:
+`node/test/provision_test.c`, `provision/test/provision_test.c`,
+`sim/test/provision_test.c`. `make` builds each in place and never meets
+the collision; fmake builds into one directory and refuses to choose.
+The refusal names the spelling: two sections in an `fmake.toml`,
+
+    [target.node_provision_test]
+    root = "node/test/provision_test.c"
+    [target.sim_provision_test]
+    root = "sim/test/provision_test.c"
+
+(fmake's section 256 -- before it, that spelling built a twin rather than
+renaming, so this could not have been said until today.)
+
+**With those two, a plain `fmake` builds `fuzznetd` and `consumer_check`**
+and holds 172 tests for `fmake test`. Four files inside the vendored
+`qtty/` fail to compile, and fmake names each cause with the key that
+supplies it: `qtty/backend.h` and `qtty/qtty.h` are on no include path
+(`[project] include-dirs = ['qtty/include'] would find it`), and
+`cpu_set_t does not name a type` in qtty's moc output wants
+`_GNU_SOURCE`, which this tree's Makefile defines and fmake was not told
+(`[project] defines`). Whether `qtty/` should be built by fmake here at
+all, or excluded as its own build's, is this tree's call; fmake reads it
+as "a separate checkout; leaving its own 12 programs to it" and still
+compiles the sources the gui's symbols reach.
+
+Not measured: `fmake test` over the 172, and the crypto binding's two
+configurations, which `make check` takes per-job arguments for.
+
+## 309. The frame is clear of two situ codegen bugs raidcfgd found, 2026-09-17
+
+raidcfgd, building its own situ payload against fuzznet's frame, hit two situc
+codegen faults and flagged them to check here (both recorded in raidcfgd's
+project.md for the situ session; not duplicated to situ from here). Swept
+against `wire/generated/frame.{c,h}`, the frame is clear of both, and the
+reason is the same: it is nearly fixed-layout with one bounded variable
+member.
+
+The security-relevant one is an integer overflow: situc's generated
+`_required` computes `overhead + length` in `uint32`, so a `length` near
+`0xFFFFFFFF` wraps to a small `need` and a truncated buffer reads as complete.
+The frame does not have it. `situ_fzn_hop_required` and
+`situ_fzn_head_required` set `*need` to a fixed constant -- both structs are
+fixed-layout, so there is no `+ length` term -- and situc emits NO
+`situ_fzn_frame_required` at all, because the payload is variable ("one of its
+members has no length this can compute"). And `head.length` is `u16
+[max = 1024]`, so no length in the frame can approach `UINT32_MAX` regardless.
+THE HAZARD IS LATENT, NOT ABSENT: a future revision that made `head.length` a
+`u32`, or that added a frame-level `_required` over a variable member, would
+walk into it. Recorded at the length field so whoever does that meets this.
+
+The other is performance: situc's `_offset`/`_extent` accessors are
+exponential in a struct's variable-length members (raidcfgd measured one
+decode at 3,000,000 accessor calls, 573 ms, against 0.54 ms with a hand
+cursor). The frame has one variable member, so `situ_fzn_frame_tag_offset` is
+O(1); `tag_ptr` calls it twice, which is a negligible constant here and the
+thing that compounds catastrophically once nesting exists. So the frame is
+safe and any future NESTED variable region in a fuzznet schema is where to
+watch.
+
+And the sizing input, for sec 4.4: raidcfgd's whole status snapshot fits in a
+1 MiB message (its envelope's `length [max = 1048576]`, a bound inside our
+sealed payload that we never read), and its real documents are 1 KB to ~12 KB
+-- about thirteen chunks at our 1024-byte cap. That is well under the frame's
+own reassembly ceiling of `chunks` (u16) times 1024, so a consumer of this
+shape chunks and reassembles with room to spare. No frame change; the number
+is here because sec 4.4's buffer bound is ours to hold and this is the first
+real consumer measuring against it.
