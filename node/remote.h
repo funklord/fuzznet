@@ -14,11 +14,12 @@
  * fzn_node_peer_t a caller filled. The daemon looks a peer up by the sender in
  * the frame's clear header and calls this.
  *
- * WHAT THIS DOES NOT YET DO, named as the next work rather than a gap: seal a
- * reply back to the caller (the reverse session and fzn_seal_build), and the
- * replay window (frame/freshness.h) -- this checks the expiry a command
- * carries but does not yet record a nonce, so the daemon that owns per-peer
- * state owns replay. sec 299 lists the same for the transport below it.
+ * Replies go back the same way: fzn_node_seal_reply seals a response under the
+ * peer's session, which the caller opens with the key it seals with (the
+ * session key is symmetric). WHAT THIS DOES NOT YET DO, named as the next work
+ * rather than a gap: the replay window (frame/freshness.h) -- this checks the
+ * expiry a command carries but does not yet record a nonce, so the daemon that
+ * owns per-peer state owns replay. sec 299 lists the same for the transport.
  */
 
 #ifndef FZN_NODE_REMOTE_H
@@ -70,5 +71,19 @@ fzn_node_remote_result_t fzn_node_serve_datagram(const fzn_node_config_t *config
                                                  uint64_t now, uint8_t *frame,
                                                  size_t frame_len,
                                                  fzn_opened_t *opened);
+
+/* Seal a reply from this node back to `peer`, under the session that opened
+ * the peer's frames. The session key is symmetric, so the caller opens the
+ * reply with the key it seals requests with. `node_pubkey` is the node's
+ * identity, which the caller established the session with and reads as the
+ * reply's sender; a reply carries no capability. `msg` lets a caller
+ * correlate the reply with its request. Returns 0 on success, -1 otherwise. */
+int fzn_node_seal_reply(const fzn_node_peer_t *peer,
+                        const uint8_t node_pubkey[FZN_PUBKEY_LEN],
+                        const uint8_t *payload, size_t payload_len,
+                        uint32_t msg, uint64_t expires_at,
+                        const fzn_hash_ops_t *hash, const fzn_random_ops_t *rng,
+                        const fzn_aead_ops_t *aead, uint8_t *out, size_t out_cap,
+                        size_t *out_len);
 
 #endif

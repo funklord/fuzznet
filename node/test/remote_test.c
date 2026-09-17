@@ -174,6 +174,28 @@ int main(void)
 	ok(memcmp(opened.sender, pubkey[1], FZN_PUBKEY_LEN) == 0,
 	   "the opened sender is the client");
 
+	/* The node seals a reply back, which the caller opens with the key it
+	 * seals its own requests with -- the session key is symmetric. */
+	{
+		static const uint8_t PONG[] = { 'p', 'o', 'n', 'g' };
+		uint8_t reply_frame[512];
+		size_t reply_len = 0;
+		fzn_opened_t reply_opened;
+
+		ok(fzn_node_seal_reply(&peer, pubkey[0], PONG, sizeof(PONG), 7u, 0u,
+		                       &hash_ops, &rng_ops, &aead_ops, reply_frame,
+		                       sizeof(reply_frame), &reply_len) == 0,
+		   "the node seals a reply");
+		ok(fzn_seal_open(reply_frame, reply_len, key[1], ckey[1], &hash_ops,
+		                 &aead_ops, &reply_opened) == FZN_SEAL_OK,
+		   "the caller opens the reply");
+		ok(reply_opened.payload_len == sizeof(PONG) &&
+		   memcmp(reply_opened.payload, PONG, sizeof(PONG)) == 0,
+		   "the reply payload survives");
+		ok(memcmp(reply_opened.sender, pubkey[0], FZN_PUBKEY_LEN) == 0,
+		   "the reply is sealed as from the node");
+	}
+
 	/* Authenticated but unauthorised: the same peer with no chain is
 	 * denied, not dropped -- the frame still opened. */
 	{

@@ -41723,3 +41723,40 @@ Sealing a reply back to the caller and the replay window remain
 `node/remote.h`'s named next work. The reverse session already exists, since
 the session key is symmetric, so a reply is a `fzn_seal_build` away; nothing
 packs one yet.
+
+## 302. Sealing the reply back to the caller, 2026-09-17
+
+sec 301 left "sealing a reply back to the caller" as the remote hop's named
+next work: the reverse session already existed, since the session key is
+symmetric, so a reply was a `fzn_seal_build` away. It is built now.
+
+### One function, and the daemon carries it
+
+`fzn_node_seal_reply` (`node/remote.c`) seals a response under the peer's
+session key -- the same key the caller seals its requests with, so the caller
+opens the reply with it. The reply's sender is the node's identity, which the
+caller established the session with, and it carries no capability: a reply is
+not a capability exercise, and the caller does not authorise the node.
+
+`fzn_node_state` gained a random source, the node's identity, and a
+reply-shaped handler: `on_remote` now returns the reply payload it wants sent,
+up to `FZN_NODE_REPLY_MAX`. The daemon loop seals that reply and sends it back
+to the address the datagram came from. A handler returns zero to answer nothing
+-- a denied caller, or a request that needs no reply -- so the node never
+becomes an oracle it did not choose to be.
+
+### Proven both ways
+
+`remote_test` seals a reply and opens it directly under the caller's key,
+checking the payload survives and the sender is the node. `provision_test`
+drives the whole round trip over real UDP: after the node grants the
+provisioned request, its handler returns a reply, the daemon seals and sends
+it, and the device receives it on its own socket and opens it with the key it
+sealed the request with. Request and reply, end to end, nothing stubbed.
+
+### The replay window is the one thing still above this
+
+The replay window (a nonce recorded per peer) remains `node/remote.h`'s named
+next work. This reply path draws a fresh random nonce per frame, as every seal
+here does, so nonce reuse is not the gap -- recording them to refuse a replayed
+request is.

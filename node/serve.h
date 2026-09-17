@@ -19,6 +19,9 @@
 #include "node.h"
 #include "remote.h"
 
+/* The most reply payload a handler may return for the node to seal. */
+#define FZN_NODE_REPLY_MAX 512u
+
 typedef struct fzn_node_state {
 	fzn_node_config_t config;
 	int listen_fd;	/* the AF_UNIX listener, or -1 */
@@ -32,13 +35,20 @@ typedef struct fzn_node_state {
 	const fzn_sign_ops_t *sign;
 	/* The current time, for command expiry and chain validity. */
 	uint64_t (*clock)(void);
+	/* The random source and this node's identity, needed to seal a reply.
+	 * Leave rng NULL and no reply is sent even if the handler returns one. */
+	const fzn_random_ops_t *rng;
+	uint8_t node_pubkey[FZN_PUBKEY_LEN];
 	/* Called after a remote caller is authenticated and decided -- GRANTED
 	 * or DENIED; a DROPPED frame never authenticated, so nothing is handed
-	 * up. `req` is the opened request. The seam where a consumer's handler
-	 * (its vocabulary) acts on a served request; NULL to only authenticate
-	 * and authorise. */
-	void (*on_remote)(void *ctx, fzn_node_remote_result_t result,
-	                  const fzn_opened_t *req);
+	 * up. The handler may write up to `reply_cap` bytes of reply payload
+	 * into `reply` and return the length; the node seals that reply to the
+	 * caller and sends it. Return 0 for no reply -- a denial, or a request
+	 * needing none. This is the seam where a consumer's handler (its
+	 * vocabulary) acts; NULL to only authenticate and authorise. */
+	size_t (*on_remote)(void *ctx, fzn_node_remote_result_t result,
+	                    const fzn_opened_t *req, uint8_t *reply,
+	                    size_t reply_cap);
 	void *on_remote_ctx;
 } fzn_node_state_t;
 

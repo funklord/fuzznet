@@ -4643,6 +4643,17 @@ SABOTAGES = [
 		"Flipping the test refuses a genuine card and would accept a forged "
 		"one. provision_test accepts a real card.",
 	),
+	(
+		"node-reply-is-sealed-as-from-the-node",
+		"node/remote.c",
+		"what.sender = node_pubkey;",
+		"what.sender = peer->sender;",
+		"a reply is sealed as from the node, whose identity the caller "
+		"established the session with. Sealing it as from the caller makes "
+		"the reply claim the caller's identity, and a caller checking who "
+		"answered would see itself. remote_test and provision_test both "
+		"require the reply's sender to be the node.",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

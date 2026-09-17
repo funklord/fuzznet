@@ -62,8 +62,27 @@ static void serve_ready_datagram(fzn_node_state_t *state)
 	                                 state->aead, state->sign, now, frame,
 	                                 flen, &opened);
 	/* A dropped frame never authenticated -- nothing to hand a handler. */
-	if (result != FZN_NODE_REMOTE_DROPPED && state->on_remote)
-		state->on_remote(state->on_remote_ctx, result, &opened);
+	if (result != FZN_NODE_REMOTE_DROPPED && state->on_remote) {
+		uint8_t reply[FZN_NODE_REPLY_MAX];
+		size_t reply_len;
+
+		reply_len = state->on_remote(state->on_remote_ctx, result, &opened,
+		                             reply, sizeof(reply));
+		/* Seal the handler's reply under the peer session and send it back
+		 * to where the datagram came from. */
+		if (reply_len > 0 && state->rng) {
+			uint8_t reply_frame[FZN_UDP_DATAGRAM_MAX];
+			size_t reply_frame_len;
+
+			if (fzn_node_seal_reply(peer, state->node_pubkey, reply,
+			                        reply_len, opened.msg, 0u, state->hash,
+			                        state->rng, state->aead, reply_frame,
+			                        sizeof(reply_frame), &reply_frame_len)
+			    == 0)
+				(void)fzn_udp_send(state->udp_fd, &from,
+				                   reply_frame, reply_frame_len);
+		}
+	}
 }
 
 int fzn_node_run_once(fzn_node_state_t *state, int timeout_ms)

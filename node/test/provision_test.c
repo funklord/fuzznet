@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 
 static int checks;
 static int failures;
@@ -47,8 +48,11 @@ static struct {
 	size_t payload_len;
 } observed;
 
-static void on_remote_cb(void *ctx, fzn_node_remote_result_t result,
-                         const fzn_opened_t *req)
+static const uint8_t PONG[] = { 'p', 'o', 'n', 'g' };
+
+static size_t on_remote_cb(void *ctx, fzn_node_remote_result_t result,
+                           const fzn_opened_t *req, uint8_t *reply,
+                           size_t reply_cap)
 {
 	(void)ctx;
 	observed.called = 1;
@@ -57,6 +61,12 @@ static void on_remote_cb(void *ctx, fzn_node_remote_result_t result,
 		memcpy(observed.payload, req->payload, req->payload_len);
 		observed.payload_len = req->payload_len;
 	}
+	/* Reply only to a granted caller, and only if it fits. */
+	if (result == FZN_NODE_REMOTE_GRANTED && reply_cap >= sizeof(PONG)) {
+		memcpy(reply, PONG, sizeof(PONG));
+		return sizeof(PONG);
+	}
+	return 0;
 }
 
 static uint64_t test_now(void)
@@ -230,6 +240,8 @@ int main(void)
 	state.aead = &aead_ops;
 	state.sign = &sign_ops[0];
 	state.clock = test_now;
+	state.rng = &rng_ops;
+	memcpy(state.node_pubkey, pubkey[0], FZN_PUBKEY_LEN);
 	state.on_remote = on_remote_cb;
 
 	observed.called = 0;
@@ -241,6 +253,30 @@ int main(void)
 	ok(observed.payload_len == sizeof(PAYLOAD) &&
 	   memcmp(observed.payload, PAYLOAD, sizeof(PAYLOAD)) == 0,
 	   "the request payload arrived intact");
+
+	/* The node sealed a reply and sent it back to the device across the
+	 * same loopback; the device opens it with the key it sealed with. */
+	{
+		struct timeval tv;
+		uint8_t reply_frame[512];
+		size_t reply_len = 0;
+		fzn_opened_t reply_opened;
+
+		tv.tv_sec = 2;
+		tv.tv_usec = 0;
+		(void)setsockopt(dev_udp, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+		ok(fzn_udp_recv(dev_udp, reply_frame, sizeof(reply_frame), &reply_len,
+		                NULL) == FZN_UDP_OK,
+		   "the device receives the sealed reply");
+		ok(fzn_seal_open(reply_frame, reply_len, send_key, send_ckey, &hash_ops,
+		                 &aead_ops, &reply_opened) == FZN_SEAL_OK,
+		   "the device opens the reply");
+		ok(reply_opened.payload_len == sizeof(PONG) &&
+		   memcmp(reply_opened.payload, PONG, sizeof(PONG)) == 0,
+		   "the reply payload round-tripped");
+		ok(memcmp(reply_opened.sender, pubkey[0], FZN_PUBKEY_LEN) == 0,
+		   "the reply is from the node");
+	}
 
 	fzn_udp_close(node_udp);
 	fzn_udp_close(dev_udp);
