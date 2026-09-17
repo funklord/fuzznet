@@ -42019,11 +42019,18 @@ record stays 156..668): situ then marks every body field `auth=Covered(
 signature)` and records the coverage in the wire contract, which is exactly
 the property "the signature covers the body" that was wanted. What actually
 waits on the codegen settling is GENERATING the verifying C, not describing
-the coverage. The one open question before doing all six is the card, which
-nests a hop and a prekey: a covered region containing a struct that has its
-own covered region is nesting situ may or may not accept, and that is worth
-a probe rather than an assumption. So this is the ready next increment, not
-a blocked one.
+the coverage. So the five non-nested signed objects are the ready next
+increment, not a blocked one.
+
+The card is the exception, and the reason is now measured rather than
+guessed. It nests a hop and a prekey, and the hop signs its own body, so the
+card is a covered region containing a struct that has its own covered region.
+Probed against situ ad40ce6, that CRASHES situc -- a StopIteration escaping
+resolve_coverage rather than a layout or a refusal -- while a covered region
+over a plain struct works and a self-covering struct not nested in one works,
+so it is the nesting specifically. Reported to situ with the minimal
+reproduction and the two controls. The card's signature therefore stays
+opaque until situ handles nested coverage; the other five need not wait.
 
 The catalogue bodies got the same treatment for the same reason, though they
 are dispatch tags rather than signed-object tags: `fzn_catalog_apply`
