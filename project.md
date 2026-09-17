@@ -42007,9 +42007,23 @@ against situ ad40ce6 (its generated-C step is still stale on situ's evolving
 emitter, sec 307, unchanged by this).
 
 WHAT IS STILL DEFERRED is the signature: it is opaque bytes in every one of
-these, pending the Ed25519 extern-codec binding that would make the schema
-assert the signature covers the body, the way frame.situ binds its AEAD. That
-is the same codec work waiting on situ's tree settling.
+these. An earlier version of this section said binding it "waits on situ's
+tree settling", and that was wrong -- it conflated two things. Binding the
+signature is a SCHEMA construct and is not blocked: wrap the signed fields in
+an `authenticated body { ... }` region and declare the signature as
+`checksum u8 signature[64] covers(body)` -- no codec, because Ed25519 is
+extern and situ requires a `derived` codec for one it computes itself, so the
+caller still signs and verifies. Proven against situ ad40ce6 on a fixed body
+(the hop stays 179 bytes, every offset unchanged) and a variable one (the
+record stays 156..668): situ then marks every body field `auth=Covered(
+signature)` and records the coverage in the wire contract, which is exactly
+the property "the signature covers the body" that was wanted. What actually
+waits on the codegen settling is GENERATING the verifying C, not describing
+the coverage. The one open question before doing all six is the card, which
+nests a hop and a prekey: a covered region containing a struct that has its
+own covered region is nesting situ may or may not accept, and that is worth
+a probe rather than an assumption. So this is the ready next increment, not
+a blocked one.
 
 The catalogue bodies got the same treatment for the same reason, though they
 are dispatch tags rather than signed-object tags: `fzn_catalog_apply`
