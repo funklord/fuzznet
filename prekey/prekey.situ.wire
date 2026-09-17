@@ -24,4 +24,5 @@ struct fzn_prekey_record size=138
   @0x0002   32        u8         host  big
   @0x0022   32        u8         prekey  big
   @0x0042   8         u64        created_at  big
-  @0x004a   64        u8         signature  big
+  @0x004a   64        u8         signature
+  signature covers: body created_at host object prekey version

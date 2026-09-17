@@ -22,6 +22,7 @@ struct fzn_chain size=2..1434
   @0x0000   1         u8         version
   @0x0001   1         u8         hop_count  max=8
   @0x0002   0..1432   fzn_chain_hop hops  sized-by=hop_count
+  signature covers: body capability delegable expires_at grantee grantor issued_at object version
 
 struct fzn_chain_hop size=179
   @0x0000   1         u8         version  must_eq=1
@@ -32,4 +33,5 @@ struct fzn_chain_hop size=179
   @0x0062   8         u64        issued_at  big
   @0x006a   8         u64        expires_at  big
   @0x0072   1         u8         delegable  max=1
-  @0x0073   64        u8         signature  big
+  @0x0073   64        u8         signature
+  signature covers: body capability delegable expires_at grantee grantor issued_at object version

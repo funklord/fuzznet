@@ -27,7 +27,8 @@ struct fzn_chain_hop size=179
   @0x0062   8         u64        issued_at  big
   @0x006a   8         u64        expires_at  big
   @0x0072   1         u8         delegable  max=1
-  @0x0073   64        u8         signature  big
+  @0x0073   64        u8         signature
+  signature covers: body capability delegable expires_at grantee grantor issued_at object version
 
 struct fzn_prekey_record size=138
   @0x0000   1         u8         version  must_eq=1
@@ -35,7 +36,8 @@ struct fzn_prekey_record size=138
   @0x0002   32        u8         host  big
   @0x0022   32        u8         prekey  big
   @0x0042   8         u64        created_at  big
-  @0x004a   64        u8         signature  big
+  @0x004a   64        u8         signature
+  signature covers: body created_at host object prekey version
 
 struct fzn_provision_card size=423
   @0x0000   1         u8         version  must_eq=1
@@ -45,3 +47,5 @@ struct fzn_provision_card size=423
   @0x00d5   138       fzn_prekey_record prekey  big
   @0x015f   8         u64        expires_at  big
   @0x0167   64        u8         signature  big
+  signature covers: body capability delegable expires_at grantee grantor issued_at object version body created_at host object prekey version
+  signature covers: body capability delegable expires_at grantee grantor issued_at object version body created_at host object prekey version

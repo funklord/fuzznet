@@ -5,10 +5,12 @@
 // constants before anything is generated.
 //
 // version and object are carried as must_eq, the shape checks
-// fzn_record_validate makes; the signature covers bytes 0 through the last
-// body byte (the whole record but the signature) and here is opaque bytes,
-// as hop.situ's is. The body uses the same form frame.situ uses for its
-// payload -- u8 payload[head.length] -- sized by a prior field.
+// fzn_record_validate makes; the body is an `authenticated` region and the
+// signature a `checksum ... covers(body)`, so situ knows it covers bytes 0
+// through the last content byte (the whole record but the signature); no
+// codec, since Ed25519 is extern, as hop.situ. The content uses the same form
+// frame.situ uses for its payload -- u8 payload[head.length] -- sized by a
+// prior field. (It is named `content` because `body` names the region.)
 //
 // stream and kind are read as big-endian 32-bit values (fzn_record_stream /
 // fzn_record_kind call fzn_get_be32), so they are u32 rather than u8[4].
@@ -17,15 +19,19 @@ target buffer;
 endian big;
 
 struct fzn_record {
-	u8  version [must_eq = 1];   // FZN_RECORD_OFF_VERSION 0 (FZN_SIGNED_VERSION)
-	u8  object  [must_eq = 130]; // FZN_RECORD_OFF_OBJECT  1 (FZN_OBJECT_RECORD)
-	u8  issuer[32];          // FZN_RECORD_OFF_ISSUER     2  (FZN_PUBKEY_LEN)
-	u8  subject[32];         // FZN_RECORD_OFF_SUBJECT    34 (FZN_SUBJECT_LEN)
-	u32 stream;              // FZN_RECORD_OFF_STREAM     66
-	u32 kind;                // FZN_RECORD_OFF_KIND       70
-	u64 seq;                 // FZN_RECORD_OFF_SEQ        74
-	u64 issued_at;           // FZN_RECORD_OFF_ISSUED_AT  82
-	u16 body_len  [max = 512]; // FZN_RECORD_OFF_BODY_LEN 90 (max = FZN_RECORD_BODY_MAX)
-	u8  body[body_len];      // FZN_RECORD_OFF_BODY       92 = FZN_RECORD_HEADER_LEN
-	u8  signature[64];       // at 92 + body_len          (FZN_SIG_LEN)
+	authenticated body {
+		u8  version [must_eq = 1];   // FZN_RECORD_OFF_VERSION 0 (FZN_SIGNED_VERSION)
+		u8  object  [must_eq = 130]; // FZN_RECORD_OFF_OBJECT  1 (FZN_OBJECT_RECORD)
+		u8  issuer[32];          // FZN_RECORD_OFF_ISSUER     2  (FZN_PUBKEY_LEN)
+		u8  subject[32];         // FZN_RECORD_OFF_SUBJECT    34 (FZN_SUBJECT_LEN)
+		u32 stream;              // FZN_RECORD_OFF_STREAM     66
+		u32 kind;                // FZN_RECORD_OFF_KIND       70
+		u64 seq;                 // FZN_RECORD_OFF_SEQ        74
+		u64 issued_at;           // FZN_RECORD_OFF_ISSUED_AT  82
+		u16 body_len  [max = 512]; // FZN_RECORD_OFF_BODY_LEN 90 (FZN_RECORD_BODY_MAX)
+		u8  content[body_len];   // FZN_RECORD_OFF_BODY       92 = FZN_RECORD_HEADER_LEN
+	}
+	// covers(body): the whole record but the signature. Ed25519 is
+	// extern, so no codec -- the caller signs and verifies.
+	checksum u8 signature[64] covers(body); // at 92 + body_len (FZN_SIG_LEN)
 }

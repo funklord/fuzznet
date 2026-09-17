@@ -6,8 +6,9 @@
 // layout, different object byte) undoes one -- which is why the object is an
 // enum of the two values fzn_revocation_validate accepts, and the version is
 // carried as a must_eq, the way hop.situ carries its shape constraints. The
-// signature covers bytes 0 through FZN_REVOCATION_BODY_LEN-1 (the whole
-// body); here it is opaque bytes, as hop.situ's is.
+// body is an `authenticated` region and the signature a `checksum ...
+// covers(body)`, so situ knows it covers bytes 0 through
+// FZN_REVOCATION_BODY_LEN-1; no codec, since Ed25519 is extern, as hop.situ.
 
 target buffer;
 endian big;
@@ -21,12 +22,16 @@ enum fzn_revocation_object : u8 {
 }
 
 struct fzn_revocation {
-	u8  version [must_eq = 1];       // FZN_REV_OFF_VERSION 0 (FZN_SIGNED_VERSION)
-	fzn_revocation_object object;    // FZN_REV_OFF_OBJECT  1
-	u8  capability[32];      // FZN_REV_OFF_CAPABILITY 2
-	u8  grantee[32];         // FZN_REV_OFF_GRANTEE    34
-	u8  issuer[32];          // FZN_REV_OFF_ISSUER     66
-	u64 issued_at;           // FZN_REV_OFF_ISSUED_AT  98
-	u8  supersedes[32];      // FZN_REV_OFF_SUPERSEDES 106  (the rev-id)
-	u8  signature[64];       // FZN_REV_OFF_SIGNATURE  138 = FZN_REVOCATION_BODY_LEN
+	authenticated body {
+		u8  version [must_eq = 1];       // FZN_REV_OFF_VERSION 0 (FZN_SIGNED_VERSION)
+		fzn_revocation_object object;    // FZN_REV_OFF_OBJECT  1
+		u8  capability[32];      // FZN_REV_OFF_CAPABILITY 2
+		u8  grantee[32];         // FZN_REV_OFF_GRANTEE    34
+		u8  issuer[32];          // FZN_REV_OFF_ISSUER     66
+		u64 issued_at;           // FZN_REV_OFF_ISSUED_AT  98
+		u8  supersedes[32];      // FZN_REV_OFF_SUPERSEDES 106  (the rev-id)
+	}
+	// covers(body) = bytes 0..137, FZN_REVOCATION_BODY_LEN. Ed25519 is
+	// extern, so no codec: the caller signs and verifies.
+	checksum u8 signature[64] covers(body); // FZN_REV_OFF_SIGNATURE 138
 }

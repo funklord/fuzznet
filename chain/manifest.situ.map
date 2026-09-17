@@ -11,18 +11,19 @@
 # A struct's size is a bare number where it is fixed, `min..max` where
 # it is bounded, and `min..` where nothing bounds it.
 
-struct fzn_manifest size=100..262097 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
-  fzn_manifest.version                   offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
-  fzn_manifest.object                    offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  fzn_manifest.issuer                    offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
-  fzn_manifest.count                     offset=AbsoluteStatic(0x22) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
-  fzn_manifest.pairs                     offset=AbsoluteStatic(0x24) size=Bounded(0, 261997) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
-  fzn_manifest.pairs[]                   offset=FrameStatic(0x00) size=Fixed(97) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
-  fzn_manifest.pairs[].capability        offset=FrameStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
-  fzn_manifest.pairs[].grantee           offset=FrameStatic(0x20) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
-  fzn_manifest.pairs[].id                offset=FrameStatic(0x40) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
-  fzn_manifest.pairs[].state             offset=FrameStatic(0x60) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
-  fzn_manifest.signature                 offset=Dynamic size=Fixed(64) align=Unaligned repr=MemoryIdentical atomic=NonAtomic address=Unstable
+struct fzn_manifest size=100..262097 mutate=Immutable address=Unstable repr=ValueConverted atomic=NonAtomic auth=Covered(signature)
+  fzn_manifest.body                      offset=AbsoluteStatic(0x00) size=Bounded(36, 262033) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting auth=Covered(signature)
+  fzn_manifest.version                   offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord auth=Covered(signature)
+  fzn_manifest.object                    offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord auth=Covered(signature)
+  fzn_manifest.issuer                    offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_manifest.count                     offset=AbsoluteStatic(0x22) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord auth=Covered(signature)
+  fzn_manifest.pairs                     offset=AbsoluteStatic(0x24) size=Bounded(0, 261997) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting auth=Covered(signature)
+  fzn_manifest.pairs[]                   offset=FrameStatic(0x00) size=Fixed(97) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_manifest.pairs[].capability        offset=FrameStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_manifest.pairs[].grantee           offset=FrameStatic(0x20) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_manifest.pairs[].id                offset=FrameStatic(0x40) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_manifest.pairs[].state             offset=FrameStatic(0x60) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord auth=Covered(signature)
+  fzn_manifest.signature                 offset=Dynamic size=Fixed(64) align=Unaligned repr=MemoryIdentical atomic=NonAtomic mutate=Immutable address=Unstable
 
 struct fzn_manifest_pair size=97 atomic=NonAtomic
   fzn_manifest_pair.capability           offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic

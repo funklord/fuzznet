@@ -27,4 +27,5 @@ struct fzn_chain_hop size=179
   @0x0062   8         u64        issued_at  big
   @0x006a   8         u64        expires_at  big
   @0x0072   1         u8         delegable  max=1
-  @0x0073   64        u8         signature  big
+  @0x0073   64        u8         signature
+  signature covers: body capability delegable expires_at grantee grantor issued_at object version

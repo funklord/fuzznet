@@ -8,30 +8,37 @@
 // service_hint). Named fzn_chain_hop so the generated SITU_FZN_* symbols do
 // not collide with the frame's.
 //
-// The byte layout, and the shape constraints fzn_hop_validate (chain.c)
-// makes on it: version, object and delegable are carried here as must_eq and
-// max, so a wrong tag or a non-canonical delegable byte is refused by the
-// schema the way the C refuses it. What is still deferred is the signature:
-// the signer over the body is Ed25519, and a later revision binds it as an
-// extern codec (as the frame binds its AEAD) so the signature covers the
-// body. Here the signature is opaque bytes.
+// The byte layout, the shape constraints fzn_hop_validate (chain.c) makes on
+// it -- version, object and delegable as must_eq and max -- and the coverage:
+// the body is wrapped in an `authenticated` region and the signature is a
+// `checksum ... covers(body)`, so situ knows the Ed25519 signature covers
+// exactly those bytes and a mutated body byte is a stale signature. No codec
+// is named because Ed25519 is extern (situ requires a `derived` codec for one
+// it computes), so the caller still signs and verifies; situ carries the
+// coverage, not the algorithm.
 
 target buffer;
 endian big;
 
 struct fzn_chain_hop {
-	// Both bytes are inside the signed range, which is what makes them
-	// worth checking: fzn_hop_validate (chain.c) refuses either being
-	// wrong before the signature is looked at.
-	u8  version   [must_eq = 1];   // FZN_SIGNED_VERSION
-	u8  object    [must_eq = 128]; // FZN_OBJECT_HOP
-	u8  grantor[32];
-	u8  grantee[32];
-	u8  capability[32];
-	u64 issued_at;
-	u64 expires_at;
-	// One encoding per value: chain.c refuses `> 1`, so a nonzero byte
-	// other than 1 is not a second spelling of "delegable".
-	u8  delegable [max = 1];
-	u8  signature[64];
+	// The signed body: exactly the bytes fzn_hop_sign covers.
+	authenticated body {
+		// Both bytes are inside the signed range, which is what makes
+		// them worth checking: fzn_hop_validate (chain.c) refuses
+		// either being wrong before the signature is looked at.
+		u8  version   [must_eq = 1];   // FZN_SIGNED_VERSION
+		u8  object    [must_eq = 128]; // FZN_OBJECT_HOP
+		u8  grantor[32];
+		u8  grantee[32];
+		u8  capability[32];
+		u64 issued_at;
+		u64 expires_at;
+		// One encoding per value: chain.c refuses `> 1`, so a nonzero
+		// byte other than 1 is not a second spelling of "delegable".
+		u8  delegable [max = 1];
+	}
+	// No codec: Ed25519 is extern, so the caller signs and verifies. The
+	// coverage is what situ carries -- a mutated body byte is a stale
+	// signature, which situ_fzn_..._validate refuses.
+	checksum u8 signature[64] covers(body);
 }

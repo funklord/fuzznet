@@ -29,4 +29,5 @@ struct fzn_revocation size=202
   @0x0042   32        u8         issuer  big
   @0x0062   8         u64        issued_at  big
   @0x006a   32        u8         supersedes  big
-  @0x008a   64        u8         signature  big
+  @0x008a   64        u8         signature
+  signature covers: body capability grantee issued_at issuer object supersedes version

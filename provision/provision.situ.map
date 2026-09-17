@@ -11,45 +11,49 @@
 # A struct's size is a bare number where it is fixed, `min..max` where
 # it is bounded, and `min..` where nothing bounds it.
 
-struct fzn_chain_hop size=179 repr=ValueConverted atomic=NonAtomic
-  fzn_chain_hop.version                  offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
-  fzn_chain_hop.object                   offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  fzn_chain_hop.grantor                  offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
-  fzn_chain_hop.grantee                  offset=AbsoluteStatic(0x22) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
-  fzn_chain_hop.capability               offset=AbsoluteStatic(0x42) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
-  fzn_chain_hop.issued_at                offset=AbsoluteStatic(0x62) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
-  fzn_chain_hop.expires_at               offset=AbsoluteStatic(0x6A) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
-  fzn_chain_hop.delegable                offset=AbsoluteStatic(0x72) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
-  fzn_chain_hop.signature                offset=AbsoluteStatic(0x73) size=Fixed(64) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+struct fzn_chain_hop size=179 mutate=Immutable repr=ValueConverted atomic=NonAtomic auth=Covered(signature)
+  fzn_chain_hop.body                     offset=AbsoluteStatic(0x00) size=Fixed(115) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_chain_hop.version                  offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord auth=Covered(signature)
+  fzn_chain_hop.object                   offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord auth=Covered(signature)
+  fzn_chain_hop.grantor                  offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_chain_hop.grantee                  offset=AbsoluteStatic(0x22) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_chain_hop.capability               offset=AbsoluteStatic(0x42) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_chain_hop.issued_at                offset=AbsoluteStatic(0x62) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic auth=Covered(signature)
+  fzn_chain_hop.expires_at               offset=AbsoluteStatic(0x6A) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic auth=Covered(signature)
+  fzn_chain_hop.delegable                offset=AbsoluteStatic(0x72) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord auth=Covered(signature)
+  fzn_chain_hop.signature                offset=AbsoluteStatic(0x73) size=Fixed(64) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Immutable
 
-struct fzn_prekey_record size=138 repr=ValueConverted atomic=NonAtomic
-  fzn_prekey_record.version              offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
-  fzn_prekey_record.object               offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  fzn_prekey_record.host                 offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
-  fzn_prekey_record.prekey               offset=AbsoluteStatic(0x22) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
-  fzn_prekey_record.created_at           offset=AbsoluteStatic(0x42) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
-  fzn_prekey_record.signature            offset=AbsoluteStatic(0x4A) size=Fixed(64) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+struct fzn_prekey_record size=138 mutate=Immutable repr=ValueConverted atomic=NonAtomic auth=Covered(signature)
+  fzn_prekey_record.body                 offset=AbsoluteStatic(0x00) size=Fixed(74) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_prekey_record.version              offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord auth=Covered(signature)
+  fzn_prekey_record.object               offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord auth=Covered(signature)
+  fzn_prekey_record.host                 offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_prekey_record.prekey               offset=AbsoluteStatic(0x22) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_prekey_record.created_at           offset=AbsoluteStatic(0x42) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic auth=Covered(signature)
+  fzn_prekey_record.signature            offset=AbsoluteStatic(0x4A) size=Fixed(64) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Immutable
 
-struct fzn_provision_card size=423 repr=ValueConverted atomic=NonAtomic
+struct fzn_provision_card size=423 mutate=Immutable repr=ValueConverted atomic=NonAtomic auth=Covered(signature)
   fzn_provision_card.version             offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   fzn_provision_card.object              offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
   fzn_provision_card.root                offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
-  fzn_provision_card.hop                 offset=AbsoluteStatic(0x22) size=Fixed(179) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
-  fzn_provision_card.hop.version         offset=AbsoluteStatic(0x22) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
-  fzn_provision_card.hop.object          offset=AbsoluteStatic(0x23) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  fzn_provision_card.hop.grantor         offset=AbsoluteStatic(0x24) size=Fixed(32) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic
-  fzn_provision_card.hop.grantee         offset=AbsoluteStatic(0x44) size=Fixed(32) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic
-  fzn_provision_card.hop.capability      offset=AbsoluteStatic(0x64) size=Fixed(32) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic
-  fzn_provision_card.hop.issued_at       offset=AbsoluteStatic(0x84) size=Fixed(8) align=Aligned(4) repr=ValueConverted atomic=NonAtomic
-  fzn_provision_card.hop.expires_at      offset=AbsoluteStatic(0x8C) size=Fixed(8) align=Aligned(4) repr=ValueConverted atomic=NonAtomic
-  fzn_provision_card.hop.delegable       offset=AbsoluteStatic(0x94) size=Fixed(1) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord
-  fzn_provision_card.hop.signature       offset=AbsoluteStatic(0x95) size=Fixed(64) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
-  fzn_provision_card.prekey              offset=AbsoluteStatic(0xD5) size=Fixed(138) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
-  fzn_provision_card.prekey.version      offset=AbsoluteStatic(0xD5) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  fzn_provision_card.prekey.object       offset=AbsoluteStatic(0xD6) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
-  fzn_provision_card.prekey.host         offset=AbsoluteStatic(0xD7) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
-  fzn_provision_card.prekey.prekey       offset=AbsoluteStatic(0xF7) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
-  fzn_provision_card.prekey.created_at   offset=AbsoluteStatic(0x117) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
-  fzn_provision_card.prekey.signature    offset=AbsoluteStatic(0x11F) size=Fixed(64) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  fzn_provision_card.hop                 offset=AbsoluteStatic(0x22) size=Fixed(179) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=Immutable auth=Covered(signature)
+  fzn_provision_card.hop.body            offset=AbsoluteStatic(0x22) size=Fixed(115) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_provision_card.hop.version         offset=AbsoluteStatic(0x22) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord auth=Covered(signature)
+  fzn_provision_card.hop.object          offset=AbsoluteStatic(0x23) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord auth=Covered(signature)
+  fzn_provision_card.hop.grantor         offset=AbsoluteStatic(0x24) size=Fixed(32) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_provision_card.hop.grantee         offset=AbsoluteStatic(0x44) size=Fixed(32) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_provision_card.hop.capability      offset=AbsoluteStatic(0x64) size=Fixed(32) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_provision_card.hop.issued_at       offset=AbsoluteStatic(0x84) size=Fixed(8) align=Aligned(4) repr=ValueConverted atomic=NonAtomic auth=Covered(signature)
+  fzn_provision_card.hop.expires_at      offset=AbsoluteStatic(0x8C) size=Fixed(8) align=Aligned(4) repr=ValueConverted atomic=NonAtomic auth=Covered(signature)
+  fzn_provision_card.hop.delegable       offset=AbsoluteStatic(0x94) size=Fixed(1) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord auth=Covered(signature)
+  fzn_provision_card.hop.signature       offset=AbsoluteStatic(0x95) size=Fixed(64) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Immutable
+  fzn_provision_card.prekey              offset=AbsoluteStatic(0xD5) size=Fixed(138) align=Aligned(1) repr=ValueConverted atomic=NonAtomic mutate=Immutable auth=Covered(signature)
+  fzn_provision_card.prekey.body         offset=AbsoluteStatic(0xD5) size=Fixed(74) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_provision_card.prekey.version      offset=AbsoluteStatic(0xD5) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord auth=Covered(signature)
+  fzn_provision_card.prekey.object       offset=AbsoluteStatic(0xD6) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord auth=Covered(signature)
+  fzn_provision_card.prekey.host         offset=AbsoluteStatic(0xD7) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_provision_card.prekey.prekey       offset=AbsoluteStatic(0xF7) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_provision_card.prekey.created_at   offset=AbsoluteStatic(0x117) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic auth=Covered(signature)
+  fzn_provision_card.prekey.signature    offset=AbsoluteStatic(0x11F) size=Fixed(64) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Immutable
   fzn_provision_card.expires_at          offset=AbsoluteStatic(0x15F) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
   fzn_provision_card.signature           offset=AbsoluteStatic(0x167) size=Fixed(64) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic

@@ -11,15 +11,16 @@
 # A struct's size is a bare number where it is fixed, `min..max` where
 # it is bounded, and `min..` where nothing bounds it.
 
-struct fzn_record size=156..668 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
-  fzn_record.version                     offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
-  fzn_record.object                      offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  fzn_record.issuer                      offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
-  fzn_record.subject                     offset=AbsoluteStatic(0x22) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
-  fzn_record.stream                      offset=AbsoluteStatic(0x42) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
-  fzn_record.kind                        offset=AbsoluteStatic(0x46) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
-  fzn_record.seq                         offset=AbsoluteStatic(0x4A) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
-  fzn_record.issued_at                   offset=AbsoluteStatic(0x52) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
-  fzn_record.body_len                    offset=AbsoluteStatic(0x5A) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
-  fzn_record.body                        offset=AbsoluteStatic(0x5C) size=Bounded(0, 512) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
-  fzn_record.signature                   offset=Dynamic size=Fixed(64) align=Unaligned repr=MemoryIdentical atomic=NonAtomic address=Unstable
+struct fzn_record size=156..668 mutate=Immutable address=Unstable repr=ValueConverted atomic=NonAtomic auth=Covered(signature)
+  fzn_record.body                        offset=AbsoluteStatic(0x00) size=Bounded(92, 604) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting auth=Covered(signature)
+  fzn_record.version                     offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord auth=Covered(signature)
+  fzn_record.object                      offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord auth=Covered(signature)
+  fzn_record.issuer                      offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_record.subject                     offset=AbsoluteStatic(0x22) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_record.stream                      offset=AbsoluteStatic(0x42) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic auth=Covered(signature)
+  fzn_record.kind                        offset=AbsoluteStatic(0x46) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic auth=Covered(signature)
+  fzn_record.seq                         offset=AbsoluteStatic(0x4A) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic auth=Covered(signature)
+  fzn_record.issued_at                   offset=AbsoluteStatic(0x52) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic auth=Covered(signature)
+  fzn_record.body_len                    offset=AbsoluteStatic(0x5A) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord auth=Covered(signature)
+  fzn_record.content                     offset=AbsoluteStatic(0x5C) size=Bounded(0, 512) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting auth=Covered(signature)
+  fzn_record.signature                   offset=Dynamic size=Fixed(64) align=Unaligned repr=MemoryIdentical atomic=NonAtomic mutate=Immutable address=Unstable

@@ -28,5 +28,6 @@ struct fzn_record size=156..668
   @0x004a   8         u64        seq  big
   @0x0052   8         u64        issued_at  big
   @0x005a   2         u16        body_len  big max=512
-  @0x005c   0..512    u8         body  sized-by=body_len
-  ~         64        u8         signature  big
+  @0x005c   0..512    u8         content  sized-by=body_len
+  ~         64        u8         signature
+  signature covers: body body_len content issued_at issuer kind object seq stream subject version

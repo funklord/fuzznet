@@ -11,10 +11,11 @@
 # A struct's size is a bare number where it is fixed, `min..max` where
 # it is bounded, and `min..` where nothing bounds it.
 
-struct fzn_prekey_record size=138 repr=ValueConverted atomic=NonAtomic
-  fzn_prekey_record.version              offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
-  fzn_prekey_record.object               offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  fzn_prekey_record.host                 offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
-  fzn_prekey_record.prekey               offset=AbsoluteStatic(0x22) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
-  fzn_prekey_record.created_at           offset=AbsoluteStatic(0x42) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
-  fzn_prekey_record.signature            offset=AbsoluteStatic(0x4A) size=Fixed(64) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+struct fzn_prekey_record size=138 mutate=Immutable repr=ValueConverted atomic=NonAtomic auth=Covered(signature)
+  fzn_prekey_record.body                 offset=AbsoluteStatic(0x00) size=Fixed(74) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_prekey_record.version              offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord auth=Covered(signature)
+  fzn_prekey_record.object               offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord auth=Covered(signature)
+  fzn_prekey_record.host                 offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_prekey_record.prekey               offset=AbsoluteStatic(0x22) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_prekey_record.created_at           offset=AbsoluteStatic(0x42) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic auth=Covered(signature)
+  fzn_prekey_record.signature            offset=AbsoluteStatic(0x4A) size=Fixed(64) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Immutable

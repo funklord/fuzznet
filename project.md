@@ -42019,18 +42019,31 @@ record stays 156..668): situ then marks every body field `auth=Covered(
 signature)` and records the coverage in the wire contract, which is exactly
 the property "the signature covers the body" that was wanted. What actually
 waits on the codegen settling is GENERATING the verifying C, not describing
-the coverage. So the five non-nested signed objects are the ready next
-increment, not a blocked one.
+the coverage.
+
+So the five non-nested signed objects are BOUND: the hop, the revocation, the
+manifest, the record and the prekey each wrap their signed fields in an
+`authenticated body { ... }` region and declare the signature as
+`checksum u8 signature[64] covers(body)`. Proven value-only -- every field
+keeps its offset (the signature lands at FZN_*_OFF_SIGNATURE exactly: hop 115,
+revocation 138, prekey 74, record dynamic at 92 + body_len), and situ now
+marks every body field `auth=Covered(signature)` and states the coverage in
+the wire contract. The record's content field is renamed from `body` to
+`content` because `body` names the region; the wire bytes are unchanged. The
+importers stay clean: chain nests an array of signed hops and the card nests a
+signed hop and prekey, both OUTSIDE any covered region, which is the pattern
+that works.
 
 The card is the exception, and the reason is now measured rather than
-guessed. It nests a hop and a prekey, and the hop signs its own body, so the
-card is a covered region containing a struct that has its own covered region.
-Probed against situ ad40ce6, that CRASHES situc -- a StopIteration escaping
+guessed. Binding ITS OWN signature would make it a covered region containing a
+struct that has its own covered region (the hop signs its own body). Probed
+against situ ad40ce6, that CRASHES situc -- a StopIteration escaping
 resolve_coverage rather than a layout or a refusal -- while a covered region
 over a plain struct works and a self-covering struct not nested in one works,
 so it is the nesting specifically. Reported to situ with the minimal
-reproduction and the two controls. The card's signature therefore stays
-opaque until situ handles nested coverage; the other five need not wait.
+reproduction and the two controls. The card's own signature therefore stays
+opaque until situ handles nested coverage; the hop and prekey it carries are
+each covered by their own.
 
 The catalogue bodies got the same treatment for the same reason, though they
 are dispatch tags rather than signed-object tags: `fzn_catalog_apply`

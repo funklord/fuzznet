@@ -6,11 +6,10 @@
 //
 // A host's statement of its own key-agreement key, signed under its own
 // long-term key. It is SELF-SIGNED: `host` is both the signer and the subject
-// (prekey.h). The signature covers the body -- everything before it,
-// FZN_PREKEY_BODY_LEN = 74 bytes -- and is opaque bytes here, exactly as
-// chain/hop.situ leaves the Ed25519 signature opaque in its first cut; a
-// later revision can bind it as an extern codec so the signature covers the
-// body.
+// (prekey.h). The body is an `authenticated` region and the signature a
+// `checksum ... covers(body)`, so situ knows the Ed25519 signature covers the
+// body -- everything before it, FZN_PREKEY_BODY_LEN = 74 bytes. No codec,
+// since Ed25519 is extern, exactly as chain/hop.situ binds its coverage.
 //
 // Fixed size, 138 bytes: 74-byte signed body + 64-byte signature.
 // FZN_PUBKEY_LEN = 32, FZN_PREKEY_LEN = 32, FZN_SIG_LEN = 64.
@@ -19,10 +18,15 @@ target buffer;
 endian big;
 
 struct fzn_prekey_record {
-	u8  version [must_eq = 1];   // FZN_SIGNED_VERSION
-	u8  object  [must_eq = 132]; // FZN_OBJECT_PREKEY
-	u8  host[32];
-	u8  prekey[32];
-	u64 created_at;
-	u8  signature[64];
+	// Self-signed: the host signs its own prekey under its long-term key.
+	authenticated body {
+		u8  version [must_eq = 1];   // FZN_SIGNED_VERSION
+		u8  object  [must_eq = 132]; // FZN_OBJECT_PREKEY
+		u8  host[32];
+		u8  prekey[32];
+		u64 created_at;
+	}
+	// covers(body) = the 74-byte signed body. Ed25519 is extern, so no
+	// codec -- the caller signs and verifies.
+	checksum u8 signature[64] covers(body);
 }
