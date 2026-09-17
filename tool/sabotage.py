@@ -4573,6 +4573,46 @@ SABOTAGES = [
 		"the test refuses every well-formed request as if it were overlong. "
 		"local_test's served cases catch it.",
 	),
+	(
+		"node-remote-frame-must-match-its-session",
+		"node/remote.c",
+		"memcmp(sender, peer->sender, FZN_PUBKEY_LEN) != 0",
+		"memcmp(sender, peer->sender, FZN_PUBKEY_LEN) == 0",
+		"the frame's clear sender must be the peer the daemon routed it to, "
+		"or a session's key would be tried against another sender's frame. "
+		"Inverting it drops the legitimate frame and admits the mismatched "
+		"one. remote_test drives a matching and a wrong sender.",
+	),
+	(
+		"node-remote-authenticates-by-opening-the-seal",
+		"node/remote.c",
+		"hash, aead, opened) != FZN_SEAL_OK",
+		"hash, aead, opened) == FZN_SEAL_OK",
+		"the remote hop authenticates cryptographically: a frame is this "
+		"peer's only if it opens under the agreed session key. Inverting the "
+		"test drops every frame that opens and admits every one that does "
+		"not. remote_test grants a real frame and drops a tampered one.",
+	),
+	(
+		"node-remote-command-expires",
+		"node/remote.c",
+		"opened->expires_at <= now",
+		"opened->expires_at >= now",
+		"a remote command carries an expiry and a stale one is not served "
+		"(sec 4.3). Flipping the comparison serves the stale and drops the "
+		"fresh. remote_test serves a fresh request and drops one presented "
+		"after its expiry.",
+	),
+	(
+		"node-remote-authorises-as-remote",
+		"node/remote.c",
+		"FZN_ORIGIN_REMOTE, peer->hops,",
+		"FZN_ORIGIN_SAME_USER, peer->hops,",
+		"a network caller is authorised as FZN_ORIGIN_REMOTE, so the "
+		"capability is checked against the wire origin rather than a local "
+		"one. Deciding as SAME_USER runs the kernel-authenticated path for a "
+		"caller the kernel never saw. remote_test grants a remote request.",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

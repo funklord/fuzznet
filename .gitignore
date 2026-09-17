@@ -200,6 +200,7 @@ __pycache__/
 /net/test/udp_test
 /node/test/node_test
 /node/test/local_test
+/node/test/remote_test
 /.situ-head/
 /.gen.new/
 
