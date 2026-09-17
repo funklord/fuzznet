@@ -1,0 +1,15 @@
+// The capability chain as a situ schema -- a header and a run of hops, the
+// nested case (it imports chain/hop.situ and references fzn_chain_hop rather
+// than re-declaring the hop, so the two cannot drift). Measured against
+// FZN_CHAIN_HEADER_LEN and the pack loop in chain/chain.c.
+
+import "hop.situ";
+
+target buffer;
+endian big;
+
+struct fzn_chain {
+	u8  version;                     // FZN_SIGNED_VERSION, at 0
+	u8  hop_count [max = 8];         // FZN_CHAIN_MAX_HOPS; 1..8, at 1
+	fzn_chain_hop hops[hop_count];   // at FZN_CHAIN_HEADER_LEN = 2, each 179
+}

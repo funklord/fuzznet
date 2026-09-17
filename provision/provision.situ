@@ -1,0 +1,24 @@
+// The provisioning card as a situ schema -- the nested case that reaches
+// across modules: it imports the hop (chain) and the prekey record (prekey)
+// and references them, so a card carries exactly one encoding of each.
+// Measured against the FZN_PROVISION_OFF_* constants in provision/provision.h.
+//
+// A sponsor's signed statement handing a device a root to pin, a capability
+// (the hop), and the sponsor's prekey to agree a session with. The signature
+// covers the body; opaque here, as the sibling schemas leave theirs.
+
+import "../chain/hop.situ";
+import "../prekey/prekey.situ";
+
+target buffer;
+endian big;
+
+struct fzn_provision_card {
+	u8  version;                  // FZN_PROVISION_OFF_VERSION    0
+	u8  object;                  // FZN_PROVISION_OFF_OBJECT     1
+	u8  root[32];                // FZN_PROVISION_OFF_ROOT       2
+	fzn_chain_hop     hop;       // FZN_PROVISION_OFF_HOP        34
+	fzn_prekey_record prekey;    // FZN_PROVISION_OFF_PREKEY     213
+	u64 expires_at;              // FZN_PROVISION_OFF_EXPIRES_AT 351
+	u8  signature[64];           // FZN_PROVISION_OFF_SIGNATURE  359
+}

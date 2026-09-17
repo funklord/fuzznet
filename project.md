@@ -41902,3 +41902,25 @@ decision on whether one schema may reference a struct declared in another, or
 a module keeps its layouts in one file. And the codec replacement (taking the
 generated accessors and the owned form) waits on situ's own tree settling, as
 sec 304 says.
+
+## 306. The nested layouts, the chain and the card, via import, 2026-09-17
+
+The two layouts sec 305 held back -- the chain (a header and N hops) and the
+provisioning card (which carries a hop and a prekey record) -- are converted
+now, because situ's `import` answers the question they raised. A schema imports
+another by relative path and references its structs, so `chain/chain.situ`
+imports `chain/hop.situ` and `provision/provision.situ` imports both the hop and
+the prekey record rather than re-declaring either. There is one encoding of a
+hop and one of a prekey, and a card or a chain cannot drift from it.
+
+`situc map` confirms both: the chain is 2..1434 bytes (`FZN_CHAIN_HEADER_LEN`
+plus up to eight 179-byte hops, `FZN_CHAIN_MAX_LEN`), and the card is 423
+(`FZN_PROVISION_LEN_TOTAL`) with the hop at 34 and the prekey at 213, matching
+the `FZN_PROVISION_OFF_*` constants. `situc advise` finds nothing to improve on
+either.
+
+With these, the authority certificates, the records, the sync messages and the
+on-disk blobs all carry situ schemas. What remains is the harder or weaker
+fits -- the record-store file framing, the blob leaf's sealed-plus-Merkle-proof
+layout, and disclosure -- left for later, and the codec replacement, on situ's
+schedule.

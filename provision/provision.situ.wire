@@ -1,0 +1,51 @@
+# situ wire signature v1
+# schema: provision.situ
+#
+# What the bytes mean, and nothing about what they cost. Committed and
+# checked so that a change here is a change somebody reviews.
+#
+# One line per member: where it starts, how wide it is, and every
+# constraint a sender has to satisfy or a receiver may rely on.
+# Positions are byte offsets, or byte:bit off a boundary; `~` marks one
+# the data decides rather than the schema.
+#
+# A construct whose contract is a list rather than an extent -- a
+# variant's arms, a tlv region's grammar, an indexed region's offset
+# table, the bytes a tag covers -- states it on `name what: value`
+# lines below the members, one line per entry so that a diff names the
+# entry that moved.
+
+endian big
+endian big
+endian big
+target buffer
+target buffer
+target buffer
+
+struct fzn_chain_hop size=179
+  @0x0000   1         u8         version
+  @0x0001   1         u8         object
+  @0x0002   32        u8         grantor  big
+  @0x0022   32        u8         grantee  big
+  @0x0042   32        u8         capability  big
+  @0x0062   8         u64        issued_at  big
+  @0x006a   8         u64        expires_at  big
+  @0x0072   1         u8         delegable
+  @0x0073   64        u8         signature  big
+
+struct fzn_prekey_record size=138
+  @0x0000   1         u8         version
+  @0x0001   1         u8         object
+  @0x0002   32        u8         host  big
+  @0x0022   32        u8         prekey  big
+  @0x0042   8         u64        created_at  big
+  @0x004a   64        u8         signature  big
+
+struct fzn_provision_card size=423
+  @0x0000   1         u8         version
+  @0x0001   1         u8         object
+  @0x0002   32        u8         root  big
+  @0x0022   179       fzn_chain_hop hop  big
+  @0x00d5   138       fzn_prekey_record prekey  big
+  @0x015f   8         u64        expires_at  big
+  @0x0167   64        u8         signature  big

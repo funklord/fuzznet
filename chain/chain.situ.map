@@ -1,0 +1,38 @@
+# situ capability map v1
+# schema: chain.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct fzn_chain size=2..1434 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  fzn_chain.version                      offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_chain.hop_count                    offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_chain.hops                         offset=AbsoluteStatic(0x02) size=Bounded(0, 1432) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  fzn_chain.hops[]                       offset=FrameStatic(0x00) size=Fixed(179) align=Aligned(8) repr=ValueConverted atomic=NonAtomic
+  fzn_chain.hops[].version               offset=FrameStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_chain.hops[].object                offset=FrameStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_chain.hops[].grantor               offset=FrameStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_chain.hops[].grantee               offset=FrameStatic(0x22) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_chain.hops[].capability            offset=FrameStatic(0x42) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_chain.hops[].issued_at             offset=FrameStatic(0x62) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_chain.hops[].expires_at            offset=FrameStatic(0x6A) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_chain.hops[].delegable             offset=FrameStatic(0x72) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_chain.hops[].signature             offset=FrameStatic(0x73) size=Fixed(64) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+
+struct fzn_chain_hop size=179 repr=ValueConverted atomic=NonAtomic
+  fzn_chain_hop.version                  offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_chain_hop.object                   offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_chain_hop.grantor                  offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_chain_hop.grantee                  offset=AbsoluteStatic(0x22) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_chain_hop.capability               offset=AbsoluteStatic(0x42) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_chain_hop.issued_at                offset=AbsoluteStatic(0x62) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_chain_hop.expires_at               offset=AbsoluteStatic(0x6A) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_chain_hop.delegable                offset=AbsoluteStatic(0x72) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_chain_hop.signature                offset=AbsoluteStatic(0x73) size=Fixed(64) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
