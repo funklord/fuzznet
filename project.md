@@ -42010,3 +42010,9 @@ WHAT IS STILL DEFERRED is the signature: it is opaque bytes in every one of
 these, pending the Ed25519 extern-codec binding that would make the schema
 assert the signature covers the body, the way frame.situ binds its AEAD. That
 is the same codec work waiting on situ's tree settling.
+
+The catalogue bodies got the same treatment for the same reason, though they
+are dispatch tags rather than signed-object tags: `fzn_catalog_apply`
+switches on the body's object byte (edge 1, content 2, name 3) and refuses
+the rest, so each body schema now pins its own with `must_eq`. Same proof --
+the `.map` is byte-identical, only `catalog.situ.wire` gains the annotations.

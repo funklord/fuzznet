@@ -21,7 +21,7 @@ endian big;
 //   [33..65)   child
 //   [65]       present, exactly 0 or 1
 struct fzn_catalog_edge {
-	u8  object;              // offset 0   (FZN_CATALOG_OBJECT_EDGE)
+	u8  object [must_eq = 1];  // offset 0   (FZN_CATALOG_OBJECT_EDGE)
 	u8  parent[32];          // offset 1   (FZN_CATALOG_ID_LEN)
 	u8  child[32];           // offset 33
 	u8  present [max = 1];   // offset 65  (exactly 0 or 1)
@@ -54,7 +54,7 @@ struct fzn_catalog_content_none {
 }
 
 struct fzn_catalog_content {
-	u8  object;                          // offset 0   (FZN_CATALOG_OBJECT_CONTENT)
+	u8  object [must_eq = 2];            // offset 0   (FZN_CATALOG_OBJECT_CONTENT)
 	u8  id[32];                          // offset 1   (FZN_CATALOG_ID_LEN)
 	fzn_catalog_content_kind kind;       // offset 33  (FZN_CATALOG_CONTENT_HEAD_LEN - 1)
 	variant tail switch (kind) {
@@ -74,7 +74,7 @@ struct fzn_catalog_content {
 //   [34..]     text (len bytes)
 // This is frame.situ's exact form: a prior length field sizing the array.
 struct fzn_catalog_name {
-	u8  object;              // offset 0   (FZN_CATALOG_OBJECT_NAME)
+	u8  object [must_eq = 3];  // offset 0   (FZN_CATALOG_OBJECT_NAME)
 	u8  id[32];              // offset 1   (FZN_CATALOG_ID_LEN)
 	u8  len [max = 255];     // offset 33  (FZN_CATALOG_CONTENT_HEAD_LEN - 1; FZN_CATALOG_NAME_MAX)
 	u8  text[len];           // offset 34  (FZN_CATALOG_CONTENT_HEAD_LEN)
