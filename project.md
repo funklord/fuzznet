@@ -41974,3 +41974,39 @@ reports `wire/generated/frame.c` stale: situ's C emitter has advanced
 in-flux codegen sec 304 said the codec replacement waits on, is independent
 of any layout here, and is left until situ's tree settles rather than chased
 into this commit.
+
+## 308. The signed-object schemas carry their validators' constraints now
+
+sec 304-307 converted the layouts as OFFSET contracts: each schema measured
+its `_OFF_` offsets and stopped there, the comments saying so ("measures the
+offsets alone"). That was a deliberate first cut, but it left the schemas
+saying less than the hand-written validators do -- and `wire/frame.situ`, the
+reference they were measured against, already carries `must_eq`,
+`must_be_zero` and `require canonical`. A schema that omits a check the C
+makes would lose it the day the codec is generated from the schema, so the
+six signed objects now carry the checks their validators make.
+
+WHAT EACH GAINED, grounded in the validator rather than invented. Every
+signed object refuses a wrong version and a wrong object tag before it looks
+at the signature, because both bytes are inside the signed range (wire/
+bytes.h): `version [must_eq = 1]` (FZN_SIGNED_VERSION) on all six, and
+`object [must_eq = N]` for the hop (128), manifest (131), record (130),
+prekey (132) and card (134). The hop also gains `delegable [max = 1]`, which
+is chain.c's `> 1` refusal -- one encoding per value. The revocation is the
+one that is not a `must_eq`: fzn_revocation_validate accepts a revocation
+(129) OR a withdrawal (133), so its object is an `enum` of exactly those two,
+which rejects the rest the way an enum field does.
+
+THE PROOF THAT THIS IS VALUE-ONLY, NOT LAYOUT. Every `.situ.map` is
+byte-identical before and after -- a `must_eq`, a `max` and an enum are value
+constraints, so no offset, size, align or repr moved. Only the `.wire`
+contracts changed, gaining the annotations, and `chain.situ.wire` changed too
+because it imports the hop and the hop's new constraints propagate through the
+import. `make schema` finds all fifteen wire and map contracts current against
+situ ad40ce6 (its generated-C step is still stale on situ's evolving emitter,
+sec 307, unchanged by this).
+
+WHAT IS STILL DEFERRED is the signature: it is opaque bytes in every one of
+these, pending the Ed25519 extern-codec binding that would make the schema
+assert the signature covers the body, the way frame.situ binds its AEAD. That
+is the same codec work waiting on situ's tree settling.

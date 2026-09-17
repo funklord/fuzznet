@@ -3,16 +3,26 @@
 // committed FZN_REV_OFF_* constants before anything is generated.
 //
 // A revocation withdraws a capability from a grantee; a withdrawal (same
-// layout, different object byte) undoes one. The signature covers bytes 0
-// through FZN_REVOCATION_BODY_LEN-1 (the whole body); here it is opaque
-// bytes and this measures the offsets alone, as hop.situ does.
+// layout, different object byte) undoes one -- which is why the object is an
+// enum of the two values fzn_revocation_validate accepts, and the version is
+// carried as a must_eq, the way hop.situ carries its shape constraints. The
+// signature covers bytes 0 through FZN_REVOCATION_BODY_LEN-1 (the whole
+// body); here it is opaque bytes, as hop.situ's is.
 
 target buffer;
 endian big;
 
+// The object byte is one of TWO values, not one: fzn_revocation_validate
+// (revocation.c) accepts a revocation or a withdrawal and refuses the rest,
+// so this is an enum rather than a `must_eq` like the other signed objects.
+enum fzn_revocation_object : u8 {
+	revocation = 129,       // FZN_OBJECT_REVOCATION
+	withdrawal = 133,       // FZN_OBJECT_WITHDRAWAL
+}
+
 struct fzn_revocation {
-	u8  version;             // FZN_REV_OFF_VERSION    0
-	u8  object;              // FZN_REV_OFF_OBJECT     1
+	u8  version [must_eq = 1];       // FZN_REV_OFF_VERSION 0 (FZN_SIGNED_VERSION)
+	fzn_revocation_object object;    // FZN_REV_OFF_OBJECT  1
 	u8  capability[32];      // FZN_REV_OFF_CAPABILITY 2
 	u8  grantee[32];         // FZN_REV_OFF_GRANTEE    34
 	u8  issuer[32];          // FZN_REV_OFF_ISSUER     66

@@ -18,9 +18,12 @@
 endian big
 target buffer
 
+enum fzn_revocation_object : u8 unknown=error
+  revocation=129 withdrawal=133
+
 struct fzn_revocation size=202
-  @0x0000   1         u8         version
-  @0x0001   1         u8         object
+  @0x0000   1         u8         version  must_eq=1
+  @0x0001   1         fzn_revocation_object object
   @0x0002   32        u8         capability  big
   @0x0022   32        u8         grantee  big
   @0x0042   32        u8         issuer  big

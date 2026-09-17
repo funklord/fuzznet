@@ -4,10 +4,11 @@
 // then the signature. Measured against the committed FZN_RECORD_OFF_*
 // constants before anything is generated.
 //
-// The signature covers bytes 0 through the last body byte (the whole record
-// but the signature). Here it is opaque bytes; this measures the offsets
-// alone, as hop.situ does. The body uses the same form frame.situ uses for
-// its payload -- u8 payload[head.length] -- sized by a prior field.
+// version and object are carried as must_eq, the shape checks
+// fzn_record_validate makes; the signature covers bytes 0 through the last
+// body byte (the whole record but the signature) and here is opaque bytes,
+// as hop.situ's is. The body uses the same form frame.situ uses for its
+// payload -- u8 payload[head.length] -- sized by a prior field.
 //
 // stream and kind are read as big-endian 32-bit values (fzn_record_stream /
 // fzn_record_kind call fzn_get_be32), so they are u32 rather than u8[4].
@@ -16,8 +17,8 @@ target buffer;
 endian big;
 
 struct fzn_record {
-	u8  version;             // FZN_RECORD_OFF_VERSION    0  (FZN_SIGNED_VERSION)
-	u8  object;              // FZN_RECORD_OFF_OBJECT     1  (FZN_OBJECT_RECORD)
+	u8  version [must_eq = 1];   // FZN_RECORD_OFF_VERSION 0 (FZN_SIGNED_VERSION)
+	u8  object  [must_eq = 130]; // FZN_RECORD_OFF_OBJECT  1 (FZN_OBJECT_RECORD)
 	u8  issuer[32];          // FZN_RECORD_OFF_ISSUER     2  (FZN_PUBKEY_LEN)
 	u8  subject[32];         // FZN_RECORD_OFF_SUBJECT    34 (FZN_SUBJECT_LEN)
 	u32 stream;              // FZN_RECORD_OFF_STREAM     66

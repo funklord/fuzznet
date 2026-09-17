@@ -19,8 +19,8 @@ endian big
 target buffer
 
 struct fzn_record size=156..668
-  @0x0000   1         u8         version
-  @0x0001   1         u8         object
+  @0x0000   1         u8         version  must_eq=1
+  @0x0001   1         u8         object  must_eq=130
   @0x0002   32        u8         issuer  big
   @0x0022   32        u8         subject  big
   @0x0042   4         u32        stream  big

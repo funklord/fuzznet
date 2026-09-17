@@ -19,8 +19,8 @@ target buffer;
 endian big;
 
 struct fzn_prekey_record {
-	u8  version;
-	u8  object;
+	u8  version [must_eq = 1];   // FZN_SIGNED_VERSION
+	u8  object  [must_eq = 132]; // FZN_OBJECT_PREKEY
 	u8  host[32];
 	u8  prekey[32];
 	u64 created_at;

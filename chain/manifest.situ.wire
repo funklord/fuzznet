@@ -19,8 +19,8 @@ endian big
 target buffer
 
 struct fzn_manifest size=100..262097
-  @0x0000   1         u8         version
-  @0x0001   1         u8         object
+  @0x0000   1         u8         version  must_eq=1
+  @0x0001   1         u8         object  must_eq=131
   @0x0002   32        u8         issuer  big
   @0x0022   2         u16        count  big max=2701
   @0x0024   0..261997 fzn_manifest_pair pairs  sized-by=count

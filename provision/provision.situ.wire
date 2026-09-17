@@ -19,27 +19,27 @@ endian big
 target buffer
 
 struct fzn_chain_hop size=179
-  @0x0000   1         u8         version
-  @0x0001   1         u8         object
+  @0x0000   1         u8         version  must_eq=1
+  @0x0001   1         u8         object  must_eq=128
   @0x0002   32        u8         grantor  big
   @0x0022   32        u8         grantee  big
   @0x0042   32        u8         capability  big
   @0x0062   8         u64        issued_at  big
   @0x006a   8         u64        expires_at  big
-  @0x0072   1         u8         delegable
+  @0x0072   1         u8         delegable  max=1
   @0x0073   64        u8         signature  big
 
 struct fzn_prekey_record size=138
-  @0x0000   1         u8         version
-  @0x0001   1         u8         object
+  @0x0000   1         u8         version  must_eq=1
+  @0x0001   1         u8         object  must_eq=132
   @0x0002   32        u8         host  big
   @0x0022   32        u8         prekey  big
   @0x0042   8         u64        created_at  big
   @0x004a   64        u8         signature  big
 
 struct fzn_provision_card size=423
-  @0x0000   1         u8         version
-  @0x0001   1         u8         object
+  @0x0000   1         u8         version  must_eq=1
+  @0x0001   1         u8         object  must_eq=134
   @0x0002   32        u8         root  big
   @0x0022   179       fzn_chain_hop hop  big
   @0x00d5   138       fzn_prekey_record prekey  big

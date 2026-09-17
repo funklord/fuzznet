@@ -3,8 +3,9 @@
 // header followed by `count` pairs, then the signature. Measured against the
 // committed FZN_MANIFEST_OFF_* constants before anything is generated.
 //
-// The signature covers the whole body (bytes 0 through the last pair). Here
-// it is opaque bytes; this measures the offsets alone, as hop.situ does. The
+// version and object are carried as must_eq, the shape checks
+// fzn_manifest_validate makes; the signature covers the whole body (bytes 0
+// through the last pair) and here is opaque bytes, as hop.situ's is. The
 // count-driven array uses the same form frame.situ uses for its payload
 // (u8 payload[head.length]).
 
@@ -21,8 +22,8 @@ struct fzn_manifest_pair {
 }
 
 struct fzn_manifest {
-	u8  version;                     // FZN_MANIFEST_OFF_VERSION 0
-	u8  object;                      // FZN_MANIFEST_OFF_OBJECT  1
+	u8  version [must_eq = 1];       // FZN_MANIFEST_OFF_VERSION 0 (FZN_SIGNED_VERSION)
+	u8  object  [must_eq = 131];     // FZN_MANIFEST_OFF_OBJECT  1 (FZN_OBJECT_MANIFEST)
 	u8  issuer[32];                  // FZN_MANIFEST_OFF_ISSUER  2
 	u16 count [max = 2701];  // FZN_MANIFEST_MAX_PAIRS                       // FZN_MANIFEST_OFF_COUNT   34
 	fzn_manifest_pair pairs[count];  // FZN_MANIFEST_OFF_PAIRS   36 = HEADER_LEN
