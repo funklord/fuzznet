@@ -55,6 +55,17 @@ typedef struct fzn_node_config {
 	uint8_t root[FZN_PUBKEY_LEN];
 } fzn_node_config_t;
 
+/* How serving one caller ended. OK and DENIED both mean a response was
+ * written: the node authenticated and authorised the caller and answered,
+ * and they differ only in the answer. The negatives mean no response was
+ * written. */
+typedef enum fzn_node_serve_err {
+	FZN_NODE_SERVE_OK = 0,
+	FZN_NODE_SERVE_DENIED = 1,
+	FZN_NODE_SERVE_MALFORMED = -1,
+	FZN_NODE_SERVE_IO = -2
+} fzn_node_serve_err_t;
+
 /* The access method a LOCAL peer arrived by, from its credentials alone:
  * SAME_USER if it is the node's own user, LOCAL if it is a member of the
  * service group, NONE otherwise -- including when the group list could not be

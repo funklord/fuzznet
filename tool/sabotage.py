@@ -4552,6 +4552,27 @@ SABOTAGES = [
 		"configured not to serve. node_test denies a LOCAL caller of a "
 		"node that serves only SAME_USER.",
 	),
+	(
+		"node-local-serve-answers-the-real-verdict",
+		"node/local.c",
+		"if (verdict == FZN_AUTHZ_DENIED)",
+		"if (verdict != FZN_AUTHZ_DENIED)",
+		"the status line the node writes must reflect the verdict it "
+		"reached: a denied caller is told denied and a served one served. "
+		"Inverting it tells a stranger they were served and the node's own "
+		"user they were denied. local_test reads the reply over a real "
+		"socketpair for each origin.",
+	),
+	(
+		"node-local-serve-refuses-an-overlong-request",
+		"node/local.c",
+		"fzn_line_push(&reader, chunk, (size_t)n) != FZN_LINE_OK",
+		"fzn_line_push(&reader, chunk, (size_t)n) == FZN_LINE_OK",
+		"a request line is bounded: the framer returns OVERLONG at the cap "
+		"and the node refuses rather than reading without bound. Inverting "
+		"the test refuses every well-formed request as if it were overlong. "
+		"local_test's served cases catch it.",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so
