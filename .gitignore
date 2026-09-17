@@ -195,6 +195,8 @@ __pycache__/
 /link/test/link_log_test
 /local/test/vocabulary_fuzz
 /local/test/admit_test
+/local/test/line_test
+/local/test/socket_test
 /.situ-head/
 /.gen.new/
 

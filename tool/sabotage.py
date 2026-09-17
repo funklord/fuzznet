@@ -4466,6 +4466,29 @@ SABOTAGES = [
 		"The reissue cases drive only the exact id and a wholly different one. "
 		"sec 326",
 	),
+	(
+		"line-a-full-line-is-not-overlong",
+		"local/line.c",
+		"if (len > reader->cap - reader->used) {",
+		"if (len >= reader->cap - reader->used) {",
+		"the framing bound accepts a line exactly cap long -- the newline is "
+		"not kept, so it needs no room of its own -- and refuses one byte more "
+		"as OVERLONG. >= would refuse the full line, the frugal legal case. "
+		"line_test drives exactly cap and cap+1. The local socket and line "
+		"framer returned to fuzznet under sec 2's 2026-09-06 supersession.",
+	),
+	(
+		"socket-path-must-be-absolute",
+		"local/socket.c",
+		"if (path[0] != '/')",
+		"if (path[0] == '/')",
+		"a local socket path must be absolute: a relative one names a socket "
+		"in whatever directory the process happens to be in, which an attacker "
+		"may reach. Inverting the test refuses every absolute path and admits "
+		"relative ones; socket_test's live listener and its relative-path "
+		"refusal catch it. Returned to fuzznet under sec 2's 2026-09-06 "
+		"supersession.",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

@@ -157,6 +157,7 @@ GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
+             local/line.c local/socket.c \
              chain/chain.c chain/revocation.c chain/manifest.c chain/authz.c \
              chain/chain_store.c chain/service.c claim/claim.c \
              record/store.c catalog/catalog.c catalog/copy.c catalog/sweep.c \
@@ -194,7 +195,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
 # accident pointing the other way.
 OBJS       = $(SRCS:%.c=$(BUILD_DIR)/%.o) $(GEN_OBJS)
 HDRS      := constant_time/constant_time.h session/commitment.h \
-             local/peer.h local/vocabulary.h \
+             local/peer.h local/vocabulary.h local/line.h local/socket.h \
              chain/chain.h chain/revocation.h chain/manifest.h chain/authz.h \
              chain/chain_store.h chain/service.h claim/claim.h \
              record/store.h catalog/catalog.h catalog/copy.h catalog/sweep.h \
@@ -289,6 +290,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              wire/test/tamper_test.c \
              session/test/random_test.c local/test/vocabulary_test.c \
              local/test/vocabulary_fuzz.c local/test/admit_test.c \
+             local/test/line_test.c local/test/socket_test.c \
              local/test/peer_fuzz.c local/test/peer_linux_test.c \
              spool/test/message_fuzz.c \
              chunk/test/reassembly_fuzz.c chain/test/chain_fuzz.c \
@@ -377,6 +379,8 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/local/test/vocabulary_test \
              $(BUILD_DIR)/local/test/vocabulary_fuzz \
              $(BUILD_DIR)/local/test/admit_test \
+             $(BUILD_DIR)/local/test/line_test \
+             $(BUILD_DIR)/local/test/socket_test \
              $(BUILD_DIR)/chunk/test/agreement_test \
              $(BUILD_DIR)/local/test/peer_fuzz \
              $(BUILD_DIR)/local/test/peer_linux_test \
@@ -2832,6 +2836,22 @@ $(BUILD_DIR)/local/test/peer_fuzz: $(BUILD_DIR)/local/test/peer_fuzz.o \
 $(BUILD_DIR)/local/test/peer_linux_test: $(BUILD_DIR)/local/test/peer_linux_test.o \
                                           $(BUILD_DIR)/local/peer.o \
                                           $(BUILD_DIR)/local/peer_linux.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# The bounded newline framer. It chooses no shape and links nothing else.
+$(BUILD_DIR)/local/test/line_test: $(BUILD_DIR)/local/test/line_test.o \
+                                    $(BUILD_DIR)/local/line.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# The AF_UNIX listener, against a real socket in a temporary directory. It
+# links peer.c and peer_linux.c because socket.c reads a peer's credentials
+# off the accepted descriptor through fzn_peer_from_fd.
+$(BUILD_DIR)/local/test/socket_test: $(BUILD_DIR)/local/test/socket_test.o \
+                                      $(BUILD_DIR)/local/socket.o \
+                                      $(BUILD_DIR)/local/peer.o \
+                                      $(BUILD_DIR)/local/peer_linux.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 

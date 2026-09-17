@@ -133,33 +133,47 @@ the trust boundary already is:
 | authenticated by | the kernel, before a byte is parsed | a signed capability |
 | chosen for | each project's own reasons | exactness, authentication, size |
 
-### The socket and the framing are raidcfgd's, decided the day they were built
+### The socket and the framing left, and came back
 
 **Raised as an open question and answered by the copyright holder the same
-day** (2026-08-18): `local/socket.c` and `local/line.c` moved to raidcfgd.
+day** (2026-08-18): `local/socket.c` and `local/line.c` moved to raidcfgd
+(`eea4a36`). **Reversed by the copyright holder on 2026-09-06** -- the
+supersession this section opens with, that all three hops and their sockets are
+fuzznet's -- and they have now returned. They were restored from fuzznet's own
+history at `eea4a36^` as `fzn_socket_*` and `fzn_line_*`, code-identical to what
+left (raidcfgd developed them under a `raidcfgd_` prefix and changed no code),
+wired into the build and run by `make test`, 60 + 35 assertions across
+`line_test` and `socket_test`. What follows is why they left; the reversal
+moved them back without re-arguing it, so the tension below is open rather than
+closed.
 
 The paragraph above says fuzznet *does not define the local hop at all*, and
-those two modules did. They chose `SOCK_STREAM` and newline framing, which is
+those two modules do. They choose `SOCK_STREAM` and newline framing, which is
 netcfgd's and raidcfgd's shape and not fuzzypickles', whose local hop is
 `SOCK_SEQPACKET` carrying its own binary wire -- a disagreement this section
-calls load-bearing rather than accidental. Offering is not imposing, so they
-would have harmed nobody sitting here; what decided it is §5's failure mode,
-**absorbing one consumer's application until the others are carrying it.**
-fuzzypickles would have reviewed, packaged and audited a listener it can never
-call.
+called load-bearing rather than accidental, and it is the §5 failure mode the
+move was made to avoid: **absorbing one consumer's application until the others
+are carrying it**, with fuzzypickles reviewing, packaging and auditing a
+listener it can never call. **The bare supersession does not settle that, so
+whether a single fuzznet-owned `SOCK_STREAM`+line module IS the local hop, or
+one shape among several the library must offer, is an open question for the
+copyright holder** -- and the `SOCK_SEQPACKET` consumer is why it is one.
 
-**What stays, and why it is a different kind of thing.** `local/peer.*` reads
-credentials off a descriptor the consumer made, on a socket the consumer chose;
-`local/vocabulary.*` judges verbs the consumer defines and this library cannot
-read. Neither chooses a transport or an encoding, so neither is anybody's
-application -- which is the test this section now has for what may live in
-`local/` at all.
+**What stays regardless, and why it is a different kind of thing.**
+`local/peer.*` reads credentials off a descriptor the consumer made, on a
+socket the consumer chose; `local/vocabulary.*` judges verbs the consumer
+defines and this library cannot read. Neither chooses a transport or an
+encoding, so neither is anybody's application. `local/socket.c` reads
+credentials through this library's `local/peer.h`, which is the seam working as
+intended.
 
-They are in raidcfgd at `local/`, renamed to that project's convention, with
-their 95 assertions intact and run by `make local-test`. `local/socket.c` still
-reads credentials through this library's `local/peer.h`, which is the seam
-working as intended: the half that chooses a shape is theirs, the half that
-chooses none is ours.
+**Two claims elsewhere still carry the pre-supersession scope, and are the
+holder's to reconcile rather than this pass's.** sec 3 says the privileged
+daemon never links fuzznet, and the README says the same and that the local hop
+is each project's own -- both now false, since raidcfgd compiles `local/peer.c`
+into its root daemon and the socket hop is fuzznet's again. They are flagged
+here rather than rewritten, because reconciling that prose is the same decision
+as the open question above.
 
 ### What about group gating, then?
 
