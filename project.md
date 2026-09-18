@@ -42232,3 +42232,46 @@ entity/attribute model) are related layers. The merge core is self-contained
 and touches neither, so it was safe to build; whether the attribute model
 eventually rides on `catalog/`'s records, supersedes them, or stays separate
 shapes the deferred wire encoding, not this core.
+
+## 312. facet's evaluation, over an index-ops vtable, 2026-09-18
+
+facet's section 8 left two things unsettled that its algebra (sec 310) did
+not need: the wire encoding, and "the index interface an implementation
+evaluates against". Evaluation -- actually selecting the entities an
+expression denotes -- needs the second. Unlike the in-memory term form, which
+was the implementer's to choose, the index interface is a CONSUMER-FACING
+contract, so it is a design decision rather than a representation choice. The
+holder's standing "continue implementing" answered it the way "settle-then-
+build" answered catalogue's.
+
+THE INTERFACE IS A VTABLE, NOT A WIRE FORMAT, and that is why building it is
+safe. `fzn_facet_index_ops_t` is a struct of a context pointer and one
+function -- given a term, fill a buffer with the entities it selects and say
+whether the host could answer it COMPLETELY -- bound by a consumer exactly as
+the crypto ops (`fzn_hash_ops_t` and the rest) are. Changing a vtable costs a
+recompile; section 8's caution is about wire-format churn, which this is not.
+It is grounded in section 8's one fixed property: prefix and range are one
+operation on an ordered index, a prefix p being the range [p, p+0xFF...], so
+the index answers a term and facet does the set algebra.
+
+`fzn_facet_evaluate` computes (intersection of every term in P) minus (union
+of every term in N) over caller-provided result and scratch buffers (C30/F30:
+nothing here allocates). The refusals are the safety core, and the ASYMMETRY
+F24 states is the whole point: a term in N that is incomplete on this host is
+REFUSED (FZN_FACET_ERR_INCOMPLETE), because subtracting a partial set removes
+too little and over-includes, which could drive a deletion; a term in P that
+is incomplete is a partial answer, not a refusal, because it under-includes,
+which is a visible absence. validate (F27) runs first.
+
+VERIFICATION: facet_test gained seven checks -- an intersection, a difference,
+the F24 refusal and its asymmetric non-refusal, and a malformed expression
+refused before the index is touched -- driven by a stub index, the same way
+catalogue's merge was tested over in-memory assertions. Two sabotage entries
+pin the intersection and the F24 refusal, each seen to fail first; the error
+enum is eight codes now and err_str_test walks them.
+
+WHAT IS STILL DEFERRED: the wire encoding (a real index is built from
+catalogue records, whose encoding is catalogue section 7), the F16 canonical
+sort, and the single-child RANGE collapse. So evaluation is proven over a stub
+today; a real index waits on the catalogue wire layer, which is the holder's
+next encoding decision -- the same one catalogue's own records wait on.

@@ -244,6 +244,84 @@ fzn_facet_err_t fzn_facet_collate(const uint8_t *value, size_t value_len,
 	return FZN_FACET_OK;
 }
 
+static int entity_eq(const fzn_facet_entity_t *a, const fzn_facet_entity_t *b)
+{
+	return bytes_eq(a->id, a->id_len, b->id, b->id_len);
+}
+
+static int entity_in(const fzn_facet_entity_t *e,
+                     const fzn_facet_entity_t *arr, size_t n)
+{
+	size_t i;
+	for (i = 0; i < n; i++)
+		if (entity_eq(e, &arr[i]))
+			return 1;
+	return 0;
+}
+
+fzn_facet_err_t fzn_facet_evaluate(const fzn_facet_expr_t *expr,
+                                   const fzn_facet_index_ops_t *index,
+                                   fzn_facet_entity_t *out, size_t out_cap,
+                                   size_t *out_count,
+                                   fzn_facet_entity_t *scratch, size_t scratch_cap)
+{
+	fzn_facet_err_t e;
+	size_t i, j, w, n = 0, sn = 0;
+	int incomplete = 0;
+
+	if (!out_count)
+		return FZN_FACET_ERR_MALFORMED;
+	if (!expr || !index || !index->postings)
+		return FZN_FACET_ERR_MALFORMED;
+	if ((out_cap != 0 && !out) || (scratch_cap != 0 && !scratch))
+		return FZN_FACET_ERR_MALFORMED;
+
+	/* F27: refuse a malformed expression before touching the index. This also
+	 * guarantees P is non-empty (F14), so the seed below has a term. */
+	e = fzn_facet_validate(expr);
+	if (e != FZN_FACET_OK)
+		return e;
+
+	/* Seed the result with the first positive term's postings. An incomplete
+	 * P term under-includes, a visible absence, so it is not refused (F24). */
+	e = index->postings(index->ctx, &expr->pos[0], out, out_cap, &n, &incomplete);
+	if (e != FZN_FACET_OK)
+		return e;
+
+	/* Intersect the remaining positive terms: keep a result entity only if the
+	 * term's postings hold it too. Compaction is in place -- w never passes j. */
+	for (i = 1; i < expr->pos_count; i++) {
+		e = index->postings(index->ctx, &expr->pos[i], scratch, scratch_cap,
+		                    &sn, &incomplete);
+		if (e != FZN_FACET_OK)
+			return e;
+		w = 0;
+		for (j = 0; j < n; j++)
+			if (entity_in(&out[j], scratch, sn))
+				out[w++] = out[j];
+		n = w;
+	}
+
+	/* Subtract the union of the negative terms. An incomplete N term is the one
+	 * F24 refuses: subtracting a partial set removes too little and over-includes. */
+	for (i = 0; i < expr->neg_count; i++) {
+		e = index->postings(index->ctx, &expr->neg[i], scratch, scratch_cap,
+		                    &sn, &incomplete);
+		if (e != FZN_FACET_OK)
+			return e;
+		if (incomplete)
+			return FZN_FACET_ERR_INCOMPLETE;
+		w = 0;
+		for (j = 0; j < n; j++)
+			if (!entity_in(&out[j], scratch, sn))
+				out[w++] = out[j];
+		n = w;
+	}
+
+	*out_count = n;
+	return FZN_FACET_OK;
+}
+
 const char *fzn_facet_err_str(fzn_facet_err_t err)
 {
 	switch (err) {
@@ -261,6 +339,8 @@ const char *fzn_facet_err_str(fzn_facet_err_t err)
 		return "unknown term kind";
 	case FZN_FACET_ERR_RANGE:
 		return "output buffer too small";
+	case FZN_FACET_ERR_INCOMPLETE:
+		return "a negative term is incomplete on this host";
 	}
 	return "unknown";
 }

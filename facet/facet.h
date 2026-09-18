@@ -299,8 +299,13 @@ typedef enum fzn_facet_err {
 	FZN_FACET_ERR_BOTH_SIDES = 4,
 	/* F26: a term kind this build does not know. */
 	FZN_FACET_ERR_KIND = 5,
-	/* The collation output buffer is too small for the padded key. */
+	/* The collation output buffer is too small for the padded key, or an
+	 * evaluation result or scratch buffer is too small. */
 	FZN_FACET_ERR_RANGE = 6,
+	/* F24: a term in N could not be evaluated completely on this host, so
+	 * subtracting it would over-include. Evaluation refuses rather than
+	 * return a set that is wrong. */
+	FZN_FACET_ERR_INCOMPLETE = 7,
 } fzn_facet_err_t;
 
 /* F5, F10: the term kinds this build knows. A tag; kinds may be added (F26),
@@ -386,6 +391,52 @@ fzn_facet_err_t fzn_facet_normalize(fzn_facet_term_t *pos, size_t *pos_count,
 fzn_facet_err_t fzn_facet_collate(const uint8_t *value, size_t value_len,
                                   unsigned digit_width,
                                   uint8_t *out, size_t out_cap, size_t *out_len);
+
+/* An entity a term selects -- a content hash the filestore knows a file by
+ * (catalogue C1). Opaque bytes, a borrowed view; this module never learns what
+ * an entity is beyond its identity. */
+typedef struct fzn_facet_entity {
+	const uint8_t *id;
+	size_t         id_len;
+} fzn_facet_entity_t;
+
+/* The ordered index facet evaluates against. Section 8 leaves the index
+ * interface open beyond one fixed property -- prefix and range are one
+ * operation on an ordered index, a prefix p being the range [p, p+0xFF...].
+ * This is that interface, a vtable a consumer binds exactly as it binds the
+ * crypto ops: fuzznet owns the mechanism, the consumer owns the index. It is a
+ * vtable and not a wire format, so its shape costs a recompile to change, not
+ * the wire-format churn section 8 is careful about. */
+typedef struct fzn_facet_index_ops {
+	void *ctx;
+	/* Fill `out` (capacity `out_cap` entities) with the entities the term
+	 * selects -- a prefix's subtree, a range's span, an alternation's union --
+	 * and write the count to `*out_count`. Set `*incomplete` nonzero when this
+	 * host cannot answer the term COMPLETELY, which forces F24 for a term in N.
+	 * Return FZN_FACET_OK, or FZN_FACET_ERR_RANGE if `out_cap` is too small.
+	 * The returned ids are borrowed from the index and outlive the call. */
+	fzn_facet_err_t (*postings)(void *ctx, const fzn_facet_term_t *term,
+	                            fzn_facet_entity_t *out, size_t out_cap,
+	                            size_t *out_count, int *incomplete);
+} fzn_facet_index_ops_t;
+
+/* F11-F13, F24-F26: evaluate an expression against an index -- the entities in
+ * (intersection of every term in P) minus (union of every term in N). The
+ * expression is validated first (F27). Fills `out` with the selected entities
+ * and writes the count to `*out_count`; `scratch` (capacity `scratch_cap`)
+ * holds one term's postings at a time and is the caller's, since this module
+ * allocates nothing.
+ *
+ * The refusals are the safety core: FZN_FACET_ERR_INCOMPLETE if any term in N
+ * is incomplete on this host (F24 -- an incomplete subtraction over-includes
+ * and could drive a deletion), plus the F26/F27 refusals validate returns. A
+ * term in P that is incomplete UNDER-includes, which is a visible absence, so
+ * it is NOT refused -- the asymmetry F24 states. */
+fzn_facet_err_t fzn_facet_evaluate(const fzn_facet_expr_t *expr,
+                                   const fzn_facet_index_ops_t *index,
+                                   fzn_facet_entity_t *out, size_t out_cap,
+                                   size_t *out_count,
+                                   fzn_facet_entity_t *scratch, size_t scratch_cap);
 
 /* A stable, allocation-free name for an error. */
 const char *fzn_facet_err_str(fzn_facet_err_t err);

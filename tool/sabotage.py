@@ -76,6 +76,20 @@ SABOTAGES = [
 		"F20: the collation key zero-pads each digit run so 9 sorts before 10 and 720p before 1080p; with no padding a range term silently drops values. facet_test's collation checks catch it.",
 	),
 	(
+		"facet-eval-intersects-positives",
+		"facet/facet.c",
+		"\t\t\tif (entity_in(&out[j], scratch, sn))\n",
+		"\t\t\tif (!entity_in(&out[j], scratch, sn))\n",
+		"F11-F13: a positive term intersects -- an entity stays only if every P term's postings hold it. Inverting keeps the ones they do NOT, which is not the algebra. facet_test's house-and-y1994 case catches it.",
+	),
+	(
+		"facet-eval-refuses-incomplete-negative",
+		"facet/facet.c",
+		"\t\t\treturn FZN_FACET_ERR_INCOMPLETE;\n",
+		"\t\t\treturn FZN_FACET_OK;\n",
+		"F24: a negative term incomplete on this host makes the subtraction over-include, which could drive a deletion, so evaluate refuses. Returning OK proceeds with a wrong set. facet_test's incomplete-N case catches it.",
+	),
+	(
 		"catalogue-refuses-a-mixed-attribute-set",
 		"catalogue/catalogue.c",
 		"\t\t\treturn FZN_CATALOGUE_ERR_NOT_ONE_ATTRIBUTE;\n",

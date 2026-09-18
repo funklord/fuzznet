@@ -273,12 +273,123 @@ static void test_normalize(void)
 	}
 }
 
+/* --- F11-F13, F24: evaluation against a stub index --------------------- */
+
+/* A stub ordered index: each prefix node maps to a fixed entity set, one of
+ * them marked incomplete so F24 can be exercised. Keyed on the term's node id,
+ * which is all the prefix terms below use. */
+struct stub_post {
+	const char *node;
+	const char *ents[4];
+	size_t n;
+	int incomplete;
+};
+
+static const struct stub_post STUB[] = {
+	{ "house", { "e1", "e2", "e3" }, 3, 0 },
+	{ "y1994", { "e2", "e3", "e4" }, 3, 0 },
+	{ "y1990", { "e1" }, 1, 0 },
+	{ "partial", { "e9" }, 1, 1 },
+};
+
+static fzn_facet_err_t stub_postings(void *ctx, const fzn_facet_term_t *term,
+                                     fzn_facet_entity_t *out, size_t out_cap,
+                                     size_t *out_count, int *incomplete)
+{
+	size_t i, k;
+
+	(void)ctx;
+	*out_count = 0;
+	*incomplete = 0;
+	for (i = 0; i < sizeof(STUB) / sizeof(STUB[0]); i++) {
+		if (term->node.id_len != strlen(STUB[i].node)
+		    || memcmp(term->node.id, STUB[i].node, term->node.id_len) != 0)
+			continue;
+		if (STUB[i].n > out_cap)
+			return FZN_FACET_ERR_RANGE;
+		for (k = 0; k < STUB[i].n; k++) {
+			out[k].id = (const uint8_t *)STUB[i].ents[k];
+			out[k].id_len = strlen(STUB[i].ents[k]);
+		}
+		*out_count = STUB[i].n;
+		*incomplete = STUB[i].incomplete;
+		return FZN_FACET_OK;
+	}
+	return FZN_FACET_OK; /* an unknown node selects nothing */
+}
+
+static int has(const fzn_facet_entity_t *out, size_t n, const char *s)
+{
+	size_t i;
+	for (i = 0; i < n; i++)
+		if (out[i].id_len == strlen(s) && memcmp(out[i].id, s, out[i].id_len) == 0)
+			return 1;
+	return 0;
+}
+
+static void test_evaluate(void)
+{
+	fzn_facet_index_ops_t index = { NULL, stub_postings };
+	fzn_facet_entity_t out[16], scratch[16];
+	size_t n = 0;
+
+	/* Intersection: house AND y1994 = {e2, e3}. */
+	{
+		fzn_facet_term_t p[2] = { prefix("genre", "house"),
+		                          prefix("year", "y1994") };
+		fzn_facet_expr_t e = { p, 2, NULL, 0 };
+		CHECK(fzn_facet_evaluate(&e, &index, out, 16, &n, scratch, 16)
+		      == FZN_FACET_OK, "evaluate ok");
+		CHECK(n == 2 && has(out, n, "e2") && has(out, n, "e3") && !has(out, n, "e1"),
+		      "house AND y1994 is e2, e3");
+	}
+
+	/* Difference: house MINUS y1990 = {e2, e3} (e1 removed). */
+	{
+		fzn_facet_term_t p[1] = { prefix("genre", "house") };
+		fzn_facet_term_t neg[1] = { prefix("year", "y1990") };
+		fzn_facet_expr_t e = { p, 1, neg, 1 };
+		CHECK(fzn_facet_evaluate(&e, &index, out, 16, &n, scratch, 16)
+		      == FZN_FACET_OK, "evaluate ok");
+		CHECK(n == 2 && !has(out, n, "e1") && has(out, n, "e2"),
+		      "house minus y1990 drops e1");
+	}
+
+	/* F24: an incomplete term in N is refused -- subtracting a partial set
+	 * over-includes, which could drive a deletion. */
+	{
+		fzn_facet_term_t p[1] = { prefix("genre", "house") };
+		fzn_facet_term_t neg[1] = { prefix("x", "partial") };
+		fzn_facet_expr_t e = { p, 1, neg, 1 };
+		CHECK(fzn_facet_evaluate(&e, &index, out, 16, &n, scratch, 16)
+		      == FZN_FACET_ERR_INCOMPLETE, "incomplete N term refused (F24)");
+	}
+
+	/* F24 asymmetry: an incomplete term in P is a partial, not a refusal --
+	 * it under-includes, which is a visible absence. */
+	{
+		fzn_facet_term_t p[1] = { prefix("x", "partial") };
+		fzn_facet_expr_t e = { p, 1, NULL, 0 };
+		CHECK(fzn_facet_evaluate(&e, &index, out, 16, &n, scratch, 16)
+		      == FZN_FACET_OK && n == 1,
+		      "incomplete P term is a partial, not a refusal");
+	}
+
+	/* A malformed expression is refused before the index is touched. */
+	{
+		fzn_facet_expr_t e = { NULL, 0, NULL, 0 };
+		CHECK(fzn_facet_evaluate(&e, &index, out, 16, &n, scratch, 16)
+		      == FZN_FACET_ERR_EMPTY_POS, "empty P refused before the index");
+	}
+}
+
 int main(void)
 {
 	test_collation();
 	test_term_eq();
 	test_validate_refusals();
 	test_normalize();
+	test_evaluate();
 
 	printf("facet_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
