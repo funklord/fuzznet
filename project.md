@@ -42807,3 +42807,49 @@ WHAT THIS PROGRAM DOES NOT NEED, already done or another subsystem's: the data
 model, membership and availability (done, secs 314-316); the byte transfer
 (`spool/`'s); and sharding (sec 316, a separate open piece with its own
 holder decision on shard size).
+
+## 318. Retirement migration: status, and the evolve-in-place recommendation
+
+A handoff note, folded before a context clear. sec 317 mapped the retirement
+of the old catalog/; this records how far it has gone and the one decision it
+now turns on.
+
+BUILT, additive, catalog/ untouched, all gates green:
+- The DATA MODEL is superseded and hardened (secs 314-316): the ATTRIBUTE
+  wire encoding, membership-as-attribute, partial-data safety, and the codec
+  fuzzed (attribute_fuzz) with decode's body bound made symmetric.
+- STEP 1, reachability: `fzn_catalogue_referenced` and `fzn_catalogue_sources`
+  in catalogue.c -- the local curated-link check that replaces reach.c's
+  transitive DAG walk. "Unreferenced" is not "deletable" (C7/C17).
+- STEP 5 FOUNDATION, the holder set: `fzn_catalogue_holders` -- C8's "which
+  hosts hold this," derived from the capability axis (a HOLDER-capability
+  assertion can only come from a real holder, C5e/C8a). This is what copy's
+  holdings/offer and sweep's last-copy guard asked catalog/ a callback for;
+  now it falls out of the record set. out_count == 1 is a last copy.
+
+THE PIVOT. reachability and the holder set are the two things the new model
+genuinely CHANGES. Everything left -- the sweep planner, retention, copy,
+filing -- is COMPOSITION of these plus logic that is UNCHANGED from catalog/
+(the tri-state retention table, the sweep guard-chain and cursor, copy's
+wrapping of holders). copy's holdings/offer is now just `holders`; want is
+`holders` + retention + reachability; sweep's last-copy guard is
+`holders` out_count == 1.
+
+RECOMMENDATION (mine; the choice is the holder's because it edits tested
+code): EVOLVE catalog/'s sweep and copy IN PLACE -- swap their data source to
+consume `referenced`/`holders` instead of the edge-walk and the holdings
+callback, keeping the tested guard-chain, cursor and removal_t. Pure-additive
+work past this point would REWRITE unchanged catalog/ logic from scratch,
+which is the duplication the guidelines warn against and risks reintroducing
+bugs the tested code already fixed. Evolve-in-place preserves that logic.
+"No one is using catalog yet" (the holder, this session) makes either safe.
+
+OPEN, none of them mine to settle:
+- The evolve-vs-rewrite choice above, to finish sweep/copy/retention.
+- The reclamation POLICY (C18: whether automatic GC exists, grace, pin
+  granularity) -- gates step 4; C19a's mechanism is settled, the policy is
+  not.
+- Confirm retention and filing stay per-host (C5a HOST), never shared records.
+- "install on phone": fuzznet is a library plus the fuzznetd daemon and has
+  no Android target; the phone app is the separate fuzzypickles. Open whether
+  to add an Android fuzznetd build here.
