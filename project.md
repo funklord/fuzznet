@@ -42343,3 +42343,53 @@ fuzznet ships. RAM pressure with AP+STA+mesh+crypto+netcfgd at once points at
 the ESP32 for the heavier roles. The netcfgd-specific parts belong in
 netcfgd's own records, not here, and should be signalled there when this stops
 being a conversation.
+
+### Measured, 2026-09-18 (host x86-64 -Os; re-measure on the target core)
+
+The sensor core -- frame seal/open, chain and capability verify, replay and a
+session -- is ~54 KB of code, of which Monocypher is ~37 KB. The file-store
+subsystem (blob, spool, chunk, record store and their on-disk backends) adds
+~31.5 KB, taking a full store-and-serve node to ~85 KB. Flash is a non-issue
+on either chip. These are HOST figures; the Xtensa core differs and should be
+re-measured before a board is chosen.
+
+RAM is where the no-allocation design pays: every object measured has zero
+static data and zero bss, so RAM is the caller's working buffers alone. A
+sensor's working set is ~4-8 KB: a ~1.2 KB frame buffer, ~0.2 KB of session
+state, a replay window of a 40-byte control block plus 32 bytes per remembered
+nonce (sized to distinct nonces per lifetime -- 16-32 entries for a quiet
+node), and a ~2 KB transient crypto stack during a handshake. The blob
+subsystem STREAMS: its Merkle working set is FZN_BLOB_MAX_DEPTH hashes --
+40 x 32 = 1280 bytes -- whatever the file's size, so a node verifies a
+gigabyte blob one 1 KB leaf at a time in ~2.4 KB. The one thing that scales
+with size is the have/want bitmap, (leaves+7)/8: 128 bytes for a 1 MB blob,
+~1.25 KB for 10 MB, ~128 KB for a GB -- which is where a constrained node's
+per-transfer state, not its streaming core, hits a wall.
+
+THE GATE FOR A STORE-AND-SERVE RELAY IS STORAGE, not RAM or code: the bytes
+must land somewhere, and an ESP8266's ~1-3 MB LittleFS is a small slow cache
+of small files while an ESP32 with an SD card over SPI is gigabytes at speed.
+So the tiers: an ESP8266 is a leaf/sensor or a FORWARDING relay (it streams
+sealed leaf-frames through via hops_left without storing them, the file
+subsystem not even linked); an ESP32-plus-SD is where a real store-and-serve
+file relay lives, the streaming design keeping RAM flat regardless of file
+size and the dual core keeping crypto off the radio.
+
+### LoRa and FSK, and the stack without WiFi (forward-looking)
+
+Recorded so it shapes the transport seam now rather than being discovered
+later: fuzznet may grow a LoRa + FSK sub-GHz transport for MCUs that carry no
+Ethernet, WiFi or Bluetooth. Two things follow and both cut in fuzznet's
+favour. The RAM budget LIFTS -- the ~40-50 KB the WiFi and lwIP stack claims
+on an ESP8266 is not there to compete for on a bare MCU with a LoRa
+transceiver, so the whole RAM figure above is the app's to spend. And the
+crypto and protocol core is unchanged: LoRa is another transport bound at the
+seam net/udp.c occupies, not a protocol change.
+
+What LoRa reshapes is the FRAME SIZE. A LoRa payload is at most ~256 bytes,
+against the 1024-byte payload and ~1088-byte frame sec 6 sized for an IPv6
+link -- so a LoRa transport wants a much smaller frame and leans harder on
+chunking, and the 1024-byte leaf and the payload length bound become numbers
+to revisit per link rather than constants. That is a transport-profile
+decision, named here so the person who writes the LoRa transport meets it
+in the design rather than as a surprise.
