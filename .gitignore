@@ -96,6 +96,7 @@
 /provision/test/provision_fuzz
 /disclose/test/disclose_test
 /disclose/test/disclose_fuzz
+/facet/test/facet_test
 /persist/test/persist_fuzz
 /wire/test/relay_fuzz
 /log/test/log_fuzz

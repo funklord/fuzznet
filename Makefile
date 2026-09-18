@@ -169,6 +169,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              blob/blob.c ratchet/ratchet.c prekey/prekey.c \
              provision/provision.c \
              disclose/disclose.c \
+             facet/facet.c \
              persist/persist.c \
              spool/spool.c \
              spool/plan.c \
@@ -233,6 +234,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              blob/blob.h ratchet/ratchet.h prekey/prekey.h \
              provision/provision.h \
              disclose/disclose.h \
+             facet/facet.h \
              persist/persist.h \
              spool/spool.h spool/message.h spool/transfer.h \
              spool/scrub.h \
@@ -292,6 +294,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              provision/test/provision_test.c \
              disclose/test/disclose_test.c \
              disclose/test/disclose_fuzz.c \
+             facet/test/facet_test.c \
              persist/test/persist_test.c \
              persist/test/persist_fuzz.c \
              wire/test/relay_fuzz.c \
@@ -386,6 +389,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/prekey/test/prekey_test \
              $(BUILD_DIR)/provision/test/provision_test \
              $(BUILD_DIR)/disclose/test/disclose_test \
+             $(BUILD_DIR)/facet/test/facet_test \
              $(BUILD_DIR)/persist/test/persist_test \
              $(BUILD_DIR)/persist/test/persist_kat_test \
              $(BUILD_DIR)/spool/test/spool_test \
@@ -819,8 +823,10 @@ GUI_SRCS := gui/trust_view.cpp gui/qr_view.cpp
 # Added 2026-09-11 by the fuzzypickles session, whose catalogue and facet specs
 # (sec 101) left `make style` red for 22 commits: that session verified with
 # `python3 tool/style_gate.py` rather than `make style`, which is a narrower
-# instrument that does not run this check at all.
-SPEC_HDRS := catalogue/catalogue.h facet/facet.h
+# instrument that does not run this check at all. facet.h moved to HDRS on
+# 2026-09-18 when its settled core was implemented (sec 310); catalogue.h
+# stays spec-only.
+SPEC_HDRS := catalogue/catalogue.h
 
 GUI_HDRS := gui/trust_view.h gui/qr_view.h
 GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp
@@ -1933,6 +1939,13 @@ $(BUILD_DIR)/disclose/test/disclose_fuzz: $(BUILD_DIR)/disclose/test/disclose_fu
 # over those leaves is blob's -- sec 72 measured that the tree and the proofs
 # carry over to small fields and that blob's SEALING does not, which is why
 # this module exists at all rather than being a note in blob.h.
+# facet/ links nothing but its own object -- the settled core is pure in-memory
+# structure over borrowed views, with no crypto and no other module (sec 310).
+$(BUILD_DIR)/facet/test/facet_test: $(BUILD_DIR)/facet/test/facet_test.o \
+                                     $(BUILD_DIR)/facet/facet.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/disclose/test/disclose_test: $(BUILD_DIR)/disclose/test/disclose_test.o \
                                            $(BUILD_DIR)/disclose/disclose.o \
                                            $(BUILD_DIR)/blob/blob.o \
@@ -3132,6 +3145,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/claim/claim.o \
                                       $(BUILD_DIR)/record/store.o \
                                       $(BUILD_DIR)/catalog/catalog.o \
+                                      $(BUILD_DIR)/facet/facet.o \
                                       $(if $(CLI_ON),$(BUILD_DIR)/cli/cli.o) \
                                       $(BUILD_DIR)/tree/tree.o \
                                       $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)

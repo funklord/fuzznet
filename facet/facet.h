@@ -1,20 +1,28 @@
 /*
  * ==========================================================================
- * A SPECIFICATION, NOT AN INTERFACE. NOTHING IMPLEMENTS ANY OF THIS.
+ * THE SPECIFICATION, AND THE SETTLED IN-MEMORY CORE THAT IMPLEMENTS PART OF IT.
  * ==========================================================================
  *
- * There is no .c beside this file and never has been. It declares NOTHING:
- * no type, no function, only an include guard round numbered prose. That is
- * deliberate, and the reason is fuzzypickles' `core/src/record_store_internal.h`,
- * a header in exactly this position which learned it the expensive way --
- * "a header full of declarations reads as available machinery. Including it
- * compiled fine and failed at LINK time, naming an undefined symbol -- a
- * diagnostic that describes the mechanism and leaves the reader to work out
- * that the feature was never written."
+ * This file was a specification only from 2026-09-10 (F1-F33 below, written
+ * by the fuzzypickles session). On 2026-09-18 the copyright holder assigned
+ * fuzznet the SETTLED core, and the declarations at the end of this file --
+ * the model types, F19 one-spelling normalisation, F27 malformed-refusal and
+ * the F20 collation key -- are implemented in `facet/facet.c`. project.md
+ * sec 101 records the history and the assignment.
  *
- * So this one cannot be linked against by accident, and it says so at the
- * TOP rather than in a status line somebody skims past. It is listed in
- * SPEC_HDRS rather than HDRS, and `make install` does not ship it.
+ * WHAT IS STILL ONLY PROSE, and declares nothing on purpose: everything
+ * section 8 marks unsettled -- the wire encoding, the index interface (so no
+ * evaluation and no F16 canonical sort, both of which need it), the collation
+ * key's digit-run width (a caller parameter here rather than a fixed value),
+ * and the module name. The reason for leaving those undeclared is fuzzypickles'
+ * `core/src/record_store_internal.h`, which learned it the expensive way:
+ * "a header full of declarations reads as available machinery. Including it
+ * compiled fine and failed at LINK time." So a function appears below ONLY
+ * where `facet.c` defines it; an unsettled operation has no declaration to
+ * link against by accident, and its absence is the status line.
+ *
+ * The normative statements F1-F33 stand unchanged and remain what any
+ * implementation -- this partial one included -- must satisfy.
  */
 
 /* Naming a set of catalogue nodes, in a form that means the same thing
@@ -40,10 +48,11 @@
  * `players` to an emulator front end. Sec 5 keeps command vocabularies out of
  * the core for the same reason.
  *
- * STATUS: specification only. No implementation, no wire encoding fixed, and
- * the module name is provisional. Settled 2026-09-10 with fuzzypickles'
- * copyright holder; what is settled is marked normative below, and what is not
- * is named at the end rather than guessed at.
+ * STATUS: the settled core is implemented in facet.c (see the declarations at
+ * the end of this file); the wire encoding, the index interface and evaluation
+ * are not, and the module name is provisional. Settled 2026-09-10 with
+ * fuzzypickles' copyright holder; what is settled is marked normative below,
+ * and what is not is named in section 8 rather than guessed at.
  */
 
 #ifndef FZN_FACET_H
@@ -262,5 +271,123 @@
  *   - the collation key's digit-run width (F20);
  *   - this module's name.
  */
+
+/* =========================================================================
+ * THE SETTLED IN-MEMORY CORE
+ * =========================================================================
+ *
+ * Everything below is implemented in facet/facet.c and satisfies the settled
+ * parts of the spec above. It is the in-memory model, its structural checks,
+ * and the collation key -- NOT the wire encoding, NOT evaluation against an
+ * index, and NOT the F16 canonical sort (which needs the encoding). Terms hold
+ * BORROWED views into the caller's bytes, fuzznet's zero-copy style: nothing
+ * here allocates or copies, and every array is the caller's storage.
+ */
+
+#include <stddef.h>
+#include <stdint.h>
+
+typedef enum fzn_facet_err {
+	FZN_FACET_OK = 0,
+	/* The caller's bug: a null, or an output buffer too small. */
+	FZN_FACET_ERR_MALFORMED = 1,
+	/* F27/F14: P is empty. */
+	FZN_FACET_ERR_EMPTY_POS = 2,
+	/* F27/F8: an alternation whose members span dimensions. */
+	FZN_FACET_ERR_ALT_DIMENSION = 3,
+	/* F27: a term present in both P and N. */
+	FZN_FACET_ERR_BOTH_SIDES = 4,
+	/* F26: a term kind this build does not know. */
+	FZN_FACET_ERR_KIND = 5,
+	/* The collation output buffer is too small for the padded key. */
+	FZN_FACET_ERR_RANGE = 6,
+} fzn_facet_err_t;
+
+/* F5, F10: the term kinds this build knows. A tag; kinds may be added (F26),
+ * and an unknown one is refused rather than skipped. */
+typedef enum fzn_facet_kind {
+	FZN_FACET_PREFIX = 1, /* F5, F6: a node; every file at or beneath it. */
+	FZN_FACET_RANGE  = 2, /* F5, F7: an ordered span of a node's children. */
+	FZN_FACET_ALT    = 3, /* F5, F8: siblings under one parent; their union. */
+} fzn_facet_kind_t;
+
+/* F22-F23: a node is an opaque IDENTIFIER within an opaque DIMENSION. This
+ * module never learns what either classifies -- `local/vocabulary.h`'s rule.
+ * Both are borrowed views; the caller owns the bytes. */
+typedef struct fzn_facet_node {
+	const uint8_t *dim;
+	size_t         dim_len;
+	const uint8_t *id;
+	size_t         id_len;
+} fzn_facet_node_t;
+
+/* F7: a RANGE bound is a child of the range's parent, or OPEN. A bound with a
+ * NULL `id` (or `id_len` 0) is open on that side; `inclusive` applies only to
+ * a closed bound. Bounds are compared by collation key (F20), which is a
+ * property of evaluation and so not exercised by this core. */
+typedef struct fzn_facet_bound {
+	const uint8_t *id;
+	size_t         id_len;
+	int            inclusive;
+} fzn_facet_bound_t;
+
+/* A term (F5). The active fields depend on `kind`:
+ *   PREFIX  -- `node` is the node.
+ *   RANGE   -- `node` is the parent; `lo` and `hi` are the bounds.
+ *   ALT     -- `members` are the sibling nodes (F8: all one dimension);
+ *              `node` is unused. */
+typedef struct fzn_facet_term {
+	fzn_facet_kind_t kind;
+	fzn_facet_node_t node;
+	fzn_facet_bound_t lo, hi;
+	const fzn_facet_node_t *members;
+	size_t                  member_count;
+} fzn_facet_term_t;
+
+/* An expression is the pair (P, N) (F11): borrowed views of the caller's two
+ * term arrays. F14 requires P non-empty; fzn_facet_validate enforces it. */
+typedef struct fzn_facet_expr {
+	const fzn_facet_term_t *pos;
+	size_t                  pos_count;
+	const fzn_facet_term_t *neg;
+	size_t                  neg_count;
+} fzn_facet_expr_t;
+
+/* Structural equality of two terms: same kind and same fields, with ALT
+ * members compared as a SET (order-independent, per F18). This is the basis
+ * for F19 dedup and the F27 both-sides check. It is NOT the F16 canonical
+ * ordering, which compares canonical-encoding bytes the wire format has not
+ * fixed; equality does not need an order, so it is settled and this is not. */
+int fzn_facet_term_eq(const fzn_facet_term_t *a, const fzn_facet_term_t *b);
+
+/* F27: refuse a malformed expression -- P empty (F14), an alternation
+ * spanning dimensions (F8), a term in both P and N, or an unknown term kind
+ * (F26). Read-only. Returns FZN_FACET_OK when the expression is well formed. */
+fzn_facet_err_t fzn_facet_validate(const fzn_facet_expr_t *expr);
+
+/* F19: one-spelling normalisation, in place over the caller's arrays.
+ * Collapses a single-member alternation to a prefix, deduplicates the members
+ * of each alternation, and removes duplicate terms within P and within N. The
+ * reduced counts are written back through `pos_count` and `neg_count`. It does
+ * NOT do the F16 canonical SORT (that needs the encoding) nor the single-child
+ * RANGE collapse of F19 (that needs the index): both are deferred with the
+ * unsettled pieces they depend on. Order within P and N is otherwise
+ * preserved. */
+fzn_facet_err_t fzn_facet_normalize(fzn_facet_term_t *pos, size_t *pos_count,
+                                    fzn_facet_term_t *neg, size_t *neg_count);
+
+/* F20: derive a value's collation key by zero-padding each run of decimal
+ * digits to `digit_width`, so byte order matches natural order (`9` before
+ * `10`, `720p` before `1080p`). The width is a PARAMETER because section 8
+ * leaves it unsettled. Non-digit bytes are copied unchanged. Writes the key to
+ * `out` and its length to `*out_len`; returns FZN_FACET_ERR_RANGE if `out_cap`
+ * is too small. A run already at or above `digit_width` is not truncated, so
+ * the key is never lossy upward. */
+fzn_facet_err_t fzn_facet_collate(const uint8_t *value, size_t value_len,
+                                  unsigned digit_width,
+                                  uint8_t *out, size_t out_cap, size_t *out_len);
+
+/* A stable, allocation-free name for an error. */
+const char *fzn_facet_err_str(fzn_facet_err_t err);
 
 #endif /* FZN_FACET_H */

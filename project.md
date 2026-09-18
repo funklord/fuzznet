@@ -42127,3 +42127,49 @@ own reassembly ceiling of `chunks` (u16) times 1024, so a consumer of this
 shape chunks and reassembles with room to spare. No frame change; the number
 is here because sec 4.4's buffer bound is ours to hold and this is the first
 real consumer measuring against it.
+
+## 310. facet's settled in-memory core, implemented, 2026-09-18
+
+`facet/facet.h` was a specification only from 2026-09-10 -- the fuzzypickles
+session wrote it (sec 101), F1-F33, deliberately declaring nothing so it could
+not be linked against before it existed. On 2026-09-18 the copyright holder
+assigned fuzznet the implementation. The fuzzypickles session was messaged
+first and cleared it: no facet work in flight there, no collision, and no
+objection to building the settled core -- while rightly declining to authorise
+any design decision, which is the holder's and recorded in the tree, not a
+peer's to hand over.
+
+WHAT WAS BUILT, in `facet/facet.c`, is the settled, decision-free core:
+
+- the in-memory model -- dimensions, nodes as opaque identifiers (F22), and
+  the three term kinds PREFIX/RANGE/ALT (F5) with a kind tag (F10) -- and the
+  expression as the (P, N) pair (F11), all over borrowed views, no allocation;
+- `fzn_facet_validate`, the F27 refusals that are the safety core (F24-F28):
+  P empty (F14), an alternation spanning dimensions (F8), a term in both P and
+  N, and an unknown term kind (F26, refused not skipped);
+- `fzn_facet_normalize`, the part of F19 that needs neither the encoding nor
+  the index: collapse a single-member alternation to a prefix, dedup terms
+  within P and within N;
+- `fzn_facet_collate`, the F20 key -- zero-pad each decimal-digit run so `9`
+  sorts before `10` and `720p` before `1080p` -- with the run WIDTH a caller
+  parameter, because section 8 leaves it unsettled;
+- `fzn_facet_term_eq`, structural equality with ALT members compared as a set,
+  which the dedup and both-sides checks rest on.
+
+WHAT WAS DELIBERATELY NOT BUILT, because section 8 leaves it unsettled and
+those are the holder's to fix, not mine to invent: the wire encoding, the
+index interface (so no evaluation and no F16 canonical SORT, both of which
+need it), the single-child RANGE collapse of F19 (needs the index), and the
+module name. A function appears in the header ONLY where facet.c defines it,
+so an unsettled operation has no declaration to link against by accident --
+the same discipline facet.h opened with, kept.
+
+VERIFICATION. `facet_test` has 33 checks, each F27 refusal paired with a
+well-formed control that passes (a validator that refuses everything is
+worthless), the F20 examples asserted byte-for-byte, and the F19 collapse
+shown to make a single-member alternation dedup against the equivalent prefix.
+Three sabotage entries (`tool/sabotage.py`) pin the both-sides refusal, the
+alternation-dimension refusal and the collation padding, each seen to fail the
+suite before being recorded. `fzn_facet_err_str` is walked by err_str_test
+(41 renderers now). facet.h moved from SPEC_HDRS to HDRS; catalogue.h stays
+spec-only.

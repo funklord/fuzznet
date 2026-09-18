@@ -55,6 +55,27 @@ TIMEOUT = 600
 # indistinguishable from the output.
 SABOTAGES = [
 	(
+		"facet-both-sides-refuses",
+		"facet/facet.c",
+		"\t\t\t\treturn FZN_FACET_ERR_BOTH_SIDES;\n",
+		"\t\t\t\treturn FZN_FACET_OK;\n",
+		"F27: a term in both P and N always denotes the empty set, so validate must refuse it; returning OK admits an expression a tri-state editor cannot produce. facet_test's both-sides check catches it.",
+	),
+	(
+		"facet-alt-spans-dimensions",
+		"facet/facet.c",
+		"\t\t\treturn FZN_FACET_ERR_ALT_DIMENSION;\n",
+		"\t\t\treturn FZN_FACET_OK;\n",
+		"F8: an alternation whose members span dimensions is cross-facet union smuggled inside one term; accepting it reintroduces the commutativity failure the (P, N) form settles. facet_test's cross-dimension check catches it.",
+	),
+	(
+		"facet-collation-pads-digit-runs",
+		"facet/facet.c",
+		"\t\t\tpad = (run < digit_width) ? (digit_width - run) : 0;\n",
+		"\t\t\tpad = 0;\n",
+		"F20: the collation key zero-pads each digit run so 9 sorts before 10 and 720p before 1080p; with no padding a range term silently drops values. facet_test's collation checks catch it.",
+	),
+	(
 		"CONTROL-wipe",
 		"session/commitment.c",
 		"\tfzn_wipe(derived, sizeof(derived));\n",

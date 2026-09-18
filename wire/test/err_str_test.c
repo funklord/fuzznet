@@ -65,6 +65,7 @@
 #include "../../prekey/prekey.h"
 #include "../../provision/provision.h"
 #include "../../disclose/disclose.h"
+#include "../../facet/facet.h"
 #include "../../ratchet/ratchet.h"
 #include "../../session/agree.h"
 #include "../../session/session.h"
@@ -142,6 +143,7 @@ static const char *r_persist(int v) { return fzn_persist_err_str((fzn_persist_er
 static const char *r_tree(int v) { return fzn_tree_err_str((fzn_tree_err_t)v); }
 static const char *r_provision(int v) { return fzn_provision_err_str((fzn_provision_err_t)v); }
 static const char *r_disclose(int v) { return fzn_disclose_err_str((fzn_disclose_err_t)v); }
+static const char *r_facet(int v) { return fzn_facet_err_str((fzn_facet_err_t)v); }
 
 struct subject {
 	const char *name;
@@ -202,6 +204,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_tree_err_str", r_tree, 8 },
 	{ "fzn_provision_err_str", r_provision, 6 },
 	{ "fzn_disclose_err_str", r_disclose, 6 },
+	{ "fzn_facet_err_str", r_facet, 7 },
 };
 
 static void check_subject(const struct subject *s)
