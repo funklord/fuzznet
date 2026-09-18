@@ -76,6 +76,27 @@ SABOTAGES = [
 		"F20: the collation key zero-pads each digit run so 9 sorts before 10 and 720p before 1080p; with no padding a range term silently drops values. facet_test's collation checks catch it.",
 	),
 	(
+		"catalogue-refuses-a-mixed-attribute-set",
+		"catalogue/catalogue.c",
+		"\t\t\treturn FZN_CATALOGUE_ERR_NOT_ONE_ATTRIBUTE;\n",
+		"\t\t\treturn FZN_CATALOGUE_OK;\n",
+		"C28: a resolution set must be one attribute; accepting a mixed set resolves values that were never about the same thing. catalogue_test's differing name/merge/entity cases catch it.",
+	),
+	(
+		"catalogue-refuses-an-unknown-enum",
+		"catalogue/catalogue.c",
+		"\t\t\treturn FZN_CATALOGUE_ERR_KIND;\n",
+		"\t\t\treturn FZN_CATALOGUE_OK;\n",
+		"C28/F26: an unknown class/scope/merge/capability is refused, never skipped. catalogue_test's unknown-class case catches it.",
+	),
+	(
+		"catalogue-marks-the-authority",
+		"catalogue/catalogue.c",
+		"\t\t\te = emit(out, &n, out_cap, &set[i], 1);\n",
+		"\t\t\te = emit(out, &n, out_cap, &set[i], 0);\n",
+		"C5b AUTHORITATIVE names whose value is the authority's; without the mark a view cannot tell a preference from a consensus. catalogue_test's authoritative case catches it.",
+	),
+	(
 		"CONTROL-wipe",
 		"session/commitment.c",
 		"\tfzn_wipe(derived, sizeof(derived));\n",

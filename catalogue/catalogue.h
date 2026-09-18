@@ -1,20 +1,33 @@
 /*
  * ==========================================================================
- * A SPECIFICATION, NOT AN INTERFACE. NOTHING IMPLEMENTS ANY OF THIS.
+ * THE SPECIFICATION, AND THE SETTLED MERGE CORE THAT IMPLEMENTS PART OF IT.
  * ==========================================================================
  *
- * There is no .c beside this file and never has been. It declares NOTHING:
- * no type, no function, only an include guard round numbered prose. That is
- * deliberate, and the reason is fuzzypickles' `core/src/record_store_internal.h`,
- * a header in exactly this position which learned it the expensive way --
- * "a header full of declarations reads as available machinery. Including it
- * compiled fine and failed at LINK time, naming an undefined symbol -- a
- * diagnostic that describes the mechanism and leaves the reader to work out
- * that the feature was never written."
+ * This file was a specification only from 2026-09-10 (C1-C31 below, written
+ * by the fuzzypickles session). On 2026-09-18 the copyright holder chose
+ * "settle-then-build", and the declarations at the end of this file -- the
+ * in-memory attribute model and the C5b merge resolution (AUTHORITATIVE,
+ * UNION, DISTINCT), with its refusals -- are implemented in
+ * `catalogue/catalogue.c`. project.md sec 101 records the history and the
+ * assignment.
  *
- * So this one cannot be linked against by accident, and it says so at the
- * TOP rather than in a status line somebody skims past. It is listed in
- * SPEC_HDRS rather than HDRS, and `make install` does not ship it.
+ * WHAT IS STILL ONLY PROSE, and declares nothing on purpose: everything
+ * section 7 marks unsettled -- the wire encoding of an assertion (an
+ * assertion is carried as a record, C5c/C8, and that record body is not
+ * fixed), the module name, and the BEHAVIOURAL integration that is not a
+ * standalone algebra: estate-wide deletion consensus (C19a), importing and
+ * sharding (C23), and sources (C13-C22), which need `record/`, sync and
+ * `blob/` rather than an in-memory set. The merge core operates on assertions
+ * a caller has already decoded and marked live; deciding WHICH are live from
+ * per-(issuer, stream) journal state (C5c) is the caller's, not this file's.
+ *
+ * A function appears below ONLY where `catalogue.c` defines it, so an
+ * unsettled operation has no declaration to link against by accident -- the
+ * reason fuzzypickles' `core/src/record_store_internal.h` gives: "a header
+ * full of declarations reads as available machinery ... failed at LINK time".
+ *
+ * The normative statements C1-C31 stand unchanged and remain what any
+ * implementation -- this partial one included -- must satisfy.
  */
 
 /* What is known about a file, where it is, and who holds it.
@@ -697,5 +710,134 @@
  *     place rather than by copying (C15);
  *   - the wire encoding of any of the above, and this module's name.
  */
+
+/* =========================================================================
+ * THE SETTLED MERGE CORE
+ * =========================================================================
+ *
+ * Implemented in catalogue/catalogue.c: the in-memory attribute model and the
+ * C5b merge resolution. Assertions hold BORROWED views into the caller's
+ * bytes, fuzznet's zero-copy style (C30: nothing here allocates). This is not
+ * the wire encoding (section 7), not the deletion, import or source machinery
+ * (those need record/, sync and blob/), and not the "which are live"
+ * determination, which is the caller's from journal state (C5c).
+ */
+
+#include <stddef.h>
+#include <stdint.h>
+
+typedef enum fzn_catalogue_err {
+	FZN_CATALOGUE_OK = 0,
+	/* The caller's bug: a null, or an output buffer too small. */
+	FZN_CATALOGUE_ERR_MALFORMED = 1,
+	/* C28: a resolution set whose assertions are not all about one
+	 * (entity, attribute) -- different entity, name, class, scope, merge or
+	 * capability -- which would resolve a mixture as if it were one thing. */
+	FZN_CATALOGUE_ERR_NOT_ONE_ATTRIBUTE = 2,
+	/* An enum field carries a value this build does not know (C28's rule,
+	 * facet's F26): refused, never skipped. */
+	FZN_CATALOGUE_ERR_KIND = 3,
+	/* AUTHORITATIVE resolution was asked for without naming the authority. */
+	FZN_CATALOGUE_ERR_NO_AUTHORITY = 4,
+	/* The output buffer cannot hold the resolved set. */
+	FZN_CATALOGUE_ERR_RANGE = 5,
+} fzn_catalogue_err_t;
+
+/* C2: what may be asserted, by WHO CAN CHECK IT. */
+typedef enum fzn_catalogue_class {
+	FZN_CATALOGUE_LABEL = 1,      /* nobody can check; carried. */
+	FZN_CATALOGUE_FACT = 2,       /* the bytes settle it. */
+	FZN_CATALOGUE_IDENTIFIER = 3, /* a register settles it. */
+} fzn_catalogue_class_t;
+
+/* C5a: who may SEE a value. */
+typedef enum fzn_catalogue_scope {
+	FZN_CATALOGUE_HOST = 1,       /* never leaves the host that wrote it. */
+	FZN_CATALOGUE_ESTATE = 2,     /* the estate's hosts, no further. */
+	FZN_CATALOGUE_ADVERTISED = 3, /* observable by peers outside the estate. */
+} fzn_catalogue_scope_t;
+
+/* C5b: how concurrent assertions combine. */
+typedef enum fzn_catalogue_merge {
+	FZN_CATALOGUE_AUTHORITATIVE = 1, /* a designated issuer takes precedence. */
+	FZN_CATALOGUE_UNION = 2,         /* the union of live values (set-valued). */
+	FZN_CATALOGUE_DISTINCT = 3,      /* all retained, no winner, disagreement shown. */
+} fzn_catalogue_merge_t;
+
+/* C5e: what authority is needed to CHANGE it. The merge core carries this but
+ * does not branch on it -- capability is an ADMISSION question (who may
+ * assert), checked before an assertion is accepted, not a resolution one. */
+typedef enum fzn_catalogue_capability {
+	FZN_CATALOGUE_CAP_NONE = 1,   /* any estate member may assert. */
+	FZN_CATALOGUE_CAP_HOLDER = 2, /* only a host holding the bytes may. */
+	FZN_CATALOGUE_CAP_GRANTED = 3,/* a named capability, via chain/authz.h. */
+} fzn_catalogue_capability_t;
+
+/* One assertion: an issuer's value for an attribute about an entity (C1, C5).
+ * The class/scope/merge/capability are the ATTRIBUTE's declaration (C5), so
+ * every assertion about one attribute carries the same four; fzn_catalogue_
+ * validate refuses a set that does not agree. `live` is C5c's read-time state
+ * the caller supplies (nonzero = live). All byte fields are borrowed views. */
+typedef struct fzn_catalogue_assertion {
+	const uint8_t *issuer;   /* who asserted it -- a host key. */
+	size_t         issuer_len;
+	const uint8_t *entity;   /* the content hash the assertion is about (C1). */
+	size_t         entity_len;
+	const uint8_t *name;     /* attribute name, opaque (mechanism, not meaning). */
+	size_t         name_len;
+	const uint8_t *value;    /* the asserted value, opaque. */
+	size_t         value_len;
+	fzn_catalogue_class_t      attr_class;
+	fzn_catalogue_scope_t      scope;
+	fzn_catalogue_merge_t      merge;
+	fzn_catalogue_capability_t capability;
+	int            live;
+} fzn_catalogue_assertion_t;
+
+/* A resolved entry: a value and WHOSE it is (C5b/C11 -- a view must name whose
+ * value it shows). For AUTHORITATIVE, `authoritative` marks the designated
+ * issuer's value; it is 0 for UNION and DISTINCT. */
+typedef struct fzn_catalogue_resolved {
+	const uint8_t *value;
+	size_t         value_len;
+	const uint8_t *issuer;
+	size_t         issuer_len;
+	int            authoritative;
+} fzn_catalogue_resolved_t;
+
+/* Structural equality of two assertions: same issuer, entity, name, value and
+ * all four axes. `live` is not compared -- it is read-time state, not identity. */
+int fzn_catalogue_assertion_eq(const fzn_catalogue_assertion_t *a,
+                               const fzn_catalogue_assertion_t *b);
+
+/* C28: refuse a resolution set that is not all one attribute. Every assertion
+ * must share entity, name, class, scope, merge and capability, and every enum
+ * must be known (C28/F26). Read-only; FZN_CATALOGUE_OK when the set is sound.
+ * An empty set is sound (it resolves to nothing). */
+fzn_catalogue_err_t fzn_catalogue_validate(const fzn_catalogue_assertion_t *set,
+                                           size_t count);
+
+/* C5b resolution over the LIVE assertions of one attribute. The rule is read
+ * from the set itself (all agree, per validate). Fills `out` with the resolved
+ * view and writes its length to `*out_count`:
+ *   UNION         -- the distinct live values (a set; C5c makes it race-free).
+ *   AUTHORITATIVE -- the authority's live value first, marked authoritative,
+ *                    then the other distinct live values (precedence, not
+ *                    exclusivity: where the authority is silent, others stand).
+ *                    `authority` names the designated issuer and is required.
+ *   DISTINCT      -- every live assertion retained with its issuer, no winner
+ *                    (C5b: the disagreement is presented; the display pick by
+ *                    a local preference is the caller's, a display choice).
+ * The set is validated first. `authority`/`authority_len` are used only for
+ * AUTHORITATIVE and may be NULL/0 otherwise. */
+fzn_catalogue_err_t fzn_catalogue_resolve(const fzn_catalogue_assertion_t *set,
+                                          size_t count,
+                                          const uint8_t *authority,
+                                          size_t authority_len,
+                                          fzn_catalogue_resolved_t *out,
+                                          size_t out_cap, size_t *out_count);
+
+/* A stable, allocation-free name for an error. */
+const char *fzn_catalogue_err_str(fzn_catalogue_err_t err);
 
 #endif /* FZN_CATALOGUE_H */

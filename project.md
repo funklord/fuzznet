@@ -42173,3 +42173,62 @@ alternation-dimension refusal and the collation padding, each seen to fail the
 suite before being recorded. `fzn_facet_err_str` is walked by err_str_test
 (41 renderers now). facet.h moved from SPEC_HDRS to HDRS; catalogue.h stays
 spec-only.
+
+## 311. catalogue's settled merge core, implemented, 2026-09-18
+
+`catalogue/catalogue.h` was the fuzzypickles session's specification (C1-C31,
+2026-09-10), the sibling of facet: facet names SETS of entries, catalogue says
+what an ENTRY is. After facet landed (sec 310) the holder chose
+"settle-then-build" for it; the fuzzypickles session was messaged and cleared
+it (not theirs to implement, no collision), while declining to authorise
+design, as before.
+
+THE CORRECTION THAT MADE IT BUILDABLE. The first reading here was that
+catalogue, unlike facet, had no clean encoding-free core -- it is a behavioural
+spec woven through records, chain, blob and sync. That was half right and the
+wrong half was load-bearing: the MERGE resolution (C5b), which is the heart of
+the model, runs over an in-memory SET of assertions, and the in-memory form is
+the implementer's to choose exactly as facet's term was. Only the WIRE encoding
+of an assertion-as-record is unsettled (section 7), and merge does not need it.
+So there is a settled core after all, and it is `catalogue/catalogue.c`.
+
+WHAT WAS BUILT: the in-memory attribute model -- an assertion is an issuer's
+value for an attribute about an entity, carrying the attribute's four declared
+axes (class C2, scope C5a, merge C5b, capability C5e) as byte enums over
+borrowed views (C30, no allocation) -- and:
+
+- `fzn_catalogue_validate`, the C28 refusal: a resolution set must be ONE
+  attribute (same entity, name, and four axes) or it is refused, and every
+  enum must be known (C28/F26, refused not skipped);
+- `fzn_catalogue_resolve`, the C5b resolution over the LIVE assertions, "never
+  silently pick a winner": UNION returns the distinct live values; DISTINCT
+  retains every live assertion with its issuer and picks no winner; and
+  AUTHORITATIVE puts the designated issuer's value first and marked, then the
+  other distinct values standing where the authority is silent (precedence,
+  not exclusivity) -- and it refuses to guess when no authority is named;
+- `fzn_catalogue_assertion_eq`, structural, comparing everything but the
+  read-time `live` flag.
+
+WHAT WAS NOT BUILT, because section 7 leaves it unsettled or it is behaviour
+over other subsystems: the wire encoding of an assertion, the module name, and
+deletion consensus (C19a), importing/sharding (C23) and sources (C13-C22),
+which need `record/`, sync and `blob/`. Deciding WHICH assertions are live from
+per-(issuer, stream) journal state (C5c) is the caller's; resolve takes the
+live set it is given. The `class` field is spelled `attr_class` because `class`
+is a C++ keyword and the tree's headers stay C++-clean (the `inline_value`
+precedent).
+
+VERIFICATION mirrors facet: `catalogue_test` has 23 checks, the C28 refusals
+each paired with a passing control and each merge rule checked for what it
+retains and attributes; three sabotage entries pin the mixed-set refusal, the
+unknown-enum refusal and the authority mark, each seen to fail first;
+`fzn_catalogue_err_str` is walked by err_str_test (42 renderers now).
+catalogue.h moved from SPEC_HDRS to HDRS, which is now empty -- both spec
+headers have graduated. make test and make style pass.
+
+AN ARCHITECTURAL QUESTION LEFT OPEN, and it is the holder's: the implemented
+`catalog/` (the node/edge/set DAG, sec 142) and this `catalogue/` (the
+entity/attribute model) are related layers. The merge core is self-contained
+and touches neither, so it was safe to build; whether the attribute model
+eventually rides on `catalog/`'s records, supersedes them, or stays separate
+shapes the deferred wire encoding, not this core.
