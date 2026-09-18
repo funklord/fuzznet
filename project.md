@@ -42548,3 +42548,74 @@ generated host dimension (C7) is the record-set query C8 describes rather
 than a new wire type, and blob content stays the filestore's. Then the
 rename to `catalog`. This is delegated and open to the holder's revision;
 the reasoning is here so it can be revised rather than re-derived.
+
+## 316. Overlays as deltas over partial data, not full datasets, 2026-09-18
+
+The conflict-resolution and poisoning-defence layers (sec, in conversation)
+raised a scaling question: can those overlays be stored as partial-deltas on
+top of partial data, so a node never works with the full dataset? The answer
+is yes, and it is not a bolt-on -- it falls out of one property the model
+already has: THE OVERLAYS ARE DERIVED, NOT SOURCE. Source data must be synced
+and reconciled, which is the full-dataset problem; a derived-local overlay is
+free to be partial and incremental because nobody else depends on your copy.
+This is C8's "derive, don't store" and the poisoning section's "keep the
+subjective judgement out of the shared record" seen from the scaling side.
+
+THE STACK is three derived layers over partial records:
+
+- RECORDS: per-(issuer, stream), append-only, delta-synced by cursor,
+  shardable. The only thing synced, and partial by design.
+- FACET INDEX: derived, holds only what was synced, updated per record, and
+  answers a term with an `incomplete` flag. Partial and honest.
+- OVERLAYS: admission, resolution, quorum -- per-attribute, delta-
+  invalidated, never synced. Local and subjective.
+
+EACH OVERLAY IS PER-ATTRIBUTE OR PER-RECORD, never per-dataset, so a delta
+touches only the affected attribute:
+
+- admission is per-record: a record arrives, admit-or-not against a small
+  trust/capability set sized by the trust graph, not the catalogue;
+- resolution is per-attribute: fzn_catalogue_resolve already takes ONE
+  attribute's live set -- the handful of assertions about (entity, name) --
+  so a new assertion re-resolves just that attribute;
+- quorum/reputation is a per-(entity, name, value) weighted count; a new
+  assertion increments one bucket.
+
+So invalidation on a delta is keyed by the attribute -- that attribute's
+resolution and the postings for its dimension -- O(affected), not O(dataset).
+
+SAFETY OVER PARTIAL DATA IS ALREADY BUILT, and it is facet's F24 asymmetry:
+an incomplete POSITIVE under-includes (allowed -- a visible absence fixed by
+syncing more), an incomplete NEGATIVE over-includes and is REFUSED
+(FZN_FACET_ERR_INCOMPLETE), because an over-include could drive a deletion.
+You may miss things; you never wrongly include them. This is also the
+poisoning case from the other side: you cannot filter out a spam genre using
+genre data you have not caught up on, and the model refuses rather than
+pretend you can.
+
+VALIDATED BY RUNNING CODE: dimension_test's test_partial (5 checks) drives a
+facet index whose coverage is narrowed to model a node partway through a
+sync. Excluding on an un-synced dimension is refused (F24); an incomplete
+positive under-includes and is allowed; then a record arrives (the delta) and
+the dimension catches up, and the same queries firm -- the jazz query gains
+the new entity, and the exclusion that was refused becomes safe. State
+advances by delta, never a full rebuild.
+
+TWO THINGS ARE OPEN, and they are named so the layer work does not assume
+them settled.
+
+- THE PROVISIONAL BIT. fzn_catalogue_resolve faithfully resolves whatever
+  live set it is handed and says nothing about completeness. Over partial
+  data that is correct but silent: a value resolved from the issuers synced
+  so far can flip when a stream not yet caught up arrives. The overlay wants
+  the honesty facet has -- a resolved value carrying an `incomplete` bit
+  meaning "complete over my ADMITTED view", which is the only completeness
+  that exists in a decentralized system (you can never prove no unknown
+  issuer has an assertion). A layer/caller concern, not a record change and
+  not a resolve() rewrite.
+- SHARDING. Partial data at the SYNC level -- holding a subset of streams and
+  dimensions rather than everything -- rides on sharding (C23, shard size
+  C26), which the spec marks NOT settled. The overlays do not care how the
+  sharding is done; they operate over whatever shards are held. But "work
+  with partial data" is only as real as the sharding that lets a node sync
+  partially, so that is the piece with actual design left in it.

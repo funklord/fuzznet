@@ -17,6 +17,13 @@
  * evaluate hierarchical queries -- the composition the claim rests on, run
  * rather than asserted. This links catalogue.o AND facet.o, the first test to
  * exercise the two together.
+ *
+ * test_partial then validates the same model over PARTIAL data (project.md sec
+ * 316): an index that has synced some dimensions and not others reports
+ * `incomplete`, facet's F24 asymmetry keeps the partial answer safe (under-
+ * include yes, wrongly exclude never), and a delta firms what was partial --
+ * the substrate for storing overlays as deltas over partial data rather than
+ * over full datasets.
  */
 
 #include "../catalogue.h"
@@ -105,12 +112,46 @@ static int load(const struct row *rows, size_t n)
 	return nassert == n;
 }
 
+/* Which dimensions this partial index has fully synced. A streaming node has
+ * caught some dimensions up to every admitted issuer and is still behind on
+ * others; a term over a dimension it has NOT caught up is answered `incomplete`
+ * (F24). `cover_all` is the default so the hierarchy tests above see a complete
+ * index; test_partial narrows it to model a node partway through a sync. */
+static const char *covered[8];
+static size_t ncovered;
+static int cover_all = 1;
+
+static void cover_reset(void)
+{
+	ncovered = 0;
+	cover_all = 0;
+}
+
+static void cover(const char *dim)
+{
+	if (ncovered < 8)
+		covered[ncovered++] = dim;
+}
+
+static int dim_covered(const uint8_t *dim, size_t dim_len)
+{
+	size_t i;
+	if (cover_all)
+		return 1;
+	for (i = 0; i < ncovered; i++)
+		if (strlen(covered[i]) == dim_len
+		    && memcmp(covered[i], dim, dim_len) == 0)
+			return 1;
+	return 0;
+}
+
 /* The index facet evaluates against, built directly off the decoded
  * assertions. For a PREFIX term it returns every entity whose link in that
  * dimension is at or beneath the node -- a value-prefix match, which is what
  * makes the dimension a tree. This is the whole of the mapping the claim
  * rests on: an attribute IS a dimension link, and a prefix over its value IS
- * the subtree. */
+ * the subtree. It also reports `incomplete` for a dimension not yet caught up,
+ * which is what makes evaluation over PARTIAL data safe (F24, test_partial). */
 static fzn_facet_err_t postings(void *ctx, const fzn_facet_term_t *term,
                                 fzn_facet_entity_t *out, size_t out_cap,
                                 size_t *out_count, int *incomplete)
@@ -118,7 +159,7 @@ static fzn_facet_err_t postings(void *ctx, const fzn_facet_term_t *term,
 	size_t i, w = 0;
 
 	(void)ctx;
-	*incomplete = 0;
+	*incomplete = dim_covered(term->node.dim, term->node.dim_len) ? 0 : 1;
 	if (term->kind != FZN_FACET_PREFIX)
 		return FZN_FACET_ERR_KIND; /* this index answers prefixes only */
 
@@ -160,6 +201,99 @@ static fzn_facet_term_t prefix(const char *dim, const char *node)
 	t.node.id = (const uint8_t *)node;
 	t.node.id_len = strlen(node);
 	return t;
+}
+
+/* A record arriving: encode and decode one more assertion into the next slot,
+ * the delta a streaming node applies to advance its partial view. */
+static int sync_one(const char *entity, const char *dim, const char *node,
+                    fzn_catalogue_class_t cls)
+{
+	fzn_catalogue_assertion_t a;
+	size_t len;
+
+	if (nassert >= MAXROWS)
+		return 0;
+	memset(&a, 0, sizeof(a));
+	a.name = (const uint8_t *)dim;
+	a.name_len = strlen(dim);
+	a.value = (const uint8_t *)node;
+	a.value_len = strlen(node);
+	a.attr_class = cls;
+	a.scope = FZN_CATALOGUE_ESTATE;
+	a.merge = FZN_CATALOGUE_UNION;
+	a.capability = FZN_CATALOGUE_CAP_NONE;
+	if (fzn_catalogue_attribute_encode(&a, bodies[nassert], sizeof(bodies[nassert]),
+	                                   &len) != FZN_CATALOGUE_OK)
+		return 0;
+	if (fzn_catalogue_attribute_decode((const uint8_t *)"issuer", 6,
+	                                   (const uint8_t *)entity, strlen(entity),
+	                                   bodies[nassert], len, &assertions[nassert])
+	    != FZN_CATALOGUE_OK)
+		return 0;
+	nassert++;
+	return 1;
+}
+
+/* Partial data and deltas. An index that has fully synced some dimensions and
+ * not others reports `incomplete`, and facet's F24 asymmetry makes the partial
+ * answer SAFE: you may under-include (a visible absence), you may NOT wrongly
+ * exclude (which could drive a deletion). A delta -- a record arriving, a
+ * dimension caught up -- firms what was partial. This is the substrate for
+ * storing overlays as deltas over partial data: an answer is honest about its
+ * own completeness, so a resolution or quorum overlay built on it can mark a
+ * value provisional and firm it as records arrive, never rebuilding from a full
+ * dataset. project.md sec 316. */
+static void test_partial(void)
+{
+	fzn_facet_index_ops_t index = { NULL, postings };
+	fzn_facet_entity_t out[MAXROWS], scratch[MAXROWS];
+	fzn_facet_term_t pos[1], neg[1];
+	fzn_facet_expr_t expr;
+	size_t n = 0;
+
+	/* This host has caught lib up to every admitted issuer but is still behind
+	 * on genre -- exactly a streaming node partway through a sync. */
+	cover_reset();
+	cover("lib");
+
+	/* You CANNOT exclude on a dimension you have not fully synced: subtracting
+	 * an incomplete genre removes too little and so over-includes, and facet
+	 * refuses rather than answer wrong. This is the poisoning case from the
+	 * other side -- you cannot filter out a spam genre using genre data you
+	 * have not caught up on, and the model will not pretend you can. */
+	pos[0] = prefix("lib", "music");
+	neg[0] = prefix("genre", "jazz");
+	expr.pos = pos; expr.pos_count = 1; expr.neg = neg; expr.neg_count = 1;
+	CHECK(fzn_facet_evaluate(&expr, &index, out, MAXROWS, &n, scratch, MAXROWS)
+	      == FZN_FACET_ERR_INCOMPLETE,
+	      "cannot exclude on an un-synced dimension -- refused, not guessed (F24)");
+
+	/* You MAY include on it: an incomplete positive under-includes, a visible
+	 * absence you fix by syncing more. Only song-a's genre is synced so far. */
+	expr.neg = NULL; expr.neg_count = 0;
+	pos[0] = prefix("genre", "jazz");
+	CHECK(fzn_facet_evaluate(&expr, &index, out, MAXROWS, &n, scratch, MAXROWS)
+	      == FZN_FACET_OK && n == 1 && has(out, n, "song-a"),
+	      "an incomplete positive under-includes -- allowed, a visible absence");
+
+	/* The delta: a record arrives (song-b's genre) and the dimension catches
+	 * up. State advances by delta, never a full rebuild. */
+	CHECK(sync_one("song-b", "genre", "jazz", FZN_CATALOGUE_FACT),
+	      "a genre record arrives -- the delta");
+	cover("genre");
+
+	pos[0] = prefix("genre", "jazz");
+	CHECK(fzn_facet_evaluate(&expr, &index, out, MAXROWS, &n, scratch, MAXROWS)
+	      == FZN_FACET_OK && n == 2 && has(out, n, "song-a") && has(out, n, "song-b"),
+	      "the delta firms the answer -- jazz now finds song-b too");
+
+	/* And with genre caught up, the exclusion that was refused is now safe. */
+	pos[0] = prefix("lib", "music");
+	neg[0] = prefix("genre", "jazz");
+	expr.neg = neg; expr.neg_count = 1;
+	CHECK(fzn_facet_evaluate(&expr, &index, out, MAXROWS, &n, scratch, MAXROWS)
+	      == FZN_FACET_OK && n == 1 && has(out, n, "song-c"),
+	      "genre synced, the exclusion is safe -- music minus jazz is song-c");
 }
 
 int main(void)
@@ -231,6 +365,10 @@ int main(void)
 	      && assertions[4].attr_class == FZN_CATALOGUE_FACT
 	      && assertions[0].attr_class == FZN_CATALOGUE_LABEL,
 	      "a FACT dimension and a LABEL link share one record, split by class");
+
+	/* The same model over PARTIAL data: safe under incompleteness, firmed by
+	 * delta. Run last, since it narrows the index's coverage. */
+	test_partial();
 
 	printf("dimension_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
