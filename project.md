@@ -42470,3 +42470,81 @@ all four arrangements -- so they were consumer-includable all along, and the
 gap was the check's, not the headers'. Making the catalog API consumable was
 the occasion; the node/local/net inclusions rode along because they block the
 same gate.
+
+## 315. The membership question, answered: no membership record, 2026-09-18
+
+Superseding catalog/ left one piece open after the ATTRIBUTE record (sec
+314): how the new model carries MEMBERSHIP -- catalog/'s EDGE, a node's
+belonging to a set. The copyright holder set the criteria and delegated the
+call: cooperative, decentralized, careful and thorough cataloguing of files
+with HIERARCHICAL attributes, in a local-and-decentralized mix. Read against
+the spec's own section 2 (DIMENSIONS AND LINKS), those criteria answer it,
+and the answer is that there is nothing to build.
+
+WHAT SECTION 2 ALREADY SETTLES.
+
+- C6: a DIMENSION is a TREE an entity is linked into, and facet (F1-F6) is
+  the algebra over it. So the hierarchy the criteria ask for is not a thing
+  to add -- it is what a dimension IS.
+- C8 (corrected 2026-09-11 against fuzzypickles' built design): NEITHER
+  direction of the holder/availability relation is stored. "The set of
+  issuers for a root IS the set of holders", so which hosts hold a file is
+  derived from the record set (a record's issuer and subject), never an
+  edge. Availability membership needs no record at all.
+- C9: a link in a CURATED dimension is a REFERENCE; the generated host
+  dimension is an OBSERVATION of what is on disk.
+
+THE CONCLUSION. A curated link is an ATTRIBUTE whose NAME is the dimension
+and whose VALUE is the node -- a path in the tree. facet's PREFIX term,
+which selects "every file at or beneath a node", is then hierarchical
+membership, computed rather than stored. So:
+
+- a curated link == an attribute (class LABEL: a reference, nobody checks
+  it), with the tree path as its value;
+- an observed fact == an attribute (class FACT: the bytes settle it) -- C9's
+  reference-versus-observation is the CLASS AXIS, not a second record type;
+- an entity linked several times (C9) == several attribute assertions,
+  merged as UNION;
+- availability == derived from issuer and subject (C8), no record.
+
+The ATTRIBUTE record shipped in 314 is therefore the whole curated data
+layer, and there is NO membership record to build. This refines "follow the
+new model" (sec 314), whose sketch carried a separate MEMBERSHIP record: a
+closer read of C8/C9 makes it unnecessary. The direction is toward LESS
+wire, not more, so the decision is low-risk and reversible -- a membership
+record, if one is ever wanted, is additive.
+
+WHY IT FITS THE CRITERIA, each earned rather than asserted.
+
+- HIERARCHICAL: dimensions are trees (C6); facet PREFIX is the subtree.
+- CAREFUL/THOROUGH: one record type, one merge model, one canonical encoding
+  -- fewer ways to spell one fact, which is the "one encoding" discipline
+  the attribute codec already enforces. And DISTINCT preserves disagreement
+  where catalog/'s EDGE add-wins always answered "present", which is a
+  silent pick; "never silently pick a winner" wants the attribute model.
+- COOPERATIVE/DECENTRALIZED: each host is authoritative about itself and no
+  other (C8a/C10), so a claim converges with no coordination, and the four
+  axes plus C5b resolution are richer for shared curation than a single
+  add-wins bit -- an AUTHORITATIVE set can name whose list wins, a UNION can
+  pool contributions.
+- LOCAL-AND-DECENTRALIZED MIX: the SCOPE axis (HOST/ESTATE/ADVERTISED), and
+  C8b keeps what crosses the estate boundary a single bit, never the holder
+  list.
+
+VALIDATED BY RUNNING CODE, not prose: `catalogue/test/dimension_test.c` (13
+checks) is the first test to link catalogue AND facet. It builds attribute
+records, ENCODES and DECODES them over the wire path, drives a facet index
+straight off the decoded assertions, and evaluates hierarchical queries --
+`lib=music/jazz` selects the jazz subtree and not rock, `music` minus
+`music/jazz` leaves the rock entry, an entity links under two subtrees at
+once, and a FACT dimension and a LABEL link answer the same query while
+sharing one record shape. The composition the conclusion rests on is run,
+so a later change that broke it would fail here rather than in an argument.
+
+WHAT REMAINS of the supersession is now only the migration, not the model:
+catalog/'s three-record consumers (gui/sweep_view, cli/sweep_print, the
+reach/sweep/copy walks) move onto attribute-records-plus-facet, the
+generated host dimension (C7) is the record-set query C8 describes rather
+than a new wire type, and blob content stays the filestore's. Then the
+rename to `catalog`. This is delegated and open to the holder's revision;
+the reasoning is here so it can be revised rather than re-derived.
