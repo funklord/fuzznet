@@ -42619,3 +42619,191 @@ them settled.
   sharding is done; they operate over whatever shards are held. But "work
   with partial data" is only as real as the sharding that lets a node sync
   partially, so that is the piece with actual design left in it.
+
+## 317. The retirement program for the old catalog/, 2026-09-18
+
+The copyright holder chose (2026-09-18) to map the retirement of the old
+`catalog/` module as a design record before any code, and this is it. The
+premise the survey established: `catalog/` is not a data model, it is a
+SUBSYSTEM -- a data model (edge/content/name) PLUS reachability (GC input),
+sweep (removal planner), copy (replication), retention, and filing. The
+data-model half is superseded and proven (secs 314-316). This programs the
+rest, in a sequence that never destroys the old records until the new path is
+proven beside them.
+
+GROUNDED BY A THREE-WORKER VERIFICATION PASS against the actual code and
+spec, and where a worker CORRECTED an initial mapping the correction is kept
+-- that is the pass working, not noise. Two of my first-cut mappings were
+wrong (filing, retention) and are fixed below.
+
+BLAST RADIUS (survey). ~2121 `fzn_catalog_*` references tree-wide, ~98%
+inside `catalog/` and its eight test suites (`catalog_test.c` alone is 854;
+the in-module suites total ~1603 sites -- the dominant churn). External
+non-test consumers are four files -- `gui/sweep_view.{cpp,h}`,
+`cli/sweep_print.{c,h}` -- and they read ONLY sweep-plan counters, no record
+bodies, so they re-point trivially. `catalog/` is under dense active
+hardening; this is a shared-tree collision to coordinate around, not charge
+through.
+
+THE ONE DISTINCTION THE WHOLE PROGRAM TURNS ON, sharpened by the
+verification: two layers that must not be conflated.
+
+- The COOPERATIVE layer, which SYNCS: attribute records, facet, C8
+  availability -- the shared catalogue. Membership and availability live
+  here.
+- The LOCAL per-host layer, which NEVER syncs (C5a HOST): retention and
+  filing -- each host's private keep-and-layout decisions. catalog.h's own
+  reason: "a filing that synced would make one host's disk layout an
+  assertion the other had to accept." These do NOT become shared attribute
+  records; they re-home as HOST-scoped local state.
+
+## Step 1 -- reachability re-derives to a LOCAL curated-link check
+
+OLD (`catalog/reach.c`): a transitive BFS over the present-edge DAG from
+roots (unreachable = not reached); `fzn_catalog_sources` aggregates every row
+by distinct issuer (tombstones included, since an absent edge still carries an
+issuer); a `vouched_for` frontier check returns `ERR_INCOMPLETE` when an
+issuer is not caught up.
+
+NEW: an entity is REFERENCED iff it has at least one CURATED-dimension link
+(C9). This is LOCAL, not transitive -- the new model separates entities
+(leaves) from dimensions (trees), so there is no node-is-also-a-set nesting to
+walk. `sources` becomes the distinct issuers of the curated links, which the
+record layer already carries. The frontier/`INCOMPLETE` check IS sec 316's
+partial-data completeness.
+
+THE CORRECTION TO PRESERVE: "unreferenced" is NOT "deletable". C7's generated
+host dimension links every entity that exists on disk, at all times, so an
+unreferenced entity still exists; severing that host link is the C17 delete
+GESTURE, not a catalogue edit. The old reach.c conflated unreachable-in-the-
+DAG with propose-for-deletion; the new model keeps REFERENCED (a curated
+link), EXISTS (the host observation), and DELETABLE (C17) as three separate
+things. Additive, validatable like dimension_test. MEDIUM.
+
+## Step 2 -- sweep re-derives as a planner; execution is C19a
+
+OLD (`catalog/sweep.c`): a PLANNER, not a deleter. A guard chain over blob
+entries produces removal rows `{node, root, len}` and hands them to a consumer
+that performs the byte removal outside the library. The guards: retention
+(`keeps`), reachability (retained-node-needs), this-host-holds, and a
+last-copy WITNESS ("how many OTHER hosts hold these bytes"); an absent witness
+answers ZERO, which keeps the bytes.
+
+NEW: the guards re-derive nearly one-to-one -- retention (step 3), reachability
+(step 1), this-host-holds = C8 (this host is an issuer of the root), last-copy
+= C8 (count the issuers of the root minus self). The absent-witness-answers-
+zero-so-keep rule IS sec 316's asymmetry: when holders cannot be determined
+(incomplete), conservatively keep, never delete on partial data.
+
+The ACTUAL removal is C17/C19a. Its MECHANISM is settled: a deletion is a
+queued command eliminated once a consensus is attained, and the consensus set
+is pinned when the purge is queued (the pinned set is the hosts that actually
+hold, never a mere forwarder). What is NOT settled, and what gates any
+automatic GC, is the reclamation POLICY -- step 4. MEDIUM (the planner
+re-derives; the execution is the C19a machinery of step 4).
+
+## Step 3 -- retention re-homes as LOCAL per-host state
+
+OLD (`catalog/catalog.h`): a TRI-STATE per-node override (DEFAULT=0
+follow-the-catalogue / KEEP / DROP) with an optional deadline (`until` then
+`then`). Per-host, no wire form, no resolver. `keeps(node, now)` is whether
+this host keeps it; `due` is deadlines elapsed. It is INDEPENDENT of
+reachability -- the chain is unreachable -> (consumer marks DROP) -> sweep, so
+reachability FEEDS retention rather than retention being defined over it.
+
+NEW: retention is a LOCAL (C5a HOST) keep/drop policy per entity. It does NOT
+become a shared attribute record -- one host's keep intent is not another's,
+so it must not sync. It re-homes as per-host local state, C17-constrained (it
+records intent; the removal is the explicit sweep). CORRECTIONS from the
+verification: it is tri-state, not keep-or-drop; and it is not "a policy over
+the reachable set" -- reachability feeds it. MEDIUM.
+
+## Step 4 -- the reclamation policy: the holder's decision, the real gate
+
+Everything above PLANS; nothing deletes automatically without this. C18 states
+that a reference count of zero is a REPORTED STATE and never a trigger --
+showing it to a person is the only thing it may do on its own. Section 7
+leaves exactly three questions open: (a) whether automatic reclamation of an
+unreferenced entity exists at all, (b) its grace period, (c) its pin
+granularity. The MECHANISM (C19a) is settled; only the POLICY is open. Per the
+doc's own routing of section-7 items ("deserves being asked of the holder",
+catalogue.h:695), that policy is the holder's -- it is not derivable and not
+mine to pick.
+
+Until it is decided, the new-model sweep can PLAN removals (steps 1-3) and a
+person can act on them explicitly (C17), but there is no automatic GC, which
+is precisely C18's own position. A DECISION, then LARGE if reclamation is
+adopted (the C19a queued-command/consensus machinery).
+
+## Step 5 -- copy re-homes onto C8 + spool
+
+OLD (`catalog/copy.c`): `copy_holdings` and `copy_offer` ask only "do I hold
+this root" and the catalogue's referenced-root set -- pure C8 availability;
+the byte transfer is `spool/`'s ("decides, does not send"). `copy_want` =
+retained AND referenced AND not-held, which depends on RETENTION, not C8
+alone. A job-lock refuses while a refile or sweep runs.
+
+NEW: holdings and offer are C8 (the issuer set of a root is the holder set);
+want is C8 plus step-3 retention; the transfer stays `spool/`'s. CORRECTION:
+want is retained-AND-referenced-AND-not-held, not just referenced-but-not-held
+-- the retention dependency is load-bearing and was missing from the first
+cut. MEDIUM.
+
+## Step 6 -- filing: the correction that reshapes it, plus refile machinery
+
+OLD (`catalog/catalog.h`): filing is a per-host MARK on an EXISTING membership
+edge (filing is a subset of the DAG), single-valued (`file_under` clears any
+prior mark), and deliberately LOCAL (no wire form; `apply` never sets one).
+REFILE is a LOCKED, RESUMABLE, CRASH-SAFE relocation of BYTES ON DISK through
+a filesystem move seam.
+
+NEW (corrected -- my first cut called filing a plain curated link and refile a
+retract-plus-assert, and that is wrong): a curated link SYNCS, is MANY-valued,
+and its value is OPAQUE; filing must NOT sync, is EXACTLY-ONCE per host, and
+its value is an existing edge. So the filing MARK re-homes as a single-valued,
+C5a HOST-scoped, edge-constrained LOCAL attribute -- not the generic curated
+link dimension_test validated. And REFILE needs machinery BEYOND the attribute
+record: the exclusive lock so progress is the only question, the resumable
+cursor, and the filesystem move that physically relocates files (C17/
+filesystem territory). The metadata flip is a retract-plus-assert (trivially
+C5c-legal, since a per-host filing's issuer is always this host); the JOB is
+not. This is the largest of the local-layer pieces. MEDIUM-LARGE.
+
+## Step 7 -- migrate the eight test suites, then retire and rename
+
+The eight in-module suites (~1603 sites: catalog_test, sweep_test, copy_test,
+reach_test, and four fuzz harnesses) are the dominant churn and are peer-hot.
+They test the old algorithms; they re-target the new ones (steps 1-6) or
+retire (edge/content/name record tests become attribute-record tests, partly
+done already in catalogue_test and dimension_test). The external consumers
+(sweep_view, sweep_print) re-point to the new-model sweep trivially, reading
+the same kind of plan counters. Then `catalog/` is deleted and `catalogue/` is
+renamed to `catalog/` (`fzn_catalogue_*` -> `fzn_catalog_*`, the collision
+resolved because the old symbols are gone), and the new records get their situ
+contract. LARGE (tests) plus MEDIUM (rename).
+
+## Ordering, coexistence, and the decisions this needs
+
+Steps 1-6 build the new-model machinery BESIDE `catalog/` -- additive, both
+object-tag namespaces coexisting -- so nothing is destroyed until step 7. Step
+1 (reachability) founds 2/3/5; step 4 (reclamation policy) is the holder's
+gate to automatic GC; step 6 (filing) is independent local machinery; step 7
+retires and renames.
+
+THREE DECISIONS THIS PROGRAM NEEDS FROM THE HOLDER, none of them mine:
+
+- THE RECLAMATION POLICY (C18): does automatic reclamation exist, and its
+  grace period and pin granularity? The real gate to automatic GC (step 4).
+- PEER DECONFLICTION: `catalog/` is under active hardening and the test
+  migration (step 7, ~1603 sites) collides head-on. Either wait for the
+  hardening to settle or deconflict deliberately; charging in is the
+  shared-tree hazard the guidelines name.
+- CONFIRM THE LOCAL/COOPERATIVE SPLIT: retention and filing are per-host
+  (C5a HOST) and never become shared attribute records. The model handles
+  this via the HOST scope, but it is worth confirming, because the first cut
+  of this program got it wrong and it changes what steps 3 and 6 build.
+
+WHAT THIS PROGRAM DOES NOT NEED, already done or another subsystem's: the data
+model, membership and availability (done, secs 314-316); the byte transfer
+(`spool/`'s); and sharding (sec 316, a separate open piece with its own
+holder decision on shard size).
