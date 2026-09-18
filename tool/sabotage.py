@@ -125,6 +125,13 @@ SABOTAGES = [
 		"A body no record can carry is not an encoding at all (catalog/'s FZN_CATALOG_INLINE_MAX): the value bound accounts for the head, not FZN_RECORD_BODY_MAX. Dropping the record-body check admits a body that fits the caller's buffer but no record. catalogue_test's overflow case catches it.",
 	),
 	(
+		"catalogue-attribute-decode-refuses-an-oversize-body",
+		"catalogue/catalogue.c",
+		"\tif (body_len > (size_t)FZN_RECORD_BODY_MAX)\n\t\treturn FZN_CATALOGUE_ERR_RANGE;\n",
+		"\tif (body_len > (size_t)FZN_RECORD_BODY_MAX && 0)\n\t\treturn FZN_CATALOGUE_ERR_RANGE;\n",
+		"Decode's body-size bound is symmetric with encode's, so a body that decodes always re-encodes. Without it an internally-consistent body larger than a record body decodes yet cannot re-encode, breaking the canonical invariant. catalogue_test's oversize case and attribute_fuzz's canonical check catch it.",
+	),
+	(
 		"CONTROL-wipe",
 		"session/commitment.c",
 		"\tfzn_wipe(derived, sizeof(derived));\n",

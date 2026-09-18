@@ -292,6 +292,11 @@ fzn_catalogue_err_t fzn_catalogue_attribute_decode(const uint8_t *issuer, size_t
 	    || (body_len != 0 && !body))
 		return FZN_CATALOGUE_ERR_MALFORMED;
 
+	/* A body no record could carry is not one this decodes -- the symmetric
+	 * bound to encode's, so that a body which decodes always re-encodes. */
+	if (body_len > (size_t)FZN_RECORD_BODY_MAX)
+		return FZN_CATALOGUE_ERR_RANGE;
+
 	/* The fixed head must be whole before any field is read. */
 	if (body_len < FZN_CATALOGUE_ATTR_HEAD_LEN
 	    || body[0] != FZN_CATALOGUE_OBJECT_ATTRIBUTE)

@@ -909,8 +909,10 @@ fzn_catalogue_err_t fzn_catalogue_attribute_encode(const fzn_catalogue_assertion
  * state a caller derives from journal position (C5c), not a property of the
  * bytes. Enforces the one canonical encoding: refuses FZN_CATALOGUE_ERR_MALFORMED
  * for a wrong object tag or a truncated head, FZN_CATALOGUE_ERR_KIND for an
- * unknown axis, and FZN_CATALOGUE_ERR_RANGE for a name or value length that runs
- * past the body or leaves a trailing byte. */
+ * unknown axis, and FZN_CATALOGUE_ERR_RANGE for a body larger than a record can
+ * carry, or a name or value length that runs past the body or leaves a trailing
+ * byte. The body-size bound is symmetric with encode's, so a body that decodes
+ * always re-encodes to the same bytes. */
 fzn_catalogue_err_t fzn_catalogue_attribute_decode(const uint8_t *issuer, size_t issuer_len,
                                                    const uint8_t *entity, size_t entity_len,
                                                    const uint8_t *body, size_t body_len,

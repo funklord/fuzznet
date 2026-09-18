@@ -299,6 +299,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              facet/test/facet_test.c \
              catalogue/test/catalogue_test.c \
              catalogue/test/dimension_test.c \
+             catalogue/test/attribute_fuzz.c \
              persist/test/persist_test.c \
              persist/test/persist_fuzz.c \
              wire/test/relay_fuzz.c \
@@ -396,6 +397,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/facet/test/facet_test \
              $(BUILD_DIR)/catalogue/test/catalogue_test \
              $(BUILD_DIR)/catalogue/test/dimension_test \
+             $(BUILD_DIR)/catalogue/test/attribute_fuzz \
              $(BUILD_DIR)/persist/test/persist_test \
              $(BUILD_DIR)/persist/test/persist_kat_test \
              $(BUILD_DIR)/spool/test/spool_test \
@@ -1969,6 +1971,13 @@ $(BUILD_DIR)/catalogue/test/dimension_test: $(BUILD_DIR)/catalogue/test/dimensio
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# attribute_fuzz links only catalogue.o: the codec is record-free (it takes the
+# issuer/entity as raw pointers), so no record.o is pulled in (sec 314).
+$(BUILD_DIR)/catalogue/test/attribute_fuzz: $(BUILD_DIR)/catalogue/test/attribute_fuzz.o \
+                                             $(BUILD_DIR)/catalogue/catalogue.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/disclose/test/disclose_test: $(BUILD_DIR)/disclose/test/disclose_test.o \
                                            $(BUILD_DIR)/disclose/disclose.o \
                                            $(BUILD_DIR)/blob/blob.o \
@@ -3397,6 +3406,7 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/provision/test/provision_fuzz \
              $(BUILD_DIR)/record/test/sync_fuzz \
              $(BUILD_DIR)/disclose/test/disclose_fuzz \
+             $(BUILD_DIR)/catalogue/test/attribute_fuzz \
              $(BUILD_DIR)/persist/test/persist_fuzz \
              $(BUILD_DIR)/wire/test/relay_fuzz \
              $(BUILD_DIR)/log/test/log_fuzz \

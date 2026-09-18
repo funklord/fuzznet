@@ -333,6 +333,24 @@ static void test_encode(void)
 	body[0] = FZN_CATALOGUE_OBJECT_ATTRIBUTE;
 	CHECK(fzn_catalogue_attribute_decode(iss, 4, ent, 3, body, 3, &got)
 	      == FZN_CATALOGUE_ERR_MALFORMED, "a body shorter than the head is refused");
+
+	/* A body larger than a record can carry is refused, symmetric with encode's
+	 * bound. Built internally-consistent (value_len == the bytes present) so it
+	 * would decode WITHOUT the size cap -- the property attribute_fuzz's
+	 * canonical check rests on: a body that decodes always re-encodes. */
+	memset(big, 0, sizeof(big));
+	big[0] = FZN_CATALOGUE_OBJECT_ATTRIBUTE;
+	big[1] = FZN_CATALOGUE_LABEL;
+	big[2] = FZN_CATALOGUE_HOST;
+	big[3] = FZN_CATALOGUE_UNION;
+	big[4] = FZN_CATALOGUE_CAP_NONE;
+	big[5] = 0; /* name_len */
+	/* value_len so that 8 + value_len == FZN_RECORD_BODY_MAX + 1 */
+	big[6] = (uint8_t)((FZN_RECORD_BODY_MAX - 7u) >> 8);
+	big[7] = (uint8_t)((FZN_RECORD_BODY_MAX - 7u) & 0xffu);
+	CHECK(fzn_catalogue_attribute_decode(iss, 4, ent, 3, big,
+	                                     (size_t)FZN_RECORD_BODY_MAX + 1u, &got)
+	      == FZN_CATALOGUE_ERR_RANGE, "a body larger than a record is refused");
 }
 
 int main(void)
