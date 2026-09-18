@@ -918,6 +918,41 @@ fzn_catalogue_err_t fzn_catalogue_attribute_decode(const uint8_t *issuer, size_t
                                                    const uint8_t *body, size_t body_len,
                                                    fzn_catalogue_assertion_t *out);
 
+/* =========================================================================
+ * REACHABILITY OVER THE NEW MODEL (project.md sec 317, step 1)
+ * =========================================================================
+ *
+ * The old catalog/'s reach.c computed reachability over an EDGE DAG by a
+ * transitive walk from roots. Here it is LOCAL: the model separates entities
+ * (leaves) from dimensions (trees), so there is no node-that-is-also-a-set to
+ * walk -- an entity is REFERENCED exactly when a live assertion names it (C9),
+ * computed over the assertions a caller holds. These take an assertion set the
+ * way resolve does; deciding which are live is the caller's (C5c). */
+
+/* An issuer the set depends on, and how many of its assertions are in it. */
+typedef struct fzn_catalogue_source {
+	const uint8_t *issuer;
+	size_t         issuer_len;
+	size_t         assertions;
+} fzn_catalogue_source_t;
+
+/* Is `entity` REFERENCED -- named by at least one LIVE assertion in the set?
+ * C9: a curated link is a reference; the host observation (C7/C8) is derived,
+ * not an assertion here, so an unreferenced entity may still exist on disk and
+ * removing it is the explicit C17 gesture, never a consequence of this. */
+int fzn_catalogue_referenced(const fzn_catalogue_assertion_t *set, size_t count,
+                             const uint8_t *entity, size_t entity_len);
+
+/* The distinct issuers the set depends on, with a per-issuer assertion count,
+ * written to `out` (capacity `out_cap`); `*out_count` gets how many were
+ * written and `*dropped` how many distinct issuers did not fit. Every issuer
+ * is counted, live or not -- catching up with a source must see its
+ * retractions too (C5c). FZN_CATALOGUE_OK unless an argument is null. */
+fzn_catalogue_err_t fzn_catalogue_sources(const fzn_catalogue_assertion_t *set,
+                                          size_t count, fzn_catalogue_source_t *out,
+                                          size_t out_cap, size_t *out_count,
+                                          size_t *dropped);
+
 /* A stable, allocation-free name for an error. */
 const char *fzn_catalogue_err_str(fzn_catalogue_err_t err);
 

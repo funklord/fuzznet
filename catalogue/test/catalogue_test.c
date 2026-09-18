@@ -353,6 +353,67 @@ static void test_encode(void)
 	      == FZN_CATALOGUE_ERR_RANGE, "a body larger than a record is refused");
 }
 
+/* --- reachability (sec 317, step 1) ------------------------------------ */
+
+static void test_reachability(void)
+{
+	fzn_catalogue_assertion_t set[4];
+	fzn_catalogue_source_t src[4];
+	size_t n = 0, dropped = 0, i;
+
+	for (i = 0; i < 4; i++)
+		memset(&set[i], 0, sizeof(set[i]));
+	/* e1 by i1 (live), e1 by i2 (live), e2 by i1 (NOT live), e3 by i1 (live). */
+	set[0].entity = (const uint8_t *)"e1"; set[0].entity_len = 2;
+	set[0].issuer = (const uint8_t *)"i1"; set[0].issuer_len = 2; set[0].live = 1;
+	set[1].entity = (const uint8_t *)"e1"; set[1].entity_len = 2;
+	set[1].issuer = (const uint8_t *)"i2"; set[1].issuer_len = 2; set[1].live = 1;
+	set[2].entity = (const uint8_t *)"e2"; set[2].entity_len = 2;
+	set[2].issuer = (const uint8_t *)"i1"; set[2].issuer_len = 2; set[2].live = 0;
+	set[3].entity = (const uint8_t *)"e3"; set[3].entity_len = 2;
+	set[3].issuer = (const uint8_t *)"i1"; set[3].issuer_len = 2; set[3].live = 1;
+
+	CHECK(fzn_catalogue_referenced(set, 4, (const uint8_t *)"e1", 2),
+	      "an entity with a live assertion is referenced");
+	CHECK(!fzn_catalogue_referenced(set, 4, (const uint8_t *)"e2", 2),
+	      "an entity named only by a non-live assertion is unreferenced");
+	CHECK(!fzn_catalogue_referenced(set, 4, (const uint8_t *)"e9", 2),
+	      "an entity no assertion names is unreferenced");
+	CHECK(fzn_catalogue_referenced(set, 4, (const uint8_t *)"e3", 2),
+	      "e3 is referenced");
+
+	CHECK(fzn_catalogue_sources(set, 4, src, 4, &n, &dropped) == FZN_CATALOGUE_OK,
+	      "sources resolves");
+	CHECK(n == 2 && dropped == 0, "two distinct issuers, none dropped");
+	CHECK(src[0].assertions == 3 && src[1].assertions == 1,
+	      "per-issuer counts -- i1 asserted three, i2 one");
+
+	n = 0; dropped = 0;
+	CHECK(fzn_catalogue_sources(set, 4, src, 1, &n, &dropped) == FZN_CATALOGUE_OK,
+	      "sources with a one-slot buffer");
+	CHECK(n == 1 && dropped == 1,
+	      "one issuer fits and one distinct issuer is dropped, counted once");
+
+	/* A dropped issuer with SEVERAL assertions is counted once, not per row. */
+	{
+		fzn_catalogue_assertion_t s2[3];
+		size_t m = 0, dr = 0, k;
+
+		for (k = 0; k < 3; k++)
+			memset(&s2[k], 0, sizeof(s2[k]));
+		s2[0].issuer = (const uint8_t *)"i1"; s2[0].issuer_len = 2;
+		s2[0].entity = (const uint8_t *)"e"; s2[0].entity_len = 1; s2[0].live = 1;
+		s2[1].issuer = (const uint8_t *)"i2"; s2[1].issuer_len = 2;
+		s2[1].entity = (const uint8_t *)"e"; s2[1].entity_len = 1; s2[1].live = 1;
+		s2[2].issuer = (const uint8_t *)"i2"; s2[2].issuer_len = 2;
+		s2[2].entity = (const uint8_t *)"e"; s2[2].entity_len = 1; s2[2].live = 1;
+		CHECK(fzn_catalogue_sources(s2, 3, src, 1, &m, &dr) == FZN_CATALOGUE_OK,
+		      "sources over a set with a repeated dropped issuer");
+		CHECK(m == 1 && dr == 1,
+		      "a dropped issuer with two assertions is dropped once");
+	}
+}
+
 int main(void)
 {
 	test_validate();
@@ -361,6 +422,7 @@ int main(void)
 	test_distinct();
 	test_eq_and_bounds();
 	test_encode();
+	test_reachability();
 
 	printf("catalogue_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

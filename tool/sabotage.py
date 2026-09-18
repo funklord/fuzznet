@@ -132,6 +132,20 @@ SABOTAGES = [
 		"Decode's body-size bound is symmetric with encode's, so a body that decodes always re-encodes. Without it an internally-consistent body larger than a record body decodes yet cannot re-encode, breaking the canonical invariant. catalogue_test's oversize case and attribute_fuzz's canonical check catch it.",
 	),
 	(
+		"catalogue-referenced-counts-only-live",
+		"catalogue/catalogue.c",
+		"\t\tif (set[i].live\n\t\t    && bytes_eq(set[i].entity, set[i].entity_len, entity, entity_len))\n",
+		"\t\tif (1\n\t\t    && bytes_eq(set[i].entity, set[i].entity_len, entity, entity_len))\n",
+		"Reachability (sec 317) counts only LIVE assertions: a retracted link does not keep an entity referenced. Counting non-live assertions would keep a withdrawn entity alive, defeating any later GC. catalogue_test's non-live case catches it.",
+	),
+	(
+		"catalogue-sources-counts-a-dropped-issuer-once",
+		"catalogue/catalogue.c",
+		"\t\t\tif (!earlier)\n\t\t\t\td++;\n",
+		"\t\t\tif (!earlier || 1)\n\t\t\t\td++;\n",
+		"An overflowing issuer is dropped once, not per assertion (reach.c's rule), so `dropped` is a count of distinct issuers a reader must still account for. Counting per row inflates it and a caller sizing a catch-up buffer over-allocates. catalogue_test's repeated-dropped-issuer case catches it.",
+	),
+	(
 		"CONTROL-wipe",
 		"session/commitment.c",
 		"\tfzn_wipe(derived, sizeof(derived));\n",

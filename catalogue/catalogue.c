@@ -341,6 +341,79 @@ fzn_catalogue_err_t fzn_catalogue_attribute_decode(const uint8_t *issuer, size_t
 	return FZN_CATALOGUE_OK;
 }
 
+int fzn_catalogue_referenced(const fzn_catalogue_assertion_t *set, size_t count,
+                             const uint8_t *entity, size_t entity_len)
+{
+	size_t i;
+
+	if ((count != 0 && !set) || (entity_len != 0 && !entity))
+		return 0;
+	/* Referenced == some LIVE assertion names it. C9: a curated link is a
+	 * reference; the host observation (C7) is not an assertion here -- it is
+	 * derived from who holds the bytes (C8) -- so an entity with no live
+	 * assertion is unreferenced, which is not the same as not existing. */
+	for (i = 0; i < count; i++)
+		if (set[i].live
+		    && bytes_eq(set[i].entity, set[i].entity_len, entity, entity_len))
+			return 1;
+	return 0;
+}
+
+fzn_catalogue_err_t fzn_catalogue_sources(const fzn_catalogue_assertion_t *set,
+                                          size_t count, fzn_catalogue_source_t *out,
+                                          size_t out_cap, size_t *out_count,
+                                          size_t *dropped)
+{
+	size_t i, j, w = 0, d = 0;
+
+	if (!out_count || !dropped)
+		return FZN_CATALOGUE_ERR_MALFORMED;
+	if ((count != 0 && !set) || (out_cap != 0 && !out))
+		return FZN_CATALOGUE_ERR_MALFORMED;
+
+	/* The distinct issuers the set depends on, and how many of each -- the
+	 * hosts a reader must catch up with to account for these assertions. Every
+	 * issuer is counted, live or not, because a retraction is still that
+	 * issuer's word and catching up needs to see it (C5c). */
+	for (i = 0; i < count; i++) {
+		const fzn_catalogue_assertion_t *a = &set[i];
+		int found = 0;
+
+		for (j = 0; j < w; j++) {
+			if (bytes_eq(out[j].issuer, out[j].issuer_len,
+			             a->issuer, a->issuer_len)) {
+				out[j].assertions++;
+				found = 1;
+				break;
+			}
+		}
+		if (found)
+			continue;
+		if (w < out_cap) {
+			out[w].issuer = a->issuer;
+			out[w].issuer_len = a->issuer_len;
+			out[w].assertions = 1;
+			w++;
+		} else {
+			/* Does not fit. Count a dropped issuer once: only on its first
+			 * appearance in the set, so many assertions from one dropped
+			 * issuer count as one -- reach.c's rule. */
+			int earlier = 0;
+			for (j = 0; j < i; j++)
+				if (bytes_eq(set[j].issuer, set[j].issuer_len,
+				             a->issuer, a->issuer_len)) {
+					earlier = 1;
+					break;
+				}
+			if (!earlier)
+				d++;
+		}
+	}
+	*out_count = w;
+	*dropped = d;
+	return FZN_CATALOGUE_OK;
+}
+
 const char *fzn_catalogue_err_str(fzn_catalogue_err_t err)
 {
 	switch (err) {
