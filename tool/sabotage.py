@@ -111,6 +111,20 @@ SABOTAGES = [
 		"C5b AUTHORITATIVE names whose value is the authority's; without the mark a view cannot tell a preference from a consensus. catalogue_test's authoritative case catches it.",
 	),
 	(
+		"catalogue-attribute-value-is-exactly-the-remaining-bytes",
+		"catalogue/catalogue.c",
+		"\tif (value_len != body_len - off)\n",
+		"\tif (value_len > body_len - off)\n",
+		"One canonical encoding (C8): the value must be EXACTLY the bytes left, so a trailing byte is refused rather than ignored. `>` admits a shorter value_len than the bytes present, a second spelling of one assertion the signature differs over. catalogue_test's trailing-byte case catches it.",
+	),
+	(
+		"catalogue-attribute-body-must-fit-a-record",
+		"catalogue/catalogue.c",
+		"\tif (total > cap || total > (size_t)FZN_RECORD_BODY_MAX)\n",
+		"\tif (total > cap)\n",
+		"A body no record can carry is not an encoding at all (catalog/'s FZN_CATALOG_INLINE_MAX): the value bound accounts for the head, not FZN_RECORD_BODY_MAX. Dropping the record-body check admits a body that fits the caller's buffer but no record. catalogue_test's overflow case catches it.",
+	),
+	(
 		"CONTROL-wipe",
 		"session/commitment.c",
 		"\tfzn_wipe(derived, sizeof(derived));\n",

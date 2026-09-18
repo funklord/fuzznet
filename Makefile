@@ -4580,7 +4580,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               prekey/prekey.situ persist/persist.situ spool/message.situ \
               spool/sidecar.situ record/record.situ tree/tree.situ \
               catalog/catalog.situ chain/chain.situ provision/provision.situ \
-              record/store_file.situ
+              record/store_file.situ catalogue/attribute.situ
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.
 #

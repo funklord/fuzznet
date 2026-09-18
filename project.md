@@ -42393,3 +42393,80 @@ chunking, and the 1024-byte leaf and the payload length bound become numbers
 to revisit per link rather than constants. That is a transport-profile
 decision, named here so the person who writes the LoRa transport meets it
 in the design rather than as a surprise.
+
+## 314. catalog supersedes catalog/, and the ATTRIBUTE wire encoding, 2026-09-18
+
+The copyright holder settled two things about `catalogue/` (sec 311): its
+in-memory attribute model SUPERSEDES the old `catalog/` module (the DAG of
+named sets), and its NAME is `catalog` -- the shorter spelling, taking over
+from the module being retired.
+
+WHAT THE SUPERSESSION ACTUALLY SPANS, read off `catalog/catalog.situ`'s three
+record bodies rather than assumed: it is not `catalog` alone that replaces the
+old module, but three subsystems.
+
+- EDGE (child is or is not a member of parent) is MEMBERSHIP, which is
+  `facet/`'s: an entity linked into a dimension, not an attribute.
+- NAME (id -> text) is a catalog LABEL attribute.
+- CONTENT (none/inline/blob) is a catalog attribute value (inline) or the
+  filestore (blob -- the entity already IS the content hash, so nothing in
+  the attribute model carries bytes).
+
+So the mapping is not a re-spelling. Put to the holder as the section-7
+wire-encoding decision catalogue.h reserves (it is wire-churn-sensitive, and
+it decides how much churn the old module's consumers take), the holder chose
+FOLLOW THE NEW MODEL: an ATTRIBUTE record supersedes NAME and inline CONTENT;
+membership is facet's; blobs are the filestore's; the three-record dispatch
+is retired.
+
+WHAT WAS BUILT, the ATTRIBUTE half, which is `catalog`'s own and self-
+contained: the wire encoding as `catalogue/attribute.situ` (a checked contract
+with its committed `.wire` and `.map`, verified against situ HEAD), and
+`fzn_catalogue_attribute_encode`/`_decode` in catalogue.c. Three principles
+carried forward from `catalog/`, which had learned them:
+
+- THE BODY DOES NOT REPEAT WHAT THE RECORD SIGNS. issuer comes from the
+  record's issuer and entity from its subject (record.h calls subject "what it
+  is about", which is exactly an attribute's entity); the body carries only
+  the four axes, the name and the value. Fuller than `catalog/` managed --
+  it put ids in its bodies because an EDGE has two, but an ATTRIBUTE has one
+  entity, so the subject holds it. decode takes issuer and entity as raw
+  pointers, so catalogue.c stays free of record/ at link time; the
+  record->fields bridge is the caller's, where record/ is already a dep.
+- ONE ENCODING OF EACH ASSERTION, ENFORCED. An axis outside its enum, a length
+  that does not match the bytes, or a trailing byte is refused, because the
+  signature is over these bytes (C8) -- 255 spellings is 255 signatures.
+- THE VALUE BOUND ACCOUNTS FOR THE HEAD, not FZN_RECORD_BODY_MAX. catalog/
+  found this as FZN_CATALOG_INLINE_MAX only by building its encoder; here it
+  is designed in (FZN_CATALOGUE_ATTR_VALUE_MAX) and its sabotage is one of the
+  two new ones.
+
+VERIFICATION: catalogue_test gained 22 checks (23 -> 45) -- a byte-for-byte
+round trip, and each refusal (unknown axis on encode and decode, a value that
+overflows a record body, a trailing byte, a short value, a wrong object tag, a
+truncated head) with a control that still decodes. Two sabotage entries, each
+seen to fail through the specific test under it: the exact-remaining-bytes
+check turned to `>` (a trailing byte admitted), and the record-body-max bound
+dropped. `make schema` reports `catalogue/attribute.situ.wire is current`
+against situ HEAD.
+
+THE MIGRATION IS SEQUENCED, not done here. The symbols stay `fzn_catalogue_*`
+until the old `catalog/` retires, to avoid colliding with its `fzn_catalog_*`;
+the rename to `catalog` is the LAST step, once the old module's consumers
+(gui/sweep_view, cli/sweep_print, catalog/{reach,sweep,copy}) are migrated off
+the edge/content/name records. Still open: the membership encoding (facet's)
+and blob content (the filestore's), and the behavioural machinery (consensus,
+import, sources) that is integration over other subsystems rather than an
+algebra.
+
+A FINDING met while running `make check`, recorded rather than chased: its
+`installcheck` was RED at HEAD on the fuzzypickles spec headers `facet/facet.h`
+and `catalogue/catalogue.h` (added to HDRS in 64322b8/ab89342 without being
+added to the consumer check) AND on eight `node/`, `local/` and `net/` headers
+that predate them. The routine gate is `make test`, which does not run
+installcheck, so the red went unseen. All ten are fuzznet's own headers in
+HDRS, and adding them to `tool/consumer_check.c` makes installcheck green in
+all four arrangements -- so they were consumer-includable all along, and the
+gap was the check's, not the headers'. Making the catalog API consumable was
+the occasion; the node/local/net inclusions rode along because they block the
+same gate.

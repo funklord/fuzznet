@@ -57,6 +57,8 @@
 #include <fuzznet/catalog/copy.h>
 #include <fuzznet/catalog/sweep.h>
 #include <fuzznet/catalog/reach.h>
+#include <fuzznet/facet/facet.h>
+#include <fuzznet/catalogue/catalogue.h>
 #include <fuzznet/qr/qr.h>
 #if defined(FZN_CLI_ON)
 #include <fuzznet/cli/qr_print.h>
@@ -125,6 +127,14 @@
 #include <fuzznet/frame/freshness.h>
 #include <fuzznet/local/peer.h>
 #include <fuzznet/local/vocabulary.h>
+#include <fuzznet/local/line.h>
+#include <fuzznet/local/socket.h>
+#include <fuzznet/net/udp.h>
+#include <fuzznet/node/node.h>
+#include <fuzznet/node/local.h>
+#include <fuzznet/node/remote.h>
+#include <fuzznet/node/serve.h>
+#include <fuzznet/node/provision.h>
 #include <fuzznet/session/aead.h>
 #include <fuzznet/session/commitment.h>
 #include <fuzznet/session/random.h>
@@ -154,6 +164,8 @@
 #include "catalog/copy.h"
 #include "catalog/sweep.h"
 #include "catalog/reach.h"
+#include "facet/facet.h"
+#include "catalogue/catalogue.h"
 #include "qr/qr.h"
 #if defined(FZN_CLI_ON)
 #include "cli/qr_print.h"
@@ -216,6 +228,14 @@
 #include "frame/freshness.h"
 #include "local/peer.h"
 #include "local/vocabulary.h"
+#include "local/line.h"
+#include "local/socket.h"
+#include "net/udp.h"
+#include "node/node.h"
+#include "node/local.h"
+#include "node/remote.h"
+#include "node/serve.h"
+#include "node/provision.h"
 #include "session/aead.h"
 #include "session/commitment.h"
 #include "session/random.h"

@@ -1,15 +1,20 @@
 /*
- * The settled merge core of catalogue.h: the in-memory attribute model and the
- * C5b resolution of concurrent assertions. It holds every decision and touches
- * no wire format, no record, no journal and no store -- section 7 leaves the
- * encoding unsettled, and the deletion, import and source machinery are
- * behaviour over other subsystems rather than an algebra. Assertions carry
- * borrowed views; this file never allocates (C30).
+ * The settled merge core of catalogue.h, plus the ATTRIBUTE wire encoding the
+ * copyright holder settled on 2026-09-18 ("follow the new model"): the in-memory
+ * attribute model, the C5b resolution of concurrent assertions, and the
+ * encode/decode of an assertion's record body. It holds every decision and
+ * still touches no journal and no store -- the deletion, import and source
+ * machinery are behaviour over other subsystems rather than an algebra. It
+ * touches no record TYPE either: encode writes a body buffer and decode takes
+ * the issuer and entity as raw pointers, which the caller lifts from the
+ * record's issuer and subject where record/ is already a dependency. Assertions
+ * carry borrowed views; this file never allocates (C30).
  *
- * What is deliberately absent: the encode/decode of an assertion as a record
- * (section 7), and deciding WHICH assertions are live -- that is read-time
- * state a caller derives from per-(issuer, stream) journal position (C5c), and
- * resolve takes the live set it is given.
+ * What is deliberately absent: deciding WHICH assertions are live -- that is
+ * read-time state a caller derives from per-(issuer, stream) journal position
+ * (C5c), and resolve takes the live set it is given; the EDGE-equivalent
+ * membership encoding, which is facet/'s; and blob content, which is the
+ * filestore's (the entity IS the content hash).
  */
 
 #include "catalogue.h"
@@ -211,6 +216,123 @@ fzn_catalogue_err_t fzn_catalogue_resolve(const fzn_catalogue_assertion_t *set,
 	}
 
 	*out_count = n;
+	return FZN_CATALOGUE_OK;
+}
+
+/* Big-endian u16, the endianness catalogue/attribute.situ declares. */
+static void put_u16(uint8_t *p, size_t v)
+{
+	p[0] = (uint8_t)(v >> 8);
+	p[1] = (uint8_t)(v & 0xffu);
+}
+
+static size_t get_u16(const uint8_t *p)
+{
+	return ((size_t)p[0] << 8) | (size_t)p[1];
+}
+
+fzn_catalogue_err_t fzn_catalogue_attribute_encode(const fzn_catalogue_assertion_t *a,
+                                                   uint8_t *out, size_t cap,
+                                                   size_t *len_out)
+{
+	size_t total, off;
+
+	if (!a || !len_out)
+		return FZN_CATALOGUE_ERR_MALFORMED;
+	if ((a->name_len != 0 && !a->name) || (a->value_len != 0 && !a->value))
+		return FZN_CATALOGUE_ERR_MALFORMED;
+	/* One canonical encoding: an axis outside its enum has no byte to write. */
+	if (!class_known(a->attr_class) || !scope_known(a->scope)
+	    || !merge_known(a->merge) || !capability_known(a->capability))
+		return FZN_CATALOGUE_ERR_KIND;
+	/* The length fields are one byte (name) and two (value); a length that does
+	 * not fit its field is not a small-buffer problem but an unencodable one. */
+	if (a->name_len > FZN_CATALOGUE_ATTR_NAME_MAX || a->value_len > 0xffffu)
+		return FZN_CATALOGUE_ERR_MALFORMED;
+
+	total = FZN_CATALOGUE_ATTR_HEAD_LEN + a->name_len + 2u + a->value_len;
+	/* The body must fit both the caller's buffer AND a record body: the
+	 * signature is over what the record carries, so a body no record can hold is
+	 * not an encoding at all -- catalog/ found this as FZN_CATALOG_INLINE_MAX. */
+	if (total > cap || total > (size_t)FZN_RECORD_BODY_MAX)
+		return FZN_CATALOGUE_ERR_RANGE;
+
+	out[0] = FZN_CATALOGUE_OBJECT_ATTRIBUTE;
+	out[1] = (uint8_t)a->attr_class;
+	out[2] = (uint8_t)a->scope;
+	out[3] = (uint8_t)a->merge;
+	out[4] = (uint8_t)a->capability;
+	out[5] = (uint8_t)a->name_len;
+	off = FZN_CATALOGUE_ATTR_HEAD_LEN;
+	if (a->name_len)
+		memcpy(out + off, a->name, a->name_len);
+	off += a->name_len;
+	put_u16(out + off, a->value_len);
+	off += 2u;
+	if (a->value_len)
+		memcpy(out + off, a->value, a->value_len);
+	*len_out = total;
+	return FZN_CATALOGUE_OK;
+}
+
+fzn_catalogue_err_t fzn_catalogue_attribute_decode(const uint8_t *issuer, size_t issuer_len,
+                                                   const uint8_t *entity, size_t entity_len,
+                                                   const uint8_t *body, size_t body_len,
+                                                   fzn_catalogue_assertion_t *out)
+{
+	fzn_catalogue_class_t cls;
+	fzn_catalogue_scope_t scope;
+	fzn_catalogue_merge_t merge;
+	fzn_catalogue_capability_t cap;
+	size_t name_len, value_len, off;
+
+	if (!out)
+		return FZN_CATALOGUE_ERR_MALFORMED;
+	if ((issuer_len != 0 && !issuer) || (entity_len != 0 && !entity)
+	    || (body_len != 0 && !body))
+		return FZN_CATALOGUE_ERR_MALFORMED;
+
+	/* The fixed head must be whole before any field is read. */
+	if (body_len < FZN_CATALOGUE_ATTR_HEAD_LEN
+	    || body[0] != FZN_CATALOGUE_OBJECT_ATTRIBUTE)
+		return FZN_CATALOGUE_ERR_MALFORMED;
+
+	cls = (fzn_catalogue_class_t)body[1];
+	scope = (fzn_catalogue_scope_t)body[2];
+	merge = (fzn_catalogue_merge_t)body[3];
+	cap = (fzn_catalogue_capability_t)body[4];
+	if (!class_known(cls) || !scope_known(scope) || !merge_known(merge)
+	    || !capability_known(cap))
+		return FZN_CATALOGUE_ERR_KIND;
+
+	name_len = body[5];
+	off = FZN_CATALOGUE_ATTR_HEAD_LEN;
+	/* name, then the two-byte value length, then value: each must lie within the
+	 * body, and the value must be EXACTLY the remaining bytes -- one canonical
+	 * encoding, so a trailing byte is refused rather than ignored. */
+	if (name_len > body_len - off)
+		return FZN_CATALOGUE_ERR_RANGE;
+	off += name_len;
+	if (body_len - off < 2u)
+		return FZN_CATALOGUE_ERR_RANGE;
+	value_len = get_u16(body + off);
+	off += 2u;
+	if (value_len != body_len - off)
+		return FZN_CATALOGUE_ERR_RANGE;
+
+	out->issuer = issuer;
+	out->issuer_len = issuer_len;
+	out->entity = entity;
+	out->entity_len = entity_len;
+	out->name = name_len ? body + FZN_CATALOGUE_ATTR_HEAD_LEN : NULL;
+	out->name_len = name_len;
+	out->value = value_len ? body + off : NULL;
+	out->value_len = value_len;
+	out->attr_class = cls;
+	out->scope = scope;
+	out->merge = merge;
+	out->capability = cap;
+	out->live = 0;
 	return FZN_CATALOGUE_OK;
 }
 

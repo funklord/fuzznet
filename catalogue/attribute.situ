@@ -1,0 +1,75 @@
+// The catalog ATTRIBUTE record body as a situ schema -- the wire form the
+// copyright holder settled on 2026-09-18 ("follow the new model"), superseding
+// catalog/'s NAME and inline CONTENT bodies. A membership assertion (catalog/'s
+// EDGE) is facet/'s, and blob content is the filestore's: the entity IS the
+// content hash, so nothing here carries bytes. project.md sec 101 and 314.
+//
+// This is a RECORD BODY. It does NOT repeat the issuer or the entity, for the
+// reason catalog/catalog.h gives about its own bodies: a record already carries
+// who signed it (issuer) and WHAT IT IS ABOUT (subject), and a body repeating
+// either would let the two disagree about a record that verified. So the
+// assertion's issuer comes from the record's issuer and its entity from the
+// record's subject; only the four axes, the name and the value are on the wire.
+//
+// ONE ENCODING OF EACH ASSERTION, ENFORCED, the same rule catalog/ states: an
+// axis outside its enum, a name or value length that does not match the bytes,
+// or a trailing byte is refused rather than absorbed -- because the signature
+// is over these bytes, and 255 spellings of one statement is 255 signatures.
+//
+// Measured against the committed FZN_CATALOGUE_* constants in catalogue.h:
+// FZN_CATALOGUE_ATTR_HEAD_LEN = 6 (object + four axes + name_len), and the
+// value bound accounts for the head rather than being FZN_RECORD_BODY_MAX --
+// catalog/ found that defect (FZN_CATALOG_INLINE_MAX) only by building the
+// encoder, and it is designed in here rather than rediscovered.
+
+target buffer;
+endian big;
+
+// The four axes, whose values are catalogue.h's enums. Each starts at 1: a
+// zero byte is no axis, so an unknown value (F26/C28) is refused, not skipped.
+enum fzn_catalogue_class : u8 {
+	label = 1,        // FZN_CATALOGUE_LABEL -- nobody can check; carried.
+	fact = 2,         // FZN_CATALOGUE_FACT -- the bytes settle it.
+	identifier = 3,   // FZN_CATALOGUE_IDENTIFIER -- a register settles it.
+}
+
+enum fzn_catalogue_scope : u8 {
+	host = 1,         // FZN_CATALOGUE_HOST
+	estate = 2,       // FZN_CATALOGUE_ESTATE
+	advertised = 3,   // FZN_CATALOGUE_ADVERTISED
+}
+
+enum fzn_catalogue_merge : u8 {
+	authoritative = 1, // FZN_CATALOGUE_AUTHORITATIVE
+	union_ = 2,        // FZN_CATALOGUE_UNION
+	distinct = 3,      // FZN_CATALOGUE_DISTINCT
+}
+
+enum fzn_catalogue_capability : u8 {
+	cap_none = 1,     // FZN_CATALOGUE_CAP_NONE
+	cap_holder = 2,   // FZN_CATALOGUE_CAP_HOLDER
+	cap_granted = 3,  // FZN_CATALOGUE_CAP_GRANTED
+}
+
+// ATTRIBUTE -- variable, 6 bytes plus name and value:
+//   [0]                    FZN_CATALOGUE_OBJECT_ATTRIBUTE (1)
+//   [1]                    class
+//   [2]                    scope
+//   [3]                    merge
+//   [4]                    capability
+//   [5]                    name_len (0..255)
+//   [6 .. 6+name_len)      name (opaque; mechanism, not meaning)
+//   [6+name_len .. +2)     value_len (big-endian u16)
+//   [8+name_len .. +vlen)  value (opaque)
+// The encoder refuses when 6 + name_len + 2 + value_len exceeds a record body.
+struct fzn_catalogue_attribute {
+	u8  object [must_eq = 1];                // offset 0 (FZN_CATALOGUE_OBJECT_ATTRIBUTE)
+	fzn_catalogue_class      attr_class;     // offset 1
+	fzn_catalogue_scope      scope;          // offset 2
+	fzn_catalogue_merge      merge;          // offset 3
+	fzn_catalogue_capability capability;     // offset 4
+	u8  name_len [max = 255];                // offset 5 (FZN_CATALOGUE_ATTR_NAME_MAX)
+	u8  name[name_len];                      // offset 6 (FZN_CATALOGUE_ATTR_HEAD_LEN)
+	u16 value_len [max = 504];               // FZN_CATALOGUE_ATTR_VALUE_MAX at name_len 0
+	u8  value[value_len];
+}

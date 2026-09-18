@@ -11,15 +11,16 @@
  * `catalogue/catalogue.c`. project.md sec 101 records the history and the
  * assignment.
  *
- * WHAT IS STILL ONLY PROSE, and declares nothing on purpose: everything
- * section 7 marks unsettled -- the wire encoding of an assertion (an
- * assertion is carried as a record, C5c/C8, and that record body is not
- * fixed), the module name, and the BEHAVIOURAL integration that is not a
- * standalone algebra: estate-wide deletion consensus (C19a), importing and
- * sharding (C23), and sources (C13-C22), which need `record/`, sync and
- * `blob/` rather than an in-memory set. The merge core operates on assertions
- * a caller has already decoded and marked live; deciding WHICH are live from
- * per-(issuer, stream) journal state (C5c) is the caller's, not this file's.
+ * WHAT IS STILL ONLY PROSE, and declares nothing on purpose: the BEHAVIOURAL
+ * integration that is not a standalone algebra -- estate-wide deletion
+ * consensus (C19a), importing and sharding (C23), and sources (C13-C22), which
+ * need `record/`, sync and `blob/` rather than an in-memory set. The merge core
+ * operates on assertions a caller has already decoded and marked live; deciding
+ * WHICH are live from per-(issuer, stream) journal state (C5c) is the caller's,
+ * not this file's. NO LONGER prose: the ATTRIBUTE assertion's wire encoding, and
+ * the module name, both settled by the copyright holder on 2026-09-18 (below,
+ * and section 7). The EDGE-equivalent membership encoding is facet/'s and blob
+ * content is the filestore's, per "follow the new model".
  *
  * A function appears below ONLY where `catalogue.c` defines it, so an
  * unsettled operation has no declaration to link against by accident -- the
@@ -48,7 +49,13 @@
  * STATUS: specification. What was settled with fuzzypickles' copyright holder
  * on 2026-09-10 is marked SETTLED. Nothing here now carries a PROPOSED
  * marker; what remains undecided is named in section 7 rather than sketched.
- * No implementation, no wire encoding, and the module name is provisional.
+ * The merge core is implemented (catalogue/catalogue.c). The module name is
+ * settled -- `catalog`, superseding the old catalog/ module (the copyright
+ * holder, 2026-09-18) -- and so is the ATTRIBUTE wire encoding, "follow the
+ * new model", implemented as catalogue/attribute.situ and the encode/decode
+ * below. project.md sec 314. The rename to `catalog` and the retirement of the
+ * old catalog/ are a later migration; the symbols here stay fzn_catalogue_*
+ * until then, to avoid colliding with the old module's fzn_catalog_*.
  */
 
 #ifndef FZN_CATALOGUE_H
@@ -708,7 +715,9 @@
  *     answer a question nobody asked;
  *   - whether a referenced entity may be promoted into a managed source in
  *     place rather than by copying (C15);
- *   - the wire encoding of any of the above, and this module's name.
+ *   - the wire encoding of any of the above (the shard, source and reclamation
+ *     machinery). The ATTRIBUTE assertion's own encoding is SETTLED and below;
+ *     the module name is SETTLED, `catalog` (the copyright holder, 2026-09-18).
  */
 
 /* =========================================================================
@@ -725,6 +734,13 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
+/* For FZN_RECORD_BODY_MAX only: an ATTRIBUTE assertion is carried IN a record
+ * body (C5c/C8), so the value it can hold is bounded by what a body holds. The
+ * accessors record.h declares are inline, so naming this constant adds no link
+ * dependency -- catalogue.c calls no record function; the record->fields bridge
+ * is the caller's, where record/ is already a dependency. */
+#include "../record/record.h"
 
 typedef enum fzn_catalogue_err {
 	FZN_CATALOGUE_OK = 0,
@@ -836,6 +852,69 @@ fzn_catalogue_err_t fzn_catalogue_resolve(const fzn_catalogue_assertion_t *set,
                                           size_t authority_len,
                                           fzn_catalogue_resolved_t *out,
                                           size_t out_cap, size_t *out_count);
+
+/* =========================================================================
+ * THE ATTRIBUTE WIRE ENCODING
+ * =========================================================================
+ *
+ * Settled by the copyright holder on 2026-09-18 ("follow the new model"), the
+ * one section-7 item that decided the wire form: an ATTRIBUTE record body
+ * supersedes catalog/'s NAME and inline CONTENT. Membership (catalog/'s EDGE)
+ * is facet/'s, and blob content is the filestore's -- the entity IS the hash.
+ * The layout is `catalogue/attribute.situ`; project.md sec 314 records it.
+ *
+ * The body carries the four axes, the name and the value -- NOT the issuer or
+ * the entity. Those come from the record: issuer from `fzn_record_issuer`,
+ * entity from `fzn_record_subject` (record.h calls subject "what it is about",
+ * which is exactly an attribute's entity). A body repeating either would let
+ * the two disagree about a record that verified, which catalog/catalog.h
+ * refuses for the same reason. So the caller of decode passes those two from
+ * the record it already holds, and this module stays free of record/ at link
+ * time (the include above is for one constant).
+ *
+ * ONE ENCODING OF EACH ASSERTION, ENFORCED: an axis outside its enum, a length
+ * that does not match the bytes, or a trailing byte is refused, because the
+ * signature is over these bytes (C8). */
+#define FZN_CATALOGUE_OBJECT_ATTRIBUTE 1u
+
+/* object + class + scope + merge + capability + name_len. */
+#define FZN_CATALOGUE_ATTR_HEAD_LEN 6u
+
+/* The longest name (the length field is one byte). */
+#define FZN_CATALOGUE_ATTR_NAME_MAX 255u
+
+/* The longest value that can be sent WITH AN EMPTY NAME. It is not
+ * FZN_RECORD_BODY_MAX: the head and the two-byte value length come out of the
+ * body first, and a name comes out too. catalog/ found this exact defect as
+ * FZN_CATALOG_INLINE_MAX only by building its encoder; encode enforces the real
+ * bound, 6 + name_len + 2 + value_len <= FZN_RECORD_BODY_MAX, and refuses when
+ * it does not hold. */
+#define FZN_CATALOGUE_ATTR_VALUE_MAX \
+	((size_t)FZN_RECORD_BODY_MAX - FZN_CATALOGUE_ATTR_HEAD_LEN - 2u)
+
+/* Lay out an assertion's ATTRIBUTE body: the four axes, then the name, then the
+ * value. Reads only `attr_class`, `scope`, `merge`, `capability`, `name`/`_len`
+ * and `value`/`_len` from `a` -- the issuer and entity are the record's, not the
+ * body's. Refuses FZN_CATALOGUE_ERR_KIND for an axis outside its enum,
+ * FZN_CATALOGUE_ERR_MALFORMED for a null or a name longer than the length field,
+ * and FZN_CATALOGUE_ERR_RANGE when the body does not fit `cap` or a record body.
+ * Writes nothing unless the whole body fits, and sets `*len_out` on success. */
+fzn_catalogue_err_t fzn_catalogue_attribute_encode(const fzn_catalogue_assertion_t *a,
+                                                   uint8_t *out, size_t cap,
+                                                   size_t *len_out);
+
+/* Read an ATTRIBUTE body into `*out`, borrowing name and value from `body` and
+ * issuer and entity from the caller's pointers (which come from the record: its
+ * issuer and its subject). `out->live` is set to 0 -- liveness is read-time
+ * state a caller derives from journal position (C5c), not a property of the
+ * bytes. Enforces the one canonical encoding: refuses FZN_CATALOGUE_ERR_MALFORMED
+ * for a wrong object tag or a truncated head, FZN_CATALOGUE_ERR_KIND for an
+ * unknown axis, and FZN_CATALOGUE_ERR_RANGE for a name or value length that runs
+ * past the body or leaves a trailing byte. */
+fzn_catalogue_err_t fzn_catalogue_attribute_decode(const uint8_t *issuer, size_t issuer_len,
+                                                   const uint8_t *entity, size_t entity_len,
+                                                   const uint8_t *body, size_t body_len,
+                                                   fzn_catalogue_assertion_t *out);
 
 /* A stable, allocation-free name for an error. */
 const char *fzn_catalogue_err_str(fzn_catalogue_err_t err);

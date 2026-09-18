@@ -216,6 +216,125 @@ static void test_eq_and_bounds(void)
 	}
 }
 
+/* --- the ATTRIBUTE wire encoding --------------------------------------- */
+
+/* An ATTRIBUTE assertion with explicit axes, name and value. issuer and entity
+ * are the RECORD's on the wire, so encode ignores them; a decoded assertion
+ * takes them from the caller's pointers instead. */
+static fzn_catalogue_assertion_t attr(const char *name, const char *value,
+                                      fzn_catalogue_class_t cls,
+                                      fzn_catalogue_scope_t scope,
+                                      fzn_catalogue_merge_t merge,
+                                      fzn_catalogue_capability_t cap)
+{
+	fzn_catalogue_assertion_t a;
+	memset(&a, 0, sizeof(a));
+	a.name = (const uint8_t *)name;
+	a.name_len = strlen(name);
+	a.value = (const uint8_t *)value;
+	a.value_len = strlen(value);
+	a.attr_class = cls;
+	a.scope = scope;
+	a.merge = merge;
+	a.capability = cap;
+	a.live = 1;
+	return a;
+}
+
+static void test_encode(void)
+{
+	uint8_t body[FZN_RECORD_BODY_MAX];
+	uint8_t big[FZN_RECORD_BODY_MAX + 8];
+	static uint8_t huge[FZN_RECORD_BODY_MAX];
+	const uint8_t iss[4] = { 1, 2, 3, 4 };
+	const uint8_t ent[3] = { 9, 8, 7 };
+	fzn_catalogue_assertion_t a, got;
+	size_t len = 0;
+
+	a = attr("genre", "jazz", FZN_CATALOGUE_LABEL, FZN_CATALOGUE_ADVERTISED,
+	         FZN_CATALOGUE_UNION, FZN_CATALOGUE_CAP_NONE);
+
+	CHECK(fzn_catalogue_attribute_encode(&a, body, sizeof(body), &len)
+	      == FZN_CATALOGUE_OK, "encode a well-formed attribute");
+	CHECK(len == FZN_CATALOGUE_ATTR_HEAD_LEN + 5 + 2 + 4,
+	      "encoded length is head + name + 2 + value");
+	CHECK(body[0] == FZN_CATALOGUE_OBJECT_ATTRIBUTE && body[1] == FZN_CATALOGUE_LABEL
+	      && body[2] == FZN_CATALOGUE_ADVERTISED && body[3] == FZN_CATALOGUE_UNION
+	      && body[4] == FZN_CATALOGUE_CAP_NONE && body[5] == 5,
+	      "the head carries the tag and the four axes");
+	CHECK(memcmp(body + 6, "genre", 5) == 0, "the name follows the head");
+	CHECK(body[11] == 0 && body[12] == 4, "value length is a big-endian u16");
+	CHECK(memcmp(body + 13, "jazz", 4) == 0, "the value follows its length");
+
+	CHECK(fzn_catalogue_attribute_decode(iss, sizeof(iss), ent, sizeof(ent),
+	                                     body, len, &got) == FZN_CATALOGUE_OK,
+	      "decode the body back");
+	CHECK(got.issuer == iss && got.issuer_len == sizeof(iss)
+	      && got.entity == ent && got.entity_len == sizeof(ent),
+	      "decode takes issuer and entity from the caller, not the body");
+	CHECK(got.name_len == 5 && memcmp(got.name, "genre", 5) == 0
+	      && got.value_len == 4 && memcmp(got.value, "jazz", 4) == 0,
+	      "decode borrows name and value from the body");
+	CHECK(got.attr_class == FZN_CATALOGUE_LABEL && got.scope == FZN_CATALOGUE_ADVERTISED
+	      && got.merge == FZN_CATALOGUE_UNION && got.capability == FZN_CATALOGUE_CAP_NONE,
+	      "decode recovers the four axes");
+	CHECK(got.live == 0, "decode leaves liveness to the caller (C5c)");
+
+	/* One byte perturbed in an axis is refused -- the layout check above defends
+	 * a property that can actually fail. */
+	body[1] = 0;
+	CHECK(fzn_catalogue_attribute_decode(iss, 4, ent, 3, body, len, &got)
+	      == FZN_CATALOGUE_ERR_KIND, "an unknown class byte is refused");
+	body[1] = FZN_CATALOGUE_LABEL;
+
+	/* Empty name and value round-trip to NULL borrowed views. */
+	a = attr("", "", FZN_CATALOGUE_FACT, FZN_CATALOGUE_HOST,
+	         FZN_CATALOGUE_DISTINCT, FZN_CATALOGUE_CAP_HOLDER);
+	CHECK(fzn_catalogue_attribute_encode(&a, body, sizeof(body), &len)
+	      == FZN_CATALOGUE_OK && len == FZN_CATALOGUE_ATTR_HEAD_LEN + 2,
+	      "an empty name and value encode to head + 2");
+	CHECK(fzn_catalogue_attribute_decode(iss, 4, ent, 3, body, len, &got)
+	      == FZN_CATALOGUE_OK && got.name == NULL && got.name_len == 0
+	      && got.value == NULL && got.value_len == 0,
+	      "empty name and value decode to NULL borrowed views");
+
+	/* A value that overflows a record body is refused, not truncated, even with
+	 * room in the caller's buffer -- catalog/'s FZN_CATALOG_INLINE_MAX lesson. */
+	a = attr("n", "", FZN_CATALOGUE_FACT, FZN_CATALOGUE_HOST,
+	         FZN_CATALOGUE_UNION, FZN_CATALOGUE_CAP_NONE);
+	a.value = huge;
+	a.value_len = FZN_CATALOGUE_ATTR_VALUE_MAX; /* head + name pushes it over */
+	CHECK(fzn_catalogue_attribute_encode(&a, big, sizeof(big), &len)
+	      == FZN_CATALOGUE_ERR_RANGE,
+	      "a value that overflows a record body is refused");
+
+	/* An axis outside its enum is refused on encode too. */
+	a = attr("n", "v", (fzn_catalogue_class_t)0, FZN_CATALOGUE_HOST,
+	         FZN_CATALOGUE_UNION, FZN_CATALOGUE_CAP_NONE);
+	CHECK(fzn_catalogue_attribute_encode(&a, body, sizeof(body), &len)
+	      == FZN_CATALOGUE_ERR_KIND, "encode refuses an axis outside its enum");
+
+	/* One canonical encoding: neither a trailing byte nor a short value. */
+	a = attr("k", "v", FZN_CATALOGUE_LABEL, FZN_CATALOGUE_HOST,
+	         FZN_CATALOGUE_UNION, FZN_CATALOGUE_CAP_NONE);
+	CHECK(fzn_catalogue_attribute_encode(&a, body, sizeof(body), &len)
+	      == FZN_CATALOGUE_OK, "encode k=v");
+	CHECK(fzn_catalogue_attribute_decode(iss, 4, ent, 3, body, len, &got)
+	      == FZN_CATALOGUE_OK, "control: k=v decodes");
+	CHECK(fzn_catalogue_attribute_decode(iss, 4, ent, 3, body, len + 1, &got)
+	      == FZN_CATALOGUE_ERR_RANGE, "a trailing byte is refused");
+	CHECK(fzn_catalogue_attribute_decode(iss, 4, ent, 3, body, len - 1, &got)
+	      == FZN_CATALOGUE_ERR_RANGE, "a value shorter than its length is refused");
+
+	/* A wrong object tag and a body shorter than the head. */
+	body[0] = 2;
+	CHECK(fzn_catalogue_attribute_decode(iss, 4, ent, 3, body, len, &got)
+	      == FZN_CATALOGUE_ERR_MALFORMED, "a wrong object tag is refused");
+	body[0] = FZN_CATALOGUE_OBJECT_ATTRIBUTE;
+	CHECK(fzn_catalogue_attribute_decode(iss, 4, ent, 3, body, 3, &got)
+	      == FZN_CATALOGUE_ERR_MALFORMED, "a body shorter than the head is refused");
+}
+
 int main(void)
 {
 	test_validate();
@@ -223,6 +342,7 @@ int main(void)
 	test_authoritative();
 	test_distinct();
 	test_eq_and_bounds();
+	test_encode();
 
 	printf("catalogue_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
