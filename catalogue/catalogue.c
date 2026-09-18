@@ -414,6 +414,71 @@ fzn_catalogue_err_t fzn_catalogue_sources(const fzn_catalogue_assertion_t *set,
 	return FZN_CATALOGUE_OK;
 }
 
+fzn_catalogue_err_t fzn_catalogue_holders(const fzn_catalogue_assertion_t *set,
+                                          size_t count, const uint8_t *entity,
+                                          size_t entity_len,
+                                          fzn_catalogue_source_t *out, size_t out_cap,
+                                          size_t *out_count, size_t *dropped)
+{
+	size_t i, j, w = 0, d = 0;
+
+	if (!out_count || !dropped)
+		return FZN_CATALOGUE_ERR_MALFORMED;
+	if ((count != 0 && !set) || (out_cap != 0 && !out)
+	    || (entity_len != 0 && !entity))
+		return FZN_CATALOGUE_ERR_MALFORMED;
+
+	/* The hosts that hold the entity (C8). Only a LIVE HOLDER-capability
+	 * assertion is a holding: C5e lets only a host that holds the bytes make
+	 * one, so its issuer holds the entity and that falls out of the record
+	 * shape rather than being enforced on top of it (C8a). A NONE or GRANTED
+	 * assertion says nothing about holding. `out_count` == 1 is a last copy;
+	 * a caller finds itself among the holders to answer this-host-holds. */
+	for (i = 0; i < count; i++) {
+		const fzn_catalogue_assertion_t *a = &set[i];
+		int found = 0;
+
+		if (!a->live || a->capability != FZN_CATALOGUE_CAP_HOLDER
+		    || !bytes_eq(a->entity, a->entity_len, entity, entity_len))
+			continue;
+		for (j = 0; j < w; j++) {
+			if (bytes_eq(out[j].issuer, out[j].issuer_len,
+			             a->issuer, a->issuer_len)) {
+				out[j].assertions++;
+				found = 1;
+				break;
+			}
+		}
+		if (found)
+			continue;
+		if (w < out_cap) {
+			out[w].issuer = a->issuer;
+			out[w].issuer_len = a->issuer_len;
+			out[w].assertions = 1;
+			w++;
+		} else {
+			/* Count a dropped holder once -- its first qualifying appearance,
+			 * under the same filter, so a repeated holder is not over-counted. */
+			int earlier = 0;
+			for (j = 0; j < i; j++)
+				if (set[j].live
+				    && set[j].capability == FZN_CATALOGUE_CAP_HOLDER
+				    && bytes_eq(set[j].entity, set[j].entity_len,
+				                entity, entity_len)
+				    && bytes_eq(set[j].issuer, set[j].issuer_len,
+				                a->issuer, a->issuer_len)) {
+					earlier = 1;
+					break;
+				}
+			if (!earlier)
+				d++;
+		}
+	}
+	*out_count = w;
+	*dropped = d;
+	return FZN_CATALOGUE_OK;
+}
+
 const char *fzn_catalogue_err_str(fzn_catalogue_err_t err)
 {
 	switch (err) {

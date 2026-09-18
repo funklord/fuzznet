@@ -141,9 +141,16 @@ SABOTAGES = [
 	(
 		"catalogue-sources-counts-a-dropped-issuer-once",
 		"catalogue/catalogue.c",
-		"\t\t\tif (!earlier)\n\t\t\t\td++;\n",
-		"\t\t\tif (!earlier || 1)\n\t\t\t\td++;\n",
+		"\t\t\tint earlier = 0;\n\t\t\tfor (j = 0; j < i; j++)\n\t\t\t\tif (bytes_eq(set[j].issuer, set[j].issuer_len,\n\t\t\t\t             a->issuer, a->issuer_len)) {\n\t\t\t\t\tearlier = 1;\n\t\t\t\t\tbreak;\n\t\t\t\t}\n\t\t\tif (!earlier)\n\t\t\t\td++;\n",
+		"\t\t\tint earlier = 0;\n\t\t\tfor (j = 0; j < i; j++)\n\t\t\t\tif (bytes_eq(set[j].issuer, set[j].issuer_len,\n\t\t\t\t             a->issuer, a->issuer_len)) {\n\t\t\t\t\tearlier = 1;\n\t\t\t\t\tbreak;\n\t\t\t\t}\n\t\t\tif (!earlier || 1)\n\t\t\t\td++;\n",
 		"An overflowing issuer is dropped once, not per assertion (reach.c's rule), so `dropped` is a count of distinct issuers a reader must still account for. Counting per row inflates it and a caller sizing a catch-up buffer over-allocates. catalogue_test's repeated-dropped-issuer case catches it.",
+	),
+	(
+		"catalogue-holders-are-only-holder-capability-assertions",
+		"catalogue/catalogue.c",
+		"\t\tif (!a->live || a->capability != FZN_CATALOGUE_CAP_HOLDER\n",
+		"\t\tif (!a->live || 0\n",
+		"C8/C8a derive the holder set from the capability axis: only a HOLDER-capability assertion (C5e) proves the issuer holds the bytes. Counting NONE or GRANTED assertions as holdings invents holders a file does not have -- a last-copy guard would then delete the final real copy believing others held it. catalogue_test's NONE-claim case catches it.",
 	),
 	(
 		"CONTROL-wipe",

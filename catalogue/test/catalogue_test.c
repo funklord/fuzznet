@@ -414,6 +414,50 @@ static void test_reachability(void)
 	}
 }
 
+/* --- holders (C8 availability, sec 317 step 5 foundation) -------------- */
+
+static void seth(fzn_catalogue_assertion_t *a, const char *ent, const char *iss,
+                 fzn_catalogue_capability_t cap, int live)
+{
+	memset(a, 0, sizeof(*a));
+	a->entity = (const uint8_t *)ent;
+	a->entity_len = strlen(ent);
+	a->issuer = (const uint8_t *)iss;
+	a->issuer_len = strlen(iss);
+	a->capability = cap;
+	a->live = live;
+}
+
+static void test_holders(void)
+{
+	fzn_catalogue_assertion_t s[7];
+	fzn_catalogue_source_t out[7];
+	size_t n = 0, dropped = 0;
+
+	seth(&s[0], "R", "i1", FZN_CATALOGUE_CAP_HOLDER, 1);
+	seth(&s[1], "R", "i2", FZN_CATALOGUE_CAP_NONE, 1);   /* not a holding */
+	seth(&s[2], "R", "i3", FZN_CATALOGUE_CAP_HOLDER, 0); /* not live */
+	seth(&s[3], "R", "i1", FZN_CATALOGUE_CAP_HOLDER, 1); /* i1 again */
+	seth(&s[4], "R", "i5", FZN_CATALOGUE_CAP_HOLDER, 1);
+	seth(&s[5], "S", "i6", FZN_CATALOGUE_CAP_HOLDER, 1); /* another entity */
+	seth(&s[6], "R", "i5", FZN_CATALOGUE_CAP_HOLDER, 1); /* i5 again */
+
+	CHECK(fzn_catalogue_holders(s, 7, (const uint8_t *)"R", 1, out, 7, &n, &dropped)
+	      == FZN_CATALOGUE_OK, "holders resolves");
+	CHECK(n == 2 && dropped == 0,
+	      "two hosts hold R -- a NONE claim and a non-live one are not holdings");
+
+	n = 0; dropped = 0;
+	CHECK(fzn_catalogue_holders(s, 7, (const uint8_t *)"S", 1, out, 7, &n, &dropped)
+	      == FZN_CATALOGUE_OK && n == 1, "S has a single holder -- a last copy");
+
+	n = 0; dropped = 0;
+	CHECK(fzn_catalogue_holders(s, 7, (const uint8_t *)"R", 1, out, 1, &n, &dropped)
+	      == FZN_CATALOGUE_OK, "holders with a one-slot buffer");
+	CHECK(n == 1 && dropped == 1,
+	      "one holder fits and the repeated other is dropped once");
+}
+
 int main(void)
 {
 	test_validate();
@@ -423,6 +467,7 @@ int main(void)
 	test_eq_and_bounds();
 	test_encode();
 	test_reachability();
+	test_holders();
 
 	printf("catalogue_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

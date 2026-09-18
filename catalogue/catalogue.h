@@ -953,6 +953,19 @@ fzn_catalogue_err_t fzn_catalogue_sources(const fzn_catalogue_assertion_t *set,
                                           size_t out_cap, size_t *out_count,
                                           size_t *dropped);
 
+/* The distinct hosts that HOLD `entity` (C8), written to `out` as for sources.
+ * Derived, not stored: a holder is the issuer of a LIVE HOLDER-capability
+ * assertion (C5e/C8a) naming the entity -- only a host holding the bytes may
+ * make one. `*out_count` == 1 means a last copy; a caller answers
+ * this-host-holds by finding its own key among the holders. This is what the
+ * old catalog/'s holdings/last-copy seams asked a callback; here it falls out
+ * of the record set. FZN_CATALOGUE_OK unless an argument is null. */
+fzn_catalogue_err_t fzn_catalogue_holders(const fzn_catalogue_assertion_t *set,
+                                          size_t count, const uint8_t *entity,
+                                          size_t entity_len,
+                                          fzn_catalogue_source_t *out, size_t out_cap,
+                                          size_t *out_count, size_t *dropped);
+
 /* A stable, allocation-free name for an error. */
 const char *fzn_catalogue_err_str(fzn_catalogue_err_t err);
 
