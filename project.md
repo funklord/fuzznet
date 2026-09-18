@@ -42275,3 +42275,71 @@ catalogue records, whose encoding is catalogue section 7), the F16 canonical
 sort, and the single-child RANGE collapse. So evaluation is proven over a stub
 today; a real index waits on the catalogue wire layer, which is the holder's
 next encoding decision -- the same one catalogue's own records wait on.
+
+## 313. fuzznet on constrained nodes: ESP8266, and the mesh fit, 2026-09-18
+
+A feasibility record, written at the holder's request rather than as a
+commitment to build. The question was whether fuzznet could be simplified
+enough to run on an ESP8266 for sensors and still use the same protocol and
+crypto, and then whether netcfgd could use it there to be an AP, a repeater or
+a mesh node.
+
+WHY IT FITS, GROUNDED. The library allocates nothing -- there is no malloc,
+calloc or realloc in any non-vendored source; everything is reader/writer
+primitives over caller-owned buffers with no I/O and no timers. The crypto is
+Monocypher, bound behind a seam (`session/aead.h`, `session/aead_monocypher.c`,
+and the hash/sign/rng ops beside it) -- Monocypher is small, portable and
+allocation-free, the embedded crypto standard. project.md sec 2 already names
+embedded socket support as a target. So the protocol and crypto are unchanged
+on a microcontroller; a sensor speaks the identical wire as a full host.
+
+THE SUBSET a sensor needs is the transport core: frame seal/open, chain and
+capability verify, the replay window, and a session from pinned prekeys. It
+drops the catalogue, blob/Merkle, spool, record store, sync, GUI, CLI, situ
+codegen and the filestore. In the three-hop model it uses the REMOTE hop -- a
+sealed capability over the network. The one platform shim swaps the POSIX
+`net/udp.c` for lwIP or Arduino WiFiUDP, isolated the way `local/peer_linux.c`
+is Linux-only. Caveats: X25519 and Ed25519 run in hundreds of milliseconds on
+an 80-160MHz core with no acceleration, which is fine for a sensor's
+occasional operations while the per-frame XChaCha20-Poly1305 stays fast; the
+~50KB of free RAM holds the KB-scale frame, chain and session state, with the
+replay window the one knob to size to the node's low traffic; the ~32KB IRAM
+for hot code is worth measuring rather than assuming.
+
+THE MESH FIT IS THE INTERESTING PART, and fuzznet already has the primitive.
+The wire frame splits a PLAINTEXT forwarding header (`fzn_hop`: hops_left and
+service_hint) outside the sealed region from the AEAD-sealed payload. A relay
+decrements hops_left and forwards WITHOUT the AEAD key -- it cannot read or
+forge the payload (sec 3's unprivileged bridge). That is exactly a secure-mesh
+forwarding primitive, already in the protocol, with a hop bound that stops
+loops and amplification. What fuzznet does NOT ship is the mesh ROUTING --
+topology and path selection -- which is a separate layer (ESP-MESH,
+painlessMesh, or a simple protocol) riding underneath; the division is clean
+because the routing layer sees only the plaintext hop header fuzznet
+deliberately exposes, while the config stays sealed end-to-end across every
+untrusted hop.
+
+THE ROLES: an AP is clean (SoftAP, netcfgd sets the role, fuzznet secures the
+config channel); a repeater works but is modest (a single radio time-shares
+AP+STA, so throughput roughly halves, with software NAT and a handful of
+clients); a mesh is feasible with fuzznet as the secure envelope and forwarder
+and a routing layer beneath. netcfgd is the declarative desired-state config
+manager -- a design dependency of fuzznet, not a build one -- whose job on an
+ESP8266 shrinks to the WiFi role, channel, SSID and credentials via the SDK
+through a platform backend, and whose planned C REWRITE is what makes the 8266
+realistic (Rust on its Tensilica core is rough; that is an ESP32 story).
+
+THE PAYOFF is unusual: a mesh of cheap nodes with capability-scoped,
+cryptographically-authenticated, replay-protected configuration, sealed end to
+end even across relays nobody trusts -- which is what fuzznet was designed for,
+reconfiguring infrastructure across untrusted networks, and which most IoT
+mesh does not have. service_hint even lets a relay rate-limit config traffic
+per subsystem without reading it.
+
+WHAT THIS IS NOT: a plan. It is cross-project (fuzznet and netcfgd), the real
+work is netcfgd's C rewrite plus an ESP WiFi backend and fuzznet's lwIP
+transport shim, and the mesh routing layer is a decision rather than code
+fuzznet ships. RAM pressure with AP+STA+mesh+crypto+netcfgd at once points at
+the ESP32 for the heavier roles. The netcfgd-specific parts belong in
+netcfgd's own records, not here, and should be signalled there when this stops
+being a conversation.
