@@ -43026,3 +43026,121 @@ sec 316's asymmetry: where holders cannot be determined, keep.
 STILL THE HOLDER'S, unchanged from sec 318: the reclamation POLICY (C18),
 which gates step 4 and nothing else; confirmation that retention and filing
 stay per-host; and whether an Android fuzznetd build belongs here.
+
+## 321. The sweep planner, and what building it found, 2026-09-20
+
+Step 2. The planner is `catalogue/sweep.{h,c}`, and building it turned up a
+defect in step 1 that no test could have reached.
+
+THE DEFECT FIRST, because it is the part worth carrying.
+`fzn_catalogue_referenced` counted a HOLDER-capability assertion as a
+reference. Measured rather than reasoned: an entity whose only live assertion
+is this host's own "I hold these bytes" reported referenced = 1. Since sec
+317 maps the planner's reachability guard onto that call, the guard would have
+kept every entity this host holds -- REFERENCED BY THE FACT OF HOLDING IT, a
+fixpoint no sweep can escape. The planner would have kept everything and
+planned nothing, for ever, and looked like a working planner over a set with
+nothing to sweep.
+
+C9 HAD SAID SO FROM THE START: "a curated link is a reference; the host
+observation (C7/C8) is derived, not an assertion here." The document was
+right and the loop did not implement it. What kept it hidden is that the
+reachability fixture zeroed `capability` -- 0 is outside the enum entirely,
+so the suite never carried a legal capability and could not reach the case.
+The fixture carries FZN_CATALOGUE_CAP_NONE now, and the new case asserts the
+same assertion is INVISIBLE to `referenced` and DECISIVE for
+`fzn_catalogue_holders`, with a curated control so the skip cannot widen into
+refusing the issuer or the entity. The holder settled it: fix `referenced`,
+one assertion set, no precondition for a caller to get wrong.
+
+It is worth naming why this could not have been caught by testing harder. The
+two queries agree on every set anybody had written, because every such set had
+`capability` at a value the enum does not define. It took a CONSUMER of both
+-- something asking one question and then the other about the same entity --
+to put them in a position to disagree.
+
+THE SHAPE, and it is a judgement between two readings of sec 318's pivot.
+"Evolve in place" was taken as preserving the tested logic rather than
+retyping it, NOT as editing `catalog/sweep.c` where it stands. Three things
+decided it: sec 317's own ordering says steps 1-6 build beside `catalog/` so
+nothing is destroyed until step 7; sec 317's peer-deconfliction warning says
+charging into `catalog/` while it is under hardening is the shared-tree
+hazard; and `fzn_catalog_sweep` has FIFTEEN consumers -- sweep_view,
+sweep_print, their tests, two fuzz harnesses and spool/scrub.h -- so changing
+its signature now pulls the whole of step 7's churn forward into a step that
+does not need it. The guard chain, its ORDER, its counters and its cursor are
+the tested ones; what changed is where they get their answers.
+
+    old                          new
+    fzn_catalog_keeps            fzn_catalogue_keeps        (step 3)
+    a_retained_node_needs        fzn_catalogue_referenced   (step 1)
+    holdings->holds callback     this host among the holders
+    witness->others callback     the holder count, less this host
+
+THE TWO SEAMS DISAPPEARING IS THE POINT. Each was a callback a consumer
+supplied and could supply wrongly, and an absent one answered conservatively
+because there was nothing better to do. Both questions now come from records
+that had to be signed by a host actually holding the bytes (C5e/C8a), so a
+consumer cannot answer them at all, let alone wrongly.
+
+THE ROW IS THE ENTITY ALONE. catalog/'s carried a node id, a blob root and a
+length; C1 collapses the first two, since an entity IS the content hash and no
+two entities can name the same bytes. The length is gone because nothing in
+this model carries it, and a field the planner cannot source would be one it
+invented -- a consumer holding a content hash asks its own filestore how big
+it is.
+
+A NEW COUNTER, `incomplete`, WHICH THE OLD PLANNER HAD NO NEED OF. The holder
+list is read into a bounded scratch; written-plus-dropped is the true TOTAL
+whatever fitted, so the last-copy arithmetic stays sound, but a `self` that
+did not fit is indistinguishable from a `self` that is not a holder -- and
+those lead to opposite outcomes, planning a removal or recording nothing to
+do. So the planner refuses to pick, which is sec 316's asymmetry. It is
+counted APART from `last_copy` because the remedies are opposite: a last copy
+means go and replicate it, an incomplete answer means go and catch up with a
+source before sweeping again. Both are silent in a plan that only reported
+`planned`.
+
+THERE IS NO LOCK, and that is a consequence rather than an omission. The old
+planner refused to capture while another job held `catalog->busy_with`; the
+new model owns no container, so there is nothing to hold a flag and nobody to
+hold it against. What the flag protected still has to hold -- the set and the
+retention table must not change between capture and the last removal, or the
+cursor is a count into something that has moved -- and it is now the caller's,
+stated in the header rather than enforced, because an unstated precondition
+and an absent one look identical from outside.
+
+TESTED, 46 checks, and the property the suite defends is that the plan
+PARTITIONS: every distinct entity lands in exactly one counter and the sum is
+asserted against a population counted independently of the planner, so a
+guard that stopped firing cannot hide behind another counter compensating.
+Every guard is driven with a control that passes it, and the ORDER is asserted
+too -- an entity failing two guards must be counted by the first, or a
+consumer reading `last_copy` goes looking for replicas of something it was
+keeping on purpose. Five sabotage entries, each watched failing through its
+own assertion: retention not opening the chain, a curated link not keeping the
+bytes, guessing at a holder list that did not fit, counting this host among
+the others, and sorting the cursor's rows the wrong way.
+
+AND THE VERIFIER CAUGHT THE FIX BREAKING AN OLD ENTRY.
+`catalogue-referenced-counts-only-live` named text the `referenced` change had
+moved, so `sabotage.py --verify` refused. That is the gate working exactly as
+written -- a stale entry reports a guard as defended without testing it -- and
+it is the second time this session a gate has caught something no build would
+have.
+
+ONE OBSERVATION, NOT RESOLVED, because it is a design question rather than a
+defect. The old `shared` guard asked a LOCAL question: does a node THIS HOST
+RETAINS need these bytes. The new reachability guard asks a global one: does
+any live curated assertion name this entity. They are not the same, and the
+new one is stricter -- an entity that anything in the estate curates is never
+swept here, however many other hosts hold it and whatever this host's own
+retention says. That may be right, since a curated link is an estate-wide
+want. It also makes a local DROP weaker than it was. sec 317 specifies the
+reachability guard, so it is implemented as specified; whether the guard
+should instead ask "does anything THIS HOST curates name it" is the holder's,
+and it changes what a local retention policy can do.
+
+NEXT: step 5 (copy re-homes onto C8 + spool) and step 6 (filing), neither
+blocked. Step 4 still waits on the reclamation policy, and step 7 on the
+peer deconfliction sec 317 names.

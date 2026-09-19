@@ -60,6 +60,7 @@
 #include <fuzznet/facet/facet.h>
 #include <fuzznet/catalogue/catalogue.h>
 #include <fuzznet/catalogue/retention.h>
+#include <fuzznet/catalogue/sweep.h>
 #include <fuzznet/qr/qr.h>
 #if defined(FZN_CLI_ON)
 #include <fuzznet/cli/qr_print.h>
@@ -168,6 +169,7 @@
 #include "facet/facet.h"
 #include "catalogue/catalogue.h"
 #include "catalogue/retention.h"
+#include "catalogue/sweep.h"
 #include "qr/qr.h"
 #if defined(FZN_CLI_ON)
 #include "cli/qr_print.h"
@@ -1778,6 +1780,63 @@ int main(void)
 			if (strcmp(fzn_catalogue_retention_str(
 			                   FZN_CATALOGUE_RETAIN_KEEP), "keep") != 0)
 				FAIL(369);
+		}
+
+		/* THE SWEEP PLANNER, FROM OUTSIDE. It plans and removes
+		 * nothing, so a consumer can run it here without a filestore --
+		 * which is the property worth proving from outside as much as
+		 * the symbols are. */
+		{
+			uint8_t host_a[32], host_b[32], sweep_e[FZN_SUBJECT_LEN];
+			fzn_catalogue_assertion_t aset[2];
+			fzn_catalogue_sweep_t sjob;
+			fzn_catalogue_removal_t srows[2], srow;
+			fzn_catalogue_sweep_plan_t splan;
+			size_t sdone = 0, stotal = 0;
+			size_t k;
+
+			memset(host_a, 0x71, sizeof(host_a));
+			memset(host_b, 0x72, sizeof(host_b));
+			memset(sweep_e, 0x73, sizeof(sweep_e));
+			for (k = 0; k < 2; k++) {
+				memset(&aset[k], 0, sizeof(aset[k]));
+				aset[k].entity = sweep_e;
+				aset[k].entity_len = sizeof(sweep_e);
+				aset[k].name = (const uint8_t *)"held";
+				aset[k].name_len = 4;
+				aset[k].attr_class = FZN_CATALOGUE_FACT;
+				aset[k].scope = FZN_CATALOGUE_ESTATE;
+				aset[k].merge = FZN_CATALOGUE_UNION;
+				aset[k].capability = FZN_CATALOGUE_CAP_HOLDER;
+				aset[k].live = 1;
+				aset[k].issuer_len = 32;
+			}
+			aset[0].issuer = host_a;
+			aset[1].issuer = host_b;
+
+			if (fzn_catalogue_sweep_capture(aset, 2, NULL, host_a, 32, 1, 0,
+			                                NULL, &sjob, srows, 2, &splan)
+			    != FZN_CATALOGUE_OK)
+				FAIL(370);
+			if (splan.planned != 1)
+				FAIL(371);
+			if (fzn_catalogue_sweep_at(&sjob, &srow) != FZN_CATALOGUE_OK
+			    || memcmp(srow.entity, sweep_e, sizeof(sweep_e)) != 0)
+				FAIL(372);
+			if (fzn_catalogue_sweep_advance(&sjob) != FZN_CATALOGUE_OK)
+				FAIL(373);
+			if (fzn_catalogue_sweep_progress(&sjob, &sdone, &stotal)
+			            != FZN_CATALOGUE_OK
+			    || sdone != 1 || stotal != 1)
+				FAIL(374);
+			/* And the last copy is refused, which is the guard a
+			 * consumer most needs to be sure is alive. */
+			if (fzn_catalogue_sweep_capture(aset, 1, NULL, host_a, 32, 1, 0,
+			                                NULL, &sjob, srows, 2, &splan)
+			    != FZN_CATALOGUE_OK)
+				FAIL(375);
+			if (splan.planned != 0 || splan.last_copy != 1)
+				FAIL(376);
 		}
 
 #ifdef FZN_SPOOL_FILE_ON

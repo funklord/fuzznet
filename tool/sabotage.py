@@ -146,6 +146,68 @@ SABOTAGES = [
 		"An overflowing issuer is dropped once, not per assertion (reach.c's rule), so `dropped` is a count of distinct issuers a reader must still account for. Counting per row inflates it and a caller sizing a catch-up buffer over-allocates. catalogue_test's repeated-dropped-issuer case catches it.",
 	),
 	(
+		"sweep-retention-is-the-first-guard",
+		"catalogue/sweep.c",
+		"if (fzn_catalogue_keeps(holds, a->entity, a->entity_len, now)) {",
+		"if (0) {",
+		"an entity this host KEEPS is not a candidate at all, so retention "
+		"opens the chain. Skipping it plans a removal for bytes the host "
+		"said to keep -- the one outcome a planner must never reach -- and "
+		"also mis-attributes the outcome, since a consumer reading last_copy "
+		"goes looking for replicas of something it wanted kept. "
+		"sweep_plan_test drives a KEEP row and a deadline. sec 321",
+	),
+	(
+		"sweep-a-curated-link-keeps-the-bytes",
+		"catalogue/sweep.c",
+		"if (fzn_catalogue_referenced(set, count, a->entity, a->entity_len)) {",
+		"if (0) {",
+		"C9 reachability: an entity a live curated assertion still names is "
+		"wanted by something, whatever this host's own retention says. "
+		"Skipping the guard removes bytes another host's link still points "
+		"at. sweep_plan_test pairs a live curated link (kept) with a "
+		"retracted one (planned), so the guard cannot pass by refusing "
+		"everything. sec 321",
+	),
+	(
+		"sweep-refuses-to-guess-a-missing-holder",
+		"catalogue/sweep.c",
+		"if (!mine && dropped > 0)",
+		"if (0)",
+		"sec 316's asymmetry: on partial data, never delete. A holder list "
+		"that did not fit hides whether THIS host is among them, and 'did "
+		"not fit' is indistinguishable from 'is not a holder' -- opposite "
+		"outcomes. Guessing reports absent for an entity this host may hold, "
+		"so the sweep silently skips bytes it should have planned. "
+		"sweep_plan_test puts self past the scratch, with self-first as the "
+		"control. sec 321",
+	),
+	(
+		"sweep-last-copy-counts-others-not-self",
+		"catalogue/sweep.c",
+		"*others = written + dropped - (mine ? 1u : 0u);",
+		"*others = written + dropped;",
+		"the last-copy guard asks how many OTHER hosts hold the bytes, so "
+		"this host's own holder assertion must come out of the count. "
+		"Leaving it in makes a sole holder look like one other holder, and "
+		"min_others of 1 then plans the removal of the only copy in "
+		"existence. sweep_plan_test holds an entity here and nowhere else. "
+		"sec 321",
+	),
+	(
+		"sweep-sorts-so-the-cursor-resumes",
+		"catalogue/sweep.c",
+		"while (at > 0 && memcmp(rows[at - 1].entity, row->entity,\n\t                        FZN_CATALOGUE_ENTITY_LEN) > 0) {",
+		"while (at > 0 && memcmp(rows[at - 1].entity, row->entity,\n\t                        FZN_CATALOGUE_ENTITY_LEN) < 0) {",
+		"the job's rows are sorted so `done` means the same thing on every "
+		"machine: a count into an arrival-ordered list resumes at a "
+		"different row once the set is rebuilt from a store that returns "
+		"records in another order, so a consumer that crashed mid-sweep "
+		"removes the wrong bytes on restart. Reversing the compare sorts "
+		"descending; sweep_plan_test feeds three entities in descending "
+		"order and requires ascending rows. sec 321",
+	),
+	(
 		"catalogue-a-holder-assertion-is-not-a-reference",
 		"catalogue/catalogue.c",
 		"if (set[i].live && set[i].capability != FZN_CATALOGUE_CAP_HOLDER",
