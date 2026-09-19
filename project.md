@@ -42859,3 +42859,78 @@ OPEN, none of them mine to settle:
 - "install on phone": fuzznet is a library plus the fuzznetd daemon and has
   no Android target; the phone app is the separate fuzzypickles. Open whether
   to add an Android fuzznetd build here.
+
+## 319. A dry run has to be able to ask, 2026-09-19
+
+raidcfgd reported this from their side of the vendored copy, at their
+4a3b35e. `raidcfgd --check` exists to load a configuration, resolve the
+group, say what would be served, and exit WITHOUT binding. Given a 107-byte
+socket path it exited 0 and printed the plan; the daemon then refused the
+same path at start-up with `FZN_SOCKET_ERR_PATH` out of
+`fzn_socket_listen`. The flag whose job is to predict the start had approved
+a configuration that cannot start.
+
+They did not restate the rule on their side, and said why: `strlen(path) +
+sizeof(".tmp.") + 20 <= sizeof sun_path` is correct today and silently wrong
+the first time the temporary name changes -- a fourth copy of a bound, in a
+tree that had spent that day removing three. That is the right call, and it
+is what makes this our defect rather than their workaround.
+
+THE HEADROOM IS OURS AND WAS INVISIBLE. `fzn_socket_listen` binds
+`<path>.tmp.<pid>` and renames it over the target, because the rename is
+what publishes the mode atomically -- a caller that binds and then chmods
+has a window in which the socket is reachable by whoever the umask allowed.
+So the TEMPORARY name is the one that has to fit `sun_path`, and nothing a
+consumer can read says so.
+
+AND THE RESERVE WAS NOT A CONSTANT, which is the second defect the report
+surfaced and the worse one. It was whatever `getpid` happened to print, so
+the same path bound under a four-digit pid and refused under a seven-digit
+one: a start-up that fails on one boot and not the next, with the
+configuration unchanged. A predicate sized the same way would have been
+worse still -- a dry run happens in a different process from the daemon it
+predicts, so it would have been answering about the wrong pid while looking
+exactly like an answer.
+
+WHAT SHIPPED. `fzn_socket_path_ok(path)` returns the verdict
+`fzn_socket_listen` would reach, with nothing created, connected to or
+removed -- and `fzn_socket_listen` now ASKS IT rather than carrying its own
+copy, so the two agree by construction rather than by two pieces of code
+being kept in step. The reserve is the widest a `pid_t` can print, ten
+digits, rather than this process's, which is what makes the verdict a
+property of the path. The effective limit is 92 bytes and was measured
+rather than asserted: 108 - 1 - 5 - 10.
+
+WHAT IT DELIBERATELY DOES NOT PROMISE, stated in the header so a consumer
+cannot infer a stronger guarantee from a passing call. It answers about the
+path and nothing else. A path it approves can still fail to bind: the
+directory may not exist or may not be writable, and another instance may
+hold the path. FZN_SOCKET_ERR_IN_USE in particular is a question only a
+connection answers, and asking it here would make a side-effect-free call
+open one -- which is exactly what a `--check` must not do.
+
+ASSERTED AS A RELATIONSHIP, not against 92. socket_test finds the longest
+path the predicate accepts in its own temporary directory, requires that
+`fzn_socket_listen` takes that one, and requires both to refuse one byte
+more; a floor on the length found is what stops a predicate that refuses
+everything from passing it vacuously. Writing 92 into the test would have
+been this tree making the fourth copy raidcfgd declined to make.
+
+Two sabotage entries, each watched failing before the commit and each
+through its own assertion rather than through something upstream. Dropping
+the reserve (`socket-path-check-reserves-the-temp-name`) fails the boundary
+check alone. Having listen assume OK (`socket-listen-asks-the-path-rule`)
+fails the relative-path refusal and the boundary, because all that is left
+is fill_addr's raw length guard. The first also left one socket behind in
+/tmp, since a failed boundary case holds a live listener the rmdir cannot
+clear -- so the test closes that listener unconditionally now, and a failing
+run cleans up after itself.
+
+NOT CHANGED: the temporary-name scheme. `.tmp.<pid>` is still what binds,
+and a fixed-width or shorter name would buy back some of the 15 bytes. That
+is wire-invisible and nobody is waiting on it.
+
+For raidcfgd: `--check` can call `fzn_socket_path_ok` once they move their
+pin. Their short-path convention stays correct either way, and the two
+verdicts now agree on every path rather than on the ones a five-digit pid
+happened to admit.

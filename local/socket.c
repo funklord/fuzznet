@@ -38,19 +38,61 @@ static int in_use(const struct sockaddr_un *addr)
 	return connected;
 }
 
+/* The field a path has to fit, named once so that nothing below repeats the
+ * number and nothing above has to know it. */
+#define SUN_PATH_LEN (sizeof(((struct sockaddr_un *)0)->sun_path))
+
+/* THE ROOM THE TEMPORARY NAME NEEDS, and the reason the longest path this can
+ * bind is shorter than the field.
+ *
+ * `fzn_socket_listen` binds `<path>.tmp.<pid>` and renames it, so the
+ * TEMPORARY name is the one that has to fit -- and that is a property of how
+ * this module binds rather than anything a caller can see. raidcfgd reported
+ * the consequence on 2026-09-19: a 107-byte path passed their `--check`,
+ * which exists to say what would be served and deliberately does not bind,
+ * and the daemon then refused the same path at start-up. The flag whose job
+ * is to predict the start had approved a configuration that cannot start.
+ *
+ * The room reserved is for the WIDEST pid rather than for this process's, and
+ * that is a fix rather than a simplification. Sizing it from `getpid` made
+ * the same path bindable under one pid and refused under the next, which this
+ * module did until the report; and a predicate that measured the asking
+ * process would be answering about the wrong one, since a dry run happens in
+ * a different process from the daemon it predicts. `pid_t` is `int` here, so
+ * ten digits covers every value it can hold. */
+#define TMP_SUFFIX_MAX (sizeof(".tmp.") - 1u + 10u)
+
+fzn_socket_err_t fzn_socket_path_ok(const char *path)
+{
+	size_t len;
+
+	if (!path)
+		return FZN_SOCKET_ERR_MALFORMED;
+	len = strlen(path);
+	if (len == 0)
+		return FZN_SOCKET_ERR_PATH;
+	if (path[0] != '/')
+		return FZN_SOCKET_ERR_PATH; /* a directory nobody controls */
+	/* Strictly shorter than the field, since the terminator has to fit as
+	 * well. Refused rather than truncated: a truncated path names a
+	 * different socket, and possibly one somebody else can create first. */
+	if (len + TMP_SUFFIX_MAX >= SUN_PATH_LEN)
+		return FZN_SOCKET_ERR_PATH;
+	return FZN_SOCKET_OK;
+}
+
+/* Fill in an address for a path the rule above has already passed, or for the
+ * temporary name derived from one. The length guard stays here because that
+ * temporary name is BUILT rather than given, and a built name is exactly the
+ * kind that is right until the scheme producing it changes. */
 static int fill_addr(struct sockaddr_un *addr, const char *path)
 {
 	size_t len = strlen(path);
 
 	memset(addr, 0, sizeof(*addr));
 	addr->sun_family = AF_UNIX;
-	/* Strictly shorter than the field, since the terminator has to fit.
-	 * Refused rather than truncated: a truncated path names a different
-	 * socket, and possibly one somebody else can create first. */
-	if (len == 0 || len >= sizeof(addr->sun_path))
+	if (len == 0 || len >= SUN_PATH_LEN)
 		return 0;
-	if (path[0] != '/')
-		return 0; /* relative to a working directory nobody controls */
 	memcpy(addr->sun_path, path, len);
 	return 1;
 }
@@ -59,12 +101,19 @@ fzn_socket_err_t fzn_socket_listen(const char *path, unsigned int mode, int back
                                     int *out_fd)
 {
 	struct sockaddr_un addr, tmp_addr;
-	char tmp_path[sizeof(addr.sun_path)];
+	char tmp_path[SUN_PATH_LEN];
+	fzn_socket_err_t verdict;
 	int fd;
 	int n;
 
 	if (!path || !out_fd)
 		return FZN_SOCKET_ERR_MALFORMED;
+	/* THE ONE STATEMENT OF THE RULE. Asked here rather than restated, so
+	 * that a caller asking the same question ahead of time gets the same
+	 * answer by construction rather than by two pieces of code agreeing. */
+	verdict = fzn_socket_path_ok(path);
+	if (verdict != FZN_SOCKET_OK)
+		return verdict;
 	if (!fill_addr(&addr, path))
 		return FZN_SOCKET_ERR_PATH;
 
@@ -159,6 +208,12 @@ void fzn_socket_close(int fd, const char *path)
 }
 
 #else
+
+fzn_socket_err_t fzn_socket_path_ok(const char *path)
+{
+	(void)path;
+	return FZN_SOCKET_ERR_UNSUPPORTED;
+}
 
 fzn_socket_err_t fzn_socket_listen(const char *path, unsigned int mode, int backlog,
                                     int *out_fd)

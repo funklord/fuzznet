@@ -4588,6 +4588,31 @@ SABOTAGES = [
 		"supersession.",
 	),
 	(
+		"socket-path-check-reserves-the-temp-name",
+		"local/socket.c",
+		"if (len + TMP_SUFFIX_MAX >= SUN_PATH_LEN)",
+		"if (len >= SUN_PATH_LEN)",
+		"the longest bindable path is shorter than sun_path by the temporary "
+		"name listen binds and renames over, and that headroom is invisible to "
+		"a caller -- raidcfgd's --check approved a 107-byte path their daemon "
+		"then refused. Dropping the reserve admits paths whose temporary name "
+		"cannot fit, so the predicate and the bind disagree. socket_test finds "
+		"the longest path the predicate accepts and requires listen to take "
+		"it. sec 319",
+	),
+	(
+		"socket-listen-asks-the-path-rule",
+		"local/socket.c",
+		"verdict = fzn_socket_path_ok(path);",
+		"verdict = FZN_SOCKET_OK;",
+		"listen asks the predicate rather than restating the rule, which is "
+		"what makes a caller's dry run agree with the start it predicts. "
+		"Assuming OK leaves only fill_addr's raw length guard, so a relative "
+		"path is bound in whatever directory the process is in and a path past "
+		"the reserve binds or not depending on this pid's width. socket_test "
+		"requires ERR_PATH for both. sec 319",
+	),
+	(
 		"udp-send-refuses-only-past-the-max",
 		"net/udp.c",
 		"len > FZN_UDP_DATAGRAM_MAX",

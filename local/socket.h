@@ -87,6 +87,29 @@ typedef enum fzn_socket_err {
 fzn_socket_err_t fzn_socket_listen(const char *path, unsigned int mode, int backlog,
                                     int *out_fd);
 
+/* The same verdict `fzn_socket_listen` would reach about `path`, with nothing
+ * created, connected to or removed. FZN_SOCKET_OK, FZN_SOCKET_ERR_PATH for a
+ * path this cannot serve, FZN_SOCKET_ERR_MALFORMED for a null one, and
+ * FZN_SOCKET_ERR_UNSUPPORTED where the listener is not built.
+ *
+ * It answers about the PATH and nothing else, which is the whole of what it
+ * promises: a path this approves can still fail to bind because its directory
+ * does not exist, is not writable, or already has a live instance on it.
+ * Those are facts about the filesystem at the moment of binding, and no
+ * predicate can hold them still -- FZN_SOCKET_ERR_IN_USE in particular is a
+ * question only a connection answers, and asking it here would make a
+ * side-effect-free call open one.
+ *
+ * WHY IT EXISTS. The longest path this can bind is shorter than `sun_path`,
+ * because the atomic bind above goes through a temporary name in the same
+ * directory and that name has to fit the field too. The headroom is a
+ * property of how this module binds, so a consumer cannot see it -- raidcfgd
+ * reported a 107-byte path passing their `--check`, which says what would be
+ * served without binding, and the daemon refusing the same path at start-up.
+ * A dry run that cannot ask this question is a dry run that can approve a
+ * configuration which will not start. */
+fzn_socket_err_t fzn_socket_path_ok(const char *path);
+
 /* Accept one connection and read its peer's credentials.
  *
  * On success `*out_fd` is a connected descriptor and `*out_peer` describes who

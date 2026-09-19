@@ -212,6 +212,84 @@ int main(void)
 	check(fzn_socket_listen("", 0660u, 4, &listen_fd) == FZN_SOCKET_ERR_PATH,
 	      "an empty path was accepted");
 
+	/* AND THE PREDICATE SAYS THE SAME, for each of them. A caller asking
+	 * ahead of time gets a verdict it can act on only if the two agree. */
+	check(fzn_socket_path_ok(longpath) == FZN_SOCKET_ERR_PATH,
+	      "the predicate accepted a path longer than sun_path");
+	check(fzn_socket_path_ok("relative/sock") == FZN_SOCKET_ERR_PATH,
+	      "the predicate accepted a relative path");
+	check(fzn_socket_path_ok("") == FZN_SOCKET_ERR_PATH,
+	      "the predicate accepted an empty path");
+	check(fzn_socket_path_ok(NULL) == FZN_SOCKET_ERR_MALFORMED,
+	      "the predicate did not report a null path as malformed");
+	check(fzn_socket_path_ok(path) == FZN_SOCKET_OK,
+	      "the predicate refused the path this test has been binding all along, so "
+	      "it refuses everything and the agreement below is vacuous");
+
+	/* THE BOUNDARY, AND WHY IT IS ASSERTED AS A RELATIONSHIP.
+	 *
+	 * The predicate exists because the longest bindable path is shorter
+	 * than sun_path by the temporary name listen renames over, and a
+	 * caller cannot see that headroom -- raidcfgd's --check approved a
+	 * 107-byte path that their daemon then refused.
+	 *
+	 * So what has to hold is that the two agree AT THE EDGE: the longest
+	 * path the predicate accepts must bind, and one byte more must be
+	 * refused by both. Writing the number here instead would be this file
+	 * restating a rule the module owns -- correct today and silently wrong
+	 * the first time the temporary name changes, which is the fourth copy
+	 * of a bound that the report asked us not to create.
+	 *
+	 * The floor on `longest` is what stops a predicate that refuses
+	 * everything from passing this vacuously. */
+	{
+		char probe[sizeof(((struct sockaddr_un *)0)->sun_path) * 2u];
+		size_t dir_len = strlen(dir);
+		size_t longest = 0;
+		size_t i;
+
+		for (i = dir_len + 2u; i < sizeof(probe) - 1u; i++) {
+			memset(probe, 'a', i);
+			memcpy(probe, dir, dir_len);
+			probe[dir_len] = '/';
+			probe[i] = '\0';
+			if (fzn_socket_path_ok(probe) == FZN_SOCKET_OK)
+				longest = i;
+		}
+		check(longest >= dir_len + 32u,
+		      "the predicate accepts no usable path length, so every agreement "
+		      "below holds for the wrong reason");
+		check(longest + 1u < sizeof(probe) - 1u,
+		      "the predicate accepts a path longer than any this test tried");
+
+		memset(probe, 'a', longest + 1u);
+		memcpy(probe, dir, dir_len);
+		probe[dir_len] = '/';
+		probe[longest] = '\0';
+		check(fzn_socket_listen(probe, 0660u, 4, &listen_fd) == FZN_SOCKET_OK,
+		      "the longest path the predicate accepts could not be bound -- the "
+		      "headroom for the temporary name is not reserved, so a caller that "
+		      "trusted the predicate is refused at start-up");
+		fzn_socket_close(listen_fd, probe);
+		listen_fd = -1;
+
+		probe[longest] = 'a';
+		probe[longest + 1u] = '\0';
+		check(fzn_socket_path_ok(probe) == FZN_SOCKET_ERR_PATH,
+		      "one byte past the longest accepted path was accepted too");
+		check(fzn_socket_listen(probe, 0660u, 4, &listen_fd) == FZN_SOCKET_ERR_PATH,
+		      "listen bound a path its own predicate refuses, so the verdict a "
+		      "caller gets depends on which of the two it asked");
+		check(listen_fd == -1, "a refused listen handed back a descriptor");
+		/* A run that FAILED the two checks above holds a live listener
+		 * and left a socket in the directory, so the rmdir below would
+		 * not empty it. Closing unconditionally is what keeps a failing
+		 * run from leaving scratch behind -- measured: the sabotage
+		 * that drops the reserve left exactly one socket in /tmp. */
+		fzn_socket_close(listen_fd, probe);
+		listen_fd = -1;
+	}
+
 	/* Arguments. */
 	check(fzn_socket_listen(NULL, 0660u, 4, &listen_fd) == FZN_SOCKET_ERR_MALFORMED,
 	      "a null path");
