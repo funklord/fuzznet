@@ -936,10 +936,20 @@ typedef struct fzn_catalogue_source {
 	size_t         assertions;
 } fzn_catalogue_source_t;
 
-/* Is `entity` REFERENCED -- named by at least one LIVE assertion in the set?
+/* Is `entity` REFERENCED -- named by at least one LIVE CURATED assertion in
+ * the set?
+ *
  * C9: a curated link is a reference; the host observation (C7/C8) is derived,
  * not an assertion here, so an unreferenced entity may still exist on disk and
- * removing it is the explicit C17 gesture, never a consequence of this. */
+ * removing it is the explicit C17 gesture, never a consequence of this.
+ *
+ * A HOLDER-CAPABILITY ASSERTION IS THAT HOST OBSERVATION AND DOES NOT COUNT.
+ * "I hold these bytes" says where they are; it does not say anything wants
+ * them kept. So the same assertion is invisible here and decisive for
+ * `fzn_catalogue_holders` below, which is the pair working as intended rather
+ * than an inconsistency -- one query asks what wants an entity, the other asks
+ * who has it. Counting a holder assertion here made every entity a host holds
+ * referenced BY THE FACT OF HOLDING IT, which no sweep can escape. sec 321. */
 int fzn_catalogue_referenced(const fzn_catalogue_assertion_t *set, size_t count,
                              const uint8_t *entity, size_t entity_len);
 

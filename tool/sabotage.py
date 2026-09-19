@@ -134,8 +134,8 @@ SABOTAGES = [
 	(
 		"catalogue-referenced-counts-only-live",
 		"catalogue/catalogue.c",
-		"\t\tif (set[i].live\n\t\t    && bytes_eq(set[i].entity, set[i].entity_len, entity, entity_len))\n",
-		"\t\tif (1\n\t\t    && bytes_eq(set[i].entity, set[i].entity_len, entity, entity_len))\n",
+		"if (set[i].live && set[i].capability != FZN_CATALOGUE_CAP_HOLDER",
+		"if (1 && set[i].capability != FZN_CATALOGUE_CAP_HOLDER",
 		"Reachability (sec 317) counts only LIVE assertions: a retracted link does not keep an entity referenced. Counting non-live assertions would keep a withdrawn entity alive, defeating any later GC. catalogue_test's non-live case catches it.",
 	),
 	(
@@ -144,6 +144,20 @@ SABOTAGES = [
 		"\t\t\tint earlier = 0;\n\t\t\tfor (j = 0; j < i; j++)\n\t\t\t\tif (bytes_eq(set[j].issuer, set[j].issuer_len,\n\t\t\t\t             a->issuer, a->issuer_len)) {\n\t\t\t\t\tearlier = 1;\n\t\t\t\t\tbreak;\n\t\t\t\t}\n\t\t\tif (!earlier)\n\t\t\t\td++;\n",
 		"\t\t\tint earlier = 0;\n\t\t\tfor (j = 0; j < i; j++)\n\t\t\t\tif (bytes_eq(set[j].issuer, set[j].issuer_len,\n\t\t\t\t             a->issuer, a->issuer_len)) {\n\t\t\t\t\tearlier = 1;\n\t\t\t\t\tbreak;\n\t\t\t\t}\n\t\t\tif (!earlier || 1)\n\t\t\t\td++;\n",
 		"An overflowing issuer is dropped once, not per assertion (reach.c's rule), so `dropped` is a count of distinct issuers a reader must still account for. Counting per row inflates it and a caller sizing a catch-up buffer over-allocates. catalogue_test's repeated-dropped-issuer case catches it.",
+	),
+	(
+		"catalogue-a-holder-assertion-is-not-a-reference",
+		"catalogue/catalogue.c",
+		"if (set[i].live && set[i].capability != FZN_CATALOGUE_CAP_HOLDER",
+		"if (set[i].live",
+		"C9: a curated link is a reference, the host observation (C7/C8) is "
+		"not. 'I hold these bytes' says where they are, not that anything "
+		"wants them kept -- so counting it makes every entity a host holds "
+		"referenced BY THE FACT OF HOLDING IT, a fixpoint sec 321's sweep "
+		"planner can never escape: it would keep everything and plan nothing "
+		"for ever. catalogue_test asserts the same assertion is invisible to "
+		"`referenced` and decisive for `holders`, with a curated control so "
+		"the skip cannot widen. sec 321",
 	),
 	(
 		"catalogue-holders-are-only-holder-capability-assertions",

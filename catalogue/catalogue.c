@@ -348,12 +348,22 @@ int fzn_catalogue_referenced(const fzn_catalogue_assertion_t *set, size_t count,
 
 	if ((count != 0 && !set) || (entity_len != 0 && !entity))
 		return 0;
-	/* Referenced == some LIVE assertion names it. C9: a curated link is a
-	 * reference; the host observation (C7) is not an assertion here -- it is
-	 * derived from who holds the bytes (C8) -- so an entity with no live
-	 * assertion is unreferenced, which is not the same as not existing. */
+	/* Referenced == some LIVE CURATED assertion names it. C9: a curated link
+	 * is a reference; the host observation (C7) is not -- it is derived from
+	 * who holds the bytes (C8) -- so an entity with no live curated assertion
+	 * is unreferenced, which is not the same as not existing.
+	 *
+	 * A HOLDER-CAPABILITY ASSERTION IS THAT HOST OBSERVATION, AND IS SKIPPED.
+	 * "I hold these bytes" says where they are, not that anything wants them
+	 * kept. Counting it made every entity a host holds permanently referenced
+	 * BY THE FACT OF HOLDING IT, which is a fixpoint no sweep can escape: sec
+	 * 317's step 2 maps its reachability guard onto this call, so the planner
+	 * would have kept everything and planned nothing, for ever. Found by
+	 * building that planner (sec 321); C9 had said so from the start and this
+	 * loop had not, and no test reached the case because the reachability
+	 * fixture zeroes `capability`, which is outside the enum entirely. */
 	for (i = 0; i < count; i++)
-		if (set[i].live
+		if (set[i].live && set[i].capability != FZN_CATALOGUE_CAP_HOLDER
 		    && bytes_eq(set[i].entity, set[i].entity_len, entity, entity_len))
 			return 1;
 	return 0;

@@ -361,8 +361,15 @@ static void test_reachability(void)
 	fzn_catalogue_source_t src[4];
 	size_t n = 0, dropped = 0, i;
 
-	for (i = 0; i < 4; i++)
+	for (i = 0; i < 4; i++) {
 		memset(&set[i], 0, sizeof(set[i]));
+		/* A LEGAL CAPABILITY, because zero is not one. The fixture used
+		 * to leave this at 0 -- outside the enum entirely -- which is
+		 * why nothing here reached the holder case below, and why sec
+		 * 321 found that defect by building a planner rather than by
+		 * running this suite. */
+		set[i].capability = FZN_CATALOGUE_CAP_NONE;
+	}
 	/* e1 by i1 (live), e1 by i2 (live), e2 by i1 (NOT live), e3 by i1 (live). */
 	set[0].entity = (const uint8_t *)"e1"; set[0].entity_len = 2;
 	set[0].issuer = (const uint8_t *)"i1"; set[0].issuer_len = 2; set[0].live = 1;
@@ -381,6 +388,46 @@ static void test_reachability(void)
 	      "an entity no assertion names is unreferenced");
 	CHECK(fzn_catalogue_referenced(set, 4, (const uint8_t *)"e3", 2),
 	      "e3 is referenced");
+
+	/* A HOLDER ASSERTION IS NOT A REFERENCE, which is C9 and which this
+	 * suite could not see until the fixture carried a legal capability.
+	 *
+	 * "I hold these bytes" says WHERE they are; it does not say anything
+	 * wants them kept. Counting it would make every entity a host holds
+	 * referenced BY THE FACT OF HOLDING IT -- a fixpoint the sweep planner
+	 * of sec 321 can never escape, so it would keep everything and plan
+	 * nothing. Asserted against `holders` in the same breath, because the
+	 * pair is the point: the same assertion must be invisible to one query
+	 * and decisive for the other. */
+	{
+		fzn_catalogue_assertion_t held[1];
+		fzn_catalogue_source_t who[2];
+		size_t hn = 0, hdropped = 0;
+
+		memset(held, 0, sizeof(held));
+		held[0].entity = (const uint8_t *)"e4"; held[0].entity_len = 2;
+		held[0].issuer = (const uint8_t *)"i1"; held[0].issuer_len = 2;
+		held[0].capability = FZN_CATALOGUE_CAP_HOLDER;
+		held[0].live = 1;
+
+		CHECK(!fzn_catalogue_referenced(held, 1, (const uint8_t *)"e4", 2),
+		      "a live HOLDER assertion made its entity referenced, so nothing "
+		      "a host holds can ever become unreferenced and no sweep can plan "
+		      "a removal");
+		CHECK(fzn_catalogue_holders(held, 1, (const uint8_t *)"e4", 2, who, 2,
+		                            &hn, &hdropped) == FZN_CATALOGUE_OK &&
+		          hn == 1,
+		      "the same assertion must still be decisive for `holders` -- if it "
+		      "is invisible to both, the skip is too wide");
+
+		/* And the control: a CURATED assertion by the same issuer about
+		 * the same entity IS a reference, so the skip is keyed on the
+		 * capability rather than refusing that issuer or entity. */
+		held[0].capability = FZN_CATALOGUE_CAP_NONE;
+		CHECK(fzn_catalogue_referenced(held, 1, (const uint8_t *)"e4", 2),
+		      "a curated assertion stopped being a reference, so the holder "
+		      "skip is refusing more than holder assertions");
+	}
 
 	CHECK(fzn_catalogue_sources(set, 4, src, 4, &n, &dropped) == FZN_CATALOGUE_OK,
 	      "sources resolves");
