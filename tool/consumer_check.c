@@ -59,6 +59,7 @@
 #include <fuzznet/catalog/reach.h>
 #include <fuzznet/facet/facet.h>
 #include <fuzznet/catalogue/catalogue.h>
+#include <fuzznet/catalogue/retention.h>
 #include <fuzznet/qr/qr.h>
 #if defined(FZN_CLI_ON)
 #include <fuzznet/cli/qr_print.h>
@@ -166,6 +167,7 @@
 #include "catalog/reach.h"
 #include "facet/facet.h"
 #include "catalogue/catalogue.h"
+#include "catalogue/retention.h"
 #include "qr/qr.h"
 #if defined(FZN_CLI_ON)
 #include "cli/qr_print.h"
@@ -1735,6 +1737,47 @@ int main(void)
 			cell = fzn_state_get(&tiers, blob, KIND_TIER);
 			if (!cell || memcmp(cell->body, hot, sizeof(hot)) != 0)
 				FAIL(361);
+		}
+
+		/* RETENTION, FROM OUTSIDE THE LIBRARY. Included above, so the
+		 * header compiles for a consumer; called here, so the symbols
+		 * are proven EXPORTED as well -- an installed header whose
+		 * functions do not link is a header that compiles and lies.
+		 *
+		 * The cycle is the one a consumer actually performs: say keep
+		 * until a deadline, watch the word change AT the deadline, draw
+		 * the due list, and give the row back. */
+		{
+			fzn_catalogue_hold_t rows[2];
+			fzn_catalogue_holds_t holds;
+			uint8_t ret_entity[FZN_SUBJECT_LEN];
+			uint8_t out[2][FZN_CATALOGUE_ENTITY_LEN];
+			size_t dropped = 0;
+
+			memset(ret_entity, 0x5e, sizeof(ret_entity));
+			if (fzn_catalogue_holds_init(&holds, rows, 2) != FZN_CATALOGUE_OK)
+				FAIL(362);
+			if (fzn_catalogue_retain_until(&holds, ret_entity, FZN_SUBJECT_LEN,
+			                               FZN_CATALOGUE_RETAIN_KEEP, 100,
+			                               FZN_CATALOGUE_RETAIN_DROP)
+			    != FZN_CATALOGUE_OK)
+				FAIL(363);
+			if (!fzn_catalogue_keeps(&holds, ret_entity, FZN_SUBJECT_LEN, 99))
+				FAIL(364);
+			if (fzn_catalogue_keeps(&holds, ret_entity, FZN_SUBJECT_LEN, 100))
+				FAIL(365);
+			if (fzn_catalogue_due(&holds, 100, out, 2, &dropped) != 1
+			    || dropped != 0)
+				FAIL(366);
+			if (fzn_catalogue_retain(&holds, ret_entity, FZN_SUBJECT_LEN,
+			                         FZN_CATALOGUE_RETAIN_DEFAULT)
+			    != FZN_CATALOGUE_OK)
+				FAIL(367);
+			if (fzn_catalogue_hold_count(&holds) != 0)
+				FAIL(368);
+			if (strcmp(fzn_catalogue_retention_str(
+			                   FZN_CATALOGUE_RETAIN_KEEP), "keep") != 0)
+				FAIL(369);
 		}
 
 #ifdef FZN_SPOOL_FILE_ON

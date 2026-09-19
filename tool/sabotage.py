@@ -153,6 +153,53 @@ SABOTAGES = [
 		"C8/C8a derive the holder set from the capability axis: only a HOLDER-capability assertion (C5e) proves the issuer holds the bytes. Counting NONE or GRANTED assertions as holdings invents holders a file does not have -- a last-copy guard would then delete the final real copy believing others held it. catalogue_test's NONE-claim case catches it.",
 	),
 	(
+		"retention-deadline-fires-at-the-deadline",
+		"catalogue/retention.c",
+		"if (row->until != 0 && now >= row->until)",
+		"if (row->until != 0 && now > row->until)",
+		"a row says `mode` UNTIL `until` and `then` from `until` onwards, so "
+		"the word changes AT T. `>` leaves it saying the old word for the one "
+		"instant T, which is exactly the instant a consumer that drew a due "
+		"list at T asks about -- `fzn_catalogue_due` uses >= and the two would "
+		"disagree on the rows it just listed. retention_test drives 99, 100 "
+		"and 101 against a keep-until-100-then-drop row. sec 320",
+	),
+	(
+		"retention-default-gives-the-row-back",
+		"catalogue/retention.c",
+		"if (mode == FZN_CATALOGUE_RETAIN_DEFAULT) {",
+		"if (0) {",
+		"DEFAULT is the absence of a word, not a third opinion, so storing it "
+		"fills a caller-owned table with entities that say 'whatever the "
+		"catalogue says' and a consumer changing its mind can never get a slot "
+		"back. keeps() reads the same either way, which is why the count is "
+		"what asserts it: retention_test requires hold_count to fall. sec 320",
+	),
+	(
+		"retention-keeps-nothing-until-told",
+		"catalogue/retention.c",
+		"return holds && holds->keep_all;",
+		"return holds != NULL;",
+		"a table that has said nothing keeps NOTHING: defaulting to keep would "
+		"make a host that adopted a stranger's catalogue start filling its "
+		"disk, and a default nobody chose is the kind discovered when the disk "
+		"is full. This returns keep for every entity with no row of its own, "
+		"whatever the wide bit says. retention_test asserts both settings. "
+		"sec 320",
+	),
+	(
+		"retention-entity-is-a-whole-subject",
+		"catalogue/retention.c",
+		"if (entity_len != FZN_CATALOGUE_ENTITY_LEN)",
+		"if (entity_len > FZN_CATALOGUE_ENTITY_LEN)",
+		"a row outlives the call that wrote it and carries the entity bytes, "
+		"so the key is a full record subject (C1) rather than the borrowed "
+		"view catalogue.h's queries take. Admitting a short one keys the row "
+		"on whatever follows it in the caller's memory and compares 32 bytes "
+		"against a shorter buffer. retention_test passes LEN-1 and LEN+1 with "
+		"a full-length control. sec 320",
+	),
+	(
 		"CONTROL-wipe",
 		"session/commitment.c",
 		"\tfzn_wipe(derived, sizeof(derived));\n",

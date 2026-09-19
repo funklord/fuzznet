@@ -42934,3 +42934,95 @@ For raidcfgd: `--check` can call `fzn_socket_path_ok` once they move their
 pin. Their short-path convention stays correct either way, and the two
 verdicts now agree on every path rather than on the ones a five-digit pid
 happened to admit.
+
+## 320. Retention re-homes: step 3, and the pivot settled, 2026-09-19
+
+THE PIVOT IS SETTLED. sec 318 put the evolve-vs-rewrite choice to the
+copyright holder, because it edits tested code and that is not a session's
+call. They said go ahead, so sec 318's recommendation stands: `catalog/`'s
+sweep and copy EVOLVE IN PLACE -- their data source swaps to
+`referenced`/`holders`, their tested guard-chain, cursor and `removal_t` stay
+-- rather than being rewritten additively beside the old module.
+
+Step 3 lands first, and it is the piece that is the SAME under either answer,
+which is why it was safe to start with while the rest of the program depends
+on the pivot. sweep's guard chain opens with `keeps`, so step 2 cannot be
+written until retention exists over the new model.
+
+IT BECOMES ITS OWN MODULE, and that is the whole of the re-homing.
+`catalogue/retention.{h,c}`. The old retention was a table INSIDE
+`fzn_catalog_t` because that module owned a container; the new model owns
+none -- every query takes an assertion set the caller holds -- so the table
+becomes caller-owned and travels with the set. A consumer that keeps
+everything, or nothing, passes a zero-capacity table and pays for no rows at
+all, which the old `fzn_catalog_hold_init` already allowed for and which is
+now the ordinary case rather than an option.
+
+WHAT WAS KEPT UNCHANGED, because it was tested and the corrections in sec 317
+were about the framing rather than the behaviour: tri-state DEFAULT/KEEP/DROP
+(not keep-or-drop); an optional deadline where `mode` applies until `until`
+and `then` from `until` onwards; `until` of zero meaning no deadline; DEFAULT
+removing the row rather than storing "no opinion"; a deadline on a DEFAULT
+mode refused, since a row saying "follow the catalogue until T" says nothing;
+`due` listing the passed deadlines and NOT reclaiming them, because giving a
+row back is a write and these are reads a sweep makes; and `now` as a
+parameter rather than state, which is this tree's convention in six other
+headers and which also stops the answer drifting under a sweep whose whole
+cursor argument is that the decision is taken once.
+
+NO WIRE FORM, AND THE ABSENCE IS THE DESIGN (C5a HOST). One host's keep
+intent is not another's: retention that travelled would make one host's disk
+policy binding on a host with different storage, which is the same argument
+that keeps WHERE a host puts its bytes off the wire. So there is no encode,
+no decode and no resolver, and nothing in the module takes an issuer -- the
+only issuer it could have is the host reading it. The test asserts this by
+NOT testing a round-trip and saying why, since a suite that grew one would be
+asserting a feature the design refuses.
+
+REACHABILITY FEEDS IT; IT IS NOT DEFINED OVER IT. sec 317 records this as a
+correction to its own first cut and it is worth keeping visible: retention is
+not "a policy over the reachable set". A consumer observes that a chain has
+become unreachable, DECIDES to mark it DROP, and the sweep acts on the mark.
+Nothing in retention.c consults `fzn_catalogue_referenced`, and a caller
+wanting that coupling writes it where its own judgement is.
+
+THE ONE REAL DESIGN DECISION: THE KEY IS A WHOLE RECORD SUBJECT. catalogue.h's
+queries take `(entity, entity_len)` and are indifferent to the length, because
+they are handed a borrowed view and never store it. A retention row outlives
+the call that wrote it and has to carry the bytes, so it needs a bound -- and
+C1 already fixes one: an entity is the content hash the filestore knows a file
+by, and it reaches this model as a record's subject, `FZN_SUBJECT_LEN`.
+Anything else is a caller confusing an entity with something that is not one,
+so it is refused rather than truncated or padded. The signatures still take
+`(entity, entity_len)` rather than a fixed array, so a caller passing an
+assertion's own `entity`/`entity_len` straight through cannot silently hand
+over a pointer to the wrong thing.
+
+THE DEADLINE FIRES AT T, NOT AFTER IT, and this is the subtlest thing in the
+module. `>=` rather than `>` is what makes `fzn_catalogue_due` at T and
+`fzn_catalogue_retention_of` at T agree: a consumer that draws a due list at T
+and then asks each row what it says would otherwise be told the old word about
+the very rows it was just handed. The test drives 99, 100 and 101 against a
+keep-until-100-then-drop row for exactly that boundary.
+
+TESTED, 76 checks. Each of the three states is asserted against BOTH settings
+of the catalogue-wide bit, because a KEEP row over a keep-everything table and
+a DROP row over a keep-nothing table each agree with the bit behind them --
+either alone would pass with the override ignored entirely. Four sabotage
+entries, all watched failing before the commit and each through its own
+assertion: the deadline moved off T, DEFAULT storing a row instead of giving
+it back, a table keeping by default, and a short entity admitted. The second
+is the one worth noting, because `keeps` reads the same whether the row was
+reclaimed or not -- what asserts it is `fzn_catalogue_hold_count` falling,
+which is the count-what-it-left-behind shape rather than a behaviour check.
+
+NEXT: step 2, the sweep planner, which is now unblocked. Its guards
+re-derive one-to-one -- retention (this section), reachability (step 1,
+`fzn_catalogue_referenced`), this-host-holds and last-copy (both step 5's
+`fzn_catalogue_holders`, the first by finding this host's own key among them
+and the second by the count) -- and the absent-witness-answers-zero rule is
+sec 316's asymmetry: where holders cannot be determined, keep.
+
+STILL THE HOLDER'S, unchanged from sec 318: the reclamation POLICY (C18),
+which gates step 4 and nothing else; confirmation that retention and filing
+stay per-host; and whether an Android fuzznetd build belongs here.
