@@ -42045,6 +42045,12 @@ reproduction and the two controls. The card's own signature therefore stays
 opaque until situ handles nested coverage; the hop and prekey it carries are
 each covered by their own.
 
+UPDATE 2026-09-19: the crash-probe monitor reports situ **74739d7 FIXES the
+nested-coverage crash** and supports it -- the probe maps clean. So the card's
+own signature is now bindable (`authenticated body` + `checksum ... covers(body)`
+around the nested hop/prekey). It is the next step here, unblocked; re-run the
+probe against the current situ first, per evidence discipline, then bind it.
+
 The catalogue bodies got the same treatment for the same reason, though they
 are dispatch tags rather than signed-object tags: `fzn_catalog_apply`
 switches on the body's object byte (edge 1, content 2, name 3) and refuses
