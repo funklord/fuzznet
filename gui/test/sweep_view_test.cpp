@@ -103,18 +103,16 @@ int main(int argc, char **argv)
 	{
 		memset(&plan, 0, sizeof(plan));
 		plan.retained = 1u;
-		plan.referenced = 2u;
 		plan.last_copy = 3u;
 		plan.absent = 4u;
 		plan.incomplete = 5u;
 		view.show_sweep(&plan, nullptr);
 
 		CHECK(view.state_text().contains(QStringLiteral("1")) &&
-		              view.state_text().contains(QStringLiteral("2")) &&
 		              view.state_text().contains(QStringLiteral("3")) &&
 		              view.state_text().contains(QStringLiteral("4")) &&
 		              view.state_text().contains(QStringLiteral("5")),
-		      "the five reasons were summed rather than named");
+		      "the four reasons were summed rather than named");
 		CHECK(view.state_text().contains(QStringLiteral("policy")),
 		      "retention is not distinguished from a guard refusing");
 	}

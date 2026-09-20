@@ -126,7 +126,7 @@ static void curated(fzn_catalog_assertion_t *a, const uint8_t *issuer,
 /* Every counter, summed. */
 static size_t total(const fzn_catalog_sweep_plan_t *p)
 {
-	return p->planned + p->retained + p->referenced + p->last_copy +
+	return p->planned + p->retained + p->last_copy +
 	       p->absent + p->incomplete + p->truncated;
 }
 
@@ -211,23 +211,35 @@ static void test_each_guard(void)
 	      plan.retained, plan.planned);
 	CHECK(total(&plan) == distinct(set, 3), "retained case does not partition");
 
-	/* REFERENCED: a live curated assertion still names it. */
+	/* BEING CURATED DOES NOT KEEP THE BYTES HERE, which is sec 331 and the
+	 * case this suite previously asserted the other way round.
+	 *
+	 * C8 and C9 make referencing and holding independent axes. An entity
+	 * another host curates, held here AND elsewhere, is a REDUNDANT COPY
+	 * (C19) -- dropping it reclaims space and destroys nothing, and the
+	 * link still resolves through the other holder. Refusing here is what
+	 * made a local DROP unable to reclaim anything the estate curated. */
 	holder(&set[0], me, e1);
 	holder(&set[1], other1, e1);
 	holder(&set[2], other2, e1);
 	curated(&set[3], other1, e1, 1);
 	fzn_catalog_sweep_capture(set, 4, NULL, me, 32, 2, 0, NULL, &job, rows, 4, &plan);
-	CHECK(plan.referenced == 1 && plan.planned == 0,
-	      "an entity something still curates was planned (referenced=%zu planned=%zu)",
-	      plan.referenced, plan.planned);
-	CHECK(total(&plan) == distinct(set, 4), "referenced case does not partition");
+	CHECK(plan.planned == 1,
+	      "a redundant copy of a curated entity was not planned, so this host "
+	      "cannot reclaim space for anything the estate links to (planned=%zu)",
+	      plan.planned);
+	CHECK(total(&plan) == distinct(set, 4), "the curated case does not partition");
 
-	/* AND A RETRACTED CURATED LINK DOES NOT HOLD IT, which is what makes
-	 * the guard a live question rather than an ever-growing one. */
-	curated(&set[3], other1, e1, 0);
-	fzn_catalog_sweep_capture(set, 4, NULL, me, 32, 2, 0, NULL, &job, rows, 4, &plan);
-	CHECK(plan.planned == 1 && plan.referenced == 0,
-	      "a retracted curated link still kept the entity referenced");
+	/* AND THE LAST COPY OF A CURATED ENTITY IS STILL REFUSED, which is the
+	 * safety half and the reason removing the guard costs nothing. The
+	 * last-copy guard asks the right question -- do the bytes survive this
+	 * removal -- where reachability asked whether anything wanted them. */
+	holder(&set[0], me, e1);
+	curated(&set[1], other1, e1, 1);
+	fzn_catalog_sweep_capture(set, 2, NULL, me, 32, 1, 0, NULL, &job, rows, 4, &plan);
+	CHECK(plan.last_copy == 1 && plan.planned == 0,
+	      "the only copy of an entity another host curates was planned for "
+	      "removal (last_copy=%zu planned=%zu)", plan.last_copy, plan.planned);
 
 	/* ABSENT: this host is not among the holders, so there is nothing here
 	 * to remove. A refusal would be wrong -- it is not a guard firing. */
@@ -284,15 +296,18 @@ static void test_the_order(void)
 	fzn_catalog_holds_init(&holds, hold_rows, 2);
 	fzn_catalog_retain(&holds, e1, sizeof(e1), FZN_CATALOG_RETAIN_KEEP);
 	fzn_catalog_sweep_capture(set, 2, &holds, me, 32, 1, 0, NULL, &job, rows, 4, &plan);
-	CHECK(plan.retained == 1 && plan.referenced == 0 && plan.last_copy == 0,
-	      "retention did not win the chain (retained=%zu referenced=%zu "
-	      "last_copy=%zu)", plan.retained, plan.referenced, plan.last_copy);
+	CHECK(plan.retained == 1 && plan.last_copy == 0,
+	      "retention did not win the chain (retained=%zu last_copy=%zu)",
+	      plan.retained, plan.last_copy);
 
-	/* Curated AND a last copy: curated wins, because the remedy differs. */
+	/* Curated AND a last copy: LAST COPY now, because the reachability
+	 * guard is gone (sec 331) and the remaining question is whether the
+	 * bytes survive -- to which the answer is "not if you remove this one".
+	 * "Go and replicate it" is the right remedy for that. */
 	fzn_catalog_sweep_capture(set, 2, NULL, me, 32, 1, 0, NULL, &job, rows, 4, &plan);
-	CHECK(plan.referenced == 1 && plan.last_copy == 0,
-	      "the last-copy guard answered for an entity something still wants, "
-	      "which sends a consumer to replicate what it should have kept");
+	CHECK(plan.last_copy == 1,
+	      "a curated last copy was not reported as a last copy (last_copy=%zu)",
+	      plan.last_copy);
 }
 
 /* A DEADLINE MAKES AN ENTITY SWEEPABLE, which is the join between this and

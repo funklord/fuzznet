@@ -160,12 +160,27 @@ fzn_catalog_err_t fzn_catalog_sweep_capture(const fzn_catalog_assertion_t *set,
 			plan->retained++;
 			continue;
 		}
-		/* STILL WANTED BY SOMETHING. A holder assertion is not a want
-		 * -- see fzn_catalog_referenced and sec 321. */
-		if (fzn_catalog_referenced(set, count, a->entity, a->entity_len)) {
-			plan->referenced++;
-			continue;
-		}
+		/* THERE IS NO REACHABILITY GUARD HERE, and its absence is the
+		 * design rather than an omission. sec 331.
+		 *
+		 * C8 and C9 make REFERENCING and HOLDING independent axes: what
+		 * wants an entity, and who has its bytes. A guard that refused
+		 * to drop BYTES because something references the ENTITY
+		 * conflates them -- and refuses the ordinary operation of
+		 * reclaiming space while keeping the catalogue record, which C9
+		 * explicitly allows ("an unreferenced entity may still exist on
+		 * disk", and the converse).
+		 *
+		 * The old module's `a_retained_node_needs` is not missing
+		 * either: it asked whether this host retained any NODE pointing
+		 * at these bytes, because many nodes could share one blob. C1
+		 * collapses that -- an entity IS the bytes -- so it is the
+		 * retention guard above, and nothing else.
+		 *
+		 * What keeps a referenced entity in existence is the LAST-COPY
+		 * guard below, which is the right axis: it asks whether the
+		 * bytes survive this removal, not whether anything wanted them.
+		 */
 		if (!holder_facts(set, count, a->entity, a->entity_len, self, self_len,
 		                  &self_holds, &others)) {
 			plan->incomplete++;

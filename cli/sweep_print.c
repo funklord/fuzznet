@@ -36,8 +36,8 @@ static void put_u64(struct sink *s, uint64_t value)
 
 /* Each reason named, never summed. sweep.h keeps its counters apart because
  * each calls for a different action: retention is this host's own policy,
- * referenced and last_copy are guards refusing, absent is nothing to do, and
- * incomplete is partial data -- which must not read as nothing to do. */
+ * last_copy is the guard refusing, absent is nothing to do, and incomplete is
+ * partial data -- which must not read as nothing to do. */
 static void reasons(struct sink *s, const fzn_catalog_sweep_plan_t *plan)
 {
 	int first = 1;
@@ -45,13 +45,6 @@ static void reasons(struct sink *s, const fzn_catalog_sweep_plan_t *plan)
 	if (plan->retained > 0u) {
 		put_u64(s, (uint64_t)plan->retained);
 		put_str(s, " retained by policy");
-		first = 0;
-	}
-	if (plan->referenced > 0u) {
-		if (!first)
-			put_str(s, ", ");
-		put_u64(s, (uint64_t)plan->referenced);
-		put_str(s, " still curated by something");
 		first = 0;
 	}
 	if (plan->last_copy > 0u) {
@@ -152,8 +145,8 @@ fzn_catalog_err_t fzn_sweep_print(const fzn_catalog_sweep_plan_t *plan,
 
 		if (plan->planned == 0u) {
 			/* THE PAIR sweep.h KEEPS ITS COUNTERS APART FOR. */
-			said = (plan->retained > 0u || plan->referenced > 0u ||
-			        plan->last_copy > 0u || plan->incomplete > 0u)
+			said = (plan->retained > 0u || plan->last_copy > 0u ||
+			        plan->incomplete > 0u)
 			               ? FZN_SWEEP_HELD_BACK
 			               : FZN_SWEEP_EMPTY;
 		} else if (!running) {

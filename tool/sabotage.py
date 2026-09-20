@@ -278,18 +278,6 @@ SABOTAGES = [
 		"sweep_plan_test drives a KEEP row and a deadline. sec 321",
 	),
 	(
-		"sweep-a-curated-link-keeps-the-bytes",
-		"catalog/sweep.c",
-		"if (fzn_catalog_referenced(set, count, a->entity, a->entity_len)) {",
-		"if (0) {",
-		"C9 reachability: an entity a live curated assertion still names is "
-		"wanted by something, whatever this host's own retention says. "
-		"Skipping the guard removes bytes another host's link still points "
-		"at. sweep_plan_test pairs a live curated link (kept) with a "
-		"retracted one (planned), so the guard cannot pass by refusing "
-		"everything. sec 321",
-	),
-	(
 		"sweep-refuses-to-guess-a-missing-holder",
 		"catalog/sweep.c",
 		"if (!mine && dropped > 0)",
@@ -3670,8 +3658,8 @@ SABOTAGES = [
 	(
 		"sweep-print-held-back-is-not-empty",
 		"cli/sweep_print.c",
-		"\t\t\tsaid = (plan->retained > 0u || plan->referenced > 0u ||\n"
-		"\t\t\t        plan->last_copy > 0u || plan->incomplete > 0u)\n",
+		"\t\t\tsaid = (plan->retained > 0u || plan->last_copy > 0u ||\n"
+		"\t\t\t        plan->incomplete > 0u)\n",
 		"\t\t\tsaid = (0)\n",
 		"sweep.h keeps its counters apart because a sweep held back by a guard "
 		"and a catalogue with nothing in it want opposite responses, and in an "

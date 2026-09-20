@@ -87,19 +87,17 @@ int main(void)
 	/* EACH REASON NAMED, NEVER SUMMED. */
 	memset(&plan, 0, sizeof(plan));
 	plan.retained = 1u;
-	plan.referenced = 2u;
 	plan.last_copy = 3u;
 	plan.absent = 4u;
 	plan.incomplete = 5u;
 	CHECK(fzn_sweep_print(&plan, NULL, line, sizeof(line), &len, &s, &trunc) ==
 	              FZN_CATALOG_OK,
-	      "a plan with five reasons would not render");
+	      "a plan with four reasons would not render");
 	CHECK(strstr(line, "1 retained") != NULL &&
-	              strstr(line, "2 still curated") != NULL &&
 	              strstr(line, "3 the last known copy") != NULL &&
 	              strstr(line, "4 not held here") != NULL &&
 	              strstr(line, "5 undecided") != NULL,
-	      "the five reasons were summed rather than named");
+	      "the four reasons were summed rather than named");
 
 	/* PARTIAL DATA IS NOT AN EMPTY SWEEP, which is the one thing this
 	 * re-point could have got wrong while every field name looked right.

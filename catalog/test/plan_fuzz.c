@@ -73,7 +73,6 @@ static uint32_t rnd_below(uint32_t n)
 struct coverage {
 	unsigned long planned;      /* a removal was planned */
 	unsigned long retained;     /* retention refused one */
-	unsigned long referenced;   /* a curated link refused one */
 	unsigned long last_copy;    /* the last-copy guard refused one */
 	unsigned long absent;       /* this host did not hold it */
 	unsigned long wanted;       /* copy asked for something */
@@ -243,17 +242,16 @@ static int fuzz_one(uint32_t seed, struct coverage *cov)
 		FAILED("seed %u: a well-formed capture was refused", seed);
 
 	/* 1. THE PLAN PARTITIONS. */
-	if (plan.planned + plan.retained + plan.referenced + plan.last_copy +
+	if (plan.planned + plan.retained + plan.last_copy +
 	    plan.absent + plan.incomplete + plan.truncated != distinct_entities(set, n))
 		FAILED("seed %u: the sweep plan does not partition (%zu counted over %zu "
 		       "distinct entities)", seed,
-		       plan.planned + plan.retained + plan.referenced + plan.last_copy +
+		       plan.planned + plan.retained + plan.last_copy +
 		       plan.absent + plan.incomplete + plan.truncated,
 		       distinct_entities(set, n));
 
 	cov->planned += plan.planned ? 1u : 0u;
 	cov->retained += plan.retained ? 1u : 0u;
-	cov->referenced += plan.referenced ? 1u : 0u;
 	cov->last_copy += plan.last_copy ? 1u : 0u;
 	cov->absent += plan.absent ? 1u : 0u;
 
@@ -263,9 +261,6 @@ static int fuzz_one(uint32_t seed, struct coverage *cov)
 
 		if (fzn_catalog_keeps(&holds, e, FZN_CATALOG_ENTITY_LEN, 0))
 			FAILED("seed %u: planned a removal for an entity this host keeps",
-			       seed);
-		if (curated_here(set, n, e))
-			FAILED("seed %u: planned a removal for an entity something curates",
 			       seed);
 		if (!holds_here(set, n, e, self))
 			FAILED("seed %u: planned a removal for bytes this host does not have",
@@ -396,21 +391,21 @@ int main(int argc, char **argv)
 	 * generator that produced only empty sets would satisfy every invariant
 	 * above and prove nothing; these are what separate a run that explored
 	 * the space from one that ran. */
-	if (!cov.planned || !cov.retained || !cov.referenced || !cov.last_copy ||
+	if (!cov.planned || !cov.retained || !cov.last_copy ||
 	    !cov.absent || !cov.wanted || !cov.announced || !cov.filed ||
 	    !cov.filing_stale) {
 		printf("plan_fuzz: a state the invariants need was never reached -- "
-		       "planned %lu retained %lu referenced %lu last_copy %lu absent %lu "
+		       "planned %lu retained %lu last_copy %lu absent %lu "
 		       "wanted %lu announced %lu filed %lu stale %lu\n",
-		       cov.planned, cov.retained, cov.referenced, cov.last_copy,
+		       cov.planned, cov.retained, cov.last_copy,
 		       cov.absent, cov.wanted, cov.announced, cov.filed, cov.filing_stale);
 		return 1;
 	}
 
 	printf("plan_fuzz: %lu cases, all invariants held; planned %lu retained %lu "
-	       "referenced %lu last_copy %lu absent %lu wanted %lu announced %lu "
+	       "last_copy %lu absent %lu wanted %lu announced %lu "
 	       "filed %lu stale %lu\n",
-	       cases, cov.planned, cov.retained, cov.referenced, cov.last_copy,
+	       cases, cov.planned, cov.retained, cov.last_copy,
 	       cov.absent, cov.wanted, cov.announced, cov.filed, cov.filing_stale);
 	return 0;
 }

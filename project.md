@@ -43671,3 +43671,67 @@ WITH THIS, SEC 317's PROGRAM IS COMPLETE. Steps 1-3, 5 and 6 built the model,
 step 7 retired `catalog/` and took its name, and step 4 is answered. The three
 decisions sec 317 said the program needed from the holder are all settled: the
 module name (2026-09-18), the evolve-vs-rewrite pivot (2026-09-19) and this.
+
+## 331. The sweep's reachability guard is removed, 2026-09-21
+
+sec 321 left this open as "whether the guard should instead ask 'does anything
+THIS HOST curates name it'". Both halves of that framing turn out to be wrong,
+and finding out why is most of the value.
+
+FIRST, WHAT THE OLD GUARD ACTUALLY DID. `a_retained_node_needs` asked whether
+this host retained any NODE pointing at these BYTES -- read from the deleted
+module's own source rather than from sec 317's summary of it. Many nodes could
+share one blob, so one node saying DROP settled nothing about the bytes. C1
+collapses exactly that: an entity IS the content hash, one entity is one set of
+bytes and one retention row. So the old guard is SUBSUMED BY THE RETENTION
+GUARD, which is already first in the chain -- it is not re-derived by
+reachability at all. sec 317's mapping table was wrong on that row, and the
+weak-DROP behaviour sec 321 noticed is what that error produced.
+
+SECOND, AND DECISIVE: THE GUARD WAS ON THE WRONG AXIS. C8 and C9 make
+REFERENCING and HOLDING independent -- what wants an entity, and who has its
+bytes. A guard that refuses to drop BYTES because something references the
+ENTITY conflates them. C9 says in as many words that an unreferenced entity may
+still exist on disk; the converse holds too, and the operation it forbids is an
+ordinary one: reclaim the space, keep the catalogue record, re-fetch later.
+
+THE THIRD OPTION WAS NO BETTER, which is why it is recorded rather than
+adopted. A LOCAL reachability guard -- "does anything this host curates name
+it" -- fires exactly when this host's retention says DROP and this host also
+links to it, which is precisely the legitimate case above. It blocks the one
+operation narrowing it was supposed to protect.
+
+SO IT IS REMOVED, and the safety it appeared to provide was never its to
+provide. What keeps a referenced entity in existence is the LAST-COPY guard,
+which asks the right question: do the bytes survive this removal. C19 already
+draws that line -- removing a redundant copy is a different act from removing
+the final holder -- and the guard sits on the second. An entity another host
+curates, held here and elsewhere, is a redundant copy: dropping it destroys
+nothing and the link still resolves through the other holder.
+
+ASSERTED BOTH WAYS, because removing a guard from a deletion path earns it.
+The suite requires that a redundant copy of a curated entity IS planned, and
+that the LAST copy of a curated entity is still refused -- the second being
+the safety half and the reason the removal costs nothing.
+
+THE PLAN LOST A COUNTER with the guard, so the partition is now
+
+    distinct entities = planned + retained + last_copy + absent
+                      + incomplete + truncated
+
+and sweep_print, sweep_view and their suites lost the reason line. plan_fuzz
+lost an invariant it could no longer assert -- "no planned row is curated" --
+and its distribution moved the way the change predicts: over 20000 cases
+`planned` went from 649 to 1479 and `absent` from 6045 to 14158, because
+entities the guard used to catch now reach the holder checks.
+
+`fzn_catalog_referenced` KEEPS ITS OTHER CALLER and that is the clean division
+this leaves: catalog/copy.c's `want` asks it, because deciding what to FETCH is
+exactly the question "does something want this". Referencing decides what to
+fetch; holding decides what to keep.
+
+AND THE VERIFIER CAUGHT THE SABOTAGE SPEC TWICE OVER THIS CHANGE -- once for
+the retired guard's own entry, once for the held-back condition in
+sweep_print.c that the counter's removal rewrote. Both repaired, and the second
+re-proved by sabotaging it and reading which checks failed rather than that
+something did.

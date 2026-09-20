@@ -17,9 +17,17 @@
  *
  *     old                              new
  *     fzn_catalog_keeps                fzn_catalog_keeps        (step 3)
- *     a_retained_node_needs            fzn_catalog_referenced   (step 1)
+ *     a_retained_node_needs            -- subsumed by the above --
  *     holdings->holds callback         this host among the holders
  *     witness->others callback         the holder count, less this host
+ *
+ * THE SECOND ROW IS NOT A GAP. `a_retained_node_needs` asked whether this host
+ * retained any NODE pointing at these bytes, because many nodes could share
+ * one blob. C1 collapses that -- an entity IS the bytes -- so one retention
+ * row settles it and the guard above is the whole of it. sec 317 mapped this
+ * row onto reachability instead, and sec 331 records what that cost: a guard
+ * that conflated referencing with holding and made a local DROP unable to
+ * reclaim anything the estate curated.
  *
  * THE TWO SEAMS DISAPPEARING IS THE POINT OF THE NEW MODEL. Each was a
  * callback a consumer had to supply and could supply wrongly, and an absent
@@ -74,7 +82,7 @@ typedef struct fzn_catalog_removal {
  * THE POPULATION IS THE DISTINCT ENTITIES, and they partition -- each lands in
  * exactly one counter, and the suite asserts the sum:
  *
- *     distinct entities = planned + retained + referenced + last_copy
+ *     distinct entities = planned + retained + last_copy
  *                       + absent + incomplete + truncated
  *
  * An entity NO assertion names is not in the population, and that is C9: it
@@ -85,9 +93,9 @@ typedef struct fzn_catalog_removal {
  *
  * THEY ARE KEPT APART RATHER THAN SUMMED because a consumer that swept nothing
  * needs to say WHY, and the reasons call for different actions: `retained` is
- * this host's own policy working, `referenced` and `last_copy` are the two
- * guards refusing, `absent` is nothing to do, `incomplete` is partial data,
- * and `truncated` is the caller's own sizing. Collapsed into one number, a
+ * this host's own policy working, `last_copy` is the guard refusing, `absent`
+ * is nothing to do, `incomplete` is partial data, and `truncated` is the
+ * caller's own sizing. Collapsed into one number, a
  * sweep held back by the last-copy guard would be indistinguishable from a set
  * with nothing to sweep -- and those want opposite responses.
  */
@@ -96,10 +104,6 @@ typedef struct fzn_catalog_sweep_plan {
 	size_t planned;
 	/* This host keeps it, so not a candidate at all. */
 	size_t retained;
-	/* A live CURATED assertion still names it. A holder assertion is not
-	 * one -- see fzn_catalog_referenced, and sec 321 for what counting it
-	 * did. */
-	size_t referenced;
 	/* Too few OTHER hosts are known to hold it; `min_others` says how few
 	 * is too few. */
 	size_t last_copy;
