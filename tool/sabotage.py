@@ -146,6 +146,79 @@ SABOTAGES = [
 		"An overflowing issuer is dropped once, not per assertion (reach.c's rule), so `dropped` is a count of distinct issuers a reader must still account for. Counting per row inflates it and a caller sizing a catch-up buffer over-allocates. catalogue_test's repeated-dropped-issuer case catches it.",
 	),
 	(
+		"filing-a-retracted-link-is-not-a-place",
+		"catalogue/filing.c",
+		"\t\tif (!a->live)\n\t\t\tcontinue;\n",
+		"\t\tif (0)\n\t\t\tcontinue;\n",
+		"C5c: a link that has been retracted is not a place an entity "
+		"belongs, so it cannot back a filing. Admitting one lets a host keep "
+		"writing files to a path the records stopped asserting -- and since "
+		"filed_under re-checks with this same function, a stale filing would "
+		"go on answering for ever. filing_test files on a retracted link and "
+		"drives the read-side re-check. sec 323",
+	),
+	(
+		"filing-a-holder-assertion-is-not-a-link",
+		"catalogue/filing.c",
+		"if (a->capability == FZN_CATALOGUE_CAP_HOLDER)",
+		"if (0)",
+		"C9 and sec 321 again, one layer up: a HOLDER assertion says where "
+		"bytes ARE, not where they BELONG. Letting one back a filing means "
+		"the fact that a host holds something decides where that host files "
+		"it, which is the same fixpoint sec 321 found in reachability. "
+		"filing_test offers a HOLDER assertion for the exact (entity, "
+		"dimension, path) a curated control then accepts. sec 323",
+	),
+	(
+		"filing-is-a-subset-of-the-records",
+		"catalogue/filing.c",
+		"if (!link_asserted(set, count, entity, entity_len, name, name_len, path, path_len))",
+		"if (0)",
+		"the old module marked an EXISTING membership edge, so a filing the "
+		"records did not assert was not expressible; here it is, and must be "
+		"refused. Without this a host files entities at paths nothing curates "
+		"and the filing and the records drift apart silently. filing_test "
+		"drives an unasserted path, an unasserted dimension and another "
+		"entity's link, each against a control. sec 323",
+	),
+	(
+		"filing-is-rechecked-when-it-is-read",
+		"catalogue/filing.c",
+		"if (!row_backed(row, set, count))",
+		"if (0)",
+		"the old module cleared a filing when its edge was unlinked, because "
+		"it owned the edge table; this model owns no assertions, so there is "
+		"no unlink to hook and the check moves to the read. Skipping it lets "
+		"a host compute a path from a membership nobody asserts any more -- "
+		"the exact failure the old clear-on-unlink rule existed to prevent. "
+		"filing_test retracts a link with nothing calling in to say so. "
+		"sec 323",
+	),
+	(
+		"filing-replaces-rather-than-adds",
+		"catalogue/filing.c",
+		"\trow = find(filings, entity);\n\tif (!row) {\n\t\tif (filings->used >= filings->capacity)",
+		"\trow = NULL;\n\tif (!row) {\n\t\tif (filings->used >= filings->capacity)",
+		"exactly-once per entity is STRUCTURAL: setting a filing overwrites "
+		"whatever was there, so a second place is not expressible rather than "
+		"being detected afterwards. Always adding a row files one entity in "
+		"two places at once, and the path a consumer gets depends on which "
+		"row it finds first. filing_test re-files an entity and requires the "
+		"count to stay at one. sec 323",
+	),
+	(
+		"filing-refile-sorts-so-a-restart-resumes",
+		"catalogue/filing.c",
+		"while (at > 0 && memcmp(moves[at - 1].entity, move->entity,\n\t                        FZN_CATALOGUE_ENTITY_LEN) > 0) {",
+		"while (at > 0 && memcmp(moves[at - 1].entity, move->entity,\n\t                        FZN_CATALOGUE_ENTITY_LEN) < 0) {",
+		"the cursor is a count, and the old module leaned on a catalogue lock "
+		"to make resuming from one sound. This model has no lock, so the sort "
+		"is what is left: the table's order is whatever filing produced, and "
+		"a restart that rebuilt it would resume at a different entity and "
+		"move the wrong file. filing_test walks a captured job across a "
+		"simulated restart. sec 323",
+	),
+	(
 		"copy-want-needs-retention",
 		"catalogue/copy.c",
 		"if (retained_only &&\n\t\t    !fzn_catalogue_keeps(holds, a->entity, a->entity_len, now)) {",

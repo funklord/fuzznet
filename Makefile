@@ -171,7 +171,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              disclose/disclose.c \
              facet/facet.c \
              catalogue/catalogue.c catalogue/retention.c catalogue/sweep.c \
-             catalogue/copy.c \
+             catalogue/copy.c catalogue/filing.c \
              persist/persist.c \
              spool/spool.c \
              spool/plan.c \
@@ -238,7 +238,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              disclose/disclose.h \
              facet/facet.h \
              catalogue/catalogue.h catalogue/retention.h catalogue/sweep.h \
-             catalogue/copy.h \
+             catalogue/copy.h catalogue/filing.h \
              persist/persist.h \
              spool/spool.h spool/message.h spool/transfer.h \
              spool/scrub.h \
@@ -305,6 +305,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              catalogue/test/retention_test.c \
              catalogue/test/sweep_plan_test.c \
              catalogue/test/copy_plan_test.c \
+             catalogue/test/filing_test.c \
              persist/test/persist_test.c \
              persist/test/persist_fuzz.c \
              wire/test/relay_fuzz.c \
@@ -406,6 +407,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/catalogue/test/retention_test \
              $(BUILD_DIR)/catalogue/test/sweep_plan_test \
              $(BUILD_DIR)/catalogue/test/copy_plan_test \
+             $(BUILD_DIR)/catalogue/test/filing_test \
              $(BUILD_DIR)/persist/test/persist_test \
              $(BUILD_DIR)/persist/test/persist_kat_test \
              $(BUILD_DIR)/spool/test/spool_test \
@@ -2010,6 +2012,15 @@ $(BUILD_DIR)/catalogue/test/copy_plan_test: $(BUILD_DIR)/catalogue/test/copy_pla
                                              $(BUILD_DIR)/catalogue/copy.o \
                                              $(BUILD_DIR)/catalogue/retention.o \
                                              $(BUILD_DIR)/catalogue/catalogue.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# filing computes where files should be and moves none, so it links no
+# filesystem: the move is the consumer's, which is what keeps a catalogue
+# usable on a host whose storage is not a filesystem (sec 323).
+$(BUILD_DIR)/catalogue/test/filing_test: $(BUILD_DIR)/catalogue/test/filing_test.o \
+                                             $(BUILD_DIR)/catalogue/filing.o \
+                                             $(BUILD_DIR)/catalogue/retention.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 

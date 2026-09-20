@@ -504,6 +504,8 @@ const char *fzn_catalogue_err_str(fzn_catalogue_err_t err)
 		return "authoritative merge needs a named authority";
 	case FZN_CATALOGUE_ERR_RANGE:
 		return "output buffer too small";
+	case FZN_CATALOGUE_ERR_ABSENT:
+		return "not asserted by the records";
 	}
 	return "unknown";
 }

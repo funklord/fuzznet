@@ -755,8 +755,15 @@ typedef enum fzn_catalogue_err {
 	FZN_CATALOGUE_ERR_KIND = 3,
 	/* AUTHORITATIVE resolution was asked for without naming the authority. */
 	FZN_CATALOGUE_ERR_NO_AUTHORITY = 4,
-	/* The output buffer cannot hold the resolved set. */
+	/* The output buffer cannot hold the resolved set, or a value is longer
+	 * than the field that has to carry it. */
 	FZN_CATALOGUE_ERR_RANGE = 5,
+	/* The records do not assert what the caller named -- a filing on a link
+	 * nothing curates, say. A legitimate state rather than a caller's bug,
+	 * which is why it is not MALFORMED: the two call for different
+	 * responses, and a caller that could not tell them apart would treat a
+	 * catalogue it has not caught up with as a programming error. sec 323. */
+	FZN_CATALOGUE_ERR_ABSENT = 6,
 } fzn_catalogue_err_t;
 
 /* C2: what may be asserted, by WHO CAN CHECK IT. */

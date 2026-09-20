@@ -103,6 +103,7 @@
 /catalogue/test/retention_test
 /catalogue/test/sweep_plan_test
 /catalogue/test/copy_plan_test
+/catalogue/test/filing_test
 /persist/test/persist_fuzz
 /wire/test/relay_fuzz
 /log/test/log_fuzz

@@ -43220,3 +43220,91 @@ consulting policy, and an offer without its scope check.
 NEXT: step 6 (filing), the largest of the local-layer pieces and the last
 unblocked one. Step 4 still waits on the reclamation policy and step 7 on the
 peer deconfliction sec 317 names.
+
+## 323. Filing re-homes: step 6, 2026-09-20
+
+`catalogue/filing.{h,c}`. The last of steps 1-6, and the one sec 317 sized as
+MEDIUM-LARGE. It turned out smaller in one place and larger in another, and
+both are worth recording.
+
+SMALLER: THE PATH NEEDS NO WALK. The old filing was a mark on a membership
+edge, so a node's path was found by walking filing parents upward -- with
+FZN_CATALOG_FILING_MAX_DEPTH at 64, because filing A under B and B under A
+made a cycle expressible and a walk needed a bound rather than a promise. sec
+315 settled that a curated link is an attribute whose NAME is the dimension
+and whose VALUE is a path in that dimension's tree, so the value IS the path.
+There is nothing to walk, no depth to bound, and no cycle to express. The
+whole of `fzn_catalog_filed_path` and its bound are gone.
+
+WHAT A FILING IS NOW: a choice among the links the entity ALREADY HAS. An
+entity may sit in many places at once -- several assertions merged as UNION --
+and a filing says which ONE of them this host writes to disk. That keeps the
+filing a SUBSET of what the records assert, which is the property the old
+module got from marking an existing edge.
+
+LARGER: THE SUBSET PROPERTY IS NO LONGER STRUCTURAL. The old module could not
+express a filing on an edge that did not exist; here it can be expressed and
+has to be REFUSED, which means a check and a test rather than a type.
+FZN_CATALOGUE_ERR_ABSENT when no live curated assertion names the (entity,
+dimension, path) -- and a HOLDER assertion cannot back one, which is sec 321's
+finding one layer up: it says where the bytes ARE, not where they BELONG, and
+filing on one would let the fact that a host holds something decide where it
+files it.
+
+AND THE RULE THAT HAD TO MOVE, which is the real work of this step. The old
+module cleared a filing when its edge was unlinked, because it owned the edge
+table and could hook the removal: "a node filed under a directory it has left
+is a path to a place the catalogue no longer says it belongs." This model owns
+no assertions -- they are the caller's set -- so there is no unlink to hook.
+The check therefore moves to the READ: `fzn_catalogue_filed_under` re-checks
+the set on every call and answers nothing for a filing no live curated
+assertion backs any more. The rule survives; only its moment changes.
+
+That leaves stale rows occupying slots, so `fzn_catalogue_filing_prune` gives
+them back -- deliberately, at a moment of the caller's choosing, for the same
+reason `fzn_catalogue_due` does not reclaim its own rows: a read must not
+write. The pair is driven from both sides in the suite, because a read that
+refused everything and a prune that dropped everything would each pass alone.
+
+A PRUNE OVER AN EMPTY SET DROPS EVERYTHING, and that is the conservative
+direction rather than a bug: nothing is asserted, so nothing is backed. A
+caller that has not loaded its records yet must not prune.
+
+THE REFILE KEEPS ITS SHAPE and loses its lock. Capture before the change --
+the only order that works, since afterwards the old paths are gone and there
+is nothing to move files from -- then a cursor over (entity, was, is). The old
+module said plainly that the lock was not only a safety property but what made
+resuming from a count sound, and this model has no container to hold one. The
+requirement does not go away with the mechanism: the sort by entity is what is
+left, and the rest becomes the caller's, stated in the header. A caller needing
+it enforced holds its own lock around the job, which it must anyway, since the
+files are its to move. The suite walks a job across a simulated restart, since
+a test that only ran start to finish would never exercise what the lock used
+to protect.
+
+`to` MAY BE NULL AND THAT IS A REAL ANSWER. An entity unfiled, or whose link
+was retracted, between capture and cursor has nowhere to go. What to do with a
+file whose entity has no home is the consumer's decision rather than this
+library's, so it is reported rather than refused.
+
+A NEW ERROR CODE, FZN_CATALOGUE_ERR_ABSENT. "The records do not assert what
+you named" is a legitimate state, not a caller's bug, and folding it into
+MALFORMED would make a caller that has not caught up with a catalogue
+indistinguishable from one with a programming error. The two call for
+different responses. err_str_test walks seven arms now.
+
+ONE THING THE SUITE FOUND IN THE CODE: `refile_capture` checked its capacity
+before zeroing the job, so a refused capture left `captured` holding whatever
+was on the stack -- and `captured` is what every cursor call trusts. The plan
+structs in sweep and copy are zeroed before their arguments are checked for
+exactly this reason; the capture is now too.
+
+TESTED, 60 checks, six sabotage entries, each watched failing through its own
+assertion: a retracted link backing a filing, a holder assertion backing one,
+the subset rule skipped, the read-side re-check skipped, filing adding instead
+of replacing, and the refile's sort reversed.
+
+STEPS 1-6 ARE NOW BUILT. What remains of sec 317: step 4, which is the
+reclamation POLICY and the holder's; and step 7, the test migration and the
+rename, which sec 317 names as peer-hot and wanting deliberate deconfliction
+rather than charging in.

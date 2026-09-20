@@ -62,6 +62,7 @@
 #include <fuzznet/catalogue/retention.h>
 #include <fuzznet/catalogue/sweep.h>
 #include <fuzznet/catalogue/copy.h>
+#include <fuzznet/catalogue/filing.h>
 #include <fuzznet/qr/qr.h>
 #if defined(FZN_CLI_ON)
 #include <fuzznet/cli/qr_print.h>
@@ -172,6 +173,7 @@
 #include "catalogue/retention.h"
 #include "catalogue/sweep.h"
 #include "catalogue/copy.h"
+#include "catalogue/filing.h"
 #include "qr/qr.h"
 #if defined(FZN_CLI_ON)
 #include "cli/qr_print.h"
@@ -1864,6 +1866,57 @@ int main(void)
 					FAIL(379);
 				if (cplan.written != 1 || cplan.unknown != 1)
 					FAIL(380);
+			}
+
+			/* FILING, from outside. The property worth proving
+			 * here is the one that moved: a filing whose link is
+			 * retracted stops answering, with nothing calling in
+			 * to say the link went away. */
+			{
+				fzn_catalogue_assertion_t fset[1];
+				fzn_catalogue_filing_t frows[2];
+				fzn_catalogue_filings_t filings;
+				fzn_catalogue_move_t fmoves[2];
+				fzn_catalogue_refile_t fjob;
+				const uint8_t dim[] = "place";
+				const uint8_t where[] = "/photos/2026";
+
+				memset(&fset[0], 0, sizeof(fset[0]));
+				fset[0].issuer = host_a;   fset[0].issuer_len = 32;
+				fset[0].entity = sweep_e;
+				fset[0].entity_len = sizeof(sweep_e);
+				fset[0].name = dim;        fset[0].name_len = 5;
+				fset[0].value = where;     fset[0].value_len = 12;
+				fset[0].attr_class = FZN_CATALOGUE_LABEL;
+				fset[0].scope = FZN_CATALOGUE_ESTATE;
+				fset[0].merge = FZN_CATALOGUE_UNION;
+				fset[0].capability = FZN_CATALOGUE_CAP_NONE;
+				fset[0].live = 1;
+
+				if (fzn_catalogue_filings_init(&filings, frows, 2)
+				    != FZN_CATALOGUE_OK)
+					FAIL(381);
+				if (fzn_catalogue_file_under(&filings, fset, 1, sweep_e,
+				                             sizeof(sweep_e), dim, 5,
+				                             where, 12) != FZN_CATALOGUE_OK)
+					FAIL(382);
+				if (!fzn_catalogue_filed_under(&filings, fset, 1, sweep_e,
+				                               sizeof(sweep_e)))
+					FAIL(383);
+				if (fzn_catalogue_refile_capture(&filings, &fjob, fmoves, 2)
+				    != FZN_CATALOGUE_OK || fjob.used != 1)
+					FAIL(384);
+
+				/* The link is retracted, and nothing tells the
+				 * filing table. */
+				fset[0].live = 0;
+				if (fzn_catalogue_filed_under(&filings, fset, 1, sweep_e,
+				                              sizeof(sweep_e)))
+					FAIL(385);
+				if (fzn_catalogue_filing_prune(&filings, fset, 1) != 1)
+					FAIL(386);
+				if (fzn_catalogue_filing_count(&filings) != 0)
+					FAIL(387);
 			}
 		}
 
