@@ -74,7 +74,6 @@
 #include "../../spool/spool.h"
 #include "../../claim/claim.h"
 #include "../../record/store.h"
-#include "../../catalog/catalog.h"
 #include "../../qr/qr.h"
 #ifdef FZN_CLI_ON
 #include "../../cli/cli.h"
@@ -130,10 +129,7 @@ static const char *r_agree(int v) { return fzn_agree_err_str((fzn_agree_err_t)v)
 static const char *r_session(int v) { return fzn_session_err_str((fzn_session_err_t)v); }
 static const char *r_spool(int v) { return fzn_spool_err_str((fzn_spool_err_t)v); }
 static const char *r_claim(int v) { return fzn_claim_err_str((fzn_claim_err_t)v); }
-static const char *r_catalog(int v) { return fzn_catalog_err_str((fzn_catalog_err_t)v); }
 static const char *r_qr(int v) { return fzn_qr_err_str((fzn_qr_err_t)v); }
-static const char *r_ckind(int v) { return fzn_catalog_content_str((fzn_catalog_content_t)v); }
-static const char *r_retain(int v) { return fzn_catalog_retention_str((fzn_catalog_retention_t)v); }
 static const char *r_rstore(int v) { return fzn_record_store_err_str((fzn_record_store_err_t)v); }
 #ifdef FZN_CLI_ON
 static const char *r_cli(int v) { return fzn_cli_err_str((fzn_cli_err_t)v); }
@@ -197,10 +193,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_spool_err_str", r_spool, 6 },
 	{ "fzn_claim_err_str", r_claim, 5 },
 	{ "fzn_record_store_err_str", r_rstore, 6 },
-	{ "fzn_catalog_err_str", r_catalog, 10 },
 	{ "fzn_qr_err_str", r_qr, 4 },
-	{ "fzn_catalog_content_str", r_ckind, 3 },
-	{ "fzn_catalog_retention_str", r_retain, 3 },
 #ifdef FZN_CLI_ON
 	{ "fzn_cli_err_str", r_cli, 4 },
 #endif

@@ -723,34 +723,6 @@ SABOTAGES = [
 		"fzn_reasm_plan_want repeats find's sender match with its own memcmp; a prefix read lets a sender one byte off the slot's owner be told which chunks it lacks, the leak the sender-in-the-match prevents. find and held_by are near-miss-tested and this third compare was not: the absent-message test uses alice and bob, who differ at byte 0. sec 316",
 	),
 	(
-		"catalog-name-max-is-inclusive",
-		"catalog/catalog.c",
-		"\tif (!text || len == 0 || len > FZN_CATALOG_NAME_MAX)",
-		"\tif (!text || len == 0 || len >= FZN_CATALOG_NAME_MAX)",
-		"a name of exactly FZN_CATALOG_NAME_MAX (255) is legal: the declared length is a single body byte, so it reaches the maximum exactly, and >= refuses the longest legal name at encode and off the wire in apply_name. Every other name test uses a short title, so only a maximum-length name holds this edge. sec 298",
-	),
-	(
-		"catalog-add-wins-reads-the-whole-issuer",
-		"catalog/catalog.c",
-		"if (memcmp(held->issuer, offered->issuer, FZN_PUBKEY_LEN) == 0)\n\t\treturn offered->seq > held->seq ? 1 : 0;\n\n\t/* ACROSS ISSUERS, PRESENCE WINS",
-		"if (memcmp(held->issuer, offered->issuer, 1u) == 0)\n\t\treturn offered->seq > held->seq ? 1 : 0;\n\n\t/* ACROSS ISSUERS, PRESENCE WINS",
-		"add_wins orders one issuer's own edge by sequence and settles a cross-issuer conflict by presence. A prefix compare reads two issuers sharing a first byte as one, so a higher-sequenced near-miss offer wins the sequence path and overwrites -- or unlinks -- an edge another issuer owns. The merge tests use issuers differing at byte 0; none feeds a last-byte near miss. sec 318",
-	),
-	(
-		"catalog-content-held-wins-reads-the-whole-issuer",
-		"catalog/catalog.c",
-		"if (memcmp(held->issuer, offered->issuer, FZN_PUBKEY_LEN) == 0)\n\t\treturn offered->seq > held->seq ? 1 : 0;\n\n\t/* Across issuers there is no",
-		"if (memcmp(held->issuer, offered->issuer, 1u) == 0)\n\t\treturn offered->seq > held->seq ? 1 : 0;\n\n\t/* Across issuers there is no",
-		"content_held_wins keeps what is held across issuers and orders one issuer's own content by sequence. A prefix compare lets a near-miss issuer's higher seq overwrite content another issuer owns, the same last-byte gap add_wins has. sec 318",
-	),
-	(
-		"catalog-name-held-wins-reads-the-whole-issuer",
-		"catalog/catalog.c",
-		"if (memcmp(held->issuer, offered->issuer, FZN_PUBKEY_LEN) == 0)\n\t\treturn offered->seq > held->seq ? 1 : 0;\n\treturn 0;\n}",
-		"if (memcmp(held->issuer, offered->issuer, 1u) == 0)\n\t\treturn offered->seq > held->seq ? 1 : 0;\n\treturn 0;\n}",
-		"name_held_wins keeps a held name across issuers and orders one issuer's own by sequence. A prefix compare lets a near-miss issuer rename a node another issuer named, by presenting a higher seq. sec 318",
-	),
-	(
 		"revocation-covers-a-full-chain",
 		"chain/revocation.c",
 		"\tif (hop_count == 0 || hop_count > (size_t)FZN_CHAIN_MAX_HOPS)\n\t\treturn;",
@@ -779,13 +751,6 @@ SABOTAGES = [
 		"the verb match must read the WHOLE verb, or a query one byte off a named verb matches its rule and a peer is granted a verb no rule names -- authorisation by near miss. rule_names is shared by admit and names, so one near-miss test pins both; every other verb differs from the rest in an earlier byte. sec 307",
 	),
 	(
-		"sweep-last-copy-bar-is-inclusive",
-		"catalog/sweep.c",
-		"\t\t    others_holding(witness, entry->root, entry->blob_len) < min_others) {",
-		"\t\t    others_holding(witness, entry->root, entry->blob_len) <= min_others) {",
-		"a blob held by exactly min_others other hosts meets the bar and may be swept, leaving min_others behind; <= withholds it, retaining more than the caller asked. sweep_test uses others strictly below or above the bar, which < and <= order alike -- only others == min_others holds the edge, and sweep_fuzz is protocol-only. sec 294",
-	),
-	(
 		"store-file-read-fits-the-buffer",
 		"record/store_file.c",
 		"\tif (len > FZN_RECORD_MAX_LEN || len > cap)",
@@ -805,34 +770,6 @@ SABOTAGES = [
 		"\treturn committed_len <= FZN_DISCLOSE_MAX_LEN;",
 		"\treturn committed_len < FZN_DISCLOSE_MAX_LEN;",
 		"a committed blob of exactly FZN_DISCLOSE_MAX_LEN (salt plus the maximum field) is well-shaped; < rejects it as misshapen and refuses to hash a maximum disclosure's leaf. sec 292",
-	),
-	(
-		"reach-frontier-caught-up-is-complete",
-		"catalog/reach.c",
-		"\t\t\tif (frontier[i].received < seq)\n\t\t\t\ti = frontier_count;",
-		"\t\t\tif (frontier[i].received <= seq)\n\t\t\t\ti = frontier_count;",
-		"a frontier whose received equals the applied seq has read that record and is caught up, so the walk must proceed; <= wrongly calls it behind and refuses the walk as INCOMPLETE. The behind case tests received 0 against seq 1, which < and <= both call behind -- only received == seq holds the edge. sec 291",
-	),
-	(
-		"reach-walk-reads-the-whole-id",
-		"catalog/reach.c",
-		"\treturn memcmp(a->b, b->b, FZN_CATALOG_ID_LEN) == 0;",
-		"\treturn memcmp(a->b, b->b, 1u) == 0;",
-		"same_id decides node membership in a walk whose answer is acted on by deleting; a prefix compare folds an unreachable node into a reachable one sharing a prefix and never proposes it, or the reverse. Every case separates ids in the first byte, so only a last-byte near miss holds the whole read. sec 306",
-	),
-	(
-		"reach-frontier-reads-the-whole-issuer",
-		"catalog/reach.c",
-		"\t\t\tif (memcmp(frontier[i].issuer, issuer, FZN_PUBKEY_LEN) != 0)",
-		"\t\t\tif (memcmp(frontier[i].issuer, issuer, 1u) != 0)",
-		"vouched_for accepts a catalogue as accounted-for only when the frontier names each issuer; a prefix compare takes a frontier one byte off an issuer for it, and the walk answers a deletion question from a frontier that never accounted for that issuer. sec 306",
-	),
-	(
-		"reach-sources-reads-the-whole-issuer",
-		"catalog/reach.c",
-		"\t\t\tif (memcmp(out[i].issuer, issuer, FZN_PUBKEY_LEN) != 0)",
-		"\t\t\tif (memcmp(out[i].issuer, issuer, 1u) != 0)",
-		"fzn_catalog_sources reports the distinct issuers a catalogue depends on, deduplicating rows by issuer -- the sibling of the frontier compare above. A prefix compare merges two issuers one byte apart into one source, so a caller catching up learns of a single dependency and never accounts for the second issuer's records. sec 319",
 	),
 	(
 		"message-have-ceiling-is-inclusive",
@@ -1872,20 +1809,6 @@ SABOTAGES = [
 		"a sender that spoke once and stopped is ordinary loss and a transfer this host gave up on mid-flight is the symptom of a max_hold below the arrival time -- reported at one severity they are indistinguishable to anybody filtering, which is the only thing a log level is for -- sec 236",
 	),
 	(
-		"sweep-says-the-guard-is-off",
-		"catalog/sweep.c",
-		"\t\tSWEEP_LOG(catalog, \"catalog/sweep\", FLOG_NOTE,\n",
-		"\t\tSWEEP_LOG(catalog, \"catalog/sweep\", FLOG_DEBUG,\n",
-		"min_others of 0 switches off the only check between a plan and bytes nobody else holds, and the plan it returns looks exactly like one that passed the guard -- at debug the one record of that is filtered out by every default, on a path whose header calls its hazards real ways to lose data -- sec 237",
-	),
-	(
-		"sweep-truncation-is-said",
-		"catalog/sweep.c",
-		"\t\tSWEEP_LOG(catalog, \"catalog/sweep\", FLOG_WARN,\n",
-		"\t\tSWEEP_LOG(catalog, \"catalog/sweep\", FLOG_INFO,\n",
-		"sweep.h calls truncation loud because a sweep that silently held some of them leaves a consumer believing it reclaimed what it had not -- informational is not loud, and the counter it had before this was one of seven -- sec 237",
-	),
-	(
 		"scrub-says-which-cell-rotted",
 		"spool/scrub.c",
 		"\t\t\t\t          (unsigned long long)cell, (unsigned long long)len,\n",
@@ -2574,20 +2497,6 @@ SABOTAGES = [
 		"the leaf VERIFIED and then did not land, so the spool's bookkeeping and the storage disagree from now on and it will be asked for again for ever -- the consumer's own storage failing is not an informational event -- sec 214",
 	),
 	(
-		"catalog-full-is-forever",
-		"catalog/catalog.c",
-		"\"catalog/edge\", FLOG_CRIT,\n",
-		"\"catalog/edge\", FLOG_WARN,\n",
-		"nothing here frees an edge slot -- `used` is set to zero by init and otherwise only compared -- so FZN_CATALOG_ERR_FULL is not one refused link but every link from now on -- sec 213",
-	),
-	(
-		"catalog-a-losing-link-is-ordinary",
-		"catalog/catalog.c",
-		"\"catalog/edge\", FLOG_INFO,\n",
-		"\"catalog/edge\", FLOG_WARN,\n",
-		"a link losing to the one already held is convergence working, and reporting an ordinary event as a warning is how the warnings that matter get drowned -- the severity is the whole content of this one -- sec 213",
-	),
-	(
 		"journal-anchor-refuses-a-standstill",
 		"record/journal.c",
 		"\tif (seq <= e->received)\n\t\treturn FZN_JOURNAL_ERR_DUPLICATE;\n\n\te->received = seq;",
@@ -2796,400 +2705,6 @@ SABOTAGES = [
 		"\tif (first > 1u) {\n",
 		"\tif (0) {\n",
 		"a log evicts by design, so a viewer that lists what it holds and stops presents a shorter history as a complete one -- sec 141; it moved here from gui/log_view.cpp with the wording in sec 168, and now guards both screens at once",
-	),
-	(
-		"catalog-tombstone-is-stored",
-		"catalog/catalog.c",
-		"\tif (catalog->used == catalog->capacity) {\n",
-		"\tif (!offered.present)\n\t\treturn FZN_CATALOG_OK;\n\tif (catalog->used == catalog->capacity) {\n",
-		"an unlink for an edge nobody has asserted is stored anyway, or a stale link arriving afterwards creates the edge afresh and the removal undoes itself on the next sync",
-	),
-	(
-		"catalog-full-refuses-not-evicts",
-		"catalog/catalog.c",
-		"\t\treturn FZN_CATALOG_ERR_FULL;\n\t}\n",
-		"\t\tcatalog->used--;\n\t}\n",
-		"sec 142: a catalogue entry that vanishes is a feature the consumer stops offering silently, so a full table refuses loudly where a log evicts",
-	),
-	(
-		"catalog-resolver-is-consulted",
-		"catalog/catalog.c",
-		"\t\tif (!catalog->resolve->prefer(catalog->resolve->ctx, held, &offered)) {\n",
-		"\t\tif (0) {\n",
-		"the conflict strategy is a seam because the holder asked for a wide variety of them, and a module that decided for itself would make the seam decorative",
-	),
-	(
-		"catalog-issuer-supersedes-first",
-		"catalog/catalog.c",
-		# Carries the comment that follows it, because the content resolver
-		# below has the identical two lines -- `--verify` refused this entry
-		# for matching two sites, which is the anchor-uniqueness rule in
-		# evidence.md meeting a module that grew a second resolver.
-		"\tif (memcmp(held->issuer, offered->issuer, FZN_PUBKEY_LEN) == 0)\n\t\treturn offered->seq > held->seq ? 1 : 0;\n\n\t/* ACROSS ISSUERS, PRESENCE WINS",
-		"\tif (held->present != offered->present)\n\t\treturn offered->present ? 1 : 0;\n\tif (memcmp(held->issuer, offered->issuer, FZN_PUBKEY_LEN) == 0)\n\t\treturn offered->seq > held->seq ? 1 : 0;\n\n\t/* ACROSS ISSUERS, PRESENCE WINS",
-		"checking presence before the issuer makes an unlink never beat a link even from the issuer that wrote it -- a store that only grows, where the holder asked for one easy to edit",
-	),
-	(
-		"catalog-listings-skip-absent",
-		"catalog/catalog.c",
-		"\t\tif (!catalog->edges[i].present)\n\t\t\tcontinue;\n\t\tif (!same_id(&catalog->edges[i].parent, parent))\n",
-		"\t\tif (0)\n\t\t\tcontinue;\n\t\tif (!same_id(&catalog->edges[i].parent, parent))\n",
-		"a tombstone is a row that stays, so a listing that did not skip absent edges would show every member anybody ever removed",
-	),
-	(
-		"catalog-intersect-requires-all",
-		"catalog/catalog.c",
-		"\t\t\tif (!fzn_catalog_linked(catalog, &parents[j], &edge->child)) {\n",
-		"\t\t\tif (0) {\n",
-		"combining directories as search terms is set intersection, and one that did not require every term would answer the first term alone",
-	),
-	(
-		"content-inline-bounded",
-		"catalog/catalog.c",
-		# The table's copy, told from the encoder's by the comment above it.
-		# This entry matched nothing after sec 146 tightened the bound from
-		# FZN_RECORD_BODY_MAX to the wire's -- `--verify` reported it stale,
-		# which is what that mode is for.
-		"\t\tif (entry->len > FZN_CATALOG_INLINE_MAX)\n\t\t\treturn FZN_CATALOG_ERR_MALFORMED;\n\t\tif (entry->len > 0 && !entry->bytes)\n\t\t\treturn FZN_CATALOG_ERR_MALFORMED;\n\t\tbreak;\n\tcase FZN_CATALOG_CONTENT_BLOB:\n\t\t/* A BLOB OF ZERO LENGTH",
-		"\t\tif (0)\n\t\t\treturn FZN_CATALOG_ERR_MALFORMED;\n\t\tif (entry->len > 0 && !entry->bytes)\n\t\t\treturn FZN_CATALOG_ERR_MALFORMED;\n\t\tbreak;\n\tcase FZN_CATALOG_CONTENT_BLOB:\n\t\t/* A BLOB OF ZERO LENGTH",
-		"an inline value longer than a record body is a caller describing something it could never send, refused here rather than at the moment somebody tries",
-	),
-	(
-		"content-blob-names-something",
-		"catalog/catalog.c",
-		# The encoder grew the same check, so this carries the comment that
-		# only the table's copy has.
-		"zero-length blob is a caller that filled in half a row. */\n\t\tif (entry->blob_len == 0)\n",
-		"zero-length blob is a caller that filled in half a row. */\n\t\tif (0)\n",
-		"an empty value is expressible as an inline of length zero, so a blob naming nothing is a half-filled row rather than an empty entry",
-	),
-	(
-		"content-resolver-is-consulted",
-		"catalog/catalog.c",
-		"\t\tif (!catalog->content_resolve->prefer(catalog->content_resolve->ctx, held, entry))\n\t\t\treturn FZN_CATALOG_ERR_STALE;\n",
-		"\t\tif (0)\n\t\t\treturn FZN_CATALOG_ERR_STALE;\n",
-		"content conflict is its own seam because two contents have no presence asymmetry to exploit, and a module deciding for itself would make the seam decorative",
-	),
-	(
-		"content-issuer-supersedes-own",
-		"catalog/catalog.c",
-		"\tif (memcmp(held->issuer, offered->issuer, FZN_PUBKEY_LEN) == 0)\n\t\treturn offered->seq > held->seq ? 1 : 0;\n\n\t/* Across issuers there is no \"later\" to appeal to, so what is held\n",
-		"\tif (0)\n\t\treturn offered->seq > held->seq ? 1 : 0;\n\n\t/* Across issuers there is no \"later\" to appeal to, so what is held\n",
-		"an issuer restating its own content is a later statement rather than a conflict, and without that a node's content could never be edited -- sec 144's correction, met again",
-	),
-	(
-		"content-unknown-kind-refused",
-		"catalog/catalog.c",
-		# The encoder's switch ends the same way, so this carries the line
-		# after it, which only the table's copy has.
-		"\tdefault:\n\t\treturn FZN_CATALOG_ERR_MALFORMED;\n\t}\n\n\theld = find_entry",
-		"\tdefault:\n\t\tbreak;\n\t}\n\n\theld = find_entry",
-		"a kind that is none of the three is a caller filling in a row it does not understand, and storing it would hand every reader a value nothing can render",
-	),
-	(
-		"wire-present-canonical",
-		"catalog/catalog.c",
-		"\tif (present > 1u)\n\t\treturn FZN_CATALOG_ERR_SHAPE;\n",
-		"\tif (0)\n\t\treturn FZN_CATALOG_ERR_SHAPE;\n",
-		"read loosely there are 255 encodings of one statement, the signature over each differs, and two implementations that both work produce assertions the other rejects",
-	),
-	(
-		"wire-edge-exact-length",
-		"catalog/catalog.c",
-		"\tif (len != FZN_CATALOG_EDGE_BODY_LEN)\n\t\treturn FZN_CATALOG_ERR_SHAPE;\n",
-		"\tif (len < FZN_CATALOG_EDGE_BODY_LEN)\n\t\treturn FZN_CATALOG_ERR_SHAPE;\n",
-		"an at-least check accepts a body carrying trailing bytes nobody signed a meaning for, which is a second encoding of the same edge",
-	),
-	(
-		"wire-blob-exact-length",
-		"catalog/catalog.c",
-		"\t\tif (len != FZN_CATALOG_BLOB_BODY_LEN)\n\t\t\treturn FZN_CATALOG_ERR_SHAPE;\n",
-		"\t\tif (len < FZN_CATALOG_BLOB_BODY_LEN)\n\t\t\treturn FZN_CATALOG_ERR_SHAPE;\n",
-		"the same at-least hazard on the blob arm, which the suite missed until the harness reported this SURVIVED",
-	),
-	(
-		"wire-none-exact-length",
-		"catalog/catalog.c",
-		"\t\tif (len != FZN_CATALOG_CONTENT_HEAD_LEN)\n\t\t\treturn FZN_CATALOG_ERR_SHAPE;\n",
-		"\t\tif (len < FZN_CATALOG_CONTENT_HEAD_LEN)\n\t\t\treturn FZN_CATALOG_ERR_SHAPE;\n",
-		"a set with bytes after it is not a longer set, and accepting one gives a second encoding of a node that holds nothing",
-	),
-	(
-		"wire-attribution-from-record",
-		"catalog/catalog.c",
-		"\tmemcpy(entry.issuer, issuer, FZN_PUBKEY_LEN);\n\tentry.seq = seq;\n",
-		"\tmemcpy(entry.issuer, body + 1, FZN_PUBKEY_LEN);\n\tentry.seq = seq;\n",
-		"there is no field in the body for an issuer, so an assertion cannot be credited to somebody who did not sign it -- reading one from the body trusts bytes over the signature",
-	),
-	(
-		"wire-seq-from-record",
-		"catalog/catalog.c",
-		"\tentry.seq = seq;\n",
-		"\tentry.seq = 1u;\n",
-		"the sequence orders an issuer's statements, so a decoder inventing one makes every later edit lose to the first",
-	),
-	(
-		"wire-encode-present-canonical",
-		"catalog/catalog.c",
-		"\tout[FZN_CATALOG_EDGE_BODY_LEN - 1u] = present ? 1u : 0u;\n",
-		"\tout[FZN_CATALOG_EDGE_BODY_LEN - 1u] = (uint8_t)present;\n",
-		"a caller passing 2 for present is passing C's idea of true, and an encoder writing it through puts a body on the wire that its own decoder refuses",
-	),
-	(
-		"wire-unknown-tag-refused",
-		"catalog/catalog.c",
-		"\tdefault:\n\t\t/* Somebody else's body in a stream this catalogue follows. Not\n\t\t * ours, and saying so is different from calling it broken. */\n\t\treturn FZN_CATALOG_ERR_SHAPE;\n\t}\n",
-		"\tdefault:\n\t\treturn apply_edge(catalog, body, len, fzn_record_issuer(record),\n\t\t                  fzn_record_seq(record));\n\t}\n",
-		"a record kind is the consumer's taxonomy, so a catalogue stream may carry bodies that are not ours -- reading one as an edge would apply a statement nobody made about a catalogue",
-	),
-	(
-		"filing-exactly-once",
-		"catalog/catalog.c",
-		"\tfor (i = 0; i < catalog->used; i++) {\n\t\tif (same_id(&catalog->edges[i].child, child))\n\t\t\tcatalog->edges[i].filed = 0;\n\t}\n\tedge->filed = 1;\n",
-		"\tedge->filed = 1;\n",
-		"below the filing root each file exists exactly once, and clearing every other mark as one is set is what makes that structural rather than a check somebody has to remember to run",
-	),
-	(
-		"filing-needs-a-membership",
-		"catalog/catalog.c",
-		"\tif (!edge || !edge->present)\n\t\treturn FZN_CATALOG_ERR_ABSENT;\n",
-		"\tif (!edge)\n\t\treturn FZN_CATALOG_ERR_ABSENT;\n",
-		"a filing is a subset of the membership DAG, so filing under a tombstone would put bytes at a path the catalogue no longer says the node belongs to",
-	),
-	(
-		"filing-cleared-by-unlink",
-		"catalog/catalog.c",
-		"\t\toffered.filed = offered.present ? held->filed : 0;\n",
-		"\t\toffered.filed = held->filed;\n",
-		"an unlink clears the filing, and leaving the mark lets a peer's later re-link resurrect a placement this host had lost -- the wire deciding where a host keeps its bytes",
-	),
-	(
-		"filing-survives-relink",
-		"catalog/catalog.c",
-		"\t\toffered.filed = offered.present ? held->filed : 0;\n",
-		"\t\toffered.filed = 0;\n",
-		"only a removal clears a filing: a peer re-asserting a membership must not move where this host keeps its bytes, and an assertion off the wire carries no filing bit to carry",
-	),
-	(
-		"filing-root-must-be-set",
-		"catalog/catalog.c",
-		"\tif (!catalog->filing_root_set)\n\t\treturn 0;\n",
-		"\tif (0)\n\t\treturn 0;\n",
-		"the holder's requirement is that the tag must exist, and a library that cannot supply one for a caller can at least refuse to answer without it rather than comparing against an unset root",
-	),
-	(
-		"filing-walk-is-bounded",
-		"catalog/catalog.c",
-		# The refile's own walk has the same bound, so this carries the line
-		# after it. `--verify` refused the bare form for matching two sites,
-		# which is the anchor-uniqueness rule meeting a second walk.
-		"\t\tif (depth == FZN_CATALOG_FILING_MAX_DEPTH)\n\t\t\treturn 0;\n\t\twalk[depth++] = *at;\n",
-		"\t\tif (depth == FZN_CATALOG_FILING_MAX_DEPTH * 2u)\n\t\t\treturn 0;\n\t\twalk[depth++] = *at;\n",
-		"one filing slot per node makes a cycle expressible, so the walk is bounded rather than promised -- and the bound is what the stack buffer is sized for",
-	),
-	(
-		"filing-path-is-root-first",
-		"catalog/catalog.c",
-		"\tfor (i = 0; i < depth && i < cap; i++)\n\t\tout[i] = walk[depth - 1u - i];\n",
-		"\tfor (i = 0; i < depth && i < cap; i++)\n\t\tout[i] = walk[i];\n",
-		"a path is written root first, which is also the order a caller creates directories in, and reversing it hands every consumer a path built backwards",
-	),
-	(
-		"refile-locks-out-writes",
-		"catalog/catalog.c",
-		"\tif (catalog->busy_with)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n\t/* A set cannot contain itself.",
-		"\tif (0)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n\t/* A set cannot contain itself.",
-		"the only thing a catalogue answers mid-refile is progress, and a membership arriving then changes the set the resume cursor is counting through",
-	),
-	(
-		"refile-locks-out-reads",
-		"catalog/catalog.c",
-		"\tif (catalog && catalog->busy_with)\n\t\treturn NULL;\n\tif (!usable(catalog) || !parent || !child)\n",
-		"\tif (0)\n\t\treturn NULL;\n\tif (!usable(catalog) || !parent || !child)\n",
-		"a consumer draws a progress bar rather than a tree that is half moved, so even a read refuses -- and this is the guard the others delegate to",
-	),
-	(
-		"refile-locks-out-peers",
-		"catalog/catalog.c",
-		"\t * counting through. A consumer holds it and applies it after. */\n\tif (catalog->busy_with)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n",
-		"\t * counting through. A consumer holds it and applies it after. */\n\tif (0)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n",
-		"refusing before the body is parsed is what makes this guard its own rather than a second copy of assert's: without it a body that is not ours is classified mid-refile",
-	),
-	(
-		"refile-sorted-by-whole-id",
-		"catalog/catalog.c",
-		"\treturn memcmp(a->b, b->b, FZN_CATALOG_ID_LEN) < 0;\n",
-		"\treturn memcmp(a->b, b->b, 1u) < 0;\n",
-		"the refile move sort must read the whole id for the same reason as the sweep sort, and catalog_test's shared-prefix reversed pair is what holds it; refile-moves-sorted only disables the sort, which arrival order catches -- sec 280",
-	),
-	(
-		"refile-moves-sorted",
-		"catalog/catalog.c",
-		"\t\tfor (j = job->used; j > 0 && id_before(&entry.node, &moves[j - 1u].node); j--)\n",
-		"\t\tfor (j = job->used; j > 0 && 0; j--)\n",
-		"the cursor is a count into the sorted order, so without the sort a job resumed on a machine whose edges arrived differently repeats one file and skips another",
-	),
-	(
-		"refile-capture-full-is-loud",
-		"catalog/catalog.c",
-		"\t\tif (job->used == capacity)\n\t\t\treturn FZN_CATALOG_ERR_FULL;\n",
-		"\t\tif (job->used == capacity)\n\t\t\tbreak;\n",
-		"a capture that quietly held some of the filed nodes moves some of the files and leaves the rest where a path nobody holds any more says they are",
-	),
-	(
-		"refile-end-refuses-unfinished",
-		"catalog/catalog.c",
-		"\tif (job->done < job->used)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n",
-		"\tif (0)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n",
-		"ending an abandoned refile unlocks a catalogue whose files are half under paths it no longer describes, and the next reader is told a tree that is not on the disk",
-	),
-	(
-		"refile-was-path-from-capture",
-		"catalog/catalog.c",
-		# Mutated at the CALL rather than inside `was_path`, which has no
-		# catalogue to reach for. The first spelling did not compile, and
-		# the harness reported NOT-BUILT rather than CAUGHT -- which is the
-		# distinction sec 45 paid for and this entry then needed.
-		"\t*was_len = was_path(job, node, was_out, was_cap);\n",
-		"\t*was_len = filed_path_locked(catalog, node, was_out, was_cap);\n",
-		"the old path is walked from the capture because the catalogue now holds the NEW filing, so reading it there would give the same path twice and move nothing",
-	),
-	(
-		"refile-capture-needs-a-root",
-		"catalog/catalog.c",
-		"\tif (!catalog->filing_root_set)\n\t\treturn FZN_CATALOG_ERR_ABSENT;\n",
-		"\tif (0)\n\t\treturn FZN_CATALOG_ERR_ABSENT;\n",
-		"a capture with no root produces a job whose old paths are all empty, which reads as every file being misplaced rather than as the missing root it is",
-	),
-	(
-		"refile-walk-is-bounded",
-		"catalog/catalog.c",
-		"\t\tif (depth == FZN_CATALOG_FILING_MAX_DEPTH)\n\t\t\treturn 0;\n\t\twalk[depth++] = job->moves[i].was_under;\n",
-		"\t\tif (depth == FZN_CATALOG_FILING_MAX_DEPTH * 2u)\n\t\t\treturn 0;\n\t\twalk[depth++] = job->moves[i].was_under;\n",
-		"a second walk, over the CAPTURED filing the catalogue no longer holds, so a cycle there is expressible even when the current filing is a clean tree -- and it writes past the buffer without this",
-	),
-	(
-		"segment-no-separator",
-		"catalog/catalog.c",
-		"\t\tif (seg[i] == '/')\n\t\t\treturn FZN_CATALOG_ERR_PATH;\n",
-		"\t\tif (0)\n\t\t\treturn FZN_CATALOG_ERR_PATH;\n",
-		"a consumer names a node from data it was given, so a name carrying a separator forges a level of the tree nobody asserted -- log/log.h refuses a newline in a body for the same reason",
-	),
-	(
-		"segment-no-traversal",
-		"catalog/catalog.c",
-		"\tif (strcmp(seg, \".\") == 0 || strcmp(seg, \"..\") == 0)\n\t\treturn FZN_CATALOG_ERR_PATH;\n",
-		"\tif (0)\n\t\treturn FZN_CATALOG_ERR_PATH;\n",
-		"a name that walks up writes the file outside the filing root entirely, which is the same defect pointed at the rest of the disk rather than at the tree",
-	),
-	(
-		"segment-not-empty",
-		"catalog/catalog.c",
-		"\tif (!seg || !*seg)\n\t\treturn FZN_CATALOG_ERR_PATH;\n",
-		"\tif (!seg)\n\t\treturn FZN_CATALOG_ERR_PATH;\n",
-		"a consumer that succeeds and names nothing gives a path with an empty segment, which names a different place on some systems and nothing at all on others",
-	),
-	(
-		"path-refuses-empty-run",
-		"catalog/catalog.c",
-		"\tif (count == 0)\n\t\treturn FZN_CATALOG_ERR_PATH;\n",
-		"\tif (0)\n\t\treturn FZN_CATALOG_ERR_PATH;\n",
-		"an empty run is no path rather than an empty one, and returning \"\" hands a consumer a name for its working directory",
-	),
-	(
-		"name-refusal-is-backend",
-		"catalog/catalog.c",
-		"\t\tif (!ops->name(ops->ctx, &ids[i], segment, sizeof(segment)))\n\t\t\treturn FZN_CATALOG_ERR_BACKEND;\n",
-		"\t\tif (!ops->name(ops->ctx, &ids[i], segment, sizeof(segment)))\n\t\t\treturn FZN_CATALOG_ERR_PATH;\n",
-		"a consumer that will not name a node yet is a step to retry, and a name it gave that cannot be used is one to report -- collapsing them makes a transient look permanent",
-	),
-	(
-		"step-advances-only-on-success",
-		"catalog/catalog.c",
-		"\tif (!ops->move(ops->ctx, was, now))\n\t\treturn FZN_CATALOG_ERR_BACKEND;\n",
-		"\t(void)ops->move(ops->ctx, was, now);\n",
-		"sec 148 chose to advance after the file has moved so a crash repeats a step rather than skipping one, and this function is where that stops being a sentence and becomes the shape of the code",
-	),
-	(
-		"name-refuses-controls",
-		"catalog/catalog.c",
-		"\t\tif (text[i] < 0x20u || text[i] == 0x7fu)\n\t\t\treturn FZN_CATALOG_ERR_PATH;\n",
-		"\t\tif (0)\n\t\t\treturn FZN_CATALOG_ERR_PATH;\n",
-		"a newline in a name breaks any listing that puts one per line and an escape byte drives the terminal it is drawn on -- log/log.h's argument, met where the bytes are stored",
-	),
-	(
-		"name-permits-utf8",
-		"catalog/catalog.c",
-		"\t\tif (text[i] < 0x20u || text[i] == 0x7fu)\n\t\t\treturn FZN_CATALOG_ERR_PATH;\n",
-		"\t\tif (text[i] < 0x20u || text[i] >= 0x7fu)\n\t\t\treturn FZN_CATALOG_ERR_PATH;\n",
-		"the same rule one byte wider refuses every UTF-8 sequence, and a catalogue of music cannot reject the names on it",
-	),
-	(
-		"name-body-length-exact",
-		"catalog/catalog.c",
-		"\tif (len != FZN_CATALOG_CONTENT_HEAD_LEN + name.len)\n\t\treturn FZN_CATALOG_ERR_SHAPE;\n",
-		"\tif (len < FZN_CATALOG_CONTENT_HEAD_LEN + name.len)\n\t\treturn FZN_CATALOG_ERR_SHAPE;\n",
-		"a declared length shorter than the body reads past what was signed, and a longer body is a second encoding of the same name",
-	),
-	(
-		"name-attribution-from-record",
-		"catalog/catalog.c",
-		"\tmemcpy(name.issuer, issuer, FZN_PUBKEY_LEN);\n\tname.seq = seq;\n",
-		"\tmemcpy(name.issuer, body + 1, FZN_PUBKEY_LEN);\n\tname.seq = seq;\n",
-		"a name body has no field for an issuer, so reading one from the bytes credits a rename to somebody who did not sign it",
-	),
-	(
-		"segment-is-bounded",
-		"catalog/catalog.c",
-		# One tab shallower since sec 151 removed the style switch this
-		# lived inside. `--verify` reported it matching nothing, which is
-		# what that mode is for -- a stale entry reports a guard as
-		# defended without testing it.
-		"\tif (name->len + 1u > cap)\n\t\treturn FZN_CATALOG_ERR_PATH;\n",
-		"\tif (0)\n\t\treturn FZN_CATALOG_ERR_PATH;\n",
-		"nothing is written unless the whole segment fits, or a short buffer takes a name cut in half and a file is written under it",
-	),
-	(
-		"retain-default-is-not-keeping",
-		"catalog/catalog.c",
-		"\tcatalog->retain_default = 0;\n",
-		"\tcatalog->retain_default = 1;\n",
-		"a catalogue keeps nothing until a caller says so, or adopting a stranger's catalogue starts filling this host's disk with it",
-	),
-	(
-		"retain-node-beats-catalogue",
-		"catalog/catalog.c",
-		"\tif (mode == FZN_CATALOG_RETAIN_KEEP)\n\t\treturn 1;\n\tif (mode == FZN_CATALOG_RETAIN_DROP)\n\t\treturn 0;\n",
-		"\tif (0)\n\t\treturn 1;\n\tif (0)\n\t\treturn 0;\n",
-		"a node's own word beats the catalogue's in both directions, which is what a tri-state buys over the bit the holder asked for -- keep a library and drop four things, or the reverse",
-	),
-	(
-		"retain-drop-is-a-word-of-its-own",
-		"catalog/catalog.c",
-		"\tif (mode == FZN_CATALOG_RETAIN_DROP)\n\t\treturn 0;\n",
-		"\tif (0)\n\t\treturn 0;\n",
-		"an override is a word of its own rather than a flip of the catalogue's, so a drop must stand when the default changes underneath it",
-	),
-	(
-		"retain-default-gives-the-row-back",
-		"catalog/catalog.c",
-		"\t\t*held = catalog->holds[catalog->hold_used - 1u];\n\t\tcatalog->hold_used--;\n",
-		"\t\theld->mode = FZN_CATALOG_RETAIN_DEFAULT;\n",
-		"a table filling with rows that say whatever the catalogue says is a table that runs out for the overrides that mean something",
-	),
-	(
-		"retain-refuses-unknown-mode",
-		"catalog/catalog.c",
-		"\tif (mode != FZN_CATALOG_RETAIN_DEFAULT && mode != FZN_CATALOG_RETAIN_KEEP\n\t    && mode != FZN_CATALOG_RETAIN_DROP)\n\t\treturn FZN_CATALOG_ERR_MALFORMED;\n",
-		"\tif (0)\n\t\treturn FZN_CATALOG_ERR_MALFORMED;\n",
-		"a stored mode that is none of the three answers neither keep nor drop, so a consumer asking whether to fetch a blob gets the catalogue's default for a node it was told about",
-	),
-	(
-		"retain-respects-the-refile-lock",
-		"catalog/catalog.c",
-		"\tif (catalog->busy_with)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n\tif (mode != FZN_CATALOG_RETAIN_DEFAULT",
-		"\tif (0)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n\tif (mode != FZN_CATALOG_RETAIN_DEFAULT",
-		"sec 148: the only thing a catalogue answers mid-refile is progress, and retention is a write like any other",
 	),
 	(
 		"provision-envelope-verified",
@@ -3853,194 +3368,22 @@ SABOTAGES = [
 	# and the second is the correction sec 152 needed, since a holdings
 	# announcement that reads the retention table publishes an intention as
 	# though it were a fact.
-	(
-		"copy-offer-scoped",
-		"catalog/copy.c",
-		"\t\tif (memcmp(entry->root, root, FZN_BLOB_HASH_LEN) == 0)\n\t\t\treturn entry;\n",
-		"\t\treturn entry;\n",
-		"an offer must be scoped to the catalogue, or a capability for one "
-		"catalogue is a capability for the whole blob store",
-	),
-	(
-		"copy-holdings-ignore-retention",
-		"catalog/copy.c",
-		"\treturn walk(catalog, holdings, 0, 0, 0, out, out_cap, plan);\n",
-		"\treturn walk(catalog, holdings, 1, 0, 0, out, out_cap, plan);\n",
-		"a holdings announcement must follow the bytes on disk and not what "
-		"this host intends to keep",
-	),
-	(
-		"copy-dedup",
-		"catalog/copy.c",
-		"\tif (already_listed(out, plan->written, root)) {\n\t\tplan->duplicates++;\n\t\treturn;\n\t}\n",
-		"\t/* sabotage */\n",
-		"a blob several nodes share must be fetched once, since sharing is "
-		"the reason a caller chooses a blob at all",
-	),
-	(
-		"copy-dedup-reads-the-whole-root",
-		"catalog/copy.c",
-		"\t\tif (memcmp(out[i].root, root, FZN_BLOB_HASH_LEN) == 0)",
-		"\t\tif (memcmp(out[i].root, root, 1u) == 0)",
-		"the dedup must read the WHOLE root, or two blobs whose roots agree on a prefix are folded into one and a caller fetches less than it must. copy-dedup shares a whole root and a first-byte-different one separates it; only a last-byte near miss holds the whole read. sec 306",
-	),
-	(
-		"copy-offer-reads-the-whole-root",
-		"catalog/copy.c",
-		"\t\tif (memcmp(entry->root, root, FZN_BLOB_HASH_LEN) == 0)",
-		"\t\tif (memcmp(entry->root, root, 1u) == 0)",
-		"entry_for_root scopes a want to the catalogue; a prefix compare serves a blob a peer only half-named, the scope escape copy-offer-scoped closes read one byte short. sec 306",
-	),
-	(
-		"copy-refile-busy",
-		"catalog/copy.c",
-		"\tif (catalog->busy_with)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n\n\tfor (i = 0; i < catalog->entry_used; i++) {\n",
-		"\tfor (i = 0; i < catalog->entry_used; i++) {\n",
-		"a refiling catalogue answers progress and nothing else, sec 149, and "
-		"the copy layer is bound by that like everything else",
-	),
-	(
-		"copy-seam-absent-is-not-held",
-		"catalog/copy.c",
-		"\tif (!holdings || !holdings->holds)\n\t\treturn 0;\n",
-		"\tif (!holdings || !holdings->holds)\n\t\treturn 1;\n",
-		"a seam that cannot answer must not be read as holding the bytes, or "
-		"a host advertises what it cannot serve",
-	),
 	# BATCH THIRTEEN, 2026-09-06: planned deletion, sec 155. Every entry
 	# here guards a way of losing data rather than a way of being untidy,
 	# which is why the module exists at all: deleting one file at a time as
 	# a mark is set gets each of these wrong, and none of them announces
 	# itself afterwards.
-	(
-		"sweep-shared-blob",
-		"catalog/sweep.c",
-		"\t\tif (fzn_catalog_keeps(catalog, &entry->id, now))\n\t\t\treturn 1;\n",
-		"\t\t(void)0;\n",
-		"a blob a retained node still needs must survive another node "
-		"dropping it, since sharing is the reason to choose a blob at all",
-	),
-	(
-		"sweep-last-copy",
-		"catalog/sweep.c",
-		"\t\tif (min_others > 0 &&\n\t\t    others_holding(witness, entry->root, entry->blob_len) < min_others) {\n\t\t\tplan->last_copy++;\n\t\t\tcontinue;\n\t\t}\n",
-		"\t\t/* sabotage */\n",
-		"the last known copy must not be deleted, because retention is "
-		"per-host and everybody dropping it is a state the design permits",
-	),
-	(
-		"sweep-witness-absent-is-zero",
-		"catalog/sweep.c",
-		"\tif (!witness || !witness->others)\n\t\treturn 0;\n",
-		"\tif (!witness || !witness->others)\n\t\treturn (size_t)-1;\n",
-		"a witness seam that cannot answer must refuse the deletion rather "
-		"than licensing it on an answer nobody gave",
-	),
-	(
-		"sweep-sorted-by-whole-id",
-		"catalog/sweep.c",
-		"memcmp(rows[at - 1].node.b, row->node.b, FZN_CATALOG_ID_LEN) > 0",
-		"memcmp(rows[at - 1].node.b, row->node.b, 1u) > 0",
-		"the removal sort must read the WHOLE node id, not a prefix: two nodes agreeing on their first byte would tie and keep arrival order, so a cursor into them resumes elsewhere on a machine whose edges arrived differently -- sweep_fuzz's ids share a prefix and reverse arrival against id, which sweep_test's byte-0-distinct ids cannot reach; distinct from sweep-sorted-cursor, which only proves a sort runs -- sec 280",
-	),
-	(
-		"sweep-sorted-cursor",
-		"catalog/sweep.c",
-		"\twhile (at > 0 && memcmp(rows[at - 1].node.b, row->node.b, FZN_CATALOG_ID_LEN) > 0) {",
-		"\twhile (0) {",
-		"the removals must be sorted by node id, or a cursor into them "
-		"resumes somewhere else on another machine",
-	),
-	(
-		"sweep-not-ended-by-another-job",
-		"catalog/catalog.c",
-		"\tif (catalog->busy_with != FZN_CATALOG_JOB_NONE &&\n\t    catalog->busy_with != FZN_CATALOG_JOB_REFILE)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n\n\tcatalog->busy_with = FZN_CATALOG_JOB_NONE;\n",
-		"\tcatalog->busy_with = FZN_CATALOG_JOB_NONE;\n",
-		"a job is ended by the job that started it, or refile_end hands away "
-		"a catalogue a sweep is holding",
-	),
 	# BATCH FOURTEEN, 2026-09-06: reachability, sec 156. The module proposes
 	# deletions, so every guard here is a way of proposing to delete
 	# something live -- and the two that matter most are the frontier check,
 	# which is the whole discriminator between "nobody links this" and "I
 	# have not caught up", and the scratch refusal, whose absence turns
 	# reachable nodes into candidates.
-	(
-		"reach-frontier-required",
-		"catalog/reach.c",
-		"\t\tif (i >= frontier_count) {\n\t\t\tmemcpy(plan->unvouched, issuer, FZN_PUBKEY_LEN);\n\t\t\tplan->unvouched_set = 1;\n\t\t\treturn FZN_CATALOG_ERR_INCOMPLETE;\n\t\t}\n",
-		"\t\t/* sabotage */\n",
-		"a caller that has not accounted for an issuer this catalogue depends "
-		"on must be refused, or the answer is drawn from a partial view",
-	),
-	(
-		"reach-frontier-behind",
-		"catalog/reach.c",
-		"\t\t\tif (frontier[i].received < seq)\n\t\t\t\ti = frontier_count;\n",
-		"\t\t\t(void)0;\n",
-		"a frontier behind this catalogue's own applied sequence is "
-		"incoherent and must not be taken as evidence",
-	),
-	(
-		"reach-scratch-refuses",
-		"catalog/reach.c",
-		"\t\t\tif (!add_unique(scratch, &seen, scratch_cap, &edge->child))\n\t\t\t\treturn FZN_CATALOG_ERR_FULL;\n",
-		"\t\t\t(void)add_unique(scratch, &seen, scratch_cap, &edge->child);\n",
-		"a walk that ran out of scratch must refuse, since counting it leaves "
-		"reachable nodes looking like garbage",
-	),
-	(
-		"reach-root-must-be-known",
-		"catalog/reach.c",
-		"\t\tif (!known(catalog, &roots[i]))\n\t\t\treturn FZN_CATALOG_ERR_ABSENT;\n",
-		"\t\t(void)0;\n",
-		"a root the catalogue does not know must be refused, or a typo "
-		"proposes the whole catalogue for deletion",
-	),
-	(
-		"reach-tombstone-is-not-a-node",
-		"catalog/reach.c",
-		"\t\tif (!edge->present)\n\t\t\treturn 0;\n\t\t*out = (k % 2u) ? edge->child : edge->parent;\n",
-		"\t\t*out = (k % 2u) ? edge->child : edge->parent;\n",
-		"an absent edge is a tombstone and neither end of one is a node, or "
-		"every unlink leaves a node this walk proposes for ever",
-	),
 	# BATCH FIFTEEN, 2026-09-06: the deletion schedule, sec 157. A deadline
 	# that fires early deletes something somebody was still keeping, and one
 	# that never fires is a feature that silently does nothing -- so both
 	# directions are held, and so is the field that stops a promise to
 	# delete turning into a promise to keep.
-	(
-		"retain-deadline-fires",
-		"catalog/catalog.c",
-		"\tif (held->until != 0 && now >= held->until)\n\t\treturn held->then;\n",
-		"\t/* sabotage */\n",
-		"a deadline that never fires is a schedule that silently does nothing",
-	),
-	(
-		"retain-deadline-not-early",
-		"catalog/catalog.c",
-		"\tif (held->until != 0 && now >= held->until)\n",
-		"\tif (held->until != 0)\n",
-		"a deadline must not fire before its moment, or it deletes something "
-		"somebody was still keeping",
-	),
-	(
-		"retain-unscheduled-clears-a-deadline",
-		"catalog/catalog.c",
-		"\t\theld->mode = mode;\n\t\theld->until = 0;\n\t\theld->then = FZN_CATALOG_RETAIN_DEFAULT;\n\t\treturn FZN_CATALOG_OK;\n",
-		"\t\theld->mode = mode;\n\t\treturn FZN_CATALOG_OK;\n",
-		"an unscheduled retention must clear a deadline, or one fires under a "
-		"consumer that thought it had changed its mind",
-	),
-	(
-		"retain-deadline-needs-a-mode",
-		"catalog/catalog.c",
-		"\tif (mode == FZN_CATALOG_RETAIN_DEFAULT)\n\t\treturn FZN_CATALOG_ERR_MALFORMED;\n\n\theld = find_hold(catalog, node);\n",
-		"\theld = find_hold(catalog, node);\n",
-		"a row that follows the catalogue until T says nothing until then, and "
-		"sec 152 refuses to store one",
-	),
 	# BATCH SIXTEEN, 2026-09-07: the QR encoder, sec 160. Only the guards a
 	# SHAPE test can hold are here -- the timing pattern that must not run
 	# over a finder, and the dark module. What makes the encoder produce a
@@ -4629,91 +3972,20 @@ SABOTAGES = [
 	# nearly vacuous, because a set of links makes every asserted edge
 	# linked under almost any resolver. The single-issuer oracle is what
 	# catches them, and sec 269 records the two that still survive it.
-	(
-		"catalog-a-later-statement-supersedes",
-		"catalog/catalog.c",
-		"\t\treturn offered->seq > held->seq ? 1 : 0;\n\n\t/* ACROSS ISSUERS, PRESENCE WINS",
-		"\t\treturn offered->seq < held->seq ? 1 : 0;\n\n\t/* ACROSS ISSUERS, PRESENCE WINS",
-		"one issuer's own sequence is what orders its statements, so reversing "
-		"it holds the EARLIEST -- caught by catalog_fuzz's oracle, which "
-		"computes the expected answer from the set rather than the table",
-	),
-	(
-		"catalog-a-tombstone-costs-a-row",
-		"catalog/catalog.c",
-		"\tcatalog->edges[catalog->used] = offered;\n",
-		"\tif (!offered.present)\n\t\treturn FZN_CATALOG_OK;\n"
-		"\tcatalog->edges[catalog->used] = offered;\n",
-		"an unlink for an edge nobody asserted must still be stored or a stale "
-		"link arriving afterwards creates the edge afresh; catalog.c's own "
-		"comment says the row is what makes a removal stick",
-	),
 	# BATCH TWENTY-FOUR, 2026-09-11: the reachability walk, sec 270. Held
 	# by catalog/test/reach_fuzz.c, which is a DIFFERENTIAL harness rather
 	# than a property one -- a breadth-first search written from reach.h
 	# against the walk in reach.c. sec 269 records why that distinction
 	# decided what each harness could catch.
-	(
-		"reach-a-tombstone-is-not-a-path",
-		"catalog/reach.c",
-		"\t\t\tif (!edge->present || !same_id(&edge->parent, &node))\n",
-		"\t\t\tif (!same_id(&edge->parent, &node))\n",
-		"an edge asserted ABSENT is a row and not a path, so following it "
-		"reaches nodes nothing links and calls live deletions unnecessary",
-	),
-	(
-		"reach-is-transitive",
-		"catalog/reach.c",
-		"\tfor (head = 0; head < seen; head++) {\n",
-		"\tfor (head = 0; head < seen && head < root_count; head++) {\n",
-		"stopping after the roots' own children makes everything deeper look "
-		"unreachable, which is a proposal to delete live data -- the failure "
-		"direction reach.c's own comment calls out for the scratch array",
-	),
 	# BATCH TWENTY-FIVE, 2026-09-11: the sweep protocol, sec 271. A third
 	# kind of harness after sec 269's properties and sec 270's oracle: this
 	# subject is a six-call protocol over a path that deletes bytes, and
 	# what a random call sequence finds is an ordering fault.
-	(
-		"sweep-end-refuses-while-work-remains",
-		"catalog/sweep.c",
-		"\tif (job->done < job->used)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n",
-		"\tif (0)\n\t\treturn FZN_CATALOG_ERR_BUSY;\n",
-		"a consumer could end a sweep it abandoned, unlocking the catalogue "
-		"while discarding its own record of what it meant to remove",
-	),
-	(
-		"sweep-the-cursor-advances",
-		"catalog/sweep.c",
-		"\tjob->done++;\n",
-		"\tjob->done += 0;\n",
-		"a cursor that does not move repeats one removal for ever and never "
-		"reaches the end, so the sweep neither finishes nor releases",
-	),
 	# BATCH TWENTY-SIX, 2026-09-11: the want walk, sec 272. Held by
 	# catalog/test/copy_fuzz.c, a METAMORPHIC harness -- it checks things
 	# the answer must not depend on rather than the answer, because a want
 	# list's oracle would be a model of retention, holdings and inline
 	# content, which is copy.c rewritten in the test.
-	(
-		"copy-a-blob-is-listed-once",
-		"catalog/copy.c",
-		"\tif (already_listed(out, plan->written, root)) {\n",
-		"\tif (0) {\n",
-		"one blob referenced by two nodes is one fetch; emitting it twice makes "
-		"a consumer ask for the same bytes again and mis-sizes every array the "
-		"plan's counters are used to allocate",
-	),
-	(
-		"copy-refuses-while-a-job-holds-the-catalogue",
-		"catalog/copy.c",
-		"\t/* sec 149: while a refile holds the catalogue, progress is the only\n"
-		"\t * question it answers. */\n\tif (catalog->busy_with)\n",
-		"\t/* sec 149: while a refile holds the catalogue, progress is the only\n"
-		"\t * question it answers. */\n\tif (0)\n",
-		"a want list computed mid-sweep asks for bytes that are being deleted as "
-		"it is written",
-	),
 	# BATCH TWENTY-SEVEN, 2026-09-11: batch assignment, sec 273. Held by
 	# spool/test/transfer_fuzz.c, whose first draft could not hold this
 	# property at all: it stubbed the store, so no delivery succeeded, so
@@ -4788,34 +4060,6 @@ SABOTAGES = [
 		"SITU_FZN_FRAME_SIZE_MIN datagram, so <= would refuse a bare hop header "
 		"-- the one input hop_view exists to accept -- and the too-short case "
 		"tested sits three bytes below the boundary, not one. sec 323",
-	),
-	(
-		"catalog-add-wins-needs-a-higher-seq",
-		"catalog/catalog.c",
-		"return offered->seq > held->seq ? 1 : 0;\n\n\t/* ACROSS ISSUERS",
-		"return offered->seq >= held->seq ? 1 : 0;\n\n\t/* ACROSS ISSUERS",
-		"the edge resolver supersedes one issuer's own statement only on a "
-		"STRICTLY greater sequence; >= lets a re-statement at a sequence "
-		"already used overwrite the held edge instead of losing as STALE. The "
-		"near-miss-issuer test drives it only at differing sequences. sec 324",
-	),
-	(
-		"catalog-content-held-wins-needs-a-higher-seq",
-		"catalog/catalog.c",
-		"return offered->seq > held->seq ? 1 : 0;\n\n\t/* Across issuers there is no",
-		"return offered->seq >= held->seq ? 1 : 0;\n\n\t/* Across issuers there is no",
-		"the content resolver supersedes one issuer's own statement only on a "
-		"STRICTLY greater sequence; >= lets content restated at a sequence "
-		"already used replace the held content. sec 324",
-	),
-	(
-		"catalog-name-held-wins-needs-a-higher-seq",
-		"catalog/catalog.c",
-		"return offered->seq > held->seq ? 1 : 0;\n\treturn 0;\n}",
-		"return offered->seq >= held->seq ? 1 : 0;\n\treturn 0;\n}",
-		"the name resolver supersedes one issuer's own statement only on a "
-		"STRICTLY greater sequence; >= lets a rename at a sequence already "
-		"used replace the held name. sec 324",
 	),
 	(
 		"peer-groups-cap-admits-the-maximum",

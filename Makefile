@@ -163,8 +163,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/provision.c \
              chain/chain.c chain/revocation.c chain/manifest.c chain/authz.c \
              chain/chain_store.c chain/service.c claim/claim.c \
-             record/store.c catalog/catalog.c catalog/copy.c catalog/sweep.c \
-             catalog/reach.c qr/qr.c \
+             record/store.c qr/qr.c \
              frame/freshness.c \
              blob/blob.c ratchet/ratchet.c prekey/prekey.c \
              provision/provision.c \
@@ -230,8 +229,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/provision.h \
              chain/chain.h chain/revocation.h chain/manifest.h chain/authz.h \
              chain/chain_store.h chain/service.h claim/claim.h \
-             record/store.h catalog/catalog.h catalog/copy.h catalog/sweep.h \
-             catalog/reach.h qr/qr.h \
+             record/store.h qr/qr.h \
              frame/freshness.h \
              blob/blob.h ratchet/ratchet.h prekey/prekey.h \
              provision/provision.h \
@@ -285,10 +283,6 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              chain/test/chain_store_test.c chain/test/service_test.c \
              claim/test/claim_test.c claim/test/claim_walk_test.c \
              record/test/store_test.c \
-             catalog/test/catalog_test.c \
-             catalog/test/copy_test.c \
-             catalog/test/sweep_test.c \
-             catalog/test/reach_test.c \
              qr/test/qr_test.c \
              blob/test/blob_test.c ratchet/test/ratchet_test.c \
              ratchet/test/ratchet_fuzz.c session/test/session_fuzz.c \
@@ -317,10 +311,6 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              spool/test/message_test.c \
              spool/test/transfer_test.c \
              spool/test/scrub_test.c \
-             catalog/test/catalog_fuzz.c \
-             catalog/test/reach_fuzz.c \
-             catalog/test/sweep_fuzz.c \
-             catalog/test/copy_fuzz.c \
              spool/test/transfer_fuzz.c \
              spool/test/scrub_fuzz.c \
              session/test/agree_test.c \
@@ -389,10 +379,6 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/claim/test/claim_test \
              $(BUILD_DIR)/claim/test/claim_walk_test \
              $(BUILD_DIR)/record/test/store_test \
-             $(BUILD_DIR)/catalog/test/catalog_test \
-             $(BUILD_DIR)/catalog/test/copy_test \
-             $(BUILD_DIR)/catalog/test/sweep_test \
-             $(BUILD_DIR)/catalog/test/reach_test \
              $(BUILD_DIR)/qr/test/qr_test \
              $(BUILD_DIR)/blob/test/blob_test \
              $(BUILD_DIR)/ratchet/test/ratchet_test \
@@ -418,10 +404,6 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/spool/test/message_test \
              $(BUILD_DIR)/spool/test/transfer_test \
              $(BUILD_DIR)/spool/test/scrub_test \
-             $(BUILD_DIR)/catalog/test/catalog_fuzz \
-             $(BUILD_DIR)/catalog/test/reach_fuzz \
-             $(BUILD_DIR)/catalog/test/sweep_fuzz \
-             $(BUILD_DIR)/catalog/test/copy_fuzz \
              $(BUILD_DIR)/spool/test/transfer_fuzz \
              $(BUILD_DIR)/spool/test/scrub_fuzz \
              $(BUILD_DIR)/session/test/agree_test \
@@ -2510,78 +2492,6 @@ $(BUILD_DIR)/cli/test/log_print_test: $(BUILD_DIR)/cli/test/log_print_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
-# catalog/ is a membership relation over ids and calls nothing. sec 144.
-$(BUILD_DIR)/catalog/test/copy_fuzz: $(BUILD_DIR)/catalog/test/copy_fuzz.o \
-                                    $(BUILD_DIR)/catalog/copy.o \
-                                    $(BUILD_DIR)/catalog/sweep.o \
-                                    $(BUILD_DIR)/catalog/catalog.o \
-                                    $(BUILD_DIR)/record/record.o \
-                                    $(BUILD_DIR)/constant_time/constant_time.o
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $^ -o $@
-
-$(BUILD_DIR)/catalog/test/sweep_fuzz: $(BUILD_DIR)/catalog/test/sweep_fuzz.o \
-                                     $(BUILD_DIR)/catalog/sweep.o \
-                                     $(BUILD_DIR)/catalog/catalog.o \
-                                     $(BUILD_DIR)/record/record.o \
-                                     $(BUILD_DIR)/constant_time/constant_time.o
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $^ -o $@
-
-$(BUILD_DIR)/catalog/test/reach_fuzz: $(BUILD_DIR)/catalog/test/reach_fuzz.o \
-                                     $(BUILD_DIR)/catalog/reach.o \
-                                     $(BUILD_DIR)/catalog/catalog.o \
-                                     $(BUILD_DIR)/record/record.o \
-                                     $(BUILD_DIR)/constant_time/constant_time.o
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $^ -o $@
-
-$(BUILD_DIR)/catalog/test/catalog_fuzz: $(BUILD_DIR)/catalog/test/catalog_fuzz.o \
-                                       $(BUILD_DIR)/catalog/catalog.o \
-                                       $(BUILD_DIR)/record/record.o \
-                                       $(BUILD_DIR)/constant_time/constant_time.o
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $^ -o $@
-
-$(BUILD_DIR)/catalog/test/catalog_test: $(BUILD_DIR)/catalog/test/catalog_test.o \
-                                     $(BUILD_DIR)/catalog/catalog.o \
-                                     $(BUILD_DIR)/record/record.o \
-                                     $(BUILD_DIR)/constant_time/constant_time.o
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $^ -o $@
-
-# The copy layer decides what to fetch and calls nothing either -- it holds a
-# seam for "do you have these bytes" rather than a blob store. sec 154. It
-# links catalog.o because the retention table it consults lives there.
-$(BUILD_DIR)/catalog/test/copy_test: $(BUILD_DIR)/catalog/test/copy_test.o \
-                                     $(BUILD_DIR)/catalog/copy.o \
-                                     $(BUILD_DIR)/catalog/catalog.o \
-                                     $(BUILD_DIR)/record/record.o \
-                                     $(BUILD_DIR)/constant_time/constant_time.o
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $^ -o $@
-
-# Planned deletion. sec 155. Links copy.o for the holdings seam it shares --
-# the deletion side of the same question about which host has which bytes.
-$(BUILD_DIR)/catalog/test/sweep_test: $(BUILD_DIR)/catalog/test/sweep_test.o \
-                                     $(BUILD_DIR)/catalog/sweep.o \
-                                     $(BUILD_DIR)/catalog/copy.o \
-                                     $(BUILD_DIR)/catalog/catalog.o \
-                                     $(BUILD_DIR)/record/record.o \
-                                     $(BUILD_DIR)/constant_time/constant_time.o
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $^ -o $@
-
-# Reachability. sec 156. Proposes what nothing links; it deletes nothing, so
-# it links neither sweep.o nor copy.o -- the composition is the consumer's.
-$(BUILD_DIR)/catalog/test/reach_test: $(BUILD_DIR)/catalog/test/reach_test.o \
-                                     $(BUILD_DIR)/catalog/reach.o \
-                                     $(BUILD_DIR)/catalog/catalog.o \
-                                     $(BUILD_DIR)/record/record.o \
-                                     $(BUILD_DIR)/constant_time/constant_time.o
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $^ -o $@
-
 # The QR encoder calls nothing and is called by the widget and the CLI. sec 160.
 $(BUILD_DIR)/qr/test/qr_test: $(BUILD_DIR)/qr/test/qr_test.o $(BUILD_DIR)/qr/qr.o
 	@mkdir -p $(dir $@)
@@ -3239,7 +3149,6 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/persist/persist.o \
                                       $(BUILD_DIR)/claim/claim.o \
                                       $(BUILD_DIR)/record/store.o \
-                                      $(BUILD_DIR)/catalog/catalog.o \
                                       $(BUILD_DIR)/facet/facet.o \
                                       $(BUILD_DIR)/catalogue/catalogue.o \
                                       $(BUILD_DIR)/catalogue/retention.o \
@@ -3475,10 +3384,6 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/persist/test/persist_fuzz \
              $(BUILD_DIR)/wire/test/relay_fuzz \
              $(BUILD_DIR)/log/test/log_fuzz \
-             $(BUILD_DIR)/catalog/test/catalog_fuzz \
-             $(BUILD_DIR)/catalog/test/reach_fuzz \
-             $(BUILD_DIR)/catalog/test/sweep_fuzz \
-             $(BUILD_DIR)/catalog/test/copy_fuzz \
              $(BUILD_DIR)/spool/test/transfer_fuzz \
              $(BUILD_DIR)/spool/test/scrub_fuzz \
              $(BUILD_DIR)/ratchet/test/ratchet_fuzz \
@@ -4665,7 +4570,7 @@ SITU_DIR ?=
 SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               prekey/prekey.situ persist/persist.situ spool/message.situ \
               spool/sidecar.situ record/record.situ tree/tree.situ \
-              catalog/catalog.situ chain/chain.situ provision/provision.situ \
+              chain/chain.situ provision/provision.situ \
               record/store_file.situ catalogue/attribute.situ
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.

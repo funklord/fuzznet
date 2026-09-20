@@ -53,10 +53,6 @@
 #include <fuzznet/chain/service.h>
 #include <fuzznet/claim/claim.h>
 #include <fuzznet/record/store.h>
-#include <fuzznet/catalog/catalog.h>
-#include <fuzznet/catalog/copy.h>
-#include <fuzznet/catalog/sweep.h>
-#include <fuzznet/catalog/reach.h>
 #include <fuzznet/facet/facet.h>
 #include <fuzznet/catalogue/catalogue.h>
 #include <fuzznet/catalogue/retention.h>
@@ -164,10 +160,6 @@
 #include "chain/service.h"
 #include "claim/claim.h"
 #include "record/store.h"
-#include "catalog/catalog.h"
-#include "catalog/copy.h"
-#include "catalog/sweep.h"
-#include "catalog/reach.h"
 #include "facet/facet.h"
 #include "catalogue/catalogue.h"
 #include "catalogue/retention.h"

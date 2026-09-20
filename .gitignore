@@ -35,10 +35,6 @@
 /claim/test/claim_test
 /claim/test/claim_walk_test
 /record/test/store_test
-/catalog/test/catalog_test
-/catalog/test/copy_test
-/catalog/test/sweep_test
-/catalog/test/reach_test
 /qr/test/qr_test
 /record/test/store_file_test
 /cli/test/cli_test
@@ -116,10 +112,6 @@
 /spool/test/message_test
 /spool/test/transfer_test
 /spool/test/scrub_test
-/catalog/test/catalog_fuzz
-/catalog/test/reach_fuzz
-/catalog/test/sweep_fuzz
-/catalog/test/copy_fuzz
 /spool/test/transfer_fuzz
 /spool/test/scrub_fuzz
 /spool/test/message_fuzz

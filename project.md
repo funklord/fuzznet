@@ -43426,3 +43426,47 @@ impossible rather than merely noticed.
 Four link rules moved with it -- sweep_print_test, sweep_view_test, the qtty
 render objects, and the printer's own -- because an object list is where a
 re-point is least visible and most likely to be left behind.
+
+## 326. Step 7, stage three: catalog/ is gone, 2026-09-20
+
+Nineteen tracked files, 6775 lines of them tests, plus 99 sabotage entries,
+64 Makefile lines, 8 gitignore lines, 3 error renderers, 8 consumer includes
+and a situ contract. The deletion itself is the smallest part; what made it
+safe was stage one, and what made it careful was naming things.
+
+DELETED BY NAME, FROM THE LIST GIT GAVE. `git ls-files catalog/` produced the
+nineteen paths and `git rm` took exactly those -- not a glob, and not a path
+list computed from `git status`, which is the form CLAUDE.md warns reads like
+naming and behaves like a blanket add. `git status --porcelain -- catalog/`
+was empty first, so there was no untracked work in there to destroy.
+
+AND THE BUILD OUTPUT WAS ACCOUNTED FOR BEFORE THE DIRECTORY WENT. Thirty-two
+files survived the `git rm`, all untracked: twelve .o, twelve .d and eight ELF
+binaries whose sources had just been deleted. Every one identified -- by
+extension and by `file` -- before `rm -rf` on the directory, because the rule
+is that where you cannot vouch for the FILES you must be able to vouch for the
+DIRECTORY, and vouching means having looked. The variable was checked
+non-empty and non-root first, which is the guard `build-and-commit.md` asks
+for and the reason an unset one has eaten a source tree elsewhere.
+
+THE 99 SABOTAGE ENTRIES WENT WITH THEIR SUBJECT, matched as whole tuples
+naming `catalog/*.c` rather than by line. `--verify` is the proof: 483 entries
+over 110 of 111 sources, each naming exactly one site. An entry left behind
+would have been a stale one, which reports a guard as defended without testing
+it -- and the verifier caught two of exactly that kind earlier today, from the
+stage-two re-point.
+
+THREE ERROR RENDERERS RETIRED with the enums they render: `fzn_catalog_err_str`,
+`_content_str` and `_retention_str`. err_str_test walks 40 renderers now, 654
+checks. The new module's own renderers stay.
+
+WHAT IS LEFT OF THE NAME, and both are deliberate. `catalogue/retention.h`
+says retention "was a table inside `fzn_catalog_t`", which is prose about the
+past and stays true. `spool/scrub.h` cites `fzn_catalog_sweep_progress` as the
+precedent for its own progress call -- stale for exactly one stage, because
+stage four renames `fzn_catalogue_sweep_progress` back to that spelling and
+makes the sentence true again.
+
+THE COUNTS, before and after: 111 library sources against 115 before; 93
+public headers against 97; 40 renderers against 43. Each fell by what the
+module owned and nothing else.
