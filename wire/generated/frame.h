@@ -64,15 +64,15 @@ static inline situ_err_t situ_fzn_hop_view(const situ_msg_t *msg, uint32_t offse
  */
 static inline uint8_t situ_fzn_hop_version_get(situ_view_t view)
 {
-	return (uint8_t)((uint8_t)(view.base)[0u]);
+	return (uint8_t)((uint8_t)(situ_base(view))[0u]);
 }
 static inline uint8_t *situ_fzn_hop_version_ptr(situ_view_t view)
 {
-	return (uint8_t *)(view.base + 0u);
+	return (uint8_t *)(situ_base(view) + 0u);
 }
 static inline void situ_fzn_hop_version_set(situ_view_t view, uint8_t value)
 {
-	(view.base)[0u] = (uint8_t)value;
+	(situ_base(view))[0u] = (uint8_t)value;
 }
 
 /** fzn_hop.hops_left : u8  at AbsoluteStatic(0x01)
@@ -80,15 +80,15 @@ static inline void situ_fzn_hop_version_set(situ_view_t view, uint8_t value)
  */
 static inline uint8_t situ_fzn_hop_hops_left_get(situ_view_t view)
 {
-	return (uint8_t)((uint8_t)(view.base)[1u]);
+	return (uint8_t)((uint8_t)(situ_base(view))[1u]);
 }
 static inline uint8_t *situ_fzn_hop_hops_left_ptr(situ_view_t view)
 {
-	return (uint8_t *)(view.base + 1u);
+	return (uint8_t *)(situ_base(view) + 1u);
 }
 static inline void situ_fzn_hop_hops_left_set(situ_view_t view, uint8_t value)
 {
-	(view.base)[1u] = (uint8_t)value;
+	(situ_base(view))[1u] = (uint8_t)value;
 }
 
 /** fzn_hop.service_hint : u16  at AbsoluteStatic(0x02)
@@ -96,11 +96,11 @@ static inline void situ_fzn_hop_hops_left_set(situ_view_t view, uint8_t value)
  */
 static inline uint16_t situ_fzn_hop_service_hint_get(situ_view_t view)
 {
-	return (uint16_t)(situ_get_be16(view.base + 2u));
+	return (uint16_t)(situ_get_be16(situ_base(view) + 2u));
 }
 static inline void situ_fzn_hop_service_hint_set(situ_view_t view, uint16_t value)
 {
-	situ_put_be16(view.base + 2u, (uint16_t)value);
+	situ_put_be16(situ_base(view) + 2u, (uint16_t)value);
 }
 
 /** fzn_hop.`<reserved0>` : u8 -- reserved, no accessor.
@@ -160,11 +160,11 @@ static inline situ_err_t situ_fzn_head_view(const situ_msg_t *msg, uint32_t offs
  */
 static inline situ_fzn_kind_t situ_fzn_head_kind_get(situ_view_t view)
 {
-	return (situ_fzn_kind_t)((uint8_t)(view.base)[0u]);
+	return (situ_fzn_kind_t)((uint8_t)(situ_base(view))[0u]);
 }
 static inline void situ_fzn_head_kind_set(situ_view_t view, situ_fzn_kind_t value)
 {
-	(view.base)[0u] = (uint8_t)value;
+	(situ_base(view))[0u] = (uint8_t)value;
 }
 
 /** fzn_head.sender : u8  at AbsoluteStatic(0x01)
@@ -173,7 +173,7 @@ static inline void situ_fzn_head_kind_set(situ_view_t view, situ_fzn_kind_t valu
 #define SITU_FZN_HEAD_SENDER_COUNT 32u
 static inline uint8_t *situ_fzn_head_sender_ptr(situ_view_t view)
 {
-	return view.base + 1u;
+	return situ_base(view) + 1u;
 }
 
 /** fzn_head.expires_at : u64  at AbsoluteStatic(0x21)
@@ -181,11 +181,11 @@ static inline uint8_t *situ_fzn_head_sender_ptr(situ_view_t view)
  */
 static inline uint64_t situ_fzn_head_expires_at_get(situ_view_t view)
 {
-	return (uint64_t)(situ_get_be64(view.base + 33u));
+	return (uint64_t)(situ_get_be64(situ_base(view) + 33u));
 }
 static inline void situ_fzn_head_expires_at_set(situ_view_t view, uint64_t value)
 {
-	situ_put_be64(view.base + 33u, (uint64_t)value);
+	situ_put_be64(situ_base(view) + 33u, (uint64_t)value);
 }
 
 /** fzn_head.nonce : u8  at AbsoluteStatic(0x29)
@@ -194,7 +194,7 @@ static inline void situ_fzn_head_expires_at_set(situ_view_t view, uint64_t value
 #define SITU_FZN_HEAD_NONCE_COUNT 24u
 static inline uint8_t *situ_fzn_head_nonce_ptr(situ_view_t view)
 {
-	return view.base + 41u;
+	return situ_base(view) + 41u;
 }
 
 /** fzn_head.commitment : u8  at AbsoluteStatic(0x41)
@@ -203,7 +203,7 @@ static inline uint8_t *situ_fzn_head_nonce_ptr(situ_view_t view)
 #define SITU_FZN_HEAD_COMMITMENT_COUNT 16u
 static inline uint8_t *situ_fzn_head_commitment_ptr(situ_view_t view)
 {
-	return view.base + 65u;
+	return situ_base(view) + 65u;
 }
 
 /** fzn_head.msg : u32  at AbsoluteStatic(0x51)
@@ -211,11 +211,11 @@ static inline uint8_t *situ_fzn_head_commitment_ptr(situ_view_t view)
  */
 static inline uint32_t situ_fzn_head_msg_get(situ_view_t view)
 {
-	return (uint32_t)(situ_get_be32(view.base + 81u));
+	return (uint32_t)(situ_get_be32(situ_base(view) + 81u));
 }
 static inline void situ_fzn_head_msg_set(situ_view_t view, uint32_t value)
 {
-	situ_put_be32(view.base + 81u, (uint32_t)value);
+	situ_put_be32(situ_base(view) + 81u, (uint32_t)value);
 }
 
 /** fzn_head.index : u16  at AbsoluteStatic(0x55)
@@ -223,11 +223,11 @@ static inline void situ_fzn_head_msg_set(situ_view_t view, uint32_t value)
  */
 static inline uint16_t situ_fzn_head_index_get(situ_view_t view)
 {
-	return (uint16_t)(situ_get_be16(view.base + 85u));
+	return (uint16_t)(situ_get_be16(situ_base(view) + 85u));
 }
 static inline void situ_fzn_head_index_set(situ_view_t view, uint16_t value)
 {
-	situ_put_be16(view.base + 85u, (uint16_t)value);
+	situ_put_be16(situ_base(view) + 85u, (uint16_t)value);
 }
 
 /** fzn_head.chunks : u16  at AbsoluteStatic(0x57)
@@ -235,11 +235,11 @@ static inline void situ_fzn_head_index_set(situ_view_t view, uint16_t value)
  */
 static inline uint16_t situ_fzn_head_chunks_get(situ_view_t view)
 {
-	return (uint16_t)(situ_get_be16(view.base + 87u));
+	return (uint16_t)(situ_get_be16(situ_base(view) + 87u));
 }
 static inline void situ_fzn_head_chunks_set(situ_view_t view, uint16_t value)
 {
-	situ_put_be16(view.base + 87u, (uint16_t)value);
+	situ_put_be16(situ_base(view) + 87u, (uint16_t)value);
 }
 
 #define SITU_FZN_HEAD_LENGTH_VALUE_MAX 1024u
@@ -249,11 +249,11 @@ static inline void situ_fzn_head_chunks_set(situ_view_t view, uint16_t value)
  */
 static inline uint16_t situ_fzn_head_length_get(situ_view_t view)
 {
-	return (uint16_t)(situ_get_be16(view.base + 89u));
+	return (uint16_t)(situ_get_be16(situ_base(view) + 89u));
 }
 static inline void situ_fzn_head_length_set(situ_view_t view, uint16_t value)
 {
-	situ_put_be16(view.base + 89u, (uint16_t)value);
+	situ_put_be16(situ_base(view) + 89u, (uint16_t)value);
 }
 
 /** How many bytes a whole `fzn_head` needs, given `have` of them.
@@ -382,7 +382,7 @@ static inline situ_err_t situ_fzn_frame_sealed_open(situ_view_t view, int verifi
 #define SITU_FZN_FRAME_SEALED_CAPABILITY_COUNT 32u
 static inline uint8_t *situ_fzn_frame_sealed_capability_ptr(situ_fzn_frame_sealed_t gate)
 {
-	return gate.view.base + 96u;
+	return situ_base(gate.view) + 96u;
 }
 /** COVERAGE: writing through this pointer leaves tag stale.
  * Call situ_msg_mark_dirty(msg, SITU_FZN_FRAME_TAG_DIRTY) after doing so; there is no
@@ -393,12 +393,12 @@ static inline uint8_t *situ_fzn_frame_sealed_capability_ptr(situ_fzn_frame_seale
  */
 static inline uint32_t situ_fzn_frame_sealed_payload_len(situ_fzn_frame_sealed_t gate)
 {
-	return situ_min_u32((uint32_t)(situ_get_be16(gate.view.base + 94u)),
+	return situ_min_u32((uint32_t)(situ_get_be16(situ_base(gate.view) + 94u)),
 		situ_remaining_u32(gate.view.limit, 128u));
 }
 static inline uint8_t *situ_fzn_frame_sealed_payload_ptr(situ_fzn_frame_sealed_t gate)
 {
-	return gate.view.base + 128u;
+	return situ_base(gate.view) + 128u;
 }
 /* COVERAGE: writing through this pointer leaves tag stale.
  * Call situ_msg_mark_dirty(msg, SITU_FZN_FRAME_TAG_DIRTY) after doing so; there is no
@@ -416,7 +416,7 @@ static inline uint8_t *situ_fzn_frame_sealed_payload_ptr(situ_fzn_frame_sealed_t
 static inline uint32_t situ_fzn_frame_tag_offset(situ_view_t view)
 {
 	uint32_t offset = 96u;
-	offset = situ_advance_u32(offset, (32u + ((uint32_t)(situ_get_be16(view.base + 94u)))), view.limit);
+	offset = situ_advance_u32(offset, (32u + ((uint32_t)(situ_get_be16(situ_base(view) + 94u)))), view.limit);
 
 	return offset;
 }
@@ -431,7 +431,7 @@ static inline uint32_t situ_fzn_frame_tag_offset(situ_view_t view)
 static inline uint8_t *situ_fzn_frame_tag_ptr(situ_view_t view)
 {
 	return situ_in_bounds(view, situ_fzn_frame_tag_offset(view), 16u)
-		? view.base + situ_fzn_frame_tag_offset(view)
+		? situ_base(view) + situ_fzn_frame_tag_offset(view)
 		: NULL;
 }
 
@@ -480,32 +480,32 @@ static inline void situ_fzn_frame_tag_finalize(situ_msg_t *msg)
  */
 static inline void situ_fzn_frame_head_kind_set(situ_msg_t *msg, situ_view_t view, situ_fzn_kind_t value)
 {
-	(view.base)[5u] = (uint8_t)value;
+	(situ_base(view))[5u] = (uint8_t)value;
 	situ_msg_mark_dirty(msg, SITU_FZN_FRAME_TAG_DIRTY);
 }
 static inline void situ_fzn_frame_head_expires_at_set(situ_msg_t *msg, situ_view_t view, uint64_t value)
 {
-	situ_put_be64(view.base + 38u, (uint64_t)value);
+	situ_put_be64(situ_base(view) + 38u, (uint64_t)value);
 	situ_msg_mark_dirty(msg, SITU_FZN_FRAME_TAG_DIRTY);
 }
 static inline void situ_fzn_frame_head_msg_set(situ_msg_t *msg, situ_view_t view, uint32_t value)
 {
-	situ_put_be32(view.base + 86u, (uint32_t)value);
+	situ_put_be32(situ_base(view) + 86u, (uint32_t)value);
 	situ_msg_mark_dirty(msg, SITU_FZN_FRAME_TAG_DIRTY);
 }
 static inline void situ_fzn_frame_head_index_set(situ_msg_t *msg, situ_view_t view, uint16_t value)
 {
-	situ_put_be16(view.base + 90u, (uint16_t)value);
+	situ_put_be16(situ_base(view) + 90u, (uint16_t)value);
 	situ_msg_mark_dirty(msg, SITU_FZN_FRAME_TAG_DIRTY);
 }
 static inline void situ_fzn_frame_head_chunks_set(situ_msg_t *msg, situ_view_t view, uint16_t value)
 {
-	situ_put_be16(view.base + 92u, (uint16_t)value);
+	situ_put_be16(situ_base(view) + 92u, (uint16_t)value);
 	situ_msg_mark_dirty(msg, SITU_FZN_FRAME_TAG_DIRTY);
 }
 static inline void situ_fzn_frame_head_length_set(situ_msg_t *msg, situ_view_t view, uint16_t value)
 {
-	situ_put_be16(view.base + 94u, (uint16_t)value);
+	situ_put_be16(situ_base(view) + 94u, (uint16_t)value);
 	situ_msg_mark_dirty(msg, SITU_FZN_FRAME_TAG_DIRTY);
 }
 
@@ -523,7 +523,9 @@ situ_err_t situ_fzn_frame_validate(situ_view_t view);
  * a macro, so nothing here costs a string (0051).
  */
 situ_err_t situ_fzn_frame_check(situ_view_t view, uint32_t *which);
-#define SITU_FZN_FRAME_TAG_CHECK 0u
+#define SITU_FZN_FRAME_HOP_CHECK 0u
+#define SITU_FZN_FRAME_HEAD_CHECK 1u
+#define SITU_FZN_FRAME_TAG_CHECK 2u
 
 #ifdef __cplusplus
 }

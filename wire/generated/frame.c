@@ -19,6 +19,15 @@ situ_err_t situ_fzn_hop_check(situ_view_t view, uint32_t *which)
 		which = &sink;
 	}
 	*which = 0xFFFFFFFFu;
+
+	if (view.limit < SITU_FZN_HOP_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
 	/* fzn_hop.version [must_eq = 1] */
 	if (situ_fzn_hop_version_get(view) != 1) {
 		*which = SITU_FZN_HOP_VERSION_CHECK;
@@ -31,7 +40,7 @@ situ_err_t situ_fzn_hop_check(situ_view_t view, uint32_t *which)
 		uint32_t i;
 
 		for (i = 0; i < n; i++) {
-			if ((view.base)[at + i] != 0u) {
+			if ((situ_base(view))[at + i] != 0u) {
 				*which = SITU_FZN_HOP_RESERVED0_CHECK;
 				return SITU_ERR_CONSTRAINT;
 			}
@@ -56,6 +65,15 @@ situ_err_t situ_fzn_head_check(situ_view_t view, uint32_t *which)
 		which = &sink;
 	}
 	*which = 0xFFFFFFFFu;
+
+	if (view.limit < SITU_FZN_HEAD_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
 	/* fzn_head.kind: `fzn_kind` rejects unknown values (section 8.7) */
 	if (!situ_fzn_kind_is_known(situ_fzn_head_kind_get(view))) {
 		*which = SITU_FZN_HEAD_KIND_CHECK;
@@ -90,16 +108,27 @@ situ_err_t situ_fzn_frame_check(situ_view_t view, uint32_t *which)
 		which = &sink;
 	}
 	*which = 0xFFFFFFFFu;
+
+	if (view.limit < SITU_FZN_FRAME_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
 	/* fzn_frame.hop : fzn_hop -- its own constraints */
 	{
 		situ_view_t nested;
 		situ_err_t err = situ_fzn_frame_hop_view(view, &nested);
 
 		if (err != SITU_OK) {
+			*which = SITU_FZN_FRAME_HOP_CHECK;
 			return err;
 		}
 		err = situ_fzn_hop_validate(nested);
 		if (err != SITU_OK) {
+			*which = SITU_FZN_FRAME_HOP_CHECK;
 			return err;
 		}
 	}
@@ -109,10 +138,12 @@ situ_err_t situ_fzn_frame_check(situ_view_t view, uint32_t *which)
 		situ_err_t err = situ_fzn_frame_head_view(view, &nested);
 
 		if (err != SITU_OK) {
+			*which = SITU_FZN_FRAME_HEAD_CHECK;
 			return err;
 		}
 		err = situ_fzn_head_validate(nested);
 		if (err != SITU_OK) {
+			*which = SITU_FZN_FRAME_HEAD_CHECK;
 			return err;
 		}
 	}

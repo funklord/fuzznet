@@ -43566,3 +43566,53 @@ WHAT THIS COSTS IN THE MEANTIME: nothing that `make check` can see, which is
 the point. `make schema` is the only gate that reads these, so the drift is
 invisible to everything else -- and the parser hardening stays unapplied until
 somebody decides to take it.
+
+## 329. The situ pin moved, and what it actually bought, 2026-09-20
+
+Taken on the holder's instruction. situ's C runtime is re-vendored at 6b9c1cd,
+`wire/generated/frame.{c,h}` regenerated with it, and `make schema` is green
+for the first time today.
+
+THEY ARE ONE CHANGE AND NOT TWO, measured rather than assumed: the regenerated
+frame calls `situ_base(view)`, which the old vendored runtime does not define,
+so it does not compile against it. Taking either means taking both.
+
+WHAT IT BOUGHT, AND A CORRECTION TO SEC 328. That section called the new lines
+"THREE bounds checks the committed code has none of", which reads as bytes
+going unchecked. They were not. Built the committed frame against the
+committed runtime in a scratch tree and ran the same probe against both:
+
+    view limit   before                          after
+    0..4         SITU_ERR_CONSTRAINT, a member   SITU_ERR_BOUNDS, whole-struct
+    5 (minimum)  SITU_ERR_CONSTRAINT             SITU_ERR_CONSTRAINT
+
+So a short struct was ALWAYS refused. What was wrong was the ATTRIBUTION: it
+returned a member-level constraint error naming a member as the cause, which
+is false when nothing fits -- and it was indistinguishable from a full-length
+struct with a genuinely bad member, same code and same shape of `which`. For a
+wire parser that matters, because a peer sending a truncated frame was blamed
+on an arbitrary field. It is a misattribution fixed in an error path, not a
+hole closed. The row at the minimum is the control: the new guard does not
+over-refuse.
+
+THE BANNER MOVED WITH THE BYTES. It pinned db070cf and now pins 6b9c1cd, and
+its proportion argument -- "situ's C runtime is 76 lines of situ.c" -- is 87
+now. That number is the banner's own load-bearing claim and the kind
+`evidence.md` says rots, so it moves when the pin does.
+
+AND THE ESCAPE CLAUSE IS WORTH THE HOLDER'S EYE. The banner says what would
+change the vendoring answer: "this runtime growing to the point where
+vendoring it is copying a library rather than two files." `situ.h` went from
+1321 body lines to 1765 in this one bump. It is still two files, so the
+exception still holds on its own terms -- but the trend is the thing the
+clause was written to watch.
+
+TWO MEASUREMENT ERRORS OF MINE, BOTH THE SAME SHAPE. `diff <missing file> ...
+2>/dev/null | grep -c` printed "0 changed lines", which I read as IDENTICAL
+when it meant ABSENT -- and I then invented `wire/test/frame_tamper.h` as a
+destination from that reading. The style gate caught the stray file. Then I
+`cmp`'d the tamper header against a leftover in my own scratch directory and
+read a difference that was not real; the schema gate, which regenerates into a
+fresh directory, says the tracked header is current and unaffected by this
+bump. Both are `evidence.md`'s manufactured absence: a probe that cannot tell
+"nothing there" from "nothing wrong", trusted because the number was zero.

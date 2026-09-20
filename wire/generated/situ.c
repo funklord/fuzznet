@@ -1,4 +1,4 @@
-/* Vendored from situ's runtime/c/ at db070cf, unmodified below this
+/* Vendored from situ's runtime/c/ at 6b9c1cd, unmodified below this
  * comment. `make schema SITU_DIR=...` re-copies both files and refuses on
  * drift, so this cannot quietly diverge.
  *
@@ -8,7 +8,7 @@
  * accessors call it. A first attempt at this file claimed the opposite,
  * having grepped rather than linked; the linker disagreed immediately.
  *
- * The reason for the exception is proportion. situ's C runtime is 76 lines
+ * The reason for the exception is proportion. situ's C runtime is 87 lines
  * of situ.c and a header, inside a repository that is otherwise a Python
  * compiler. A submodule would drag the whole compiler into every clone of
  * this library, and into every consumer's tree, to obtain two files.
@@ -54,6 +54,7 @@ situ_err_t situ_view_at(const situ_msg_t *msg, uint32_t offset, uint32_t extent,
 	out->base	= msg->base + offset;
 	out->limit	= extent;
 	out->generation	= msg->generation;
+	out->owner	= msg;
 	return SITU_OK;
 }
 
@@ -66,6 +67,10 @@ situ_err_t situ_view_sub(situ_view_t view, uint32_t offset, uint32_t extent, sit
 	out->base	= view.base + offset;
 	out->limit	= extent;
 	out->generation	= view.generation;
+	/* Carried down, so a SUB-view is checkable too -- which is the
+	 * case that actually goes wrong: a parent re-derives its offsets
+	 * and a sub-view holds the one it was built with. */
+	out->owner	= view.owner;
 	return SITU_OK;
 }
 
@@ -93,6 +98,11 @@ const char *situ_err_str(situ_err_t err)
 	case SITU_ERR_STALE:		return "stale view";
 	case SITU_ERR_TRUNCATED:	return "incomplete: more bytes needed";
 	case SITU_ERR_CHECKSUM:		return "checksum mismatch";
+	/* Worded as the reader's decision rather than the message's fault,
+	 * because that is the whole distinction from SITU_ERR_CONSTRAINT: a
+	 * log line saying "malformed" would send somebody after a sender that
+	 * is behaving correctly (0054). */
+	case SITU_ERR_DEPTH:		return "nested deeper than this build follows";
 	}
 	return "unknown error";
 }
