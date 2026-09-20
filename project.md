@@ -43520,3 +43520,49 @@ WHAT REMAINS OF sec 317: step 4, the reclamation POLICY -- whether automatic
 reclamation exists, its grace period and its pin granularity. The mechanism
 has been settled since C19a; the policy is the holder's and gates any
 automatic GC. Nothing else in the program is blocked on anything.
+
+## 328. Two findings from `make schema` after the migration, 2026-09-20
+
+MINE FIRST. The rename pass of sec 327 included `.map` in its file filter, and
+`catalog/attribute.situ.map` is GENERATED -- situ writes it from the schema.
+Rewriting the symbol prefix inside it produced a file that reads correctly and
+is not what the generator produces: the names got two characters shorter and
+the column padding did not follow, so `cmp` against a fresh `situc map`
+refused it. Regenerated rather than re-aligned by hand, which is the only
+correct way to fix a generated file.
+
+It is worth naming why this was invisible: the map is read by `make schema`,
+which is NOT part of `make check`, so every gate in sec 327 passed over it.
+A generated artifact edited by hand looks right to a reader and to every
+compiler; the only thing that can tell is the generator.
+
+THE SECOND IS NOT MINE, AND IS REPORTED RATHER THAN FIXED. `make schema` is
+red for two further reasons, both from situ moving:
+
+- `wire/generated/frame.c` and `frame.h` are stale. Regenerating them adds
+  THREE bounds checks the committed code has none of -- `if (view.limit <
+  SITU_FZN_HOP_SIZE_MIN) { *which = 0xFFFFFFFFu; return SITU_ERR_BOUNDS; }`
+  and two more -- which refuse a struct shorter than its own minimum. That is
+  a hardening fix in the wire-format parser, sitting available and unapplied.
+- `wire/generated/situ.h` and `situ.c`, the VENDORED RUNTIME, have drifted 525
+  and 31 lines from situ's.
+
+AND THEY ARE ONE CHANGE, NOT TWO. Measured rather than assumed: the
+regenerated frame calls `situ_base(view)`, which the vendored runtime does not
+define, so it does not compile against it -- four errors, starting with an
+implicit declaration. Taking the parser hardening means taking the runtime
+bump with it.
+
+WHY IT IS NOT TAKEN HERE. It is 525 lines of vendored third-party runtime
+under the wire-format parser, which is the most safety-critical generated
+artifact this library has; situ moved SIX times today and its session is still
+working; and `build-and-commit.md` says a pin move "is a change to what the
+project builds against, it belongs in a commit somebody reviews". Regenerating
+is one command once that is decided. The generated frame was restored to its
+committed state so the tree builds, after checking that every line of the
+difference was situc's output put there minutes earlier.
+
+WHAT THIS COSTS IN THE MEANTIME: nothing that `make check` can see, which is
+the point. `make schema` is the only gate that reads these, so the drift is
+invisible to everything else -- and the parser hardening stays unapplied until
+somebody decides to take it.
