@@ -2,7 +2,7 @@
  * A planned deletion: what is about to be taken off this host, how far it has
  * got, and -- when nothing is going, WHY nothing is going.
  *
- * project.md sec 181. `catalogue/sweep.h` is the model, and this widget's whole
+ * project.md sec 181. `catalog/sweep.h` is the model, and this widget's whole
  * design is a sentence already in that header:
  *
  *   "THEY ARE KEPT APART RATHER THAN SUMMED because a consumer that swept
@@ -28,13 +28,13 @@
  * that means the number beside it is short.
  *
  * IT RENDERS THE LIBRARY'S ANSWERS AND COMPUTES NONE, sec 165's rule.
- * Progress is `fzn_catalogue_sweep_progress`, whose comment says in as many
+ * Progress is `fzn_catalog_sweep_progress`, whose comment says in as many
  * words that it is "what to draw" and that it answers while a sweep is under
  * way -- so this widget uses the accessor the library provides for it rather
  * than reading `done` and `used` out of the struct.
  *
  * IT MUST NOT RUN THE SWEEP, and that is sec 179's rule arriving at a more
- * dangerous module. `fzn_catalogue_sweep_begin`, `_advance` and `_end` all
+ * dangerous module. `fzn_catalog_sweep_begin`, `_advance` and `_end` all
  * mutate, and `_advance` is called AFTER bytes are gone -- so a view that
  * advanced a cursor would record a deletion that never happened, and the
  * bytes would be lost from the record while still on disk. Nothing here is
@@ -52,7 +52,7 @@
 #define FZN_GUI_SWEEP_VIEW_H
 
 extern "C" {
-#include "../catalogue/sweep.h"
+#include "../catalog/sweep.h"
 #include "../cli/sweep_print.h"
 }
 
@@ -80,12 +80,12 @@ public:
 	 * Show one plan, and optionally the job carrying it out.
 	 *
 	 * `plan` may be NULL, which is the nothing-captured state -- a
-	 * consumer that has not run `fzn_catalogue_sweep_capture` yet has no
+	 * consumer that has not run `fzn_catalog_sweep_capture` yet has no
 	 * plan rather than an empty one, and those are different.
 	 *
 	 * `job` may be NULL: a plan is worth showing before anybody begins.
 	 */
-	void show_sweep(const fzn_catalogue_sweep_plan_t *plan, const fzn_catalogue_sweep_t *job);
+	void show_sweep(const fzn_catalog_sweep_plan_t *plan, const fzn_catalog_sweep_t *job);
 
 	/* What is on the screen. */
 	state shown_state() const;

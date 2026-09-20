@@ -54,11 +54,11 @@
 #include <fuzznet/claim/claim.h>
 #include <fuzznet/record/store.h>
 #include <fuzznet/facet/facet.h>
-#include <fuzznet/catalogue/catalogue.h>
-#include <fuzznet/catalogue/retention.h>
-#include <fuzznet/catalogue/sweep.h>
-#include <fuzznet/catalogue/copy.h>
-#include <fuzznet/catalogue/filing.h>
+#include <fuzznet/catalog/catalog.h>
+#include <fuzznet/catalog/retention.h>
+#include <fuzznet/catalog/sweep.h>
+#include <fuzznet/catalog/copy.h>
+#include <fuzznet/catalog/filing.h>
 #include <fuzznet/qr/qr.h>
 #if defined(FZN_CLI_ON)
 #include <fuzznet/cli/qr_print.h>
@@ -161,11 +161,11 @@
 #include "claim/claim.h"
 #include "record/store.h"
 #include "facet/facet.h"
-#include "catalogue/catalogue.h"
-#include "catalogue/retention.h"
-#include "catalogue/sweep.h"
-#include "catalogue/copy.h"
-#include "catalogue/filing.h"
+#include "catalog/catalog.h"
+#include "catalog/retention.h"
+#include "catalog/sweep.h"
+#include "catalog/copy.h"
+#include "catalog/filing.h"
 #include "qr/qr.h"
 #if defined(FZN_CLI_ON)
 #include "cli/qr_print.h"
@@ -1746,35 +1746,35 @@ int main(void)
 		 * until a deadline, watch the word change AT the deadline, draw
 		 * the due list, and give the row back. */
 		{
-			fzn_catalogue_hold_t rows[2];
-			fzn_catalogue_holds_t holds;
+			fzn_catalog_hold_t rows[2];
+			fzn_catalog_holds_t holds;
 			uint8_t ret_entity[FZN_SUBJECT_LEN];
-			fzn_catalogue_entity_t out[2];
+			fzn_catalog_entity_t out[2];
 			size_t dropped = 0;
 
 			memset(ret_entity, 0x5e, sizeof(ret_entity));
-			if (fzn_catalogue_holds_init(&holds, rows, 2) != FZN_CATALOGUE_OK)
+			if (fzn_catalog_holds_init(&holds, rows, 2) != FZN_CATALOG_OK)
 				FAIL(362);
-			if (fzn_catalogue_retain_until(&holds, ret_entity, FZN_SUBJECT_LEN,
-			                               FZN_CATALOGUE_RETAIN_KEEP, 100,
-			                               FZN_CATALOGUE_RETAIN_DROP)
-			    != FZN_CATALOGUE_OK)
+			if (fzn_catalog_retain_until(&holds, ret_entity, FZN_SUBJECT_LEN,
+			                               FZN_CATALOG_RETAIN_KEEP, 100,
+			                               FZN_CATALOG_RETAIN_DROP)
+			    != FZN_CATALOG_OK)
 				FAIL(363);
-			if (!fzn_catalogue_keeps(&holds, ret_entity, FZN_SUBJECT_LEN, 99))
+			if (!fzn_catalog_keeps(&holds, ret_entity, FZN_SUBJECT_LEN, 99))
 				FAIL(364);
-			if (fzn_catalogue_keeps(&holds, ret_entity, FZN_SUBJECT_LEN, 100))
+			if (fzn_catalog_keeps(&holds, ret_entity, FZN_SUBJECT_LEN, 100))
 				FAIL(365);
-			if (fzn_catalogue_due(&holds, 100, out, 2, &dropped) != 1
+			if (fzn_catalog_due(&holds, 100, out, 2, &dropped) != 1
 			    || dropped != 0)
 				FAIL(366);
-			if (fzn_catalogue_retain(&holds, ret_entity, FZN_SUBJECT_LEN,
-			                         FZN_CATALOGUE_RETAIN_DEFAULT)
-			    != FZN_CATALOGUE_OK)
+			if (fzn_catalog_retain(&holds, ret_entity, FZN_SUBJECT_LEN,
+			                         FZN_CATALOG_RETAIN_DEFAULT)
+			    != FZN_CATALOG_OK)
 				FAIL(367);
-			if (fzn_catalogue_hold_count(&holds) != 0)
+			if (fzn_catalog_hold_count(&holds) != 0)
 				FAIL(368);
-			if (strcmp(fzn_catalogue_retention_str(
-			                   FZN_CATALOGUE_RETAIN_KEEP), "keep") != 0)
+			if (strcmp(fzn_catalog_retention_str(
+			                   FZN_CATALOG_RETAIN_KEEP), "keep") != 0)
 				FAIL(369);
 		}
 
@@ -1784,10 +1784,10 @@ int main(void)
 		 * the symbols are. */
 		{
 			uint8_t host_a[32], host_b[32], sweep_e[FZN_SUBJECT_LEN];
-			fzn_catalogue_assertion_t aset[2];
-			fzn_catalogue_sweep_t sjob;
-			fzn_catalogue_removal_t srows[2], srow;
-			fzn_catalogue_sweep_plan_t splan;
+			fzn_catalog_assertion_t aset[2];
+			fzn_catalog_sweep_t sjob;
+			fzn_catalog_removal_t srows[2], srow;
+			fzn_catalog_sweep_plan_t splan;
 			size_t sdone = 0, stotal = 0;
 			size_t k;
 
@@ -1800,36 +1800,36 @@ int main(void)
 				aset[k].entity_len = sizeof(sweep_e);
 				aset[k].name = (const uint8_t *)"held";
 				aset[k].name_len = 4;
-				aset[k].attr_class = FZN_CATALOGUE_FACT;
-				aset[k].scope = FZN_CATALOGUE_ESTATE;
-				aset[k].merge = FZN_CATALOGUE_UNION;
-				aset[k].capability = FZN_CATALOGUE_CAP_HOLDER;
+				aset[k].attr_class = FZN_CATALOG_FACT;
+				aset[k].scope = FZN_CATALOG_ESTATE;
+				aset[k].merge = FZN_CATALOG_UNION;
+				aset[k].capability = FZN_CATALOG_CAP_HOLDER;
 				aset[k].live = 1;
 				aset[k].issuer_len = 32;
 			}
 			aset[0].issuer = host_a;
 			aset[1].issuer = host_b;
 
-			if (fzn_catalogue_sweep_capture(aset, 2, NULL, host_a, 32, 1, 0,
+			if (fzn_catalog_sweep_capture(aset, 2, NULL, host_a, 32, 1, 0,
 			                                NULL, &sjob, srows, 2, &splan)
-			    != FZN_CATALOGUE_OK)
+			    != FZN_CATALOG_OK)
 				FAIL(370);
 			if (splan.planned != 1)
 				FAIL(371);
-			if (fzn_catalogue_sweep_at(&sjob, &srow) != FZN_CATALOGUE_OK
+			if (fzn_catalog_sweep_at(&sjob, &srow) != FZN_CATALOG_OK
 			    || memcmp(srow.entity, sweep_e, sizeof(sweep_e)) != 0)
 				FAIL(372);
-			if (fzn_catalogue_sweep_advance(&sjob) != FZN_CATALOGUE_OK)
+			if (fzn_catalog_sweep_advance(&sjob) != FZN_CATALOG_OK)
 				FAIL(373);
-			if (fzn_catalogue_sweep_progress(&sjob, &sdone, &stotal)
-			            != FZN_CATALOGUE_OK
+			if (fzn_catalog_sweep_progress(&sjob, &sdone, &stotal)
+			            != FZN_CATALOG_OK
 			    || sdone != 1 || stotal != 1)
 				FAIL(374);
 			/* And the last copy is refused, which is the guard a
 			 * consumer most needs to be sure is alive. */
-			if (fzn_catalogue_sweep_capture(aset, 1, NULL, host_a, 32, 1, 0,
+			if (fzn_catalog_sweep_capture(aset, 1, NULL, host_a, 32, 1, 0,
 			                                NULL, &sjob, srows, 2, &splan)
-			    != FZN_CATALOGUE_OK)
+			    != FZN_CATALOG_OK)
 				FAIL(375);
 			if (splan.planned != 0 || splan.last_copy != 1)
 				FAIL(376);
@@ -1839,22 +1839,22 @@ int main(void)
 			 * want list is a request for any bytes whose hash a
 			 * peer can name. */
 			{
-				fzn_catalogue_copy_t cplan;
-				fzn_catalogue_entity_t cout[2], cwants[2];
+				fzn_catalog_copy_t cplan;
+				fzn_catalog_entity_t cout[2], cwants[2];
 				uint8_t stranger[FZN_SUBJECT_LEN];
 
 				memset(stranger, 0x74, sizeof(stranger));
 				memcpy(cwants[0].b, sweep_e, sizeof(sweep_e));
 				memcpy(cwants[1].b, stranger, sizeof(stranger));
 
-				if (fzn_catalogue_copy_holdings(aset, 2, host_a, 32, cout, 2,
-				                                &cplan) != FZN_CATALOGUE_OK)
+				if (fzn_catalog_copy_holdings(aset, 2, host_a, 32, cout, 2,
+				                                &cplan) != FZN_CATALOG_OK)
 					FAIL(377);
 				if (cplan.written != 1 || cplan.already_held != 1)
 					FAIL(378);
-				if (fzn_catalogue_copy_offer(aset, 2, host_a, 32, cwants, 2,
+				if (fzn_catalog_copy_offer(aset, 2, host_a, 32, cwants, 2,
 				                             cout, 2, &cplan)
-				    != FZN_CATALOGUE_OK)
+				    != FZN_CATALOG_OK)
 					FAIL(379);
 				if (cplan.written != 1 || cplan.unknown != 1)
 					FAIL(380);
@@ -1865,11 +1865,11 @@ int main(void)
 			 * retracted stops answering, with nothing calling in
 			 * to say the link went away. */
 			{
-				fzn_catalogue_assertion_t fset[1];
-				fzn_catalogue_filing_t frows[2];
-				fzn_catalogue_filings_t filings;
-				fzn_catalogue_move_t fmoves[2];
-				fzn_catalogue_refile_t fjob;
+				fzn_catalog_assertion_t fset[1];
+				fzn_catalog_filing_t frows[2];
+				fzn_catalog_filings_t filings;
+				fzn_catalog_move_t fmoves[2];
+				fzn_catalog_refile_t fjob;
 				const uint8_t dim[] = "place";
 				const uint8_t where[] = "/photos/2026";
 
@@ -1879,35 +1879,35 @@ int main(void)
 				fset[0].entity_len = sizeof(sweep_e);
 				fset[0].name = dim;        fset[0].name_len = 5;
 				fset[0].value = where;     fset[0].value_len = 12;
-				fset[0].attr_class = FZN_CATALOGUE_LABEL;
-				fset[0].scope = FZN_CATALOGUE_ESTATE;
-				fset[0].merge = FZN_CATALOGUE_UNION;
-				fset[0].capability = FZN_CATALOGUE_CAP_NONE;
+				fset[0].attr_class = FZN_CATALOG_LABEL;
+				fset[0].scope = FZN_CATALOG_ESTATE;
+				fset[0].merge = FZN_CATALOG_UNION;
+				fset[0].capability = FZN_CATALOG_CAP_NONE;
 				fset[0].live = 1;
 
-				if (fzn_catalogue_filings_init(&filings, frows, 2)
-				    != FZN_CATALOGUE_OK)
+				if (fzn_catalog_filings_init(&filings, frows, 2)
+				    != FZN_CATALOG_OK)
 					FAIL(381);
-				if (fzn_catalogue_file_under(&filings, fset, 1, sweep_e,
+				if (fzn_catalog_file_under(&filings, fset, 1, sweep_e,
 				                             sizeof(sweep_e), dim, 5,
-				                             where, 12) != FZN_CATALOGUE_OK)
+				                             where, 12) != FZN_CATALOG_OK)
 					FAIL(382);
-				if (!fzn_catalogue_filed_under(&filings, fset, 1, sweep_e,
+				if (!fzn_catalog_filed_under(&filings, fset, 1, sweep_e,
 				                               sizeof(sweep_e)))
 					FAIL(383);
-				if (fzn_catalogue_refile_capture(&filings, &fjob, fmoves, 2)
-				    != FZN_CATALOGUE_OK || fjob.used != 1)
+				if (fzn_catalog_refile_capture(&filings, &fjob, fmoves, 2)
+				    != FZN_CATALOG_OK || fjob.used != 1)
 					FAIL(384);
 
 				/* The link is retracted, and nothing tells the
 				 * filing table. */
 				fset[0].live = 0;
-				if (fzn_catalogue_filed_under(&filings, fset, 1, sweep_e,
+				if (fzn_catalog_filed_under(&filings, fset, 1, sweep_e,
 				                              sizeof(sweep_e)))
 					FAIL(385);
-				if (fzn_catalogue_filing_prune(&filings, fset, 1) != 1)
+				if (fzn_catalog_filing_prune(&filings, fset, 1) != 1)
 					FAIL(386);
-				if (fzn_catalogue_filing_count(&filings) != 0)
+				if (fzn_catalog_filing_count(&filings) != 0)
 					FAIL(387);
 			}
 		}

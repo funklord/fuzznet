@@ -1,6 +1,6 @@
 /* Tests for gui/sweep_view.cpp, headless.
  *
- * THE CASE THIS FILE EXISTS FOR is the one `catalogue/sweep.h` states as the
+ * THE CASE THIS FILE EXISTS FOR is the one `catalog/sweep.h` states as the
  * reason its counters are kept apart: "a sweep held back by the last-copy
  * guard would be indistinguishable from a catalogue with nothing to sweep --
  * and those want opposite responses". Both plan zero. One means the disk
@@ -9,7 +9,7 @@
  * would undo the distinction the library exists to keep.
  *
  * The second is that a view of a deletion must not perform one.
- * `fzn_catalogue_sweep_advance` is called AFTER the bytes are gone, so a widget
+ * `fzn_catalog_sweep_advance` is called AFTER the bytes are gone, so a widget
  * that advanced a cursor while drawing would record a removal that never
  * happened -- and the record is what says the bytes are gone.
  */
@@ -36,13 +36,13 @@ static void check_at(int ok, int line, const char *what)
 
 #define CHECK(cond, what) check_at((cond) ? 1 : 0, __LINE__, (what))
 
-static fzn_catalogue_removal_t REMOVALS[4];
+static fzn_catalog_removal_t REMOVALS[4];
 
 /* A job holding `used` rows with `done` of them removed. The rows and the
- * cursor are caller-owned public state -- `fzn_catalogue_sweep_capture` fills
+ * cursor are caller-owned public state -- `fzn_catalog_sweep_capture` fills
  * them from a catalogue, which is `catalog/test/sweep_test.c`'s job. What
  * this file needs is a job in a particular position. */
-static void job_at(fzn_catalogue_sweep_t *job, size_t used, size_t done)
+static void job_at(fzn_catalog_sweep_t *job, size_t used, size_t done)
 {
 	memset(job, 0, sizeof(*job));
 	memset(REMOVALS, 0, sizeof(REMOVALS));
@@ -59,8 +59,8 @@ int main(int argc, char **argv)
 
 	QApplication app(argc, argv);
 	fzn_sweep_view view;
-	fzn_catalogue_sweep_plan_t plan;
-	fzn_catalogue_sweep_t job;
+	fzn_catalog_sweep_plan_t plan;
+	fzn_catalog_sweep_t job;
 
 	/* NO PLAN IS NOT AN EMPTY PLAN. A consumer that has not captured has
 	 * not asked; one that captured and got nothing has an answer. */
@@ -177,7 +177,7 @@ int main(int argc, char **argv)
 		size_t total = 0;
 
 		job_at(&job, 4u, 1u);
-		CHECK(fzn_catalogue_sweep_progress(&job, &before, &total) == FZN_CATALOGUE_OK,
+		CHECK(fzn_catalog_sweep_progress(&job, &before, &total) == FZN_CATALOG_OK,
 		      "the fixture job has no progress to read");
 		CHECK(before == 1u && total == 4u, "the fixture is not part way through");
 
@@ -185,7 +185,7 @@ int main(int argc, char **argv)
 		view.show_sweep(&plan, &job);
 		view.show_sweep(&plan, &job);
 
-		CHECK(fzn_catalogue_sweep_progress(&job, &after, &total) == FZN_CATALOGUE_OK,
+		CHECK(fzn_catalog_sweep_progress(&job, &after, &total) == FZN_CATALOG_OK,
 		      "the job lost its progress");
 		CHECK(after == before,
 		      "drawing a sweep advanced its cursor, which records a removal that "
@@ -207,7 +207,7 @@ int main(int argc, char **argv)
 		plan.last_copy = 2u;
 		view.show_sweep(&plan, nullptr);
 		CHECK(fzn_sweep_print(&plan, nullptr, want, sizeof(want), &len, &said,
-		                      &trunc) == FZN_CATALOGUE_OK,
+		                      &trunc) == FZN_CATALOG_OK,
 		      "the printer would not render what the widget was given");
 		expected = QString::fromLatin1(want);
 		while (expected.endsWith(QLatin1Char('\n')))

@@ -38,7 +38,7 @@ static void put_u64(struct sink *s, uint64_t value)
  * each calls for a different action: retention is this host's own policy,
  * referenced and last_copy are guards refusing, absent is nothing to do, and
  * incomplete is partial data -- which must not read as nothing to do. */
-static void reasons(struct sink *s, const fzn_catalogue_sweep_plan_t *plan)
+static void reasons(struct sink *s, const fzn_catalog_sweep_plan_t *plan)
 {
 	int first = 1;
 
@@ -81,7 +81,7 @@ static void reasons(struct sink *s, const fzn_catalogue_sweep_plan_t *plan)
 	}
 }
 
-static void render(struct sink *s, const fzn_catalogue_sweep_plan_t *plan,
+static void render(struct sink *s, const fzn_catalog_sweep_plan_t *plan,
                    fzn_sweep_state_t state, size_t done, size_t total, int truncated)
 {
 	switch (state) {
@@ -119,8 +119,8 @@ static void render(struct sink *s, const fzn_catalogue_sweep_plan_t *plan,
 	put_str(s, "\n");
 }
 
-fzn_catalogue_err_t fzn_sweep_print(const fzn_catalogue_sweep_plan_t *plan,
-                                  const fzn_catalogue_sweep_t *job, char *out, size_t cap,
+fzn_catalog_err_t fzn_sweep_print(const fzn_catalog_sweep_plan_t *plan,
+                                  const fzn_catalog_sweep_t *job, char *out, size_t cap,
                                   size_t *len_out, fzn_sweep_state_t *state_out,
                                   int *truncated_out)
 {
@@ -140,14 +140,14 @@ fzn_catalogue_err_t fzn_sweep_print(const fzn_catalogue_sweep_plan_t *plan,
 		*truncated_out = 0;
 
 	if (!out || !len_out || !state_out || !truncated_out)
-		return FZN_CATALOGUE_ERR_MALFORMED;
+		return FZN_CATALOG_ERR_MALFORMED;
 
 	if (plan) {
 		truncated = plan->truncated > 0u;
 
 		/* READ, NEVER ADVANCED. sec 181: `_advance` is called after the
 		 * bytes are gone, so reporting must not call it. */
-		if (job && fzn_catalogue_sweep_progress(job, &done, &total) == FZN_CATALOGUE_OK)
+		if (job && fzn_catalog_sweep_progress(job, &done, &total) == FZN_CATALOG_OK)
 			running = 1;
 
 		if (plan->planned == 0u) {
@@ -169,7 +169,7 @@ fzn_catalogue_err_t fzn_sweep_print(const fzn_catalogue_sweep_plan_t *plan,
 
 	if (measure.used + 1u > cap) {
 		*len_out = measure.used + 1u;
-		return FZN_CATALOGUE_ERR_MALFORMED;
+		return FZN_CATALOG_ERR_MALFORMED;
 	}
 
 	write.out = out;
@@ -180,5 +180,5 @@ fzn_catalogue_err_t fzn_sweep_print(const fzn_catalogue_sweep_plan_t *plan,
 	*state_out = said;
 	*truncated_out = truncated;
 
-	return FZN_CATALOGUE_OK;
+	return FZN_CATALOG_OK;
 }

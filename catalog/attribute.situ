@@ -16,8 +16,8 @@
 // or a trailing byte is refused rather than absorbed -- because the signature
 // is over these bytes, and 255 spellings of one statement is 255 signatures.
 //
-// Measured against the committed FZN_CATALOGUE_* constants in catalogue.h:
-// FZN_CATALOGUE_ATTR_HEAD_LEN = 6 (object + four axes + name_len), and the
+// Measured against the committed FZN_CATALOG_* constants in catalog.h:
+// FZN_CATALOG_ATTR_HEAD_LEN = 6 (object + four axes + name_len), and the
 // value bound accounts for the head rather than being FZN_RECORD_BODY_MAX --
 // catalog/ found that defect (FZN_CATALOG_INLINE_MAX) only by building the
 // encoder, and it is designed in here rather than rediscovered.
@@ -25,34 +25,34 @@
 target buffer;
 endian big;
 
-// The four axes, whose values are catalogue.h's enums. Each starts at 1: a
+// The four axes, whose values are catalog.h's enums. Each starts at 1: a
 // zero byte is no axis, so an unknown value (F26/C28) is refused, not skipped.
-enum fzn_catalogue_class : u8 {
-	label = 1,        // FZN_CATALOGUE_LABEL -- nobody can check; carried.
-	fact = 2,         // FZN_CATALOGUE_FACT -- the bytes settle it.
-	identifier = 3,   // FZN_CATALOGUE_IDENTIFIER -- a register settles it.
+enum fzn_catalog_class : u8 {
+	label = 1,        // FZN_CATALOG_LABEL -- nobody can check; carried.
+	fact = 2,         // FZN_CATALOG_FACT -- the bytes settle it.
+	identifier = 3,   // FZN_CATALOG_IDENTIFIER -- a register settles it.
 }
 
-enum fzn_catalogue_scope : u8 {
-	host = 1,         // FZN_CATALOGUE_HOST
-	estate = 2,       // FZN_CATALOGUE_ESTATE
-	advertised = 3,   // FZN_CATALOGUE_ADVERTISED
+enum fzn_catalog_scope : u8 {
+	host = 1,         // FZN_CATALOG_HOST
+	estate = 2,       // FZN_CATALOG_ESTATE
+	advertised = 3,   // FZN_CATALOG_ADVERTISED
 }
 
-enum fzn_catalogue_merge : u8 {
-	authoritative = 1, // FZN_CATALOGUE_AUTHORITATIVE
-	union_ = 2,        // FZN_CATALOGUE_UNION
-	distinct = 3,      // FZN_CATALOGUE_DISTINCT
+enum fzn_catalog_merge : u8 {
+	authoritative = 1, // FZN_CATALOG_AUTHORITATIVE
+	union_ = 2,        // FZN_CATALOG_UNION
+	distinct = 3,      // FZN_CATALOG_DISTINCT
 }
 
-enum fzn_catalogue_capability : u8 {
-	cap_none = 1,     // FZN_CATALOGUE_CAP_NONE
-	cap_holder = 2,   // FZN_CATALOGUE_CAP_HOLDER
-	cap_granted = 3,  // FZN_CATALOGUE_CAP_GRANTED
+enum fzn_catalog_capability : u8 {
+	cap_none = 1,     // FZN_CATALOG_CAP_NONE
+	cap_holder = 2,   // FZN_CATALOG_CAP_HOLDER
+	cap_granted = 3,  // FZN_CATALOG_CAP_GRANTED
 }
 
 // ATTRIBUTE -- variable, 6 bytes plus name and value:
-//   [0]                    FZN_CATALOGUE_OBJECT_ATTRIBUTE (1)
+//   [0]                    FZN_CATALOG_OBJECT_ATTRIBUTE (1)
 //   [1]                    class
 //   [2]                    scope
 //   [3]                    merge
@@ -62,14 +62,14 @@ enum fzn_catalogue_capability : u8 {
 //   [6+name_len .. +2)     value_len (big-endian u16)
 //   [8+name_len .. +vlen)  value (opaque)
 // The encoder refuses when 6 + name_len + 2 + value_len exceeds a record body.
-struct fzn_catalogue_attribute {
-	u8  object [must_eq = 1];                // offset 0 (FZN_CATALOGUE_OBJECT_ATTRIBUTE)
-	fzn_catalogue_class      attr_class;     // offset 1
-	fzn_catalogue_scope      scope;          // offset 2
-	fzn_catalogue_merge      merge;          // offset 3
-	fzn_catalogue_capability capability;     // offset 4
-	u8  name_len [max = 255];                // offset 5 (FZN_CATALOGUE_ATTR_NAME_MAX)
-	u8  name[name_len];                      // offset 6 (FZN_CATALOGUE_ATTR_HEAD_LEN)
-	u16 value_len [max = 504];               // FZN_CATALOGUE_ATTR_VALUE_MAX at name_len 0
+struct fzn_catalog_attribute {
+	u8  object [must_eq = 1];                // offset 0 (FZN_CATALOG_OBJECT_ATTRIBUTE)
+	fzn_catalog_class      attr_class;     // offset 1
+	fzn_catalog_scope      scope;          // offset 2
+	fzn_catalog_merge      merge;          // offset 3
+	fzn_catalog_capability capability;     // offset 4
+	u8  name_len [max = 255];                // offset 5 (FZN_CATALOG_ATTR_NAME_MAX)
+	u8  name[name_len];                      // offset 6 (FZN_CATALOG_ATTR_HEAD_LEN)
+	u16 value_len [max = 504];               // FZN_CATALOG_ATTR_VALUE_MAX at name_len 0
 	u8  value[value_len];
 }

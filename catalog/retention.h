@@ -26,7 +26,7 @@
  * stating because the first cut of sec 317 had it backwards. Retention is not
  * "a policy over the reachable set": a consumer observes that a chain has
  * become unreachable, DECIDES to mark it DROP, and the sweep acts on the mark.
- * Nothing here consults `fzn_catalogue_referenced`, and a caller that wants
+ * Nothing here consults `fzn_catalog_referenced`, and a caller that wants
  * that coupling writes it at the call site where its own judgement is.
  *
  * IT RECORDS INTENT AND REMOVES NOTHING (C17). A DROP is a statement that this
@@ -34,15 +34,15 @@
  * explicit sweep, which has its own guards and which this cannot reach.
  */
 
-#ifndef FZN_CATALOGUE_RETENTION_H
-#define FZN_CATALOGUE_RETENTION_H
+#ifndef FZN_CATALOG_RETENTION_H
+#define FZN_CATALOG_RETENTION_H
 
 #include <stddef.h>
 #include <stdint.h>
 
-#include "catalogue.h"
+#include "catalog.h"
 
-/* THE KEY IS A RECORD SUBJECT, so it is fixed where catalogue.h's queries take
+/* THE KEY IS A RECORD SUBJECT, so it is fixed where catalog.h's queries take
  * `(entity, entity_len)`.
  *
  * Those queries are handed a borrowed view and never store it, so they can be
@@ -56,7 +56,7 @@
  * The signatures still take `(entity, entity_len)` rather than a fixed array,
  * so a caller passing an assertion's `entity`/`entity_len` straight through
  * cannot silently pass a pointer to the wrong thing. */
-#define FZN_CATALOGUE_ENTITY_LEN ((size_t)FZN_SUBJECT_LEN)
+#define FZN_CATALOG_ENTITY_LEN ((size_t)FZN_SUBJECT_LEN)
 
 /* One entity, by value.
  *
@@ -67,24 +67,24 @@
  * const-qualification work the way it does everywhere else, which is why the
  * old catalog/copy.h passed a struct too.
  *
- * catalogue/sweep.h keeps its own `fzn_catalogue_removal_t` rather than using
+ * catalog/sweep.h keeps its own `fzn_catalog_removal_t` rather than using
  * this: a removal ROW is a different thing from an entity, and it is the shape
  * that grows if a job ever needs to carry more per row. */
-typedef struct fzn_catalogue_entity {
-	uint8_t b[FZN_CATALOGUE_ENTITY_LEN];
-} fzn_catalogue_entity_t;
+typedef struct fzn_catalog_entity {
+	uint8_t b[FZN_CATALOG_ENTITY_LEN];
+} fzn_catalog_entity_t;
 
 /* What a host has said about one entity. DEFAULT is the absence of a word
  * rather than a third opinion, which is why it is zero and why storing it
  * gives the row back. */
-typedef enum fzn_catalogue_retention {
-	FZN_CATALOGUE_RETAIN_DEFAULT = 0,
-	FZN_CATALOGUE_RETAIN_KEEP = 1,
-	FZN_CATALOGUE_RETAIN_DROP = 2,
-} fzn_catalogue_retention_t;
+typedef enum fzn_catalog_retention {
+	FZN_CATALOG_RETAIN_DEFAULT = 0,
+	FZN_CATALOG_RETAIN_KEEP = 1,
+	FZN_CATALOG_RETAIN_DROP = 2,
+} fzn_catalog_retention_t;
 
 /* A stable, allocation-free name for a mode. */
-const char *fzn_catalogue_retention_str(fzn_catalogue_retention_t mode);
+const char *fzn_catalog_retention_str(fzn_catalog_retention_t mode);
 
 /* One override.
  *
@@ -96,12 +96,12 @@ const char *fzn_catalogue_retention_str(fzn_catalogue_retention_t mode);
  * of DEFAULT is the weaker form, keep until T and afterwards follow the
  * catalogue, which is what a consumer wants when the deadline is a budget
  * rather than a promise. */
-typedef struct fzn_catalogue_hold {
-	uint8_t                   entity[FZN_CATALOGUE_ENTITY_LEN];
-	fzn_catalogue_retention_t mode;
+typedef struct fzn_catalog_hold {
+	uint8_t                   entity[FZN_CATALOG_ENTITY_LEN];
+	fzn_catalog_retention_t mode;
 	uint64_t                  until;
-	fzn_catalogue_retention_t then;
-} fzn_catalogue_hold_t;
+	fzn_catalog_retention_t then;
+} fzn_catalog_hold_t;
 
 /* The table, and the catalogue's own bit.
  *
@@ -110,56 +110,56 @@ typedef struct fzn_catalogue_hold {
  * keeping -- would make a host that adopted a stranger's catalogue start
  * filling its disk with it, and a default nobody chose is exactly the kind
  * that is discovered when the disk is full. */
-typedef struct fzn_catalogue_holds {
-	fzn_catalogue_hold_t *rows;
+typedef struct fzn_catalog_holds {
+	fzn_catalog_hold_t *rows;
 	size_t                capacity;
 	size_t                used;
 	int                   keep_all;
-} fzn_catalogue_holds_t;
+} fzn_catalog_holds_t;
 
 /* Point a table at caller-owned rows. `capacity` of zero is legal and gives a
  * table that can hold no override -- a consumer whose policy is entirely the
  * catalogue-wide bit. */
-fzn_catalogue_err_t fzn_catalogue_holds_init(fzn_catalogue_holds_t *holds,
-                                             fzn_catalogue_hold_t *rows, size_t capacity);
+fzn_catalog_err_t fzn_catalog_holds_init(fzn_catalog_holds_t *holds,
+                                             fzn_catalog_hold_t *rows, size_t capacity);
 
 /* What an entity with no word of its own follows. */
-fzn_catalogue_err_t fzn_catalogue_retain_all(fzn_catalogue_holds_t *holds, int keep);
+fzn_catalog_err_t fzn_catalog_retain_all(fzn_catalog_holds_t *holds, int keep);
 
 /* Say what to do with one entity, overriding the catalogue-wide bit.
  *
- * FZN_CATALOGUE_RETAIN_DEFAULT removes the override rather than storing one,
+ * FZN_CATALOG_RETAIN_DEFAULT removes the override rather than storing one,
  * so a consumer changing its mind gives a row back instead of filling the
  * table with entities that say "whatever the catalogue says".
  *
- * FZN_CATALOGUE_ERR_RANGE when a new row does not fit; an entity that already
+ * FZN_CATALOG_ERR_RANGE when a new row does not fit; an entity that already
  * has a row is rewritten in place and cannot fail that way. */
-fzn_catalogue_err_t fzn_catalogue_retain(fzn_catalogue_holds_t *holds,
+fzn_catalog_err_t fzn_catalog_retain(fzn_catalog_holds_t *holds,
                                          const uint8_t *entity, size_t entity_len,
-                                         fzn_catalogue_retention_t mode);
+                                         fzn_catalog_retention_t mode);
 
 /* Say what to do with one entity, and when to stop saying it.
  *
- * `until` of zero is no deadline and this is exactly `fzn_catalogue_retain`.
+ * `until` of zero is no deadline and this is exactly `fzn_catalog_retain`.
  *
  * A DEADLINE WITH `then` OF DEFAULT LEAVES A ROW THAT SAYS NOTHING once it has
  * passed, and this does not reclaim it: giving a row back is a write, and the
  * queries below are reads that a consumer makes from a const table and from
  * inside a sweep whose whole argument is that the decision is taken once.
- * `fzn_catalogue_due` lists exactly those entities, and passing each to
- * `fzn_catalogue_retain` with DEFAULT is how a consumer gets the slots back --
+ * `fzn_catalog_due` lists exactly those entities, and passing each to
+ * `fzn_catalog_retain` with DEFAULT is how a consumer gets the slots back --
  * deliberately its own act, at a moment of its choosing.
  *
- * FZN_CATALOGUE_ERR_KIND for a `mode` or a `then` outside the three.
- * FZN_CATALOGUE_ERR_MALFORMED for a deadline on a DEFAULT mode: a row saying
+ * FZN_CATALOG_ERR_KIND for a `mode` or a `then` outside the three.
+ * FZN_CATALOG_ERR_MALFORMED for a deadline on a DEFAULT mode: a row saying
  * "follow the catalogue until T" is a row that says nothing at all, and
  * storing it would fill the table with statements this module refuses to
  * keep. */
-fzn_catalogue_err_t fzn_catalogue_retain_until(fzn_catalogue_holds_t *holds,
+fzn_catalog_err_t fzn_catalog_retain_until(fzn_catalog_holds_t *holds,
                                                const uint8_t *entity, size_t entity_len,
-                                               fzn_catalogue_retention_t mode,
+                                               fzn_catalog_retention_t mode,
                                                uint64_t until,
-                                               fzn_catalogue_retention_t then);
+                                               fzn_catalog_retention_t then);
 
 /* What was said about this entity at `now`, or DEFAULT when nothing was.
  *
@@ -169,7 +169,7 @@ fzn_catalogue_err_t fzn_catalogue_retain_until(fzn_catalogue_holds_t *holds,
  * all take the moment at the call site. A table holding a clock would also
  * make this answer drift under a sweep, and the sweep's cursor argument is
  * that the decision is taken once. */
-fzn_catalogue_retention_t fzn_catalogue_retention_of(const fzn_catalogue_holds_t *holds,
+fzn_catalog_retention_t fzn_catalog_retention_of(const fzn_catalog_holds_t *holds,
                                                      const uint8_t *entity,
                                                      size_t entity_len, uint64_t now);
 
@@ -182,7 +182,7 @@ fzn_catalogue_retention_t fzn_catalogue_retention_of(const fzn_catalogue_holds_t
  * removal, which is why the sweep does not rest on this alone: `keeps` being
  * false is where its guard chain STARTS, and four further guards stand between
  * that and a byte being planned for removal. */
-int fzn_catalogue_keeps(const fzn_catalogue_holds_t *holds, const uint8_t *entity,
+int fzn_catalog_keeps(const fzn_catalog_holds_t *holds, const uint8_t *entity,
                         size_t entity_len, uint64_t now);
 
 /* Entities whose deadline has passed at `now`.
@@ -192,11 +192,11 @@ int fzn_catalogue_keeps(const fzn_catalogue_holds_t *holds, const uint8_t *entit
  * never more than `out_cap`; `dropped` receives the rest and is REQUIRED, on
  * `fzn_sync_digest`'s argument -- a count that silently omitted the remainder
  * would let a consumer believe it had seen every deadline. */
-size_t fzn_catalogue_due(const fzn_catalogue_holds_t *holds, uint64_t now,
-                         fzn_catalogue_entity_t *out, size_t out_cap, size_t *dropped);
+size_t fzn_catalog_due(const fzn_catalog_holds_t *holds, uint64_t now,
+                         fzn_catalog_entity_t *out, size_t out_cap, size_t *dropped);
 
 /* How many overrides are held, so a consumer can size a table and watch it
  * shrink as it gives rows back. */
-size_t fzn_catalogue_hold_count(const fzn_catalogue_holds_t *holds);
+size_t fzn_catalog_hold_count(const fzn_catalog_holds_t *holds);
 
-#endif /* FZN_CATALOGUE_RETENTION_H */
+#endif /* FZN_CATALOG_RETENTION_H */

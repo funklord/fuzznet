@@ -329,7 +329,7 @@ static void test_every_widget_survives_a_terminal(void)
 	fzn_authz_policy_t policy;
 	fzn_authz_policy_t guarded_policy;
 	fzn_chain_t chain;
-	fzn_catalogue_sweep_plan_t plan;
+	fzn_catalog_sweep_plan_t plan;
 	static fzn_revocation_t rev_rows[2];
 	fzn_revocation_store_t rev_store;
 	static fzn_journal_entry_t j_rows[2];

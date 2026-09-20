@@ -43470,3 +43470,53 @@ makes the sentence true again.
 THE COUNTS, before and after: 111 library sources against 115 before; 93
 public headers against 97; 40 renderers against 43. Each fell by what the
 module owned and nothing else.
+
+## 327. Step 7, stage four: the rename, and its proof, 2026-09-20
+
+`catalogue/` is `catalog/`, and `fzn_catalogue_*` is `fzn_catalog_*`. The
+collision that forced the longer spelling is gone, because the module it
+collided with is gone -- which is why this is the last stage and not the
+first.
+
+WHAT WAS RENAMED, AND WHAT DELIBERATELY WAS NOT. The directory, the file names
+(`catalogue.c`/`.h` and `catalogue_test.c`), the symbol prefixes and the
+include paths. NOT the English word: the comments still say "a catalogue keeps
+nothing until told", because "catalogue" is what the thing IS in prose and the
+old module's own comments said it throughout. The rename is of a module name
+and a symbol prefix, not of a vocabulary.
+
+THE PROOF IS THE SYMBOL SET, READ FROM THE OBJECTS. `nm --defined-only` over
+the built objects before the rename gives 35 exported symbols; the same after
+gives 35; and mapping the BEFORE set through the substitution gives the AFTER
+set exactly, `diff`-identical. That is what must not change, stated before the
+edit and checked mechanically -- and it reads the ARTIFACT rather than the
+source, so a substitution that reached a definition but not its declaration
+shows up here rather than as a link error somewhere later.
+
+WHY THAT PROOF AND NOT A DIFF REVIEW. A rename of a public prefix across 34
+files is exactly the change whose diff is too large to read and too uniform to
+read carefully -- every hunk looks like every other hunk, which is the
+condition under which an eye slides past the one that is wrong. The symbol set
+cannot slide: a lost symbol, a gained one, or one spelled `fzn_catalog` where
+it should be `fzn_catalog_` all show as a line in the diff.
+
+THE STALE BUILD OUTPUT CAME WITH THE DIRECTORY, which `git mv` does not care
+about: `catalogue.o`, `catalogue.d`, `catalogue_test` and six more landed under
+the new name. Removed by name, each one identified as output of a source that
+had just been renamed, leaving 21 files under `catalog/` and all of them
+sources.
+
+AND spool/scrub.h IS TRUE AGAIN. sec 326 left its citation of
+`fzn_catalog_sweep_progress` stale on purpose, predicting that this stage would
+give the spelling back. It did, and the sentence now names a function that
+exists -- which is worth recording because the alternative was editing it
+twice to say the same thing.
+
+STEP 7 IS COMPLETE, and with it steps 1-7 of sec 317 except step 4. The
+retirement program set out to supersede `catalog/` with a model built on the
+ATTRIBUTE record; `catalog/` is now that model.
+
+WHAT REMAINS OF sec 317: step 4, the reclamation POLICY -- whether automatic
+reclamation exists, its grace period and its pin granularity. The mechanism
+has been settled since C19a; the policy is the holder's and gates any
+automatic GC. Nothing else in the program is blocked on anything.

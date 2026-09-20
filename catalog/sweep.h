@@ -16,8 +16,8 @@
  * from scratch would have risked re-introducing what they already fixed.
  *
  *     old                              new
- *     fzn_catalog_keeps                fzn_catalogue_keeps        (step 3)
- *     a_retained_node_needs            fzn_catalogue_referenced   (step 1)
+ *     fzn_catalog_keeps                fzn_catalog_keeps        (step 3)
+ *     a_retained_node_needs            fzn_catalog_referenced   (step 1)
  *     holdings->holds callback         this host among the holders
  *     witness->others callback         the holder count, less this host
  *
@@ -40,13 +40,13 @@
  * from outside.
  */
 
-#ifndef FZN_CATALOGUE_SWEEP_H
-#define FZN_CATALOGUE_SWEEP_H
+#ifndef FZN_CATALOG_SWEEP_H
+#define FZN_CATALOG_SWEEP_H
 
 #include <stddef.h>
 #include <stdint.h>
 
-#include "catalogue.h"
+#include "catalog.h"
 #include "retention.h"
 
 /* Declared, not included. sec 209 -- the same shape catalog/catalog.h uses,
@@ -64,9 +64,9 @@ struct flog_t;
  * this model carries it -- a consumer holding a content hash asks its own
  * filestore how big it is, and a field this planner cannot source would be one
  * it invented. */
-typedef struct fzn_catalogue_removal {
-	uint8_t entity[FZN_CATALOGUE_ENTITY_LEN];
-} fzn_catalogue_removal_t;
+typedef struct fzn_catalog_removal {
+	uint8_t entity[FZN_CATALOG_ENTITY_LEN];
+} fzn_catalog_removal_t;
 
 /*
  * What became of every entity the set names.
@@ -91,13 +91,13 @@ typedef struct fzn_catalogue_removal {
  * sweep held back by the last-copy guard would be indistinguishable from a set
  * with nothing to sweep -- and those want opposite responses.
  */
-typedef struct fzn_catalogue_sweep_plan {
+typedef struct fzn_catalog_sweep_plan {
 	/* Rows written to the job. */
 	size_t planned;
 	/* This host keeps it, so not a candidate at all. */
 	size_t retained;
 	/* A live CURATED assertion still names it. A holder assertion is not
-	 * one -- see fzn_catalogue_referenced, and sec 321 for what counting it
+	 * one -- see fzn_catalog_referenced, and sec 321 for what counting it
 	 * did. */
 	size_t referenced;
 	/* Too few OTHER hosts are known to hold it; `min_others` says how few
@@ -117,17 +117,17 @@ typedef struct fzn_catalogue_sweep_plan {
 	 * silently held some of them would leave a consumer believing it had
 	 * reclaimed what it had not. */
 	size_t truncated;
-} fzn_catalogue_sweep_plan_t;
+} fzn_catalog_sweep_plan_t;
 
-typedef struct fzn_catalogue_sweep {
-	fzn_catalogue_removal_t *removals;
+typedef struct fzn_catalog_sweep {
+	fzn_catalog_removal_t *removals;
 	size_t capacity;
 	size_t used;
 	/* How many have been removed. The whole of the resumable state, and
 	 * meaningful only because nothing may change the set meanwhile. */
 	size_t done;
 	int captured;
-} fzn_catalogue_sweep_t;
+} fzn_catalog_sweep_t;
 
 /*
  * Decide what may go, into caller-owned rows.
@@ -158,30 +158,30 @@ typedef struct fzn_catalogue_sweep {
  * `last_copy` is zero either way, so a reader who did not already suspect it
  * has nothing to notice.
  */
-fzn_catalogue_err_t fzn_catalogue_sweep_capture(const fzn_catalogue_assertion_t *set,
+fzn_catalog_err_t fzn_catalog_sweep_capture(const fzn_catalog_assertion_t *set,
                                                 size_t count,
-                                                const fzn_catalogue_holds_t *holds,
+                                                const fzn_catalog_holds_t *holds,
                                                 const uint8_t *self, size_t self_len,
                                                 size_t min_others, uint64_t now,
                                                 struct flog_t *log,
-                                                fzn_catalogue_sweep_t *job,
-                                                fzn_catalogue_removal_t *removals,
+                                                fzn_catalog_sweep_t *job,
+                                                fzn_catalog_removal_t *removals,
                                                 size_t capacity,
-                                                fzn_catalogue_sweep_plan_t *plan);
+                                                fzn_catalog_sweep_plan_t *plan);
 
-/* The row the cursor is on. FZN_CATALOGUE_ERR_RANGE when the job is done. */
-fzn_catalogue_err_t fzn_catalogue_sweep_at(const fzn_catalogue_sweep_t *job,
-                                           fzn_catalogue_removal_t *out);
+/* The row the cursor is on. FZN_CATALOG_ERR_RANGE when the job is done. */
+fzn_catalog_err_t fzn_catalog_sweep_at(const fzn_catalog_sweep_t *job,
+                                           fzn_catalog_removal_t *out);
 
 /* Step past the row the cursor is on, once its bytes are gone. Idempotence is
  * NOT offered: a consumer that advances twice has skipped a removal, and this
  * cannot tell that from a retry. */
-fzn_catalogue_err_t fzn_catalogue_sweep_advance(fzn_catalogue_sweep_t *job);
+fzn_catalog_err_t fzn_catalog_sweep_advance(fzn_catalog_sweep_t *job);
 
 /* How far through. Both outputs are required, because a caller that wanted
  * only one of them would be computing a fraction from a number it did not
  * ask for. */
-fzn_catalogue_err_t fzn_catalogue_sweep_progress(const fzn_catalogue_sweep_t *job,
+fzn_catalog_err_t fzn_catalog_sweep_progress(const fzn_catalog_sweep_t *job,
                                                  size_t *done_out, size_t *total_out);
 
-#endif /* FZN_CATALOGUE_SWEEP_H */
+#endif /* FZN_CATALOG_SWEEP_H */

@@ -24,7 +24,7 @@
 
 /* HOW MANY HOLDERS FIT BEFORE THE ANSWER STOPS BEING CERTAIN.
  *
- * `fzn_catalogue_holders` writes a list and reports how many did not fit, so
+ * `fzn_catalog_holders` writes a list and reports how many did not fit, so
  * the TOTAL is always knowable -- written plus dropped -- and it is only
  * whether THIS host is among them that a short buffer can hide. Sized for a
  * stack frame in a library that allocates nothing; an entity with more holders
@@ -50,7 +50,7 @@ static int bytes_eq(const uint8_t *a, size_t alen, const uint8_t *b, size_t blen
  * blob; C1 removes that case -- an entity IS the content hash -- so a repeat
  * here is the same entity named again and is skipped before any counter sees
  * it, rather than being counted as an outcome. */
-static int already_seen(const fzn_catalogue_assertion_t *set, size_t upto,
+static int already_seen(const fzn_catalog_assertion_t *set, size_t upto,
                         const uint8_t *entity, size_t entity_len)
 {
 	size_t i;
@@ -69,13 +69,13 @@ static int already_seen(const fzn_catalogue_assertion_t *set, size_t upto,
  * exactly this reason and the note is repeated rather than cross-referenced,
  * because the next person to add a job will be reading whichever file they are
  * in. */
-static void insert_sorted(fzn_catalogue_removal_t *rows, size_t *used,
-                          const fzn_catalogue_removal_t *row)
+static void insert_sorted(fzn_catalog_removal_t *rows, size_t *used,
+                          const fzn_catalog_removal_t *row)
 {
 	size_t at = *used;
 
 	while (at > 0 && memcmp(rows[at - 1].entity, row->entity,
-	                        FZN_CATALOGUE_ENTITY_LEN) > 0) {
+	                        FZN_CATALOG_ENTITY_LEN) > 0) {
 		rows[at] = rows[at - 1];
 		at--;
 	}
@@ -86,17 +86,17 @@ static void insert_sorted(fzn_catalogue_removal_t *rows, size_t *used,
 /* The two questions the old callback seams answered, from the records.
  *
  * Returns 0 when the holders could not be determined, and writes nothing. */
-static int holder_facts(const fzn_catalogue_assertion_t *set, size_t count,
+static int holder_facts(const fzn_catalog_assertion_t *set, size_t count,
                         const uint8_t *entity, size_t entity_len,
                         const uint8_t *self, size_t self_len,
                         int *self_holds, size_t *others)
 {
-	fzn_catalogue_source_t who[HOLDER_SCRATCH];
+	fzn_catalog_source_t who[HOLDER_SCRATCH];
 	size_t written = 0, dropped = 0, i;
 	int mine = 0;
 
-	if (fzn_catalogue_holders(set, count, entity, entity_len, who, HOLDER_SCRATCH,
-	                          &written, &dropped) != FZN_CATALOGUE_OK)
+	if (fzn_catalog_holders(set, count, entity, entity_len, who, HOLDER_SCRATCH,
+	                          &written, &dropped) != FZN_CATALOG_OK)
 		return 0;
 
 	for (i = 0; i < written; i++)
@@ -117,33 +117,33 @@ static int holder_facts(const fzn_catalogue_assertion_t *set, size_t count,
 	return 1;
 }
 
-fzn_catalogue_err_t fzn_catalogue_sweep_capture(const fzn_catalogue_assertion_t *set,
+fzn_catalog_err_t fzn_catalog_sweep_capture(const fzn_catalog_assertion_t *set,
                                                 size_t count,
-                                                const fzn_catalogue_holds_t *holds,
+                                                const fzn_catalog_holds_t *holds,
                                                 const uint8_t *self, size_t self_len,
                                                 size_t min_others, uint64_t now,
                                                 struct flog_t *log,
-                                                fzn_catalogue_sweep_t *job,
-                                                fzn_catalogue_removal_t *removals,
+                                                fzn_catalog_sweep_t *job,
+                                                fzn_catalog_removal_t *removals,
                                                 size_t capacity,
-                                                fzn_catalogue_sweep_plan_t *plan)
+                                                fzn_catalog_sweep_plan_t *plan)
 {
 	size_t i;
 
 	if (!plan)
-		return FZN_CATALOGUE_ERR_MALFORMED;
+		return FZN_CATALOG_ERR_MALFORMED;
 	memset(plan, 0, sizeof(*plan));
 	if ((count != 0 && !set) || !self || self_len == 0 || !job || !removals ||
 	    capacity == 0)
-		return FZN_CATALOGUE_ERR_MALFORMED;
+		return FZN_CATALOG_ERR_MALFORMED;
 
 	memset(job, 0, sizeof(*job));
 	job->removals = removals;
 	job->capacity = capacity;
 
 	for (i = 0; i < count; i++) {
-		const fzn_catalogue_assertion_t *a = &set[i];
-		fzn_catalogue_removal_t row;
+		const fzn_catalog_assertion_t *a = &set[i];
+		fzn_catalog_removal_t row;
 		int self_holds = 0;
 		size_t others = 0;
 
@@ -151,18 +151,18 @@ fzn_catalogue_err_t fzn_catalogue_sweep_capture(const fzn_catalogue_assertion_t 
 		 * table refuses the same lengths for the same reason, so a
 		 * shorter or longer entity could not have been kept or dropped
 		 * either; it is not in the population. */
-		if (a->entity_len != FZN_CATALOGUE_ENTITY_LEN)
+		if (a->entity_len != FZN_CATALOG_ENTITY_LEN)
 			continue;
 		if (already_seen(set, i, a->entity, a->entity_len))
 			continue;
 
-		if (fzn_catalogue_keeps(holds, a->entity, a->entity_len, now)) {
+		if (fzn_catalog_keeps(holds, a->entity, a->entity_len, now)) {
 			plan->retained++;
 			continue;
 		}
 		/* STILL WANTED BY SOMETHING. A holder assertion is not a want
-		 * -- see fzn_catalogue_referenced and sec 321. */
-		if (fzn_catalogue_referenced(set, count, a->entity, a->entity_len)) {
+		 * -- see fzn_catalog_referenced and sec 321. */
+		if (fzn_catalog_referenced(set, count, a->entity, a->entity_len)) {
 			plan->referenced++;
 			continue;
 		}
@@ -189,7 +189,7 @@ fzn_catalogue_err_t fzn_catalogue_sweep_capture(const fzn_catalogue_assertion_t 
 			continue;
 		}
 
-		memcpy(row.entity, a->entity, FZN_CATALOGUE_ENTITY_LEN);
+		memcpy(row.entity, a->entity, FZN_CATALOG_ENTITY_LEN);
 		insert_sorted(job->removals, &job->used, &row);
 	}
 
@@ -211,7 +211,7 @@ fzn_catalogue_err_t fzn_catalogue_sweep_capture(const fzn_catalogue_assertion_t 
 	 * nothing has not disabled anything that mattered.
 	 */
 	if (min_others == 0u && plan->planned > 0u)
-		SWEEP_LOG(log, "catalogue/sweep", FLOG_NOTE,
+		SWEEP_LOG(log, "catalog/sweep", FLOG_NOTE,
 		          "planning to remove %zu entities with the last-copy guard "
 		          "off: min_others is 0, so no holder count was required",
 		          plan->planned);
@@ -220,7 +220,7 @@ fzn_catalogue_err_t fzn_catalogue_sweep_capture(const fzn_catalogue_assertion_t 
 	 * completion and frees nothing more has reclaimed less than it asked
 	 * for, and nothing else in the run says which. */
 	if (plan->truncated > 0u)
-		SWEEP_LOG(log, "catalogue/sweep", FLOG_WARN,
+		SWEEP_LOG(log, "catalog/sweep", FLOG_WARN,
 		          "%zu removable entities did not fit in this job's %zu rows, "
 		          "so running it to the end reclaims less than the set offered",
 		          plan->truncated, job->capacity);
@@ -229,45 +229,45 @@ fzn_catalogue_err_t fzn_catalogue_sweep_capture(const fzn_catalogue_assertion_t 
 	 * DO". An incomplete holder answer means a source has not been caught
 	 * up with, and sweeping again before it is will reach the same wall. */
 	if (plan->incomplete > 0u)
-		SWEEP_LOG(log, "catalogue/sweep", FLOG_NOTE,
+		SWEEP_LOG(log, "catalog/sweep", FLOG_NOTE,
 		          "%zu entities were left undecided because their holders could "
 		          "not be determined; catch up with the sources before sweeping "
 		          "again rather than reading this as nothing to do",
 		          plan->incomplete);
 
-	return FZN_CATALOGUE_OK;
+	return FZN_CATALOG_OK;
 }
 
-fzn_catalogue_err_t fzn_catalogue_sweep_at(const fzn_catalogue_sweep_t *job,
-                                           fzn_catalogue_removal_t *out)
+fzn_catalog_err_t fzn_catalog_sweep_at(const fzn_catalog_sweep_t *job,
+                                           fzn_catalog_removal_t *out)
 {
 	if (!job || !job->captured || !out)
-		return FZN_CATALOGUE_ERR_MALFORMED;
+		return FZN_CATALOG_ERR_MALFORMED;
 	if (job->done >= job->used)
-		return FZN_CATALOGUE_ERR_RANGE;
+		return FZN_CATALOG_ERR_RANGE;
 
 	*out = job->removals[job->done];
-	return FZN_CATALOGUE_OK;
+	return FZN_CATALOG_OK;
 }
 
-fzn_catalogue_err_t fzn_catalogue_sweep_advance(fzn_catalogue_sweep_t *job)
+fzn_catalog_err_t fzn_catalog_sweep_advance(fzn_catalog_sweep_t *job)
 {
 	if (!job || !job->captured)
-		return FZN_CATALOGUE_ERR_MALFORMED;
+		return FZN_CATALOG_ERR_MALFORMED;
 	if (job->done >= job->used)
-		return FZN_CATALOGUE_ERR_RANGE;
+		return FZN_CATALOG_ERR_RANGE;
 
 	job->done++;
-	return FZN_CATALOGUE_OK;
+	return FZN_CATALOG_OK;
 }
 
-fzn_catalogue_err_t fzn_catalogue_sweep_progress(const fzn_catalogue_sweep_t *job,
+fzn_catalog_err_t fzn_catalog_sweep_progress(const fzn_catalog_sweep_t *job,
                                                  size_t *done_out, size_t *total_out)
 {
 	if (!job || !job->captured || !done_out || !total_out)
-		return FZN_CATALOGUE_ERR_MALFORMED;
+		return FZN_CATALOG_ERR_MALFORMED;
 
 	*done_out = job->done;
 	*total_out = job->used;
-	return FZN_CATALOGUE_OK;
+	return FZN_CATALOG_OK;
 }

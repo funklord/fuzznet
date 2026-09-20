@@ -1,6 +1,6 @@
 /*
- * A fuzz harness for the ATTRIBUTE codec in catalogue/catalogue.c
- * (fzn_catalogue_attribute_encode / _decode). The codec decodes RECORD BODIES
+ * A fuzz harness for the ATTRIBUTE codec in catalog/catalog.c
+ * (fzn_catalog_attribute_encode / _decode). The codec decodes RECORD BODIES
  * that arrive from other hosts over the network, in a cooperative and
  * poisoning-prone estate -- so the bytes are untrusted, and a decoder that
  * reads out of bounds or accepts a non-canonical form is a real hazard: the
@@ -29,7 +29,7 @@
  * plausible.
  */
 
-#include "../catalogue.h"
+#include "../catalog.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -62,21 +62,21 @@ static uint32_t next(uint32_t *state)
 
 /* A random VALID assertion: axes in range, name up to its field's max, value
  * bounded so the whole body fits a record. name/value borrow the buffers. */
-static void rand_valid(uint32_t *st, fzn_catalogue_assertion_t *a,
+static void rand_valid(uint32_t *st, fzn_catalog_assertion_t *a,
                        uint8_t *name, uint8_t *value)
 {
 	size_t room, i;
 
 	memset(a, 0, sizeof(*a));
-	a->attr_class = (fzn_catalogue_class_t)(1u + next(st) % 3u);
-	a->scope = (fzn_catalogue_scope_t)(1u + next(st) % 3u);
-	a->merge = (fzn_catalogue_merge_t)(1u + next(st) % 3u);
-	a->capability = (fzn_catalogue_capability_t)(1u + next(st) % 3u);
-	a->name_len = next(st) % (FZN_CATALOGUE_ATTR_NAME_MAX + 1u);
+	a->attr_class = (fzn_catalog_class_t)(1u + next(st) % 3u);
+	a->scope = (fzn_catalog_scope_t)(1u + next(st) % 3u);
+	a->merge = (fzn_catalog_merge_t)(1u + next(st) % 3u);
+	a->capability = (fzn_catalog_capability_t)(1u + next(st) % 3u);
+	a->name_len = next(st) % (FZN_CATALOG_ATTR_NAME_MAX + 1u);
 	for (i = 0; i < a->name_len; i++)
 		name[i] = (uint8_t)next(st);
 	a->name = a->name_len ? name : NULL;
-	room = (size_t)FZN_RECORD_BODY_MAX - FZN_CATALOGUE_ATTR_HEAD_LEN - 2u
+	room = (size_t)FZN_RECORD_BODY_MAX - FZN_CATALOG_ATTR_HEAD_LEN - 2u
 	     - a->name_len;
 	a->value_len = next(st) % (room + 1u);
 	for (i = 0; i < a->value_len; i++)
@@ -99,18 +99,18 @@ static int fuzz_one(uint32_t seed, struct coverage *cov)
 	if (next(&st) & 1u) {
 		/* Property 2, forward: a valid assertion round-trips and re-encodes
 		 * byte-identically. */
-		fzn_catalogue_assertion_t a, got;
-		uint8_t name[FZN_CATALOGUE_ATTR_NAME_MAX];
+		fzn_catalog_assertion_t a, got;
+		uint8_t name[FZN_CATALOG_ATTR_NAME_MAX];
 		uint8_t value[FZN_RECORD_BODY_MAX];
 		uint8_t body[FZN_RECORD_BODY_MAX], reenc[FZN_RECORD_BODY_MAX];
 		size_t len = 0, len2 = 0;
 
 		rand_valid(&st, &a, name, value);
-		if (fzn_catalogue_attribute_encode(&a, body, sizeof(body), &len)
-		    != FZN_CATALOGUE_OK)
+		if (fzn_catalog_attribute_encode(&a, body, sizeof(body), &len)
+		    != FZN_CATALOG_OK)
 			return 1; /* a valid assertion must encode */
-		if (fzn_catalogue_attribute_decode(iss, 32, ent, 32, body, len, &got)
-		    != FZN_CATALOGUE_OK)
+		if (fzn_catalog_attribute_decode(iss, 32, ent, 32, body, len, &got)
+		    != FZN_CATALOG_OK)
 			return 1; /* what we encoded must decode */
 		if (got.attr_class != a.attr_class || got.scope != a.scope
 		    || got.merge != a.merge || got.capability != a.capability
@@ -120,8 +120,8 @@ static int fuzz_one(uint32_t seed, struct coverage *cov)
 			return 1;
 		if (a.value_len && memcmp(got.value, a.value, a.value_len) != 0)
 			return 1;
-		if (fzn_catalogue_attribute_encode(&got, reenc, sizeof(reenc), &len2)
-		    != FZN_CATALOGUE_OK)
+		if (fzn_catalog_attribute_encode(&got, reenc, sizeof(reenc), &len2)
+		    != FZN_CATALOG_OK)
 			return 1;
 		if (len2 != len || memcmp(reenc, body, len) != 0)
 			return 1; /* not canonical */
@@ -133,11 +133,11 @@ static int fuzz_one(uint32_t seed, struct coverage *cov)
 		 * add tail bytes) exercises the decoder right at its boundary, where a
 		 * slack length or a trailing byte would slip through; pure-random bytes
 		 * almost never get past the tag, so they test little but the crash. */
-		fzn_catalogue_assertion_t a, got;
-		uint8_t name[FZN_CATALOGUE_ATTR_NAME_MAX];
+		fzn_catalog_assertion_t a, got;
+		uint8_t name[FZN_CATALOG_ATTR_NAME_MAX];
 		uint8_t value[FZN_RECORD_BODY_MAX];
 		uint8_t body[RAND_BODY_MAX];
-		fzn_catalogue_err_t e;
+		fzn_catalog_err_t e;
 		size_t body_len = 0, k, flips;
 
 		if (next(&st) % 4u == 0u) {
@@ -152,13 +152,13 @@ static int fuzz_one(uint32_t seed, struct coverage *cov)
 			unsigned mode;
 
 			rand_valid(&st, &a, name, value);
-			if (fzn_catalogue_attribute_encode(&a, valid, sizeof(valid), &vlen)
-			    != FZN_CATALOGUE_OK)
+			if (fzn_catalog_attribute_encode(&a, valid, sizeof(valid), &vlen)
+			    != FZN_CATALOG_OK)
 				return 1;
 			memcpy(body, valid, vlen);
 			body_len = vlen;
 			mode = next(&st) % 3u;
-			if (mode == 1u && body_len > FZN_CATALOGUE_ATTR_HEAD_LEN)
+			if (mode == 1u && body_len > FZN_CATALOG_ATTR_HEAD_LEN)
 				body_len -= 1u + next(&st) % 3u;          /* truncate */
 			else if (mode == 2u && body_len + 3u <= RAND_BODY_MAX) {
 				size_t add = 1u + next(&st) % 3u;         /* extend */
@@ -171,8 +171,8 @@ static int fuzz_one(uint32_t seed, struct coverage *cov)
 				body[next(&st) % body_len] ^= (uint8_t)(1u + next(&st) % 255u);
 		}
 
-		e = fzn_catalogue_attribute_decode(iss, 32, ent, 32, body, body_len, &got);
-		if (e == FZN_CATALOGUE_OK) {
+		e = fzn_catalog_attribute_decode(iss, 32, ent, 32, body, body_len, &got);
+		if (e == FZN_CATALOG_OK) {
 			uint8_t reenc[FZN_RECORD_BODY_MAX];
 			size_t len2 = 0;
 
@@ -187,8 +187,8 @@ static int fuzz_one(uint32_t seed, struct coverage *cov)
 			if (got.issuer != iss || got.entity != ent)
 				return 1;
 			/* canonical: a body that decodes re-encodes to exactly itself. */
-			if (fzn_catalogue_attribute_encode(&got, reenc, sizeof(reenc), &len2)
-			    != FZN_CATALOGUE_OK)
+			if (fzn_catalog_attribute_encode(&got, reenc, sizeof(reenc), &len2)
+			    != FZN_CATALOG_OK)
 				return 1;
 			if (len2 != body_len || memcmp(reenc, body, body_len) != 0)
 				return 1;

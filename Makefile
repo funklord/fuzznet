@@ -169,8 +169,8 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              provision/provision.c \
              disclose/disclose.c \
              facet/facet.c \
-             catalogue/catalogue.c catalogue/retention.c catalogue/sweep.c \
-             catalogue/copy.c catalogue/filing.c \
+             catalog/catalog.c catalog/retention.c catalog/sweep.c \
+             catalog/copy.c catalog/filing.c \
              persist/persist.c \
              spool/spool.c \
              spool/plan.c \
@@ -235,8 +235,8 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              provision/provision.h \
              disclose/disclose.h \
              facet/facet.h \
-             catalogue/catalogue.h catalogue/retention.h catalogue/sweep.h \
-             catalogue/copy.h catalogue/filing.h \
+             catalog/catalog.h catalog/retention.h catalog/sweep.h \
+             catalog/copy.h catalog/filing.h \
              persist/persist.h \
              spool/spool.h spool/message.h spool/transfer.h \
              spool/scrub.h \
@@ -293,14 +293,14 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              disclose/test/disclose_test.c \
              disclose/test/disclose_fuzz.c \
              facet/test/facet_test.c \
-             catalogue/test/catalogue_test.c \
-             catalogue/test/dimension_test.c \
-             catalogue/test/attribute_fuzz.c \
-             catalogue/test/retention_test.c \
-             catalogue/test/sweep_plan_test.c \
-             catalogue/test/copy_plan_test.c \
-             catalogue/test/filing_test.c \
-             catalogue/test/plan_fuzz.c \
+             catalog/test/catalog_test.c \
+             catalog/test/dimension_test.c \
+             catalog/test/attribute_fuzz.c \
+             catalog/test/retention_test.c \
+             catalog/test/sweep_plan_test.c \
+             catalog/test/copy_plan_test.c \
+             catalog/test/filing_test.c \
+             catalog/test/plan_fuzz.c \
              persist/test/persist_test.c \
              persist/test/persist_fuzz.c \
              wire/test/relay_fuzz.c \
@@ -388,15 +388,15 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/provision/test/provision_test \
              $(BUILD_DIR)/disclose/test/disclose_test \
              $(BUILD_DIR)/facet/test/facet_test \
-             $(BUILD_DIR)/catalogue/test/catalogue_test \
-             $(BUILD_DIR)/catalogue/test/dimension_test \
-             $(BUILD_DIR)/catalogue/test/attribute_fuzz \
-             $(BUILD_DIR)/catalogue/test/plan_fuzz \
-             $(BUILD_DIR)/catalogue/test/retention_test \
-             $(BUILD_DIR)/catalogue/test/sweep_plan_test \
-             $(BUILD_DIR)/catalogue/test/copy_plan_test \
-             $(BUILD_DIR)/catalogue/test/filing_test \
-             $(BUILD_DIR)/catalogue/test/plan_fuzz \
+             $(BUILD_DIR)/catalog/test/catalog_test \
+             $(BUILD_DIR)/catalog/test/dimension_test \
+             $(BUILD_DIR)/catalog/test/attribute_fuzz \
+             $(BUILD_DIR)/catalog/test/plan_fuzz \
+             $(BUILD_DIR)/catalog/test/retention_test \
+             $(BUILD_DIR)/catalog/test/sweep_plan_test \
+             $(BUILD_DIR)/catalog/test/copy_plan_test \
+             $(BUILD_DIR)/catalog/test/filing_test \
+             $(BUILD_DIR)/catalog/test/plan_fuzz \
              $(BUILD_DIR)/persist/test/persist_test \
              $(BUILD_DIR)/persist/test/persist_kat_test \
              $(BUILD_DIR)/spool/test/spool_test \
@@ -1950,74 +1950,74 @@ $(BUILD_DIR)/facet/test/facet_test: $(BUILD_DIR)/facet/test/facet_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
-# catalogue/ links only its own object, for the same reason as facet/: the
+# catalog/ links only its own object, for the same reason as facet/: the
 # settled merge core is pure in-memory resolution over borrowed views (sec 311).
-$(BUILD_DIR)/catalogue/test/catalogue_test: $(BUILD_DIR)/catalogue/test/catalogue_test.o \
-                                             $(BUILD_DIR)/catalogue/catalogue.o
+$(BUILD_DIR)/catalog/test/catalog_test: $(BUILD_DIR)/catalog/test/catalog_test.o \
+                                             $(BUILD_DIR)/catalog/catalog.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
 # The one test that links BOTH catalogue and facet: it validates that a
 # dimension link is an attribute and a facet PREFIX over its value is
 # hierarchical membership, so no membership record is needed (sec 315).
-$(BUILD_DIR)/catalogue/test/dimension_test: $(BUILD_DIR)/catalogue/test/dimension_test.o \
-                                             $(BUILD_DIR)/catalogue/catalogue.o \
+$(BUILD_DIR)/catalog/test/dimension_test: $(BUILD_DIR)/catalog/test/dimension_test.o \
+                                             $(BUILD_DIR)/catalog/catalog.o \
                                              $(BUILD_DIR)/facet/facet.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
 # attribute_fuzz links only catalogue.o: the codec is record-free (it takes the
 # issuer/entity as raw pointers), so no record.o is pulled in (sec 314).
-$(BUILD_DIR)/catalogue/test/attribute_fuzz: $(BUILD_DIR)/catalogue/test/attribute_fuzz.o \
-                                             $(BUILD_DIR)/catalogue/catalogue.o
+$(BUILD_DIR)/catalog/test/attribute_fuzz: $(BUILD_DIR)/catalog/test/attribute_fuzz.o \
+                                             $(BUILD_DIR)/catalog/catalog.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
 # retention links only retention.o: it is per-host local state with no wire
 # form, so it reaches neither the codec nor a record (sec 320).
-$(BUILD_DIR)/catalogue/test/retention_test: $(BUILD_DIR)/catalogue/test/retention_test.o \
-                                             $(BUILD_DIR)/catalogue/retention.o
+$(BUILD_DIR)/catalog/test/retention_test: $(BUILD_DIR)/catalog/test/retention_test.o \
+                                             $(BUILD_DIR)/catalog/retention.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
 # The sweep planner reads the assertion set and the retention table, so it
 # links both -- and nothing else: it plans removals and removes nothing, so it
 # reaches no filestore, no record and no blob (sec 321).
-$(BUILD_DIR)/catalogue/test/sweep_plan_test: $(BUILD_DIR)/catalogue/test/sweep_plan_test.o \
-                                             $(BUILD_DIR)/catalogue/sweep.o \
-                                             $(BUILD_DIR)/catalogue/retention.o \
-                                             $(BUILD_DIR)/catalogue/catalogue.o
+$(BUILD_DIR)/catalog/test/sweep_plan_test: $(BUILD_DIR)/catalog/test/sweep_plan_test.o \
+                                             $(BUILD_DIR)/catalog/sweep.o \
+                                             $(BUILD_DIR)/catalog/retention.o \
+                                             $(BUILD_DIR)/catalog/catalog.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
 # copy decides which bytes and never moves one, so it links no transport: the
 # transfer is spool/'s, and a test that needed one would be testing that
 # instead (sec 322).
-$(BUILD_DIR)/catalogue/test/copy_plan_test: $(BUILD_DIR)/catalogue/test/copy_plan_test.o \
-                                             $(BUILD_DIR)/catalogue/copy.o \
-                                             $(BUILD_DIR)/catalogue/retention.o \
-                                             $(BUILD_DIR)/catalogue/catalogue.o
+$(BUILD_DIR)/catalog/test/copy_plan_test: $(BUILD_DIR)/catalog/test/copy_plan_test.o \
+                                             $(BUILD_DIR)/catalog/copy.o \
+                                             $(BUILD_DIR)/catalog/retention.o \
+                                             $(BUILD_DIR)/catalog/catalog.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
 # filing computes where files should be and moves none, so it links no
 # filesystem: the move is the consumer's, which is what keeps a catalogue
 # usable on a host whose storage is not a filesystem (sec 323).
-$(BUILD_DIR)/catalogue/test/filing_test: $(BUILD_DIR)/catalogue/test/filing_test.o \
-                                             $(BUILD_DIR)/catalogue/filing.o \
-                                             $(BUILD_DIR)/catalogue/retention.o
+$(BUILD_DIR)/catalog/test/filing_test: $(BUILD_DIR)/catalog/test/filing_test.o \
+                                             $(BUILD_DIR)/catalog/filing.o \
+                                             $(BUILD_DIR)/catalog/retention.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
 # plan_fuzz drives all three planners at once, because the invariants worth
 # checking are the ones that span them -- nothing wanted is also announced
 # (sec 324).
-$(BUILD_DIR)/catalogue/test/plan_fuzz: $(BUILD_DIR)/catalogue/test/plan_fuzz.o \
-                                             $(BUILD_DIR)/catalogue/sweep.o \
-                                             $(BUILD_DIR)/catalogue/copy.o \
-                                             $(BUILD_DIR)/catalogue/filing.o \
-                                             $(BUILD_DIR)/catalogue/retention.o \
-                                             $(BUILD_DIR)/catalogue/catalogue.o
+$(BUILD_DIR)/catalog/test/plan_fuzz: $(BUILD_DIR)/catalog/test/plan_fuzz.o \
+                                             $(BUILD_DIR)/catalog/sweep.o \
+                                             $(BUILD_DIR)/catalog/copy.o \
+                                             $(BUILD_DIR)/catalog/filing.o \
+                                             $(BUILD_DIR)/catalog/retention.o \
+                                             $(BUILD_DIR)/catalog/catalog.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -2455,9 +2455,9 @@ $(BUILD_DIR)/cli/test/transfer_print_test: \
 # A planned deletion, and why one is not happening. sec 194.
 $(BUILD_DIR)/cli/test/sweep_print_test: $(BUILD_DIR)/cli/test/sweep_print_test.o \
                                      $(BUILD_DIR)/cli/sweep_print.o \
-                                     $(BUILD_DIR)/catalogue/sweep.o \
-                                     $(BUILD_DIR)/catalogue/retention.o \
-                                     $(BUILD_DIR)/catalogue/catalogue.o \
+                                     $(BUILD_DIR)/catalog/sweep.o \
+                                     $(BUILD_DIR)/catalog/retention.o \
+                                     $(BUILD_DIR)/catalog/catalog.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -2681,9 +2681,9 @@ $(BUILD_DIR)/gui/test/sweep_view_test: \
                                      $(BUILD_DIR)/gui/test/sweep_view_test.o \
                                      $(BUILD_DIR)/gui/sweep_view.o \
                                      $(BUILD_DIR)/cli/sweep_print.o \
-                                     $(BUILD_DIR)/catalogue/sweep.o \
-                                     $(BUILD_DIR)/catalogue/retention.o \
-                                     $(BUILD_DIR)/catalogue/catalogue.o \
+                                     $(BUILD_DIR)/catalog/sweep.o \
+                                     $(BUILD_DIR)/catalog/retention.o \
+                                     $(BUILD_DIR)/catalog/catalog.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) -o $@
@@ -3150,8 +3150,8 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/claim/claim.o \
                                       $(BUILD_DIR)/record/store.o \
                                       $(BUILD_DIR)/facet/facet.o \
-                                      $(BUILD_DIR)/catalogue/catalogue.o \
-                                      $(BUILD_DIR)/catalogue/retention.o \
+                                      $(BUILD_DIR)/catalog/catalog.o \
+                                      $(BUILD_DIR)/catalog/retention.o \
                                       $(if $(CLI_ON),$(BUILD_DIR)/cli/cli.o) \
                                       $(BUILD_DIR)/tree/tree.o \
                                       $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
@@ -3379,8 +3379,8 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/provision/test/provision_fuzz \
              $(BUILD_DIR)/record/test/sync_fuzz \
              $(BUILD_DIR)/disclose/test/disclose_fuzz \
-             $(BUILD_DIR)/catalogue/test/attribute_fuzz \
-             $(BUILD_DIR)/catalogue/test/plan_fuzz \
+             $(BUILD_DIR)/catalog/test/attribute_fuzz \
+             $(BUILD_DIR)/catalog/test/plan_fuzz \
              $(BUILD_DIR)/persist/test/persist_fuzz \
              $(BUILD_DIR)/wire/test/relay_fuzz \
              $(BUILD_DIR)/log/test/log_fuzz \
@@ -4571,7 +4571,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               prekey/prekey.situ persist/persist.situ spool/message.situ \
               spool/sidecar.situ record/record.situ tree/tree.situ \
               chain/chain.situ provision/provision.situ \
-              record/store_file.situ catalogue/attribute.situ
+              record/store_file.situ catalog/attribute.situ
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.
 #
@@ -4791,8 +4791,8 @@ QTTY_RENDER_OBJS := $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \
                     $(BUILD_DIR)/chain/authz.o $(BUILD_DIR)/chain/chain.o \
                     $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
                     $(FLOG_OBJS) \
-                    $(BUILD_DIR)/catalogue/sweep.o $(BUILD_DIR)/catalogue/retention.o \
-                    $(BUILD_DIR)/catalogue/catalogue.o \
+                    $(BUILD_DIR)/catalog/sweep.o $(BUILD_DIR)/catalog/retention.o \
+                    $(BUILD_DIR)/catalog/catalog.o \
                     $(BUILD_DIR)/constant_time/constant_time.o
 
 qtty: $(if $(and $(GUI_ON),$(CLI_ON)),$(QTTY_RENDER_OBJS))

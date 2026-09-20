@@ -8,7 +8,7 @@
  * "settle-then-build", and the declarations at the end of this file -- the
  * in-memory attribute model and the C5b merge resolution (AUTHORITATIVE,
  * UNION, DISTINCT), with its refusals -- are implemented in
- * `catalogue/catalogue.c`. project.md sec 101 records the history and the
+ * `catalog/catalog.c`. project.md sec 101 records the history and the
  * assignment.
  *
  * WHAT IS STILL ONLY PROSE, and declares nothing on purpose: the BEHAVIOURAL
@@ -22,7 +22,7 @@
  * and section 7). The EDGE-equivalent membership encoding is facet/'s and blob
  * content is the filestore's, per "follow the new model".
  *
- * A function appears below ONLY where `catalogue.c` defines it, so an
+ * A function appears below ONLY where `catalog.c` defines it, so an
  * unsettled operation has no declaration to link against by accident -- the
  * reason fuzzypickles' `core/src/record_store_internal.h` gives: "a header
  * full of declarations reads as available machinery ... failed at LINK time".
@@ -49,17 +49,17 @@
  * STATUS: specification. What was settled with fuzzypickles' copyright holder
  * on 2026-09-10 is marked SETTLED. Nothing here now carries a PROPOSED
  * marker; what remains undecided is named in section 7 rather than sketched.
- * The merge core is implemented (catalogue/catalogue.c). The module name is
+ * The merge core is implemented (catalog/catalog.c). The module name is
  * settled -- `catalog`, superseding the old catalog/ module (the copyright
  * holder, 2026-09-18) -- and so is the ATTRIBUTE wire encoding, "follow the
- * new model", implemented as catalogue/attribute.situ and the encode/decode
+ * new model", implemented as catalog/attribute.situ and the encode/decode
  * below. project.md sec 314. The rename to `catalog` and the retirement of the
- * old catalog/ are a later migration; the symbols here stay fzn_catalogue_*
+ * old catalog/ are a later migration; the symbols here stay fzn_catalog_*
  * until then, to avoid colliding with the old module's fzn_catalog_*.
  */
 
-#ifndef FZN_CATALOGUE_H
-#define FZN_CATALOGUE_H
+#ifndef FZN_CATALOG_H
+#define FZN_CATALOG_H
 
 /* =========================================================================
  * 1. ENTITIES AND WHAT MAY BE SAID ABOUT THEM
@@ -724,7 +724,7 @@
  * THE SETTLED MERGE CORE
  * =========================================================================
  *
- * Implemented in catalogue/catalogue.c: the in-memory attribute model and the
+ * Implemented in catalog/catalog.c: the in-memory attribute model and the
  * C5b merge resolution. Assertions hold BORROWED views into the caller's
  * bytes, fuzznet's zero-copy style (C30: nothing here allocates). This is not
  * the wire encoding (section 7), not the deletion, import or source machinery
@@ -738,70 +738,70 @@
 /* For FZN_RECORD_BODY_MAX only: an ATTRIBUTE assertion is carried IN a record
  * body (C5c/C8), so the value it can hold is bounded by what a body holds. The
  * accessors record.h declares are inline, so naming this constant adds no link
- * dependency -- catalogue.c calls no record function; the record->fields bridge
+ * dependency -- catalog.c calls no record function; the record->fields bridge
  * is the caller's, where record/ is already a dependency. */
 #include "../record/record.h"
 
-typedef enum fzn_catalogue_err {
-	FZN_CATALOGUE_OK = 0,
+typedef enum fzn_catalog_err {
+	FZN_CATALOG_OK = 0,
 	/* The caller's bug: a null, or an output buffer too small. */
-	FZN_CATALOGUE_ERR_MALFORMED = 1,
+	FZN_CATALOG_ERR_MALFORMED = 1,
 	/* C28: a resolution set whose assertions are not all about one
 	 * (entity, attribute) -- different entity, name, class, scope, merge or
 	 * capability -- which would resolve a mixture as if it were one thing. */
-	FZN_CATALOGUE_ERR_NOT_ONE_ATTRIBUTE = 2,
+	FZN_CATALOG_ERR_NOT_ONE_ATTRIBUTE = 2,
 	/* An enum field carries a value this build does not know (C28's rule,
 	 * facet's F26): refused, never skipped. */
-	FZN_CATALOGUE_ERR_KIND = 3,
+	FZN_CATALOG_ERR_KIND = 3,
 	/* AUTHORITATIVE resolution was asked for without naming the authority. */
-	FZN_CATALOGUE_ERR_NO_AUTHORITY = 4,
+	FZN_CATALOG_ERR_NO_AUTHORITY = 4,
 	/* The output buffer cannot hold the resolved set, or a value is longer
 	 * than the field that has to carry it. */
-	FZN_CATALOGUE_ERR_RANGE = 5,
+	FZN_CATALOG_ERR_RANGE = 5,
 	/* The records do not assert what the caller named -- a filing on a link
 	 * nothing curates, say. A legitimate state rather than a caller's bug,
 	 * which is why it is not MALFORMED: the two call for different
 	 * responses, and a caller that could not tell them apart would treat a
 	 * catalogue it has not caught up with as a programming error. sec 323. */
-	FZN_CATALOGUE_ERR_ABSENT = 6,
-} fzn_catalogue_err_t;
+	FZN_CATALOG_ERR_ABSENT = 6,
+} fzn_catalog_err_t;
 
 /* C2: what may be asserted, by WHO CAN CHECK IT. */
-typedef enum fzn_catalogue_class {
-	FZN_CATALOGUE_LABEL = 1,      /* nobody can check; carried. */
-	FZN_CATALOGUE_FACT = 2,       /* the bytes settle it. */
-	FZN_CATALOGUE_IDENTIFIER = 3, /* a register settles it. */
-} fzn_catalogue_class_t;
+typedef enum fzn_catalog_class {
+	FZN_CATALOG_LABEL = 1,      /* nobody can check; carried. */
+	FZN_CATALOG_FACT = 2,       /* the bytes settle it. */
+	FZN_CATALOG_IDENTIFIER = 3, /* a register settles it. */
+} fzn_catalog_class_t;
 
 /* C5a: who may SEE a value. */
-typedef enum fzn_catalogue_scope {
-	FZN_CATALOGUE_HOST = 1,       /* never leaves the host that wrote it. */
-	FZN_CATALOGUE_ESTATE = 2,     /* the estate's hosts, no further. */
-	FZN_CATALOGUE_ADVERTISED = 3, /* observable by peers outside the estate. */
-} fzn_catalogue_scope_t;
+typedef enum fzn_catalog_scope {
+	FZN_CATALOG_HOST = 1,       /* never leaves the host that wrote it. */
+	FZN_CATALOG_ESTATE = 2,     /* the estate's hosts, no further. */
+	FZN_CATALOG_ADVERTISED = 3, /* observable by peers outside the estate. */
+} fzn_catalog_scope_t;
 
 /* C5b: how concurrent assertions combine. */
-typedef enum fzn_catalogue_merge {
-	FZN_CATALOGUE_AUTHORITATIVE = 1, /* a designated issuer takes precedence. */
-	FZN_CATALOGUE_UNION = 2,         /* the union of live values (set-valued). */
-	FZN_CATALOGUE_DISTINCT = 3,      /* all retained, no winner, disagreement shown. */
-} fzn_catalogue_merge_t;
+typedef enum fzn_catalog_merge {
+	FZN_CATALOG_AUTHORITATIVE = 1, /* a designated issuer takes precedence. */
+	FZN_CATALOG_UNION = 2,         /* the union of live values (set-valued). */
+	FZN_CATALOG_DISTINCT = 3,      /* all retained, no winner, disagreement shown. */
+} fzn_catalog_merge_t;
 
 /* C5e: what authority is needed to CHANGE it. The merge core carries this but
  * does not branch on it -- capability is an ADMISSION question (who may
  * assert), checked before an assertion is accepted, not a resolution one. */
-typedef enum fzn_catalogue_capability {
-	FZN_CATALOGUE_CAP_NONE = 1,   /* any estate member may assert. */
-	FZN_CATALOGUE_CAP_HOLDER = 2, /* only a host holding the bytes may. */
-	FZN_CATALOGUE_CAP_GRANTED = 3,/* a named capability, via chain/authz.h. */
-} fzn_catalogue_capability_t;
+typedef enum fzn_catalog_capability {
+	FZN_CATALOG_CAP_NONE = 1,   /* any estate member may assert. */
+	FZN_CATALOG_CAP_HOLDER = 2, /* only a host holding the bytes may. */
+	FZN_CATALOG_CAP_GRANTED = 3,/* a named capability, via chain/authz.h. */
+} fzn_catalog_capability_t;
 
 /* One assertion: an issuer's value for an attribute about an entity (C1, C5).
  * The class/scope/merge/capability are the ATTRIBUTE's declaration (C5), so
- * every assertion about one attribute carries the same four; fzn_catalogue_
+ * every assertion about one attribute carries the same four; fzn_catalog_
  * validate refuses a set that does not agree. `live` is C5c's read-time state
  * the caller supplies (nonzero = live). All byte fields are borrowed views. */
-typedef struct fzn_catalogue_assertion {
+typedef struct fzn_catalog_assertion {
 	const uint8_t *issuer;   /* who asserted it -- a host key. */
 	size_t         issuer_len;
 	const uint8_t *entity;   /* the content hash the assertion is about (C1). */
@@ -810,34 +810,34 @@ typedef struct fzn_catalogue_assertion {
 	size_t         name_len;
 	const uint8_t *value;    /* the asserted value, opaque. */
 	size_t         value_len;
-	fzn_catalogue_class_t      attr_class;
-	fzn_catalogue_scope_t      scope;
-	fzn_catalogue_merge_t      merge;
-	fzn_catalogue_capability_t capability;
+	fzn_catalog_class_t      attr_class;
+	fzn_catalog_scope_t      scope;
+	fzn_catalog_merge_t      merge;
+	fzn_catalog_capability_t capability;
 	int            live;
-} fzn_catalogue_assertion_t;
+} fzn_catalog_assertion_t;
 
 /* A resolved entry: a value and WHOSE it is (C5b/C11 -- a view must name whose
  * value it shows). For AUTHORITATIVE, `authoritative` marks the designated
  * issuer's value; it is 0 for UNION and DISTINCT. */
-typedef struct fzn_catalogue_resolved {
+typedef struct fzn_catalog_resolved {
 	const uint8_t *value;
 	size_t         value_len;
 	const uint8_t *issuer;
 	size_t         issuer_len;
 	int            authoritative;
-} fzn_catalogue_resolved_t;
+} fzn_catalog_resolved_t;
 
 /* Structural equality of two assertions: same issuer, entity, name, value and
  * all four axes. `live` is not compared -- it is read-time state, not identity. */
-int fzn_catalogue_assertion_eq(const fzn_catalogue_assertion_t *a,
-                               const fzn_catalogue_assertion_t *b);
+int fzn_catalog_assertion_eq(const fzn_catalog_assertion_t *a,
+                               const fzn_catalog_assertion_t *b);
 
 /* C28: refuse a resolution set that is not all one attribute. Every assertion
  * must share entity, name, class, scope, merge and capability, and every enum
- * must be known (C28/F26). Read-only; FZN_CATALOGUE_OK when the set is sound.
+ * must be known (C28/F26). Read-only; FZN_CATALOG_OK when the set is sound.
  * An empty set is sound (it resolves to nothing). */
-fzn_catalogue_err_t fzn_catalogue_validate(const fzn_catalogue_assertion_t *set,
+fzn_catalog_err_t fzn_catalog_validate(const fzn_catalog_assertion_t *set,
                                            size_t count);
 
 /* C5b resolution over the LIVE assertions of one attribute. The rule is read
@@ -853,11 +853,11 @@ fzn_catalogue_err_t fzn_catalogue_validate(const fzn_catalogue_assertion_t *set,
  *                    a local preference is the caller's, a display choice).
  * The set is validated first. `authority`/`authority_len` are used only for
  * AUTHORITATIVE and may be NULL/0 otherwise. */
-fzn_catalogue_err_t fzn_catalogue_resolve(const fzn_catalogue_assertion_t *set,
+fzn_catalog_err_t fzn_catalog_resolve(const fzn_catalog_assertion_t *set,
                                           size_t count,
                                           const uint8_t *authority,
                                           size_t authority_len,
-                                          fzn_catalogue_resolved_t *out,
+                                          fzn_catalog_resolved_t *out,
                                           size_t out_cap, size_t *out_count);
 
 /* =========================================================================
@@ -868,7 +868,7 @@ fzn_catalogue_err_t fzn_catalogue_resolve(const fzn_catalogue_assertion_t *set,
  * one section-7 item that decided the wire form: an ATTRIBUTE record body
  * supersedes catalog/'s NAME and inline CONTENT. Membership (catalog/'s EDGE)
  * is facet/'s, and blob content is the filestore's -- the entity IS the hash.
- * The layout is `catalogue/attribute.situ`; project.md sec 314 records it.
+ * The layout is `catalog/attribute.situ`; project.md sec 314 records it.
  *
  * The body carries the four axes, the name and the value -- NOT the issuer or
  * the entity. Those come from the record: issuer from `fzn_record_issuer`,
@@ -882,13 +882,13 @@ fzn_catalogue_err_t fzn_catalogue_resolve(const fzn_catalogue_assertion_t *set,
  * ONE ENCODING OF EACH ASSERTION, ENFORCED: an axis outside its enum, a length
  * that does not match the bytes, or a trailing byte is refused, because the
  * signature is over these bytes (C8). */
-#define FZN_CATALOGUE_OBJECT_ATTRIBUTE 1u
+#define FZN_CATALOG_OBJECT_ATTRIBUTE 1u
 
 /* object + class + scope + merge + capability + name_len. */
-#define FZN_CATALOGUE_ATTR_HEAD_LEN 6u
+#define FZN_CATALOG_ATTR_HEAD_LEN 6u
 
 /* The longest name (the length field is one byte). */
-#define FZN_CATALOGUE_ATTR_NAME_MAX 255u
+#define FZN_CATALOG_ATTR_NAME_MAX 255u
 
 /* The longest value that can be sent WITH AN EMPTY NAME. It is not
  * FZN_RECORD_BODY_MAX: the head and the two-byte value length come out of the
@@ -896,17 +896,17 @@ fzn_catalogue_err_t fzn_catalogue_resolve(const fzn_catalogue_assertion_t *set,
  * FZN_CATALOG_INLINE_MAX only by building its encoder; encode enforces the real
  * bound, 6 + name_len + 2 + value_len <= FZN_RECORD_BODY_MAX, and refuses when
  * it does not hold. */
-#define FZN_CATALOGUE_ATTR_VALUE_MAX \
-	((size_t)FZN_RECORD_BODY_MAX - FZN_CATALOGUE_ATTR_HEAD_LEN - 2u)
+#define FZN_CATALOG_ATTR_VALUE_MAX \
+	((size_t)FZN_RECORD_BODY_MAX - FZN_CATALOG_ATTR_HEAD_LEN - 2u)
 
 /* Lay out an assertion's ATTRIBUTE body: the four axes, then the name, then the
  * value. Reads only `attr_class`, `scope`, `merge`, `capability`, `name`/`_len`
  * and `value`/`_len` from `a` -- the issuer and entity are the record's, not the
- * body's. Refuses FZN_CATALOGUE_ERR_KIND for an axis outside its enum,
- * FZN_CATALOGUE_ERR_MALFORMED for a null or a name longer than the length field,
- * and FZN_CATALOGUE_ERR_RANGE when the body does not fit `cap` or a record body.
+ * body's. Refuses FZN_CATALOG_ERR_KIND for an axis outside its enum,
+ * FZN_CATALOG_ERR_MALFORMED for a null or a name longer than the length field,
+ * and FZN_CATALOG_ERR_RANGE when the body does not fit `cap` or a record body.
  * Writes nothing unless the whole body fits, and sets `*len_out` on success. */
-fzn_catalogue_err_t fzn_catalogue_attribute_encode(const fzn_catalogue_assertion_t *a,
+fzn_catalog_err_t fzn_catalog_attribute_encode(const fzn_catalog_assertion_t *a,
                                                    uint8_t *out, size_t cap,
                                                    size_t *len_out);
 
@@ -914,16 +914,16 @@ fzn_catalogue_err_t fzn_catalogue_attribute_encode(const fzn_catalogue_assertion
  * issuer and entity from the caller's pointers (which come from the record: its
  * issuer and its subject). `out->live` is set to 0 -- liveness is read-time
  * state a caller derives from journal position (C5c), not a property of the
- * bytes. Enforces the one canonical encoding: refuses FZN_CATALOGUE_ERR_MALFORMED
- * for a wrong object tag or a truncated head, FZN_CATALOGUE_ERR_KIND for an
- * unknown axis, and FZN_CATALOGUE_ERR_RANGE for a body larger than a record can
+ * bytes. Enforces the one canonical encoding: refuses FZN_CATALOG_ERR_MALFORMED
+ * for a wrong object tag or a truncated head, FZN_CATALOG_ERR_KIND for an
+ * unknown axis, and FZN_CATALOG_ERR_RANGE for a body larger than a record can
  * carry, or a name or value length that runs past the body or leaves a trailing
  * byte. The body-size bound is symmetric with encode's, so a body that decodes
  * always re-encodes to the same bytes. */
-fzn_catalogue_err_t fzn_catalogue_attribute_decode(const uint8_t *issuer, size_t issuer_len,
+fzn_catalog_err_t fzn_catalog_attribute_decode(const uint8_t *issuer, size_t issuer_len,
                                                    const uint8_t *entity, size_t entity_len,
                                                    const uint8_t *body, size_t body_len,
-                                                   fzn_catalogue_assertion_t *out);
+                                                   fzn_catalog_assertion_t *out);
 
 /* =========================================================================
  * REACHABILITY OVER THE NEW MODEL (project.md sec 317, step 1)
@@ -937,11 +937,11 @@ fzn_catalogue_err_t fzn_catalogue_attribute_decode(const uint8_t *issuer, size_t
  * way resolve does; deciding which are live is the caller's (C5c). */
 
 /* An issuer the set depends on, and how many of its assertions are in it. */
-typedef struct fzn_catalogue_source {
+typedef struct fzn_catalog_source {
 	const uint8_t *issuer;
 	size_t         issuer_len;
 	size_t         assertions;
-} fzn_catalogue_source_t;
+} fzn_catalog_source_t;
 
 /* Is `entity` REFERENCED -- named by at least one LIVE CURATED assertion in
  * the set?
@@ -953,20 +953,20 @@ typedef struct fzn_catalogue_source {
  * A HOLDER-CAPABILITY ASSERTION IS THAT HOST OBSERVATION AND DOES NOT COUNT.
  * "I hold these bytes" says where they are; it does not say anything wants
  * them kept. So the same assertion is invisible here and decisive for
- * `fzn_catalogue_holders` below, which is the pair working as intended rather
+ * `fzn_catalog_holders` below, which is the pair working as intended rather
  * than an inconsistency -- one query asks what wants an entity, the other asks
  * who has it. Counting a holder assertion here made every entity a host holds
  * referenced BY THE FACT OF HOLDING IT, which no sweep can escape. sec 321. */
-int fzn_catalogue_referenced(const fzn_catalogue_assertion_t *set, size_t count,
+int fzn_catalog_referenced(const fzn_catalog_assertion_t *set, size_t count,
                              const uint8_t *entity, size_t entity_len);
 
 /* The distinct issuers the set depends on, with a per-issuer assertion count,
  * written to `out` (capacity `out_cap`); `*out_count` gets how many were
  * written and `*dropped` how many distinct issuers did not fit. Every issuer
  * is counted, live or not -- catching up with a source must see its
- * retractions too (C5c). FZN_CATALOGUE_OK unless an argument is null. */
-fzn_catalogue_err_t fzn_catalogue_sources(const fzn_catalogue_assertion_t *set,
-                                          size_t count, fzn_catalogue_source_t *out,
+ * retractions too (C5c). FZN_CATALOG_OK unless an argument is null. */
+fzn_catalog_err_t fzn_catalog_sources(const fzn_catalog_assertion_t *set,
+                                          size_t count, fzn_catalog_source_t *out,
                                           size_t out_cap, size_t *out_count,
                                           size_t *dropped);
 
@@ -976,14 +976,14 @@ fzn_catalogue_err_t fzn_catalogue_sources(const fzn_catalogue_assertion_t *set,
  * make one. `*out_count` == 1 means a last copy; a caller answers
  * this-host-holds by finding its own key among the holders. This is what the
  * old catalog/'s holdings/last-copy seams asked a callback; here it falls out
- * of the record set. FZN_CATALOGUE_OK unless an argument is null. */
-fzn_catalogue_err_t fzn_catalogue_holders(const fzn_catalogue_assertion_t *set,
+ * of the record set. FZN_CATALOG_OK unless an argument is null. */
+fzn_catalog_err_t fzn_catalog_holders(const fzn_catalog_assertion_t *set,
                                           size_t count, const uint8_t *entity,
                                           size_t entity_len,
-                                          fzn_catalogue_source_t *out, size_t out_cap,
+                                          fzn_catalog_source_t *out, size_t out_cap,
                                           size_t *out_count, size_t *dropped);
 
 /* A stable, allocation-free name for an error. */
-const char *fzn_catalogue_err_str(fzn_catalogue_err_t err);
+const char *fzn_catalog_err_str(fzn_catalog_err_t err);
 
-#endif /* FZN_CATALOGUE_H */
+#endif /* FZN_CATALOG_H */

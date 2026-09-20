@@ -91,63 +91,63 @@ SABOTAGES = [
 	),
 	(
 		"catalogue-refuses-a-mixed-attribute-set",
-		"catalogue/catalogue.c",
-		"\t\t\treturn FZN_CATALOGUE_ERR_NOT_ONE_ATTRIBUTE;\n",
-		"\t\t\treturn FZN_CATALOGUE_OK;\n",
-		"C28: a resolution set must be one attribute; accepting a mixed set resolves values that were never about the same thing. catalogue_test's differing name/merge/entity cases catch it.",
+		"catalog/catalog.c",
+		"\t\t\treturn FZN_CATALOG_ERR_NOT_ONE_ATTRIBUTE;\n",
+		"\t\t\treturn FZN_CATALOG_OK;\n",
+		"C28: a resolution set must be one attribute; accepting a mixed set resolves values that were never about the same thing. catalog_test's differing name/merge/entity cases catch it.",
 	),
 	(
 		"catalogue-refuses-an-unknown-enum",
-		"catalogue/catalogue.c",
-		"\t\t\treturn FZN_CATALOGUE_ERR_KIND;\n",
-		"\t\t\treturn FZN_CATALOGUE_OK;\n",
-		"C28/F26: an unknown class/scope/merge/capability is refused, never skipped. catalogue_test's unknown-class case catches it.",
+		"catalog/catalog.c",
+		"\t\t\treturn FZN_CATALOG_ERR_KIND;\n",
+		"\t\t\treturn FZN_CATALOG_OK;\n",
+		"C28/F26: an unknown class/scope/merge/capability is refused, never skipped. catalog_test's unknown-class case catches it.",
 	),
 	(
 		"catalogue-marks-the-authority",
-		"catalogue/catalogue.c",
+		"catalog/catalog.c",
 		"\t\t\te = emit(out, &n, out_cap, &set[i], 1);\n",
 		"\t\t\te = emit(out, &n, out_cap, &set[i], 0);\n",
-		"C5b AUTHORITATIVE names whose value is the authority's; without the mark a view cannot tell a preference from a consensus. catalogue_test's authoritative case catches it.",
+		"C5b AUTHORITATIVE names whose value is the authority's; without the mark a view cannot tell a preference from a consensus. catalog_test's authoritative case catches it.",
 	),
 	(
 		"catalogue-attribute-value-is-exactly-the-remaining-bytes",
-		"catalogue/catalogue.c",
+		"catalog/catalog.c",
 		"\tif (value_len != body_len - off)\n",
 		"\tif (value_len > body_len - off)\n",
-		"One canonical encoding (C8): the value must be EXACTLY the bytes left, so a trailing byte is refused rather than ignored. `>` admits a shorter value_len than the bytes present, a second spelling of one assertion the signature differs over. catalogue_test's trailing-byte case catches it.",
+		"One canonical encoding (C8): the value must be EXACTLY the bytes left, so a trailing byte is refused rather than ignored. `>` admits a shorter value_len than the bytes present, a second spelling of one assertion the signature differs over. catalog_test's trailing-byte case catches it.",
 	),
 	(
 		"catalogue-attribute-body-must-fit-a-record",
-		"catalogue/catalogue.c",
+		"catalog/catalog.c",
 		"\tif (total > cap || total > (size_t)FZN_RECORD_BODY_MAX)\n",
 		"\tif (total > cap)\n",
-		"A body no record can carry is not an encoding at all (catalog/'s FZN_CATALOG_INLINE_MAX): the value bound accounts for the head, not FZN_RECORD_BODY_MAX. Dropping the record-body check admits a body that fits the caller's buffer but no record. catalogue_test's overflow case catches it.",
+		"A body no record can carry is not an encoding at all (catalog/'s FZN_CATALOG_INLINE_MAX): the value bound accounts for the head, not FZN_RECORD_BODY_MAX. Dropping the record-body check admits a body that fits the caller's buffer but no record. catalog_test's overflow case catches it.",
 	),
 	(
 		"catalogue-attribute-decode-refuses-an-oversize-body",
-		"catalogue/catalogue.c",
-		"\tif (body_len > (size_t)FZN_RECORD_BODY_MAX)\n\t\treturn FZN_CATALOGUE_ERR_RANGE;\n",
-		"\tif (body_len > (size_t)FZN_RECORD_BODY_MAX && 0)\n\t\treturn FZN_CATALOGUE_ERR_RANGE;\n",
-		"Decode's body-size bound is symmetric with encode's, so a body that decodes always re-encodes. Without it an internally-consistent body larger than a record body decodes yet cannot re-encode, breaking the canonical invariant. catalogue_test's oversize case and attribute_fuzz's canonical check catch it.",
+		"catalog/catalog.c",
+		"\tif (body_len > (size_t)FZN_RECORD_BODY_MAX)\n\t\treturn FZN_CATALOG_ERR_RANGE;\n",
+		"\tif (body_len > (size_t)FZN_RECORD_BODY_MAX && 0)\n\t\treturn FZN_CATALOG_ERR_RANGE;\n",
+		"Decode's body-size bound is symmetric with encode's, so a body that decodes always re-encodes. Without it an internally-consistent body larger than a record body decodes yet cannot re-encode, breaking the canonical invariant. catalog_test's oversize case and attribute_fuzz's canonical check catch it.",
 	),
 	(
 		"catalogue-referenced-counts-only-live",
-		"catalogue/catalogue.c",
-		"if (set[i].live && set[i].capability != FZN_CATALOGUE_CAP_HOLDER",
-		"if (1 && set[i].capability != FZN_CATALOGUE_CAP_HOLDER",
-		"Reachability (sec 317) counts only LIVE assertions: a retracted link does not keep an entity referenced. Counting non-live assertions would keep a withdrawn entity alive, defeating any later GC. catalogue_test's non-live case catches it.",
+		"catalog/catalog.c",
+		"if (set[i].live && set[i].capability != FZN_CATALOG_CAP_HOLDER",
+		"if (1 && set[i].capability != FZN_CATALOG_CAP_HOLDER",
+		"Reachability (sec 317) counts only LIVE assertions: a retracted link does not keep an entity referenced. Counting non-live assertions would keep a withdrawn entity alive, defeating any later GC. catalog_test's non-live case catches it.",
 	),
 	(
 		"catalogue-sources-counts-a-dropped-issuer-once",
-		"catalogue/catalogue.c",
+		"catalog/catalog.c",
 		"\t\t\tint earlier = 0;\n\t\t\tfor (j = 0; j < i; j++)\n\t\t\t\tif (bytes_eq(set[j].issuer, set[j].issuer_len,\n\t\t\t\t             a->issuer, a->issuer_len)) {\n\t\t\t\t\tearlier = 1;\n\t\t\t\t\tbreak;\n\t\t\t\t}\n\t\t\tif (!earlier)\n\t\t\t\td++;\n",
 		"\t\t\tint earlier = 0;\n\t\t\tfor (j = 0; j < i; j++)\n\t\t\t\tif (bytes_eq(set[j].issuer, set[j].issuer_len,\n\t\t\t\t             a->issuer, a->issuer_len)) {\n\t\t\t\t\tearlier = 1;\n\t\t\t\t\tbreak;\n\t\t\t\t}\n\t\t\tif (!earlier || 1)\n\t\t\t\td++;\n",
-		"An overflowing issuer is dropped once, not per assertion (reach.c's rule), so `dropped` is a count of distinct issuers a reader must still account for. Counting per row inflates it and a caller sizing a catch-up buffer over-allocates. catalogue_test's repeated-dropped-issuer case catches it.",
+		"An overflowing issuer is dropped once, not per assertion (reach.c's rule), so `dropped` is a count of distinct issuers a reader must still account for. Counting per row inflates it and a caller sizing a catch-up buffer over-allocates. catalog_test's repeated-dropped-issuer case catches it.",
 	),
 	(
 		"filing-a-retracted-link-is-not-a-place",
-		"catalogue/filing.c",
+		"catalog/filing.c",
 		"\t\tif (!a->live)\n\t\t\tcontinue;\n",
 		"\t\tif (0)\n\t\t\tcontinue;\n",
 		"C5c: a link that has been retracted is not a place an entity "
@@ -159,8 +159,8 @@ SABOTAGES = [
 	),
 	(
 		"filing-a-holder-assertion-is-not-a-link",
-		"catalogue/filing.c",
-		"if (a->capability == FZN_CATALOGUE_CAP_HOLDER)",
+		"catalog/filing.c",
+		"if (a->capability == FZN_CATALOG_CAP_HOLDER)",
 		"if (0)",
 		"C9 and sec 321 again, one layer up: a HOLDER assertion says where "
 		"bytes ARE, not where they BELONG. Letting one back a filing means "
@@ -171,7 +171,7 @@ SABOTAGES = [
 	),
 	(
 		"filing-is-a-subset-of-the-records",
-		"catalogue/filing.c",
+		"catalog/filing.c",
 		"if (!link_asserted(set, count, entity, entity_len, name, name_len, path, path_len))",
 		"if (0)",
 		"the old module marked an EXISTING membership edge, so a filing the "
@@ -183,7 +183,7 @@ SABOTAGES = [
 	),
 	(
 		"filing-is-rechecked-when-it-is-read",
-		"catalogue/filing.c",
+		"catalog/filing.c",
 		"if (!row_backed(row, set, count))",
 		"if (0)",
 		"the old module cleared a filing when its edge was unlinked, because "
@@ -196,7 +196,7 @@ SABOTAGES = [
 	),
 	(
 		"filing-replaces-rather-than-adds",
-		"catalogue/filing.c",
+		"catalog/filing.c",
 		"\trow = find(filings, entity);\n\tif (!row) {\n\t\tif (filings->used >= filings->capacity)",
 		"\trow = NULL;\n\tif (!row) {\n\t\tif (filings->used >= filings->capacity)",
 		"exactly-once per entity is STRUCTURAL: setting a filing overwrites "
@@ -208,9 +208,9 @@ SABOTAGES = [
 	),
 	(
 		"filing-refile-sorts-so-a-restart-resumes",
-		"catalogue/filing.c",
-		"while (at > 0 && memcmp(moves[at - 1].entity, move->entity,\n\t                        FZN_CATALOGUE_ENTITY_LEN) > 0) {",
-		"while (at > 0 && memcmp(moves[at - 1].entity, move->entity,\n\t                        FZN_CATALOGUE_ENTITY_LEN) < 0) {",
+		"catalog/filing.c",
+		"while (at > 0 && memcmp(moves[at - 1].entity, move->entity,\n\t                        FZN_CATALOG_ENTITY_LEN) > 0) {",
+		"while (at > 0 && memcmp(moves[at - 1].entity, move->entity,\n\t                        FZN_CATALOG_ENTITY_LEN) < 0) {",
 		"the cursor is a count, and the old module leaned on a catalogue lock "
 		"to make resuming from one sound. This model has no lock, so the sort "
 		"is what is left: the table's order is whatever filing produced, and "
@@ -220,8 +220,8 @@ SABOTAGES = [
 	),
 	(
 		"copy-want-needs-retention",
-		"catalogue/copy.c",
-		"if (retained_only &&\n\t\t    !fzn_catalogue_keeps(holds, a->entity, a->entity_len, now)) {",
+		"catalog/copy.c",
+		"if (retained_only &&\n\t\t    !fzn_catalog_keeps(holds, a->entity, a->entity_len, now)) {",
 		"if (0) {",
 		"want is retained AND referenced AND not-held, and the retention term "
 		"is load-bearing: without it a host fetches everything the ESTATE "
@@ -232,8 +232,8 @@ SABOTAGES = [
 	),
 	(
 		"copy-want-needs-something-curating-it",
-		"catalogue/copy.c",
-		"if (retained_only &&\n\t\t    !fzn_catalogue_referenced(set, count, a->entity, a->entity_len)) {",
+		"catalog/copy.c",
+		"if (retained_only &&\n\t\t    !fzn_catalog_referenced(set, count, a->entity, a->entity_len)) {",
 		"if (0) {",
 		"C9: a curated link is what says an entity is wanted; a holder "
 		"assertion says only where it is. Without this a host fetches bytes "
@@ -243,7 +243,7 @@ SABOTAGES = [
 	),
 	(
 		"copy-holdings-announces-a-fact-not-a-policy",
-		"catalogue/copy.c",
+		"catalog/copy.c",
 		"return walk(set, count, NULL, 0, self, self_len, 0, 0, out, out_cap, plan);",
 		"return walk(set, count, NULL, 1, self, self_len, 0, 0, out, out_cap, plan);",
 		"holdings announces what this host CAN SERVE; whether it means to go "
@@ -256,8 +256,8 @@ SABOTAGES = [
 	),
 	(
 		"copy-offer-checks-its-scope",
-		"catalogue/copy.c",
-		"if (!known_here(set, count, wants[i].b, FZN_CATALOGUE_ENTITY_LEN)) {",
+		"catalog/copy.c",
+		"if (!known_here(set, count, wants[i].b, FZN_CATALOG_ENTITY_LEN)) {",
 		"if (0) {",
 		"without the scope check a want list is a request for any bytes whose "
 		"hash a peer can name, so a peer that learns a hash from anywhere can "
@@ -267,8 +267,8 @@ SABOTAGES = [
 	),
 	(
 		"sweep-retention-is-the-first-guard",
-		"catalogue/sweep.c",
-		"if (fzn_catalogue_keeps(holds, a->entity, a->entity_len, now)) {",
+		"catalog/sweep.c",
+		"if (fzn_catalog_keeps(holds, a->entity, a->entity_len, now)) {",
 		"if (0) {",
 		"an entity this host KEEPS is not a candidate at all, so retention "
 		"opens the chain. Skipping it plans a removal for bytes the host "
@@ -279,8 +279,8 @@ SABOTAGES = [
 	),
 	(
 		"sweep-a-curated-link-keeps-the-bytes",
-		"catalogue/sweep.c",
-		"if (fzn_catalogue_referenced(set, count, a->entity, a->entity_len)) {",
+		"catalog/sweep.c",
+		"if (fzn_catalog_referenced(set, count, a->entity, a->entity_len)) {",
 		"if (0) {",
 		"C9 reachability: an entity a live curated assertion still names is "
 		"wanted by something, whatever this host's own retention says. "
@@ -291,7 +291,7 @@ SABOTAGES = [
 	),
 	(
 		"sweep-refuses-to-guess-a-missing-holder",
-		"catalogue/sweep.c",
+		"catalog/sweep.c",
 		"if (!mine && dropped > 0)",
 		"if (0)",
 		"sec 316's asymmetry: on partial data, never delete. A holder list "
@@ -304,7 +304,7 @@ SABOTAGES = [
 	),
 	(
 		"sweep-last-copy-counts-others-not-self",
-		"catalogue/sweep.c",
+		"catalog/sweep.c",
 		"*others = written + dropped - (mine ? 1u : 0u);",
 		"*others = written + dropped;",
 		"the last-copy guard asks how many OTHER hosts hold the bytes, so "
@@ -316,9 +316,9 @@ SABOTAGES = [
 	),
 	(
 		"sweep-sorts-so-the-cursor-resumes",
-		"catalogue/sweep.c",
-		"while (at > 0 && memcmp(rows[at - 1].entity, row->entity,\n\t                        FZN_CATALOGUE_ENTITY_LEN) > 0) {",
-		"while (at > 0 && memcmp(rows[at - 1].entity, row->entity,\n\t                        FZN_CATALOGUE_ENTITY_LEN) < 0) {",
+		"catalog/sweep.c",
+		"while (at > 0 && memcmp(rows[at - 1].entity, row->entity,\n\t                        FZN_CATALOG_ENTITY_LEN) > 0) {",
+		"while (at > 0 && memcmp(rows[at - 1].entity, row->entity,\n\t                        FZN_CATALOG_ENTITY_LEN) < 0) {",
 		"the job's rows are sorted so `done` means the same thing on every "
 		"machine: a count into an arrival-ordered list resumes at a "
 		"different row once the set is rebuilt from a store that returns "
@@ -329,7 +329,7 @@ SABOTAGES = [
 	),
 	(
 		"catalogue-compares-the-whole-identifier",
-		"catalogue/catalogue.c",
+		"catalog/catalog.c",
 		"\treturn memcmp(a, b, a_len) == 0;",
 		"\treturn a_len == 1u || memcmp(a, b, a_len - 1u) == 0;",
 		"every entity and issuer comparison in this module runs through here, "
@@ -338,14 +338,14 @@ SABOTAGES = [
 		"another entity's assertion, and two hosts differing in one byte "
 		"count as one holder -- which makes a last copy look replicated and "
 		"lets the sweep remove it. The old reach_test guarded this with "
-		"reads_the_whole_id and reads_the_whole_issuer; catalogue_test drives "
+		"reads_the_whole_id and reads_the_whole_issuer; catalog_test drives "
 		"both with last-byte pairs. sec 324",
 	),
 	(
 		"retention-finds-on-the-whole-entity",
-		"catalogue/retention.c",
-		"if (memcmp(holds->rows[i].entity, entity, FZN_CATALOGUE_ENTITY_LEN) == 0)",
-		"if (memcmp(holds->rows[i].entity, entity, FZN_CATALOGUE_ENTITY_LEN - 1u) == 0)",
+		"catalog/retention.c",
+		"if (memcmp(holds->rows[i].entity, entity, FZN_CATALOG_ENTITY_LEN) == 0)",
+		"if (memcmp(holds->rows[i].entity, entity, FZN_CATALOG_ENTITY_LEN - 1u) == 0)",
 		"a row is keyed on the whole subject; a short compare makes two "
 		"entities sharing a prefix share a row, so a host keeps or drops a "
 		"file because of a decision taken about a DIFFERENT file and nothing "
@@ -354,9 +354,9 @@ SABOTAGES = [
 	),
 	(
 		"filing-finds-on-the-whole-entity",
-		"catalogue/filing.c",
-		"if (memcmp(filings->rows[i].entity, entity, FZN_CATALOGUE_ENTITY_LEN) == 0)",
-		"if (memcmp(filings->rows[i].entity, entity, FZN_CATALOGUE_ENTITY_LEN - 1u) == 0)",
+		"catalog/filing.c",
+		"if (memcmp(filings->rows[i].entity, entity, FZN_CATALOG_ENTITY_LEN) == 0)",
+		"if (memcmp(filings->rows[i].entity, entity, FZN_CATALOG_ENTITY_LEN - 1u) == 0)",
 		"same key, worse consequence: two entities sharing a filing row means "
 		"filed_under answers for whichever it finds first, so a consumer "
 		"writes one file over another. filing_test files a last-byte pair at "
@@ -364,41 +364,41 @@ SABOTAGES = [
 	),
 	(
 		"catalogue-a-holder-assertion-is-not-a-reference",
-		"catalogue/catalogue.c",
-		"if (set[i].live && set[i].capability != FZN_CATALOGUE_CAP_HOLDER",
+		"catalog/catalog.c",
+		"if (set[i].live && set[i].capability != FZN_CATALOG_CAP_HOLDER",
 		"if (set[i].live",
 		"C9: a curated link is a reference, the host observation (C7/C8) is "
 		"not. 'I hold these bytes' says where they are, not that anything "
 		"wants them kept -- so counting it makes every entity a host holds "
 		"referenced BY THE FACT OF HOLDING IT, a fixpoint sec 321's sweep "
 		"planner can never escape: it would keep everything and plan nothing "
-		"for ever. catalogue_test asserts the same assertion is invisible to "
+		"for ever. catalog_test asserts the same assertion is invisible to "
 		"`referenced` and decisive for `holders`, with a curated control so "
 		"the skip cannot widen. sec 321",
 	),
 	(
 		"catalogue-holders-are-only-holder-capability-assertions",
-		"catalogue/catalogue.c",
-		"\t\tif (!a->live || a->capability != FZN_CATALOGUE_CAP_HOLDER\n",
+		"catalog/catalog.c",
+		"\t\tif (!a->live || a->capability != FZN_CATALOG_CAP_HOLDER\n",
 		"\t\tif (!a->live || 0\n",
-		"C8/C8a derive the holder set from the capability axis: only a HOLDER-capability assertion (C5e) proves the issuer holds the bytes. Counting NONE or GRANTED assertions as holdings invents holders a file does not have -- a last-copy guard would then delete the final real copy believing others held it. catalogue_test's NONE-claim case catches it.",
+		"C8/C8a derive the holder set from the capability axis: only a HOLDER-capability assertion (C5e) proves the issuer holds the bytes. Counting NONE or GRANTED assertions as holdings invents holders a file does not have -- a last-copy guard would then delete the final real copy believing others held it. catalog_test's NONE-claim case catches it.",
 	),
 	(
 		"retention-deadline-fires-at-the-deadline",
-		"catalogue/retention.c",
+		"catalog/retention.c",
 		"if (row->until != 0 && now >= row->until)",
 		"if (row->until != 0 && now > row->until)",
 		"a row says `mode` UNTIL `until` and `then` from `until` onwards, so "
 		"the word changes AT T. `>` leaves it saying the old word for the one "
 		"instant T, which is exactly the instant a consumer that drew a due "
-		"list at T asks about -- `fzn_catalogue_due` uses >= and the two would "
+		"list at T asks about -- `fzn_catalog_due` uses >= and the two would "
 		"disagree on the rows it just listed. retention_test drives 99, 100 "
 		"and 101 against a keep-until-100-then-drop row. sec 320",
 	),
 	(
 		"retention-default-gives-the-row-back",
-		"catalogue/retention.c",
-		"if (mode == FZN_CATALOGUE_RETAIN_DEFAULT) {",
+		"catalog/retention.c",
+		"if (mode == FZN_CATALOG_RETAIN_DEFAULT) {",
 		"if (0) {",
 		"DEFAULT is the absence of a word, not a third opinion, so storing it "
 		"fills a caller-owned table with entities that say 'whatever the "
@@ -408,7 +408,7 @@ SABOTAGES = [
 	),
 	(
 		"retention-keeps-nothing-until-told",
-		"catalogue/retention.c",
+		"catalog/retention.c",
 		"return holds && holds->keep_all;",
 		"return holds != NULL;",
 		"a table that has said nothing keeps NOTHING: defaulting to keep would "
@@ -420,12 +420,12 @@ SABOTAGES = [
 	),
 	(
 		"retention-entity-is-a-whole-subject",
-		"catalogue/retention.c",
-		"if (entity_len != FZN_CATALOGUE_ENTITY_LEN)",
-		"if (entity_len > FZN_CATALOGUE_ENTITY_LEN)",
+		"catalog/retention.c",
+		"if (entity_len != FZN_CATALOG_ENTITY_LEN)",
+		"if (entity_len > FZN_CATALOG_ENTITY_LEN)",
 		"a row outlives the call that wrote it and carries the entity bytes, "
 		"so the key is a full record subject (C1) rather than the borrowed "
-		"view catalogue.h's queries take. Admitting a short one keys the row "
+		"view catalog.h's queries take. Admitting a short one keys the row "
 		"on whatever follows it in the caller's memory and compares 32 bytes "
 		"against a shorter buffer. retention_test passes LEN-1 and LEN+1 with "
 		"a full-length control. sec 320",
@@ -3680,9 +3680,9 @@ SABOTAGES = [
 	(
 		"sweep-print-does-not-advance",
 		"cli/sweep_print.c",
-		"\t\tif (job && fzn_catalogue_sweep_progress(job, &done, &total) == FZN_CATALOGUE_OK)\n",
-		"\t\tif (job && (fzn_catalogue_sweep_advance((fzn_catalogue_sweep_t *)job), 1) &&\n"
-		"\t\t    fzn_catalogue_sweep_progress(job, &done, &total) == FZN_CATALOGUE_OK)\n",
+		"\t\tif (job && fzn_catalog_sweep_progress(job, &done, &total) == FZN_CATALOG_OK)\n",
+		"\t\tif (job && (fzn_catalog_sweep_advance((fzn_catalog_sweep_t *)job), 1) &&\n"
+		"\t\t    fzn_catalog_sweep_progress(job, &done, &total) == FZN_CATALOG_OK)\n",
 		"reporting a sweep must not advance its cursor: _advance is called AFTER "
 		"the bytes are gone, so a reporter that called it records a removal that "
 		"never happened",

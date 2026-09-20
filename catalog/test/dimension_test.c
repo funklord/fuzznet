@@ -1,4 +1,4 @@
-/* Tests for catalogue.h section 2 (DIMENSIONS AND LINKS), which is where the
+/* Tests for catalog.h section 2 (DIMENSIONS AND LINKS), which is where the
  * MEMBERSHIP question the supersession left open is actually answered -- and
  * the answer is that there is no separate membership record to answer it with.
  *
@@ -7,7 +7,7 @@
  * CURATED link (C9) is therefore an ATTRIBUTE whose NAME is the dimension and
  * whose VALUE is the node -- a path in the tree -- and facet's PREFIX term,
  * which selects "every file at or beneath a node", is hierarchical membership.
- * So the ATTRIBUTE record already shipped (catalogue/attribute.situ) is the
+ * So the ATTRIBUTE record already shipped (catalog/attribute.situ) is the
  * link, and the availability/holder link needs no record at all (C8, derived
  * from a record's issuer and subject). No membership record is built because
  * none is needed.
@@ -26,7 +26,7 @@
  * over full datasets.
  */
 
-#include "../catalogue.h"
+#include "../catalog.h"
 #include "../../facet/facet.h"
 
 #include <stdarg.h>
@@ -71,14 +71,14 @@ struct row {
 	const char *entity;
 	const char *dim;   /* attribute name: the dimension */
 	const char *node;  /* attribute value: a path in the dimension tree */
-	fzn_catalogue_class_t cls;
+	fzn_catalog_class_t cls;
 };
 
 /* The decoded assertions, plus the body buffers their name/value views borrow
  * from -- both must outlive the query, so they are one array. */
 #define MAXROWS 16
 static uint8_t bodies[MAXROWS][FZN_RECORD_BODY_MAX];
-static fzn_catalogue_assertion_t assertions[MAXROWS];
+static fzn_catalog_assertion_t assertions[MAXROWS];
 static size_t nassert;
 
 static int load(const struct row *rows, size_t n)
@@ -86,26 +86,26 @@ static int load(const struct row *rows, size_t n)
 	size_t i, len;
 	nassert = 0;
 	for (i = 0; i < n && i < MAXROWS; i++) {
-		fzn_catalogue_assertion_t a;
+		fzn_catalog_assertion_t a;
 		memset(&a, 0, sizeof(a));
 		a.name = (const uint8_t *)rows[i].dim;
 		a.name_len = strlen(rows[i].dim);
 		a.value = (const uint8_t *)rows[i].node;
 		a.value_len = strlen(rows[i].node);
 		a.attr_class = rows[i].cls;
-		a.scope = FZN_CATALOGUE_ESTATE;
-		a.merge = FZN_CATALOGUE_UNION;
-		a.capability = FZN_CATALOGUE_CAP_NONE;
-		if (fzn_catalogue_attribute_encode(&a, bodies[i], sizeof(bodies[i]), &len)
-		    != FZN_CATALOGUE_OK)
+		a.scope = FZN_CATALOG_ESTATE;
+		a.merge = FZN_CATALOG_UNION;
+		a.capability = FZN_CATALOG_CAP_NONE;
+		if (fzn_catalog_attribute_encode(&a, bodies[i], sizeof(bodies[i]), &len)
+		    != FZN_CATALOG_OK)
 			return 0;
 		/* entity is the record's subject; pass it as the caller would from a
 		 * decoded record. It is a stable string, so the borrow outlives use. */
-		if (fzn_catalogue_attribute_decode((const uint8_t *)"issuer", 6,
+		if (fzn_catalog_attribute_decode((const uint8_t *)"issuer", 6,
 		                                    (const uint8_t *)rows[i].entity,
 		                                    strlen(rows[i].entity),
 		                                    bodies[i], len, &assertions[i])
-		    != FZN_CATALOGUE_OK)
+		    != FZN_CATALOG_OK)
 			return 0;
 		nassert++;
 	}
@@ -164,7 +164,7 @@ static fzn_facet_err_t postings(void *ctx, const fzn_facet_term_t *term,
 		return FZN_FACET_ERR_KIND; /* this index answers prefixes only */
 
 	for (i = 0; i < nassert; i++) {
-		const fzn_catalogue_assertion_t *a = &assertions[i];
+		const fzn_catalog_assertion_t *a = &assertions[i];
 		if (a->name_len != term->node.dim_len
 		    || memcmp(a->name, term->node.dim, a->name_len) != 0)
 			continue;
@@ -206,9 +206,9 @@ static fzn_facet_term_t prefix(const char *dim, const char *node)
 /* A record arriving: encode and decode one more assertion into the next slot,
  * the delta a streaming node applies to advance its partial view. */
 static int sync_one(const char *entity, const char *dim, const char *node,
-                    fzn_catalogue_class_t cls)
+                    fzn_catalog_class_t cls)
 {
-	fzn_catalogue_assertion_t a;
+	fzn_catalog_assertion_t a;
 	size_t len;
 
 	if (nassert >= MAXROWS)
@@ -219,16 +219,16 @@ static int sync_one(const char *entity, const char *dim, const char *node,
 	a.value = (const uint8_t *)node;
 	a.value_len = strlen(node);
 	a.attr_class = cls;
-	a.scope = FZN_CATALOGUE_ESTATE;
-	a.merge = FZN_CATALOGUE_UNION;
-	a.capability = FZN_CATALOGUE_CAP_NONE;
-	if (fzn_catalogue_attribute_encode(&a, bodies[nassert], sizeof(bodies[nassert]),
-	                                   &len) != FZN_CATALOGUE_OK)
+	a.scope = FZN_CATALOG_ESTATE;
+	a.merge = FZN_CATALOG_UNION;
+	a.capability = FZN_CATALOG_CAP_NONE;
+	if (fzn_catalog_attribute_encode(&a, bodies[nassert], sizeof(bodies[nassert]),
+	                                   &len) != FZN_CATALOG_OK)
 		return 0;
-	if (fzn_catalogue_attribute_decode((const uint8_t *)"issuer", 6,
+	if (fzn_catalog_attribute_decode((const uint8_t *)"issuer", 6,
 	                                   (const uint8_t *)entity, strlen(entity),
 	                                   bodies[nassert], len, &assertions[nassert])
-	    != FZN_CATALOGUE_OK)
+	    != FZN_CATALOG_OK)
 		return 0;
 	nassert++;
 	return 1;
@@ -278,7 +278,7 @@ static void test_partial(void)
 
 	/* The delta: a record arrives (song-b's genre) and the dimension catches
 	 * up. State advances by delta, never a full rebuild. */
-	CHECK(sync_one("song-b", "genre", "jazz", FZN_CATALOGUE_FACT),
+	CHECK(sync_one("song-b", "genre", "jazz", FZN_CATALOG_FACT),
 	      "a genre record arrives -- the delta");
 	cover("genre");
 
@@ -299,11 +299,11 @@ static void test_partial(void)
 int main(void)
 {
 	static const struct row rows[] = {
-		{ "song-a", "lib", "music/jazz/bebop", FZN_CATALOGUE_LABEL },
-		{ "song-b", "lib", "music/jazz/cool",  FZN_CATALOGUE_LABEL },
-		{ "song-c", "lib", "music/rock/punk",  FZN_CATALOGUE_LABEL },
-		{ "song-a", "lib", "mood/energetic",   FZN_CATALOGUE_LABEL },
-		{ "song-a", "genre", "jazz",           FZN_CATALOGUE_FACT  },
+		{ "song-a", "lib", "music/jazz/bebop", FZN_CATALOG_LABEL },
+		{ "song-b", "lib", "music/jazz/cool",  FZN_CATALOG_LABEL },
+		{ "song-c", "lib", "music/rock/punk",  FZN_CATALOG_LABEL },
+		{ "song-a", "lib", "mood/energetic",   FZN_CATALOG_LABEL },
+		{ "song-a", "genre", "jazz",           FZN_CATALOG_FACT  },
 	};
 	fzn_facet_index_ops_t index = { NULL, postings };
 	fzn_facet_entity_t out[MAXROWS], scratch[MAXROWS];
@@ -362,8 +362,8 @@ int main(void)
 	CHECK(fzn_facet_evaluate(&expr, &index, out, MAXROWS, &n, scratch, MAXROWS)
 	      == FZN_FACET_OK, "evaluate genre=jazz");
 	CHECK(n == 1 && has(out, n, "song-a")
-	      && assertions[4].attr_class == FZN_CATALOGUE_FACT
-	      && assertions[0].attr_class == FZN_CATALOGUE_LABEL,
+	      && assertions[4].attr_class == FZN_CATALOG_FACT
+	      && assertions[0].attr_class == FZN_CATALOG_LABEL,
 	      "a FACT dimension and a LABEL link share one record, split by class");
 
 	/* The same model over PARTIAL data: safe under incompleteness, firmed by

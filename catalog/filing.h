@@ -39,56 +39,56 @@
  * RULE THAT HAD TO MOVE. The old module cleared a filing when its edge was
  * unlinked, because it owned the edge table and could hook the removal. This
  * model owns no assertions -- they are the caller's set -- so there is no
- * unlink to hook. `fzn_catalogue_filed_under` therefore re-checks the set on
+ * unlink to hook. `fzn_catalog_filed_under` therefore re-checks the set on
  * every call and answers NOTHING for a filing no live curated assertion backs
  * any more. Otherwise a host computes a path from a membership nobody asserts,
  * which is precisely what the old rule existed to prevent, arriving by a
- * different route. `fzn_catalogue_filing_prune` is how the slots come back,
+ * different route. `fzn_catalog_filing_prune` is how the slots come back,
  * deliberately and at a moment of the caller's choosing, for the same reason
- * `fzn_catalogue_due` does not reclaim its own rows.
+ * `fzn_catalog_due` does not reclaim its own rows.
  */
 
-#ifndef FZN_CATALOGUE_FILING_H
-#define FZN_CATALOGUE_FILING_H
+#ifndef FZN_CATALOG_FILING_H
+#define FZN_CATALOG_FILING_H
 
 #include <stddef.h>
 #include <stdint.h>
 
-#include "catalogue.h"
+#include "catalog.h"
 #include "retention.h"
 
 /* The longest dimension name and path value a filing row carries.
  *
  * BOUNDED BECAUSE A ROW OUTLIVES THE CALL THAT WROTE IT, which is the same
- * reason retention.h bounds its key: `fzn_catalogue_referenced` and friends
+ * reason retention.h bounds its key: `fzn_catalog_referenced` and friends
  * borrow a view and never store it, and a table cannot. The bounds are the
  * attribute's own -- a name's length field is one byte, and a path long enough
  * to exceed this is one no filesystem will take either. A longer name or value
  * is refused rather than truncated: a truncated path names a different place,
  * and moving a file there is not a smaller error than refusing. */
-#define FZN_CATALOGUE_FILING_NAME_MAX 64u
-#define FZN_CATALOGUE_FILING_PATH_MAX 192u
+#define FZN_CATALOG_FILING_NAME_MAX 64u
+#define FZN_CATALOG_FILING_PATH_MAX 192u
 
 /* One host's choice for one entity. */
-typedef struct fzn_catalogue_filing {
-	uint8_t entity[FZN_CATALOGUE_ENTITY_LEN];
-	uint8_t name[FZN_CATALOGUE_FILING_NAME_MAX];
+typedef struct fzn_catalog_filing {
+	uint8_t entity[FZN_CATALOG_ENTITY_LEN];
+	uint8_t name[FZN_CATALOG_FILING_NAME_MAX];
 	size_t  name_len;
-	uint8_t path[FZN_CATALOGUE_FILING_PATH_MAX];
+	uint8_t path[FZN_CATALOG_FILING_PATH_MAX];
 	size_t  path_len;
-} fzn_catalogue_filing_t;
+} fzn_catalog_filing_t;
 
-typedef struct fzn_catalogue_filings {
-	fzn_catalogue_filing_t *rows;
+typedef struct fzn_catalog_filings {
+	fzn_catalog_filing_t *rows;
 	size_t capacity;
 	size_t used;
-} fzn_catalogue_filings_t;
+} fzn_catalog_filings_t;
 
 /* Point a table at caller-owned rows. A zero capacity is legal and gives a
  * host that files nothing -- which is an ordinary state for one that has not
  * placed anything on disk yet, not an error. */
-fzn_catalogue_err_t fzn_catalogue_filings_init(fzn_catalogue_filings_t *filings,
-                                               fzn_catalogue_filing_t *rows,
+fzn_catalog_err_t fzn_catalog_filings_init(fzn_catalog_filings_t *filings,
+                                               fzn_catalog_filing_t *rows,
                                                size_t capacity);
 
 /*
@@ -96,7 +96,7 @@ fzn_catalogue_err_t fzn_catalogue_filings_init(fzn_catalogue_filings_t *filings,
  * filed before.
  *
  * THE LINK MUST ALREADY BE ASSERTED, which is what keeps a filing a subset of
- * the records. FZN_CATALOGUE_ERR_ABSENT when no LIVE assertion in `set` names
+ * the records. FZN_CATALOG_ERR_ABSENT when no LIVE assertion in `set` names
  * this (entity, name, value) -- a caller filing an entity somewhere the
  * records do not put it has the two out of step, and saying so is more use
  * than quietly inventing the link.
@@ -104,19 +104,19 @@ fzn_catalogue_err_t fzn_catalogue_filings_init(fzn_catalogue_filings_t *filings,
  * A HOLDER ASSERTION IS NOT A LINK and cannot back a filing, for the reason
  * sec 321 records: it says where bytes are, not where they belong.
  *
- * FZN_CATALOGUE_ERR_RANGE when a new row does not fit, or when the name or
+ * FZN_CATALOG_ERR_RANGE when a new row does not fit, or when the name or
  * path is longer than a row can carry. An entity that already has a row is
  * rewritten in place and cannot fail for want of space.
  */
-fzn_catalogue_err_t fzn_catalogue_file_under(fzn_catalogue_filings_t *filings,
-                                             const fzn_catalogue_assertion_t *set,
+fzn_catalog_err_t fzn_catalog_file_under(fzn_catalog_filings_t *filings,
+                                             const fzn_catalog_assertion_t *set,
                                              size_t count, const uint8_t *entity,
                                              size_t entity_len, const uint8_t *name,
                                              size_t name_len, const uint8_t *path,
                                              size_t path_len);
 
 /* Remove this entity's filing, if it has one. Not an error when it has none. */
-fzn_catalogue_err_t fzn_catalogue_unfile(fzn_catalogue_filings_t *filings,
+fzn_catalog_err_t fzn_catalog_unfile(fzn_catalog_filings_t *filings,
                                          const uint8_t *entity, size_t entity_len);
 
 /*
@@ -125,23 +125,23 @@ fzn_catalogue_err_t fzn_catalogue_unfile(fzn_catalogue_filings_t *filings,
  * RE-CHECKED AGAINST `set` ON EVERY CALL. A row whose link is no longer
  * asserted live answers NULL, because a path computed from a membership nobody
  * asserts is worse than no path -- see the header comment. The row stays until
- * `fzn_catalogue_filing_prune` takes it, so this is a read and stays one.
+ * `fzn_catalog_filing_prune` takes it, so this is a read and stays one.
  *
  * An entity with links but no filing is one this host has not placed on disk
  * yet, which is ordinary and not an error.
  */
-const fzn_catalogue_filing_t *fzn_catalogue_filed_under(
-        const fzn_catalogue_filings_t *filings, const fzn_catalogue_assertion_t *set,
+const fzn_catalog_filing_t *fzn_catalog_filed_under(
+        const fzn_catalog_filings_t *filings, const fzn_catalog_assertion_t *set,
         size_t count, const uint8_t *entity, size_t entity_len);
 
 /* Drop every row no live curated assertion backs any more, and return how many
  * were dropped. The counterpart to `filed_under` refusing them: that keeps a
  * host from acting on a stale filing, and this is what gives the slots back. */
-size_t fzn_catalogue_filing_prune(fzn_catalogue_filings_t *filings,
-                                  const fzn_catalogue_assertion_t *set, size_t count);
+size_t fzn_catalog_filing_prune(fzn_catalog_filings_t *filings,
+                                  const fzn_catalog_assertion_t *set, size_t count);
 
 /* How many filings are held. */
-size_t fzn_catalogue_filing_count(const fzn_catalogue_filings_t *filings);
+size_t fzn_catalog_filing_count(const fzn_catalog_filings_t *filings);
 
 /*
  * THE REFILE: moving every file into the formation a new filing describes.
@@ -158,11 +158,11 @@ size_t fzn_catalogue_filing_count(const fzn_catalogue_filings_t *filings);
  *
  * THE ORDER OF OPERATIONS, because it is not the obvious one:
  *
- *   1. `fzn_catalogue_refile_capture` -- snapshot the filing as it stands.
+ *   1. `fzn_catalog_refile_capture` -- snapshot the filing as it stands.
  *      This is the last moment the old arrangement exists.
  *   2. the consumer changes the filing freely.
- *   3. `fzn_catalogue_refile_at` gives an entity and both paths; the consumer
- *      moves the file and calls `fzn_catalogue_refile_advance`.
+ *   3. `fzn_catalog_refile_at` gives an entity and both paths; the consumer
+ *      moves the file and calls `fzn_catalog_refile_advance`.
  *
  * Capturing BEFORE the change is the only order that works: after it the old
  * paths are gone, and there is nothing to move files from.
@@ -184,36 +184,36 @@ size_t fzn_catalogue_filing_count(const fzn_catalogue_filings_t *filings);
  * already under way is therefore not an error: it is what a restart does.
  */
 
-typedef struct fzn_catalogue_move {
-	uint8_t entity[FZN_CATALOGUE_ENTITY_LEN];
+typedef struct fzn_catalog_move {
+	uint8_t entity[FZN_CATALOG_ENTITY_LEN];
 	/* Where it was filed when the refile was captured. Carried here rather
 	 * than looked up, because the table now holds the NEW filing. */
-	uint8_t was_name[FZN_CATALOGUE_FILING_NAME_MAX];
+	uint8_t was_name[FZN_CATALOG_FILING_NAME_MAX];
 	size_t  was_name_len;
-	uint8_t was_path[FZN_CATALOGUE_FILING_PATH_MAX];
+	uint8_t was_path[FZN_CATALOG_FILING_PATH_MAX];
 	size_t  was_path_len;
-} fzn_catalogue_move_t;
+} fzn_catalog_move_t;
 
-typedef struct fzn_catalogue_refile {
-	fzn_catalogue_move_t *moves;
+typedef struct fzn_catalog_refile {
+	fzn_catalog_move_t *moves;
 	size_t capacity;
 	size_t used;
 	/* How many have been completed. The whole of the resumable state. */
 	size_t done;
 	int captured;
-} fzn_catalogue_refile_t;
+} fzn_catalog_refile_t;
 
 /*
  * Snapshot the filing as it stands, into caller-owned rows.
  *
- * Every filed entity is captured, sorted by entity. FZN_CATALOGUE_ERR_RANGE
+ * Every filed entity is captured, sorted by entity. FZN_CATALOG_ERR_RANGE
  * when there are more than there are rows -- loudly, because a capture that
  * silently held some of them would move some of the files and leave the rest
  * where a stale path says they are.
  */
-fzn_catalogue_err_t fzn_catalogue_refile_capture(const fzn_catalogue_filings_t *filings,
-                                                 fzn_catalogue_refile_t *job,
-                                                 fzn_catalogue_move_t *moves,
+fzn_catalog_err_t fzn_catalog_refile_capture(const fzn_catalog_filings_t *filings,
+                                                 fzn_catalog_refile_t *job,
+                                                 fzn_catalog_move_t *moves,
                                                  size_t capacity);
 
 /*
@@ -225,21 +225,21 @@ fzn_catalogue_err_t fzn_catalogue_refile_capture(const fzn_catalogue_filings_t *
  * unfiled it, and what to do with a file whose entity has no home is the
  * consumer's decision rather than this library's.
  *
- * FZN_CATALOGUE_ERR_RANGE when the job is done.
+ * FZN_CATALOG_ERR_RANGE when the job is done.
  */
-fzn_catalogue_err_t fzn_catalogue_refile_at(const fzn_catalogue_refile_t *job,
-                                            const fzn_catalogue_filings_t *filings,
-                                            const fzn_catalogue_assertion_t *set,
+fzn_catalog_err_t fzn_catalog_refile_at(const fzn_catalog_refile_t *job,
+                                            const fzn_catalog_filings_t *filings,
+                                            const fzn_catalog_assertion_t *set,
                                             size_t count,
-                                            const fzn_catalogue_move_t **from,
-                                            const fzn_catalogue_filing_t **to);
+                                            const fzn_catalog_move_t **from,
+                                            const fzn_catalog_filing_t **to);
 
 /* Step past the move the cursor is on, once its file has been moved. */
-fzn_catalogue_err_t fzn_catalogue_refile_advance(fzn_catalogue_refile_t *job);
+fzn_catalog_err_t fzn_catalog_refile_advance(fzn_catalog_refile_t *job);
 
 /* How far through. Both outputs are required, because a caller that wanted
  * only one would be computing a fraction from a number it did not ask for. */
-fzn_catalogue_err_t fzn_catalogue_refile_progress(const fzn_catalogue_refile_t *job,
+fzn_catalog_err_t fzn_catalog_refile_progress(const fzn_catalog_refile_t *job,
                                                   size_t *done_out, size_t *total_out);
 
-#endif /* FZN_CATALOGUE_FILING_H */
+#endif /* FZN_CATALOG_FILING_H */

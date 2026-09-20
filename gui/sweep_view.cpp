@@ -18,8 +18,8 @@ fzn_sweep_view::fzn_sweep_view(QWidget *parent)
 	show_sweep(nullptr, nullptr);
 }
 
-void fzn_sweep_view::show_sweep(const fzn_catalogue_sweep_plan_t *plan,
-                                const fzn_catalogue_sweep_t *job)
+void fzn_sweep_view::show_sweep(const fzn_catalog_sweep_plan_t *plan,
+                                const fzn_catalog_sweep_t *job)
 {
 	char line[FZN_SWEEP_PRINT_MAX];
 	fzn_sweep_state_t said = FZN_SWEEP_NOTHING_CAPTURED;
@@ -33,7 +33,7 @@ void fzn_sweep_view::show_sweep(const fzn_catalogue_sweep_plan_t *plan,
 
 	/* ONE DECISION AND ONE WORDING, BOTH THE PRINTER'S. sec 193. */
 	if (fzn_sweep_print(plan, job, line, sizeof(line), &len, &said, &truncated) !=
-	    FZN_CATALOGUE_OK) {
+	    FZN_CATALOG_OK) {
 		state_label_->setText(QStringLiteral("nothing captured"));
 		progress_->setRange(0, 1);
 		progress_->setValue(0);
@@ -79,7 +79,7 @@ void fzn_sweep_view::show_sweep(const fzn_catalogue_sweep_plan_t *plan,
 	/* THE BAR IS THE WIDGET'S OWN, because a progress bar is a thing a
 	 * screen has and a line does not -- and it is drawn from the library's
 	 * numbers rather than from the printer's sentence. */
-	if (job && fzn_catalogue_sweep_progress(job, &done, &total) == FZN_CATALOGUE_OK) {
+	if (job && fzn_catalog_sweep_progress(job, &done, &total) == FZN_CATALOG_OK) {
 		progress_->setRange(0, total > 0u ? (int)total : 1);
 		progress_->setValue((int)done);
 		progress_->setFormat(QStringLiteral("%1 of %2").arg((qulonglong)done)

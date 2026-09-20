@@ -1,4 +1,4 @@
-/* Tests for catalogue/sweep.c: the planner over the new model. sec 321.
+/* Tests for catalog/sweep.c: the planner over the new model. sec 321.
  *
  * THE PROPERTY THIS SUITE DEFENDS is that the plan PARTITIONS. Every distinct
  * entity the set names lands in exactly one counter, and the sum is asserted
@@ -79,9 +79,9 @@ static void check_at(int ok, int line, const char *fmt, ...)
 
 /* Hosts and entities, each a whole subject filled with its own byte. */
 static uint8_t me[32], other1[32], other2[32];
-static uint8_t e1[FZN_CATALOGUE_ENTITY_LEN];
-static uint8_t e2[FZN_CATALOGUE_ENTITY_LEN];
-static uint8_t e3[FZN_CATALOGUE_ENTITY_LEN];
+static uint8_t e1[FZN_CATALOG_ENTITY_LEN];
+static uint8_t e2[FZN_CATALOG_ENTITY_LEN];
+static uint8_t e3[FZN_CATALOG_ENTITY_LEN];
 
 static void fixtures(void)
 {
@@ -94,37 +94,37 @@ static void fixtures(void)
 }
 
 /* A HOLDER assertion: "this issuer has these bytes". */
-static void holder(fzn_catalogue_assertion_t *a, const uint8_t *issuer,
+static void holder(fzn_catalog_assertion_t *a, const uint8_t *issuer,
                    const uint8_t *entity)
 {
 	memset(a, 0, sizeof(*a));
 	a->issuer = issuer;  a->issuer_len = 32;
-	a->entity = entity;  a->entity_len = FZN_CATALOGUE_ENTITY_LEN;
+	a->entity = entity;  a->entity_len = FZN_CATALOG_ENTITY_LEN;
 	a->name = (const uint8_t *)"held"; a->name_len = 4;
-	a->attr_class = FZN_CATALOGUE_FACT;
-	a->scope = FZN_CATALOGUE_ESTATE;
-	a->merge = FZN_CATALOGUE_UNION;
-	a->capability = FZN_CATALOGUE_CAP_HOLDER;
+	a->attr_class = FZN_CATALOG_FACT;
+	a->scope = FZN_CATALOG_ESTATE;
+	a->merge = FZN_CATALOG_UNION;
+	a->capability = FZN_CATALOG_CAP_HOLDER;
 	a->live = 1;
 }
 
 /* A CURATED assertion: something wants this entity. */
-static void curated(fzn_catalogue_assertion_t *a, const uint8_t *issuer,
+static void curated(fzn_catalog_assertion_t *a, const uint8_t *issuer,
                     const uint8_t *entity, int live)
 {
 	memset(a, 0, sizeof(*a));
 	a->issuer = issuer;  a->issuer_len = 32;
-	a->entity = entity;  a->entity_len = FZN_CATALOGUE_ENTITY_LEN;
+	a->entity = entity;  a->entity_len = FZN_CATALOG_ENTITY_LEN;
 	a->name = (const uint8_t *)"link"; a->name_len = 4;
-	a->attr_class = FZN_CATALOGUE_LABEL;
-	a->scope = FZN_CATALOGUE_ESTATE;
-	a->merge = FZN_CATALOGUE_UNION;
-	a->capability = FZN_CATALOGUE_CAP_NONE;
+	a->attr_class = FZN_CATALOG_LABEL;
+	a->scope = FZN_CATALOG_ESTATE;
+	a->merge = FZN_CATALOG_UNION;
+	a->capability = FZN_CATALOG_CAP_NONE;
 	a->live = live;
 }
 
 /* Every counter, summed. */
-static size_t total(const fzn_catalogue_sweep_plan_t *p)
+static size_t total(const fzn_catalog_sweep_plan_t *p)
 {
 	return p->planned + p->retained + p->referenced + p->last_copy +
 	       p->absent + p->incomplete + p->truncated;
@@ -132,14 +132,14 @@ static size_t total(const fzn_catalogue_sweep_plan_t *p)
 
 /* Distinct entities in a set, counted independently of the planner so the
  * partition assertion has two witnesses rather than one. */
-static size_t distinct(const fzn_catalogue_assertion_t *set, size_t n)
+static size_t distinct(const fzn_catalog_assertion_t *set, size_t n)
 {
 	size_t i, j, d = 0;
 
 	for (i = 0; i < n; i++) {
 		int seen = 0;
 
-		if (set[i].entity_len != FZN_CATALOGUE_ENTITY_LEN)
+		if (set[i].entity_len != FZN_CATALOG_ENTITY_LEN)
 			continue;
 		for (j = 0; j < i; j++)
 			if (set[j].entity_len == set[i].entity_len &&
@@ -155,35 +155,35 @@ static size_t distinct(const fzn_catalogue_assertion_t *set, size_t n)
  * two others hold it, nothing curates it, nothing retains it. It goes. */
 static void test_plans_a_removal(void)
 {
-	fzn_catalogue_assertion_t set[3];
-	fzn_catalogue_sweep_t job;
-	fzn_catalogue_removal_t rows[4], out;
-	fzn_catalogue_sweep_plan_t plan;
+	fzn_catalog_assertion_t set[3];
+	fzn_catalog_sweep_t job;
+	fzn_catalog_removal_t rows[4], out;
+	fzn_catalog_sweep_plan_t plan;
 
 	holder(&set[0], me, e1);
 	holder(&set[1], other1, e1);
 	holder(&set[2], other2, e1);
 
-	CHECK(fzn_catalogue_sweep_capture(set, 3, NULL, me, 32, 2, 0, NULL, &job, rows, 4,
-	                                  &plan) == FZN_CATALOGUE_OK,
+	CHECK(fzn_catalog_sweep_capture(set, 3, NULL, me, 32, 2, 0, NULL, &job, rows, 4,
+	                                  &plan) == FZN_CATALOG_OK,
 	      "a capture over a plain set was refused");
 	CHECK(plan.planned == 1, "the removable entity was not planned (%zu)", plan.planned);
 	CHECK(total(&plan) == distinct(set, 3),
 	      "the plan does not partition: %zu counted over %zu distinct entities",
 	      total(&plan), distinct(set, 3));
 
-	CHECK(fzn_catalogue_sweep_at(&job, &out) == FZN_CATALOGUE_OK, "no row at the cursor");
+	CHECK(fzn_catalog_sweep_at(&job, &out) == FZN_CATALOG_OK, "no row at the cursor");
 	CHECK(memcmp(out.entity, e1, sizeof(e1)) == 0, "the planned row is not e1");
-	CHECK(fzn_catalogue_sweep_advance(&job) == FZN_CATALOGUE_OK, "advance failed");
-	CHECK(fzn_catalogue_sweep_at(&job, &out) == FZN_CATALOGUE_ERR_RANGE,
+	CHECK(fzn_catalog_sweep_advance(&job) == FZN_CATALOG_OK, "advance failed");
+	CHECK(fzn_catalog_sweep_at(&job, &out) == FZN_CATALOG_ERR_RANGE,
 	      "the cursor ran past the end without saying so");
-	CHECK(fzn_catalogue_sweep_advance(&job) == FZN_CATALOGUE_ERR_RANGE,
+	CHECK(fzn_catalog_sweep_advance(&job) == FZN_CATALOG_ERR_RANGE,
 	      "advancing past the end was allowed");
 
 	{
 		size_t done = 0, all = 0;
 
-		CHECK(fzn_catalogue_sweep_progress(&job, &done, &all) == FZN_CATALOGUE_OK,
+		CHECK(fzn_catalog_sweep_progress(&job, &done, &all) == FZN_CATALOG_OK,
 		      "progress failed");
 		CHECK(done == 1 && all == 1, "progress is %zu/%zu, not 1/1", done, all);
 	}
@@ -192,20 +192,20 @@ static void test_plans_a_removal(void)
 /* EACH GUARD, with the plain case above as its control. */
 static void test_each_guard(void)
 {
-	fzn_catalogue_assertion_t set[4];
-	fzn_catalogue_sweep_t job;
-	fzn_catalogue_removal_t rows[4];
-	fzn_catalogue_sweep_plan_t plan;
-	fzn_catalogue_hold_t hold_rows[2];
-	fzn_catalogue_holds_t holds;
+	fzn_catalog_assertion_t set[4];
+	fzn_catalog_sweep_t job;
+	fzn_catalog_removal_t rows[4];
+	fzn_catalog_sweep_plan_t plan;
+	fzn_catalog_hold_t hold_rows[2];
+	fzn_catalog_holds_t holds;
 
 	/* RETAINED: this host keeps it, so it is not a candidate at all. */
 	holder(&set[0], me, e1);
 	holder(&set[1], other1, e1);
 	holder(&set[2], other2, e1);
-	fzn_catalogue_holds_init(&holds, hold_rows, 2);
-	fzn_catalogue_retain(&holds, e1, sizeof(e1), FZN_CATALOGUE_RETAIN_KEEP);
-	fzn_catalogue_sweep_capture(set, 3, &holds, me, 32, 2, 0, NULL, &job, rows, 4, &plan);
+	fzn_catalog_holds_init(&holds, hold_rows, 2);
+	fzn_catalog_retain(&holds, e1, sizeof(e1), FZN_CATALOG_RETAIN_KEEP);
+	fzn_catalog_sweep_capture(set, 3, &holds, me, 32, 2, 0, NULL, &job, rows, 4, &plan);
 	CHECK(plan.retained == 1 && plan.planned == 0,
 	      "a retained entity was planned (retained=%zu planned=%zu)",
 	      plan.retained, plan.planned);
@@ -216,7 +216,7 @@ static void test_each_guard(void)
 	holder(&set[1], other1, e1);
 	holder(&set[2], other2, e1);
 	curated(&set[3], other1, e1, 1);
-	fzn_catalogue_sweep_capture(set, 4, NULL, me, 32, 2, 0, NULL, &job, rows, 4, &plan);
+	fzn_catalog_sweep_capture(set, 4, NULL, me, 32, 2, 0, NULL, &job, rows, 4, &plan);
 	CHECK(plan.referenced == 1 && plan.planned == 0,
 	      "an entity something still curates was planned (referenced=%zu planned=%zu)",
 	      plan.referenced, plan.planned);
@@ -225,7 +225,7 @@ static void test_each_guard(void)
 	/* AND A RETRACTED CURATED LINK DOES NOT HOLD IT, which is what makes
 	 * the guard a live question rather than an ever-growing one. */
 	curated(&set[3], other1, e1, 0);
-	fzn_catalogue_sweep_capture(set, 4, NULL, me, 32, 2, 0, NULL, &job, rows, 4, &plan);
+	fzn_catalog_sweep_capture(set, 4, NULL, me, 32, 2, 0, NULL, &job, rows, 4, &plan);
 	CHECK(plan.planned == 1 && plan.referenced == 0,
 	      "a retracted curated link still kept the entity referenced");
 
@@ -233,7 +233,7 @@ static void test_each_guard(void)
 	 * to remove. A refusal would be wrong -- it is not a guard firing. */
 	holder(&set[0], other1, e2);
 	holder(&set[1], other2, e2);
-	fzn_catalogue_sweep_capture(set, 2, NULL, me, 32, 1, 0, NULL, &job, rows, 4, &plan);
+	fzn_catalog_sweep_capture(set, 2, NULL, me, 32, 1, 0, NULL, &job, rows, 4, &plan);
 	CHECK(plan.absent == 1 && plan.planned == 0,
 	      "an entity this host does not hold was planned (absent=%zu planned=%zu)",
 	      plan.absent, plan.planned);
@@ -241,7 +241,7 @@ static void test_each_guard(void)
 
 	/* LAST COPY: this host holds it and nobody else does. */
 	holder(&set[0], me, e3);
-	fzn_catalogue_sweep_capture(set, 1, NULL, me, 32, 1, 0, NULL, &job, rows, 4, &plan);
+	fzn_catalog_sweep_capture(set, 1, NULL, me, 32, 1, 0, NULL, &job, rows, 4, &plan);
 	CHECK(plan.last_copy == 1 && plan.planned == 0,
 	      "the last copy was planned for removal (last_copy=%zu planned=%zu)",
 	      plan.last_copy, plan.planned);
@@ -249,7 +249,7 @@ static void test_each_guard(void)
 
 	/* AND min_others OF ZERO SWITCHES IT OFF, which is the caller's to
 	 * give -- the same fixture, planned. */
-	fzn_catalogue_sweep_capture(set, 1, NULL, me, 32, 0, 0, NULL, &job, rows, 4, &plan);
+	fzn_catalog_sweep_capture(set, 1, NULL, me, 32, 0, 0, NULL, &job, rows, 4, &plan);
 	CHECK(plan.planned == 1 && plan.last_copy == 0,
 	      "min_others of 0 did not switch the last-copy guard off");
 
@@ -258,7 +258,7 @@ static void test_each_guard(void)
 	holder(&set[1], other1, e1);
 	holder(&set[2], me, e2);
 	holder(&set[3], other1, e2);
-	fzn_catalogue_sweep_capture(set, 4, NULL, me, 32, 1, 0, NULL, &job, rows, 1, &plan);
+	fzn_catalog_sweep_capture(set, 4, NULL, me, 32, 1, 0, NULL, &job, rows, 1, &plan);
 	CHECK(plan.planned == 1 && plan.truncated == 1,
 	      "a one-row job did not report the entity that did not fit "
 	      "(planned=%zu truncated=%zu)", plan.planned, plan.truncated);
@@ -271,25 +271,25 @@ static void test_each_guard(void)
  * host was keeping on purpose. */
 static void test_the_order(void)
 {
-	fzn_catalogue_assertion_t set[2];
-	fzn_catalogue_sweep_t job;
-	fzn_catalogue_removal_t rows[4];
-	fzn_catalogue_sweep_plan_t plan;
-	fzn_catalogue_hold_t hold_rows[2];
-	fzn_catalogue_holds_t holds;
+	fzn_catalog_assertion_t set[2];
+	fzn_catalog_sweep_t job;
+	fzn_catalog_removal_t rows[4];
+	fzn_catalog_sweep_plan_t plan;
+	fzn_catalog_hold_t hold_rows[2];
+	fzn_catalog_holds_t holds;
 
 	/* Retained AND a last copy AND curated: retention wins. */
 	holder(&set[0], me, e1);
 	curated(&set[1], other1, e1, 1);
-	fzn_catalogue_holds_init(&holds, hold_rows, 2);
-	fzn_catalogue_retain(&holds, e1, sizeof(e1), FZN_CATALOGUE_RETAIN_KEEP);
-	fzn_catalogue_sweep_capture(set, 2, &holds, me, 32, 1, 0, NULL, &job, rows, 4, &plan);
+	fzn_catalog_holds_init(&holds, hold_rows, 2);
+	fzn_catalog_retain(&holds, e1, sizeof(e1), FZN_CATALOG_RETAIN_KEEP);
+	fzn_catalog_sweep_capture(set, 2, &holds, me, 32, 1, 0, NULL, &job, rows, 4, &plan);
 	CHECK(plan.retained == 1 && plan.referenced == 0 && plan.last_copy == 0,
 	      "retention did not win the chain (retained=%zu referenced=%zu "
 	      "last_copy=%zu)", plan.retained, plan.referenced, plan.last_copy);
 
 	/* Curated AND a last copy: curated wins, because the remedy differs. */
-	fzn_catalogue_sweep_capture(set, 2, NULL, me, 32, 1, 0, NULL, &job, rows, 4, &plan);
+	fzn_catalog_sweep_capture(set, 2, NULL, me, 32, 1, 0, NULL, &job, rows, 4, &plan);
 	CHECK(plan.referenced == 1 && plan.last_copy == 0,
 	      "the last-copy guard answered for an entity something still wants, "
 	      "which sends a consumer to replicate what it should have kept");
@@ -300,23 +300,23 @@ static void test_the_order(void)
  * planner must see the change at T without anything being rewritten. */
 static void test_the_deadline_joins_up(void)
 {
-	fzn_catalogue_assertion_t set[2];
-	fzn_catalogue_sweep_t job;
-	fzn_catalogue_removal_t rows[4];
-	fzn_catalogue_sweep_plan_t plan;
-	fzn_catalogue_hold_t hold_rows[2];
-	fzn_catalogue_holds_t holds;
+	fzn_catalog_assertion_t set[2];
+	fzn_catalog_sweep_t job;
+	fzn_catalog_removal_t rows[4];
+	fzn_catalog_sweep_plan_t plan;
+	fzn_catalog_hold_t hold_rows[2];
+	fzn_catalog_holds_t holds;
 
 	holder(&set[0], me, e1);
 	holder(&set[1], other1, e1);
-	fzn_catalogue_holds_init(&holds, hold_rows, 2);
-	fzn_catalogue_retain_until(&holds, e1, sizeof(e1), FZN_CATALOGUE_RETAIN_KEEP,
-	                           100, FZN_CATALOGUE_RETAIN_DROP);
+	fzn_catalog_holds_init(&holds, hold_rows, 2);
+	fzn_catalog_retain_until(&holds, e1, sizeof(e1), FZN_CATALOG_RETAIN_KEEP,
+	                           100, FZN_CATALOG_RETAIN_DROP);
 
-	fzn_catalogue_sweep_capture(set, 2, &holds, me, 32, 1, 99, NULL, &job, rows, 4, &plan);
+	fzn_catalog_sweep_capture(set, 2, &holds, me, 32, 1, 99, NULL, &job, rows, 4, &plan);
 	CHECK(plan.retained == 1 && plan.planned == 0,
 	      "before the deadline the entity was planned");
-	fzn_catalogue_sweep_capture(set, 2, &holds, me, 32, 1, 100, NULL, &job, rows, 4, &plan);
+	fzn_catalog_sweep_capture(set, 2, &holds, me, 32, 1, 100, NULL, &job, rows, 4, &plan);
 	CHECK(plan.planned == 1 && plan.retained == 0,
 	      "at the deadline the entity was still retained, so a sweep run at "
 	      "exactly T disagrees with the due list drawn at T");
@@ -329,16 +329,16 @@ static void test_the_deadline_joins_up(void)
  * truncated compare cannot see at all. */
 static void test_a_near_miss_is_another_entity(void)
 {
-	fzn_catalogue_assertion_t set[4];
-	fzn_catalogue_sweep_t job;
-	fzn_catalogue_removal_t rows[4];
-	fzn_catalogue_sweep_plan_t plan;
-	static uint8_t near_a[FZN_CATALOGUE_ENTITY_LEN];
-	static uint8_t near_b[FZN_CATALOGUE_ENTITY_LEN];
+	fzn_catalog_assertion_t set[4];
+	fzn_catalog_sweep_t job;
+	fzn_catalog_removal_t rows[4];
+	fzn_catalog_sweep_plan_t plan;
+	static uint8_t near_a[FZN_CATALOG_ENTITY_LEN];
+	static uint8_t near_b[FZN_CATALOG_ENTITY_LEN];
 
 	memset(near_a, 0x77, sizeof(near_a));
 	memset(near_b, 0x77, sizeof(near_b));
-	near_b[FZN_CATALOGUE_ENTITY_LEN - 1u] ^= 0x01u;
+	near_b[FZN_CATALOG_ENTITY_LEN - 1u] ^= 0x01u;
 
 	/* near_a is held here and by another, so it goes. near_b is held only
 	 * here, so the last-copy guard keeps it. Folding them together gives
@@ -348,12 +348,12 @@ static void test_a_near_miss_is_another_entity(void)
 	holder(&set[1], other1, near_a);
 	holder(&set[2], me, near_b);
 
-	fzn_catalogue_sweep_capture(set, 3, NULL, me, 32, 1, 0, NULL, &job, rows, 4, &plan);
+	fzn_catalog_sweep_capture(set, 3, NULL, me, 32, 1, 0, NULL, &job, rows, 4, &plan);
 	CHECK(plan.planned == 1 && plan.last_copy == 1,
 	      "two entities differing in their last byte were not told apart "
 	      "(planned=%zu last_copy=%zu)", plan.planned, plan.last_copy);
 	CHECK(total(&plan) == 2, "the near-miss pair is %zu members, not 2", total(&plan));
-	CHECK(fzn_catalogue_sweep_at(&job, &rows[3]) == FZN_CATALOGUE_OK &&
+	CHECK(fzn_catalog_sweep_at(&job, &rows[3]) == FZN_CATALOG_OK &&
 	          memcmp(rows[3].entity, near_a, sizeof(near_a)) == 0,
 	      "the planned removal is not the entity that had another holder");
 }
@@ -370,11 +370,11 @@ static void test_a_near_miss_is_another_entity(void)
  */
 static void test_rows_are_sorted(void)
 {
-	fzn_catalogue_assertion_t set[6];
-	fzn_catalogue_sweep_t job;
-	fzn_catalogue_removal_t rows[4], out;
-	fzn_catalogue_sweep_plan_t plan;
-	uint8_t previous[FZN_CATALOGUE_ENTITY_LEN];
+	fzn_catalog_assertion_t set[6];
+	fzn_catalog_sweep_t job;
+	fzn_catalog_removal_t rows[4], out;
+	fzn_catalog_sweep_plan_t plan;
+	uint8_t previous[FZN_CATALOG_ENTITY_LEN];
 	int first = 1;
 
 	/* e3, e1, e2 -- each held here and by one other, so all three go. */
@@ -382,19 +382,19 @@ static void test_rows_are_sorted(void)
 	holder(&set[2], me, e1);      holder(&set[3], other1, e1);
 	holder(&set[4], me, e2);      holder(&set[5], other1, e2);
 
-	fzn_catalogue_sweep_capture(set, 6, NULL, me, 32, 1, 0, NULL, &job, rows, 4, &plan);
+	fzn_catalog_sweep_capture(set, 6, NULL, me, 32, 1, 0, NULL, &job, rows, 4, &plan);
 	CHECK(plan.planned == 3, "three removable entities were not all planned (%zu)",
 	      plan.planned);
 
 	memset(previous, 0, sizeof(previous));
-	while (fzn_catalogue_sweep_at(&job, &out) == FZN_CATALOGUE_OK) {
+	while (fzn_catalog_sweep_at(&job, &out) == FZN_CATALOG_OK) {
 		if (!first)
 			CHECK(memcmp(previous, out.entity, sizeof(previous)) < 0,
 			      "the job's rows are not in ascending entity order, so the "
 			      "cursor resumes at a different row on another machine");
 		memcpy(previous, out.entity, sizeof(previous));
 		first = 0;
-		fzn_catalogue_sweep_advance(&job);
+		fzn_catalog_sweep_advance(&job);
 	}
 	CHECK(!first, "the job handed back no rows at all");
 }
@@ -415,11 +415,11 @@ static void test_rows_are_sorted(void)
 static void test_incomplete(void)
 {
 	enum { MANY = 20 };
-	fzn_catalogue_assertion_t set[MANY];
+	fzn_catalog_assertion_t set[MANY];
 	static uint8_t hosts[MANY][32];
-	fzn_catalogue_sweep_t job;
-	fzn_catalogue_removal_t rows[4];
-	fzn_catalogue_sweep_plan_t plan;
+	fzn_catalog_sweep_t job;
+	fzn_catalog_removal_t rows[4];
+	fzn_catalog_sweep_plan_t plan;
 	size_t i;
 
 	for (i = 0; i < MANY; i++)
@@ -430,7 +430,7 @@ static void test_incomplete(void)
 		holder(&set[i], hosts[i], e1);
 	holder(&set[MANY - 1u], me, e1);
 
-	fzn_catalogue_sweep_capture(set, MANY, NULL, me, 32, 1, 0, NULL, &job, rows, 4, &plan);
+	fzn_catalog_sweep_capture(set, MANY, NULL, me, 32, 1, 0, NULL, &job, rows, 4, &plan);
 	CHECK(plan.incomplete == 1 && plan.planned == 0 && plan.absent == 0,
 	      "a holder set too large to read was decided anyway (incomplete=%zu "
 	      "planned=%zu absent=%zu)", plan.incomplete, plan.planned, plan.absent);
@@ -441,7 +441,7 @@ static void test_incomplete(void)
 	for (i = 1; i < MANY; i++)
 		holder(&set[i], hosts[i], e1);
 
-	fzn_catalogue_sweep_capture(set, MANY, NULL, me, 32, 1, 0, NULL, &job, rows, 4, &plan);
+	fzn_catalog_sweep_capture(set, MANY, NULL, me, 32, 1, 0, NULL, &job, rows, 4, &plan);
 	CHECK(plan.planned == 1 && plan.incomplete == 0,
 	      "the control was reported incomplete too, so the refusal is about the "
 	      "size of the set rather than about the answer that was missing "
@@ -462,10 +462,10 @@ static void test_incomplete(void)
 #ifdef FZN_FLOG_ON
 static void test_what_it_says(void)
 {
-	fzn_catalogue_assertion_t set[4];
-	fzn_catalogue_sweep_t job;
-	fzn_catalogue_removal_t rows[4];
-	fzn_catalogue_sweep_plan_t plan;
+	fzn_catalog_assertion_t set[4];
+	fzn_catalog_sweep_t job;
+	fzn_catalog_removal_t rows[4];
+	fzn_catalog_sweep_plan_t plan;
 	flog_t log;
 	size_t i;
 
@@ -478,26 +478,26 @@ static void test_what_it_says(void)
 	holder(&set[0], me, e1);
 	holder(&set[1], other1, e1);
 	memset(&log_seen, 0, sizeof(log_seen));
-	fzn_catalogue_sweep_capture(set, 2, NULL, me, 32, 0, 0, NULL, &job, rows, 4, &plan);
+	fzn_catalog_sweep_capture(set, 2, NULL, me, 32, 0, 0, NULL, &job, rows, 4, &plan);
 	CHECK(plan.planned == 1, "the fixture did not plan a removal");
 	CHECK(log_seen.calls == 0, "a planner nobody gave a log to emitted anyway");
 
 	/* THE GUARD SWITCHED OFF. */
 	memset(&log_seen, 0, sizeof(log_seen));
-	fzn_catalogue_sweep_capture(set, 2, NULL, me, 32, 0, 0, &log, &job, rows, 4, &plan);
+	fzn_catalog_sweep_capture(set, 2, NULL, me, 32, 0, 0, &log, &job, rows, 4, &plan);
 	CHECK(log_seen.calls == 1, "a removal planned with the last-copy guard off said "
 	      "nothing, and the plan cannot show it -- last_copy is 0 either way");
 	CHECK(log_seen.type == FLOG_NOTE,
 	      "a disabled guard was reported as a fault or filtered as chatter, and it is "
 	      "neither -- the caller chose it and it is irreversible");
-	CHECK(strcmp(log_seen.subsystem, "catalogue/sweep") == 0,
+	CHECK(strcmp(log_seen.subsystem, "catalog/sweep") == 0,
 	      "the event did not name its subsystem");
 	CHECK(strstr(log_seen.text, "min_others") != NULL,
 	      "the line does not name the argument that switched the guard off");
 
 	/* AND ON, WITH NOTHING ELSE TO REPORT: the control. */
 	memset(&log_seen, 0, sizeof(log_seen));
-	fzn_catalogue_sweep_capture(set, 2, NULL, me, 32, 1, 0, &log, &job, rows, 4, &plan);
+	fzn_catalog_sweep_capture(set, 2, NULL, me, 32, 1, 0, &log, &job, rows, 4, &plan);
 	CHECK(plan.planned == 1, "the control did not plan a removal");
 	CHECK(log_seen.calls == 0,
 	      "a capture with the guard ON said something, so the planner talks on every "
@@ -508,7 +508,7 @@ static void test_what_it_says(void)
 	holder(&set[0], me, e1);  holder(&set[1], other1, e1);
 	holder(&set[2], me, e2);  holder(&set[3], other1, e2);
 	memset(&log_seen, 0, sizeof(log_seen));
-	fzn_catalogue_sweep_capture(set, 4, NULL, me, 32, 1, 0, &log, &job, rows, 1, &plan);
+	fzn_catalog_sweep_capture(set, 4, NULL, me, 32, 1, 0, &log, &job, rows, 1, &plan);
 	CHECK(plan.truncated == 1, "the fixture did not truncate");
 	CHECK(log_seen.calls == 1 && log_seen.type == FLOG_WARN,
 	      "a truncated job did not warn (calls=%d type=%d)", log_seen.calls,
@@ -517,7 +517,7 @@ static void test_what_it_says(void)
 	/* INCOMPLETE IS A NOTE, and it must not read as nothing to do. */
 	{
 		static uint8_t many[20][32];
-		fzn_catalogue_assertion_t big[20];
+		fzn_catalog_assertion_t big[20];
 
 		for (i = 0; i < 20; i++)
 			memset(many[i], (int)(0x40u + i), sizeof(many[i]));
@@ -526,7 +526,7 @@ static void test_what_it_says(void)
 		holder(&big[19], me, e1);
 
 		memset(&log_seen, 0, sizeof(log_seen));
-		fzn_catalogue_sweep_capture(big, 20, NULL, me, 32, 1, 0, &log, &job, rows, 4,
+		fzn_catalog_sweep_capture(big, 20, NULL, me, 32, 1, 0, &log, &job, rows, 4,
 		                            &plan);
 		CHECK(plan.incomplete == 1, "the fixture did not leave anything undecided");
 		CHECK(log_seen.calls == 1 && log_seen.type == FLOG_NOTE,
@@ -541,52 +541,52 @@ static void test_what_it_says(void)
 /* WHAT IS REFUSED, each with a control. */
 static void test_refusals(void)
 {
-	fzn_catalogue_assertion_t set[1];
-	fzn_catalogue_sweep_t job;
-	fzn_catalogue_removal_t rows[2], out;
-	fzn_catalogue_sweep_plan_t plan;
+	fzn_catalog_assertion_t set[1];
+	fzn_catalog_sweep_t job;
+	fzn_catalog_removal_t rows[2], out;
+	fzn_catalog_sweep_plan_t plan;
 
 	holder(&set[0], me, e1);
 
-	CHECK(fzn_catalogue_sweep_capture(set, 1, NULL, me, 32, 0, 0, NULL, NULL, rows, 2,
-	                                  &plan) == FZN_CATALOGUE_ERR_MALFORMED,
+	CHECK(fzn_catalog_sweep_capture(set, 1, NULL, me, 32, 0, 0, NULL, NULL, rows, 2,
+	                                  &plan) == FZN_CATALOG_ERR_MALFORMED,
 	      "a null job captured");
-	CHECK(fzn_catalogue_sweep_capture(set, 1, NULL, me, 32, 0, 0, NULL, &job, NULL, 2,
-	                                  &plan) == FZN_CATALOGUE_ERR_MALFORMED,
+	CHECK(fzn_catalog_sweep_capture(set, 1, NULL, me, 32, 0, 0, NULL, &job, NULL, 2,
+	                                  &plan) == FZN_CATALOG_ERR_MALFORMED,
 	      "a null row array captured");
-	CHECK(fzn_catalogue_sweep_capture(set, 1, NULL, me, 32, 0, 0, NULL, &job, rows, 0,
-	                                  &plan) == FZN_CATALOGUE_ERR_MALFORMED,
+	CHECK(fzn_catalog_sweep_capture(set, 1, NULL, me, 32, 0, 0, NULL, &job, rows, 0,
+	                                  &plan) == FZN_CATALOG_ERR_MALFORMED,
 	      "a zero-capacity job captured");
-	CHECK(fzn_catalogue_sweep_capture(set, 1, NULL, NULL, 32, 0, 0, NULL, &job, rows, 2,
-	                                  &plan) == FZN_CATALOGUE_ERR_MALFORMED,
+	CHECK(fzn_catalog_sweep_capture(set, 1, NULL, NULL, 32, 0, 0, NULL, &job, rows, 2,
+	                                  &plan) == FZN_CATALOG_ERR_MALFORMED,
 	      "a capture with no host key -- it cannot answer this-host-holds");
-	CHECK(fzn_catalogue_sweep_capture(set, 1, NULL, me, 0, 0, 0, NULL, &job, rows, 2,
-	                                  &plan) == FZN_CATALOGUE_ERR_MALFORMED,
+	CHECK(fzn_catalog_sweep_capture(set, 1, NULL, me, 0, 0, 0, NULL, &job, rows, 2,
+	                                  &plan) == FZN_CATALOG_ERR_MALFORMED,
 	      "a capture with a zero-length host key");
-	CHECK(fzn_catalogue_sweep_capture(set, 1, NULL, me, 32, 0, 0, NULL, &job, rows, 2,
-	                                  NULL) == FZN_CATALOGUE_ERR_MALFORMED,
+	CHECK(fzn_catalog_sweep_capture(set, 1, NULL, me, 32, 0, 0, NULL, &job, rows, 2,
+	                                  NULL) == FZN_CATALOG_ERR_MALFORMED,
 	      "a capture with nowhere to put the plan");
-	CHECK(fzn_catalogue_sweep_capture(set, 1, NULL, me, 32, 0, 0, NULL, &job, rows, 2,
-	                                  &plan) == FZN_CATALOGUE_OK,
+	CHECK(fzn_catalog_sweep_capture(set, 1, NULL, me, 32, 0, 0, NULL, &job, rows, 2,
+	                                  &plan) == FZN_CATALOG_OK,
 	      "the control -- every argument present -- was refused too");
 
 	/* A PLAN IS ZEROED EVEN WHEN THE CAPTURE IS REFUSED, so a caller that
 	 * reads it after an error does not read the previous run's numbers. */
 	plan.planned = 99;
-	(void)fzn_catalogue_sweep_capture(set, 1, NULL, me, 32, 0, 0, NULL, &job, rows, 0, &plan);
+	(void)fzn_catalog_sweep_capture(set, 1, NULL, me, 32, 0, 0, NULL, &job, rows, 0, &plan);
 	CHECK(plan.planned == 0, "a refused capture left stale counters in the plan");
 
 	/* The cursor refuses an uncaptured job rather than reading its rows. */
 	memset(&job, 0, sizeof(job));
-	CHECK(fzn_catalogue_sweep_at(&job, &out) == FZN_CATALOGUE_ERR_MALFORMED,
+	CHECK(fzn_catalog_sweep_at(&job, &out) == FZN_CATALOG_ERR_MALFORMED,
 	      "an uncaptured job answered at the cursor");
-	CHECK(fzn_catalogue_sweep_advance(&job) == FZN_CATALOGUE_ERR_MALFORMED,
+	CHECK(fzn_catalog_sweep_advance(&job) == FZN_CATALOG_ERR_MALFORMED,
 	      "an uncaptured job advanced");
 	{
 		size_t a = 0, b = 0;
 
-		CHECK(fzn_catalogue_sweep_progress(&job, &a, &b) ==
-		          FZN_CATALOGUE_ERR_MALFORMED,
+		CHECK(fzn_catalog_sweep_progress(&job, &a, &b) ==
+		          FZN_CATALOG_ERR_MALFORMED,
 		      "an uncaptured job reported progress");
 	}
 }
@@ -595,12 +595,12 @@ static void test_refusals(void)
  * anything has nothing to sweep, and that must be legible rather than refused. */
 static void test_empty(void)
 {
-	fzn_catalogue_sweep_t job;
-	fzn_catalogue_removal_t rows[2];
-	fzn_catalogue_sweep_plan_t plan;
+	fzn_catalog_sweep_t job;
+	fzn_catalog_removal_t rows[2];
+	fzn_catalog_sweep_plan_t plan;
 
-	CHECK(fzn_catalogue_sweep_capture(NULL, 0, NULL, me, 32, 1, 0, NULL, &job, rows, 2,
-	                                  &plan) == FZN_CATALOGUE_OK,
+	CHECK(fzn_catalog_sweep_capture(NULL, 0, NULL, me, 32, 1, 0, NULL, &job, rows, 2,
+	                                  &plan) == FZN_CATALOG_OK,
 	      "an empty set was refused");
 	CHECK(total(&plan) == 0, "an empty set produced counters");
 }

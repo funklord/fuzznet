@@ -30,20 +30,20 @@
  * retention would announce less than it can serve and would leak the policy
  * while doing it.
  *
- * THERE IS NO LOCK, as in catalogue/sweep.h and for the same reason: this
+ * THERE IS NO LOCK, as in catalog/sweep.h and for the same reason: this
  * model owns no container to hold one. The old module refused while a refile
  * or sweep held the catalogue. What that protected still has to hold -- the
  * set must not change under a walk -- and it is the caller's, stated rather
  * than enforced.
  */
 
-#ifndef FZN_CATALOGUE_COPY_H
-#define FZN_CATALOGUE_COPY_H
+#ifndef FZN_CATALOG_COPY_H
+#define FZN_CATALOG_COPY_H
 
 #include <stddef.h>
 #include <stdint.h>
 
-#include "catalogue.h"
+#include "catalog.h"
 #include "retention.h"
 
 /*
@@ -81,7 +81,7 @@
  *
  *     emitted = written + duplicates + truncated
  */
-typedef struct fzn_catalogue_copy {
+typedef struct fzn_catalog_copy {
 	/* Entities written to `out`. */
 	size_t written;
 	/* A repeat of something already written. A walk dedupes by entity
@@ -103,7 +103,7 @@ typedef struct fzn_catalogue_copy {
 	size_t not_retained;
 	/* Want only: no live curated assertion names it, so nothing wants it
 	 * fetched. A holder assertion is not one -- see
-	 * fzn_catalogue_referenced, and sec 321 for what counting it did. */
+	 * fzn_catalog_referenced, and sec 321 for what counting it did. */
 	size_t not_referenced;
 	/* This host has the bytes. */
 	size_t already_held;
@@ -117,43 +117,43 @@ typedef struct fzn_catalogue_copy {
 	 * can name. */
 	size_t unknown;
 	/* The holders could not be determined, so nothing was decided. sec
-	 * 316's asymmetry, as in catalogue/sweep.h: on partial data, decide
+	 * 316's asymmetry, as in catalog/sweep.h: on partial data, decide
 	 * nothing. For a fetch the conservative answer would be to ask again,
 	 * which is what a caller does by sweeping the same set once it has
 	 * caught up with its sources. */
 	size_t incomplete;
-} fzn_catalogue_copy_t;
+} fzn_catalog_copy_t;
 
 /* What this host should fetch: retained, referenced, and not held here. */
-fzn_catalogue_err_t fzn_catalogue_copy_want(const fzn_catalogue_assertion_t *set,
+fzn_catalog_err_t fzn_catalog_copy_want(const fzn_catalog_assertion_t *set,
                                             size_t count,
-                                            const fzn_catalogue_holds_t *holds,
+                                            const fzn_catalog_holds_t *holds,
                                             const uint8_t *self, size_t self_len,
                                             uint64_t now,
-                                            fzn_catalogue_entity_t *out,
-                                            size_t out_cap, fzn_catalogue_copy_t *plan);
+                                            fzn_catalog_entity_t *out,
+                                            size_t out_cap, fzn_catalog_copy_t *plan);
 
 /* What this host can serve, for announcing to peers. No retention term: see
  * the header comment, where the difference between a fact and an intention is
  * argued. */
-fzn_catalogue_err_t fzn_catalogue_copy_holdings(const fzn_catalogue_assertion_t *set,
+fzn_catalog_err_t fzn_catalog_copy_holdings(const fzn_catalog_assertion_t *set,
                                                 size_t count,
                                                 const uint8_t *self, size_t self_len,
-                                                fzn_catalogue_entity_t *out,
+                                                fzn_catalog_entity_t *out,
                                                 size_t out_cap,
-                                                fzn_catalogue_copy_t *plan);
+                                                fzn_catalog_copy_t *plan);
 
 /* Of a peer's `wants`, the ones this host knows about and holds.
  *
  * An entity known here and not held is neither an error nor a refusal: the
  * peer asks again next round, which is `record/sync.h`'s pull shape. It is
  * counted so an offer's arithmetic closes the same way a walk's does. */
-fzn_catalogue_err_t fzn_catalogue_copy_offer(const fzn_catalogue_assertion_t *set,
+fzn_catalog_err_t fzn_catalog_copy_offer(const fzn_catalog_assertion_t *set,
                                              size_t count,
                                              const uint8_t *self, size_t self_len,
-                                             const fzn_catalogue_entity_t *wants,
+                                             const fzn_catalog_entity_t *wants,
                                              size_t want_count,
-                                             fzn_catalogue_entity_t *out,
-                                             size_t out_cap, fzn_catalogue_copy_t *plan);
+                                             fzn_catalog_entity_t *out,
+                                             size_t out_cap, fzn_catalog_copy_t *plan);
 
-#endif /* FZN_CATALOGUE_COPY_H */
+#endif /* FZN_CATALOG_COPY_H */

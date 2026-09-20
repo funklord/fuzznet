@@ -18,24 +18,24 @@
 endian big
 target buffer
 
-enum fzn_catalogue_class : u8 unknown=error
+enum fzn_catalog_class : u8 unknown=error
   label=1 fact=2 identifier=3
 
-enum fzn_catalogue_scope : u8 unknown=error
+enum fzn_catalog_scope : u8 unknown=error
   host=1 estate=2 advertised=3
 
-enum fzn_catalogue_merge : u8 unknown=error
+enum fzn_catalog_merge : u8 unknown=error
   authoritative=1 union_=2 distinct=3
 
-enum fzn_catalogue_capability : u8 unknown=error
+enum fzn_catalog_capability : u8 unknown=error
   cap_none=1 cap_holder=2 cap_granted=3
 
-struct fzn_catalogue_attribute size=8..767
+struct fzn_catalog_attribute size=8..767
   @0x0000   1         u8         object  must_eq=1
-  @0x0001   1         fzn_catalogue_class attr_class
-  @0x0002   1         fzn_catalogue_scope scope
-  @0x0003   1         fzn_catalogue_merge merge
-  @0x0004   1         fzn_catalogue_capability capability
+  @0x0001   1         fzn_catalog_class attr_class
+  @0x0002   1         fzn_catalog_scope scope
+  @0x0003   1         fzn_catalog_merge merge
+  @0x0004   1         fzn_catalog_capability capability
   @0x0005   1         u8         name_len  max=255
   @0x0006   0..255    u8         name  sized-by=name_len
   ~         2         u16        value_len  big max=504
