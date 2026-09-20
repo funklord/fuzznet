@@ -146,6 +146,53 @@ SABOTAGES = [
 		"An overflowing issuer is dropped once, not per assertion (reach.c's rule), so `dropped` is a count of distinct issuers a reader must still account for. Counting per row inflates it and a caller sizing a catch-up buffer over-allocates. catalogue_test's repeated-dropped-issuer case catches it.",
 	),
 	(
+		"copy-want-needs-retention",
+		"catalogue/copy.c",
+		"if (retained_only &&\n\t\t    !fzn_catalogue_keeps(holds, a->entity, a->entity_len, now)) {",
+		"if (0) {",
+		"want is retained AND referenced AND not-held, and the retention term "
+		"is load-bearing: without it a host fetches everything the ESTATE "
+		"curates, filling its disk with bytes it had already decided not to "
+		"keep. sec 317 records this as a correction to its own first cut. "
+		"copy_plan_test drives the wide bit off and requires nothing wanted. "
+		"sec 322",
+	),
+	(
+		"copy-want-needs-something-curating-it",
+		"catalogue/copy.c",
+		"if (retained_only &&\n\t\t    !fzn_catalogue_referenced(set, count, a->entity, a->entity_len)) {",
+		"if (0) {",
+		"C9: a curated link is what says an entity is wanted; a holder "
+		"assertion says only where it is. Without this a host fetches bytes "
+		"nothing links to -- every entity any peer merely HOLDS becomes a "
+		"fetch. copy_plan_test drives a retained, unheld, uncurated entity "
+		"and requires not_referenced. sec 322",
+	),
+	(
+		"copy-holdings-announces-a-fact-not-a-policy",
+		"catalogue/copy.c",
+		"return walk(set, count, NULL, 0, self, self_len, 0, 0, out, out_cap, plan);",
+		"return walk(set, count, NULL, 1, self, self_len, 0, 0, out, out_cap, plan);",
+		"holdings announces what this host CAN SERVE; whether it means to go "
+		"on keeping it is its own business and not a peer's to read. Turning "
+		"the retention filter on under-announces what is servable AND leaks "
+		"the policy -- and with a NULL holds table it announces nothing at "
+		"all. The two walks share a walk, so this collapse is the cheapest "
+		"defect here: copy_plan_test drops an entity and still requires it "
+		"announced. sec 322",
+	),
+	(
+		"copy-offer-checks-its-scope",
+		"catalogue/copy.c",
+		"if (!known_here(set, count, wants[i].b, FZN_CATALOGUE_ENTITY_LEN)) {",
+		"if (0) {",
+		"without the scope check a want list is a request for any bytes whose "
+		"hash a peer can name, so a peer that learns a hash from anywhere can "
+		"pull those bytes out of a host that never agreed to serve them. "
+		"copy_plan_test names an entity outside this host's view and requires "
+		"`unknown`. sec 322",
+	),
+	(
 		"sweep-retention-is-the-first-guard",
 		"catalogue/sweep.c",
 		"if (fzn_catalogue_keeps(holds, a->entity, a->entity_len, now)) {",

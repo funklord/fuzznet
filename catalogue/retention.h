@@ -58,6 +58,22 @@
  * cannot silently pass a pointer to the wrong thing. */
 #define FZN_CATALOGUE_ENTITY_LEN ((size_t)FZN_SUBJECT_LEN)
 
+/* One entity, by value.
+ *
+ * A STRUCT RATHER THAN A BARE ARRAY, and the reason is C's. A `uint8_t[N]`
+ * decays to a pointer that does not implicitly acquire `const`, so an
+ * interface taking `const uint8_t x[][N]` cannot be handed a caller's ordinary
+ * array without a cast, and -Wpedantic says so. Wrapping it makes
+ * const-qualification work the way it does everywhere else, which is why the
+ * old catalog/copy.h passed a struct too.
+ *
+ * catalogue/sweep.h keeps its own `fzn_catalogue_removal_t` rather than using
+ * this: a removal ROW is a different thing from an entity, and it is the shape
+ * that grows if a job ever needs to carry more per row. */
+typedef struct fzn_catalogue_entity {
+	uint8_t b[FZN_CATALOGUE_ENTITY_LEN];
+} fzn_catalogue_entity_t;
+
 /* What a host has said about one entity. DEFAULT is the absence of a word
  * rather than a third opinion, which is why it is zero and why storing it
  * gives the row back. */
@@ -177,8 +193,7 @@ int fzn_catalogue_keeps(const fzn_catalogue_holds_t *holds, const uint8_t *entit
  * `fzn_sync_digest`'s argument -- a count that silently omitted the remainder
  * would let a consumer believe it had seen every deadline. */
 size_t fzn_catalogue_due(const fzn_catalogue_holds_t *holds, uint64_t now,
-                         uint8_t out[][FZN_CATALOGUE_ENTITY_LEN], size_t out_cap,
-                         size_t *dropped);
+                         fzn_catalogue_entity_t *out, size_t out_cap, size_t *dropped);
 
 /* How many overrides are held, so a consumer can size a table and watch it
  * shrink as it gives rows back. */

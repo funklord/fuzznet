@@ -166,8 +166,7 @@ int fzn_catalogue_keeps(const fzn_catalogue_holds_t *holds, const uint8_t *entit
 }
 
 size_t fzn_catalogue_due(const fzn_catalogue_holds_t *holds, uint64_t now,
-                         uint8_t out[][FZN_CATALOGUE_ENTITY_LEN], size_t out_cap,
-                         size_t *dropped)
+                         fzn_catalogue_entity_t *out, size_t out_cap, size_t *dropped)
 {
 	size_t i;
 	size_t written = 0;
@@ -187,7 +186,7 @@ size_t fzn_catalogue_due(const fzn_catalogue_holds_t *holds, uint64_t now,
 			(*dropped)++;
 			continue;
 		}
-		memcpy(out[written], row->entity, FZN_CATALOGUE_ENTITY_LEN);
+		memcpy(out[written].b, row->entity, FZN_CATALOGUE_ENTITY_LEN);
 		written++;
 	}
 

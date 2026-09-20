@@ -61,6 +61,7 @@
 #include <fuzznet/catalogue/catalogue.h>
 #include <fuzznet/catalogue/retention.h>
 #include <fuzznet/catalogue/sweep.h>
+#include <fuzznet/catalogue/copy.h>
 #include <fuzznet/qr/qr.h>
 #if defined(FZN_CLI_ON)
 #include <fuzznet/cli/qr_print.h>
@@ -170,6 +171,7 @@
 #include "catalogue/catalogue.h"
 #include "catalogue/retention.h"
 #include "catalogue/sweep.h"
+#include "catalogue/copy.h"
 #include "qr/qr.h"
 #if defined(FZN_CLI_ON)
 #include "cli/qr_print.h"
@@ -1753,7 +1755,7 @@ int main(void)
 			fzn_catalogue_hold_t rows[2];
 			fzn_catalogue_holds_t holds;
 			uint8_t ret_entity[FZN_SUBJECT_LEN];
-			uint8_t out[2][FZN_CATALOGUE_ENTITY_LEN];
+			fzn_catalogue_entity_t out[2];
 			size_t dropped = 0;
 
 			memset(ret_entity, 0x5e, sizeof(ret_entity));
@@ -1837,6 +1839,32 @@ int main(void)
 				FAIL(375);
 			if (splan.planned != 0 || splan.last_copy != 1)
 				FAIL(376);
+
+			/* COPY, over the same set. The offer's scope check is
+			 * the one worth proving from outside: without it a
+			 * want list is a request for any bytes whose hash a
+			 * peer can name. */
+			{
+				fzn_catalogue_copy_t cplan;
+				fzn_catalogue_entity_t cout[2], cwants[2];
+				uint8_t stranger[FZN_SUBJECT_LEN];
+
+				memset(stranger, 0x74, sizeof(stranger));
+				memcpy(cwants[0].b, sweep_e, sizeof(sweep_e));
+				memcpy(cwants[1].b, stranger, sizeof(stranger));
+
+				if (fzn_catalogue_copy_holdings(aset, 2, host_a, 32, cout, 2,
+				                                &cplan) != FZN_CATALOGUE_OK)
+					FAIL(377);
+				if (cplan.written != 1 || cplan.already_held != 1)
+					FAIL(378);
+				if (fzn_catalogue_copy_offer(aset, 2, host_a, 32, cwants, 2,
+				                             cout, 2, &cplan)
+				    != FZN_CATALOGUE_OK)
+					FAIL(379);
+				if (cplan.written != 1 || cplan.unknown != 1)
+					FAIL(380);
+			}
 		}
 
 #ifdef FZN_SPOOL_FILE_ON

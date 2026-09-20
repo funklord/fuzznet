@@ -188,7 +188,7 @@ static void test_deadline(void)
 {
 	fzn_catalogue_hold_t rows[4];
 	fzn_catalogue_holds_t holds;
-	uint8_t out[4][FZN_CATALOGUE_ENTITY_LEN];
+	fzn_catalogue_entity_t out[4];
 	size_t dropped = 99;
 	size_t n;
 
@@ -248,7 +248,7 @@ static void test_refusals(void)
 {
 	fzn_catalogue_hold_t rows[4];
 	fzn_catalogue_holds_t holds;
-	uint8_t out[2][FZN_CATALOGUE_ENTITY_LEN];
+	fzn_catalogue_entity_t out[2];
 	size_t dropped;
 
 	fzn_catalogue_holds_init(&holds, rows, 4);

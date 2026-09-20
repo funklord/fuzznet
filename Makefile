@@ -171,6 +171,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              disclose/disclose.c \
              facet/facet.c \
              catalogue/catalogue.c catalogue/retention.c catalogue/sweep.c \
+             catalogue/copy.c \
              persist/persist.c \
              spool/spool.c \
              spool/plan.c \
@@ -237,6 +238,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              disclose/disclose.h \
              facet/facet.h \
              catalogue/catalogue.h catalogue/retention.h catalogue/sweep.h \
+             catalogue/copy.h \
              persist/persist.h \
              spool/spool.h spool/message.h spool/transfer.h \
              spool/scrub.h \
@@ -302,6 +304,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              catalogue/test/attribute_fuzz.c \
              catalogue/test/retention_test.c \
              catalogue/test/sweep_plan_test.c \
+             catalogue/test/copy_plan_test.c \
              persist/test/persist_test.c \
              persist/test/persist_fuzz.c \
              wire/test/relay_fuzz.c \
@@ -402,6 +405,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/catalogue/test/attribute_fuzz \
              $(BUILD_DIR)/catalogue/test/retention_test \
              $(BUILD_DIR)/catalogue/test/sweep_plan_test \
+             $(BUILD_DIR)/catalogue/test/copy_plan_test \
              $(BUILD_DIR)/persist/test/persist_test \
              $(BUILD_DIR)/persist/test/persist_kat_test \
              $(BUILD_DIR)/spool/test/spool_test \
@@ -1994,6 +1998,16 @@ $(BUILD_DIR)/catalogue/test/retention_test: $(BUILD_DIR)/catalogue/test/retentio
 # reaches no filestore, no record and no blob (sec 321).
 $(BUILD_DIR)/catalogue/test/sweep_plan_test: $(BUILD_DIR)/catalogue/test/sweep_plan_test.o \
                                              $(BUILD_DIR)/catalogue/sweep.o \
+                                             $(BUILD_DIR)/catalogue/retention.o \
+                                             $(BUILD_DIR)/catalogue/catalogue.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# copy decides which bytes and never moves one, so it links no transport: the
+# transfer is spool/'s, and a test that needed one would be testing that
+# instead (sec 322).
+$(BUILD_DIR)/catalogue/test/copy_plan_test: $(BUILD_DIR)/catalogue/test/copy_plan_test.o \
+                                             $(BUILD_DIR)/catalogue/copy.o \
                                              $(BUILD_DIR)/catalogue/retention.o \
                                              $(BUILD_DIR)/catalogue/catalogue.o
 	@mkdir -p $(dir $@)

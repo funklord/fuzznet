@@ -43144,3 +43144,79 @@ and it changes what a local retention policy can do.
 NEXT: step 5 (copy re-homes onto C8 + spool) and step 6 (filing), neither
 blocked. Step 4 still waits on the reclamation policy, and step 7 on the
 peer deconfliction sec 317 names.
+
+## 322. Copy re-homes: step 5, 2026-09-20
+
+`catalogue/copy.{h,c}`. Three questions, unchanged from `catalog/copy.h`:
+what to FETCH, what to ANNOUNCE, and of a peer's wants what to SERVE. It
+decides and does not send -- the transfer is `spool/`'s -- so a caller that
+never touches a transport still gets correct answers out of it.
+
+THE CALLBACK SEAM IS GONE, which is the same gain step 2 recorded. The old
+module asked a holdings op "do I have these bytes"; the answer is now derived,
+because a HOLDER-capability assertion can only be issued by a host that has
+them (C5e/C8a). `self` -- this host's key -- replaces the seam, and a consumer
+can no longer answer wrongly because it is no longer asked. The old seam's
+careful default is gone with it: an absent ops struct answered "this host
+holds nothing", chosen so a partly-filled struct could not make a host
+advertise bytes it cannot serve, and there is now nothing to leave half-filled.
+
+WANT KEEPS ITS RETENTION TERM, and sec 317 flags this as a correction to its
+own first cut. It is retained AND referenced AND not-held. Drop the retention
+term and a host fetches everything the ESTATE curates, filling its disk with
+bytes it had already decided not to keep; drop the referenced term and every
+entity any peer merely HOLDS becomes a fetch. Both are sabotage entries.
+
+HOLDINGS ASKS NOTHING ABOUT POLICY, and the difference from `want` is the
+difference between a fact and an intention. What this host can serve is what
+it has; whether it means to go on keeping it is its own business and not a
+peer's to read. A holdings walk that filtered by retention would announce less
+than it can serve AND leak the policy while doing it. The two share a walk, so
+that collapse is the cheapest defect available here -- the suite drops an
+entity and still requires it announced, which is the one case a test written
+only against `want` cannot reach.
+
+THE SCOPE CHECK IS THE POINT OF AN OFFER. Without it a want list is a request
+for any bytes whose hash a peer can name, so a peer that learned a hash
+anywhere could pull it out of a host that never agreed to serve it. Its
+question is deliberately BROADER than `fzn_catalogue_referenced`: it asks
+whether this host's set mentions the entity at all, because an entity this
+host holds and nothing curates any more is exactly what a peer catching up is
+likely to ask for. Using `referenced` there would refuse to serve precisely
+those. The two notions sit one function apart in the same file, so the
+distinction is commented at both.
+
+THE TWO SUMS ARE PRESERVED, which is what makes the counters checkable:
+
+    examined = not_retained + not_referenced + already_held + missing
+             + unknown + incomplete
+    emitted  = written + duplicates + truncated
+
+`inline_ready` and `no_content` are gone -- the new model has no content kinds,
+an entity IS a content hash -- and `not_referenced` and `incomplete` are new.
+All three entry points are asserted against the same arithmetic, which is what
+makes it worth asserting rather than three sums that each hold in one place.
+
+`duplicates` SURVIVES FOR ONE REASON. A walk dedupes its own set by entity
+before classifying, so it can never rise there; an offer examines the PEER's
+list, which may name one entity twice. A counter that can only move in one of
+three entry points is worth keeping only because that entry point exists.
+
+A TYPE CAME OUT OF -Wpedantic, AND IT IS THE RIGHT ONE ANYWAY.
+`fzn_catalogue_entity_t` is a struct wrapping the 32 bytes. A bare
+`uint8_t[N]` decays to a pointer that does not implicitly acquire `const`, so
+`const uint8_t wants[][N]` cannot take a caller's ordinary array without a
+cast -- which the build said, at -Wpedantic, six times. Wrapping it makes
+const-qualification behave as it does everywhere else, and it is what the old
+`fzn_catalog_blob_t` did. `fzn_catalogue_due` moved to it in the same pass
+rather than being left as a second spelling; `catalogue/sweep.h` keeps
+`fzn_catalogue_removal_t`, because a removal ROW is a different thing from an
+entity and is the shape that grows if a job needs more per row.
+
+TESTED, 48 checks, four sabotage entries, each watched failing through its own
+assertion: want without retention, want without a curated link, holdings
+consulting policy, and an offer without its scope check.
+
+NEXT: step 6 (filing), the largest of the local-layer pieces and the last
+unblocked one. Step 4 still waits on the reclamation policy and step 7 on the
+peer deconfliction sec 317 names.
