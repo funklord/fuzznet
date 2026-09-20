@@ -239,6 +239,42 @@ static void test_stale_filing(void)
 	CHECK(fzn_catalogue_filing_count(&filings) == 0, "the table did not empty");
 }
 
+/* A NEAR MISS IS A DIFFERENT ENTITY HERE TOO. A prefix compare would file two
+ * files at one path, and `filed_under` would answer for whichever row it found
+ * first -- so a consumer writes one file over another. */
+static void test_a_near_miss_is_another_entity(void)
+{
+	fzn_catalogue_assertion_t set[2];
+	fzn_catalogue_filing_t rows[4];
+	fzn_catalogue_filings_t filings;
+	const fzn_catalogue_filing_t *got;
+	static uint8_t near_a[FZN_CATALOGUE_ENTITY_LEN];
+	static uint8_t near_b[FZN_CATALOGUE_ENTITY_LEN];
+
+	memset(near_a, 0x77, sizeof(near_a));
+	memset(near_b, 0x77, sizeof(near_b));
+	near_b[FZN_CATALOGUE_ENTITY_LEN - 1u] ^= 0x01u;
+
+	link(&set[0], near_a, DIM, PHOTO, 1);
+	link(&set[1], near_b, DIM, MUSIC, 1);
+
+	fzn_catalogue_filings_init(&filings, rows, 4);
+	CHECK(fzn_catalogue_file_under(&filings, set, 2, near_a, sizeof(near_a), DIM,
+	                               PHOTO) == FZN_CATALOGUE_OK,
+	      "the first near-miss entity was refused");
+	CHECK(fzn_catalogue_file_under(&filings, set, 2, near_b, sizeof(near_b), DIM,
+	                               MUSIC) == FZN_CATALOGUE_OK,
+	      "the second near-miss entity was refused");
+	CHECK(fzn_catalogue_filing_count(&filings) == 2,
+	      "two entities differing in their last byte share one filing row, so "
+	      "one file is written over another (count=%zu)",
+	      fzn_catalogue_filing_count(&filings));
+	got = fzn_catalogue_filed_under(&filings, set, 2, near_a, sizeof(near_a));
+	CHECK(is_path(got, PHOTO), "the first near-miss entity got the wrong path");
+	got = fzn_catalogue_filed_under(&filings, set, 2, near_b, sizeof(near_b));
+	CHECK(is_path(got, MUSIC), "the second near-miss entity got the wrong path");
+}
+
 /* THE REFILE, INCLUDING A RESTART. */
 static void test_refile(void)
 {
@@ -420,6 +456,7 @@ int main(void)
 	test_file_under();
 	test_must_be_asserted();
 	test_stale_filing();
+	test_a_near_miss_is_another_entity();
 	test_refile();
 	test_capture_must_fit();
 	test_refusals();

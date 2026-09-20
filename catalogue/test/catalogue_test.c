@@ -505,6 +505,64 @@ static void test_holders(void)
 	      "one holder fits and the repeated other is dropped once");
 }
 
+/* A NEAR MISS IS A DIFFERENT THING, on BOTH axes.
+ *
+ * The prefix-compare defect class, which the old reach_test guarded with
+ * `test_the_walk_reads_the_whole_id` and `test_the_frontier_reads_the_whole_
+ * issuer`. These queries compare an entity and an issuer over their whole
+ * length; a compare that stopped early would answer about a different file, or
+ * credit a different host with holding one. The pairs below differ in their
+ * LAST byte, which a truncated compare cannot see at all.
+ *
+ * The issuer axis matters most: `holders` decides who has the bytes, and
+ * folding two hosts into one makes a last copy look replicated.
+ */
+static void test_near_misses(void)
+{
+	fzn_catalogue_assertion_t set[2];
+	fzn_catalogue_source_t who[4];
+	size_t n = 0, dropped = 0, i;
+	static uint8_t ent_a[32], ent_b[32], iss_a[32], iss_b[32];
+
+	memset(ent_a, 0x51, sizeof(ent_a));
+	memset(ent_b, 0x51, sizeof(ent_b)); ent_b[31] ^= 0x01u;
+	memset(iss_a, 0x62, sizeof(iss_a));
+	memset(iss_b, 0x62, sizeof(iss_b)); iss_b[31] ^= 0x01u;
+
+	for (i = 0; i < 2; i++) {
+		memset(&set[i], 0, sizeof(set[i]));
+		set[i].capability = FZN_CATALOGUE_CAP_NONE;
+		set[i].live = 1;
+		set[i].issuer = iss_a; set[i].issuer_len = 32;
+	}
+	set[0].entity = ent_a; set[0].entity_len = 32;
+	set[1].entity = ent_b; set[1].entity_len = 32;
+
+	CHECK(fzn_catalogue_referenced(set, 1, ent_a, 32),
+	      "the entity its own assertion names is not referenced");
+	CHECK(!fzn_catalogue_referenced(set, 1, ent_b, 32),
+	      "an entity differing in its LAST byte was reported referenced by "
+	      "another entity's assertion, so the compare stops short");
+
+	/* THE ISSUER AXIS. Two hosts differing in one byte must be two holders,
+	 * or a last copy looks replicated and the sweep removes it. */
+	set[0].entity = ent_a; set[0].entity_len = 32;
+	set[1].entity = ent_a; set[1].entity_len = 32;
+	set[0].capability = FZN_CATALOGUE_CAP_HOLDER;
+	set[1].capability = FZN_CATALOGUE_CAP_HOLDER;
+	set[0].issuer = iss_a;
+	set[1].issuer = iss_b;
+	CHECK(fzn_catalogue_holders(set, 2, ent_a, 32, who, 4, &n, &dropped) ==
+	          FZN_CATALOGUE_OK && n == 2,
+	      "two issuers differing in their last byte counted as one holder, so a "
+	      "last copy reads as replicated (n=%zu)", n);
+
+	n = 0; dropped = 0;
+	CHECK(fzn_catalogue_sources(set, 2, who, 4, &n, &dropped) == FZN_CATALOGUE_OK &&
+	          n == 2,
+	      "two near-miss issuers counted as one source (n=%zu)", n);
+}
+
 int main(void)
 {
 	test_validate();
@@ -515,6 +573,7 @@ int main(void)
 	test_encode();
 	test_reachability();
 	test_holders();
+	test_near_misses();
 
 	printf("catalogue_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

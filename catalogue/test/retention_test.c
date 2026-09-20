@@ -317,6 +317,41 @@ static void test_refusals(void)
 	CHECK(fzn_catalogue_due(NULL, 0, out, 2, &dropped) == 0, "`due` read a null table");
 }
 
+/* A NEAR MISS IS A DIFFERENT ENTITY, and this is the prefix-compare defect
+ * class the old catalog/ suites guarded and these did not.
+ *
+ * Every key here is compared over its whole length; a compare that stopped
+ * early -- at 8 bytes, say, which is plenty to look right in a debugger --
+ * would make two entities sharing a prefix into one row. A host would then
+ * keep or drop a file because of a decision taken about a DIFFERENT file, and
+ * nothing in the output would say so. The two entities below differ in the
+ * LAST byte, which is the case a truncated compare cannot see at all. */
+static void test_a_near_miss_is_another_entity(void)
+{
+	fzn_catalogue_hold_t rows[4];
+	fzn_catalogue_holds_t holds;
+	uint8_t near_a[FZN_CATALOGUE_ENTITY_LEN];
+	uint8_t near_b[FZN_CATALOGUE_ENTITY_LEN];
+
+	memset(near_a, 0x77, sizeof(near_a));
+	memset(near_b, 0x77, sizeof(near_b));
+	near_b[FZN_CATALOGUE_ENTITY_LEN - 1u] ^= 0x01u;
+
+	fzn_catalogue_holds_init(&holds, rows, 4);
+	CHECK(fzn_catalogue_retain(&holds, E(near_a), FZN_CATALOGUE_RETAIN_KEEP) ==
+	          FZN_CATALOGUE_OK, "the first near-miss entity was refused");
+	CHECK(fzn_catalogue_retain(&holds, E(near_b), FZN_CATALOGUE_RETAIN_DROP) ==
+	          FZN_CATALOGUE_OK, "the second near-miss entity was refused");
+	CHECK(fzn_catalogue_hold_count(&holds) == 2,
+	      "two entities differing in their last byte share one row, so a "
+	      "decision about one file is applied to another (count=%zu)",
+	      fzn_catalogue_hold_count(&holds));
+	CHECK(fzn_catalogue_keeps(&holds, E(near_a), 0) == 1,
+	      "the first near-miss entity lost its KEEP");
+	CHECK(fzn_catalogue_keeps(&holds, E(near_b), 0) == 0,
+	      "the second near-miss entity lost its DROP");
+}
+
 /* The names, because an arm that renders text no test reads is an arm that
  * can say the wrong thing for ever. */
 static void test_names(void)
@@ -340,6 +375,7 @@ int main(void)
 	test_default_reclaims();
 	test_deadline();
 	test_refusals();
+	test_a_near_miss_is_another_entity();
 	test_names();
 
 	printf("retention_test: %d checks, %d failure(s)\n", checks, failures);

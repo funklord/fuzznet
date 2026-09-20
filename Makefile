@@ -306,6 +306,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              catalogue/test/sweep_plan_test.c \
              catalogue/test/copy_plan_test.c \
              catalogue/test/filing_test.c \
+             catalogue/test/plan_fuzz.c \
              persist/test/persist_test.c \
              persist/test/persist_fuzz.c \
              wire/test/relay_fuzz.c \
@@ -404,10 +405,12 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/catalogue/test/catalogue_test \
              $(BUILD_DIR)/catalogue/test/dimension_test \
              $(BUILD_DIR)/catalogue/test/attribute_fuzz \
+             $(BUILD_DIR)/catalogue/test/plan_fuzz \
              $(BUILD_DIR)/catalogue/test/retention_test \
              $(BUILD_DIR)/catalogue/test/sweep_plan_test \
              $(BUILD_DIR)/catalogue/test/copy_plan_test \
              $(BUILD_DIR)/catalogue/test/filing_test \
+             $(BUILD_DIR)/catalogue/test/plan_fuzz \
              $(BUILD_DIR)/persist/test/persist_test \
              $(BUILD_DIR)/persist/test/persist_kat_test \
              $(BUILD_DIR)/spool/test/spool_test \
@@ -2024,6 +2027,18 @@ $(BUILD_DIR)/catalogue/test/filing_test: $(BUILD_DIR)/catalogue/test/filing_test
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# plan_fuzz drives all three planners at once, because the invariants worth
+# checking are the ones that span them -- nothing wanted is also announced
+# (sec 324).
+$(BUILD_DIR)/catalogue/test/plan_fuzz: $(BUILD_DIR)/catalogue/test/plan_fuzz.o \
+                                             $(BUILD_DIR)/catalogue/sweep.o \
+                                             $(BUILD_DIR)/catalogue/copy.o \
+                                             $(BUILD_DIR)/catalogue/filing.o \
+                                             $(BUILD_DIR)/catalogue/retention.o \
+                                             $(BUILD_DIR)/catalogue/catalogue.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/disclose/test/disclose_test: $(BUILD_DIR)/disclose/test/disclose_test.o \
                                            $(BUILD_DIR)/disclose/disclose.o \
                                            $(BUILD_DIR)/blob/blob.o \
@@ -3454,6 +3469,7 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/record/test/sync_fuzz \
              $(BUILD_DIR)/disclose/test/disclose_fuzz \
              $(BUILD_DIR)/catalogue/test/attribute_fuzz \
+             $(BUILD_DIR)/catalogue/test/plan_fuzz \
              $(BUILD_DIR)/persist/test/persist_fuzz \
              $(BUILD_DIR)/wire/test/relay_fuzz \
              $(BUILD_DIR)/log/test/log_fuzz \

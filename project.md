@@ -43308,3 +43308,73 @@ STEPS 1-6 ARE NOW BUILT. What remains of sec 317: step 4, which is the
 reclamation POLICY and the holder's; and step 7, the test migration and the
 rename, which sec 317 names as peer-hot and wanting deliberate deconfliction
 rather than charging in.
+
+## 324. Step 7, stage one: the coverage the deletion would have taken
+
+Step 7 retires eight suites -- 6775 lines, ~1600 sites -- and renames the
+module. Before deleting any of it, the question that actually gates the step:
+does the new suite set cover what the old one did? Two gaps, both real, and
+both closed here rather than noticed afterwards.
+
+FIRST, THE SCOPE IS SMALLER THAN sec 317 ESTIMATED, ON THE PART THAT MATTERS.
+Outside `catalog/` there are THIRTY-ONE call sites across seven files --
+sweep_view, sweep_print, their two tests, qtty_render_test, err_str_test, and
+a single mention in spool/scrub.h which is a COMMENT and not a dependency. The
+~1600 sites are almost entirely inside the suites being deleted. So the
+migration is mostly deletion, and the risk is not churn but LOST COVERAGE.
+
+GAP ONE: NEAR-MISS COMPARISONS. The old suites guarded the prefix-compare
+defect class in four places -- reach_test's `reads_the_whole_id` and
+`reads_the_whole_issuer`, copy_test's `a_near_miss_root_is_not_a_duplicate`
+and `an_offer_reads_the_whole_root`. The new suites had NONE, measured rather
+than assumed. That class matters here more than it did there: a compare that
+stops short folds two entities into one row, so a host keeps or drops a file
+because of a decision taken about a DIFFERENT file, and on the issuer axis it
+folds two hosts into one holder -- which makes a LAST COPY read as replicated
+and lets the sweep remove it.
+
+Added to five suites, every pair differing in its LAST byte, which is the case
+a truncated compare cannot see at all. Three sabotage entries shorten a
+compare by one byte and each is caught. One of them is worth recording: the
+mutation in `bytes_eq` is caught by fourteen assertions, only three of which
+are the new ones -- so the entry was verified by reading WHICH checks failed
+rather than that something did, and the near-miss cases are among them.
+
+GAP TWO: FOUR FUZZ HARNESSES AGAINST ZERO. catalog_fuzz, reach_fuzz,
+sweep_fuzz and copy_fuzz all retire with their subject, and the new model had
+only attribute_fuzz -- which asks a different question entirely. That harness
+asks whether arbitrary BYTES can make a decoder misbehave; these modules never
+see bytes off the wire. What can go wrong in a planner is an INVARIANT quietly
+ceasing to hold on some shape of input nobody wrote a case for.
+
+`catalogue/test/plan_fuzz.c` drives all three planners together, because the
+invariants worth checking span them. Five properties: the plans PARTITION;
+every planned row passed every guard, RE-DERIVED INDEPENDENTLY rather than by
+asking the module again; the rows are sorted and strictly distinct; want and
+holdings never name the same entity; and a filing is only reported while the
+records back it.
+
+THE SECOND PROPERTY IS THE ONE WORTH HAVING, and it is why this is not the
+counters checking themselves: the plan can partition perfectly while the WRONG
+ROWS are in the job. So the harness re-derives this-host-holds, other-holders
+and curated-here from the assertion set with its own code, and requires every
+planned removal to clear all four guards.
+
+AND THE FLOORS ARE THE CONTROL. A generator producing only empty sets would
+satisfy every invariant and prove nothing, so the run counts the states that
+make each property bite and fails if any stayed at zero. Measured over 20000
+cases: planned 649, retained 14861, referenced 12354, last_copy 801, absent
+6045, wanted 11535, announced 6107, filed 24483, stale 14111.
+
+SHOWN CAPABLE OF FAILING, which a harness that has only ever been green is
+not. Three sabotages, each caught within fifteen cases and each reporting the
+invariant by name: the last-copy count including this host (seed 15, "planned
+a removal of a last copy"), want dropping its retention term (seed 1, "asked
+to fetch an entity this host does not keep"), and filing skipping its
+read-side re-check (seed 1, "a filing answered after every assertion was
+retracted").
+
+NEXT, and deliberately separate commits: re-point sweep_view and sweep_print
+at the new plan counters; delete `catalog/`; rename `catalogue/` to `catalog/`
+with a proof, since a mechanical rewrite of a public symbol across a tree is
+exactly the change that carries one.

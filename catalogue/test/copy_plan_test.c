@@ -292,6 +292,41 @@ static void test_offer(void)
 	}
 }
 
+/* A NEAR MISS IS NEITHER A DUPLICATE NOR A MATCH, which the old copy_test
+ * guarded in both directions and these did not. A prefix compare would make
+ * the second entity a duplicate of the first in `already_listed`, and would
+ * make a peer's want for one entity match another in the scope check -- which
+ * is the direction that serves bytes the peer never asked for. */
+static void test_a_near_miss(void)
+{
+	fzn_catalogue_assertion_t set[4];
+	fzn_catalogue_copy_t plan;
+	fzn_catalogue_entity_t out[4], wants[2];
+	static uint8_t near_a[FZN_CATALOGUE_ENTITY_LEN];
+	static uint8_t near_b[FZN_CATALOGUE_ENTITY_LEN];
+
+	memset(near_a, 0x77, sizeof(near_a));
+	memset(near_b, 0x77, sizeof(near_b));
+	near_b[FZN_CATALOGUE_ENTITY_LEN - 1u] ^= 0x01u;
+
+	holder(&set[0], me, near_a);
+	holder(&set[1], me, near_b);
+
+	fzn_catalogue_copy_holdings(set, 2, me, 32, out, 4, &plan);
+	CHECK(plan.written == 2 && plan.duplicates == 0,
+	      "two entities differing in their last byte were announced as one "
+	      "(written=%zu duplicates=%zu)", plan.written, plan.duplicates);
+
+	/* AND THE SCOPE CHECK READS THE WHOLE ENTITY: a set holding only
+	 * near_a must not answer for a want naming near_b. */
+	holder(&set[0], me, near_a);
+	memcpy(wants[0].b, near_b, sizeof(near_b));
+	fzn_catalogue_copy_offer(set, 1, me, 32, wants, 1, out, 4, &plan);
+	CHECK(plan.unknown == 1 && plan.written == 0,
+	      "a want for a near-miss entity was served from another entity's "
+	      "record (unknown=%zu written=%zu)", plan.unknown, plan.written);
+}
+
 /* TRUNCATION IS A BOUND ONCE THE ARRAY IS FULL, NOT A COUNT, which copy.h
  * states and which only a test can keep honest. */
 static void test_truncation(void)
@@ -411,6 +446,7 @@ int main(void)
 	test_want();
 	test_holdings_ignores_policy();
 	test_offer();
+	test_a_near_miss();
 	test_truncation();
 	test_incomplete();
 	test_refusals();

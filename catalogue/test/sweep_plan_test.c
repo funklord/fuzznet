@@ -322,6 +322,42 @@ static void test_the_deadline_joins_up(void)
 	      "exactly T disagrees with the due list drawn at T");
 }
 
+/* A NEAR MISS IS A DIFFERENT ENTITY. The prefix-compare defect class the old
+ * catalog/ suites guarded: a compare that stopped early would fold two
+ * entities into one, and the planner would remove bytes on the strength of a
+ * decision taken about another file. They differ in the LAST byte, which a
+ * truncated compare cannot see at all. */
+static void test_a_near_miss_is_another_entity(void)
+{
+	fzn_catalogue_assertion_t set[4];
+	fzn_catalogue_sweep_t job;
+	fzn_catalogue_removal_t rows[4];
+	fzn_catalogue_sweep_plan_t plan;
+	static uint8_t near_a[FZN_CATALOGUE_ENTITY_LEN];
+	static uint8_t near_b[FZN_CATALOGUE_ENTITY_LEN];
+
+	memset(near_a, 0x77, sizeof(near_a));
+	memset(near_b, 0x77, sizeof(near_b));
+	near_b[FZN_CATALOGUE_ENTITY_LEN - 1u] ^= 0x01u;
+
+	/* near_a is held here and by another, so it goes. near_b is held only
+	 * here, so the last-copy guard keeps it. Folding them together gives
+	 * one member of the population instead of two, and either verdict for
+	 * both. */
+	holder(&set[0], me, near_a);
+	holder(&set[1], other1, near_a);
+	holder(&set[2], me, near_b);
+
+	fzn_catalogue_sweep_capture(set, 3, NULL, me, 32, 1, 0, NULL, &job, rows, 4, &plan);
+	CHECK(plan.planned == 1 && plan.last_copy == 1,
+	      "two entities differing in their last byte were not told apart "
+	      "(planned=%zu last_copy=%zu)", plan.planned, plan.last_copy);
+	CHECK(total(&plan) == 2, "the near-miss pair is %zu members, not 2", total(&plan));
+	CHECK(fzn_catalogue_sweep_at(&job, &rows[3]) == FZN_CATALOGUE_OK &&
+	          memcmp(rows[3].entity, near_a, sizeof(near_a)) == 0,
+	      "the planned removal is not the entity that had another holder");
+}
+
 /* THE ROWS COME OUT SORTED, whatever order the set arrived in.
  *
  * THE CURSOR IS A COUNT, and a count into an arrival-ordered list resumes
@@ -577,6 +613,7 @@ int main(void)
 	test_each_guard();
 	test_the_order();
 	test_the_deadline_joins_up();
+	test_a_near_miss_is_another_entity();
 	test_rows_are_sorted();
 	test_incomplete();
 #ifdef FZN_FLOG_ON

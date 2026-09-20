@@ -328,6 +328,41 @@ SABOTAGES = [
 		"order and requires ascending rows. sec 321",
 	),
 	(
+		"catalogue-compares-the-whole-identifier",
+		"catalogue/catalogue.c",
+		"\treturn memcmp(a, b, a_len) == 0;",
+		"\treturn a_len == 1u || memcmp(a, b, a_len - 1u) == 0;",
+		"every entity and issuer comparison in this module runs through here, "
+		"so a compare that stops short folds two identifiers into one on BOTH "
+		"axes: an entity differing in its last byte reads as referenced by "
+		"another entity's assertion, and two hosts differing in one byte "
+		"count as one holder -- which makes a last copy look replicated and "
+		"lets the sweep remove it. The old reach_test guarded this with "
+		"reads_the_whole_id and reads_the_whole_issuer; catalogue_test drives "
+		"both with last-byte pairs. sec 324",
+	),
+	(
+		"retention-finds-on-the-whole-entity",
+		"catalogue/retention.c",
+		"if (memcmp(holds->rows[i].entity, entity, FZN_CATALOGUE_ENTITY_LEN) == 0)",
+		"if (memcmp(holds->rows[i].entity, entity, FZN_CATALOGUE_ENTITY_LEN - 1u) == 0)",
+		"a row is keyed on the whole subject; a short compare makes two "
+		"entities sharing a prefix share a row, so a host keeps or drops a "
+		"file because of a decision taken about a DIFFERENT file and nothing "
+		"in the output says so. retention_test holds a last-byte pair with "
+		"opposite verdicts. sec 324",
+	),
+	(
+		"filing-finds-on-the-whole-entity",
+		"catalogue/filing.c",
+		"if (memcmp(filings->rows[i].entity, entity, FZN_CATALOGUE_ENTITY_LEN) == 0)",
+		"if (memcmp(filings->rows[i].entity, entity, FZN_CATALOGUE_ENTITY_LEN - 1u) == 0)",
+		"same key, worse consequence: two entities sharing a filing row means "
+		"filed_under answers for whichever it finds first, so a consumer "
+		"writes one file over another. filing_test files a last-byte pair at "
+		"two different paths. sec 324",
+	),
+	(
 		"catalogue-a-holder-assertion-is-not-a-reference",
 		"catalogue/catalogue.c",
 		"if (set[i].live && set[i].capability != FZN_CATALOGUE_CAP_HOLDER",
