@@ -36,8 +36,9 @@ static void put_u64(struct sink *s, uint64_t value)
 
 /* Each reason named, never summed. sweep.h keeps its counters apart because
  * each calls for a different action: retention is this host's own policy,
- * shared and last_copy are guards refusing, absent is nothing to do. */
-static void reasons(struct sink *s, const fzn_catalog_sweep_plan_t *plan)
+ * referenced and last_copy are guards refusing, absent is nothing to do, and
+ * incomplete is partial data -- which must not read as nothing to do. */
+static void reasons(struct sink *s, const fzn_catalogue_sweep_plan_t *plan)
 {
 	int first = 1;
 
@@ -46,11 +47,11 @@ static void reasons(struct sink *s, const fzn_catalog_sweep_plan_t *plan)
 		put_str(s, " retained by policy");
 		first = 0;
 	}
-	if (plan->shared > 0u) {
+	if (plan->referenced > 0u) {
 		if (!first)
 			put_str(s, ", ");
-		put_u64(s, (uint64_t)plan->shared);
-		put_str(s, " shared with a retained node");
+		put_u64(s, (uint64_t)plan->referenced);
+		put_str(s, " still curated by something");
 		first = 0;
 	}
 	if (plan->last_copy > 0u) {
@@ -65,10 +66,22 @@ static void reasons(struct sink *s, const fzn_catalog_sweep_plan_t *plan)
 			put_str(s, ", ");
 		put_u64(s, (uint64_t)plan->absent);
 		put_str(s, " not held here");
+		first = 0;
+	}
+	/* AND THE ONE A CONSUMER MUST NOT READ AS "NOTHING TO DO". sec 321
+	 * counts it apart from last_copy because the remedies are opposite: a
+	 * last copy means go and replicate it, an undecided one means go and
+	 * catch up with a source before sweeping again. */
+	if (plan->incomplete > 0u) {
+		if (!first)
+			put_str(s, ", ");
+		put_u64(s, (uint64_t)plan->incomplete);
+		put_str(s, " undecided -- their holders could not be determined, so "
+		           "catch up with a source before sweeping again");
 	}
 }
 
-static void render(struct sink *s, const fzn_catalog_sweep_plan_t *plan,
+static void render(struct sink *s, const fzn_catalogue_sweep_plan_t *plan,
                    fzn_sweep_state_t state, size_t done, size_t total, int truncated)
 {
 	switch (state) {
@@ -106,8 +119,8 @@ static void render(struct sink *s, const fzn_catalog_sweep_plan_t *plan,
 	put_str(s, "\n");
 }
 
-fzn_catalog_err_t fzn_sweep_print(const fzn_catalog_sweep_plan_t *plan,
-                                  const fzn_catalog_sweep_t *job, char *out, size_t cap,
+fzn_catalogue_err_t fzn_sweep_print(const fzn_catalogue_sweep_plan_t *plan,
+                                  const fzn_catalogue_sweep_t *job, char *out, size_t cap,
                                   size_t *len_out, fzn_sweep_state_t *state_out,
                                   int *truncated_out)
 {
@@ -127,20 +140,20 @@ fzn_catalog_err_t fzn_sweep_print(const fzn_catalog_sweep_plan_t *plan,
 		*truncated_out = 0;
 
 	if (!out || !len_out || !state_out || !truncated_out)
-		return FZN_CATALOG_ERR_MALFORMED;
+		return FZN_CATALOGUE_ERR_MALFORMED;
 
 	if (plan) {
 		truncated = plan->truncated > 0u;
 
 		/* READ, NEVER ADVANCED. sec 181: `_advance` is called after the
 		 * bytes are gone, so reporting must not call it. */
-		if (job && fzn_catalog_sweep_progress(job, &done, &total) == FZN_CATALOG_OK)
+		if (job && fzn_catalogue_sweep_progress(job, &done, &total) == FZN_CATALOGUE_OK)
 			running = 1;
 
 		if (plan->planned == 0u) {
 			/* THE PAIR sweep.h KEEPS ITS COUNTERS APART FOR. */
-			said = (plan->retained > 0u || plan->shared > 0u ||
-			        plan->last_copy > 0u)
+			said = (plan->retained > 0u || plan->referenced > 0u ||
+			        plan->last_copy > 0u || plan->incomplete > 0u)
 			               ? FZN_SWEEP_HELD_BACK
 			               : FZN_SWEEP_EMPTY;
 		} else if (!running) {
@@ -156,7 +169,7 @@ fzn_catalog_err_t fzn_sweep_print(const fzn_catalog_sweep_plan_t *plan,
 
 	if (measure.used + 1u > cap) {
 		*len_out = measure.used + 1u;
-		return FZN_CATALOG_ERR_MALFORMED;
+		return FZN_CATALOGUE_ERR_MALFORMED;
 	}
 
 	write.out = out;
@@ -167,5 +180,5 @@ fzn_catalog_err_t fzn_sweep_print(const fzn_catalog_sweep_plan_t *plan,
 	*state_out = said;
 	*truncated_out = truncated;
 
-	return FZN_CATALOG_OK;
+	return FZN_CATALOGUE_OK;
 }

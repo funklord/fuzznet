@@ -2473,8 +2473,9 @@ $(BUILD_DIR)/cli/test/transfer_print_test: \
 # A planned deletion, and why one is not happening. sec 194.
 $(BUILD_DIR)/cli/test/sweep_print_test: $(BUILD_DIR)/cli/test/sweep_print_test.o \
                                      $(BUILD_DIR)/cli/sweep_print.o \
-                                     $(BUILD_DIR)/catalog/sweep.o \
-                                     $(BUILD_DIR)/catalog/catalog.o \
+                                     $(BUILD_DIR)/catalogue/sweep.o \
+                                     $(BUILD_DIR)/catalogue/retention.o \
+                                     $(BUILD_DIR)/catalogue/catalogue.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -2770,8 +2771,9 @@ $(BUILD_DIR)/gui/test/sweep_view_test: \
                                      $(BUILD_DIR)/gui/test/sweep_view_test.o \
                                      $(BUILD_DIR)/gui/sweep_view.o \
                                      $(BUILD_DIR)/cli/sweep_print.o \
-                                     $(BUILD_DIR)/catalog/sweep.o \
-                                     $(BUILD_DIR)/catalog/catalog.o \
+                                     $(BUILD_DIR)/catalogue/sweep.o \
+                                     $(BUILD_DIR)/catalogue/retention.o \
+                                     $(BUILD_DIR)/catalogue/catalogue.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) -o $@
@@ -4884,7 +4886,8 @@ QTTY_RENDER_OBJS := $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \
                     $(BUILD_DIR)/chain/authz.o $(BUILD_DIR)/chain/chain.o \
                     $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
                     $(FLOG_OBJS) \
-                    $(BUILD_DIR)/catalog/sweep.o $(BUILD_DIR)/catalog/catalog.o \
+                    $(BUILD_DIR)/catalogue/sweep.o $(BUILD_DIR)/catalogue/retention.o \
+                    $(BUILD_DIR)/catalogue/catalogue.o \
                     $(BUILD_DIR)/constant_time/constant_time.o
 
 qtty: $(if $(and $(GUI_ON),$(CLI_ON)),$(QTTY_RENDER_OBJS))

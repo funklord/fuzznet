@@ -4327,8 +4327,8 @@ SABOTAGES = [
 	(
 		"sweep-print-held-back-is-not-empty",
 		"cli/sweep_print.c",
-		"\t\t\tsaid = (plan->retained > 0u || plan->shared > 0u ||\n"
-		"\t\t\t        plan->last_copy > 0u)\n",
+		"\t\t\tsaid = (plan->retained > 0u || plan->referenced > 0u ||\n"
+		"\t\t\t        plan->last_copy > 0u || plan->incomplete > 0u)\n",
 		"\t\t\tsaid = (0)\n",
 		"sweep.h keeps its counters apart because a sweep held back by a guard "
 		"and a catalogue with nothing in it want opposite responses, and in an "
@@ -4337,9 +4337,9 @@ SABOTAGES = [
 	(
 		"sweep-print-does-not-advance",
 		"cli/sweep_print.c",
-		"\t\tif (job && fzn_catalog_sweep_progress(job, &done, &total) == FZN_CATALOG_OK)\n",
-		"\t\tif (job && (fzn_catalog_sweep_advance((fzn_catalog_sweep_t *)job), 1) &&\n"
-		"\t\t    fzn_catalog_sweep_progress(job, &done, &total) == FZN_CATALOG_OK)\n",
+		"\t\tif (job && fzn_catalogue_sweep_progress(job, &done, &total) == FZN_CATALOGUE_OK)\n",
+		"\t\tif (job && (fzn_catalogue_sweep_advance((fzn_catalogue_sweep_t *)job), 1) &&\n"
+		"\t\t    fzn_catalogue_sweep_progress(job, &done, &total) == FZN_CATALOGUE_OK)\n",
 		"reporting a sweep must not advance its cursor: _advance is called AFTER "
 		"the bytes are gone, so a reporter that called it records a removal that "
 		"never happened",

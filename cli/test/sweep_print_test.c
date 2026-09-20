@@ -1,6 +1,6 @@
 /* Tests for cli/sweep_print.c.
  *
- * THE CASE THIS FILE EXISTS FOR is `catalog/sweep.h`'s own: "a sweep held
+ * THE CASE THIS FILE EXISTS FOR is `catalogue/sweep.h`'s own: "a sweep held
  * back by the last-copy guard would be indistinguishable from a catalogue
  * with nothing to sweep -- and those want opposite responses". On a screen
  * that is a person misreading a zero; in an alerting rule it is a host whose
@@ -31,9 +31,9 @@ static void check_at(int ok, int line, const char *what)
 
 #define CHECK(cond, what) check_at((cond) ? 1 : 0, __LINE__, (what))
 
-static fzn_catalog_removal_t REMOVALS[4];
+static fzn_catalogue_removal_t REMOVALS[4];
 
-static void job_at(fzn_catalog_sweep_t *job, size_t used, size_t done)
+static void job_at(fzn_catalogue_sweep_t *job, size_t used, size_t done)
 {
 	memset(job, 0, sizeof(*job));
 	memset(REMOVALS, 0, sizeof(REMOVALS));
@@ -48,8 +48,8 @@ int main(void)
 {
 	char line[FZN_SWEEP_PRINT_MAX];
 	char empty_line[FZN_SWEEP_PRINT_MAX];
-	fzn_catalog_sweep_plan_t plan;
-	fzn_catalog_sweep_t job;
+	fzn_catalogue_sweep_plan_t plan;
+	fzn_catalogue_sweep_t job;
 	fzn_sweep_state_t s;
 	size_t len = 0;
 	int trunc = 0;
@@ -58,14 +58,14 @@ int main(void)
 	 * caller that ignores the state is told nobody asked. */
 	s = FZN_SWEEP_DONE;
 	CHECK(fzn_sweep_print(NULL, NULL, line, sizeof(line), &len, &s, &trunc) ==
-	              FZN_CATALOG_OK,
+	              FZN_CATALOGUE_OK,
 	      "a null plan would not render");
 	CHECK(s == FZN_SWEEP_NOTHING_CAPTURED, "a null plan was not reported as uncaptured");
 
 	/* AN EMPTY PLAN. */
 	memset(&plan, 0, sizeof(plan));
 	CHECK(fzn_sweep_print(&plan, NULL, line, sizeof(line), &len, &s, &trunc) ==
-	              FZN_CATALOG_OK,
+	              FZN_CATALOGUE_OK,
 	      "an empty plan would not render");
 	CHECK(s == FZN_SWEEP_EMPTY, "an empty plan was not empty");
 	memcpy(empty_line, line, sizeof(line));
@@ -74,7 +74,7 @@ int main(void)
 	memset(&plan, 0, sizeof(plan));
 	plan.last_copy = 3u;
 	CHECK(fzn_sweep_print(&plan, NULL, line, sizeof(line), &len, &s, &trunc) ==
-	              FZN_CATALOG_OK,
+	              FZN_CATALOGUE_OK,
 	      "a held-back plan would not render");
 	CHECK(s == FZN_SWEEP_HELD_BACK,
 	      "a sweep stopped by the last-copy guard reported the same state as a "
@@ -87,35 +87,56 @@ int main(void)
 	/* EACH REASON NAMED, NEVER SUMMED. */
 	memset(&plan, 0, sizeof(plan));
 	plan.retained = 1u;
-	plan.shared = 2u;
+	plan.referenced = 2u;
 	plan.last_copy = 3u;
 	plan.absent = 4u;
+	plan.incomplete = 5u;
 	CHECK(fzn_sweep_print(&plan, NULL, line, sizeof(line), &len, &s, &trunc) ==
-	              FZN_CATALOG_OK,
-	      "a plan with four reasons would not render");
-	CHECK(strstr(line, "1 retained") != NULL && strstr(line, "2 shared") != NULL &&
+	              FZN_CATALOGUE_OK,
+	      "a plan with five reasons would not render");
+	CHECK(strstr(line, "1 retained") != NULL &&
+	              strstr(line, "2 still curated") != NULL &&
 	              strstr(line, "3 the last known copy") != NULL &&
-	              strstr(line, "4 not held here") != NULL,
-	      "the four reasons were summed rather than named");
+	              strstr(line, "4 not held here") != NULL &&
+	              strstr(line, "5 undecided") != NULL,
+	      "the five reasons were summed rather than named");
+
+	/* PARTIAL DATA IS NOT AN EMPTY SWEEP, which is the one thing this
+	 * re-point could have got wrong while every field name looked right.
+	 * A plan whose entities were ALL undecided has planned nothing -- and
+	 * reporting "nothing to remove" would tell a consumer to stand down
+	 * when what actually happened is that it could not determine a single
+	 * holder. sec 321 counts `incomplete` apart from `last_copy` for
+	 * exactly this reason, and the state has to follow. */
+	memset(&plan, 0, sizeof(plan));
+	plan.incomplete = 3u;
+	CHECK(fzn_sweep_print(&plan, NULL, line, sizeof(line), &len, &s, &trunc) ==
+	              FZN_CATALOGUE_OK,
+	      "a plan of nothing but undecided entities would not render");
+	CHECK(s == FZN_SWEEP_HELD_BACK,
+	      "a sweep that decided nothing reported as EMPTY, so a consumer reads "
+	      "partial data as nothing to do");
+	CHECK(strstr(line, "catch up with a source") != NULL,
+	      "the line does not say what would actually help");
 
 	/* READY, RUNNING, DONE. */
 	memset(&plan, 0, sizeof(plan));
 	plan.planned = 4u;
 	CHECK(fzn_sweep_print(&plan, NULL, line, sizeof(line), &len, &s, &trunc) ==
-	              FZN_CATALOG_OK,
+	              FZN_CATALOGUE_OK,
 	      "a ready plan would not render");
 	CHECK(s == FZN_SWEEP_READY, "a captured plan with no job was not ready");
 
 	job_at(&job, 4u, 1u);
 	CHECK(fzn_sweep_print(&plan, &job, line, sizeof(line), &len, &s, &trunc) ==
-	              FZN_CATALOG_OK,
+	              FZN_CATALOGUE_OK,
 	      "a running job would not render");
 	CHECK(s == FZN_SWEEP_RUNNING, "a part-done job was not running");
 	CHECK(strstr(line, "1 of 4") != NULL, "the progress is not on the line");
 
 	job_at(&job, 4u, 4u);
 	CHECK(fzn_sweep_print(&plan, &job, line, sizeof(line), &len, &s, &trunc) ==
-	              FZN_CATALOG_OK,
+	              FZN_CATALOGUE_OK,
 	      "a finished job would not render");
 	CHECK(s == FZN_SWEEP_DONE, "a finished job was not done");
 	/* AND WHAT IT SAYS. The running case above reads "1 of 4" off the line
@@ -133,7 +154,7 @@ int main(void)
 		size_t total = 0;
 
 		job_at(&job, 4u, 1u);
-		CHECK(fzn_catalog_sweep_progress(&job, &before, &total) == FZN_CATALOG_OK,
+		CHECK(fzn_catalogue_sweep_progress(&job, &before, &total) == FZN_CATALOGUE_OK,
 		      "the fixture has no progress to read");
 		fzn_sweep_print(&plan, &job, line, sizeof(line), &len, &s, &trunc);
 		fzn_sweep_print(&plan, &job, line, sizeof(line), &len, &s, &trunc);
@@ -147,7 +168,7 @@ int main(void)
 	plan.planned = 4u;
 	plan.truncated = 7u;
 	CHECK(fzn_sweep_print(&plan, NULL, line, sizeof(line), &len, &s, &trunc) ==
-	              FZN_CATALOG_OK,
+	              FZN_CATALOGUE_OK,
 	      "a truncated plan would not render");
 	CHECK(s == FZN_SWEEP_READY && trunc == 1,
 	      "truncation and the state are not independent, so a ready-and-short plan "
@@ -156,10 +177,10 @@ int main(void)
 
 	/* BOTH OUT-PARAMETERS ARE REQUIRED. */
 	CHECK(fzn_sweep_print(&plan, NULL, line, sizeof(line), &len, NULL, &trunc) ==
-	              FZN_CATALOG_ERR_MALFORMED,
+	              FZN_CATALOGUE_ERR_MALFORMED,
 	      "the state was optional after all");
 	CHECK(fzn_sweep_print(&plan, NULL, line, sizeof(line), &len, &s, NULL) ==
-	              FZN_CATALOG_ERR_MALFORMED,
+	              FZN_CATALOGUE_ERR_MALFORMED,
 	      "truncation was optional after all");
 
 	/* IT REFUSES RATHER THAN TRUNCATES, and leaves the conservative state. */
@@ -171,7 +192,7 @@ int main(void)
 		s = FZN_SWEEP_DONE;
 		trunc = 0;
 		CHECK(fzn_sweep_print(&plan, NULL, small, sizeof(small), &needed, &s,
-		                      &trunc) == FZN_CATALOG_ERR_MALFORMED,
+		                      &trunc) == FZN_CATALOGUE_ERR_MALFORMED,
 		      "a buffer too small was written anyway");
 		CHECK(needed > sizeof(small), "the size needed was not reported");
 		CHECK(small[0] == '@', "a refused render left bytes in the buffer");

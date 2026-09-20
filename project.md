@@ -43378,3 +43378,51 @@ NEXT, and deliberately separate commits: re-point sweep_view and sweep_print
 at the new plan counters; delete `catalog/`; rename `catalogue/` to `catalog/`
 with a proof, since a mechanical rewrite of a public symbol across a tree is
 exactly the change that carries one.
+
+## 325. Step 7, stage two: the consumers read the new plan, 2026-09-20
+
+sweep_view and sweep_print now read `fzn_catalogue_sweep_plan_t`. Thirty-one
+sites across seven files, and the work split cleanly into a half that is
+mechanical and a half that no substitution could have got right.
+
+THE MECHANICAL HALF is a symbol list applied uniformly. ITS PROOF IS A
+POST-CONDITION, NOT A PER-ANCHOR COUNT, and the first attempt got that wrong:
+asserting each symbol appears in each file asserts that every file uses every
+symbol, which is a claim about the files rather than about the rename --
+`fzn_catalog_sweep_capture` is simply not in a printer. It refused, correctly,
+having written nothing. What the rename actually promises is that afterwards
+NO OLD SYMBOL SURVIVES and the file changed, so that is what is asserted now.
+
+THE SUBSTANTIVE HALF, which is why this was read rather than sed'd:
+
+- `shared` became `referenced`, AND THE WORDING HAD TO CHANGE WITH IT. "Shared
+  with a retained node" described the OLD guard, which asked a local question:
+  does a node THIS HOST retains need these bytes. The new one asks whether
+  anything in the estate curates it. A pure field rename would have left a
+  sentence that is now false, while every name looked right.
+- `incomplete` gained a line of its own, and it says what to DO -- catch up
+  with a source -- because sec 321 counts it apart from `last_copy` precisely
+  because the remedies are opposite.
+- AND IT JOINED THE HELD-BACK CONDITION, which is the one that mattered.
+  Without it a plan whose entities were ALL undecided reports FZN_SWEEP_EMPTY
+  -- "nothing to remove" -- so a consumer stands down when what actually
+  happened is that it could not determine a single holder. That is a behaviour
+  change hiding inside what looks like a field rename, and it is asserted in
+  both suites now: the printer's state, and the widget's.
+
+THE WIDGET NEEDED ONLY THE MECHANICAL HALF, which is sec 193 working: it takes
+every word from the printer, so one decision and one wording live in one
+place, and a new reason reaches the screen without the widget knowing.
+
+TWO STALE BINARIES READ AS PASSES DURING THIS, both caught by reading the
+build rather than the run. `make` failed on a field that no longer exists and
+the PREVIOUS binary was still on disk, so the suite ran and reported 30 checks
+and zero failures -- for code that had not compiled. The second time the
+binary was 1012912 bytes of yesterday's build. build-and-commit.md's rule is
+exactly this: never conclude a test passes from a binary the build step did
+not rebuild. Removing the binary before rebuilding is what makes the trap
+impossible rather than merely noticed.
+
+Four link rules moved with it -- sweep_print_test, sweep_view_test, the qtty
+render objects, and the printer's own -- because an object list is where a
+re-point is least visible and most likely to be left behind.

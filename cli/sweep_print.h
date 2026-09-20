@@ -17,7 +17,7 @@
  * nothing needs doing. Those are different and only one of them is safe to
  * act on.
  *
- * HELD BACK IS NOT EMPTY, which is `catalog/sweep.h`'s own requirement and
+ * HELD BACK IS NOT EMPTY, which is `catalogue/sweep.h`'s own requirement and
  * the reason its counters are kept apart: "a sweep held back by the last-copy
  * guard would be indistinguishable from a catalogue with nothing to sweep --
  * and those want opposite responses". On a screen that is a person misreading
@@ -34,7 +34,7 @@
 #ifndef FZN_CLI_SWEEP_PRINT_H
 #define FZN_CLI_SWEEP_PRINT_H
 
-#include "../catalog/sweep.h"
+#include "../catalogue/sweep.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -55,7 +55,7 @@ typedef enum fzn_sweep_state {
  * Render one plan, and the job carrying it out if there is one.
  *
  * `plan` may be NULL, which is FZN_SWEEP_NOTHING_CAPTURED -- a consumer that
- * has not run `fzn_catalog_sweep_capture` has not asked the question, which
+ * has not run `fzn_catalogue_sweep_capture` has not asked the question, which
  * is not the same as having asked and been told nothing.
  *
  * `job` may be NULL: a plan is worth reporting before anybody begins.
@@ -63,13 +63,13 @@ typedef enum fzn_sweep_state {
  * `state_out` and `truncated_out` are both REQUIRED, on
  * `fzn_manifest_deficit`'s argument for its own `dropped`.
  *
- * NOTHING HERE MUTATES. `fzn_catalog_sweep_advance` is called AFTER bytes are
+ * NOTHING HERE MUTATES. `fzn_catalogue_sweep_advance` is called AFTER bytes are
  * gone, so a reporter that advanced a cursor would record a removal that
  * never happened -- sec 181's rule, and it applies to a printer exactly as it
  * applies to a widget.
  */
-fzn_catalog_err_t fzn_sweep_print(const fzn_catalog_sweep_plan_t *plan,
-                                  const fzn_catalog_sweep_t *job, char *out, size_t cap,
+fzn_catalogue_err_t fzn_sweep_print(const fzn_catalogue_sweep_plan_t *plan,
+                                  const fzn_catalogue_sweep_t *job, char *out, size_t cap,
                                   size_t *len_out, fzn_sweep_state_t *state_out,
                                   int *truncated_out);
 
