@@ -444,9 +444,31 @@
  *      may destroy bytes: not a miscounted link, not a view rebuilt wrongly,
  *      not a merge upstream, not a bug in this library's own bookkeeping.
  *
- * C18. A reference count of zero is a REPORTED STATE -- "held here, in no
- *      view" -- and never a trigger. Showing it to a person is the only thing
- *      it may do on its own.
+ * C18. SETTLED, and the settlement is that it stands as written (the
+ *      copyright holder, 2026-09-21). A reference count of zero is a REPORTED
+ *      STATE -- "held here, in no view" -- and never a trigger. Showing it to
+ *      a person is the only thing it may do on its own.
+ *
+ *      SO THERE IS NO AUTOMATIC RECLAMATION, and the grace period and pin
+ *      granularity that section 7 held open with it do not arise. The sweep
+ *      PLANS (catalog/sweep.h) and a person acts, which is C17.
+ *
+ *      THE ARGUMENT THAT DECIDED IT came from building the planner rather
+ *      than from the principle. `fzn_catalog_referenced` was found counting a
+ *      HOLDER assertion as a reference (project.md sec 321), so it reported
+ *      entities as referenced that nothing curated. Under this rule that
+ *      defect was a planner that planned nothing: visible, harmless, and
+ *      fixed the same day. The identical class of defect wired to automatic
+ *      deletion destroys bytes -- which is precisely what C17 forbids, and
+ *      C17 names "a bug in this library's own bookkeeping" among the errors
+ *      it forbids destroying bytes. One had just occurred.
+ *
+ *      AND IT IS STRUCTURAL RATHER THAN A PROMISE. The four planning modules
+ *      -- sweep, copy, filing, retention -- include only <string.h>. They
+ *      reach no filesystem, so they cannot reclaim anything whatever a future
+ *      caller asks of them. Every unlink in this library removes a file the
+ *      library itself just created: a socket's temporary name, a persist or
+ *      spool temporary. None removes an entity's bytes.
  *
  * C19. Removing the FINAL holder of an entity is a distinct act from removing
  *      a redundant copy. It destroys the entity estate-wide and is
@@ -701,13 +723,6 @@
  * =========================================================================
  *
  *   - the shard size (C26) and the layout template of a managed source (C22);
- *   - WHETHER reclamation of an unreferenced entity exists, and its grace
- *     period and pin granularity if it does (C18). **Its MECHANISM is no
- *     longer open**: a reclamation is a deletion, so C19a governs it -- a
- *     queued command eliminated on a consensus pinned when queued. A local
- *     reclaim would be undone by the next sibling to sync, which is the same
- *     failure their purge header opens with. Only the policy question remains.
- *
  *     Checked rather than assumed, and the negative is worth recording with
  *     it: fuzzypickles' `daemon/log_retention.h` is NOT this decision under
  *     another name. It caps lines in a log file, which is a bound on growth

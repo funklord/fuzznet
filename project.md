@@ -42724,22 +42724,21 @@ records intent; the removal is the explicit sweep). CORRECTIONS from the
 verification: it is tri-state, not keep-or-drop; and it is not "a policy over
 the reachable set" -- reachability feeds it. MEDIUM.
 
-## Step 4 -- the reclamation policy: the holder's decision, the real gate
+## Step 4 -- the reclamation policy: SETTLED, and C18 stands
 
-Everything above PLANS; nothing deletes automatically without this. C18 states
-that a reference count of zero is a REPORTED STATE and never a trigger --
-showing it to a person is the only thing it may do on its own. Section 7
-leaves exactly three questions open: (a) whether automatic reclamation of an
+DECIDED 2026-09-21 by the copyright holder: there is NO automatic reclamation.
+Section 7 held three questions open -- (a) whether automatic reclamation of an
 unreferenced entity exists at all, (b) its grace period, (c) its pin
-granularity. The MECHANISM (C19a) is settled; only the POLICY is open. Per the
-doc's own routing of section-7 items ("deserves being asked of the holder",
-catalogue.h:695), that policy is the holder's -- it is not derivable and not
-mine to pick.
+granularity -- and (a) is no, so (b) and (c) do not arise. C18 stands exactly
+as written: a reference count of zero is a REPORTED STATE and never a trigger.
+The sweep PLANS (steps 1-3) and a person acts, which is C17.
 
-Until it is decided, the new-model sweep can PLAN removals (steps 1-3) and a
-person can act on them explicitly (C17), but there is no automatic GC, which
-is precisely C18's own position. A DECISION, then LARGE if reclamation is
-adopted (the C19a queued-command/consensus machinery).
+So this step is a recorded decision rather than the LARGE C19a build it would
+have been. The queued-command machinery stays settled and unbuilt, available
+for the explicit estate-wide gesture C19 describes whenever that is wanted.
+
+The full argument, and why building the planner is what decided it, is sec
+330.
 
 ## Step 5 -- copy re-homes onto C8 + spool
 
@@ -42798,8 +42797,9 @@ retires and renames.
 
 THREE DECISIONS THIS PROGRAM NEEDS FROM THE HOLDER, none of them mine:
 
-- THE RECLAMATION POLICY (C18): does automatic reclamation exist, and its
-  grace period and pin granularity? The real gate to automatic GC (step 4).
+- ~~THE RECLAMATION POLICY (C18)~~ SETTLED 2026-09-21: no automatic
+  reclamation, C18 stands as written, and the grace period and pin
+  granularity do not arise. sec 330.
 - PEER DECONFLICTION: `catalog/` is under active hardening and the test
   migration (step 7, ~1603 sites) collides head-on. Either wait for the
   hardening to settle or deconflict deliberately; charging in is the
@@ -42852,9 +42852,9 @@ bugs the tested code already fixed. Evolve-in-place preserves that logic.
 
 OPEN, none of them mine to settle:
 - The evolve-vs-rewrite choice above, to finish sweep/copy/retention.
-- The reclamation POLICY (C18: whether automatic GC exists, grace, pin
-  granularity) -- gates step 4; C19a's mechanism is settled, the policy is
-  not.
+- ~~The reclamation POLICY (C18)~~ SETTLED 2026-09-21: no automatic GC. C18
+  stands, grace and granularity do not arise, and step 4 is a recorded
+  decision rather than a build. sec 330.
 - Confirm retention and filing stay per-host (C5a HOST), never shared records.
 - "install on phone": fuzznet is a library plus the fuzznetd daemon and has
   no Android target; the phone app is the separate fuzzypickles. Open whether
@@ -43616,3 +43616,58 @@ read a difference that was not real; the schema gate, which regenerates into a
 fresh directory, says the tracked header is current and unaffected by this
 bump. Both are `evidence.md`'s manufactured absence: a probe that cannot tell
 "nothing there" from "nothing wrong", trusted because the number was zero.
+
+## 330. Step 4 settled: no automatic reclamation, 2026-09-21
+
+The copyright holder's decision, and it is that C18 stands exactly as written.
+A reference count of zero is a REPORTED STATE and never a trigger. There is no
+automatic reclamation of an unreferenced entity, so the grace period and pin
+granularity section 7 held open beside it do not arise.
+
+That makes step 4 a recorded decision rather than the LARGE build it would
+have been. C19a's queued-command machinery stays settled and unbuilt,
+available for the explicit estate-wide gesture C19 describes.
+
+WHAT DECIDED IT WAS NOT THE PRINCIPLE BUT AN EVENT. C17 has always said that
+no metadata error may destroy bytes, and names "a bug in this library's own
+bookkeeping" among the errors it forbids destroying bytes for. That is an
+argument; what settled the question is that one of those bugs had just
+happened. Building the sweep planner (sec 321) turned up
+`fzn_catalog_referenced` counting a HOLDER assertion as a reference, so it
+reported entities as referenced that nothing curated.
+
+Under C18 as written, that defect was a PLANNER THAT PLANNED NOTHING: a
+fixpoint no sweep escapes, visible the moment anything drove it, and fixed the
+same day. The identical class of defect -- a reachability answer that is
+simply wrong -- wired to automatic deletion destroys bytes instead, and does
+it quietly, because a deletion that should not have happened looks exactly
+like one that should. The decision therefore rests on a measurement rather
+than on a preference: this library got reachability wrong once this month, in
+the one function the policy would have depended on.
+
+AND THE DECISION IS STRUCTURAL, NOT A PROMISE, which is worth more than the
+policy itself. Measured rather than asserted:
+
+- The four planning modules -- sweep, copy, filing, retention -- include only
+  `<string.h>`. They reach no filesystem at all, so they cannot reclaim
+  anything whatever a future caller asks of them.
+- Every `unlink` in the library removes a file the library itself just
+  created: a socket's temporary bind name, a persist temporary, a spool
+  temporary. Not one removes an entity's bytes.
+
+So "the library plans and a person acts" is not a rule somebody has to
+remember. The modules that decide what may go have no way to act on it, and a
+future change that gave them one would have to add a filesystem include to a
+planner -- which is a visible thing to do rather than a quiet one.
+
+WHAT THIS DOES NOT DECIDE, pinned so nobody quotes it for more. It says
+nothing about the EXPLICIT gesture: a person may still queue an estate-wide
+purge, and C19a governs how that closes. It says nothing about `spool/` or
+`persist/`, which manage their own temporaries. And it does not make the sweep
+planner useless -- the plan is what a person acts on, and sec 325 is why its
+counters have to distinguish "nothing to remove" from "could not tell".
+
+WITH THIS, SEC 317's PROGRAM IS COMPLETE. Steps 1-3, 5 and 6 built the model,
+step 7 retired `catalog/` and took its name, and step 4 is answered. The three
+decisions sec 317 said the program needed from the holder are all settled: the
+module name (2026-09-18), the evolve-vs-rewrite pivot (2026-09-19) and this.
