@@ -311,6 +311,64 @@ SABOTAGES = [
 		"makes the agreement evidence. sec 341",
 	),
 	(
+		"facet-codec-refuses-a-trailing-byte",
+		"facet/codec.c",
+		"\tif (at != body_len) {",
+		"\tif (0) {",
+		"facet.h section 4 encodes an expression so that equal expressions "
+		"are byte-equal and can be hashed for identity. A trailing byte "
+		"ignored is a second spelling of one expression, which is a second "
+		"IDENTITY -- two cache keys, two dedup entries, for one thing. "
+		"codec_test decodes the same expression at its own length as the "
+		"control and one byte longer as the case. sec 342",
+	),
+	(
+		"facet-codec-refuses-terms-out-of-order",
+		"facet/codec.c",
+		"\t\t\tif (i > 0 && enc_cmp(&body[prev_at], prev_len,\n\t\t\t                     &body[here], at - here) >= 0) {",
+		"\t\t\tif (0) {",
+		"F16 gives an expression exactly one encoding, and F27 requires "
+		"refusing an encoding that violates F16 to F19. Bytes arrive from "
+		"somewhere that may not have used this encoder, so a decoder that "
+		"trusts the order accepts several encodings of one expression and "
+		"the identity hash stops being an identity. codec_test swaps two "
+		"equal-length terms where they lie on the wire. sec 342",
+	),
+	(
+		"facet-codec-refuses-members-out-of-order",
+		"facet/codec.c",
+		"\t\t\tif (i > 0 && enc_cmp(&body[prev_at], prev_len,\n\t\t\t                     &body[here], *at - here) >= 0) {",
+		"\t\t\tif (0) {",
+		"F18 applies F16's order recursively to an alternation's members, so "
+		"the same argument as the terms above applies one level down and is "
+		"a separate check that can be lost separately. codec_test swaps two "
+		"members' identifier bytes on the wire. sec 342",
+	),
+	(
+		"facet-codec-refuses-an-unknown-kind",
+		"facet/codec.c",
+		"\tif (kind != (uint8_t)FZN_FACET_PREFIX && kind != (uint8_t)FZN_FACET_RANGE\n\t    && kind != (uint8_t)FZN_FACET_ALT)\n\t\treturn FZN_FACET_ERR_KIND;",
+		"\tif (0)\n\t\treturn FZN_FACET_ERR_KIND;",
+		"F26: an implementation MUST refuse a term kind it does not know and "
+		"MUST NOT SKIP it, because skipping evaluates a DIFFERENT expression "
+		"while reporting success -- and an expression drives a placement or "
+		"a delete. codec_test refuses one on the way out; the way in is this "
+		"site. sec 342",
+	),
+	(
+		"facet-codec-hoists-the-alternation-dimension",
+		"facet/codec.c",
+		"\t\t\tif (enc_cmp(t->members[i].dim, t->members[i].dim_len,\n\t\t\t            t->node.dim, t->node.dim_len) != 0)\n\t\t\t\treturn FZN_FACET_ERR_ALT_DIMENSION;",
+		"\t\t\tif (0)\n\t\t\t\treturn FZN_FACET_ERR_ALT_DIMENSION;",
+		"F8 binds an alternation to ONE dimension, and admitting a spanning "
+		"one would be expression-level union, which F13 forbids. The "
+		"encoding hoists the dimension so a spanning alternation cannot be "
+		"SPELLED -- this check is what keeps the encoder from writing bytes "
+		"that say something other than what the caller handed it. "
+		"codec_test puts a member in a second dimension, with the "
+		"one-dimension alternation beside it as the control. sec 342",
+	),
+	(
 		"shard-absorbs-the-remainder",
 		"catalog/shard.c",
 		"\t\tif (i + 1u == shards)\n\t\t\tout[i].entries = count - at;\n\t\telse\n\t\t\tout[i].entries = min_entries;",

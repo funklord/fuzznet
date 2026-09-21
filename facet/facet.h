@@ -261,15 +261,38 @@
  * 8. NOT SETTLED HERE
  * =========================================================================
  *
- * Named rather than guessed at:
+ * Named rather than guessed at. Two of the four are answered, and the list is
+ * rewritten rather than struck through, so that what is open can be read at a
+ * glance:
  *
- *   - the wire encoding of a term and an expression, beyond the ordering and
- *     one-spelling rules above;
- *   - the index interface an implementation evaluates against. Prefix and
- *     range are the same operation on one ORDERED index -- a prefix p is the
- *     range [p, p+0xFF...) -- which is the only property fixed so far;
- *   - the collation key's digit-run width (F20);
- *   - this module's name.
+ *   - THE COLLATION KEY'S DIGIT-RUN WIDTH (F20). Still open, and still a
+ *     parameter of `fzn_facet_collate` rather than a constant, which is what
+ *     "unsettled" looks like in code.
+ *   - THIS MODULE'S NAME. Still open; `facet` is provisional.
+ *
+ * Answered since:
+ *
+ *   - THE WIRE ENCODING of a term and an expression: `facet/codec.h`, and
+ *     project.md sec 342. It needed no decision -- F16 to F19 had already
+ *     fixed the canonical form, the sort, the recursion into members and the
+ *     one-spelling rules, leaving the byte layout and the arithmetic. Two of
+ *     the spec's rules became STRUCTURAL there rather than checked: F8's one
+ *     dimension per alternation is hoisted out of the members, so a spanning
+ *     alternation cannot be spelled, and F7's `inclusive` is folded into a
+ *     single bound byte, so "open and inclusive" is not a combination that
+ *     exists.
+ *   - THE INDEX INTERFACE an implementation evaluates against: it is
+ *     `fzn_facet_index_ops_t` below, with `fzn_facet_evaluate` over it, and
+ *     has been since the evaluation work landed. This list went on calling it
+ *     open afterwards, which is the kind of sentence that sends the next
+ *     reader at work already done. The property it fixed stands: prefix and
+ *     range are the same operation on one ORDERED index, a prefix p being the
+ *     range [p, p+0xFF...).
+ *
+ * WHAT THE ENCODING STILL CANNOT CHECK, pinned so nobody quotes it for more
+ * than it gives: F19's single-child RANGE collapse needs the taxonomy, so a
+ * decoded expression is canonical in every respect except that one.
+ * `fzn_facet_normalize` defers it for the same reason.
  */
 
 /* =========================================================================

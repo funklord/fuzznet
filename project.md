@@ -44472,3 +44472,124 @@ stale three times in two days as the answers landed, once within an hour of
 being corrected by hand. The fix is not a fourth correction: it names the
 module now and nothing else, because a dependency list belongs in the one
 place that tracks it and a second copy is a second thing to be wrong.
+
+## 342. facet's wire encoding: the spec had already decided it, 2026-09-21
+
+`facet/codec.{h,c}`, section 8's first item. Not `facet/wire.h`: `wire/` is
+this tree's module for frames and seals, and a second thing called wire inside
+another module is the collision sec 339 paid for. The tree's word is CODEC --
+catalog.h says "the attribute codec" -- so this is facet's.
+
+IT NEEDED NO DECISION, and that is worth stating because the item had sat in
+section 8 since 2026-09-10 looking like one. F16 to F19 are rules about an
+encoding that did not exist yet: the canonical form, the byte-wise sort, the
+recursion into alternation members and the one-spelling rules were all
+written. What was actually open was the byte layout and the arithmetic.
+
+    expression   object | pos u16 | neg u16 | P's terms | N's terms
+    PREFIX       kind | dim | id
+    RANGE        kind | dim | id(parent) | lo bound | hi bound
+    ALT          kind | dim | members u16 | id per member
+    bound        0 open, 1 closed-exclusive, 2 closed-inclusive, then id
+
+TWO OF THE SPEC'S RULES BECAME STRUCTURAL RATHER THAN CHECKED, which is the
+part worth carrying to the next format.
+
+F8 binds an alternation to ONE dimension. The dimension is hoisted out of the
+members and written once, so an alternation SPANNING dimensions cannot be
+spelled at all. A refusal a decoder has to remember to make is a refusal that
+can be forgotten; this one cannot.
+
+F7 says `inclusive` applies only to a CLOSED bound. A bound is one byte saying
+open, closed-exclusive or closed-inclusive rather than a flag pair, so "open
+and inclusive" is not a combination that exists and there is no forbidden
+spelling to refuse. The in-memory struct still HAS both fields, so encode
+drops an open bound's `inclusive` rather than refusing it -- two in-memory
+spellings, one encoding, which is the codec working.
+
+A LENGTH IS ONE BYTE because F22 makes a term hold an identifier and 255 bytes
+is generous for one. A length field that can express far more than the thing
+ever is, is a field that can be wrong in more ways.
+
+THERE IS NO VERSION BYTE, reading F10 literally: "a term kind carries a TAG.
+Kinds may be added" puts the extension point at the term, and F26 refuses an
+unknown one rather than skipping it. A second version number at the expression
+would be a second way to say the same thing, and every expression hash would
+change the day it was introduced.
+
+THE OBJECT BYTE IS DOMAIN SEPARATION, NOT FRAMING. A record's `kind` field
+already names a body's format, so nothing needs a tag to be parsed. What needs
+one is the HASH: facet.h section 4 encodes an expression so that equal
+expressions are byte-equal "and may be hashed for identity, deduplication and
+cache keys", and a hash over untagged bytes can equal a hash over some other
+structure's untagged bytes. The tag is inside the hashed range, which is the
+only place it does any good.
+
+F16 IS CHECKED OVER THE BYTES AS THEY LIE. The terms are already encoded
+consecutively, so comparing a term with its neighbour is a memcmp between two
+ranges -- nothing is re-encoded, and decode needs no scratch to verify the
+order it is reading. F17's warning is satisfied by construction: this compares
+raw encoded bytes and never the lossy F20 collation key.
+
+===========================================================================
+
+EVIDENCE, AND THE PART THAT WENT WRONG FIRST.
+
+The suite's main property is ENCODE, DECODE, RE-ENCODE IS THE SAME BYTES over
+3000 randomly generated expressions -- random rather than chosen, because
+cases chosen by whoever wrote the codec agree with the codec by construction.
+Re-encoding is also the right comparison rather than a field-by-field one,
+since the open-bound normalisation above would read as a round-trip failure to
+a field-wise check.
+
+THREE OF THE FIVE SABOTAGES WERE NOT CAUGHT ON THE FIRST RUN, and all three
+were defects in the TEST rather than in the codec:
+
+  - The member-order case found its offset with `memchr(buf, 'a', len)`, and
+    both "year" and "any" in the fixture contain an `a`. The swap landed in
+    the wrong term and the case proved nothing. It computes the offset now,
+    and asserts it found what it expected before corrupting it.
+  - The unknown-kind case refused a bad kind on the way OUT only, so the
+    DECODER's F26 refusal -- the one that matters, since bytes arrive from
+    elsewhere -- was never exercised.
+  - The F8 case went through `fzn_facet_expr_encode`, which calls
+    `fzn_facet_validate` FIRST, so facet.c answered it before the codec was
+    asked. This is the control-has-to-be-REACHED rule exactly: the check was
+    capable, correctly aimed, and something upstream was being helpful. It
+    goes through `fzn_facet_term_encode` now, which is the only route that
+    reaches the codec's own check.
+
+None of the three would have been found by reading the suite, and all three
+were found in the minute it took to run the sabotages. 44 checks now, and all
+five entries fail through their own assertion.
+
+    facet-codec-refuses-a-trailing-byte          codec_test.c:247
+    facet-codec-refuses-terms-out-of-order       codec_test.c:300
+    facet-codec-refuses-members-out-of-order     codec_test.c:364
+    facet-codec-refuses-an-unknown-kind          codec_test.c:377
+    facet-codec-hoists-the-alternation-dimension codec_test.c:215
+
+AND FACET HAD NO CONSUMER EXERCISE AT ALL -- `tool/consumer_check.c` included
+its header and called nothing, so no part of it had ever been used the way a
+consumer would use it. It has one now, driving the one-encoding property and
+the structural F8, watched failing at check 419.
+
+===========================================================================
+
+TWO ITEMS LEFT IN SECTION 8, AND ONE THAT WAS ALREADY ANSWERED. The list is
+rewritten rather than struck through, for catalog section 7's reason. Open:
+the collation key's digit-run width (F20), still a parameter of
+`fzn_facet_collate` rather than a constant, which is what "unsettled" looks
+like in code; and this module's NAME, `facet` being provisional. Both the
+holder's.
+
+The index interface was NOT open: `fzn_facet_index_ops_t` and
+`fzn_facet_evaluate` have been built since the evaluation work landed, and
+section 8 went on calling it open afterwards. A claim that outlived its
+subject, in the one kind of sentence that sends the next reader at work
+already done.
+
+AND WHAT THE ENCODING CANNOT CHECK IS PINNED: F19's single-child RANGE
+collapse needs the taxonomy, so a decoded expression is canonical in every
+respect except that one. A gate whose limits are unwritten gets quoted for
+guarantees it never made.

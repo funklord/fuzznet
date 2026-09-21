@@ -168,7 +168,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              blob/blob.c ratchet/ratchet.c prekey/prekey.c \
              provision/provision.c \
              disclose/disclose.c \
-             facet/facet.c \
+             facet/facet.c facet/codec.c \
              catalog/catalog.c catalog/retention.c catalog/sweep.c \
              catalog/copy.c catalog/filing.c catalog/purge.c \
              catalog/shard.c catalog/materialise.c catalog/source.c \
@@ -236,7 +236,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              blob/blob.h ratchet/ratchet.h prekey/prekey.h \
              provision/provision.h \
              disclose/disclose.h \
-             facet/facet.h \
+             facet/facet.h facet/codec.h \
              catalog/catalog.h catalog/retention.h catalog/sweep.h \
              catalog/copy.h catalog/filing.h catalog/purge.h \
              catalog/shard.h catalog/materialise.h catalog/source.h \
@@ -297,6 +297,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              disclose/test/disclose_test.c \
              disclose/test/disclose_fuzz.c \
              facet/test/facet_test.c \
+             facet/test/codec_test.c \
              catalog/test/catalog_test.c \
              catalog/test/dimension_test.c \
              catalog/test/attribute_fuzz.c \
@@ -397,6 +398,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/provision/test/provision_test \
              $(BUILD_DIR)/disclose/test/disclose_test \
              $(BUILD_DIR)/facet/test/facet_test \
+             $(BUILD_DIR)/facet/test/codec_test \
              $(BUILD_DIR)/catalog/test/catalog_test \
              $(BUILD_DIR)/catalog/test/dimension_test \
              $(BUILD_DIR)/catalog/test/attribute_fuzz \
@@ -1960,6 +1962,14 @@ $(BUILD_DIR)/disclose/test/disclose_fuzz: $(BUILD_DIR)/disclose/test/disclose_fu
 # facet/ links nothing but its own object -- the settled core is pure in-memory
 # structure over borrowed views, with no crypto and no other module (sec 310).
 $(BUILD_DIR)/facet/test/facet_test: $(BUILD_DIR)/facet/test/facet_test.o \
+                                     $(BUILD_DIR)/facet/facet.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# The codec links facet.o as well, because encoding an expression validates it
+# first (F27) -- the refusals are the spec's, not the format's (sec 342).
+$(BUILD_DIR)/facet/test/codec_test: $(BUILD_DIR)/facet/test/codec_test.o \
+                                     $(BUILD_DIR)/facet/codec.o \
                                      $(BUILD_DIR)/facet/facet.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@

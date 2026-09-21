@@ -54,6 +54,7 @@
 #include <fuzznet/claim/claim.h>
 #include <fuzznet/record/store.h>
 #include <fuzznet/facet/facet.h>
+#include <fuzznet/facet/codec.h>
 #include <fuzznet/catalog/catalog.h>
 #include <fuzznet/catalog/retention.h>
 #include <fuzznet/catalog/sweep.h>
@@ -166,6 +167,7 @@
 #include "claim/claim.h"
 #include "record/store.h"
 #include "facet/facet.h"
+#include "facet/codec.h"
 #include "catalog/catalog.h"
 #include "catalog/retention.h"
 #include "catalog/sweep.h"
@@ -2154,6 +2156,72 @@ int main(void)
 				if (fzn_catalog_index_lookup(ibody, blen, &key, &which)
 				    != FZN_CATALOG_OK || which != 0)
 					FAIL(415);
+			}
+
+			/* FACET'S CODEC, from outside -- and facet had no
+			 * exercise here at all before this, only an include,
+			 * so nothing had ever called it as a consumer would.
+			 *
+			 * The property worth proving is the one the encoding
+			 * exists for: an expression has ONE encoding, so
+			 * encode-decode-encode is the same bytes and the
+			 * result can be hashed for identity. */
+			{
+				static const uint8_t fdim[] = "genre";
+				fzn_facet_term_t fp[2], fdp[2], fdn[2];
+				fzn_facet_node_t fmem[2], fdmem[4];
+				fzn_facet_expr_t fexpr, fback;
+				uint8_t fbuf[128], fagain[128];
+				size_t flen = 0, flen2 = 0, fat = 0;
+
+				memset(fp, 0, sizeof(fp));
+				fp[0].kind = FZN_FACET_PREFIX;
+				fp[0].node.dim = fdim;
+				fp[0].node.dim_len = sizeof(fdim) - 1u;
+				fp[0].node.id = (const uint8_t *)"aaa";
+				fp[0].node.id_len = 3;
+				fp[1].kind = FZN_FACET_ALT;
+				fp[1].node.dim = fdim;
+				fp[1].node.dim_len = sizeof(fdim) - 1u;
+				fmem[0].dim = fdim;
+				fmem[0].dim_len = sizeof(fdim) - 1u;
+				fmem[0].id = (const uint8_t *)"bbb";
+				fmem[0].id_len = 3;
+				fmem[1] = fmem[0];
+				fmem[1].id = (const uint8_t *)"ccc";
+				fp[1].members = fmem;
+				fp[1].member_count = 2;
+
+				fexpr.pos = fp;
+				fexpr.pos_count = 2;
+				fexpr.neg = NULL;
+				fexpr.neg_count = 0;
+
+				if (fzn_facet_expr_encode(&fexpr, fbuf, sizeof(fbuf),
+				                          &flen) != FZN_FACET_OK)
+					FAIL(416);
+				if (fzn_facet_expr_decode(fbuf, flen, fdp, 2, fdn, 2,
+				                          fdmem, 4, &fback, &fat)
+				    != FZN_FACET_OK)
+					FAIL(417);
+				if (fzn_facet_expr_encode(&fback, fagain,
+				                          sizeof(fagain), &flen2)
+				    != FZN_FACET_OK)
+					FAIL(418);
+				/* THE CONTROL AND THE POINT: one encoding. */
+				if (flen2 != flen || memcmp(fbuf, fagain, flen) != 0)
+					FAIL(419);
+				/* F8 is structural: a decoded member takes the
+				 * term's one dimension, so an alternation
+				 * spanning dimensions is not expressible. */
+				if (fback.pos[1].members[1].dim != fback.pos[1].node.dim)
+					FAIL(420);
+				/* And a trailing byte is a second spelling,
+				 * which would be a second identity. */
+				if (fzn_facet_expr_decode(fbuf, flen + 1u, fdp, 2, fdn,
+				                          2, fdmem, 4, &fback, &fat)
+				    != FZN_FACET_ERR_MALFORMED)
+					FAIL(421);
 			}
 		}
 
