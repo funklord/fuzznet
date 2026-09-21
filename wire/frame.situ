@@ -362,6 +362,16 @@ struct fzn_frame {
 		// the core verifying the CHAIN while never interpreting what a
 		// capability permits. Being inside the seal does not change that --
 		// the core reads it after opening, the consumer's own bytes follow.
+		//
+		// IT STAYS, settled by the copyright holder on 2026-09-21 (sec 349).
+		// Sec 13 asked not "how do we make 32 bytes smaller" but "why is this
+		// field here twice", the receiver having to look the capability up
+		// regardless. The answer is that the alternative -- deriving the
+		// authority from `kind` and the receiver's own mapping -- makes a
+		// stored frame mean whatever the receiver currently thinks, where
+		// this makes it mean what the sender signed. That is fuzzypickles'
+		// sec 8, "assume the peer is asleep", at the frame level, and it is
+		// the same argument `sender` above is kept for.
 		u8  capability[32];
 
 		// The consumer's own bytes. This library does not know what they

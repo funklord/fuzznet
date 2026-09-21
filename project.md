@@ -1268,12 +1268,19 @@ It was not written for three reasons, and **two of them are gone** (§348):
   stale, one because the thing was built and one because the NUMBER moved.
 - ~~§14 records §4.3's expiry reading as open~~. Settled 2026-09-21, §345.
 
-**What remains is one: §13's overhead question may move what the header
-carries** — which is also the unfinished half of §10 step 2, beside the
-`[max = 1024]` placeholder. An orchestrator would bake that guess in, and a
-consumer would then be depending on it rather than on the modules. The
-ordering is fixed here so that it is not invented on the day the question is
-answered.
+- ~~§13's overhead question may move what the header carries~~. **Answered
+  2026-09-21, §349: the header does not move.** The capability stays on the
+  wire and the key selector has been there since 2026-08-08, so there is no
+  pending change to the fields an orchestrator would read.
+
+**So `fzn_admit()` is unblocked, and this section is its specification.** The
+ordering was fixed here so that it would not be invented on the day the
+questions were answered; they are answered. What is left is to write the
+function -- not to decide anything first.
+
+(The `[max = 1024]` placeholder is still open and is NOT a blocker on this:
+it bounds the consumer's payload, which `fzn_admit()` passes through without
+reading. It is §10 step 2's other half.)
 
 **A consumer sequencing these handles six error vocabularies** --
 `fzn_err_t`, `fzn_fresh_err_t`, `fzn_reasm_err_t`, `fzn_split_err_t`,
@@ -7348,21 +7355,36 @@ carrying a short handle. That is two candidates converging on one header field,
 which is the first evidence that the field is the right idea rather than a
 preference.
 
-Two things must be settled before it is written, and neither is settled here:
+Two things had to be settled before it is written, and **both are settled
+now** (2026-09-21, sec 349) -- one by a commit six weeks ago that nobody
+connected to this list, and one by the copyright holder:
 
-- **A missing field, found by writing the schema.** `frame.situ` has no key or
-  session selector at all. A receiver is given a nonce and a sealed region and
-  no way to know which key opens it. fuzzypickles solves this with
-  `sender_host_pubkey`, which is the same 32 bytes doing double duty as
-  identity and key selector. Whatever replaces `capability[32]` has to answer
-  *both* questions, and noticing that they were one question is the useful part.
-- **Whether the capability belongs on the wire at all.** It is an identifier
-  the receiver must look up regardless, since the chain that proves it is not
-  in the frame. If a session binds the capability at establishment, the
-  per-datagram field is redundant with the handle; if there is no session, the
-  identity field already implies which capabilities that host holds. Either way
-  the honest question is not "how do we make 32 bytes smaller" but **"why is
-  this field here twice."**
+- ~~**A missing field, found by writing the schema.** `frame.situ` has no key
+  or session selector at all.~~ **CLOSED 2026-08-08 by `efdb098`, "wire: add
+  the key selector, and move the capability inside the seal".** The answer is
+  the one this bullet predicted: `sender[32]`, the same 32 bytes doing double
+  duty as identity and key selector, as fuzzypickles' `sender_host_pubkey`
+  does. `frame.situ` says so at the field and sec 4.7 step 2 is "key
+  selection, `sender` to a candidate key set".
+
+  **This section cites `efdb098` four paragraphs above, for the byte count**,
+  and went on listing as unsettled the thing that commit settled. Sec 349.
+- ~~**Whether the capability belongs on the wire at all.**~~ **SETTLED
+  2026-09-21 by the copyright holder: IT STAYS.** The question was the right
+  one -- not "how do we make 32 bytes smaller" but **"why is this field here
+  twice"**, the receiver having to look the capability up regardless, since
+  the chain that proves it is not in the frame.
+
+  The answer is that the two lookups are not the same lookup. The field says
+  what the SENDER CLAIMED, signed; the receiver's store says what that sender
+  may HAVE. Dropping the field would leave the authority to be derived from
+  `kind` and the receiver's current mapping -- so a stored frame would mean
+  whatever the receiver thinks today rather than what its sender signed, and
+  that is the store-and-forward case the self-contained frame exists for. It
+  is the same argument `sender[32]` is kept for, one field along.
+
+  The cost is unchanged and recorded rather than argued away: 32 of 144 fixed
+  bytes, against fuzzypickles' 8 in-seal bytes of protocol state. sec 349.
 
 ## 13a. The design pass of 2026-08-26, and what it settled
 
@@ -45103,3 +45125,68 @@ is also the unfinished half of §10 step 2 with the `[max = 1024]` placeholder.
 It is the copyright holder's, and it is now the only thing between this
 document and a function that makes the order it specifies impossible to get
 wrong.
+
+## 349. The overhead question, answered twice over, 2026-09-21
+
+`fzn_admit()`'s last blocker was §13's overhead question -- whether what the
+frame header carries is about to change. It is not, and §13's two open items
+closed by different routes on the same day.
+
+**THE FIRST WAS CLOSED SIX WEEKS AGO AND NOBODY CONNECTED IT.** §13 listed as
+unsettled "a missing field, found by writing the schema: `frame.situ` has no
+key or session selector at all". Commit `efdb098`, 2026-08-08, is titled
+"wire: add the key selector, and move the capability inside the seal", and
+`frame.situ` carries the answer in a comment at the field:
+
+    // The first revision of this schema had no key selector at all: a
+    // receiver was handed a nonce and a sealed region with no way to know
+    // which key opened it.
+    u8   sender[32];
+
+The answer is the one the bullet itself predicted -- the sender's public key
+doing double duty as identity and key selector, which is fuzzypickles'
+`sender_host_pubkey` -- and §4.7 step 2 has been "key selection, `sender` to a
+candidate key set" ever since.
+
+**AND §13 CITES `efdb098` FOUR PARAGRAPHS ABOVE THE BULLET IT CLOSED**, for
+the byte count: "it had been 128 since `efdb098`". So the section knew the
+commit, used it for one fact, and went on listing as open the thing that
+commit did. This is §348's species again with a twist: not a positional
+reference that rotted, but a CITATION USED FOR ONE PURPOSE AND NOT READ FOR
+ANOTHER. Reading a commit for its number is not reading it for its subject,
+and the subject was in the title.
+
+**THE SECOND IS THE HOLDER'S, SETTLED TODAY: the capability stays on the
+wire.** §13 had sharpened the question correctly -- not "how do we make 32
+bytes smaller" but "why is this field here twice", since the receiver must
+look the capability up regardless, the chain that proves it not being in the
+frame.
+
+The answer is that the two lookups are not the same lookup. **The field says
+what the sender CLAIMED, signed. The store says what that sender may HAVE.**
+Dropping the field leaves the authority to be derived from `kind` and the
+receiver's current mapping -- so a stored frame means whatever the receiver
+thinks today rather than what its sender signed, which is precisely the
+store-and-forward case the self-contained frame exists for (fuzzypickles' §8,
+"assume the peer is asleep"). It is the same argument `sender[32]` is kept
+for, one field along, which is why the two fields stand or fall together.
+
+The cost is recorded rather than argued away: 32 of 144 fixed bytes, against
+fuzzypickles' 8 in-seal bytes of protocol state -- the four-fold contrast §13
+raised and did not flinch from. §13a's framing fact is what makes it
+affordable rather than merely tolerable: no consumer calls this library today,
+so nobody is being charged for the 32 bytes while the decision is young.
+
+===========================================================================
+
+**WHAT IT UNBLOCKS.** §14's `fzn_admit()` -- the orchestrator that runs §4.7's
+receive order and makes the sequence unrepresentable-to-get-wrong -- was
+recorded as blocked on three things. §345 closed one, §348 found one had been
+closed by a renumbering and a build, and this closes the last. **It is
+buildable now, and what is left is to write it rather than to decide
+anything.**
+
+The `[max = 1024]` placeholder is still open and is not a blocker on it: it
+bounds the CONSUMER's payload, which `fzn_admit()` passes through without
+reading. That is §10 step 2's other half and belongs to whoever finishes the
+schema against a real payload.
