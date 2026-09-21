@@ -44580,8 +44580,9 @@ TWO ITEMS LEFT IN SECTION 8, AND ONE THAT WAS ALREADY ANSWERED. The list is
 rewritten rather than struck through, for catalog section 7's reason. Open:
 the collation key's digit-run width (F20), still a parameter of
 `fzn_facet_collate` rather than a constant, which is what "unsettled" looks
-like in code; and this module's NAME, `facet` being provisional. Both the
-holder's.
+like in code; ~~and this module's NAME, `facet` being provisional. Both the
+holder's.~~ The width was settled the same day (sec 343) and the NAME on
+2026-09-21 as `facet`, kept rather than changed (sec 344).
 
 The index interface was NOT open: `fzn_facet_index_ops_t` and
 `fzn_facet_evaluate` have been built since the evaluation work landed, and
@@ -44682,3 +44683,93 @@ Two sabotage entries, both watched failing through their own assertion:
 The consumer gate gained an exercise for the declaration and the flag.
 
 SECTION 8 IS DOWN TO ONE ITEM: this module's NAME, which is the holder's.
+
+## 344. The module is called `facet`, and section 8 is empty, 2026-09-21
+
+THE DECISION, the copyright holder's on 2026-09-21: KEEP `facet`, and fix the
+sentence that made it ambiguous. The last item in facet.h section 8, open since
+the spec was written on 2026-09-10.
+
+WHAT THE MEASUREMENT FOUND, because this is a naming question and those are
+usually argued rather than measured.
+
+    fzn_facet_ symbols          34
+    FZN_FACET_ macros           21
+    occurrences in code        682 over 11 files
+    mentions in project.md      88
+    mentions in the Makefile    20
+    collisions anywhere          0
+
+Zero is the interesting number. `facet` appears nowhere in this tree but its
+own module and one cross-reference in catalog.h, and no sibling project uses
+the word at all -- so nothing was being displaced and no rename was owed to
+anybody.
+
+THE CANDIDATES WERE ELIMINATED BY THE TREE RATHER THAN BY TASTE, which is what
+made the measurement worth taking:
+
+    select      106 uses in code, and /usr/include/sys/select.h exists
+    scope       116 uses, and catalog.h has fzn_catalog_scope_t   COLLISION
+    dimension   132 uses, and it is this module's own central noun (F1)
+    query        46 uses, and facet.h says "It is not a query engine"
+    filter       56 uses, and generic
+    selector      5 uses    clean
+    sift          3 uses    clean
+
+`scope` was the hard one: catalog.h's C5a scope axis already owns the word, so
+naming a module `scope` would have created exactly the collision this decision
+was about, in a neighbouring header. `select` fails twice over -- a system
+header and 106 existing uses, most of them "the term selects", which is the
+module's own verb and would have become its noun.
+
+===========================================================================
+
+THE ONE ARGUMENT AGAINST `facet` WAS INTERNAL, and it is why the question was
+open rather than obvious. F2 read "a key-value FACET is therefore the
+degenerate case of the model", so the word named both the model and its own
+special case -- inside a module called facet. That is code-style.md's one word
+per concept, broken by the spec about itself.
+
+It is a sentence, and it is now "a key-value CLASSIFICATION". A second loose
+use went with it: "a facet name is opaque bytes" meant a DIMENSION name, and
+says so now. Against 682 occurrences to rename, a two-line edit is the right
+trade, and the holder took it.
+
+AND THE WORD IS RIGHT ON ITS MERITS, which is the part that would otherwise
+read as mere thrift. Faceted classification is HIERARCHICAL in the field the
+term comes from -- a facet is an axis with structure under it -- which is F1's
+tree of dimensions exactly. The degenerate flat case is what F2 is about, and
+naming the general thing after the general term was never the error; using the
+general term for the degenerate case was.
+
+THE TREE HAD ALREADY DECIDED A CASE OF THIS SHAPE, and finding it was worth
+more than the argument. `log/log.h` carries a diagnostic logger inside the
+module named `log` and says so out loud: "yes, a diagnostic logger inside the
+module named `log` is a collision of words; `log/log.h` above says why the two
+share nothing else." So the tree's existing answer to one word doing two jobs
+is to NAME the collision where a reader will meet it rather than to rename the
+module -- which is what facet now does in F2. A working sibling explaining
+itself is a cheaper source of a project's decisions than the document is.
+
+===========================================================================
+
+AND FOUR STALE PARAGRAPHS WENT WITH IT, all in facet.h and all made stale by
+today rather than by neglect.
+
+The top-of-file status said "WHAT IS STILL ONLY PROSE" and listed four things,
+every one of which was answered during today: the wire encoding (sec 342), the
+index interface (built before that and still listed as open), the digit-run
+width (sec 343) and the name (this). It names the four answers now. The rule
+that governed the gap is kept even though the gap is closed, because the next
+unsettled thing will want it: a function appears only where a .c file defines
+it, so an unsettled operation has no declaration to link against by accident.
+
+The STATUS line still called the wire encoding, the index interface and
+evaluation unimplemented, and the name provisional. All four were wrong.
+
+Section 8 is kept rather than deleted, with every item answered and dated.
+What a spec DID NOT decide, and when it was decided instead, is the part a
+later reader cannot reconstruct from the code -- and an empty section would
+read as a spec that never had an open question.
+
+`facet/` now has nothing open.

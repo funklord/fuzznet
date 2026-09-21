@@ -10,16 +10,21 @@
  * the F20 collation key -- are implemented in `facet/facet.c`. project.md
  * sec 101 records the history and the assignment.
  *
- * WHAT IS STILL ONLY PROSE, and declares nothing on purpose: everything
- * section 8 marks unsettled -- the wire encoding, the index interface (so no
- * evaluation and no F16 canonical sort, both of which need it), the collation
- * key's digit-run width (a caller parameter here rather than a fixed value),
- * and the module name. The reason for leaving those undeclared is fuzzypickles'
+ * NOTHING IS STILL ONLY PROSE, as of 2026-09-21. This paragraph listed four
+ * unsettled things -- the wire encoding, the index interface, the collation
+ * key's digit-run width and the module name -- and all four are answered:
+ * `facet/codec.h` (sec 342), `fzn_facet_index_ops_t` with
+ * `fzn_facet_evaluate` below, the width declared by the DIMENSION (sec 343),
+ * and the name, which is `facet` (sec 344). Section 8 carries each answer.
+ *
+ * THE RULE THAT GOVERNED THE GAP IS WORTH KEEPING even with the gap closed,
+ * because the next unsettled thing will want it. It is fuzzypickles'
  * `core/src/record_store_internal.h`, which learned it the expensive way:
  * "a header full of declarations reads as available machinery. Including it
  * compiled fine and failed at LINK time." So a function appears below ONLY
- * where `facet.c` defines it; an unsettled operation has no declaration to
- * link against by accident, and its absence is the status line.
+ * where `facet.c` or `codec.c` defines it; an unsettled operation has no
+ * declaration to link against by accident, and its absence is the status
+ * line.
  *
  * The normative statements F1-F33 stand unchanged and remain what any
  * implementation -- this partial one included -- must satisfy.
@@ -42,17 +47,19 @@
  *
  * MECHANISM, NEVER MEANING, which is `local/vocabulary.h`'s rule and
  * `chain.h`'s before it: a capability is 32 opaque bytes that the chain
- * verifies without learning what it permits, and a facet name is opaque bytes
- * that this module intersects without learning what it classifies. `genre`,
+ * verifies without learning what it permits, and a DIMENSION name is opaque
+ * bytes that this module orders and intersects without learning what it
+ * classifies. `genre`,
  * `year` and `format` belong to a media library; `system`, `region` and
  * `players` to an emulator front end. Sec 5 keeps command vocabularies out of
  * the core for the same reason.
  *
- * STATUS: the settled core is implemented in facet.c (see the declarations at
- * the end of this file); the wire encoding, the index interface and evaluation
- * are not, and the module name is provisional. Settled 2026-09-10 with
- * fuzzypickles' copyright holder; what is settled is marked normative below,
- * and what is not is named in section 8 rather than guessed at.
+ * STATUS: the core, evaluation against an index and the wire encoding are all
+ * implemented -- facet.c and codec.c -- and the module's name is `facet`,
+ * settled by the copyright holder on 2026-09-21. The spec was settled
+ * 2026-09-10 with fuzzypickles' copyright holder; what F19's single-child
+ * RANGE collapse still cannot do without a taxonomy is pinned in section 8
+ * rather than assumed.
  */
 
 #ifndef FZN_FACET_H
@@ -68,8 +75,13 @@
  *     appear several times within one.
  *
  * F2. A dimension whose values have no children is a tree of depth one. A
- *     key-value facet is therefore the degenerate case of the model and not a
- *     second mechanism.
+ *     KEY-VALUE CLASSIFICATION is therefore the degenerate case of the model
+ *     and not a second mechanism.
+ *
+ *     It read "a key-value facet" until 2026-09-21, which made one word name
+ *     both the model and its own special case -- and the module is called
+ *     facet. Reworded rather than renamed when the name was settled: see
+ *     section 8.
  *
  * F3. Every dimension is TOTAL: a file with no value for a dimension appears
  *     in that dimension's UNKNOWN node. Without F3 a dimension stops
@@ -277,14 +289,17 @@
  * 8. NOT SETTLED HERE
  * =========================================================================
  *
- * Named rather than guessed at. Two of the four are answered, and the list is
- * rewritten rather than struck through, so that what is open can be read at a
- * glance:
+ * Named rather than guessed at, and all four are now answered. The list is
+ * kept rather than deleted because what a spec DID NOT decide, and when it
+ * was decided instead, is the part a later reader cannot reconstruct:
  *
- *   - THIS MODULE'S NAME. Still open; `facet` is provisional.
- *
- * Answered since:
- *
+ *   - THIS MODULE'S NAME: `facet`, 2026-09-21, and sec 344. Kept rather than
+ *     changed. The one argument against it was internal -- F2 called a flat
+ *     key-value classification "a facet", so the word named both the model
+ *     and its own degenerate case -- and that is a sentence, fixed above,
+ *     where a rename was 34 symbols, 21 macros and 682 occurrences. The word
+ *     is also right: faceted classification is hierarchical in the field it
+ *     comes from, which is F1's tree of dimensions exactly.
  *   - THE COLLATION KEY'S DIGIT-RUN WIDTH (F20): declared by the DIMENSION,
  *     2026-09-21, beside the raw-byte-order declaration a dimension may
  *     already make. `fzn_facet_dimension_t` below, and sec 343. It stays a
