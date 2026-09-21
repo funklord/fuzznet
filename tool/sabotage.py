@@ -447,6 +447,60 @@ SABOTAGES = [
 		"sec 346",
 	),
 	(
+		"admit-an-expired-frame-never-reaches-replay",
+		"admit/admit.c",
+		"\tif (fr != FZN_FRESH_OK) {\n\t\trefuse(out, FZN_ADMIT_FRESHNESS, FZN_ADMIT_VOCAB_FRESH, (int)fr);\n\t\treturn;\n\t}",
+		"\tif (fr != FZN_FRESH_OK)\n\t\trefuse(out, FZN_ADMIT_FRESHNESS, FZN_ADMIT_VOCAB_FRESH, (int)fr);",
+		"sec 4.7's rule that is not an ordering: a refusal at any step must "
+		"not have cost a slot at a LATER one. Replay is the first mutation, "
+		"so a freshness refusal that falls through takes a window entry for "
+		"a frame it just rejected -- and the genuine frame carrying that "
+		"nonce is then refused as a replay. An off-path attacker with no key "
+		"fills the window with expired frames. sequence_test runs the genuine "
+		"frame after every refusal above replay and requires it admitted. "
+		"sec 350",
+	),
+	(
+		"admit-an-unknown-sender-is-a-drop",
+		"admit/admit.c",
+		"\tif (n == 0 || n > candidate_cap) {",
+		"\tif (n > candidate_cap) {",
+		"sec 4.7 step 2 calls this the constraint a consumer is likeliest to "
+		"get wrong: an unknown sender must produce a DROP, not an object. "
+		"Falling through hands the later steps a key set that does not "
+		"exist, and every natural repair for it -- a pending-peer entry, a "
+		"negative cache -- is an unauthenticated write. sequence_test requires "
+		"the refusal to name KEY SELECT rather than a step further down, "
+		"because where it stops is what says nothing was built. sec 350",
+	),
+	(
+		"admit-fails-closed-without-a-chain",
+		"admit/admit.c",
+		"\tif (!fzn_chain_store_lookup(env->chains, root, &cap, out->opened.sender,\n\t                            now, &chain_bytes, &chain_len)) {",
+		"\tif (0) {",
+		"a capability this host cannot prove is one it does not act on. The "
+		"chain is not in the frame (sec 13), so the store answering nothing "
+		"is the whole of what this host knows -- proceeding would verify "
+		"whatever bytes happened to be in hand. sequence_test drives a frame "
+		"whose capability no chain covers and requires the NO_CHAIN "
+		"vocabulary, which is what says the chain module was never reached. "
+		"sec 350",
+	),
+	(
+		"admit-an-absence-is-not-a-chain-error",
+		"admit/admit.c",
+		"\t\trefuse(out, FZN_ADMIT_CHAIN, FZN_ADMIT_VOCAB_NO_CHAIN, 0);\n\t\treturn;\n\t}\n\tmemcpy(cap.b",
+		"\t\trefuse(out, FZN_ADMIT_CHAIN, FZN_ADMIT_VOCAB_CHAIN,\n\t\t       (int)FZN_CHAIN_ERR_UNKNOWN_TARGET);\n\t\treturn;\n\t}\n\tmemcpy(cap.b",
+		"this is the defect the first draft of admit.c shipped, kept as a "
+		"sabotage because it compiled and read well. A sender anchored to no "
+		"root never reaches `chain/`, so there is no chain error to give -- "
+		"and FZN_CHAIN_ERR_UNKNOWN_TARGET means something specific and "
+		"different, an out-of-order revocation record, with a comment in "
+		"chain.h warning that folding an ordinary absence into it \"would "
+		"make ordinary propagation look like an attack\". sequence_test asserts "
+		"the vocabulary, not just the step. sec 350",
+	),
+	(
 		"shard-absorbs-the-remainder",
 		"catalog/shard.c",
 		"\t\tif (i + 1u == shards)\n\t\t\tout[i].entries = count - at;\n\t\telse\n\t\t\tout[i].entries = min_entries;",

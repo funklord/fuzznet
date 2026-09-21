@@ -44893,7 +44893,7 @@ in either direction is what left room for the answer that neither branch
 contained, and the session that flagged it rather than fixing it is the reason
 the room existed.
 
-ONE CONSEQUENCE ELSEWHERE. The `fzn_admit()` orchestrator sketched at sec 14
+ONE CONSEQUENCE ELSEWHERE. The `fzn_admit()` orchestrator sketched at sec 4.7c
 is blocked on three things, one of which was "sec 14 records sec 4.3's expiry
 reading as open". Two remain: step 5 does not exist, and sec 13's overhead
 question may still move what the header carries.
@@ -45058,8 +45058,8 @@ order and make it unrepresentable-to-get-wrong -- was recorded as blocked on
 three things. **Two were gone**, and the first was stale in a way the other
 stale claims this week were not.
 
-    §14      "It is not written because step 5 does not exist"
-    §1222    "4 and 5 need the wire and are covered by wire/test/seal_test.c"
+    §4.7c    "It is not written because step 5 does not exist"
+    §4.7c    "4 and 5 need the wire and are covered by wire/test/seal_test.c"
 
 Two sentences about the same sequence, in one document, one saying step 5 does
 not exist and the other that it is covered by a test. That was the tension,
@@ -45179,7 +45179,7 @@ so nobody is being charged for the 32 bytes while the decision is young.
 
 ===========================================================================
 
-**WHAT IT UNBLOCKS.** §14's `fzn_admit()` -- the orchestrator that runs §4.7's
+**WHAT IT UNBLOCKS.** §4.7c's `fzn_admit()` -- the orchestrator that runs §4.7's
 receive order and makes the sequence unrepresentable-to-get-wrong -- was
 recorded as blocked on three things. §345 closed one, §348 found one had been
 closed by a renumbering and a build, and this closes the last. **It is
@@ -45190,3 +45190,109 @@ The `[max = 1024]` placeholder is still open and is not a blocker on it: it
 bounds the CONSUMER's payload, which `fzn_admit()` passes through without
 reading. That is §10 step 2's other half and belongs to whoever finishes the
 schema against a real payload.
+
+## 350. fzn_admit: the receive order, run rather than written down, 2026-09-21
+
+`admit/admit.{h,c}`, and `admit/test/sequence_test.c`. sec 4.7 has stated the
+order a receiver runs its checks in since 2026-08-14 and sec 4.7c said why it
+was prose: an `fzn_admit()` "would make the sequence
+unrepresentable-to-get-wrong". Its three blockers closed today (secs 345, 348,
+349), so this is that function.
+
+    1 SHAPE  fzn_seal_peek      5 FRESHNESS  fzn_freshness_check
+    2 KEYS   the ops vtable     6 REPLAY     fzn_replay_admit
+    3 COMMIT fzn_commitment_*   7 CHAIN      store lookup, open, verify
+    4 TAG    fzn_seal_open      8 REASSEMBLY fzn_reasm_accept
+
+THE OBJECT LIST IS THE FINDING. The suite links `wire/`, `session/`, `frame/`,
+`chunk/` and three files of `chain/` -- a sequence spanning six modules is
+exactly why nobody had run it end to end, and why a consumer deriving it from
+six headers "would be inventing a security property".
+
+===========================================================================
+
+FOUR THINGS THIS DESIGN HAD TO GET RIGHT, and I got two of them wrong first.
+
+THE VOCABULARY IS A FIELD, NOT A FUNCTION OF THE STEP. sec 4.7c asks that the
+six error vocabularies not be collapsed, so the result carries the step and
+that module's own code. The first draft derived the vocabulary FROM the step,
+which cannot work: two steps can refuse BEFORE reaching their module -- an
+unknown sender at KEY SELECT and an unprovable capability at CHAIN -- so the
+table had to name a code from a module that was never called. It did, and it
+named `FZN_CHAIN_ERR_UNKNOWN_TARGET`, whose own comment in chain.h warns that
+folding an ordinary absence into it "would make ordinary propagation look like
+an attack". Caught by READING the error's definition rather than by the
+compiler, which was perfectly happy. It is a sabotage entry now.
+
+A REFUSAL COSTS NO SLOT AT A LATER STEP, structurally: every refusal returns
+immediately and the two mutating steps are the last two that run. The test is
+behavioural rather than a counter -- after each refusal above replay it runs
+the GENUINE frame, same nonce, and requires it admitted. A freshness refusal
+that fell through would take a window entry for a frame it just rejected, and
+the genuine frame would come back a replay; an off-path attacker with no key
+fills the window with expired frames.
+
+AND THE RULE IS DIRECTIONAL, which the first test was not. It asserted the
+no-slot-cost property after EVERY refusal, and the CHAIN case failed -- for
+being right. Replay is step 6, so a step-7 refusal that has taken a window
+entry is correct: the frame was genuine and fresh, and the window is right to
+remember it. "A refusal must not cost a slot at a LATER one" has a direction
+and the assertion did not.
+
+REASSEMBLY IS OPTIONAL AND THE CHAIN IS NOT. A consumer that does not chunk
+passes no table, and inventing a default one would be inventing a memory bound
+on its behalf. The chain step has no such switch: a frame whose capability
+this host cannot prove is refused, because a library that reconfigures
+infrastructure fails closed. Whether a given kind needs a capability at all is
+`chain/authz.h`'s question, and a consumer wanting that nuance runs the steps
+itself -- and owns the order again, which is the trade this function offers.
+
+===========================================================================
+
+AND THE TEST'S OWN STUB COULD NOT TELL TWO KEYS APART, which is the one worth
+carrying furthest. The stub hash was `acc = acc * 31 + in[i]` over one byte.
+31^8 == 1 (mod 256), so over a 32-byte constant input the key's coefficients
+sum to ZERO and the accumulator ends where it started whatever the key was.
+Two different commitment keys therefore derived the same commitment, the
+commitment step could not refuse, and the suite reported a frame ADMITTED
+WITH A STRANGER'S KEY.
+
+That read as a defect in `fzn_admit` and was a defect in its stand-in. A stub
+models the half of a primitive its author happened to need; what this one
+needed was the half it did not have -- the ability to DIFFER. FNV-1a now.
+
+A LABEL COLLISION, caught by the gate rather than by me. `local/test/
+admit_test.c` already exists and tests `fzn_vocabulary_admit`, so `make check`
+printed "admit_test:" twice with different counts and a reader could not tell
+which was which. "Admit" is already a busy word here -- `fzn_vocabulary_admit`,
+`fzn_replay_admit`, `fzn_chain_store_admit`, each one layer's admission -- and
+the bare `fzn_admit` is sec 4.7c's own name for the sequence that runs several
+of them, so the FUNCTION keeps it and the SUITE is `sequence_test`. Walking
+into a name collision on the same day as writing two sections about them is
+recorded rather than tidied away.
+
+The style gate also refused two unwalked error renderers: every `fzn_*_str` in
+this tree must be swept by `wire/test/err_str_test.c`, and `fzn_admit_step_str`
+and `fzn_admit_vocab_str` were not. An arm no test reads is text nobody has
+checked.
+
+===========================================================================
+
+EVIDENCE. 37 checks, and the positive control is a genuine frame admitted
+through all eight steps -- without it every refusal below is satisfied by a
+function that refuses everything. Four sabotage entries, each through its own
+assertion:
+
+    admit-an-expired-frame-never-reaches-replay   sequence_test.c:444
+    admit-an-unknown-sender-is-a-drop             sequence_test.c:418
+    admit-fails-closed-without-a-chain            sequence_test.c:363
+    admit-an-absence-is-not-a-chain-error         sequence_test.c:433
+
+The consumer gate gained the half a consumer meets first -- reading a refusal
+-- watched failing at check 431.
+
+WHAT IT DOES NOT DO: the chain memo. sec 4.7c names it the one real latency
+win, a naive loop verifying one chain 256 times for a chunked message, 51-487
+ms of signature checking. It is not here because a cache is memory a consumer
+sizes and a lifetime a consumer owns, and because the same cache one step
+earlier is a verdict an attacker chose.

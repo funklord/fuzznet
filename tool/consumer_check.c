@@ -55,6 +55,7 @@
 #include <fuzznet/record/store.h>
 #include <fuzznet/facet/facet.h>
 #include <fuzznet/facet/codec.h>
+#include <fuzznet/admit/admit.h>
 #include <fuzznet/catalog/catalog.h>
 #include <fuzznet/catalog/retention.h>
 #include <fuzznet/catalog/sweep.h>
@@ -168,6 +169,7 @@
 #include "record/store.h"
 #include "facet/facet.h"
 #include "facet/codec.h"
+#include "admit/admit.h"
 #include "catalog/catalog.h"
 #include "catalog/retention.h"
 #include "catalog/sweep.h"
@@ -2270,6 +2272,39 @@ int main(void)
 				if (fzn_facet_expr_encode(&sexpr, sbuf, sizeof(sbuf),
 				                          &slen) != FZN_FACET_OK)
 					FAIL(429);
+			}
+
+			/* THE RECEIVE SEQUENCE, from outside. A consumer's
+			 * first contact with it is a refusal, so what has to
+			 * be usable without the whole fixture is reading one:
+			 * which step, which vocabulary, and the module's own
+			 * code underneath. */
+			{
+				fzn_admit_result_t ar;
+				fzn_admit_key_t acand[1];
+				uint8_t junk[8];
+
+				memset(junk, 0, sizeof(junk));
+				/* A null environment is refused before
+				 * anything runs, and says so as a shape
+				 * fault rather than crashing. */
+				fzn_admit(junk, sizeof(junk), 1, NULL, acand, 1, &ar);
+				if (ar.step != FZN_ADMIT_SHAPE
+				    || ar.vocab != FZN_ADMIT_VOCAB_SEAL)
+					FAIL(430);
+				/* The two renderers a consumer needs to log a
+				 * refusal without a table of its own. */
+				if (strcmp(fzn_admit_step_str(FZN_ADMIT_REPLAY),
+				           "replay") != 0)
+					FAIL(431);
+				if (strcmp(fzn_admit_vocab_str(FZN_ADMIT_VOCAB_NO_CHAIN),
+				           "no-chain") != 0)
+					FAIL(432);
+				/* An out-of-range step still renders rather
+				 * than reading off the end of a table. */
+				if (strcmp(fzn_admit_step_str((fzn_admit_step_t)99),
+				           "unknown") != 0)
+					FAIL(433);
 			}
 
 			/* F20 FROM OUTSIDE: the width belongs to the

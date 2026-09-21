@@ -80,6 +80,7 @@
 #endif
 #include "../../persist/persist.h"
 #include "../../tree/tree.h"
+#include "../../admit/admit.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -142,6 +143,12 @@ static const char *r_tree(int v) { return fzn_tree_err_str((fzn_tree_err_t)v); }
 static const char *r_provision(int v) { return fzn_provision_err_str((fzn_provision_err_t)v); }
 static const char *r_disclose(int v) { return fzn_disclose_err_str((fzn_disclose_err_t)v); }
 static const char *r_facet(int v) { return fzn_facet_err_str((fzn_facet_err_t)v); }
+/* admit/ renders two things rather than an error: WHERE the sequence stopped
+ * and WHICH module's vocabulary its code belongs to. Both are arms a consumer
+ * logs, so both are swept here for the same reason the error renderers are --
+ * an arm no test reads is text nobody has checked. */
+static const char *r_admit_step(int v) { return fzn_admit_step_str((fzn_admit_step_t)v); }
+static const char *r_admit_vocab(int v) { return fzn_admit_vocab_str((fzn_admit_vocab_t)v); }
 static const char *r_catalogue(int v) { return fzn_catalog_err_str((fzn_catalog_err_t)v); }
 static const char *r_cat_retain(int v)
 {
@@ -207,6 +214,8 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_facet_err_str", r_facet, 8 },
 	{ "fzn_catalog_err_str", r_catalogue, 8 },
 	{ "fzn_catalog_retention_str", r_cat_retain, 3 },
+	{ "fzn_admit_step_str", r_admit_step, 9 },
+	{ "fzn_admit_vocab_str", r_admit_vocab, 8 },
 };
 
 static void check_subject(const struct subject *s)
