@@ -96,7 +96,7 @@ fzn_catalog_err_t fzn_catalog_purge_queue(fzn_catalog_purges_t *purges,
 	for (i = 0; i < written; i++) {
 		if (who[i].issuer_len != FZN_CATALOG_PURGE_HOST_LEN)
 			return FZN_CATALOG_ERR_RANGE;
-		memcpy(row->host[i], who[i].issuer, FZN_CATALOG_PURGE_HOST_LEN);
+		memcpy(row->host[i].b, who[i].issuer, FZN_CATALOG_PURGE_HOST_LEN);
 	}
 	row->hosts = written;
 	purges->used++;
@@ -118,7 +118,7 @@ fzn_catalog_err_t fzn_catalog_purge_agree(fzn_catalog_purges_t *purges,
 		return FZN_CATALOG_ERR_ABSENT;
 
 	for (i = 0; i < row->hosts; i++) {
-		if (!bytes_eq(row->host[i], FZN_CATALOG_PURGE_HOST_LEN, host, host_len))
+		if (!bytes_eq(row->host[i].b, FZN_CATALOG_PURGE_HOST_LEN, host, host_len))
 			continue;
 		/* AGREEING TWICE IS NOT AN ERROR -- it is what a re-delivered
 		 * message looks like, and refusing it would make a consumer
@@ -211,4 +211,145 @@ fzn_catalog_err_t fzn_catalog_purge_progress(const fzn_catalog_purges_t *purges,
 size_t fzn_catalog_purge_count(const fzn_catalog_purges_t *purges)
 {
 	return purges ? purges->used : 0;
+}
+
+/* ===========================================================================
+ * THE WIRE FORM. See purge.h.
+ * ===========================================================================
+ */
+
+fzn_catalog_err_t fzn_catalog_purge_encode(const fzn_catalog_host_t *hosts,
+                                           size_t host_count, uint8_t *out, size_t cap,
+                                           size_t *len_out)
+{
+	size_t total, i;
+
+	if (!hosts || !out || !len_out)
+		return FZN_CATALOG_ERR_MALFORMED;
+	/* AN EMPTY SET CLOSES INSTANTLY, the same refusal the queue makes. */
+	if (host_count == 0)
+		return FZN_CATALOG_ERR_ABSENT;
+	if (host_count > FZN_CATALOG_PURGE_HOSTS_MAX)
+		return FZN_CATALOG_ERR_RANGE;
+
+	total = FZN_CATALOG_PURGE_HEAD_LEN +
+	        host_count * (size_t)FZN_CATALOG_PURGE_HOST_LEN;
+	/* The body must fit the caller's buffer AND a record body: the
+	 * signature is over what the record carries, so a body no record can
+	 * hold is not an encoding at all. */
+	if (total > cap || total > (size_t)FZN_RECORD_BODY_MAX)
+		return FZN_CATALOG_ERR_RANGE;
+
+	out[0] = FZN_CATALOG_OBJECT_PURGE;
+	out[1] = (uint8_t)host_count;
+	for (i = 0; i < host_count; i++)
+		memcpy(out + FZN_CATALOG_PURGE_HEAD_LEN +
+		               i * (size_t)FZN_CATALOG_PURGE_HOST_LEN,
+		       hosts[i].b, FZN_CATALOG_PURGE_HOST_LEN);
+
+	*len_out = total;
+	return FZN_CATALOG_OK;
+}
+
+fzn_catalog_err_t fzn_catalog_purge_decode(const uint8_t *entity, size_t entity_len,
+                                           const uint8_t *body, size_t body_len,
+                                           fzn_catalog_purge_t *row)
+{
+	size_t hosts, want, i;
+
+	if (!entity || !body || !row)
+		return FZN_CATALOG_ERR_MALFORMED;
+	if (entity_len != FZN_CATALOG_ENTITY_LEN)
+		return FZN_CATALOG_ERR_MALFORMED;
+	if (body_len > (size_t)FZN_RECORD_BODY_MAX)
+		return FZN_CATALOG_ERR_RANGE;
+	if (body_len < FZN_CATALOG_PURGE_HEAD_LEN)
+		return FZN_CATALOG_ERR_MALFORMED;
+	if (body[0] != FZN_CATALOG_OBJECT_PURGE)
+		return FZN_CATALOG_ERR_MALFORMED;
+
+	hosts = body[1];
+	if (hosts == 0 || hosts > FZN_CATALOG_PURGE_HOSTS_MAX)
+		return FZN_CATALOG_ERR_MALFORMED;
+
+	/* ONE CANONICAL ENCODING. The length must be EXACTLY what the count
+	 * says: a trailing byte is refused rather than ignored, because the
+	 * signature is over these bytes and two spellings of one command would
+	 * let a peer re-sign a different one. */
+	want = FZN_CATALOG_PURGE_HEAD_LEN + hosts * (size_t)FZN_CATALOG_PURGE_HOST_LEN;
+	if (body_len != want)
+		return FZN_CATALOG_ERR_MALFORMED;
+
+	memset(row, 0, sizeof(*row));
+	memcpy(row->entity, entity, FZN_CATALOG_ENTITY_LEN);
+	for (i = 0; i < hosts; i++)
+		memcpy(row->host[i].b,
+		       body + FZN_CATALOG_PURGE_HEAD_LEN +
+		               i * (size_t)FZN_CATALOG_PURGE_HOST_LEN,
+		       FZN_CATALOG_PURGE_HOST_LEN);
+	row->hosts = hosts;
+	/* AGREEMENT IS NOT CARRIED. It is read-time state derived from other
+	 * records -- `fzn_catalog_purge_agreements` -- so a command that
+	 * arrived with agreement in it would be asserting what only its
+	 * recipients can say. */
+	return FZN_CATALOG_OK;
+}
+
+fzn_catalog_err_t fzn_catalog_purge_agreements(const fzn_catalog_assertion_t *set,
+                                               size_t count, const uint8_t *entity,
+                                               size_t entity_len,
+                                               const uint8_t *purge_id,
+                                               size_t purge_id_len,
+                                               fzn_catalog_source_t *out, size_t out_cap,
+                                               size_t *out_count, size_t *dropped)
+{
+	size_t i, j, w = 0, d = 0;
+
+	if (!out_count || !dropped)
+		return FZN_CATALOG_ERR_MALFORMED;
+	*out_count = 0;
+	*dropped = 0;
+	if ((count != 0 && !set) || (!out && out_cap > 0))
+		return FZN_CATALOG_ERR_MALFORMED;
+	if ((entity_len != 0 && !entity) || (purge_id_len != 0 && !purge_id))
+		return FZN_CATALOG_ERR_MALFORMED;
+
+	for (i = 0; i < count; i++) {
+		const fzn_catalog_assertion_t *a = &set[i];
+		int seen = 0;
+
+		if (!a->live)
+			continue;
+		if (!bytes_eq(a->entity, a->entity_len, entity, entity_len))
+			continue;
+		/* THE VALUE BINDS IT TO ONE COMMAND. Without this, an agreement
+		 * to last week's purge of the same entity counts towards this
+		 * week's -- and the second purge closes on consent nobody gave
+		 * to it. */
+		if (!bytes_eq(a->value, a->value_len, purge_id, purge_id_len))
+			continue;
+
+		for (j = 0; j < i; j++)
+			if (set[j].live &&
+			    bytes_eq(set[j].entity, set[j].entity_len, entity, entity_len) &&
+			    bytes_eq(set[j].value, set[j].value_len, purge_id, purge_id_len) &&
+			    bytes_eq(set[j].issuer, set[j].issuer_len,
+			             a->issuer, a->issuer_len))
+				seen = 1;
+		if (seen)
+			continue;
+
+		if (w >= out_cap) {
+			d++;
+			continue;
+		}
+		out[w].issuer = a->issuer;
+		out[w].issuer_len = a->issuer_len;
+		out[w].assertions = 1;
+		w++;
+	}
+
+	*out_count = w;
+	*dropped = d;
+	return FZN_CATALOG_OK;
 }

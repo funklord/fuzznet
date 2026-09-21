@@ -146,6 +146,29 @@ SABOTAGES = [
 		"An overflowing issuer is dropped once, not per assertion (reach.c's rule), so `dropped` is a count of distinct issuers a reader must still account for. Counting per row inflates it and a caller sizing a catch-up buffer over-allocates. catalog_test's repeated-dropped-issuer case catches it.",
 	),
 	(
+		"purge-decode-refuses-a-second-spelling",
+		"catalog/purge.c",
+		"if (body_len != want)",
+		"if (body_len < want)",
+		"one canonical encoding (C8): the body must be EXACTLY what its host "
+		"count says. Admitting a longer one lets two byte strings decode to "
+		"the same purge command, and the signature is over those bytes -- so a "
+		"peer could re-sign a different spelling of what a host queued. "
+		"purge_test decodes at len+1 and len-1 and requires both refused. "
+		"sec 336",
+	),
+	(
+		"purge-agreement-binds-to-one-command",
+		"catalog/purge.c",
+		"\t\tif (!bytes_eq(a->value, a->value_len, purge_id, purge_id_len))\n\t\t\tcontinue;",
+		"\t\tif (0)\n\t\t\tcontinue;",
+		"an agreement's VALUE is the identity of the command it agrees to. "
+		"Without the binding, agreement given to LAST week's purge of an "
+		"entity counts towards this week's -- so the second purge closes on "
+		"consent nobody gave to it, and the bytes go. purge_test has a third "
+		"host agree to a different purge of the same entity. sec 336",
+	),
+	(
 		"purge-agreement-must-come-from-a-pinned-host",
 		"catalog/purge.c",
 		"\t/* NOT IN THE PINNED SET. A host that began holding the entity after the\n\t * purge was queued is not part of the consensus, and counting it would\n\t * let the queue close while a PINNED host had still not answered. */\n\treturn FZN_CATALOG_ERR_ABSENT;",

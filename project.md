@@ -43974,3 +43974,68 @@ assertion: an agreement accepted from outside the pinned set, elimination
 before consensus, an empty set queued, and a re-queue discarding agreement.
 Plus the near-miss pair on the HOST axis, where folding two hosts into one
 would close a purge on an agreement a different host gave.
+
+## 336. The purge's wire form: one new object, 2026-09-21
+
+sec 335 built C19a's queue as local bookkeeping and said plainly what it could
+not do: cross a host boundary. This is that, and it closes the reclamation
+half of sec 7's "wire encoding of the shard, source and reclamation
+machinery". The other two halves still wait on C26, C22 and C15.
+
+THE DECISION, the holder's on 2026-09-21: the COMMAND is a new object and the
+AGREEMENT is an attribute. One new object, not two, and not zero.
+
+WHY NOT ZERO -- why a command is not an attribute. An attribute is an
+assertion with merge semantics, and C2's three classes are LABEL, FACT and
+IDENTIFIER: what a person asserted, what the bytes determine, what a register
+determines. A purge command is none of them. It has a LIFECYCLE -- queued,
+agreed, eliminated -- and putting it in an attribute record would need a class
+meaning "not an assertion at all", which is two concepts sharing one record.
+
+WHY NOT TWO -- why an agreement needs no object of its own. It is exactly C8's
+shape. C8 settled that "the set of issuers for a root IS the set of holders",
+and sec 315 used the same move to conclude there is no membership record: the
+set of issuers of an agreement attribute naming a purge IS the set of
+agreements. `fzn_catalog_purge_agreements` derives it the way
+`fzn_catalog_holders` derives holders.
+
+THE COMMAND CARRIES THE PINNED SET, and that is the whole reason it is a
+record rather than a flag. If each host derived the set from its own view of
+who holds the entity, the hosts would DISAGREE ABOUT WHICH SET MUST CLOSE --
+C19a's recomputing failure arriving over the network instead of in memory, and
+much harder to see there. The set is pinned once, by whoever queues the purge,
+and travels with the command.
+
+    0   object   FZN_CATALOG_OBJECT_PURGE
+    1   hosts    1..FZN_CATALOG_PURGE_HOSTS_MAX
+    2   host[0]  32 bytes
+    ... host[n]
+
+The entity is the RECORD's subject and the queuer is the RECORD's issuer, so
+neither is in the body -- the division the attribute codec already makes.
+
+AGREEMENT IS NOT CARRIED IN THE COMMAND, and decode zeroes it. A command that
+arrived with agreement in it would be asserting what only its recipients can
+say.
+
+AND THE VALUE BINDS AN AGREEMENT TO ONE COMMAND. Without it, agreement given
+to LAST week's purge of an entity counts towards this week's, so the second
+purge closes on consent nobody gave it and the bytes go. That is a sabotage
+entry, and the fixture is a third host agreeing to a different purge of the
+same entity.
+
+CANONICAL, BOTH WAYS, on the attribute codec's own argument: the signature is
+over these bytes, so two byte strings decoding to one command would let a peer
+re-sign a different spelling of what a host queued. The suite round-trips,
+re-encodes the decoded form and requires byte-identity, and drives every
+refusal -- wrong object tag, trailing byte, one byte short, zero hosts, a
+count past the maximum, a truncated head, a short entity.
+
+A HOST KEY GOT ITS OWN TYPE, `fzn_catalog_host_t`, for the C reason
+`fzn_catalog_entity_t` has one: a bare `uint8_t[N]` decays to a pointer that
+does not implicitly acquire `const`, which -Wpedantic reported five times. It
+is DISTINCT from the entity type rather than a reuse of it -- both are 32
+bytes and they are not the same thing.
+
+TESTED, 75 checks in purge_test now, six sabotage entries over the module,
+each watched failing through its own assertion.

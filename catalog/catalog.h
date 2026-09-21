@@ -730,8 +730,12 @@
  *     answer a question nobody asked;
  *   - whether a referenced entity may be promoted into a managed source in
  *     place rather than by copying (C15);
- *   - the wire encoding of any of the above (the shard, source and reclamation
- *     machinery). The ATTRIBUTE assertion's own encoding is SETTLED and below;
+ *   - the wire encoding of the SHARD and SOURCE machinery, which waits on the
+ *     two items above. The RECLAMATION half is settled and built: a purge
+ *     command is FZN_CATALOG_OBJECT_PURGE carrying its pinned set, and an
+ *     agreement is an attribute whose issuer set IS the agreement set, C8's
+ *     own move (catalog/purge.h, sec 336). The ATTRIBUTE assertion's own
+ *     encoding is SETTLED and below;
  *     the module name is SETTLED, `catalog` (the copyright holder, 2026-09-18).
  */
 

@@ -73,11 +73,23 @@
 #define FZN_CATALOG_PURGE_HOST_LEN 32u
 #define FZN_CATALOG_PURGE_HOSTS_MAX 8u
 
+/* One host key, by value.
+ *
+ * A STRUCT FOR THE SAME REASON `fzn_catalog_entity_t` is one: a `uint8_t[N]`
+ * decays to a pointer that does not implicitly acquire `const`, so an
+ * interface taking `const uint8_t x[][N]` cannot be handed a caller's ordinary
+ * array without a cast, and -Wpedantic says so. It is a DISTINCT type from an
+ * entity rather than a reuse of it -- both are 32 bytes and they are not the
+ * same thing, and one type for two concepts is what code-style.md forbids. */
+typedef struct fzn_catalog_host {
+	uint8_t b[FZN_CATALOG_PURGE_HOST_LEN];
+} fzn_catalog_host_t;
+
 /* One queued purge, with its consensus set pinned at the moment it was
  * queued. */
 typedef struct fzn_catalog_purge {
 	uint8_t entity[FZN_CATALOG_ENTITY_LEN];
-	uint8_t host[FZN_CATALOG_PURGE_HOSTS_MAX][FZN_CATALOG_PURGE_HOST_LEN];
+	fzn_catalog_host_t host[FZN_CATALOG_PURGE_HOSTS_MAX];
 	/* Parallel to `host`: nonzero once that host has agreed. */
 	uint8_t agreed[FZN_CATALOG_PURGE_HOSTS_MAX];
 	size_t  hosts;
@@ -156,6 +168,98 @@ fzn_catalog_err_t fzn_catalog_purge_eliminate(fzn_catalog_purges_t *purges,
 fzn_catalog_err_t fzn_catalog_purge_progress(const fzn_catalog_purges_t *purges,
                                              const uint8_t *entity, size_t entity_len,
                                              size_t *pinned_out, size_t *agreed_out);
+
+/* ===========================================================================
+ * THE WIRE FORM
+ * ===========================================================================
+ *
+ * A PURGE COMMAND IS ITS OWN OBJECT, and an AGREEMENT is an attribute. The
+ * split is not symmetry for its own sake; the two are different kinds of
+ * thing.
+ *
+ * A command has a LIFECYCLE -- queued, agreed, eliminated -- where an
+ * attribute is an assertion with merge semantics, and C2's three classes
+ * (LABEL, FACT, IDENTIFIER: what a person asserted, what the bytes determine,
+ * what a register determines) have no slot for "not an assertion at all".
+ * Carrying a command in an attribute record would be two concepts sharing one
+ * record, which is what code-style.md forbids for a word.
+ *
+ * AN AGREEMENT NEEDS NO NEW WIRE, because it is exactly C8's shape. C8 settled
+ * that "the set of issuers for a root IS the set of holders" and sec 315 used
+ * the same move to conclude there is no membership record; the set of issuers
+ * of an agreement attribute naming a purge IS the set of agreements. So one
+ * new object, not two.
+ *
+ * THE COMMAND CARRIES THE PINNED SET, which is the whole reason it is a
+ * record rather than a flag. If each host derived the set from its own view
+ * of who holds the entity, the hosts would disagree about which set must
+ * close -- C19a's recomputing failure arriving over the network instead of in
+ * memory, and harder to see there. The set is pinned once, by whoever queues
+ * the purge, and travels.
+ *
+ * Body layout, and the canonical-encoding rules are the attribute codec's:
+ *
+ *     0   object   FZN_CATALOG_OBJECT_PURGE
+ *     1   hosts    how many keys follow, 1..FZN_CATALOG_PURGE_HOSTS_MAX
+ *     2   host[0]  FZN_CATALOG_PURGE_HOST_LEN bytes
+ *     ... host[n]
+ *
+ * The entity is the RECORD's subject and whoever queued it is the RECORD's
+ * issuer, so neither is in the body -- the same division the attribute codec
+ * makes.
+ */
+
+/* The object tag. ATTRIBUTE is 1; this is the second object this model
+ * defines, and sec 315's "the direction is toward LESS wire, not more" is why
+ * there is not a third for the agreement. */
+#define FZN_CATALOG_OBJECT_PURGE 2u
+
+/* object + host count. */
+#define FZN_CATALOG_PURGE_HEAD_LEN 2u
+
+/* Lay out a purge command's body: the pinned set, in the order given.
+ *
+ * FZN_CATALOG_ERR_MALFORMED for a null, and FZN_CATALOG_ERR_ABSENT for an
+ * EMPTY set -- a purge with nothing to wait for closes instantly, which is the
+ * same refusal `fzn_catalog_purge_queue` makes and for the same reason.
+ * FZN_CATALOG_ERR_RANGE when the body does not fit `cap` or a record body, or
+ * when more hosts are given than a command can carry. Writes nothing unless
+ * the whole body fits. */
+fzn_catalog_err_t fzn_catalog_purge_encode(const fzn_catalog_host_t *hosts,
+                                           size_t host_count, uint8_t *out, size_t cap,
+                                           size_t *len_out);
+
+/* Read a purge command's body into `row`, taking the entity from the caller's
+ * pointer as the attribute codec takes issuer and entity from the record.
+ * `row->agreed` is zeroed: agreement is read-time state derived from other
+ * records, never carried in the command.
+ *
+ * Enforces the one canonical encoding: FZN_CATALOG_ERR_MALFORMED for a wrong
+ * object tag, a truncated head, a count of zero, or a body whose length does
+ * not match its count exactly -- a trailing byte is refused rather than
+ * ignored, because the signature is over these bytes and two spellings of one
+ * command would let a peer re-sign a different one. */
+fzn_catalog_err_t fzn_catalog_purge_decode(const uint8_t *entity, size_t entity_len,
+                                           const uint8_t *body, size_t body_len,
+                                           fzn_catalog_purge_t *row);
+
+/* The hosts that have AGREED to the purge identified by `purge_id`, derived
+ * from the assertion set exactly as `fzn_catalog_holders` derives holders.
+ *
+ * An agreement is a live attribute whose issuer is the agreeing host, whose
+ * entity is the entity, and whose VALUE is `purge_id` -- the identity of the
+ * command being agreed to. The value binds it: without one, an agreement to
+ * last week's purge of the same entity would count towards this week's.
+ *
+ * `out`, `out_cap`, `out_count` and `dropped` behave as
+ * `fzn_catalog_holders`'. FZN_CATALOG_OK unless an argument is null. */
+fzn_catalog_err_t fzn_catalog_purge_agreements(const fzn_catalog_assertion_t *set,
+                                               size_t count, const uint8_t *entity,
+                                               size_t entity_len,
+                                               const uint8_t *purge_id,
+                                               size_t purge_id_len,
+                                               fzn_catalog_source_t *out, size_t out_cap,
+                                               size_t *out_count, size_t *dropped);
 
 /* How many purges are queued. */
 size_t fzn_catalog_purge_count(const fzn_catalog_purges_t *purges);

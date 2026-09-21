@@ -347,9 +347,179 @@ static void test_near_misses(void)
 	      "both near-miss hosts agreed and the purge did not close");
 }
 
+/* THE WIRE FORM. sec 336.
+ *
+ * THE COMMAND CARRIES THE PINNED SET, which is the whole reason it is a record
+ * rather than a flag: hosts that each derived the set from their own view
+ * would disagree about which set must close, which is C19a's recomputing
+ * failure arriving over the network. So the round trip has to preserve the set
+ * exactly, in order.
+ *
+ * AND THE ENCODING IS CANONICAL, which matters because the signature is over
+ * these bytes: two byte strings decoding to one command would let a peer
+ * re-sign a different spelling of what a host said. Every refusal below is a
+ * second spelling being turned away.
+ */
+static void test_the_wire_form(void)
+{
+	fzn_catalog_host_t hosts[3];
+	uint8_t body[FZN_RECORD_BODY_MAX];
+	fzn_catalog_purge_t row;
+	size_t len = 0;
+	size_t i;
+
+	memcpy(hosts[0].b, hostA, sizeof(hosts[0].b));
+	memcpy(hosts[1].b, hostB, sizeof(hosts[1].b));
+	memcpy(hosts[2].b, hostC, sizeof(hosts[2].b));
+
+	CHECK(fzn_catalog_purge_encode(hosts, 3, body, sizeof(body), &len) ==
+	          FZN_CATALOG_OK,
+	      "encoding a three-host command was refused");
+	CHECK(len == FZN_CATALOG_PURGE_HEAD_LEN + 3u * FZN_CATALOG_PURGE_HOST_LEN,
+	      "the body is %zu bytes, not head + three keys", len);
+	CHECK(body[0] == FZN_CATALOG_OBJECT_PURGE,
+	      "the body does not carry the purge object tag");
+
+	CHECK(fzn_catalog_purge_decode(e1, sizeof(e1), body, len, &row) == FZN_CATALOG_OK,
+	      "decoding what was just encoded was refused");
+	CHECK(row.hosts == 3, "the decoded set is %zu hosts, not 3", row.hosts);
+	CHECK(memcmp(row.entity, e1, sizeof(e1)) == 0,
+	      "the entity did not come from the caller's pointer");
+	for (i = 0; i < 3; i++)
+		CHECK(memcmp(row.host[i].b, hosts[i].b, FZN_CATALOG_PURGE_HOST_LEN) == 0,
+		      "pinned host %zu did not survive the round trip, so hosts would "
+		      "disagree about which set must close", i);
+	CHECK(row.agreed[0] == 0 && row.agreed[1] == 0 && row.agreed[2] == 0,
+	      "agreement arrived in the command, and only its recipients can say "
+	      "that");
+
+	/* RE-ENCODING THE DECODED FORM IS BYTE-IDENTICAL, which is the half
+	 * that catches a slack length or an ignored trailing byte while every
+	 * field still looks plausible. */
+	{
+		uint8_t again[FZN_RECORD_BODY_MAX];
+		size_t again_len = 0;
+
+		CHECK(fzn_catalog_purge_encode(row.host, row.hosts, again, sizeof(again),
+		                               &again_len) == FZN_CATALOG_OK,
+		      "re-encoding the decoded command was refused");
+		CHECK(again_len == len && memcmp(again, body, len) == 0,
+		      "a command does not re-encode to itself, so two byte strings "
+		      "decode to one command and a peer could re-sign a different "
+		      "spelling");
+	}
+
+	/* WHAT DECODE REFUSES, each a second spelling turned away. */
+	{
+		uint8_t bad[FZN_RECORD_BODY_MAX];
+
+		memcpy(bad, body, len);
+		bad[0] = FZN_CATALOG_OBJECT_ATTRIBUTE;
+		CHECK(fzn_catalog_purge_decode(e1, sizeof(e1), bad, len, &row) ==
+		          FZN_CATALOG_ERR_MALFORMED,
+		      "a body tagged as an attribute decoded as a purge");
+
+		memcpy(bad, body, len);
+		CHECK(fzn_catalog_purge_decode(e1, sizeof(e1), bad, len + 1u, &row) ==
+		          FZN_CATALOG_ERR_MALFORMED,
+		      "a trailing byte was ignored rather than refused");
+		CHECK(fzn_catalog_purge_decode(e1, sizeof(e1), bad, len - 1u, &row) ==
+		          FZN_CATALOG_ERR_MALFORMED,
+		      "a body one byte short of its own count decoded");
+
+		memcpy(bad, body, len);
+		bad[1] = 0;
+		CHECK(fzn_catalog_purge_decode(e1, sizeof(e1), bad, len, &row) ==
+		          FZN_CATALOG_ERR_MALFORMED,
+		      "a command pinning nobody decoded, and it would close instantly");
+
+		memcpy(bad, body, len);
+		bad[1] = (uint8_t)(FZN_CATALOG_PURGE_HOSTS_MAX + 1u);
+		CHECK(fzn_catalog_purge_decode(e1, sizeof(e1), bad, len, &row) ==
+		          FZN_CATALOG_ERR_MALFORMED,
+		      "a count past what a command can carry decoded");
+
+		CHECK(fzn_catalog_purge_decode(e1, sizeof(e1), body, 1, &row) ==
+		          FZN_CATALOG_ERR_MALFORMED, "a truncated head decoded");
+		CHECK(fzn_catalog_purge_decode(e1, FZN_CATALOG_ENTITY_LEN - 1u, body, len,
+		                               &row) == FZN_CATALOG_ERR_MALFORMED,
+		      "a short entity was accepted");
+	}
+
+	/* WHAT ENCODE REFUSES. */
+	CHECK(fzn_catalog_purge_encode(hosts, 0, body, sizeof(body), &len) ==
+	          FZN_CATALOG_ERR_ABSENT,
+	      "an empty pinned set encoded, and such a command closes instantly");
+	CHECK(fzn_catalog_purge_encode(hosts, FZN_CATALOG_PURGE_HOSTS_MAX + 1u, body,
+	                               sizeof(body), &len) == FZN_CATALOG_ERR_RANGE,
+	      "more hosts than a command can carry encoded");
+	CHECK(fzn_catalog_purge_encode(hosts, 3, body, 4, &len) == FZN_CATALOG_ERR_RANGE,
+	      "a body was written past the caller's buffer");
+	CHECK(fzn_catalog_purge_encode(hosts, 3, body, sizeof(body), NULL) ==
+	          FZN_CATALOG_ERR_MALFORMED, "encoding with nowhere to put the length");
+}
+
+/* AGREEMENT IS AN ATTRIBUTE, and the value binds it to one command. */
+static void test_agreement_is_derived(void)
+{
+	fzn_catalog_assertion_t set[4];
+	fzn_catalog_source_t who[4];
+	uint8_t id1[32], id2[32];
+	size_t n = 0, dropped = 0, i;
+
+	memset(id1, 0x11, sizeof(id1));
+	memset(id2, 0x22, sizeof(id2));
+
+	/* A and B agree to purge id1; C agrees to a DIFFERENT purge of the same
+	 * entity; A's agreement is repeated, as a re-delivery would be. */
+	for (i = 0; i < 4; i++)
+		curated(&set[i], hostA, e1);
+	set[0].issuer = hostA; set[0].value = id1; set[0].value_len = sizeof(id1);
+	set[1].issuer = hostB; set[1].value = id1; set[1].value_len = sizeof(id1);
+	set[2].issuer = hostC; set[2].value = id2; set[2].value_len = sizeof(id2);
+	set[3].issuer = hostA; set[3].value = id1; set[3].value_len = sizeof(id1);
+
+	CHECK(fzn_catalog_purge_agreements(set, 4, e1, sizeof(e1), id1, sizeof(id1),
+	                                   who, 4, &n, &dropped) == FZN_CATALOG_OK,
+	      "deriving agreements was refused");
+	CHECK(n == 2 && dropped == 0,
+	      "two hosts agreed to this purge and %zu were counted -- a repeated "
+	      "agreement is a re-delivery, not a second host", n);
+
+	/* THE VALUE IS WHAT BINDS IT. Without it, C's agreement to another
+	 * purge of the same entity would count towards this one. */
+	{
+		size_t m = 0, d2 = 0;
+
+		fzn_catalog_purge_agreements(set, 4, e1, sizeof(e1), id2, sizeof(id2),
+		                             who, 4, &m, &d2);
+		CHECK(m == 1,
+		      "the other purge's agreement set is %zu, not 1 -- agreements are "
+		      "not bound to the command they were given for", m);
+	}
+
+	/* A RETRACTED AGREEMENT IS NOT ONE. */
+	set[1].live = 0;
+	n = 0;
+	fzn_catalog_purge_agreements(set, 4, e1, sizeof(e1), id1, sizeof(id1), who, 4,
+	                             &n, &dropped);
+	CHECK(n == 1, "a retracted agreement still counted (n=%zu)", n);
+
+	/* And a buffer too small reports the remainder rather than silently
+	 * under-counting, as holders does. */
+	set[1].live = 1;
+	n = 0; dropped = 0;
+	fzn_catalog_purge_agreements(set, 4, e1, sizeof(e1), id1, sizeof(id1), who, 1,
+	                             &n, &dropped);
+	CHECK(n == 1 && dropped == 1,
+	      "a one-slot buffer did not report the rest (n=%zu dropped=%zu)", n, dropped);
+}
+
 int main(void)
 {
 	fixtures();
+	test_the_wire_form();
+	test_agreement_is_derived();
 
 	test_the_cycle();
 	test_the_set_is_pinned();
