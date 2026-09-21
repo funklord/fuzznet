@@ -203,6 +203,49 @@ int fzn_facet_expr_ordered(const fzn_facet_expr_t *expr, uint8_t *scratch,
                            size_t scratch_cap);
 
 /*
+ * F16 and F18: put the caller's arrays into canonical order, in place.
+ *
+ * This is the half of canonicalisation that needs the encoding, and it is
+ * here rather than beside `fzn_facet_normalize` for that reason -- F16 sorts
+ * "by BYTE-WISE COMPARISON of each term's canonical encoding", which nothing
+ * in facet.c can compute. Together the two calls leave an expression that
+ * `fzn_facet_expr_encode` accepts:
+ *
+ *     fzn_facet_normalize(...)     F19, needing no encoder
+ *     fzn_facet_expr_sort(...)     F16 and F18, needing one
+ *
+ * IT DOES THREE THINGS, IN THIS ORDER, because each changes what the next
+ * compares:
+ *
+ *   1. F18: sorts and deduplicates each alternation's members, ordering by a
+ *      member's own encoding `id_len || id`.
+ *   2. F19: an alternation the dedup reduced to ONE member becomes a PREFIX
+ *      term, since one member is not an alternation. Doing this before the
+ *      term sort matters -- it changes the term's encoding, and therefore
+ *      where it sorts.
+ *   3. F16: sorts each of P and N by term encoding and removes duplicates,
+ *      which after the sort are adjacent.
+ *
+ * IT REWRITES THE MEMBER ARRAYS, WHICH IS A PRECONDITION AND NOT AN
+ * IMPLEMENTATION DETAIL. `fzn_facet_term_t` holds `members` as a pointer to
+ * const because the MODEL only borrows; sorting them writes through it. So a
+ * caller must not point `members` at storage that is genuinely const -- a
+ * static const array will not do. The term arrays are rewritten too, exactly
+ * as `fzn_facet_normalize` already rewrites them.
+ *
+ * `scratch` holds two encoded terms at a time and is the caller's, this
+ * module allocating nothing; twice the longest term's encoding is enough.
+ * FZN_FACET_ERR_RANGE when it is too small, and the kind and malformed
+ * errors `fzn_facet_term_encode` gives for a term that will not encode. The
+ * arrays are left partly reordered when a term refuses, because an order is
+ * not a thing that can be half-written back: a caller that gets an error
+ * re-derives its expression rather than trusting the arrays.
+ */
+fzn_facet_err_t fzn_facet_expr_sort(fzn_facet_term_t *pos, size_t *pos_count,
+                                    fzn_facet_term_t *neg, size_t *neg_count,
+                                    uint8_t *scratch, size_t scratch_cap);
+
+/*
  * Decode an expression, filling the caller's term arrays.
  *
  * Every view in the filled terms BORROWS from `body`, which must outlive

@@ -411,6 +411,195 @@ static void test_ordered_needs_room_and_says_so(void)
 	CHECK(!fzn_facet_expr_ordered(&expr, NULL, 0), "a null scratch answered yes");
 }
 
+static void test_the_sort_produces_what_encode_demands(void)
+{
+	static const uint8_t D[] = "genre";
+	fzn_facet_term_t p[4], n[2];
+	fzn_facet_node_t members[4];
+	fzn_facet_expr_t expr;
+	uint8_t scratch[128], buf[256];
+	size_t pc = 4, nc = 1, len = 0, i;
+
+	/* Deliberately out of order, with a duplicate, and an alternation
+	 * whose members are out of order and repeat. This is what an editor's
+	 * marks look like before anybody canonicalises them (F32). */
+	prefix(&p[0], D, DIM_LEN, "ccc");
+	prefix(&p[1], D, DIM_LEN, "aaa");
+	prefix(&p[2], D, DIM_LEN, "ccc");   /* duplicate of p[0] */
+	memset(&p[3], 0, sizeof(p[3]));
+	p[3].kind = FZN_FACET_ALT;
+	p[3].node.dim = D;
+	p[3].node.dim_len = DIM_LEN;
+	{
+		static const char *ids[4] = { "zzz", "bbb", "zzz", "mmm" };
+
+		for (i = 0; i < 4; i++) {
+			members[i].dim = D;
+			members[i].dim_len = DIM_LEN;
+			members[i].id = (const uint8_t *)ids[i];
+			members[i].id_len = 3;
+		}
+	}
+	p[3].members = members;
+	p[3].member_count = 4;
+	prefix(&n[0], DIM2, DIM2_LEN, "old");
+
+	expr.pos = p;
+	expr.pos_count = pc;
+	expr.neg = n;
+	expr.neg_count = nc;
+
+	/* THE CONTROL FOR THE WHOLE TEST: this is refused BEFORE the sort, so
+	 * the pass afterwards is the sort's doing and not an accident of the
+	 * fixture. */
+	CHECK(fzn_facet_expr_encode(&expr, buf, sizeof(buf), &len)
+	          == FZN_FACET_ERR_MALFORMED,
+	      "the unsorted fixture encoded, so this test proves nothing");
+
+	CHECK(fzn_facet_expr_sort(p, &pc, n, &nc, scratch, sizeof(scratch))
+	          == FZN_FACET_OK, "the sort refused");
+
+	/* F19: the duplicate term is gone. */
+	CHECK(pc == 3, "P has %u terms, expected 3", (unsigned)pc);
+	CHECK(nc == 1, "N changed size");
+	/* F18: the members are sorted and the repeat removed. */
+	CHECK(p[0].kind == FZN_FACET_ALT || p[1].kind == FZN_FACET_ALT
+	          || p[2].kind == FZN_FACET_ALT, "the alternation vanished");
+	for (i = 0; i < pc; i++) {
+		if (p[i].kind != FZN_FACET_ALT)
+			continue;
+		CHECK(p[i].member_count == 3,
+		      "the alternation has %u members, expected 3",
+		      (unsigned)p[i].member_count);
+		CHECK(memcmp(p[i].members[0].id, "bbb", 3) == 0
+		          && memcmp(p[i].members[1].id, "mmm", 3) == 0
+		          && memcmp(p[i].members[2].id, "zzz", 3) == 0,
+		      "the members are not in F18 order");
+	}
+
+	expr.pos = p;
+	expr.pos_count = pc;
+	expr.neg = n;
+	expr.neg_count = nc;
+	/* AND THE POINT: what the sort produces is what encode demands. */
+	CHECK(fzn_facet_expr_ordered(&expr, scratch, sizeof(scratch)),
+	      "the sorted expression is not in F16 order");
+	CHECK(fzn_facet_expr_encode(&expr, buf, sizeof(buf), &len)
+	          == FZN_FACET_OK, "the sorted expression would not encode");
+	/* Sorting again changes nothing -- it is a canonical form, not a
+	 * rearrangement, so a second pass has to be a no-op. */
+	{
+		size_t pc2 = pc, nc2 = nc, len2 = 0;
+		uint8_t again[256];
+
+		CHECK(fzn_facet_expr_sort(p, &pc2, n, &nc2, scratch,
+		                          sizeof(scratch)) == FZN_FACET_OK,
+		      "the second sort refused");
+		CHECK(pc2 == pc && nc2 == nc, "the second sort changed the counts");
+		expr.pos_count = pc2;
+		expr.neg_count = nc2;
+		CHECK(fzn_facet_expr_encode(&expr, again, sizeof(again), &len2)
+		          == FZN_FACET_OK && len2 == len
+		          && memcmp(buf, again, len) == 0,
+		      "sorting twice is not the same as sorting once");
+	}
+}
+
+static void test_the_sort_orders_without_anything_to_dedup(void)
+{
+	/* A fixture ONLY THE SORT CAN ANSWER. The test above mixes disorder
+	 * with a duplicate, so breaking either the ordering or the dedup
+	 * fails the same term-count assertion -- the two sabotages are not
+	 * separated by it, and a control that cannot say WHICH check failed is
+	 * half a control. Here there is nothing to deduplicate, so only the
+	 * ordering can be wrong. */
+	static const uint8_t D[] = "genre";
+	fzn_facet_term_t p[3];
+	fzn_facet_expr_t expr;
+	uint8_t scratch[128], buf[256];
+	size_t pc = 3, nc = 0, len = 0;
+
+	prefix(&p[0], D, DIM_LEN, "ccc");
+	prefix(&p[1], D, DIM_LEN, "aaa");
+	prefix(&p[2], D, DIM_LEN, "bbb");
+
+	CHECK(fzn_facet_expr_sort(p, &pc, NULL, &nc, scratch, sizeof(scratch))
+	          == FZN_FACET_OK, "the sort refused");
+	CHECK(pc == 3, "the sort dropped a term it had no duplicate for");
+	CHECK(memcmp(p[0].node.id, "aaa", 3) == 0
+	          && memcmp(p[1].node.id, "bbb", 3) == 0
+	          && memcmp(p[2].node.id, "ccc", 3) == 0,
+	      "three distinct terms did not come back in order");
+
+	expr.pos = p;
+	expr.pos_count = pc;
+	expr.neg = NULL;
+	expr.neg_count = 0;
+	CHECK(fzn_facet_expr_encode(&expr, buf, sizeof(buf), &len)
+	          == FZN_FACET_OK, "the ordered expression would not encode");
+}
+
+static void test_the_sort_collapses_a_dedup_to_a_prefix(void)
+{
+	static const uint8_t D[] = "genre";
+	fzn_facet_term_t p[1];
+	fzn_facet_node_t members[3];
+	uint8_t scratch[128];
+	size_t pc = 1, nc = 0, i;
+
+	/* Three members, all the same. F18's dedup leaves one, and F19 says
+	 * one member is a PREFIX term -- which is why the collapse has to
+	 * happen AFTER the dedup and BEFORE the term sort. */
+	memset(&p[0], 0, sizeof(p[0]));
+	p[0].kind = FZN_FACET_ALT;
+	p[0].node.dim = D;
+	p[0].node.dim_len = DIM_LEN;
+	for (i = 0; i < 3; i++) {
+		members[i].dim = D;
+		members[i].dim_len = DIM_LEN;
+		members[i].id = (const uint8_t *)"solo";
+		members[i].id_len = 4;
+	}
+	p[0].members = members;
+	p[0].member_count = 3;
+
+	CHECK(fzn_facet_expr_sort(p, &pc, NULL, &nc, scratch, sizeof(scratch))
+	          == FZN_FACET_OK, "the sort refused");
+	CHECK(p[0].kind == FZN_FACET_PREFIX,
+	      "an alternation deduplicated to one member stayed an alternation");
+	CHECK(p[0].member_count == 0 && p[0].members == NULL,
+	      "the collapsed term kept its members");
+	CHECK(p[0].node.id_len == 4 && memcmp(p[0].node.id, "solo", 4) == 0,
+	      "the collapsed term lost its identifier");
+}
+
+static void test_the_sort_refuses_what_it_cannot_encode(void)
+{
+	static const uint8_t D[] = "genre";
+	fzn_facet_term_t p[2];
+	uint8_t scratch[128], tiny[8];
+	size_t pc = 2, nc = 0;
+
+	prefix(&p[0], D, DIM_LEN, "bbb");
+	prefix(&p[1], D, DIM_LEN, "aaa");
+	/* The control: it sorts with room. */
+	CHECK(fzn_facet_expr_sort(p, &pc, NULL, &nc, scratch, sizeof(scratch))
+	          == FZN_FACET_OK, "the control would not sort");
+	/* A scratch too small is a RANGE, not a silent wrong order. */
+	prefix(&p[0], D, DIM_LEN, "bbb");
+	prefix(&p[1], D, DIM_LEN, "aaa");
+	CHECK(fzn_facet_expr_sort(p, &pc, NULL, &nc, tiny, sizeof(tiny))
+	          == FZN_FACET_ERR_RANGE, "a scratch too small sorted anyway");
+	CHECK(fzn_facet_expr_sort(p, &pc, NULL, &nc, scratch, 2)
+	          == FZN_FACET_ERR_RANGE, "a two-byte scratch was accepted");
+	/* A term that will not encode stops the sort with its own error. */
+	p[1].kind = (fzn_facet_kind_t)9;
+	CHECK(fzn_facet_expr_sort(p, &pc, NULL, &nc, scratch, sizeof(scratch))
+	          == FZN_FACET_ERR_KIND, "an unknown kind sorted");
+	CHECK(fzn_facet_expr_sort(NULL, &pc, NULL, &nc, scratch, sizeof(scratch))
+	          == FZN_FACET_ERR_MALFORMED, "a null P with a count sorted");
+}
+
 /* ------------------------------------------------------------------------
  * The property that matters: over random expressions, encode-decode-encode
  * is the same bytes. Random rather than chosen, because cases chosen by
@@ -632,6 +821,10 @@ int main(void)
 	test_out_of_order_on_the_wire();
 	test_members_out_of_order_on_the_wire();
 	test_ordered_needs_room_and_says_so();
+	test_the_sort_produces_what_encode_demands();
+	test_the_sort_orders_without_anything_to_dedup();
+	test_the_sort_collapses_a_dedup_to_a_prefix();
+	test_the_sort_refuses_what_it_cannot_encode();
 	test_round_trip_over_random_expressions();
 
 	printf("facet_codec_test: %d checks, %d failure(s)\n", checks, failures);

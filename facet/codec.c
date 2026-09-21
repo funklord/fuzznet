@@ -283,6 +283,145 @@ fzn_facet_err_t fzn_facet_expr_encode(const fzn_facet_expr_t *expr,
 	return FZN_FACET_OK;
 }
 
+/* F18: a member's encoding is `id_len || id`, so the length byte leads and
+ * enc_cmp over it reduces to length first, then bytes. Stated rather than
+ * derived at the call site, because "the same rule as F16" needs an operand
+ * and this is which one. */
+static int member_cmp(const fzn_facet_node_t *a, const fzn_facet_node_t *b)
+{
+	if (a->id_len != b->id_len)
+		return a->id_len < b->id_len ? -1 : 1;
+	if (a->id_len == 0)
+		return 0;
+	return memcmp(a->id, b->id, a->id_len);
+}
+
+/* Insertion sort and dedup in place. Insertion rather than anything cleverer
+ * because an alternation is a person's marks in one dimension: small, and
+ * often nearly sorted already. */
+static void sort_members(fzn_facet_node_t *m, size_t *count)
+{
+	size_t n = *count, i, j, w;
+
+	for (i = 1; i < n; i++) {
+		fzn_facet_node_t key = m[i];
+
+		j = i;
+		while (j > 0 && member_cmp(&m[j - 1u], &key) > 0) {
+			m[j] = m[j - 1u];
+			j--;
+		}
+		m[j] = key;
+	}
+	w = n ? 1u : 0u;
+	for (i = 1; i < n; i++) {
+		if (member_cmp(&m[w - 1u], &m[i]) != 0)
+			m[w++] = m[i];
+	}
+	*count = w;
+}
+
+/* Compare two terms by their encodings (F16), into `*out`. */
+static fzn_facet_err_t term_cmp(const fzn_facet_term_t *a,
+                                const fzn_facet_term_t *b, uint8_t *scratch,
+                                size_t cap, int *out)
+{
+	size_t half = cap / 2u, alen = 0, blen = 0;
+	fzn_facet_err_t r;
+
+	r = fzn_facet_term_encode(a, scratch, half, &alen);
+	if (r != FZN_FACET_OK)
+		return r;
+	r = fzn_facet_term_encode(b, &scratch[half], cap - half, &blen);
+	if (r != FZN_FACET_OK)
+		return r;
+	*out = enc_cmp(scratch, alen, &scratch[half], blen);
+	return FZN_FACET_OK;
+}
+
+static fzn_facet_err_t sort_side(fzn_facet_term_t *arr, size_t *count,
+                                 uint8_t *scratch, size_t scratch_cap)
+{
+	size_t n = *count, i, j, w;
+	fzn_facet_err_t r;
+	int c;
+
+	/* F18 and F19 first: both change a term's encoding, and therefore
+	 * where the F16 sort below puts it. */
+	for (i = 0; i < n; i++) {
+		if (arr[i].kind != FZN_FACET_ALT)
+			continue;
+		if (!arr[i].members)
+			return FZN_FACET_ERR_MALFORMED;
+		/* Written through a pointer-to-const, which the header states
+		 * as a precondition: the model only borrows, and this is the
+		 * one operation that rewrites what it borrowed. */
+		sort_members((fzn_facet_node_t *)(void *)(size_t)arr[i].members,
+		             &arr[i].member_count);
+		/* F19: one member is not an alternation. */
+		if (arr[i].member_count == 1u) {
+			arr[i].kind = FZN_FACET_PREFIX;
+			arr[i].node = arr[i].members[0];
+			arr[i].members = NULL;
+			arr[i].member_count = 0;
+		}
+	}
+
+	for (i = 1; i < n; i++) {
+		fzn_facet_term_t key = arr[i];
+
+		j = i;
+		while (j > 0) {
+			r = term_cmp(&arr[j - 1u], &key, scratch, scratch_cap,
+			             &c);
+			if (r != FZN_FACET_OK)
+				return r;
+			if (c <= 0)
+				break;
+			arr[j] = arr[j - 1u];
+			j--;
+		}
+		arr[j] = key;
+	}
+
+	/* F19: duplicates are adjacent once sorted, so the removal is a pass
+	 * rather than a search -- and `fzn_facet_expr_encode` requires
+	 * STRICTLY ascending, so a sort that left them would produce an array
+	 * that still will not encode. */
+	w = n ? 1u : 0u;
+	for (i = 1; i < n; i++) {
+		r = term_cmp(&arr[w - 1u], &arr[i], scratch, scratch_cap, &c);
+		if (r != FZN_FACET_OK)
+			return r;
+		if (c != 0)
+			arr[w++] = arr[i];
+	}
+	*count = w;
+	return FZN_FACET_OK;
+}
+
+fzn_facet_err_t fzn_facet_expr_sort(fzn_facet_term_t *pos, size_t *pos_count,
+                                    fzn_facet_term_t *neg, size_t *neg_count,
+                                    uint8_t *scratch, size_t scratch_cap)
+{
+	fzn_facet_err_t r;
+
+	if (!pos_count || !neg_count || !scratch)
+		return FZN_FACET_ERR_MALFORMED;
+	if ((*pos_count != 0 && !pos) || (*neg_count != 0 && !neg))
+		return FZN_FACET_ERR_MALFORMED;
+	/* Two encodings have to fit at once, and a scratch that cannot hold
+	 * them makes every comparison fail -- refused here rather than as a
+	 * RANGE from the first encode, which would read as a term too big. */
+	if (scratch_cap < 4u)
+		return FZN_FACET_ERR_RANGE;
+
+	r = sort_side(pos, pos_count, scratch, scratch_cap);
+	if (r != FZN_FACET_OK)
+		return r;
+	return sort_side(neg, neg_count, scratch, scratch_cap);
+}
+
 /* Read a length-prefixed name at `*at`, bounded by `len`. */
 static int take_name(const uint8_t *body, size_t len, size_t *at,
                      const uint8_t **out, size_t *out_len)

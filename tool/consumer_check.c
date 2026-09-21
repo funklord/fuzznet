@@ -2224,6 +2224,54 @@ int main(void)
 					FAIL(421);
 			}
 
+			/* AND F16 FROM OUTSIDE. A consumer building an
+			 * expression has it in whatever order it made the
+			 * marks; encode REFUSES that rather than sorting it,
+			 * so the sort is the call that makes the refusal
+			 * survivable. Exercised here because nothing else in
+			 * the library produces F16's order. */
+			{
+				static const uint8_t fdim2[] = "genre";
+				fzn_facet_term_t sp[3];
+				fzn_facet_expr_t sexpr;
+				uint8_t sbuf[128], sscratch[128];
+				size_t spc = 3, snc = 0, slen = 0;
+				size_t si;
+				static const char *sids[3] = { "ccc", "aaa", "bbb" };
+
+				memset(sp, 0, sizeof(sp));
+				for (si = 0; si < 3; si++) {
+					sp[si].kind = FZN_FACET_PREFIX;
+					sp[si].node.dim = fdim2;
+					sp[si].node.dim_len = sizeof(fdim2) - 1u;
+					sp[si].node.id = (const uint8_t *)sids[si];
+					sp[si].node.id_len = 3;
+				}
+				sexpr.pos = sp;
+				sexpr.pos_count = spc;
+				sexpr.neg = NULL;
+				sexpr.neg_count = 0;
+
+				/* The control: refused before the sort, so the
+				 * pass after it is the sort's doing. */
+				if (fzn_facet_expr_encode(&sexpr, sbuf, sizeof(sbuf),
+				                          &slen)
+				    != FZN_FACET_ERR_MALFORMED)
+					FAIL(426);
+				if (fzn_facet_expr_sort(sp, &spc, NULL, &snc, sscratch,
+				                        sizeof(sscratch))
+				    != FZN_FACET_OK)
+					FAIL(427);
+				sexpr.pos_count = spc;
+				if (spc != 3
+				    || memcmp(sp[0].node.id, "aaa", 3) != 0
+				    || memcmp(sp[2].node.id, "ccc", 3) != 0)
+					FAIL(428);
+				if (fzn_facet_expr_encode(&sexpr, sbuf, sizeof(sbuf),
+				                          &slen) != FZN_FACET_OK)
+					FAIL(429);
+			}
+
 			/* F20 FROM OUTSIDE: the width belongs to the
 			 * dimension, and a run that outgrows it says so. A
 			 * consumer that reads the key and not the flag has a

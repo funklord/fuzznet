@@ -428,13 +428,21 @@ int fzn_facet_term_eq(const fzn_facet_term_t *a, const fzn_facet_term_t *b);
 fzn_facet_err_t fzn_facet_validate(const fzn_facet_expr_t *expr);
 
 /* F19: one-spelling normalisation, in place over the caller's arrays.
- * Collapses a single-member alternation to a prefix, deduplicates the members
- * of each alternation, and removes duplicate terms within P and within N. The
- * reduced counts are written back through `pos_count` and `neg_count`. It does
- * NOT do the F16 canonical SORT (that needs the encoding) nor the single-child
- * RANGE collapse of F19 (that needs the index): both are deferred with the
- * unsettled pieces they depend on. Order within P and N is otherwise
- * preserved. */
+ * Collapses a single-member alternation to a prefix and removes duplicate
+ * terms within P and within N, comparing with `fzn_facet_term_eq` so that an
+ * alternation's members count as a set. The reduced counts are written back
+ * through `pos_count` and `neg_count`, and order is otherwise preserved.
+ *
+ * IT DOES NOT DEDUPLICATE AN ALTERNATION'S MEMBERS, and said for some time
+ * that it did -- a claim `normalize_side` never satisfied. That is F18's
+ * half, it orders by the canonical encoding, and it lives in
+ * `fzn_facet_expr_sort` with the F16 term sort for that reason. Corrected
+ * 2026-09-21; sec 346.
+ *
+ * NOR THE SINGLE-CHILD RANGE COLLAPSE of F19, which needs the taxonomy to
+ * know that two bounds name one child. That one is still deferred, and
+ * `facet/codec.h` pins it as the one respect in which a decoded expression
+ * is not canonical. */
 fzn_facet_err_t fzn_facet_normalize(fzn_facet_term_t *pos, size_t *pos_count,
                                     fzn_facet_term_t *neg, size_t *neg_count);
 

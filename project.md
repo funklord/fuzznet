@@ -44863,3 +44863,95 @@ ONE CONSEQUENCE ELSEWHERE. The `fzn_admit()` orchestrator sketched at sec 14
 is blocked on three things, one of which was "sec 14 records sec 4.3's expiry
 reading as open". Two remain: step 5 does not exist, and sec 13's overhead
 question may still move what the header carries.
+
+## 346. F16's sort exists now, and two comments that claimed more than the code did, 2026-09-21
+
+THE GAP. F16 says an expression's terms are sorted "by BYTE-WISE COMPARISON of
+each term's canonical encoding", and nothing in the library produced that
+order. `fzn_facet_expr_encode` REFUSES an unsorted array rather than sorting
+it, so a consumer had to sort its own terms by encoded bytes -- and the tell
+was in my own work the day before: `codec_test` had to hand-roll an insertion
+sort over encodings to build a valid expression. **If the suite needs it,
+every consumer does.**
+
+`fzn_facet_expr_sort` in `facet/codec.c`, not in facet.c, for the reason that
+kept it unwritten: it orders by the canonical encoding, which is the codec's.
+It is the sibling of `fzn_facet_expr_ordered`, which could already say whether
+an array was in order and could not put it in one.
+
+THREE THINGS IN ONE ORDER, and the order is the design:
+
+  1. F18 sorts and DEDUPLICATES each alternation's members, by a member's own
+     encoding `id_len || id`.
+  2. F19 collapses an alternation the dedup reduced to ONE member into a
+     PREFIX term. Between the two, necessarily: earlier there is nothing to
+     collapse, and later the term has already sorted under an encoding it no
+     longer has.
+  3. F16 sorts P and N by term encoding and removes duplicates, which are
+     adjacent once sorted.
+
+IT REWRITES THE MEMBER ARRAYS, and that is a precondition rather than an
+implementation detail. `fzn_facet_term_t` holds `members` as a pointer to
+const because the model only BORROWS; sorting writes through it. A caller must
+therefore not point `members` at storage that is genuinely const. Stated in
+the header because an unstated precondition and an absent one look the same
+from outside.
+
+===========================================================================
+
+TWO COMMENTS CLAIMED MORE THAN THE CODE DID, and finding them is most of why
+this was worth doing.
+
+`facet.h` said `fzn_facet_normalize` "deduplicates the members of each
+alternation". IT NEVER DID. `normalize_side` collapses a one-member
+alternation and removes duplicate terms, and that is all -- and `facet.c`'s
+own comment said so, listing the F18 member sort/dedup among what is NOT
+done. So the header and the implementation disagreed about a named operation,
+in a module whose whole subject is canonical form, and the disagreement
+survived because nobody had a reason to ask normalize for something the
+encoder did not yet exist to want.
+
+That is `evidence.md`'s shape exactly: a claim nobody re-checked, where the
+falsifier was a function two files away. It is fixed by doing the work rather
+than by weakening the sentence -- F18's dedup exists now, in the sort -- and
+normalize's doc now says what normalize does.
+
+`facet.c`'s top-of-file comment listed evaluation, encode/decode and the F16
+sort as deliberately absent "because section 8 has not fixed the wire format".
+All three are built. The sentence outlived the gap it described by between a
+day and rather longer.
+
+===========================================================================
+
+EVIDENCE. 69 checks, and the fixtures are chosen so the sabotages SEPARATE.
+
+Four entries, each failing through its own assertion:
+
+    facet-sort-orders-the-terms                 codec_test.c:529
+    facet-sort-dedups-the-terms                 codec_test.c:463
+    facet-sort-dedups-the-members               codec_test.c:471
+    facet-sort-collapses-a-dedup-to-a-prefix    codec_test.c:534
+
+THE FIRST TWO DID NOT SEPARATE AT FIRST, which is the part worth recording.
+The main fixture mixes disorder with a duplicate, so breaking EITHER the
+ordering or the dedup failed the same term-count assertion first: two
+different defects, one message. A control that cannot say which check failed
+is half a control -- `evidence.md` says to sabotage the thing and then read
+WHICH check failed, and here the answer was the same either way.
+
+The fix is a second fixture with three distinct terms out of order and
+nothing to deduplicate, so only the ordering can be wrong. With it, the
+ordering sabotage fires an assertion the dedup sabotage does not.
+
+And the sort is checked for IDEMPOTENCE: sorting twice encodes to the same
+bytes as sorting once. A canonical form that moved on a second pass would not
+be one, and asserting the relationship catches that where asserting the
+result would not.
+
+The consumer gate gained the same shape -- refused before the sort, accepted
+after -- because nothing else in the library produces F16's order and a
+consumer meeting the refusal needs to know what answers it.
+
+WHAT IS STILL DEFERRED, unchanged and pinned in two places: F19's single-child
+RANGE collapse needs the taxonomy to know that two bounds name one child, so a
+canonical expression is canonical in every respect but that.

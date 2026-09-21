@@ -394,6 +394,59 @@ SABOTAGES = [
 		"restored width beside it as the control. sec 343",
 	),
 	(
+		"facet-sort-orders-the-terms",
+		"facet/codec.c",
+		"\t\t\tif (c <= 0)\n\t\t\t\tbreak;",
+		"\t\t\tbreak;",
+		"F16 gives an expression exactly ONE encoding so that equal "
+		"expressions are byte-equal and can be hashed for identity, and "
+		"nothing else in the library produces that order -- expr_encode "
+		"REFUSES an unsorted array rather than sorting it. A sort that does "
+		"not sort therefore leaves every consumer's expression unencodable, "
+		"or worse, encodable in whatever order it happened to build them. "
+		"codec_test drives an out-of-order fixture that must be refused "
+		"BEFORE the sort and accepted after. sec 346",
+	),
+	(
+		"facet-sort-dedups-the-terms",
+		"facet/codec.c",
+		"\t\tif (c != 0)\n\t\t\tarr[w++] = arr[i];",
+		"\t\tarr[w++] = arr[i];",
+		"F19 removes duplicate terms within P and within N, and "
+		"expr_encode requires STRICTLY ascending -- so a sort that orders "
+		"without deduplicating produces an array that still will not "
+		"encode, which is the one outcome worse than not sorting, because "
+		"the caller now believes it has canonicalised. codec_test puts the "
+		"same PREFIX term in P twice. sec 346",
+	),
+	(
+		"facet-sort-dedups-the-members",
+		"facet/codec.c",
+		"\t\tif (member_cmp(&m[w - 1u], &m[i]) != 0)\n\t\t\tm[w++] = m[i];",
+		"\t\tm[w++] = m[i];",
+		"F18 sorts AND deduplicates an alternation's members. A repeated "
+		"member is the commonest thing a tri-state editor produces (F32/F33 "
+		"-- two marks on one node in one dimension), so this is not an edge "
+		"case, and two spellings of one alternation are two identities for "
+		"one expression. facet.h claimed fzn_facet_normalize did this and it "
+		"never did; sec 346 records that. codec_test repeats a member. "
+		"sec 346",
+	),
+	(
+		"facet-sort-collapses-a-dedup-to-a-prefix",
+		"facet/codec.c",
+		"\t\tif (arr[i].member_count == 1u) {\n\t\t\tarr[i].kind = FZN_FACET_PREFIX;",
+		"\t\tif (0) {\n\t\t\tarr[i].kind = FZN_FACET_PREFIX;",
+		"F19: one member is not an alternation, and the codec refuses an "
+		"alternation of fewer than two members outright -- so an "
+		"alternation the member dedup reduced to one is unencodable unless "
+		"it is collapsed. This is why the collapse sits BETWEEN the member "
+		"dedup and the term sort: earlier there is nothing to collapse, "
+		"later the term has already sorted under the wrong encoding. "
+		"codec_test gives an alternation three copies of one member. "
+		"sec 346",
+	),
+	(
 		"shard-absorbs-the-remainder",
 		"catalog/shard.c",
 		"\t\tif (i + 1u == shards)\n\t\t\tout[i].entries = count - at;\n\t\telse\n\t\t\tout[i].entries = min_entries;",

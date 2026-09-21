@@ -4,12 +4,17 @@
  * format and no index -- facet.h's section 8 leaves those unsettled, so nothing
  * here fixes them. Terms carry borrowed views; this file never allocates.
  *
- * What is deliberately absent, and why, so a reader does not take the gap for
- * an oversight: no evaluation (needs the index interface, section 8), no
- * encode/decode (needs the wire encoding, section 8), and no F16 canonical
- * SORT of terms or F18 sort/dedup of alternation members (both order by the
- * canonical-encoding bytes the wire format has not fixed). Equality does not
- * need an order, so term equality IS here; ordering is not.
+ * What is absent from THIS FILE, and where it went, so a reader does not take
+ * the gap for an oversight. Evaluation is below (`fzn_facet_evaluate` over
+ * the index vtable). Encode and decode are `facet/codec.c`, and so are the
+ * F16 term sort and the F18 member sort/dedup -- all three order by or
+ * produce the canonical encoding, which is that file's.
+ *
+ * This comment listed the same three as ABSENT, on the grounds that section 8
+ * had not settled the encoding or the index interface. Both were settled, and
+ * the sentence outlived them; corrected 2026-09-21, sec 346.
+ *
+ * Equality does not need an order, so term equality IS here; ordering is not.
  */
 
 #include "facet.h"
@@ -167,9 +172,12 @@ fzn_facet_err_t fzn_facet_validate(const fzn_facet_expr_t *expr)
 
 /* F19, the part that needs neither the encoding nor the index: collapse a
  * single-member alternation to a prefix, then remove duplicate terms keeping
- * the first. The F16 canonical sort and the F18 member sort/dedup are NOT done
- * -- they order by the unsettled canonical encoding -- and neither is the
- * single-child RANGE collapse, which needs the index. */
+ * the first. The F16 term sort and the F18 member sort/dedup are not done
+ * HERE -- they order by the canonical encoding, so they are in
+ * `fzn_facet_expr_sort` beside the codec that defines it. This comment said
+ * they were deferred because the encoding was unsettled; it stopped being
+ * unsettled on 2026-09-21. The single-child RANGE collapse is still deferred
+ * and still needs the taxonomy. */
 static void normalize_side(fzn_facet_term_t *arr, size_t *count)
 {
 	size_t i, j, w;
