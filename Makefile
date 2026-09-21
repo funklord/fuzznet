@@ -4313,6 +4313,38 @@ style: $(OBJS)
 	for r in $$have; do \
 		case " `echo $$walked` " in *" $$r "*) ;; *) missing="$$missing $$r" ;; esac; \
 	done; 	if [ -n "$$missing" ]; then 		echo "style: error renderers the sweep does not walk:" $$missing; 		echo "style: add a row to SUBJECTS[] in wire/test/err_str_test.c,"; 		echo "style: or its arms render text no test has ever read."; 		exit 1; 	fi; 	echo "style: $$n error renderers, all walked by err_str_test ($$w rows)"
+	@# RETENTION AND FILING NEVER REACH THE WIRE, and this is what keeps
+	@# that true rather than remembered. sec 332.
+	@#
+	@# C5a HOST: one host's keep intent and one host's disk layout are its
+	@# own, and a retention or filing that travelled would make them an
+	@# assertion another host had to accept. sec 317 asked for that to be
+	@# CONFIRMED rather than assumed, because the first cut of that program
+	@# got it wrong -- which is exactly the kind of regression a comment
+	@# cannot stop.
+	@#
+	@# IT ASKS THE OBJECTS, NOT THE SOURCES. A grep for `encode` in the .c
+	@# would miss a call reached through a macro or an inlined helper, and
+	@# would trip over the word in a comment. The undefined symbols of the
+	@# built object are what the module can actually call.
+	@#
+	@# THE PROBE MUST HAVE SOMETHING TO READ: an absent object has no
+	@# undefined symbols and would pass silently, which is the vacuous pass
+	@# this tree keeps paying for.
+	@for o in $(BUILD_DIR)/catalog/retention.o $(BUILD_DIR)/catalog/filing.o; do \
+		test -f "$$o" || { \
+			echo "style: $$o is not built, so the per-host check read"; \
+			echo "style: nothing -- build before running this."; exit 1; }; \
+		bad=`nm --undefined-only "$$o" | awk '{ print $$2 }' \
+		     | grep -E 'encode|decode|sign|_record|write|open|send' || true`; \
+		if [ -n "$$bad" ]; then \
+			echo "style: $$o can reach the wire:" $$bad; \
+			echo "style: retention and filing are per-host (C5a HOST) and"; \
+			echo "style: must have no wire form -- see sec 332."; \
+			exit 1; \
+		fi; \
+	done; \
+	echo "style: retention and filing call nothing that could serialise them"
 	@# AND EVERY WIDGET IS PUT IN FRONT OF A TERMINAL. sec 249.
 	@#
 	@# `gui/test/qtty_render_test.cpp` names its subjects by including their

@@ -42804,10 +42804,9 @@ THREE DECISIONS THIS PROGRAM NEEDS FROM THE HOLDER, none of them mine:
   migration (step 7, ~1603 sites) collides head-on. Either wait for the
   hardening to settle or deconflict deliberately; charging in is the
   shared-tree hazard the guidelines name.
-- CONFIRM THE LOCAL/COOPERATIVE SPLIT: retention and filing are per-host
-  (C5a HOST) and never become shared attribute records. The model handles
-  this via the HOST scope, but it is worth confirming, because the first cut
-  of this program got it wrong and it changes what steps 3 and 6 build.
+- ~~CONFIRM THE LOCAL/COOPERATIVE SPLIT~~ CONFIRMED 2026-09-21: retention
+  and filing are per-host (C5a HOST) and never become shared attribute
+  records. Measured rather than promised, and now gated -- sec 332.
 
 WHAT THIS PROGRAM DOES NOT NEED, already done or another subsystem's: the data
 model, membership and availability (done, secs 314-316); the byte transfer
@@ -43735,3 +43734,52 @@ the retired guard's own entry, once for the held-back condition in
 sweep_print.c that the counter's removal rewrote. Both repaired, and the second
 re-proved by sabotaging it and reading which checks failed rather than that
 something did.
+
+## 332. Retention and filing are per-host: confirmed and gated, 2026-09-21
+
+sec 317's third decision, answered by the copyright holder on 2026-09-21: they
+stay per-host (C5a HOST) and never become shared attribute records. sec 317
+asked for this to be CONFIRMED rather than assumed, because the first cut of
+that program got it wrong -- so the confirmation is worth more as a
+measurement than as a sentence.
+
+WHAT WAS MEASURED. The undefined symbols of the built objects, which is what a
+module can actually call -- not a grep of the sources, which would miss a call
+reached through a macro and would trip over the word in a comment.
+
+    nm --undefined-only catalog/retention.o catalog/filing.o
+    -> memcmp
+
+That is the whole list. Between them the two modules call ONE libc function.
+No encode, no decode, no signing, no record, no allocation, no filesystem, no
+socket. They cannot put anything on the wire because they cannot call anything
+that would. Neither API takes an issuer either, for the reason both headers
+give: the only issuer a retention or a filing could have is the host reading
+it.
+
+SO IT IS GATED RATHER THAN COMMENTED. `make style` now reads those two objects
+and refuses any undefined symbol matching encode, decode, sign, record, write,
+open or send. A comment cannot stop the regression sec 317 says already
+happened once; a gate that reads the artifact can.
+
+THE GATE WAS WATCHED FAILING BEFORE IT WAS BELIEVED, which is this tree's rule
+for a check and the reason it is worth having. Adding a plausible regression to
+retention.c -- a function calling `write` -- produces
+
+    style: build/catalog/retention.o can reach the wire: write
+    style: retention and filing are per-host (C5a HOST) and
+    style: must have no wire form -- see sec 332.
+
+and fails the build, naming the symbol. Clean, it prints "retention and filing
+call nothing that could serialise them".
+
+AND IT REFUSES A MISSING OBJECT rather than passing over one. An absent .o has
+no undefined symbols and would satisfy the check in silence, which is the
+vacuous pass this tree has paid for repeatedly -- most recently in the very
+renderer gate this one sits beside, whose comment narrates the same defect.
+
+WHAT IT DOES NOT CLAIM. A CONSUMER may still read a retention verdict and
+choose to encode it as an attribute of its own; nothing here can stop that, and
+HOST scope is what makes it harmless if it does. What the gate guarantees is
+narrower and is the part that was at risk: this library offers no way to do it
+and contains no code that does.
