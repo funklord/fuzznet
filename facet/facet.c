@@ -210,12 +210,32 @@ fzn_facet_err_t fzn_facet_normalize(fzn_facet_term_t *pos, size_t *pos_count,
 	return FZN_FACET_OK;
 }
 
+const fzn_facet_dimension_t *fzn_facet_dimension_find(
+        const fzn_facet_dimension_t *dims, size_t count, const uint8_t *name,
+        size_t name_len)
+{
+	size_t i;
+
+	if (!dims || !name || name_len == 0)
+		return NULL;
+	for (i = 0; i < count; i++) {
+		if (dims[i].name_len != name_len || !dims[i].name)
+			continue;
+		if (memcmp(dims[i].name, name, name_len) == 0)
+			return &dims[i];
+	}
+	return NULL;
+}
+
 fzn_facet_err_t fzn_facet_collate(const uint8_t *value, size_t value_len,
                                   unsigned digit_width,
-                                  uint8_t *out, size_t out_cap, size_t *out_len)
+                                  uint8_t *out, size_t out_cap, size_t *out_len,
+                                  int *unpadded)
 {
 	size_t i = 0, w = 0;
 
+	if (unpadded)
+		*unpadded = 0;
 	if (!out_len)
 		return FZN_FACET_ERR_MALFORMED;
 	if ((value_len != 0 && !value) || (out_cap != 0 && !out))
@@ -228,6 +248,13 @@ fzn_facet_err_t fzn_facet_collate(const uint8_t *value, size_t value_len,
 				i++;
 			run = i - start;
 			pad = (run < digit_width) ? (digit_width - run) : 0;
+			/* THE KEY MISORDERS FROM HERE ON, and nothing else
+			 * would say so: an unpadded run sorts by its first
+			 * digit against a longer unpadded run, so 9999 comes
+			 * after 10000. Reported rather than refused, because
+			 * a display order does not care and F7 must. */
+			if (pad == 0 && run >= digit_width && unpadded)
+				*unpadded = 1;
 			if (pad > out_cap - w || run > out_cap - w - pad)
 				return FZN_FACET_ERR_RANGE;
 			for (k = 0; k < pad; k++)
@@ -242,6 +269,39 @@ fzn_facet_err_t fzn_facet_collate(const uint8_t *value, size_t value_len,
 	}
 	*out_len = w;
 	return FZN_FACET_OK;
+}
+
+fzn_facet_err_t fzn_facet_collate_for(const fzn_facet_dimension_t *dim,
+                                      const uint8_t *value, size_t value_len,
+                                      uint8_t *out, size_t out_cap,
+                                      size_t *out_len, int *unpadded)
+{
+	if (unpadded)
+		*unpadded = 0;
+	if (!dim || !out_len)
+		return FZN_FACET_ERR_MALFORMED;
+
+	if (dim->collation == FZN_FACET_COLLATE_RAW) {
+		if (value_len > out_cap)
+			return FZN_FACET_ERR_RANGE;
+		if (value_len != 0) {
+			if (!value || !out)
+				return FZN_FACET_ERR_MALFORMED;
+			memcpy(out, value, value_len);
+		}
+		*out_len = value_len;
+		return FZN_FACET_OK;
+	}
+	if (dim->collation != FZN_FACET_COLLATE_NATURAL)
+		return FZN_FACET_ERR_MALFORMED;
+	/* A width of zero pads nothing, which is RAW said a second way. One
+	 * spelling per thing, so the second one is refused rather than
+	 * quietly behaving like the first. */
+	if (dim->digit_width == 0)
+		return FZN_FACET_ERR_MALFORMED;
+
+	return fzn_facet_collate(value, value_len, dim->digit_width, out,
+	                         out_cap, out_len, unpadded);
 }
 
 static int entity_eq(const fzn_facet_entity_t *a, const fzn_facet_entity_t *b)

@@ -158,6 +158,22 @@
  *      dimension may instead declare raw byte order where natural order is
  *      wrong for it. The key is used for F7 and for display, never for F16.
  *
+ *      THE WIDTH IS DECLARED BY THE DIMENSION, settled by the copyright
+ *      holder on 2026-09-21. A dimension already declares whether it is
+ *      ordered naturally or by raw bytes, so the width joins the declaration
+ *      it belongs beside: a year dimension pads to 4 and a file-size
+ *      dimension to 10, and neither pays for the other's range. One number
+ *      for the whole catalogue would have made every dimension accept one
+ *      bet; see sec 343 for the measurement.
+ *
+ *      A RUN AT OR ABOVE THE WIDTH IS NOT PADDED, so the key is never lossy
+ *      upward -- and it then MISORDERS against a longer run, because `9999`
+ *      unpadded sorts after `10000` unpadded. No width removes that; it only
+ *      moves where it starts. So `fzn_facet_collate` REPORTS it, and a caller
+ *      doing F7 must treat the report as a refusal rather than compare the
+ *      key: a RANGE evaluated on a misordering key selects the wrong files,
+ *      which is what F25 forbids substituting for a refusal.
+ *
  * F21. Canonicalisation is SYNTACTIC and MUST NOT be semantic. Terms that are
  *      semantically redundant are not simplified: `genre/house` beside
  *      `genre/house/deep` does not collapse, though the second is contained in
@@ -265,12 +281,15 @@
  * rewritten rather than struck through, so that what is open can be read at a
  * glance:
  *
- *   - THE COLLATION KEY'S DIGIT-RUN WIDTH (F20). Still open, and still a
- *     parameter of `fzn_facet_collate` rather than a constant, which is what
- *     "unsettled" looks like in code.
  *   - THIS MODULE'S NAME. Still open; `facet` is provisional.
  *
  * Answered since:
+ *
+ *   - THE COLLATION KEY'S DIGIT-RUN WIDTH (F20): declared by the DIMENSION,
+ *     2026-09-21, beside the raw-byte-order declaration a dimension may
+ *     already make. `fzn_facet_dimension_t` below, and sec 343. It stays a
+ *     parameter of `fzn_facet_collate` -- what changed is that the parameter
+ *     now has an owner.
  *
  *   - THE WIRE ENCODING of a term and an expression: `facet/codec.h`, and
  *     project.md sec 342. It needed no decision -- F16 to F19 had already
@@ -404,16 +423,69 @@ fzn_facet_err_t fzn_facet_validate(const fzn_facet_expr_t *expr);
 fzn_facet_err_t fzn_facet_normalize(fzn_facet_term_t *pos, size_t *pos_count,
                                     fzn_facet_term_t *neg, size_t *neg_count);
 
+/* F20: how a dimension's values are ordered. A dimension declares this; this
+ * module never learns what the dimension classifies, only how to sort it. */
+typedef enum fzn_facet_collation {
+	/* Digit runs are zero-padded to the dimension's width, so `9` sorts
+	 * before `10` and `720p` before `1080p`. */
+	FZN_FACET_COLLATE_NATURAL = 0,
+	/* F20's alternative: raw byte order, for a dimension where natural
+	 * order is wrong -- a catalogue number, a hash, a code. */
+	FZN_FACET_COLLATE_RAW = 1
+} fzn_facet_collation_t;
+
+/* A dimension's declaration: its opaque name, and how its values order.
+ *
+ * TWO HOSTS MUST AGREE ABOUT THIS OR THEY EVALUATE THE SAME EXPRESSION TO
+ * DIFFERENT SETS, because F7 compares RANGE bounds by collation key. It is
+ * therefore a property of the dimension rather than of a host's preference,
+ * which is why it lives beside the name. Where the declaration is carried is
+ * the catalogue's business, not this module's -- `local/vocabulary.h`'s rule
+ * again: mechanism, never meaning. */
+typedef struct fzn_facet_dimension {
+	const uint8_t        *name;
+	size_t                name_len;
+	fzn_facet_collation_t collation;
+	/* NATURAL only, and must be non-zero: a width of zero pads nothing,
+	 * which is RAW said a second way, and one spelling per thing (F19's
+	 * instinct applied to a declaration). */
+	unsigned              digit_width;
+} fzn_facet_dimension_t;
+
+/* The declaration for the dimension called `name`, or NULL when the table
+ * has none. A term naming a dimension nobody declared is a term this host
+ * cannot order, which is the caller's to refuse. */
+const fzn_facet_dimension_t *fzn_facet_dimension_find(
+        const fzn_facet_dimension_t *dims, size_t count, const uint8_t *name,
+        size_t name_len);
+
 /* F20: derive a value's collation key by zero-padding each run of decimal
  * digits to `digit_width`, so byte order matches natural order (`9` before
- * `10`, `720p` before `1080p`). The width is a PARAMETER because section 8
- * leaves it unsettled. Non-digit bytes are copied unchanged. Writes the key to
- * `out` and its length to `*out_len`; returns FZN_FACET_ERR_RANGE if `out_cap`
- * is too small. A run already at or above `digit_width` is not truncated, so
- * the key is never lossy upward. */
+ * `10`, `720p` before `1080p`). Non-digit bytes are copied unchanged. Writes
+ * the key to `out` and its length to `*out_len`; returns FZN_FACET_ERR_RANGE
+ * if `out_cap` is too small.
+ *
+ * A RUN AT OR ABOVE `digit_width` IS NOT TRUNCATED, so the key is never lossy
+ * upward -- and `*unpadded` is set non-zero when that happened, because such
+ * a key MISORDERS: unpadded `9999` sorts after unpadded `10000`. `unpadded`
+ * may be NULL for a caller that only wants a display order, but a caller
+ * doing F7 MUST treat a set flag as a refusal. Comparing a misordering key
+ * selects the wrong files for a RANGE, and F25 forbids substituting a wrong
+ * answer for a refusal. */
 fzn_facet_err_t fzn_facet_collate(const uint8_t *value, size_t value_len,
                                   unsigned digit_width,
-                                  uint8_t *out, size_t out_cap, size_t *out_len);
+                                  uint8_t *out, size_t out_cap, size_t *out_len,
+                                  int *unpadded);
+
+/* Collate `value` under `dim`'s own declaration, which is the call a consumer
+ * with a dimension table wants. RAW copies the value unchanged and never sets
+ * `*unpadded`, there being no padding to fall short. FZN_FACET_ERR_MALFORMED
+ * for a null, an unknown collation (F26's instinct), or a NATURAL declaration
+ * whose width is zero. */
+fzn_facet_err_t fzn_facet_collate_for(const fzn_facet_dimension_t *dim,
+                                      const uint8_t *value, size_t value_len,
+                                      uint8_t *out, size_t out_cap,
+                                      size_t *out_len, int *unpadded);
 
 /* An entity a term selects -- a content hash the filestore knows a file by
  * (catalogue C1). Opaque bytes, a borrowed view; this module never learns what

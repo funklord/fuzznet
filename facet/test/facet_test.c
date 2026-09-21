@@ -74,7 +74,7 @@ static int collate_is(const char *in, unsigned width, const char *want)
 	uint8_t out[64];
 	size_t out_len = 0;
 	fzn_facet_err_t e = fzn_facet_collate((const uint8_t *)in, strlen(in),
-	                                      width, out, sizeof(out), &out_len);
+	                                      width, out, sizeof(out), &out_len, NULL);
 	if (e != FZN_FACET_OK)
 		return 0;
 	return out_len == strlen(want) && memcmp(out, want, out_len) == 0;
@@ -93,8 +93,8 @@ static void test_collation(void)
 	{
 		uint8_t a[8], b[8];
 		size_t al = 0, bl = 0;
-		fzn_facet_collate((const uint8_t *)"9", 1, 4, a, sizeof(a), &al);
-		fzn_facet_collate((const uint8_t *)"10", 2, 4, b, sizeof(b), &bl);
+		fzn_facet_collate((const uint8_t *)"9", 1, 4, a, sizeof(a), &al, NULL);
+		fzn_facet_collate((const uint8_t *)"10", 2, 4, b, sizeof(b), &bl, NULL);
 		CHECK(memcmp(a, b, 4) < 0, "collated 9 sorts before 10");
 	}
 
@@ -109,7 +109,7 @@ static void test_collation(void)
 		uint8_t out[4];
 		size_t out_len = 123;
 		fzn_facet_err_t e = fzn_facet_collate((const uint8_t *)"", 0, 4,
-		                                      out, sizeof(out), &out_len);
+		                                      out, sizeof(out), &out_len, NULL);
 		CHECK(e == FZN_FACET_OK && out_len == 0, "empty value -> empty key");
 	}
 
@@ -119,13 +119,116 @@ static void test_collation(void)
 		uint8_t small[3];
 		size_t out_len = 0;
 		fzn_facet_err_t e = fzn_facet_collate((const uint8_t *)"9", 1, 4,
-		                                      small, sizeof(small), &out_len);
+		                                      small, sizeof(small), &out_len, NULL);
 		CHECK(e == FZN_FACET_ERR_RANGE, "0009 refuses a 3-byte buffer");
 		CHECK(collate_is("9", 4, "0009"), "and fits a large one (control)");
 	}
 }
 
 /* --- structural equality ----------------------------------------------- */
+
+static void test_the_width_belongs_to_the_dimension(void)
+{
+	/* F20, settled 2026-09-21: the width is declared by the dimension, so
+	 * a year dimension pads to 4 and a size dimension to 10 and neither
+	 * pays for the other's range. */
+	static const uint8_t YEAR[] = "year";
+	static const uint8_t SIZE[] = "size";
+	static const uint8_t CODE[] = "code";
+	fzn_facet_dimension_t dims[3];
+	uint8_t out[64];
+	size_t len = 0;
+	int unpadded = -1;
+
+	dims[0].name = YEAR;
+	dims[0].name_len = sizeof(YEAR) - 1u;
+	dims[0].collation = FZN_FACET_COLLATE_NATURAL;
+	dims[0].digit_width = 4;
+	dims[1].name = SIZE;
+	dims[1].name_len = sizeof(SIZE) - 1u;
+	dims[1].collation = FZN_FACET_COLLATE_NATURAL;
+	dims[1].digit_width = 10;
+	dims[2].name = CODE;
+	dims[2].name_len = sizeof(CODE) - 1u;
+	dims[2].collation = FZN_FACET_COLLATE_RAW;
+	dims[2].digit_width = 0;
+
+	CHECK(fzn_facet_dimension_find(dims, 3, YEAR, 4) == &dims[0],
+	      "a declared dimension was not found");
+	CHECK(fzn_facet_dimension_find(dims, 3, (const uint8_t *)"nope", 4)
+	          == NULL, "an undeclared dimension was found");
+	CHECK(fzn_facet_dimension_find(dims, 3, YEAR, 3) == NULL,
+	      "a prefix of a dimension name matched it");
+
+	/* Each dimension pays only its own width. */
+	CHECK(fzn_facet_collate_for(&dims[0], (const uint8_t *)"7", 1, out,
+	                            sizeof(out), &len, &unpadded)
+	          == FZN_FACET_OK && len == 4 && memcmp(out, "0007", 4) == 0,
+	      "the year dimension did not pad to 4");
+	CHECK(unpadded == 0, "a padded run reported itself unpadded");
+	CHECK(fzn_facet_collate_for(&dims[1], (const uint8_t *)"7", 1, out,
+	                            sizeof(out), &len, &unpadded)
+	          == FZN_FACET_OK && len == 10
+	          && memcmp(out, "0000000007", 10) == 0,
+	      "the size dimension did not pad to 10");
+
+	/* RAW copies the value and never reports an unpadded run: there is no
+	 * padding to fall short of. */
+	unpadded = -1;
+	CHECK(fzn_facet_collate_for(&dims[2], (const uint8_t *)"0009", 4, out,
+	                            sizeof(out), &len, &unpadded)
+	          == FZN_FACET_OK && len == 4 && memcmp(out, "0009", 4) == 0,
+	      "a RAW dimension did not copy its value");
+	CHECK(unpadded == 0, "a RAW dimension reported an unpadded run");
+
+	/* THE SIGNAL, which is what makes the per-dimension width safe: a run
+	 * at or above the width is left unpadded and the key MISORDERS from
+	 * there -- unpadded 9999 sorts after unpadded 10000 -- and nothing
+	 * else would say so. */
+	unpadded = -1;
+	CHECK(fzn_facet_collate_for(&dims[0], (const uint8_t *)"44100", 5, out,
+	                            sizeof(out), &len, &unpadded)
+	          == FZN_FACET_OK, "a long run would not collate");
+	CHECK(unpadded == 1,
+	      "a run over the dimension's width was not reported");
+	/* And the misordering it warns about is real, which is why the flag
+	 * is not decoration. */
+	{
+		uint8_t a[16], b[16];
+		size_t la = 0, lb = 0;
+		int ua = 0, ub = 0;
+
+		fzn_facet_collate((const uint8_t *)"9999", 4, 4, a, sizeof(a),
+		                  &la, &ua);
+		fzn_facet_collate((const uint8_t *)"10000", 5, 4, b, sizeof(b),
+		                  &lb, &ub);
+		CHECK(ua == 1 && ub == 1, "neither long run was reported");
+		CHECK(memcmp(a, b, la < lb ? la : lb) > 0,
+		      "9999 did not misorder against 10000 -- the flag would "
+		      "then be warning about nothing");
+	}
+
+	/* A NATURAL declaration of width zero pads nothing, which is RAW said
+	 * a second way. One spelling per thing. */
+	dims[0].digit_width = 0;
+	CHECK(fzn_facet_collate_for(&dims[0], (const uint8_t *)"7", 1, out,
+	                            sizeof(out), &len, &unpadded)
+	          == FZN_FACET_ERR_MALFORMED,
+	      "a NATURAL dimension of width zero collated");
+	dims[0].digit_width = 4;
+	/* The control: putting the width back makes it work again. */
+	CHECK(fzn_facet_collate_for(&dims[0], (const uint8_t *)"7", 1, out,
+	                            sizeof(out), &len, &unpadded)
+	          == FZN_FACET_OK, "the restored declaration would not collate");
+	/* A collation this build does not know, F26's instinct one layer out. */
+	dims[0].collation = (fzn_facet_collation_t)7;
+	CHECK(fzn_facet_collate_for(&dims[0], (const uint8_t *)"7", 1, out,
+	                            sizeof(out), &len, &unpadded)
+	          == FZN_FACET_ERR_MALFORMED, "an unknown collation collated");
+	CHECK(fzn_facet_collate_for(NULL, (const uint8_t *)"7", 1, out,
+	                            sizeof(out), &len, &unpadded)
+	          == FZN_FACET_ERR_MALFORMED, "a null declaration collated");
+}
 
 static void test_term_eq(void)
 {
@@ -386,6 +489,7 @@ static void test_evaluate(void)
 int main(void)
 {
 	test_collation();
+	test_the_width_belongs_to_the_dimension();
 	test_term_eq();
 	test_validate_refusals();
 	test_normalize();

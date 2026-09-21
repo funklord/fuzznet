@@ -2223,6 +2223,48 @@ int main(void)
 				    != FZN_FACET_ERR_MALFORMED)
 					FAIL(421);
 			}
+
+			/* F20 FROM OUTSIDE: the width belongs to the
+			 * dimension, and a run that outgrows it says so. A
+			 * consumer that reads the key and not the flag has a
+			 * key that misorders and no way to know. */
+			{
+				static const uint8_t yr[] = "year";
+				fzn_facet_dimension_t fdim;
+				uint8_t key[32];
+				size_t klen = 0;
+				int unpadded = -1;
+
+				fdim.name = yr;
+				fdim.name_len = sizeof(yr) - 1u;
+				fdim.collation = FZN_FACET_COLLATE_NATURAL;
+				fdim.digit_width = 4;
+				if (fzn_facet_dimension_find(&fdim, 1, yr,
+				                             sizeof(yr) - 1u) != &fdim)
+					FAIL(422);
+				if (fzn_facet_collate_for(&fdim, (const uint8_t *)"9", 1,
+				                          key, sizeof(key), &klen,
+				                          &unpadded) != FZN_FACET_OK
+				    || klen != 4 || memcmp(key, "0009", 4) != 0
+				    || unpadded != 0)
+					FAIL(423);
+				/* A five-digit run in a four-wide dimension. */
+				if (fzn_facet_collate_for(&fdim,
+				                          (const uint8_t *)"44100", 5,
+				                          key, sizeof(key), &klen,
+				                          &unpadded) != FZN_FACET_OK
+				    || unpadded != 1)
+					FAIL(424);
+				/* RAW never reports one: there is no padding
+				 * for a run to fall short of. */
+				fdim.collation = FZN_FACET_COLLATE_RAW;
+				if (fzn_facet_collate_for(&fdim,
+				                          (const uint8_t *)"44100", 5,
+				                          key, sizeof(key), &klen,
+				                          &unpadded) != FZN_FACET_OK
+				    || klen != 5 || unpadded != 0)
+					FAIL(425);
+			}
 		}
 
 #ifdef FZN_SPOOL_FILE_ON

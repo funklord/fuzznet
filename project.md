@@ -44593,3 +44593,92 @@ AND WHAT THE ENCODING CANNOT CHECK IS PINNED: F19's single-child RANGE
 collapse needs the taxonomy, so a decoded expression is canonical in every
 respect except that one. A gate whose limits are unwritten gets quoted for
 guarantees it never made.
+
+## 343. F20's digit-run width belongs to the dimension, 2026-09-21
+
+THE DECISION, the copyright holder's on 2026-09-21: the width is declared by
+the DIMENSION, not fixed once for the catalogue. A year dimension pads to 4
+and a file-size dimension to 10, and neither pays for the other's range.
+
+It fits what F20 already said. A dimension may "instead declare raw byte order
+where natural order is wrong for it" -- so a dimension ALREADY carries a
+collation policy, and the width joins the declaration it belongs beside rather
+than becoming a second, global thing.
+
+WHAT THE MEASUREMENT FOUND, and why this one did not dissolve the way sec
+341's did. Three widths were driven through the existing `fzn_facet_collate`:
+
+    w=4    9999 vs 10000    ->  9999 > 10000     WRONG
+    w=4   44100 vs 192000   -> 44100 > 192000    WRONG
+    w=10  both pairs        ->  correct
+    w=20  "S01E02 part 3"   ->  REFUSED: the key needs 67 bytes for 13
+
+A RUN AT OR ABOVE THE WIDTH IS LEFT UNPADDED, which F20 wanted so the key is
+never lossy upward -- and such a key MISORDERS, because an unpadded run
+compares by its first digit against a longer unpadded run. No width removes
+that. It only moves where it starts, and the cost of moving it is measured:
+k digit runs need k * width bytes, so a 13-character value with three runs
+already needs 67 bytes at width 20.
+
+So all four options survived the measurement, which is what made it a real
+decision rather than an arithmetic question. Recorded because sec 341 was the
+other case and the two together are the rule: measure first, and ask only what
+is still open afterwards.
+
+===========================================================================
+
+AND THE PART THAT IS NOT THE DECISION. The misordering was SILENT. Nothing in
+the key, the length or the status said a run had outgrown the width, so a
+caller comparing two keys got a wrong answer with no way to know -- and F7
+compares RANGE bounds by collation key, so a wrong answer there selects the
+wrong FILES.
+
+Per-dimension widths make that more likely rather than less: a dimension
+declaring 4 will meet a five-digit value sooner than a catalogue-wide 10
+would. So `fzn_facet_collate` now reports it, through an optional `unpadded`
+out-parameter, and F20 says what a caller must do with it:
+
+  - a caller wanting a DISPLAY order may ignore it;
+  - a caller doing F7 MUST treat it as a refusal, because comparing a
+    misordering key selects the wrong files and F25 forbids substituting a
+    wrong answer for a refusal.
+
+THE TEST CHECKS THE FLAG AND THE MISORDERING IT WARNS ABOUT. Asserting only
+that the flag is set would leave the flag warning about nothing if the padding
+rule ever changed, so the suite also asserts that unpadded `9999` really does
+sort after unpadded `10000`. That is the relationship rather than either
+value.
+
+===========================================================================
+
+WHAT WAS ADDED, beyond the one-line change to F20.
+
+`fzn_facet_dimension_t` -- a dimension's declaration: its opaque name, whether
+it orders NATURAL or RAW, and the width. This is what makes "declared by the
+dimension" a thing in the code rather than a sentence in a header.
+
+TWO HOSTS MUST AGREE ABOUT A DECLARATION or they evaluate the same expression
+to different sets, since F7 compares by collation key. So it is a property of
+the dimension rather than of a host's preference, which is why it lives beside
+the name. WHERE the declaration is carried is the catalogue's business and not
+facet's -- mechanism, never meaning.
+
+`fzn_facet_dimension_find` and `fzn_facet_collate_for`, so a consumer with a
+dimension table asks the table rather than remembering which width goes with
+which name. `fzn_facet_collate` keeps its shape: what changed is that its
+width parameter now has an owner.
+
+A NATURAL DECLARATION OF WIDTH ZERO IS REFUSED. It pads nothing, which is RAW
+said a second way -- F19's one-spelling instinct applied to a declaration
+rather than to a term. Accepting it would let a dimension be raw while
+claiming to be natural, and the next reader of the declaration believes the
+claim.
+
+Two sabotage entries, both watched failing through their own assertion:
+
+    facet-reports-an-unpadded-run          facet_test.c:192
+    facet-refuses-a-natural-width-of-zero  facet_test.c:214
+
+The consumer gate gained an exercise for the declaration and the flag.
+
+SECTION 8 IS DOWN TO ONE ITEM: this module's NAME, which is the holder's.

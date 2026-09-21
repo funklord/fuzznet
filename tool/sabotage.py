@@ -369,6 +369,31 @@ SABOTAGES = [
 		"one-dimension alternation beside it as the control. sec 342",
 	),
 	(
+		"facet-reports-an-unpadded-run",
+		"facet/facet.c",
+		"\t\t\tif (pad == 0 && run >= digit_width && unpadded)\n\t\t\t\t*unpadded = 1;",
+		"\t\t\tif (0)\n\t\t\t\t*unpadded = 1;",
+		"a digit run at or above the dimension's width is left unpadded, and "
+		"the key MISORDERS from there: unpadded 9999 sorts after unpadded "
+		"10000. No width removes that, it only moves where it starts, so the "
+		"report is what makes a per-dimension width safe -- a caller doing "
+		"F7 must treat it as a refusal, because a RANGE on a misordering key "
+		"selects the wrong files and F25 forbids that. facet_test checks the "
+		"flag AND that the misordering it warns about is real. sec 343",
+	),
+	(
+		"facet-refuses-a-natural-width-of-zero",
+		"facet/facet.c",
+		"\tif (dim->digit_width == 0)\n\t\treturn FZN_FACET_ERR_MALFORMED;",
+		"\tif (0)\n\t\treturn FZN_FACET_ERR_MALFORMED;",
+		"a NATURAL declaration of width zero pads nothing, which is RAW said "
+		"a second way -- one spelling per thing, F19's instinct applied to a "
+		"declaration rather than to a term. Accepting it lets a dimension be "
+		"raw while claiming to be natural, and the next reader of the "
+		"declaration believes the claim. facet_test drives it with the "
+		"restored width beside it as the control. sec 343",
+	),
+	(
 		"shard-absorbs-the-remainder",
 		"catalog/shard.c",
 		"\t\tif (i + 1u == shards)\n\t\t\tout[i].entries = count - at;\n\t\telse\n\t\t\tout[i].entries = min_entries;",
