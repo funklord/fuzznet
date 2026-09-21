@@ -4757,6 +4757,63 @@ QTTY_DIR      ?= $(QTTY_VENDORED)
 # A SKIP SAYS WHAT WAS NOT CHECKED. A silent one is a green line claiming
 # coverage it never had, which is the whole failure above wearing a tidier
 # face.
+# THE LIBRARY CROSS-COMPILES FOR ANDROID, and this is the only gate that says
+# so from inside this tree. sec 333.
+#
+# fuzznet's sources already ship on Android: fuzzypickles' core/ compiles them
+# with the NDK clang and the result goes into a real APK. So the question this
+# answers is not "can it" -- that is settled by a consumer shipping it -- but
+# WHO FINDS OUT WHEN IT STOPS. Today that is fuzzypickles, at the moment they
+# move their pin, which is the worst time and somebody else's tree.
+#
+# IT BUILDS THE LIBRARY AND NOTHING ELSE. No APK, no Qt, no packaging, no
+# APP_ID, and no tool/android.mk -- that fragment is shaped for a Qt
+# application and this is a library plus a 93-line daemon. Android has no host
+# for a daemon a normal app can run, so there is nothing here to package.
+#
+# IT FAILS RATHER THAN SKIPS when there is no NDK, which is this tree's
+# convention for an optional-tool gate: `schema` and `qttycheck` both refuse
+# rather than passing quietly, because a gate that skips is indistinguishable
+# from one that found nothing.
+#
+# `-MMD -MP` COME OUT OF CPPFLAGS. fuzznet learned this from its own POSIX
+# probe and it is recorded in evidence.md: a dependency flag against
+# `-o /dev/null` tries to open `/dev/null.d` and fails on permission, sending
+# every probe to "no" on a machine whose library builds perfectly.
+ANDROID_NDK_ROOT ?= /usr/lib/android-ndk
+ANDROID_API ?= 30
+
+androidcheck:
+	@ndk_cc=`ls $(ANDROID_NDK_ROOT)/toolchains/llvm/prebuilt/*/bin/aarch64-linux-android$(ANDROID_API)-clang 2>/dev/null | head -1`; \
+	if [ -z "$$ndk_cc" ]; then \
+		echo "androidcheck: no NDK clang under $(ANDROID_NDK_ROOT)"; \
+		echo "androidcheck: set ANDROID_NDK_ROOT=/path/to/ndk, or"; \
+		echo "androidcheck: ANDROID_API=<level> if $(ANDROID_API) is not built."; \
+		exit 1; \
+	fi; \
+	echo "androidcheck: against `basename $$ndk_cc`"; \
+	printf 'int main(void){return 0;}\n' > $(BUILD_DIR)/.ndkprobe.c; \
+	$$ndk_cc -c $(BUILD_DIR)/.ndkprobe.c -o /dev/null 2>/dev/null || { \
+		echo "androidcheck: that clang cannot compile a trivial program, so"; \
+		echo "androidcheck: nothing below would have meant anything."; \
+		rm -f $(BUILD_DIR)/.ndkprobe.c; exit 1; }; \
+	rm -f $(BUILD_DIR)/.ndkprobe.c; \
+	n=0; bad=0; \
+	for s in $(SRCS); do \
+		n=`expr $$n + 1`; \
+		$$ndk_cc $(CFLAGS) $(filter-out -MMD -MP -MD,$(CPPFLAGS)) \
+		         -Iwire/generated -Inet -c $$s -o /dev/null || bad=`expr $$bad + 1`; \
+	done; \
+	if [ "$$n" -eq 0 ]; then \
+		echo "androidcheck: no sources were compiled, so this checked nothing."; \
+		exit 1; \
+	fi; \
+	if [ "$$bad" -ne 0 ]; then \
+		echo "androidcheck: $$bad of $$n library sources do not build for Android."; \
+		exit 1; \
+	fi; \
+	echo "androidcheck: $$n library sources build for aarch64 android-$(ANDROID_API)"
+
 qttycheck:
 	@if [ -z "$(GUI_ON)" ] || [ -z "$(CLI_ON)" ]; then \
 		echo "qttycheck: SKIPPED -- the widgets are not built."; \

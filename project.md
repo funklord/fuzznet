@@ -42855,9 +42855,9 @@ OPEN, none of them mine to settle:
   stands, grace and granularity do not arise, and step 4 is a recorded
   decision rather than a build. sec 330.
 - Confirm retention and filing stay per-host (C5a HOST), never shared records.
-- "install on phone": fuzznet is a library plus the fuzznetd daemon and has
-  no Android target; the phone app is the separate fuzzypickles. Open whether
-  to add an Android fuzznetd build here.
+- ~~"install on phone"~~ SETTLED 2026-09-21: no Android fuzznetd build. The
+  library already ships on Android inside fuzzypickles' APK, and a
+  cross-compile gate now keeps that true from here. sec 333.
 
 ## 319. A dry run has to be able to ask, 2026-09-19
 
@@ -43783,3 +43783,67 @@ choose to encode it as an attribute of its own; nothing here can stop that, and
 HOST scope is what makes it harmless if it does. What the gate guarantees is
 narrower and is the part that was at risk: this library offers no way to do it
 and contains no code that does.
+
+## 333. The Android question, answered by measuring the consumer, 2026-09-21
+
+sec 318 left this as "open whether to add an Android fuzznetd build here".
+Measuring first turned it from a build question into a coverage one.
+
+THE LIBRARY ALREADY SHIPS ON ANDROID, and not hypothetically. fuzzypickles'
+`gui/gui.pro` carries the line
+
+    make -C core BUILD_DIR=build/android-arm64-v8a \
+         CC=<ndk>/aarch64-linux-android28-clang
+
+and their `core/` compiles fuzznet's sources directly (their Makefile: "core/
+builds fuzznet's sources against this"). So fuzznet cross-compiles for Android
+today, proven by a consumer shipping it in a real APK. The question was never
+whether it can.
+
+AND A DAEMON HAS NO HOST THERE. `node/fuzznetd.c` is 93 lines that bind an
+AF_UNIX socket and a UDP port and serve. A normal Android app cannot run that
+as a daemon; a binary it execs runs as the app's uid and dies with it, which
+is what linking the library already gives you with less machinery. So an APK
+carrying fuzznetd would duplicate what fuzzypickles ships and add a binary
+Android will not let run.
+
+WHAT WAS ACTUALLY MISSING WAS COVERAGE, which the measurement exposed:
+fuzznet's own Makefile had ZERO Android references, so the only thing that
+would catch the library ceasing to cross-compile was fuzzypickles, at the
+moment they move their pin -- the worst time, in somebody else's tree. That is
+`evidence.md`'s "a claim about another tree is a measurement you did not take",
+pointed the other way: this tree was relying on another tree's build for a
+property it never checked.
+
+SO `make androidcheck` BUILDS THE LIBRARY FOR aarch64 AND STOPS. No APK, no
+Qt, no packaging, no APP_ID, and deliberately not `tool/android.mk` -- that
+fragment is shaped for a Qt application with seven targets, and this is a
+library plus a daemon with no Android home.
+
+IT FAILS RATHER THAN SKIPS without an NDK, which is this tree's convention for
+an optional-tool gate: `schema` and `qttycheck` both refuse rather than passing
+quietly. A gate that skips is indistinguishable from one that found nothing.
+
+FOUR THINGS IT DOES THAT A FIRST DRAFT WOULD NOT, each paid for elsewhere in
+this tree:
+
+- `-MMD -MP` are filtered out of CPPFLAGS. A dependency flag against
+  `-o /dev/null` tries to open `/dev/null.d` and fails on permission, sending
+  every probe to "no" on a machine whose library builds -- fuzznet's own POSIX
+  probe, recorded in evidence.md.
+- It trial-COMPILES a probe before believing the toolchain, rather than
+  testing that a file called clang exists. A name is not a capability.
+- It refuses a run that compiled ZERO sources, which is the vacuous pass.
+- It COUNTS failures rather than letting the first one propagate, so the
+  report is "1 of 92 library sources do not build for Android" rather than a
+  compiler error and a dead build.
+
+SHOWN FAILING BOTH WAYS before being believed: pointed at a nonexistent NDK it
+refuses and names what to set; with `#error` under `__ANDROID__` in one source
+it reports 1 of 92 and fails. Clean it reports 92.
+
+AND THE COUNT ITSELF CAUGHT A MEASUREMENT ERROR. Extracting SRCS by grepping
+the Makefile gave 60 sources; asking make gave 92. The gate uses `$(SRCS)`
+directly, so it cannot drift from the list the build uses -- which is the
+difference between a check over the sources and a check over the ones a
+regular expression happened to match.
