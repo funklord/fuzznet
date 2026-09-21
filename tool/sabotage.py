@@ -256,7 +256,7 @@ SABOTAGES = [
 	(
 		"index-refuses-a-trailing-byte",
 		"catalog/index.c",
-		"\tif (body_len != FZN_CATALOG_INDEX_HEAD_LEN)\n\t\treturn FZN_CATALOG_ERR_MALFORMED;",
+		"\tif (at != body_len)\n\t\treturn FZN_CATALOG_ERR_MALFORMED;",
 		"\tif (0)\n\t\treturn FZN_CATALOG_ERR_MALFORMED;",
 		"the signature is over these bytes, so two spellings of one index "
 		"would let a peer re-sign a different one -- the attribute and purge "
@@ -499,6 +499,32 @@ SABOTAGES = [
 		"chain.h warning that folding an ordinary absence into it \"would "
 		"make ordinary propagation look like an attack\". sequence_test asserts "
 		"the vocabulary, not just the step. sec 350",
+	),
+	(
+		"index-requires-its-provenance",
+		"catalog/index.c",
+		"\t    || !prov_ok(ix->method, ix->method_len, FZN_CATALOG_METHOD_MAX))\n\t\treturn FZN_CATALOG_ERR_MALFORMED;",
+		"\t    || 0)\n\t\treturn FZN_CATALOG_ERR_MALFORMED;",
+		"C23c: nobody downstream can re-check an index against the register, "
+		"so the importer's diligence is the only check there is and the "
+		"METHOD is where it is recorded. An index that says only which "
+		"register it came from asserts a fact with no method beside it, which "
+		"is the one assertion C23c says an index must not be able to make -- "
+		"so an empty method is refused rather than defaulted. index_test "
+		"drives each of the three fields empty against a fully attributed "
+		"control. sec 352",
+	),
+	(
+		"index-provenance-survives-the-wire",
+		"catalog/index.c",
+		"\tif (n == 0 || n > FZN_CATALOG_METHOD_MAX || at + n > body_len)\n\t\treturn FZN_CATALOG_ERR_MALFORMED;",
+		"\tif (n > FZN_CATALOG_METHOD_MAX || at + n > body_len)\n\t\treturn FZN_CATALOG_ERR_MALFORMED;",
+		"the encoder refusing an empty method is half the rule; an index "
+		"arrives from another host, which may not have used this encoder. A "
+		"decoder that accepts a method length of zero lets the unattributed "
+		"index C23c forbids into the estate through the only door that "
+		"matters. index_test zeroes the method length in an otherwise sound "
+		"encoded head. sec 352",
 	),
 	(
 		"shard-absorbs-the-remainder",

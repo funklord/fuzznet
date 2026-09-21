@@ -45351,3 +45351,83 @@ and the gate exits 2. Restored, it reports 159 test sources with every label
 unique. The check is local to this project's Makefile rather than added to
 the shared `style_gate.py`: a gate that reaches sixteen trees is a deliberate
 cross-project pass and not something to add while fixing three printf lines.
+
+## 352. C23c: the index had no provenance, and that was mine, 2026-09-22
+
+C23c requires an index to carry "which register, which snapshot of it, and
+WHAT THE IMPORTER VERIFIED", because "nobody downstream can re-check against
+the register, so the importer's diligence is the only check there is". The
+index I settled at sec 341 carried none of the three. Fixed, one day old.
+
+THE MISREADING IS THE PART WORTH KEEPING, because it is easy to repeat. I
+wrote in index.h:
+
+    NEITHER IS THE REGISTER NAMED. C26a keeps the register out of this
+    library ... so which register an index is OF is the record's subject.
+
+C26a says this library carries "the mechanism ... and never which authority is
+right about what". That forbids INTERPRETING the register. It says nothing
+about CARRYING what the importer said about it -- and the same module carries
+opaque attribute names and values without knowing what they mean. **Mechanism,
+never meaning, is a rule about interpretation, not about transport.** I read
+one as the other and deleted a required field.
+
+The subject argument was half right, which is what made it convincing: the
+register's IDENTITY does belong in the record's subject. The SNAPSHOT and the
+METHOD have no such home, so the one field C23c calls the only check there is
+was the one field the format could not express.
+
+    41   reg      u8 length, then the register's name         (C23c)
+         snapshot u8 length, then the snapshot's version      (C23c)
+         method   u16 length, then what the importer verified (C23c)
+
+All three opaque, all three REQUIRED, an empty method refused rather than
+defaulted -- "no method" is precisely the assertion C23c says an index must
+not be able to make. Bounds 64/64/256, so a full body is 429 against
+FZN_RECORD_BODY_MAX's 512; the method gets four times the room because it is
+the field that must say something a reader can judge, and a method squeezed
+into 64 bytes is a method nobody wrote.
+
+===========================================================================
+
+WHAT ELSE C23's IMPORT NEEDS, AND WHO OWNS IT. The rest is not this library's
+and saying so is the finding rather than a deferral:
+
+  - FETCHING from the register, and C25's checks while talking to it. The
+    importer's, over a network this library does not have.
+  - THE SHARD BLOB'S BODY. C26a keeps the register's entry format out of here,
+    so the library cannot say what a shard contains. What it CAN guarantee for
+    C23b -- two importers of one snapshot producing identical roots -- is the
+    boundary plan, and shard.h is deterministic already: sorted keys refused
+    otherwise, a fixed floor, the remainder absorbed into the last shard. The
+    consumer owes the other half, which is encoding its entries the same way
+    twice; that is stated rather than enforced, because a library that cannot
+    see the bytes cannot check them.
+  - PUBLISHING the index record in the importer's own stream (C23a) is
+    `record/`'s, and the rollback protection C24 wants falls out of
+    `record/journal.h` refusing gaps, which sec 341 already noted.
+
+So C23 is not one unbuilt thing. It is one field that was missing, now
+present, and a division of labour that was never written down.
+
+===========================================================================
+
+EVIDENCE. index_test is 3068 checks. Three sabotage entries, each watched
+failing through its own assertion -- and one of them twice.
+
+    index-refuses-a-trailing-byte       index_test.c:115
+    index-requires-its-provenance       index_test.c:222
+    index-provenance-survives-the-wire  index_test.c:264
+
+`sabotage.py --verify` CAUGHT THE FIRST GOING STALE, which is what it is for:
+rewriting decode moved the trailing-byte check, and the entry that had proved
+it silently stopped matching. An entry that matches nothing reports a guard as
+defended without testing it, and the tool says so in those words.
+
+AND THE THIRD WAS NOT CAUGHT ON THE FIRST TRY. Zeroing the method length in an
+encoded head leaves the method's bytes behind, so the body is over-long and
+the TRAILING-BYTE rule refuses it before the zero-length check is reached --
+the sabotage of that check stayed green while the case appeared to pass. The
+fixture truncates the body to match now, so only the check under test can
+answer, with the untruncated head beside it as the control. A control has to
+be REACHED and not merely able to fire, for the third time this week.

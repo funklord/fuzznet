@@ -2107,7 +2107,7 @@ int main(void)
 				fzn_catalog_index_t ix, back;
 				fzn_catalog_shard_t plan[3];
 				fzn_catalog_blob_root_t roots[3];
-				uint8_t head[FZN_CATALOG_INDEX_HEAD_LEN];
+				uint8_t head[256];
 				uint8_t ibody[3u * FZN_CATALOG_INDEX_ENTRY_LEN];
 				fzn_catalog_shard_key_t key;
 				size_t hlen = 0, blen = 0, which = 0, i;
@@ -2130,14 +2130,41 @@ int main(void)
 				ix.floor = FZN_CATALOG_SHARD_ENTRIES_MIN;
 				ix.shards = 3;
 				memset(ix.root.b, 0x5f, sizeof(ix.root.b));
+				/* C23c: an index carries its provenance, and all
+				 * three fields are required. A consumer that
+				 * omits the METHOD is making the one assertion
+				 * C23c says an index must not be able to make,
+				 * so the encoder refuses it. */
+				ix.reg = (const uint8_t *)"a register";
+				ix.reg_len = 10;
+				ix.snapshot = (const uint8_t *)"v1";
+				ix.snapshot_len = 2;
+				ix.method = (const uint8_t *)"checked its signature";
+				ix.method_len = 21;
 				if (fzn_catalog_index_encode(&ix, head, sizeof(head), &hlen)
-				    != FZN_CATALOG_OK || hlen != FZN_CATALOG_INDEX_HEAD_LEN)
+				    != FZN_CATALOG_OK
+				    || hlen != fzn_catalog_index_head_len(10, 2, 21))
 					FAIL(411);
 				if (fzn_catalog_index_decode(head, hlen, &back)
 				    != FZN_CATALOG_OK
 				    || back.shards != 3
-				    || back.floor != FZN_CATALOG_SHARD_ENTRIES_MIN)
+				    || back.floor != FZN_CATALOG_SHARD_ENTRIES_MIN
+				    || back.method_len != 21)
 					FAIL(412);
+				/* And an index with no method is refused, which
+				 * is the half a consumer would otherwise have
+				 * to be told. */
+				{
+					fzn_catalog_index_t bare = ix;
+
+					bare.method_len = 0;
+					if (fzn_catalog_index_encode(&bare, head,
+					                             sizeof(head), &hlen)
+					    != FZN_CATALOG_ERR_MALFORMED)
+						FAIL(434);
+					fzn_catalog_index_encode(&ix, head, sizeof(head),
+					                         &hlen);
+				}
 				/* The floor travels so a consumer can see the
 				 * anonymity set it is about to reveal
 				 * interest in, before fetching anything. */

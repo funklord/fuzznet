@@ -60,21 +60,45 @@ static uint32_t rng_next(void)
 	return rng_state;
 }
 
+/* C23c: every index carries its provenance, so every fixture does too. */
+static const uint8_t REG[] = "musicbrainz";
+static const uint8_t SNAP[] = "2026-09-22";
+static const uint8_t METH[] = "signature over the snapshot, checked against "
+                              "the published key";
+
+static void fill_provenance(fzn_catalog_index_t *ix)
+{
+	ix->reg = REG;
+	ix->reg_len = sizeof(REG) - 1u;
+	ix->snapshot = SNAP;
+	ix->snapshot_len = sizeof(SNAP) - 1u;
+	ix->method = METH;
+	ix->method_len = sizeof(METH) - 1u;
+}
+
+/* The head length these fixtures produce. */
+static size_t fixture_head_len(void)
+{
+	return fzn_catalog_index_head_len(sizeof(REG) - 1u, sizeof(SNAP) - 1u,
+	                                  sizeof(METH) - 1u);
+}
+
 static void test_the_head_round_trips(void)
 {
 	fzn_catalog_index_t ix, back;
-	uint8_t body[FZN_CATALOG_INDEX_HEAD_LEN + 1u];
+	uint8_t body[512];
 	size_t len = 0;
 
 	memset(&ix, 0, sizeof(ix));
 	ix.floor = FZN_CATALOG_SHARD_ENTRIES_MIN;
 	ix.shards = 4883;
 	memset(ix.root.b, 0xab, sizeof(ix.root.b));
+	fill_provenance(&ix);
 
 	CHECK(fzn_catalog_index_encode(&ix, body, sizeof(body), &len)
 	          == FZN_CATALOG_OK, "the head would not encode");
-	CHECK(len == FZN_CATALOG_INDEX_HEAD_LEN, "the head is %u bytes",
-	      (unsigned)len);
+	CHECK(len == fixture_head_len(), "the head is %u bytes, expected %u",
+	      (unsigned)len, (unsigned)fixture_head_len());
 	CHECK(body[0] == FZN_CATALOG_OBJECT_INDEX, "the object tag is wrong");
 
 	CHECK(fzn_catalog_index_decode(body, len, &back) == FZN_CATALOG_OK,
@@ -108,10 +132,11 @@ static void test_the_head_round_trips(void)
 static void test_the_empty_claims_are_refused(void)
 {
 	fzn_catalog_index_t ix, back;
-	uint8_t body[FZN_CATALOG_INDEX_HEAD_LEN];
+	uint8_t body[512];
 	size_t len = 0;
 
 	memset(&ix, 0, sizeof(ix));
+	fill_provenance(&ix);
 	ix.floor = 0;
 	ix.shards = 4;
 	CHECK(fzn_catalog_index_encode(&ix, body, sizeof(body), &len)
@@ -128,19 +153,135 @@ static void test_the_empty_claims_are_refused(void)
 	          == FZN_CATALOG_OK, "a one-shard index would not encode");
 
 	/* And the same two refusals on the way in, where they arrive from a
-	 * peer rather than from this host's own caller. */
-	memset(body, 0, sizeof(body));
-	body[0] = FZN_CATALOG_OBJECT_INDEX;
-	body[8] = 4;   /* shards = 4, floor still 0 */
-	CHECK(fzn_catalog_index_decode(body, sizeof(body), &back)
+	 * peer rather than from this host's own caller. The head is ENCODED
+	 * and then mutated, rather than hand-built: decode requires an exact
+	 * length now that provenance follows the fixed part, so a hand-built
+	 * buffer would be refused for its size and prove nothing about the
+	 * field under test. */
+	memset(&ix, 0, sizeof(ix));
+	fill_provenance(&ix);
+	ix.floor = 8;
+	ix.shards = 4;
+	CHECK(fzn_catalog_index_encode(&ix, body, sizeof(body), &len)
+	          == FZN_CATALOG_OK, "the mutable control would not encode");
+	CHECK(fzn_catalog_index_decode(body, len, &back) == FZN_CATALOG_OK,
+	      "the control head would not decode");
+	body[4] = 0;   /* floor = 0 */
+	CHECK(fzn_catalog_index_decode(body, len, &back)
 	          == FZN_CATALOG_ERR_MALFORMED, "a zero floor decoded");
-	body[4] = 8;   /* floor = 8 */
+	body[4] = 8;
 	body[8] = 0;   /* shards = 0 */
-	CHECK(fzn_catalog_index_decode(body, sizeof(body), &back)
+	CHECK(fzn_catalog_index_decode(body, len, &back)
 	          == FZN_CATALOG_ERR_MALFORMED, "a zero shard count decoded");
 	body[8] = 4;
-	CHECK(fzn_catalog_index_decode(body, sizeof(body), &back)
-	          == FZN_CATALOG_OK, "the control head would not decode");
+	CHECK(fzn_catalog_index_decode(body, len, &back) == FZN_CATALOG_OK,
+	      "the restored head would not decode");
+}
+
+/* C23c. An index that says only "this is MusicBrainz" asserts a fact with no
+ * method beside it, and the method is the only check a downstream reader
+ * has -- nobody but the importer can re-check against the register. So all
+ * three provenance fields are required, and this is what says so. */
+static void test_provenance_is_required(void)
+{
+	fzn_catalog_index_t ix, back;
+	uint8_t body[512];
+	size_t len = 0;
+
+	memset(&ix, 0, sizeof(ix));
+	ix.floor = FZN_CATALOG_SHARD_ENTRIES_MIN;
+	ix.shards = 3;
+	fill_provenance(&ix);
+
+	/* The control. */
+	CHECK(fzn_catalog_index_encode(&ix, body, sizeof(body), &len)
+	          == FZN_CATALOG_OK, "a fully attributed index would not encode");
+	CHECK(fzn_catalog_index_decode(body, len, &back) == FZN_CATALOG_OK,
+	      "a fully attributed index would not decode");
+	CHECK(back.reg_len == sizeof(REG) - 1u
+	          && memcmp(back.reg, REG, back.reg_len) == 0,
+	      "the register did not survive");
+	CHECK(back.snapshot_len == sizeof(SNAP) - 1u
+	          && memcmp(back.snapshot, SNAP, back.snapshot_len) == 0,
+	      "the snapshot did not survive");
+	CHECK(back.method_len == sizeof(METH) - 1u
+	          && memcmp(back.method, METH, back.method_len) == 0,
+	      "the method did not survive");
+
+	/* Each of the three, missing, on the way out. */
+	fill_provenance(&ix);
+	ix.reg_len = 0;
+	CHECK(fzn_catalog_index_encode(&ix, body, sizeof(body), &len)
+	          == FZN_CATALOG_ERR_MALFORMED, "an index with no register encoded");
+	fill_provenance(&ix);
+	ix.snapshot_len = 0;
+	CHECK(fzn_catalog_index_encode(&ix, body, sizeof(body), &len)
+	          == FZN_CATALOG_ERR_MALFORMED, "an index with no snapshot encoded");
+	fill_provenance(&ix);
+	ix.method_len = 0;
+	CHECK(fzn_catalog_index_encode(&ix, body, sizeof(body), &len)
+	          == FZN_CATALOG_ERR_MALFORMED,
+	      "an index with no METHOD encoded -- the one assertion C23c says "
+	      "an index must not be able to make");
+	fill_provenance(&ix);
+	ix.method = NULL;
+	CHECK(fzn_catalog_index_encode(&ix, body, sizeof(body), &len)
+	          == FZN_CATALOG_ERR_MALFORMED, "a null method encoded");
+
+	/* Over its bound, which is a RANGE rather than a malformed field. */
+	{
+		static uint8_t big[FZN_CATALOG_METHOD_MAX + 1u];
+
+		memset(big, 'm', sizeof(big));
+		fill_provenance(&ix);
+		ix.method = big;
+		ix.method_len = sizeof(big);
+		CHECK(fzn_catalog_index_encode(&ix, body, sizeof(body), &len)
+		          == FZN_CATALOG_ERR_MALFORMED,
+		      "a method over its bound encoded");
+	}
+
+	/* And on the way IN, where it arrives from another host: a method
+	 * length of zero in an otherwise sound head. */
+	fill_provenance(&ix);
+	CHECK(fzn_catalog_index_encode(&ix, body, sizeof(body), &len)
+	          == FZN_CATALOG_OK, "the control would not re-encode");
+	{
+		size_t at = FZN_CATALOG_INDEX_FIXED_LEN;
+
+		at += 1u + (size_t)body[at];          /* past the register */
+		at += 1u + (size_t)body[at];          /* past the snapshot */
+		CHECK(body[at] == 0 && body[at + 1u] == sizeof(METH) - 1u,
+		      "the computed method offset is wrong");
+		body[at] = 0;
+		body[at + 1u] = 0;                    /* method_len = 0 */
+		/* AND THE BODY IS TRUNCATED TO MATCH, so the length is exact
+		 * and only the zero-length check can refuse it. Passing the
+		 * full length instead lets the trailing-byte rule answer
+		 * first: the sabotage of this very check then stayed green,
+		 * which is how the interception was found. A control has to be
+		 * REACHED, not merely able to fire. */
+		CHECK(fzn_catalog_index_decode(body, at + 2u, &back)
+		          == FZN_CATALOG_ERR_MALFORMED,
+		      "an index claiming no method decoded");
+		/* The control: the same head at its own length still decodes,
+		 * so the refusal above is about the method and not the
+		 * truncation. */
+		body[at] = 0;
+		body[at + 1u] = (uint8_t)(sizeof(METH) - 1u);
+		CHECK(fzn_catalog_index_decode(body, len, &back)
+		          == FZN_CATALOG_OK,
+		      "the restored method would not decode");
+	}
+
+	/* The head length helper agrees with what encode produced. */
+	CHECK(fzn_catalog_index_head_len(sizeof(REG) - 1u, sizeof(SNAP) - 1u,
+	                                 sizeof(METH) - 1u) == len,
+	      "head_len disagrees with the encoder");
+	CHECK(fzn_catalog_index_head_len(0, 1, 1) == 0,
+	      "head_len accepted an empty register");
+	CHECK(fzn_catalog_index_head_len(1, 1, FZN_CATALOG_METHOD_MAX + 1u) == 0,
+	      "head_len accepted a method over its bound");
 }
 
 static void test_the_length_guards_the_multiplication(void)
@@ -168,21 +309,28 @@ static void test_the_length_guards_the_multiplication(void)
 	                                 / FZN_CATALOG_INDEX_ENTRY_LEN, &len)
 	          == FZN_CATALOG_OK, "the largest addressable index was refused");
 	/* And a head naming such a count is refused at decode, so a caller
-	 * never reaches the multiplication holding it. */
+	 * never reaches the multiplication holding it. Encoded rather than
+	 * hand-built, because decode now requires provenance and an exact
+	 * length -- a hand-built buffer would be refused for its shape and
+	 * the case would pass for the wrong reason. */
 	{
-		uint8_t head[FZN_CATALOG_INDEX_HEAD_LEN];
-		fzn_catalog_index_t back;
+		uint8_t head[512];
+		fzn_catalog_index_t ix, back;
+		size_t hlen = 0;
 
-		memset(head, 0, sizeof(head));
-		head[0] = FZN_CATALOG_OBJECT_INDEX;
-		head[4] = 1;                 /* floor = 1 */
-		head[5] = head[6] = head[7] = head[8] = 0xff;  /* shards = 2^32-1 */
+		memset(&ix, 0, sizeof(ix));
+		fill_provenance(&ix);
+		ix.floor = 1;
+		ix.shards = 0xffffffffu;
+		CHECK(fzn_catalog_index_encode(&ix, head, sizeof(head), &hlen)
+		          == FZN_CATALOG_OK,
+		      "a head naming 2^32-1 shards would not encode");
 		if (sizeof(size_t) <= 4)
-			CHECK(fzn_catalog_index_decode(head, sizeof(head), &back)
+			CHECK(fzn_catalog_index_decode(head, hlen, &back)
 			          == FZN_CATALOG_ERR_RANGE,
 			      "an unaddressable shard count decoded");
 		else
-			CHECK(fzn_catalog_index_decode(head, sizeof(head), &back)
+			CHECK(fzn_catalog_index_decode(head, hlen, &back)
 			          == FZN_CATALOG_OK,
 			      "a large but addressable count was refused");
 	}
@@ -396,6 +544,7 @@ int main(void)
 {
 	test_the_head_round_trips();
 	test_the_empty_claims_are_refused();
+	test_provenance_is_required();
 	test_the_length_guards_the_multiplication();
 	test_the_body_refuses_overlapping_ranges();
 	test_body_ok_is_the_precondition();

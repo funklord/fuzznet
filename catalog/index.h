@@ -41,6 +41,9 @@
  *     1   floor    u32, entries per shard -- C26's one number
  *     5   shards   u32, how many entries the index blob holds
  *     9   root     FZN_CATALOG_INDEX_ROOT_LEN bytes, the index blob's root
+ *    41   reg      u8 length, then the register's name         (C23c)
+ *         snapshot u8 length, then the snapshot's version      (C23c)
+ *         method   u16 length, then what the importer verified (C23c)
  *
  * Big-endian, the endianness `catalog/attribute.situ` declares, and the
  * canonical-encoding rules are the attribute codec's: a trailing byte is
@@ -60,10 +63,27 @@
  * the first and believed by whoever read it. Routing needs the first key and
  * the root, and C26's guarantee is the floor, which is in the head.
  *
- * NEITHER IS THE REGISTER NAMED. C26a keeps the register out of this library
- * -- "what this library carries is the mechanism ... and never which authority
- * is right about what" -- so which register an index is OF is the record's
- * subject, as an attribute's entity is, and not a field here.
+ * AND IT CARRIES ITS PROVENANCE, WHICH C23c REQUIRES AND THE FIRST VERSION OF
+ * THIS FILE OMITTED. C23c: an index must say which register, which snapshot of
+ * it, and WHAT THE IMPORTER VERIFIED -- because "nobody downstream can
+ * re-check against the register, so the importer's diligence is the only
+ * check there is", and "an index that says only 'this is MusicBrainz' asserts
+ * a fact with no method beside it".
+ *
+ * THE OMISSION CAME FROM MISREADING C26a, and the misreading is worth naming
+ * because it is easy to repeat. C26a says this library carries "the mechanism
+ * ... and never which authority is right about what", which forbids
+ * INTERPRETING the register, not CARRYING what the importer said about it.
+ * This same module carries opaque attribute names and values without knowing
+ * what they mean, and provenance is the same kind of byte. The first version
+ * reasoned that the register belongs in the record's subject -- true of the
+ * register's IDENTITY, and it leaves the snapshot and the method with no home
+ * at all, so the one field C23c calls the only check there is was the one
+ * field the format could not express.
+ *
+ * All three are OPAQUE and all three are REQUIRED. An empty method is refused
+ * rather than defaulted, because "no method" is precisely the assertion C23c
+ * says an index must not be able to make.
  *
  * ---------------------------------------------------------------------------
  * THE INDEX BLOB'S OWN LAYOUT.
@@ -100,19 +120,43 @@ typedef struct fzn_catalog_blob_root {
 	uint8_t b[FZN_CATALOG_INDEX_ROOT_LEN];
 } fzn_catalog_blob_root_t;
 
-/* object + floor + shards + root. */
-#define FZN_CATALOG_INDEX_HEAD_LEN (1u + 4u + 4u + FZN_CATALOG_INDEX_ROOT_LEN)
+/* object + floor + shards + root, before the three provenance fields. */
+#define FZN_CATALOG_INDEX_FIXED_LEN (1u + 4u + 4u + FZN_CATALOG_INDEX_ROOT_LEN)
+
+/* The provenance bounds (C23c), chosen so the whole body fits a record with
+ * room to spare: 41 fixed, plus 1 + 64, plus 1 + 64, plus 2 + 256, is 429
+ * against FZN_RECORD_BODY_MAX's 512. A register's name and a snapshot's
+ * version are short by nature; the METHOD gets four times the room because it
+ * is the field that has to say something a reader can judge, and a method
+ * squeezed into 64 bytes would be a method nobody wrote. */
+#define FZN_CATALOG_REGISTER_MAX 64u
+#define FZN_CATALOG_SNAPSHOT_MAX 64u
+#define FZN_CATALOG_METHOD_MAX   256u
 
 /* One entry of the index blob: a first key and the root of the shard. */
 #define FZN_CATALOG_INDEX_ENTRY_LEN \
 	(FZN_CATALOG_SHARD_KEY_LEN + FZN_CATALOG_INDEX_ROOT_LEN)
 
-/* The head, decoded. */
+/* The head, decoded. The three provenance views BORROW from the body on
+ * decode and are the caller's own bytes on encode -- the zero-copy style this
+ * module keeps everywhere else. */
 typedef struct fzn_catalog_index {
 	size_t floor;   /* entries per shard; C26's number, and a floor. */
 	size_t shards;  /* entries in the index blob. */
 	fzn_catalog_blob_root_t root;
+	/* C23c, all opaque and all required non-empty. */
+	const uint8_t *reg;       /* which register */
+	size_t         reg_len;
+	const uint8_t *snapshot;  /* which snapshot of it */
+	size_t         snapshot_len;
+	const uint8_t *method;    /* what the importer verified */
+	size_t         method_len;
 } fzn_catalog_index_t;
+
+/* How long a head is for these provenance lengths, or 0 when any is out of
+ * bounds. */
+size_t fzn_catalog_index_head_len(size_t reg_len, size_t snapshot_len,
+                                  size_t method_len);
 
 /*
  * Lay out the index record's body.

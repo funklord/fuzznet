@@ -28,28 +28,72 @@ static int fits_u32(size_t v)
 	return (uint64_t)v <= 0xffffffffu;
 }
 
+/* One length-prefixed opaque field, in or out. Provenance is three of them
+ * and they differ only in their bound and the width of the length. */
+static int prov_ok(const uint8_t *b, size_t len, size_t max)
+{
+	return b != NULL && len > 0 && len <= max;
+}
+
+size_t fzn_catalog_index_head_len(size_t reg_len, size_t snapshot_len,
+                                  size_t method_len)
+{
+	if (reg_len == 0 || reg_len > FZN_CATALOG_REGISTER_MAX)
+		return 0;
+	if (snapshot_len == 0 || snapshot_len > FZN_CATALOG_SNAPSHOT_MAX)
+		return 0;
+	if (method_len == 0 || method_len > FZN_CATALOG_METHOD_MAX)
+		return 0;
+	return FZN_CATALOG_INDEX_FIXED_LEN + 1u + reg_len + 1u + snapshot_len
+	       + 2u + method_len;
+}
+
 fzn_catalog_err_t fzn_catalog_index_encode(const fzn_catalog_index_t *ix,
                                            uint8_t *out, size_t cap,
                                            size_t *len_out)
 {
+	size_t need, w;
+
 	if (!ix || !out || !len_out)
 		return FZN_CATALOG_ERR_MALFORMED;
 	/* An index over no shards routes nothing, and a floor of zero makes
 	 * C26's claim about an empty anonymity set. */
 	if (ix->floor == 0 || ix->shards == 0)
 		return FZN_CATALOG_ERR_MALFORMED;
+	/* C23c: all three are required, and an EMPTY METHOD is refused rather
+	 * than defaulted -- "no method" is the assertion C23c says an index
+	 * must not be able to make. */
+	if (!prov_ok(ix->reg, ix->reg_len, FZN_CATALOG_REGISTER_MAX)
+	    || !prov_ok(ix->snapshot, ix->snapshot_len, FZN_CATALOG_SNAPSHOT_MAX)
+	    || !prov_ok(ix->method, ix->method_len, FZN_CATALOG_METHOD_MAX))
+		return FZN_CATALOG_ERR_MALFORMED;
 	if (!fits_u32(ix->floor) || !fits_u32(ix->shards))
 		return FZN_CATALOG_ERR_RANGE;
-	if (cap < FZN_CATALOG_INDEX_HEAD_LEN)
+
+	need = fzn_catalog_index_head_len(ix->reg_len, ix->snapshot_len,
+	                                  ix->method_len);
+	if (need == 0)
 		return FZN_CATALOG_ERR_RANGE;
-	if (FZN_CATALOG_INDEX_HEAD_LEN > (size_t)FZN_RECORD_BODY_MAX)
+	if (cap < need || need > (size_t)FZN_RECORD_BODY_MAX)
 		return FZN_CATALOG_ERR_RANGE;
 
 	out[0] = (uint8_t)FZN_CATALOG_OBJECT_INDEX;
 	put_u32(&out[1], ix->floor);
 	put_u32(&out[5], ix->shards);
 	memcpy(&out[9], ix->root.b, FZN_CATALOG_INDEX_ROOT_LEN);
-	*len_out = FZN_CATALOG_INDEX_HEAD_LEN;
+	w = FZN_CATALOG_INDEX_FIXED_LEN;
+	out[w++] = (uint8_t)ix->reg_len;
+	memcpy(&out[w], ix->reg, ix->reg_len);
+	w += ix->reg_len;
+	out[w++] = (uint8_t)ix->snapshot_len;
+	memcpy(&out[w], ix->snapshot, ix->snapshot_len);
+	w += ix->snapshot_len;
+	out[w] = (uint8_t)((ix->method_len >> 8) & 0xffu);
+	out[w + 1u] = (uint8_t)(ix->method_len & 0xffu);
+	w += 2u;
+	memcpy(&out[w], ix->method, ix->method_len);
+	w += ix->method_len;
+	*len_out = w;
 	return FZN_CATALOG_OK;
 }
 
@@ -57,25 +101,20 @@ fzn_catalog_err_t fzn_catalog_index_decode(const uint8_t *body, size_t body_len,
                                            fzn_catalog_index_t *out)
 {
 	fzn_catalog_index_t ix;
+	size_t at = FZN_CATALOG_INDEX_FIXED_LEN, n;
 
 	if (!body || !out)
 		return FZN_CATALOG_ERR_MALFORMED;
-	if (body_len < FZN_CATALOG_INDEX_HEAD_LEN)
-		return FZN_CATALOG_ERR_MALFORMED;
-	/* A TRAILING BYTE IS REFUSED, not ignored: the signature is over these
-	 * bytes, and two spellings of one index would let a peer re-sign a
-	 * different one. */
-	if (body_len != FZN_CATALOG_INDEX_HEAD_LEN)
+	if (body_len < FZN_CATALOG_INDEX_FIXED_LEN)
 		return FZN_CATALOG_ERR_MALFORMED;
 	if (body[0] != (uint8_t)FZN_CATALOG_OBJECT_INDEX)
 		return FZN_CATALOG_ERR_MALFORMED;
 
+	memset(&ix, 0, sizeof(ix));
 	ix.floor = get_u32(&body[1]);
 	ix.shards = get_u32(&body[5]);
 	if (ix.floor == 0 || ix.shards == 0)
 		return FZN_CATALOG_ERR_MALFORMED;
-	/* A count whose blob could not be addressed here is refused at the
-	 * head, so a caller never reaches the multiplication with it. */
 	{
 		size_t unused;
 
@@ -84,6 +123,43 @@ fzn_catalog_err_t fzn_catalog_index_decode(const uint8_t *body, size_t body_len,
 			return FZN_CATALOG_ERR_RANGE;
 	}
 	memcpy(ix.root.b, &body[9], FZN_CATALOG_INDEX_ROOT_LEN);
+
+	/* C23c, in order: register, snapshot, method. Each borrowed from
+	 * `body`, each refused when empty or over its bound. */
+	if (at >= body_len)
+		return FZN_CATALOG_ERR_MALFORMED;
+	n = body[at++];
+	if (n == 0 || n > FZN_CATALOG_REGISTER_MAX || at + n > body_len)
+		return FZN_CATALOG_ERR_MALFORMED;
+	ix.reg = &body[at];
+	ix.reg_len = n;
+	at += n;
+
+	if (at >= body_len)
+		return FZN_CATALOG_ERR_MALFORMED;
+	n = body[at++];
+	if (n == 0 || n > FZN_CATALOG_SNAPSHOT_MAX || at + n > body_len)
+		return FZN_CATALOG_ERR_MALFORMED;
+	ix.snapshot = &body[at];
+	ix.snapshot_len = n;
+	at += n;
+
+	if (at + 2u > body_len)
+		return FZN_CATALOG_ERR_MALFORMED;
+	n = ((size_t)body[at] << 8) | (size_t)body[at + 1u];
+	at += 2u;
+	if (n == 0 || n > FZN_CATALOG_METHOD_MAX || at + n > body_len)
+		return FZN_CATALOG_ERR_MALFORMED;
+	ix.method = &body[at];
+	ix.method_len = n;
+	at += n;
+
+	/* A TRAILING BYTE IS REFUSED, not ignored: the signature is over these
+	 * bytes, and two spellings of one index would let a peer re-sign a
+	 * different one. */
+	if (at != body_len)
+		return FZN_CATALOG_ERR_MALFORMED;
+
 	*out = ix;
 	return FZN_CATALOG_OK;
 }
