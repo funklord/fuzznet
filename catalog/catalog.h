@@ -11,16 +11,40 @@
  * `catalog/catalog.c`. project.md sec 101 records the history and the
  * assignment.
  *
- * WHAT IS STILL ONLY PROSE, and declares nothing on purpose: the BEHAVIOURAL
- * integration that is not a standalone algebra -- estate-wide deletion
- * consensus (C19a), importing and sharding (C23), and sources (C13-C22), which
- * need `record/`, sync and `blob/` rather than an in-memory set. The merge core
- * operates on assertions a caller has already decoded and marked live; deciding
- * WHICH are live from per-(issuer, stream) journal state (C5c) is the caller's,
- * not this file's. NO LONGER prose: the ATTRIBUTE assertion's wire encoding, and
- * the module name, both settled by the copyright holder on 2026-09-18 (below,
- * and section 7). The EDGE-equivalent membership encoding is facet/'s and blob
- * content is the filestore's, per "follow the new model".
+ * WHAT IS STILL ONLY PROSE, as of 2026-09-21, and it is ONE THING: the
+ * IMPORT itself. C23 says a register is imported as shards, and what is built
+ * is where the cuts fall (catalog/shard.h) and the signed index that maps
+ * them (catalog/index.h). Fetching from a register, hashing its entries,
+ * building the shard blobs and signing the index are not here and need
+ * `blob/`, a network and a register this library deliberately knows nothing
+ * about (C26a).
+ *
+ * THIS PARAGRAPH NAMED THREE THINGS AND WENT STALE ON TWO. It listed
+ * estate-wide deletion consensus (C19a) and sources (C13-C22) beside the
+ * import; both were built during 2026-09-21 -- catalog/purge.h for the first,
+ * catalog/source.h and catalog/materialise.h for the second -- and the
+ * sentence outlived them by hours. Section 7 carries each answer.
+ *
+ * AND THE PREDICTION IN IT WAS WRONG IN AN INTERESTING WAY. It said sources
+ * "need `record/`, sync and `blob/` rather than an in-memory set". They need
+ * none of the three: C16a makes a (source, relative path) reference LOCAL --
+ * "what a host records about its own disk; it is not what it publishes" -- so
+ * sources and promotions are per-host state like retention and filing, with
+ * no wire form to sync and no bytes to fetch. The thing predicted to need
+ * sync turned out to need none, and finding that out is what closed the
+ * encoding half of section 7's last item.
+ *
+ * THE DIVISION THAT HAS NOT MOVED: the merge core operates on assertions a
+ * caller has already decoded and marked live, and deciding WHICH are live
+ * from per-(issuer, stream) journal state (C5c) is the caller's, not this
+ * file's. C20 and C21 are satisfied by construction rather than by machinery
+ * -- there is no delete path in this module for either to govern.
+ *
+ * SETTLED BY THE COPYRIGHT HOLDER ON 2026-09-18: the ATTRIBUTE assertion's
+ * wire encoding, and the module name (below, and section 7). The
+ * EDGE-equivalent membership encoding is facet/'s, and is now built there
+ * (facet/codec.h); blob content is the filestore's, per "follow the new
+ * model".
  *
  * A function appears below ONLY where `catalog.c` defines it, so an
  * unsettled operation has no declaration to link against by accident -- the
