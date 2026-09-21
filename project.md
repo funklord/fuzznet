@@ -44955,3 +44955,64 @@ consumer meeting the refusal needs to know what answers it.
 WHAT IS STILL DEFERRED, unchanged and pinned in two places: F19's single-child
 RANGE collapse needs the taxonomy to know that two bounds name one child, so a
 canonical expression is canonical in every respect but that.
+
+## 347. A diagnosis in one file does not correct another, 2026-09-21
+
+`session/commitment.h` carried two stale claims, and the interesting thing is
+not that they were stale. It is that a SIBLING HEADER HAD ALREADY DIAGNOSED
+ONE OF THEM, in as many words, and the diagnosed file was never touched.
+
+`session/agree.h`, explaining why a key-agreement seam was missing:
+
+    "That gap is why `session/commitment.h` could say 'the transcript is the
+     caller's' without anybody noticing the transcript had nothing to put in
+     it."
+
+That is exactly right, it was written when agree.h was, and commitment.h went
+on saying it. Nothing in the ordinary course of work brings a sentence
+together with the file that explains why it is wrong -- the two are opened by
+different tasks, and the one that would prompt the fix is the one already
+being fixed.
+
+This is `working-practice.md`'s "a claim usually lives in more than one place,
+and the correction has to go where it will next be looked for", arriving from
+an angle that rule does not quite cover: here the correction was WRITTEN, in a
+file a reader would plausibly meet, and still did not reach the copy that
+mattered. The reader who meets commitment.h alone is told to invent a
+transcript. The reader who meets agree.h alone learns that somebody was told
+that wrongly. Only a reader who meets both gets the truth, and nothing
+arranges for that.
+
+===========================================================================
+
+WHAT WAS WRONG, both measured before being changed.
+
+FIRST: "sec 4.5's prekey half is not settled". It was settled -- the holder's
+correction at sec 14, that key exchange belongs in this library as a set of
+exchanges a consumer chooses between rather than a seam each project fills.
+`session/agree.h` is that seam and `session/session.h` is the model built on
+it: two rotating prekeys, the root hashed over both identities, both prekeys
+and the shared secret.
+
+The BOUNDARY the sentence drew is still right and is kept -- the primitive
+hashes what it is handed and does not decide what is worth hashing, and
+session.h says in its own words that "commitment.h's boundary is unchanged".
+What was missing is that a caller should not therefore INVENT a transcript,
+because a builder exists and session.h's whole argument is that "if both
+sides call the same builder, there is no layout for them to disagree about".
+
+SECOND: "the extern codec that situ's `sealed()` region calls is still
+unwritten, because its calling convention is not yet knowable". The extern is
+indeed unbound, so the surface claim held -- and the REASON had been
+superseded by a measurement. It is not unknowable: `session/aead.h` records
+that situ's tier-1 codec ABI passes neither key, nonce nor associated data
+while an AEAD needs all three, that threading a key through a global to fit
+that signature would put mutable state in the one seam where it must not be,
+and that nothing is lost because the generated code never calls the codec --
+situ contributes the layout and the gate, and `wire/seal.c` joins them to the
+vtable. It was reported to situ (sec 6).
+
+A CLAIM WHOSE SURFACE IS STILL TRUE AND WHOSE REASON HAS BEEN SUPERSEDED IS
+THE WORSE KIND, because re-checking the claim confirms it. "Is the extern
+still unbound" answers yes, and the answer is useless: the question that had
+moved was WHY, and nothing about the sentence invited it.

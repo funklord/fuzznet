@@ -99,16 +99,36 @@
  *     more secret material with a longer life than the key it derived.
  *
  * THE TRANSCRIPT IS THE CALLER'S, which is the same boundary chain.h draws
- * for a signed region. What goes into it -- which keys, in what order -- is
- * a protocol decision that depends on the session model, and sec 4.5's
- * prekey half is not settled. This module hashes what it is handed and
- * splits the result. It does not decide what is worth hashing, and the
- * consequence is that two peers who disagree about the transcript derive
- * different keys and fail to talk rather than talking insecurely.
+ * for a signed region. This module hashes what it is handed and splits the
+ * result; it does not decide what is worth hashing, and the consequence is
+ * that two peers who disagree about the transcript derive different keys and
+ * fail to talk rather than talking insecurely.
  *
- * NOT the AEAD itself. The extern codec that situ's `sealed()` region calls
- * is still unwritten, because its calling convention is not yet knowable --
- * see sec 4.5. This is the half that does not depend on it.
+ * AND A CALLER SHOULD NOT INVENT ONE: `session/session.h` builds the
+ * transcript for the model sec 4.5 settled -- two rotating prekeys, the root
+ * hashed over both identities, both prekeys and the shared secret. The
+ * boundary above is unchanged and that file says so; it is a named model
+ * BESIDE this primitive rather than a restriction on it, and it exists
+ * because "if both sides call the same builder, there is no layout for them
+ * to disagree about".
+ *
+ * THIS PARAGRAPH USED TO SAY "sec 4.5's prekey half is not settled", and it
+ * was settled -- key exchange belongs in this library as a set of exchanges a
+ * consumer chooses between, `session/agree.h` is the seam and
+ * `session/session.h` the model. `agree.h` had even diagnosed this sentence
+ * in passing: the gap "is why `session/commitment.h` could say the transcript
+ * is the caller's without anybody noticing the transcript had nothing to put
+ * in it". A diagnosis written in one file does not correct another, and
+ * nothing brings the two together; sec 347.
+ *
+ * NOT the AEAD itself, which is `session/aead.h`'s seam. The extern symbol
+ * `wire/frame.situ` declares stays UNBOUND, and the reason is a measured
+ * finding rather than a thing not yet knowable: situ's tier-1 codec ABI
+ * passes neither key, nonce nor associated data, and an AEAD needs all
+ * three. Nothing is lost by it, because the generated code never calls the
+ * codec -- situ contributes the layout and the gate, and `wire/seal.c` joins
+ * them to the vtable. aead.h carries the argument; it was reported to situ
+ * (sec 6). This is the half that does not depend on any of it.
  */
 
 #ifndef FZN_COMMITMENT_H
