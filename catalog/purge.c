@@ -53,7 +53,7 @@ fzn_catalog_err_t fzn_catalog_purge_queue(fzn_catalog_purges_t *purges,
                                           size_t count, const uint8_t *entity,
                                           size_t entity_len)
 {
-	fzn_catalog_source_t who[FZN_CATALOG_PURGE_HOSTS_MAX];
+	fzn_catalog_issuer_t who[FZN_CATALOG_PURGE_HOSTS_MAX];
 	fzn_catalog_purge_t *row;
 	size_t written = 0, dropped = 0, i;
 
@@ -300,7 +300,7 @@ fzn_catalog_err_t fzn_catalog_purge_agreements(const fzn_catalog_assertion_t *se
                                                size_t entity_len,
                                                const uint8_t *purge_id,
                                                size_t purge_id_len,
-                                               fzn_catalog_source_t *out, size_t out_cap,
+                                               fzn_catalog_issuer_t *out, size_t out_cap,
                                                size_t *out_count, size_t *dropped)
 {
 	size_t i, j, w = 0, d = 0;

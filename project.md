@@ -44188,6 +44188,72 @@ the relative path and nothing yet holds the other half of the pair.
 
 The fix is a rename -- `fzn_catalog_source_t` to `fzn_catalog_issuer_t`, which
 is what it is -- and it is mechanical, with the symbol-set proof sec 327 used.
-It is recorded rather than done because it is not what was asked for, and
+~~It is recorded rather than done because it is not what was asked for, and
 because the C13 machinery that would consume the freed word is itself the next
-piece of work.
+piece of work.~~ DONE the same day, on the holder's instruction: sec 339.
+
+## 339. The word `source` said two things; one of them is now `issuer`, 2026-09-21
+
+RECORDED IN sec 338 AND DONE HERE. `fzn_catalog_source_t` meant "an issuer the
+set depends on". C13's SOURCE means "where bytes live, named, carrying a
+policy". One word for two concepts in one header, which code-style.md forbids
+for exactly the reason it bit: C22's pattern produces a relative path INSIDE a
+source, and the word for that thing was taken.
+
+    fzn_catalog_source_t  ->  fzn_catalog_issuer_t
+    fzn_catalog_sources   ->  fzn_catalog_issuers
+    struct fzn_catalog_source -> struct fzn_catalog_issuer
+
+The struct's own fields were ALREADY `issuer` and `issuer_len`, and its doc
+comment already said "the distinct issuers the set depends on". So the type
+name was the only thing still claiming otherwise, which is why this is a
+rename and not a redesign -- and it is a fair warning about how long a wrong
+name survives next to right ones.
+
+THE PROOF, which is the part worth keeping. 23 replacements over 8 files, and
+the tool refused to write unless three things held per file:
+
+  - THE DESTINATION SPELLING WAS ABSENT beforehand. Had `fzn_catalog_issuer`
+    already occurred, the inverse below would be ambiguous and would prove
+    nothing -- the check that makes the proof a proof rather than a ritual.
+  - APPLYING THE INVERSE REPRODUCED THE ORIGINAL BYTE FOR BYTE. Only those
+    tokens moved; anything else the pass touched shows up here as a
+    difference.
+  - NOTHING WAS LEFT HALF-RENAMED: no `fzn_catalog_source` survived.
+
+AND AN INDEPENDENT READING OF THE SAME FACT, because a tool agreeing with
+itself is one witness. The defined-symbol set over every object in the build,
+before and after:
+
+    812 symbols before, 812 after, IDENTICAL once the one renamed function is
+    mapped across; `fzn_catalog_sources` gone from the objects, and
+    `fzn_catalog_issuers` present.
+
+A type rename is invisible to a linker, so that set is expected to move by
+exactly one name -- which is the point: had the pass damaged a definition, or
+renamed something it should not have, the set would have moved by more. The
+object COUNT went 297 to 298, and the extra is `node/fuzznetd.o`, which a
+default `make` builds and the earlier `make check` had not; it introduced no
+symbol the set did not already have, so it cannot be hiding anything in the
+comparison. Recorded because an unexplained difference in a proof's
+denominator is exactly the thing that gets waved past.
+
+THE PROOF DOES NOT COVER THREE PASSAGES I REWROTE BY HAND, per evidence.md's
+rule that a bulk change's guarantee stops where the tool stopped. Two were
+prose using "source" to mean issuer -- "catching up with a source must see its
+retractions" and "written to `out` as for sources" -- which a mechanical pass
+cannot judge, since the same word is correct a few lines further up where C13
+is the subject. The third is section 7's note about the collision itself,
+which the rename would otherwise have turned into the sentence "`issuer`
+means an issuer rather than C13's source": true, and no longer the finding it
+was recording. It now says the word is free and that C13's source type is
+STILL NOT BUILT -- no source type, no managed/referenced distinction, no
+(SOURCE, RELATIVE PATH) reference. That is the next piece of work, and it now
+has a name to use.
+
+Alignment survived untouched by luck rather than by care: `sources` and
+`issuers` are both seven characters, and `..._source_t` and `..._issuer_t`
+both twenty, so every continuation line still lines up under its open paren.
+Worth noticing rather than relying on -- a rename that changed a length would
+have needed the alignment re-done and re-proved, and the proof above would
+not have caught it, because expanding-and-comparing is blind to a column.

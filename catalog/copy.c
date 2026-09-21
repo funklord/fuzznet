@@ -34,7 +34,7 @@ static int self_holds(const fzn_catalog_assertion_t *set, size_t count,
                       const uint8_t *entity, size_t entity_len,
                       const uint8_t *self, size_t self_len, int *out)
 {
-	fzn_catalog_source_t who[HOLDER_SCRATCH];
+	fzn_catalog_issuer_t who[HOLDER_SCRATCH];
 	size_t written = 0, dropped = 0, i;
 	int mine = 0;
 

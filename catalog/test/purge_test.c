@@ -463,7 +463,7 @@ static void test_the_wire_form(void)
 static void test_agreement_is_derived(void)
 {
 	fzn_catalog_assertion_t set[4];
-	fzn_catalog_source_t who[4];
+	fzn_catalog_issuer_t who[4];
 	uint8_t id1[32], id2[32];
 	size_t n = 0, dropped = 0, i;
 

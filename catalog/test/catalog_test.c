@@ -358,7 +358,7 @@ static void test_encode(void)
 static void test_reachability(void)
 {
 	fzn_catalog_assertion_t set[4];
-	fzn_catalog_source_t src[4];
+	fzn_catalog_issuer_t src[4];
 	size_t n = 0, dropped = 0, i;
 
 	for (i = 0; i < 4; i++) {
@@ -401,7 +401,7 @@ static void test_reachability(void)
 	 * and decisive for the other. */
 	{
 		fzn_catalog_assertion_t held[1];
-		fzn_catalog_source_t who[2];
+		fzn_catalog_issuer_t who[2];
 		size_t hn = 0, hdropped = 0;
 
 		memset(held, 0, sizeof(held));
@@ -429,14 +429,14 @@ static void test_reachability(void)
 		      "skip is refusing more than holder assertions");
 	}
 
-	CHECK(fzn_catalog_sources(set, 4, src, 4, &n, &dropped) == FZN_CATALOG_OK,
+	CHECK(fzn_catalog_issuers(set, 4, src, 4, &n, &dropped) == FZN_CATALOG_OK,
 	      "sources resolves");
 	CHECK(n == 2 && dropped == 0, "two distinct issuers, none dropped");
 	CHECK(src[0].assertions == 3 && src[1].assertions == 1,
 	      "per-issuer counts -- i1 asserted three, i2 one");
 
 	n = 0; dropped = 0;
-	CHECK(fzn_catalog_sources(set, 4, src, 1, &n, &dropped) == FZN_CATALOG_OK,
+	CHECK(fzn_catalog_issuers(set, 4, src, 1, &n, &dropped) == FZN_CATALOG_OK,
 	      "sources with a one-slot buffer");
 	CHECK(n == 1 && dropped == 1,
 	      "one issuer fits and one distinct issuer is dropped, counted once");
@@ -454,7 +454,7 @@ static void test_reachability(void)
 		s2[1].entity = (const uint8_t *)"e"; s2[1].entity_len = 1; s2[1].live = 1;
 		s2[2].issuer = (const uint8_t *)"i2"; s2[2].issuer_len = 2;
 		s2[2].entity = (const uint8_t *)"e"; s2[2].entity_len = 1; s2[2].live = 1;
-		CHECK(fzn_catalog_sources(s2, 3, src, 1, &m, &dr) == FZN_CATALOG_OK,
+		CHECK(fzn_catalog_issuers(s2, 3, src, 1, &m, &dr) == FZN_CATALOG_OK,
 		      "sources over a set with a repeated dropped issuer");
 		CHECK(m == 1 && dr == 1,
 		      "a dropped issuer with two assertions is dropped once");
@@ -478,7 +478,7 @@ static void seth(fzn_catalog_assertion_t *a, const char *ent, const char *iss,
 static void test_holders(void)
 {
 	fzn_catalog_assertion_t s[7];
-	fzn_catalog_source_t out[7];
+	fzn_catalog_issuer_t out[7];
 	size_t n = 0, dropped = 0;
 
 	seth(&s[0], "R", "i1", FZN_CATALOG_CAP_HOLDER, 1);
@@ -520,7 +520,7 @@ static void test_holders(void)
 static void test_near_misses(void)
 {
 	fzn_catalog_assertion_t set[2];
-	fzn_catalog_source_t who[4];
+	fzn_catalog_issuer_t who[4];
 	size_t n = 0, dropped = 0, i;
 	static uint8_t ent_a[32], ent_b[32], iss_a[32], iss_b[32];
 
@@ -558,7 +558,7 @@ static void test_near_misses(void)
 	      "last copy reads as replicated (n=%zu)", n);
 
 	n = 0; dropped = 0;
-	CHECK(fzn_catalog_sources(set, 2, who, 4, &n, &dropped) == FZN_CATALOG_OK &&
+	CHECK(fzn_catalog_issuers(set, 2, who, 4, &n, &dropped) == FZN_CATALOG_OK &&
 	          n == 2,
 	      "two near-miss issuers counted as one source (n=%zu)", n);
 }

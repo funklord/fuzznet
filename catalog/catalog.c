@@ -369,8 +369,8 @@ int fzn_catalog_referenced(const fzn_catalog_assertion_t *set, size_t count,
 	return 0;
 }
 
-fzn_catalog_err_t fzn_catalog_sources(const fzn_catalog_assertion_t *set,
-                                          size_t count, fzn_catalog_source_t *out,
+fzn_catalog_err_t fzn_catalog_issuers(const fzn_catalog_assertion_t *set,
+                                          size_t count, fzn_catalog_issuer_t *out,
                                           size_t out_cap, size_t *out_count,
                                           size_t *dropped)
 {
@@ -427,7 +427,7 @@ fzn_catalog_err_t fzn_catalog_sources(const fzn_catalog_assertion_t *set,
 fzn_catalog_err_t fzn_catalog_holders(const fzn_catalog_assertion_t *set,
                                           size_t count, const uint8_t *entity,
                                           size_t entity_len,
-                                          fzn_catalog_source_t *out, size_t out_cap,
+                                          fzn_catalog_issuer_t *out, size_t out_cap,
                                           size_t *out_count, size_t *dropped)
 {
 	size_t i, j, w = 0, d = 0;

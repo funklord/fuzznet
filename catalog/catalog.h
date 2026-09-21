@@ -724,10 +724,11 @@
  *
  *   - ~~the layout template of a managed source (C22)~~ SETTLED 2026-09-21: a
  *     substitution pattern over the entity's attributes, catalog/materialise.h
- *     and sec 338. The SOURCE type it produces a relative path INSIDE (C13) is
- *     not built, and `fzn_catalog_source_t` in this header means an ISSUER
- *     rather than C13's source -- one word for two concepts, recorded in sec
- *     338 and not yet resolved. ~~the shard size (C26)~~
+ *     and sec 338. The SOURCE it produces a relative path INSIDE (C13) is
+ *     still not built: no source type, no managed/referenced distinction, no
+ *     (SOURCE, RELATIVE PATH) reference. The word is free for it -- what used
+ *     to be `fzn_catalog_source_t` is `fzn_catalog_issuer_t`, which is what it
+ *     always meant (sec 339). ~~the shard size (C26)~~
  *     SETTLED 2026-09-21: the one number is ENTRIES PER SHARD, defaulting to
  *     FZN_CATALOG_SHARD_ENTRIES_MIN, because that number IS the anonymity set
  *     C26 says the shard size is. catalog/shard.h, sec 337;
@@ -969,11 +970,11 @@ fzn_catalog_err_t fzn_catalog_attribute_decode(const uint8_t *issuer, size_t iss
  * way resolve does; deciding which are live is the caller's (C5c). */
 
 /* An issuer the set depends on, and how many of its assertions are in it. */
-typedef struct fzn_catalog_source {
+typedef struct fzn_catalog_issuer {
 	const uint8_t *issuer;
 	size_t         issuer_len;
 	size_t         assertions;
-} fzn_catalog_source_t;
+} fzn_catalog_issuer_t;
 
 /* Is `entity` REFERENCED -- named by at least one LIVE CURATED assertion in
  * the set?
@@ -995,14 +996,14 @@ int fzn_catalog_referenced(const fzn_catalog_assertion_t *set, size_t count,
 /* The distinct issuers the set depends on, with a per-issuer assertion count,
  * written to `out` (capacity `out_cap`); `*out_count` gets how many were
  * written and `*dropped` how many distinct issuers did not fit. Every issuer
- * is counted, live or not -- catching up with a source must see its
+ * is counted, live or not -- catching up with an issuer must see its
  * retractions too (C5c). FZN_CATALOG_OK unless an argument is null. */
-fzn_catalog_err_t fzn_catalog_sources(const fzn_catalog_assertion_t *set,
-                                          size_t count, fzn_catalog_source_t *out,
+fzn_catalog_err_t fzn_catalog_issuers(const fzn_catalog_assertion_t *set,
+                                          size_t count, fzn_catalog_issuer_t *out,
                                           size_t out_cap, size_t *out_count,
                                           size_t *dropped);
 
-/* The distinct hosts that HOLD `entity` (C8), written to `out` as for sources.
+/* The distinct hosts that HOLD `entity` (C8), written to `out` as for issuers.
  * Derived, not stored: a holder is the issuer of a LIVE HOLDER-capability
  * assertion (C5e/C8a) naming the entity -- only a host holding the bytes may
  * make one. `*out_count` == 1 means a last copy; a caller answers
@@ -1012,7 +1013,7 @@ fzn_catalog_err_t fzn_catalog_sources(const fzn_catalog_assertion_t *set,
 fzn_catalog_err_t fzn_catalog_holders(const fzn_catalog_assertion_t *set,
                                           size_t count, const uint8_t *entity,
                                           size_t entity_len,
-                                          fzn_catalog_source_t *out, size_t out_cap,
+                                          fzn_catalog_issuer_t *out, size_t out_cap,
                                           size_t *out_count, size_t *dropped);
 
 /* A stable, allocation-free name for an error. */

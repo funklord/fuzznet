@@ -258,7 +258,7 @@ fzn_catalog_err_t fzn_catalog_purge_agreements(const fzn_catalog_assertion_t *se
                                                size_t entity_len,
                                                const uint8_t *purge_id,
                                                size_t purge_id_len,
-                                               fzn_catalog_source_t *out, size_t out_cap,
+                                               fzn_catalog_issuer_t *out, size_t out_cap,
                                                size_t *out_count, size_t *dropped);
 
 /* How many purges are queued. */
