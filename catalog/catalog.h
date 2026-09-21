@@ -410,9 +410,25 @@
  *      policy per entry, rather than two mechanisms. Only within a writable
  *      source may an organiser move, rename or delete.
  *
- * C15. A REFERENCED source is read-only to the organiser BY CONSTRUCTION. A
- *      person may point the catalogue at a collection built over decades and
- *      have it indexed rather than rearranged.
+ * C15. SETTLED 2026-09-21 by the copyright holder: IN PLACE. A REFERENCED
+ *      source is read-only to the organiser UNTIL AN ENTRY IS PROMOTED, and a
+ *      promoted entry is writable WHERE IT LIES -- the bytes do not move, the
+ *      policy does. A person may point the catalogue at a collection built
+ *      over decades and have it indexed rather than rearranged, and that
+ *      still holds for every entry nobody has named.
+ *
+ *      THE POLICY IS PER ENTRY, which is C14's "one mechanism with a policy
+ *      per entry" meant literally, and the per-entry reading is what makes
+ *      this safe enough to have: a promotion names ONE entity in ONE place,
+ *      never a directory, a prefix or a subtree, so no single call can make a
+ *      collection writable by being given one argument wrong. The alternative
+ *      declined was promotion by COPYING, which keeps the guarantee true by
+ *      construction at the price of a second copy of every promoted file.
+ *
+ *      WHAT IT COSTS is that the guarantee stops being a property of the code
+ *      and becomes a question somebody asks -- so it is asked AT THE MOMENT
+ *      OF THE WRITE. `fzn_catalog_writable` is a predicate and not a grant.
+ *      catalog/source.h, sec 340.
  *
  * C16. A PATH is a LABEL and a content hash is a FACT, which is C2 one layer
  *      out. A referenced file may be edited, moved or deleted by its owner at
@@ -737,10 +753,15 @@
  *     another name. It caps lines in a log file, which is a bound on growth
  *     rather than a removal needing agreement, and adopting it here would
  *     answer a question nobody asked;
- *   - whether a referenced entity may be promoted into a managed source in
- *     place rather than by copying (C15);
- *   - the wire encoding of the SHARD and SOURCE machinery, which waits on the
- *     two items above. The RECLAMATION half is settled and built: a purge
+ *   - ~~whether a referenced entity may be promoted into a managed source in
+ *     place rather than by copying (C15)~~ SETTLED 2026-09-21: IN PLACE, per
+ *     entry, catalog/source.h and sec 340. That module is also C13's source
+ *     machinery, so the list above is closed;
+ *   - the wire encoding of the SHARD machinery. It used to read "SHARD and
+ *     SOURCE", and building the sources answered the source half by removing
+ *     it: a source and a promotion are PER-HOST state (C5a HOST, C16a), so
+ *     there is nothing there to encode and no wire form to settle. What
+ *     remains open is the shard index alone. The RECLAMATION half is settled and built: a purge
  *     command is FZN_CATALOG_OBJECT_PURGE carrying its pinned set, and an
  *     agreement is an attribute whose issuer set IS the agreement set, C8's
  *     own move (catalog/purge.h, sec 336). The ATTRIBUTE assertion's own

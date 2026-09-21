@@ -171,7 +171,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              facet/facet.c \
              catalog/catalog.c catalog/retention.c catalog/sweep.c \
              catalog/copy.c catalog/filing.c catalog/purge.c \
-             catalog/shard.c catalog/materialise.c \
+             catalog/shard.c catalog/materialise.c catalog/source.c \
              persist/persist.c \
              spool/spool.c \
              spool/plan.c \
@@ -238,7 +238,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              facet/facet.h \
              catalog/catalog.h catalog/retention.h catalog/sweep.h \
              catalog/copy.h catalog/filing.h catalog/purge.h \
-             catalog/shard.h catalog/materialise.h \
+             catalog/shard.h catalog/materialise.h catalog/source.h \
              persist/persist.h \
              spool/spool.h spool/message.h spool/transfer.h \
              spool/scrub.h \
@@ -305,6 +305,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              catalog/test/purge_test.c \
              catalog/test/shard_test.c \
              catalog/test/materialise_test.c \
+             catalog/test/source_test.c \
              catalog/test/plan_fuzz.c \
              persist/test/persist_test.c \
              persist/test/persist_fuzz.c \
@@ -404,6 +405,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/catalog/test/purge_test \
              $(BUILD_DIR)/catalog/test/shard_test \
              $(BUILD_DIR)/catalog/test/materialise_test \
+             $(BUILD_DIR)/catalog/test/source_test \
              $(BUILD_DIR)/catalog/test/plan_fuzz \
              $(BUILD_DIR)/persist/test/persist_test \
              $(BUILD_DIR)/persist/test/persist_kat_test \
@@ -2035,6 +2037,15 @@ $(BUILD_DIR)/catalog/test/shard_test: $(BUILD_DIR)/catalog/test/shard_test.o \
 # materialise turns a pattern and an entity's attributes into a relative path.
 # It writes no file and reaches no filesystem, so it links only itself (sec 338).
 $(BUILD_DIR)/catalog/test/materialise_test: $(BUILD_DIR)/catalog/test/materialise_test.o \
+                                             $(BUILD_DIR)/catalog/materialise.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# sources and C15's promotion. It links materialise.o because the relative-path
+# rule IS C22's component rule, asked per component rather than restated
+# (sec 340).
+$(BUILD_DIR)/catalog/test/source_test: $(BUILD_DIR)/catalog/test/source_test.o \
+                                             $(BUILD_DIR)/catalog/source.o \
                                              $(BUILD_DIR)/catalog/materialise.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@

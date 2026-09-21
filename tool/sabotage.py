@@ -193,6 +193,67 @@ SABOTAGES = [
 		"attribute and a retracted one. sec 338",
 	),
 	(
+		"source-a-policy-cannot-be-flipped",
+		"catalog/source.c",
+		"\t\treturn found->policy == policy ? FZN_CATALOG_OK\n\t\t                               : FZN_CATALOG_ERR_KIND;",
+		"\t\treturn FZN_CATALOG_OK;",
+		"re-declaring a source with a different policy is the ONE call that "
+		"would make an entire referenced collection writable at once, and a "
+		"typo in an enum argument is how it would happen. C15 as settled "
+		"makes promotion per entry precisely so no single call has that "
+		"reach. source_test replays the same policy as its control -- that "
+		"must stay OK, or a caller re-reading its own config is punished. "
+		"sec 340",
+	),
+	(
+		"source-a-promotion-is-one-place",
+		"catalog/source.c",
+		"\treturn bytes_eq(row->path, row->path_len, path, path_len);",
+		"\treturn 1;",
+		"a promotion binds to the entity AND the place. Without the place "
+		"the permission follows the entity around the disk, so an organiser "
+		"may write wherever it thinks the entity is -- including the "
+		"directory above it, which is the subtree C15 exists to protect. "
+		"source_test asks about the containing directory, a prefix of the "
+		"promoted path and a path the owner has moved it to, against the "
+		"promoted path itself as the control. sec 340",
+	),
+	(
+		"source-a-promotion-is-one-source",
+		"catalog/source.c",
+		"\tif (!bytes_eq(row->source, row->source_len, source, source_len))\n\t\treturn 0;",
+		"\tif (0)\n\t\treturn 0;",
+		"two collections can easily share a relative path, so a promotion "
+		"that does not compare the source name reaches into a second "
+		"referenced collection at the same relative path. source_test "
+		"declares a second referenced source rather than using an undeclared "
+		"name, because an undeclared name is caught by the lookup and proves "
+		"nothing about this comparison. sec 340",
+	),
+	(
+		"source-the-predicate-asks-the-path-rule",
+		"catalog/source.c",
+		"\tif (!fzn_catalog_relative_path_ok(path, path_len))\n\t\treturn 0;\n\n\tsrc = fzn_catalog_source_find",
+		"\tif (0)\n\t\treturn 0;\n\n\tsrc = fzn_catalog_source_find",
+		"a path `fzn_catalog_promote` would refuse must not be one "
+		"`fzn_catalog_writable` approves, or the refusal is only as strong "
+		"as the caller's habit of going through promote -- and the managed "
+		"source is where it bites, since everything there is writable "
+		"without a row. source_test asks the predicate about every bad path "
+		"it asks promote about. sec 340",
+	),
+	(
+		"source-managed-needs-no-promotion",
+		"catalog/source.c",
+		"\tif (src->policy == FZN_CATALOG_POLICY_MANAGED)\n\t\treturn FZN_CATALOG_ERR_KIND;",
+		"\tif (0)\n\t\treturn FZN_CATALOG_ERR_KIND;",
+		"promoting inside a managed source is refused rather than accepted "
+		"as a no-op, because a caller who believes the promotion granted the "
+		"write also believes demoting would take it away -- and it would "
+		"not. source_test requires the refusal and that no row is left "
+		"behind. sec 340",
+	),
+	(
 		"shard-absorbs-the-remainder",
 		"catalog/shard.c",
 		"\t\tif (i + 1u == shards)\n\t\t\tout[i].entries = count - at;\n\t\telse\n\t\t\tout[i].entries = min_entries;",

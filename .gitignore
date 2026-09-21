@@ -103,6 +103,7 @@
 /catalog/test/purge_test
 /catalog/test/shard_test
 /catalog/test/materialise_test
+/catalog/test/source_test
 /catalog/test/plan_fuzz
 /persist/test/persist_fuzz
 /wire/test/relay_fuzz

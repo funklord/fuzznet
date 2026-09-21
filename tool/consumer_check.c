@@ -62,6 +62,7 @@
 #include <fuzznet/catalog/purge.h>
 #include <fuzznet/catalog/shard.h>
 #include <fuzznet/catalog/materialise.h>
+#include <fuzznet/catalog/source.h>
 #include <fuzznet/qr/qr.h>
 #if defined(FZN_CLI_ON)
 #include <fuzznet/cli/qr_print.h>
@@ -172,6 +173,7 @@
 #include "catalog/purge.h"
 #include "catalog/shard.h"
 #include "catalog/materialise.h"
+#include "catalog/source.h"
 #include "qr/qr.h"
 #if defined(FZN_CLI_ON)
 #include "cli/qr_print.h"
@@ -2028,6 +2030,65 @@ int main(void)
 				                            path, sizeof(path), &plen, &at)
 				    != FZN_CATALOG_ERR_ABSENT || at != 0u)
 					FAIL(399);
+			}
+
+			/* C15 FROM OUTSIDE. The property a consumer must not
+			 * have to re-derive is the reach of a promotion: it
+			 * makes ONE entity writable in ONE place, and the
+			 * predicate is asked at the write rather than held. */
+			{
+				static const uint8_t arch[] = "archive";
+				fzn_catalog_source_t srows[2];
+				fzn_catalog_source_table_t csources;
+				fzn_catalog_promotion_t crows[2];
+				fzn_catalog_promotions_t cproms;
+
+				if (fzn_catalog_sources_init(&csources, srows, 2)
+				    != FZN_CATALOG_OK)
+					FAIL(400);
+				if (fzn_catalog_promotions_init(&cproms, crows, 2)
+				    != FZN_CATALOG_OK)
+					FAIL(401);
+				if (fzn_catalog_source_declare(&csources, arch,
+				                               sizeof(arch) - 1u,
+				                               FZN_CATALOG_POLICY_REFERENCED)
+				    != FZN_CATALOG_OK)
+					FAIL(402);
+				/* Read-only until somebody names an entry. */
+				if (fzn_catalog_writable(&csources, &cproms, sweep_e,
+				                         sizeof(sweep_e), arch,
+				                         sizeof(arch) - 1u,
+				                         (const uint8_t *)"a/b", 3))
+					FAIL(403);
+				if (fzn_catalog_promote(&cproms, &csources, sweep_e,
+				                        sizeof(sweep_e), arch,
+				                        sizeof(arch) - 1u,
+				                        (const uint8_t *)"a/b", 3)
+				    != FZN_CATALOG_OK)
+					FAIL(404);
+				/* The control: that entry, at that path. */
+				if (!fzn_catalog_writable(&csources, &cproms, sweep_e,
+				                          sizeof(sweep_e), arch,
+				                          sizeof(arch) - 1u,
+				                          (const uint8_t *)"a/b", 3))
+					FAIL(405);
+				/* And not the directory holding it. */
+				if (fzn_catalog_writable(&csources, &cproms, sweep_e,
+				                         sizeof(sweep_e), arch,
+				                         sizeof(arch) - 1u,
+				                         (const uint8_t *)"a", 1))
+					FAIL(406);
+				/* A promotion is withdrawable, which is what
+				 * makes the predicate a question and not a
+				 * grant a caller may keep. */
+				if (fzn_catalog_demote(&cproms, sweep_e, sizeof(sweep_e))
+				    != FZN_CATALOG_OK)
+					FAIL(407);
+				if (fzn_catalog_writable(&csources, &cproms, sweep_e,
+				                         sizeof(sweep_e), arch,
+				                         sizeof(arch) - 1u,
+				                         (const uint8_t *)"a/b", 3))
+					FAIL(408);
 			}
 		}
 

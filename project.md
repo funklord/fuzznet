@@ -44257,3 +44257,112 @@ both twenty, so every continuation line still lines up under its open paren.
 Worth noticing rather than relying on -- a rename that changed a length would
 have needed the alignment re-done and re-proved, and the proof above would
 not have caught it, because expanding-and-comparing is blind to a column.
+
+## 340. C15 settled in place, and C13's sources built, 2026-09-21
+
+THE DECISION, the copyright holder's on 2026-09-21: a referenced entry is
+promoted IN PLACE. The bytes do not move, the policy does. I recommended the
+other option and record that here rather than softening it, because the
+reasoning below is shaped by having lost the argument and the next reader
+should be able to see which parts are the decision and which are mine.
+
+`catalog/source.{h,c}` -- which is also C13's SOURCE machinery, the piece
+section 7 had listed as not built at all, and the reason sec 339 freed the
+word `fzn_catalog_source_t`.
+
+===========================================================================
+
+A SOURCE IS A NAME AND A POLICY AND NOT A ROOT PATH, which is the first thing
+that had to be decided and was not part of the question. C13 says a reference
+is (SOURCE, RELATIVE PATH) "and never a bare absolute path", so a module
+storing the root would store exactly the thing C13 exists to stop being the
+unit. Turning a reference into somewhere a file can be opened is the
+consumer's, as moving a file already is in filing.h. This library never sees
+an absolute path at all.
+
+AND THERE IS NO WIRE FORM, WHICH ANSWERED AN OPEN ITEM BY REMOVING IT. C16a
+says the (source, relative path) form is local -- "what a host records about
+its own disk; it is not what it publishes" -- so sources and promotions are
+per-host state like retention and filing, with no encode, no decode and
+nothing taking an issuer. Section 7's last bullet read "the wire encoding of
+the SHARD and SOURCE machinery"; the source half of it was not deferred, it
+was never a thing. What remains open is the shard index alone.
+
+===========================================================================
+
+WHAT THE DECISION COSTS, WRITTEN DOWN AT THE MOMENT OF TAKING IT rather than
+discovered by whoever meets it. C15 used to say a referenced source is
+read-only BY CONSTRUCTION. It now says read-only UNTIL AN ENTRY IS PROMOTED,
+and that is a real weakening: the guarantee stops being a property of the code
+and becomes a question somebody asks. A bug in the asking is a rename inside a
+collection built over decades, which breaks every other tool pointing at that
+path and is not recoverable from this library.
+
+C14 turned out to support the holder's reading rather than mine, which is
+worth recording because I did not notice it until after the decision: "one
+mechanism with a policy per entry" says the policy is per ENTRY in as many
+words. I had read it as per source.
+
+THREE RULES HOLD THE EXPOSURE TO ONE FILE AT A TIME, and they are the whole
+engineering content of the decision:
+
+  - A PROMOTION NAMES ONE ENTITY IN ONE PLACE. Never a directory, never a
+    prefix, never a subtree. There is no call that makes more than one entry
+    writable, so there is no call that makes a collection writable by being
+    given one argument wrong.
+  - A SOURCE'S POLICY IS FIXED WHEN IT IS DECLARED. Re-declaring with a
+    DIFFERENT policy is refused rather than applied. That single call is the
+    one gesture that would flip a whole collection at once, and a typo in an
+    enum argument is exactly how it would happen. Replaying the same policy is
+    fine, so a caller re-reading its own configuration is not punished -- that
+    is the control the sabotage runs against.
+  - ASK AT THE MOMENT OF THE WRITE. `fzn_catalog_writable` is a predicate and
+    not a grant. A caller reading it once and writing later holds a fact about
+    a moment, and both the promotion and the file can move in between.
+
+A PROMOTION BINDS TO THE ENTITY AND THE PLACE TOGETHER. C16 says a referenced
+file may be moved by its owner at any time; if it is, the promotion stops
+matching and the answer is no. That is the safe direction and it is
+deliberate: a promotion is a statement about one file in one place, not a
+licence that follows an entity around a disk.
+
+DEMOTION IS NOT DELETION (C17), and nothing else in the module creates a
+promotion. Materialising a layout, filing, refiling and sweeping all leave the
+promotions exactly as they found them. C17's shape -- explicit, never a
+consequence of something else -- is the right one for a permission too.
+
+THE PATH RULE IS C22'S, ASKED PER COMPONENT rather than restated. A relative
+path is validated with `fzn_catalog_path_component_ok` over each component, so
+`..` is refused here for the same reason and by the same code as in a
+substituted value. A second statement of that rule would be a second thing to
+be wrong -- and `fzn_catalog_writable` asks it too, because a refusal that
+lives only in `fzn_catalog_promote` is only as strong as a caller's habit of
+going through it.
+
+===========================================================================
+
+EVIDENCE. source_test is 87 checks, and every refusal runs against a control
+that must still pass -- the promoted entry at its own path, and the replayed
+declaration. A guard answering no to everything would satisfy each case and
+leave a person a catalogue that can never write anything.
+
+Five sabotage entries, each watched failing through ITS OWN assertion rather
+than through something that happened to be nearby:
+
+    a-policy-cannot-be-flipped        source_test.c:90
+    a-promotion-is-one-place          source_test.c:142
+    a-promotion-is-one-source         source_test.c:165
+    the-predicate-asks-the-path-rule  source_test.c:278
+    managed-needs-no-promotion        source_test.c:230
+
+THE THIRD ONE NEEDED A TEST CASE THE SUITE DID NOT HAVE. "A promotion is one
+source" was first driven with an UNDECLARED source name, which the lookup
+catches before the comparison is reached -- so the sabotage would have gone
+green with the source comparison deleted. Two collections can easily share a
+relative path, so the case that separates them is a SECOND DECLARED REFERENCED
+source at the same path. This is the control-has-to-be-REACHED rule: the
+sabotage was capable, correctly aimed, and something upstream was being
+helpful.
+
+The consumer gate gained an exercise for the reach of a promotion, and it was
+watched failing at check 405 before being trusted.
