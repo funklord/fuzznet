@@ -8,16 +8,39 @@
  * accessors call it. A first attempt at this file claimed the opposite,
  * having grepped rather than linked; the linker disagreed immediately.
  *
- * The reason for the exception is proportion. situ's C runtime is 87 lines
- * of situ.c and a header, inside a repository that is otherwise a Python
- * compiler. A submodule would drag the whole compiler into every clone of
- * this library, and into every consumer's tree, to obtain two files.
- * Monocypher is a submodule because it is a C library that is all runtime;
- * this is a runtime that is a rounding error inside a tool.
+ * The reason for the exception is proportion, and the proportion is a RATIO
+ * rather than a size. situ's C runtime is two files inside a repository that
+ * is otherwise a Python compiler, so a submodule would drag the whole
+ * compiler into every clone of this library, and into every consumer's tree,
+ * to obtain them. Monocypher is a submodule because it is a C library that is
+ * all runtime; this is a runtime that is a rounding error inside a tool.
  *
- * What would change the answer: situ shipping its C runtime as its own
- * repository, or this runtime growing to the point where vendoring it is
- * copying a library rather than two files.
+ * MEASURED 2026-09-21, at pin 6b9c1cd, and `make schema` re-measures it on
+ * every run so this figure never has to be trusted: 1852 lines of C runtime
+ * against 167584 lines of Python -- 90 lines dragged per line obtained, where
+ * monocypher's repository IS its C library at 1:1. For scale, monocypher is
+ * 3309 lines and this is 1894: the thing the paragraph above names as
+ * belonging in a submodule is the LARGER of the two.
+ *
+ * COUNT WHAT A SUBMODULE WOULD DELIVER, WHICH IS `git archive HEAD` AND NOT A
+ * WORKING TREE. The first hand measurement of this said 330079 lines and
+ * 178:1, having counted every .py under situ -- including 202 files a Debian
+ * package build had left in `debian/`, which no clone would ever receive. The
+ * schema check reads the archive and reported 90:1 on its first run, which is
+ * the mechanised figure correcting the written one immediately.
+ *
+ * WHAT WOULD CHANGE THE ANSWER: situ shipping its C runtime as its own
+ * repository, which collapses that ratio to 1:1 and makes a submodule right.
+ *
+ * NOT THE RUNTIME'S SIZE, and an earlier wording of this paragraph said
+ * otherwise -- "growing to the point where vendoring it is copying a library
+ * rather than two files". That is a size test guarding a ratio argument, so
+ * it fires at the wrong time in both directions: this runtime could double
+ * again and a submodule would still drag 330k lines of Python, while a much
+ * smaller runtime in its own repository should already be one. Corrected when
+ * the pin move of sec 331 grew situ.h from 1321 body lines to 1765 and the
+ * clause was read to see whether it had tripped. It had not, and it could
+ * not have, because it was measuring the wrong quantity.
  */
 /* situ.c -- out-of-line part of the situ runtime. */
 

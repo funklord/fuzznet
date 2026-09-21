@@ -43847,3 +43847,55 @@ the Makefile gave 60 sources; asking make gave 92. The gate uses `$(SRCS)`
 directly, so it cannot drift from the list the build uses -- which is the
 difference between a check over the sources and a check over the ones a
 regular expression happened to match.
+
+## 334. The vendoring clause was measuring the wrong quantity, 2026-09-21
+
+sec 331's pin move grew `situ.h` from 1321 body lines to 1765, and the
+vendoring banner names runtime growth as one of two things that would change
+the answer. Reading the clause to see whether it had tripped found that it
+could not have, because it is a size test guarding a ratio argument.
+
+THE ARGUMENT IS A RATIO. The banner's case for vendoring rather than
+submoduling is that situ's C runtime sits inside a repository that is
+otherwise a Python compiler, so a submodule drags the whole compiler in to
+obtain two files. What decides that is how much comes with the runtime, not
+how big the runtime is.
+
+THE CLAUSE WAS A SIZE TEST: "this runtime growing to the point where vendoring
+it is copying a library rather than two files". That fires at the wrong time in
+both directions. This runtime could double again and a submodule would still
+drag a Python compiler; a much SMALLER runtime in its own repository should
+already be a submodule. The clause's other branch -- situ shipping its C
+runtime as its own repository -- is the real trigger, and it is not a number.
+
+So the clause now names the ratio, and the size half is struck with the reason.
+
+AND THE FIRST MEASUREMENT OF THAT RATIO WAS WRONG, which is the part worth
+carrying. By hand: 330079 lines of Python against 1852 of C, 178:1. Mechanised
+into `make schema`, reading the `git archive HEAD` the gate already extracts:
+167584 and 90:1. The difference is 202 `.py` files under `debian/` that a
+package build had left in situ's working tree and that no clone would ever
+receive.
+
+THE ERROR IS `evidence.md`'s, exactly: a fact about what a submodule would
+deliver, measured against a working directory instead of against the archive a
+submodule actually gives you. The same shape as a sweep reporting, as facts
+about four projects, an artifact of the scratch directory they had been
+unpacked into.
+
+WHICH IS WHY IT IS MECHANISED RATHER THAN DATED. `make schema` prints the live
+ratio on every run, so the banner's figure is compared rather than trusted --
+and it corrected its own author on the first run, which is the strongest
+argument for the technique that was available. It REPORTS rather than refuses:
+no threshold has been agreed, and the real trigger is not a number.
+
+IT ALSO ABSTAINS HONESTLY. Placed after the recipe's cleanup it could not find
+the extracted tree and printed "could not measure the vendoring ratio, so the
+banner's figure stands unchecked this run" rather than a wrong number or a
+silent nothing. Moved before the cleanup, it measures. The abstention branch
+was real and was worth having before it was needed.
+
+THE VERDICT: the exception HOLDS, and more strongly than when it was written.
+1894 vendored lines against monocypher's 3309 -- the comparator the banner
+itself names as belonging in a submodule is the LARGER of the two -- at a
+ratio of 90:1 where monocypher's repository is its C library at 1:1.

@@ -5075,6 +5075,27 @@ schema:
 			rm -rf $(BUILD_DIR)/.gen.new $(BUILD_DIR)/.situ-head; exit 1; }; \
 	done
 	@rm -rf $(BUILD_DIR)/.gen.new
+	@# AND THE VENDORING EXCEPTION RE-MEASURES ITSELF. sec 334.
+	@#
+	@# wire/generated/situ.{h,c} carry a banner whose argument for vendoring
+	@# rather than submoduling is a RATIO: how much of situ a submodule
+	@# would drag in per line of C runtime obtained. A number written into a
+	@# comment is a fact recorded without its method, and this tree has been
+	@# bitten by those often enough to mechanise one when it is cheap. This
+	@# prints the live figure beside every schema run, so the banner's dated
+	@# measurement can be compared by eye rather than trusted.
+	@#
+	@# It REPORTS rather than refuses, deliberately: there is no threshold
+	@# anyone has agreed, and the clause's real trigger is situ shipping its
+	@# runtime as its own repository, which is not a number at all.
+	@c=`wc -l $(BUILD_DIR)/.situ-head/runtime/c/situ.h $(BUILD_DIR)/.situ-head/runtime/c/situ.c 2>/dev/null | tail -1 | awk '{print $$1}'`; \
+	py=`find $(BUILD_DIR)/.situ-head -name '*.py' | xargs wc -l 2>/dev/null | tail -1 | awk '{print $$1}'`; \
+	if [ -n "$$c" ] && [ -n "$$py" ] && [ "$$c" -gt 0 ]; then \
+		echo "schema: the vendoring ratio is `expr $$py / $$c`:1 -- $$py python lines dragged per line of the $$c-line C runtime obtained"; \
+	else \
+		echo "schema: could not measure the vendoring ratio, so the banner's"; \
+		echo "schema: figure stands unchecked this run."; \
+	fi
 	@rm -rf $(BUILD_DIR)/.situ-head
 	@echo "schema: contract, map, generated C, tamper harness and vendored runtime all match"
 
