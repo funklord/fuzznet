@@ -146,6 +146,51 @@ SABOTAGES = [
 		"An overflowing issuer is dropped once, not per assertion (reach.c's rule), so `dropped` is a count of distinct issuers a reader must still account for. Counting per row inflates it and a caller sizing a catch-up buffer over-allocates. catalog_test's repeated-dropped-issuer case catches it.",
 	),
 	(
+		"purge-agreement-must-come-from-a-pinned-host",
+		"catalog/purge.c",
+		"\t/* NOT IN THE PINNED SET. A host that began holding the entity after the\n\t * purge was queued is not part of the consensus, and counting it would\n\t * let the queue close while a PINNED host had still not answered. */\n\treturn FZN_CATALOG_ERR_ABSENT;",
+		"\treturn FZN_CATALOG_OK;",
+		"C19a pins the consensus set when the purge is queued. Accepting an "
+		"agreement from a host outside it means a host that began holding the "
+		"entity AFTER the queue can close it -- while a pinned host that still "
+		"has the bytes has not answered, and will re-send them. purge_test has "
+		"a third host start holding after the queue. sec 335",
+	),
+	(
+		"purge-eliminates-no-earlier-than-consensus",
+		"catalog/purge.c",
+		"if (!fzn_catalog_purge_closed(purges, entity, entity_len))",
+		"if (0)",
+		"\"No earlier, because a host that has not yet agreed still holds a copy "
+		"and will re-send it\" -- so eliminating an open entry does not lose "
+		"bookkeeping, it UNDOES THE DELETION at that host's next sync. The "
+		"queue entry is the thing being paid for and it goes when consensus "
+		"closes, not before. purge_test eliminates at zero and at half "
+		"agreement. sec 335",
+	),
+	(
+		"purge-an-empty-set-is-not-consensus",
+		"catalog/purge.c",
+		"if (written == 0)",
+		"if (0)",
+		"a purge whose pinned set is empty closes instantly, so the bytes go "
+		"while some host nobody asked still holds them. Nothing holding an "
+		"entity here means there is no consensus to attain -- which is not the "
+		"same as a purge already done. purge_test queues over a set that only "
+		"CURATES the entity. sec 335",
+	),
+	(
+		"purge-refuses-to-requeue-and-discard-agreement",
+		"catalog/purge.c",
+		"\tif (find(purges, entity))\n\t\treturn FZN_CATALOG_ERR_KIND;",
+		"\tif (0)\n\t\treturn FZN_CATALOG_ERR_KIND;",
+		"re-queueing re-pins against the set as it stands NOW and silently "
+		"discards the agreement already collected, which is the recomputed-set "
+		"failure arriving by another route: hosts that agreed are asked again "
+		"and hosts that have since left are dropped. purge_test agrees once, "
+		"re-queues, and requires the agreement to survive. sec 335",
+	),
+	(
 		"filing-a-retracted-link-is-not-a-place",
 		"catalog/filing.c",
 		"\t\tif (!a->live)\n\t\t\tcontinue;\n",

@@ -205,7 +205,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_provision_err_str", r_provision, 6 },
 	{ "fzn_disclose_err_str", r_disclose, 6 },
 	{ "fzn_facet_err_str", r_facet, 8 },
-	{ "fzn_catalog_err_str", r_catalogue, 7 },
+	{ "fzn_catalog_err_str", r_catalogue, 8 },
 	{ "fzn_catalog_retention_str", r_cat_retain, 3 },
 };
 

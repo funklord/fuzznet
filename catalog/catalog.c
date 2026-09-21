@@ -506,6 +506,8 @@ const char *fzn_catalog_err_str(fzn_catalog_err_t err)
 		return "output buffer too small";
 	case FZN_CATALOG_ERR_ABSENT:
 		return "not asserted by the records";
+	case FZN_CATALOG_ERR_BUSY:
+		return "still under way";
 	}
 	return "unknown";
 }

@@ -43899,3 +43899,78 @@ THE VERDICT: the exception HOLDS, and more strongly than when it was written.
 1894 vendored lines against monocypher's 3309 -- the comparator the banner
 itself names as belonging in a submodule is the LARGER of the two -- at a
 ratio of 90:1 where monocypher's repository is its C library at 1:1.
+
+## 335. The queued purge: C19a implemented, 2026-09-21
+
+`catalog/purge.{h,c}`. sec 330 settled that there is no automatic reclamation
+and left C19a's machinery "settled and unbuilt, available for the explicit
+estate-wide gesture C19 describes". This builds it. The mechanism needed no
+decision -- it was settled with fuzzypickles' holder on 2026-09-05 and
+recorded in C19a -- so what follows is implementation, and the interesting
+part is the two things C19a says an implementation gets wrong BY BEING
+HELPFUL.
+
+WHAT IT IS. A deletion is a QUEUED COMMAND eliminated once consensus is
+attained. "No earlier, because a host that has not yet agreed still holds a
+copy and will re-send it. No later, because the queue entry is itself the
+thing being paid for." The alternatives fail for reasons worth keeping: a
+local delete is undone by the next sibling to sync, and a tombstone that lives
+for ever trades a file for a smaller permanent thing, which is not a saving
+when the point was to save space.
+
+NOTHING REACHES IT BY ITSELF, which is the join with sec 330. A person queues
+a purge deliberately; the sweep PLANS and a zero reference count is reported.
+Nothing in this library calls `fzn_catalog_purge_queue`. And it removes no
+bytes -- it carries the agreement, so a consumer knows when every host that
+held the entity has agreed and the entry can go.
+
+THE FIRST THING AN IMPLEMENTATION GETS WRONG: RECOMPUTING THE SET. C19a says
+the consensus set is PINNED WHEN THE PURGE IS QUEUED, and names both
+directions of the failure -- a recomputed set "can never close while a host is
+away, or closes early when one leaves". So `purge_queue` copies the holder set
+into the row and NOTHING afterwards reads the assertion set again.
+
+Both directions are driven in the suite, because an implementation that
+recomputed would pass a test for only one:
+
+  - a host that starts holding the entity AFTER the queue is not pinned, and
+    its agreement is refused. Counting it would let the queue close while a
+    pinned host that still has the bytes had not answered;
+  - a host that STOPS holding it after the queue is still waited on. Dropping
+    it closes the purge early, and the bytes go while that host still has them.
+
+THE SECOND: WAITING ON HOSTS THAT NEVER HELD ANYTHING. The pinned set is the
+hosts that HOLD (C8/C5e, via `fzn_catalog_holders`), not every sibling --
+"relay and retention are independent, host-by-host choices, so a host that
+only forwards never stores and MUST NEVER BE WAITED ON". A set including them
+cannot close, and the symptom is a queue growing for ever while every host in
+it behaves correctly. The suite pins over a set where one host CURATES the
+entity without holding it.
+
+THREE REFUSALS THAT ARE NOT OBVIOUS UNTIL THEY ARE STATED:
+
+  - AN EMPTY PINNED SET IS REFUSED (FZN_CATALOG_ERR_ABSENT). Nothing holding
+    it means there is no consensus to attain, and a purge with an empty set
+    closes instantly -- while some host nobody asked may still have the bytes.
+    That is not the same as a purge already done.
+  - A SET TOO LARGE TO PIN IS REFUSED rather than truncated, because a short
+    set closes early, which is the worse of C19a's two failures.
+  - RE-QUEUEING IS REFUSED (ERR_KIND) rather than re-pinning, because
+    re-pinning silently discards the agreement already collected and restarts
+    against a different set -- the recomputed-set failure arriving by another
+    route.
+
+AND AGREEING TWICE IS NOT AN ERROR. It is what a re-delivered message looks
+like, and refusing it would make a consumer distinguish a duplicate from a
+fault it does not have.
+
+A NEW ERROR CODE, FZN_CATALOG_ERR_BUSY. "The purge is still open" is a
+legitimate state and the answer is to wait, not to fix a call -- the same
+argument that gave ABSENT its own code in sec 323. err_str_test walks eight
+arms of this enum now.
+
+TESTED, 47 checks, four sabotage entries each watched failing through its own
+assertion: an agreement accepted from outside the pinned set, elimination
+before consensus, an empty set queued, and a re-queue discarding agreement.
+Plus the near-miss pair on the HOST axis, where folding two hosts into one
+would close a purge on an agreement a different host gave.

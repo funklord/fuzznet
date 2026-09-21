@@ -779,6 +779,11 @@ typedef enum fzn_catalog_err {
 	 * responses, and a caller that could not tell them apart would treat a
 	 * catalogue it has not caught up with as a programming error. sec 323. */
 	FZN_CATALOG_ERR_ABSENT = 6,
+	/* The operation is refused because something is still under way -- a
+	 * queued purge whose pinned hosts have not all agreed, say. Like
+	 * ABSENT, a legitimate state rather than a caller's bug: the answer is
+	 * to wait, not to fix a call. sec 335. */
+	FZN_CATALOG_ERR_BUSY = 7,
 } fzn_catalog_err_t;
 
 /* C2: what may be asserted, by WHO CAN CHECK IT. */

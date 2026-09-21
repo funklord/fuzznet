@@ -100,6 +100,7 @@
 /catalog/test/sweep_plan_test
 /catalog/test/copy_plan_test
 /catalog/test/filing_test
+/catalog/test/purge_test
 /catalog/test/plan_fuzz
 /persist/test/persist_fuzz
 /wire/test/relay_fuzz

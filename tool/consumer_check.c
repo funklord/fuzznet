@@ -59,6 +59,7 @@
 #include <fuzznet/catalog/sweep.h>
 #include <fuzznet/catalog/copy.h>
 #include <fuzznet/catalog/filing.h>
+#include <fuzznet/catalog/purge.h>
 #include <fuzznet/qr/qr.h>
 #if defined(FZN_CLI_ON)
 #include <fuzznet/cli/qr_print.h>
@@ -166,6 +167,7 @@
 #include "catalog/sweep.h"
 #include "catalog/copy.h"
 #include "catalog/filing.h"
+#include "catalog/purge.h"
 #include "qr/qr.h"
 #if defined(FZN_CLI_ON)
 #include "cli/qr_print.h"
@@ -1909,6 +1911,49 @@ int main(void)
 					FAIL(386);
 				if (fzn_catalog_filing_count(&filings) != 0)
 					FAIL(387);
+			}
+
+			/* THE QUEUED PURGE, from outside. The property worth
+			 * proving here is the one C19a names as the thing an
+			 * implementation gets wrong by being helpful: the
+			 * consensus set is pinned when the purge is queued. */
+			{
+				fzn_catalog_purge_t prows[2];
+				fzn_catalog_purges_t purges;
+				size_t pinned = 0, agreed = 0;
+
+				if (fzn_catalog_purges_init(&purges, prows, 2)
+				    != FZN_CATALOG_OK)
+					FAIL(388);
+				if (fzn_catalog_purge_queue(&purges, aset, 2, sweep_e,
+				                            sizeof(sweep_e))
+				    != FZN_CATALOG_OK)
+					FAIL(389);
+				if (fzn_catalog_purge_progress(&purges, sweep_e,
+				                               sizeof(sweep_e), &pinned,
+				                               &agreed) != FZN_CATALOG_OK
+				    || pinned != 2 || agreed != 0)
+					FAIL(390);
+				/* Not eliminable until every pinned host agrees. */
+				if (fzn_catalog_purge_eliminate(&purges, sweep_e,
+				                                sizeof(sweep_e))
+				    != FZN_CATALOG_ERR_BUSY)
+					FAIL(391);
+				if (fzn_catalog_purge_agree(&purges, sweep_e,
+				                            sizeof(sweep_e), host_a, 32)
+				    != FZN_CATALOG_OK)
+					FAIL(392);
+				if (fzn_catalog_purge_agree(&purges, sweep_e,
+				                            sizeof(sweep_e), host_b, 32)
+				    != FZN_CATALOG_OK)
+					FAIL(393);
+				if (!fzn_catalog_purge_closed(&purges, sweep_e,
+				                              sizeof(sweep_e)))
+					FAIL(394);
+				if (fzn_catalog_purge_eliminate(&purges, sweep_e,
+				                                sizeof(sweep_e))
+				    != FZN_CATALOG_OK)
+					FAIL(395);
 			}
 		}
 

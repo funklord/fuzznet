@@ -170,7 +170,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              disclose/disclose.c \
              facet/facet.c \
              catalog/catalog.c catalog/retention.c catalog/sweep.c \
-             catalog/copy.c catalog/filing.c \
+             catalog/copy.c catalog/filing.c catalog/purge.c \
              persist/persist.c \
              spool/spool.c \
              spool/plan.c \
@@ -236,7 +236,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              disclose/disclose.h \
              facet/facet.h \
              catalog/catalog.h catalog/retention.h catalog/sweep.h \
-             catalog/copy.h catalog/filing.h \
+             catalog/copy.h catalog/filing.h catalog/purge.h \
              persist/persist.h \
              spool/spool.h spool/message.h spool/transfer.h \
              spool/scrub.h \
@@ -300,6 +300,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              catalog/test/sweep_plan_test.c \
              catalog/test/copy_plan_test.c \
              catalog/test/filing_test.c \
+             catalog/test/purge_test.c \
              catalog/test/plan_fuzz.c \
              persist/test/persist_test.c \
              persist/test/persist_fuzz.c \
@@ -396,6 +397,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/catalog/test/sweep_plan_test \
              $(BUILD_DIR)/catalog/test/copy_plan_test \
              $(BUILD_DIR)/catalog/test/filing_test \
+             $(BUILD_DIR)/catalog/test/purge_test \
              $(BUILD_DIR)/catalog/test/plan_fuzz \
              $(BUILD_DIR)/persist/test/persist_test \
              $(BUILD_DIR)/persist/test/persist_kat_test \
@@ -2006,6 +2008,14 @@ $(BUILD_DIR)/catalog/test/copy_plan_test: $(BUILD_DIR)/catalog/test/copy_plan_te
 $(BUILD_DIR)/catalog/test/filing_test: $(BUILD_DIR)/catalog/test/filing_test.o \
                                              $(BUILD_DIR)/catalog/filing.o \
                                              $(BUILD_DIR)/catalog/retention.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# purge derives its consensus set from the records and carries agreement; it
+# removes no bytes, so it links no filestore and no transport (sec 335).
+$(BUILD_DIR)/catalog/test/purge_test: $(BUILD_DIR)/catalog/test/purge_test.o \
+                                             $(BUILD_DIR)/catalog/purge.o \
+                                             $(BUILD_DIR)/catalog/catalog.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
