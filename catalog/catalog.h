@@ -735,38 +735,35 @@
  *      mechanism half of reclamation is settled by C19a and was never open.
  *
  * =========================================================================
- * 7. NOT SETTLED HERE
+ * 7. WHAT WAS NOT SETTLED HERE, AND WHERE EACH ANSWER IS
  * =========================================================================
  *
- *   - ~~the layout template of a managed source (C22)~~ SETTLED 2026-09-21: a
- *     substitution pattern over the entity's attributes, catalog/materialise.h
- *     and sec 338. The SOURCE it produces a relative path INSIDE (C13) is
- *     still not built: no source type, no managed/referenced distinction, no
- *     (SOURCE, RELATIVE PATH) reference. The word is free for it -- what used
- *     to be `fzn_catalog_source_t` is `fzn_catalog_issuer_t`, which is what it
- *     always meant (sec 339). ~~the shard size (C26)~~
- *     SETTLED 2026-09-21: the one number is ENTRIES PER SHARD, defaulting to
- *     FZN_CATALOG_SHARD_ENTRIES_MIN, because that number IS the anonymity set
- *     C26 says the shard size is. catalog/shard.h, sec 337;
- *     Checked rather than assumed, and the negative is worth recording with
- *     it: fuzzypickles' `daemon/log_retention.h` is NOT this decision under
- *     another name. It caps lines in a log file, which is a bound on growth
- *     rather than a removal needing agreement, and adopting it here would
- *     answer a question nobody asked;
- *   - ~~whether a referenced entity may be promoted into a managed source in
- *     place rather than by copying (C15)~~ SETTLED 2026-09-21: IN PLACE, per
- *     entry, catalog/source.h and sec 340. That module is also C13's source
- *     machinery, so the list above is closed;
- *   - the wire encoding of the SHARD machinery. It used to read "SHARD and
- *     SOURCE", and building the sources answered the source half by removing
- *     it: a source and a promotion are PER-HOST state (C5a HOST, C16a), so
- *     there is nothing there to encode and no wire form to settle. What
- *     remains open is the shard index alone. The RECLAMATION half is settled and built: a purge
- *     command is FZN_CATALOG_OBJECT_PURGE carrying its pinned set, and an
- *     agreement is an attribute whose issuer set IS the agreement set, C8's
- *     own move (catalog/purge.h, sec 336). The ATTRIBUTE assertion's own
- *     encoding is SETTLED and below;
- *     the module name is SETTLED, `catalog` (the copyright holder, 2026-09-18).
+ * This list held the questions this specification could not answer alone.
+ * They are all answered, and it is rewritten rather than appended to, because
+ * six strike-throughs in one bullet is a list nobody can read. The arguments
+ * are in project.md and in the commits.
+ *
+ *   - THE MODULE NAME: `catalog`, the copyright holder, 2026-09-18.
+ *   - THE ATTRIBUTE ASSERTION'S WIRE ENCODING: settled 2026-09-18 and below.
+ *   - THE RECLAMATION POLICY (C18): no automatic reclamation; a zero refcount
+ *     is reported and never a trigger. sec 330.
+ *   - THE PURGE'S WIRE FORM (C19a): one new object carrying its pinned set,
+ *     and an agreement is an ATTRIBUTE whose issuer set IS the agreement set
+ *     -- C8's own move, so there is no third object. catalog/purge.h, sec 336.
+ *   - THE SHARD SIZE (C26): ENTRIES PER SHARD, because that number IS the
+ *     anonymity set C26 says the shard size is. catalog/shard.h, sec 337.
+ *   - THE LAYOUT TEMPLATE OF A MANAGED SOURCE (C22): a substitution pattern
+ *     over the entity's attributes, where the pattern's own separators make
+ *     directories and a substituted value's may not. catalog/materialise.h,
+ *     sec 338.
+ *   - PROMOTION INTO A MANAGED SOURCE (C15): IN PLACE, per entry -- the bytes
+ *     do not move, the policy does. catalog/source.h, sec 340. That module is
+ *     also C13's source machinery.
+ *   - THE WIRE ENCODING OF THE SHARD MACHINERY: the index is itself a blob,
+ *     as every shard is, and one record signs its root. catalog/index.h,
+ *     sec 341. It once read "the SHARD and SOURCE machinery" and the source
+ *     half was answered by removal: a source and a promotion are PER-HOST
+ *     state (C5a HOST, C16a), so there is nothing there to encode.
  */
 
 /* =========================================================================

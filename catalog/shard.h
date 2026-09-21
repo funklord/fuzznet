@@ -23,12 +23,14 @@
  * is a key OF.
  *
  * THIS PLANS BOUNDARIES AND NOTHING ELSE. It does not build the shards, sign
- * the index, or encode either: the wire form of the shard and source machinery
- * is still open (section 7). It no longer waits on C22, which was settled on
- * 2026-09-21 as a substitution pattern (catalog/materialise.h, sec 338); what
- * it waits on now is C15 and the C13 SOURCE machinery an encoding would have
- * to name, which is not built. What is settled and therefore buildable is
- * where the cuts fall.
+ * the index or fetch one; `catalog/index.h` is the wire form of the index and
+ * `blob/` owns the bytes.
+ *
+ * This paragraph used to restate what the encoding was waiting on, and went
+ * stale three times in two days as the answers landed -- once within an hour
+ * of being corrected. It names the module now and nothing else: a dependency
+ * list belongs in the one place that tracks it, which is catalog.h's
+ * section 7, and a second copy is a second thing to be wrong.
  */
 
 #ifndef FZN_CATALOG_SHARD_H

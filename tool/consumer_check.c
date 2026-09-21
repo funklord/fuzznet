@@ -63,6 +63,7 @@
 #include <fuzznet/catalog/shard.h>
 #include <fuzznet/catalog/materialise.h>
 #include <fuzznet/catalog/source.h>
+#include <fuzznet/catalog/index.h>
 #include <fuzznet/qr/qr.h>
 #if defined(FZN_CLI_ON)
 #include <fuzznet/cli/qr_print.h>
@@ -174,6 +175,7 @@
 #include "catalog/shard.h"
 #include "catalog/materialise.h"
 #include "catalog/source.h"
+#include "catalog/index.h"
 #include "qr/qr.h"
 #if defined(FZN_CLI_ON)
 #include "cli/qr_print.h"
@@ -2089,6 +2091,69 @@ int main(void)
 				                         sizeof(arch) - 1u,
 				                         (const uint8_t *)"a/b", 3))
 					FAIL(408);
+			}
+
+			/* THE SIGNED SHARD INDEX, from outside. A consumer's
+			 * first act on a received index blob is the order
+			 * check, because the lookup binary-searches and
+			 * cannot notice that what it searches is out of
+			 * order -- so the precondition is exercised here
+			 * rather than left true and unwritten. */
+			{
+				fzn_catalog_index_t ix, back;
+				fzn_catalog_shard_t plan[3];
+				fzn_catalog_blob_root_t roots[3];
+				uint8_t head[FZN_CATALOG_INDEX_HEAD_LEN];
+				uint8_t ibody[3u * FZN_CATALOG_INDEX_ENTRY_LEN];
+				fzn_catalog_shard_key_t key;
+				size_t hlen = 0, blen = 0, which = 0, i;
+
+				for (i = 0; i < 3; i++) {
+					memset(plan[i].first.b, 0, sizeof(plan[i].first.b));
+					plan[i].first.b[0] = (uint8_t)(i * 4u);
+					plan[i].entries = FZN_CATALOG_SHARD_ENTRIES_MIN;
+					memset(roots[i].b, (int)(0x50u + i),
+					       sizeof(roots[i].b));
+				}
+				if (fzn_catalog_index_body_encode(plan, roots, 3, ibody,
+				                                  sizeof(ibody), &blen)
+				    != FZN_CATALOG_OK)
+					FAIL(409);
+				if (!fzn_catalog_index_body_ok(ibody, blen, 3))
+					FAIL(410);
+
+				memset(&ix, 0, sizeof(ix));
+				ix.floor = FZN_CATALOG_SHARD_ENTRIES_MIN;
+				ix.shards = 3;
+				memset(ix.root.b, 0x5f, sizeof(ix.root.b));
+				if (fzn_catalog_index_encode(&ix, head, sizeof(head), &hlen)
+				    != FZN_CATALOG_OK || hlen != FZN_CATALOG_INDEX_HEAD_LEN)
+					FAIL(411);
+				if (fzn_catalog_index_decode(head, hlen, &back)
+				    != FZN_CATALOG_OK
+				    || back.shards != 3
+				    || back.floor != FZN_CATALOG_SHARD_ENTRIES_MIN)
+					FAIL(412);
+				/* The floor travels so a consumer can see the
+				 * anonymity set it is about to reveal
+				 * interest in, before fetching anything. */
+				if (!fzn_catalog_index_body_ok(ibody, blen, back.shards))
+					FAIL(413);
+
+				/* A key at a shard's own start belongs to that
+				 * shard, which is the boundary a search gets
+				 * wrong. */
+				key = plan[2].first;
+				if (fzn_catalog_index_lookup(ibody, blen, &key, &which)
+				    != FZN_CATALOG_OK || which != 2)
+					FAIL(414);
+				/* And a key below every start is the first
+				 * shard's: the ranges cover the whole key
+				 * space, so there is no "before the index". */
+				memset(key.b, 0, sizeof(key.b));
+				if (fzn_catalog_index_lookup(ibody, blen, &key, &which)
+				    != FZN_CATALOG_OK || which != 0)
+					FAIL(415);
 			}
 		}
 

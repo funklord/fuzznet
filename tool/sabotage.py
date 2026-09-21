@@ -254,6 +254,63 @@ SABOTAGES = [
 		"behind. sec 340",
 	),
 	(
+		"index-refuses-a-trailing-byte",
+		"catalog/index.c",
+		"\tif (body_len != FZN_CATALOG_INDEX_HEAD_LEN)\n\t\treturn FZN_CATALOG_ERR_MALFORMED;",
+		"\tif (0)\n\t\treturn FZN_CATALOG_ERR_MALFORMED;",
+		"the signature is over these bytes, so two spellings of one index "
+		"would let a peer re-sign a different one -- the attribute and purge "
+		"codecs refuse a trailing byte for the same reason. index_test "
+		"decodes the same head at its own length as the control and one byte "
+		"longer as the case. sec 341",
+	),
+	(
+		"index-guards-the-multiplication",
+		"catalog/index.c",
+		"\tif (shards > (size_t)-1 / FZN_CATALOG_INDEX_ENTRY_LEN)\n\t\treturn FZN_CATALOG_ERR_RANGE;",
+		"\tif (0)\n\t\treturn FZN_CATALOG_ERR_RANGE;",
+		"the shard count arrives over the wire, and on a 32-bit host a peer "
+		"naming 2^26 shards wraps the body length to something small and "
+		"plausible. A wrapped product is a legal size_t and cannot be "
+		"checked afterwards, which is why the guard is BEFORE the multiply. "
+		"index_test drives the boundary and the value one below it as the "
+		"control. sec 341",
+	),
+	(
+		"index-refuses-overlapping-ranges",
+		"catalog/index.c",
+		"\t\tif (!key_before(plan[i - 1u].first.b, plan[i].first.b))\n\t\t\treturn FZN_CATALOG_ERR_MALFORMED;",
+		"\t\tif (0)\n\t\t\treturn FZN_CATALOG_ERR_MALFORMED;",
+		"an index whose ranges overlap cannot say which blob holds a key, and "
+		"nothing downstream notices -- the lookup returns a confident wrong "
+		"shard. shard_plan refuses an unsorted key list for the same reason. "
+		"index_test swaps two entries and also gives two shards one start, "
+		"since EQUAL is overlapping too. sec 341",
+	),
+	(
+		"index-body-ok-checks-order",
+		"catalog/index.c",
+		"\t\tif (!key_before(&body[(i - 1u) * FZN_CATALOG_INDEX_ENTRY_LEN],\n\t\t                &body[i * FZN_CATALOG_INDEX_ENTRY_LEN]))\n\t\t\treturn 0;",
+		"\t\tif (0)\n\t\t\treturn 0;",
+		"the encoder refuses an out-of-order plan, and a blob arrives from "
+		"somewhere that may not have used the encoder. This is the one pass "
+		"that makes the binary search sound, so a consumer runs it when the "
+		"blob lands; a search cannot notice that what it searches is out of "
+		"order. index_test swaps two entries in the ENCODED body. sec 341",
+	),
+	(
+		"index-lookup-finds-the-shard-a-key-is-in",
+		"catalog/index.c",
+		"\t*index_out = lo == 0 ? 0 : lo - 1u;",
+		"\t*index_out = lo;",
+		"the search wants the LAST entry whose first key is at or below the "
+		"key, and the loop leaves `lo` one past it. Off by one, every key "
+		"routes to the next shard along and a fetch reveals interest in the "
+		"wrong range. Caught by an INDEPENDENT LINEAR MODEL in index_test "
+		"rather than by cases the author of the search chose -- that is what "
+		"makes the agreement evidence. sec 341",
+	),
+	(
 		"shard-absorbs-the-remainder",
 		"catalog/shard.c",
 		"\t\tif (i + 1u == shards)\n\t\t\tout[i].entries = count - at;\n\t\telse\n\t\t\tout[i].entries = min_entries;",

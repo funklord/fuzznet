@@ -44366,3 +44366,109 @@ helpful.
 
 The consumer gate gained an exercise for the reach of a promotion, and it was
 watched failing at check 405 before being trusted.
+
+## 341. The shard index's wire form: a blob, and one record that signs it, 2026-09-21
+
+THE LAST ITEM IN catalog.h's SECTION 7, and unlike the five before it this one
+needed no decision from the holder, because a measurement closed it.
+
+C23 says a register is imported as shards -- "an ordinary blob per key-range,
+with a signed index mapping range to blob root, the index replicated to every
+host while the shards are fetched on demand". `catalog/index.{h,c}` is the
+wire form of that sentence.
+
+THE MEASUREMENT. An index entry is a 32-byte first key and a 32-byte blob
+root: 64 bytes. FZN_RECORD_BODY_MAX is 512, which leaves room for SEVEN
+entries in a record after a head. A five-million-entry register at the default
+floor is about 4883 shards -- roughly 700 records, each separately signed, to
+say one thing.
+
+So the index is not carried in records. It is an ORDINARY BLOB, exactly as
+every shard already is, and ONE record signs its root. That is one mechanism
+rather than two: the fetch, the Merkle verification, the relay that serves
+bytes it cannot read and the cache are all paths a shard already uses. sec
+315's "the direction is toward LESS wire, not more" is satisfied by a 41-byte
+body rather than by seven hundred records.
+
+This is worth recording as a question that DID NOT survive measurement. The
+inline-across-records option is not merely worse, it is untenable at the sizes
+C26 is about, and the arithmetic to see that is two multiplications. Putting
+it to the holder would have been asking them to settle something the record
+format had already settled.
+
+    0   object   FZN_CATALOG_OBJECT_INDEX (3)
+    1   floor    u32, entries per shard -- C26's one number
+    5   shards   u32, entries in the index blob
+    9   root     32 bytes, the index blob's root
+
+    entry[i] = first[32] || root[32], ascending, exactly `shards` of them
+
+THE FLOOR TRAVELS BECAUSE IT IS THE PRIVACY CONTROL. C26 makes the shard size
+the anonymity set, so a host deciding whether to reveal interest in a range
+reads what it is getting from the replicated, signed part WITHOUT FETCHING
+ANYTHING. It is a floor and says so: shard.h absorbs the remainder into the
+last shard, so that one holds between `floor` and `2 * floor - 1` entries.
+
+AND THE PER-SHARD ENTRY COUNT DOES NOT TRAVEL, although a `fzn_catalog_shard_t`
+carries one. The blob says how many entries a shard has; an index repeating it
+would be a second copy of the same fact, free to disagree with the first and
+believed by whoever read it. Routing needs the first key and the root, and
+C26's guarantee is the floor, which is in the head. Neither is the register
+named -- C26a keeps that out of this library, so which register an index is OF
+is the record's subject, as an attribute's entity is.
+
+===========================================================================
+
+THREE THINGS THE IMPLEMENTATION HAD TO GET RIGHT, and each has a sabotage.
+
+THE MULTIPLICATION IS GUARDED, NOT THE RESULT. The shard count arrives over
+the wire, so on a 32-bit host a peer naming 2^26 shards wraps the body length
+to something small and plausible. A wrapped product is a legal `size_t` and
+cannot be detected afterwards, which is why the guard is before the multiply
+and why a head naming such a count is refused at decode -- a caller never
+reaches the arithmetic holding it.
+
+THE ORDER CHECK IS A PRECONDITION, AND IT IS WRITTEN DOWN. `_lookup` binary-
+searches, so it cannot notice that what it is searching is out of order: it
+returns a confident wrong shard. The encoder refuses an unsorted plan, but a
+blob arrives from somewhere that may not have used the encoder, so
+`fzn_catalog_index_body_ok` is the one pass a consumer runs when the blob
+lands. Stated in the header rather than left true-and-unwritten, because from
+outside an unstated precondition and an absent one look the same.
+
+THE SEARCH IS CHECKED AGAINST AN INDEPENDENT LINEAR MODEL, not against cases
+chosen by whoever wrote the search. 3048 checks over seven index sizes and 400
+random keys each, plus every shard's own start key -- the boundary a search
+gets wrong, since a key EQUAL to a start belongs to that shard and not the one
+before. The model is four lines and obviously correct.
+
+That last one earned its keep immediately: sabotaging the off-by-one
+(`lo - 1u` to `lo`) produced 95 failures, where the four hand-written boundary
+cases would have caught it but proved much less. A model that CAN disagree is
+what makes the agreement evidence.
+
+    index-refuses-a-trailing-byte             index_test.c:91
+    index-guards-the-multiplication           index_test.c:162
+    index-refuses-overlapping-ranges          index_test.c:251
+    index-body-ok-checks-order                index_test.c:303
+    index-lookup-finds-the-shard-a-key-is-in  index_test.c:352 (95 failures)
+
+The consumer gate gained an exercise for the boundary and the precondition,
+watched failing at check 414 before being trusted.
+
+===========================================================================
+
+TWO DOCUMENT REPAIRS RODE ALONG, both of the same kind.
+
+SECTION 7 IS REWRITTEN RATHER THAN APPENDED TO. It had accumulated six
+strike-throughs, two of them tangled into a single run-on bullet, and was
+past the point where a reader could see what was open -- which was nothing.
+It is now a list of the questions it held and where each answer is. The
+arguments are in this file and in the commits, which is where evidence.md
+says a correction's history belongs.
+
+AND shard.h STOPS RESTATING WHAT THE ENCODING WAITS ON. That paragraph went
+stale three times in two days as the answers landed, once within an hour of
+being corrected by hand. The fix is not a fourth correction: it names the
+module now and nothing else, because a dependency list belongs in the one
+place that tracks it and a second copy is a second thing to be wrong.
