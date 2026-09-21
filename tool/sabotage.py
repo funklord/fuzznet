@@ -146,6 +146,53 @@ SABOTAGES = [
 		"An overflowing issuer is dropped once, not per assertion (reach.c's rule), so `dropped` is a count of distinct issuers a reader must still account for. Counting per row inflates it and a caller sizing a catch-up buffer over-allocates. catalog_test's repeated-dropped-issuer case catches it.",
 	),
 	(
+		"materialise-a-value-cannot-make-directories",
+		"catalog/materialise.c",
+		"if (value[i] == '/' || value[i] == '\\\\')",
+		"if (0)",
+		"the pattern is the OPERATOR's and a value is another host's "
+		"assertion, so the pattern's own separators make directories and a "
+		"value's must not. Admitting one lets anybody who can assert an "
+		"attribute about an entity create directories the pattern never asked "
+		"for, inside the one place C14 says an organiser may write. "
+		"materialise_test drives a value of evil/name against a control of an "
+		"unusual but safe name. sec 338",
+	),
+	(
+		"materialise-refuses-a-climbing-value",
+		"catalog/materialise.c",
+		"\tif (len == 2u && value[0] == '.' && value[1] == '.')\n\t\treturn 0;",
+		"\tif (0)\n\t\treturn 0;",
+		"a value of `..` climbs OUT of the managed source, which is a write "
+		"outside the one place C14 permits one -- and it arrives as an "
+		"ordinary signed assertion from any host in the estate. "
+		"materialise_test substitutes `..` and requires the refusal, with a "
+		"safe control beside it. sec 338",
+	),
+	(
+		"materialise-never-picks-a-winner",
+		"catalog/materialise.c",
+		"\t\tif (found)\n\t\t\treturn FZN_CATALOG_ERR_KIND;",
+		"\t\tif (0)\n\t\t\treturn FZN_CATALOG_ERR_KIND;",
+		"C5b one layer out: two DIFFERENT live values for an attribute is a "
+		"disagreement between hosts, and choosing one to build a filename "
+		"from resolves it in the one place nobody would look for a "
+		"resolution. The pair asserting the SAME value is the control -- that "
+		"is agreement, not disagreement, and refusing it would make a "
+		"filename depend on how many hosts happened to say so. sec 338",
+	),
+	(
+		"materialise-a-missing-attribute-is-refused",
+		"catalog/materialise.c",
+		"return found ? FZN_CATALOG_OK : FZN_CATALOG_ERR_ABSENT;",
+		"return FZN_CATALOG_OK;",
+		"`{artist} - {title}` with no artist gives ' - title', a name a person "
+		"did not ask for and would have to notice. Refusing is recoverable, "
+		"because C22 stores the result and a consumer may supply a path "
+		"itself; a malformed name is not. materialise_test drives a missing "
+		"attribute and a retracted one. sec 338",
+	),
+	(
 		"shard-absorbs-the-remainder",
 		"catalog/shard.c",
 		"\t\tif (i + 1u == shards)\n\t\t\tout[i].entries = count - at;\n\t\telse\n\t\t\tout[i].entries = min_entries;",

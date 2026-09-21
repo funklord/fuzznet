@@ -44114,3 +44114,80 @@ what".
 TESTED, 31 checks, three sabotage entries each watched failing through its own
 assertion: the remainder not absorbed, a small register planning zero shards,
 and an unsorted register accepted.
+
+## 338. C22's layout template, and a word used twice, 2026-09-21
+
+THE DECISION, the copyright holder's on 2026-09-21: a SUBSTITUTION PATTERN
+over the entity's attributes. I recommended against it and was wrong to weight
+it as I did -- the argument I made was that C22 materialises once so a pattern
+is evaluated once and thrown away, which is true and is not a reason to make
+the one evaluation less expressive. `catalog/materialise.{h,c}`.
+
+    {name}     the value of the attribute called `name`
+    {{  }}     a literal brace
+    anything else is literal, INCLUDING `/`
+
+THE COSTS I NAMED ARE NOW REQUIREMENTS, and one of them turned out to be a
+SECURITY PROPERTY rather than the tidiness item I had it down as.
+
+A PATTERN'S LITERAL TEXT MAY CONTAIN `/`. A SUBSTITUTED VALUE MAY NOT.
+
+The pattern is the operator's: they wrote it, and `{place}/{title}` making a
+directory is the point. The VALUES are other hosts' assertions -- in a
+cooperative estate anybody may assert an attribute about an entity, so a value
+is untrusted input that happens to arrive signed. A value holding `/` creates
+directories the pattern never asked for, and `..` climbs out of the managed
+source entirely, which is a write outside the one place C14 permits one. Both
+are sabotage entries, and both are driven against a control that must still
+pass -- an unusual but safe name -- because a refusal that refused everything
+would satisfy the attack cases and protect nothing.
+
+The backslash is refused too, although this library runs on POSIX hosts: the
+estate is mixed, and a value that is a filename here is a separator on a host
+mounting the same collection.
+
+WHAT IS DELIBERATELY NOT REFUSED, pinned so nobody quotes the guard for more
+than it gives: platform-reserved names, trailing dots and spaces, case
+collisions. Those are properties of a filesystem this library never sees, and
+guessing at them from here is the same error as deciding which register is
+right about what (C26a).
+
+A MISSING ATTRIBUTE IS REFUSED, not substituted empty: `{artist} - {title}`
+with no artist gives " - title", a name a person did not ask for and would
+have to notice. Refusing is recoverable, since C22 stores the result and a
+consumer may supply a path itself; a malformed name is not.
+
+AND TWO LIVE VALUES ARE REFUSED, which is C5b one layer out. An attribute with
+two DIFFERENT live values is a disagreement between hosts, and picking one to
+build a filename from would resolve it in the one place nobody would look. The
+control is the pair asserting the SAME value: that is agreement, not
+disagreement, and refusing it would make a filename depend on how many hosts
+happened to say so.
+
+THE ERROR CARRIES AN OFFSET into the pattern, which is the difference between
+an error a person can act on and a puzzle -- a pattern with six substitutions
+and one missing attribute otherwise says only that something was missing.
+
+A C++ KEYWORD NEARLY SHIPPED. The parameter was called `template`, and
+`installcheck` parses every public header as C++. Caught by remembering that
+gate rather than by running it, which is the weaker of the two and worth
+saying: the gate would have found it.
+
+===========================================================================
+
+AND A FINDING THAT IS NOT PART OF THE DECISION. `fzn_catalog_source_t` in
+catalog.h means "an issuer the set depends on". C13's SOURCE means "where
+bytes live, named, carrying a policy". ONE WORD, TWO CONCEPTS, in one header
+-- which code-style.md forbids for exactly the reason it bites here: C22's
+template produces a relative path INSIDE a source, and the word for that thing
+is taken.
+
+C13's source is not built at all: no source type, no managed/referenced
+distinction, no (SOURCE, RELATIVE PATH) reference. So `materialise` produces
+the relative path and nothing yet holds the other half of the pair.
+
+The fix is a rename -- `fzn_catalog_source_t` to `fzn_catalog_issuer_t`, which
+is what it is -- and it is mechanical, with the symbol-set proof sec 327 used.
+It is recorded rather than done because it is not what was asked for, and
+because the C13 machinery that would consume the freed word is itself the next
+piece of work.

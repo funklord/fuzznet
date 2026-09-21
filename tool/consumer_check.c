@@ -61,6 +61,7 @@
 #include <fuzznet/catalog/filing.h>
 #include <fuzznet/catalog/purge.h>
 #include <fuzznet/catalog/shard.h>
+#include <fuzznet/catalog/materialise.h>
 #include <fuzznet/qr/qr.h>
 #if defined(FZN_CLI_ON)
 #include <fuzznet/cli/qr_print.h>
@@ -170,6 +171,7 @@
 #include "catalog/filing.h"
 #include "catalog/purge.h"
 #include "catalog/shard.h"
+#include "catalog/materialise.h"
 #include "qr/qr.h"
 #if defined(FZN_CLI_ON)
 #include "cli/qr_print.h"
@@ -1956,6 +1958,76 @@ int main(void)
 				                                sizeof(sweep_e))
 				    != FZN_CATALOG_OK)
 					FAIL(395);
+			}
+
+			/* C22 FROM OUTSIDE, and the one property a consumer
+			 * must not have to re-derive: the ASYMMETRY. A
+			 * pattern's own `/` makes a directory, because the
+			 * pattern is the operator's. A VALUE's `/` does not,
+			 * because a value is another host's assertion and so
+			 * is untrusted input that happens to arrive signed. */
+			{
+				static const uint8_t pat[] = "{place}/{title}";
+				static const uint8_t nm_place[] = "place";
+				static const uint8_t nm_title[] = "title";
+				static const uint8_t v_ok[] = "loft";
+				static const uint8_t v_out[] = "../../etc";
+				static const uint8_t v_title[] = "roof";
+				fzn_catalog_assertion_t mset[2];
+				uint8_t path[64];
+				size_t plen = 0, at = 0;
+
+				memset(mset, 0, sizeof(mset));
+				mset[0].entity = sweep_e;
+				mset[0].entity_len = sizeof(sweep_e);
+				mset[0].name = nm_place;
+				mset[0].name_len = sizeof(nm_place) - 1u;
+				mset[0].value = v_ok;
+				mset[0].value_len = sizeof(v_ok) - 1u;
+				mset[0].live = 1;
+				mset[1] = mset[0];
+				mset[1].name = nm_title;
+				mset[1].name_len = sizeof(nm_title) - 1u;
+				mset[1].value = v_title;
+				mset[1].value_len = sizeof(v_title) - 1u;
+
+				/* The control, which must still pass -- a
+				 * refusal that refused everything would
+				 * satisfy the attack case and protect
+				 * nothing. */
+				if (fzn_catalog_materialise(pat, sizeof(pat) - 1u, mset, 2,
+				                            sweep_e, sizeof(sweep_e),
+				                            path, sizeof(path), &plen, &at)
+				    != FZN_CATALOG_OK
+				    || plen != 9u || memcmp(path, "loft/roof", 9) != 0)
+					FAIL(396);
+
+				/* The same pattern, one value climbing out of
+				 * the managed root (C14). */
+				mset[0].value = v_out;
+				mset[0].value_len = sizeof(v_out) - 1u;
+				if (fzn_catalog_materialise(pat, sizeof(pat) - 1u, mset, 2,
+				                            sweep_e, sizeof(sweep_e),
+				                            path, sizeof(path), &plen, &at)
+				    != FZN_CATALOG_ERR_KIND)
+					FAIL(397);
+				/* And the rule is reachable on its own, for a
+				 * consumer naming a file some other way. */
+				if (fzn_catalog_path_component_ok(v_out, sizeof(v_out) - 1u)
+				    || !fzn_catalog_path_component_ok(v_ok, sizeof(v_ok) - 1u))
+					FAIL(398);
+
+				/* A missing attribute is refused, not
+				 * substituted empty: " - roof" is a name
+				 * nobody asked for, and the offset says
+				 * which `{` could not be answered. */
+				mset[0].live = 0;
+				at = 0;
+				if (fzn_catalog_materialise(pat, sizeof(pat) - 1u, mset, 2,
+				                            sweep_e, sizeof(sweep_e),
+				                            path, sizeof(path), &plen, &at)
+				    != FZN_CATALOG_ERR_ABSENT || at != 0u)
+					FAIL(399);
 			}
 		}
 

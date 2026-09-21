@@ -722,7 +722,12 @@
  * 7. NOT SETTLED HERE
  * =========================================================================
  *
- *   - the layout template of a managed source (C22). ~~the shard size (C26)~~
+ *   - ~~the layout template of a managed source (C22)~~ SETTLED 2026-09-21: a
+ *     substitution pattern over the entity's attributes, catalog/materialise.h
+ *     and sec 338. The SOURCE type it produces a relative path INSIDE (C13) is
+ *     not built, and `fzn_catalog_source_t` in this header means an ISSUER
+ *     rather than C13's source -- one word for two concepts, recorded in sec
+ *     338 and not yet resolved. ~~the shard size (C26)~~
  *     SETTLED 2026-09-21: the one number is ENTRIES PER SHARD, defaulting to
  *     FZN_CATALOG_SHARD_ENTRIES_MIN, because that number IS the anonymity set
  *     C26 says the shard size is. catalog/shard.h, sec 337;
