@@ -10,14 +10,24 @@
  * "says you may be missing revocations YOU WERE TOLD ABOUT". There was no
  * notion of one that exists and was never handed over.
  *
- * THIS IS STAGE 1 OF TWO, AND IT IS NOT A GATE. sec 13d splits the work
+ * THIS MODULE IS STAGE 1 AND STILL NOT A GATE. sec 13d splits the work
  * deliberately: stage 1 is the object, follow/admit, the deficit table and the
- * reporting calls, and `fzn_chain_verify` is untouched. Nothing here refuses a
- * chain, there is no UNKNOWN verdict, and no new refusal path exists. What it
- * delivers is the half of sec 13b's defect statement that needs no policy
- * decision: a host can finally SAY what it is missing. Stage 2 -- the gate
- * inside `fzn_chain_verify` -- waits on a question with the copyright holder
- * about which reading of sec 4.4a was meant, and sec 13d says so.
+ * reporting calls. Nothing HERE refuses a chain and this module has no verdict
+ * to give -- what it delivers is the half of sec 13b's defect statement that
+ * needed no policy decision, so that a host can SAY what it is missing.
+ *
+ * STAGE 2 LANDED ON 2026-09-03 and is in `chain/chain.c`, not here:
+ * `fzn_chain_verify` takes a `fzn_manifest_state_t` and returns
+ * FZN_CHAIN_ERR_INCOMPLETE when `fzn_manifest_pending` reports a deficit for a
+ * grantor IN THIS CHAIN. This paragraph went on saying stage 2 "waits on a
+ * question with the copyright holder about which reading of sec 4.4a was
+ * meant" for eighteen days after that question was answered -- and sec 13d,
+ * which it cites, records the answer. A gap claim that outlives its gap sends
+ * the next reader at work already done, and this one did exactly that.
+ *
+ * The scoping is what makes the gate safe to have, and it belongs beside the
+ * deficit rather than only beside the gate: a deficit about an unrelated
+ * issuer says nothing about this chain and does not refuse it.
  *
  * A CONSUMER MUST THEREFORE NOT READ SILENCE AS SAFETY. A zero deficit from
  * this module means "nothing the manifests I hold names is missing", never

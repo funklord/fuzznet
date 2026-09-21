@@ -373,6 +373,13 @@ do.** The envelope carries `nonce | expiry` inside the signed region, and:
   passed or that carries none;
 - expiry on a **grant** is optional and defaults to absent, and an expired or
   absent expiry never withdraws authority — only a revocation does.
+  **"Withdraws" is the strong sense, settled 2026-09-21 (§345):** an expiry
+  ends a grant's power to authorise NEW actions, and `chain/` enforces one
+  where it is set. What it does not do is WITHDRAW the grant — it does not
+  reach back to what was done under it, and it does not propagate down a
+  chain the way a revocation does. Read as being about enforcement this
+  bullet would make a set expiry unenforceable and the field pointless; it
+  was never about enforcement.
 
 Recorded because the default that arrives with a messaging protocol pushes the
 wrong way, and because fuzzypickles' rule, read carelessly, would have made
@@ -1249,9 +1256,9 @@ UNKNOWN from step 1 denies, rather than falling through.
 **Why this is prose and not a function.** An `fzn_admit()` that ran these in
 order would make the sequence unrepresentable-to-get-wrong, which is the
 shape this library prefers and uses in `chain.h`. It is not written because
-step 5 does not exist and two of its neighbours are unsettled: §13's
-overhead question may move what the header carries, and §14 records §4.3's
-expiry reading as open. An orchestrator would bake all three in, and a
+step 5 does not exist and §13's overhead question may move what the header
+carries. ~~and §14 records §4.3's expiry reading as open~~ -- that one was
+settled on 2026-09-21 (§345), so two reasons remain rather than three. An orchestrator would bake all three in, and a
 consumer would then be depending on the guesses rather than on the modules.
 **When the codec lands, this section is the specification for that
 function**, and the ordering is fixed now so that it is not invented then.
@@ -9728,7 +9735,10 @@ run, recorded under sec 15c.
 - **Whether `chunk/` belongs in the core at all**, or is a layer a consumer
   opts into. It is in the core because netcfgd cannot function without it, but
   fuzzypickles will not use it — its own transfers are content-addressed.
-- **§4.3's second bullet is ambiguous, and `chain/` had to pick a reading.**
+- **~~§4.3's second bullet is ambiguous, and `chain/` had to pick a
+  reading.~~ RESOLVED 2026-09-21: the sentence is about WITHDRAWAL and never
+  about enforcement, so the document and the code had not disagreed. §345,
+  and §4.3 now says which sense it means.**
   It says a grant's expiry is optional and defaults to absent, and then that
   "an expired or absent expiry never withdraws authority — only a revocation
   does". Read literally, a *set* expiry is unenforceable and the field is
@@ -44773,3 +44783,83 @@ later reader cannot reconstruct from the code -- and an empty section would
 read as a spec that never had an open question.
 
 `facet/` now has nothing open.
+
+## 345. Chain stage 2 was already built, and 4.3's ambiguity was not one, 2026-09-21
+
+TWO FINDINGS, AND THE FIRST IS WHY THE SECOND WAS FOUND.
+
+===========================================================================
+
+`chain/manifest.h` SAID STAGE 2 WAS WAITING ON THE HOLDER. It had been built
+for eighteen days.
+
+    manifest.h:20   "Stage 2 -- the gate inside `fzn_chain_verify` -- waits
+                     on a question with the copyright holder about which
+                     reading of sec 4.4a was meant, and sec 13d says so."
+
+    sec 13d:8675    "Stage 2 waited on the holder until 2026-09-03 ...
+                     It is BUILT; sec 58 records what was taken and why."
+
+The header cites the very section that records the answer. Checked against the
+CODE rather than either sentence, which is what settled it: `fzn_chain_verify`
+takes a `fzn_manifest_state_t`, and `chain.c:317` returns
+FZN_CHAIN_ERR_INCOMPLETE when `fzn_manifest_pending` reports a deficit for a
+grantor in this chain. The gate exists.
+
+THIS IS evidence.md's OWN CLASS, and it cost exactly what that entry predicts:
+a gap claim that outlives its gap sends the next reader at work already done.
+It sent me. The paragraph is rewritten to say where stage 2 actually is, and
+to say that it went stale -- because "the falsifier is a commit nobody
+connects to it", and the next reader deserves to know this paragraph has
+form.
+
+===========================================================================
+
+AND LOOKING FOR THE REAL OPEN QUESTION FOUND ONE, which is the part that
+justifies the detour. `chain/chain.h` flagged a DIFFERENT ambiguity, live, at
+the point of decision -- sec 4.3's second bullet:
+
+    "an expired or absent expiry never withdraws authority -- only a
+     revocation does"
+
+`chain/` had read that two ways. LITERALLY, a set expiry is unenforceable and
+the field is pointless. As being about the DEFAULT, no expiry is imposed where
+none was asked for and a set one is enforced, which agrees with sec 4.2's
+named reference implementation. It implemented the second and flagged the
+choice rather than settling it, correctly: project.md wins over the code and
+the choice was not that file's to make.
+
+THE MEASUREMENT, because the literal reading had a real cost:
+
+    chain.c:252   expires_at <= now -> FZN_CHAIN_ERR_EXPIRED
+    chain.c:339   out->expires_at = soonest, the chain's effective expiry
+    11 references across 4 test files
+
+Under the literal reading FZN_CHAIN_ERR_EXPIRED becomes unreachable for hops,
+the derived chain expiry stops meaning anything, and `expires_at` becomes a
+signed field that two implementations must agree on byte-for-byte and neither
+acts on.
+
+THE HOLDER SETTLED IT ON 2026-09-21, AND NEITHER READING WAS MEANT. The
+sentence is about WITHDRAWAL, not about enforcement. An expiry ends a grant's
+power to authorise NEW actions -- which is what `fzn_chain_verify` does.
+WITHDRAWING is the stronger act: reaching back to what was done under the
+grant, and propagating down a chain. Only a revocation performs it.
+
+So the document and the code had never disagreed, and no code changed. What
+changed is that sec 4.3 now says which sense of "withdraw" it means, and
+chain.h's flag became a resolution.
+
+THAT IS working-practice.md's THIRD-THING CASE ARRIVING AGAIN, and it is worth
+naming because the file already predicts it: "the defect was a third thing
+neither side named". Here there was no defect at all -- both available answers
+would have been wrong, one by rewriting a correct sentence and the other by
+deleting correct code. Holding the discrepancy open rather than resolving it
+in either direction is what left room for the answer that neither branch
+contained, and the session that flagged it rather than fixing it is the reason
+the room existed.
+
+ONE CONSEQUENCE ELSEWHERE. The `fzn_admit()` orchestrator sketched at sec 14
+is blocked on three things, one of which was "sec 14 records sec 4.3's expiry
+reading as open". Two remain: step 5 does not exist, and sec 13's overhead
+question may still move what the header carries.

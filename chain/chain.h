@@ -722,17 +722,21 @@ typedef struct fzn_manifest_state fzn_manifest_state_t;
  * Returns FZN_CHAIN_OK and fills *out on success. On any failure *out is left
  * untouched, so a caller cannot half-read a rejected chain.
  *
- * ON EXPIRY, AND AN AMBIGUITY IN THE DOCUMENT: sec 4.3's second bullet
- * says a grant's expiry is optional and defaults to absent, and then that
- * "an expired or absent expiry never withdraws authority -- only a
- * revocation does". Read literally that makes a set expiry unenforceable
- * and the field pointless. Read as being about the DEFAULT -- that no
- * expiry is imposed where none was asked for -- it agrees with sec 4.2's
- * named reference implementation, which enforces a hop's expiry when one
- * is set. This implements the second reading and fails closed, which is
- * the safer direction for a library that reconfigures infrastructure
- * (sec 4.4a). Flagged rather than resolved: project.md wins over the code,
- * and which reading was meant is not this file's to decide. */
+ * ON EXPIRY, AND THE AMBIGUITY THAT TURNED OUT NOT TO BE ONE. Sec 4.3's
+ * second bullet says a grant's expiry is optional and defaults to absent,
+ * and then that "an expired or absent expiry never withdraws authority --
+ * only a revocation does". This file read that two ways and implemented
+ * the enforcing one, flagging the choice here rather than settling it.
+ *
+ * SETTLED 2026-09-21 by the copyright holder, and neither reading was
+ * meant: the sentence is about WITHDRAWAL, not about enforcement. An
+ * expiry ends a grant's power to authorise NEW actions -- which is what
+ * this function does, refusing FZN_CHAIN_ERR_EXPIRED for a hop whose
+ * expiry has passed -- while WITHDRAWING is the stronger act that reaches
+ * back and propagates down a chain, and only a revocation performs it. So
+ * the document and this code had not disagreed, and the code is unchanged.
+ * project.md sec 4.3 now says which sense it means, and sec 345 records
+ * it. */
 fzn_chain_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
                             const uint8_t root[FZN_PUBKEY_LEN],
                             const fzn_cap_id_t *capability, uint64_t now,
