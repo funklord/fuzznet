@@ -24,8 +24,11 @@
  *
  * THIS PLANS BOUNDARIES AND NOTHING ELSE. It does not build the shards, sign
  * the index, or encode either: the wire form of the shard and source machinery
- * is still open (section 7), and it waits on C22's layout template. What is
- * settled and therefore buildable is where the cuts fall.
+ * is still open (section 7). It no longer waits on C22, which was settled on
+ * 2026-09-21 as a substitution pattern (catalog/materialise.h, sec 338); what
+ * it waits on now is C15 and the C13 SOURCE machinery an encoding would have
+ * to name, which is not built. What is settled and therefore buildable is
+ * where the cuts fall.
  */
 
 #ifndef FZN_CATALOG_SHARD_H
