@@ -60,6 +60,7 @@
 #include <fuzznet/catalog/copy.h>
 #include <fuzznet/catalog/filing.h>
 #include <fuzznet/catalog/purge.h>
+#include <fuzznet/catalog/shard.h>
 #include <fuzznet/qr/qr.h>
 #if defined(FZN_CLI_ON)
 #include <fuzznet/cli/qr_print.h>
@@ -168,6 +169,7 @@
 #include "catalog/copy.h"
 #include "catalog/filing.h"
 #include "catalog/purge.h"
+#include "catalog/shard.h"
 #include "qr/qr.h"
 #if defined(FZN_CLI_ON)
 #include "cli/qr_print.h"

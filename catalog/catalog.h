@@ -722,7 +722,10 @@
  * 7. NOT SETTLED HERE
  * =========================================================================
  *
- *   - the shard size (C26) and the layout template of a managed source (C22);
+ *   - the layout template of a managed source (C22). ~~the shard size (C26)~~
+ *     SETTLED 2026-09-21: the one number is ENTRIES PER SHARD, defaulting to
+ *     FZN_CATALOG_SHARD_ENTRIES_MIN, because that number IS the anonymity set
+ *     C26 says the shard size is. catalog/shard.h, sec 337;
  *     Checked rather than assumed, and the negative is worth recording with
  *     it: fuzzypickles' `daemon/log_retention.h` is NOT this decision under
  *     another name. It caps lines in a log file, which is a bound on growth

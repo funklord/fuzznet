@@ -146,6 +146,42 @@ SABOTAGES = [
 		"An overflowing issuer is dropped once, not per assertion (reach.c's rule), so `dropped` is a count of distinct issuers a reader must still account for. Counting per row inflates it and a caller sizing a catch-up buffer over-allocates. catalog_test's repeated-dropped-issuer case catches it.",
 	),
 	(
+		"shard-absorbs-the-remainder",
+		"catalog/shard.c",
+		"\t\tif (i + 1u == shards)\n\t\t\tout[i].entries = count - at;\n\t\telse\n\t\t\tout[i].entries = min_entries;",
+		"\t\tout[i].entries = min_entries;\n\t\tif (i + 1u == shards)\n\t\t\tout[i].entries = min_entries;",
+		"C26 makes the shard size the anonymity set, so a shard smaller than "
+		"min_entries is a range where a fetch reveals more than the number "
+		"promises -- and the division's remainder puts it at the END of the "
+		"key space, where nobody looks for it. Dropping the absorb leaves the "
+		"tail uncovered instead, so keys past the last boundary belong to no "
+		"shard. shard_test plans 3000 at 1024 and requires two shards "
+		"totalling 3000. sec 337",
+	),
+	(
+		"shard-a-small-register-is-one-shard",
+		"catalog/shard.c",
+		"\tif (shards == 0)\n\t\tshards = 1;",
+		"\tif (0)\n\t\tshards = 1;",
+		"a register smaller than one shard is ONE shard, not none: the whole "
+		"register is then the anonymity set, which is the best available and "
+		"is what a fetch already reveals. Without this a small register plans "
+		"zero shards, so every key belongs to nothing and no fetch can be "
+		"routed at all. shard_test plans ten keys and one key. sec 337",
+	),
+	(
+		"shard-refuses-an-unsorted-register",
+		"catalog/shard.c",
+		"if (memcmp(keys[i - 1u].b, keys[i].b, FZN_CATALOG_SHARD_KEY_LEN) > 0)",
+		"if (0)",
+		"a shard is a key RANGE, so cutting an unsorted list produces ranges "
+		"that OVERLAP -- and an index mapping overlapping ranges to blobs "
+		"cannot say which blob holds a key. The check is one pass over data "
+		"already in hand against a failure that is otherwise silent. "
+		"shard_test swaps two keys, with a sorted control and an "
+		"equal-adjacent-keys case that must still pass. sec 337",
+	),
+	(
 		"purge-decode-refuses-a-second-spelling",
 		"catalog/purge.c",
 		"if (body_len != want)",

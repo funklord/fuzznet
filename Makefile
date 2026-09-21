@@ -171,6 +171,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              facet/facet.c \
              catalog/catalog.c catalog/retention.c catalog/sweep.c \
              catalog/copy.c catalog/filing.c catalog/purge.c \
+             catalog/shard.c \
              persist/persist.c \
              spool/spool.c \
              spool/plan.c \
@@ -237,6 +238,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              facet/facet.h \
              catalog/catalog.h catalog/retention.h catalog/sweep.h \
              catalog/copy.h catalog/filing.h catalog/purge.h \
+             catalog/shard.h \
              persist/persist.h \
              spool/spool.h spool/message.h spool/transfer.h \
              spool/scrub.h \
@@ -301,6 +303,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              catalog/test/copy_plan_test.c \
              catalog/test/filing_test.c \
              catalog/test/purge_test.c \
+             catalog/test/shard_test.c \
              catalog/test/plan_fuzz.c \
              persist/test/persist_test.c \
              persist/test/persist_fuzz.c \
@@ -398,6 +401,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/catalog/test/copy_plan_test \
              $(BUILD_DIR)/catalog/test/filing_test \
              $(BUILD_DIR)/catalog/test/purge_test \
+             $(BUILD_DIR)/catalog/test/shard_test \
              $(BUILD_DIR)/catalog/test/plan_fuzz \
              $(BUILD_DIR)/persist/test/persist_test \
              $(BUILD_DIR)/persist/test/persist_kat_test \
@@ -2016,6 +2020,13 @@ $(BUILD_DIR)/catalog/test/filing_test: $(BUILD_DIR)/catalog/test/filing_test.o \
 $(BUILD_DIR)/catalog/test/purge_test: $(BUILD_DIR)/catalog/test/purge_test.o \
                                              $(BUILD_DIR)/catalog/purge.o \
                                              $(BUILD_DIR)/catalog/catalog.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# shard plans key-range boundaries and nothing else: it builds no shard, signs
+# no index and encodes neither, so it links only itself (sec 337).
+$(BUILD_DIR)/catalog/test/shard_test: $(BUILD_DIR)/catalog/test/shard_test.o \
+                                             $(BUILD_DIR)/catalog/shard.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 

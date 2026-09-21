@@ -44039,3 +44039,78 @@ bytes and they are not the same thing.
 
 TESTED, 75 checks in purge_test now, six sabotage entries over the module,
 each watched failing through its own assertion.
+
+## 337. The shard size: the number is the anonymity set, 2026-09-21
+
+C26 says "shard size is the privacy control and is one number", and section 7
+left which number open. The copyright holder settled it on 2026-09-21: the
+number is ENTRIES PER SHARD, at 1024.
+
+WHY THAT QUANTITY AND NOT A PROXY. C26's privacy claim is that "a fetch
+reveals interest in a KEY RANGE rather than an entry", so the privacy IS how
+many entries the fetch could have been about. Entries-per-shard states that
+directly; the alternatives state something correlated with it and let it
+drift:
+
+  - A FIXED KEY PREFIX (2^b shards, as HaveIBeenPwned uses) is the simplest to
+    implement and needs no per-register calibration -- and C26a makes the
+    register a consumer's choice, so the same number must serve a 100k-entry
+    register and a 50M one. At b=12 that is 24 entries a shard for the first
+    and 12000 for the second: an anonymity set of 24 is not one, and a 3MB
+    fetch is not a lookup.
+  - A TARGET BYTE SIZE makes the transfer cost uniform, which is the thing a
+    person waits for -- but then the anonymity set is a function of how large
+    a register's entries happen to be, which this library does not choose.
+
+THE ARITHMETIC THAT MADE IT CONCRETE, since the trade is not obvious from the
+principle. A stored entry is a signed record (C27a: store the record, not the
+parsed entry) -- 92 bytes of head, a body, and a 64-byte signature, so about
+250 bytes for a typical identifier import. Against a five-million-entry
+register:
+
+    entries/shard   shards   index (replicated)   shard (fetched)
+        256         19531        ~780 KB               64 KB
+       1024          4883        ~195 KB              256 KB
+       4096          1221         ~49 KB              1024 KB
+
+The index and the shard trade directly, and PRIVACY PULLS THE SAME WAY AS THE
+INDEX -- a larger shard means both a bigger anonymity set and a smaller index.
+Only the fetch argues the other way, and C24 blunts that: once any host holds
+a shard the estate serves it, so the cost is amortised across hosts and across
+every later lookup in the range. 1024 sits where the index is small enough to
+replicate and the fetch is still a quarter of a megabyte.
+
+WHAT IS BUILT: `catalog/shard.{h,c}`, the boundary computation and nothing
+else. It builds no shard, signs no index and encodes neither -- the wire form
+of the shard machinery waits on C22's layout template, which is still open.
+What the decision unlocked is where the cuts fall, and that is pure.
+
+THE REMAINDER IS ABSORBED INTO THE LAST SHARD, which is the whole reason this
+is a function rather than a division. 3000 keys at 1024 is two shards, the
+second holding 1976 -- not three with the last holding 952. A short last shard
+is not a smaller shard: it is a range where a fetch reveals more than the
+number promises, sitting at the END of the key space where nobody would think
+to look for it. The last shard is bounded below by the minimum and above by
+twice it, and the suite asserts both.
+
+A REGISTER SMALLER THAN ONE SHARD IS ONE SHARD, not a short one nor none. The
+whole register is then the anonymity set, which is the best available and is
+what a fetch already reveals.
+
+UNSORTED KEYS ARE REFUSED RATHER THAN ASSUMED SORTED. A shard is a key RANGE,
+so cutting an unsorted list produces ranges that OVERLAP, and an index mapping
+overlapping ranges to blobs cannot say which blob holds a key. It is one pass
+over data already in hand against a failure that is otherwise silent -- and
+EQUAL adjacent keys are sorted, because a register may hold two entries under
+one key and refusing that would be refusing the register.
+
+A THIRD 32-BYTE TYPE, `fzn_catalog_shard_key_t`, distinct from
+`fzn_catalog_entity_t` and `fzn_catalog_host_t` for the reason those two are
+distinct from each other: three things that are 32 bytes and are not the same
+thing. C26a is why a key is opaque here -- what it is a key OF is the
+importer's, and this library "never [says] which authority is right about
+what".
+
+TESTED, 31 checks, three sabotage entries each watched failing through its own
+assertion: the remainder not absorbed, a small register planning zero shards,
+and an unsorted register accepted.
