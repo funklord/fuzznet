@@ -45296,3 +45296,58 @@ win, a naive loop verifying one chain 256 times for a chunked message, 51-487
 ms of signature checking. It is not here because a cache is memory a consumer
 sizes and a lifetime a consumer owns, and because the same cache one step
 earlier is a verdict an attacker chose.
+
+## 351. Three suites, one name, and a gate so it stops recurring, 2026-09-22
+
+`provision/test/`, `node/test/` and `sim/test/` each ended with
+`printf("provision_test: ...")`, so `make check` carried one label three times
+with different counts and a reader could not tell which had failed. The
+module's own suite keeps the word; the other two print `node_provision_test`
+and `sim_provision_test`, which are the names the fmake configuration had
+already had to invent for the same collision one layer down -- the basename
+collision it works around is the same fact, seen from the build system.
+
+FOUND BECAUSE `admit/` WALKED INTO IT THE DAY BEFORE. sec 350's suite was
+`admit_test` and so is `local/test/admit_test.c`, and `make check` printed the
+label twice with 37 checks and 9. Two counts under one name was conspicuous
+enough to notice; three counts under one name had not been, for as long as
+those three suites have existed. **The lens came from the last defect, which
+is the only reason this one was looked for.**
+
+THE FILE BASENAMES STILL COLLIDE AND THAT IS DELIBERATE. A rename moves paths
+other tooling names, where the printed label is what corrupts the log. The
+narrower fix is the one that closes the harm.
+
+===========================================================================
+
+AND THE MEASUREMENT WAS WRONG THE FIRST TIME, in a way worth keeping because
+the wrong answer was what said so. The first pass paired each label in the
+check log with the last "running build/..." line above it, and reported that
+`sim/test/disclosure_test` shared a label with EVERY suite in the tree --
+about 160 of them. That suite prints other suites' names in its own output, so
+a log-based instrument credits one binary with all of them.
+
+**The absurdity is the whole signal.** A plausible wrong answer here -- two or
+three collisions, all real-looking -- would have been acted on. Reading the
+sources instead of the log gives a population that is what it claims to be,
+and the true answer was one collision, three-way.
+
+===========================================================================
+
+A GATE, BECAUSE NOTHING CHECKED AND SO IT ACCUMULATED. `make style` now reads
+every `TEST_SRCS` source for the label it prints and refuses a label printed
+by more than one suite. It reads the sources rather than the log, for the
+reason above, and the recipe says so where somebody would otherwise reach for
+the log again.
+
+It was watched failing before being trusted: putting `node/`'s label back
+gives
+
+    style: these labels are printed by more than one suite: provision_test
+    style: two binaries under one name in one check log cannot be
+    style: told apart -- qualify all but the module's own suite.
+
+and the gate exits 2. Restored, it reports 159 test sources with every label
+unique. The check is local to this project's Makefile rather than added to
+the shared `style_gate.py`: a gate that reaches sixteen trees is a deliberate
+cross-project pass and not something to add while fixing three printf lines.

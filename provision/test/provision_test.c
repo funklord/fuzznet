@@ -15,6 +15,17 @@
  * pass the recombination test above for the wrong reason.
  */
 
+/* THIS SUITE KEEPS THE BARE LABEL `provision_test`, and the other two do not.
+ * Three sources carried it -- this one, `node/test/provision_test.c` and
+ * `sim/test/provision_test.c` -- so `make check` printed one name three times
+ * with different counts and a reader could not tell which had failed. This is
+ * the card's own suite, so it keeps the word; the other two print
+ * `node_provision_test` and `sim_provision_test`, which are the names the
+ * fmake configuration had already had to invent for the same collision one
+ * layer down. The FILE basenames still collide and that is left alone: a
+ * rename moves paths other tooling names, where the printed label is what
+ * corrupts the log. project.md sec 351. */
+
 #include "../provision.h"
 
 #include "../../chain/chain.h"

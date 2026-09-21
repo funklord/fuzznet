@@ -4401,6 +4401,19 @@ style: $(OBJS)
 	for r in $$have; do \
 		case " `echo $$walked` " in *" $$r "*) ;; *) missing="$$missing $$r" ;; esac; \
 	done; 	if [ -n "$$missing" ]; then 		echo "style: error renderers the sweep does not walk:" $$missing; 		echo "style: add a row to SUBJECTS[] in wire/test/err_str_test.c,"; 		echo "style: or its arms render text no test has ever read."; 		exit 1; 	fi; 	echo "style: $$n error renderers, all walked by err_str_test ($$w rows)"
+
+# EVERY SUITE PRINTS ITS OWN NAME, and until 2026-09-22 three printed one
+# name. `provision/`, `node/` and `sim/` each ended with "provision_test:",
+# so `make check` carried one label three times with different counts and a
+# reader could not tell which had failed -- the same collision `admit/` walked
+# into the day before and caught only because the two counts differed
+# conspicuously. Nothing checked, so it accumulated. project.md sec 351.
+#
+# It reads the SOURCES rather than the check log, because the log is not a
+# population: `sim/test/disclosure_test` prints other suites' names in its own
+# output, and a log-based version of this credited that one binary with every
+# label in the tree. The absurd answer is what said the instrument was wrong.
+	@dupes=`for f in $(TEST_SRCS); do 		sed -n 's/.*printf("\([a-z_]*_\(test\|fuzz\)\):.*/\1/p' "$$f" 		        | head -1; 	done | sort | uniq -d`; 	total=`echo "$(TEST_SRCS)" | wc -w`; 	if [ "$$total" -eq 0 ]; then 		echo "style: no test sources to check for label collisions"; exit 1; 	fi; 	if [ -n "$$dupes" ]; then 		echo "style: these labels are printed by more than one suite:" $$dupes; 		echo "style: two binaries under one name in one check log cannot be"; 		echo "style: told apart -- qualify all but the module's own suite."; 		exit 1; 	fi; 	echo "style: $$total test sources, every label unique"
 	@# RETENTION AND FILING NEVER REACH THE WIRE, and this is what keeps
 	@# that true rather than remembered. sec 332.
 	@#

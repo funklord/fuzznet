@@ -35,7 +35,7 @@ static void ok(int cond, const char *what)
 	checks++;
 	if (!cond) {
 		failures++;
-		printf("  FAIL provision_test.c: %s\n", what);
+		printf("  FAIL node/provision_test.c: %s\n", what);
 	}
 }
 
@@ -298,6 +298,6 @@ int main(void)
 	for (h = 0; h < 2u; h++)
 		fzn_agree_secret_wipe(&sk[h]);
 
-	printf("provision_test: %d checks, %d failure(s)\n", checks, failures);
+	printf("node_provision_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;
 }

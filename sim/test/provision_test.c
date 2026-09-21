@@ -123,7 +123,7 @@ static void check(int ok, const char *what)
 	checks++;
 	if (!ok) {
 		failures++;
-		printf("  FAIL provision_test.c: %s\n", what);
+		printf("  FAIL sim/provision_test.c: %s\n", what);
 	}
 }
 
@@ -1940,7 +1940,7 @@ int main(void)
 	fzn_sign_monocypher_wipe(&device_signer);
 	fzn_sign_monocypher_wipe(&sponsor_signer);
 
-	printf("provision_test: %d checks, %d failure(s); fuzznet %s\n", checks, failures,
+	printf("sim_provision_test: %d checks, %d failure(s); fuzznet %s\n", checks, failures,
 	       fzn_version_string());
 	return failures == 0 ? 0 : 1;
 }
