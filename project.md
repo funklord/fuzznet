@@ -1255,13 +1255,25 @@ UNKNOWN from step 1 denies, rather than falling through.
 
 **Why this is prose and not a function.** An `fzn_admit()` that ran these in
 order would make the sequence unrepresentable-to-get-wrong, which is the
-shape this library prefers and uses in `chain.h`. It is not written because
-step 5 does not exist and §13's overhead question may move what the header
-carries. ~~and §14 records §4.3's expiry reading as open~~ -- that one was
-settled on 2026-09-21 (§345), so two reasons remain rather than three. An orchestrator would bake all three in, and a
-consumer would then be depending on the guesses rather than on the modules.
-**When the codec lands, this section is the specification for that
-function**, and the ordering is fixed now so that it is not invented then.
+shape this library prefers and uses in `chain.h`.
+
+It was not written for three reasons, and **two of them are gone** (§348):
+
+- ~~step 5 does not exist~~. That named §4.7's step 5 AS IT STOOD when this
+  paragraph was written on 2026-08-14 — *tag verification and decryption (the
+  extern codec, unwritten)*. §4.7b has since moved replay below the tag and
+  RENUMBERED the list, so that step is now **step 4**, and §10 step 2 records
+  the codec as written on 2026-08-18: "it is the extern codec §4.7 step 5
+  wanted, and it was never a numbered step". Both halves of the claim went
+  stale, one because the thing was built and one because the NUMBER moved.
+- ~~§14 records §4.3's expiry reading as open~~. Settled 2026-09-21, §345.
+
+**What remains is one: §13's overhead question may move what the header
+carries** — which is also the unfinished half of §10 step 2, beside the
+`[max = 1024]` placeholder. An orchestrator would bake that guess in, and a
+consumer would then be depending on it rather than on the modules. The
+ordering is fixed here so that it is not invented on the day the question is
+answered.
 
 **A consumer sequencing these handles six error vocabularies** --
 `fzn_err_t`, `fzn_fresh_err_t`, `fzn_reasm_err_t`, `fzn_split_err_t`,
@@ -45016,3 +45028,78 @@ A CLAIM WHOSE SURFACE IS STILL TRUE AND WHOSE REASON HAS BEEN SUPERSEDED IS
 THE WORSE KIND, because re-checking the claim confirms it. "Is the extern
 still unbound" answers yes, and the answer is useless: the question that had
 moved was WHY, and nothing about the sentence invited it.
+
+## 348. A step number is a line number into a list, 2026-09-21
+
+`fzn_admit()` -- the orchestrator that would run §4.7's receive sequence in
+order and make it unrepresentable-to-get-wrong -- was recorded as blocked on
+three things. **Two were gone**, and the first was stale in a way the other
+stale claims this week were not.
+
+    §14      "It is not written because step 5 does not exist"
+    §1222    "4 and 5 need the wire and are covered by wire/test/seal_test.c"
+
+Two sentences about the same sequence, in one document, one saying step 5 does
+not exist and the other that it is covered by a test. That was the tension,
+and skimming would not settle it, because §4.7's list runs 0 to 8 and three
+other sections number their own lists.
+
+WHAT SETTLED IT WAS ASKING WHEN, not asking what. `git log -S'step 5 does not
+exist'` dates the sentence to `91b0413`, 2026-08-14, and §4.7's step 5 in that
+same commit reads:
+
+    5. **Tag verification and decryption** (the extern codec, **unwritten**).
+
+So the claim was true and precise when written. §4.7b then moved replay below
+the tag and RENUMBERED the list: tag verification is step 4 now, and step 5 is
+Freshness, which has existed since 2026-08-14.
+
+**A SECOND WITNESS, and an independent one**, which matters because git
+history and a document are not two sources if the same hand wrote both.
+`sim/test/network_test.c` records the old order in its own words, in the past
+tense, as the thing it was right about when the document was wrong: "sec 4.7
+put freshness at step 2 and replay at step 3, both BEFORE the tag at step 5".
+That is the pre-4.7b numbering written down by a file with no stake in this
+question, and it agrees with the commit. The sentence did not become
+wrong because a fact changed. It became wrong because **the index it pointed
+through was re-indexed**, and it went on reading as a statement about whatever
+now sits at 5.
+
+AND THE THING IT NAMED WAS BUILT A MONTH AGO, recorded in this document, in a
+sentence that names the claim: §10 step 2 says "the AEAD codec, written the
+same day, is not step 2 either: it is the extern codec §4.7 step 5 wanted".
+2026-08-18. So the correction was written four days after the claim, thirty-
+four days before anybody put the two together, and neither sentence could
+prompt a reader to look at the other.
+
+===========================================================================
+
+THE SPECIES IS WORTH NAMING because the remedies for the others do not reach
+it. A claim about the tree's shape can be re-measured. A claim with its method
+attached can be re-run. **A POSITIONAL REFERENCE -- a step number, an index, a
+line -- cannot be re-checked at all without knowing what the list held on the
+day it was written**, and re-reading it in today's list produces a confident
+wrong answer rather than a doubt. Every other stale claim this week announced
+itself under inspection; this one answered a different question fluently.
+
+**And the sweep for others came back empty, which is a result worth
+recording with its method.** Four `step 5` references survive in code:
+`consumer_check.c` and `catalog/copy.h` number other sections' lists;
+`frame/freshness.h` cites §4.7 step 5 and means Freshness, which is correct
+under the current numbering; and `sim/test/network_test.c` names the old
+numbering in the past tense on purpose. None is rotten. A positional
+reference is not wrong for being positional -- it is wrong when nothing says
+which edition of the list it was written against.
+
+`harmonization.md` already has the small version: "send the quoted phrase, not
+the line number -- a line number in a signal is a fact with a shelf life
+measured in commits". A step number in a numbered list is the same thing one
+level up, and inside a single document rather than across trees. The remedy is
+the same: **name the step, do not number it.** "Tag verification and
+decryption" would still be findable; "step 5" was not.
+
+WHAT IS LEFT of `fzn_admit()` is one blocker, §13's overhead question, which
+is also the unfinished half of §10 step 2 with the `[max = 1024]` placeholder.
+It is the copyright holder's, and it is now the only thing between this
+document and a function that makes the order it specifies impossible to get
+wrong.
