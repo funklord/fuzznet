@@ -3023,6 +3023,7 @@ $(BUILD_DIR)/node/test/local_test: $(BUILD_DIR)/node/test/local_test.o \
                                    $(BUILD_DIR)/node/node.o \
                                    $(BUILD_DIR)/local/peer.o \
                                    $(BUILD_DIR)/local/line.o \
+                                   $(BUILD_DIR)/local/vocabulary.o \
                                    $(BUILD_DIR)/version/version.o \
                                    $(BUILD_DIR)/chain/authz.o \
                                    $(BUILD_DIR)/chain/chain.o \

@@ -595,6 +595,43 @@ SABOTAGES = [
 		"sec 356",
 	),
 	(
+		"node-local-handler-not-on-a-denial",
+		"node/local.c",
+		"\tif (on_local && verdict != FZN_AUTHZ_DENIED) {",
+		"\tif (on_local) {",
+		"the local handler seam is not consulted for a caller the node "
+		"refused. on_remote is called for any result that is not DROPPED, "
+		"a denied one included, and this deliberately differs: a denial is "
+		"the node's whole answer on the local path, and a seam that could "
+		"write to a refused caller would widen the decision it was given "
+		"to observe. local_test drives a stranger with a handler that "
+		"would answer, and requires the handler never to run. sec 360",
+	),
+	(
+		"node-local-reply-bound-is-read",
+		"node/local.c",
+		"\t\tif (n > 0 && n <= sizeof(resp))",
+		"\t\tif (n > 0)",
+		"a handler claiming more than the cap it was given wrote nothing "
+		"this function may send. Sending sizeof(resp) of it instead is a "
+		"TRUNCATION -- a different reply rather than a shorter one, which "
+		"is the failure fzn_node_status_line refuses by returning 0 and "
+		"local/vocabulary.h refuses by rejecting an overlong verb rather "
+		"than cutting it to one a rule names. sec 360",
+	),
+	(
+		"node-local-handler-reply-reaches-the-wire",
+		"node/local.c",
+		"\t\tif (n > 0 && n <= sizeof(resp))\n\t\t\tresp_len = n;",
+		"\t\tif (0)\n\t\t\tresp_len = n;",
+		"the other direction of the same branch, and the reason the seam "
+		"exists at all: what a handler wrote is what the caller gets. "
+		"Discarding it leaves the node answering with its own status line "
+		"and every handler inert -- which no existing case could see, "
+		"because before sec 360 the status line was the only answer there "
+		"was. sec 360",
+	),
+	(
 		"revocation-a-gap-is-reported-not-drained",
 		"chain/revocation.c",
 		"\t\t\t\tif (fzn_ct_memeq(fzn_revocation_supersedes(record),\n\t\t\t\t                 NAMES_NOTHING, FZN_REVOCATION_ID_LEN))",

@@ -32,7 +32,8 @@ static void serve_ready_local(fzn_node_state_t *state)
 
 	if (fzn_socket_accept(state->listen_fd, &cfd, &peer) != FZN_SOCKET_OK)
 		return;
-	(void)fzn_node_serve_local(&state->config, cfd, &peer);
+	(void)fzn_node_serve_local(&state->config, cfd, &peer, state->on_local,
+	                           state->on_local_ctx);
 	(void)close(cfd);
 }
 

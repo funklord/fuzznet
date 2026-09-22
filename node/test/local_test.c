@@ -6,6 +6,8 @@
 
 #include "local.h"
 
+#include "../../local/vocabulary.h"
+
 #include <stdio.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -51,8 +53,9 @@ static void wr(int fd, const char *buf, size_t len)
 
 /* One request/response exchange over a socketpair. Fills `resp` with the
  * node's reply and returns the serve result. */
-static fzn_node_serve_err_t exchange(const fzn_node_config_t *cfg,
+static fzn_node_serve_err_t exchange_with(const fzn_node_config_t *cfg,
                                      const fzn_peer_t *peer, const char *request,
+                                     fzn_node_local_handler_t on_local, void *ctx,
                                      char *resp, size_t resp_cap)
 {
 	int sv[2];
@@ -63,12 +66,21 @@ static fzn_node_serve_err_t exchange(const fzn_node_config_t *cfg,
 		return FZN_NODE_SERVE_IO;
 	wr(sv[0], request, strlen(request));
 	wr(sv[0], "\n", 1);
-	r = fzn_node_serve_local(cfg, sv[1], peer);
+	r = fzn_node_serve_local(cfg, sv[1], peer, on_local, ctx);
 	n = read(sv[0], resp, resp_cap - 1);
 	resp[n > 0 ? (size_t)n : 0] = '\0';
 	close(sv[0]);
 	close(sv[1]);
 	return r;
+}
+
+/* The same exchange with no handler -- the node answering for itself, which
+ * is what every case written before the seam existed drives. */
+static fzn_node_serve_err_t exchange(const fzn_node_config_t *cfg,
+                                     const fzn_peer_t *peer, const char *request,
+                                     char *resp, size_t resp_cap)
+{
+	return exchange_with(cfg, peer, request, NULL, NULL, resp, resp_cap);
 }
 
 static fzn_node_config_t base_config(void)
@@ -85,6 +97,64 @@ static fzn_node_config_t base_config(void)
 	return cfg;
 }
 
+
+/* WHAT A HANDLER SAW, so the test can assert on bytes the node passed rather
+ * than on the node having called something. */
+struct seen {
+	int calls;
+	size_t len;
+	char bytes[64];
+	size_t claim;	/* what `reply` should claim to have written */
+	const char *say;	/* what it writes, or NULL to write nothing */
+};
+
+static size_t record(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t origin,
+                     const fzn_peer_t *peer, const uint8_t *request,
+                     size_t request_len, char *reply, size_t reply_cap)
+{
+	struct seen *s = (struct seen *)ctx;
+
+	(void)verdict;
+	(void)origin;
+	(void)peer;
+	s->calls++;
+	s->len = request_len;
+	if (request && request_len < sizeof(s->bytes)) {
+		memcpy(s->bytes, request, request_len);
+		s->bytes[request_len] = '\0';
+	}
+	if (!s->say)
+		return s->claim;	/* 0 for "node, answer for yourself" */
+	if (strlen(s->say) <= reply_cap)
+		memcpy(reply, s->say, strlen(s->say));
+	return s->claim ? s->claim : strlen(s->say);
+}
+
+/* A CONSUMER'S VOCABULARY, which is the whole point of the seam: the node
+ * hands over bytes, and the table that says which group may ask for what
+ * lives out here. `local/vocabulary.h` is raidcfgd's requirement and until
+ * the seam existed nothing on the local path could reach it. */
+static size_t bounded(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t origin,
+                      const fzn_peer_t *peer, const uint8_t *request,
+                      size_t request_len, char *reply, size_t reply_cap)
+{
+	static const uint8_t STATUS[] = "status";
+	const fzn_verb_rule_t rules[] = {
+		{ 44u, STATUS, sizeof(STATUS) - 1u },
+	};
+	const char *out;
+
+	(void)verdict;
+	(void)origin;
+	(void)ctx;
+	out = (fzn_vocabulary_admit(peer, request, request_len, rules, 1)
+	       == FZN_PEER_MEMBER) ? "ok\n" : "refused\n";
+	if (strlen(out) > reply_cap)
+		return 0;
+	memcpy(reply, out, strlen(out));
+	return strlen(out);
+}
+
 int main(void)
 {
 	fzn_node_config_t cfg = base_config();
@@ -93,6 +163,7 @@ int main(void)
 	char resp[256];
 	char big[700];
 	size_t n;
+	struct seen seen;
 
 	/* SAME_USER, over a real stream. */
 	mk_peer(&p, 1000, 0, 0);
@@ -136,6 +207,67 @@ int main(void)
 	                         sizeof(resp));
 	ok(n > 0 && strstr(resp, "denied") != NULL && strstr(resp, "origin") == NULL,
 	   "a denial names no origin");
+
+	/* THE SEAM. The node reads the line and hands it on; until it did,
+	 * local.c carried a literal `(void)line;` and the one access method
+	 * whose peer the kernel had named was the one with nowhere to put a
+	 * verb. */
+	mk_peer(&p, 1000, 0, 0);
+	memset(&seen, 0, sizeof(seen));
+	ok(exchange_with(&cfg, &p, "status", record, &seen, resp, sizeof(resp))
+	       == FZN_NODE_SERVE_OK, "a served caller with a handler is still served");
+	ok(seen.calls == 1, "the handler was not called once");
+	ok(seen.len == 6u && strcmp(seen.bytes, "status") == 0,
+	   "the handler did not get the request bytes -- the node is reading or "
+	   "trimming a line it is only meant to pass on");
+	ok(strstr(resp, "served") != NULL,
+	   "a handler that wrote nothing did not fall back to the status line");
+
+	/* A handler's reply is what reaches the wire. */
+	memset(&seen, 0, sizeof(seen));
+	seen.say = "pong\n";
+	ok(exchange_with(&cfg, &p, "ping", record, &seen, resp, sizeof(resp))
+	       == FZN_NODE_SERVE_OK, "a handler-answered caller is served");
+	ok(strcmp(resp, "pong\n") == 0 && strstr(resp, "served") == NULL,
+	   "the node sent its own status line over the handler's reply");
+
+	/* A handler claiming more than it was given wrote nothing sendable.
+	 * Truncating would send a DIFFERENT reply, which is the failure
+	 * `fzn_node_status_line` and the verb bound both already refuse. */
+	memset(&seen, 0, sizeof(seen));
+	seen.say = "pong\n";
+	seen.claim = FZN_NODE_LOCAL_REPLY_MAX + 1u;
+	ok(exchange_with(&cfg, &p, "ping", record, &seen, resp, sizeof(resp))
+	       == FZN_NODE_SERVE_OK, "an over-claiming handler broke the exchange");
+	ok(strstr(resp, "served") != NULL && strstr(resp, "pong") == NULL,
+	   "a reply claiming more than the cap was sent anyway");
+
+	/* NOT ON A DENIAL, which is where this seam differs from on_remote.
+	 * A handler that is never called cannot widen a refusal. */
+	mk_peer(&p, 2000, 0, 0);
+	memset(&seen, 0, sizeof(seen));
+	seen.say = "let-me-in\n";
+	ok(exchange_with(&cfg, &p, "status", record, &seen, resp, sizeof(resp))
+	       == FZN_NODE_SERVE_DENIED, "a stranger with a handler is still denied");
+	ok(seen.calls == 0,
+	   "the handler ran for a denied caller, so a seam can answer someone "
+	   "the node just refused");
+	ok(strcmp(resp, "denied\n") == 0,
+	   "a denied caller got something other than the denial");
+
+	/* THE REQUIREMENT THE SEAM EXISTS FOR, end to end: a group member may
+	 * ask for the verb its group names and not for another. raidcfgd's
+	 * rule -- a gid check that gates a connection is not enough. */
+	mk_peer(&p, 2000, 1, 44);
+	ok(exchange_with(&cfg, &p, "status", bounded, NULL, resp, sizeof(resp))
+	       == FZN_NODE_SERVE_OK, "the bounded exchange did not complete");
+	ok(strcmp(resp, "ok\n") == 0,
+	   "a group member was refused the verb its group names");
+	ok(exchange_with(&cfg, &p, "destroy", bounded, NULL, resp, sizeof(resp))
+	       == FZN_NODE_SERVE_OK, "the bounded exchange did not complete");
+	ok(strcmp(resp, "refused\n") == 0,
+	   "a group member was admitted a verb no rule names, so the group "
+	   "boundary is a root boundary wearing a different name");
 
 	printf("local_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;

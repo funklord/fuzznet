@@ -55,6 +55,21 @@ typedef struct fzn_node_state {
 	                    const fzn_opened_t *req, uint8_t *reply,
 	                    size_t reply_cap);
 	void *on_remote_ctx;
+	/* The same seam on the LOCAL access method, which had none until the
+	 * node started handing its request line on. `node/local.h` carries the
+	 * contract and the one way it differs from `on_remote`: it is not
+	 * called for a denied caller.
+	 *
+	 * The asymmetry in the TYPES is not an oversight either. A remote reply
+	 * is a payload this node seals, so it is bytes; a local reply is
+	 * written straight to a stream socket the caller is reading as text,
+	 * so it is `char` and the handler owns its terminator. Giving them one
+	 * type would mean one of the two lying about what it produces. */
+	size_t (*on_local)(void *ctx, fzn_authz_verdict_t verdict,
+	                   fzn_origin_t origin, const fzn_peer_t *peer,
+	                   const uint8_t *request, size_t request_len,
+	                   char *reply, size_t reply_cap);
+	void *on_local_ctx;
 } fzn_node_state_t;
 
 /* The provisioned remote peer whose identity is `sender`, or NULL. Pure. */

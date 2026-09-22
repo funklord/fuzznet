@@ -51,7 +51,9 @@ static int write_all(int fd, const char *buf, size_t len)
 }
 
 fzn_node_serve_err_t fzn_node_serve_local(const fzn_node_config_t *config,
-                                          int fd, const fzn_peer_t *peer)
+                                          int fd, const fzn_peer_t *peer,
+                                          fzn_node_local_handler_t on_local,
+                                          void *ctx)
 {
 	fzn_origin_t origin;
 	fzn_authz_verdict_t verdict;
@@ -59,7 +61,7 @@ fzn_node_serve_err_t fzn_node_serve_local(const fzn_node_config_t *config,
 	uint8_t buf[FZN_NODE_REQUEST_CAP];
 	const uint8_t *line;
 	size_t line_len;
-	char resp[128];
+	char resp[FZN_NODE_LOCAL_REPLY_MAX];
 	size_t resp_len;
 	struct timeval tv;
 	int have_line = 0;
@@ -100,12 +102,39 @@ fzn_node_serve_err_t fzn_node_serve_local(const fzn_node_config_t *config,
 		have_line = fzn_line_next(&reader, &line, &line_len);
 	}
 
-	/* The request line is not parsed (see local.h). */
-	(void)line;
-	(void)line_len;
-
 	verdict = fzn_node_decide(config, origin, NULL, 0, 0, NULL, NULL, NULL);
-	resp_len = fzn_node_status_line(verdict, origin, resp, sizeof(resp));
+
+	/* THE HANDLER SEES THE LINE AND THIS FUNCTION NEVER READS IT, which is
+	 * sec 5's split expressed as code rather than as a comment: `line` is
+	 * passed on as bytes and a length and is not inspected here, not even
+	 * to find where a verb ends. A node that learned to split a request
+	 * would have learned a grammar, and a grammar is a vocabulary with the
+	 * argument left out.
+	 *
+	 * NOT ON A DENIAL. local.h records the divergence from `on_remote` and
+	 * why the conservative direction is the right one here. */
+	resp_len = 0;
+	if (on_local && verdict != FZN_AUTHZ_DENIED) {
+		size_t n = on_local(ctx, verdict, origin, peer, line, line_len,
+		                    resp, sizeof(resp));
+
+		/* A handler claiming more than it was given wrote nothing this
+		 * function may send. Sending `sizeof(resp)` of it instead would
+		 * be a TRUNCATION, which is a different reply rather than a
+		 * shorter one -- the same reason `fzn_node_status_line` returns
+		 * 0 rather than a clipped line, and the reason
+		 * `local/vocabulary.h` refuses an overlong verb instead of
+		 * cutting it down to one that matches a rule. */
+		if (n > 0 && n <= sizeof(resp))
+			resp_len = n;
+	}
+
+	/* No handler, nothing written, or a reply that did not fit: the node
+	 * answers for itself. A handler returning 0 is how a consumer asks for
+	 * exactly that, so the default is reachable rather than only a
+	 * fallback. */
+	if (resp_len == 0)
+		resp_len = fzn_node_status_line(verdict, origin, resp, sizeof(resp));
 	if (resp_len == 0 || write_all(fd, resp, resp_len) != 0)
 		return FZN_NODE_SERVE_IO;
 	return (verdict == FZN_AUTHZ_DENIED) ? FZN_NODE_SERVE_DENIED

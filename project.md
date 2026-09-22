@@ -45934,3 +45934,89 @@ ANSWER such a request rather than to design the request. One read of the
 struct ended the feature and reopened the rule. A mechanism with nothing to
 talk to is not a mechanism, and the cheapest time to learn that is before
 writing it.
+
+## 360. The local access method gets the seam the remote one had, 2026-09-22
+
+Asked what the vocabulary decision actually is, and told to continue
+implementing. The first answer turned out to be that the decision was not
+blocking what I thought it was blocking.
+
+WHAT THE DECISION IS. Section 5 keeps command vocabularies out of the core:
+fuzzypickles' encoders are its own, a project's verbs are its own, and this
+library carries mechanism and never meaning -- `local/vocabulary.c` is that
+seam, where a verb is bytes with a length and nothing here can tell `status`
+from `destroy`. Against that sits an instruction raidcfgd relayed from the
+holder, "just use the vocabulary that fuzznet already offers or will offer",
+which reads the other way: that fuzznet should OFFER a named generic verb set
+rather than leave every consumer to invent one. Those two are in tension and
+the tension is the whole decision. It is still the holder's, because it
+changes what the core is.
+
+WHAT WAS NOT BLOCKED BY IT, AND HAD BEEN READING AS IF IT WERE.
+`node/local.h` said "the request line is NOT parsed. Defining request verbs
+is the holder's vocabulary decision", which reads as a piece waiting on an
+answer. The piece actually missing needed no answer at all.
+
+Section 301 gave the REMOTE access method `on_remote` -- "where a consumer's
+handler, its verbs, plugs in". The LOCAL method never got one. It read a
+request line, bounded it at 512, framed it through `local/line.h`, and threw
+it away; `node/local.c` carried a literal `(void)line;`. So the one access
+method whose peer THE KERNEL HAS ALREADY NAMED was the one with nowhere to
+put a verb, and a consumer wanting `local/vocabulary.h`'s gid-to-verb bound
+could not reach it from the node at all. That bound is raidcfgd's
+requirement and the reason the module exists: a gid check that gates a
+connection is not enough, or the group boundary is a root boundary wearing a
+different name.
+
+`fzn_node_state` gains `on_local`, `fzn_node_serve_local` takes a handler and
+a context, and the line is handed on as bytes and a length.
+
+THE DESIGN I TRIED FIRST AND REJECTED, recorded because it is the obvious one
+and the next reader will reach for it. I began by putting the vocabulary
+check INSIDE the node -- config gains a rule table, `serve_local` calls
+`fzn_vocabulary_admit`, an absent table denies every verb. It fails closed,
+which is this library's character, and it is wrong twice. Section 5 forbids
+the core learning a verb's meaning, and `node.h` states that local callers
+are "served unguarded -- admitted for being who they are", which is netcfgd's
+decision 0128 and not mine to overturn while implementing something else. A
+node that split a request to find where a verb ended would have learned a
+grammar, and a grammar is a vocabulary with the argument left out.
+
+The seam is the version that needs no decision: the node still authenticates
+and authorises exactly as before, and a consumer that wants the bound calls
+`fzn_vocabulary_admit` in its own handler with its own table. `local_test`
+drives precisely that end to end -- a group member admitted `status`, refused
+`destroy`, with the table in the test rather than in the library.
+
+ONE DIVERGENCE FROM `on_remote`, DELIBERATE. The remote loop calls its
+handler for any result that is not DROPPED, a denied one included, and seals
+whatever comes back. The local seam is not called for a denied caller. A
+denial is the node's whole answer here, and a seam able to write to someone
+the node has just refused would widen the decision it was given to observe.
+The cost is that a handler cannot log its own denials, and that is the
+cheaper of the two -- the other direction costs a denial its meaning.
+
+THE BOUND ON A REPLY IS THE ONE THIS TREE KEEPS ARRIVING AT. A handler
+claiming more than the cap it was given wrote nothing sendable; sending the
+cap's worth instead would be a TRUNCATION, which is a different reply rather
+than a shorter one. Same refusal as `fzn_node_status_line` returning 0 rather
+than a clipped line, and as `local/vocabulary.h` refusing an overlong verb
+rather than cutting it down to one that matches a rule.
+
+SEEN TO FAIL BEFORE BEING RECORDED AS BUILT. Three mutations, against a saved
+copy restored and verified byte-identical afterwards rather than trusted:
+calling the handler on a denial (2 failures), sending an over-claimed reply
+(1), discarding the handler's reply (3). All three are sabotage entries now.
+A fourth mutation I wrote caught nothing and proved nothing about the code:
+it only inserted a space, so it was not a behavioural change at all. Recorded
+because a no-op sabotage reporting MISSED looks exactly like a real gap, and
+the harness cannot tell the difference -- only reading the mutation can.
+
+AND THE LINK ERROR WAS THE LESSON `facet.h` ALREADY QUOTES. Including
+`local/vocabulary.h` in the test compiled cleanly and failed at link: the
+Makefile's `local_test` rule did not name `local/vocabulary.o`. fuzzypickles
+learned it the expensive way in `record_store_internal.h` -- "a header full
+of declarations reads as available machinery" -- and it is the same shape as
+the gap this section closes, one layer down. A declaration reachable by
+`#include` is not a capability until something links it, exactly as a
+function with no caller is not a feature until something calls it.
