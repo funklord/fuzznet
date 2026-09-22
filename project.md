@@ -46556,3 +46556,88 @@ caller-sized cap, so `FZN_PERSIST_NODE_PEER` is a slot it already serves. What
 does not exist is `fuzznetd` LOADING the set at start: enumerating the
 subjects it has, opening each, and filling `state.peers`. That is the daemon
 half and it is the next piece.
+
+## 367. fuzznetd loads the peers, and the enumerate the ops could not do, 2026-09-22
+
+sec 366 packed a node peer and left the daemon half: `fuzznetd` still bound
+the remote hop and served nobody. The obstacle was one the interface had, not
+the format -- `fzn_persist_ops_t` has `load` and `save`, both of which need a
+SUBJECT the caller already holds, and a daemon starting up holds none. It is
+asking WHICH peers it was told about, and nothing could answer.
+
+So the ops gain `list`, optional and NULL-able, and `persist/persist_file.c`
+implements it by scanning its directory: a file is `<slot>-<64 hex>`, so
+listing is a readdir and a parse of the name back to 32 bytes. Then
+`fzn_node_peer_save` and `fzn_node_peers_load` compose the three, and
+`fuzznetd --store DIR` fills `state.peers` at start.
+
+THE DAEMON STILL DOES NOT MINT A PEER, which is the half that was the
+holder's and stays that way. It does not decide what a peer is granted, which
+prekeys are pinned, or where a root key lives. It reads a set somebody else
+provisioned, and reading what another party decided is not deciding it.
+`--store` is opt-in: without it the daemon behaves exactly as before.
+
+A STORE THAT CANNOT BE READ IS FATAL, and an EMPTY one is not. Starting with
+the sockets bound and an empty peer set is the symptom this exists to end, so
+it would be the worst outcome -- healthy-looking and serving nobody. A store
+that is genuinely empty is a deployment that has provisioned nothing yet, and
+it is reported (`0 peer(s) from ...`) rather than refused. Verified by
+running the daemon under `timeout` against an empty store, a missing one, and
+no `--store` at all.
+
+Three decisions worth the lines they cost:
+
+**Truncation is a failure, not a short answer.** A backend holding more than
+the caller's array returns 0 rather than the first few. A node serving SOME
+of its peers with nothing saying which are missing is worse than one serving
+none, because the second shows.
+
+**A record filed under one identity and carrying another is refused.** The
+file's name and the blob's `sender` must agree, or the node would answer to a
+key its own store does not index -- findable by nothing, removable by
+nothing.
+
+**A slot past nine now refuses rather than folding.** `name_for` built the
+filename with `'0' + (slot % 10u)`, so slot 10 would have taken slot 0's name
+and slot 11 the trust anchor's -- two slots in one file, silently, with the
+anchor losing. Six slots exist and this one made a sixth, so the tenth is
+where it would have bitten. Widening the name orphans every file already
+written, so that is a migration rather than something to do in passing; the
+refusal is the part that belongs here. **No test drives it, because no slot
+past nine exists to drive it with, and no sabotage entry claims it.**
+
+### Four sabotages, and the two that first missed
+
+**The stray-file skip, missed because the fixture never reached it.** The
+test dropped `notours.txt` in the store, which fails on the PREFIX check
+before the length check is consulted -- so removing the length check changed
+nothing observable. The name that reaches it is `<slot>-<64 hex>.tmp`, which
+is not a hypothetical: `file_save` writes `<name>.tmp` and renames, so an
+interrupted save leaves exactly that -- the right prefix and a valid subject
+with four bytes glued on. Without the length check it lists as a peer,
+duplicating one already in the set. Driven that way it is caught.
+
+**And one caught by dying rather than by failing.** Removing the `!ops->list`
+guard dereferences a NULL op, so the suite took SIGSEGV and printed nothing.
+My harness read the last line of output and there was none. A crash is a
+catch -- the guard spoke as loudly as it could -- but a script that assumes a
+tidy failure reports it as an error in itself. Worth remembering when reading
+a sabotage run: **no output is a result, not a missing one.**
+
+That is the third time in two sections that a guard looked undefended and the
+fixture was the thing at fault, each for a different reason: a capacity check
+in front of a count check, an exactness check in front of a bound, and now a
+prefix check in front of a length. The shape holds -- **a guard behind
+another check is invisible until the fixture is built to walk past the first
+one** -- and it is worth applying forward rather than rediscovering: when
+adding a check, ask what already refuses the case, and build the fixture that
+gets past it.
+
+### What is left
+
+`fuzznetd` has no way to WRITE a peer -- `fzn_node_peer_save` exists and
+nothing in the daemon calls it, because minting is where provisioning becomes
+a decision. A consumer provisions with `node/provision.h` and saves through
+the same ops. Whether the daemon should grow a pairing mode that does it
+in-process is the holder's, and it is the last piece between raidcfgd and a
+remote hop that works without their writing any of this themselves.

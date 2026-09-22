@@ -219,6 +219,11 @@ NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/local.o \
                    $(BUILD_DIR)/local/peer_linux.o $(BUILD_DIR)/local/line.o \
                    $(BUILD_DIR)/local/vocabulary.o \
                    $(BUILD_DIR)/chunk/split.o \
+                   $(BUILD_DIR)/node/peer_persist.o \
+                   $(BUILD_DIR)/persist/persist.o \
+                   $(BUILD_DIR)/persist/persist_file.o \
+                   $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/prekey/prekey.o \
+                   $(BUILD_DIR)/ratchet/ratchet.o $(BUILD_DIR)/session/agree.o \
                    $(BUILD_DIR)/net/udp.o $(BUILD_DIR)/version/version.o \
                    $(BUILD_DIR)/frame/freshness.o \
                    $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/chain/authz.o \
@@ -3031,6 +3036,7 @@ $(BUILD_DIR)/node/test/peer_persist_test: \
                                    $(BUILD_DIR)/node/test/peer_persist_test.o \
                                    $(BUILD_DIR)/node/peer_persist.o \
                                    $(BUILD_DIR)/persist/persist.o \
+                                   $(BUILD_DIR)/persist/persist_file.o \
                                    $(BUILD_DIR)/trust/trust.o \
                                    $(BUILD_DIR)/prekey/prekey.o \
                                    $(BUILD_DIR)/ratchet/ratchet.o \

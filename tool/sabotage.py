@@ -764,6 +764,51 @@ SABOTAGES = [
 		"substring. sec 365",
 	),
 	(
+		"node-peers-load-needs-a-list",
+		"node/peer_persist.c",
+		"\tif (!ops->list)\n\t\treturn FZN_PERSIST_ERR_BACKEND;",
+		"\tif (0)\n\t\treturn FZN_PERSIST_ERR_BACKEND;",
+		"a backend that cannot enumerate is reported rather than read as a "
+		"store holding nobody. An empty set and `I cannot tell you` look "
+		"identical to a caller and mean opposite things -- serve nobody, "
+		"against something is wrong with the store. Removing it also "
+		"dereferences a NULL op, so the suite dies rather than failing an "
+		"assertion; both are the guard speaking. sec 367",
+	),
+	(
+		"node-peers-load-checks-the-filing",
+		"node/peer_persist.c",
+		"\t\tif (memcmp(out[i].sender, subjects + (i * (size_t)FZN_PUBKEY_LEN),\n"
+		"\t\t           FZN_PUBKEY_LEN) != 0)\n\t\t\treturn FZN_PERSIST_ERR_SHAPE;",
+		"\t\tif (0)\n\t\t\treturn FZN_PERSIST_ERR_SHAPE;",
+		"a record filed under one identity and carrying another is refused. "
+		"Serving it means the node answers to a key its own store does not "
+		"index -- findable by nothing and removable by nothing -- and the "
+		"file is either a corrupted store or one somebody placed. sec 367",
+	),
+	(
+		"persist-file-list-refuses-truncation",
+		"persist/persist_file.c",
+		"\t\tif (found >= max) {\n\t\t\t(void)closedir(d);\n\t\t\treturn 0;\n\t\t}",
+		"\t\tif (found >= max) {\n\t\t\tbreak;\n\t\t}",
+		"a store holding more than the caller's array fails rather than "
+		"returning the first few. A node serving SOME of its peers with "
+		"nothing saying which are missing is worse than one serving none, "
+		"because the second shows and the first does not. sec 367",
+	),
+	(
+		"persist-file-list-skips-a-half-written-save",
+		"persist/persist_file.c",
+		"\t\tif (strlen(n) != 2u + 64u)\n\t\t\tcontinue;",
+		"\t\tif (0)\n\t\t\tcontinue;",
+		"`file_save` writes `<name>.tmp` and renames, so an interrupted "
+		"save leaves `<slot>-<64 hex>.tmp` -- the right prefix and a valid "
+		"subject with four bytes glued on. Without the length check it "
+		"lists as a peer, duplicating one already there. An UNRELATED file "
+		"cannot drive this: it fails on the prefix first, which is why the "
+		"first fixture reported MISSED. sec 367",
+	),
+	(
 		"node-peer-pack-bounds-the-hop-count",
 		"node/peer_persist.c",
 		"\tif (peer->hop_count > (size_t)FZN_CHAIN_MAX_HOPS)\n"

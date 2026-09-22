@@ -199,6 +199,24 @@ typedef struct fzn_persist_ops {
 	            size_t cap, size_t *len);
 	int (*save)(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 	            const uint8_t *bytes, size_t len);
+	/* WHICH SUBJECTS THIS BACKEND HOLDS FOR `slot`, written into `out` as
+	 * `*count` subjects of FZN_PUBKEY_LEN bytes each, capped at `max`.
+	 * Returns 1 on success and 0 on failure.
+	 *
+	 * OPTIONAL, AND NULL IS AN HONEST ANSWER. `load` and `save` need a
+	 * subject the caller already has; a node starting up has none -- it is
+	 * asking WHICH peers it was told about, and until this existed the
+	 * answer could only come from somewhere outside this library. A
+	 * backend that cannot enumerate (a keystore addressed only by name, an
+	 * enclave) leaves it NULL, and a caller that needs it reports that
+	 * rather than guessing.
+	 *
+	 * TRUNCATION IS A FAILURE, not a short answer. A backend holding more
+	 * than `max` returns 0: a caller that took the first `max` would
+	 * silently serve some of its peers, which is worse than serving none
+	 * because nothing anywhere says which are missing. */
+	int (*list)(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t max,
+	            size_t *count);
 	void *ctx;
 } fzn_persist_ops_t;
 

@@ -7,7 +7,14 @@
  * carried inside it fails at the ends.
  */
 
+#define _DEFAULT_SOURCE /* mkdtemp under -std=c11 */
+
 #include "peer_persist.h"
+
+#include "../persist/persist_file.h"
+
+#include <stdlib.h>
+#include <unistd.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -220,6 +227,154 @@ int main(void)
 	       == FZN_PERSIST_ERR_MALFORMED, "a NULL peer packed");
 	ok(fzn_node_peer_open(NULL, 32u, &out) == FZN_PERSIST_ERR_MALFORMED,
 	   "NULL bytes opened");
+
+	/* THROUGH A REAL BACKEND, which is the half sec 366 left: a node
+	 * starting up does not know which peers it was told about, so `load`
+	 * alone could never answer. */
+	{
+		char dir[] = "/tmp/fzn_peer_persist_XXXXXX";
+		fzn_persist_file_t store;
+		const fzn_persist_ops_t *ops;
+
+		if (!mkdtemp(dir)) {
+			ok(0, "a temporary directory could not be made");
+		} else {
+			fzn_node_peer_t a, b, got[4];
+			size_t n = 0;
+
+			ops = fzn_persist_file_init(&store, dir);
+			ok(ops != NULL, "the file backend would not initialise");
+			ok(ops && ops->list != NULL,
+			   "the file backend cannot enumerate, so a node could not "
+			   "find the peers it holds");
+
+			fill(&a, 2);
+			fill(&b, 0);
+			b.sender[0] = 0xAAu;	/* a different identity, same shape */
+			ok(fzn_node_peer_save(ops, &a) == FZN_PERSIST_OK,
+			   "a peer would not save");
+			ok(fzn_node_peer_save(ops, &b) == FZN_PERSIST_OK,
+			   "a second peer would not save");
+
+			ok(fzn_node_peers_load(ops, got, 4u, &n) == FZN_PERSIST_OK,
+			   "the peers would not load");
+			ok(n == 2u, "two peers were saved and a different number loaded");
+			/* The order a directory hands back is its own, so match on
+			 * identity rather than on position -- a test that assumed an
+			 * order would pass here and fail on another filesystem. */
+			{
+				int seen_a = 0, seen_b = 0;
+				size_t k;
+
+				for (k = 0; k < n; k++) {
+					if (same(&got[k], &a))
+						seen_a = 1;
+					if (same(&got[k], &b))
+						seen_b = 1;
+				}
+				ok(seen_a && seen_b,
+				   "a saved peer did not come back byte-for-byte");
+			}
+
+			/* A CAP SMALLER THAN THE STORE FAILS rather than returning
+			 * the first few: a node serving some of its peers with
+			 * nothing saying which are missing is worse than one that
+			 * refuses. */
+			ok(fzn_node_peers_load(ops, got, 1u, &n)
+			       == FZN_PERSIST_ERR_BACKEND && n == 0u,
+			   "a store holding more peers than the caller's array "
+			   "returned a truncated set");
+
+			/* A STRANGER IN THE DIRECTORY IS SKIPPED. The directory is
+			 * the caller's; one unrelated file must not stop a node
+			 * serving every peer it has. */
+			{
+				char junk[320];
+				FILE *f;
+
+				snprintf(junk, sizeof(junk), "%s/notours.txt", dir);
+				f = fopen(junk, "w");
+				if (f) {
+					(void)fputs("hello", f);
+					(void)fclose(f);
+				}
+				ok(fzn_node_peers_load(ops, got, 4u, &n) == FZN_PERSIST_OK &&
+				   n == 2u,
+				   "an unrelated file in the store changed what loaded");
+				(void)unlink(junk);
+			}
+
+			/* A HALF-WRITTEN SAVE, which is the stranger that matters.
+			 *
+			 * `file_save` writes `<name>.tmp` and renames, so an
+			 * interrupted save leaves exactly `<slot>-<64 hex>.tmp` --
+			 * a name carrying the right prefix and a valid subject with
+			 * four bytes glued on. The unrelated file above does not
+			 * reach the length check at all: it fails on the prefix, so
+			 * removing the length check changed nothing a test could
+			 * see and the sabotage reported it MISSED. This is the name
+			 * that gets past the prefix, and without the length check
+			 * it lists as a peer -- a duplicate of one already there. */
+			{
+				static const char HEX[] = "0123456789abcdef";
+				char tmp[400];
+				char hexname[65];
+				unsigned h;
+				FILE *f;
+
+				for (h = 0; h < 32u; h++) {
+					hexname[h * 2u] = HEX[(a.sender[h] >> 4) & 0x0fu];
+					hexname[(h * 2u) + 1u] = HEX[a.sender[h] & 0x0fu];
+				}
+				hexname[64] = '\0';
+				snprintf(tmp, sizeof(tmp), "%s/%u-%s.tmp", dir,
+				         (unsigned)FZN_PERSIST_NODE_PEER, hexname);
+				f = fopen(tmp, "w");
+				if (f) {
+					(void)fputs("half", f);
+					(void)fclose(f);
+				}
+				ok(fzn_node_peers_load(ops, got, 4u, &n) == FZN_PERSIST_OK &&
+				   n == 2u,
+				   "an interrupted save's .tmp listed as a peer, so a "
+				   "crash during save leaves a duplicate in the set");
+				(void)unlink(tmp);
+			}
+
+			/* A RECORD STORED UNDER ONE IDENTITY AND CARRYING ANOTHER.
+			 * Either a corrupted store or a file somebody placed, and
+			 * serving it means the node answers to a key the store does
+			 * not index -- findable by nothing, removable by nothing. */
+			{
+				uint8_t misfiled[FZN_NODE_PEER_BLOB_MAX];
+				uint8_t wrong[FZN_PUBKEY_LEN];
+				size_t blen = 0;
+
+				memset(wrong, 0x5Au, sizeof(wrong));
+				ok(fzn_node_peer_pack(&a, misfiled, sizeof(misfiled), &blen)
+				       == FZN_PERSIST_OK, "the misfiling fixture would not pack");
+				ok(ops->save(ops->ctx, FZN_PERSIST_NODE_PEER, wrong, misfiled,
+				             blen) == 1,
+				   "the misfiled record would not store");
+				ok(fzn_node_peers_load(ops, got, 4u, &n)
+				       == FZN_PERSIST_ERR_SHAPE,
+				   "a record filed under an identity it does not carry "
+				   "loaded, so the node would answer to a key its store "
+				   "cannot find");
+			}
+
+			/* A backend that cannot enumerate says so rather than
+			 * reading as an empty set. */
+			{
+				fzn_persist_ops_t blind = *ops;
+
+				blind.list = NULL;
+				ok(fzn_node_peers_load(&blind, got, 4u, &n)
+				       == FZN_PERSIST_ERR_BACKEND,
+				   "a backend with no list read as a store holding nobody");
+			}
+		}
+	}
 
 	printf("peer_persist_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;

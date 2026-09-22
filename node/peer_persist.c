@@ -98,3 +98,69 @@ fzn_persist_err_t fzn_node_peer_open(const uint8_t *bytes, size_t len,
 		       FZN_HOP_LEN);
 	return FZN_PERSIST_OK;
 }
+
+fzn_persist_err_t fzn_node_peer_save(const fzn_persist_ops_t *ops,
+                                     const fzn_node_peer_t *peer)
+{
+	uint8_t blob[FZN_NODE_PEER_BLOB_MAX];
+	size_t len = 0;
+	fzn_persist_err_t err;
+
+	if (!ops || !ops->save || !peer)
+		return FZN_PERSIST_ERR_MALFORMED;
+	err = fzn_node_peer_pack(peer, blob, sizeof(blob), &len);
+	if (err != FZN_PERSIST_OK)
+		return err;
+	/* Keyed by the peer's own identity, which is what `list` hands back and
+	 * what `load` then asks for -- so the three agree by construction
+	 * rather than by a caller remembering the convention. */
+	if (!ops->save(ops->ctx, FZN_PERSIST_NODE_PEER, peer->sender, blob, len))
+		return FZN_PERSIST_ERR_BACKEND;
+	return FZN_PERSIST_OK;
+}
+
+fzn_persist_err_t fzn_node_peers_load(const fzn_persist_ops_t *ops,
+                                      fzn_node_peer_t *out, size_t cap,
+                                      size_t *count)
+{
+	uint8_t subjects[FZN_NODE_PEERS_MAX * FZN_PUBKEY_LEN];
+	uint8_t blob[FZN_NODE_PEER_BLOB_MAX];
+	size_t found = 0;
+	size_t i;
+
+	if (!ops || !ops->load || !out || !count)
+		return FZN_PERSIST_ERR_MALFORMED;
+	*count = 0;
+	/* REPORTED, NOT TURNED INTO AN EMPTY SET. peer_persist.h says why: an
+	 * empty set and "I cannot tell you" look identical to a caller and
+	 * mean opposite things. */
+	if (!ops->list)
+		return FZN_PERSIST_ERR_BACKEND;
+	if (cap > FZN_NODE_PEERS_MAX)
+		cap = FZN_NODE_PEERS_MAX;
+	if (!ops->list(ops->ctx, FZN_PERSIST_NODE_PEER, subjects, cap, &found))
+		return FZN_PERSIST_ERR_BACKEND;
+
+	for (i = 0; i < found; i++) {
+		size_t len = 0;
+		fzn_persist_err_t err;
+
+		if (!ops->load(ops->ctx, FZN_PERSIST_NODE_PEER,
+		               subjects + (i * (size_t)FZN_PUBKEY_LEN), blob,
+		               sizeof(blob), &len))
+			return FZN_PERSIST_ERR_BACKEND;
+		err = fzn_node_peer_open(blob, len, &out[i]);
+		if (err != FZN_PERSIST_OK)
+			return err;
+		/* THE FILE'S NAME AND THE BLOB'S CONTENTS MUST AGREE. A record
+		 * stored under one identity and carrying another is either a
+		 * corrupted store or a file somebody placed, and serving it would
+		 * mean the node answers to a key the store does not index --
+		 * findable by nothing, removable by nothing. */
+		if (memcmp(out[i].sender, subjects + (i * (size_t)FZN_PUBKEY_LEN),
+		           FZN_PUBKEY_LEN) != 0)
+			return FZN_PERSIST_ERR_SHAPE;
+	}
+	*count = found;
+	return FZN_PERSIST_OK;
+}

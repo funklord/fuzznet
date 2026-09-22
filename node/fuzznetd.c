@@ -7,15 +7,28 @@
  *
  * The remote hop binds but serves nobody until peers are provisioned -- a
  * frame from an unknown sender has no session to open it and is dropped.
- * Provisioning (pinned prekeys, capabilities, where the root signing key
- * lives) is the copyright holder's decision, so this daemon does not mint or
- * load it; a consumer that has provisioned peers fills the state and calls
- * fzn_node_run directly.
+ *
+ * IT STILL DOES NOT MINT A PEER, and that half is unchanged: deciding what a
+ * peer is granted, which prekeys are pinned and where a root signing key
+ * lives is the copyright holder's, and nothing here does any of it. What it
+ * does now is LOAD a set a consumer has already provisioned, from a store
+ * named on the command line. Reading what somebody else decided is not
+ * deciding it, and without this the daemon could bind the remote hop and
+ * serve nobody for ever -- raidcfgd reported exactly that on 2026-09-22.
+ *
+ * `--store DIR` is opt-in. Without it the daemon behaves as before and a
+ * consumer that fills the state itself and calls `fzn_node_run` is
+ * unaffected. With it, a store that cannot be read is FATAL rather than
+ * empty: a daemon that starts having silently served nobody is the failure
+ * this exists to end, and `sec 366` records the same argument one layer
+ * down.
  */
 
 #include "serve.h"
+#include "peer_persist.h"
 #include "../local/socket.h"
 #include "../net/udp.h"
+#include "../persist/persist_file.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,12 +40,13 @@ static void usage(const char *prog)
 {
 	fprintf(stderr,
 	        "usage: %s --socket PATH [--group GID] [--udp-port PORT]"
-	        " [--udp6]\n", prog);
+	        " [--udp6] [--store DIR]\n", prog);
 }
 
 int main(int argc, char **argv)
 {
 	const char *sock_path = NULL;
+	const char *store_dir = NULL;
 	long group = -1;
 	long udp_port = -1;
 	int family = AF_INET;
@@ -46,6 +60,8 @@ int main(int argc, char **argv)
 			group = strtol(argv[++i], NULL, 10);
 		} else if (!strcmp(argv[i], "--udp-port") && i + 1 < argc) {
 			udp_port = strtol(argv[++i], NULL, 10);
+		} else if (!strcmp(argv[i], "--store") && i + 1 < argc) {
+			store_dir = argv[++i];
 		} else if (!strcmp(argv[i], "--udp6")) {
 			family = AF_INET6;
 		} else {
@@ -88,6 +104,47 @@ int main(int argc, char **argv)
 		}
 		state.udp_fd = ufd;
 		state.config.serves_remote = 1;
+	}
+
+	/* THE PEERS A CONSUMER ALREADY PROVISIONED, if a store was named.
+	 *
+	 * Static rather than automatic because the set is about 96 KiB at
+	 * FZN_NODE_PEERS_MAX and a daemon's main frame is not where that
+	 * belongs; `state.peers` borrows it for the life of the process, which
+	 * is what `fzn_node_state_t` asks of it.
+	 *
+	 * A STORE THAT CANNOT BE READ IS FATAL. Serving nobody is what this
+	 * exists to end, so starting anyway -- with the sockets bound and an
+	 * empty peer set -- would reproduce the symptom while looking healthy.
+	 * The one honest exception is a store that is simply EMPTY: that is a
+	 * deployment which has provisioned nothing yet, and it is reported
+	 * rather than refused. */
+	if (store_dir) {
+		static fzn_node_peer_t peers[FZN_NODE_PEERS_MAX];
+		static fzn_persist_file_t store;
+		const fzn_persist_ops_t *ops = fzn_persist_file_init(&store, store_dir);
+		size_t loaded = 0;
+		fzn_persist_err_t err;
+
+		if (!ops) {
+			fprintf(stderr, "fuzznetd: could not open store %s\n", store_dir);
+			fzn_socket_close(lfd, sock_path);
+			if (ufd >= 0)
+				fzn_udp_close(ufd);
+			return 1;
+		}
+		err = fzn_node_peers_load(ops, peers, FZN_NODE_PEERS_MAX, &loaded);
+		if (err != FZN_PERSIST_OK) {
+			fprintf(stderr, "fuzznetd: could not load peers from %s (%d)\n",
+			        store_dir, (int)err);
+			fzn_socket_close(lfd, sock_path);
+			if (ufd >= 0)
+				fzn_udp_close(ufd);
+			return 1;
+		}
+		state.peers = peers;
+		state.peer_count = loaded;
+		fprintf(stderr, "fuzznetd: %zu peer(s) from %s\n", loaded, store_dir);
 	}
 
 	fprintf(stderr, "fuzznetd: serving on %s%s\n", sock_path,

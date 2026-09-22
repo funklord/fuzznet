@@ -53,6 +53,13 @@
 	((size_t)FZN_PERSIST_HEAD_LEN + FZN_NODE_PEER_BODY_FIXED + \
 	 ((size_t)FZN_CHAIN_MAX_HOPS * (size_t)FZN_HOP_LEN))
 
+/* The most peers `fzn_node_peers_load` will enumerate in one call, and the
+ * size of the subject buffer it puts on the stack -- 64 identities is 2 KiB.
+ * A store holding more fails the load rather than returning the first 64,
+ * because a node serving some of its peers with nothing saying which are
+ * missing is worse than one that refuses and says so. */
+#define FZN_NODE_PEERS_MAX 64u
+
 /* Pack `peer` into `out`, writing the length. FZN_PERSIST_ERR_MALFORMED for a
  * null argument or a hop count past FZN_CHAIN_MAX_HOPS -- a peer this library
  * would refuse to verify is not one it will write down, because a blob that
@@ -72,5 +79,32 @@ fzn_persist_err_t fzn_node_peer_pack(const fzn_node_peer_t *peer, uint8_t *out,
  * six hops of whatever followed it in the file. */
 fzn_persist_err_t fzn_node_peer_open(const uint8_t *bytes, size_t len,
                                      fzn_node_peer_t *out);
+
+/* Save one peer through a backend, keyed by its own identity. */
+fzn_persist_err_t fzn_node_peer_save(const fzn_persist_ops_t *ops,
+                                     const fzn_node_peer_t *peer);
+
+/* Load every peer the backend holds into `out`, writing how many.
+ *
+ * THIS IS WHAT `fuzznetd` WAS MISSING. It binds the remote hop and serves
+ * nobody until `fzn_node_state_t.peers` is filled, and a daemon starting up
+ * does not know which peers it was told about -- `load` needs a subject it
+ * does not have. `fzn_persist_ops_t.list` answers that, and this composes the
+ * two.
+ *
+ * FZN_PERSIST_ERR_BACKEND when `ops->list` is NULL: a backend that cannot
+ * enumerate is a real state -- a keystore addressed only by name -- and it is
+ * reported rather than turned into an empty set. An empty set and "I cannot
+ * tell you" look identical to a caller and mean opposite things: the first
+ * says serve nobody, the second says something is wrong with the store.
+ *
+ * ONE UNREADABLE BLOB FAILS THE WHOLE LOAD. A node that quietly served the
+ * peers it could parse would be a node whose peer set depends on which files
+ * happen to be intact, with nothing saying which are gone -- and the ones
+ * that fail are exactly the ones an attacker would corrupt. The caller is
+ * told, and decides. */
+fzn_persist_err_t fzn_node_peers_load(const fzn_persist_ops_t *ops,
+                                      fzn_node_peer_t *out, size_t cap,
+                                      size_t *count);
 
 #endif /* FZN_NODE_PEER_PERSIST_H */

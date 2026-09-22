@@ -41,6 +41,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <dirent.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -69,7 +70,16 @@ static int name_for(char *out, size_t cap, fzn_persist_slot_t slot, const uint8_
 
 	if (cap < NAME_MAX_LEN)
 		return 0;
-	out[at++] = (char)('0' + ((unsigned)slot % 10u));
+	/* ONE DECIMAL DIGIT, SO A SLOT PAST NINE IS REFUSED RATHER THAN
+	 * FOLDED. `% 10u` would give slot 10 the name slot 0 has and slot 11
+	 * the name FZN_PERSIST_TRUST has -- two slots in one file, silently,
+	 * and the anchor is the one that loses. Six slots exist; the tenth is
+	 * where this stops working, and it stops loudly. Widening the name is
+	 * a format change that orphans every file already written, so it is a
+	 * deliberate migration rather than something to do in passing. */
+	if ((unsigned)slot > 9u)
+		return 0;
+	out[at++] = (char)('0' + (unsigned)slot);
 	out[at++] = '-';
 	if (subject) {
 		/* THE WHOLE SUBJECT, not a prefix. Two peers sharing a prefix
@@ -293,6 +303,79 @@ void fzn_persist_file_set_log(fzn_persist_file_t *store, struct flog_t *log)
 	store->log = log;
 }
 
+/* One hex digit, or -1. */
+static int unhex(char c)
+{
+	if (c >= '0' && c <= '9')
+		return c - '0';
+	if (c >= 'a' && c <= 'f')
+		return 10 + (c - 'a');
+	return -1;
+}
+
+/* WHICH SUBJECTS THIS DIRECTORY HOLDS FOR `slot`.
+ *
+ * A file is `<slot><dash><64 hex>`, so listing is a directory scan and a
+ * parse of the name back to 32 bytes. Anything that does not match exactly
+ * that shape is SKIPPED rather than refused: the directory is the caller's
+ * and may hold a temporary from an interrupted save, a file for another
+ * slot, or something that was never ours. Refusing on a stranger would let
+ * one unrelated file stop a node serving every peer it has.
+ *
+ * A NAME THAT MATCHES THE SHAPE AND NOT THE HEX IS ALSO SKIPPED, for the
+ * same reason and with the same cost: it is not addressable by `load`
+ * either, so it was never a peer this backend could return.
+ */
+static int file_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t max,
+                     size_t *count)
+{
+	fzn_persist_file_t *store = (fzn_persist_file_t *)ctx;
+	DIR *d;
+	struct dirent *ent;
+	size_t found = 0;
+
+	if (!store || !out || !count)
+		return 0;
+	if ((unsigned)slot > 9u)
+		return 0;
+	*count = 0;
+	d = opendir(store->dir);
+	if (!d)
+		return 0;
+	while ((ent = readdir(d)) != NULL) {
+		const char *n = ent->d_name;
+		unsigned i;
+		int ok = 1;
+
+		if (strlen(n) != 2u + 64u)
+			continue;
+		if (n[0] != (char)('0' + (unsigned)slot) || n[1] != '-')
+			continue;
+		/* TRUNCATION IS A FAILURE. Returning the first `max` would leave
+		 * a node serving some of its peers with nothing saying which are
+		 * missing -- worse than serving none, which at least shows. */
+		if (found >= max) {
+			(void)closedir(d);
+			return 0;
+		}
+		for (i = 0; i < 32u; i++) {
+			int hi = unhex(n[2u + (i * 2u)]);
+			int lo = unhex(n[3u + (i * 2u)]);
+
+			if (hi < 0 || lo < 0) {
+				ok = 0;
+				break;
+			}
+			out[(found * 32u) + i] = (uint8_t)((hi << 4) | lo);
+		}
+		if (ok)
+			found++;
+	}
+	(void)closedir(d);
+	*count = found;
+	return 1;
+}
+
 const fzn_persist_ops_t *fzn_persist_file_init(fzn_persist_file_t *store, const char *dir)
 {
 	char probe[PATH_MAX_LEN];
@@ -311,6 +394,7 @@ const fzn_persist_ops_t *fzn_persist_file_init(fzn_persist_file_t *store, const 
 	store->log = NULL;
 	store->ops.load = file_load;
 	store->ops.save = file_save;
+	store->ops.list = file_list;
 	store->ops.ctx = store;
 	return &store->ops;
 }
