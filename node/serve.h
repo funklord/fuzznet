@@ -20,6 +20,7 @@
 #include "remote.h"
 #include "local.h"
 #include "../chunk/split.h"
+#include "../chunk/reassembly.h"
 #include "../frame/freshness.h"
 
 /* The reply buffer the node provides when a consumer supplies none.
@@ -102,6 +103,27 @@ typedef struct fzn_node_state {
 	                   const fzn_request_t *request,
 	                   char *reply, size_t reply_cap);
 	void *on_local_ctx;
+	/* STEP 8 OF SEC 4.7, WHICH THE REMOTE PATH DID NOT HAVE.
+	 *
+	 * `fzn_node_serve_datagram` runs steps 1 to 7 and stops -- sec 362
+	 * taught the node to ANSWER in several frames while it could still
+	 * only be ASKED in one, so `node/caller.h` had to refuse an over-large
+	 * request outright. With a table here a request may arrive chunked:
+	 * every piece is authenticated and authorised on its own, and the
+	 * handler is called once, when the message completes.
+	 *
+	 * OPTIONAL, and NULL is the honest spelling for a node that does not
+	 * take chunked requests -- the same choice `fzn_admit_env_t` makes,
+	 * and for the same reason: inventing a table for a consumer would be
+	 * inventing a memory bound on its behalf. Without one, a frame whose
+	 * `chunks` is greater than 1 is DROPPED rather than handed up as a
+	 * fragment, because a fragment is not the request anybody sent.
+	 *
+	 * REASSEMBLY IS LAST ON PURPOSE. Every chunk passes the seal, the
+	 * freshness window, the replay window and the capability chain BEFORE
+	 * it is allowed to occupy a slot, so a stranger cannot fill the table
+	 * -- which is what step 8 being step 8 means. */
+	fzn_reasm_t *reassembly;
 } fzn_node_state_t;
 
 /* The provisioned remote peer whose identity is `sender`, or NULL. Pure. */

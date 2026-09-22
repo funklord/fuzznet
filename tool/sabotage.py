@@ -597,8 +597,8 @@ SABOTAGES = [
 	(
 		"node-loop-uses-the-consumers-buffer",
 		"node/serve.c",
-		"\t\tsize_t reply_cap = state->reply ? state->reply_cap : sizeof(own);",
-		"\t\tsize_t reply_cap = sizeof(own);",
+		"\tsize_t reply_cap = state->reply ? state->reply_cap : sizeof(own);",
+		"\tsize_t reply_cap = sizeof(own);",
 		"a consumer that supplied a reply buffer gets its SIZE used too. "
 		"Taking the pointer and the node's own 512 leaves a handler with "
 		"answers larger than that unable to answer at all, which is the "
@@ -609,8 +609,8 @@ SABOTAGES = [
 	(
 		"node-loop-sends-every-piece",
 		"node/serve.c",
-		"\t\t\tfor (i = 0; i < plan.chunks; i++) {",
-		"\t\t\tfor (i = 0; i < 1u; i++) {",
+		"\t\tfor (i = 0; i < plan.chunks; i++) {",
+		"\t\tfor (i = 0; i < 1u; i++) {",
 		"every piece the plan names is sent. Sending only the first leaves "
 		"a receiver holding one chunk of four for ever -- the message never "
 		"completes, so the symptom is a reply that silently never arrives "
@@ -619,8 +619,8 @@ SABOTAGES = [
 	(
 		"node-loop-refuses-an-overclaimed-reply",
 		"node/serve.c",
-		"\t\tif (reply_len > reply_cap)\n\t\t\treply_len = 0;",
-		"\t\tif (0)\n\t\t\treply_len = 0;",
+		"\tif (reply_len > reply_cap)\n\t\treply_len = 0;",
+		"\tif (0)\n\t\treply_len = 0;",
 		"a handler claiming more than its buffer is treated as having "
 		"written nothing. Unlike the local seam's version of this bound, "
 		"the cost is not a truncated reply: fzn_split_plan would plan over "
@@ -809,6 +809,63 @@ SABOTAGES = [
 		"first fixture reported MISSED. sec 367",
 	),
 	(
+		"node-drops-a-fragment-without-a-table",
+		"node/serve.c",
+		"\t\tif (!state->reassembly)\n\t\t\treturn;",
+		"\t\tif (0)\n\t\t\treturn;",
+		"a node with no reassembly table drops a chunked request whole "
+		"rather than handing a fragment up: a fragment is not the request "
+		"anybody sent, and a handler that cannot tell one from a whole "
+		"message is how a partial command gets executed. Observable only "
+		"on the DENIED path -- `fzn_reasm_accept` refuses a NULL table "
+		"itself, so the granted path returns either way, which is why the "
+		"fixture is a denied chunked request. sec 370",
+	),
+	(
+		"node-waits-for-the-whole-message",
+		"node/serve.c",
+		"\t\t\tif (!done)\n\t\t\t\treturn;\t/* accepted, not yet whole */",
+		"\t\t\tif (0)\n\t\t\t\treturn;\t/* accepted, not yet whole */",
+		"the handler is called once, when the message completes -- not "
+		"per piece, and not with a slot that is not finished. sec 370",
+	),
+	(
+		"node-hands-no-dropped-frame-up",
+		"node/serve.c",
+		"\tif (result != FZN_NODE_REMOTE_DROPPED)\n"
+		"\t\tserve_reply(state, peer, &from, result, &opened);",
+		"\tserve_reply(state, peer, &from, result, &opened);",
+		"a frame that never authenticated reaches no handler. This guard "
+		"was LOST for one build while `serve_reply` was being extracted: "
+		"the call replaced an `if (result != DROPPED && state->on_remote)` "
+		"and kept only the second half. The replay case caught it, which "
+		"is what a test asserting a handler did NOT run is for. sec 370",
+	),
+	(
+		"node-does-not-reassemble-denied-chunks",
+		"node/serve.c",
+		"\t\tif (result == FZN_NODE_REMOTE_DENIED) {\n"
+		"\t\t\tif (opened.index != 0u)\n\t\t\t\treturn;",
+		"\t\tif (0) {\n\t\t\t\tif (opened.index != 0u)\n\t\t\t\t\treturn;",
+		"a caller the node has refused must not occupy reassembly slots by "
+		"sending pieces, and is told once on the first piece rather than "
+		"per chunk. THE HANDLER COUNT DOES NOT DISCRIMINATE: reassembled "
+		"denied chunks still call it exactly once, on the last piece. What "
+		"separates them is what it was handed -- the first piece alone, or "
+		"the whole request a refused caller was allowed to build. sec 370",
+	),
+	(
+		"caller-request-piece-carries-its-index",
+		"node/caller.c",
+		"\t\twhat.index = i;",
+		"\t\twhat.index = 0u;",
+		"every piece of a chunked request carries its own index. All-zero "
+		"indices make the node's reassembly read the pieces as duplicates "
+		"of the first, so the message never completes and the handler is "
+		"never called -- a request that silently vanishes rather than one "
+		"that arrives wrong. sec 370",
+	),
+	(
 		"caller-skips-another-msgs-reply",
 		"node/caller.c",
 		"\t\tif (opened.msg != msg)\n\t\t\tcontinue;",
@@ -820,16 +877,20 @@ SABOTAGES = [
 		"out whether or not the check existed. sec 369",
 	),
 	(
-		"caller-refuses-an-overlong-request",
+		"caller-refuses-past-the-reassembly-ceiling",
 		"node/caller.c",
-		"\tif (payload_len > (size_t)FZN_SPLIT_MAX_PAYLOAD)\n"
+		"\tif (fzn_split_plan(payload_len ? payload_len : 1u,\n"
+		"\t                   (size_t)FZN_SPLIT_MAX_PAYLOAD, &plan) != FZN_SPLIT_OK)\n"
 		"\t\treturn FZN_CALLER_ERR_REQUEST_TOO_LONG;",
-		"\tif (0)\n\t\treturn FZN_CALLER_ERR_REQUEST_TOO_LONG;",
-		"the node opens one frame per datagram on the remote path and "
-		"reassembles nothing, so an over-large request is dropped at the "
-		"far end and comes back as a TIMEOUT -- an error about the network "
-		"for a fault in the request. Refused where the caller still knows "
-		"what it meant. sec 369",
+		"\tif (fzn_split_plan(payload_len ? payload_len : 1u,\n"
+		"\t                   (size_t)FZN_SPLIT_MAX_PAYLOAD, &plan) == FZN_SPLIT_ERR_MALFORMED)\n"
+		"\t\treturn FZN_CALLER_ERR_REQUEST_TOO_LONG;",
+		"a request past what a RECEIVER will reassemble is refused rather "
+		"than planned. sec 369 refused anything past ONE FRAME, because "
+		"the node reassembled nothing; sec 370 gave the node step 8, so "
+		"the ceiling moved to FZN_REASM_MAX_CHUNKS pieces and the entry "
+		"moved with it -- a plan that plans is a request that can arrive. "
+		"sec 370",
 	),
 	(
 		"caller-refuses-a-reply-past-the-buffer",

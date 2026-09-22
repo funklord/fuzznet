@@ -48,6 +48,9 @@ static struct {
 	fzn_node_remote_result_t result;
 	uint8_t payload[64];
 	size_t payload_len;
+	size_t req_len;
+	uint8_t req_first;
+	uint8_t req_last;
 } observed;
 
 static const uint8_t PONG[] = { 'p', 'o', 'n', 'g' };
@@ -107,6 +110,25 @@ static size_t on_remote_overclaim(void *ctx, fzn_node_remote_result_t result,
 	observed.called = 1;
 	observed.result = result;
 	return reply_cap + 1u;
+}
+
+/* Records the size and the ends of the request it was handed, so a chunked
+ * one can be checked as a WHOLE rather than as "the handler ran". */
+static size_t on_remote_measure(void *ctx, fzn_node_remote_result_t result,
+                                const fzn_opened_t *req, uint8_t *reply,
+                                size_t reply_cap)
+{
+	(void)ctx;
+	(void)reply;
+	(void)reply_cap;
+	observed.called++;
+	observed.result = result;
+	observed.req_len = req ? req->payload_len : 0u;
+	if (req && req->payload && req->payload_len) {
+		observed.req_first = req->payload[0];
+		observed.req_last = req->payload[req->payload_len - 1u];
+	}
+	return 0;
 }
 
 static uint64_t test_now(void)
@@ -178,7 +200,13 @@ int main(void)
 	fzn_node_state_t state;
 	fzn_udp_addr_t node_addr;
 	uint8_t frame[512];
-	fzn_replay_entry_t replay_entries[16];
+	/* ROOMY BECAUSE THIS TEST NOW SENDS CHUNKS. Sixteen was ample while
+	 * every case was one datagram; a chunked request spends one slot per
+	 * piece, and a full window makes `fzn_replay_admit` refuse -- which
+	 * arrives as DROPPED, so a case expecting DENIED sees its handler
+	 * never called and blames the wrong guard. That is exactly how the
+	 * denied-chunked case first failed. */
+	static fzn_replay_entry_t replay_entries[256];
 	fzn_replay_window_t replay;
 	size_t frame_len;
 	int node_udp = -1, dev_udp = -1;
@@ -189,7 +217,7 @@ int main(void)
 	fzn_aead_monocypher_init(&aead_ops);
 	fzn_agree_monocypher_init(&agree_ops);
 	fzn_random_system_init(&rng_ops);
-	ok(fzn_replay_init(&replay, replay_entries, 16, 100000u) == FZN_FRESH_OK,
+	ok(fzn_replay_init(&replay, replay_entries, 256, 100000u) == FZN_FRESH_OK,
 	   "the replay window initialises");
 
 	/* Two identities: 0 is the node/root, 1 is the device. */
@@ -551,17 +579,155 @@ int main(void)
 		   "recv returned the answer to a DIFFERENT question, so a late "
 		   "reply would be handed back as this one's");
 
-		/* A request larger than a frame is refused rather than sent: the
-		 * node reassembles nothing on this path, so it would be dropped
-		 * and read back as a timeout -- an error about the network for a
-		 * fault in the request. */
+		/* A CHUNKED REQUEST, END TO END. sec 370 gave the node step 8,
+		 * so a request larger than a frame is planned, sent as pieces,
+		 * authenticated and authorised piece by piece, and handed to the
+		 * handler ONCE as a whole. */
 		{
-			static uint8_t oversize[FZN_SPLIT_MAX_PAYLOAD + 1u];
+			static uint8_t big_req[2600];
+			fzn_reasm_t ntable;
+			fzn_partial_t nslots[2];
+			static uint8_t nbuf[2][8192];
+			size_t k;
+			fzn_split_t rplan;
+
+			for (k = 0; k < sizeof(big_req); k++)
+				big_req[k] = (uint8_t)(k * 7u + 5u);
+			ok(fzn_reasm_slot_init(&nslots[0], nbuf[0], sizeof(nbuf[0]))
+			       == FZN_REASM_OK &&
+			   fzn_reasm_slot_init(&nslots[1], nbuf[1], sizeof(nbuf[1]))
+			       == FZN_REASM_OK &&
+			   fzn_reasm_init(&ntable, nslots, 2, 2u, 60u) == FZN_REASM_OK,
+			   "the node's reassembly table would not initialise");
+
+			ok(fzn_split_plan(sizeof(big_req), FZN_SPLIT_MAX_PAYLOAD,
+			                  &rplan) == FZN_SPLIT_OK && rplan.chunks == 3u,
+			   "2,600 bytes did not plan as three pieces");
+
+			/* WITHOUT A TABLE IT IS DROPPED, which is the control: a
+			 * fragment is not the request anybody sent, so a node that
+			 * takes no chunked requests must not hand one up. */
+			state.reassembly = NULL;
+			state.on_remote = on_remote_measure;
+			observed.called = 0;
+			ok(fzn_caller_send(&caller, big_req, sizeof(big_req), 2000u,
+			                   &asked) == FZN_CALLER_OK,
+			   "the chunked request would not send");
+			for (k = 0; k < rplan.chunks; k++)
+				(void)fzn_node_run_once(&state, 1000);
+			ok(observed.called == 0,
+			   "a node with no reassembly table handed a FRAGMENT to its "
+			   "handler, so a partial command reaches a consumer");
+
+			/* With one, the handler is called once, with the whole. */
+			state.reassembly = &ntable;
+			observed.called = 0;
+			ok(fzn_caller_send(&caller, big_req, sizeof(big_req), 2000u,
+			                   &asked) == FZN_CALLER_OK,
+			   "the second chunked request would not send");
+			for (k = 0; k < rplan.chunks; k++)
+				ok(fzn_node_run_once(&state, 1000) == 1,
+				   "the node did not take a piece of the request");
+			ok(observed.called == 1,
+			   "the handler ran a number of times other than once for one "
+			   "chunked request");
+			ok(observed.req_len == sizeof(big_req),
+			   "the handler was handed a length other than the whole "
+			   "request's");
+			ok(observed.req_first == big_req[0] &&
+			   observed.req_last == big_req[sizeof(big_req) - 1u],
+			   "the reassembled request does not begin and end with the "
+			   "bytes that were sent");
+		}
+
+		/* A DENIED CHUNKED REQUEST. Two guards meet here and neither
+		 * could be reached by the granted cases above.
+		 *
+		 * A caller the node refuses must not be able to occupy
+		 * reassembly slots by sending pieces -- so denied chunks are not
+		 * reassembled -- and the handler is told ONCE, on the first
+		 * piece, so it can answer a denial rather than one per chunk.
+		 * And with no table at all a chunked request is dropped whole,
+		 * denied or not: that is the only case where the table check is
+		 * observable, because `fzn_reasm_accept` refuses a NULL table
+		 * itself and the granted path returns either way. */
+		{
+			static uint8_t d_req[2600];
+			size_t k;
+			size_t saved_hops = node_peer.hop_count;
+
+			for (k = 0; k < sizeof(d_req); k++)
+				d_req[k] = (uint8_t)k;
+			/* No chain: authenticated, and authorised by nothing. */
+			node_peer.hop_count = 0u;
+			state.on_remote = on_remote_measure;
+
+			state.reassembly = NULL;
+			observed.called = 0;
+			ok(fzn_caller_send(&caller, d_req, sizeof(d_req), 2000u, &asked)
+			       == FZN_CALLER_OK, "the denied chunked send failed");
+			for (k = 0; k < 3u; k++)
+				(void)fzn_node_run_once(&state, 1000);
+			ok(observed.called == 0,
+			   "a chunked request reached the handler with no table, so a "
+			   "node that takes no chunked requests answers a fragment");
+
+			{
+				fzn_reasm_t dtable;
+				fzn_partial_t dslots[2];
+				static uint8_t dbuf[2][8192];
+
+				ok(fzn_reasm_slot_init(&dslots[0], dbuf[0], sizeof(dbuf[0]))
+				       == FZN_REASM_OK &&
+				   fzn_reasm_slot_init(&dslots[1], dbuf[1], sizeof(dbuf[1]))
+				       == FZN_REASM_OK &&
+				   fzn_reasm_init(&dtable, dslots, 2, 2u, 60u)
+				       == FZN_REASM_OK, "the denial table would not init");
+				state.reassembly = &dtable;
+				observed.called = 0;
+				ok(fzn_caller_send(&caller, d_req, sizeof(d_req), 2000u,
+				                   &asked) == FZN_CALLER_OK,
+				   "the second denied chunked send failed");
+				for (k = 0; k < 3u; k++)
+					(void)fzn_node_run_once(&state, 1000);
+				ok(observed.called == 1,
+				   "a denied chunked request did not tell the handler "
+				   "exactly once -- either it was reassembled, which lets "
+				   "a refused caller fill the table, or it answered per "
+				   "piece");
+				ok(observed.result == FZN_NODE_REMOTE_DENIED,
+				   "the handler was told something other than denied");
+				/* THE DISCRIMINATOR, and the count above is not it.
+				 * If denied pieces WERE reassembled the handler would
+				 * still be called exactly once -- on the last piece,
+				 * with the whole message -- so `called == 1` passes
+				 * either way and the sabotage said so. What separates
+				 * them is WHAT it was handed: the first piece alone,
+				 * or the reassembled request a refused caller was
+				 * allowed to build. */
+				ok(observed.req_len > 0u &&
+				   observed.req_len < sizeof(d_req),
+				   "a denied caller's pieces were reassembled -- the "
+				   "handler saw the whole request, so a refused peer can "
+				   "fill the table by sending chunks");
+				ok(fzn_reasm_held_by(&dtable, caller.sender) == 0,
+				   "a refused caller's pieces occupy reassembly slots");
+			}
+			node_peer.hop_count = saved_hops;
+			state.reassembly = NULL;
+		}
+
+		/* Past what a receiver will reassemble is refused rather than
+		 * planned: fzn_split_plan caps the count, and a request that
+		 * cannot be planned is one that cannot arrive. */
+		{
+			static uint8_t oversize[(FZN_SPLIT_MAX_PAYLOAD *
+			                         FZN_REASM_MAX_CHUNKS) + 1u];
 
 			ok(fzn_caller_send(&caller, oversize, sizeof(oversize), 2000u,
 			                   &asked) == FZN_CALLER_ERR_REQUEST_TOO_LONG,
-			   "a request larger than a frame was sent, so its failure "
-			   "would arrive as a timeout rather than as its own fault");
+			   "a request past the reassembly ceiling was sent, so its "
+			   "failure would arrive as a timeout rather than its own");
 		}
 		ok(fzn_caller_err_str((fzn_caller_err_t)-99) != NULL,
 		   "an error value outside the enum rendered as NULL");

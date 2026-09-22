@@ -17,11 +17,12 @@
  * covering both would be two functions with a flag.
  *
  * WHAT IT DOES NOT DO. It does not interpret a reply -- those are bytes, as
- * they are everywhere else here -- and it does not chunk a REQUEST. The node
- * opens one frame per datagram on the remote path and reassembles nothing, so
- * a request larger than a frame cannot be served however it is sent: this
- * refuses it rather than sending something that will be dropped. That mirror
- * piece is named in project.md sec 369 and is the node's to build first.
+ * they are everywhere else here. It DOES chunk a request, since sec 370 gave
+ * the node step 8; before that it refused one, because the node reassembled
+ * nothing and an over-large request was dropped at the far end and came back
+ * as a timeout. A node with no reassembly table still drops one, which is
+ * why `FZN_CALLER_ERR_TIMEOUT` remains the answer a caller may get for a
+ * request the far end will not take.
  */
 
 #ifndef FZN_NODE_CALLER_H
@@ -40,9 +41,10 @@ typedef enum fzn_caller_err {
 	FZN_CALLER_OK = 0,
 	/* A null argument, no ops, or no reassembly table. */
 	FZN_CALLER_ERR_MALFORMED = -1,
-	/* The request is larger than a frame carries. Refused rather than
-	 * sent: the node reassembles nothing on this path, so it would be
-	 * dropped at the far end and read here as a timeout. */
+	/* The request is larger than a RECEIVER will reassemble --
+	 * FZN_REASM_MAX_CHUNKS pieces of FZN_SPLIT_MAX_PAYLOAD. Refused rather
+	 * than sent, because `fzn_split_plan` will not plan it and a request
+	 * that cannot be planned is one that cannot arrive. */
 	FZN_CALLER_ERR_REQUEST_TOO_LONG = -2,
 	/* The frame would not seal. */
 	FZN_CALLER_ERR_SEAL = -3,

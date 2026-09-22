@@ -46801,3 +46801,76 @@ one-test-walks-every-renderer design: the sweep that makes a renderer
 impossible to forget also makes every new module's dependencies that test's
 problem. Worth knowing rather than fixing; the alternative is a renderer
 nobody walks.
+
+## 370. The node takes a chunked request, 2026-09-23
+
+sec 369 built the caller's side of the remote hop and had to refuse a request
+larger than one frame, because the node reassembled nothing: `fzn_admit` runs
+sec 4.7's step 8 and `fzn_node_serve_datagram` stops at step 7. So the node
+could ANSWER in twenty frames since sec 362 and could only be ASKED in one.
+
+`fzn_node_state_t` gains an optional `reassembly` table and the datagram path
+runs step 8. `node/caller.h` plans its request the way `node/serve.c` plans a
+reply, and the ceiling moves from one frame to what a receiver will
+reassemble.
+
+REASSEMBLY IS LAST, WHICH IS WHAT STEP 8 BEING STEP 8 MEANS. Every piece
+passes the seal, the freshness window, the replay window and the capability
+chain before it is allowed to occupy a slot, so a stranger cannot fill the
+table. Denied chunks are not reassembled at all -- a caller the node has
+refused must not buy slots by sending pieces -- and the handler is told once,
+on the first piece, rather than per chunk.
+
+AND A ONE-FRAME REQUEST SKIPS THE TABLE, which is the opposite of the reply
+side, where sec 362 deliberately sends a one-piece answer through the same
+plan as a twenty-piece one. The asymmetry is not an oversight: the reply side
+had two SEALING sites to keep in step, and here there is one receive path
+either way. Routing every single-frame request through a table would make a
+node that takes no chunked requests need a table anyway.
+
+### The suite caught a guard I deleted while refactoring
+
+Extracting `serve_reply` -- so a chunked request and a single-frame one are
+answered by one function rather than two -- replaced
+
+    if (result != FZN_NODE_REMOTE_DROPPED && state->on_remote) { ... }
+
+with a call that kept only the second half of that condition. A frame that
+never authenticated reached the handler. The REPLAY case caught it: it sends
+a duplicate datagram and asserts the handler did NOT run. Nothing else in the
+suite would have noticed a handler being called too often, and that is worth
+holding: **a test that asserts something did not happen is the only kind that
+can see an extra call.**
+
+### Two more sabotages that missed, and the second is a new shape
+
+Six mutations, four caught.
+
+**The no-table guard** could not be reached by the granted path, because
+`fzn_reasm_accept` refuses a NULL table itself and the path returns either
+way. It is observable only on the DENIED branch, which the fixture did not
+drive. That is sec 366's redundancy question again -- and the answer differs
+from sec 366's, because here the guard is NOT redundant: it changes what a
+denied chunked request gets.
+
+**The denied-chunks guard missed for a reason none of the others had.** The
+fixture asserted the handler was called exactly once. Reassembled denied
+chunks ALSO call it exactly once -- on the last piece, with the whole message
+-- so the count passes either way. What separates them is WHAT the handler
+was handed: the first piece alone, or the request a refused caller was
+allowed to build. **The count was right and measured the wrong thing.**
+
+Adding to the list this workspace keeps collecting: a guard behind another
+check, a resource too plentiful for its loss to show, an input too empty for
+its handling to matter, and now **an assertion that holds under both
+behaviours because it counts events rather than inspecting them.**
+
+### And a fixture that was quietly out of room
+
+The denied case first failed for a reason that was neither guard: the test's
+replay window is sixteen entries, ample while every case was one datagram and
+not while a chunked request spends one slot per piece. A full window makes
+`fzn_replay_admit` refuse, which arrives as DROPPED -- so a case expecting
+DENIED saw its handler never called and blamed the wrong thing. Widened to
+256, and recorded because the symptom pointed at the code under test rather
+than at the fixture.

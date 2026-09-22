@@ -39,39 +39,61 @@ fzn_caller_err_t fzn_caller_send(fzn_caller_t *caller, const uint8_t *payload,
 	uint8_t frame[FZN_UDP_DATAGRAM_MAX];
 	size_t frame_len = 0;
 	fzn_send_t what;
+	fzn_split_t plan;
+	uint16_t i;
 
 	if (!caller || caller->fd < 0 || !caller->hash || !caller->aead ||
 	    !caller->rng || !msg)
 		return FZN_CALLER_ERR_MALFORMED;
 	if (!payload && payload_len)
 		return FZN_CALLER_ERR_MALFORMED;
-	/* REFUSED HERE RATHER THAN SENT. The node opens one frame per datagram
-	 * on this path and reassembles nothing, so an over-large request is
-	 * dropped at the far end and arrives back as a TIMEOUT -- an error
-	 * about the network for a fault in the request. caller.h names the
-	 * mirror piece the node would need first. */
-	if (payload_len > (size_t)FZN_SPLIT_MAX_PAYLOAD)
+	/* PLANNED, NOT REFUSED, SINCE sec 370 gave the node step 8. Until then
+	 * this refused anything past one frame, because the node reassembled
+	 * nothing and an over-large request was dropped at the far end and
+	 * came back as a TIMEOUT -- an error about the network for a fault in
+	 * the request. Now it chunks, and what remains refused is a request
+	 * past what a RECEIVER will reassemble: `fzn_split_plan` caps the
+	 * count at FZN_REASM_MAX_CHUNKS, so a plan that plans is a request
+	 * that can arrive. */
+	if (fzn_split_plan(payload_len ? payload_len : 1u,
+	                   (size_t)FZN_SPLIT_MAX_PAYLOAD, &plan) != FZN_SPLIT_OK)
 		return FZN_CALLER_ERR_REQUEST_TOO_LONG;
 
 	*msg = caller->next_msg++;
 
-	memset(&what, 0, sizeof(what));
-	what.sender = caller->sender;
-	what.capability = caller->capability.b;
-	what.payload = payload;
-	what.payload_len = payload_len;
-	what.expires_at = expires_at;
-	what.msg = *msg;
-	what.index = 0u;
-	what.chunks = 1u;
-	what.kind = FZN_KIND_UNIT;
-	what.hops = caller->hops;
-	if (fzn_seal_build(frame, sizeof(frame), &frame_len, &what,
-	                   caller->send_key, caller->send_ckey, caller->hash,
-	                   caller->rng, caller->aead) != FZN_SEAL_OK)
-		return FZN_CALLER_ERR_SEAL;
-	if (fzn_udp_send(caller->fd, &caller->node, frame, frame_len) != FZN_UDP_OK)
-		return FZN_CALLER_ERR_SEND;
+	/* ONE PLAN FOR BOTH CASES, as `node/serve.c` does for a reply: a
+	 * request that fits plans as one piece and goes through the same loop,
+	 * so there is no second sealing site to drift from the first. A
+	 * zero-length request is one empty piece -- `fzn_split_plan` refuses a
+	 * total of zero, so the length is nudged to 1 for the PLAN and the
+	 * payload sent is still what the caller gave. */
+	for (i = 0; i < plan.chunks; i++) {
+		size_t off = 0, len = 0;
+
+		if (fzn_split_at(&plan, i, &off, &len) != FZN_SPLIT_OK)
+			return FZN_CALLER_ERR_SEAL;
+		memset(&what, 0, sizeof(what));
+		what.sender = caller->sender;
+		what.capability = caller->capability.b;
+		what.payload = payload_len ? payload + off : NULL;
+		what.payload_len = payload_len ? len : 0u;
+		what.expires_at = expires_at;
+		what.msg = *msg;
+		what.index = i;
+		what.chunks = plan.chunks;
+		/* DERIVED FROM THE COUNT, never passed -- the same rule
+		 * `fzn_node_seal_reply_chunk` follows, so a CHUNK frame
+		 * claiming to be alone cannot be built from either side. */
+		what.kind = (plan.chunks == 1u) ? FZN_KIND_UNIT : FZN_KIND_CHUNK;
+		what.hops = caller->hops;
+		if (fzn_seal_build(frame, sizeof(frame), &frame_len, &what,
+		                   caller->send_key, caller->send_ckey, caller->hash,
+		                   caller->rng, caller->aead) != FZN_SEAL_OK)
+			return FZN_CALLER_ERR_SEAL;
+		if (fzn_udp_send(caller->fd, &caller->node, frame, frame_len) !=
+		    FZN_UDP_OK)
+			return FZN_CALLER_ERR_SEND;
+	}
 	return FZN_CALLER_OK;
 }
 
