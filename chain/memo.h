@@ -125,7 +125,14 @@ fzn_chain_err_t fzn_chain_memo_record(fzn_chain_memo_t *memo,
                                       const fzn_chain_t *verdict,
                                       uint64_t generation);
 
-/* How many slots hold a verdict that could still hit at `generation`. */
+/* How many slots were RECORDED at `generation`.
+ *
+ * Not "could still hit": this takes no `now`, so it cannot see an entry whose
+ * chain has expired, and such an entry is counted here while
+ * `fzn_chain_memo_allows` refuses it. The two were documented as agreeing and
+ * do not (sec 357). It is a diagnostic -- what a consumer sizes a table by --
+ * and adding `now` would make the count vary under a clock nobody passed in
+ * for that purpose. */
 size_t fzn_chain_memo_live(const fzn_chain_memo_t *memo, uint64_t generation);
 
 #endif /* FZN_CHAIN_MEMO_H */

@@ -117,7 +117,14 @@ fzn_catalog_err_t fzn_catalog_materialise(const uint8_t *pattern, size_t pattern
 				if (w >= sizeof(path))
 					return FZN_CATALOG_ERR_RANGE;
 				path[w++] = '}';
-				component++;
+				/* THE COMPONENT BOUND APPLIES HERE TOO. Both
+				 * brace-escape branches lengthened a component
+				 * without checking it until sec 357, so a
+				 * pattern of repeated `{{` or `}}` built a
+				 * component longer than any filesystem takes
+				 * while this function reported success. */
+				if (++component > FZN_CATALOG_COMPONENT_MAX)
+					return FZN_CATALOG_ERR_RANGE;
 				i += 2u;
 				continue;
 			}
@@ -142,7 +149,8 @@ fzn_catalog_err_t fzn_catalog_materialise(const uint8_t *pattern, size_t pattern
 			if (w >= sizeof(path))
 				return FZN_CATALOG_ERR_RANGE;
 			path[w++] = '{';
-			component++;
+			if (++component > FZN_CATALOG_COMPONENT_MAX)
+				return FZN_CATALOG_ERR_RANGE;
 			i += 2u;
 			continue;
 		}

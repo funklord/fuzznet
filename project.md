@@ -45727,3 +45727,39 @@ that exposed it made the new guard unreachable -- the suite went green with
 the guard deleted -- so the case that drives it had to be written separately,
 with an ascending control beside it. A control has to be REACHED, for the
 fourth time this week.
+
+## 357. Two findings I had left on the table, and what the fix for one proved, 2026-09-22
+
+sec 356 acted on 8 of the 15 findings that survived refutation. Two of the
+remainder held up on a second reading.
+
+THE COMPONENT BOUND DID NOT HOLD ON EVERY BRANCH. `fzn_catalog_materialise`
+checks `component > FZN_CATALOG_COMPONENT_MAX` on the literal path and did not
+on either brace-escape path -- `{{` and `}}` both lengthened a component and
+neither looked. Every branch checks now.
+
+AND THE TEST FOR IT FAILED, WHICH IS THE USEFUL PART. A pattern of repeated
+`{{` long enough to exceed the component bound is longer than
+FZN_CATALOG_PATTERN_MAX, so the pattern-length check refuses it first: an
+escape costs TWO pattern bytes per ONE component byte, and half of 256 is
+under 255. **The hole is real in the local reasoning and unreachable in the
+assembled program.**
+
+That is the "observation right, mechanism wrong" shape for the second time in
+two sections, and this time my own test is what said so rather than my
+reading. The fix stays, because the protection was resting on an arithmetic
+relationship between two constants that nothing stated and no gate watched:
+
+    FZN_CATALOG_PATTERN_MAX <= 2 * FZN_CATALOG_COMPONENT_MAX
+
+That is now asserted in materialise_test, and raising the pattern bound to 600
+makes it fail with the reason in the message. A per-branch check is the belt;
+the assertion is the braces, and the assertion is the one that would catch
+somebody widening a constant in a year's time.
+
+`fzn_chain_memo_live` SAID "could still hit" AND COUNTED ENTRIES THAT COULD
+NOT. It takes no `now`, so it cannot see an expired chain, and it counts one
+that `fzn_chain_memo_allows` refuses. The doc claimed the two agreed. It now
+says what it counts -- slots recorded at a generation -- and why it does not
+take `now`: it is a sizing diagnostic, and a count that varied with a clock
+nobody passed for that purpose would be worse than one that is merely narrow.

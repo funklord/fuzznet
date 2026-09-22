@@ -272,6 +272,43 @@ static void test_bounds(void)
 		      "a refused call wrote into the caller's buffer");
 	}
 
+	/* THE COMPONENT BOUND ON A BRACE-ESCAPE PATH, and why it cannot
+	 * currently be exceeded.
+	 *
+	 * Both `{{` and `}}` lengthened a component without checking the bound
+	 * until sec 357. That is a real hole in the local reasoning and it is
+	 * NOT currently reachable, which the first version of this case
+	 * discovered by failing: an escape costs TWO pattern bytes per ONE
+	 * component byte, so a pattern capped at FZN_CATALOG_PATTERN_MAX can
+	 * build at most half that many component bytes, and half of 256 is
+	 * under 255.
+	 *
+	 * The protection therefore lives in a relationship between two
+	 * constants that nothing stated. So state it: if the pattern bound
+	 * ever rises past twice the component bound, the escape paths become
+	 * the way through, and this is what says so. The per-branch check
+	 * added in sec 357 is the belt; this is the braces. */
+	CHECK(FZN_CATALOG_PATTERN_MAX <= 2u * FZN_CATALOG_COMPONENT_MAX,
+	      "the pattern bound now exceeds twice the component bound, so a "
+	      "brace-escape run can build an over-long component");
+	{
+		uint8_t pat[8];
+		uint8_t out[FZN_CATALOG_PATH_MAX];
+		size_t len = 0, i;
+
+		for (i = 0; i < sizeof(pat); i += 2u) {
+			pat[i] = '{';
+			pat[i + 1u] = '{';
+		}
+		/* The control: escapes under the bound still produce a path,
+		 * so the assertion above is about the bound and not about
+		 * escapes being broken. */
+		CHECK(fzn_catalog_materialise(pat, sizeof(pat), set, 1, e1, 32,
+		                              out, sizeof(out), &len, &at)
+		          == FZN_CATALOG_OK && len == 4u,
+		      "four brace escapes produced %u bytes", (unsigned)len);
+	}
+
 	/* A pattern over its own bound is refused before anything is read. */
 	{
 		char huge[FZN_CATALOG_PATTERN_MAX + 8u];
