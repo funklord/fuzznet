@@ -217,6 +217,7 @@ NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/local.o \
                    $(BUILD_DIR)/local/socket.o $(BUILD_DIR)/local/peer.o \
                    $(BUILD_DIR)/local/peer_linux.o $(BUILD_DIR)/local/line.o \
                    $(BUILD_DIR)/local/vocabulary.o \
+                   $(BUILD_DIR)/chunk/split.o \
                    $(BUILD_DIR)/net/udp.o $(BUILD_DIR)/version/version.o \
                    $(BUILD_DIR)/frame/freshness.o \
                    $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/chain/authz.o \
@@ -3044,6 +3045,7 @@ $(BUILD_DIR)/node/test/remote_test.o: node/test/remote_test.c
 
 $(BUILD_DIR)/node/test/remote_test: $(BUILD_DIR)/node/test/remote_test.o \
               $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/node.o \
+              $(BUILD_DIR)/chunk/split.o $(BUILD_DIR)/chunk/reassembly.o \
               $(BUILD_DIR)/local/peer.o $(BUILD_DIR)/chain/authz.o \
               $(BUILD_DIR)/frame/freshness.o \
               $(BUILD_DIR)/chain/sign_monocypher.o \
@@ -3092,7 +3094,7 @@ $(BUILD_DIR)/node/test/provision_test: $(BUILD_DIR)/node/test/provision_test.o \
               $(BUILD_DIR)/node/node.o $(BUILD_DIR)/local/socket.o \
               $(BUILD_DIR)/local/peer.o $(BUILD_DIR)/local/peer_linux.o \
               $(BUILD_DIR)/local/line.o $(BUILD_DIR)/local/vocabulary.o \
-              $(BUILD_DIR)/net/udp.o \
+              $(BUILD_DIR)/chunk/split.o $(BUILD_DIR)/net/udp.o \
               $(BUILD_DIR)/version/version.o $(BUILD_DIR)/provision/provision.o \
               $(BUILD_DIR)/frame/freshness.o \
               $(BUILD_DIR)/chain/sign_monocypher.o \

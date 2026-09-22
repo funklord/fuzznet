@@ -65,13 +65,15 @@ fzn_node_remote_result_t fzn_node_serve_datagram(const fzn_node_config_t *config
 	                                     : FZN_NODE_REMOTE_GRANTED;
 }
 
-int fzn_node_seal_reply(const fzn_node_peer_t *peer,
-                        const uint8_t node_pubkey[FZN_PUBKEY_LEN],
-                        const uint8_t *payload, size_t payload_len,
-                        uint32_t msg, uint64_t expires_at,
-                        const fzn_hash_ops_t *hash, const fzn_random_ops_t *rng,
-                        const fzn_aead_ops_t *aead, uint8_t *out, size_t out_cap,
-                        size_t *out_len)
+int fzn_node_seal_reply_chunk(const fzn_node_peer_t *peer,
+                              const uint8_t node_pubkey[FZN_PUBKEY_LEN],
+                              const uint8_t *payload, size_t payload_len,
+                              uint32_t msg, uint16_t index, uint16_t chunks,
+                              uint64_t expires_at,
+                              const fzn_hash_ops_t *hash,
+                              const fzn_random_ops_t *rng,
+                              const fzn_aead_ops_t *aead, uint8_t *out,
+                              size_t out_cap, size_t *out_len)
 {
 	fzn_send_t what;
 	static const uint8_t no_cap[FZN_CAP_ID_LEN] = { 0 };
@@ -79,6 +81,14 @@ int fzn_node_seal_reply(const fzn_node_peer_t *peer,
 	if (!peer || !node_pubkey || (!payload && payload_len) || !hash || !rng ||
 	    !aead || !out || !out_len)
 		return -1;
+	/* NO INDEX/CHUNKS GUARD HERE, and there was one until the sabotage run
+	 * showed nothing could see it. `fzn_seal_build` already refuses
+	 * `index > chunks - 1`, widened to int64_t so a `chunks` of zero gives
+	 * -1 and refuses every index -- its comment records that widening as
+	 * load-bearing. A copy here was a second statement of one rule, which
+	 * is the thing this tree keeps paying for, and it could not be shown
+	 * to fail because the real check intercepted every case. The tests
+	 * below still drive both refusals; they simply prove seal.c's rule. */
 
 	memset(&what, 0, sizeof(what));
 	/* The reply is from the node, and carries no capability: the caller
@@ -89,13 +99,31 @@ int fzn_node_seal_reply(const fzn_node_peer_t *peer,
 	what.payload_len = payload_len;
 	what.expires_at = expires_at;
 	what.msg = msg;
-	what.index = 0u;
-	what.chunks = 1u;
-	what.kind = FZN_KIND_UNIT;
+	what.index = index;
+	what.chunks = chunks;
+	/* DERIVED, NEVER PASSED. A CHUNK frame claiming to be the only piece,
+	 * or a UNIT frame that is one of several, are states a receiver would
+	 * have to reconcile and a caller has no reason to be able to build. */
+	what.kind = (chunks == 1u) ? FZN_KIND_UNIT : FZN_KIND_CHUNK;
 	/* Sealed under the peer session key, which is symmetric, so the caller
 	 * opens it with the key it seals its own requests with. */
 	if (fzn_seal_build(out, out_cap, out_len, &what, peer->recv_key,
 	                   peer->recv_ckey, hash, rng, aead) != FZN_SEAL_OK)
 		return -1;
 	return 0;
+}
+
+int fzn_node_seal_reply(const fzn_node_peer_t *peer,
+                        const uint8_t node_pubkey[FZN_PUBKEY_LEN],
+                        const uint8_t *payload, size_t payload_len,
+                        uint32_t msg, uint64_t expires_at,
+                        const fzn_hash_ops_t *hash, const fzn_random_ops_t *rng,
+                        const fzn_aead_ops_t *aead, uint8_t *out, size_t out_cap,
+                        size_t *out_len)
+{
+	/* The one-piece case, and it is a call rather than a copy so the two
+	 * cannot come to disagree about what a reply head carries. */
+	return fzn_node_seal_reply_chunk(peer, node_pubkey, payload, payload_len,
+	                                 msg, 0u, 1u, expires_at, hash, rng, aead,
+	                                 out, out_cap, out_len);
 }

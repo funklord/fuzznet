@@ -595,6 +595,30 @@ SABOTAGES = [
 		"sec 356",
 	),
 	(
+		"node-reply-kind-follows-the-count",
+		"node/remote.c",
+		"\twhat.kind = (chunks == 1u) ? FZN_KIND_UNIT : FZN_KIND_CHUNK;",
+		"\twhat.kind = FZN_KIND_UNIT;",
+		"a reply of several pieces seals as CHUNK and a reply of one as "
+		"UNIT, derived from the count rather than passed, so a caller "
+		"cannot build a CHUNK frame claiming to be alone or a UNIT frame "
+		"that is one of several. A receiver reads `kind` to know which it "
+		"holds, and those two disagreeing is not a state this library "
+		"should let anyone construct. remote_test drives raidcfgd's "
+		"measured 3,230-byte status as four pieces. sec 362",
+	),
+	(
+		"node-reply-piece-carries-its-index",
+		"node/remote.c",
+		"\twhat.index = index;",
+		"\twhat.index = 0u;",
+		"every piece of a chunked reply carries its own index. All-zero "
+		"indices make reassembly see one piece repeated: it accepts the "
+		"first, treats the rest as duplicates of it, and the message never "
+		"completes -- so the symptom is a reply that silently never "
+		"arrives rather than one that arrives wrong. sec 362",
+	),
+	(
 		"vocabulary-split-refuses-a-leading-space",
 		"local/vocabulary.c",
 		"\tif (i == 0 || i > FZN_VERB_MAX)",

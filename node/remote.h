@@ -90,4 +90,42 @@ int fzn_node_seal_reply(const fzn_node_peer_t *peer,
                         const fzn_aead_ops_t *aead, uint8_t *out, size_t out_cap,
                         size_t *out_len);
 
+/* ONE PIECE OF A REPLY THAT DOES NOT FIT IN A FRAME.
+ *
+ * A frame carries at most FZN_SPLIT_MAX_PAYLOAD bytes, so a reply larger
+ * than that travels as several frames SHARING A `msg` and differing in
+ * `index`, which is what `wire/frame.situ` has carried since it was written
+ * -- `fzn_seal_build` has always taken `index` and `chunks`. Nothing in the
+ * node used them: `fzn_node_seal_reply` hardcoded index 0 of 1, so a handler
+ * could answer with one frame or not at all.
+ *
+ * REPORTED BY raidcfgd 2026-09-22, measured in their tree: their smallest
+ * `status` reading is 3,230 bytes against a 512-byte cap, and their largest
+ * 21,772. They stopped rather than write a bridge that could not carry one,
+ * which is the right way round -- the cap was fuzznet's to answer for.
+ *
+ * `chunks` is how many pieces the whole reply is and `index` which this one
+ * is. THE KIND IS DERIVED rather than passed: `chunks == 1` seals
+ * FZN_KIND_UNIT and anything more seals FZN_KIND_CHUNK, so a caller cannot
+ * produce a CHUNK frame claiming to be the only piece, or a UNIT frame that
+ * is one of several. A receiver reads `kind` to know which it is holding,
+ * and those two states disagreeing is not a thing this library should let a
+ * caller construct.
+ *
+ * `index >= chunks` is refused, as is `chunks == 0` -- by `fzn_seal_build`,
+ * which owns that rule and widens the comparison so the zero case falls out
+ * of it rather than needing one of its own. Use `chunk/split.h` to
+ * compute the pieces: `fzn_split_plan` bounds the count at
+ * FZN_REASM_MAX_CHUNKS, which is what a receiver will reassemble, so a plan
+ * that plans is a reply that can arrive. */
+int fzn_node_seal_reply_chunk(const fzn_node_peer_t *peer,
+                              const uint8_t node_pubkey[FZN_PUBKEY_LEN],
+                              const uint8_t *payload, size_t payload_len,
+                              uint32_t msg, uint16_t index, uint16_t chunks,
+                              uint64_t expires_at,
+                              const fzn_hash_ops_t *hash,
+                              const fzn_random_ops_t *rng,
+                              const fzn_aead_ops_t *aead, uint8_t *out,
+                              size_t out_cap, size_t *out_len);
+
 #endif

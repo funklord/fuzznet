@@ -19,10 +19,30 @@
 #include "node.h"
 #include "remote.h"
 #include "local.h"
+#include "../chunk/split.h"
 #include "../frame/freshness.h"
 
-/* The most reply payload a handler may return for the node to seal. */
+/* The reply buffer the node provides when a consumer supplies none.
+ *
+ * IT USED TO BE THE CEILING, and raidcfgd measured what that cost: their
+ * smallest `status` reading is 3,230 bytes and their largest 21,772, against
+ * a cap of 512, so the consumer with the most to say could not answer at all.
+ * A reply larger than one frame now travels as several -- see `reply` below
+ * and `fzn_node_seal_reply_chunk`.
+ *
+ * 512 stays as the DEFAULT because it is a stack buffer in the poll loop and
+ * a consumer that wants more is the consumer that knows how much more. Note
+ * it is half of what a single frame can carry (FZN_SPLIT_MAX_PAYLOAD), so
+ * even the one-frame case gains from supplying a buffer. */
 #define FZN_NODE_REPLY_MAX 512u
+
+/* The most a reply can ever be, because it is the most a receiver will
+ * reassemble: FZN_REASM_MAX_CHUNKS pieces of FZN_SPLIT_MAX_PAYLOAD. A
+ * `reply_cap` above this is not refused -- it is simply unreachable, since
+ * `fzn_split_plan` will not plan more pieces than this and the node does not
+ * send what it cannot plan. */
+#define FZN_NODE_REPLY_CEILING \
+	((size_t)FZN_SPLIT_MAX_PAYLOAD * (size_t)FZN_REASM_MAX_CHUNKS)
 
 typedef struct fzn_node_state {
 	fzn_node_config_t config;
@@ -56,6 +76,17 @@ typedef struct fzn_node_state {
 	                    const fzn_opened_t *req, uint8_t *reply,
 	                    size_t reply_cap);
 	void *on_remote_ctx;
+	/* WHERE A REMOTE HANDLER WRITES ITS REPLY, borrowed and sized by the
+	 * consumer; NULL uses a FZN_NODE_REPLY_MAX buffer on the node's own
+	 * stack. A consumer whose answers exceed one frame supplies one here
+	 * and the node splits it -- the alternative was every consumer driving
+	 * `chunk/split.h` around a cap fuzznet chose, which is the duplication
+	 * this library exists to remove.
+	 *
+	 * It must outlive the state, and it is written on every datagram the
+	 * handler answers, so it is not somewhere to keep anything. */
+	uint8_t *reply;
+	size_t reply_cap;
 	/* The same seam on the LOCAL access method, which had none until the
 	 * node started handing its request line on. `node/local.h` carries the
 	 * contract and the one way it differs from `on_remote`: it is not

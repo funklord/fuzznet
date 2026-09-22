@@ -46141,3 +46141,102 @@ invent `ok`/`error` and a status code space); the argument grammar above the
 first space, if two consumers turn out to want the same shape; and a client
 side for the local socket, since all three will write one to talk to their
 own daemon.
+
+## 362. A reply larger than a frame, reported by raidcfgd, 2026-09-22
+
+raidcfgd stopped rather than write a bridge that could not carry their
+smallest payload, and said so. That is the right way round: the cap was
+fuzznet's to answer for, and a consumer that guesses a shape into a bridge
+gets a shape nobody chose.
+
+THEIR MEASUREMENT, relayed as theirs. `status` compact readings from 3,230 to
+21,772 bytes -- hot_drives 3,230, two_controllers 3,819, degraded_raid5
+3,955, full_shelf 21,772, their own machine 3,725 -- against
+FZN_NODE_REPLY_MAX at 512. Of their four verbs, `hello` at 35 bytes and
+`reading` at 24 fit; the two carrying the model did not. The smallest reading
+they can produce was six times the cap.
+
+WHAT I CHECKED HERE, because a claim about this tree is one I can take.
+`FZN_NODE_REPLY_MAX` is 512 at node/serve.h:24 and the loop's buffer is
+`uint8_t reply[FZN_NODE_REPLY_MAX]` at serve.c:66: both as reported. And the
+third claim, the one that decides it -- `chunk/split` and `chunk/reassembly`
+are in this tree and were reachable from nothing in `node/`. A grep for
+`chunk/` across node/*.{c,h} returned nothing at all.
+
+THE MECHANISM WAS ALREADY BUILT AND THE NODE DID NOT USE IT. `wire/frame.situ`
+has carried `msg`, `index` and `chunks` since it was written, and
+`fzn_seal_build` has always taken them -- `tool/consumer_check.c` seals a
+CHUNK frame with index 2 of 5 and peeks it back. `fzn_node_seal_reply`
+hardcoded index 0 of 1 and FZN_KIND_UNIT, so a handler could answer in one
+frame or not at all. Nothing needed inventing; it needed connecting.
+
+So `fzn_node_seal_reply_chunk` seals one piece, `fzn_node_seal_reply` becomes
+its one-piece case rather than a second copy, and the poll loop plans the
+reply with `fzn_split_plan` and sends each piece. `fzn_node_state_t` gains a
+caller-sized `reply`/`reply_cap`; 512 stays as the default because it is a
+stack buffer in the loop and the consumer that wants more is the one that
+knows how much more. The ceiling is FZN_REASM_MAX_CHUNKS pieces of
+FZN_SPLIT_MAX_PAYLOAD -- 256 KiB, which is what a receiver will reassemble,
+so a plan that plans is a reply that can arrive. Their largest case is 22
+pieces.
+
+ONE PLAN FOR BOTH CASES, rather than a short path for a reply that fits. A
+single-frame reply plans as one piece and goes through the same loop, so
+there is no second sealing site to come to disagree with the first -- which
+is where a one-frame reply and a first chunk would drift apart.
+
+THE KIND IS DERIVED FROM THE COUNT, never passed. `chunks == 1` seals UNIT
+and anything more seals CHUNK, so a caller cannot construct a CHUNK frame
+claiming to be alone or a UNIT frame that is one of several. A receiver reads
+`kind` to know what it is holding and those two disagreeing is not a state
+this library should let anybody build.
+
+### The guard the sabotage deleted
+
+I wrote `if (chunks == 0u || index >= chunks) return -1;` into the new
+function and the sabotage run could not make it fail. `fzn_seal_build`
+already refuses `index > chunks - 1`, widened to int64_t so a `chunks` of
+zero gives -1 and refuses every index -- its own comment records that
+widening as load-bearing rather than stylistic. My guard was a second
+statement of one rule, and it was invisible precisely because the real check
+intercepted every case a test could reach.
+
+So it is removed and the header cites seal.c as the owner. The two refusal
+tests stay and now prove seal.c's rule, which is what they were always
+proving. **A control that cannot be reached is not defence in depth; it is a
+second thing to be wrong, with nothing able to tell you when it is.**
+
+### What is tested and what is not, stated rather than implied
+
+`remote_test` drives raidcfgd's measured 3,230 bytes end to end: planned as
+four pieces, each sealed, each opened, fed to `fzn_reasm_accept`, and the
+reassembled bytes compared against what went in. 3,230 rather than a round
+number on purpose -- it is four pieces with a remainder last, which is the
+shape that catches an off-by-one at either end. Two mutations seen to fail:
+sealing every piece as UNIT, and giving every piece index 0. The second is
+worth its entry, because all-zero indices make reassembly treat the pieces as
+duplicates of the first and the message simply never completes -- a reply
+that silently never arrives rather than one that arrives wrong.
+
+**The poll loop's wiring is not driven by a test.** No suite drives
+`fzn_node_run_once` with a UDP peer and an over-512 reply, so the buffer
+selection, the over-cap refusal and the send loop are covered by construction
+-- they call the same planner and sealer the test drives -- and not by
+observation. Closing it needs a two-socket fixture in `serve_test`, and it is
+named here rather than left for a reader to discover the coverage is thinner
+than the section reads.
+
+### Their two smaller questions, answered as far as this tree can
+
+Provisioned peers into `fuzznetd`: there is no file or directory shape for
+it, and I did not find one either. `fuzznetd` binds the remote hop and serves
+nobody until `fzn_node_state_t.peers` is filled, and nothing here fills it
+from disk. A consumer wanting remote today links the node and calls
+`fzn_node_run` with its own state. Whether `fuzznetd` should grow a peer
+store it reads at start is the holder's, and it is the other half of what
+raidcfgd needs.
+
+Inheriting `node/provision.h` and `gui/provision_view` rather than
+reimplementing: that is the direction this tree would take too, and the
+holder's 2026-09-22 directive says so in general terms -- if two consumers
+would duplicate it, it belongs here. Nothing in the way of it that I can see.

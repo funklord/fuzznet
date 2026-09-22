@@ -10,6 +10,10 @@
 
 #include "remote.h"
 
+#include "../chunk/split.h"
+#include "../net/udp.h"
+#include "../chunk/reassembly.h"
+
 #include "../chain/sign_monocypher.h"
 #include "../session/aead_monocypher.h"
 #include "../session/agree_monocypher.h"
@@ -199,6 +203,119 @@ int main(void)
 		   "the reply payload survives");
 		ok(memcmp(reply_opened.sender, pubkey[0], FZN_PUBKEY_LEN) == 0,
 		   "the reply is sealed as from the node");
+	}
+
+	/* A REPLY LARGER THAN A FRAME, WHICH IS WHY THIS EXISTS.
+	 *
+	 * raidcfgd reported 2026-09-22 that their smallest `status` reading is
+	 * 3,230 bytes against a 512-byte cap, so the consumer with most to say
+	 * could not answer at all. 3,230 is the size driven here deliberately:
+	 * a measured payload from a real consumer rather than a round number
+	 * chosen to be awkward. It is four pieces at FZN_SPLIT_MAX_PAYLOAD,
+	 * the last a remainder, which is the shape that catches an off-by-one
+	 * at either end of the plan. */
+	{
+		static uint8_t big[3230];
+		fzn_split_t plan;
+		fzn_reasm_t table;
+		fzn_partial_t slots[2];
+		static uint8_t slot_buf[2][4096];
+		fzn_partial_t *done = NULL;
+		uint16_t piece;
+		size_t k;
+		int sealed_ok = 1, opened_ok = 1, kinds_ok = 1;
+
+		for (k = 0; k < sizeof(big); k++)
+			big[k] = (uint8_t)(k * 31u + 7u);
+
+		ok(fzn_split_plan(sizeof(big), FZN_SPLIT_MAX_PAYLOAD, &plan)
+		       == FZN_SPLIT_OK && plan.chunks == 4u,
+		   "3,230 bytes did not plan as four pieces");
+
+		ok(fzn_reasm_slot_init(&slots[0], slot_buf[0], sizeof(slot_buf[0]))
+		       == FZN_REASM_OK &&
+		   fzn_reasm_slot_init(&slots[1], slot_buf[1], sizeof(slot_buf[1]))
+		       == FZN_REASM_OK &&
+		   fzn_reasm_init(&table, slots, 2, 2u, 60u) == FZN_REASM_OK,
+		   "the reassembly table would not initialise");
+
+		for (piece = 0; piece < plan.chunks; piece++) {
+			uint8_t f[FZN_UDP_DATAGRAM_MAX];
+			size_t flen2 = 0, off = 0, len = 0;
+			fzn_opened_t o;
+			fzn_peek_t pk;
+
+			if (fzn_split_at(&plan, piece, &off, &len) != FZN_SPLIT_OK) {
+				sealed_ok = 0;
+				break;
+			}
+			if (fzn_node_seal_reply_chunk(&peer, pubkey[0], big + off, len,
+			                              99u, piece, plan.chunks, 0u,
+			                              &hash_ops, &rng_ops, &aead_ops,
+			                              f, sizeof(f), &flen2) != 0) {
+				sealed_ok = 0;
+				break;
+			}
+			/* The kind is derived, so four pieces must all say CHUNK. */
+			if (fzn_seal_peek(f, flen2, &pk) != FZN_SEAL_OK ||
+			    pk.kind != FZN_KIND_CHUNK || pk.index != piece ||
+			    pk.chunks != plan.chunks)
+				kinds_ok = 0;
+			if (fzn_seal_open(f, flen2, key[1], ckey[1], &hash_ops,
+			                  &aead_ops, &o) != FZN_SEAL_OK) {
+				opened_ok = 0;
+				break;
+			}
+			(void)fzn_reasm_accept(&table, o.sender, o.msg, o.index,
+			                       o.chunks, o.payload, o.payload_len,
+			                       0u, 1000u, &done);
+		}
+		ok(sealed_ok, "a piece of the reply would not seal");
+		ok(kinds_ok,
+		   "a piece did not seal as CHUNK with its own index and count, so a "
+		   "receiver cannot tell what it is holding");
+		ok(opened_ok, "a piece of the reply would not open");
+		ok(done != NULL,
+		   "four pieces were accepted and the message never completed");
+		if (done)
+			ok(done->bytes == sizeof(big) &&
+			   memcmp(done->buf, big, sizeof(big)) == 0,
+			   "the reassembled reply is not the bytes that went in");
+		if (done)
+			fzn_reasm_release(done);
+	}
+
+	/* THE WRAPPER STILL SEALS ONE PIECE OF ONE, and the kind follows the
+	 * count rather than a parameter -- so a caller cannot build a CHUNK
+	 * frame claiming to be alone, or a UNIT frame that is one of several. */
+	{
+		static const uint8_t ONE[] = { 'o', 'n', 'e' };
+		uint8_t f[FZN_UDP_DATAGRAM_MAX];
+		size_t flen2 = 0;
+		fzn_peek_t pk;
+
+		ok(fzn_node_seal_reply(&peer, pubkey[0], ONE, sizeof(ONE), 5u, 0u,
+		                       &hash_ops, &rng_ops, &aead_ops, f, sizeof(f),
+		                       &flen2) == 0 &&
+		   fzn_seal_peek(f, flen2, &pk) == FZN_SEAL_OK &&
+		   pk.kind == FZN_KIND_UNIT && pk.index == 0u && pk.chunks == 1u,
+		   "the one-piece wrapper stopped sealing index 0 of 1 as UNIT");
+		ok(fzn_node_seal_reply_chunk(&peer, pubkey[0], ONE, sizeof(ONE), 5u,
+		                             0u, 1u, 0u, &hash_ops, &rng_ops,
+		                             &aead_ops, f, sizeof(f), &flen2) == 0 &&
+		   fzn_seal_peek(f, flen2, &pk) == FZN_SEAL_OK &&
+		   pk.kind == FZN_KIND_UNIT,
+		   "one piece of one did not seal as UNIT");
+
+		/* A piece of nothing, and a piece that is not one of the pieces. */
+		ok(fzn_node_seal_reply_chunk(&peer, pubkey[0], ONE, sizeof(ONE), 5u,
+		                             0u, 0u, 0u, &hash_ops, &rng_ops,
+		                             &aead_ops, f, sizeof(f), &flen2) != 0,
+		   "a reply of zero pieces sealed");
+		ok(fzn_node_seal_reply_chunk(&peer, pubkey[0], ONE, sizeof(ONE), 5u,
+		                             3u, 3u, 0u, &hash_ops, &rng_ops,
+		                             &aead_ops, f, sizeof(f), &flen2) != 0,
+		   "a piece numbered past the count sealed");
 	}
 
 	/* Authenticated but unauthorised: the same peer with no chain is
