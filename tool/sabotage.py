@@ -653,6 +653,63 @@ SABOTAGES = [
 		"arrives rather than one that arrives wrong. sec 362",
 	),
 	(
+		"client-verb-may-not-hide-a-separator",
+		"local/client.c",
+		"\t\tif (verb[i] == (uint8_t)' ' || verb[i] == (uint8_t)'\\n')",
+		"\t\tif (0)",
+		"a composed verb carries neither a space nor a newline. A verb of "
+		"`get x` arrives at the server as `get` with an argument -- past "
+		"any rule written for the whole string -- and one carrying a "
+		"newline arrives as two request lines. Refused rather than "
+		"escaped, because an escape is a second grammar. sec 364",
+	),
+	(
+		"client-empty-argument-keeps-its-space",
+		"local/client.c",
+		"\tif (arg) {\n\t\tout[(*out_len)++] = (uint8_t)' ';",
+		"\tif (arg_len) {\n\t\tout[(*out_len)++] = (uint8_t)' ';",
+		"`get ` and `get` are different requests -- the first asks for the "
+		"empty subject -- and the separating space is the only thing that "
+		"distinguishes them. fzn_vocabulary_split reads the difference "
+		"back, so a composer that dropped it would make one request "
+		"unsayable while the parser went on expecting it. sec 364",
+	),
+	(
+		"client-reads-the-request-bound",
+		"local/client.c",
+		"\tif (need > FZN_REQUEST_MAX)",
+		"\tif (0)",
+		"a line past FZN_REQUEST_MAX is refused here rather than sent. The "
+		"server answers an overlong line with a DENIAL, so a client that "
+		"let it go would turn its own framing mistake into what reads like "
+		"an access decision -- and the operator would look at the policy. "
+		"sec 364",
+	),
+	(
+		"client-refuses-an-overlong-reply",
+		"local/client.c",
+		"\t\t\treturn FZN_CLIENT_ERR_REPLY_TOO_LONG;",
+		"\t\t\treturn FZN_CLIENT_OK;",
+		"a reply longer than the caller's buffer is refused whole. A "
+		"prefix of a reply is a different reply, which is the refusal "
+		"fzn_node_status_line makes by returning 0 and local/vocabulary.h "
+		"makes by rejecting an overlong verb rather than cutting it to one "
+		"a rule names. sec 364",
+	),
+	(
+		"client-times-out-a-silent-daemon",
+		"local/client.c",
+		"\t\t\tif (errno == EAGAIN || errno == EWOULDBLOCK)\n"
+		"\t\t\t\treturn FZN_CLIENT_ERR_TIMEOUT;",
+		"\t\t\tif (0)\n\t\t\t\treturn FZN_CLIENT_ERR_TIMEOUT;",
+		"a daemon that accepts and says nothing is reported as a timeout "
+		"rather than as IO. The two want different responses -- a timeout "
+		"says the daemon is there and wedged, IO says the socket broke -- "
+		"and collapsing them sends an operator to the wrong half. The "
+		"server sets the same receive timeout on its own side for the "
+		"mirror-image reason. sec 364",
+	),
+	(
 		"vocabulary-split-refuses-a-leading-space",
 		"local/vocabulary.c",
 		"\tif (i == 0 || i > FZN_VERB_MAX)",

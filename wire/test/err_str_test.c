@@ -45,6 +45,7 @@
 #include "../../chunk/split.h"
 #include "../../frame/freshness.h"
 #include "../../local/peer.h"
+#include "../../local/client.h"
 #include "../../record/journal.h"
 #include "../../record/ledger.h"
 #include "../../record/sync.h"
@@ -111,6 +112,7 @@ static const char *r_reasm(int v) { return fzn_reasm_err_str((fzn_reasm_err_t)v)
 static const char *r_split(int v) { return fzn_split_err_str((fzn_split_err_t)v); }
 static const char *r_seal(int v) { return fzn_seal_err_str((fzn_seal_err_t)v); }
 static const char *r_peer(int v) { return fzn_peer_verdict_str((fzn_peer_verdict_t)v); }
+static const char *r_client(int v) { return fzn_client_err_str((fzn_client_err_t)v); }
 static const char *r_record(int v) { return fzn_record_err_str((fzn_record_err_t)v); }
 static const char *r_journal(int v) { return fzn_journal_err_str((fzn_journal_err_t)v); }
 static const char *r_ledger(int v) { return fzn_ledger_err_str((fzn_ledger_err_t)v); }
@@ -180,6 +182,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_split_err_str", r_split, 4 },
 	{ "fzn_seal_err_str", r_seal, 9 },
 	{ "fzn_peer_verdict_str", r_peer, 3 },
+	{ "fzn_client_err_str", r_client, 8 },
 	{ "fzn_record_err_str", r_record, 6 },
 	{ "fzn_journal_err_str", r_journal, 7 },
 	{ "fzn_ledger_err_str", r_ledger, 4 },

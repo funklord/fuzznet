@@ -157,7 +157,7 @@ GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
-             local/line.c local/socket.c \
+             local/line.c local/socket.c local/client.c \
              net/udp.c \
              node/node.c node/local.c node/remote.c node/serve.c \
              node/provision.c \
@@ -229,6 +229,7 @@ NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/local.o \
                    $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h local/vocabulary.h local/line.h local/socket.h \
+             local/client.h \
              net/udp.h \
              node/node.h node/local.h node/remote.h node/serve.h \
              node/provision.h \
@@ -339,6 +340,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              wire/test/constants_test.c wire/test/seal_test.c \
              wire/test/tamper_test.c \
              session/test/random_test.c local/test/vocabulary_test.c \
+             local/test/client_test.c \
              local/test/vocabulary_fuzz.c local/test/admit_test.c \
              local/test/line_test.c local/test/socket_test.c \
              net/test/udp_test.c \
@@ -441,6 +443,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/tamper_test \
              $(BUILD_DIR)/session/test/random_test \
              $(BUILD_DIR)/local/test/vocabulary_test \
+             $(BUILD_DIR)/local/test/client_test \
              $(BUILD_DIR)/local/test/vocabulary_fuzz \
              $(BUILD_DIR)/local/test/admit_test \
              $(BUILD_DIR)/local/test/line_test \
@@ -3143,6 +3146,17 @@ $(BUILD_DIR)/local/test/vocabulary_fuzz: $(BUILD_DIR)/local/test/vocabulary_fuzz
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+$(BUILD_DIR)/local/test/client_test: $(BUILD_DIR)/local/test/client_test.o \
+                                     $(BUILD_DIR)/local/client.o \
+                                     $(BUILD_DIR)/local/vocabulary.o \
+                                     $(BUILD_DIR)/local/socket.o \
+                                     $(BUILD_DIR)/local/line.o \
+                                     $(BUILD_DIR)/local/peer.o \
+                                     $(BUILD_DIR)/local/peer_linux.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/local/test/vocabulary_test: $(BUILD_DIR)/local/test/vocabulary_test.o \
                                           $(BUILD_DIR)/local/vocabulary.o \
                                           $(BUILD_DIR)/local/peer.o \
@@ -3185,6 +3199,11 @@ $(BUILD_DIR)/wire/test/tamper_test.o: wire/test/tamper_test.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
 
 $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
+                                      $(BUILD_DIR)/local/client.o \
+                                      $(BUILD_DIR)/local/socket.o \
+                                      $(BUILD_DIR)/local/line.o \
+                                      $(BUILD_DIR)/local/vocabulary.o \
+                                      $(BUILD_DIR)/local/peer_linux.o \
                                       $(BUILD_DIR)/admit/admit.o \
                                       $(BUILD_DIR)/chain/memo.o \
                                       $(BUILD_DIR)/chain/chain_store.o \

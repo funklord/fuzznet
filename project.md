@@ -46298,3 +46298,84 @@ and the harness is at 538.
 Nothing on this path. The local seam's handler and the remote loop are both
 driven end to end now. What remains untested elsewhere is unchanged and not
 this section's to claim.
+
+## 364. The local socket gets a client, 2026-09-22
+
+`local/socket.h` had listen, accept and close, and no connect. So every
+consumer that wants to ask its own daemon a question writes the same forty
+lines: open an AF_UNIX stream, connect, compose `verb SP argument LF`, write
+it all, read to a newline under a timeout, bound what arrives. raidcfgd has
+one (`src/daemon_source.cpp`, which they named as most of their half of hop
+3); fuzzypickles and netcfgd will each write one. The holder settled
+2026-09-22 that network code two consumers would duplicate belongs here, and
+asked for that to be anticipated rather than corrected later. This is the
+clearest instance available.
+
+`local/client.{h,c}`: compose, connect, send, send_verb, recv, close, and an
+err_str.
+
+THE COMPOSING IS THE POINT, MORE THAN THE SOCKET. `fzn_client_compose` writes
+the grammar `fzn_vocabulary_split` parses, so the two halves of one wire
+format are stated once. A consumer writing its own would be writing the
+server's grammar from memory, and the failure is silent -- a line the server
+takes for something else rather than one it refuses.
+
+And the test is the round trip rather than a comparison against expected
+bytes: compose, split, and require the pieces to be what went in. Spelling
+the bytes out in the test would be a THIRD statement of the grammar and the
+one most likely to be wrong. One case does pin the literal `get x\n`,
+deliberately, because a round trip alone is satisfied by both halves changing
+together.
+
+FZN_REQUEST_MAX MOVED OUT OF `node/local.c`, where it was a private
+`FZN_NODE_REQUEST_CAP`. A client that does not know the server's bound sends
+a line the server refuses -- and the server answers an overlong line with a
+DENIAL, so the client's own framing mistake arrives looking like an access
+decision and sends an operator to the policy. The number is the grammar's
+now, and both ends read the same one.
+
+A VERB MAY CARRY NEITHER A SPACE NOR A NEWLINE. `get x` as a verb arrives at
+the server as `get` with an argument -- past any rule written for the whole
+string -- and a verb carrying a newline arrives as two requests. Refused
+rather than escaped, because an escape is a second grammar and then there are
+two to keep in step.
+
+A NULL ARGUMENT AND AN EMPTY ONE ARE DIFFERENT REQUESTS, and the separating
+space is the only thing that says which. `fzn_vocabulary_split` already read
+that difference back; a composer that dropped it would make one of the two
+unsayable while the parser went on expecting it.
+
+### What it deliberately does not do
+
+It interprets nothing that comes back. A reply is bytes with a length, handed
+over as the daemon wrote them. **A reply vocabulary is not settled** -- every
+consumer will invent `ok`/`error` and a status-code space, and that is the
+next obvious thing to move in here. It is not decided in this section because
+a client that invented one would be settling it by being first, and because
+the node's existing status line (`served ... origin N fuzznet V` and `denied`)
+is already a shape anything reading it depends on. That is the holder's, and
+it wants doing before three consumers each pick a spelling.
+
+### The gates caught three registrations I had not made
+
+Worth recording because it is the suite working rather than me:
+
+    style: C sources in the tree and in no list: local/client.c
+    style: test binaries missing from .gitignore: local/test/client_test
+    style: add a row to SUBJECTS[] in wire/test/err_str_test.c
+
+A new module is not one file. Each of those is a place a source can exist and
+be invisible to something -- coverage, `git status`, the renderer sweep --
+and none of them would have failed a build. `err_str_test` is at 43
+renderers now, from 42.
+
+### Seen to fail
+
+Five mutations, against a saved copy restored and verified byte-identical: a
+verb hiding a separator, an empty argument losing its space, the request
+bound unread, an over-long reply accepted, and a silent daemon reported as IO
+rather than as a timeout. All five caught, all five sabotage entries. The
+last is worth its place: a timeout says the daemon is there and wedged where
+IO says the socket broke, and collapsing them sends an operator to the wrong
+half -- the same distinction `local/vocabulary.h` makes between "no rule
+names this verb" and "this peer holds none of those groups".

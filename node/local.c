@@ -12,8 +12,10 @@
 #include "../version/version.h"
 
 /* A request line longer than this is refused rather than grown without
- * bound -- the line framer returns OVERLONG at the cap. */
-#define FZN_NODE_REQUEST_CAP 512u
+ * bound -- the line framer returns OVERLONG at the cap. The number is
+ * `local/vocabulary.h`'s now, because `local/client.h` composes lines against
+ * the same bound and a client guessing the server's cap is a client whose
+ * too-long request comes back as a denial. */
 
 size_t fzn_node_status_line(fzn_authz_verdict_t verdict, fzn_origin_t origin,
                             char *out, size_t cap)
@@ -58,7 +60,7 @@ fzn_node_serve_err_t fzn_node_serve_local(const fzn_node_config_t *config,
 	fzn_origin_t origin;
 	fzn_authz_verdict_t verdict;
 	fzn_line_t reader;
-	uint8_t buf[FZN_NODE_REQUEST_CAP];
+	uint8_t buf[FZN_REQUEST_MAX];
 	const uint8_t *line;
 	size_t line_len;
 	fzn_request_t request;

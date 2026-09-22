@@ -149,6 +149,19 @@ int fzn_verb_mutates(fzn_verb_t verb);
  * fail closed rather than matching everything. */
 fzn_verb_rule_t fzn_verb_rule(uint32_t gid, fzn_verb_t verb);
 
+/* THE LONGEST REQUEST LINE, terminator excluded.
+ *
+ * It lived in `node/local.c` as a private `FZN_NODE_REQUEST_CAP` until a
+ * CLIENT needed it. A client that does not know the server's bound sends a
+ * line the server refuses, and the refusal arrives as a denial rather than
+ * as "that was too long" -- so the one number has to be visible to both
+ * halves, and it belongs with the grammar rather than with either end of it.
+ *
+ * 512 is the number `node/local.c` has always read with. It bounds the LINE;
+ * FZN_VERB_MAX bounds the verb within it, so an argument may be up to
+ * FZN_REQUEST_MAX - FZN_VERB_MAX - 1. */
+#define FZN_REQUEST_MAX 512u
+
 /* A request as this library reads one: the verb, and the rest of the line.
  *
  * The bytes are BORROWED from the caller's line and are not copied, so this
