@@ -81,6 +81,20 @@
  *
  * Under that, replay is closed. Over it, the window fills.
  *
+ * WHAT `now` AND `expires_at` COUNT IN IS NOT STATED ANYWHERE, and that is a
+ * finding rather than a description. This library never sources a clock --
+ * `now` is always the caller's -- so nothing here, in `wire/frame.situ`, or
+ * in sec 4.3 says whether these are seconds, milliseconds or anything else.
+ * Two peers must agree or every frame one sends lands outside the other's
+ * horizon, and today they agree by nobody having disagreed yet.
+ *
+ * `fuzznetd` chooses SECONDS SINCE THE UNIX EPOCH, which is what `time()`
+ * gives, and says so at its clock. Whether fuzznet should MANDATE that unit
+ * rather than leave it to agreement is the copyright holder's; sec 368
+ * records the question. Until it is answered, a consumer supplying `now`
+ * should match what its peers stamp, and a deployment mixing units will see
+ * FZN_FRESH_ERR_HORIZON on everything.
+ *
  * `max_ahead` IS A LIFETIME PLUS A SKEW, and this is the term a consumer
  * gets wrong in the direction that looks safe. Set it to the longest
  * legitimate command lifetime alone and the receiver refuses every frame

@@ -3106,7 +3106,7 @@ $(BUILD_DIR)/node/test/serve_test: $(BUILD_DIR)/node/test/serve_test.o \
 # The fuzznetd daemon. Its main() is in node/, so the pattern rule resolves
 # "serve.h" without -Inode.
 $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
-              $(FLOG_OBJS)
+              $(MONO_OBJS) $(FLOG_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 

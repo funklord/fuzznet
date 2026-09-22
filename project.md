@@ -46633,7 +46633,7 @@ one** -- and it is worth applying forward rather than rediscovering: when
 adding a check, ask what already refuses the case, and build the fixture that
 gets past it.
 
-### What is left
+### What is left after the daemon half
 
 `fuzznetd` has no way to WRITE a peer -- `fzn_node_peer_save` exists and
 nothing in the daemon calls it, because minting is where provisioning becomes
@@ -46641,3 +46641,77 @@ a decision. A consumer provisions with `node/provision.h` and saves through
 the same ops. Whether the daemon should grow a pairing mode that does it
 in-process is the holder's, and it is the last piece between raidcfgd and a
 remote hop that works without their writing any of this themselves.
+
+## 368. The daemon could not have served a frame, 2026-09-22
+
+sec 367 taught `fuzznetd` to load its peers, and a check of what it does with
+them found the hop it binds could never have served one. `main` zeroed the
+state and filled none of `hash`, `aead`, `sign`, `replay`, `rng`, `clock` or
+`node_pubkey`, and `config.root` stayed all zeros. `serve_ready_datagram`
+hands four of those straight to `fzn_node_serve_datagram`.
+
+So `--udp-port` bound a socket and dropped everything that arrived -- and sec
+367 made that worse rather than better, because a daemon that now reports
+`2 peer(s) from ...` and still answers nobody looks configured. That is the
+same shape these sections keep closing, produced by closing the previous one.
+
+The wiring is monocypher hash, AEAD and sign, the system RNG, a 256-entry
+replay window at ten minutes of horizon, and a wall clock.
+
+NO SECRET IS NEEDED TO SERVE, which is what makes the identity a command-line
+argument rather than a key file. Verifying a peer's chain needs the root's
+PUBLIC key; opening its frames needs the session key that arrived with the
+peer record; sealing a reply needs that same session key, since
+`fzn_node_seal_reply` carries no capability and signs nothing. The daemon
+holds no private key at all. Minting is what needs one, and it still does not
+mint.
+
+`--identity HEX` fills `node_pubkey` and, by default, `config.root` --
+`node/provision.h` says the identity IS the root when a node mints, so a node
+serving peers it provisioned has one key, and `--root` is an override for the
+case where somebody else is root. **`--udp-port` without `--identity` is
+refused.** A remote hop with no identity seals replies as from the zero key
+and verifies chains against a zero root, which no real peer satisfies: it
+would bind, look healthy, and drop every frame. Refusing is the whole point
+of the section.
+
+### A unit nothing states, which is a protocol hazard rather than a gap
+
+Supplying a clock meant choosing what it counts in, and **nothing in this
+library says.** `frame/freshness.h` compares `now` against an `expires_at`
+that came from a peer; neither it, nor `wire/frame.situ`, nor sec 4.3 names
+seconds or milliseconds or anything else. The library never sources a clock,
+so the unit has been settled by nobody having disagreed yet.
+
+Two consumers choosing differently is not a bug that degrades -- every frame
+one sends lands outside the other's horizon and `FZN_FRESH_ERR_HORIZON` is
+the only symptom. The hazard is now written where `now` is compared, and
+`fuzznetd` states its own choice at its clock: seconds since the Unix epoch.
+
+**Whether fuzznet should MANDATE the unit rather than leave it to agreement
+is the holder's, and it is a real decision** -- mandating makes a conforming
+implementation checkable and forecloses a consumer with a different clock,
+and leaving it open keeps costing exactly one undocumented assumption per
+consumer. It is named here rather than settled because it is a statement
+about the protocol, not about this daemon.
+
+### A fourth hex table, not extracted
+
+`hex_pubkey` here is the fourth hand-rolled hex conversion in the tree --
+`cli/peer_print.c` writes one, `persist/persist_file.c` writes one for
+filenames, `node/test/peer_persist_test.c` a third. A shared helper is
+plainly wanted and is NOT extracted here: `harmonization.md` says an
+extraction spanning modules is its own deliberate piece of work with the
+whole picture in view, and the natural home is `cli/`, which is build-time
+optional (`FZN_CLI=0`) and therefore not something a daemon may depend on.
+Recorded as the signal it is.
+
+### And the duplicate heading, a second time
+
+sec 367 shipped with `### What is left`, repeating one at line 21409, and the
+style gate refused the next run. sec 365 recorded the cause -- `make style`
+run BEFORE composing the section into `project.md` rather than after -- and
+wrote down the order to use. I then did it again. Renamed, and the order is
+worth stating once more because writing it down demonstrably was not enough:
+**compose, then gate, then commit.** The gate cannot see a section that is
+not in the file yet, and the section is only in the file at commit time.
