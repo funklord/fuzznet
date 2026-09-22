@@ -35,9 +35,21 @@
  * `wire/frame.situ` declares `u16 length [max = 1024]`, so a piece bigger
  * than this cannot be framed at all -- `situ_fzn_frame_validate` refuses it.
  * Planning a stride above it produces a plan whose every datagram is
- * unsendable, and nothing on the send path would have said so: this library
- * has no encoder yet, so `fzn_split_plan` is the only thing between a
- * caller's arithmetic and an invalid frame.
+ * unsendable, which is what this constant exists to prevent.
+ *
+ * IT IS NOT THE ONLY GUARD, AND THIS COMMENT CLAIMED IT WAS FOR FIVE WEEKS.
+ * It said "this library has no encoder yet, so `fzn_split_plan` is the only
+ * thing between a caller's arithmetic and an invalid frame". That was true
+ * on 2026-08-17 and `fzn_seal_build` landed on 2026-08-18, one day later;
+ * it refuses a payload over `SITU_FZN_HEAD_LENGTH_VALUE_MAX`, read from the
+ * schema rather than repeated here.
+ *
+ * The two are independent and neither is redundant, which is the part worth
+ * keeping: this one refuses a PLAN, before any buffer is filled or any
+ * datagram is built, and the encoder refuses a FRAME, once per piece. A
+ * caller whose arithmetic is wrong learns it here at the arithmetic instead
+ * of at every send. Reading either as the other's backstop is how one of
+ * them gets deleted as redundant.
  *
  * IT IS REPEATED HERE RATHER THAN INCLUDED, deliberately. This module is
  * pure arithmetic and independent of the schema, so it cannot see
