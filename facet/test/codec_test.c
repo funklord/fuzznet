@@ -188,7 +188,7 @@ static void test_the_refusals(void)
 	n[0].node.dim_len = DIM_LEN;
 	members[0].dim = DIM;
 	members[0].dim_len = DIM_LEN;
-	members[0].id = (const uint8_t *)"zzz";
+	members[0].id = (const uint8_t *)"bbb";
 	members[0].id_len = 3;
 	n[0].members = members;
 	n[0].member_count = 1;
@@ -201,7 +201,11 @@ static void test_the_refusals(void)
 	/* F8: a member in another dimension. */
 	members[1].dim = DIM2;
 	members[1].dim_len = DIM2_LEN;
-	members[1].id = (const uint8_t *)"yyy";
+	/* ASCENDING, because F18 is now enforced on the way out as well as on
+	 * the way in. This fixture was "zzz" then "yyy" and encoded happily
+	 * until sec 356, which is the defect: the encoder wrote members its
+	 * own decoder refuses. */
+	members[1].id = (const uint8_t *)"ccc";
 	members[1].id_len = 3;
 	n[0].member_count = 2;
 	CHECK(fzn_facet_expr_encode(&expr, buf, sizeof(buf), &len)
@@ -220,6 +224,52 @@ static void test_the_refusals(void)
 	members[1].dim_len = DIM_LEN;
 	CHECK(fzn_facet_expr_encode(&expr, buf, sizeof(buf), &len)
 	          == FZN_FACET_OK, "a two-member alternation would not encode");
+
+	/* F18 ON THE WAY OUT, which the encoder did not enforce until sec 356.
+	 * `take_term` refuses members out of order on the way in, so an
+	 * encoder that wrote them unsorted produced bytes its own decoder
+	 * rejects -- and gave one alternation two encodings, which is the one
+	 * thing F16 exists to prevent.
+	 *
+	 * Driven through `fzn_facet_term_encode` because `fzn_facet_expr_encode`
+	 * validates first, and a spanning or malformed term may be answered by
+	 * facet.c before the codec is asked. */
+	{
+		fzn_facet_node_t two[2];
+		fzn_facet_term_t alt;
+		size_t tl = 0;
+
+		memset(&alt, 0, sizeof(alt));
+		alt.kind = FZN_FACET_ALT;
+		alt.node.dim = DIM;
+		alt.node.dim_len = DIM_LEN;
+		two[0].dim = DIM;
+		two[0].dim_len = DIM_LEN;
+		two[0].id = (const uint8_t *)"bbb";
+		two[0].id_len = 3;
+		two[1] = two[0];
+		two[1].id = (const uint8_t *)"ccc";
+		alt.members = two;
+		alt.member_count = 2;
+
+		/* The control: ascending encodes. */
+		CHECK(fzn_facet_term_encode(&alt, buf, sizeof(buf), &tl)
+		          == FZN_FACET_OK,
+		      "an alternation in F18 order would not encode");
+		/* Descending does not. */
+		two[0].id = (const uint8_t *)"ccc";
+		two[1].id = (const uint8_t *)"bbb";
+		CHECK(fzn_facet_term_encode(&alt, buf, sizeof(buf), &tl)
+		          == FZN_FACET_ERR_MALFORMED,
+		      "an alternation with members out of order encoded -- one "
+		      "alternation, two encodings");
+		/* Nor do equal members, which are F19's duplicate. */
+		two[0].id = (const uint8_t *)"bbb";
+		two[1].id = (const uint8_t *)"bbb";
+		CHECK(fzn_facet_term_encode(&alt, buf, sizeof(buf), &tl)
+		          == FZN_FACET_ERR_MALFORMED,
+		      "an alternation with a repeated member encoded");
+	}
 
 	/* F27: the same term in P and N. */
 	expr.neg = p;   /* P's own array as N */

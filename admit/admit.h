@@ -48,10 +48,28 @@
  * THE TWO RULES THAT ARE NOT ORDERINGS.
  * ---------------------------------------------------------------------------
  *
- * A REFUSAL AT ANY STEP MUST NOT HAVE COST A SLOT AT A LATER ONE. Here that
- * is structural rather than checked: a step that refuses returns immediately,
- * and the two steps that mutate are the last two that run. There is no path
- * on which replay takes an entry and the chain then refuses.
+ * A REFUSAL AT ANY STEP MUST NOT HAVE COST A SLOT AT A LATER ONE, and the
+ * rule is DIRECTIONAL. A step that refuses returns immediately, so nothing
+ * below it runs; that is what makes the rule hold, and it holds only
+ * downward.
+ *
+ * THE MUTATING STEPS ARE 6 AND 8, WITH CHAIN AT 7 BETWEEN THEM. So a step-7
+ * refusal CAN leave a replay entry spent, and that is correct rather than a
+ * violation: the frame was genuine, fresh and unseen, and the window is right
+ * to remember it. A consumer sizing that window must count it -- and
+ * `frame/freshness.h` already says so, telling a caller to include "a peer
+ * whose capability has been revoked, since the chain is step 7 and runs BELOW
+ * the window".
+ *
+ * This paragraph asserted the opposite until sec 356 -- that the mutating
+ * steps were the last two to run, and that no path let replay spend an entry
+ * the chain then refused. Both claims were false; the wording is not repeated
+ * here, because a wrong sentence quoted to rebut it is a wrong sentence the
+ * next reader can grep. project.md sec 350 says so in as many words, and
+ * `admit/test/sequence_test.c` encodes it --
+ * its CHAIN case is the one invocation passing `above_replay = 0`, precisely
+ * because the genuine frame does come back a replay. The correction was
+ * learned in the test and never carried to the header a consumer reads.
  *
  * AN UNKNOWN SENDER MUST PRODUCE A DROP, NOT AN OBJECT. sec 4.7 calls this
  * "the one a consumer is likeliest to get wrong": no session record, no
@@ -92,14 +110,21 @@
  * WHAT IT DOES NOT DO.
  * ---------------------------------------------------------------------------
  *
- * NO CHAIN MEMO. sec 4.7c names one available optimisation -- "memoizing a
- * verdict on (sender, capability), invalidated by a generation counter on the
- * revocation store" -- and calls it the one real latency win, a naive loop
- * verifying the same chain 256 times for one chunked message, 51-487 ms of
- * signature checking. It is not here because a cache is memory a consumer
- * sizes and a lifetime a consumer owns, and because the same cache one step
- * earlier is a verdict an attacker chose. A consumer that wants it holds it
- * outside and passes a store whose lookups are already cheap.
+ * ~~NO CHAIN MEMO.~~ THERE IS ONE, since sec 354: `env.memo`, consulted at
+ * step 7 and documented at the field. This paragraph argued against building
+ * it -- "a cache is memory a consumer sizes and a lifetime a consumer owns"
+ * -- and was left standing after the memo landed, so the header denied a
+ * field it declares two screens further down. Struck rather than deleted
+ * because the argument was half right and the surviving half is the
+ * contract: the memory IS the consumer's, which is why `env.memo` is a
+ * pointer the caller may leave NULL.
+ *
+ * What made the rest of it wrong is that the lifetime turned out to be
+ * ownable here after all -- sec 4.7c's own sentence names the invalidator,
+ * and `chain/memo.h` implements it. A consumer following the old advice and
+ * holding a cache OUTSIDE `fzn_admit` has nowhere below the tag to put it,
+ * so it would key on the plaintext sender a frame claims, which is the
+ * "same bug in a new place" sec 4.7c warns of. Corrected in sec 356.
  *
  * NO POLICY ABOUT WHICH KINDS NEED WHAT. Whether a kind is a command that
  * must carry an expiry is the consumer's vocabulary (sec 5), so the rule

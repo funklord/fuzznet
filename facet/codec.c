@@ -35,6 +35,19 @@ static int name_ok(const uint8_t *b, size_t len)
 	return b != NULL && len > 0 && len <= FZN_FACET_NAME_MAX;
 }
 
+/* F18: a member's encoding is `id_len || id`, so the length byte leads and
+ * enc_cmp over it reduces to length first, then bytes. Stated rather than
+ * derived at the call site, because "the same rule as F16" needs an operand
+ * and this is which one. */
+static int member_cmp(const fzn_facet_node_t *a, const fzn_facet_node_t *b)
+{
+	if (a->id_len != b->id_len)
+		return a->id_len < b->id_len ? -1 : 1;
+	if (a->id_len == 0)
+		return 0;
+	return memcmp(a->id, b->id, a->id_len);
+}
+
 /* How many bytes a bound takes: one for what it is, plus the identifier when
  * it is closed. */
 static size_t bound_len(const fzn_facet_bound_t *b)
@@ -100,6 +113,16 @@ static fzn_facet_err_t term_size(const fzn_facet_term_t *t, size_t *out)
 			if (enc_cmp(t->members[i].dim, t->members[i].dim_len,
 			            t->node.dim, t->node.dim_len) != 0)
 				return FZN_FACET_ERR_ALT_DIMENSION;
+			/* F18, WHICH THE ENCODER DID NOT ENFORCE UNTIL sec 356.
+			 * `take_term` refuses members out of order on the way
+			 * in, so an encoder that wrote them unsorted produced
+			 * bytes its own decoder rejects -- and, worse, gave one
+			 * alternation two encodings, which is the single thing
+			 * F16 exists to prevent. Strictly ascending: equal is
+			 * F19's duplicate and must not reach the wire. */
+			if (i > 0 && member_cmp(&t->members[i - 1u],
+			                        &t->members[i]) >= 0)
+				return FZN_FACET_ERR_MALFORMED;
 			n += 1u + t->members[i].id_len;
 		}
 		*out = n;
@@ -281,19 +304,6 @@ fzn_facet_err_t fzn_facet_expr_encode(const fzn_facet_expr_t *expr,
 
 	*len_out = w;
 	return FZN_FACET_OK;
-}
-
-/* F18: a member's encoding is `id_len || id`, so the length byte leads and
- * enc_cmp over it reduces to length first, then bytes. Stated rather than
- * derived at the call site, because "the same rule as F16" needs an operand
- * and this is which one. */
-static int member_cmp(const fzn_facet_node_t *a, const fzn_facet_node_t *b)
-{
-	if (a->id_len != b->id_len)
-		return a->id_len < b->id_len ? -1 : 1;
-	if (a->id_len == 0)
-		return 0;
-	return memcmp(a->id, b->id, a->id_len);
 }
 
 /* Insertion sort and dedup in place. Insertion rather than anything cleverer

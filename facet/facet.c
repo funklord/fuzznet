@@ -54,7 +54,12 @@ static int bound_eq(const fzn_facet_bound_t *a, const fzn_facet_bound_t *b)
 	if (bound_open(a) || bound_open(b))
 		return bound_open(a) && bound_open(b);
 	return bytes_eq(a->id, a->id_len, b->id, b->id_len)
-	    && a->inclusive == b->inclusive;
+	    /* TRUTHINESS, NOT VALUE, because that is what the encoding
+	     * carries: `put_bound` writes INCLUSIVE for any nonzero. Comparing
+	     * exactly made `inclusive = 1` and `inclusive = 2` two different
+	     * bounds to the model and one bound on the wire, so two terms the
+	     * model called distinct hashed to a single identity. sec 356. */
+	    && !a->inclusive == !b->inclusive;
 }
 
 static int member_in(const fzn_facet_node_t *m,

@@ -568,6 +568,33 @@ SABOTAGES = [
 		"because that is the suite with a real record to admit. sec 354",
 	),
 	(
+		"revocation-generation-moves-on-an-un-withdrawal",
+		"chain/revocation.c",
+		"\t\t\tentry->withdrawn = 0;\n\t\t\tstore->generation++;",
+		"\t\t\tentry->withdrawn = 0;",
+		"a re-revocation over a withdrawal turns NOT REVOKED back into "
+		"REVOKED, which is the largest answer this store can change -- and "
+		"`fzn_revocation_lookup` answers on exactly this field. Without the "
+		"bump a chain memo keeps authorising the peer that was just "
+		"re-revoked, for as long as the entry lives. Found by an independent "
+		"review of sec 354's own commit, two hours after it landed. "
+		"revocation_test asserts the number moves across the exact "
+		"re-revocation. sec 356",
+	),
+	(
+		"facet-codec-encode-enforces-f18",
+		"facet/codec.c",
+		"\t\t\tif (i > 0 && member_cmp(&t->members[i - 1u],\n\t\t\t                        &t->members[i]) >= 0)\n\t\t\t\treturn FZN_FACET_ERR_MALFORMED;",
+		"\t\t\tif (0)\n\t\t\t\treturn FZN_FACET_ERR_MALFORMED;",
+		"`take_term` refuses an alternation whose members are out of order, "
+		"and the encoder did not -- so it wrote bytes its own decoder "
+		"rejects, and gave ONE alternation two encodings. That is the single "
+		"thing F16 exists to prevent: an expression is hashed for identity, "
+		"and two byte-strings for one expression are two identities. "
+		"codec_test's two-member fixture is ascending for this reason. "
+		"sec 356",
+	),
+	(
 		"shard-absorbs-the-remainder",
 		"catalog/shard.c",
 		"\t\tif (i + 1u == shards)\n\t\t\tout[i].entries = count - at;\n\t\telse\n\t\t\tout[i].entries = min_entries;",

@@ -45627,3 +45627,103 @@ never caches. Both fail through their own assertion.
 45 checks now. The general form is the one this tree keeps meeting: a module
 with a test and a module with a test, joined by three lines that neither suite
 can see.
+
+## 356. What an independent review found in two hours of my own work, 2026-09-22
+
+Seven reviewers, one per module written in the last two days, each reading the
+code and its tests and told that a finding only counts if acting on it would
+change the code. Every finding then handed to a separate skeptic told to
+REFUTE it and to answer "refuted" when uncertain. 22 findings raised, 15
+survived. What follows is what survived AND held when I checked it myself,
+which is not the same set.
+
+THE REVIEW FOUND A SECURITY DEFECT IN THE COMMIT BEFORE IT. sec 354 added a
+generation counter so a chain memo could tell when a revocation landed, and I
+bumped it at three writes. There is a fourth: a re-revocation arriving over a
+WITHDRAWN entry sets `entry->withdrawn = 0` -- NOT REVOKED becoming REVOKED,
+which is the largest answer this store can change, since
+`fzn_revocation_lookup` answers on exactly that field. It did not bump. A memo
+holding an affirmative verdict for that pair would go on authorising a peer
+re-revoked a moment earlier, for as long as the entry lived.
+
+Two of the seven reviewers found it independently, from different starting
+points -- one reading the counter, one reading the cache that depends on it.
+I confirmed it by reading, not by trusting them.
+
+**The bump was added by the person who knew exactly what it was for, and it
+still missed a quarter of the sites.** What found it was not more care; it was
+somebody else reading the same file with the question stated as "is there ANY
+path that changes an answer without bumping".
+
+AND A SECOND WRITE BUMPED WHEN IT SHOULD NOT. An idempotent withdrawal -- the
+same withdrawal arriving twice -- wrote 1 over 1 and bumped, throwing the
+cache away for a record carrying no news, which is exactly the traffic the
+generation exists to let a cache survive. Both directions wrong in one
+counter, and only the first is a correctness bug.
+
+===========================================================================
+
+TWO DEFECTS IN facet's IDENTITY PROPERTY, which is the thing that module
+exists for: equal expressions are byte-equal so they can be hashed.
+
+THE ENCODER NEVER ENFORCED F18. `take_term` refuses an alternation whose
+members are out of order; `term_size` did not. So the encoder wrote bytes its
+own decoder rejects -- and, worse, one alternation had TWO encodings depending
+on the order its members happened to be in. sec 346 taught F16 to the sort and
+to the decoder and left the encoder as it was.
+
+AND `inclusive` WAS COMPARED TWO WAYS. `put_bound` writes INCLUSIVE for any
+nonzero; `bound_eq` compared the field exactly. So `inclusive = 1` and
+`inclusive = 2` were two different bounds to `fzn_facet_term_eq` and one bound
+on the wire: two terms the model calls distinct hash to a single identity, and
+a dedup that trusts the model keeps both. The model now compares truthiness,
+because the encoding is what identity is defined over.
+
+===========================================================================
+
+TWO PARAGRAPHS OF admit.h WERE FALSE, and both were mine.
+
+It claimed "the two steps that mutate are the last two that run" and that no
+path lets replay spend an entry the chain then refuses. The mutating steps are
+6 and 8 with CHAIN at 7 between them, so that path is the ordinary one -- and
+sec 350 says so, and `sequence_test`'s CHAIN case is the single invocation
+passing `above_replay = 0` for exactly this reason. **The correction was
+learned in the test and never carried to the header a consumer reads.**
+
+And "NO CHAIN MEMO ... It is not here" stood two screens above the `env.memo`
+field it denies. sec 354 quoted that sentence as the argument it was
+reversing, and left it in place.
+
+===========================================================================
+
+THREE TESTS COULD NOT FAIL, all mine.
+
+    materialise_test.c   CHECK(small[0] == 0 || 1, "unused")
+    source_test.c        an over-long name refused by a table already FULL
+    sequence_test.c      a case labelled SHAPE that appends nothing
+
+The first is true for every value of every byte, and it guarded the one claim
+in its block nothing else tested -- that a refused call writes nothing. The
+second passed for fullness rather than for length, so the length check was
+never reached. The third was a sound TAG case wearing a SHAPE label, which
+left step 1 of eight with no test while appearing to have one.
+
+===========================================================================
+
+WHAT I DID NOT ACT ON, because a survived finding is not a confirmed one. The
+reviewers also reported that a chained reissue advances `entry->id` without
+bumping the generation. It does -- and `fzn_revocation_lookup` answers on
+`withdrawn`, not on `id`, so no answer changes and no cache is stale. The
+finding is accurate about the code and wrong about the consequence, which is
+the shape `evidence.md` names: the observation was right and the mechanism was
+not. Bumping there would be harmless and is not a fix.
+
+THE HONEST SCORE: 22 raised, 15 survived refutation, and I confirmed 8 by
+reading before touching anything. A survived finding is a finding one skeptic
+failed to kill, which is weaker than true.
+
+And the fix for the F18 encoder needed a second pass. Correcting the fixture
+that exposed it made the new guard unreachable -- the suite went green with
+the guard deleted -- so the case that drives it had to be written separately,
+with an ascending control beside it. A control has to be REACHED, for the
+fourth time this week.

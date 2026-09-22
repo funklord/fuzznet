@@ -434,10 +434,36 @@ int main(void)
 		}                                                            \
 	} while (0)
 
-	/* 1. SHAPE: a frame with bytes appended is not a frame. */
+	/* A FLIPPED TAG BYTE, which reaches step 4 and fails there. It was
+	 * labelled "1. SHAPE: a frame with bytes appended" and appended
+	 * nothing -- the case was sound and the comment described a different
+	 * case, so step 1 had no test at all while appearing to have one. */
 	REFUSES(memset(work + FRAME_LEN - 1u, 0xff, 1),
 	        FZN_ADMIT_TAG, FZN_ADMIT_VOCAB_SEAL, 1,
 	        "a frame with a flipped tag byte");
+
+	/* 1. SHAPE, for real: a frame handed in SHORT is not a frame, and is
+	 * refused by the layout check before any key is chosen. */
+	{
+		fzn_admit_result_t rr;
+
+		reset_state();
+		memcpy(work, good, sizeof(work));
+		rr = run(work, sizeof(work) - 1u, &reasm);
+		CHECK(rr.step == FZN_ADMIT_SHAPE,
+		      "a truncated frame refused at %s rather than shape",
+		      fzn_admit_step_str(rr.step));
+		CHECK(rr.vocab == FZN_ADMIT_VOCAB_SEAL,
+		      "a truncated frame carried vocabulary %s",
+		      fzn_admit_vocab_str(rr.vocab));
+		/* And the genuine frame is still admitted afterwards: a shape
+		 * refusal is five steps above the first mutation. */
+		memcpy(work, good, sizeof(work));
+		rr = run(work, sizeof(work), &reasm);
+		CHECK(rr.step == FZN_ADMIT_ADMITTED,
+		      "a shape refusal cost the genuine frame its slot: %s",
+		      fzn_admit_step_str(rr.step));
+	}
 
 	/* 2. KEY SELECT: an unknown sender is a DROP, with no vocabulary --
 	 * no module was reached, so there is no code to render. */

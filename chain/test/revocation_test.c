@@ -674,10 +674,24 @@ static void test_a_re_revocation_over_a_withdrawal_reads_the_whole_id(void)
 	              FZN_CHAIN_OK, "the exact re-revocation could not be minted");
 	stub_reset(&f.stub);
 	CHECK(fzn_revocation_open(again, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK, "open exact");
-	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(rec), issuer, &f.sign,
-	                           &HASH_OPS, NULL) == FZN_CHAIN_OK,
-	      "a re-revocation naming the withdrawal's id exactly was refused, so the near "
-	      "miss proves nothing");
+	{
+		/* NOT REVOKED becomes REVOKED here, which is the largest
+		 * answer this store can change -- and it did not move the
+		 * generation until sec 356, so a chain memo went on
+		 * authorising a peer this record re-revokes. Asserted here
+		 * because this is the one place a withdrawn entry is brought
+		 * back. */
+		uint64_t before = fzn_revocation_generation(&f.store);
+
+		CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(rec),
+		                           issuer, &f.sign, &HASH_OPS, NULL)
+		          == FZN_CHAIN_OK,
+		      "a re-revocation naming the withdrawal's id exactly was refused, "
+		      "so the near miss proves nothing");
+		CHECK(fzn_revocation_generation(&f.store) != before,
+		      "un-withdrawing a revocation did not move the generation -- a "
+		      "cache would keep authorising the pair it just re-revoked");
+	}
 	CHECK(fzn_revocation_covers(&f.store, issuer, &cap, grantee) == 1,
 	      "the exact re-revocation did not re-revoke the pair");
 }

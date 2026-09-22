@@ -257,12 +257,19 @@ static void test_bounds(void)
 		size_t len = 0;
 		uint8_t small[3];
 
-		CHECK(fzn_catalog_materialise((const uint8_t *)"photos/{title}", 14, set,
-		                              1, e1, 32, small, sizeof(small), &len,
-		                              &at) == FZN_CATALOG_ERR_RANGE,
+		memset(small, 0xee, sizeof(small));
+		CHECK(fzn_catalog_materialise((const uint8_t *)"photos/{title}", 14,
+		                              set, 1, e1, 32, small, sizeof(small),
+		                              &len, &at) == FZN_CATALOG_ERR_RANGE,
 		      "a path was written past the caller's buffer");
 		CHECK(len == 0, "a refused call reported a length");
-		CHECK(small[0] == 0 || 1, "unused");
+		/* THE PROMISE THE HEADER MAKES: "writes nothing unless the
+		 * whole path fits". This line read `small[0] == 0 || 1`,
+		 * which is true for every value of every byte -- a check
+		 * that could not fail, guarding the one claim in this block
+		 * that nothing else tests. */
+		CHECK(small[0] == 0xee && small[1] == 0xee,
+		      "a refused call wrote into the caller's buffer");
 	}
 
 	/* A pattern over its own bound is refused before anything is read. */

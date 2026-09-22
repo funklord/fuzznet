@@ -301,10 +301,28 @@ static void test_bounds_and_nulls(void)
 	CHECK(fzn_catalog_source_declare(&sources, MAN, MAN_LEN,
 	                                 FZN_CATALOG_POLICY_MANAGED)
 	          == FZN_CATALOG_ERR_RANGE, "a full table accepted a row");
-	CHECK(fzn_catalog_source_declare(&sources, big,
-	                                 FZN_CATALOG_SOURCE_NAME_MAX + 1u,
-	                                 FZN_CATALOG_POLICY_MANAGED)
-	          == FZN_CATALOG_ERR_RANGE, "an over-long name was accepted");
+	/* THE OVER-LONG NAME NEEDS A TABLE WITH ROOM. Run against the full
+	 * table above it, this passed because the table was FULL -- the same
+	 * FZN_CATALOG_ERR_RANGE for a different reason, so the length check
+	 * was never reached and the assertion proved nothing. */
+	{
+		fzn_catalog_source_t roomy_rows[2];
+		fzn_catalog_source_table_t roomy;
+
+		fzn_catalog_sources_init(&roomy, roomy_rows, 2);
+		CHECK(fzn_catalog_source_declare(&roomy, big,
+		                                 FZN_CATALOG_SOURCE_NAME_MAX + 1u,
+		                                 FZN_CATALOG_POLICY_MANAGED)
+		          == FZN_CATALOG_ERR_RANGE,
+		      "an over-long name was accepted");
+		/* The control: one byte shorter, in the same table, is
+		 * accepted -- so the refusal above is about the length. */
+		CHECK(fzn_catalog_source_declare(&roomy, big,
+		                                 FZN_CATALOG_SOURCE_NAME_MAX,
+		                                 FZN_CATALOG_POLICY_MANAGED)
+		          == FZN_CATALOG_OK,
+		      "a name at exactly the bound was refused");
+	}
 	CHECK(fzn_catalog_source_declare(&sources, REF, 0,
 	                                 FZN_CATALOG_POLICY_MANAGED)
 	          == FZN_CATALOG_ERR_MALFORMED, "an empty name was accepted");

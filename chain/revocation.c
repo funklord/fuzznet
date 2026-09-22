@@ -833,8 +833,14 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 		 * for a second copy of a revocation. `id` is unchanged --
 		 * it still names the revocation that was undone, which is
 		 * what a later reissue must supersede. */
-		store->entries[at].withdrawn = 1;
-		store->generation++;
+		/* Bump only on a real change. A withdrawal that arrives twice
+		 * writes the same 1 over the same 1, and bumping there throws
+		 * a cache away for a record carrying no news -- which is the
+		 * traffic the generation is meant to let a cache survive. */
+		if (!store->entries[at].withdrawn) {
+			store->entries[at].withdrawn = 1;
+			store->generation++;
+		}
 		return FZN_CHAIN_OK;
 	}
 
@@ -897,7 +903,13 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 				return FZN_CHAIN_ERR_UNKNOWN_TARGET;
 			}
 
+			/* NOT REVOKED becomes REVOKED, which is the biggest
+			 * answer this store can change -- and it went unbumped
+			 * until sec 356. A cache holding an affirmative chain
+			 * verdict for this pair would go on authorising a peer
+			 * revoked a moment ago. */
 			entry->withdrawn = 0;
+			store->generation++;
 			memcpy(entry->id, id, FZN_REVOCATION_ID_LEN);
 			fzn_manifest_satisfy(manifest, fzn_revocation_issuer(record),
 			                     fzn_revocation_capability(record),
