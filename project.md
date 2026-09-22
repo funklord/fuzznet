@@ -46240,3 +46240,61 @@ Inheriting `node/provision.h` and `gui/provision_view` rather than
 reimplementing: that is the direction this tree would take too, and the
 holder's 2026-09-22 directive says so in general terms -- if two consumers
 would duplicate it, it belongs here. Nothing in the way of it that I can see.
+
+## 363. The loop's wiring, driven rather than asserted, 2026-09-22
+
+Section 362 shipped the chunked reply and said plainly that the poll loop's
+own wiring was covered by construction and not by observation: `remote_test`
+proved the planner and the sealer, and nothing drove `fzn_node_run_once`
+against a UDP peer with an over-512 reply. raidcfgd recorded that on my word,
+marked it as mine, and said they would treat a silent non-arrival as this
+tree's rather than their handler's when their pin moves.
+
+That is a reasonable thing to be told and an unreasonable thing to leave
+standing, so it is closed. The fixture existed already: `node/test/provision_test.c`
+drives `fzn_node_run_once` with a real loopback UDP socket, a provisioned
+peer and real Monocypher primitives, which is why sec 301 built it. It needed
+a case, not a harness.
+
+A second request goes out -- fresh, because the first frame's nonce is in the
+replay window and re-sending it would be dropped and prove nothing -- the
+handler answers with 3,230 bytes, and the device reads datagrams until the
+message completes. Four arrive, each opens, and the reassembled bytes are
+compared against what the handler wrote. 3,230 stays the number for the same
+reason as in sec 362: it is raidcfgd's measured smallest `status` reading,
+and it is four pieces with a remainder last.
+
+### What the sabotage found, which is why this is a section and not a commit
+
+Three mutations, and the third is the one worth the entry.
+
+    the consumer's buffer size is used    CAUGHT   2 failures
+    every planned piece is sent           CAUGHT   2 failures
+    an over-claimed reply is refused      MISSED   0 failures
+
+The first two are the wiring sec 362 named. The third was a guard sec 362
+ADDED and nothing reached: `if (reply_len > reply_cap) reply_len = 0;`, with
+no handler in any suite claiming more than it was given.
+
+**And it is not the same finding as sec 362's deleted guard, which is the
+part worth holding.** There the `index >= chunks` check was redundant --
+`fzn_seal_build` already refused it -- so the right answer was to remove it
+and cite the owner. Here nothing else refuses an over-claim: `fzn_split_plan`
+would plan over a length the buffer does not have and the send loop would
+read past it. Same symptom from the harness, opposite remedy, and the only
+thing that separates them is reading what else could refuse the case.
+
+So a handler that returns `reply_cap + 1` now exists, the guard is reached,
+and the mutation is caught. The assertion is that NOTHING arrives, on a
+0.3-second receive timeout rather than the two seconds the other cases use --
+a wait for silence is paid on every run, and a wait for a message is not.
+
+`node_provision_test` is 44 checks now, from 33. All five guards on this path
+-- two in the sealer from sec 362, three in the loop -- are sabotage entries,
+and the harness is at 538.
+
+### What is still covered by construction
+
+Nothing on this path. The local seam's handler and the remote loop are both
+driven end to end now. What remains untested elsewhere is unchanged and not
+this section's to claim.

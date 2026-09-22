@@ -3094,7 +3094,8 @@ $(BUILD_DIR)/node/test/provision_test: $(BUILD_DIR)/node/test/provision_test.o \
               $(BUILD_DIR)/node/node.o $(BUILD_DIR)/local/socket.o \
               $(BUILD_DIR)/local/peer.o $(BUILD_DIR)/local/peer_linux.o \
               $(BUILD_DIR)/local/line.o $(BUILD_DIR)/local/vocabulary.o \
-              $(BUILD_DIR)/chunk/split.o $(BUILD_DIR)/net/udp.o \
+              $(BUILD_DIR)/chunk/split.o $(BUILD_DIR)/chunk/reassembly.o \
+              $(BUILD_DIR)/net/udp.o \
               $(BUILD_DIR)/version/version.o $(BUILD_DIR)/provision/provision.o \
               $(BUILD_DIR)/frame/freshness.o \
               $(BUILD_DIR)/chain/sign_monocypher.o \

@@ -595,6 +595,40 @@ SABOTAGES = [
 		"sec 356",
 	),
 	(
+		"node-loop-uses-the-consumers-buffer",
+		"node/serve.c",
+		"\t\tsize_t reply_cap = state->reply ? state->reply_cap : sizeof(own);",
+		"\t\tsize_t reply_cap = sizeof(own);",
+		"a consumer that supplied a reply buffer gets its SIZE used too. "
+		"Taking the pointer and the node's own 512 leaves a handler with "
+		"answers larger than that unable to answer at all, which is the "
+		"state raidcfgd reported and this change exists to end. "
+		"provision_test drives a 3,230-byte reply over real loopback UDP. "
+		"sec 363",
+	),
+	(
+		"node-loop-sends-every-piece",
+		"node/serve.c",
+		"\t\t\tfor (i = 0; i < plan.chunks; i++) {",
+		"\t\t\tfor (i = 0; i < 1u; i++) {",
+		"every piece the plan names is sent. Sending only the first leaves "
+		"a receiver holding one chunk of four for ever -- the message never "
+		"completes, so the symptom is a reply that silently never arrives "
+		"rather than a short one. sec 363",
+	),
+	(
+		"node-loop-refuses-an-overclaimed-reply",
+		"node/serve.c",
+		"\t\tif (reply_len > reply_cap)\n\t\t\treply_len = 0;",
+		"\t\tif (0)\n\t\t\treply_len = 0;",
+		"a handler claiming more than its buffer is treated as having "
+		"written nothing. Unlike the local seam's version of this bound, "
+		"the cost is not a truncated reply: fzn_split_plan would plan over "
+		"a length the buffer does not have and the send loop would read "
+		"past it. The guard went untested in sec 362 and the sabotage run "
+		"said so; provision_test reaches it now. sec 363",
+	),
+	(
 		"node-reply-kind-follows-the-count",
 		"node/remote.c",
 		"\twhat.kind = (chunks == 1u) ? FZN_KIND_UNIT : FZN_KIND_CHUNK;",

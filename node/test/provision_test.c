@@ -18,6 +18,7 @@
 #include "../session/random_system.h"
 #include "../provision/provision.h"
 #include "../net/udp.h"
+#include "../chunk/reassembly.h"
 
 #include <arpa/inet.h>
 #include <monocypher.h>
@@ -67,6 +68,44 @@ static size_t on_remote_cb(void *ctx, fzn_node_remote_result_t result,
 		return sizeof(PONG);
 	}
 	return 0;
+}
+
+/* A REPLY LARGER THAN ONE FRAME. 3,230 bytes is raidcfgd's measured smallest
+ * `status` reading, reported 2026-09-22 -- a real consumer's payload rather
+ * than a round number, and four pieces with a remainder last, which is the
+ * shape that catches an off-by-one at either end of the plan. */
+#define BIG_REPLY_LEN 3230u
+static uint8_t big_reply[BIG_REPLY_LEN];
+
+static size_t on_remote_big(void *ctx, fzn_node_remote_result_t result,
+                            const fzn_opened_t *req, uint8_t *reply,
+                            size_t reply_cap)
+{
+	(void)ctx;
+	(void)req;
+	observed.called = 1;
+	observed.result = result;
+	if (result != FZN_NODE_REMOTE_GRANTED || reply_cap < sizeof(big_reply))
+		return 0;
+	memcpy(reply, big_reply, sizeof(big_reply));
+	return sizeof(big_reply);
+}
+
+/* A HANDLER THAT CLAIMS MORE THAN IT WAS GIVEN. Unlike the local seam's
+ * version of this, the cost here is not a truncated reply: `fzn_split_plan`
+ * would plan over a length the buffer does not have and the send loop would
+ * read past it. So the guard is load-bearing rather than tidy, and this is
+ * what reaches it. */
+static size_t on_remote_overclaim(void *ctx, fzn_node_remote_result_t result,
+                                  const fzn_opened_t *req, uint8_t *reply,
+                                  size_t reply_cap)
+{
+	(void)ctx;
+	(void)req;
+	(void)reply;
+	observed.called = 1;
+	observed.result = result;
+	return reply_cap + 1u;
 }
 
 static uint64_t test_now(void)
@@ -292,6 +331,121 @@ int main(void)
 	   "the node receives the replayed datagram");
 	ok(observed.called == 0,
 	   "the replayed request was dropped, not served");
+
+	/* THE LOOP'S OWN WIRING, WHICH sec 362 SHIPPED UNTESTED AND SAID SO.
+	 *
+	 * `remote_test` proved the planner and the sealer; nothing drove
+	 * `fzn_node_run_once` against a UDP peer with an over-512 reply, so the
+	 * buffer selection and the send loop were covered by construction. This
+	 * is that gap closed: a real datagram in, four real datagrams out, and
+	 * the bytes compared after reassembly. sec 363. */
+	{
+		static uint8_t reply_space[8192];
+		fzn_reasm_t table;
+		fzn_partial_t slots[2];
+		static uint8_t slot_buf[2][8192];
+		fzn_partial_t *done = NULL;
+		struct timeval tv;
+		size_t k;
+		int opened_all = 1;
+		unsigned got = 0;
+
+		for (k = 0; k < sizeof(big_reply); k++)
+			big_reply[k] = (uint8_t)(k * 17u + 3u);
+
+		/* The consumer's buffer, which is the half the loop chooses
+		 * between. Without it the node uses its own 512 bytes and the
+		 * handler below refuses to answer at all. */
+		state.reply = reply_space;
+		state.reply_cap = sizeof(reply_space);
+		state.on_remote = on_remote_big;
+
+		ok(fzn_reasm_slot_init(&slots[0], slot_buf[0], sizeof(slot_buf[0]))
+		       == FZN_REASM_OK &&
+		   fzn_reasm_slot_init(&slots[1], slot_buf[1], sizeof(slot_buf[1]))
+		       == FZN_REASM_OK &&
+		   fzn_reasm_init(&table, slots, 2, 2u, 60u) == FZN_REASM_OK,
+		   "the device's reassembly table would not initialise");
+
+		/* A FRESH request: the previous frame's nonce is in the replay
+		 * window, so re-sending it would be dropped and prove nothing. */
+		frame_len = seal_request(frame, sizeof(frame), pubkey[1], cap.b,
+		                         send_key, send_ckey, &hash_ops, &rng_ops,
+		                         &aead_ops);
+		observed.called = 0;
+		ok(frame_len != 0 &&
+		   fzn_udp_send(dev_udp, &node_addr, frame, frame_len) == FZN_UDP_OK,
+		   "the device seals and sends a second request");
+		ok(fzn_node_run_once(&state, 1000) == 1,
+		   "one loop turn serves the datagram asking for a large reply");
+		ok(observed.called, "the large-reply handler was reached");
+
+		tv.tv_sec = 2;
+		tv.tv_usec = 0;
+		(void)setsockopt(dev_udp, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+		/* Four pieces, read until the message completes or the socket
+		 * times out. Bounded by FZN_REASM_MAX_CHUNKS so a node that sent
+		 * nothing ends the loop on the timeout rather than spinning. */
+		while (done == NULL && got < FZN_REASM_MAX_CHUNKS) {
+			uint8_t f[FZN_UDP_DATAGRAM_MAX];
+			size_t flen2 = 0;
+			fzn_opened_t o;
+
+			if (fzn_udp_recv(dev_udp, f, sizeof(f), &flen2, NULL)
+			    != FZN_UDP_OK)
+				break;
+			got++;
+			if (fzn_seal_open(f, flen2, send_key, send_ckey, &hash_ops,
+			                  &aead_ops, &o) != FZN_SEAL_OK) {
+				opened_all = 0;
+				break;
+			}
+			(void)fzn_reasm_accept(&table, o.sender, o.msg, o.index,
+			                       o.chunks, o.payload, o.payload_len,
+			                       0u, 1000u, &done);
+		}
+		ok(got == 4u,
+		   "the node did not send four datagrams for a 3,230-byte reply");
+		ok(opened_all, "a piece of the large reply would not open");
+		ok(done != NULL,
+		   "the pieces arrived and the message never completed -- which is "
+		   "what all-zero indices look like from here");
+		if (done)
+			ok(done->bytes == sizeof(big_reply) &&
+			   memcmp(done->buf, big_reply, sizeof(big_reply)) == 0,
+			   "the reassembled reply is not the bytes the handler wrote");
+		if (done)
+			fzn_reasm_release(done);
+	}
+
+	/* AND A HANDLER THAT OVER-CLAIMS SENDS NOTHING. Without the bound the
+	 * loop plans over bytes the buffer does not have. sec 363. */
+	{
+		struct timeval tv;
+		uint8_t f[FZN_UDP_DATAGRAM_MAX];
+		size_t flen2 = 0;
+
+		state.on_remote = on_remote_overclaim;
+		frame_len = seal_request(frame, sizeof(frame), pubkey[1], cap.b,
+		                         send_key, send_ckey, &hash_ops, &rng_ops,
+		                         &aead_ops);
+		observed.called = 0;
+		ok(frame_len != 0 &&
+		   fzn_udp_send(dev_udp, &node_addr, frame, frame_len) == FZN_UDP_OK,
+		   "the device sends a third request");
+		ok(fzn_node_run_once(&state, 1000) == 1,
+		   "one loop turn serves the over-claiming case");
+		ok(observed.called, "the over-claiming handler was reached");
+
+		/* Short, because the assertion is that nothing arrives and a
+		 * two-second wait for silence is two seconds per run. */
+		tv.tv_sec = 0;
+		tv.tv_usec = 300000;
+		(void)setsockopt(dev_udp, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+		ok(fzn_udp_recv(dev_udp, f, sizeof(f), &flen2, NULL) != FZN_UDP_OK,
+		   "a handler claiming more than its buffer still had bytes sent, so "
+		   "the loop planned over memory it was not given");
+	}
 
 	fzn_udp_close(node_udp);
 	fzn_udp_close(dev_udp);
