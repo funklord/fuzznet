@@ -118,6 +118,7 @@
 
 #include "../chain/chain.h"
 #include "../chain/chain_store.h"
+#include "../chain/memo.h"
 #include "../chunk/reassembly.h"
 #include "../frame/freshness.h"
 #include "../session/commitment.h"
@@ -216,6 +217,20 @@ typedef struct fzn_admit_env {
 	const fzn_chain_store_t *chains;
 	const fzn_revocation_store_t *revocations;
 	const fzn_manifest_state_t   *manifest;  /* optional; sec 13d stage 2 */
+	/* Optional. When given, step 7 asks it before verifying and records
+	 * an affirmative verdict after -- sec 4.7c's one real latency win,
+	 * a chunked message otherwise verifying one chain 256 times.
+	 *
+	 * IT IS CONSULTED AT STEP 7, WHICH IS FOUR STEPS BELOW THE PIVOT, and
+	 * that placement is the whole of its safety: the sender it is keyed by
+	 * is authenticated. The same cache at step 2 would be keyed by a
+	 * plaintext claim anybody can write.
+	 *
+	 * NO REVOCATION STORE MEANS NO CACHING, and that falls out rather than
+	 * being enforced: the generation of a null store is zero, and a memo
+	 * refuses to record or match on zero. A cache nothing can invalidate
+	 * is a permanent authorisation, so the degenerate case fails safe. */
+	fzn_chain_memo_t        *memo;
 	/* Optional. When NULL the sequence ends after step 7 and the opened
 	 * frame is the result -- a consumer that does not chunk needs no
 	 * table, and inventing one for it would be inventing a memory bound. */

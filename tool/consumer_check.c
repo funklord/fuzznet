@@ -55,6 +55,7 @@
 #include <fuzznet/record/store.h>
 #include <fuzznet/facet/facet.h>
 #include <fuzznet/facet/codec.h>
+#include <fuzznet/chain/memo.h>
 #include <fuzznet/admit/admit.h>
 #include <fuzznet/catalog/catalog.h>
 #include <fuzznet/catalog/retention.h>
@@ -169,6 +170,7 @@
 #include "record/store.h"
 #include "facet/facet.h"
 #include "facet/codec.h"
+#include "chain/memo.h"
 #include "admit/admit.h"
 #include "catalog/catalog.h"
 #include "catalog/retention.h"
@@ -2332,6 +2334,49 @@ int main(void)
 				if (strcmp(fzn_admit_step_str((fzn_admit_step_t)99),
 				           "unknown") != 0)
 					FAIL(433);
+			}
+
+			/* The chain memo, from outside. The property a consumer
+			 * must not have to re-derive is that a hit is never
+			 * wrong: a revocation landing and a chain expiring both
+			 * end it, and sec 4.7c names only the first. */
+			{
+				fzn_chain_memo_entry_t ments[2];
+				fzn_chain_memo_t cmemo;
+				fzn_chain_t cv;
+				uint8_t croot[FZN_PUBKEY_LEN];
+				uint8_t cpeer[FZN_PUBKEY_LEN];
+				fzn_cap_id_t ccap;
+
+				memset(croot, 0xa0, sizeof(croot));
+				memset(cpeer, 0xb1, sizeof(cpeer));
+				memset(ccap.b, 0xc2, sizeof(ccap.b));
+				memset(&cv, 0, sizeof(cv));
+				memcpy(cv.root, croot, sizeof(cv.root));
+				memcpy(cv.grantee, cpeer, sizeof(cv.grantee));
+				cv.capability = ccap;
+				cv.hop_count = 1;
+				cv.expires_at = 500;
+
+				if (fzn_chain_memo_init(&cmemo, ments, 2) != FZN_CHAIN_OK)
+					FAIL(435);
+				if (fzn_chain_memo_allows(&cmemo, croot, cpeer, &ccap, 9, 100))
+					FAIL(436);
+				if (fzn_chain_memo_record(&cmemo, &cv, 9) != FZN_CHAIN_OK)
+					FAIL(437);
+				/* The control: it hits while live. */
+				if (!fzn_chain_memo_allows(&cmemo, croot, cpeer, &ccap, 9,
+				                           100))
+					FAIL(438);
+				/* A revocation landing. */
+				if (fzn_chain_memo_allows(&cmemo, croot, cpeer, &ccap, 10,
+				                          100))
+					FAIL(439);
+				/* And the expiry, which the generation cannot
+				 * see. */
+				if (fzn_chain_memo_allows(&cmemo, croot, cpeer, &ccap, 9,
+				                          500))
+					FAIL(440);
 			}
 
 			/* F20 FROM OUTSIDE: the width belongs to the

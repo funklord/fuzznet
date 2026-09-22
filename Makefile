@@ -169,7 +169,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              provision/provision.c \
              disclose/disclose.c \
              facet/facet.c facet/codec.c \
-             admit/admit.c \
+             admit/admit.c chain/memo.c \
              catalog/catalog.c catalog/retention.c catalog/sweep.c \
              catalog/copy.c catalog/filing.c catalog/purge.c \
              catalog/shard.c catalog/materialise.c catalog/source.c \
@@ -238,7 +238,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              provision/provision.h \
              disclose/disclose.h \
              facet/facet.h facet/codec.h \
-             admit/admit.h \
+             admit/admit.h chain/memo.h \
              catalog/catalog.h catalog/retention.h catalog/sweep.h \
              catalog/copy.h catalog/filing.h catalog/purge.h \
              catalog/shard.h catalog/materialise.h catalog/source.h \
@@ -301,6 +301,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              facet/test/facet_test.c \
              facet/test/codec_test.c \
              admit/test/sequence_test.c \
+             chain/test/memo_test.c \
              catalog/test/catalog_test.c \
              catalog/test/dimension_test.c \
              catalog/test/attribute_fuzz.c \
@@ -403,6 +404,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/facet/test/facet_test \
              $(BUILD_DIR)/facet/test/codec_test \
              $(BUILD_DIR)/admit/test/sequence_test \
+             $(BUILD_DIR)/chain/test/memo_test \
              $(BUILD_DIR)/catalog/test/catalog_test \
              $(BUILD_DIR)/catalog/test/dimension_test \
              $(BUILD_DIR)/catalog/test/attribute_fuzz \
@@ -3178,6 +3180,7 @@ $(BUILD_DIR)/wire/test/tamper_test.o: wire/test/tamper_test.c
 
 $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/admit/admit.o \
+                                      $(BUILD_DIR)/chain/memo.o \
                                       $(BUILD_DIR)/chain/chain_store.o \
                                       $(BUILD_DIR)/qr/qr.o \
                                       $(BUILD_DIR)/provision/provision.o \
@@ -3262,8 +3265,20 @@ $(BUILD_DIR)/wire/test/seal_test: $(BUILD_DIR)/wire/test/seal_test.o \
 # every module sec 4.7 names a step for. That object list IS the finding -- a
 # sequence spanning six modules is why the order was prose for a month
 # (sec 350).
+# The memo links only its own object and chain.o: it caches a verdict and
+# never produces one (sec 354).
+$(BUILD_DIR)/chain/test/memo_test: $(BUILD_DIR)/chain/test/memo_test.o \
+                                   $(BUILD_DIR)/chain/memo.o \
+                                   $(BUILD_DIR)/chain/chain.o \
+                                   $(BUILD_DIR)/chain/revocation.o \
+                                   $(BUILD_DIR)/chain/manifest.o \
+                                   $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/admit/test/sequence_test: $(BUILD_DIR)/admit/test/sequence_test.o \
                                    $(BUILD_DIR)/admit/admit.o \
+                                   $(BUILD_DIR)/chain/memo.o \
                                    $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/wire/relay.o \
                                    $(BUILD_DIR)/session/commitment.o \
                                    $(BUILD_DIR)/session/random.o \

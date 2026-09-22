@@ -45504,3 +45504,84 @@ alignment or atomicity moved.
 **A dependency improving is indistinguishable from your own change breaking
 something, until you look at which files the gate named.** Neither of those
 two is one this change touched, and that was the whole diagnosis.
+
+## 354. The chain memo, and the invalidator sec 4.7c does not name, 2026-09-22
+
+sec 4.7c calls it the one real latency win in the receive path: "memoizing a
+verdict on (sender, capability), invalidated by a generation counter on the
+revocation store", against a naive loop that verifies the SAME chain once per
+chunk -- 256 times for one message, 51 to 487 ms of Ed25519 to reach one
+answer. `chain/memo.{h,c}`, consulted by `fzn_admit` at step 7.
+
+I ARGUED AGAINST BUILDING IT YESTERDAY, in admit.h: "a cache is memory a
+consumer sizes and a lifetime a consumer owns". The first half was never an
+argument -- every table in this library is caller-owned storage, and a memo is
+one more. The second half was the real objection and it had an answer sitting
+in sec 4.7c's own sentence, which is the generation counter.
+
+===========================================================================
+
+WHAT A CACHE IS FOR IS NOT WHAT MAKES IT CORRECT. Three refusals do:
+
+ONLY AFFIRMATIVE VERDICTS ARE KEPT. A cached refusal would hide a chain that
+arrived a moment later for as long as the entry lived, and not caching one
+costs a single verification on a path already refusing. The asymmetry is F24's
+-- an answer that under-permits is visible and recoverable, one that
+over-permits is neither.
+
+A HIT REQUIRES THE GENERATION TO MATCH EXACTLY, so any revocation landing
+invalidates every entry at once. Coarse on purpose: deciding per entry whether
+a particular revocation could have mattered IS the verification being avoided.
+The revocation store had no such counter, so it has one now -- bumped where an
+entry is appended or marked withdrawn, not on every call, because an `admit`
+that refuses a duplicate changes nothing a lookup can see and bumping there
+would throw the cache away on every retransmission of a lossy link. It starts
+at ONE so that a memo entry left zero by `memset` can never match.
+
+AND A HIT REQUIRES THE CHAIN NOT TO HAVE EXPIRED, WHICH sec 4.7c DOES NOT SAY.
+It names the revocation generation and stops. But `fzn_chain_verify` refuses
+FZN_CHAIN_ERR_EXPIRED for a hop whose expiry has passed, so a verdict is a
+function of `now` as well -- and a memo built to that description alone goes
+on authorising a chain after it dies, with no revocation ever landing. The
+entry carries `fzn_chain_t.expires_at`, which the verifier already computes,
+and a hit is refused once `now` reaches it.
+
+**The gap is in the specification rather than in an implementation of it**,
+which is why it is written here rather than fixed quietly. A sentence naming
+one invalidator reads as naming THE invalidator, and the second one is only
+visible if you ask what else the cached function takes as an argument. `now`
+was right there in the signature.
+
+===========================================================================
+
+WHERE IT IS CONSULTED IS THE WHOLE OF ITS SAFETY. sec 4.7c: "a verdict cached
+AFTER the tag and keyed by an authenticated identity is safe; the same cache
+before the tag is the same bug in a new place." `fzn_admit` asks it at step 7,
+four steps below the pivot. A cache at step 2 would be keyed by the plaintext
+sender anybody can write, and a stranger would choose which verdict it got.
+
+NO REVOCATION STORE MEANS NO CACHING, and that falls out rather than being
+enforced: a null store's generation is zero, and a memo refuses to record or
+match on zero. A cache nothing can invalidate is a permanent authorisation, so
+the degenerate case fails safe by arithmetic.
+
+===========================================================================
+
+EVIDENCE. memo_test is 36 checks, every refusal against a control that must
+still pass -- the same triple at its own generation, and the chain one second
+before its expiry. Three sabotage entries, each through its own assertion:
+
+    memo-a-revocation-invalidates-every-verdict  memo_test.c:102
+    memo-an-expired-chain-never-hits             memo_test.c:137
+    revocation-generation-moves-on-a-write       revocation_test.c:536
+
+THE THIRD IS IN ANOTHER SUITE ON PURPOSE. The generation bump is the only
+thing connecting the store to the memo, and neither module's own test could
+see it: memo_test has no real store and revocation_test had no reason to read
+the number. A correct function is not a working feature, and the assertion
+belongs where a real record can be admitted.
+
+`sabotage.py --verify` CAUGHT THE BUMP DISPLACING AN OLDER ENTRY --
+`rev-withdrawal-tombstone` anchored on the two lines the new `generation++`
+landed between, and stopped matching. Third time today that check has caught
+an anchor going stale under an edit, which is what it is for.

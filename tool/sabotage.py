@@ -527,6 +527,47 @@ SABOTAGES = [
 		"encoded head. sec 352",
 	),
 	(
+		"memo-a-revocation-invalidates-every-verdict",
+		"chain/memo.c",
+		"\t\tif (e->generation == 0 || e->generation != generation)\n\t\t\tcontinue;",
+		"\t\tif (e->generation == 0)\n\t\t\tcontinue;",
+		"the generation is the only thing connecting a cached verdict to the "
+		"revocation store. Without the comparison a revoked peer keeps its "
+		"cached authorisation for as long as the entry lives, which is "
+		"exactly the wrong answer a cache exists to be suspected of. Coarse "
+		"on purpose: every entry goes stale at once, because deciding per "
+		"entry whether a revocation could have mattered is the verification "
+		"being avoided. memo_test asserts the stale generation misses AND "
+		"that the original still hits, so the miss is about the generation "
+		"rather than the entry having been destroyed. sec 354",
+	),
+	(
+		"memo-an-expired-chain-never-hits",
+		"chain/memo.c",
+		"\t\tif (e->expires_at != FZN_NO_EXPIRY && now >= e->expires_at)\n\t\t\tcontinue;",
+		"\t\tif (0)\n\t\t\tcontinue;",
+		"sec 4.7c names the revocation generation as the invalidator and "
+		"stops there, and a memo built to that description alone goes on "
+		"authorising a chain after it has expired -- no revocation need ever "
+		"land for that to happen, because a verdict is a function of `now` "
+		"too. The gap is in the specification rather than in an "
+		"implementation of it. memo_test drives the expiry exactly, one "
+		"second before it and long after, against a live chain as control. "
+		"sec 354",
+	),
+	(
+		"revocation-generation-moves-on-a-write",
+		"chain/revocation.c",
+		"\tstore->entries[store->used].withdrawn = 0;\n\tstore->used++;\n\t/* An answer this store gives may now differ; sec 354. */\n\tstore->generation++;",
+		"\tstore->entries[store->used].withdrawn = 0;\n\tstore->used++;",
+		"the store counts its own writes so a cache can tell an answer might "
+		"have changed. A write that does not bump leaves every memo entry "
+		"looking current, so a peer revoked a moment ago keeps its cached "
+		"authorisation -- the store is right and the cache is confidently "
+		"wrong. revocation_test asserts the number moves across an admit, "
+		"because that is the suite with a real record to admit. sec 354",
+	),
+	(
 		"shard-absorbs-the-remainder",
 		"catalog/shard.c",
 		"\t\tif (i + 1u == shards)\n\t\t\tout[i].entries = count - at;\n\t\telse\n\t\t\tout[i].entries = min_entries;",
@@ -3282,7 +3323,7 @@ SABOTAGES = [
 		"rev-withdrawal-tombstone",
 		"chain/revocation.c",
 		"\t\t\tstore->entries[store->used].withdrawn = 1;\n\t\t\tstore->used++;\n"
-		"\t\t\treturn FZN_CHAIN_OK;\n",
+		"\t\t\tstore->generation++;\n\t\t\treturn FZN_CHAIN_OK;\n",
 		"\t\t\treturn FZN_CHAIN_ERR_UNKNOWN_TARGET;\n",
 		"a withdrawal that overtakes its revocation is kept, not dropped",
 	),

@@ -276,6 +276,9 @@ fzn_chain_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_rev
 	store->entries = entries;
 	store->capacity = capacity;
 	store->used = 0;
+	/* ONE, not zero: a memo entry left zero by memset must never match a
+	 * live generation. sec 354. */
+	store->generation = 1;
 	/* Quiet unless somebody asks. */
 	store->log = NULL;
 
@@ -819,6 +822,7 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 			       fzn_revocation_supersedes(record), FZN_REVOCATION_ID_LEN);
 			store->entries[store->used].withdrawn = 1;
 			store->used++;
+			store->generation++;
 			return FZN_CHAIN_OK;
 		}
 		if (!fzn_ct_memeq(store->entries[at].id, fzn_revocation_supersedes(record),
@@ -830,6 +834,7 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 		 * it still names the revocation that was undone, which is
 		 * what a later reissue must supersede. */
 		store->entries[at].withdrawn = 1;
+		store->generation++;
 		return FZN_CHAIN_OK;
 	}
 
@@ -989,6 +994,8 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 	memcpy(store->entries[store->used].id, id, FZN_REVOCATION_ID_LEN);
 	store->entries[store->used].withdrawn = 0;
 	store->used++;
+	/* An answer this store gives may now differ; sec 354. */
+	store->generation++;
 
 	/* What a manifest said this host was missing, it now holds. NULL is
 	 * the consumer that has not adopted the manifest, and this is the
@@ -1036,4 +1043,9 @@ size_t fzn_revocation_merge(fzn_revocation_store_t *store,
 		*err = first;
 
 	return admitted;
+}
+
+uint64_t fzn_revocation_generation(const fzn_revocation_store_t *store)
+{
+	return store ? store->generation : 0;
 }

@@ -363,6 +363,10 @@ struct fzn_revocation_store {
 	size_t used;
 	/* Where this store says what happened, or NULL for silence. sec 211. */
 	struct flog_t *log;
+	/* Bumped whenever this store's ANSWERS could change, so a cache built
+	 * on them can tell. Read it with `fzn_revocation_generation` rather
+	 * than reaching in. sec 354. */
+	uint64_t generation;
 };
 
 fzn_chain_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_revocation_t *entries,
@@ -705,6 +709,32 @@ int fzn_revocation_known(const fzn_revocation_store_t *store,
  * only if the pointer is not NULL, so the order is: pointer, then this, then
  * the walk. */
 int fzn_revocation_store_sound(const fzn_revocation_store_t *store);
+
+/*
+ * This store's generation: a number that CHANGES whenever an answer might.
+ *
+ * It exists for `chain/memo.h`, which caches a chain verdict and must be able
+ * to tell that a revocation has landed since. A cache cannot watch a store,
+ * and asking "has anything changed" of a structure with no version is the
+ * question that has no cheap answer -- so the store counts its own writes and
+ * a cache compares two numbers.
+ *
+ * IT IS BUMPED ON WRITES, NOT ON CALLS. An `admit` that refuses a duplicate
+ * changes nothing a lookup can see, and bumping there would throw a cache
+ * away for every retransmission on a lossy link -- which is the traffic the
+ * cache exists to survive. What bumps it is a slot being appended or an entry
+ * being marked withdrawn.
+ *
+ * IT STARTS AT ONE, so that a memo entry left zero by `memset` can never
+ * match a live generation. A cache whose "never recorded" and "recorded at
+ * generation 0" are the same value is a cache that answers from a slot nobody
+ * wrote.
+ *
+ * It never wraps in any life this library will see: one bump per write, and a
+ * store that accepted one revocation per nanosecond for six hundred years
+ * would still be short of 2^64.
+ */
+uint64_t fzn_revocation_generation(const fzn_revocation_store_t *store);
 
 int fzn_revocation_covers(const fzn_revocation_store_t *store,
                            const uint8_t issuer[FZN_PUBKEY_LEN],

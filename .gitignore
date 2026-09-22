@@ -95,6 +95,7 @@
 /facet/test/facet_test
 /facet/test/codec_test
 /admit/test/sequence_test
+/chain/test/memo_test
 /catalog/test/catalog_test
 /catalog/test/dimension_test
 /catalog/test/attribute_fuzz

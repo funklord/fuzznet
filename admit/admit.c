@@ -167,6 +167,15 @@ void fzn_admit(uint8_t *frame, size_t frame_len, uint64_t now,
 		return;
 	}
 	memcpy(cap.b, out->opened.capability, FZN_CAP_ID_LEN);
+	/* sec 4.7c's memo, asked here and nowhere earlier: the sender it keys
+	 * on became authentic at step 4. A hit skips the lookup, the open and
+	 * the Ed25519 -- which is the 51 to 487 ms a chunked message otherwise
+	 * spends reaching one answer 256 times. */
+	if (env->memo
+	    && fzn_chain_memo_allows(env->memo, root, out->opened.sender, &cap,
+	                             fzn_revocation_generation(env->revocations),
+	                             now))
+		goto reassemble;
 	if (!fzn_chain_store_lookup(env->chains, root, &cap, out->opened.sender,
 	                            now, &chain_bytes, &chain_len)) {
 		/* Fail closed: a capability this host cannot prove is one it
@@ -185,6 +194,14 @@ void fzn_admit(uint8_t *frame, size_t frame_len, uint64_t now,
 		refuse(out, FZN_ADMIT_CHAIN, FZN_ADMIT_VOCAB_CHAIN, (int)cr);
 		return;
 	}
+	/* Only the affirmative, and the generation read AFTER the
+	 * verification: a revocation landing while it ran must invalidate
+	 * this, and the earlier number would hide it. */
+	if (env->memo)
+		(void)fzn_chain_memo_record(env->memo, &verdict,
+		                            fzn_revocation_generation(env->revocations));
+
+reassemble:
 
 	/* 8. REASSEMBLY, last: the largest and longest-lived mutation in the
 	 * path, and every step above exists so that its memory bound protects

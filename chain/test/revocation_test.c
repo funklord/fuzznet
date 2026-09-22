@@ -516,9 +516,27 @@ static void test_a_reissue_over_a_live_revocation_advances_the_id(void)
 	      "the fixture could not hash the first revocation");
 	CHECK(fzn_revocation_open(first, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK,
 	      "the first revocation will not open");
-	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(rec), issuer, &f.sign,
-	                           &HASH_OPS, NULL) == FZN_CHAIN_OK,
-	      "the first revocation was not admitted");
+	{
+		/* THE GENERATION, which is the only thing connecting this
+		 * store to `chain/memo.h`. A memo caches a chain verdict and
+		 * can only tell that a revocation has landed by this number
+		 * moving; if it does not move, a revoked peer keeps a cached
+		 * authorisation for as long as the entry lives. Asserted here
+		 * rather than in memo_test because this is the suite that can
+		 * admit a real record. sec 354. */
+		uint64_t before = fzn_revocation_generation(&f.store);
+
+		CHECK(before != 0,
+		      "a store's generation starts at zero, which is the value "
+		      "a memset memo entry carries");
+		CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(rec),
+		                           issuer, &f.sign, &HASH_OPS, NULL)
+		          == FZN_CHAIN_OK,
+		      "the first revocation was not admitted");
+		CHECK(fzn_revocation_generation(&f.store) != before,
+		      "admitting a revocation did not move the generation -- a "
+		      "memo would go on authorising the peer it revoked");
+	}
 
 	/* THE REISSUE, CHAINED TO WHAT IS HELD. The pair was revoked and stays
 	 * revoked, so nothing about authorisation changes across this. */
