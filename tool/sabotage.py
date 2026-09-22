@@ -809,6 +809,59 @@ SABOTAGES = [
 		"first fixture reported MISSED. sec 367",
 	),
 	(
+		"caller-skips-another-msgs-reply",
+		"node/caller.c",
+		"\t\tif (opened.msg != msg)\n\t\t\tcontinue;",
+		"\t\tif (0)\n\t\t\tcontinue;",
+		"a reply carrying another `msg` is skipped, not returned as the "
+		"answer to this question. The socket can hold a late reply to an "
+		"earlier ask. The fixture has to LEAVE one there -- the first "
+		"version asked for an unsent msg with nothing queued and timed "
+		"out whether or not the check existed. sec 369",
+	),
+	(
+		"caller-refuses-an-overlong-request",
+		"node/caller.c",
+		"\tif (payload_len > (size_t)FZN_SPLIT_MAX_PAYLOAD)\n"
+		"\t\treturn FZN_CALLER_ERR_REQUEST_TOO_LONG;",
+		"\tif (0)\n\t\treturn FZN_CALLER_ERR_REQUEST_TOO_LONG;",
+		"the node opens one frame per datagram on the remote path and "
+		"reassembles nothing, so an over-large request is dropped at the "
+		"far end and comes back as a TIMEOUT -- an error about the network "
+		"for a fault in the request. Refused where the caller still knows "
+		"what it meant. sec 369",
+	),
+	(
+		"caller-refuses-a-reply-past-the-buffer",
+		"node/caller.c",
+		"\t\tif (done->bytes > reply_cap) {",
+		"\t\tif (0) {",
+		"a reply larger than the caller's buffer is refused whole rather "
+		"than copied as far as it fits. A prefix of a reply is a different "
+		"reply, which is the refusal fzn_node_status_line and the verb "
+		"bound both already make. sec 369",
+	),
+	(
+		"caller-releases-a-refused-reply",
+		"node/caller.c",
+		"\t\t\tfzn_reasm_release(done);\n\t\t\treturn FZN_CALLER_ERR_REPLY_TOO_LONG;",
+		"\t\t\treturn FZN_CALLER_ERR_REPLY_TOO_LONG;",
+		"a refused reply gives its reassembly slot back, or it holds one "
+		"until the table expires it and the next ask finds the table full. "
+		"The fixture uses a ONE-slot table: with two, a held slot still "
+		"leaves one free and the leak cannot be seen. sec 369",
+	),
+	(
+		"caller-reports-the-msg-it-sent",
+		"node/caller.c",
+		"\t*msg = caller->next_msg++;",
+		"\t*msg = caller->next_msg++ + 1u;",
+		"the msg handed back is the one that went out on the wire. It is "
+		"the caller's only handle on its own answer, so a value that is "
+		"off by anything means recv skips the reply it is waiting for and "
+		"reports a timeout against a node that answered. sec 369",
+	),
+	(
 		"node-peer-pack-bounds-the-hop-count",
 		"node/peer_persist.c",
 		"\tif (peer->hop_count > (size_t)FZN_CHAIN_MAX_HOPS)\n"

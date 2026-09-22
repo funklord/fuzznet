@@ -46715,3 +46715,89 @@ wrote down the order to use. I then did it again. Renamed, and the order is
 worth stating once more because writing it down demonstrably was not enough:
 **compose, then gate, then commit.** The gate cannot see a section that is
 not in the file yet, and the section is only in the file at commit time.
+
+## 369. The caller's side of the remote hop, 2026-09-23
+
+sec 362 gave the node the ability to answer with a reply larger than one
+frame. Nothing helped the other side. A consumer wanting to ask a node a
+question writes: build an `fzn_send_t`, seal it, send it, receive datagrams,
+open each with the session key, feed them to `fzn_reasm_accept`, and stop
+when the message completes -- and writes it again for every program it ships.
+`node/test/provision_test.c` contained exactly that sequence by hand, because
+there was nowhere else for it.
+
+`node/caller.{h,c}` is that sequence written once. `local/client.h` is the
+same idea for the local socket, and the two stay separate deliberately: a
+local caller is authenticated by the kernel and sends a text line, a remote
+caller is authenticated by a capability and sends a sealed frame. One
+function covering both would be two functions with a flag.
+
+### The test changed the interface, which is the part worth keeping
+
+It began as one blocking `fzn_caller_ask`. That cannot be driven against a
+node whose loop the same process turns by hand -- it waits for a reply from a
+node that has not had its turn -- and the way round it was to fork, which
+this suite deliberately does not do (`serve_test` says "without a fork" in
+its opening line).
+
+So it split into `fzn_caller_send` and `fzn_caller_recv`, with `ask` calling
+them. **And the API a test could drive turned out to be the API a consumer
+needs**: a program with its own poll loop wants to send, return to the loop,
+and read the reply when the socket says there is one. A blocking `ask` would
+have it block inside the library instead. The fork would have hidden that --
+the test would have passed and the interface would have shipped wrong.
+
+That is worth more than the module. **An awkward test is evidence about the
+interface, not only about the test.** The reflex is to reach for a harder
+fixture; the question worth asking first is why the thing is hard to drive.
+
+### What it refuses, and why each refusal is where it is
+
+**A request larger than a frame.** The node opens one frame per datagram on
+this path and reassembles nothing, so an over-large request is dropped at the
+far end and arrives back as a TIMEOUT -- an error about the network for a
+fault in the request. Refused where the caller still knows what it meant.
+**The mirror piece is the node's and is not built**: chunked REQUESTS would
+need the remote path to reassemble, which only `fzn_admit` does today.
+
+**A frame that will not open, or carries another `msg`, is skipped rather
+than fatal.** This socket can receive a late reply to an earlier question, a
+retransmission, or a stranger's datagram. Returning an error on the first
+would let anybody able to send a packet to this port turn every request into
+a failure. The timeout bounds the wait instead.
+
+**A reply past the caller's buffer**, refused whole and with its reassembly
+slot released. A prefix of a reply is a different reply; a refused answer
+that kept its slot would hold it until the table expired it.
+
+### Two sabotages that missed, and what each fixture was missing
+
+Five mutations, three caught immediately.
+
+**`a reply for another msg is skipped`** missed because the fixture asked for
+an unsent msg with NOTHING on the socket -- so it timed out whether or not
+the check existed. The fixture has to leave a real answer queued and
+uncollected, then ask for a different msg. A skip check needs something to
+skip.
+
+**`the refused reply releases its slot`** missed because the table had two
+slots: one held still leaves one free, and the next ask succeeds. A ONE-slot
+table makes a leak the next ask's failure. A resource-release check needs the
+resource to be scarce.
+
+Both are the shape sec 366 and sec 367 found twice each, arriving a fourth
+and fifth time: **a guard is invisible until the fixture makes its absence
+the difference.** The three forms so far are a check in front of it, a
+resource too plentiful for its loss to show, and an input too empty for its
+handling to matter.
+
+### And the link lists, again
+
+`node/caller.o` needed `chunk/reassembly.o` and `net/udp.o` beside it, and
+`wire/test/err_str_test` needed both as well -- it links a module for ONE
+renderer row and inherits that module's whole dependency tree. That is the
+second time (`local/client.o` was the first) and it is a real cost of the
+one-test-walks-every-renderer design: the sweep that makes a renderer
+impossible to forget also makes every new module's dependencies that test's
+problem. Worth knowing rather than fixing; the alternative is a renderer
+nobody walks.

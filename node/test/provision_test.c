@@ -19,6 +19,7 @@
 #include "../provision/provision.h"
 #include "../net/udp.h"
 #include "../chunk/reassembly.h"
+#include "caller.h"
 
 #include <arpa/inet.h>
 #include <monocypher.h>
@@ -445,6 +446,125 @@ int main(void)
 		ok(fzn_udp_recv(dev_udp, f, sizeof(f), &flen2, NULL) != FZN_UDP_OK,
 		   "a handler claiming more than its buffer still had bytes sent, so "
 		   "the loop planned over memory it was not given");
+	}
+
+	/* THE SAME EXCHANGE THROUGH `node/caller.h`, which is the point of sec
+	 * 369: the twenty lines above -- seal, send, receive, open, feed
+	 * reassembly, stop when it completes -- are what every consumer would
+	 * write, and this is them written once. The node is unchanged; only
+	 * the caller's side moves into the library.
+	 *
+	 * SEND AND RECEIVE ARE SEPARATE CALLS HERE, and that split exists
+	 * because of this test. A single blocking `ask` cannot be driven
+	 * against a node whose loop the same process turns by hand -- it would
+	 * wait for a reply from a node that has not had its turn -- and the
+	 * alternative was forking, which this suite deliberately does not do.
+	 * The API a test can drive turned out to be the API a consumer with
+	 * its own poll loop needs. */
+	{
+		fzn_caller_t caller;
+		fzn_reasm_t ctable;
+		fzn_partial_t cslots[2];
+		static uint8_t cbuf[2][8192];
+		static uint8_t answer[8192];
+		size_t alen = 0;
+		uint32_t asked = 0;
+
+		state.on_remote = on_remote_big;
+
+		ok(fzn_reasm_slot_init(&cslots[0], cbuf[0], sizeof(cbuf[0]))
+		       == FZN_REASM_OK &&
+		   fzn_reasm_slot_init(&cslots[1], cbuf[1], sizeof(cbuf[1]))
+		       == FZN_REASM_OK &&
+		   fzn_reasm_init(&ctable, cslots, 1, 1u, 60u) == FZN_REASM_OK,
+		   "the caller's reassembly table would not initialise");
+		/* ONE SLOT ON PURPOSE. With two, a reply that kept its slot
+		 * still leaves one free and the next ask succeeds -- so the
+		 * release below could not be shown to matter, and the sabotage
+		 * run said so. One slot makes a leak the next ask's failure. */
+
+		memset(&caller, 0, sizeof(caller));
+		caller.fd = dev_udp;
+		caller.node = node_addr;
+		memcpy(caller.sender, pubkey[1], FZN_PUBKEY_LEN);
+		caller.capability = cap;
+		memcpy(caller.send_key, send_key, FZN_AEAD_KEY_LEN);
+		memcpy(caller.send_ckey, send_ckey, FZN_COMMITMENT_KEY_LEN);
+		caller.hash = &hash_ops;
+		caller.aead = &aead_ops;
+		caller.rng = &rng_ops;
+		caller.reasm = &ctable;
+		caller.next_msg = 100u;
+
+		observed.called = 0;
+		ok(fzn_caller_send(&caller, PAYLOAD, sizeof(PAYLOAD), 2000u, &asked)
+		       == FZN_CALLER_OK, "the caller would not send");
+		ok(asked == 100u, "the reported msg is not the one that went out");
+		ok(fzn_node_run_once(&state, 1000) == 1,
+		   "the node did not serve the caller's request");
+		ok(observed.called, "the handler was not reached through the caller");
+		ok(fzn_caller_recv(&caller, asked, answer, sizeof(answer), &alen,
+		                   2000u) == FZN_CALLER_OK,
+		   "the caller did not read the answer back");
+		ok(alen == sizeof(big_reply) &&
+		   memcmp(answer, big_reply, alen) == 0,
+		   "what fzn_caller_recv returned is not the bytes the handler wrote");
+
+		/* A REPLY THE CALLER'S BUFFER CANNOT HOLD IS REFUSED WHOLE, and
+		 * the slot is released either way -- a refused answer that kept
+		 * its slot would hold it until the table expired it, and the
+		 * next ask would find the table full. */
+		observed.called = 0;
+		ok(fzn_caller_send(&caller, PAYLOAD, sizeof(PAYLOAD), 2000u, &asked)
+		       == FZN_CALLER_OK, "the second send failed");
+		ok(fzn_node_run_once(&state, 1000) == 1, "the node did not serve it");
+		ok(fzn_caller_recv(&caller, asked, answer, 16u, &alen, 2000u)
+		       == FZN_CALLER_ERR_REPLY_TOO_LONG,
+		   "a reply larger than the caller's buffer was accepted");
+
+		/* AND THE TABLE IS STILL USABLE, which is what proves the release
+		 * above rather than asserting it. */
+		observed.called = 0;
+		ok(fzn_caller_send(&caller, PAYLOAD, sizeof(PAYLOAD), 2000u, &asked)
+		       == FZN_CALLER_OK, "the third send failed");
+		ok(fzn_node_run_once(&state, 1000) == 1, "the node did not serve it");
+		ok(fzn_caller_recv(&caller, asked, answer, sizeof(answer), &alen,
+		                   2000u) == FZN_CALLER_OK && alen == sizeof(big_reply),
+		   "the ask after a refused reply failed, so the refused one kept "
+		   "its reassembly slot");
+
+		/* A LATE REPLY TO AN EARLIER QUESTION IS SKIPPED, not returned
+		 * as this one's answer.
+		 *
+		 * THE REPLY HAS TO BE ON THE SOCKET for this to test anything.
+		 * The first version asked for an unsent msg with nothing
+		 * queued, so it timed out whether or not the check existed and
+		 * the sabotage reported it MISSED. Here a real answer is
+		 * produced and deliberately NOT collected, so recv for a
+		 * different msg has something it could wrongly return. */
+		observed.called = 0;
+		ok(fzn_caller_send(&caller, PAYLOAD, sizeof(PAYLOAD), 2000u, &asked)
+		       == FZN_CALLER_OK, "the stray-reply send failed");
+		ok(fzn_node_run_once(&state, 1000) == 1, "the node did not serve it");
+		ok(fzn_caller_recv(&caller, asked + 50u, answer, sizeof(answer),
+		                   &alen, 200u) == FZN_CALLER_ERR_TIMEOUT,
+		   "recv returned the answer to a DIFFERENT question, so a late "
+		   "reply would be handed back as this one's");
+
+		/* A request larger than a frame is refused rather than sent: the
+		 * node reassembles nothing on this path, so it would be dropped
+		 * and read back as a timeout -- an error about the network for a
+		 * fault in the request. */
+		{
+			static uint8_t oversize[FZN_SPLIT_MAX_PAYLOAD + 1u];
+
+			ok(fzn_caller_send(&caller, oversize, sizeof(oversize), 2000u,
+			                   &asked) == FZN_CALLER_ERR_REQUEST_TOO_LONG,
+			   "a request larger than a frame was sent, so its failure "
+			   "would arrive as a timeout rather than as its own fault");
+		}
+		ok(fzn_caller_err_str((fzn_caller_err_t)-99) != NULL,
+		   "an error value outside the enum rendered as NULL");
 	}
 
 	fzn_udp_close(node_udp);
