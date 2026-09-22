@@ -45763,3 +45763,89 @@ that `fzn_chain_memo_allows` refuses. The doc claimed the two agreed. It now
 says what it counts -- slots recorded at a generation -- and why it does not
 take `now`: it is a sizing diagnostic, and a count that varied with a clock
 nobody passed for that purpose would be worse than one that is merely narrow.
+
+## 358. A revoked grantee stayed authorised, and two conditions sharing one branch, 2026-09-22
+
+A second review, this time over the OLDER modules -- twelve of them, the
+security-critical core. Nine findings against the new code's twenty-two, and
+six of the twelve reviewers returned nothing. One finding was worth the whole
+exercise.
+
+A HOST THAT MISSED ONE ROUND AUTHORISED A REVOKED GRANTEE, silently and
+permanently. The root revokes a pair, withdraws, revokes again, withdraws
+again, revokes again. A host holding the first revocation and the first
+withdrawal, which never received the middle pair, receives the latest
+revocation and REFUSES it -- `fzn_revocation_covers` answers 0 while the pair
+is revoked in truth.
+
+It fails OPEN, which is what makes it serious rather than untidy. And the
+refusal path called `fzn_manifest_satisfy` before returning, clearing the
+deficit that would have made `fzn_chain_verify` answer INCOMPLETE -- so the
+host reported neither revoked nor incomplete. It authorised.
+
+It could not self-heal. `entry->id` does not advance while an entry is
+withdrawn, so only the record immediately superseding it is accepted; the
+manifest carries one id per pair and the fetch path is keyed on
+{issuer, capability, grantee}, so there is no way to ask for the record you
+are missing. Re-offering the latest never helps.
+
+I reproduced it in `chain/test/revocation_test.c` before touching anything,
+with the intermediate record as a control: feeding it unsticks the host, so
+the refusal really is the chaining rule.
+
+===========================================================================
+
+THE FIRST FIX WAS WRONG AND AN EXISTING TEST SAID SO, which is the part worth
+keeping.
+
+Reading fuzznet's purpose -- a library that reconfigures infrastructure, F24's
+asymmetry, `FZN_CHAIN_ERR_INCOMPLETE` existing precisely to say "it cannot say
+the chain is unrevoked, only that it has not heard otherwise" -- the obvious
+move was to stop draining the deficit. The host still cannot apply the record;
+it now refuses instead of authorising. Done, tested, green.
+
+`manifest_test` leg 2 then failed: "a refused un-chained record left the
+deficit standing, so the refusal and the re-fetch chase each other for ever."
+The drain was deliberate and had a test behind it, and I had reintroduced the
+loop it prevented.
+
+READING THAT TEST GAVE THE RIGHT ANSWER. Its scenario is NOT mine. Leg 2 uses
+`fzn_revocation_issue`, which writes a ZERO `supersedes` -- a peer that never
+heard the withdrawal, revoking the pair afresh. That peer is behind US, so
+draining is correct. Mine has a NON-ZERO `supersedes` this host does not
+recognise, which means the chain moved on WITHOUT us.
+
+**Two opposite conditions had been sharing one branch**, and the drain's own
+comment carried the justification for one of them -- "this host demonstrably
+knows MORE about the pair than the peer that sent it" -- onto both. It is true
+where it was written, on the equal-id path, and it inverts on the mismatch
+path. A justification carried to a neighbouring branch where it reverses, for
+the third time this week.
+
+So the fix is not "never drain" but "drain only when the record NAMES
+nothing". Both properties hold: no loop for the peer that is behind, and
+INCOMPLETE rather than authorised for the host that is behind. One site, two
+sabotage entries, opposite mutations, caught by different suites.
+
+AND A SABOTAGE ENTRY ENCODED THE DEFECT. `rev-drain-unchained` asserted the
+unconditional drain with the reasoning "a record refused for not chaining to a
+held withdrawal is one this host is ahead of" -- the inverted justification,
+written down as a guarantee. It is gone; the two entries that replace it say
+which direction each protects.
+
+===========================================================================
+
+WHAT IS STILL OPEN, and it is the cause rather than the symptom. A host behind
+a gap now says so instead of authorising, and it still cannot fix itself: the
+manifest names one id per pair, and nothing can request a record BY ID. Until
+something can, such a host stays incomplete for that issuer until some peer
+happens to offer the intermediate. That is a design question about the
+manifest's wire form and is not this commit's to answer.
+
+THE REVIEW'S OWN NUMBERS, since they say something about where defects live.
+Twenty-two findings from seven reviewers over code written in the previous two
+days; nine from twelve reviewers over code that has been worked for weeks, six
+of those twelve returning nothing at all. The mature modules were not clean --
+this section exists -- but they were an order of magnitude cleaner per module,
+and the one real defect in them had been sitting behind a test that named the
+property and passed.

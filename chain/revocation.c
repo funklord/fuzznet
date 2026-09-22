@@ -889,17 +889,43 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 			 * than warned about in a header. */
 			if (!fzn_ct_memeq(fzn_revocation_supersedes(record), entry->id,
 			                  FZN_REVOCATION_ID_LEN)) {
-				/* Refused, and the deficit still drains: a
-				 * record that does not chain to the withdrawal
-				 * this host holds is one this host is ahead
-				 * of, so asking for it again would ask the
-				 * same peer the same question for ever. The
-				 * refusal is what a consumer sees; the drain
-				 * is what stops the asking. */
-				fzn_manifest_satisfy(manifest,
-				                     fzn_revocation_issuer(record),
-				                     fzn_revocation_capability(record),
-				                     fzn_revocation_grantee(record));
+				static const uint8_t NAMES_NOTHING[FZN_REVOCATION_ID_LEN] = { 0 };
+
+				/* TWO CONDITIONS SHARED ONE BRANCH UNTIL sec 358,
+				 * and they are opposite. What separates them is
+				 * whether the arriving record NAMES anything.
+				 *
+				 * A ZERO `supersedes` is what `fzn_revocation_issue`
+				 * writes: a peer that never heard the withdrawal
+				 * revoking the pair afresh. That peer is BEHIND
+				 * us, we are ahead of the record we just turned
+				 * down, and the deficit must drain or the refusal
+				 * and the re-fetch chase each other for ever.
+				 *
+				 * A NON-ZERO `supersedes` we do not recognise is
+				 * the opposite: the chain advanced past us. We are
+				 * BEHIND by at least one record, and draining
+				 * there told this host it was up to date when it
+				 * was not -- so `fzn_chain_verify` stopped
+				 * answering INCOMPLETE and the host authorised a
+				 * grantee the root had revoked, silently and
+				 * permanently.
+				 *
+				 * Keeping the deficit routes that case into
+				 * FZN_CHAIN_ERR_INCOMPLETE, which exists to say
+				 * exactly this: it cannot say the chain is
+				 * unrevoked, only that it has not heard
+				 * otherwise. The asking continues, and for this
+				 * case that is right -- the host really is
+				 * missing something, and nothing else will say
+				 * so. sec 358 records that it cannot ask for the
+				 * record it needs BY ID, which is the open half. */
+				if (fzn_ct_memeq(fzn_revocation_supersedes(record),
+				                 NAMES_NOTHING, FZN_REVOCATION_ID_LEN))
+					fzn_manifest_satisfy(manifest,
+					                     fzn_revocation_issuer(record),
+					                     fzn_revocation_capability(record),
+					                     fzn_revocation_grantee(record));
 				return FZN_CHAIN_ERR_UNKNOWN_TARGET;
 			}
 

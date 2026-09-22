@@ -14,6 +14,7 @@
  */
 
 #include "../revocation.h"
+#include "../manifest.h"
 
 #ifdef FZN_FLOG_ON
 #include "flog.h"
@@ -1040,6 +1041,151 @@ static void test_a_withdrawal_reaches_the_chain_walk(void)
  * AND IT IS NOT A BLANK CHEQUE, which is the half worth testing rather than
  * asserting: a genuinely new revocation of the same pair is a different
  * record with a different hash, and it applies. */
+/* A HOST THAT MISSED ONE ROUND READS A REVOKED PAIR AS NOT REVOKED.
+ *
+ * Written to FAIL, and reported rather than fixed, because the fix is a
+ * choice about authorization behaviour and not mine to make. sec 358.
+ *
+ * A re-revocation over a WITHDRAWN entry is accepted only when it supersedes
+ * exactly the id that entry holds -- the one record the held withdrawal
+ * undid. `entry->id` does not advance while the entry is withdrawn, so the
+ * only record that can re-revoke is the one IMMEDIATELY after it in the
+ * chain. Miss an intermediate round and every later record is refused.
+ *
+ * It fails OPEN, which is what makes it serious: the pair is revoked in
+ * truth and this host answers `covers == 0`. And the refusal path calls
+ * `fzn_manifest_satisfy` first, so the deficit that would have made
+ * `fzn_chain_verify` answer INCOMPLETE is cleared -- the host reports
+ * neither revoked nor incomplete, and authorises.
+ *
+ * `test_a_withdrawal_that_overtakes_its_revocation` below names this exact
+ * property -- "which would make the tombstone a permanent grant" -- and
+ * passes, because it only ever offers the reissue that DOES chain. */
+static void test_a_missed_round_leaves_a_revoked_pair_authorised(void)
+{
+	struct fixture f;
+	uint8_t r1[FZN_REVOCATION_LEN], w1[FZN_REVOCATION_LEN];
+	uint8_t r2[FZN_REVOCATION_LEN], r3[FZN_REVOCATION_LEN];
+	uint8_t w2[FZN_REVOCATION_LEN];
+	uint8_t id1[FZN_REVOCATION_ID_LEN], id2[FZN_REVOCATION_ID_LEN];
+	uint8_t grantee[FZN_PUBKEY_LEN];
+	fzn_revocation_record_t r;
+	fzn_cap_id_t cap;
+	fzn_manifest_issuer_t missuers[2];
+	fzn_manifest_deficit_t mdeficit[4];
+	fzn_manifest_state_t mf;
+
+	fixture_init(&f);
+	key(grantee, 9);
+	capability_id(&cap, 0xc7);
+	CHECK(fzn_manifest_init(&mf, missuers, 2, mdeficit, 4)
+	          == FZN_MANIFEST_OK, "the manifest would not initialise");
+
+	/* R1, then the withdrawal of it. This host has both. */
+	CHECK(revoke_and_id(&f, f.root, &cap, grantee, 1000, r1, id1),
+	      "R1 was not admitted");
+	f.stub.identity = f.root[0];
+	CHECK(fzn_revocation_issue_withdrawal(f.root, &cap, grantee, 2000, id1,
+	                                      &f.sign, w1) == FZN_CHAIN_OK,
+	      "W1 could not be minted");
+	stub_reset(&f.stub);
+	CHECK(fzn_revocation_open(w1, FZN_REVOCATION_LEN, &r) == FZN_CHAIN_OK,
+	      "W1 will not open");
+	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(r), f.root,
+	                           &f.sign, &HASH_OPS, NULL) == FZN_CHAIN_OK,
+	      "W1 was not admitted");
+	CHECK(fzn_revocation_covers(&f.store, f.root, &cap, grantee) == 0,
+	      "the withdrawal did not restore the pair");
+
+	/* The root revokes again (R2), withdraws again (W2), revokes again
+	 * (R3). THIS HOST NEVER RECEIVES R2 OR W2 -- one lost round. */
+	f.stub.identity = f.root[0];
+	CHECK(fzn_revocation_reissue(f.root, &cap, grantee, 3000, id1, &f.sign,
+	                             r2) == FZN_CHAIN_OK, "R2 could not be minted");
+	stub_reset(&f.stub);
+	CHECK(stub_hash(NULL, id2, FZN_REVOCATION_ID_LEN, r2, FZN_REVOCATION_LEN),
+	      "R2 could not be hashed");
+	f.stub.identity = f.root[0];
+	CHECK(fzn_revocation_issue_withdrawal(f.root, &cap, grantee, 4000, id2,
+	                                      &f.sign, w2) == FZN_CHAIN_OK,
+	      "W2 could not be minted");
+	CHECK(fzn_revocation_reissue(f.root, &cap, grantee, 5000, id2, &f.sign,
+	                             r3) == FZN_CHAIN_OK, "R3 could not be minted");
+	stub_reset(&f.stub);
+
+	/* R3 arrives. The pair IS revoked in truth. */
+	CHECK(fzn_revocation_open(r3, FZN_REVOCATION_LEN, &r) == FZN_CHAIN_OK,
+	      "R3 will not open");
+	/* A CONVERGED PEER, so the victim can learn it is behind. The peer
+	 * holds all five records and therefore names the pair as revoked with
+	 * the id of R3, which is not the id this host holds -- and that is
+	 * what records the deficit. */
+	{
+		fzn_revocation_t peer_entries[8];
+		fzn_revocation_store_t peer;
+		uint8_t mbuf[FZN_MANIFEST_MAX_LEN];
+		size_t mlen = 0;
+		fzn_manifest_record_t mrec;
+		const uint8_t *seq[5];
+		size_t k;
+
+		CHECK(fzn_revocation_store_init(&peer, peer_entries, 8)
+		          == FZN_CHAIN_OK, "the peer store would not initialise");
+		seq[0] = r1; seq[1] = w1; seq[2] = r2; seq[3] = w2; seq[4] = r3;
+		for (k = 0; k < 5; k++) {
+			fzn_revocation_record_t pr;
+
+			CHECK(fzn_revocation_open(seq[k], FZN_REVOCATION_LEN, &pr)
+			          == FZN_CHAIN_OK, "a peer record will not open");
+			CHECK(fzn_revocation_admit(&peer,
+			                           fzn_revocation_offer_root(pr),
+			                           f.root, &f.sign, &HASH_OPS, NULL)
+			          == FZN_CHAIN_OK,
+			      "the peer refused a record it should hold");
+		}
+		CHECK(fzn_revocation_covers(&peer, f.root, &cap, grantee) == 1,
+		      "the converged peer does not hold the pair as revoked");
+
+		f.stub.identity = f.root[0];
+		CHECK(fzn_manifest_issue(f.root, &peer, &f.sign, mbuf,
+		                         sizeof(mbuf), &mlen) == FZN_MANIFEST_OK,
+		      "the peer could not issue a manifest");
+		stub_reset(&f.stub);
+		CHECK(fzn_manifest_open(mbuf, mlen, &mrec) == FZN_MANIFEST_OK,
+		      "the peer's manifest will not open");
+		CHECK(fzn_manifest_follow(&mf, f.root) == FZN_MANIFEST_OK,
+		      "the issuer could not be followed");
+		CHECK(fzn_manifest_admit(&mf, &f.store, mrec, &f.sign)
+		          == FZN_MANIFEST_OK, "the manifest was not admitted");
+		CHECK(fzn_manifest_pending(&mf, f.root) == 1,
+		      "the victim did not learn it is behind");
+	}
+
+	(void)fzn_revocation_admit(&f.store, fzn_revocation_offer_root(r), f.root,
+	                           &f.sign, &HASH_OPS, &mf);
+	/* IT STILL CANNOT APPLY R3 -- the chain moved on without this host and
+	 * the record it needs cannot be asked for. What it must NOT do is
+	 * authorise. `covers` stays 0 and that is honest; what makes it safe
+	 * is that the deficit survives, so `fzn_chain_verify` answers
+	 * INCOMPLETE rather than letting the grantee through. */
+	CHECK(fzn_revocation_covers(&f.store, f.root, &cap, grantee) == 0,
+	      "R3 applied over a gap it does not chain to");
+	CHECK(fzn_manifest_pending(&mf, f.root) == 1,
+	      "the refusal drained the deficit, so this host reports neither "
+	      "revoked nor incomplete and authorises a revoked grantee "
+	      "(sec 358)");
+
+	/* The control: the intermediate R2 unsticks it, so the refusal above
+	 * is about the chaining and not about R3 being malformed. */
+	CHECK(fzn_revocation_open(r2, FZN_REVOCATION_LEN, &r) == FZN_CHAIN_OK,
+	      "R2 will not open");
+	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(r), f.root,
+	                           &f.sign, &HASH_OPS, NULL) == FZN_CHAIN_OK,
+	      "R2 was refused, so the case above proves nothing");
+	CHECK(fzn_revocation_covers(&f.store, f.root, &cap, grantee) == 1,
+	      "the intermediate reissue did not re-revoke the pair");
+}
+
 static void test_a_withdrawal_that_overtakes_its_revocation(void)
 {
 	struct fixture f;
@@ -3121,6 +3267,7 @@ int main(void)
 	test_a_withdrawal_restores_and_the_entry_remains();
 	test_a_reissue_after_a_withdrawal();
 	test_a_withdrawal_reaches_the_chain_walk();
+	test_a_missed_round_leaves_a_revoked_pair_authorised();
 	test_a_withdrawal_that_overtakes_its_revocation();
 	test_a_withdrawal_naming_what_we_lack();
 	test_admits_a_signed_revocation();

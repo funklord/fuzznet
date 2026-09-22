@@ -595,6 +595,33 @@ SABOTAGES = [
 		"sec 356",
 	),
 	(
+		"revocation-a-gap-is-reported-not-drained",
+		"chain/revocation.c",
+		"\t\t\t\tif (fzn_ct_memeq(fzn_revocation_supersedes(record),\n\t\t\t\t                 NAMES_NOTHING, FZN_REVOCATION_ID_LEN))",
+		"\t\t\t\tif (1)",
+		"a re-revocation whose `supersedes` this host does not recognise means "
+		"the chain moved on WITHOUT it. Draining there tells the host it is up "
+		"to date when it is behind, so fzn_chain_verify stops answering "
+		"INCOMPLETE and the host authorises a grantee the root has revoked -- "
+		"silently, permanently, and with no way to ask for the record that "
+		"would fix it. revocation_test builds a converged peer, lets the "
+		"victim learn it is behind, and requires the deficit to survive the "
+		"refusal. sec 358",
+	),
+	(
+		"revocation-drains-when-the-record-names-nothing",
+		"chain/revocation.c",
+		"\t\t\t\tif (fzn_ct_memeq(fzn_revocation_supersedes(record),\n\t\t\t\t                 NAMES_NOTHING, FZN_REVOCATION_ID_LEN))",
+		"\t\t\t\tif (0)",
+		"the other direction of the same branch, and the reason it is a branch "
+		"at all. A ZERO `supersedes` is what fzn_revocation_issue writes: a "
+		"peer that never heard the withdrawal, revoking the pair afresh. That "
+		"peer is behind US, so the deficit must drain or the refusal and the "
+		"re-fetch chase each other for ever. manifest_test's leg 2 is what "
+		"catches it, and it caught the first version of the sec 358 fix, which "
+		"stopped draining unconditionally. sec 358",
+	),
+	(
 		"shard-absorbs-the-remainder",
 		"catalog/shard.c",
 		"\t\tif (i + 1u == shards)\n\t\t\tout[i].entries = count - at;\n\t\telse\n\t\t\tout[i].entries = min_entries;",
@@ -3289,18 +3316,6 @@ SABOTAGES = [
 		"\t\t\t\treturn FZN_CHAIN_OK;\n",
 		"a stale copy of a withdrawn revocation must settle the deficit that "
 		"asked for it, or the fetch repeats for ever and the gate never opens",
-	),
-	(
-		"rev-drain-unchained",
-		"chain/revocation.c",
-		"\t\t\t\tfzn_manifest_satisfy(manifest,\n"
-		"\t\t\t\t                     fzn_revocation_issuer(record),\n"
-		"\t\t\t\t                     fzn_revocation_capability(record),\n"
-		"\t\t\t\t                     fzn_revocation_grantee(record));\n"
-		"\t\t\t\treturn FZN_CHAIN_ERR_UNKNOWN_TARGET;\n",
-		"\t\t\t\treturn FZN_CHAIN_ERR_UNKNOWN_TARGET;\n",
-		"a record refused for not chaining to a held withdrawal is one this host "
-		"is ahead of, so the deficit must drain even though nothing was stored",
 	),
 	(
 		"rev-drain-chained-reissue",
