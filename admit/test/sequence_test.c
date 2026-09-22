@@ -158,9 +158,27 @@ static int stub_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN],
 	return memcmp(want, sig, sizeof(want)) == 0;
 }
 
+/* A signer that signs and CANNOT VERIFY. It exists so the memo case has a
+ * fixture where the plausible wrong answer and the right one differ: with it
+ * installed, a real chain verification must fail, so a frame that is still
+ * admitted was admitted BY THE MEMO and by nothing else. Asserting only that
+ * the second frame is admitted would pass against a memo that never hits. */
+static int never_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN],
+                        const uint8_t *msg, size_t msg_len,
+                        const uint8_t sig[FZN_SIG_LEN])
+{
+	(void)ctx;
+	(void)pubkey;
+	(void)msg;
+	(void)msg_len;
+	(void)sig;
+	return 0;
+}
+
 static fzn_hash_ops_t hash = { stub_hash, NULL };
 static fzn_aead_ops_t aead = { stub_seal, stub_open, NULL };
 static fzn_sign_ops_t sign = { stub_verify, stub_sign, NULL };
+static fzn_sign_ops_t broken_sign = { never_verify, stub_sign, NULL };
 
 /* ---- the fixture ------------------------------------------------------ */
 
@@ -269,6 +287,10 @@ static fzn_chain_store_t chains;
 static fzn_partial_t partials[4];
 static uint8_t partial_bufs[4][256];
 static fzn_reasm_t reasm;
+static fzn_revocation_t rev_entries[4];
+static fzn_revocation_store_t revocations;
+static fzn_chain_memo_entry_t memo_entries[4];
+static fzn_chain_memo_t memo;
 
 static void reset_state(void)
 {
@@ -286,6 +308,10 @@ static void reset_state(void)
 		                    sizeof(partial_bufs[i]));
 	fzn_reasm_init(&reasm, partials,
 	               sizeof(partials) / sizeof(partials[0]), 2, MAX_AHEAD);
+	fzn_revocation_store_init(&revocations, rev_entries,
+	                          sizeof(rev_entries) / sizeof(rev_entries[0]));
+	fzn_chain_memo_init(&memo, memo_entries,
+	                    sizeof(memo_entries) / sizeof(memo_entries[0]));
 	keys_known = 1;
 	root_known = 1;
 	memcpy(serve_aead, aead_key, sizeof(serve_aead));
@@ -519,6 +545,95 @@ int main(void)
 		fzn_admit(work, sizeof(work), NOW, NULL, candidates, 1, &rr);
 		CHECK(rr.step == FZN_ADMIT_SHAPE && rr.vocab == FZN_ADMIT_VOCAB_SEAL,
 		      "a null environment was not refused at shape");
+	}
+
+	/* ---- THE MEMO BRANCH. Wired at step 7 and, until this case existed,
+	 * never executed by any test: sequence_test zeroed its env so
+	 * `env.memo` was NULL, and memo_test exercises the memo with no
+	 * `fzn_admit` anywhere near it. Each module was covered and the seam
+	 * between them was not. ---- */
+	{
+		static const uint8_t NONCE_B[24] = "nonce b, twenty-four by";
+		fzn_admit_env_t env;
+		fzn_admit_key_t candidates[2];
+		fzn_admit_result_t r1, r2;
+		uint8_t second[FRAME_LEN];
+
+		reset_state();
+		build_sealed(second, NONCE_B, EXPIRES);
+
+		env = env_for(&reasm);
+		env.revocations = &revocations;
+		env.memo = &memo;
+
+		memcpy(work, good, sizeof(work));
+		fzn_admit(work, sizeof(work), NOW, &env, candidates, 2, &r1);
+		CHECK(r1.step == FZN_ADMIT_ADMITTED,
+		      "the first frame was refused at %s",
+		      fzn_admit_step_str(r1.step));
+		CHECK(memo.hits == 0 && fzn_chain_memo_live(&memo,
+		          fzn_revocation_generation(&revocations)) == 1,
+		      "the first frame did not record a verdict");
+
+		/* NOW MAKE VERIFICATION IMPOSSIBLE. A second frame that is
+		 * still admitted was admitted by the memo, because nothing
+		 * else could have said yes. */
+		env.sign = &broken_sign;
+		memcpy(work, second, sizeof(work));
+		fzn_admit(work, sizeof(work), NOW, &env, candidates, 2, &r2);
+		CHECK(r2.step == FZN_ADMIT_ADMITTED,
+		      "the second frame was refused at %s -- the memo did not "
+		      "answer", fzn_admit_step_str(r2.step));
+		CHECK(memo.hits == 1, "the hit was not counted: hits=%u",
+		      (unsigned)memo.hits);
+
+		/* The control for the control: with the broken signer and NO
+		 * memo, the same frame is refused. Without this the case
+		 * above would pass against a `broken_sign` that happened to
+		 * verify. */
+		reset_state();
+		env = env_for(&reasm);
+		env.revocations = &revocations;
+		env.memo = NULL;
+		env.sign = &broken_sign;
+		memcpy(work, second, sizeof(work));
+		fzn_admit(work, sizeof(work), NOW, &env, candidates, 2, &r2);
+		CHECK(r2.step == FZN_ADMIT_CHAIN,
+		      "a frame whose chain cannot verify was admitted at %s "
+		      "with no memo", fzn_admit_step_str(r2.step));
+	}
+
+	/* NO REVOCATION STORE MEANS NO CACHING, and by arithmetic rather than
+	 * by a rule: a null store's generation is zero, and a memo refuses to
+	 * record or match on zero. A cache nothing can invalidate would be a
+	 * permanent authorisation, so the degenerate case has to fail safe. */
+	{
+		static const uint8_t NONCE_C[24] = "nonce c, twenty-four by";
+		fzn_admit_env_t env;
+		fzn_admit_key_t candidates[2];
+		fzn_admit_result_t r1, r2;
+		uint8_t second[FRAME_LEN];
+
+		reset_state();
+		build_sealed(second, NONCE_C, EXPIRES);
+
+		env = env_for(&reasm);
+		env.revocations = NULL;
+		env.memo = &memo;
+
+		memcpy(work, good, sizeof(work));
+		fzn_admit(work, sizeof(work), NOW, &env, candidates, 2, &r1);
+		CHECK(r1.step == FZN_ADMIT_ADMITTED,
+		      "the first frame was refused with no revocation store");
+		CHECK(fzn_chain_memo_live(&memo, 1) == 0,
+		      "a verdict was cached with no store to invalidate it");
+
+		env.sign = &broken_sign;
+		memcpy(work, second, sizeof(work));
+		fzn_admit(work, sizeof(work), NOW, &env, candidates, 2, &r2);
+		CHECK(r2.step == FZN_ADMIT_CHAIN,
+		      "a cache with no invalidator answered: admitted at %s",
+		      fzn_admit_step_str(r2.step));
 	}
 
 	printf("sequence_test: %d checks, %d failure(s)\n", checks, failures);

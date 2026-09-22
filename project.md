@@ -45585,3 +45585,45 @@ belongs where a real record can be admitted.
 `rev-withdrawal-tombstone` anchored on the two lines the new `generation++`
 landed between, and stopped matching. Third time today that check has caught
 an anchor going stale under an edit, which is what it is for.
+
+## 355. The seam between admit and the memo had no test, 2026-09-22
+
+sec 354 wired the chain memo into `fzn_admit` at step 7 and tested neither end
+of the join. `memo_test` exercises the memo with no `fzn_admit` anywhere near
+it; `sequence_test` zeroed its environment, so `env.memo` was NULL and the hit
+path -- the branch that skips the store lookup, the chain open and the Ed25519
+-- was **never executed by any test**. Both modules covered, the seam between
+them not, and I wrote the seam an hour before noticing.
+
+THE FIXTURE HAD TO MAKE THE WRONG ANSWER DIFFERENT FROM THE RIGHT ONE, which
+is what the first draft of a test like this never does. Asserting that a second
+frame is admitted passes against a memo that never hits, because the second
+frame would verify normally and be admitted anyway. So the signer is REPLACED
+between the two frames with one that cannot verify: a second frame that is
+still admitted was admitted BY THE MEMO, because nothing else could have said
+yes.
+
+    frame 1, working signer   -> admitted, verdict recorded
+    signer replaced with one that never verifies
+    frame 2, new nonce        -> admitted  => the memo answered
+    same, with env.memo NULL  -> refused at CHAIN  => the signer really is broken
+
+The third line is the control for the control. Without it the case would pass
+against a "broken" signer that happened to verify, which is the same class of
+mistake as the fixture it is guarding.
+
+AND IT NEEDED A REAL REVOCATION STORE, which turned out to be a second test
+rather than an obstacle. The memo records the store's generation, a null
+store's generation is zero, and a memo refuses to record or match on zero --
+so with no store the cache silently does nothing. That is the fail-safe sec 354
+claims, and it is now asserted rather than described: the same two-frame
+sequence with `env.revocations` NULL admits the first and REFUSES the second.
+
+Two sabotage entries were run against it rather than added, since the guards
+they would name are admit's two memo lines: with the consult removed the
+second frame is refused at CHAIN, and with the record removed the first frame
+never caches. Both fail through their own assertion.
+
+45 checks now. The general form is the one this tree keeps meeting: a module
+with a test and a module with a test, joined by three lines that neither suite
+can see.
