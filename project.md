@@ -46874,3 +46874,58 @@ not while a chunked request spends one slot per piece. A full window makes
 DENIED saw its handler never called and blamed the wrong thing. Widened to
 256, and recorded because the symptom pointed at the code under test rather
 than at the fixture.
+
+## 371. A test that crashed half the time, and had for weeks, 2026-09-23
+
+`make test` reported a segmentation fault in `persist/test/persist_file_test`
+once, then passed on a re-run. The comfortable reading was a flake in a
+shared tree, which `running-code.md` names as the explanation that ends an
+investigation and is therefore more expensive than none.
+
+Measured instead: **44 crashes in 60 runs.** Three runs by hand had all
+landed in the lucky sixteen.
+
+THE CAUSE, and the pointer value is the proof. `test_the_filesystem_refusing`
+builds a store BY HAND -- deliberately, because `fzn_persist_file_init`
+refuses the over-long directory it wants to test -- and assigns four fields:
+
+    fzn_persist_file_t hollow;
+
+    hollow.dir = deep;
+    hollow.ops.load = ops->load;
+    hollow.ops.save = ops->save;
+    hollow.ops.ctx = &hollow;
+
+`log` is not among them. `file_load` takes the path-too-long branch, logs
+through `store->log`, and follows whatever the stack held. gdb reported the
+bad pointer as `0x6464646464646464` -- "dddddddd" -- which is `deep`, filled
+with 'd' a dozen lines earlier. Zeroing the struct takes it to 0 in 60.
+
+### Why nobody saw it
+
+`make test` passed. It passed in sec 367, and twice more while this was being
+chased. A read of stack garbage crashes or not depending on what is there, so
+the suite's verdict under `make` was stable and wrong -- the same stack
+layout every time, and a benign one.
+
+**A crash rate near a half is the worst one to have**, because the two ways
+anybody looks at a suite -- run it once, or run it once more -- both come
+back clean about as often as not. It took running it sixty times to see, and
+nothing prompts that except refusing to accept the first explanation.
+
+### It is not new, which had to be established rather than assumed
+
+`persist_file.c` gained `file_list` and a slot-name refusal in sec 367, one
+section before the crash was noticed, and code you have just changed is the
+first suspect. Building the pre-sec-367 file and running it: **21 crashes in
+40.** The bug predates the change, and the change is cleared by measurement
+rather than by reading the diff.
+
+### The shape an uninitialised field takes
+
+A struct assigned field by field rather than zeroed is a struct whose
+remaining fields are live garbage. And the field that bites is the one the
+callee reads only on an ERROR path -- no passing test touches it, so it can
+sit uninitialised for as long as the error path is rare. Here the test's
+whole purpose was to drive that error path, which is what made the omission
+fatal rather than dormant.

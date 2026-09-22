@@ -133,6 +133,24 @@ static void test_the_filesystem_refusing(const char *scratch)
 	{
 		fzn_persist_file_t hollow;
 
+		/* ZEROED FIRST, AND IT CRASHED THE SUITE ABOUT HALF THE TIME
+		 * WITHOUT THIS.
+		 *
+		 * This store is built by hand precisely because `init` refuses
+		 * it, so nothing sets the fields `init` would -- and `log` is
+		 * one of them. `file_load` takes the path-too-long branch here
+		 * and LOGS, through `store->log`, which held whatever was on
+		 * the stack. The pointer gdb reported was 0x6464646464646464 --
+		 * "dddddddd" -- which is `deep` above, filled with 'd' a few
+		 * lines earlier. Measured at 21 crashes in 40 runs, and it
+		 * varies with the stack, which is why `make test` passed
+		 * anyway and why three runs by hand looked clean.
+		 *
+		 * The general shape: a struct partially assigned rather than
+		 * zeroed is a struct whose remaining fields are live garbage,
+		 * and a field the callee only reads on an ERROR path is one no
+		 * passing test ever touches. */
+		memset(&hollow, 0, sizeof(hollow));
 		hollow.dir = deep;
 		hollow.ops.load = ops->load;
 		hollow.ops.save = ops->save;
