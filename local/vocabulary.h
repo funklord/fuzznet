@@ -177,6 +177,118 @@ typedef struct fzn_request {
 	size_t arg_len;
 } fzn_request_t;
 
+/* THE ANSWERS FUZZNET OFFERS, and the other half of sec 361.
+ *
+ * A daemon has to say whether it did the thing, and every consumer would
+ * invent `ok` and `error` and a spelling for the rest. The set is small on
+ * purpose: these are the answers a REQUEST can get, not a description of what
+ * went wrong, which is the detail's job.
+ *
+ * FOUR REFUSALS RATHER THAN ONE, because they send a reader to different
+ * places and the daemon already knows which it means:
+ *
+ *     OK           it was done; the detail is the answer
+ *     DENIED       policy refused YOU -- an access decision
+ *     UNSUPPORTED  this daemon does not serve that verb at all
+ *     ERROR        understood, attempted, failed
+ *     MALFORMED    could not be read as a request
+ *
+ * DENIED and UNSUPPORTED are the distinction `fzn_vocabulary_names` exists
+ * for, arriving on the wire. That function was written because
+ * `fzn_vocabulary_admit` returns NOT_MEMBER both when no rule names a verb
+ * and when rules name it and this peer holds none of those groups -- "a
+ * configuration finding and an access decision", and a daemon reporting both
+ * as denied sends an operator to the wrong half of the system. The server has
+ * been able to tell them apart since that function existed and has had no way
+ * to SAY which. Now it has.
+ *
+ * NOT ON THE WIRE AS NUMBERS, the same as `fzn_verb_t`: a reply carries the
+ * token as text and this enum is a handle for it. */
+typedef enum fzn_reply {
+	FZN_REPLY_NONE = 0,
+	FZN_REPLY_OK,
+	FZN_REPLY_DENIED,
+	FZN_REPLY_UNSUPPORTED,
+	FZN_REPLY_ERROR,
+	FZN_REPLY_MALFORMED
+} fzn_reply_t;
+
+#define FZN_REPLY_COUNT ((size_t)FZN_REPLY_MALFORMED + 1u)
+
+/* The longest reply line, terminator excluded. The request's bound and this
+ * one are separate numbers because they bound different things and there is
+ * no reason an answer should be as long as a question or the reverse. */
+#define FZN_REPLY_MAX 512u
+
+/* The canonical spelling, NUL-terminated; NULL for FZN_REPLY_NONE and for a
+ * value outside the enum. As with verbs, one spelling only. */
+const char *fzn_reply_name(fzn_reply_t reply);
+size_t fzn_reply_name_len(fzn_reply_t reply);
+
+/* Bytes to reply token, or FZN_REPLY_NONE for one this library does not
+ * offer. Exact and case-sensitive, for `fzn_verb_parse`'s reasons. */
+fzn_reply_t fzn_reply_parse(const uint8_t *token, size_t token_len);
+
+/* Did the request succeed? 1 for OK and 0 for everything else INCLUDING
+ * FZN_REPLY_NONE.
+ *
+ * A reply this library does not offer is a reply it cannot vouch for, and
+ * answering 1 for one would make a consumer's unrecognised token read as
+ * success -- which is the direction that matters, since the failure is a
+ * caller carrying on after something did not happen. */
+int fzn_reply_ok(fzn_reply_t reply);
+
+/* Why a line could not be composed. `cap` is the caller's buffer and `limit`
+ * is the protocol's bound, and they fail differently on purpose: too long for
+ * the WIRE is a fact about the request, and too long for the BUFFER is a fact
+ * about the caller. A function that collapsed them would leave a caller
+ * unable to tell "ask for less" from "give me a bigger buffer". */
+typedef enum fzn_compose_err {
+	FZN_COMPOSE_OK = 0,
+	FZN_COMPOSE_ERR_MALFORMED = -1,
+	FZN_COMPOSE_ERR_TOO_LONG = -2,
+	FZN_COMPOSE_ERR_NO_ROOM = -3
+} fzn_compose_err_t;
+
+/* Compose one line -- `token SP argument LF` -- into `out`, terminator
+ * included.
+ *
+ * ONE FUNCTION FOR BOTH DIRECTIONS. A request line and a reply line are the
+ * same grammar with different vocabularies, and this is the only place that
+ * grammar is written: `local/client.h` composes requests with it and a
+ * daemon's handler composes replies. `fzn_vocabulary_split` reads either.
+ * Two composers would be two statements of one format, and the second would
+ * drift in the direction nobody tests.
+ *
+ * Refuses an empty token, one longer than FZN_VERB_MAX, and one containing a
+ * space or a newline -- the first would arrive as a shorter token with an
+ * argument, past any rule written for the whole string, and the second would
+ * make one line into two.
+ *
+ * A NULL `arg` with zero length writes `token LF`. A non-NULL `arg` of zero
+ * length writes `token SP LF`, which is a different line and one `split`
+ * reads back as an empty argument rather than an absent one. */
+fzn_compose_err_t fzn_vocabulary_compose(uint8_t *out, size_t cap, size_t limit,
+                                         size_t *out_len, const uint8_t *token,
+                                         size_t token_len, const uint8_t *arg,
+                                         size_t arg_len);
+
+/* Compose a reply, which is `fzn_vocabulary_compose` with the token spelled
+ * from the enum. FZN_REPLY_NONE is refused: it names nothing to say. */
+fzn_compose_err_t fzn_reply_compose(uint8_t *out, size_t cap, size_t *out_len,
+                                    fzn_reply_t reply, const uint8_t *detail,
+                                    size_t detail_len);
+
+/* Read a reply line: the token as an `fzn_reply_t`, and the rest of the line
+ * pointed at through `detail`. Borrowed from `line`, so it lives no longer.
+ *
+ * FZN_REPLY_NONE for a line this library cannot read as a reply -- empty, all
+ * spaces, an overlong token, or a token it does not offer. `fzn_reply_ok`
+ * answers 0 for that, so a caller that checks the one thing worth checking
+ * does not carry on after an answer it did not understand. */
+fzn_reply_t fzn_reply_of(const uint8_t *line, size_t line_len,
+                         const uint8_t **detail, size_t *detail_len);
+
 /* Split one request line into a verb and its argument.
  *
  * The grammar is deliberately the smallest thing that can carry an argument:

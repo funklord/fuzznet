@@ -5,6 +5,7 @@
 #include "../constant_time/constant_time.h"
 
 #include <stddef.h>
+#include <string.h>
 
 /* Does this rule name this verb?
  *
@@ -241,4 +242,142 @@ int fzn_vocabulary_split(const uint8_t *line, size_t line_len, fzn_request_t *ou
 		out->arg_len = line_len - i - 1u;
 	}
 	return 1;
+}
+
+/* THE REPLY SPELLINGS, indexed by the enum for `VERBS`' reasons, and proved
+ * the same way: `vocabulary_test` walks the set and requires each to name
+ * itself and parse back. */
+static const struct {
+	const char *name;
+	size_t len;
+} REPLIES[FZN_REPLY_COUNT] = {
+	[FZN_REPLY_NONE]        = { NULL,          0u },
+	[FZN_REPLY_OK]          = { "ok",          2u },
+	[FZN_REPLY_DENIED]      = { "denied",      6u },
+	[FZN_REPLY_UNSUPPORTED] = { "unsupported", 11u },
+	[FZN_REPLY_ERROR]       = { "error",       5u },
+	[FZN_REPLY_MALFORMED]   = { "malformed",   9u }
+};
+
+static int reply_in_table(fzn_reply_t reply)
+{
+	return (size_t)reply < FZN_REPLY_COUNT &&
+	       REPLIES[(size_t)reply].name != NULL;
+}
+
+const char *fzn_reply_name(fzn_reply_t reply)
+{
+	return reply_in_table(reply) ? REPLIES[(size_t)reply].name : NULL;
+}
+
+size_t fzn_reply_name_len(fzn_reply_t reply)
+{
+	return reply_in_table(reply) ? REPLIES[(size_t)reply].len : 0u;
+}
+
+int fzn_reply_ok(fzn_reply_t reply)
+{
+	return reply == FZN_REPLY_OK;
+}
+
+fzn_reply_t fzn_reply_parse(const uint8_t *token, size_t token_len)
+{
+	size_t i;
+
+	if (!token || token_len == 0 || token_len > FZN_VERB_MAX)
+		return FZN_REPLY_NONE;
+	for (i = 1u; i < FZN_REPLY_COUNT; i++) {
+		if (REPLIES[i].name == NULL || REPLIES[i].len != token_len)
+			continue;
+		/* Not constant-time, for `fzn_verb_parse`'s reason: which of the
+		 * published answers a daemon gave is not a secret. */
+		if (fzn_ct_memeq(token, (const uint8_t *)REPLIES[i].name, token_len))
+			return (fzn_reply_t)i;
+	}
+	return FZN_REPLY_NONE;
+}
+
+fzn_compose_err_t fzn_vocabulary_compose(uint8_t *out, size_t cap, size_t limit,
+                                         size_t *out_len, const uint8_t *token,
+                                         size_t token_len, const uint8_t *arg,
+                                         size_t arg_len)
+{
+	size_t need;
+	size_t i;
+
+	if (!out || !out_len || !token || token_len == 0)
+		return FZN_COMPOSE_ERR_MALFORMED;
+	if (!arg && arg_len)
+		return FZN_COMPOSE_ERR_MALFORMED;
+	if (token_len > FZN_VERB_MAX)
+		return FZN_COMPOSE_ERR_TOO_LONG;
+	/* A SPACE WOULD SPLIT THE TOKEN AND A NEWLINE WOULD SPLIT THE LINE.
+	 * Either lets a caller send something the far end reads as other than
+	 * what was meant: a token of `get x` arrives as `get` with an argument,
+	 * past any rule written for the whole string, and one carrying a
+	 * newline arrives as two lines. Refused rather than escaped, because an
+	 * escape is a second grammar. */
+	for (i = 0; i < token_len; i++)
+		if (token[i] == (uint8_t)' ' || token[i] == (uint8_t)'\n')
+			return FZN_COMPOSE_ERR_MALFORMED;
+
+	/* The space belongs to the argument, not to the token: a NULL argument
+	 * and an empty one differ by exactly it, and `fzn_vocabulary_split`
+	 * reads that difference back. */
+	need = token_len + (arg ? 1u + arg_len : 0u) + 1u;
+	if (need > limit)
+		return FZN_COMPOSE_ERR_TOO_LONG;
+	if (need > cap)
+		return FZN_COMPOSE_ERR_NO_ROOM;
+
+	memcpy(out, token, token_len);
+	*out_len = token_len;
+	if (arg) {
+		out[(*out_len)++] = (uint8_t)' ';
+		if (arg_len)
+			memcpy(out + *out_len, arg, arg_len);
+		*out_len += arg_len;
+	}
+	out[(*out_len)++] = (uint8_t)'\n';
+	return FZN_COMPOSE_OK;
+}
+
+fzn_compose_err_t fzn_reply_compose(uint8_t *out, size_t cap, size_t *out_len,
+                                    fzn_reply_t reply, const uint8_t *detail,
+                                    size_t detail_len)
+{
+	const char *name = fzn_reply_name(reply);
+
+	/* FZN_REPLY_NONE names nothing to say. It is a fine thing to RECEIVE --
+	 * it is how an answer this library does not offer reads -- but a daemon
+	 * asking to send it has not said what happened. */
+	if (!name)
+		return FZN_COMPOSE_ERR_MALFORMED;
+	return fzn_vocabulary_compose(out, cap, FZN_REPLY_MAX, out_len,
+	                              (const uint8_t *)name,
+	                              fzn_reply_name_len(reply), detail,
+	                              detail_len);
+}
+
+fzn_reply_t fzn_reply_of(const uint8_t *line, size_t line_len,
+                         const uint8_t **detail, size_t *detail_len)
+{
+	fzn_request_t split;
+
+	/* Zeroed before anything can fail, so a caller reading them after a
+	 * NONE sees nothing rather than whatever its stack held. */
+	if (detail)
+		*detail = NULL;
+	if (detail_len)
+		*detail_len = 0u;
+	/* THE SAME SPLIT A REQUEST GETS, which is the whole reason the grammar
+	 * is one function: a reply is a token and a rest, exactly as a request
+	 * is a verb and a rest. */
+	if (!fzn_vocabulary_split(line, line_len, &split))
+		return FZN_REPLY_NONE;
+	if (detail)
+		*detail = split.arg;
+	if (detail_len)
+		*detail_len = split.arg_len;
+	return fzn_reply_parse(split.verb, split.verb_len);
 }

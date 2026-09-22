@@ -653,9 +653,9 @@ SABOTAGES = [
 		"arrives rather than one that arrives wrong. sec 362",
 	),
 	(
-		"client-verb-may-not-hide-a-separator",
-		"local/client.c",
-		"\t\tif (verb[i] == (uint8_t)' ' || verb[i] == (uint8_t)'\\n')",
+		"vocabulary-compose-token-hides-no-separator",
+		"local/vocabulary.c",
+		"\t\tif (token[i] == (uint8_t)' ' || token[i] == (uint8_t)'\\n')",
 		"\t\tif (0)",
 		"a composed verb carries neither a space nor a newline. A verb of "
 		"`get x` arrives at the server as `get` with an argument -- past "
@@ -664,8 +664,8 @@ SABOTAGES = [
 		"escaped, because an escape is a second grammar. sec 364",
 	),
 	(
-		"client-empty-argument-keeps-its-space",
-		"local/client.c",
+		"vocabulary-compose-keeps-the-empty-argument",
+		"local/vocabulary.c",
 		"\tif (arg) {\n\t\tout[(*out_len)++] = (uint8_t)' ';",
 		"\tif (arg_len) {\n\t\tout[(*out_len)++] = (uint8_t)' ';",
 		"`get ` and `get` are different requests -- the first asks for the "
@@ -675,10 +675,10 @@ SABOTAGES = [
 		"unsayable while the parser went on expecting it. sec 364",
 	),
 	(
-		"client-reads-the-request-bound",
+		"client-asks-for-the-request-bound",
 		"local/client.c",
-		"\tif (need > FZN_REQUEST_MAX)",
-		"\tif (0)",
+		"\tswitch (fzn_vocabulary_compose(out, cap, FZN_REQUEST_MAX, out_len, verb,",
+		"\tswitch (fzn_vocabulary_compose(out, cap, FZN_REPLY_MAX, out_len, verb,",
 		"a line past FZN_REQUEST_MAX is refused here rather than sent. The "
 		"server answers an overlong line with a DENIAL, so a client that "
 		"let it go would turn its own framing mistake into what reads like "
@@ -708,6 +708,60 @@ SABOTAGES = [
 		"and collapsing them sends an operator to the wrong half. The "
 		"server sets the same receive timeout on its own side for the "
 		"mirror-image reason. sec 364",
+	),
+	(
+		"reply-ok-is-only-ok",
+		"local/vocabulary.c",
+		"\treturn reply == FZN_REPLY_OK;",
+		"\treturn reply != FZN_REPLY_DENIED;",
+		"only FZN_REPLY_OK reads as success, and FZN_REPLY_NONE -- a reply "
+		"this library does not offer -- must not. The direction matters: "
+		"the failure is a caller carrying on after something did not "
+		"happen, so an unrecognised token answering 1 is the expensive way "
+		"to be wrong. sec 365",
+	),
+	(
+		"reply-parses-on-its-whole-length",
+		"local/vocabulary.c",
+		"\t\tif (REPLIES[i].name == NULL || REPLIES[i].len != token_len)",
+		"\t\tif (REPLIES[i].name == NULL)",
+		"a reply token parses only on its whole length. No reply token is a "
+		"prefix of another, so unlike the verb set this has no natural "
+		"collision and the test must CONSTRUCT one -- `o` against `ok`. "
+		"The first version of the case did not, and this mutation went "
+		"undetected until the sabotage run said so. sec 365",
+	),
+	(
+		"compose-reads-the-wire-limit",
+		"local/vocabulary.c",
+		"\tif (need > limit)",
+		"\tif (0)",
+		"a line past the protocol's bound is refused as TOO_LONG. Distinct "
+		"from the buffer bound below because they are different findings -- "
+		"ask for less, against give me a bigger buffer -- and a caller told "
+		"the wrong one looks in the wrong place. sec 365",
+	),
+	(
+		"compose-reads-the-buffer-bound",
+		"local/vocabulary.c",
+		"\tif (need > cap)",
+		"\tif (0)",
+		"the other half of the same pair, and the one that writes out of "
+		"bounds if it goes: `cap` is the caller's buffer, and a line longer "
+		"than it is memcpy'd past the end. sec 365",
+	),
+	(
+		"node-status-line-leads-with-a-reply-token",
+		"node/local.c",
+		"\t\tif (fzn_reply_compose((uint8_t *)out, cap - 1u, &len,\n"
+		"\t\t                      FZN_REPLY_DENIED, NULL, 0u) != FZN_COMPOSE_OK)",
+		"\t\tif (fzn_reply_compose((uint8_t *)out, cap - 1u, &len,\n"
+		"\t\t                      FZN_REPLY_ERROR, NULL, 0u) != FZN_COMPOSE_OK)",
+		"a refused caller is told `denied` and not `error`. They are "
+		"different answers: one is an access decision about this caller and "
+		"the other says the daemon tried and failed, and local_test reads "
+		"the node's own line back with fzn_reply_of rather than matching a "
+		"substring. sec 365",
 	),
 	(
 		"vocabulary-split-refuses-a-leading-space",

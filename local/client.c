@@ -41,46 +41,26 @@ fzn_client_err_t fzn_client_compose(uint8_t *out, size_t cap, size_t *out_len,
                                     const uint8_t *verb, size_t verb_len,
                                     const uint8_t *arg, size_t arg_len)
 {
-	size_t need;
-	size_t i;
-
-	if (!out || !out_len || !verb)
-		return FZN_CLIENT_ERR_MALFORMED;
-	if (!arg && arg_len)
-		return FZN_CLIENT_ERR_MALFORMED;
-	if (verb_len == 0)
-		return FZN_CLIENT_ERR_MALFORMED;
-	if (verb_len > FZN_VERB_MAX)
+	/* THE GRAMMAR IS NOT WRITTEN HERE, and it was until sec 365. A request
+	 * line and a reply line are one format with two vocabularies, so both
+	 * are composed by `fzn_vocabulary_compose` and read by
+	 * `fzn_vocabulary_split`. What this adds is the REQUEST's bound and
+	 * this module's error vocabulary; the bytes are the grammar's. */
+	switch (fzn_vocabulary_compose(out, cap, FZN_REQUEST_MAX, out_len, verb,
+	                               verb_len, arg, arg_len)) {
+	case FZN_COMPOSE_OK:
+		return FZN_CLIENT_OK;
+	case FZN_COMPOSE_ERR_TOO_LONG:
 		return FZN_CLIENT_ERR_REQUEST_TOO_LONG;
-	/* A SPACE WOULD SPLIT THE VERB AND A NEWLINE WOULD SPLIT THE REQUEST.
-	 * Either lets a caller send something the server reads as other than
-	 * what was asked for -- a verb of "get x" arrives as `get` with an
-	 * argument, past any rule written for the whole string, and a verb
-	 * carrying a newline arrives as two lines. Refused rather than escaped,
-	 * because an escape is a second grammar. */
-	for (i = 0; i < verb_len; i++)
-		if (verb[i] == (uint8_t)' ' || verb[i] == (uint8_t)'\n')
-			return FZN_CLIENT_ERR_MALFORMED;
-
-	/* verb, then a space and the argument only when there IS one, then the
-	 * terminator. A NULL argument and an empty one differ by that space,
-	 * which is the distinction `fzn_vocabulary_split` reads back. */
-	need = verb_len + (arg ? 1u + arg_len : 0u) + 1u;
-	if (need > FZN_REQUEST_MAX)
-		return FZN_CLIENT_ERR_REQUEST_TOO_LONG;
-	if (need > cap)
-		return FZN_CLIENT_ERR_MALFORMED;
-
-	memcpy(out, verb, verb_len);
-	*out_len = verb_len;
-	if (arg) {
-		out[(*out_len)++] = (uint8_t)' ';
-		if (arg_len)
-			memcpy(out + *out_len, arg, arg_len);
-		*out_len += arg_len;
+	case FZN_COMPOSE_ERR_NO_ROOM:
+	case FZN_COMPOSE_ERR_MALFORMED:
+		break;
 	}
-	out[(*out_len)++] = (uint8_t)'\n';
-	return FZN_CLIENT_OK;
+	/* NO_ROOM and MALFORMED are both the caller's mistake rather than the
+	 * request's, and this module has one code for that. They are separate
+	 * in the composer because a daemon writing a reply wants to tell them
+	 * apart; a client handed its own undersized buffer does not. */
+	return FZN_CLIENT_ERR_MALFORMED;
 }
 
 fzn_client_err_t fzn_client_connect(const char *path, int *out_fd)

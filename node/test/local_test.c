@@ -278,6 +278,46 @@ int main(void)
 	   "a group member was admitted a verb no rule names, so the group "
 	   "boundary is a root boundary wearing a different name");
 
+	/* THE NODE'S OWN LINES READ AS REPLIES, which is the property that
+	 * makes sec 365 worth anything: the daemon composes with the reply
+	 * vocabulary and a client reads with it, so neither is matching
+	 * substrings the other happens to emit. */
+	{
+		const uint8_t *detail = NULL;
+		size_t detail_len = 0;
+		size_t ln;
+
+		mk_peer(&p, 1000, 0, 0);
+		ok(exchange(&cfg, &p, "status", resp, sizeof(resp))
+		       == FZN_NODE_SERVE_OK, "the served exchange did not complete");
+		ln = strlen(resp);
+		ok(ln > 0 && resp[ln - 1u] == '\n', "the reply has no terminator");
+		ok(fzn_reply_of((const uint8_t *)resp, ln - 1u, &detail, &detail_len)
+		       == FZN_REPLY_OK,
+		   "a served caller's line does not read as FZN_REPLY_OK, so the node "
+		   "and the client disagree about the wire");
+		ok(detail_len > 0 && detail != NULL,
+		   "the grant carries no detail, so `ok` says nothing about what was "
+		   "served");
+
+		mk_peer(&p, 2000, 0, 0);
+		ok(exchange(&cfg, &p, "status", resp, sizeof(resp))
+		       == FZN_NODE_SERVE_DENIED, "the denied exchange did not complete");
+		ln = strlen(resp);
+		ok(fzn_reply_of((const uint8_t *)resp, ln - 1u, &detail, &detail_len)
+		       == FZN_REPLY_DENIED,
+		   "a denial does not read as FZN_REPLY_DENIED");
+		ok(detail == NULL && detail_len == 0u,
+		   "a denial carries a detail, so it says more about the caller than "
+		   "the refusal does");
+
+		/* AND IT IS STILL THE OLD LINE. sec 365 added a leading token and
+		 * changed nothing after it, so anything that matched the previous
+		 * wording still matches -- which is what made the change safe to
+		 * make while a consumer was mid-integration. */
+		ok(strstr(resp, "denied") != NULL, "the denial stopped saying denied");
+	}
+
 	printf("local_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;
 }

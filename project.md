@@ -46369,7 +46369,7 @@ be invisible to something -- coverage, `git status`, the renderer sweep --
 and none of them would have failed a build. `err_str_test` is at 43
 renderers now, from 42.
 
-### Seen to fail
+### The client, seen to fail
 
 Five mutations, against a saved copy restored and verified byte-identical: a
 verb hiding a separator, an empty argument losing its space, the request
@@ -46379,3 +46379,87 @@ last is worth its place: a timeout says the daemon is there and wedged where
 IO says the socket broke, and collapsing them sends an operator to the wrong
 half -- the same distinction `local/vocabulary.h` makes between "no rule
 names this verb" and "this peer holds none of those groups".
+
+## 365. The replies, and one grammar under two vocabularies, 2026-09-22
+
+Section 364 named a reply vocabulary as the next thing and left it to the
+holder, on the grounds that the node's status line is a shape consumers
+depend on. That is the same deferral section 361 was corrected for, so it is
+built: everything required to use fuzznet is part of fuzznet, and a daemon
+that cannot say whether it did the thing is not usable without every consumer
+inventing a way to say it.
+
+FIVE ANSWERS, NOT TWO, AND THE EXTRA ONES EARN THEIR PLACE. `ok`, `denied`,
+`unsupported`, `error`, `malformed`. The pair that matters is DENIED against
+UNSUPPORTED, and it is `fzn_vocabulary_names`' own argument arriving on the
+wire: that function exists because `fzn_vocabulary_admit` returns NOT_MEMBER
+both when no rule names a verb and when rules name it and this peer holds
+none of those groups -- "a configuration finding and an access decision", and
+a daemon reporting both as denied sends an operator to the wrong half of the
+system. The server has been able to tell them apart since that function was
+written and has had no way to SAY which. Now it has.
+
+ONE GRAMMAR, TWO VOCABULARIES. A request line and a reply line are the same
+shape -- a token, a space, the rest untouched -- so `fzn_vocabulary_compose`
+writes both and `fzn_vocabulary_split` reads both. `fzn_client_compose` had
+its own copy of that arithmetic for one commit; it calls the shared one now
+and keeps only the request's bound and its own error vocabulary. The 26
+client checks passed unchanged across that move, which is the evidence the
+two copies had agreed.
+
+THE STATUS LINE IS ADDITIVE, and `denied` needed no change at all -- it was
+already the word, which is part of why that spelling was taken for the enum
+rather than a new one invented beside it. A grant gained a leading `ok` and
+kept everything after, so anything matching `served`, `origin N` or the
+version still matches, while the first token is now readable by
+`fzn_reply_of`. Checked before changing it: no consumer in this tree reads
+those words, only my own tests, and raidcfgd's pin has not moved. `served`
+is redundant under `ok` and stays until consumers have moved.
+
+### Three things the work caught that I did not
+
+**A NUL that stopped being written.** `fzn_node_status_line` was a `snprintf`
+and every caller has had a C string; the composer writes a length and no
+terminator. `local_test` caught it by REUSING ITS BUFFER -- `strstr` read the
+previous reply's text past the new one's end and reported an origin inside a
+denial. The guarantee is kept now, with a byte of `cap` reserved for it and
+the header saying so. A silent change to what a buffer contains after the
+length is exactly the kind a test only catches by accident, and this one did.
+
+**A stale binary I nearly read as a pass.** The build was run as
+
+    make -s <target> 2>&1 | head -8 && ./<test>
+
+and a pipeline's status is the LAST process's, so `head` succeeded, the
+`-Werror` failure was invisible, and the test that ran was 14 minutes old and
+reported 91 checks where the new file had 121. `evidence.md` names this
+exactly -- "a pipeline's exit status is the last process's, not the check's"
+-- and it was still written. What separated them was the timestamps:
+`ls` on the binary and the source, which is the artifact rather than a
+measurement of the run. Every build since is redirected to a file with its
+own status read.
+
+**A duplicate heading in a section already pushed.** The style gate refuses
+two identical headings in `project.md`, and sec 364's "### Seen to fail"
+repeats one from line 27590. It got in because `make style` was run BEFORE
+composing the section into `project.md` at commit time and not after -- the
+gate had nothing to see. Renamed here. **The order is: compose, then gate,
+then commit**, and the previous order passes for as long as nothing about
+the document is wrong.
+
+### The sabotage found a gap the verb side did not have
+
+Five mutations; four caught, and `a reply parses on its whole length` missed.
+No reply token is a prefix of another, so unlike the verbs -- where `stat`
+against `status` falls out of the set -- there was no natural collision and
+the test had not constructed one. **A set whose members do not collide is
+exactly the set where the length check has no case that can reach it.** `o`
+against `ok` is the case, it is in now, and the mutation is caught.
+
+Three sabotage entries also went stale, which the style gate reported: the
+separator rule, the empty-argument distinction and the request bound all
+MOVED when the composer was shared, so entries naming `local/client.c` found
+nothing. Two follow the rules into `local/vocabulary.c`; the third stays in
+the client and now names what the client still owns, which is WHICH bound it
+asks for. A relocated guard is not a deleted one, and an entry that cannot
+find its anchor is the harness saying so rather than a fault.

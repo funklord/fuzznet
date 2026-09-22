@@ -20,19 +20,50 @@
 size_t fzn_node_status_line(fzn_authz_verdict_t verdict, fzn_origin_t origin,
                             char *out, size_t cap)
 {
+	uint8_t detail[96];
+	size_t len = 0;
 	int n;
 
 	if (!out || cap == 0)
 		return 0;
-	if (verdict == FZN_AUTHZ_DENIED)
-		n = snprintf(out, cap, "denied\n");
-	else
-		n = snprintf(out, cap, "served %s origin %d fuzznet %s\n",
-		             fzn_authz_verdict_str(verdict), (int)origin,
-		             fzn_version_string());
-	if (n < 0 || (size_t)n >= cap)
+	/* IT SPEAKS THE REPLY VOCABULARY SINCE sec 365, and `denied` needed no
+	 * change: it was already the word, which is part of why that spelling
+	 * was chosen for the enum rather than a new one invented beside it.
+	 *
+	 * The grant gained a leading `ok` and kept everything after it, so the
+	 * line is ADDITIVE -- anything matching `served`, `origin N` or the
+	 * version still matches -- while the first token is now readable by
+	 * `fzn_reply_of` instead of by a substring search each consumer writes.
+	 * `served` is redundant under `ok` and stays until consumers have
+	 * moved; dropping it is a later change with a reason of its own. */
+	/* A BYTE IS HELD BACK FOR THE TERMINATOR. `snprintf` wrote one and this
+	 * function's callers have always had a C string; the composer does not,
+	 * because a line on the wire is a length and not a string. Dropping the
+	 * NUL would have been a silent change -- `local_test` caught it by
+	 * reusing its buffer, where `strstr` read the PREVIOUS reply's text
+	 * past the new one's end and reported an origin in a denial. So the
+	 * guarantee is kept, and kept deliberately rather than by accident. */
+	if (verdict == FZN_AUTHZ_DENIED) {
+		if (fzn_reply_compose((uint8_t *)out, cap - 1u, &len,
+		                      FZN_REPLY_DENIED, NULL, 0u) != FZN_COMPOSE_OK)
+			return 0;
+		out[len] = '\0';
+		return len;
+	}
+	n = snprintf((char *)detail, sizeof(detail),
+	             "served %s origin %d fuzznet %s",
+	             fzn_authz_verdict_str(verdict), (int)origin,
+	             fzn_version_string());
+	/* A detail that did not fit is not truncated into a different one --
+	 * `fzn_node_status_line` has always returned 0 rather than a clipped
+	 * line, and the composer refuses the same way. */
+	if (n < 0 || (size_t)n >= sizeof(detail))
 		return 0;
-	return (size_t)n;
+	if (fzn_reply_compose((uint8_t *)out, cap - 1u, &len, FZN_REPLY_OK,
+	                      detail, (size_t)n) != FZN_COMPOSE_OK)
+		return 0;
+	out[len] = '\0';
+	return len;
 }
 
 static int write_all(int fd, const char *buf, size_t len)

@@ -32,7 +32,13 @@
 
 /* Build the one-line status response for a decided caller into out[cap],
  * newline included. Returns the length written, or 0 if it would not fit.
- * Pure: no descriptor, so it is tested directly. */
+ * Pure: no descriptor, so it is tested directly.
+ *
+ * NUL-TERMINATED AS WELL AS LENGTH-RETURNING, so `out` is usable as a C
+ * string -- which it has been since this was a `snprintf` and which callers
+ * rely on. One byte of `cap` is reserved for it, so the longest LINE this
+ * writes is `cap - 1`. The line itself speaks `local/vocabulary.h`'s reply
+ * vocabulary: `ok` with the detail after it, or a bare `denied`. */
 size_t fzn_node_status_line(fzn_authz_verdict_t verdict, fzn_origin_t origin,
                             char *out, size_t cap);
 

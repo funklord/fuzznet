@@ -432,6 +432,143 @@ int main(void)
 		}
 	}
 
+	/* THE REPLY TABLE, proved the same way as the verbs' and for the same
+	 * reason: a designated-initialiser gap answers NULL, which from inside
+	 * the module is indistinguishable from a value outside the enum. */
+	{
+		fzn_reply_t r;
+		size_t named = 0;
+		int clash = 0;
+		fzn_reply_t a, b;
+
+		for (r = (fzn_reply_t)1; (size_t)r < FZN_REPLY_COUNT;
+		     r = (fzn_reply_t)((size_t)r + 1u)) {
+			const char *name = fzn_reply_name(r);
+
+			check(name != NULL,
+			      "a reply in the enum has no spelling, so it was added to "
+			      "vocabulary.h and not to the table in vocabulary.c");
+			if (!name)
+				continue;
+			named++;
+			check(fzn_reply_name_len(r) == strlen(name),
+			      "a reply's stated length disagrees with its spelling");
+			check(fzn_reply_parse((const uint8_t *)name, strlen(name)) == r,
+			      "a reply does not parse back to itself");
+		}
+		check(named == FZN_REPLY_COUNT - 1u, "the walk did not reach every reply");
+		for (a = (fzn_reply_t)1; (size_t)a < FZN_REPLY_COUNT;
+		     a = (fzn_reply_t)((size_t)a + 1u))
+			for (b = (fzn_reply_t)((size_t)a + 1u);
+			     (size_t)b < FZN_REPLY_COUNT;
+			     b = (fzn_reply_t)((size_t)b + 1u))
+				if (fzn_reply_name(a) && fzn_reply_name(b) &&
+				    strcmp(fzn_reply_name(a), fzn_reply_name(b)) == 0)
+					clash = 1;
+		check(clash == 0, "two replies share a spelling");
+	}
+
+	/* Only OK is success, and NONE is not. A reply this library does not
+	 * offer must not read as success: the failure that matters is a caller
+	 * carrying on after something did not happen. */
+	check(fzn_reply_ok(FZN_REPLY_OK) == 1, "OK is not success");
+	check(fzn_reply_ok(FZN_REPLY_NONE) == 0 &&
+	      fzn_reply_ok(FZN_REPLY_DENIED) == 0 &&
+	      fzn_reply_ok(FZN_REPLY_UNSUPPORTED) == 0 &&
+	      fzn_reply_ok(FZN_REPLY_ERROR) == 0 &&
+	      fzn_reply_ok(FZN_REPLY_MALFORMED) == 0,
+	      "something other than OK read as success");
+	check(fzn_reply_ok((fzn_reply_t)99) == 0,
+	      "a value outside the enum read as success");
+
+	/* DENIED and UNSUPPORTED are distinct, which is the whole reason the
+	 * set is bigger than two: fzn_vocabulary_names exists because "no rule
+	 * names this verb" and "you hold none of those groups" send a reader to
+	 * different halves of the system, and until now the server could tell
+	 * them apart and had no way to say which. */
+	check(fzn_reply_parse((const uint8_t *)"denied", sizeof("denied") - 1u) == FZN_REPLY_DENIED &&
+	      fzn_reply_parse((const uint8_t *)"unsupported", sizeof("unsupported") - 1u) == FZN_REPLY_UNSUPPORTED &&
+	      FZN_REPLY_DENIED != FZN_REPLY_UNSUPPORTED,
+	      "a refusal by policy and a verb this daemon does not serve are the "
+	      "same answer, so an operator is sent to the wrong half");
+
+	/* A PREFIX OF A REPLY TOKEN IS NOT THAT TOKEN, and nothing drove this
+	 * until the sabotage said so. The verb side has the same case and got
+	 * it because `stat` is a prefix of `status`; no reply token is a prefix
+	 * of another, so the length check had no case that could reach it and
+	 * the mutation removing it went undetected. A set whose members do not
+	 * collide is exactly the set where a test must construct the collision
+	 * rather than find one lying about. */
+	check(fzn_reply_parse((const uint8_t *)"o", 1u) == FZN_REPLY_NONE,
+	      "a one-byte prefix of `ok` parsed as ok, so fzn_reply_parse compares "
+	      "only as far as what it was given");
+	check(fzn_reply_parse((const uint8_t *)"deni", 4u) == FZN_REPLY_NONE,
+	      "a prefix of `denied` parsed");
+	check(fzn_reply_parse((const uint8_t *)"err", 3u) == FZN_REPLY_NONE,
+	      "a prefix of `error` parsed");
+	check(fzn_reply_parse((const uint8_t *)"ok", 2u) == FZN_REPLY_OK,
+	      "the control did not parse, so the prefixes above prove nothing");
+
+	/* Compose and read back, with a detail and without. */
+	{
+		uint8_t line[FZN_REPLY_MAX];
+		size_t len = 0;
+		const uint8_t *detail = NULL;
+		size_t detail_len = 0;
+
+		check(fzn_reply_compose(line, sizeof(line), &len, FZN_REPLY_OK,
+		                        (const uint8_t *)"two disks", 9u)
+		          == FZN_COMPOSE_OK &&
+		      len > 0 && line[len - 1u] == (uint8_t)'\n',
+		      "a reply with a detail did not compose");
+		check(fzn_reply_of(line, len - 1u, &detail, &detail_len)
+		          == FZN_REPLY_OK &&
+		      detail_len == 9u && memcmp(detail, "two disks", 9u) == 0,
+		      "a composed reply did not read back -- the two halves of one "
+		      "grammar disagree");
+		check(fzn_reply_compose(line, sizeof(line), &len, FZN_REPLY_DENIED,
+		                        NULL, 0u) == FZN_COMPOSE_OK && len == 7u &&
+		      memcmp(line, "denied\n", 7u) == 0,
+		      "a bare denial is not `denied` and a newline, which is what the "
+		      "node has always written");
+		check(fzn_reply_of(line, len - 1u, &detail, &detail_len)
+		          == FZN_REPLY_DENIED && detail == NULL && detail_len == 0u,
+		      "a detail-less reply reported a detail");
+		check(fzn_reply_compose(line, sizeof(line), &len, FZN_REPLY_NONE,
+		                        NULL, 0u) == FZN_COMPOSE_ERR_MALFORMED,
+		      "FZN_REPLY_NONE composed -- it names nothing to say");
+
+		/* What cannot be read as a reply, with the detail left clear. */
+		detail = (const uint8_t *)"stale";
+		detail_len = 5u;
+		check(fzn_reply_of((const uint8_t *)"nonsense", 8u, &detail,
+		                   &detail_len) == FZN_REPLY_NONE,
+		      "a token this library does not offer read as a reply");
+		check(fzn_reply_of((const uint8_t *)"", 0u, &detail, &detail_len)
+		          == FZN_REPLY_NONE && detail == NULL && detail_len == 0u,
+		      "an empty line read as a reply, or left a stale detail behind");
+	}
+
+	/* The composer tells a wire bound from a buffer bound, because they are
+	 * different findings: ask for less, against give me a bigger buffer. */
+	{
+		uint8_t small[8];
+		uint8_t line[FZN_REPLY_MAX];
+		size_t len = 0;
+
+		check(fzn_vocabulary_compose(small, sizeof(small), FZN_REPLY_MAX,
+		                             &len, (const uint8_t *)"ok", 2u,
+		                             (const uint8_t *)"0123456789", 10u)
+		          == FZN_COMPOSE_ERR_NO_ROOM,
+		      "a line too long for the caller's buffer was not reported as "
+		      "NO_ROOM");
+		check(fzn_vocabulary_compose(line, sizeof(line), 6u, &len,
+		                             (const uint8_t *)"ok", 2u,
+		                             (const uint8_t *)"0123456789", 10u)
+		          == FZN_COMPOSE_ERR_TOO_LONG,
+		      "a line past the protocol's limit was not reported as TOO_LONG");
+	}
+
 	printf("vocabulary_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
 }
