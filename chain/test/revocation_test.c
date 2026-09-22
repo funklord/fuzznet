@@ -601,25 +601,30 @@ static void test_a_reissue_over_a_live_revocation_advances_the_id(void)
 /* THE RE-REVOCATION-OVER-A-WITHDRAWAL CHAIN BINDING READS THE WHOLE ID.
  *
  * A pair that has been revoked and then withdrawn keeps, in `entry->id`, the
- * id of the revocation the withdrawal undid -- and revocation.c requires a
- * GENUINELY NEW revocation over that withdrawal to name it: `supersedes` must
- * equal `entry->id`, or the record is refused UNKNOWN_TARGET as un-chained.
- * `supersedes` is a caller-set, signed field and `entry->id` is a computed
- * hash, so a near miss -- the held id with only its last byte changed -- is a
- * value an attacker can put on the wire and sign. The full-key compare refuses
- * it; a prefix compare accepts it, re-revoking the pair on an id it does not
- * name, so "must chain to it" is satisfiable without chaining to it.
+ * id of the revocation the withdrawal undid. revocation.c requires a
+ * genuinely new revocation over that withdrawal to NAME a predecessor: its
+ * `supersedes` must not be zero. sec 326 wrote this case against the compare
+ * that stood then -- `supersedes` had to equal `entry->id`, and a near miss
+ * was the value that decided the read length. sec 359 removed that compare,
+ * and the property came with it onto the one that now decides.
  *
- * The existing reissue cases drive this compare only with the exact id and
- * with a WHOLLY different one (a distinct record's hash), which any read length
- * separates. This is the last-byte near miss that decides its length. */
+ * The decisive value is therefore the other way round: a `supersedes` that is
+ * zero in every byte BUT ITS LAST names something, and only a whole-length
+ * compare against zero can tell. A prefix read calls it nothing, refuses the
+ * record, drains the deficit, and leaves a pair the root revoked reading
+ * unrevoked with nothing left asking -- which is the sec 358 failure reached
+ * by a different route.
+ *
+ * The other cases drive this compare only with an all-zero `supersedes` and
+ * with a full hash. This is the one-byte value that decides its length. */
 static void test_a_re_revocation_over_a_withdrawal_reads_the_whole_id(void)
 {
 	struct fixture f;
 	uint8_t first[FZN_REVOCATION_LEN], wd[FZN_REVOCATION_LEN];
-	uint8_t again[FZN_REVOCATION_LEN];
+	uint8_t again[FZN_REVOCATION_LEN], fresh[FZN_REVOCATION_LEN];
 	uint8_t issuer[FZN_PUBKEY_LEN], grantee[FZN_PUBKEY_LEN];
-	uint8_t id_first[FZN_REVOCATION_ID_LEN], near_first[FZN_REVOCATION_ID_LEN];
+	uint8_t id_first[FZN_REVOCATION_ID_LEN], id_again[FZN_REVOCATION_ID_LEN];
+	uint8_t near_zero[FZN_REVOCATION_ID_LEN];
 	fzn_revocation_record_t rec;
 	fzn_cap_id_t cap;
 
@@ -628,7 +633,7 @@ static void test_a_re_revocation_over_a_withdrawal_reads_the_whole_id(void)
 	key(grantee, 5);
 	capability_id(&cap, 0xc0);
 
-	/* Revoke, hashing the record to the id a re-revocation must later name. */
+	/* Revoke, hashing the record to the id the withdrawal must name. */
 	f.stub.identity = issuer[0];
 	CHECK(fzn_revocation_issue(issuer, &cap, grantee, 1000, &f.sign, first) == FZN_CHAIN_OK,
 	      "the revocation was refused");
@@ -640,7 +645,7 @@ static void test_a_re_revocation_over_a_withdrawal_reads_the_whole_id(void)
 	                           &HASH_OPS, NULL) == FZN_CHAIN_OK, "admit");
 
 	/* Withdraw it: the pair is no longer revoked, and `entry->id` still names
-	 * `first` -- the record a re-revocation must chain to. */
+	 * `first` -- the record a re-revocation used to have to chain to. */
 	f.stub.identity = issuer[0];
 	CHECK(fzn_revocation_issue_withdrawal(issuer, &cap, grantee, 2000, id_first, &f.sign,
 	                                      wd) == FZN_CHAIN_OK, "the withdrawal was refused");
@@ -652,29 +657,19 @@ static void test_a_re_revocation_over_a_withdrawal_reads_the_whole_id(void)
 	      "the pair is still revoked after its withdrawal, so nothing below is testing "
 	      "a re-revocation over a withdrawal");
 
-	/* A re-revocation whose supersedes is the held id with only its last byte
-	 * changed. A whole-id compare refuses it; a prefix compare re-revokes. */
-	memcpy(near_first, id_first, sizeof(near_first));
-	near_first[FZN_REVOCATION_ID_LEN - 1u] ^= 0xffu;
+	/* A re-revocation naming a predecessor this host has never seen, in the
+	 * one byte a prefix compare against zero would not read. It is not
+	 * `id_first` and is not meant to be: sec 359 asks whether the record
+	 * names anything, not whether it names ours. */
+	memset(near_zero, 0, sizeof(near_zero));
+	near_zero[FZN_REVOCATION_ID_LEN - 1u] = 0x01u;
 	f.stub.identity = issuer[0];
-	CHECK(fzn_revocation_reissue(issuer, &cap, grantee, 3000, near_first, &f.sign, again) ==
-	              FZN_CHAIN_OK, "the near-miss re-revocation could not be minted");
+	CHECK(fzn_revocation_reissue(issuer, &cap, grantee, 3000, near_zero, &f.sign, again) ==
+	              FZN_CHAIN_OK, "the one-byte re-revocation could not be minted");
 	stub_reset(&f.stub);
-	CHECK(fzn_revocation_open(again, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK, "open near-miss");
-	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(rec), issuer, &f.sign,
-	                           &HASH_OPS, NULL) == FZN_CHAIN_ERR_UNKNOWN_TARGET,
-	      "a re-revocation naming the withdrawal's id only in a prefix was chained to it");
-	CHECK(fzn_revocation_covers(&f.store, issuer, &cap, grantee) == 0,
-	      "the near-miss re-revocation re-revoked the pair, so the supersedes binding "
-	      "reads a prefix of the id");
-
-	/* CONTROL: the exact id re-revokes, so the near miss above was refused for
-	 * its id and not for some unrelated reason. */
-	f.stub.identity = issuer[0];
-	CHECK(fzn_revocation_reissue(issuer, &cap, grantee, 3000, id_first, &f.sign, again) ==
-	              FZN_CHAIN_OK, "the exact re-revocation could not be minted");
-	stub_reset(&f.stub);
-	CHECK(fzn_revocation_open(again, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK, "open exact");
+	CHECK(stub_hash(NULL, id_again, sizeof(id_again), again, FZN_REVOCATION_LEN),
+	      "the fixture could not hash the re-revocation");
+	CHECK(fzn_revocation_open(again, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK, "open one-byte");
 	{
 		/* NOT REVOKED becomes REVOKED here, which is the largest
 		 * answer this store can change -- and it did not move the
@@ -687,14 +682,39 @@ static void test_a_re_revocation_over_a_withdrawal_reads_the_whole_id(void)
 		CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(rec),
 		                           issuer, &f.sign, &HASH_OPS, NULL)
 		          == FZN_CHAIN_OK,
-		      "a re-revocation naming the withdrawal's id exactly was refused, "
-		      "so the near miss proves nothing");
+		      "a re-revocation whose `supersedes` is non-zero only in its last "
+		      "byte was read as naming nothing, so the zero compare stops short "
+		      "of the whole id");
 		CHECK(fzn_revocation_generation(&f.store) != before,
 		      "un-withdrawing a revocation did not move the generation -- a "
 		      "cache would keep authorising the pair it just re-revoked");
 	}
 	CHECK(fzn_revocation_covers(&f.store, issuer, &cap, grantee) == 1,
-	      "the exact re-revocation did not re-revoke the pair");
+	      "the one-byte re-revocation did not re-revoke the pair");
+
+	/* CONTROL: an ALL-zero `supersedes` over a withdrawal is refused, so the
+	 * acceptance above was for the byte and not because everything is taken.
+	 * Withdraw the record just admitted to reach the same branch again. */
+	f.stub.identity = issuer[0];
+	CHECK(fzn_revocation_issue_withdrawal(issuer, &cap, grantee, 4000, id_again, &f.sign,
+	                                      wd) == FZN_CHAIN_OK,
+	      "the second withdrawal could not be minted");
+	stub_reset(&f.stub);
+	CHECK(fzn_revocation_open(wd, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK, "open second");
+	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(rec), issuer, &f.sign,
+	                           &HASH_OPS, NULL) == FZN_CHAIN_OK, "admit second withdrawal");
+	CHECK(fzn_revocation_covers(&f.store, issuer, &cap, grantee) == 0,
+	      "the second withdrawal did not restore the pair");
+	f.stub.identity = issuer[0];
+	CHECK(fzn_revocation_issue(issuer, &cap, grantee, 5000, &f.sign, fresh) == FZN_CHAIN_OK,
+	      "the un-chained revocation could not be minted");
+	stub_reset(&f.stub);
+	CHECK(fzn_revocation_open(fresh, FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK, "open fresh");
+	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(rec), issuer, &f.sign,
+	                           &HASH_OPS, NULL) == FZN_CHAIN_ERR_UNKNOWN_TARGET,
+	      "a revocation naming nothing was admitted over a withdrawal");
+	CHECK(fzn_revocation_covers(&f.store, issuer, &cap, grantee) == 0,
+	      "the un-chained revocation re-revoked the pair");
 }
 
 static void test_a_withdrawal_is_its_own_object(void)
@@ -1041,27 +1061,34 @@ static void test_a_withdrawal_reaches_the_chain_walk(void)
  * AND IT IS NOT A BLANK CHEQUE, which is the half worth testing rather than
  * asserting: a genuinely new revocation of the same pair is a different
  * record with a different hash, and it applies. */
-/* A HOST THAT MISSED ONE ROUND READS A REVOKED PAIR AS NOT REVOKED.
+/* A HOST THAT MISSED ONE ROUND HEALS ON THE NEXT REVOCATION.
  *
- * Written to FAIL, and reported rather than fixed, because the fix is a
- * choice about authorization behaviour and not mine to make. sec 358.
+ * Written to FAIL at sec 358, reported rather than fixed because the fix was
+ * a choice about authorization behaviour; settled at sec 359 and it now
+ * drives the behaviour it was written against.
  *
- * A re-revocation over a WITHDRAWN entry is accepted only when it supersedes
- * exactly the id that entry holds -- the one record the held withdrawal
- * undid. `entry->id` does not advance while the entry is withdrawn, so the
- * only record that can re-revoke is the one IMMEDIATELY after it in the
- * chain. Miss an intermediate round and every later record is refused.
+ * Until then a re-revocation over a WITHDRAWN entry was accepted only when it
+ * superseded exactly the id that entry holds -- the one record the held
+ * withdrawal undid. `entry->id` does not advance while the entry is
+ * withdrawn, so the only record that could re-revoke was the one IMMEDIATELY
+ * after it in the chain. Miss an intermediate round and every later record
+ * was refused.
  *
- * It fails OPEN, which is what makes it serious: the pair is revoked in
- * truth and this host answers `covers == 0`. And the refusal path calls
- * `fzn_manifest_satisfy` first, so the deficit that would have made
- * `fzn_chain_verify` answer INCOMPLETE is cleared -- the host reports
- * neither revoked nor incomplete, and authorises.
+ * It failed OPEN, which is what made it serious: the pair is revoked in truth
+ * and this host answered `covers == 0`. sec 358 stopped the refusal path
+ * draining the deficit, so the host at least reported INCOMPLETE rather than
+ * authorising -- but it could not recover, because the record that would
+ * bridge the gap is one NOTHING RETAINS. `fzn_revocation_t` is a pair, a hash
+ * and a flag; no store anywhere holds R2, so no peer can be asked for it.
  *
- * `test_a_withdrawal_that_overtakes_its_revocation` below names this exact
- * property -- "which would make the tombstone a permanent grant" -- and
- * passes, because it only ever offers the reissue that DOES chain. */
-static void test_a_missed_round_leaves_a_revoked_pair_authorised(void)
+ * sec 359 requires a re-revocation to NAME a predecessor rather than to name
+ * ours. The sequence below is the case that decides it: R1, W1, R2, W2, R3,
+ * with R2 and W2 lost. R3 names id2, this host holds id1, and R3 must take.
+ *
+ * `test_a_withdrawal_that_overtakes_its_revocation` below names the adjacent
+ * property -- "which would make the tombstone a permanent grant" -- and only
+ * ever offers the reissue that does chain exactly. */
+static void test_a_missed_round_heals_on_the_next_revocation(void)
 {
 	struct fixture f;
 	uint8_t r1[FZN_REVOCATION_LEN], w1[FZN_REVOCATION_LEN];
@@ -1161,29 +1188,68 @@ static void test_a_missed_round_leaves_a_revoked_pair_authorised(void)
 		      "the victim did not learn it is behind");
 	}
 
-	(void)fzn_revocation_admit(&f.store, fzn_revocation_offer_root(r), f.root,
-	                           &f.sign, &HASH_OPS, &mf);
-	/* IT STILL CANNOT APPLY R3 -- the chain moved on without this host and
-	 * the record it needs cannot be asked for. What it must NOT do is
-	 * authorise. `covers` stays 0 and that is honest; what makes it safe
-	 * is that the deficit survives, so `fzn_chain_verify` answers
-	 * INCOMPLETE rather than letting the grantee through. */
-	CHECK(fzn_revocation_covers(&f.store, f.root, &cap, grantee) == 0,
-	      "R3 applied over a gap it does not chain to");
-	CHECK(fzn_manifest_pending(&mf, f.root) == 1,
-	      "the refusal drained the deficit, so this host reports neither "
-	      "revoked nor incomplete and authorises a revoked grantee "
-	      "(sec 358)");
-
-	/* The control: the intermediate R2 unsticks it, so the refusal above
-	 * is about the chaining and not about R3 being malformed. */
-	CHECK(fzn_revocation_open(r2, FZN_REVOCATION_LEN, &r) == FZN_CHAIN_OK,
-	      "R2 will not open");
 	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(r), f.root,
-	                           &f.sign, &HASH_OPS, NULL) == FZN_CHAIN_OK,
-	      "R2 was refused, so the case above proves nothing");
+	                           &f.sign, &HASH_OPS, &mf) == FZN_CHAIN_OK,
+	      "R3 was refused across a gap it names a predecessor over, so a host "
+	      "one round behind reads a revoked pair as unrevoked and nothing "
+	      "retains the record that would fix it (sec 358, sec 359)");
 	CHECK(fzn_revocation_covers(&f.store, f.root, &cap, grantee) == 1,
-	      "the intermediate reissue did not re-revoke the pair");
+	      "R3 was admitted and the pair still reads unrevoked");
+	CHECK(fzn_manifest_pending(&mf, f.root) == 0,
+	      "the deficit survived the record that settled it, so this host asks "
+	      "for ever for something it now holds");
+
+	/* BACK IN SYNC, not merely revoked, and this is the half a rule that
+	 * re-revoked WITHOUT advancing `entry->id` would fail: the root's next
+	 * withdrawal names R3, so it must find R3's id here. Leaving id1 in
+	 * place would make the pair revocable and unwithdrawable -- the fault
+	 * `a reissue over a live revocation advances the id` exists for,
+	 * reached by the other branch. */
+	{
+		uint8_t w3[FZN_REVOCATION_LEN];
+		uint8_t id3[FZN_REVOCATION_ID_LEN];
+
+		CHECK(stub_hash(NULL, id3, FZN_REVOCATION_ID_LEN, r3,
+		                FZN_REVOCATION_LEN), "R3 could not be hashed");
+		f.stub.identity = f.root[0];
+		CHECK(fzn_revocation_issue_withdrawal(f.root, &cap, grantee, 6000,
+		                                      id3, &f.sign, w3)
+		          == FZN_CHAIN_OK, "W3 could not be minted");
+		stub_reset(&f.stub);
+		CHECK(fzn_revocation_open(w3, FZN_REVOCATION_LEN, &r) == FZN_CHAIN_OK,
+		      "W3 will not open");
+		CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(r),
+		                           f.root, &f.sign, &HASH_OPS, NULL)
+		          == FZN_CHAIN_OK,
+		      "the root's withdrawal of R3 was refused, so healing the gap "
+		      "left the pair unwithdrawable");
+		CHECK(fzn_revocation_covers(&f.store, f.root, &cap, grantee) == 0,
+		      "W3 did not restore the pair");
+	}
+
+	/* THE CONTROL, and it is what stops sec 359 being a blank cheque: a
+	 * record naming NOTHING is still refused. `fzn_revocation_issue` writes
+	 * a zero `supersedes` -- a peer that never heard the withdrawal,
+	 * revoking the pair afresh -- and that peer is behind US. Offered over
+	 * the withdrawal just admitted, so it reaches the same branch R3 did. */
+	{
+		uint8_t fresh[FZN_REVOCATION_LEN];
+
+		f.stub.identity = f.root[0];
+		CHECK(fzn_revocation_issue(f.root, &cap, grantee, 7000, &f.sign,
+		                           fresh) == FZN_CHAIN_OK,
+		      "the un-chained revocation could not be minted");
+		stub_reset(&f.stub);
+		CHECK(fzn_revocation_open(fresh, FZN_REVOCATION_LEN, &r)
+		          == FZN_CHAIN_OK, "the un-chained revocation will not open");
+		CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(r),
+		                           f.root, &f.sign, &HASH_OPS, NULL)
+		          == FZN_CHAIN_ERR_UNKNOWN_TARGET,
+		      "a revocation naming no predecessor was admitted over a "
+		      "withdrawal, so \"names a predecessor\" is not a rule");
+		CHECK(fzn_revocation_covers(&f.store, f.root, &cap, grantee) == 0,
+		      "the un-chained revocation re-revoked the pair");
+	}
 }
 
 static void test_a_withdrawal_that_overtakes_its_revocation(void)
@@ -3267,7 +3333,7 @@ int main(void)
 	test_a_withdrawal_restores_and_the_entry_remains();
 	test_a_reissue_after_a_withdrawal();
 	test_a_withdrawal_reaches_the_chain_walk();
-	test_a_missed_round_leaves_a_revoked_pair_authorised();
+	test_a_missed_round_heals_on_the_next_revocation();
 	test_a_withdrawal_that_overtakes_its_revocation();
 	test_a_withdrawal_naming_what_we_lack();
 	test_admits_a_signed_revocation();

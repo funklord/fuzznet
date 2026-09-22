@@ -882,51 +882,69 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 			}
 
 			/* A GENUINELY NEW REVOCATION OVER A WITHDRAWAL MUST
-			 * CHAIN TO IT. This is where the rule lives: minting
-			 * with `fzn_revocation_issue` writes a zero
-			 * `supersedes`, which cannot equal what we hold, so
-			 * the un-chained re-revocation is refused here rather
-			 * than warned about in a header. */
-			if (!fzn_ct_memeq(fzn_revocation_supersedes(record), entry->id,
-			                  FZN_REVOCATION_ID_LEN)) {
+			 * NAME A PREDECESSOR. Until sec 359 it had to name the one
+			 * WE HOLD, and that rule authorised a revoked grantee.
+			 *
+			 * The exact compare reads right: a re-revocation chains to
+			 * the withdrawal it answers, so require it to say so.
+			 * `fzn_revocation_issue` writes a zero `supersedes`, which
+			 * cannot equal what we hold, so the un-chained mint was
+			 * refused here rather than warned about in a header. That
+			 * much survives; what does not is requiring the name to be
+			 * ours.
+			 *
+			 * WHAT IT COST. A host that missed one propagation round
+			 * holds id1 where the issuer has since minted R2 and R3.
+			 * R3 names id2, we hold id1, and the record that would
+			 * bridge them is R2 -- which NOTHING RETAINS. This store
+			 * holds `{pair, id, withdrawn}`: a hash and a flag, never a
+			 * record. No peer can serve R2 because no peer keeps it. So
+			 * the host stayed INCOMPLETE for that pair permanently, and
+			 * sec 358 left "ask for it by id" as the open half on the
+			 * assumption that something could answer. Measured: nothing
+			 * can. There is no fetch to build.
+			 *
+			 * WHAT IT BOUGHT, MEASURED THE SAME WAY. The signature and
+			 * the issuer's standing are settled at the top of this
+			 * function, so every record reaching this branch is signed
+			 * by a party already entitled to revoke this pair. A
+			 * near-miss `supersedes` is therefore only mintable by
+			 * somebody who could mint a correctly-chained one and revoke
+			 * the pair anyway: the exact compare denies an entitled
+			 * issuer nothing. What it does refuse is a THIRD PARTY's
+			 * replay of a stale re-revocation -- and only at a distance
+			 * of two or more, because a replay naming exactly what we
+			 * hold was always accepted. It stopped the case it could
+			 * heal from and let through the case it could not.
+			 *
+			 * SO THE DIRECTION OF THE ERROR DECIDES IT, which is F24's
+			 * argument reaching the store. Accepting a stale
+			 * re-revocation re-revokes a pair the root had restored:
+			 * a denial, visible, and one the root undoes by withdrawing
+			 * again -- that withdrawal names the id we just adopted, so
+			 * it applies. Refusing a genuine one authorises a grantee
+			 * the root revoked: silent, permanent, and the thing this
+			 * store exists to prevent. A revocation store errs revoked.
+			 *
+			 * A ZERO `supersedes` still refuses, and still drains. That
+			 * peer is BEHIND us -- it never heard the withdrawal and is
+			 * revoking the pair afresh -- and the deficit must drain or
+			 * the refusal and the re-fetch chase each other for ever.
+			 * The compare is whole-length for the same reason the old
+			 * one was: a `supersedes` that is zero in every byte but its
+			 * last NAMES something, and a prefix read would call it
+			 * nothing. */
+			{
 				static const uint8_t NAMES_NOTHING[FZN_REVOCATION_ID_LEN] = { 0 };
 
-				/* TWO CONDITIONS SHARED ONE BRANCH UNTIL sec 358,
-				 * and they are opposite. What separates them is
-				 * whether the arriving record NAMES anything.
-				 *
-				 * A ZERO `supersedes` is what `fzn_revocation_issue`
-				 * writes: a peer that never heard the withdrawal
-				 * revoking the pair afresh. That peer is BEHIND
-				 * us, we are ahead of the record we just turned
-				 * down, and the deficit must drain or the refusal
-				 * and the re-fetch chase each other for ever.
-				 *
-				 * A NON-ZERO `supersedes` we do not recognise is
-				 * the opposite: the chain advanced past us. We are
-				 * BEHIND by at least one record, and draining
-				 * there told this host it was up to date when it
-				 * was not -- so `fzn_chain_verify` stopped
-				 * answering INCOMPLETE and the host authorised a
-				 * grantee the root had revoked, silently and
-				 * permanently.
-				 *
-				 * Keeping the deficit routes that case into
-				 * FZN_CHAIN_ERR_INCOMPLETE, which exists to say
-				 * exactly this: it cannot say the chain is
-				 * unrevoked, only that it has not heard
-				 * otherwise. The asking continues, and for this
-				 * case that is right -- the host really is
-				 * missing something, and nothing else will say
-				 * so. sec 358 records that it cannot ask for the
-				 * record it needs BY ID, which is the open half. */
 				if (fzn_ct_memeq(fzn_revocation_supersedes(record),
-				                 NAMES_NOTHING, FZN_REVOCATION_ID_LEN))
+				                 NAMES_NOTHING, FZN_REVOCATION_ID_LEN)) {
 					fzn_manifest_satisfy(manifest,
 					                     fzn_revocation_issuer(record),
 					                     fzn_revocation_capability(record),
 					                     fzn_revocation_grantee(record));
-				return FZN_CHAIN_ERR_UNKNOWN_TARGET;
+					return FZN_CHAIN_ERR_UNKNOWN_TARGET;
+				}
 			}
 
 			/* NOT REVOKED becomes REVOKED, which is the biggest

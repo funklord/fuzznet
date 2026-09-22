@@ -45849,3 +45849,88 @@ of those twelve returning nothing at all. The mature modules were not clean --
 this section exists -- but they were an order of magnitude cleaner per module,
 and the one real defect in them had been sitting behind a test that named the
 property and passed.
+
+## 359. The record nothing retains, and a store that errs revoked, 2026-09-22
+
+Section 358 closed a symptom and named the cause as an open design question:
+a host behind a gap says INCOMPLETE instead of authorising, and "it still
+cannot fix itself: the manifest names one id per pair, and nothing can
+request a record BY ID". The next step looked obvious -- build the
+request-by-id half.
+
+IT IS NOT BUILDABLE, AND THE MEASUREMENT IS ONE STRUCT. `fzn_revocation_t`
+is `{capability, grantee, issuer, id, withdrawn}`: a pair, a hash and a flag.
+No store in this library holds a revocation RECORD. The victim needs R2;
+every peer that ever had R2 kept its hash, admitted W2 over it, and dropped
+the bytes. There is no host to ask, so there is no fetch to design -- and the
+INCOMPLETE state section 358 introduced was not a temporary honesty pending a
+mechanism, it was permanent for any host that missed one propagation round.
+
+So the open question was never what wire form a want-list should take. It was
+whether the rule should exist, and the answer came from measuring what it
+buys rather than from what it reads like.
+
+WHAT THE EXACT COMPARE BOUGHT. The signature and the issuer's standing are
+settled at the top of `fzn_revocation_admit`, before any of the id logic, so
+every record reaching the withdrawn branch is signed by a party ALREADY
+ENTITLED to revoke that pair. Section 326's test states its threat as "a
+value an attacker can put on the wire and sign" -- and the only party who can
+is one who could equally mint a correctly-chained record and revoke the pair
+outright. Against an entitled issuer the compare denies nothing.
+
+What it does refuse is a third party replaying a stale re-revocation. But
+only at a distance of two or more: a replay whose `supersedes` names exactly
+what we hold was always accepted, and still is. The rule stopped the case it
+could recover from and let through the case it could not.
+
+SO THE DIRECTION OF THE ERROR DECIDES IT, which is F24's argument arriving in
+the store. Accepting a stale re-revocation re-revokes a pair the root had
+restored: a denial, visible, and one the root undoes by withdrawing again --
+that withdrawal names the id just adopted, so it applies. Refusing a genuine
+one authorises a grantee the root revoked: silent, permanent, and precisely
+what this store exists to prevent. A revocation store errs revoked.
+
+The rule is now that a re-revocation over a withdrawal must NAME a
+predecessor, not name ours. A zero `supersedes` -- what `fzn_revocation_issue`
+writes, a peer that never heard the withdrawal -- is still refused and still
+drains the deficit, because that peer is behind US. A non-zero one is
+admitted and advances `entry->id`, which is the half that matters afterwards:
+the root's next withdrawal names the record just admitted and finds it.
+Without the advance the pair would be revocable and unwithdrawable.
+
+WHAT THIS COST, STATED RATHER THAN ASSUMED. A third party can now re-revoke a
+restored pair by replaying any since-withdrawn re-revocation of it, not
+merely the most recent. That is a widening of an existing hole rather than a
+new one, and it is a denial the root can undo. It is the price of a host
+being able to heal at all, and I would not have paid it if anything retained
+the bridging record.
+
+THE TESTS MOVED WITH THE RULE, AND THE DECIDING VALUE INVERTED. Section 326's
+near-miss case decided the read length of a compare that is gone; the
+whole-id property moved onto the compare that now decides. A `supersedes`
+that is zero in every byte BUT ITS LAST names something, and only a
+whole-length compare against zero can tell -- a prefix read calls it nothing,
+refuses the record and drains the deficit, reaching section 358's failure by
+another route. Section 358's own test was written to FAIL and reported rather
+than fixed; it now drives the behaviour it was written against, and carries
+two things it could not before: that the re-revocation takes, and that the
+root's NEXT withdrawal still applies afterwards.
+
+The sabotage entries moved the same way, and `rev-reissue-must-chain` was
+removed because under the new rule its mutation is byte-identical to
+`revocation-drains-when-the-record-names-nothing`. All three survivors were
+run against a scratch copy of the tree rather than in place, since the
+harness rewrites sources and this tree has another session in it. Each was
+caught, and caught through the check under test rather than by something
+upstream: the two directions of the branch fail at different assertions --
+`:682` when a record naming a predecessor is refused, `:713` when one naming
+nothing is admitted -- which is what shows the branch is a branch.
+revocation_test went 429 checks to 441; manifest_test's leg 2 is untouched at
+543.
+
+THE METHOD WORTH KEEPING is the one that turned the question around. The task
+was "build the request-by-id half", and the first move was to ask what could
+ANSWER such a request rather than to design the request. One read of the
+struct ended the feature and reopened the rule. A mechanism with nothing to
+talk to is not a mechanism, and the cheapest time to learn that is before
+writing it.

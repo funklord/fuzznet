@@ -93,6 +93,18 @@
  *
  * ON A WITHDRAWAL it is the revocation being undone, and must not be zero.
  *
+ * WHAT THE STORE ENFORCES IS WEAKER THAN WHAT THIS FIELD MEANS, deliberately
+ * and since sec 359. A re-revocation offered over a WITHDRAWN entry must NAME
+ * a predecessor -- a non-zero `supersedes` -- and need not name the one the
+ * store holds. Requiring the exact id made the only admissible record the one
+ * immediately after the held withdrawal, so a host that missed a single
+ * propagation round refused every later revocation of the pair and read it as
+ * unrevoked. It could not recover: this store keeps a hash and a flag, never a
+ * record, so the bridging record is one NOTHING RETAINS and no peer can be
+ * asked for it. Erring revoked is the cheaper error -- a stale re-revocation
+ * denies a grantee until the root withdraws again, where a refused genuine one
+ * authorises a grantee the root revoked, silently and for ever.
+ *
  * IT IS AN IDENTITY AND NEVER AN ORDER. `issued_at` above carries a NEVER
  * BECOME AN ORDERING KEY argument, and a per-pair counter here would be that
  * argument again under another name: a clock that cannot be bounded and a

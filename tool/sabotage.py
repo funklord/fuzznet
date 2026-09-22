@@ -600,13 +600,13 @@ SABOTAGES = [
 		"\t\t\t\tif (fzn_ct_memeq(fzn_revocation_supersedes(record),\n\t\t\t\t                 NAMES_NOTHING, FZN_REVOCATION_ID_LEN))",
 		"\t\t\t\tif (1)",
 		"a re-revocation whose `supersedes` this host does not recognise means "
-		"the chain moved on WITHOUT it. Draining there tells the host it is up "
-		"to date when it is behind, so fzn_chain_verify stops answering "
-		"INCOMPLETE and the host authorises a grantee the root has revoked -- "
-		"silently, permanently, and with no way to ask for the record that "
-		"would fix it. revocation_test builds a converged peer, lets the "
-		"victim learn it is behind, and requires the deficit to survive the "
-		"refusal. sec 358",
+		"the chain moved on WITHOUT it, and this host is BEHIND. Refusing it "
+		"leaves the pair unrevoked and cannot be healed: the bridging record "
+		"is one nothing retains, because this store holds a hash and a flag "
+		"rather than a record. So the host authorises a grantee the root has "
+		"revoked, silently and for ever. revocation_test builds a converged "
+		"peer, lets the victim fall a record behind, and requires the "
+		"re-revocation to take. sec 358, sec 359",
 	),
 	(
 		"revocation-drains-when-the-record-names-nothing",
@@ -1842,14 +1842,6 @@ SABOTAGES = [
 		"\t\t\tif (fzn_ct_memeq(id, entry->id, FZN_REVOCATION_ID_LEN)) {\n",
 		"\t\t\tif (0) {\n",
 		"a re-relayed copy of a withdrawn revocation must not re-revoke",
-	),
-	(
-		"rev-reissue-must-chain",
-		"chain/revocation.c",
-		"\t\t\tif (!fzn_ct_memeq(fzn_revocation_supersedes(record), entry->id,\n"
-		"\t\t\t                  FZN_REVOCATION_ID_LEN)) {\n",
-		"\t\t\tif (0) {\n",
-		"where the chaining rule is a mechanism rather than a sentence",
 	),
 	(
 		"rev-withdrawal-names-what-we-hold",
@@ -4631,16 +4623,17 @@ SABOTAGES = [
 	(
 		"revocation-rerevoke-supersedes-reads-the-whole-id",
 		"chain/revocation.c",
-		"\t\t\tif (!fzn_ct_memeq(fzn_revocation_supersedes(record), entry->id,\n"
-		"\t\t\t                  FZN_REVOCATION_ID_LEN)) {",
-		"\t\t\tif (!fzn_ct_memeq(fzn_revocation_supersedes(record), entry->id,\n"
-		"\t\t\t                  FZN_REVOCATION_ID_LEN - 1u)) {",
-		"a genuinely new revocation over a withdrawal must chain to it -- its "
-		"supersedes must equal the held id. supersedes is caller-set and "
-		"signed, entry->id a computed hash, so a near miss is constructible; a "
-		"prefix compare re-revokes a withdrawn pair on an id it does not name. "
-		"The reissue cases drive only the exact id and a wholly different one. "
-		"sec 326",
+		"\t\t\t\tif (fzn_ct_memeq(fzn_revocation_supersedes(record),\n"
+		"\t\t\t\t                 NAMES_NOTHING, FZN_REVOCATION_ID_LEN))",
+		"\t\t\t\tif (fzn_ct_memeq(fzn_revocation_supersedes(record),\n"
+		"\t\t\t\t                 NAMES_NOTHING, FZN_REVOCATION_ID_LEN - 1u))",
+		"the whole-id read, moved in sec 359 onto the compare that now decides. "
+		"A re-revocation over a withdrawal must NAME a predecessor, and a "
+		"supersedes that is zero in every byte but its last names one. A "
+		"prefix compare calls it nothing, refuses the record and drains the "
+		"deficit -- the host stays unrevoked and stops asking. sec 326 put "
+		"this on the exact-id compare; sec 359 removed that compare and the "
+		"property came with it. sec 359",
 	),
 	(
 		"line-a-full-line-is-not-overlong",
