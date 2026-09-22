@@ -158,6 +158,7 @@ GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
              local/line.c local/socket.c local/client.c \
+             node/peer_persist.c \
              net/udp.c \
              node/node.c node/local.c node/remote.c node/serve.c \
              node/provision.c \
@@ -230,6 +231,7 @@ NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/local.o \
 HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h local/vocabulary.h local/line.h local/socket.h \
              local/client.h \
+             node/peer_persist.h \
              net/udp.h \
              node/node.h node/local.h node/remote.h node/serve.h \
              node/provision.h \
@@ -341,6 +343,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              wire/test/tamper_test.c \
              session/test/random_test.c local/test/vocabulary_test.c \
              local/test/client_test.c \
+             node/test/peer_persist_test.c \
              local/test/vocabulary_fuzz.c local/test/admit_test.c \
              local/test/line_test.c local/test/socket_test.c \
              net/test/udp_test.c \
@@ -444,6 +447,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/session/test/random_test \
              $(BUILD_DIR)/local/test/vocabulary_test \
              $(BUILD_DIR)/local/test/client_test \
+             $(BUILD_DIR)/node/test/peer_persist_test \
              $(BUILD_DIR)/local/test/vocabulary_fuzz \
              $(BUILD_DIR)/local/test/admit_test \
              $(BUILD_DIR)/local/test/line_test \
@@ -3019,6 +3023,22 @@ $(BUILD_DIR)/node/test/node_test: $(BUILD_DIR)/node/test/node_test.o \
 # The local access methods over a real AF_UNIX stream, driven by a
 # socketpair. Adds local/line.o for the framer and version/version.o for
 # the status line, on top of node_test's set.
+$(BUILD_DIR)/node/test/peer_persist_test.o: node/test/peer_persist_test.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -Inode -c $< -o $@
+
+$(BUILD_DIR)/node/test/peer_persist_test: \
+                                   $(BUILD_DIR)/node/test/peer_persist_test.o \
+                                   $(BUILD_DIR)/node/peer_persist.o \
+                                   $(BUILD_DIR)/persist/persist.o \
+                                   $(BUILD_DIR)/trust/trust.o \
+                                   $(BUILD_DIR)/prekey/prekey.o \
+                                   $(BUILD_DIR)/ratchet/ratchet.o \
+                                   $(BUILD_DIR)/session/agree.o \
+                                   $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/node/test/local_test.o: node/test/local_test.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Inode -c $< -o $@

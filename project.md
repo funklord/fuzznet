@@ -46463,3 +46463,96 @@ nothing. Two follow the rules into `local/vocabulary.c`; the third stays in
 the client and now names what the client still owns, which is WHICH bound it
 asks for. A relocated guard is not a deleted one, and an entry that cannot
 find its anchor is the harness saying so rather than a fault.
+
+## 366. The peer set survives a restart, 2026-09-22
+
+raidcfgd asked on 2026-09-22 whether there is an intended shape for getting
+provisioned peers INTO `fuzznetd` -- a file it reads, a directory it scans --
+and reported finding none. There was none. `fuzznetd` binds the remote hop
+and serves nobody until `fzn_node_state_t.peers` is filled, and nothing in
+this library filled it from disk.
+
+THE GAP WAS IN THE INVENTORY, WHICH IS WHERE IT COSTS MOST. `persist/persist.h`
+is the table of what must survive a restart, and it opens by naming the
+hazard it exists to close: "absence reading as not-required, where the absent
+thing is a file". `fzn_node_peer_t` was in NEITHER of its lists -- not among
+the four that MUST be kept, not among the five recorded as recoverable and
+deliberately unserved. A reader consulting the authority on what to persist
+would have concluded the node's peers need no persisting, and the failure is
+silent: the daemon starts, binds, and answers nobody.
+
+Losing one is not recoverable. The session keys and the capability chain come
+from an out-of-band pairing card, so nothing re-derives them: every device
+must be paired again.
+
+### Where it had to go, and why not beside the others
+
+`fzn_node_peer_t` is declared in `node/remote.h`, which includes
+`wire/seal.h` -- the one module in this library that depends on generated
+code, isolated there so every other source builds and ships without situ.
+Packing it from `persist.h` would have spent that isolation to save a file.
+
+So the seam and the inventory stay in `persist/`, the head format is made
+public there and shared, and `node/peer_persist.{h,c}` holds the format for
+this one type beside the type. The head was two private statics; it is
+`fzn_persist_head_write` and `fzn_persist_head_check` now, ten call sites
+renamed, so a second module writes the same two bytes rather than deriving
+them again.
+
+AND IT IS NOT FOLDED INTO `FZN_PERSIST_MAX`. A node peer carries up to
+FZN_CHAIN_MAX_HOPS signed hops at FZN_HOP_LEN each, so the blob runs to 1531
+bytes against that constant's 96. Folding it in would make every host that
+persists a trust anchor and a prekey carry a 1.5 KB buffer, and sec 313 asked
+whether this library fits an ESP8266 -- which is what makes 96 against 1.5 KB
+a real difference rather than a tidy one. `FZN_NODE_PEER_BLOB_MAX` is its own
+bound and `persist.h` says why.
+
+### Three sabotages that missed, and three different reasons
+
+This is the entry's value. All three guards are correct and necessary; the
+first fixtures could reach none of them.
+
+**PACK's hop bound, missed because the CAPACITY check intercepted it.** The
+fixture used a buffer of exactly FZN_NODE_PEER_BLOB_MAX, so an over-large
+body was refused for not fitting before the hop count was ever the reason.
+What the guard actually prevents is reading `peer->hop_bytes` one past an
+array of exactly FZN_CHAIN_MAX_HOPS. Driven with an OVERSIZED buffer it is
+caught.
+
+**OPEN's hop bound, missed because the forged blob was inconsistent.** The
+fixture set the count byte to nine on a two-hop record, and the exactness
+check refused it for the length rather than for the count. A file crafted to
+be SELF-CONSISTENT -- nine declared, nine hops' worth of length -- is refused
+by the bound and by nothing else, and without it `out->hop_bytes` is written
+past its end. Driven that way it is caught.
+
+**OPEN's length bound, and this one is still unproven.** The fixture passed a
+long buffer with a short length, so the over-read stayed inside allocated
+memory where nothing could see it. Rewritten to pass a genuinely short
+buffer, the mutation is STILL not observed -- not in the plain build and not
+under AddressSanitizer, checked with the objects deleted and rebuilt from
+clean so a stale `.-san` artifact is not the explanation, and the binary
+confirmed instrumented. The return value cannot distinguish either, because a
+count read from past the end fails the exactness check whichever byte it
+finds.
+
+So the guard stays, because a read past the caller's stated length is wrong
+whether or not a test can watch it happen -- and **no sabotage entry claims
+it**. An entry that never fires is the harness's own warning wearing a
+tick: "a stale entry reports a guard as defended without testing it". It is
+recorded here as unproven instead, which is the honest state and the thing a
+reader needs to know.
+
+The general shape, and it is sharper than "write better fixtures": **a guard
+that sits behind another check is invisible until the fixture is built to
+walk past the first one.** Capacity before count, exactness before bound. In
+both caught cases the fix was not a better assertion but a fixture
+constructed to make the earlier check pass.
+
+### What is still not built
+
+The file backend needs no work -- `fzn_persist_ops_t` is byte-oriented with a
+caller-sized cap, so `FZN_PERSIST_NODE_PEER` is a slot it already serves. What
+does not exist is `fuzznetd` LOADING the set at start: enumerating the
+subjects it has, opening each, and filling `state.peers`. That is the daemon
+half and it is the next piece.

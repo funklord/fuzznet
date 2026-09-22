@@ -52,7 +52,7 @@ _Static_assert(OFF_BODY + TRUST_BODY <= FZN_PERSIST_MAX, "trust blob past the ma
 _Static_assert(OFF_BODY + SECRET_BODY <= FZN_PERSIST_MAX, "secret blob past the maximum");
 _Static_assert(OFF_BODY + CHAIN_BODY <= FZN_PERSIST_MAX, "chain blob past the maximum");
 
-static fzn_persist_err_t head_write(uint8_t *out, size_t cap, size_t body, uint8_t tag)
+fzn_persist_err_t fzn_persist_head_write(uint8_t *out, size_t cap, size_t body, uint8_t tag)
 {
 	if (cap < OFF_BODY + body)
 		return FZN_PERSIST_ERR_MALFORMED;
@@ -61,7 +61,7 @@ static fzn_persist_err_t head_write(uint8_t *out, size_t cap, size_t body, uint8
 	return FZN_PERSIST_OK;
 }
 
-static fzn_persist_err_t head_check(const uint8_t *bytes, size_t len, size_t body,
+fzn_persist_err_t fzn_persist_head_check(const uint8_t *bytes, size_t len, size_t body,
                                     uint8_t tag)
 {
 	/* EXACT, not "at least". A trailing byte is a second encoding of one
@@ -95,7 +95,7 @@ fzn_persist_err_t fzn_persist_trust_pack(const fzn_trust_t *trust, uint8_t *out,
 	if (!root)
 		return FZN_PERSIST_ERR_MALFORMED;
 
-	err = head_write(out, cap, TRUST_BODY, BLOB_TRUST);
+	err = fzn_persist_head_write(out, cap, TRUST_BODY, BLOB_TRUST);
 	if (err != FZN_PERSIST_OK)
 		return err;
 
@@ -114,7 +114,7 @@ fzn_persist_err_t fzn_persist_trust_open(const uint8_t *bytes, size_t len, fzn_t
 
 	if (!bytes || !out)
 		return FZN_PERSIST_ERR_MALFORMED;
-	err = head_check(bytes, len, TRUST_BODY, BLOB_TRUST);
+	err = fzn_persist_head_check(bytes, len, TRUST_BODY, BLOB_TRUST);
 	if (err != FZN_PERSIST_OK)
 		return err;
 
@@ -184,7 +184,7 @@ fzn_persist_err_t fzn_persist_secret_pack(const fzn_agree_secret_t *secret, uint
 	if (!fzn_agree_secret_public(secret))
 		return FZN_PERSIST_ERR_MALFORMED;
 
-	err = head_write(out, cap, SECRET_BODY, BLOB_SECRET);
+	err = fzn_persist_head_write(out, cap, SECRET_BODY, BLOB_SECRET);
 	if (err != FZN_PERSIST_OK)
 		return err;
 
@@ -208,7 +208,7 @@ fzn_persist_err_t fzn_persist_secret_open(const uint8_t *bytes, size_t len,
 
 	if (!bytes || !out)
 		return FZN_PERSIST_ERR_MALFORMED;
-	err = head_check(bytes, len, SECRET_BODY, BLOB_SECRET);
+	err = fzn_persist_head_check(bytes, len, SECRET_BODY, BLOB_SECRET);
 	if (err != FZN_PERSIST_OK)
 		return err;
 
@@ -264,7 +264,7 @@ fzn_persist_err_t fzn_persist_peer_pack(const fzn_prekey_peer_t *peer, uint8_t *
 	if (!peer || !out || !len)
 		return FZN_PERSIST_ERR_MALFORMED;
 
-	err = head_write(out, cap, PEER_BODY, BLOB_PEER);
+	err = fzn_persist_head_write(out, cap, PEER_BODY, BLOB_PEER);
 	if (err != FZN_PERSIST_OK)
 		return err;
 
@@ -298,7 +298,7 @@ fzn_persist_err_t fzn_persist_peer_open(const uint8_t *bytes, size_t len,
 
 	if (!bytes || !out)
 		return FZN_PERSIST_ERR_MALFORMED;
-	err = head_check(bytes, len, PEER_BODY, BLOB_PEER);
+	err = fzn_persist_head_check(bytes, len, PEER_BODY, BLOB_PEER);
 	if (err != FZN_PERSIST_OK)
 		return err;
 
@@ -335,7 +335,7 @@ fzn_persist_err_t fzn_persist_chain_pack(const fzn_ratchet_chain_t *chain, uint8
 	 * direction in the blob as well would let a caller store a send chain
 	 * under the receive key and still open it, so the two would disagree
 	 * with nothing to notice. */
-	err = head_write(out, cap, CHAIN_BODY, BLOB_CHAIN);
+	err = fzn_persist_head_write(out, cap, CHAIN_BODY, BLOB_CHAIN);
 	if (err != FZN_PERSIST_OK)
 		return err;
 
@@ -352,7 +352,7 @@ fzn_persist_err_t fzn_persist_chain_open(const uint8_t *bytes, size_t len,
 
 	if (!bytes || !out)
 		return FZN_PERSIST_ERR_MALFORMED;
-	err = head_check(bytes, len, CHAIN_BODY, BLOB_CHAIN);
+	err = fzn_persist_head_check(bytes, len, CHAIN_BODY, BLOB_CHAIN);
 	if (err != FZN_PERSIST_OK)
 		return err;
 

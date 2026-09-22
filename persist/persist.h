@@ -55,6 +55,17 @@
  *   fzn_ratchet_chain_t  MUST, per direction per peer, and SEE THE ORDERING
  *                        BELOW -- this is the one where persisting at the
  *                        wrong moment is worse than not persisting at all.
+ *   fzn_node_peer_t      MUST, per remote peer a node serves. Losing it
+ *                        leaves `fuzznetd` bound and serving NOBODY -- the
+ *                        session keys and the capability chain came from an
+ *                        out-of-band pairing card, so nothing re-derives
+ *                        them and every device must be paired again. It was
+ *                        absent from BOTH lists here until sec 366, which is
+ *                        this file's own hazard in this file: absence
+ *                        reading as not-required. Packed by
+ *                        `node/peer_persist.h` rather than below, because
+ *                        the type lives behind the generated schema and
+ *                        this header does not.
  *
  * Recoverable rather than required, and deliberately not served here:
  *
@@ -99,9 +110,20 @@
 
 #define FZN_PERSIST_VERSION 1u
 
-/* Longest blob any pack function below produces, so a caller can size one
- * buffer and stop thinking about it. Asserted against each in persist.c. */
+/* Longest blob any pack function BELOW produces, so a caller can size one
+ * buffer and stop thinking about it. Asserted against each in persist.c.
+ *
+ * IT DOES NOT COVER `FZN_PERSIST_NODE_PEER`, which is the one variable-length
+ * slot and is bounded by `FZN_NODE_PEER_BLOB_MAX` in `node/peer_persist.h`.
+ * A node peer carries up to FZN_CHAIN_MAX_HOPS signed hops, so folding it in
+ * would take this from 96 bytes to about 1.5 KB -- and a host that persists
+ * a trust anchor and a prekey and serves no remote peers would carry that
+ * buffer for nothing. sec 313 asked whether this library fits an ESP8266,
+ * which is why 96 against 1.5 KB is a real difference rather than a tidy
+ * one. A caller that serves remote peers sizes for both; one that does not
+ * is unaffected. */
 #define FZN_PERSIST_MAX 96u
+
 
 typedef enum fzn_persist_slot {
 	/* Whole-host, no subject. */
@@ -111,6 +133,10 @@ typedef enum fzn_persist_slot {
 	FZN_PERSIST_PEER = 3u,
 	FZN_PERSIST_SEND_CHAIN = 4u,
 	FZN_PERSIST_RECV_CHAIN = 5u,
+	/* Per remote peer the NODE serves, keyed by that peer's identity.
+	 * `node/peer_persist.h` packs it; see the inventory above for why the
+	 * functions are not in this file. */
+	FZN_PERSIST_NODE_PEER = 6u,
 } fzn_persist_slot_t;
 
 typedef enum fzn_persist_err {
@@ -129,6 +155,28 @@ typedef enum fzn_persist_err {
 	 * prekey or to stop and shout. */
 	FZN_PERSIST_ERR_ABSENT,
 } fzn_persist_err_t;
+
+/* The head every blob here carries: a version byte and a tag byte.
+ *
+ * PUBLIC SO A SECOND MODULE CAN WRITE ONE. `node/peer_persist.c` packs a type
+ * this header cannot see -- `fzn_node_peer_t` lives behind `wire/seal.h`,
+ * the one module that depends on generated code, and pulling that in here
+ * would cost persist the independence its own opening paragraph claims. So
+ * the head is stated once and shared, rather than a second module deriving
+ * the same two bytes and drifting. */
+#define FZN_PERSIST_HEAD_LEN 2u
+#define FZN_PERSIST_BLOB_NODE_PEER 5u
+
+/* Write a blob head, or refuse when `cap` cannot hold head and body. */
+fzn_persist_err_t fzn_persist_head_write(uint8_t *out, size_t cap, size_t body,
+                                          uint8_t tag);
+
+/* Check one, EXACTLY: `len` must be head plus body and no more. A trailing
+ * byte is a second encoding of one blob, and this module refuses one for the
+ * reason every decoder here does -- "ignore what you do not understand" is
+ * how one format becomes several. */
+fzn_persist_err_t fzn_persist_head_check(const uint8_t *bytes, size_t len,
+                                          size_t body, uint8_t tag);
 
 const char *fzn_persist_err_str(fzn_persist_err_t err);
 

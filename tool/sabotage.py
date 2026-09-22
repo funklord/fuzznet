@@ -764,6 +764,33 @@ SABOTAGES = [
 		"substring. sec 365",
 	),
 	(
+		"node-peer-pack-bounds-the-hop-count",
+		"node/peer_persist.c",
+		"\tif (peer->hop_count > (size_t)FZN_CHAIN_MAX_HOPS)\n"
+		"\t\treturn FZN_PERSIST_ERR_MALFORMED;",
+		"\tif (0)\n\t\treturn FZN_PERSIST_ERR_MALFORMED;",
+		"a peer with more hops than fzn_chain_verify accepts is not "
+		"written down: the pack would read peer->hop_bytes one past an "
+		"array of exactly FZN_CHAIN_MAX_HOPS. The first fixture could not "
+		"see this -- a buffer of exactly FZN_NODE_PEER_BLOB_MAX makes the "
+		"head writer refuse the over-large body on CAPACITY first, so the "
+		"case is driven with an oversized buffer that lets the pack reach "
+		"the guard. sec 366",
+	),
+	(
+		"node-peer-open-bounds-the-hop-count",
+		"node/peer_persist.c",
+		"\tif (hop_count > (size_t)FZN_CHAIN_MAX_HOPS)\n"
+		"\t\treturn FZN_PERSIST_ERR_SHAPE;",
+		"\tif (0)\n\t\treturn FZN_PERSIST_ERR_SHAPE;",
+		"the same bound where the count arrives from a FILE rather than "
+		"from a caller, which is the case that matters. The forged blob "
+		"has to be SELF-CONSISTENT -- a declared count of nine with a "
+		"length that agrees with nine -- or the exactness check refuses it "
+		"first and the bound is never reached. Without it out->hop_bytes "
+		"is written one past its end from a crafted file. sec 366",
+	),
+	(
 		"vocabulary-split-refuses-a-leading-space",
 		"local/vocabulary.c",
 		"\tif (i == 0 || i > FZN_VERB_MAX)",
