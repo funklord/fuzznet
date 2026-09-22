@@ -9,9 +9,12 @@
  * PURE ARITHMETIC. Nothing here holds a buffer, copies a payload, or knows
  * what a datagram looks like -- it answers "how many pieces, and which
  * bytes are piece N" and leaves the caller to cut them. That keeps it
- * independent of wire/frame.situ, which is what makes it buildable while
- * sec 10 step 2 is blocked, and it means a sender can plan a message before
- * deciding whether it will send one at all.
+ * independent of wire/frame.situ, and it means a sender can plan a message
+ * before deciding whether it will send one at all. The independence was
+ * first worth having because it made this module buildable while sec 10
+ * step 2 was blocked; step 2 has been settled since 2026-08-18 (sec 353)
+ * and the independence is worth keeping on its own -- a justification that
+ * expires does not retire the thing it justified.
  *
  * NOT a transmission schedule. Nothing here decides when to send, what to
  * resend, or how fast -- sec 10 names a hand-written retransmission state
@@ -37,18 +40,26 @@
  * caller's arithmetic and an invalid frame.
  *
  * IT IS REPEATED HERE RATHER THAN INCLUDED, deliberately. This module is
- * pure arithmetic and independent of the schema -- that is what makes it
- * buildable while sec 10 step 2 is blocked -- so it cannot see
+ * pure arithmetic and independent of the schema, so it cannot see
  * `SITU_FZN_FRAME_SIZE_MAX`. The copy is tethered instead:
- * `chunk/test/agreement_test.c` static-asserts this against the generated
- * header, which is the only place both numbers are visible.
+ * `wire/test/constants_test.c` static-asserts
+ * `SITU_FZN_FRAME_SIZE_MAX - SITU_FZN_FRAME_SIZE_MIN` against this, which is
+ * the only place both numbers are visible. The tether was written into this
+ * module's own `agreement_test.c` and moved in `0a070ae`, where every
+ * constant the library states twice is checked together; this comment went
+ * on naming the old file, which sends a reader looking and leaves them
+ * concluding they misread something.
  *
  * So the tether is `make test`, not `make`. Putting it in the default build
  * would mean a library source including a generated header, which would cost
- * the independence above for a constant that changes about once. Worth
- * knowing that the schema's number is a placeholder its own comment says
- * wants measuring: when it is measured, the assert is what refuses the
- * half-done change. */
+ * the independence above for a constant that changes about once. THE
+ * SCHEMA'S NUMBER IS MEASURED AND NOT PROVISIONAL, since sec 353 and settled
+ * on 2026-08-18: RFC 8200 guarantees 1280 bytes on every IPv6 link, less 48
+ * of IPv6 and UDP headers and 144 of frame, so 1088 is the largest payload
+ * that fits and 1024 sits under it. This comment called it a placeholder
+ * wanting measurement for a month after it had been measured, which is a gap
+ * claim outliving its gap: it sends the next reader at work already done.
+ * The assert is what refuses a half-done change if the number ever moves. */
 #define FZN_SPLIT_MAX_PAYLOAD 1024u
 
 typedef enum fzn_split_err {

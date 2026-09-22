@@ -42,9 +42,12 @@
  * so a first chunk could claim 65535 pieces and ask a receiver to track
  * them; bounding it here means the arrived-set is 32 bytes inside the slot
  * rather than another caller allocation whose size depends on what a
- * stranger said. 256 chunks against frame.situ's placeholder 1024-byte
- * payload is 256 KiB, which is generous for a `status` and small enough
- * that a router can afford several. */
+ * stranger said. 256 chunks against frame.situ's measured 1024-byte payload
+ * is 256 KiB, which is generous for a `status` and small enough that a
+ * router can afford several. That payload bound was called a placeholder
+ * here until sec 359; it was settled on 2026-08-18 and derived from the
+ * guaranteed IPv6 MTU rather than chosen, so this ceiling rests on a number
+ * that is not going to move for a measurement. */
 #define FZN_REASM_MAX_CHUNKS 256u
 
 typedef enum fzn_reasm_err {
