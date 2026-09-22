@@ -284,6 +284,154 @@ int main(void)
 		      "the two functions disagree about what the table says");
 	}
 
+	/* THE VERB TABLE IS PROVED BY A ROUND TRIP, NOT BY BEING READ.
+	 *
+	 * `VERBS` in vocabulary.c is a designated-initialiser array, so a verb
+	 * added to the enum and forgotten there initialises to { NULL, 0, 0 }
+	 * and `fzn_verb_name` answers NULL -- which reads exactly like a value
+	 * outside the enum. Nothing in the module can tell those apart. This
+	 * walks the whole set and requires each to name itself and parse back,
+	 * so the gap becomes a failure here instead of a verb that silently
+	 * does not exist. */
+	{
+		fzn_verb_t v;
+		size_t named = 0;
+
+		for (v = (fzn_verb_t)1; (size_t)v < FZN_VERB_COUNT;
+		     v = (fzn_verb_t)((size_t)v + 1u)) {
+			const char *name = fzn_verb_name(v);
+
+			check(name != NULL,
+			      "a verb in the enum has no spelling, so it was added to "
+			      "vocabulary.h and not to the table in vocabulary.c");
+			if (!name)
+				continue;
+			named++;
+			check(fzn_verb_name_len(v) == strlen(name),
+			      "a verb's stated length disagrees with its spelling, so a "
+			      "caller matching bytes reads past or stops short");
+			check(fzn_verb_parse((const uint8_t *)name, strlen(name)) == v,
+			      "a verb does not parse back to itself");
+		}
+		check(named == FZN_VERB_COUNT - 1u,
+		      "the walk did not reach every verb");
+
+		/* No two verbs share a spelling. A duplicate would make `parse`
+		 * answer the lower one for both, silently, and the round trip
+		 * above would still pass for whichever it answered. */
+		{
+			fzn_verb_t a, b;
+			int clash = 0;
+
+			for (a = (fzn_verb_t)1; (size_t)a < FZN_VERB_COUNT;
+			     a = (fzn_verb_t)((size_t)a + 1u))
+				for (b = (fzn_verb_t)((size_t)a + 1u);
+				     (size_t)b < FZN_VERB_COUNT;
+				     b = (fzn_verb_t)((size_t)b + 1u))
+					if (fzn_verb_name(a) && fzn_verb_name(b) &&
+					    strcmp(fzn_verb_name(a), fzn_verb_name(b)) == 0)
+						clash = 1;
+			check(clash == 0, "two verbs share a spelling");
+		}
+	}
+
+	/* What `parse` must NOT accept. A near miss matters more than a wholly
+	 * different word: the bound and the exactness are what stop `statuses`
+	 * reaching a rule written for `status`. */
+	check(fzn_verb_parse(NULL, 6u) == FZN_VERB_NONE, "a NULL verb parsed");
+	check(fzn_verb_parse((const uint8_t *)"", sizeof("") - 1u) == FZN_VERB_NONE, "an empty verb parsed");
+	check(fzn_verb_parse((const uint8_t *)"stat", sizeof("stat") - 1u) == FZN_VERB_NONE, "a prefix of a verb parsed");
+	check(fzn_verb_parse((const uint8_t *)"statuses", sizeof("statuses") - 1u) == FZN_VERB_NONE,
+	      "a verb with a real one as its prefix parsed");
+	check(fzn_verb_parse((const uint8_t *)"STATUS", sizeof("STATUS") - 1u) == FZN_VERB_NONE,
+	      "a verb parsed case-insensitively, which needs a locale-independent "
+	      "fold this library does not have");
+	check(fzn_verb_parse((const uint8_t *)"status", sizeof("status") - 1u) == FZN_VERB_STATUS, "the control did not parse");
+	{
+		uint8_t big[FZN_VERB_MAX + 2u];
+
+		memset(big, 'a', sizeof(big));
+		check(fzn_verb_parse(big, FZN_VERB_MAX + 1u) == FZN_VERB_NONE,
+		      "a verb longer than a rule could name was parsed, so `parse` and "
+		      "`admit` disagree about what a verb is");
+	}
+
+	/* Mutation, which all three consumers would otherwise each list. */
+	check(fzn_verb_mutates(FZN_VERB_STATUS) == 0 &&
+	      fzn_verb_mutates(FZN_VERB_LOG) == 0 &&
+	      fzn_verb_mutates(FZN_VERB_GET) == 0 &&
+	      fzn_verb_mutates(FZN_VERB_LIST) == 0 &&
+	      fzn_verb_mutates(FZN_VERB_FETCH) == 0,
+	      "a reading verb is reported as changing state");
+	check(fzn_verb_mutates(FZN_VERB_SET) == 1 &&
+	      fzn_verb_mutates(FZN_VERB_ADD) == 1 &&
+	      fzn_verb_mutates(FZN_VERB_REMOVE) == 1 &&
+	      fzn_verb_mutates(FZN_VERB_PUT) == 1 &&
+	      fzn_verb_mutates(FZN_VERB_GRANT) == 1 &&
+	      fzn_verb_mutates(FZN_VERB_REVOKE) == 1,
+	      "a writing verb is reported as read-only, so a daemon refusing while "
+	      "read-only would let it through");
+	check(fzn_verb_mutates(FZN_VERB_NONE) == 0, "NONE is not described as mutating");
+
+	/* A rule built from a verb is one the table functions honour -- the
+	 * point of the constructor, since a consumer spelling the bytes by
+	 * hand is the duplication this set exists to remove. */
+	{
+		fzn_verb_rule_t r = fzn_verb_rule(6u, FZN_VERB_STATUS);
+		fzn_verb_rule_t none = fzn_verb_rule(6u, FZN_VERB_NONE);
+
+		check(fzn_vocabulary_names(V(STATUS), &r, 1) == 1,
+		      "a rule built by fzn_verb_rule does not name its own verb");
+		known_peer(&p);
+		check(fzn_vocabulary_admit(&p, V(STATUS), &r, 1) == FZN_PEER_MEMBER,
+		      "a peer in the rule's group was refused its own verb");
+		check(fzn_vocabulary_names(V(STATUS), &none, 1) == 0,
+		      "a rule for FZN_VERB_NONE named a verb, so a mistyped enum value "
+		      "would match rather than fail closed");
+	}
+
+	/* SPLITTING A REQUEST LINE. The node stops at the first space and hands
+	 * the rest over untouched. */
+	{
+		fzn_request_t req;
+
+		check(fzn_vocabulary_split((const uint8_t *)"get thing", 9u, &req) == 1 &&
+		      req.parsed == FZN_VERB_GET && req.verb_len == 3u &&
+		      req.arg_len == 5u && memcmp(req.arg, "thing", 5u) == 0,
+		      "a verb and argument did not split");
+		check(fzn_vocabulary_split((const uint8_t *)"get a b", 7u, &req) == 1 &&
+		      req.arg_len == 3u && memcmp(req.arg, "a b", 3u) == 0,
+		      "the argument was tokenised past the first space, which is the "
+		      "consumer's business and not this library's");
+		check(fzn_vocabulary_split((const uint8_t *)"get", 3u, &req) == 1 &&
+		      req.parsed == FZN_VERB_GET && req.arg == NULL && req.arg_len == 0u,
+		      "a verb with no argument did not split");
+		check(fzn_vocabulary_split((const uint8_t *)"get ", 4u, &req) == 1 &&
+		      req.arg != NULL && req.arg_len == 0u,
+		      "`get ` and `get` were made the same request -- an empty argument "
+		      "is a caller asking for the empty subject, not an absent one");
+		check(fzn_vocabulary_split((const uint8_t *)"destroy", 7u, &req) == 1 &&
+		      req.parsed == FZN_VERB_NONE && req.verb_len == 7u,
+		      "a consumer's own verb was refused rather than handed over as "
+		      "NONE, which would make bypass-until-gained impossible");
+		check(fzn_vocabulary_split((const uint8_t *)" get", 4u, &req) == 0,
+		      "a leading space was skipped, so ` destroy` and `destroy` are the "
+		      "same request and a filter is got past with whitespace");
+		check(fzn_vocabulary_split((const uint8_t *)"", 0u, &req) == 0,
+		      "an empty line split");
+		check(fzn_vocabulary_split(NULL, 4u, &req) == 0, "a NULL line split");
+		check(fzn_vocabulary_split((const uint8_t *)"get x", 5u, NULL) == 0,
+		      "a NULL output split");
+		{
+			uint8_t big[FZN_VERB_MAX + 2u];
+
+			memset(big, 'a', sizeof(big));
+			check(fzn_vocabulary_split(big, FZN_VERB_MAX + 1u, &req) == 0 &&
+			      req.verb == NULL && req.verb_len == 0u,
+			      "an overlong verb split, or left the request half-filled");
+		}
+	}
+
 	printf("vocabulary_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
 }

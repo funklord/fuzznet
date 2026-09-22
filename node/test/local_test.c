@@ -106,11 +106,13 @@ struct seen {
 	char bytes[64];
 	size_t claim;	/* what `reply` should claim to have written */
 	const char *say;	/* what it writes, or NULL to write nothing */
+	fzn_verb_t parsed;
+	size_t arg_len;
 };
 
 static size_t record(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t origin,
-                     const fzn_peer_t *peer, const uint8_t *request,
-                     size_t request_len, char *reply, size_t reply_cap)
+                     const fzn_peer_t *peer, const fzn_request_t *request,
+                     char *reply, size_t reply_cap)
 {
 	struct seen *s = (struct seen *)ctx;
 
@@ -118,10 +120,12 @@ static size_t record(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t origin
 	(void)origin;
 	(void)peer;
 	s->calls++;
-	s->len = request_len;
-	if (request && request_len < sizeof(s->bytes)) {
-		memcpy(s->bytes, request, request_len);
-		s->bytes[request_len] = '\0';
+	s->len = request ? request->verb_len : 0u;
+	s->parsed = request ? request->parsed : FZN_VERB_NONE;
+	s->arg_len = request ? request->arg_len : 0u;
+	if (request && request->verb && request->verb_len < sizeof(s->bytes)) {
+		memcpy(s->bytes, request->verb, request->verb_len);
+		s->bytes[request->verb_len] = '\0';
 	}
 	if (!s->say)
 		return s->claim;	/* 0 for "node, answer for yourself" */
@@ -135,19 +139,24 @@ static size_t record(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t origin
  * lives out here. `local/vocabulary.h` is raidcfgd's requirement and until
  * the seam existed nothing on the local path could reach it. */
 static size_t bounded(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t origin,
-                      const fzn_peer_t *peer, const uint8_t *request,
-                      size_t request_len, char *reply, size_t reply_cap)
+                      const fzn_peer_t *peer, const fzn_request_t *request,
+                      char *reply, size_t reply_cap)
 {
-	static const uint8_t STATUS[] = "status";
+	/* The rule is built from fuzznet's own verb rather than from bytes
+	 * spelled out here, which is what sec 361 added and what stops three
+	 * consumers spelling `status` three ways. */
 	const fzn_verb_rule_t rules[] = {
-		{ 44u, STATUS, sizeof(STATUS) - 1u },
+		{ 0u, NULL, 0u },
 	};
+	fzn_verb_rule_t table[1];
 	const char *out;
 
 	(void)verdict;
 	(void)origin;
 	(void)ctx;
-	out = (fzn_vocabulary_admit(peer, request, request_len, rules, 1)
+	(void)rules;
+	table[0] = fzn_verb_rule(44u, FZN_VERB_STATUS);
+	out = (fzn_vocabulary_admit(peer, request->verb, request->verb_len, table, 1)
 	       == FZN_PEER_MEMBER) ? "ok\n" : "refused\n";
 	if (strlen(out) > reply_cap)
 		return 0;

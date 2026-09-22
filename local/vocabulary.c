@@ -4,6 +4,8 @@
 
 #include "../constant_time/constant_time.h"
 
+#include <stddef.h>
+
 /* Does this rule name this verb?
  *
  * ONE IMPLEMENTATION, called from both public functions, because the two ask
@@ -113,4 +115,130 @@ fzn_peer_verdict_t fzn_vocabulary_admit(const fzn_peer_t *peer, const uint8_t *v
 		return FZN_PEER_NOT_MEMBER;
 
 	return unknown_seen ? FZN_PEER_UNKNOWN : FZN_PEER_NOT_MEMBER;
+}
+
+/* THE SPELLINGS, and the one place they exist.
+ *
+ * A designated initialiser per verb so the table is indexed by the enum
+ * rather than ordered to match it: a verb inserted in the middle of the enum
+ * cannot silently take another's spelling, which an ordered list makes
+ * possible and makes invisible.
+ *
+ * WHAT IT CANNOT CATCH BY ITSELF is a verb ADDED to the enum and forgotten
+ * here -- the gap initialises to { NULL, 0, 0 } and `fzn_verb_name` answers
+ * NULL, which reads exactly like a value outside the enum. `vocabulary_test`
+ * walks 1..FZN_VERB_COUNT-1 and requires every one to have a name, a length
+ * equal to that name's, and to parse back to itself. That round trip is the
+ * proof; this table is only the data. */
+static const struct {
+	const char *name;
+	size_t len;
+	int mutates;
+} VERBS[FZN_VERB_COUNT] = {
+	[FZN_VERB_NONE]   = { NULL,     0u, 0 },
+	[FZN_VERB_STATUS] = { "status", 6u, 0 },
+	[FZN_VERB_LOG]    = { "log",    3u, 0 },
+	[FZN_VERB_GET]    = { "get",    3u, 0 },
+	[FZN_VERB_SET]    = { "set",    3u, 1 },
+	[FZN_VERB_LIST]   = { "list",   4u, 0 },
+	[FZN_VERB_ADD]    = { "add",    3u, 1 },
+	[FZN_VERB_REMOVE] = { "remove", 6u, 1 },
+	[FZN_VERB_FETCH]  = { "fetch",  5u, 0 },
+	[FZN_VERB_PUT]    = { "put",    3u, 1 },
+	[FZN_VERB_GRANT]  = { "grant",  5u, 1 },
+	[FZN_VERB_REVOKE] = { "revoke", 6u, 1 }
+};
+
+static int in_table(fzn_verb_t verb)
+{
+	return (size_t)verb < FZN_VERB_COUNT && VERBS[(size_t)verb].name != NULL;
+}
+
+const char *fzn_verb_name(fzn_verb_t verb)
+{
+	return in_table(verb) ? VERBS[(size_t)verb].name : NULL;
+}
+
+size_t fzn_verb_name_len(fzn_verb_t verb)
+{
+	return in_table(verb) ? VERBS[(size_t)verb].len : 0u;
+}
+
+int fzn_verb_mutates(fzn_verb_t verb)
+{
+	return in_table(verb) ? VERBS[(size_t)verb].mutates : 0;
+}
+
+fzn_verb_t fzn_verb_parse(const uint8_t *verb, size_t verb_len)
+{
+	size_t i;
+
+	/* The same bound the table functions apply. A verb longer than a rule
+	 * could name is not one this library offers either, and answering
+	 * otherwise would let `parse` and `admit` disagree about what a verb
+	 * even is. */
+	if (!verb || verb_len == 0 || verb_len > FZN_VERB_MAX)
+		return FZN_VERB_NONE;
+	for (i = 1u; i < FZN_VERB_COUNT; i++) {
+		if (VERBS[i].name == NULL || VERBS[i].len != verb_len)
+			continue;
+		/* NOT constant-time, and deliberately so where `rule_names` is.
+		 * Which of fuzznet's published verbs a request names is not a
+		 * secret -- the set is in this header and the spelling is on
+		 * the wire in clear. `rule_names` compares a verb against a
+		 * POLICY, where the timing would say which groups a deployment
+		 * has rules for, and that is the one worth hiding. */
+		if (fzn_ct_memeq(verb, (const uint8_t *)VERBS[i].name, verb_len))
+			return (fzn_verb_t)i;
+	}
+	return FZN_VERB_NONE;
+}
+
+fzn_verb_rule_t fzn_verb_rule(uint32_t gid, fzn_verb_t verb)
+{
+	fzn_verb_rule_t rule;
+
+	rule.gid = gid;
+	rule.verb = in_table(verb) ? (const uint8_t *)VERBS[(size_t)verb].name : NULL;
+	rule.verb_len = in_table(verb) ? VERBS[(size_t)verb].len : 0u;
+	return rule;
+}
+
+int fzn_vocabulary_split(const uint8_t *line, size_t line_len, fzn_request_t *out)
+{
+	size_t i;
+
+	if (!out)
+		return 0;
+	/* Zeroed rather than half-filled on every refusal below, so a caller
+	 * that ignores the return value reads an empty request instead of
+	 * whatever its stack held. */
+	out->parsed = FZN_VERB_NONE;
+	out->verb = NULL;
+	out->verb_len = 0u;
+	out->arg = NULL;
+	out->arg_len = 0u;
+	if (!line || line_len == 0)
+		return 0;
+
+	for (i = 0; i < line_len && line[i] != (uint8_t)' '; i++)
+		;
+	/* A line that begins with a space has no verb. Skipping the leading
+	 * space instead would make ` destroy` and `destroy` the same request,
+	 * which is the shape of every filter somebody gets past by adding
+	 * whitespace. */
+	if (i == 0 || i > FZN_VERB_MAX)
+		return 0;
+
+	out->verb = line;
+	out->verb_len = i;
+	out->parsed = fzn_verb_parse(line, i);
+	if (i < line_len) {
+		/* Everything after the single separating space, unexamined and
+		 * possibly empty: `get ` asks for the empty subject, which is
+		 * a different request from `get`. */
+		out->arg = line + i + 1u;
+		out->arg_len = line_len - i - 1u;
+	}
+	return 1;
 }

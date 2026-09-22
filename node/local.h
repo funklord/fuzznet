@@ -5,11 +5,20 @@
  * writes a one-line status. The daemon (fuzznetd) accepts and calls this;
  * the sealed remote method is node/remote.h.
  *
- * The request line is READ AND HANDED ON, never interpreted. What a verb
- * MEANS is sec 5's line and stays outside this library: the node
- * authenticates, authorises, and passes the bytes to a consumer's handler,
- * which is where a vocabulary lives. With no handler the node answers with
- * its own status, which is generic rather than a command set.
+ * The request line is READ, SPLIT INTO A VERB AND AN ARGUMENT, and handed on
+ * as a `fzn_request_t`. The verbs are fuzznet's -- `local/vocabulary.h` --
+ * because everything required to use fuzznet is part of fuzznet, and three
+ * consumers that each invented `get` would spell it three ways. What the
+ * ARGUMENT means is still the consumer's: the node does not tokenise past
+ * the first space.
+ *
+ * An earlier version of this comment said the line was never parsed because
+ * verbs were "sec 5's line and stay outside this library". Sec 5's own
+ * opening records that claim as overturned on 2026-08-26 and warns against
+ * quoting it as current; sec 298 names `local/vocabulary.c` as where the
+ * reversal lands. sec 361.
+ *
+ * With no handler the node answers with its own status.
  */
 
 #ifndef FZN_NODE_LOCAL_H
@@ -19,6 +28,7 @@
 
 #include "node.h"
 #include "../local/peer.h"
+#include "../local/vocabulary.h"
 
 /* Build the one-line status response for a decided caller into out[cap],
  * newline included. Returns the length written, or 0 if it would not fit.
@@ -43,10 +53,12 @@ size_t fzn_node_status_line(fzn_authz_verdict_t verdict, fzn_origin_t origin,
  * raidcfgd's requirement, and the reason that module exists at all -- could
  * not reach it from the node.
  *
- * WHAT IT DOES NOT DO, which is the half sec 5 governs. The node still never
- * learns what a verb means. `request` is bytes with a length, exactly the
- * shape `fzn_vocabulary_admit` takes, and this library cannot tell `status`
- * from `destroy` and must not learn. The consumer's table is the consumer's.
+ * WHAT IT HANDS OVER. `request->parsed` is the verb as one of fuzznet's, or
+ * FZN_VERB_NONE for one it does not offer -- which is a consumer's own verb
+ * rather than an error, and sec 298 sanctions exactly that until fuzznet
+ * gains it. `request->verb` is the text as it arrived, which is what
+ * `fzn_vocabulary_admit` bounds, and `request->arg` is the rest of the line
+ * untouched.
  *
  * `verdict` and `origin` are what the node decided, so a handler refusing on
  * its own account need not re-derive them, and `peer` is the kernel's
@@ -68,8 +80,7 @@ typedef size_t (*fzn_node_local_handler_t)(void *ctx,
                                            fzn_authz_verdict_t verdict,
                                            fzn_origin_t origin,
                                            const fzn_peer_t *peer,
-                                           const uint8_t *request,
-                                           size_t request_len,
+                                           const fzn_request_t *request,
                                            char *reply, size_t reply_cap);
 
 /* Serve one accepted local connection. `peer` is the credentials

@@ -18,6 +18,7 @@
 
 #include "node.h"
 #include "remote.h"
+#include "local.h"
 #include "../frame/freshness.h"
 
 /* The most reply payload a handler may return for the node to seal. */
@@ -67,7 +68,7 @@ typedef struct fzn_node_state {
 	 * type would mean one of the two lying about what it produces. */
 	size_t (*on_local)(void *ctx, fzn_authz_verdict_t verdict,
 	                   fzn_origin_t origin, const fzn_peer_t *peer,
-	                   const uint8_t *request, size_t request_len,
+	                   const fzn_request_t *request,
 	                   char *reply, size_t reply_cap);
 	void *on_local_ctx;
 } fzn_node_state_t;

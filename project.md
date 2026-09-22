@@ -46020,3 +46020,124 @@ of declarations reads as available machinery" -- and it is the same shape as
 the gap this section closes, one layer down. A declaration reachable by
 `#include` is not a capability until something links it, exactly as a
 function with no caller is not a feature until something calls it.
+
+## 361. fuzznet has a vocabulary, and the claim that said it must not, 2026-09-22
+
+THE CORRECTION, from the copyright holder on 2026-09-22 and recorded as
+given: everything required to use fuzznet must be part of fuzznet. fuzznet is
+obviously useless without a vocabulary, and no instruction has ever said or
+hinted otherwise. Where two projects using fuzznet duplicate network-related
+code, that code belongs here -- and the aim is to be preemptive about what
+MIGHT be duplicated or structurally belongs here, rather than moving it later.
+
+I had it backwards. Section 360, written an hour earlier, called the
+vocabulary "still the holder's" and built a handler seam on the premise that
+verbs stay outside the library. The premise was a struck claim.
+
+WHAT SEC 5 ACTUALLY SAYS, read rather than relayed. Its opening is a bold
+supersession notice: the ceiling was overturned twice, and "in particular
+'command vocabularies stay out' here ... are the exact claims those two
+decisions reversed -- quoting either as current is the 'claim that outlived
+its subject' this tree has a name for". Section 298 then names the landing
+site: "sec 5's 'command vocabularies stay out' was overturned on 2026-08-26;
+`local/vocabulary.c` is already that seam."
+
+So the document was not ambiguous and did not need a decision. It carried the
+answer, a warning that the old claim reads as live, and a name for the
+failure -- and the failure happened anyway, in the document's own tree, by a
+session that had spent the same day fixing five other instances of that exact
+class. Reading a summary of a section is not reading the section. I had
+quoted "sec 5 keeps command vocabularies out of the core" from
+`local/vocabulary.h` and never opened sec 5.
+
+HOW FAR IT HAD SPREAD. Five source sites cited the struck claim as live:
+`local/vocabulary.h` (the module sec 298 names, arguing from sec 5 for the
+opposite of what sec 5 now says), `admit/admit.h` twice, and
+`node/local.h` and `node/local.c` -- the last two added by me that day. A
+sixth is sec 360's own text. The header was the origin: every later citation
+quotes it rather than sec 5, so one wrong sentence in a header became the
+tree's understanding of a decision the holder had already made.
+
+### What is built
+
+`local/vocabulary.{h,c}` gains the verbs, and the matching mechanism is
+untouched -- `fzn_vocabulary_admit` still takes bytes and a length, because
+sec 298 sanctions a consumer bypassing what fuzznet does not yet offer and a
+consumer's own verb must still be boundable.
+
+An OPERATION, with the subject carried as the argument. That split is what
+keeps the set small: three consumers that each invented a verb per subject
+would share nothing, and one operation would arrive as `gethost`, `host-get`
+and `read_host`. Every verb names something this library does, and the test
+for adding one is that it does:
+
+    STATUS  node/            GET     record/, state/     FETCH   spool/, chunk/
+    LOG     log/, flog/      SET     record/, state/     PUT     spool/, blob/
+    LIST    catalog/         ADD     catalog/, provision/  GRANT  chain/
+    REMOVE  catalog/                                     REVOKE  chain/revocation.h
+
+With `fzn_verb_name`, `fzn_verb_parse`, `fzn_verb_mutates`, `fzn_verb_rule`
+and `fzn_vocabulary_split`. `node/local.c` now splits the request line and
+hands the handler a `fzn_request_t`.
+
+FZN_VERB_NONE IS "NOT ONE OF FUZZNET'S", NOT "INVALID", and that distinction
+is what keeps sec 298's bypass possible. A consumer's own verb parses to NONE
+and is still handed over with its bytes intact, so a rule the consumer wrote
+can bound it. Reading NONE as a refusal would have made the library's own
+scope philosophy unimplementable.
+
+`fzn_verb_mutates` is the preemptive half. All three consumers need to know
+whether a verb changes state -- to require a stronger origin, to log at a
+higher severity, to refuse while read-only -- and three lists of mutating
+verbs maintained in three trees are three lists that drift the first time a
+verb is added here.
+
+THE SPLIT STOPS AT THE FIRST SPACE, and that is the line the old comment was
+reaching for without being able to say so. The verbs are fuzznet's, so
+finding where one ends is fuzznet's; what the ARGUMENT means is the
+consumer's, and a library tokenising operands it cannot interpret would be
+the overreach. A leading space is refused rather than skipped: making ` get`
+and `get` the same request is the shape of every filter somebody gets past by
+adding whitespace.
+
+### Two things measured rather than assumed
+
+THE TABLE IS PROVED BY A ROUND TRIP. `VERBS` is a designated-initialiser
+array, so a verb added to the enum and forgotten there initialises to
+`{ NULL, 0, 0 }` and `fzn_verb_name` answers NULL -- indistinguishable, from
+inside the module, from a value outside the enum. `vocabulary_test` walks
+1..FZN_VERB_COUNT-1 and requires each verb to name itself, to agree with its
+own length, and to parse back; and separately that no two share a spelling,
+since a duplicate would make `parse` answer the lower one for both while the
+round trip still passed.
+
+`fzn_verb_parse` IS NOT CONSTANT-TIME WHERE `rule_names` IS, deliberately.
+Which of fuzznet's published verbs a request names is not a secret: the set
+is in the header and the spelling is on the wire in clear. `rule_names`
+compares a verb against a POLICY, where the timing would say which groups a
+deployment has rules for, and that is the one worth hiding.
+
+Four mutations seen to fail before this was recorded as built, against saved
+copies restored and verified byte-identical: a skipped leading space, an
+unbounded verb length, a prefix-matching parse, and the handler running for a
+denied caller. All are sabotage entries; the harness is at 533.
+
+And `node/local.o` acquiring a dependency broke three link lists, which is
+the same lesson as sec 360's: a declaration reachable by `#include` is not a
+capability until something links it.
+
+### Left open, and named rather than decided
+
+`admit/admit.h`'s `expiry_rule` seam asked the consumer which frame KINDS are
+commands that must carry an expiry, citing sec 5's struck claim as its
+reason. The citation is corrected; the seam stays, because a deployment knows
+which of its kinds are commands. But the kinds are fuzznet's own
+(`FZN_KIND_*` in `wire/seal.h`), so whether fuzznet should carry a default
+expiry rule per kind is a real question and the holder's.
+
+Being preemptive, the candidates most likely to be duplicated next, none of
+them built: a reply vocabulary to match the request one (every consumer will
+invent `ok`/`error` and a status code space); the argument grammar above the
+first space, if two consumers turn out to want the same shape; and a client
+side for the local socket, since all three will write one to talk to their
+own daemon.

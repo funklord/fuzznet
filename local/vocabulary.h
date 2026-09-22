@@ -7,16 +7,26 @@
  * docker-group lesson -- a group that can destroy arrays *is* root for that
  * group -- and it left the choice of where the bound lives to this library.
  *
- * It lives here, and sec 5 is why it can. That section keeps COMMAND
- * VOCABULARIES out of the core: fuzzypickles' 4718 lines of encoders are its
- * own, and a project's verbs are its own. What this module carries is the
- * MECHANISM and never the meaning -- the same split `chain.h` already makes,
- * where a capability is 32 opaque bytes and the library verifies the chain
- * without ever learning what the capability permits.
+ * It lives here, and THIS HEADER USED TO CITE SEC 5 FOR THE OPPOSITE REASON.
+ * It said that section "keeps COMMAND VOCABULARIES out of the core", that a
+ * project's verbs are its own, and that "this library cannot tell `status`
+ * from `destroy` and must not learn". Sec 5's own opening says that claim was
+ * overturned on 2026-08-26 and warns in as many words that quoting it as
+ * current is the "claim that outlived its subject"; sec 298 names this module
+ * as the seam the reversal lands in. The correction is the copyright
+ * holder's, stated 2026-09-22: everything required to use fuzznet is part of
+ * fuzznet, and fuzznet is useless without a vocabulary.
  *
- * So a verb here is bytes with a length. This library cannot tell `status`
- * from `destroy` and must not learn: the consumer supplies the table, and the
- * table is what says which group may ask for what.
+ * SO THE VERBS ARE HERE, and the mechanism keeps working exactly as it did.
+ * `fzn_vocabulary_admit` still takes bytes and a length, because a consumer
+ * with a verb of its own must still be able to bound it -- sec 298 sanctions
+ * bypassing what fuzznet does not yet offer. What is new is that fuzznet
+ * offers a set, so three consumers do not each invent `get` and spell it
+ * differently.
+ *
+ * THE VERBS NAME FUZZNET'S OWN FEATURES, which is the test for adding one. A
+ * verb that names nothing this library does is a promise rather than a
+ * capability, and the bound below would gate something no node can serve.
  *
  * THE TRI-STATE IS peer.h's, AND FOR THE SAME REASON. A peer whose
  * supplementary groups could not be read is UNKNOWN, not "in no groups", and
@@ -56,6 +66,122 @@ typedef struct fzn_verb_rule {
 	const uint8_t *verb;
 	size_t verb_len;
 } fzn_verb_rule_t;
+
+/* THE VERBS FUZZNET OFFERS.
+ *
+ * An OPERATION, with the subject carried as the request's argument. That
+ * split is what keeps the set small and orthogonal: three consumers that each
+ * invented a verb per subject would share nothing, and the same operation
+ * would arrive as `gethost`, `host-get` and `read_host`.
+ *
+ * Every one names something this library does, and the module that does it:
+ *
+ *     STATUS   the node itself                  node/
+ *     LOG      the log subsystem                log/, flog/
+ *     GET      read a stored value              record/, state/
+ *     SET      write one                        record/, state/
+ *     LIST     enumerate a subject              catalog/, record/
+ *     ADD      create one                       catalog/, provision/
+ *     REMOVE   delete one                       catalog/
+ *     FETCH    pull bytes                       spool/, chunk/, blob/
+ *     PUT      push bytes                       spool/, chunk/, blob/
+ *     GRANT    issue a capability               chain/
+ *     REVOKE   withdraw one                     chain/revocation.h
+ *
+ * NOT ON THE WIRE AS NUMBERS. A request carries the verb as TEXT, and this
+ * enum is an internal handle for it, so a value here may be renumbered
+ * without breaking a peer. `fzn_verb_name` is the spelling that travels and
+ * it is the only one: a second spelling is a second verb.
+ *
+ * FZN_VERB_NONE IS "NOT ONE OF FUZZNET'S", NOT "INVALID". A consumer's own
+ * verb parses to NONE and is still a verb -- `fzn_vocabulary_admit` takes
+ * bytes and will bound it against a rule the consumer wrote. Reading NONE as
+ * a refusal would make sec 298's bypass-until-gained impossible. */
+typedef enum fzn_verb {
+	FZN_VERB_NONE = 0,
+	FZN_VERB_STATUS,
+	FZN_VERB_LOG,
+	FZN_VERB_GET,
+	FZN_VERB_SET,
+	FZN_VERB_LIST,
+	FZN_VERB_ADD,
+	FZN_VERB_REMOVE,
+	FZN_VERB_FETCH,
+	FZN_VERB_PUT,
+	FZN_VERB_GRANT,
+	FZN_VERB_REVOKE
+} fzn_verb_t;
+
+/* One past the last verb, for a caller walking the set. Not a verb. */
+#define FZN_VERB_COUNT ((size_t)FZN_VERB_REVOKE + 1u)
+
+/* The canonical spelling, lowercase ASCII, NUL-terminated; NULL for
+ * FZN_VERB_NONE and for a value outside the enum. `fzn_verb_name_len` is the
+ * same string's length, so a caller matching bytes needs no `strlen`. */
+const char *fzn_verb_name(fzn_verb_t verb);
+size_t fzn_verb_name_len(fzn_verb_t verb);
+
+/* Bytes to verb, or FZN_VERB_NONE for one this library does not offer.
+ *
+ * EXACT AND CASE-SENSITIVE. A verb is a protocol token rather than something
+ * a person types, and case folding would need a locale-independent one --
+ * `cli/cli.c` records the same refusal about `strtoul` taking its digits from
+ * the locale. A caller wanting to be generous folds before asking. */
+fzn_verb_t fzn_verb_parse(const uint8_t *verb, size_t verb_len);
+
+/* Does this verb change state? 1 for SET, ADD, REMOVE, PUT, GRANT and
+ * REVOKE; 0 for the rest and for NONE.
+ *
+ * IT IS HERE BECAUSE ALL THREE CONSUMERS NEED IT AND NONE SHOULD DERIVE IT.
+ * A daemon deciding whether to require a stronger origin, whether to log at a
+ * higher severity, or whether to refuse while read-only is asking exactly
+ * this, and a list of mutating verbs maintained in three trees is three lists
+ * that drift the first time a verb is added here. 0 for NONE is the
+ * conservative answer only in appearance -- a consumer's own verb is not
+ * described by this function at all, and a caller must decide for its own
+ * verbs rather than read NONE as "harmless". */
+int fzn_verb_mutates(fzn_verb_t verb);
+
+/* A rule admitting `gid` to ask for one of fuzznet's verbs, so a consumer
+ * writes `fzn_verb_rule(cfg.service_gid, FZN_VERB_STATUS)` rather than
+ * spelling the bytes out. A rule for FZN_VERB_NONE names nothing and is
+ * refused by the table functions, which is what makes a mistyped enum value
+ * fail closed rather than matching everything. */
+fzn_verb_rule_t fzn_verb_rule(uint32_t gid, fzn_verb_t verb);
+
+/* A request as this library reads one: the verb, and the rest of the line.
+ *
+ * The bytes are BORROWED from the caller's line and are not copied, so this
+ * lives no longer than the buffer it was split from. `verb`/`verb_len` are
+ * the text as it arrived, which is what `fzn_vocabulary_admit` bounds --
+ * `parsed` is the same thing as a handle, and is FZN_VERB_NONE for a verb
+ * fuzznet does not offer. */
+typedef struct fzn_request {
+	fzn_verb_t parsed;
+	const uint8_t *verb;
+	size_t verb_len;
+	const uint8_t *arg;
+	size_t arg_len;
+} fzn_request_t;
+
+/* Split one request line into a verb and its argument.
+ *
+ * The grammar is deliberately the smallest thing that can carry an argument:
+ * a verb, one space, and the rest of the line unexamined. Everything after
+ * that first space is the argument including any further spaces, because a
+ * library that tokenised further would be deciding the shape of arguments it
+ * cannot know the meaning of -- and sec 298 puts the VOCABULARY here, not a
+ * parser for every consumer's operands.
+ *
+ * `line` is one framed line with its terminator already removed, as
+ * `local/line.h` hands it over. Returns 1 on a line carrying a verb, 0 for a
+ * NULL or empty line, a line that is only spaces, or a verb longer than
+ * FZN_VERB_MAX -- the same bound the table functions apply, so a verb this
+ * refuses is also a verb no rule could name. `out` is left zeroed on 0 rather
+ * than half-filled. An absent argument is NULL with a zero length, which a
+ * caller must not confuse with an empty one: `get` and `get ` differ, and the
+ * second is a caller asking for the empty subject. */
+int fzn_vocabulary_split(const uint8_t *line, size_t line_len, fzn_request_t *out);
 
 /* May this peer ask for this verb?
  *

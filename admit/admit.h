@@ -127,8 +127,13 @@
  * "same bug in a new place" sec 4.7c warns of. Corrected in sec 356.
  *
  * NO POLICY ABOUT WHICH KINDS NEED WHAT. Whether a kind is a command that
- * must carry an expiry is the consumer's vocabulary (sec 5), so the rule
- * arrives through `expiry_rule` rather than being decided here. Whether a
+ * must carry an expiry (sec 4.3) arrives through `expiry_rule` rather than
+ * being decided here. THE REASON GIVEN USED TO BE SEC 5's "vocabularies stay
+ * out of the core", which sec 5's own opening records as overturned on
+ * 2026-08-26 -- see sec 361. The seam stays because a deployment knows which
+ * of its kinds are commands and this library does not; whether fuzznet should
+ * carry a default rule per kind, now that the kinds are its own
+ * (`FZN_KIND_*`), is open and is the holder's. Whether a
  * kind needs a capability at all is `chain/authz.h`'s question; THIS function
  * is the strict sequence and verifies a chain for every frame. A consumer
  * wanting the nuance runs the steps itself -- and then owns the order again,
@@ -215,8 +220,9 @@ typedef struct fzn_admit_ops {
 	               size_t out_cap);
 
 	/* Step 5. The expiry rule for a frame of this kind: whether a frame of
-	 * this kind is a command that must carry an expiry (sec 4.3). The
-	 * consumer's vocabulary, which sec 5 keeps out of the core.
+	 * this kind is a command that must carry an expiry (sec 4.3). A
+	 * deployment's policy, not a vocabulary boundary -- see the note above
+	 * and sec 361 for why the old citation of sec 5 was wrong.
 	 *
 	 * Called with the kind from the OPENED frame, so by then it is
 	 * authenticated. */

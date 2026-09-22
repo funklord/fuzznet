@@ -595,10 +595,48 @@ SABOTAGES = [
 		"sec 356",
 	),
 	(
+		"vocabulary-split-refuses-a-leading-space",
+		"local/vocabulary.c",
+		"\tif (i == 0 || i > FZN_VERB_MAX)",
+		"\tif (i > FZN_VERB_MAX)",
+		"a request line beginning with a space has no verb. Skipping the "
+		"space instead makes ` destroy` and `destroy` the same request, "
+		"which is the shape of every filter somebody gets past by adding "
+		"whitespace -- and the verb that then reaches fzn_vocabulary_admit "
+		"is the empty one, which no rule names, so the refusal would look "
+		"like policy rather than a parse. sec 361",
+	),
+	(
+		"vocabulary-split-bounds-the-verb",
+		"local/vocabulary.c",
+		"\tif (i == 0 || i > FZN_VERB_MAX)",
+		"\tif (i == 0)",
+		"the other half of the same guard. A verb longer than FZN_VERB_MAX "
+		"is one no rule could name, so splitting it out and handing it on "
+		"would let `split` and `admit` disagree about what a verb even is. "
+		"The same bound fzn_verb_parse applies, for the same reason. "
+		"sec 361",
+	),
+	(
+		"vocabulary-parse-reads-the-whole-verb",
+		"local/vocabulary.c",
+		"\t\tif (VERBS[i].name == NULL || VERBS[i].len != verb_len)",
+		"\t\tif (VERBS[i].name == NULL)",
+		"a verb parses only on its whole length. Without the equality the "
+		"compare runs over verb_len bytes of the table's spelling, so "
+		"`stat` parses as STATUS and `get` as GET where a longer entry "
+		"shares the prefix -- a request reaching a rule written for a verb "
+		"it does not name. vocabulary_test drives the prefix and the "
+		"superstring, which are the two a wholly different word cannot "
+		"separate. sec 361",
+	),
+	(
 		"node-local-handler-not-on-a-denial",
 		"node/local.c",
-		"\tif (on_local && verdict != FZN_AUTHZ_DENIED) {",
-		"\tif (on_local) {",
+		"\tif (on_local && verdict != FZN_AUTHZ_DENIED &&\n"
+		"\t    fzn_vocabulary_split(line, line_len, &request)) {",
+		"\tif (on_local &&\n"
+		"\t    fzn_vocabulary_split(line, line_len, &request)) {",
 		"the local handler seam is not consulted for a caller the node "
 		"refused. on_remote is called for any result that is not DROPPED, "
 		"a denied one included, and this deliberately differs: a denial is "

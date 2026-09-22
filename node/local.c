@@ -61,6 +61,7 @@ fzn_node_serve_err_t fzn_node_serve_local(const fzn_node_config_t *config,
 	uint8_t buf[FZN_NODE_REQUEST_CAP];
 	const uint8_t *line;
 	size_t line_len;
+	fzn_request_t request;
 	char resp[FZN_NODE_LOCAL_REPLY_MAX];
 	size_t resp_len;
 	struct timeval tv;
@@ -104,18 +105,28 @@ fzn_node_serve_err_t fzn_node_serve_local(const fzn_node_config_t *config,
 
 	verdict = fzn_node_decide(config, origin, NULL, 0, 0, NULL, NULL, NULL);
 
-	/* THE HANDLER SEES THE LINE AND THIS FUNCTION NEVER READS IT, which is
-	 * sec 5's split expressed as code rather than as a comment: `line` is
-	 * passed on as bytes and a length and is not inspected here, not even
-	 * to find where a verb ends. A node that learned to split a request
-	 * would have learned a grammar, and a grammar is a vocabulary with the
-	 * argument left out.
+	/* THE NODE SPLITS THE LINE, AND UNTIL sec 361 IT REFUSED TO. The comment
+	 * here said a node that learned to split a request would have learned a
+	 * grammar -- which was sec 5's struck claim wearing an argument. The
+	 * verbs are fuzznet's, so finding where one ends is fuzznet's too, and
+	 * a split done here once is a split three consumers do not each write.
+	 *
+	 * IT STOPS AT THE FIRST SPACE. What the ARGUMENT means is still the
+	 * consumer's, and a library tokenising operands it cannot interpret
+	 * would be the overreach the old comment was reaching for.
+	 *
+	 * A LINE WITH NO VERB IS NOT A REQUEST. `fzn_vocabulary_split` refuses
+	 * an empty line, a line of spaces and an overlong verb, and the handler
+	 * is not called for one -- there is nothing to hand it. The node still
+	 * answers, with its status line, so a client that says nothing useful
+	 * is told the node is there rather than left waiting.
 	 *
 	 * NOT ON A DENIAL. local.h records the divergence from `on_remote` and
 	 * why the conservative direction is the right one here. */
 	resp_len = 0;
-	if (on_local && verdict != FZN_AUTHZ_DENIED) {
-		size_t n = on_local(ctx, verdict, origin, peer, line, line_len,
+	if (on_local && verdict != FZN_AUTHZ_DENIED &&
+	    fzn_vocabulary_split(line, line_len, &request)) {
+		size_t n = on_local(ctx, verdict, origin, peer, &request,
 		                    resp, sizeof(resp));
 
 		/* A handler claiming more than it was given wrote nothing this
