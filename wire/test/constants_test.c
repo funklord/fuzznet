@@ -235,12 +235,17 @@ _Static_assert(SITU_FZN_FRAME_SIZE_MIN == SITU_FZN_HOP_SIZE_MAX + SITU_FZN_HEAD_
 
 /* THE PAYLOAD BOUND AGAINST THE PATH, which is what actually decides it.
  *
- * `frame.situ` calls `[max = 1024]` a placeholder wanting measurement against
- * netcfgd's largest chunk, and that is the wrong question: chunking means a
- * response's size sets the chunk COUNT, not the chunk size. What bounds a
- * chunk is the smallest path a datagram must cross whole, because fragmented
- * UDP is widely dropped and avoiding it is the reason this library chunks at
- * all.
+ * `frame.situ` USED TO call `[max = 1024]` a placeholder wanting measurement
+ * against netcfgd's largest chunk, and that was the wrong question: chunking
+ * means a response's size sets the chunk COUNT, not the chunk size. What
+ * bounds a chunk is the smallest path a datagram must cross whole, because
+ * fragmented UDP is widely dropped and avoiding it is the reason this library
+ * chunks at all.
+ *
+ * The tense matters and was wrong until 2026-09-22: `77e355a` settled the
+ * schema and this file in one commit, so this sentence has described
+ * `frame.situ`'s text as CURRENT since the moment that text changed. A
+ * comment about another file is a claim like any other.
  *
  * RFC 8200 requires every IPv6 link to carry 1280 bytes, so that is the floor
  * a self-contained frame has to fit under. Forty of IPv6 header and eight of

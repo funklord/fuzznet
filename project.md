@@ -3632,6 +3632,18 @@ it was never a numbered step. Corrected here because a step recorded as done is
 a step nobody picks up, and this one is now the next real piece of work rather
 than a finished one.
 
+**~~STEP 2 IS NOW FINISHED~~ -- and both halves were, by the time anybody
+re-read this** (2026-09-22, §353). The `[max = 1024]` placeholder was settled
+on **2026-08-18** by `77e355a`, "wire: settle the payload bound from the path,
+not from a consumer": 1024 is derived from RFC 8200's guaranteed 1280 less 48
+of IPv6 and UDP headers less 144 of frame, and `wire/test/constants_test.c`
+asserts that a largest frame still fits the smallest link IPv6 guarantees.
+§13's overhead question was settled on **2026-09-21**, §349. So this paragraph
+named two open halves for five weeks after the first closed, in a section
+whose own subject is a step recorded wrongly. The strike-through is left
+because the sentence above it is about exactly this failure and reads
+differently once you know it happened twice.
+
 What situ has been doing in those eight commits is the same lesson from the
 other end — running generated code rather than only compiling it ("run a
 relation's predicate instead of only compiling it", "run the C++ and Rust
@@ -45431,3 +45443,64 @@ the sabotage of that check stayed green while the case appeared to pass. The
 fixture truncates the body to match now, so only the check under test can
 answer, with the untruncated head beside it as the control. A control has to
 be REACHED and not merely able to fire, for the third time this week.
+
+## 353. The payload bound was settled five weeks ago, 2026-09-22
+
+`[max = 1024]` on `fzn_head.length` was the other half of sec 10 step 2, and
+the last thing this document listed as open. **It was settled on 2026-08-18**
+by `77e355a`, "wire: settle the payload bound from the path, not from a
+consumer".
+
+The number is derived rather than chosen. RFC 8200 guarantees 1280 bytes on
+every IPv6 link; less 40 of IPv6 header and 8 of UDP leaves 1232; a largest
+frame is 1168, so 64 bytes remain for an extension header or a tunnel. The
+largest payload that fits is 1088 and 1024 sits under it deliberately.
+`wire/test/constants_test.c` asserts it, so raising `[max]` past 1088 fails a
+build rather than being discovered from a router dropping traffic.
+
+And the question it replaced is the part worth keeping: the placeholder wanted
+"measurement against netcfgd's largest chunk", **and that was the wrong
+question**. Chunking means a response's size sets the chunk COUNT, not the
+chunk size. What bounds a chunk is the smallest path a datagram must cross
+whole, which is a property of the Internet rather than of a consumer -- so the
+answer never belonged to netcfgd, and waiting for it would have waited for
+ever.
+
+===========================================================================
+
+THREE PLACES STILL READ AS THOUGH IT WERE OPEN, in three different ways, and
+they are the interesting part.
+
+sec 10 step 2 listed both halves as unsettled -- for five weeks after the
+first closed, and for a day after sec 349 closed the second. That paragraph's
+own subject is a step recorded wrongly, and its sentence "a step recorded as
+done is a step nobody picks up" now has a companion: a step recorded as OPEN
+is a step somebody does twice.
+
+`wire/frame.situ` said "1024 is a placeholder chosen to be smaller than any
+plausible MTU. NOT a placeholder any more". Both sentences, in that order.
+That is `evidence.md`'s "document that records its own corrections" in a
+SCHEMA, which is the worst place for it: a schema is quoted by implementers,
+and a reader who stops at the first sentence has quoted a retracted claim.
+Rewritten rather than appended to, which is the rule that entry states.
+
+`wire/test/constants_test.c` said "`frame.situ` calls `[max = 1024]` a
+placeholder" -- present tense, about another file, **and `77e355a` changed
+both files in one commit**. So that sentence described its neighbour's text as
+current from the moment that text changed. A comment about another file is a
+claim like any other, and this one was born stale.
+
+===========================================================================
+
+AND THE GATE WENT RED FOR SOMETHING ELSE ENTIRELY, which is worth recording
+because the first reading was that this change had broken it. `make schema`
+refused `chain/chain.situ.map` and `provision/provision.situ.map` with neither
+schema touched: situ had moved under the gate between two runs of it on the
+same day, 9319ca9 to 257b471, and its `c5858b0` renders an obligation by path
+rather than by leaf. Re-synced in its own commit, with the diff read rather
+than trusted -- every changed line a `Covered(...)` rendering, no offset, size,
+alignment or atomicity moved.
+
+**A dependency improving is indistinguishable from your own change breaking
+something, until you look at which files the gate named.** Neither of those
+two is one this change touched, and that was the whole diagnosis.
