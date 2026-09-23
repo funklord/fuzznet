@@ -208,7 +208,18 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 
 int main(void)
 {
-	snprintf(path, sizeof(path), "fzn-claim-test-%ld", (long)getpid());
+	/* THE SCRATCH LIVES IN /tmp, NOT IN THE REPOSITORY.
+	 *
+	 * It was `fzn-claim-test-%ld`, a relative path -- so the SOURCE TREE. A
+	 * run that finishes removes it; one that crashes or is interrupted
+	 * does not, and the tree is then carrying untracked directories that
+	 * look like somebody's work in progress. `CLAUDE.md` warns that a
+	 * blanket `git add` sweeps exactly those in, and sec 371 left 73 of
+	 * them in the root while a crash was being reproduced.
+	 *
+	 * `local/test/socket_test.c` already wrote to /tmp, so this is the
+	 * tree's own convention rather than a new one. sec 372. */
+	snprintf(path, sizeof(path), "/tmp/fzn-claim-test-%ld", (long)getpid());
 
 	test_open_take_release();
 	test_one_process_cannot_take_it_twice_through_two_descriptions();

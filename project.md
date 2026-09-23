@@ -46929,3 +46929,51 @@ callee reads only on an ERROR path -- no passing test touches it, so it can
 sit uninitialised for as long as the error path is rare. Here the test's
 whole purpose was to drive that error path, which is what made the omission
 fatal rather than dormant.
+
+## 372. Four tests wrote their scratch into the source tree, 2026-09-23
+
+Reproducing sec 371's crash left 73 `persist-test-<pid>/` directories in the
+repository root, because each crashed run died before its cleanup. Removing
+them was the obvious half. The half worth doing was asking why they were
+there at all.
+
+Four tests build their scratch from a RELATIVE path, so the working
+directory -- which for `make test` is the repository:
+
+    claim/test/claim_file_test.c    fzn-claim-test-<pid>
+    persist/test/persist_file_test.c  persist-test-<pid>
+    record/test/store_file_test.c   fzn-store-test-<pid>
+    spool/test/spool_file_test.c    spool-test-<pid>.spool
+
+A run that finishes removes its own; one that crashes or is interrupted does
+not. `CLAUDE.md` is explicit about what that costs: untracked files in a
+shared tree are presumed to be somebody's work in progress, and a blanket
+`git add` sweeps them in. Seventy-three of them appeared in one afternoon
+from a single investigation.
+
+None carried a comment saying why the path was relative, and it is not the
+tree's convention -- `local/test/socket_test.c` was already writing to /tmp.
+So this was incidental rather than decided, and all four now use /tmp.
+
+### The check that a clean tree is not evidence on its own
+
+`git status` clean after a run would also be what it looks like if the tests
+had stopped creating their scratch entirely, which is the vacuous pass this
+workspace keeps meeting. What separates them is that each of these four
+fails LOUDLY when its scratch cannot be made -- `persist_file_test` prints a
+FAIL line and returns 1 from `main` -- so a suite that passes is a suite
+whose scratch was created, and created at the new path. The passing run is
+the evidence, not the empty status.
+
+Measured after a full `make test`: nothing untracked in the repository, and
+nothing left under /tmp either, since a passing run still cleans up. What
+changed is only where an INTERRUPTED one leaves its mess, and /tmp is where
+`running-code.md` already tells a session to go looking.
+
+### What this does not fix
+
+An interrupted run still leaks, in /tmp instead of the tree. That is the
+right place for it and it is not nothing: `running-code.md` records 6.2 GB
+of pytest roots accumulating in one evening elsewhere. The sweep it asks for
+after a killed run now has one place to look for this tree's tests rather
+than two.

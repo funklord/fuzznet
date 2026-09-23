@@ -698,7 +698,18 @@ int main(void)
 	SIGN.sign = stub_sign;
 	SIGN.verify = stub_verify;
 
-	snprintf(dir, sizeof(dir), "fzn-store-test-%ld", (long)getpid());
+	/* THE SCRATCH LIVES IN /tmp, NOT IN THE REPOSITORY.
+	 *
+	 * It was `fzn-store-test-%ld`, a relative path -- so the SOURCE TREE. A
+	 * run that finishes removes it; one that crashes or is interrupted
+	 * does not, and the tree is then carrying untracked directories that
+	 * look like somebody's work in progress. `CLAUDE.md` warns that a
+	 * blanket `git add` sweeps exactly those in, and sec 371 left 73 of
+	 * them in the root while a crash was being reproduced.
+	 *
+	 * `local/test/socket_test.c` already wrote to /tmp, so this is the
+	 * tree's own convention rather than a new one. sec 372. */
+	snprintf(dir, sizeof(dir), "/tmp/fzn-store-test-%ld", (long)getpid());
 	if (mkdir(dir, 0700) != 0) {
 		fprintf(stderr, "store_file_test: could not make %s\n", dir);
 		return 1;
