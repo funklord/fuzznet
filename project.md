@@ -47120,9 +47120,22 @@ CONTAINS, not the tags covering all of it: `card.hop` is
 covers 115, and the standalone `struct fzn_chain_hop` has always read
 `Covered(signature)` including its own signature's bytes. That is a
 convention at the struct level, older than this fix, and it has been
-reported to situ as a question. And the `covers:` lines still name tags
-unqualified -- three that all begin `signature covers:` -- which is what let
-the union sit in this contract unread. Reported, and with situ's holder.
+reported to situ as a question. The unqualified tag names are FIXED
+in situ 42b8a68: tag and members are named by path, so the card's three
+lines read `hop.signature covers: hop.body ...`, `prekey.signature covers:
+...` and `signature covers: ...`. situ found it also closed a hole in its own
+checker, which keyed the comparison on the text before the colon, so three
+`signature covers:` lines were one claim to it and a later line overwrote an
+earlier one.
+
+**Taking it: a rename the gate reports as a loss.** `make schema` refused the
+old contracts with "it no longer authenticates capability, chunks, ...", and
+nothing in the format tells a renamed line from a narrowed one. What showed
+only the naming changed was a separate comparison: strip every path prefix and
+compare each tag's member multiset, old against new. All four changed
+contracts -- frame, manifest, chain and provision -- came out identical, and
+every `.map` was byte-identical. That comparison is the evidence, not the
+gate's pass after regenerating, which is agreement with the generator.
 
 ## 375. A node owns its identity: generated when absent, refused when partial, 2026-09-26
 

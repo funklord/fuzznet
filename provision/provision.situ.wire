@@ -47,6 +47,6 @@ struct fzn_provision_card size=423
   @0x00d5   138       fzn_prekey_record prekey  big
   @0x015f   8         u64        expires_at  big
   @0x0167   64        u8         signature
-  signature covers: body capability delegable expires_at grantee grantor issued_at object version
-  signature covers: body created_at host object prekey version
-  signature covers: body expires_at hop body capability delegable expires_at grantee grantor issued_at object signature version object prekey body created_at host object prekey signature version root version
+  hop.signature covers: hop.body hop.capability hop.delegable hop.expires_at hop.grantee hop.grantor hop.issued_at hop.object hop.version
+  prekey.signature covers: prekey.body prekey.created_at prekey.host prekey.object prekey.prekey prekey.version
+  signature covers: body expires_at hop hop.body hop.capability hop.delegable hop.expires_at hop.grantee hop.grantor hop.issued_at hop.object hop.signature hop.version object prekey prekey.body prekey.created_at prekey.host prekey.object prekey.prekey prekey.signature prekey.version root version

@@ -25,7 +25,7 @@ struct fzn_manifest size=100..262097
   @0x0022   2         u16        count  big max=2701
   @0x0024   0..261997 fzn_manifest_pair pairs  sized-by=count
   ~         64        u8         signature
-  signature covers: body count issuer object pairs pairs[] capability grantee id state version
+  signature covers: body count issuer object pairs pairs[] pairs[].capability pairs[].grantee pairs[].id pairs[].state version
 
 struct fzn_manifest_pair size=97
   @0x0000   32        u8         capability  big

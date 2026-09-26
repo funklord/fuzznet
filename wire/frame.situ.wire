@@ -26,7 +26,7 @@ struct fzn_frame size=144..1168
   @0x0005   91        fzn_head   head  big
   @0x0060   32..1056  fzn_aead   sealed  codec=fzn_aead nonce=head.nonce
   ~         16        u8         tag
-  tag covers: authenticated head chunks commitment expires_at index kind length msg nonce sender sealed capability payload
+  tag covers: authenticated head head.chunks head.commitment head.expires_at head.index head.kind head.length head.msg head.nonce head.sender sealed sealed.capability sealed.payload
 
 struct fzn_head size=91
   @0x0000   1         fzn_kind   kind
