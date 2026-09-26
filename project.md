@@ -47089,21 +47089,40 @@ members: their tags are unioned. That over-claims authentication, the unsafe
 direction. Reported in situ's `suggestion/fuzznet.md` with the reproduction
 and its control, and the situ session was told.
 
-**The regenerated contract is committed anyway, and its card coverage lines
-are NOT a statement of fact.** Now there are three, the third being the
-card's own tag, and that one is right: it covers the whole body including
-both nested signatures. The two per-sibling lines are wrong as described.
-`make schema` requires the contract to equal situ's output, which is
-agreement with the generator rather than correctness (`evidence.md`, "a gate
-that compares an artifact to its generator tests agreement"). Nothing
-generates code from these specs yet -- the hand-written codec still produces
-and verifies the bytes, and `provision_test` exercises it. So the wrong
-lines cost a reader's trust and no behaviour. Holding the binding until situ
-fixed it would have kept the card the one unbound object for a fault that
-the binding neither causes nor worsens.
+**FIXED IN situ 95a3380, and the card contract regenerated, 2026-09-26.**
+The cause was situ's: `regions` recorded region NAMES, and the hop and the
+prekey both call theirs `body`, so the two tags were collected under one key
+and merged. situ reduced it to five cases, two of which were always correct
+-- and those two are what caught situ's own first repair, which removed
+coverage from everything.
 
-When situ fixes the union, the regenerated card contract should show each
-nested tag covering only its own struct, which is the check to make.
+Checked against the card, not only against situ's fixtures:
+
+- **The hop's and prekey's `covers:` lines list only their own members.**
+  Those were the two wrong lines.
+- **The card's own tag line is unchanged** and still lists every hop and
+  prekey member, both inner signatures included.
+- **`card.body` is `Covered(signature)` alone, and each inner field names
+  its own struct's tag plus the card's.** `hop.grantor` no longer names
+  `prekey.signature`.
+
+The two views were never in tension, which is the point that closed situ's
+open question: `auth=Covered(X)` on a REGION claims X authenticates all of
+its bytes, so it narrows to tags covering the whole region; the `covers:`
+line is what a tag covers, and stays full.
+
+`make schema` refused the old contract against the fixed situ ("changed
+compatibly") before it was regenerated, so the gate was live for this.
+
+**Two things still stand.** A whole-struct line names every tag the struct
+CONTAINS, not the tags covering all of it: `card.hop` is
+`Covered(signature, hop.signature)` over 179 bytes of which `hop.signature`
+covers 115, and the standalone `struct fzn_chain_hop` has always read
+`Covered(signature)` including its own signature's bytes. That is a
+convention at the struct level, older than this fix, and it has been
+reported to situ as a question. And the `covers:` lines still name tags
+unqualified -- three that all begin `signature covers:` -- which is what let
+the union sit in this contract unread. Reported, and with situ's holder.
 
 ## 375. A node owns its identity: generated when absent, refused when partial, 2026-09-26
 
