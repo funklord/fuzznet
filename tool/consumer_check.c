@@ -137,12 +137,15 @@
 #include <fuzznet/local/vocabulary.h>
 #include <fuzznet/local/line.h>
 #include <fuzznet/local/socket.h>
+#include <fuzznet/local/client.h>
 #include <fuzznet/net/udp.h>
 #include <fuzznet/node/node.h>
 #include <fuzznet/node/local.h>
 #include <fuzznet/node/remote.h>
 #include <fuzznet/node/serve.h>
 #include <fuzznet/node/provision.h>
+#include <fuzznet/node/caller.h>
+#include <fuzznet/node/peer_persist.h>
 #include <fuzznet/session/aead.h>
 #include <fuzznet/session/commitment.h>
 #include <fuzznet/session/random.h>
@@ -2046,12 +2049,12 @@ int main(void)
 			 * predicate is asked at the write rather than held. */
 			{
 				static const uint8_t arch[] = "archive";
-				fzn_catalog_source_t srows[2];
+				fzn_catalog_source_t source_rows[2];
 				fzn_catalog_source_table_t csources;
 				fzn_catalog_promotion_t crows[2];
 				fzn_catalog_promotions_t cproms;
 
-				if (fzn_catalog_sources_init(&csources, srows, 2)
+				if (fzn_catalog_sources_init(&csources, source_rows, 2)
 				    != FZN_CATALOG_OK)
 					FAIL(400);
 				if (fzn_catalog_promotions_init(&cproms, crows, 2)
@@ -2107,7 +2110,7 @@ int main(void)
 			 * rather than left true and unwritten. */
 			{
 				fzn_catalog_index_t ix, back;
-				fzn_catalog_shard_t plan[3];
+				fzn_catalog_shard_t shard_plan[3];
 				fzn_catalog_blob_root_t roots[3];
 				uint8_t head[256];
 				uint8_t ibody[3u * FZN_CATALOG_INDEX_ENTRY_LEN];
@@ -2115,13 +2118,13 @@ int main(void)
 				size_t hlen = 0, blen = 0, which = 0, i;
 
 				for (i = 0; i < 3; i++) {
-					memset(plan[i].first.b, 0, sizeof(plan[i].first.b));
-					plan[i].first.b[0] = (uint8_t)(i * 4u);
-					plan[i].entries = FZN_CATALOG_SHARD_ENTRIES_MIN;
+					memset(shard_plan[i].first.b, 0, sizeof(shard_plan[i].first.b));
+					shard_plan[i].first.b[0] = (uint8_t)(i * 4u);
+					shard_plan[i].entries = FZN_CATALOG_SHARD_ENTRIES_MIN;
 					memset(roots[i].b, (int)(0x50u + i),
 					       sizeof(roots[i].b));
 				}
-				if (fzn_catalog_index_body_encode(plan, roots, 3, ibody,
+				if (fzn_catalog_index_body_encode(shard_plan, roots, 3, ibody,
 				                                  sizeof(ibody), &blen)
 				    != FZN_CATALOG_OK)
 					FAIL(409);
@@ -2176,7 +2179,7 @@ int main(void)
 				/* A key at a shard's own start belongs to that
 				 * shard, which is the boundary a search gets
 				 * wrong. */
-				key = plan[2].first;
+				key = shard_plan[2].first;
 				if (fzn_catalog_index_lookup(ibody, blen, &key, &which)
 				    != FZN_CATALOG_OK || which != 2)
 					FAIL(414);
@@ -2263,22 +2266,22 @@ int main(void)
 			 * the library produces F16's order. */
 			{
 				static const uint8_t fdim2[] = "genre";
-				fzn_facet_term_t sp[3];
+				fzn_facet_term_t terms[3];
 				fzn_facet_expr_t sexpr;
 				uint8_t sbuf[128], sscratch[128];
 				size_t spc = 3, snc = 0, slen = 0;
 				size_t si;
 				static const char *sids[3] = { "ccc", "aaa", "bbb" };
 
-				memset(sp, 0, sizeof(sp));
+				memset(terms, 0, sizeof(terms));
 				for (si = 0; si < 3; si++) {
-					sp[si].kind = FZN_FACET_PREFIX;
-					sp[si].node.dim = fdim2;
-					sp[si].node.dim_len = sizeof(fdim2) - 1u;
-					sp[si].node.id = (const uint8_t *)sids[si];
-					sp[si].node.id_len = 3;
+					terms[si].kind = FZN_FACET_PREFIX;
+					terms[si].node.dim = fdim2;
+					terms[si].node.dim_len = sizeof(fdim2) - 1u;
+					terms[si].node.id = (const uint8_t *)sids[si];
+					terms[si].node.id_len = 3;
 				}
-				sexpr.pos = sp;
+				sexpr.pos = terms;
 				sexpr.pos_count = spc;
 				sexpr.neg = NULL;
 				sexpr.neg_count = 0;
@@ -2289,14 +2292,14 @@ int main(void)
 				                          &slen)
 				    != FZN_FACET_ERR_MALFORMED)
 					FAIL(426);
-				if (fzn_facet_expr_sort(sp, &spc, NULL, &snc, sscratch,
+				if (fzn_facet_expr_sort(terms, &spc, NULL, &snc, sscratch,
 				                        sizeof(sscratch))
 				    != FZN_FACET_OK)
 					FAIL(427);
 				sexpr.pos_count = spc;
 				if (spc != 3
-				    || memcmp(sp[0].node.id, "aaa", 3) != 0
-				    || memcmp(sp[2].node.id, "ccc", 3) != 0)
+				    || memcmp(terms[0].node.id, "aaa", 3) != 0
+				    || memcmp(terms[2].node.id, "ccc", 3) != 0)
 					FAIL(428);
 				if (fzn_facet_expr_encode(&sexpr, sbuf, sizeof(sbuf),
 				                          &slen) != FZN_FACET_OK)

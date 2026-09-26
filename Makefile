@@ -209,6 +209,7 @@ OBJS       = $(SRCS:%.c=$(BUILD_DIR)/%.o) $(GEN_OBJS)
 # fuzznetd is the first executable this project builds (sec 300); the
 # C-source census names PROG_SRCS so a program is accounted for too.
 PROG_SRCS := node/fuzznetd.c
+PROG_OBJS := $(PROG_SRCS:%.c=$(BUILD_DIR)/%.o)
 
 # The objects fuzznetd and its runtime test both link: the node, the
 # two transports, the seal and chain stack, and the nonce source the
@@ -357,8 +358,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              local/test/line_test.c local/test/socket_test.c \
              net/test/udp_test.c \
              node/test/node_test.c node/test/local_test.c \
-             node/test/remote_test.c node/test/serve_test.c \
-             node/test/provision_test.c \
+             node/test/serve_test.c \
              local/test/peer_fuzz.c local/test/peer_linux_test.c \
              spool/test/message_fuzz.c \
              chunk/test/reassembly_fuzz.c chain/test/chain_fuzz.c \
@@ -464,9 +464,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/net/test/udp_test \
              $(BUILD_DIR)/node/test/node_test \
              $(BUILD_DIR)/node/test/local_test \
-             $(BUILD_DIR)/node/test/remote_test \
              $(BUILD_DIR)/node/test/serve_test \
-             $(BUILD_DIR)/node/test/provision_test \
              $(BUILD_DIR)/chunk/test/agreement_test \
              $(BUILD_DIR)/local/test/peer_fuzz \
              $(BUILD_DIR)/local/test/peer_linux_test \
@@ -1333,7 +1331,9 @@ MONO_TSRC  := chain/test/sign_monocypher_test.c \
               session/test/session_kat_test.c \
               ratchet/test/ratchet_kat_test.c \
               blob/test/blob_kat_test.c \
-              chain/test/hop_kat_test.c
+              chain/test/hop_kat_test.c \
+              node/test/remote_test.c \
+              node/test/provision_test.c
 
 ifdef MONO_ON
 MONO_OBJS  := $(BUILD_DIR)/chain/sign_monocypher.o \
@@ -1379,10 +1379,20 @@ MONO_HKAT  := $(BUILD_DIR)/chain/test/hop_kat_test
 MONO_REAL  := $(BUILD_DIR)/sim/test/real_crypto_test
 MONO_PROV  := $(BUILD_DIR)/sim/test/provision_test
 MONO_DISC  := $(BUILD_DIR)/sim/test/disclosure_test
+# The node's remote hop under real primitives. Both link the binding and sat
+# in the unconditional list from 8f116fe and f37f8ca on, so `core` in CI --
+# the one arrangement that builds without the submodule -- failed on
+# `chain/sign_monocypher.o` for every push after. project.md sec 373.
+MONO_NREM  := $(BUILD_DIR)/node/test/remote_test
+MONO_NPROV := $(BUILD_DIR)/node/test/provision_test
+# fuzznetd serves the remote hop, and serving it needs the hash, AEAD and
+# signature ops (sec 368), so the daemon is built only with the binding.
+FUZZNETD   := $(BUILD_DIR)/fuzznetd
 OBJS       += $(MONO_OBJS)
 TEST_OBJS  += $(MONO_TOBJ)
 TEST_BINS  += $(MONO_BIN) $(MONO_HASH) $(MONO_AEAD) $(MONO_AGREE) $(MONO_GOLD) \
-              $(MONO_KAT) $(MONO_RKAT) $(MONO_BKAT) $(MONO_HKAT)
+              $(MONO_KAT) $(MONO_RKAT) $(MONO_BKAT) $(MONO_HKAT) \
+              $(MONO_NREM) $(MONO_NPROV)
 CPPFLAGS   += -I$(MONOCYPHER_DIR)/src
 
 # Vendored, so it is compiled with its own terms rather than ours.
@@ -1624,13 +1634,14 @@ endif
 # -- caught by AddressSanitizer as a stack-buffer-overflow in a suite that had
 # nothing to do with the change. Both gui variables expand to nothing when the
 # GUI is off, so this costs a build without it nothing.
-DEPS = $(OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(GUI_OBJS:.o=.d) $(GUI_TOBJ:.o=.d)
+DEPS = $(OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(GUI_OBJS:.o=.d) $(GUI_TOBJ:.o=.d) \
+       $(PROG_OBJS:.o=.d)
 
 .PHONY: check runtests all test fuzz guided guided-one installcheck coverage sancheck schema qtty qrcheck style codegencheck ctcheck analyze sabotage reach hooks clean install
 
 # The default build does NOT build tests -- build-and-commit.md, and the
 # discipline it buys is paid for by the dependency rules above being right.
-all: $(OBJS) $(BUILD_DIR)/fuzznetd
+all: $(OBJS) $(FUZZNETD)
 
 $(BUILD_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
@@ -5587,6 +5598,9 @@ MONO_CLEAN := $(MONO_SRCS:%.c=$(BUILD_DIR)/%.o) $(MONO_SRCS:%.c=$(BUILD_DIR)/%.d
               $(MONO_TSRC:%.c=$(BUILD_DIR)/%.o) $(MONO_TSRC:%.c=$(BUILD_DIR)/%.d) \
               $(MONO_TSRC:%.c=$(BUILD_DIR)/%) \
               $(BUILD_DIR)/monocypher.o $(BUILD_DIR)/monocypher.d
+# The daemon, named whether or not this build made it: `clean` removes what
+# SOME build made, and the one before may have had the binding.
+PROG_CLEAN := $(PROG_OBJS) $(PROG_OBJS:.o=.d) $(BUILD_DIR)/fuzznetd
 
 clean:
 	@# THE SANITIZER TREE, which `sancheck` keeps between runs so that an
@@ -5606,7 +5620,7 @@ clean:
 	@# source into $(BUILD_DIR)/tool/ and which were in no list here. They
 	@# have no `.d`: both are built from stdin with $(FZN_PROBE_CPPFLAGS),
 	@# which filters -MMD out for the reason the probe rules give.
-	@for f in $(OBJS) $(TEST_OBJS) $(DEPS) $(TEST_BINS) $(MONO_CLEAN) \
+	@for f in $(OBJS) $(TEST_OBJS) $(DEPS) $(TEST_BINS) $(MONO_CLEAN) $(PROG_CLEAN) \
 	          $(FLOG_CLEAN) $(GUI_CLEAN) $(BUILD_DIR)/tool/ct_control.o \
 	          $(BUILD_DIR)/tool/wipe_control.o; do \
 		if [ -e "$$f" ]; then echo "removing $$f"; rm -f "$$f"; fi; \
