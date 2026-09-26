@@ -3536,6 +3536,20 @@ SABOTAGES = [
 		"revoking a revoked grantee again must say so rather than mint a second record the store refuses as a stale copy, which an operator reads as the revocation having failed -- sec 380",
 	),
 	(
+		"admin-remote-refuses-mutation",
+		"node/admin.c",
+		"\tif (fzn_verb_mutates(request.parsed))\n\t\treturn answer_text(out, reply_cap, FZN_REPLY_DENIED,\n\t\t                   \"a remote caller may not change this node\");\n",
+		"",
+		"a device's grant to use a node is not authority to change it; a remote caller told unsupported rather than denied has been told the verb is missing, not that it is refused -- sec 381",
+	),
+	(
+		"admin-remote-silent-to-denied",
+		"node/admin.c",
+		"\tif (!admin || !admin->state || !req || !reply || result != FZN_NODE_REMOTE_GRANTED)\n",
+		"\tif (!admin || !admin->state || !req || !reply || result == FZN_NODE_REMOTE_DROPPED)\n",
+		"a caller the chain refused -- a revoked device among them -- would be answered, which tells it which node it reached and that the node is up -- sec 381",
+	),
+	(
 		"aead-open-checks-the-tag",
 		"session/aead_monocypher.c",
 		"\treturn crypto_aead_unlock(text, tag, key, nonce, aad, aad_len, text, text_len) == 0;\n",

@@ -75,4 +75,27 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
                              const fzn_peer_t *peer, const fzn_request_t *request,
                              char *reply, size_t reply_cap);
 
+/*
+ * The same verbs to a REMOTE caller, as `fzn_node_state_t.on_remote`; `ctx` is
+ * a `fzn_node_admin_t`. sec 381.
+ *
+ * ONE GRAMMAR ON BOTH HOPS, because sec 2 has every node speak "the same
+ * language" with "only minor role differences": a request payload is a line
+ * of `local/vocabulary.h`'s grammar and the reply is a reply line, the same
+ * bytes a local caller sends and reads. The minor difference is authority.
+ *
+ * A REMOTE CALLER MAY NOT CHANGE THE NODE. Its capability grants it the use of
+ * this node; it does not make it the node's own user, and a mutating verb
+ * that a group member is refused locally is not granted to a device over the
+ * network. `status` and `list peer` are served; anything mutating is
+ * `denied`, and anything else `unsupported`.
+ *
+ * A DENIED OR DROPPED CALLER GETS NOTHING. The node calls this for DENIED as
+ * well as GRANTED (`node/serve.h`), and answering a caller the chain refused
+ * would tell a stranger which node it reached; silence is the answer
+ * `node/remote.h` already gives one whose frames never opened.
+ */
+size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
+                             const fzn_opened_t *req, uint8_t *reply, size_t reply_cap);
+
 #endif /* FZN_NODE_ADMIN_H */

@@ -16,6 +16,7 @@
 
 #include "../pair.h"
 #include "../revoke.h"
+#include "../admin.h"
 #include "../../provision/provision.h"
 #include "../identity.h"
 #include "../node.h"
@@ -271,7 +272,7 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 	fzn_reasm_t table;
 	fzn_aead_ops_t aead;
 	fzn_udp_addr_t node_addr;
-	uint8_t reply[64];
+	uint8_t reply[FZN_NODE_REPLY_MAX];
 	size_t reply_len = 0, loaded = 0;
 	uint32_t msg = 0;
 	int node_fd = -1, dev_fd = -1;
@@ -378,6 +379,83 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 		      "the control failed: without revocations the device was not granted, so "
 		      "the refusals above prove nothing about revocation");
 		(void)fzn_caller_recv(&caller, msg, reply, sizeof(reply), &reply_len, 500u);
+	}
+
+	/* ---- FUZZNET'S VERBS OVER THE REMOTE HOP, through the admin handler:
+	 * the same grammar a local caller uses, read-only. sec 381. */
+	{
+		fzn_node_admin_t admin;
+		char key[(FZN_PUBKEY_LEN * 2u) + 1u];
+		char want[96];
+		size_t k;
+		const uint8_t *detail = NULL;
+		size_t detail_len = 0;
+
+		memset(&admin, 0, sizeof(admin));
+		admin.state = &state;
+		admin.peers = peers;
+		admin.peers_cap = 2;
+		admin.id = &node->id;
+		admin.store = &node->ops;
+		state.on_remote = fzn_node_admin_remote;
+		state.on_remote_ctx = &admin;
+		state.config.revocations = NULL;
+
+		CHECK(fzn_caller_send(&caller, (const uint8_t *)"status", 6u, 3500u, &msg)
+		              == FZN_CALLER_OK
+		              && fzn_node_run_once(&state, 1000) == 1
+		              && fzn_caller_recv(&caller, msg, reply, sizeof(reply), &reply_len, 2000u)
+		                         == FZN_CALLER_OK
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK,
+		      "a paired device asking status over the remote hop was not answered ok");
+
+		for (k = 0; k < FZN_PUBKEY_LEN; k++)
+			snprintf(key + (k * 2u), 3, "%02x", device->id.pubkey[k]);
+		snprintf(want, sizeof(want), "ok 1 0 %s\n", key);
+		CHECK(fzn_caller_send(&caller, (const uint8_t *)"list peer", 9u, 3500u, &msg)
+		              == FZN_CALLER_OK
+		              && fzn_node_run_once(&state, 1000) == 1
+		              && fzn_caller_recv(&caller, msg, reply, sizeof(reply), &reply_len, 2000u)
+		                         == FZN_CALLER_OK
+		              && reply_len == strlen(want) && memcmp(reply, want, reply_len) == 0,
+		      "list peer over the remote hop did not return the paired device, or did not "
+		      "fit the remote path's reply buffer");
+
+		CHECK(fzn_caller_send(&caller, (const uint8_t *)"remove peer 00", 14u, 3500u, &msg)
+		              == FZN_CALLER_OK
+		              && fzn_node_run_once(&state, 1000) == 1
+		              && fzn_caller_recv(&caller, msg, reply, sizeof(reply), &reply_len, 2000u)
+		                         == FZN_CALLER_OK
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+		                         == FZN_REPLY_DENIED
+		              && state.peer_count == 1u,
+		      "a remote caller was allowed to change the node");
+		/* ---- A REVOKED DEVICE HEARS NOTHING: the node calls the handler
+		 * for DENIED too, and answering would tell a refused caller which
+		 * node it reached. */
+		{
+			static fzn_revocation_t again_entries[4];
+			fzn_revocation_store_t again;
+			size_t restored = 0;
+
+			CHECK(fzn_revocation_store_init(&again, again_entries, 4) == FZN_CHAIN_OK
+			              && fzn_node_revocations_load(&node->ops, &again, node->id.pubkey,
+			                                           &node->sign, &hash_ops, &restored)
+			                         == FZN_PERSIST_OK
+			              && restored == 1u,
+			      "fixture: the device's revocation did not restore");
+			state.config.revocations = &again;
+			CHECK(fzn_caller_send(&caller, (const uint8_t *)"status", 6u, 3500u, &msg)
+			              == FZN_CALLER_OK
+			              && fzn_node_run_once(&state, 1000) == 1
+			              && fzn_caller_recv(&caller, msg, reply, sizeof(reply), &reply_len,
+			                                 300u)
+			                         == FZN_CALLER_ERR_TIMEOUT,
+			      "a revoked device was answered over the remote hop");
+			state.config.revocations = NULL;
+		}
+		state.on_remote = answer;
+		state.on_remote_ctx = NULL;
 	}
 
 	/* ---- A NODE THAT IS NOT ITS OWN ROOT DOES NOT REVOKE AS ONE. */

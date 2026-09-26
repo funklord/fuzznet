@@ -28,6 +28,7 @@
 
 #include "serve.h"
 #include "admin.h"
+#include "caller.h"
 #include "identity.h"
 #include "pair.h"
 #include "revoke.h"
@@ -151,8 +152,9 @@ static void usage(const char *prog)
 	        "       %s --store DIR --pair PREKEY_HEX [fuzznet options]\n"
 	        "       %s --store DIR --prekey\n"
 	        "       %s --store DIR --accept CARD\n"
+	        "       %s --store DIR --ask LINE --node ROOT_HEX --to HOST PORT [--udp6]\n"
 	        "fuzznet options:\n%s",
-	        prog, prog, prog, prog, fzn_cli_usage());
+	        prog, prog, prog, prog, prog, fzn_cli_usage());
 }
 
 /* PAIR ONE DEVICE AND EXIT.
@@ -232,6 +234,10 @@ int main(int argc, char **argv)
 	const char *pair_hex = NULL;
 	int show_prekey = 0;
 	const char *accept_text = NULL;
+	const char *ask_line = NULL;
+	const char *node_hex = NULL;
+	const char *to_host = NULL;
+	long to_port = -1;
 	int has_capability = 0;
 	int lfd = -1, ufd = -1, i;
 
@@ -258,6 +264,13 @@ int main(int argc, char **argv)
 			show_prekey = 1;
 		} else if (!strcmp(argv[i], "--accept") && i + 1 < argc) {
 			accept_text = argv[++i];
+		} else if (!strcmp(argv[i], "--ask") && i + 1 < argc) {
+			ask_line = argv[++i];
+		} else if (!strcmp(argv[i], "--node") && i + 1 < argc) {
+			node_hex = argv[++i];
+		} else if (!strcmp(argv[i], "--to") && i + 2 < argc) {
+			to_host = argv[++i];
+			to_port = strtol(argv[++i], NULL, 10);
 		} else {
 			/* FUZZNET'S OWN OPTIONS ARE FUZZNET'S PARSER'S, so this
 			 * daemon, the config dialog and every consumer refuse the
@@ -276,7 +289,10 @@ int main(int argc, char **argv)
 			}
 		}
 	}
-	if (!sock_path && !pair_hex && !show_prekey && !accept_text) {
+	/* A NODE THAT SERVES ONLY THE REMOTE HOP needs no local socket, and the
+	 * loop has always taken a listen fd of -1 (sec 381). */
+	if (!sock_path && !pair_hex && !show_prekey && !accept_text && !ask_line
+	    && udp_port < 0) {
 		usage(argv[0]);
 		return 2;
 	}
@@ -472,6 +488,76 @@ int main(int argc, char **argv)
 		return 0;
 	}
 
+	/* THE DEVICE ASKING THE NODE IT IS PAIRED TO, which is the other half of
+	 * the remote hop and what a device could not do from a command line.
+	 * The line is fuzznet's grammar (sec 381); the credentials are the
+	 * stored pairing, looked up by the node's root; the address is given,
+	 * since a pairing carries none. Prints the reply line and exits 0 when
+	 * it is `ok`. */
+	if (ask_line) {
+		static fzn_partial_t slots[1];
+		static uint8_t slot_buf[1][FZN_NODE_REPLY_MAX * 4u];
+		static uint8_t answer[FZN_NODE_REPLY_MAX * 4u];
+		uint8_t node_root[FZN_PUBKEY_LEN];
+		fzn_node_pairing_t pairing;
+		fzn_reasm_t table;
+		fzn_caller_t caller;
+		fzn_caller_err_t cerr;
+		size_t answer_len = 0;
+		uint32_t msg = 0;
+		int fd = -1, rc;
+
+		if (!booted || !node_hex || !to_host || to_port < 0 || to_port > 65535) {
+			fprintf(stderr, "fuzznetd: --ask needs --store, --node and --to\n");
+			return 2;
+		}
+		if (!hex_pubkey(node_hex, node_root)
+		    || fzn_node_pairing_load(store_ops, node_root, &pairing) != FZN_PERSIST_OK) {
+			fprintf(stderr, "fuzznetd: not paired to that node\n");
+			return 1;
+		}
+		memset(&caller, 0, sizeof(caller));
+		if (fzn_udp_bind(family, NULL, 0, &fd) != FZN_UDP_OK
+		    || fzn_udp_resolve(family, to_host, (uint16_t)to_port, &caller.node)
+		               != FZN_UDP_OK
+		    || fzn_reasm_slot_init(&slots[0], slot_buf[0], sizeof(slot_buf[0]))
+		               != FZN_REASM_OK
+		    || fzn_reasm_init(&table, slots, 1, 1u, 60u) != FZN_REASM_OK) {
+			fprintf(stderr, "fuzznetd: could not set up the request\n");
+			fzn_wipe(&pairing, sizeof(pairing));
+			if (fd >= 0)
+				fzn_udp_close(fd);
+			return 1;
+		}
+		fzn_node_pairing_caller(&pairing, identity.pubkey, &caller);
+		fzn_wipe(&pairing, sizeof(pairing));
+		caller.fd = fd;
+		caller.hash = &hash_ops;
+		caller.aead = &aead_ops;
+		caller.rng = &rng_ops;
+		caller.reasm = &table;
+		caller.hops = 1u;
+		/* The expiry sits inside the node's horizon: FZND_MAX_AHEAD is the
+		 * lifetime plus the skew this daemon tolerates, and a request
+		 * expiring later than that is refused as from the future. */
+		cerr = fzn_caller_send(&caller, (const uint8_t *)ask_line, strlen(ask_line),
+		                       wall_clock() + (FZND_MAX_AHEAD / 2u), &msg);
+		if (cerr == FZN_CALLER_OK)
+			cerr = fzn_caller_recv(&caller, msg, answer, sizeof(answer), &answer_len,
+			                       3000u);
+		fzn_wipe(&caller, sizeof(caller));
+		fzn_udp_close(fd);
+		if (cerr != FZN_CALLER_OK) {
+			fprintf(stderr, "fuzznetd: no answer: %s\n", fzn_caller_err_str(cerr));
+			return 1;
+		}
+		rc = fzn_reply_ok(fzn_reply_of(answer, answer_len, NULL, NULL)) ? 0 : 1;
+		if (answer_len && answer[answer_len - 1u] == '\n')
+			answer_len--;
+		printf("%.*s\n", (int)answer_len, (const char *)answer);
+		return rc;
+	}
+
 	if (pair_hex) {
 		if (!booted) {
 			fprintf(stderr, "fuzznetd: --pair needs --store, and no --identity: "
@@ -496,7 +582,7 @@ int main(int argc, char **argv)
 	 * in-process peer-credential check, which the kernel fills and no
 	 * client can forge. A deployment may tighten ownership and mode on
 	 * top of that. */
-	if (fzn_socket_listen(sock_path, 0777u, 16, &lfd) != FZN_SOCKET_OK) {
+	if (sock_path && fzn_socket_listen(sock_path, 0777u, 16, &lfd) != FZN_SOCKET_OK) {
 		fprintf(stderr, "fuzznetd: could not listen on %s\n", sock_path);
 		return 1;
 	}
@@ -582,11 +668,13 @@ int main(int argc, char **argv)
 			admin.revocations = &revoked;
 			state.on_local = fzn_node_admin_handle;
 			state.on_local_ctx = &admin;
+			state.on_remote = fzn_node_admin_remote;
+			state.on_remote_ctx = &admin;
 		}
 	}
 
-	fprintf(stderr, "fuzznetd: serving on %s%s\n", sock_path,
-	        (udp_port >= 0) ? " and udp" : "");
+	fprintf(stderr, "fuzznetd: serving%s%s%s\n", sock_path ? " on " : "",
+	        sock_path ? sock_path : "", (udp_port >= 0) ? " udp" : "");
 	fzn_node_run(&state);	/* until the process is signalled */
 
 	/* Unreached in normal operation; named so the sockets read as closed

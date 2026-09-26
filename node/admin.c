@@ -146,6 +146,11 @@ static size_t list_peers(fzn_node_admin_t *admin, const uint8_t *from_text, size
 {
 	char detail[FZN_REPLY_MAX];
 	size_t from = 0, total = admin->state->peer_count, at, i;
+	/* THE PAGE FOLLOWS THE BUFFER IT IS WRITTEN INTO, not only the line
+	 * bound: the remote path's default reply buffer is FZN_NODE_REPLY_MAX,
+	 * half the grammar's, and a page sized for the grammar would fail to
+	 * compose there and the caller would hear nothing. Less the newline. */
+	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
 	int n;
 
 	for (i = 0; i < from_len; i++) {
@@ -162,7 +167,7 @@ static size_t list_peers(fzn_node_admin_t *admin, const uint8_t *from_text, size
 	/* One space and 64 hex characters per key, under the reply's bound
 	 * less the `ok ` in front of the detail. */
 	for (i = from; i < total; i++) {
-		if (at + 1u + (FZN_PUBKEY_LEN * 2u) > FZN_REPLY_MAX - 3u)
+		if (at + 1u + (FZN_PUBKEY_LEN * 2u) + 3u > limit)
 			break;
 		detail[at++] = ' ';
 		put_hex(detail + at, admin->state->peers[i].sender, FZN_PUBKEY_LEN);
@@ -259,4 +264,36 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 	}
 
 	return answer_text(reply, reply_cap, FZN_REPLY_UNSUPPORTED, NULL);
+}
+
+size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
+                             const fzn_opened_t *req, uint8_t *reply, size_t reply_cap)
+{
+	fzn_node_admin_t *admin = (fzn_node_admin_t *)ctx;
+	char *out = (char *)reply;
+	fzn_request_t request;
+	const uint8_t *line, *rest;
+	size_t line_len, rest_len;
+
+	if (!admin || !admin->state || !req || !reply || result != FZN_NODE_REMOTE_GRANTED)
+		return 0;
+
+	/* ONE LINE: the payload, with the terminator a local caller's framer
+	 * would have stripped removed here if it was sent. */
+	line = req->payload;
+	line_len = req->payload_len;
+	if (line_len && line[line_len - 1u] == '\n')
+		line_len--;
+	if (!line || !fzn_vocabulary_split(line, line_len, &request))
+		return answer_text(out, reply_cap, FZN_REPLY_MALFORMED, NULL);
+
+	if (fzn_verb_mutates(request.parsed))
+		return answer_text(out, reply_cap, FZN_REPLY_DENIED,
+		                   "a remote caller may not change this node");
+	if (request.parsed == FZN_VERB_STATUS)
+		return fzn_node_status_line(FZN_AUTHZ_GRANTED_BY_CHAIN, FZN_ORIGIN_REMOTE, out,
+		                            reply_cap);
+	if (request.parsed == FZN_VERB_LIST && subject_peer(&request, &rest, &rest_len))
+		return list_peers(admin, rest, rest_len, out, reply_cap);
+	return answer_text(out, reply_cap, FZN_REPLY_UNSUPPORTED, NULL);
 }

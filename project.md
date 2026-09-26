@@ -47605,3 +47605,69 @@ the store, the record being saved, and `ALREADY`.
 - **Withdrawing.** `fzn_node_revoke` re-revokes correctly after a
   withdrawal, and no verb issues a withdrawal. Un-revoking was not asked
   for.
+
+## 381. The remote hop answers, and a device can ask from the command line, 2026-09-26
+
+`fuzznetd` installed no remote handler, so a paired, granted device that
+asked it anything got silence: the node authenticated the frame, authorised
+the chain, and had nothing to hand the request to. Carrying revocations
+between nodes (sec 380's next piece) would ride on this, and multi-node
+estates are not wired into `fuzznetd` yet, so the remote handler came first.
+
+### One grammar on both hops, which sec 2 decided
+
+What a remote request CARRIES was the open question, and it was never
+really open: sec 2 records the holder's "all nodes speak the same language
+... with only minor role differences". So a remote payload is a line of
+`local/vocabulary.h`'s grammar and the answer is a reply line -- the bytes a
+local caller sends and reads. `fzn_node_admin_remote` serves them.
+
+The minor difference is authority. **A remote caller may not change the
+node**: its capability grants it the node's use, which does not make it the
+node's own user. `status` and `list peer` are served, anything mutating is
+`denied`, and anything else is `unsupported`. **A caller the chain refused
+hears nothing.** The node calls the handler for DENIED too, and answering a
+refused caller would tell it which node it reached.
+
+`list peer`'s page now follows the buffer it is written into, not only the
+grammar's bound. The remote path's default reply buffer is 512 bytes, half
+the grammar's, and a page sized for 1024 would fail to compose there, so the
+caller would hear nothing.
+
+### `fuzznetd --ask`, and a node without a local socket
+
+`fuzznetd --store DIR --ask LINE --node ROOT --to HOST PORT` is the device
+asking the node it is paired to. The credentials come from the stored
+pairing, looked up by root, and the address is given, since a pairing
+carries none (sec 377). It prints the reply and exits 0 on `ok`.
+
+`--socket` is optional when `--udp-port` is given: a node serving only the
+remote hop needs no local socket, and the loop has always taken a listen fd
+of -1.
+
+### Measured for sec 381, and the daemon's loop reached at last
+
+**Two real `fuzznetd` processes over real UDP**, which no session could run
+before because the local socket path is limited to about 92 bytes and the
+scratch directory is longer. A was paired to B with `--pair` and
+`--accept`, then started as a UDP-only daemon. B asked:
+
+    status        ok served granted by capability chain origin 3 fuzznet 0.1.0
+    list peer     ok 1 0 <B's key>
+    add peer 00   denied a remote caller may not change this node
+
+The daemon stopped on SIGTERM with nothing left running. That is the first
+time `fzn_node_run` has been observed serving in a real `fuzznetd`.
+
+`pair_test` checks the same through the loopback exchange: `status` is `ok`,
+`list peer` returns the device's own key, `remove peer` is `denied` with the
+peer set unchanged, and a device whose revocation is restored from the store
+hears nothing at all. Two sabotage entries hold the refusal to mutate and
+the silence to a denied caller.
+
+**The fixture had a 64-byte reply buffer**, and the first failure here
+looked like a stale reply coming back from the reassembly table. It was
+`fzn_caller_recv` correctly refusing a 72-byte reply as too long while the
+test printed the buffer's previous contents. The library was right. Recorded
+because the trace ran through `caller.c` and `reassembly.c` before reaching
+the test's own declaration.
