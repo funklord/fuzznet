@@ -3445,6 +3445,20 @@ SABOTAGES = [
 		"a refused load that writes the caller's secret and anchor anyway replaces a live identity with the parts of a store it just called unusable -- sec 375",
 	),
 	(
+		"pair-refuses-a-node-that-is-not-root",
+		"node/pair.c",
+		"\tif (memcmp(root, id->pubkey, FZN_PUBKEY_LEN) != 0)\n\t\treturn FZN_NODE_PAIR_NOT_ROOT;\n",
+		"",
+		"a node that joined an estate mints grants with its own key as root, so the device pairs and is then refused on its first request by the root the node checks -- a failure that looks like the network -- sec 376",
+	),
+	(
+		"pair-saves-before-the-card",
+		"node/pair.c",
+		"\tif (fzn_node_peer_save(store, &peer) != FZN_PERSIST_OK) {\n",
+		"\tif (fzn_node_peer_save(store, &peer) != FZN_PERSIST_OK && 0) {\n",
+		"a card handed out for a device the store refused is a pairing that works on the device's side and nowhere else -- sec 376",
+	),
+	(
 		"aead-open-checks-the-tag",
 		"session/aead_monocypher.c",
 		"\treturn crypto_aead_unlock(text, tag, key, nonce, aad, aad_len, text, text_len) == 0;\n",

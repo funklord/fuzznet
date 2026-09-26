@@ -162,7 +162,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/caller.c \
              net/udp.c \
              node/node.c node/local.c node/remote.c node/serve.c \
-             node/provision.c node/identity.c \
+             node/provision.c node/identity.c node/pair.c \
              chain/chain.c chain/revocation.c chain/manifest.c chain/authz.c \
              chain/chain_store.c chain/service.c claim/claim.c \
              record/store.c qr/qr.c \
@@ -244,7 +244,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/caller.h \
              net/udp.h \
              node/node.h node/local.h node/remote.h node/serve.h \
-             node/provision.h node/identity.h \
+             node/provision.h node/identity.h node/pair.h \
              chain/chain.h chain/revocation.h chain/manifest.h chain/authz.h \
              chain/chain_store.h chain/service.h claim/claim.h \
              record/store.h qr/qr.h \
@@ -1335,7 +1335,8 @@ MONO_TSRC  := chain/test/sign_monocypher_test.c \
               blob/test/blob_kat_test.c \
               chain/test/hop_kat_test.c \
               node/test/remote_test.c \
-              node/test/provision_test.c
+              node/test/provision_test.c \
+              node/test/pair_test.c
 
 ifdef MONO_ON
 MONO_OBJS  := $(BUILD_DIR)/chain/sign_monocypher.o \
@@ -1387,14 +1388,17 @@ MONO_DISC  := $(BUILD_DIR)/sim/test/disclosure_test
 # `chain/sign_monocypher.o` for every push after. project.md sec 373.
 MONO_NREM  := $(BUILD_DIR)/node/test/remote_test
 MONO_NPROV := $(BUILD_DIR)/node/test/provision_test
+MONO_NPAIR := $(BUILD_DIR)/node/test/pair_test
 # fuzznetd serves the remote hop, and serving it needs the hash, AEAD and
 # signature ops (sec 368), so the daemon is built only with the binding.
-FUZZNETD   := $(BUILD_DIR)/fuzznetd
+# And it takes fuzznet's options through cli/, the one parser the config
+# dialog also types at (sec 140), so it is built only when cli/ is. sec 376.
+FUZZNETD   := $(if $(CLI_ON),$(BUILD_DIR)/fuzznetd)
 OBJS       += $(MONO_OBJS)
 TEST_OBJS  += $(MONO_TOBJ)
 TEST_BINS  += $(MONO_BIN) $(MONO_HASH) $(MONO_AEAD) $(MONO_AGREE) $(MONO_GOLD) \
               $(MONO_KAT) $(MONO_RKAT) $(MONO_BKAT) $(MONO_HKAT) \
-              $(MONO_NREM) $(MONO_NPROV)
+              $(MONO_NREM) $(MONO_NPROV) $(MONO_NPAIR)
 CPPFLAGS   += -I$(MONOCYPHER_DIR)/src
 
 # Vendored, so it is compiled with its own terms rather than ours.
@@ -3133,10 +3137,44 @@ $(BUILD_DIR)/node/test/serve_test: $(BUILD_DIR)/node/test/serve_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# Pairing under real primitives: two nodes built by node/identity, the
+# pairing, the card accepted, and the node's own authorisation check over the
+# result. The provision_test set plus identity, pair and peer_persist.
+# sec 376.
+$(BUILD_DIR)/node/test/pair_test.o: node/test/pair_test.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -Inode -Iwire/generated -c $< -o $@
+
+$(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
+              $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
+              $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o \
+              $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/remote.o \
+              $(BUILD_DIR)/node/node.o $(BUILD_DIR)/local/peer.o \
+              $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/chain/service.o \
+              $(BUILD_DIR)/chain/authz.o $(BUILD_DIR)/frame/freshness.o \
+              $(BUILD_DIR)/chunk/split.o $(BUILD_DIR)/chunk/reassembly.o \
+              $(BUILD_DIR)/chain/sign_monocypher.o \
+              $(BUILD_DIR)/session/hash_monocypher.o \
+              $(BUILD_DIR)/session/aead_monocypher.o \
+              $(BUILD_DIR)/session/agree_monocypher.o $(BUILD_DIR)/monocypher.o \
+              $(BUILD_DIR)/session/session.o $(BUILD_DIR)/session/agree.o \
+              $(BUILD_DIR)/session/commitment.o $(BUILD_DIR)/session/random.o \
+              $(BUILD_DIR)/session/random_linux.o \
+              $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/ratchet/ratchet.o \
+              $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/chain/chain.o \
+              $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
+              $(BUILD_DIR)/wire/seal.o \
+              $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # The fuzznetd daemon. Its main() is in node/, so the pattern rule resolves
 # "serve.h" without -Inode.
 $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
-              $(BUILD_DIR)/node/identity.o \
+              $(BUILD_DIR)/node/identity.o $(BUILD_DIR)/node/pair.o \
+              $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/provision/provision.o \
+              $(BUILD_DIR)/session/session.o $(BUILD_DIR)/chain/service.o \
+              $(BUILD_DIR)/cli/cli.o \
               $(BUILD_DIR)/session/agree_monocypher.o \
               $(MONO_OBJS) $(FLOG_OBJS)
 	@mkdir -p $(dir $@)
@@ -3260,6 +3298,9 @@ $(BUILD_DIR)/wire/test/tamper_test.o: wire/test/tamper_test.c
 $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/local/client.o \
                                       $(BUILD_DIR)/node/identity.o \
+                                      $(BUILD_DIR)/node/pair.o \
+                                      $(BUILD_DIR)/node/provision.o \
+                                      $(BUILD_DIR)/node/peer_persist.o \
                                       $(BUILD_DIR)/node/caller.o \
                                       $(BUILD_DIR)/net/udp.o \
                                       $(BUILD_DIR)/chunk/reassembly.o \

@@ -28,11 +28,15 @@
 
 #include "serve.h"
 #include "identity.h"
+#include "pair.h"
 #include "peer_persist.h"
 #include "../local/socket.h"
 #include "../net/udp.h"
 #include "../persist/persist_file.h"
+#include "../chain/service.h"
 #include "../chain/sign_monocypher.h"
+#include "../cli/cli.h"
+#include "../provision/provision.h"
 #include "../session/aead_monocypher.h"
 #include "../session/agree_monocypher.h"
 #include "../session/hash_monocypher.h"
@@ -45,7 +49,8 @@
 #include <time.h>
 #include <unistd.h>
 
-/* Hex to bytes, for an identity or a root on the command line.
+/* Hex to bytes, for an identity, a root or a device's prekey record on the
+ * command line.
  *
  * LOCAL ON PURPOSE. This is the fourth hand-rolled hex table in the tree --
  * `cli/peer_print.c` writes one, `persist/persist_file.c` writes one for
@@ -55,13 +60,13 @@
  * in view, and `cli/` is the natural home but is build-time optional
  * (FZN_CLI=0), which a daemon must not depend on. Recorded as a signal
  * instead. sec 368. */
-static int hex_pubkey(const char *text, uint8_t out[FZN_PUBKEY_LEN])
+static int hex_bytes(const char *text, uint8_t *out, size_t len)
 {
-	unsigned i;
+	size_t i;
 
-	if (!text || strlen(text) != (size_t)FZN_PUBKEY_LEN * 2u)
+	if (!text || strlen(text) != len * 2u)
 		return 0;
-	for (i = 0; i < (unsigned)FZN_PUBKEY_LEN; i++) {
+	for (i = 0; i < len; i++) {
 		unsigned j;
 		unsigned byte = 0;
 
@@ -82,6 +87,11 @@ static int hex_pubkey(const char *text, uint8_t out[FZN_PUBKEY_LEN])
 		out[i] = (uint8_t)byte;
 	}
 	return 1;
+}
+
+static int hex_pubkey(const char *text, uint8_t out[FZN_PUBKEY_LEN])
+{
+	return hex_bytes(text, out, FZN_PUBKEY_LEN);
 }
 
 /* THE CLOCK, AND THE UNIT NOTHING IN THIS LIBRARY STATES.
@@ -120,11 +130,73 @@ static uint64_t wall_clock(void)
 #define FZND_MAX_AHEAD 600u
 #define FZND_REPLAY_ENTRIES 256u
 
+/* HOW LONG A PAIRING CARD MAY WAIT TO BE ACCEPTED. The card carries no
+ * secret -- the node's root, the node's prekey, and a grant only the device's
+ * key can use -- so this bounds how long a card photographed off a screen
+ * stays worth accepting, not what it can reveal. A day: long enough to carry
+ * a card to a device, short enough that a stale one is not a standing
+ * invitation. The GRANT inside it does not expire; a lost device is revoked,
+ * which is the capability model's answer (sec 1). */
+#define FZND_CARD_LIFETIME 86400u
+
 static void usage(const char *prog)
 {
 	fprintf(stderr,
 	        "usage: %s --socket PATH [--group GID] [--udp-port PORT]"
-	        " [--udp6] [--store DIR] [--identity HEX] [--root HEX]\n", prog);
+	        " [--udp6] [--store DIR] [--identity HEX] [--root HEX]"
+	        " [fuzznet options]\n"
+	        "       %s --store DIR --pair PREKEY_HEX [fuzznet options]\n"
+	        "       %s --store DIR --prekey\n"
+	        "fuzznet options:\n%s",
+	        prog, prog, prog, fzn_cli_usage());
+}
+
+/* PAIR ONE DEVICE AND EXIT.
+ *
+ * The device's prekey record arrives out of band -- it is what the device
+ * publishes, self-signed -- and the node answers with a card: its root, its
+ * prekey, and the device's grant. The peer is saved to the store before the
+ * card is printed, so a card never exists for a pairing the node forgot. A
+ * running daemon loads its peers at start, so it serves the device from its
+ * next start; pairing into a live daemon needs a local verb, which is the
+ * vocabulary's to add and not this main's.
+ *
+ * WHAT THE DEVICE IS GRANTED IS THE ONE CAPABILITY THE REMOTE HOP CHECKS,
+ * `config.remote_capability`, derived from `--fuzznet-service` and
+ * `--fuzznet-product`. The composition, and the refusal of a node that is
+ * not its own root, are `node/pair.h`'s, where a suite reaches them. */
+static int pair_device(const fzn_node_identity_t *id, const fzn_node_config_t *config,
+                       const fzn_persist_ops_t *store, const char *prekey_hex, uint64_t now)
+{
+	uint8_t record_bytes[FZN_PREKEY_LEN_TOTAL];
+	uint8_t card[FZN_PROVISION_LEN_TOTAL];
+	char text[FZN_PROVISION_TEXT_LEN];
+	fzn_prekey_record_t record;
+	fzn_node_pair_err_t perr;
+	size_t card_len = 0;
+
+	if (!hex_bytes(prekey_hex, record_bytes, sizeof(record_bytes))
+	    || fzn_prekey_open(record_bytes, sizeof(record_bytes), &record) != FZN_PREKEY_OK) {
+		fprintf(stderr, "fuzznetd: --pair is not a prekey record (%u hex characters)\n",
+		        (unsigned)(FZN_PREKEY_LEN_TOTAL * 2u));
+		return 2;
+	}
+	perr = fzn_node_pair(id, config->root, &config->remote_capability, store, record, now,
+	                     now + FZND_CARD_LIFETIME, card, sizeof(card), &card_len);
+	if (perr != FZN_NODE_PAIR_OK) {
+		fprintf(stderr, "fuzznetd: not paired: %s\n", fzn_node_pair_err_str(perr));
+		return 1;
+	}
+	if (fzn_provision_text(card, card_len, text, sizeof(text)) != FZN_PROVISION_OK) {
+		fprintf(stderr, "fuzznetd: the device is saved but its card would not encode; "
+		                "pair it again\n");
+		return 1;
+	}
+	fprintf(stderr, "fuzznetd: paired ");
+	print_hex(stderr, record.host, FZN_PUBKEY_LEN);
+	fprintf(stderr, "\n");
+	printf("%s\n", text);
+	return 0;
 }
 
 int main(int argc, char **argv)
@@ -152,7 +224,13 @@ int main(int argc, char **argv)
 	long udp_port = -1;
 	int family = AF_INET;
 	fzn_node_state_t state;
+	fzn_cli_t cli;
+	const char *pair_hex = NULL;
+	int show_prekey = 0;
+	int has_capability = 0;
 	int lfd = -1, ufd = -1, i;
+
+	fzn_cli_init(&cli);
 
 	for (i = 1; i < argc; i++) {
 		if (!strcmp(argv[i], "--socket") && i + 1 < argc) {
@@ -169,12 +247,29 @@ int main(int argc, char **argv)
 			root_hex = argv[++i];
 		} else if (!strcmp(argv[i], "--udp6")) {
 			family = AF_INET6;
+		} else if (!strcmp(argv[i], "--pair") && i + 1 < argc) {
+			pair_hex = argv[++i];
+		} else if (!strcmp(argv[i], "--prekey")) {
+			show_prekey = 1;
 		} else {
-			usage(argv[0]);
-			return 2;
+			/* FUZZNET'S OWN OPTIONS ARE FUZZNET'S PARSER'S, so this
+			 * daemon, the config dialog and every consumer refuse the
+			 * same values in the same words (sec 140). */
+			int claimed = 0;
+			fzn_cli_err_t cerr = fzn_cli_arg(&cli, argv[i], &claimed);
+
+			if (claimed && cerr != FZN_CLI_OK) {
+				fprintf(stderr, "fuzznetd: %s: %s\n", argv[i],
+				        fzn_cli_err_str(cerr));
+				return 2;
+			}
+			if (!claimed) {
+				usage(argv[0]);
+				return 2;
+			}
 		}
 	}
-	if (!sock_path) {
+	if (!sock_path && !pair_hex && !show_prekey) {
 		usage(argv[0]);
 		return 2;
 	}
@@ -224,6 +319,31 @@ int main(int argc, char **argv)
 	state.rng = &rng_ops;
 	state.replay = &replay;
 	state.clock = wall_clock;
+
+	/* THE CAPABILITY THE REMOTE HOP REQUIRES, which this main never set.
+	 * `state` is zeroed, so the hop required the all-zero capability id --
+	 * one `fzn_service_capability` refuses to make, because a capability
+	 * naming no service must not exist. No correctly provisioned peer could
+	 * present it: the daemon bound, loaded its peers, and denied every one.
+	 * It is derived from fuzznet's own options, and a remote hop without
+	 * them is refused here rather than bound -- before the store is
+	 * opened, so a refused command line creates nothing. sec 376. */
+	if (cli.service != FZN_SERVICE_NONE || cli.product != FZN_PRODUCT_NONE) {
+		if (fzn_service_capability(cli.service, cli.product, NULL, 0, &hash_ops,
+		                           &state.config.remote_capability) != FZN_CHAIN_OK) {
+			fprintf(stderr, "fuzznetd: the remote capability needs both "
+			                "--fuzznet-service and --fuzznet-product\n");
+			return 2;
+		}
+		has_capability = 1;
+	}
+	if ((udp_port >= 0 || pair_hex) && !has_capability) {
+		fprintf(stderr, "fuzznetd: %s needs --fuzznet-service and --fuzznet-product: "
+		                "the remote hop checks one capability, and with none "
+		                "configured it would require one nobody can hold\n",
+		        pair_hex ? "--pair" : "--udp-port");
+		return 2;
+	}
 
 	/* THE STORE, OPENED BEFORE THE IDENTITY because the identity may live
 	 * in it. A store that cannot be opened is fatal, for the reason the
@@ -296,6 +416,30 @@ int main(int argc, char **argv)
 	if (root_hex && !hex_pubkey(root_hex, state.config.root)) {
 		fprintf(stderr, "fuzznetd: --root is not 64 hex characters\n");
 		return 2;
+	}
+
+	/* THIS NODE'S PREKEY RECORD, which is what another node pairs it by:
+	 * the other half of `--pair`, for the node that is the device. Self-
+	 * signed, so it proves authorship and not identity -- the operator
+	 * carrying it to the pairing node is what vouches for it. */
+	if (show_prekey) {
+		if (!booted) {
+			fprintf(stderr, "fuzznetd: --prekey needs --store, and no --identity\n");
+			return 2;
+		}
+		print_hex(stdout, identity.prekey_record, FZN_PREKEY_LEN_TOTAL);
+		printf("\n");
+		return 0;
+	}
+
+	if (pair_hex) {
+		if (!booted) {
+			fprintf(stderr, "fuzznetd: --pair needs --store, and no --identity: "
+			                "pairing mints, so the node must hold its key\n");
+			return 2;
+		}
+		return pair_device(&identity, &state.config, store_ops, pair_hex,
+		                   wall_clock());
 	}
 	/* REFUSED RATHER THAN BOUND. A remote hop with no identity seals its
 	 * replies as from the zero key and verifies chains against a zero

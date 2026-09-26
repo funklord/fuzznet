@@ -47209,3 +47209,88 @@ the daemon, and it is where the next piece starts.
 `persist/persist.situ` describes tags 1-4 and 6. Tag 5, the node peer, is
 variable-length and packed in `node/peer_persist.c`, and the schema does not
 describe it.
+
+## 376. fuzznetd required a capability nobody could hold, and now pairs, 2026-09-26
+
+Picking up sec 375's last line -- what a paired device is GRANTED -- the
+answer was already in the node, and reading for it found a defect.
+`fzn_node_config_t.remote_capability` is the one capability the remote hop
+checks, and `fuzznetd` never set it. `state` is zeroed, so the hop required
+the all-zero capability id: one `fzn_service_capability` refuses to derive,
+because a capability naming no service must not exist (sec 129). So a
+daemon with peers bound the remote hop, loaded them, and denied every one.
+It is sec 368's shape a third time, in the same main, and it survived for
+the reason that section gives: the main is where no suite reaches.
+
+### The capability, from fuzznet's own options
+
+`fuzznetd` now offers every argument it does not own to `fzn_cli_arg`, so
+`--fuzznet-service` and `--fuzznet-product` are refused in the same words
+here, in the config dialog and in every consumer (sec 140). The remote
+capability is `fzn_service_capability(service, product, "")`. `--udp-port`
+or `--pair` without both is refused before the store is opened, so a
+refused command line creates nothing. `fuzznetd` is therefore built only
+when `cli/` is. sec 368 had said a daemon must not depend on `cli/`; that
+was one session's argument against moving a hex helper there, not a
+recorded decision, and a second parser for "service" is the drift sec 140
+exists to prevent.
+
+**So the grant answers itself.** A device is granted the capability the
+remote hop requires. Nothing else is on offer because nothing else would be
+honoured. Numbering services remains the consumer's -- sec 129: "nothing is
+assigned yet, deliberately" -- and `fuzznetd` takes the number rather than
+inventing one.
+
+### Pairing
+
+`node/pair.{h,c}` composes `node/provision.h`'s three steps:
+
+- It refuses a node that is not its own root. `fzn_node_make_card` mints
+  with the node's key as root, so a node that joined an estate would pair
+  a device and then refuse it.
+- It provisions the device from its self-signed prekey record.
+- It saves the peer BEFORE it makes the card, so no card exists for a
+  device the node does not hold.
+- The grant does not expire. A lost device is revoked, which is the model
+  (sec 1). The card expires, a day after it is made in `fuzznetd`: it
+  carries no secret, so its expiry bounds how long a copy stays worth
+  accepting.
+
+`fuzznetd --store DIR --pair PREKEY_HEX` pairs one device, saves it, prints
+the `FZN1:` card text (the QR form) and exits. `fuzznetd --store DIR
+--prekey` prints the node's own prekey record -- the other half, for the
+node that is the device. A running daemon loads peers at start, so it
+serves a new device from its next start; pairing into a live daemon is a
+local verb, which is the vocabulary's to add.
+
+### Measured for sec 376
+
+`node/test/pair_test.c` builds two nodes with `node/identity.h` under real
+Monocypher and asserts the relationship rather than the pieces: the device
+accepts the card and learns the node as root; the node's own peer loader
+returns exactly that device; the device's send keys ARE the node's receive
+keys for it; and `fzn_node_decide`, the node's own authorisation check,
+grants the device's chain for the paired capability and refuses it for
+another product -- the control. Also covered: a node that is not its own
+root, a device whose prekey signature is broken, and a store that refuses
+the save. Each is refused with nothing saved and no card. Two sabotage
+entries hold the root check and the save-before-card order.
+
+The same relationship was checked across two real `fuzznetd` stores: B
+printed its prekey, A paired it and printed a card, and a scratch program
+loaded both stores and ran the checks above, fourteen of them, all
+holding. The serve loop is still unreached from this session's scratch
+directory (sec 375).
+
+### What sec 376 leaves
+
+- **The device side has no home.** A device accepts a card into its send
+  keys, the node's root, its hop and the node's address, and nothing
+  persists that: `persist.h`'s inventory lists the node's view of a peer
+  (sec 366) and not the caller's view of a node. The caller half of the
+  pairing is the next piece, and it is the same inventory hole a third
+  time.
+- **`--fuzznet-dir` names the identity directory**, per `cli/cli.h`
+  ("identity and claim directory"), and `fuzznetd` keeps its identity
+  under `--store` beside its peers. Aligning them changes a flag raidcfgd
+  may already use, so it wants deciding rather than doing in passing.
