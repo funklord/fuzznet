@@ -47,6 +47,7 @@
 #include "../../local/peer.h"
 #include "../../local/client.h"
 #include "../../node/caller.h"
+#include "../../node/identity.h"
 #include "../../record/journal.h"
 #include "../../record/ledger.h"
 #include "../../record/sync.h"
@@ -115,6 +116,10 @@ static const char *r_seal(int v) { return fzn_seal_err_str((fzn_seal_err_t)v); }
 static const char *r_peer(int v) { return fzn_peer_verdict_str((fzn_peer_verdict_t)v); }
 static const char *r_client(int v) { return fzn_client_err_str((fzn_client_err_t)v); }
 static const char *r_caller(int v) { return fzn_caller_err_str((fzn_caller_err_t)v); }
+static const char *r_identity(int v)
+{
+	return fzn_node_identity_err_str((fzn_node_identity_err_t)v);
+}
 static const char *r_record(int v) { return fzn_record_err_str((fzn_record_err_t)v); }
 static const char *r_journal(int v) { return fzn_journal_err_str((fzn_journal_err_t)v); }
 static const char *r_ledger(int v) { return fzn_ledger_err_str((fzn_ledger_err_t)v); }
@@ -186,6 +191,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_peer_verdict_str", r_peer, 3 },
 	{ "fzn_client_err_str", r_client, 8 },
 	{ "fzn_caller_err_str", r_caller, 8 },
+	{ "fzn_node_identity_err_str", r_identity, 7 },
 	{ "fzn_record_err_str", r_record, 6 },
 	{ "fzn_journal_err_str", r_journal, 7 },
 	{ "fzn_ledger_err_str", r_ledger, 4 },

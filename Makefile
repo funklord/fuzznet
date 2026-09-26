@@ -162,7 +162,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/caller.c \
              net/udp.c \
              node/node.c node/local.c node/remote.c node/serve.c \
-             node/provision.c \
+             node/provision.c node/identity.c \
              chain/chain.c chain/revocation.c chain/manifest.c chain/authz.c \
              chain/chain_store.c chain/service.c claim/claim.c \
              record/store.c qr/qr.c \
@@ -244,7 +244,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/caller.h \
              net/udp.h \
              node/node.h node/local.h node/remote.h node/serve.h \
-             node/provision.h \
+             node/provision.h node/identity.h \
              chain/chain.h chain/revocation.h chain/manifest.h chain/authz.h \
              chain/chain_store.h chain/service.h claim/claim.h \
              record/store.h qr/qr.h \
@@ -354,6 +354,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              session/test/random_test.c local/test/vocabulary_test.c \
              local/test/client_test.c \
              node/test/peer_persist_test.c \
+             node/test/identity_test.c \
              local/test/vocabulary_fuzz.c local/test/admit_test.c \
              local/test/line_test.c local/test/socket_test.c \
              net/test/udp_test.c \
@@ -457,6 +458,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/local/test/vocabulary_test \
              $(BUILD_DIR)/local/test/client_test \
              $(BUILD_DIR)/node/test/peer_persist_test \
+             $(BUILD_DIR)/node/test/identity_test \
              $(BUILD_DIR)/local/test/vocabulary_fuzz \
              $(BUILD_DIR)/local/test/admit_test \
              $(BUILD_DIR)/local/test/line_test \
@@ -3047,6 +3049,19 @@ $(BUILD_DIR)/node/test/peer_persist_test.o: node/test/peer_persist_test.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Inode -c $< -o $@
 
+# A node's own identity, loaded or generated, over stub crypto and an
+# in-memory store so it runs in every arrangement. sec 375.
+$(BUILD_DIR)/node/test/identity_test: $(BUILD_DIR)/node/test/identity_test.o \
+                                      $(BUILD_DIR)/node/identity.o \
+                                      $(BUILD_DIR)/persist/persist.o \
+                                      $(BUILD_DIR)/trust/trust.o \
+                                      $(BUILD_DIR)/prekey/prekey.o \
+                                      $(BUILD_DIR)/ratchet/ratchet.o \
+                                      $(BUILD_DIR)/session/agree.o \
+                                      $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/node/test/peer_persist_test: \
                                    $(BUILD_DIR)/node/test/peer_persist_test.o \
                                    $(BUILD_DIR)/node/peer_persist.o \
@@ -3121,6 +3136,8 @@ $(BUILD_DIR)/node/test/serve_test: $(BUILD_DIR)/node/test/serve_test.o \
 # The fuzznetd daemon. Its main() is in node/, so the pattern rule resolves
 # "serve.h" without -Inode.
 $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
+              $(BUILD_DIR)/node/identity.o \
+              $(BUILD_DIR)/session/agree_monocypher.o \
               $(MONO_OBJS) $(FLOG_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -3242,6 +3259,7 @@ $(BUILD_DIR)/wire/test/tamper_test.o: wire/test/tamper_test.c
 
 $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/local/client.o \
+                                      $(BUILD_DIR)/node/identity.o \
                                       $(BUILD_DIR)/node/caller.o \
                                       $(BUILD_DIR)/net/udp.o \
                                       $(BUILD_DIR)/chunk/reassembly.o \

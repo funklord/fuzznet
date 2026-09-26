@@ -146,6 +146,7 @@
 #include <fuzznet/node/provision.h>
 #include <fuzznet/node/caller.h>
 #include <fuzznet/node/peer_persist.h>
+#include <fuzznet/node/identity.h>
 #include <fuzznet/session/aead.h>
 #include <fuzznet/session/commitment.h>
 #include <fuzznet/session/random.h>

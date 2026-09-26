@@ -491,6 +491,51 @@ int main(void)
 	expect(len == sizeof(in) && memcmp(out, in, sizeof(in)) == 0,
 	       "the bytes did not survive the round trip");
 
+	/* HOLDS: THE ABSENT THAT `load` CANNOT SAY. Asked beside `load` so the
+	 * two answers are about the same file. sec 375. */
+	expect(fzn_persist_file_holds(&store, FZN_PERSIST_TRUST, NULL) == FZN_PERSIST_OK,
+	       "a slot just saved is not reported as held");
+	expect(fzn_persist_file_holds(&store, FZN_PERSIST_OWN_IDENTITY, NULL)
+	               == FZN_PERSIST_ERR_ABSENT,
+	       "a slot never saved is not reported as absent");
+	expect(fzn_persist_file_holds(NULL, FZN_PERSIST_TRUST, NULL) == FZN_PERSIST_ERR_MALFORMED,
+	       "a null store was answered");
+	{
+		/* A DIRECTORY UNDER THE SLOT'S NAME is neither held nor absent:
+		 * `load` would refuse it, so a caller must not be told "absent"
+		 * and go on to generate over it. */
+		char blocker[320];
+
+		snprintf(blocker, sizeof(blocker), "%s/%u-h", dir,
+		         (unsigned)FZN_PERSIST_OWN_IDENTITY);
+		expect(mkdir(blocker, 0700) == 0, "could not make the blocking directory");
+		expect(fzn_persist_file_holds(&store, FZN_PERSIST_OWN_IDENTITY, NULL)
+		               == FZN_PERSIST_ERR_BACKEND,
+		       "a directory under a slot's name was reported held or absent");
+		(void)rmdir(blocker);
+	}
+	{
+		/* AN UNSEARCHABLE STORE CANNOT TELL, and that is the case the
+		 * function exists for: stat fails with EACCES, not ENOENT, and
+		 * answering "absent" there is how a node that could not read its
+		 * disk generates itself a new identity. Skipped for root, whom
+		 * the mode does not stop. */
+		char shut[320];
+		fzn_persist_file_t shut_store;
+
+		snprintf(shut, sizeof(shut), "%s/shut", dir);
+		expect(mkdir(shut, 0700) == 0, "could not make the unsearchable directory");
+		if (fzn_persist_file_init(&shut_store, shut) && geteuid() != 0
+		    && chmod(shut, 0000) == 0) {
+			expect(fzn_persist_file_holds(&shut_store, FZN_PERSIST_OWN_IDENTITY, NULL)
+			               == FZN_PERSIST_ERR_BACKEND,
+			       "a store that cannot be searched answered absent, so a node "
+			       "that cannot read its disk would generate a new identity");
+			(void)chmod(shut, 0700);
+		}
+		(void)rmdir(shut);
+	}
+
 	/* MODE 0600, AND AT CREATION RATHER THAN AFTER. Creating with the
 	 * umask and chmod'ing afterwards leaves a prekey secret readable for
 	 * exactly as long as the write takes. */

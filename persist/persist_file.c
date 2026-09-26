@@ -43,6 +43,7 @@
 #include <stdio.h>
 #include <dirent.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 /*
@@ -374,6 +375,24 @@ static int file_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t ma
 	(void)closedir(d);
 	*count = found;
 	return 1;
+}
+
+fzn_persist_err_t fzn_persist_file_holds(const fzn_persist_file_t *store,
+                                         fzn_persist_slot_t slot, const uint8_t *subject)
+{
+	char path[PATH_MAX_LEN];
+	struct stat st;
+
+	if (!store || !store->dir)
+		return FZN_PERSIST_ERR_MALFORMED;
+	if (!path_for(path, sizeof(path), store->dir, slot, subject, NULL))
+		return FZN_PERSIST_ERR_BACKEND;
+	if (stat(path, &st) != 0)
+		return (errno == ENOENT) ? FZN_PERSIST_ERR_ABSENT : FZN_PERSIST_ERR_BACKEND;
+	/* A DIRECTORY OR A DEVICE UNDER A SLOT'S NAME is not a stored slot and
+	 * not an absent one; `load` would refuse it, so this cannot call it
+	 * either. */
+	return S_ISREG(st.st_mode) ? FZN_PERSIST_OK : FZN_PERSIST_ERR_BACKEND;
 }
 
 const fzn_persist_ops_t *fzn_persist_file_init(fzn_persist_file_t *store, const char *dir)

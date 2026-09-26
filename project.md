@@ -47104,3 +47104,108 @@ the binding neither causes nor worsens.
 
 When situ fixes the union, the regenerated card contract should show each
 nested tag covering only its own struct, which is the check to make.
+
+## 375. A node owns its identity: generated when absent, refused when partial, 2026-09-26
+
+sec 367 left `fuzznetd` able to load peers and unable to make one, and the
+reason underneath was not the pairing: nothing in this library could give a
+node its OWN keys. `node/provision.h` pairs a device from a
+`fzn_node_identity_t` -- the signing key, the agree secret, the prekey record
+-- and the only code that assembled one was `node/test/provision_test.c`,
+calling Monocypher directly. Every consumer would have written that sequence
+again, which is the directive of 2026-09-22 ("if two projects using fuzznet
+duplicate network-related code then that code obviously belongs in fuzznet").
+
+WHY THIS WAS NOT THE HOLDER'S TO DECIDE AGAIN. `fuzznetd.c`'s header said
+"where a root signing key lives is the copyright holder's". sec 136 is the
+holder's answer for the host itself: "a host should probably always be
+generated if none exists", taken there as "the host half is right and is
+already the plan", and `FZN_TRUST_SELF` was built on the holder's
+instruction in sec 138 so a new node could ship self-rooted. The header now
+says so. What a peer is GRANTED is still not decided by the daemon.
+
+### Four pieces
+
+- **`fzn_sign_seat_t`** (`chain/chain.h`): one `install` turning a stored
+  seed into an armed signer, and the Monocypher seat. The signing path still
+  takes no key. `crypto_eddsa_key_pair` wipes the seed it is handed, so the
+  seat copies it first. The buffer a caller passes is a store's only copy of
+  a node.
+- **`FZN_PERSIST_OWN_IDENTITY`** (slot 7, blob tag 6): the seed and nothing
+  else. It was missing from BOTH lists in `persist.h`'s inventory, the same
+  hole sec 366 found for node peers, because `chain.h` kept secrets out of
+  the library and the inventory followed. An all-zero seed is refused on pack
+  and on open. `FZN_PERSIST_VERSION` does not move: no existing blob changes
+  and no older build asks for slot 7.
+- **`node/identity.{h,c}`**: `load` requires all three parts, `create`
+  derives everything before writing anything and saves seed, prekey, anchor
+  in that order, and `boot` takes the caller's word for what is present.
+- **`fuzznetd`**: with `--store` and no `--identity` it boots from the store
+  and prints the key and whether it was created or loaded. `--identity`
+  keeps sec 368's meaning, a daemon serving with a public key alone.
+
+### All or nothing, and the mixture that decides it
+
+A store holding some parts and not others is refused as PARTIAL, never
+repaired. The repair it invites is the dangerous one: an identity whose
+anchor is gone, self-rooted again, silently leaves the estate it had joined.
+Refusing is also right for the milder mixtures, because a store that lost
+one part has said nothing reliable about the others. `create` saves the
+anchor last, so a crash part way leaves exactly that refused mixture.
+
+A self-root naming a key other than the seeded one is refused as MISMATCH
+(parts of two nodes in one store); a pinned or adopted anchor is somebody
+else's root by design and is not compared.
+
+### Absent, without widening the seam
+
+`load` answers 0 for absent and for unreadable, and sec 61 records the
+holder's decision not to widen that. So `boot` does not guess: the file
+backend gains `fzn_persist_file_holds`, which takes only ENOENT to mean
+absent and answers "could not tell" for everything else. It is the first
+thing in this library that produces `FZN_PERSIST_ERR_ABSENT`. No consumer's
+backend has to implement anything. A caller without such an answer uses
+`load` and `create` directly and owns the first-run decision. Measured on
+the daemon: with the store directory at mode 000 it refused as "could not
+say", and the three files were untouched.
+
+### The finding on the way: this is not Ed25519
+
+The tree calls its signature scheme Ed25519 throughout. Monocypher's
+`crypto_eddsa_*`, which `chain/sign_monocypher.c` binds and fuzzypickles
+uses too, is "EdDSA with curve25519 + BLAKE2b" in its own header; RFC 8032
+Ed25519 hashes with SHA-512 and is Monocypher's `optional/monocypher-ed25519`.
+The two agree with each other, and a signature made here **will not verify
+under a standard Ed25519 library** -- which matters the day a consumer
+written against anything else (netcfgd's Rust, a phone keystore, a
+hardware token) has to check one. Which scheme the protocol means is the
+holder's; `chain.h` now says what it is where the seed is defined. Nothing
+changes until that is decided.
+
+### Measured for sec 375
+
+`identity_test` (stub crypto, every build), the seat's cases in
+`sign_monocypher_test`, `fzn_persist_file_holds` in `persist_file_test`
+including the unsearchable directory, the identity blob in `persist_test`,
+`persist_kat_test` and `persist_fuzz`, and `node/identity` in the
+`err_str_test` sweep and `log_gate`.
+
+`fuzznetd` from a scratch store: first run "created", second run "loaded"
+with the same key, the three files at mode 0600, the anchor moved aside
+refused naming it, the directory at mode 000 refused as "could not say".
+NOT reached from there: the serve loop itself, because `fzn_socket_path_ok`
+requires an absolute socket path under about 92 bytes and the session's
+scratch directory is longer. What was established is that `--udp-port`
+with `--store` and no `--identity` gets past sec 368's refusal to the
+listen step with the key loaded.
+
+### What sec 375 leaves
+
+Pairing. The daemon holds a key now, so `fzn_node_provision_peer` and
+`fzn_node_make_card` can run in it. What a newly paired device is GRANTED --
+which capability, for how long -- is the part the header still keeps out of
+the daemon, and it is where the next piece starts.
+
+`persist/persist.situ` describes tags 1-4 and 6. Tag 5, the node peer, is
+variable-length and packed in `node/peer_persist.c`, and the schema does not
+describe it.

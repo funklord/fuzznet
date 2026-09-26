@@ -68,4 +68,20 @@ void fzn_persist_file_set_log(fzn_persist_file_t *store, struct flog_t *log);
  * ceiling and a caller is told rather than truncated. */
 const fzn_persist_ops_t *fzn_persist_file_init(fzn_persist_file_t *store, const char *dir);
 
+/*
+ * Whether this store holds `slot` for `subject`: FZN_PERSIST_OK when it does,
+ * FZN_PERSIST_ERR_ABSENT when it does not, and FZN_PERSIST_ERR_BACKEND when it
+ * cannot tell -- a directory it cannot read, a name that is not a file.
+ *
+ * THE ONE PLACE THIS LIBRARY PRODUCES ABSENT. `load` answers 0 for a slot that
+ * is missing and for one it could not read, and the copyright holder decided
+ * on 2026-09-04 not to widen that seam (sec 61). So the distinction is asked
+ * of the backend that can make it, and only ENOENT is taken to mean absent:
+ * every other failure is "could not tell", because the caller's next act on
+ * ABSENT may be to generate an identity, and doing that over one that was
+ * merely unreadable destroys it. `node/identity.h` is the caller. sec 375.
+ */
+fzn_persist_err_t fzn_persist_file_holds(const fzn_persist_file_t *store,
+                                         fzn_persist_slot_t slot, const uint8_t *subject);
+
 #endif /* FZN_PERSIST_FILE_H */

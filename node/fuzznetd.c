@@ -8,11 +8,13 @@
  * The remote hop binds but serves nobody until peers are provisioned -- a
  * frame from an unknown sender has no session to open it and is dropped.
  *
- * IT STILL DOES NOT MINT A PEER, and that half is unchanged: deciding what a
- * peer is granted, which prekeys are pinned and where a root signing key
- * lives is the copyright holder's, and nothing here does any of it. What it
- * does now is LOAD a set a consumer has already provisioned, from a store
- * named on the command line. Reading what somebody else decided is not
+ * IT STILL DOES NOT MINT A PEER: deciding what a peer is granted and which
+ * prekeys are pinned is not something a daemon should do on its own say-so.
+ * WHERE ITS OWN KEY LIVES is settled, by sec 136's "generate it when absent":
+ * with `--store` and no `--identity` the daemon loads its identity from the
+ * store, or creates a self-rooted one when the store holds none, through
+ * `node/identity.h`. sec 375. What it also does is LOAD a set a consumer has
+ * already provisioned, from the same store. Reading what somebody else decided is not
  * deciding it, and without this the daemon could bind the remote hop and
  * serve nobody for ever -- raidcfgd reported exactly that on 2026-09-22.
  *
@@ -25,12 +27,14 @@
  */
 
 #include "serve.h"
+#include "identity.h"
 #include "peer_persist.h"
 #include "../local/socket.h"
 #include "../net/udp.h"
 #include "../persist/persist_file.h"
 #include "../chain/sign_monocypher.h"
 #include "../session/aead_monocypher.h"
+#include "../session/agree_monocypher.h"
 #include "../session/hash_monocypher.h"
 #include "../session/random_system.h"
 
@@ -92,6 +96,14 @@ static int hex_pubkey(const char *text, uint8_t out[FZN_PUBKEY_LEN])
  * gives and what a peer stamping an expiry will reach for. Stated here
  * because a daemon has to choose; whether fuzznet should MANDATE it rather
  * than leave it to agreement is the holder's, and sec 368 records it. */
+static void print_hex(FILE *f, const uint8_t *bytes, size_t len)
+{
+	size_t i;
+
+	for (i = 0; i < len; i++)
+		fprintf(f, "%02x", bytes[i]);
+}
+
 static uint64_t wall_clock(void)
 {
 	time_t t = time(NULL);
@@ -122,7 +134,15 @@ int main(int argc, char **argv)
 	fzn_aead_ops_t aead_ops;
 	fzn_random_ops_t rng_ops;
 	fzn_sign_ops_t sign_ops;
+	fzn_sign_seat_t seat;
+	fzn_agree_ops_t agree_ops;
 	fzn_sign_monocypher_t signer;
+	static fzn_persist_file_t store;
+	const fzn_persist_ops_t *store_ops = NULL;
+	static fzn_agree_secret_t agree_secret;
+	static fzn_trust_t trust;
+	static fzn_node_identity_t identity;
+	int booted = 0;
 	fzn_replay_window_t replay;
 	static fzn_replay_entry_t replay_entries[FZND_REPLAY_ENTRIES];
 	const char *store_dir = NULL;
@@ -189,7 +209,10 @@ int main(int argc, char **argv)
 	fzn_hash_monocypher_init(&hash_ops);
 	fzn_aead_monocypher_init(&aead_ops);
 	fzn_random_system_init(&rng_ops);
+	memset(&signer, 0, sizeof(signer));
 	fzn_sign_monocypher_init(&sign_ops, &signer);
+	fzn_sign_monocypher_seat_init(&seat, &signer);
+	fzn_agree_monocypher_init(&agree_ops);
 	if (fzn_replay_init(&replay, replay_entries, FZND_REPLAY_ENTRIES,
 	                    FZND_MAX_AHEAD) != FZN_FRESH_OK) {
 		fprintf(stderr, "fuzznetd: the replay window would not initialise\n");
@@ -201,6 +224,63 @@ int main(int argc, char **argv)
 	state.rng = &rng_ops;
 	state.replay = &replay;
 	state.clock = wall_clock;
+
+	/* THE STORE, OPENED BEFORE THE IDENTITY because the identity may live
+	 * in it. A store that cannot be opened is fatal, for the reason the
+	 * peer load below gives. */
+	if (store_dir) {
+		store_ops = fzn_persist_file_init(&store, store_dir);
+		if (!store_ops) {
+			fprintf(stderr, "fuzznetd: could not open store %s\n", store_dir);
+			return 1;
+		}
+	}
+
+	/* THIS NODE'S OWN IDENTITY, from the store, when none was named.
+	 *
+	 * `--identity` keeps its meaning: a daemon that serves with a public
+	 * key alone and holds no secret, which sec 368 built and which a
+	 * deployment keeping its root key elsewhere still wants. Without it and
+	 * with a store, the daemon becomes a node that owns its key -- and the
+	 * store is asked, per part, whether it holds it, because generating
+	 * over a store that was merely unreadable would replace this node with
+	 * a stranger. A partial store is refused by name; which part is gone
+	 * and what to do about it is the operator's. */
+	if (!identity_hex && store_ops) {
+		fzn_node_identity_env_t env;
+		fzn_node_identity_found_t found;
+		fzn_node_identity_err_t ierr;
+		int created = 0;
+
+		env.store = store_ops;
+		env.rng = &rng_ops;
+		env.seat = &seat;
+		env.sign = &sign_ops;
+		env.hash = &hash_ops;
+		env.agree = &agree_ops;
+		env.log = NULL; /* this main reports on stderr below */
+		found.seed = fzn_persist_file_holds(&store, FZN_PERSIST_OWN_IDENTITY, NULL);
+		found.prekey = fzn_persist_file_holds(&store, FZN_PERSIST_OWN_PREKEY, NULL);
+		found.trust = fzn_persist_file_holds(&store, FZN_PERSIST_TRUST, NULL);
+		ierr = fzn_node_identity_boot(&env, &found, wall_clock(), &agree_secret, &trust,
+		                              &identity, &created);
+		if (ierr != FZN_NODE_IDENTITY_OK) {
+			fprintf(stderr, "fuzznetd: no identity from %s: %s\n", store_dir,
+			        fzn_node_identity_err_str(ierr));
+			if (ierr == FZN_NODE_IDENTITY_PARTIAL)
+				fprintf(stderr, "fuzznetd: identity %s, prekey %s, anchor %s\n",
+				        found.seed == FZN_PERSIST_OK ? "present" : "absent",
+				        found.prekey == FZN_PERSIST_OK ? "present" : "absent",
+				        found.trust == FZN_PERSIST_OK ? "present" : "absent");
+			return 1;
+		}
+		memcpy(state.node_pubkey, identity.pubkey, FZN_PUBKEY_LEN);
+		memcpy(state.config.root, fzn_trust_root(&trust), FZN_PUBKEY_LEN);
+		booted = 1;
+		fprintf(stderr, "fuzznetd: identity ");
+		print_hex(stderr, identity.pubkey, FZN_PUBKEY_LEN);
+		fprintf(stderr, " %s %s\n", created ? "created in" : "loaded from", store_dir);
+	}
 
 	/* The node's own public identity, and the root its peers' chains must
 	 * reach. They are the same key for a node that provisioned its own
@@ -223,8 +303,8 @@ int main(int argc, char **argv)
 	 * healthy, and drop every frame. That is the exact failure this wiring
 	 * closes, and starting anyway would reintroduce it with more moving
 	 * parts. */
-	if (udp_port >= 0 && !identity_hex) {
-		fprintf(stderr, "fuzznetd: --udp-port needs --identity\n");
+	if (udp_port >= 0 && !identity_hex && !booted) {
+		fprintf(stderr, "fuzznetd: --udp-port needs --identity or --store\n");
 		return 2;
 	}
 
@@ -263,21 +343,12 @@ int main(int argc, char **argv)
 	 * The one honest exception is a store that is simply EMPTY: that is a
 	 * deployment which has provisioned nothing yet, and it is reported
 	 * rather than refused. */
-	if (store_dir) {
+	if (store_ops) {
 		static fzn_node_peer_t peers[FZN_NODE_PEERS_MAX];
-		static fzn_persist_file_t store;
-		const fzn_persist_ops_t *ops = fzn_persist_file_init(&store, store_dir);
 		size_t loaded = 0;
 		fzn_persist_err_t err;
 
-		if (!ops) {
-			fprintf(stderr, "fuzznetd: could not open store %s\n", store_dir);
-			fzn_socket_close(lfd, sock_path);
-			if (ufd >= 0)
-				fzn_udp_close(ufd);
-			return 1;
-		}
-		err = fzn_node_peers_load(ops, peers, FZN_NODE_PEERS_MAX, &loaded);
+		err = fzn_node_peers_load(store_ops, peers, FZN_NODE_PEERS_MAX, &loaded);
 		if (err != FZN_PERSIST_OK) {
 			fprintf(stderr, "fuzznetd: could not load peers from %s (%d)\n",
 			        store_dir, (int)err);

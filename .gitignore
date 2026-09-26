@@ -210,6 +210,7 @@ __pycache__/
 /net/test/udp_test
 /node/test/node_test
 /node/test/peer_persist_test
+/node/test/identity_test
 /node/test/local_test
 /node/test/remote_test
 /node/test/serve_test
