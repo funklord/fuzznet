@@ -47130,12 +47130,24 @@ earlier one.
 
 **Taking it: a rename the gate reports as a loss.** `make schema` refused the
 old contracts with "it no longer authenticates capability, chunks, ...", and
-nothing in the format tells a renamed line from a narrowed one. What showed
-only the naming changed was a separate comparison: strip every path prefix and
-compare each tag's member multiset, old against new. All four changed
-contracts -- frame, manifest, chain and provision -- came out identical, and
-every `.map` was byte-identical. That comparison is the evidence, not the
-gate's pass after regenerating, which is agreement with the generator.
+nothing in the format READ tells a renamed line from a narrowed one (situ
+found a0d40d8 that `wire.FORMAT_VERSION` exists for exactly this and nothing
+reads it). Two separate observations show only the naming changed, and they
+are not equally strong:
+
+- Stripping every path prefix and comparing each tag's member multiset, old
+  against new, came out identical in all four changed contracts -- frame,
+  manifest, chain and provision. **That alone cannot see a SWAP**: a tag that
+  stopped covering `hop.body` and started covering `prekey.body` strips to
+  the same multiset. situ pointed this out about the same idea offered as a
+  checker rule, and it applies to this check as evidence.
+- **Every `.map` was byte-identical**, and the map names each field's
+  covering tags fully qualified -- `hop.grantor auth=Covered(hop.signature,
+  signature)` -- so a swap would have changed it. That is the evidence that
+  rules one out; the multiset comparison only says the counts agree.
+
+Neither is the gate's pass after regenerating, which is agreement with the
+generator.
 
 ## 375. A node owns its identity: generated when absent, refused when partial, 2026-09-26
 
