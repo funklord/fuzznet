@@ -30,8 +30,10 @@ static void put_str(struct sink *s, const char *text)
  * public renderer is a decision about the module's surface rather than
  * something a printer should take on its way past.
  *
- * ALL FIVE NAMED, NO `default:`, so a slot added to persist.h fails to
- * compile here rather than being described as "state". */
+ * ALL SIX NAMED, NO `default:`, so a slot added to persist.h is refused by
+ * -Wswitch here rather than being described as "state". A warning and not a
+ * failure, since the build has no -Werror: the sixth went unhandled for four
+ * days, sec 373. */
 static const char *slot_words(fzn_persist_slot_t slot, int *known)
 {
 	*known = 1;
@@ -46,6 +48,8 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "a ratchet chain for sending to a peer";
 	case FZN_PERSIST_RECV_CHAIN:
 		return "a ratchet chain for receiving from a peer";
+	case FZN_PERSIST_NODE_PEER:
+		return "a peer this node serves";
 	}
 	*known = 0;
 	return "an unknown slot";

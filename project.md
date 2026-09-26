@@ -20397,9 +20397,24 @@ is the "switched off by instalments" hazard: a gate that is always red is one
 nobody reads, and it will mask a real failure later. Against that: the
 workflow is correct and reviewed, it starts working the moment billing is
 resolved with no further action, and the red X is itself the signal that
-billing needs attention -- which is a truer state than silence. **If billing
-is not going to be resolved soon, deleting the file is the better call**, and
-that is the holder's to make.
+billing needs attention -- which is a truer state than silence. ~~If billing
+is not going to be resolved soon, deleting the file is the better call, and
+that is the holder's to make.~~
+
+**RESOLVED by 2026-09-03: billing was sorted and the jobs execute.** The
+advice above is retired rather than acted on. A red run since then is a red
+run of the steps, and is to be read as one -- measured 2026-09-26 with
+`gh run view`, which lists the steps that ran; `gh run list` prints `failure`
+for a job that never started as well.
+
+**And it has been red for real since 2026-09-17**: the last green run is
+`b7c4c6e`, and every push from `4cfbc2d` to `a051815` failed, about ninety
+runs. The earliest failed at the style gate and at `installcheck` for
+reasons not recovered here (the logs need admin rights this machine's token
+lacks); the latest, diagnosed by reproducing both jobs locally, is sec 373.
+Nobody read it, which is this section's own hazard -- "a gate that is always
+red is one nobody reads" -- arriving through a gate that was red for a
+reason rather than for billing.
 
 ## 33. The five open decisions, taken 2026-08-31
 
@@ -46977,3 +46992,59 @@ right place for it and it is not nothing: `running-code.md` records 6.2 GB
 of pytest roots accumulating in one evening elsewhere. The sweep it asks for
 after a killed run now has one place to look for this tree's tests rather
 than two.
+
+## 373. CI was red for nine days, and four warnings nobody acted on, 2026-09-26
+
+`gh run list` shows every push since `4cfbc2d` on 2026-09-17 failing, and
+`gh run view` shows the steps running rather than a billing block (sec 34).
+The logs themselves need admin rights this machine's token lacks, so both
+jobs were reproduced from a fresh clone instead: one without submodules for
+`core`, one with them for `full`.
+
+**`core` could not build.** `node/test/remote_test` and
+`node/test/provision_test` link the Monocypher binding and were in the
+unconditional test lists from `8f116fe` and `f37f8ca`; `fuzznetd`, in `all`,
+links it since sec 368. So a build with `MONOCYPHER_DIR=` -- the embedded
+arrangement, and the one thing `core` exists to ask about -- stopped at
+`chain/sign_monocypher.o`. The two tests now sit in `MONO_TSRC` beside the
+other binding suites, and `fuzznetd` is built only when the binding is. A
+daemon that serves the remote hop has no meaning without the crypto ops it
+hands that hop.
+
+**`installcheck` refused, in both jobs, and was right to.** `local/client.h`,
+`node/caller.h` and `node/peer_persist.h` joined `HDRS` without an include in
+`tool/consumer_check.c`, and the gate refuses an installed header nothing
+compiles. Included now.
+
+**`clean` did not know the daemon.** `fuzznetd`, `node/fuzznetd.o` and its
+`.d` were in no list, so `clean`'s own survivor check would have refused on
+the first run that reached it -- CI never did, stopping earlier. And `DEPS`
+did not read `fuzznetd.d`, so a header change did not rebuild the daemon,
+which is `build-and-commit.md`'s first dependency rule. `PROG_OBJS` and
+`PROG_CLEAN` carry both.
+
+### Four warnings, each a change that was not carried through
+
+The ordinary build printed:
+
+- `-Wswitch` in `cli/persist_print.c` and `gui/persist_view.cpp`:
+  `FZN_PERSIST_NODE_PEER`, added in `e26f042`, unhandled. Both comments
+  claimed a new slot "fails to compile here". It does not -- the build has no
+  `-Werror` -- so the promise was a warning nobody read for four days. The
+  comments now say what actually happens, and `persist_print_test` walks six
+  slots, so the new one is required to have a sentence of its own.
+- `-Wmissing-field-initializers` in `chain_fuzz.c` and `chain_guided.c`:
+  the revocation store gained `generation` (sec 359) and the positional
+  initialisers did not. `chain_test.c` had the same shape without the
+  warning and is given the field too.
+- `-Wshadow` three times in `tool/consumer_check.c`, which `installcheck`
+  prints on every run: inner `srows`, `plan` and `sp` are `source_rows`,
+  `shard_plan` and `terms`. Renamed within their own blocks by a tool that
+  counted the outer uses before and after.
+
+### Measured
+
+`core`: `make test`, `make style`, `make installcheck`, all
+`MONOCYPHER_DIR=`, exit 0. `full`: the workflow's seven steps in order, exit
+0 each, `remote_test` 39 checks and the node's `provision_test` running
+where `core` builds neither. No `warning:` line in any of the ten logs.

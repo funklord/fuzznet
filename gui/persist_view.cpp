@@ -32,9 +32,11 @@ static QString slot_label(fzn_persist_slot_t slot)
 		return QStringLiteral("send chain");
 	case FZN_PERSIST_RECV_CHAIN:
 		return QStringLiteral("receive chain");
+	case FZN_PERSIST_NODE_PEER:
+		return QStringLiteral("served peer");
 	}
-	/* NO `default:` ABOVE, so a slot added to persist.h fails to compile
-	 * here rather than being drawn as this. */
+	/* NO `default:` ABOVE, so a slot added to persist.h draws a -Wswitch
+	 * warning here rather than being drawn as this. */
 	return QStringLiteral("unknown slot");
 }
 
