@@ -3382,6 +3382,20 @@ SABOTAGES = [
 		"the whole of this binding is the polarity inversion in its comment, and a verifier that accepts everything is the one defect in this tree that nothing above it can catch",
 	),
 	(
+		"sign-seat-copies-the-seed",
+		"chain/sign_monocypher.c",
+		"\tcrypto_eddsa_key_pair(state->secret_key, pubkey_out, scratch);\n",
+		"\tcrypto_eddsa_key_pair(state->secret_key, pubkey_out, (uint8_t *)seed);\n",
+		"crypto_eddsa_key_pair wipes the seed it is given, and the seed a caller seats is the store's only copy of a node's identity -- handed over directly, restoring an identity destroys it -- sec 375",
+	),
+	(
+		"sign-seat-arms-the-signer",
+		"chain/sign_monocypher.c",
+		"\tstate->can_sign = 1;\n\treturn 1;\n",
+		"\treturn 1;\n",
+		"a seat that derives the key and leaves can_sign clear reports success and then refuses every signature, so a node boots with an identity it cannot sign as -- sec 375",
+	),
+	(
 		"aead-open-checks-the-tag",
 		"session/aead_monocypher.c",
 		"\treturn crypto_aead_unlock(text, tag, key, nonce, aad, aad_len, text, text_len) == 0;\n",

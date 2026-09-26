@@ -280,6 +280,61 @@ int main(void)
 		check(1, "wipe with a null state did not crash");
 	}
 
+	/* THE SEAT: a stored seed becomes a signer, which is how a node restores
+	 * its identity (sec 375). Asserted against Monocypher's own derivation
+	 * rather than against a value, so the two cannot drift apart. */
+	{
+		fzn_sign_monocypher_t seated;
+		fzn_sign_ops_t seated_ops;
+		fzn_sign_seat_t seat;
+		uint8_t stored[FZN_SIGN_SEED_LEN], copy[FZN_SIGN_SEED_LEN];
+		uint8_t seated_pub[FZN_PUBKEY_LEN], expect_pub[FZN_PUBKEY_LEN];
+		uint8_t expect_sk[FZN_SECRET_KEY_LEN];
+		uint8_t minted[FZN_HOP_LEN];
+		fzn_chain_hop_t seated_hop;
+
+		memset(&seated, 0, sizeof(seated));
+		fzn_sign_monocypher_init(&seated_ops, &seated);
+		fzn_sign_monocypher_seat_init(&seat, &seated);
+		seed_bytes(stored, 0x33);
+		memcpy(copy, stored, sizeof(copy));
+
+		check(seat.install(seat.ctx, stored, seated_pub) != 0, "a seed would not seat");
+		check(memcmp(stored, copy, sizeof(stored)) == 0,
+		      "seating wiped the caller's seed -- crypto_eddsa_key_pair wipes the "
+		      "buffer it is given, and a store's only copy of an identity is "
+		      "exactly the buffer a caller passes");
+
+		crypto_eddsa_key_pair(expect_sk, expect_pub, copy);
+		crypto_wipe(expect_sk, sizeof(expect_sk));
+		check(memcmp(seated_pub, expect_pub, FZN_PUBKEY_LEN) == 0,
+		      "the seated public key is not the one the seed derives");
+
+		/* Armed, and armed as THAT key: what it mints verifies under the
+		 * public key the seat reported, and not under another. */
+		check(fzn_chain_mint(seated_pub, grantee, &cap, 1000, FZN_NO_EXPIRY, 0,
+		                     &seated_ops, minted) == FZN_CHAIN_OK,
+		      "a seated signer would not sign");
+		check(fzn_hop_open(minted, FZN_HOP_LEN, &seated_hop) == FZN_CHAIN_OK, "open");
+		check(fzn_chain_verify(&seated_hop, 1, seated_pub, &cap, 2000, &seated_ops, NULL,
+		                       NULL, &out) == FZN_CHAIN_OK,
+		      "what a seated signer minted does not verify under its own key");
+		check(fzn_chain_verify(&seated_hop, 1, pubkey, &cap, 2000, &seated_ops, NULL,
+		                       NULL, &out) == FZN_CHAIN_ERR_WRONG_ROOT,
+		      "what a seated signer minted verified under a different root");
+
+		check(seat.install(seat.ctx, NULL, seated_pub) == 0, "a null seed seated");
+		check(seat.install(seat.ctx, stored, NULL) == 0,
+		      "a seat with nowhere to put the public key succeeded");
+		check(seat.install(NULL, stored, seated_pub) == 0, "a null signer state seated");
+		fzn_sign_monocypher_seat_init(NULL, &seated);
+		check(1, "seat_init with a null seat did not crash");
+
+		fzn_sign_monocypher_wipe(&seated);
+		crypto_wipe(stored, sizeof(stored));
+		crypto_wipe(copy, sizeof(copy));
+	}
+
 	printf("sign_monocypher_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
 }

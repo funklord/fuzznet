@@ -512,6 +512,39 @@ typedef struct fzn_sign_ops {
 	void *ctx;
 } fzn_sign_ops_t;
 
+/* A signing key as a store keeps it: the 32-byte seed the signing scalar and
+ * the public key both derive from. Monocypher's 64-byte secret is the seed and
+ * the public key side by side, so the seed is the one encoding and the rest is
+ * recomputed.
+ *
+ * THE DERIVATION IS THE BINDING'S, AND IT IS NOT RFC 8032. Monocypher's
+ * `crypto_eddsa_*`, which `chain/sign_monocypher.c` binds, is EdDSA over
+ * Curve25519 with BLAKE2b ("EdDSA with curve25519 + BLAKE2b", its header);
+ * RFC 8032 Ed25519 hashes with SHA-512. So a seed names a key only between
+ * bindings that agree on the hash, and a signature made here does not verify
+ * under a standard Ed25519 library. project.md sec 375. */
+#define FZN_SIGN_SEED_LEN 32
+
+/* Seating a key in a signer, the one operation `fzn_sign_ops_t` could not
+ * express: sec 136 has a node generate its identity when it has none, and
+ * something has to turn stored seed bytes into a signer that signs as them.
+ *
+ * STILL NO SECRET-KEY PARAMETER ON THE SIGNING PATH. The seed goes into the
+ * signer's context once, at start, and `sign` goes on taking no key -- so the
+ * argument above about an API that invites handing a key around still holds
+ * for everything that mints. A signer living in hardware or behind a socket
+ * leaves this NULL and its caller reports that it cannot be seated, which is
+ * the honest answer for a key that never leaves its device.
+ *
+ * `install` derives the public key into `pubkey_out`, arms the signer that
+ * shares `ctx`, and returns nonzero on success. It must not keep a pointer to
+ * `seed`, and the caller wipes its own copy afterwards. */
+typedef struct fzn_sign_seat {
+	int (*install)(void *ctx, const uint8_t seed[FZN_SIGN_SEED_LEN],
+	               uint8_t pubkey_out[FZN_PUBKEY_LEN]);
+	void *ctx;
+} fzn_sign_seat_t;
+
 /* What a verified chain turned out to say.
  *
  * STILL A STRUCT OF DECODED FIELDS, and deliberately. It is the verdict

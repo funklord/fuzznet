@@ -41,6 +41,11 @@ typedef struct fzn_sign_monocypher {
  * as its context -- no allocation happens here or anywhere in this library. */
 void fzn_sign_monocypher_init(fzn_sign_ops_t *ops, fzn_sign_monocypher_t *state);
 
+/* Point `seat` at the same state, so a seed installed through it arms the
+ * signer `fzn_sign_monocypher_init` handed out. Two views of one key rather
+ * than a second copy of it. */
+void fzn_sign_monocypher_seat_init(fzn_sign_seat_t *seat, fzn_sign_monocypher_t *state);
+
 /* Wipe the secret key. Calls Monocypher's own crypto_wipe rather than
  * memset, because a memset over a buffer that is never read again is
  * exactly what a compiler is entitled to delete -- and does, at -Os. */
