@@ -19,22 +19,26 @@ endian big
 target file
 
 enum fzn_persist_tag : u8 unknown=error
-  trust=1 secret=2 peer=3 chain=4
+  trust=1 secret=2 peer=3 chain=4 identity=6
 
-struct fzn_persist_blob size=42..83
+struct fzn_persist_blob size=34..83
   @0x0000   1         u8         version
   @0x0001   1         fzn_persist_tag tag
-  @0x0002   40..81    variant    body
+  @0x0002   32..81    variant    body
   body switch: tag
   body case 1: trust fzn_persist_trust_body
   body case 2: secret fzn_persist_secret_body
   body case 3: peer fzn_persist_peer_body
   body case 4: chain fzn_persist_chain_body
+  body case 6: identity fzn_persist_identity_body
   body case default: error
 
 struct fzn_persist_chain_body size=40
   @0x0000   32        u8         key  big
   @0x0020   8         u64        seq  big
+
+struct fzn_persist_identity_body size=32
+  @0x0000   32        u8         seed  big
 
 struct fzn_persist_peer_body size=81
   @0x0000   41        fzn_persist_trust_body trust  big

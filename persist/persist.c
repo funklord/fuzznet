@@ -40,17 +40,21 @@
 #define BLOB_SECRET 2u
 #define BLOB_PEER 3u
 #define BLOB_CHAIN 4u
+/* 5 is FZN_PERSIST_BLOB_NODE_PEER, packed in node/peer_persist.c. */
+#define BLOB_IDENTITY 6u
 
 #define TRUST_BODY (FZN_PUBKEY_LEN + 1u + 8u)                 /* root, source, adopted_at */
 #define SECRET_BODY (FZN_AGREE_SECRET_LEN + 8u)               /* secret, generation */
 #define PEER_BODY (TRUST_BODY + FZN_PREKEY_LEN + 8u)          /* trust, prekey, created_at */
 #define CHAIN_BODY (FZN_CHAIN_KEY_LEN + 8u)                   /* key, seq */
+#define IDENTITY_BODY ((size_t)FZN_SIGN_SEED_LEN)             /* seed */
 
 _Static_assert(OFF_BODY + PEER_BODY <= FZN_PERSIST_MAX,
                "FZN_PERSIST_MAX is smaller than the largest blob packed here");
 _Static_assert(OFF_BODY + TRUST_BODY <= FZN_PERSIST_MAX, "trust blob past the maximum");
 _Static_assert(OFF_BODY + SECRET_BODY <= FZN_PERSIST_MAX, "secret blob past the maximum");
 _Static_assert(OFF_BODY + CHAIN_BODY <= FZN_PERSIST_MAX, "chain blob past the maximum");
+_Static_assert(OFF_BODY + IDENTITY_BODY <= FZN_PERSIST_MAX, "identity blob past the maximum");
 
 fzn_persist_err_t fzn_persist_head_write(uint8_t *out, size_t cap, size_t body, uint8_t tag)
 {
@@ -250,6 +254,46 @@ fzn_persist_err_t fzn_persist_secret_open(const uint8_t *bytes, size_t len,
 	 * that looks older than the one its peers already hold. */
 	generation = fzn_get_be64(bytes + OFF_BODY + FZN_AGREE_SECRET_LEN);
 	out->generation = generation;
+	return FZN_PERSIST_OK;
+}
+
+/* ---- the host's identity seed ----------------------------------------- */
+
+static const uint8_t ZERO_SEED[FZN_SIGN_SEED_LEN];
+
+fzn_persist_err_t fzn_persist_identity_pack(const uint8_t seed[FZN_SIGN_SEED_LEN], uint8_t *out,
+                                             size_t cap, size_t *len)
+{
+	fzn_persist_err_t err;
+
+	if (!seed || !out || !len)
+		return FZN_PERSIST_ERR_MALFORMED;
+	if (fzn_ct_memeq(seed, ZERO_SEED, FZN_SIGN_SEED_LEN))
+		return FZN_PERSIST_ERR_MALFORMED;
+
+	err = fzn_persist_head_write(out, cap, IDENTITY_BODY, BLOB_IDENTITY);
+	if (err != FZN_PERSIST_OK)
+		return err;
+	memcpy(out + OFF_BODY, seed, FZN_SIGN_SEED_LEN);
+	*len = OFF_BODY + IDENTITY_BODY;
+	return FZN_PERSIST_OK;
+}
+
+fzn_persist_err_t fzn_persist_identity_open(const uint8_t *bytes, size_t len,
+                                             uint8_t seed_out[FZN_SIGN_SEED_LEN])
+{
+	fzn_persist_err_t err;
+
+	if (!bytes || !seed_out)
+		return FZN_PERSIST_ERR_MALFORMED;
+	err = fzn_persist_head_check(bytes, len, IDENTITY_BODY, BLOB_IDENTITY);
+	if (err != FZN_PERSIST_OK)
+		return err;
+	/* SHAPE, NOT MALFORMED: the caller asked properly and the stored
+	 * bytes are the fault, which is what SHAPE means everywhere here. */
+	if (fzn_ct_memeq(bytes + OFF_BODY, ZERO_SEED, FZN_SIGN_SEED_LEN))
+		return FZN_PERSIST_ERR_SHAPE;
+	memcpy(seed_out, bytes + OFF_BODY, FZN_SIGN_SEED_LEN);
 	return FZN_PERSIST_OK;
 }
 

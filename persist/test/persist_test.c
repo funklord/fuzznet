@@ -747,6 +747,62 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 	checks -= 1;
 }
 
+/* THE IDENTITY SEED, sec 375. The seed is the host, so the properties are the
+ * ones whose failure would silently make it somebody else. */
+static void test_an_identity_seed_round_trips_and_zero_is_refused(void)
+{
+	uint8_t seed[FZN_SIGN_SEED_LEN], back[FZN_SIGN_SEED_LEN], keep[FZN_SIGN_SEED_LEN];
+	uint8_t zero[FZN_SIGN_SEED_LEN];
+	uint8_t blob[FZN_PERSIST_MAX], forged[FZN_PERSIST_MAX];
+	size_t len = 0, zlen = 0;
+
+	fill(seed, sizeof(seed), 0x5a);
+	REQUIRE(fzn_persist_identity_pack(seed, blob, sizeof(blob), &len) == FZN_PERSIST_OK,
+	        "an identity seed would not pack");
+	CHECK(len == 2u + FZN_SIGN_SEED_LEN, "the identity blob is not head plus seed");
+	memset(back, 0, sizeof(back));
+	CHECK(fzn_persist_identity_open(blob, len, back) == FZN_PERSIST_OK,
+	      "a packed identity seed would not open");
+	CHECK(memcmp(back, seed, sizeof(seed)) == 0, "the seed did not survive");
+
+	/* A ZERO SEED IS A KEY EVERYBODY HOLDS, refused on the way in and on
+	 * the way out. The second blob is built by hand because pack will not
+	 * make one, which is the first half working. */
+	memset(zero, 0, sizeof(zero));
+	CHECK(fzn_persist_identity_pack(zero, forged, sizeof(forged), &zlen)
+	              == FZN_PERSIST_ERR_MALFORMED,
+	      "an all-zero seed was packed");
+	memcpy(forged, blob, len);
+	memset(forged + 2u, 0, FZN_SIGN_SEED_LEN);
+	memcpy(keep, back, sizeof(keep));
+	CHECK(fzn_persist_identity_open(forged, len, back) == FZN_PERSIST_ERR_SHAPE,
+	      "a stored all-zero seed opened, so a truncated file restores as a key "
+	      "anybody can sign with");
+	CHECK(memcmp(back, keep, sizeof(back)) == 0, "a refused open wrote the caller's seed");
+
+	/* ONE NONZERO BYTE IS A SEED, so the refusal is of zero and not of
+	 * "mostly zero" -- the comparison must not be a prefix. */
+	forged[2u + FZN_SIGN_SEED_LEN - 1u] = 0x01;
+	CHECK(fzn_persist_identity_open(forged, len, back) == FZN_PERSIST_OK,
+	      "a seed whose only nonzero byte is its last was refused as zero");
+
+	/* THE TAG, WHICH ONLY THIS CASE REACHES. No other blob is 34 bytes, so
+	 * every cross-kind open is refused by length before the tag is read. */
+	memcpy(forged, blob, len);
+	forged[1] = 2u; /* BLOB_SECRET */
+	CHECK(fzn_persist_identity_open(forged, len, back) == FZN_PERSIST_ERR_SHAPE,
+	      "a 34-byte blob tagged as another kind opened as an identity");
+	CHECK(fzn_persist_identity_open(blob, len - 1u, back) == FZN_PERSIST_ERR_SHAPE,
+	      "a short identity blob opened");
+	CHECK(fzn_persist_identity_open(NULL, len, back) == FZN_PERSIST_ERR_MALFORMED
+	              && fzn_persist_identity_open(blob, len, NULL) == FZN_PERSIST_ERR_MALFORMED
+	              && fzn_persist_identity_pack(NULL, blob, sizeof(blob), &len)
+	                         == FZN_PERSIST_ERR_MALFORMED
+	              && fzn_persist_identity_pack(seed, blob, 33u, &len)
+	                         == FZN_PERSIST_ERR_MALFORMED,
+	      "an identity guard let a null or an undersized buffer through");
+}
+
 int main(void)
 {
 	test_an_anchor_comes_back_with_its_provenance();
@@ -756,6 +812,7 @@ int main(void)
 	test_a_pinned_peer_and_a_chain_round_trip();
 	test_a_blob_does_not_open_as_another_kind();
 	test_a_peer_blob_does_not_open_as_another_kind();
+	test_an_identity_seed_round_trips_and_zero_is_refused();
 	test_a_blob_with_the_right_shape_and_wrong_bytes_is_refused();
 	test_every_guard_refuses_its_own_argument();
 	test_the_suite_can_tell_pass_from_fail();

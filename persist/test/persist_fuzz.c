@@ -35,10 +35,12 @@
  * decoder that read one byte past a short buffer would be found here rather
  * than by a consumer whose file was cut short by a full disk.
  *
- * NO CRYPTO SEAM IS TOUCHED. Three of the four blobs decode without one;
+ * NO CRYPTO SEAM IS TOUCHED. Four of the five blobs decode without one --
+ * trust, peer, chain and the identity seed, which this format stores as bytes
+ * and leaves to `fzn_sign_seat_t` to derive from (sec 375).
  * `fzn_persist_secret_open` takes an `fzn_agree_ops_t` to re-derive a public
  * key and is left to `persist_test.c`, which has a binding to hand. Saying so
- * matters: a harness that quietly covered three of four would report a pass
+ * matters: a harness that quietly covered four of five would report a pass
  * over a subset, which is the shape this tree keeps meeting.
  */
 
@@ -61,6 +63,7 @@ struct coverage {
 	unsigned long trust;
 	unsigned long peer;
 	unsigned long chain;
+	unsigned long identity;
 	unsigned long pinned;
 	unsigned long adopted;
 	unsigned long self_rooted;
@@ -142,6 +145,14 @@ static int pack_chain(uint32_t *seed, uint8_t *out, size_t *len)
 	return fzn_persist_chain_pack(&c, out, BLOB_MAX, len) == FZN_PERSIST_OK;
 }
 
+static int pack_identity(uint32_t *seed, uint8_t *out, size_t *len)
+{
+	uint8_t s[FZN_SIGN_SEED_LEN];
+
+	fill(seed, s, sizeof(s));
+	return fzn_persist_identity_pack(s, out, BLOB_MAX, len) == FZN_PERSIST_OK;
+}
+
 /* Open a blob of the given tag and re-pack what came back. Returns 1 when the
  * blob was accepted, and writes the re-packed bytes to `again`. */
 static int open_and_repack(int kind, const uint8_t *blob, size_t len, uint8_t *again,
@@ -163,6 +174,13 @@ static int open_and_repack(int kind, const uint8_t *blob, size_t len, uint8_t *a
 			return 0;
 		return fzn_persist_peer_pack(&p, again, BLOB_MAX, again_len) == FZN_PERSIST_OK;
 	}
+	if (kind == 3) {
+		uint8_t s[FZN_SIGN_SEED_LEN];
+
+		if (fzn_persist_identity_open(blob, len, s) != FZN_PERSIST_OK)
+			return 0;
+		return fzn_persist_identity_pack(s, again, BLOB_MAX, again_len) == FZN_PERSIST_OK;
+	}
 	{
 		fzn_ratchet_chain_t c;
 
@@ -177,7 +195,7 @@ static int fuzz_one(uint32_t seed, struct coverage *cov)
 {
 	uint8_t blob[BLOB_MAX], mutated[BLOB_MAX], again[BLOB_MAX];
 	size_t len = 0, again_len = 0;
-	int kind = (int)(next_rand(&seed) % 3u);
+	int kind = (int)(next_rand(&seed) % 4u);
 	size_t at;
 	uint8_t delta;
 
@@ -204,6 +222,12 @@ static int fuzz_one(uint32_t seed, struct coverage *cov)
 			return 0;
 		}
 		cov->peer++;
+	} else if (kind == 3) {
+		if (!pack_identity(&seed, blob, &len)) {
+			printf("persist_fuzz: the fixture could not pack an identity seed\n");
+			return 0;
+		}
+		cov->identity++;
 	} else {
 		if (!pack_chain(&seed, blob, &len)) {
 			printf("persist_fuzz: the fixture could not pack a chain\n");
@@ -248,6 +272,7 @@ static int fuzz_one(uint32_t seed, struct coverage *cov)
 		fzn_trust_t t;
 		fzn_prekey_peer_t p;
 		fzn_ratchet_chain_t c;
+		uint8_t s[FZN_SIGN_SEED_LEN];
 		fzn_persist_err_t err;
 
 		if (kind == 0) {
@@ -256,6 +281,8 @@ static int fuzz_one(uint32_t seed, struct coverage *cov)
 		} else if (kind == 1) {
 			fzn_prekey_peer_init(&p);
 			err = fzn_persist_peer_open(blob, cut, &p);
+		} else if (kind == 3) {
+			err = fzn_persist_identity_open(blob, cut, s);
 		} else {
 			memset(&c, 0, sizeof(c));
 			err = fzn_persist_chain_open(blob, cut, &c);
@@ -277,7 +304,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
 	uint32_t seed = 1u;
 	size_t i;
-	struct coverage cov = { 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+	struct coverage cov = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 
 	for (i = 0; i < size; i++)
 		seed = (seed * 31u) + data[i];
@@ -298,7 +325,7 @@ static unsigned long floor_of(unsigned long cases, unsigned long per)
 int main(int argc, char **argv)
 {
 	unsigned long cases = FUZZ_DEFAULT_CASES;
-	struct coverage cov = { 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+	struct coverage cov = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 	unsigned long i;
 
 	if (argc > 1)
@@ -320,21 +347,22 @@ int main(int argc, char **argv)
 	 * that never saw a mutation REFLECTED rather than refused has only
 	 * watched the length and tag checks work, which are the easy half. */
 	if (cov.trust < floor_of(cases, 6u) || cov.peer < floor_of(cases, 6u)
-	    || cov.chain < floor_of(cases, 6u) || cov.pinned < floor_of(cases, 20u)
+	    || cov.chain < floor_of(cases, 6u) || cov.identity < floor_of(cases, 6u)
+	    || cov.pinned < floor_of(cases, 20u)
 	    || cov.adopted < floor_of(cases, 20u) || cov.self_rooted < floor_of(cases, 20u)
 	    || cov.refused < floor_of(cases, 20u) || cov.reflected < floor_of(cases, 20u)) {
 		printf("persist_fuzz: REACHED TOO LITTLE -- %lu trust, %lu peer, %lu chain, "
-		       "%lu pinned, %lu adopted, %lu self, %lu refused, %lu reflected in "
-		       "%lu cases.\n",
-		       cov.trust, cov.peer, cov.chain, cov.pinned, cov.adopted,
+		       "%lu identity, %lu pinned, %lu adopted, %lu self, %lu refused, "
+		       "%lu reflected in %lu cases.\n",
+		       cov.trust, cov.peer, cov.chain, cov.identity, cov.pinned, cov.adopted,
 		       cov.self_rooted, cov.refused, cov.reflected, cases);
 		return 1;
 	}
 
-	printf("persist_fuzz: %lu cases, %lu trust, %lu peer, %lu chain "
+	printf("persist_fuzz: %lu cases, %lu trust, %lu peer, %lu chain, %lu identity "
 	       "(%lu pinned, %lu adopted, %lu self), %lu mutations refused, "
 	       "%lu reflected, %lu truncations refused\n",
-	       cases, cov.trust, cov.peer, cov.chain, cov.pinned, cov.adopted,
+	       cases, cov.trust, cov.peer, cov.chain, cov.identity, cov.pinned, cov.adopted,
 	       cov.self_rooted, cov.refused, cov.reflected, cov.truncations);
 	return 0;
 }

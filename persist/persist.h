@@ -42,6 +42,14 @@
  * WHAT LOSS COSTS, PER TYPE. This table is the reason the file exists and is
  * ordered by what happens when a consumer gets it wrong.
  *
+ *   the identity seed    MUST. It IS the host: the key every capability
+ *                        this host minted chains to, and the key its peers
+ *                        pinned. Losing it makes a different host with the
+ *                        same name, and nothing re-derives it. It was in
+ *                        neither list here -- `chain.h` kept secrets out of
+ *                        this library by design and the inventory followed,
+ *                        until sec 136 had a node generate its identity and
+ *                        something had to store what it generated. sec 375.
  *   fzn_trust_t          MUST. Losing the anchor means the next root offered
  *                        is adopted. Silent, and it is the whole TOFU
  *                        protection.
@@ -137,6 +145,9 @@ typedef enum fzn_persist_slot {
 	 * `node/peer_persist.h` packs it; see the inventory above for why the
 	 * functions are not in this file. */
 	FZN_PERSIST_NODE_PEER = 6u,
+	/* Whole-host, no subject: the seed this host's signing key derives
+	 * from. `node/identity.h` loads or generates it. sec 375. */
+	FZN_PERSIST_OWN_IDENTITY = 7u,
 } fzn_persist_slot_t;
 
 typedef enum fzn_persist_err {
@@ -240,6 +251,24 @@ fzn_persist_err_t fzn_persist_trust_open(const uint8_t *bytes, size_t len, fzn_t
 
 fzn_persist_err_t fzn_persist_secret_pack(const fzn_agree_secret_t *secret, uint8_t *out,
                                            size_t cap, size_t *len);
+
+/*
+ * The host's identity seed: FZN_SIGN_SEED_LEN bytes, stored as they are and
+ * restored by `fzn_sign_seat_t` rather than here, so this format knows no
+ * signature scheme and the seed is the one copy.
+ *
+ * AN ALL-ZERO SEED IS REFUSED BOTH WAYS. It derives a real key that anybody
+ * can compute, so a host signing with it is signing for everyone -- and a
+ * file of zeroes is far likelier a truncated or never-written one than a key
+ * somebody chose. The comparison is constant-time, since the bytes are a
+ * secret whatever they turn out to be.
+ *
+ * A refused open leaves `seed_out` as it found it, as `secret_open` does.
+ */
+fzn_persist_err_t fzn_persist_identity_pack(const uint8_t seed[FZN_SIGN_SEED_LEN], uint8_t *out,
+                                             size_t cap, size_t *len);
+fzn_persist_err_t fzn_persist_identity_open(const uint8_t *bytes, size_t len,
+                                             uint8_t seed_out[FZN_SIGN_SEED_LEN]);
 
 /*
  * A REFUSED OPEN LEAVES `out` AS IT FOUND IT, on every path -- a null

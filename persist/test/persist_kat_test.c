@@ -62,6 +62,7 @@ static void check_at(int ok, int line, const char *what)
 #define T_SECRET 2u
 #define T_PEER 3u
 #define T_CHAIN 4u
+#define T_IDENTITY 6u /* 5 is the node peer, packed in node/ */
 
 static void put_be64(uint8_t *p, uint64_t v)
 {
@@ -190,6 +191,29 @@ int main(void)
 		              && back.created_at == CREATED_AT,
 		      "the literal peer blob restores its prekey and its timestamp, "
 		      "each from its own offset");
+	}
+
+	/* ---- identity: seed ----------------------------------------------- */
+	{
+		uint8_t back[FZN_SIGN_SEED_LEN];
+
+		/* PREKEY's bytes stand in for a seed: any 32 nonzero bytes are
+		 * one, and a literal already in this file is not a second thing
+		 * to be wrong. */
+		want[0] = V;
+		want[1] = T_IDENTITY;
+		memcpy(want + 2, PREKEY, 32);
+
+		len = 0;
+		check(fzn_persist_identity_pack(PREKEY, got, sizeof(got), &len) == FZN_PERSIST_OK,
+		      "identity packs");
+		check(len == 34u, "an identity blob is 34 bytes: 2 header, 32 seed");
+		check(memcmp(got, want, 34u) == 0,
+		      "the identity blob is the bytes persist.c's format specifies");
+		memset(back, 0xee, sizeof(back));
+		check(fzn_persist_identity_open(want, 34u, back) == FZN_PERSIST_OK
+		              && memcmp(back, PREKEY, 32) == 0,
+		      "the literal identity blob opens to its seed");
 	}
 
 	/* ---- chain: key | seq --------------------------------------------- */

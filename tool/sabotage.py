@@ -3086,6 +3086,20 @@ SABOTAGES = [
 		"\tif (0)\n\t\treturn FZN_PERSIST_ERR_SHAPE;\n",
 		"`fzn_trust_pin` and `fzn_trust_self` take no timestamp, so without this the eight bytes `pack` writes for them are read by nobody -- a stored anchor could carry anything there and still open to the same struct and re-pack to the original bytes, which is the second encoding `head_check` refuses a trailing byte for -- sec 232",
 	),
+	(
+		"persist-identity-open-refuses-a-zero-seed",
+		"persist/persist.c",
+		"\tif (fzn_ct_memeq(bytes + OFF_BODY, ZERO_SEED, FZN_SIGN_SEED_LEN))\n\t\treturn FZN_PERSIST_ERR_SHAPE;\n",
+		"",
+		"an all-zero seed derives a key anybody can compute, and a stored file of zeroes is far likelier truncated than chosen -- opened, a host restores as an identity everyone can sign for -- sec 375",
+	),
+	(
+		"persist-identity-pack-refuses-a-zero-seed",
+		"persist/persist.c",
+		"\tif (fzn_ct_memeq(seed, ZERO_SEED, FZN_SIGN_SEED_LEN))\n\t\treturn FZN_PERSIST_ERR_MALFORMED;\n",
+		"",
+		"a caller holding an unfilled seed buffer would store a key everybody holds, and the open side's refusal then turns a successful save into a host that cannot start -- refused where the mistake is made -- sec 375",
+	),
 	# BATCH TWENTY-ONE, 2026-09-09: a full reassembly table, and which of
 	# its THREE fixes it needs. project.md sec 230.
 	(
