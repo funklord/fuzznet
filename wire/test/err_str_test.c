@@ -49,6 +49,7 @@
 #include "../../node/caller.h"
 #include "../../node/identity.h"
 #include "../../node/pair.h"
+#include "../../node/revoke.h"
 #include "../../record/journal.h"
 #include "../../record/ledger.h"
 #include "../../record/sync.h"
@@ -118,6 +119,10 @@ static const char *r_peer(int v) { return fzn_peer_verdict_str((fzn_peer_verdict
 static const char *r_client(int v) { return fzn_client_err_str((fzn_client_err_t)v); }
 static const char *r_caller(int v) { return fzn_caller_err_str((fzn_caller_err_t)v); }
 static const char *r_pair(int v) { return fzn_node_pair_err_str((fzn_node_pair_err_t)v); }
+static const char *r_revoke(int v)
+{
+	return fzn_node_revoke_err_str((fzn_node_revoke_err_t)v);
+}
 static const char *r_identity(int v)
 {
 	return fzn_node_identity_err_str((fzn_node_identity_err_t)v);
@@ -195,6 +200,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_caller_err_str", r_caller, 8 },
 	{ "fzn_node_identity_err_str", r_identity, 7 },
 	{ "fzn_node_pair_err_str", r_pair, 7 },
+	{ "fzn_node_revoke_err_str", r_revoke, 6 },
 	{ "fzn_record_err_str", r_record, 6 },
 	{ "fzn_journal_err_str", r_journal, 7 },
 	{ "fzn_ledger_err_str", r_ledger, 4 },

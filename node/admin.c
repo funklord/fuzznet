@@ -200,6 +200,32 @@ static size_t remove_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t he
 	return answer(reply, cap, FZN_REPLY_OK, (const char *)hex, hex_len);
 }
 
+/* `revoke peer KEY`. */
+static size_t revoke_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t hex_len,
+                          char *reply, size_t cap)
+{
+	static const char already[] = " already";
+	char detail[(FZN_PUBKEY_LEN * 2u) + sizeof(already)];
+	uint8_t grantee[FZN_PUBKEY_LEN];
+	fzn_node_revoke_err_t rerr;
+	uint64_t now;
+
+	if (!unhex(hex, hex_len, grantee, sizeof(grantee)))
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a peer key");
+	now = admin->state->clock ? admin->state->clock() : 0u;
+	rerr = fzn_node_revoke(admin->id, admin->state->config.root,
+	                       &admin->state->config.remote_capability, grantee, now,
+	                       admin->revocations, admin->store);
+	if (rerr != FZN_NODE_REVOKE_OK && rerr != FZN_NODE_REVOKE_ALREADY)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_node_revoke_err_str(rerr));
+	memcpy(detail, hex, hex_len);
+	if (rerr == FZN_NODE_REVOKE_ALREADY) {
+		memcpy(detail + hex_len, already, sizeof(already) - 1u);
+		return answer(reply, cap, FZN_REPLY_OK, detail, hex_len + sizeof(already) - 1u);
+	}
+	return answer(reply, cap, FZN_REPLY_OK, detail, hex_len);
+}
+
 size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t origin,
                              const fzn_peer_t *peer, const fzn_request_t *request,
                              char *reply, size_t reply_cap)
@@ -228,6 +254,8 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 			return remove_peer(admin, rest, rest_len, reply, reply_cap);
 		if (request->parsed == FZN_VERB_LIST)
 			return list_peers(admin, rest, rest_len, reply, reply_cap);
+		if (request->parsed == FZN_VERB_REVOKE && rest && admin->revocations)
+			return revoke_peer(admin, rest, rest_len, reply, reply_cap);
 	}
 
 	return answer_text(reply, reply_cap, FZN_REPLY_UNSUPPORTED, NULL);

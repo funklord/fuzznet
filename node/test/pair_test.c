@@ -15,6 +15,7 @@
  */
 
 #include "../pair.h"
+#include "../revoke.h"
 #include "../../provision/provision.h"
 #include "../identity.h"
 #include "../node.h"
@@ -222,12 +223,15 @@ static fzn_authz_verdict_t node_decides(const struct node *n, const fzn_cap_id_t
 static const uint8_t PING[] = { 'p', 'i', 'n', 'g' };
 static const uint8_t PONG[] = { 'p', 'o', 'n', 'g' };
 static int handler_granted;
+static int handler_denied;
 
 static size_t answer(void *ctx, fzn_node_remote_result_t result, const fzn_opened_t *req,
                      uint8_t *reply, size_t reply_cap)
 {
 	(void)ctx;
 	(void)req;
+	if (result == FZN_NODE_REMOTE_DENIED)
+		handler_denied = 1;
 	if (result != FZN_NODE_REMOTE_GRANTED || reply_cap < sizeof(PONG))
 		return 0;
 	handler_granted = 1;
@@ -325,6 +329,68 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 	              && reply_len == sizeof(PONG) && memcmp(reply, PONG, sizeof(PONG)) == 0,
 	      "the device was not answered, so the two stored halves of a pairing do not "
 	      "make a working pair");
+
+	/* ---- REVOKED: the same device, the same stored pairing, and now the
+	 * node's own authorisation refuses it. sec 380. */
+	{
+		static fzn_revocation_t revoked_entries[8], fresh_entries[8];
+		fzn_revocation_store_t revoked, fresh;
+		size_t restored = 0;
+
+		CHECK(fzn_revocation_store_init(&revoked, revoked_entries, 8) == FZN_CHAIN_OK
+		              && fzn_revocation_store_init(&fresh, fresh_entries, 8) == FZN_CHAIN_OK,
+		      "fixture: revocation stores");
+		state.config.revocations = &revoked;
+		CHECK(fzn_node_revoke(&node->id, node->id.pubkey, cap, device->id.pubkey, 3000u,
+		                      &revoked, &node->ops) == FZN_NODE_REVOKE_OK,
+		      "the node would not revoke the device it paired");
+		CHECK(fzn_node_revoke(&node->id, node->id.pubkey, cap, device->id.pubkey, 3001u,
+		                      &revoked, &node->ops) == FZN_NODE_REVOKE_ALREADY,
+		      "revoking twice was not reported as already revoked");
+
+		handler_granted = handler_denied = 0;
+		CHECK(fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &msg) == FZN_CALLER_OK
+		              && fzn_node_run_once(&state, 1000) == 1,
+		      "fixture: the revoked device's request was not served at all");
+		CHECK(handler_denied && !handler_granted,
+		      "a revoked device was granted: the node's decision does not consult the "
+		      "revocations it holds");
+
+		/* ---- AND IT SURVIVES A RESTART: a fresh store, filled only from
+		 * what the node saved. */
+		CHECK(fzn_node_revocations_load(&node->ops, &fresh, node->id.pubkey, &node->sign,
+		                                &hash_ops, &restored) == FZN_PERSIST_OK
+		              && restored == 1u,
+		      "the node's revocation did not come back from its store");
+		state.config.revocations = &fresh;
+		handler_granted = handler_denied = 0;
+		CHECK(fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &msg) == FZN_CALLER_OK
+		              && fzn_node_run_once(&state, 1000) == 1 && handler_denied
+		              && !handler_granted,
+		      "after a restart the node granted a device it had revoked");
+
+		/* ---- THE CONTROL: the same node with no revocations grants it,
+		 * so the refusals above were the revocation's. */
+		state.config.revocations = NULL;
+		handler_granted = handler_denied = 0;
+		CHECK(fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &msg) == FZN_CALLER_OK
+		              && fzn_node_run_once(&state, 1000) == 1 && handler_granted,
+		      "the control failed: without revocations the device was not granted, so "
+		      "the refusals above prove nothing about revocation");
+		(void)fzn_caller_recv(&caller, msg, reply, sizeof(reply), &reply_len, 500u);
+	}
+
+	/* ---- A NODE THAT IS NOT ITS OWN ROOT DOES NOT REVOKE AS ONE. */
+	{
+		static fzn_revocation_t rs_entries[2];
+		fzn_revocation_store_t rs;
+
+		CHECK(fzn_revocation_store_init(&rs, rs_entries, 2) == FZN_CHAIN_OK
+		              && fzn_node_revoke(&device->id, node->id.pubkey, cap, node->id.pubkey,
+		                                 3000u, &rs, &device->ops)
+		                         == FZN_NODE_REVOKE_NOT_ROOT,
+		      "a node revoked under a root that is not its own key");
+	}
 
 	fzn_wipe(&pairing, sizeof(pairing));
 	fzn_wipe(&caller, sizeof(caller));

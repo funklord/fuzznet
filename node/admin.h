@@ -17,6 +17,11 @@
  *                       is reloaded, so its next frame finds no session
  *     list peer [FROM]  `ok TOTAL FROM KEY ...`, paged rather than cut
  *                       short, since sixty-four keys do not fit one line
+ *     revoke peer KEY   revoke the grant this node gave KEY: `node/revoke.h`
+ *                       issues the signed record, the running store takes
+ *                       it, and it is saved. Any key, not only a current
+ *                       peer -- a grant outlives the peer record it came
+ *                       with. `ok KEY`, and `ok KEY already` when it was.
  *
  * Every other verb of fuzznet's, and any verb that is not, is answered
  * `unsupported` -- a node saying it does not serve a verb is a different fact
@@ -44,6 +49,7 @@
 
 #include "local.h"
 #include "pair.h"
+#include "revoke.h"
 #include "serve.h"
 
 typedef struct fzn_node_admin {
@@ -59,6 +65,9 @@ typedef struct fzn_node_admin {
 	const fzn_persist_ops_t *store;
 	/* How long a card stays worth accepting, from when it is made. */
 	uint64_t card_lifetime;
+	/* The running revocation store, the one `state->config.revocations`
+	 * points at; NULL and `revoke` is unsupported. */
+	fzn_revocation_store_t *revocations;
 } fzn_node_admin_t;
 
 /* A `fzn_node_local_handler_t`; `ctx` is a `fzn_node_admin_t`. */

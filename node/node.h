@@ -53,6 +53,12 @@ typedef struct fzn_node_config {
 	int serves_remote;
 	fzn_cap_id_t remote_capability;
 	uint8_t root[FZN_PUBKEY_LEN];
+	/* THE REVOCATIONS A REMOTE CALLER'S CHAIN IS CHECKED AGAINST, or NULL
+	 * for none. Beside `root` because the two are one question -- which
+	 * grants does this node's trust still honour -- and until sec 380 the
+	 * remote path passed NULL, so a revoked grant was honoured for as long
+	 * as its peer record stood. Borrowed; it must outlive the config. */
+	const fzn_revocation_store_t *revocations;
 } fzn_node_config_t;
 
 /* How serving one caller ended. OK and DENIED both mean a response was

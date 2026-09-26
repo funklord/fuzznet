@@ -60,7 +60,7 @@ fzn_node_remote_result_t fzn_node_serve_datagram(const fzn_node_config_t *config
 	/* Authorise: the capability chain this peer holds must grant what the
 	 * node requires, from the REMOTE origin. */
 	verdict = fzn_node_decide(config, FZN_ORIGIN_REMOTE, hops,
-	                          peer->hop_count, now, sign, NULL, NULL);
+	                          peer->hop_count, now, sign, config->revocations, NULL);
 	return (verdict == FZN_AUTHZ_DENIED) ? FZN_NODE_REMOTE_DENIED
 	                                     : FZN_NODE_REMOTE_GRANTED;
 }

@@ -81,6 +81,13 @@
  *                        that can no longer ask. Absent from both lists until
  *                        sec 377, the third time this inventory has missed a
  *                        pairing half. Packed by `node/pair.h`.
+ *   issued revocations   MUST, per grantee a node has revoked. The store
+ *                        below says revocations are refilled from
+ *                        manifests, which is true of those LEARNED; one a
+ *                        node ISSUED exists only here, and losing it
+ *                        re-admits the device on the next start. Kept as the
+ *                        signed record, since the store keeps no record to
+ *                        save. `node/revoke.h`, sec 380.
  *
  * Recoverable rather than required, and deliberately not served here:
  *
@@ -158,6 +165,11 @@ typedef enum fzn_persist_slot {
 	/* Per node this host is paired TO, keyed by that node's root.
 	 * `node/pair.h` packs it. sec 377. */
 	FZN_PERSIST_PAIRED_NODE = 8u,
+	/* Per grantee, the latest revocation THIS node issued for it.
+	 * `node/revoke.h` packs it. sec 380. THE LAST SLOT ONE DECIMAL DIGIT
+	 * NAMES -- `persist/persist_file.c` refuses a tenth rather than folding
+	 * it, and widening the name is a migration. */
+	FZN_PERSIST_ISSUED_REVOCATION = 9u,
 } fzn_persist_slot_t;
 
 typedef enum fzn_persist_err {
@@ -188,6 +200,7 @@ typedef enum fzn_persist_err {
 #define FZN_PERSIST_HEAD_LEN 2u
 #define FZN_PERSIST_BLOB_NODE_PEER 5u
 #define FZN_PERSIST_BLOB_PAIRING 7u
+#define FZN_PERSIST_BLOB_REVOCATION 8u
 
 /* Write a blob head, or refuse when `cap` cannot hold head and body. */
 fzn_persist_err_t fzn_persist_head_write(uint8_t *out, size_t cap, size_t body,

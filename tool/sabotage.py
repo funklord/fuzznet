@@ -3515,6 +3515,27 @@ SABOTAGES = [
 		"a second removal answering failure makes a retry after a lost reply look like a fault, and the caller's question was whether it is gone -- sec 379",
 	),
 	(
+		"remote-consults-the-revocations",
+		"node/remote.c",
+		"\t                          peer->hop_count, now, sign, config->revocations, NULL);\n",
+		"\t                          peer->hop_count, now, sign, NULL, NULL);\n",
+		"the node holding a revocation and deciding without it honours every grant it has revoked, which is how the remote path stood until sec 380 -- sec 380",
+	),
+	(
+		"revoke-saves-the-record",
+		"node/revoke.c",
+		"\tif (!store->save(store->ctx, FZN_PERSIST_ISSUED_REVOCATION, grantee, blob, sizeof(blob)))\n\t\treturn FZN_NODE_REVOKE_NOT_SAVED;\n",
+		"",
+		"a revocation in force and never saved is forgotten by the next start, and the device the operator revoked is served again -- sec 380",
+	),
+	(
+		"revoke-already-is-already",
+		"node/revoke.c",
+		"\t\tif (!fzn_revocation_is_withdrawal(prev_rec))\n\t\t\treturn FZN_NODE_REVOKE_ALREADY;\n",
+		"",
+		"revoking a revoked grantee again must say so rather than mint a second record the store refuses as a stale copy, which an operator reads as the revocation having failed -- sec 380",
+	),
+	(
 		"aead-open-checks-the-tag",
 		"session/aead_monocypher.c",
 		"\treturn crypto_aead_unlock(text, tag, key, nonce, aad, aad_len, text, text_len) == 0;\n",

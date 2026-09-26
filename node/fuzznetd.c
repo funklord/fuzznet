@@ -30,6 +30,7 @@
 #include "admin.h"
 #include "identity.h"
 #include "pair.h"
+#include "revoke.h"
 #include "peer_persist.h"
 #include "../local/socket.h"
 #include "../net/udp.h"
@@ -529,7 +530,29 @@ int main(int argc, char **argv)
 	if (store_ops) {
 		static fzn_node_peer_t peers[FZN_NODE_PEERS_MAX];
 		static fzn_node_admin_t admin;
-		size_t loaded = 0;
+		static fzn_revocation_t revoked_entries[FZN_NODE_REVOCATIONS_MAX];
+		static fzn_revocation_store_t revoked;
+		size_t loaded = 0, nrevoked = 0;
+
+		/* THE REVOCATIONS THIS NODE ISSUED, admitted again before any
+		 * peer is served -- a node that served first and remembered
+		 * second would answer a revoked device in the gap. A record that
+		 * will not admit is fatal for the same reason. sec 380. */
+		if (fzn_revocation_store_init(&revoked, revoked_entries,
+		                              FZN_NODE_REVOCATIONS_MAX) != FZN_CHAIN_OK
+		    || fzn_node_revocations_load(store_ops, &revoked, state.config.root, &sign_ops,
+		                                 &hash_ops, &nrevoked) != FZN_PERSIST_OK) {
+			fprintf(stderr, "fuzznetd: could not restore the revocations in %s\n",
+			        store_dir);
+			fzn_socket_close(lfd, sock_path);
+			if (ufd >= 0)
+				fzn_udp_close(ufd);
+			return 1;
+		}
+		state.config.revocations = &revoked;
+		if (nrevoked)
+			fprintf(stderr, "fuzznetd: %zu revocation(s) from %s\n", nrevoked,
+			        store_dir);
 		fzn_persist_err_t err;
 
 		err = fzn_node_peers_load(store_ops, peers, FZN_NODE_PEERS_MAX, &loaded);
@@ -556,6 +579,7 @@ int main(int argc, char **argv)
 			admin.id = &identity;
 			admin.store = store_ops;
 			admin.card_lifetime = FZND_CARD_LIFETIME;
+			admin.revocations = &revoked;
 			state.on_local = fzn_node_admin_handle;
 			state.on_local_ctx = &admin;
 		}

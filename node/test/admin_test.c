@@ -259,6 +259,15 @@ int main(void)
 	admin.id = &node.id;
 	admin.store = &node.ops;
 	admin.card_lifetime = 86400u;
+	{
+		static fzn_revocation_t revoked_entries[8];
+		static fzn_revocation_store_t revoked;
+
+		CHECK(fzn_revocation_store_init(&revoked, revoked_entries, 8) == FZN_CHAIN_OK,
+		      "fixture: revocation store");
+		admin.revocations = &revoked;
+		state.config.revocations = &revoked;
+	}
 
 	memset(&owner, 0, sizeof(owner));
 	owner.pid = 1;
@@ -455,6 +464,29 @@ int main(void)
 		CHECK(got == 17u && every_key && pages >= 2u,
 		      "walking list peer's pages did not return all seventeen keys exactly, "
 		      "or fitted them on one page");
+	}
+
+	/* ---- REVOKED OVER THE SOCKET: by the owner only, and saying so when it
+	 * already was. sec 380. */
+	{
+		char key[(FZN_PUBKEY_LEN * 2u) + 1u];
+		char want[(FZN_PUBKEY_LEN * 2u) + 16u];
+
+		hex(device.id.pubkey, FZN_PUBKEY_LEN, key);
+		snprintf(line, sizeof(line), "revoke peer %s", key);
+		CHECK(ask(&admin, &member, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+		                         == FZN_REPLY_DENIED,
+		      "a service-group member revoked a grant");
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && detail_len == 64u && memcmp(detail, key, 64u) == 0,
+		      "the node's own user could not revoke a grant, or the answer did not name it");
+		snprintf(want, sizeof(want), "%s already", key);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && detail_len == strlen(want) && memcmp(detail, want, detail_len) == 0,
+		      "revoking again was not answered as already revoked");
 	}
 
 	/* ---- WHAT IT DOES NOT SERVE, IT SAYS SO. */

@@ -47526,3 +47526,82 @@ refusal and the absent-is-gone rule. A fourth was drafted and dropped:
 removing the list's fit check would have been "caught" by writing past the
 reply buffer, which is a crash rather than a check, and a sabotage caught
 that way says nothing about the test.
+
+## 380. A node revokes what it granted, and remembers it, 2026-09-26
+
+sec 1's purpose is a stolen device "you revoke rather than a password you
+change", and `chain/revocation.h` has carried signed revocation records, a
+verify-on-admission store, withdrawals and re-revocation chaining since
+sec 13. The node consulted none of it: `node/remote.c` passed NULL
+revocations to every decision. sec 379 could cut off a device paired to ONE
+node by forgetting its peer record. A grant honoured anywhere else has no
+record to forget, and that is what revocation is for.
+
+### Three pieces
+
+- **The node decides with its revocations.** `fzn_node_config_t` gains
+  `revocations` beside `root` -- the two are one question, which grants
+  this node's trust still honours -- and the remote path passes it. No
+  caller's signature changed.
+- **`node/revoke.{h,c}`.** `fzn_node_revoke` mints the revocation of one
+  grantee's grant, or a re-revocation naming a predecessor after a
+  withdrawal, as `revocation.h` requires. It admits it into the running
+  store FIRST and saves it second: in force and unsaved is a smaller
+  failure than saved and not in force, which would tell the operator a
+  device is cut off while the node serves it. Revoking twice is
+  `FZN_NODE_REVOKE_ALREADY`, not a second record the store would refuse as
+  a stale copy.
+- **`revoke peer KEY`** in `node/admin.c`: owner only, any key rather than
+  only a current peer, since a grant outlives the peer record it came with.
+  It answers `ok KEY`, or `ok KEY already`.
+
+### Persisting what cannot be persisted
+
+The store keeps "a hash and a flag, never a record" -- deliberately, so the
+hot path compares rather than verifies -- so there is nothing in it to save.
+The node saves each record it ISSUED instead, as slot 9
+(`FZN_PERSIST_ISSUED_REVOCATION`, keyed by grantee) and blob tag 8. At start
+`fzn_node_revocations_load` admits every one again, through the same
+verification a revocation from anywhere gets. `fuzznetd` does this BEFORE it
+serves any peer, and a record that will not admit is fatal: a node that
+served first and remembered second would answer a revoked device in the
+gap.
+
+`persist.h`'s inventory said the revocation store is "refilled from
+manifests". That is true of revocations a node LEARNS and false of those it
+ISSUES, which exist only on the node until something carries them. It is
+the fourth inventory hole of this kind: node peers (sec 366), the node's own
+identity (sec 375), the device's pairing (sec 377), and now this.
+
+**Slot 9 is the last slot one decimal digit names.** The file backend
+refuses a tenth rather than folding it, and widening the name is a
+migration that orphans every stored file. The next slot is that migration,
+and it should be done deliberately rather than by the next session needing
+a slot.
+
+### Measured for sec 380
+
+`pair_test` extends the loopback exchange from sec 377:
+
+- The node revokes the device, and the device's next request -- same
+  stored pairing, same session -- reaches the handler as DENIED.
+- A fresh store filled only by `fzn_node_revocations_load` from what the
+  node saved denies it again: the restart case.
+- The control: the same node with no revocation store grants the same
+  request, so the two denials were the revocation's.
+
+A second revocation is `ALREADY`, and a node whose root is not its own key
+is refused. `admin_test` covers the verb over the local socket: a group
+member is denied, the owner is answered `ok KEY`, and a repeat is
+`ok KEY already`. Three sabotage entries hold the remote path consulting
+the store, the record being saved, and `ALREADY`.
+
+### What sec 380 leaves
+
+- **Carrying revocations to other nodes.** A revocation is signed so it can
+  travel "on contact" (`chain/revocation.h`), and nothing here sends one
+  anywhere. A node's revocations reach other nodes of its estate through
+  manifests (sec 13d), which the node does not yet publish.
+- **Withdrawing.** `fzn_node_revoke` re-revokes correctly after a
+  withdrawal, and no verb issues a withdrawal. Un-revoking was not asked
+  for.

@@ -40,6 +40,8 @@ struct fzn_persist_blob size=34..309 mutate=Shifting repr=ValueConverted atomic=
   fzn_persist_blob.body.pairing.send_key offset=AbsoluteStatic(0x42) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_blob.body.pairing.send_ckey offset=AbsoluteStatic(0x62) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_blob.body.pairing.hop      offset=AbsoluteStatic(0x82) size=Fixed(179) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.body.revocation       offset=AbsoluteStatic(0x02) size=Fixed(202) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.body.revocation.record offset=AbsoluteStatic(0x02) size=Fixed(202) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
 
 struct fzn_persist_chain_body size=40 repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_chain_body.key             offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
@@ -62,6 +64,9 @@ struct fzn_persist_peer_body size=81 repr=ValueConverted atomic=NonAtomic effect
   fzn_persist_peer_body.trust.adopted_at offset=AbsoluteStatic(0x21) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_peer_body.prekey           offset=AbsoluteStatic(0x29) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_peer_body.created_at       offset=AbsoluteStatic(0x49) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
+
+struct fzn_persist_revocation_body size=202 atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_revocation_body.record     offset=AbsoluteStatic(0x00) size=Fixed(202) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
 
 struct fzn_persist_secret_body size=40 repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_secret_body.secret         offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite

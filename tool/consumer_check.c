@@ -149,6 +149,7 @@
 #include <fuzznet/node/identity.h>
 #include <fuzznet/node/pair.h>
 #include <fuzznet/node/admin.h>
+#include <fuzznet/node/revoke.h>
 #include <fuzznet/session/aead.h>
 #include <fuzznet/session/commitment.h>
 #include <fuzznet/session/random.h>
