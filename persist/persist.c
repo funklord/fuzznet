@@ -40,7 +40,8 @@
 #define BLOB_SECRET 2u
 #define BLOB_PEER 3u
 #define BLOB_CHAIN 4u
-/* 5 is FZN_PERSIST_BLOB_NODE_PEER, packed in node/peer_persist.c. */
+/* 5 is FZN_PERSIST_BLOB_NODE_PEER, packed in node/peer_persist.c, and 7 is
+ * FZN_PERSIST_BLOB_PAIRING, packed in node/pair.c. */
 #define BLOB_IDENTITY 6u
 
 #define TRUST_BODY (FZN_PUBKEY_LEN + 1u + 8u)                 /* root, source, adopted_at */

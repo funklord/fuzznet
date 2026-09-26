@@ -36,6 +36,8 @@ static QString slot_label(fzn_persist_slot_t slot)
 		return QStringLiteral("served peer");
 	case FZN_PERSIST_OWN_IDENTITY:
 		return QStringLiteral("own identity");
+	case FZN_PERSIST_PAIRED_NODE:
+		return QStringLiteral("paired node");
 	}
 	/* NO `default:` ABOVE, so a slot added to persist.h draws a -Wswitch
 	 * warning here rather than being drawn as this. */

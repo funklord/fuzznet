@@ -74,7 +74,7 @@ static int name_for(char *out, size_t cap, fzn_persist_slot_t slot, const uint8_
 	/* ONE DECIMAL DIGIT, SO A SLOT PAST NINE IS REFUSED RATHER THAN
 	 * FOLDED. `% 10u` would give slot 10 the name slot 0 has and slot 11
 	 * the name FZN_PERSIST_TRUST has -- two slots in one file, silently,
-	 * and the anchor is the one that loses. Seven slots exist; the tenth is
+	 * and the anchor is the one that loses. Eight slots exist; the tenth is
 	 * where this stops working, and it stops loudly. Widening the name is
 	 * a format change that orphans every file already written, so it is a
 	 * deliberate migration rather than something to do in passing. */

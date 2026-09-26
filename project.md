@@ -47294,3 +47294,73 @@ directory (sec 375).
   ("identity and claim directory"), and `fuzznetd` keeps its identity
   under `--store` beside its peers. Aligning them changes a flag raidcfgd
   may already use, so it wants deciding rather than doing in passing.
+
+## 377. The device's half of a pairing, and a card any device would accept, 2026-09-26
+
+sec 376 left the device with nowhere to keep what it accepts. That is the
+third time the inventory missed a pairing half: node peers in sec 366, the
+node's own identity in sec 375, and now the caller's view of a node.
+
+### A card any device would accept
+
+Building the device side meant reading `fzn_node_accept_card` for what it
+guarantees, and it guaranteed less than it looked. It verified the card's
+envelope under the root the card names -- which every card proves about
+itself -- and never asked whom the grant inside was for. A device handed
+ANOTHER device's card accepted it, pinned the node, and derived a session
+the node has no peer for. It failed on its first request, and a request
+that goes unanswered looks exactly like the network. It now verifies the
+hop under the card's root, for the capability the hop carries, and refuses
+a grantee that is not this device, as `FZN_NODE_PROVISION_NOT_MINE`. The
+check comes before anything is pinned or derived.
+
+### The pairing, as the device keeps it
+
+`fzn_node_pairing_t` in `node/pair.h` holds the node's root, the capability
+granted, the send key and commitment key, and the device's own hop. It is
+slot 8 (`FZN_PERSIST_PAIRED_NODE`, keyed by the node's root) and blob tag 7,
+309 bytes fixed, packed in `node/pair.c` beside the type as `node/
+peer_persist.c` does for tag 5. `persist.situ` gains the arm, and situ's
+own layout puts the fields where `pair.c`'s offsets do.
+
+**No address in it.** Where a node is on the network changes without the
+pairing changing, and finding it is what the link and location subsystems
+are for. A stored address beside a credential would be the first thing to
+go stale while looking authoritative.
+
+`fzn_node_pairing_open` requires the capability stored beside the hop to
+equal the one inside it -- two copies of one fact are two encodings unless
+they must agree. `fzn_node_pairing_load` refuses a blob naming a root other
+than the one it is filed under, the check `fzn_node_peers_load` makes for
+the node's side. `fzn_node_pairing_caller` fills a caller's credential half
+from a pairing; the socket and address stay the caller's.
+
+`fuzznetd --store DIR --accept CARD` is the device's half of `--pair`: it
+accepts, saves, and prints the node's root.
+
+### Measured for sec 377
+
+`pair_test` now closes the loop. The device accepts the node's card into its
+own store, and a third node offered the same card is refused with nothing
+saved. The blob is checked at the offsets `persist.situ` states. A blob
+whose capability disagrees with its hop is refused, and so is one filed
+under the wrong root. Then **paired stores talk**: the device loads only its
+stored pairing, the node loads only its stored peer, the device asks over
+loopback UDP through `node/caller.h`, the node serves it through
+`fzn_node_run_once`, the handler sees a granted caller, and the device
+reads the answer. Every key on both sides came out of a store. Three
+sabotage entries hold the grantee check, the capability agreement and the
+filed-under check.
+
+Across real `fuzznetd` stores: B printed its prekey, A paired it, B
+accepted A's card and stored `8-<A's root>`; C, offered the same card, was
+refused and stored nothing.
+
+### What sec 377 leaves
+
+- **Asking from the command line.** Everything a device needs to ask a node
+  is stored, and `fuzznetd` has no mode that asks; a consumer uses
+  `node/caller.h`. Whether the daemon grows a client mode is the
+  vocabulary's question, since what one would send is a verb.
+- **Pairing into a live daemon** still needs a restart for the node to load
+  the new peer (sec 376).

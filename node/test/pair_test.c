@@ -20,10 +20,20 @@
 #include "../node.h"
 #include "../peer_persist.h"
 #include "../../chain/service.h"
+#include "../../constant_time/constant_time.h"
 #include "../../chain/sign_monocypher.h"
+#include "../../session/aead_monocypher.h"
 #include "../../session/agree_monocypher.h"
 #include "../../session/hash_monocypher.h"
 #include "../../session/random_system.h"
+#include "../serve.h"
+#include "../caller.h"
+#include "../../net/udp.h"
+#include "../../chunk/reassembly.h"
+
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -207,6 +217,121 @@ static fzn_authz_verdict_t node_decides(const struct node *n, const fzn_cap_id_t
 	                       NULL, NULL);
 }
 
+/* ---- the exchange: a device asks through its stored pairing ----------- */
+
+static const uint8_t PING[] = { 'p', 'i', 'n', 'g' };
+static const uint8_t PONG[] = { 'p', 'o', 'n', 'g' };
+static int handler_granted;
+
+static size_t answer(void *ctx, fzn_node_remote_result_t result, const fzn_opened_t *req,
+                     uint8_t *reply, size_t reply_cap)
+{
+	(void)ctx;
+	(void)req;
+	if (result != FZN_NODE_REMOTE_GRANTED || reply_cap < sizeof(PONG))
+		return 0;
+	handler_granted = 1;
+	memcpy(reply, PONG, sizeof(PONG));
+	return sizeof(PONG);
+}
+
+static uint64_t fixed_clock(void)
+{
+	return 3000u;
+}
+
+static uint16_t port_of(int fd)
+{
+	struct sockaddr_storage ss;
+	socklen_t len = sizeof(ss);
+
+	if (getsockname(fd, (struct sockaddr *)&ss, &len) != 0)
+		return 0;
+	return ntohs(((struct sockaddr_in *)&ss)->sin_port);
+}
+
+/* THE WHOLE POINT OF PAIRING, asserted as itself: the device, holding only
+ * what it stored, asks the node, holding only what IT stored, and is
+ * answered. Every value on both sides came out of a store. */
+static void test_paired_stores_talk(struct node *node, struct node *device,
+                                    const fzn_cap_id_t *cap)
+{
+	static fzn_node_peer_t peers[2];
+	static fzn_replay_entry_t entries[64];
+	fzn_replay_window_t replay;
+	fzn_node_pairing_t pairing;
+	fzn_node_state_t state;
+	fzn_caller_t caller;
+	fzn_partial_t slots[1];
+	static uint8_t slot_buf[1][2048];
+	fzn_reasm_t table;
+	fzn_aead_ops_t aead;
+	fzn_udp_addr_t node_addr;
+	uint8_t reply[64];
+	size_t reply_len = 0, loaded = 0;
+	uint32_t msg = 0;
+	int node_fd = -1, dev_fd = -1;
+
+	fzn_aead_monocypher_init(&aead);
+	CHECK(fzn_node_pairing_load(&device->ops, node->id.pubkey, &pairing) == FZN_PERSIST_OK,
+	      "the device's stored pairing to the node would not load");
+	CHECK(fzn_node_peers_load(&node->ops, peers, 2, &loaded) == FZN_PERSIST_OK && loaded == 1u,
+	      "fixture: the node's stored peer would not load");
+	CHECK(fzn_udp_bind(AF_INET, "127.0.0.1", 0, &node_fd) == FZN_UDP_OK
+	              && fzn_udp_bind(AF_INET, "127.0.0.1", 0, &dev_fd) == FZN_UDP_OK
+	              && fzn_udp_resolve(AF_INET, "127.0.0.1", port_of(node_fd), &node_addr)
+	                         == FZN_UDP_OK,
+	      "fixture: loopback sockets would not bind");
+	CHECK(fzn_replay_init(&replay, entries, 64, 100000u) == FZN_FRESH_OK
+	              && fzn_reasm_slot_init(&slots[0], slot_buf[0], sizeof(slot_buf[0]))
+	                         == FZN_REASM_OK
+	              && fzn_reasm_init(&table, slots, 1, 1u, 60u) == FZN_REASM_OK,
+	      "fixture: replay window or reassembly table would not initialise");
+
+	memset(&state, 0, sizeof(state));
+	state.config.serves_remote = 1;
+	state.config.remote_capability = *cap;
+	memcpy(state.config.root, node->id.pubkey, FZN_PUBKEY_LEN);
+	memcpy(state.node_pubkey, node->id.pubkey, FZN_PUBKEY_LEN);
+	state.listen_fd = -1;
+	state.udp_fd = node_fd;
+	state.peers = peers;
+	state.peer_count = loaded;
+	state.hash = &hash_ops;
+	state.aead = &aead;
+	state.sign = &node->sign;
+	state.rng = &rng_ops;
+	state.clock = fixed_clock;
+	state.replay = &replay;
+	state.on_remote = answer;
+
+	memset(&caller, 0, sizeof(caller));
+	fzn_node_pairing_caller(&pairing, device->id.pubkey, &caller);
+	caller.fd = dev_fd;
+	caller.node = node_addr;
+	caller.hash = &hash_ops;
+	caller.aead = &aead;
+	caller.rng = &rng_ops;
+	caller.reasm = &table;
+	caller.hops = 1u;
+
+	handler_granted = 0;
+	CHECK(fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &msg) == FZN_CALLER_OK,
+	      "the device could not send through its stored pairing");
+	CHECK(fzn_node_run_once(&state, 1000) == 1, "the node did not serve the datagram");
+	CHECK(handler_granted, "the node did not grant the paired device");
+	CHECK(fzn_caller_recv(&caller, msg, reply, sizeof(reply), &reply_len, 2000u)
+	              == FZN_CALLER_OK
+	              && reply_len == sizeof(PONG) && memcmp(reply, PONG, sizeof(PONG)) == 0,
+	      "the device was not answered, so the two stored halves of a pairing do not "
+	      "make a working pair");
+
+	fzn_wipe(&pairing, sizeof(pairing));
+	fzn_wipe(&caller, sizeof(caller));
+	fzn_udp_close(node_fd);
+	fzn_udp_close(dev_fd);
+}
+
 int main(void)
 {
 	static struct node node, device, stranger;
@@ -262,6 +387,61 @@ int main(void)
 	      "the node's own authorisation check refuses the device it just paired");
 	CHECK(node_decides(&node, &other, &peers[0], 3000u) == FZN_AUTHZ_DENIED,
 	      "the control: the paired device was granted a capability it was not given");
+
+	/* ---- THE DEVICE KEEPS ITS HALF, and a stranger cannot take it. */
+	{
+		fzn_node_pairing_t kept, back;
+		uint8_t blob[FZN_NODE_PAIRING_BLOB_LEN];
+		size_t blob_len = 0;
+
+		stranger.store.saves = 0;
+		CHECK(fzn_node_pairing_accept(&stranger.id, card, card_len, 2100u, &stranger.ops,
+		                              &kept) == FZN_NODE_PAIR_REFUSED,
+		      "a node accepted a card made for another device");
+		CHECK(stranger.store.saves == 0u, "a refused card was saved");
+
+		device.store.saves = 0;
+		CHECK(fzn_node_pairing_accept(&device.id, card, card_len, 2100u, &device.ops, &kept)
+		              == FZN_NODE_PAIR_OK,
+		      "the device would not accept the node's card");
+		CHECK(device.store.saves == 1u, "accepting did not store exactly one pairing");
+		CHECK(memcmp(kept.root, node.id.pubkey, FZN_PUBKEY_LEN) == 0
+		              && memcmp(kept.capability.b, cap.b, FZN_CAP_ID_LEN) == 0
+		              && memcmp(kept.send_key, send_key, FZN_AEAD_KEY_LEN) == 0,
+		      "the stored pairing is not the node, the grant and the session accepted");
+		CHECK(fzn_node_pairing_load(&device.ops, node.id.pubkey, &back) == FZN_PERSIST_OK
+		              && memcmp(&back, &kept, sizeof(back)) == 0,
+		      "the pairing did not come back as it was stored");
+
+		/* THE BYTES, AT THE OFFSETS persist.situ STATES: root at 2,
+		 * capability at 34, keys at 66 and 98, hop at 130. */
+		CHECK(fzn_node_pairing_pack(&kept, blob, sizeof(blob), &blob_len) == FZN_PERSIST_OK
+		              && blob_len == 309u && blob[0] == 1u && blob[1] == 7u
+		              && memcmp(blob + 2, kept.root, 32) == 0
+		              && memcmp(blob + 34, kept.capability.b, 32) == 0
+		              && memcmp(blob + 66, kept.send_key, 32) == 0
+		              && memcmp(blob + 98, kept.send_ckey, 32) == 0
+		              && memcmp(blob + 130, kept.hop, FZN_HOP_LEN) == 0,
+		      "the pairing blob is not laid out as persist.situ describes it");
+
+		/* TWO COPIES OF THE CAPABILITY MUST AGREE, or the blob has two
+		 * encodings. */
+		blob[34] ^= 0x01u;
+		CHECK(fzn_node_pairing_open(blob, blob_len, &back) == FZN_PERSIST_ERR_SHAPE,
+		      "a pairing whose capability disagrees with its own hop opened");
+		blob[34] ^= 0x01u;
+
+		/* FILED UNDER ONE NODE AND NAMING ANOTHER is refused. */
+		CHECK(mem_save(&device.store, FZN_PERSIST_PAIRED_NODE, stranger.id.pubkey, blob,
+		               blob_len)
+		              && fzn_node_pairing_load(&device.ops, stranger.id.pubkey, &back)
+		                         == FZN_PERSIST_ERR_SHAPE,
+		      "a pairing filed under one node and naming another loaded");
+		fzn_wipe(&kept, sizeof(kept));
+		fzn_wipe(&back, sizeof(back));
+	}
+
+	test_paired_stores_talk(&node, &device, &cap);
 
 	/* ---- A NODE THAT IS NOT ITS OWN ROOT PAIRS NOTHING, and writes nothing. */
 	stranger.store.saves = 0;

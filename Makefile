@@ -3150,6 +3150,11 @@ $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o \
               $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/remote.o \
               $(BUILD_DIR)/node/node.o $(BUILD_DIR)/local/peer.o \
+              $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/caller.o \
+              $(BUILD_DIR)/node/local.o $(BUILD_DIR)/local/socket.o \
+              $(BUILD_DIR)/local/peer_linux.o $(BUILD_DIR)/local/line.o \
+              $(BUILD_DIR)/local/vocabulary.o $(BUILD_DIR)/net/udp.o \
+              $(BUILD_DIR)/version/version.o \
               $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/chain/service.o \
               $(BUILD_DIR)/chain/authz.o $(BUILD_DIR)/frame/freshness.o \
               $(BUILD_DIR)/chunk/split.o $(BUILD_DIR)/chunk/reassembly.o \

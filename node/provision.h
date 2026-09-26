@@ -50,7 +50,10 @@ typedef enum fzn_node_provision_err {
 	/* The capability would not mint or the hop would not open. */
 	FZN_NODE_PROVISION_MINT = -4,
 	/* A card would not pack, open or verify. */
-	FZN_NODE_PROVISION_CARD = -5
+	FZN_NODE_PROVISION_CARD = -5,
+	/* The card is sound and its grant is not this device's: the hop does
+	 * not verify under the card's root, or names another grantee. sec 377. */
+	FZN_NODE_PROVISION_NOT_MINE = -6
 } fzn_node_provision_err_t;
 
 /* Provision `device_prekey`'s owner into `out` -- the session that opens its

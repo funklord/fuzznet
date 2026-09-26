@@ -85,6 +85,9 @@ fzn_node_provision_err_t fzn_node_accept_card(const fzn_node_identity_t *device,
 	fzn_provision_card_t card;
 	fzn_prekey_record_t node_prekey;
 	fzn_prekey_peer_t pinned;
+	fzn_chain_hop_t hop;
+	fzn_cap_id_t granted;
+	fzn_chain_t chain;
 
 	if (!device || !device->agree_secret || !card_bytes || !send_key ||
 	    !send_ckey || !root_out)
@@ -95,6 +98,23 @@ fzn_node_provision_err_t fzn_node_accept_card(const fzn_node_identity_t *device,
 		return FZN_NODE_PROVISION_CARD;
 	if (fzn_provision_verify(card, device->sign, now) != FZN_PROVISION_OK)
 		return FZN_NODE_PROVISION_CARD;
+
+	/* THE GRANT MUST BE THIS DEVICE'S, which nothing here checked. The
+	 * envelope proves the card is whole and signed by the root it names --
+	 * any card proves that about itself -- and says nothing about whom it
+	 * was made for. A device handed another device's card accepted it,
+	 * derived a session the node has no peer for, and failed on its first
+	 * request in a way that looks like the network. So the hop is verified
+	 * under the card's root, for the capability it carries, and its grantee
+	 * must be this device. Checked before anything is pinned or derived.
+	 * sec 377. */
+	if (fzn_hop_open(card.hop, FZN_HOP_LEN, &hop) != FZN_CHAIN_OK)
+		return FZN_NODE_PROVISION_CARD;
+	memcpy(granted.b, card.hop + FZN_HOP_OFF_CAPABILITY, FZN_CAP_ID_LEN);
+	if (fzn_chain_verify(&hop, 1, card.root, &granted, now, device->sign, NULL, NULL,
+	                     &chain) != FZN_CHAIN_OK
+	    || memcmp(chain.grantee, device->pubkey, FZN_PUBKEY_LEN) != 0)
+		return FZN_NODE_PROVISION_NOT_MINE;
 
 	/* Pin the node's prekey the card carried, proving its authorship. */
 	if (fzn_prekey_open(card.prekey, FZN_PREKEY_LEN_TOTAL, &node_prekey)

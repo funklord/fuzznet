@@ -3459,6 +3459,27 @@ SABOTAGES = [
 		"a card handed out for a device the store refused is a pairing that works on the device's side and nowhere else -- sec 376",
 	),
 	(
+		"accept-card-grant-must-be-this-device",
+		"node/provision.c",
+		"\t    || memcmp(chain.grantee, device->pubkey, FZN_PUBKEY_LEN) != 0)\n\t\treturn FZN_NODE_PROVISION_NOT_MINE;\n",
+		"\t    )\n\t\treturn FZN_NODE_PROVISION_NOT_MINE;\n",
+		"a device handed another device's card accepts it and derives a session the node has no peer for, then fails on its first request in a way that looks like the network -- sec 377",
+	),
+	(
+		"pairing-open-capability-agrees-with-hop",
+		"node/pair.c",
+		"\t    || memcmp(bytes + OFF_HOP + FZN_HOP_OFF_CAPABILITY, bytes + OFF_CAP, FZN_CAP_ID_LEN)\n\t               != 0)\n",
+		"\t    )\n",
+		"two copies of the capability in one blob that need not agree are two encodings of it, and the device would present one grant while holding another -- sec 377",
+	),
+	(
+		"pairing-load-root-matches-its-name",
+		"node/pair.c",
+		"\tif (memcmp(p.root, root, FZN_PUBKEY_LEN) != 0) {\n\t\tfzn_wipe(&p, sizeof(p));\n\t\treturn FZN_PERSIST_ERR_SHAPE;\n\t}\n",
+		"",
+		"a pairing filed under one node and naming another sends this device's requests under keys meant for somebody else -- sec 377",
+	),
+	(
 		"aead-open-checks-the-tag",
 		"session/aead_monocypher.c",
 		"\treturn crypto_aead_unlock(text, tag, key, nonce, aad, aad_len, text, text_len) == 0;\n",

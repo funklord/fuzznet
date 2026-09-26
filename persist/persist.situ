@@ -5,7 +5,7 @@
 // an at-rest record wants, where `target buffer` is for bytes already in hand.
 //
 // Every blob is `version | tag | body` (persist.c: OFF_VERSION=0, OFF_TAG=1,
-// OFF_BODY=2), a two-byte head followed by ONE OF five fixed bodies chosen by
+// OFF_BODY=2), a two-byte head followed by ONE OF six fixed bodies chosen by
 // the tag. It is a TAGGED UNION, modelled with situ's variant/switch: the tag
 // is the discriminant and each arm is one body struct.
 //
@@ -24,21 +24,24 @@
 //   PEER_BODY   = 41 + 32 + 8 = 81   (trust, prekey, created_at)
 //   CHAIN_BODY  = 32 + 8      = 40   (key, seq)
 //   IDENTITY_BODY = 32             (seed; FZN_SIGN_SEED_LEN, sec 375)
+//   PAIRING_BODY  = 32+32+32+32+179 = 307  (root, capability, send_key,
+//                                  send_ckey, hop; node/pair.c, sec 377)
 
 target file;
 endian big;
 
 // persist.c: BLOB_TRUST=1, BLOB_SECRET=2, BLOB_PEER=3, BLOB_CHAIN=4,
-// BLOB_IDENTITY=6. A byte that is not one of these is refused, matching
-// head_check's tag mismatch. 5 is FZN_PERSIST_BLOB_NODE_PEER, which
-// node/peer_persist.c packs with a variable-length body and this schema does
-// not yet describe.
+// BLOB_IDENTITY=6, and FZN_PERSIST_BLOB_PAIRING=7, which node/pair.c packs.
+// A byte that is not one of these is refused, matching head_check's tag
+// mismatch. 5 is FZN_PERSIST_BLOB_NODE_PEER, which node/peer_persist.c packs
+// with a variable-length body and this schema does not yet describe.
 enum fzn_persist_tag : u8 {
 	trust  = 1,
 	secret = 2,
 	peer   = 3,
 	chain  = 4,
 	identity = 6,
+	pairing = 7,
 	default = error,
 }
 
@@ -80,6 +83,18 @@ struct fzn_persist_identity_body {
 	u8  seed[32];
 }
 
+// A device's pairing to one node: the node's root, the capability it was
+// granted, the session keys it seals with, and its grant as the signed hop
+// (179 bytes, chain/hop.situ -- kept opaque here, as persist blobs are).
+// PAIRING_BODY = 307.
+struct fzn_persist_pairing_body {
+	u8  root[32];
+	u8  capability[32];
+	u8  send_key[32];
+	u8  send_ckey[32];
+	u8  hop[179];
+}
+
 // version | tag | body. The body is the arm the tag selects.
 struct fzn_persist_blob {
 	u8               version;
@@ -91,6 +106,7 @@ struct fzn_persist_blob {
 		case fzn_persist_tag.peer:   fzn_persist_peer_body    peer;
 		case fzn_persist_tag.chain:  fzn_persist_chain_body   chain;
 		case fzn_persist_tag.identity: fzn_persist_identity_body identity;
+		case fzn_persist_tag.pairing:  fzn_persist_pairing_body  pairing;
 		default: error;
 	}
 }

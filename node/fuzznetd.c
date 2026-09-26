@@ -34,6 +34,7 @@
 #include "../net/udp.h"
 #include "../persist/persist_file.h"
 #include "../chain/service.h"
+#include "../constant_time/constant_time.h"
 #include "../chain/sign_monocypher.h"
 #include "../cli/cli.h"
 #include "../provision/provision.h"
@@ -147,8 +148,9 @@ static void usage(const char *prog)
 	        " [fuzznet options]\n"
 	        "       %s --store DIR --pair PREKEY_HEX [fuzznet options]\n"
 	        "       %s --store DIR --prekey\n"
+	        "       %s --store DIR --accept CARD\n"
 	        "fuzznet options:\n%s",
-	        prog, prog, prog, fzn_cli_usage());
+	        prog, prog, prog, prog, fzn_cli_usage());
 }
 
 /* PAIR ONE DEVICE AND EXIT.
@@ -227,6 +229,7 @@ int main(int argc, char **argv)
 	fzn_cli_t cli;
 	const char *pair_hex = NULL;
 	int show_prekey = 0;
+	const char *accept_text = NULL;
 	int has_capability = 0;
 	int lfd = -1, ufd = -1, i;
 
@@ -251,6 +254,8 @@ int main(int argc, char **argv)
 			pair_hex = argv[++i];
 		} else if (!strcmp(argv[i], "--prekey")) {
 			show_prekey = 1;
+		} else if (!strcmp(argv[i], "--accept") && i + 1 < argc) {
+			accept_text = argv[++i];
 		} else {
 			/* FUZZNET'S OWN OPTIONS ARE FUZZNET'S PARSER'S, so this
 			 * daemon, the config dialog and every consumer refuse the
@@ -269,7 +274,7 @@ int main(int argc, char **argv)
 			}
 		}
 	}
-	if (!sock_path && !pair_hex && !show_prekey) {
+	if (!sock_path && !pair_hex && !show_prekey && !accept_text) {
 		usage(argv[0]);
 		return 2;
 	}
@@ -429,6 +434,39 @@ int main(int argc, char **argv)
 		}
 		print_hex(stdout, identity.prekey_record, FZN_PREKEY_LEN_TOTAL);
 		printf("\n");
+		return 0;
+	}
+
+	/* THE DEVICE'S HALF OF `--pair`: accept a node's card and keep the
+	 * pairing. It prints the node's root, which is the name the pairing is
+	 * filed under and what the device asks the node by. sec 377. */
+	if (accept_text) {
+		uint8_t card[FZN_PROVISION_LEN_TOTAL];
+		size_t card_len = 0;
+		fzn_node_pairing_t paired;
+		fzn_node_pair_err_t perr;
+
+		if (!booted) {
+			fprintf(stderr, "fuzznetd: --accept needs --store, and no --identity\n");
+			return 2;
+		}
+		if (fzn_provision_from_text(accept_text, card, sizeof(card), &card_len)
+		    != FZN_PROVISION_OK) {
+			fprintf(stderr, "fuzznetd: --accept is not a card\n");
+			return 2;
+		}
+		perr = fzn_node_pairing_accept(&identity, card, card_len, wall_clock(), store_ops,
+		                               &paired);
+		if (perr != FZN_NODE_PAIR_OK) {
+			fprintf(stderr, "fuzznetd: not accepted: %s\n", fzn_node_pair_err_str(perr));
+			return 1;
+		}
+		fprintf(stderr, "fuzznetd: paired to ");
+		print_hex(stderr, paired.root, FZN_PUBKEY_LEN);
+		fprintf(stderr, "\n");
+		print_hex(stdout, paired.root, FZN_PUBKEY_LEN);
+		printf("\n");
+		fzn_wipe(&paired, sizeof(paired));
 		return 0;
 	}
 

@@ -74,6 +74,13 @@
  *                        `node/peer_persist.h` rather than below, because
  *                        the type lives behind the generated schema and
  *                        this header does not.
+ *   fzn_node_pairing_t   MUST, per node a DEVICE is paired to -- the same
+ *                        pairing seen from the other side. Losing it leaves
+ *                        the device holding no session keys for a node that
+ *                        still holds its peer, so the node answers a device
+ *                        that can no longer ask. Absent from both lists until
+ *                        sec 377, the third time this inventory has missed a
+ *                        pairing half. Packed by `node/pair.h`.
  *
  * Recoverable rather than required, and deliberately not served here:
  *
@@ -148,6 +155,9 @@ typedef enum fzn_persist_slot {
 	/* Whole-host, no subject: the seed this host's signing key derives
 	 * from. `node/identity.h` loads or generates it. sec 375. */
 	FZN_PERSIST_OWN_IDENTITY = 7u,
+	/* Per node this host is paired TO, keyed by that node's root.
+	 * `node/pair.h` packs it. sec 377. */
+	FZN_PERSIST_PAIRED_NODE = 8u,
 } fzn_persist_slot_t;
 
 typedef enum fzn_persist_err {
@@ -177,6 +187,7 @@ typedef enum fzn_persist_err {
  * the same two bytes and drifting. */
 #define FZN_PERSIST_HEAD_LEN 2u
 #define FZN_PERSIST_BLOB_NODE_PEER 5u
+#define FZN_PERSIST_BLOB_PAIRING 7u
 
 /* Write a blob head, or refuse when `cap` cannot hold head and body. */
 fzn_persist_err_t fzn_persist_head_write(uint8_t *out, size_t cap, size_t body,
