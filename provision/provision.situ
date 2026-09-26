@@ -5,7 +5,11 @@
 //
 // A sponsor's signed statement handing a device a root to pin, a capability
 // (the hop), and the sponsor's prekey to agree a session with. The signature
-// covers the body; opaque here, as the sibling schemas leave theirs.
+// covers the body -- exactly the FZN_PROVISION_BODY_LEN bytes fzn_provision_sign
+// and fzn_provision_verify pass -- and is bound as the sibling schemas bind
+// theirs. The body NESTS two structs that each cover their own body, which
+// crashed situc until situ 74739d7 (project.md sec 308); a hop or prekey byte
+// is therefore covered twice, by its own signature and by the card's.
 
 import "../chain/hop.situ";
 import "../prekey/prekey.situ";
@@ -14,11 +18,14 @@ target buffer;
 endian big;
 
 struct fzn_provision_card {
-	u8  version [must_eq = 1];    // FZN_PROVISION_OFF_VERSION 0 (FZN_SIGNED_VERSION)
-	u8  object  [must_eq = 134];  // FZN_PROVISION_OFF_OBJECT  1 (FZN_OBJECT_PROVISION)
-	u8  root[32];                // FZN_PROVISION_OFF_ROOT       2
-	fzn_chain_hop     hop;       // FZN_PROVISION_OFF_HOP        34
-	fzn_prekey_record prekey;    // FZN_PROVISION_OFF_PREKEY     213
-	u64 expires_at;              // FZN_PROVISION_OFF_EXPIRES_AT 351
-	u8  signature[64];           // FZN_PROVISION_OFF_SIGNATURE  359
+	authenticated body {
+		u8  version [must_eq = 1];    // FZN_PROVISION_OFF_VERSION 0 (FZN_SIGNED_VERSION)
+		u8  object  [must_eq = 134];  // FZN_PROVISION_OFF_OBJECT  1 (FZN_OBJECT_PROVISION)
+		u8  root[32];                // FZN_PROVISION_OFF_ROOT       2
+		fzn_chain_hop     hop;       // FZN_PROVISION_OFF_HOP        34
+		fzn_prekey_record prekey;    // FZN_PROVISION_OFF_PREKEY     213
+		u64 expires_at;              // FZN_PROVISION_OFF_EXPIRES_AT 351
+	}
+	// No codec: Ed25519 is extern, so the caller signs and verifies.
+	checksum u8 signature[64] covers(body); // FZN_PROVISION_OFF_SIGNATURE 359
 }

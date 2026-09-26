@@ -42116,11 +42116,10 @@ reproduction and the two controls. The card's own signature therefore stays
 opaque until situ handles nested coverage; the hop and prekey it carries are
 each covered by their own.
 
-UPDATE 2026-09-19: the crash-probe monitor reports situ **74739d7 FIXES the
-nested-coverage crash** and supports it -- the probe maps clean. So the card's
-own signature is now bindable (`authenticated body` + `checksum ... covers(body)`
-around the nested hop/prekey). It is the next step here, unblocked; re-run the
-probe against the current situ first, per evidence discipline, then bind it.
+UPDATE 2026-09-19: situ **74739d7 fixed the nested-coverage crash**.
+**DONE 2026-09-26, sec 374**: the card's own signature is bound, so all six
+signed objects are. What situ still gets wrong about the card is a
+different fault, recorded there.
 
 The catalogue bodies got the same treatment for the same reason, though they
 are dispatch tags rather than signed-object tags: `fzn_catalog_apply`
@@ -47048,3 +47047,60 @@ The ordinary build printed:
 `MONOCYPHER_DIR=`, exit 0. `full`: the workflow's seven steps in order, exit
 0 each, `remote_test` 39 checks and the node's `provision_test` running
 where `core` builds neither. No `warning:` line in any of the ten logs.
+
+## 374. The card's own signature is bound, and situ unions sibling tags, 2026-09-26
+
+sec 308 bound five signed objects and held the provisioning card because
+situc crashed on a covered region containing structs that cover themselves.
+situ fixed that in 74739d7, and `make schema` extracts `0fedeb3`, which
+contains it. Re-probed before binding rather than trusting the 2026-09-19
+report.
+
+`provision/provision.situ` wraps version through `expires_at` in
+`authenticated body` and declares `checksum u8 signature[64]
+covers(body)`. That is exactly the range the C signs:
+`fzn_provision_sign` and `fzn_provision_verify` both pass bytes
+`0 .. FZN_PROVISION_BODY_LEN`, which is `FZN_PROVISION_OFF_SIGNATURE`.
+VALUE-ONLY, and the map shows it: every offset and size in the `.situ.map`
+is unchanged, the new `body` region is 359 bytes at 0, the signature sits at
+`0x167` = 359, and the card-level fields gain `signature` in their `auth`.
+`situc wire --check` calls it two breaking changes. One is the coverage
+itself. The other is the signature losing `big`, which a `u8` array never
+had any use for. The five in sec 308 took the same two and the bytes are
+the same.
+
+So all six signed objects state their signature's coverage in the schema.
+
+### What situ still says wrong about the card
+
+The committed card contract has, since the card was first converted, listed
+two `signature covers:` lines under the card when the card bound nothing.
+Those were the nested hop's and prekey's tags, unqualified, EACH listing
+BOTH structs' fields. The map agrees: `hop.grantor` was
+`Covered(hop.signature, prekey.signature)`. The prekey's signature covers
+the prekey's 74 bytes and nothing of the hop.
+
+Reduced outside this tree to three structs: `outer { u8 plain; a first;
+b second; }`, where `a` and `b` each cover their own one-byte body. situ
+reports `first.x` as `Covered(first.sig, second.sig)` and prints two
+`sig covers: body x body y` lines. With `a` alone it is correct, and `plain`
+stays uncovered in both. So the fault is specific to SIBLING self-covering
+members: their tags are unioned. That over-claims authentication, the unsafe
+direction. Reported in situ's `suggestion/fuzznet.md` with the reproduction
+and its control, and the situ session was told.
+
+**The regenerated contract is committed anyway, and its card coverage lines
+are NOT a statement of fact.** Now there are three, the third being the
+card's own tag, and that one is right: it covers the whole body including
+both nested signatures. The two per-sibling lines are wrong as described.
+`make schema` requires the contract to equal situ's output, which is
+agreement with the generator rather than correctness (`evidence.md`, "a gate
+that compares an artifact to its generator tests agreement"). Nothing
+generates code from these specs yet -- the hand-written codec still produces
+and verifies the bytes, and `provision_test` exercises it. So the wrong
+lines cost a reader's trust and no behaviour. Holding the binding until situ
+fixed it would have kept the card the one unbound object for a fault that
+the binding neither causes nor worsens.
+
+When situ fixes the union, the regenerated card contract should show each
+nested tag covering only its own struct, which is the check to make.
