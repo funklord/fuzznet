@@ -3480,6 +3480,20 @@ SABOTAGES = [
 		"a pairing filed under one node and naming another sends this device's requests under keys meant for somebody else -- sec 377",
 	),
 	(
+		"admin-mutating-verb-needs-own-user",
+		"node/admin.c",
+		"\tif (fzn_verb_mutates(request->parsed) && origin != FZN_ORIGIN_SAME_USER)\n",
+		"\tif (fzn_verb_mutates(request->parsed) && origin == FZN_ORIGIN_NONE)\n",
+		"a group that may connect is not a group that may change the node -- raidcfgd's rule and the reason local/vocabulary.h exists; without it any service-group member pairs devices into the node -- sec 378",
+	),
+	(
+		"admin-reloads-the-running-peer-set",
+		"node/admin.c",
+		"\tadmin->state->peers = admin->peers;\n\tadmin->state->peer_count = loaded;\n",
+		"",
+		"a device paired into a running node that the loop's peer set never learns of is paired on disk and refused on the wire until a restart -- the thing add peer exists to avoid -- sec 378",
+	),
+	(
 		"aead-open-checks-the-tag",
 		"session/aead_monocypher.c",
 		"\treturn crypto_aead_unlock(text, tag, key, nonce, aad, aad_len, text, text_len) == 0;\n",

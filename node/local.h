@@ -42,11 +42,15 @@
 size_t fzn_node_status_line(fzn_authz_verdict_t verdict, fzn_origin_t origin,
                             char *out, size_t cap);
 
-/* The largest reply a local handler may write. The same 512 as the remote
- * seam's FZN_NODE_REPLY_MAX, because the two answer the same question and a
- * consumer that has learned one bound should not have to learn a second. The
- * node's own status line is far shorter; this bounds what a CONSUMER says. */
-#define FZN_NODE_LOCAL_REPLY_MAX 512u
+/* The largest reply a local handler may write: the reply grammar's own bound
+ * AND ITS TERMINATOR, because a local reply IS a line of that grammar and the
+ * handler writes the newline. FZN_REPLY_MAX excludes the terminator, so a
+ * buffer of exactly FZN_REPLY_MAX could never hold a longest reply -- which
+ * was true of the old 512 and 512 as well, and was found by an assertion in
+ * `node/admin.c` rather than by a reply. It was 512 to match the remote
+ * seam's FZN_NODE_REPLY_MAX, which sec 362 has since made caller-sized, so the
+ * match it was keeping had already gone. sec 378. */
+#define FZN_NODE_LOCAL_REPLY_MAX (FZN_REPLY_MAX + 1u)
 
 /* A consumer's local handler -- the seam sec 5 has always pointed at.
  *

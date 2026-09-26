@@ -47364,3 +47364,74 @@ refused and stored nothing.
   vocabulary's question, since what one would send is a verb.
 - **Pairing into a live daemon** still needs a restart for the node to load
   the new peer (sec 376).
+
+## 378. A node answers fuzznet's verbs about itself, and pairs while running, 2026-09-26
+
+sec 376 paired a device only into a node's NEXT start, because the daemon
+loads its peers once. Pairing into a running node is a request to it, and
+fuzznet already had the verb: `local/vocabulary.h` lists ADD as "create
+one" with `provision/` as its module, so `add peer HEX` needed no new word.
+
+What it needed was a handler. A node with no consumer handler answered
+every line with its status, so `add`, `get` and `status` all got "fine".
+`node/admin.{h,c}` is the handler a node installs when the verbs it serves
+are fuzznet's own:
+
+- `status` is left to the node's own status line.
+- `add peer HEX` pairs through `node/pair.h`, reloads the running peer set
+  from the store, and answers `ok FZN1:...`, the card. The reload goes
+  through the same loader as a restart, so what the node serves is exactly
+  what it would serve after one.
+- Everything else is answered `unsupported`. A node saying it does not
+  serve a verb is a different fact from its status.
+
+A MUTATING VERB NEEDS THE NODE'S OWN USER. `fzn_verb_mutates` answers it,
+and a service-group member is answered `denied`: raidcfgd's rule, and the
+reason the vocabulary module exists -- a group that may connect is not a
+group that may change the node. A deployment wanting group members to pair
+writes its own handler with a `fzn_verb_rule_t` table.
+
+`fuzznetd` installs it when it holds what `add peer` needs: its key, a
+store and a capability.
+
+### The reply bound, and why it moved
+
+The card's text is 682 characters and the reply grammar allowed 512. So
+`FZN_REPLY_MAX` is 1024, under a rule rather than a taste: **fuzznet's own
+verbs must be answerable within fuzznet's own bound.** `node/admin.c`
+asserts at compile time that `ok ` plus a card fits, so the next object a
+verb answers with meets the bound at build rather than at a daemon.
+`FZN_NODE_LOCAL_REPLY_MAX` is now defined from it. It was a separate 512
+kept to match the remote seam's, and sec 362 had already made that one
+caller-sized.
+
+**The second assertion found an older fault.** `FZN_REPLY_MAX` excludes the
+terminator, and the node's local reply buffer was exactly that size, so a
+reply of the grammar's full length never fitted with its newline. That was
+true of 512 and 512 as well. Nothing had produced a reply that long, so
+nothing had noticed. The buffer is `FZN_REPLY_MAX + 1` now. The client was
+already right: it frames into a buffer its caller sizes.
+
+### Measured for sec 378
+
+`node/test/admin_test.c` drives the real local path: a request line over a
+socketpair, `fzn_node_serve_local` with the admin handler, and the reply
+read by `fzn_client_recv`. It checks:
+
+- A group member's `add peer` is denied, with no save and no change to the
+  running set.
+- The owner's is answered `ok` with a 685-byte line -- past the old bound,
+  at both ends.
+- The running state's peer set holds the device afterwards.
+- The device accepts the card from the reply, and its send key is the
+  running node's receive key for it.
+- `get peer` is `unsupported`, a malformed record is `malformed`, and
+  `status` is still the node's own line.
+
+Two sabotage entries hold the own-user rule and the live reload.
+
+Not driven: `fuzznetd`'s own socket with the handler installed, for the
+socket-path reason sec 375 gives.
+
+The hex decoder in `node/admin.c` is the fifth in the tree (sec 368 counted
+four). The shared helper is still a signal, not something done in passing.

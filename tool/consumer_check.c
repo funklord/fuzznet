@@ -148,6 +148,7 @@
 #include <fuzznet/node/peer_persist.h>
 #include <fuzznet/node/identity.h>
 #include <fuzznet/node/pair.h>
+#include <fuzznet/node/admin.h>
 #include <fuzznet/session/aead.h>
 #include <fuzznet/session/commitment.h>
 #include <fuzznet/session/random.h>

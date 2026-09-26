@@ -217,8 +217,16 @@ typedef enum fzn_reply {
 
 /* The longest reply line, terminator excluded. The request's bound and this
  * one are separate numbers because they bound different things and there is
- * no reason an answer should be as long as a question or the reverse. */
-#define FZN_REPLY_MAX 512u
+ * no reason an answer should be as long as a question or the reverse.
+ *
+ * 1024, AND THE RULE THAT SETS IT: FUZZNET'S OWN VERBS MUST BE ANSWERABLE
+ * WITHIN FUZZNET'S OWN BOUND. It was 512, and the first of fuzznet's verbs to
+ * answer with an object -- `add peer`, whose answer is the pairing card --
+ * needs `ok ` and 682 characters of `FZN1:` text. A verb whose answer cannot
+ * fit is the promise-rather-than-capability the verb list above warns about.
+ * `node/admin.c` asserts the card fits at compile time, so the next object a
+ * verb answers with meets this at build rather than at a daemon. sec 378. */
+#define FZN_REPLY_MAX 1024u
 
 /* The canonical spelling, NUL-terminated; NULL for FZN_REPLY_NONE and for a
  * value outside the enum. As with verbs, one spelling only. */

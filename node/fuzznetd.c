@@ -27,6 +27,7 @@
  */
 
 #include "serve.h"
+#include "admin.h"
 #include "identity.h"
 #include "pair.h"
 #include "peer_persist.h"
@@ -527,6 +528,7 @@ int main(int argc, char **argv)
 	 * rather than refused. */
 	if (store_ops) {
 		static fzn_node_peer_t peers[FZN_NODE_PEERS_MAX];
+		static fzn_node_admin_t admin;
 		size_t loaded = 0;
 		fzn_persist_err_t err;
 
@@ -542,6 +544,21 @@ int main(int argc, char **argv)
 		state.peers = peers;
 		state.peer_count = loaded;
 		fprintf(stderr, "fuzznetd: %zu peer(s) from %s\n", loaded, store_dir);
+
+		/* FUZZNET'S OWN VERBS, answered by the node about itself, when it
+		 * holds what they need: its key, a store, and the capability it
+		 * grants. `add peer` then pairs a device into the RUNNING node,
+		 * which `--pair` could only do for its next start. sec 378. */
+		if (booted && has_capability) {
+			admin.state = &state;
+			admin.peers = peers;
+			admin.peers_cap = FZN_NODE_PEERS_MAX;
+			admin.id = &identity;
+			admin.store = store_ops;
+			admin.card_lifetime = FZND_CARD_LIFETIME;
+			state.on_local = fzn_node_admin_handle;
+			state.on_local_ctx = &admin;
+		}
 	}
 
 	fprintf(stderr, "fuzznetd: serving on %s%s\n", sock_path,
