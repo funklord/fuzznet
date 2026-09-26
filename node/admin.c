@@ -5,6 +5,7 @@
 #include "peer_persist.h"
 #include "../provision/provision.h"
 
+#include <stdio.h>
 #include <string.h>
 
 /* `ok ` and the whole card text must fit one reply line, or `add peer` is a
@@ -15,6 +16,7 @@ _Static_assert(FZN_NODE_LOCAL_REPLY_MAX >= FZN_REPLY_MAX + 1u,
                "the node's local reply buffer cannot hold a whole reply line");
 
 static const uint8_t SUBJECT_PEER[] = "peer ";
+static const uint8_t SUBJECT_PEERS[] = "peer";
 
 static size_t answer(char *reply, size_t cap, fzn_reply_t kind, const char *detail,
                      size_t detail_len)
@@ -100,11 +102,111 @@ static size_t add_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t hex_l
 	return answer(reply, cap, FZN_REPLY_OK, text, strlen(text));
 }
 
+/* Is `arg` the subject `peer`, alone or followed by a space and more? Sets
+ * `rest` to what follows the space, or to nothing for `peer` alone. */
+static int subject_peer(const fzn_request_t *request, const uint8_t **rest, size_t *rest_len)
+{
+	*rest = NULL;
+	*rest_len = 0;
+	if (!request->arg)
+		return 0;
+	if (request->arg_len == sizeof(SUBJECT_PEERS) - 1u
+	    && memcmp(request->arg, SUBJECT_PEERS, request->arg_len) == 0)
+		return 1;
+	if (request->arg_len > sizeof(SUBJECT_PEER) - 1u
+	    && memcmp(request->arg, SUBJECT_PEER, sizeof(SUBJECT_PEER) - 1u) == 0) {
+		*rest = request->arg + (sizeof(SUBJECT_PEER) - 1u);
+		*rest_len = request->arg_len - (sizeof(SUBJECT_PEER) - 1u);
+		return 1;
+	}
+	return 0;
+}
+
+static void put_hex(char *out, const uint8_t *in, size_t len)
+{
+	static const char H[] = "0123456789abcdef";
+	size_t i;
+
+	for (i = 0; i < len; i++) {
+		out[i * 2u] = H[in[i] >> 4];
+		out[(i * 2u) + 1u] = H[in[i] & 0x0fu];
+	}
+}
+
+/* `list peer [FROM]`: `ok TOTAL FROM KEY KEY ...`, as many keys as fit one
+ * reply line from FROM onward.
+ *
+ * PAGED, NOT TRUNCATED. Sixty-four peers at sixty-five characters each will
+ * not fit a line, and a list that silently stopped at the fifteenth would be
+ * the short answer `persist.h` refuses for `list` -- a node that appears to
+ * hold fewer devices than it does. The total is stated, so a caller knows
+ * whether to ask again and from where. */
+static size_t list_peers(fzn_node_admin_t *admin, const uint8_t *from_text, size_t from_len,
+                         char *reply, size_t cap)
+{
+	char detail[FZN_REPLY_MAX];
+	size_t from = 0, total = admin->state->peer_count, at, i;
+	int n;
+
+	for (i = 0; i < from_len; i++) {
+		if (from_text[i] < '0' || from_text[i] > '9' || from > FZN_NODE_PEERS_MAX)
+			return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a peer index");
+		from = (from * 10u) + (size_t)(from_text[i] - '0');
+	}
+	if (from > total)
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "past the last peer");
+	n = snprintf(detail, sizeof(detail), "%zu %zu", total, from);
+	if (n < 0 || (size_t)n >= sizeof(detail))
+		return 0;
+	at = (size_t)n;
+	/* One space and 64 hex characters per key, under the reply's bound
+	 * less the `ok ` in front of the detail. */
+	for (i = from; i < total; i++) {
+		if (at + 1u + (FZN_PUBKEY_LEN * 2u) > FZN_REPLY_MAX - 3u)
+			break;
+		detail[at++] = ' ';
+		put_hex(detail + at, admin->state->peers[i].sender, FZN_PUBKEY_LEN);
+		at += FZN_PUBKEY_LEN * 2u;
+	}
+	return answer(reply, cap, FZN_REPLY_OK, detail, at);
+}
+
+/* `remove peer KEY`: un-pair a device from the RUNNING node. The store forgets
+ * it and the live set is reloaded from the store, as after a pairing, so the
+ * device's next frame finds no session and is dropped. */
+static size_t remove_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t hex_len,
+                          char *reply, size_t cap)
+{
+	uint8_t sender[FZN_PUBKEY_LEN];
+	size_t loaded = 0;
+
+	if (!unhex(hex, hex_len, sender, sizeof(sender)))
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a peer key");
+	if (!fzn_node_find_peer(admin->state->peers, admin->state->peer_count, sender))
+		return answer_text(reply, cap, FZN_REPLY_ERROR, "no such peer");
+	if (fzn_node_peer_remove(admin->store, sender) != FZN_PERSIST_OK)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, "this store cannot forget the peer");
+	/* THE STORE FIRST, THEN THE LIVE SET. A reload that fails leaves the
+	 * node serving a set that still holds the device, and says so -- the
+	 * one direction where carrying on quietly would keep serving somebody
+	 * the operator has just cut off. */
+	if (fzn_node_peers_load(admin->store, admin->peers, admin->peers_cap, &loaded)
+	    != FZN_PERSIST_OK)
+		return answer_text(reply, cap, FZN_REPLY_ERROR,
+		                   "forgotten by the store, and the running peer set did not "
+		                   "reload, so it is still served until a restart");
+	admin->state->peers = admin->peers;
+	admin->state->peer_count = loaded;
+	return answer(reply, cap, FZN_REPLY_OK, (const char *)hex, hex_len);
+}
+
 size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t origin,
                              const fzn_peer_t *peer, const fzn_request_t *request,
                              char *reply, size_t reply_cap)
 {
 	fzn_node_admin_t *admin = (fzn_node_admin_t *)ctx;
+	const uint8_t *rest;
+	size_t rest_len;
 
 	(void)verdict; /* not called on a denial -- node/local.h */
 	(void)peer;
@@ -119,11 +221,14 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 		return answer_text(reply, reply_cap, FZN_REPLY_DENIED,
 		                   "changing this node needs its own user");
 
-	if (request->parsed == FZN_VERB_ADD && request->arg
-	    && request->arg_len > sizeof(SUBJECT_PEER) - 1u
-	    && memcmp(request->arg, SUBJECT_PEER, sizeof(SUBJECT_PEER) - 1u) == 0)
-		return add_peer(admin, request->arg + (sizeof(SUBJECT_PEER) - 1u),
-		                request->arg_len - (sizeof(SUBJECT_PEER) - 1u), reply, reply_cap);
+	if (subject_peer(request, &rest, &rest_len)) {
+		if (request->parsed == FZN_VERB_ADD && rest)
+			return add_peer(admin, rest, rest_len, reply, reply_cap);
+		if (request->parsed == FZN_VERB_REMOVE && rest)
+			return remove_peer(admin, rest, rest_len, reply, reply_cap);
+		if (request->parsed == FZN_VERB_LIST)
+			return list_peers(admin, rest, rest_len, reply, reply_cap);
+	}
 
 	return answer_text(reply, reply_cap, FZN_REPLY_UNSUPPORTED, NULL);
 }

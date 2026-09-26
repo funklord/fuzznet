@@ -395,6 +395,25 @@ fzn_persist_err_t fzn_persist_file_holds(const fzn_persist_file_t *store,
 	return S_ISREG(st.st_mode) ? FZN_PERSIST_OK : FZN_PERSIST_ERR_BACKEND;
 }
 
+/* ENOENT IS SUCCESS: the slot is gone, which is what was asked. Durable to
+ * the same degree as `file_save`, which syncs the file it writes and not the
+ * directory it renames into -- a removal surviving a crash that a save would
+ * not is a guarantee this backend does not otherwise make. */
+static int file_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject)
+{
+	fzn_persist_file_t *store = (fzn_persist_file_t *)ctx;
+	char path[PATH_MAX_LEN];
+
+	if (!store)
+		return 0;
+	if (!path_for(path, sizeof(path), store->dir, slot, subject, NULL))
+		return 0;
+	if (unlink(path) == 0 || errno == ENOENT)
+		return 1;
+	say_failed(store, "remove", path, errno);
+	return 0;
+}
+
 const fzn_persist_ops_t *fzn_persist_file_init(fzn_persist_file_t *store, const char *dir)
 {
 	char probe[PATH_MAX_LEN];
@@ -414,6 +433,7 @@ const fzn_persist_ops_t *fzn_persist_file_init(fzn_persist_file_t *store, const 
 	store->ops.load = file_load;
 	store->ops.save = file_save;
 	store->ops.list = file_list;
+	store->ops.remove = file_remove;
 	store->ops.ctx = store;
 	return &store->ops;
 }

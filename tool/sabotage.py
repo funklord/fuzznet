@@ -3489,9 +3489,30 @@ SABOTAGES = [
 	(
 		"admin-reloads-the-running-peer-set",
 		"node/admin.c",
-		"\tadmin->state->peers = admin->peers;\n\tadmin->state->peer_count = loaded;\n",
-		"",
+		"\tadmin->state->peers = admin->peers;\n\tadmin->state->peer_count = loaded;\n\n\tif (fzn_provision_text(",
+		"\n\tif (fzn_provision_text(",
 		"a device paired into a running node that the loop's peer set never learns of is paired on disk and refused on the wire until a restart -- the thing add peer exists to avoid -- sec 378",
+	),
+	(
+		"admin-remove-reloads-the-running-set",
+		"node/admin.c",
+		"\tadmin->state->peers = admin->peers;\n\tadmin->state->peer_count = loaded;\n\treturn answer(reply, cap, FZN_REPLY_OK, (const char *)hex, hex_len);\n",
+		"\treturn answer(reply, cap, FZN_REPLY_OK, (const char *)hex, hex_len);\n",
+		"a device the store has forgotten and the running set still holds is cut off on paper and served on the wire until a restart -- the operator has just been told it is gone -- sec 379",
+	),
+	(
+		"admin-list-refuses-past-the-end",
+		"node/admin.c",
+		"\tif (from > total)\n\t\treturn answer_text(reply, cap, FZN_REPLY_MALFORMED, \"past the last peer\");\n",
+		"",
+		"an offset past the end answered ok with no keys reads as a node holding nothing from there, so a caller walking pages from a stale offset is told the list ended rather than that it asked wrongly -- sec 379",
+	),
+	(
+		"file-remove-absent-is-gone",
+		"persist/persist_file.c",
+		"\tif (unlink(path) == 0 || errno == ENOENT)\n",
+		"\tif (unlink(path) == 0)\n",
+		"a second removal answering failure makes a retry after a lost reply look like a fault, and the caller's question was whether it is gone -- sec 379",
 	),
 	(
 		"aead-open-checks-the-tag",

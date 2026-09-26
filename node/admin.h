@@ -13,6 +13,10 @@
  *     add peer HEX      pair a device into the RUNNING node: `node/pair.h`,
  *                       then the live peer set is reloaded from the store,
  *                       and the answer is `ok FZN1:...`, the card
+ *     remove peer KEY   un-pair one: the store forgets it and the live set
+ *                       is reloaded, so its next frame finds no session
+ *     list peer [FROM]  `ok TOTAL FROM KEY ...`, paged rather than cut
+ *                       short, since sixty-four keys do not fit one line
  *
  * Every other verb of fuzznet's, and any verb that is not, is answered
  * `unsupported` -- a node saying it does not serve a verb is a different fact

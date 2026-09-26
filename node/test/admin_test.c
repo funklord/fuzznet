@@ -115,6 +115,15 @@ static int mem_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 	return 1;
 }
 
+static int mem_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject)
+{
+	struct mem_entry *x = find((struct mem_store *)ctx, slot, subject, 0);
+
+	if (x)
+		memset(x, 0, sizeof(*x));
+	return 1;
+}
+
 static int mem_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t max,
                     size_t *count)
 {
@@ -156,6 +165,7 @@ static int node_up(struct node *n)
 	n->ops.load = mem_load;
 	n->ops.save = mem_save;
 	n->ops.list = mem_list;
+	n->ops.remove = mem_remove;
 	n->ops.ctx = &n->store;
 	fzn_sign_monocypher_init(&n->sign, &n->signer);
 	fzn_sign_monocypher_seat_init(&n->seat, &n->signer);
@@ -212,7 +222,7 @@ static int ask(fzn_node_admin_t *admin, const fzn_peer_t *who, const char *line,
 int main(void)
 {
 	static struct node node, device;
-	static fzn_node_peer_t peers[4];
+	static fzn_node_peer_t peers[32];
 	static uint8_t reply[FZN_REPLY_MAX + 1u];
 	static char line[FZN_REQUEST_MAX];
 	fzn_node_state_t state;
@@ -245,7 +255,7 @@ int main(void)
 	memset(&admin, 0, sizeof(admin));
 	admin.state = &state;
 	admin.peers = peers;
-	admin.peers_cap = 4;
+	admin.peers_cap = 32;
 	admin.id = &node.id;
 	admin.store = &node.ops;
 	admin.card_lifetime = 86400u;
@@ -305,6 +315,146 @@ int main(void)
 		                         == 0,
 		      "the device's send key is not the running node's receive key for it");
 		fzn_wipe(&pairing, sizeof(pairing));
+	}
+
+	/* ---- LISTED, BY ANYONE THE NODE SERVES: listing changes nothing. */
+	{
+		char want[160];
+		char key[(FZN_PUBKEY_LEN * 2u) + 1u];
+
+		hex(device.id.pubkey, FZN_PUBKEY_LEN, key);
+		snprintf(want, sizeof(want), "ok 1 0 %s\n", key);
+		CHECK(ask(&admin, &member, "list peer", reply, sizeof(reply), &reply_len)
+		              && reply_len == strlen(want) - 1u
+		              && memcmp(reply, want, reply_len) == 0,
+		      "list peer did not answer the total, the offset and the one paired key");
+	}
+
+	/* ---- UN-PAIRED: A GROUP MEMBER MAY NOT, THE OWNER MAY, AND IT TAKES. */
+	{
+		char key[(FZN_PUBKEY_LEN * 2u) + 1u];
+
+		hex(device.id.pubkey, FZN_PUBKEY_LEN, key);
+		snprintf(line, sizeof(line), "remove peer %s", key);
+		CHECK(ask(&admin, &member, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+		                         == FZN_REPLY_DENIED
+		              && state.peer_count == 1u,
+		      "a service-group member un-paired a device");
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK,
+		      "the node's own user could not un-pair a device");
+		CHECK(state.peer_count == 0u,
+		      "the un-paired device is still in the RUNNING node's peer set");
+		{
+			fzn_node_peer_t back[2];
+			size_t n = 9;
+
+			CHECK(fzn_node_peers_load(&node.ops, back, 2, &n) == FZN_PERSIST_OK && n == 0u,
+			      "the un-paired device is still in the store, so a restart serves it");
+		}
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+		                         == FZN_REPLY_ERROR,
+		      "un-pairing a device that is not paired was answered as if it were");
+	}
+
+	/* ---- A STORE THAT CANNOT FORGET SAYS SO, AND NOTHING CHANGES. */
+	{
+		char key[(FZN_PUBKEY_LEN * 2u) + 1u];
+
+		snprintf(line, sizeof(line), "add peer %s", prekey_hex);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && state.peer_count == 1u,
+		      "fixture: re-pairing the device failed");
+		node.ops.remove = NULL;
+		hex(device.id.pubkey, FZN_PUBKEY_LEN, key);
+		snprintf(line, sizeof(line), "remove peer %s", key);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+		                         == FZN_REPLY_ERROR
+		              && state.peer_count == 1u,
+		      "a store with no remove un-paired a device, or the refusal changed the set");
+		node.ops.remove = mem_remove;
+	}
+
+	/* ---- PAGED, NOT CUT SHORT. Seventeen devices do not fit one line, so the
+	 * pages are walked and every key must turn up exactly once, and the
+	 * total must be stated on every page. */
+	{
+		static struct node more[16];
+		size_t from = 0, got = 0, i, pages = 0;
+		int ok = 1, every_key = 1;
+
+		for (i = 0; i < 16u && ok; i++) {
+			char h[(FZN_PREKEY_LEN_TOTAL * 2u) + 1u];
+
+			ok = node_up(&more[i]);
+			hex(more[i].id.prekey_record, FZN_PREKEY_LEN_TOTAL, h);
+			snprintf(line, sizeof(line), "add peer %s", h);
+			ok = ok && ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			     && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK;
+		}
+		CHECK(ok && state.peer_count == 17u, "fixture: seventeen devices would not pair");
+
+		{
+			int seen[17] = { 0 };
+
+			while (ok && from < 17u && pages < 17u) {
+				unsigned long total = 0, off = 0;
+				char head[32];
+				size_t head_len, at, on_page = 0;
+				int consumed = 0;
+
+				snprintf(line, sizeof(line), "list peer %zu", from);
+				ok = ask(&admin, &member, line, reply, sizeof(reply), &reply_len)
+				     && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+				                == FZN_REPLY_OK;
+				if (!ok)
+					break;
+				head_len = detail_len < sizeof(head) - 1u ? detail_len
+				                                          : sizeof(head) - 1u;
+				memcpy(head, detail, head_len);
+				head[head_len] = '\0';
+				ok = sscanf(head, "%lu %lu%n", &total, &off, &consumed) == 2
+				     && total == 17u && off == from;
+				for (at = (size_t)consumed; ok && at + 65u <= detail_len; at += 65u) {
+					size_t k;
+					int matched = 0;
+
+					for (k = 0; k < state.peer_count && k < 17u; k++) {
+						char key[(FZN_PUBKEY_LEN * 2u) + 1u];
+
+						hex(state.peers[k].sender, FZN_PUBKEY_LEN, key);
+						if (detail[at] == ' '
+						    && memcmp(detail + at + 1u, key, 64u) == 0) {
+							/* A key listed twice is as wrong as
+							 * one missed. */
+							every_key = every_key && !seen[k];
+							seen[k] = 1;
+							matched = 1;
+							break;
+						}
+					}
+					every_key = every_key && matched;
+					on_page++;
+				}
+				ok = ok && on_page > 0u;
+				got += on_page;
+				from += on_page;
+				pages++;
+			}
+			for (i = 0; i < 17u; i++)
+				every_key = every_key && seen[i];
+		}
+		CHECK(ok, "list peer did not state the total and the offset on every page");
+		CHECK(ask(&admin, &member, "list peer 20", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+		                         == FZN_REPLY_MALFORMED,
+		      "an offset past the last peer was answered as an empty page");
+		CHECK(got == 17u && every_key && pages >= 2u,
+		      "walking list peer's pages did not return all seventeen keys exactly, "
+		      "or fitted them on one page");
 	}
 
 	/* ---- WHAT IT DOES NOT SERVE, IT SAYS SO. */

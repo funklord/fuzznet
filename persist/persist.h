@@ -239,6 +239,21 @@ typedef struct fzn_persist_ops {
 	 * because nothing anywhere says which are missing. */
 	int (*list)(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t max,
 	            size_t *count);
+	/* FORGET WHAT `save` STORED under (slot, subject). Returns 1 when it is
+	 * gone afterwards -- INCLUDING when it was never there, because the
+	 * caller's question is "is it gone", and a second removal answering
+	 * failure would make a retry after a lost reply look like a fault --
+	 * and 0 when the backend could not remove it.
+	 *
+	 * OPTIONAL, like `list`, and NULL is an honest "this backend cannot
+	 * forget" -- an append-only log, a write-once keystore. A caller that
+	 * needs removal reports its absence rather than working round it.
+	 *
+	 * Added so a node can un-pair a device (sec 379). Until then nothing in
+	 * this library could forget anything it had stored, so a device once
+	 * paired was served until somebody deleted a file by hand and restarted
+	 * the node. */
+	int (*remove)(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject);
 	void *ctx;
 } fzn_persist_ops_t;
 

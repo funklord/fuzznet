@@ -515,6 +515,38 @@ int main(void)
 		(void)rmdir(blocker);
 	}
 	{
+		/* REMOVE: gone afterwards, gone again, and a refusal where the
+		 * directory will not let go. sec 379. */
+		char ro[320];
+		fzn_persist_file_t ro_store;
+		const fzn_persist_ops_t *ro_ops;
+
+		expect(ops->remove != NULL, "the file backend offers no remove");
+		expect(ops->save(ops->ctx, FZN_PERSIST_NODE_PEER, subject, in, 8u) == 1,
+		       "fixture: save refused");
+		expect(ops->remove(ops->ctx, FZN_PERSIST_NODE_PEER, subject) == 1,
+		       "removing a stored slot failed");
+		expect(fzn_persist_file_holds(&store, FZN_PERSIST_NODE_PEER, subject)
+		               == FZN_PERSIST_ERR_ABSENT,
+		       "a removed slot is still held");
+		expect(ops->remove(ops->ctx, FZN_PERSIST_NODE_PEER, subject) == 1,
+		       "removing an absent slot answered failure, so a retry after a lost "
+		       "reply looks like a fault");
+
+		snprintf(ro, sizeof(ro), "%s/ro-remove", dir);
+		expect(mkdir(ro, 0700) == 0, "fixture: could not make the read-only store");
+		ro_ops = fzn_persist_file_init(&ro_store, ro);
+		if (ro_ops && ro_ops->save(ro_ops->ctx, FZN_PERSIST_NODE_PEER, subject, in, 8u)
+		    && geteuid() != 0 && chmod(ro, 0500) == 0) {
+			expect(ro_ops->remove(ro_ops->ctx, FZN_PERSIST_NODE_PEER, subject) == 0,
+			       "a slot the directory would not let go of was reported removed");
+			(void)chmod(ro, 0700);
+		}
+		if (ro_ops)
+			(void)ro_ops->remove(ro_ops->ctx, FZN_PERSIST_NODE_PEER, subject);
+		(void)rmdir(ro);
+	}
+	{
 		/* AN UNSEARCHABLE STORE CANNOT TELL, and that is the case the
 		 * function exists for: stat fails with EACCES, not ENOENT, and
 		 * answering "absent" there is how a node that could not read its

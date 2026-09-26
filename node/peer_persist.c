@@ -164,3 +164,13 @@ fzn_persist_err_t fzn_node_peers_load(const fzn_persist_ops_t *ops,
 	*count = found;
 	return FZN_PERSIST_OK;
 }
+
+fzn_persist_err_t fzn_node_peer_remove(const fzn_persist_ops_t *ops,
+                                       const uint8_t sender[FZN_PUBKEY_LEN])
+{
+	if (!ops || !sender)
+		return FZN_PERSIST_ERR_MALFORMED;
+	if (!ops->remove || !ops->remove(ops->ctx, FZN_PERSIST_NODE_PEER, sender))
+		return FZN_PERSIST_ERR_BACKEND;
+	return FZN_PERSIST_OK;
+}

@@ -80,6 +80,12 @@ fzn_persist_err_t fzn_node_peer_pack(const fzn_node_peer_t *peer, uint8_t *out,
 fzn_persist_err_t fzn_node_peer_open(const uint8_t *bytes, size_t len,
                                      fzn_node_peer_t *out);
 
+/* Forget the peer whose identity is `sender`. OK when it is gone afterwards,
+ * whether or not it was there; BACKEND when the backend cannot forget -- its
+ * `remove` is NULL -- or refused. A node un-pairing a device. sec 379. */
+fzn_persist_err_t fzn_node_peer_remove(const fzn_persist_ops_t *ops,
+                                       const uint8_t sender[FZN_PUBKEY_LEN]);
+
 /* Save one peer through a backend, keyed by its own identity. */
 fzn_persist_err_t fzn_node_peer_save(const fzn_persist_ops_t *ops,
                                      const fzn_node_peer_t *peer);

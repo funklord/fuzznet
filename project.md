@@ -47435,3 +47435,75 @@ socket-path reason sec 375 gives.
 
 The hex decoder in `node/admin.c` is the fifth in the tree (sec 368 counted
 four). The shared helper is still a signal, not something done in passing.
+
+## 379. A device can be un-paired, and a node can say who it serves, 2026-09-26
+
+sec 1 says "a stolen device is something you revoke". Until now a node could
+not cut a paired device off at all: nothing in this library could forget
+anything it had stored, so a device once paired was served until somebody
+deleted a file by hand and restarted the node.
+
+### What revocation is and is not here
+
+The node's remote path passes NULL for revocations -- `node/remote.c` calls
+`fzn_node_decide(..., NULL, NULL)` -- so nothing it serves consults any.
+For a device paired to ONE node, removing its peer record cuts it off
+completely: with no session the node cannot even open its frames. Revocation
+proper matters when a grant is honoured by nodes other than the one that
+minted it, where there is no peer record to remove. That is the next piece
+and a larger one, and it has a persistence question of its own. `persist.h`
+calls the revocation store "refilled from manifests", which does not cover a
+node's revocations of its own grants: forgetting them on restart would
+re-admit the device.
+
+### The seam gains `remove`
+
+`fzn_persist_ops_t` gains an optional `remove`, following `list`'s precedent
+(sec 367): NULL is an honest "this backend cannot forget", and a caller that
+needs it says so. It returns 1 when the slot is gone afterwards, INCLUDING
+when it was never there -- the caller's question is "is it gone", and a
+second removal answering failure makes a retry after a lost reply look like
+a fault. The file backend unlinks, takes ENOENT as success, and is as
+durable as its own save, which syncs the file and not the directory.
+`fzn_node_peer_remove` wraps it for the node's peers.
+
+### Two verbs
+
+`remove peer KEY` needs the node's own user, as every mutating verb does
+(sec 378). It refuses a key the running node does not hold. It has the
+store forget the peer FIRST and then reloads the running set from the
+store, so the device's next frame finds no session. A reload that fails is
+reported as the device still being served until a restart, the one
+direction where carrying on quietly would keep serving somebody the
+operator has just cut off.
+
+`list peer [FROM]` changes nothing, so a service-group member may ask it.
+It answers `ok TOTAL FROM KEY KEY ...` with as many keys as fit one reply
+line. **Paged, not truncated**: sixty-four keys do not fit 1024 bytes, and
+a list that stopped silently at the fifteenth would be the short answer
+`persist.h` refuses for `list` -- a node that appears to hold fewer devices
+than it does. The total is on every page.
+
+### Measured for sec 379
+
+`admin_test` checks, through the real local path:
+
+- A group member may list and may not remove.
+- The owner's removal takes the device out of the running set AND the
+  store, and a second removal is an error, not a success.
+- A store with no `remove` refuses and leaves the running set as it was.
+- Seventeen devices are listed over at least two pages, every key once and
+  none twice, with the total on every page.
+- An offset past the last peer is `malformed`, not an empty page. It is
+  tested at 20, which is inside the index parser's own bound, because 99
+  would have been refused by the parser first and the check under test
+  never reached -- the sabotage run is what that case exists for.
+
+`persist_file_test` checks that `remove` leaves the slot absent, that
+removing again succeeds, and that a directory at mode 0500 is refused.
+
+Three sabotage entries hold the live reload on removal, the past-the-end
+refusal and the absent-is-gone rule. A fourth was drafted and dropped:
+removing the list's fit check would have been "caught" by writing past the
+reply buffer, which is a crash rather than a check, and a sabotage caught
+that way says nothing about the test.
