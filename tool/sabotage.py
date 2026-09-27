@@ -3641,6 +3641,27 @@ SABOTAGES = [
 		"a member's record for a capability its chain does not carry can never admit, and offering it fails the whole load, so the node will not start -- sec 385",
 	),
 	(
+		"unrevoke-names-the-whole-record",
+		"node/revoke.c",
+		"\t\tif (!id->hash->hash(id->hash->ctx, target, sizeof(target), previous,\n\t\t                    sizeof(previous)))\n",
+		"\t\tif (!id->hash->hash(id->hash->ctx, target, sizeof(target), previous,\n\t\t                    sizeof(previous) - 1u))\n",
+		"a withdrawal names the record it undoes by the hash of all of it; any other hash names nothing the store holds, and the undo is refused -- sec 386",
+	),
+	(
+		"unrevoke-only-what-is-in-force",
+		"node/revoke.c",
+		"\t\tif (!held || fzn_revocation_is_withdrawal(prev_rec))\n\t\t\treturn FZN_NODE_REVOKE_NOT_REVOKED;\n",
+		"\t\tif (!held)\n\t\t\treturn FZN_NODE_REVOKE_NOT_REVOKED;\n",
+		"undoing a withdrawal mints a withdrawal of a withdrawal, which admission refuses, and an operator is told the store failed rather than that there was nothing to undo -- sec 386",
+	),
+	(
+		"admin-serves-remove-revocation",
+		"node/admin.c",
+		"\tif (request->parsed == FZN_VERB_REMOVE && subject_revocation(request, &rest, &rest_len)\n\t    && rest && admin->revocations)\n\t\treturn unrevoke_peer(admin, rest, rest_len, reply, reply_cap);\n",
+		"",
+		"with no verb to undo a revocation, an operator who revoked the wrong device can only re-pair it under a new key -- sec 386",
+	),
+	(
 		"admin-remote-refuses-mutation",
 		"node/admin.c",
 		"\tif (fzn_verb_mutates(request.parsed))\n\t\treturn answer_text(out, reply_cap, FZN_REPLY_DENIED,\n\t\t                   \"a remote caller may not change this node\");\n",

@@ -249,9 +249,12 @@ fzn_chain_err_t fzn_revocation_issue_withdrawal(const uint8_t issuer[FZN_PUBKEY_
  * WHAT A CONSUMER MUST DO TODAY: hand the withdrawal record to
  * `fzn_revocation_admit` on every host that needs it, by whatever path it
  * already uses to move records. Admission is idempotent, so re-delivery is
- * free and delivering to a host that never held the revocation is refused
- * with FZN_CHAIN_ERR_UNKNOWN_TARGET rather than mis-stored. What a consumer
- * CANNOT do is rely on the manifest exchange to converge it.
+ * free, and a host that never held the revocation stores the withdrawal as
+ * a tombstone naming it (below, since 2026-09-03), so the revocation
+ * arriving later is refused as the stale copy it is. What a consumer CANNOT
+ * do is rely on the manifest exchange to converge it. fuzznet's own node is
+ * one such path: a member pulls its root's records, withdrawals included,
+ * with `get revocation` (`node/revoke.h`, secs 384 and 386).
  *
  * THE DESIGN QUESTION IS OPEN and is not this header's to settle: whether a
  * manifest gains a second section, whether withdrawals get a manifest of

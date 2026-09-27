@@ -875,7 +875,7 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 		fzn_prekey_record_t e_rec;
 		fzn_node_pairing_t e_pairing;
 		fzn_node_authority_t leaf;
-		size_t count = 0;
+		size_t count = 0, learned = 0;
 
 		CHECK(node_up(&e)
 		              && fzn_prekey_open(e.id.prekey_record, FZN_PREKEY_LEN_TOTAL, &e_rec)
@@ -938,6 +938,56 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 		      "N's restart with its chain did not reload R's, its own, and its pre-join records");
 		CHECK(granted_by(&n, r.id.pubkey, &e, cap, &reloaded) == 0,
 		      "after a restart N granted a device it had itself revoked");
+
+		/* ---- UNDONE, sec 386: E is granted again, a second undo has
+		 * nothing to undo, a restart keeps it undone -- the withdrawal
+		 * alone in slot 9 admits as a tombstone -- and a revocation after
+		 * it supersedes the one undone and denies again. */
+		{
+			static fzn_revocation_t a_entries[8], b_entries[8], c_entries[8];
+			fzn_revocation_store_t after, again, root_revs;
+
+			CHECK(fzn_revocation_store_init(&after, a_entries, 8) == FZN_CHAIN_OK
+			              && fzn_revocation_store_init(&again, b_entries, 8) == FZN_CHAIN_OK
+			              && fzn_revocation_store_init(&root_revs, c_entries, 8)
+			                         == FZN_CHAIN_OK,
+			      "fixture: stores for the undo");
+			CHECK(fzn_node_unrevoke(&n.id, r.id.pubkey, NULL, e.id.pubkey, 1900u, &mine,
+			                        &n.ops) == FZN_NODE_REVOKE_NOT_ROOT,
+			      "a member undid a revocation as though it were the root");
+			CHECK(fzn_node_unrevoke(&n.id, r.id.pubkey, &authority, e.id.pubkey, 1900u, &mine,
+			                        &n.ops) == FZN_NODE_REVOKE_OK,
+			      "N would not undo its own revocation of E");
+			CHECK(granted_by(&n, r.id.pubkey, &e, cap, &mine) == 1,
+			      "N still denied E after undoing its revocation");
+			CHECK(fzn_node_unrevoke(&n.id, r.id.pubkey, &authority, e.id.pubkey, 1901u, &mine,
+			                        &n.ops) == FZN_NODE_REVOKE_NOT_REVOKED,
+			      "undoing twice was not reported as nothing to undo");
+			CHECK(fzn_node_revocations_load(&n.ops, &after, r.id.pubkey, &authority, &n.sign,
+			                                &hash_ops, &count) == FZN_PERSIST_OK
+			              && granted_by(&n, r.id.pubkey, &e, cap, &after) == 1,
+			      "after a restart N denied E again, or would not load the withdrawal");
+			CHECK(fzn_node_revoke(&n.id, r.id.pubkey, &authority, cap, e.id.pubkey, 1950u,
+			                      &after, &n.ops) == FZN_NODE_REVOKE_OK
+			              && granted_by(&n, r.id.pubkey, &e, cap, &after) == 0,
+			      "revoking E again after the undo did not deny it");
+			CHECK(fzn_node_revocations_load(&n.ops, &again, r.id.pubkey, &authority, &n.sign,
+			                                &hash_ops, &count) == FZN_PERSIST_OK
+			              && granted_by(&n, r.id.pubkey, &e, cap, &again) == 0,
+			      "after a restart N granted E, revoked again after an undo");
+
+			/* THE ROOT UNDOES, AND A MEMBER LEARNS IT BY PULLING: slot 9 at
+			 * R now holds the withdrawal, so that is what `get revocation`
+			 * serves, and it lands on the revocation N already holds. */
+			CHECK(granted_by(&n, r.id.pubkey, &d, cap, &again) == 0,
+			      "fixture: N does not hold R's revocation of D");
+			CHECK(fzn_node_unrevoke(&r.id, r.id.pubkey, NULL, d.id.pubkey, 2000u, &root_revs,
+			                        &r.ops) == FZN_NODE_REVOKE_OK,
+			      "R would not undo its revocation of D");
+			CHECK(pulled_from(&r, &n, cap, &again, &learned) == FZN_NODE_PULL_OK
+			              && granted_by(&n, r.id.pubkey, &d, cap, &again) == 1,
+			      "N did not learn by pulling that R had undone its revocation of D");
+		}
 		fzn_wipe(&e_pairing, sizeof(e_pairing));
 	}
 	fzn_wipe(&joined, sizeof(joined));

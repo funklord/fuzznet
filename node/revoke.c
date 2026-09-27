@@ -23,7 +23,9 @@ const char *fzn_node_revoke_err_str(fzn_node_revoke_err_t err)
 	case FZN_NODE_REVOKE_STORE_REFUSED:
 		return "the revocation would not mint or the store would not take it";
 	case FZN_NODE_REVOKE_NOT_SAVED:
-		return "revoked until a restart: the record was not saved";
+		return "in force until a restart: the record was not saved";
+	case FZN_NODE_REVOKE_NOT_REVOKED:
+		return "this node holds no revocation of that grantee to undo";
 	}
 	return "unknown";
 }
@@ -65,13 +67,16 @@ static int open_authority(const fzn_node_authority_t *authority,
 	return 1;
 }
 
-fzn_node_revoke_err_t fzn_node_revoke(const fzn_node_identity_t *id,
-                                      const uint8_t root[FZN_PUBKEY_LEN],
-                                      const fzn_node_authority_t *authority,
-                                      const fzn_cap_id_t *capability,
-                                      const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t now,
-                                      fzn_revocation_store_t *revocations,
-                                      const fzn_persist_ops_t *store)
+/* Revoke, or with `withdraw` undo the revocation held for `grantee`: one
+ * path, so standing, admission and the save are the same for both. A
+ * withdrawal takes its capability from the record it undoes. */
+static fzn_node_revoke_err_t issue(const fzn_node_identity_t *id,
+                                   const uint8_t root[FZN_PUBKEY_LEN],
+                                   const fzn_node_authority_t *authority,
+                                   const fzn_cap_id_t *capability,
+                                   const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t now,
+                                   fzn_revocation_store_t *revocations,
+                                   const fzn_persist_ops_t *store, int withdraw)
 {
 	uint8_t previous[FZN_REVOCATION_LEN];
 	uint8_t record[FZN_REVOCATION_LEN];
@@ -79,9 +84,11 @@ fzn_node_revoke_err_t fzn_node_revoke(const fzn_node_identity_t *id,
 	fzn_revocation_record_t prev_rec, rec;
 	fzn_chain_hop_t hops[FZN_CHAIN_MAX_HOPS];
 	fzn_chain_err_t cerr;
+	int held;
 
-	if (!id || !id->sign || !id->hash || !root || !capability || !grantee || !revocations
-	    || !store || !store->load || !store->save)
+	if (!id || !id->sign || !id->hash || !id->hash->hash || !root
+	    || (!withdraw && !capability) || !grantee || !revocations || !store || !store->load
+	    || !store->save)
 		return FZN_NODE_REVOKE_MALFORMED;
 	/* STANDING BEFORE ANYTHING IS MINTED: the root is its own, and a member
 	 * shows a delegable chain naming it as the last grantee. Admission
@@ -97,12 +104,30 @@ fzn_node_revoke_err_t fzn_node_revoke(const fzn_node_identity_t *id,
 		return FZN_NODE_REVOKE_NOT_ROOT;
 	}
 
-	/* A FIRST REVOCATION, OR ONE NAMING WHAT IT FOLLOWS. The store refuses
-	 * a zero `supersedes` over a withdrawn pair (revocation.h), so after a
-	 * withdrawal the re-revocation names the revocation that withdrawal
-	 * undid -- a predecessor, which is all admission requires. */
-	if (load_slot(store, FZN_PERSIST_ISSUED_REVOCATION, grantee, previous)
-	    && fzn_revocation_open(previous, sizeof(previous), &prev_rec) == FZN_CHAIN_OK) {
+	held = load_slot(store, FZN_PERSIST_ISSUED_REVOCATION, grantee, previous)
+	       && fzn_revocation_open(previous, sizeof(previous), &prev_rec) == FZN_CHAIN_OK;
+
+	/* A WITHDRAWAL NAMES THE WHOLE RECORD IT UNDOES, by its hash -- the
+	 * identity admission compares (revocation.h). Only a revocation this
+	 * node holds in force can be undone: nothing held, or a withdrawal
+	 * held, is a grantee this node has not revoked. */
+	if (withdraw) {
+		uint8_t target[FZN_REVOCATION_ID_LEN];
+
+		if (!held || fzn_revocation_is_withdrawal(prev_rec))
+			return FZN_NODE_REVOKE_NOT_REVOKED;
+		if (!id->hash->hash(id->hash->ctx, target, sizeof(target), previous,
+		                    sizeof(previous)))
+			return FZN_NODE_REVOKE_STORE_REFUSED;
+		cerr = fzn_revocation_issue_withdrawal(id->pubkey,
+		                                       fzn_revocation_capability(prev_rec),
+		                                       grantee, now, target, id->sign, record);
+	} else if (held) {
+		/* A FIRST REVOCATION, OR ONE NAMING WHAT IT FOLLOWS. The store
+		 * refuses a zero `supersedes` over a withdrawn pair
+		 * (revocation.h), so after a withdrawal the re-revocation names
+		 * the revocation that withdrawal undid -- a predecessor, which is
+		 * all admission requires. */
 		if (!fzn_revocation_is_withdrawal(prev_rec))
 			return FZN_NODE_REVOKE_ALREADY;
 		cerr = fzn_revocation_reissue(id->pubkey, capability, grantee, now,
@@ -129,6 +154,27 @@ fzn_node_revoke_err_t fzn_node_revoke(const fzn_node_identity_t *id,
 	if (!store->save(store->ctx, FZN_PERSIST_ISSUED_REVOCATION, grantee, blob, sizeof(blob)))
 		return FZN_NODE_REVOKE_NOT_SAVED;
 	return FZN_NODE_REVOKE_OK;
+}
+
+fzn_node_revoke_err_t fzn_node_revoke(const fzn_node_identity_t *id,
+                                      const uint8_t root[FZN_PUBKEY_LEN],
+                                      const fzn_node_authority_t *authority,
+                                      const fzn_cap_id_t *capability,
+                                      const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t now,
+                                      fzn_revocation_store_t *revocations,
+                                      const fzn_persist_ops_t *store)
+{
+	return issue(id, root, authority, capability, grantee, now, revocations, store, 0);
+}
+
+fzn_node_revoke_err_t fzn_node_unrevoke(const fzn_node_identity_t *id,
+                                        const uint8_t root[FZN_PUBKEY_LEN],
+                                        const fzn_node_authority_t *authority,
+                                        const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t now,
+                                        fzn_revocation_store_t *revocations,
+                                        const fzn_persist_ops_t *store)
+{
+	return issue(id, root, authority, NULL, grantee, now, revocations, store, 1);
 }
 
 int fzn_node_issued_revocation(const fzn_persist_ops_t *store,

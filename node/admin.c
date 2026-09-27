@@ -295,6 +295,26 @@ static size_t revoke_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t he
 	return answer(reply, cap, FZN_REPLY_OK, detail, hex_len);
 }
 
+/* `remove revocation KEY`: undo this node's revocation of KEY (sec 386). The
+ * grantee's grant is honoured again from the next frame; a device whose peer
+ * record was also removed still has to be paired again to be served. */
+static size_t unrevoke_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t hex_len,
+                            char *reply, size_t cap)
+{
+	uint8_t grantee[FZN_PUBKEY_LEN];
+	fzn_node_revoke_err_t rerr;
+	uint64_t now;
+
+	if (!unhex(hex, hex_len, grantee, sizeof(grantee)))
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a peer key");
+	now = admin->state->clock ? admin->state->clock() : 0u;
+	rerr = fzn_node_unrevoke(admin->id, admin->state->config.root, admin->authority, grantee,
+	                         now, admin->revocations, admin->store);
+	if (rerr != FZN_NODE_REVOKE_OK)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_node_revoke_err_str(rerr));
+	return answer(reply, cap, FZN_REPLY_OK, (const char *)hex, hex_len);
+}
+
 size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t origin,
                              const fzn_peer_t *peer, const fzn_request_t *request,
                              char *reply, size_t reply_cap)
@@ -328,6 +348,9 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 	}
 	if (request->parsed == FZN_VERB_GET && subject_revocation(request, &rest, &rest_len))
 		return get_revocations(admin, rest, rest_len, reply, reply_cap);
+	if (request->parsed == FZN_VERB_REMOVE && subject_revocation(request, &rest, &rest_len)
+	    && rest && admin->revocations)
+		return unrevoke_peer(admin, rest, rest_len, reply, reply_cap);
 
 	return answer_text(reply, reply_cap, FZN_REPLY_UNSUPPORTED, NULL);
 }

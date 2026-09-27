@@ -487,6 +487,27 @@ int main(void)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
 		              && detail_len == strlen(want) && memcmp(detail, want, detail_len) == 0,
 		      "revoking again was not answered as already revoked");
+
+		/* ---- AND UNDONE: by the owner only, once, and revocable again
+		 * afterwards -- the re-revocation superseding the one undone. sec 386. */
+		snprintf(line, sizeof(line), "remove revocation %s", key);
+		CHECK(ask(&admin, &member, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+		                         == FZN_REPLY_DENIED,
+		      "a service-group member undid a revocation");
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && detail_len == 64u && memcmp(detail, key, 64u) == 0,
+		      "the node's own user could not undo a revocation, or the answer did not name it");
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+		                         == FZN_REPLY_ERROR,
+		      "undoing a revocation already undone was answered ok");
+		snprintf(line, sizeof(line), "revoke peer %s", key);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && detail_len == 64u,
+		      "a grantee whose revocation was undone could not be revoked again");
 	}
 
 	/* ---- WHAT IT DOES NOT SERVE, IT SAYS SO. */

@@ -56,9 +56,11 @@ typedef enum fzn_node_revoke_err {
 	/* The record would not mint, or the store would not admit it -- full
 	 * being the case that matters, since a revocation store never evicts. */
 	FZN_NODE_REVOKE_STORE_REFUSED = -4,
-	/* Revoked in the running store and not saved: in force until a
-	 * restart, and forgotten by one. */
-	FZN_NODE_REVOKE_NOT_SAVED = -5
+	/* Revoked, or un-revoked, in the running store and not saved: in force
+	 * until a restart, and forgotten by one. */
+	FZN_NODE_REVOKE_NOT_SAVED = -5,
+	/* Un-revoking a grantee this node holds no revocation of in force. */
+	FZN_NODE_REVOKE_NOT_REVOKED = -6
 } fzn_node_revoke_err_t;
 
 const char *fzn_node_revoke_err_str(fzn_node_revoke_err_t err);
@@ -77,6 +79,25 @@ fzn_node_revoke_err_t fzn_node_revoke(const fzn_node_identity_t *id,
                                       const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t now,
                                       fzn_revocation_store_t *revocations,
                                       const fzn_persist_ops_t *store);
+
+/* UNDO this node's revocation of `grantee`: mint the withdrawal naming the
+ * record held in slot 9, admit it, and save it in that record's place. sec 386.
+ *
+ * The same standing as revoking, and the same order -- in force first, saved
+ * second. A later `fzn_node_revoke` of the grantee then supersedes the
+ * revocation this undid, which is what admission requires of a re-revocation.
+ *
+ * WHAT IT DOES NOT DO: tell anybody. A member that pulled the revocation
+ * learns the withdrawal on its next pull, because `get revocation` serves slot
+ * 9 and the withdrawal is now what slot 9 holds (sec 384). A host that learned
+ * the revocation any other way keeps it; `chain/revocation.h` says why no
+ * manifest carries withdrawals. */
+fzn_node_revoke_err_t fzn_node_unrevoke(const fzn_node_identity_t *id,
+                                        const uint8_t root[FZN_PUBKEY_LEN],
+                                        const fzn_node_authority_t *authority,
+                                        const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t now,
+                                        fzn_revocation_store_t *revocations,
+                                        const fzn_persist_ops_t *store);
 
 /* At start: admit every revocation this node ISSUED (slot 9) and every one it
  * LEARNED from its estate root (slot 10), from `store` into `revocations`,

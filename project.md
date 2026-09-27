@@ -47923,9 +47923,8 @@ Seven sabotage entries cover:
 - ~~**A member's own delegated grants**~~ -- sec 385. Nobody pulls them,
   and nobody needs to: a device a member paired is served by that member
   alone, because its card names that member.
-- **Withdrawal**, the un-revoke. Slot 10 holds the latest record per
-  grantee, so a root's withdrawal would arrive and supersede by the same
-  path, once the root has a verb that issues one.
+- ~~**Withdrawal**, the un-revoke~~ -- sec 386; it arrives by the same
+  pull.
 - **Pulling off the loop's thread**, if 3 s stalls matter to a deployment:
   the member's caller socket goes into the node's poll and the page is
   absorbed when it is readable, which `absorb` was split out to allow.
@@ -48016,3 +48015,59 @@ Four new sabotage entries cover:
 
 The pre-join entry was re-anchored onto the skip's new arm. It still fails
 the member-without-chain reload.
+
+## 386. Undoing a revocation, 2026-09-27
+
+A revocation could be issued and never lifted, so an operator who revoked
+the wrong device could only re-pair it under a new key. The library has
+minted withdrawals since sec 13b. It stores one that arrives alone as a
+tombstone (since 2026-09-03), and a revocation issued after a withdrawal
+must supersede the one withdrawn, which `fzn_node_revoke` already did. The
+node was missing the verb.
+
+- `fzn_node_unrevoke` takes the same standing as revoking (root, or a
+  member through its chain, sec 385). It mints the withdrawal naming the
+  record held in slot 9 by the hash of that whole record, admits it, and
+  saves it in the record's place. It refuses with NOT_REVOKED when nothing
+  is held, or when what is held is already a withdrawal. It shares one
+  internal path with revoking, so standing, admission and the save cannot
+  drift apart.
+- `remove revocation KEY` on the local socket. REMOVE is a mutating verb,
+  so only the node's own user may send it.
+- **Carriage is free.** `get revocation` serves slot 9, which now holds
+  the withdrawal, so a member's next pull lands it on the revocation it
+  holds and saves it to slot 10 in that revocation's place. On restart, a
+  withdrawal alone in either slot admits as a tombstone.
+- `chain/revocation.h` said a withdrawal delivered to a host that never
+  held the revocation is refused with UNKNOWN_TARGET. That stopped being
+  true on 2026-09-03, when the tombstone branch was added; the sentence now
+  says so and names the node's pull as one delivery path.
+
+### Measured for sec 386
+
+`pair_test`, on the estate:
+
+- a member undoing without its chain gets NOT_ROOT;
+- N undoes its own revocation of E, and E is granted again; a second undo
+  gets NOT_REVOKED;
+- a reload keeps E granted, since the withdrawal admits alone;
+- revoking E again denies it, and still does after a reload;
+- R undoes its revocation of D, and N, holding it, learns that by pulling,
+  after which D is granted.
+
+`admin_test`: a group member is denied `remove revocation`; the owner is
+answered `ok KEY`; a second undo is an error; revoking afterwards is `ok`,
+not `already`.
+
+Live, with R, N (`--root-at`) and D:
+
+- R revoked D, and N pulled it, so D was refused;
+- R's `remove revocation D` answered `ok`;
+- after N pulled again, D was served.
+
+N's log reports the pulled withdrawal as "1 revocation(s) from the root",
+which is the count of records, not of revocations. It is left as it is,
+and is recorded here so the next reader of that log knows.
+
+Three sabotage entries cover the target hash over the whole record, the
+refusal to undo a withdrawal, and the verb's dispatch.

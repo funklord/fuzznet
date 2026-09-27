@@ -22,6 +22,14 @@
  *                       it, and it is saved. Any key, not only a current
  *                       peer -- a grant outlives the peer record it came
  *                       with. `ok KEY`, and `ok KEY already` when it was.
+ *     remove revocation KEY
+ *                       undo this node's revocation of KEY: the withdrawal is
+ *                       minted, admitted and saved in the revocation's place
+ *                       (`node/revoke.h`). `ok KEY`, or an error when this
+ *                       node holds no revocation of KEY in force.
+ *     get revocation [FROM]
+ *                       `ok TOTAL FROM HEX ...`, the records this node issued,
+ *                       paged; also served to a remote caller (sec 384)
  *
  * Every other verb of fuzznet's, and any verb that is not, is answered
  * `unsupported` -- a node saying it does not serve a verb is a different fact
