@@ -11,7 +11,7 @@
 # A struct's size is a bare number where it is fixed, `min..max` where
 # it is bounded, and `min..` where nothing bounds it.
 
-struct fzn_chain size=2..1434 mutate=Immutable repr=ValueConverted atomic=NonAtomic auth=Covered(hops[].signature)
+struct fzn_chain size=2..1434 mutate=Immutable repr=ValueConverted atomic=NonAtomic
   fzn_chain.version                      offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   fzn_chain.hop_count                    offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
   fzn_chain.hops                         offset=AbsoluteStatic(0x02) size=Bounded(0, 1432) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting

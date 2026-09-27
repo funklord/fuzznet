@@ -17,7 +17,7 @@
 # unverified: run `situc gen-codec-tests` to falsify a lying one.
 codec fzn_aead trusted length_preserving seekable=linear granularity=byte authenticated invertible deterministic
 
-struct fzn_frame size=144..1168 mutate=Immutable address=Unstable repr=ValueConverted atomic=NonAtomic stage=VerifyGated auth=Covered(tag)
+struct fzn_frame size=144..1168 mutate=Immutable address=Unstable repr=ValueConverted atomic=NonAtomic stage=VerifyGated
   fzn_frame.hop                          offset=AbsoluteStatic(0x00) size=Fixed(5) align=Aligned(8) repr=ValueConverted atomic=NonAtomic
   fzn_frame.hop.version                  offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   fzn_frame.hop.hops_left                offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
