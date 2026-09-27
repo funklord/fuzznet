@@ -3573,8 +3573,8 @@ SABOTAGES = [
 	(
 		"revocations-load-skips-pre-join",
 		"node/revoke.c",
-		"\t\t\tif (memcmp(fzn_revocation_issuer(rec), root, FZN_PUBKEY_LEN) != 0)\n\t\t\t\tcontinue;\n",
-		"",
+		"\t\t\telse\n\t\t\t\tcontinue;\t/* see the header */\n",
+		"\t\t\telse\n\t\t\t\toffer = fzn_revocation_offer_root(rec);\n",
 		"a record a node issued as its own root before it joined verifies against nothing it now trusts, so admitting it fails the whole load and the node will not start -- sec 383, 384",
 	),
 	(
@@ -3611,6 +3611,34 @@ SABOTAGES = [
 		"\t\treturn get_revocations(admin, rest, rest_len, out, reply_cap);\n\treturn answer_text(out, reply_cap, FZN_REPLY_UNSUPPORTED, NULL);\n}\n",
 		"\t\treturn answer_text(out, reply_cap, FZN_REPLY_UNSUPPORTED, NULL);\n\treturn answer_text(out, reply_cap, FZN_REPLY_UNSUPPORTED, NULL);\n}\n",
 		"a root that does not answer `get revocation` over the remote hop has members that never learn what it revoked -- sec 384",
+	),
+	(
+		"revoke-member-offers-its-chain",
+		"node/revoke.c",
+		"\t                            authority ? fzn_revocation_offer_chain(rec, hops,\n\t                                                                   authority->hop_count)\n\t                                      : fzn_revocation_offer_root(rec),\n",
+		"\t                            fzn_revocation_offer_root(rec),\n",
+		"a member's revocation offered as the root's names an issuer that is not the root, so the store refuses it and the member cannot cut off a device it paired -- sec 385",
+	),
+	(
+		"revoke-member-needs-delegable",
+		"node/revoke.c",
+		"\t                     FZN_PUBKEY_LEN) != 0\n\t           || !fzn_hop_delegable(hops[authority->hop_count - 1u])) {\n",
+		"\t                     FZN_PUBKEY_LEN) != 0) {\n",
+		"a holder whose grant cannot be passed on is no grantor and has no standing to revoke; asking late reports the refusal as a full store -- sec 385",
+	),
+	(
+		"revocations-load-admits-own-through-chain",
+		"node/revoke.c",
+		"\t\t\telse if (self && memcmp(fzn_revocation_issuer(rec), self, FZN_PUBKEY_LEN) == 0\n",
+		"\t\t\telse if (0 && self && memcmp(fzn_revocation_issuer(rec), self, FZN_PUBKEY_LEN) == 0\n",
+		"a member that does not re-admit its own revocations at start serves every device it cut off again after a restart -- sec 385",
+	),
+	(
+		"revocations-load-own-capability-only",
+		"node/revoke.c",
+		"\t\t\telse if (self && memcmp(fzn_revocation_issuer(rec), self, FZN_PUBKEY_LEN) == 0\n\t\t\t         && memcmp(fzn_revocation_capability(rec), granted,\n\t\t\t                   sizeof(*granted)) == 0)\n",
+		"\t\t\telse if (self && memcmp(fzn_revocation_issuer(rec), self, FZN_PUBKEY_LEN) == 0)\n",
+		"a member's record for a capability its chain does not carry can never admit, and offering it fails the whole load, so the node will not start -- sec 385",
 	),
 	(
 		"admin-remote-refuses-mutation",

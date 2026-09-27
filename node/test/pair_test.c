@@ -342,10 +342,10 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 		              && fzn_revocation_store_init(&fresh, fresh_entries, 8) == FZN_CHAIN_OK,
 		      "fixture: revocation stores");
 		state.config.revocations = &revoked;
-		CHECK(fzn_node_revoke(&node->id, node->id.pubkey, cap, device->id.pubkey, 3000u,
+		CHECK(fzn_node_revoke(&node->id, node->id.pubkey, NULL, cap, device->id.pubkey, 3000u,
 		                      &revoked, &node->ops) == FZN_NODE_REVOKE_OK,
 		      "the node would not revoke the device it paired");
-		CHECK(fzn_node_revoke(&node->id, node->id.pubkey, cap, device->id.pubkey, 3001u,
+		CHECK(fzn_node_revoke(&node->id, node->id.pubkey, NULL, cap, device->id.pubkey, 3001u,
 		                      &revoked, &node->ops) == FZN_NODE_REVOKE_ALREADY,
 		      "revoking twice was not reported as already revoked");
 
@@ -359,7 +359,7 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 
 		/* ---- AND IT SURVIVES A RESTART: a fresh store, filled only from
 		 * what the node saved. */
-		CHECK(fzn_node_revocations_load(&node->ops, &fresh, node->id.pubkey, &node->sign,
+		CHECK(fzn_node_revocations_load(&node->ops, &fresh, node->id.pubkey, NULL, &node->sign,
 		                                &hash_ops, &restored) == FZN_PERSIST_OK
 		              && restored == 1u,
 		      "the node's revocation did not come back from its store");
@@ -439,7 +439,7 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 			size_t restored = 0;
 
 			CHECK(fzn_revocation_store_init(&again, again_entries, 4) == FZN_CHAIN_OK
-			              && fzn_node_revocations_load(&node->ops, &again, node->id.pubkey,
+			              && fzn_node_revocations_load(&node->ops, &again, node->id.pubkey, NULL,
 			                                           &node->sign, &hash_ops, &restored)
 			                         == FZN_PERSIST_OK
 			              && restored == 1u,
@@ -464,7 +464,7 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 		fzn_revocation_store_t rs;
 
 		CHECK(fzn_revocation_store_init(&rs, rs_entries, 2) == FZN_CHAIN_OK
-		              && fzn_node_revoke(&device->id, node->id.pubkey, cap, node->id.pubkey,
+		              && fzn_node_revoke(&device->id, node->id.pubkey, NULL, cap, node->id.pubkey,
 		                                 3000u, &rs, &device->ops)
 		                         == FZN_NODE_REVOKE_NOT_ROOT,
 		      "a node revoked under a root that is not its own key");
@@ -803,7 +803,7 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 		CHECK(fzn_revocation_store_init(&r_revs, r_entries, 4) == FZN_CHAIN_OK
 		              && fzn_revocation_store_init(&n_revs, n_entries, 4) == FZN_CHAIN_OK
 		              && fzn_revocation_store_init(&reloaded, l_entries, 4) == FZN_CHAIN_OK
-		              && fzn_node_revoke(&n.id, n.id.pubkey, cap, other.id.pubkey, 1150u,
+		              && fzn_node_revoke(&n.id, n.id.pubkey, NULL, cap, other.id.pubkey, 1150u,
 		                                 &n_revs, &n.ops) == FZN_NODE_REVOKE_OK
 		              && fzn_revocation_store_init(&n_revs, n_entries, 4) == FZN_CHAIN_OK,
 		      "fixture: revocation stores, or N's pre-join revocation");
@@ -814,7 +814,7 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 		              && learned == 0u,
 		      "a pull from a root with nothing revoked failed, or learned something");
 
-		CHECK(fzn_node_revoke(&r.id, r.id.pubkey, cap, d.id.pubkey, 1400u, &r_revs, &r.ops)
+		CHECK(fzn_node_revoke(&r.id, r.id.pubkey, NULL, cap, d.id.pubkey, 1400u, &r_revs, &r.ops)
 		              == FZN_NODE_REVOKE_OK,
 		      "fixture: R would not revoke D");
 		CHECK(pulled_from(&r, &n, cap, &n_revs, &learned) == FZN_NODE_PULL_OK
@@ -827,7 +827,7 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 		      "pulling a revocation N already holds failed -- every periodic pull would");
 
 		/* A RESTART with R unreachable: what N saved is what it denies by. */
-		CHECK(fzn_node_revocations_load(&n.ops, &reloaded, r.id.pubkey, &n.sign, &hash_ops,
+		CHECK(fzn_node_revocations_load(&n.ops, &reloaded, r.id.pubkey, NULL, &n.sign, &hash_ops,
 		                                &count) == FZN_PERSIST_OK
 		              && count == 1u,
 		      "N's restart did not reload exactly the one revocation it learned");
@@ -862,6 +862,83 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 		                                  &hash_ops, &n_revs, &n.ops, &learned, &next, &total)
 		              == FZN_NODE_PULL_NO_ANSWER,
 		      "N took a refusal as a page");
+	}
+
+	/* ---- A MEMBER REVOKES WHAT IT DELEGATED, through its chain. sec 385.
+	 * N pairs E through R's grant, then cuts E off itself: the record is
+	 * N's, admitted on the chain that makes N E's grantor, and it survives a
+	 * restart that loads with the same chain. */
+	{
+		static struct node e;
+		static fzn_revocation_t m_entries[8], l_entries[8];
+		fzn_revocation_store_t mine, reloaded;
+		fzn_prekey_record_t e_rec;
+		fzn_node_pairing_t e_pairing;
+		fzn_node_authority_t leaf;
+		size_t count = 0;
+
+		CHECK(node_up(&e)
+		              && fzn_prekey_open(e.id.prekey_record, FZN_PREKEY_LEN_TOTAL, &e_rec)
+		                         == FZN_PREKEY_OK
+		              && fzn_node_pair(&n.id, r.id.pubkey, cap, &authority, 0, &n.ops, e_rec,
+		                               1600u, 0u, card, sizeof(card), &card_len)
+		                         == FZN_NODE_PAIR_OK
+		              && fzn_node_pairing_accept(&e.id, card, card_len, 1700u, &e.ops,
+		                                         &e_pairing) == FZN_NODE_PAIR_OK
+		              && fzn_revocation_store_init(&mine, m_entries, 8) == FZN_CHAIN_OK
+		              && fzn_revocation_store_init(&reloaded, l_entries, 8) == FZN_CHAIN_OK,
+		      "fixture: N would not pair E through R's grant");
+		CHECK(granted_by(&n, r.id.pubkey, &e, cap, &mine) == 1,
+		      "N did not grant E before revoking it");
+
+		/* NO STANDING, NO RECORD: a member revoking as though it were
+		 * root, or through a chain it may not pass on. */
+		leaf.hops = (const uint8_t (*)[FZN_HOP_LEN])e_pairing.hop;
+		leaf.hop_count = 1u;
+		CHECK(fzn_node_revoke(&n.id, r.id.pubkey, NULL, cap, e.id.pubkey, 1800u, &mine,
+		                      &n.ops) == FZN_NODE_REVOKE_NOT_ROOT,
+		      "a member revoked as though it were the estate's root");
+		CHECK(fzn_node_revoke(&e.id, n.id.pubkey, &leaf, cap, d.id.pubkey, 1800u, &mine,
+		                      &e.ops) == FZN_NODE_REVOKE_NOT_ROOT,
+		      "a device revoked through a grant it may not pass on");
+
+		CHECK(fzn_node_revoke(&n.id, r.id.pubkey, &authority, cap, e.id.pubkey, 1800u, &mine,
+		                      &n.ops) == FZN_NODE_REVOKE_OK,
+		      "N would not revoke the device it paired, through its own chain");
+		CHECK(granted_by(&n, r.id.pubkey, &e, cap, &mine) == 0,
+		      "N granted a device it had itself revoked");
+		CHECK(fzn_node_revoke(&n.id, r.id.pubkey, &authority, cap, e.id.pubkey, 1801u, &mine,
+		                      &n.ops) == FZN_NODE_REVOKE_ALREADY,
+		      "a member's second revocation of one device was not reported as already");
+
+		/* A RECORD OF N's FOR A CAPABILITY ITS CHAIN DOES NOT CARRY, written
+		 * into the store by hand since `fzn_node_revoke` cannot produce one.
+		 * It could never admit, so the load skips it rather than failing. */
+		{
+			fzn_cap_id_t elsewhere = *cap;
+			uint8_t blob[FZN_PERSIST_HEAD_LEN + FZN_REVOCATION_LEN];
+
+			elsewhere.b[0] ^= 1u;
+			CHECK(fzn_revocation_issue(n.id.pubkey, &elsewhere, d.id.pubkey, 1850u,
+			                           &n.sign, blob + FZN_PERSIST_HEAD_LEN) == FZN_CHAIN_OK
+			              && fzn_persist_head_write(blob, sizeof(blob), FZN_REVOCATION_LEN,
+			                                        FZN_PERSIST_BLOB_REVOCATION)
+			                         == FZN_PERSIST_OK
+			              && n.ops.save(n.ops.ctx, FZN_PERSIST_ISSUED_REVOCATION,
+			                            d.id.pubkey, blob, sizeof(blob)),
+			      "fixture: N's record for another capability");
+		}
+
+		/* THE RESTART: R's record it learned, its own of E, and the one it
+		 * issued as its own root before joining -- its signed word still,
+		 * admitted through the chain -- and not the one above. */
+		CHECK(fzn_node_revocations_load(&n.ops, &reloaded, r.id.pubkey, &authority, &n.sign,
+		                                &hash_ops, &count) == FZN_PERSIST_OK
+		              && count == 3u,
+		      "N's restart with its chain did not reload R's, its own, and its pre-join records");
+		CHECK(granted_by(&n, r.id.pubkey, &e, cap, &reloaded) == 0,
+		      "after a restart N granted a device it had itself revoked");
+		fzn_wipe(&e_pairing, sizeof(e_pairing));
 	}
 	fzn_wipe(&joined, sizeof(joined));
 	fzn_wipe(&d_pairing, sizeof(d_pairing));

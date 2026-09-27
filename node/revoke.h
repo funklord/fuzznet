@@ -23,11 +23,13 @@
  * one capability (sec 376), so a grantee is one (issuer, capability, grantee)
  * triple, and the latest record is what a restart must re-establish.
  *
- * ONLY A NODE THAT IS ITS OWN ROOT REVOKES THIS WAY, for the reason
- * `node/pair.h` pairs only then: a root-issued revocation is checked against
- * the pinned root, so a node that joined an estate revokes through the
- * estate's root and its chain, which is `fzn_revocation_offer_chain` and not
- * this.
+ * A NODE THAT JOINED AN ESTATE REVOKES THROUGH ITS CHAIN. A root-issued
+ * revocation is checked against the pinned root; a member's is admitted with
+ * `fzn_revocation_offer_chain`, presenting the chain from the root that makes
+ * it the grantor -- the same `fzn_node_authority_t` it pairs with, and the
+ * same standing, since revoking a descendant is the inverse of granting one
+ * (`chain/revocation.h`). The record is signed by the member's own key and
+ * names it as issuer. sec 385.
  */
 
 #ifndef FZN_NODE_REVOKE_H
@@ -37,6 +39,7 @@
 #include <stdint.h>
 
 #include "caller.h"
+#include "pair.h"
 #include "provision.h"
 #include "../chain/revocation.h"
 #include "../persist/persist.h"
@@ -44,7 +47,8 @@
 typedef enum fzn_node_revoke_err {
 	FZN_NODE_REVOKE_OK = 0,
 	FZN_NODE_REVOKE_MALFORMED = -1,
-	/* This node is not its own root; see the header. */
+	/* This node has no standing to revoke: it is not its own root and
+	 * holds no chain from the root that it may pass on. */
 	FZN_NODE_REVOKE_NOT_ROOT = -2,
 	/* Already revoked by this node. Not a failure of the request -- the
 	 * grantee is revoked -- and its own code so a caller can say so. */
@@ -60,12 +64,15 @@ typedef enum fzn_node_revoke_err {
 const char *fzn_node_revoke_err_str(fzn_node_revoke_err_t err);
 
 /* Revoke `grantee`'s grant of `capability` from this node. `root` is the root
- * the node verifies against and must be this node's own key. The record is
+ * the node verifies against: this node's own key when `authority` is NULL,
+ * the estate root otherwise, with `authority` the node's chain from it -- as
+ * `fzn_node_pair` takes them. The record is
  * admitted into `revocations` FIRST and saved second: a revocation in force
  * and unsaved is a smaller failure than one saved and not in force, which
  * would be the operator told a device is cut off while the node serves it. */
 fzn_node_revoke_err_t fzn_node_revoke(const fzn_node_identity_t *id,
                                       const uint8_t root[FZN_PUBKEY_LEN],
+                                      const fzn_node_authority_t *authority,
                                       const fzn_cap_id_t *capability,
                                       const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t now,
                                       fzn_revocation_store_t *revocations,
@@ -77,14 +84,21 @@ fzn_node_revoke_err_t fzn_node_revoke(const fzn_node_identity_t *id,
  *
  * A record that will not admit FAILS THE LOAD rather than being skipped: a
  * node that quietly re-admitted a device it had revoked is the failure this
- * prevents. The one exception is a record whose issuer is not `root` -- one
- * this node issued as its own root before it joined an estate (sec 383). The
- * grants it revokes rooted at the node's old key, which the node no longer
- * honours, so there is nothing for it to stop and nothing to verify it
- * against. It is skipped and not counted. */
+ * prevents.
+ *
+ * A record issued by `root` is admitted as the root's. One issued by the
+ * grantee of `authority` -- this member's own, sec 385 -- is admitted with that
+ * chain when it withdraws the capability the chain carries. That includes a
+ * record the node issued as its own root before it joined: it is still the
+ * node's signed word that the grantee is cut off, and honouring it errs
+ * toward denial, the one direction a revocation may err in. Any other record
+ * is skipped and not counted -- one for a capability the chain does not carry
+ * could never admit, and a node holding no chain (`authority` NULL, as for a
+ * root) has nothing to verify its own pre-join records against (sec 383). */
 fzn_persist_err_t fzn_node_revocations_load(const fzn_persist_ops_t *store,
                                             fzn_revocation_store_t *revocations,
                                             const uint8_t root[FZN_PUBKEY_LEN],
+                                            const fzn_node_authority_t *authority,
                                             const fzn_sign_ops_t *sign,
                                             const fzn_hash_ops_t *hash, size_t *count);
 

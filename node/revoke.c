@@ -17,7 +17,7 @@ const char *fzn_node_revoke_err_str(fzn_node_revoke_err_t err)
 	case FZN_NODE_REVOKE_MALFORMED:
 		return "malformed";
 	case FZN_NODE_REVOKE_NOT_ROOT:
-		return "this node is not its own root, so it cannot revoke as one";
+		return "this node is not its own root and holds no chain it may grant through";
 	case FZN_NODE_REVOKE_ALREADY:
 		return "already revoked by this node";
 	case FZN_NODE_REVOKE_STORE_REFUSED:
@@ -49,8 +49,25 @@ static int load_slot(const fzn_persist_ops_t *store, fzn_persist_slot_t slot,
 	return 1;
 }
 
+/* `authority` opened into `hops`. 1 when every hop opens. Standing is
+ * decided by the caller and by admission, not here. */
+static int open_authority(const fzn_node_authority_t *authority,
+                          fzn_chain_hop_t hops[FZN_CHAIN_MAX_HOPS])
+{
+	size_t i;
+
+	if (!authority->hops || authority->hop_count == 0u
+	    || authority->hop_count > FZN_CHAIN_MAX_HOPS)
+		return 0;
+	for (i = 0; i < authority->hop_count; i++)
+		if (fzn_hop_open(authority->hops[i], FZN_HOP_LEN, &hops[i]) != FZN_CHAIN_OK)
+			return 0;
+	return 1;
+}
+
 fzn_node_revoke_err_t fzn_node_revoke(const fzn_node_identity_t *id,
                                       const uint8_t root[FZN_PUBKEY_LEN],
+                                      const fzn_node_authority_t *authority,
                                       const fzn_cap_id_t *capability,
                                       const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t now,
                                       fzn_revocation_store_t *revocations,
@@ -60,13 +77,25 @@ fzn_node_revoke_err_t fzn_node_revoke(const fzn_node_identity_t *id,
 	uint8_t record[FZN_REVOCATION_LEN];
 	uint8_t blob[BLOB_LEN];
 	fzn_revocation_record_t prev_rec, rec;
+	fzn_chain_hop_t hops[FZN_CHAIN_MAX_HOPS];
 	fzn_chain_err_t cerr;
 
 	if (!id || !id->sign || !id->hash || !root || !capability || !grantee || !revocations
 	    || !store || !store->load || !store->save)
 		return FZN_NODE_REVOKE_MALFORMED;
-	if (memcmp(root, id->pubkey, FZN_PUBKEY_LEN) != 0)
+	/* STANDING BEFORE ANYTHING IS MINTED: the root is its own, and a member
+	 * shows a delegable chain naming it as the last grantee. Admission
+	 * would refuse a record without standing anyway; asking first keeps a
+	 * refused revoke from being reported as a full store. */
+	if (!authority) {
+		if (memcmp(root, id->pubkey, FZN_PUBKEY_LEN) != 0)
+			return FZN_NODE_REVOKE_NOT_ROOT;
+	} else if (!open_authority(authority, hops)
+	           || memcmp(fzn_hop_grantee(hops[authority->hop_count - 1u]), id->pubkey,
+	                     FZN_PUBKEY_LEN) != 0
+	           || !fzn_hop_delegable(hops[authority->hop_count - 1u])) {
 		return FZN_NODE_REVOKE_NOT_ROOT;
+	}
 
 	/* A FIRST REVOCATION, OR ONE NAMING WHAT IT FOLLOWS. The store refuses
 	 * a zero `supersedes` over a withdrawn pair (revocation.h), so after a
@@ -84,8 +113,11 @@ fzn_node_revoke_err_t fzn_node_revoke(const fzn_node_identity_t *id,
 	}
 	if (cerr != FZN_CHAIN_OK
 	    || fzn_revocation_open(record, sizeof(record), &rec) != FZN_CHAIN_OK
-	    || fzn_revocation_admit(revocations, fzn_revocation_offer_root(rec), root, id->sign,
-	                            id->hash, NULL)
+	    || fzn_revocation_admit(revocations,
+	                            authority ? fzn_revocation_offer_chain(rec, hops,
+	                                                                   authority->hop_count)
+	                                      : fzn_revocation_offer_root(rec),
+	                            root, id->sign, id->hash, NULL)
 	               != FZN_CHAIN_OK)
 		return FZN_NODE_REVOKE_STORE_REFUSED;
 
@@ -125,16 +157,26 @@ static int save_slot(const fzn_persist_ops_t *store, fzn_persist_slot_t slot,
 fzn_persist_err_t fzn_node_revocations_load(const fzn_persist_ops_t *store,
                                             fzn_revocation_store_t *revocations,
                                             const uint8_t root[FZN_PUBKEY_LEN],
+                                            const fzn_node_authority_t *authority,
                                             const fzn_sign_ops_t *sign,
                                             const fzn_hash_ops_t *hash, size_t *count)
 {
 	static const fzn_persist_slot_t SLOTS[2] = { FZN_PERSIST_ISSUED_REVOCATION,
 		                                     FZN_PERSIST_LEARNED_REVOCATION };
 	uint8_t subjects[FZN_NODE_REVOCATIONS_MAX * FZN_PUBKEY_LEN];
+	fzn_chain_hop_t hops[FZN_CHAIN_MAX_HOPS];
+	const uint8_t *self = NULL;
+	const fzn_cap_id_t *granted = NULL;
 	size_t total = 0, s, i;
 
 	if (!store || !store->load || !revocations || !root || !sign || !hash || !count)
 		return FZN_PERSIST_ERR_MALFORMED;
+	if (authority) {
+		if (!open_authority(authority, hops))
+			return FZN_PERSIST_ERR_MALFORMED;
+		self = fzn_hop_grantee(hops[authority->hop_count - 1u]);
+		granted = fzn_hop_capability(hops[authority->hop_count - 1u]);
+	}
 	*count = 0;
 	if (!store->list)
 		return FZN_PERSIST_ERR_BACKEND;
@@ -153,11 +195,17 @@ fzn_persist_err_t fzn_node_revocations_load(const fzn_persist_ops_t *store,
 			if (!load_slot(store, SLOTS[s], subjects + (i * (size_t)FZN_PUBKEY_LEN), record)
 			    || fzn_revocation_open(record, sizeof(record), &rec) != FZN_CHAIN_OK)
 				return FZN_PERSIST_ERR_SHAPE;
-			/* From before a join: see the header. */
-			if (memcmp(fzn_revocation_issuer(rec), root, FZN_PUBKEY_LEN) != 0)
-				continue;
-			if (fzn_revocation_admit(revocations, fzn_revocation_offer_root(rec), root, sign,
-			                         hash, NULL)
+			fzn_revocation_offer_t offer;
+
+			if (memcmp(fzn_revocation_issuer(rec), root, FZN_PUBKEY_LEN) == 0)
+				offer = fzn_revocation_offer_root(rec);
+			else if (self && memcmp(fzn_revocation_issuer(rec), self, FZN_PUBKEY_LEN) == 0
+			         && memcmp(fzn_revocation_capability(rec), granted,
+			                   sizeof(*granted)) == 0)
+				offer = fzn_revocation_offer_chain(rec, hops, authority->hop_count);
+			else
+				continue;	/* see the header */
+			if (fzn_revocation_admit(revocations, offer, root, sign, hash, NULL)
 			    != FZN_CHAIN_OK)
 				return FZN_PERSIST_ERR_SHAPE;
 			total++;

@@ -282,7 +282,7 @@ static size_t revoke_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t he
 	if (!unhex(hex, hex_len, grantee, sizeof(grantee)))
 		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a peer key");
 	now = admin->state->clock ? admin->state->clock() : 0u;
-	rerr = fzn_node_revoke(admin->id, admin->state->config.root,
+	rerr = fzn_node_revoke(admin->id, admin->state->config.root, admin->authority,
 	                       &admin->state->config.remote_capability, grantee, now,
 	                       admin->revocations, admin->store);
 	if (rerr != FZN_NODE_REVOKE_OK && rerr != FZN_NODE_REVOKE_ALREADY)

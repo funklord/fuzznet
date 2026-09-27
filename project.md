@@ -47827,9 +47827,8 @@ re-anchored, since the check it names moved inside a branch.
 
 - ~~**Carrying revocations between an estate's nodes**~~ -- done by pull
   from the root, sec 384, which needs no registry of siblings.
-- **A node's own revocations of the grants it delegated**: `fzn_node_revoke`
-  revokes as the root only. A joined node's revocation is issued under its
-  chain and admitted with `fzn_revocation_offer_chain`.
+- ~~**A node's own revocations of the grants it delegated**~~ -- done in
+  sec 385, through the member's chain.
 - **Joining through a delegate**, which needs the chain on the card.
 
 ## 384. A root's revocations reach its members, by pull, 2026-09-27
@@ -47921,9 +47920,9 @@ Seven sabotage entries cover:
 
 ### What sec 384 leaves
 
-- **A member's own delegated grants**, still: `fzn_node_revoke` revokes as
-  root only, and a record a member issued under its chain is neither
-  served by it nor pulled by anybody.
+- ~~**A member's own delegated grants**~~ -- sec 385. Nobody pulls them,
+  and nobody needs to: a device a member paired is served by that member
+  alone, because its card names that member.
 - **Withdrawal**, the un-revoke. Slot 10 holds the latest record per
   grantee, so a root's withdrawal would arrive and supersede by the same
   path, once the root has a verb that issues one.
@@ -47947,3 +47946,73 @@ fuzzypickles drives the requirement and does not implement the wire.
 The pull built above is the nearest thing here: a per-grantee record,
 latest wins, carried between one estate's hosts. A share setting written on
 any host rather than only at the root is the part pull does not reach.
+
+## 385. A member revokes what it delegated, through its chain, 2026-09-27
+
+After sec 384, a device that a member node had paired could be cut off only
+by the estate's root. `fzn_node_revoke` refused anybody else as NOT_ROOT,
+so an operator at the member had no way to revoke a device it had just
+paired.
+
+`chain/revocation.h` has admitted non-root revocations since 2026-08-28.
+The rule is that a key may revoke exactly what it could grant. The issuer
+presents a chain from the pinned root for the capability being withdrawn,
+naming the issuer as the last grantee, with that last hop delegable. A
+member's `fzn_node_authority_t` is exactly that chain, and it is the one
+the member already pairs through. So this change is wiring only:
+
+- `fzn_node_revoke` takes the authority, as `fzn_node_pair` does. With it,
+  the member signs the record with its own key, as issuer, and it is
+  admitted with `fzn_revocation_offer_chain`. Standing is checked before
+  anything is minted, so a member with none gets NOT_ROOT, not a
+  misleading "store refused".
+- `fzn_node_revocations_load` takes the authority too. A slot-9 record
+  issued by the member for the capability its chain carries is re-admitted
+  through the chain.
+- `revoke peer KEY` on a member's local socket uses the member's
+  authority, and fuzznetd passes it to the load.
+
+**A record the node issued as its own root before joining is now admitted
+too.** sec 384 skipped these. Once the node has a chain, they are still its
+signed word that the grantee is cut off, and honouring them errs toward
+denial, the one direction a revocation may err in. A device such a record
+names, paired again through the estate, stays refused until un-revoked.
+The skip remains for a node holding no chain, which has nothing to verify
+those records against.
+
+**Not carried anywhere, deliberately.** A member's revocation is enforced
+by that member. `get revocation` serves them from slot 9 like any other
+record, but no pull takes them: a device a member paired presents a card
+naming that member and is served there alone. If joining through a delegate
+is ever built, that stops being true, and carriage would need a chained
+pull.
+
+### Measured for sec 385
+
+`pair_test`, continuing the estate:
+
+- N pairs a new device E through R's grant and grants it;
+- N revoking without its chain gets NOT_ROOT, and so does a device trying
+  to revoke through a grant it cannot pass on;
+- N revokes E through its chain; E is denied; a second revocation reports
+  ALREADY;
+- reloading with the chain gives three records: R's learned one, N's own
+  of E, and N's pre-join one. E is still denied.
+
+Live: R, N joined, D paired by N. D was served. `revoke peer D` on N's
+local socket answered `ok`, and D was refused. After N restarted, it
+reported one revocation from its store and D was still refused.
+
+The load skips a member's record for a capability its chain does not
+carry. `fzn_node_revoke` cannot produce such a record, so the test writes
+one into the store by hand, and the reload still counts three.
+
+Four new sabotage entries cover:
+
+- offering the chain rather than the root;
+- the delegable check on standing;
+- re-admitting a member's own records at load;
+- the capability comparison.
+
+The pre-join entry was re-anchored onto the skip's new arm. It still fails
+the member-without-chain reload.

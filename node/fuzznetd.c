@@ -669,8 +669,9 @@ int main(int argc, char **argv)
 		 * will not admit is fatal for the same reason. sec 380. */
 		if (fzn_revocation_store_init(&revoked, revoked_entries,
 		                              FZN_NODE_REVOCATIONS_MAX) != FZN_CHAIN_OK
-		    || fzn_node_revocations_load(store_ops, &revoked, state.config.root, &sign_ops,
-		                                 &hash_ops, &nrevoked) != FZN_PERSIST_OK) {
+		    || fzn_node_revocations_load(store_ops, &revoked, state.config.root,
+		                                 my_authority, &sign_ops, &hash_ops, &nrevoked)
+		               != FZN_PERSIST_OK) {
 			fprintf(stderr, "fuzznetd: could not restore the revocations in %s\n",
 			        store_dir);
 			fzn_socket_close(lfd, sock_path);
