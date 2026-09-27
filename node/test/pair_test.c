@@ -476,6 +476,205 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 	fzn_udp_close(dev_fd);
 }
 
+/* ---- one request, one answer: is `device` granted by `server` under
+ * `root`? 1 granted, 0 denied, -1 when the exchange itself failed. Every value
+ * on both sides comes out of the two nodes' stores. */
+static int granted_by(struct node *server, const uint8_t root[FZN_PUBKEY_LEN],
+                      struct node *device, const fzn_cap_id_t *cap,
+                      const fzn_revocation_store_t *revocations)
+{
+	static fzn_node_peer_t peers[4];
+	static fzn_replay_entry_t entries[16];
+	fzn_replay_window_t replay;
+	fzn_node_pairing_t pairing;
+	fzn_node_state_t state;
+	fzn_caller_t caller;
+	fzn_partial_t slots[1];
+	static uint8_t slot_buf[1][2048];
+	fzn_reasm_t table;
+	fzn_aead_ops_t aead;
+	fzn_udp_addr_t addr;
+	uint32_t msg = 0;
+	size_t loaded = 0;
+	int sfd = -1, dfd = -1, result = -1;
+
+	fzn_aead_monocypher_init(&aead);
+	if (fzn_node_pairing_load(&device->ops, server->id.pubkey, &pairing) != FZN_PERSIST_OK
+	    || fzn_node_peers_load(&server->ops, peers, 4, &loaded) != FZN_PERSIST_OK
+	    || fzn_udp_bind(AF_INET, "127.0.0.1", 0, &sfd) != FZN_UDP_OK
+	    || fzn_udp_bind(AF_INET, "127.0.0.1", 0, &dfd) != FZN_UDP_OK
+	    || fzn_udp_resolve(AF_INET, "127.0.0.1", port_of(sfd), &addr) != FZN_UDP_OK
+	    || fzn_replay_init(&replay, entries, 16, 100000u) != FZN_FRESH_OK
+	    || fzn_reasm_slot_init(&slots[0], slot_buf[0], sizeof(slot_buf[0])) != FZN_REASM_OK
+	    || fzn_reasm_init(&table, slots, 1, 1u, 60u) != FZN_REASM_OK)
+		goto out;
+
+	memset(&state, 0, sizeof(state));
+	state.config.serves_remote = 1;
+	state.config.remote_capability = *cap;
+	state.config.revocations = revocations;
+	memcpy(state.config.root, root, FZN_PUBKEY_LEN);
+	memcpy(state.node_pubkey, server->id.pubkey, FZN_PUBKEY_LEN);
+	state.listen_fd = -1;
+	state.udp_fd = sfd;
+	state.peers = peers;
+	state.peer_count = loaded;
+	state.hash = &hash_ops;
+	state.aead = &aead;
+	state.sign = &server->sign;
+	state.rng = &rng_ops;
+	state.clock = fixed_clock;
+	state.replay = &replay;
+	state.on_remote = answer;
+
+	memset(&caller, 0, sizeof(caller));
+	fzn_node_pairing_caller(&pairing, device->id.pubkey, &caller);
+	caller.fd = dfd;
+	caller.node = addr;
+	caller.hash = &hash_ops;
+	caller.aead = &aead;
+	caller.rng = &rng_ops;
+	caller.reasm = &table;
+	caller.hops = 1u;
+
+	handler_granted = handler_denied = 0;
+	if (fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &msg) == FZN_CALLER_OK
+	    && fzn_node_run_once(&state, 1000) == 1)
+		result = handler_granted ? 1 : (handler_denied ? 0 : -1);
+	fzn_wipe(&caller, sizeof(caller));
+out:
+	fzn_wipe(&pairing, sizeof(pairing));
+	if (sfd >= 0)
+		fzn_udp_close(sfd);
+	if (dfd >= 0)
+		fzn_udp_close(dfd);
+	return result;
+}
+
+/* ---- AN ESTATE OF THREE: a root R, a node N that joins it, and a device D
+ * that N pairs by extending the grant R gave it. sec 383. */
+static void test_an_estate(const fzn_cap_id_t *cap)
+{
+	static struct node r, n, d, other;
+	fzn_prekey_record_t n_rec, d_rec;
+	fzn_node_pairing_t joined, d_pairing;
+	fzn_node_authority_t authority;
+	uint8_t card[FZN_PROVISION_LEN_TOTAL];
+	size_t card_len = 0, loaded = 0;
+	static fzn_node_peer_t n_peers[4];
+
+	CHECK(node_up(&r) && node_up(&n) && node_up(&d) && node_up(&other),
+	      "fixture: the estate's nodes would not come up");
+	CHECK(fzn_prekey_open(n.id.prekey_record, FZN_PREKEY_LEN_TOTAL, &n_rec) == FZN_PREKEY_OK
+	              && fzn_prekey_open(d.id.prekey_record, FZN_PREKEY_LEN_TOTAL, &d_rec)
+	                         == FZN_PREKEY_OK,
+	      "fixture: prekey records");
+
+	/* ---- A GRANT THAT CANNOT BE PASSED ON IS NOT A JOIN. */
+	CHECK(fzn_node_pair(&r.id, r.id.pubkey, cap, NULL, 0, &r.ops, n_rec, 1000u, 0u, card,
+	                    sizeof(card), &card_len) == FZN_NODE_PAIR_OK,
+	      "fixture: R would not pair N");
+	CHECK(fzn_node_join(&n.id, card, card_len, 1100u, &n.ops, &n.trust, &joined)
+	              == FZN_NODE_PAIR_CANNOT_JOIN
+	              && fzn_trust_source_of(&n.trust) == FZN_TRUST_SELF,
+	      "a node joined on a grant it cannot pass on, or the refusal moved its anchor");
+
+	/* ---- R PAIRS N WITH A DELEGABLE GRANT, AND N JOINS. */
+	CHECK(fzn_node_pair(&r.id, r.id.pubkey, cap, NULL, 1, &r.ops, n_rec, 1000u, 0u, card,
+	                    sizeof(card), &card_len) == FZN_NODE_PAIR_OK,
+	      "R would not pair N with a delegable grant");
+	CHECK(fzn_node_join(&n.id, card, card_len, 1100u, &n.ops, &n.trust, &joined)
+	              == FZN_NODE_PAIR_OK,
+	      "N would not join the estate R's card names");
+	CHECK(fzn_trust_source_of(&n.trust) == FZN_TRUST_PINNED
+	              && memcmp(fzn_trust_root(&n.trust), r.id.pubkey, FZN_PUBKEY_LEN) == 0,
+	      "after joining, N is not pinned to R");
+
+	/* ---- ONE ESTATE ONLY: a second root's card is refused. */
+	{
+		fzn_prekey_record_t again;
+		fzn_node_pairing_t unused;
+
+		CHECK(fzn_prekey_open(n.id.prekey_record, FZN_PREKEY_LEN_TOTAL, &again)
+		              == FZN_PREKEY_OK
+		              && fzn_node_pair(&other.id, other.id.pubkey, cap, NULL, 1, &other.ops,
+		                               again, 1000u, 0u, card, sizeof(card), &card_len)
+		                         == FZN_NODE_PAIR_OK,
+		      "fixture: a second root would not pair N");
+		CHECK(fzn_node_join(&n.id, card, card_len, 1100u, &n.ops, &n.trust, &unused)
+		              == FZN_NODE_PAIR_CANNOT_JOIN
+		              && memcmp(fzn_trust_root(&n.trust), r.id.pubkey, FZN_PUBKEY_LEN) == 0,
+		      "a node in one estate joined a second, or the refusal moved its anchor");
+	}
+
+	/* ---- AN AUTHORITY THAT CANNOT BE PASSED ON, OR IS SOMEBODY ELSE'S, GRANTS
+	 * NOTHING. Hops minted directly by R, so each case fails only its own
+	 * check: the first verifies and names N and is not delegable; the second
+	 * verifies and is delegable and names another node. */
+	{
+		uint8_t hop[FZN_HOP_LEN];
+		fzn_node_authority_t bad;
+
+		bad.hops = (const uint8_t (*)[FZN_HOP_LEN])hop;
+		bad.hop_count = 1u;
+		CHECK(fzn_chain_mint(r.id.pubkey, n.id.pubkey, cap, 1000u, FZN_NO_EXPIRY, 0, &r.sign,
+		                     hop) == FZN_CHAIN_OK
+		              && fzn_node_pair(&n.id, r.id.pubkey, cap, &bad, 0, &n.ops, d_rec, 1200u,
+		                               0u, card, sizeof(card), &card_len)
+		                         == FZN_NODE_PAIR_NOT_ROOT,
+		      "a node extended a grant that cannot be passed on");
+		CHECK(fzn_chain_mint(r.id.pubkey, other.id.pubkey, cap, 1000u, FZN_NO_EXPIRY, 1,
+		                     &r.sign, hop) == FZN_CHAIN_OK
+		              && fzn_node_pair(&n.id, r.id.pubkey, cap, &bad, 0, &n.ops, d_rec, 1200u,
+		                               0u, card, sizeof(card), &card_len)
+		                         == FZN_NODE_PAIR_NOT_ROOT,
+		      "a node extended a grant that names another node");
+	}
+
+	/* ---- N PAIRS D BY EXTENDING ITS GRANT, and D pairs with N. */
+	authority.hops = (const uint8_t (*)[FZN_HOP_LEN])joined.hop;
+	authority.hop_count = 1u;
+	/* The root a joined node passes is the one it verifies against, R; with
+	 * no chain of its own to extend it has nothing to grant with. */
+	CHECK(fzn_node_pair(&n.id, r.id.pubkey, cap, NULL, 0, &n.ops, d_rec, 1200u, 0u, card,
+	                    sizeof(card), &card_len) == FZN_NODE_PAIR_NOT_ROOT,
+	      "a node paired under a root that is not its key, with no chain to extend");
+	CHECK(fzn_node_pair(&n.id, r.id.pubkey, cap, &authority, 0, &n.ops, d_rec, 1200u, 0u,
+	                    card, sizeof(card), &card_len) == FZN_NODE_PAIR_OK,
+	      "N would not pair D through the grant R gave it");
+	CHECK(fzn_node_pairing_accept(&d.id, card, card_len, 1300u, &d.ops, &d_pairing)
+	              == FZN_NODE_PAIR_OK
+	              && memcmp(d_pairing.root, n.id.pubkey, FZN_PUBKEY_LEN) == 0,
+	      "D would not accept N's card, or the card does not name N");
+	CHECK(fzn_node_peers_load(&n.ops, n_peers, 4, &loaded) == FZN_PERSIST_OK && loaded == 1u
+	              && n_peers[0].hop_count == 2u,
+	      "N does not hold D with the whole chain R -> N -> D");
+
+	/* ---- AND N SERVES D UNDER R's ROOT, while R's revocation of D is what
+	 * stops it -- the estate's authority reaching a node it did not pair. */
+	CHECK(granted_by(&n, r.id.pubkey, &d, cap, NULL) == 1,
+	      "N, verifying against R, did not grant the device it paired through R's grant");
+	{
+		static fzn_revocation_t entries[4];
+		fzn_revocation_store_t revoked;
+		uint8_t record[FZN_REVOCATION_LEN];
+		fzn_revocation_record_t rec;
+
+		CHECK(fzn_revocation_store_init(&revoked, entries, 4) == FZN_CHAIN_OK
+		              && fzn_revocation_issue(r.id.pubkey, cap, d.id.pubkey, 1400u, &r.sign,
+		                                      record) == FZN_CHAIN_OK
+		              && fzn_revocation_open(record, sizeof(record), &rec) == FZN_CHAIN_OK
+		              && fzn_revocation_admit(&revoked, fzn_revocation_offer_root(rec),
+		                                      r.id.pubkey, &n.sign, &hash_ops, NULL)
+		                         == FZN_CHAIN_OK,
+		      "N would not admit R's revocation of D");
+		CHECK(granted_by(&n, r.id.pubkey, &d, cap, &revoked) == 0,
+		      "N granted a device the estate root had revoked");
+	}
+	fzn_wipe(&joined, sizeof(joined));
+	fzn_wipe(&d_pairing, sizeof(d_pairing));
+}
+
 int main(void)
 {
 	static struct node node, device, stranger;
@@ -504,7 +703,7 @@ int main(void)
 
 	/* ---- THE PAIRING. */
 	node.store.saves = 0;
-	CHECK(fzn_node_pair(&node.id, node.id.pubkey, &cap, &node.ops, device_record, 2000u,
+	CHECK(fzn_node_pair(&node.id, node.id.pubkey, &cap, NULL, 0, &node.ops, device_record, 2000u,
 	                    2000u + 86400u, card, sizeof(card), &card_len) == FZN_NODE_PAIR_OK,
 	      "a node would not pair a device");
 	CHECK(card_len == FZN_PROVISION_LEN_TOTAL, "the card is not a whole card");
@@ -586,10 +785,11 @@ int main(void)
 	}
 
 	test_paired_stores_talk(&node, &device, &cap);
+	test_an_estate(&cap);
 
 	/* ---- A NODE THAT IS NOT ITS OWN ROOT PAIRS NOTHING, and writes nothing. */
 	stranger.store.saves = 0;
-	CHECK(fzn_node_pair(&stranger.id, node.id.pubkey, &cap, &stranger.ops, device_record,
+	CHECK(fzn_node_pair(&stranger.id, node.id.pubkey, &cap, NULL, 0, &stranger.ops, device_record,
 	                    2000u, 0u, card, sizeof(card), &card_len) == FZN_NODE_PAIR_NOT_ROOT,
 	      "a node whose root is another key paired a device");
 	CHECK(stranger.store.saves == 0u && peers_held(&stranger.store) == 0u && card_len == 0u,
@@ -605,7 +805,7 @@ int main(void)
 		CHECK(fzn_prekey_open(forged, sizeof(forged), &forged_record) == FZN_PREKEY_OK,
 		      "fixture: the forged record no longer opens, so the case is about shape");
 		stranger.store.saves = 0;
-		CHECK(fzn_node_pair(&stranger.id, stranger.id.pubkey, &cap, &stranger.ops,
+		CHECK(fzn_node_pair(&stranger.id, stranger.id.pubkey, &cap, NULL, 0, &stranger.ops,
 		                    forged_record, 2000u, 0u, card, sizeof(card), &card_len)
 		              == FZN_NODE_PAIR_DEVICE,
 		      "a device whose prekey signature is broken was paired");
@@ -616,12 +816,12 @@ int main(void)
 	/* ---- A STORE THAT REFUSES GETS NO CARD: no card for a device the node
 	 * does not hold. */
 	stranger.store.refuse_saves = 1;
-	CHECK(fzn_node_pair(&stranger.id, stranger.id.pubkey, &cap, &stranger.ops, device_record,
+	CHECK(fzn_node_pair(&stranger.id, stranger.id.pubkey, &cap, NULL, 0, &stranger.ops, device_record,
 	                    2000u, 0u, card, sizeof(card), &card_len) == FZN_NODE_PAIR_STORE,
 	      "a pairing the store refused was reported as anything but the store's");
 	CHECK(card_len == 0u, "a card was made for a device the node could not save");
 
-	CHECK(fzn_node_pair(NULL, node.id.pubkey, &cap, &node.ops, device_record, 1u, 0u, card,
+	CHECK(fzn_node_pair(NULL, node.id.pubkey, &cap, NULL, 0, &node.ops, device_record, 1u, 0u, card,
 	                    sizeof(card), &card_len) == FZN_NODE_PAIR_MALFORMED,
 	      "a null identity was accepted");
 	CHECK(strcmp(fzn_node_pair_err_str(FZN_NODE_PAIR_STORE),

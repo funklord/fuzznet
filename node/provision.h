@@ -77,6 +77,17 @@ fzn_node_provision_err_t fzn_node_make_card(const fzn_node_identity_t *id,
                                             uint64_t card_expires_at, uint8_t *out,
                                             size_t cap_bytes, size_t *out_len);
 
+/* Pack and sign a card around a hop the caller has already minted -- the
+ * half of `fzn_node_make_card` after the mint. A node that grants through a
+ * delegated chain mints the device's hop itself (with the delegable bit and
+ * the expiry its own chain allows) and still hands over the same card: the
+ * card names the node the device talks to, and the node keeps the chain from
+ * the estate root on its side. sec 383. */
+fzn_node_provision_err_t fzn_node_card_pack(const fzn_node_identity_t *id,
+                                            const uint8_t hop_bytes[FZN_HOP_LEN],
+                                            uint64_t card_expires_at, uint8_t *out,
+                                            size_t cap_bytes, size_t *out_len);
+
 /* The device side: open and verify a card, pin the node's prekey, and
  * establish the session this device seals to the node with. Fills the send
  * key and commitment key, the root the card names, and (if non-NULL) the

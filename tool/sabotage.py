@@ -3447,7 +3447,7 @@ SABOTAGES = [
 	(
 		"pair-refuses-a-node-that-is-not-root",
 		"node/pair.c",
-		"\tif (memcmp(root, id->pubkey, FZN_PUBKEY_LEN) != 0)\n\t\treturn FZN_NODE_PAIR_NOT_ROOT;\n",
+		"\t\tif (memcmp(root, id->pubkey, FZN_PUBKEY_LEN) != 0)\n\t\t\treturn FZN_NODE_PAIR_NOT_ROOT;\n",
 		"",
 		"a node that joined an estate mints grants with its own key as root, so the device pairs and is then refused on its first request by the root the node checks -- a failure that looks like the network -- sec 376",
 	),
@@ -3520,6 +3520,27 @@ SABOTAGES = [
 		"\t\tif (memcmp(n, prefix, prefix_len) != 0)\n",
 		"\t\tif (memcmp(n, prefix, 1u) != 0)\n",
 		"slots of the same width differ only past their first digit, so a listing that compared less than the whole prefix would hand one slot's subjects to another's loader -- sec 382",
+	),
+	(
+		"pair-authority-must-be-delegable",
+		"node/pair.c",
+		"\t\t    || !fzn_hop_delegable(views[own - 1u]))\n",
+		"\t\t    )\n",
+		"a node extending a grant it was not allowed to pass on mints chains the estate's verifier refuses, so every device it pairs is refused on its first request -- sec 383",
+	),
+	(
+		"pair-authority-must-name-this-node",
+		"node/pair.c",
+		"\t\t    || memcmp(verdict.grantee, id->pubkey, FZN_PUBKEY_LEN) != 0\n",
+		"",
+		"a node extending another node's grant signs a hop whose grantor is not the previous grantee, a chain nothing verifies -- sec 383",
+	),
+	(
+		"join-requires-a-delegable-grant",
+		"node/pair.c",
+		"\tif (!fzn_hop_delegable(hop))\n\t\treturn FZN_NODE_PAIR_CANNOT_JOIN;\n",
+		"",
+		"a node joined on a grant it cannot pass on is pinned to an estate it can serve nobody in, since a joined node serves only devices it pairs itself -- sec 383",
 	),
 	(
 		"remote-consults-the-revocations",

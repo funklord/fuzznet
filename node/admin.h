@@ -68,6 +68,9 @@ typedef struct fzn_node_admin {
 	/* The running revocation store, the one `state->config.revocations`
 	 * points at; NULL and `revoke` is unsupported. */
 	fzn_revocation_store_t *revocations;
+	/* This node's right to grant: NULL when it is the estate root, its
+	 * chain from the root once it has joined one (`node/pair.h`). */
+	const fzn_node_authority_t *authority;
 } fzn_node_admin_t;
 
 /* A `fzn_node_local_handler_t`; `ctx` is a `fzn_node_admin_t`. */

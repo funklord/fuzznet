@@ -64,8 +64,17 @@ fzn_node_provision_err_t fzn_node_make_card(const fzn_node_identity_t *id,
 	if (fzn_chain_mint(id->pubkey, device, cap, issued_at, expires_at, 0,
 	                   id->sign, hop_bytes) != FZN_CHAIN_OK)
 		return FZN_NODE_PROVISION_MINT;
+	return fzn_node_card_pack(id, hop_bytes, card_expires_at, out, cap_bytes, out_len);
+}
 
-	/* The card carries the node's root, the device's capability hop, and
+fzn_node_provision_err_t fzn_node_card_pack(const fzn_node_identity_t *id,
+                                            const uint8_t hop_bytes[FZN_HOP_LEN],
+                                            uint64_t card_expires_at, uint8_t *out,
+                                            size_t cap_bytes, size_t *out_len)
+{
+	if (!id || !hop_bytes || !out || !out_len)
+		return FZN_NODE_PROVISION_MALFORMED;
+	/* The card carries the node's key, the device's capability hop, and
 	 * the node's prekey so the device can agree a session with it. */
 	if (fzn_provision_pack(id->pubkey, hop_bytes, id->prekey_record,
 	                       card_expires_at, id->sign, out, cap_bytes, out_len)

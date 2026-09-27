@@ -80,7 +80,8 @@ static size_t add_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t hex_l
 
 	now = admin->state->clock ? admin->state->clock() : 0u;
 	perr = fzn_node_pair(admin->id, admin->state->config.root,
-	                     &admin->state->config.remote_capability, admin->store, record, now,
+	                     &admin->state->config.remote_capability, admin->authority, 0,
+	                     admin->store, record, now,
 	                     now + admin->card_lifetime, card, sizeof(card), &card_len);
 	if (perr != FZN_NODE_PAIR_OK)
 		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_node_pair_err_str(perr));

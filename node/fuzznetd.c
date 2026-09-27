@@ -149,9 +149,9 @@ static void usage(const char *prog)
 	        "usage: %s --socket PATH [--group GID] [--udp-port PORT]"
 	        " [--udp6] [--store DIR] [--identity HEX] [--root HEX]"
 	        " [fuzznet options]\n"
-	        "       %s --store DIR --pair PREKEY_HEX [fuzznet options]\n"
+	        "       %s --store DIR --pair PREKEY_HEX [--delegable] [fuzznet options]\n"
 	        "       %s --store DIR --prekey\n"
-	        "       %s --store DIR --accept CARD\n"
+	        "       %s --store DIR --accept CARD [--join]\n"
 	        "       %s --store DIR --ask LINE --node ROOT_HEX --to HOST PORT [--udp6]\n"
 	        "fuzznet options:\n%s",
 	        prog, prog, prog, prog, prog, fzn_cli_usage());
@@ -172,6 +172,7 @@ static void usage(const char *prog)
  * `--fuzznet-product`. The composition, and the refusal of a node that is
  * not its own root, are `node/pair.h`'s, where a suite reaches them. */
 static int pair_device(const fzn_node_identity_t *id, const fzn_node_config_t *config,
+                       const fzn_node_authority_t *authority, int delegable,
                        const fzn_persist_ops_t *store, const char *prekey_hex, uint64_t now)
 {
 	uint8_t record_bytes[FZN_PREKEY_LEN_TOTAL];
@@ -187,8 +188,9 @@ static int pair_device(const fzn_node_identity_t *id, const fzn_node_config_t *c
 		        (unsigned)(FZN_PREKEY_LEN_TOTAL * 2u));
 		return 2;
 	}
-	perr = fzn_node_pair(id, config->root, &config->remote_capability, store, record, now,
-	                     now + FZND_CARD_LIFETIME, card, sizeof(card), &card_len);
+	perr = fzn_node_pair(id, config->root, &config->remote_capability, authority, delegable,
+	                     store, record, now, now + FZND_CARD_LIFETIME, card, sizeof(card),
+	                     &card_len);
 	if (perr != FZN_NODE_PAIR_OK) {
 		fprintf(stderr, "fuzznetd: not paired: %s\n", fzn_node_pair_err_str(perr));
 		return 1;
@@ -234,6 +236,10 @@ int main(int argc, char **argv)
 	const char *pair_hex = NULL;
 	int show_prekey = 0;
 	const char *accept_text = NULL;
+	int delegable = 0, join = 0;
+	static fzn_node_pairing_t estate;
+	static fzn_node_authority_t authority;
+	const fzn_node_authority_t *my_authority = NULL;
 	const char *ask_line = NULL;
 	const char *node_hex = NULL;
 	const char *to_host = NULL;
@@ -264,6 +270,10 @@ int main(int argc, char **argv)
 			show_prekey = 1;
 		} else if (!strcmp(argv[i], "--accept") && i + 1 < argc) {
 			accept_text = argv[++i];
+		} else if (!strcmp(argv[i], "--delegable")) {
+			delegable = 1;
+		} else if (!strcmp(argv[i], "--join")) {
+			join = 1;
 		} else if (!strcmp(argv[i], "--ask") && i + 1 < argc) {
 			ask_line = argv[++i];
 		} else if (!strcmp(argv[i], "--node") && i + 1 < argc) {
@@ -423,6 +433,22 @@ int main(int argc, char **argv)
 		fprintf(stderr, "fuzznetd: identity ");
 		print_hex(stderr, identity.pubkey, FZN_PUBKEY_LEN);
 		fprintf(stderr, " %s %s\n", created ? "created in" : "loaded from", store_dir);
+
+		/* A NODE THAT HAS JOINED AN ESTATE grants through the hop its root
+		 * gave it, which it holds as its pairing to that root (sec 383). A
+		 * joined node without one still serves; it cannot pair, and
+		 * `fzn_node_pair` says so when asked. */
+		if (memcmp(state.config.root, identity.pubkey, FZN_PUBKEY_LEN) != 0) {
+			fprintf(stderr, "fuzznetd: member of the estate rooted at ");
+			print_hex(stderr, state.config.root, FZN_PUBKEY_LEN);
+			fprintf(stderr, "\n");
+			if (fzn_node_pairing_load(store_ops, state.config.root, &estate)
+			    == FZN_PERSIST_OK) {
+				authority.hops = (const uint8_t (*)[FZN_HOP_LEN])estate.hop;
+				authority.hop_count = 1u;
+				my_authority = &authority;
+			}
+		}
 	}
 
 	/* The node's own public identity, and the root its peers' chains must
@@ -473,13 +499,15 @@ int main(int argc, char **argv)
 			fprintf(stderr, "fuzznetd: --accept is not a card\n");
 			return 2;
 		}
-		perr = fzn_node_pairing_accept(&identity, card, card_len, wall_clock(), store_ops,
-		                               &paired);
+		perr = join ? fzn_node_join(&identity, card, card_len, wall_clock(), store_ops,
+		                            &trust, &paired)
+		            : fzn_node_pairing_accept(&identity, card, card_len, wall_clock(),
+		                                      store_ops, &paired);
 		if (perr != FZN_NODE_PAIR_OK) {
 			fprintf(stderr, "fuzznetd: not accepted: %s\n", fzn_node_pair_err_str(perr));
 			return 1;
 		}
-		fprintf(stderr, "fuzznetd: paired to ");
+		fprintf(stderr, "fuzznetd: %s ", join ? "joined the estate rooted at" : "paired to");
 		print_hex(stderr, paired.root, FZN_PUBKEY_LEN);
 		fprintf(stderr, "\n");
 		print_hex(stdout, paired.root, FZN_PUBKEY_LEN);
@@ -564,8 +592,8 @@ int main(int argc, char **argv)
 			                "pairing mints, so the node must hold its key\n");
 			return 2;
 		}
-		return pair_device(&identity, &state.config, store_ops, pair_hex,
-		                   wall_clock());
+		return pair_device(&identity, &state.config, my_authority, delegable, store_ops,
+		                   pair_hex, wall_clock());
 	}
 	/* REFUSED RATHER THAN BOUND. A remote hop with no identity seals its
 	 * replies as from the zero key and verifies chains against a zero
@@ -666,6 +694,7 @@ int main(int argc, char **argv)
 			admin.store = store_ops;
 			admin.card_lifetime = FZND_CARD_LIFETIME;
 			admin.revocations = &revoked;
+			admin.authority = my_authority;
 			state.on_local = fzn_node_admin_handle;
 			state.on_local_ctx = &admin;
 			state.on_remote = fzn_node_admin_remote;

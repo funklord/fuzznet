@@ -26,35 +26,78 @@ const char *fzn_node_pair_err_str(fzn_node_pair_err_t err)
 		return "the device is saved and its card could not be made";
 	case FZN_NODE_PAIR_REFUSED:
 		return "the card did not verify, was made for another device, or gave no session";
+	case FZN_NODE_PAIR_CANNOT_JOIN:
+		return "the grant cannot be passed on, or this node belongs to an estate already";
 	}
 	return "unknown";
 }
 
 fzn_node_pair_err_t fzn_node_pair(const fzn_node_identity_t *id,
                                   const uint8_t root[FZN_PUBKEY_LEN],
-                                  const fzn_cap_id_t *cap, const fzn_persist_ops_t *store,
+                                  const fzn_cap_id_t *cap,
+                                  const fzn_node_authority_t *authority, int delegable,
+                                  const fzn_persist_ops_t *store,
                                   fzn_prekey_record_t device, uint64_t now,
                                   uint64_t card_expires_at, uint8_t *card, size_t card_cap,
                                   size_t *card_len)
 {
 	fzn_node_peer_t peer;
+	uint8_t hop[FZN_HOP_LEN];
+	uint64_t expires_at = FZN_NO_EXPIRY;
+	size_t own = authority ? authority->hop_count : 0u;
+	size_t i;
 
 	if (!id || !root || !cap || !store || !store->save || !device.bytes || !card
-	    || !card_len)
+	    || !card_len || (authority && (!authority->hops || authority->hop_count == 0u)))
 		return FZN_NODE_PAIR_MALFORMED;
 	*card_len = 0;
 
-	/* CHECKED BEFORE ANYTHING IS DERIVED. `fzn_node_make_card` mints with
-	 * this node's key as root; if that is not the root the node verifies
-	 * against, the device would pair and then be refused on its first
+	/* CHECKED BEFORE ANYTHING IS DERIVED. A node that is not the root
+	 * grants only through a chain from the root that it may pass on;
+	 * otherwise the device would pair and then be refused on its first
 	 * request, which is the failure that looks like the network. */
-	if (memcmp(root, id->pubkey, FZN_PUBKEY_LEN) != 0)
-		return FZN_NODE_PAIR_NOT_ROOT;
+	if (!authority) {
+		if (memcmp(root, id->pubkey, FZN_PUBKEY_LEN) != 0)
+			return FZN_NODE_PAIR_NOT_ROOT;
+	} else {
+		fzn_chain_hop_t views[FZN_CHAIN_MAX_HOPS];
+		fzn_chain_t verdict;
 
+		if (own + 1u > FZN_CHAIN_MAX_HOPS)
+			return FZN_NODE_PAIR_NOT_ROOT;
+		for (i = 0; i < own; i++)
+			if (fzn_hop_open(authority->hops[i], FZN_HOP_LEN, &views[i]) != FZN_CHAIN_OK)
+				return FZN_NODE_PAIR_NOT_ROOT;
+		if (fzn_chain_verify(views, own, root, cap, now, id->sign, NULL, NULL, &verdict)
+		            != FZN_CHAIN_OK
+		    || memcmp(verdict.grantee, id->pubkey, FZN_PUBKEY_LEN) != 0
+		    || !fzn_hop_delegable(views[own - 1u]))
+			return FZN_NODE_PAIR_NOT_ROOT;
+		/* A GRANT CANNOT OUTLIVE THE ONE IT CAME FROM. */
+		expires_at = verdict.expires_at;
+	}
+
+	/* THE SESSION, from the device's prekey. `fzn_node_provision_peer`
+	 * also mints a hop, which is replaced below: the node mints the one
+	 * it grants itself, with the delegable bit and the expiry its own
+	 * chain allows. */
 	memset(&peer, 0, sizeof(peer));
 	if (fzn_node_provision_peer(id, device, cap, now, FZN_NO_EXPIRY, now, &peer)
 	    != FZN_NODE_PROVISION_OK)
 		return FZN_NODE_PAIR_DEVICE;
+	if (fzn_chain_mint(id->pubkey, device.host, cap, now, expires_at, delegable ? 1 : 0,
+	                   id->sign, hop)
+	    != FZN_CHAIN_OK) {
+		fzn_wipe(&peer, sizeof(peer));
+		return FZN_NODE_PAIR_DEVICE;
+	}
+	/* THE WHOLE CHAIN ON THE NODE'S SIDE: root to this node, then this node
+	 * to the device -- what the node's own decision, against the root it
+	 * pinned, has to verify. */
+	for (i = 0; i < own; i++)
+		memcpy(peer.hop_bytes[i], authority->hops[i], FZN_HOP_LEN);
+	memcpy(peer.hop_bytes[own], hop, FZN_HOP_LEN);
+	peer.hop_count = own + 1u;
 
 	/* SAVED BEFORE THE CARD IS MADE, so no card ever exists for a device
 	 * the node does not hold. The other order would hand out a card and
@@ -67,8 +110,7 @@ fzn_node_pair_err_t fzn_node_pair(const fzn_node_identity_t *id,
 	}
 	fzn_wipe(&peer, sizeof(peer));
 
-	if (fzn_node_make_card(id, device.host, cap, now, FZN_NO_EXPIRY, card_expires_at, card,
-	                       card_cap, card_len)
+	if (fzn_node_card_pack(id, hop, card_expires_at, card, card_cap, card_len)
 	    != FZN_NODE_PROVISION_OK) {
 		*card_len = 0;
 		return FZN_NODE_PAIR_CARD;
@@ -132,6 +174,47 @@ fzn_node_pair_err_t fzn_node_pairing_accept(const fzn_node_identity_t *device,
 
 _Static_assert(OFF_HOP + FZN_HOP_LEN == FZN_NODE_PAIRING_BLOB_LEN,
                "the pairing blob's offsets do not add up to its length");
+
+fzn_node_pair_err_t fzn_node_join(const fzn_node_identity_t *id, const uint8_t *card,
+                                  size_t card_len, uint64_t now,
+                                  const fzn_persist_ops_t *store, fzn_trust_t *trust,
+                                  fzn_node_pairing_t *out)
+{
+	fzn_provision_card_t opened;
+	fzn_chain_hop_t hop;
+	fzn_trust_t pinned;
+	uint8_t blob[FZN_PERSIST_MAX];
+	size_t len = 0;
+	fzn_node_pair_err_t err;
+
+	if (!id || !card || !store || !store->save || !trust || !out)
+		return FZN_NODE_PAIR_MALFORMED;
+
+	/* EVERYTHING THAT CAN REFUSE IS ASKED BEFORE ANYTHING IS WRITTEN: the
+	 * grant must be delegable, and the anchor must accept the pin -- tried
+	 * on a copy, so a refusal leaves the caller's trust as it was. */
+	if (fzn_provision_open(card, card_len, &opened) != FZN_PROVISION_OK
+	    || fzn_hop_open(opened.hop, FZN_HOP_LEN, &hop) != FZN_CHAIN_OK)
+		return FZN_NODE_PAIR_REFUSED;
+	if (!fzn_hop_delegable(hop))
+		return FZN_NODE_PAIR_CANNOT_JOIN;
+	pinned = *trust;
+	if (fzn_trust_pin(&pinned, opened.root) != FZN_TRUST_OK)
+		return FZN_NODE_PAIR_CANNOT_JOIN;
+
+	err = fzn_node_pairing_accept(id, card, card_len, now, store, out);
+	if (err != FZN_NODE_PAIR_OK)
+		return err;
+	/* THE ANCHOR LAST. A pairing saved with the anchor unsaved is a node
+	 * that restarts self-rooted and holding a pairing it cannot use --
+	 * reported, and fixed by joining again; the other order would restart
+	 * a node pinned to an estate it holds no grant in. */
+	if (fzn_persist_trust_pack(&pinned, blob, sizeof(blob), &len) != FZN_PERSIST_OK
+	    || !store->save(store->ctx, FZN_PERSIST_TRUST, NULL, blob, len))
+		return FZN_NODE_PAIR_STORE;
+	*trust = pinned;
+	return FZN_NODE_PAIR_OK;
+}
 
 fzn_persist_err_t fzn_node_pairing_pack(const fzn_node_pairing_t *pairing, uint8_t *out,
                                         size_t cap, size_t *len)

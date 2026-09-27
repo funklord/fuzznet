@@ -47729,3 +47729,107 @@ by the 30/31 case, not the 3/30 one, which the length check catches first.
 One existing sabotage entry anchored on the old length check and was
 re-pointed at the new one. The harness refused to run until it was, which
 is what it is for.
+
+## 383. An estate of more than one node: joining, and granting through a chain, 2026-09-27
+
+Everything in secs 375-382 is the collapsed case, where the node is its own
+root. sec 28's estate is one root whose grants every member honours, and
+the pieces were all present -- `fzn_trust_pin` replacing a self-root is the
+join (sec 136), and `chain.c` has always verified delegated chains -- with
+nothing in the node that used them.
+
+### Taken from fuzzypickles, which runs this already
+
+The holder's rule is to read what fuzzypickles does before building a
+second version of it. Read in their tree, with the two load-bearing claims
+checked against the source (their `core/src/capability.c` 218-256 and
+`core/src/identity.c` 996-1010):
+
+- **The grant:** the root mints directly, or a host that holds a grant it
+  may pass on extends its own chain -- `fzp_capability_grant`'s vault and
+  non-vault branches. fuzznet does the same: `fzn_node_pair` takes a
+  `fzn_node_authority_t`, NULL for the root, or the node's own chain from
+  the root, which it extends with a hop signed by its own key.
+- **The session:** one persistent key per host pair from pinned prekeys,
+  derived when the pair is made. The same shape as fuzznet's.
+- **What joins:** a request, an approval and an install -- three blobs,
+  with both hosts registering each other. fuzznet's is `--prekey`,
+  `--pair ... --delegable` and `--accept ... --join`.
+- **Revocations:** pushed to registered siblings, relayed on first sight,
+  and swept every sixty seconds against a delivery ledger. Manifests are not
+  used for them. **Not built here yet**, and it is the next piece.
+
+Two things there are worth their knowing, and this reading is not their
+record: a comment in their `daemon/ipc_server.c` still says linking a device
+does not register it as a sibling, which their `identity.c` has since made
+untrue; and their sec 5 asks for forward-secret per-device prekey bundles
+while their sibling channel is static-static.
+
+### The card is unchanged, and only the node's side grows
+
+A card names the node the device talks to, signed by that node, with the
+one hop the node minted. A device pins that node and never needs the chain
+above it. So delegated pairing changes nothing on the device: what changes
+is the node's stored peer, which now holds the whole chain -- root to node,
+node to device -- so the node's own decision against the root it pinned
+passes. `fzn_node_card_pack` is split out of `fzn_node_make_card` so the
+node mints the device's hop itself, with the delegable bit and an expiry no
+later than its own chain's.
+
+An authority must verify under the root for the capability being granted,
+name this node as its last grantee, and end in a delegable hop.
+
+### Joining
+
+`fzn_node_join` accepts a card from the estate root, then pins that root in
+place of the self-root and saves the anchor LAST: a pairing saved without
+the anchor restarts self-rooted and fixable by joining again, while the
+other order would restart pinned to an estate the node holds no grant in.
+It refuses a grant that cannot be passed on -- a joined node serves only the
+devices it pairs, so it could serve nobody -- and refuses any anchor but a
+self-root, since no host is on two estates.
+
+**Devices paired under the old self-root stop being served.** Their chains
+root at the node's own key and the node now verifies against the estate's.
+They are paired again through the estate; that is the invariant working.
+
+**Only through the root.** A card carries one hop and names its signer as
+root, so a card from a delegate would pin the delegate. Joining through a
+delegate needs the card to carry the chain above it, which is a change to
+the card's layout and is not made here.
+
+`fuzznetd`: `--pair PREKEY --delegable` on the root; `--accept CARD --join`
+on the joining node; and a joined node, at start, reports the estate it
+belongs to and grants through the hop its pairing to the root holds.
+
+### Measured for sec 383
+
+`pair_test` builds an estate of three:
+
+- a non-delegable card is refused as a join, with the anchor unmoved;
+- R pairs N delegably and N joins, pinned to R;
+- a second root's card is refused;
+- N pairs D through R's grant, and holds D with the two-hop chain;
+- N, verifying against R, grants D over loopback UDP;
+- R's revocation of D, admitted at N, denies it;
+- an authority that is not delegable, and one that names another node, are
+  each refused.
+
+Three live `fuzznetd` processes did the same: N joined R and reported the
+membership, paired D, served D's `status` ("granted by capability chain") and
+`list peer`, and stopped on SIGTERM with nothing left running.
+
+Three sabotage entries hold the delegable and grantee checks on an authority
+and the delegable check on a join. The existing root-check entry was
+re-anchored, since the check it names moved inside a branch.
+
+### What sec 383 leaves
+
+- **Carrying revocations between an estate's nodes**, which is what makes a
+  root's revocation reach N without a test admitting it by hand. fuzzypickles
+  pushes to siblings, relays and sweeps; the registry of siblings is what a
+  node needs first.
+- **A node's own revocations of the grants it delegated**: `fzn_node_revoke`
+  revokes as the root only. A joined node's revocation is issued under its
+  chain and admitted with `fzn_revocation_offer_chain`.
+- **Joining through a delegate**, which needs the chain on the card.
