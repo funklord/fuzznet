@@ -799,7 +799,7 @@ SABOTAGES = [
 	(
 		"persist-file-list-skips-a-half-written-save",
 		"persist/persist_file.c",
-		"\t\tif (strlen(n) != 2u + 64u)\n\t\t\tcontinue;",
+		"\t\tif (strlen(n) != prefix_len + 64u)\n\t\t\tcontinue;",
 		"\t\tif (0)\n\t\t\tcontinue;",
 		"`file_save` writes `<name>.tmp` and renames, so an interrupted "
 		"save leaves `<slot>-<64 hex>.tmp` -- the right prefix and a valid "
@@ -3513,6 +3513,13 @@ SABOTAGES = [
 		"\tif (unlink(path) == 0 || errno == ENOENT)\n",
 		"\tif (unlink(path) == 0)\n",
 		"a second removal answering failure makes a retry after a lost reply look like a fault, and the caller's question was whether it is gone -- sec 379",
+	),
+	(
+		"file-list-matches-the-whole-prefix",
+		"persist/persist_file.c",
+		"\t\tif (memcmp(n, prefix, prefix_len) != 0)\n",
+		"\t\tif (memcmp(n, prefix, 1u) != 0)\n",
+		"slots of the same width differ only past their first digit, so a listing that compared less than the whole prefix would hand one slot's subjects to another's loader -- sec 382",
 	),
 	(
 		"remote-consults-the-revocations",

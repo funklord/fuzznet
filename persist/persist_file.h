@@ -20,6 +20,10 @@
 /* Declared, not included. sec 209. */
 struct flog_t;
 
+/* The highest slot this backend can name: two decimal digits. A slot past it
+ * is refused by every call rather than folded into another's file. sec 382. */
+#define FZN_PERSIST_FILE_SLOT_MAX 99u
+
 typedef struct fzn_persist_file {
 	const char *dir;
 	fzn_persist_ops_t ops;

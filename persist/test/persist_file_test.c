@@ -515,6 +515,54 @@ int main(void)
 		(void)rmdir(blocker);
 	}
 	{
+		/* SLOTS PAST NINE, named without moving any name that existed.
+		 * sec 382. Slot numbers here are cast, since no slot that high is
+		 * defined yet -- which is the point: it has to work before one is. */
+		char path[320];
+		uint8_t listed[4 * 32];
+		size_t n = 9;
+		const fzn_persist_slot_t ten = (fzn_persist_slot_t)10u;
+		const fzn_persist_slot_t thirty = (fzn_persist_slot_t)30u;
+		const fzn_persist_slot_t top = (fzn_persist_slot_t)FZN_PERSIST_FILE_SLOT_MAX;
+		const fzn_persist_slot_t past = (fzn_persist_slot_t)(FZN_PERSIST_FILE_SLOT_MAX + 1u);
+
+		expect(ops->save(ops->ctx, ten, NULL, in, 4u) == 1, "slot 10 would not save");
+		snprintf(path, sizeof(path), "%s/10-h", dir);
+		expect(stat(path, &st) == 0, "slot 10 is not stored as 10-h");
+		snprintf(path, sizeof(path), "%s/1-h", dir);
+		expect(stat(path, &st) == 0,
+		       "slot 1's existing name moved -- a widening that orphans every file "
+		       "already written");
+		expect(ops->load(ops->ctx, FZN_PERSIST_TRUST, NULL, out, sizeof(out), &len) == 1
+		               && len == sizeof(in) && memcmp(out, in, sizeof(in)) == 0,
+		       "slot 1 no longer reads back what it stored before slot 10 existed");
+
+		/* THE WHOLE PREFIX: slot 3's listing must not take slot 30's
+		 * file, whose name also begins with a 3. */
+		expect(ops->save(ops->ctx, thirty, subject, in, 4u) == 1, "slot 30 would not save");
+		expect(ops->list(ops->ctx, FZN_PERSIST_PEER, listed, 4, &n) == 1 && n == 0u,
+		       "slot 3's listing picked up slot 30's file");
+		expect(ops->list(ops->ctx, thirty, listed, 4, &n) == 1 && n == 1u
+		               && memcmp(listed, subject, 32) == 0,
+		       "slot 30's listing did not return its own subject");
+		/* AND ONE OF THE SAME WIDTH: slots 30 and 31 differ only in their
+		 * second digit, so the name's length cannot tell them apart and
+		 * only the whole prefix can. */
+		expect(ops->save(ops->ctx, (fzn_persist_slot_t)31u, subject, in, 4u) == 1
+		               && ops->list(ops->ctx, thirty, listed, 4, &n) == 1 && n == 1u,
+		       "slot 30's listing picked up slot 31's file");
+		(void)ops->remove(ops->ctx, (fzn_persist_slot_t)31u, subject);
+
+		expect(ops->save(ops->ctx, top, NULL, in, 4u) == 1, "the highest slot would not save");
+		expect(ops->save(ops->ctx, past, NULL, in, 4u) == 0
+		               && ops->list(ops->ctx, past, listed, 4, &n) == 0,
+		       "a slot past the maximum was named rather than refused");
+
+		(void)ops->remove(ops->ctx, ten, NULL);
+		(void)ops->remove(ops->ctx, thirty, subject);
+		(void)ops->remove(ops->ctx, top, NULL);
+	}
+	{
 		/* REMOVE: gone afterwards, gone again, and a refusal where the
 		 * directory will not let go. sec 379. */
 		char ro[320];

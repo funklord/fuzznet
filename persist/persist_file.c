@@ -58,8 +58,8 @@
  * the failure's cause.
  */
 
-/* Enough for a directory, a separator, a slot digit, 64 hex characters and a
- * suffix. A caller with a deeper directory is told, not truncated. */
+/* Enough for a directory, a separator, a slot's two digits, 64 hex characters
+ * and a suffix. A caller with a deeper directory is told, not truncated. */
 #define PATH_MAX_LEN 512u
 #define NAME_MAX_LEN 80u
 
@@ -71,16 +71,21 @@ static int name_for(char *out, size_t cap, fzn_persist_slot_t slot, const uint8_
 
 	if (cap < NAME_MAX_LEN)
 		return 0;
-	/* ONE DECIMAL DIGIT, SO A SLOT PAST NINE IS REFUSED RATHER THAN
-	 * FOLDED. `% 10u` would give slot 10 the name slot 0 has and slot 11
-	 * the name FZN_PERSIST_TRUST has -- two slots in one file, silently,
-	 * and the anchor is the one that loses. Nine slots exist; the tenth is
-	 * where this stops working, and it stops loudly. Widening the name is
-	 * a format change that orphans every file already written, so it is a
-	 * deliberate migration rather than something to do in passing. */
-	if ((unsigned)slot > 9u)
+	/* THE SLOT IN DECIMAL, AS MANY DIGITS AS IT TAKES, AND NO MORE THAN
+	 * TWO. It was one digit, with slot 10 refused rather than folded --
+	 * `% 10u` would give slot 10 the name slot 0 has and slot 11 the name
+	 * FZN_PERSIST_TRUST has, two slots in one file and the anchor the one
+	 * that loses. That record said widening would orphan every file
+	 * already written, which is true of a FIXED width (`01-h`) and false of
+	 * this: slots 0 to 9 keep the names they always had, byte for byte, so
+	 * nothing on disk moves and there is no migration. `file_list` matches
+	 * the whole `<slot>-` prefix, so slot 1's listing cannot pick up slot
+	 * 10's files. Past 99 is still refused loudly. sec 382. */
+	if ((unsigned)slot > FZN_PERSIST_FILE_SLOT_MAX)
 		return 0;
-	out[at++] = (char)('0' + (unsigned)slot);
+	if ((unsigned)slot >= 10u)
+		out[at++] = (char)('0' + ((unsigned)slot / 10u));
+	out[at++] = (char)('0' + ((unsigned)slot % 10u));
 	out[at++] = '-';
 	if (subject) {
 		/* THE WHOLE SUBJECT, not a prefix. Two peers sharing a prefix
@@ -335,10 +340,22 @@ static int file_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t ma
 	struct dirent *ent;
 	size_t found = 0;
 
+	char prefix[4];
+	size_t prefix_len;
+
 	if (!store || !out || !count)
 		return 0;
-	if ((unsigned)slot > 9u)
+	if ((unsigned)slot > FZN_PERSIST_FILE_SLOT_MAX)
 		return 0;
+	/* The same spelling `name_for` writes, compared WHOLE: `1-` against
+	 * `10-...` differs at the second character, so no slot's listing can
+	 * absorb another's. */
+	prefix_len = 0;
+	if ((unsigned)slot >= 10u)
+		prefix[prefix_len++] = (char)('0' + ((unsigned)slot / 10u));
+	prefix[prefix_len++] = (char)('0' + ((unsigned)slot % 10u));
+	prefix[prefix_len++] = '-';
+	prefix[prefix_len] = '\0';
 	*count = 0;
 	d = opendir(store->dir);
 	if (!d)
@@ -348,9 +365,9 @@ static int file_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t ma
 		unsigned i;
 		int ok = 1;
 
-		if (strlen(n) != 2u + 64u)
+		if (strlen(n) != prefix_len + 64u)
 			continue;
-		if (n[0] != (char)('0' + (unsigned)slot) || n[1] != '-')
+		if (memcmp(n, prefix, prefix_len) != 0)
 			continue;
 		/* TRUNCATION IS A FAILURE. Returning the first `max` would leave
 		 * a node serving some of its peers with nothing saying which are
@@ -360,8 +377,8 @@ static int file_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t ma
 			return 0;
 		}
 		for (i = 0; i < 32u; i++) {
-			int hi = unhex(n[2u + (i * 2u)]);
-			int lo = unhex(n[3u + (i * 2u)]);
+			int hi = unhex(n[prefix_len + (i * 2u)]);
+			int lo = unhex(n[prefix_len + 1u + (i * 2u)]);
 
 			if (hi < 0 || lo < 0) {
 				ok = 0;

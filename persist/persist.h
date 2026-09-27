@@ -166,9 +166,9 @@ typedef enum fzn_persist_slot {
 	 * `node/pair.h` packs it. sec 377. */
 	FZN_PERSIST_PAIRED_NODE = 8u,
 	/* Per grantee, the latest revocation THIS node issued for it.
-	 * `node/revoke.h` packs it. sec 380. THE LAST SLOT ONE DECIMAL DIGIT
-	 * NAMES -- `persist/persist_file.c` refuses a tenth rather than folding
-	 * it, and widening the name is a migration. */
+	 * `node/revoke.h` packs it. sec 380. The file backend names slots in
+	 * variable-width decimal up to FZN_PERSIST_FILE_SLOT_MAX, so slot 10
+	 * is `10-...` beside every existing name unchanged (sec 382). */
 	FZN_PERSIST_ISSUED_REVOCATION = 9u,
 } fzn_persist_slot_t;
 

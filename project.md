@@ -47696,3 +47696,36 @@ looked like a stale reply coming back from the reassembly table. It was
 test printed the buffer's previous contents. The library was right. Recorded
 because the trace ran through `caller.c` and `reassembly.c` before reaching
 the test's own declaration.
+
+## 382. Slot ten, without a migration, 2026-09-27
+
+sec 380 took slot 9 and recorded it as the last the file backend could name,
+because `name_for` wrote one decimal digit and refused a tenth rather than
+folding it. The multi-node estate work will need slots, so this came first.
+
+The record said widening the name "orphans every file already written, so it
+is a deliberate migration". That is true of a FIXED width -- `01-h` for what
+is stored as `1-h` -- and false of variable-width decimal, which is what the
+name is now: slots 0 to 9 keep the names they always had, byte for byte,
+slot 10 is `10-h`, and nothing on disk moves. The cap is
+`FZN_PERSIST_FILE_SLOT_MAX` (99), and past it every call still refuses
+rather than folds.
+
+`file_list` now matches the whole `<slot>-` prefix and the length that goes
+with it. Those are two guards, and they catch different things: the length
+separates `3-` from `30-`, and only the whole-prefix compare separates `30-`
+from `31-`, which have the same length. The test has a case for each. The
+sabotage entry for the compare (checking only the first character) is held
+by the 30/31 case, not the 3/30 one, which the length check catches first.
+
+`persist_file_test` checks:
+
+- slot 10 is written as `10-h`;
+- slot 1's existing file is still `1-h` and still reads back;
+- slot 3's listing does not take slot 30's file, and slot 30's does not
+  take slot 31's;
+- slot 99 saves and slot 100 is refused by save and list alike.
+
+One existing sabotage entry anchored on the old length check and was
+re-pointed at the new one. The harness refused to run until it was, which
+is what it is for.
