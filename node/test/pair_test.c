@@ -551,6 +551,124 @@ out:
 	return result;
 }
 
+/* THE ROOT ANSWERS A MEMBER'S PULL: R serves `fzn_node_admin_remote` over
+ * the remote hop, and N asks `get revocation` page by page through the
+ * pairing it joined with, absorbing each answer. The loop is turned by hand
+ * -- send, one turn of R, receive, absorb -- which is what
+ * `fzn_node_revocations_absorb` is split out for. The pull err, or -99 when
+ * the fixture failed. */
+static int pulled_from(struct node *root, struct node *member, const fzn_cap_id_t *cap,
+                       fzn_revocation_store_t *member_revs, size_t *learned)
+{
+	static fzn_node_peer_t peers[4];
+	static fzn_replay_entry_t entries[16];
+	static uint8_t reply[FZN_REPLY_MAX + 1u];
+	fzn_replay_window_t replay;
+	fzn_node_pairing_t pairing;
+	fzn_node_state_t state;
+	fzn_node_admin_t admin;
+	fzn_caller_t caller;
+	fzn_partial_t slots[1];
+	static uint8_t slot_buf[1][2048];
+	fzn_reasm_t table;
+	fzn_aead_ops_t aead;
+	fzn_udp_addr_t addr;
+	size_t loaded = 0, from = 0, pages = 0;
+	int sfd = -1, dfd = -1, result = -99;
+
+	*learned = 0;
+	fzn_aead_monocypher_init(&aead);
+	if (fzn_node_pairing_load(&member->ops, root->id.pubkey, &pairing) != FZN_PERSIST_OK
+	    || fzn_node_peers_load(&root->ops, peers, 4, &loaded) != FZN_PERSIST_OK
+	    || fzn_udp_bind(AF_INET, "127.0.0.1", 0, &sfd) != FZN_UDP_OK
+	    || fzn_udp_bind(AF_INET, "127.0.0.1", 0, &dfd) != FZN_UDP_OK
+	    || fzn_udp_resolve(AF_INET, "127.0.0.1", port_of(sfd), &addr) != FZN_UDP_OK
+	    || fzn_replay_init(&replay, entries, 16, 100000u) != FZN_FRESH_OK
+	    || fzn_reasm_slot_init(&slots[0], slot_buf[0], sizeof(slot_buf[0])) != FZN_REASM_OK
+	    || fzn_reasm_init(&table, slots, 1, 1u, 60u) != FZN_REASM_OK)
+		goto out;
+
+	memset(&state, 0, sizeof(state));
+	state.config.serves_remote = 1;
+	state.config.remote_capability = *cap;
+	memcpy(state.config.root, root->id.pubkey, FZN_PUBKEY_LEN);
+	memcpy(state.node_pubkey, root->id.pubkey, FZN_PUBKEY_LEN);
+	state.listen_fd = -1;
+	state.udp_fd = sfd;
+	state.peers = peers;
+	state.peer_count = loaded;
+	state.hash = &hash_ops;
+	state.aead = &aead;
+	state.sign = &root->sign;
+	state.rng = &rng_ops;
+	state.clock = fixed_clock;
+	state.replay = &replay;
+	memset(&admin, 0, sizeof(admin));
+	admin.state = &state;
+	admin.id = &root->id;
+	admin.store = &root->ops;
+	state.on_remote = fzn_node_admin_remote;
+	state.on_remote_ctx = &admin;
+
+	memset(&caller, 0, sizeof(caller));
+	fzn_node_pairing_caller(&pairing, member->id.pubkey, &caller);
+	caller.fd = dfd;
+	caller.node = addr;
+	caller.hash = &hash_ops;
+	caller.aead = &aead;
+	caller.rng = &rng_ops;
+	caller.reasm = &table;
+	caller.hops = 1u;
+
+	while (pages++ < 8u) {
+		char ask[32];
+		size_t reply_len = 0, next = 0, total = 0;
+		uint32_t msg = 0;
+		int n = snprintf(ask, sizeof(ask), "get revocation %zu", from);
+
+		if (fzn_caller_send(&caller, (const uint8_t *)ask, (size_t)n, 3500u, &msg)
+		            != FZN_CALLER_OK
+		    || fzn_node_run_once(&state, 1000) != 1
+		    || fzn_caller_recv(&caller, msg, reply, sizeof(reply), &reply_len, 1000u)
+		               != FZN_CALLER_OK)
+			break;
+		result = fzn_node_revocations_absorb(reply, reply_len, from, root->id.pubkey,
+		                                     &member->sign, &hash_ops, member_revs,
+		                                     &member->ops, learned, &next, &total);
+		if (result != FZN_NODE_PULL_OK || next >= total)
+			break;
+		from = next;
+	}
+	fzn_wipe(&caller, sizeof(caller));
+out:
+	fzn_wipe(&pairing, sizeof(pairing));
+	if (sfd >= 0)
+		fzn_udp_close(sfd);
+	if (dfd >= 0)
+		fzn_udp_close(dfd);
+	return result;
+}
+
+/* A reply line `ok TOTAL FROM HEX`, for the pages a real root would not send. */
+static size_t page_of(char *out, size_t cap, size_t total, size_t from,
+                      const uint8_t record[FZN_REVOCATION_LEN])
+{
+	static const char digits[] = "0123456789abcdef";
+	int n = snprintf(out, cap, "ok %zu %zu ", total, from);
+	size_t at, i;
+
+	if (n < 0 || (size_t)n + FZN_REVOCATION_LEN * 2u + 2u > cap)
+		return 0;
+	at = (size_t)n;
+	for (i = 0; i < FZN_REVOCATION_LEN; i++) {
+		out[at++] = digits[record[i] >> 4];
+		out[at++] = digits[record[i] & 15u];
+	}
+	out[at++] = '\n';
+	out[at] = '\0';
+	return at;
+}
+
 /* ---- AN ESTATE OF THREE: a root R, a node N that joins it, and a device D
  * that N pairs by extending the grant R gave it. sec 383. */
 static void test_an_estate(const fzn_cap_id_t *cap)
@@ -670,6 +788,80 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 		      "N would not admit R's revocation of D");
 		CHECK(granted_by(&n, r.id.pubkey, &d, cap, &revoked) == 0,
 		      "N granted a device the estate root had revoked");
+	}
+
+	/* ---- N LEARNS R's REVOCATIONS BY ASKING R. sec 384. Before that, a
+	 * record N issued as its own root before it joined, which the load must
+	 * skip rather than fail on. */
+	{
+		static fzn_revocation_t r_entries[4], n_entries[4], l_entries[4];
+		fzn_revocation_store_t r_revs, n_revs, reloaded;
+		uint8_t record[FZN_REVOCATION_LEN];
+		char page[FZN_REPLY_MAX + 1u];
+		size_t learned = 0, count = 0, next = 0, total = 0, len;
+
+		CHECK(fzn_revocation_store_init(&r_revs, r_entries, 4) == FZN_CHAIN_OK
+		              && fzn_revocation_store_init(&n_revs, n_entries, 4) == FZN_CHAIN_OK
+		              && fzn_revocation_store_init(&reloaded, l_entries, 4) == FZN_CHAIN_OK
+		              && fzn_node_revoke(&n.id, n.id.pubkey, cap, other.id.pubkey, 1150u,
+		                                 &n_revs, &n.ops) == FZN_NODE_REVOKE_OK
+		              && fzn_revocation_store_init(&n_revs, n_entries, 4) == FZN_CHAIN_OK,
+		      "fixture: revocation stores, or N's pre-join revocation");
+
+		/* Nothing revoked yet: a pull of nothing is a pull, and learns
+		 * nothing. */
+		CHECK(pulled_from(&r, &n, cap, &n_revs, &learned) == FZN_NODE_PULL_OK
+		              && learned == 0u,
+		      "a pull from a root with nothing revoked failed, or learned something");
+
+		CHECK(fzn_node_revoke(&r.id, r.id.pubkey, cap, d.id.pubkey, 1400u, &r_revs, &r.ops)
+		              == FZN_NODE_REVOKE_OK,
+		      "fixture: R would not revoke D");
+		CHECK(pulled_from(&r, &n, cap, &n_revs, &learned) == FZN_NODE_PULL_OK
+		              && learned == 1u,
+		      "N did not learn R's revocation of D by asking R");
+		CHECK(granted_by(&n, r.id.pubkey, &d, cap, &n_revs) == 0,
+		      "N granted D after pulling R's revocation of it");
+		CHECK(pulled_from(&r, &n, cap, &n_revs, &learned) == FZN_NODE_PULL_OK
+		              && learned == 1u,
+		      "pulling a revocation N already holds failed -- every periodic pull would");
+
+		/* A RESTART with R unreachable: what N saved is what it denies by. */
+		CHECK(fzn_node_revocations_load(&n.ops, &reloaded, r.id.pubkey, &n.sign, &hash_ops,
+		                                &count) == FZN_PERSIST_OK
+		              && count == 1u,
+		      "N's restart did not reload exactly the one revocation it learned");
+		CHECK(granted_by(&n, r.id.pubkey, &d, cap, &reloaded) == 0,
+		      "after a restart N granted a device R had revoked");
+
+		/* A RECORD R DID NOT SIGN admits nothing and is not saved. */
+		CHECK(fzn_revocation_issue(other.id.pubkey, cap, d.id.pubkey, 1500u, &other.sign,
+		                           record) == FZN_CHAIN_OK
+		              && (len = page_of(page, sizeof(page), 1u, 0u, record)) != 0u,
+		      "fixture: another root's record");
+		learned = 0;
+		CHECK(fzn_node_revocations_absorb((const uint8_t *)page, len, 0u, r.id.pubkey, &n.sign,
+		                                  &hash_ops, &n_revs, &n.ops, &learned, &next, &total)
+		                      == FZN_NODE_PULL_REFUSED
+		              && learned == 0u,
+		      "N admitted a revocation its root did not sign");
+
+		/* A PAGE AT THE WRONG OFFSET, or one that promises more and
+		 * carries nothing, is the root's grammar broken, not a pull done. */
+		CHECK(fzn_node_revocations_absorb((const uint8_t *)page, len, 1u, r.id.pubkey, &n.sign,
+		                                  &hash_ops, &n_revs, &n.ops, &learned, &next, &total)
+		              == FZN_NODE_PULL_SHAPE,
+		      "N absorbed a page answering an offset it did not ask for");
+		len = (size_t)snprintf(page, sizeof(page), "ok 2 0\n");
+		CHECK(fzn_node_revocations_absorb((const uint8_t *)page, len, 0u, r.id.pubkey, &n.sign,
+		                                  &hash_ops, &n_revs, &n.ops, &learned, &next, &total)
+		              == FZN_NODE_PULL_SHAPE,
+		      "N took an empty page short of the total as a finished pull");
+		len = (size_t)snprintf(page, sizeof(page), "denied\n");
+		CHECK(fzn_node_revocations_absorb((const uint8_t *)page, len, 0u, r.id.pubkey, &n.sign,
+		                                  &hash_ops, &n_revs, &n.ops, &learned, &next, &total)
+		              == FZN_NODE_PULL_NO_ANSWER,
+		      "N took a refusal as a page");
 	}
 	fzn_wipe(&joined, sizeof(joined));
 	fzn_wipe(&d_pairing, sizeof(d_pairing));

@@ -143,6 +143,13 @@ static uint64_t wall_clock(void)
  * which is the capability model's answer (sec 1). */
 #define FZND_CARD_LIFETIME 86400u
 
+/* HOW OFTEN A MEMBER ASKS ITS ROOT WHAT IT HAS REVOKED. fuzzypickles sweeps
+ * its siblings on the same period, and it bounds the same thing: how long a
+ * device the root cut off goes on being served here. A pull blocks the loop
+ * for as long as the root takes to answer, at most 3 s a page, which is the
+ * price of asking from the loop's own thread. sec 384. */
+#define FZND_PULL_EVERY 60u
+
 static void usage(const char *prog)
 {
 	fprintf(stderr,
@@ -153,8 +160,10 @@ static void usage(const char *prog)
 	        "       %s --store DIR --prekey\n"
 	        "       %s --store DIR --accept CARD [--join]\n"
 	        "       %s --store DIR --ask LINE --node ROOT_HEX --to HOST PORT [--udp6]\n"
-	        "fuzznet options:\n%s",
-	        prog, prog, prog, prog, prog, fzn_cli_usage());
+	        "a member of an estate may add --root-at HOST PORT when serving:\n"
+	        "it pulls the root's revocations at start and every %u seconds\n"
+	        "%s",
+	        prog, prog, prog, prog, prog, FZND_PULL_EVERY, fzn_cli_usage());
 }
 
 /* PAIR ONE DEVICE AND EXIT.
@@ -244,6 +253,9 @@ int main(int argc, char **argv)
 	const char *node_hex = NULL;
 	const char *to_host = NULL;
 	long to_port = -1;
+	const char *root_at_host = NULL;
+	fzn_revocation_store_t *running = NULL;
+	long root_at_port = -1;
 	int has_capability = 0;
 	int lfd = -1, ufd = -1, i;
 
@@ -278,6 +290,9 @@ int main(int argc, char **argv)
 			ask_line = argv[++i];
 		} else if (!strcmp(argv[i], "--node") && i + 1 < argc) {
 			node_hex = argv[++i];
+		} else if (!strcmp(argv[i], "--root-at") && i + 2 < argc) {
+			root_at_host = argv[++i];
+			root_at_port = strtol(argv[++i], NULL, 10);
 		} else if (!strcmp(argv[i], "--to") && i + 2 < argc) {
 			to_host = argv[++i];
 			to_port = strtol(argv[++i], NULL, 10);
@@ -664,6 +679,7 @@ int main(int argc, char **argv)
 			return 1;
 		}
 		state.config.revocations = &revoked;
+		running = &revoked;
 		if (nrevoked)
 			fprintf(stderr, "fuzznetd: %zu revocation(s) from %s\n", nrevoked,
 			        store_dir);
@@ -699,6 +715,79 @@ int main(int argc, char **argv)
 			state.on_local_ctx = &admin;
 			state.on_remote = fzn_node_admin_remote;
 			state.on_remote_ctx = &admin;
+		}
+	}
+
+	/* A MEMBER PULLS WHAT ITS ROOT REVOKED. The pairing it joined with is
+	 * what makes it the root's caller, and the address is given because a
+	 * pairing carries none (sec 377). The first pull runs before the first
+	 * frame is served; a root that does not answer is reported and not
+	 * fatal, since what was pulled before is already loaded from slot 10
+	 * and refusing to serve would cut off every device the root did not
+	 * revoke. sec 384. */
+	if (root_at_host) {
+		static fzn_partial_t slots[1];
+		static uint8_t slot_buf[1][FZN_NODE_REPLY_MAX * 4u];
+		static fzn_reasm_t table;
+		static fzn_caller_t caller;
+		uint64_t next_pull = 0;
+		int fd = -1;
+
+		if (!my_authority || !running || root_at_port < 0
+		    || root_at_port > 65535) {
+			fprintf(stderr, "fuzznetd: --root-at needs --store and a node that has "
+			                "joined an estate\n");
+			fzn_socket_close(lfd, sock_path);
+			if (ufd >= 0)
+				fzn_udp_close(ufd);
+			return 2;
+		}
+		if (fzn_udp_bind(family, NULL, 0, &fd) != FZN_UDP_OK
+		    || fzn_udp_resolve(family, root_at_host, (uint16_t)root_at_port, &caller.node)
+		               != FZN_UDP_OK
+		    || fzn_reasm_slot_init(&slots[0], slot_buf[0], sizeof(slot_buf[0]))
+		               != FZN_REASM_OK
+		    || fzn_reasm_init(&table, slots, 1, 1u, 60u) != FZN_REASM_OK) {
+			fprintf(stderr, "fuzznetd: could not reach for the root at %s\n",
+			        root_at_host);
+			fzn_socket_close(lfd, sock_path);
+			if (fd >= 0)
+				fzn_udp_close(fd);
+			if (ufd >= 0)
+				fzn_udp_close(ufd);
+			return 1;
+		}
+		fzn_node_pairing_caller(&estate, identity.pubkey, &caller);
+		caller.fd = fd;
+		caller.hash = &hash_ops;
+		caller.aead = &aead_ops;
+		caller.rng = &rng_ops;
+		caller.reasm = &table;
+		caller.hops = 1u;
+
+		fprintf(stderr, "fuzznetd: serving%s%s%s, pulling from %s every %us\n",
+		        sock_path ? " on " : "", sock_path ? sock_path : "",
+		        (udp_port >= 0) ? " udp" : "", root_at_host, FZND_PULL_EVERY);
+		for (;;) {
+			uint64_t now = wall_clock();
+
+			if (now >= next_pull) {
+				size_t learned = 0;
+				fzn_node_pull_err_t perr;
+
+				perr = fzn_node_revocations_pull(&caller, state.config.root,
+				                                 &sign_ops, &hash_ops, now,
+				                                 running,
+				                                 store_ops, &learned);
+				if (perr != FZN_NODE_PULL_OK)
+					fprintf(stderr, "fuzznetd: revocations from the root: %s\n",
+					        fzn_node_pull_err_str(perr));
+				else if (learned)
+					fprintf(stderr, "fuzznetd: %zu revocation(s) from the root\n",
+					        learned);
+				next_pull = wall_clock() + FZND_PULL_EVERY;
+			}
+			(void)fzn_node_run_once(&state, 1000);
 		}
 	}
 

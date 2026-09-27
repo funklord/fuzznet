@@ -40,6 +40,8 @@ static QString slot_label(fzn_persist_slot_t slot)
 		return QStringLiteral("paired node");
 	case FZN_PERSIST_ISSUED_REVOCATION:
 		return QStringLiteral("issued revocation");
+	case FZN_PERSIST_LEARNED_REVOCATION:
+		return QStringLiteral("learned revocation");
 	}
 	/* NO `default:` ABOVE, so a slot added to persist.h draws a -Wswitch
 	 * warning here rather than being drawn as this. */

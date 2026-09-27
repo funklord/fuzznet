@@ -123,6 +123,10 @@ static const char *r_revoke(int v)
 {
 	return fzn_node_revoke_err_str((fzn_node_revoke_err_t)v);
 }
+static const char *r_pull(int v)
+{
+	return fzn_node_pull_err_str((fzn_node_pull_err_t)v);
+}
 static const char *r_identity(int v)
 {
 	return fzn_node_identity_err_str((fzn_node_identity_err_t)v);
@@ -201,6 +205,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_node_identity_err_str", r_identity, 7 },
 	{ "fzn_node_pair_err_str", r_pair, 8 },
 	{ "fzn_node_revoke_err_str", r_revoke, 6 },
+	{ "fzn_node_pull_err_str", r_pull, 6 },
 	{ "fzn_record_err_str", r_record, 6 },
 	{ "fzn_journal_err_str", r_journal, 7 },
 	{ "fzn_ledger_err_str", r_ledger, 4 },

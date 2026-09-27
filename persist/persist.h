@@ -88,12 +88,20 @@
  *                        re-admits the device on the next start. Kept as the
  *                        signed record, since the store keeps no record to
  *                        save. `node/revoke.h`, sec 380.
+ *   learned revocations  MUST, per grantee, on a node that has joined an
+ *                        estate: what it pulled from its root. Refilled by
+ *                        the next pull, and the next pull may not come -- a
+ *                        member that restarts with its root unreachable
+ *                        must still deny what it last learned was revoked.
+ *                        sec 384.
  *
  * Recoverable rather than required, and deliberately not served here:
  *
  *   fzn_state_t          rebuilt by replaying records. Persisting it is a
  *   fzn_journal_t        cache, and the journal decides what to re-fetch.
  *   fzn_revocation_store_t  refilled from manifests; sec 13d is the design.
+ *                        A node refills it from the records in slots 9 and
+ *                        10 instead, secs 380 and 384.
  *   fzn_reasm_t          in-flight message fragments. Losing them costs a
  *                        retransmission and nothing else.
  *   fzn_replay_window_t  losing it widens the window a replay can use until
@@ -170,6 +178,9 @@ typedef enum fzn_persist_slot {
 	 * variable-width decimal up to FZN_PERSIST_FILE_SLOT_MAX, so slot 10
 	 * is `10-...` beside every existing name unchanged (sec 382). */
 	FZN_PERSIST_ISSUED_REVOCATION = 9u,
+	/* Per grantee, the latest revocation this node LEARNED from its estate
+	 * root. `node/revoke.h` keeps it. sec 384. */
+	FZN_PERSIST_LEARNED_REVOCATION = 10u,
 } fzn_persist_slot_t;
 
 typedef enum fzn_persist_err {

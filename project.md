@@ -47757,7 +47757,7 @@ checked against the source (their `core/src/capability.c` 218-256 and
   `--pair ... --delegable` and `--accept ... --join`.
 - **Revocations:** pushed to registered siblings, relayed on first sight,
   and swept every sixty seconds against a delivery ledger. Manifests are not
-  used for them. **Not built here yet**, and it is the next piece.
+  used for them. fuzznet carries them the other way, by pull: sec 384.
 
 Two things there are worth their knowing, and this reading is not their
 record: a comment in their `daemon/ipc_server.c` still says linking a device
@@ -47825,11 +47825,125 @@ re-anchored, since the check it names moved inside a branch.
 
 ### What sec 383 leaves
 
-- **Carrying revocations between an estate's nodes**, which is what makes a
-  root's revocation reach N without a test admitting it by hand. fuzzypickles
-  pushes to siblings, relays and sweeps; the registry of siblings is what a
-  node needs first.
+- ~~**Carrying revocations between an estate's nodes**~~ -- done by pull
+  from the root, sec 384, which needs no registry of siblings.
 - **A node's own revocations of the grants it delegated**: `fzn_node_revoke`
   revokes as the root only. A joined node's revocation is issued under its
   chain and admitted with `fzn_revocation_offer_chain`.
 - **Joining through a delegate**, which needs the chain on the card.
+
+## 384. A root's revocations reach its members, by pull, 2026-09-27
+
+sec 383 left a root's revocation reaching N only because a test admitted it
+there by hand. A device revoked at the root went on being served by every
+member that had paired it.
+
+### Pull, where fuzzypickles pushes
+
+fuzzypickles pushes: whoever mints a revocation sends it to every
+registered sibling, siblings relay on first sight, and a sixty-second sweep
+retries against a delivery ledger. That works there because siblings
+register each other both ways at join, addresses included.
+
+fuzznet's hop runs one way, a caller asking a node. A joined member already
+holds the pairing that makes it its root's caller (sec 383). The root holds
+the member only as a peer it serves, with no address, because a pairing
+carries none (sec 377). Pushing would need a sibling registry with
+addresses, and a second direction on the hop. Pulling needs neither, so a
+member asks.
+
+What pull costs, stated rather than discovered: **a revocation reaches a
+member within one pull period, not at once**, and only from the root. A
+member that cannot reach its root keeps denying what it last learned and
+learns nothing new. fuzzypickles' relay is how a revocation crosses a
+partition, and there is no equivalent here.
+
+### What was built
+
+- **`get revocation [FROM]`**, a non-mutating verb, so a remote caller is
+  served it. The answer is `ok TOTAL FROM HEX...`: the records this node
+  issued (slot 9), paged the way `list peer` is. Two records fit a reply.
+- **`fzn_node_revocations_pull`** asks page by page, over the member's
+  caller. Its bound is the number of pages a full store could need, not the
+  root's stated total. `fzn_node_revocations_absorb` handles one page and is
+  split out for the reason sec 369 split `fzn_caller_ask`: a loop that owns
+  its own poll, or a test turning the root by hand, sends, returns, and
+  absorbs later.
+- **What arrives is verified, not trusted.** Each record is admitted as
+  root-issued against the pinned root, and only then saved. The save goes
+  to a new slot, **10, LEARNED_REVOCATION**, under the grantee. Slot 9
+  stays "what this node issued", which is what it serves, so a member never
+  re-serves what it learned as though it were its own.
+- **The start-up load reads slots 9 and 10**, so a restart with the root
+  unreachable still denies. A record whose issuer is not the root is
+  skipped rather than failing the load. That is a node's own revocation
+  from before it joined: it revokes grants rooted at a key the node no
+  longer honours.
+- **Admission is idempotent**, which the periodic pull depends on:
+  `fzn_revocation_admit` returns OK for a record it already holds.
+- **`fuzznetd --root-at HOST PORT`**, on a joined node, pulls before
+  serving and then every `FZND_PULL_EVERY` (60 s, fuzzypickles' sweep
+  period). A root that does not answer is reported and is not fatal: what
+  was learned earlier is already loaded, and refusing to serve would cut off
+  every device the root did not revoke. The pull runs on the loop's own
+  thread, so an unreachable root stalls serving for up to 3 s per pull.
+  That is the price of not adding a second socket to `fzn_node_run_once`'s
+  poll.
+
+### Measured for sec 384
+
+`pair_test`, continuing sec 383's estate over loopback UDP, with R serving
+`fzn_node_admin_remote`:
+
+- with nothing revoked, the pull succeeds and learns nothing;
+- after `fzn_node_revoke` at R, N learns one record, and N denies D;
+- pulling the same record again succeeds, as every periodic pull must;
+- reloading N's store into a fresh revocation store gives exactly one
+  record, not counting the one N issued as its own root before joining,
+  and still denies D;
+- a record signed by another root is refused and not counted;
+- a page at the wrong offset, an empty page short of its total, and a
+  `denied` answer are each refused.
+
+Three live `fuzznetd` processes were run. D was served by N. R answered
+`revoke peer D` with `ok`. N, restarted with `--root-at`, logged "1
+revocation(s) from the root" and wrote `10-<D>`, and D's next request was
+met with silence, the answer a denied caller gets. With R stopped, N
+restarted, reloaded the record from its store, reported the root
+unreachable, and still did not answer D. Nothing was left running.
+
+Seven sabotage entries cover:
+
+- the slot-10 load and the pre-join skip;
+- admitting before saving, and saving at all;
+- the page-offset and empty-page checks;
+- the remote dispatch of `get revocation`.
+
+### What sec 384 leaves
+
+- **A member's own delegated grants**, still: `fzn_node_revoke` revokes as
+  root only, and a record a member issued under its chain is neither
+  served by it nor pulled by anybody.
+- **Withdrawal**, the un-revoke. Slot 10 holds the latest record per
+  grantee, so a root's withdrawal would arrive and supersede by the same
+  path, once the root has a verb that issues one.
+- **Pulling off the loop's thread**, if 3 s stalls matter to a deployment:
+  the member's caller socket goes into the node's poll and the page is
+  absorbed when it is readable, which `absorb` was split out to allow.
+
+### Recorded for fuzzypickles: a share setting that follows its user
+
+fuzzypickles asked for the following, and it is their requirement in their
+words, not built here. A per-contact location share is a yes/no flag and a
+precision: exact, about 1 km, or about 10 km. It belongs to the USER, not
+to one device, and must propagate between the user's hosts. Changing it
+needs `CAP_PEER_MANAGE`, checked by the receiver. Their conflict rule is
+last-writer-wins on `(seq, writer)`, and they suggest a withdrawal beats a
+grant. They record it as the holder's decision of 2026-09-26. Their interim
+is peer-sync v2 (their `25bb37b`), which gives way once fuzznet carries
+it. The holder's boundary is that nearly all wire work is fuzznet's:
+fuzzypickles drives the requirement and does not implement the wire.
+
+The pull built above is the nearest thing here: a per-grantee record,
+latest wins, carried between one estate's hosts. A share setting written on
+any host rather than only at the root is the part pull does not reach.

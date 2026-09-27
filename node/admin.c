@@ -177,6 +177,69 @@ static size_t list_peers(fzn_node_admin_t *admin, const uint8_t *from_text, size
 	return answer(reply, cap, FZN_REPLY_OK, detail, at);
 }
 
+/* `get revocation [FROM]`: the revocations this node ISSUED, as the signed
+ * records, paged as `list peer` is -- `ok TOTAL FROM RECORD ...`, each record
+ * 404 hex characters. What a member node pulls from its root (sec 384).
+ * Non-mutating, so a remote caller holding the node's grant may ask. */
+static size_t get_revocations(fzn_node_admin_t *admin, const uint8_t *from_text,
+                              size_t from_len, char *reply, size_t cap)
+{
+	static uint8_t subjects[FZN_NODE_REVOCATIONS_MAX * FZN_PUBKEY_LEN];
+	static char detail[FZN_REPLY_MAX];
+	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
+	size_t from = 0, total = 0, at, i;
+	int n;
+
+	if (!admin->store->list
+	    || !admin->store->list(admin->store->ctx, FZN_PERSIST_ISSUED_REVOCATION, subjects,
+	                           FZN_NODE_REVOCATIONS_MAX, &total))
+		return answer_text(reply, cap, FZN_REPLY_ERROR, "this store cannot list revocations");
+	for (i = 0; i < from_len; i++) {
+		if (from_text[i] < '0' || from_text[i] > '9' || from > FZN_NODE_REVOCATIONS_MAX)
+			return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a revocation index");
+		from = (from * 10u) + (size_t)(from_text[i] - '0');
+	}
+	if (from > total)
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "past the last revocation");
+	n = snprintf(detail, sizeof(detail), "%zu %zu", total, from);
+	if (n < 0 || (size_t)n >= sizeof(detail))
+		return 0;
+	at = (size_t)n;
+	for (i = from; i < total; i++) {
+		uint8_t record[FZN_REVOCATION_LEN];
+
+		if (at + 1u + (FZN_REVOCATION_LEN * 2u) + 3u > limit)
+			break;
+		if (!fzn_node_issued_revocation(admin->store, subjects + (i * (size_t)FZN_PUBKEY_LEN),
+		                                record))
+			return answer_text(reply, cap, FZN_REPLY_ERROR, "a stored revocation did not read");
+		detail[at++] = ' ';
+		put_hex(detail + at, record, FZN_REVOCATION_LEN);
+		at += FZN_REVOCATION_LEN * 2u;
+	}
+	return answer(reply, cap, FZN_REPLY_OK, detail, at);
+}
+
+/* Is `arg` the word `revocation`, alone or followed by a space and more? */
+static int subject_revocation(const fzn_request_t *request, const uint8_t **rest,
+                              size_t *rest_len)
+{
+	static const uint8_t WORD[] = "revocation";
+	const size_t w = sizeof(WORD) - 1u;
+
+	*rest = NULL;
+	*rest_len = 0;
+	if (!request->arg || request->arg_len < w || memcmp(request->arg, WORD, w) != 0)
+		return 0;
+	if (request->arg_len == w)
+		return 1;
+	if (request->arg[w] != ' ')
+		return 0;
+	*rest = request->arg + w + 1u;
+	*rest_len = request->arg_len - w - 1u;
+	return 1;
+}
+
 /* `remove peer KEY`: un-pair a device from the RUNNING node. The store forgets
  * it and the live set is reloaded from the store, as after a pairing, so the
  * device's next frame finds no session and is dropped. */
@@ -263,6 +326,8 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 		if (request->parsed == FZN_VERB_REVOKE && rest && admin->revocations)
 			return revoke_peer(admin, rest, rest_len, reply, reply_cap);
 	}
+	if (request->parsed == FZN_VERB_GET && subject_revocation(request, &rest, &rest_len))
+		return get_revocations(admin, rest, rest_len, reply, reply_cap);
 
 	return answer_text(reply, reply_cap, FZN_REPLY_UNSUPPORTED, NULL);
 }
@@ -296,5 +361,7 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 		                            reply_cap);
 	if (request.parsed == FZN_VERB_LIST && subject_peer(&request, &rest, &rest_len))
 		return list_peers(admin, rest, rest_len, out, reply_cap);
+	if (request.parsed == FZN_VERB_GET && subject_revocation(&request, &rest, &rest_len))
+		return get_revocations(admin, rest, rest_len, out, reply_cap);
 	return answer_text(out, reply_cap, FZN_REPLY_UNSUPPORTED, NULL);
 }
