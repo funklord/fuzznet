@@ -33,3 +33,12 @@ struct fzn_roster size=157..349
   @0x005d   0..192    u8         value  sized-by=body_len
   ~         64        u8         signature
   signature covers: body body_len incarnation object seq setting subject value version writer
+
+struct fzn_roster_bundle size=160..1784
+  @0x0000   1         u8         hop_count  max=8
+  @0x0001   2         u16        record_len  big min=157 max=349
+  @0x0003   157..349  u8         record  big sized-by=record_len
+  ~         0..1432   fzn_roster_hop hops  sized-by=hop_count
+
+struct fzn_roster_hop size=179
+  @0x0000   179       u8         bytes  big

@@ -37,3 +37,19 @@ struct fzn_roster {
 	// every signed object here: the caller signs and verifies.
 	checksum u8 signature[64] covers(body);
 }
+
+// One signed hop, opaque here (179 bytes, chain/hop.situ).
+struct fzn_roster_hop {
+	u8  bytes[179];
+}
+
+// A BUNDLE: a record and its writer's chain, as they travel. No signature of
+// its own -- the record is signed by its writer and each hop by its grantor.
+// The record is opaque here, laid out above as fzn_roster; roster.c opens it
+// with the same parser. FZN_ROSTER_BUNDLE_* in roster.h.
+struct fzn_roster_bundle {
+	u8  hop_count [max = 8];         // 0 when the writer is the root
+	u16 record_len [min = 157, max = 349];
+	u8  record[record_len];
+	fzn_roster_hop hops[hop_count];
+}

@@ -170,9 +170,13 @@ static fzn_roster_entry_t *find(const fzn_roster_t *roster, const uint8_t *subje
  * chain is checked at the moment its newest hop was issued, so a removal is
  * not lost to its writer's grant simply running out before it arrived. It is
  * NOT blind to revocations -- a revoked writer removes nothing (roster.h,
- * sec 388, the holder's decision of 2026-09-28). */
+ * sec 388, the holder's decision of 2026-09-28).
+ *
+ * `restoring` is `fzn_roster_restore`: this host decided the record already,
+ * so neither the clock nor the revocations may undo that decision at a
+ * restart. Only the signature and the chain's own validity are asked again. */
 static int has_standing(const uint8_t *writer, const fzn_chain_hop_t *hops, size_t hop_count,
-                        const fzn_roster_authority_t *authority, int blind)
+                        const fzn_roster_authority_t *authority, int blind, int restoring)
 {
 	fzn_chain_t verdict;
 	size_t i;
@@ -187,15 +191,15 @@ static int has_standing(const uint8_t *writer, const fzn_chain_hop_t *hops, size
 			latest = fzn_hop_issued_at(hops[i]);
 	if (fzn_chain_verify(hops, hop_count, authority->root, authority->capability,
 	                     blind ? latest : authority->now, authority->sign,
-	                     authority->revocations, NULL, &verdict)
+	                     restoring ? NULL : authority->revocations, NULL, &verdict)
 	    != FZN_CHAIN_OK)
 		return 0;
 	return memcmp(verdict.grantee, writer, FZN_PUBKEY_LEN) == 0;
 }
 
-fzn_roster_err_t fzn_roster_admit(fzn_roster_t *roster, fzn_roster_record_t record,
-                                  const fzn_chain_hop_t *hops, size_t hop_count,
-                                  const fzn_roster_authority_t *authority)
+static fzn_roster_err_t apply(fzn_roster_t *roster, fzn_roster_record_t record,
+                              const fzn_chain_hop_t *hops, size_t hop_count,
+                              const fzn_roster_authority_t *authority, int restoring)
 {
 	fzn_roster_record_t rec;
 	fzn_roster_entry_t *entry;
@@ -217,7 +221,7 @@ fzn_roster_err_t fzn_roster_admit(fzn_roster_t *roster, fzn_roster_record_t reco
 	if (object == (uint8_t)FZN_OBJECT_ROSTER_SET)
 		return FZN_ROSTER_ERR_UNSUPPORTED;
 	if (!has_standing(fzn_roster_writer(rec), hops, hop_count, authority,
-	                  object == (uint8_t)FZN_OBJECT_ROSTER_REMOVE))
+	                  restoring || object == (uint8_t)FZN_OBJECT_ROSTER_REMOVE, restoring))
 		return FZN_ROSTER_ERR_STANDING;
 
 	entry = find(roster, fzn_roster_subject(rec), fzn_roster_incarnation(rec));
@@ -244,6 +248,72 @@ fzn_roster_err_t fzn_roster_admit(fzn_roster_t *roster, fzn_roster_record_t reco
 	}
 	if (fzn_roster_seq(rec) > roster->seq_seen)
 		roster->seq_seen = fzn_roster_seq(rec);
+	return FZN_ROSTER_OK;
+}
+
+fzn_roster_err_t fzn_roster_admit(fzn_roster_t *roster, fzn_roster_record_t record,
+                                  const fzn_chain_hop_t *hops, size_t hop_count,
+                                  const fzn_roster_authority_t *authority)
+{
+	return apply(roster, record, hops, hop_count, authority, 0);
+}
+
+fzn_roster_err_t fzn_roster_restore(fzn_roster_t *roster, fzn_roster_record_t record,
+                                    const fzn_chain_hop_t *hops, size_t hop_count,
+                                    const fzn_roster_authority_t *authority)
+{
+	return apply(roster, record, hops, hop_count, authority, 1);
+}
+
+fzn_roster_err_t fzn_roster_bundle_pack(const uint8_t *record, size_t record_len,
+                                        const uint8_t (*hops)[FZN_HOP_LEN], size_t hop_count,
+                                        uint8_t *out, size_t out_cap, size_t *out_len)
+{
+	fzn_roster_record_t check;
+	size_t i, at;
+
+	if (!record || !out || !out_len || (hop_count && !hops))
+		return FZN_ROSTER_ERR_MALFORMED;
+	if (hop_count > FZN_CHAIN_MAX_HOPS
+	    || fzn_roster_open(record, record_len, &check) != FZN_ROSTER_OK)
+		return FZN_ROSTER_ERR_SHAPE;
+	if (out_cap < FZN_ROSTER_BUNDLE_LEN(record_len, hop_count))
+		return FZN_ROSTER_ERR_MALFORMED;
+	out[0] = (uint8_t)hop_count;
+	out[1] = (uint8_t)(record_len >> 8);
+	out[2] = (uint8_t)(record_len & 0xffu);
+	memcpy(out + FZN_ROSTER_BUNDLE_HEAD_LEN, record, record_len);
+	at = FZN_ROSTER_BUNDLE_HEAD_LEN + record_len;
+	for (i = 0; i < hop_count; i++, at += FZN_HOP_LEN)
+		memcpy(out + at, hops[i], FZN_HOP_LEN);
+	*out_len = at;
+	return FZN_ROSTER_OK;
+}
+
+fzn_roster_err_t fzn_roster_bundle_open(const uint8_t *bytes, size_t len,
+                                        fzn_roster_bundle_t *out)
+{
+	size_t hop_count, record_len, i, at;
+
+	if (!bytes || !out)
+		return FZN_ROSTER_ERR_MALFORMED;
+	if (len < FZN_ROSTER_BUNDLE_HEAD_LEN)
+		return FZN_ROSTER_ERR_SHAPE;
+	hop_count = bytes[0];
+	record_len = ((size_t)bytes[1] << 8) | bytes[2];
+	/* THE LENGTH IS EXACT, not "at least": trailing bytes are a second
+	 * encoding of one bundle, and a store keyed on the bytes would hold
+	 * both. */
+	if (hop_count > FZN_CHAIN_MAX_HOPS || record_len < FZN_ROSTER_MIN_LEN
+	    || record_len > FZN_ROSTER_MAX_LEN || len != FZN_ROSTER_BUNDLE_LEN(record_len, hop_count)
+	    || fzn_roster_open(bytes + FZN_ROSTER_BUNDLE_HEAD_LEN, record_len, &out->record)
+	               != FZN_ROSTER_OK)
+		return FZN_ROSTER_ERR_SHAPE;
+	at = FZN_ROSTER_BUNDLE_HEAD_LEN + record_len;
+	for (i = 0; i < hop_count; i++, at += FZN_HOP_LEN)
+		if (fzn_hop_open(bytes + at, FZN_HOP_LEN, &out->hops[i]) != FZN_CHAIN_OK)
+			return FZN_ROSTER_ERR_SHAPE;
+	out->hop_count = hop_count;
 	return FZN_ROSTER_OK;
 }
 

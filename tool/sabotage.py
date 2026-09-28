@@ -3678,7 +3678,7 @@ SABOTAGES = [
 	(
 		"roster-checks-revocations",
 		"roster/roster.c",
-		"\t                     authority->revocations, NULL, &verdict)\n",
+		"\t                     restoring ? NULL : authority->revocations, NULL, &verdict)\n",
 		"\t                     NULL, NULL, &verdict)\n",
 		"a record not checked against the revocations this host holds lets a revoked, stolen device add a contact, or remove every contact for good -- sec 388",
 	),
@@ -3723,6 +3723,20 @@ SABOTAGES = [
 		"\treturn rec.base + FZN_ROSTER_OFF_WRITER;\n",
 		"\treturn rec.base + FZN_ROSTER_OFF_SUBJECT;\n",
 		"an accessor reading the subject as the writer verifies every record under the key it is about, not the key that signed it -- sec 388",
+	),
+	(
+		"roster-restore-keeps-the-decision",
+		"roster/roster.c",
+		"\t                     restoring ? NULL : authority->revocations, NULL, &verdict)\n",
+		"\t                     authority->revocations, NULL, &verdict)\n",
+		"a restart that re-asks the revocations refuses a removal it admitted before its writer was revoked, and the contact comes back because a process restarted -- sec 389",
+	),
+	(
+		"roster-bundle-length-is-exact",
+		"roster/roster.c",
+		"\t    || record_len > FZN_ROSTER_MAX_LEN || len != FZN_ROSTER_BUNDLE_LEN(record_len, hop_count)\n",
+		"\t    || record_len > FZN_ROSTER_MAX_LEN || len < FZN_ROSTER_BUNDLE_LEN(record_len, hop_count)\n",
+		"a bundle with trailing bytes is a second encoding of one bundle, and a store keyed on the bytes holds both -- sec 389",
 	),
 	(
 		"admin-remote-refuses-mutation",

@@ -23,3 +23,14 @@ struct fzn_roster size=157..349 mutate=Immutable address=Unstable repr=ValueConv
   fzn_roster.body_len                    offset=AbsoluteStatic(0x5C) size=Fixed(1) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord auth=Covered(signature)
   fzn_roster.value                       offset=AbsoluteStatic(0x5D) size=Bounded(0, 192) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting auth=Covered(signature)
   fzn_roster.signature                   offset=Dynamic size=Fixed(64) align=Unaligned repr=MemoryIdentical atomic=NonAtomic mutate=Immutable address=Unstable
+
+struct fzn_roster_bundle size=160..1784 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  fzn_roster_bundle.hop_count            offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_roster_bundle.record_len           offset=AbsoluteStatic(0x01) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_roster_bundle.record               offset=AbsoluteStatic(0x03) size=Bounded(157, 349) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  fzn_roster_bundle.hops                 offset=Dynamic size=Bounded(0, 1432) align=Unaligned repr=MemoryIdentical atomic=NonAtomic mutate=Shifting address=Unstable
+  fzn_roster_bundle.hops[]               offset=FrameStatic(0x00) size=Fixed(179) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic address=FrameStable
+  fzn_roster_bundle.hops[].bytes         offset=FrameStatic(0x00) size=Fixed(179) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic address=FrameStable
+
+struct fzn_roster_hop size=179 atomic=NonAtomic
+  fzn_roster_hop.bytes                   offset=AbsoluteStatic(0x00) size=Fixed(179) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic

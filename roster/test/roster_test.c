@@ -500,6 +500,89 @@ static void test_order_independence(void)
 	      "the order-independent answer is not the right one");
 }
 
+/* THE BUNDLE: a record and its writer's chain, as they travel, and the
+ * restore path a host reads its own admitted records back through. */
+static void test_bundle_and_restore(void)
+{
+	static fzn_roster_entry_t e1[4], e2[4];
+	static fzn_revocation_t rev_entries[4];
+	static uint8_t packed[FZN_ROSTER_BUNDLE_MAX_LEN + 1u];
+	uint8_t hop[1][FZN_HOP_LEN], revbytes[FZN_REVOCATION_LEN];
+	fzn_revocation_store_t revoked;
+	fzn_revocation_record_t revrec;
+	fzn_hash_ops_t hash;
+	fzn_roster_bundle_t b;
+	fzn_roster_t first, restart;
+	fzn_roster_authority_t a = authority_now(1000, NULL);
+	rec_t m_add, m_rm;
+	size_t len = 0;
+
+	hash.hash = stub_hash;
+	hash.ctx = NULL;
+	add(&m_add, &member, &bob, 40, 70);
+	removal(&m_rm, &member, &bob, 40, 71);
+	CHECK(fzn_chain_mint(root.key, member.key, &manage, 100, FZN_NO_EXPIRY, 0, &root.sign,
+	                     hop[0]) == FZN_CHAIN_OK,
+	      "fixture: the member's chain");
+
+	/* ROUND TRIP, at the offsets roster.situ states: count at 0, length
+	 * at 1, the record from 3, the hop after it. */
+	CHECK(fzn_roster_bundle_pack(m_add.bytes, m_add.len, (const uint8_t (*)[FZN_HOP_LEN])hop, 1,
+	                             packed, sizeof(packed), &len) == FZN_ROSTER_OK
+	              && len == 3u + 157u + 179u && packed[0] == 1u && packed[1] == 0u
+	              && packed[2] == 157u && memcmp(packed + 3, m_add.bytes, 157) == 0
+	              && memcmp(packed + 160, hop[0], 179) == 0,
+	      "a one-hop bundle is not laid out as roster.situ describes it");
+	CHECK(FZN_ROSTER_BUNDLE_MAX_LEN == 1784u,
+	      "the longest bundle is not the longest roster.situ allows");
+	CHECK(fzn_roster_bundle_open(packed, len, &b) == FZN_ROSTER_OK && b.hop_count == 1u
+	              && b.record.len == m_add.len
+	              && fzn_roster_init(&first, e1, 4) == FZN_ROSTER_OK
+	              && fzn_roster_admit(&first, b.record, b.hops, b.hop_count, &a)
+	                         == FZN_ROSTER_OK
+	              && active_seed(&first, &bob) == 40u,
+	      "a bundle would not open, or its record would not admit on its own chain");
+	CHECK(fzn_roster_bundle_open(packed, len + 1u, &b) == FZN_ROSTER_ERR_SHAPE
+	              && fzn_roster_bundle_open(packed, len - 1u, &b) == FZN_ROSTER_ERR_SHAPE,
+	      "a bundle with a byte too many or too few opened");
+	packed[0] = (uint8_t)(FZN_CHAIN_MAX_HOPS + 1u);
+	CHECK(fzn_roster_bundle_open(packed, len, &b) == FZN_ROSTER_ERR_SHAPE,
+	      "a bundle claiming more hops than a chain may have opened");
+
+	/* A RESTART REPRODUCES THE DECISION. The member's removal is admitted,
+	 * then the root revokes the member. Admitted afresh the removal would
+	 * now be refused -- and the contact would come back because a process
+	 * restarted. Restored, it stands. */
+	CHECK(fzn_roster_admit(&first, view(&m_rm), b.hops, 1, &a) == FZN_ROSTER_OK
+	              && active_seed(&first, &bob) == 0u,
+	      "fixture: the member's removal");
+	CHECK(fzn_revocation_store_init(&revoked, rev_entries, 4) == FZN_CHAIN_OK
+	              && fzn_revocation_issue(root.key, &manage, member.key, 600, &root.sign,
+	                                      revbytes) == FZN_CHAIN_OK
+	              && fzn_revocation_open(revbytes, sizeof(revbytes), &revrec) == FZN_CHAIN_OK
+	              && fzn_revocation_admit(&revoked, fzn_revocation_offer_root(revrec), root.key,
+	                                      &root.sign, &hash, NULL) == FZN_CHAIN_OK,
+	      "fixture: the root revokes the member afterwards");
+	a = authority_now(5000, &revoked);
+	CHECK(fzn_roster_init(&restart, e2, 4) == FZN_ROSTER_OK
+	              && fzn_roster_admit(&restart, view(&m_rm), b.hops, 1, &a)
+	                         == FZN_ROSTER_ERR_STANDING,
+	      "fixture: admitted afresh, the revoked member's removal is refused");
+	CHECK(fzn_roster_init(&restart, e2, 4) == FZN_ROSTER_OK
+	              && fzn_roster_restore(&restart, view(&m_add), b.hops, 1, &a) == FZN_ROSTER_OK
+	              && fzn_roster_restore(&restart, view(&m_rm), b.hops, 1, &a) == FZN_ROSTER_OK
+	              && active_seed(&restart, &bob) == 0u,
+	      "restoring what this host admitted did not reproduce the removal");
+
+	/* AND RESTORE STILL VERIFIES: it trusts this host's decision, not the
+	 * bytes. A record whose signature does not hold is refused. */
+	m_rm.bytes[FZN_ROSTER_OFF_SEQ] ^= 1u;
+	CHECK(fzn_roster_init(&restart, e2, 4) == FZN_ROSTER_OK
+	              && fzn_roster_restore(&restart, view(&m_rm), b.hops, 1, &a)
+	                         == FZN_ROSTER_ERR_SIGNATURE,
+	      "restore admitted a record whose signature does not verify");
+}
+
 int main(void)
 {
 	who_init(&root, 0x10u);
@@ -517,6 +600,7 @@ int main(void)
 	test_standing();
 	test_full();
 	test_order_independence();
+	test_bundle_and_restore();
 
 	printf("roster_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;

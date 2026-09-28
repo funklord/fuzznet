@@ -231,6 +231,61 @@ fzn_roster_err_t fzn_roster_admit(fzn_roster_t *roster, fzn_roster_record_t reco
                                   const fzn_chain_hop_t *hops, size_t hop_count,
                                   const fzn_roster_authority_t *authority);
 
+/* RE-ADMIT A RECORD THIS HOST ADMITTED BEFORE, from its own store, at start.
+ *
+ * The signature and the chain are verified as `fzn_roster_admit` verifies
+ * them, and the clock and the revocations are NOT consulted: this host
+ * already decided this record, and a restart must reproduce that decision
+ * rather than take a new one. Without that, a removal admitted a minute
+ * before its writer was revoked would be refused at the next start and the
+ * contact it removed would come back -- the roster changing because a process
+ * restarted. `authority->now` and `->revocations` are ignored.
+ *
+ * NEVER FOR BYTES FROM ANOTHER HOST. Everything that arrives is admitted with
+ * `fzn_roster_admit`; this is only the host's own record of what it admitted
+ * already, read back. */
+fzn_roster_err_t fzn_roster_restore(fzn_roster_t *roster, fzn_roster_record_t record,
+                                    const fzn_chain_hop_t *hops, size_t hop_count,
+                                    const fzn_roster_authority_t *authority);
+
+/*
+ * A BUNDLE: a record and its writer's chain, as they travel together.
+ *
+ * A receiver checks standing itself, so the chain has to arrive with the
+ * record -- the record names its writer and nothing else. Neither part needs
+ * a signature of its own here: the record is signed by its writer and every
+ * hop by its grantor, so the bundle is two self-authenticating things side by
+ * side, and a bundle whose chain was swapped for somebody else's is refused
+ * at admission for standing, not accepted.
+ *
+ *     off  len  field
+ *       0    1  hop_count     0 when the writer is the root; at most 8
+ *       1    2  record_len    FZN_ROSTER_MIN_LEN .. FZN_ROSTER_MAX_LEN
+ *       3    n  record
+ *     3+n  179  hops, hop_count of them
+ */
+#define FZN_ROSTER_BUNDLE_HEAD_LEN 3u
+#define FZN_ROSTER_BUNDLE_LEN(record_len, hop_count) \
+	((size_t)FZN_ROSTER_BUNDLE_HEAD_LEN + (size_t)(record_len) \
+	 + (size_t)(hop_count) * (size_t)FZN_HOP_LEN)
+#define FZN_ROSTER_BUNDLE_MAX_LEN FZN_ROSTER_BUNDLE_LEN(FZN_ROSTER_MAX_LEN, FZN_CHAIN_MAX_HOPS)
+
+typedef struct fzn_roster_bundle {
+	fzn_roster_record_t record;
+	fzn_chain_hop_t hops[FZN_CHAIN_MAX_HOPS];
+	size_t hop_count;
+} fzn_roster_bundle_t;
+
+/* Pack `record` with the writer's chain, `hops` as the encoded hops. */
+fzn_roster_err_t fzn_roster_bundle_pack(const uint8_t *record, size_t record_len,
+                                        const uint8_t (*hops)[FZN_HOP_LEN], size_t hop_count,
+                                        uint8_t *out, size_t out_cap, size_t *out_len);
+
+/* Open a bundle: the record's shape and every hop's, not their signatures --
+ * `fzn_roster_admit` verifies. The views point into `bytes`. */
+fzn_roster_err_t fzn_roster_bundle_open(const uint8_t *bytes, size_t len,
+                                        fzn_roster_bundle_t *out);
+
 /* The subject's active incarnation into `incarnation`: the live one -- added
  * and not removed -- whose add has the greatest `(seq, writer)`. 1 when there
  * is one, 0 when the subject is absent or every incarnation of it is removed. */
